@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
+import type { PropertyStatus } from "@metavchim/shared";
 import { API_BASE, apiGet, apiPost } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -34,7 +35,11 @@ interface PropertyRow {
   propertyType?: string;
   rooms?: number;
   priceAgorot?: number;
-  status: string;
+  /*
+   * הטיפוס מהחבילה, כדי שמפת התוויות תוכל להיות ממצה: סטטוס חדש
+   * בסכמה ייפול בקומפילציה במקום להיות מוצג כמפתח באנגלית.
+   */
+  status: PropertyStatus;
   readinessScore: number;
   missingFields: string[];
   thumbnailUrl?: string;

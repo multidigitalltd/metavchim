@@ -13,8 +13,12 @@ import {
   resolveMatchWeights,
   scoreMatch,
   MATCH_THRESHOLDS,
+  MATCHABLE_PROPERTY_STATUSES,
   type BuyerRequirements,
   type MatchWeights,
+  SCORE_NOTE_MAX,
+  ScoreComponentSchema,
+  type ScoreComponent,
 } from "@metavchim/shared";
 import { assertBuyerAccess, assertMatchAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -29,6 +33,19 @@ export interface MatchDto {
   buyerId: string;
   score: number;
   explanation: string;
+  /**
+   * ‎**הפירוט לפי קריטריון — מה נבדק, ומה יצא.**
+   *
+   * הוא חושב ונשמר מאז ומעולם, ומעולם לא הוחזר: המסך קיבל ציון
+   * ומשפט חופשי, ולכן יכול היה לומר „‎87%” ולא לומר **על מה**. מתווך
+   * שרואה מספר בלי הרכב אינו יכול להחליט אם לשלוח — והוא גם אינו
+   * יכול לדעת מה חסר כדי שהציון ישתפר.
+   *
+   * ‎`ScoreComponent` נושא גם `weight`, ולכן המסך יכול להבחין בין
+   * „נבדק ונכשל” (`score = 0`) לבין „לא נבדק כלל” (הקריטריון חסר
+   * מהרשימה) — שתי אמירות שונות לגמרי, שעד כה נראו זהות.
+   */
+  breakdown: ScoreComponent[];
   status: string;
   computedAt: Date;
 }
@@ -53,15 +70,8 @@ export interface MatchTrigger {
   toAgorot: number;
 }
 
-/**
- * נכס נסרק מול קונים רק בסטטוסים האלה.
- *
- * **הצד השני כבר סינן כך** (`recomputeForBuyer`), והאי-סימטריה הייתה
- * באג של ממש: עריכה של נכס שנמכר ייצרה לו התאמות מחדש, והסבב הבא
- * מצד הקונה מחק אותן. הסוכן ראה קונים מוצעים לנכס שאינו למכירה,
- * ואז ראה אותם נעלמים בלי סיבה נראית לעין.
- */
-export const MATCHABLE_PROPERTY_STATUSES = ["draft", "active"] as const;
+/* `MATCHABLE_PROPERTY_STATUSES` עבר לחבילה — גם המסך זקוק לו. */
+export { MATCHABLE_PROPERTY_STATUSES };
 
 /** אפשרויות חישוב מחדש — ראו `silent` בסבב הרענון. */
 export interface RecomputeOptions {
@@ -852,6 +862,7 @@ function toMatchDto(row: {
   buyerId: string;
   score: number;
   explanation: string;
+  breakdown: unknown;
   status: string;
   computedAt: Date;
 }): MatchDto {
@@ -861,7 +872,51 @@ function toMatchDto(row: {
     buyerId: row.buyerId,
     score: row.score,
     explanation: row.explanation,
+    breakdown: parseBreakdown(row.breakdown),
     status: row.status,
     computedAt: row.computedAt,
   };
+}
+
+/**
+ * ‎`breakdown` יושב ב-JSON, כלומר הוא קלט ולא טיפוס.
+ *
+ * שורות שנכתבו לפני שהקריטריון הנוכחי היה קיים, או בגרסה שבה שדה
+ * נקרא אחרת, יחזרו מכאן כאובייקטים שאינם תואמים. `as` היה מעביר
+ * אותם למסך ומפיל אותו שם; הסכמה מסננת כל רכיב בנפרד, כך ששורה
+ * אחת פגומה אינה מוחקת את הפירוט כולו.
+ *
+ * ## ‎**הערה ארוכה מדי מקצצים, לא זורקים**
+ *
+ * המנוע ייצר הערות ארוכות מ-`SCORE_NOTE_MAX` (רשימת מאפיינים
+ * משורשרת, בלי גבול על מספר הדרישות של הקונה), והכתיבה שמרה אותן
+ * בלי אימות. סינון הרכיב כולו על סמך אורך ההערה היה מוחק מהמסך
+ * קריטריון ש**נבדק, נכשל, ואף פסל את ההתאמה** — ורצועת ההסבר
+ * הייתה מציגה אותו כאילו לא נבדק כלל (ביקורת Codex).
+ *
+ * זו ההבחנה שהרצועה כולה קיימת בשבילה, שנשברה בשלב הקריאה. הציון
+ * והמשקל תקינים; רק הטקסט ארוך. מקצצים את הטקסט ושומרים את העובדה.
+ *
+ * המנוע כבר אינו מייצר הערות כאלה — הקיצוץ כאן הוא בשביל שורות
+ * שנכתבו לפני כן ועדיין יושבות במסד.
+ *
+ * מה שלא נותר אחרי כל זה הוא **חסר**, לא שגוי.
+ */
+function parseBreakdown(raw: unknown): ScoreComponent[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ScoreComponent[] = [];
+  for (const item of raw) {
+    const parsed = ScoreComponentSchema.safeParse(trimNote(item));
+    if (parsed.success) out.push(parsed.data);
+  }
+  return out;
+}
+
+/** קיצוץ הערה שנשמרה לפני שהמנוע הכיר את התקרה. */
+function trimNote(item: unknown): unknown {
+  if (typeof item !== "object" || item === null) return item;
+  const note = (item as { note?: unknown }).note;
+  if (typeof note !== "string" || note.length <= SCORE_NOTE_MAX) return item;
+  /* „…” במקום חיתוך חד, כדי שייקרא כקטוע ולא כמשפט שנגמר באמצע */
+  return { ...item, note: `${note.slice(0, SCORE_NOTE_MAX - 1)}…` };
 }

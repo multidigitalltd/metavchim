@@ -1,6 +1,6 @@
 import type { PropertyFields } from "../schemas/property.js";
 import type { BuyerRequirements } from "../schemas/buyer.js";
-import type { ScoreComponent } from "../schemas/match.js";
+import type { MatchCriterion, ScoreComponent } from "../schemas/match.js";
 import { scoreEntryFit } from "./entry-timing.js";
 import { bestLocationMatch } from "./location-text.js";
 import { bestAreaMatch, describeDistance } from "./proximity.js";
@@ -65,6 +65,15 @@ export const CORE_MATCH_CRITERIA: readonly MatchCriterion[] = [
 export const MIN_CORE_COVERAGE = 0.5;
 
 /**
+ * ‎**רצועת הסטייה בשטח — 10% מתחת למבוקש.**
+ *
+ * מקבילה לרצועת התקציב, ומאותו נימוק: המספר שהקונה סימן הוא כוונה
+ * ולא מדידה. ההבדל היחיד הוא שזו רצועה חד-צדדית — נכס **גדול**
+ * מהמבוקש אינו חריגה.
+ */
+export const AREA_TOLERANCE = 0.1;
+
+/**
  * קריטריונים שחייבים **להיבחן בפועל**, ולא רק להיות כבדים.
  *
  * ‎**כלל ברזל: התאמה בלי השוואת מיקום וסוג נכס אינה התאמה.** לא
@@ -105,6 +114,48 @@ export function propertyFeatureLabel(key: string): string {
   return FEATURE_LABELS[key] ?? key;
 }
 
+/**
+ * ‎**תקציב התווים לרשימת תוויות בתוך הערה.**
+ *
+ * ההערות של המאפיינים משרשרות רשימה שאין עליה גבול: לקונה מותר
+ * לדרוש כמה מאפיינים שירצה, ומפתח מותאם מגיע עד 64 תווים. הערה
+ * כזו חרגה מ-`SCORE_NOTE_MAX`, נשמרה בלי אימות, ובקריאה חזרה
+ * הרכיב **נשמט בשקט** — כך שקריטריון שפסל את ההתאמה הוצג כ„לא
+ * נבדק” (ביקורת Codex).
+ *
+ * ‎180 ועוד הקידומת והסיומת הארוכות ביותר („ ‎— סומן כעדיפות ולא
+ * כחובה”) ועוד „ ועוד 999” נשארים הרחק מתחת לתקרה. הבדיקה מודדת
+ * זאת מול הסכמה עצמה ולא מול החשבון הזה.
+ */
+const NOTE_LABEL_BUDGET = 180;
+
+/**
+ * רשימת תוויות מקוצרת — **ובלי לאבד את הספירה.**
+ *
+ * „ועוד 4” אינו קישוט: מתווך שרואה שלושה מאפיינים חסרים מתוך
+ * שבעה מקבל החלטה אחרת ממי שחושב שחסרים שלושה. הקיצוץ נוגע למה
+ * שנכתב, לא למה שנספר.
+ */
+function joinFeatureLabels(labels: readonly string[]): string {
+  const shown: string[] = [];
+  let used = 0;
+  for (const label of labels) {
+    const cost = shown.length === 0 ? label.length : label.length + 2;
+    if (used + cost > NOTE_LABEL_BUDGET) break;
+    shown.push(label);
+    used += cost;
+  }
+  if (shown.length === labels.length) return labels.join(", ");
+  /*
+   * תווית אחת לפחות תמיד. „ועוד 7” לבדו אינו אומר על מה, וזו הערה
+   * שעדיף היה שלא תיכתב.
+   */
+  if (shown.length === 0 && labels.length > 0) {
+    shown.push(labels[0]!.slice(0, NOTE_LABEL_BUDGET));
+  }
+  return `${shown.join(", ")} ועוד ${labels.length - shown.length}`;
+}
+
 const FEATURE_LABELS: Record<string, string> = {
   hasElevator: "מעלית",
   hasParking: "חניה",
@@ -141,7 +192,13 @@ export const DEFAULT_MATCH_WEIGHTS = {
   entry_date: 0.05,
 } as const;
 
-export type MatchCriterion = keyof typeof DEFAULT_MATCH_WEIGHTS;
+/*
+ * ‎`MatchCriterion` נגזר עכשיו מ-`MATCH_CRITERIA` שבסכמה, ולא
+ * מהמשקלים. ההיפוך מכוון: הסכמה היא מה שנכתב למסד ומה שנקרא ממנו,
+ * ולכן היא המקור. משקל שיחסר לקריטריון קיים נופל בקומפילציה במקום
+ * להישאר `undefined` ולהתגלות כציון שגוי.
+ */
+export type { MatchCriterion };
 
 /**
  * קריטריונים שאינם ניתנים לביטול.
@@ -448,7 +505,7 @@ export function scoreMatch(
         criterion: "features_must",
         weight: weights.features_must,
         score: 0,
-        note: `חסר: ${mustMissingExplicit.join(", ")} (חובה עבור הקונה)`,
+        note: `חסר: ${joinFeatureLabels(mustMissingExplicit)} (חובה עבור הקונה)`,
       });
     } else if (featureEntries.some(([, level]) => level === "must")) {
       /*
@@ -466,7 +523,7 @@ export function scoreMatch(
         score: mustScore,
         note:
           mustUnknown.length > 0
-            ? `לא ידוע אם יש ${mustUnknown.join(", ")} — להשלים בנכס`
+            ? `לא ידוע אם יש ${joinFeatureLabels(mustUnknown)} — להשלים בנכס`
             : "כל דרישות החובה מתקיימות",
       });
     }
@@ -486,20 +543,50 @@ export function scoreMatch(
         score: niceHit / niceTotal,
         note:
           missedNice.length > 0
-            ? `חסר ${missedNice.join(", ")} — סומן כעדיפות ולא כחובה`
+            ? `חסר ${joinFeatureLabels(missedNice)} — סומן כעדיפות ולא כחובה`
             : "כל ההעדפות מתקיימות",
       });
     }
   }
 
   // --- שטח (0.05) ---
+  /*
+   * ‎**רצועת סטייה, כמו בתקציב** (בקשת המשתמשת).
+   *
+   * „‎88 מ״ר” אינו מספר שהקונה מדד — הוא סימון של מה שהוא מחפש.
+   * נכס של 85 מ״ר אינו „לא מתאים”, והורדתו לאפס הייתה מוחקת ממנו
+   * ‎5% מהציון על שלושה מטרים.
+   *
+   * הרצועה **חד-צדדית**, כי לקונה יש מינימום בלבד ואין מקסימום:
+   * נכס גדול מהמבוקש אינו חריגה אלא בונוס, ואין מה לנכות עליו.
+   * זה ההבדל מהתקציב, ששם החריגה כלפי מטה **כן** משמעותית (מי
+   * שסימן 3.5 מיליון אינו מחפש 2.5).
+   *
+   * ‎**הניקוד יורד ברצף ולא במדרגה.** מדרגה ל-0.5 הייתה מתייחסת
+   * ל-87 מ״ר ול-80 מ״ר כאל אותו דבר, וזו בדיוק ההשטחה שהופכת ציון
+   * למספר שאי אפשר לסמוך עליו.
+   *
+   * שטח אינו קריטריון חובה ואינו פוסל — נכס מחוץ לרצועה מקבל 0
+   * בקריטריון שמשקלו .05, ותו לא.
+   */
   if (property.areaSqm !== undefined && buyer.areaSqmMin !== undefined) {
-    const ok = property.areaSqm >= buyer.areaSqmMin;
+    const min = buyer.areaSqmMin;
+    const actual = property.areaSqm;
+    const shortfall = min > 0 ? (min - actual) / min : 0;
+    const score =
+      shortfall <= 0 ? 1 : shortfall >= AREA_TOLERANCE ? 0 : 1 - shortfall / AREA_TOLERANCE;
     parts.push({
       criterion: "area",
       weight: weights.area,
-      score: ok ? 1 : property.areaSqm >= buyer.areaSqmMin * 0.9 ? 0.5 : 0,
-      note: ok ? undefined : `שטח קטן מהמבוקש (${property.areaSqm} מ"ר)`,
+      score,
+      /*
+       * ההערה נוקבת בפער ולא רק בעובדה: „קטן ב-3%” אומר למתווך אם
+       * זה בכלל מפריע, ו„קטן מהמבוקש” אינו אומר דבר.
+       */
+      note:
+        shortfall <= 0
+          ? undefined
+          : `שטח קטן ב-${Math.round(shortfall * 100)}% מהמבוקש (${actual} מ"ר מול ${min})`,
     });
   }
 
@@ -625,6 +712,106 @@ export function scoreMatch(
     excluded,
     insufficientData: false,
   };
+}
+
+/**
+ * ‎**קונה שמבקש הכול — כלי מדידה, לא נתון.**
+ *
+ * כל קריטריון נבחן רק כששני הצדדים תרמו: הנכס נותן מחיר והקונה
+ * נותן תקציב, הנכס נותן שטח והקונה נותן מינימום. הקונה הזה מספק
+ * את **כל** החצי שלו, ולכן מה שנשאר אחרי הרצה מולו הוא בדיוק
+ * החצי של הנכס.
+ *
+ * הערכים חסרי משמעות בכוונה — הם נבחרו כדי שהקריטריון **ייבחן**,
+ * לא כדי שיעבור. הציון שיוצא נזרק; רק זהות הרכיבים נקראת.
+ *
+ * ## ‎**מועד הכניסה — ודווקא **לא** „גמיש”**
+ *
+ * כאן „לבקש הכול” אינו „להיות סלחני”, וזה הפך את הכלי הזה לשקרן.
+ *
+ * ‎`scoreEntryFit` מחזיר ציון לקונה גמיש **לפני** שהוא בודק אם
+ * לנכס יש בכלל תאריך. נכס עם `entryType: "on_date"` ובלי
+ * ‎`entryDate` — מצב שהסכמה והטופס מתירים — נמדד אצל קונה גמיש
+ * כ„ניתן להיבחן”, בעוד ש**כל קונה אמיתי עם אילוץ** מקבל עליו
+ * ‎`null`. התוצאה על המסך הפוכה בדיוק מהכוונה: הצ'יפ נעלם, ולמתווך
+ * לא נאמר שחסר תאריך בנכס (ביקורת Codex).
+ *
+ * קונה עם דד-ליין מפורש הוא זה שמגיע לכל הבדיקות: הוא מקבל ציון
+ * על „מיידי” ועל „גמיש”, ונופל בדיוק היכן שנכס חסר תאריך.
+ * ‎`entryBy` קבוע ואינו נגזר מ„עכשיו”, ולכן היכולת אינה משתנה עם
+ * הזמן.
+ */
+const PROBE_DEADLINE = new Date("2100-01-01T00:00:00.000Z");
+
+const EVERY_REQUIREMENT_BUYER: BuyerRequirements = {
+  cities: ["*"],
+  neighborhoods: [],
+  /* שני מסלולי המיקום מסופקים — ייבחן זה שהנכס תומך בו */
+  searchAreas: [{ lat: 32, lon: 34.8, radiusKm: 50 }],
+  dealType: "sale",
+  propertyTypes: ["apartment"],
+  budgetMaxAgorot: Number.MAX_SAFE_INTEGER,
+  roomsMin: 0,
+  areaSqmMin: 1,
+  /* דרישה אחת מכל רמה — כדי ששני קריטריוני המאפיינים ייבחנו */
+  features: { hasElevator: "must", hasParking: "nice" },
+  entryType: "by_date",
+  entryBy: PROBE_DEADLINE,
+};
+
+/**
+ * ‎**אילו קריטריונים הנכס הזה מסוגל להיבחן בהם בכלל.**
+ *
+ * ## השאלה שזה עונה עליה
+ *
+ * קריטריון שאינו בפירוט ההתאמה יכול להיות שני דברים הפוכים:
+ *
+ * - ‎**חסר בנכס** — אין מחיר, אין שטח. המתווך יכול לתקן, וכדאי
+ *   שיידע.
+ * - ‎**הקונה לא ביקש** — לא הגדיר תקציב, לא סימן „נחמד שיהיה”.
+ *   אין כאן פער ואין מה להשלים; ההתאמה **מלאה כפי שהיא**.
+ *
+ * רצועת ההסבר צבעה את שניהם באפור „לא נבדק”, ולכן התאמה תקינה
+ * לחלוטין נראתה כמלאה בשדות פתוחים (ביקורת Codex). זו אותה טעות
+ * שהרצועה עצמה נבנתה כדי לתקן — שני מצבים שונים באותו צבע — רק
+ * מדרגה אחת פנימה.
+ *
+ * ## למה זה מריץ את המנוע ולא מפרט תנאים
+ *
+ * אפשר היה לכתוב כאן „תקציב דורש `priceAgorot`, שטח דורש
+ * ‎`areaSqm`”. זו הייתה **רשימה שנייה שמסכימה עם `scoreMatch`
+ * בקריאה שלי בלבד** — ותנאי שישתנה שם היה משאיר כאן טענה שקרית,
+ * בשקט.
+ *
+ * במקום זה `scoreMatch` עצמו הוא התשובה: מריצים אותו מול קונה
+ * שמבקש הכול, ומה שיצא הוא מה שהנכס מסוגל לתרום. אין תנאי משוכפל
+ * ואין מה שיתיישן.
+ *
+ * ## ‎**השאלה המדויקת, וגבול אחד שלה**
+ *
+ * התשובה כאן היא על **הנכס**: „האם חסר בו נתון שהקריטריון הזה
+ * זקוק לו”. היא אינה על קונה מסוים, ובכוונה — הצ'יפ נשאל רק כדי
+ * לומר למתווך מה **הוא** יכול למלא, ורשימת ההתאמות אינה נושאת את
+ * דרישות הקונה כדי לשאול אחרת.
+ *
+ * במיקום שתי השאלות מתפצלות. הוא נבחן בשני מסלולים — עיר או
+ * קואורדינטות — ולכן נכס עם עיר בלבד **אינו** חסר נתון מיקום, גם
+ * כשקונה שסימן רק על המפה אינו יכול להיבחן מולו. הכלי יאמר „מסוגל”
+ * והמסלול של אותו קונה בכל זאת נכשל (ביקורת Codex). הצירוף ההפוך
+ * — קואורדינטות בלי עיר מול קונה עם ערים בלבד — זהה.
+ *
+ * ‎**זה אינו מגיע למסך, וזו תכונה נבדקת ולא הסתמכות.** המיקום הוא
+ * ב-`MANDATORY_MATCH_CRITERIA`, ולכן היעדרו מסמן `excluded` —
+ * ו-`MatchingService` שומר פירוט רק כשאינו מוחרג. כלומר כל פירוט
+ * שנשמר מכיל מיקום וסוג נכס, ועליהם לעולם לא ייווצר צ'יפ אפור.
+ * ראו „פירוט שנשמר מכיל תמיד את קריטריוני החובה” בבדיקות.
+ */
+export function propertyEvaluableCriteria(
+  property: PropertyFields,
+  now: Date = new Date(),
+): Set<MatchCriterion> {
+  const probe = scoreMatch(property, EVERY_REQUIREMENT_BUYER, DEFAULT_MATCH_WEIGHTS, now);
+  return new Set(probe.breakdown.map((p) => p.criterion));
 }
 
 function buildExplanation(

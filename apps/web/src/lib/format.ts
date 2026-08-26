@@ -1,5 +1,6 @@
 import { buyerSourceLabel, normalizePhoneForWhatsapp,
   JERUSALEM_TZ,
+  type PropertyStatus,
 } from "@metavchim/shared";
 
 const nis = new Intl.NumberFormat("he-IL", {
@@ -81,7 +82,7 @@ export const PROPERTY_TYPE_LABELS: Record<string, string> = {
   other: "אחר",
 };
 
-export const STATUS_LABELS: Record<string, string> = {
+export const STATUS_LABELS: Record<PropertyStatus, string> = {
   draft: "טיוטה",
   active: "פעיל",
   on_hold: "בהמתנה",

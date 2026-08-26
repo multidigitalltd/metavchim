@@ -1,8 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useState, use, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  use,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
-import { describeEntry, labelOf } from "@metavchim/shared";
+import {
+  describeEntry,
+  labelOf,
+  propertyEvaluableCriteria,
+  PropertyStatusSchema,
+  type MatchCriterion,
+  type PropertyFields,
+  type PropertyStatus,
+  type ScoreComponent,
+} from "@metavchim/shared";
 import { useRouter } from "next/navigation";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
@@ -14,6 +30,13 @@ import {
   STATUS_LABELS,
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
+import { MatchExplanation } from "../../match-explanation";
+import {
+  MatchesEmptyState,
+  matchGateMissing,
+  outOfMarket,
+  propertySideOnlyMissing,
+} from "../matches-empty-state";
 import { useFeature } from "@/lib/use-features";
 import { ReadinessCard } from "./readiness-card";
 import { DetailsCard, type DetailField } from "./details-card";
@@ -53,8 +76,17 @@ interface PropertyDetail {
   /** בארכיון — רק אז מוצגת מחיקה לצמיתות. */
   archived?: boolean;
   locationSource?: "pin" | "geocode";
-  propertyType?: string;
-  dealType?: string;
+  /*
+   * ‎**הטיפוסים של החבילה, ולא `string`.**
+   *
+   * השרת מאמת את השדות האלה מול אותן סכמות בדיוק, ולכן `string`
+   * כאן לא היה „זהירות” אלא ויתור: הוא אילץ `as` בכל מקום שנדרשה
+   * המשמעות (ראו „כניסה / מסירה” למטה, שנשען על מצב הכניסה ולא רק
+   * על קיומו), וכל `as` כזה הוא טענה על נתון שלא נבדקה.
+   */
+  propertyType?: PropertyFields["propertyType"];
+  dealType?: PropertyFields["dealType"];
+  entryType?: PropertyFields["entryType"];
   rooms?: number;
   areaSqm?: number;
   floor?: number;
@@ -64,11 +96,16 @@ interface PropertyDetail {
   hasBalcony?: boolean;
   hasSafeRoom?: boolean;
   priceAgorot?: number;
-  entryType?: string;
   entryDate?: string;
   entryNote?: string;
   internalNotes?: string;
-  status: string;
+  /*
+   * ‎**הטיפוס מהחבילה, ולא `string`** — מאותו נימוק כמו מצב הכניסה
+   * למעלה. בלעדיו מפת התוויות דורשת `as` על נתון שהגיע מה-API,
+   * וזו טענה שלא נבדקה. עם הטיפוס, סטטוס חדש בסכמה נופל
+   * בקומפילציה במפה ולא נשמט בשקט למסך.
+   */
+  status: PropertyStatus;
   marketingTitle?: string;
   readinessScore: number;
   missingFields: string[];
@@ -84,6 +121,8 @@ interface MatchRow {
   buyerId: string;
   score: number;
   explanation: string;
+  /** הפירוט לפי קריטריון — הבסיס לרצועת ההסבר מתחת לשורה. */
+  breakdown: ScoreComponent[];
   status: string;
   buyerName: string | null;
   buyerMaturity: string | null;
@@ -147,6 +186,41 @@ const STATUS_DOMAIN: Record<string, { background: string; color: string }> = {
   rented: { background: "var(--domain-neutral-bg)", color: "var(--domain-neutral-fg)" },
   archived: { background: "var(--domain-neutral-bg)", color: "var(--domain-neutral-fg)" },
 };
+
+/**
+ * צ'יפי הסינון בלשונית ההתאמות (SPEC-4a §1).
+ *
+ * שלושת אלה ולא אחרים, כי שלוש השאלות שמתווך שואל מול רשימת התאמות
+ * הן „מי הכי מתאים”, „למי עוד לא פניתי” ו„מי מוכן לקנות”. כל בורר
+ * נוסף הוא בורר שצריך להחליט עליו.
+ *
+ * ‎`hot` **וגם** `very_hot` — „קונה חם” בעברית כולל את שניהם, ובורר
+ * שהיה מחזיר רק את אחד מהם היה מסתיר בשקט בדיוק את הקונים החמים
+ * ביותר.
+ */
+const MATCH_FILTERS: readonly {
+  key: string;
+  label: string;
+  keep: (m: MatchRow, hasOffer: boolean) => boolean;
+  /**
+   * האם הבורר נשען על מצב ההצעות — שמגיע בבקשה נפרדת שעשויה
+   * להיכשל. בורר כזה אינו זמין עד שהתשובה ידועה.
+   */
+  needsOffers?: boolean;
+}[] = [
+  { key: "score90", label: "ציון 90+", keep: (m) => m.score >= 90 },
+  {
+    key: "noOffer",
+    label: "לא נשלחה הצעה",
+    keep: (_m, hasOffer) => !hasOffer,
+    needsOffers: true,
+  },
+  {
+    key: "hot",
+    label: "קונה חם",
+    keep: (m) => m.buyerMaturity === "hot" || m.buyerMaturity === "very_hot",
+  },
+];
 
 const MATURITY_TAG: Record<string, { fg: string; bg: string }> = {
   very_hot: { fg: "#b0512c", bg: "#faf1ec" },
@@ -219,6 +293,14 @@ export default function PropertyDetailPage({
   const canWhatsApp = useFeature("whatsapp");
   const router = useRouter();
   const [property, setProperty] = useState<PropertyDetail | null>(null);
+  /**
+   * צ'יפי הסינון בלשונית ההתאמות (SPEC-4a §1).
+   *
+   * ‎**סינון מצטבר ולא בלעדי**: מי שבוחר „ציון 90+” וגם „לא נשלחה
+   * הצעה” מתכוון לשניהם. בורר יחיד היה מחייב אותו לבחור איזו שאלה
+   * חשובה יותר, וזו בדיוק ההחלטה שהוא רוצה לא לקבל.
+   */
+  const [matchFilters, setMatchFilters] = useState<Set<string>>(new Set());
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [purgeConfirm, setPurgeConfirm] = useState(false);
   const [purgeError, setPurgeError] = useState<string | null>(null);
@@ -230,6 +312,25 @@ export default function PropertyDetailPage({
    */
   const [matchesFailed, setMatchesFailed] = useState(false);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
+  /**
+   * ‎**האם אנחנו כבר יודעים למי נשלחה הצעה.**
+   *
+   * ‎`offers` מתחיל ריק, והבקשה שממלאת אותו נכשלת בשקט
+   * (`.catch(() => undefined)`). כלומר „אין הצעה” היה גם התשובה
+   * הנכונה וגם מצב חוסר-הידיעה — ובורר „לא נשלחה הצעה” החזיר את
+   * **כל** ההתאמות: זמנית בכל טעינה, ולצמיתות אחרי תקלה (ביקורת
+   * Codex).
+   *
+   * זו אותה טעות שכל המסך הזה עוסק בה — „לא ידוע” שנקרא כ„לא” —
+   * והפעם היא הייתה בבורר עצמו.
+   *
+   * ‎**שלושה מצבים ולא שניים**, מאותו נימוק: „עוד לא חזר” ו„נכשל”
+   * נראים זהים למי שמסתכל על הבורר, אבל הראשון ייגמר מעצמו והשני
+   * לא. תווית „טוען…” על תקלה קבועה היא הבטחה שלא תתממש.
+   */
+  const [offersState, setOffersState] = useState<"loading" | "ready" | "failed">(
+    "loading",
+  );
   /*
    * קישור ההצעה מועתק לפי התאמה, ולכן ההודעה נושאת את מזהה ההתאמה.
    * שתיהן בלי איפוס אוטומטי: הן יושבות בתוך שורה/באנר שנשארים על
@@ -265,22 +366,38 @@ export default function PropertyDetailPage({
    * ממנה: האפקט לא ירוץ שוב כל עוד המתווך נשאר בכרטיס, ולכן
    * הדרך היחידה הייתה רענון העמוד כולו (ביקורת Codex).
    */
+  /**
+   * מצב ההצעות, בפונקציה משלו — **כדי שיהיה למה לחזור.**
+   *
+   * הבקשה נכשלה בשקט ובלי דרך לנסות שוב, ולכן „לא הצלחנו לטעון”
+   * היה מצב סופי עד רענון העמוד כולו. אותו נימוק בדיוק שהוציא את
+   * ‎`loadMatches` לפונקציה משלו.
+   */
+  const loadOffers = useCallback((rows: readonly MatchRow[]): void => {
+    if (rows.length === 0) {
+      /* אין התאמות — אין מה לדעת, וזו ידיעה מלאה ולא חוסר */
+      setOffersState("ready");
+      return;
+    }
+    setOffersState("loading");
+    const ids = rows.map((m) => m.id).join(",");
+    apiGet<Record<string, OfferInfo>>(`/offers/for-matches?matchIds=${ids}`)
+      .then((rowsById) => {
+        setOffers(rowsById);
+        setOffersState("ready");
+      })
+      .catch(() => setOffersState("failed"));
+  }, []);
+
   const loadMatches = useCallback((): void => {
     setMatchesFailed(false);
     apiGet<MatchRow[]>(`/properties/${id}/matches`)
       .then((rows) => {
         setMatches(rows);
-        if (rows.length > 0) {
-          const ids = rows.map((m) => m.id).join(",");
-          apiGet<Record<string, OfferInfo>>(
-            `/offers/for-matches?matchIds=${ids}`,
-          )
-            .then(setOffers)
-            .catch(() => undefined);
-        }
+        loadOffers(rows);
       })
       .catch(() => setMatchesFailed(true));
-  }, [id]);
+  }, [id, loadOffers]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -348,7 +465,7 @@ export default function PropertyDetailPage({
   }
 
   /** שינוי סטטוס (פעיל/בהמתנה/נמכר…) ישירות מהכרטיס — בלי להיכנס לעריכה. */
-  async function changeStatus(status: string) {
+  async function changeStatus(status: PropertyStatus) {
     setStatusSaving(true);
     try {
       await apiPatch(`/properties/${id}`, { status });
@@ -428,18 +545,44 @@ export default function PropertyDetailPage({
     );
     const rows = await apiGet<MatchRow[]>(`/properties/${id}/matches`);
     setMatches(rows);
-    if (rows.length > 0) {
-      const ids = rows.map((m) => m.id).join(",");
-      apiGet<Record<string, OfferInfo>>(`/offers/for-matches?matchIds=${ids}`)
-        .then(setOffers)
-        .catch(() => undefined);
-    }
+    loadOffers(rows);
   }
 
   async function saveNotes(next: string): Promise<void> {
     await apiPatch(`/properties/${id}`, { internalNotes: next });
     setProperty((prev) => (prev ? { ...prev, internalNotes: next } : prev));
   }
+
+  /**
+   * ‎**מה שהנכס מסוגל להיבחן בו — כדי להבדיל „חסר בנכס” מ„הקונה
+   * לא ביקש”.**
+   *
+   * קריטריון שנעדר מפירוט ההתאמה יכול להיות אחד משניים, והם
+   * הפוכים: שדה ריק בנכס (יש מה לעשות) או דרישה שהקונה לא הגדיר
+   * (אין מה לעשות, וההתאמה מלאה). ראו `propertyEvaluableCriteria`.
+   *
+   * ‎**וכאן, לפני ההחזרות המוקדמות, ולא ליד השימוש בו.**
+   *
+   * ‎`property` הוא `null` בטעינה הראשונה, והרכיב חוזר מוקדם
+   * ב-`if (!property)`. הוק שיושב אחרי ההחזרה הזו **אינו נקרא**
+   * ברינדור הראשון ונקרא בשני — „Rendered more hooks than during
+   * the previous render”, כלומר קריסה של כרטיס הנכס בכל כניסה
+   * ראשונה (ביקורת Codex). הסדר של ההוקים הוא חוזה, לא סגנון.
+   *
+   * ‎**הפיזור, ולא רשימת שדות ביד.** `{...property}` מעביר גם שדה
+   * שיתווסף מחר לכרטיס; רשימה ידנית הייתה משמיטה אותו בשקט, והמסך
+   * היה מכריז „חסר בנכס” על שדה מלא. רק `entryDate` מומר, כי ה-API
+   * מחזיר מחרוזת והמנוע קורא תאריך.
+   */
+  const matchEvaluable = useMemo<ReadonlySet<MatchCriterion>>(() => {
+    if (property === null) return new Set<MatchCriterion>();
+    const { entryDate, ...rest } = property;
+    const fields: PropertyFields = {
+      ...rest,
+      ...(entryDate !== undefined ? { entryDate: new Date(entryDate) } : {}),
+    };
+    return propertyEvaluableCriteria(fields);
+  }, [property]);
 
   if (error) {
     return (
@@ -504,9 +647,9 @@ export default function PropertyDetailPage({
       // תשובות ולא חוסר, ולכן אינם מוצגים כמקף
       value:
         describeEntry({
-          entryType: property.entryType as Parameters<
-            typeof describeEntry
-          >[0]["entryType"],
+          ...(property.entryType !== undefined
+            ? { entryType: property.entryType }
+            : {}),
           ...(property.entryDate !== undefined
             ? { entryDate: new Date(property.entryDate) }
             : {}),
@@ -521,9 +664,50 @@ export default function PropertyDetailPage({
     },
   ];
 
-  const bulkEligible = (matches ?? []).filter(
-    (m) => m.score >= 85 && !offers[m.id],
-  ).length;
+  /*
+   * ‎**אותו „לא ידוע” שנקרא כ„לא”, בכפתור שמייצר הצעות.**
+   *
+   * הכפתור נוקב במספר („לאשר יצירת 7 הצעות?”), והמספר נשען על
+   * ‎`offers` שעדיין ריק בזמן הטעינה — כלומר הוא מנופח, והמתווך
+   * מאשר כמות שאינה מה שייווצר. השרת מחשב את הזכאות בעצמו ולכן לא
+   * נשלחות הצעות כפולות, אבל המספר שהוצג לאישור היה שקרי.
+   *
+   * זה היה כאן לפני הבוררים ולא נולד איתם; הוא נסגר כאן כי זה אותו
+   * מצב בדיוק, בשורה אחת.
+   */
+  const bulkEligible =
+    offersState === "ready"
+      ? (matches ?? []).filter((m) => m.score >= 85 && !offers[m.id]).length
+      : 0;
+
+  /*
+   * הסינון מצטבר: כל צ'יפ שנבחר מצמצם עוד. השורה נשארת רק אם היא
+   * עוברת את **כל** הבוררים הפעילים.
+   */
+  /**
+   * ‎**בורר שנבחר והמידע שמתחתיו אינו ידוע — הרשימה אינה מוצגת.**
+   *
+   * הניסיון הראשון היה „הבורר מפסיק לסנן”, וזה החליף שקר אחד באחר:
+   * הצ'יפ נשאר `aria-pressed`, הרשימה נפרשה במלואה, ו`hiddenByFilter`
+   * קפץ — כלומר **רשימה לא-מסוננת מתחת לבורר פעיל**. אחרי „שלח
+   * לכולם” זה בדיוק המסך שמראה כשנשלחו כהתאמות שלא נשלחו, ואם
+   * הרענון נכשל הוא נשאר כך (ביקורת Codex).
+   *
+   * שלוש האפשרויות היו: לבטל את הבורר (מוחק בחירה של המתווך בלי
+   * שביקש), לסנן לפי מה שיש (מציג נתון ישן כאילו הוא עדכני), או לא
+   * להציג. השלישית היא היחידה שאינה טוענת דבר שאינו נכון — והבחירה
+   * נשמרת.
+   */
+  const filterAwaitingOffers =
+    offersState !== "ready" &&
+    MATCH_FILTERS.some((f) => f.needsOffers === true && matchFilters.has(f.key));
+
+  const visibleMatches = (matches ?? []).filter((m) =>
+    MATCH_FILTERS.every(
+      (f) => !matchFilters.has(f.key) || f.keep(m, offers[m.id] !== undefined),
+    ),
+  );
+  const hiddenByFilter = (matches?.length ?? 0) - visibleMatches.length;
 
   return (
     <>
@@ -577,7 +761,15 @@ export default function PropertyDetailPage({
                 <select
                   value={property.status}
                   disabled={statusSaving}
-                  onChange={(e) => void changeStatus(e.target.value)}
+                  /*
+                    ‎`e.target.value` הוא `string`, והאפשרויות נבנות
+                    מ-`STATUS_LABELS`. הסכמה מאמתת במקום `as` —
+                    ערך שאינו סטטוס מוכר פשוט אינו נשלח.
+                  */
+                  onChange={(e) => {
+                    const parsed = PropertyStatusSchema.safeParse(e.target.value);
+                    if (parsed.success) void changeStatus(parsed.data);
+                  }}
                   className="mv-pill"
                   style={{
                     ...STATUS_DOMAIN[property.status],
@@ -1061,6 +1253,104 @@ export default function PropertyDetailPage({
               <Notice tone="success">✓ {bulkResult}</Notice>
             ) : null}
 
+            {/*
+              צ'יפי הסינון — SPEC-4a §1.
+
+              ‎**מוצגים רק כשיש מה לסנן.** שורת בוררים מעל רשימה של
+              שתי שורות היא רעש, ומעל רשימה ריקה היא הבטחה לתוכן
+              שאינו קיים.
+            */}
+            {/*
+              ‎**הניסיון החוזר אינו יכול להיות מותנה בבורר שנחסם.**
+
+              מצב ההצעות נטען בבקשה נפרדת. כשהיא נכשלת בטעינה
+              הראשונה, הבורר „לא נשלחה הצעה” נחסם וכפתור ההצעות
+              נעלם — ואם הניסיון החוזר יושב מתחת לבורר **פעיל**,
+              הוא בלתי-נגיש: הבורר היה חסום כל הזמן ולכן לא ניתן
+              היה לבחור בו. כלומר מבוי סתום עד רענון העמוד כולו
+              (ביקורת Codex).
+
+              זה בדיוק הכשל שבגללו `loadOffers` יצא לפונקציה משלו —
+              ‎`LoadError` בלי דרך לצאת ממנה — ובניתי אותו מחדש בצורה
+              אחרת. הניסיון החוזר תלוי עכשיו רק בתקלה עצמה.
+            */}
+            {matches !== null && matches.length > 0 && offersState === "failed" ? (
+              <div className="mb-2.5">
+                <LoadError
+                  /*
+                    נוקב ב**עובדה** ובתוצאה שנכונה תמיד. הניסוח
+                    הקודם הבטיח גם על „יצירת הצעות לכל המתאימים”,
+                    שאינה מוצגת ממילא כשאין התאמות מעל 85 — כלומר
+                    אמירה על כפתור שלא היה שם.
+                  */
+                  message="לא הצלחנו לטעון את מצב ההצעות — לא ידוע למי כבר נשלחה הצעה, ולכן מצב ההצעה בשורות והסינון „לא נשלחה הצעה” אינם מוצגים"
+                  onRetry={() => loadOffers(matches)}
+                />
+              </div>
+            ) : null}
+
+            {matches !== null && matches.length > 1 ? (
+              <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
+                {MATCH_FILTERS.map((f) => {
+                  const on = matchFilters.has(f.key);
+                  /*
+                    ‎**בורר שאינו יודע — אינו נלחץ.** „לא נשלחה
+                    הצעה” נשען על בקשה נפרדת; כל עוד היא לא חזרה,
+                    „אין הצעה” הוא ניחוש ולא תשובה, והבורר היה
+                    מחזיר גם התאמות שכבר נשלחה עליהן הצעה.
+                  */
+                  const blocked = f.needsOffers === true && offersState !== "ready";
+                  return (
+                    <button
+                      key={f.key}
+                      type="button"
+                      disabled={blocked}
+                      title={
+                        blocked
+                          ? offersState === "failed"
+                            ? "לא הצלחנו לטעון את מצב ההצעות"
+                            : "טוען את מצב ההצעות…"
+                          : undefined
+                      }
+                      aria-pressed={on}
+                      /*
+                        ‎`mv-chip` ולא `mv-example-chip`: הראשון כבר
+                        נושא מצב „נבחר” שעבר את שער הניגודיות
+                        בשלוש הערכות. הצבעים שכתבתי בהתחלה ביד היו
+                        ‎1.68:1 בערכה הכהה — לבן על ירוק בהיר — והשער
+                        תפס זאת. אותו כשל בדיוק מתועד ב-CSS לצד
+                        הכלל הזה, מגלולת סינון קודמת.
+                      */
+                      className="mv-chip"
+                      onClick={() =>
+                        setMatchFilters((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(f.key)) next.delete(f.key);
+                          else next.add(f.key);
+                          return next;
+                        })
+                      }
+                    >
+                      {f.label}
+                    </button>
+                  );
+                })}
+                {/*
+                  ‎**מה שהוסתר נאמר במספר.** רשימה שהתקצרה בלי לומר
+                  בכמה נקראת כמו „אין יותר מזה” — וזו בדיוק הטעות
+                  שגורמת למתווך לחשוב שהמאגר ריק.
+                */}
+                {hiddenByFilter > 0 && !filterAwaitingOffers ? (
+                  <span
+                    className="text-[length:var(--type-caption-lg)]"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    {hiddenByFilter} מוסתרים בסינון
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+
             {matchesFailed ? (
               <LoadError
                 message="לא הצלחנו לטעון את ההתאמות"
@@ -1069,16 +1359,69 @@ export default function PropertyDetailPage({
             ) : matches === null ? (
               <p aria-live="polite">מחשב התאמות…</p>
             ) : matches.length === 0 ? (
+              <MatchesEmptyState
+                blocking={matchGateMissing(property, matchEvaluable)}
+                oneSided={propertySideOnlyMissing(property)}
+                status={property.status}
+                propertyId={id}
+              />
+            ) : filterAwaitingOffers ? (
+              /*
+                ‎**בורר פעיל שנשען על מידע שאינו ידוע.** רשימה
+                לא-מסוננת מתחת לצ'יפ לחוץ אומרת דבר שאינו נכון;
+                וסינון לפי המפה הישנה מציג התאמות שנשלחה עליהן הצעה
+                לפני שניות כאילו לא נשלחה. שתיהן גרועות משורה אחת
+                שאומרת מה קורה.
+              */
+              /*
+                ‎**בלי כפתור שני.** הניסיון החוזר יושב למעלה ומוצג
+                בכל תקלה, ולא רק כשבורר נבחר. שני כפתורים לאותה
+                פעולה על אותו מסך הם שאלה („במה ללחוץ?”) במקום
+                תשובה.
+              */
+              <p className="m-0" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
+                {offersState === "failed"
+                  ? "הסינון „לא נשלחה הצעה” אינו יכול לרוץ עד שמצב ההצעות ייטען."
+                  : "מעדכן את מצב ההצעות…"}
+              </p>
+            ) : visibleMatches.length === 0 ? (
+              /*
+                ‎**סינון שהסתיר הכול אומר זאת, ומציע לבטל.**
+                רשימה ריקה בלי משפט נקראת „אין קונים מתאימים” — בזמן
+                שיש, והמתווך עצמו הסתיר אותם לפני שניות. זה בדיוק
+                המצב שבו מסך שותק משקר.
+              */
               <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
-                אין עדיין קונים מתאימים.{" "}
-                <Link href="/buyers/new" className="underline">
-                  הוסיפו קונה
-                </Link>{" "}
-                — וההתאמות יחושבו אוטומטית.
+                כל {matches.length} ההתאמות מוסתרות בסינון.{" "}
+                <button
+                  type="button"
+                  className="underline"
+                  style={{ color: "inherit" }}
+                  onClick={() => setMatchFilters(new Set())}
+                >
+                  ניקוי הסינון
+                </button>
               </p>
             ) : (
-              matches.map((m) => {
-                const offer = offers[m.id];
+              visibleMatches.map((m) => {
+                /*
+                  ‎**כשהמצב נכשל, המפה הישנה נשארת — ואסור לקרוא
+                  ממנה.**
+
+                  ‎`loadOffers` אינו מנקה את `offers` בכישלון, ולכן
+                  השורות המשיכו לגזור מצב ופעולה מתצלום ישן. אחרי
+                  „שלח לכולם” שהצליח ורענון שנכשל, זה מציג „שלח
+                  הצעה” על קונה שההצעה אליו נוצרה לפני שניות
+                  (ביקורת Codex).
+
+                  ‎**רק על `failed` ולא על `loading`.** טעינה היא
+                  מצב חולף שמתקן את עצמו, וחסימה עליה הייתה מבהבת
+                  בכל כניסה לכרטיס; כישלון נשאר עד ניסיון חוזר.
+                  דחיתי קודם את הגידור הזה בנימוק ההבהוב — כלומר
+                  שפטתי גרסה גרועה יותר שלו.
+                */
+                const offerKnown = offersState !== "failed";
+                const offer = offerKnown ? offers[m.id] : undefined;
                 const tag = m.buyerMaturity
                   ? MATURITY_TAG[m.buyerMaturity]
                   : undefined;
@@ -1138,6 +1481,16 @@ export default function PropertyDetailPage({
                       >
                         {m.explanation}
                       </div>
+                      {/*
+                        רצועת ההסבר — SPEC-4a §1: „זה מה שהופך ציון
+                        לפעולה”. היא יושבת אחרי ההסבר המילולי ולא
+                        במקומו: המשפט אומר את המסקנה, והצ'יפים אומרים
+                        על מה היא נשענת ומה אפשר להשלים.
+                      */}
+                      <MatchExplanation
+                        breakdown={m.breakdown}
+                        propertyEvaluable={matchEvaluable}
+                      />
                       {awaitingSignature[m.id] ? (
                         <div className="mt-1.5 text-[length:var(--type-caption-lg)]">
                           <span style={{ color: "var(--color-danger)" }}>
@@ -1203,7 +1556,13 @@ export default function PropertyDetailPage({
                       ) : null}
                     </div>
                     <div className="ms-auto flex flex-none gap-2">
-                      {offer && canWhatsApp ? (
+                      {/*
+                        ‎**„שלח הצעה” היא טענה, לא רק פעולה** — היא
+                        אומרת „לא נשלחה”. כשזה אינו ידוע היא נעלמת
+                        יחד עם שאר התוכן שנשען על אותה בקשה; הניסיון
+                        החוזר יושב מעל הרשימה ומחזיר את שניהם.
+                      */}
+                      {!offerKnown ? null : offer && canWhatsApp ? (
                         <button
                           type="button"
                           className="mv-btn-action"
@@ -1237,6 +1596,44 @@ export default function PropertyDetailPage({
               קונים שדרישת חובה שלהם נשברת (למשל: חובה מעלית ואין) — לא מוצגים
               כאן בכלל.
             </p>
+
+            {/*
+              ‎**רצועת הרשת (SPEC-4a §1).**
+
+              מוצגת **רק כשהחישוב באמת רץ** — כלומר `matches` נטען
+              ואין שדה חוסם. רצועה שמציעה „להרחיב את החיפוש” על נכס
+              שחסר לו מחיר אינה הרחבה אלא הסחה: היא שולחת את המתווך
+              לרשת במקום להשלים את השדה שעוצר אותו כאן.
+
+              מופיעה גם כשיש התאמות וגם כשאין, ובכוונה: „יש שלושה
+              מהמאגר, אולי יש עוד ברשת” היא הצעה מועילה ולא רק מוצא
+              אחרון — והניסוח משתנה בין שני המצבים.
+            */}
+            {matches !== null &&
+            !outOfMarket(property.status) &&
+            matchGateMissing(property, matchEvaluable).length === 0 ? (
+              <div
+                className="mt-4 flex flex-wrap items-center gap-3 px-4 py-3.5"
+                style={{ background: "#0B0E0C", borderRadius: 18 }}
+              >
+                <span
+                  className="min-w-0 flex-1 text-[length:var(--type-body-sm)]"
+                  style={{ color: "#E8EDE9" }}
+                >
+                  {matches.length === 0
+                    ? "אף קונה מהמאגר לא התאים — אולי יש קונה מתאים אצל משרד אחר."
+                    : "אפשר להרחיב את החיפוש גם לקונים של משרדים אחרים ברשת."}
+                </span>
+                <button
+                  type="button"
+                  className="mv-btn-action"
+                  style={{ padding: "8px 16px", fontSize: "var(--type-caption-lg)" }}
+                  onClick={() => selectTab("network")}
+                >
+                  פרסום לרשת
+                </button>
+              </div>
+            ) : null}
           </section>
         </div>
       </TabPanel>
