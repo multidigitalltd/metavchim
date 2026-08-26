@@ -1,6 +1,6 @@
 import type { PropertyFields } from "../schemas/property.js";
 import type { BuyerRequirements } from "../schemas/buyer.js";
-import type { ScoreComponent } from "../schemas/match.js";
+import type { MatchCriterion, ScoreComponent } from "../schemas/match.js";
 import { scoreEntryFit } from "./entry-timing.js";
 import { bestLocationMatch } from "./location-text.js";
 import { bestAreaMatch, describeDistance } from "./proximity.js";
@@ -141,7 +141,13 @@ export const DEFAULT_MATCH_WEIGHTS = {
   entry_date: 0.05,
 } as const;
 
-export type MatchCriterion = keyof typeof DEFAULT_MATCH_WEIGHTS;
+/*
+ * ‎`MatchCriterion` נגזר עכשיו מ-`MATCH_CRITERIA` שבסכמה, ולא
+ * מהמשקלים. ההיפוך מכוון: הסכמה היא מה שנכתב למסד ומה שנקרא ממנו,
+ * ולכן היא המקור. משקל שיחסר לקריטריון קיים נופל בקומפילציה במקום
+ * להישאר `undefined` ולהתגלות כציון שגוי.
+ */
+export type { MatchCriterion };
 
 /**
  * קריטריונים שאינם ניתנים לביטול.

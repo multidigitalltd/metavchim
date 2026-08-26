@@ -15,6 +15,8 @@ import {
   MATCH_THRESHOLDS,
   type BuyerRequirements,
   type MatchWeights,
+  ScoreComponentSchema,
+  type ScoreComponent,
 } from "@metavchim/shared";
 import { assertBuyerAccess, assertMatchAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -29,6 +31,19 @@ export interface MatchDto {
   buyerId: string;
   score: number;
   explanation: string;
+  /**
+   * ‎**הפירוט לפי קריטריון — מה נבדק, ומה יצא.**
+   *
+   * הוא חושב ונשמר מאז ומעולם, ומעולם לא הוחזר: המסך קיבל ציון
+   * ומשפט חופשי, ולכן יכול היה לומר „‎87%” ולא לומר **על מה**. מתווך
+   * שרואה מספר בלי הרכב אינו יכול להחליט אם לשלוח — והוא גם אינו
+   * יכול לדעת מה חסר כדי שהציון ישתפר.
+   *
+   * ‎`ScoreComponent` נושא גם `weight`, ולכן המסך יכול להבחין בין
+   * „נבדק ונכשל” (`score = 0`) לבין „לא נבדק כלל” (הקריטריון חסר
+   * מהרשימה) — שתי אמירות שונות לגמרי, שעד כה נראו זהות.
+   */
+  breakdown: ScoreComponent[];
   status: string;
   computedAt: Date;
 }
@@ -852,6 +867,7 @@ function toMatchDto(row: {
   buyerId: string;
   score: number;
   explanation: string;
+  breakdown: unknown;
   status: string;
   computedAt: Date;
 }): MatchDto {
@@ -861,7 +877,28 @@ function toMatchDto(row: {
     buyerId: row.buyerId,
     score: row.score,
     explanation: row.explanation,
+    breakdown: parseBreakdown(row.breakdown),
     status: row.status,
     computedAt: row.computedAt,
   };
+}
+
+/**
+ * ‎`breakdown` יושב ב-JSON, כלומר הוא קלט ולא טיפוס.
+ *
+ * שורות שנכתבו לפני שהקריטריון הנוכחי היה קיים, או בגרסה שבה שדה
+ * נקרא אחרת, יחזרו מכאן כאובייקטים שאינם תואמים. `as` היה מעביר
+ * אותם למסך ומפיל אותו שם; הסכמה מסננת כל רכיב בנפרד, כך ששורה
+ * אחת פגומה אינה מוחקת את הפירוט כולו.
+ *
+ * מה שלא נותר הוא **חסר**, לא שגוי — והמסך יודע להציג „לא נבדק”.
+ */
+function parseBreakdown(raw: unknown): ScoreComponent[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ScoreComponent[] = [];
+  for (const item of raw) {
+    const parsed = ScoreComponentSchema.safeParse(item);
+    if (parsed.success) out.push(parsed.data);
+  }
+  return out;
 }
