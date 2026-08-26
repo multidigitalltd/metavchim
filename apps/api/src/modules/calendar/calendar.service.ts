@@ -312,7 +312,8 @@ export class CalendarService {
       if (patch.outcome || patch.status === "cancelled" || patch.status === "no_show") {
         await tx.task.updateMany({
           where: { tenantId: ctx.tenantId, sourceKey: `viewing:${id}`, status: "open" },
-          data: { status: "done" },
+          /* `completedAt` נרשם בכל מסלול שסוגר משימה — ראו TasksService */
+          data: { status: "done", completedAt: new Date() },
         });
       }
       await this.audit.record(tx, {

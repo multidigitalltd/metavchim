@@ -1473,9 +1473,6 @@ model Task {
 
   @@index([tenantId, assignedToUserId, status, dueAt])
   @@index([tenantId, entityId, sourceKey])
-  /// אינדקס ייחודי חלקי על משימות מוצעות פתוחות — ראו המיגרציה
-  /// `20260826213000_suggestion_task_unique`. Prisma אינו מבטא
-  /// תנאי `WHERE` באינדקס, ולכן הוא מוגדר ב-SQL בלבד ומתועד כאן.
   /// לוח המשרד: "מה פתוח, לפי מועד" בלי סינון לפי סוכן — האינדקס
   /// הראשון מתחיל ב-assignedToUserId ולכן אינו משמש אותו
   @@index([tenantId, status, dueAt])

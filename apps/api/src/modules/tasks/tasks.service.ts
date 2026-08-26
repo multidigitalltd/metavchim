@@ -277,69 +277,29 @@ export class TasksService {
      * (`lead-sla:`, `offer:`), ולכן זו אינה המצאה חדשה אלא שימוש
      * בו במקום שהוא שייך אליו.
      *
-     * ‎**הערובה היא באינדקס, לא בבדיקה.** הבדיקה למטה חוסכת
-     * שגיאה במקרה הרגיל; מה שמונע כפילות בפועל הוא אינדקס ייחודי
-     * **חלקי** על מרחב `suggestion:` בלבד (ראו המיגרציה
-     * `20260826213000_suggestion_task_unique`).
+     * ‎**מה זה נותן ומה לא — ואני נוקב בשני החלקים.**
      *
-     * זו התשובה לשאלה ששאלתי בביקורת ולא ידעתי לענות עליה: משימה
-     * ידנית נושאת `sourceKey = NULL` ואינה נכנסת לאינדקס, ולכן שתי
-     * משימות „להתקשר” על אותו כרטיס נשארות מותרות — הערובה קשה
-     * בדיוק היכן שצריך ולא סנטימטר מעבר.
+     * הבדיקה יושבת בתוך הטרנזקציה ולכן מצמצמת את החלון למשך
+     * הכתיבה. היא **אינה ערובה קשה**: תחת `READ COMMITTED` שתי
+     * טרנזקציות מקבילות יכולות שתיהן לקרוא „אין” ושתיהן לכתוב.
+     *
+     * ‎**ערובה קשה קיימת, ובכוונה אינה כאן.** אינדקס ייחודי חלקי
+     * על מרחב `suggestion:` הפתוח היה סוגר את החלון בלי לאסור
+     * כפילות ידנית לגיטימית (`sourceKey = NULL` אינו נכנס אליו).
+     * אבל בניית אינדקס רגיל נועלת את `tasks` לכתיבה עד לסריקת כל
+     * הערמה, והמיגרציות כאן רצות **בזמן העלייה של ה-API** מול מסד
+     * חי (docs/10 §deploy) — כלומר עצירת דפלוי בעלות לא נמדדת,
+     * בשביל למנוע שתי משימות זהות. יחס גרוע (ביקורת Codex).
+     *
+     * זה נדחה לפעולת תחזוקה מדודה עם `CONCURRENTLY` — ראו הגיליון
+     * שנפתח לכך. עד אז המגבלה כתובה כאן ולא מוצגת כערובה.
      */
     sourceKey?: string;
   }): Promise<TaskDto> {
-    try {
-      return await this.writeCreate(input);
-    } catch (error) {
-      /*
-       * ‎**המפסיד במרוץ מחזיר את השורה שניצחה.**
-       *
-       * הבדיקה שבתוך הטרנזקציה חוסכת שגיאה במקרה הרגיל; מה שמכריע
-       * במרוץ אמיתי הוא האינדקס הייחודי החלקי. חריגת האילוץ פוסלת
-       * את הטרנזקציה כולה, ולכן ההתאוששות **חייבת** לשבת מחוץ לה
-       * ולא בתוך ה-`catch` הפנימי.
-       *
-       * ניסיון אחד בלבד, כמו ב-`whatsapp-link`: שני כשלים ברצף
-       * אינם מרוץ אלא תקלה אמיתית, ולולאה כאן הייתה מסתירה אותה.
-       */
-      if (
-        input.sourceKey === undefined ||
-        !(error instanceof Prisma.PrismaClientKnownRequestError) ||
-        error.code !== "P2002"
-      ) {
-        throw error;
-      }
-      const existing = await this.findOpenBySourceKey(input);
-      if (!existing) throw error;
-      return existing;
-    }
+    return this.writeCreate(input);
   }
 
-  /** המשימה הפתוחה שכבר נושאת את המפתח — אחרי שהאינדקס הכריע. */
-  private async findOpenBySourceKey(input: {
-    entityType?: string;
-    entityId?: string;
-    sourceKey?: string;
-  }): Promise<TaskDto | null> {
-    const ctx = TenantContext.current();
-    return this.prisma.withTenant(async (tx) => {
-      const row = await tx.task.findFirst({
-        where: {
-          tenantId: ctx.tenantId,
-          entityType: input.entityType ?? null,
-          entityId: input.entityId ?? null,
-          sourceKey: input.sourceKey ?? null,
-          status: "open",
-        },
-      });
-      if (!row) return null;
-      const [dto] = await this.toDtos(tx, [row]);
-      return dto ?? null;
-    });
-  }
-
-  /** גוף היצירה — ראו `create` להתאוששות מהמרוץ. */
+  /** גוף היצירה. */
   private async writeCreate(input: {
     title: string;
     notes?: string;
@@ -369,20 +329,8 @@ export class TasksService {
           const [dto] = await this.toDtos(tx, [existing]);
           return dto as TaskDto;
         }
-        /*
-         * ומי שהגיע לכאן במקביל לאחר — האינדקס יפיל את אחד משניהם
-         * ב-P2002, והמפסיד מחזיר את השורה שנכתבה. ראו התפיסה
-         * ב-`createOrReturnExisting` למטה.
-         */
       }
       const assignee = await this.resolveAssignee(tx, input.assignedToUserId);
-      /*
-       * ‎**המפסיד במרוץ מחזיר את השורה שניצחה.**
-       *
-       * האינדקס הייחודי החלקי הוא מה שמונע את הכפילות; כאן רק
-       * מתרגמים את הסירוב שלו לתשובה שקטה ונכונה, במקום שגיאה
-       * שהמתווך לא עשה דבר כדי לקבל.
-       */
       const created = await tx.task.create({
         data: {
           id,

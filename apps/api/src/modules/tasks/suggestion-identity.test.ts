@@ -16,9 +16,11 @@ import { describe, expect, it } from "vitest";
  * ששינה את שם המשימה גרם להצעה לחזור, ולחיצה עליה לא יכלה לתקן —
  * השרת החזיר את המשימה הקיימת, והמסך המשיך להציג את ההצעה.
  *
- * ‎**ומה שמונע כפילות בפועל אינו קוד אלא אינדקס:** ייחודי, חלקי,
- * על מרחב `suggestion:` הפתוח בלבד. בדיקת קיום לפני כתיבה מצמצמת
- * חלון ואינה סוגרת אותו.
+ * ‎**ומה שאינו כאן, ובמכוון:** אין ערובה קשה נגד מרוץ בין שני
+ * סוכנים. בדיקת קיום לפני כתיבה מצמצמת חלון ואינה סוגרת אותו,
+ * ואינדקס ייחודי היה נבנה בזמן עליית ה-API מול מסד חי ונועל את
+ * `tasks` לכתיבה. המגבלה מתועדת ב-`TasksService.create` ונדחתה
+ * לפעולת תחזוקה מדודה.
  *
  * ‎**מה הבדיקה הזו אינה עושה:** היא אינה מריצה שאילתה. אין היום
  * הרנס בדיקות ל-`TasksService` (Prisma, RLS, הקשר דייר), ובדיקה
@@ -43,21 +45,6 @@ const BODY = /async listForEntity\([\s\S]*?\n {2}\}/u.exec(SERVICE)?.[0] ?? "";
 const KEYS_QUERY =
   BODY.split("tx.task.findMany(").find((part) => part.includes("select: { sourceKey: true }")) ?? "";
 
-/** ה-SQL של כל המיגרציות, לאיתור האינדקס הייחודי החלקי. */
-const MIGRATIONS = (() => {
-  const dir = join(import.meta.dirname, "..", "..", "..", "prisma", "migrations");
-  return readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => {
-      try {
-        return readFileSync(join(dir, entry.name, "migration.sql"), "utf8");
-      } catch {
-        return "";
-      }
-    })
-    .join("\n");
-})();
-
 describe("משימות מוצעות — מקור הזהות והיקף השליפה", () => {
   it("הגוף והשאילתה נמצאו, אחרת הבדיקה בודקת מחרוזת ריקה", () => {
     /*
@@ -67,7 +54,6 @@ describe("משימות מוצעות — מקור הזהות והיקף השלי�
      */
     expect(BODY).toContain("listForEntity");
     expect(KEYS_QUERY).not.toBe("");
-    expect(MIGRATIONS).not.toBe("");
   });
 
   it("הרשימה המוצגת אכן חתוכה — זו ההנחה שהכול נשען עליה", () => {
@@ -102,25 +88,29 @@ describe("משימות מוצעות — מקור הזהות והיקף השלי�
   });
 
   /*
-   * ‎**הערובה הקשה.** בלי האינדקס, שתי טרנזקציות מקבילות עוברות
-   * שתיהן את בדיקת הקיום ושתיהן כותבות.
+   * ‎**כל מסלול שסוגר משימה חייב לחתום את זמן ההשלמה.**
+   *
+   * ‎`completedAt` נוסף כדי שהכרטיס יאמר מתי משהו נגמר — אבל
+   * ארבעה מסלולים אוטומטיים סוגרים משימות בלי לעבור ב-`update`:
+   * סגירת SLA של ליד, המרת ליד לקונה, המרה לנכס, ופולו-אפ אחרי
+   * סיור. מסלול ששוכח לחתום מייצר שורה שנראית „הושלמה” ואינה
+   * יודעת מתי — כלומר בדיוק החור שהשדה נועד לסגור (ביקורת Codex).
    */
-  it("קיים אינדקס ייחודי חלקי על הצעות פתוחות", () => {
-    expect(MIGRATIONS).toContain("tasks_open_suggestion_unique");
-    expect(MIGRATIONS).toMatch(/CREATE UNIQUE INDEX[\s\S]*?suggestion:%[\s\S]*?'open'/u);
-  });
-
-  /*
-   * ‎**וחלקי ולא גורף.** אינדקס על כל `source_key` היה אוסר גם שתי
-   * משימות ידניות באותו שם — שימוש לגיטימי — וגם עלול היה להיכשל
-   * ביצירה על כפילויות קיימות של מפתחות מערכת.
-   */
-  it("האינדקס אינו חל על משימות ידניות", () => {
-    expect(MIGRATIONS).toMatch(/tasks_open_suggestion_unique[\s\S]*?WHERE/u);
-  });
-
-  it("היצירה מתאוששת מהתנגשות האינדקס במקום להיכשל", () => {
-    expect(SERVICE).toContain('error.code !== "P2002"');
-    expect(SERVICE).toContain("findOpenBySourceKey");
+  it("אין מסלול שסוגר משימה בלי לחתום את זמן ההשלמה", () => {
+    const dir = join(import.meta.dirname, "..", "..");
+    const offenders: string[] = [];
+    const walk = (path: string): void => {
+      for (const entry of readdirSync(path, { withFileTypes: true })) {
+        const full = join(path, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+          const text = readFileSync(full, "utf8");
+          /* סגירה שאינה נושאת `completedAt` באותה קריאה */
+          if (/data:\s*\{\s*status:\s*"done"\s*\}/u.test(text)) offenders.push(entry.name);
+        }
+      }
+    };
+    walk(dir);
+    expect(offenders).toEqual([]);
   });
 });
