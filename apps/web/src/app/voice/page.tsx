@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   agentHistorySummary,
   agentResultRefs,
+  agentTurnRefs,
   type AgentHistoryRef,
 } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
@@ -239,11 +240,15 @@ export default function AgentPage(): React.JSX.Element {
            */
           resultSummary: agentHistorySummary(executed.message, executed.data),
           /*
-           * המזהים של מה שהוצג — כדי ש„הראשון מהם” ייפתר בלי חיפוש
-           * טקסט. התווית לבדה אינה מפתח אמין כשהיא רישא של שם ארוך
-           * (ביקורת Codex). המזהה אינו מגיע לפרומפט של המודל.
+           * המזהים של מה שהוצג ושל מה שהפעולה נגעה בו — כדי ש„הראשון
+           * מהם” ו„אליה” ייפתרו בלי חיפוש טקסט. התווית לבדה אינה
+           * מפתח אמין כשהיא רישא של שם ארוך (ביקורת Codex). המזהה
+           * אינו מגיע לפרומפט של המודל.
+           *
+           * ‎`agentTurnRefs` היא אותה חיבור בדיוק כמו בוואטסאפ —
+           * הרשומה של הפעולה בראש, ואחריה שורות התוצאה.
            */
-          refs: agentResultRefs(executed.data),
+          refs: agentTurnRefs(executed.ref, agentResultRefs(executed.data)),
         },
       ]);
     }

@@ -5,6 +5,7 @@ import {
   agentAction,
   agentHistorySummary,
   agentResultRefs,
+  agentTurnRefs,
   agentResultText,
   applyBlockedModules,
   resolveCapabilities,
@@ -1113,7 +1114,7 @@ export class WhatsAppAssistantService {
       }
     }
 
-    const refs = agentResultRefs(primary.data);
+    const refs = agentTurnRefs(primary.ref, agentResultRefs(primary.data));
     const turn: AgentHistoryTurn = {
       transcript: state.transcript,
       action: state.proposal.actionId,
@@ -1126,11 +1127,15 @@ export class WhatsAppAssistantService {
        */
       resultSummary: agentHistorySummary(primary.message, primary.data),
       /*
-       * המזהים של מה שהוצג — **בצד שלנו, לא בפרומפט.**
+       * המזהים של מה שהוצג ושל מה שהפעולה נגעה בו — **בצד שלנו, לא
+       * בפרומפט.**
        *
        * התווית לבדה אינה מפתח חיפוש אמין: רישא של שם ארוך שבעליו
        * אינו בין אלף אנשי הקשר האחרונים אינה נמצאת בשום מסלול.
        * ההפניה פותרת את הביטוי לפני החיפוש (ביקורת Codex).
+       *
+       * ‎`agentTurnRefs` מוסיפה את הרשומה של הפעולה עצמה — הכרטיס
+       * שנפתח, הקונה שנוצר — שאינה רשימה ולכן לא הותירה עקבה.
        */
       ...(refs.length === 0 ? {} : { refs }),
     };

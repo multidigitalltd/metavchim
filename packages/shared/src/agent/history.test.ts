@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { assistantMemoryTurn, historyRefs, matchHistoryRef } from "./history.js";
-import { buildInterpretPrompt, type AgentHistoryTurn } from "./prompt.js";
+import { agentTurnRefs, assistantMemoryTurn, historyRefs, matchHistoryRef } from "./history.js";
+import { buildInterpretPrompt, type AgentHistoryRef, type AgentHistoryTurn } from "./prompt.js";
 
 const LEAD_ID = "01J0000000000000000000LEAD";
 const PROP_ID = "01J0000000000000000000PROP";
@@ -145,5 +145,50 @@ describe("matchHistoryRef — ריבוי אינו הכרעה", () => {
   it("ותווית יחידה ממשיכה להיפתר בסלחנות", () => {
     const one = [{ label: "הליד מהעדכון", entityType: "lead" as const, entityId: "L" }];
     expect(matchHistoryRef(one, "⟪הליד מהעדכון⟫")?.entityId).toBe("L");
+  });
+});
+
+describe("agentTurnRefs — הרשומה שהפעולה נגעה בה", () => {
+  const shown: AgentHistoryRef[] = [
+    { label: "משה כהן", entityType: "buyer", entityId: "01J0000000000000000000000A" },
+  ];
+
+  it("נכנסת בראש, לפני שורות שהוצגו", () => {
+    const acted: AgentHistoryRef = {
+      label: "דנה לוי",
+      entityType: "buyer",
+      entityId: "01J0000000000000000000000B",
+    };
+    expect(agentTurnRefs(acted, shown)).toEqual([acted, ...shown]);
+  });
+
+  it("ובלעדיה נשארות רק השורות שהוצגו", () => {
+    expect(agentTurnRefs(undefined, shown)).toEqual(shown);
+  });
+
+  /*
+   * אותה רשומה בדיוק שהוצגה גם ברשימה אינה שתי הפניות. הכפילות
+   * הייתה נראית למודל כשתי אפשרויות לאותו שם.
+   */
+  it("אותה רשומה אינה נכנסת פעמיים", () => {
+    const acted: AgentHistoryRef = { ...shown[0]!, label: "משה כהן" };
+    expect(agentTurnRefs(acted, shown)).toEqual(shown);
+  });
+
+  /*
+   * **התנגשות תווית מפילה את ההפניה, ולא מכריעה.**
+   *
+   * שתי רשומות שונות באותו שם: `matchHistoryRef` מסננת תווית חוזרת
+   * ומשאירה את הראשונה, ולכן שמירת שתיהן הייתה בוחרת אחת בשקט —
+   * בדיוק הניחוש שהקוד הזה נבנה כדי למנוע. בלי ההפניה ההכרעה
+   * חוזרת לחיפוש, שיודע לומר „נמצאו כמה”.
+   */
+  it("ותווית שמתנגשת ברשומה אחרת יורדת", () => {
+    const acted: AgentHistoryRef = {
+      label: "משה כהן",
+      entityType: "lead",
+      entityId: "01J0000000000000000000000C",
+    };
+    expect(agentTurnRefs(acted, shown)).toEqual(shown);
   });
 });

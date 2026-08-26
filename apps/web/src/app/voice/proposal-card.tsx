@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { ApiError, apiPost } from "@/lib/api";
+import type { AgentHistoryRef } from "@metavchim/shared";
 import { IconCheck, IconInfo, IconPin, IconX } from "../icons";
 import { Notice } from "../notice";
 
@@ -82,6 +83,13 @@ export interface ExecuteResult {
    * אליה (ביקורת Codex).
    */
   audio?: { callId: string; label: string };
+  /**
+   * הרשומה שהפעולה נגעה בה — הכרטיס שנפתח, הקונה שנוצר.
+   *
+   * המזהה נשאר בין הדפדפן לשרת ואינו מגיע לפרומפט; הוא מה שהופך
+   * „תזכיר לי להתקשר אליה” לשיוך במקום לחיפוש טקסט.
+   */
+  ref?: AgentHistoryRef;
 }
 
 const SOURCE_LABEL: Record<ProposalField["source"], string> = {
