@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   agentHistorySummary,
-  agentResultRefs,
   type AgentHistoryRef,
 } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
@@ -212,7 +211,11 @@ export default function AgentPage(): React.JSX.Element {
     [history, speakOut],
   );
 
-  function onDone(executed: ExecuteResult, executedParams?: Record<string, unknown>): void {
+  function onDone(
+    executed: ExecuteResult,
+    executedParams?: Record<string, unknown>,
+    refs?: AgentHistoryRef[],
+  ): void {
     setProposal(null);
     if (executed.message === "") return; // בוטל
     /*
@@ -239,11 +242,17 @@ export default function AgentPage(): React.JSX.Element {
            */
           resultSummary: agentHistorySummary(executed.message, executed.data),
           /*
-           * המזהים של מה שהוצג — כדי ש„הראשון מהם” ייפתר בלי חיפוש
-           * טקסט. התווית לבדה אינה מפתח אמין כשהיא רישא של שם ארוך
-           * (ביקורת Codex). המזהה אינו מגיע לפרומפט של המודל.
+           * המזהים של מה שהוצג ושל מה שהפעולות נגעו בו — כדי ש„הראשון
+           * מהם” ו„אליה” ייפתרו בלי חיפוש טקסט. התווית לבדה אינה
+           * מפתח אמין כשהיא רישא של שם ארוך (ביקורת Codex). המזהה
+           * אינו מגיע לפרומפט של המודל.
+           *
+           * הרשימה נבנית ב-`ProposalCard`, כי רק שם ידועות תוצאות
+           * צעדי ההמשך: התוצאה המצטברת שמגיעה לכאן היא הודעה אחת
+           * בלי `ref` ובלי `data` (ביקורת Codex). זו אותה בנייה
+           * בדיוק כמו בוואטסאפ — `agentTurnRefs` בשתי הקצוות.
            */
-          refs: agentResultRefs(executed.data),
+          refs: refs ?? [],
         },
       ]);
     }

@@ -2,10 +2,12 @@ import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/com
 import {
   AGENT_ACTIONS,
   agentAction,
+  AGENT_RESULT_LABEL_MAX,
   jerusalemDayRange,
   mayUseAction,
   pendingMissedCalls,
   rankCallbacks,
+  type AgentHistoryRef,
   type BuyerRequirements,
   type CallbackCandidate,
   type PropertyFields,
@@ -67,6 +69,33 @@ const CALLBACK_LEAD_SCAN = 500;
 /** אותו היגיון, על המשימות הפתוחות שקשורות ללידים בלבד. */
 const CALLBACK_TASK_SCAN = 500;
 
+/**
+ * הפניה לרשומה שהפעולה נגעה בה — **חתוכה לאותו גבול כמו שורת תוצאה.**
+ *
+ * ‎`InterpretSchema` בבקר מגביל תווית ל-`AGENT_RESULT_LABEL_MAX`, ולכן
+ * שם ארוך או כותרת שיווקית ארוכה לא היו „פשוט ארוכים”: הם היו מפילים
+ * את **הבקשה הבאה** כולה ב-400, כלומר תור שלם נעלם בגלל אורך של שם.
+ *
+ * החיתוך הוא בלי „…” — בדיוק כמו התווית הנשמרת של שורת תוצאה. הסימן
+ * שובר גם את הגיבוב וגם את ‎`includes`‎ בחיפוש, ותווית שאינה נמצאת
+ * באף מסלול גרועה מתווית מקוצרת.
+ *
+ * תווית ריקה אינה הפניה: הוולידציה דורשת תו אחד לפחות, ואיש אינו
+ * מצביע על רשומה בשם ריק.
+ *
+ * מחזירה אובייקט לפרישה (`...refOf(...)`) ולא ערך, כדי שהקוראים לא
+ * ייבנו את התנאי בכל אתר מחדש.
+ */
+function refOf(
+  label: string | undefined | null,
+  entityType: AgentHistoryRef["entityType"],
+  entityId: string,
+): { ref?: AgentHistoryRef } {
+  const trimmed = (label ?? "").trim();
+  if (trimmed === "" || entityId === "") return {};
+  return { ref: { label: trimmed.slice(0, AGENT_RESULT_LABEL_MAX), entityType, entityId } };
+}
+
 export interface ExecuteResult {
   /** לאן לנווט אחרי הביצוע */
   href?: string;
@@ -93,6 +122,20 @@ export interface ExecuteResult {
    * הודעת שמע אמיתית, כדי שהמתווך ישמע את הלקוח בלי לפתוח דשבורד.
    */
   audio?: { callId: string; label: string };
+  /**
+   * הרשומה ש**הפעולה עצמה נגעה בה** — ההקשר של „אליו” בתור הבא.
+   *
+   * שורות של שאילתה כבר מייצרות הפניות (`agentResultRefs`), אבל הן
+   * נגזרות מרשימה. יצירה, עדכון וכרטיס בודד אינם רשימה, ולכן דווקא
+   * הרשומה שהמתווך בדיוק פתח או יצר — זו שכינוי גוף מצביע עליה
+   * בסבירות הגבוהה ביותר — לא הותירה שום עקבה. „תוסיף קונה דנה
+   * לוי” ואז „תזכיר לי להתקשר אליה” נפל לחיפוש טקסט.
+   *
+   * התווית היא **השם**, כי זה מה שהמודל רואה בתמלול ובתקציר ויכול
+   * להחזיר; המזהה נשאר בצד שלנו. שני הערוצים מחברים אותה לשורות
+   * המוצגות ב-`agentTurnRefs`, ולכן אין כאן ניסוח שני.
+   */
+  ref?: AgentHistoryRef;
 }
 
 /**
@@ -557,6 +600,7 @@ export class AgentExecuteService {
         href: `/buyers/${id}`,
         message: `הכרטיס של ${buyer.contact.name}`,
         data: { card: { kind: "buyer", ...buyer, calls } },
+        ...refOf(buyer.contact.name, "buyer", id),
       };
     }
     if (kind === "lead") {
@@ -574,6 +618,7 @@ export class AgentExecuteService {
             timeline: timeline.slice(0, 8),
           },
         },
+        ...refOf(lead.contact.name, "lead", id),
       };
     }
     throw new BadRequestException("כרטיס לא מזוהה");
@@ -588,10 +633,17 @@ export class AgentExecuteService {
    */
   private async playRecording(params: Record<string, unknown>): Promise<ExecuteResult> {
     const { kind, id } = this.cardTarget(params);
-    const contactId =
+    /*
+     * הכרטיס נשלף ממילא בשביל `contactId`, ולכן השם כאן אינו עולה
+     * שאילתה — הוא רק לא נקרא קודם. „תשמיע לי את השיחה עם משה” ואז
+     * „תזכיר לי לחזור אליו” הוא בדיוק הרצף שדורש את ההפניה.
+     */
+    const contact =
       kind === "buyer"
-        ? (await this.buyers.getById(id)).contact.id
-        : (await this.leads.getById(id)).lead.contact.id;
+        ? (await this.buyers.getById(id)).contact
+        : (await this.leads.getById(id)).lead.contact;
+    const contactId = contact.id;
+    const ref = refOf(contact.name, kind, id);
 
     /*
      * שאילתה נפרדת ולא `find` על השיחות של הכרטיס: התקרה חייבת
@@ -600,7 +652,9 @@ export class AgentExecuteService {
      */
     const [recorded] = await this.calls.list({ contactId, recordedOnly: true, limit: 1 });
     if (!recorded) {
-      return { message: "אין הקלטה זמינה לשיחות עם הלקוח הזה" };
+      // הכרטיס נבחר גם כשאין הקלטה, ולכן ההפניה נשמרת: „אין הקלטה”
+      // אינו „לא ידוע על מי דיברנו”.
+      return { message: "אין הקלטה זמינה לשיחות עם הלקוח הזה", ...ref };
     }
     const when = new Intl.DateTimeFormat("he-IL", {
       timeZone: "Asia/Jerusalem",
@@ -620,6 +674,7 @@ export class AgentExecuteService {
       message: `ההקלטה מ-${when}`,
       audio: { callId: recorded.id, label: `שיחה מ-${when}` },
       ...(recorded.summary === undefined ? {} : { data: { summary: recorded.summary } }),
+      ...ref,
     };
   }
 
@@ -917,6 +972,12 @@ export class AgentExecuteService {
        */
       href: result.visible ? `/leads/${result.id}` : "/leads",
       message: result.merged ? "הפנייה צורפה לליד קיים" : "הליד נוצר",
+      /*
+       * **רק ליד שגלוי למי שקלט אותו.** פנייה שמוזגה לליד של סוכן
+       * אחר אינה שלו, וניווט אליה מסתיים ב-403 — הפניה אליה הייתה
+       * מזמינה את הצעד הבא לפעול על רשומה שהשירותים ידחו.
+       */
+      ...(result.visible ? refOf(name, "lead", result.id) : {}),
     };
   }
 
@@ -937,7 +998,11 @@ export class AgentExecuteService {
         ? { agentNotes: str(params["agentNotes"])! }
         : {}),
     });
-    return { href: `/buyers/${buyer.id}`, message: "כרטיס הקונה נוצר" };
+    return {
+      href: `/buyers/${buyer.id}`,
+      message: "כרטיס הקונה נוצר",
+      ...refOf(name, "buyer", buyer.id),
+    };
   }
 
   private async createProperty(params: Record<string, unknown>): Promise<ExecuteResult> {
@@ -959,7 +1024,16 @@ export class AgentExecuteService {
         ? { owner: { name: ownerName, phone: ownerPhone } }
         : {}),
     });
-    return { href: `/properties/${property.id}`, message: "הנכס נקלט" };
+    return {
+      href: `/properties/${property.id}`,
+      message: "הנכס נקלט",
+      /*
+       * לנכס אין שם של אדם, והכותרת השיווקית היא מה שהמתווך מכנה
+       * אותו בשיחה. בלעדיה אין תווית שאפשר להצביע עליה, ולכן אין
+       * הפניה — פחות טוב מהפניה, וטוב בהרבה מתווית שאיש לא יאמר.
+       */
+      ...refOf(buildTitle(fields), "property", property.id),
+    };
   }
 
   private async createTask(params: Record<string, unknown>): Promise<ExecuteResult> {
@@ -986,6 +1060,8 @@ export class AgentExecuteService {
       href: related ? `/${related.kind}s/${related.id}` : "/tasks",
       message: dueAt ? "התזכורת נוצרה — תישלח התראה במועד" : "המשימה נוצרה",
       data: { id: task.id },
+      // „תסגור אותה” על המשימה שהרגע נוצרה — הכותרת היא מה שנאמר
+      ...refOf(title, "task", task.id),
     };
   }
 
@@ -1028,7 +1104,12 @@ export class AgentExecuteService {
         ? { agentNotes: str(params["agentNotes"])! }
         : {}),
     });
-    return { href: `/buyers/${buyer.id}`, message: "הכרטיס עודכן" };
+    return {
+      href: `/buyers/${buyer.id}`,
+      message: "הכרטיס עודכן",
+      // הכרטיס נשלף ממילא בשביל המיזוג, ולכן השם כאן חינם
+      ...refOf(existing.contact.name, "buyer", buyer.id),
+    };
   }
 
   private async updateProperty(params: Record<string, unknown>): Promise<ExecuteResult> {
@@ -1042,14 +1123,22 @@ export class AgentExecuteService {
         ? { marketingDescription: str(params["marketingDescription"])! }
         : {}),
     });
-    return { href: `/properties/${property.id}`, message: "הנכס עודכן" };
+    return {
+      href: `/properties/${property.id}`,
+      message: "הנכס עודכן",
+      ...refOf(property.marketingTitle, "property", property.id),
+    };
   }
 
   private async completeTask(params: Record<string, unknown>): Promise<ExecuteResult> {
     const taskId = str(params["taskId"]);
     if (taskId === undefined) throw new BadRequestException("לא נבחרה משימה");
-    await this.tasks.update(taskId, { status: "done" });
-    return { href: "/tasks", message: "המשימה סומנה כבוצעה" };
+    const task = await this.tasks.update(taskId, { status: "done" });
+    return {
+      href: "/tasks",
+      message: "המשימה סומנה כבוצעה",
+      ...refOf(task.title, "task", task.id),
+    };
   }
 
   /**
@@ -1068,6 +1157,17 @@ export class AgentExecuteService {
     const [kind, id] = cardId.split(":", 2);
     if (kind === "lead" && id !== undefined) {
       await this.leads.addNote(id, note);
+      /*
+       * **בלי `ref`, ובכוונה.** ענף הקונה מחזיר הפניה כי הכרטיס
+       * נשלף כאן ממילא (ההערות ממוזגות מולו); ענף הליד אינו שולף
+       * דבר, ושליפה רק בשביל תווית הייתה מוסיפה קריאה לנתיב כתיבה —
+       * ובנוסף עוברת דרך מסנן בעלות אחר מזה של `addNote`, כלומר
+       * עלולה להיכשל דווקא היכן שההערה עצמה מותרת. הפתרון שם דורש
+       * השוואת שני מסנני הבעלות, וזה שינוי בפני עצמו.
+       *
+       * עד אז „אליו” אחרי הערה לליד נפתר בחיפוש, כמו היום. פחות
+       * טוב מהפניה, וטוב בהרבה משיוך שגוי.
+       */
       return { href: `/leads/${id}`, message: "ההערה נוספה לליד" };
     }
     if (kind === "buyer" && id !== undefined) {
@@ -1080,7 +1180,11 @@ export class AgentExecuteService {
         .filter((part): part is string => typeof part === "string" && part !== "")
         .join("\n");
       await this.buyers.update(id, { agentNotes: merged });
-      return { href: `/buyers/${id}`, message: "ההערה נוספה לכרטיס הקונה" };
+      return {
+        href: `/buyers/${id}`,
+        message: "ההערה נוספה לכרטיס הקונה",
+        ...refOf(existing.contact.name, "buyer", id),
+      };
     }
     throw new BadRequestException("כרטיס לא מזוהה");
   }
@@ -1091,6 +1195,7 @@ export class AgentExecuteService {
     const status = str(params["leadStatus"]);
     if (status === undefined) throw new BadRequestException("לא נאמר סטטוס");
     await this.leads.updateStatus(leadId, status);
+    // בלי `ref` — מאותה סיבה שב-`addNote` על ליד: אין כאן שליפה
     return { href: `/leads/${leadId}`, message: "סטטוס הליד עודכן" };
   }
 

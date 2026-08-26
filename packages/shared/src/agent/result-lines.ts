@@ -1,5 +1,5 @@
 import { COOP_DEAL_STAGE_LABELS, type CoopDealStage } from "../logic/coop-deal.js";
-import { numberedForms } from "./history.js";
+import { AGENT_RESULT_ROWS, numberedForms } from "./history.js";
 import type { AgentHistoryRef } from "./prompt.js";
 import { formatJerusalemDate, formatJerusalemTime } from "../logic/israel-time.js";
 import { CALL_OUTCOME_LABELS } from "../schemas/labels.js";
@@ -643,15 +643,6 @@ export function agentResultList(data: unknown): AgentResultList | null {
   return null;
 }
 
-/**
- * כמה שורות נלקחות מהתוצאה — **לתשובה ולזיכרון גם יחד.**
- *
- * שתי תקרות נפרדות היו שוברות את ההמשך הרב-תורי: המתווך רואה שורה
- * שביעית, אומר „תקבע לשביעי”, והזיכרון שנשלח לתור הבא מכיר חמש
- * (ביקורת Codex). מה שנראה ומה שנזכר חייבים להיות אותה רשימה
- * בדיוק — ולכן אותו קבוע.
- */
-export const AGENT_RESULT_ROWS = 8;
 
 /**
  * אותה תשובה, כטקסט לוואטסאפ — או `null` כשאין מה **להוסיף.**
