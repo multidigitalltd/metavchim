@@ -119,9 +119,9 @@ const FEATURE_LABELS: Record<string, string> = {
 
 const MATURITY_PILL: Record<string, { fg: string; bg: string }> = {
   very_hot: { fg: "var(--color-danger)", bg: "var(--color-danger-soft)" },
-  hot: { fg: "#7a5c1f", bg: "#f7efdd" },
+  hot: { fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" },
   interested: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
-  not_ripe: { fg: "#616a63", bg: "#eef1ec" },
+  not_ripe: { fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" },
 };
 
 /* גלולות סטטוס ההצעה בהיסטוריה — כללי stChip מהעיצוב */
@@ -129,11 +129,11 @@ function offerChip(o: OfferInfo): { label: string; fg: string; bg: string } {
   if (o.status === "interested")
     return { label: "מעוניין ✓", fg: "var(--color-success)", bg: "var(--color-success-soft)" };
   if (o.status === "declined")
-    return { label: "לא מתאים", fg: "#616a63", bg: "#eef1ec" };
+    return { label: "לא מתאים", fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" };
   if (o.openCount >= 3)
-    return { label: "מתלבט — שווה טלפון", fg: "#7a5c1f", bg: "#f7efdd" };
-  if (o.openCount > 0) return { label: "נפתחה", fg: "#3F4742", bg: "#EDEFED" };
-  return { label: "נשלחה", fg: "#616a63", bg: "#eef1ec" };
+    return { label: "מתלבט — שווה טלפון", fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" };
+  if (o.openCount > 0) return { label: "נפתחה", fg: "var(--color-text-muted)", bg: "var(--domain-neutral-tile)" };
+  return { label: "נשלחה", fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" };
 }
 
 function initials(name: string): string {
@@ -632,9 +632,15 @@ export default function BuyerDetailPage({
                     <span
                       key={k}
                       className="mv-pill"
+                      /*
+                        אותו זוג טוקנים כמו ב-‎.mv-chip[aria-pressed]‎
+                        וב„בקרוב” שבהגדרות (#266): הערך הקשיח שהיה כאן,
+                        קפוא בשלוש הערכות, נתן 1.07:1 מול הכרטיס במצב
+                        כהה.
+                      */
                       style={{
-                        background: "#111513",
-                        color: "#fff",
+                        background: "var(--color-primary)",
+                        color: "var(--color-surface)",
                         fontSize: "var(--type-caption)",
                         padding: "4px 12px",
                       }}
@@ -665,8 +671,14 @@ export default function BuyerDetailPage({
                       key={k}
                       className="mv-pill"
                       style={{
-                        background: "#eef1ec",
-                        color: "#4a534c",
+                        background: "var(--chip-neutral-bg)",
+                        /*
+                          הצמד מומר יחד (#266): רקע שהומר וטקסט שנשאר
+                          ישיר נתן כאן 2.02:1 בערכה הכהה — בדיוק ההמרה
+                          החלקית שהשער הזה קיים כדי לתפוס. הטוקן הניטרלי
+                          הקיים במרחק מאית מהערך שהיה, ולכן המראה נשמר.
+                        */
+                        color: "var(--domain-neutral-fg)",
                         fontSize: "var(--type-caption)",
                         padding: "4px 12px",
                       }}

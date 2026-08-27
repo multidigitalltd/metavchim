@@ -260,7 +260,10 @@ export function orphanContactCondition(alias: OrphanAlias): Prisma.Sql {
                      WHERE p.tenant_id = ${t}.tenant_id
                        AND (p.owner_contact_id = ${t}.contact_id
                          OR p.occupant_contact_id = ${t}.contact_id)
-                       AND p.deleted_at IS NULL)`;
+                       AND p.deleted_at IS NULL)
+    AND NOT EXISTS (SELECT 1 FROM contact_links k
+                     WHERE k.tenant_id = ${t}.tenant_id
+                       AND k.related_contact_id = ${t}.contact_id)`;
 }
 
 /**
@@ -277,7 +280,7 @@ export async function isOrphanContact(
   contactId: string,
   exceptPropertyId?: string,
 ): Promise<boolean> {
-  const [buyer, lead, property] = await Promise.all([
+  const [buyer, lead, property, link] = await Promise.all([
     tx.buyer.findFirst({ where: { tenantId, deletedAt: null, contactId }, select: { id: true } }),
     tx.lead.findFirst({ where: { tenantId, contactId }, select: { id: true } }),
     tx.property.findFirst({
@@ -290,8 +293,36 @@ export async function isOrphanContact(
       },
       select: { id: true },
     }),
+    /*
+     * ‎**ובן/בת זוג על כרטיס של מישהו אחר הוא עוגן.**
+     *
+     * ‎`peopleFor` מציגה על הכרטיס הראשי את **השם, הטלפון והאימייל**
+     * של כל מי שמקושר אליו. כלומר אדם שכל קשרו למשרד הוא היותו
+     * בן/בת זוג בכרטיס חי — נראה, נקרא, ונגיש.
+     *
+     * ‎**זה חסר כאן, וזה היה שגוי.** שלושת הענפים שמעל תיארו „ממי
+     * אני מגיע לכרטיס שלו”, והקישור הוא הדרך הרביעית. כל עוד הכלל
+     * הכריע רק אם שיחה שאני רשמתי נשארת גלויה, החסר היה בלתי מזיק.
+     * מרגע שהוא מכריע **מה נמחק**, אותו חסר הופך למחיקת בן/בת זוג
+     * מכרטיס לקוח פעיל: מחיקת הנכס של אדם שהוא גם בן/בת זוג בכרטיס
+     * אחר הייתה מוחקת אותו משם, בשקט.
+     *
+     * ‎**כיוון אחד בלבד, ובכוונה.** קישור הופך את ה**מקושר** לנגיש,
+     * לא את הראשי; ומחיקת הראשי ממילא מסירה את הקישור. הבדיקה גם
+     * אינה רקורסיבית — כרטיס ראשי שהוא עצמו יתום עדיין נספר כעוגן.
+     * זו שמרנות מכוונת: המחיר הוא כרטיס יתום שנשאר, כלומר בדיוק
+     * המצב שהיה קודם, מול מחיקה של נתונים חיים.
+     *
+     * הכלל הזה כבר היה ידוע במערכת — `deleteContactIfOrphan` במחיקת
+     * ליד ספרה אותו. שני ניסוחים של „מי יתום”, ואחד מהם ידע משהו
+     * שהשני לא.
+     */
+    tx.contactLink.findFirst({
+      where: { tenantId, relatedContactId: contactId },
+      select: { id: true },
+    }),
   ]);
-  return buyer === null && lead === null && property === null;
+  return buyer === null && lead === null && property === null && link === null;
 }
 
 /**

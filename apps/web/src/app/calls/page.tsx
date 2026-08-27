@@ -81,9 +81,27 @@ const FILTERS: [string, string][] = [
  * הצבע לעולם אינו לבדו: התווית מופיעה לצדו תמיד.
  */
 function outcomeTone(outcome: string): { fg: string; bg: string; dot: string } {
-  if (outcome === "answered") return { fg: "#0C6E34", bg: "#E5FCEA", dot: "#12A150" };
-  if (outcome === "unknown") return { fg: "#4A544C", bg: "#F1F4EE", dot: "#8A938B" };
-  return { fg: "#b0512c", bg: "#faf1ec", dot: "#b0512c" };
+  /*
+   * שלושת הגוונים בטוקנים (#266). הרקע נשאר קודם ערך ישיר בזמן
+   * שהטקסט הומר, והשער מדד 1.45:1 בערכה הכהה — בדיוק ההמרה החלקית
+   * שהיא גרועה מאי-המרה. הנקודה מקבלת את הטוקן של הטקסט שלצדה:
+   * תפקידה לשאת את אותה משמעות, ולכן גם את אותו גוון בכל ערכה.
+   */
+  if (outcome === "answered") {
+    return {
+      fg: "var(--color-success)",
+      bg: "var(--color-success-soft)",
+      dot: "var(--color-success)",
+    };
+  }
+  if (outcome === "unknown") {
+    return {
+      fg: "var(--domain-neutral-fg)",
+      bg: "var(--domain-neutral-tile)",
+      dot: "var(--domain-neutral-fg)",
+    };
+  }
+  return { fg: "var(--color-danger)", bg: "var(--color-danger-soft)", dot: "var(--color-danger)" };
 }
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;

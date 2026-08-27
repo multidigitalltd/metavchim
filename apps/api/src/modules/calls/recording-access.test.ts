@@ -40,6 +40,8 @@ function serviceFor(call: FakeCall | null): CallsService {
     buyer: { findFirst: async () => null, findMany: async () => [] },
     lead: { findFirst: async () => null, findMany: async () => [] },
     property: { findFirst: async () => null, findMany: async () => [] },
+    // בן/בת זוג על כרטיס חי הוא עוגן — אין כזה כאן, ולכן הלקוח יתום
+    contactLink: { findFirst: async () => null },
   };
   const prisma = {
     withTenant: async <T>(fn: (t: typeof tx) => Promise<T>): Promise<T> => fn(tx),
@@ -142,6 +144,7 @@ describe("גישה להקלטת שיחה", () => {
       },
       lead: { findMany: async () => [], findFirst: async () => null },
       property: { findMany: async () => [], findFirst: async () => null },
+      contactLink: { findFirst: async () => null },
     };
     /*
      * היכולת תואמת את המקור שבו הלקוח יושב. הבדיקה נכתבה כשהמקורות
@@ -192,6 +195,7 @@ describe("גישה להקלטת שיחה", () => {
         findFirst: async () => ({ id: "01LEAD" }),
       },
       property: { findMany: async () => [], findFirst: async () => null },
+      contactLink: { findFirst: async () => null },
     };
 
     // עם מודול הלידים — הלקוח נגיש בשני המסלולים
@@ -252,6 +256,7 @@ describe("גישה להקלטת שיחה", () => {
         findMany: async () => [{ contactId: "01LEAD" }],
       },
       property: { findFirst: async () => null, findMany: async () => [] },
+      contactLink: { findFirst: async () => null },
     };
     const service = new CallsService(
       {

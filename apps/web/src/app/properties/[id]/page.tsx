@@ -236,9 +236,9 @@ const MATCH_FILTERS: readonly {
 
 const MATURITY_TAG: Record<string, { fg: string; bg: string }> = {
   very_hot: { fg: "var(--color-danger)", bg: "var(--color-danger-soft)" },
-  hot: { fg: "#7a5c1f", bg: "#f7efdd" },
+  hot: { fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" },
   interested: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
-  not_ripe: { fg: "#616a63", bg: "#eef1ec" },
+  not_ripe: { fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" },
 };
 
 /*
@@ -1011,7 +1011,17 @@ export default function PropertyDetailPage({
           <p
             role="status"
             className="m-0 mt-3 rounded-lg px-3 py-2 text-sm"
-            style={{ background: "#FEF3F2", border: "1px solid #FECDCA" }}
+            /*
+              טוקנים ולא ערכים ישירים (#266). ערך ישיר מקפיא את שלוש
+              הערכות — בהיר, כהה, וניגודיות גבוהה — ולכן מי שהדליק
+              ניגודיות גבוהה פשוט אינו מקבל אותה. זו האזהרה שאומרת
+              „יימחק גם כרטיס לקוח”, כלומר בדיוק המקום שבו זה חשוב.
+            */
+            style={{
+              background: "var(--color-danger-soft)",
+              border: "1px solid var(--color-danger)",
+              color: "var(--color-danger)",
+            }}
           >
             {purgeImpact === "unknown"
               ? "לא הצלחנו לבדוק אם יימחקו גם כרטיסי לקוח — בדקו לפני המחיקה"

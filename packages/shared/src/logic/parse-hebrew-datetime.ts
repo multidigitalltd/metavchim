@@ -782,15 +782,31 @@ function parseTime(text: string): { hour: number; minute: number; evidence: stri
 function explicitDates(text: string): ExplicitDate[] {
   const found: ExplicitDate[] = [];
 
+  /*
+   * ‎**כל המופעים של כל צורה, ולא הראשון.**
+   *
+   * ‎`exec` החזירה הופעה אחת לכל צורה, ולכן תיקון עצמי **בין שני
+   * תאריכים באותה צורה** לא היה קיים מבחינת הקוד: „ב-3 באפריל,
+   * בעצם ב-5 במרץ” הגיע לכאן כתאריך אחד. „בתאריך 3.4.2027, בעצם
+   * ב-5 במרץ” עבד — אבל **במקרה**, כי שתי הצורות שונות ולכן שתיהן
+   * נאספו.
+   *
+   * ‎`explicitDateStart` אינה משתנה מכך: לכל צורה, ההופעה שהוסיפה
+   * ‎`exec` היא המוקדמת ביותר, וכל מה שנוסף כאן בא **אחריה**.
+   * המינימום נשאר מה שהיה.
+   */
   const monthNames = Object.keys(MONTH_NAMES).join("|");
-  const byName = new RegExp(`(?<d>[0-3]?\\d)\\s*[בל]?(?<mon>${monthNames})`, "u").exec(text);
-  if (byName?.groups?.["d"] && byName.groups["mon"]) {
-    found.push({
-      day: Number(byName.groups["d"]),
-      month: MONTH_NAMES[byName.groups["mon"]]!,
-      evidence: byName[0],
-      index: byName.index,
-    });
+  for (const m of text.matchAll(
+    new RegExp(`(?<d>[0-3]?\\d)\\s*[בל]?(?<mon>${monthNames})`, "gu"),
+  )) {
+    if (m.groups?.["d"] && m.groups["mon"]) {
+      found.push({
+        day: Number(m.groups["d"]),
+        month: MONTH_NAMES[m.groups["mon"]]!,
+        evidence: m[0],
+        index: m.index,
+      });
+    }
   }
 
   const ordinals = Object.keys(ORDINAL_MONTHS).join("|");
@@ -799,41 +815,67 @@ function explicitDates(text: string): ExplicitDate[] {
    * שהוא ASCII בלבד — אחרי אות עברית הוא לעולם אינו מתקיים, והביטוי
    * כולו לא היה תופס דבר. תקלה שקטה: הביטוי נראה נכון לגמרי.
    */
-  const byOrdinal = new RegExp(`(?<d>[0-3]?\\d)\\s*[בל](?<mon>${ordinals})(?![א-ת])`, "u").exec(
-    text,
-  );
-  if (byOrdinal?.groups?.["d"] && byOrdinal.groups["mon"]) {
-    found.push({
-      day: Number(byOrdinal.groups["d"]),
-      month: ORDINAL_MONTHS[byOrdinal.groups["mon"]]!,
-      evidence: byOrdinal[0],
-      index: byOrdinal.index,
-    });
+  for (const m of text.matchAll(
+    new RegExp(`(?<d>[0-3]?\\d)\\s*[בל](?<mon>${ordinals})(?![א-ת])`, "gu"),
+  )) {
+    if (m.groups?.["d"] && m.groups["mon"]) {
+      found.push({
+        day: Number(m.groups["d"]),
+        month: ORDINAL_MONTHS[m.groups["mon"]]!,
+        evidence: m[0],
+        index: m.index,
+      });
+    }
   }
 
-  const numeric =
-    /(?:בתאריך\s*|ה-)(?<d>[0-3]?\d)[./](?<m>[01]?\d)(?:[./](?<y>\d{4}))?|(?<d2>[0-3]?\d)[./](?<m2>[01]?\d)[./](?<y2>\d{4})/u.exec(
-      text,
-    );
-  const day = numeric?.groups?.["d"] ?? numeric?.groups?.["d2"];
-  const month = numeric?.groups?.["m"] ?? numeric?.groups?.["m2"];
-  if (day !== undefined && month !== undefined) {
-    const year = numeric?.groups?.["y"] ?? numeric?.groups?.["y2"];
+  for (const m of text.matchAll(
+    /(?:בתאריך\s*|ה-)(?<d>[0-3]?\d)[./](?<m>[01]?\d)(?:[./](?<y>\d{4}))?|(?<d2>[0-3]?\d)[./](?<m2>[01]?\d)[./](?<y2>\d{4})/gu,
+  )) {
+    const day = m.groups?.["d"] ?? m.groups?.["d2"];
+    const month = m.groups?.["m"] ?? m.groups?.["m2"];
+    if (day === undefined || month === undefined) continue;
+    const year = m.groups?.["y"] ?? m.groups?.["y2"];
     found.push({
       day: Number(day),
       month: Number(month),
       ...(year ? { year: Number(year) } : {}),
-      evidence: numeric![0],
-      index: numeric!.index,
+      evidence: m[0],
+      index: m.index,
     });
   }
 
   return found;
 }
 
-/** התאריך שנאמר, לפי סדר הצורות. ראו `explicitDates`. */
+/**
+ * התאריך שנאמר — לפי סדר הצורות, **ותיקון עצמי גובר עליו**.
+ *
+ * ‎„קבע פגישה ב-3 באפריל, בעצם ב-5 במרץ” — הדובר החליף את התאריך,
+ * והמערכת קבעה ל-3 באפריל. **התיקון נבלע בשקט**, והפגישה נכנסה
+ * ליומן על תאריך תקין למראה שאיש לא ביקש. זה הכישלון המסוכן מבין
+ * השניים: שדה ריק המתווך רואה ומשלים, ותאריך שגוי נראה כהחלטה.
+ *
+ * ‎`correctionAt` כבר הכריעה תיקון בין ביטוי יחסי ללוח שנה; מה שלא
+ * היה הוא הפעלת אותו כלל **בין שני תאריכים מפורשים**.
+ *
+ * ‎**הבסיס נשאר סדר הצורות**, וזה מכוון: כלל אחיד „המוקדם בטקסט
+ * תמיד” כבר נוסה ב-#244 והפיל את המקרה המעורב. מה שנוסף כאן הוא
+ * תנועה **קדימה בלבד**, ורק כשיש סימן תיקון בין השניים — כלל מוסף
+ * שאינו יכול לשנות תשובה שהייתה נכונה.
+ *
+ * המעבר על המועמדים לפי סדר הופעתם בטקסט, כדי ששרשרת („א, בעצם ב,
+ * בעצם ג”) תתגלגל עד הסוף במקום להיעצר על הראשון.
+ */
 function parseExplicitDate(text: string): ExplicitDate | undefined {
-  return explicitDates(text)[0];
+  const found = explicitDates(text);
+  let chosen = found[0];
+  if (chosen === undefined) return undefined;
+  for (const candidate of [...found].sort((a, b) => a.index - b.index)) {
+    if (candidate.index <= chosen.index) continue;
+    const between = text.slice(chosen.index + chosen.evidence.length, candidate.index);
+    if (isCorrection(between)) chosen = candidate;
+  }
+  return chosen;
 }
 
 /**

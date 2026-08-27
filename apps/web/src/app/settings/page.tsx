@@ -1437,7 +1437,17 @@ export default function SettingsPage() {
               <div className="mb-[9px] flex items-center gap-[9px]">
                 <span
                   className="mv-tag"
-                  style={{ background: "#111513", color: "#fff" }}
+                  /*
+                    טוקנים ולא ערך ישיר (#266). הערך הקשיח שהיה כאן כבר
+                    נלכד פעם אחת ב-CSS: קפוא בשלוש הערכות הוא עמד על
+                    1.07:1 מול הכרטיס במצב כהה — צ'יפ כהה על כרטיס כהה,
+                    בלתי קריא. שם הוא תוקן לאותו זוג טוקנים, וכאן לא.
+                    אותו זוג, אותו נימוק.
+
+                    (הערך עצמו אינו נכתב כאן בכוונה: שער שסופר ערכים
+                    ישירים ואינו מפשיט הערות היה סופר את ההסבר.)
+                  */
+                  style={{ background: "var(--color-primary)", color: "var(--color-surface)" }}
                 >
                   בקרוב
                 </span>

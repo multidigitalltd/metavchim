@@ -31,6 +31,8 @@ import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import { lockContact } from "../../common/locks";
+import { ContactErasureService } from "../contacts/contact-erasure.service";
 import { ContactsService } from "../contacts/contacts.service";
 import {
   MatchingService,
@@ -61,6 +63,7 @@ export class BuyersService {
     private readonly outbox: OutboxService,
     private readonly matching: MatchingService,
     private readonly collaboration: CollaborationService,
+    private readonly erasure: ContactErasureService,
   ) {}
 
   async create(input: {
@@ -1266,7 +1269,7 @@ export class BuyersService {
       await this.assertAccessIncludingArchived(tx, id);
       const buyer = await tx.buyer.findFirst({
         where: { id, tenantId: ctx.tenantId },
-        select: { deletedAt: true },
+        select: { deletedAt: true, contactId: true },
       });
       if (!buyer) throw new NotFoundException("קונה לא נמצא");
       if (buyer.deletedAt === null) {
@@ -1274,6 +1277,13 @@ export class BuyersService {
           "יש להעביר את הכרטיס לארכיון לפני מחיקה לצמיתות",
         );
       }
+      /*
+       * ‎**נעילת הכרטיס לפני הכול** — הסדר הקבוע במערכת הוא כרטיס
+       * איש קשר ואז שורות הנכסים (`common/locks.ts`), ומחיקת כרטיס
+       * יתום שבסופה נוגעת בשורות הנכסים שהוא היה בעליהן חייבת
+       * להיכנס לאותו סדר.
+       */
+      const lock = await lockContact(tx, buyer.contactId);
 
       const matchRows = await tx.match.findMany({
         where: { tenantId: ctx.tenantId, buyerId: id },
@@ -1311,12 +1321,34 @@ export class BuyersService {
       });
       await tx.buyer.delete({ where: { id } });
 
+      /*
+       * ‎**והכרטיס שנשאר בלי אף עוגן — אחרי מחיקת השורה.**
+       *
+       * כרטיס שנוצר בשביל הקונה הזה בלבד מפסיק להופיע בכל מסך ברגע
+       * שהכרטיס נמחק, ונשאר במסד עם שם, טלפונים ואימייל.
+       *
+       * ‎**הווריאנט שאינו מוחק יותר ממה שהמסך הבטיח.** דיאלוג האישור
+       * כאן מתאר מה נשאר, ולכן המחיקה מוגבלת לכרטיס שאין עליו שיחה,
+       * הודעה, הסכם או מסמך — ולא רק לכרטיס שאיש אינו מגיע אליו.
+       * מחיקת נכס לצמיתות **מגלה** בדיאלוג שלה שהתקשורת יורדת, ולכן
+       * היא רשאית לרחבה; כאן אין גילוי כזה (ביקורת Codex, P1).
+       *
+       * הבדיקה **אחרי** `buyer.delete`: לפניה השורה עדיין קיימת
+       * ומבחן היתמות היה מוצא אותה כעוגן.
+       */
+      const contactErased = await this.erasure.eraseUnreachableWithoutHistory(
+        tx,
+        ctx.tenantId,
+        lock,
+        "buyer.delete",
+      );
+
       // מזהים ומונים בלבד — ביומן לא נשמר מה שנמחק
       await this.audit.record(tx, {
         action: "buyer.delete",
         entityType: "buyer",
         entityId: id,
-        metadata: { matches: matchIds.length },
+        metadata: { matches: matchIds.length, contactErased },
       });
     });
   }

@@ -105,10 +105,10 @@ interface TimelineItem {
  */
 const STATUS_PILL: Record<string, { fg: string; bg: string }> = {
   new: { fg: "var(--color-danger)", bg: "var(--color-danger-soft)" },
-  in_progress: { fg: "#7a5c1f", bg: "#f7efdd" },
-  waiting_customer: { fg: "#3F4742", bg: "#EDEFED" },
+  in_progress: { fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" },
+  waiting_customer: { fg: "var(--color-text-muted)", bg: "var(--domain-neutral-tile)" },
   converted: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
-  closed: { fg: "#616a63", bg: "#eef1ec" },
+  closed: { fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" },
 };
 
 /** האות הראשונה לעיגול הכותרת — כמו בכרטיס הקונה. */

@@ -333,6 +333,23 @@
    * שתי השורות אינן יכולות להתקיים יחד, והרצפה גוברת על התא.
    */
   --domain-neutral-fg: #4a544c; /* על הרקע שלו: 7.5:1 */
+  /*
+   * ‎**צ'יפ מצב ניטרלי** — „לא מתאים”, „ממתין לאישור”, „סגור”, „לא
+   * בשל”, „מערכת”. הצמד הזה היה כתוב כערך ישיר ב-15 מקומות (#266),
+   * ולכן קפוא בשלוש הערכות: מי שהדליק **ניגודיות גבוהה** לא קיבל
+   * אותה, ובמצב כהה הצ'יפ נשאר בהיר על כרטיס כהה.
+   *
+   * ‎**הערך הבהיר נשמר במכוון, ולא יושר ל-`--domain-neutral-fg`.**
+   * הוא בהיר מהרצפה שהחבילה קובעת לטקסט, אבל הוא עובר WCAG (‏4.9:1
+   * על הרקע שלו) ויישור היה משנה מראה על כ-30 מסכים אצל משתמשים
+   * משלמים. ההחלטה היא של בעל המוצר: לשמר את המראה ולתקן את מה
+   * שבאמת שבור — הערכות שאינן מקבלות ערך משלהן.
+   *
+   * ‎**הצמד מומר תמיד יחד.** רקע שהומר וטקסט שנשאר ישיר כבר ייצרו
+   * כאן 1.07:1 בערכה הכהה — המרה חלקית גרועה מאי-המרה.
+   */
+  --chip-neutral-bg: #eef1ec;
+  --chip-neutral-fg: #616a63; /* על הרקע שלו: 4.9:1 */
 }
 
 /* ---------- ערכת נושא כהה ----------
@@ -426,6 +443,9 @@
   --dm-neutral-line: #2b3a2f;
   --dm-neutral-tile: #1a231c;
   --dm-neutral-fg: #c3cfc6; /* 11.1:1 */
+  /* צ'יפ המצב הניטרלי — אותו זוג של הדומיין הניטרלי, ולא ערך חדש */
+  --dm-chip-neutral-bg: #1a231c;
+  --dm-chip-neutral-fg: #c3cfc6; /* 11.1:1 */
   /* מקבילו הכהה של ‎`ink-3` — מרוסן מהטקסט הראשי, ועדיין נתון */
   --dm-data-muted: #a9b6ac;
   --dk-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -494,6 +514,8 @@
     --domain-neutral-line: var(--dm-neutral-line);
     --domain-neutral-tile: var(--dm-neutral-tile);
     --domain-neutral-fg: var(--dm-neutral-fg);
+    --chip-neutral-bg: var(--dm-chip-neutral-bg);
+    --chip-neutral-fg: var(--dm-chip-neutral-fg);
     --shadow-card: var(--dk-shadow-card);
     --shadow-pop: var(--dk-shadow-pop);
     --header-bg: var(--dk-header-bg);
@@ -560,6 +582,8 @@
   --domain-neutral-line: var(--dm-neutral-line);
   --domain-neutral-tile: var(--dm-neutral-tile);
   --domain-neutral-fg: var(--dm-neutral-fg);
+  --chip-neutral-bg: var(--dm-chip-neutral-bg);
+  --chip-neutral-fg: var(--dm-chip-neutral-fg);
   --shadow-card: var(--dk-shadow-card);
   --shadow-pop: var(--dk-shadow-pop);
   --header-bg: var(--dk-header-bg);
@@ -1047,6 +1071,9 @@ code {
   --domain-neutral-line: #000000;
   --domain-neutral-tile: #eeeeee;
   --domain-neutral-fg: #000000;
+  /* ניגודיות גבוהה — אותו טיפול כמו כל שאר הצ'יפים: שחור על אפור */
+  --chip-neutral-bg: #eeeeee;
+  --chip-neutral-fg: #000000;
 }
 :root[data-a11y-contrast="on"] body {
   background: #ffffff;
