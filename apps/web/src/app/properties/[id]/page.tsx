@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   use,
   type ReactNode,
@@ -319,6 +320,23 @@ export default function PropertyDetailPage({
   const [matchFilters, setMatchFilters] = useState<Set<string>>(new Set());
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [purgeConfirm, setPurgeConfirm] = useState(false);
+  /**
+   * כמה כרטיסי אדם יירדו עם הנכס — `"loading"` עד שהתשובה חוזרת,
+   * `"unknown"` כשהבדיקה עצמה נכשלה.
+   *
+   * שלושה מצבים ולא שניים, ומאותה סיבה שהבאנר של דף הנחיתה למד:
+   * „כל מה שאינו מספר = אפס” היה מבטיח „לא יימחק אף כרטיס” בדיוק
+   * כשלא ידענו.
+   */
+  const [purgeImpact, setPurgeImpact] = useState<number | "loading" | "unknown">(
+    "loading",
+  );
+  /*
+   * תשובה של בדיקה שכבר בוטלה לא תכתוב על המסך. אותו מונה בדיוק
+   * שתיבת התמיכה נזקקה לו — לחיצה, ביטול, ולחיצה שנייה משאירים שתי
+   * בקשות באוויר, והישנה עלולה לחזור אחרונה.
+   */
+  const purgeSeq = useRef(0);
   const [purgeError, setPurgeError] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
@@ -506,10 +524,29 @@ export default function PropertyDetailPage({
    *
    * הארכיון הוא ברירת המחדל כי נכס שנמכר הוא היסטוריה עסקית; זה
    * הנתיב לנכס שנקלט בטעות או לכפילות. התמונות נמחקות איתו מהאחסון.
+   *
+   * ‎**ולפעמים גם כרטיס של אדם.** בעלים שהנכס הזה הוא העוגן היחיד
+   * שלו אינו נגיש בשום מסך אחרי המחיקה, ולכן הוא נמחק איתה. מתווך
+   * שמנקה כפילות אינו מתכוון למחוק אדם — לכן השאלה נשאלת בשרת בין
+   * שתי הלחיצות, והתשובה מוצגת לפני השנייה.
+   *
+   * כשל בשליפת התצוגה המקדימה אינו חוסם את המחיקה — הוא אומר שלא
+   * ידוע. „לא הצלחנו לבדוק” אינו „לא יימחק אף כרטיס”, וזה בדיוק
+   * ההבדל שאסור לבלוע.
    */
   async function purge() {
     if (!purgeConfirm) {
+      const mine = ++purgeSeq.current;
       setPurgeConfirm(true);
+      setPurgeImpact("loading");
+      try {
+        const preview = await apiGet<{ contacts: number }>(
+          `/properties/${id}/permanent/preview`,
+        );
+        if (purgeSeq.current === mine) setPurgeImpact(preview.contacts);
+      } catch {
+        if (purgeSeq.current === mine) setPurgeImpact("unknown");
+      }
       return;
     }
     setPurgeError(null);
@@ -956,12 +993,33 @@ export default function PropertyDetailPage({
               onClick={() => {
                 setArchiveConfirm(false);
                 setPurgeConfirm(false);
+                // הבדיקה שבאוויר לא תכתוב על מסך שכבר בוטל
+                purgeSeq.current += 1;
               }}
             >
               ביטול
             </button>
           ) : null}
         </div>
+
+        {/*
+          מה שהמתווך אינו מצפה לו — כרטיס של אדם שיורד עם הנכס. מוצג
+          בין שתי הלחיצות, כלומר לפני שהמחיקה בוצעה ובזמן שעוד אפשר
+          לבטל. „נמחק גם X” אחרי המעשה אינו אזהרה אלא הודעת ניחומים.
+        */}
+        {purgeConfirm && purgeImpact !== "loading" && purgeImpact !== 0 ? (
+          <p
+            role="status"
+            className="m-0 mt-3 rounded-lg px-3 py-2 text-sm"
+            style={{ background: "#FEF3F2", border: "1px solid #FECDCA" }}
+          >
+            {purgeImpact === "unknown"
+              ? "לא הצלחנו לבדוק אם יימחקו גם כרטיסי לקוח — בדקו לפני המחיקה"
+              : purgeImpact === 1
+                ? "יימחק גם כרטיס לקוח אחד, שהנכס הזה הוא הקישור היחיד אליו — כולל שם, טלפונים והיסטוריית התקשורת"
+                : `יימחקו גם ${purgeImpact} כרטיסי לקוח, שהנכס הזה הוא הקישור היחיד אליהם — כולל שם, טלפונים והיסטוריית התקשורת`}
+          </p>
+        ) : null}
 
         {landingUrl ? (
           <p

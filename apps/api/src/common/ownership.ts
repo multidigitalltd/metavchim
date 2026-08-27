@@ -263,10 +263,19 @@ export function orphanContactCondition(alias: OrphanAlias): Prisma.Sql {
                        AND p.deleted_at IS NULL)`;
 }
 
+/**
+ * ‎`exceptPropertyId` — „האם יהיה יתום **אחרי** שהנכס הזה יימחק”.
+ *
+ * מסך האישור של מחיקה לצמיתות חייב לשאול את השאלה הזו לפני שהשורה
+ * נמחקה, והמחיקה עצמה שואלת אותה אחריה. אותו כלל בשני זמנים — ולכן
+ * פרמטר ולא ניסוח שני, שהוא בדיוק הצורה שנפרדת מעצמה ומבטיחה למתווך
+ * „לא יימחק אף כרטיס” על מחיקה שכן מוחקת אחד.
+ */
 export async function isOrphanContact(
   tx: TenantTx,
   tenantId: string,
   contactId: string,
+  exceptPropertyId?: string,
 ): Promise<boolean> {
   const [buyer, lead, property] = await Promise.all([
     tx.buyer.findFirst({ where: { tenantId, deletedAt: null, contactId }, select: { id: true } }),
@@ -275,6 +284,7 @@ export async function isOrphanContact(
       where: {
         tenantId,
         deletedAt: null,
+        ...(exceptPropertyId === undefined ? {} : { id: { not: exceptPropertyId } }),
         // גם דייר קושר אדם לנכס — לא רק בעלות
         OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
       },

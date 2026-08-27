@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
-import { lockContact } from "../../common/locks";
+import { lockContact, type ContactLock } from "../../common/locks";
+import { isOrphanContact } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { normalizeNameForMatch, OFFER_DOCUMENT_KINDS } from "@metavchim/shared";
@@ -240,28 +241,7 @@ export class ContactErasureService {
       const leads = leadRows.map((l) => l.id);
 
       // המפתחות נאספים לפני המחיקה — אחריה אין שורה שיודעת עליהם
-      const recorded = await tx.call.findMany({
-        where: { tenantId, contactId, recordingKey: { not: null } },
-        select: { recordingKey: true },
-      });
-      // הקבצים המצורפים של הודעות המייל — דרך ההודעות של הכרטיס
-      const contactMessages = await tx.emailMessage.findMany({
-        where: { tenantId, contactId },
-        select: { id: true },
-      });
-      const attachmentRows =
-        contactMessages.length === 0
-          ? []
-          : await tx.emailAttachment.findMany({
-              where: { tenantId, messageId: { in: contactMessages.map((m) => m.id) } },
-              select: { s3Key: true },
-            });
-      const keys = [
-        ...recorded
-          .map((c) => c.recordingKey)
-          .filter((key): key is string => key !== null),
-        ...attachmentRows.map((a) => a.s3Key),
-      ];
+      const keys = await this.collectStorageKeys(tx, tenantId, contactId);
 
       await this.eraseWithin(tx, {
         tenantId,
@@ -271,16 +251,7 @@ export class ContactErasureService {
         nameHash: contact.nameHash,
       });
 
-      if (keys.length > 0) {
-        await tx.outboxEvent.createMany({
-          data: keys.map((s3Key) => ({
-            id: ulid(),
-            tenantId,
-            name: "storage.cleanup_object",
-            payload: { tenantId, s3Key },
-          })),
-        });
-      }
+      await this.queueStorageCleanup(tx, tenantId, keys);
 
       /*
        * הרישום נכתב **בתוך** אותה טרנזקציה: מחיקה שהצליחה בלי רישום
@@ -306,6 +277,146 @@ export class ContactErasureService {
       `לקוח נמחק לצמיתות: contact ${contactId} במשרד ${tenantId} בידי ${userId} (${s3Keys.length} הקלטות בניקוי)`,
     );
     return { ok: true };
+  }
+
+  /**
+   * ‎**כרטיס שאיש אינו יכול להגיע אליו — נמחק, ולא נשאר שקוף.**
+   *
+   * זו אינה בקשת מחיקה של אדם אלא התוצאה של מחיקת העוגן האחרון שלו:
+   * מחיקת נכס לצמיתות מסירה את הקישור היחיד שדרכו הגיעו לבעלים־בלבד,
+   * והכרטיס נשאר במסד **בלי שום מסך שמציג אותו**. שם, טלפונים ואימייל
+   * מוצפנים — ובכל זאת קיימים — בלי שאיש במשרד יוכל לראות אותם, לתקן
+   * אותם, או למחוק אותם לפי בקשה. בקשת מחיקה פרטנית לא הייתה מוצאת
+   * אותו כלל; רק מחיקת המשרד כולו הייתה מגיעה אליו.
+   *
+   * ‎**„יתום” כאן זהה לחלוטין למבחן שהארכיון משתמש בו** — אין קונה
+   * חי, אין ליד, ואין נכס חי שהוא בעליו או דיירו. אותו `isOrphanContact`
+   * ולא ניסוח שני: אלה שתי צורות של אותה שאלה, וכבר ראינו בקוד הזה מה
+   * קורה כששני ניסוחים של כלל אחד נפרדים זה מזה.
+   *
+   * ‎**הנעילה נדרשת בחתימה ולא בהערה.** ‎`ContactLock` אינו ניתן
+   * לבנייה מחוץ ל-`lockContact`, ולכן אי אפשר לקרוא לכאן בלי להחזיק
+   * את הנעילה שמונעת מיחזור מקביל של אותו כרטיס. הסדר עצמו — כרטיס
+   * לפני נכס — נשאר באחריות הקורא ונאכף ב-`lock-order.test.ts`.
+   *
+   * מחזיר `false` כשהכרטיס עדיין נגיש (מישהו חיבר אותו מחדש) או שכבר
+   * אינו קיים — שני מצבים תקינים, ולא שגיאה.
+   */
+  async eraseUnreachable(
+    tx: TenantTx,
+    tenantId: string,
+    lock: ContactLock,
+    cause: string,
+  ): Promise<boolean> {
+    const { contactId } = lock;
+    if (!(await isOrphanContact(tx, tenantId, contactId))) return false;
+    const contact = await tx.contact.findFirst({
+      where: { id: contactId, tenantId },
+      select: { nameHash: true },
+    });
+    if (!contact) return false;
+
+    /*
+     * ‎**נשלף ולא מונח.** מבחן היתמות פוסל ליד כלשהו וקונה **חי**,
+     * ולכן „אין לידים” ו„הקונים כאן מחוקים־רכות בלבד” נובעים ממנו —
+     * אבל `eraseWithin` מנקה לפי הרשימות האלה (ציר זמן, פגישות,
+     * התאמות, הצעות), והנחה שגויה כאן משאירה שורות שמצביעות על
+     * כרטיס שנמחק. השאילתה עולה שתי בדיקות אינדקס ומחליפה טיעון
+     * בעובדה.
+     */
+    const [buyerRows, leadRows, signedAgreements, retainedScans] = await Promise.all([
+      tx.buyer.findMany({ where: { tenantId, contactId }, select: { id: true } }),
+      tx.lead.findMany({ where: { tenantId, contactId }, select: { id: true } }),
+      tx.agreement.count({ where: { tenantId, contactId, status: "signed" } }),
+      tx.signedDocument.count({
+        where: {
+          tenantId,
+          contactId,
+          kind: { in: [...OFFER_DOCUMENT_KINDS] },
+          signedOn: { not: null },
+        },
+      }),
+    ]);
+    const buyers = buyerRows.map((row) => row.id);
+    const leads = leadRows.map((row) => row.id);
+
+    const keys = await this.collectStorageKeys(tx, tenantId, contactId);
+    await this.eraseWithin(tx, { tenantId, contactId, buyers, leads, nameHash: contact.nameHash });
+    await this.queueStorageCleanup(tx, tenantId, keys);
+
+    /*
+     * פעולה נפרדת מ-`contact.erase` ביומן, ובכוונה: זו לא בקשה של אדם
+     * אלא תוצאה של פעולה אחרת, ו-`cause` אומר של מי. יומן שמתאר את
+     * שתיהן באותה מילה מוחק בדיוק את ההבדל שמבקר ירצה לראות.
+     */
+    await this.audit.record(tx, {
+      action: "contact.erase_unreachable",
+      entityType: "contact",
+      entityId: contactId,
+      metadata: {
+        buyers: buyers.length,
+        leads: leads.length,
+        recordings: keys.length,
+        retainedAgreements: signedAgreements + retainedScans,
+        cause,
+      },
+    });
+    this.logger.warn(
+      `כרטיס שאיש לא יכול להגיע אליו נמחק: contact ${contactId} במשרד ${tenantId} (${cause})`,
+    );
+    return true;
+  }
+
+  /**
+   * מפתחות ה-S3 של הכרטיס — **לפני** מחיקת השורות שמכירות אותם.
+   *
+   * אחרי המחיקה אין מי שיודע אילו קבצים היו שלו, ולכן הרגע היחיד
+   * לאסוף אותם הוא לפניה. שני הקוראים — בקשת מחיקה וכרטיס שאיש אינו
+   * מגיע אליו — מוחקים את אותן שורות, ולכן חייבים לאסוף את אותם
+   * מפתחות; שני ניסוחים היו משאירים הקלטה באחסון באחד מהמסלולים.
+   */
+  private async collectStorageKeys(
+    tx: TenantTx,
+    tenantId: string,
+    contactId: string,
+  ): Promise<string[]> {
+    const recorded = await tx.call.findMany({
+      where: { tenantId, contactId, recordingKey: { not: null } },
+      select: { recordingKey: true },
+    });
+    // הקבצים המצורפים של הודעות המייל — דרך ההודעות של הכרטיס
+    const contactMessages = await tx.emailMessage.findMany({
+      where: { tenantId, contactId },
+      select: { id: true },
+    });
+    const attachmentRows =
+      contactMessages.length === 0
+        ? []
+        : await tx.emailAttachment.findMany({
+            where: { tenantId, messageId: { in: contactMessages.map((m) => m.id) } },
+            select: { s3Key: true },
+          });
+    return [
+      ...recorded.map((c) => c.recordingKey).filter((key): key is string => key !== null),
+      ...attachmentRows.map((a) => a.s3Key),
+    ];
+  }
+
+  /** אירוע ניקוי לכל מפתח — ה-Worker מריץ עד הצלחה. */
+  private async queueStorageCleanup(
+    tx: TenantTx,
+    tenantId: string,
+    keys: string[],
+  ): Promise<void> {
+    if (keys.length === 0) return;
+    await tx.outboxEvent.createMany({
+      data: keys.map((s3Key) => ({
+        id: ulid(),
+        tenantId,
+        name: "storage.cleanup_object",
+        payload: { tenantId, s3Key },
+      })),
+    });
   }
 
   /**
