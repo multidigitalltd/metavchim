@@ -317,3 +317,140 @@ describe("סדר השמירה של הסמן", () => {
     expect(save.match(/autoEmailOffersSince' = \$\{epoch\}/gu)?.length ?? 0).toBe(2);
   });
 });
+
+/**
+ * ‎**הסמן עובר רק מעל מי שיש לו רשומה עמידה.**
+ *
+ * זו השכבה השלישית של אותה תקלה. ‏1: הסמן נשמר לפני הלולאה, וקריסה
+ * באמצע קידמה אותו מעל קונים שלא נוצרה להם הצעה. ‏2: הועבר לאחרי
+ * הלולאה — אבל „אחרי הלולאה” אינו „הכול הצליח”: התפיסה הפרטנית
+ * בולעת תקלת מסד רגעית, והשמירה שאחריה קידמה את הסמן גם מעל אותו
+ * קונה, בלי `pending_email` שינוסה שוב ובלי חזרה אליו עד סיבוב שלם
+ * ‎(ביקורת Codex).
+ *
+ * ‏3, כאן: הסמן נעצר לפני השורה הראשונה של קונה שאין לו רשומה עמידה.
+ * קונה שנבדק והוכרע — מוסר, בלי אימייל, נכסים שירדו — **כן** נחשב
+ * מטופל; רק חריגה משאירה אותו בלי דבר. קונים משלב א' נכנסים מראש:
+ * ה-`pending_email` שלהם הוא הרשומה העמידה.
+ */
+describe("הסמן והרשומה העמידה", () => {
+  const sweep = body("sweepTenant");
+
+  it("הערך הנשמר נגזר מהמעקב, ואינו סמן הסריקה הגולמי", () => {
+    expect(sweep).toContain("retained ? cursor : scan.nextCursor");
+    expect(sweep).not.toMatch(/saveCursor\(tenantId,\s*since,\s*scan\.nextCursor\)/u);
+  });
+
+  /*
+   * ‎**הסימון נמדד בהתאמות ולא בקונים.** לפי `buyerId`, קונה עם יותר
+   * מ-`AUTO_OFFER_MAX_PER_EMAIL` התאמות סימן את **כולן** כמטופלות אף
+   * שרק החמש הראשונות נכנסו למייל; השאר נשארו בלי הצעה והסמן עבר
+   * מעליהן עד סיבוב שלם (ביקורת Codex).
+   */
+  it("המפתח הוא מזהה ההתאמה, לא מזהה הקונה", () => {
+    expect(sweep).toMatch(/const claimed = new Set<string>\(\);/u);
+    expect(sweep).not.toContain("claimed.add(buyerId)");
+    expect(sweep).not.toContain("claimed.has(row.buyerId)");
+  });
+
+  it("קונים שממתינים מסבב קודם נחשבים מטופלים", () => {
+    const seed = sweep.indexOf("pendingBuyers.buyerIds.has(match.buyerId)");
+    expect(seed, "הזריעה לא נמצאה").toBeGreaterThan(-1);
+    expect(sweep.slice(seed, seed + 120)).toContain("claimed.add(match.matchId)");
+  });
+
+  it("מסומנות רק ההתאמות שנכנסו למנה", () => {
+    expect(sweep).toContain("for (const match of matches) claimed.add(match.matchId);");
+  });
+
+  it("הסימון נעשה על הצלחה בלבד — לא בתפיסה", () => {
+    const call = sweep.indexOf("offerAndEmail(");
+    const add = sweep.indexOf("claimed.add(match.matchId);", call);
+    const nabbed = sweep.indexOf("catch (error");
+    expect(call, "קריאת השליחה לא נמצאה").toBeGreaterThan(-1);
+    expect(nabbed, "התפיסה לא נמצאה").toBeGreaterThan(-1);
+    expect(add, "הסימון לא נמצא").toBeGreaterThan(call);
+    expect(add).toBeLessThan(nabbed);
+    expect(sweep.slice(nabbed)).not.toContain("claimed.add(");
+  });
+
+  it("המעבר נעצר בשורה הראשונה שאינה מסומנת", () => {
+    expect(sweep).toMatch(/if \(!claimed\.has\(row\.matchId\)\)/u);
+    expect(sweep).toMatch(/retained = true;[\s\S]{0,40}break;/u);
+  });
+
+  /*
+   * ‎**ובלי סימון אין התקדמות בכלל.** אם ההליכה מתחילה מ-`undefined`
+   * במקום מ-`startCursor`, כישלון בשורה הראשונה מאפס את הסמן לראש
+   * הסריקה — לא „נשאר במקום” אלא „חוזר אחורה”, וכל מה שכבר נסרק
+   * בסבבים הקודמים נסרק מחדש.
+   */
+  it("נקודת הפתיחה של ההליכה היא המיקום שממנו התחלנו", () => {
+    expect(sweep).toMatch(/let cursor = startCursor;/u);
+  });
+});
+
+/**
+ * ‎**הזכאות נבדקת שוב בניסיון החוזר — כולל ההזמנה בכתב.**
+ *
+ * המסלול בדק לקוח, הסרה, אימייל ונכס פעיל, אבל **לא** את החתימה.
+ * ‎`SignedDocumentsService.remove` מוחקת את המסמך — ומתעדת ביומן
+ * ש**הוא זה שפתח הצעות** — ולכן שליחה שנכשלה בפסק זמן, ואחריה נמחקה
+ * הראיה, הייתה יוצאת בסבב הבא: הצעה ללקוח בלי הזמנה בכתב (§9),
+ * ופעולת שיווק שנרשמת עליה (ביקורת Codex).
+ */
+describe("ההחתמה בניסיון החוזר", () => {
+  const retry = body("retryPending");
+
+  it("שער ההחתמה נבדק גם כאן, ובאותה בדיקה של הזכאות", () => {
+    expect(retry).toContain("this.agreements.signedPairs(");
+    expect(retry).toContain('"brokerage"');
+    expect(retry).toMatch(/signed\.has\(`\$\{contactId\}:\$\{row\.propertyId\}`\)/u);
+  });
+
+  it("הלולאה שולחת רק את מה שעבר את השער", () => {
+    const gate = retry.indexOf("const sendable = marketable.filter");
+    const loop = retry.indexOf("for (const offer of sendable)");
+    expect(gate, "הסינון לא נמצא").toBeGreaterThan(-1);
+    expect(loop, "הלולאה אינה עוברת על המסוננים").toBeGreaterThan(gate);
+    expect(retry).not.toContain("for (const offer of marketable)");
+  });
+
+  /*
+   * ‎**„מומלצת” ולא `email_failed`.** הראיה יכולה לחזור: הסוכן שולח
+   * הזמנה חדשה, הלקוח חותם, והסבב ייצור הצעה מחדש. סימון ככישלון
+   * היה קובר את ההתאמה לתמיד, בניגוד לנכס שנמכר — שם זו הכוונה.
+   */
+  it("ההצעה נמחקת וההתאמה חוזרת מומלצת", () => {
+    const block = retry.slice(retry.indexOf("if (unsigned.size > 0)"));
+    expect(block).toContain("tx.offer.delete(");
+    expect(block).toMatch(/data: \{ status: "suggested" \}/u);
+    expect(block.slice(0, block.indexOf("this.logger"))).not.toContain("email_failed");
+  });
+});
+
+/**
+ * ‎**דחייה ודאית של הספק אינה „מייל שנשלח”.**
+ *
+ * הענף סימן `email_failed` וחזר כרגיל, ולכן `offerAndEmail` החזיר את
+ * מספר ההצעות שנוצרו והסבב ספר „מייל נשלח”; גם הניסיון החוזר קידם
+ * את המונה שלו. כתובת פסולה נראתה בניטור בדיוק כמו הצלחה (ביקורת
+ * Codex).
+ */
+describe("המונה והדחייה הוודאית", () => {
+  it("‏deliver מחזיר תוצאה, לא void", () => {
+    expect(SOURCE).toContain('Promise<"sent" | "unsent">');
+    expect(SOURCE).not.toMatch(/private async deliver\([\s\S]{0,400}Promise<void>/u);
+  });
+
+  it("שני הענפים מסומנים במפורש", () => {
+    const deliver = body("deliver");
+    expect(deliver).toContain('return "sent";');
+    expect((deliver.match(/return "unsent";/gu) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("שני הקוראים סופרים לפי התוצאה", () => {
+    expect(body("offerAndEmail")).toContain('outcome === "sent" ? created.length : 0');
+    expect(body("retryPending")).toContain('if (outcome === "sent") emails += 1;');
+  });
+});

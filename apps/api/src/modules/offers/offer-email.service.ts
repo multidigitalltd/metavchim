@@ -232,9 +232,33 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
      */
     const scan = await this.eligibleMatches(tenantId, since, startCursor);
     const eligible = scan.eligible;
+    /*
+     * ‎**מה שמותר לסמן לעבור מעליו נמדד בהתאמות, לא בקונים.**
+     *
+     * הסימון היה לפי `buyerId`, ולכן קונה עם יותר מ-
+     * ‎`AUTO_OFFER_MAX_PER_EMAIL` התאמות סימן את **כולן** כמטופלות
+     * אף שרק החמש הראשונות נכנסו למייל. השאר נשארו בלי הצעה, והסמן
+     * עבר מעליהן עד שישלים סיבוב שלם (ביקורת Codex).
+     *
+     * ההתאמות הקטומות חוזרות מעצמן: החמש שנשלחו עוברות ל-`offered`
+     * ויוצאות מהזכאות, והבאות עולות למקומן — כלומר סבב אחד, ובלבד
+     * שהסמן לא דילג עליהן.
+     */
     const byBuyer = new Map<string, EligibleMatch[]>();
+    const claimed = new Set<string>();
     for (const match of eligible) {
-      if (pendingBuyers.buyerIds.has(match.buyerId)) continue;
+      /*
+       * ‎**קונה משלב א' — ההתאמה מסומנת, ובכוונה.**
+       *
+       * יש לו `pending_email` במסד: רשומה עמידה שהניסיון החוזר
+       * מחזיק בה. עצירת הסמן לפניו הייתה מקבעת את **כל** הסבב של
+       * המשרד מאחורי ספק שנתקע אצל קונה אחד — נזק גדול בהרבה
+       * מהתאמה חדשה שממתינה עד שהממתינות שלו ייסגרו.
+       */
+      if (pendingBuyers.buyerIds.has(match.buyerId)) {
+        claimed.add(match.matchId);
+        continue;
+      }
       const list = byBuyer.get(match.buyerId) ?? [];
       if (list.length < AUTO_OFFER_MAX_PER_EMAIL) list.push(match);
       byBuyer.set(match.buyerId, list);
@@ -251,6 +275,15 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
       processed += 1;
       try {
         const sent = await this.offerAndEmail(tenantId, officeName, buyerId, matches);
+        /*
+         * גם `sent === 0` הוא הכרעה: הלקוח נבדק שוב בטרנזקציה ונמצא
+         * מוסר, בלי אימייל, או שנכסיו ירדו. אין מה לנסות שוב, והסמן
+         * רשאי לעבור. רק **חריגה** משאירה אותו בלי דבר.
+         *
+         * מסומנות ההתאמות ש**נשלחו לטיפול** — כלומר אלה שנכנסו
+         * למנה. הקטומות אינן ביניהן, וזו כל הנקודה.
+         */
+        for (const match of matches) claimed.add(match.matchId);
         if (sent > 0) {
           emails += 1;
           offers += sent;
@@ -274,8 +307,31 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
      * שכולו לא-זכאי חייב להתקדם, אחרת הוא חוזר על עצמו לנצח. אחרי
      * הלולאה שני המצבים מטופלים: מה שנוצר — נוצר; מה שלא היה זכאי —
      * נסרק ואינו צריך להיסרק שוב מיד.
+     *
+     * ‎**אבל „אחרי הלולאה” אינו „הכול הצליח”.** התפיסה הפרטנית בתוך
+     * הלולאה בולעת תקלת מסד רגעית, והכתיבה כאן הייתה מקדמת את הסמן
+     * גם מעל אותו לקוח — בלי `pending_email` שינוסה שוב, ובלי חזרה
+     * אליו עד שהסמן ישלים סיבוב שלם. אצל משרד גדול זה הרבה סבבים
+     * ‎(ביקורת Codex; אותה הערה, שכבה אחת פנימה מהקודמת).
+     *
+     * לכן הסמן נעצר לפני **השורה הראשונה** שלא טופלה — בין אם
+     * הלקוח נכשל, בין אם לא הגיע אליו התור, ובין אם ההתאמה נקטמה
+     * מהמנה בתקרה שלה. אם זו השורה הראשונה בסריקה, הסמן נשאר במקום
+     * שממנו התחלנו.
+     *
+     * המחיר: לקוח שנכשל **דרך קבע** מקבע את המיקום. זו העדפה
+     * מודעת — עצירה שנרשמת ביומן בכל סבב עדיפה על דילוג שקט.
      */
-    await this.saveCursor(tenantId, since, scan.nextCursor);
+    let cursor = startCursor;
+    let retained = false;
+    for (const row of eligible) {
+      if (!claimed.has(row.matchId)) {
+        retained = true;
+        break;
+      }
+      cursor = row.matchId;
+    }
+    await this.saveCursor(tenantId, since, retained ? cursor : scan.nextCursor);
     return { emails, offers };
   }
 
@@ -651,8 +707,16 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     const first = created[0];
     if (first === undefined) return 0;
 
-    await this.deliver(tenantId, officeName, first.to, first.buyerName, first.contactId, created);
-    return created.length;
+    const outcome = await this.deliver(
+      tenantId,
+      officeName,
+      first.to,
+      first.buyerName,
+      first.contactId,
+      created,
+    );
+    // דחייה ודאית — ההצעות קיימות כ-`email_failed`, אבל מייל לא יצא
+    return outcome === "sent" ? created.length : 0;
   }
 
   /** בניית המייל, שליחה, ואישור `sent` — או סימון הכישלון. */
@@ -663,9 +727,10 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     buyerName: string,
     contactId: string,
     rows: OutgoingOffer[],
-  ): Promise<void> {
+  ): Promise<"sent" | "unsent"> {
     const first = rows[0];
-    if (first === undefined) return;
+    // מנה ריקה — הגנה בלבד; שני הקוראים כבר סיננו. לא יצא מייל
+    if (first === undefined) return "unsent";
     const env = loadEnv();
     const items: OfferEmailItem[] = rows.map((row) => ({
       title: row.title,
@@ -710,7 +775,14 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(
           `מייל הצעות נדחה ללקוח במשרד ${tenantId} — ההצעות סומנו email_failed`,
         );
-        return;
+        /*
+         * ‎**נדחה אינו נשלח, וגם המונה צריך לדעת.**
+         *
+         * הענף סימן `email_failed` וחזר כרגיל, ולכן `offerAndEmail`
+         * החזיר את מספר ההצעות שנוצרו והסבב ספר „מייל נשלח”. כתובת
+         * פסולה נראתה בניטור כמו שליחה מוצלחת (ביקורת Codex).
+         */
+        return "unsent";
       }
       // תקלה עמומה (רשת/5xx) — נשאר pending_email לניסיון בסבב הבא
       throw error;
@@ -763,6 +835,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         await this.outbox.emit(tx, "offer.sent", { offerId: row.offerId, tenantId });
       }
     });
+    return "sent";
   }
 
   /**
@@ -866,10 +939,70 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     }
     const marketable = resolved.filter((row) => stillActive.has(row.propertyId));
 
+    /*
+     * ‎**וגם ההזמנה בכתב נבדקת שוב — כי אפשר למחוק אותה.**
+     *
+     * הזכאות הראשונית דורשת הזמנה חתומה על **הנכס הזה** (§9), אבל
+     * המסלול הזה בדק עד כה לקוח, הסרה, אימייל ונכס פעיל בלבד.
+     * ‎`SignedDocumentsService.remove` מוחקת את המסמך — ומתעדת
+     * ביומן ש**הוא זה שפתח הצעות** — ולכן שליחה שנכשלה בפסק זמן,
+     * ואחריה נמחקה הראיה, הייתה יוצאת בסבב הבא: הצעה ללקוח בלי
+     * הזמנה בכתב, ופעולת שיווק שנרשמת עליה (ביקורת Codex).
+     *
+     * ‎`signedPairs` היא בדיוק אותה בדיקה של הזכאות הראשונית —
+     * חתימה דיגיטלית **וגם** מסמך סרוק — ולא שער מחמיר יותר.
+     *
+     * ‎**ההצעה נמחקת וההתאמה חוזרת „מומלצת”, כמו בהסרה מהתפוצה
+     * ולא כמו בנכס שנמכר.** הראיה יכולה לחזור: הסוכן שולח הזמנה
+     * חדשה, הלקוח חותם, והסבב ייצור הצעה מחדש. `email_failed` היה
+     * קובר את ההתאמה לתמיד.
+     */
+    const contactByBuyer = await this.prisma.withTenant(async (tx) => {
+      const buyers = await tx.buyer.findMany({
+        where: {
+          tenantId,
+          id: { in: [...new Set(marketable.map((row) => row.buyerId))] },
+          deletedAt: null,
+        },
+        select: { id: true, contactId: true },
+      });
+      return new Map(buyers.map((buyer) => [buyer.id, buyer.contactId]));
+    });
+    const signed = await this.prisma.withTenant((tx) =>
+      this.agreements.signedPairs(tx, tenantId, "brokerage", [...contactByBuyer.values()]),
+    );
+    /*
+     * קונה שנעלם אינו נוגע לכאן: הוא מטופל בלולאה שבהמשך, ומחיקת
+     * ההצעה שלו כאן הייתה שינוי התנהגות שלא נתבקש.
+     */
+    const unsigned = new Set(
+      marketable
+        .filter((row) => {
+          const contactId = contactByBuyer.get(row.buyerId);
+          return contactId !== undefined && !signed.has(`${contactId}:${row.propertyId}`);
+        })
+        .map((row) => row.id),
+    );
+    if (unsigned.size > 0) {
+      await this.prisma.withTenant(async (tx) => {
+        for (const offer of marketable.filter((row) => unsigned.has(row.id))) {
+          await tx.offer.delete({ where: { id: offer.id } });
+          await tx.match.updateMany({
+            where: { id: offer.matchId, tenantId, status: "offered" },
+            data: { status: "suggested" },
+          });
+        }
+      });
+      this.logger.log(
+        `משרד ${tenantId}: ${unsigned.size} הצעות ממתינות בוטלו — אין הזמנה בכתב חתומה`,
+      );
+    }
+    const sendable = marketable.filter((row) => !unsigned.has(row.id));
+
     const buyerIds = new Set<string>();
     const now = new Date();
-    const byBuyer = new Map<string, typeof marketable>();
-    for (const offer of marketable) {
+    const byBuyer = new Map<string, typeof sendable>();
+    for (const offer of sendable) {
       buyerIds.add(offer.buyerId);
       if (offer.tokenExpires < now) {
         // הטוקן פג לפני שהשליחה הצליחה — סוף המחזור, הסוכן ממשיך ידנית
@@ -921,7 +1054,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
       if (contact === null || contact.email === undefined) continue;
 
       try {
-        await this.deliver(
+        const outcome = await this.deliver(
           tenantId,
           officeName,
           contact.email,
@@ -941,7 +1074,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
             };
           }),
         );
-        emails += 1;
+        if (outcome === "sent") emails += 1;
       } catch (error: unknown) {
         this.logger.warn(
           `ניסיון חוזר של מייל הצעות נכשל ללקוח ${buyerId} במשרד ${tenantId}: ${String(error)}`,
