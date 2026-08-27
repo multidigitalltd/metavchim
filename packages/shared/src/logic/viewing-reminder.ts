@@ -88,6 +88,7 @@ export function viewingReminderOccupantContactId(property: {
  */
 export const VIEWING_REMINDER_PLACEHOLDERS = [
   { token: "{{שם}}", what: "שם הנמען" },
+  { token: "{{מתי}}", what: "„היום” / „מחר” / התאריך — לפי מתי הסיור בפועל" },
   { token: "{{שעה}}", what: "שעת הסיור (למשל 17:30)" },
   { token: "{{תאריך}}", what: "תאריך הסיור (למשל 27/08)" },
   { token: "{{כתובת}}", what: "כתובת הנכס" },
@@ -97,6 +98,7 @@ export const VIEWING_REMINDER_PLACEHOLDERS = [
 
 export interface ViewingReminderVars {
   שם: string;
+  מתי: string;
   שעה: string;
   תאריך: string;
   כתובת: string;
@@ -109,10 +111,34 @@ export const DEFAULT_VIEWING_REMINDER_MESSAGES: Readonly<
   Record<ViewingReminderAudience, string>
 > = {
   occupant:
-    "היי {{שם}}, מזכירים שהיום בעזרת השם בשעה {{שעה}} מגיעים לביקור בנכס ב{{כתובת}}. אם משהו השתנה — נשמח לדעת. {{סוכן}}, {{משרד}}",
+    "היי {{שם}}, מזכירים ש{{מתי}} בעזרת השם בשעה {{שעה}} מגיעים לביקור בנכס ב{{כתובת}}. אם משהו השתנה — נשמח לדעת. {{סוכן}}, {{משרד}}",
   buyer:
-    "היי {{שם}}, מזכירים שאנחנו נפגשים היום בעזרת השם בשעה {{שעה}} ב{{כתובת}}. נתראה! {{סוכן}}, {{משרד}}",
+    "היי {{שם}}, מזכירים שאנחנו נפגשים {{מתי}} בעזרת השם בשעה {{שעה}} ב{{כתובת}}. נתראה! {{סוכן}}, {{משרד}}",
 };
+
+/**
+ * ‎**„היום” נכון רק כשזה באמת היום.**
+ *
+ * הנוסח המקורי קיבע „היום” בתוך הטקסט, וזה שגוי בשני מצבים
+ * שקורים בפועל: החלון ניתן להגדרה עד 48 שעות, וגם ברירת המחדל של
+ * חמש שעות חוצה חצות — סיור ב-01:00 מקבל תזכורת ב-20:00 של אתמול
+ * (ביקורת Codex). לקוח שנאמר לו „היום” על סיור של מחר יגיע ביום
+ * הלא נכון, וזו בדיוק התקלה שהתזכורת באה למנוע.
+ *
+ * ‎**היום נמדד בשעון ישראל** ולא בשעון השרת: „מחר” הוא מחר אצל מי
+ * שמקבל את ההודעה, ו-UTC היה מזיז את הגבול בשלוש שעות.
+ */
+export function viewingReminderWhenLabel(
+  startsAt: { date: string },
+  today: { date: string },
+  tomorrow: { date: string },
+): string {
+  if (startsAt.date === today.date) return "היום";
+  if (startsAt.date === tomorrow.date) return "מחר";
+  // 2026-08-29 ⟵ ב-29/08, כפי שכותבים תאריך בעברית
+  const [, month = "", day = ""] = startsAt.date.split("-");
+  return `ב-${day}/${month}`;
+}
 
 /**
  * שתילת הערכים בנוסח.

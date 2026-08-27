@@ -304,6 +304,17 @@ const UpdateSettingsSchema = z
     whatsappNotifyTemplateLang: z
       .union([z.string().trim().regex(/^[a-zA-Z]{2}(_[A-Z]{2})?$/u), z.literal("")])
       .optional(),
+    /*
+     * תבנית התזכורת שלפני סיור. אותה צורה בדיוק — שם תבנית הוא
+     * מזהה טכני אצל Meta, וטעות הקלדה נתפסת כאן ולא בדחייה של
+     * הודעה חמש שעות לפני שהלקוח היה אמור להגיע.
+     */
+    whatsappViewingReminderTemplate: z
+      .union([z.string().trim().regex(/^[a-z0-9_]{1,512}$/u), z.literal("")])
+      .optional(),
+    whatsappViewingReminderTemplateLang: z
+      .union([z.string().trim().regex(/^[a-zA-Z]{2}(_[A-Z]{2})?$/u), z.literal("")])
+      .optional(),
     loginOtpEnabled: z.boolean().optional(),
     googleClientId: z.union([z.string().trim().min(10).max(200), z.literal("")]).optional(),
     googleClientSecret: z.union([z.string().trim().min(10).max(200), z.literal("")]).optional(),
@@ -1361,6 +1372,8 @@ export class PlatformController {
         /** תבנית ההתראות; ריק = דחיפה רק בתוך חלון 24 השעות של Meta */
         notifyTemplate: string;
         notifyTemplateLang: string;
+        viewingReminderTemplate: string;
+        viewingReminderTemplateLang: string;
       };
     };
     /**
@@ -1556,6 +1569,11 @@ export class PlatformController {
           notifyTemplate: (await this.platformSettings.get("whatsappNotifyTemplate")) ?? "",
           notifyTemplateLang:
             (await this.platformSettings.get("whatsappNotifyTemplateLang")) ?? "he",
+          // ריק = התזכורת שלפני סיור יוצאת במייל בלבד. מצב, לא שגיאה.
+          viewingReminderTemplate:
+            (await this.platformSettings.get("whatsappViewingReminderTemplate")) ?? "",
+          viewingReminderTemplateLang:
+            (await this.platformSettings.get("whatsappViewingReminderTemplateLang")) ?? "he",
         },
       },
       google: {

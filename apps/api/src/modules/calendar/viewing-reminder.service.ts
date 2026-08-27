@@ -3,6 +3,7 @@ import { ulid } from "ulid";
 import {
   DEFAULT_VIEWING_REMINDER_MESSAGES,
   jerusalemWallParts,
+  viewingReminderWhenLabel,
   renderViewingReminder,
   resolveAutomationSettings,
   viewingReminderDue,
@@ -248,12 +249,23 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
      * חייבת להיות השעה שהלקוח יראה בשעון שלו. ‎`jerusalemWallParts`
      * הוא אותו מקור שהמסכים קוראים ממנו.
      */
+    const now = new Date();
     const wall = jerusalemWallParts(appointment.startsAt);
     const timePart = wall.time;
     // 2026-08-27 ⟵ 27/08 — כפי שכותבים תאריך בעברית
     const [, month = "", day = ""] = wall.date.split("-");
     const datePart = `${day}/${month}`;
     const when = `${datePart} ${timePart}`;
+    /*
+     * ‎„היום” / „מחר” / התאריך — ולא „היום” קבוע. החלון מגיע עד 48
+     * שעות, וגם חמש שעות חוצות חצות: סיור ב-01:00 מקבל תזכורת
+     * ב-20:00 של אתמול (ביקורת Codex).
+     */
+    const whenLabel = viewingReminderWhenLabel(
+      wall,
+      jerusalemWallParts(now),
+      jerusalemWallParts(new Date(now.getTime() + 24 * 60 * 60 * 1000)),
+    );
 
     let sent = 0;
     const unreachable: Recipient[] = [];
@@ -261,6 +273,7 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
     for (const recipient of recipients) {
       const vars: ViewingReminderVars = {
         שם: recipient.name,
+        מתי: whenLabel,
         שעה: timePart,
         תאריך: datePart,
         כתובת: address,
@@ -272,7 +285,13 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
         DEFAULT_VIEWING_REMINDER_MESSAGES[recipient.audience];
       const body = renderViewingReminder(template, vars);
 
-      const delivered = await this.deliver(tenantId, recipient, body, config.channel);
+      const delivered = await this.deliver(
+        tenantId,
+        recipient,
+        body,
+        config.channel,
+        whenLabel,
+      );
       if (delivered) sent += 1;
       else unreachable.push(recipient);
     }
@@ -282,9 +301,26 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
       tasks = (await this.openTask(tenantId, appointment, unreachable, address, when)) ? 1 : 0;
     }
 
+    /*
+     * ‎**החותמת נכתבת רק אם הפגישה לא זזה בינתיים.**
+     *
+     * המסירה היא קריאת רשת, ובזמנה מתווך יכול לדחות את הסיור —
+     * ‎`reschedule` מנקה את החותמת למועד החדש, ואז כתיבה שמתאימה
+     * למזהה בלבד הייתה מסמנת דווקא את המועד החדש כ„כבר נשלח”, כלומר
+     * מבטלת את התזכורת האמיתית (ביקורת Codex).
+     *
+     * ‎`startsAt` ו-`status` בתנאי הם „זו עדיין אותה פגישה שקראתי”.
+     * אם היא זזה — החותמת אינה נכתבת, והסבב הבא ישלח למועד החדש.
+     */
     await this.prisma.withExplicitTenant(tenantId, (tx) =>
       tx.appointment.updateMany({
-        where: { id: appointment.id, tenantId, reminderSentAt: null },
+        where: {
+          id: appointment.id,
+          tenantId,
+          reminderSentAt: null,
+          startsAt: appointment.startsAt,
+          status: "scheduled",
+        },
         data: { reminderSentAt: new Date() },
       }),
     );
@@ -389,6 +425,7 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
     recipient: Recipient,
     body: string,
     channel: ViewingReminderChannel,
+    whenLabel: string,
   ): Promise<boolean> {
     if (recipient.optedOut) return false;
 
@@ -413,7 +450,8 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
       try {
         await this.email.send(
           recipient.email,
-          "תזכורת לסיור היום",
+          // אותה תווית שבגוף ההודעה — נושא שאומר „היום” על מחר גרוע מכולם
+          `תזכורת לסיור ${whenLabel}`,
           { heading: "תזכורת לסיור", paragraphs: body.split("\n").filter(Boolean) },
           { tenantId },
         );

@@ -8,11 +8,13 @@ import {
   viewingReminderOccupantContactId,
   viewingReminderSkipReason,
   viewingReminderUses,
+  viewingReminderWhenLabel,
   type ViewingReminderVars,
 } from "./viewing-reminder.js";
 
 const VARS: ViewingReminderVars = {
   שם: "דנה",
+  מתי: "היום",
   שעה: "17:30",
   תאריך: "27/08",
   כתובת: "הרצל 12, רעננה",
@@ -180,5 +182,37 @@ describe("ברירת המחדל", () => {
     );
     expect(DEFAULT_VIEWING_REMINDER_MESSAGES.occupant).toContain("מגיעים");
     expect(DEFAULT_VIEWING_REMINDER_MESSAGES.buyer).toContain("נפגשים");
+  });
+});
+
+describe("„היום” נכון רק כשזה באמת היום", () => {
+  const today = { date: "2026-08-27" };
+  const tomorrow = { date: "2026-08-28" };
+
+  it("אותו יום — „היום”", () => {
+    expect(viewingReminderWhenLabel({ date: "2026-08-27" }, today, tomorrow)).toBe("היום");
+  });
+
+  /*
+   * ‎**זה המקרה שהתקלה חיה בו.** ברירת המחדל של חמש שעות חוצה
+   * חצות: סיור ב-01:00 מקבל תזכורת ב-20:00 של אתמול, ו„היום” קבוע
+   * היה שולח את הלקוח ביום הלא נכון (ביקורת Codex).
+   */
+  it("היום שאחרי — „מחר”", () => {
+    expect(viewingReminderWhenLabel({ date: "2026-08-28" }, today, tomorrow)).toBe("מחר");
+  });
+
+  /*
+   * החלון ניתן להגדרה עד 48 שעות, ואז גם „מחר” אינו נכון.
+   */
+  it("רחוק יותר — התאריך עצמו", () => {
+    expect(viewingReminderWhenLabel({ date: "2026-08-29" }, today, tomorrow)).toBe("ב-29/08");
+  });
+
+  it("נוסחי ברירת המחדל משתמשים בתווית ולא במילה קבועה", () => {
+    for (const text of Object.values(DEFAULT_VIEWING_REMINDER_MESSAGES)) {
+      expect(text).toContain("{{מתי}}");
+      expect(text).not.toContain("היום");
+    }
   });
 });
