@@ -217,6 +217,52 @@ export function seesAllContacts(): boolean {
  * (`NOT EXISTS` באותה שאילתה עם ה-LIMIT), ולכן לא נשאר לה קורא:
  * מה שנשאר הוא השאלה על רשומה אחת, וזו הצורה שמופיעה כאן.
  */
+/**
+ * הכינויים המותרים לטבלה שעליה חל תנאי היתמות.
+ *
+ * ‎**איחוד סגור ולא `string`.** הכינוי נכנס לשאילתה דרך `Prisma.raw`,
+ * כלומר בלי פרמטר ובלי בריחה — הדרך היחידה שלא להשאיר את זה תלוי
+ * במשמעת הקורא היא שהטיפוס עצמו לא יאפשר ערך אחר.
+ */
+type OrphanAlias = "a" | "c" | "d";
+
+/**
+ * ‎**כלל היתמות בצורתו הקבוצתית — ניסוח אחד, שלושה קוראים.**
+ *
+ * אותו כלל בדיוק כמו `isOrphanContact`, בשפה שהמסד מבין: אין קונה
+ * חי, אין ליד, ואין נכס חי שהכרטיס הוא בעליו או דיירו. הצורה הזו
+ * קיימת כי רשימה חייבת להכריע יתמות **באותה שאילתה עם ה-LIMIT** —
+ * סינון אחרי השליפה מחזיר עמוד חסר.
+ *
+ * ‎**ולמה כפונקציה ולא שוב בגוף השאילתה.** התנאי היה כתוב במפורש
+ * בתוך `visibleCallsCondition`, ובאותו קובץ ישב `isOrphanContact`
+ * שאומר את אותו הדבר. שני ניסוחים של כלל אחד הם בדיוק מה שכבר קרה
+ * כאן פעם אחת: שלושה עותקים נפרדו זה מזה, תיקון עדכן שניים והשאיר
+ * את השלישי, ובעל נכס נחשף למי שמודול הנכסים חסום אצלו. ארכיון
+ * ההסכמים והסריקות היה העותק הרביעי.
+ *
+ * ‎**בלי סינון בעלות, במכוון.** „יתום” כאן פירושו שאיש **במשרד**
+ * אינו יכול להגיע אליו — לא „המשתמש הזה אינו יכול”. ארכיון המשרד
+ * הוא מוצא אחרון לשורה שאיש אינו מגיע אליה, וסינון לפי `view_own`
+ * היה מכניס אליו לקוחות חיים של עמיתים.
+ */
+export function orphanContactCondition(alias: OrphanAlias): Prisma.Sql {
+  const t = Prisma.raw(alias);
+  return Prisma.sql`
+    NOT EXISTS (SELECT 1 FROM buyers b
+                 WHERE b.tenant_id = ${t}.tenant_id
+                   AND b.contact_id = ${t}.contact_id
+                   AND b.deleted_at IS NULL)
+    AND NOT EXISTS (SELECT 1 FROM leads l
+                     WHERE l.tenant_id = ${t}.tenant_id
+                       AND l.contact_id = ${t}.contact_id)
+    AND NOT EXISTS (SELECT 1 FROM properties p
+                     WHERE p.tenant_id = ${t}.tenant_id
+                       AND (p.owner_contact_id = ${t}.contact_id
+                         OR p.occupant_contact_id = ${t}.contact_id)
+                       AND p.deleted_at IS NULL)`;
+}
+
 export async function isOrphanContact(
   tx: TenantTx,
   tenantId: string,
@@ -385,17 +431,6 @@ export function visibleCallsCondition(
       OR (c.created_by IS NULL AND c.contact_id IS NULL)
       OR (c.created_by = ${userId}
           AND c.contact_id IS NOT NULL
-          AND NOT EXISTS (SELECT 1 FROM buyers b
-                           WHERE b.tenant_id = c.tenant_id
-                             AND b.contact_id = c.contact_id
-                             AND b.deleted_at IS NULL)
-          AND NOT EXISTS (SELECT 1 FROM leads l
-                           WHERE l.tenant_id = c.tenant_id
-                             AND l.contact_id = c.contact_id)
-          AND NOT EXISTS (SELECT 1 FROM properties p
-                           WHERE p.tenant_id = c.tenant_id
-                             AND (p.owner_contact_id = c.contact_id
-                               OR p.occupant_contact_id = c.contact_id)
-                             AND p.deleted_at IS NULL))
+          AND ${orphanContactCondition("c")})
     )`;
 }

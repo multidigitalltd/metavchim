@@ -8,7 +8,11 @@ import {
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { AGREEMENT_KIND_LABELS, jerusalemDayStart, pendingAgreementRank, pendingAgreementState, REQUIRED_PLACEHOLDERS, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, type PendingAgreementState, whatsappLink } from "@metavchim/shared";
-import { assertContactAccess, visibleContactIds } from "../../common/ownership";
+import {
+  assertContactAccess,
+  orphanContactCondition,
+  visibleContactIds,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
@@ -753,11 +757,32 @@ export class AgreementsService {
     }[]
   > {
     const tenantId = TenantContext.current().tenantId;
+    /*
+     * ‎**„נותק” אינו התנאי — „איש אינו יכול להגיע אליו” הוא.**
+     *
+     * הארכיון סינן `contactId: null` בלבד, כלומר את מה שמחיקת לקוח
+     * ניתקה במפורש. אבל כרטיס יכול להפוך לבלתי-נגיש בלי שאיש ניתק
+     * אותו: `assertContactAccess` דורשת קונה חי, ליד או נכס חי,
+     * ומחיקת נכס לצמיתות מסירה את השלישי — אצל בעלים-בלבד זה
+     * היחיד. מאותו רגע ההסכם החתום שלו אינו נגיש מכרטיס הלקוח
+     * (הכרטיס מחזיר 404) ואינו נכנס לכאן, כלומר **ראיה משפטית
+     * שאיש אינו יכול להגיע אליה, למחוק אותה, או לדעת שהיא שם**.
+     *
+     * ‎`NOT EXISTS` **באותה שאילתה עם ה-LIMIT** ולא סינון אחריה:
+     * סינון אחרי השליפה מחזיר עמוד חסר. `orphanContactCondition`
+     * הוא אותו כלל של `isOrphanContact`, בניסוח אחד לכל הקוראים.
+     */
+    const ids = await tx.$queryRaw<{ id: string }[]>`
+      SELECT a.id FROM agreements a
+       WHERE a.tenant_id = ${tenantId}
+         AND a.status = 'signed'
+         AND (a.contact_id IS NULL OR ${orphanContactCondition("a")})
+       ORDER BY a.signed_at DESC NULLS LAST
+       LIMIT 500`;
     const rows = await tx.agreement.findMany({
-      where: { tenantId, contactId: null, status: "signed" },
+      where: { tenantId, id: { in: ids.map((row) => row.id) } },
       orderBy: { signedAt: "desc" },
       select: { id: true, kind: true, signerName: true, signedAt: true },
-      take: 500,
     });
     return rows.map((row) => ({
       id: row.id,

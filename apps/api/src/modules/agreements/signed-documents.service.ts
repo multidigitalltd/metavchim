@@ -12,7 +12,7 @@ import {
   type DocumentKind,
 } from "@metavchim/shared";
 import { lockContact, lockProperty } from "../../common/locks";
-import { assertContactAccess } from "../../common/ownership";
+import { assertContactAccess, orphanContactCondition } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -452,10 +452,24 @@ export class SignedDocumentsService {
   async listRetained(): Promise<SignedDocumentDto[]> {
     const tenantId = TenantContext.current().tenantId;
     const { rows, labels } = await this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**אותו תיקון בדיוק כמו בארכיון ההסכמים, ובאותו קומיט.**
+       *
+       * ‎`contactId: null` הוא „מחיקת לקוח ניתקה”, ולא „איש אינו
+       * יכול להגיע”. כרטיס בעלים-בלבד שנכסו נמחק לצמיתות מפסיק
+       * להיות נגיש בלי שאיש ניתק אותו, והסריקה שלו נפלה בין
+       * הכיסאות בדיוק כמו ההסכם הדיגיטלי. תיקון של אחת מהשתיים
+       * בלבד הוא הפער שנפער כאן מלכתחילה.
+       */
+      const ids = await tx.$queryRaw<{ id: string }[]>`
+        SELECT d.id FROM signed_documents d
+         WHERE d.tenant_id = ${tenantId}
+           AND (d.contact_id IS NULL OR ${orphanContactCondition("d")})
+         ORDER BY d.signed_on DESC NULLS LAST
+         LIMIT 500`;
       const found = await tx.signedDocument.findMany({
-        where: { tenantId, contactId: null },
+        where: { tenantId, id: { in: ids.map((row) => row.id) } },
         orderBy: { signedOn: "desc" },
-        take: 500,
       });
       /*
        * ‎**גם כאן זהות הנכס, ולא רק בכרטיס הלקוח.**
