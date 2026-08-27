@@ -260,6 +260,8 @@ const UpdateSettingsSchema = z
     /** תיבת התמיכה של הפלטפורמה — שרת Inbound נפרד מזה של המשרדים */
     supportInboundAddress: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
     supportInboundSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
+    /** ה-Server Token של שרת התמיכה — התשובות יוצאות דרכו */
+    supportServerToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     whatsappAppSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     whatsappVerifyToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     /** הסוכן האישי — טוקן קבוע של System User, לא הטוקן הזמני ממסך הפיתוח */
@@ -1321,6 +1323,7 @@ export class PlatformController {
       /** תיבת התמיכה של הפלטפורמה — שרת Inbound נפרד. */
       supportInboundAddress: string;
       supportInboundSecretSet: boolean;
+      supportServerTokenSet: boolean;
     };
     /** webhookUrl מוגדר פעם אחת במטא לכל הפלטפורמה — ולכן הוא כאן ולא בהגדרות המשרד. */
     whatsapp: {
@@ -1494,6 +1497,8 @@ export class PlatformController {
           "",
         supportInboundSecretSet:
           has("supportInboundSecret") || env.SUPPORT_INBOUND_SECRET !== undefined,
+        // ריק = התשובות יוצאות בטוקן הכללי, ועדיין מכתובת התמיכה
+        supportServerTokenSet: has("supportServerToken"),
       },
       whatsapp: {
         configured: waDb || waEnv,

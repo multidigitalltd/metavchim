@@ -108,9 +108,24 @@ export function SupportInboxSection() {
         const problem = (await res.json().catch(() => null)) as { message?: string } | null;
         throw new ApiError(res.status, problem?.message ?? "השליחה נכשלה", []);
       }
+      /*
+       * **"לא ידוע" אינו "נכשל".**
+       *
+       * פסק זמן או 5xx אצל הספק יכולים לקרות אחרי שההודעה כבר
+       * נקלטה אצלו ויצאה. מסך שאומר "נכשל" מזמין שליחה חוזרת,
+       * והפונה מקבל את אותה תשובה פעמיים.
+       */
+      const sent = (await res.json().catch(() => null)) as { state?: string } | null;
       setReply("");
       if (fileInput.current) fileInput.current.value = "";
-      setNotice({ tone: "success", text: "התשובה נשלחה" });
+      setNotice(
+        sent?.state === "unknown"
+          ? {
+              tone: "danger",
+              text: "לא התקבל אישור מספק הדואר — ייתכן שהתשובה יצאה. בדקו לפני שליחה חוזרת.",
+            }
+          : { tone: "success", text: "התשובה נשלחה" },
+      );
       await openThread(open.id);
     } catch (err: unknown) {
       setNotice({ tone: "danger", text: err instanceof ApiError ? err.message : "השליחה נכשלה" });

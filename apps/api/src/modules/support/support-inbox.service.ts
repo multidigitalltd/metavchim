@@ -17,7 +17,7 @@ import {
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
-import { EmailService } from "../../core/email.service";
+import { EmailRejectedError, EmailService } from "../../core/email.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
@@ -120,6 +120,7 @@ export class SupportInboxService {
     if (thread === null) return;
 
     const messageId = ulid();
+    let duplicate = false;
     try {
       await this.prisma.supportMessage.create({
         data: {
@@ -133,34 +134,31 @@ export class SupportInboxService {
       });
     } catch (error) {
       // אותה הודעה פעמיים (הספק שולח שוב על 5xx) — לא תקלה
-      if ((error as { code?: string }).code === "P2002") return;
-      throw error;
+      if ((error as { code?: string }).code !== "P2002") throw error;
+      duplicate = true;
     }
 
     /*
+     * **ניסיון חוזר ממשיך עד סוף העדכון, ולא חוזר כאן.**
+     *
+     * הסדר כאן הוא „הודעה, קבצים, ואז מצב השרשור”, ולכן כשל זמני
+     * בשלב האחרון משאיר הודעה שנכתבה בשרשור שנשאר **סגור ונקרא**.
+     * הספק שולח שוב — וההסתעפות הזו הייתה חוזרת מיד, כלומר מנציחה
+     * בדיוק את המצב שהניסיון החוזר בא לתקן: פנייה שיושבת בתחתית
+     * הרשימה ואיש אינו רואה אותה (ביקורת Codex).
+     *
+     * מה שכן מדולג הוא הקבצים בלבד: הם כבר נשמרו בסבב הקודם תחת
+     * מזהה ההודעה **שנוצר אז**, ושמירה חוזרת תחת מזהה חדש הייתה
+     * מכפילה אותם.
+     *
      * הקבצים נשמרים **אחרי** ההודעה ולא בטרנזקציה אחת איתה: העלאה
      * לאחסון היא קריאת רשת, וטרנזקציה שמחזיקה חיבור למסד לאורכה היא
      * בדיוק מה שנועל את המסד כשספק האחסון מאט. קובץ שנכשל מדולג —
      * הפנייה עצמה כבר נקלטה, וזה מה שחשוב.
      */
-    for (const attachment of incoming) {
-      const attachmentId = ulid();
-      const s3Key = `support/${thread.id}/${messageId}/${attachmentId}`;
-      try {
-        await this.storage.put(s3Key, attachment.content, attachment.contentType);
-        await this.prisma.supportAttachment.create({
-          data: {
-            id: attachmentId,
-            messageId,
-            kind: attachment.kind,
-            name: attachment.name,
-            contentType: attachment.contentType,
-            sizeBytes: attachment.content.length,
-            s3Key,
-          },
-        });
-      } catch (error) {
-        this.logger.error(`שמירת קובץ בפניית תמיכה נכשלה: ${String(error)}`);
+    if (!duplicate) {
+      for (const attachment of incoming) {
+        await this.storeAttachment(thread.id, messageId, attachment);
       }
     }
 
@@ -170,6 +168,49 @@ export class SupportInboxService {
       data: { lastMessageAt: new Date(), readAt: null, status: "open" },
     });
     this.logger.log(`פניית תמיכה נקלטה: ${thread.id}`);
+  }
+
+  /**
+   * שמירת קובץ אחד — לאחסון, ואז השורה שמצביעה עליו.
+   *
+   * **כשלון אחרי ההעלאה מוחק את מה שהועלה.** מחיקת משרד מוצאת את
+   * האובייקטים שלו דרך השורות במסד, ולכן אובייקט שנשאר בלי שורה
+   * אינו „קובץ יתום” בלבד — הוא נתון של לקוח ששרד מחיקה שהובטחה
+   * לו במלואה (ביקורת Codex).
+   *
+   * המחיקה עצמה נכשלת בשקט: כאן כבר טיפלנו בכשל אחד, ואי אפשר
+   * לתלות בו את קליטת הפנייה. מה שנשאר מדווח ביומן בשמו.
+   */
+  private async storeAttachment(
+    threadId: string,
+    messageId: string,
+    attachment: { kind: string; name: string; contentType: string; content: Buffer },
+  ): Promise<void> {
+    const attachmentId = ulid();
+    const s3Key = `support/${threadId}/${messageId}/${attachmentId}`;
+    let uploaded = false;
+    try {
+      await this.storage.put(s3Key, attachment.content, attachment.contentType);
+      uploaded = true;
+      await this.prisma.supportAttachment.create({
+        data: {
+          id: attachmentId,
+          messageId,
+          kind: attachment.kind,
+          name: attachment.name,
+          contentType: attachment.contentType,
+          sizeBytes: attachment.content.length,
+          s3Key,
+        },
+      });
+    } catch (error) {
+      this.logger.error(`שמירת קובץ בפניית תמיכה נכשלה: ${String(error)}`);
+      if (uploaded) {
+        await this.storage
+          .delete(s3Key)
+          .catch(() => this.logger.error(`ניקוי קובץ תמיכה שנשאר באחסון נכשל: ${s3Key}`));
+      }
+    }
   }
 
   /**
@@ -242,20 +283,44 @@ export class SupportInboxService {
       lastMessageAt: Date;
     }[]
   > {
-    const rows = await this.prisma.supportThread.findMany({
-      orderBy: [{ status: "asc" }, { lastMessageAt: "desc" }],
+    /*
+     * **הפתוחים נשלפים בשאילתה נפרדת, ולא לפי סדר האלפבית.**
+     *
+     * ‎`orderBy: { status: "asc" }` נראה כמו „פתוחים קודם” ואינו
+     * כזה: `closed` קטן מ-`open` לקסיקוגרפית, ולכן הוא דחף את כל
+     * הסגורים לראש. עם `take: 100` פירושו שמאה סגורים מוחקים מהמסך
+     * את כל מי שבאמת מחכה (ביקורת Codex). סדר שנשען על איות הערך
+     * הוא סדר שמשתנה כשמישהו יקרא לסטטוס בשם אחר.
+     *
+     * שתי שאילתות ולא ביטוי מחושב: התור הפתוח הוא מה שמסך התמיכה
+     * קיים בשבילו, והסגורים הם השלמה למי שיש מקום להציג.
+     */
+    const columns = {
+      id: true,
+      subject: true,
+      contactName: true,
+      contactEmail: true,
+      tenantId: true,
+      status: true,
+      readAt: true,
+      lastMessageAt: true,
+    } as const;
+    const open = await this.prisma.supportThread.findMany({
+      where: { status: "open" },
+      orderBy: { lastMessageAt: "desc" },
       take: 100,
-      select: {
-        id: true,
-        subject: true,
-        contactName: true,
-        contactEmail: true,
-        tenantId: true,
-        status: true,
-        readAt: true,
-        lastMessageAt: true,
-      },
+      select: columns,
     });
+    const closed =
+      open.length >= 100
+        ? []
+        : await this.prisma.supportThread.findMany({
+            where: { status: { not: "open" } },
+            orderBy: { lastMessageAt: "desc" },
+            take: 100 - open.length,
+            select: columns,
+          });
+    const rows = [...open, ...closed];
     const tenantIds = [...new Set(rows.map((row) => row.tenantId).filter((id) => id !== null))];
     const tenants =
       tenantIds.length > 0
@@ -344,7 +409,7 @@ export class SupportInboxService {
     threadId: string,
     body: string,
     files: { buffer: Buffer; originalname: string; mimetype: string; size: number }[] = [],
-  ): Promise<{ ok: true }> {
+  ): Promise<{ ok: true; state: "sent" | "unknown" }> {
     const thread = await this.prisma.supportThread.findUnique({ where: { id: threadId } });
     if (thread === null) throw new NotFoundException("הפנייה לא נמצאה");
     const rejection = supportReplyRejectionReason(thread);
@@ -375,22 +440,14 @@ export class SupportInboxService {
      */
     const replyTo = config === null ? null : replyAddressFor(config.address, thread.replyToken);
 
-    await this.email.send(
-      thread.contactEmail!,
-      thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`,
-      {
-        heading: "תשובה מהתמיכה",
-        paragraphs: body.trim() === "" ? ["מצורף:"] : body.trim().split("\n").filter(Boolean),
-      },
-      {
-        required: true,
-        ...(replyTo !== null ? { replyTo } : {}),
-        ...(attachments.length > 0
-          ? { attachments: attachments.map(({ name, contentType, content }) => ({ name, contentType, content })) }
-          : {}),
-      },
-    );
-
+    /*
+     * **הרשומה נכתבת לפני השליחה, ומאושרת אחריה.**
+     *
+     * אותו כלל שתוקן בתיבת המשרד, ובאותו נימוק: פעולה חיצונית
+     * בלתי הפיכה עטופה ברשומה עמידה. כשהסדר הפוך וכתיבת ההודעה
+     * נופלת, הפונה כבר קיבל תשובה שאין לה זכר בשרשור, מי שענה
+     * רואה שגיאה עם הטיוטה שמורה — ושולח שוב (ביקורת Codex).
+     */
     const messageId = ulid();
     await this.prisma.supportMessage.create({
       data: {
@@ -398,37 +455,89 @@ export class SupportInboxService {
         threadId,
         direction: "out",
         body: body.trim().slice(0, BODY_MAX),
+        sendState: "pending",
         createdBy: TenantContext.current().userId,
       },
     });
 
+    let state: "sent" | "unknown" = "sent";
+    try {
+      await this.email.send(
+        thread.contactEmail!,
+        thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`,
+        {
+          heading: "תשובה מהתמיכה",
+          paragraphs: body.trim() === "" ? ["מצורף:"] : body.trim().split("\n").filter(Boolean),
+        },
+        {
+          required: true,
+          /*
+           * **התשובה יוצאת מכתובת התמיכה עצמה.**
+           *
+           * בלי זה היא יוצאת מהשולח הכללי — `no-reply` — כלומר
+           * מזמינה את הפונה להשיב לכתובת שאיש אינו קורא, ומאבדת
+           * את השרשור שה-Reply-To בנה (ביקורת Codex).
+           */
+          ...(config === null ? {} : { sender: await this.sender(config.address) }),
+          ...(replyTo !== null ? { replyTo } : {}),
+          ...(attachments.length > 0
+            ? {
+                attachments: attachments.map(({ name, contentType, content }) => ({
+                  name,
+                  contentType,
+                  content,
+                })),
+              }
+            : {}),
+        },
+      );
+    } catch (error: unknown) {
+      /*
+       * **„נכשלה” רק כשידוע שלא יצאה** — אותה הבחנה כמו בתיבת
+       * המשרד. דחייה של הספק היא ודאות; פסק זמן ו-5xx אינם, וייתכן
+       * שהפונה כן קיבל. סימון הכול כ„נכשל” מזמין שליחה חוזרת.
+       */
+      const certainlyNotSent = error instanceof EmailRejectedError;
+      await this.prisma.supportMessage
+        .update({
+          where: { id: messageId },
+          data: { sendState: certainlyNotSent ? "failed" : "unknown" },
+        })
+        .catch(() => this.logger.error(`סימון מצב תשובת תמיכה נכשל: ${messageId}`));
+      if (certainlyNotSent) throw error;
+      // בתוצאה עמומה הקבצים נשמרים בכל זאת — ייתכן שהפונה קיבל אותם
+      state = "unknown";
+      this.logger.warn(`תשובת תמיכה הסתיימה בתוצאה עמומה: ${messageId} — ${String(error)}`);
+    }
+
+    if (state === "sent") {
+      await this.prisma.supportMessage
+        .update({ where: { id: messageId }, data: { sendState: "sent" } })
+        // המייל כבר יצא; כשל כאן הוא כשל בתיעוד ולא בשליחה
+        .catch(() => this.logger.error(`אישור שליחת תשובת תמיכה נכשל: ${messageId}`));
+    }
+
     for (const attachment of attachments) {
-      const attachmentId = ulid();
-      const s3Key = `support/${threadId}/${messageId}/${attachmentId}`;
-      try {
-        await this.storage.put(s3Key, attachment.content, attachment.contentType);
-        await this.prisma.supportAttachment.create({
-          data: {
-            id: attachmentId,
-            messageId,
-            kind: attachment.kind,
-            name: attachment.name,
-            contentType: attachment.contentType,
-            sizeBytes: attachment.content.length,
-            s3Key,
-          },
-        });
-      } catch (error) {
-        // המייל כבר יצא — כישלון שמירה כאן אינו הופך אותו ללא-נשלח
-        this.logger.error(`שמירת עותק הקובץ בתשובת תמיכה נכשלה: ${String(error)}`);
-      }
+      await this.storeAttachment(threadId, messageId, attachment);
     }
 
     await this.prisma.supportThread.update({
       where: { id: threadId },
       data: { lastMessageAt: new Date(), readAt: new Date() },
     });
-    return { ok: true };
+    return { ok: true, state };
+  }
+
+  /**
+   * השולח של תיבת התמיכה — הכתובת שקולטת היא גם הכתובת ששולחת.
+   *
+   * ‎`supportServerToken` הוא ה-Server Token של אותו שרת אצל הספק.
+   * כשהוא ריק התשובה יוצאת בטוקן הכללי, ועדיין **מכתובת התמיכה**:
+   * שרת אחד הוא הגדרה חסרה, לא סיבה לענות מ-`no-reply`.
+   */
+  private async sender(address: string): Promise<{ from: string; token?: string | undefined }> {
+    const token = (await this.settings.get("supportServerToken")) ?? "";
+    return { from: `תמיכה מתווכים <${address}>`, ...(token === "" ? {} : { token }) };
   }
 
   /** סגירה ופתיחה מחדש — הסטטוס הוא מה שמסדר את הרשימה. */

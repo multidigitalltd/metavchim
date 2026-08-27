@@ -36,6 +36,12 @@ export type PlatformSettingKey =
    */
   | "supportInboundAddress"
   | "supportInboundSecret"
+  /**
+   * ה-Server Token של אותו שרת תמיכה — התשובות יוצאות דרכו ולא
+   * דרך השרת של המשרדים. ריק = נשלח בטוקן הכללי; זה עדיין יוצא
+   * **מכתובת התמיכה**, רק דרך אותו שרת.
+   */
+  | "supportServerToken"
   | "whatsappAppSecret"
   | "whatsappVerifyToken"
   /**

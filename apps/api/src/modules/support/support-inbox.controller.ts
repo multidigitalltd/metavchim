@@ -115,7 +115,7 @@ export class SupportInboxDeskController {
     files:
       | { buffer: Buffer; originalname: string; mimetype: string; size: number }[]
       | undefined,
-  ): Promise<{ ok: true }> {
+  ): Promise<{ ok: true; state: "sent" | "unknown" }> {
     const attachments = files ?? [];
     if (body.body.trim() === "" && attachments.length === 0) {
       throw new BadRequestException("אין מה לשלוח");

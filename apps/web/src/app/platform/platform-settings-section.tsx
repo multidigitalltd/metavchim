@@ -32,6 +32,7 @@ interface PlatformSettings {
     /** תיבת התמיכה של הפלטפורמה — שרת Inbound נפרד. */
     supportInboundAddress: string;
     supportInboundSecretSet: boolean;
+    supportServerTokenSet: boolean;
   };
   whatsapp: {
     configured: boolean;
@@ -139,10 +140,12 @@ export function PlatformSettingsSection({
     const form = event.currentTarget;
     const f = new FormData(form);
     const secret = String(f.get("supportInboundSecret") ?? "").trim();
+    const serverToken = String(f.get("supportServerToken") ?? "").trim();
     try {
       await apiPatch("/platform/settings", {
         supportInboundAddress: String(f.get("supportInboundAddress") ?? "").trim(),
         ...(secret !== "" ? { supportInboundSecret: secret } : {}),
+        ...(serverToken !== "" ? { supportServerToken: serverToken } : {}),
       });
       form.reset();
       setMessage("✓ תיבת התמיכה נשמרה");
@@ -740,8 +743,32 @@ export function PlatformSettingsSection({
               style={inputStyle}
             />
           </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="supportServerToken" className="mb-1 block font-medium">
+              Server Token של שרת התמיכה{" "}
+              <span className="font-normal">
+                {settings.postmark.supportServerTokenSet ? "(ריק = ללא שינוי)" : "(לא חובה)"}
+              </span>
+            </label>
+            <input
+              id="supportServerToken"
+              name="supportServerToken"
+              type="password"
+              dir="ltr"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              placeholder={settings.postmark.supportServerTokenSet ? "••••••••" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
           <Button type="submit" disabled={busy}>שמור</Button>
         </form>
+        <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          התשובות יוצאות מכתובת ה-Inbound שלמעלה. בלי Server Token הן נשלחות דרך
+          השרת הכללי — עדיין מכתובת התמיכה, רק לא בזרם נפרד.
+        </p>
         <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
           כתובת ה-Webhook להדבקה בפוסטמרק נבנית מהסוד:{" "}
           <span dir="ltr" className="font-mono">

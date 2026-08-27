@@ -63,3 +63,11 @@ CREATE TABLE "support_attachments" (
 );
 
 CREATE INDEX "support_attachments_message_idx" ON "support_attachments" ("message_id");
+
+-- מצב השליחה של תשובת התמיכה: pending | sent | failed | unknown.
+--
+-- **הרשומה נכתבת לפני השליחה** ומאושרת אחריה. הסדר ההפוך — שולחים
+-- ואז כותבים — משאיר את הפונה עם תשובה שאין לה זכר אצלנו, ואת מי
+-- שענה עם מסך שאומר "נכשל"; הוא שולח שוב, והפונה מקבל פעמיים.
+-- NULL בהודעה נכנסת, שאין לה שליחה.
+ALTER TABLE "support_messages" ADD COLUMN "send_state" VARCHAR(10);
