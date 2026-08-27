@@ -1,12 +1,13 @@
 import { Body, Controller, Get, HttpCode, Param, Post } from "@nestjs/common";
 import { z } from "zod";
-import type { PlanDefinition } from "@metavchim/shared";
+import { IdSchema, type PlanDefinition } from "@metavchim/shared";
 import { AnyAuthenticated, BillingAllowed, RequireCapability } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { CardcomService } from "../../core/cardcom.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { BillingService } from "./billing.service";
+import { InvoiceService } from "./invoice.service";
 import { SubscriptionOfferService, type OfferView } from "./subscription-offer.service";
 
 const CheckoutSchema = z
@@ -51,6 +52,7 @@ export class BillingController {
     private readonly plans: PlanCatalogService,
     private readonly cardcom: CardcomService,
     private readonly offers: SubscriptionOfferService,
+    private readonly invoices: InvoiceService,
   ) {}
 
   @Get()
@@ -73,6 +75,21 @@ export class BillingController {
   @RequireCapability("billing.manage")
   async history(): Promise<Awaited<ReturnType<BillingService["history"]>>> {
     return this.billing.history(TenantContext.current().tenantId);
+  }
+
+  /**
+   * הורדת חשבונית מס קבלה — **הפניה לקישור טרי מלינט.**
+   *
+   * הקישור אינו נצחי, ולכן הוא נמשך בכל הורדה במקום להישמר במסך.
+   * המסמך עצמו יושב אצל ספק הפקת המסמכים; אנחנו מחזיקים את המזהה
+   * ואת מי שרשאי לראות אותו — כלומר מי שמנהל את החיוב של אותו משרד.
+   */
+  @Get("invoices/:id/download")
+  @RequireCapability("billing.manage")
+  async invoiceDownload(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ url: string }> {
+    return { url: await this.invoices.downloadUrl(id, TenantContext.current().tenantId) };
   }
 
   /**

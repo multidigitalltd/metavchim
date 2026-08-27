@@ -1,8 +1,10 @@
 import { Module } from "@nestjs/common";
 import { CardcomService } from "../../core/cardcom.service";
+import { LinetService } from "../../core/linet.service";
 import { BillingController } from "./billing.controller";
 import { BillingService } from "./billing.service";
 import { CardcomWebhookController } from "./cardcom-webhook.controller";
+import { InvoiceService } from "./invoice.service";
 import { NumberRentalController } from "./number-rental.controller";
 import { NumberRentalRenewalService } from "./number-rental-renewal.service";
 import { NumberRentalService } from "./number-rental.service";
@@ -19,8 +21,14 @@ import { SubscriptionOfferService } from "./subscription-offer.service";
     SubscriptionOfferService,
     NumberRentalService,
     NumberRentalRenewalService,
+    /*
+     * חשבוניות מס קבלה — השירות נושא גם את הסורק שמשלים מסמכים
+     * שנכשלו, ולכן הוא כאן ולא ב-core: הוא שייך לגבייה.
+     */
+    InvoiceService,
+    LinetService,
   ],
   // מיוצאים למסך הפלטפורמה: שם יוצרים הצעות ומנהלים השכרות מספרים
-  exports: [BillingService, SubscriptionOfferService, NumberRentalService],
+  exports: [BillingService, SubscriptionOfferService, NumberRentalService, InvoiceService, LinetService],
 })
 export class BillingModule {}

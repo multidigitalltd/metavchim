@@ -6,6 +6,7 @@ import { CardcomService } from "../../core/cardcom.service";
 import { CryptoService } from "../../core/crypto.service";
 import { EmailService } from "../../core/email.service";
 import { PrismaService } from "../../core/prisma.service";
+import { InvoiceService } from "./invoice.service";
 import { NumberRentalService } from "./number-rental.service";
 
 /**
@@ -34,6 +35,7 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly invoices: InvoiceService,
     private readonly cardcom: CardcomService,
     private readonly crypto: CryptoService,
     private readonly email: EmailService,
@@ -182,6 +184,9 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
           documentNumber: result.documentNumber,
         },
       });
+      // חשבונית על חידוש ההשכרה — נרשמת כחוב, והסורק מפיק אותה
+      await this.invoices.queueForPayment(paymentId);
+
       this.logger.log(
         `השכרת מספר חודשה: ${rental.number} של ${rental.tenantId} עד ${periodEnd.toISOString()}`,
       );

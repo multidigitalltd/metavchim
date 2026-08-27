@@ -1645,6 +1645,46 @@ model TaskRecurrence {
 }
 
 // התראה למתווך: נוצרת ע"י ה-Worker מאירועי דומיין (docs/02 §4 Notifications).
+/// חשבונית מס קבלה על תשלום שנגבה — מסמך אחד לכל תשלום.
+///
+/// **מחוץ ל-RLS, כמו `payments`**: זו רשומה של הפלטפורמה מול המשרד
+/// ולא נתון של המשרד, והיא נשמרת גם אחרי שהמשרד נמחק (מסמך מס
+/// בחובת שמירה). אין בה פרט אישי של לקוח קצה.
+model Invoice {
+  id             String    @id @db.Char(26)
+  tenantId       String    @map("tenant_id") @db.Char(26)
+  /// ייחודי — מה שהופך את ההפקה לאידמפוטנטית מול וובהוק שחוזר
+  paymentId      String    @unique @map("payment_id") @db.Char(26)
+  /// הקשר מוצהר כדי שאפשר יהיה לשאול "תשלום ששולם ואין לו מסמך" —
+  /// התקלה השקטה שבלי השאילתה הזו אין דרך לראות.
+  payment        Payment   @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  provider       String    @default("linet") @db.VarChar(20)
+  /// pending | issued | failed
+  status         String    @default("pending") @db.VarChar(20)
+  /// המזהה אצל הספק — הוא שפותח את המסמך (`/print/doc/{id}`)
+  documentId     String?   @map("document_id") @db.VarChar(60)
+  /// מספר ההקצאה שמופיע בספרים ובעיני הלקוח
+  documentNumber String?   @map("document_number") @db.VarChar(40)
+  documentUrl    String?   @map("document_url") @db.VarChar(500)
+  /// הסכום שנגבה ופירוקו — נשמרים ולא מחושבים מחדש: שיעור המע"מ
+  /// משתנה בחקיקה, ומסמך משנה שעברה חייב להישאר קריא לפי מה שהיה.
+  grossAgorot    Int       @map("gross_agorot")
+  netAgorot      Int       @map("net_agorot")
+  vatAgorot      Int       @map("vat_agorot")
+  vatPercent     Int       @map("vat_percent")
+  description    String    @db.VarChar(200)
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime? @map("next_attempt_at")
+  lastError      String?   @map("last_error") @db.VarChar(300)
+  issuedAt       DateTime? @map("issued_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, nextAttemptAt])
+  @@index([tenantId, createdAt])
+  @@map("invoices")
+}
+
 model Notification {
   id         String    @id @db.Char(26)
   tenantId   String    @map("tenant_id") @db.Char(26)
@@ -1917,6 +1957,8 @@ model Payment {
   createdBy           String?   @map("created_by") @db.Char(26)
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  invoice             Invoice?
 
   @@index([tenantId, createdAt])
   @@map("payments")
