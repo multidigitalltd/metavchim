@@ -662,6 +662,20 @@ export class EmailInboxService {
           }),
         )
         .catch(() => this.logger.error(`סימון מצב תשובה נכשל: ${messageId}`));
+      /*
+       * ‎**בתוצאה עמומה הקבצים נשמרים בכל זאת.**
+       *
+       * ‎`unknown` פירושו שייתכן שהספק קלט ושלח — כלומר ייתכן שהלקוח
+       * קיבל את הקבצים. רשומה שמצהירה „לא ידוע אם נשלחה” ומציגה
+       * רשימת קבצים **ריקה** משאירה את הסוכן בלי לדעת מה אולי הגיע,
+       * ברגע שהטיוטה בדפדפן נסגרת (ביקורת Codex).
+       *
+       * בדחייה ודאית אין מה לשמור: שום דבר לא יצא, והרשומה כבר
+       * אומרת „לא נשלחה”.
+       */
+      if (!certainlyNotSent) {
+        await this.storeOutgoingCopies(tenantId, messageId, outgoing);
+      }
       throw error;
     }
 
@@ -689,8 +703,20 @@ export class EmailInboxService {
       );
     }
 
-    // עותקי הקבצים נשמרים גם אצלנו — מה שנשלח ללקוח מופיע בשיחה,
-    // מחוץ לטרנזקציה מאותה סיבה כמו בקליטה
+    await this.storeOutgoingCopies(tenantId, messageId, outgoing);
+  }
+
+  /**
+   * עותקי הקבצים שנשלחו — אצלנו, כדי שמה שהלקוח קיבל יופיע בשיחה.
+   *
+   * מחוץ לטרנזקציה מאותה סיבה כמו בקליטה: העלאה של עשרות MB בתוך
+   * טרנזקציה פתוחה מחזיקה חיבור מסד לאורך ההעלאה.
+   */
+  private async storeOutgoingCopies(
+    tenantId: string,
+    messageId: string,
+    outgoing: readonly { name: string; contentType: string; kind: string; content: Buffer }[],
+  ): Promise<void> {
     for (const file of outgoing) {
       const attachmentId = ulid();
       const s3Key = `tenants/${tenantId}/email-attachments/${messageId}/${attachmentId}`;

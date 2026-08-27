@@ -252,3 +252,38 @@ describe("הסמן והקונים שנדחו", () => {
     expect(body("eligibleMatches")).toMatch(/cursor = deferred \? \(lastTaken \?\? cursor\)/u);
   });
 });
+
+/**
+ * ‎**הסמן והחותמת שייכים לאותה תקופת הפעלה — בשני קבצים.**
+ *
+ * ‎`autoEmailOffersSince` נמחק בכיבוי, כדי שהדלקה מחדש תפתח קו
+ * „מכאן והלאה” נקי. הסמן נוסף מאוחר יותר, בקובץ אחר, ולא הצטרף
+ * למחיקה: הדלקה מחדש קיבלה חותמת חדשה ו**מיקום סריקה ישן**.
+ * ההתאמות החדשות נכנסות לפי ציון, כלומר לפני הסמן — והן דולגו עד
+ * שהסורק יסיים סיבוב שלם (ביקורת Codex).
+ *
+ * זו בדיוק משפחת הצימוד שבדיקה מבנית זולה תופסת: שני שדות שחייבים
+ * לחיות ולמות יחד, ונכתבים במקומות שונים.
+ */
+describe("איפוס הסמן בכיבוי", () => {
+  const SETTINGS = readFileSync(
+    join(import.meta.dirname, "..", "settings", "settings.controller.ts"),
+    "utf8",
+  );
+
+  it("הקובץ נקרא ומכיל את הכיבוי — אחרת הבדיקה בודקת מחרוזת ריקה", () => {
+    expect(SETTINGS).toContain('delete settings["autoEmailOffersSince"]');
+  });
+
+  it("הכיבוי מוחק גם את הסמן", () => {
+    expect(SETTINGS).toContain('delete settings["autoEmailOffersCursor"]');
+  });
+
+  /*
+   * והשם זהה בשני הצדדים: מפתח שיישתנה בקובץ אחד ולא בשני היה
+   * משאיר מחיקה שאינה מוחקת דבר — שורה שנראית כמו כיסוי.
+   */
+  it("אותו מפתח בדיוק שהסורק קורא וכותב", () => {
+    expect(SOURCE).toContain("autoEmailOffersCursor");
+  });
+});

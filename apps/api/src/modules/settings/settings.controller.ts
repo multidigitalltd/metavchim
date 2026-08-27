@@ -872,7 +872,19 @@ export class SettingsController {
     if (body.autoEmailOffers === true && settings["autoEmailOffersSince"] === undefined) {
       settings["autoEmailOffersSince"] = new Date().toISOString();
     }
-    if (body.autoEmailOffers === false) delete settings["autoEmailOffersSince"];
+    if (body.autoEmailOffers === false) {
+      delete settings["autoEmailOffersSince"];
+      /*
+       * ‎**וגם סמן הסריקה — הוא שייך לתקופת ההפעלה שהסתיימה.**
+       *
+       * הסמן מציין מיקום ברשימת ההתאמות הממוינת לפי ציון. הדלקה
+       * מחדש פותחת קו „מכאן והלאה” חדש, וההתאמות החדשות שנוצרות
+       * אחריו נכנסות לפי ציון — כלומר **לפני** סמן ישן. בלי האיפוס
+       * הזה הן היו מדולגות עד שהסורק יסיים סיבוב שלם, ובמשרד גדול
+       * זה המון סבבים (ביקורת Codex).
+       */
+      delete settings["autoEmailOffersCursor"];
+    }
 
     try {
       await this.prisma.tenant.update({
