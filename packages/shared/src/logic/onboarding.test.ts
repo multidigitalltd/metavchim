@@ -8,6 +8,8 @@ const EMPTY: OnboardingFacts = {
   buyers: 0,
   leadWebhookConfigured: false,
   whatsappConfigured: false,
+  emailDomainVerified: false,
+  emailDomainAvailable: true,
   transcriptionAvailable: false,
 };
 
@@ -18,6 +20,8 @@ const FULL: OnboardingFacts = {
   buyers: 30,
   leadWebhookConfigured: true,
   whatsappConfigured: true,
+  emailDomainVerified: true,
+  emailDomainAvailable: true,
   transcriptionAvailable: true,
 };
 
@@ -72,5 +76,69 @@ describe("onboardingSteps", () => {
       expect(step.why.length).toBeGreaterThan(20);
       expect(step.href.startsWith("/")).toBe(true);
     }
+  });
+});
+
+describe("שליחה מהדומיין של המשרד", () => {
+  /*
+   * ‎**לא חיוני, ובכוונה.** משרד יכול לעבוד במלואו בלי דומיין משלו
+   * — המיילים יוצאים מכתובת המערכת — ולכן החסימה של "מוכן" תישאר
+   * למה שבלעדיו המערכת באמת לא עובדת. הצעד כאן דוחף, לא חוסם.
+   */
+  it("הצעד קיים ואינו חיוני", () => {
+    const step = onboardingSteps(EMPTY).steps.find((s) => s.key === "email_domain");
+    expect(step).toBeDefined();
+    expect(step?.essential).toBe(false);
+    expect(step?.done).toBe(false);
+  });
+
+  it("דומיין מאומת מסמן את הצעד כבוצע", () => {
+    const step = onboardingSteps({ ...EMPTY, emailDomainVerified: true }).steps.find(
+      (s) => s.key === "email_domain",
+    );
+    expect(step?.done).toBe(true);
+  });
+
+  /*
+   * ההסבר עונה על "למה שווה לי", ולא על "מה לעשות" — אותו כלל
+   * כמו בשאר הצעדים, והוא מה שמבדיל רשימה שמניעה לפעולה מרשימת
+   * מטלות.
+   */
+  it("ההסבר מדבר על מה שהמשרד מרוויח", () => {
+    const step = onboardingSteps(EMPTY).steps.find((s) => s.key === "email_domain");
+    expect(step?.why).toContain("הכתובת של המשרד");
+    // עוגן ולא ראש המסך — הקישור נוחת על הפקד עצמו
+    expect(step?.href).toBe("/settings#email-domain");
+  });
+
+  /*
+   * ‎**פריסה בלי טוקן חשבון אצל הספק — הצעד נעלם, לא „טרם בוצע”.**
+   *
+   * נתיב החיבור דוחה שם את הבקשה במפורש, ולכן הצגת הצעד הייתה
+   * מפנה את המשרד למסך שאומר „הפיצ'ר אינו מופעל”, ובדרך גם מורידה
+   * לו את אחוז ההתקדמות על משהו שאינו בשליטתו (ביקורת Codex).
+   */
+  it("ספק שאינו מחובר משמיט את הצעד לגמרי", () => {
+    const progress = onboardingSteps({ ...EMPTY, emailDomainAvailable: false });
+    expect(progress.steps.some((s) => s.key === "email_domain")).toBe(false);
+  });
+
+  it("ההשמטה אינה נספרת כצעד שלא בוצע", () => {
+    const withStep = onboardingSteps(EMPTY);
+    const without = onboardingSteps({ ...EMPTY, emailDomainAvailable: false });
+    expect(without.totalCount).toBe(withStep.totalCount - 1);
+    expect(without.percent).toBe(0);
+  });
+
+  /*
+   * ‎**„מוכן” אינו תלוי בצעד הזה בשום כיוון.** הוא אינו חיוני, ולכן
+   * גם השמטתו אינה משנה את הבאנר — מי שהשלים את החיוניים מוכן, עם
+   * ספק מחובר ובלעדיו.
+   */
+  it("השמטת הצעד אינה משנה את „מוכן”", () => {
+    const full = onboardingSteps(FULL);
+    const noProvider = onboardingSteps({ ...FULL, emailDomainAvailable: false });
+    expect(noProvider.ready).toBe(full.ready);
+    expect(noProvider.percent).toBe(100);
   });
 });
