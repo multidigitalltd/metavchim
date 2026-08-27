@@ -35,6 +35,7 @@ export * from "./logic/csv-import-buyers.js";
 export * from "./logic/csv-export.js";
 export * from "./logic/stt-segment.js";
 export * from "./logic/lead-waiting.js";
+export * from "./logic/agreement-pending.js";
 export * from "./logic/agreement-template.js";
 export * from "./logic/onboarding.js";
 export * from "./logic/backup-file.js";
@@ -103,6 +104,7 @@ export * from "./agent/actions.js";
 export * from "./agent/schema.js";
 export * from "./agent/prompt.js";
 export * from "./agent/history.js";
+export * from "./agent/next-step.js";
 export * from "./agent/proposal.js";
 export * from "./agent/result-lines.js";
 

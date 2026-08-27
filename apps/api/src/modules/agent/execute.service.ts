@@ -1,6 +1,11 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import {
   AGENT_ACTIONS,
+  MARKETING_ACTION_KINDS,
+  MARKETING_ACTION_LABEL,
+  agentNextSteps,
+  jerusalemWallParts,
+  type MarketingActionKind,
   agentAction,
   AGENT_RESULT_LABEL_MAX,
   jerusalemDayRange,
@@ -17,7 +22,15 @@ import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
 import { GeminiService } from "../../core/gemini.service";
 import { AgentEventsService } from "./agent-events.service";
+import {
+  DISMISS_REASON_LABEL,
+  PENDING_AGREEMENT_LABEL,
+  PENDING_AGREEMENT_MEANING,
+  type DismissReason,
+  type PendingAgreementState,
+} from "@metavchim/shared";
 import { AgreementsService } from "../agreements/agreements.service";
+import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { EmailInboxService } from "../email-inbox/email-inbox.service";
 import { AnalyticsService, type ReportWindowDays } from "../analytics/analytics.service";
@@ -26,9 +39,12 @@ import { BuyersService } from "../buyers/buyers.service";
 import { CalendarService } from "../calendar/calendar.service";
 import type { Readable } from "node:stream";
 import { CallsService, type CallDto } from "../calls/calls.service";
+import { CollaborationService } from "../collaboration/collaboration.service";
 import { DealRoomService } from "../collaboration/deal-room.service";
 import { LeadsService } from "../leads/leads.service";
 import { MATCH_LIST_LIMIT, MatchingService } from "../matching/matching.service";
+import { NotificationsService } from "../notifications/notifications.service";
+import { OffersService } from "../offers/offers.service";
 import { PropertiesService } from "../properties/properties.service";
 import { SearchService } from "../search/search.service";
 import { TasksService } from "../tasks/tasks.service";
@@ -115,6 +131,11 @@ export interface ExecuteResult {
    * צעד המשך מוצע — משפט פקודה שהמתווך יכול לומר עכשיו ("קבע סיור
    * לראשון מהם"). תצוגה בלבד: לחיצה עליו שולחת אותו לאותו מסלול
    * הבנה⟵אישור כמו כל משפט, שום דבר אינו מבוצע ישירות.
+   *
+   * ‎**מקורו נגזר, ורק בהיעדר כלל — מנוסח.** `agentNextSteps`
+   * מחשב אותו מהתוצאה שכבר חזרה, בלי קריאה למודל ובלי חיתוך;
+   * ההצעה מהמודל נשארת כרשת ביטחון לפעולות שאין להן כלל. ראו
+   * ‎`next-step.ts` — שם גם הסיבה שהסדר הזה ולא ההפוך.
    */
   suggestion?: string;
   /**
@@ -167,6 +188,28 @@ function page<T>(rows: T[], total: number, limit: number): { matches: T[]; hasMo
   return { matches: rows.slice(0, limit), hasMore: total > limit };
 }
 
+/**
+ * שורת בלעדיות כפי שהיא מוצגת — **שדות שכבר קיימים, בשם אחד.**
+ *
+ * ‎`list()` מחזירה `ExclusivityListItem` ו-`current()` מחזירה DTO
+ * מלא. שתיהן נושאות את אותם ארבעה דברים שהתשובה צריכה, ובלי
+ * הצמצום כאן כל ערוץ היה בורר מהן בעצמו — וזו בדיוק הכפילות
+ * ש-`result-lines` קיים כדי למנוע.
+ */
+function exclusivityRow(item: {
+  propertyTitle?: string;
+  daysLeft: number;
+  missing: number;
+  summary: string;
+}): Record<string, unknown> {
+  return {
+    ...(item.propertyTitle === undefined ? {} : { propertyTitle: item.propertyTitle }),
+    daysLeft: item.daysLeft,
+    missing: item.missing,
+    summary: item.summary,
+  };
+}
+
 @Injectable()
 export class AgentExecuteService {
   constructor(
@@ -181,11 +224,15 @@ export class AgentExecuteService {
     private readonly calls: CallsService,
     private readonly analytics: AnalyticsService,
     private readonly dealRooms: DealRoomService,
+    private readonly collaboration: CollaborationService,
+    private readonly exclusivity: ExclusivityService,
     private readonly resolver: AgentResolveService,
     private readonly gemini: GeminiService,
     private readonly events: AgentEventsService,
     private readonly agreements: AgreementsService,
     private readonly contacts: ContactsService,
+    private readonly offers: OffersService,
+    private readonly notifications: NotificationsService,
     private readonly emailInbox: EmailInboxService,
   ) {}
 
@@ -220,6 +267,23 @@ export class AgentExecuteService {
 
     const result = await this.dispatch(actionId, params);
     const final = await this.withInsight(actionId, transcript, result);
+    /*
+     * ‎**הצעד הנגזר גובר על זה שנוסח.**
+     *
+     * ‎`withInsight` שולח את התוצאה למודל ומבקש „משפט פקודה שאפשר
+     * לומר עכשיו”. זה עבד, אבל על JSON חתוך ובלי ערובה שהשם שיצא
+     * ממנו קיים בכלל. כאן הצעד מחושב מהתוצאה עצמה, ולכן כשיש כלל
+     * הוא הנכון — והניסוח נשאר למקרים שאין להם.
+     */
+    const derived = agentNextSteps(
+      actionId,
+      { ...(final.data === undefined ? {} : { data: final.data }), ...(final.ref === undefined ? {} : { ref: final.ref }) },
+      AGENT_ACTIONS.filter((a) => mayUseAction(a, TenantContext.current().capabilities)).map(
+        (a) => a.id,
+      ),
+      new Date(),
+    )[0];
+    if (derived !== undefined) final.suggestion = derived.text;
     /*
      * הביצוע נרשם ביומן המשימות — הפרמטרים שאושרו ותקציר התוצאה,
      * בלי `data` (תוצאות שאילתה שלמות היו מנפחות את היומן בהעתק
@@ -257,7 +321,7 @@ export class AgentExecuteService {
       case "show_schedule":
         return this.showSchedule(params);
       case "show_tasks":
-        return this.showTasks();
+        return this.showTasks(params);
       case "show_card":
         return this.showCard(params);
       case "play_recording":
@@ -300,6 +364,22 @@ export class AgentExecuteService {
         return this.sendAgreement(params);
       case "send_email":
         return this.sendEmail(params);
+      case "show_exclusivity":
+        return this.showExclusivity(params);
+      case "log_marketing_action":
+        return this.logMarketingAction(params);
+      case "show_agreements":
+        return this.showAgreements();
+      case "show_offers":
+        return this.showOffers(params);
+      case "show_demands":
+        return this.showDemands(params);
+      case "show_notifications":
+        return this.showNotifications();
+      case "dismiss_match":
+        return this.dismissMatch(params);
+      case "assign_task":
+        return this.assignTask(params);
       default:
         throw new BadRequestException("פעולה לא מוכרת");
     }
@@ -573,11 +653,27 @@ export class AgentExecuteService {
     };
   }
 
-  private async showTasks(): Promise<ExecuteResult> {
-    const tasks = await this.tasks.list({ status: "open" });
+  private async showTasks(params: Record<string, unknown>): Promise<ExecuteResult> {
+    /*
+     * ‎**סינון לפי סוכן — למי שרואה את לוח המשרד.**
+     *
+     * ‎`TasksService.list` אוכף `scopeFilter` בעצמו: מי שאין לו
+     * ‎`tasks.view_all` רואה רק את שלו, וגם אם ינקוב בשם של עמית לא
+     * יקבל דבר. כלומר הסינון כאן מצמצם ואינו מרחיב, וההרשאה נשארת
+     * במקום היחיד שאוכף אותה.
+     */
+    const assignee = str(params["assigneeId"]);
+    const tasks = await this.tasks.list({
+      status: "open",
+      ...(assignee === undefined ? {} : { assignee }),
+    });
+    const whose = assignee === undefined ? "" : " לסוכן שנבחר";
     return {
       href: "/tasks",
-      message: tasks.length === 0 ? "אין משימות פתוחות" : `${tasks.length} משימות פתוחות`,
+      message:
+        tasks.length === 0
+          ? `אין משימות פתוחות${whose}`
+          : `${tasks.length} משימות פתוחות${whose}`,
       data: {
         tasks: tasks.map((t) => ({
           id: t.id,
@@ -586,6 +682,276 @@ export class AgentExecuteService {
           ...(t.entityLabel !== undefined ? { entityLabel: t.entityLabel } : {}),
         })),
       },
+    };
+  }
+
+  /**
+   * ‎**„מי לא חתם” — והכשל השקט שמתחתיו.**
+   *
+   * ‎`hasSigned` חוסמת הצעה ללקוח בלי הזמנה בכתב, כנדרש בחוק
+   * המתווכים §9. החסימה נכונה והיא גם **בלתי נראית**: המתווך אינו
+   * מקבל שגיאה, ההצעות פשוט אינן יוצאות. השורה שמסבירה למה נמצאת
+   * כאן.
+   *
+   * הרשימה ממוינת לפי מה שדורש פעולה — „נפתח ולא נחתם” ראשון,
+   * „הקישור פג” אחריו — ולא לפי תאריך. ראו `listPending`.
+   */
+  private async showAgreements(): Promise<ExecuteResult> {
+    const rows = await this.prisma.withTenant((tx) =>
+      this.agreements.listPending(tx, new Date()),
+    );
+    if (rows.length === 0) {
+      return { href: "/offers", message: "כל מי שנשלח אליו הסכם — חתם", data: { agreements: [] } };
+    }
+    const byState = new Map<PendingAgreementState, number>();
+    for (const row of rows) byState.set(row.state, (byState.get(row.state) ?? 0) + 1);
+    /*
+     * ‎**מסקנה ולא רק ספירה.** „7 לא חתמו” אינו ניתן לפעולה; „3 פתחו
+     * ולא חתמו, 2 פג להם הקישור” אומר למי להתקשר ולמי לשלוח שוב.
+     */
+    const summary = [...byState.entries()]
+      .map(([state, count]) => `${count} ${PENDING_AGREEMENT_LABEL[state]}`)
+      .join(" · ");
+    return {
+      href: "/offers",
+      message: `${rows.length} ממתינים לחתימה — ${summary}`,
+      data: {
+        agreements: rows.map((row) => ({
+          contactName: row.contactName,
+          kindLabel: row.kindLabel,
+          state: PENDING_AGREEMENT_LABEL[row.state],
+          meaning: PENDING_AGREEMENT_MEANING[row.state],
+          ...(row.daysWaiting === null ? {} : { daysWaiting: row.daysWaiting }),
+          ...(row.url === null ? {} : { url: row.url }),
+        })),
+      },
+    };
+  }
+
+  /**
+   * ‎**„מי פתח ולא הגיב” — האות היקר ביותר שהמערכת מודדת.**
+   *
+   * ‎`openCount` נספר בדף הציבורי של ההצעה. קונה שפתח ארבע פעמים
+   * ולא הגיב אינו „לא מעוניין” — הוא מתלבט, וזה הרגע שבו שיחה
+   * מכריעה. הנתון היה במסך ולא היה נגיש בשאלה.
+   */
+  private async showOffers(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const rows = await this.offers.listAll({ limit: 100 });
+    if (rows.length === 0) {
+      return { href: "/offers", message: "לא נשלחו הצעות", data: { offers: [] } };
+    }
+
+    /*
+     * ‎**המסננים הם שאלות, לא עמודות.** „נפתחה ולא נענתה” הוא סטטוס
+     * ‎`opened` — `interested` ו-`declined` כבר יצאו ממנו — ו„ממתינה”
+     * הוא שניים (`sent`, `delivered`). מיפוי כאן ולא חשיפת שמות
+     * הטבלה לסוכן קולי.
+     */
+    const FILTERS: Record<string, (row: (typeof rows)[number]) => boolean> = {
+      opened_no_reply: (row) => row.status === "opened",
+      interested: (row) => row.status === "interested",
+      declined: (row) => row.status === "declined",
+      failed: (row) => row.status === "email_failed",
+      waiting: (row) => row.status === "sent" || row.status === "delivered",
+    };
+    const filterKey = str(params["offerFilter"]);
+    const filter = filterKey === undefined ? undefined : FILTERS[filterKey];
+    const shown = filter === undefined ? rows : rows.filter(filter);
+
+    /*
+     * ‎**התמונה נמדדת על הכול, גם כשמסננים.** „2 הצעות” אחרי סינון
+     * בלי לומר מתוך כמה קורא כאילו המשרד שלח שתיים.
+     */
+    const counts = Object.entries(FILTERS)
+      .map(([key, test]) => [key, rows.filter(test).length] as const)
+      .filter(([, count]) => count > 0);
+    const LABEL: Record<string, string> = {
+      opened_no_reply: "נפתחו ולא נענו",
+      interested: "מעוניינים",
+      declined: "לא רלוונטי",
+      failed: "השליחה נכשלה",
+      waiting: "ממתינות",
+    };
+    const summary = counts.map(([key, count]) => `${count} ${LABEL[key]}`).join(" · ");
+
+    return {
+      href: "/offers",
+      message:
+        shown.length === 0
+          ? `אין הצעות במצב הזה. מתוך ${rows.length} הצעות: ${summary}`
+          : `${rows.length} הצעות — ${summary}`,
+      data: {
+        offers: shown.slice(0, MATCH_LIST_LIMIT).map((row) => ({
+          title: row.title,
+          // קונה של סוכן אחר — ההצעה מוצגת, השם לא. אותו כלל כמו במסך
+          ...(row.buyerName === null ? {} : { buyerName: row.buyerName }),
+          status: LABEL[Object.keys(FILTERS).find((k) => FILTERS[k]!(row)) ?? ""] ?? row.status,
+          openCount: row.openCount,
+          ...(row.sentAt === undefined ? {} : { sentAt: row.sentAt }),
+        })),
+      },
+    };
+  }
+
+  /**
+   * ‎**ביקושי הרשת — „למי יש לי נכס”, לא „מה ביקשו”.**
+   *
+   * הפיד כבר מחשב לכל ביקוש את ההתאמות מתוך הנכסים של המשרד באותו
+   * מנוע ניקוד של ההתאמות הפנימיות. רשימת בקשות בלי זה הייתה מחייבת
+   * את המתווך לעבור עליהן ולנחש.
+   */
+  private async showDemands(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const cities = strList(params["cities"]);
+    /*
+     * ‎**עיר אחת נשלחת לשרת; כמה — מסוננות כאן.**
+     *
+     * ‎`NetworkFilter.q` הוא מחרוזת אחת, ו-`demandFilterWhere` משווה
+     * אותה ל-`cities: { has: <המחרוזת השלמה> }`. „גבעתיים רמת גן”
+     * היה מחפש עיר ששמה כך, כלומר מחזיר כלום על שאלה תקינה. עיר
+     * אחת עוברת בשרת ולכן סורקת את כל הפיד; כמה ערים מסוננות מתוך
+     * מאה השורות האחרונות, וזו מגבלה אמיתית שעדיף עליה מאשר תשובה
+     * ריקה שגויה.
+     */
+    const single = cities.length === 1 ? cities[0]! : null;
+    const feed = await this.collaboration.listDemands(single === null ? {} : { q: single });
+    const rows =
+      cities.length > 1
+        ? feed.filter((row) => row.cities.some((city) => cities.includes(city)))
+        : feed;
+    const where = cities.length > 0 ? ` ב${cities.join(" / ")}` : "";
+    if (rows.length === 0) {
+      return {
+        href: "/collaboration",
+        message: `אין ביקושים פעילים ברשת${where}`,
+        data: { demands: [] },
+      };
+    }
+    /*
+     * ‎**„יש לי נכס בשבילו” הוא הסינון, וגם הסדר.**
+     *
+     * ‎`myMatches` מחושב בפיד עצמו מאותו מנוע ניקוד של ההתאמות
+     * הפנימיות — לא ניחוש ולא טקסט. ביקוש בלי אף התאמה הוא רקע,
+     * ולכן הוא יורד למטה ואינו נעלם: „אין לך נכס מתאים” הוא תשובה,
+     * ורשימה מסוננת לגמרי הייתה נראית כאילו הרשת ריקה.
+     */
+    const count = (row: (typeof rows)[number]): number => row.myMatches?.length ?? 0;
+    const withMatch = rows.filter((row) => count(row) > 0);
+    return {
+      href: "/collaboration",
+      message:
+        withMatch.length === 0
+          ? `${rows.length} ביקושים ברשת${where} — אין לך נכס שמתאים לאף אחד מהם`
+          : `${withMatch.length} ביקושים${where} שיש לך נכס בשבילם, מתוך ${rows.length}`,
+      data: {
+        demands: [...withMatch, ...rows.filter((row) => count(row) === 0)]
+          .slice(0, MATCH_LIST_LIMIT)
+          .map((row) => ({
+            /*
+             * ‎**שם המשרד, ובהיעדרו תג המקור.** לביקוש מ-Kanko אין
+             * ‎`officeName` — הוא אינו משרד תיווך — ונפילה ל„משרד
+             * ברשת” הייתה מציגה מקור חיצוני כעמית.
+             */
+            office: row.officeName ?? row.sourceLabel,
+            cities: row.cities,
+            ...(row.roomsMin === undefined ? {} : { roomsMin: row.roomsMin }),
+            ...(row.roomsMax === undefined ? {} : { roomsMax: row.roomsMax }),
+            ...(row.budgetMaxAgorot === undefined
+              ? {}
+              : { budgetMaxAgorot: row.budgetMaxAgorot }),
+            matchCount: count(row),
+          })),
+      },
+    };
+  }
+
+  /** „מה חדש” — מה שטרם נקרא בלבד. ראו `NotificationsService.unread`. */
+  private async showNotifications(): Promise<ExecuteResult> {
+    const { items, unreadCount } = await this.notifications.unread(MATCH_LIST_LIMIT);
+    return {
+      href: "/notifications",
+      message: unreadCount === 0 ? "אין התראות חדשות" : `${unreadCount} התראות חדשות`,
+      data: {
+        notifications: items.map((item) => ({
+          title: item.title,
+          ...(item.body === undefined ? {} : { body: item.body }),
+          createdAt: item.createdAt,
+        })),
+      },
+    };
+  }
+
+  /**
+   * ‎**„לא מתאים לו” — עם הסיבה, אחרת אין מה לכייל.**
+   *
+   * ‎`dismissReport` מודד אילו קריטריונים מייצרים התאמות שאיש לא
+   * רוצה, וזה מה שמאפשר לכוונן משקלים לפי מציאות. משוב שנאמר בקול
+   * ולא נרשם הוא בדיוק המשוב שהמנוע לעולם אינו רואה.
+   *
+   * ‎**ההתאמה מזוהה בזוג ולא במזהה**, כי אין לה שם שאפשר לומר.
+   * ‎`MatchingService.dismiss` אוכף בעלות בעצמו (`assertMatchAccess`),
+   * ולכן זיהוי השורה כאן אינו הרשאה עליה.
+   */
+  private async dismissMatch(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const buyerId = str(params["buyerId"]);
+    const propertyId = str(params["propertyId"]);
+    if (buyerId === undefined || propertyId === undefined) {
+      throw new BadRequestException("צריך גם קונה וגם נכס כדי לסמן התאמה");
+    }
+    const tenantId = TenantContext.current().tenantId;
+    const match = await this.prisma.withTenant((tx) =>
+      tx.match.findFirst({
+        where: { tenantId, buyerId, propertyId, status: "suggested" },
+        select: { id: true },
+      }),
+    );
+    /*
+     * ‎**„אין התאמה פתוחה” ולא „לא נמצא”.** ההתאמה עשויה להתקיים
+     * ולהיות כבר מוצעת או נדחית, ושתי התשובות האלה שונות לגמרי
+     * מבחינת המתווך — „כבר טיפלת בזה” אינו „הזוג הזה לא קיים”.
+     */
+    if (match === null) {
+      return {
+        href: `/buyers/${buyerId}`,
+        message: "אין התאמה פתוחה בין הקונה לנכס הזה — ייתכן שכבר נשלחה הצעה או שההתאמה נסגרה",
+      };
+    }
+    const reason = str(params["dismissReason"]);
+    const note = str(params["dismissNote"]);
+    await this.matching.dismiss(
+      match.id,
+      reason === undefined
+        ? undefined
+        : {
+            reason: reason as DismissReason,
+            ...(note === undefined ? {} : { note }),
+          },
+    );
+    return {
+      href: `/buyers/${buyerId}`,
+      message:
+        reason === undefined
+          ? "ההתאמה סומנה כלא רלוונטית"
+          : `ההתאמה סומנה כלא רלוונטית — ${DISMISS_REASON_LABEL[reason as DismissReason] ?? reason}`,
+    };
+  }
+
+  /**
+   * ‎**הטלת משימה על סוכן אחר.**
+   *
+   * ‎`TasksService.update` אוכף `tasks.assign` **וגם** שהיעד הוא
+   * משתמש פעיל של אותו משרד; זה השער, ולא הבדיקה כאן. מה שכאן הוא
+   * זיהוי בלבד.
+   */
+  private async assignTask(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const taskId = str(params["taskId"]);
+    const assigneeId = str(params["assigneeId"]);
+    if (taskId === undefined) throw new BadRequestException("לא נבחרה משימה להטלה");
+    if (assigneeId === undefined) throw new BadRequestException("לא נבחר סוכן להטיל עליו");
+    const task = await this.tasks.update(taskId, { assignedToUserId: assigneeId });
+    return {
+      href: "/tasks",
+      message: `„${task.title}” הועברה`,
+      data: { id: task.id },
     };
   }
 
@@ -601,6 +967,40 @@ export class AgentExecuteService {
    * להיות קונה או ליד, וההכרעה היא של המתווך.
    */
   private async showCard(params: Record<string, unknown>): Promise<ExecuteResult> {
+    /*
+     * ‎**נכס נבדק כאן ולא ב-`cardTarget`.** אותו עוזר משרת גם
+     * „תוסיף הערה” וגם „תשמיע לי”, ולשתיהן נכס אינו יעד חוקי.
+     */
+    const raw = str(params["cardId"]) ?? "";
+    if (raw.startsWith("property:")) {
+      const propertyId = raw.slice("property:".length);
+      if (!TenantContext.current().capabilities.has("properties.view")) {
+        throw new ForbiddenException("אין לך הרשאה לצפות בנכסים");
+      }
+      const property = await this.properties.getById(propertyId);
+      const exclusivity = await this.exclusivity.current(propertyId);
+      const label =
+        property.marketingTitle ??
+        ([property.street, property.city].filter(Boolean).join(", ") || "הנכס");
+      return {
+        href: `/properties/${propertyId}`,
+        message: `הכרטיס של ${label}`,
+        data: {
+          card: {
+            kind: "property",
+            ...property,
+            /*
+             * ‎**הבלעדיות בתוך הכרטיס, ולא כשאלה נפרדת.**
+             * „מה יש על הדירה” כולל „ומתי היא נגמרת” — ומתווך
+             * שלא שאל במפורש הוא בדיוק מי שצריך לדעת.
+             */
+            ...(exclusivity === null ? {} : { exclusivity: exclusivity.summary }),
+          },
+        },
+        ...refOf(label, "property", propertyId),
+      };
+    }
+
     const { kind, id } = this.cardTarget(params);
 
     if (kind === "buyer") {
@@ -697,6 +1097,76 @@ export class AgentExecuteService {
    * ושיחות (ביקורת Codex). לכן הסוג הנבחר נבדק כאן שוב, מול
    * היכולת שלו.
    */
+  /**
+   * ‎**בלעדיות — מה בסיכון, ולמה.**
+   *
+   * שתי שאלות שונות באותה פעולה, וההבחנה היא נוכחות של נכס:
+   *
+   * ‎**עם נכס** — התיק שלו: מועד השליש, כמה פעולות שיווק חסרות, וכמה
+   * ימים נשארו בפועל. זו השאלה של מי שעומד על כרטיס.
+   *
+   * ‎**בלי נכס** — כל הבלעדיות של המשרד, כפי שהשירות כבר ממיין אותן
+   * (לפי דחיפות). זו השאלה השכיחה יותר, והיא זו שאי אפשר היה לשאול
+   * עד היום בלי לפתוח כרטיס אחרי כרטיס.
+   *
+   * ‎**„אין בלעדיות” ו„לא נבדק” אינם אותו דבר.** נכס שאין עליו
+   * בלעדיות מקבל תשובה מפורשת, ולא רשימה ריקה שנקראת כאילו הכול
+   * תקין.
+   */
+  private async showExclusivity(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = typeof params["propertyId"] === "string" ? params["propertyId"] : null;
+    if (propertyId !== null) {
+      const current = await this.exclusivity.current(propertyId);
+      if (current === null) {
+        return { href: `/properties/${propertyId}`, message: "אין בלעדיות פעילה על הנכס הזה" };
+      }
+      return {
+        href: `/properties/${propertyId}`,
+        message: current.summary,
+        data: { exclusivity: [exclusivityRow(current)] },
+      };
+    }
+    const items = await this.exclusivity.list();
+    return {
+      href: "/exclusivity",
+      message:
+        items.length === 0
+          ? "אין בלעדיות פעילות במשרד"
+          : `${items.length} בלעדיות — לפי דחיפות`,
+      data: { exclusivity: items.map(exclusivityRow) },
+    };
+  }
+
+  /**
+   * ‎**תיעוד פעולת שיווק — הראיה שמאריכה את הבלעדיות.**
+   *
+   * ‎`performedAt` הוא **היום הישראלי** ולא `new Date()` גולמי: זו
+   * רשומה שסופרים בה ימים מול מועד השליש, ובין חצות לשלוש לפנות
+   * בוקר שעון UTC מציין את אתמול. אותה הכרעה בדיוק כמו בטופס במסך.
+   */
+  private async logMarketingAction(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = typeof params["propertyId"] === "string" ? params["propertyId"] : "";
+    const kind = typeof params["actionKind"] === "string" ? params["actionKind"] : "";
+    if (!MARKETING_ACTION_KINDS.includes(kind as MarketingActionKind)) {
+      throw new BadRequestException("לא ברור איזו פעולת שיווק בוצעה");
+    }
+    const detail = typeof params["detail"] === "string" ? params["detail"].trim() : "";
+    const next = await this.exclusivity.logAction(propertyId, {
+      kind: kind as MarketingActionKind,
+      /*
+       * חצות UTC של **היום הישראלי** — אותה מוסכמה שהעמודה נשמרת
+       * בה, ואותה שרשרת שהמסך עובר: תווית תאריך ואז המרה. `Z`
+       * מפורש, ולכן זו אינה קריאה בשעון המכשיר.
+       */
+      performedAt: new Date(`${jerusalemWallParts(new Date()).date}T00:00:00Z`),
+      ...(detail === "" ? {} : { detail }),
+    });
+    return {
+      href: `/properties/${propertyId}`,
+      message: `${MARKETING_ACTION_LABEL[kind as MarketingActionKind]} תועדה — ${next.summary}`,
+    };
+  }
+
   private cardTarget(params: Record<string, unknown>): {
     kind: "buyer" | "lead";
     id: string;
@@ -1078,6 +1548,19 @@ export class AgentExecuteService {
   private async createAppointment(params: Record<string, unknown>): Promise<ExecuteResult> {
     const startsAt = date(params["startsAt"]);
     if (!startsAt) throw new BadRequestException("לא זוהה מועד לפגישה");
+    /*
+     * ‎**עם מי — קונה או ליד.**
+     *
+     * ‎`buyerId` נקרא כאן מאז ומתמיד ואיש לא כתב אליו: לפעולה הזו לא
+     * הייתה רשומה ב-`ENTITY_LOOKUP`, ולכן כל פגישה שנקבעה דרך הסוכן
+     * נוצרה בלי לקוח ובלי נכס. עכשיו הביטוי נפתר לכרטיס, והכרטיס
+     * נושא את הסוג שלו.
+     *
+     * ‎`optionalCardTarget` ולא פיצול ידני: הוא אוכף גם יכולת וגם
+     * בעלות, ומוותר על השיוך במקום להפיל את הפגישה. פגישה בלי לקוח
+     * מקושר עדיין פגישה; פגישה שלא נוצרה איננה.
+     */
+    const card = await this.optionalCardTarget(params["cardId"]);
     const appointment = await this.calendar.create({
       kind: str(params["kind"]) ?? "meeting",
       startsAt,
@@ -1086,7 +1569,8 @@ export class AgentExecuteService {
       ...(str(params["propertyId"]) !== undefined
         ? { propertyId: str(params["propertyId"])! }
         : {}),
-      ...(str(params["buyerId"]) !== undefined ? { buyerId: str(params["buyerId"])! } : {}),
+      ...(card?.kind === "buyer" ? { buyerId: card.id } : {}),
+      ...(card?.kind === "lead" ? { leadId: card.id } : {}),
     });
     return { href: `/calendar`, message: "הפגישה נקבעה", data: { id: appointment.id } };
   }

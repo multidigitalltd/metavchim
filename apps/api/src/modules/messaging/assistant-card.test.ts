@@ -34,6 +34,53 @@ describe("formatCard", () => {
    * התוויות באות מהסכימה. טבלה מקומית שהמציאה ערכים („פושר”, „קר”)
    * הציגה `very_hot` גולמי על רוב הכרטיסים האמיתיים.
    */
+  /*
+   * ‎**כרטיס נכס — הסוג השלישי, ובלעדיו „מה יש על הדירה” ריק.**
+   *
+   * הכשל הזה כבר קרה במנסח הזה: תשובה שמחזירה כותרת ומספר בלי אף
+   * פרט. סוג כרטיס חדש הוא בדיוק המקום שבו הוא חוזר, ולכן הבדיקה
+   * אוכפת **תוכן** ולא היעדר קריסה.
+   */
+  it("כרטיס נכס — מחיר, חדרים, מוכנות ובלעדיות", () => {
+    const out = formatCard({
+      card: {
+        kind: "property",
+        street: "הרב שך",
+        houseNumber: "12",
+        city: "רמת גן",
+        rooms: 4,
+        areaSqm: 95,
+        priceAgorot: 250000000,
+        status: "active",
+        readinessScore: 80,
+        exclusivity: "בתוקף עד 12.9 · חסרה פעולת שיווק אחת",
+      },
+    });
+    expect(out).toContain("הרב שך");
+    expect(out).toContain("4");
+    expect(out).toContain("95 מ״ר");
+    expect(out).toContain("80%");
+    expect(out).toContain("חסרה פעולת שיווק אחת");
+  });
+
+  /*
+   * ‎**„אין מה להשלים” ו„לא נבדק” אינם אותו דבר**, ושניהם אינם
+   * מוצגים — אבל מסיבות שונות. מה שאסור הוא לומר „חסר: ” ריק.
+   */
+  it("נכס בלי שדות חסרים אינו מציג שורת „חסר”", () => {
+    const out = formatCard({ card: { kind: "property", city: "חיפה", missingFields: [] } });
+    expect(out).not.toContain("חסר");
+    expect(out).toContain("חיפה");
+  });
+
+  it("שדות חסרים מוצגים כשיש", () => {
+    const out = formatCard({
+      card: { kind: "property", city: "חיפה", missingFields: ["בעל הנכס", "תמונות"] },
+    });
+    expect(out).toContain("בעל הנכס");
+    expect(out).toContain("תמונות");
+  });
+
   it("כל ערכי הבשלות שבסכימה מתורגמים לעברית", () => {
     for (const [value, label] of [
       ["very_hot", "חם מאוד"],

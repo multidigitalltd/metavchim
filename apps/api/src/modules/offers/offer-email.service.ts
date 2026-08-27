@@ -45,6 +45,22 @@ interface EligibleMatch {
 }
 
 /**
+ * הצעה שנכתבה ומחכה למייל.
+ *
+ * ‎**`propertyId` ו-`buyerId` נוסעים איתה לא בשביל השליחה אלא בשביל
+ * מה שנרשם אחריה.** התיעוד שטוען „נשלח” נכתב בטרנזקציית האישור,
+ * ולכן הוא זקוק שם לנכס ולקונה — ולא רק לכתובת ולכותרת.
+ */
+interface OutgoingOffer {
+  offerId: string;
+  token: string;
+  title: string;
+  priceAgorot?: number;
+  propertyId: string;
+  buyerId: string;
+}
+
+/**
  * הצעות אוטומטיות במייל — התאמות פנימיות של המשרד בלבד.
  *
  * ## מה קורה כאן
@@ -75,6 +91,11 @@ interface EligibleMatch {
  * הספק (4xx) או פקיעת הטוקן מסמנות `email_failed` — גלוי לסוכן
  * במסך ההצעות, שממשיך משם ידנית. קריסה בין שליחה לאישור עלולה
  * לשלוח מייל כפול זהה — המחיר הזול מבין שני הכיוונים.
+ *
+ * ‎**והכלל הזה חל על כל מה שנכתב, לא רק על הסטטוס.** שורת "נשלחה
+ * הצעה" בכרטיס הקונה ופעולת השיווק בתיק הבלעדיות הן קביעות על
+ * העולם, ושתיהן נכתבות בטרנזקציית האישור. מה שיושב בשלב היצירה
+ * מתאר רק את מה שקרה שם — נוצרה הצעה שממתינה למייל.
  *
  * ## למה ב-API ולא ב-Workers
  *
@@ -328,7 +349,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
       const contact = await this.contacts.getById(tx, buyer.contactId);
       if (!contact?.email) return [];
 
-      const rows: { offerId: string; token: string; title: string; priceAgorot?: number }[] = [];
+      const rows: OutgoingOffer[] = [];
       for (const match of matches) {
         const property = await tx.property.findFirst({
           where: { id: match.propertyId, tenantId, deletedAt: null, status: "active" },
@@ -350,28 +371,19 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
           },
         });
         await tx.match.update({ where: { id: match.matchId }, data: { status: "offered" } });
-        await tx.interaction.create({
-          data: {
-            id: ulid(),
-            tenantId,
-            buyerId,
-            kind: "system",
-            content: `נשלחה הצעה אוטומטית במייל: ${presentation.title}`,
-            createdBy: null,
-          },
-        });
         await this.audit.record(tx, { action: "offer.auto_email", entityType: "offer", entityId: id });
-        // אותה פעולת שיווק כמו הצעה ידנית — נרשמת בתיק הבלעדיות
-        await this.exclusivity.recordAuto(tx, property.id, "offer_sent", {
-          sourceKey: `offer:${id}`,
-          performedAt: new Date(),
-          detail: `הצעה אוטומטית נשלחה במייל לקונה מהמאגר: ${presentation.title}`,
-        });
+        /*
+         * ‎**„נשלחה” ופעולת השיווק אינן כאן.** בשלב הזה ההצעה נוצרה
+         * ותו לא; היא עדיין `pending_email` והמייל טרם יצא. שתיהן
+         * נכתבות ב-`deliver`, אחרי שהספק קיבל.
+         */
         rows.push({
           offerId: id,
           token,
           title: presentation.title,
           ...(presentation.priceAgorot === undefined ? {} : { priceAgorot: presentation.priceAgorot }),
+          propertyId: property.id,
+          buyerId,
         });
       }
       return rows.map((row) => ({
@@ -395,7 +407,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     to: string,
     buyerName: string,
     contactId: string,
-    rows: { offerId: string; token: string; title: string; priceAgorot?: number }[],
+    rows: OutgoingOffer[],
   ): Promise<void> {
     const first = rows[0];
     if (first === undefined) return;
@@ -423,11 +435,16 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         ...(replyTo === null ? {} : { replyTo }),
       });
     } catch (error) {
-      if (error instanceof EmailRejectedError) {
+      if (error instanceof EmailRejectedError && !error.retryable) {
         /*
          * דחייה ודאית (4xx) — כתובת פסולה וכדומה. ניסיון חוזר היה
          * נכשל זהה בכל סבב לנצח; הסימון מוציא את ההצעה מהמחזור
          * ומאיר אותה לסוכן במסך ההצעות.
+         *
+         * ‎**`retryable` יוצא מכאן במכוון.** חריגה מקצב אצל הספק היא
+         * גם היא 4xx וגם בה ההודעה לא יצאה — אבל ההצעה עצמה תקינה,
+         * והסבב הבא ישלח אותה. סימון `email_failed` שם היה קובר הצעה
+         * בגלל עומס רגעי (ביקורת Codex).
          */
         await this.prisma.withTenant((tx) =>
           tx.offer.updateMany({
@@ -444,13 +461,51 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
       throw error;
     }
 
+    /*
+     * ‎**כל מה שטוען „נשלח” — כאן, ובאותה טרנזקציה של הסטטוס.**
+     *
+     * זה היה קודם בטרנזקציית היצירה, ושם הוא טען על שליחה שטרם
+     * קרתה. שתי תוצאות, ושתיהן נצפו בקוד ולא בהשערה:
+     *
+     * ‎**1 · פעולת שיווק על מייל שלא יצא.** `offer_sent` נספרת בכלל
+     * השליש שבסעיף 9(ב2), ו-`removeAction` חוסמת מחיקה של רשומה
+     * אוטומטית — כלומר בלעדיות הייתה נשמרת בזכות הודעה שאיש לא קיבל,
+     * בלי דרך לתקן מהמסך (ביקורת Codex).
+     *
+     * ‎**2 · והחמור מזה: הצעה שנמחקה.** לקוח שהסיר את עצמו בין
+     * היצירה לשליחה — ההצעה נמחקת ב-`retryPending` וההתאמה חוזרת
+     * לסוכן, אבל הרישום `offer:<id>` והשורה „נשלחה” בכרטיס הקונה
+     * נשארו מאחור, מפנים למזהה שכבר אינו קיים.
+     *
+     * ‎`performedAt` הוא רגע השליחה בפועל, וזה גם התאריך הנכון: כלל
+     * השליש מודד חלון זמן, ותיארוך למועד היצירה היה מזיז את הפעולה
+     * לפני שקרתה.
+     */
+    const sentAt = new Date();
     await this.prisma.withTenant(async (tx) => {
       await tx.offer.updateMany({
         where: { tenantId, id: { in: offerIds } },
-        data: { status: "sent", sentAt: new Date() },
+        data: { status: "sent", sentAt },
       });
-      for (const offerId of offerIds) {
-        await this.outbox.emit(tx, "offer.sent", { offerId, tenantId });
+      for (const row of rows) {
+        // רגע-ציר על הקונה: "כלום לא נשכח" — ההצעה בהיסטוריה שלו
+        await tx.interaction.create({
+          data: {
+            id: ulid(),
+            tenantId,
+            buyerId: row.buyerId,
+            kind: "system",
+            content: `נשלחה הצעה אוטומטית במייל: ${row.title}`,
+            createdBy: null,
+          },
+        });
+        // אותה פעולת שיווק כמו הצעה ידנית — נרשמת בתיק הבלעדיות
+        await this.exclusivity.recordAuto(tx, row.propertyId, "offer_sent", {
+          sourceKey: `offer:${row.offerId}`,
+          performedAt: sentAt,
+          detail: `הצעה אוטומטית נשלחה במייל לקונה מהמאגר: ${row.title}`,
+        });
+        await this.outbox.emit(tx, "offer.sent", { offerId: row.offerId, tenantId });
       }
     });
   }
@@ -477,23 +532,40 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
       });
       if (rows.length === 0) return [];
 
+      /*
+       * ‎`propertyId` נשלף כאן ולא רק `buyerId`, כי תיעוד השליחה עבר
+       * לטרנזקציית האישור והוא זקוק לנכס. בלעדיו ההצעה הייתה נשלחת
+       * בניסיון החוזר ולא נרשמת בתיק הבלעדיות כלל.
+       */
       const matches = await tx.match.findMany({
         where: { tenantId, id: { in: rows.map((r) => r.matchId) } },
-        select: { id: true, buyerId: true },
+        select: { id: true, buyerId: true, propertyId: true },
       });
-      const buyerByMatch = new Map(matches.map((m) => [m.id, m.buyerId]));
-      return rows.map((row) => ({
-        ...row,
-        buyerId: buyerByMatch.get(row.matchId) ?? null,
-      }));
+      const byMatch = new Map(matches.map((m) => [m.id, m]));
+      return rows.map((row) => {
+        const match = byMatch.get(row.matchId);
+        return {
+          ...row,
+          buyerId: match?.buyerId ?? null,
+          propertyId: match?.propertyId ?? null,
+        };
+      });
     });
     if (pending.length === 0) return { emails: 0, buyerIds: new Set() };
 
+    /*
+     * ההתאמה נעלמה בין הסבבים — אין קונה ואין נכס, ולכן אין למי
+     * לשלוח ואין מה לתעד. שער אחד במקום בדיקה לכל שדה בנפרד.
+     */
+    const resolved = pending.filter(
+      (row): row is typeof row & { buyerId: string; propertyId: string } =>
+        row.buyerId !== null && row.propertyId !== null,
+    );
+
     const buyerIds = new Set<string>();
     const now = new Date();
-    const byBuyer = new Map<string, typeof pending>();
-    for (const offer of pending) {
-      if (offer.buyerId === null) continue;
+    const byBuyer = new Map<string, typeof resolved>();
+    for (const offer of resolved) {
       buyerIds.add(offer.buyerId);
       if (offer.tokenExpires < now) {
         // הטוקן פג לפני שהשליחה הצליחה — סוף המחזור, הסוכן ממשיך ידנית
@@ -551,7 +623,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
           contact.email,
           contact.name,
           contact.id,
-          offers.map((offer) => {
+          offers.map((offer): OutgoingOffer => {
             const presentation = OfferPresentationSchema.parse(offer.presentation);
             return {
               offerId: offer.id,
@@ -560,6 +632,8 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
               ...(presentation.priceAgorot === undefined
                 ? {}
                 : { priceAgorot: presentation.priceAgorot }),
+              propertyId: offer.propertyId,
+              buyerId: offer.buyerId,
             };
           }),
         );

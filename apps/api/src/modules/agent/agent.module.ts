@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AgreementsModule } from "../agreements/agreements.module";
+import { ExclusivityModule } from "../exclusivity/exclusivity.module";
 import { AnalyticsModule } from "../analytics/analytics.module";
 import { BuyersModule } from "../buyers/buyers.module";
 import { CalendarModule } from "../calendar/calendar.module";
@@ -9,6 +10,8 @@ import { EmailInboxModule } from "../email-inbox/email-inbox.module";
 import { ContactsModule } from "../contacts/contacts.module";
 import { LeadsModule } from "../leads/leads.module";
 import { MatchingModule } from "../matching/matching.module";
+import { NotificationsModule } from "../notifications/notifications.module";
+import { OffersModule } from "../offers/offers.module";
 import { PropertiesModule } from "../properties/properties.module";
 import { SearchModule } from "../search/search.module";
 import { TasksModule } from "../tasks/tasks.module";
@@ -45,8 +48,14 @@ import { AgentResolveService } from "./resolve.service";
     CollaborationModule,
     // „קישור לחתימה על הזמנה בכתב” — דרך אותו שירות שהכרטיס משתמש בו
     AgreementsModule,
+    // בלעדיות — „מה בסיכון” ותיעוד פעולת שיווק, דרך אותו שירות כמו הפאנל
+    ExclusivityModule,
     // שם הלקוח מוצפן במסד — רק ContactsService מפענח אותו
     ContactsModule,
+    // „מי פתח ולא הגיב” — אותה רשימה שמסך ההצעות מציג
+    OffersModule,
+    // „מה חדש” — אותו תנאי ראות שהמסך משתמש בו
+    NotificationsModule,
     // „שלח מייל ללקוח” — אותו נתיב כמו תשובה מתיבת המייל
     EmailInboxModule,
   ],

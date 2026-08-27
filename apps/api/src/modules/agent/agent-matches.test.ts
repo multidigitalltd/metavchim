@@ -19,10 +19,23 @@ function serviceWith(matching: {
   listAll: (query: { minScore: number; limit: number }) => Promise<unknown[]>;
   countAll: (query: { minScore: number }) => Promise<number>;
 }): AgentExecuteService {
-  const deps = Array.from({ length: 14 }, () => ({}) as unknown);
-  deps[6] = matching;
-  deps[11] = { resolveForExecution: async () => ({ ok: true as const }) };
-  deps[13] = { record: async () => undefined };
+  /*
+   * ‎**בדל אחד לכל המקומות, ולא אינדקסים.**
+   *
+   * הגרסה הקודמת כתבה `deps[6]`, `deps[11]`, `deps[13]` — כלומר
+   * קשרה את הבדיקה לסדר הפרמטרים בבנאי. תלות חדשה שנוספה באמצע
+   * הזיזה את כולם, והבדיקה נפלה על „resolveForExecution אינו
+   * פונקציה” — כשל שאין לו שום קשר למה שהיא בודקת.
+   *
+   * אותו אובייקט בכל מקום עונה על שלושת המסלולים שהנתיב הזה נוגע
+   * בהם, ולכן המיקום מפסיק להיות מידע שהבדיקה מחזיקה.
+   */
+  const stub = {
+    ...matching,
+    resolveForExecution: async () => ({ ok: true as const }),
+    record: async () => undefined,
+  };
+  const deps = Array.from({ length: 24 }, () => stub as unknown);
   return new AgentExecuteService(
     ...(deps as unknown as ConstructorParameters<typeof AgentExecuteService>),
   );
