@@ -91,6 +91,11 @@ interface OutgoingOffer {
  * במסך ההצעות, שממשיך משם ידנית. קריסה בין שליחה לאישור עלולה
  * לשלוח מייל כפול זהה — המחיר הזול מבין שני הכיוונים.
  *
+ * ‎**והזכאות נבדקת מחדש בניסיון החוזר, לא רק ביצירה.** בין הסבבים
+ * הלקוח יכול היה להסיר את עצמו והנכס יכול היה להימכר; הצעה ממתינה
+ * שהנכס שלה ירד משיווק אינה נשלחת אלא מסומנת `email_failed`. קישור
+ * חי אינו מוכר דירה שנמכרה, וזה נכון גם כשהשליחה כבר בתור.
+ *
  * ‎**והכלל הזה חל על כל מה שנכתב, לא רק על הסטטוס.** שורת "נשלחה
  * הצעה" בכרטיס הקונה ופעולת השיווק בתיק הבלעדיות הן קביעות על
  * העולם, ושתיהן נכתבות בטרנזקציית האישור. מה שיושב בשלב היצירה
@@ -560,10 +565,59 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         row.buyerId !== null && row.propertyId !== null,
     );
 
+    /*
+     * ‎**הנכס נבדק שוב — כי בין הסבבים הוא יכול היה להימכר.**
+     *
+     * הזכאות הראשונית דורשת `status: "active"` ו-`deletedAt: null`,
+     * והמסלול הזה בדק עד כה את **הלקוח** בלבד (הסרה מרשימת התפוצה).
+     * כלומר שליחה שנכשלה בפסק זמן, ואחריה הנכס נמכר או ירד משיווק,
+     * הייתה יוצאת בסבב הבא: הלקוח מקבל הצעה על דירה שהמשרד כבר משך,
+     * ומאז ששליחה מתעדת פעולת שיווק — גם נרשמת פעולה על נכס שהוסר
+     * (ביקורת Codex).
+     *
+     * ‎**ולא `offerPropertyMarketable` שכבר קיים**: הוא מתיר גם
+     * ‎`draft`, כי מתווך רשאי להציע טיוטה במודע. האוטומציה משווקת רק
+     * מה שהמשרד סימן פעיל, ושימוש חוזר בו כאן היה מרחיב אותה בשקט.
+     */
+    const stillActive = new Set(
+      (
+        await this.prisma.withTenant((tx) =>
+          tx.property.findMany({
+            where: {
+              tenantId,
+              id: { in: [...new Set(resolved.map((row) => row.propertyId))] },
+              status: "active",
+              deletedAt: null,
+            },
+            select: { id: true },
+          }),
+        )
+      ).map((row) => row.id),
+    );
+
+    const withdrawn = resolved.filter((row) => !stillActive.has(row.propertyId));
+    if (withdrawn.length > 0) {
+      /*
+       * יוצא מהמחזור ונשאר גלוי לסוכן במסך ההצעות — אותו מצב סופי
+       * כמו טוקן שפג. ההתאמה **אינה** חוזרת ל„מומלצת”: נכס שנמכר
+       * אינו הצעה שכדאי לשלוח ידנית.
+       */
+      await this.prisma.withTenant((tx) =>
+        tx.offer.updateMany({
+          where: { tenantId, id: { in: withdrawn.map((row) => row.id) } },
+          data: { status: "email_failed" },
+        }),
+      );
+      this.logger.log(
+        `משרד ${tenantId}: ${withdrawn.length} הצעות ממתינות בוטלו — הנכס אינו משווק עוד`,
+      );
+    }
+    const marketable = resolved.filter((row) => stillActive.has(row.propertyId));
+
     const buyerIds = new Set<string>();
     const now = new Date();
-    const byBuyer = new Map<string, typeof resolved>();
-    for (const offer of resolved) {
+    const byBuyer = new Map<string, typeof marketable>();
+    for (const offer of marketable) {
       buyerIds.add(offer.buyerId);
       if (offer.tokenExpires < now) {
         // הטוקן פג לפני שהשליחה הצליחה — סוף המחזור, הסוכן ממשיך ידנית

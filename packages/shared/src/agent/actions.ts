@@ -1212,8 +1212,15 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
      * ההתראות עצמו מסונן בשירות לפי הנמען — היכולת כאן היא הרשות
      * לשאול, לא ההיתר למה שיוחזר.
      */
+    /*
+     * ‎**שלוש היכולות הן מה שיש לכל תפקיד, כולל `viewer`** — כלומר
+     * בפועל „כל משתמש מחובר”, בדיוק כמו מסך ההתראות עצמו. הרשימה
+     * הראשונה כאן החסירה קונים, ומשתמש שהרשאותיו צומצמו אליהם ראה
+     * את פעמון ההתראות ולא יכול היה לשאול את אותה שאלה דרך הסוכן
+     * (ביקורת Codex).
+     */
     capability: "leads.view_own",
-    capabilityAlts: ["properties.view"],
+    capabilityAlts: ["buyers.view_own", "properties.view"],
     risk: "read",
     fields: [],
   },
