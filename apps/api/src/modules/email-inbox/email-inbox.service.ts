@@ -537,7 +537,7 @@ export class EmailInboxService {
     contactId: string,
     body: string,
     files: readonly { name: string; contentType: string; content: Buffer }[] = [],
-  ): Promise<void> {
+  ): Promise<{ state: "sent" | "unknown" }> {
     const ctx = TenantContext.current();
     const tenantId = ctx.tenantId;
 
@@ -675,6 +675,25 @@ export class EmailInboxService {
        */
       if (!certainlyNotSent) {
         await this.storeOutgoingCopies(tenantId, messageId, outgoing);
+        /*
+         * ‎**תוצאה עמומה אינה נזרקת — היא מוחזרת.**
+         *
+         * הזריקה שלחה את המסך למסלול הכישלון הכללי שלו: הטיוטה
+         * נשמרת, כפתור השליחה נדלק, והשיחה **אינה** נטענת מחדש —
+         * כלומר השורה שכתבתי זה עתה, „לא ידוע אם נשלחה”, לא מוצגת
+         * כלל. הסוכן רואה „נסו שוב” ולוחץ, והלקוח מקבל כפול
+         * (ביקורת Codex).
+         *
+         * המצב הזה נוסף בדיוק כדי שהסוכן יראה אותו; זריקה שמונעת
+         * ממנו להיטען היא התיקון שנעצר צעד לפני מי שצריך לדעת.
+         *
+         * דחייה ודאית ממשיכה להיזרק: שם ידוע שלא יצא דבר, והמסלול
+         * הכללי — „נסו שוב” עם הטיוטה שמורה — הוא בדיוק הנכון.
+         */
+        this.logger.warn(
+          `תשובה ללקוח הסתיימה בתוצאה עמומה — ההודעה ${messageId} סומנה „לא ידוע”: ${String(error)}`,
+        );
+        return { state: "unknown" };
       }
       throw error;
     }
@@ -704,6 +723,7 @@ export class EmailInboxService {
     }
 
     await this.storeOutgoingCopies(tenantId, messageId, outgoing);
+    return { state: "sent" };
   }
 
   /**

@@ -232,11 +232,6 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
      */
     const scan = await this.eligibleMatches(tenantId, since, startCursor);
     const eligible = scan.eligible;
-    /*
-     * ‎**הסמן נשמר גם כשלא נשלח דבר** — ודווקא אז הוא חשוב: סבב
-     * שכולו לא-זכאי חייב להתקדם, אחרת הוא יחזור על עצמו לנצח.
-     */
-    await this.saveCursor(tenantId, scan.nextCursor);
     const byBuyer = new Map<string, EligibleMatch[]>();
     for (const match of eligible) {
       if (pendingBuyers.buyerIds.has(match.buyerId)) continue;
@@ -266,6 +261,21 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         );
       }
     }
+
+    /*
+     * ‎**הסמן נשמר רק אחרי שהשורות טופלו — ולא לפני.**
+     *
+     * הוא נשמר קודם מיד אחרי הסריקה, ואז קריסה או תקלת מסד בין
+     * השמירה ליצירת ההצעות הייתה מקדמת את הסמן מעל קונים שלא נוצרה
+     * להם שום רשומה עמידה: אין `pending_email` שינוסה שוב, והסבב
+     * הבא כבר מתחיל אחריהם (ביקורת Codex).
+     *
+     * ‎**וכן נשמר גם כשלא נשלח דבר** — ודווקא אז הוא חשוב: סבב
+     * שכולו לא-זכאי חייב להתקדם, אחרת הוא חוזר על עצמו לנצח. אחרי
+     * הלולאה שני המצבים מטופלים: מה שנוצר — נוצר; מה שלא היה זכאי —
+     * נסרק ואינו צריך להיסרק שוב מיד.
+     */
+    await this.saveCursor(tenantId, since, scan.nextCursor);
     return { emails, offers };
   }
 
@@ -378,13 +388,32 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
    * ‎`COALESCE` כי `settings` יכול להיות `null` בשורות ישנות, ואז
    * ‎`jsonb_set` על `null` מחזיר `null` ומוחק את כל ההגדרות.
    */
-  private async saveCursor(tenantId: string, cursor: string | undefined): Promise<void> {
+  private async saveCursor(
+    tenantId: string,
+    since: Date,
+    cursor: string | undefined,
+  ): Promise<void> {
+    /*
+     * ‎**הכתיבה קשורה לתקופת ההפעלה שהסבב קרא.**
+     *
+     * הסבב קורא את ההגדרות פעם אחת ורץ אחר כך שניות ארוכות. בזמן
+     * הזה בעל המשרד יכול לכבות את הדגל — ואז שתי החותמות נמחקות,
+     * והכתיבה כאן הייתה **מחזירה את הסמן לחיים**. הדלקה מחדש הייתה
+     * מקבלת חותמת חדשה וסמן מהתקופה הקודמת, כלומר בדיוק המצב שהאיפוס
+     * בכיבוי בא למנוע (ביקורת Codex).
+     *
+     * התנאי על `autoEmailOffersSince` פותר את שניהם: כיבוי מחק אותו,
+     * והדלקה מחדש כתבה חותמת אחרת — ובשני המקרים ה-UPDATE אינו תואם
+     * שום שורה.
+     */
+    const epoch = since.toISOString();
     try {
       if (cursor === undefined) {
         await this.prisma.$executeRaw`
           UPDATE tenants
              SET settings = COALESCE(settings, '{}'::jsonb) - 'autoEmailOffersCursor'
-           WHERE id = ${tenantId}`;
+           WHERE id = ${tenantId}
+             AND settings->>'autoEmailOffersSince' = ${epoch}`;
         return;
       }
       await this.prisma.$executeRaw`
@@ -394,7 +423,8 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
                  '{autoEmailOffersCursor}',
                  to_jsonb(${cursor}::text),
                  true)
-         WHERE id = ${tenantId}`;
+         WHERE id = ${tenantId}
+           AND settings->>'autoEmailOffersSince' = ${epoch}`;
     } catch (error: unknown) {
       /*
        * הסמן הוא אופטימיזציה של הוגנות, לא נתון עסקי. כישלון בשמירתו
