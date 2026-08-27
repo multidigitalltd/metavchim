@@ -5,6 +5,8 @@ import {
   MARKETING_ACTION_LABEL,
   agentNextSteps,
   groundedNumbers,
+  LEAD_STATUS_LABELS,
+  type LeadStatus,
   jerusalemWallParts,
   type MarketingActionKind,
   agentAction,
@@ -352,6 +354,8 @@ export class AgentExecuteService {
         return this.playRecording(params);
       case "show_callbacks":
         return this.showCallbacks();
+      case "show_leads":
+        return this.showLeads(params);
       case "show_calls":
         return this.showCalls();
       case "show_deals":
@@ -716,6 +720,41 @@ export class AgentExecuteService {
           ...(t.dueAt !== undefined && t.dueAt !== null ? { dueAt: t.dueAt } : {}),
           ...(t.entityLabel !== undefined ? { entityLabel: t.entityLabel } : {}),
         })),
+      },
+    };
+  }
+
+  /**
+   * ‎**רשימת הלידים — הפתוחים כברירת מחדל, סטטוס מפורש מצמצם.**
+   *
+   * הסינון במסד ולא על העמוד שחזר (`LeadsService.list` עם `open`),
+   * מאותה סיבה שמתועדת ב-`openAwaitingResponse`: סינון אחרי עימוד
+   * מחסיר בשקט. הסטטוס בתשובה נשאר גולמי — התרגום לעברית יושב
+   * במנסח המשותף (`result-lines`), פעם אחת לשני הערוצים.
+   */
+  private async showLeads(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const status = str(params["leadStatus"]);
+    const page = await this.leads.list({
+      limit: 25,
+      ...(status === undefined ? { open: true } : { status }),
+    });
+    const label =
+      status === undefined
+        ? "לידים פתוחים"
+        : `לידים בסטטוס „${LEAD_STATUS_LABELS[status as LeadStatus] ?? status}”`;
+    return {
+      href: "/leads",
+      message:
+        page.items.length === 0 ? `אין ${label}` : `${page.items.length} ${label}`,
+      data: {
+        leads: page.items.map((lead) => ({
+          id: lead.id,
+          name: lead.contact.name,
+          phone: lead.contact.phone,
+          status: lead.status,
+          requiresHuman: lead.requiresHuman,
+        })),
+        hasMore: page.nextCursor !== null,
       },
     };
   }

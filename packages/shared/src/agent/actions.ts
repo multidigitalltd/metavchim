@@ -49,6 +49,7 @@ export const AGENT_ACTION_IDS = [
   "show_schedule",
   "show_tasks",
   "show_callbacks",
+  "show_leads",
   "show_calls",
   "show_card",
   "play_recording",
@@ -334,6 +335,25 @@ const F_LEAD_PHRASE: AgentFieldSpec = {
   type: "string",
   hint: "השם או התיאור של הליד, כפי שנאמר",
   maxLength: 200,
+};
+
+/**
+ * סטטוס ליד — משותף לעדכון (`update_lead_status`) ולסינון
+ * (`show_leads`). `converted` אינו כאן בכוונה: המרה היא מסלול נפרד
+ * עם יצירת קונה, לא ערך שמציבים — וסכימת השדות מאוחדת, כלומר ערך
+ * שנוסף לסינון היה נפתח גם לעדכון.
+ */
+const F_LEAD_STATUS: AgentFieldSpec = {
+  key: "leadStatus",
+  label: "סטטוס",
+  type: "enum",
+  values: ["new", "in_progress", "waiting_customer", "closed"],
+  valueLabels: {
+    new: "חדש",
+    in_progress: "בטיפול",
+    waiting_customer: "ממתין ללקוח",
+    closed: "סגור",
+  },
 };
 
 const F_MATURITY: AgentFieldSpec = {
@@ -659,6 +679,31 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     fields: [],
   },
   {
+    /*
+     * ‎**„אילו לידים יש לי” — הרשימה שחסרה בקטלוג.**
+     *
+     * ליד נוצר מהצ'אט (`create_lead`), הסטטוס מתעדכן ממנו
+     * (`update_lead_status`) — אבל אי אפשר היה **לשאול** עליהם.
+     * מודל שנשאל בחר את הקרובה ביותר: החזרות או המשימות — אותו
+     * דפוס בדיוק שהוליד את `show_callbacks`.
+     *
+     * ברירת המחדל היא הלידים **הפתוחים**: „מה יש לי” שואל על מה
+     * שדורש טיפול, לא על הארכיון. סטטוס מפורש מצמצם לערך שנאמר.
+     */
+    id: "show_leads",
+    title: "הלידים שלי",
+    when: "שאלה על רשימת הלידים — מי חדש, מי בטיפול, מה נכנס. כשמבקשים למי **לחזור** אחרי שיחה שלא נענתה — זו „למי לחזור”, לא זו.",
+    examples: [
+      "אילו לידים חדשים יש לי",
+      "תראה לי את הלידים הפתוחים",
+      "מה נכנס מהאתר",
+      "כמה לידים ממתינים לטיפול",
+    ],
+    capability: "leads.view_own",
+    risk: "read",
+    fields: [F_LEAD_STATUS],
+  },
+  {
     id: "show_calls",
     title: "שיחות אחרונות",
     when: "שאלה על שיחות טלפון שהתקבלו או בוצעו.",
@@ -904,18 +949,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     risk: "update",
     fields: [
       F_LEAD_PHRASE,
-      {
-        key: "leadStatus",
-        label: "סטטוס",
-        type: "enum",
-        values: ["new", "in_progress", "waiting_customer", "closed"],
-        valueLabels: {
-          new: "חדש",
-          in_progress: "בטיפול",
-          waiting_customer: "ממתין ללקוח",
-          closed: "סגור",
-        },
-      },
+      F_LEAD_STATUS,
     ],
   },
   {

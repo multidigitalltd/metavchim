@@ -1360,6 +1360,7 @@ export class WhatsAppAssistantService {
  */
 const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
   find_buyers: ["buyers.view_all"],
+  show_leads: ["leads.view_all"],
   show_tasks: ["tasks.view_all"],
   /*
    * יומן השיחות מסונן גם לפי מודול הנכסים: שיחה של בעל נכס נשמטת

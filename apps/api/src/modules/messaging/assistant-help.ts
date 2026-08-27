@@ -43,6 +43,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "show_tasks",
       "show_notifications",
       "show_callbacks",
+      "show_leads",
       "show_calls",
       "play_recording",
       "office_report",

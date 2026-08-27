@@ -541,6 +541,12 @@ export class LeadsService {
 
   async list(query: {
     status?: string;
+    /**
+     * רק לידים „חיים” — במסד, לא אחרי העימוד. סינון על העמוד שחזר
+     * היה מחסיר בשקט בדיוק כמו שמתואר ב-`openAwaitingResponse`.
+     * נדחה מפני `status` מפורש.
+     */
+    open?: boolean;
     requiresHuman?: boolean;
     cursor?: string;
     limit: number;
@@ -551,7 +557,11 @@ export class LeadsService {
         where: {
           tenantId,
           ...ownershipFilter("leads.view_all", "assignedToUserId"),
-          ...(query.status ? { status: query.status } : {}),
+          ...(query.status
+            ? { status: query.status }
+            : query.open === true
+              ? { status: { in: [...OPEN_LEAD_STATUSES] } }
+              : {}),
           ...(query.requiresHuman !== undefined ? { requiresHuman: query.requiresHuman } : {}),
           ...(query.cursor ? { id: { lt: query.cursor } } : {}),
         },
