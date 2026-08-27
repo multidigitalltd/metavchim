@@ -225,8 +225,34 @@ export class EmailInboxService {
         ],
         skipDuplicates: true,
       });
-      // אותו MessageID פעם שנייה — הספק שלח שוב; ההודעה כבר אצלנו
-      if (written.count === 0) return null;
+      /*
+       * ‎**אותו MessageID פעם שנייה — וזו אינה בהכרח „כבר טופל”.**
+       *
+       * הקבצים נכתבים אחרי הטרנזקציה. אם התהליך נפל באמצע, השורה
+       * של ההודעה קיימת אבל חלק מהקבצים לא נשמרו — ואין להם מצב
+       * ממתין ואין תהליך רקע שמשלים אותם. חזרה בשקט כאן פירושה
+       * שקובץ שהלקוח שלח **נעלם לתמיד**, והמסירה החוזרת של הספק,
+       * שהיא ההזדמנות היחידה להשלים אותו, נזרקת (ביקורת Codex).
+       *
+       * לכן מוחזר מזהה ההודעה הקיימת, ולולאת הקבצים ממשיכה מהמקום
+       * שנעצר. ההתראה והציר **אינם** נכתבים שוב — הם כבר נכתבו.
+       */
+      if (written.count === 0) {
+        const existing =
+          payload.MessageID === ""
+            ? null
+            : await tx.emailMessage.findUnique({
+                where: {
+                  tenantId_providerMessageId: {
+                    tenantId,
+                    providerMessageId: payload.MessageID,
+                  },
+                },
+                select: { id: true },
+              });
+        if (existing === null) return null;
+        return { messageId: existing.id, fresh: false, notifyUserId: null, customerName: "" };
+      }
 
       /*
        * ציר הלקוח והתראה — "כלום לא נשכח". ההודעה המלאה בתיבה;
@@ -283,6 +309,7 @@ export class EmailInboxService {
       });
       return {
         messageId: id,
+        fresh: true,
         notifyUserId: buyer?.ownerUserId ?? lead?.assignedToUserId ?? null,
         customerName: contact.name,
       };
@@ -290,12 +317,38 @@ export class EmailInboxService {
 
     /*
      * הקבצים נכתבים **אחרי** הטרנזקציה: העלאה של עשרות MB לאחסון
-     * בתוך טרנזקציה פתוחה מחזיקה חיבור מסד לאורך ההעלאה. הודעה
-     * כפולה כבר הוכרעה בפנים (null) — Webhook חוזר לא כותב קובץ
-     * פעמיים; כשל בקובץ אחד אינו מפיל את השאר, והטקסט כבר בתיבה.
+     * בתוך טרנזקציה פתוחה מחזיקה חיבור מסד לאורך ההעלאה. כשל בקובץ
+     * אחד אינו מפיל את השאר, והטקסט כבר בתיבה.
+     *
+     * ‎**ומסירה חוזרת ממשיכה מהמקום שנעצר.** מה שכבר נשמר מזוהה לפי
+     * שם וגודל — הספק מוסר את **אותו** מייל, ולכן שני קבצים בעלי שם
+     * וגודל זהים באותה הודעה הם אותו קובץ לכל דבר. מונה ולא קבוצה,
+     * כדי ששני עותקים שנשלחו לא יצטמצמו לאחד.
      */
     if (stored === null) return;
+    const alreadyStored = new Map<string, number>();
+    if (!stored.fresh) {
+      const rows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.emailAttachment.findMany({
+          where: { tenantId, messageId: stored.messageId },
+          select: { name: true, sizeBytes: true },
+        }),
+      );
+      for (const row of rows) {
+        const key = `${row.name}:${row.sizeBytes}`;
+        alreadyStored.set(key, (alreadyStored.get(key) ?? 0) + 1);
+      }
+      this.logger.log(
+        `מסירה חוזרת של תשובת מייל — ${rows.length} מתוך ${incoming.length} קבצים כבר שמורים`,
+      );
+    }
     for (const attachment of incoming) {
+      const key = `${attachment.name}:${attachment.content.length}`;
+      const stillStored = alreadyStored.get(key) ?? 0;
+      if (stillStored > 0) {
+        alreadyStored.set(key, stillStored - 1);
+        continue;
+      }
       const attachmentId = ulid();
       const s3Key = `tenants/${tenantId}/email-attachments/${stored.messageId}/${attachmentId}`;
       try {
@@ -321,7 +374,10 @@ export class EmailInboxService {
       }
     }
 
-    await this.notifyAgentOnWhatsApp(tenantId, stored.notifyUserId, stored.customerName);
+    // מסירה חוזרת אינה התראה חוזרת — הסוכן כבר קיבל אותה
+    if (stored.fresh) {
+      await this.notifyAgentOnWhatsApp(tenantId, stored.notifyUserId, stored.customerName);
+    }
   }
 
   /**

@@ -245,3 +245,49 @@ describe("האזהרה ששורדת את פתיחת השיחה", () => {
     expect(INBOX_PAGE).toMatch(/openRef\.current = null;\n\s*setOpenContact\(null\);/u);
   });
 });
+
+/**
+ * ‎**מסירה חוזרת ממשיכה מהמקום שנעצר.**
+ *
+ * הקבצים נכתבים אחרי הטרנזקציה. תהליך שנפל באמצע משאיר שורת הודעה
+ * קיימת וחלק מהקבצים לא שמורים — ואין להם מצב ממתין ואין תהליך רקע
+ * שמשלים. חזרה בשקט מהכפילות זרקה את המסירה החוזרת, שהיא ההזדמנות
+ * **היחידה** להשלים אותם, והקובץ של הלקוח נעלם לתמיד (ביקורת Codex).
+ *
+ * ההתראה והציר לא נכתבים שוב: הם כבר נכתבו במסירה הראשונה.
+ */
+describe("קליטה חוזרת שמשלימה קבצים", () => {
+  const inbound = method(SERVICE, "  async processInbound(");
+
+  it("הכפילות מחזירה את מזהה ההודעה הקיימת ולא null בלבד", () => {
+    expect(inbound).toContain("tenantId_providerMessageId");
+    expect(inbound).toMatch(/return \{ messageId: existing\.id, fresh: false/u);
+  });
+
+  it("לולאת הקבצים רצה גם במסירה חוזרת", () => {
+    const dup = inbound.indexOf("if (written.count === 0)");
+    const loop = inbound.indexOf("for (const attachment of incoming)");
+    expect(dup, "ענף הכפילות לא נמצא").toBeGreaterThan(-1);
+    expect(loop, "לולאת הקבצים לא נמצאה").toBeGreaterThan(dup);
+    // אין יציאה מוקדמת שמדלגת על הלולאה בגלל כפילות
+    expect(inbound.slice(dup, loop)).not.toMatch(/if \(!stored\.fresh\) return;/u);
+  });
+
+  /*
+   * מונה ולא קבוצה: שני עותקים של אותו קובץ באותה הודעה הם שתי
+   * שורות, וקבוצה הייתה מצמצמת אותם לאחת ומוחקת עותק.
+   */
+  it("מה שכבר נשמר מזוהה במונה לפי שם וגודל", () => {
+    expect(inbound).toContain("const alreadyStored = new Map<string, number>();");
+    expect(inbound).toMatch(/alreadyStored\.set\(key, stillStored - 1\);/u);
+    expect(inbound).toContain("`${attachment.name}:${attachment.content.length}`");
+  });
+
+  it("הקריאה לרשימה הקיימת נעשית רק במסירה חוזרת", () => {
+    expect(inbound).toMatch(/if \(!stored\.fresh\) \{[\s\S]{0,400}emailAttachment\.findMany\(/u);
+  });
+
+  it("התראה חוזרת אינה נשלחת", () => {
+    expect(inbound).toMatch(/if \(stored\.fresh\) \{\n\s*await this\.notifyAgentOnWhatsApp\(/u);
+  });
+});
