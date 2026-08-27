@@ -1,38 +1,50 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   agentHistorySummary,
+  agentReplySegments,
+  agentResultRefs,
+  agentTurnRefs,
+  proposalRunsImmediately,
   type AgentHistoryRef,
 } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
-import { useUserDismissed } from "@/lib/dismissed-panels";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconMic, IconTarget } from "../icons";
 import { VoiceRecorder } from "../voice-recorder";
-import { Notice } from "../notice";
 import { AgentResults } from "./results";
 import { ProposalCard, type ExecuteResult, type Proposal } from "./proposal-card";
 
 /**
- * הסוכן — משפט אחד נכנס, הצעה אחת יוצאת.
+ * הסוכן — **צ'אט, לא טופס.**
  *
- * ## מה השתנה
+ * ## מה השתנה, ולמה
  *
- * המסך הקודם זיהה כוונה והעביר למסך אחר עם הטקסט בפרמטר URL. שם
- * החילוץ רץ מחדש בחוקים, ומה שהמודל הבין נזרק בדרך — כלומר המתווך
- * דיבר פעם אחת והמערכת ניתחה פעמיים, בשתי דרכים, עם שתי תוצאות.
+ * הגלגול הקודם היה „משפט אחד נכנס, הצעה אחת יוצאת”: כל שאלה החליפה
+ * את הקודמת על המסך, והשיחה — שהשרת כבר זכר (`history`) — לא נראתה.
+ * בקשת בעל המוצר: שהסוכן במערכת יעבוד כמו צ'אט, כמו שהוא עובד
+ * בוואטסאפ. עכשיו כל תור הוא בועה בשרשור: מה שנאמר, מה שהוצע, מה
+ * שבוצע — נשארים על המסך, ו„ומה עם רמת גן?” נקרא כמו ההמשך שהוא.
  *
- * כאן הכול קורה במקום: ההצעה מגיעה מלאה, נערכת, ומאושרת. הניווט
- * קורה **אחרי** שנוצרה רשומה, אל הרשומה עצמה.
+ * ## מה נשאר בדיוק כפי שהיה
  *
- * ## למה שאילתה אינה מבקשת אישור
+ * - **הפרדת הבנה⟵אישור.** `interpret` מציע, כרטיס ההצעה מוצג בתוך
+ *   השרשור, ופעולה כותבת מבוצעת רק בלחיצה. הצ'אט משנה את הצורה,
+ *   לא את הגבול.
+ * - **שאילתה רצה מיד.** זה היה הכלל המוצהר של הקטלוג („`read` רץ
+ *   מיד ומציג תשובה”) והמסך דווקא ביקש לחיצה — בצ'אט זה סוף סוף
+ *   נכון: מי ששאל שאלה מקבל תשובה, לא כרטיס „הצג תשובה”. כרטיס
+ *   מוצג לשאילתה רק כשיש מה להכריע — מועמדים או הבהרה.
+ * - **זיכרון השיחה** — אותם שישה תורות, אותם `refs`, אותה גזירה
+ *   משותפת עם וואטסאפ.
  *
- * „מי מחפש 4 חדרים בגבעתיים” אינה משנה דבר, ואישור עליה מאמן את
- * המתווך ללחוץ „אשר” בלי לקרוא. כשיגיע כרטיס שכן משנה משהו הוא
- * ילחץ עליו באותה מהירות. אישור שמופיע רק כשיש מה לאשר נשאר אישור.
+ * ## מה השתנה בכוונה
+ *
+ * פעולה שיצרה רשומה כבר **אינה מנווטת** מהצ'אט החוצה: ניווט אוטומטי
+ * זרק את המתווך מהשיחה באמצע („תוסיף קונה… ועכשיו תקבע לו סיור”
+ * דורש להישאר). הקישור לכרטיס מוצג בבועה, והבחירה לעבור היא שלו.
  */
 
 interface AgentCapability {
@@ -48,10 +60,9 @@ interface HistoryTurn {
   params: Record<string, unknown>;
   resultSummary?: string;
   /**
-   * ההפניות לרשומות שהוצגו — תווית ומזהה.
-   *
-   * המזהה נשאר בין הדפדפן לשרת ו**אינו** נכתב לפרומפט: הוא מה
-   * שהופך „הראשון מהם” לרשומה בלי לחפש את התווית כטקסט.
+   * ההפניות לרשומות שהוצגו — תווית ומזהה. המזהה נשאר בין הדפדפן
+   * לשרת ו**אינו** נכתב לפרומפט: הוא מה שהופך „הראשון מהם” לרשומה
+   * בלי לחפש את התווית כטקסט.
    */
   refs?: AgentHistoryRef[];
 }
@@ -81,30 +92,49 @@ function recHref(rec: Recommendation): string | null {
   }
 }
 
+/**
+ * פריט אחד בשרשור. הצעה שהוכרעה אינה נמחקת אלא מסומנת — שיחה
+ * שמעלימה את מה שאושר בה מאבדת את היכולת לגלול ולהבין מה קרה.
+ */
+type ChatItem =
+  | { id: number; role: "user"; text: string }
+  | { id: number; role: "agent"; kind: "reply"; result: ExecuteResult }
+  | { id: number; role: "agent"; kind: "note"; tone: "info" | "danger"; text: string }
+  | {
+      id: number;
+      role: "agent";
+      kind: "proposal";
+      proposal: Proposal;
+      transcript: string;
+      settled?: "confirmed" | "cancelled";
+    };
+
+let nextId = 1;
+const itemId = (): number => nextId++;
+
+/*
+ * `Omit` על איחוד מתמוטט למאפיינים המשותפים בלבד — מפזרים אותו על
+ * כל ענף כדי ש-`push` יקבל כל צורת פריט בלי `id`.
+ */
+type NewChatItem = ChatItem extends infer T ? (T extends ChatItem ? Omit<T, "id"> : never) : never;
+
 export default function AgentPage(): React.JSX.Element {
   const { loading: authLoading } = useRequireAuth();
-  const router = useRouter();
   const [transcript, setTranscript] = useState("");
-  const [proposal, setProposal] = useState<Proposal | null>(null);
-  const [result, setResult] = useState<ExecuteResult | null>(null);
+  const [thread, setThread] = useState<ChatItem[]>([]);
   const [examples, setExamples] = useState<string[]>([]);
-  // סגירה ו"אל תציג יותר" (בקשת המשתמש) — נשמר למשתמש, בכל מכשיר
-  const examplesBox = useUserDismissed("agent-examples");
   /**
    * זיכרון השיחה — רק מה ש**בוצע**, לא כל מה שהוצע. הצעה שבוטלה
-   * אינה הקשר; פעולה שנעשתה כן. ארבעה תורות אחרונים מספיקים
+   * אינה הקשר; פעולה שנעשתה כן. שישה תורות אחרונים מספיקים
    * ל"ומה עם…" בלי לנפח את הפרומפט.
    */
   const [history, setHistory] = useState<HistoryTurn[]>([]);
   // "כדאי לטפל היום" — הסוכן פותח ביוזמה, לא רק ממתין לפקודה
   const [recs, setRecs] = useState<Recommendation[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /**
-   * ההצעה שממתינה לתיקון — „לא, 4 חדרים”.
-   *
-   * היא נשלחת יחד עם המשפט הבא כדי שהמודל יתקן במקום להתחיל מאפס,
-   * וכך שדות שכבר הובנו אינם אובדים. מתאפסת ברגע שנשלחה.
+   * ההצעה שממתינה לתיקון — „לא, 4 חדרים”. נשלחת עם המשפט הבא כדי
+   * שהמודל יתקן במקום להתחיל מאפס. מתאפסת ברגע שנשלחה.
    */
   const [priorForRefine, setPriorForRefine] = useState<{
     action: string;
@@ -138,17 +168,21 @@ export default function AgentPage(): React.JSX.Element {
   );
 
   /*
-   * הדוגמאות נטענות מהשרת ולא מוקלדות כאן.
-   *
-   * הן נגזרות מהקטלוג ומסוננות לפי ההרשאות של המשתמש, ולכן סוכן
-   * בלי הרשאת שליחה אינו רואה „שלח את הדירה למשה” — דוגמה שהייתה
-   * מסתיימת אצלו בשגיאה. רשימה מוקלדת במסך הייתה מתיישנת ברגע
-   * שנוספת פעולה.
-   *
-   * מוצגות שש נבחרות ולא כל הקטלוג (בקשת המשתמש): עשרים ומשהו
-   * צ'יפים הם קיר טקסט שאיש אינו קורא. שש שמכסות את הסוגים —
-   * חיפוש, שאילתה, קליטה, נכס, תזכורת ורשת — מלמדות את הרוחב,
-   * והשאר מתגלה מהשימוש עצמו.
+   * גלילה לתחתית על כל פריט חדש — שיחה שמתקדמת מחוץ למסך אינה
+   * שיחה. `behavior: "smooth"` רק אחרי הפריט הראשון: טעינת העמוד
+   * אינה צריכה אנימציה.
+   */
+  const endRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (thread.length > 0 || busy) {
+      endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [thread.length, busy]);
+
+  /*
+   * הדוגמאות נטענות מהשרת ולא מוקלדות כאן: נגזרות מהקטלוג ומסוננות
+   * לפי ההרשאות, ולכן מי שאין לו הרשאת שליחה אינו רואה „שלח את
+   * הדירה למשה”. שש נבחרות ולא כל הקטלוג — קיר צ'יפים איש אינו קורא.
    */
   useEffect(() => {
     if (authLoading) return;
@@ -163,7 +197,6 @@ export default function AgentPage(): React.JSX.Element {
     apiGet<AgentCapability[]>("/agent/capabilities")
       .then((caps) => {
         const featured = caps.filter((cap) => FEATURED.includes(cap.id));
-        // הרשאות קיצצו את הנבחרות? משלימים מהשאר עד שש
         const rest = caps.filter((cap) => !FEATURED.includes(cap.id));
         const picked = [...featured, ...rest].slice(0, 6);
         setExamples(picked.map((cap) => cap.examples[0]).filter(Boolean) as string[]);
@@ -175,113 +208,170 @@ export default function AgentPage(): React.JSX.Element {
       .catch(() => setRecs([]));
   }, [authLoading]);
 
-  const interpret = useCallback(
-    async (text: string, prior?: { action: string; params: Record<string, unknown> }) => {
-      if (text.trim().length < 2) {
-        setError("אמרו או הקלידו משהו קודם");
-        return;
+  const push = useCallback((item: NewChatItem): void => {
+    setThread((prev) => [...prev, { ...item, id: itemId() } as ChatItem]);
+  }, []);
+
+  /**
+   * תור שבוצע נכנס לזיכרון, עם הפרמטרים **שנשלחו בפועל** — כולל
+   * עריכות ובחירת מועמד (ביקורת Codex). התקציר והשמות לפי הסדר הם
+   * מה שמאפשר "תתקשר לראשון מהם" בתור הבא — אותה גזירה משותפת
+   * כמו בוואטסאפ (`agentHistorySummary`, `agentTurnRefs`).
+   */
+  const remember = useCallback(
+    (
+      said: string,
+      actionId: string,
+      executedParams: Record<string, unknown>,
+      executed: ExecuteResult,
+      refs: AgentHistoryRef[],
+    ): void => {
+      setHistory((prev) => [
+        ...prev.slice(-5),
+        {
+          transcript: said,
+          action: actionId,
+          params: executedParams,
+          resultSummary: agentHistorySummary(executed.message, executed.data),
+          refs,
+        },
+      ]);
+    },
+    [],
+  );
+
+  /** תוצאת ביצוע ⟵ בועת תשובה + זיכרון + הקראה. */
+  const settle = useCallback(
+    (
+      said: string,
+      actionId: string,
+      executed: ExecuteResult,
+      executedParams?: Record<string, unknown>,
+      refs?: AgentHistoryRef[],
+    ): void => {
+      if (executed.message === "") return; // בוטל — הסימון נעשה אצל הקורא
+      if (actionId !== "unknown" && executedParams !== undefined) {
+        remember(said, actionId, executedParams, executed, refs ?? []);
       }
+      push({ role: "agent", kind: "reply", result: executed });
+      // ההקראה: המסקנה והתובנה, לא רשימת הנתונים כולה
+      speakOut([executed.message, executed.insight].filter(Boolean).join(". "));
+    },
+    [push, remember, speakOut],
+  );
+
+  const send = useCallback(
+    async (raw: string) => {
+      const text = raw.trim();
+      if (text.length < 2 || busy) return;
+      const prior = priorForRefine ?? undefined;
+      setPriorForRefine(null);
+      setTranscript("");
+      push({ role: "user", text });
       setBusy(true);
-      setError(null);
-      setResult(null);
       try {
-        const next = await apiPost<Proposal>("/agent/interpret", {
-          transcript: text.trim(),
+        const proposal = await apiPost<Proposal>("/agent/interpret", {
+          transcript: text,
           ...(prior ? { prior } : {}),
           ...(history.length > 0 ? { history: history.slice(-6) } : {}),
         });
-        /*
-         * ברכה/שאלה כללית — תשובה שיחתית במקום כרטיס "לא הבנתי".
-         * מוצגת כתוצאה רגילה; אין מה לאשר כי שום דבר לא מבוצע.
-         */
-        if (next.actionId === "unknown" && next.reply !== undefined && next.reply !== "") {
-          setProposal(null);
-          setResult({ message: next.reply });
-          setTranscript("");
-          speakOut(next.reply);
+
+        // ברכה/שאלה כללית — תשובה שיחתית, לא כרטיס "לא הבנתי"
+        if (proposal.actionId === "unknown" && proposal.reply !== undefined && proposal.reply !== "") {
+          push({ role: "agent", kind: "reply", result: { message: proposal.reply } });
+          speakOut(proposal.reply);
           return;
         }
-        setProposal(next);
+        if (proposal.actionId === "unknown") {
+          /*
+           * **למה זה נכשל, ולא רק שזה נכשל.** כשמנוע ההבנה אינו זמין
+           * רץ מנוע החוקים, שמזהה ניסוחים מוכרים בלבד — בלי השורה
+           * הזו הכישלון נראה כמו תקלה או כמו משפט שגוי (דיווח
+           * המשתמש). "אינו זמין כרגע" ולא "אינו מוגדר": ה-fallback
+           * נדלק גם על כשל רגעי של הספק (ביקורת Codex).
+           */
+          push({
+            role: "agent",
+            kind: "note",
+            tone: "info",
+            text: [
+              proposal.clarify ?? "לא הצלחתי לזהות מה לעשות — אפשר לנסח אחרת.",
+              ...(proposal.fallback
+                ? [
+                    "שירות ההבנה החכמה אינו זמין כרגע, ולכן זוהו רק ניסוחים מוכרים. אם זה חוזר — בדקו את ההגדרה שלו במסך ההגדרות.",
+                  ]
+                : []),
+              ...proposal.warnings,
+            ].join("\n"),
+          });
+          return;
+        }
+
+        /*
+         * **שאילתה רצה מיד — הכלל המשותף, לא ניסוח מקומי.**
+         *
+         * כרטיס אישור על „מי מחפש 4 חדרים” מאמן ללחוץ בלי לקרוא.
+         * מתי בכל זאת מציגים כרטיס גם על שאילתה — מועמדים, הבהרה,
+         * שרשור — מוכרע ב-`proposalRunsImmediately` המשותפת לשני
+         * הערוצים, כדי ששיפור בכלל יגיע לשניהם ולא ייפרד.
+         */
+        if (proposalRunsImmediately(proposal)) {
+          const params = Object.fromEntries(
+            proposal.fields.map((field) => [field.key, field.value]),
+          );
+          const executed = await apiPost<ExecuteResult>("/agent/execute", {
+            action: proposal.actionId,
+            params,
+            transcript: text,
+          });
+          settle(
+            text,
+            proposal.actionId,
+            executed,
+            params,
+            agentTurnRefs([executed.ref], agentResultRefs(executed.data)),
+          );
+          return;
+        }
+
+        push({ role: "agent", kind: "proposal", proposal, transcript: text });
       } catch (err: unknown) {
-        setError(err instanceof ApiError ? err.message : "לא הצלחתי לנתח את הבקשה");
+        push({
+          role: "agent",
+          kind: "note",
+          tone: "danger",
+          text: err instanceof ApiError ? err.message : "לא הצלחתי לנתח את הבקשה",
+        });
       } finally {
         setBusy(false);
       }
     },
-    [history, speakOut],
+    [busy, history, priorForRefine, push, settle, speakOut],
   );
 
-  function onDone(
-    executed: ExecuteResult,
-    executedParams?: Record<string, unknown>,
-    refs?: AgentHistoryRef[],
-  ): void {
-    setProposal(null);
-    if (executed.message === "") return; // בוטל
-    /*
-     * התור נכנס לזיכרון רק אחרי ביצוע אמיתי, עם הפרמטרים **שנשלחו
-     * בפועל** — כולל עריכות ובחירת מועמד (ביקורת Codex). התקציר
-     * כולל את שמות התוצאות לפי הסדר — זה מה שמאפשר "תתקשר לראשון
-     * מהם" בתור הבא.
-     */
-    if (proposal !== null && proposal.actionId !== "unknown" && executedParams !== undefined) {
-      setHistory((prev) => [
-        ...prev.slice(-5),
-        {
-          transcript: transcript.trim(),
-          action: proposal.actionId,
-          params: executedParams,
-          /*
-           * הזיכרון נגזר מהשורות המשותפות — **אותה גזירה כמו בוואטסאפ.**
-           *
-           * כאן היה מנסח שלישי: תקרה של חמישה, וסריקה שמכירה
-           * `name`/`title` בלבד. כלומר חיפוש שנפל על הערה הציג את שם
-           * הלקוח ולא שמר דבר, וחיפוש מעורב הציג פגישה ראשונה ושמר
-           * קונה ראשון — „תוסיף הערה לראשון” פגע ברשומה אחרת מזו
-           * שהמתווך ראה (ביקורת Codex).
-           */
-          resultSummary: agentHistorySummary(executed.message, executed.data),
-          /*
-           * המזהים של מה שהוצג ושל מה שהפעולות נגעו בו — כדי ש„הראשון
-           * מהם” ו„אליה” ייפתרו בלי חיפוש טקסט. התווית לבדה אינה
-           * מפתח אמין כשהיא רישא של שם ארוך (ביקורת Codex). המזהה
-           * אינו מגיע לפרומפט של המודל.
-           *
-           * הרשימה נבנית ב-`ProposalCard`, כי רק שם ידועות תוצאות
-           * צעדי ההמשך: התוצאה המצטברת שמגיעה לכאן היא הודעה אחת
-           * בלי `ref` ובלי `data` (ביקורת Codex). זו אותה בנייה
-           * בדיוק כמו בוואטסאפ — `agentTurnRefs` בשתי הקצוות.
-           */
-          refs: refs ?? [],
-        },
-      ]);
-    }
-    setResult(executed);
-    setTranscript("");
-    // ההקראה: המסקנה והתובנה, לא רשימת הנתונים כולה
-    speakOut([executed.message, executed.insight].filter(Boolean).join(". "));
-    /*
-     * ניווט רק אחרי פעולה שיצרה או שינתה משהו. לשאילתה יש `href`
-     * למסך המלא, אבל התשובה כבר כאן — ניווט אוטומטי היה זורק את
-     * המתווך ממנה לפני שהספיק לקרוא.
-     */
-    if (executed.href !== undefined && executed.data === undefined) {
-      router.push(executed.href);
-    }
-  }
+  /** הצעה בשרשור הוכרעה — מסומנת, לא נמחקת. */
+  const markSettled = useCallback((id: number, settled: "confirmed" | "cancelled"): void => {
+    setThread((prev) =>
+      prev.map((item) =>
+        item.id === id && item.role === "agent" && item.kind === "proposal"
+          ? { ...item, settled }
+          : item,
+      ),
+    );
+  }, []);
 
   if (authLoading) return <p aria-live="polite">טוען…</p>;
 
   return (
     <div className="mx-auto max-w-2xl">
-      <header className="mv-hero mb-5">
+      <header className="mv-hero mb-4">
         <span className="mv-hero-icon" aria-hidden="true">
           <IconMic s={24} />
         </span>
         <div>
           <h1 className="m-0 text-[length:calc(26/16*1rem)] font-extrabold leading-tight">הסוכן</h1>
           <p className="m-0 mt-1 text-[length:var(--type-button)]" style={{ color: "var(--color-text-muted)" }}>
-            דברו או הקלידו רגיל. אראה לכם מה הבנתי לפני שאעשה משהו.
+            דברו או הקלידו רגיל — כמו בצ'אט. אראה מה הבנתי לפני שאעשה משהו.
           </p>
         </div>
         <button
@@ -303,10 +393,7 @@ export default function AgentPage(): React.JSX.Element {
           }}
         >
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path
-              d="M4 9v6h4l5 4V5L8 9H4z"
-              fill="currentColor"
-            />
+            <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" />
             {tts ? (
               <path
                 d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"
@@ -326,267 +413,230 @@ export default function AgentPage(): React.JSX.Element {
         </button>
       </header>
 
-      {/*
-        הסוכן פותח ביוזמה: מה שהכי כדאי לטפל בו היום, מאותו מנוע
-        המלצות של הדשבורד. מי שנכנס "רק לשאול משהו" רואה קודם את
-        מה שמחכה לו — עוזר אמיתי לא רק עונה, הוא מזכיר.
-      */}
-      {recs.length === 0 ? null : (
-        <section className="mv-example-box mb-5" aria-labelledby="agent-today">
-          <h2 id="agent-today" className="m-0 mb-2.5 text-[length:var(--type-body-sm)] font-bold">
-            <IconTarget s={15} /> כדאי לטפל היום:
-          </h2>
-          <ul className="m-0 flex list-none flex-col gap-2 p-0">
-            {recs.map((rec) => {
-              const href = recHref(rec);
-              return (
-                <li key={`${rec.type}-${rec.entityId ?? rec.title}`} className="text-[length:var(--type-caption-lg)]">
-                  <span className="font-semibold">{rec.title}</span>
-                  <span style={{ color: "var(--color-text-muted)" }}> — {rec.body}</span>{" "}
-                  {href === null ? null : (
-                    <a href={href} className="underline">
-                      לטיפול ←
-                    </a>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-
-      {examples.length === 0 || examplesBox.hidden ? null : (
-        <section className="mv-example-box mb-5" aria-labelledby="agent-examples">
-          <div className="mb-2.5 flex items-center gap-2">
-            <h2 id="agent-examples" className="m-0 text-[length:var(--type-body-sm)] font-bold">
-              למשל, אפשר להגיד:
-            </h2>
-            <button
-              type="button"
-              className="ms-auto text-[length:var(--type-caption)] underline"
-              style={{ color: "var(--color-text-muted)" }}
-              onClick={examplesBox.never}
-            >
-              אל תציג יותר
-            </button>
-            <button
-              type="button"
-              aria-label="סגירת הדוגמאות"
-              style={{ color: "var(--color-text-muted)", lineHeight: 0 }}
-              onClick={examplesBox.close}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path
-                  d="M4 4l8 8M12 4l-8 8"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {examples.map((example) => (
-              <button
-                key={example}
-                type="button"
-                className="mv-example-chip"
-                onClick={() => {
-                  setTranscript(example);
-                  setProposal(null);
-                  setResult(null);
-                }}
-              >
-                {example}
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {error === null ? null : (
-        <Notice tone="danger" onClose={() => setError(null)}>
-          {error}
-        </Notice>
-      )}
-
-      <VoiceRecorder
-        value={transcript}
-        onChange={(value) => {
-          setTranscript(value);
-          setProposal(null);
-        }}
-        label="מה לעשות?"
-        placeholder='לדוגמה: "תוסיף קונה משה כהן 050-1234567, מחפש 4 חדרים בבני ברק עד 2.3 מיליון, חייב מעלית"'
-        onError={setError}
-      />
-
-      {proposal === null ? (
-        <Button onClick={() => void interpret(transcript)} disabled={busy} className="w-full">
-          {busy ? "חושב…" : "מה לעשות עם זה?"}
-        </Button>
-      ) : proposal.actionId === "unknown" ? (
-        <div className="mv-proposal">
-          <p className="m-0 mb-2 font-semibold">לא הצלחתי לזהות מה לעשות</p>
-          <p className="m-0 text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-muted)" }}>
-            {proposal.clarify ??
-              "אפשר לנסח אחרת, או ללחוץ על אחת הדוגמאות למעלה כדי לראות מה אני יודע לעשות."}
-          </p>
-          {/*
-            **למה זה נכשל, ולא רק שזה נכשל.**
-
-            כשמנוע ההבנה אינו זמין, מה שרץ הוא מנוע החוקים — הוא
-            מזהה ניסוחים מוכרים בלבד, ולכן משפט סביר לחלוטין נדחה.
-            בלי השורה הזו הכישלון נראה כמו תקלה במערכת או כמו משפט
-            שגוי (דיווח המשתמש).
-
-            "אינו זמין כרגע" ולא "אינו מוגדר": ה-fallback נדלק גם על
-            כשל רגעי של הספק, והמסך אינו יודע להבדיל. הודעה שקובעת
-            "לא מוגדר" בזמן תקלה חולפת שולחת את מנהל המשרד לתקן
-            הגדרה תקינה (ביקורת Codex).
-          */}
-          {proposal.fallback ? (
-            <p
-              className="m-0 mt-2 text-[length:var(--type-caption-lg)]"
-              style={{ color: "var(--color-text-muted)" }}
-            >
-              שירות ההבנה החכמה אינו זמין כרגע, ולכן זוהו רק ניסוחים
-              מוכרים. אם זה חוזר על עצמו — בדקו את ההגדרה שלו במסך
-              ההגדרות.
-            </p>
-          ) : null}
-          {proposal.warnings.length === 0 ? null : (
-            <ul className="mt-2 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-              {proposal.warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
+      <div className="flex flex-col gap-3" aria-live="polite">
+        {/*
+          בועת הפתיחה — הסוכן פותח ביוזמה: מה כדאי לטפל בו היום
+          (אותו מנוע המלצות של הדשבורד) ודוגמאות למה אפשר לבקש.
+          זה תוכן השיחה הראשון, לא קופסה מעל השיחה.
+        */}
+        <div className="mv-chat-bubble mv-chat-agent">
+          <p className="m-0 font-semibold">היי 👋 מה אפשר לעשות בשבילך?</p>
+          {recs.length === 0 ? null : (
+            <div className="mt-2">
+              <p className="m-0 mb-1 text-[length:var(--type-caption-lg)] font-bold">
+                <IconTarget s={14} /> כדאי לטפל היום:
+              </p>
+              <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+                {recs.map((rec) => {
+                  const href = recHref(rec);
+                  return (
+                    <li key={`${rec.type}-${rec.entityId ?? rec.title}`} className="text-[length:var(--type-caption-lg)]">
+                      <span className="font-semibold">{rec.title}</span>
+                      <span style={{ color: "var(--color-text-muted)" }}> — {rec.body}</span>{" "}
+                      {href === null ? null : (
+                        <a href={href} className="underline">
+                          לטיפול ←
+                        </a>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           )}
-        </div>
-      ) : (
-        <ProposalCard
-          proposal={proposal}
-          transcript={transcript}
-          onDone={onDone}
-          onRefine={(params) => {
-            setPriorForRefine({ action: proposal.actionId, params });
-            setProposal(null);
-            setTranscript("");
-            setError(null);
-            setResult({
-              message: "אמרו מה לתקן — למשל „לא, 4 חדרים” או „תוסיף גם גבעתיים”",
-            });
-          }}
-        />
-      )}
-
-      {result === null ? null : (
-        <div className="mt-4">
-          {result.message === "" ? null : (
-            <Notice tone="success" onClose={() => setResult(null)}>
-              {/*
-                ‎`pre-line` — הודעת התוצאה יכולה להיות רב-שורתית.
-                „קישור לחתימה” מחזיר שורת פתיחה, את הקישור עצמו,
-                ואת האזהרה שהוא טרם נשלח ללקוח; בלי זה השלוש
-                נמרחות לשורה אחת והקישור נבלע בין המשפטים. שורה
-                אחת אינה מושפעת.
-              */}
-              <span style={{ whiteSpace: "pre-line" }}>{result.message}</span>
-              {result.href !== undefined && (result.data !== undefined || result.audio !== undefined) ? (
-                <>
-                  {" "}
-                  <a href={result.href} className="underline">
-                    למסך המלא ←
-                  </a>
-                </>
-              ) : null}
-              {/* קישור חיצוני — wa.me עם ההודעה מוכנה; נפתח בלשונית חדשה */}
-              {result.link === undefined ? null : (
-                <>
-                  {" "}
-                  <a href={result.link} target="_blank" rel="noreferrer" className="underline">
-                    פתיחה בוואטסאפ ←
-                  </a>
-                </>
-              )}
-            </Notice>
-          )}
-          {/* התובנה לפני הרשימה: המסקנה קודם, הפירוט למי שרוצה */}
-          {result.insight === undefined ? null : (
-            <p
-              className="mb-2 mt-3 rounded-lg px-4 py-2.5 text-[length:var(--type-body)] font-semibold"
-              style={{ background: "var(--color-primary-soft)" }}
-            >
-              {result.insight}
-            </p>
-          )}
-          {result.data === undefined ? null : <AgentResults data={result.data} />}
-          {/*
-            צעד ההמשך המוצע — לחיצה שולחת אותו כמשפט חדש דרך אותו
-            מסלול הבנה⟵אישור. שום דבר אינו מבוצע מהלחיצה עצמה.
-          */}
-          {/*
-            ‎**צעדי ההמשך — אותם כפתורים כמו בוואטסאפ, ומאותו מקור.**
-
-            ‎`nextSteps` נגזר מהתוכן שחזר, וכל צעד הוא צ'יפ שלחיצה
-            עליו שולחת את המשפט דרך אותו מסלול הבנה⟵אישור. שום דבר
-            אינו מבוצע מהלחיצה עצמה. `suggestion` הוא רשת הביטחון
-            המנוסחת — מוצג רק כשאין אף צעד נגזר, בדיוק כמו בערוץ
-            הוואטסאפ, כדי ששתי הפנים של הסוכן יציעו את אותו הדבר.
-          */}
-          {(result.nextSteps ?? []).length > 0 ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {(result.nextSteps ?? []).map((step) => (
+          {examples.length === 0 ? null : (
+            <div className="mt-2.5 flex flex-wrap gap-2">
+              {examples.map((example) => (
                 <button
-                  key={step.text}
+                  key={example}
                   type="button"
                   className="mv-example-chip"
-                  disabled={busy}
-                  onClick={() => {
-                    setResult(null);
-                    setTranscript(step.text);
-                    void interpret(step.text);
-                  }}
+                  onClick={() => void send(example)}
                 >
-                  {step.label} — „{step.text}”
+                  {example}
                 </button>
               ))}
             </div>
-          ) : result.suggestion === undefined || result.suggestion === "" ? null : (
-            <button
-              type="button"
-              className="mv-example-chip mt-3"
-              disabled={busy}
-              onClick={() => {
-                const next = result.suggestion ?? "";
-                setResult(null);
-                setTranscript(next);
-                void interpret(next);
-              }}
-            >
-              אפשר להמשיך: „{result.suggestion}”
-            </button>
           )}
         </div>
-      )}
 
-      {/*
-        „שלחו את התיקון” מופיע רק אחרי בקשת תיקון, כדי שהמסך לא
-        יציע פעולה שאין לה הקשר.
-      */}
-      {priorForRefine !== null && proposal === null && transcript.trim().length > 1 ? (
-        <Button
-          className="mt-3 w-full"
-          disabled={busy}
-          onClick={() => {
-            const prior = priorForRefine;
-            setPriorForRefine(null);
-            void interpret(transcript, prior);
-          }}
-        >
-          שלחו את התיקון
+        {thread.map((item) => {
+          if (item.role === "user") {
+            return (
+              <div key={item.id} className="mv-chat-bubble mv-chat-user">
+                <span style={{ whiteSpace: "pre-line" }}>{item.text}</span>
+              </div>
+            );
+          }
+          if (item.kind === "note") {
+            return (
+              <div
+                key={item.id}
+                className="mv-chat-bubble mv-chat-agent"
+                style={item.tone === "danger" ? { borderColor: "var(--color-danger)" } : undefined}
+              >
+                <span style={{ whiteSpace: "pre-line" }}>{item.text}</span>
+              </div>
+            );
+          }
+          if (item.kind === "proposal") {
+            if (item.settled === "cancelled") {
+              return (
+                <div key={item.id} className="mv-chat-bubble mv-chat-agent" style={{ color: "var(--color-text-muted)" }}>
+                  „{item.proposal.title}” — בוטל.
+                </div>
+              );
+            }
+            if (item.settled === "confirmed") {
+              return (
+                <div key={item.id} className="mv-chat-bubble mv-chat-agent" style={{ color: "var(--color-text-muted)" }}>
+                  ✅ „{item.proposal.title}” אושר.
+                </div>
+              );
+            }
+            return (
+              <div key={item.id} className="mv-chat-card">
+                <ProposalCard
+                  proposal={item.proposal}
+                  transcript={item.transcript}
+                  onDone={(executed, executedParams, refs) => {
+                    if (executed.message === "") {
+                      markSettled(item.id, "cancelled");
+                      return;
+                    }
+                    markSettled(item.id, "confirmed");
+                    settle(item.transcript, item.proposal.actionId, executed, executedParams, refs);
+                  }}
+                  onRefine={(params) => {
+                    setPriorForRefine({ action: item.proposal.actionId, params });
+                    markSettled(item.id, "cancelled");
+                    push({
+                      role: "agent",
+                      kind: "note",
+                      tone: "info",
+                      text: "אמרו מה לתקן — למשל „לא, 4 חדרים” או „תוסיף גם גבעתיים”",
+                    });
+                  }}
+                />
+              </div>
+            );
+          }
+          /*
+           * ‎**בועת תשובה — ההרכב והסדר מהתוכנית המשותפת.**
+           *
+           * ‎`agentReplySegments` מכתיב לשני הערוצים מה מופיע ומתי:
+           * מסקנה⟵תובנה⟵נתונים⟵קישורים⟵צעדים, ו-`suggestion` רק
+           * בהיעדר צעד נגזר. כאן רק הרינדור: כל מקטע לצורתו במסך.
+           * לחיצה על צעד שולחת את המשפט כתור חדש — אותו מסלול
+           * הבנה⟵אישור, כמו כפתור בוואטסאפ.
+           */
+          return (
+            <div key={item.id} className="mv-chat-bubble mv-chat-agent">
+              {agentReplySegments(item.result).map((segment, i) => {
+                switch (segment.kind) {
+                  case "headline":
+                    return (
+                      <p key={i} className="m-0" style={{ whiteSpace: "pre-line" }}>
+                        {segment.text}
+                      </p>
+                    );
+                  case "insight":
+                    return (
+                      <p
+                        key={i}
+                        className="mb-0 mt-2 rounded-lg px-3 py-2 text-[length:var(--type-body-sm)] font-semibold"
+                        style={{ background: "var(--color-primary-soft)" }}
+                      >
+                        {segment.text}
+                      </p>
+                    );
+                  case "data":
+                    return (
+                      <div key={i} className="mt-2">
+                        <AgentResults data={segment.data} />
+                      </div>
+                    );
+                  /*
+                   * הניווט הוא הצעה, לא כפייה: הקישור מוצג והמעבר
+                   * הוא בחירה — לא זריקה מהשיחה באמצע.
+                   */
+                  case "screen-link":
+                    return (
+                      <p key={i} className="m-0 mt-2 text-[length:var(--type-body-sm)]">
+                        <a href={segment.href} className="underline">
+                          למסך המלא ←
+                        </a>
+                      </p>
+                    );
+                  case "external-link":
+                    return (
+                      <p key={i} className="m-0 mt-2 text-[length:var(--type-body-sm)]">
+                        <a href={segment.url} target="_blank" rel="noreferrer" className="underline">
+                          פתיחה בוואטסאפ ←
+                        </a>
+                      </p>
+                    );
+                  case "steps":
+                    return (
+                      <div key={i} className="mt-2 flex flex-wrap gap-2">
+                        {segment.steps.map((step) => (
+                          <button
+                            key={step.text}
+                            type="button"
+                            className="mv-example-chip"
+                            disabled={busy}
+                            onClick={() => void send(step.text)}
+                          >
+                            {step.label} — „{step.text}”
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  case "suggestion":
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        className="mv-example-chip mt-2"
+                        disabled={busy}
+                        onClick={() => void send(segment.text)}
+                      >
+                        אפשר להמשיך: „{segment.text}”
+                      </button>
+                    );
+                }
+              })}
+            </div>
+          );
+        })}
+
+        {/* מחוון הקלדה — הסוכן „חושב” נראה, לא כפתור קפוא */}
+        {busy ? (
+          <div className="mv-chat-bubble mv-chat-agent" aria-label="הסוכן חושב">
+            <span className="mv-chat-typing" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+          </div>
+        ) : null}
+        <div ref={endRef} />
+      </div>
+
+      <div className="mt-4">
+        <VoiceRecorder
+          value={transcript}
+          onChange={setTranscript}
+          rows={2}
+          label="מה לעשות?"
+          placeholder='למשל: "מי מחפש 4 חדרים בגבעתיים?" · Enter שולח, Shift+Enter יורד שורה'
+          onError={(message) => push({ role: "agent", kind: "note", tone: "danger", text: message })}
+          onSubmit={() => void send(transcript)}
+        />
+        <Button onClick={() => void send(transcript)} disabled={busy} className="w-full">
+          {busy ? "חושב…" : "שליחה"}
         </Button>
-      ) : null}
+      </div>
     </div>
   );
 }
