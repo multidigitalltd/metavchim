@@ -20,6 +20,7 @@ const ALL: readonly string[] = AGENT_ACTION_IDS;
 const NOW = new Date("2026-03-10T12:00:00.000Z");
 
 describe("agentNextSteps — התאמות", () => {
+  /* „מה מתאים לדירה ברמת גן” — הנכס הוא השאלה ואינו בשורות */
   const matches = {
     data: {
       matches: [
@@ -27,6 +28,7 @@ describe("agentNextSteps — התאמות", () => {
         { buyerName: "משה כהן", buyerId: "b2", score: 93 },
       ],
     },
+    params: { propertyPhrase: "הדירה ברמת גן" },
   };
 
   it("מציע לשלוח הצעה לבעל הציון הגבוה, ולא לראשון ברשימה", () => {
@@ -34,6 +36,61 @@ describe("agentNextSteps — התאמות", () => {
     expect(step?.action).toBe("send_offer");
     expect(step?.params["buyerPhrase"]).toBe("משה כהן");
     expect(step?.text).toContain("93%");
+  });
+
+  /*
+   * ‎**הנכס נוסע עם הצעד, אחרת ההצעה אינה הצעה.**
+   *
+   * הגרסה הראשונה נשאה `buyerPhrase` בלבד. „לשלוח הצעה למשה כהן?”
+   * פוענח מחדש בלי נכס, ו-`sendOffer` הצטמצם לניווט לכרטיס הקונה —
+   * כלומר משפט שאומר „לשלוח” ואינו שולח (ביקורת Codex).
+   */
+  it("הנכס נכנס גם לפרמטרים וגם למשפט", () => {
+    const [step] = agentNextSteps("show_matches", matches, ALL, NOW);
+    expect(step?.params["propertyPhrase"]).toBe("הדירה ברמת גן");
+    expect(step?.text).toContain("הדירה ברמת גן");
+  });
+
+  /* התאמות המשרד — לכל שורה הנכס שלה, ואין ביטוי בשאלה */
+  it("בהתאמות המשרד הנכס מגיע מהשורה עצמה", () => {
+    const [step] = agentNextSteps(
+      "show_matches",
+      {
+        data: {
+          matches: [
+            { buyerName: "משה כהן", score: 93, property: { title: "פנטהאוז בנתניה" } },
+          ],
+        },
+      },
+      ALL,
+      NOW,
+    );
+    expect(step?.params["propertyPhrase"]).toBe("פנטהאוז בנתניה");
+  });
+
+  it("בלי כותרת נופלים לכתובת", () => {
+    const [step] = agentNextSteps(
+      "show_matches",
+      { data: { matches: [{ buyerName: "משה כהן", score: 93, property: { address: "הרב שך 12" } }] } },
+      ALL,
+      NOW,
+    );
+    expect(step?.params["propertyPhrase"]).toBe("הרב שך 12");
+  });
+
+  /*
+   * ‎**ובלי שום נכס — אין צעד.** „לשלוח הצעה” שאינה יכולה לשלוח היא
+   * הבטחה שלא תתקיים, וזה גרוע מלא להציע כלום.
+   */
+  it("אין נכס — אין הצעה", () => {
+    expect(
+      agentNextSteps(
+        "show_matches",
+        { data: { matches: [{ buyerName: "משה כהן", score: 93 }] } },
+        ALL,
+        NOW,
+      ),
+    ).toEqual([]);
   });
 
   /*
@@ -176,7 +233,10 @@ describe("שלמות", () => {
    */
   it("כל פעולה שיש לה כלל באמת פולטת צעד", () => {
     const covered: [string, Parameters<typeof agentNextSteps>[1]][] = [
-      ["show_matches", { data: { matches: [{ buyerName: "א", buyerId: "b", score: 90 }] } }],
+      [
+        "show_matches",
+        { data: { matches: [{ buyerName: "א", score: 90, property: { title: "ג" } }] } },
+      ],
       ["create_buyer", { ref: { label: "ב", entityType: "buyer" } }],
       ["create_property", { ref: { label: "ג", entityType: "property" } }],
       ["create_lead", { ref: { label: "ד", entityType: "lead" } }],
@@ -190,7 +250,7 @@ describe("שלמות", () => {
   it("כל צעד מפנה לפעולה שקיימת בקטלוג", () => {
     const [step] = agentNextSteps(
       "show_matches",
-      { data: { matches: [{ buyerName: "א", buyerId: "b", score: 90 }] } },
+      { data: { matches: [{ buyerName: "א", score: 90, property: { title: "ג" } }] } },
       ALL,
       NOW,
     );

@@ -96,7 +96,7 @@ export interface AgentActionDef {
   examples: readonly string[];
   capability: Capability;
   /**
-   * יכולת שנייה שגם היא **מספיקה** לפתיחת הפעולה.
+   * יכולות נוספות שכל אחת מהן **מספיקה** לפתיחת הפעולה.
    *
    * לרוב המכריע של הפעולות יש מודול אחד, ולשדה הזה אין מה לעשות
    * בהן. היוצא מן הכלל הוא פעולה שמזהה את הרשומה לפי מה שנאמר
@@ -109,8 +109,13 @@ export interface AgentActionDef {
    * זהו שער **הכניסה** בלבד, ולא ההיתר לרשומה שנבחרה: מיד אחרי
    * הזיהוי `cardTarget` בודק שוב את היכולת שמתאימה לסוג שנפתר,
    * ולכן ההרחבה כאן אינה מרחיבה שום גישה בפועל.
+   *
+   * ‎**רשימה ולא ערך יחיד**, כי „כרטיס” הוא כבר שלושה סוגים: קונה,
+   * ליד ונכס. כשהיה כאן ערך אחד, `show_card` הצהיר על קונים ולידים
+   * בלבד — ומשתמש שהרשאותיו צומצמו לנכסים נדחה בשער **לפני** שהענף
+   * שנכתב במיוחד בשבילו נבדק (ביקורת Codex).
    */
-  capabilityAlt?: Capability;
+  capabilityAlts?: readonly Capability[];
   risk: AgentRisk;
   fields: readonly AgentFieldSpec[];
   /**
@@ -655,21 +660,36 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
      * השיחות של הקונים שלו (ביקורת Codex).
      */
     capability: "leads.view_own",
-    capabilityAlt: "buyers.view_own",
+    capabilityAlts: ["buyers.view_own"],
     risk: "read",
     fields: [],
   },
   {
     id: "show_card",
-    title: "כרטיס הלקוח המלא",
-    when: "בקשה לראות את כל מה שיש על לקוח מסוים — פרטי קשר, מה הוא מחפש, הערות והשיחות איתו.",
+    /*
+     * ‎**הכותרת והתיאור אומרים „נכס” — כי הביצוע כבר יודע.**
+     *
+     * הענף לנכסים נוסף ל-`showCard` ול-`anyCard`, והקטלוג נשאר מדבר
+     * על „לקוח מסוים” בלבד. הקטלוג הוא מה שנכנס לפרומפט, ולכן המודל
+     * מעולם לא נאמר לו שהפעולה מקבלת נכס — „מה יש על הדירה ברמת גן”
+     * נותב למקום אחר, והענף שנכתב בשבילו נשאר בלתי מגיע מכיוון שני
+     * (מלבד שער היכולת שביקורת Codex הצביעה עליו).
+     */
+    title: "הכרטיס המלא",
+    when: "בקשה לראות את כל מה שיש על רשומה מסוימת — לקוח (פרטי קשר, מה הוא מחפש, הערות ושיחות) או נכס (פרטים, בעלים, בלעדיות ומה חסר).",
     examples: [
       "תראה לי את הכרטיס של משה כהן",
       "מה יש לנו על דנה לוי",
-      "כל הפרטים של שרה",
+      "מה יש על הדירה ברמת גן",
+      "כל הפרטים של הפנטהאוז בנתניה",
     ],
     capability: "buyers.view_own",
-    capabilityAlt: "leads.view_own",
+    /*
+     * ‎**וגם נכסים**, כי הכרטיס כולל אותם מאז שנוסף הענף שלהם.
+     * בלי זה מי שהרשאותיו צומצמו ל-`properties.view` נדחה בשער לפני
+     * שהענף נבדק בכלל.
+     */
+    capabilityAlts: ["leads.view_own", "properties.view"],
     risk: "read",
     fields: [F_CARD_PHRASE],
   },
@@ -683,7 +703,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       "שלח לי את ההקלטה של שרה",
     ],
     capability: "leads.view_own",
-    capabilityAlt: "buyers.view_own",
+    capabilityAlts: ["buyers.view_own"],
     risk: "read",
     fields: [F_CARD_PHRASE],
   },
@@ -1193,7 +1213,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
      * לשאול, לא ההיתר למה שיוחזר.
      */
     capability: "leads.view_own",
-    capabilityAlt: "properties.view",
+    capabilityAlts: ["properties.view"],
     risk: "read",
     fields: [],
   },
@@ -1316,5 +1336,5 @@ export function mayUseAction(
   capabilities: { has(capability: Capability): boolean },
 ): boolean {
   if (capabilities.has(action.capability)) return true;
-  return action.capabilityAlt !== undefined && capabilities.has(action.capabilityAlt);
+  return (action.capabilityAlts ?? []).some((alt) => capabilities.has(alt));
 }

@@ -275,7 +275,12 @@ export class AgentExecuteService {
      */
     const derived = agentNextSteps(
       actionId,
-      { ...(final.data === undefined ? {} : { data: final.data }), ...(final.ref === undefined ? {} : { ref: final.ref }) },
+      {
+        ...(final.data === undefined ? {} : { data: final.data }),
+        ...(final.ref === undefined ? {} : { ref: final.ref }),
+        // הנכס שנשאל עליו אינו בשורות של „מה מתאים לנכס” — ראו AgentStepSource
+        params,
+      },
       AGENT_ACTIONS.filter((a) => mayUseAction(a, TenantContext.current().capabilities)).map(
         (a) => a.id,
       ),

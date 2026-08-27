@@ -246,7 +246,19 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
           tenantId,
           status: "suggested",
           score: { gte: AUTO_OFFER_MIN_SCORE },
-          computedAt: { gte: since },
+          /*
+           * ‎**`createdAt` ולא `computedAt` — הגבול חייב חותמת שאינה זזה.**
+           *
+           * ‎`upsertMatch` דורס את `computedAt` בכל חישוב מחדש, וחישוב
+           * מחדש קורה על כל עריכת נכס או קונה. כלומר התאמה בת שנתיים
+           * שמחירה עודכן אתמול קיבלה חותמת של אתמול, חצתה את גבול
+           * ההפעלה, ונשלחה ללקוח שיושב במאגר שנתיים — בדיוק הדיוור
+           * ההיסטורי ש„מכאן והלאה” נועד למנוע (ביקורת Codex).
+           *
+           * ‎`createdAt` נכתב פעם אחת ואינו מתעדכן, ולכן שורה שנוצרה
+           * לפני ההפעלה אינה יכולה לחצות את הגבול לעולם.
+           */
+          createdAt: { gte: since },
         },
         orderBy: { score: "desc" },
         select: { id: true, buyerId: true, propertyId: true },

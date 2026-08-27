@@ -87,6 +87,19 @@ function section(data: unknown, key: string): Record<string, unknown>[] {
 export interface AgentStepSource {
   data?: unknown;
   ref?: { label: string; entityType: string };
+  /**
+   * ‎**הפרמטרים שהפעולה רצה איתם — כי חלק מההקשר אינו בתוצאה.**
+   *
+   * „מה מתאים לדירה ברמת גן” מחזיר **קונים** (`listForProperty`),
+   * והנכס שנשאל עליו אינו בשום שורה. בלעדיו הצעד היוצא נשא רק את שם
+   * הקונה, והמשפט „לשלוח הצעה למשה כהן?” פוענח מחדש בלי נכס —
+   * ‎`sendOffer` לא מצא על מה לשלוח והצטמצם לניווט לכרטיס. כלומר
+   * הצעה שהבטיחה שליחה ולא שלחה (ביקורת Codex).
+   *
+   * שמות ולא מזהים, כמו בכל השאר: `propertyPhrase` הוא מה שנאמר,
+   * והפותר מתרגם אותו שוב בדיוק כמו בפעם הראשונה.
+   */
+  params?: Readonly<Record<string, unknown>>;
 }
 
 const BY_ID = new Map(AGENT_ACTIONS.map((a) => [a.id, a]));
@@ -128,11 +141,32 @@ export function agentNextSteps(
         .sort((a, b) => (Number(b["score"]) || 0) - (Number(a["score"]) || 0))[0];
       if (top === undefined) break;
       const name = str(top["buyerName"])!;
+
+      /*
+       * ‎**הצעה בלי נכס אינה הצעה, ולכן אין צעד בלעדיו.**
+       *
+       * שני מקורות, כי לשתי הצורות של השאלה יש נתונים שונים:
+       * התאמות המשרד (`listAll`) נושאות `property` בכל שורה, ו„מה
+       * מתאים לדירה ברמת גן” (`listForProperty`) אינה נושאת אותו
+       * כלל — הנכס שם הוא **השאלה**, לא התוצאה.
+       *
+       * בלי אף אחד מהם הצעד יורד. `sendOffer` היה מצטמצם לניווט
+       * לכרטיס הקונה, כלומר הצעה שאומרת „לשלוח” ואינה שולחת —
+       * וזה גרוע מלא להציע כלום.
+       */
+      const property = top["property"];
+      const title =
+        (typeof property === "object" && property !== null
+          ? (str((property as Record<string, unknown>)["title"]) ??
+            str((property as Record<string, unknown>)["address"]))
+          : null) ?? str(result.params?.["propertyPhrase"]);
+      if (title === null) break;
+
       const score = typeof top["score"] === "number" ? ` (${top["score"]}% התאמה)` : "";
       permit({
-        text: `לשלוח הצעה ל${name}${score}?`,
+        text: `לשלוח ל${name} הצעה על ${title}${score}?`,
         action: "send_offer",
-        params: { buyerPhrase: name },
+        params: { buyerPhrase: name, propertyPhrase: title },
       });
       break;
     }

@@ -732,10 +732,18 @@ model Match {
   dismissedAt   DateTime? @map("dismissed_at")
   dismissedBy   String?   @map("dismissed_by") @db.Char(26)
   computedAt    DateTime  @map("computed_at")
+  /// מתי ההתאמה **נוצרה**, להבדיל ממתי חושבה לאחרונה.
+  ///
+  /// גבול ההפעלה של ההצעות האוטומטיות („מכאן והלאה”) נשען על חותמת
+  /// שאינה זזה. `computed_at` נדרס בכל חישוב מחדש, ולכן התאמה ישנה
+  /// שהנכס שלה עודכן נראתה חדשה וחצתה את הגבול. השדה הזה נכתב פעם
+  /// אחת ואינו מתעדכן — לא ב-`upsertMatch` ולא בשום מקום אחר.
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   @@unique([tenantId, propertyId, buyerId])
   @@index([tenantId, propertyId, score(sort: Desc)])
   @@index([tenantId, buyerId, score(sort: Desc)])
+  @@index([tenantId, status, createdAt])
   @@map("matches")
 }
 

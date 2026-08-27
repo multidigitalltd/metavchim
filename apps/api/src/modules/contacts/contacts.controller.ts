@@ -23,6 +23,7 @@ import {
 import { assertContactAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { AuditService } from "../../core/audit.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
 import { ContactsService } from "./contacts.service";
@@ -49,6 +50,14 @@ const UpdateEmailSchema = z
 const AddPhoneSchema = z
   .object({ phone: PhoneField, label: z.enum(PHONE_LABELS).default("mobile") })
   .strict();
+
+/**
+ * ‎**הסכמה לדיוור — `true` להצטרפות מחדש, `false` להסרה.**
+ *
+ * בוליאני מפורש ולא שני נתיבים: זו עובדה אחת על הלקוח, ולנתיב
+ * „הצטרפות” בלי „הסרה” היה חסר בדיוק מה שהמשרד צריך כשלקוח מתקשר.
+ */
+const MarketingConsentSchema = z.object({ consent: z.boolean() }).strict();
 
 /** אישור מחיקת לקוח: שמו המדויק — הפעולה אינה הפיכה. */
 const EraseContactSchema = z.object({ confirmName: z.string().min(1).max(120) }).strict();
@@ -111,6 +120,7 @@ export class ContactsController {
     private readonly contacts: ContactsService,
     private readonly duplicates: DuplicatesService,
     private readonly erasure: ContactErasureService,
+    private readonly audit: AuditService,
   ) {}
 
   /* ---------- זכות המחיקה של הלקוח ---------- */
@@ -281,6 +291,46 @@ export class ContactsController {
       await this.contacts.setEmail(tx, id, body.email.trim());
     });
     return { ok: true };
+  }
+
+  /**
+   * ‎**החזרת לקוח לרשימת התפוצה — או הסרתו לבקשתו בטלפון.**
+   *
+   * דף ההסרה הציבורי מבטיח ללקוח ש„אפשר לחזור בכל עת בפנייה למשרד
+   * התיווך”, ועד כה לא היה מי שיקיים: `optedOutAt` נכתב שם ולא נוקה
+   * בשום מקום, והדרך היחידה הייתה עריכה ידנית במסד (ביקורת Codex).
+   *
+   * ‎**היקף הגישה הוא היקף הלקוח** (`assertContactAccess`), והיכולת
+   * היא `buyers.edit` — אותה יכולת שנדרשת כדי לשנות את האימייל שלו,
+   * שהוא בדיוק אותו סוג של נתון.
+   *
+   * ‎**נרשם ביומן הביקורת תמיד כשהמצב השתנה.** רשומת הסכמה שאי אפשר
+   * לדעת מי יצר ומתי אינה רשומת הסכמה; זה גם מה שהופך את השחזור של
+   * „הלקוח ביקש” לאפשרי בדיעבד.
+   */
+  @RequireCapability("buyers.edit")
+  @Patch(":id/marketing-consent")
+  @HttpCode(200)
+  async setMarketingConsent(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(MarketingConsentSchema))
+    body: z.infer<typeof MarketingConsentSchema>,
+  ): Promise<{ ok: true; changed: boolean }> {
+    const tenantId = TenantContext.current().tenantId;
+    const changed = await this.prisma.withTenant(async (tx) => {
+      await assertContactAccess(tx, tenantId, id);
+      const did = await this.contacts.setMarketingConsent(tx, id, body.consent);
+      // רק שינוי אמיתי הוא אירוע; קריאה חוזרת אינה הסכמה נוספת
+      if (did) {
+        await this.audit.record(tx, {
+          action: body.consent ? "contact.marketing_resumed" : "contact.marketing_stopped",
+          entityType: "contact",
+          entityId: id,
+        });
+      }
+      return did;
+    });
+    return { ok: true, changed };
   }
 
   /** הוספת אדם לכרטיס — עריכת לקוח, ולכן יכולת עריכה ולא צפייה. */
