@@ -164,7 +164,7 @@ export class SupportInboxService {
      */
     if (!duplicate) {
       for (const attachment of incoming) {
-        await this.storeAttachment(thread.id, messageId, attachment);
+        await this.storeAttachment(thread.id, thread.tenantId, messageId, attachment);
       }
     }
 
@@ -189,6 +189,7 @@ export class SupportInboxService {
    */
   private async storeAttachment(
     threadId: string,
+    tenantId: string | null,
     messageId: string,
     attachment: { kind: string; name: string; contentType: string; content: Buffer },
   ): Promise<void> {
@@ -196,7 +197,7 @@ export class SupportInboxService {
     const s3Key = `support/${threadId}/${messageId}/${attachmentId}`;
     let uploaded = false;
     try {
-      await this.storage.put(s3Key, attachment.content, attachment.contentType);
+      await this.storage.put(s3Key, attachment.content, attachment.contentType, tenantId);
       uploaded = true;
       await this.prisma.supportAttachment.create({
         data: {
@@ -231,11 +232,11 @@ export class SupportInboxService {
     senderEmail: string | null;
     senderName: string;
     subject: string;
-  }): Promise<{ id: string } | null> {
+  }): Promise<{ id: string; tenantId: string | null } | null> {
     if (input.token !== null) {
       const byToken = await this.prisma.supportThread.findUnique({
         where: { replyToken: input.token },
-        select: { id: true },
+        select: { id: true, tenantId: true },
       });
       if (byToken !== null) return byToken;
       // טוקן לא מוכר אינו סיבה לזרוק פנייה — ממשיכים לשרשור לפי שולח
@@ -246,7 +247,7 @@ export class SupportInboxService {
       const open = await this.prisma.supportThread.findFirst({
         where: { contactEmail: input.senderEmail, status: "open" },
         orderBy: { lastMessageAt: "desc" },
-        select: { id: true },
+        select: { id: true, tenantId: true },
       });
       if (open !== null) return open;
     }
@@ -272,7 +273,7 @@ export class SupportInboxService {
         subject: input.subject,
       },
     });
-    return { id };
+    return { id, tenantId };
   }
 
   /** רשימת השרשורים לשולחן התמיכה — מי מחכה, לפי הסדר. */
@@ -540,7 +541,7 @@ export class SupportInboxService {
     }
 
     for (const attachment of attachments) {
-      await this.storeAttachment(threadId, messageId, attachment);
+      await this.storeAttachment(threadId, thread.tenantId, messageId, attachment);
     }
 
     await this.prisma.supportThread.update({

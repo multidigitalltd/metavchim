@@ -134,7 +134,7 @@ export class MediaService {
     });
 
     // ההעלאה ל-S3 לפני הרשומה — כשל S3 ⇒ אין רשומה שמצביעה לכלום.
-    await this.storage.put(s3Key, file, sniffed.mime);
+    await this.storage.put(s3Key, file, sniffed.mime, tenantId);
 
     let assignedOrder = 0;
     try {

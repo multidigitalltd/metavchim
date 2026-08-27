@@ -88,7 +88,7 @@ export class TenantLogoService {
      * בכל החלפה, ואין מי שינקה אותם.
      */
     const key = `tenants/${tenantId}/logo.${kind.ext}`;
-    await this.storage.put(key, file, kind.mime);
+    await this.storage.put(key, file, kind.mime, tenantId);
 
     await this.prisma.withTenant(async (tx) => {
       const tenant = await tx.tenant.findUnique({

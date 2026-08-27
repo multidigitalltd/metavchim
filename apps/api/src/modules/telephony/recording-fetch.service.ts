@@ -1254,7 +1254,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
      * שהמערכת הצהירה שהכול נמחק.
      */
     const key = `calls/${job.tenantId}/${job.callId}/${ulid()}`;
-    await this.storage.put(key, audio, contentType);
+    await this.storage.put(key, audio, contentType, job.tenantId);
 
     const available = (await this.transcription.status()).available;
     const claimed = await this.prisma.withExplicitTenant(job.tenantId, (tx) =>

@@ -130,82 +130,23 @@ export class AccountDeletionService {
     action: string,
   ): Promise<{ ok: true }> {
     /*
-     * מפתחות ה-S3 נאספים לפני שהשורות שמכירות אותם נמחקות — אחרי
-     * המחיקה אין שום רשומה שיודעת אילו קבצים היו של המשרד.
+     * ‎**קודם כול: המשרד מפסיק לקבל קבצים.**
      *
-     * withExplicitTenant ולא withTenant: המחיקה מהפלטפורמה רצה
-     * בהקשר של דייר אחר לגמרי, והטבלאות תחת FORCE RLS היו מחזירות
-     * אפס מפתחות בשקט — כלומר הקבצים היו נשארים ב-S3 לנצח.
+     * הדגל נסגר בטרנזקציה משלו — לפני האיסוף ולפני המחיקה — ומאותו
+     * רגע `StorageService.put` דוחה כל העלאה למשרד הזה ומוחקת את מה
+     * שכבר הועלה. בלי זה, העלאה שרצה במקביל מסתיימת באחד משני
+     * סידורים ושניהם משאירים קובץ של לקוח אחרי שהמשרד ביקש להימחק:
+     * המפתח לא נאסף והשורה נמחקה, או שהשורה **והקובץ** שורדים (#258).
+     *
+     * ‎**בטרנזקציה נפרדת, ובכוונה.** דגל שנקבע בתוך טרנזקציית המחיקה
+     * אינו גלוי לאיש עד ה-COMMIT שלה, כלומר בדיוק לאורך כל החלון
+     * שהוא בא לסגור.
      */
-    const [media, documents, calls, tickets, emailFiles, supportFiles, tenantRow] =
-      await Promise.all([
-      this.prisma.withExplicitTenant(tenantId, (tx) =>
-        tx.propertyMedia.findMany({
-          where: { tenantId },
-          select: { s3Key: true },
-        }),
-      ),
-      /*
-       * המסמכים שנחתמו על נייר.
-       *
-       * טבלה חדשה עם קבצים מאחוריה היא בדיוק מה שנשכח כאן: השורות
-       * נמחקות עם המשרד, והקבצים — סריקות של הזמנות בכתב חתומות,
-       * עם שמות ומספרי זהות — היו נשארים ב-S3 אחרי שהמשרד ביקש
-       * להימחק.
-       */
-      this.prisma.withExplicitTenant(tenantId, (tx) =>
-        tx.signedDocument.findMany({
-          where: { tenantId },
-          select: { s3Key: true },
-        }),
-      ),
-      this.prisma.withExplicitTenant(tenantId, (tx) =>
-        tx.call.findMany({
-          where: { tenantId, recordingKey: { not: null } },
-          select: { recordingKey: true },
-        }),
-      ),
-      /*
-       * צילומי המסך של פניות התמיכה.
-       *
-       * צילום מסך של המערכת הוא בדיוק מה שהוא נשמע: כרטיס לקוח
-       * פתוח, רשימת נכסים, לפעמים מספר טלפון. הוא נאסף כאן מאותה
-       * סיבה שתמונות הנכסים וההקלטות נאספות — אחרי מחיקת השורות אין
-       * דבר שיודע אילו קבצים היו של המשרד.
-       */
-      this.prisma.withExplicitTenant(tenantId, (tx) =>
-        tx.supportTicket.findMany({
-          where: { tenantId, screenshotKey: { not: null } },
-          select: { screenshotKey: true },
-        }),
-      ),
-      // הקבצים המצורפים של תיבת המייל — אותו כלל כמו הסריקות: טבלה
-      // עם קבצים מאחוריה שהשורות שלה נמחקות, והקבצים חייבים ללכת איתן
-      this.prisma.withExplicitTenant(tenantId, (tx) =>
-        tx.emailAttachment.findMany({
-          where: { tenantId },
-          select: { s3Key: true },
-        }),
-      ),
-      /*
-       * הקבצים בפניות התמיכה של המשרד. הטבלה יושבת ברמת הפלטפורמה
-       * (פנייה יכולה להגיע גם ממי שאינו לקוח), ולכן היא נקראת ישירות
-       * ומסוננת לפי המשרד כאן.
-       */
-      this.prisma.supportAttachment.findMany({
-        where: { message: { thread: { tenantId } } },
-        select: { s3Key: true },
-      }),
-      /*
-       * הלוגו — מפתח שיושב ב-`settings` ולא בטבלה משלו, ולכן הוא
-       * אינו נאסף בשתי השאילתות שמעל. בלי השורה הזו הוא היה נשאר
-       * ב-S3 אחרי מחיקת המשרד: קובץ של לקוח שביקש להימחק.
-       */
-      this.prisma.tenant.findUnique({
-        where: { id: tenantId },
-        select: { settings: true },
-      }),
-    ]);
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { filesLockedAt: new Date() },
+    });
+
     /*
      * הדומיין שהמשרד חיבר אצל ספק האימייל — נאסף לפני המחיקה מאותה
      * סיבה שמפתחות ה-S3 נאספים: אחרי מחיקת השורה אין דבר שיודע
@@ -218,36 +159,20 @@ export class AccountDeletionService {
         select: { providerDomainId: true, domain: true },
       }),
     );
-
-    const logoKey = (tenantRow?.settings as Record<string, unknown> | null)?.["logoKey"];
-    const s3Keys = [
-      ...media.map((m) => m.s3Key),
-      ...documents.map((d) => d.s3Key),
-      ...emailFiles.map((f) => f.s3Key),
-      ...supportFiles.map((f) => f.s3Key),
-      ...tickets
-        .map((t) => t.screenshotKey)
-        .filter((k): k is string => k !== null),
-      ...calls
-        .map((c) => c.recordingKey)
-        .filter((k): k is string => k !== null),
-      ...(typeof logoKey === "string" ? [logoKey] : []),
-    ];
-
-    // הראיה האחרונה — נכתבת לפני המחיקה, כי audit_log נשאר במכוון
-    await this.prisma.withExplicitTenant(tenantId, (tx) =>
-      tx.auditLog.create({
-        data: {
-          id: ulid(),
-          tenantId,
-          userId: actorUserId,
-          action,
-          entityType: "tenant",
-          entityId: tenantId,
-          metadata: { s3Objects: s3Keys.length },
-        },
-      }),
-    );
+    /*
+     * ‎**מפתחות ה-S3 נאספים בתוך טרנזקציית המחיקה, לא לפניה.**
+     *
+     * האיסוף היה קודם ב-`Promise.all` נפרד, ואז השורות נמחקו — ולכן
+     * שורה שנכתבה **בין** השניים נמחקה בלי שהמפתח שלה נאסף, והקובץ
+     * נשאר ב-S3 לנצח. הדגל מצמצם את החלון אך אינו סוגר אותו: העלאה
+     * שהתחילה לפניו יכולה עדיין לכתוב את שורתה אחריו.
+     *
+     * כשהאיסוף והמחיקה באותה טרנזקציה, כל שורה שקיימת ברגע המחיקה
+     * נאספת בהגדרה — אין „בין השניים”. ומה שנכתב אחרי ה-COMMIT אינו
+     * מותיר קובץ, כי `StorageService.put` כבר דוחה אותו: המשרד נעול,
+     * ומיד אחר כך אינו קיים.
+     */
+    let s3Keys: string[] = [];
 
     /*
      * טבלאות ה-RLS — טרנזקציה אחת עם תקרת זמן מוגדלת: מחיקת משרד
@@ -278,6 +203,86 @@ export class AccountDeletionService {
          * שיקדם לה, ואין צורך לדעת מראש איזו טבלה מתנגשת עם מי.
          */
         await lockTenantProperties(tx, tenantId);
+
+        /*
+         * ‎**האיסוף — כאן, צמוד למחיקה.** כל שורה שקיימת ברגע הזה
+         * נאספת, ומה שנכתב אחריו אינו מותיר קובץ (ראו למעלה).
+         *
+         * ‎`tx` ולא `withExplicitTenant`: ההקשר כבר הועמד בשורה
+         * הראשונה של הטרנזקציה, ולכן טבלאות ה-FORCE RLS נקראות
+         * כרגיל. הסכנה שהערה קודמת הזהירה ממנה — אפס מפתחות בשקט —
+         * נשארת בעינה בכל קריאה שתיכתב **מחוץ** לטרנזקציה הזו.
+         */
+        const [media, documents, calls, tickets, emailFiles, supportFiles, tenantRow] =
+          await Promise.all([
+            tx.propertyMedia.findMany({ where: { tenantId }, select: { s3Key: true } }),
+            /*
+             * המסמכים שנחתמו על נייר. טבלה חדשה עם קבצים מאחוריה
+             * היא בדיוק מה שנשכח כאן: השורות נמחקות עם המשרד,
+             * והקבצים — סריקות של הזמנות בכתב חתומות, עם שמות
+             * ומספרי זהות — היו נשארים ב-S3 אחרי שהמשרד ביקש להימחק.
+             */
+            tx.signedDocument.findMany({ where: { tenantId }, select: { s3Key: true } }),
+            tx.call.findMany({
+              where: { tenantId, recordingKey: { not: null } },
+              select: { recordingKey: true },
+            }),
+            /*
+             * צילומי המסך של פניות התמיכה — כרטיס לקוח פתוח, רשימת
+             * נכסים, לפעמים מספר טלפון.
+             */
+            tx.supportTicket.findMany({
+              where: { tenantId, screenshotKey: { not: null } },
+              select: { screenshotKey: true },
+            }),
+            // הקבצים המצורפים של תיבת המייל — אותו כלל כמו הסריקות
+            tx.emailAttachment.findMany({ where: { tenantId }, select: { s3Key: true } }),
+            /*
+             * הקבצים בפניות התמיכה של המשרד. הטבלה יושבת ברמת
+             * הפלטפורמה (פנייה יכולה להגיע גם ממי שאינו לקוח), ולכן
+             * היא מסוננת לפי המשרד דרך השרשור.
+             */
+            tx.supportAttachment.findMany({
+              where: { message: { thread: { tenantId } } },
+              select: { s3Key: true },
+            }),
+            /*
+             * הלוגו — מפתח שיושב ב-`settings` ולא בטבלה משלו, ולכן
+             * אינו נאסף באף אחת מהשאילתות שמעל. בלי השורה הזו הוא
+             * היה נשאר ב-S3 אחרי מחיקת המשרד.
+             */
+            tx.tenant.findUnique({ where: { id: tenantId }, select: { settings: true } }),
+          ]);
+        const logoKey = (tenantRow?.settings as Record<string, unknown> | null)?.["logoKey"];
+        s3Keys = [
+          ...media.map((m) => m.s3Key),
+          ...documents.map((d) => d.s3Key),
+          ...emailFiles.map((f) => f.s3Key),
+          ...supportFiles.map((f) => f.s3Key),
+          ...tickets.map((t) => t.screenshotKey).filter((k): k is string => k !== null),
+          ...calls.map((c) => c.recordingKey).filter((k): k is string => k !== null),
+          ...(typeof logoKey === "string" ? [logoKey] : []),
+        ];
+
+        /*
+         * הראיה — נכתבת כאן, כי `audit_log` נשאר במכוון.
+         *
+         * הייתה קודם בטרנזקציה נפרדת שלפני המחיקה, כלומר מחיקה
+         * שנכשלה השאירה ביומן רישום על מחיקה שלא קרתה. עכשיו השתיים
+         * עומדות או נופלות יחד.
+         */
+        await tx.auditLog.create({
+          data: {
+            id: ulid(),
+            tenantId,
+            userId: actorUserId,
+            action,
+            entityType: "tenant",
+            entityId: tenantId,
+            metadata: { s3Objects: s3Keys.length },
+          },
+        });
+
         await tx.contactLink.deleteMany({ where: { tenantId } });
         await tx.contactPhone.deleteMany({ where: { tenantId } });
         await tx.interaction.deleteMany({ where: { tenantId } });

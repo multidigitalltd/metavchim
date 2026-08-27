@@ -411,7 +411,7 @@ export class EmailInboxService {
             skipDuplicates: true,
           }),
         );
-        await this.storage.put(s3Key, attachment.content, attachment.contentType);
+        await this.storage.put(s3Key, attachment.content, attachment.contentType, tenantId);
         await this.markUploaded(tenantId, stored.messageId, ordinal);
       } catch (error: unknown) {
         /*
@@ -888,7 +888,7 @@ export class EmailInboxService {
             skipDuplicates: true,
           }),
         );
-        await this.storage.put(s3Key, file.content, file.contentType);
+        await this.storage.put(s3Key, file.content, file.contentType, tenantId);
         await this.markUploaded(tenantId, messageId, ordinal);
       } catch (error: unknown) {
         this.logger.error(`שמירת עותק קובץ יוצא נכשלה: ${String(error)}`);

@@ -233,7 +233,7 @@ export class SignedDocumentsService {
     });
 
     // האחסון לפני הרשומה — כשל אחסון ⇒ אין שורה שמצביעה לכלום
-    await this.storage.put(s3Key, file, sniffed.mime);
+    await this.storage.put(s3Key, file, sniffed.mime, tenantId);
 
     let dto: SignedDocumentDto;
     try {
