@@ -6,6 +6,7 @@ import {
   EMAIL_OUTBOUND_ATTACHMENT_TOTAL_BYTES,
   emailAttachmentKind,
   inboundBody,
+  inboundProviderMessageId,
   inboundSubject,
   inboundToken,
   replyAddressFor,
@@ -229,7 +230,7 @@ export class EmailInboxService {
             subject: inboundSubject(payload),
             body,
             fromEmail: payload.From.slice(0, 320) || null,
-            providerMessageId: payload.MessageID === "" ? null : payload.MessageID,
+            providerMessageId: inboundProviderMessageId(payload),
           },
         ],
         skipDuplicates: true,
@@ -247,16 +248,17 @@ export class EmailInboxService {
        * שנעצר. ההתראה והציר **אינם** נכתבים שוב — הם כבר נכתבו.
        */
       if (written.count === 0) {
+        /*
+         * אותו כלל שנכתב בו — מזהה שכולו רווחים אינו מזהה, ולכן
+         * גם אין לחפש לפיו. שני הצדדים חייבים להסכים, אחרת הכתיבה
+         * שומרת `null` והחיפוש מחפש מחרוזת ריקה.
+         */
+        const providerMessageId = inboundProviderMessageId(payload);
         const existing =
-          payload.MessageID === ""
+          providerMessageId === null
             ? null
             : await tx.emailMessage.findUnique({
-                where: {
-                  tenantId_providerMessageId: {
-                    tenantId,
-                    providerMessageId: payload.MessageID,
-                  },
-                },
+                where: { tenantId_providerMessageId: { tenantId, providerMessageId } },
                 select: { id: true },
               });
         if (existing === null) return null;

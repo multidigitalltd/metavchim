@@ -532,7 +532,19 @@ export class SignedDocumentsService {
          */
         throw new NotFoundException("המסמך שמור בארכיון המשרד ואינו משויך לכרטיס לקוח");
       }
-      return found;
+      /*
+       * ‎**הסיווג נוסע עם השורה, ולא נגזר שוב מ-`contactId`.**
+       *
+       * היומן גזר `entityType` ו-`retained` מ-`contactId === null`,
+       * ולכן הורדה של מסמך **יתום** מהארכיון נרשמה כהורדה רגילה
+       * מכרטיס לקוח, עם `retained: false` — כלומר בדיוק המסמכים
+       * שהשינוי הזה הכניס לארכיון תועדו לא נכון (ביקורת Codex).
+       *
+       * ‎**וזו הערה שדחיתי בסבב הקודם** בנימוק שהתיוג „נכון כמות
+       * שהוא”. הוא נכון רק כשהכרטיס באמת נמחק; ליתום הוא שקר,
+       * ויומן Append-Only אינו מקום לשקרים קטנים.
+       */
+      return { ...found, archived: gate.mode === "archive" };
     });
 
     /*
@@ -586,9 +598,9 @@ export class SignedDocumentsService {
         .withTenant((tx) =>
           this.audit.record(tx, {
             action: "agreement.document_download",
-            entityType: row.contactId === null ? "tenant" : "contact",
-            entityId: row.contactId ?? tenantId,
-            metadata: { documentId: id, retained: row.contactId === null, outcome },
+            entityType: row.archived ? "tenant" : "contact",
+            entityId: row.archived ? tenantId : (row.contactId ?? tenantId),
+            metadata: { documentId: id, retained: row.archived, outcome },
           }),
         )
         .catch((error: unknown) => {

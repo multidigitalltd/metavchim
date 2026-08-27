@@ -48,8 +48,27 @@ interface ThreadView {
     direction: string;
     body: string;
     createdAt: string;
+    /** ‏pending | sent | failed | unknown — ביוצאות בלבד. */
+    sendState?: string;
     attachments: { id: string; name: string; kind: string; sizeBytes: number }[];
   }[];
+}
+
+/**
+ * ‎**תשובה שלא יצאה חייבת להיראות אחרת — ו„לא ידוע” אינו „לא”.**
+ *
+ * ההודעה הצפה אחרי השליחה נעלמת בטעינה מחדש או ברענון הדף, ואז
+ * השורה עצמה היא מה שנשאר. בלי תווית עליה, תשובה שהסתיימה בתוצאה
+ * עמומה נראית ככל תשובה שנשלחה — והמנהל שולח שוב לנמען שאולי כבר
+ * קיבל (ביקורת Codex). אותה תווית ואותן מילים כמו בתיבת הלקוחות:
+ * הפעולה הנדרשת זהה, ולכן גם הניסוח.
+ */
+function sendStateNote(state: string | undefined): { text: string; token: string } | null {
+  if (state === "failed") return { text: "לא נשלחה", token: "--color-danger" };
+  if (state === "unknown" || state === "pending") {
+    return { text: "לא ידוע אם נשלחה — בדקו לפני שליחה חוזרת", token: "--color-danger" };
+  }
+  return null;
 }
 
 function formatBytes(bytes: number): string {
@@ -278,6 +297,15 @@ export function SupportInboxSection() {
                 <p className="m-0 mt-1 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
                   {message.direction === "out" ? "תשובת התמיכה" : open.contactName} ·{" "}
                   {formatDateTime(message.createdAt)}
+                  {(() => {
+                    const note = sendStateNote(message.sendState);
+                    return note === null ? null : (
+                      <>
+                        {" · "}
+                        <span style={{ color: `var(${note.token})` }}>{note.text}</span>
+                      </>
+                    );
+                  })()}
                 </p>
               </li>
             ))}

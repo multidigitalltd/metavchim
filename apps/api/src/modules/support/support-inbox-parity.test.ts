@@ -60,9 +60,31 @@ describe("תיבת התמיכה מול תיבת הלקוחות", () => {
    * בלי `sendState` ב-DTO, תשובה שהסתיימה בתוצאה עמומה נראית ככל
    * תשובה שנשלחה — הזמנה לשלוח שוב לנמען שאולי כבר קיבל.
    */
-  it("מצב השליחה מגיע למסך בשתי התיבות", () => {
+  /*
+   * ‎**ו„מגיע למסך” פירושו שהמסך מציג אותו.** בסבב הקודם השדה נוסף
+   * ל-DTO ולא נוסף לו קורא: ה-`ThreadView` לא הכיר אותו והתצוגה
+   * תייגה כל הודעה יוצאת „תשובת התמיכה”. ההודעה הצפה נעלמת ברענון,
+   * והשורה נראית ככל תשובה שנשלחה (ביקורת Codex) — התיקון שנעצר
+   * צעד לפני מי שצריך לדעת.
+   */
+  it("מצב השליחה מגיע למסך בשתי התיבות — וגם מוצג", () => {
     expect(SUPPORT).toMatch(/sendState\?: string;/u);
     expect(SUPPORT).toMatch(/message\.sendState === null \? \{\} : \{ sendState: message\.sendState \}/u);
+    expect(SUPPORT_WEB).toMatch(/sendState\?: string;/u);
+    expect(SUPPORT_WEB).toContain("function sendStateNote(");
+    expect(SUPPORT_WEB).toContain("sendStateNote(message.sendState)");
+    // אותן מילים כמו בתיבת הלקוחות — הפעולה הנדרשת זהה
+    expect(SUPPORT_WEB).toContain("לא ידוע אם נשלחה — בדקו לפני שליחה חוזרת");
+  });
+
+  /*
+   * הכלל המשותף נכתב כדי לשרת **את שתיהן**; חיווט לצד אחד בלבד
+   * הוא בדיוק הכפילות שהוא בא לבטל, רק עם שם משותף.
+   */
+  it("שתי התיבות באמת קוראות לכלל המשותף", () => {
+    expect(CUSTOMER).toContain("inboundProviderMessageId(payload)");
+    expect(CUSTOMER).not.toMatch(/payload\.MessageID === ""/u);
+    expect(SUPPORT).toContain("inboundProviderMessageId(payload)");
   });
 
   /*

@@ -157,6 +157,35 @@ describe("ארכיון המסמכים שנשמרו", () => {
     expect(DOCUMENTS).not.toMatch(/assertContactAccess\(tx, tenantId, found\.contactId!\)/u);
   });
 
+  /*
+   * ‎**הסיווג נוסע עם השורה.** היומן גזר `retained` מ-`contactId
+   * === null`, ולכן הורדה של מסמך **יתום** מהארכיון נרשמה כהורדה
+   * רגילה עם `retained: false` — בדיוק המסמכים שהשינוי הזה הכניס
+   * לארכיון. דחיתי את ההערה הזו בסבב הקודם בנימוק שהתיוג נכון;
+   * הוא נכון רק כשהכרטיס באמת נמחק (ביקורת Codex).
+   */
+  it("יומן ההורדה מסווג לפי ההכרעה ולא לפי contactId", () => {
+    expect(DOCUMENTS).toContain("archived: gate.mode === \"archive\"");
+    expect(DOCUMENTS).toMatch(/retained: row\.archived/u);
+    expect(DOCUMENTS).not.toMatch(/retained: row\.contactId === null/u);
+    expect(DOCUMENTS).not.toMatch(/entityType: row\.contactId === null/u);
+  });
+
+  /*
+   * הרשימה גדורה ב-`settings.manage` ומפנה לנתיב המסמך; מנהל
+   * שמודול הקונים חסום אצלו קיבל 403 בלחיצה, לפני שהשער שבשירות
+   * הספיק לרוץ.
+   */
+  it("נתיב המסמך פתוח גם ליכולת שהארכיון גדור בה", () => {
+    const controller = readFileSync(
+      new URL("./agreements.controller.ts", import.meta.url),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//gu, "");
+    expect(controller).toMatch(
+      /@Get\("agreements\/:id\/document"\)\n\s*@RequireCapability\("buyers\.view_own", "settings\.manage"\)/u,
+    );
+  });
+
   it("הכינוי מוגבל באיחוד סגור ולא ב-string", () => {
     expect(OWNERSHIP).toMatch(/type OrphanAlias = "a" \| "c" \| "d";/u);
     expect(OWNERSHIP).toMatch(/function orphanContactCondition\(alias: OrphanAlias\)/u);
