@@ -710,8 +710,16 @@ model EmailAttachment {
   kind        String   @db.VarChar(10)
   sizeBytes   Int      @map("size_bytes")
   s3Key       String   @map("s3_key") @db.VarChar(500)
+  /// מקומו של הקובץ בהודעה — זהות יציבה שאינה תלויה בניסיון.
+  ///
+  /// המפתח באחסון נגזר ממנה, ולכן שתי מסירות של אותו מייל מחשבות את
+  /// אותו מפתח בדיוק ו-`ON CONFLICT DO NOTHING` מכריע ביניהן. NULL על
+  /// שורות שנכתבו לפני העמודה — Postgres מתייחס ל-NULL כערכים שונים,
+  /// ולכן הן אינן מתנגשות באינדקס הייחודי.
+  ordinal     Int?
   createdAt   DateTime @default(now()) @map("created_at")
 
+  @@unique([tenantId, messageId, ordinal])
   @@index([tenantId, messageId])
   @@map("email_attachments")
 }

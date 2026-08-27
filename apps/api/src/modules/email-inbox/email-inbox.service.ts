@@ -326,51 +326,67 @@ export class EmailInboxService {
      * כדי ששני עותקים שנשלחו לא יצטמצמו לאחד.
      */
     if (stored === null) return;
-    const alreadyStored = new Map<string, number>();
+    /*
+     * ‎**מה שכבר נשמר מזוהה במקומו בהודעה, לא בשם ובגודל.**
+     *
+     * ההשוואה בזיכרון הכריעה **אחרי** הקריאה, ולכן הייתה חסרת ערך
+     * מול מרוץ: ספק שמוסר שוב בזמן שהמסירה הראשונה עדיין מעלה —
+     * וזה בדיוק המצב שגורם למסירה חוזרת — נותן לשתי הבקשות את אותה
+     * תמונת מצב חלקית, ושתיהן מעלות ומכניסות את אותם קבצים (ביקורת
+     * Codex).
+     *
+     * ‎`ordinal` מעביר את ההכרעה למסד: המפתח באחסון נגזר מההודעה
+     * ומהמקום, שני הכותבים מחשבים **אותו מפתח בדיוק** ומעלים אותם
+     * בתים, והאילוץ הייחודי מכריע מי כותב את השורה. אין כפילות
+     * בתיבה, ואין אובייקט שני באחסון.
+     */
+    const storedOrdinals = new Set<number>();
     if (!stored.fresh) {
       const rows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
         tx.emailAttachment.findMany({
           where: { tenantId, messageId: stored.messageId },
-          select: { name: true, sizeBytes: true },
+          select: { ordinal: true },
         }),
       );
       for (const row of rows) {
-        const key = `${row.name}:${row.sizeBytes}`;
-        alreadyStored.set(key, (alreadyStored.get(key) ?? 0) + 1);
+        if (row.ordinal !== null) storedOrdinals.add(row.ordinal);
       }
       this.logger.log(
-        `מסירה חוזרת של תשובת מייל — ${rows.length} מתוך ${incoming.length} קבצים כבר שמורים`,
+        `מסירה חוזרת של תשובת מייל — ${storedOrdinals.size} מתוך ${incoming.length} קבצים כבר שמורים`,
       );
     }
-    for (const attachment of incoming) {
-      const key = `${attachment.name}:${attachment.content.length}`;
-      const stillStored = alreadyStored.get(key) ?? 0;
-      if (stillStored > 0) {
-        alreadyStored.set(key, stillStored - 1);
-        continue;
-      }
-      const attachmentId = ulid();
-      const s3Key = `tenants/${tenantId}/email-attachments/${stored.messageId}/${attachmentId}`;
+    for (const [ordinal, attachment] of incoming.entries()) {
+      if (storedOrdinals.has(ordinal)) continue;
+      const s3Key = `tenants/${tenantId}/email-attachments/${stored.messageId}/${ordinal}`;
       try {
         await this.storage.put(s3Key, attachment.content, attachment.contentType);
+        /*
+         * ‎`createMany` עם `skipDuplicates`: כותב מקביל שהקדים אותנו
+         * כבר רשם את השורה — על **אותו מפתח** — ואין מה לעשות.
+         * זו אינה שגיאה ואינה יתום.
+         */
         await this.prisma.withExplicitTenant(tenantId, (tx) =>
-          tx.emailAttachment.create({
-            data: {
-              id: attachmentId,
-              tenantId,
-              messageId: stored.messageId,
-              name: attachment.name,
-              contentType: attachment.contentType,
-              kind: attachment.kind,
-              sizeBytes: attachment.content.length,
-              s3Key,
-            },
+          tx.emailAttachment.createMany({
+            data: [
+              {
+                id: ulid(),
+                tenantId,
+                messageId: stored.messageId,
+                ordinal,
+                name: attachment.name,
+                contentType: attachment.contentType,
+                kind: attachment.kind,
+                sizeBytes: attachment.content.length,
+                s3Key,
+              },
+            ],
+            skipDuplicates: true,
           }),
         );
       } catch (error: unknown) {
         this.logger.error(`שמירת קובץ מצורף נכשלה: ${String(error)}`);
         // אין שורה במסד — ואת זה בודקים שם, לא מניחים כאן
-        await this.discardOrphan(tenantId, attachmentId, s3Key);
+        await this.discardOrphan(tenantId, stored.messageId, ordinal, s3Key);
       }
     }
 
@@ -808,28 +824,32 @@ export class EmailInboxService {
     messageId: string,
     outgoing: readonly { name: string; contentType: string; kind: string; content: Buffer }[],
   ): Promise<void> {
-    for (const file of outgoing) {
-      const attachmentId = ulid();
-      const s3Key = `tenants/${tenantId}/email-attachments/${messageId}/${attachmentId}`;
+    for (const [ordinal, file] of outgoing.entries()) {
+      // אותה זהות יציבה כמו בקליטה — ההודעה והמקום, לא מזהה אקראי
+      const s3Key = `tenants/${tenantId}/email-attachments/${messageId}/${ordinal}`;
       try {
         await this.storage.put(s3Key, file.content, file.contentType);
         await this.prisma.withTenant((tx) =>
-          tx.emailAttachment.create({
-            data: {
-              id: attachmentId,
-              tenantId,
-              messageId,
-              name: file.name,
-              contentType: file.contentType,
-              kind: file.kind,
-              sizeBytes: file.content.length,
-              s3Key,
-            },
+          tx.emailAttachment.createMany({
+            data: [
+              {
+                id: ulid(),
+                tenantId,
+                messageId,
+                ordinal,
+                name: file.name,
+                contentType: file.contentType,
+                kind: file.kind,
+                sizeBytes: file.content.length,
+                s3Key,
+              },
+            ],
+            skipDuplicates: true,
           }),
         );
       } catch (error: unknown) {
         this.logger.error(`שמירת עותק קובץ יוצא נכשלה: ${String(error)}`);
-        await this.discardOrphan(tenantId, attachmentId, s3Key);
+        await this.discardOrphan(tenantId, messageId, ordinal, s3Key);
       }
     }
   }
@@ -869,13 +889,20 @@ export class EmailInboxService {
    */
   private async discardOrphan(
     tenantId: string,
-    attachmentId: string,
+    messageId: string,
+    ordinal: number,
     s3Key: string,
   ): Promise<void> {
     let rows: number;
     try {
+      /*
+       * הבדיקה היא על **המקום**, לא על מזהה השורה שניסינו לכתוב:
+       * המפתח משותף לכל הניסיונות, ולכן כותב מקביל שהצליח לפנינו
+       * הוא בעליו הלגיטימי. בדיקה לפי `id` הייתה מוחקת את הקובץ
+       * שלו.
+       */
       rows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
-        tx.emailAttachment.count({ where: { id: attachmentId, tenantId } }),
+        tx.emailAttachment.count({ where: { tenantId, messageId, ordinal } }),
       );
     } catch (error: unknown) {
       this.logger.error(

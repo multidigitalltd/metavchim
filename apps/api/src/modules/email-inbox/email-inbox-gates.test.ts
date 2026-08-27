@@ -53,7 +53,7 @@ describe("ניקוי מפתחות אחרי העלאה שנכשלה", () => {
 
   it("שני מסלולי הקבצים מנקים ללא תנאי", () => {
     const calls =
-      SERVICE.match(/await this\.discardOrphan\(tenantId, attachmentId, s3Key\);/gu) ?? [];
+      SERVICE.match(/await this\.discardOrphan\(tenantId, [\w.]+, ordinal, s3Key\);/gu) ?? [];
     expect(calls.length, "קליטה ותשובה — שני מסלולים").toBe(2);
     expect(SERVICE).not.toMatch(/if \([^)]*\) await this\.discardOrphan/u);
   });
@@ -74,6 +74,17 @@ describe("ניקוי מפתחות אחרי העלאה שנכשלה", () => {
     expect(count, "בדיקת הקיום לא נמצאה").toBeGreaterThan(-1);
     expect(del, "המחיקה לא נמצאה").toBeGreaterThan(count);
     expect(discard).toMatch(/if \(rows > 0\) \{[\s\S]{0,200}return;/u);
+  });
+
+  /*
+   * ‎**הבדיקה על המקום, לא על השורה שניסינו לכתוב.** המפתח משותף
+   * לכל הניסיונות; כותב מקביל שהצליח לפנינו הוא בעליו הלגיטימי,
+   * ובדיקה לפי `id` הייתה מוחקת את הקובץ **שלו**.
+   */
+  it("הבדיקה היא על ההודעה והמקום ולא על מזהה השורה", () => {
+    const discard = method(SERVICE, "private async discardOrphan(");
+    expect(discard).toContain("where: { tenantId, messageId, ordinal }");
+    expect(discard).not.toContain("id: attachmentId");
   });
 
   it("בדיקה שנכשלה אינה מוחקת", () => {
@@ -266,7 +277,7 @@ describe("קליטה חוזרת שמשלימה קבצים", () => {
 
   it("לולאת הקבצים רצה גם במסירה חוזרת", () => {
     const dup = inbound.indexOf("if (written.count === 0)");
-    const loop = inbound.indexOf("for (const attachment of incoming)");
+    const loop = inbound.indexOf("for (const [ordinal, attachment] of incoming.entries())");
     expect(dup, "ענף הכפילות לא נמצא").toBeGreaterThan(-1);
     expect(loop, "לולאת הקבצים לא נמצאה").toBeGreaterThan(dup);
     // אין יציאה מוקדמת שמדלגת על הלולאה בגלל כפילות
@@ -274,17 +285,58 @@ describe("קליטה חוזרת שמשלימה קבצים", () => {
   });
 
   /*
-   * מונה ולא קבוצה: שני עותקים של אותו קובץ באותה הודעה הם שתי
-   * שורות, וקבוצה הייתה מצמצמת אותם לאחת ומוחקת עותק.
+   * ‎**ההכרעה במסד, לא בזיכרון.** ההשוואה לפי שם וגודל נעשתה
+   * **אחרי** הקריאה, ולכן שתי מסירות שרצות במקביל ראו את אותה
+   * תמונת מצב חלקית והכניסו את אותם קבצים תחת מזהים שונים —
+   * כפילות בתיבה ובאחסון (ביקורת Codex). `ordinal` הופך את הזהות
+   * ליציבה: אותו מפתח אחסון לשני הכותבים, ואילוץ ייחודי שמכריע.
    */
-  it("מה שכבר נשמר מזוהה במונה לפי שם וגודל", () => {
-    expect(inbound).toContain("const alreadyStored = new Map<string, number>();");
-    expect(inbound).toMatch(/alreadyStored\.set\(key, stillStored - 1\);/u);
-    expect(inbound).toContain("`${attachment.name}:${attachment.content.length}`");
+  it("הזהות נגזרת מהמקום בהודעה ולא משם וגודל", () => {
+    expect(inbound).toContain("const storedOrdinals = new Set<number>();");
+    expect(inbound).toContain("if (storedOrdinals.has(ordinal)) continue;");
+    expect(inbound).not.toContain("attachment.content.length}`");
+  });
+
+  it("המפתח באחסון נגזר מההודעה ומהמקום", () => {
+    const keys =
+      SERVICE.match(/`tenants\/\$\{tenantId\}\/email-attachments\/\$\{[\w.]+\}\/\$\{ordinal\}`/gu) ??
+      [];
+    expect(keys.length, "קליטה ותשובה — שני מסלולים").toBe(2);
+    expect(SERVICE).not.toContain("${attachmentId}`");
+  });
+
+  /*
+   * כותב מקביל שהקדים אותנו כבר רשם את השורה על אותו מפתח. זו אינה
+   * שגיאה ואינה יתום — ולכן `ON CONFLICT DO NOTHING` ולא `create`.
+   */
+  it("ההכנסה עצמה סובלת כפילות", () => {
+    expect(SERVICE).not.toMatch(/tx\.emailAttachment\.create\(\{/u);
+    expect((SERVICE.match(/tx\.emailAttachment\.createMany\(\{/gu) ?? []).length).toBe(2);
   });
 
   it("הקריאה לרשימה הקיימת נעשית רק במסירה חוזרת", () => {
     expect(inbound).toMatch(/if \(!stored\.fresh\) \{[\s\S]{0,400}emailAttachment\.findMany\(/u);
+  });
+
+  /*
+   * ‎**האילוץ הוא במסד, ולכן הוא נבדק במסד.** כל השאר כאן — מפתח
+   * יציב, `skipDuplicates`, בדיקה לפי מקום — מסתמך על כך שהמסד
+   * באמת דוחה את השני. בלי האינדקס הייחודי זו הסכמה בעל פה.
+   */
+  it("האילוץ הייחודי קיים בסכמה ובמיגרציה", () => {
+    const schema = readFileSync(new URL("../../../prisma/schema.prisma", import.meta.url), "utf8");
+    expect(schema).toContain("@@unique([tenantId, messageId, ordinal])");
+    const migration = readFileSync(
+      new URL(
+        "../../../prisma/migrations/20260827100000_email_attachment_ordinal/migration.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(migration).toMatch(/CREATE UNIQUE INDEX[\s\S]{0,200}"tenant_id", "message_id", "ordinal"/u);
+    // NULL על שורות ותיקות — אין מילוי אחורה, ואין התנגשות
+    expect(migration).toContain('ADD COLUMN "ordinal" INTEGER');
+    expect(migration).not.toMatch(/NOT NULL|UPDATE "email_attachments"/u);
   });
 
   it("התראה חוזרת אינה נשלחת", () => {
