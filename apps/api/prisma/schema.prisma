@@ -198,6 +198,42 @@ model Integration {
   @@map("integrations")
 }
 
+/// הדומיין שהמשרד חיבר לשליחת אימייל מהכתובת שלו.
+/// הכללים (אילו דומיינים, כתובת שולח, מתי "מאומת"):
+/// packages/shared/src/logic/email-domain.ts
+model EmailDomain {
+  id                String    @id @db.Char(26)
+  /// דומיין אחד למשרד — המסך מציג חיבור יחיד, לא רשימה.
+  tenantId          String    @unique @map("tenant_id") @db.Char(26)
+  /// ייחודי גלובלית: משרד אינו יכול "לתפוס" דומיין שמשרד אחר כבר
+  /// חיבר ולשלוח בשמו. ההתנגשות מוחזרת כשגיאה ידידותית בלי לגלות
+  /// איזה משרד מחזיק בדומיין.
+  domain            String    @unique @db.VarChar(253)
+  /// postmark — הספק שמנהל את הרשומות והשליחה בפועל.
+  provider          String    @default("postmark") @db.VarChar(30)
+  /// מזהה הדומיין אצל הספק — נדרש לאימות ולמחיקה שם.
+  providerDomainId  String    @map("provider_domain_id") @db.VarChar(60)
+  /// רשומות ה-DNS שהמשרד מוסיף אצל ספק הדומיין שלו — מוצגות במסך.
+  dkimHost          String    @map("dkim_host") @db.VarChar(253)
+  dkimValue         String    @map("dkim_value") @db.VarChar(1000)
+  returnPathHost    String    @map("return_path_host") @db.VarChar(253)
+  returnPathValue   String    @map("return_path_value") @db.VarChar(253)
+  dkimVerified      Boolean   @default(false) @map("dkim_verified")
+  returnPathVerified Boolean  @default(false) @map("return_path_verified")
+  /// מתי שתי הרשומות אומתו לראשונה — לתצוגה ולתמיכה.
+  verifiedAt        DateTime? @map("verified_at")
+  /// כתובת השולח ושם התצוגה — מה שהלקוח של המשרד רואה ב"מאת".
+  fromEmail         String    @map("from_email") @db.VarChar(254)
+  fromName          String    @map("from_name") @db.VarChar(80)
+  /// מתי נבדק האימות לאחרונה — מבחין "טרם נבדק" מ"נבדק ונכשל".
+  lastCheckedAt     DateTime? @map("last_checked_at")
+  createdBy         String?   @map("created_by") @db.Char(26)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("email_domains")
+}
+
 model Session {
   id                String    @id @db.Char(26)
   userId            String    @map("user_id") @db.Char(26)

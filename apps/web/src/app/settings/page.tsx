@@ -21,6 +21,7 @@ import { TelephonySection } from "./telephony-section";
 import { VirtualNumbersSection } from "./virtual-numbers-section";
 import { SupportAccessSection } from "./support-access-section";
 import { SupportTicketsSection } from "./support-tickets-section";
+import { EmailDomainSection } from "./email-domain-section";
 import { GmailSection } from "./gmail-section";
 import { GoogleCalendarSection } from "./google-calendar-section";
 import { MatchWeightsSection } from "./match-weights-section";
@@ -151,6 +152,7 @@ interface TenantSettings {
   /** מדיניות הרשת: כל נכס/קונה חדש מתפרסם לרשת השיתופים אוטומטית */
   autoShareProperties: boolean;
   autoShareBuyers: boolean;
+  autoEmailOffers: boolean;
 }
 
 /**
@@ -284,6 +286,7 @@ export default function SettingsPage() {
         // checkbox לא מסומן אינו נשלח ב-FormData — היעדרות פירושה כבוי
         autoShareProperties: f.get("autoShareProperties") === "on",
         autoShareBuyers: f.get("autoShareBuyers") === "on",
+        autoEmailOffers: f.get("autoEmailOffers") === "on",
       });
       setMessage("✓ ההגדרות נשמרו");
       load();
@@ -1074,6 +1077,37 @@ export default function SettingsPage() {
                       </span>
                     </label>
                   </fieldset>
+                  {/*
+                    הצעות אוטומטיות במייל — אותה רמת החלטה כמו מדיניות
+                    הרשת שמעל: המשרד קובע, לא כל סוכן. שורת המשנה מפרטת
+                    את הסייגים כדי שההפעלה תהיה מודעת: מה נשלח, למי,
+                    ומה נשאר אצל הסוכן.
+                  */}
+                  <fieldset className="mb-3.5 rounded-lg border p-3.5" style={{ borderColor: "var(--color-border)" }}>
+                    <legend className="px-1 text-sm font-bold">
+                      הצעות ללקוחות במייל — ברירת מחדל
+                    </legend>
+                    <label className="flex items-start gap-2 text-sm" htmlFor="autoEmailOffers">
+                      <input
+                        type="checkbox"
+                        id="autoEmailOffers"
+                        name="autoEmailOffers"
+                        defaultChecked={tenant.autoEmailOffers}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <b className="block">
+                          לקוחות מקבלים אוטומטית במייל הצעות מהתאמות פנימיות של המשרד
+                        </b>
+                        <span style={{ color: "var(--color-text-muted)" }}>
+                          רק התאמות חדשות ומומלצות (85%+) לנכסים פעילים,
+                          ורק ללקוח עם אימייל שחתם על הזמנה בכתב לנכס.
+                          התאמות מהרשת אינן נשלחות. כל מייל כולל קישור
+                          הסרה, והשליחה מהדומיין של המשרד אם חובר.
+                        </span>
+                      </span>
+                    </label>
+                  </fieldset>
                   <p
                     className="mb-3.5 text-sm"
                     style={{ color: "var(--color-text-muted)" }}
@@ -1163,6 +1197,16 @@ export default function SettingsPage() {
               <div id="gmail">
                 <GmailSection />
               </div>
+
+              {/*
+                חיבור דומיין הוא פעולת הגדרות של המשרד (settings.manage) —
+                לשאר הצוות הקטע היה רק טופס שמחזיר 403.
+              */}
+              {can(user, "settings.manage") ? (
+                <div id="email-domain">
+                  <EmailDomainSection />
+                </div>
+              ) : null}
 
               <div id="lead-webhook">
                 <LeadWebhookSection />

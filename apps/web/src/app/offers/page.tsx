@@ -41,6 +41,9 @@ function statusChip(o: OfferRow): { label: string; fg: string; bg: string } {
   if (o.status === "interested") return { label: "מעוניין ✓", fg: "var(--color-success)", bg: "var(--color-success-soft)" };
   if (o.status === "declined") return { label: "לא מתאים", fg: "#616a63", bg: "#eef1ec" };
   if (o.status === "pending_approval") return { label: "ממתין לאישור", fg: "#616a63", bg: "#eef1ec" };
+  // ההצעות האוטומטיות במייל — בין יצירה לשליחה, וכשל שדורש המשך ידני
+  if (o.status === "pending_email") return { label: "בדרך במייל", fg: "#616a63", bg: "#eef1ec" };
+  if (o.status === "email_failed") return { label: "המייל נכשל — המשיכו ידנית", fg: "#8a3b21", bg: "#fbe9e1" };
   if (o.openCount >= 3) return { label: "מתלבט — שווה טלפון", fg: "#7a5c1f", bg: "#f7efdd" };
   if (o.openCount > 0) return { label: "נפתחה", fg: "#3F4742", bg: "#EDEFED" };
   return { label: "נשלחה", fg: "#616a63", bg: "#eef1ec" };

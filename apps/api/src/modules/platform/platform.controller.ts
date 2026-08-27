@@ -251,6 +251,8 @@ const UpsertPlanSchema = z
 const UpdateSettingsSchema = z
   .object({
     postmarkServerToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
+    /** טוקן ה-Account — ניהול דומיינים שמשרדים מחברים; נפרד מטוקן השרת */
+    postmarkAccountToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     emailFrom: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
     whatsappAppSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     whatsappVerifyToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
@@ -1298,7 +1300,13 @@ export class PlatformController {
    */
   @Get("settings")
   async settings(): Promise<{
-    postmark: { configured: boolean; source: "db" | "env" | "none"; emailFrom?: string };
+    postmark: {
+      configured: boolean;
+      source: "db" | "env" | "none";
+      emailFrom?: string;
+      /** טוקן ה-Account מוגדר — משרדים יכולים לחבר דומיין משלהם */
+      officeDomains: boolean;
+    };
     /** webhookUrl מוגדר פעם אחת במטא לכל הפלטפורמה — ולכן הוא כאן ולא בהגדרות המשרד. */
     whatsapp: {
       configured: boolean;
@@ -1392,6 +1400,8 @@ export class PlatformController {
 
     const postmarkDb = has("postmarkServerToken") && has("emailFrom");
     const postmarkEnv = env.POSTMARK_SERVER_TOKEN !== undefined && env.EMAIL_FROM !== undefined;
+    const postmarkAccount =
+      has("postmarkAccountToken") || env.POSTMARK_ACCOUNT_TOKEN !== undefined;
     const waDb = has("whatsappAppSecret") && has("whatsappVerifyToken");
     const waEnv = env.WHATSAPP_APP_SECRET !== undefined && env.WHATSAPP_VERIFY_TOKEN !== undefined;
     // הצד היוצא של הסוכן האישי — טוקן ומזהה מספר, שניהם יחד
@@ -1448,6 +1458,7 @@ export class PlatformController {
         configured: postmarkDb || postmarkEnv,
         source: postmarkDb ? "db" : postmarkEnv ? "env" : "none",
         emailFrom: (await this.platformSettings.get("emailFrom")) ?? env.EMAIL_FROM,
+        officeDomains: postmarkAccount,
       },
       whatsapp: {
         configured: waDb || waEnv,

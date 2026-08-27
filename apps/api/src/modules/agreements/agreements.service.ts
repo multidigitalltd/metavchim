@@ -367,8 +367,12 @@ export class AgreementsService {
          * ערובה — ההגדרות יכולות להשתנות בין שתי הקריאות — ובלי
          * `required` המתווך היה רואה „נשלח לחתימה” על מסמך שאיש לא
          * קיבל (ביקורת Codex).
+         *
+         * `tenantId` — ההסכם הוא מסמך של **המשרד** אל הלקוח שלו,
+         * ומשרד שחיבר דומיין שולח אותו מהכתובת שלו. בלי חיבור —
+         * מכתובת הפלטפורמה, כמו עד היום.
          */
-        { required: true },
+        { required: true, tenantId },
       );
       await this.messaging.recordOutbound(tx, {
         contactId: contact.id,

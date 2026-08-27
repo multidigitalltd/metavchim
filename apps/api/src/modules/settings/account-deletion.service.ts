@@ -11,6 +11,7 @@ import { lockTenantProperties } from "../../common/locks";
 import { ulid } from "ulid";
 import { TenantContext } from "../../common/tenant-context";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
+import { EmailDomainProviderService } from "../../core/email-domain-provider.service";
 import { PrismaService } from "../../core/prisma.service";
 
 /**
@@ -52,7 +53,10 @@ import { PrismaService } from "../../core/prisma.service";
 export class AccountDeletionService {
   private readonly logger = new Logger(AccountDeletionService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly emailDomainProvider: EmailDomainProviderService,
+  ) {}
 
   async deleteAccount(input: {
     confirmName: string;
@@ -184,6 +188,19 @@ export class AccountDeletionService {
         select: { settings: true },
       }),
     ]);
+    /*
+     * הדומיין שהמשרד חיבר אצל ספק האימייל — נאסף לפני המחיקה מאותה
+     * סיבה שמפתחות ה-S3 נאספים: אחרי מחיקת השורה אין דבר שיודע
+     * שהדומיין רשום אצל הספק. רישום יתום שם היה חוסם את בעל הדומיין
+     * מלחבר אותו שוב אי-פעם.
+     */
+    const emailDomain = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      tx.emailDomain.findUnique({
+        where: { tenantId },
+        select: { providerDomainId: true, domain: true },
+      }),
+    );
+
     const logoKey = (tenantRow?.settings as Record<string, unknown> | null)?.["logoKey"];
     const s3Keys = [
       ...media.map((m) => m.s3Key),
@@ -264,6 +281,7 @@ export class AccountDeletionService {
         // הקבצים שמאחוריהן נאספו למעלה ונמחקים דרך storage.cleanup_object
         await tx.signedDocument.deleteMany({ where: { tenantId } });
         await tx.integration.deleteMany({ where: { tenantId } });
+        await tx.emailDomain.deleteMany({ where: { tenantId } });
         await tx.sharedDemand.deleteMany({ where: { tenantId } });
         /*
          * דירוגי הפניות — משני התפקידים. נמחקים **לפני** ההפניות
@@ -439,6 +457,21 @@ export class AccountDeletionService {
       this.prisma.user.deleteMany({ where: { tenantId } }),
       this.prisma.tenant.delete({ where: { id: tenantId } }),
     ]);
+
+    /*
+     * מחיקת הדומיין אצל הספק — best-effort ואחרי המחיקה אצלנו:
+     * המשרד כבר נמחק, וכשל רשת מול הספק אסור שיהפוך את זה לשקר.
+     * כשל נרשם ברעש כדי שהתפעול ינקה ידנית.
+     */
+    if (emailDomain !== null) {
+      try {
+        await this.emailDomainProvider.deleteDomain(emailDomain.providerDomainId);
+      } catch (error) {
+        this.logger.error(
+          `מחיקת הדומיין ${emailDomain.domain} אצל ספק האימייל נכשלה — נדרש ניקוי ידני: ${String(error)}`,
+        );
+      }
+    }
 
     this.logger.warn(
       `משרד נמחק לצמיתות (${action}): tenant ${tenantId} (${s3Keys.length} קבצים בניקוי)`,

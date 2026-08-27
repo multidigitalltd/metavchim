@@ -127,6 +127,17 @@ export class OffersController {
     });
   }
 
+  /** הסרה מקבלת הצעות במייל — מהקישור שבתחתית כל מייל אוטומטי. */
+  @Public()
+  @Post("public/offers/:token/email-optout")
+  @HttpCode(200)
+  async emailOptOut(
+    @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
+  ): Promise<{ ok: true }> {
+    await this.offers.publicEmailOptOut(token);
+    return { ok: true };
+  }
+
   @Public()
   @Post("public/offers/:token/respond")
   @HttpCode(200)

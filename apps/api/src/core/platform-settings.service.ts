@@ -13,6 +13,14 @@ import { PrismaService } from "./prisma.service";
 
 export type PlatformSettingKey =
   | "postmarkServerToken"
+  /**
+   * טוקן ה-Account של Postmark — נפרד מטוקן השרת ובעל הרשאות
+   * רחבות ממנו: הוא מנהל **דומיינים** (יצירה, אימות DKIM
+   * ו-Return-Path, מחיקה) עבור הדומיינים שהמשרדים מחברים.
+   * בלעדיו חיבור דומיין של משרד פשוט אינו זמין; השליחה הרגילה
+   * ממשיכה לעבוד עם טוקן השרת בלבד.
+   */
+  | "postmarkAccountToken"
   | "emailFrom"
   | "whatsappAppSecret"
   | "whatsappVerifyToken"

@@ -89,6 +89,12 @@ const EnvSchema = z.object({
   VAPID_SUBJECT: z.string().regex(/^(mailto:|https:\/\/)/u).optional(),
   /** Postmark — שליחת אימייל (אימות כניסה, איפוס סיסמה, התראות). */
   POSTMARK_SERVER_TOKEN: z.string().min(16).optional(),
+  /**
+   * טוקן ה-Account של Postmark — ניהול דומיינים שמשרדים מחברים
+   * (יצירה, אימות, מחיקה). נפרד מטוקן השרת; בלעדיו חיבור דומיין
+   * של משרד אינו זמין והשליחה הרגילה אינה מושפעת.
+   */
+  POSTMARK_ACCOUNT_TOKEN: z.string().min(16).optional(),
   /** כתובת השולח — חייבת להיות Sender Signature מאומתת ב-Postmark. */
   EMAIL_FROM: z.string().email().optional(),
   /**
