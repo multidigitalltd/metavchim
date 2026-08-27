@@ -240,6 +240,14 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
       byBuyer.set(match.buyerId, list);
     }
 
+    /*
+     * ‎**מי שיש לו רשומה עמידה — ורק הוא — מותר לסמן לעבור מעליו.**
+     *
+     * לקוחות שלב א' נכנסים מראש: יש להם `pending_email` במסד, והם
+     * ינוסו שוב בסבב הבא בין אם הניסיון עכשיו הצליח ובין אם לא.
+     */
+    const claimed = new Set<string>(pendingBuyers.buyerIds);
+
     let processed = 0;
     for (const [buyerId, matches] of byBuyer) {
       if (processed >= MAX_BUYERS_PER_TENANT_SWEEP) {
@@ -251,6 +259,12 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
       processed += 1;
       try {
         const sent = await this.offerAndEmail(tenantId, officeName, buyerId, matches);
+        /*
+         * גם `sent === 0` הוא הכרעה: הלקוח נבדק שוב בטרנזקציה ונמצא
+         * מוסר, בלי אימייל, או שנכסיו ירדו. אין מה לנסות שוב, והסמן
+         * רשאי לעבור. רק **חריגה** משאירה אותו בלי דבר.
+         */
+        claimed.add(buyerId);
         if (sent > 0) {
           emails += 1;
           offers += sent;
@@ -274,8 +288,30 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
      * שכולו לא-זכאי חייב להתקדם, אחרת הוא חוזר על עצמו לנצח. אחרי
      * הלולאה שני המצבים מטופלים: מה שנוצר — נוצר; מה שלא היה זכאי —
      * נסרק ואינו צריך להיסרק שוב מיד.
+     *
+     * ‎**אבל „אחרי הלולאה” אינו „הכול הצליח”.** התפיסה הפרטנית בתוך
+     * הלולאה בולעת תקלת מסד רגעית, והכתיבה כאן הייתה מקדמת את הסמן
+     * גם מעל אותו לקוח — בלי `pending_email` שינוסה שוב, ובלי חזרה
+     * אליו עד שהסמן ישלים סיבוב שלם. אצל משרד גדול זה הרבה סבבים
+     * ‎(ביקורת Codex; אותה הערה, שכבה אחת פנימה מהקודמת).
+     *
+     * לכן הסמן נעצר לפני **השורה הראשונה** ששייכת ללקוח שאין לו
+     * רשומה עמידה — בין אם נכשל ובין אם כלל לא הגיע אליו התור. אם
+     * זו השורה הראשונה בסריקה, הסמן נשאר במקום שממנו התחלנו.
+     *
+     * המחיר: לקוח שנכשל **דרך קבע** מקבע את המיקום. זו העדפה
+     * מודעת — עצירה שנרשמת ביומן בכל סבב עדיפה על דילוג שקט.
      */
-    await this.saveCursor(tenantId, since, scan.nextCursor);
+    let cursor = startCursor;
+    let retained = false;
+    for (const row of eligible) {
+      if (!claimed.has(row.buyerId)) {
+        retained = true;
+        break;
+      }
+      cursor = row.matchId;
+    }
+    await this.saveCursor(tenantId, since, retained ? cursor : scan.nextCursor);
     return { emails, offers };
   }
 
