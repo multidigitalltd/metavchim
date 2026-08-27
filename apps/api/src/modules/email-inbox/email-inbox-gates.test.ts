@@ -36,102 +36,78 @@ function method(source: string, signature: string): string {
 }
 
 /**
- * ‎**השורה היא התביעה: היא נכתבת לפני ההעלאה, לא אחריה.**
+ * ‎**השורה קודמת להעלאה, ואין מסלול הרסני.**
  *
- * הסדר היה הפוך, והמפתח הדטרמיניסטי הפך אותו למסוכן: כותב שההעלאה
- * שלו נגמרה בלי תשובה ספר אפס שורות ומחק את המפתח — בזמן שכותב
- * מקביל, שהעלה בהצלחה לאותו מפתח, טרם כתב את שורתו. שורה גלויה
- * שמצביעה לאובייקט שנמחק (ביקורת Codex).
+ * הסדר ההפוך יצר אובייקט בלי שורה — בלתי נראה למחיקת לקוח ולמחיקת
+ * משרד, ששתיהן עוברות על השורות. הפיצוי שנוסף בגללו הפך למסוכן
+ * ברגע שהמפתח נעשה דטרמיניסטי ומשותף, ואחריו החכירה וההשתלטות
+ * הוסיפו שתי תקלות נוספות (ביקורת Codex, שלושה סבבים).
  *
- * ‎`ON CONFLICT DO NOTHING` הוא תביעה אטומית: מי שכתב את השורה הוא
- * בעליו הבלעדי של המפתח, והמפסיד אינו מעלה ולכן גם אינו מוחק.
+ * הצורה שנשארה היא הפשוטה: **שורה, העלאה, סימון — ובכישלון לא
+ * מוחקים דבר.** כיוון שהשורה נכתבת ראשונה, אין מפתח בלי שורה
+ * שתמצא אותו, ולכן אין מה לפצות; והעלאה חוזרת של אותם בתים לאותו
+ * מפתח היא אידמפוטנטית, ולכן אין מה לתאם.
  */
-describe("התביעה על מקום הקובץ", () => {
-  it("ההכנסה קודמת להעלאה בשני המסלולים", () => {
+describe("סדר הכתיבה של קובץ מצורף", () => {
+  it("השורה נכתבת לפני ההעלאה בשני המסלולים", () => {
     for (const fn of ["  async processInbound(", "  private async storeOutgoingCopies("]) {
       const scope = method(SERVICE, fn);
-      const claim = scope.indexOf("emailAttachment.createMany(");
-      const put = scope.indexOf("this.storage.put(");
-      expect(claim, `התביעה לא נמצאה ב-${fn}`).toBeGreaterThan(-1);
-      expect(put, `ההעלאה לא נמצאה ב-${fn}`).toBeGreaterThan(claim);
-    }
-  });
-
-  /*
-   * ‎**„נתבע” אינו „הועלה”.** השורה נכתבת לפני ההעלאה, ולכן קיומה
-   * אינו מעיד שהאובייקט קיים. תהליך שנפל בין השתיים השאיר תביעה
-   * בלי קובץ, ומסירה חוזרת שדילגה עליה כי „המקום תפוס” הותירה
-   * צירוף גלוי שהורדתו נכשלת לנצח (ביקורת Codex).
-   */
-  it("ההשלמה נרשמת בשדה נפרד, ורק אחרי ההעלאה", () => {
-    for (const fn of ["  async processInbound(", "  private async storeOutgoingCopies("]) {
-      const scope = method(SERVICE, fn);
+      const row = scope.indexOf("emailAttachment.createMany(");
       const put = scope.indexOf("this.storage.put(");
       const mark = scope.indexOf("this.markUploaded(");
-      expect(put, `ההעלאה לא נמצאה ב-${fn}`).toBeGreaterThan(-1);
-      expect(mark, `סימון ההשלמה לא נמצא ב-${fn}`).toBeGreaterThan(put);
+      expect(row, `כתיבת השורה לא נמצאה ב-${fn}`).toBeGreaterThan(-1);
+      expect(put, `ההעלאה לא נמצאה ב-${fn}`).toBeGreaterThan(row);
+      expect(mark, `הסימון לא נמצא ב-${fn}`).toBeGreaterThan(put);
     }
-    expect(method(SERVICE, "private async markUploaded(")).toContain("uploadedAt: new Date()");
-  });
-
-  it("הדילוג הוא על מה שהושלם, לא על מה שנתבע", () => {
-    const inbound = method(SERVICE, "  async processInbound(");
-    expect(inbound).toContain("if (completed.has(ordinal)) continue;");
-    expect(inbound).toMatch(/if \(row\.uploadedAt !== null\) completed\.add\(row\.ordinal\)/u);
   });
 
   /*
-   * תביעה נטושה מושלמת; תביעה צעירה מדולגת, כי סביר שכותב אחר עדיין
-   * מעלה. ההשתלטות בטוחה מעצם המפתח הדטרמיניסטי.
+   * ‎**אין מסלול שמוחק.** זו התכונה שסוגרת שלוש תקלות רצופות בבת
+   * אחת, וכל מחיקה שתחזור לכאן פותחת אותן מחדש.
    */
-  it("תביעה שפג חלון החכירה שלה מושלמת", () => {
+  it("אין מחיקה של מפתח או של שורה במסלול הכישלון", () => {
+    expect(SERVICE).not.toContain("discardOrphan");
+    expect(SERVICE).not.toContain("releaseClaim");
+    expect(SERVICE).not.toContain("takeover");
+    expect(SERVICE).not.toContain("this.storage.delete(");
+    expect(SERVICE).not.toContain("emailAttachment.deleteMany(");
+  });
+
+  /*
+   * שורה קיימת ולא-מושלמת היא בדיוק מה שבאנו להשלים — ולכן אין
+   * ‎`continue` על כפילות, ואין חכירה שמחליטה למי מותר.
+   */
+  it("תביעה קיימת אינה עוצרת את ההשלמה", () => {
+    // ‏`written.count` נשאר בדה-דופליקציה של **ההודעה**; לא בקבצים
+    const loops = SERVICE.slice(SERVICE.indexOf("for (const [ordinal, attachment]"));
+    expect(loops).not.toContain("written.count === 0");
+    expect(SERVICE).not.toContain("ATTACHMENT_CLAIM_LEASE_MS");
+    expect(method(SERVICE, "  async processInbound(")).toContain(
+      "if (completed.has(ordinal)) continue;",
+    );
+  });
+
+  it("הדילוג הוא על מה שהושלם בלבד", () => {
     const inbound = method(SERVICE, "  async processInbound(");
-    expect(inbound).toContain("ATTACHMENT_CLAIM_LEASE_MS");
-    expect(inbound).toMatch(/row\.createdAt\.getTime\(\) <= staleBefore\) abandoned\.add/u);
-    expect(inbound).toContain("const takeover = abandoned.has(ordinal);");
-    // השתלטות שנכשלה אינה משחררת תביעה שאינה שלנו
-    expect(inbound).toContain("if (claimed && !takeover) {");
+    expect(inbound).toMatch(/uploadedAt: \{ not: null \}/u);
+    expect(inbound).toContain("const completed = new Set<number>();");
   });
 
   it("השיחה מציגה רק צירופים שהושלמו", () => {
-    const thread = method(SERVICE, "  async thread(");
-    expect(thread).toMatch(/uploadedAt: \{ not: null \}/u);
-  });
-
-  it("מי שהפסיד בתביעה אינו מעלה ואינו מוחק", () => {
-    expect((SERVICE.match(/if \(written\.count === 0\) continue;/gu) ?? []).length).toBe(2);
-    // שני המסלולים משחררים, ובקליטה גם רק כשהתביעה שלנו (`!takeover`)
-    expect(
-      (SERVICE.match(/if \(claimed[^)]*\) \{?\s*await this\.releaseClaim\(/gu) ?? []).length,
-    ).toBe(2);
-    expect(SERVICE).toContain("if (claimed && !takeover) {");
-    expect(SERVICE).not.toContain("discardOrphan");
+    expect(method(SERVICE, "  async thread(")).toMatch(/uploadedAt: \{ not: null \}/u);
   });
 
   /*
-   * ‎**המפתח נמחק ראשון.** כל עוד השורה שלנו, מסירה חוזרת אינה
-   * יכולה לתבוע את המקום ולהעלות אליו מחדש; שחרור השורה קודם היה
-   * פותח בדיוק את החלון הזה.
+   * ‎**סימון שנכשל מסתיר קובץ שנשמר** — התקלה שהמסננת הזו הכניסה.
+   * בקליטה יש רשת ביטחון (מסירה חוזרת); בעותקים היוצאים אין, ולכן
+   * הניסיונות החוזרים כאן הם היחידים.
    */
-  it("השחרור מוחק מפתח ואז שורה", () => {
-    const release = method(SERVICE, "private async releaseClaim(");
-    const del = release.indexOf("this.storage.delete(");
-    const row = release.indexOf("emailAttachment.deleteMany(");
-    expect(del, "מחיקת המפתח לא נמצאה").toBeGreaterThan(-1);
-    expect(row, "מחיקת השורה לא נמצאה").toBeGreaterThan(del);
-  });
-
-  /*
-   * ‎**וכשהמחיקה מהאחסון נכשלת — השורה נשארת.** היא הידית היחידה
-   * שמחיקת לקוח ומחיקת משרד מכירות: הן עוברות על השורות.
-   */
-  it("מחיקת אחסון שנכשלה משאירה את השורה", () => {
-    const release = method(SERVICE, "private async releaseClaim(");
-    const opens = release.indexOf("} catch (error: unknown) {");
-    expect(opens, "התפיסה לא נמצאה").toBeGreaterThan(-1);
-    const closes = release.indexOf("\n    }", opens);
-    expect(closes, "סוף גוש התפיסה לא נמצא").toBeGreaterThan(opens);
-    expect(release.slice(opens, closes)).toContain("return;");
+  it("הסימון מנסה שוב לפני שהוא מוותר", () => {
+    const mark = method(SERVICE, "private async markUploaded(");
+    expect(mark).toContain("MARK_UPLOADED_ATTEMPTS");
+    expect(mark).toMatch(/for \(let attempt = 0;/u);
+    expect(mark).toContain("return;");
+    expect(mark).toContain("this.logger.error");
   });
 });
 
@@ -324,7 +300,6 @@ describe("קליטה חוזרת שמשלימה קבצים", () => {
    */
   it("הזהות נגזרת מהמקום בהודעה ולא משם וגודל", () => {
     expect(inbound).toContain("const completed = new Set<number>();");
-    expect(inbound).toContain("const abandoned = new Set<number>();");
     expect(inbound).not.toContain("attachment.content.length}`");
   });
 
