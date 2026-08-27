@@ -36,13 +36,13 @@ describe("זמן חסד לפני הניסיון הראשון", () => {
    */
   it("שיחה שטרם נוסתה נבחרת רק אחרי שגילה עבר את זמן החסד", () => {
     expect(source).toMatch(
-      /providerRecordingAttemptAt:\s*null,\s*\n\s*occurredAt:\s*\{\s*lt:\s*new Date\(now - FIRST_ATTEMPT_GRACE_MS\)/u,
+      /providerRecordingAttemptAt:\s*null,\s*\n\s*createdAt:\s*\{\s*lt:\s*new Date\(now - FIRST_ATTEMPT_GRACE_MS\)/u,
     );
   });
 
   it("שיחה צעירה שנכשלה מנוסה שוב בקצב הקצר ולא בארוך", () => {
     expect(source).toMatch(
-      /providerRecordingAttemptAt:\s*\{\s*lt:\s*new Date\(now - EARLY_RETRY_MS\)\s*\},\s*\n\s*occurredAt:\s*\{\s*gte:\s*new Date\(now - YOUNG_CALL_MS\)/u,
+      /providerRecordingAttemptAt:\s*\{\s*lt:\s*new Date\(now - EARLY_RETRY_MS\)\s*\},\s*\n\s*createdAt:\s*\{\s*gte:\s*new Date\(now - YOUNG_CALL_MS\)/u,
     );
   });
 
@@ -59,9 +59,36 @@ describe("זמן חסד לפני הניסיון הראשון", () => {
    * או מודד מהחותמת במקום מהשיחה, הכפתור היה מפסיק לעבוד בשקט. זה
    * כבר קרה כאן פעם אחת (ביקורת Codex על הגרסה הקודמת).
    */
-  it("התנאי נמדד על מועד השיחה, כך שלחיצה ידנית על שיחה ישנה עוברת", () => {
+  it("הלחיצה הידנית על שיחה ישנה עוברת — התנאי אינו על החותמת", () => {
     expect(source).not.toMatch(/providerRecordingAttemptAt:\s*null\s*\}/u);
-    expect(source).toContain("occurredAt: { lt: new Date(now - FIRST_ATTEMPT_GRACE_MS) }");
+    expect(source).toContain("createdAt: { lt: new Date(now - FIRST_ATTEMPT_GRACE_MS) }");
+  });
+
+  /*
+   * ‎**העוגן הוא `createdAt`, ולא `occurredAt` — וזה לא סגנון.**
+   *
+   * ‎`occurredAt` הוא מועד **תחילת** השיחה (`event.startedAt`
+   * ב-`telephony.service.ts`), ולכן שיחה בת עשרים דקות מקיימת „עבר
+   * זמן החסד” כבר ברגע שה-Hangup יוצר את השורה: זמן החסד לא היה
+   * חל עליה כלל. דווקא השיחות הארוכות הן אלה שההקלטה שלהן כבדה
+   * ואיטית להיכתב (ביקורת Codex).
+   *
+   * שורת שיחה נוצרת פעם אחת, ב-`Hangup`, ולכן `createdAt` הוא
+   * „מתי נודע לנו שהשיחה נגמרה”.
+   */
+  it("זמן החסד נמדד מסיום השיחה ולא מתחילתה", () => {
+    expect(source).not.toContain("occurredAt: { lt: new Date(now - FIRST_ATTEMPT_GRACE_MS) }");
+    expect(source).not.toContain("occurredAt: { gte: new Date(now - YOUNG_CALL_MS) }");
+  });
+
+  /*
+   * ‎**חלון הוויתור נשאר על `occurredAt`.** `recordingStateOf`
+   * מודדת אותו משם, ואילו הזזתי גם אותו — המסך היה מכריז „נכשלה
+   * סופית” על שיחה שהסבב עדיין בוחר, או להפך. שני המספרים חייבים
+   * להימדד מאותו שדה.
+   */
+  it("חלון הוויתור נשאר נמדד ממועד השיחה, כמו במסך", () => {
+    expect(source).toContain("occurredAt: { gte: new Date(now - GIVE_UP_AFTER_MS) }");
   });
 });
 

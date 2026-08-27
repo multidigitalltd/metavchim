@@ -741,12 +741,25 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
              * בטיק הבא, לפני שהיה מה למשוך. ראו
              * ‎`RECORDING_FIRST_ATTEMPT_GRACE_MS`.
              *
+             * ‎**`createdAt` ולא `occurredAt` — וזה כל ההבדל.**
+             *
+             * ‎`occurredAt` הוא מועד **תחילת** השיחה (`event.startedAt`),
+             * ולכן שיחה בת עשרים דקות מקיימת „עבר זמן החסד” כבר
+             * ברגע שה-Hangup יוצר את השורה — כלומר בדיוק השיחות
+             * הארוכות, שההקלטה שלהן הכי כבדה והכי איטית להיכתב,
+             * היו ממשיכות להימשך מיד (ביקורת Codex).
+             *
+             * שורת שיחה נוצרת **פעם אחת, ב-`Hangup`** — שני
+             * האירועים שלפניו יושבים ב-`call_routings` ונמחקים
+             * באותה טרנזקציה — ולכן `createdAt` הוא „מתי נודע לנו
+             * שהשיחה נגמרה”. זה בדיוק העוגן שזמן החסד צריך.
+             *
              * ‎**הלחיצה הידנית שורדת**: היא מנקה את החותמת על שיחה
-             * ישנה, שגילה עבר את זמן החסד מזמן.
+             * ישנה, שגם `createdAt` שלה עבר את זמן החסד מזמן.
              */
             {
               providerRecordingAttemptAt: null,
-              occurredAt: { lt: new Date(now - FIRST_ATTEMPT_GRACE_MS) },
+              createdAt: { lt: new Date(now - FIRST_ATTEMPT_GRACE_MS) },
             },
             /*
              * ‎**שיחה צעירה שנוסתה — ניסיון חוזר קצר.**
@@ -754,10 +767,14 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
              * בתוך השעה הראשונה הסיבה הסבירה לכישלון היא „ההקלטה
              * טרם הוכנה”, והיא נפתרת מעצמה בדקות. חצי שעה שם היא
              * עונש על תזמון ולא על תקלה.
+             *
+             * ‎`createdAt` מאותו נימוק: „צעירה” פירושו **הסתיימה**
+             * לא מזמן. לפי מועד ההתחלה, שיחה בת שעתיים שנגמרה לפני
+             * חמש דקות הייתה נופלת ישר למסלול האיטי.
              */
             {
               providerRecordingAttemptAt: { lt: new Date(now - EARLY_RETRY_MS) },
-              occurredAt: { gte: new Date(now - YOUNG_CALL_MS) },
+              createdAt: { gte: new Date(now - YOUNG_CALL_MS) },
             },
             {
               providerRecordingAttemptAt: { lt: new Date(now - RETRY_AFTER_MS) },
