@@ -1135,13 +1135,24 @@ export class BuyersService {
     appointments: number;
     sharedDemands: number;
     archived: boolean;
+    /**
+     * ‎**הגילוי** — מה יקרה לכרטיס הלקוח אחרי שהקונה הזה יימחק.
+     *
+     * ‎`null` = הכרטיס נשאר (יש לו עוגן אחר). אחרת — הכרטיס יימחק
+     * **כולל** השיחות וההודעות שנספרות כאן, והדיאלוג חייב לומר את
+     * זה לפני האישור. מחיקה בלי הגילוי הזה כבר קרתה פעם אחת ונתפסה
+     * כשני ממצאי P1; הכרעת בעל המוצר היא גילוי, לא צמצום.
+     *
+     * רלוונטי למחיקה לצמיתות בלבד — ארכיון אינו נוגע בכרטיס.
+     */
+    contactErasure: { calls: number; messages: number; emails: number } | null;
   }> {
     const { tenantId } = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
       await this.assertAccessIncludingArchived(tx, id);
       const buyer = await tx.buyer.findFirst({
         where: { id, tenantId },
-        select: { deletedAt: true },
+        select: { deletedAt: true, contactId: true },
       });
       if (!buyer) throw new NotFoundException("קונה לא נמצא");
       const matchRows = await tx.match.findMany({
@@ -1149,12 +1160,14 @@ export class BuyersService {
         select: { id: true },
       });
       const matchIds = matchRows.map((m) => m.id);
-      const [offers, interactions, appointments, sharedDemands] =
+      const [offers, interactions, appointments, sharedDemands, contactErasure] =
         await Promise.all([
           tx.offer.count({ where: { tenantId, matchId: { in: matchIds } } }),
           tx.interaction.count({ where: { tenantId, buyerId: id } }),
           tx.appointment.count({ where: { tenantId, buyerId: id } }),
           tx.sharedDemand.count({ where: { tenantId, originBuyerId: id } }),
+          // ‏"מה יישאר אחרי" — הקונה הזה מוחרג מהשאלה
+          this.erasure.erasurePreview(tx, tenantId, buyer.contactId, { buyerId: id }),
         ]);
       return {
         matches: matchIds.length,
@@ -1163,7 +1176,58 @@ export class BuyersService {
         appointments,
         sharedDemands,
         archived: buyer.deletedAt !== null,
+        contactErasure,
       };
+    });
+  }
+
+  /**
+   * ‎**הגילוי של המחיקה המרוכזת — אותו כלל, בצורתו הקבוצתית.**
+   *
+   * המחיקה המרוכזת עוברת דרך `purge` לכל כרטיס, כלומר גם היא מוחקת
+   * כרטיסי לקוח יתומים — והאישור שלה לא אמר זאת (ביקורת Codex, P1).
+   * המסלול הבודד קיבל גילוי; המרוכז נשאר עם המשפט הישן. זהו בדיוק
+   * „התיקון שעצר צעד אחד לפני הסוף” — כל מסלול שמוחק בהרחבה חייב
+   * גילוי, וזה נאכף עכשיו בשער.
+   *
+   * ההחרגה היא **כל** הכרטיסים שנבחרו, לא אחד-אחד: לקוח ששני
+   * העוגנים שלו שניהם בבחירה נמחק כשהאחרון שבהם יורד, והחרגה
+   * בודדת הייתה עונה עליו „יישאר”.
+   *
+   * הבדיקה מוגבלת למה שהמחיקה עצמה תיגע בו: אותו שער בעלות בדיוק,
+   * כך שהתצוגה המקדימה אינה סופרת כרטיסים שהמחיקה תדלג עליהם.
+   */
+  async bulkDeletionPreview(ids: readonly string[]): Promise<{
+    /** כמה כרטיסי לקוח יימחקו יחד עם הקונים שנבחרו */
+    contacts: number;
+    erasure: { calls: number; messages: number; emails: number };
+  }> {
+    const { tenantId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.buyer.findMany({
+        where: {
+          id: { in: [...ids] },
+          tenantId,
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
+        select: { id: true, contactId: true },
+      });
+      const buyerIds = rows.map((row) => row.id);
+      const contactIds = [...new Set(rows.map((row) => row.contactId))];
+      let contacts = 0;
+      const erasure = { calls: 0, messages: 0, emails: 0 };
+      for (const contactId of contactIds) {
+        const counts = await this.erasure.erasurePreview(tx, tenantId, contactId, {
+          buyerIds,
+        });
+        if (counts !== null) {
+          contacts += 1;
+          erasure.calls += counts.calls;
+          erasure.messages += counts.messages;
+          erasure.emails += counts.emails;
+        }
+      }
+      return { contacts, erasure };
     });
   }
 
@@ -1327,16 +1391,16 @@ export class BuyersService {
        * כרטיס שנוצר בשביל הקונה הזה בלבד מפסיק להופיע בכל מסך ברגע
        * שהכרטיס נמחק, ונשאר במסד עם שם, טלפונים ואימייל.
        *
-       * ‎**הווריאנט שאינו מוחק יותר ממה שהמסך הבטיח.** דיאלוג האישור
-       * כאן מתאר מה נשאר, ולכן המחיקה מוגבלת לכרטיס שאין עליו שיחה,
-       * הודעה, הסכם או מסמך — ולא רק לכרטיס שאיש אינו מגיע אליו.
-       * מחיקת נכס לצמיתות **מגלה** בדיאלוג שלה שהתקשורת יורדת, ולכן
-       * היא רשאית לרחבה; כאן אין גילוי כזה (ביקורת Codex, P1).
+       * ‎**מחיקה מלאה, כי הדיאלוג מגלה.** `deletionPreview` מחזיר
+       * ‎`contactErasure` עם ספירת השיחות וההודעות, והדיאלוג מציג את
+       * זה לפני האישור — אותו כלל בדיוק כמו במחיקת נכס לצמיתות.
+       * הגבול אינו „מה מותר למחוק” אלא „מה נאמר לפני כן” (הכרעת
+       * בעל המוצר, אחרי שני ממצאי P1 על מחיקה בלי גילוי).
        *
        * הבדיקה **אחרי** `buyer.delete`: לפניה השורה עדיין קיימת
        * ומבחן היתמות היה מוצא אותה כעוגן.
        */
-      const contactErased = await this.erasure.eraseUnreachableWithoutHistory(
+      const contactErased = await this.erasure.eraseUnreachable(
         tx,
         ctx.tenantId,
         lock,

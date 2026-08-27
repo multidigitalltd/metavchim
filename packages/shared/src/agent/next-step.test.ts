@@ -111,9 +111,19 @@ describe("agentNextSteps — התאמות", () => {
    * ‎**הסינון לפי הרשאה.** להציע פעולה שהמשתמש חסום ממנה זה לשלוח
    * אותו אל „אין לך הרשאה” על משהו שהסוכן עצמו הציע.
    */
-  it("פעולה שאין אליה הרשאה אינה מוצעת", () => {
+  /*
+   * הסינון הוא **פר-צעד**: מי שחסום משליחת הצעות עדיין רשאי לקבוע
+   * סיור, והצעד השני של אותה התאמה נשאר. `[]` היה נכון כשהכלל פלט
+   * צעד אחד; מרגע שהוא פולט שניים, „הכול נעלם” היה מעניש את הצעד
+   * המותר על חסימת חברו.
+   */
+  it("פעולה שאין אליה הרשאה אינה מוצעת — והשאר נשארות", () => {
     const without = ALL.filter((id) => id !== "send_offer");
-    expect(agentNextSteps("show_matches", matches, without, NOW)).toEqual([]);
+    const steps = agentNextSteps("show_matches", matches, without, NOW);
+    expect(steps.map((s) => s.action)).toEqual(["schedule_appointment"]);
+    // ובלי שתיהן — אין דבר להציע
+    const none = ALL.filter((id) => id !== "send_offer" && id !== "schedule_appointment");
+    expect(agentNextSteps("show_matches", matches, none, NOW)).toEqual([]);
   });
 });
 
@@ -259,5 +269,81 @@ describe("שלמות", () => {
 
   it("פעולה בלי כלל אינה מייצרת דבר", () => {
     expect(agentNextSteps("office_report", { data: {} }, ALL, NOW)).toEqual([]);
+  });
+});
+
+describe("agentNextSteps — כפתורים קשורים לתוכן", () => {
+  const matches = {
+    data: { matches: [{ buyerName: "משה כהן", buyerId: "b2", score: 93 }] },
+    params: { propertyPhrase: "הדירה ברמת גן" },
+  };
+
+  /*
+   * ‎**כל צעד נושא כותרת כפתור.** הצעד נוסע לוואטסאפ ככפתור ולמסך
+   * כצ'יפ; צעד בלי `label` הוא משפט בלי כפתור — בדיוק מה שהשדרוג
+   * הזה בא להחליף.
+   */
+  it("לכל צעד יש כותרת כפתור לא-ריקה", () => {
+    const sources: [string, Parameters<typeof agentNextSteps>[1]][] = [
+      ["show_matches", matches],
+      ["create_buyer", { ref: { label: "רות", entityType: "buyer" } }],
+      ["create_property", { ref: { label: "דירה בגבעתיים", entityType: "property" } }],
+      ["create_lead", { ref: { label: "דנה", entityType: "lead" } }],
+      ["find_buyers", { data: { buyers: [{ name: "משה כהן" }] } }],
+      ["find_properties", { data: { properties: [{ title: "דופלקס ברעננה" }] } }],
+      ["send_offer", { params: { buyerPhrase: "משה כהן" } }],
+    ];
+    for (const [action, source] of sources) {
+      const steps = agentNextSteps(action, source, ALL, NOW);
+      expect(steps.length, `${action}: לא נפלט צעד`).toBeGreaterThan(0);
+      for (const step of steps) {
+        expect(step.label.trim(), `${action}: כותרת ריקה`).not.toBe("");
+      }
+    }
+  });
+
+  /*
+   * חיפוש שמצא — הצעד על **הראשון שנמצא**, בשם שמוכח מהשורה. רשימה
+   * ריקה אינה עילה לדבר.
+   */
+  it("חיפוש קונים מציע התאמות לראשון, וריק אינו מציע", () => {
+    const [step] = agentNextSteps(
+      "find_buyers",
+      { data: { buyers: [{ name: "משה כהן" }, { name: "דנה לוי" }] } },
+      ALL,
+      NOW,
+    );
+    expect(step?.action).toBe("show_matches");
+    expect(step?.text).toContain("משה כהן");
+    expect(agentNextSteps("find_buyers", { data: { buyers: [] } }, ALL, NOW)).toEqual([]);
+  });
+
+  it("חיפוש נכסים נופל לכתובת כשאין כותרת", () => {
+    const [step] = agentNextSteps(
+      "find_properties",
+      { data: { properties: [{ address: "הרצל 12, גבעתיים" }] } },
+      ALL,
+      NOW,
+    );
+    expect(step?.action).toBe("show_matches");
+    expect(step?.text).toContain("הרצל 12");
+  });
+
+  /*
+   * הצעה שנשלחה — סיור. הקונה מוכח מהפרמטרים שהפעולה רצה איתם,
+   * אותו מקור כמו הנכס ב-`show_matches`.
+   */
+  it("אחרי שליחת הצעה מוצע סיור עם אותו קונה", () => {
+    const [step] = agentNextSteps("send_offer", { params: { buyerPhrase: "משה כהן" } }, ALL, NOW);
+    expect(step?.action).toBe("schedule_appointment");
+    expect(step?.text).toContain("משה כהן");
+    // בלי buyerPhrase אין הוכחה למי — ואין צעד
+    expect(agentNextSteps("send_offer", { params: {} }, ALL, NOW)).toEqual([]);
+  });
+
+  /* התאמה מוכחת מקבלת שני צעדים — הצעה וסיור — על אותו קונה. */
+  it("התאמות מציעות גם הצעה וגם סיור", () => {
+    const steps = agentNextSteps("show_matches", matches, ALL, NOW);
+    expect(steps.map((s) => s.action)).toEqual(["send_offer", "schedule_appointment"]);
   });
 });

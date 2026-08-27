@@ -278,6 +278,33 @@ export class LeadsService {
    * הזאת מחיקת ליד כפול של לקוח חדש הייתה מוחקת גם את הלקוח, וזו
    * הפעולה היחידה במערכת שמחקה יותר ממה שביקשו.
    */
+  /**
+   * ‎**הגילוי** — מה תגרור בחירת „גם את כרטיס הלקוח”.
+   *
+   * ‎`null` = הכרטיס יישאר (עוגן אחר מחזיק אותו). אחרת הכרטיס יימחק
+   * **כולל** השיחות וההודעות שנספרות כאן, והדיאלוג מציג את זה לפני
+   * האישור. אותו כלל כמו במחיקת נכס לצמיתות ובמחיקת קונה: הגבול
+   * אינו „מה מותר למחוק” אלא „מה נאמר לפני כן”.
+   */
+  async deletionPreview(
+    id: string,
+  ): Promise<{ contactErasure: { calls: number; messages: number; emails: number } | null }> {
+    const ctx = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      await assertLeadAccess(tx, ctx.tenantId, id);
+      const lead = await tx.lead.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        select: { contactId: true },
+      });
+      if (!lead) throw new NotFoundException("ליד לא נמצא");
+      return {
+        contactErasure: await this.erasure.erasurePreview(tx, ctx.tenantId, lead.contactId, {
+          leadId: id,
+        }),
+      };
+    });
+  }
+
   async remove(id: string, keepContact = false): Promise<{ contactDeleted: boolean }> {
     const ctx = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
@@ -398,7 +425,7 @@ export class LeadsService {
   private async deleteContactIfOrphan(tx: TenantTx, contactId: string): Promise<boolean> {
     const tenantId = TenantContext.current().tenantId;
     const lock = await lockContact(tx, contactId);
-    return this.erasure.eraseUnreachableWithoutHistory(tx, tenantId, lock, "lead.delete");
+    return this.erasure.eraseUnreachable(tx, tenantId, lock, "lead.delete");
   }
 
   async addNote(id: string, content: string): Promise<InteractionDto> {
@@ -514,6 +541,12 @@ export class LeadsService {
 
   async list(query: {
     status?: string;
+    /**
+     * רק לידים „חיים” — במסד, לא אחרי העימוד. סינון על העמוד שחזר
+     * היה מחסיר בשקט בדיוק כמו שמתואר ב-`openAwaitingResponse`.
+     * נדחה מפני `status` מפורש.
+     */
+    open?: boolean;
     requiresHuman?: boolean;
     cursor?: string;
     limit: number;
@@ -524,7 +557,11 @@ export class LeadsService {
         where: {
           tenantId,
           ...ownershipFilter("leads.view_all", "assignedToUserId"),
-          ...(query.status ? { status: query.status } : {}),
+          ...(query.status
+            ? { status: query.status }
+            : query.open === true
+              ? { status: { in: [...OPEN_LEAD_STATUSES] } }
+              : {}),
           ...(query.requiresHuman !== undefined ? { requiresHuman: query.requiresHuman } : {}),
           ...(query.cursor ? { id: { lt: query.cursor } } : {}),
         },

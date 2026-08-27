@@ -68,12 +68,16 @@ export interface Proposal {
 
 export interface ExecuteResult {
   href?: string;
+  /** קישור חיצוני — wa.me עם הודעה מוכנה. מוצג ואינו נשמר. */
+  link?: string;
   message: string;
   data?: unknown;
   /** משפט תובנה על תוצאות שאילתה — מוצג מעל הרשימה */
   insight?: string;
   /** צעד המשך מוצע — לחיצה שולחת אותו כמשפט חדש, דרך אותו אישור */
   suggestion?: string;
+  /** צעדי ההמשך שנגזרו מהתוכן — כל אחד צ'יפ, כמו הכפתורים בוואטסאפ */
+  nextSteps?: { text: string; label: string }[];
   /**
    * הקלטה שהתוצאה מצביעה עליה.
    *

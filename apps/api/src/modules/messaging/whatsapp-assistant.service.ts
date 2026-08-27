@@ -15,6 +15,7 @@ import {
   historyRefs,
   AGENT_HISTORY_KEPT,
   AGENT_ID_KEYS,
+  type WhatsAppButton,
   type WhatsAppListRow,
   type AgentHistoryTurn,
   type AgentProposal,
@@ -44,6 +45,7 @@ import { helpMenu, welcomeExamples, type HelpAction } from "./assistant-help";
 import {
   buttonAsText,
   choiceVariant,
+  CMD_TEXT_MAX,
   confirmButtons,
   SNOOZE_LABEL,
   SNOOZE_MINUTES,
@@ -984,7 +986,7 @@ export class WhatsAppAssistantService {
   private async runProposal(
     chat: ChatState,
     state: PendingState,
-  ): Promise<Pick<AgentReply, "text" | "audio">> {
+  ): Promise<Pick<AgentReply, "text" | "audio" | "buttons" | "buttonBody">> {
     const params = this.paramsOf(state);
     let primary: ExecuteResult;
     try {
@@ -1029,6 +1031,14 @@ export class WhatsAppAssistantService {
      * הסדר: הרשימות הייעודיות (חזרות, כרטיס) קודם — הן יודעות על
      * הצורה שלהן יותר; אחר כך הרשימה המשותפת; ורק בסוף הכללי.
      */
+    /*
+     * המשפט הטבעי מוביל והרשימה אחריו — אותו סדר כמו במסך, שבו
+     * פסקת התובנה יושבת מעל הטבלה. עוזר פותח במסקנה; מערכת פותחת
+     * בטבלה.
+     */
+    if (primary.insight !== undefined && primary.insight !== "") {
+      lines.push(`💡 ${primary.insight}`);
+    }
     const dataSummary =
       formatCallbacks(primary.data) ??
       formatCard(primary.data) ??
@@ -1045,7 +1055,6 @@ export class WhatsAppAssistantService {
      */
     const scope = scopeNote(state.proposal.actionId);
     if (scope !== "") lines.push(scope);
-    if (primary.insight !== undefined && primary.insight !== "") lines.push(`💡 ${primary.insight}`);
 
     // צעדי המשך — לפי הסדר, וכישלון באמצע מדווח בשקיפות (כמו במסך)
     /*
@@ -1083,8 +1092,34 @@ export class WhatsAppAssistantService {
     if (primary.href !== undefined) {
       lines.push(`👈 ${loadEnv().WEB_ORIGIN}${primary.href}`);
     }
-    // צעד ההמשך המוצע — המתווך פשוט עונה עם המשפט והמעגל נמשך
-    if (primary.suggestion !== undefined && primary.suggestion !== "") {
+    /*
+     * קישור חיצוני (wa.me עם הודעה מוכנה) — מוצג ואינו נשמר:
+     * הוא יכול לשאת טלפון, והזיכרון נוסע לפרומפט של מודל חיצוני.
+     */
+    if (primary.link !== undefined) {
+      lines.push(`👈 ${primary.link}`);
+    }
+    /*
+     * ‎**צעדי ההמשך — כפתורים שקשורים לתוכן, לא טקסט בלבד.**
+     *
+     * ‎`agentNextSteps` נגזר מהתוצאה שחזרה — שם שקיים בה, פעולה
+     * שמותרת — וכל צעד הופך לכפתור `cmd` שנושא את המשפט עצמו.
+     * לחיצה שולחת את המשפט למנוע כאילו הוקלד: אין מסלול ביצוע שני,
+     * ופעולה כותבת עדיין נעצרת על „אשר”.
+     *
+     * המשפטים נשארים גם בטקסט: כשההודעה האינטראקטיבית אינה אפשרית
+     * — גוף ארוך מהתקרה של Meta, או כשל בשליחה — `deliver` נופל
+     * לטקסט, והמתווך עדיין רואה מה אפשר לענות.
+     */
+    const steps = (primary.nextSteps ?? []).filter((step) => step.text.length <= CMD_TEXT_MAX);
+    if (steps.length > 0) {
+      lines.push(
+        steps.length === 1
+          ? `👉 אפשר להמשיך: „${steps[0]!.text}”`
+          : ["👉 אפשר להמשיך:", ...steps.map((step) => `· „${step.text}”`)].join("\n"),
+      );
+    } else if (primary.suggestion !== undefined && primary.suggestion !== "") {
+      // רשת הביטחון המנוסחת — למקרים שאין להם כלל נגזר
       lines.push(`👉 אפשר להמשיך: „${primary.suggestion}”`);
     }
 
@@ -1163,7 +1198,22 @@ export class WhatsAppAssistantService {
      */
     chat.history = [...chat.history.slice(-(HISTORY_KEPT - 1)), turn];
     chat.added = [...chat.added, turn];
-    return { text: lines.join("\n"), ...(audio === undefined ? {} : { audio }) };
+    /*
+     * הכפתורים — כשיש צעדים ואין שמע. הודעת שמע נשלחת בנפרד ואינה
+     * אינטראקטיבית, וגוף ארוך מהתקרה ממילא נופל לטקסט ב-`deliver`.
+     */
+    const stepButtons: WhatsAppButton[] = steps.map((step) => ({
+      action: "cmd",
+      arg: step.text,
+      title: step.label,
+    }));
+    return {
+      text: lines.join("\n"),
+      ...(audio === undefined ? {} : { audio }),
+      ...(stepButtons.length > 0 && audio === undefined
+        ? { buttons: stepButtons, buttonBody: lines.join("\n") }
+        : {}),
+    };
   }
 
   /** ההצעה כפי שהמסך היה מציג אותה — כותרת, שדות, חוסרים ואזהרות. */
@@ -1317,6 +1367,7 @@ export class WhatsAppAssistantService {
  */
 const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
   find_buyers: ["buyers.view_all"],
+  show_leads: ["leads.view_all"],
   show_tasks: ["tasks.view_all"],
   /*
    * יומן השיחות מסונן גם לפי מודול הנכסים: שיחה של בעל נכס נשמטת

@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { leadDeletionOutcome, type LeadDeletionScope } from "@metavchim/shared";
-import { ApiError, apiDelete } from "@/lib/api";
+import {
+  contactErasureDisclosure,
+  leadDeletionOutcome,
+  type LeadDeletionScope,
+} from "@metavchim/shared";
+import { ApiError, apiDelete, apiGet } from "@/lib/api";
 import { ConfirmDialog } from "../confirm-dialog";
 import { Notice } from "../notice";
 
@@ -39,14 +43,36 @@ export function DeleteLeadDialog({
   const [scope, setScope] = useState<LeadDeletionScope>("lead");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * ‎**הגילוי** — מה תגרור בחירת „גם את כרטיס הלקוח”.
+   *
+   * ארבעה מצבים: `"loading"` עד שהשרת ענה, `"failed"` כשהבדיקה
+   * נכשלה, `null` = הכרטיס יישאר, ואובייקט = הכרטיס יימחק עם מה
+   * שנספר בו. בשני המצבים הראשונים הבחירה הרחבה **אינה ניתנת
+   * לאישור**: הגלגול הקודם המיר כישלון לספירת אפס ואפשר לאשר בזמן
+   * הטעינה — כלומר מחיקה רחבה יכלה לרוץ אחרי גילוי שקרי או לפני
+   * שהגיע גילוי בכלל (ביקורת Codex, P1).
+   */
+  const [erasure, setErasure] = useState<
+    { calls: number; messages: number; emails: number } | null | "loading" | "failed"
+  >("loading");
+  /** הבחירה הרחבה עוד אינה מגולה — האישור חסום, הביטול פתוח. */
+  const undisclosed =
+    scope === "lead_and_contact" && (erasure === "loading" || erasure === "failed");
 
   // חלון שנפתח מחדש מתחיל נקי — גם אחרי כישלון וגם אחרי בחירה קודמת
   useEffect(() => {
     if (open) {
       setScope("lead");
       setError(null);
+      setErasure("loading");
+      apiGet<{ contactErasure: { calls: number; messages: number; emails: number } | null }>(
+        `/leads/${leadId}/deletion-preview`,
+      )
+        .then((res) => setErasure(res.contactErasure))
+        .catch(() => setErasure("failed"));
     }
-  }, [open]);
+  }, [open, leadId]);
 
   async function remove() {
     setBusy(true);
@@ -69,12 +95,40 @@ export function DeleteLeadDialog({
       confirmLabel="מחק"
       busyLabel="מוחק…"
       busy={busy}
+      confirmDisabled={undisclosed}
       onConfirm={() => void remove()}
       onClose={onClose}
     >
+      {/*
+        ‎**ההבטחה נגזרת מהבחירה ומתשובת השרת, לא ממשפט קבוע.**
+
+        „שיחות מוקלטות נשארות” היה נכון ללא תנאי כשהמחיקה סירבה
+        לגעת בכרטיס עם היסטוריה. הכרעת בעל המוצר החליפה את הסירוב
+        בגילוי, ולכן המשפט חייב לומר את האמת של הבחירה הנוכחית:
+        בבחירה הרחבה, כשהכרטיס יימחק — השיחות יורדות איתו, בספירה.
+      */}
       <p className="mb-3 text-[length:var(--type-body-sm)]">
-        ציר הזמן של הליד נמחק איתו, והפעולה אינה הפיכה. פגישות ושיחות
-        מוקלטות שכבר נרשמו נשארות.
+        ציר הזמן של הליד נמחק איתו, והפעולה אינה הפיכה.
+        {/*
+          ‎**„נשארות” נאמר רק כשהוא נכון.** בבחירה הרחבה המשפט המרגיע
+          הוצג גם בזמן הטעינה וגם אחרי כישלון — בדיוק כשהאישור יכול
+          היה למחוק את מה שהוא מבטיח שנשאר (ביקורת Codex, P1). עכשיו
+          שני המצבים האלה חוסמים את האישור, והמשפט אומר את זה.
+        */}
+        {scope !== "lead_and_contact" || erasure === null ? (
+          " פגישות ושיחות מוקלטות שכבר נרשמו נשארות."
+        ) : erasure === "loading" ? (
+          " בודק מה תלוי בכרטיס — עוד רגע…"
+        ) : erasure === "failed" ? (
+          <span className="block font-semibold" style={{ color: "var(--color-danger)" }}>
+            הבדיקה מה תלוי בכרטיס נכשלה, ולכן אי אפשר לאשר את הבחירה
+            הרחבה. סגרו ופתחו שוב, או מחקו את הליד בלבד.
+          </span>
+        ) : (
+          <span className="block font-semibold" style={{ color: "var(--color-danger)" }}>
+            {contactErasureDisclosure(erasure)}
+          </span>
+        )}
       </p>
       <fieldset className="m-0 border-0 p-0">
         <legend className="mb-2 text-[length:var(--type-body-sm)] font-bold">מה למחוק?</legend>
@@ -112,17 +166,21 @@ export function DeleteLeadDialog({
           <span>
             <b>גם את כרטיס הלקוח</b>
             {/*
-              ‎**הרשימה חייבת למנות את מה שבאמת עוצר את המחיקה.**
+              ‎**התיאור נגזר מתשובת השרת, לא מרשימה קבועה.**
 
-              היא מנתה קונה, נכס, הסכם וליד — ופסחה על שיחות והודעות,
-              שההבטחה שלמעלה („שיחות מוקלטות שכבר נרשמו נשארות”) שומרת
-              עליהן, ועל היותו בן/בת זוג בכרטיס חי. משפט שמונה ארבעה
-              מתוך שישה נקרא כרשימה מלאה (ביקורת Codex, P1).
+              הגלגול הקודם מנה את התנאים העוצרים ופסח על שניים —
+              רשימה חלקית שנקראת כמלאה (ביקורת Codex, P1). עכשיו
+              השרת עונה על הכרטיס **הזה**: יישאר (יש לו עוגן אחר),
+              או יימחק — ואז הגילוי המלא מוצג למעלה, בספירה.
             */}
             <span className="block" style={{ color: "var(--color-text-muted)" }}>
-              לספאם ולטעות במספר. הכרטיס יורד רק אם לא נשאר לו דבר במשרד —
-              לא קונה, נכס, הסכם או ליד אחר, לא שיחה או הודעה, והוא אינו
-              רשום כבן/בת זוג בכרטיס אחר.
+              {erasure === "loading"
+                ? "לספאם ולטעות במספר. בודק מה תלוי בכרטיס…"
+                : erasure === "failed"
+                  ? "לספאם ולטעות במספר. הבדיקה נכשלה — הבחירה הזו חסומה עד שתצליח."
+                  : erasure === null
+                    ? "לספאם ולטעות במספר. הכרטיס הזה יישאר — הוא עדיין קונה, בעל נכס, ליד אחר, או בן/בת זוג בכרטיס פעיל."
+                    : "לספאם ולטעות במספר. לכרטיס הזה אין עוגן נוסף במשרד — הוא יימחק, וההסכמים החתומים שלו יעברו לארכיון המשרד."}
             </span>
           </span>
         </label>

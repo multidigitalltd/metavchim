@@ -471,12 +471,25 @@ model IntakeRequest {
   /// נוצר (או נמצא לפי הטלפון) כשהלקוח שולח.
   contactId String? @map("contact_id") @db.Char(26)
 
+  /// buyer | seller — לאיזה צד של העסקה הטופס נענה.
+  ///
+  /// שמור על השורה ולא נגזר מהתשובות: הלקוח פותח את הקישור שוב כדי
+  /// לתקן, והעמוד חייב לדעת לאיזה מסלול לחזור בלי לנחש לפי אילו
+  /// שדות מלאים. `buyer` הוא הצד היחיד שהיה קיים עד כה, ולכן הוא
+  /// ברירת המחדל וכל השורות הישנות נכונות בלעדיה.
+  side       String  @default("buyer") @db.VarChar(10)
+  /// טיוטת הנכס שהמוכר יצר — `null` בכל בקשה של קונה.
+  ///
+  /// בלעדיו שליחה שנייה מאותו קישור („שכחתי לציין שיש מעלית”) הייתה
+  /// פותחת נכס שני, וכפילות כזו מתגלה רק כשמישהו שואל למה יש שתי
+  /// מודעות לאותה דירה.
+  propertyId String? @map("property_id") @db.Char(26)
   /// sent | opened | submitted | revoked
-  status    String  @default("sent") @db.VarChar(12)
+  status     String  @default("sent") @db.VarChar(12)
   /// manual = המתווך לחץ · missed_call = שיחה שלא נענתה.
-  channel   String  @default("manual") @map("channel") @db.VarChar(20)
+  channel    String  @default("manual") @map("channel") @db.VarChar(20)
   /// מי יצר. `null` באוטומציה — אין אדם שלחץ.
-  createdBy String? @map("created_by") @db.Char(26)
+  createdBy  String? @map("created_by") @db.Char(26)
 
   expiresAt     DateTime  @map("expires_at")
   openedAt      DateTime? @map("opened_at")
@@ -2046,7 +2059,7 @@ model Payment {
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  invoice             Invoice?
+  invoice Invoice?
 
   @@index([tenantId, createdAt])
   @@map("payments")

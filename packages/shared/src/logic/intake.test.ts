@@ -170,6 +170,28 @@ describe("describeIntakeChanges", () => {
   });
 });
 
+describe("intakeOpenRejectionReason — זהות מותנית", () => {
+  it("דורש שם וטלפון כשאין איש קשר", () => {
+    expect(intakeOpenRejectionReason({ dealType: "sale" })).toBe("נא למלא שם מלא");
+  });
+
+  it("מדלג על הזהות כשכבר יש איש קשר", () => {
+    /*
+     * קישור פתוח שהלקוח מילא בצד המוכר ואז חזר לצד הקונה: הטופס
+     * אינו מציג לו שם וטלפון, ודרישה להם הייתה דוחה כל שליחה.
+     */
+    expect(
+      intakeOpenRejectionReason({ dealType: "sale" }, { needsIdentity: false }),
+    ).toBeNull();
+  });
+
+  it("סוג עסקה נדרש בשני המצבים", () => {
+    expect(intakeOpenRejectionReason({}, { needsIdentity: false })).toBe(
+      "נא לבחור קנייה או שכירות",
+    );
+  });
+});
+
 describe("intakeInviteMessage", () => {
   it("כוללת את הקישור ואת שם המשרד", () => {
     const text = intakeInviteMessage({
@@ -198,6 +220,16 @@ describe("intakeInviteMessage", () => {
       missedCall: true,
     });
     expect(text).toContain("ניסינו להשיג אתכם");
+  });
+
+  it("אינה מניחה שהנמען קונה", () => {
+    /*
+     * מי שהתקשר ולא נענה יכול להיות מוכר באותה מידה, ו„מה שאתם
+     * מחפשים” אמר לו שלא הקשיבו — לפני שפתח את הקישור.
+     */
+    const text = intakeInviteMessage({ officeName: "נדל״ן ירוק", url: "https://x/y" });
+    expect(text).not.toContain("מה שאתם מחפשים");
+    expect(text).toContain("מחפשים נכס או שיש לכם נכס");
   });
 });
 

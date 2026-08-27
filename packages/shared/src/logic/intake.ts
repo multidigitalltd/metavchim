@@ -102,13 +102,26 @@ export function intakeIdentityRejectionReason(input: {
  * זהו **ההבדל היחיד** בין הטופס הפתוח לטופס של כרטיס קיים: שם
  * הכרטיס כבר נושא סוג עסקה, ולכן שדה שלא נענה אינו מוחק אותו.
  */
-export function intakeOpenRejectionReason(input: {
-  fullName?: string;
-  phone?: string;
-  dealType?: "sale" | "rent";
-}): string | null {
-  const identity = intakeIdentityRejectionReason(input);
-  if (identity !== null) return identity;
+export function intakeOpenRejectionReason(
+  input: {
+    fullName?: string;
+    phone?: string;
+    dealType?: "sale" | "rent";
+  },
+  options: { needsIdentity?: boolean } = {},
+): string | null {
+  /*
+   * ‎**הזהות נדרשת כשאין איש קשר, ולא „כי הקישור פתוח”.**
+   *
+   * קישור פתוח שכבר נשלח פעם אחת — למשל כשהלקוח מילא את צד המוכר
+   * ואז חזר ובחר „דווקא אני מחפש” — **יש** לו איש קשר. דרישה לשם
+   * ולמספר מחדש הייתה מזמינה גרסה שנייה של אותו אדם, ובפועל הטופס
+   * גם לא הציג אותם: השליחה נדחתה תמיד (ביקורת Codex).
+   */
+  if (options.needsIdentity !== false) {
+    const identity = intakeIdentityRejectionReason(input);
+    if (identity !== null) return identity;
+  }
   if (input.dealType === undefined) return "נא לבחור קנייה או שכירות";
   return null;
 }
@@ -417,6 +430,12 @@ export function describeIntakeChanges(
  * `missedCall` משנה את הפתיחה ולא רק מוסיף לה: „ניסיתי להשיג אותך”
  * מסביר ללקוח למה קיבל הודעה שלא ביקש, ובלעדיו הודעה שמגיעה דקה
  * אחרי שיחה שלא נענתה נקראת כספאם.
+ *
+ * ‎**הנוסח אינו מניח שהנמען קונה.** מי שהתקשר למשרד תיווך ולא נענה
+ * יכול באותה מידה להיות מי שיש לו נכס למכור או להשכיר, ו„כדי שנוכל
+ * להציע לכם בדיוק את מה שאתם מחפשים” אמר לו שלא הקשיבו לו — עוד
+ * לפני שפתח את הקישור. הטופס עצמו שואל ראשון לאיזה צד הוא שייך,
+ * ולכן ההזמנה נשארת פתוחה לשניהם.
  */
 export function intakeInviteMessage(input: {
   officeName: string;
@@ -434,7 +453,7 @@ export function intakeInviteMessage(input: {
   return [
     opening,
     "",
-    "כדי שנוכל להציע לכם בדיוק את מה שאתם מחפשים, מלאו בבקשה טופס קצר:",
+    "כדי שנדע איך לעזור — מחפשים נכס או שיש לכם נכס — מלאו בבקשה טופס קצר:",
     input.url,
     "",
     "לוקח דקה, והפרטים נשמרים אצלנו בלבד.",

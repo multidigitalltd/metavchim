@@ -35,6 +35,7 @@ export function ConfirmDialog({
   cancelLabel = "ביטול",
   busy = false,
   busyLabel = "שולח…",
+  confirmDisabled = false,
   onConfirm,
   onClose,
   children,
@@ -52,6 +53,12 @@ export function ConfirmDialog({
    * פעולה אחרת ממה שנלחץ הוא בדיוק מה שגורם ללחוץ שוב.
    */
   busyLabel?: string;
+  /**
+   * אישור חסום — לחלון שעדיין אינו יודע מה הפעולה תגרור. „מחק”
+   * שמופעל לפני שהתשובה הגיעה מבצע מחיקה שהמסך עוד לא גילה
+   * (ביקורת Codex, P1). הביטול נשאר פעיל תמיד.
+   */
+  confirmDisabled?: boolean;
   /** `undefined` = אין מה לאשר; הכפתור היחיד סוגר. */
   onConfirm?: (() => void) | undefined;
   onClose: () => void;
@@ -86,7 +93,7 @@ export function ConfirmDialog({
       <div className="mv-dialog-body">{children}</div>
       <div className="mt-5 flex flex-wrap gap-2.5">
         {onConfirm ? (
-          <Button disabled={busy} onClick={onConfirm}>
+          <Button disabled={busy || confirmDisabled} onClick={onConfirm}>
             {busy ? busyLabel : confirmLabel}
           </Button>
         ) : (

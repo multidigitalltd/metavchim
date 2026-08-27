@@ -94,6 +94,11 @@ const BulkDeleteSchema = z
   })
   .strict();
 
+/** אותה תקרה כמו המחיקה עצמה — התצוגה המקדימה עונה על אותה בקשה. */
+const BulkPreviewSchema = z
+  .object({ ids: z.array(IdSchema).min(1).max(500) })
+  .strict();
+
 @Controller("buyers")
 export class BuyersController {
   constructor(
@@ -203,6 +208,26 @@ export class BuyersController {
    *
    * `permanent` מפורש ולא ברירת מחדל — ראו `BulkDeleteSchema`.
    */
+  /**
+   * ‎**מה תגרור המחיקה המרוכזת — לפני האישור.**
+   *
+   * אותו גילוי כמו במחיקה הבודדת, בצורתו הקבוצתית: כמה כרטיסי
+   * לקוח יתומים יימחקו עם הבחירה, ומה נספר בהם. המסך חוסם מחיקה
+   * לצמיתות כשהבדיקה נכשלת — „לא ידוע” אינו „לא יימחק”.
+   */
+  @Post("bulk-deletion-preview")
+  @RequireCapability("buyers.delete")
+  @HttpCode(200)
+  async bulkDeletionPreview(
+    @Body(new ZodValidationPipe(BulkPreviewSchema))
+    body: z.infer<typeof BulkPreviewSchema>,
+  ): Promise<{
+    contacts: number;
+    erasure: { calls: number; messages: number; emails: number };
+  }> {
+    return this.buyers.bulkDeletionPreview(body.ids);
+  }
+
   @Post("bulk-delete")
   @RequireCapability("buyers.delete")
   @HttpCode(200)

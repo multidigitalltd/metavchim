@@ -26,6 +26,7 @@ import { GmailSection } from "./gmail-section";
 import { GoogleCalendarSection } from "./google-calendar-section";
 import { MatchWeightsSection } from "./match-weights-section";
 import { AutomationsSection } from "./automations-section";
+import { OfficeDefaultsSection } from "./office-defaults-section";
 import { CustomAutomationsSection } from "./custom-automations-section";
 import { RecurrenceSection } from "./recurrence-section";
 import { DismissReportSection } from "./dismiss-report";
@@ -74,13 +75,6 @@ const SECURITY_ROWS = [
   "תיעוד מלא: מי עשה מה ומתי",
   "גיבוי יומי אוטומטי + עותק מחוץ לשרת",
 ];
-
-const PLAN_LABELS: Record<string, string> = {
-  basic: "Basic — בסיסי",
-  pro: "Pro — מקצועי",
-  agency: "Agency — משרד",
-  enterprise: "Enterprise — רשת/ארגון",
-};
 
 /** קודי יומן הפעילות → עברית; קוד לא מוכר מוצג כמו שהוא */
 const AUDIT_ACTION_LABELS: Record<string, string> = {
@@ -285,16 +279,32 @@ export default function SettingsPage() {
         officePhone: String(f.get("officePhone") ?? "").trim(),
         defaultCommission: String(f.get("defaultCommission") ?? "").trim(),
         defaultPaymentTerms: String(f.get("defaultPaymentTerms") ?? "").trim(),
-        // checkbox לא מסומן אינו נשלח ב-FormData — היעדרות פירושה כבוי
-        autoShareProperties: f.get("autoShareProperties") === "on",
-        autoShareBuyers: f.get("autoShareBuyers") === "on",
-        autoEmailOffers: f.get("autoEmailOffers") === "on",
       });
       setMessage("✓ ההגדרות נשמרו");
       load();
     } catch (err: unknown) {
       setMessage(err instanceof ApiError ? err.message : "השמירה נכשלה");
     }
+  }
+
+  /**
+   * שמירת מתג בודד — בלי טופס ובלי כפתור.
+   *
+   * ‎`PATCH /settings/tenant` מקבל שדות חלקיים, ולכן מה שלא נשלח
+   * אינו נוגע. שליחת כל השדות כאן הייתה מחזירה לשרת גם את שם המשרד
+   * ואת אחוז העמלה מתוך `tenant` שבזיכרון — כלומר דורסת עריכה
+   * שנעשתה בלשונית אחרת בין הטעינה ללחיצה.
+   *
+   * המצב המקומי מתעדכן **אחרי** ההצלחה: מתג שהתהפך ואז נכשל היה
+   * מציג „כבוי” על אוטומציה שממשיכה לרוץ.
+   */
+  async function saveTenantFlags(patch: {
+    autoShareProperties?: boolean;
+    autoShareBuyers?: boolean;
+    autoEmailOffers?: boolean;
+  }): Promise<void> {
+    await apiPatch("/settings/tenant", patch);
+    setTenant((prev) => (prev === null ? prev : { ...prev, ...patch }));
   }
 
   async function addUser(event: FormEvent<HTMLFormElement>) {
@@ -1036,87 +1046,6 @@ export default function SettingsPage() {
                       style={inputStyle}
                     />
                   </div>
-                  {/*
-                    מדיניות הרשת — בחירה של המשרד, לא של כל סוכן בנפרד:
-                    משרד שחי משיתופי פעולה לא רוצה לזכור לפרסם כל כרטיס.
-                    מה שמתפרסם הוא תמיד הצילום האנונימי — ההסבר בשורת
-                    המשנה כדי שההפעלה תהיה החלטה מודעת ולא הימור.
-                  */}
-                  <fieldset className="mb-3.5 rounded-lg border p-3.5" style={{ borderColor: "var(--color-border)" }}>
-                    <legend className="px-1 text-sm font-bold">
-                      רשת שיתופי הפעולה — ברירת מחדל
-                    </legend>
-                    <label className="mb-2 flex items-start gap-2 text-sm" htmlFor="autoShareProperties">
-                      <input
-                        type="checkbox"
-                        id="autoShareProperties"
-                        name="autoShareProperties"
-                        defaultChecked={tenant.autoShareProperties}
-                        className="mt-0.5"
-                      />
-                      <span>
-                        <b className="block">כל נכס חדש מתפרסם לרשת אוטומטית</b>
-                        <span style={{ color: "var(--color-text-muted)" }}>
-                          בלי כתובת מדויקת ובלי פרטי הבעלים. חלוקת עמלה
-                          50/50 — ניתנת לשינוי בכרטיס הנכס.
-                        </span>
-                      </span>
-                    </label>
-                    <label className="flex items-start gap-2 text-sm" htmlFor="autoShareBuyers">
-                      <input
-                        type="checkbox"
-                        id="autoShareBuyers"
-                        name="autoShareBuyers"
-                        defaultChecked={tenant.autoShareBuyers}
-                        className="mt-0.5"
-                      />
-                      <span>
-                        <b className="block">כל קונה חדש מתפרסם כביקוש ברשת אוטומטית</b>
-                        <span style={{ color: "var(--color-text-muted)" }}>
-                          בלי שם ובלי טלפון, בתקציב מעוגל. קונה בלי אזור
-                          חיפוש לא מתפרסם עד שיוגדר לו אזור.
-                        </span>
-                      </span>
-                    </label>
-                  </fieldset>
-                  {/*
-                    הצעות אוטומטיות במייל — אותה רמת החלטה כמו מדיניות
-                    הרשת שמעל: המשרד קובע, לא כל סוכן. שורת המשנה מפרטת
-                    את הסייגים כדי שההפעלה תהיה מודעת: מה נשלח, למי,
-                    ומה נשאר אצל הסוכן.
-                  */}
-                  <fieldset className="mb-3.5 rounded-lg border p-3.5" style={{ borderColor: "var(--color-border)" }}>
-                    <legend className="px-1 text-sm font-bold">
-                      הצעות ללקוחות במייל — ברירת מחדל
-                    </legend>
-                    <label className="flex items-start gap-2 text-sm" htmlFor="autoEmailOffers">
-                      <input
-                        type="checkbox"
-                        id="autoEmailOffers"
-                        name="autoEmailOffers"
-                        defaultChecked={tenant.autoEmailOffers}
-                        className="mt-0.5"
-                      />
-                      <span>
-                        <b className="block">
-                          לקוחות מקבלים אוטומטית במייל הצעות מהתאמות פנימיות של המשרד
-                        </b>
-                        <span style={{ color: "var(--color-text-muted)" }}>
-                          רק התאמות חדשות ומומלצות (85%+) לנכסים פעילים,
-                          ורק ללקוח עם אימייל שחתם על הזמנה בכתב לנכס.
-                          התאמות מהרשת אינן נשלחות. כל מייל כולל קישור
-                          הסרה, והשליחה מהדומיין של המשרד אם חובר.
-                        </span>
-                      </span>
-                    </label>
-                  </fieldset>
-                  <p
-                    className="mb-3.5 text-sm"
-                    style={{ color: "var(--color-text-muted)" }}
-                  >
-                    מסלול:{" "}
-                    <strong>{PLAN_LABELS[tenant.plan] ?? tenant.plan}</strong>
-                  </p>
                   <button type="submit" className="mv-btn-action">
                     שמור
                   </button>
@@ -1258,6 +1187,23 @@ export default function SettingsPage() {
                 הזה הוא הדרך היחידה לכבות אותן. נעילה שלהן הייתה
                 משאירה משרד עם אוטומציות פועלות שאין לו שליטה עליהן.
               */}
+              {/*
+                ברירות המחדל של המשרד ראשונות: הן מסבירות את מה
+                שרץ **על כל כרטיס חדש**, וזו השאלה שמגיעים איתה
+                ללשונית הזו. הן מוצגות רק למי שמנהל את המשרד —
+                מתג משרדי לסוכן רגיל מחזיר 403, וכפתור שמחזיר 403
+                גרוע מכפתור שאינו קיים.
+              */}
+              {can(user, "settings.manage") && tenant !== null ? (
+                <OfficeDefaultsSection
+                  value={{
+                    autoShareProperties: tenant.autoShareProperties,
+                    autoShareBuyers: tenant.autoShareBuyers,
+                    autoEmailOffers: tenant.autoEmailOffers,
+                  }}
+                  onSave={saveTenantFlags}
+                />
+              ) : null}
               <AutomationsSection />
               {canAutomations ? (
                 <>

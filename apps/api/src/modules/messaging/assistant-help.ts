@@ -43,6 +43,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "show_tasks",
       "show_notifications",
       "show_callbacks",
+      "show_leads",
       "show_calls",
       "play_recording",
       "office_report",
@@ -56,6 +57,8 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "create_property",
       "create_task",
       "schedule_appointment",
+      "reschedule_appointment",
+      "update_appointment",
       "update_buyer",
       "update_property",
       "update_lead_status",
@@ -67,13 +70,22 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
   },
   {
     label: "הצעות והחתמה",
-    ids: ["send_offer", "send_agreement", "send_email", "show_offers", "show_agreements"],
+    ids: [
+      "send_offer",
+      "send_agreement",
+      "send_email",
+      "send_message",
+      "show_offers",
+      "show_agreements",
+      "show_emails",
+    ],
   },
   { label: "בלעדיות", ids: ["show_exclusivity", "log_marketing_action"] },
   {
     label: "רשת המשרדים",
     ids: ["share_property", "share_buyer", "show_demands", "show_deals"],
   },
+  { label: "עזרה", ids: ["open_support_ticket"] },
 ];
 
 /** מיוצאת לבדיקת הכיסוי בלבד — התפריט עצמו נבנה מ-`helpMenu`. */

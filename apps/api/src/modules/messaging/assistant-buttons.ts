@@ -73,6 +73,14 @@ const BUTTON_COMMANDS: Record<string, string> = {
   today: "מה יש לי היום?",
 };
 
+/**
+ * ‎**תקרת אורך למשפט שכפתור נושא.** מזהה כפתור ב-Meta מוגבל ל-256
+ * תווים, וחלקו תפוס בקידומת ובחותם; משפט צעד ההמשך קצר ממילא, ומה
+ * שחורג נחתך אצל הבונה — לא נשלח כפתור עם פקודה קטומה שמתפרשת
+ * אחרת ממה שהוצג.
+ */
+export const CMD_TEXT_MAX = 180;
+
 /** החותם נשלח עם שני הכפתורים — גם ביטול של הצעה ישנה הוא טעות. */
 export const confirmButtons = (token?: string): WhatsAppButton[] => [
   { action: "confirm", title: "✅ אשר", ...(token === undefined ? {} : { token }) },
@@ -119,6 +127,16 @@ export function buttonAsText(action: string, arg?: string): string | null {
   if (action === "confirm") return "אשר";
   if (action === "cancel") return "בטל";
   if (action === "pick") return arg !== undefined && /^\d{1,2}$/u.test(arg) ? arg : null;
-  if (action === "cmd") return arg === undefined ? null : (BUTTON_COMMANDS[arg] ?? null);
+  /*
+   * ‎`cmd` נושא או מפתח מוכן או **את משפט הפקודה עצמו** — צעדי ההמשך
+   * שנגזרים מהתוכן. שני המקרים נשלחים למנוע כאילו הוקלדו, ולכן אין
+   * כאן מסלול ביצוע שני: פעולה כותבת עדיין נעצרת על „אשר”, בדיוק
+   * כמו משפט שהוקלד. Meta מחזירה את המזהה כלשונו; תוכן ארוך מהתקרה
+   * נדחה — מזהה שנחתך בדרך אינו הפקודה שהוצגה.
+   */
+  if (action === "cmd") {
+    if (arg === undefined || arg.length > CMD_TEXT_MAX) return null;
+    return BUTTON_COMMANDS[arg] ?? (arg.trim() === "" ? null : arg);
+  }
   return null;
 }

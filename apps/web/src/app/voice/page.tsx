@@ -500,6 +500,15 @@ export default function AgentPage(): React.JSX.Element {
                   </a>
                 </>
               ) : null}
+              {/* קישור חיצוני — wa.me עם ההודעה מוכנה; נפתח בלשונית חדשה */}
+              {result.link === undefined ? null : (
+                <>
+                  {" "}
+                  <a href={result.link} target="_blank" rel="noreferrer" className="underline">
+                    פתיחה בוואטסאפ ←
+                  </a>
+                </>
+              )}
             </Notice>
           )}
           {/* התובנה לפני הרשימה: המסקנה קודם, הפירוט למי שרוצה */}
@@ -516,7 +525,34 @@ export default function AgentPage(): React.JSX.Element {
             צעד ההמשך המוצע — לחיצה שולחת אותו כמשפט חדש דרך אותו
             מסלול הבנה⟵אישור. שום דבר אינו מבוצע מהלחיצה עצמה.
           */}
-          {result.suggestion === undefined || result.suggestion === "" ? null : (
+          {/*
+            ‎**צעדי ההמשך — אותם כפתורים כמו בוואטסאפ, ומאותו מקור.**
+
+            ‎`nextSteps` נגזר מהתוכן שחזר, וכל צעד הוא צ'יפ שלחיצה
+            עליו שולחת את המשפט דרך אותו מסלול הבנה⟵אישור. שום דבר
+            אינו מבוצע מהלחיצה עצמה. `suggestion` הוא רשת הביטחון
+            המנוסחת — מוצג רק כשאין אף צעד נגזר, בדיוק כמו בערוץ
+            הוואטסאפ, כדי ששתי הפנים של הסוכן יציעו את אותו הדבר.
+          */}
+          {(result.nextSteps ?? []).length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {(result.nextSteps ?? []).map((step) => (
+                <button
+                  key={step.text}
+                  type="button"
+                  className="mv-example-chip"
+                  disabled={busy}
+                  onClick={() => {
+                    setResult(null);
+                    setTranscript(step.text);
+                    void interpret(step.text);
+                  }}
+                >
+                  {step.label} — „{step.text}”
+                </button>
+              ))}
+            </div>
+          ) : result.suggestion === undefined || result.suggestion === "" ? null : (
             <button
               type="button"
               className="mv-example-chip mt-3"

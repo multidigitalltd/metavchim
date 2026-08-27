@@ -368,64 +368,38 @@ export class ContactErasureService {
   }
 
   /**
-   * ‎**כמו `eraseUnreachable`, אבל לעולם לא יותר ממה שהמסך הבטיח.**
+   * ‎**מה תגרור מחיקת העוגן — התצוגה שהופכת מחיקה רחבה למגולה.**
    *
-   * מחיקת כרטיס קונה ומחיקת ליד **מבטיחות במפורש** מה נשאר: „הלקוח
-   * עצמו והלידים שלו יישארו — נמחק רק הכרטיס הזה”, ו„פגישות ושיחות
-   * מוקלטות שכבר נרשמו נשארות”. הבטחה בדיאלוג אישור אינה נוסח אלא
-   * חלק מהפעולה, ושתיהן נכתבו כך אחרי סבבי ביקורת קודמים.
+   * הגלגול השלישי של הגבול הזה, ושווה לתעד את הדרך: ההרחבה הראשונה
+   * מחקה כרטיס יתום **בלי** לעדכן את מה שהדיאלוגים מבטיחים — שני
+   * ממצאי P1, „הפעולה היחידה במערכת שמחקה יותר ממה שביקשו”. התיקון
+   * הראשון הצר את המחיקה לכרטיס בלי היסטוריה
+   * (`eraseUnreachableWithoutHistory`), והשאיר פתוח את מה שבשבילו
+   * הכול התחיל: PII של אדם שאיש אינו יכול למחוק לפי בקשה.
    *
-   * הרחבתי את שני המסלולים למחיקת כרטיס יתום ולא נגעתי במה שהמסך
-   * אומר — כלומר הפכתי מחיקה מוגבלת למחיקה רחבה **בלי הסכמה**
-   * (ביקורת Codex, שני ממצאי P1). זו בדיוק הפעולה שההערה במחיקת ליד
-   * מזהירה ממנה: „הפעולה היחידה במערכת שמחקה יותר ממה שביקשו”.
+   * ‎**בעל המוצר הכריע: גילוי.** הדיאלוגים מציגים לפני האישור מה
+   * באמת יימחק — כולל השיחות וההודעות — ומאותו רגע המחיקה רשאית
+   * להיות מלאה, בדיוק כמו במחיקת נכס לצמיתות שגילתה מהיום הראשון.
+   * הווריאנט המצומצם ירד: הגבול אינו „מה מותר למחוק” אלא „מה נאמר
+   * לפני כן”, והוא נאכף בשער שקורא את הדיאלוגים עצמם.
    *
-   * ‎**לכן שתי מתודות ולא דגל.** מחיקת נכס לצמיתות **מגלה** בדיאלוג
-   * שלה שכרטיס לקוח והתקשורת שלו יורדים, ולכן היא רשאית למחוק הכול.
-   * שני המסלולים כאן אינם מגלים, ולכן הם מוחקים רק כרטיס שאין מאחוריו
-   * דבר מכל מה שהובטח. השם נושא את ההבדל, כדי שהקורא הבא לא יבחר
-   * בטעות את הרחבה.
-   *
-   * ‎**מה שנשאר פתוח, במפורש:** כרטיס שאיש אינו מגיע אליו ו**יש** עליו
-   * שיחות נשאר במסד. זה בדיוק המצב שהיה קודם — לא רגרסיה — וסגירתו
-   * דורשת שינוי במה שהמסך מבטיח, כלומר החלטה של בעל המוצר.
+   * ‎`except` — העוגן שעומד להימחק, כדי שהשאלה תהיה „מה יקרה
+   * אחריו” ולא „מה המצב עכשיו”. `null` = הכרטיס נשאר נגיש, ואין
+   * מה לגלות.
    */
-  async eraseUnreachableWithoutHistory(
-    tx: TenantTx,
-    tenantId: string,
-    lock: ContactLock,
-    cause: string,
-  ): Promise<boolean> {
-    if (await this.hasPromisedHistory(tx, tenantId, lock.contactId)) return false;
-    return this.eraseUnreachable(tx, tenantId, lock, cause);
-  }
-
-  /**
-   * האם על הכרטיס יושב משהו שדיאלוגי המחיקה הבטיחו לשמור.
-   *
-   * שאלה **אחרת** מ„האם מישהו יכול להגיע אליו”, ולכן שם אחר: יתמות
-   * היא על נגישות, וזו על מה שיאבד. שתיהן נדרשות, ואין ביניהן
-   * הכלה — כרטיס יכול להיות נגיש ובלי היסטוריה, או יתום ועמוס.
-   */
-  private async hasPromisedHistory(
+  async erasurePreview(
     tx: TenantTx,
     tenantId: string,
     contactId: string,
-  ): Promise<boolean> {
-    const [calls, messages, emails, agreements, documents] = await Promise.all([
-      tx.call.findFirst({ where: { tenantId, contactId }, select: { id: true } }),
-      tx.message.findFirst({ where: { tenantId, contactId }, select: { id: true } }),
-      tx.emailMessage.findFirst({ where: { tenantId, contactId }, select: { id: true } }),
-      tx.agreement.findFirst({ where: { tenantId, contactId }, select: { id: true } }),
-      tx.signedDocument.findFirst({ where: { tenantId, contactId }, select: { id: true } }),
+    except: { buyerId?: string; buyerIds?: readonly string[]; leadId?: string },
+  ): Promise<{ calls: number; messages: number; emails: number } | null> {
+    if (!(await isOrphanContact(tx, tenantId, contactId, except))) return null;
+    const [calls, messages, emails] = await Promise.all([
+      tx.call.count({ where: { tenantId, contactId } }),
+      tx.message.count({ where: { tenantId, contactId } }),
+      tx.emailMessage.count({ where: { tenantId, contactId } }),
     ]);
-    return (
-      calls !== null ||
-      messages !== null ||
-      emails !== null ||
-      agreements !== null ||
-      documents !== null
-    );
+    return { calls, messages, emails };
   }
 
   /**

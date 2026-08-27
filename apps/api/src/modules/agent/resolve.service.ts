@@ -711,6 +711,8 @@ export class AgentResolveService {
 const DATE_FIELD: Record<string, string | undefined> = {
   create_task: "dueAt",
   schedule_appointment: "startsAt",
+  // המועד **החדש** — הפגישה עצמה נבחרת לפי הלקוח, לא לפי תאריך
+  reschedule_appointment: "startsAt",
   create_property: "entryDate",
   update_property: "entryDate",
   create_buyer: "entryBy",
@@ -877,6 +879,34 @@ const ENTITY_LOOKUP: Record<
     also: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס", kind: "property" },
   },
   /*
+   * דחייה ועדכון פגישה — הלקוח הוא המפתח לפגישה, ולכן **אינו**
+   * רשות: בלעדיו אין דרך לדעת על איזו פגישה מדובר, והביצוע נעצר
+   * עם הסבר. הפגישה עצמה נבחרת בביצוע לפי הכיוון בזמן.
+   */
+  reschedule_appointment: {
+    key: "buyerPhrase",
+    idKey: "cardId",
+    label: "עם מי הפגישה",
+    kind: "card",
+  },
+  update_appointment: {
+    key: "buyerPhrase",
+    idKey: "cardId",
+    label: "עם מי הפגישה",
+    kind: "card",
+  },
+  /*
+   * הודעת וואטסאפ ללקוח — קונה או ליד, ובחירה מפורשת תמיד: הודעה
+   * יוצאת מהמשרד לאדם אמיתי, כמו מייל, הצעה והסכם.
+   */
+  send_message: {
+    key: "buyerPhrase",
+    idKey: "cardId",
+    label: "לאיזה לקוח לשלוח",
+    kind: "card",
+    alwaysChoose: true,
+  },
+  /*
    * ‎**„מה המשימות של דנה”.** רשות: בלי שם זו הרשימה הרגילה. השם
    * נפתר לסוכן, והשרת מסנן — `TasksService.list` מקבל `assignee`
    * מאז ומתמיד, ומה שחסר היה מי שיתרגם שם למזהה.
@@ -1033,6 +1063,9 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   create_buyer: ["name", "phone", "cities", "budgetMaxShekels"],
   create_property: ["city", "propertyType", "dealType", "rooms", "priceShekels"],
   schedule_appointment: ["startsAt"],
+  reschedule_appointment: ["startsAt"],
+  send_message: ["messageBody"],
+  open_support_ticket: ["supportMessage"],
   create_task: ["title"],
   /*
    * בפעולות שמכוונות לרשומה קיימת, הביטוי המזהה הוא ההשלמה החשובה

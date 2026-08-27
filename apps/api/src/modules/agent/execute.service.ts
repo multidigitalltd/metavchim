@@ -4,6 +4,14 @@ import {
   MARKETING_ACTION_KINDS,
   MARKETING_ACTION_LABEL,
   agentNextSteps,
+  groundedNumbers,
+  LEAD_STATUS_LABELS,
+  type LeadStatus,
+  SUPPORT_KINDS,
+  type SupportKind,
+  formatJerusalemDate,
+  formatJerusalemTime,
+  whatsappLink,
   jerusalemWallParts,
   type MarketingActionKind,
   agentAction,
@@ -37,6 +45,8 @@ import { AgreementsService } from "../agreements/agreements.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { EmailInboxService } from "../email-inbox/email-inbox.service";
+import { MessagingService } from "../messaging/messaging.service";
+import { SupportService } from "../support/support.service";
 import { AnalyticsService, type ReportWindowDays } from "../analytics/analytics.service";
 import { AgentResolveService } from "./resolve.service";
 import { BuyersService } from "../buyers/buyers.service";
@@ -122,6 +132,15 @@ function refOf(
 export interface ExecuteResult {
   /** לאן לנווט אחרי הביצוע */
   href?: string;
+  /**
+   * קישור **חיצוני** מוחלט — למשל wa.me עם הודעה מוכנה.
+   *
+   * שדה נפרד מ-`message` ובכוונה: קישור כזה יכול לשאת מספר טלפון,
+   * ו-`message` נשמר לזיכרון השיחה שנוסע לפרומפט של מודל חיצוני —
+   * טלפון אינו מגיע לשם לעולם. הערוצים מציגים את הקישור ואינם
+   * שומרים אותו.
+   */
+  link?: string;
   message: string;
   /** תוצאות לשאילתה — מוצגות במקום, בלי ניווט */
   data?: unknown;
@@ -142,6 +161,13 @@ export interface ExecuteResult {
    * ‎`next-step.ts` — שם גם הסיבה שהסדר הזה ולא ההפוך.
    */
   suggestion?: string;
+  /**
+   * ‎**כל הצעדים שנגזרו — לא רק הראשון.** `suggestion` נולד כשהכלל
+   * פלט צעד אחד, ושני הערוצים לקחו `[0]`; מרגע שהתוצאה מצדיקה כמה
+   * צעדים, כל אחד מהם הוא כפתור. `text` הוא מה שהלחיצה שולחת,
+   * ‎`label` הוא מה שרואים עליה.
+   */
+  nextSteps?: { text: string; label: string }[];
   /**
    * הקלטה שאפשר להשמיע — **הפניה, לא בייטים**.
    *
@@ -238,6 +264,8 @@ export class AgentExecuteService {
     private readonly offers: OffersService,
     private readonly notifications: NotificationsService,
     private readonly emailInbox: EmailInboxService,
+    private readonly messaging: MessagingService,
+    private readonly support: SupportService,
   ) {}
 
   async execute(
@@ -291,8 +319,15 @@ export class AgentExecuteService {
         (a) => a.id,
       ),
       new Date(),
-    )[0];
-    if (derived !== undefined) final.suggestion = derived.text;
+    );
+    if (derived[0] !== undefined) final.suggestion = derived[0].text;
+    if (derived.length > 0) {
+      // עד שלושה — תקרת הכפתורים של Meta, ואותה תקרה במסך
+      final.nextSteps = derived.slice(0, 3).map((step) => ({
+        text: step.text,
+        label: step.label,
+      }));
+    }
     /*
      * הביצוע נרשם ביומן המשימות — הפרמטרים שאושרו ותקציר התוצאה,
      * בלי `data` (תוצאות שאילתה שלמות היו מנפחות את היומן בהעתק
@@ -337,6 +372,8 @@ export class AgentExecuteService {
         return this.playRecording(params);
       case "show_callbacks":
         return this.showCallbacks();
+      case "show_leads":
+        return this.showLeads(params);
       case "show_calls":
         return this.showCalls();
       case "show_deals":
@@ -353,6 +390,10 @@ export class AgentExecuteService {
         return this.createTask(params);
       case "schedule_appointment":
         return this.createAppointment(params);
+      case "reschedule_appointment":
+        return this.rescheduleAppointment(params);
+      case "update_appointment":
+        return this.updateAppointment(params);
       case "update_buyer":
         return this.updateBuyer(params);
       case "update_property":
@@ -385,6 +426,12 @@ export class AgentExecuteService {
         return this.showDemands(params);
       case "show_notifications":
         return this.showNotifications();
+      case "show_emails":
+        return this.showEmails();
+      case "send_message":
+        return this.sendMessage(params);
+      case "open_support_ticket":
+        return this.openSupportTicket(params);
       case "dismiss_match":
         return this.dismissMatch(params);
       case "assign_task":
@@ -400,8 +447,8 @@ export class AgentExecuteService {
    * "מי מחפש 4 חדרים בגבעתיים?" מחזיר טבלה; מה שהמתווך באמת רוצה
    * לדעת הוא "יש שלושה, ואחד מהם חם ובלי סיור". הנתונים כבר נשלפו
    * ע"י הקוד — המודל רק קורא אותם ומנסח משפט. הוא אינו מקבל גישה
-   * למסד ואינו יכול להמציא רשומות; לכל היותר ינסח רע, והרשימה
-   * המלאה מוצגת מתחתיו בכל מקרה.
+   * למסד ואינו יכול להמציא רשומות; מספר שהמציא נתפס ב-`groundedNumbers`
+   * ופוסל את המשפט, והרשימה המלאה מוצגת מתחתיו בכל מקרה.
    *
    * best-effort במופגן: בלי מפתח, על שגיאה או על תשובה ריקה —
    * התוצאה חוזרת בלי תובנה ולא נכשלת. שאילתה שעבדה אינה נופלת
@@ -434,15 +481,22 @@ export class AgentExecuteService {
       )
         .map((a) => a.title)
         .join(", ");
+      /*
+       * ‎**הנוסח שיחתי; העובדות מהשליפה בלבד.** „אל תמציא” בפרומפט
+       * הוא בקשה — האכיפה היא `groundedNumbers` על התשובה: ספרה
+       * שאינה בנתונים או בשאלה פוסלת את המשפט כולו, והרשימה
+       * הדטרמיניסטית עומדת בפני עצמה. כך אפשר לתת למודל לדבר
+       * חופשי בלי לתת לו להמציא מחיר.
+       */
       const raw = await this.gemini.generateStructured(
         [
-          'אתה עוזר של מתווך נדל"ן. המתווך שאל:',
+          'אתה העוזר האישי של מתווך נדל"ן — מקצועי, חם וישיר, כמו עוזר אנושי מנוסה שמכיר את התיק. המתווך שאל:',
           `"${transcript.replaceAll('"', "'")}"`,
           "",
           "אלו התוצאות שהמערכת שלפה (JSON, ייתכן קטוע):",
           compact,
           "",
-          "כתוב משפט אחד או שניים בעברית שמסכמים את התובנה החשובה למתווך — כמה נמצאו, מה בולט, מה כדאי לעשות. אל תמציא נתונים שאינם ב-JSON. אם אין מה להוסיף מעבר לרשימה עצמה — החזר insight ריק.",
+          "כתוב ב-insight עד שני משפטים בעברית טבעית שעונים למתווך כמו בשיחה: מה נמצא, מה בולט או דורש תשומת לב, ומה היית ממליץ לעשות עכשיו. דבר אליו ישירות, בלי פתיחות רובוטיות כמו \"להלן\" או \"נמצאו X רשומות\", ובלי לחזור על הרשימה — היא מוצגת ממילא. אל תמציא נתונים שאינם ב-JSON. אם באמת אין מה להוסיף מעבר לרשימה — החזר insight ריק.",
           "",
           `בנוסף, אם מתבקש צעד המשך טבעי — כתוב ב-suggestion משפט פקודה קצר אחד שהמתווך יכול לומר לך עכשיו (למשל "קבע סיור לרות כהן מחר"), מבוסס רק על מה שבתוצאות ומהסוגים האלה: ${allowedTitles}. אם אין המשך מתבקש — השאר ריק.`,
         ].join("\n"),
@@ -459,10 +513,14 @@ export class AgentExecuteService {
         typeof (raw as { suggestion?: unknown })?.suggestion === "string"
           ? ((raw as { suggestion: string }).suggestion ?? "").trim()
           : "";
+      // ספרה שלא נשלפה ולא נשאלה — המשפט כולו נפסל, לא מתוקן
+      const grounded = (text: string): boolean => groundedNumbers(text, [compact, transcript]);
       return {
         ...result,
-        ...(insight !== "" && insight.length <= 500 ? { insight } : {}),
-        ...(suggestion !== "" && suggestion.length <= 200 ? { suggestion } : {}),
+        ...(insight !== "" && insight.length <= 500 && grounded(insight) ? { insight } : {}),
+        ...(suggestion !== "" && suggestion.length <= 200 && grounded(suggestion)
+          ? { suggestion }
+          : {}),
       };
     } catch {
       return result;
@@ -690,6 +748,41 @@ export class AgentExecuteService {
           ...(t.dueAt !== undefined && t.dueAt !== null ? { dueAt: t.dueAt } : {}),
           ...(t.entityLabel !== undefined ? { entityLabel: t.entityLabel } : {}),
         })),
+      },
+    };
+  }
+
+  /**
+   * ‎**רשימת הלידים — הפתוחים כברירת מחדל, סטטוס מפורש מצמצם.**
+   *
+   * הסינון במסד ולא על העמוד שחזר (`LeadsService.list` עם `open`),
+   * מאותה סיבה שמתועדת ב-`openAwaitingResponse`: סינון אחרי עימוד
+   * מחסיר בשקט. הסטטוס בתשובה נשאר גולמי — התרגום לעברית יושב
+   * במנסח המשותף (`result-lines`), פעם אחת לשני הערוצים.
+   */
+  private async showLeads(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const status = str(params["leadStatus"]);
+    const page = await this.leads.list({
+      limit: 25,
+      ...(status === undefined ? { open: true } : { status }),
+    });
+    const label =
+      status === undefined
+        ? "לידים פתוחים"
+        : `לידים בסטטוס „${LEAD_STATUS_LABELS[status as LeadStatus] ?? status}”`;
+    return {
+      href: "/leads",
+      message:
+        page.items.length === 0 ? `אין ${label}` : `${page.items.length} ${label}`,
+      data: {
+        leads: page.items.map((lead) => ({
+          id: lead.id,
+          name: lead.contact.name,
+          phone: lead.contact.phone,
+          status: lead.status,
+          requiresHuman: lead.requiresHuman,
+        })),
+        hasMore: page.nextCursor !== null,
       },
     };
   }
@@ -1590,6 +1683,182 @@ export class AgentExecuteService {
     return { href: `/calendar`, message: "הפגישה נקבעה", data: { id: appointment.id } };
   }
 
+  /**
+   * ‎**הפגישה שהפעולה מדברת עליה** — של הכרטיס שנפתר, לפי הכיוון בזמן:
+   * ביטול ודחייה מדברים על הקרובה המתוכננת; „התקיימה” ו„לא הגיע” על
+   * האחרונה שכבר עברה וטרם סוכמה. הבחירה נאמרת בתשובה — מועד הפגישה
+   * שנבחרה מופיע בהודעה, כך שזיהוי שגוי גלוי מיד והפיך.
+   *
+   * הגישה נשמרת דרך שער הכרטיס (`optionalCardTarget` ⟵ בעלות),
+   * ולכן אין כאן שאילתת פגישות חופשית על כל המשרד.
+   */
+  private async appointmentOf(
+    params: Record<string, unknown>,
+    direction: "upcoming" | "past",
+  ): Promise<{ id: string; startsAt: Date; extra: number }> {
+    const card = await this.optionalCardTarget(params["cardId"]);
+    if (card === null) {
+      throw new BadRequestException("לא זיהיתי עם מי הפגישה — אמרו את שם הלקוח");
+    }
+    const tenantId = TenantContext.current().tenantId;
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.appointment.findMany({
+        where: {
+          tenantId,
+          status: "scheduled",
+          ...(card.kind === "buyer" ? { buyerId: card.id } : { leadId: card.id }),
+          startsAt: direction === "upcoming" ? { gte: new Date() } : { lt: new Date() },
+        },
+        orderBy: { startsAt: direction === "upcoming" ? "asc" : "desc" },
+        take: 2,
+        select: { id: true, startsAt: true },
+      }),
+    );
+    const first = rows[0];
+    if (first === undefined) {
+      throw new BadRequestException(
+        direction === "upcoming"
+          ? "אין פגישה מתוכננת עם הלקוח הזה — אפשר לקבוע חדשה"
+          : "לא נמצאה פגישה שהתקיימה עם הלקוח הזה וממתינה לסיכום",
+      );
+    }
+    return { id: first.id, startsAt: first.startsAt, extra: rows.length - 1 };
+  }
+
+  /** „נדחתה מ… ל…” — המועד הישן בתשובה הוא מה שחושף זיהוי שגוי. */
+  private async rescheduleAppointment(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const startsAt = date(params["startsAt"]);
+    if (!startsAt) throw new BadRequestException("לא זוהה המועד החדש");
+    const found = await this.appointmentOf(params, "upcoming");
+    await this.calendar.reschedule(found.id, { startsAt, durationMinutes: 60 });
+    const moved = `הפגישה מ-${formatJerusalemDate(found.startsAt)} ${formatJerusalemTime(found.startsAt)} נדחתה ל-${formatJerusalemDate(startsAt)} ${formatJerusalemTime(startsAt)}`;
+    return {
+      href: "/calendar",
+      message:
+        found.extra > 0 ? `${moved}. יש עוד פגישה מתוכננת עם הלקוח — היא לא זזה.` : moved,
+    };
+  }
+
+  /**
+   * ביטול, „התקיימה”, „לא הגיע” ותוצאת סיור — דרך אותו
+   * ‎`CalendarService.update` כמו מסך הפולו-אפ: תוצאה גוררת
+   * „התקיימה”, והסיכום נרשם בציר הלקוח שם, לא כאן.
+   */
+  private async updateAppointment(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const status = str(params["appointmentStatus"]);
+    const outcome = str(params["viewingOutcome"]);
+    if (status === undefined && outcome === undefined) {
+      throw new BadRequestException("אמרו מה קרה עם הפגישה — בוטלה, התקיימה, או לא הגיע");
+    }
+    // ביטול מדבר על פגישה עתידית; סיכום — על כזו שכבר הייתה
+    const found = await this.appointmentOf(
+      params,
+      status === "cancelled" ? "upcoming" : "past",
+    );
+    await this.calendar.update(found.id, {
+      ...(status !== undefined ? { status } : {}),
+      ...(outcome !== undefined ? { outcome } : {}),
+    });
+    const when = `${formatJerusalemDate(found.startsAt)} ${formatJerusalemTime(found.startsAt)}`;
+    const said =
+      status === "cancelled"
+        ? `הפגישה ב-${when} בוטלה — היא נשארת ביומן כמבוטלת, ודחייה מחזירה אותה`
+        : status === "no_show"
+          ? `נרשם שהלקוח לא הגיע לפגישה ב-${when}`
+          : `הפגישה ב-${when} סומנה כהתקיימה${outcome === undefined ? "" : ", עם תוצאת הסיור"}`;
+    return { href: "/calendar", message: said };
+  }
+
+  /**
+   * תיבת המייל — השיחות האחרונות, בלי תוכן ההודעות: הנושא והשם
+   * מספיקים לרשימה, וגוף המייל של לקוח אינו נוסע לניסוח התובנה.
+   */
+  private async showEmails(): Promise<ExecuteResult> {
+    const threads = await this.emailInbox.listThreads();
+    const unread = threads.reduce((sum, thread) => sum + thread.unread, 0);
+    return {
+      href: "/inbox",
+      message:
+        threads.length === 0
+          ? "אין שיחות מייל עם לקוחות"
+          : `${threads.length} שיחות מייל${unread > 0 ? `, ${unread} מיילים שלא נקראו` : ""}`,
+      data: {
+        emails: threads.slice(0, 10).map((thread) => ({
+          contactName: thread.contactName,
+          lastSubject: thread.lastSubject,
+          lastAt: thread.lastAt,
+          unread: thread.unread,
+          ...(thread.buyerId === undefined ? {} : { buyerId: thread.buyerId }),
+        })),
+      },
+    };
+  }
+
+  /**
+   * ‎**וואטסאפ ללקוח — ערוץ `walink`, כמו הצעה מהמסך.**
+   *
+   * ההודעה נרשמת ב-Hub ובציר הלקוח, והקישור פותח את הצ'אט עם
+   * הטקסט מוכן — שום דבר לא יוצא מעצמו. הקישור חוזר ב-`link` ולא
+   * בהודעה: הוא נושא את מספר הטלפון, ו-`message` נשמר לזיכרון
+   * שנוסע לפרומפט של מודל חיצוני — טלפון אינו מגיע לשם לעולם.
+   */
+  private async sendMessage(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const card = await this.optionalCardTarget(params["cardId"]);
+    if (card === null) throw new BadRequestException("לא נבחר לקוח לשליחה");
+    const body = str(params["messageBody"])?.trim();
+    if (body === undefined || body === "") {
+      throw new BadRequestException("אמרו מה לכתוב בהודעה");
+    }
+    const tenantId = TenantContext.current().tenantId;
+    const { name, waUrl } = await this.prisma.withTenant(async (tx) => {
+      const row =
+        card.kind === "buyer"
+          ? await tx.buyer.findFirst({
+              where: { id: card.id, tenantId, deletedAt: null },
+              select: { contactId: true },
+            })
+          : await tx.lead.findFirst({
+              where: { id: card.id, tenantId },
+              select: { contactId: true },
+            });
+      if (!row) throw new BadRequestException("הלקוח לא נמצא");
+      const contact = await this.contacts.getById(tx, row.contactId);
+      if (!contact || contact.phone === "") {
+        throw new BadRequestException("לכרטיס הזה אין מספר טלפון");
+      }
+      await this.messaging.prepareFreeText(tx, {
+        contactId: row.contactId,
+        card,
+        body,
+      });
+      return { name: contact.name, waUrl: whatsappLink(contact.phone, body) };
+    });
+    return {
+      message: `ההודעה ל${name} מוכנה ונרשמה בציר הלקוח — פתחו את הקישור ולחצו שלח.`,
+      link: waUrl,
+      ...refOf(name, card.kind, card.id),
+    };
+  }
+
+  /** פנייה לתמיכה — אותו שירות ואותו מיון כמו כפתור התמיכה במסך. */
+  private async openSupportTicket(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const message = str(params["supportMessage"])?.trim();
+    if (message === undefined || message === "") {
+      throw new BadRequestException("אמרו מה קרה — זה מה שהתמיכה תקרא");
+    }
+    const kind = str(params["supportKind"]);
+    const valid = (SUPPORT_KINDS as readonly string[]).includes(kind ?? "");
+    await this.support.create({
+      kind: (valid ? kind : "question") as SupportKind,
+      message,
+      context: { path: "/agent" },
+    });
+    return {
+      href: "/settings",
+      message: "הפנייה נפתחה — התמיכה תחזור אליך, והתשובה תופיע גם בהתראות",
+    };
+  }
+
   // --- עדכון ---
 
   private async updateBuyer(params: Record<string, unknown>): Promise<ExecuteResult> {
@@ -2004,12 +2273,6 @@ function buildTitle(fields: PropertyFields): string | undefined {
 }
 
 /**
- * הפעולות שמקבלות תובנה מסכמת — שאילתות עם תוצאות להשוואה. יומן
- * ומשימות של יום אחד אינם כאן: הרשימה שם קצרה וקריאה בעצמה, ומשפט
- * סיכום עליה הוא רעש. שיחות ועסקאות כן — הרשימות שם ארוכות ומזמינות
- * מסקנה ("שלוש שיחות בלי מענה מאתמול").
- */
-/**
  * מה **לא** נשלח למודל כשמנסחים תובנה — טלפונים, אימיילים, סיכומי
  * שיחות והערות חופשיות. התובנה זקוקה לשמות, ערים, מחירים וסטטוסים;
  * היא אינה זקוקה לדרכי התקשרות או לתוכן שיחה של לקוח קצה, ושליחתם
@@ -2029,12 +2292,21 @@ function redactForInsight(value: unknown): unknown {
   return value;
 }
 
-const INSIGHT_ACTIONS = new Set([
-  "search",
-  "find_buyers",
-  "find_properties",
-  "show_matches",
-  "show_calls",
-  "show_deals",
-  "office_report",
-]);
+/**
+ * הפעולות שמקבלות ניסוח טבעי — **כל פעולת קריאה, נגזר מהקטלוג.**
+ *
+ * הגלגול הראשון מנה שבע שאילתות „עם תוצאות להשוואה” והשאיר את
+ * היומן והמשימות בחוץ — „רשימה קצרה שקריאה בעצמה”. בקשת בעל המוצר
+ * לשפה טבעית ממש הפכה את המשפט המסכם מרעש לקול של העוזר: „יש לך
+ * שלוש פגישות היום, הראשונה בעשר” הוא בדיוק ההבדל בין מערכת
+ * לעוזר. הרשימה הקשיחה גם הייתה נשכחת עם כל פעולת קריאה חדשה —
+ * הנגזרת אינה נשכחת.
+ *
+ * פעולה כותבת אינה כאן בכוונה: מה שמאושר חייב להיות בדיוק מה
+ * שמבוצע, וניסוח חופשי של אישור היה פותח רווח ביניהם. פעולות קריאה
+ * בלי `data` (פתיחת מסך שיתוף, השמעת הקלטה) נופלות ממילא על שער
+ * הנתונים ב-`withInsight` — אין קריאת מודל מיותרת.
+ */
+const INSIGHT_ACTIONS = new Set<string>(
+  AGENT_ACTIONS.filter((action) => action.risk === "read").map((action) => action.id),
+);

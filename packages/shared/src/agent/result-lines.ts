@@ -3,6 +3,7 @@ import { AGENT_RESULT_ROWS, numberedForms } from "./history.js";
 import type { AgentHistoryRef } from "./prompt.js";
 import { formatJerusalemDate, formatJerusalemTime } from "../logic/israel-time.js";
 import { CALL_OUTCOME_LABELS } from "../schemas/labels.js";
+import { LEAD_STATUS_LABELS } from "../schemas/lead.js";
 
 /**
  * התשובה לשאילתה — **שדות, תוויות וסדר, במקום אחד לשני המסכים.**
@@ -294,6 +295,28 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
       kindLabel: "התראה",
       href: "/notifications",
     })),
+  /*
+   * שיחות המייל — שם, נושא, וכמה לא נקראו. **בלי גוף ההודעה**:
+   * התקציר נשלח למתווך במסך התיבה עצמו; כאן, בתשובת סוכן שמנוסחת
+   * גם ע"י מודל חיצוני, הנושא מספיק ותוכן המייל של לקוח אינו נוסע.
+   */
+  emails: (value) =>
+    rowsOf(value).map((thread) => {
+      const unread = typeof thread["unread"] === "number" ? thread["unread"] : 0;
+      return {
+        label: text(thread["contactName"]) ?? "לקוח",
+        detail: join([
+          unread > 0 ? (unread === 1 ? "מייל אחד שלא נקרא" : `${unread} שלא נקראו`) : null,
+          text(thread["lastSubject"]),
+          whenText(thread["lastAt"]),
+        ]),
+        kindLabel: "שיחת מייל",
+        href: "/inbox",
+        ...(text(thread["buyerId"]) !== null
+          ? { ref: { entityType: "buyer" as const, entityId: String(thread["buyerId"]) } }
+          : {}),
+      };
+    }),
   deals: (value) =>
     rowsOf(value).map((d) => ({
       label: text(d["title"]) ?? "עסקה משותפת",
@@ -328,7 +351,16 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
   leads: (value) =>
     rowsOf(value).map((l) => ({
       label: text(l["name"]) ?? "ליד",
-      detail: join([text(l["status"]), l["requiresHuman"] === true ? "דורש טיפול" : null]),
+      /*
+       * הסטטוס מגיע גולמי (`new`, `in_progress`) ומתורגם כאן, מטבלת
+       * התוויות של הסכימה — אותה מחלקה בדיוק כמו `very_hot` שהוצג
+       * גולמי למתווך (ראו `LEAD_STATUS_LABELS`).
+       */
+      detail: join([
+        LEAD_STATUS_LABELS[String(l["status"]) as keyof typeof LEAD_STATUS_LABELS] ??
+          text(l["status"]),
+        l["requiresHuman"] === true ? "דורש טיפול" : null,
+      ]),
       ...(phoneOf(l) !== null ? { phone: phoneOf(l)! } : {}),
       ...(text(l["id"]) !== null
         ? {
@@ -502,6 +534,7 @@ const SECTION_META: Record<string, { noun: string; counted: boolean }> = {
   offers: { noun: "הצעות", counted: true },
   demands: { noun: "ביקושים ברשת", counted: true },
   notifications: { noun: "התראות", counted: false },
+  emails: { noun: "שיחות מייל", counted: false },
 };
 
 /** הסדר קובע מה מוצג ראשון בתוצאת חיפוש כללי. */

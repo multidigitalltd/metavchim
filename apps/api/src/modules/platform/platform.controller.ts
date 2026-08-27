@@ -289,8 +289,12 @@ const UpdateSettingsSchema = z
     // מזהה ולא כמות — ספרות בלבד, אפסים מובילים משמעותיים
     whatsappPhoneNumberId: z.union([z.string().trim().regex(/^\d{5,30}$/u), z.literal("")]).optional(),
     /** תבנית "לקוח ענה במייל" לסוכן — מחוץ לחלון 24 השעות של Meta */
-    whatsappEmailReplyTemplate: z.union([z.string().trim().max(200), z.literal("")]).optional(),
-    whatsappEmailReplyTemplateLang: z.union([z.string().trim().max(10), z.literal("")]).optional(),
+    whatsappEmailReplyTemplate: z
+      .union([z.string().trim().regex(/^[a-z0-9_]{1,512}$/u), z.literal("")])
+      .optional(),
+    whatsappEmailReplyTemplateLang: z
+      .union([z.string().trim().regex(/^[a-zA-Z]{2}(_[A-Z]{2})?$/u), z.literal("")])
+      .optional(),
     /** המענה למספר לא רשום — ריק = הנוסח המובנה, לא שתיקה */
     whatsappProspectReply: z.union([z.string().trim().min(10).max(2000), z.literal("")]).optional(),
     /*
@@ -302,6 +306,16 @@ const UpdateSettingsSchema = z
       .union([z.string().trim().regex(/^[a-z0-9_]{1,512}$/u), z.literal("")])
       .optional(),
     whatsappNotifyTemplateLang: z
+      .union([z.string().trim().regex(/^[a-zA-Z]{2}(_[A-Z]{2})?$/u), z.literal("")])
+      .optional(),
+    /*
+     * תבנית ההזמנה למילוי טופס הדרישות. אותה צורה בדיוק, ובכוונה
+     * תבנית נפרדת: זו נשלחת ל**לקוח** שהתקשר ולא נענה, ולא לסוכן.
+     */
+    whatsappIntakeTemplate: z
+      .union([z.string().trim().regex(/^[a-z0-9_]{1,512}$/u), z.literal("")])
+      .optional(),
+    whatsappIntakeTemplateLang: z
       .union([z.string().trim().regex(/^[a-zA-Z]{2}(_[A-Z]{2})?$/u), z.literal("")])
       .optional(),
     /*
@@ -1372,8 +1386,12 @@ export class PlatformController {
         /** תבנית ההתראות; ריק = דחיפה רק בתוך חלון 24 השעות של Meta */
         notifyTemplate: string;
         notifyTemplateLang: string;
+        intakeTemplate: string;
+        intakeTemplateLang: string;
         viewingReminderTemplate: string;
         viewingReminderTemplateLang: string;
+        emailReplyTemplate: string;
+        emailReplyTemplateLang: string;
       };
     };
     /**
@@ -1389,7 +1407,14 @@ export class PlatformController {
       redirectUris: { label: string; url: string }[];
     };
     /** Gemini לפקודות קוליות — model מוצג כדי שיהיה ברור מה באמת רץ. */
-    gemini: { configured: boolean; source: "db" | "env" | "none"; model: string };
+    gemini: {
+      configured: boolean;
+      source: "db" | "env" | "none";
+      /** המודל בתוקף — הגדרה, סביבה, או ברירת המחדל שבקוד */
+      model: string;
+      /** הערך השמור בלבד; ריק = הולכים אחרי הסביבה/ברירת המחדל */
+      modelOverride: string;
+    };
     /** webhookUrl היא הכתובת שנרשמת אצל קארדקום — מוצגת כדי שלא ינחשו אותה. */
     cardcom: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
     /**
@@ -1569,11 +1594,23 @@ export class PlatformController {
           notifyTemplate: (await this.platformSettings.get("whatsappNotifyTemplate")) ?? "",
           notifyTemplateLang:
             (await this.platformSettings.get("whatsappNotifyTemplateLang")) ?? "he",
+          /*
+           * ריק = הקישור לטופס הדרישות אינו נשלח אוטומטית, וההודעה
+           * המוכנה חוזרת בגוף ההתראה לסוכן. מצב, לא שגיאה.
+           */
+          intakeTemplate: (await this.platformSettings.get("whatsappIntakeTemplate")) ?? "",
+          intakeTemplateLang:
+            (await this.platformSettings.get("whatsappIntakeTemplateLang")) ?? "he",
           // ריק = התזכורת שלפני סיור יוצאת במייל בלבד. מצב, לא שגיאה.
           viewingReminderTemplate:
             (await this.platformSettings.get("whatsappViewingReminderTemplate")) ?? "",
           viewingReminderTemplateLang:
             (await this.platformSettings.get("whatsappViewingReminderTemplateLang")) ?? "he",
+          // ריק = "הלקוח ענה במייל" מגיע במערכת ובדחיפה בלבד. מצב, לא שגיאה.
+          emailReplyTemplate:
+            (await this.platformSettings.get("whatsappEmailReplyTemplate")) ?? "",
+          emailReplyTemplateLang:
+            (await this.platformSettings.get("whatsappEmailReplyTemplateLang")) ?? "he",
         },
       },
       google: {
@@ -1598,6 +1635,14 @@ export class PlatformController {
         source: geminiDb ? "db" : geminiEnv ? "env" : "none",
         // אותו מקום שקורא בפועל — לא העתק של ההיגיון (ראו DEFAULT_GEMINI_MODEL)
         model: await this.gemini.activeModel(),
+        /*
+         * הערך **השמור** בלבד, ולא המודל בתוקף.
+         *
+         * המסך ממלא בו את השדה, ולכן `activeModel()` היה הופך כל
+         * שמירה לקיבוע של ברירת המחדל שבקוד — ומודל שיוחלף בגרסה
+         * הבאה היה ממשיך לרוץ אצל מי שרק לחץ "שמור" פעם אחת.
+         */
+        modelOverride: (await this.platformSettings.get("geminiModel")) ?? "",
       },
       cardcom: {
         configured: cardcomDb || cardcomEnv,
