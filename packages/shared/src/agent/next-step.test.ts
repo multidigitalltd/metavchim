@@ -107,15 +107,29 @@ describe("agentNextSteps — יצירה", () => {
     expect(step).toEqual([]);
   });
 
+  /*
+   * ‎**הסוג כאן הוא `lead`, ונקרא מהמקור.** הגרסה הראשונה של הבדיקה
+   * הזו כתבה `entityType: "buyer"` — צורה ש-`createLead` אינה מחזירה
+   * לעולם — והיא „עברה” רק מפני שהכלל לא בדק סוג כלל. שער השלמות
+   * למטה לא תפס זאת, כי הוא ניזון מאותה המצאה.
+   */
   it("ליד חדש — מציע לקבוע פגישה", () => {
     const [step] = agentNextSteps(
       "create_lead",
-      { ref: { label: "שרה מזרחי", entityType: "buyer" } },
+      { ref: { label: "שרה מזרחי", entityType: "lead" } },
       ALL,
       NOW,
     );
     expect(step?.action).toBe("schedule_appointment");
     expect(step?.params["buyerPhrase"]).toBe("שרה מזרחי");
+  });
+
+  /*
+   * ‎**ליד שמוזג לליד של סוכן אחר אינו מחזיר `ref`.** הפגישה שהייתה
+   * נקבעת מולו הייתה מצביעה על כרטיס שהשירותים דוחים ב-403.
+   */
+  it("ליד שאינו גלוי לקולט אינו מייצר צעד", () => {
+    expect(agentNextSteps("create_lead", {}, ALL, NOW)).toEqual([]);
   });
 });
 
@@ -165,7 +179,7 @@ describe("שלמות", () => {
       ["show_matches", { data: { matches: [{ buyerName: "א", buyerId: "b", score: 90 }] } }],
       ["create_buyer", { ref: { label: "ב", entityType: "buyer" } }],
       ["create_property", { ref: { label: "ג", entityType: "property" } }],
-      ["create_lead", { ref: { label: "ד", entityType: "buyer" } }],
+      ["create_lead", { ref: { label: "ד", entityType: "lead" } }],
       ["show_tasks", { data: { tasks: [{ title: "ה", dueAt: "2026-01-01T00:00:00.000Z" }] } }],
     ];
     for (const [action, source] of covered) {

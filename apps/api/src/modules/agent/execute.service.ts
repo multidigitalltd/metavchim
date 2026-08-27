@@ -1233,6 +1233,19 @@ export class AgentExecuteService {
   private async createAppointment(params: Record<string, unknown>): Promise<ExecuteResult> {
     const startsAt = date(params["startsAt"]);
     if (!startsAt) throw new BadRequestException("לא זוהה מועד לפגישה");
+    /*
+     * ‎**עם מי — קונה או ליד.**
+     *
+     * ‎`buyerId` נקרא כאן מאז ומתמיד ואיש לא כתב אליו: לפעולה הזו לא
+     * הייתה רשומה ב-`ENTITY_LOOKUP`, ולכן כל פגישה שנקבעה דרך הסוכן
+     * נוצרה בלי לקוח ובלי נכס. עכשיו הביטוי נפתר לכרטיס, והכרטיס
+     * נושא את הסוג שלו.
+     *
+     * ‎`optionalCardTarget` ולא פיצול ידני: הוא אוכף גם יכולת וגם
+     * בעלות, ומוותר על השיוך במקום להפיל את הפגישה. פגישה בלי לקוח
+     * מקושר עדיין פגישה; פגישה שלא נוצרה איננה.
+     */
+    const card = await this.optionalCardTarget(params["cardId"]);
     const appointment = await this.calendar.create({
       kind: str(params["kind"]) ?? "meeting",
       startsAt,
@@ -1241,7 +1254,8 @@ export class AgentExecuteService {
       ...(str(params["propertyId"]) !== undefined
         ? { propertyId: str(params["propertyId"])! }
         : {}),
-      ...(str(params["buyerId"]) !== undefined ? { buyerId: str(params["buyerId"])! } : {}),
+      ...(card?.kind === "buyer" ? { buyerId: card.id } : {}),
+      ...(card?.kind === "lead" ? { leadId: card.id } : {}),
     });
     return { href: `/calendar`, message: "הפגישה נקבעה", data: { id: appointment.id } };
   }

@@ -43,8 +43,39 @@ import { PrismaService } from "./prisma.service";
  *
  * היורש מ-`ServiceUnavailableException` ולא מחליף אותו: מי שאינו
  * מבחין ממשיך לקבל בדיוק את אותה תשובה.
+ *
+ * ## ‎**`retryable` — הציר השני, ולמה הוא נפרד**
+ *
+ * לסוג הזה היו **שני קוראים ששאלו אותו שתי שאלות שונות**. נתיב
+ * ההרשמה שואל „האם ידוע שלא יצאה?”, כדי להחזיר מכסה ולבטל קוד.
+ * נתיב ההצעות שואל „האם יש טעם לנסות שוב?”, כדי לסמן `email_failed`
+ * ולהוציא את ההצעה מהמחזור. לרוב התשובות זהות — טוקן שגוי ונמען
+ * פסול ייכשלו זהה לנצח.
+ *
+ * ‎**חריגה מקצב היא המקום שבו הן נפרדות.** ההודעה בוודאות לא יצאה,
+ * ולכן המכסה חוזרת — אבל היא לא יצאה **מפני שהספק ביקש להאט**, וזו
+ * ההגדרה של „נסו בעוד רגע”. סימון `email_failed` שם מוציא לתמיד
+ * הצעה שדבר לא היה פסול בה (ביקורת Codex). לכן זה שדה ולא סוג נפרד:
+ * הקביעה „לא יצאה” נכונה בשני המקרים, ורק ההמלצה שונה.
  */
-export class EmailRejectedError extends ServiceUnavailableException {}
+export class EmailRejectedError extends ServiceUnavailableException {
+  constructor(
+    message: string,
+    /** ‎`true` = נדחתה עכשיו ובלבד. ברירת המחדל היא הכישלון הקבוע. */
+    readonly retryable: boolean = false,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * ‎**קודי ה-4xx שאומרים „לא עכשיו” ולא „לא”.**
+ *
+ * ‎429 — הספק מבקש להאט. 408 — הבקשה לא הושלמה בזמן אצלו. בשניהם
+ * ההודעה לא יצאה ובשניהם אותה בקשה בדיוק תצליח מאוחר יותר; כל שאר
+ * ה-4xx נפסלו על סמך תוכן שלא ישתנה מעצמו.
+ */
+const RETRYABLE_REJECTIONS = new Set([408, 429]);
 
 @Injectable()
 export class EmailService {
@@ -163,8 +194,12 @@ export class EmailService {
         throw new ServiceUnavailableException("שליחת האימייל נכשלה — נסו שוב");
       }
       if (options.tenantOnly === true) {
+        // חריגה מקצב אינה „הדומיין פסול” — אותה בדיקה תעבור בעוד רגע
         throw new EmailRejectedError(
-          "ספק האימייל דחה את הכתובת של המשרד — בדקו את האימות במסך ההגדרות",
+          RETRYABLE_REJECTIONS.has(res.status)
+            ? "ספק האימייל מגביל כרגע את קצב השליחה — נסו שוב בעוד רגע"
+            : "ספק האימייל דחה את הכתובת של המשרד — בדקו את האימות במסך ההגדרות",
+          RETRYABLE_REJECTIONS.has(res.status),
         );
       }
     }
@@ -182,9 +217,16 @@ export class EmailService {
        * הודעה. 5xx הוא תקלה **אצל הספק**, שיכולה לקרות אחרי שההודעה
        * כבר נקלטה ולפני שהתשובה הושלמה; הוא שייך לאותה משפחה של פסק
        * זמן, כלומר „איננו יודעים” (ביקורת Codex).
+       *
+       * ‎**וגם בתוך 4xx יש הבחנה.** „לא יצאה” אינו „לא תצא לעולם”:
+       * חריגה מקצב היא בקשה להאט, ומי שקורא אותה ככישלון קבוע קובר
+       * הצעה תקינה. `retryable` נושא את ההבחנה הזו הלאה.
        */
       if (res.status < 500) {
-        throw new EmailRejectedError("שליחת האימייל נכשלה — נסו שוב");
+        throw new EmailRejectedError(
+          "שליחת האימייל נכשלה — נסו שוב",
+          RETRYABLE_REJECTIONS.has(res.status),
+        );
       }
       throw new ServiceUnavailableException("שליחת האימייל נכשלה — נסו שוב");
     }

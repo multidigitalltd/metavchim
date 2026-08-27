@@ -213,6 +213,30 @@ export class AgentResolveService {
   ): Promise<{ ok: true } | { ok: false; message: string }> {
     const spec = ENTITY_LOOKUP[actionId];
     if (spec === undefined) return { ok: true };
+    const primary = await this.resolveOneForExecution(actionId, spec, params);
+    if (!primary.ok) return primary;
+    /*
+     * ‎**הרשומה השנייה נפתרת גם כאן, ולא רק במסלול ההצעה.**
+     *
+     * המסלול הזה הכיר `spec` בלבד, ולכן „תוסיף קונה משה ותראה מה
+     * מתאים לו” היה מבצע את הצעד השני בלי הקונה — כלומר מחזיר את
+     * ההתאמות של כל המשרד על שאלה ששמה שם. אותו פער בדיוק היה מוריד
+     * את הנכס מ„קבע לו סיור בדירה ברמת גן”.
+     *
+     * ‎`optional` נכפה: השנייה לעולם אינה עוצרת שרשור. מה שקורה
+     * בלעדיה נקבע בביצוע, בדיוק כמו במסלול ההצעה.
+     */
+    if (spec.also !== undefined) {
+      await this.resolveOneForExecution(actionId, { ...spec.also, optional: true }, params);
+    }
+    return { ok: true };
+  }
+
+  private async resolveOneForExecution(
+    actionId: string,
+    spec: LookupSpec,
+    params: Record<string, unknown>,
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
     if (typeof params[spec.idKey] === "string") return { ok: true };
     const phrase = params[spec.key];
     if (typeof phrase !== "string" || phrase.trim().length < 2) return { ok: true };
@@ -715,19 +739,22 @@ function entityRefId(kind: LookupKind, ref: AgentHistoryRef): string | null {
   return kind === ref.entityType ? ref.entityId : null;
 }
 
+interface LookupSpec {
+  key: string;
+  idKey: string;
+  label: string;
+  kind: LookupKind;
+  alwaysChoose?: boolean;
+  /**
+   * הביטוי משפר את הפעולה ואינו תנאי לה. חסר, לא נמצא, או מתאים
+   * לכמה — הפעולה ממשיכה בלי קישור, עם אזהרה גלויה.
+   */
+  optional?: boolean;
+}
+
 const ENTITY_LOOKUP: Record<
   string,
-  {
-    key: string;
-    idKey: string;
-    label: string;
-    kind: LookupKind;
-    alwaysChoose?: boolean;
-    /**
-     * הביטוי משפר את הפעולה ואינו תנאי לה. חסר, לא נמצא, או מתאים
-     * לכמה — הפעולה ממשיכה בלי קישור, עם אזהרה גלויה.
-     */
-    optional?: boolean;
+  LookupSpec & {
     /**
      * ‎**רשומה שנייה שהפעולה מדברת עליה.**
      *
@@ -747,6 +774,26 @@ const ENTITY_LOOKUP: Record<
     also?: { key: string; idKey: string; label: string; kind: LookupKind };
   }
 > = {
+  /*
+   * ‎**„מה מתאים למשה כהן” החזיר את ההתאמות של כל המשרד.**
+   *
+   * ‎`showMatches` קורא `params.propertyId` ו-`params.buyerId`, שני
+   * הביטויים מוצהרים בקטלוג, ולא היה מי שיתרגם ביניהם — ולכן כל
+   * שאילתת התאמות **על רשומה מסוימת** נפלה לרשימה הכללית. הסוכן ענה
+   * תשובה מלאה ומנומקת על שאלה אחרת מזו שנשאלה, וזה גרוע יותר
+   * מ„לא מצאתי”.
+   *
+   * ‎**נכס ראשי וקונה משני** לפי הסדר שבו `showMatches` בודק, ושניהם
+   * רשות: „מה ההתאמות” בלי שם היא שאלה תקינה, וזו הרשימה הכללית.
+   */
+  show_matches: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "איזה נכס",
+    kind: "property",
+    optional: true,
+    also: { key: "buyerPhrase", idKey: "buyerId", label: "איזה קונה", kind: "buyer" },
+  },
   update_buyer: { key: "buyerPhrase", idKey: "buyerId", label: "איזה קונה", kind: "buyer" },
   update_property: {
     key: "propertyPhrase",
@@ -777,6 +824,32 @@ const ENTITY_LOOKUP: Record<
     idKey: "propertyId",
     label: "על איזה נכס",
     kind: "property",
+  },
+  /*
+   * ‎**הפגישה הייתה נקבעת ריקה — עם אף אחד ועל שום נכס.**
+   *
+   * הקטלוג מצהיר על `buyerPhrase` ועל `propertyPhrase` בפעולה הזו,
+   * ‎`createAppointment` קורא `params.buyerId` ו-`params.propertyId`,
+   * ולא הייתה כאן רשומה שתתרגם ביניהם. כלומר „קבע סיור מחר בעשר
+   * בדירה ברמת גן עם משפחת לוי” יצר אירוע ביומן שאינו קשור ללקוח
+   * ואינו קשור לנכס — בדיוק אותו שדה מת שתועד למעלה על `sendOffer`,
+   * ובפעולה השכיחה ביותר בסוכן.
+   *
+   * ‎**`card` ולא `buyer`,** כי פגישה ראשונה היא כמעט תמיד עם ליד.
+   * ‎`Appointment.leadId` קיים במודל והיומן כבר יודע לקשר אליו —
+   * חיפוש בקונים בלבד היה מחמיץ בדיוק את מי שנקבעת איתו הפגישה
+   * הראשונה (ביקורת Codex על צעד ההמשך שאחרי „ליד חדש”).
+   *
+   * ‎**רשות**: „פגישה מחר בעשר” בלי שם היא פגישה תקינה. חסימה כאן
+   * הייתה הופכת את הפעולה השכיחה לשאלת הבהרה.
+   */
+  schedule_appointment: {
+    key: "buyerPhrase",
+    idKey: "cardId",
+    label: "עם מי",
+    kind: "card",
+    optional: true,
+    also: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס", kind: "property" },
   },
   complete_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
   /*
@@ -851,6 +924,22 @@ const ENTITY_LOOKUP: Record<
  */
 export function requiresExplicitChoice(actionId: string): boolean {
   return ENTITY_LOOKUP[actionId]?.alwaysChoose === true;
+}
+
+/**
+ * הביטויים שהפעולה הזו באמת פותרת למזהה.
+ *
+ * ‎**מיוצאת כדי שאפשר יהיה לאכוף את הקשר לקטלוג.** ביטוי מוצהר בלי
+ * רשומה כאן הוא שדה מת: המודל ממלא אותו, הכרטיס מציג אותו, המתווך
+ * מאשר — והביצוע מחפש `…Id` שאיש לא כתב אליו. זה קרה שלוש פעמים
+ * במערכת הזו (`send_offer`, `schedule_appointment`, `show_matches`),
+ * ובכל פעם התסמין היה פעולה שנראתה מוצלחת והתייחסה לרשומה הלא
+ * נכונה — או לאף אחת.
+ */
+export function lookupPhraseKeys(actionId: string): readonly string[] {
+  const spec = ENTITY_LOOKUP[actionId];
+  if (spec === undefined) return [];
+  return spec.also === undefined ? [spec.key] : [spec.key, spec.also.key];
 }
 
 const RECOMMENDED: Record<string, readonly string[]> = {
