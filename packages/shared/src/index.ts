@@ -84,6 +84,7 @@ export * from "./logic/login-return.js";
 export * from "./logic/email-domain.js";
 export * from "./logic/offer-email.js";
 export * from "./logic/email-inbound.js";
+export * from "./logic/offer-status.js";
 export * from "./logic/email-template.js";
 export * from "./logic/collaboration-cost.js";
 export * from "./logic/commission-terms.js";

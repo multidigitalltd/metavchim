@@ -10,7 +10,7 @@ import {
   StreamableFile,
 } from "@nestjs/common";
 import { z } from "zod";
-import { IdSchema } from "@metavchim/shared";
+import { IdSchema, OfferStatusSchema } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -32,9 +32,13 @@ const RespondSchema = z.object({ response: z.enum(["interested", "declined"]) })
 const TokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
 const ListQuerySchema = z
   .object({
-    status: z
-      .enum(["pending_approval", "sent", "delivered", "opened", "interested", "declined"])
-      .optional(),
+    /*
+     * ‎**מרשימת המצבים המשותפת.** הרשימה שהייתה כאן החסירה את
+     * ‎`pending_email` ואת `email_failed`, ולכן מסך ההצעות לא יכול היה
+     * להציג „מה ממתין לשליחה” ו„מה נכשל” — שני המצבים היחידים שדורשים
+     * פעולה מהסוכן.
+     */
+    status: OfferStatusSchema.optional(),
     limit: z.coerce.number().int().min(1).max(200).default(100),
   })
   .strict();

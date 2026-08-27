@@ -38,16 +38,17 @@ const MAX_BUYERS_PER_TENANT_SWEEP = 20;
 
 const TOKEN_TTL_DAYS = 14;
 
+/** כמה התאמות נבדקות בכל מנה של הסריקה. */
+const MATCH_SCAN_BATCH = 200;
+
 /**
- * תקרת מועמדים לבדיקת זכאות בסבב.
+ * תקרת השורות שנסרקות למשרד בסבב.
  *
- * הסבב שולח לכל היותר ל-20 לקוחות, ולכן העבודה שמעליהם היא בזבוז
- * גם כשהיא זולה. ייבוא או חישוב-מחדש המוני מייצרים אלפי התאמות
- * חזקות בבת אחת, והן היו נבדקות כולן — בתוך טרנזקציה אחת — לפני
- * שהתקרה ההיא בכלל נכנסת לתמונה. המיון הוא לפי ציון יורד, כך
- * שהנחתכות הן החלשות; והן חוזרות בסבב הבא, שכבר מתוזמן.
+ * הסבב שולח לכל היותר ל-20 לקוחות, ולכן עבודה מעבר לכך היא בזבוז.
+ * ‎**התקרה חלה על הסריקה ולא על הבחירה**: הסמן ממשיך מהמקום שנעצר,
+ * ולכן מנה שכולה לא-זכאית מקדמת אותו במקום להיבחר שוב ושוב.
  */
-const MAX_CANDIDATES_PER_SWEEP = 400;
+const MAX_MATCH_SCAN_PER_SWEEP = 2000;
 
 interface EligibleMatch {
   matchId: string;
@@ -258,6 +259,62 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
    * אותו סדר כמו במנוע ההתאמות עצמו.
    */
   private async eligibleMatches(tenantId: string, since: Date): Promise<EligibleMatch[]> {
+    /*
+     * ‎**סריקה בסמן, ולא „400 הראשונים”.**
+     *
+     * התקרה הקודמת הייתה `take` דטרמיניסטי על מיון לפי ציון: אם
+     * למשרד יש 400 התאמות חזקות שאינן זכאות לצמיתות — לקוחות שלא
+     * חתמו, או שהסירו את עצמם — אותן 400 נבחרו **בכל סבב מחדש**,
+     * הסינון רץ אחריהן, והתאמות זכאות בציון נמוך יותר לא הגיעו
+     * לעיבוד לעולם. ההודעה שכתבתי שם („השאר בסבב הבא”) פשוט לא הייתה
+     * נכונה (ביקורת Codex).
+     *
+     * הסמן ממשיך מהמקום שבו נעצר, ולכן החסימה נשברת: מנה שכולה
+     * לא-זכאית מקדמת את הסריקה במקום לחזור על עצמה. העצירה היא
+     * כשנאספו מספיק לקוחות לסבב, כשנגמרו השורות, או בתקרת סריקה —
+     * ואז מדובר באמת ב„השאר בסבב הבא”, כי הסמן התקדם.
+     */
+    const where = {
+      tenantId,
+      status: "suggested",
+      score: { gte: AUTO_OFFER_MIN_SCORE },
+      createdAt: { gte: since },
+    };
+    const eligible: EligibleMatch[] = [];
+    const buyersFound = new Set<string>();
+    let cursor: string | undefined;
+    let scanned = 0;
+
+    while (scanned < MAX_MATCH_SCAN_PER_SWEEP && buyersFound.size < MAX_BUYERS_PER_TENANT_SWEEP) {
+      const page = await this.scanBatch(tenantId, where, cursor);
+      if (page.scanned === 0) break;
+      scanned += page.scanned;
+      cursor = page.cursor;
+      for (const row of page.eligible) {
+        eligible.push(row);
+        buyersFound.add(row.buyerId);
+      }
+    }
+    if (scanned >= MAX_MATCH_SCAN_PER_SWEEP) {
+      this.logger.log(
+        `משרד ${tenantId}: נסרקו ${scanned} התאמות בסבב הזה; הסמן יימשך בסבב הבא`,
+      );
+    }
+    return eligible;
+  }
+
+  /**
+   * מנה אחת בסריקה — השורות הזכאות מתוכה בלבד.
+   *
+   * ‎**המיון הוא `(score desc, id asc)`** ולא ציון בלבד: ציון אינו
+   * ייחודי, ובלי שובר שוויון יציב הסמן אינו מוגדר היטב — שורות היו
+   * נדלגות או חוזרות בין מנות.
+   */
+  private async scanBatch(
+    tenantId: string,
+    where: Record<string, unknown>,
+    cursor: string | undefined,
+  ): Promise<{ eligible: EligibleMatch[]; scanned: number; cursor: string | undefined }> {
     return this.prisma.withTenant(async (tx) => {
       const candidates = await tx.match.findMany({
         where: {
@@ -276,19 +333,14 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
            * ‎`createdAt` נכתב פעם אחת ואינו מתעדכן, ולכן שורה שנוצרה
            * לפני ההפעלה אינה יכולה לחצות את הגבול לעולם.
            */
-          createdAt: { gte: since },
+          ...where,
         },
-        orderBy: { score: "desc" },
+        orderBy: [{ score: "desc" }, { id: "asc" }],
         select: { id: true, buyerId: true, propertyId: true },
-        take: MAX_CANDIDATES_PER_SWEEP,
+        take: MATCH_SCAN_BATCH,
+        ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
       });
-      if (candidates.length === 0) return [];
-      if (candidates.length === MAX_CANDIDATES_PER_SWEEP) {
-        // חיתוך שקט נקרא כמו „זה הכול” — ראו את אותו נימוק בוויסות הלקוחות
-        this.logger.log(
-          `משרד ${tenantId}: נבדקו ${MAX_CANDIDATES_PER_SWEEP} ההתאמות החזקות ביותר; השאר בסבב הבא`,
-        );
-      }
+      if (candidates.length === 0) return { eligible: [], scanned: 0, cursor };
 
       // הצעה אחת פר התאמה — מה שכבר הוצע (בכל ערוץ) לא מוצע שוב
       const offered = new Set(
@@ -356,7 +408,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         [...contactByBuyer.values()].filter((id) => reachable.has(id)),
       );
 
-      const eligible: EligibleMatch[] = [];
+      const batch: EligibleMatch[] = [];
       for (const candidate of candidates) {
         if (offered.has(candidate.id)) continue;
         if (!activeProperties.has(candidate.propertyId)) continue;
@@ -364,13 +416,22 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         if (contactId === undefined || !reachable.has(contactId)) continue;
         // בלי הזמנה בכתב חתומה על **הנכס הזה** אין שליחה (§9)
         if (!signed.has(`${contactId}:${candidate.propertyId}`)) continue;
-        eligible.push({
+        batch.push({
           matchId: candidate.id,
           buyerId: candidate.buyerId,
           propertyId: candidate.propertyId,
         });
       }
-      return eligible;
+      /*
+       * ‎**הסמן הוא השורה האחרונה שנ*סרקה*, לא האחרונה שנבחרה** —
+       * אחרת מנה שכולה לא-זכאית לא הייתה מקדמת אותו, והסריקה הייתה
+       * נתקעת בדיוק על המקרה שהיא נועדה לפתור.
+       */
+      return {
+        eligible: batch,
+        scanned: candidates.length,
+        cursor: candidates[candidates.length - 1]!.id,
+      };
     });
   }
 

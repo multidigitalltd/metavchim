@@ -66,7 +66,7 @@ function propertyWhere(fn: string): string {
 
 describe("שער הנכס בהצעות האוטומטיות", () => {
   it("הזכאות הראשונית דורשת נכס פעיל שאינו מחוק", () => {
-    const where = propertyWhere("eligibleMatches");
+    const where = propertyWhere("scanBatch");
     expect(where).toContain('status: "active"');
     expect(where).toContain("deletedAt: null");
   });
@@ -100,7 +100,7 @@ describe("שער הנכס בהצעות האוטומטיות", () => {
    * התקשורת §30א (ביקורת Codex).
    */
   it("שני המסלולים קוראים את ההסרה מהמסד, ולא נשענים על getById", () => {
-    for (const fn of ["eligibleMatches", "offerAndEmail", "retryPending"]) {
+    for (const fn of ["scanBatch", "offerAndEmail", "retryPending"]) {
       expect(body(fn), fn).toContain("optedOutAt");
     }
   });
@@ -112,7 +112,7 @@ describe("שער הנכס בהצעות האוטומטיות", () => {
    * סימן פעיל. שימוש חוזר בו היה מרחיב את האוטומציה בשקט.
    */
   it("האוטומציה אינה משווקת טיוטות", () => {
-    for (const fn of ["eligibleMatches", "retryPending"]) {
+    for (const fn of ["scanBatch", "retryPending"]) {
       expect(body(fn), fn).not.toMatch(/status:\s*\{\s*in:\s*\[[^\]]*"draft"/u);
     }
   });
@@ -130,13 +130,38 @@ describe("שער הנכס בהצעות האוטומטיות", () => {
  */
 describe("חסימת העבודה בסבב", () => {
   it("שער ההחתמה נבדק בקבוצה ולא בלולאה", () => {
-    const eligible = body("eligibleMatches");
-    expect(eligible).toContain("signedPairs(");
-    expect(eligible).not.toContain("hasSigned");
+    const batch = body("scanBatch");
+    expect(batch).toContain("signedPairs(");
+    expect(batch).not.toContain("hasSigned");
   });
 
-  it("מספר המועמדים חסום", () => {
-    expect(body("eligibleMatches")).toMatch(/take:\s*MAX_CANDIDATES_PER_SWEEP/u);
+  it("הסריקה חסומה", () => {
+    expect(body("eligibleMatches")).toContain("MAX_MATCH_SCAN_PER_SWEEP");
+  });
+
+  /*
+   * ‎**החסימה היא על הסריקה ולא על הבחירה — וזה ההבדל כולו.**
+   *
+   * הניסוח הקודם היה `take` דטרמיניסטי על מיון לפי ציון. משרד עם 400
+   * התאמות חזקות שאינן זכאות לצמיתות — לקוחות שלא חתמו, או שהסירו את
+   * עצמם — קיבל בכל סבב את **אותן** 400, והתאמות זכאות בציון נמוך
+   * יותר לא הגיעו לעיבוד לעולם (ביקורת Codex).
+   *
+   * הסמן שובר את זה רק אם הוא מתקדם גם כשאף שורה במנה לא נבחרה.
+   */
+  it("הסמן מתקדם לפי מה שנסרק, לא לפי מה שנבחר", () => {
+    const batch = body("scanBatch");
+    // הסמן נלקח מהשורות שחזרו מהשאילתה, ולא מהרשימה המסוננת
+    expect(batch).toMatch(/cursor:\s*candidates\[candidates\.length - 1\]/u);
+    expect(batch).not.toMatch(/cursor:\s*batch\[/u);
+  });
+
+  /*
+   * מיון לפי ציון בלבד אינו ייחודי, ובלי שובר שוויון יציב הסמן אינו
+   * מוגדר היטב — שורות היו נדלגות או חוזרות בין מנות.
+   */
+  it("המיון נושא שובר שוויון יציב", () => {
+    expect(body("scanBatch")).toMatch(/orderBy:\s*\[\{ score: "desc" \}, \{ id: "asc" \}\]/u);
   });
 
   /*

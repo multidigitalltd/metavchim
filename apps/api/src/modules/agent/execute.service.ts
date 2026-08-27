@@ -24,6 +24,10 @@ import { GeminiService } from "../../core/gemini.service";
 import { AgentEventsService } from "./agent-events.service";
 import {
   DISMISS_REASON_LABEL,
+  OFFER_BUCKETS,
+  OFFER_BUCKET_IDS,
+  offerStatusLabel,
+  type OfferBucket,
   PENDING_AGREEMENT_LABEL,
   PENDING_AGREEMENT_MEANING,
   type DismissReason,
@@ -742,19 +746,14 @@ export class AgentExecuteService {
    */
   private async showOffers(params: Record<string, unknown>): Promise<ExecuteResult> {
     /*
-     * ‎**המסננים הם שאלות, לא עמודות.** „נפתחה ולא נענתה” הוא סטטוס
-     * ‎`opened` — `interested` ו-`declined` כבר יצאו ממנו — ו„ממתינה”
-     * הוא שניים (`sent`, `delivered`). מיפוי כאן ולא חשיפת שמות
-     * הטבלה לסוכן קולי.
+     * ‎**הקבוצות חיות ב-shared, ולא כאן.** „ממתינה” היא `sent` וגם
+     * ‎`delivered`, ו„נפתחה ולא נענתה” היא `opened` בלבד — מיפוי
+     * שאסור שיתקיים בשני עותקים. הרשימה שכתבתי כאן החסירה את
+     * ‎`pending_email` ואת `pending_approval`, ולכן הסך הכול כלל אותם
+     * והפירוט לא: „10 הצעות — ” עם פירוט ריק בזמן תקלת ספק, ושורות
+     * שנשאו את המזהה הגולמי כתווית (ביקורת Codex). בדיקת שלמות
+     * ב-shared אוכפת שכל מצב משובץ.
      */
-    const BUCKETS: Record<string, { label: string; statuses: readonly string[] }> = {
-      opened_no_reply: { label: "נפתחו ולא נענו", statuses: ["opened"] },
-      interested: { label: "מעוניינים", statuses: ["interested"] },
-      declined: { label: "לא רלוונטי", statuses: ["declined"] },
-      failed: { label: "השליחה נכשלה", statuses: ["email_failed"] },
-      waiting: { label: "ממתינות", statuses: ["sent", "delivered"] },
-    };
-
     /*
      * ‎**הספירה מהמסד, לא מהעמוד שהוחזר.**
      *
@@ -769,24 +768,26 @@ export class AgentExecuteService {
     if (total === 0) {
       return { href: "/offers", message: "לא נשלחו הצעות", data: { offers: [] } };
     }
-    const inBucket = (key: string): number =>
-      BUCKETS[key]!.statuses.reduce((sum, status) => sum + (counts.get(status) ?? 0), 0);
-    const summary = Object.keys(BUCKETS)
-      .map((key) => [key, inBucket(key)] as const)
+    const inBucket = (id: OfferBucket): number =>
+      OFFER_BUCKETS[id].statuses.reduce(
+        (sum: number, status: string) => sum + (counts.get(status) ?? 0),
+        0,
+      );
+    const summary = OFFER_BUCKET_IDS.map((id) => [id, inBucket(id)] as const)
       .filter(([, count]) => count > 0)
-      .map(([key, count]) => `${count} ${BUCKETS[key]!.label}`)
+      .map(([id, count]) => `${count} ${OFFER_BUCKETS[id].label}`)
       .join(" · ");
 
     // הסינון יורד למסד, ולכן הוא חל על כל ההיסטוריה ולא על פרוסה
     const bucket = str(params["offerFilter"]);
-    const spec = bucket === undefined ? undefined : BUCKETS[bucket];
+    const spec =
+      bucket !== undefined && (OFFER_BUCKET_IDS as string[]).includes(bucket)
+        ? OFFER_BUCKETS[bucket as OfferBucket]
+        : undefined;
     const rows = await this.offers.listAll({
       limit: MATCH_LIST_LIMIT,
       ...(spec === undefined ? {} : { status: spec.statuses }),
     });
-
-    const labelOf = (status: string): string =>
-      Object.values(BUCKETS).find((b) => b.statuses.includes(status))?.label ?? status;
 
     return {
       href: "/offers",
@@ -799,7 +800,7 @@ export class AgentExecuteService {
           title: row.title,
           // קונה של סוכן אחר — ההצעה מוצגת, השם לא. אותו כלל כמו במסך
           ...(row.buyerName === null ? {} : { buyerName: row.buyerName }),
-          status: labelOf(row.status),
+          status: offerStatusLabel(row.status),
           openCount: row.openCount,
           ...(row.sentAt === undefined ? {} : { sentAt: row.sentAt }),
         })),

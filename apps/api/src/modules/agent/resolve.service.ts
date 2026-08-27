@@ -223,11 +223,15 @@ export class AgentResolveService {
      * ההתאמות של כל המשרד על שאלה ששמה שם. אותו פער בדיוק היה מוריד
      * את הנכס מ„קבע לו סיור בדירה ברמת גן”.
      *
-     * ‎`optional` נכפה: השנייה לעולם אינה עוצרת שרשור. מה שקורה
-     * בלעדיה נקבע בביצוע, בדיוק כמו במסלול ההצעה.
+     * ‎**ו-`optional` אינו נכפה.** הניסוח הראשון כפה אותו, ואז
+     * ‎`assign_task` ו-`dismiss_match` — ששתיהן חסרות משמעות בלי
+     * הרשומה השנייה — היו „מצליחות” בפתרון וממשיכות לביצוע בלי
+     * ‎`assigneeId` או `propertyId`, כלומר נכשלות רק **אחרי** שהמתווך
+     * אישר (ביקורת Codex). כל רשומה שנייה מצהירה בעצמה אם היא רשות.
      */
     if (spec.also !== undefined) {
-      await this.resolveOneForExecution(actionId, { ...spec.also, optional: true }, params);
+      const second = await this.resolveOneForExecution(actionId, spec.also, params);
+      if (!second.ok) return second;
     }
     return { ok: true };
   }
@@ -791,7 +795,7 @@ const ENTITY_LOOKUP: Record<
      * הניווט מתכווץ לכרטיס הקונה, וב-`send_agreement` הפעולה
      * נעצרת — הזמנה בכתב בלי נכס אינה פותחת שום הצעה.
      */
-    also?: { key: string; idKey: string; label: string; kind: LookupKind };
+    also?: LookupSpec;
   }
 > = {
   /*
@@ -812,7 +816,8 @@ const ENTITY_LOOKUP: Record<
     label: "איזה נכס",
     kind: "property",
     optional: true,
-    also: { key: "buyerPhrase", idKey: "buyerId", label: "איזה קונה", kind: "buyer" },
+    // „מה ההתאמות” בלי שם היא שאלה תקינה — הרשימה הכללית
+    also: { key: "buyerPhrase", idKey: "buyerId", label: "איזה קונה", kind: "buyer", optional: true },
   },
   update_buyer: { key: "buyerPhrase", idKey: "buyerId", label: "איזה קונה", kind: "buyer" },
   update_property: {
@@ -905,7 +910,14 @@ const ENTITY_LOOKUP: Record<
     idKey: "buyerId",
     label: "איזה קונה",
     kind: "buyer",
-    also: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס", kind: "property" },
+    // „פגישה מחר בעשר” בלי נכס היא פגישה תקינה
+    also: {
+      key: "propertyPhrase",
+      idKey: "propertyId",
+      label: "איזה נכס",
+      kind: "property",
+      optional: true,
+    },
   },
   complete_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
   /*
@@ -947,7 +959,17 @@ const ENTITY_LOOKUP: Record<
     kind: "buyer",
     // פעולה שיוצאת ללקוח — תמיד בחירה מפורשת, גם כשיש התאמה אחת
     alwaysChoose: true,
-    also: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס", kind: "property" },
+    /*
+     * ‎**רשות.** „שלח הצעה למשה” בלי נכס עדיין פעולה — הביצוע מצמצם
+     * את הניווט לכרטיס הקונה במקום ליצור הצעה, וזו התנהגות מוגדרת.
+     */
+    also: {
+      key: "propertyPhrase",
+      idKey: "propertyId",
+      label: "איזה נכס",
+      kind: "property",
+      optional: true,
+    },
   },
   send_agreement: {
     key: "buyerPhrase",
