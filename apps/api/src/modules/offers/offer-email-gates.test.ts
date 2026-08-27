@@ -287,3 +287,33 @@ describe("איפוס הסמן בכיבוי", () => {
     expect(SOURCE).toContain("autoEmailOffersCursor");
   });
 });
+
+/**
+ * ‎**הסמן מתקדם רק אחרי שהשורות טופלו.**
+ *
+ * הוא נשמר קודם מיד אחרי הסריקה, לפני שנוצרה ולו הצעה אחת. קריסה
+ * או תקלת מסד בין השמירה ליצירה הייתה מקדמת את הסמן מעל קונים שאין
+ * להם שום רשומה עמידה — אין `pending_email` שינוסה שוב, והסבב הבא
+ * כבר מתחיל אחריהם (ביקורת Codex).
+ *
+ * ‎**והכתיבה קשורה לתקופת ההפעלה שנקראה.** הסבב רץ שניות ארוכות
+ * אחרי שקרא את ההגדרות; כיבוי בזמן הזה מוחק את שתי החותמות, וכתיבה
+ * לא-מוגנת הייתה מחזירה את הסמן לחיים אל תוך התקופה הבאה.
+ */
+describe("סדר השמירה של הסמן", () => {
+  it("השמירה באה אחרי לולאת השליחה, לא לפניה", () => {
+    const sweep = body("sweepTenant");
+    const loop = sweep.indexOf("offerAndEmail(");
+    const save = sweep.indexOf("saveCursor(");
+    expect(loop, "לולאת השליחה לא נמצאה").toBeGreaterThan(-1);
+    expect(save, "שמירת הסמן לא נמצאה").toBeGreaterThan(-1);
+    expect(save).toBeGreaterThan(loop);
+  });
+
+  it("הכתיבה מותנית בחותמת ההפעלה שנקראה", () => {
+    const save = body("saveCursor");
+    expect(save).toContain("autoEmailOffersSince");
+    // בשני הענפים — גם המחיקה וגם הכתיבה
+    expect(save.match(/autoEmailOffersSince' = \$\{epoch\}/gu)?.length ?? 0).toBe(2);
+  });
+});

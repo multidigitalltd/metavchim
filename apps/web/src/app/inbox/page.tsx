@@ -113,7 +113,7 @@ export default function InboxPage() {
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [reply, setReply] = useState("");
   const [files, setFiles] = useState<File[]>([]);
-  const [sendState, setSendState] = useState<"idle" | "sending" | "failed">("idle");
+  const [sendState, setSendState] = useState<"idle" | "sending" | "failed" | "unknown">("idle");
   const [sendError, setSendError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -164,9 +164,18 @@ export default function InboxPage() {
         const errBody = (await res.json().catch(() => null)) as { message?: string } | null;
         throw new Error(errBody?.message ?? "השליחה נכשלה");
       }
+      /*
+       * ‎**תוצאה עמומה אינה שגיאה, וגם אינה „נשלח”.**
+       *
+       * כשהספק לא ענה ייתכן שההודעה כן יצאה. השרת שומר אותה במצב
+       * „לא ידוע” — ולכן הטיוטה **נמחקת** והשיחה נטענת מחדש, בדיוק
+       * כמו בשליחה מוצלחת: כך הסוכן רואה את השורה ואת האזהרה שעליה,
+       * במקום כפתור „נסו שוב” שיביא ללקוח את אותה הודעה פעמיים.
+       */
+      const okBody = (await res.json().catch(() => null)) as { state?: string } | null;
       setReply("");
       setFiles([]);
-      setSendState("idle");
+      setSendState(okBody?.state === "unknown" ? "unknown" : "idle");
       await openThread(openContact);
       load();
     } catch (err) {
@@ -313,6 +322,13 @@ export default function InboxPage() {
                     ) : null}
                     {sendState === "failed" ? (
                       <Notice tone="danger">{sendError ?? "השליחה נכשלה — נסו שוב."}</Notice>
+                    ) : null}
+                    {sendState === "unknown" ? (
+                      <Notice tone="danger">
+                        ספק הדואר לא אישר את השליחה, וייתכן שההודעה בכל זאת הגיעה
+                        ללקוח. היא מסומנת „לא ידוע אם נשלחה” בשיחה — בדקו מולו
+                        לפני שליחה חוזרת.
+                      </Notice>
                     ) : null}
                     <Button
                       onClick={() => void sendReply()}
