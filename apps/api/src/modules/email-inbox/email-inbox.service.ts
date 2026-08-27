@@ -316,8 +316,8 @@ export class EmailInboxService {
         );
       } catch (error: unknown) {
         this.logger.error(`שמירת קובץ מצורף נכשלה: ${String(error)}`);
-        // אין שורה במסד, ולכן אף מחיקה לא תמצא את המפתח — מנקים תמיד
-        await this.discardOrphan(s3Key);
+        // אין שורה במסד — ואת זה בודקים שם, לא מניחים כאן
+        await this.discardOrphan(tenantId, attachmentId, s3Key);
       }
     }
 
@@ -773,7 +773,7 @@ export class EmailInboxService {
         );
       } catch (error: unknown) {
         this.logger.error(`שמירת עותק קובץ יוצא נכשלה: ${String(error)}`);
-        await this.discardOrphan(s3Key);
+        await this.discardOrphan(tenantId, attachmentId, s3Key);
       }
     }
   }
@@ -795,11 +795,44 @@ export class EmailInboxService {
    * קיים אינה עושה דבר; העלות של ניקוי מיותר היא אפס, והעלות של
    * דילוג היא קובץ לקוח שנשאר לנצח.
    *
+   * ‎**אבל קודם בודקים שאין שורה — כי גם לכתיבה יש „לא ידוע”.**
+   *
+   * ההרחבה הקודמת פתרה כיוון אחד והשאירה את ההפוך: אם `create`
+   * **נכתב** במסד והחיבור נפל לפני שהתשובה חזרה, `withTenant` דוחה
+   * בזמן שהשורה קיימת — והמחיקה כאן הייתה מוחקת את הקובץ **של
+   * שורה גלויה**, כלומר צירוף שהלקוח שלח שמופיע בשיחה ושהורדתו
+   * נכשלת לנצח (ביקורת Codex).
+   *
+   * שתי אי-ודאויות הפוכות, ולכן קריאה אחת מכריעה: יש שורה — הקובץ
+   * נשאר; אין — הוא נמחק. וכשהבדיקה **עצמה** נכשלת, לא מוחקים:
+   * השמדת קובץ של לקוח על סמך ניחוש גרועה מאובייקט שנשאר ונרשם.
+   *
    * הפיצוי אינו יכול להיכשל בקול: אנחנו כבר בתוך טיפול בשגיאה, ומה
    * שנשאר הוא לרשום שהמפתח דורש ניקוי ידני. זה עדיין אינסוף פעמים
    * טוב מלא לדעת עליו כלל.
    */
-  private async discardOrphan(s3Key: string): Promise<void> {
+  private async discardOrphan(
+    tenantId: string,
+    attachmentId: string,
+    s3Key: string,
+  ): Promise<void> {
+    let rows: number;
+    try {
+      rows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.emailAttachment.count({ where: { id: attachmentId, tenantId } }),
+      );
+    } catch (error: unknown) {
+      this.logger.error(
+        `לא ניתן לוודא אם לקובץ יש שורה במסד — הוא נשאר באחסון ודורש ניקוי: ${s3Key} — ${String(error)}`,
+      );
+      return;
+    }
+    if (rows > 0) {
+      this.logger.warn(
+        `הכתיבה דווחה ככושלת אך השורה קיימת — הקובץ נשמר ולא נמחק: ${s3Key}`,
+      );
+      return;
+    }
     try {
       await this.storage.delete(s3Key);
     } catch (error: unknown) {

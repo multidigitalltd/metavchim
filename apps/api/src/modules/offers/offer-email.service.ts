@@ -232,21 +232,37 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
      */
     const scan = await this.eligibleMatches(tenantId, since, startCursor);
     const eligible = scan.eligible;
+    /*
+     * ‎**מה שמותר לסמן לעבור מעליו נמדד בהתאמות, לא בקונים.**
+     *
+     * הסימון היה לפי `buyerId`, ולכן קונה עם יותר מ-
+     * ‎`AUTO_OFFER_MAX_PER_EMAIL` התאמות סימן את **כולן** כמטופלות
+     * אף שרק החמש הראשונות נכנסו למייל. השאר נשארו בלי הצעה, והסמן
+     * עבר מעליהן עד שישלים סיבוב שלם (ביקורת Codex).
+     *
+     * ההתאמות הקטומות חוזרות מעצמן: החמש שנשלחו עוברות ל-`offered`
+     * ויוצאות מהזכאות, והבאות עולות למקומן — כלומר סבב אחד, ובלבד
+     * שהסמן לא דילג עליהן.
+     */
     const byBuyer = new Map<string, EligibleMatch[]>();
+    const claimed = new Set<string>();
     for (const match of eligible) {
-      if (pendingBuyers.buyerIds.has(match.buyerId)) continue;
+      /*
+       * ‎**קונה משלב א' — ההתאמה מסומנת, ובכוונה.**
+       *
+       * יש לו `pending_email` במסד: רשומה עמידה שהניסיון החוזר
+       * מחזיק בה. עצירת הסמן לפניו הייתה מקבעת את **כל** הסבב של
+       * המשרד מאחורי ספק שנתקע אצל קונה אחד — נזק גדול בהרבה
+       * מהתאמה חדשה שממתינה עד שהממתינות שלו ייסגרו.
+       */
+      if (pendingBuyers.buyerIds.has(match.buyerId)) {
+        claimed.add(match.matchId);
+        continue;
+      }
       const list = byBuyer.get(match.buyerId) ?? [];
       if (list.length < AUTO_OFFER_MAX_PER_EMAIL) list.push(match);
       byBuyer.set(match.buyerId, list);
     }
-
-    /*
-     * ‎**מי שיש לו רשומה עמידה — ורק הוא — מותר לסמן לעבור מעליו.**
-     *
-     * לקוחות שלב א' נכנסים מראש: יש להם `pending_email` במסד, והם
-     * ינוסו שוב בסבב הבא בין אם הניסיון עכשיו הצליח ובין אם לא.
-     */
-    const claimed = new Set<string>(pendingBuyers.buyerIds);
 
     let processed = 0;
     for (const [buyerId, matches] of byBuyer) {
@@ -263,8 +279,11 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
          * גם `sent === 0` הוא הכרעה: הלקוח נבדק שוב בטרנזקציה ונמצא
          * מוסר, בלי אימייל, או שנכסיו ירדו. אין מה לנסות שוב, והסמן
          * רשאי לעבור. רק **חריגה** משאירה אותו בלי דבר.
+         *
+         * מסומנות ההתאמות ש**נשלחו לטיפול** — כלומר אלה שנכנסו
+         * למנה. הקטומות אינן ביניהן, וזו כל הנקודה.
          */
-        claimed.add(buyerId);
+        for (const match of matches) claimed.add(match.matchId);
         if (sent > 0) {
           emails += 1;
           offers += sent;
@@ -295,9 +314,10 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
      * אליו עד שהסמן ישלים סיבוב שלם. אצל משרד גדול זה הרבה סבבים
      * ‎(ביקורת Codex; אותה הערה, שכבה אחת פנימה מהקודמת).
      *
-     * לכן הסמן נעצר לפני **השורה הראשונה** ששייכת ללקוח שאין לו
-     * רשומה עמידה — בין אם נכשל ובין אם כלל לא הגיע אליו התור. אם
-     * זו השורה הראשונה בסריקה, הסמן נשאר במקום שממנו התחלנו.
+     * לכן הסמן נעצר לפני **השורה הראשונה** שלא טופלה — בין אם
+     * הלקוח נכשל, בין אם לא הגיע אליו התור, ובין אם ההתאמה נקטמה
+     * מהמנה בתקרה שלה. אם זו השורה הראשונה בסריקה, הסמן נשאר במקום
+     * שממנו התחלנו.
      *
      * המחיר: לקוח שנכשל **דרך קבע** מקבע את המיקום. זו העדפה
      * מודעת — עצירה שנרשמת ביומן בכל סבב עדיפה על דילוג שקט.
@@ -305,7 +325,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     let cursor = startCursor;
     let retained = false;
     for (const row of eligible) {
-      if (!claimed.has(row.buyerId)) {
+      if (!claimed.has(row.matchId)) {
         retained = true;
         break;
       }

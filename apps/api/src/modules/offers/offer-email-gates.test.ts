@@ -341,13 +341,31 @@ describe("הסמן והרשומה העמידה", () => {
     expect(sweep).not.toMatch(/saveCursor\(tenantId,\s*since,\s*scan\.nextCursor\)/u);
   });
 
+  /*
+   * ‎**הסימון נמדד בהתאמות ולא בקונים.** לפי `buyerId`, קונה עם יותר
+   * מ-`AUTO_OFFER_MAX_PER_EMAIL` התאמות סימן את **כולן** כמטופלות אף
+   * שרק החמש הראשונות נכנסו למייל; השאר נשארו בלי הצעה והסמן עבר
+   * מעליהן עד סיבוב שלם (ביקורת Codex).
+   */
+  it("המפתח הוא מזהה ההתאמה, לא מזהה הקונה", () => {
+    expect(sweep).toMatch(/const claimed = new Set<string>\(\);/u);
+    expect(sweep).not.toContain("claimed.add(buyerId)");
+    expect(sweep).not.toContain("claimed.has(row.buyerId)");
+  });
+
   it("קונים שממתינים מסבב קודם נחשבים מטופלים", () => {
-    expect(sweep).toMatch(/const claimed = new Set<string>\(pendingBuyers\.buyerIds\)/u);
+    const seed = sweep.indexOf("pendingBuyers.buyerIds.has(match.buyerId)");
+    expect(seed, "הזריעה לא נמצאה").toBeGreaterThan(-1);
+    expect(sweep.slice(seed, seed + 120)).toContain("claimed.add(match.matchId)");
+  });
+
+  it("מסומנות רק ההתאמות שנכנסו למנה", () => {
+    expect(sweep).toContain("for (const match of matches) claimed.add(match.matchId);");
   });
 
   it("הסימון נעשה על הצלחה בלבד — לא בתפיסה", () => {
-    const add = sweep.indexOf("claimed.add(");
     const call = sweep.indexOf("offerAndEmail(");
+    const add = sweep.indexOf("claimed.add(match.matchId);", call);
     const nabbed = sweep.indexOf("catch (error");
     expect(call, "קריאת השליחה לא נמצאה").toBeGreaterThan(-1);
     expect(nabbed, "התפיסה לא נמצאה").toBeGreaterThan(-1);
@@ -357,7 +375,7 @@ describe("הסמן והרשומה העמידה", () => {
   });
 
   it("המעבר נעצר בשורה הראשונה שאינה מסומנת", () => {
-    expect(sweep).toMatch(/if \(!claimed\.has\(row\.buyerId\)\)/u);
+    expect(sweep).toMatch(/if \(!claimed\.has\(row\.matchId\)\)/u);
     expect(sweep).toMatch(/retained = true;[\s\S]{0,40}break;/u);
   });
 

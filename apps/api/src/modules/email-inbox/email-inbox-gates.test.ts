@@ -52,9 +52,38 @@ describe("ניקוי מפתחות אחרי העלאה שנכשלה", () => {
   });
 
   it("שני מסלולי הקבצים מנקים ללא תנאי", () => {
-    const calls = SERVICE.match(/await this\.discardOrphan\(s3Key\);/gu) ?? [];
+    const calls =
+      SERVICE.match(/await this\.discardOrphan\(tenantId, attachmentId, s3Key\);/gu) ?? [];
     expect(calls.length, "קליטה ותשובה — שני מסלולים").toBe(2);
     expect(SERVICE).not.toMatch(/if \([^)]*\) await this\.discardOrphan/u);
+  });
+
+  /*
+   * ‎**וגם לכתיבה יש „לא ידוע”, בכיוון ההפוך.** אם `create` נכתב
+   * במסד והחיבור נפל לפני שהתשובה חזרה, הקריאה דוחה בזמן שהשורה
+   * קיימת — ומחיקה עיוורת הייתה מוחקת את הקובץ של **שורה גלויה**,
+   * כלומר צירוף שמופיע בשיחה ושהורדתו נכשלת לנצח (ביקורת Codex).
+   *
+   * קריאה אחת מכריעה, וכשהיא **עצמה** נכשלת לא מוחקים: השמדת קובץ
+   * של לקוח על סמך ניחוש גרועה מאובייקט שנשאר ונרשם ביומן.
+   */
+  it("המחיקה מותנית בכך שאין שורה במסד", () => {
+    const discard = method(SERVICE, "private async discardOrphan(");
+    const count = discard.indexOf("emailAttachment.count(");
+    const del = discard.indexOf("this.storage.delete(");
+    expect(count, "בדיקת הקיום לא נמצאה").toBeGreaterThan(-1);
+    expect(del, "המחיקה לא נמצאה").toBeGreaterThan(count);
+    expect(discard).toMatch(/if \(rows > 0\) \{[\s\S]{0,200}return;/u);
+  });
+
+  it("בדיקה שנכשלה אינה מוחקת", () => {
+    const discard = method(SERVICE, "private async discardOrphan(");
+    // גוש התפיסה של הבדיקה עצמו — מהפתיחה ועד הסוגר בהזחת ארבעה
+    const opens = discard.indexOf("} catch (error: unknown) {");
+    expect(opens, "התפיסה של הבדיקה לא נמצאה").toBeGreaterThan(-1);
+    const closes = discard.indexOf("\n    }", opens);
+    expect(closes, "סוף גוש התפיסה לא נמצא").toBeGreaterThan(opens);
+    expect(discard.slice(opens, closes)).toContain("return;");
   });
 
   it("הפיצוי עצמו אינו יכול להיכשל בקול", () => {
