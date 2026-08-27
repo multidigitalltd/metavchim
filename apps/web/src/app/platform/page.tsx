@@ -23,6 +23,7 @@ import { AgentUsageSection } from "./agent-usage-section";
 import { PlatformSettingsSection } from "./platform-settings-section";
 import { LegalDocsSection } from "./legal-docs-section";
 import { IntegrationDeskSection } from "./integration-desk-section";
+import { SupportInboxSection } from "./support-inbox-section";
 import { InvoicesSection } from "./invoices-section";
 import { TelephonyWebhooksSection } from "./telephony-webhooks-section";
 import { CreditEconomySection } from "./credit-economy-section";
@@ -636,6 +637,13 @@ export default function PlatformPage() {
         בקצה השני שלה.
       */}
       <SupportDeskSection />
+
+      {/*
+        מיד אחרי תור הפניות מהמערכת: אותה עבודה בדיוק — מישהו ממתין
+        למענה — ורק הערוץ שונה. שני מסכים רחוקים זה מזה היו הופכים
+        "מה מחכה לי" לשתי שאלות.
+      */}
+      <SupportInboxSection />
 
       {/*
         מיד אחרי התמיכה: גם כאן מישהו ממתין בקצה השני, וכאן הוא ממתין

@@ -29,6 +29,19 @@ export type PlatformSettingKey =
    */
   | "emailInboundAddress"
   | "emailInboundSecret"
+  /**
+   * תיבת התמיכה של הפלטפורמה — כתובת ה-Inbound שלה והסוד שבנתיב.
+   * שרת נפרד אצל הספק: פניות תמיכה ותשובות של לקוחות למשרדים הם
+   * שני זרמים עם כללי זיהוי שונים.
+   */
+  | "supportInboundAddress"
+  | "supportInboundSecret"
+  /**
+   * ה-Server Token של אותו שרת תמיכה — התשובות יוצאות דרכו ולא
+   * דרך השרת של המשרדים. ריק = נשלח בטוקן הכללי; זה עדיין יוצא
+   * **מכתובת התמיכה**, רק דרך אותו שרת.
+   */
+  | "supportServerToken"
   | "whatsappAppSecret"
   | "whatsappVerifyToken"
   /**

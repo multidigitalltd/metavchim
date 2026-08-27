@@ -260,6 +260,11 @@ const UpdateSettingsSchema = z
     /** תיבת הדואר הפנימית — כתובת ה-Inbound של שרת Postmark והסוד שבנתיב ה-Webhook */
     emailInboundAddress: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
     emailInboundSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
+    /** תיבת התמיכה של הפלטפורמה — שרת Inbound נפרד מזה של המשרדים */
+    supportInboundAddress: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    supportInboundSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
+    /** ה-Server Token של שרת התמיכה — התשובות יוצאות דרכו */
+    supportServerToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     /*
      * לינט — הפקת חשבוניות. שילוש ההזדהות והקודים של החשבון.
      *
@@ -1337,6 +1342,10 @@ export class PlatformController {
       /** תיבת הדואר הפנימית — כתובת ה-Inbound; ריק = לא הוגדרה */
       inboundAddress: string;
       inboundSecretSet: boolean;
+      /** תיבת התמיכה של הפלטפורמה — שרת Inbound נפרד. */
+      supportInboundAddress: string;
+      supportInboundSecretSet: boolean;
+      supportServerTokenSet: boolean;
     };
     /** webhookUrl מוגדר פעם אחת במטא לכל הפלטפורמה — ולכן הוא כאן ולא בהגדרות המשרד. */
     whatsapp: {
@@ -1518,6 +1527,18 @@ export class PlatformController {
           "",
         inboundSecretSet:
           has("emailInboundSecret") || env.EMAIL_INBOUND_SECRET !== undefined,
+        /*
+         * תיבת התמיכה — אותה הצגה בדיוק: הכתובת גלויה, הסוד רק
+         * "מוגדר/לא". ה-Webhook נבנה במסך מהסוד שהוקלד.
+         */
+        supportInboundAddress:
+          (await this.platformSettings.get("supportInboundAddress")) ??
+          env.SUPPORT_INBOUND_ADDRESS ??
+          "",
+        supportInboundSecretSet:
+          has("supportInboundSecret") || env.SUPPORT_INBOUND_SECRET !== undefined,
+        // ריק = התשובות יוצאות בטוקן הכללי, ועדיין מכתובת התמיכה
+        supportServerTokenSet: has("supportServerToken"),
       },
       whatsapp: {
         configured: waDb || waEnv,

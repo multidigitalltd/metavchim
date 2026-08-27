@@ -7,7 +7,7 @@ import { CopyMarkdown } from "../copy-markdown";
 import { IconMail } from "../icons";
 
 /** כתובת התמיכה של המערכת — פנייה כללית, לא קשורה לגישת התמיכה לחשבון. */
-const SUPPORT_EMAIL = "service@multidigital.co.il";
+const SUPPORT_EMAIL = "service@metavchim.co.il";
 
 /**
  * עמוד ההדרכות — מדריך מפורט לכל זרימה מרכזית, עם צילומי מסך.

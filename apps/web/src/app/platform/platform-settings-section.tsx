@@ -29,6 +29,10 @@ interface PlatformSettings {
     /** תיבת הדואר הפנימית — כתובת ה-Inbound; ריק = לא הוגדרה */
     inboundAddress: string;
     inboundSecretSet: boolean;
+    /** תיבת התמיכה של הפלטפורמה — שרת Inbound נפרד. */
+    supportInboundAddress: string;
+    supportInboundSecretSet: boolean;
+    supportServerTokenSet: boolean;
   };
   whatsapp: {
     configured: boolean;
@@ -134,6 +138,38 @@ export function PlatformSettingsSection({
   }
 
   useEffect(load, []);
+
+  /**
+   * תיבת התמיכה — הכתובת שהפניות **נכנסות** אליה.
+   *
+   * טופס נפרד מכתובת ההתראה שמעליו, ובכוונה: אחת אומרת "לאן להודיע
+   * לי", והשנייה "מאיפה לקרוא ולענות". הסוד נשלח רק כשהוקלד, כמו כל
+   * סוד אחר במסך הזה.
+   */
+  async function saveSupportInbox(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setMessage(null);
+    setBusy(true);
+    const form = event.currentTarget;
+    const f = new FormData(form);
+    const secret = String(f.get("supportInboundSecret") ?? "").trim();
+    const serverToken = String(f.get("supportServerToken") ?? "").trim();
+    try {
+      await apiPatch("/platform/settings", {
+        supportInboundAddress: String(f.get("supportInboundAddress") ?? "").trim(),
+        ...(secret !== "" ? { supportInboundSecret: secret } : {}),
+        ...(serverToken !== "" ? { supportServerToken: serverToken } : {}),
+      });
+      form.reset();
+      setMessage("✓ תיבת התמיכה נשמרה");
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function saveEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -700,7 +736,7 @@ export function PlatformSettingsSection({
             e.preventDefault();
             void saveSetting("supportEmail", new FormData(e.currentTarget).get("supportEmail"));
           }}
-          className="flex flex-wrap items-end gap-2"
+          className="mb-4 flex flex-wrap items-end gap-2"
         >
           <label className="grow">
             <span className="mb-1 block text-sm font-semibold">
@@ -724,6 +760,96 @@ export function PlatformSettingsSection({
           </label>
           <Button type="submit" disabled={busy}>שמור</Button>
         </form>
+
+        {/*
+          תיבת התמיכה — הכתובת שהפניות **נכנסות** אליה, ולא זו שאליה
+          נשלחת התראה. שדה נפרד ובכוונה: אחת היא "לאן להודיע לי", והשנייה
+          היא "מאיפה לקרוא ולענות", ואיחודן היה מחייב שהתיבה הפרטית של
+          המפעיל תהיה גם תיבת המערכת.
+        */}
+        <h4 className="mb-1 mt-4 font-semibold">תיבת התמיכה — קליטה ומענה מתוך המערכת</h4>
+        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          שרת Inbound <b>נפרד</b> מזה של תשובות הלקוחות למשרדים: שני זרמים עם
+          כללי זיהוי שונים. עם שני השדות האלה — פנייה שנשלחת לכתובת התמיכה
+          נפתחת כשרשור במסך „תיבת התמיכה”, והמענה יוצא מכתובת המערכת.
+        </p>
+        <form
+          method="post"
+          autoComplete="off"
+          onSubmit={(e) => void saveSupportInbox(e)}
+          className="flex flex-wrap items-end gap-3"
+        >
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="supportInboundAddress" className="mb-1 block font-medium">
+              כתובת Inbound של התמיכה
+            </label>
+            <input
+              id="supportInboundAddress"
+              name="supportInboundAddress"
+              type="email"
+              dir="ltr"
+              placeholder="abc123@inbound.postmarkapp.com"
+              defaultValue={settings.postmark.supportInboundAddress}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="supportInboundSecret" className="mb-1 block font-medium">
+              סוד ה-Webhook{" "}
+              <span className="font-normal">
+                {settings.postmark.supportInboundSecretSet
+                  ? "(ריק = ללא שינוי)"
+                  : "(16 תווים לפחות)"}
+              </span>
+            </label>
+            <input
+              id="supportInboundSecret"
+              name="supportInboundSecret"
+              type="password"
+              dir="ltr"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              placeholder={settings.postmark.supportInboundSecretSet ? "••••••••" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="supportServerToken" className="mb-1 block font-medium">
+              Server Token של שרת התמיכה{" "}
+              <span className="font-normal">
+                {settings.postmark.supportServerTokenSet ? "(ריק = ללא שינוי)" : "(לא חובה)"}
+              </span>
+            </label>
+            <input
+              id="supportServerToken"
+              name="supportServerToken"
+              type="password"
+              dir="ltr"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              placeholder={settings.postmark.supportServerTokenSet ? "••••••••" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <Button type="submit" disabled={busy}>שמור</Button>
+        </form>
+        <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          התשובות יוצאות מכתובת ה-Inbound שלמעלה. בלי Server Token הן נשלחות דרך
+          השרת הכללי — עדיין מכתובת התמיכה, רק לא בזרם נפרד.
+        </p>
+        <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          כתובת ה-Webhook להדבקה בפוסטמרק נבנית מהסוד:{" "}
+          <span dir="ltr" className="font-mono">
+            {settings.postmark.supportInboundSecretSet
+              ? "…/api/v1/public/support/inbound/<הסוד>"
+              : "תחילה שמרו סוד"}
+          </span>
+        </p>
       </div>
 
       {/* ---------- חיבורי Google ---------- */}
