@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AgreementsModule } from "../agreements/agreements.module";
+import { ExclusivityModule } from "../exclusivity/exclusivity.module";
 import { AnalyticsModule } from "../analytics/analytics.module";
 import { BuyersModule } from "../buyers/buyers.module";
 import { CalendarModule } from "../calendar/calendar.module";
@@ -44,6 +45,8 @@ import { AgentResolveService } from "./resolve.service";
     CollaborationModule,
     // „קישור לחתימה על הזמנה בכתב” — דרך אותו שירות שהכרטיס משתמש בו
     AgreementsModule,
+    // בלעדיות — „מה בסיכון” ותיעוד פעולת שיווק, דרך אותו שירות כמו הפאנל
+    ExclusivityModule,
     // שם הלקוח מוצפן במסד — רק ContactsService מפענח אותו
     ContactsModule,
   ],

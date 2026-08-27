@@ -1,6 +1,11 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import {
   AGENT_ACTIONS,
+  MARKETING_ACTION_KINDS,
+  MARKETING_ACTION_LABEL,
+  agentNextSteps,
+  jerusalemWallParts,
+  type MarketingActionKind,
   agentAction,
   AGENT_RESULT_LABEL_MAX,
   jerusalemDayRange,
@@ -18,6 +23,7 @@ import { PrismaService } from "../../core/prisma.service";
 import { GeminiService } from "../../core/gemini.service";
 import { AgentEventsService } from "./agent-events.service";
 import { AgreementsService } from "../agreements/agreements.service";
+import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { AnalyticsService, type ReportWindowDays } from "../analytics/analytics.service";
 import { AgentResolveService } from "./resolve.service";
@@ -114,6 +120,11 @@ export interface ExecuteResult {
    * צעד המשך מוצע — משפט פקודה שהמתווך יכול לומר עכשיו ("קבע סיור
    * לראשון מהם"). תצוגה בלבד: לחיצה עליו שולחת אותו לאותו מסלול
    * הבנה⟵אישור כמו כל משפט, שום דבר אינו מבוצע ישירות.
+   *
+   * ‎**מקורו נגזר, ורק בהיעדר כלל — מנוסח.** `agentNextSteps`
+   * מחשב אותו מהתוצאה שכבר חזרה, בלי קריאה למודל ובלי חיתוך;
+   * ההצעה מהמודל נשארת כרשת ביטחון לפעולות שאין להן כלל. ראו
+   * ‎`next-step.ts` — שם גם הסיבה שהסדר הזה ולא ההפוך.
    */
   suggestion?: string;
   /**
@@ -166,6 +177,28 @@ function page<T>(rows: T[], total: number, limit: number): { matches: T[]; hasMo
   return { matches: rows.slice(0, limit), hasMore: total > limit };
 }
 
+/**
+ * שורת בלעדיות כפי שהיא מוצגת — **שדות שכבר קיימים, בשם אחד.**
+ *
+ * ‎`list()` מחזירה `ExclusivityListItem` ו-`current()` מחזירה DTO
+ * מלא. שתיהן נושאות את אותם ארבעה דברים שהתשובה צריכה, ובלי
+ * הצמצום כאן כל ערוץ היה בורר מהן בעצמו — וזו בדיוק הכפילות
+ * ש-`result-lines` קיים כדי למנוע.
+ */
+function exclusivityRow(item: {
+  propertyTitle?: string;
+  daysLeft: number;
+  missing: number;
+  summary: string;
+}): Record<string, unknown> {
+  return {
+    ...(item.propertyTitle === undefined ? {} : { propertyTitle: item.propertyTitle }),
+    daysLeft: item.daysLeft,
+    missing: item.missing,
+    summary: item.summary,
+  };
+}
+
 @Injectable()
 export class AgentExecuteService {
   constructor(
@@ -180,6 +213,7 @@ export class AgentExecuteService {
     private readonly calls: CallsService,
     private readonly analytics: AnalyticsService,
     private readonly dealRooms: DealRoomService,
+    private readonly exclusivity: ExclusivityService,
     private readonly resolver: AgentResolveService,
     private readonly gemini: GeminiService,
     private readonly events: AgentEventsService,
@@ -218,6 +252,23 @@ export class AgentExecuteService {
 
     const result = await this.dispatch(actionId, params);
     const final = await this.withInsight(actionId, transcript, result);
+    /*
+     * ‎**הצעד הנגזר גובר על זה שנוסח.**
+     *
+     * ‎`withInsight` שולח את התוצאה למודל ומבקש „משפט פקודה שאפשר
+     * לומר עכשיו”. זה עבד, אבל על JSON חתוך ובלי ערובה שהשם שיצא
+     * ממנו קיים בכלל. כאן הצעד מחושב מהתוצאה עצמה, ולכן כשיש כלל
+     * הוא הנכון — והניסוח נשאר למקרים שאין להם.
+     */
+    const derived = agentNextSteps(
+      actionId,
+      { ...(final.data === undefined ? {} : { data: final.data }), ...(final.ref === undefined ? {} : { ref: final.ref }) },
+      AGENT_ACTIONS.filter((a) => mayUseAction(a, TenantContext.current().capabilities)).map(
+        (a) => a.id,
+      ),
+      new Date(),
+    )[0];
+    if (derived !== undefined) final.suggestion = derived.text;
     /*
      * הביצוע נרשם ביומן המשימות — הפרמטרים שאושרו ותקציר התוצאה,
      * בלי `data` (תוצאות שאילתה שלמות היו מנפחות את היומן בהעתק
@@ -296,6 +347,10 @@ export class AgentExecuteService {
         return this.sendOffer(params);
       case "send_agreement":
         return this.sendAgreement(params);
+      case "show_exclusivity":
+        return this.showExclusivity(params);
+      case "log_marketing_action":
+        return this.logMarketingAction(params);
       default:
         throw new BadRequestException("פעולה לא מוכרת");
     }
@@ -693,6 +748,76 @@ export class AgentExecuteService {
    * ושיחות (ביקורת Codex). לכן הסוג הנבחר נבדק כאן שוב, מול
    * היכולת שלו.
    */
+  /**
+   * ‎**בלעדיות — מה בסיכון, ולמה.**
+   *
+   * שתי שאלות שונות באותה פעולה, וההבחנה היא נוכחות של נכס:
+   *
+   * ‎**עם נכס** — התיק שלו: מועד השליש, כמה פעולות שיווק חסרות, וכמה
+   * ימים נשארו בפועל. זו השאלה של מי שעומד על כרטיס.
+   *
+   * ‎**בלי נכס** — כל הבלעדיות של המשרד, כפי שהשירות כבר ממיין אותן
+   * (לפי דחיפות). זו השאלה השכיחה יותר, והיא זו שאי אפשר היה לשאול
+   * עד היום בלי לפתוח כרטיס אחרי כרטיס.
+   *
+   * ‎**„אין בלעדיות” ו„לא נבדק” אינם אותו דבר.** נכס שאין עליו
+   * בלעדיות מקבל תשובה מפורשת, ולא רשימה ריקה שנקראת כאילו הכול
+   * תקין.
+   */
+  private async showExclusivity(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = typeof params["propertyId"] === "string" ? params["propertyId"] : null;
+    if (propertyId !== null) {
+      const current = await this.exclusivity.current(propertyId);
+      if (current === null) {
+        return { href: `/properties/${propertyId}`, message: "אין בלעדיות פעילה על הנכס הזה" };
+      }
+      return {
+        href: `/properties/${propertyId}`,
+        message: current.summary,
+        data: { exclusivity: [exclusivityRow(current)] },
+      };
+    }
+    const items = await this.exclusivity.list();
+    return {
+      href: "/exclusivity",
+      message:
+        items.length === 0
+          ? "אין בלעדיות פעילות במשרד"
+          : `${items.length} בלעדיות — לפי דחיפות`,
+      data: { exclusivity: items.map(exclusivityRow) },
+    };
+  }
+
+  /**
+   * ‎**תיעוד פעולת שיווק — הראיה שמאריכה את הבלעדיות.**
+   *
+   * ‎`performedAt` הוא **היום הישראלי** ולא `new Date()` גולמי: זו
+   * רשומה שסופרים בה ימים מול מועד השליש, ובין חצות לשלוש לפנות
+   * בוקר שעון UTC מציין את אתמול. אותה הכרעה בדיוק כמו בטופס במסך.
+   */
+  private async logMarketingAction(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = typeof params["propertyId"] === "string" ? params["propertyId"] : "";
+    const kind = typeof params["actionKind"] === "string" ? params["actionKind"] : "";
+    if (!MARKETING_ACTION_KINDS.includes(kind as MarketingActionKind)) {
+      throw new BadRequestException("לא ברור איזו פעולת שיווק בוצעה");
+    }
+    const detail = typeof params["detail"] === "string" ? params["detail"].trim() : "";
+    const next = await this.exclusivity.logAction(propertyId, {
+      kind: kind as MarketingActionKind,
+      /*
+       * חצות UTC של **היום הישראלי** — אותה מוסכמה שהעמודה נשמרת
+       * בה, ואותה שרשרת שהמסך עובר: תווית תאריך ואז המרה. `Z`
+       * מפורש, ולכן זו אינה קריאה בשעון המכשיר.
+       */
+      performedAt: new Date(`${jerusalemWallParts(new Date()).date}T00:00:00Z`),
+      ...(detail === "" ? {} : { detail }),
+    });
+    return {
+      href: `/properties/${propertyId}`,
+      message: `${MARKETING_ACTION_LABEL[kind as MarketingActionKind]} תועדה — ${next.summary}`,
+    };
+  }
+
   private cardTarget(params: Record<string, unknown>): {
     kind: "buyer" | "lead";
     id: string;

@@ -318,6 +318,34 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
    * (ביקורת Codex). עטיפה באובייקט נותנת להן את אותו סימן קיטום
    * שיש לכל רשימה אחרת.
    */
+  /*
+   * ‎**בלעדיות — המספר שקובע הוא מה שנשאר, לא מה שבחוזה.**
+   *
+   * בלי הכלל הזה הרשימה נופלת למנסח הכללי, שמחפש `name`/`title`
+   * ומחזיר „3 בלעדיות” בלי אף אחת מהן — בדיוק הכשל שהקובץ הזה נכתב
+   * כדי לסגור, ושחזר כאן בפעולה חדשה.
+   */
+  exclusivity: (value) =>
+    rowsOf(value).map((row) => {
+      const days = typeof row["daysLeft"] === "number" ? row["daysLeft"] : null;
+      const missing = typeof row["missing"] === "number" ? row["missing"] : null;
+      return {
+        label: text(row["propertyTitle"]) ?? "בלעדיות",
+        detail: [
+          days === null ? null : `נותרו ${days} ימים`,
+          /*
+           * ‎**„0 חסרות” אינו נאמר.** פעולות שהושלמו אינן מידע
+           * שצריך לפעול לפיו, ושורה שאומרת „חסרות 0” מזמינה קריאה
+           * שנייה כדי להבין שהכול תקין.
+           */
+          missing !== null && missing > 0 ? `חסרות ${missing} פעולות שיווק` : null,
+          text(row["summary"]),
+        ]
+          .filter((part): part is string => part !== null && part !== "")
+          .join(" · "),
+      };
+    }),
+
   matches: (value) =>
     rowsOf(value).map((match) => {
       const property = match["property"];
@@ -404,6 +432,7 @@ const SECTION_META: Record<string, { noun: string; counted: boolean }> = {
   leads: { noun: "לידים", counted: true },
   notes: { noun: "הערות", counted: false },
   matches: { noun: "התאמות", counted: true },
+  exclusivity: { noun: "בלעדיות", counted: true },
   properties: { noun: "נכסים", counted: true },
 };
 

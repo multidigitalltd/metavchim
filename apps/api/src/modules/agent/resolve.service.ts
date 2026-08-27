@@ -709,6 +709,30 @@ const ENTITY_LOOKUP: Record<
     label: "איזה נכס",
     kind: "property",
   },
+  /*
+   * ‎**רשות, ובכוונה.** „מה המצב עם הבלעדיות” בלי שם נכס היא השאלה
+   * השכיחה יותר — כל מה שבסיכון במשרד, לפי דחיפות. דרישת נכס
+   * הייתה הופכת את השאלה הזו לשאלת הבהרה על משהו שאין לו תשובה
+   * יחידה.
+   */
+  show_exclusivity: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "איזה נכס",
+    kind: "property",
+    optional: true,
+  },
+  /*
+   * וכאן **חובה**: פעולת שיווק נרשמת על נכס מסוים, והיא הראיה
+   * שמאריכה את הבלעדיות שלו. רישום על הנכס הלא נכון הוא ראיה
+   * שנרשמה במקום שאינה מגינה עליו.
+   */
+  log_marketing_action: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "על איזה נכס",
+    kind: "property",
+  },
   complete_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
   /*
    * „קשור ל” היה שדה מת: המודל התבקש למלא אותו, הוא הוצג בכרטיס,
@@ -799,6 +823,8 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   update_lead_status: ["leadPhrase", "leadStatus"],
   update_buyer: ["buyerPhrase"],
   update_property: ["propertyPhrase"],
+  show_exclusivity: ["propertyPhrase"],
+  log_marketing_action: ["propertyPhrase"],
   complete_task: ["taskPhrase"],
   send_offer: ["buyerPhrase", "propertyPhrase"],
   send_agreement: ["buyerPhrase", "propertyPhrase"],

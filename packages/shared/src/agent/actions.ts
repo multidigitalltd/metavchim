@@ -33,6 +33,10 @@
  * מחדש. בדיקה מבנית אוכפת את זה.
  */
 
+import {
+  MARKETING_ACTION_KINDS,
+  MARKETING_ACTION_LABEL,
+} from "../logic/exclusivity.js";
 import type { Capability } from "../rbac.js";
 import type { AgentFieldSpec } from "./field-spec.js";
 
@@ -63,6 +67,8 @@ export const AGENT_ACTION_IDS = [
   "share_buyer",
   "send_offer",
   "send_agreement",
+  "show_exclusivity",
+  "log_marketing_action",
 ] as const;
 
 export type AgentActionId = (typeof AGENT_ACTION_IDS)[number];
@@ -988,6 +994,64 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capability: "offers.send",
     risk: "outbound",
     fields: [F_BUYER_PHRASE, F_PROPERTY_PHRASE],
+  },
+  /*
+   * ‎**בלעדיות — המודול הרגולטורי היחיד שלסוכן לא הייתה אליו גישה
+   * בכלל.**
+   *
+   * זו אינה עוד לשונית: בלעדיות שלא תועדו בה שתי פעולות שיווק
+   * מסתיימת בתום שליש מהתקופה (חוק המתווכים, §9(ב2)) — חודשיים
+   * לפני מה שכתוב בחוזה. עד כה הדרך היחידה לדעת מה בסיכון הייתה
+   * לפתוח כרטיס אחרי כרטיס.
+   */
+  {
+    id: "show_exclusivity",
+    title: "בלעדיות — מה בסיכון",
+    when: "שאלה על מצב הבלעדיות: מה מסתיים, מה בסיכון, כמה פעולות שיווק חסרות, ומתי מועד השליש. בלי שם נכס — כל הבלעדיות של המשרד לפי דחיפות.",
+    examples: [
+      "מה המצב עם הבלעדיות?",
+      "איזה בלעדיות מסתיימות החודש",
+      "כמה פעולות שיווק חסרות לדירה ברמת גן",
+      "מה בסיכון",
+    ],
+    capability: "properties.view",
+    risk: "read",
+    fields: [F_PROPERTY_PHRASE],
+  },
+  /*
+   * ‎**והפעולה שמצילה אותה.** תיעוד פעולת שיווק הוא מה שמאריך את
+   * הבלעדיות מעבר לשליש, והוא נעשה בשטח — תולים שלט, מפרסמים — ולא
+   * ליד המחשב. זו בדיוק פעולה שחייבת לעבוד מוואטסאפ.
+   */
+  {
+    id: "log_marketing_action",
+    title: "תיעוד פעולת שיווק",
+    when: "תיעוד פעולת שיווק שבוצעה על נכס בבלעדיות — שילוט, פרסום, פרסום לרשת המתווכים, יום מכירות, או פעולה שסוכמה בחוזה. בחר בזו כשנאמר שנעשתה פעולה, לא כששואלים מה חסר.",
+    examples: [
+      "תליתי שלט על הדירה ברמת גן",
+      "פרסמתי את הפנטהאוז בנתניה בעיתון",
+      "תרשום שעשיתי יום מכירות בהרב שך",
+    ],
+    capability: "properties.edit",
+    risk: "create",
+    fields: [
+      F_PROPERTY_PHRASE,
+      /*
+       * ‎`actionKind` ולא `kind`. הקטלוג אוכף שמפתח שמופיע בכמה
+       * פעולות יוצהר זהה בכולן, ו-`kind` כבר תפוס ב-
+       * ‎`schedule_appointment` במשמעות אחרת לגמרי (סיור/פגישה/שיחה).
+       * שני מפתחות באותו שם ובשתי משמעויות מבלבלים גם את המודל, לא
+       * רק את הבדיקה שתפסה את זה.
+       */
+      {
+        key: "actionKind",
+        label: "סוג פעולת השיווק",
+        type: "enum",
+        values: [...MARKETING_ACTION_KINDS],
+        valueLabels: MARKETING_ACTION_LABEL,
+      },
+      { key: "detail", label: "פרטים", type: "string", maxLength: 300 },
+    ],
   },
 ];
 
