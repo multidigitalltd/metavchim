@@ -26,6 +26,9 @@ import {
   UNANSWERED_OUTCOMES,
   recordingWorthPulling,
   RECORDING_GIVE_UP_MS,
+  RECORDING_FIRST_ATTEMPT_GRACE_MS,
+  RECORDING_YOUNG_CALL_MS,
+  RECORDING_EARLY_RETRY_MS,
   RECORDING_BLOCKED_REASON,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
@@ -103,6 +106,17 @@ const GIVE_UP_AFTER_MS = RECORDING_GIVE_UP_MS;
  * אחד, וניסיון כל חמש דקות רק היה שורף את המכסה.
  */
 const RETRY_AFTER_MS = 30 * 60 * 1000;
+
+/**
+ * זמן החסד לפני הניסיון הראשון, וגבולות הניסיון החוזר המדורג.
+ *
+ * ‎**מיובאים ולא נכתבים שוב**, מאותו נימוק כמו `GIVE_UP_AFTER_MS`:
+ * המסך והסבב חייבים להסכים על אותם מספרים, ושתי הגדרות נפרדות
+ * מסכימות רק ביום שנכתבו. ההסבר המלא יושב לצד ההגדרה.
+ */
+const FIRST_ATTEMPT_GRACE_MS = RECORDING_FIRST_ATTEMPT_GRACE_MS;
+const YOUNG_CALL_MS = RECORDING_YOUNG_CALL_MS;
+const EARLY_RETRY_MS = RECORDING_EARLY_RETRY_MS;
 
 /**
  * השהיה בין **בקשה לבקשה** — כדי לא לחנוק את הספק.
@@ -302,8 +316,24 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     this.running = true;
     try {
       const jobs = await this.pending();
-      let refusalsInARow = 0;
-      for (const [index, job] of jobs.entries()) {
+      /*
+       * ‎**הרצף נספר לכל משרד לחוד.**
+       *
+       * מונה אחד גלובלי פירושו שמשרד עם אישורים שגויים — או פשוט
+       * כזה שסיים שלוש שיחות ברצף וההקלטות שלהן טרם הוכנו — עוצר
+       * את התור של **כל** המשרדים, כולל הקלטות שכבר היו מוכנות
+       * וממתינות בו. החנק שמפולת השלג מגנה מפניה הוא אצל הספק של
+       * אותו משרד, ולכן גם הבלימה שייכת לו.
+       */
+      const refusals = new Map<string, number>();
+      const paused = new Set<string>();
+      for (const job of jobs) {
+        /*
+         * ‎**דילוג לפני `fetchOne`, ולכן גם לפני `claim`.** השורה
+         * אינה מסומנת, וחלון הניסיון שלה אינו נשרף — היא פשוט
+         * ממתינה לסבב הבא.
+         */
+        if (paused.has(job.tenantId)) continue;
         /*
          * אין כאן השהיה: היא יושבת ב-`pace()` שנקראת לפני **כל**
          * בקשה לספק, כולל אלה שמסלול הכישלון של שיחה בודדת שולח.
@@ -318,18 +348,20 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
          * את זה, והשורה שמתחתיה איפסה על כל מה שאינו סירוב — כולל
          * כישלון מקומי, שאינו מוכיח דבר על הספק. ראו `nextRefusalStreak`.
          */
-        refusalsInARow = nextRefusalStreak(refusalsInARow, result);
-        if (refusalsInARow >= REFUSALS_BEFORE_PAUSE) {
+        const streak = nextRefusalStreak(refusals.get(job.tenantId) ?? 0, result);
+        refusals.set(job.tenantId, streak);
+        if (streak >= REFUSALS_BEFORE_PAUSE) {
           /*
            * ‎**כאן אין מה להחזיר.** השורות שלא הגיע אליהן התור לא
            * סומנו מלכתחילה — הסימון נעשה לכל שיחה ברגע שמתחילים
            * לטפל בה — ולכן הן נשארות בתור כפי שהיו. ראו `claim`.
            */
+          paused.add(job.tenantId);
+          const waiting = jobs.filter((other) => other.tenantId === job.tenantId).length;
           this.logger.warn(
-            `${refusalsInARow} סירובים רצופים מ-015 — הסבב נעצר, ` +
-              `${jobs.length - index - 1} הקלטות ממתינות לסבב הבא`,
+            `${streak} סירובים רצופים מ-015 במשרד ${job.tenantId} — ` +
+              `הופסק לו הסבב, עד ${waiting} הקלטות שלו ממתינות לסבב הבא`,
           );
-          break;
         }
       }
     } catch (error: unknown) {
@@ -702,7 +734,31 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
            * חותמת חדשה והשורה חוזרת לכלל הרגיל.
            */
           OR: [
-            { providerRecordingAttemptAt: null },
+            /*
+             * ‎**טרם נוסתה — ורק אחרי שהמרכזייה הספיקה להכין.**
+             *
+             * התנאי על הגיל הוא התיקון: קודם כל שיחה חדשה נבחרה
+             * בטיק הבא, לפני שהיה מה למשוך. ראו
+             * ‎`RECORDING_FIRST_ATTEMPT_GRACE_MS`.
+             *
+             * ‎**הלחיצה הידנית שורדת**: היא מנקה את החותמת על שיחה
+             * ישנה, שגילה עבר את זמן החסד מזמן.
+             */
+            {
+              providerRecordingAttemptAt: null,
+              occurredAt: { lt: new Date(now - FIRST_ATTEMPT_GRACE_MS) },
+            },
+            /*
+             * ‎**שיחה צעירה שנוסתה — ניסיון חוזר קצר.**
+             *
+             * בתוך השעה הראשונה הסיבה הסבירה לכישלון היא „ההקלטה
+             * טרם הוכנה”, והיא נפתרת מעצמה בדקות. חצי שעה שם היא
+             * עונש על תזמון ולא על תקלה.
+             */
+            {
+              providerRecordingAttemptAt: { lt: new Date(now - EARLY_RETRY_MS) },
+              occurredAt: { gte: new Date(now - YOUNG_CALL_MS) },
+            },
             {
               providerRecordingAttemptAt: { lt: new Date(now - RETRY_AFTER_MS) },
               /*
