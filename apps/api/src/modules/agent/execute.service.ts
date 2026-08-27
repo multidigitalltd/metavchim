@@ -772,8 +772,20 @@ export class AgentExecuteService {
         : `לידים בסטטוס „${LEAD_STATUS_LABELS[status as LeadStatus] ?? status}”`;
     return {
       href: "/leads",
+      /*
+       * ‎**„25” הוא גודל העמוד, לא תשובה.**
+       *
+       * „כמה לידים ממתינים לטיפול” היא שאלה נתמכת, והתשובה הייתה
+       * מספר הפריטים שחזרו — כלומר 25 בדיוק לכל משרד שיש לו יותר
+       * מ-25 (ביקורת Codex). קיומו של סמן העימוד הוא בדיוק המידע
+       * ש„יש עוד”, והוא כבר חוזר מהשירות.
+       */
       message:
-        page.items.length === 0 ? `אין ${label}` : `${page.items.length} ${label}`,
+        page.items.length === 0
+          ? `אין ${label}`
+          : page.nextCursor === null
+            ? `${page.items.length} ${label}`
+            : `${page.items.length} ${label} הראשונים — יש עוד`,
       data: {
         leads: page.items.map((lead) => ({
           id: lead.id,
@@ -1695,7 +1707,7 @@ export class AgentExecuteService {
   private async appointmentOf(
     params: Record<string, unknown>,
     direction: "upcoming" | "past",
-  ): Promise<{ id: string; startsAt: Date; extra: number }> {
+  ): Promise<{ id: string; startsAt: Date; endsAt: Date | null; extra: number }> {
     const card = await this.optionalCardTarget(params["cardId"]);
     if (card === null) {
       throw new BadRequestException("לא זיהיתי עם מי הפגישה — אמרו את שם הלקוח");
@@ -1711,7 +1723,8 @@ export class AgentExecuteService {
         },
         orderBy: { startsAt: direction === "upcoming" ? "asc" : "desc" },
         take: 2,
-        select: { id: true, startsAt: true },
+        // ‏`endsAt` — דחייה משנה את המועד ולא את האורך. ראו `rescheduleAppointment`.
+        select: { id: true, startsAt: true, endsAt: true },
       }),
     );
     const first = rows[0];
@@ -1722,7 +1735,12 @@ export class AgentExecuteService {
           : "לא נמצאה פגישה שהתקיימה עם הלקוח הזה וממתינה לסיכום",
       );
     }
-    return { id: first.id, startsAt: first.startsAt, extra: rows.length - 1 };
+    return {
+      id: first.id,
+      startsAt: first.startsAt,
+      endsAt: first.endsAt,
+      extra: rows.length - 1,
+    };
   }
 
   /** „נדחתה מ… ל…” — המועד הישן בתשובה הוא מה שחושף זיהוי שגוי. */
@@ -1730,7 +1748,23 @@ export class AgentExecuteService {
     const startsAt = date(params["startsAt"]);
     if (!startsAt) throw new BadRequestException("לא זוהה המועד החדש");
     const found = await this.appointmentOf(params, "upcoming");
-    await this.calendar.reschedule(found.id, { startsAt, durationMinutes: 60 });
+    /*
+     * ‎**האורך נשמר — דחייה מזיזה מועד, לא מקצרת פגישה.**
+     *
+     * ‏`durationMinutes: 60` קבוע הפך כל סיור של חצי שעה או של שעה
+     * וחצי לשעה עגולה ברגע שביקשו מהסוכן להזיז אותו, בלי שאיש אמר
+     * זאת ובלי שזה מופיע בתשובה (ביקורת Codex). האורך נלקח מהפגישה
+     * עצמה, ורק אם הוא הגיוני — שורה פגומה (סוף לפני התחלה) נופלת
+     * לברירת המחדל במקום לייצר פגישה באורך שלילי.
+     */
+    const minutes =
+      found.endsAt === null
+        ? 0
+        : Math.round((found.endsAt.getTime() - found.startsAt.getTime()) / 60_000);
+    await this.calendar.reschedule(found.id, {
+      startsAt,
+      durationMinutes: minutes > 0 ? minutes : 60,
+    });
     const moved = `הפגישה מ-${formatJerusalemDate(found.startsAt)} ${formatJerusalemTime(found.startsAt)} נדחתה ל-${formatJerusalemDate(startsAt)} ${formatJerusalemTime(startsAt)}`;
     return {
       href: "/calendar",
