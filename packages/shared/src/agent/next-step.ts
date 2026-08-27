@@ -45,6 +45,15 @@ export interface AgentNextStep {
    * מעבירה את העבודה בחזרה למתווך.
    */
   text: string;
+  /**
+   * ‎**כותרת הכפתור** — פועל קצר, עד ~20 תווים לפני חיתוך של Meta.
+   *
+   * הצעד נוסע לוואטסאפ ככפתור מתחת להודעה ולמסך כצ'יפ, והכותרת
+   * היא מה שרואים לפני הלחיצה. `text` הוא מה שהלחיצה שולחת בפועל,
+   * ולכן שניהם חובה: כפתור בלי משפט אין לו מה לשגר, ומשפט בלי
+   * כותרת אינו כפתור.
+   */
+  label: string;
   action: AgentActionId;
   /**
    * מה שכבר ידוע מהתוצאה. שאר השדות נפתרים כרגיל בזמן הביצוע.
@@ -165,8 +174,20 @@ export function agentNextSteps(
       const score = typeof top["score"] === "number" ? ` (${top["score"]}% התאמה)` : "";
       permit({
         text: `לשלוח ל${name} הצעה על ${title}${score}?`,
+        label: "📤 שלח הצעה",
         action: "send_offer",
         params: { buyerPhrase: name, propertyPhrase: title },
+      });
+      /*
+       * והצעד השני על אותה התאמה — סיור. אותו קונה מוכח ואותו נכס
+       * מוכח, ולכן אין כאן טענה חדשה; מה שמשתנה הוא רק איזו פעולה
+       * המתווך מעדיף, וזו בדיוק הבחירה ששני כפתורים נותנים.
+       */
+      permit({
+        text: `לקבוע ל${name} סיור ב${title}?`,
+        label: "📅 קבע סיור",
+        action: "schedule_appointment",
+        params: { buyerPhrase: name },
       });
       break;
     }
@@ -180,6 +201,7 @@ export function agentNextSteps(
       if (name === null) break;
       permit({
         text: `לראות מה מתאים ל${name} עכשיו?`,
+        label: "🔍 מצא התאמות",
         action: "show_matches",
         params: { buyerPhrase: name },
       });
@@ -204,6 +226,7 @@ export function agentNextSteps(
        */
       permit({
         text: `לפרסם את ${title} לרשת המתווכים?`,
+        label: "🌐 פרסם לרשת",
         action: "share_property",
         params: { propertyPhrase: title },
       });
@@ -234,6 +257,7 @@ export function agentNextSteps(
       if (title === null) break;
       permit({
         text: `„${title}” באיחור. לסמן שבוצעה?`,
+        label: "✔️ סמן שבוצעה",
         action: "complete_task",
         params: { taskPhrase: title },
       });
@@ -259,6 +283,58 @@ export function agentNextSteps(
       if (name === null) break;
       permit({
         text: `לקבוע פגישה עם ${name}?`,
+        label: "📅 קבע פגישה",
+        action: "schedule_appointment",
+        params: { buyerPhrase: name },
+      });
+      break;
+    }
+
+    /*
+     * ‎**חיפוש שמצא — הצעד הוא על הראשון שנמצא.** „מי מחפש 4 חדרים
+     * בגבעתיים” מחזיר רשימה; מה שהמתווך עושה איתה הוא לבדוק מה יש
+     * למישהו מהם. השם מוכח — הוא שורת התוצאה הראשונה.
+     */
+    case "find_buyers": {
+      const name = str(section(data, "buyers")[0]?.["name"]);
+      if (name === null) break;
+      permit({
+        text: `לראות מה מתאים ל${name}?`,
+        label: "🔍 מצא התאמות",
+        action: "show_matches",
+        params: { buyerPhrase: name },
+      });
+      break;
+    }
+
+    /*
+     * ואותו כלל בכיוון הנכסים: נכס שנמצא — למי הוא מתאים. הכותרת
+     * מוכחת מהשורה; `address` הוא הנפילה כשאין כותרת שיווקית.
+     */
+    case "find_properties": {
+      const first = section(data, "properties")[0];
+      const title = str(first?.["title"]) ?? str(first?.["address"]);
+      if (title === null) break;
+      permit({
+        text: `למי מתאים ${title}?`,
+        label: "🔍 למי מתאים?",
+        action: "show_matches",
+        params: { propertyPhrase: title },
+      });
+      break;
+    }
+
+    /*
+     * הצעה שנשלחה — הצעד הבא של המתווך הוא סיור. הקונה מוכח מתוך
+     * הפרמטרים שהפעולה **רצה איתם** (אותו מקור כמו הנכס
+     * ב-`show_matches`): זה מה שנאמר, והפותר יתרגם אותו שוב.
+     */
+    case "send_offer": {
+      const name = str(result.params?.["buyerPhrase"]);
+      if (name === null) break;
+      permit({
+        text: `לקבוע ל${name} סיור בנכס?`,
+        label: "📅 קבע סיור",
         action: "schedule_appointment",
         params: { buyerPhrase: name },
       });

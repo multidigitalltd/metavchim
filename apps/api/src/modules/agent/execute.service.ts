@@ -143,6 +143,13 @@ export interface ExecuteResult {
    */
   suggestion?: string;
   /**
+   * ‎**כל הצעדים שנגזרו — לא רק הראשון.** `suggestion` נולד כשהכלל
+   * פלט צעד אחד, ושני הערוצים לקחו `[0]`; מרגע שהתוצאה מצדיקה כמה
+   * צעדים, כל אחד מהם הוא כפתור. `text` הוא מה שהלחיצה שולחת,
+   * ‎`label` הוא מה שרואים עליה.
+   */
+  nextSteps?: { text: string; label: string }[];
+  /**
    * הקלטה שאפשר להשמיע — **הפניה, לא בייטים**.
    *
    * הזרם עצמו אינו נכנס לתשובת ה-API: כל ערוץ מביא אותו בדרכו
@@ -291,8 +298,15 @@ export class AgentExecuteService {
         (a) => a.id,
       ),
       new Date(),
-    )[0];
-    if (derived !== undefined) final.suggestion = derived.text;
+    );
+    if (derived[0] !== undefined) final.suggestion = derived[0].text;
+    if (derived.length > 0) {
+      // עד שלושה — תקרת הכפתורים של Meta, ואותה תקרה במסך
+      final.nextSteps = derived.slice(0, 3).map((step) => ({
+        text: step.text,
+        label: step.label,
+      }));
+    }
     /*
      * הביצוע נרשם ביומן המשימות — הפרמטרים שאושרו ותקציר התוצאה,
      * בלי `data` (תוצאות שאילתה שלמות היו מנפחות את היומן בהעתק

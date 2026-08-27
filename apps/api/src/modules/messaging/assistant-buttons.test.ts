@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buttonTitle, type WhatsAppListRow } from "@metavchim/shared";
-import { buttonAsText, choiceVariant } from "./assistant-buttons";
+import { buttonAsText, choiceVariant, CMD_TEXT_MAX } from "./assistant-buttons";
 
 const row = (title: string, i: number, description?: string): WhatsAppListRow => ({
   action: "pick",
@@ -82,8 +82,23 @@ describe("buttonAsText", () => {
     expect(buttonAsText("pick")).toBeNull();
   });
 
-  it("פקודה מוכנה נשלחת כמשפט, ומפתח לא מוכר נדחה", () => {
+  it("פקודה מוכנה מתורגמת למשפט שלה", () => {
     expect(buttonAsText("cmd", "urgent")).toBe("מה הכי דחוף לי היום?");
-    expect(buttonAsText("cmd", "drop_all")).toBeNull();
+  });
+
+  it("צעד המשך נושא את המשפט עצמו — נשלח למנוע כלשונו", () => {
+    /*
+     * כפתורי צעדי ההמשך נגזרים מהתוכן, והמזהה שלהם הוא המשפט. זה
+     * אותו מעמד אמון של טקסט מוקלד: קריאה מציעה, כתיבה נעצרת על
+     * „אשר” — ולכן אין כאן מסלול ביצוע שני.
+     */
+    const step = "לקבוע למשה סיור בדירה ברמת גן?";
+    expect(buttonAsText("cmd", step)).toBe(step);
+  });
+
+  it("מזהה ריק או ארוך מהתקרה נדחה — פקודה קטומה אינה הפקודה שהוצגה", () => {
+    expect(buttonAsText("cmd")).toBeNull();
+    expect(buttonAsText("cmd", "  ")).toBeNull();
+    expect(buttonAsText("cmd", "א".repeat(CMD_TEXT_MAX + 1))).toBeNull();
   });
 });

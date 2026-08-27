@@ -88,6 +88,17 @@ export function decodeButtonId(id: string): DecodedButton | null {
   ) {
     return null;
   }
+  /*
+   * ‎`cmd` נושא את משפט הפקודה עצמו, ומשפט יכול להכיל נקודתיים —
+   * „פגישה ב-17:30”. פיצול רגיל היה חותך אותו שם ושולח למנוע פקודה
+   * שונה ממה שהוצג על הכפתור. לכפתורי `cmd` אין חותם (לחיצה ישנה
+   * רק מנסחת הצעה מחדש — הביצוע ממילא נעצר על „אשר”), ולכן כל מה
+   * שאחרי הפעולה הוא הארגומנט, נקודתיים ועוד.
+   */
+  if (action === "cmd") {
+    const arg = parts.slice(2).join(":");
+    return { action, ...(arg === "" ? {} : { arg }) };
+  }
   const arg = parts[2] ?? "";
   const token = parts.slice(3).join(":");
   return {

@@ -27,6 +27,16 @@ describe("encodeButtonId / decodeButtonId", () => {
     expect(decodeButtonId("mv:delete_everything")).toBeNull();
   });
 
+  it("משפט cmd עם נקודתיים חוזר שלם — לא נחתך בפיצול", () => {
+    /*
+     * כפתור צעד המשך נושא את המשפט עצמו, ומשפט יכול להכיל
+     * נקודתיים — „פגישה ב-17:30”. פיצול רגיל היה שולח למנוע פקודה
+     * שונה ממה שהוצג על הכפתור.
+     */
+    const text = "לקבוע למשה פגישה מחר ב-17:30?";
+    expect(decodeButtonId(encodeButtonId("cmd", text))).toEqual({ action: "cmd", arg: text });
+  });
+
   it("נושא חותם הצעה לצד הארגומנט", () => {
     expect(decodeButtonId(encodeButtonId("confirm", undefined, "T7"))).toEqual({
       action: "confirm",

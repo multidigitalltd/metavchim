@@ -1,0 +1,92 @@
+import { readFileSync } from "node:fs";
+
+import { describe, expect, it } from "vitest";
+
+/**
+ * ‎**כפתורי צעדי ההמשך — קשורים לתוכן, ובשני הערוצים מאותו מקור.**
+ *
+ * הבקשה: „שהכפתורים שהוא שולח עם ההודעות שלו יהיו קשורים לתוכן”.
+ * המימוש: `agentNextSteps` נגזר מהתוצאה שחזרה (שם שקיים בה, פעולה
+ * שמותרת), וכל צעד הופך לכפתור שנושא את **המשפט עצמו** — לחיצה
+ * שולחת אותו למנוע כאילו הוקלד.
+ *
+ * הצורה הזו עומדת על שלוש נקודות תפר שהקומפיילר אינו רואה:
+ *
+ * 1. **מקור אחד** — הוואטסאפ והמסך גוזרים את הצעדים מאותו
+ *    ‎`nextSteps`. שני מקורות היו נפרדים זה מזה בשינוי הראשון,
+ *    והמתווך היה מקבל כפתורים שונים לאותה שאלה בשני הערוצים.
+ * 2. **מסלול ביצוע אחד** — הלחיצה שולחת טקסט, לא פקודה. כפתור
+ *    שמבצע ישירות היה עוקף את עצירת ה„אשר” של פעולה כותבת.
+ * 3. **תקרה סימטרית** — מזהה כפתור ב-Meta מוגבל, ולכן משפט ארוך
+ *    מסונן בבנייה **ונדחה** גם בלחיצה, באותו קבוע. צד אחד בלי
+ *    השני שולח כפתור שהלחיצה עליו שקטה — או מקבל מזהה קטום
+ *    שמתפרש אחרת ממה שהוצג.
+ */
+
+const read = (url: URL): string =>
+  readFileSync(url, "utf8")
+    // בלי הסרת הערות, טענה על „הקוד עושה X” מתקיימת על ההסבר של X
+    .replace(/\/\*[\s\S]*?\*\//gu, "")
+    .replace(/^[ \t]*\/\/.*$/gmu, "")
+    .replace(/^[ \t]*\{\/\*[\s\S]*?\*\/\}/gmu, "");
+
+const WA = read(new URL("./whatsapp-assistant.service.ts", import.meta.url));
+const EXECUTE = read(new URL("../agent/execute.service.ts", import.meta.url));
+const BUTTONS = read(new URL("./assistant-buttons.ts", import.meta.url));
+const VOICE_PAGE = read(new URL("../../../../web/src/app/voice/page.tsx", import.meta.url));
+
+describe("צעדי ההמשך הם כפתורים — מהתוכן, בשני הערוצים", () => {
+  it("המקור הוא הצעדים הנגזרים, בתקרת הכפתורים של Meta", () => {
+    // ההפקה: agentNextSteps על התוצאה, לא רשימה קבועה
+    expect(EXECUTE).toMatch(/const derived = agentNextSteps\(/u);
+    // כל הצעדים נחשפים — עד שלושה, תקרת „תשובה מהירה”
+    expect(EXECUTE).toMatch(/final\.nextSteps = derived\.slice\(0, 3\)/u);
+  });
+
+  it("בוואטסאפ כל צעד הוא כפתור cmd שנושא את המשפט עצמו", () => {
+    expect(WA).toMatch(
+      /steps\.map\(\(step\) => \(\{\s*action: "cmd",\s*arg: step\.text,\s*title: step\.label,/u,
+    );
+    // והמשפטים נשארים גם בטקסט — הנפילה לטקסט אינה מאבדת אותם
+    expect(WA).toMatch(/steps\.map\(\(step\) => `· „\$\{step\.text\}”`\)/u);
+  });
+
+  it("התקרה נאכפת בשני הצדדים — בבנייה ובלחיצה, מאותו קבוע", () => {
+    // בנייה: משפט ארוך מהתקרה אינו הופך לכפתור
+    expect(WA).toMatch(/filter\(\(step\) => step\.text\.length <= CMD_TEXT_MAX\)/u);
+    // לחיצה: מזהה ארוך מהתקרה נדחה — קטום אינו הפקודה שהוצגה
+    expect(BUTTONS).toMatch(/arg === undefined \|\| arg\.length > CMD_TEXT_MAX/u);
+  });
+
+  it("הלחיצה שולחת טקסט למנוע — אין מסלול ביצוע שני", () => {
+    /*
+     * ‎`buttonAsText` מחזיר את המשפט, והמשפט נכנס לאותו מסלול
+     * הבנה⟵אישור כמו הודעה מוקלדת. כפתור cmd שמפעיל dispatch
+     * ישירות היה עוקף את עצירת ה„אשר”.
+     */
+    expect(BUTTONS).toMatch(/if \(action === "cmd"\) \{[\s\S]*?return BUTTON_COMMANDS\[arg\] \?\?/u);
+    expect(WA).toMatch(/buttonAsText\(button\.action, button\.arg\)/u);
+  });
+
+  it("המסך גוזר מאותו nextSteps, והלחיצה שולחת את אותו משפט", () => {
+    expect(VOICE_PAGE).toMatch(/result\.nextSteps \?\? \[\]/u);
+    expect(VOICE_PAGE).toMatch(/void interpret\(step\.text\)/u);
+  });
+
+  it("suggestion הוא רשת ביטחון — מוצג רק כשאין צעד נגזר, בשני הערוצים", () => {
+    /*
+     * שני מקורות מוצגים יחד = אותה עצה פעמיים בניסוחים שונים.
+     * בשני הערוצים ההצעה המנוסחת חיה בענף ה-else של הצעדים.
+     */
+    expect(WA).toMatch(/\} else if \(primary\.suggestion !== undefined/u);
+    expect(VOICE_PAGE).toMatch(
+      /\(result\.nextSteps \?\? \[\]\)\.length > 0 \? \([\s\S]*?\) : result\.suggestion === undefined/u,
+    );
+  });
+
+  it("הבדיקה אכן קוראת את ארבעת הקבצים", () => {
+    for (const source of [WA, EXECUTE, BUTTONS, VOICE_PAGE]) {
+      expect(source.length).toBeGreaterThan(500);
+    }
+  });
+});

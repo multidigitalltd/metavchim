@@ -74,6 +74,8 @@ export interface ExecuteResult {
   insight?: string;
   /** צעד המשך מוצע — לחיצה שולחת אותו כמשפט חדש, דרך אותו אישור */
   suggestion?: string;
+  /** צעדי ההמשך שנגזרו מהתוכן — כל אחד צ'יפ, כמו הכפתורים בוואטסאפ */
+  nextSteps?: { text: string; label: string }[];
   /**
    * הקלטה שהתוצאה מצביעה עליה.
    *
