@@ -344,6 +344,38 @@ export class PropertiesService {
     return this.getById(propertyId);
   }
 
+  /**
+   * נכס שהגיע מ**טופס שהלקוח מילא בעצמו** — טיוטה, ולא מודעה.
+   *
+   * ‏`create` הרגילה מפרסמת לרשת השיתופים כשהמשרד הפעיל
+   * `autoShareProperties`, וזה נכון כשסוכן קלט את הנכס: הוא ראה
+   * אותו, הוא אחראי לו. כאן **איש במשרד לא ראה עדיין דבר** — טעות
+   * הקלדה של לקוח, מחיר שנכתב באלפים במקום בשקלים, או סתם מישהו
+   * שמילא טופס בטעות — והפרסום האוטומטי היה הופך כל אחד מאלה
+   * למודעה חיה מול משרדים אחרים. הטיוטה נשארת בפנים עד שסוכן
+   * מאשר אותה.
+   *
+   * ההתאמות כן מחושבות: הן פנימיות, והן מה שנותן לסוכן את התשובה
+   * „יש לי כבר שלושה קונים לזה” כשהוא פותח את המשימה.
+   *
+   * הסטטוס אינו נמסר — ברירת המחדל של הטבלה היא `draft`, וזה מה
+   * שנכון כאן. מסירה מפורשת הייתה מזמינה קריאה עתידית שמעבירה
+   * „active” ומדלגת על כל ההיגיון שלמעלה.
+   */
+  async createFromIntake(input: {
+    fields: PropertyFields;
+    internalNotes?: string;
+    owner: { name: string; phone: string };
+  }): Promise<string> {
+    const id = await this.persist(input);
+    try {
+      await this.matching.recomputeForProperty(id);
+    } catch {
+      // הנכס כבר נשמר; חישוב ההתאמות אינו חלק מהצלחת היצירה.
+    }
+    return id;
+  }
+
   async createForImport(input: {
     fields: PropertyFields;
     marketingTitle?: string;

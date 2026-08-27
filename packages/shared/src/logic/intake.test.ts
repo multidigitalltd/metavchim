@@ -199,6 +199,16 @@ describe("intakeInviteMessage", () => {
     });
     expect(text).toContain("ניסינו להשיג אתכם");
   });
+
+  it("אינה מניחה שהנמען קונה", () => {
+    /*
+     * מי שהתקשר ולא נענה יכול להיות מוכר באותה מידה, ו„מה שאתם
+     * מחפשים” אמר לו שלא הקשיבו — לפני שפתח את הקישור.
+     */
+    const text = intakeInviteMessage({ officeName: "נדל״ן ירוק", url: "https://x/y" });
+    expect(text).not.toContain("מה שאתם מחפשים");
+    expect(text).toContain("מחפשים נכס או שיש לכם נכס");
+  });
 });
 
 describe("pickIntakeFeatures", () => {

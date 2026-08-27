@@ -93,6 +93,7 @@ export * from "./logic/collaboration-cost.js";
 export * from "./logic/commission-terms.js";
 export * from "./logic/property-twins.js";
 export * from "./logic/intake.js";
+export * from "./logic/intake-seller.js";
 export * from "./logic/lead-referral.js";
 export * from "./logic/platform-credits.js";
 export * from "./logic/invoice.js";
