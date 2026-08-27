@@ -7,6 +7,7 @@ import { API_BASE, apiGet, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { Notice } from "../notice";
+import { OfficeDomainNudge } from "../office-domain-nudge";
 
 /**
  * תיבת המייל הפנימית — תשובות של לקוחות למיילים שהמערכת שלחה.
@@ -146,7 +147,7 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
 }
 
 export default function InboxPage() {
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
   const [threads, setThreads] = useState<ThreadRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openContact, setOpenContact] = useState<string | null>(null);
@@ -287,6 +288,8 @@ export default function InboxPage() {
           מכתובת המשרד ונרשמת בציר הלקוח.
         </p>
       </div>
+
+      <OfficeDomainNudge user={user} />
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
 

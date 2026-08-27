@@ -31,8 +31,8 @@ function propertyTypesFor(term: string): string[] {
     .filter(([, label]) => label.toLowerCase().includes(needle))
     .map(([value]) => value);
 }
-import { lockProperty } from "../../common/locks";
-import { ownershipFilter } from "../../common/ownership";
+import { lockContact, lockProperty, type ContactLock } from "../../common/locks";
+import { isOrphanContact, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { AuditService } from "../../core/audit.service";
@@ -41,6 +41,7 @@ import { GeocodingService } from "../../core/geocoding.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import { ContactErasureService } from "../contacts/contact-erasure.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { ListingsService } from "../collaboration/listings.service";
 import {
@@ -73,6 +74,7 @@ export class PropertiesService {
     private readonly geocoding: GeocodingService,
     private readonly listings: ListingsService,
     private readonly twins: PropertyTwinsService,
+    private readonly erasure: ContactErasureService,
   ) {}
 
   /**
@@ -1076,28 +1078,89 @@ export class PropertiesService {
    * התמונות ב-S3 נמחקות דרך אירועי `storage.cleanup_object`, והמפתחות
    * נאספים לפני מחיקת השורות שמכירות אותם.
    */
+  /**
+   * מה תמחק המחיקה לצמיתות — **לפני** שמוחקים.
+   *
+   * התמונות והרשומות של הנכס הן צפויות; כרטיס של אדם אינו. בעלים
+   * שהנכס הזה הוא העוגן היחיד שלו יורד עם הנכס, על שמו וטלפוניו,
+   * ומתווך שלוחץ „מחיקה לצמיתות” כדי לנקות כפילות אינו מתכוון לזה.
+   * אותה גישה בדיוק כמו במסך מחיקת הלקוח — מראים לפני שמאשרים,
+   * ולא מסבירים אחרי.
+   */
+  async purgePreview(id: string): Promise<{ contacts: number }> {
+    const { tenantId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const property = await tx.property.findFirst({
+        where: { id, tenantId },
+        select: { ownerContactId: true, occupantContactId: true },
+      });
+      if (!property) throw new NotFoundException("נכס לא נמצא");
+      const candidates = [
+        ...new Set(
+          [property.ownerContactId, property.occupantContactId].filter(
+            (value): value is string => typeof value === "string",
+          ),
+        ),
+      ];
+      const orphaned = await Promise.all(
+        // ‏`id` מוחרג: השאלה היא מה יישאר **אחרי** המחיקה
+        candidates.map((contactId) => isOrphanContact(tx, tenantId, contactId, id)),
+      );
+      return { contacts: orphaned.filter(Boolean).length };
+    });
+  }
+
   async purge(id: string): Promise<void> {
     const ctx = TenantContext.current();
     await this.prisma.withTenant(async (tx) => {
       /*
-       * ‎**נעילת שורת הנכס — הדבר הראשון בטרנזקציה.**
+       * ‎**סדר הנעילות: כרטיסי איש הקשר → שורת הנכס → כל מה שתלוי בו.**
        *
-       * המחיקה לצמיתות נוגעת בכל מה שתלוי בנכס: המדיה, ההתאמות,
-       * ההצעות, הנכסים התואמים. כל אחד מהם הוא שורה שנתיב אחר נועל
-       * **אחרי** שהוא כבר מחזיק את שורת הנכס — מחיקת תמונה נועלת
-       * נכס ואז נוגעת במדיה ובפרסום שברשת.
+       * שורת הנכס הייתה כאן הפעולה הראשונה בטרנזקציה, וזה היה נכון
+       * כל עוד המחיקה לא נגעה בכרטיסים. מהרגע שהיא מוחקת כרטיס יתום
+       * היא נוגעת בשני העולמות, וחלה עליה החצי העליון של הסדר
+       * (`common/locks.ts`): מחיקת לקוח נועלת קודם את הכרטיס ואז את
+       * שורות הנכסים שהיא מנתקת, ולכן מחיקה שתנעל נכס ואז כרטיס
+       * סוגרת מעגל מול כל בקשת מחיקה שרצה במקביל.
        *
-       * נעילה באמצע הרשימה סוגרת מעגל מול כל מה שקדם לה, ולכן היא
-       * ראשונה ולא „לפני המדיה”: כשהיא ראשונה אין מה שיקדם לה, ואין
-       * צורך לדעת מראש איזו טבלה מתנגשת עם מי (ביקורת Codex).
+       * ‎**ומול הנגזרות היא עדיין הראשונה.** המדיה, ההתאמות, ההצעות
+       * והנכסים התואמים הם שורות שנתיב אחר נועל **אחרי** שהוא כבר
+       * מחזיק את שורת הנכס. נעילה באמצע הרשימה סוגרת מעגל מול כל מה
+       * שקדם לה, ולכן היא לפני כולן ולא „לפני המדיה” — כך אין צורך
+       * לדעת מראש איזו טבלה מתנגשת עם מי (ביקורת Codex). המסלול
+       * פתוח: `MediaService.remove` אינה דוחה נכס בארכיון, וארכיון
+       * הוא בדיוק התנאי למחיקה לצמיתות.
        *
-       * המסלול פתוח: `MediaService.remove` אינה דוחה נכס בארכיון,
-       * וארכיון הוא בדיוק התנאי למחיקה לצמיתות.
+       * ‎**הקריאה המקדימה בטוחה כאן, ולא במקרה.** נכס בארכיון אינו
+       * ניתן לעריכה (`update` דורשת `deletedAt: null`) ואין מסלול
+       * שמחזיר נכס מהארכיון — כלומר הבעלים והדייר של נכס בארכיון
+       * קפואים. ובכל זאת החיתוך מול הקריאה הנעולה נשמר למטה, כדי
+       * שהכלל „לא נוגעים בכרטיס שאיננו נעול” יהיה מבני ולא נימוק.
        */
+      const before = await tx.property.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        select: { ownerContactId: true, occupantContactId: true },
+      });
+      // מיון — שתי מחיקות מקבילות שנוגעות באותם שני כרטיסים
+      // בסדר הפוך נועלות זו את זו
+      const candidates = [
+        ...new Set(
+          [before?.ownerContactId, before?.occupantContactId].filter(
+            (value): value is string => typeof value === "string",
+          ),
+        ),
+      ].sort();
+      // ברצף ולא ב-`Promise.all`: המיון קובע סדר רק אם הנעילות
+      // נלקחות בו
+      const locks = new Map<string, ContactLock>();
+      for (const contactId of candidates) {
+        locks.set(contactId, await lockContact(tx, contactId));
+      }
+
       await lockProperty(tx, ctx.tenantId, id);
       const existing = await tx.property.findFirst({
         where: { id, tenantId: ctx.tenantId },
-        select: { deletedAt: true },
+        select: { deletedAt: true, ownerContactId: true, occupantContactId: true },
       });
       if (!existing) throw new NotFoundException("נכס לא נמצא");
       if (existing.deletedAt === null) {
@@ -1105,6 +1168,9 @@ export class PropertiesService {
           "יש להעביר את הנכס לארכיון לפני מחיקה לצמיתות",
         );
       }
+      const anchored = [existing.ownerContactId, existing.occupantContactId]
+        .filter((value): value is string => typeof value === "string")
+        .filter((contactId) => locks.has(contactId));
 
       // לפני מחיקת השורות — אחריה אין מי שיודע אילו קבצים היו שלו
       const media = await tx.propertyMedia.findMany({
@@ -1204,11 +1270,45 @@ export class PropertiesService {
         });
       }
 
+      /*
+       * ‎**הכרטיס שנשאר בלי אף עוגן — אחרי מחיקת השורה, לא לפניה.**
+       *
+       * בעלים־בלבד מגיעים אליו דרך הנכס ותו לא. ברגע שהשורה נמחקת,
+       * כרטיס כזה מפסיק להופיע בכל מסך במערכת — ונשאר במסד עם שם,
+       * טלפונים ואימייל. איש במשרד אינו יכול לראות אותו, לתקן אותו,
+       * או למחוק אותו לפי בקשה; בקשת מחיקה פרטנית לא הייתה מוצאת
+       * אותו, ורק מחיקת המשרד כולו הייתה מגיעה אליו. **מידע אישי
+       * שאיש אינו יכול לממש עליו זכות הוא בדיוק מה שאסור להשאיר.**
+       *
+       * ‎**הבדיקה אחרי `property.delete`, ובהכרח:** לפניה השורה עדיין
+       * קיימת, ומבחן היתמות היה מוצא אותה ומחזיר „יש עוגן” על כל
+       * כרטיס.
+       *
+       * הכרטיס שעדיין נגיש — קונה חי, ליד, או נכס אחר — אינו נוגע:
+       * `eraseUnreachable` מחזיר `false` והמחיקה ממשיכה כרגיל. וזו
+       * הסיבה שהקריאה נעשית על **שני** התפקידים ולא על הבעלים בלבד:
+       * שוכר שנרשם בכרטיס נפרד תלוי באותו עוגן יחיד.
+       */
+      const erasedContacts: string[] = [];
+      for (const contactId of anchored) {
+        const lock = locks.get(contactId);
+        if (lock === undefined) continue;
+        if (await this.erasure.eraseUnreachable(tx, ctx.tenantId, lock, "property.purge")) {
+          erasedContacts.push(contactId);
+        }
+      }
+
       await this.audit.record(tx, {
         action: "property.purge",
         entityType: "property",
         entityId: id,
-        metadata: { media: media.length, matches: matchIds.length, twins },
+        metadata: {
+          media: media.length,
+          matches: matchIds.length,
+          twins,
+          // כמה כרטיסים ירדו איתו — הראיה שהמחיקה הזו נגעה גם באנשים
+          erasedContacts: erasedContacts.length,
+        },
       });
     });
   }

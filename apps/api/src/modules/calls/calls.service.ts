@@ -424,7 +424,7 @@ export class CallsService {
     await this.prisma.withTenant((tx) => this.assertCallAccess(tx, id));
 
     const key = `calls/${tenantId}/${id}/${ulid()}`;
-    await this.storage.put(key, file.buffer, file.mimetype || "audio/webm");
+    await this.storage.put(key, file.buffer, file.mimetype || "audio/webm", tenantId);
 
     await this.prisma.withTenant(async (tx) => {
       const updated = await tx.call.updateMany({

@@ -5,6 +5,7 @@ import {
   DOCUMENT_KINDS,
   MAX_DOCUMENT_BYTES,
   OFFER_DOCUMENT_KINDS,
+  isRetainedDocument,
   documentUnlocksOffers,
   isAfterJerusalemToday,
   safeFileName,
@@ -12,7 +13,11 @@ import {
   type DocumentKind,
 } from "@metavchim/shared";
 import { lockContact, lockProperty } from "../../common/locks";
-import { assertContactAccess } from "../../common/ownership";
+import {
+  assertContactAccess,
+  contactGateFor,
+  orphanContactCondition,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -228,7 +233,7 @@ export class SignedDocumentsService {
     });
 
     // האחסון לפני הרשומה — כשל אחסון ⇒ אין שורה שמצביעה לכלום
-    await this.storage.put(s3Key, file, sniffed.mime);
+    await this.storage.put(s3Key, file, sniffed.mime, tenantId);
 
     let dto: SignedDocumentDto;
     try {
@@ -452,10 +457,45 @@ export class SignedDocumentsService {
   async listRetained(): Promise<SignedDocumentDto[]> {
     const tenantId = TenantContext.current().tenantId;
     const { rows, labels } = await this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**אותו תיקון בדיוק כמו בארכיון ההסכמים, ובאותו קומיט.**
+       *
+       * ‎`contactId: null` הוא „מחיקת לקוח ניתקה”, ולא „איש אינו
+       * יכול להגיע”. כרטיס בעלים-בלבד שנכסו נמחק לצמיתות מפסיק
+       * להיות נגיש בלי שאיש ניתק אותו, והסריקה שלו נפלה בין
+       * הכיסאות בדיוק כמו ההסכם הדיגיטלי. תיקון של אחת מהשתיים
+       * בלבד הוא הפער שנפער כאן מלכתחילה.
+       */
+      /*
+       * ‎**ליתום צריך גם את מבחן השימור — למנותק הוא כבר הוחל.**
+       *
+       * מחיקת לקוח משמרת **רק** הזמנה בכתב חתומה: `kind` מהרשימה
+       * ו-`signedOn` שאינו ריק. כל השאר — תעודת זהות, אישור
+       * זכויות, נספח — הוא מסמך של הלקוח עצמו, וזכות המחיקה חלה
+       * עליו במלואה; הוא **נמחק**. לכן שורה מנותקת היא ראיה משפטית
+       * בהגדרה, ואין מה לסנן בה.
+       *
+       * לכרטיס יתום מעולם לא רץ הניקוי הזה: המסמכים שלו נשארו
+       * כמות שהם. בלי המבחן כאן הארכיון היה חושף תעודות זהות
+       * ואישורי זכויות — ומציג אותם כהסכמים חתומים שנשמרו (ביקורת
+       * Codex). הרחבת נגישות היא לא המקום להרחיב **מה** נגיש.
+       *
+       * הרשימה מגיעה מ-shared, מאותו מקום שמכריע גם במחיקת הלקוח.
+       */
+      const ids = await tx.$queryRaw<{ id: string }[]>`
+        SELECT d.id FROM signed_documents d
+         WHERE d.tenant_id = ${tenantId}
+           AND (
+                d.contact_id IS NULL
+             OR (d.kind = ANY(${[...OFFER_DOCUMENT_KINDS]}::text[])
+                 AND d.signed_on IS NOT NULL
+                 AND ${orphanContactCondition("d")})
+           )
+         ORDER BY d.signed_on DESC NULLS LAST
+         LIMIT 500`;
       const found = await tx.signedDocument.findMany({
-        where: { tenantId, contactId: null },
+        where: { tenantId, id: { in: ids.map((row) => row.id) } },
         orderBy: { signedOn: "desc" },
-        take: 500,
       });
       /*
        * ‎**גם כאן זהות הנכס, ולא רק בכרטיס הלקוח.**
@@ -492,7 +532,14 @@ export class SignedDocumentsService {
     const row = await this.prisma.withTenant(async (tx) => {
       const found = await tx.signedDocument.findFirst({
         where: { id, tenantId },
-        select: { s3Key: true, mimeType: true, fileName: true, contactId: true },
+        select: {
+          s3Key: true,
+          mimeType: true,
+          fileName: true,
+          contactId: true,
+          kind: true,
+          signedOn: true,
+        },
       });
       if (!found) throw new NotFoundException("מסמך לא נמצא");
       /*
@@ -501,19 +548,44 @@ export class SignedDocumentsService {
        * ובלי הבדיקה סוכן שמנחש מזהה היה מוריד מסמך חתום של לקוח
        * שאינו שלו.
        */
-      if (found.contactId === null) {
-        /*
-         * שורה מנותקת שייכת לארכיון המשרד. היא נגישה רק דרך הנתיב
-         * שגדור ב-`settings.manage`; מסלול הלקוח הרגיל אינו מגיע
-         * אליה, כי אין לקוח שמולו לבדוק.
-         */
-        if (opts.retained !== true) {
-          throw new NotFoundException("המסמך אינו משויך ללקוח — הלקוח נמחק מהמערכת");
-        }
-      } else {
-        await assertContactAccess(tx, tenantId, found.contactId);
+      const gate = await contactGateFor(tx, tenantId, found.contactId);
+      /*
+       * ‎**מבחן השימור חל גם על ההורדה, לא רק על הרשימה.**
+       *
+       * הרשימה סוננה ומזהה ידוע נשאר פתוח: מנהל שמבקש מזהה מסוים
+       * הוריד תעודת זהות או מסמך שלא נחתם — בדיוק מה שהרשימה
+       * המתוקנת מסתירה ומה שמחיקת לקוח מוחקת (ביקורת Codex).
+       * רשימה שסוננה ושער שלא סונן הם שני ניסוחים של כלל אחד, וזו
+       * הפעם השנייה שהם נפרדו כאן.
+       */
+      if (gate.mode === "archive" && !isRetainedDocument(found.kind, found.signedOn)) {
+        throw new NotFoundException("המסמך אינו בארכיון המשרד");
       }
-      return found;
+      if (gate.mode === "contact") {
+        await assertContactAccess(tx, tenantId, gate.contactId);
+      } else if (opts.retained !== true) {
+        /*
+         * שורה של הארכיון — מנותקת, או שכרטיסה איבד את כל עוגני
+         * הגישה — נגישה רק דרך הנתיב שגדור ב-`settings.manage`.
+         * מסלול הלקוח הרגיל אינו מגיע אליה, כי אין לקוח שמולו
+         * לבדוק. הענף היה על „נותק” בלבד, ולכן סריקה של כרטיס יתום
+         * הופיעה בארכיון ולא נפתחה (ביקורת Codex).
+         */
+        throw new NotFoundException("המסמך שמור בארכיון המשרד ואינו משויך לכרטיס לקוח");
+      }
+      /*
+       * ‎**הסיווג נוסע עם השורה, ולא נגזר שוב מ-`contactId`.**
+       *
+       * היומן גזר `entityType` ו-`retained` מ-`contactId === null`,
+       * ולכן הורדה של מסמך **יתום** מהארכיון נרשמה כהורדה רגילה
+       * מכרטיס לקוח, עם `retained: false` — כלומר בדיוק המסמכים
+       * שהשינוי הזה הכניס לארכיון תועדו לא נכון (ביקורת Codex).
+       *
+       * ‎**וזו הערה שדחיתי בסבב הקודם** בנימוק שהתיוג „נכון כמות
+       * שהוא”. הוא נכון רק כשהכרטיס באמת נמחק; ליתום הוא שקר,
+       * ויומן Append-Only אינו מקום לשקרים קטנים.
+       */
+      return { ...found, archived: gate.mode === "archive" };
     });
 
     /*
@@ -567,9 +639,9 @@ export class SignedDocumentsService {
         .withTenant((tx) =>
           this.audit.record(tx, {
             action: "agreement.document_download",
-            entityType: row.contactId === null ? "tenant" : "contact",
-            entityId: row.contactId ?? tenantId,
-            metadata: { documentId: id, retained: row.contactId === null, outcome },
+            entityType: row.archived ? "tenant" : "contact",
+            entityId: row.archived ? tenantId : (row.contactId ?? tenantId),
+            metadata: { documentId: id, retained: row.archived, outcome },
           }),
         )
         .catch((error: unknown) => {
@@ -613,15 +685,24 @@ export class SignedDocumentsService {
         select: { s3Key: true, contactId: true, kind: true, fileHash: true },
       });
       if (!row) throw new NotFoundException("מסמך לא נמצא");
-      if (row.contactId === null) {
-        throw new NotFoundException("המסמך אינו משויך ללקוח — הלקוח נמחק מהמערכת");
+      /*
+       * ‎**מחיקה מכרטיס לקוח, ולארכיון אין כרטיס.** אין נתיב מחיקה
+       * לשורה בארכיון — היא נשמרת מטעמים משפטיים — ולכן הענף הזה
+       * דוחה. הוא בדק „נותק” בלבד, ולכן סריקה של כרטיס **יתום**
+       * נפלה במקום זאת על `assertContactAccess` וקיבלה „איש קשר לא
+       * נמצא”: אותה דחייה, בהודעה שאינה נכונה.
+       */
+      const gate = await contactGateFor(tx, tenantId, row.contactId);
+      if (gate.mode === "archive") {
+        throw new NotFoundException("המסמך שמור בארכיון המשרד ואינו משויך לכרטיס לקוח");
       }
-      await assertContactAccess(tx, tenantId, row.contactId);
+      await assertContactAccess(tx, tenantId, gate.contactId);
       await tx.signedDocument.delete({ where: { id } });
       await this.audit.record(tx, {
         action: "agreement.document_delete",
         entityType: "contact",
-        entityId: row.contactId,
+        // מהענף שהוכרע, ולא מהשורה: כאן ידוע שיש כרטיס לבדוק מולו
+        entityId: gate.contactId,
         metadata: {
           documentId: id,
           kind: row.kind,

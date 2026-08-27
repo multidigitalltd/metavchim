@@ -116,12 +116,12 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
    * נקרא מיד אחרי שהתשלום סומן כשולם. אינו זורק לעולם: הקורא כבר
    * גבה כסף, וחריגה כאן הייתה מבטלת את הפעלת המנוי בגלל תקלת רישום.
    */
-  async queueForPayment(paymentId: string): Promise<void> {
+  async queueForPayment(paymentId: string): Promise<{ ok: boolean; error?: string }> {
     try {
       const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
-      if (!payment) return;
+      if (!payment) return { ok: false, error: "התשלום לא נמצא" };
       const rejection = invoiceRejectionReason(payment);
-      if (rejection !== null) return;
+      if (rejection !== null) return { ok: false, error: rejection };
 
       const vatPercent = await this.vatPercent();
       const split = vatSplitFromGross(payment.amountAgorot, vatPercent);
@@ -148,10 +148,11 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
        * שוב, והמסך מציג תשלום בלי מסמך.
        */
       const code = (error as { code?: string }).code;
-      if (code !== "P2002") {
-        this.logger.error(`רישום חשבונית לתשלום ${paymentId} נכשל: ${String(error)}`);
-      }
+      if (code === "P2002") return { ok: true };
+      this.logger.error(`רישום חשבונית לתשלום ${paymentId} נכשל: ${String(error)}`);
+      return { ok: false, error: "רישום החשבונית נכשל" };
     }
+    return { ok: true };
   }
 
   /** תיאור שורת המסמך — שם המסלול בעברית ולא הקוד. */

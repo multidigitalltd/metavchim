@@ -260,6 +260,20 @@ export class PropertiesController {
    * הארכיון הוא ברירת המחדל כי נכס שנמכר הוא היסטוריה עסקית; זה
    * הנתיב לנכס שנקלט בטעות או לכפילות, ואי אפשר לחזור ממנו.
    */
+  /**
+   * מה תמחק המחיקה לצמיתות — לקריאה לפני האישור.
+   *
+   * אותה יכולת כמו המחיקה עצמה: „כמה כרטיסים יירדו עם הנכס” הוא מידע
+   * על אנשים, ואינו נתון תפעולי שכל מי שרואה נכס זכאי לו.
+   */
+  @Get(":id/permanent/preview")
+  @RequireCapability("properties.delete")
+  async purgePreview(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ contacts: number }> {
+    return this.properties.purgePreview(id);
+  }
+
   @Delete(":id/permanent")
   @RequireCapability("properties.delete")
   @HttpCode(204)

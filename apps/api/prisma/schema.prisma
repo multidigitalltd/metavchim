@@ -74,6 +74,17 @@ model Tenant {
   /// נפתח רק בלחיצת בעל המשרד, לעולם לא מהפלטפורמה.
   supportAccessUntil         DateTime?        @map("support_access_until")
   supportAccessGrantedBy     String?          @map("support_access_granted_by") @db.Char(26)
+  /// מרגע שנקבע — המשרד אינו מקבל עוד קבצים. null = מקבל.
+  ///
+  /// מחיקת משרד אוספת את מפתחות ה-S3 ואז מוחקת את השורות שמכירות
+  /// אותם. העלאה שרצה במקביל מסתיימת באחד משני סידורים, ושניהם
+  /// משאירים קובץ של לקוח אחרי שהמשרד ביקש להימחק: השורה נמחקת בלי
+  /// שהמפתח נאסף, או שהשורה **והקובץ** שורדים את המחיקה (#258).
+  ///
+  /// לכן הדגל נקבע ונסגר בטרנזקציה משלו **לפני** האיסוף, ו-
+  /// `StorageService.put` בודק אותו — נקודה אחת שכל העלאה עוברת בה,
+  /// כולל טבלה שמינית שתיכתב בעוד שנה בלי לזכור את הכלל הזה.
+  filesLockedAt              DateTime?        @map("files_locked_at")
   settings                   Json             @default("{}")
   createdAt                  DateTime         @default(now()) @map("created_at")
   updatedAt                  DateTime         @updatedAt @map("updated_at")
@@ -1696,18 +1707,25 @@ model SupportMessage {
 
 /// קובץ מצורף בפניית תמיכה — צילום מסך הוא הדבר השימושי ביותר שפונה שולח.
 model SupportAttachment {
-  id          String   @id @db.Char(26)
-  messageId   String   @map("message_id") @db.Char(26)
+  id          String    @id @db.Char(26)
+  messageId   String    @map("message_id") @db.Char(26)
+  /// מקומו של הקובץ בהודעה — זהות יציבה שאינה תלויה בניסיון.
+  /// שני כותבים מקבילים מחשבים ממנו את אותו מפתח אחסון בדיוק.
+  ordinal     Int?
   /// image | video | file
-  kind        String   @db.VarChar(10)
-  name        String   @db.VarChar(200)
-  contentType String   @map("content_type") @db.VarChar(100)
-  sizeBytes   Int      @map("size_bytes")
-  s3Key       String   @map("s3_key") @db.VarChar(300)
-  createdAt   DateTime @default(now()) @map("created_at")
+  kind        String    @db.VarChar(10)
+  name        String    @db.VarChar(200)
+  contentType String    @map("content_type") @db.VarChar(100)
+  sizeBytes   Int       @map("size_bytes")
+  s3Key       String    @map("s3_key") @db.VarChar(300)
+  /// null = השורה נתבעה וטרם הועלתה. השורה נכתבת לפני ההעלאה, ולכן
+  /// קיומה אינו מעיד שהאובייקט קיים — וצירוף שטרם הועלה אינו מוצג.
+  uploadedAt  DateTime? @map("uploaded_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
 
   message SupportMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
+  @@unique([messageId, ordinal])
   @@index([messageId])
   @@map("support_attachments")
 }

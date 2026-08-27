@@ -182,7 +182,7 @@ export class SupportService {
         select: { id: true },
       });
       if (!ticket) throw new NotFoundException("הפנייה לא נמצאה");
-      await this.storage.put(key, file, kind.mime);
+      await this.storage.put(key, file, kind.mime, tenantId);
       await tx.supportTicket.update({ where: { id: ticketId }, data: { screenshotKey: key } });
     });
     return { ok: true };

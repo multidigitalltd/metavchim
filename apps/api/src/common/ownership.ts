@@ -217,10 +217,65 @@ export function seesAllContacts(): boolean {
  * (`NOT EXISTS` באותה שאילתה עם ה-LIMIT), ולכן לא נשאר לה קורא:
  * מה שנשאר הוא השאלה על רשומה אחת, וזו הצורה שמופיעה כאן.
  */
+/**
+ * הכינויים המותרים לטבלה שעליה חל תנאי היתמות.
+ *
+ * ‎**איחוד סגור ולא `string`.** הכינוי נכנס לשאילתה דרך `Prisma.raw`,
+ * כלומר בלי פרמטר ובלי בריחה — הדרך היחידה שלא להשאיר את זה תלוי
+ * במשמעת הקורא היא שהטיפוס עצמו לא יאפשר ערך אחר.
+ */
+type OrphanAlias = "a" | "c" | "d";
+
+/**
+ * ‎**כלל היתמות בצורתו הקבוצתית — ניסוח אחד, שלושה קוראים.**
+ *
+ * אותו כלל בדיוק כמו `isOrphanContact`, בשפה שהמסד מבין: אין קונה
+ * חי, אין ליד, ואין נכס חי שהכרטיס הוא בעליו או דיירו. הצורה הזו
+ * קיימת כי רשימה חייבת להכריע יתמות **באותה שאילתה עם ה-LIMIT** —
+ * סינון אחרי השליפה מחזיר עמוד חסר.
+ *
+ * ‎**ולמה כפונקציה ולא שוב בגוף השאילתה.** התנאי היה כתוב במפורש
+ * בתוך `visibleCallsCondition`, ובאותו קובץ ישב `isOrphanContact`
+ * שאומר את אותו הדבר. שני ניסוחים של כלל אחד הם בדיוק מה שכבר קרה
+ * כאן פעם אחת: שלושה עותקים נפרדו זה מזה, תיקון עדכן שניים והשאיר
+ * את השלישי, ובעל נכס נחשף למי שמודול הנכסים חסום אצלו. ארכיון
+ * ההסכמים והסריקות היה העותק הרביעי.
+ *
+ * ‎**בלי סינון בעלות, במכוון.** „יתום” כאן פירושו שאיש **במשרד**
+ * אינו יכול להגיע אליו — לא „המשתמש הזה אינו יכול”. ארכיון המשרד
+ * הוא מוצא אחרון לשורה שאיש אינו מגיע אליה, וסינון לפי `view_own`
+ * היה מכניס אליו לקוחות חיים של עמיתים.
+ */
+export function orphanContactCondition(alias: OrphanAlias): Prisma.Sql {
+  const t = Prisma.raw(alias);
+  return Prisma.sql`
+    NOT EXISTS (SELECT 1 FROM buyers b
+                 WHERE b.tenant_id = ${t}.tenant_id
+                   AND b.contact_id = ${t}.contact_id
+                   AND b.deleted_at IS NULL)
+    AND NOT EXISTS (SELECT 1 FROM leads l
+                     WHERE l.tenant_id = ${t}.tenant_id
+                       AND l.contact_id = ${t}.contact_id)
+    AND NOT EXISTS (SELECT 1 FROM properties p
+                     WHERE p.tenant_id = ${t}.tenant_id
+                       AND (p.owner_contact_id = ${t}.contact_id
+                         OR p.occupant_contact_id = ${t}.contact_id)
+                       AND p.deleted_at IS NULL)`;
+}
+
+/**
+ * ‎`exceptPropertyId` — „האם יהיה יתום **אחרי** שהנכס הזה יימחק”.
+ *
+ * מסך האישור של מחיקה לצמיתות חייב לשאול את השאלה הזו לפני שהשורה
+ * נמחקה, והמחיקה עצמה שואלת אותה אחריה. אותו כלל בשני זמנים — ולכן
+ * פרמטר ולא ניסוח שני, שהוא בדיוק הצורה שנפרדת מעצמה ומבטיחה למתווך
+ * „לא יימחק אף כרטיס” על מחיקה שכן מוחקת אחד.
+ */
 export async function isOrphanContact(
   tx: TenantTx,
   tenantId: string,
   contactId: string,
+  exceptPropertyId?: string,
 ): Promise<boolean> {
   const [buyer, lead, property] = await Promise.all([
     tx.buyer.findFirst({ where: { tenantId, deletedAt: null, contactId }, select: { id: true } }),
@@ -229,6 +284,7 @@ export async function isOrphanContact(
       where: {
         tenantId,
         deletedAt: null,
+        ...(exceptPropertyId === undefined ? {} : { id: { not: exceptPropertyId } }),
         // גם דייר קושר אדם לנכס — לא רק בעלות
         OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
       },
@@ -236,6 +292,34 @@ export async function isOrphanContact(
     }),
   ]);
   return buyer === null && lead === null && property === null;
+}
+
+/**
+ * ‎**מול מי נבדקת הבעלות — או שהשורה שייכת לארכיון המשרד.**
+ *
+ * מסמך שנשמר מטעמים משפטיים מגיע לארכיון בשתי דרכים: מחיקת לקוח
+ * מנתקת אותו במפורש (`contactId = null`), **או** שהכרטיס שלו נשאר
+ * במקומו ואיבד את כל עוגני הגישה. שתי הדרכים מובילות לאותו מצב —
+ * אין כרטיס שאפשר לבדוק מולו בעלות — ולכן שתיהן צריכות את אותו שער.
+ *
+ * ‎**וזה חייב להיות אותו כלל שהרשימה משתמשת בו.** הרשימה הורחבה
+ * ליתומים, והשער נשאר על „נותק” בלבד; התוצאה הייתה ארכיון שמציג
+ * שורות שמנהל המשרד **אינו יכול לפתוח** — assertContactAccess נכשלת
+ * עליהן בהגדרה (ביקורת Codex). שני תנאים שאמורים להסכים, בשני
+ * מקומות, הם בדיוק הצורה שנפרדת מעצמה.
+ *
+ * מחזיר את המזהה בענף „לקוח” כדי שהקורא לא יצטרך `!`: „יש כרטיס
+ * לבדוק מולו” הוא בדיוק המידע שהמזהה קיים.
+ */
+export async function contactGateFor(
+  tx: TenantTx,
+  tenantId: string,
+  contactId: string | null,
+): Promise<{ mode: "archive" } | { mode: "contact"; contactId: string }> {
+  if (contactId === null) return { mode: "archive" };
+  return (await isOrphanContact(tx, tenantId, contactId))
+    ? { mode: "archive" }
+    : { mode: "contact", contactId };
 }
 
 export async function visibleContactIds(
@@ -385,17 +469,6 @@ export function visibleCallsCondition(
       OR (c.created_by IS NULL AND c.contact_id IS NULL)
       OR (c.created_by = ${userId}
           AND c.contact_id IS NOT NULL
-          AND NOT EXISTS (SELECT 1 FROM buyers b
-                           WHERE b.tenant_id = c.tenant_id
-                             AND b.contact_id = c.contact_id
-                             AND b.deleted_at IS NULL)
-          AND NOT EXISTS (SELECT 1 FROM leads l
-                           WHERE l.tenant_id = c.tenant_id
-                             AND l.contact_id = c.contact_id)
-          AND NOT EXISTS (SELECT 1 FROM properties p
-                           WHERE p.tenant_id = c.tenant_id
-                             AND (p.owner_contact_id = c.contact_id
-                               OR p.occupant_contact_id = c.contact_id)
-                             AND p.deleted_at IS NULL))
+          AND ${orphanContactCondition("c")})
     )`;
 }

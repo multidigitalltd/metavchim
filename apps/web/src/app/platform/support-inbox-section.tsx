@@ -48,8 +48,27 @@ interface ThreadView {
     direction: string;
     body: string;
     createdAt: string;
+    /** ‏pending | sent | failed | unknown — ביוצאות בלבד. */
+    sendState?: string;
     attachments: { id: string; name: string; kind: string; sizeBytes: number }[];
   }[];
+}
+
+/**
+ * ‎**תשובה שלא יצאה חייבת להיראות אחרת — ו„לא ידוע” אינו „לא”.**
+ *
+ * ההודעה הצפה אחרי השליחה נעלמת בטעינה מחדש או ברענון הדף, ואז
+ * השורה עצמה היא מה שנשאר. בלי תווית עליה, תשובה שהסתיימה בתוצאה
+ * עמומה נראית ככל תשובה שנשלחה — והמנהל שולח שוב לנמען שאולי כבר
+ * קיבל (ביקורת Codex). אותה תווית ואותן מילים כמו בתיבת הלקוחות:
+ * הפעולה הנדרשת זהה, ולכן גם הניסוח.
+ */
+function sendStateNote(state: string | undefined): { text: string; token: string } | null {
+  if (state === "failed") return { text: "לא נשלחה", token: "--color-danger" };
+  if (state === "unknown" || state === "pending") {
+    return { text: "לא ידוע אם נשלחה — בדקו לפני שליחה חוזרת", token: "--color-danger" };
+  }
+  return null;
 }
 
 function formatBytes(bytes: number): string {
@@ -65,6 +84,23 @@ export function SupportInboxSection() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  /*
+   * השרשור הפתוח, לקריאה אחרי `await`: המשך שרץ בסגור של רינדור
+   * קודם קורא ערך ישן מ-state מעצם הגדרתו.
+   */
+  const openRef = useRef<string | null>(null);
+  /*
+   * ‎**מונה פתיחות — כי `openRef` לבדו אינו מספיק.**
+   *
+   * ‎`openThread` מעדכן את `openRef` בשורתו הראשונה, ולכן בדיקה
+   * אחריו מסכימה עם עצמה תמיד: השומר שכתבתי היה חסר שיניים. וגרוע
+   * מזה — תשובה של פתיחה **ישנה** שחוזרת אחרונה דורסת את השרשור
+   * שנבחר בינתיים (ביקורת Codex).
+   *
+   * המונה מזהה איזו פתיחה היא הנוכחית, ולכן תשובה של פתיחה שכבר
+   * הוחלפה נזרקת במקום להיכתב.
+   */
+  const openSeq = useRef(0);
 
   const load = useCallback(() => {
     apiGet<ThreadRow[]>("/platform/support/inbox")
@@ -75,11 +111,17 @@ export function SupportInboxSection() {
   useEffect(load, [load]);
 
   async function openThread(id: string): Promise<void> {
+    const mine = ++openSeq.current;
+    openRef.current = id;
     setNotice(null);
     try {
-      setOpen(await apiGet<ThreadView>(`/platform/support/inbox/${id}`));
+      const view = await apiGet<ThreadView>(`/platform/support/inbox/${id}`);
+      // פתיחה שהוחלפה בינתיים — התשובה שלה אינה המסך הנוכחי
+      if (openSeq.current !== mine) return;
+      setOpen(view);
       load();
     } catch (err: unknown) {
+      if (openSeq.current !== mine) return;
       setNotice({ tone: "danger", text: err instanceof ApiError ? err.message : "הפתיחה נכשלה" });
     }
   }
@@ -118,15 +160,33 @@ export function SupportInboxSection() {
       const sent = (await res.json().catch(() => null)) as { state?: string } | null;
       setReply("");
       if (fileInput.current) fileInput.current.value = "";
-      setNotice(
-        sent?.state === "unknown"
-          ? {
-              tone: "danger",
-              text: "לא התקבל אישור מספק הדואר — ייתכן שהתשובה יצאה. בדקו לפני שליחה חוזרת.",
-            }
-          : { tone: "success", text: "התשובה נשלחה" },
-      );
-      await openThread(open.id);
+      /*
+       * ‎**ההודעה נקבעת אחרי הטעינה מחדש, לא לפניה.** `openThread`
+       * פותח ב-`setNotice(null)`, ולכן אזהרה שנכתבה לפניו נמחקה
+       * לפני שהספיקה להיראות — והתשובה נראתה ככל תשובה שנשלחה,
+       * בהזמנה לשלוח שוב לנמען שאולי כבר קיבל (ביקורת Codex).
+       * אותו תיקון בדיוק כמו בתיבת הלקוחות.
+       */
+      const threadId = open.id;
+      /*
+       * ‎**הבדיקה לפני הטעינה, לא רק אחריה.** `openThread` מעדכן את
+       * ‎`openRef` בשורתו הראשונה, ולכן בדיקה אחריו מסכימה עם עצמה
+       * תמיד — והטעינה עצמה הייתה **מושכת את השולחן בחזרה** לשרשור
+       * הישן (ביקורת Codex).
+       */
+      if (openRef.current !== threadId) return;
+      await openThread(threadId);
+      // עבר בינתיים לשרשור אחר — האזהרה שייכת לזה שממנו נשלח
+      if (openRef.current === threadId) {
+        setNotice(
+          sent?.state === "unknown"
+            ? {
+                tone: "danger",
+                text: "לא התקבל אישור מספק הדואר — ייתכן שהתשובה יצאה. בדקו לפני שליחה חוזרת.",
+              }
+            : { tone: "success", text: "התשובה נשלחה" },
+        );
+      }
     } catch (err: unknown) {
       setNotice({ tone: "danger", text: err instanceof ApiError ? err.message : "השליחה נכשלה" });
     } finally {
@@ -261,6 +321,15 @@ export function SupportInboxSection() {
                 <p className="m-0 mt-1 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
                   {message.direction === "out" ? "תשובת התמיכה" : open.contactName} ·{" "}
                   {formatDateTime(message.createdAt)}
+                  {(() => {
+                    const note = sendStateNote(message.sendState);
+                    return note === null ? null : (
+                      <>
+                        {" · "}
+                        <span style={{ color: `var(${note.token})` }}>{note.text}</span>
+                      </>
+                    );
+                  })()}
                 </p>
               </li>
             ))}

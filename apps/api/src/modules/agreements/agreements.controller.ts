@@ -121,8 +121,16 @@ export class AgreementsController {
     return this.prisma.withTenant((tx) => this.agreements.listRetained(tx));
   }
 
+  /*
+   * ‎**גם `settings.manage`, כי הארכיון מפנה לכאן.** רשימת המסמכים
+   * השמורים גדורה ב-`settings.manage`, והמסמכים שבה מובילים לנתיב
+   * הזה. מנהל שמודול הקונים חסום אצלו יכול היה לראות את הרשימה
+   * ולקבל 403 בלחיצה — השער ברמת הנתיב נחסם לפני שהשער שבשירות,
+   * שיודע על הארכיון, הספיק לרוץ (ביקורת Codex). הסמכויות ב-OR,
+   * וההכרעה מי רשאי לראות **את השורה הזו** נשארת בשירות.
+   */
   @Get("agreements/:id/document")
-  @RequireCapability("buyers.view_own")
+  @RequireCapability("buyers.view_own", "settings.manage")
   async document(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
   ): Promise<Awaited<ReturnType<AgreementsService["document"]>>> {

@@ -1757,9 +1757,14 @@ export class PlatformController {
   @HttpCode(200)
   async invoiceForPayment(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-  ): Promise<{ ok: true }> {
-    await this.invoices.queueForPayment(id);
-    return { ok: true };
+  ): Promise<{ ok: boolean; error?: string }> {
+    /*
+     * ‎**תיקון ידני מדווח מה קרה באמת.** `queueForPayment` בולעת
+     * כשלים בכוונה — היא נקראת גם מהוובהוק, ושם הסורק ידווח שוב —
+     * אבל כאן זו פעולת תיקון מפורשת, והמסך אמר „נרשם” גם כשלא נרשם
+     * דבר והתשלום נשאר בלי מסמך (ביקורת Codex).
+     */
+    return this.invoices.queueForPayment(id);
   }
 
   /**

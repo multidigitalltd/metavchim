@@ -7,6 +7,7 @@ import { DuplicatesService } from "./duplicates.service";
 @Module({
   controllers: [ContactsController],
   providers: [ContactsService, DuplicatesService, ContactErasureService],
-  exports: [ContactsService],
+  // מיוצא כדי שמחיקת נכס לצמיתות תוכל למחוק כרטיס שנשאר בלי אף עוגן
+  exports: [ContactsService, ContactErasureService],
 })
 export class ContactsModule {}

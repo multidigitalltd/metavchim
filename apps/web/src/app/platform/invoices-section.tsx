@@ -93,8 +93,20 @@ export function InvoicesSection() {
     setBusyId(paymentId);
     setNotice(null);
     try {
-      await apiPost(`/platform/payments/${paymentId}/invoice`, {});
-      setNotice({ tone: "success", text: "נרשמה חשבונית — תופק בסבב הקרוב" });
+      /*
+       * ‎**הצלחה נקראת מהתשובה, לא מהיעדר חריגה.** השרת החזיר
+       * ‎`{ ok: true }` תמיד — גם כשהרישום נכשל — והמסך אמר „נרשמה”
+       * בזמן שהתשלום נשאר בלי מסמך (ביקורת Codex).
+       */
+      const result = await apiPost<{ ok: boolean; error?: string }>(
+        `/platform/payments/${paymentId}/invoice`,
+        {},
+      );
+      setNotice(
+        result.ok
+          ? { tone: "success", text: "נרשמה חשבונית — תופק בסבב הקרוב" }
+          : { tone: "danger", text: result.error ?? "הרישום נכשל" },
+      );
       load();
     } catch (err: unknown) {
       setNotice({ tone: "danger", text: err instanceof ApiError ? err.message : "הרישום נכשל" });

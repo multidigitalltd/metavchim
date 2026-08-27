@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { linetNoResults } from "@metavchim/shared";
 import { PlatformSettingsService } from "./platform-settings.service";
 
 /**
@@ -158,13 +159,17 @@ export class LinetService {
     const credentials = await this.credentials();
     if (!credentials) return { ok: false, message: "מזהה, מפתח או מזהה חברה חסרים" };
     try {
-      const body = await this.post(
+      /*
+       * הכתובת הזו **מובטחת** לא להימצא — וזה בדיוק העניין: הבדיקה
+       * אינה יוצרת דבר. עד התיקון, „לא נמצא” הגיע כשגיאה, וכל חיבור
+       * תקין דווח כ„לינט דחתה”.
+       */
+      void (await this.search(
         credentials,
         "/search/account",
         { email: "connection-test@metavchim.co.il", type: 0 },
         TEST_TIMEOUT_MS,
-      );
-      void body;
+      ));
       const missing = await this.missingSettings();
       return missing.length > 0
         ? { ok: true, message: `ההזדהות תקינה, אך חסרים קודים להפקה: ${missing.join(", ")}` }
@@ -290,27 +295,42 @@ export class LinetService {
    * אצלנו. בלי החיפוש הזה הניסיון הבא היה מפיק מסמך שני על אותו
    * תשלום — כפילות שמתגלה אצל רואה החשבון ואי אפשר לבטל בשקט.
    *
-   * במאמץ טוב: אם החיפוש נכשל או שהמודל אינו תומך בשדה, מחזירים
-   * `null` וההפקה ממשיכה כרגיל.
+   * ‎**`null` פירושו „חיפשנו ולא קיים” — ולא „לא הצלחנו לחפש”.**
+   *
+   * הניסוח הקודם בלע כל שגיאה והחזיר `null` „במאמץ טוב”, כלומר
+   * הפך פסק זמן או 5xx ל„אין מסמך” — בדיוק בתרחיש הדו-משמעי
+   * שהחיפוש הזה קיים כדי להגן עליו. שתי חשבוניות מס על תשלום אחד
+   * ‎(ביקורת Codex).
+   *
+   * ‎**המחיר, במפורש:** אם לינט תדחה את החיפוש דרך קבע, ניסיונות
+   * חוזרים ייכשלו בקול וימתינו לאדם במקום להפיק. זו ההעדפה
+   * הנכונה: חשבונית חסרה מושלמת ידנית, חשבונית כפולה מתגלה אצל
+   * רואה החשבון ואי אפשר לבטל אותה בשקט. הניסיון **הראשון** אינו
+   * קורא לכאן כלל, ולכן הפקה רגילה אינה מושפעת.
    */
   async findDocumentByExternalRef(externalRef: string): Promise<string | null> {
     const credentials = await this.credentials();
-    if (!credentials) return null;
+    // בלי אישורים אי אפשר לבדוק — וזה אינו "אין מסמך"
+    if (!credentials) throw new Error("חיפוש מסמך קיים בלינט נכשל: אין אישורים");
     try {
-      const body = await this.post(
+      const rows = await this.search(
         credentials,
         "/search/doc",
         { refnum_ext: externalRef },
         TEST_TIMEOUT_MS,
       );
-      const rows = Array.isArray(body) ? body : [];
       const first = rows[0];
       if (typeof first !== "object" || first === null) return null;
       const id = firstValue(first as Record<string, unknown>, ["id", "doc_id", "docId"]);
       return id === null || id === undefined ? null : String(id);
     } catch (error) {
+      /*
+       * נזרק ולא נבלע: הקורא היחיד מפיק מסמך חדש כש-`null` חוזר,
+       * ולכן בליעה כאן היא אישור להפקה כפולה. הכישלון מסומן על
+       * החשבונית ומתוזמן לניסיון נוסף.
+       */
       this.logger.warn(`חיפוש מסמך קיים בלינט נכשל: ${errorText(error)}`);
-      return null;
+      throw error;
     }
   }
 
@@ -328,13 +348,17 @@ export class LinetService {
     customer: LinetCustomer,
   ): Promise<number | null> {
     try {
-      const found = await this.post(
+      /*
+       * ‎**החיפוש שלא מצא חייב להמשיך ליצירה.** כשהוא זרק, הבקרה
+       * קפצה ל-`catch` ו-`/create/account` לא רץ מעולם — כלומר כל
+       * לקוח חדש קיבל מסמך בלי `account_id`.
+       */
+      const rows = await this.search(
         credentials,
         "/search/account",
         { email: customer.email, type: 0 },
         TEST_TIMEOUT_MS,
       );
-      const rows = Array.isArray(found) ? found : [];
       const existing = rows[0];
       if (typeof existing === "object" && existing !== null) {
         const id = (existing as Record<string, unknown>)["id"];
@@ -368,6 +392,24 @@ export class LinetService {
   }
 
   /**
+   * חיפוש — **תוצאה ריקה היא רשימה ריקה ולא שגיאה.**
+   *
+   * לינט מדווחת „לא נמצאו פריטים” כשגיאה במעטפת, וכל שלושת החיפושים
+   * כאן נשענו על `post` שזורק עליה. ההמרה יושבת במקום אחד ולא בכל
+   * קורא: „חיפשתי ולא מצאתי” הוא חלק מהחוזה של חיפוש, ולא משהו שכל
+   * צרכן צריך לזכור לתרגם בעצמו.
+   */
+  private async search(
+    credentials: LinetCredentials,
+    path: string,
+    payload: Record<string, unknown>,
+    timeoutMs: number,
+  ): Promise<unknown[]> {
+    const body = await this.post(credentials, path, payload, timeoutMs, true);
+    return Array.isArray(body) ? body : [];
+  }
+
+  /**
    * POST ללינט עם שילוש ההזדהות, ופתיחת המעטפת.
    *
    * זורק על כל כישלון — כולל כישלון שהגיע כ-HTTP 200. ראו את ההסבר
@@ -378,6 +420,8 @@ export class LinetService {
     path: string,
     payload: Record<string, unknown>,
     timeoutMs: number,
+    /** ‏`true` בחיפוש בלבד — ראו `search`. */
+    emptyIsOk = false,
   ): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -399,7 +443,12 @@ export class LinetService {
       if (!response.ok && envelopeField(json, "status") === null) {
         throw new Error(`שגיאת HTTP ${response.status}`);
       }
-      if (!envelopeSucceeded(json)) throw new Error(describeError(json));
+      if (!envelopeSucceeded(json)) {
+        const message = describeError(json);
+        // חיפוש שלא מצא הוא רשימה ריקה, לא חריגה — ראו `linetNoResults`
+        if (emptyIsOk && linetNoResults(message)) return [];
+        throw new Error(message);
+      }
 
       const body = envelopeBody(json);
       return body === undefined ? json : body;
