@@ -19,3 +19,18 @@ ALTER TABLE "email_attachments" ADD COLUMN "ordinal" INTEGER;
 
 CREATE UNIQUE INDEX "email_attachments_tenant_id_message_id_ordinal_key"
   ON "email_attachments" ("tenant_id", "message_id", "ordinal");
+
+-- ‏"נתבע" אינו "הועלה".
+--
+-- השורה נכתבת לפני ההעלאה והיא התביעה על המקום, ולכן קיומה אינו
+-- מעיד שהאובייקט קיים. תהליך שנפל בין השתיים משאיר תביעה בלי קובץ —
+-- ומסירה חוזרת שדילגה עליה כי המקום "תפוס" הותירה צירוף גלוי
+-- שהורדתו נכשלת לנצח (ביקורת Codex).
+--
+-- העמודה מפרידה בין השתיים: NULL = נתבע וטרם הועלה, וערך = הושלם.
+-- ‏‎`uploaded_at` הוא גם מה שקובע מה מוצג בשיחה: צירוף שטרם הועלה
+-- אינו מופיע, במקום להופיע עם קישור שבור.
+ALTER TABLE "email_attachments" ADD COLUMN "uploaded_at" TIMESTAMP(3);
+
+-- השורות הקיימות נכתבו **אחרי** העלאה מוצלחת — הן הושלמו בהגדרה.
+UPDATE "email_attachments" SET "uploaded_at" = "created_at";

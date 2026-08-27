@@ -22,6 +22,19 @@ import { StorageService } from "../../core/storage.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import { ContactsService } from "../contacts/contacts.service";
 
+/**
+ * חלון החכירה על תביעת קובץ.
+ *
+ * תביעה שנכתבה ולא הושלמה בתוך החלון נחשבת נטושה — התהליך שכתב
+ * אותה נפל בין הכתיבה להעלאה — ומסירה חוזרת רשאית להשלים אותה.
+ * ההשתלטות בטוחה מעצם המפתח הדטרמיניסטי: גם אם הכותב המקורי עדיין
+ * חי, שניהם כותבים את אותם בתים לאותו מפתח.
+ *
+ * חמש דקות: העלאה של קובץ בגבולות שהמערכת מתירה אורכת שניות, ולכן
+ * חלון כזה אינו תופס העלאה חיה — והספק מוסר שוב על פני שעות.
+ */
+const ATTACHMENT_CLAIM_LEASE_MS = 5 * 60 * 1000;
+
 /** שורת תיבה — שיחה אחת עם לקוח, בתמצית. */
 export interface InboxThreadDto {
   contactId: string;
@@ -340,64 +353,92 @@ export class EmailInboxService {
      * בתים, והאילוץ הייחודי מכריע מי כותב את השורה. אין כפילות
      * בתיבה, ואין אובייקט שני באחסון.
      */
-    const storedOrdinals = new Set<number>();
+    /*
+     * ‎**„נתבע” אינו „הועלה”.**
+     *
+     * השורה נכתבת לפני ההעלאה והיא התביעה על המקום, ולכן קיומה אינו
+     * מעיד שהאובייקט קיים. תהליך שנפל בין השתיים משאיר תביעה בלי
+     * קובץ, ומסירה חוזרת שדילגה עליה כי „המקום תפוס” הותירה צירוף
+     * גלוי שהורדתו נכשלת **לנצח** (ביקורת Codex): הרשומה החדשה
+     * נשאה בעת ובעונה אחת בעלות והשלמה.
+     *
+     * ‎`uploadedAt` מפריד ביניהן. תביעה שלא הושלמה בתוך חלון
+     * החכירה נחשבת נטושה ומושלמת כאן; תביעה צעירה מדולגת, כי סביר
+     * שכותב אחר עדיין מעלה — והמסירה החוזרת הבאה תטפל בה.
+     *
+     * ההשלמה בטוחה מעצם המפתח הדטרמיניסטי: גם אם הכותב המקורי חי,
+     * שניהם כותבים את אותם בתים לאותו מפתח.
+     */
+    const completed = new Set<number>();
+    const abandoned = new Set<number>();
     if (!stored.fresh) {
       const rows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
         tx.emailAttachment.findMany({
           where: { tenantId, messageId: stored.messageId },
-          select: { ordinal: true },
+          select: { ordinal: true, uploadedAt: true, createdAt: true },
         }),
       );
+      const staleBefore = Date.now() - ATTACHMENT_CLAIM_LEASE_MS;
       for (const row of rows) {
-        if (row.ordinal !== null) storedOrdinals.add(row.ordinal);
+        if (row.ordinal === null) continue;
+        if (row.uploadedAt !== null) completed.add(row.ordinal);
+        else if (row.createdAt.getTime() <= staleBefore) abandoned.add(row.ordinal);
       }
       this.logger.log(
-        `מסירה חוזרת של תשובת מייל — ${storedOrdinals.size} מתוך ${incoming.length} קבצים כבר שמורים`,
+        `מסירה חוזרת של תשובת מייל — ${completed.size} מתוך ${incoming.length} קבצים הושלמו, ${abandoned.size} תביעות נטושות להשלמה`,
       );
     }
     for (const [ordinal, attachment] of incoming.entries()) {
-      if (storedOrdinals.has(ordinal)) continue;
+      if (completed.has(ordinal)) continue;
       const s3Key = `tenants/${tenantId}/email-attachments/${stored.messageId}/${ordinal}`;
       /*
-       * ‎**השורה נכתבת לפני ההעלאה, והיא התביעה על המקום.**
+       * ‎**התביעה קודמת להעלאה, והיא אטומית.**
        *
        * הסדר היה הפוך, והמפתח המשותף הפך אותו למסוכן: כותב שההעלאה
        * שלו נגמרה בלי תשובה ספר אפס שורות ומחק את המפתח — בזמן
-       * שכותב מקביל, שהעלה בהצלחה לאותו מפתח, טרם הספיק לכתוב את
-       * שורתו. התוצאה: שורה גלויה שמצביעה לאובייקט שנמחק (ביקורת
-       * Codex). בדיקה-ואז-מחיקה אינה מסונכרנת מול ההכנסה המתחרה.
-       *
-       * ‎`ON CONFLICT DO NOTHING` הוא תביעה **אטומית**: מי שכתב את
-       * השורה הוא בעליו הבלעדי של המפתח, והמפסיד אינו מעלה כלל
-       * ולכן גם אינו מוחק. אין שני כותבים על אותו מפתח.
+       * שכותב מקביל, שהעלה בהצלחה לאותו מפתח, טרם כתב את שורתו
+       * ‎(ביקורת Codex). `ON CONFLICT DO NOTHING` הופך את הבעלות
+       * לבלעדית, והמפסיד אינו מעלה ולכן גם אינו מוחק.
        */
-      let claimed = false;
+      const takeover = abandoned.has(ordinal);
+      let claimed = takeover;
       try {
-        const written = await this.prisma.withExplicitTenant(tenantId, (tx) =>
-          tx.emailAttachment.createMany({
-            data: [
-              {
-                id: ulid(),
-                tenantId,
-                messageId: stored.messageId,
-                ordinal,
-                name: attachment.name,
-                contentType: attachment.contentType,
-                kind: attachment.kind,
-                sizeBytes: attachment.content.length,
-                s3Key,
-              },
-            ],
-            skipDuplicates: true,
-          }),
-        );
-        // המקום כבר תפוס — כותב מקביל אחראי עליו, ואין לנו מה לעשות
-        if (written.count === 0) continue;
-        claimed = true;
+        if (!takeover) {
+          const written = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+            tx.emailAttachment.createMany({
+              data: [
+                {
+                  id: ulid(),
+                  tenantId,
+                  messageId: stored.messageId,
+                  ordinal,
+                  name: attachment.name,
+                  contentType: attachment.contentType,
+                  kind: attachment.kind,
+                  sizeBytes: attachment.content.length,
+                  s3Key,
+                },
+              ],
+              skipDuplicates: true,
+            }),
+          );
+          // המקום תפוס בתביעה חיה — כותב אחר אחראי עליה
+          if (written.count === 0) continue;
+          claimed = true;
+        }
         await this.storage.put(s3Key, attachment.content, attachment.contentType);
+        // ורק עכשיו „הושלם” — לפני כן הרשומה היא בעלות בלבד
+        await this.markUploaded(tenantId, stored.messageId, ordinal);
       } catch (error: unknown) {
         this.logger.error(`שמירת קובץ מצורף נכשלה: ${String(error)}`);
-        if (claimed) await this.releaseClaim(tenantId, stored.messageId, ordinal, s3Key);
+        /*
+         * השתלטות שנכשלה **אינה** משחררת: התביעה אינה שלנו, ומחיקת
+         * המפתח שלה תפגע בכותב שאולי עדיין מעלה. היא תישאר נטושה
+         * ותושלם במסירה הבאה.
+         */
+        if (claimed && !takeover) {
+          await this.releaseClaim(tenantId, stored.messageId, ordinal, s3Key);
+        }
       }
     }
 
@@ -533,8 +574,17 @@ export class EmailInboxService {
           take: 200,
         })
       ).reverse();
+      /*
+       * ‎**רק מה שהושלם.** רשומה בלי `uploadedAt` היא תביעה על מקום
+       * שטרם הועלה — קישור שבור, לא צירוף. היא תופיע ברגע שההעלאה
+       * תושלם, ומסירה חוזרת משלימה תביעה שנשארה נטושה.
+       */
       const attachmentRows = await tx.emailAttachment.findMany({
-        where: { tenantId, messageId: { in: rows.map((r) => r.id) } },
+        where: {
+          tenantId,
+          messageId: { in: rows.map((r) => r.id) },
+          uploadedAt: { not: null },
+        },
         orderBy: { createdAt: "asc" },
         select: { id: true, messageId: true, name: true, kind: true, contentType: true, sizeBytes: true },
       });
@@ -861,11 +911,41 @@ export class EmailInboxService {
         if (written.count === 0) continue;
         claimed = true;
         await this.storage.put(s3Key, file.content, file.contentType);
+        await this.markUploaded(tenantId, messageId, ordinal);
       } catch (error: unknown) {
         this.logger.error(`שמירת עותק קובץ יוצא נכשלה: ${String(error)}`);
         if (claimed) await this.releaseClaim(tenantId, messageId, ordinal, s3Key);
       }
     }
+  }
+
+  /**
+   * ‎**„הושלם” נכתב אחרי ההעלאה, ורק אז.**
+   *
+   * עד לרגע הזה הרשומה מציינת בעלות על המקום בלבד. השיחה מציגה רק
+   * מה שהושלם, ומסירה חוזרת משלימה תביעה שנשארה נטושה — שתי
+   * ההתנהגויות נשענות על ההפרדה הזו.
+   *
+   * כשל כאן אינו מפיל את הקליטה: הקובץ באחסון, השורה קיימת, והמסירה
+   * החוזרת הבאה תשלים את הסימון. הרעש ביומן הוא מה שנשאר.
+   */
+  private async markUploaded(
+    tenantId: string,
+    messageId: string,
+    ordinal: number,
+  ): Promise<void> {
+    await this.prisma
+      .withExplicitTenant(tenantId, (tx) =>
+        tx.emailAttachment.updateMany({
+          where: { tenantId, messageId, ordinal },
+          data: { uploadedAt: new Date() },
+        }),
+      )
+      .catch((error: unknown) => {
+        this.logger.error(
+          `סימון השלמת קובץ מצורף נכשל — הקובץ באחסון והשורה תושלם במסירה הבאה: ${messageId}/${ordinal} — ${String(error)}`,
+        );
+      });
   }
 
   /**

@@ -57,9 +57,54 @@ describe("התביעה על מקום הקובץ", () => {
     }
   });
 
+  /*
+   * ‎**„נתבע” אינו „הועלה”.** השורה נכתבת לפני ההעלאה, ולכן קיומה
+   * אינו מעיד שהאובייקט קיים. תהליך שנפל בין השתיים השאיר תביעה
+   * בלי קובץ, ומסירה חוזרת שדילגה עליה כי „המקום תפוס” הותירה
+   * צירוף גלוי שהורדתו נכשלת לנצח (ביקורת Codex).
+   */
+  it("ההשלמה נרשמת בשדה נפרד, ורק אחרי ההעלאה", () => {
+    for (const fn of ["  async processInbound(", "  private async storeOutgoingCopies("]) {
+      const scope = method(SERVICE, fn);
+      const put = scope.indexOf("this.storage.put(");
+      const mark = scope.indexOf("this.markUploaded(");
+      expect(put, `ההעלאה לא נמצאה ב-${fn}`).toBeGreaterThan(-1);
+      expect(mark, `סימון ההשלמה לא נמצא ב-${fn}`).toBeGreaterThan(put);
+    }
+    expect(method(SERVICE, "private async markUploaded(")).toContain("uploadedAt: new Date()");
+  });
+
+  it("הדילוג הוא על מה שהושלם, לא על מה שנתבע", () => {
+    const inbound = method(SERVICE, "  async processInbound(");
+    expect(inbound).toContain("if (completed.has(ordinal)) continue;");
+    expect(inbound).toMatch(/if \(row\.uploadedAt !== null\) completed\.add\(row\.ordinal\)/u);
+  });
+
+  /*
+   * תביעה נטושה מושלמת; תביעה צעירה מדולגת, כי סביר שכותב אחר עדיין
+   * מעלה. ההשתלטות בטוחה מעצם המפתח הדטרמיניסטי.
+   */
+  it("תביעה שפג חלון החכירה שלה מושלמת", () => {
+    const inbound = method(SERVICE, "  async processInbound(");
+    expect(inbound).toContain("ATTACHMENT_CLAIM_LEASE_MS");
+    expect(inbound).toMatch(/row\.createdAt\.getTime\(\) <= staleBefore\) abandoned\.add/u);
+    expect(inbound).toContain("const takeover = abandoned.has(ordinal);");
+    // השתלטות שנכשלה אינה משחררת תביעה שאינה שלנו
+    expect(inbound).toContain("if (claimed && !takeover) {");
+  });
+
+  it("השיחה מציגה רק צירופים שהושלמו", () => {
+    const thread = method(SERVICE, "  async thread(");
+    expect(thread).toMatch(/uploadedAt: \{ not: null \}/u);
+  });
+
   it("מי שהפסיד בתביעה אינו מעלה ואינו מוחק", () => {
     expect((SERVICE.match(/if \(written\.count === 0\) continue;/gu) ?? []).length).toBe(2);
-    expect((SERVICE.match(/if \(claimed\) await this\.releaseClaim\(/gu) ?? []).length).toBe(2);
+    // שני המסלולים משחררים, ובקליטה גם רק כשהתביעה שלנו (`!takeover`)
+    expect(
+      (SERVICE.match(/if \(claimed[^)]*\) \{?\s*await this\.releaseClaim\(/gu) ?? []).length,
+    ).toBe(2);
+    expect(SERVICE).toContain("if (claimed && !takeover) {");
     expect(SERVICE).not.toContain("discardOrphan");
   });
 
@@ -278,8 +323,8 @@ describe("קליטה חוזרת שמשלימה קבצים", () => {
    * ליציבה: אותו מפתח אחסון לשני הכותבים, ואילוץ ייחודי שמכריע.
    */
   it("הזהות נגזרת מהמקום בהודעה ולא משם וגודל", () => {
-    expect(inbound).toContain("const storedOrdinals = new Set<number>();");
-    expect(inbound).toContain("if (storedOrdinals.has(ordinal)) continue;");
+    expect(inbound).toContain("const completed = new Set<number>();");
+    expect(inbound).toContain("const abandoned = new Set<number>();");
     expect(inbound).not.toContain("attachment.content.length}`");
   });
 
@@ -322,7 +367,12 @@ describe("קליטה חוזרת שמשלימה קבצים", () => {
     expect(migration).toMatch(/CREATE UNIQUE INDEX[\s\S]{0,200}"tenant_id", "message_id", "ordinal"/u);
     // NULL על שורות ותיקות — אין מילוי אחורה, ואין התנגשות
     expect(migration).toContain('ADD COLUMN "ordinal" INTEGER');
-    expect(migration).not.toMatch(/NOT NULL|UPDATE "email_attachments"/u);
+    expect(migration).not.toContain("NOT NULL");
+    // ‏"נתבע" אינו "הועלה" — והשורות הקיימות נכתבו אחרי העלאה מוצלחת
+    expect(migration).toContain('ADD COLUMN "uploaded_at" TIMESTAMP(3)');
+    expect(migration).toMatch(
+      /UPDATE "email_attachments" SET "uploaded_at" = "created_at";/u,
+    );
   });
 
   it("התראה חוזרת אינה נשלחת", () => {
