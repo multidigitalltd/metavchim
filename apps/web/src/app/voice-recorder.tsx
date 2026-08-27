@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { appendDictated, collectDictation, createDictationSessions } from "@metavchim/shared";
+import {
+  appendDictated,
+  collectDictation,
+  createDictationSessions,
+  dictationMode,
+} from "@metavchim/shared";
 import {
   extensionForAudioType,
   preferredAudioFormat,
@@ -131,6 +136,15 @@ export function VoiceRecorder({
    * ממנו — הבחירה חייבת להיות במקום שבו לוחצים.
    */
   const [activeMode, setActiveMode] = useState<DictationMode | null>(null);
+  /**
+   * המנוע בדפדפן כבר נכשל כאן — הלחיצה הבאה תלך לשרת.
+   *
+   * מרגע שיש כפתור אחד הוא בוחר את המצב בעצמו, ובחירה לפי „הבנאי
+   * קיים” בלבד נועלת את המשתמש על מנוע שנכשל בכל ניסיון: באנדרואיד
+   * בלי חבילת עברית זה קורה תמיד, בעוד התמלול בשרת זמין ועובד
+   * (ביקורת Codex, P1).
+   */
+  const [browserFailed, setBrowserFailed] = useState(false);
   const segmentSecondsRef = useRef(DEFAULT_SEGMENT_SECONDS);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   /**
@@ -336,7 +350,8 @@ export function VoiceRecorder({
       streamRef.current = null;
       busyRef.current = false;
       setActiveMode(null);
-      onError?.("ההקלטה לא נפתחה במכשיר הזה — נסו „מהיר” או הקלידו");
+      // „מהיר” ירד מהמסך — הפניה אליו היא הוראה שאי אפשר לבצע
+      onError?.("ההקלטה לא נפתחה במכשיר הזה — אפשר להקליד במקום");
       return;
     }
     setRecording(true);
@@ -656,7 +671,12 @@ export function VoiceRecorder({
       setRecording(false);
       setFinishing(false);
       setActiveMode(null);
-      onError?.("זיהוי הדיבור נכשל — אפשר להקליד במקום");
+      setBrowserFailed(true);
+      onError?.(
+        serverAvailable
+          ? "זיהוי הדיבור בדפדפן נכשל — לחצו שוב, והתמלול יעבור לשרת"
+          : "זיהוי הדיבור נכשל — אפשר להקליד במקום",
+      );
     };
     recognitionRef.current = recognition;
     browserTokenRef.current = token;
@@ -668,7 +688,12 @@ export function VoiceRecorder({
       retireRecognition();
       busyRef.current = false;
       setActiveMode(null);
-      onError?.("זיהוי הדיבור נכשל — אפשר להקליד במקום");
+      setBrowserFailed(true);
+      onError?.(
+        serverAvailable
+          ? "זיהוי הדיבור בדפדפן נכשל — לחצו שוב, והתמלול יעבור לשרת"
+          : "זיהוי הדיבור נכשל — אפשר להקליד במקום",
+      );
       return;
     }
     setRecording(true);
@@ -786,36 +811,44 @@ export function VoiceRecorder({
             </p>
           ) : (
             <>
-              {/* שני הכפתורים, תמיד, ובלי מודגש: הבחירה נעשית כאן ועכשיו
-                  לפי מה שמקליטים — כתובת רוצים מדויקת, סיכום רוצים מהר */}
-              <div className="flex flex-wrap justify-center gap-2">
-                {browserAvailable ? (
-                  <Button
-                    type="button"
-                    variant="primary"
-                    onClick={() => begin("browser")}
-                    className="min-w-44"
-                  >
-                    מהיר — בדפדפן
-                  </Button>
-                ) : null}
-                {serverAvailable ? (
-                  <Button
-                    type="button"
-                    variant="primary"
-                    onClick={() => begin("server")}
-                    className="min-w-44"
-                  >
-                    מדויק — בשרת
-                  </Button>
-                ) : null}
-              </div>
+              {/*
+                ‎**כפתור אחד, לא שניים.**
+
+                היו כאן „מהיר” ו„מדויק”, והבחירה ביניהם הוטלה על מי
+                שרק רוצה לדבר במקום להקליד. בפועל כמעט איש לא נגע
+                ב„מדויק” — שתי אפשרויות לפעולה אחת הן שאלה שאין לרוב
+                האנשים דעה עליה, והן מאטות גם את מי שכן יודע.
+
+                המצב **לא בוטל**: זיהוי הדפדפן הוא ברירת המחדל כי הוא
+                מציג טקסט תוך כדי הדיבור, ובדפדפן שאין בו כזה (פיירפוקס,
+                חלק מגרסאות ספארי) אותו כפתור נופל לתמלול בשרת. אף אחד
+                לא מאבד את התכונה, ואיש אינו נדרש לבחור.
+              */}
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() =>
+                  begin(
+                    dictationMode({
+                      browserReady: browserAvailable,
+                      serverReady: serverAvailable,
+                      browserFailed,
+                    }),
+                  )
+                }
+                className="min-w-56"
+              >
+                🎤 דברו במקום להקליד
+              </Button>
               <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                {browserAvailable && serverAvailable
-                  ? "מהיר — הטקסט מופיע תוך כדי הדיבור, פחות מדויק בעברית. מדויק — התמלול רץ בשרת של המערכת, איטי יותר ולא יוצא לשום ספק חיצוני."
-                  : serverAvailable
-                    ? <><IconLock s={15} /> התמלול מתבצע בשרת של המערכת — ההקלטה לא נשלחת לשום גורם חיצוני</>
-                    : "זיהוי הדיבור של הדפדפן. לעברית מדויקת יותר נדרש שירות תמלול בשרת."}
+                {browserAvailable && !browserFailed ? (
+                  "הסוכן הקולי מקשיב וכותב בשבילכם — הטקסט מופיע תוך כדי הדיבור, ואפשר לערוך אותו אחר כך."
+                ) : (
+                  <>
+                    <IconLock s={15} /> הסוכן הקולי מקשיב וכותב בשבילכם. התמלול
+                    מתבצע בשרת של המערכת — ההקלטה לא נשלחת לשום גורם חיצוני.
+                  </>
+                )}
               </p>
             </>
           )}

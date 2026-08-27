@@ -6,6 +6,7 @@ import {
   collectDictation,
   createDictationSessions,
   dictationErrorMessage,
+  dictationShouldFallBack,
   extensionForAudioType,
   type DictationResultSegment,
 } from "@metavchim/shared";
@@ -163,6 +164,8 @@ function checkServerAvailability(): Promise<boolean> {
 export interface DictationState {
   /** האם המצב המהיר (דפדפן) נתמך כאן. */
   browserReady: boolean;
+  /** המנוע בדפדפן נכשל כאן — הלחיצה הבאה צריכה ללכת לשרת. */
+  browserFailed: boolean;
   /**
    * האם בדיקת התמיכה כבר רצה. `browserReady === false` לפני שהיא רצה
    * אינו „לא נתמך” אלא „עוד לא ידוע”, ומסך שמכריז על השני צריך
@@ -217,6 +220,19 @@ export function useDictation(
    */
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * המנוע בדפדפן כבר נכשל כאן — הלחיצה הבאה תלך לשרת.
+   *
+   * ‎**נדרש מרגע שיש כפתור אחד.** קודם היו שניים, ומי שנכשל ב„מהיר”
+   * לחץ על „מדויק”. עכשיו הכפתור בוחר בעצמו, ובחירה לפי „הבנאי
+   * קיים” בלבד הייתה נועלת את המשתמש על מנוע שנכשל בכל ניסיון —
+   * באנדרואיד בלי חבילת עברית זה קורה תמיד, בעוד השרת זמין ועובד
+   * (ביקורת Codex, P1).
+   *
+   * נדבק לכל החיים של הרכיב: מכשיר שאין בו עברית לא יצמיח אותה
+   * באמצע הסבב, וניסיון חוזר היה מחזיר את אותה שגיאה.
+   */
+  const [browserFailed, setBrowserFailed] = useState(false);
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -386,6 +402,7 @@ export function useDictation(
       busyRef.current = false;
       setRecording(null);
       setError(dictationErrorMessage(event?.error, opts.browserOnly === true));
+      if (dictationShouldFallBack(event?.error)) setBrowserFailed(true);
     };
     recognitionRef.current = recognition;
     browserTokenRef.current = token;
@@ -397,6 +414,8 @@ export function useDictation(
       retireBrowser();
       busyRef.current = false;
       setError(dictationErrorMessage(undefined, opts.browserOnly === true));
+      // מנוע שלא עלה בכלל הוא בדיוק המקרה שבשבילו הנפילה קיימת
+      setBrowserFailed(true);
       return;
     }
     setRecording("browser");
@@ -668,6 +687,7 @@ export function useDictation(
 
   return {
     browserReady,
+    browserFailed,
     detected,
     serverReady,
     recording,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, type ReactNode } from "react";
-import { appendDictated } from "@metavchim/shared";
+import { appendDictated, dictationMode } from "@metavchim/shared";
 import { useDictation, type DictationMode } from "@/lib/dictation";
 import { IconStop } from "./icons";
 
@@ -81,8 +81,18 @@ export function DictationControls({
    */
   browserOnly?: boolean;
 }) {
-  const { browserReady, detected, serverReady, recording, transcribing, pending, error, start, stop } =
-    useDictation((text) => onAppend(text), { browserOnly: browserOnly === true });
+  const {
+    browserReady,
+    browserFailed,
+    detected,
+    serverReady,
+    recording,
+    transcribing,
+    pending,
+    error,
+    start,
+    stop,
+  } = useDictation((text) => onAppend(text), { browserOnly: browserOnly === true });
 
   /*
    * סוף סבב = לא מקליט ולא מתמלל. בלי האיפוס הזה הקלטה שנייה באותו
@@ -150,30 +160,42 @@ export function DictationControls({
           </span>
         </>
       ) : (
-        <>
-          {browserReady ? (
-            <button
-              type="button"
-              className="mv-dictate-btn"
-              disabled={disabled}
-              onClick={() => begin("browser")}
-              title="זיהוי בדפדפן — הטקסט מופיע תוך כדי הדיבור"
-            >
-              <MicIcon /> מהיר
-            </button>
-          ) : null}
-          {serverReady && browserOnly !== true ? (
-            <button
-              type="button"
-              className="mv-dictate-btn"
-              disabled={disabled}
-              onClick={() => begin("server")}
-              title="תמלול בשרת של המערכת — מדויק יותר בעברית, מגיע בסוף ההקלטה"
-            >
-              <MicIcon /> מדויק
-            </button>
-          ) : null}
-        </>
+        /*
+         * ‎**כפתור אחד, לא שניים.**
+         *
+         * היו כאן „מהיר” ו„מדויק”, והבחירה ביניהם הוטלה על מי שרק
+         * רוצה לדבר במקום להקליד. בפועל כמעט איש לא נגע ב„מדויק” —
+         * שתי אפשרויות לפעולה אחת הן שאלה שאין לרוב האנשים דעה
+         * עליה, והן מאטות גם את מי שכן יודע.
+         *
+         * המצב לא בוטל: זיהוי הדפדפן הוא ברירת המחדל כי הטקסט מופיע
+         * בו תוך כדי הדיבור, ובדפדפן שאין בו כזה אותו כפתור נופל
+         * לתמלול בשרת — גם כשהוא **קיים ונכשל** (מכשיר בלי חבילת
+         * עברית), ולא רק כשהוא חסר. `browserOnly` נשאר החריג היחיד:
+         * שם אין נפילה, וזו החלטה מפורשת (ראו התיעוד של המאפיין).
+         */
+        <button
+          type="button"
+          className="mv-dictate-btn"
+          disabled={disabled}
+          onClick={() =>
+            begin(
+              dictationMode({
+                browserReady,
+                // ‏`browserOnly` אינו נופל לשרת — ראו התיעוד של המאפיין
+                serverReady: serverReady && browserOnly !== true,
+                browserFailed,
+              }),
+            )
+          }
+          title={
+            browserReady
+              ? "הסוכן הקולי מקשיב וכותב — הטקסט מופיע תוך כדי הדיבור"
+              : "הסוכן הקולי מקשיב וכותב — התמלול בשרת של המערכת, ומגיע בסוף ההקלטה"
+          }
+        >
+          <MicIcon /> דברו במקום להקליד
+        </button>
       )}
       {error ? (
         <span role="alert" className="mv-dictate-error">
