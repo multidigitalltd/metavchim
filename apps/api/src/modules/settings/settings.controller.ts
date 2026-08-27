@@ -84,6 +84,13 @@ const AutomationsSchema = z
       .object({
         enabled: z.boolean().optional(),
         value: z.number().optional(),
+        /*
+         * הערוץ והנוסח קיימים רק לאוטומציה שפונה ללקוח. הצורה
+         * נבדקת כאן, וההתאמה לאוטומציה הספציפית ב-
+         * `automationRejectionReason` — שם יושב הקטלוג.
+         */
+        channel: z.enum(["email", "whatsapp", "both"]).optional(),
+        messages: z.record(z.string().max(40), z.string().max(600)).optional(),
       })
       .strict(),
   )

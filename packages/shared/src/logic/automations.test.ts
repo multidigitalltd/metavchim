@@ -159,3 +159,118 @@ describe("automationThresholdMs", () => {
     );
   });
 });
+
+describe("תזכורת לפני סיור — ההגדרה שפונה ללקוח", () => {
+  /*
+   * ‎**שני האמצעים כברירת מחדל.** תזכורת בערוץ אחד מפספסת בדיוק
+   * את הלקוח שאינו חי בערוץ הזה, והמחיר הוא נסיעה לשווא.
+   */
+  it("ברירת המחדל היא וואטסאפ ומייל, עם שני נוסחים", () => {
+    const settings = defaultAutomationSettings();
+    const reminder = settings.viewing_reminder;
+    expect(reminder.enabled).toBe(true);
+    expect(reminder.value).toBe(5);
+    expect(reminder.channel).toBe("both");
+    expect(reminder.messages?.["occupant"]).toContain("{{שעה}}");
+    expect(reminder.messages?.["buyer"]).toContain("{{שעה}}");
+  });
+
+  it("ערוץ ונוסח שנשמרו נקראים בחזרה", () => {
+    const out = resolveAutomationSettings({
+      viewing_reminder: {
+        enabled: true,
+        value: 3,
+        channel: "whatsapp",
+        messages: { buyer: "נתראה ב{{שעה}}" },
+      },
+    });
+    expect(out.viewing_reminder.value).toBe(3);
+    expect(out.viewing_reminder.channel).toBe("whatsapp");
+    expect(out.viewing_reminder.messages?.["buyer"]).toBe("נתראה ב{{שעה}}");
+    // מה שלא נגעו בו נשאר ברירת המחדל, ולא נמחק
+    expect(out.viewing_reminder.messages?.["occupant"]).toContain("מגיעים");
+  });
+
+  /*
+   * ‎**נוסח ריק אינו הודעה ריקה.** מי שמחק את התיבה התכוון
+   * „תחזירו לי את המקורי”, והודעה ריקה ללקוח אי אפשר לתקן אחרי.
+   */
+  it("נוסח ריק או רווחים בלבד נופל לברירת המחדל", () => {
+    const out = resolveAutomationSettings({
+      viewing_reminder: { messages: { buyer: "   ", occupant: "" } },
+    });
+    expect(out.viewing_reminder.messages?.["buyer"]).toContain("נפגשים");
+    expect(out.viewing_reminder.messages?.["occupant"]).toContain("מגיעים");
+  });
+
+  it("ערוץ שאינו מוכר אינו נכנס", () => {
+    const out = resolveAutomationSettings({
+      viewing_reminder: { channel: "מדיה חברתית" },
+    });
+    expect(out.viewing_reminder.channel).toBe("both");
+  });
+
+  /*
+   * לשאר האוטומציות אין ערוץ ואין נוסח — הן פונות פנימה, למשרד.
+   * שדות שהיו מופיעים אצל כולן היו מבטיחים במסך שליטה שאין לה
+   * משמעות.
+   */
+  it("אוטומציה שאינה פונה ללקוח נשארת בלי ערוץ ובלי נוסח", () => {
+    const settings = defaultAutomationSettings();
+    expect(settings.lead_sla.channel).toBeUndefined();
+    expect(settings.lead_sla.messages).toBeUndefined();
+  });
+});
+
+describe("דחיית הגדרה — הערוץ והנוסח", () => {
+  /*
+   * ‎**בליעה שקטה הייתה גרועה מדחייה.** המשרד היה מנסח הודעה,
+   * המסך היה אומר „נשמר”, ודבר לא היה משתנה.
+   */
+  it("ערוץ על אוטומציה שאינה פונה ללקוח נדחה", () => {
+    expect(automationRejectionReason("lead_sla", { channel: "both" })).toContain(
+      "אינה שולחת ללקוח",
+    );
+    expect(
+      automationRejectionReason("lead_sla", { messages: { buyer: "היי" } }),
+    ).toContain("אינה שולחת ללקוח");
+  });
+
+  it("ערוץ תקין על האוטומציה הנכונה עובר", () => {
+    expect(
+      automationRejectionReason("viewing_reminder", {
+        channel: "whatsapp",
+        messages: { buyer: "נתראה" },
+      }),
+    ).toBeNull();
+  });
+
+  it("נמען שאינו בקטלוג נדחה בשמו", () => {
+    expect(
+      automationRejectionReason("viewing_reminder", { messages: { שכן: "היי" } }),
+    ).toContain("שכן");
+  });
+
+  it("נוסח ארוך מהתקרה נדחה", () => {
+    expect(
+      automationRejectionReason("viewing_reminder", {
+        messages: { buyer: "א".repeat(601) },
+      }),
+    ).toContain("ארוך");
+  });
+
+  it("ערוץ שאינו מוכר נדחה", () => {
+    expect(
+      automationRejectionReason("viewing_reminder", { channel: "יונת דואר" }),
+    ).toContain("ערוץ");
+  });
+
+  /*
+   * הסף עדיין נבדק — התוספת לא אמורה לעקוף את מה שכבר עבד.
+   */
+  it("הסף ממשיך להיבדק כרגיל", () => {
+    expect(
+      automationRejectionReason("viewing_reminder", { value: 999 }),
+    ).toContain("בין");
+  });
+});

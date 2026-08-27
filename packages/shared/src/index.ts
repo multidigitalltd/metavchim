@@ -72,6 +72,7 @@ export * from "./logic/telephony.js";
 export * from "./logic/virtual-numbers.js";
 export * from "./logic/list-filters.js";
 export * from "./logic/automations.js";
+export * from "./logic/viewing-reminder.js";
 export * from "./logic/custom-automations.js";
 export * from "./logic/call-summary.js";
 export * from "./logic/hebrew-date.js";
