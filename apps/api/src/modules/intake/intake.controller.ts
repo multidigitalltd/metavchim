@@ -6,8 +6,12 @@ import {
   INTAKE_FEATURES,
   INTAKE_NAME_MAX,
   INTAKE_NOTES_MAX,
+  INTAKE_SELLER_FEATURES,
+  INTAKE_SELLER_NAME_MAX,
+  INTAKE_SELLER_NOTES_MAX,
   PropertyTypeSchema,
   type IntakeAnswers,
+  type IntakeSellerAnswers,
 } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -87,6 +91,49 @@ const AnswersSchema = z
     entryBy: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
     notes: z.string().max(INTAKE_NOTES_MAX).optional(),
     /** honeypot — אמור להישאר ריק, כמו בטופס דף הנחיתה */
+    website: z.string().max(200).optional(),
+  })
+  .strict();
+
+/**
+ * מה ש**המוכר** שולח.
+ *
+ * סכימה נפרדת ולא הרחבה של `AnswersSchema`: אין ביניהן שדה משותף
+ * מלבד הזהות, ואיחוד היה מקבל תקציב מקונה ומחיר מבוקש מאותו גוף —
+ * כלומר מפסיק לתאר מה מותר לשלוח.
+ *
+ * ‏`.strict()` מאותו נימוק: שדה שאיננו מכירים אינו נבלע בשקט.
+ *
+ * ‏**אין כאן `nullable`.** אצל הקונה `null` פירושו „אין לי מגבלה”,
+ * וזו הבחנה שיש לה משמעות בדרישות. לנכס אין מגבלות — יש לו עובדות,
+ * ועובדה שאינה ידועה פשוט אינה נשלחת.
+ */
+const SellerAnswersSchema = z
+  .object({
+    fullName: z.string().trim().max(INTAKE_SELLER_NAME_MAX).optional(),
+    phone: z.string().trim().max(30).optional(),
+    dealType: z.enum(["sale", "rent"]).optional(),
+    city: z.string().trim().max(80).optional(),
+    neighborhood: z.string().trim().max(80).optional(),
+    street: z.string().trim().max(120).optional(),
+    houseNumber: z.string().trim().max(10).optional(),
+    /*
+     * אותה רשימה סגורה של הצד השני, ומאותו נימוק: „בית פרטי” שנשלח
+     * כמחרוזת חופשית נכתב על הנכס ואז אינו תואם לאף קונה — הכרטיס
+     * נראה תקין, וההתאמות ריקות.
+     */
+    propertyType: PropertyTypeSchema.optional(),
+    rooms: z.number().min(1).max(20).multipleOf(0.5).optional(),
+    areaSqm: z.number().int().min(10).max(2000).optional(),
+    floor: z.number().int().min(-2).max(60).optional(),
+    totalFloors: z.number().int().min(1).max(60).optional(),
+    priceAgorot: z.number().int().min(0).max(1e13).optional(),
+    priceFlexible: z.boolean().optional(),
+    features: z.record(z.enum(INTAKE_SELLER_FEATURES), z.boolean()).optional(),
+    entryType: z.enum(["immediate", "from_date", "flexible"]).optional(),
+    entryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+    notes: z.string().max(INTAKE_SELLER_NOTES_MAX).optional(),
+    /** honeypot — אמור להישאר ריק, כמו בצד הקונה */
     website: z.string().max(200).optional(),
   })
   .strict();
@@ -196,6 +243,71 @@ export class IntakeController {
     if (website !== undefined && website !== "") return { ok: true };
     return this.intake.submit(token, normalizeAnswers(answers));
   }
+
+  /**
+   * אותו טוקן, צד אחר.
+   *
+   * נתיב נפרד ולא דגל בגוף: הסכימות אינן חופפות, ואיחוד מבחין
+   * (`discriminatedUnion`) היה מחזיר ללקוח שגיאת ולידציה שמדברת על
+   * השדות של הצד השני — כלומר על שדות שהעמוד לא הציג לו בכלל.
+   *
+   * אותה תקרת קצב ואותה מלכודת דבש: הנתיב ציבורי באותה מידה.
+   */
+  @Post("f/:token/seller")
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
+  async submitSeller(
+    @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
+    @Body(new ZodValidationPipe(SellerAnswersSchema))
+    body: z.infer<typeof SellerAnswersSchema>,
+  ): Promise<{ ok: true }> {
+    const { website, ...answers } = body;
+    if (website !== undefined && website !== "") return { ok: true };
+    return this.intake.submitSeller(token, normalizeSellerAnswers(answers));
+  }
+}
+
+/**
+ * אותו נימוק כמו ב-`normalizeAnswers`: הטיפוס המוחזר הוא
+ * `IntakeSellerAnswers` ולא `Record<string, unknown>`, כדי ששם שדה
+ * שהוקלד לא נכון ייתפס במהדר ולא יעבור בשקט אל מיפוי שדות הנכס.
+ */
+function normalizeSellerAnswers(
+  answers: Omit<z.infer<typeof SellerAnswersSchema>, "website">,
+): IntakeSellerAnswers {
+  return {
+    ...(answers.fullName !== undefined ? { fullName: answers.fullName } : {}),
+    ...(answers.phone !== undefined ? { phone: answers.phone } : {}),
+    ...(answers.dealType !== undefined ? { dealType: answers.dealType } : {}),
+    ...(answers.city !== undefined ? { city: answers.city } : {}),
+    ...(answers.neighborhood !== undefined
+      ? { neighborhood: answers.neighborhood }
+      : {}),
+    ...(answers.street !== undefined ? { street: answers.street } : {}),
+    ...(answers.houseNumber !== undefined
+      ? { houseNumber: answers.houseNumber }
+      : {}),
+    ...(answers.propertyType !== undefined
+      ? { propertyType: answers.propertyType }
+      : {}),
+    ...(answers.rooms !== undefined ? { rooms: answers.rooms } : {}),
+    ...(answers.areaSqm !== undefined ? { areaSqm: answers.areaSqm } : {}),
+    ...(answers.floor !== undefined ? { floor: answers.floor } : {}),
+    ...(answers.totalFloors !== undefined
+      ? { totalFloors: answers.totalFloors }
+      : {}),
+    ...(answers.priceAgorot !== undefined
+      ? { priceAgorot: answers.priceAgorot }
+      : {}),
+    ...(answers.priceFlexible !== undefined
+      ? { priceFlexible: answers.priceFlexible }
+      : {}),
+    ...(answers.features !== undefined ? { features: answers.features } : {}),
+    ...(answers.entryType !== undefined ? { entryType: answers.entryType } : {}),
+    ...(answers.entryDate !== undefined ? { entryDate: answers.entryDate } : {}),
+    ...(answers.notes !== undefined ? { notes: answers.notes } : {}),
+  };
 }
 
 /**

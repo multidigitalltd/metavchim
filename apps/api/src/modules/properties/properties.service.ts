@@ -344,6 +344,48 @@ export class PropertiesService {
     return this.getById(propertyId);
   }
 
+  /**
+   * נכס שהגיע מ**טופס שהלקוח מילא בעצמו** — טיוטה, ולא מודעה.
+   *
+   * ‏`create` הרגילה מפרסמת לרשת השיתופים כשהמשרד הפעיל
+   * `autoShareProperties`, וזה נכון כשסוכן קלט את הנכס: הוא ראה
+   * אותו, הוא אחראי לו. כאן **איש במשרד לא ראה עדיין דבר** — טעות
+   * הקלדה של לקוח, מחיר שנכתב באלפים במקום בשקלים, או סתם מישהו
+   * שמילא טופס בטעות — והפרסום האוטומטי היה הופך כל אחד מאלה
+   * למודעה חיה מול משרדים אחרים. הטיוטה נשארת בפנים עד שסוכן
+   * מאשר אותה.
+   *
+   * ההתאמות כן מחושבות: הן פנימיות, והן מה שנותן לסוכן את התשובה
+   * „יש לי כבר שלושה קונים לזה” כשהוא פותח את המשימה.
+   *
+   * הסטטוס אינו נמסר — ברירת המחדל של הטבלה היא `draft`, וזה מה
+   * שנכון כאן. מסירה מפורשת הייתה מזמינה קריאה עתידית שמעבירה
+   * „active” ומדלגת על כל ההיגיון שלמעלה.
+   */
+  async createFromIntake(input: {
+    fields: PropertyFields;
+    internalNotes?: string;
+    owner: { name: string; phone: string };
+    /**
+     * המזהה **נקבע מראש על ידי הקורא**, ולא נוצר כאן.
+     *
+     * הטופס שומר אותו על שורת הבקשה **בתוך הטרנזקציה שתופסת את
+     * השליחה**, כלומר לפני שהנכס נוצר בכלל. בלי זה שתי שליחות
+     * מקבילות ראשונות שתיהן רואות „אין עדיין טיוטה”, שתיהן יוצרות,
+     * ורק אחת נקשרת — השנייה נשארת נכס יתום במאגר של המשרד
+     * (ביקורת Codex, P1).
+     */
+    id: string;
+  }): Promise<string> {
+    const id = await this.persist(input);
+    try {
+      await this.matching.recomputeForProperty(id);
+    } catch {
+      // הנכס כבר נשמר; חישוב ההתאמות אינו חלק מהצלחת היצירה.
+    }
+    return id;
+  }
+
   async createForImport(input: {
     fields: PropertyFields;
     marketingTitle?: string;
@@ -406,9 +448,11 @@ export class PropertiesService {
     owner?: { name: string; phone: string };
     /** מי גר בנכס כשזה אינו הבעלים — לתיאום ביקור. */
     occupant?: { name: string; phone: string };
+    /** מזהה שנקבע מראש — ראו `createFromIntake`. ריק ⇒ נוצר כאן. */
+    id?: string;
   }): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
-    const id = ulid();
+    const id = input.id ?? ulid();
     /*
      * מיקום הנכס נגזר מהכתובת כאן, בשרת, ולא נשאר ריק עד שסוכן
      * ייכנס לכרטיס ויגרור סיכה.
@@ -495,6 +539,31 @@ export class PropertiesService {
       occupancy?: OccupancyState | null;
       leaseEndsAt?: string | null;
       noticePeriodDays?: number | null;
+      /**
+       * „עדכן רק אם הנכס עדיין בסטטוס הזה” — השוואה-והחלפה.
+       *
+       * בדיקת סטטוס שנעשית **לפני** הקריאה הזו אינה שווה דבר: היא
+       * משחררת את מה שקראה, והנעילה על שורת הנכס נלקחת רק כאן. סוכן
+       * שקידם את הנכס מטיוטה בין השתיים היה מקבל את העדכון על כרטיס
+       * שכבר בדק (ביקורת Codex, P1). כאן הבדיקה **מתחת לאותה נעילה**
+       * של הכתיבה, ולכן היא אמיתית.
+       *
+       * ריק = בלי תנאי, כמו כל שאר הקוראים.
+       */
+      expectStatus?: string;
+      /**
+       * שדות שיירוקנו ל-`NULL`.
+       *
+       * „לא נבחר” אינו „לא השתנה” כשמדובר בטופס שמתאר את הנכס
+       * במלואו: מוכר שהוריד בשליחה חוזרת את הסימון „יש מעלית”
+       * התכוון שאין, ושדה שנשאר על ערכו הקודם הוא נתון שאיש כבר
+       * אינו טוען אותו (ביקורת Codex).
+       *
+       * רשימת שמות ולא `null` בתוך ה-Patch, כי `PropertyFieldsSchema`
+       * אינו מקבל `null` — ותוספת `nullable` לכל שדה הייתה מרשה
+       * ריקון בכל נתיב אחר, בלי שאיש ביקש זאת.
+       */
+      clearFields?: readonly (keyof PropertyFields)[];
     },
   ): Promise<PropertyDto> {
     const tenantId = TenantContext.current().tenantId;
@@ -509,6 +578,8 @@ export class PropertiesService {
       occupancy,
       leaseEndsAt,
       noticePeriodDays,
+      expectStatus,
+      clearFields,
       ...fieldPatch
     } = patch;
 
@@ -566,6 +637,17 @@ export class PropertiesService {
       if (!existing) throw new NotFoundException("נכס לא נמצא");
 
       /*
+       * ‎**מתחת לנעילה, ולא לפניה.** ראו `expectStatus` בחתימה: זו
+       * כל הנקודה — סטטוס שנקרא לפני הנעילה יכול היה להשתנות בדיוק
+       * בין הקריאה לכתיבה.
+       */
+      if (expectStatus !== undefined && existing.status !== expectStatus) {
+        throw new ConflictException(
+          `הנכס אינו בסטטוס ${expectStatus} עוד — העדכון לא בוצע`,
+        );
+      }
+
+      /*
        * ‎**סתירה נדחית, ואינה נשמרת בשקט.**
        *
        * „הבעלים גר בנכס” בזמן ששוכר רשום משאיר טלפון של אדם בכרטיס
@@ -620,6 +702,11 @@ export class PropertiesService {
         where: { id },
         data: {
           ...(fieldsToColumns(fieldPatch) as object),
+          /*
+           * הריקון **אחרי** ה-Patch: שדה שנמצא בשניהם התכוון להיות
+           * ריק, ולא לקבל את הערך שהובא לפניו.
+           */
+          ...Object.fromEntries((clearFields ?? []).map((key) => [key, null])),
           ...(status !== undefined ? { status } : {}),
           ...(marketingTitle !== undefined ? { marketingTitle } : {}),
           ...(marketingDescription !== undefined
