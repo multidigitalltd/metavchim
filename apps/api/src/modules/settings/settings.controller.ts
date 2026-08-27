@@ -53,6 +53,7 @@ import {
   AnyAuthenticated,
   RequireCapability,
 } from "../../common/auth.decorators";
+import { lockTenantRow } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
@@ -818,7 +819,21 @@ export class SettingsController {
       if (taken) throw new BadRequestException("המספר כבר משויך למשרד אחר");
     }
 
-    const current = await this.prisma.tenant.findUnique({
+    /*
+     * ‎**הקריאה, השינוי והכתיבה — בטרנזקציה אחת ומתחת לנעילת השורה.**
+     *
+     * ‎`settings` הוא מסמך JSON אחד, ולכן עדכון של שדה בודד הוא
+     * קריאה של הכול וכתיבה של הכול בחזרה. שתי בקשות מקבילות קראו
+     * את אותו צילום, וזו שכתבה שנייה מחקה את מה שהראשונה שמרה —
+     * בלי שגיאה ובלי שאיש ידע (ביקורת Codex).
+     *
+     * ולא תרחיש תיאורטי: מסך ההגדרות שולח מתג בכל לחיצה, ושתי
+     * לחיצות רצופות מייצרות בדיוק את זה; שתי לשוניות פתוחות מייצרות
+     * את זה גם בלי למהר.
+     */
+    await this.prisma.$transaction(async (tx) => {
+    await lockTenantRow(tx, tenantId);
+    const current = await tx.tenant.findUnique({
       where: { id: tenantId },
       select: { settings: true },
     });
@@ -896,7 +911,7 @@ export class SettingsController {
     }
 
     try {
-      await this.prisma.tenant.update({
+      await tx.tenant.update({
         where: { id: tenantId },
         data: {
           ...(body.name !== undefined ? { name: body.name } : {}),
@@ -907,6 +922,7 @@ export class SettingsController {
       // מרוץ מול משרד אחר — האינדקס הייחודי ב-DB חסם
       throw new BadRequestException("המספר כבר משויך למשרד אחר");
     }
+    });
     await this.prisma.withTenant((tx) =>
       this.audit.record(tx, {
         action: "settings.update",

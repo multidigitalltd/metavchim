@@ -176,3 +176,23 @@ export async function lockTenantProperties(
 ): Promise<void> {
   await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id = ${tenantId} ORDER BY id FOR UPDATE`;
 }
+
+/**
+ * נעילת שורת המשרד — לכל קריאה-שינוי-כתיבה על `tenants.settings`.
+ *
+ * ‎`settings` הוא **מסמך JSON אחד**, ולכן כל עדכון חלקי בו הוא
+ * קריאה של הכול, שינוי של שדה, וכתיבה של הכול בחזרה. שתי בקשות
+ * שרצות במקביל קוראות את אותו צילום, וזו שכותבת שנייה מוחקת את מה
+ * שהראשונה שמרה — בלי שגיאה ובלי שאיש ידע (ביקורת Codex).
+ *
+ * זה אינו תרחיש תיאורטי: מסך ההגדרות שולח מתג בכל לחיצה, ושתי
+ * לחיצות רצופות מייצרות בדיוק את זה. שתי לשוניות פתוחות של אותו
+ * משרד מייצרות את זה גם בלי למהר.
+ *
+ * ‎`FOR UPDATE` על השורה עצמה, ולא נעילת ייעוץ: הכתיבה נוגעת באותה
+ * שורה, ולכן היא הגבול הטבעי — וכל מי שיגיע לכאן מחר ולא יקרא את
+ * ההערה הזו עדיין ייחסם.
+ */
+export async function lockTenantRow(tx: TenantTx, tenantId: string): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM tenants WHERE id = ${tenantId} FOR UPDATE`;
+}
