@@ -7,10 +7,13 @@ import {
   INTAKE_NOTES_MAX,
   type IntakeAnswers,
   type IntakeFeature,
+  type IntakeSellerAnswers,
 } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { PROPERTY_TYPE_LABELS } from "@/lib/format";
 import { Notice } from "../../notice";
+import { Choice, Field, Shell } from "./form-parts";
+import { SellerForm } from "./seller-form";
 
 /**
  * „מה אתם מחפשים?” — הטופס שהלקוח ממלא בעצמו.
@@ -54,6 +57,10 @@ interface PublicView {
    * מלקוח שהמשרד כבר מכיר — ולקבל בתשובה גרסה שנייה של אותו אדם.
    */
   needsIdentity: boolean;
+  /** הצד שנבחר בשליחה קודמת, או `null` כשעוד לא נבחר. */
+  side: "buyer" | "seller" | null;
+  /** מה שהמוכר שלח קודם — ריק בצד הקונה. */
+  sellerPrefill: IntakeSellerAnswers;
 }
 
 /** סוגי הנכס שמוצעים ללקוח. רשימה קצרה — זה טופס, לא קטלוג. */
@@ -103,6 +110,14 @@ export default function IntakeFormPage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  /*
+   * הצד שנבחר במסך הזה.
+   *
+   * ‎`null` = טרם נבחר, ואז מוצגת השאלה הפותחת. הוא מאותחל מהשרת
+   * ולא מ„מה שנראה מלא”: לקוח שמילא פרטי דירה ופתח את הקישור שוב
+   * כדי לתקן קומה לא אמור להיתקל בשאלה שכבר ענה עליה.
+   */
+  const [side, setSide] = useState<"buyer" | "seller" | null>(null);
 
   /* --- שדות הטופס --- */
   const [dealType, setDealType] = useState<"sale" | "rent">("sale");
@@ -140,6 +155,7 @@ export default function IntakeFormPage({
       const data = await apiGet<PublicView>(`/f/${token}`);
       setView(data);
       setLoadFailed(false);
+      setSide(data.side);
       const p = data.prefill;
       if (p.dealType !== undefined) setDealType(p.dealType);
       if (p.cities !== undefined) setCities(p.cities.join(", "));
@@ -278,6 +294,70 @@ export default function IntakeFormPage({
           ניצור אתכם קשר.
         </p>
       </Shell>
+    );
+  }
+
+  /*
+   * ‎**השאלה הפותחת — לפני כל שדה.**
+   *
+   * הטופס נשלח גם אחרי שיחה נכנסת שלא נענתה, ומי שהתקשר למשרד
+   * תיווך אינו בהכרח קונה: חלק גדול מהשיחות הן של מי שיש לו נכס
+   * למכור או להשכיר. טופס שפותח ב„מה אתם מחפשים?” אומר להם שלא
+   * הקשיבו — ולכן השאלה הזו קודמת, ולא שדה בתוך הטופס.
+   */
+  if (side === null) {
+    return (
+      <Shell officeName={view.officeName}>
+        <header className="text-center">
+          <h1 className="m-0 text-2xl font-extrabold">
+            שלום {view.greetingName}, איך נוכל לעזור?
+          </h1>
+          <p className="m-0 mt-2 text-[length:var(--type-button)] leading-relaxed">
+            בחרו מה מתאים לכם, ונשאל כמה שאלות קצרות.
+          </p>
+        </header>
+        <button
+          type="button"
+          className="mv-btn-action mt-6 w-full"
+          style={{ padding: "18px", fontSize: "calc(17 / 16 * 1rem)" }}
+          onClick={() => setSide("buyer")}
+        >
+          אני מחפש/ת נכס
+        </button>
+        <button
+          type="button"
+          className="mv-btn-soft mt-3 w-full"
+          style={{ padding: "18px", fontSize: "calc(17 / 16 * 1rem)" }}
+          onClick={() => setSide("seller")}
+        >
+          יש לי נכס למכירה או להשכרה
+        </button>
+        <p
+          className="m-0 mt-4 text-center text-[length:var(--type-caption)]"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          הפרטים נשמרים אצל {view.officeName} בלבד ואינם מועברים לאיש.
+        </p>
+      </Shell>
+    );
+  }
+
+  if (side === "seller") {
+    return (
+      <SellerForm
+        token={token}
+        officeName={view.officeName}
+        greetingName={view.greetingName}
+        /*
+         * ‎`needsIdentity` של צד המוכר הוא „אין איש קשר”, ולא „קישור
+         * פתוח שטרם נשלח”: קישור פתוח ששליחה קודמת כבר יצרה לו איש
+         * קשר אינו אמור לבקש שם ומספר מחדש. השרת מכריע שוב ממילא.
+         */
+        needsIdentity={view.needsIdentity}
+        submittedAt={view.side === "seller" ? view.submittedAt : null}
+        prefill={view.sellerPrefill}
+        onBack={() => setSide(null)}
+      />
     );
   }
 
@@ -519,6 +599,13 @@ export default function IntakeFormPage({
       >
         {busy ? "שולח…" : "שליחה"}
       </button>
+      <button
+        type="button"
+        className="mv-btn-plain mt-3 w-full"
+        onClick={() => setSide(null)}
+      >
+        רגע, דווקא יש לי נכס
+      </button>
       <p
         className="m-0 mt-3 text-center text-[length:var(--type-caption)]"
         style={{ color: "var(--color-text-muted)" }}
@@ -526,88 +613,5 @@ export default function IntakeFormPage({
         הפרטים נשמרים אצל {view.officeName} בלבד ואינם מועברים לאיש.
       </p>
     </Shell>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-
-function Shell({
-  officeName,
-  children,
-}: {
-  officeName?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <main className="mx-auto w-full max-w-xl px-4 py-8">
-      {officeName !== undefined ? (
-        <p
-          className="m-0 mb-4 text-center text-[length:var(--type-body-sm)] font-bold"
-          style={{ color: "var(--color-primary)" }}
-        >
-          {officeName}
-        </p>
-      ) : null}
-      <div
-        className="rounded-2xl border p-6"
-        style={{
-          borderColor: "var(--color-border)",
-          background: "var(--color-surface)",
-        }}
-      >
-        {children}
-      </div>
-    </main>
-  );
-}
-
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="mt-6">
-      <h2 className="m-0 mb-1 text-[length:calc(16.5/16*1rem)] font-bold">{label}</h2>
-      {hint !== undefined ? (
-        <p
-          className="m-0 mb-2 text-[length:var(--type-caption)]"
-          style={{ color: "var(--color-text-muted)" }}
-        >
-          {hint}
-        </p>
-      ) : null}
-      {children}
-    </section>
-  );
-}
-
-function Choice({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className="mv-chip"
-      aria-pressed={active}
-      onClick={onClick}
-      style={{
-        borderColor: active ? "var(--color-primary)" : "var(--color-input-border)",
-        background: active ? "var(--color-primary)" : "var(--color-surface)",
-        color: active ? "var(--color-surface)" : "var(--color-text)",
-      }}
-    >
-      {children}
-    </button>
   );
 }

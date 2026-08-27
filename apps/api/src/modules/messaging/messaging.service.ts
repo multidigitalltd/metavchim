@@ -25,6 +25,42 @@ export function buildOfferMessage(input: { title: string; priceText: string; url
  */
 @Injectable()
 export class MessagingService {
+  /**
+   * הודעת וואטסאפ חופשית ללקוח — הרישום שלפני הקישור.
+   *
+   * אותו ערוץ `walink` כמו הצעה: ההודעה נרשמת ב-Hub ובציר הזמן של
+   * הכרטיס, והשליחה עצמה נעשית בלחיצה על קישור wa.me. הרישום כאן
+   * ולא אצל הקורא, כדי ששני הצעדים — Hub וציר — לא ייפרדו זה מזה
+   * בקורא הבא.
+   */
+  async prepareFreeText(
+    tx: TenantTx,
+    input: {
+      contactId: string;
+      card: { kind: "buyer" | "lead"; id: string };
+      body: string;
+    },
+  ): Promise<void> {
+    await this.recordOutbound(tx, {
+      contactId: input.contactId,
+      channel: "whatsapp",
+      provider: "walink",
+      body: input.body,
+    });
+    await tx.interaction.create({
+      data: {
+        id: ulid(),
+        tenantId: TenantContext.current().tenantId,
+        ...(input.card.kind === "buyer" ? { buyerId: input.card.id } : { leadId: input.card.id }),
+        kind: "whatsapp",
+        direction: "out",
+        // ציר הזמן מציג מה נשלח — התוכן הוא הרישום
+        content: input.body.slice(0, 1000),
+        createdBy: TenantContext.current().userId,
+      },
+    });
+  }
+
   async recordOutbound(
     tx: TenantTx,
     input: {

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -16,10 +17,20 @@ import {
   intakeInactiveReason,
   intakeInviteMessage,
   intakeOpenRejectionReason,
+  intakeSellerRejectionReason,
+  isIntakeSide,
+  pickSellerPrefill,
+  INTAKE_SELLER_FEATURES,
+  sellerPropertyFields,
+  sellerSummaryLines,
   normalizePhone,
   pickIntakeFeatures,
   PropertyTypeSchema,
+  PropertyFieldsSchema,
+  type PropertyFields,
   type IntakeAnswers,
+  type IntakeSellerAnswers,
+  type IntakeSide,
   type IntakeStatus,
   type IntakeSubject,
 } from "@metavchim/shared";
@@ -31,6 +42,7 @@ import { AuditService } from "../../core/audit.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { BuyersService } from "../buyers/buyers.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { PropertiesService } from "../properties/properties.service";
 
 /**
  * טופס הדרישות שהלקוח ממלא בעצמו.
@@ -77,6 +89,17 @@ export interface IntakePublicView {
    * אמיתי, וזה בדיוק מה שהעמוד הזה אינו אמור להסגיר.
    */
   needsIdentity: boolean;
+  /**
+   * הצד שנבחר בשליחה הקודמת — או `null` כשעוד לא נבחר.
+   *
+   * ‎`null` הוא מה שגורם לעמוד לשאול „מחפשים או שיש לכם נכס”. ערך
+   * מלא מחזיר את הלקוח למסלול שבו כבר היה: מי שמילא פרטי דירה
+   * ופתח את הקישור שוב כדי לתקן מספר קומה לא אמור להיתקל בשאלה
+   * שכבר ענה עליה, ובוודאי לא לגלות שהתשובות שלו „נעלמו”.
+   */
+  side: IntakeSide | null;
+  /** מה שהמוכר שלח קודם — ריק בצד הקונה. */
+  sellerPrefill: IntakeSellerAnswers;
 }
 
 /** שורת בקשה כפי שהיא מוצגת בכרטיס. */
@@ -133,6 +156,8 @@ interface TokenRow {
   contactId: string | null;
   status: string;
   expiresAt: Date;
+  /** buyer | seller — לאיזה צד הטופס נענה בשליחה האחרונה. */
+  side: string;
 }
 
 /** בקשה שכבר יש לה כרטיס — כל מה שאחרי `materializeOpen` עובד עליה. */
@@ -161,6 +186,7 @@ export class IntakeService {
     private readonly audit: AuditService,
     private readonly contacts: ContactsService,
     private readonly buyers: BuyersService,
+    private readonly properties: PropertiesService,
   ) {}
 
   /* ================= הצד הפנימי — המתווך ================= */
@@ -415,6 +441,8 @@ export class IntakeService {
           prefill: {},
           submittedAt: null,
           needsIdentity: false,
+          side: null,
+          sellerPrefill: {},
         };
       }
 
@@ -426,12 +454,46 @@ export class IntakeService {
         });
       }
 
-      const buyerId = await this.targetBuyerId(tx, row);
-      const current = await this.currentRequirements(tx, row, buyerId);
       const full = await tx.intakeRequest.findUnique({
         where: { id: row.id },
-        select: { status: true, submittedAt: true, answers: true },
+        select: {
+          status: true,
+          submittedAt: true,
+          answers: true,
+          side: true,
+          submissionRev: true,
+        },
       });
+      /*
+       * ‎**הצד נקרא מהשורה, וממנו נגזר מה בכלל צריך להיטען.**
+       *
+       * מוכר אינו מצביע על כרטיס קונה, ו-`targetBuyerId` עליו הייתה
+       * מוצאת את הקונה הראשון של אותו איש קשר — ומחזירה ללקוח
+       * שמילא פרטי דירה את **הדרישות של עצמו כקונה** כערכי פתיחה.
+       */
+      const chosen = sideOf(full?.side ?? row.side, full?.submittedAt ?? null);
+      if (chosen === "seller") {
+        return {
+          officeName,
+          greetingName: firstName(contact?.name),
+          status: (full?.status ?? row.status) as IntakeStatus,
+          inactive: null,
+          prefill: {},
+          submittedAt: full?.submittedAt?.toISOString() ?? null,
+          needsIdentity: row.contactId === null,
+          side: "seller" as const,
+          /*
+           * ‏**רשימת היתר, ולא האובייקט כמות שהוא.** התשובות
+           * השמורות כוללות גם שם וטלפון בקישור פתוח, והחזרתן הייתה
+           * הופכת את הקישור למקור שאפשר לשלוף ממנו זהות של אדם —
+           * גם למי שמצא אותו (ביקורת Codex, P1).
+           */
+          sellerPrefill: pickSellerPrefill(full?.answers),
+        };
+      }
+
+      const buyerId = await this.targetBuyerId(tx, row);
+      const current = await this.currentRequirements(tx, row, buyerId);
       return {
         officeName,
         greetingName: firstName(contact?.name),
@@ -448,7 +510,18 @@ export class IntakeService {
             ? toAnswers(current)
             : toAnswers(asRecord(full?.answers)),
         submittedAt: full?.submittedAt?.toISOString() ?? null,
-        needsIdentity: row.subject === "open" && row.subjectId === null,
+        /*
+         * ‏**„אין איש קשר”, ולא „קישור פתוח שטרם נשלח”.**
+         *
+         * לקוח שמילא את צד המוכר בקישור פתוח ואז חזר ובחר „דווקא אני
+         * מחפש” — לבקשה שלו כבר יש איש קשר ואין לה עדיין כרטיס קונה.
+         * הניסוח הקודם היה מציג לו טופס בלי שם וטלפון ואז דוחה כל
+         * שליחה, כי הצד השני דרש אותם (ביקורת Codex). שני הצדדים
+         * שואלים עכשיו את אותה שאלה.
+         */
+        needsIdentity: row.contactId === null,
+        side: chosen,
+        sellerPrefill: {},
       };
     });
   }
@@ -670,6 +743,364 @@ export class IntakeService {
   }
 
   /**
+   * הלקוח שלח — **והוא מוכר.**
+   *
+   * ## למה מסלול נפרד ולא ענף בתוך `submit`
+   *
+   * התוצר שונה. קונה מייצר דרישות שממוזגות לכרטיס קיים, ולכן כל
+   * המנגנון שמעל — `targetBuyerId`, `applyToBuyer`, השוואת הגרסאות
+   * מתחת לנעילת הקונה — קיים כדי לענות על שאלה אחת: **לאיזה כרטיס
+   * למזג.** למוכר אין יעד מיזוג; הוא מייצר **נכס**. ‎`if` בתוך כל
+   * אחת מהפונקציות ההן היה הופך את הקוד הרגיש ביותר בקובץ לקוד
+   * שמשרת שני מקרים שאין להם דבר במשותף.
+   *
+   * ## מה כן משותף
+   *
+   * התפיסה. אותה `UPDATE ... WHERE status <> 'revoked' AND expires_at > now`
+   * אטומית, מתחת לאותה נעילת בקשה — כי אותם מרוצים קיימים כאן
+   * בדיוק: לחיצה כפולה על „שליחה” בנייד, וביטול שמגיע בדיוק בין
+   * הבדיקה לכתיבה.
+   *
+   * ## למה הנכס נוצר **אחרי** התפיסה ולא בתוכה
+   *
+   * ‎`PropertiesService.persist` פותחת טרנזקציה משלה (מכסה, פענוח
+   * כתובת, יומן, outbox), ואי אפשר לקנן אותה בתוך זו. הסדר הזה גם
+   * הנכון: תפיסה שהצליחה ויצירה שנכשלה משאירה **שליחה שנרשמה בלי
+   * טיוטה** — והמשימה שנפתחת אומרת בדיוק את זה. הסדר ההפוך היה
+   * משאיר נכס יתום שאיש אינו מצביע עליו.
+   */
+  async submitSeller(
+    token: string,
+    answers: IntakeSellerAnswers,
+  ): Promise<{ ok: true }> {
+    const row = await this.resolveToken(token);
+    const inactive = intakeInactiveReason(
+      row.status as IntakeStatus,
+      row.expiresAt,
+      new Date(),
+    );
+    if (inactive !== null) {
+      throw new BadRequestException(
+        inactive === "expired" ? "הקישור פג תוקף" : "הקישור בוטל",
+      );
+    }
+
+    /*
+     * הזהות נדרשת כשאין איש קשר, ולא כש„הקישור פתוח”: קישור פתוח
+     * שכבר נשלח פעם אחת **יש** לו איש קשר, ובקשה שלו לשם ולמספר
+     * מחדש מזמינה גרסה שנייה של אותו אדם.
+     */
+    const needsIdentity = row.contactId === null;
+    const rejection = intakeSellerRejectionReason(answers, { needsIdentity });
+    if (rejection !== null) throw new BadRequestException(rejection);
+
+    const meta = await this.prisma.withExplicitTenant(row.tenantId, (tx) =>
+      tx.intakeRequest.findUnique({
+        where: { id: row.id },
+        select: { createdBy: true },
+      }),
+    );
+    // הבעלים הוא מי ששלח את הקישור; באוטומציה אין אדם כזה
+    const agentUserId = meta?.createdBy ?? "";
+
+    return TenantContext.run(officeContext(row.tenantId, agentUserId), async () => {
+      const claim = await this.prisma.withExplicitTenant(row.tenantId, async (tx) => {
+        await lockIntakeRequest(tx, row.tenantId, row.id);
+        const again = await tx.intakeRequest.findUnique({
+          where: { id: row.id },
+          select: {
+            status: true,
+            expiresAt: true,
+            contactId: true,
+            propertyId: true,
+            submittedAt: true,
+          },
+        });
+        if (again === null) throw new BadRequestException("הקישור אינו פעיל עוד");
+        /*
+         * הפעילוּת נבדקת **שוב, מתחת לנעילה** — אותו נימוק בדיוק
+         * כמו ב-`materializeOpen`: בין הבדיקה שבכניסה לבין הכתיבה
+         * אפשר שהקישור בוטל, ונכס שנולד מקישור מבוטל הוא בדיוק מה
+         * שאסור שיקרה.
+         */
+        const stillInactive = intakeInactiveReason(
+          again.status as IntakeStatus,
+          again.expiresAt,
+          new Date(),
+        );
+        if (stillInactive !== null) {
+          throw new BadRequestException(
+            stillInactive === "expired" ? "הקישור פג תוקף" : "הקישור בוטל",
+          );
+        }
+
+        const contactId =
+          again.contactId ??
+          (
+            await this.contacts.findOrCreateByPhone(tx, {
+              name: (answers.fullName ?? "").trim(),
+              phone: normalizePhone(answers.phone ?? ""),
+            })
+          ).id;
+
+        /*
+         * ‎**מזהה הטיוטה נתפס כאן, לפני שהנכס נוצר בכלל.**
+         *
+         * יצירת הנכס חייבת לרוץ מחוץ לטרנזקציה הזו (`persist` פותחת
+         * טרנזקציה משלה), ולכן הנעילה משתחררת לפניה. שתי שליחות
+         * ראשונות מקבילות היו שתיהן קוראות „אין עדיין טיוטה”, שתיהן
+         * יוצרות, ורק אחת נקשרת — השנייה נשארת נכס יתום במאגר של
+         * המשרד (ביקורת Codex, P1).
+         *
+         * המזהה נכתב על הבקשה **בתוך** הטרנזקציה שתופסת את השליחה,
+         * ולכן מי שמגיע שני רואה אותו ויודע שהוא שליחה חוזרת. אם
+         * היצירה תיכשל אחר כך, ההזמנה משוחררת — ראו `draftFor`.
+         */
+        const reservedId = again.propertyId === null ? ulid() : null;
+
+        const rev = ulid();
+        const claimed = await tx.intakeRequest.updateMany({
+          where: {
+            id: row.id,
+            tenantId: row.tenantId,
+            status: { not: "revoked" },
+            expiresAt: { gt: new Date() },
+          },
+          data: {
+            status: "submitted",
+            submittedAt: new Date(),
+            submissionRev: rev,
+            side: "seller",
+            contactId,
+            ...(reservedId === null ? {} : { propertyId: reservedId }),
+            answers: answers as unknown as Prisma.InputJsonValue,
+          },
+        });
+        if (claimed.count === 0) {
+          throw new BadRequestException("הקישור אינו פעיל עוד");
+        }
+
+        const contact = await this.contacts.getById(tx, contactId);
+        return {
+          contactId,
+          propertyId: again.propertyId,
+          reservedId,
+          resubmit: again.submittedAt !== null,
+          ownerName: contact?.name ?? (answers.fullName ?? "").trim(),
+          ownerPhone: contact?.phone ?? normalizePhone(answers.phone ?? ""),
+        };
+      });
+
+      const draft = await this.draftFor(row, claim, answers);
+      await this.afterSellerSubmit(row, claim, answers, draft, agentUserId);
+      return { ok: true };
+    });
+  }
+
+  /**
+   * הטיוטה — נוצרת פעם אחת, ומתעדכנת כל עוד היא **עדיין טיוטה**.
+   *
+   * ## למה שליחה חוזרת מעדכנת ולא יוצרת
+   *
+   * „שכחתי לציין שיש מעלית” הוא המקרה הנפוץ, ובלי המזהה שנשמר על
+   * הבקשה הוא היה פותח נכס שני לאותה דירה. כפילות כזו מתגלה רק
+   * כשמישהו שואל למה יש שתי מודעות.
+   *
+   * ## ולמה היא מפסיקה לעדכן ברגע שהסוכן נגע
+   *
+   * מרגע שהנכס אינו טיוטה, סוכן כבר בדק אותו, אולי תיקן מחיר שהוקלד
+   * באלפים, ואולי פרסם. שליחה חוזרת שדורסת את זה מוחקת עבודה של אדם
+   * בשם טופס — ולכן היא הופכת ל**דיווח** במשימה, והסוכן מחליט.
+   *
+   * ‎**התנאי נאכף מתחת לנעילת הנכס** (`expectStatus`) ולא בשאילתה
+   * שלפניה: סוכן שקידם את הנכס בין הקריאה לכתיבה היה מקבל את
+   * העדכון בכל זאת (ביקורת Codex, P1).
+   *
+   * ## ומה קורה למה שהמוכר **הוריד**
+   *
+   * שדה שרוקן ומאפיין שחזר ל„לא נשאל” נמחקים מהנכס (`clearFields`),
+   * ואינם נשארים על ערכם הקודם. בטופס שמתאר את הנכס במלואו „לא
+   * סימנתי” אינו „לא השתנה”, ונתון שנשאר הוא נתון שאיש כבר אינו
+   * טוען אותו.
+   */
+  private async draftFor(
+    row: TokenRow,
+    claim: {
+      propertyId: string | null;
+      reservedId: string | null;
+      ownerName: string;
+      ownerPhone: string;
+    },
+    answers: IntakeSellerAnswers,
+  ): Promise<{ propertyId: string | null; created: boolean; note: string | null }> {
+    const raw = sellerPropertyFields(answers);
+    const fields = PropertyFieldsSchema.partial().parse(raw);
+
+    /* ---------- שליחה ראשונה: המזהה כבר נתפס, נותר ליצור ---------- */
+    if (claim.reservedId !== null) {
+      const propertyId = claim.reservedId;
+      try {
+        await this.properties.createFromIntake({
+          id: propertyId,
+          fields,
+          owner: { name: claim.ownerName, phone: claim.ownerPhone },
+          internalNotes: sellerSummaryLines(answers).join("\n"),
+        });
+        return { propertyId, created: true, note: null };
+      } catch (error: unknown) {
+        /*
+         * ‎**כישלון היצירה אינו כישלון השליחה.**
+         *
+         * המקרה הצפוי הוא מכסת הנכסים של המסלול, והוא אינו באשמת
+         * הלקוח: הוא מילא טופס שביקשו ממנו למלא. השליחה כבר נתפסה
+         * והתשובות שמורות; מה שצריך להתבטל היא **ההזמנה**, אחרת
+         * הבקשה מצביעה על נכס שלא נוצר — ושליחה חוזרת הייתה מנסה
+         * לעדכן אותו במקום ליצור.
+         */
+        await this.releaseDraft(row, propertyId);
+        this.logger.warn(
+          `יצירת טיוטה מטופס מוכר נכשלה (${row.tenantId}): ${
+            error instanceof Error ? error.message : "שגיאה לא ידועה"
+          }`,
+        );
+        return {
+          propertyId: null,
+          created: false,
+          note: `לא נוצר כרטיס נכס אוטומטית (${
+            error instanceof Error ? error.message : "שגיאה לא ידועה"
+          }). הפרטים כאן.`,
+        };
+      }
+    }
+
+    /* ---------- שליחה חוזרת ---------- */
+    if (claim.propertyId === null) {
+      return { propertyId: null, created: false, note: null };
+    }
+    const propertyId = claim.propertyId;
+
+    try {
+      await this.properties.update(propertyId, {
+        ...fields,
+        // ‏„הורדתי את הסימון” = אין, ולא „לא השתנה”. ראו התיעוד למעלה.
+        clearFields: clearedSellerFields(raw),
+        // התנאי נאכף מתחת לנעילת הנכס, לא כאן
+        expectStatus: "draft",
+      });
+      return { propertyId, created: false, note: null };
+    } catch (error: unknown) {
+      if (error instanceof ConflictException) {
+        return {
+          propertyId,
+          created: false,
+          note: "הכרטיס כבר אינו טיוטה, ולכן לא עודכן אוטומטית — השוו לפרטים כאן.",
+        };
+      }
+      if (error instanceof NotFoundException) {
+        /*
+         * הכרטיס נמחק, **או** ששליחה מקבילה תפסה את המזהה ועדיין לא
+         * סיימה ליצור אותו. בשני המקרים אין מה לעדכן ואין מה ליצור
+         * במקומו בלי החלטה של אדם — ולכן הפרטים נמסרים במשימה.
+         */
+        return {
+          propertyId: null,
+          created: false,
+          note: "כרטיס הנכס אינו זמין כרגע — הפרטים כאן, בלי עדכון אוטומטי.",
+        };
+      }
+      throw error;
+    }
+  }
+
+  /** ביטול ההזמנה — רק אם היא עדיין שלנו. */
+  private async releaseDraft(row: TokenRow, propertyId: string): Promise<void> {
+    await this.prisma.withExplicitTenant(row.tenantId, (tx) =>
+      tx.intakeRequest.updateMany({
+        where: { id: row.id, tenantId: row.tenantId, propertyId },
+        data: { propertyId: null },
+      }),
+    );
+  }
+
+  /**
+   * מה שהמשרד רואה: משימה לסוכן, והתראה בתור.
+   *
+   * ‎**שתיהן ולא אחת מהן.** המשימה שייכת לאדם ויש לה „בוצע”, וזה
+   * הדבר הנכון כשמישהו צריך להתקשר ולאמת; ההתראה היא מה שמופיע
+   * בתור של המשרד גם כשאין למשימה בעלים — באוטומציה של שיחה שלא
+   * נענתה אין אדם שלחץ, ומשימה שהוצמדה למישהו שרירותי נוחתת אצל מי
+   * שלא יודע עליה (אותו נימוק בדיוק כמו ב-`offerIntakeAfterMissedCall`).
+   */
+  private async afterSellerSubmit(
+    row: TokenRow,
+    claim: { resubmit: boolean },
+    answers: IntakeSellerAnswers,
+    draft: { propertyId: string | null; created: boolean; note: string | null },
+    agentUserId: string,
+  ): Promise<void> {
+    const lines = sellerSummaryLines(answers);
+    const body = [
+      ...(draft.note === null ? [] : [draft.note]),
+      ...lines,
+    ].join("\n");
+    const title = claim.resubmit
+      ? "הלקוח עדכן את פרטי הנכס שלו"
+      : "הלקוח מילא את הטופס — יש לו נכס";
+
+    await this.asOffice(row.tenantId, async (tx) => {
+      await this.audit.record(tx, {
+        action: "intake.submit_seller",
+        entityType: draft.propertyId === null ? row.subject : "property",
+        entityId: draft.propertyId ?? row.subjectId ?? undefined,
+        // רק מה נוצר — לא מה נכתב בשדות
+        metadata: { created: draft.created, hadDraft: draft.propertyId !== null },
+      });
+
+      await tx.notification.create({
+        data: {
+          id: ulid(),
+          tenantId: row.tenantId,
+          userId: null,
+          type: "intake_submitted",
+          title,
+          body,
+          /*
+           * ההתראה מפנה ל**נכס** כשיש כזה: זה מה שהסוכן צריך לפתוח.
+           * בלי טיוטה היא מפנה לכרטיס שממנו נשלח הקישור, ובקישור
+           * פתוח — לשום מקום, וזה עדיף על קישור שנוחת בדף הבית.
+           */
+          entityType: draft.propertyId !== null ? "property" : null,
+          entityId: draft.propertyId,
+        },
+      });
+
+      if (agentUserId === "") return;
+      /*
+       * אידמפוטנטי לפי הבקשה: שליחה חוזרת מעדכנת את הטיוטה, ואינה
+       * אמורה לייצר ערימת משימות זהות אצל אותו סוכן.
+       */
+      const sourceKey = `intake-seller:${row.id}`;
+      const existing = await tx.task.findFirst({
+        where: { tenantId: row.tenantId, sourceKey },
+        select: { id: true },
+      });
+      if (existing !== null) return;
+      await tx.task.create({
+        data: {
+          id: ulid(),
+          tenantId: row.tenantId,
+          assignedToUserId: agentUserId,
+          title: "נכס מטופס של לקוח — לאמת ולפרסם",
+          notes: body,
+          entityType: draft.propertyId !== null ? "property" : null,
+          entityId: draft.propertyId,
+          sourceKey,
+        },
+      });
+    });
+  }
+
+  /**
    * הקישור הפתוח הופך לכרטיס — פעם אחת, ולא פעם לכל שליחה.
    *
    * ## מה נוצר כאן
@@ -700,7 +1131,17 @@ export class IntakeService {
     row: TokenRow,
     answers: IntakeAnswers,
   ): Promise<TokenRow & { preClaim: PreClaim | null }> {
-    const rejection = intakeOpenRejectionReason(answers);
+    /*
+     * ‎**איש קשר שכבר קיים פוטר מהזהות.**
+     *
+     * קישור פתוח שהלקוח כבר מילא בצד המוכר נושא `contactId`, והטופס
+     * אינו מציג לו שם וטלפון — כלומר הבקשה הייתה נדחית תמיד
+     * (ביקורת Codex). מי שכבר מוכר לנו אינו ממלא את שמו מחדש.
+     */
+    const known = row.contactId;
+    const rejection = intakeOpenRejectionReason(answers, {
+      needsIdentity: known === null,
+    });
     if (rejection !== null) throw new BadRequestException(rejection);
     const fullName = (answers.fullName ?? "").trim();
     // הצורה המנורמלת היא מה שנשמר ומה שמזהה כפילות — ראו `normalizePhone`
@@ -815,10 +1256,29 @@ export class IntakeService {
             previousAnswers: asRecord(before?.answers),
           };
 
-          const contact = await this.contacts.findOrCreateByPhone(tx, {
-            name: fullName,
-            phone,
-          });
+          /*
+           * הכרטיס הקיים גובר: יצירה לפי טלפון הייתה מוצאת אותו
+           * ממילא כשהמספר זהה, ופותחת שני כרטיסים כשהלקוח הקליד
+           * אותו קצת אחרת.
+           */
+          const contact =
+            known === null
+              ? await this.contacts.findOrCreateByPhone(tx, {
+                  name: fullName,
+                  phone,
+                })
+              : { id: known };
+          /*
+           * ‏`createWithin` פותר את איש הקשר שוב לפי שם וטלפון. עם
+           * כרטיס קיים אלה אינם מגיעים מהטופס, ולכן הם נקראים ממנו —
+           * מחרוזות ריקות היו יוצרות כרטיס שלישי ריק.
+           */
+          const identity =
+            known === null
+              ? { name: fullName, phone }
+              : await this.contacts
+                  .getById(tx, known)
+                  .then((row) => ({ name: row?.name ?? "", phone: row?.phone ?? "" }));
           /*
            * נעילת **שורת** איש הקשר לפני בדיקת „יש כבר קונה”.
            *
@@ -854,8 +1314,8 @@ export class IntakeService {
            * הרצות התאמה, והראשונה מהן על כרטיס שאין בו דבר.
            */
           const buyerId = await this.buyers.createWithin(tx, {
-            contactName: fullName,
-            contactPhone: phone,
+            contactName: identity.name,
+            contactPhone: identity.phone,
             requirements: BuyerRequirementsSchema.parse(
               applyIntakeAnswers({}, answers),
             ),
@@ -1110,6 +1570,7 @@ export class IntakeService {
           contactId: true,
           status: true,
           expiresAt: true,
+          side: true,
         },
       }),
     );
@@ -1267,6 +1728,53 @@ interface DtoContext {
  * מצומצמות לזו האחת בכוונה: ההקשר אינו עובר לשום ניתוב, והרחבה
  * שלו הייתה הרחבה של מה שקישור ברחוב שווה.
  */
+/**
+ * מה שהמוכר **הוריד** — השדות שהטופס מבטא ושהוא השאיר ריקים.
+ *
+ * ‎`sellerPropertyFields` כותב רק את מה שנענה, וזה נכון בשליחה
+ * ראשונה: „לא מילאתי” אינו „אין”. בשליחה חוזרת המשמעות הפוכה —
+ * המוכר ראה את הערך הקודם והוריד אותו, ושדה שנשאר על ערכו הישן
+ * הוא נתון שאיש כבר אינו טוען אותו (ביקורת Codex).
+ *
+ * הרשימה מוגבלת למה שהטופס באמת מציג. שדות שהסוכן מילא בכרטיס ואינם
+ * בטופס — שכונה מהקטלוג, מאפיינים מותאמים, מיקום על המפה — אינם
+ * נוגעים בזה, בדיוק כמו בצד הקונה.
+ */
+function clearedSellerFields(
+  written: Record<string, unknown>,
+): readonly (keyof PropertyFields)[] {
+  const candidates = [
+    "neighborhood",
+    "street",
+    "houseNumber",
+    "propertyType",
+    "rooms",
+    "areaSqm",
+    "floor",
+    "totalFloors",
+    "priceAgorot",
+    "priceFlexible",
+    "entryType",
+    "entryDate",
+    ...INTAKE_SELLER_FEATURES,
+  ] as const satisfies readonly (keyof PropertyFields)[];
+  return candidates.filter((key) => !(key in written));
+}
+
+/**
+ * הצד שנבחר — או `null` כשעוד לא נבחר.
+ *
+ * ‎**עמודת `side` נושאת `buyer` בכל שורה חדשה**, כי זו ברירת המחדל
+ * שלה וזה הצד היחיד שהיה קיים עד כה. קריאה שלה כפשוטה הייתה אומרת
+ * לעמוד „הלקוח בחר קונה” על טופס שאיש עוד לא נגע בו — והשאלה
+ * הפותחת לא הייתה מוצגת לעולם. `submittedAt` הוא מה שמבדיל בין
+ * ברירת מחדל לבין בחירה.
+ */
+function sideOf(side: string, submittedAt: Date | null): IntakeSide | null {
+  if (submittedAt === null) return null;
+  return isIntakeSide(side) ? side : "buyer";
+}
+
 function officeContext(
   tenantId: string,
   userId = "",

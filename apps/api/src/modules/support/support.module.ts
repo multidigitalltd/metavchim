@@ -20,6 +20,7 @@ import { SupportService } from "./support.service";
     SupportInboxDeskController,
   ],
   providers: [SupportService, SupportInboxService],
-  exports: [SupportInboxService],
+  // SupportService מיוצא לסוכן — „תפתח פנייה לתמיכה” מהצ'אט
+  exports: [SupportService, SupportInboxService],
 })
 export class SupportModule {}

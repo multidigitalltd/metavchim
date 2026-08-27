@@ -500,6 +500,15 @@ export default function AgentPage(): React.JSX.Element {
                   </a>
                 </>
               ) : null}
+              {/* קישור חיצוני — wa.me עם ההודעה מוכנה; נפתח בלשונית חדשה */}
+              {result.link === undefined ? null : (
+                <>
+                  {" "}
+                  <a href={result.link} target="_blank" rel="noreferrer" className="underline">
+                    פתיחה בוואטסאפ ←
+                  </a>
+                </>
+              )}
             </Notice>
           )}
           {/* התובנה לפני הרשימה: המסקנה קודם, הפירוט למי שרוצה */}

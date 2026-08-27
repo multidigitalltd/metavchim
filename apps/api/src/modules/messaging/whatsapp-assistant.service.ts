@@ -1093,6 +1093,13 @@ export class WhatsAppAssistantService {
       lines.push(`👈 ${loadEnv().WEB_ORIGIN}${primary.href}`);
     }
     /*
+     * קישור חיצוני (wa.me עם הודעה מוכנה) — מוצג ואינו נשמר:
+     * הוא יכול לשאת טלפון, והזיכרון נוסע לפרומפט של מודל חיצוני.
+     */
+    if (primary.link !== undefined) {
+      lines.push(`👈 ${primary.link}`);
+    }
+    /*
      * ‎**צעדי ההמשך — כפתורים שקשורים לתוכן, לא טקסט בלבד.**
      *
      * ‎`agentNextSteps` נגזר מהתוצאה שחזרה — שם שקיים בה, פעולה
