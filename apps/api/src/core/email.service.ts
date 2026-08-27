@@ -146,7 +146,22 @@ export class EmailService {
     to: string,
     subject: string,
     content: EmailContent | string,
-    options: { required?: boolean; tenantId?: string; tenantOnly?: boolean } = {},
+    options: {
+      required?: boolean;
+      tenantId?: string;
+      tenantOnly?: boolean;
+      /**
+       * כתובת Reply-To — תיבת הדואר הפנימית: מיילים ללקוח נושאים
+       * כתובת ייחודית שמחזירה את תשובתו אל תוך המערכת. לא נשלח
+       * כ-From: הדומיין החתום נשאר השולח, וזו רק כתובת התשובה.
+       */
+      replyTo?: string;
+      /**
+       * קבצים מצורפים — תשובת סוכן מהתיבה. האכיפה (סוגים, גדלים)
+       * אצל הקורא; כאן רק הקידוד לפורמט הספק.
+       */
+      attachments?: readonly { name: string; contentType: string; content: Buffer }[];
+    } = {},
   ): Promise<void> {
     const body: EmailContent =
       typeof content === "string" ? { paragraphs: [content] } : content;
@@ -184,7 +199,15 @@ export class EmailService {
       );
     }
     if (tenantFrom !== null) {
-      const res = await this.postmarkSend(creds.token, tenantFrom, to, subject, body);
+      const res = await this.postmarkSend(
+        creds.token,
+        tenantFrom,
+        to,
+        subject,
+        body,
+        options.replyTo,
+        options.attachments,
+      );
       if (res.ok) return;
       const detail = await res.text().catch(() => "");
       this.logger.error(
@@ -204,7 +227,15 @@ export class EmailService {
       }
     }
 
-    const res = await this.postmarkSend(creds.token, creds.from, to, subject, body);
+    const res = await this.postmarkSend(
+      creds.token,
+      creds.from,
+      to,
+      subject,
+      body,
+      options.replyTo,
+      options.attachments,
+    );
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       // 422 של Postmark כולל סיבה (כתובת From לא מאומתת וכו') — ללוג בלבד
@@ -239,6 +270,8 @@ export class EmailService {
     to: string,
     subject: string,
     body: EmailContent,
+    replyTo?: string,
+    attachments?: readonly { name: string; contentType: string; content: Buffer }[],
   ): Promise<Response> {
     try {
       return await fetch("https://api.postmarkapp.com/email", {
@@ -251,6 +284,16 @@ export class EmailService {
         body: JSON.stringify({
           From: from,
           To: to,
+          ...(replyTo === undefined ? {} : { ReplyTo: replyTo }),
+          ...(attachments === undefined || attachments.length === 0
+            ? {}
+            : {
+                Attachments: attachments.map((a) => ({
+                  Name: a.name,
+                  Content: a.content.toString("base64"),
+                  ContentType: a.contentType,
+                })),
+              }),
           Subject: subject,
           HtmlBody: renderEmailHtml(body),
           TextBody: renderEmailText(body),

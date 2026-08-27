@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import cookieParser from "cookie-parser";
+import { json } from "express";
 import helmet from "helmet";
 import { AppModule } from "./app.module";
 import { loadEnv } from "./config/env";
@@ -21,6 +22,16 @@ async function bootstrap(): Promise<void> {
      */
     bodyParser: false,
   });
+  /*
+   * ‏Webhook הדואר הנכנס מקבל מפרק משלו, רחב יותר, **לפני** הגלובלי:
+   * תשובת לקוח עם קבצים מצורפים מגיעה מהספק כ-JSON שיכול לשקול
+   * עשרות MB (התקרה אצל Postmark: ‎35MB), והמפרק של 2MB היה זורק
+   * 413 לפני שהבקר רואה את הבקשה — והספק היה מנסה שוב לנצח
+   * (ביקורת Codex). הקבצים עצמם אינם נשמרים; המפרק רק מכניס את
+   * הבקשה פנימה כדי שהטקסט ייקלט. הסיכון תחום: נתיב אחד, והמפרק
+   * של Express דוחה מעל הגבול תוך כדי קריאה, בלי לצבור מעבר לו.
+   */
+  app.use("/api/v1/public/email/inbound", json({ limit: "40mb" }));
   app.useBodyParser("json", { limit: "2mb" });
   app.useBodyParser("urlencoded", { limit: "2mb", extended: true });
 

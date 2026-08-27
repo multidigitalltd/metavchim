@@ -67,7 +67,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
   },
   {
     label: "הצעות והחתמה",
-    ids: ["send_offer", "send_agreement", "show_offers", "show_agreements"],
+    ids: ["send_offer", "send_agreement", "send_email", "show_offers", "show_agreements"],
   },
   { label: "בלעדיות", ids: ["show_exclusivity", "log_marketing_action"] },
   {

@@ -76,6 +76,7 @@ export const AGENT_ACTION_IDS = [
   "show_notifications",
   "dismiss_match",
   "assign_task",
+  "send_email",
 ] as const;
 
 export type AgentActionId = (typeof AGENT_ACTION_IDS)[number];
@@ -276,6 +277,15 @@ const F_BUYER_PHRASE: AgentFieldSpec = {
   type: "string",
   hint: "השם או התיאור שנאמר, כפי שנאמר",
   maxLength: 200,
+};
+
+/** תוכן מייל חופשי — מה שהמתווך הכתיב, מנוסח כפי שנאמר. */
+const F_EMAIL_BODY: AgentFieldSpec = {
+  key: "emailBody",
+  label: "תוכן ההודעה",
+  type: "string",
+  hint: "מה לכתוב ללקוח — משפטים מלאים, כפי שהמתווך ניסח",
+  maxLength: 5000,
 };
 
 const F_PROPERTY_PHRASE: AgentFieldSpec = {
@@ -1279,6 +1289,25 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       F_TASK_PHRASE,
       F_ASSIGNEE_PHRASE,
     ],
+  },
+  /*
+   * מייל מהתיבה הפנימית — אותו נתיב בדיוק כמו תשובה מהמסך: יוצא
+   * מכתובת המשרד (אם חובר דומיין), נושא Reply-To שמחזיר את תשובת
+   * הלקוח לתיבה, ונרשם בשיחה ובציר. `outbound` — הודעה יוצאת
+   * ללקוח מקבלת אישור לפני שליחה, כמו הצעה והסכם.
+   */
+  {
+    id: "send_email",
+    title: "שליחת מייל ללקוח",
+    when: "שליחת הודעת אימייל חופשית ללקוח מכתובת המשרד. בחר בפעולה הזו כשמבקשים „שלח מייל”, „תכתוב לו במייל” או „תענה לו במייל”. לא להצעת נכס (send_offer) ולא להסכם (send_agreement).",
+    examples: [
+      "שלח מייל לדנה שהחוזה מוכן ואפשר לתאם חתימה",
+      "תכתוב למשה כהן במייל שחוזרים אליו מחר עם תשובה",
+      "תענה לה במייל שקיבלנו את המסמכים ותודה",
+    ],
+    capability: "buyers.view_own",
+    risk: "outbound",
+    fields: [F_BUYER_PHRASE, F_EMAIL_BODY],
   },
 ];
 

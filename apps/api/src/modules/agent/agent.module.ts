@@ -6,6 +6,7 @@ import { BuyersModule } from "../buyers/buyers.module";
 import { CalendarModule } from "../calendar/calendar.module";
 import { CallsModule } from "../calls/calls.module";
 import { CollaborationModule } from "../collaboration/collaboration.module";
+import { EmailInboxModule } from "../email-inbox/email-inbox.module";
 import { ContactsModule } from "../contacts/contacts.module";
 import { LeadsModule } from "../leads/leads.module";
 import { MatchingModule } from "../matching/matching.module";
@@ -55,6 +56,8 @@ import { AgentResolveService } from "./resolve.service";
     OffersModule,
     // „מה חדש” — אותו תנאי ראות שהמסך משתמש בו
     NotificationsModule,
+    // „שלח מייל ללקוח” — אותו נתיב כמו תשובה מתיבת המייל
+    EmailInboxModule,
   ],
   controllers: [AgentController],
   providers: [

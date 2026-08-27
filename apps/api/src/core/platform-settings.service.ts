@@ -22,6 +22,13 @@ export type PlatformSettingKey =
    */
   | "postmarkAccountToken"
   | "emailFrom"
+  /**
+   * תיבת הדואר הפנימית: כתובת ה-Inbound של שרת Postmark, והסוד
+   * שבנתיב ה-Webhook. שניהם ריקים = מיילים יוצאים בלי Reply-To
+   * ייחודי ותשובות אינן נקלטות — והכל השאר ממשיך לעבוד.
+   */
+  | "emailInboundAddress"
+  | "emailInboundSecret"
   | "whatsappAppSecret"
   | "whatsappVerifyToken"
   /**
@@ -64,6 +71,13 @@ export type PlatformSettingKey =
    */
   | "whatsappIntakeTemplate"
   | "whatsappIntakeTemplateLang"
+  /**
+   * התראת "לקוח ענה במייל" לסוכן בוואטסאפ, מחוץ לחלון 24 השעות:
+   * טקסט חופשי נדחה שם, ורק תבנית מאושרת עוברת. ריק = ההתראה
+   * במערכת ובדחיפה בלבד — התנהגות תקינה, לא תקלה.
+   */
+  | "whatsappEmailReplyTemplate"
+  | "whatsappEmailReplyTemplateLang"
   | "loginOtpEnabled"
   | "googleClientId"
   | "googleClientSecret"

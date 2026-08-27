@@ -32,6 +32,7 @@ import {
 import { AgreementsService } from "../agreements/agreements.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { EmailInboxService } from "../email-inbox/email-inbox.service";
 import { AnalyticsService, type ReportWindowDays } from "../analytics/analytics.service";
 import { AgentResolveService } from "./resolve.service";
 import { BuyersService } from "../buyers/buyers.service";
@@ -232,6 +233,7 @@ export class AgentExecuteService {
     private readonly contacts: ContactsService,
     private readonly offers: OffersService,
     private readonly notifications: NotificationsService,
+    private readonly emailInbox: EmailInboxService,
   ) {}
 
   async execute(
@@ -365,6 +367,8 @@ export class AgentExecuteService {
         return this.sendOffer(params);
       case "send_agreement":
         return this.sendAgreement(params);
+      case "send_email":
+        return this.sendEmail(params);
       case "show_exclusivity":
         return this.showExclusivity(params);
       case "log_marketing_action":
@@ -1766,6 +1770,39 @@ export class AgentExecuteService {
    * משפטית ולא „פחות מדויק”. כשהנכס לא נפתר — נעצרים ואומרים מה
    * חסר.
    */
+  /**
+   * מייל חופשי ללקוח — דרך התיבה הפנימית, בדיוק כמו תשובה מהמסך:
+   * יוצא מכתובת המשרד (אם חובר דומיין), נושא Reply-To שמחזיר את
+   * תשובת הלקוח לתיבה, ונרשם בשיחה ובציר. `risk: outbound` — המתווך
+   * ראה את הנוסח המלא במסך האישור לפני שהגענו לכאן.
+   */
+  private async sendEmail(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const buyerId = str(params["buyerId"]);
+    if (buyerId === undefined) throw new BadRequestException("לא נבחר לקוח");
+    const body = str(params["emailBody"])?.trim();
+    if (body === undefined || body === "") {
+      throw new BadRequestException("אמרו מה לכתוב בהודעה");
+    }
+
+    const tenantId = TenantContext.current().tenantId;
+    const { contactId, buyerName } = await this.prisma.withTenant(async (tx) => {
+      const buyer = await tx.buyer.findFirst({
+        where: { id: buyerId, tenantId, deletedAt: null },
+        select: { contactId: true },
+      });
+      if (!buyer) throw new BadRequestException("הלקוח לא נמצא");
+      const contact = await this.contacts.getById(tx, buyer.contactId);
+      return { contactId: buyer.contactId, buyerName: contact?.name ?? "הלקוח" };
+    });
+
+    // הכתובת נשלפת מהכרטיס בתוך reply — "אין אימייל" חוזר כשגיאה ברורה
+    await this.emailInbox.reply(contactId, body);
+    return {
+      href: "/inbox",
+      message: `המייל נשלח ל${buyerName} ונרשם בשיחה ובציר הלקוח. תשובה שלו תגיע לתיבת המייל.`,
+    };
+  }
+
   private async sendAgreement(params: Record<string, unknown>): Promise<ExecuteResult> {
     const buyerId = str(params["buyerId"]);
     if (buyerId === undefined) throw new BadRequestException("לא נבחר לקוח להחתמה");

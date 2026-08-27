@@ -16,6 +16,7 @@ import { OutboxService } from "../../core/outbox.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AgreementsService } from "../agreements/agreements.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { EmailInboxService } from "../email-inbox/email-inbox.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { OffersService } from "./offers.service";
 
@@ -130,6 +131,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     private readonly email: EmailService,
     private readonly offers: OffersService,
     private readonly contacts: ContactsService,
+    private readonly emailInbox: EmailInboxService,
     private readonly agreements: AgreementsService,
     private readonly exclusivity: ExclusivityService,
     private readonly audit: AuditService,
@@ -446,12 +448,17 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
           buyerId,
         });
       }
-      return rows.map((row) => ({ ...row, to: contact.email as string, buyerName: contact.name }));
+      return rows.map((row) => ({
+        ...row,
+        to: contact.email as string,
+        buyerName: contact.name,
+        contactId: buyer.contactId,
+      }));
     });
     const first = created[0];
     if (first === undefined) return 0;
 
-    await this.deliver(tenantId, officeName, first.to, first.buyerName, created);
+    await this.deliver(tenantId, officeName, first.to, first.buyerName, first.contactId, created);
     return created.length;
   }
 
@@ -461,6 +468,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     officeName: string,
     to: string,
     buyerName: string,
+    contactId: string,
     rows: OutgoingOffer[],
   ): Promise<void> {
     const first = rows[0];
@@ -480,8 +488,14 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     });
 
     const offerIds = rows.map((row) => row.offerId);
+    // תשובת הלקוח ("אפשר לתאם ביקור?") חוזרת לתיבה הפנימית ולציר
+    const replyTo = await this.emailInbox.replyAddressFor(tenantId, contactId);
     try {
-      await this.email.send(to, subject, content, { tenantId, required: true });
+      await this.email.send(to, subject, content, {
+        tenantId,
+        required: true,
+        ...(replyTo === null ? {} : { replyTo }),
+      });
     } catch (error) {
       if (error instanceof EmailRejectedError && !error.retryable) {
         /*
@@ -719,6 +733,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
           officeName,
           contact.email,
           contact.name,
+          contact.id,
           offers.map((offer): OutgoingOffer => {
             const presentation = OfferPresentationSchema.parse(offer.presentation);
             return {

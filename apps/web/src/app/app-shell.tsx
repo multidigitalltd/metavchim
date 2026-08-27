@@ -98,6 +98,8 @@ interface NavSummary {
   matches: number;
   /** משימות שלי באיחור או להיום — התג הכתום. */
   urgentTasks: number;
+  /** תשובות מייל שטרם נקראו — התג על "תיבת מייל". */
+  emailUnread?: number;
   /** מודולים שהפלטפורמה חסמה למשרד — פריט חסום יורד מהסרגל. */
   blockedModules?: string[];
   /** הפיצ'רים שכלולים במסלול המשרד — פריט שלא כלול לא מוצג. */
@@ -168,6 +170,12 @@ const ICONS = {
       <line x1="8" y1="8" x2="16" y2="8" />
       <line x1="8" y1="12" x2="16" y2="12" />
       <line x1="8" y1="16" x2="13" y2="16" />
+    </Icon>
+  ),
+  mail: (
+    <Icon>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <polyline points="3 7 12 13 21 7" />
     </Icon>
   ),
   calendar: (
@@ -587,6 +595,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         {navLink("/calls", "שיחות", ICONS.calls)}
         {navLink("/matches", "התאמות", ICONS.matches, count(counts?.matches))}
         {navLink("/offers", "הצעות", ICONS.offers)}
+        {navLink(
+          "/inbox",
+          "תיבת מייל",
+          ICONS.mail,
+          /* תשובה שממתינה היא לקוח שממתין — התג הכתום, כמו ליד חדש */
+          counts !== null && (counts.emailUnread ?? 0) > 0 ? (
+            <span className="mv-nav-badge">{counts.emailUnread}</span>
+          ) : null,
+        )}
         {navLink("/calendar", "יומן", ICONS.calendar)}
         {navLink(
           "/tasks",

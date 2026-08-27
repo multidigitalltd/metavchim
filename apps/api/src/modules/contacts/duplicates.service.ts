@@ -219,6 +219,10 @@ export class DuplicatesService {
         tx.property.updateMany({ where: { tenantId, occupantContactId: duplicateId }, data: { occupantContactId: survivorId } }),
         tx.call.updateMany({ where: { tenantId, contactId: duplicateId }, data: { contactId: survivorId } }),
         tx.message.updateMany({ where: { tenantId, contactId: duplicateId }, data: { contactId: survivorId } }),
+        // תיבת המייל: ההודעות עוברות לשורד, והטוקן ממשיך לפעול —
+        // כתובת ה-Reply-To שכבר יושבת בתיבת הלקוח חייבת להמשיך להגיע
+        tx.emailMessage.updateMany({ where: { tenantId, contactId: duplicateId }, data: { contactId: survivorId } }),
+        tx.emailReplyToken.updateMany({ where: { tenantId, contactId: duplicateId }, data: { contactId: survivorId } }),
         tx.contactPhone.updateMany({ where: { tenantId, contactId: duplicateId }, data: { contactId: survivorId } }),
       ]);
       const moved = results.reduce((sum, r) => sum + r.count, 0);
