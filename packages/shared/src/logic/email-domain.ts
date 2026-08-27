@@ -67,9 +67,18 @@ export const PUBLIC_MAILBOX_DOMAINS: readonly string[] = [
   "gmx.com",
   "gmx.net",
   "zoho.com",
-  /** הדומיין של הפלטפורמה עצמה — משרד אינו שולח בשמה. */
-  "metavchim.co.il",
 ];
+
+/**
+ * הדומיין של המערכת עצמה.
+ *
+ * חסום לחיבור, אבל **מסיבה אחרת לגמרי** מזו של ספק דואר ציבורי:
+ * אין כאן בעיה טכנית אלא בעיה של זהות — משרד אינו שולח בשם
+ * המערכת. הפרדה מהרשימה שמעל אינה קוסמטית: מי שהקליד אותו קיבל
+ * "זהו דומיין של ספק דואר ציבורי", והמשפט הזה פשוט אינו נכון.
+ * מנהל שרואה הודעה שגויה מחפש את התקלה במקום הלא נכון.
+ */
+export const PLATFORM_DOMAIN = "metavchim.co.il";
 
 function isPublicMailboxDomain(domain: string): boolean {
   return PUBLIC_MAILBOX_DOMAINS.some(
@@ -102,6 +111,14 @@ export function emailDomainRejectionReason(domain: string): string | null {
   // סיומת של אותיות בלבד פוסלת גם כתובות IP (הסגמנט האחרון מספרי)
   if (!/^[a-z]{2,}$/u.test(labels[labels.length - 1] ?? "")) {
     return "כתובת הדומיין אינה תקינה — למשל: office.co.il";
+  }
+  if (domain === PLATFORM_DOMAIN || domain.endsWith(`.${PLATFORM_DOMAIN}`)) {
+    /*
+     * לא "אסור" סתם: מיילים מהכתובת הזו כבר יוצאים ממילא — היא
+     * ברירת המחדל של המערכת לכל משרד שלא חיבר דומיין. חיבור שלה
+     * כאן אינו מוסיף דבר, ולכן ההודעה אומרת גם מה כן לעשות.
+     */
+    return "זהו הדומיין של המערכת — מיילים ממנו כבר נשלחים כברירת מחדל. חברו כאן את הדומיין של המשרד שלכם";
   }
   if (isPublicMailboxDomain(domain)) {
     return "זהו דומיין של ספק דואר ציבורי — חברו דומיין שבבעלות המשרד";
