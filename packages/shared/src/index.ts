@@ -30,6 +30,7 @@ export * from "./logic/notifications.js";
 export * from "./logic/israel-time.js";
 export * from "./logic/coach.js";
 export * from "./logic/support.js";
+export * from "./logic/support-inbox.js";
 export * from "./logic/csv-import.js";
 export * from "./logic/csv-import-buyers.js";
 export * from "./logic/csv-export.js";

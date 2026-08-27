@@ -137,7 +137,8 @@ export class AccountDeletionService {
      * בהקשר של דייר אחר לגמרי, והטבלאות תחת FORCE RLS היו מחזירות
      * אפס מפתחות בשקט — כלומר הקבצים היו נשארים ב-S3 לנצח.
      */
-    const [media, documents, calls, tickets, emailFiles, tenantRow] = await Promise.all([
+    const [media, documents, calls, tickets, emailFiles, supportFiles, tenantRow] =
+      await Promise.all([
       this.prisma.withExplicitTenant(tenantId, (tx) =>
         tx.propertyMedia.findMany({
           where: { tenantId },
@@ -187,6 +188,15 @@ export class AccountDeletionService {
         }),
       ),
       /*
+       * הקבצים בפניות התמיכה של המשרד. הטבלה יושבת ברמת הפלטפורמה
+       * (פנייה יכולה להגיע גם ממי שאינו לקוח), ולכן היא נקראת ישירות
+       * ומסוננת לפי המשרד כאן.
+       */
+      this.prisma.supportAttachment.findMany({
+        where: { message: { thread: { tenantId } } },
+        select: { s3Key: true },
+      }),
+      /*
        * הלוגו — מפתח שיושב ב-`settings` ולא בטבלה משלו, ולכן הוא
        * אינו נאסף בשתי השאילתות שמעל. בלי השורה הזו הוא היה נשאר
        * ב-S3 אחרי מחיקת המשרד: קובץ של לקוח שביקש להימחק.
@@ -214,6 +224,7 @@ export class AccountDeletionService {
       ...media.map((m) => m.s3Key),
       ...documents.map((d) => d.s3Key),
       ...emailFiles.map((f) => f.s3Key),
+      ...supportFiles.map((f) => f.s3Key),
       ...tickets
         .map((t) => t.screenshotKey)
         .filter((k): k is string => k !== null),
@@ -442,6 +453,14 @@ export class AccountDeletionService {
      */
     await this.prisma.$transaction([
       this.prisma.leadWebhook.deleteMany({ where: { tenantId } }),
+      /*
+       * פניות התמיכה במייל של המשרד. **נמחקות ולא מנותקות**: בשרשור
+       * יושבים כתובת האימייל של מי שפנה ותוכן ההתכתבות, וזה בדיוק
+       * המידע האישי שמחיקת המשרד מבטיחה להעלים — בדיוק כמו
+       * `support_tickets` שנמחקת מהצד של ה-RLS. ההודעות והקבצים
+       * יורדים ב-Cascade, והמפתחות שלהם כבר נאספו לניקוי האחסון.
+       */
+      this.prisma.supportThread.deleteMany({ where: { tenantId } }),
       // טוקני ה-Reply-To — מחוץ ל-RLS כמו ה-webhook, ולכן נמחקים כאן
       this.prisma.emailReplyToken.deleteMany({ where: { tenantId } }),
       this.prisma.subscriptionOffer.deleteMany({ where: { tenantId } }),

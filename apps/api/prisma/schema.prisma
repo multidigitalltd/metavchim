@@ -1641,6 +1641,71 @@ model TaskRecurrence {
 }
 
 // התראה למתווך: נוצרת ע"י ה-Worker מאירועי דומיין (docs/02 §4 Notifications).
+/// שרשור בתיבת התמיכה של הפלטפורמה — פונה אחד ונושא אחד.
+///
+/// **מחוץ ל-RLS ובלי `tenant_id` חובה**: פנייה לתמיכה יכולה להגיע
+/// ממי שאינו לקוח כלל. השיוך למשרד נעשה כשאפשר לזהות לפי כתובת
+/// השולח, ונשאר ריק כשלא.
+model SupportThread {
+  id            String    @id @db.Char(26)
+  /// הטוקן שנשתל בכתובת התשובה — מה שמחזיר את תשובת הפונה לשרשור
+  replyToken    String    @unique @map("reply_token") @db.Char(26)
+  tenantId      String?   @map("tenant_id") @db.Char(26)
+  contactEmail  String?   @map("contact_email") @db.VarChar(254)
+  contactName   String    @map("contact_name") @db.VarChar(120)
+  subject       String    @db.VarChar(200)
+  /// open | closed
+  status        String    @default("open") @db.VarChar(20)
+  lastMessageAt DateTime  @default(now()) @map("last_message_at")
+  readAt        DateTime? @map("read_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  messages SupportMessage[]
+
+  @@index([status, lastMessageAt(sort: Desc)])
+  @@index([contactEmail, status])
+  @@map("support_threads")
+}
+
+/// הודעה בשרשור תמיכה — נכנסת מהפונה או יוצאת מהתמיכה.
+model SupportMessage {
+  id                String   @id @db.Char(26)
+  threadId          String   @map("thread_id") @db.Char(26)
+  /// in | out
+  direction         String   @db.VarChar(3)
+  body              String   @db.VarChar(20000)
+  fromEmail         String?  @map("from_email") @db.VarChar(254)
+  /// דה-דופליקציה מול Webhook שנשלח פעמיים
+  providerMessageId String?  @unique @map("provider_message_id") @db.VarChar(200)
+  createdBy         String?  @map("created_by") @db.Char(26)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  thread      SupportThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  attachments SupportAttachment[]
+
+  @@index([threadId, createdAt])
+  @@map("support_messages")
+}
+
+/// קובץ מצורף בפניית תמיכה — צילום מסך הוא הדבר השימושי ביותר שפונה שולח.
+model SupportAttachment {
+  id          String   @id @db.Char(26)
+  messageId   String   @map("message_id") @db.Char(26)
+  /// image | video | file
+  kind        String   @db.VarChar(10)
+  name        String   @db.VarChar(200)
+  contentType String   @map("content_type") @db.VarChar(100)
+  sizeBytes   Int      @map("size_bytes")
+  s3Key       String   @map("s3_key") @db.VarChar(300)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  message SupportMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("support_attachments")
+}
+
 model Notification {
   id         String    @id @db.Char(26)
   tenantId   String    @map("tenant_id") @db.Char(26)
