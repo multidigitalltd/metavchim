@@ -19,6 +19,94 @@ import { Notice } from "../notice";
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
+/**
+ * כתובת ה-Webhook המלאה להדבקה אצל הספק.
+ *
+ * הסוד הוא **חלק מהנתיב**, ולכן "‎…/inbound/<הסוד>" אינו הוראה אלא
+ * חידה: מי שהגיע לכאן צריך להדביק כתובת בפוסטמרק, ואין לו מאיפה
+ * להרכיב אותה. הסוד עצמו אינו חוזר מהשרת (וטוב שכך), ולכן הכתובת
+ * נבנית כאן מ**מה שהוקלד עכשיו** — הרגע היחיד שבו הוא ידוע לדפדפן.
+ *
+ * מי שכבר שמר סוד ואינו זוכר אותו מקבל את האמת: המערכת אינה מציגה
+ * אותו שוב, והדרך לכתובת היא להקליד אותו כאן. עדיף מאשר להשאיר אותו
+ * מול שורת מציין-מיקום שנראית כמו כתובת ואינה עובדת.
+ */
+function WebhookUrl({
+  path,
+  secret,
+  alreadySet,
+}: {
+  /** הנתיב עד לסוד, כולל הלוכסן הסוגר. */
+  path: string;
+  /** מה שהוקלד בשדה הסוד ברגע זה. */
+  secret: string;
+  /** האם סוד כלשהו כבר שמור בשרת. */
+  alreadySet: boolean;
+}) {
+  const [origin, setOrigin] = useState("");
+  const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
+
+  // אחרי ההרכבה בלבד: ‎window‎ אינו קיים ברינדור בשרת
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+
+  const trimmed = secret.trim();
+  const url = trimmed === "" ? "" : `${origin}${path}${encodeURIComponent(trimmed)}`;
+
+  async function copy(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied("copied");
+    } catch {
+      // כישלון מדווח ככישלון: "הועתק" על לוח ריק גרוע מהודעת שגיאה
+      setCopied("failed");
+    }
+  }
+
+  if (url === "") {
+    return (
+      <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+        {alreadySet
+          ? "כתובת ה-Webhook מכילה את הסוד, והמערכת אינה מציגה סודות שמורים. הקלידו אותו בשדה שלמעלה כדי לראות את הכתובת המלאה להדבקה."
+          : "מלאו סוד (16 תווים לפחות) — כתובת ה-Webhook המלאה תופיע כאן להעתקה."}
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2 text-sm">
+      <div className="mb-1" style={{ color: "var(--color-text-muted)" }}>
+        כתובת ה-Webhook להדבקה בפוסטמרק:
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <code
+          dir="ltr"
+          className="min-w-0 flex-1 overflow-x-auto rounded-lg border px-3 py-2"
+          style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
+        >
+          {url}
+        </code>
+        <button
+          type="button"
+          className="mv-chip"
+          aria-label="העתקת כתובת ה-Webhook"
+          onClick={() => {
+            void copy();
+          }}
+        >
+          העתקה
+        </button>
+      </div>
+      {copied === "idle" ? null : (
+        <p className="mt-1" role="status" style={{ color: "var(--color-text-muted)" }}>
+          {copied === "copied" ? "✓ הועתק" : "ההעתקה נכשלה — סמנו את הכתובת והעתיקו ידנית"}
+        </p>
+      )}
+    </div>
+  );
+}
+
 interface PlatformSettings {
   postmark: {
     configured: boolean;
@@ -45,8 +133,12 @@ interface PlatformSettings {
       /** תבנית ההתראה המאושרת ב-Meta; ריק = דחיפה רק בתוך חלון 24 השעות */
       notifyTemplate?: string;
       notifyTemplateLang?: string;
+      intakeTemplate?: string;
+      intakeTemplateLang?: string;
       viewingReminderTemplate?: string;
       viewingReminderTemplateLang?: string;
+      emailReplyTemplate?: string;
+      emailReplyTemplateLang?: string;
     };
   };
   google: {
@@ -56,7 +148,14 @@ interface PlatformSettings {
     redirectUris: { label: string; url: string }[];
   };
   /** אופציונלי — שרת ישן עוד לא מחזיר אותו, והמסך לא נופל על זה */
-  gemini?: { configured: boolean; source: "db" | "env" | "none"; model: string };
+  gemini?: {
+    configured: boolean;
+    source: "db" | "env" | "none";
+    /** המודל בתוקף */
+    model: string;
+    /** הערך השמור; ריק = ברירת המחדל שבקוד */
+    modelOverride?: string;
+  };
   cardcom: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
   /** לינט — הפקת חשבוניות מס קבלה על כל תשלום שנגבה. */
   linet: {
@@ -125,6 +224,13 @@ export function PlatformSettingsSection({
    * "הכפתור לא מגיב").
    */
   const [probing, setProbing] = useState<"gemini" | "cardcom" | "whatsapp" | "linet" | null>(null);
+  /*
+   * שני סודות ה-Webhook נשמרים גם בזיכרון המסך, ולא רק ב-DOM: הכתובת
+   * המלאה נבנית מהם, וזה הרגע היחיד שבו הדפדפן יודע אותם. הם אינם
+   * נשלחים לשום מקום מלבד אותה שמירה שהמשתמש ביקש.
+   */
+  const [officeInboundSecret, setOfficeInboundSecret] = useState("");
+  const [supportSecret, setSupportSecret] = useState("");
   const noticeRef = useRef<HTMLDivElement | null>(null);
   const showProbeResult = (): void => {
     // אחרי הרינדור של ההודעה — אחרת גוללים אל תיבה שעוד לא קיימת
@@ -163,8 +269,14 @@ export function PlatformSettingsSection({
         ...(secret !== "" ? { supportInboundSecret: secret } : {}),
         ...(serverToken !== "" ? { supportServerToken: serverToken } : {}),
       });
+      /*
+       * ‏`reset` אינו מנקה את שדה הסוד — הוא מבוקר (controlled), וזה
+       * במכוון: כתובת ה-Webhook נבנית ממנו, והצורך בה מגיע דווקא
+       * **אחרי** השמירה, כשהולכים להדביק אותה בפוסטמרק. ניקוי היה
+       * מחזיר בדיוק את המבוי הסתום שהשדה הזה בא לפתור.
+       */
       form.reset();
-      setMessage("✓ תיבת התמיכה נשמרה");
+      setMessage("✓ תיבת התמיכה נשמרה — העתיקו את כתובת ה-Webhook שמתחת");
       load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
@@ -191,6 +303,7 @@ export function PlatformSettingsSection({
         emailInboundAddress: String(f.get("emailInboundAddress")).trim(),
         ...(inboundSecret !== "" ? { emailInboundSecret: inboundSecret } : {}),
       });
+      // הסוד נשאר בשדה בכוונה — ראו ההסבר ב-saveSupportInbox
       form.reset();
       setMessage("✓ הגדרות האימייל נשמרו");
       load();
@@ -249,9 +362,15 @@ export function PlatformSettingsSection({
       const prospectReply = String(f.get("whatsappProspectReply") ?? "").trim();
       const notifyTemplate = String(f.get("whatsappNotifyTemplate") ?? "").trim();
       const notifyTemplateLang = String(f.get("whatsappNotifyTemplateLang") ?? "").trim();
+      const intakeTemplate = String(f.get("whatsappIntakeTemplate") ?? "").trim();
+      const intakeTemplateLang = String(f.get("whatsappIntakeTemplateLang") ?? "").trim();
       const reminderTemplate = String(f.get("whatsappViewingReminderTemplate") ?? "").trim();
       const reminderTemplateLang = String(
         f.get("whatsappViewingReminderTemplateLang") ?? "",
+      ).trim();
+      const emailReplyTemplate = String(f.get("whatsappEmailReplyTemplate") ?? "").trim();
+      const emailReplyTemplateLang = String(
+        f.get("whatsappEmailReplyTemplateLang") ?? "",
       ).trim();
       await apiPatch("/platform/settings", {
         ...(secret !== "" ? { whatsappAppSecret: secret } : {}),
@@ -265,8 +384,12 @@ export function PlatformSettingsSection({
         // רק בתוך חלון 24 השעות — מצב תקין ולא היעדר שינוי
         whatsappNotifyTemplate: notifyTemplate,
         whatsappNotifyTemplateLang: notifyTemplateLang,
+        whatsappIntakeTemplate: intakeTemplate,
+        whatsappIntakeTemplateLang: intakeTemplateLang,
         whatsappViewingReminderTemplate: reminderTemplate,
         whatsappViewingReminderTemplateLang: reminderTemplateLang,
+        whatsappEmailReplyTemplate: emailReplyTemplate,
+        whatsappEmailReplyTemplateLang: emailReplyTemplateLang,
       });
       form.reset();
       setMessage("✓ הגדרות הוואטסאפ נשמרו");
@@ -289,10 +412,13 @@ export function PlatformSettingsSection({
       const clientId = String(f.get("googleClientId")).trim();
       const clientSecret = String(f.get("googleClientSecret")).trim();
       const geminiKey = String(f.get("geminiApiKey") ?? "").trim();
+      const geminiModel = String(f.get("geminiModel") ?? "").trim();
       await apiPatch("/platform/settings", {
         ...(clientId !== "" ? { googleClientId: clientId } : {}),
         ...(clientSecret !== "" ? { googleClientSecret: clientSecret } : {}),
         ...(geminiKey !== "" ? { geminiApiKey: geminiKey } : {}),
+        // שדה ערך ולא סוד: ריקון פירושו "חזרה לברירת המחדל שבקוד"
+        geminiModel,
       });
       form.reset();
       setMessage("✓ הגדרות Google נשמרו — כפתור ההתחברות יופיע במסך הכניסה");
@@ -666,7 +792,7 @@ export function PlatformSettingsSection({
             תיבת הדואר הפנימית: כתובת ה-Inbound של שרת Postmark, והסוד
             שסוגר את נתיב ה-Webhook. עם שניהם — מיילים ללקוחות נושאים
             Reply-To ייחודי ותשובות נכנסות לתיבה; בלעדיהם הכל ממשיך
-            כרגיל. ה-Webhook להדבקה אצל הספק: ‎/api/v1/public/email/inbound/<הסוד>.
+            כרגיל. כתובת ה-Webhook המלאה מוצגת מתחת לטופס ברגע שהסוד מוקלד.
           */}
           <div className="flex-1" style={{ minWidth: "220px" }}>
             <label htmlFor="emailInboundAddress" className="mb-1 block font-medium">
@@ -694,6 +820,10 @@ export function PlatformSettingsSection({
             <input
               id="emailInboundSecret"
               name="emailInboundSecret"
+              value={officeInboundSecret}
+              onChange={(e) => {
+                setOfficeInboundSecret(e.target.value);
+              }}
               type="password"
               dir="ltr"
               autoComplete="new-password"
@@ -711,6 +841,11 @@ export function PlatformSettingsSection({
             </Button>
           ) : null}
         </form>
+        <WebhookUrl
+          path="/api/v1/public/email/inbound/"
+          secret={officeInboundSecret}
+          alreadySet={settings.postmark.inboundSecretSet}
+        />
         <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
           Account Token (Postmark ⟵ Account ⟵ API Tokens) מפעיל למשרדים חיבור
           דומיין משלהם לשליחה — {settings.postmark.officeDomains ? "מוגדר ופעיל." : "טרם הוגדר."}
@@ -814,6 +949,10 @@ export function PlatformSettingsSection({
             <input
               id="supportInboundSecret"
               name="supportInboundSecret"
+              value={supportSecret}
+              onChange={(e) => {
+                setSupportSecret(e.target.value);
+              }}
               type="password"
               dir="ltr"
               autoComplete="new-password"
@@ -850,14 +989,11 @@ export function PlatformSettingsSection({
           התשובות יוצאות מכתובת ה-Inbound שלמעלה. בלי Server Token הן נשלחות דרך
           השרת הכללי — עדיין מכתובת התמיכה, רק לא בזרם נפרד.
         </p>
-        <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          כתובת ה-Webhook להדבקה בפוסטמרק נבנית מהסוד:{" "}
-          <span dir="ltr" className="font-mono">
-            {settings.postmark.supportInboundSecretSet
-              ? "…/api/v1/public/support/inbound/<הסוד>"
-              : "תחילה שמרו סוד"}
-          </span>
-        </p>
+        <WebhookUrl
+          path="/api/v1/public/support/inbound/"
+          secret={supportSecret}
+          alreadySet={settings.postmark.supportInboundSecretSet}
+        />
       </div>
 
       {/* ---------- חיבורי Google ---------- */}
@@ -969,6 +1105,25 @@ export function PlatformSettingsSection({
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />
+          </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="geminiModel" className="mb-1 block font-medium">
+              מודל Gemini <span className="font-normal">(ריק = ברירת המחדל שבקוד)</span>
+            </label>
+            <input
+              id="geminiModel"
+              name="geminiModel"
+              dir="ltr"
+              key={settings.gemini?.modelOverride ?? ""}
+              defaultValue={settings.gemini?.modelOverride ?? ""}
+              placeholder={settings.gemini?.model ?? ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+            <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              ספקים מוציאים מודלים משימוש. השדה כאן מאפשר לעבור למודל אחר בלי
+              גרסה חדשה — בדיוק במצב שבו הפקודות הקוליות מפסיקות לעבוד.
+            </p>
           </div>
           <Button type="submit" disabled={busy}>שמור</Button>
           {/*
@@ -1501,6 +1656,43 @@ export function PlatformSettingsSection({
           </div>
 
           <div className="mb-3">
+            <label htmlFor="whatsappIntakeTemplate" className="mb-1 block font-medium">
+              תבנית „מה אתם מחפשים?” אחרי שיחה שלא נענתה{" "}
+              <span className="font-normal">(ריק = הקישור לא נשלח אוטומטית)</span>
+            </label>
+            <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              נשלחת ל<b>לקוח</b> שהתקשר ולא נענה, ולכן היא מחוץ לחלון 24 השעות
+              של Meta ודורשת תבנית מסוג Utility עם <b>משתנה אחד</b> בגוף — הקישור
+              לטופס הדרישות. למשל תבנית שגופה „‎{"{{1}}"}‎”. בלי תבנית מוגדרת
+              הקישור אינו נשלח, וההודעה המוכנה חוזרת בגוף ההתראה כדי שהסוכן
+              ישלח אותה בעצמו.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                id="whatsappIntakeTemplate"
+                name="whatsappIntakeTemplate"
+                dir="ltr"
+                key={settings.whatsapp.assistant.intakeTemplate ?? ""}
+                defaultValue={settings.whatsapp.assistant.intakeTemplate ?? ""}
+                placeholder="metavchim_intake_link"
+                className="min-w-[220px] flex-1 rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+              <input
+                id="whatsappIntakeTemplateLang"
+                name="whatsappIntakeTemplateLang"
+                dir="ltr"
+                aria-label="שפת תבנית טופס הדרישות"
+                key={`ilang-${settings.whatsapp.assistant.intakeTemplateLang ?? "he"}`}
+                defaultValue={settings.whatsapp.assistant.intakeTemplateLang ?? "he"}
+                placeholder="he"
+                className="w-24 rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
+          </div>
+
+          <div className="mb-3">
             <label
               htmlFor="whatsappViewingReminderTemplate"
               className="mb-1 block font-medium"
@@ -1532,6 +1724,41 @@ export function PlatformSettingsSection({
                 aria-label="שפת תבנית התזכורת"
                 key={`rlang-${settings.whatsapp.assistant.viewingReminderTemplateLang ?? "he"}`}
                 defaultValue={settings.whatsapp.assistant.viewingReminderTemplateLang ?? "he"}
+                placeholder="he"
+                className="w-24 rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
+          </div>
+          <div className="mb-3">
+            <label htmlFor="whatsappEmailReplyTemplate" className="mb-1 block font-medium">
+              תבנית „לקוח ענה במייל” לסוכן{" "}
+              <span className="font-normal">(ריק = התראה במערכת ובדחיפה בלבד)</span>
+            </label>
+            <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              היחידה כאן שנשלחת ל<b>סוכן</b> ולא ללקוח, ורק כשהוא מחוץ לחלון 24
+              השעות. תבנית עם <b>משתנה אחד</b> — שם הלקוח שהשיב. למשל „תשובה
+              חדשה במייל מ‎{"{{1}}"}‎”. בלי תבנית ההתראה עדיין מגיעה במערכת
+              ובדחיפה, רק לא בוואטסאפ.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                id="whatsappEmailReplyTemplate"
+                name="whatsappEmailReplyTemplate"
+                dir="ltr"
+                key={settings.whatsapp.assistant.emailReplyTemplate ?? ""}
+                defaultValue={settings.whatsapp.assistant.emailReplyTemplate ?? ""}
+                placeholder="metavchim_email_reply"
+                className="min-w-[220px] flex-1 rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+              <input
+                id="whatsappEmailReplyTemplateLang"
+                name="whatsappEmailReplyTemplateLang"
+                dir="ltr"
+                aria-label="שפת תבנית התראת המייל"
+                key={`elang-${settings.whatsapp.assistant.emailReplyTemplateLang ?? "he"}`}
+                defaultValue={settings.whatsapp.assistant.emailReplyTemplateLang ?? "he"}
                 placeholder="he"
                 className="w-24 rounded-lg border px-3 py-2.5"
                 style={inputStyle}
