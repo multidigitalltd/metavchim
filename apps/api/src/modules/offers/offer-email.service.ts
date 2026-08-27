@@ -186,7 +186,15 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         const result = await TenantContext.run(
           // בלי משתמש ובלי יכולות — הסבב מבצע מדיניות משרד, לא פעולת סוכן
           { tenantId: tenant.id, userId: "", capabilities: new Set(), billingOnly: false },
-          () => this.sweepTenant(tenant.id, tenant.name, since),
+          () =>
+            this.sweepTenant(
+              tenant.id,
+              tenant.name,
+              since,
+              typeof settings["autoEmailOffersCursor"] === "string"
+                ? settings["autoEmailOffersCursor"]
+                : undefined,
+            ),
         );
         emails += result.emails;
         offers += result.offers;
@@ -205,6 +213,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     tenantId: string,
     officeName: string,
     since: Date,
+    startCursor: string | undefined,
   ): Promise<{ emails: number; offers: number }> {
     let emails = 0;
     let offers = 0;
@@ -221,7 +230,13 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
      * שלב ב' — התאמות חדשות. הזכאות נבדקת מחדש בכל סבב ולא נשמרת:
      * לקוח שהוסיף אימייל או חתם על הסכם אתמול נכנס מעצמו.
      */
-    const eligible = await this.eligibleMatches(tenantId, since);
+    const scan = await this.eligibleMatches(tenantId, since, startCursor);
+    const eligible = scan.eligible;
+    /*
+     * ‎**הסמן נשמר גם כשלא נשלח דבר** — ודווקא אז הוא חשוב: סבב
+     * שכולו לא-זכאי חייב להתקדם, אחרת הוא יחזור על עצמו לנצח.
+     */
+    await this.saveCursor(tenantId, scan.nextCursor);
     const byBuyer = new Map<string, EligibleMatch[]>();
     for (const match of eligible) {
       if (pendingBuyers.buyerIds.has(match.buyerId)) continue;
@@ -258,21 +273,35 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
    * ההתאמות שראויות להישלח אוטומטית. שאילתות גסות ואז סינון מדויק —
    * אותו סדר כמו במנוע ההתאמות עצמו.
    */
-  private async eligibleMatches(tenantId: string, since: Date): Promise<EligibleMatch[]> {
+  private async eligibleMatches(
+    tenantId: string,
+    since: Date,
+    startCursor: string | undefined,
+  ): Promise<{ eligible: EligibleMatch[]; nextCursor: string | undefined }> {
     /*
-     * ‎**סריקה בסמן, ולא „400 הראשונים”.**
+     * ‎**סריקה מסתובבת, והסמן **נשמר בין סבבים**.
      *
-     * התקרה הקודמת הייתה `take` דטרמיניסטי על מיון לפי ציון: אם
-     * למשרד יש 400 התאמות חזקות שאינן זכאות לצמיתות — לקוחות שלא
-     * חתמו, או שהסירו את עצמם — אותן 400 נבחרו **בכל סבב מחדש**,
-     * הסינון רץ אחריהן, והתאמות זכאות בציון נמוך יותר לא הגיעו
-     * לעיבוד לעולם. ההודעה שכתבתי שם („השאר בסבב הבא”) פשוט לא הייתה
-     * נכונה (ביקורת Codex).
+     * שתי גרסאות קודמות נכשלו כאן, ובשתיהן כתבתי ביומן משפט שאינו
+     * נכון:
      *
-     * הסמן ממשיך מהמקום שבו נעצר, ולכן החסימה נשברת: מנה שכולה
-     * לא-זכאית מקדמת את הסריקה במקום לחזור על עצמה. העצירה היא
-     * כשנאספו מספיק לקוחות לסבב, כשנגמרו השורות, או בתקרת סריקה —
-     * ואז מדובר באמת ב„השאר בסבב הבא”, כי הסמן התקדם.
+     * ‎**1 · `take` דטרמיניסטי.** 400 ההתאמות החזקות נבחרו בכל סבב
+     * מחדש; אם כולן לא-זכאיות לצמיתות, זכאיות בציון נמוך יותר לא
+     * הגיעו לעיבוד לעולם. כתבתי „השאר בסבב הבא”, וזה לא קרה.
+     *
+     * ‎**2 · סמן מקומי.** הוספתי סמן — והוא אותחל ל-`undefined` בכל
+     * קריאה. כלומר בדיוק אותה הרעבה, רק בגודל 2,000 במקום 400.
+     * כתבתי „הסמן יימשך בסבב הבא”, והוא לא נמשך לשום מקום (שתי
+     * ביקורות Codex, על אותו קוד).
+     *
+     * ‎**מה שנכון כאן, ולמה סיבוב ולא סמן שמתקדם לתמיד.** אי-זכאות
+     * כאן כמעט אף פעם אינה לצמיתות: לקוח שלא חתם יחתום, נכס שהוקפא
+     * יחזור, ומי שהסיר את עצמו יכול לחזור (יש עכשיו נתיב לכך). סמן
+     * שרק מתקדם היה מדלג עליהם לתמיד — ובאותה מידה על **התאמות
+     * חדשות**, שנכנסות לפי ציון ולכן נופלות לפניו.
+     *
+     * לכן הסמן מסתובב: הוא נשמר, ממשיך בסבב הבא, ומתאפס לתחילת
+     * הרשימה כשנגמרו השורות. כל שורה נסרקת בתוך מספר סבבים חסום,
+     * ואף אחת אינה נעלמת.
      */
     const where = {
       tenantId,
@@ -282,12 +311,22 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     };
     const eligible: EligibleMatch[] = [];
     const buyersFound = new Set<string>();
-    let cursor: string | undefined;
+    let cursor = startCursor;
     let scanned = 0;
+    let wrapped = false;
 
     while (scanned < MAX_MATCH_SCAN_PER_SWEEP && buyersFound.size < MAX_BUYERS_PER_TENANT_SWEEP) {
       const page = await this.scanBatch(tenantId, where, cursor);
-      if (page.scanned === 0) break;
+      if (page.scanned === 0) {
+        /*
+         * סוף הרשימה. הסיבוב חוזר לתחילתה — ומפסיק כאן, כדי שסבב
+         * אחד לא יוכל להסתובב על עצמו בלולאה אינסופית כשהרשימה
+         * קצרה מהתקרה.
+         */
+        cursor = undefined;
+        wrapped = true;
+        break;
+      }
       scanned += page.scanned;
       cursor = page.cursor;
       for (const row of page.eligible) {
@@ -297,10 +336,47 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     }
     if (scanned >= MAX_MATCH_SCAN_PER_SWEEP) {
       this.logger.log(
-        `משרד ${tenantId}: נסרקו ${scanned} התאמות בסבב הזה; הסמן יימשך בסבב הבא`,
+        `משרד ${tenantId}: נסרקו ${scanned} התאמות; הסריקה תימשך מכאן בסבב הבא`,
       );
     }
-    return eligible;
+    return { eligible, nextCursor: wrapped ? undefined : cursor };
+  }
+
+  /**
+   * ‎**שמירת הסמן — עדכון של שדה אחד ב-JSON, לא כתיבה מחדש של ההגדרות.**
+   *
+   * ‎`settings` הוא אובייקט שהמסך שומר בשלמותו. קריאה-שינוי-כתיבה
+   * מהסבב הייתה דורסת שינוי שבעל המשרד עשה בדיוק באותן עשר דקות.
+   * ‎`jsonb_set` נוגע במפתח אחד בלבד, בתוך שאילתה אחת.
+   *
+   * ‎`COALESCE` כי `settings` יכול להיות `null` בשורות ישנות, ואז
+   * ‎`jsonb_set` על `null` מחזיר `null` ומוחק את כל ההגדרות.
+   */
+  private async saveCursor(tenantId: string, cursor: string | undefined): Promise<void> {
+    try {
+      if (cursor === undefined) {
+        await this.prisma.$executeRaw`
+          UPDATE tenants
+             SET settings = COALESCE(settings, '{}'::jsonb) - 'autoEmailOffersCursor'
+           WHERE id = ${tenantId}`;
+        return;
+      }
+      await this.prisma.$executeRaw`
+        UPDATE tenants
+           SET settings = jsonb_set(
+                 COALESCE(settings, '{}'::jsonb),
+                 '{autoEmailOffersCursor}',
+                 to_jsonb(${cursor}::text),
+                 true)
+         WHERE id = ${tenantId}`;
+    } catch (error: unknown) {
+      /*
+       * הסמן הוא אופטימיזציה של הוגנות, לא נתון עסקי. כישלון בשמירתו
+       * מחזיר את הסבב הבא לתחילת הרשימה — פחות הוגן, ולא שגוי — ואינו
+       * סיבה להפיל סבב ששלח מיילים בהצלחה.
+       */
+      this.logger.warn(`שמירת סמן הסריקה נכשלה למשרד ${tenantId}: ${String(error)}`);
+    }
   }
 
   /**

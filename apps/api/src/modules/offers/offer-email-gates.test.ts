@@ -173,3 +173,49 @@ describe("חסימת העבודה בסבב", () => {
     expect(body("eligibleMatches")).toContain("this.logger");
   });
 });
+
+/**
+ * ‎**הסמן חוצה סבבים — ושלוש גרסאות נכשלו בזה.**
+ *
+ * ‎`take` דטרמיניסטי בחר את אותן 400 שורות בכל סבב. סמן מקומי אותחל
+ * ל-`undefined` בכל קריאה, כלומר אותה הרעבה בגודל 2,000. **ובשתיהן
+ * כתבתי ביומן משפט שאינו נכון** — „השאר בסבב הבא”, „הסמן יימשך בסבב
+ * הבא” — ושתיהן נתפסו רק בביקורת (שתי ביקורות Codex על אותו קוד).
+ *
+ * מה שהופך את זה לניתן לבדיקה מבנית: הסמן חייב **להיכנס** לפונקציה
+ * ולצאת ממנה, ולהישמר. סמן שנולד ומת בתוך קריאה אחת אינו סמן.
+ */
+describe("הסמן בין סבבים", () => {
+  it("הסמן מגיע מבחוץ ואינו מאותחל בפנים", () => {
+    const scan = body("eligibleMatches");
+    expect(scan).toContain("startCursor");
+    // `let cursor: string | undefined;` — האתחול שהחזיר את ההרעבה
+    expect(scan).not.toMatch(/let cursor:\s*string \| undefined;/u);
+  });
+
+  it("והוא מוחזר לשמירה", () => {
+    expect(body("eligibleMatches")).toContain("nextCursor");
+  });
+
+  /*
+   * ‎**נשמר גם כשלא נשלח דבר.** דווקא סבב שכולו לא-זכאי חייב להתקדם;
+   * שמירה מותנית בשליחה הייתה משחזרת את ההרעבה במדויק.
+   */
+  it("הסבב שומר את הסמן ללא תנאי", () => {
+    const sweep = body("sweepTenant");
+    expect(sweep).toContain("saveCursor(");
+    expect(sweep).not.toMatch(/if\s*\([^)]*\)\s*await this\.saveCursor/u);
+  });
+
+  /*
+   * ‎**כתיבה של שדה אחד ולא של ההגדרות כולן.** `settings` נשמר
+   * במלואו מהמסך, וקריאה-שינוי-כתיבה מהסבב הייתה דורסת שינוי שבעל
+   * המשרד עשה באותן עשר דקות.
+   */
+  it("השמירה נוגעת במפתח אחד בלבד", () => {
+    const save = body("saveCursor");
+    expect(save).toContain("jsonb_set");
+    expect(save).toContain("COALESCE");
+    expect(save).not.toContain("tenant.update");
+  });
+});

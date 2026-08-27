@@ -42,8 +42,26 @@ interface Message {
   subject: string;
   body: string;
   fromEmail?: string;
+  /** ‏pending | sent | failed — ביוצאות בלבד. */
+  sendState?: string;
   createdAt: string;
   attachments: Attachment[];
+}
+
+/**
+ * ‎**תשובה שלא יצאה חייבת להיראות אחרת.**
+ *
+ * השרת כותב את ההודעה לפני השליחה ומאשר אחריה, כדי שכשל לא ימחק כל
+ * זכר להודעה שהלקוח כבר קיבל. אם המסך יציג את השורה כמו כל שורה
+ * אחרת, כל התיקון הזה נעצר צעד לפני מי שצריך לדעת — הסוכן יראה
+ * „נשלח” על משהו שלא נשלח.
+ *
+ * ‎`sent` וההודעות הנכנסות אינן מקבלות תווית: מצב תקין אינו הודעה.
+ */
+function sendStateNote(state: string | undefined): { text: string; token: string } | null {
+  if (state === "failed") return { text: "לא נשלחה", token: "--color-danger" };
+  if (state === "pending") return { text: "בשליחה…", token: "--color-text-muted" };
+  return null;
 }
 
 /** ‏1.2MB ⟵ "1.2MB"; 850KB ⟵ "850KB" — לתווית ההורדה. */
@@ -230,6 +248,15 @@ export default function InboxPage() {
                             <p className="mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
                               {message.direction === "in" ? "הלקוח" : "המשרד"} ·{" "}
                               {formatDateTime(message.createdAt)}
+                              {(() => {
+                                const note = sendStateNote(message.sendState);
+                                return note === null ? null : (
+                                  <>
+                                    {" · "}
+                                    <span style={{ color: `var(${note.token})` }}>{note.text}</span>
+                                  </>
+                                );
+                              })()}
                             </p>
                             {message.body !== "" ? message.body : null}
                             {message.attachments.length > 0 ? (

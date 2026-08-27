@@ -680,6 +680,12 @@ model EmailMessage {
   providerMessageId String?   @map("provider_message_id") @db.VarChar(200)
   readAt            DateTime? @map("read_at")
   readBy            String?   @map("read_by") @db.Char(26)
+  /// pending | sent | failed — על הודעות **יוצאות** בלבד; NULL בנכנסות.
+  ///
+  /// הרשומה נכתבת `pending` **לפני** השליחה ומאושרת אחריה: שליחה היא
+  /// פעולה בלתי הפיכה, וכתיבה אחריה משמעה שכשל בכתיבה מוחק כל זכר
+  /// להודעה שהלקוח כבר קיבל.
+  sendState         String?   @map("send_state") @db.VarChar(10)
   createdBy         String?   @map("created_by") @db.Char(26)
   createdAt         DateTime  @default(now()) @map("created_at")
 
