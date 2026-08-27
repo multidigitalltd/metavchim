@@ -3,9 +3,14 @@
 import { useEffect, useState } from "react";
 import {
   automationUnitLabel,
+  VIEWING_REMINDER_CHANNELS,
+  VIEWING_REMINDER_PLACEHOLDERS,
+  VIEWING_REMINDER_TEXT_MAX,
+  viewingReminderChannelLabel,
   type AutomationKey,
   type AutomationSettings,
   type AutomationSpec,
+  type ViewingReminderChannel,
 } from "@metavchim/shared";
 import { ApiError, apiGet, apiPatch } from "@/lib/api";
 import { IconBolt, IconInfo } from "../icons";
@@ -55,7 +60,12 @@ export function AutomationsSection() {
    */
   async function save(
     key: AutomationKey,
-    next: { enabled?: boolean; value?: number },
+    next: {
+      enabled?: boolean;
+      value?: number;
+      channel?: ViewingReminderChannel;
+      messages?: Record<string, string>;
+    },
   ) {
     setError(null);
     setBusy(key);
@@ -218,6 +228,108 @@ export function AutomationsSection() {
                 >
                   נשמר
                 </span>
+              ) : null}
+              {/*
+                ‎**הערוץ והנוסח — רק לאוטומציה שפונה ללקוח.**
+
+                שאר האוטומציות פותחות משימה או שולחות התראה פנימה,
+                ולכן אין להן „באיזה אמצעי” ו„באילו מילים”. שדות
+                שהיו מופיעים אצל כולן היו מבטיחים שליטה שאין לה
+                משמעות.
+              */}
+              {spec.outbound !== undefined && setting.enabled ? (
+                <div className="mt-3 border-t pt-3" style={{ borderColor: "var(--color-input-border)" }}>
+                  <label
+                    htmlFor={`${spec.key}-channel`}
+                    className="mb-1 block text-[length:var(--type-caption)] font-medium"
+                  >
+                    איך נשלח
+                  </label>
+                  <select
+                    id={`${spec.key}-channel`}
+                    className="mb-3 rounded-lg border px-3 py-2"
+                    style={{
+                      borderColor: "var(--color-input-border)",
+                      background: "var(--color-surface)",
+                      color: "var(--color-text)",
+                    }}
+                    value={setting.channel ?? "both"}
+                    disabled={busy === spec.key}
+                    onChange={(e) => {
+                      void save(spec.key, {
+                        channel: e.target.value as ViewingReminderChannel,
+                      });
+                    }}
+                  >
+                    {VIEWING_REMINDER_CHANNELS.map((channel) => (
+                      <option key={channel} value={channel}>
+                        {viewingReminderChannelLabel(channel)}
+                      </option>
+                    ))}
+                  </select>
+
+                  {spec.outbound.audiences.map((audience) => (
+                    <div key={audience.key} className="mb-3">
+                      <label
+                        htmlFor={`${spec.key}-${audience.key}`}
+                        className="mb-1 block text-[length:var(--type-caption)] font-medium"
+                      >
+                        {audience.title}
+                      </label>
+                      <textarea
+                        id={`${spec.key}-${audience.key}`}
+                        rows={3}
+                        maxLength={VIEWING_REMINDER_TEXT_MAX}
+                        className="w-full rounded-lg border px-3 py-2"
+                        style={{
+                          borderColor: "var(--color-input-border)",
+                          background: "var(--color-surface)",
+                          color: "var(--color-text)",
+                        }}
+                        value={setting.messages?.[audience.key] ?? audience.defaultText}
+                        disabled={busy === spec.key}
+                        onChange={(e) => {
+                          const text = e.target.value;
+                          setData((prev) =>
+                            prev === null
+                              ? prev
+                              : {
+                                  ...prev,
+                                  settings: {
+                                    ...prev.settings,
+                                    [spec.key]: {
+                                      ...setting,
+                                      messages: {
+                                        ...(setting.messages ?? {}),
+                                        [audience.key]: text,
+                                      },
+                                    },
+                                  },
+                                },
+                          );
+                        }}
+                        /* נשמר ביציאה מהשדה, כמו השדה המספרי */
+                        onBlur={(e) => {
+                          void save(spec.key, {
+                            messages: {
+                              ...(setting.messages ?? {}),
+                              [audience.key]: e.target.value,
+                            },
+                          });
+                        }}
+                      />
+                    </div>
+                  ))}
+
+                  <p
+                    className="m-0 text-[length:var(--type-caption)]"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    אפשר לשתול:{" "}
+                    {VIEWING_REMINDER_PLACEHOLDERS.map((p) => p.token).join(" · ")}
+                    {" "}— תיבה שנמחקת חוזרת לנוסח המקורי.
+                  </p>
+                </div>
               ) : null}
             </li>
           );

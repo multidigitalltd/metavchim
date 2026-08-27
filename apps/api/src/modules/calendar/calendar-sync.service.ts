@@ -327,7 +327,7 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
 
         const existing = await tx.appointment.findFirst({
           where: { tenantId: link.tenantId, googleEventId: event.id },
-          select: { id: true, syncSource: true },
+          select: { id: true, syncSource: true, startsAt: true },
         });
 
         if (event.status === "cancelled") {
@@ -350,11 +350,26 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
            * לכותרת ולשעה. מה שמתעדכן הוא הזמן בלבד, וזה מה שהמתווך
            * באמת גורר ביומן.
            */
+          /*
+           * ‎**גרירה ביומן היא דחייה לכל דבר — גם לתזכורת.**
+           *
+           * ‎`reschedule` מנקה את החותמת, וזה המסלול השני שמזיז
+           * פגישה. בלי הניקוי כאן, סיור שכבר נשלחה עליו תזכורת
+           * ונגרר ב-Google היה נשאר מסומן „נשלח”, ואיש לא היה מקבל
+           * תזכורת למועד האמיתי (ביקורת Codex).
+           *
+           * ‎**רק כשהזמן באמת השתנה.** העדכון הזה רץ בכל סבב סנכרון
+           * על כל אירוע מותאם, ולכן ניקוי ללא תנאי היה מאפס את
+           * החותמת כל כמה דקות — כלומר תזכורת חוזרת ללקוח בלולאה,
+           * גרוע בהרבה מהתקלה המקורית.
+           */
+          const moved = existing.startsAt.getTime() !== times.startsAt.getTime();
           await tx.appointment.update({
             where: { id: existing.id },
             data: {
               startsAt: times.startsAt,
               endsAt: times.endsAt,
+              ...(moved ? { reminderSentAt: null } : {}),
               ...(existing.syncSource === "google"
                 ? { title: (event.summary ?? "").slice(0, 200) || null, notes: (event.description ?? "").slice(0, 2000) || null }
                 : {}),

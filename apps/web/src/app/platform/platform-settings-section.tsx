@@ -45,6 +45,8 @@ interface PlatformSettings {
       /** תבנית ההתראה המאושרת ב-Meta; ריק = דחיפה רק בתוך חלון 24 השעות */
       notifyTemplate?: string;
       notifyTemplateLang?: string;
+      viewingReminderTemplate?: string;
+      viewingReminderTemplateLang?: string;
     };
   };
   google: {
@@ -247,6 +249,10 @@ export function PlatformSettingsSection({
       const prospectReply = String(f.get("whatsappProspectReply") ?? "").trim();
       const notifyTemplate = String(f.get("whatsappNotifyTemplate") ?? "").trim();
       const notifyTemplateLang = String(f.get("whatsappNotifyTemplateLang") ?? "").trim();
+      const reminderTemplate = String(f.get("whatsappViewingReminderTemplate") ?? "").trim();
+      const reminderTemplateLang = String(
+        f.get("whatsappViewingReminderTemplateLang") ?? "",
+      ).trim();
       await apiPatch("/platform/settings", {
         ...(secret !== "" ? { whatsappAppSecret: secret } : {}),
         ...(verify !== "" ? { whatsappVerifyToken: verify } : {}),
@@ -259,6 +265,8 @@ export function PlatformSettingsSection({
         // רק בתוך חלון 24 השעות — מצב תקין ולא היעדר שינוי
         whatsappNotifyTemplate: notifyTemplate,
         whatsappNotifyTemplateLang: notifyTemplateLang,
+        whatsappViewingReminderTemplate: reminderTemplate,
+        whatsappViewingReminderTemplateLang: reminderTemplateLang,
       });
       form.reset();
       setMessage("✓ הגדרות הוואטסאפ נשמרו");
@@ -1485,6 +1493,45 @@ export function PlatformSettingsSection({
                 aria-label="שפת התבנית"
                 key={`lang-${settings.whatsapp.assistant.notifyTemplateLang ?? "he"}`}
                 defaultValue={settings.whatsapp.assistant.notifyTemplateLang ?? "he"}
+                placeholder="he"
+                className="w-24 rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
+          </div>
+
+          <div className="mb-3">
+            <label
+              htmlFor="whatsappViewingReminderTemplate"
+              className="mb-1 block font-medium"
+            >
+              תבנית תזכורת לפני סיור{" "}
+              <span className="font-normal">(ריק = התזכורת יוצאת במייל בלבד)</span>
+            </label>
+            <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              הלקוח לא כתב לנו, ולכן הוא מחוץ לחלון 24 השעות שבו טקסט חופשי
+              מותר. נדרשת תבנית מסוג Utility עם <b>משתנה אחד</b> בגוף — הודעת
+              התזכורת שהמשרד ניסח. למשל תבנית שגופה „‎{"{{1}}"}‎”. בלי תבנית
+              מוגדרת מי שאין לו מייל מגיע כמשימה לסוכן.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                id="whatsappViewingReminderTemplate"
+                name="whatsappViewingReminderTemplate"
+                dir="ltr"
+                key={settings.whatsapp.assistant.viewingReminderTemplate ?? ""}
+                defaultValue={settings.whatsapp.assistant.viewingReminderTemplate ?? ""}
+                placeholder="metavchim_viewing_reminder"
+                className="min-w-[220px] flex-1 rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+              <input
+                id="whatsappViewingReminderTemplateLang"
+                name="whatsappViewingReminderTemplateLang"
+                dir="ltr"
+                aria-label="שפת תבנית התזכורת"
+                key={`rlang-${settings.whatsapp.assistant.viewingReminderTemplateLang ?? "he"}`}
+                defaultValue={settings.whatsapp.assistant.viewingReminderTemplateLang ?? "he"}
                 placeholder="he"
                 className="w-24 rounded-lg border px-3 py-2.5"
                 style={inputStyle}

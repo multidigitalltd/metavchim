@@ -1558,6 +1558,9 @@ model Appointment {
   /// הסימן שהעסקה מתקררת.
   rescheduledFrom DateTime? @map("rescheduled_from")
   rescheduleCount Int       @default(0) @map("reschedule_count") @db.SmallInt
+  /// מתי נשלחה התזכורת שלפני הסיור. NULL = טרם נשלחה, ולכן דחיית
+  /// הסיור מנקה אותה — המועד החדש מקבל תזכורת משלו.
+  reminderSentAt  DateTime? @map("reminder_sent_at")
   createdBy       String?   @map("created_by") @db.Char(26)
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
