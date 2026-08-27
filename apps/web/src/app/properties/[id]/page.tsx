@@ -1011,7 +1011,17 @@ export default function PropertyDetailPage({
           <p
             role="status"
             className="m-0 mt-3 rounded-lg px-3 py-2 text-sm"
-            style={{ background: "#FEF3F2", border: "1px solid #FECDCA" }}
+            /*
+              טוקנים ולא ערכים ישירים (#266). ערך ישיר מקפיא את שלוש
+              הערכות — בהיר, כהה, וניגודיות גבוהה — ולכן מי שהדליק
+              ניגודיות גבוהה פשוט אינו מקבל אותה. זו האזהרה שאומרת
+              „יימחק גם כרטיס לקוח”, כלומר בדיוק המקום שבו זה חשוב.
+            */
+            style={{
+              background: "var(--color-danger-soft)",
+              border: "1px solid var(--color-danger)",
+              color: "var(--color-danger)",
+            }}
           >
             {purgeImpact === "unknown"
               ? "לא הצלחנו לבדוק אם יימחקו גם כרטיסי לקוח — בדקו לפני המחיקה"

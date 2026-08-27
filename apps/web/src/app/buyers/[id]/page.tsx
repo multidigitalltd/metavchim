@@ -632,9 +632,15 @@ export default function BuyerDetailPage({
                     <span
                       key={k}
                       className="mv-pill"
+                      /*
+                        אותו זוג טוקנים כמו ב-‎.mv-chip[aria-pressed]‎
+                        וב„בקרוב” שבהגדרות (#266): הערך הקשיח שהיה כאן,
+                        קפוא בשלוש הערכות, נתן 1.07:1 מול הכרטיס במצב
+                        כהה.
+                      */
                       style={{
-                        background: "#111513",
-                        color: "#fff",
+                        background: "var(--color-primary)",
+                        color: "var(--color-surface)",
                         fontSize: "var(--type-caption)",
                         padding: "4px 12px",
                       }}

@@ -89,7 +89,14 @@ export function LocationPicker({
       .catch(() => setCaps({ forward: false, reverse: false }));
   }, []);
 
-  /** הסיכה — נוצרת בפעם הראשונה, אחר כך רק זזה. */
+  /**
+   * הסיכה — נוצרת בפעם הראשונה, אחר כך רק זזה.
+   *
+   * ‎**הצבע כאן הוא ערך ישיר במכוון** (#266). הסיכה יושבת על אריחי
+   * מפה שאינם תלויים בערכה שלנו — הם אותם אריחים בהירים גם כשהמערכת
+   * במצב כהה — ולכן טוקן שמתהפך היה נותן סיכה בהירה על מפה בהירה.
+   * מה שקובע כאן הוא ניגודיות מול המפה, לא מול הממשק.
+   */
   function placeMarker(lat: number, lon: number, source: "pin" | "geocode"): void {
     const map = mapRef.current;
     if (!map) return;
