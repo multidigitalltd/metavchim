@@ -97,7 +97,10 @@ describe("תיבת התמיכה מול תיבת הלקוחות", () => {
     expect(reload, "הטעינה מחדש לא נמצאה").toBeGreaterThan(-1);
     expect(notice, "קביעת ההודעה לא נמצאה").toBeGreaterThan(reload);
     expect(SUPPORT_WEB).toContain("if (openRef.current === threadId) {");
-    expect(SUPPORT_WEB).toMatch(/async function openThread\(id: string\): Promise<void> \{\n\s*openRef\.current = id;/u);
+    // ‏`openRef` נקבע בפתיחה (אחרי המונה), ולכן הבדיקה שלפני הטעינה משמעותית
+    expect(SUPPORT_WEB).toMatch(
+      /async function openThread\(id: string\): Promise<void> \{[\s\S]{0,120}openRef\.current = id;/u,
+    );
   });
 
   /*
@@ -107,5 +110,40 @@ describe("תיבת התמיכה מול תיבת הלקוחות", () => {
   it("תקרת הגוף נמסרת פנימה ואינה חותכת פעמיים", () => {
     expect(SUPPORT).toContain("inboundBody(payload, BODY_MAX)");
     expect(SUPPORT).not.toMatch(/inboundBody\(payload\)\.slice\(/u);
+  });
+
+  /*
+   * ‎**התקרה חייבת להתאים לעמודה.** `SupportMessage.body` הוא
+   * ‎`VarChar(20000)`; תו אחד מעבר מפיל את הכתיבה, הוובהוק מחזיר
+   * שגיאה, והספק מנסה שוב בלי סוף. אצל תיבת הלקוחות ההפרש הוסתר
+   * במאה תווים של מרווח בעמודה (ביקורת Codex).
+   */
+  it("התקרה זהה לרוחב העמודה", () => {
+    const schema = readFileSync(new URL("../../../prisma/schema.prisma", import.meta.url), "utf8");
+    const model = schema.slice(schema.indexOf("model SupportMessage"));
+    const width = /body\s+String\s+@db\.VarChar\((\d+)\)/u.exec(model)?.[1];
+    expect(width, "רוחב העמודה לא נמצא").toBeDefined();
+    expect(SUPPORT).toContain(`const BODY_MAX = ${Number(width).toLocaleString("en-US").replace(/,/gu, "_")};`);
+  });
+
+  /*
+   * ‎`openThread` מעדכן את `openRef` בשורתו הראשונה, ולכן בדיקה
+   * אחריו בלבד מסכימה עם עצמה תמיד — והטעינה מושכת את השולחן
+   * בחזרה לשרשור הישן.
+   */
+  it("הבדיקה נעשית גם לפני הטעינה מחדש", () => {
+    const send = SUPPORT_WEB.slice(SUPPORT_WEB.indexOf("async function send("));
+    const guard = send.indexOf("if (openRef.current !== threadId) return;");
+    const reload = send.indexOf("await openThread(threadId);");
+    expect(guard, "הבדיקה המקדימה לא נמצאה").toBeGreaterThan(-1);
+    expect(reload, "הטעינה מחדש לא נמצאה").toBeGreaterThan(guard);
+  });
+
+  /*
+   * תשובה של פתיחה שכבר הוחלפה נזרקת במקום לדרוס את השרשור הנבחר.
+   */
+  it("פתיחה שהוחלפה אינה כותבת למסך", () => {
+    expect(SUPPORT_WEB).toContain("const mine = ++openSeq.current;");
+    expect((SUPPORT_WEB.match(/if \(openSeq\.current !== mine\) return;/gu) ?? []).length).toBe(2);
   });
 });

@@ -89,6 +89,18 @@ export function SupportInboxSection() {
    * קודם קורא ערך ישן מ-state מעצם הגדרתו.
    */
   const openRef = useRef<string | null>(null);
+  /*
+   * ‎**מונה פתיחות — כי `openRef` לבדו אינו מספיק.**
+   *
+   * ‎`openThread` מעדכן את `openRef` בשורתו הראשונה, ולכן בדיקה
+   * אחריו מסכימה עם עצמה תמיד: השומר שכתבתי היה חסר שיניים. וגרוע
+   * מזה — תשובה של פתיחה **ישנה** שחוזרת אחרונה דורסת את השרשור
+   * שנבחר בינתיים (ביקורת Codex).
+   *
+   * המונה מזהה איזו פתיחה היא הנוכחית, ולכן תשובה של פתיחה שכבר
+   * הוחלפה נזרקת במקום להיכתב.
+   */
+  const openSeq = useRef(0);
 
   const load = useCallback(() => {
     apiGet<ThreadRow[]>("/platform/support/inbox")
@@ -99,12 +111,17 @@ export function SupportInboxSection() {
   useEffect(load, [load]);
 
   async function openThread(id: string): Promise<void> {
+    const mine = ++openSeq.current;
     openRef.current = id;
     setNotice(null);
     try {
-      setOpen(await apiGet<ThreadView>(`/platform/support/inbox/${id}`));
+      const view = await apiGet<ThreadView>(`/platform/support/inbox/${id}`);
+      // פתיחה שהוחלפה בינתיים — התשובה שלה אינה המסך הנוכחי
+      if (openSeq.current !== mine) return;
+      setOpen(view);
       load();
     } catch (err: unknown) {
+      if (openSeq.current !== mine) return;
       setNotice({ tone: "danger", text: err instanceof ApiError ? err.message : "הפתיחה נכשלה" });
     }
   }
@@ -151,6 +168,13 @@ export function SupportInboxSection() {
        * אותו תיקון בדיוק כמו בתיבת הלקוחות.
        */
       const threadId = open.id;
+      /*
+       * ‎**הבדיקה לפני הטעינה, לא רק אחריה.** `openThread` מעדכן את
+       * ‎`openRef` בשורתו הראשונה, ולכן בדיקה אחריו מסכימה עם עצמה
+       * תמיד — והטעינה עצמה הייתה **מושכת את השולחן בחזרה** לשרשור
+       * הישן (ביקורת Codex).
+       */
+      if (openRef.current !== threadId) return;
       await openThread(threadId);
       // עבר בינתיים לשרשור אחר — האזהרה שייכת לזה שממנו נשלח
       if (openRef.current === threadId) {

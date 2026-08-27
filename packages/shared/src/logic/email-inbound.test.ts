@@ -151,8 +151,14 @@ describe("תקרת הגוף", () => {
   const payload = (text: string) =>
     InboundEmailPayloadSchema.parse({ TextBody: text, StrippedTextReply: "" });
 
+  /*
+   * ‎**התקרה כוללת את שלוש הנקודות.** הניסוח הראשון כאן אימת
+   * ‎`max + 1` — כלומר קיבע בשער בדיוק את הבאג: העמודה של התמיכה
+   * היא `VarChar(20000)`, ותו אחד מעבר מפיל את הכתיבה ומשאיר את
+   * הוובהוק בלולאת ניסיונות.
+   */
   it("ברירת המחדל היא תקרת תיבת הלקוחות", () => {
-    expect(inboundBody(payload(long)).length).toBe(INBOUND_BODY_MAX + 1);
+    expect(inboundBody(payload(long)).length).toBe(INBOUND_BODY_MAX);
   });
 
   /*
@@ -160,7 +166,17 @@ describe("תקרת הגוף", () => {
    * טקסט שכבר קוצץ. התקרה נמסרת עכשיו פנימה, ולכן היא מתקיימת.
    */
   it("תקרה שנמסרת גוברת, ולא נחתכת פעמיים", () => {
-    expect(inboundBody(payload(long), 20_000).length).toBe(20_001);
+    expect(inboundBody(payload(long), 20_000).length).toBe(20_000);
+  });
+
+  /*
+   * העמודה של התמיכה היא בדיוק `VarChar(20000)`: תו אחד מעבר מפיל
+   * את הכתיבה, הוובהוק מחזיר שגיאה, והספק מנסה שוב בלי סוף.
+   */
+  it("החתוך מסתיים בסימון, ובתוך התקרה", () => {
+    const cut = inboundBody(payload(long), 100);
+    expect(cut.length).toBe(100);
+    expect(cut.endsWith("…")).toBe(true);
   });
 
   it("טקסט קצר מהתקרה אינו מסומן כחתוך", () => {

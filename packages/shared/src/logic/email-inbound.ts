@@ -71,7 +71,19 @@ export function inboundBody(
 ): string {
   const preferred = payload.StrippedTextReply.trim();
   const body = preferred !== "" ? preferred : payload.TextBody.trim();
-  return body.length > max ? `${body.slice(0, max)}…` : body;
+  /*
+   * ‎**שלוש הנקודות נספרות בתוך התקרה, לא מעליה.**
+   *
+   * הניסוח הקודם החזיר `max + 1` תווים. אצל תיבת הלקוחות זה לא
+   * התפוצץ במקרה — העמודה היא `VarChar(5100)` והתקרה 5,000, כלומר
+   * מאה תווים של מרווח שהסתירו את ההפרש. בתמיכה העמודה היא בדיוק
+   * ‎`VarChar(20000)`: פנייה ארוכה **נכשלת בכתיבה**, הוובהוק מחזיר
+   * שגיאה, והספק מנסה שוב בלי סוף (ביקורת Codex).
+   *
+   * ‎`max` הוא הגודל המרבי של מה שנשמר, ולכן הוא כולל את הסימון
+   * שהטקסט נחתך.
+   */
+  return body.length > max ? `${body.slice(0, max - 1)}…` : body;
 }
 
 /**
