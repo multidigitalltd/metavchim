@@ -1649,6 +1649,9 @@ model Invoice {
   provider       String    @default("linet") @db.VarChar(20)
   /// pending | issued | failed
   status         String    @default("pending") @db.VarChar(20)
+  /// המזהה אצל הספק — הוא שפותח את המסמך (`/print/doc/{id}`)
+  documentId     String?   @map("document_id") @db.VarChar(60)
+  /// מספר ההקצאה שמופיע בספרים ובעיני הלקוח
   documentNumber String?   @map("document_number") @db.VarChar(40)
   documentUrl    String?   @map("document_url") @db.VarChar(500)
   /// הסכום שנגבה ופירוקו — נשמרים ולא מחושבים מחדש: שיעור המע"מ

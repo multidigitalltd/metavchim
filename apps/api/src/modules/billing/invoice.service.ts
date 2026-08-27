@@ -256,7 +256,16 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
     });
     if (claimed.count === 0) return { ok: true }; // מישהו אחר מפיק אותה כרגע
 
-    const wasRetryAfterCrash = invoice.status === "issuing";
+    /*
+     * **כל ניסיון שאינו הראשון מחפש קודם.**
+     *
+     * לא רק שורה שנתקעה ב-`issuing`: יצירה שהצליחה בלינט ושהתשובה
+     * עליה לא הגיעה (timeout, ניתוק) מסומנת כאן `failed` — ואז
+     * הניסיון הבא היה יוצר מסמך שני על אותו תשלום. הכישלון
+     * ה"ודאי" והכישלון הדו-משמעי נראים זהים מבחוץ, ולכן ההנחה
+     * חייבת להיות המחמירה (ביקורת Codex).
+     */
+    const isRetry = invoice.attempts > 0 || invoice.status === "issuing";
     try {
       const customer = await this.customerFor(invoice.tenantId);
 
@@ -265,10 +274,14 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
        * זה ההבדל בין "השלמנו מסמך חסר" לבין "הוצאנו ללקוח שתי
        * חשבוניות על אותו חיוב".
        */
-      let documentId: string | null = wasRetryAfterCrash
+      let documentId: string | null = isRetry
         ? await this.linet.findDocumentByExternalRef(invoice.paymentId)
         : null;
       let pdfUrl: string | null = null;
+      /*
+       * מספר ההקצאה הוא מה שמופיע בספרים, אבל **הוא אינו פותח את
+       * המסמך** — לכך משמש `documentId`. השניים נשמרים בנפרד.
+       */
       let allocationNumber: string | null = null;
 
       if (documentId === null) {
@@ -291,6 +304,7 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
         where: { id: invoice.id },
         data: {
           status: "issued",
+          documentId: documentId.slice(0, 60),
           documentNumber: (allocationNumber ?? documentId).slice(0, 40),
           documentUrl: pdfUrl?.slice(0, 500) ?? null,
           issuedAt: new Date(),
@@ -366,12 +380,13 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
   async downloadUrl(invoiceId: string, tenantId: string): Promise<string> {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id: invoiceId, tenantId },
-      select: { documentNumber: true, documentUrl: true, status: true },
+      select: { documentId: true, documentUrl: true, status: true },
     });
     if (!invoice || invoice.status !== "issued") throw new NotFoundException("חשבונית לא נמצאה");
+    // המזהה של הספק ולא מספר ההקצאה — רק הוא פותח את המסמך
     const fresh =
-      invoice.documentNumber !== null
-        ? await this.linet.documentPdfUrl(invoice.documentNumber).catch(() => null)
+      invoice.documentId !== null
+        ? await this.linet.documentPdfUrl(invoice.documentId).catch(() => null)
         : null;
     const url = fresh ?? invoice.documentUrl;
     if (url === null) throw new NotFoundException("הקישור למסמך אינו זמין כרגע");

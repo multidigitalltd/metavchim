@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatNumber } from "@/lib/format";
 import { IconDoc } from "../icons";
 import { Notice } from "../notice";
 
@@ -133,7 +133,7 @@ export function InvoicesSection() {
             >
               <div className="flex flex-wrap items-center gap-2">
                 <b>{row.tenantName}</b>
-                <span>{(row.grossAgorot / 100).toLocaleString("he-IL")} ₪</span>
+                <span>{formatNumber(row.grossAgorot / 100)} ₪</span>
                 <span style={{ color: "var(--color-text-muted)" }}>{row.description}</span>
                 <span className="ms-auto">{STATUS_LABEL[row.status] ?? row.status}</span>
               </div>
@@ -171,7 +171,7 @@ export function InvoicesSection() {
                 <span dir="ltr" className="font-mono">
                   {row.id}
                 </span>
-                <span>{(row.amountAgorot / 100).toLocaleString("he-IL")} ₪</span>
+                <span>{formatNumber(row.amountAgorot / 100)} ₪</span>
                 <span style={{ color: "var(--color-text-muted)" }}>
                   {row.paidAt ? formatDateTime(row.paidAt) : ""}
                 </span>

@@ -84,17 +84,26 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
   const [invoiceBusy, setInvoiceBusy] = useState<string | null>(null);
 
   /*
-   * פתיחה בלשונית חדשה **אחרי** שהקישור חזר, ולא `window.open` על
-   * כתובת ה-API: הדפדפן חוסם פתיחה שאינה נובעת מלחיצה, ולכן הקישור
-   * נפתח כאן ברגע שהוא ידוע.
+   * **הלשונית נפתחת בלחיצה עצמה, והכתובת נכנסת אליה אחר כך.**
+   *
+   * הקישור מגיע רק אחרי קריאה לשרת (הוא נמשך טרי מספק החשבוניות),
+   * ו-`window.open` שרץ אחרי ה-`await` כבר אינו נחשב "פעולת
+   * משתמש" בדפדפנים שאוכפים זאת — הוא נחסם, והלחיצה נראית כאילו
+   * לא עשתה כלום למרות שהשרת ענה בהצלחה (ביקורת Codex).
+   *
+   * לכן הלשונית נפתחת ריקה מיד, ומקבלת כתובת כשהיא ידועה. אם גם
+   * הפתיחה הריקה נחסמה — נפילה לניווט באותה לשונית, שאינה נחסמת.
    */
   async function openInvoice(invoiceId: string): Promise<void> {
     setInvoiceBusy(invoiceId);
     setError(null);
+    const tab = window.open("", "_blank", "noopener,noreferrer");
     try {
       const res = await apiGet<{ url: string }>(`/billing/invoices/${invoiceId}/download`);
-      window.open(res.url, "_blank", "noopener,noreferrer");
+      if (tab !== null) tab.location.href = res.url;
+      else window.location.assign(res.url);
     } catch (err) {
+      tab?.close();
       setError(err instanceof ApiError ? err.message : "פתיחת החשבונית נכשלה");
     } finally {
       setInvoiceBusy(null);

@@ -22,7 +22,12 @@ CREATE TABLE "invoices" (
   "provider"        VARCHAR(20) NOT NULL DEFAULT 'linet',
   -- pending = ממתין להפקה · issued = הופק · failed = נכשל ומחכה לאדם
   "status"          VARCHAR(20) NOT NULL DEFAULT 'pending',
-  -- מספר המסמך אצל הספק — מה שמופיע בספרים, ומה שמאפשר למצוא אותו
+  -- **שני מזהים שונים, ובכוונה.** `document_id` הוא המזהה הפנימי
+  -- אצל הספק — הוא ורק הוא פותח את המסמך (`/print/doc/{id}`).
+  -- `document_number` הוא מספר ההקצאה שמופיע בספרים ובעיני הלקוח.
+  -- שמירת ההקצאה בשדה אחד לשניהם הפכה כל מסמך ללא-נגיש ברגע
+  -- שהקישור השמור פג (ביקורת Codex).
+  "document_id"     VARCHAR(60),
   "document_number" VARCHAR(40),
   -- קישור למסמך אצל הספק, כשהוא מוחזר
   "document_url"    VARCHAR(500),
