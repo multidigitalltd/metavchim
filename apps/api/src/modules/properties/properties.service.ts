@@ -684,7 +684,20 @@ export class PropertiesService {
         };
       }
 
-      const mergedFields = { ...rowToFields(existing), ...fieldPatch };
+      /*
+       * ‎**הריקון נספר במוכנות, ולא רק בכתיבה.**
+       *
+       * ‏`clearFields` מרוקן עמודות ל-`NULL`, וחישוב שמתעלם ממנו
+       * משאיר את הציון הישן: נכס שהמוכר מחק ממנו מחיר ושטח נשאר
+       * „מוכן”, והאירועים שנגזרים מהסף יוצאים על מצב שכבר אינו נכון
+       * (ביקורת Codex). המחיקה כאן על ההעתק בלבד — היא לא נוגעת
+       * ב-`fieldPatch` שנכתב לשורה.
+       */
+      const mergedFields: Record<string, unknown> = {
+        ...rowToFields(existing),
+        ...fieldPatch,
+      };
+      for (const key of clearFields ?? []) delete mergedFields[key];
       const readiness = computeReadiness(mergedFields, {
         hasImages: await this.hasMedia(tx, id),
         hasDescription: Boolean(

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  INTAKE_SELLER_FEATURES,
+  INTAKE_SELLER_FORM_FIELDS,
   INTAKE_SELLER_NOTES_MAX,
   intakeSellerRejectionReason,
   isIntakeSide,
@@ -278,5 +280,53 @@ describe("ערכי פתיחה לעמוד הציבורי", () => {
 
   it("מספר שאינו סופי אינו עובר", () => {
     expect("rooms" in pickSellerPrefill({ rooms: Number.NaN })).toBe(false);
+  });
+});
+
+describe("רשימת השדות שהטופס מציג", () => {
+  it("אינה כוללת שדה שאין לו תיבה בטופס", () => {
+    /*
+     * `totalFloors` קיים במיפוי ואין לו תיבה. הכללתו ברשימה גרמה
+     * לכל שליחה חוזרת למחוק את מספר הקומות שהסוכן הזין, בלי
+     * שהלקוח ראה אותו או נגע בו.
+     */
+    expect(INTAKE_SELLER_FORM_FIELDS).not.toContain("totalFloors");
+  });
+
+  it("אינה כוללת את שדות החובה — הם תמיד נענים", () => {
+    expect(INTAKE_SELLER_FORM_FIELDS).not.toContain("city");
+    expect(INTAKE_SELLER_FORM_FIELDS).not.toContain("dealType");
+  });
+
+  it("כוללת את חמשת המאפיינים ואת שדות הכתובת שהטופס כן מציג", () => {
+    for (const key of ["neighborhood", "street", "houseNumber", "propertyType"]) {
+      expect(INTAKE_SELLER_FORM_FIELDS, key).toContain(key);
+    }
+    for (const key of INTAKE_SELLER_FEATURES) {
+      expect(INTAKE_SELLER_FORM_FIELDS, key).toContain(key);
+    }
+  });
+
+  it("כל שדה ברשימה הוא שדה שהמיפוי יודע לכתוב", () => {
+    // רשימה שיוצאת מסנכרון מהמיפוי מרוקנת עמודה שאיש אינו ממלא
+    const written = sellerPropertyFields({
+      dealType: "sale",
+      city: "חיפה",
+      neighborhood: "הדר",
+      street: "הרצל",
+      houseNumber: "12",
+      propertyType: "apartment",
+      rooms: 4,
+      areaSqm: 100,
+      floor: 2,
+      priceAgorot: 100_000_000,
+      priceFlexible: true,
+      entryType: "from_date",
+      entryDate: "2026-09-01",
+      features: { hasElevator: true, hasParking: true, hasBalcony: true, hasSafeRoom: true, hasStorage: true },
+    });
+    for (const key of INTAKE_SELLER_FORM_FIELDS) {
+      expect(key in written, key).toBe(true);
+    }
   });
 });

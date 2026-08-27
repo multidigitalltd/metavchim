@@ -20,7 +20,7 @@ import {
   intakeSellerRejectionReason,
   isIntakeSide,
   pickSellerPrefill,
-  INTAKE_SELLER_FEATURES,
+  INTAKE_SELLER_FORM_FIELDS,
   sellerPropertyFields,
   sellerSummaryLines,
   normalizePhone,
@@ -1736,28 +1736,18 @@ interface DtoContext {
  * המוכר ראה את הערך הקודם והוריד אותו, ושדה שנשאר על ערכו הישן
  * הוא נתון שאיש כבר אינו טוען אותו (ביקורת Codex).
  *
- * הרשימה מוגבלת למה שהטופס באמת מציג. שדות שהסוכן מילא בכרטיס ואינם
- * בטופס — שכונה מהקטלוג, מאפיינים מותאמים, מיקום על המפה — אינם
- * נוגעים בזה, בדיוק כמו בצד הקונה.
+ * הרשימה מוגבלת למה שהטופס באמת מציג, והיא יושבת ליד הטופס
+ * (`INTAKE_SELLER_FORM_FIELDS`) ולא כאן: שדה שקיים במיפוי ואין לו
+ * תיבה בטופס — `totalFloors` היה כזה — היה נמחק בכל שליחה חוזרת,
+ * בלי שהלקוח ראה אותו (ביקורת Codex). שדות שהסוכן מילא בכרטיס
+ * ואינם בטופס — שכונה מהקטלוג, מאפיינים מותאמים, מיקום על המפה —
+ * אינם נוגעים בזה, בדיוק כמו בצד הקונה.
  */
 function clearedSellerFields(
   written: Record<string, unknown>,
 ): readonly (keyof PropertyFields)[] {
-  const candidates = [
-    "neighborhood",
-    "street",
-    "houseNumber",
-    "propertyType",
-    "rooms",
-    "areaSqm",
-    "floor",
-    "totalFloors",
-    "priceAgorot",
-    "priceFlexible",
-    "entryType",
-    "entryDate",
-    ...INTAKE_SELLER_FEATURES,
-  ] as const satisfies readonly (keyof PropertyFields)[];
+  const candidates =
+    INTAKE_SELLER_FORM_FIELDS satisfies readonly (keyof PropertyFields)[];
   return candidates.filter((key) => !(key in written));
 }
 
