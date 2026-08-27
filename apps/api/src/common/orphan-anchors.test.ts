@@ -32,6 +32,7 @@ const OWNERSHIP = read("./ownership.ts");
 const LEADS = read("../modules/leads/leads.service.ts");
 const BUYERS = read("../modules/buyers/buyers.service.ts");
 const PROPERTIES = read("../modules/properties/properties.service.ts");
+const ERASURE = read("../modules/contacts/contact-erasure.service.ts");
 
 /** ארבעת העוגנים, כפי ששני הניסוחים חייבים לבטא. */
 const ANCHORS = ["buyer", "lead", "property", "contactLink"] as const;
@@ -84,7 +85,9 @@ describe("עוגני הגישה לכרטיס לקוח", () => {
       LEADS.indexOf("private async deleteContactIfOrphan("),
       LEADS.indexOf("async addNote("),
     );
-    expect(fn).toContain("this.erasure.eraseUnreachable(tx, tenantId, lock, \"lead.delete\")");
+    expect(fn).toContain(
+      "this.erasure.eraseUnreachableWithoutHistory(tx, tenantId, lock, \"lead.delete\")",
+    );
     for (const gone of ["tx.agreement.count(", "tx.call.count(", "tx.emailMessage.count("]) {
       expect(fn, `הספירה הישנה נשארה: ${gone}`).not.toContain(gone);
     }
@@ -102,7 +105,9 @@ describe("עוגני הגישה לכרטיס לקוח", () => {
       ["קונה", BUYERS, "buyer.delete"],
       ["ליד", LEADS, "lead.delete"],
     ] as const) {
-      expect(source, `${name}: אינו קורא ל-eraseUnreachable`).toContain("eraseUnreachable(");
+      expect(source, `${name}: אינו קורא למחיקה המשותפת`).toMatch(
+        /erasure\.eraseUnreachable(?:WithoutHistory)?\(/u,
+      );
       expect(source, `${name}: אינו מציין את הסיבה`).toContain(`"${cause}"`);
     }
   });
@@ -115,7 +120,7 @@ describe("עוגני הגישה לכרטיס לקוח", () => {
   it("היתמות נבדקת אחרי שהעוגן ירד — בקונה כמו בנכס", () => {
     const purge = BUYERS.slice(BUYERS.indexOf("async purge(id: string): Promise<void> {"));
     const removed = purge.indexOf("await tx.buyer.delete({ where: { id } });");
-    const erase = purge.indexOf("eraseUnreachable(");
+    const erase = purge.search(/erasure\.eraseUnreachable(?:WithoutHistory)?\(/u);
     expect(removed, "מחיקת השורה לא נמצאה").toBeGreaterThan(-1);
     expect(erase, "מחיקת הכרטיס לא נמצאה").toBeGreaterThan(removed);
   });
@@ -140,6 +145,57 @@ describe("עוגני הגישה לכרטיס לקוח", () => {
     expect(lock, "הנעילה לא נמצאה").toBeGreaterThan(-1);
     expect(firstWrite, "הכתיבה הראשונה לא נמצאה").toBeGreaterThan(-1);
     expect(lock, "הנעילה אחרי שהמחיקה כבר החלה לכתוב").toBeLessThan(firstWrite);
+  });
+
+  /*
+   * ‎**המסלול לא ימחק יותר ממה שהמסך שלו הבטיח.**
+   *
+   * שני הדיאלוגים מפרטים מה נשאר — „הלידים של הלקוח יישארו”,
+   * „שיחות מוקלטות שכבר נרשמו נשארות”. הרחבתי את שניהם למחיקת
+   * כרטיס יתום ולא נגעתי בטקסט, כלומר הפכתי מחיקה מוגבלת לרחבה בלי
+   * הסכמה (ביקורת Codex, שני ממצאי P1). ההערה במחיקת ליד מזהירה
+   * מזה במילים האלה בדיוק: „הפעולה היחידה במערכת שמחקה יותר ממה
+   * שביקשו”.
+   *
+   * מחיקת נכס לצמיתות **מגלה** בדיאלוג שלה שכרטיס והתקשורת יורדים,
+   * ולכן דווקא היא רשאית לרחבה. ההבדל הוא הגילוי, והשמות נושאים
+   * אותו.
+   */
+  it("מסלול בלי גילוי מוחק רק כרטיס בלי היסטוריה", () => {
+    for (const [name, source] of [
+      ["קונה", BUYERS],
+      ["ליד", LEADS],
+    ] as const) {
+      expect(source, `${name}: קורא לווריאנט הרחב`).toContain(
+        "eraseUnreachableWithoutHistory(",
+      );
+      expect(
+        /(?<!WithoutHistory)\berasure\.eraseUnreachable\(/u.test(source),
+        `${name}: קורא לווריאנט הרחב`,
+      ).toBe(false);
+    }
+    // ומחיקת נכס — שמגלה — נשארת על הרחב
+    expect(PROPERTIES).toMatch(/erasure\.eraseUnreachable\(/u);
+  });
+
+  /*
+   * ‎**וההגבלה מונה את מה שהמסכים באמת מבטיחים.** רשימה חלקית היא
+   * הבטחה חלקית: הדיאלוג של הליד מנה קונה, נכס, הסכם וליד — ופסח על
+   * שיחות והודעות, שההבטחה שמעליו שומרת עליהן.
+   */
+  it("ההגבלה מונה את כל מה שהובטח", () => {
+    const fn = ERASURE.slice(
+      ERASURE.indexOf("private async hasPromisedHistory("),
+      ERASURE.indexOf("private async collectStorageKeys("),
+    );
+    for (const table of ["call", "message", "emailMessage", "agreement", "signedDocument"]) {
+      expect(fn, `${table} אינו נספר`).toContain(`tx.${table}.findFirst(`);
+    }
+    // והבדיקה קודמת למחיקה, לא אחריה
+    const guard = ERASURE.indexOf("if (await this.hasPromisedHistory(");
+    const call = ERASURE.indexOf("return this.eraseUnreachable(tx, tenantId, lock, cause);");
+    expect(guard, "ההגבלה לא נמצאה").toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(call);
   });
 
   /*

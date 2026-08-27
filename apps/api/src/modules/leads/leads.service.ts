@@ -376,11 +376,15 @@ export class LeadsService {
    * והכרטיס נשאר — בלי אף מסך שמציג אותו, עם שם, טלפונים ואימייל.
    * כלומר בדיוק החור שנסגר במחיקת נכס, במסלול שכבר היה לו טיפול.
    *
-   * ‎**עכשיו אותו כלל ואותה מחיקה כמו בשאר המסלולים:** `isOrphanContact`
-   * שואל „האם מישהו במשרד יכול להגיע אליו”, ו-`eraseUnreachable`
-   * מוחק את הכרטיס **ואת מה שתלוי בו** — כך שאין הפניות שבורות
-   * ואין שיור. שיחות והודעות של אדם שאיש אינו יכול להגיע אליו אינן
-   * „היסטוריה של המשרד” אלא PII שאין לו בעלים.
+   * ‎**עכשיו אותו כלל, ובווריאנט ששומר על מה שהדיאלוג הבטיח.**
+   * ‎`isOrphanContact` שואל „האם מישהו במשרד יכול להגיע אליו”, ו-
+   * ‎`eraseUnreachableWithoutHistory` מוחק את הכרטיס **ואת מה שתלוי
+   * בו** — אבל רק כשאין עליו שיחה, הודעה, הסכם או מסמך. הדיאלוג
+   * מבטיח במפורש ש„שיחות מוקלטות שכבר נרשמו נשארות”, והרחבה שמוחקת
+   * אותן היא מחיקה רחבה בלי הסכמה (ביקורת Codex, P1).
+   *
+   * ‎**מה שנשאר פתוח:** כרטיס שאיש אינו מגיע אליו ויש עליו שיחות
+   * נשאר במסד — בדיוק כמו קודם. סגירתו דורשת שינוי במה שהמסך מבטיח.
    *
    * ‎**מה שהניסוח הישן ידע והחדש לא ידע — נלקח איתו:** הוא ספר
    * ‎`contact_links.related_contact_id`, ו-`isOrphanContact` לא. אדם
@@ -394,7 +398,7 @@ export class LeadsService {
   private async deleteContactIfOrphan(tx: TenantTx, contactId: string): Promise<boolean> {
     const tenantId = TenantContext.current().tenantId;
     const lock = await lockContact(tx, contactId);
-    return this.erasure.eraseUnreachable(tx, tenantId, lock, "lead.delete");
+    return this.erasure.eraseUnreachableWithoutHistory(tx, tenantId, lock, "lead.delete");
   }
 
   async addNote(id: string, content: string): Promise<InteractionDto> {
