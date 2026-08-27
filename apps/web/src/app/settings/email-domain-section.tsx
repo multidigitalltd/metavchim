@@ -191,6 +191,8 @@ export function EmailDomainSection(): React.JSX.Element {
 
   return (
     <section
+      // עוגן: הבאנר בתיבה מפנה לכאן, ולא לראש מסך ההגדרות
+      id="email-domain"
       className="mb-8 rounded-xl border p-4"
       style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
       aria-labelledby="email-domain-heading"

@@ -8,6 +8,7 @@ const EMPTY: OnboardingFacts = {
   buyers: 0,
   leadWebhookConfigured: false,
   whatsappConfigured: false,
+  emailDomainVerified: false,
   transcriptionAvailable: false,
 };
 
@@ -18,6 +19,7 @@ const FULL: OnboardingFacts = {
   buyers: 30,
   leadWebhookConfigured: true,
   whatsappConfigured: true,
+  emailDomainVerified: true,
   transcriptionAvailable: true,
 };
 
@@ -72,5 +74,37 @@ describe("onboardingSteps", () => {
       expect(step.why.length).toBeGreaterThan(20);
       expect(step.href.startsWith("/")).toBe(true);
     }
+  });
+});
+
+describe("שליחה מהדומיין של המשרד", () => {
+  /*
+   * ‎**לא חיוני, ובכוונה.** משרד יכול לעבוד במלואו בלי דומיין משלו
+   * — המיילים יוצאים מכתובת המערכת — ולכן החסימה של "מוכן" תישאר
+   * למה שבלעדיו המערכת באמת לא עובדת. הצעד כאן דוחף, לא חוסם.
+   */
+  it("הצעד קיים ואינו חיוני", () => {
+    const step = onboardingSteps(EMPTY).steps.find((s) => s.key === "email_domain");
+    expect(step).toBeDefined();
+    expect(step?.essential).toBe(false);
+    expect(step?.done).toBe(false);
+  });
+
+  it("דומיין מאומת מסמן את הצעד כבוצע", () => {
+    const step = onboardingSteps({ ...EMPTY, emailDomainVerified: true }).steps.find(
+      (s) => s.key === "email_domain",
+    );
+    expect(step?.done).toBe(true);
+  });
+
+  /*
+   * ההסבר עונה על "למה שווה לי", ולא על "מה לעשות" — אותו כלל
+   * כמו בשאר הצעדים, והוא מה שמבדיל רשימה שמניעה לפעולה מרשימת
+   * מטלות.
+   */
+  it("ההסבר מדבר על מה שהמשרד מרוויח", () => {
+    const step = onboardingSteps(EMPTY).steps.find((s) => s.key === "email_domain");
+    expect(step?.why).toContain("הכתובת של המשרד");
+    expect(step?.href).toBe("/settings");
   });
 });

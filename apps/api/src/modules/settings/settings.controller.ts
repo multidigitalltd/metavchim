@@ -48,7 +48,7 @@ import {
   normalizePhone,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
-import { onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
+import { emailDomainStatus, onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
 import {
   AnyAuthenticated,
   RequireCapability,
@@ -1624,7 +1624,7 @@ export class SettingsController {
       typeof settings[key] === "string" &&
       (settings[key] as string).trim() !== "";
 
-    const [activeUsers, properties, buyers, leadWebhooks] = await Promise.all([
+    const [activeUsers, properties, buyers, leadWebhooks, emailDomain] = await Promise.all([
       this.prisma.user.count({ where: { tenantId, isActive: true } }),
       this.prisma.withTenant((tx) =>
         tx.property.count({ where: { tenantId, deletedAt: null } }),
@@ -1633,6 +1633,18 @@ export class SettingsController {
         tx.buyer.count({ where: { tenantId, deletedAt: null } }),
       ),
       this.prisma.leadWebhook.count({ where: { tenantId } }),
+      /*
+       * שני דגלי האימות, ולא עצם קיום השורה: דומיין שהוזן ורשומות
+       * ה-DNS שלו טרם עברו — השליחה ממנו עדיין נופלת לכתובת
+       * המערכת. ההכרעה עצמה ב-`emailDomainStatus` המשותפת, כדי
+       * שהמסך והצעד יסכימו על „מחובר”.
+       */
+      this.prisma.withTenant((tx) =>
+        tx.emailDomain.findUnique({
+          where: { tenantId },
+          select: { dkimVerified: true, returnPathVerified: true },
+        }),
+      ),
     ]);
 
     return onboardingSteps({
@@ -1646,6 +1658,8 @@ export class SettingsController {
       buyers,
       leadWebhookConfigured: leadWebhooks > 0,
       whatsappConfigured: filled("whatsappNumber"),
+      emailDomainVerified:
+        emailDomain !== null && emailDomainStatus(emailDomain) === "verified",
       transcriptionAvailable:
         env.STT_URL !== undefined && env.STT_SECRET !== undefined,
     });

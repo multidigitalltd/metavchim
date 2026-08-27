@@ -7,6 +7,7 @@ import { API_BASE, apiGet, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { Notice } from "../notice";
+import { OfficeDomainNudge } from "../office-domain-nudge";
 
 /**
  * תיבת המייל הפנימית — תשובות של לקוחות למיילים שהמערכת שלחה.
@@ -287,6 +288,8 @@ export default function InboxPage() {
           מכתובת המשרד ונרשמת בציר הלקוח.
         </p>
       </div>
+
+      <OfficeDomainNudge />
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
 
