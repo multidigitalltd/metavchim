@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { API_BASE, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import {
   MAX_PLATFORM_FEE_PERCENT,
   PLATFORM_REFERRAL_FEE_PERCENT,
@@ -36,7 +36,7 @@ function WebhookUrl({
   secret,
   alreadySet,
 }: {
-  /** הנתיב עד לסוד, כולל הלוכסן הסוגר. */
+  /** הנתיב מתחת ל-`API_BASE`, כולל הלוכסן הסוגר. */
   path: string;
   /** מה שהוקלד בשדה הסוד ברגע זה. */
   secret: string;
@@ -52,7 +52,22 @@ function WebhookUrl({
   }, []);
 
   const trimmed = secret.trim();
-  const url = trimmed === "" ? "" : `${origin}${path}${encodeURIComponent(trimmed)}`;
+  /*
+   * הבסיס הוא `API_BASE` ולא מקור העמוד: הנתיבים האלה חיים על שרת
+   * ה-API, ו-`NEXT_PUBLIC_API_URL` יכול להצביע על מארח אחר לגמרי —
+   * בפיתוח הוא ‎localhost:3001‎ בעוד המסך רץ על ‎3000‎, וכתובת שנבנתה
+   * ממקור העמוד הייתה מחזירה 404 אצל הספק (ביקורת Codex).
+   *
+   * ‎`API_BASE` יחסי (`/api/v1`) הוא **מצב הפרודקשן**: התמונה נבנית
+   * עם `NEXT_PUBLIC_API_URL` ריק בכוונה כדי שהדפדפן יפנה same-origin
+   * דרך ה-Proxy. כתובת יחסית אי אפשר להדביק בפוסטמרק, ולכן דווקא שם
+   * מוסיפים את מקור העמוד — שהוא באמת המארח הנכון.
+   */
+  const relative = API_BASE.startsWith("/");
+  // בסיס יחסי ממתין ל-`origin`; בסיס מוחלט מוכן כבר ברינדור הראשון
+  const ready = trimmed !== "" && (!relative || origin !== "");
+  const base = relative ? `${origin}${API_BASE}` : API_BASE;
+  const url = ready ? `${base}${path}${encodeURIComponent(trimmed)}` : "";
 
   async function copy(): Promise<void> {
     try {
@@ -842,7 +857,7 @@ export function PlatformSettingsSection({
           ) : null}
         </form>
         <WebhookUrl
-          path="/api/v1/public/email/inbound/"
+          path="/public/email/inbound/"
           secret={officeInboundSecret}
           alreadySet={settings.postmark.inboundSecretSet}
         />
@@ -990,7 +1005,7 @@ export function PlatformSettingsSection({
           השרת הכללי — עדיין מכתובת התמיכה, רק לא בזרם נפרד.
         </p>
         <WebhookUrl
-          path="/api/v1/public/support/inbound/"
+          path="/public/support/inbound/"
           secret={supportSecret}
           alreadySet={settings.postmark.supportInboundSecretSet}
         />
