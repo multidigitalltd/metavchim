@@ -106,6 +106,31 @@ function sourceFiles(workspace: string): string[] {
 }
 
 /**
+ * ‎**קוד הכלים של השורש — אותו כלל, שלא היה מכוסה.**
+ *
+ * ‎`eslint-rules/` ו-`scripts/` רצים ב-CI מ-package.json של השורש,
+ * ואינם `workspace` עם `src/`. הבדיקה של הכלי החדש ייבאה
+ * ‎`@typescript-eslint/parser` — חבילה שנמצאת בעץ המקומי דרך הרמה
+ * של pnpm ואינה מוצהרת בשורש — ולכן עברה כאן ונפלה ב-CI.
+ *
+ * זו **בדיוק** המחלקה שהבדיקה הזו נכתבה בשבילה, במיקום שהיא לא
+ * הביטה בו. הכיסוי מורחב במקום לתקן את המופע.
+ */
+function rootToolFiles(): string[] {
+  const dirs = ["eslint-rules", "scripts"];
+  return dirs.flatMap((dir) => {
+    const full = join(REPO_ROOT, dir);
+    try {
+      return readdirSync(full, { recursive: true, encoding: "utf8" })
+        .filter((name) => name.endsWith(".mjs") || name.endsWith(".ts"))
+        .map((name) => join(full, name));
+    } catch {
+      return [];
+    }
+  });
+}
+
+/**
  * שם החבילה מתוך המפרט: `@scope/name/sub` → `@scope/name`,
  * `name/sub` → `name`. נתיבים יחסיים ומובנים של node מסוננים.
  */
@@ -186,6 +211,27 @@ describe("תלויות מוצהרות בקוד שנפרס", () => {
       expect([...new Set(pruned)].sort()).toEqual([]);
     });
   }
+
+  /*
+   * ‎**השורש נבדק על ההצהרה בלבד**, ולא על „תלות ריצה”: הוא אינו
+   * נארז לתמונה, וכלי CI רצים עם devDependencies מותקנות. מה שכן
+   * חייב להתקיים הוא שההצהרה קיימת — כי `pnpm install` נקי מתקין
+   * את מה שהוצהר ותו לא.
+   */
+  it("שורש: כל ייבוא בכלי ה-CI מוצהר ב-package.json", () => {
+    const { declared } = manifest(".");
+    const undeclared = rootToolFiles()
+      .flatMap(usages)
+      .filter((use) => !declared.has(use.pkg))
+      .map((use) => `${use.file} → ${use.pkg}`);
+    expect([...new Set(undeclared)].sort()).toEqual([]);
+  });
+
+  it("והיא אכן קוראת את קוד הכלים", () => {
+    const seen = new Set(rootToolFiles().flatMap(usages).map((use) => use.pkg));
+    expect(seen.has("eslint")).toBe(true);
+    expect(seen.has("typescript-eslint")).toBe(true);
+  });
 
   it("הבדיקה אכן קוראת ייבוא — ולא עוברת על קובץ ריק", () => {
     const seen = new Set(sourceFiles("apps/api").flatMap(usages).map((use) => use.pkg));

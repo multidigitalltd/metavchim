@@ -1,7 +1,16 @@
 import { RuleTester } from "eslint";
-import tsParser from "@typescript-eslint/parser";
+import tseslint from "typescript-eslint";
 
 import { rule } from "./israel-time.mjs";
+
+/*
+ * ‎**המנתח נלקח מ-`typescript-eslint` ולא מ-`@typescript-eslint/parser`.**
+ *
+ * הצורה השנייה עבדה כאן ונפלה ב-CI: היא אינה תלות מוצהרת של השורש,
+ * ופתרון שמצליח בעץ אחד ונכשל באחר הוא **בדיוק** המחלקה שהפילה את
+ * הפרודקשן ב-#279. ‎`typescript-eslint` כן מוצהרת, והיא מייצאת את
+ * אותו מנתח בעצמה — כלומר אין כאן ויתור אלא הסרת תלות מיותרת.
+ */
 
 /**
  * ‎**מה שהשער הקודם לא יכול היה לתפוס, ומה שהוא כן.**
@@ -18,7 +27,7 @@ import { rule } from "./israel-time.mjs";
 
 const ruleTester = new RuleTester({
   languageOptions: {
-    parser: tsParser,
+    parser: tseslint.parser,
     parserOptions: { ecmaVersion: 2022, sourceType: "module", ecmaFeatures: { jsx: true } },
   },
 });
