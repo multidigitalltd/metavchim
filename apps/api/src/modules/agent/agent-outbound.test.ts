@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 import { AGENT_ACTIONS, agentAction } from "@metavchim/shared";
 import { requiresExplicitChoice } from "./resolve.service";
@@ -47,5 +49,45 @@ describe("פעולות שיוצאות אל מחוץ למשרד", () => {
   it("קישור החתימה מסווג כפעולה יוצאת", () => {
     expect(agentAction("send_agreement")?.risk).toBe("outbound");
     expect(agentAction("send_agreement")?.capability).toBe("offers.send");
+  });
+});
+
+/**
+ * ‎**מה שנושא PII אינו נוסע לזיכרון ולא לפרומפט.**
+ *
+ * שני גבולות שהפעולות החדשות הוסיפו, ושניהם בלתי נראים לקומפיילר:
+ *
+ * 1. קישור wa.me נושא את מספר הטלפון של הלקוח. הוא חוזר בשדה
+ *    `link` — ש**אינו** חלק מ-`agentHistorySummary` — ולעולם לא
+ *    בתוך `message`, שנשמר לזיכרון השיחה שנוסע למודל חיצוני.
+ * 2. תשובת „מה קיבלתי במייל” אינה נושאת את גוף המייל: הנתונים
+ *    שנשלחים לניסוח התובנה הם השם, הנושא והספירה בלבד.
+ */
+describe("גבולות ה-PII של הפעולות החדשות", () => {
+  const read = (relative: string): string =>
+    readFileSync(new URL(relative, import.meta.url), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//gu, "")
+      .replace(/^[ \t]*\/\/.*$/gmu, "");
+
+  it("קישור הוואטסאפ חוזר ב-link, וההודעה הנשמרת אינה נושאת אותו", () => {
+    const source = read("./execute.service.ts");
+    const method = source.slice(
+      source.indexOf("private async sendMessage("),
+      source.indexOf("private async openSupportTicket("),
+    );
+    expect(method).toContain("link: waUrl");
+    // ה-message הוא מחרוזת קבועה עם שם בלבד — אין בה את הקישור
+    expect(method).not.toMatch(/message:[^,]*waUrl/u);
+  });
+
+  it("תיבת המייל נמסרת בלי גוף ההודעות", () => {
+    const source = read("./execute.service.ts");
+    const method = source.slice(
+      source.indexOf("private async showEmails("),
+      source.indexOf("private async sendMessage("),
+    );
+    expect(method).toContain("lastSubject: thread.lastSubject");
+    expect(method).not.toContain("lastSnippet");
+    expect(method).not.toContain("body");
   });
 });

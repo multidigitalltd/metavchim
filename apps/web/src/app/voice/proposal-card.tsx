@@ -68,6 +68,8 @@ export interface Proposal {
 
 export interface ExecuteResult {
   href?: string;
+  /** קישור חיצוני — wa.me עם הודעה מוכנה. מוצג ואינו נשמר. */
+  link?: string;
   message: string;
   data?: unknown;
   /** משפט תובנה על תוצאות שאילתה — מוצג מעל הרשימה */

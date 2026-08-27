@@ -10,6 +10,8 @@ import { EmailInboxModule } from "../email-inbox/email-inbox.module";
 import { ContactsModule } from "../contacts/contacts.module";
 import { LeadsModule } from "../leads/leads.module";
 import { MatchingModule } from "../matching/matching.module";
+import { MessagingModule } from "../messaging/messaging.module";
+import { SupportModule } from "../support/support.module";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { OffersModule } from "../offers/offers.module";
 import { PropertiesModule } from "../properties/properties.module";
@@ -58,6 +60,10 @@ import { AgentResolveService } from "./resolve.service";
     NotificationsModule,
     // „שלח מייל ללקוח” — אותו נתיב כמו תשובה מתיבת המייל
     EmailInboxModule,
+    // „תשלח לו בוואטסאפ” — אותו ערוץ walink כמו הצעה מהמסך
+    MessagingModule,
+    // „תפתח פנייה לתמיכה” — אותו שירות כמו כפתור התמיכה
+    SupportModule,
   ],
   controllers: [AgentController],
   providers: [

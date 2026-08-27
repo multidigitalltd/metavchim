@@ -14,9 +14,11 @@
  * בשרת בדיוק כמו לחיצה על כפתור. הבדיקה נעשית מהקטלוג, לא מזיכרון
  * של מי שכתב את הנתיב, ובדיקה מבנית מוודאת שאין רשומה בלי יכולת.
  *
- * **2. אין פעולות הרסניות.** אין `delete_*` ואין ביטול. הצעה
+ * **2. אין פעולות הרסניות.** אין `delete_*` ואין ביטול שמוחק. הצעה
  * שנוצרה מתמלול שגוי או מטקסט זדוני יכולה במקרה הגרוע לבקש רשומה
  * מיותרת — שאפשר למחוק — ולא למחוק רשומה שאי אפשר להחזיר.
+ * ביטול **פגישה** עומד בכלל: הוא עדכון סטטוס הפיך — הפגישה נשארת
+ * ביומן כמבוטלת, ודחייה מחזירה אותה — לא מחיקת שורה.
  *
  * **3. `risk` קובע את חוויית האישור.** `read` רץ מיד ומציג תשובה,
  * `create`/`update` דורשים לחיצה על כרטיס ההצעה, ו-`outbound` דורש
@@ -37,6 +39,7 @@ import {
   MARKETING_ACTION_KINDS,
   MARKETING_ACTION_LABEL,
 } from "../logic/exclusivity.js";
+import { SUPPORT_KINDS, SUPPORT_KIND_LABEL } from "../logic/support.js";
 import { DISMISS_REASONS, DISMISS_REASON_LABEL } from "../logic/match-feedback.js";
 import type { Capability } from "../rbac.js";
 import type { AgentFieldSpec } from "./field-spec.js";
@@ -63,6 +66,8 @@ export const AGENT_ACTION_IDS = [
   "add_note",
   "update_lead_status",
   "schedule_appointment",
+  "reschedule_appointment",
+  "update_appointment",
   "update_buyer",
   "update_property",
   "share_property",
@@ -75,9 +80,12 @@ export const AGENT_ACTION_IDS = [
   "show_offers",
   "show_demands",
   "show_notifications",
+  "show_emails",
   "dismiss_match",
   "assign_task",
   "send_email",
+  "send_message",
+  "open_support_ticket",
 ] as const;
 
 export type AgentActionId = (typeof AGENT_ACTION_IDS)[number];
@@ -354,6 +362,57 @@ const F_LEAD_STATUS: AgentFieldSpec = {
     waiting_customer: "ממתין ללקוח",
     closed: "סגור",
   },
+};
+
+/**
+ * מה קרה לפגישה. `cancelled` הוא עדכון סטטוס הפיך — הפגישה נשארת
+ * ביומן כמבוטלת — ולכן אינו סותר את כלל „אין ביטול שמוחק”.
+ */
+const F_APPOINTMENT_STATUS: AgentFieldSpec = {
+  key: "appointmentStatus",
+  label: "מה קרה",
+  type: "enum",
+  values: ["cancelled", "completed", "no_show"],
+  valueLabels: { cancelled: "בוטלה", completed: "התקיימה", no_show: "לא הגיע" },
+};
+
+/** תוצאת סיור — אותם ארבעה ערכים ותוויות כמו מסך הפולו-אפ. */
+const F_VIEWING_OUTCOME: AgentFieldSpec = {
+  key: "viewingOutcome",
+  label: "תוצאת הסיור",
+  type: "enum",
+  hint: "רק לסיור בנכס, ורק כשנאמר איך היה",
+  values: ["liked", "not_fit", "negotiating", "needs_other"],
+  valueLabels: {
+    liked: "אהב את הנכס",
+    not_fit: "לא מתאים",
+    negotiating: 'עוברים למו"מ',
+    needs_other: "צריך נכס אחר",
+  },
+};
+
+const F_MESSAGE_BODY: AgentFieldSpec = {
+  key: "messageBody",
+  label: "נוסח ההודעה",
+  type: "string",
+  hint: "מה לכתוב ללקוח, בדיוק כפי שנאמר",
+  maxLength: 1500,
+};
+
+const F_SUPPORT_KIND: AgentFieldSpec = {
+  key: "supportKind",
+  label: "סוג הפנייה",
+  type: "enum",
+  values: SUPPORT_KINDS,
+  valueLabels: SUPPORT_KIND_LABEL,
+};
+
+const F_SUPPORT_MESSAGE: AgentFieldSpec = {
+  key: "supportMessage",
+  label: "מה קרה",
+  type: "string",
+  hint: "תיאור הבעיה או הבקשה, כפי שנאמר",
+  maxLength: 2000,
 };
 
 const F_MATURITY: AgentFieldSpec = {
@@ -978,6 +1037,38 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     resolved: [{ key: "startsAt", label: "מועד" }],
   },
   {
+    /*
+     * ‎**איזו פגישה — הקרובה עם הלקוח שנאמר.** הביצוע מאתר את
+     * הפגישה המתוכננת הקרובה של הכרטיס שנפתר, ואומר בתשובה מאיזה
+     * מועד היא זזה — כך טעות בזיהוי גלויה מיד והפיכה בדחייה נוספת.
+     */
+    id: "reschedule_appointment",
+    title: "דחיית פגישה",
+    when: "הזזת פגישה קיימת למועד חדש — הפגישה הקרובה עם הלקוח שנאמר. לקביעת פגישה חדשה יש „פגישה / סיור”.",
+    examples: [
+      "תזיז את הסיור עם משה כהן למחר בעשר",
+      "תדחה את הפגישה עם דנה ליום ראשון בארבע",
+      "הפגישה עם משפחת לוי נדחתה לשלישי",
+    ],
+    capability: "calendar.manage",
+    risk: "update",
+    fields: [F_BUYER_PHRASE],
+    resolved: [{ key: "startsAt", label: "מועד חדש" }],
+  },
+  {
+    id: "update_appointment",
+    title: "עדכון פגישה",
+    when: "מה קרה עם פגישה — ביטול (של הקרובה), או „התקיימה” / „לא הגיע” / תוצאת סיור (על האחרונה שהייתה). הביטול הפיך: הפגישה נשארת ביומן כמבוטלת.",
+    examples: [
+      "בטל את הפגישה עם משה כהן",
+      "הסיור עם דנה התקיים והיא אהבה את הנכס",
+      "משפחת לוי לא הגיעו לסיור",
+    ],
+    capability: "calendar.manage",
+    risk: "update",
+    fields: [F_BUYER_PHRASE, F_APPOINTMENT_STATUS, F_VIEWING_OUTCOME],
+  },
+  {
     id: "update_buyer",
     title: "עדכון כרטיס קונה",
     when: "שינוי פרט בכרטיס קונה קיים — תקציב שעלה, אזור שהתווסף, בשלות שהשתנתה.",
@@ -1268,6 +1359,16 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     risk: "read",
     fields: [],
   },
+  {
+    id: "show_emails",
+    title: "תיבת המייל",
+    when: "שאלה על מיילים שנכנסו מלקוחות — מי כתב, מה עוד לא נקרא.",
+    examples: ["מה קיבלתי במייל", "יש מיילים חדשים מלקוחות?", "מי כתב לי ולא עניתי"],
+    // אותו שער כמו נתיבי תיבת הדואר עצמם
+    capability: "buyers.view_own",
+    risk: "read",
+    fields: [],
+  },
 
   /*
    * ‎**משוב על התאמה — הכיוון היחיד שמכייל את המנוע.**
@@ -1342,6 +1443,49 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capability: "buyers.view_own",
     risk: "outbound",
     fields: [F_BUYER_PHRASE, F_EMAIL_BODY],
+  },
+  {
+    /*
+     * ‎**וואטסאפ ללקוח — באותו ערוץ שהמערכת כבר שולחת בו הצעות.**
+     *
+     * ‎`walink`: ההודעה מנוסחת, נרשמת ב-Hub ובציר הלקוח, והקישור
+     * שחוזר פותח את הצ'אט עם הטקסט מוכן — המתווך רק לוחץ שלח.
+     * שום הודעה אינה יוצאת מעצמה, ולכן אין כאן תלות בחלון 24
+     * השעות של Meta. `outbound` = אישור + בחירת נמען מפורשת,
+     * בדיוק כמו מייל והצעה.
+     */
+    id: "send_message",
+    title: "הודעת וואטסאפ ללקוח",
+    when: "הכנת הודעת וואטסאפ ללקוח בנוסח שנאמר — „תשלח לו ש…”, „תכתוב לה בוואטסאפ”. לא להצעת נכס (send_offer) ולא למייל (send_email).",
+    examples: [
+      "תשלח למשה כהן שהסיור מחר בעשר",
+      "תכתוב לדנה בוואטסאפ שהמסמכים התקבלו",
+      "שלח למשפחת לוי שאחזור אליהם הערב",
+    ],
+    capability: "buyers.view_own",
+    capabilityAlts: ["leads.view_own"],
+    risk: "outbound",
+    fields: [F_BUYER_PHRASE, F_MESSAGE_BODY],
+  },
+  {
+    /*
+     * ‎**היכולות כאן הן „כל משתמש מחובר”**, כמו כפתור התמיכה במסך:
+     * נתיב הפניות אינו דורש יכולת, ומי שרואה כל דבר במערכת רשאי
+     * לדווח עליו. הקטלוג מחייב יכולת אחת לפחות, ולכן ההצהרה היא
+     * איחוד היכולות הבסיסיות — כל תפקיד מחזיק אחת מהן.
+     */
+    id: "open_support_ticket",
+    title: "פנייה לתמיכה",
+    when: "דיווח על תקלה, שאלה על המערכת עצמה, או הצעה לשיפור — „משהו לא עובד”, „תפתח פנייה לתמיכה”.",
+    examples: [
+      "תפתח פנייה לתמיכה שההקלטות לא נטענות",
+      "משהו תקוע במסך ההצעות, תדווח לתמיכה",
+      "יש לי הצעה לשיפור — שאפשר יהיה למיין לפי מחיר",
+    ],
+    capability: "leads.view_own",
+    capabilityAlts: ["buyers.view_own", "properties.view", "calendar.manage"],
+    risk: "create",
+    fields: [F_SUPPORT_KIND, F_SUPPORT_MESSAGE],
   },
 ];
 

@@ -7,6 +7,11 @@ import {
   groundedNumbers,
   LEAD_STATUS_LABELS,
   type LeadStatus,
+  SUPPORT_KINDS,
+  type SupportKind,
+  formatJerusalemDate,
+  formatJerusalemTime,
+  whatsappLink,
   jerusalemWallParts,
   type MarketingActionKind,
   agentAction,
@@ -40,6 +45,8 @@ import { AgreementsService } from "../agreements/agreements.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { EmailInboxService } from "../email-inbox/email-inbox.service";
+import { MessagingService } from "../messaging/messaging.service";
+import { SupportService } from "../support/support.service";
 import { AnalyticsService, type ReportWindowDays } from "../analytics/analytics.service";
 import { AgentResolveService } from "./resolve.service";
 import { BuyersService } from "../buyers/buyers.service";
@@ -125,6 +132,15 @@ function refOf(
 export interface ExecuteResult {
   /** לאן לנווט אחרי הביצוע */
   href?: string;
+  /**
+   * קישור **חיצוני** מוחלט — למשל wa.me עם הודעה מוכנה.
+   *
+   * שדה נפרד מ-`message` ובכוונה: קישור כזה יכול לשאת מספר טלפון,
+   * ו-`message` נשמר לזיכרון השיחה שנוסע לפרומפט של מודל חיצוני —
+   * טלפון אינו מגיע לשם לעולם. הערוצים מציגים את הקישור ואינם
+   * שומרים אותו.
+   */
+  link?: string;
   message: string;
   /** תוצאות לשאילתה — מוצגות במקום, בלי ניווט */
   data?: unknown;
@@ -248,6 +264,8 @@ export class AgentExecuteService {
     private readonly offers: OffersService,
     private readonly notifications: NotificationsService,
     private readonly emailInbox: EmailInboxService,
+    private readonly messaging: MessagingService,
+    private readonly support: SupportService,
   ) {}
 
   async execute(
@@ -372,6 +390,10 @@ export class AgentExecuteService {
         return this.createTask(params);
       case "schedule_appointment":
         return this.createAppointment(params);
+      case "reschedule_appointment":
+        return this.rescheduleAppointment(params);
+      case "update_appointment":
+        return this.updateAppointment(params);
       case "update_buyer":
         return this.updateBuyer(params);
       case "update_property":
@@ -404,6 +426,12 @@ export class AgentExecuteService {
         return this.showDemands(params);
       case "show_notifications":
         return this.showNotifications();
+      case "show_emails":
+        return this.showEmails();
+      case "send_message":
+        return this.sendMessage(params);
+      case "open_support_ticket":
+        return this.openSupportTicket(params);
       case "dismiss_match":
         return this.dismissMatch(params);
       case "assign_task":
@@ -1653,6 +1681,182 @@ export class AgentExecuteService {
       ...(card?.kind === "lead" ? { leadId: card.id } : {}),
     });
     return { href: `/calendar`, message: "הפגישה נקבעה", data: { id: appointment.id } };
+  }
+
+  /**
+   * ‎**הפגישה שהפעולה מדברת עליה** — של הכרטיס שנפתר, לפי הכיוון בזמן:
+   * ביטול ודחייה מדברים על הקרובה המתוכננת; „התקיימה” ו„לא הגיע” על
+   * האחרונה שכבר עברה וטרם סוכמה. הבחירה נאמרת בתשובה — מועד הפגישה
+   * שנבחרה מופיע בהודעה, כך שזיהוי שגוי גלוי מיד והפיך.
+   *
+   * הגישה נשמרת דרך שער הכרטיס (`optionalCardTarget` ⟵ בעלות),
+   * ולכן אין כאן שאילתת פגישות חופשית על כל המשרד.
+   */
+  private async appointmentOf(
+    params: Record<string, unknown>,
+    direction: "upcoming" | "past",
+  ): Promise<{ id: string; startsAt: Date; extra: number }> {
+    const card = await this.optionalCardTarget(params["cardId"]);
+    if (card === null) {
+      throw new BadRequestException("לא זיהיתי עם מי הפגישה — אמרו את שם הלקוח");
+    }
+    const tenantId = TenantContext.current().tenantId;
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.appointment.findMany({
+        where: {
+          tenantId,
+          status: "scheduled",
+          ...(card.kind === "buyer" ? { buyerId: card.id } : { leadId: card.id }),
+          startsAt: direction === "upcoming" ? { gte: new Date() } : { lt: new Date() },
+        },
+        orderBy: { startsAt: direction === "upcoming" ? "asc" : "desc" },
+        take: 2,
+        select: { id: true, startsAt: true },
+      }),
+    );
+    const first = rows[0];
+    if (first === undefined) {
+      throw new BadRequestException(
+        direction === "upcoming"
+          ? "אין פגישה מתוכננת עם הלקוח הזה — אפשר לקבוע חדשה"
+          : "לא נמצאה פגישה שהתקיימה עם הלקוח הזה וממתינה לסיכום",
+      );
+    }
+    return { id: first.id, startsAt: first.startsAt, extra: rows.length - 1 };
+  }
+
+  /** „נדחתה מ… ל…” — המועד הישן בתשובה הוא מה שחושף זיהוי שגוי. */
+  private async rescheduleAppointment(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const startsAt = date(params["startsAt"]);
+    if (!startsAt) throw new BadRequestException("לא זוהה המועד החדש");
+    const found = await this.appointmentOf(params, "upcoming");
+    await this.calendar.reschedule(found.id, { startsAt, durationMinutes: 60 });
+    const moved = `הפגישה מ-${formatJerusalemDate(found.startsAt)} ${formatJerusalemTime(found.startsAt)} נדחתה ל-${formatJerusalemDate(startsAt)} ${formatJerusalemTime(startsAt)}`;
+    return {
+      href: "/calendar",
+      message:
+        found.extra > 0 ? `${moved}. יש עוד פגישה מתוכננת עם הלקוח — היא לא זזה.` : moved,
+    };
+  }
+
+  /**
+   * ביטול, „התקיימה”, „לא הגיע” ותוצאת סיור — דרך אותו
+   * ‎`CalendarService.update` כמו מסך הפולו-אפ: תוצאה גוררת
+   * „התקיימה”, והסיכום נרשם בציר הלקוח שם, לא כאן.
+   */
+  private async updateAppointment(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const status = str(params["appointmentStatus"]);
+    const outcome = str(params["viewingOutcome"]);
+    if (status === undefined && outcome === undefined) {
+      throw new BadRequestException("אמרו מה קרה עם הפגישה — בוטלה, התקיימה, או לא הגיע");
+    }
+    // ביטול מדבר על פגישה עתידית; סיכום — על כזו שכבר הייתה
+    const found = await this.appointmentOf(
+      params,
+      status === "cancelled" ? "upcoming" : "past",
+    );
+    await this.calendar.update(found.id, {
+      ...(status !== undefined ? { status } : {}),
+      ...(outcome !== undefined ? { outcome } : {}),
+    });
+    const when = `${formatJerusalemDate(found.startsAt)} ${formatJerusalemTime(found.startsAt)}`;
+    const said =
+      status === "cancelled"
+        ? `הפגישה ב-${when} בוטלה — היא נשארת ביומן כמבוטלת, ודחייה מחזירה אותה`
+        : status === "no_show"
+          ? `נרשם שהלקוח לא הגיע לפגישה ב-${when}`
+          : `הפגישה ב-${when} סומנה כהתקיימה${outcome === undefined ? "" : ", עם תוצאת הסיור"}`;
+    return { href: "/calendar", message: said };
+  }
+
+  /**
+   * תיבת המייל — השיחות האחרונות, בלי תוכן ההודעות: הנושא והשם
+   * מספיקים לרשימה, וגוף המייל של לקוח אינו נוסע לניסוח התובנה.
+   */
+  private async showEmails(): Promise<ExecuteResult> {
+    const threads = await this.emailInbox.listThreads();
+    const unread = threads.reduce((sum, thread) => sum + thread.unread, 0);
+    return {
+      href: "/inbox",
+      message:
+        threads.length === 0
+          ? "אין שיחות מייל עם לקוחות"
+          : `${threads.length} שיחות מייל${unread > 0 ? `, ${unread} מיילים שלא נקראו` : ""}`,
+      data: {
+        emails: threads.slice(0, 10).map((thread) => ({
+          contactName: thread.contactName,
+          lastSubject: thread.lastSubject,
+          lastAt: thread.lastAt,
+          unread: thread.unread,
+          ...(thread.buyerId === undefined ? {} : { buyerId: thread.buyerId }),
+        })),
+      },
+    };
+  }
+
+  /**
+   * ‎**וואטסאפ ללקוח — ערוץ `walink`, כמו הצעה מהמסך.**
+   *
+   * ההודעה נרשמת ב-Hub ובציר הלקוח, והקישור פותח את הצ'אט עם
+   * הטקסט מוכן — שום דבר לא יוצא מעצמו. הקישור חוזר ב-`link` ולא
+   * בהודעה: הוא נושא את מספר הטלפון, ו-`message` נשמר לזיכרון
+   * שנוסע לפרומפט של מודל חיצוני — טלפון אינו מגיע לשם לעולם.
+   */
+  private async sendMessage(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const card = await this.optionalCardTarget(params["cardId"]);
+    if (card === null) throw new BadRequestException("לא נבחר לקוח לשליחה");
+    const body = str(params["messageBody"])?.trim();
+    if (body === undefined || body === "") {
+      throw new BadRequestException("אמרו מה לכתוב בהודעה");
+    }
+    const tenantId = TenantContext.current().tenantId;
+    const { name, waUrl } = await this.prisma.withTenant(async (tx) => {
+      const row =
+        card.kind === "buyer"
+          ? await tx.buyer.findFirst({
+              where: { id: card.id, tenantId, deletedAt: null },
+              select: { contactId: true },
+            })
+          : await tx.lead.findFirst({
+              where: { id: card.id, tenantId },
+              select: { contactId: true },
+            });
+      if (!row) throw new BadRequestException("הלקוח לא נמצא");
+      const contact = await this.contacts.getById(tx, row.contactId);
+      if (!contact || contact.phone === "") {
+        throw new BadRequestException("לכרטיס הזה אין מספר טלפון");
+      }
+      await this.messaging.prepareFreeText(tx, {
+        contactId: row.contactId,
+        card,
+        body,
+      });
+      return { name: contact.name, waUrl: whatsappLink(contact.phone, body) };
+    });
+    return {
+      message: `ההודעה ל${name} מוכנה ונרשמה בציר הלקוח — פתחו את הקישור ולחצו שלח.`,
+      link: waUrl,
+      ...refOf(name, card.kind, card.id),
+    };
+  }
+
+  /** פנייה לתמיכה — אותו שירות ואותו מיון כמו כפתור התמיכה במסך. */
+  private async openSupportTicket(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const message = str(params["supportMessage"])?.trim();
+    if (message === undefined || message === "") {
+      throw new BadRequestException("אמרו מה קרה — זה מה שהתמיכה תקרא");
+    }
+    const kind = str(params["supportKind"]);
+    const valid = (SUPPORT_KINDS as readonly string[]).includes(kind ?? "");
+    await this.support.create({
+      kind: (valid ? kind : "question") as SupportKind,
+      message,
+      context: { path: "/agent" },
+    });
+    return {
+      href: "/settings",
+      message: "הפנייה נפתחה — התמיכה תחזור אליך, והתשובה תופיע גם בהתראות",
+    };
   }
 
   // --- עדכון ---
