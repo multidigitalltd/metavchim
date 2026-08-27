@@ -358,14 +358,22 @@ export class EmailInboxService {
     for (const [ordinal, attachment] of incoming.entries()) {
       if (storedOrdinals.has(ordinal)) continue;
       const s3Key = `tenants/${tenantId}/email-attachments/${stored.messageId}/${ordinal}`;
+      /*
+       * ‎**השורה נכתבת לפני ההעלאה, והיא התביעה על המקום.**
+       *
+       * הסדר היה הפוך, והמפתח המשותף הפך אותו למסוכן: כותב שההעלאה
+       * שלו נגמרה בלי תשובה ספר אפס שורות ומחק את המפתח — בזמן
+       * שכותב מקביל, שהעלה בהצלחה לאותו מפתח, טרם הספיק לכתוב את
+       * שורתו. התוצאה: שורה גלויה שמצביעה לאובייקט שנמחק (ביקורת
+       * Codex). בדיקה-ואז-מחיקה אינה מסונכרנת מול ההכנסה המתחרה.
+       *
+       * ‎`ON CONFLICT DO NOTHING` הוא תביעה **אטומית**: מי שכתב את
+       * השורה הוא בעליו הבלעדי של המפתח, והמפסיד אינו מעלה כלל
+       * ולכן גם אינו מוחק. אין שני כותבים על אותו מפתח.
+       */
+      let claimed = false;
       try {
-        await this.storage.put(s3Key, attachment.content, attachment.contentType);
-        /*
-         * ‎`createMany` עם `skipDuplicates`: כותב מקביל שהקדים אותנו
-         * כבר רשם את השורה — על **אותו מפתח** — ואין מה לעשות.
-         * זו אינה שגיאה ואינה יתום.
-         */
-        await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        const written = await this.prisma.withExplicitTenant(tenantId, (tx) =>
           tx.emailAttachment.createMany({
             data: [
               {
@@ -383,10 +391,13 @@ export class EmailInboxService {
             skipDuplicates: true,
           }),
         );
+        // המקום כבר תפוס — כותב מקביל אחראי עליו, ואין לנו מה לעשות
+        if (written.count === 0) continue;
+        claimed = true;
+        await this.storage.put(s3Key, attachment.content, attachment.contentType);
       } catch (error: unknown) {
         this.logger.error(`שמירת קובץ מצורף נכשלה: ${String(error)}`);
-        // אין שורה במסד — ואת זה בודקים שם, לא מניחים כאן
-        await this.discardOrphan(tenantId, stored.messageId, ordinal, s3Key);
+        if (claimed) await this.releaseClaim(tenantId, stored.messageId, ordinal, s3Key);
       }
     }
 
@@ -825,11 +836,11 @@ export class EmailInboxService {
     outgoing: readonly { name: string; contentType: string; kind: string; content: Buffer }[],
   ): Promise<void> {
     for (const [ordinal, file] of outgoing.entries()) {
-      // אותה זהות יציבה כמו בקליטה — ההודעה והמקום, לא מזהה אקראי
+      // אותה זהות יציבה ואותו סדר כמו בקליטה: תביעה, ואז העלאה
       const s3Key = `tenants/${tenantId}/email-attachments/${messageId}/${ordinal}`;
+      let claimed = false;
       try {
-        await this.storage.put(s3Key, file.content, file.contentType);
-        await this.prisma.withTenant((tx) =>
+        const written = await this.prisma.withTenant((tx) =>
           tx.emailAttachment.createMany({
             data: [
               {
@@ -847,82 +858,58 @@ export class EmailInboxService {
             skipDuplicates: true,
           }),
         );
+        if (written.count === 0) continue;
+        claimed = true;
+        await this.storage.put(s3Key, file.content, file.contentType);
       } catch (error: unknown) {
         this.logger.error(`שמירת עותק קובץ יוצא נכשלה: ${String(error)}`);
-        await this.discardOrphan(tenantId, messageId, ordinal, s3Key);
+        if (claimed) await this.releaseClaim(tenantId, messageId, ordinal, s3Key);
       }
     }
   }
 
   /**
-   * ‎**קובץ שהועלה ושורתו לא נכתבה — נמחק מהאחסון.**
+   * ‎**שחרור תביעה שההעלאה שלה נכשלה — המפתח קודם, השורה אחריו.**
    *
-   * ‎`storage.put` מצליח, `emailAttachment.create` נכשל, והמפתח
-   * שנוצר אבד. לאובייקט אין שורה במסד, ולכן **מחיקת לקוח ומחיקת
-   * משרד אינן יכולות למצוא אותו**: הן עוברות על השורות. התוצאה היא
-   * קובץ שהלקוח שלח, שנשאר באחסון לצמיתות אחרי שביקש להימחק —
-   * כלומר זכות המחיקה שאינה מתקיימת בפועל (ביקורת Codex).
+   * השורה נכתבת לפני ההעלאה והיא התביעה על המקום, ולכן כאן אנחנו
+   * הבעלים הבלעדיים של המפתח: איש אחר אינו יכול לתבוע אותו כל עוד
+   * השורה קיימת. זו בדיוק התכונה שהייתה חסרה בגרסה הקודמת, שספרה
+   * שורות ואז מחקה מפתח משותף בלי סנכרון מול ההכנסה המתחרה
+   * ‎(ביקורת Codex).
    *
-   * ‎**והפיצוי רץ גם כש-`put` עצמו נכשל.** התנאי היה `if (uploaded)`,
-   * שנקבע רק אחרי ש-`put` **חזר**. פסק זמן או תשובה שאבדה משאירים
-   * אותו `false` בזמן שהאובייקט עשוי להיות מאוחסן — וזה בדיוק
-   * ה„לא ידוע” שכבר חל כאן על שליחת המייל, שנשכח בהעלאה (ביקורת
-   * Codex). המפתח נוצר זה עתה ואינו של איש אחר, ומחיקת מפתח שאינו
-   * קיים אינה עושה דבר; העלות של ניקוי מיותר היא אפס, והעלות של
-   * דילוג היא קובץ לקוח שנשאר לנצח.
+   * ‎**והסדר בין השניים אינו שרירותי.** המפתח נמחק ראשון; כל עוד
+   * השורה שלנו, מסירה חוזרת אינה יכולה לתבוע את המקום ולהעלות אליו
+   * מחדש. שחרור השורה קודם היה פותח בדיוק את החלון הזה.
    *
-   * ‎**אבל קודם בודקים שאין שורה — כי גם לכתיבה יש „לא ידוע”.**
-   *
-   * ההרחבה הקודמת פתרה כיוון אחד והשאירה את ההפוך: אם `create`
-   * **נכתב** במסד והחיבור נפל לפני שהתשובה חזרה, `withTenant` דוחה
-   * בזמן שהשורה קיימת — והמחיקה כאן הייתה מוחקת את הקובץ **של
-   * שורה גלויה**, כלומר צירוף שהלקוח שלח שמופיע בשיחה ושהורדתו
-   * נכשלת לנצח (ביקורת Codex).
-   *
-   * שתי אי-ודאויות הפוכות, ולכן קריאה אחת מכריעה: יש שורה — הקובץ
-   * נשאר; אין — הוא נמחק. וכשהבדיקה **עצמה** נכשלת, לא מוחקים:
-   * השמדת קובץ של לקוח על סמך ניחוש גרועה מאובייקט שנשאר ונרשם.
-   *
-   * הפיצוי אינו יכול להיכשל בקול: אנחנו כבר בתוך טיפול בשגיאה, ומה
-   * שנשאר הוא לרשום שהמפתח דורש ניקוי ידני. זה עדיין אינסוף פעמים
-   * טוב מלא לדעת עליו כלל.
+   * ‎**וכשהמחיקה מהאחסון נכשלת — השורה נשארת.** היא הידית היחידה
+   * שמחיקת לקוח ומחיקת משרד מכירות: הן עוברות על השורות. שורה
+   * שמצביעה לאובייקט שאולי אינו קיים היא הורדה שנכשלת; שורה שנמחקה
+   * מעל אובייקט שנשאר היא קובץ לקוח שאיש לא ימצא לעולם. הראשונה
+   * גרועה, השנייה גרועה יותר.
    */
-  private async discardOrphan(
+  private async releaseClaim(
     tenantId: string,
     messageId: string,
     ordinal: number,
     s3Key: string,
   ): Promise<void> {
-    let rows: number;
-    try {
-      /*
-       * הבדיקה היא על **המקום**, לא על מזהה השורה שניסינו לכתוב:
-       * המפתח משותף לכל הניסיונות, ולכן כותב מקביל שהצליח לפנינו
-       * הוא בעליו הלגיטימי. בדיקה לפי `id` הייתה מוחקת את הקובץ
-       * שלו.
-       */
-      rows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
-        tx.emailAttachment.count({ where: { tenantId, messageId, ordinal } }),
-      );
-    } catch (error: unknown) {
-      this.logger.error(
-        `לא ניתן לוודא אם לקובץ יש שורה במסד — הוא נשאר באחסון ודורש ניקוי: ${s3Key} — ${String(error)}`,
-      );
-      return;
-    }
-    if (rows > 0) {
-      this.logger.warn(
-        `הכתיבה דווחה ככושלת אך השורה קיימת — הקובץ נשמר ולא נמחק: ${s3Key}`,
-      );
-      return;
-    }
     try {
       await this.storage.delete(s3Key);
     } catch (error: unknown) {
       this.logger.error(
-        `קובץ מצורף נשאר באחסון בלי שורה במסד ודורש ניקוי: ${s3Key} — ${String(error)}`,
+        `מחיקת קובץ שהעלאתו נכשלה לא הצליחה — השורה נשמרת כדי שמחיקה תמצא אותו: ${s3Key} — ${String(error)}`,
       );
+      return;
     }
+    await this.prisma
+      .withExplicitTenant(tenantId, (tx) =>
+        tx.emailAttachment.deleteMany({ where: { tenantId, messageId, ordinal } }),
+      )
+      .catch((error: unknown) => {
+        this.logger.error(
+          `שחרור שורת קובץ שנמחק מהאחסון נכשל — ההורדה תיכשל עד לניקוי ידני: ${s3Key} — ${String(error)}`,
+        );
+      });
   }
 
   private async recordReplyOnTimeline(

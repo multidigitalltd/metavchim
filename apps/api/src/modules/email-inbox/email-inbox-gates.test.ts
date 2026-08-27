@@ -36,71 +36,57 @@ function method(source: string, signature: string): string {
 }
 
 /**
- * ‎**מפתח שהעלאתו נגמרה בלי תשובה מנוקה גם הוא.**
+ * ‎**השורה היא התביעה: היא נכתבת לפני ההעלאה, לא אחריה.**
  *
- * התנאי היה `if (uploaded)`, ו-`uploaded` נקבע רק אחרי ש-`put`
- * **חזר**. פסק זמן או תשובה שאבדה משאירים אותו `false` בזמן
- * שהאובייקט עשוי להיות מאוחסן — ואז אין לו שורה במסד, ומחיקת לקוח
- * או משרד לא תמצא אותו לעולם (ביקורת Codex).
+ * הסדר היה הפוך, והמפתח הדטרמיניסטי הפך אותו למסוכן: כותב שההעלאה
+ * שלו נגמרה בלי תשובה ספר אפס שורות ומחק את המפתח — בזמן שכותב
+ * מקביל, שהעלה בהצלחה לאותו מפתח, טרם כתב את שורתו. שורה גלויה
+ * שמצביעה לאובייקט שנמחק (ביקורת Codex).
  *
- * מחיקת מפתח שאינו קיים אינה עושה דבר, והמפתח נוצר זה עתה ואינו של
- * איש אחר. עלות ניקוי מיותר: אפס. עלות דילוג: קובץ לקוח לנצח.
+ * ‎`ON CONFLICT DO NOTHING` הוא תביעה אטומית: מי שכתב את השורה הוא
+ * בעליו הבלעדי של המפתח, והמפסיד אינו מעלה ולכן גם אינו מוחק.
  */
-describe("ניקוי מפתחות אחרי העלאה שנכשלה", () => {
-  it("אין דגל שמתנה את הפיצוי בהצלחת ההעלאה", () => {
-    expect(SERVICE).not.toContain("uploaded");
+describe("התביעה על מקום הקובץ", () => {
+  it("ההכנסה קודמת להעלאה בשני המסלולים", () => {
+    for (const fn of ["  async processInbound(", "  private async storeOutgoingCopies("]) {
+      const scope = method(SERVICE, fn);
+      const claim = scope.indexOf("emailAttachment.createMany(");
+      const put = scope.indexOf("this.storage.put(");
+      expect(claim, `התביעה לא נמצאה ב-${fn}`).toBeGreaterThan(-1);
+      expect(put, `ההעלאה לא נמצאה ב-${fn}`).toBeGreaterThan(claim);
+    }
   });
 
-  it("שני מסלולי הקבצים מנקים ללא תנאי", () => {
-    const calls =
-      SERVICE.match(/await this\.discardOrphan\(tenantId, [\w.]+, ordinal, s3Key\);/gu) ?? [];
-    expect(calls.length, "קליטה ותשובה — שני מסלולים").toBe(2);
-    expect(SERVICE).not.toMatch(/if \([^)]*\) await this\.discardOrphan/u);
-  });
-
-  /*
-   * ‎**וגם לכתיבה יש „לא ידוע”, בכיוון ההפוך.** אם `create` נכתב
-   * במסד והחיבור נפל לפני שהתשובה חזרה, הקריאה דוחה בזמן שהשורה
-   * קיימת — ומחיקה עיוורת הייתה מוחקת את הקובץ של **שורה גלויה**,
-   * כלומר צירוף שמופיע בשיחה ושהורדתו נכשלת לנצח (ביקורת Codex).
-   *
-   * קריאה אחת מכריעה, וכשהיא **עצמה** נכשלת לא מוחקים: השמדת קובץ
-   * של לקוח על סמך ניחוש גרועה מאובייקט שנשאר ונרשם ביומן.
-   */
-  it("המחיקה מותנית בכך שאין שורה במסד", () => {
-    const discard = method(SERVICE, "private async discardOrphan(");
-    const count = discard.indexOf("emailAttachment.count(");
-    const del = discard.indexOf("this.storage.delete(");
-    expect(count, "בדיקת הקיום לא נמצאה").toBeGreaterThan(-1);
-    expect(del, "המחיקה לא נמצאה").toBeGreaterThan(count);
-    expect(discard).toMatch(/if \(rows > 0\) \{[\s\S]{0,200}return;/u);
+  it("מי שהפסיד בתביעה אינו מעלה ואינו מוחק", () => {
+    expect((SERVICE.match(/if \(written\.count === 0\) continue;/gu) ?? []).length).toBe(2);
+    expect((SERVICE.match(/if \(claimed\) await this\.releaseClaim\(/gu) ?? []).length).toBe(2);
+    expect(SERVICE).not.toContain("discardOrphan");
   });
 
   /*
-   * ‎**הבדיקה על המקום, לא על השורה שניסינו לכתוב.** המפתח משותף
-   * לכל הניסיונות; כותב מקביל שהצליח לפנינו הוא בעליו הלגיטימי,
-   * ובדיקה לפי `id` הייתה מוחקת את הקובץ **שלו**.
+   * ‎**המפתח נמחק ראשון.** כל עוד השורה שלנו, מסירה חוזרת אינה
+   * יכולה לתבוע את המקום ולהעלות אליו מחדש; שחרור השורה קודם היה
+   * פותח בדיוק את החלון הזה.
    */
-  it("הבדיקה היא על ההודעה והמקום ולא על מזהה השורה", () => {
-    const discard = method(SERVICE, "private async discardOrphan(");
-    expect(discard).toContain("where: { tenantId, messageId, ordinal }");
-    expect(discard).not.toContain("id: attachmentId");
+  it("השחרור מוחק מפתח ואז שורה", () => {
+    const release = method(SERVICE, "private async releaseClaim(");
+    const del = release.indexOf("this.storage.delete(");
+    const row = release.indexOf("emailAttachment.deleteMany(");
+    expect(del, "מחיקת המפתח לא נמצאה").toBeGreaterThan(-1);
+    expect(row, "מחיקת השורה לא נמצאה").toBeGreaterThan(del);
   });
 
-  it("בדיקה שנכשלה אינה מוחקת", () => {
-    const discard = method(SERVICE, "private async discardOrphan(");
-    // גוש התפיסה של הבדיקה עצמו — מהפתיחה ועד הסוגר בהזחת ארבעה
-    const opens = discard.indexOf("} catch (error: unknown) {");
-    expect(opens, "התפיסה של הבדיקה לא נמצאה").toBeGreaterThan(-1);
-    const closes = discard.indexOf("\n    }", opens);
+  /*
+   * ‎**וכשהמחיקה מהאחסון נכשלת — השורה נשארת.** היא הידית היחידה
+   * שמחיקת לקוח ומחיקת משרד מכירות: הן עוברות על השורות.
+   */
+  it("מחיקת אחסון שנכשלה משאירה את השורה", () => {
+    const release = method(SERVICE, "private async releaseClaim(");
+    const opens = release.indexOf("} catch (error: unknown) {");
+    expect(opens, "התפיסה לא נמצאה").toBeGreaterThan(-1);
+    const closes = release.indexOf("\n    }", opens);
     expect(closes, "סוף גוש התפיסה לא נמצא").toBeGreaterThan(opens);
-    expect(discard.slice(opens, closes)).toContain("return;");
-  });
-
-  it("הפיצוי עצמו אינו יכול להיכשל בקול", () => {
-    const discard = method(SERVICE, "private async discardOrphan(");
-    expect(discard).toContain("try {");
-    expect(discard).toContain("this.logger.error");
+    expect(release.slice(opens, closes)).toContain("return;");
   });
 });
 
