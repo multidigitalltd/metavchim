@@ -169,6 +169,8 @@ const HASH_TABS: Record<string, string> = {
   "google-calendar": "integrations",
   gmail: "integrations",
   "lead-webhook": "integrations",
+  // הבאנר בתיבה מפנה לכאן; בלי השורה הזו הוא נוחת בלשונית הצוות
+  "email-domain": "integrations",
   data: "data",
   "support-access": "support",
 };

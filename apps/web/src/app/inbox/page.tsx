@@ -147,7 +147,7 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
 }
 
 export default function InboxPage() {
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
   const [threads, setThreads] = useState<ThreadRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openContact, setOpenContact] = useState<string | null>(null);
@@ -289,7 +289,7 @@ export default function InboxPage() {
         </p>
       </div>
 
-      <OfficeDomainNudge />
+      <OfficeDomainNudge user={user} />
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
 

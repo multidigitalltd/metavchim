@@ -58,6 +58,7 @@ import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
+import { EmailDomainProviderService } from "../../core/email-domain-provider.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { AuthService, type SessionInfo } from "../auth/auth.service";
 import { LoginThrottleService } from "../auth/login-throttle.service";
@@ -251,6 +252,7 @@ export class SettingsController {
     private readonly matchRefresh: MatchRefreshService,
     private readonly platformSettings: PlatformSettingsService,
     private readonly whatsappLinks: WhatsAppLinkService,
+    private readonly emailDomainProvider: EmailDomainProviderService,
   ) {}
 
   /**
@@ -1624,7 +1626,8 @@ export class SettingsController {
       typeof settings[key] === "string" &&
       (settings[key] as string).trim() !== "";
 
-    const [activeUsers, properties, buyers, leadWebhooks, emailDomain] = await Promise.all([
+    const [activeUsers, properties, buyers, leadWebhooks, emailDomain, emailDomainAvailable] =
+      await Promise.all([
       this.prisma.user.count({ where: { tenantId, isActive: true } }),
       this.prisma.withTenant((tx) =>
         tx.property.count({ where: { tenantId, deletedAt: null } }),
@@ -1645,6 +1648,12 @@ export class SettingsController {
           select: { dkimVerified: true, returnPathVerified: true },
         }),
       ),
+      /*
+       * בלי טוקן חשבון אצל הספק נתיב החיבור דוחה את הבקשה במפורש,
+       * ולכן הצעד כולו נשמט. הצגתו הייתה מפנה את המשרד למסך שאומר
+       * „הפיצ'ר אינו מופעל” (ביקורת Codex).
+       */
+      this.emailDomainProvider.isConfigured(),
     ]);
 
     return onboardingSteps({
@@ -1658,6 +1667,7 @@ export class SettingsController {
       buyers,
       leadWebhookConfigured: leadWebhooks > 0,
       whatsappConfigured: filled("whatsappNumber"),
+      emailDomainAvailable,
       emailDomainVerified:
         emailDomain !== null && emailDomainStatus(emailDomain) === "verified",
       transcriptionAvailable:

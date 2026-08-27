@@ -31,6 +31,15 @@ export interface OnboardingFacts {
    * קרתה, ומשאיר את המשרד לשלוח מכתובת שאינה שלו בלי לדעת.
    */
   emailDomainVerified: boolean;
+  /**
+   * ‎**האם הפלטפורמה בכלל מסוגלת להציע את זה.**
+   *
+   * חיבור דומיין דורש טוקן חשבון אצל ספק הדואר, ובלעדיו נתיב
+   * החיבור **דוחה** את הבקשה במפורש. צעד שאי אפשר לבצע אינו „טרם
+   * בוצע” — הוא אינו קיים, וכך גם אינו מוריד את אחוז ההתקדמות של
+   * משרד שלא עשה דבר רע (ביקורת Codex).
+   */
+  emailDomainAvailable: boolean;
   /** שירות התמלול המקומי מוכן בשרת */
   transcriptionAvailable: boolean;
 }
@@ -115,14 +124,23 @@ export function onboardingSteps(facts: OnboardingFacts): OnboardingProgress {
      * כשהיא של המערכת, המשרד בונה זיהוי של מישהו אחר; מסירה
      * שנחסמת או נופלת לספאם היא רק התוצאה הגלויה.
      */
-    {
-      key: "email_domain",
-      title: "שליחה מהדומיין של המשרד",
-      why: "המיילים ללקוחות יוצאים מהכתובת של המשרד ולא מכתובת המערכת — הלקוח רואה את השם שהוא מכיר, והמסירה טובה יותר.",
-      href: "/settings",
-      done: facts.emailDomainVerified,
-      essential: false,
-    },
+    /*
+     * ‎**הצעד נשמט לגמרי כשהספק אינו מחובר** — ולא מוצג כ„בוצע”.
+     * „בוצע” על משהו שלא נעשה הוא שקר קטן שמצטבר, והשמטה היא
+     * התיאור הנכון: בפריסה כזו הפיצ'ר אינו קיים.
+     */
+    ...(facts.emailDomainAvailable
+      ? [
+          {
+            key: "email_domain",
+            title: "שליחה מהדומיין של המשרד",
+            why: "המיילים ללקוחות יוצאים מהכתובת של המשרד ולא מכתובת המערכת — הלקוח רואה את השם שהוא מכיר, והמסירה טובה יותר.",
+            href: "/settings#email-domain",
+            done: facts.emailDomainVerified,
+            essential: false,
+          },
+        ]
+      : []),
     {
       key: "whatsapp",
       title: "מספר וואטסאפ עסקי",

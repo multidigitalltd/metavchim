@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { OnboardingProgress } from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
+import { can, type AuthUser } from "@/lib/use-auth";
 import { Notice, useDismissedToday } from "./notice";
 
 /**
@@ -30,13 +31,32 @@ import { Notice, useDismissedToday } from "./notice";
  * לצמיתות הייתה קוברת את זה עד שמישהו ימחק localStorage. הבאנר
  * נעלם **לגמרי** ברגע שהדומיין מאומת, ולכן אינו צריך „אל תציג
  * שוב”: הוא נגמר כשהעבודה נגמרת.
+ *
+ * ## למה רק למי שיכול לפעול
+ *
+ * התיבה פתוחה לכל מי שרואה לקוחות, וחיבור דומיין דורש
+ * ‎`settings.manage`. בלי השער הזה סוכן היה מקבל תזכורת יומית
+ * שהקישור שלה מוביל למסך שאין בו את הפקד — כלומר מטרד יומי בלי
+ * שום דבר לעשות בו (ביקורת Codex). תזכורת מופנית למי שמחזיק
+ * בהחלטה, ואצל השאר היא רעש.
  */
 
-export function OfficeDomainNudge(): React.JSX.Element | null {
+export function OfficeDomainNudge({
+  /*
+   * המשתמש מגיע מהמסך ולא נמשך כאן: `useRequireAuth` מנתב החוצה
+   * כשאין התחברות, וקריאה שנייה שלו בתוך רכיב-בן הייתה גם קריאת
+   * רשת מיותרת וגם ניתוב שני על אותו מסך.
+   */
+  user,
+}: {
+  user: AuthUser | null;
+}): React.JSX.Element | null {
+  const mayManage = can(user, "settings.manage");
   const [connected, setConnected] = useState<boolean | null>(null);
   const [dismissed, dismiss] = useDismissedToday("office-domain");
 
   useEffect(() => {
+    if (!mayManage) return;
     let cancelled = false;
     apiGet<OnboardingProgress>("/settings/onboarding")
       .then((progress) => {
@@ -55,9 +75,9 @@ export function OfficeDomainNudge(): React.JSX.Element | null {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [mayManage]);
 
-  if (connected !== false || dismissed) return null;
+  if (!mayManage || connected !== false || dismissed) return null;
 
   return (
     <Notice tone="info" onClose={dismiss} className="mb-3">
