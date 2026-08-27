@@ -298,10 +298,8 @@ export class EmailInboxService {
     for (const attachment of incoming) {
       const attachmentId = ulid();
       const s3Key = `tenants/${tenantId}/email-attachments/${stored.messageId}/${attachmentId}`;
-      let uploaded = false;
       try {
         await this.storage.put(s3Key, attachment.content, attachment.contentType);
-        uploaded = true;
         await this.prisma.withExplicitTenant(tenantId, (tx) =>
           tx.emailAttachment.create({
             data: {
@@ -318,8 +316,8 @@ export class EmailInboxService {
         );
       } catch (error: unknown) {
         this.logger.error(`שמירת קובץ מצורף נכשלה: ${String(error)}`);
-        // הועלה ולא נרשם — אין לו שורה, ולכן אף מחיקה לא תמצא אותו
-        if (uploaded) await this.discardOrphan(s3Key);
+        // אין שורה במסד — ואת זה בודקים שם, לא מניחים כאן
+        await this.discardOrphan(tenantId, attachmentId, s3Key);
       }
     }
 
@@ -707,20 +705,37 @@ export class EmailInboxService {
      * ונושאת את הגוף המלא; מה שחסר הוא האישור ושורת הציר, ושניהם
      * נרשמים ברעש כדי שיהיה אפשר להשלים ידנית.
      */
-    try {
-      await this.prisma.withTenant(async (tx) => {
-        await tx.emailMessage.updateMany({
+    /*
+     * ‎**שתי כתיבות ולא אחת, ובסדר הזה.**
+     *
+     * הן היו טרנזקציה משותפת, וכשל בציר — הכתיבה הכבדה מהשתיים —
+     * הפיל איתו גם את סימון `sent`. ההודעה נשארה `pending` אף
+     * שיצאה, והמסך המשיך לומר „בשליחה…” לנצח.
+     *
+     * ‎`sendState` הוא עדכון עמודה אחת לפי מפתח ראשי, והוא העובדה
+     * שקובעת אם מותר לשלוח שוב; הציר הוא נוחות. אין סיבה שהראשון
+     * ייפול בגלל השני, ואטומיות בין השניים אינה שווה את המחיר.
+     */
+    await this.prisma
+      .withTenant((tx) =>
+        tx.emailMessage.updateMany({
           where: { id: messageId, tenantId },
           data: { sendState: "sent" },
-        });
-        // הציר קובע „נשלחה תשובה”, ולכן הוא כאן ולא לפני השליחה
-        await this.recordReplyOnTimeline(tx, tenantId, contactId, body);
+        }),
+      )
+      .catch((error: unknown) => {
+        this.logger.error(
+          `התשובה נשלחה ללקוח וסימון המצב נכשל — ההודעה ${messageId} נשארה ממתינה: ${String(error)}`,
+        );
       });
-    } catch (error: unknown) {
-      this.logger.error(
-        `התשובה נשלחה ללקוח והתיעוד נכשל — ההודעה ${messageId} נשארה ממתינה: ${String(error)}`,
-      );
-    }
+    // הציר קובע „נשלחה תשובה”, ולכן הוא אחרי השליחה ולא לפניה
+    await this.prisma
+      .withTenant((tx) => this.recordReplyOnTimeline(tx, tenantId, contactId, body))
+      .catch((error: unknown) => {
+        this.logger.error(
+          `התשובה נשלחה ללקוח ושורת הציר נכשלה — ההודעה ${messageId}: ${String(error)}`,
+        );
+      });
 
     await this.storeOutgoingCopies(tenantId, messageId, outgoing);
     return { state: "sent" };
@@ -740,10 +755,8 @@ export class EmailInboxService {
     for (const file of outgoing) {
       const attachmentId = ulid();
       const s3Key = `tenants/${tenantId}/email-attachments/${messageId}/${attachmentId}`;
-      let uploaded = false;
       try {
         await this.storage.put(s3Key, file.content, file.contentType);
-        uploaded = true;
         await this.prisma.withTenant((tx) =>
           tx.emailAttachment.create({
             data: {
@@ -760,7 +773,7 @@ export class EmailInboxService {
         );
       } catch (error: unknown) {
         this.logger.error(`שמירת עותק קובץ יוצא נכשלה: ${String(error)}`);
-        if (uploaded) await this.discardOrphan(s3Key);
+        await this.discardOrphan(tenantId, attachmentId, s3Key);
       }
     }
   }
@@ -774,11 +787,52 @@ export class EmailInboxService {
    * קובץ שהלקוח שלח, שנשאר באחסון לצמיתות אחרי שביקש להימחק —
    * כלומר זכות המחיקה שאינה מתקיימת בפועל (ביקורת Codex).
    *
+   * ‎**והפיצוי רץ גם כש-`put` עצמו נכשל.** התנאי היה `if (uploaded)`,
+   * שנקבע רק אחרי ש-`put` **חזר**. פסק זמן או תשובה שאבדה משאירים
+   * אותו `false` בזמן שהאובייקט עשוי להיות מאוחסן — וזה בדיוק
+   * ה„לא ידוע” שכבר חל כאן על שליחת המייל, שנשכח בהעלאה (ביקורת
+   * Codex). המפתח נוצר זה עתה ואינו של איש אחר, ומחיקת מפתח שאינו
+   * קיים אינה עושה דבר; העלות של ניקוי מיותר היא אפס, והעלות של
+   * דילוג היא קובץ לקוח שנשאר לנצח.
+   *
+   * ‎**אבל קודם בודקים שאין שורה — כי גם לכתיבה יש „לא ידוע”.**
+   *
+   * ההרחבה הקודמת פתרה כיוון אחד והשאירה את ההפוך: אם `create`
+   * **נכתב** במסד והחיבור נפל לפני שהתשובה חזרה, `withTenant` דוחה
+   * בזמן שהשורה קיימת — והמחיקה כאן הייתה מוחקת את הקובץ **של
+   * שורה גלויה**, כלומר צירוף שהלקוח שלח שמופיע בשיחה ושהורדתו
+   * נכשלת לנצח (ביקורת Codex).
+   *
+   * שתי אי-ודאויות הפוכות, ולכן קריאה אחת מכריעה: יש שורה — הקובץ
+   * נשאר; אין — הוא נמחק. וכשהבדיקה **עצמה** נכשלת, לא מוחקים:
+   * השמדת קובץ של לקוח על סמך ניחוש גרועה מאובייקט שנשאר ונרשם.
+   *
    * הפיצוי אינו יכול להיכשל בקול: אנחנו כבר בתוך טיפול בשגיאה, ומה
    * שנשאר הוא לרשום שהמפתח דורש ניקוי ידני. זה עדיין אינסוף פעמים
    * טוב מלא לדעת עליו כלל.
    */
-  private async discardOrphan(s3Key: string): Promise<void> {
+  private async discardOrphan(
+    tenantId: string,
+    attachmentId: string,
+    s3Key: string,
+  ): Promise<void> {
+    let rows: number;
+    try {
+      rows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.emailAttachment.count({ where: { id: attachmentId, tenantId } }),
+      );
+    } catch (error: unknown) {
+      this.logger.error(
+        `לא ניתן לוודא אם לקובץ יש שורה במסד — הוא נשאר באחסון ודורש ניקוי: ${s3Key} — ${String(error)}`,
+      );
+      return;
+    }
+    if (rows > 0) {
+      this.logger.warn(
+        `הכתיבה דווחה ככושלת אך השורה קיימת — הקובץ נשמר ולא נמחק: ${s3Key}`,
+      );
+      return;
+    }
     try {
       await this.storage.delete(s3Key);
     } catch (error: unknown) {
