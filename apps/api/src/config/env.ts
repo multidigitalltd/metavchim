@@ -89,8 +89,23 @@ const EnvSchema = z.object({
   VAPID_SUBJECT: z.string().regex(/^(mailto:|https:\/\/)/u).optional(),
   /** Postmark — שליחת אימייל (אימות כניסה, איפוס סיסמה, התראות). */
   POSTMARK_SERVER_TOKEN: z.string().min(16).optional(),
+  /**
+   * טוקן ה-Account של Postmark — ניהול דומיינים שמשרדים מחברים
+   * (יצירה, אימות, מחיקה). נפרד מטוקן השרת; בלעדיו חיבור דומיין
+   * של משרד אינו זמין והשליחה הרגילה אינה מושפעת.
+   */
+  POSTMARK_ACCOUNT_TOKEN: z.string().min(16).optional(),
   /** כתובת השולח — חייבת להיות Sender Signature מאומתת ב-Postmark. */
   EMAIL_FROM: z.string().email().optional(),
+  /**
+   * תיבת הדואר הפנימית — כתובת ה-Inbound של שרת Postmark
+   * (abc123@inbound.postmarkapp.com). מיילים ללקוחות נושאים
+   * Reply-To בצורת local+<token>@domain, והתשובות חוזרות כ-Webhook.
+   * בלעדיה מיילים יוצאים בלי Reply-To והכל ממשיך לעבוד כרגיל.
+   */
+  EMAIL_INBOUND_ADDRESS: z.string().email().optional(),
+  /** הסוד שבנתיב ה-Webhook הנכנס — בלעדיו הנתיב סגור. */
+  EMAIL_INBOUND_SECRET: z.string().min(16).optional(),
   /**
    * אימות דו-שלבי בקוד אימייל בכל התחברות. כבוי כברירת מחדל —
    * מדליקים רק אחרי חיבור ספק אימייל אמיתי, אחרת המשתמשים ננעלים בחוץ.

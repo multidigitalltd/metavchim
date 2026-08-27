@@ -36,11 +36,15 @@ describe("קטלוג הפעולות — שלמות מבנית", () => {
   it("לכל פעולה יש יכולת קיימת", () => {
     for (const action of AGENT_ACTIONS) {
       expect(CAPABILITIES, `${action.id}`).toContain(action.capability);
-      if (action.capabilityAlt !== undefined) {
-        expect(CAPABILITIES, `${action.id}`).toContain(action.capabilityAlt);
+      for (const alt of action.capabilityAlts ?? []) {
+        expect(CAPABILITIES, `${action.id}`).toContain(alt);
         // חלופה שהיא אותה יכולת אינה חלופה — סימן להעתקה
-        expect(action.capabilityAlt, action.id).not.toBe(action.capability);
+        expect(alt, action.id).not.toBe(action.capability);
       }
+      // ושתי חלופות זהות הן העתקה בתוך הרשימה עצמה
+      expect(action.capabilityAlts ?? [], action.id).toEqual([
+        ...new Set(action.capabilityAlts ?? []),
+      ]);
     }
   });
 
@@ -51,14 +55,17 @@ describe("קטלוג הפעולות — שלמות מבנית", () => {
    * יכולת אחת בדיוק.
    */
   it("היכולת החלופית פותחת את הפעולה — ורק אותה", () => {
-    const cardActions = AGENT_ACTIONS.filter((a) => a.capabilityAlt !== undefined);
+    const cardActions = AGENT_ACTIONS.filter((a) => (a.capabilityAlts ?? []).length > 0);
     expect(cardActions.length).toBeGreaterThan(0);
     for (const action of cardActions) {
-      expect(mayUseAction(action, new Set([action.capability]))).toBe(true);
-      expect(mayUseAction(action, new Set([action.capabilityAlt!]))).toBe(true);
-      expect(mayUseAction(action, new Set())).toBe(false);
+      expect(mayUseAction(action, new Set([action.capability])), action.id).toBe(true);
+      // **כל** חלופה פותחת, לא רק הראשונה
+      for (const alt of action.capabilityAlts!) {
+        expect(mayUseAction(action, new Set([alt])), `${action.id}/${alt}`).toBe(true);
+      }
+      expect(mayUseAction(action, new Set()), action.id).toBe(false);
     }
-    for (const action of AGENT_ACTIONS.filter((a) => a.capabilityAlt === undefined)) {
+    for (const action of AGENT_ACTIONS.filter((a) => (a.capabilityAlts ?? []).length === 0)) {
       expect(mayUseAction(action, new Set()), action.id).toBe(false);
     }
   });

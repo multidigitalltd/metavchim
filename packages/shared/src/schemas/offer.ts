@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { OFFER_STATUSES } from "../logic/offer-status.js";
 import { IdSchema } from "./common.js";
 
 export const OfferChannelSchema = z.enum(["link", "whatsapp", "sms", "email"]);
@@ -23,17 +24,16 @@ export const OfferPresentationSchema = z.object({
 });
 export type OfferPresentation = z.infer<typeof OfferPresentationSchema>;
 
-export const OfferStatusSchema = z.enum([
-  "pending_approval",
-  "sent",
-  "delivered",
-  "opened",
-  "interested",
-  "declined",
-  "expired",
-  "failed",
-]);
-export type OfferStatus = z.infer<typeof OfferStatusSchema>;
+/**
+ * ‎**נגזר מ-`OFFER_STATUSES` ולא כתוב כאן שוב.**
+ *
+ * הרשימה שהייתה כאן מנתה `expired` ו-`failed` — שני מצבים שהקוד
+ * **אינו כותב לעולם** — והחסירה את `pending_email` ואת `email_failed`,
+ * שהוא כן כותב. כלומר הצהרה שהתיישנה בשקט מול העמודה שהיא מתארת,
+ * ולצידה עוד שתי רשימות שנכתבו בנפרד: הסינון בבקר וקבוצות הסוכן.
+ * שלוש רשימות, שלוש טעויות שונות.
+ */
+export const OfferStatusSchema = z.enum(OFFER_STATUSES);
 
 export const OfferSchema = z.object({
   id: IdSchema,

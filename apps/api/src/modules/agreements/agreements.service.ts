@@ -7,14 +7,15 @@ import {
 } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
-import { AGREEMENT_KIND_LABELS, REQUIRED_PLACEHOLDERS, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, whatsappLink } from "@metavchim/shared";
-import { assertContactAccess } from "../../common/ownership";
+import { AGREEMENT_KIND_LABELS, jerusalemDayStart, pendingAgreementRank, pendingAgreementState, REQUIRED_PLACEHOLDERS, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, type PendingAgreementState, whatsappLink } from "@metavchim/shared";
+import { assertContactAccess, visibleContactIds } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { EmailService } from "../../core/email.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { EmailInboxService } from "../email-inbox/email-inbox.service";
 import { MessagingService } from "../messaging/messaging.service";
 
 /**
@@ -44,6 +45,20 @@ export interface AgreementSummary {
   canEmail: boolean;
 }
 
+export interface PendingAgreementRow {
+  id: string;
+  kind: AgreementKind;
+  kindLabel: string;
+  contactId: string;
+  contactName: string;
+  propertyId: string | null;
+  state: PendingAgreementState;
+  /** ימים מאז השליחה. `null` = לא נשלח מעולם. */
+  daysWaiting: number | null;
+  /** קישור החתימה. ריק כשפג — קישור שפג אינו קישור. */
+  url: string | null;
+}
+
 export interface PublicAgreementView {
   kind: AgreementKind;
   kindLabel: string;
@@ -63,6 +78,7 @@ export class AgreementsService {
     private readonly audit: AuditService,
     private readonly messaging: MessagingService,
     private readonly email: EmailService,
+    private readonly emailInbox: EmailInboxService,
   ) {}
 
   private publicUrl(token: string): string {
@@ -131,6 +147,47 @@ export class AgreementsService {
       select: { id: true },
     });
     return onPaper !== null;
+  }
+
+  /**
+   * ‎**אותה הכרעה כמו `hasSigned`, לקבוצה — בשתי שאילתות במקום פי שתיים
+   * ממספר הנבדקים.**
+   *
+   * ‎`hasSigned` מריצה שתי שאילתות לכל בדיקה, וזה בסדר גמור לשער של
+   * פעולה בודדת. הסבב האוטומטי קורא לה **בלולאה בתוך טרנזקציה אחת**,
+   * ומספר המועמדים אינו חסום: ייבוא או חישוב-מחדש המוני מייצרים אלפי
+   * התאמות חזקות, וכל אחת מהן שתי שאילתות נוספות. משרד אחד היה מחזיק
+   * טרנזקציה פתוחה לאלפי שאילתות כל עשר דקות ומעכב את כל השאר
+   * (ביקורת Codex).
+   *
+   * מחזיר את הצמדים שנחתמו, כ-`contactId:propertyId`. **אותם שני
+   * מקורות בדיוק** כמו `hasSigned` — חתימה דיגיטלית ומסמך שנסרק — כי
+   * שתיהן חייבות להסכים: שער שמחמיר בקבוצה יותר מאשר ביחיד חוסם
+   * לקוחות שחתמו על נייר.
+   */
+  async signedPairs(
+    tx: TenantTx,
+    tenantId: string,
+    kind: AgreementKind,
+    contactIds: readonly string[],
+  ): Promise<Set<string>> {
+    const ids = [...new Set(contactIds)];
+    if (ids.length === 0) return new Set();
+    const scope = { tenantId, contactId: { in: ids }, kind, propertyId: { not: null } };
+    const [agreements, documents] = await Promise.all([
+      tx.agreement.findMany({
+        where: { ...scope, status: "signed" },
+        select: { contactId: true, propertyId: true },
+      }),
+      tx.signedDocument.findMany({
+        // אותה עמודה שמעידה „הוצהר כחתום” — ראו הנימוק ב-`hasSigned`
+        where: { ...scope, signedOn: { not: null } },
+        select: { contactId: true, propertyId: true },
+      }),
+    ]);
+    return new Set(
+      [...agreements, ...documents].map((row) => `${row.contactId!}:${row.propertyId!}`),
+    );
   }
 
   /** הסכם ממתין קיים — כדי לא להציף את הלקוח בקישורים כפולים. */
@@ -348,6 +405,12 @@ export class AgreementsService {
       if (!(await this.email.isConfigured())) {
         throw new BadRequestException("שליחת אימייל אינה מוגדרת במערכת — שלחו בוואטסאפ");
       }
+      /*
+       * תשובת הלקוח ("מתי אפשר לדבר?", "יש טעות בסכום") חוזרת
+       * לתיבה הפנימית ולציר — ולא לתיבת no-reply שאיש לא קורא.
+       * null כשהתיבה לא הוגדרה — המייל יוצא כרגיל בלעדיה.
+       */
+      const replyTo = await this.emailInbox.replyAddressFor(tenantId, row.contactId);
       await this.email.send(
         contact.email,
         `${kindLabel} לחתימה — ${officeName}`,
@@ -367,8 +430,12 @@ export class AgreementsService {
          * ערובה — ההגדרות יכולות להשתנות בין שתי הקריאות — ובלי
          * `required` המתווך היה רואה „נשלח לחתימה” על מסמך שאיש לא
          * קיבל (ביקורת Codex).
+         *
+         * `tenantId` — ההסכם הוא מסמך של **המשרד** אל הלקוח שלו,
+         * ומשרד שחיבר דומיין שולח אותו מהכתובת שלו. בלי חיבור —
+         * מכתובת הפלטפורמה, כמו עד היום.
          */
-        { required: true },
+        { required: true, tenantId, ...(replyTo === null ? {} : { replyTo }) },
       );
       await this.messaging.recordOutbound(tx, {
         contactId: contact.id,
@@ -700,6 +767,115 @@ export class AgreementsService {
       signedAt: row.signedAt,
       url: `/agreements/${row.id}/document`,
     }));
+  }
+
+  /**
+   * ‎**כל מי שנשלח אליו הסכם ולא חתם — בכל המשרד.**
+   *
+   * עד כה אפשר היה לשאול על **לקוח אחד** (`listForContact`), כלומר
+   * לדעת רק אם כבר ידעת את מי לבדוק. השאלה שהמתווך שואל בפועל הפוכה,
+   * והיא גם זו ששוות כסף: `hasSigned` חוסמת הצעות למי שלא חתם, ולכן
+   * כל שורה כאן היא לקוח שהמערכת **מסננת בשקט** מכל שליחה אוטומטית.
+   *
+   * ‎**ההיקף הוא היקף הלקוחות, לא היקף ההסכמים.** ל-`agreements` אין
+   * עמודת בעלים — הבעלות נגזרת מהלקוח, בדיוק כמו ב-`assertContactAccess`.
+   * ‎`visibleContactIds` הוא אותו כלל עצמו בצורתו הקבוצתית, ולכן סוכן
+   * עם `view_own` אינו רואה כאן את הלקוחות של עמיתו. שאילתה על
+   * ‎`tenantId` בלבד הייתה חושפת שם של לקוח זר בשורה הראשונה.
+   *
+   * ‎`null` מ-`visibleContactIds` = רואה את כל המשרד; אז אין מה לסנן,
+   * וזה **אינו** אותו דבר כמו רשימה ריקה. רשימה ריקה היא „אין לך אף
+   * לקוח”, ותנאי `in: []` היה מחזיר כלום למי שרואה הכול.
+   */
+  async listPending(tx: TenantTx, now: Date): Promise<PendingAgreementRow[]> {
+    const tenantId = TenantContext.current().tenantId;
+    const visible = await visibleContactIds(tx, tenantId);
+    if (visible !== null && visible.length === 0) return [];
+
+    const rows = await tx.agreement.findMany({
+      where: {
+        tenantId,
+        // הסכם מנותק (הלקוח נמחק) הוא ארכיון חתום, לא ממתין
+        contactId: visible === null ? { not: null } : { in: visible },
+        status: { in: ["pending", "viewed", "declined"] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        kind: true,
+        contactId: true,
+        propertyId: true,
+        status: true,
+        sentAt: true,
+        createdAt: true,
+        tokenExpires: true,
+        publicToken: true,
+      },
+      take: 200,
+    });
+    if (rows.length === 0) return [];
+
+    // שאילתה אחת לכל השמות, לא אחת לשורה
+    const contacts = await this.contacts.getByIds(
+      tx,
+      rows.map((row) => row.contactId!),
+    );
+
+    const out: PendingAgreementRow[] = [];
+    for (const row of rows) {
+      const contactId = row.contactId!;
+      const name = contacts.get(contactId)?.name;
+      /*
+       * לקוח שהשם שלו אינו נפענח אינו מוצג כ„לקוח ללא שם”. שורה בלי
+       * זהות אינה ניתנת לפעולה, והיא מזמינה שליחה חוזרת אל מי שאיש
+       * אינו יודע מיהו.
+       */
+      if (name === undefined) continue;
+
+      // סדר הקדימה בין המצבים חי ב-shared ונבדק שם
+      const state: PendingAgreementState = pendingAgreementState(
+        row.status,
+        row.tokenExpires,
+        now,
+      );
+
+      const since = row.sentAt;
+      out.push({
+        id: row.id,
+        kind: row.kind as AgreementKind,
+        kindLabel: AGREEMENT_KIND_LABELS[row.kind as AgreementKind] ?? row.kind,
+        contactId,
+        contactName: name,
+        propertyId: row.propertyId,
+        state,
+        /*
+         * נמדד בין **תחילות ימים ישראליות** ולא בין רגעים: אחרת
+         * „ממתין 3 ימים” היה 2 בבוקר ו-3 בערב על אותו נתון.
+         */
+        daysWaiting:
+          since === null
+            ? null
+            : Math.max(
+                0,
+                Math.round(
+                  (jerusalemDayStart(now).getTime() - jerusalemDayStart(since).getTime()) /
+                    (24 * 60 * 60 * 1000),
+                ),
+              ),
+        url: state === "expired" ? null : this.publicUrl(row.publicToken),
+      });
+    }
+
+    /*
+     * ‎**דירוג לפי מה שדורש פעולה, לא לפי תאריך.** „נפתח ולא נחתם”
+     * ראשון כי הוא הלקוח החם ביותר ברשימה; „פג” אחריו כי הוא הכשל
+     * השקט; „סירב” אחרון כי אינו ממתין לדבר. בתוך מצב — הוותיק קודם.
+     */
+    return out.sort(
+      (a, b) =>
+        pendingAgreementRank(a.state) - pendingAgreementRank(b.state) ||
+        (b.daysWaiting ?? -1) - (a.daysWaiting ?? -1),
+    );
   }
 
   async listForContact(tx: TenantTx, contactId: string): Promise<AgreementSummary[]> {

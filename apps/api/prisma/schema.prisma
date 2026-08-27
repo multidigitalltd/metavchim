@@ -198,6 +198,42 @@ model Integration {
   @@map("integrations")
 }
 
+/// הדומיין שהמשרד חיבר לשליחת אימייל מהכתובת שלו.
+/// הכללים (אילו דומיינים, כתובת שולח, מתי "מאומת"):
+/// packages/shared/src/logic/email-domain.ts
+model EmailDomain {
+  id                String    @id @db.Char(26)
+  /// דומיין אחד למשרד — המסך מציג חיבור יחיד, לא רשימה.
+  tenantId          String    @unique @map("tenant_id") @db.Char(26)
+  /// ייחודי גלובלית: משרד אינו יכול "לתפוס" דומיין שמשרד אחר כבר
+  /// חיבר ולשלוח בשמו. ההתנגשות מוחזרת כשגיאה ידידותית בלי לגלות
+  /// איזה משרד מחזיק בדומיין.
+  domain            String    @unique @db.VarChar(253)
+  /// postmark — הספק שמנהל את הרשומות והשליחה בפועל.
+  provider          String    @default("postmark") @db.VarChar(30)
+  /// מזהה הדומיין אצל הספק — נדרש לאימות ולמחיקה שם.
+  providerDomainId  String    @map("provider_domain_id") @db.VarChar(60)
+  /// רשומות ה-DNS שהמשרד מוסיף אצל ספק הדומיין שלו — מוצגות במסך.
+  dkimHost          String    @map("dkim_host") @db.VarChar(253)
+  dkimValue         String    @map("dkim_value") @db.VarChar(1000)
+  returnPathHost    String    @map("return_path_host") @db.VarChar(253)
+  returnPathValue   String    @map("return_path_value") @db.VarChar(253)
+  dkimVerified      Boolean   @default(false) @map("dkim_verified")
+  returnPathVerified Boolean  @default(false) @map("return_path_verified")
+  /// מתי שתי הרשומות אומתו לראשונה — לתצוגה ולתמיכה.
+  verifiedAt        DateTime? @map("verified_at")
+  /// כתובת השולח ושם התצוגה — מה שהלקוח של המשרד רואה ב"מאת".
+  fromEmail         String    @map("from_email") @db.VarChar(254)
+  fromName          String    @map("from_name") @db.VarChar(80)
+  /// מתי נבדק האימות לאחרונה — מבחין "טרם נבדק" מ"נבדק ונכשל".
+  lastCheckedAt     DateTime? @map("last_checked_at")
+  createdBy         String?   @map("created_by") @db.Char(26)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("email_domains")
+}
+
 model Session {
   id                String    @id @db.Char(26)
   userId            String    @map("user_id") @db.Char(26)
@@ -627,6 +663,65 @@ model Lead {
   @@map("leads")
 }
 
+/// תיבת הדואר הפנימית — תשובות של לקוחות למיילים שהמערכת שלחה,
+/// ותשובות הסוכן מתוך המערכת. הטוקן שבכתובת ה-Reply-To (טבלת
+/// email_reply_tokens) הוא מה שמקשר תשובה נכנסת ללקוח הנכון.
+model EmailMessage {
+  id                String    @id @db.Char(26)
+  tenantId          String    @map("tenant_id") @db.Char(26)
+  contactId         String    @map("contact_id") @db.Char(26)
+  /// in = מהלקוח אלינו; out = תשובת הסוכן מתוך המערכת
+  direction         String    @db.VarChar(3)
+  subject           String    @db.VarChar(200)
+  body              String    @db.VarChar(5100)
+  /// כתובת השולח כפי שהגיעה — לזיהוי "ענה מכתובת אחרת" במסך
+  fromEmail         String?   @map("from_email") @db.VarChar(320)
+  /// MessageID של הספק — דה-דופליקציה מול Webhook שנשלח פעמיים
+  providerMessageId String?   @map("provider_message_id") @db.VarChar(200)
+  readAt            DateTime? @map("read_at")
+  readBy            String?   @map("read_by") @db.Char(26)
+  createdBy         String?   @map("created_by") @db.Char(26)
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@unique([tenantId, providerMessageId])
+  @@index([tenantId, readAt, createdAt(sort: Desc)])
+  @@index([tenantId, contactId, createdAt(sort: Desc)])
+  @@map("email_messages")
+}
+
+/// קובץ מצורף להודעת מייל — התוכן באחסון האובייקטים, כאן המפתח
+/// והמטא-נתונים. הסוג מוגבל לרשימה סגורה בקליטה (shared).
+model EmailAttachment {
+  id          String   @id @db.Char(26)
+  tenantId    String   @map("tenant_id") @db.Char(26)
+  messageId   String   @map("message_id") @db.Char(26)
+  name        String   @db.VarChar(200)
+  contentType String   @map("content_type") @db.VarChar(100)
+  /// image | video | file — מוכרע פעם אחת בקליטה; המסך בוחר תצוגה לפיו
+  kind        String   @db.VarChar(10)
+  sizeBytes   Int      @map("size_bytes")
+  s3Key       String   @map("s3_key") @db.VarChar(500)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, messageId])
+  @@map("email_attachments")
+}
+
+/// טוקן ה-Reply-To של לקוח — `local+<token>@inbound` על כל מייל
+/// יוצא אליו. בלי RLS בכוונה (כמו lead_webhooks): ה-Webhook הנכנס
+/// מזהה את הדייר דרך הטוקן, לפני שיש הקשר דייר. אין כאן PII.
+model EmailReplyToken {
+  id        String   @id @db.Char(26)
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  contactId String   @map("contact_id") @db.Char(26)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// אינדקס ולא ייחודיות: מיזוג כרטיסים מעביר טוקנים לשורד, וכתובת
+  /// Reply-To ישנה שבתיבת הלקוח חייבת להמשיך להגיע. נפתר לפי id.
+  @@index([tenantId, contactId])
+  @@map("email_reply_tokens")
+}
+
 /// חיבור Gmail — אימיילים נכנסים הופכים ללידים או מצטרפים לכרטיס
 /// קיים. מבנה זהה ל-GoogleCalendarLink: חיבור אישי (userId ייחודי),
 /// refresh token מוצפן, ושגיאת הסבב האחרון מוצגת למשתמש.
@@ -696,10 +791,18 @@ model Match {
   dismissedAt   DateTime? @map("dismissed_at")
   dismissedBy   String?   @map("dismissed_by") @db.Char(26)
   computedAt    DateTime  @map("computed_at")
+  /// מתי ההתאמה **נוצרה**, להבדיל ממתי חושבה לאחרונה.
+  ///
+  /// גבול ההפעלה של ההצעות האוטומטיות („מכאן והלאה”) נשען על חותמת
+  /// שאינה זזה. `computed_at` נדרס בכל חישוב מחדש, ולכן התאמה ישנה
+  /// שהנכס שלה עודכן נראתה חדשה וחצתה את הגבול. השדה הזה נכתב פעם
+  /// אחת ואינו מתעדכן — לא ב-`upsertMatch` ולא בשום מקום אחר.
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   @@unique([tenantId, propertyId, buyerId])
   @@index([tenantId, propertyId, score(sort: Desc)])
   @@index([tenantId, buyerId, score(sort: Desc)])
+  @@index([tenantId, status, createdAt])
   @@map("matches")
 }
 

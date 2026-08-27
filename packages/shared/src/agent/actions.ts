@@ -33,6 +33,11 @@
  * מחדש. בדיקה מבנית אוכפת את זה.
  */
 
+import {
+  MARKETING_ACTION_KINDS,
+  MARKETING_ACTION_LABEL,
+} from "../logic/exclusivity.js";
+import { DISMISS_REASONS, DISMISS_REASON_LABEL } from "../logic/match-feedback.js";
 import type { Capability } from "../rbac.js";
 import type { AgentFieldSpec } from "./field-spec.js";
 
@@ -63,6 +68,15 @@ export const AGENT_ACTION_IDS = [
   "share_buyer",
   "send_offer",
   "send_agreement",
+  "show_exclusivity",
+  "log_marketing_action",
+  "show_agreements",
+  "show_offers",
+  "show_demands",
+  "show_notifications",
+  "dismiss_match",
+  "assign_task",
+  "send_email",
 ] as const;
 
 export type AgentActionId = (typeof AGENT_ACTION_IDS)[number];
@@ -83,7 +97,7 @@ export interface AgentActionDef {
   examples: readonly string[];
   capability: Capability;
   /**
-   * יכולת שנייה שגם היא **מספיקה** לפתיחת הפעולה.
+   * יכולות נוספות שכל אחת מהן **מספיקה** לפתיחת הפעולה.
    *
    * לרוב המכריע של הפעולות יש מודול אחד, ולשדה הזה אין מה לעשות
    * בהן. היוצא מן הכלל הוא פעולה שמזהה את הרשומה לפי מה שנאמר
@@ -96,8 +110,13 @@ export interface AgentActionDef {
    * זהו שער **הכניסה** בלבד, ולא ההיתר לרשומה שנבחרה: מיד אחרי
    * הזיהוי `cardTarget` בודק שוב את היכולת שמתאימה לסוג שנפתר,
    * ולכן ההרחבה כאן אינה מרחיבה שום גישה בפועל.
+   *
+   * ‎**רשימה ולא ערך יחיד**, כי „כרטיס” הוא כבר שלושה סוגים: קונה,
+   * ליד ונכס. כשהיה כאן ערך אחד, `show_card` הצהיר על קונים ולידים
+   * בלבד — ומשתמש שהרשאותיו צומצמו לנכסים נדחה בשער **לפני** שהענף
+   * שנכתב במיוחד בשבילו נבדק (ביקורת Codex).
    */
-  capabilityAlt?: Capability;
+  capabilityAlts?: readonly Capability[];
   risk: AgentRisk;
   fields: readonly AgentFieldSpec[];
   /**
@@ -260,6 +279,15 @@ const F_BUYER_PHRASE: AgentFieldSpec = {
   maxLength: 200,
 };
 
+/** תוכן מייל חופשי — מה שהמתווך הכתיב, מנוסח כפי שנאמר. */
+const F_EMAIL_BODY: AgentFieldSpec = {
+  key: "emailBody",
+  label: "תוכן ההודעה",
+  type: "string",
+  hint: "מה לכתוב ללקוח — משפטים מלאים, כפי שהמתווך ניסח",
+  maxLength: 5000,
+};
+
 const F_PROPERTY_PHRASE: AgentFieldSpec = {
   key: "propertyPhrase",
   label: "איזה נכס",
@@ -274,6 +302,22 @@ const F_TASK_PHRASE: AgentFieldSpec = {
   type: "string",
   hint: "מילים מתוך כותרת המשימה, כפי שנאמרו",
   maxLength: 200,
+};
+
+/**
+ * ‎**סוכן במשרד — שדה אחד לשתי פעולות, ובכוונה.**
+ *
+ * „מה המשימות של דנה” ו„תעביר את זה לדנה” נוקבים באותו דבר בדיוק,
+ * והתווית נייטרלית משום כך: הצהרה נפרדת בכל פעולה הייתה נותנת למודל
+ * שני תיאורים לאותו מפתח, והוא היה ממלא את אחד מהם לפי התיאור של
+ * האחר — בשקט. הבדיקה המבנית של הקטלוג תפסה בדיוק את זה.
+ */
+const F_ASSIGNEE_PHRASE: AgentFieldSpec = {
+  key: "assigneePhrase",
+  label: "הסוכן",
+  type: "string",
+  hint: "שם הסוכן במשרד, כפי שנאמר",
+  maxLength: 120,
 };
 
 const F_CARD_PHRASE: AgentFieldSpec = {
@@ -564,11 +608,28 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
   {
     id: "show_tasks",
     title: "המשימות שלי",
-    when: "שאלה על משימות ותזכורות פתוחות.",
-    examples: ["מה המשימות שלי", "אילו משימות פתוחות יש לי", "מה נשאר לי לעשות"],
+    when: "שאלה על משימות ותזכורות פתוחות — שלי, או של סוכן מסוים כשנקוב בשמו.",
+    examples: [
+      "מה המשימות שלי",
+      "אילו משימות פתוחות יש לי",
+      "מה נשאר לי לעשות",
+      "מה המשימות של דנה",
+    ],
     capability: "calendar.manage",
     risk: "read",
-    fields: [],
+    fields: [
+      /*
+       * ‎**„מה המשימות של דנה” — למי שרואה את לוח המשרד.**
+       *
+       * ‎`tasks.view_all` כבר הרחיב את הרשימה מעצמו (`scopeFilter`),
+       * ולכן מנהל **ראה** את כל המשימות — אבל לא יכול היה לשאול על
+       * סוכן אחד. `TasksService.list` מקבל `assignee` מאז ומתמיד;
+       * מה שחסר היה מי שיפתור שם לסוכן.
+       *
+       * רשות: בלי שם זו הרשימה הרגילה, וזו השאלה השכיחה.
+       */
+      F_ASSIGNEE_PHRASE,
+    ],
   },
   {
     /*
@@ -609,21 +670,36 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
      * השיחות של הקונים שלו (ביקורת Codex).
      */
     capability: "leads.view_own",
-    capabilityAlt: "buyers.view_own",
+    capabilityAlts: ["buyers.view_own"],
     risk: "read",
     fields: [],
   },
   {
     id: "show_card",
-    title: "כרטיס הלקוח המלא",
-    when: "בקשה לראות את כל מה שיש על לקוח מסוים — פרטי קשר, מה הוא מחפש, הערות והשיחות איתו.",
+    /*
+     * ‎**הכותרת והתיאור אומרים „נכס” — כי הביצוע כבר יודע.**
+     *
+     * הענף לנכסים נוסף ל-`showCard` ול-`anyCard`, והקטלוג נשאר מדבר
+     * על „לקוח מסוים” בלבד. הקטלוג הוא מה שנכנס לפרומפט, ולכן המודל
+     * מעולם לא נאמר לו שהפעולה מקבלת נכס — „מה יש על הדירה ברמת גן”
+     * נותב למקום אחר, והענף שנכתב בשבילו נשאר בלתי מגיע מכיוון שני
+     * (מלבד שער היכולת שביקורת Codex הצביעה עליו).
+     */
+    title: "הכרטיס המלא",
+    when: "בקשה לראות את כל מה שיש על רשומה מסוימת — לקוח (פרטי קשר, מה הוא מחפש, הערות ושיחות) או נכס (פרטים, בעלים, בלעדיות ומה חסר).",
     examples: [
       "תראה לי את הכרטיס של משה כהן",
       "מה יש לנו על דנה לוי",
-      "כל הפרטים של שרה",
+      "מה יש על הדירה ברמת גן",
+      "כל הפרטים של הפנטהאוז בנתניה",
     ],
     capability: "buyers.view_own",
-    capabilityAlt: "leads.view_own",
+    /*
+     * ‎**וגם נכסים**, כי הכרטיס כולל אותם מאז שנוסף הענף שלהם.
+     * בלי זה מי שהרשאותיו צומצמו ל-`properties.view` נדחה בשער לפני
+     * שהענף נבדק בכלל.
+     */
+    capabilityAlts: ["leads.view_own", "properties.view"],
     risk: "read",
     fields: [F_CARD_PHRASE],
   },
@@ -637,7 +713,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       "שלח לי את ההקלטה של שרה",
     ],
     capability: "leads.view_own",
-    capabilityAlt: "buyers.view_own",
+    capabilityAlts: ["buyers.view_own"],
     risk: "read",
     fields: [F_CARD_PHRASE],
   },
@@ -989,6 +1065,250 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     risk: "outbound",
     fields: [F_BUYER_PHRASE, F_PROPERTY_PHRASE],
   },
+  /*
+   * ‎**בלעדיות — המודול הרגולטורי היחיד שלסוכן לא הייתה אליו גישה
+   * בכלל.**
+   *
+   * זו אינה עוד לשונית: בלעדיות שלא תועדו בה שתי פעולות שיווק
+   * מסתיימת בתום שליש מהתקופה (חוק המתווכים, §9(ב2)) — חודשיים
+   * לפני מה שכתוב בחוזה. עד כה הדרך היחידה לדעת מה בסיכון הייתה
+   * לפתוח כרטיס אחרי כרטיס.
+   */
+  {
+    id: "show_exclusivity",
+    title: "בלעדיות — מה בסיכון",
+    when: "שאלה על מצב הבלעדיות: מה מסתיים, מה בסיכון, כמה פעולות שיווק חסרות, ומתי מועד השליש. בלי שם נכס — כל הבלעדיות של המשרד לפי דחיפות.",
+    examples: [
+      "מה המצב עם הבלעדיות?",
+      "איזה בלעדיות מסתיימות החודש",
+      "כמה פעולות שיווק חסרות לדירה ברמת גן",
+      "מה בסיכון",
+    ],
+    capability: "properties.view",
+    risk: "read",
+    fields: [F_PROPERTY_PHRASE],
+  },
+  /*
+   * ‎**והפעולה שמצילה אותה.** תיעוד פעולת שיווק הוא מה שמאריך את
+   * הבלעדיות מעבר לשליש, והוא נעשה בשטח — תולים שלט, מפרסמים — ולא
+   * ליד המחשב. זו בדיוק פעולה שחייבת לעבוד מוואטסאפ.
+   */
+  {
+    id: "log_marketing_action",
+    title: "תיעוד פעולת שיווק",
+    when: "תיעוד פעולת שיווק שבוצעה על נכס בבלעדיות — שילוט, פרסום, פרסום לרשת המתווכים, יום מכירות, או פעולה שסוכמה בחוזה. בחר בזו כשנאמר שנעשתה פעולה, לא כששואלים מה חסר.",
+    examples: [
+      "תליתי שלט על הדירה ברמת גן",
+      "פרסמתי את הפנטהאוז בנתניה בעיתון",
+      "תרשום שעשיתי יום מכירות בהרב שך",
+    ],
+    capability: "properties.edit",
+    risk: "create",
+    fields: [
+      F_PROPERTY_PHRASE,
+      /*
+       * ‎`actionKind` ולא `kind`. הקטלוג אוכף שמפתח שמופיע בכמה
+       * פעולות יוצהר זהה בכולן, ו-`kind` כבר תפוס ב-
+       * ‎`schedule_appointment` במשמעות אחרת לגמרי (סיור/פגישה/שיחה).
+       * שני מפתחות באותו שם ובשתי משמעויות מבלבלים גם את המודל, לא
+       * רק את הבדיקה שתפסה את זה.
+       */
+      {
+        key: "actionKind",
+        label: "סוג פעולת השיווק",
+        type: "enum",
+        values: [...MARKETING_ACTION_KINDS],
+        valueLabels: MARKETING_ACTION_LABEL,
+      },
+      { key: "detail", label: "פרטים", type: "string", maxLength: 300 },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // מה שהמערכת ידעה והסוכן לא יכול היה לשאול
+  // -------------------------------------------------------------------------
+
+  /*
+   * ‎**„מי לא חתם” — השאלה שהמערכת עונה עליה בשקט כל יום.**
+   *
+   * ‎`hasSigned` חוסמת הצעה ללקוח בלי הזמנה בכתב (חוק המתווכים §9),
+   * וזה נכון — אבל החסימה **שקטה**: המתווך רואה שההצעות אינן יוצאות
+   * ואינו יודע שהסיבה היא טופס שנשלח לפני חודש ופג. עד כה אפשר היה
+   * לשאול על לקוח אחד בכל פעם, כלומר רק אם כבר ידעת את מי לבדוק.
+   */
+  {
+    id: "show_agreements",
+    title: "מי לא חתם",
+    when: "שאלה על הסכמים והזמנות בכתב שנשלחו ולא נחתמו — מי ממתין, מי פתח ולא חתם, למי פג הקישור.",
+    examples: ["מי לא חתם", "אילו הזמנות בכתב ממתינות", "מי פתח את ההסכם ולא חתם"],
+    capability: "offers.send",
+    risk: "read",
+    fields: [],
+  },
+
+  /*
+   * ‎**„מי פתח ולא הגיב” — ולא „הראה לי הצעות”.**
+   *
+   * ‎`openCount` נמדד מהדף הציבורי, וקונה שפתח ארבע פעמים ולא הגיב
+   * הוא הלקוח החם ביותר במאגר באותו רגע. הנתון היה קיים במסך ההצעות
+   * ולא היה נגיש בשאלה.
+   */
+  {
+    id: "show_offers",
+    title: "סטטוס הצעות",
+    when: "שאלה על הצעות שנשלחו ומה קרה איתן — מי פתח, מי הגיב, מה נכשל.",
+    examples: [
+      "מה קורה עם ההצעות ששלחתי",
+      "מי פתח את ההצעה ולא הגיב",
+      "אילו הצעות נכשלו",
+    ],
+    capability: "offers.send",
+    risk: "read",
+    fields: [
+      /*
+       * ‎**מסננים לפי מה שהמתווך שואל, לא לפי עמודת הסטטוס.**
+       * „נפתחה ולא נענתה” אינו סטטוס אחד במסד, ו„ממתינה” הוא שניים.
+       * חשיפת שמות הסטטוסים הגולמיים לסוכן קולי הייתה מחייבת אותו
+       * לדבר בשפת הטבלה.
+       */
+      {
+        key: "offerFilter",
+        label: "אילו הצעות",
+        type: "enum",
+        values: ["opened_no_reply", "interested", "declined", "failed", "waiting"],
+        valueLabels: {
+          opened_no_reply: "נפתחו ולא נענו",
+          interested: "הקונה סימן מעוניין",
+          declined: "הקונה סימן לא רלוונטי",
+          failed: "השליחה נכשלה",
+          waiting: "נשלחו וממתינות",
+        },
+      },
+    ],
+  },
+
+  /*
+   * ‎**ביקושי הרשת — הצד שהמשרד מרוויח ממנו ואינו רואה.**
+   *
+   * הפיד כבר מחשב לכל ביקוש את ההתאמות מתוך הנכסים **שלי**, כלומר
+   * התשובה אינה רשימת בקשות אלא „למי מהם יש לך נכס”. זה בדיוק סוג
+   * הדבר שנשאל בדרך לפגישה ולא ליד המחשב.
+   */
+  {
+    id: "show_demands",
+    title: "ביקושים ברשת",
+    when: "שאלה על ביקושים שמשרדים אחרים פרסמו ברשת הבין-משרדית — מה מבוקש, ולמי מהם יש לי נכס.",
+    examples: [
+      "מה מבוקש ברשת",
+      "אילו ביקושים יש בגבעתיים",
+      "יש למישהו ברשת ביקוש שמתאים לנכסים שלי",
+    ],
+    capability: "collaboration.offer",
+    risk: "read",
+    fields: [F_CITIES],
+  },
+
+  /*
+   * ‎**„מה חדש”** — השאלה הראשונה בבוקר, ועד כה היא חייבה פתיחת מסך.
+   */
+  {
+    id: "show_notifications",
+    title: "מה חדש",
+    when: "שאלה כללית על עדכונים והתראות שטרם נקראו.",
+    examples: ["מה חדש", "יש לי התראות", "מה פספסתי"],
+    /*
+     * ‎**שער כניסה רחב, בדיוק כמו ב-`show_card`.** התראה יכולה לדבר
+     * על ליד, על נכס או על התאמה, והשואל אינו יודע מראש על מה. תוכן
+     * ההתראות עצמו מסונן בשירות לפי הנמען — היכולת כאן היא הרשות
+     * לשאול, לא ההיתר למה שיוחזר.
+     */
+    /*
+     * ‎**שלוש היכולות הן מה שיש לכל תפקיד, כולל `viewer`** — כלומר
+     * בפועל „כל משתמש מחובר”, בדיוק כמו מסך ההתראות עצמו. הרשימה
+     * הראשונה כאן החסירה קונים, ומשתמש שהרשאותיו צומצמו אליהם ראה
+     * את פעמון ההתראות ולא יכול היה לשאול את אותה שאלה דרך הסוכן
+     * (ביקורת Codex).
+     */
+    capability: "leads.view_own",
+    capabilityAlts: ["buyers.view_own", "properties.view"],
+    risk: "read",
+    fields: [],
+  },
+
+  /*
+   * ‎**משוב על התאמה — הכיוון היחיד שמכייל את המנוע.**
+   *
+   * הסיבה אינה קישוט: `dismissReport` מודד אילו קריטריונים מייצרים
+   * התאמות שאיש לא רוצה, וזה מה שמאפשר לכייל משקלים לפי מציאות
+   * ולא לפי תחושה. משוב שנאמר בקול ולא נרשם הוא בדיוק המשוב שאובד.
+   */
+  {
+    id: "dismiss_match",
+    title: "התאמה לא רלוונטית",
+    when: "המתווך אומר שהתאמה בין קונה לנכס אינה מתאימה, ומדוע.",
+    examples: [
+      "הדירה ברמת גן לא מתאימה למשה כהן, המחיר גבוה מדי",
+      "תסמן שההתאמה של דנה לפנטהאוז לא רלוונטית",
+      "משפחת לוי לא מעוניינת בדירה בהרב שך — האזור",
+    ],
+    capability: "matches.manage",
+    risk: "update",
+    fields: [
+      F_BUYER_PHRASE,
+      F_PROPERTY_PHRASE,
+      {
+        key: "dismissReason",
+        label: "הסיבה",
+        type: "enum",
+        values: [...DISMISS_REASONS],
+        valueLabels: DISMISS_REASON_LABEL,
+      },
+      { key: "dismissNote", label: "פירוט", type: "string", maxLength: 300 },
+    ],
+  },
+
+  /*
+   * ‎**הטלת משימה על סוכן.**
+   *
+   * ‎`tasks.assign` קיימת במערכת מאז שנוספה, והמודול היה פנקס אישי
+   * מצד הסוכן: אפשר היה ליצור משימה — תמיד על עצמך. מנהל שאומר
+   * „תעביר את זה לדנה” לא יכול היה לעשות זאת בדיבור.
+   */
+  {
+    id: "assign_task",
+    title: "הטלת משימה",
+    when: "העברת משימה קיימת לסוכן אחר במשרד.",
+    examples: [
+      "תעביר את המשימה של ההתקשרות לדוד לדנה",
+      "תטיל את הסיור בהרב שך על אבי",
+      "המשימה הזאת של יוסי",
+    ],
+    capability: "tasks.assign",
+    risk: "update",
+    fields: [
+      F_TASK_PHRASE,
+      F_ASSIGNEE_PHRASE,
+    ],
+  },
+  /*
+   * מייל מהתיבה הפנימית — אותו נתיב בדיוק כמו תשובה מהמסך: יוצא
+   * מכתובת המשרד (אם חובר דומיין), נושא Reply-To שמחזיר את תשובת
+   * הלקוח לתיבה, ונרשם בשיחה ובציר. `outbound` — הודעה יוצאת
+   * ללקוח מקבלת אישור לפני שליחה, כמו הצעה והסכם.
+   */
+  {
+    id: "send_email",
+    title: "שליחת מייל ללקוח",
+    when: "שליחת הודעת אימייל חופשית ללקוח מכתובת המשרד. בחר בפעולה הזו כשמבקשים „שלח מייל”, „תכתוב לו במייל” או „תענה לו במייל”. לא להצעת נכס (send_offer) ולא להסכם (send_agreement).",
+    examples: [
+      "שלח מייל לדנה שהחוזה מוכן ואפשר לתאם חתימה",
+      "תכתוב למשה כהן במייל שחוזרים אליו מחר עם תשובה",
+      "תענה לה במייל שקיבלנו את המסמכים ותודה",
+    ],
+    capability: "buyers.view_own",
+    risk: "outbound",
+    fields: [F_BUYER_PHRASE, F_EMAIL_BODY],
+  },
 ];
 
 /**
@@ -1010,6 +1330,8 @@ export const AGENT_ID_KEYS = [
   "leadId",
   /** הכרטיס שתזכורת נקשרת אליו (`create_task`) */
   "relatedId",
+  /** הסוכן שמשימה מוטלת עליו, או שמסננים לפיו (`assign_task`, `show_tasks`) */
+  "assigneeId",
 ] as const;
 
 const BY_ID = new Map(AGENT_ACTIONS.map((action) => [action.id, action]));
@@ -1050,5 +1372,5 @@ export function mayUseAction(
   capabilities: { has(capability: Capability): boolean },
 ): boolean {
   if (capabilities.has(action.capability)) return true;
-  return action.capabilityAlt !== undefined && capabilities.has(action.capabilityAlt);
+  return (action.capabilityAlts ?? []).some((alt) => capabilities.has(alt));
 }

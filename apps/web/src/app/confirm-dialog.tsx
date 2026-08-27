@@ -34,6 +34,7 @@ export function ConfirmDialog({
   confirmLabel = "אישור",
   cancelLabel = "ביטול",
   busy = false,
+  busyLabel = "שולח…",
   onConfirm,
   onClose,
   children,
@@ -45,6 +46,12 @@ export function ConfirmDialog({
   /** `null` = אין ביטול — חלון בשורה בלבד ("בוצע"). */
   cancelLabel?: string | null;
   busy?: boolean;
+  /**
+   * מה כתוב על הכפתור בזמן הפעולה. ברירת המחדל "שולח…" נכונה לחלון
+   * שנולד לשליחת הסכם; חלון שמוחק אומר "מוחק…" — כפתור שמדווח על
+   * פעולה אחרת ממה שנלחץ הוא בדיוק מה שגורם ללחוץ שוב.
+   */
+  busyLabel?: string;
   /** `undefined` = אין מה לאשר; הכפתור היחיד סוגר. */
   onConfirm?: (() => void) | undefined;
   onClose: () => void;
@@ -80,7 +87,7 @@ export function ConfirmDialog({
       <div className="mt-5 flex flex-wrap gap-2.5">
         {onConfirm ? (
           <Button disabled={busy} onClick={onConfirm}>
-            {busy ? "שולח…" : confirmLabel}
+            {busy ? busyLabel : confirmLabel}
           </Button>
         ) : (
           <Button onClick={onClose}>{confirmLabel}</Button>

@@ -89,6 +89,39 @@ export function formatCard(data: unknown): string | null {
   ].filter((l): l is string => l !== null);
   out.push(...who);
 
+  /*
+   * ‎**כרטיס נכס — אחרת „מה יש על הדירה” חוזר כשורה ריקה.**
+   *
+   * לנכס אין `contact`, ולכן שתי שורות „מי זה” שמעל אינן מוסיפות
+   * לו דבר; מה שהמתווך שואל עליו הוא המחיר, החדרים, הסטטוס, ומתי
+   * הבלעדיות נגמרת. בלי הענף הזה הכרטיס היה נופל למנסח שמחפש
+   * ‎`contact` ומחזיר כותרת בלי גוף — בדיוק הכשל שהמנסח המשותף
+   * נכתב כדי לסגור, וחוזר כאן בסוג חדש.
+   */
+  if (c["kind"] === "property") {
+    out.push(
+      ...[
+        line("🏠 כתובת", [c["street"], c["houseNumber"], c["neighborhood"], c["city"]]),
+        line("🛏 חדרים", c["rooms"]),
+        line("📐 שטח", c["areaSqm"] === undefined ? undefined : `${String(c["areaSqm"])} מ״ר`),
+        line("🏢 קומה", c["floor"]),
+        line("💰 מחיר", money(c["priceAgorot"])),
+        line("📊 סטטוס", c["status"]),
+        line("✅ מוכנות", c["readinessScore"] === undefined ? undefined : `${String(c["readinessScore"])}%`),
+        /*
+         * ‎**מה חסר — ולא „הכול תקין” כשלא נבדק.** הרשימה מגיעה
+         * מהשרת; ריקה פירושה שאין מה להשלים, והיעדרה פירושו שלא
+         * נשאלנו. שניהם אינם מוצגים, וזו התשובה הנכונה לשניהם.
+         */
+        Array.isArray(c["missingFields"]) && c["missingFields"].length > 0
+          ? `⚠️ חסר: ${(c["missingFields"] as string[]).join(", ")}`
+          : null,
+        line("🔒 בלעדיות", c["exclusivity"]),
+      ].filter((l): l is string => l !== null),
+    );
+    return out.join("\n");
+  }
+
   if (c["kind"] === "buyer") {
     const req = (c["requirements"] ?? {}) as Record<string, unknown>;
     const rooms =

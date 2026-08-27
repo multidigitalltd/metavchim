@@ -116,6 +116,11 @@ const TenantSettingsSchema = z
      */
     autoShareProperties: z.boolean().optional(),
     autoShareBuyers: z.boolean().optional(),
+    /*
+     * הצעות אוטומטיות במייל: התאמה פנימית חדשה וחזקה נשלחת ללקוח
+     * בלי שסוכן לחץ. אותו היגיון של מדיניות משרד כמו שכניו למעלה.
+     */
+    autoEmailOffers: z.boolean().optional(),
   })
   .strict();
 
@@ -537,6 +542,7 @@ export class SettingsController {
     defaultPaymentTerms?: string;
     autoShareProperties: boolean;
     autoShareBuyers: boolean;
+    autoEmailOffers: boolean;
   }> {
     const tenantId = TenantContext.current().tenantId;
     const tenant = await this.prisma.tenant.findUnique({
@@ -574,6 +580,7 @@ export class SettingsController {
       // חסר = כבוי: מדיניות שמפרסמת נתונים החוצה חייבת הפעלה מפורשת
       autoShareProperties: settings["autoShareProperties"] === true,
       autoShareBuyers: settings["autoShareBuyers"] === true,
+      autoEmailOffers: settings["autoEmailOffers"] === true,
     };
   }
 
@@ -843,7 +850,11 @@ export class SettingsController {
      * מאותה סיבה ש-"" מוחק למעלה. חסר = ברירת המחדל (כבוי), ואין
      * טעם לשמור במסד הצהרה על ברירת המחדל.
      */
-    const BOOLEAN_FIELDS = ["autoShareProperties", "autoShareBuyers"] as const;
+    const BOOLEAN_FIELDS = [
+      "autoShareProperties",
+      "autoShareBuyers",
+      "autoEmailOffers",
+    ] as const;
     for (const field of BOOLEAN_FIELDS) {
       const value = body[field];
       if (value === undefined) continue;
@@ -851,6 +862,17 @@ export class SettingsController {
       if (value === false) delete settings[field];
       else settings[field] = true;
     }
+
+    /*
+     * חותמת ההפעלה של ההצעות האוטומטיות — נקבעת ב**מעבר** לדלוק
+     * ונמחקת בכיבוי. הסורק שולח רק התאמות שחושבו אחריה: משרד ותיק
+     * שמדליק את הדגל מתכוון ל"מכאן והלאה", לא ל"הפציצו את כל
+     * הלקוחות בכל ההיסטוריה" — וכיבוי-הדלקה מאפס את הקו בכוונה.
+     */
+    if (body.autoEmailOffers === true && settings["autoEmailOffersSince"] === undefined) {
+      settings["autoEmailOffersSince"] = new Date().toISOString();
+    }
+    if (body.autoEmailOffers === false) delete settings["autoEmailOffersSince"];
 
     try {
       await this.prisma.tenant.update({

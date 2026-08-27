@@ -994,3 +994,115 @@ describe("איש הקשר והכרטיס שלו — אותו שם, שורה אח
     ]);
   });
 });
+
+/**
+ * ‎**המקטעים החדשים — נבדקים על התוכן, לא על „לא קרס”.**
+ *
+ * שני הערוצים (וואטסאפ והפאנל) מנסחים מכאן, ולכן שורה שמאבדת את
+ * הפרט המכריע מאבדת אותו בשניהם. בכל אחד מהארבעה יש פרט אחד שהוא
+ * **כל הסיבה לשאול את השאלה**, והבדיקות למטה נועלות אותו.
+ */
+describe("מקטעי התשובה החדשים", () => {
+  /*
+   * ‎**„נפתח ולא נחתם” ו„9 ימים” הם השורה.** „הזמנה בכתב — דנה לוי”
+   * אינו ניתן לפעולה, ולכן המצב קודם לסוג המסמך.
+   */
+  it("הסכם ממתין — המצב, הוותק, ומה עושים עם זה", () => {
+    const line = agentResultText({
+      agreements: [
+        {
+          contactName: "דנה לוי",
+          kindLabel: "הזמנה בכתב",
+          state: "נפתח ולא נחתם",
+          meaning: "התלבטות — שיחה עדיפה על תזכורת",
+          daysWaiting: 9,
+        },
+      ],
+    })!;
+    expect(line).toContain("דנה לוי");
+    expect(line).toContain("נפתח ולא נחתם");
+    expect(line).toContain("9 ימים");
+    expect(line).toContain("שיחה עדיפה");
+  });
+
+  it("הסכם בלי ותק אינו ממציא מספר ימים", () => {
+    const line = agentResultText({
+      agreements: [{ contactName: "דנה לוי", state: "ממתין לחתימה" }],
+    })!;
+    expect(line).toContain("דנה לוי");
+    expect(line).not.toContain("ימים");
+  });
+
+  /*
+   * ‎**מספר הפתיחות הוא האות היקר ביותר.** „נפתחה” ו„נפתחה 4 פעמים”
+   * הם שני לקוחות שונים לגמרי.
+   */
+  it("הצעה — מספר הפתיחות נכנס לשורה", () => {
+    const line = agentResultText({
+      offers: [
+        { buyerName: "משה כהן", title: "דירה ברמת גן", status: "נפתחו ולא נענו", openCount: 4 },
+      ],
+    })!;
+    expect(line).toContain("משה כהן");
+    expect(line).toContain("נפתחה 4 פעמים");
+  });
+
+  /*
+   * אפס פתיחות אינו „נפתחה 0 פעמים” — זו טענה על הלקוח שלא קרתה.
+   */
+  it("הצעה שלא נפתחה אינה מדווחת על פתיחות", () => {
+    const line = agentResultText({
+      offers: [{ buyerName: "משה כהן", title: "דירה ברמת גן", status: "ממתינות", openCount: 0 }],
+    })!;
+    expect(line).not.toContain("פעמים");
+  });
+
+  /*
+   * ‎**קונה של סוכן אחר — ההצעה מוצגת, השם לא.** אותו כלל כמו במסך
+   * ההתאמות; בלי שם השורה נופלת לכותרת הנכס ואינה נשארת ריקה.
+   */
+  it("הצעה בלי שם קונה נופלת לכותרת הנכס", () => {
+    const line = agentResultText({
+      offers: [{ title: "דירה ברמת גן", status: "ממתינות", openCount: 0 }],
+    })!;
+    expect(line).toContain("דירה ברמת גן");
+  });
+
+  /*
+   * ‎**„יש לך נכס בשבילו” הוא כל הסיבה לשאול.** רשימת בקשות בלי זה
+   * מחייבת את המתווך לעבור עליהן ולנחש.
+   */
+  it("ביקוש ברשת — כמה מהנכסים שלי מתאימים", () => {
+    const line = agentResultText({
+      demands: [
+        {
+          office: "נדלן פלוס",
+          cities: ["גבעתיים", "רמת גן"],
+          roomsMin: 4,
+          roomsMax: 4,
+          budgetMaxAgorot: 320_000_000,
+          matchCount: 3,
+        },
+      ],
+    })!;
+    expect(line).toContain("נדלן פלוס");
+    expect(line).toContain("3 מהנכסים שלך מתאימים");
+    expect(line).toContain("גבעתיים");
+  });
+
+  it("ביקוש בלי התאמה אינו טוען שיש", () => {
+    const line = agentResultText({
+      demands: [{ office: "נדלן פלוס", cities: ["חולון"], matchCount: 0 }],
+    })!;
+    expect(line).toContain("חולון");
+    expect(line).not.toContain("מתאימים");
+  });
+
+  it("התראה — הכותרת והגוף", () => {
+    const line = agentResultText({
+      notifications: [{ title: "דנה לוי ממתינה 3 שעות", body: "ליד חדש" }],
+    })!;
+    expect(line).toContain("דנה לוי ממתינה 3 שעות");
+    expect(line).toContain("ליד חדש");
+  });
+});

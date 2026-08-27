@@ -13,6 +13,7 @@ import { AnnouncementsModule } from "./modules/announcements/announcements.modul
 import { BillingModule } from "./modules/billing/billing.module";
 import { BuyersModule } from "./modules/buyers/buyers.module";
 import { CalendarModule } from "./modules/calendar/calendar.module";
+import { EmailInboxModule } from "./modules/email-inbox/email-inbox.module";
 import { GmailModule } from "./modules/gmail/gmail.module";
 import { CoachModule } from "./modules/coach/coach.module";
 import { SupportModule } from "./modules/support/support.module";
@@ -78,6 +79,7 @@ import { AgentModule } from "./modules/agent/agent.module";
     WhatsAppModule,
     CalendarModule,
     GmailModule,
+    EmailInboxModule,
     CollaborationModule,
     MapsModule,
     SettingsModule,

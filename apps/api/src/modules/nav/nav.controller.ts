@@ -31,6 +31,8 @@ export interface NavSummary {
    * לאפס.
    */
   urgentTasks: number;
+  /** תשובות מייל שטרם נקראו — התג על "תיבת מייל". */
+  emailUnread: number;
   /**
    * הפיצ'רים שכלולים במסלול המשרד.
    *
@@ -69,7 +71,7 @@ export class NavController {
     });
     return this.prisma.withTenant(async (tx) => {
       const now = new Date();
-      const [properties, buyers, newLeads, matches, ledger, taskRows] = await Promise.all([
+      const [properties, buyers, newLeads, matches, ledger, taskRows, emailUnread] = await Promise.all([
         // deletedAt מפורש בשני אלה: אלה המונים שליד שמות המסכים,
         // והמסכים עצמם מסננים מחוקים. בלי הסינון כאן הבאדג' מראה
         // מספר אחד והרשימה מספר אחר — וזה נקרא כתקלה, בצדק.
@@ -125,6 +127,8 @@ export class NavController {
           select: { status: true, dueAt: true },
           take: 500,
         }),
+        // תשובות לקוחות שאיש עוד לא פתח — התיבה משותפת לכל המשרד
+        tx.emailMessage.count({ where: { tenantId, direction: "in", readAt: null } }),
       ]);
       return {
         properties,
@@ -133,6 +137,7 @@ export class NavController {
         matches,
         credits: ledger._count === 0 ? null : (ledger._sum.amount ?? 0),
         urgentTasks: taskRows.filter((row) => isTaskUrgent(row, now)).length,
+        emailUnread,
         features,
         blockedModules: tenant?.blockedModules ?? [],
       };

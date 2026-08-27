@@ -244,9 +244,24 @@ export class ContactErasureService {
         where: { tenantId, contactId, recordingKey: { not: null } },
         select: { recordingKey: true },
       });
-      const keys = recorded
-        .map((c) => c.recordingKey)
-        .filter((key): key is string => key !== null);
+      // הקבצים המצורפים של הודעות המייל — דרך ההודעות של הכרטיס
+      const contactMessages = await tx.emailMessage.findMany({
+        where: { tenantId, contactId },
+        select: { id: true },
+      });
+      const attachmentRows =
+        contactMessages.length === 0
+          ? []
+          : await tx.emailAttachment.findMany({
+              where: { tenantId, messageId: { in: contactMessages.map((m) => m.id) } },
+              select: { s3Key: true },
+            });
+      const keys = [
+        ...recorded
+          .map((c) => c.recordingKey)
+          .filter((key): key is string => key !== null),
+        ...attachmentRows.map((a) => a.s3Key),
+      ];
 
       await this.eraseWithin(tx, {
         tenantId,
@@ -379,6 +394,14 @@ export class ContactErasureService {
     // תקשורת: שיחות (עם התמלול שעליהן) והודעות
     await tx.call.deleteMany({ where: { tenantId, contactId } });
     await tx.message.deleteMany({ where: { tenantId, contactId } });
+    // תיבת המייל: גוף ההודעות, הקבצים המצורפים וכתובת השולח הם מידע
+    // על הנמחק — הולכים איתו (הקבצים עצמם דרך storage.cleanup_object),
+    // והטוקן יורד כדי שכתובת ה-Reply-To הישנה שבתיבת הלקוח תפסיק לפעול
+    await tx.emailAttachment.deleteMany({
+      where: { tenantId, messageId: { in: (await tx.emailMessage.findMany({ where: { tenantId, contactId }, select: { id: true } })).map((m) => m.id) } },
+    });
+    await tx.emailMessage.deleteMany({ where: { tenantId, contactId } });
+    await tx.emailReplyToken.deleteMany({ where: { tenantId, contactId } });
     /*
      * הסכם חתום **אינו נמחק בשום מקרה** — הוא ראיה משפטית ובסיס
      * הזכאות לדמי התיווך, ואינו של הלקוח למחוק. הוא מנותק מהכרטיס

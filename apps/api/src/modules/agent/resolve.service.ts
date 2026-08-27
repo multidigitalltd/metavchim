@@ -213,6 +213,34 @@ export class AgentResolveService {
   ): Promise<{ ok: true } | { ok: false; message: string }> {
     const spec = ENTITY_LOOKUP[actionId];
     if (spec === undefined) return { ok: true };
+    const primary = await this.resolveOneForExecution(actionId, spec, params);
+    if (!primary.ok) return primary;
+    /*
+     * ‎**הרשומה השנייה נפתרת גם כאן, ולא רק במסלול ההצעה.**
+     *
+     * המסלול הזה הכיר `spec` בלבד, ולכן „תוסיף קונה משה ותראה מה
+     * מתאים לו” היה מבצע את הצעד השני בלי הקונה — כלומר מחזיר את
+     * ההתאמות של כל המשרד על שאלה ששמה שם. אותו פער בדיוק היה מוריד
+     * את הנכס מ„קבע לו סיור בדירה ברמת גן”.
+     *
+     * ‎**ו-`optional` אינו נכפה.** הניסוח הראשון כפה אותו, ואז
+     * ‎`assign_task` ו-`dismiss_match` — ששתיהן חסרות משמעות בלי
+     * הרשומה השנייה — היו „מצליחות” בפתרון וממשיכות לביצוע בלי
+     * ‎`assigneeId` או `propertyId`, כלומר נכשלות רק **אחרי** שהמתווך
+     * אישר (ביקורת Codex). כל רשומה שנייה מצהירה בעצמה אם היא רשות.
+     */
+    if (spec.also !== undefined) {
+      const second = await this.resolveOneForExecution(actionId, spec.also, params);
+      if (!second.ok) return second;
+    }
+    return { ok: true };
+  }
+
+  private async resolveOneForExecution(
+    actionId: string,
+    spec: LookupSpec,
+    params: Record<string, unknown>,
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
     if (typeof params[spec.idKey] === "string") return { ok: true };
     const phrase = params[spec.key];
     if (typeof phrase !== "string" || phrase.trim().length < 2) return { ok: true };
@@ -549,6 +577,19 @@ export class AgentResolveService {
         }));
     }
 
+    /*
+     * ‎**סוכן — מרשימת המשרד, לא מהחיפוש.** ההשוואה מכילה ובלי
+     * תלות ברישיות, בדיוק כמו במשימות: „דנה” צריך למצוא את „דנה
+     * לוי”, וזו הצורה היחידה שבה שם נאמר בדיבור.
+     */
+    if (kind === "user") {
+      const needle = phrase.toLowerCase();
+      return (await this.tasks.assignees())
+        .filter((user) => user.name.toLowerCase().includes(needle))
+        .slice(0, 8)
+        .map((user) => ({ id: user.id, label: user.name }));
+    }
+
     const results = await this.search.search(phrase);
     if (kind === "buyer") {
       return results.buyers.slice(0, 8).map((b) => ({
@@ -559,6 +600,33 @@ export class AgentResolveService {
     }
     if (kind === "lead") {
       return results.leads.slice(0, 8).map((l) => ({ id: l.id, label: l.name }));
+    }
+    if (kind === "anyCard") {
+      /*
+       * ‎**„מה יש על הדירה ברמת גן” — השאלה שחסרה.**
+       *
+       * הכרטיס היה קונה או ליד בלבד, כלומר חצי מהמערכת לא נשאלה
+       * דרך הסוכן. הנכס נוסף כאן ולא ב-`card`, ראו ההערה על
+       * ‎`LookupKind`.
+       */
+      return [
+        ...results.buyers.slice(0, 4).map((b) => ({
+          id: `buyer:${b.id}`,
+          label: b.name,
+          detail: b.cities.length > 0 ? `קונה — ${b.cities.join(" / ")}` : "קונה",
+        })),
+        ...results.leads.slice(0, 4).map((l) => ({
+          id: `lead:${l.id}`,
+          label: l.name,
+          detail: "ליד",
+        })),
+        ...results.properties.slice(0, 4).map((p) => ({
+          id: `property:${p.id}`,
+          label:
+            p.marketingTitle ?? [p.street, p.neighborhood, p.city].filter(Boolean).join(", ") ?? p.id,
+          detail: p.city ? `נכס — ${p.city}` : "נכס",
+        })),
+      ];
     }
     if (kind === "card") {
       /*
@@ -651,7 +719,23 @@ const DATE_FIELD: Record<string, string | undefined> = {
   show_schedule: "day",
 };
 
-type LookupKind = "buyer" | "property" | "lead" | "task" | "card";
+/*
+ * ‎`anyCard` ולא הרחבה של `card` — וזו ההבחנה שמונעת נזק.
+ *
+ * ‎`card` משותף ל-`show_card`, `add_note` ו-`play_recording`.
+ * הוספת נכסים אליו הייתה נותנת ל„תוסיף הערה” לכוון לנכס (הערה על
+ * נכס היא `internalNotes`, מסלול אחר לגמרי) ול„תשמיע לי” לכוון
+ * לישות שאין לה שיחות בכלל. הרחבה של מפתח משותף היא בדיוק סוג
+ * השינוי שנראה קטן ופוגע בשני מקומות אחרים.
+ */
+/*
+ * ‎`user` הוא הסוכן שבמשרד, לא לקוח. הוא נפתר מרשימת המשתמשים
+ * הפעילים (`TasksService.assignees`) ולא מהחיפוש הגלובלי — חיפוש
+ * טקסט מוצא לקוחות, ו„דנה” כשם סוכנת וכשם קונה הם שתי רשומות שונות
+ * לגמרי. שתיהן היו מוחזרות מאותה שאילתה, והבחירה בין „דנה הסוכנת”
+ * ל„דנה הקונה” הייתה נופלת על סדר התוצאות.
+ */
+type LookupKind = "buyer" | "property" | "lead" | "task" | "card" | "anyCard" | "user";
 
 /**
  * צורת המזהה שהפעולה מצפה לה, לפי סוג החיפוש.
@@ -662,27 +746,39 @@ type LookupKind = "buyer" | "property" | "lead" | "task" | "card";
  * הזו (למשל נכס בפעולה שמדברת על קונה), וההחלטה חוזרת לחיפוש.
  */
 function entityRefId(kind: LookupKind, ref: AgentHistoryRef): string | null {
-  if (kind === "card") {
-    return ref.entityType === "buyer" || ref.entityType === "lead"
-      ? `${ref.entityType}:${ref.entityId}`
-      : null;
+  if (kind === "card" || kind === "anyCard") {
+    /*
+     * ‎**ההפניה מההיסטוריה חייבת לעבור גם ב-`anyCard`.**
+     *
+     * בלי הענף הזה „תראה לי את הכרטיס שלו” אחרי תוצאה קודמת היה
+     * נופל לחיפוש מחדש, כי `anyCard` לא היה שווה לשום `entityType`.
+     * ‎`anyCard` מקבל גם נכס — וזו כל הנקודה שלו.
+     */
+    const allowed =
+      kind === "anyCard"
+        ? ["buyer", "lead", "property"]
+        : ["buyer", "lead"];
+    return allowed.includes(ref.entityType) ? `${ref.entityType}:${ref.entityId}` : null;
   }
   return kind === ref.entityType ? ref.entityId : null;
 }
 
+interface LookupSpec {
+  key: string;
+  idKey: string;
+  label: string;
+  kind: LookupKind;
+  alwaysChoose?: boolean;
+  /**
+   * הביטוי משפר את הפעולה ואינו תנאי לה. חסר, לא נמצא, או מתאים
+   * לכמה — הפעולה ממשיכה בלי קישור, עם אזהרה גלויה.
+   */
+  optional?: boolean;
+}
+
 const ENTITY_LOOKUP: Record<
   string,
-  {
-    key: string;
-    idKey: string;
-    label: string;
-    kind: LookupKind;
-    alwaysChoose?: boolean;
-    /**
-     * הביטוי משפר את הפעולה ואינו תנאי לה. חסר, לא נמצא, או מתאים
-     * לכמה — הפעולה ממשיכה בלי קישור, עם אזהרה גלויה.
-     */
-    optional?: boolean;
+  LookupSpec & {
     /**
      * ‎**רשומה שנייה שהפעולה מדברת עליה.**
      *
@@ -699,15 +795,129 @@ const ENTITY_LOOKUP: Record<
      * הניווט מתכווץ לכרטיס הקונה, וב-`send_agreement` הפעולה
      * נעצרת — הזמנה בכתב בלי נכס אינה פותחת שום הצעה.
      */
-    also?: { key: string; idKey: string; label: string; kind: LookupKind };
+    also?: LookupSpec;
   }
 > = {
+  /*
+   * ‎**„מה מתאים למשה כהן” החזיר את ההתאמות של כל המשרד.**
+   *
+   * ‎`showMatches` קורא `params.propertyId` ו-`params.buyerId`, שני
+   * הביטויים מוצהרים בקטלוג, ולא היה מי שיתרגם ביניהם — ולכן כל
+   * שאילתת התאמות **על רשומה מסוימת** נפלה לרשימה הכללית. הסוכן ענה
+   * תשובה מלאה ומנומקת על שאלה אחרת מזו שנשאלה, וזה גרוע יותר
+   * מ„לא מצאתי”.
+   *
+   * ‎**נכס ראשי וקונה משני** לפי הסדר שבו `showMatches` בודק, ושניהם
+   * רשות: „מה ההתאמות” בלי שם היא שאלה תקינה, וזו הרשימה הכללית.
+   */
+  show_matches: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "איזה נכס",
+    kind: "property",
+    optional: true,
+    // „מה ההתאמות” בלי שם היא שאלה תקינה — הרשימה הכללית
+    also: { key: "buyerPhrase", idKey: "buyerId", label: "איזה קונה", kind: "buyer", optional: true },
+  },
   update_buyer: { key: "buyerPhrase", idKey: "buyerId", label: "איזה קונה", kind: "buyer" },
   update_property: {
     key: "propertyPhrase",
     idKey: "propertyId",
     label: "איזה נכס",
     kind: "property",
+  },
+  /*
+   * ‎**רשות, ובכוונה.** „מה המצב עם הבלעדיות” בלי שם נכס היא השאלה
+   * השכיחה יותר — כל מה שבסיכון במשרד, לפי דחיפות. דרישת נכס
+   * הייתה הופכת את השאלה הזו לשאלת הבהרה על משהו שאין לו תשובה
+   * יחידה.
+   */
+  show_exclusivity: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "איזה נכס",
+    kind: "property",
+    optional: true,
+  },
+  /*
+   * וכאן **חובה**: פעולת שיווק נרשמת על נכס מסוים, והיא הראיה
+   * שמאריכה את הבלעדיות שלו. רישום על הנכס הלא נכון הוא ראיה
+   * שנרשמה במקום שאינה מגינה עליו.
+   */
+  log_marketing_action: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "על איזה נכס",
+    kind: "property",
+  },
+  /*
+   * ‎**הפגישה הייתה נקבעת ריקה — עם אף אחד ועל שום נכס.**
+   *
+   * הקטלוג מצהיר על `buyerPhrase` ועל `propertyPhrase` בפעולה הזו,
+   * ‎`createAppointment` קורא `params.buyerId` ו-`params.propertyId`,
+   * ולא הייתה כאן רשומה שתתרגם ביניהם. כלומר „קבע סיור מחר בעשר
+   * בדירה ברמת גן עם משפחת לוי” יצר אירוע ביומן שאינו קשור ללקוח
+   * ואינו קשור לנכס — בדיוק אותו שדה מת שתועד למעלה על `sendOffer`,
+   * ובפעולה השכיחה ביותר בסוכן.
+   *
+   * ‎**`card` ולא `buyer`,** כי פגישה ראשונה היא כמעט תמיד עם ליד.
+   * ‎`Appointment.leadId` קיים במודל והיומן כבר יודע לקשר אליו —
+   * חיפוש בקונים בלבד היה מחמיץ בדיוק את מי שנקבעת איתו הפגישה
+   * הראשונה (ביקורת Codex על צעד ההמשך שאחרי „ליד חדש”).
+   *
+   * ‎**רשות**: „פגישה מחר בעשר” בלי שם היא פגישה תקינה. חסימה כאן
+   * הייתה הופכת את הפעולה השכיחה לשאלת הבהרה.
+   */
+  schedule_appointment: {
+    key: "buyerPhrase",
+    idKey: "cardId",
+    label: "עם מי",
+    kind: "card",
+    optional: true,
+    also: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס", kind: "property" },
+  },
+  /*
+   * ‎**„מה המשימות של דנה”.** רשות: בלי שם זו הרשימה הרגילה. השם
+   * נפתר לסוכן, והשרת מסנן — `TasksService.list` מקבל `assignee`
+   * מאז ומתמיד, ומה שחסר היה מי שיתרגם שם למזהה.
+   */
+  show_tasks: {
+    key: "assigneePhrase",
+    idKey: "assigneeId",
+    label: "של מי",
+    kind: "user",
+    optional: true,
+  },
+  /*
+   * ‎**וכאן חובה.** „תעביר את זה למישהו” בלי לדעת למי אינה הטלה;
+   * משימה שתישאר על היוצר בשקט היא בדיוק הכישלון שהפעולה נועדה
+   * למנוע.
+   */
+  assign_task: {
+    key: "taskPhrase",
+    idKey: "taskId",
+    label: "איזו משימה",
+    kind: "task",
+    also: { key: "assigneePhrase", idKey: "assigneeId", label: "על מי להטיל", kind: "user" },
+  },
+  /*
+   * ‎**התאמה מזוהה בזוג, לא במזהה.** אין ל„התאמה” שם שאפשר לומר
+   * אותו — היא (קונה, נכס), וכך גם נאמרת: „הדירה ברמת גן לא מתאימה
+   * למשה כהן”. שני הביטויים נדרשים, והביצוע מוצא את השורה מהם.
+   */
+  dismiss_match: {
+    key: "buyerPhrase",
+    idKey: "buyerId",
+    label: "איזה קונה",
+    kind: "buyer",
+    // „פגישה מחר בעשר” בלי נכס היא פגישה תקינה
+    also: {
+      key: "propertyPhrase",
+      idKey: "propertyId",
+      label: "איזה נכס",
+      kind: "property",
+      optional: true,
+    },
   },
   complete_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
   /*
@@ -724,7 +934,7 @@ const ENTITY_LOOKUP: Record<
     optional: true,
   },
   add_note: { key: "cardPhrase", idKey: "cardId", label: "לאיזה כרטיס", kind: "card" },
-  show_card: { key: "cardPhrase", idKey: "cardId", label: "איזה כרטיס", kind: "card" },
+  show_card: { key: "cardPhrase", idKey: "cardId", label: "איזה כרטיס", kind: "anyCard" },
   play_recording: { key: "cardPhrase", idKey: "cardId", label: "שיחה עם מי", kind: "card" },
   update_lead_status: { key: "leadPhrase", idKey: "leadId", label: "איזה ליד", kind: "lead" },
   share_property: {
@@ -749,7 +959,17 @@ const ENTITY_LOOKUP: Record<
     kind: "buyer",
     // פעולה שיוצאת ללקוח — תמיד בחירה מפורשת, גם כשיש התאמה אחת
     alwaysChoose: true,
-    also: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס", kind: "property" },
+    /*
+     * ‎**רשות.** „שלח הצעה למשה” בלי נכס עדיין פעולה — הביצוע מצמצם
+     * את הניווט לכרטיס הקונה במקום ליצור הצעה, וזו התנהגות מוגדרת.
+     */
+    also: {
+      key: "propertyPhrase",
+      idKey: "propertyId",
+      label: "איזה נכס",
+      kind: "property",
+      optional: true,
+    },
   },
   send_agreement: {
     key: "buyerPhrase",
@@ -769,6 +989,14 @@ const ENTITY_LOOKUP: Record<
       kind: "property",
     },
   },
+  send_email: {
+    key: "buyerPhrase",
+    idKey: "buyerId",
+    label: "לאיזה לקוח לכתוב",
+    kind: "buyer",
+    // הודעה יוצאת ללקוח — בחירה מפורשת תמיד, כמו הצעה והסכם
+    alwaysChoose: true,
+  },
 };
 
 /**
@@ -782,6 +1010,22 @@ const ENTITY_LOOKUP: Record<
  */
 export function requiresExplicitChoice(actionId: string): boolean {
   return ENTITY_LOOKUP[actionId]?.alwaysChoose === true;
+}
+
+/**
+ * הביטויים שהפעולה הזו באמת פותרת למזהה.
+ *
+ * ‎**מיוצאת כדי שאפשר יהיה לאכוף את הקשר לקטלוג.** ביטוי מוצהר בלי
+ * רשומה כאן הוא שדה מת: המודל ממלא אותו, הכרטיס מציג אותו, המתווך
+ * מאשר — והביצוע מחפש `…Id` שאיש לא כתב אליו. זה קרה שלוש פעמים
+ * במערכת הזו (`send_offer`, `schedule_appointment`, `show_matches`),
+ * ובכל פעם התסמין היה פעולה שנראתה מוצלחת והתייחסה לרשומה הלא
+ * נכונה — או לאף אחת.
+ */
+export function lookupPhraseKeys(actionId: string): readonly string[] {
+  const spec = ENTITY_LOOKUP[actionId];
+  if (spec === undefined) return [];
+  return spec.also === undefined ? [spec.key] : [spec.key, spec.also.key];
 }
 
 const RECOMMENDED: Record<string, readonly string[]> = {
@@ -799,7 +1043,11 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   update_lead_status: ["leadPhrase", "leadStatus"],
   update_buyer: ["buyerPhrase"],
   update_property: ["propertyPhrase"],
+  show_exclusivity: ["propertyPhrase"],
+  log_marketing_action: ["propertyPhrase"],
   complete_task: ["taskPhrase"],
+  assign_task: ["taskPhrase", "assigneePhrase"],
+  dismiss_match: ["buyerPhrase", "propertyPhrase", "dismissReason"],
   send_offer: ["buyerPhrase", "propertyPhrase"],
   send_agreement: ["buyerPhrase", "propertyPhrase"],
   share_property: ["propertyPhrase"],

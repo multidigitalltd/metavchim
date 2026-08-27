@@ -7,13 +7,14 @@ import { compareLeadsByUrgency, leadWaiting, type LeadWaitingLevel , labelOf } f
 import { apiGet } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
-import { IconChat, IconGlobe, IconLink, IconMic, IconPhone } from "../icons";
+import { IconChat, IconGlobe, IconLink, IconMic, IconPhone, IconTrash } from "../icons";
 import { CapNote, FilterBar, FilterSelect, SearchField, textMatches,
   useFilterFromUrl,
 } from "../list-controls";
 import { Notice } from "../notice";
+import { DeleteLeadDialog } from "./delete-lead-dialog";
 import { LeadsPulse } from "./leads-pulse";
 
 /**
@@ -50,10 +51,14 @@ const STATUS_PILL: Record<string, { fg: string; bg: string }> = {
 const GRID = "1.4fr 1fr 1.6fr 1fr 0.9fr 1.3fr";
 
 export default function LeadsPage() {
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
   const canVoice = useFeature("voice_intake");
+  const canDelete = can(user, "leads.delete");
   const [items, setItems] = useState<LeadRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /* הליד שעליו נפתח חלון המחיקה — שורה אחת בכל רגע */
+  const [deleting, setDeleting] = useState<LeadRow | null>(null);
+  const [deleted, setDeleted] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [urgency, setUrgency] = useState("");
@@ -113,6 +118,13 @@ export default function LeadsPage() {
           </Link>
         </div>
       </div>
+
+      {/* מה ירד ומה נשאר — השאלה היחידה שיש למוחק מיד אחרי הלחיצה */}
+      {deleted ? (
+        <Notice tone="success" onClose={() => setDeleted(null)}>
+          {deleted}
+        </Notice>
+      ) : null}
 
       {error ? (
         <Notice tone="danger">{error}</Notice>
@@ -254,6 +266,17 @@ export default function LeadsPage() {
                         <a href={waMeUrl(lead.contact.phone)} target="_blank" rel="noopener noreferrer" className="mv-btn-plain">
                           <IconChat s={15} /> וואטסאפ
                         </a>
+                        {/* ליד שהומר כבר יצר כרטיס — מוחקים את הכרטיס, לא את המקור */}
+                        {canDelete && lead.status !== "converted" ? (
+                          <button
+                            type="button"
+                            className="mv-btn-plain ms-auto"
+                            style={{ color: "var(--color-danger)" }}
+                            onClick={() => setDeleting(lead)}
+                          >
+                            <IconTrash s={15} /> מחק
+                          </button>
+                        ) : null}
                       </div>
                     </li>
                   );
@@ -313,6 +336,23 @@ export default function LeadsPage() {
                         <a href={waMeUrl(lead.contact.phone)} target="_blank" rel="noopener noreferrer" className="mv-btn-plain">
                           <IconChat s={15} /> וואטסאפ
                         </a>
+                        {/*
+                          מחיקה מהשורה — בלי להיכנס לכרטיס ובלי לגלול
+                          אליו עד הסוף. הכפתור בלי מילה כדי שלא ייקח
+                          את מקומן של החיוג והוואטסאפ שנלחצות פי כמה,
+                          ועם שם נגיש כי סמל לבדו אינו נקרא.
+                        */}
+                        {canDelete && lead.status !== "converted" ? (
+                          <button
+                            type="button"
+                            className="mv-btn-plain"
+                            style={{ color: "var(--color-danger)" }}
+                            aria-label={`מחיקת הליד של ${lead.contact.name}`}
+                            onClick={() => setDeleting(lead)}
+                          >
+                            <IconTrash s={15} />
+                          </button>
+                        ) : null}
                       </span>
                     </div>
                   );
@@ -354,6 +394,21 @@ export default function LeadsPage() {
           />
         </>
       )}
+
+      {deleting ? (
+        <DeleteLeadDialog
+          leadId={deleting.id}
+          contactName={deleting.contact.name}
+          open
+          onClose={() => setDeleting(null)}
+          onDeleted={(message) => {
+            // השורה יורדת מהמסך בלי טעינה מחדש של הרשימה כולה
+            setItems((prev) => (prev ?? []).filter((l) => l.id !== deleting.id));
+            setDeleting(null);
+            setDeleted(message);
+          }}
+        />
+      ) : null}
     </>
   );
 }

@@ -20,7 +20,16 @@ import { Notice } from "../notice";
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 interface PlatformSettings {
-  postmark: { configured: boolean; source: "db" | "env" | "none"; emailFrom?: string };
+  postmark: {
+    configured: boolean;
+    source: "db" | "env" | "none";
+    emailFrom?: string;
+    /** טוקן ה-Account מוגדר — משרדים יכולים לחבר דומיין משלהם */
+    officeDomains: boolean;
+    /** תיבת הדואר הפנימית — כתובת ה-Inbound; ריק = לא הוגדרה */
+    inboundAddress: string;
+    inboundSecretSet: boolean;
+  };
   whatsapp: {
     configured: boolean;
     source: "db" | "env" | "none";
@@ -121,9 +130,14 @@ export function PlatformSettingsSection({
     const f = new FormData(form);
     try {
       const token = String(f.get("postmarkServerToken")).trim();
+      const accountToken = String(f.get("postmarkAccountToken")).trim();
+      const inboundSecret = String(f.get("emailInboundSecret")).trim();
       await apiPatch("/platform/settings", {
         ...(token !== "" ? { postmarkServerToken: token } : {}),
+        ...(accountToken !== "" ? { postmarkAccountToken: accountToken } : {}),
         emailFrom: String(f.get("emailFrom")).trim(),
+        emailInboundAddress: String(f.get("emailInboundAddress")).trim(),
+        ...(inboundSecret !== "" ? { emailInboundSecret: inboundSecret } : {}),
       });
       form.reset();
       setMessage("✓ הגדרות האימייל נשמרו");
@@ -503,6 +517,76 @@ export function PlatformSettingsSection({
               style={inputStyle}
             />
           </div>
+          {/*
+            טוקן ה-Account — נפרד מטוקן השרת ובעל הרשאות רחבות ממנו:
+            הוא מה שמאפשר למשרדים לחבר דומיין משלהם (רישום הדומיין,
+            הנפקת רשומות DKIM/Return-Path ואימותן). בלעדיו המסך של
+            המשרד יציג "טרם הופעל"; השליחה הרגילה אינה תלויה בו.
+          */}
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="postmarkAccountToken" className="mb-1 block font-medium">
+              Account Token{" "}
+              <span className="font-normal">
+                {settings.postmark.officeDomains
+                  ? "(ריק = ללא שינוי)"
+                  : "(לדומיינים של משרדים)"}
+              </span>
+            </label>
+            <input
+              id="postmarkAccountToken"
+              name="postmarkAccountToken"
+              type="password"
+              dir="ltr"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              placeholder={settings.postmark.officeDomains ? "••••••••" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          {/*
+            תיבת הדואר הפנימית: כתובת ה-Inbound של שרת Postmark, והסוד
+            שסוגר את נתיב ה-Webhook. עם שניהם — מיילים ללקוחות נושאים
+            Reply-To ייחודי ותשובות נכנסות לתיבה; בלעדיהם הכל ממשיך
+            כרגיל. ה-Webhook להדבקה אצל הספק: ‎/api/v1/public/email/inbound/<הסוד>.
+          */}
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="emailInboundAddress" className="mb-1 block font-medium">
+              כתובת Inbound{" "}
+              <span className="font-normal">(תיבת המייל הפנימית — תשובות לקוחות)</span>
+            </label>
+            <input
+              id="emailInboundAddress"
+              name="emailInboundAddress"
+              type="email"
+              dir="ltr"
+              placeholder="abc123@inbound.postmarkapp.com"
+              defaultValue={settings.postmark.inboundAddress}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="emailInboundSecret" className="mb-1 block font-medium">
+              סוד ה-Webhook הנכנס{" "}
+              <span className="font-normal">
+                {settings.postmark.inboundSecretSet ? "(ריק = ללא שינוי)" : "(16 תווים לפחות)"}
+              </span>
+            </label>
+            <input
+              id="emailInboundSecret"
+              name="emailInboundSecret"
+              type="password"
+              dir="ltr"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              placeholder={settings.postmark.inboundSecretSet ? "••••••••" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
           <Button type="submit" disabled={busy}>שמור</Button>
           {settings.postmark.configured ? (
             <Button type="button" variant="secondary" disabled={busy} onClick={() => void sendTest()}>
@@ -510,6 +594,10 @@ export function PlatformSettingsSection({
             </Button>
           ) : null}
         </form>
+        <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          Account Token (Postmark ⟵ Account ⟵ API Tokens) מפעיל למשרדים חיבור
+          דומיין משלהם לשליחה — {settings.postmark.officeDomains ? "מוגדר ופעיל." : "טרם הוגדר."}
+        </p>
       </div>
 
       {/* ---------- כתובת התמיכה ---------- */}

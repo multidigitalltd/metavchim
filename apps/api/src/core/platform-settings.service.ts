@@ -13,7 +13,22 @@ import { PrismaService } from "./prisma.service";
 
 export type PlatformSettingKey =
   | "postmarkServerToken"
+  /**
+   * טוקן ה-Account של Postmark — נפרד מטוקן השרת ובעל הרשאות
+   * רחבות ממנו: הוא מנהל **דומיינים** (יצירה, אימות DKIM
+   * ו-Return-Path, מחיקה) עבור הדומיינים שהמשרדים מחברים.
+   * בלעדיו חיבור דומיין של משרד פשוט אינו זמין; השליחה הרגילה
+   * ממשיכה לעבוד עם טוקן השרת בלבד.
+   */
+  | "postmarkAccountToken"
   | "emailFrom"
+  /**
+   * תיבת הדואר הפנימית: כתובת ה-Inbound של שרת Postmark, והסוד
+   * שבנתיב ה-Webhook. שניהם ריקים = מיילים יוצאים בלי Reply-To
+   * ייחודי ותשובות אינן נקלטות — והכל השאר ממשיך לעבוד.
+   */
+  | "emailInboundAddress"
+  | "emailInboundSecret"
   | "whatsappAppSecret"
   | "whatsappVerifyToken"
   /**
@@ -56,6 +71,13 @@ export type PlatformSettingKey =
    */
   | "whatsappIntakeTemplate"
   | "whatsappIntakeTemplateLang"
+  /**
+   * התראת "לקוח ענה במייל" לסוכן בוואטסאפ, מחוץ לחלון 24 השעות:
+   * טקסט חופשי נדחה שם, ורק תבנית מאושרת עוברת. ריק = ההתראה
+   * במערכת ובדחיפה בלבד — התנהגות תקינה, לא תקלה.
+   */
+  | "whatsappEmailReplyTemplate"
+  | "whatsappEmailReplyTemplateLang"
   | "loginOtpEnabled"
   | "googleClientId"
   | "googleClientSecret"

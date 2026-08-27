@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { helpMenu, welcomeExamples, type HelpAction } from "./assistant-help";
+import { AGENT_ACTION_IDS } from "@metavchim/shared";
+import { HELP_GROUP_IDS, helpMenu, welcomeExamples, type HelpAction } from "./assistant-help";
 import { isHelpMessage } from "./assistant-lang";
 
 const action = (id: string, title: string, example: string): HelpAction => ({
@@ -79,5 +80,37 @@ describe("welcomeExamples", () => {
 
   it("מחזיר ריק כשאין פעולות — ההכרות מסתדרת בלי דוגמאות", () => {
     expect(welcomeExamples([])).toEqual([]);
+  });
+});
+
+/**
+ * ‎**התפריט הוא רשימה מקבילה לקטלוג, ולכן הוא נטה ממנו.**
+ *
+ * שש פעולות קיימות לא הופיעו בו כלל — „מי צריך שיחה חוזרת”, „הכרטיס
+ * של”, „תשמיע לי”, קישור החתימה, הבלעדיות ותיעוד פעולת השיווק. הן
+ * עבדו בפועל, אבל מי ששאל את הסוכן „מה אתה יודע לעשות” קיבל תשובה
+ * שאינה כוללת אותן — בתפריט שכל תכליתו לענות בדיוק על זה.
+ *
+ * הבדיקה הקודמת אכפה את ההתנהגות ההפוכה („פעולה שאינה בשום קבוצה
+ * לא תשבור את התפריט”), וזה נכון — היא לא אמורה לקרוס. אבל שקט
+ * בזמן ריצה אינו אותו דבר כמו שקט בבנייה.
+ */
+describe("כיסוי התפריט", () => {
+  it("כל פעולה בקטלוג משובצת לקבוצה", () => {
+    const missing = AGENT_ACTION_IDS.filter((id) => !HELP_GROUP_IDS.includes(id));
+    expect(missing).toEqual([]);
+  });
+
+  /*
+   * הכיוון ההפוך: מזהה שנשאר בקבוצה אחרי שהפעולה הוסרה מהקטלוג הוא
+   * שורה מתה שנראית כמו כיסוי.
+   */
+  it("אין בקבוצות מזהה שאינו בקטלוג", () => {
+    const unknown = HELP_GROUP_IDS.filter((id) => !AGENT_ACTION_IDS.includes(id as never));
+    expect(unknown).toEqual([]);
+  });
+
+  it("אין פעולה שמופיעה בשתי קבוצות", () => {
+    expect(HELP_GROUP_IDS).toEqual([...new Set(HELP_GROUP_IDS)]);
   });
 });

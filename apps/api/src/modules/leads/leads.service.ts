@@ -267,11 +267,16 @@ export class LeadsService {
    * - **משימות** על הליד נמחקות; משימה שכבר נדחפה ליומן Google עוברת
    *   את אותו מסלול כמו ב-`TasksService.remove`, אחרת האירוע נשאר
    *   ביומן בלי מזהה שמצביע עליו.
-   * - **איש הקשר** נמחק רק אם לא נשאר לו שום קשר אחר במשרד. הוא נוצר
-   *   בשביל הליד הזה; אם הוא גם קונה, גם בעל נכס או גם ליד אחר —
-   *   הוא נשאר, ומחיקת הליד לא נוגעת בו.
+   * - **איש הקשר** נמחק רק אם לא נשאר לו שום קשר אחר במשרד, ורק אם
+   *   ביקשו זאת (`keepContact = false`). הוא נוצר בשביל הליד הזה; אם
+   *   הוא גם קונה, גם בעל נכס או גם ליד אחר — הוא נשאר בכל מקרה.
+   *
+   * `keepContact` הוא ההפרדה בין שתי כוונות שנראו כפעולה אחת: "הליד
+   * הזה היה כפילות, הלקוח שלי" מול "המספר הזה ספאם". בלי הבחירה
+   * הזאת מחיקת ליד כפול של לקוח חדש הייתה מוחקת גם את הלקוח, וזו
+   * הפעולה היחידה במערכת שמחקה יותר ממה שביקשו.
    */
-  async remove(id: string): Promise<{ contactDeleted: boolean }> {
+  async remove(id: string, keepContact = false): Promise<{ contactDeleted: boolean }> {
     const ctx = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
       // הרשאה לפני הכתיבה, כמו בכל פעולה על ליד
@@ -345,13 +350,15 @@ export class LeadsService {
         throw new BadRequestException("הליד הומר בזמן המחיקה — מחקו את הכרטיס שנוצר ממנו");
       }
 
-      const contactDeleted = await this.deleteContactIfOrphan(tx, lead.contactId);
+      const contactDeleted = keepContact
+        ? false
+        : await this.deleteContactIfOrphan(tx, lead.contactId);
       await this.audit.record(tx, {
         action: "lead.delete",
         entityType: "lead",
         entityId: id,
         // מזהים וסטטוס בלבד — ביומן הביקורת לא נשמר מה שנמחק
-        metadata: { status: lead.status, source: lead.source, contactDeleted },
+        metadata: { status: lead.status, source: lead.source, keepContact, contactDeleted },
       });
       return { contactDeleted };
     });

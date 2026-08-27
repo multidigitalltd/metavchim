@@ -47,6 +47,11 @@ export interface EmailContent {
   paragraphs: readonly string[];
   button?: EmailButton;
   /**
+   * רשימת קישורים — כמה יעדים שווי-מעמד באותה הודעה (הצעות נכסים).
+   * לא תחליף ל-`button`: הכפתור הוא "הפעולה", הרשימה היא "הבחירה".
+   */
+  links?: readonly EmailButton[];
+  /**
    * הערת שוליים — "אם לא ביקשת, התעלם", "אין צורך להשיב".
    * מוצגת קטנה ומעומעמת, מתחת לקו.
    */
@@ -90,6 +95,10 @@ export function renderEmailText(content: EmailContent): string {
   if (content.greeting) lines.push(content.greeting, "");
   for (const paragraph of content.paragraphs) lines.push(paragraph, "");
   if (content.code) lines.push(content.code, "");
+  if (content.links) {
+    for (const link of content.links) lines.push(`${link.label}: ${link.url}`);
+    if (content.links.length > 0) lines.push("");
+  }
   if (content.button) lines.push(`${content.button.label}: ${content.button.url}`, "");
   if (content.footnote) lines.push(content.footnote);
   return lines.join("\n").trimEnd();
@@ -128,6 +137,22 @@ export function renderEmailHtml(content: EmailContent, productName = "מתווכ
         `background:${BRAND.background};border:1px solid ${BRAND.border};border-radius:10px;padding:12px 22px;">` +
         `${escapeHtml(content.code)}</span></p>`,
     );
+  }
+
+  if (content.links) {
+    for (const link of content.links) {
+      const linkUrl = safeUrl(link.url);
+      if (linkUrl === null) continue;
+      /*
+       * כל קישור בכרטיס משלו — העוגן על הכותרת, והכתובת המלאה
+       * מתחתיו כטקסט: לקוחות שמסירים קישורים, ומי שמעדיף להעתיק.
+       */
+      parts.push(
+        `<p style="margin:0 0 10px;padding:12px 14px;background:${BRAND.background};border:1px solid ${BRAND.border};border-radius:10px;font-size:16px;line-height:1.6;">` +
+          `<a href="${linkUrl}" style="font-weight:700;color:${BRAND.primary};text-decoration:underline;">${escapeHtml(link.label)}</a>` +
+          `<br><span dir="ltr" style="font-size:14px;color:${BRAND.muted};word-break:break-all;">${linkUrl}</span></p>`,
+      );
+    }
   }
 
   const url = content.button ? safeUrl(content.button.url) : null;
