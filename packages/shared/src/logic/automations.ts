@@ -25,6 +25,13 @@
  * והתוצאה הייתה מסך שמבטיח שליטה על משהו שאף אחד לא אוכף.
  */
 
+import {
+  DEFAULT_VIEWING_REMINDER_MESSAGES,
+  VIEWING_REMINDER_DEFAULT_HOURS,
+  VIEWING_REMINDER_TEXT_MAX,
+  type ViewingReminderChannel,
+} from "./viewing-reminder.js";
+
 /** מפתח אוטומציה — נשמר ב-DB, ולכן אינו משתנה אחרי שיצא לאוויר. */
 export type AutomationKey =
   | "lead_sla"
@@ -35,7 +42,8 @@ export type AutomationKey =
   | "daily_brief"
   | "weekly_summary"
   | "exclusivity"
-  | "missed_call_intake";
+  | "missed_call_intake"
+  | "viewing_reminder";
 
 /** יחידת הסף שאפשר לכוון. `null` = לאוטומציה אין מספר, רק כן/לא. */
 export type AutomationUnit = "hours" | "days" | null;
@@ -55,6 +63,20 @@ export interface AutomationSpec {
   defaultValue?: number;
   min?: number;
   max?: number;
+  /**
+   * ‎**האוטומציה שולחת ללקוח, ולכן יש לה ערוץ ונוסח.**
+   *
+   * רוב האוטומציות כאן פותחות משימה או התראה — כלומר פונות פנימה,
+   * למשרד. מי שפונה **החוצה** צריכה שתי הכרעות נוספות שאין לשאר:
+   * באיזה אמצעי, ובאילו מילים. הן יושבות על אותה הגדרה ולא במקום
+   * שלישי, כי הן חלק מ„איך האוטומציה הזו מתנהגת”.
+   *
+   * ‎`audiences` הן תיבות הנוסח שהמסך מציג. אוטומציה עם שני נמענים
+   * שונים צריכה שני נוסחים — „מגיעים אליך” אינו „אנחנו נפגשים”.
+   */
+  outbound?: {
+    audiences: readonly { key: string; title: string; defaultText: string }[];
+  };
   /**
    * אוטומציה שאסור לכבות.
    *
@@ -143,6 +165,30 @@ export const AUTOMATIONS: readonly AutomationSpec[] = [
     when: "מיד עם קליטת שיחה נכנסת שלא נענתה, ופעם אחת ללקוח כל עוד הקישור הקודם בתוקף.",
     unit: null,
   },
+  {
+    key: "viewing_reminder",
+    title: "תזכורת לפני סיור",
+    what: "נשלחת תזכורת למי שגר בנכס ולקונה שקבוע לו סיור. מי שאי אפשר להגיע אליו — נפתחת משימה לסוכן.",
+    when: "X שעות לפני מועד הסיור. נבדק כל רבע שעה.",
+    unit: "hours",
+    defaultValue: VIEWING_REMINDER_DEFAULT_HOURS,
+    min: 1,
+    max: 48,
+    outbound: {
+      audiences: [
+        {
+          key: "occupant",
+          title: "למי שגר בנכס",
+          defaultText: DEFAULT_VIEWING_REMINDER_MESSAGES.occupant,
+        },
+        {
+          key: "buyer",
+          title: "לקונה",
+          defaultText: DEFAULT_VIEWING_REMINDER_MESSAGES.buyer,
+        },
+      ],
+    },
+  },
 ];
 
 const BY_KEY = new Map(AUTOMATIONS.map((spec) => [spec.key, spec]));
@@ -151,10 +197,20 @@ export function automationSpec(key: AutomationKey): AutomationSpec | undefined {
   return BY_KEY.get(key);
 }
 
-/** הגדרת אוטומציה אחת. `value` קיים רק למי שיש לה סף. */
+/**
+ * הגדרת אוטומציה אחת.
+ *
+ * ‎`value` קיים רק למי שיש לה סף, ו-`channel`/`messages` רק למי
+ * שפונה ללקוח (`outbound`). שדות ריקים אצל השאר ולא אובייקט נפרד:
+ * „מה האוטומציה הזו עושה” הוא מקום אחד, וגם המסך וגם הסבב קוראים
+ * ממנו.
+ */
 export interface AutomationSetting {
   enabled: boolean;
   value?: number;
+  channel?: ViewingReminderChannel;
+  /** נוסח פר-נמען. מפתח חסר ⇒ נוסח ברירת המחדל שבקטלוג. */
+  messages?: Record<string, string>;
 }
 
 export type AutomationSettings = Record<AutomationKey, AutomationSetting>;
@@ -166,6 +222,19 @@ export function defaultAutomationSettings(): AutomationSettings {
     out[spec.key] = {
       enabled: true,
       ...(spec.defaultValue === undefined ? {} : { value: spec.defaultValue }),
+      /*
+       * ‎**וואטסאפ ומייל, ולא אחד מהם.** תזכורת שמגיעה בערוץ אחד
+       * בלבד מפספסת בדיוק את הלקוח שאינו חי בערוץ הזה, ואת המשרד
+       * זה עולה בנסיעה לשווא. מי שרוצה פחות — מצמצם במסך.
+       */
+      ...(spec.outbound === undefined
+        ? {}
+        : {
+            channel: "both" as ViewingReminderChannel,
+            messages: Object.fromEntries(
+              spec.outbound.audiences.map((a) => [a.key, a.defaultText]),
+            ),
+          }),
     };
   }
   return out;
@@ -199,6 +268,30 @@ export function resolveAutomationSettings(raw: unknown): AutomationSettings {
     if (spec.unit !== null && typeof record["value"] === "number") {
       current.value = clampValue(spec, record["value"]);
     }
+
+    if (spec.outbound !== undefined) {
+      const channel = record["channel"];
+      if (channel === "email" || channel === "whatsapp" || channel === "both") {
+        current.channel = channel;
+      }
+      /*
+       * ‎**נוסח ריק נופל לברירת המחדל ואינו נשלח.** משרד שמחק את
+       * התיבה התכוון „תחזירו לי את המקורי”, לא „שלחו הודעה ריקה”
+       * — והודעה ריקה ללקוח היא בדיוק מה שאי אפשר לתקן אחרי.
+       *
+       * הנוסח נחתך ולא נזרק, כמו הסף: הגדרה שנשמרה בעבר בגרסה עם
+       * תקרה אחרת אינה סיבה להשבית את האוטומציה כולה.
+       */
+      const messages = record["messages"];
+      if (typeof messages === "object" && messages !== null && current.messages) {
+        const saved = messages as Record<string, unknown>;
+        for (const audience of spec.outbound.audiences) {
+          const text = saved[audience.key];
+          if (typeof text !== "string" || text.trim() === "") continue;
+          current.messages[audience.key] = text.slice(0, VIEWING_REMINDER_TEXT_MAX);
+        }
+      }
+    }
   }
   return out;
 }
@@ -219,7 +312,7 @@ function clampValue(spec: AutomationSpec, value: number): number {
  */
 export function automationRejectionReason(
   key: string,
-  setting: { enabled?: unknown; value?: unknown },
+  setting: { enabled?: unknown; value?: unknown; channel?: unknown; messages?: unknown },
 ): string | null {
   const spec = BY_KEY.get(key as AutomationKey);
   if (spec === undefined) return `אוטומציה לא מוכרת: ${key}`;
@@ -229,6 +322,37 @@ export function automationRejectionReason(
   }
   if (spec.required === true && setting.enabled === false) {
     return `${spec.title}: אי אפשר לכבות — אלו מועדים שנובעים מהחוזה`;
+  }
+
+  /*
+   * ‎**ערוץ ונוסח על אוטומציה שאינה פונה ללקוח נדחים במפורש.**
+   *
+   * בליעה שקטה הייתה מקבלת 200 על הגדרה שלא נשמרה — כלומר המשרד
+   * מנסח הודעה, המסך אומר „נשמר”, ודבר לא משתנה.
+   */
+  if (setting.channel !== undefined || setting.messages !== undefined) {
+    if (spec.outbound === undefined) return `${spec.title}: אינה שולחת ללקוח`;
+    if (
+      setting.channel !== undefined &&
+      setting.channel !== "email" &&
+      setting.channel !== "whatsapp" &&
+      setting.channel !== "both"
+    ) {
+      return `${spec.title}: ערוץ לא מוכר`;
+    }
+    if (setting.messages !== undefined) {
+      if (typeof setting.messages !== "object" || setting.messages === null) {
+        return `${spec.title}: הנוסח חייב להיות טקסט לכל נמען`;
+      }
+      const known = new Set(spec.outbound.audiences.map((a) => a.key));
+      for (const [audience, text] of Object.entries(setting.messages)) {
+        if (!known.has(audience)) return `${spec.title}: נמען לא מוכר — ${audience}`;
+        if (typeof text !== "string") return `${spec.title}: הנוסח חייב להיות טקסט`;
+        if (text.length > VIEWING_REMINDER_TEXT_MAX) {
+          return `${spec.title}: הנוסח ארוך מ-${VIEWING_REMINDER_TEXT_MAX} תווים`;
+        }
+      }
+    }
   }
 
   if (setting.value === undefined) return null;

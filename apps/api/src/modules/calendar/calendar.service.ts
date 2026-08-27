@@ -185,6 +185,13 @@ export class CalendarService {
           outcome: null,
           rescheduledFrom: existing.startsAt,
           rescheduleCount: existing.rescheduleCount + 1,
+          /*
+           * ‎**המועד החדש מקבל תזכורת משלו.** בלי האיפוס הזה, פגישה
+           * שכבר נשלחה עליה תזכורת ונדחתה למחר הייתה נשארת מסומנת
+           * „נשלח” — כלומר שני הצדדים היו מקבלים תזכורת למועד שכבר
+           * אינו נכון, ואז שום דבר למועד האמיתי.
+           */
+          reminderSentAt: null,
           // איפוס חותמת הסנכרון = "צריך דחיפה מחדש" ליומן Google
           googleSyncedAt: null,
         },
