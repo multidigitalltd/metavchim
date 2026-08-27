@@ -83,12 +83,20 @@ export function VoiceRecorder({
   label,
   placeholder,
   onError,
+  onSubmit,
+  rows = 5,
 }: {
   value: string;
   onChange: (value: string) => void;
   label: string;
   placeholder: string;
   onError?: (message: string) => void;
+  /**
+   * שליחה ב-Enter — לצ'אט של הסוכן. Shift+Enter יורד שורה, כמו בכל
+   * צ'אט. בלי הפרמטר ההתנהגות הישנה נשארת: Enter יורד שורה.
+   */
+  onSubmit?: () => void;
+  rows?: number;
 }) {
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
@@ -826,10 +834,25 @@ export function VoiceRecorder({
           id="voice-transcript"
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          rows={5}
+          rows={rows}
           placeholder={placeholder}
           className="w-full rounded-lg border px-3 py-2.5"
           style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
+          {...(onSubmit === undefined
+            ? {}
+            : {
+                onKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                  /*
+                   * Enter שולח רק כשאין הרכבת תווים פעילה (IME):
+                   * באמצע המרת ניקוד/יפנית Enter מאשר את ההרכבה,
+                   * ושליחה אז הייתה חוטפת את המשפט באמצעו.
+                   */
+                  if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    onSubmit();
+                  }
+                },
+              })}
         />
       </div>
     </>

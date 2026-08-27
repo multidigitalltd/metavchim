@@ -3152,6 +3152,72 @@ a.mv-bar-row:focus-visible {
 }
 
 /*
+ * בועות הצ'אט של הסוכן. צבעים בטוקנים בלבד — שני המצבים (בהיר/כהה)
+ * נגזרים מהם. הפינה ה„פתוחה” בצד הדובר היא מה שמסמן כיוון, ולוגיקת
+ * ה-inline הופכת אותה נכון ב-RTL: ההודעות שלי בצד אחד, של הסוכן
+ * בצד השני, כמו בכל צ'אט.
+ */
+.mv-chat-bubble {
+  max-width: 88%;
+  border-radius: 16px;
+  padding: 10px 14px;
+  font-size: var(--type-body-sm);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.mv-chat-user {
+  background: var(--color-primary-soft);
+  margin-inline-start: auto;
+  border-end-end-radius: 5px;
+}
+.mv-chat-agent {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  margin-inline-end: auto;
+  border-end-start-radius: 5px;
+}
+/* כרטיס הצעה בתוך השרשור — רוחב מלא: יש בו שדות לעריכה */
+.mv-chat-card {
+  max-width: 100%;
+}
+/* שלוש הנקודות של „חושב…” — אותה שפה כמו כל צ'אט */
+.mv-chat-typing {
+  display: inline-flex;
+  gap: 5px;
+  padding: 3px 2px;
+}
+.mv-chat-typing span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  animation: mv-chat-blink 1.2s infinite ease-in-out;
+}
+.mv-chat-typing span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.mv-chat-typing span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes mv-chat-blink {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+/* מי שביקש פחות תנועה מקבל נקודות סטטיות — הכוונה ברורה גם בלי הבהוב */
+@media (prefers-reduced-motion: reduce) {
+  .mv-chat-typing span {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/*
  * תיבת דוגמאות. רקע רך ולא מסגרת: מסגרת נוספת ליד כרטיס יוצרת שני
  * מלבנים מתחרים, ורקע מפריד בלי להוסיף קו.
  */

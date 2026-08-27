@@ -105,3 +105,28 @@ export interface AgentProposal {
    */
   followUps?: AgentProposal[];
 }
+
+/**
+ * ‎**מתי הצעה רצה מיד, בלי טקס אישור — הכלל, פעם אחת, לשני הערוצים.**
+ *
+ * הקטלוג מצהיר: „`read` רץ מיד ומציג תשובה”. הסייגים הם מה שדורש
+ * הכרעה אנושית לפני הריצה: מועמדים לבחור ביניהם, שאלת הבהרה, או
+ * שרשור פעולות שחלקן כותבות. שני הערוצים — הוואטסאפ והצ'אט במסך —
+ * שואלים את אותה שאלה, וכשהיא נוסחה פעמיים היא כבר נפרדה פעם אחת:
+ * הוואטסאפ ענה מיד והמסך דרש „הצג תשובה”. הכלל יושב כאן, והערוצים
+ * קוראים לו (הנחיית בעל המוצר: ליבה אחת, בלי כפילויות בין הערוצים).
+ *
+ * מועמדים בוואטסאפ מטופלים לפני השאלה הזו (בורר הכפתורים), ולכן
+ * התנאי שם מתקיים ריקם; במסך הוא זה שמציג את הבורר. אותו כלל, שתי
+ * נקודות כניסה.
+ */
+export function proposalRunsImmediately(
+  proposal: Pick<AgentProposal, "risk" | "clarify" | "candidates" | "followUps">,
+): boolean {
+  return (
+    proposal.risk === "read" &&
+    proposal.clarify === undefined &&
+    proposal.candidates === undefined &&
+    (proposal.followUps === undefined || proposal.followUps.length === 0)
+  );
+}

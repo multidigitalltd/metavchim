@@ -5,6 +5,7 @@ import {
   agentAction,
   agentHistorySummary,
   agentResultRefs,
+  proposalRunsImmediately,
   agentTurnRefs,
   type AgentHistoryRef,
   agentResultText,
@@ -940,12 +941,9 @@ export class WhatsAppAssistantService {
       token: ulid(),
     };
 
-    // שאילתת קריאה בלי שרשור ובלי שאלה פתוחה — עונים מיד, בלי טקס אישור
-    if (
-      proposal.risk === "read" &&
-      (proposal.followUps ?? []).length === 0 &&
-      proposal.clarify === undefined
-    ) {
+    // שאילתת קריאה בלי שרשור ובלי שאלה פתוחה — עונים מיד, בלי טקס
+    // אישור. הכלל משותף לשני הערוצים — ראו proposalRunsImmediately.
+    if (proposalRunsImmediately(proposal)) {
       return this.runProposal(chat, state);
     }
 
