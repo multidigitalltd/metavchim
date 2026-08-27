@@ -113,6 +113,7 @@ export * from "./agent/history.js";
 export * from "./agent/insight-guard.js";
 export * from "./agent/next-step.js";
 export * from "./agent/proposal.js";
+export * from "./agent/reply-plan.js";
 export * from "./agent/result-lines.js";
 
 export * from "./logic/dictation.js";

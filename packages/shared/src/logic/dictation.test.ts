@@ -4,6 +4,8 @@ import {
   collectDictation,
   createDictationSessions,
   dictationErrorMessage,
+  dictationMode,
+  dictationShouldFallBack,
   type DictationResultSegment,
 } from "./dictation.js";
 
@@ -172,10 +174,18 @@ describe("dictationErrorMessage", () => {
     }
   });
 
-  it("במצב הרגיל ההפניה ל„מדויק” נשמרת — היא עצה טובה כשהכפתור קיים", () => {
-    expect(dictationErrorMessage("language-not-supported")).toContain("מדויק");
-    expect(dictationErrorMessage("network")).toContain("מדויק");
-    expect(dictationErrorMessage(undefined)).toContain("מדויק");
+  it("במצב הרגיל ההודעה אומרת מה יקרה — ולא מפנה לכפתור שאינו קיים", () => {
+    /*
+     * ‏„מדויק” היה כפתור, ואז ההפניה אליו הייתה עצה טובה. עכשיו יש
+     * כפתור אחד שבוחר את המצב בעצמו, והפניה לכפתור שאינו על המסך
+     * היא הוראה שאי אפשר לבצע. ההודעה אומרת במקומה מה תעשה הלחיצה
+     * הבאה — וזה מה שבאמת קורה, ראו `dictationMode`.
+     */
+    for (const code of ["language-not-supported", "network", undefined]) {
+      const message = dictationErrorMessage(code, false);
+      expect(message, String(code)).not.toContain("מדויק");
+      expect(message, String(code)).toContain("יעבור לשרת");
+    }
   });
 
   /* קודים שאינם תלויים במצב — אותה הודעה בשניהם, ובלי הפניה לכפתור. */
@@ -183,5 +193,47 @@ describe("dictationErrorMessage", () => {
     for (const code of ["not-allowed", "service-not-allowed", "audio-capture", "no-speech"]) {
       expect(dictationErrorMessage(code, true), code).toBe(dictationErrorMessage(code, false));
     }
+  });
+});
+
+describe("נפילה מהדפדפן לשרת", () => {
+  it("כשל שאומר „המנוע לא יעבוד כאן” מפיל לשרת", () => {
+    for (const code of ["language-not-supported", "network", undefined, "bad-grammar"]) {
+      expect(dictationShouldFallBack(code), String(code)).toBe(true);
+    }
+  });
+
+  it("כשל שיקרה גם בשרת אינו מפיל אליו", () => {
+    /*
+     * השרת מקליט מאותו מיקרופון: הרשאה שנדחתה ומכשיר בלי מיקרופון
+     * ייכשלו שם באותה מידה, ומעבר אליהם רק מחליף הודעת שגיאה.
+     */
+    for (const code of ["not-allowed", "service-not-allowed", "audio-capture", "no-speech", "aborted"]) {
+      expect(dictationShouldFallBack(code), code).toBe(false);
+    }
+  });
+
+  it("ברירת המחדל היא הדפדפן — הטקסט מופיע בו תוך כדי הדיבור", () => {
+    expect(
+      dictationMode({ browserReady: true, serverReady: true, browserFailed: false }),
+    ).toBe("browser");
+  });
+
+  it("אחרי כשל עוברים לשרת", () => {
+    expect(
+      dictationMode({ browserReady: true, serverReady: true, browserFailed: true }),
+    ).toBe("server");
+  });
+
+  it("בלי מנוע בדפדפן — ישר לשרת", () => {
+    expect(
+      dictationMode({ browserReady: false, serverReady: true, browserFailed: false }),
+    ).toBe("server");
+  });
+
+  it("בלי שרת נשארים על הדפדפן גם אחרי כשל — אין לאן ליפול", () => {
+    expect(
+      dictationMode({ browserReady: true, serverReady: false, browserFailed: true }),
+    ).toBe("browser");
   });
 });

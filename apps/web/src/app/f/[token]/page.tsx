@@ -585,7 +585,22 @@ export default function IntakeFormPage({
         tabIndex={-1}
         autoComplete="off"
         aria-hidden="true"
-        style={{ position: "absolute", left: "-9999px", width: 1, height: 1 }}
+        /*
+         * ‎**`mv-visually-hidden` ולא `left: -9999px`.**
+         *
+         * הממשק כולו RTL, ושם הזזה של אלמנט 9999 פיקסלים שמאלה אינה
+         * מוציאה אותו מהמסך אלא **מרחיבה את שטח הגלילה**: העמוד קיבל
+         * `scrollWidth` של יותר מ-10,000 פיקסלים על מסך של 320, כלומר
+         * הטופס נגלל הצידה אל תוך ריק. זה מה שנראה כ„לא רספונסיבי”
+         * בנייד, והמסך הראשון היה תקין רק משום שאין בו מלכודת דבש.
+         *
+         * הכלל של המערכת חותך את האלמנט במקומו (`clip-path`) במקום
+         * להזיז אותו, ולכן אינו מייצר גלילה בשום כיוון.
+         *
+         * המלכודת עצמה לא נפגעת: היא נשארת ב-DOM ובטופס, ובוט
+         * שממלא כל שדה עדיין ממלא אותה.
+         */
+        className="mv-visually-hidden"
       />
 
       {error !== null ? <Notice tone="danger">{error}</Notice> : null}

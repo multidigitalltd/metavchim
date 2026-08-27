@@ -36,11 +36,12 @@ describe("הניסוח הטבעי של הסוכן", () => {
     expect(EXECUTE).toMatch(/suggestion\.length <= 200 && grounded\(suggestion\)/u);
   });
 
-  it("בוואטסאפ המשפט הטבעי מוביל והרשימה אחריו — כמו במסך", () => {
-    const insightAt = WA.indexOf("lines.push(`💡 ${primary.insight}`)");
-    const dataAt = WA.indexOf("if (dataSummary !== \"\") lines.push(dataSummary)");
-    expect(insightAt).toBeGreaterThan(-1);
-    expect(dataAt).toBeGreaterThan(-1);
-    expect(insightAt).toBeLessThan(dataAt);
+  /*
+   * הסדר עצמו — מסקנה לפני הרשימה — כבר אינו נטען כאן: הוא קוד
+   * משותף (`agentReplySegments`) עם בדיקת יחידה משלו. מה שנשאר
+   * לאכוף הוא שהערוץ באמת צורך את התוכנית ולא בונה סדר משלו.
+   */
+  it("בוואטסאפ ההרכב מגיע מהתוכנית המשותפת — לא מסדר מקומי", () => {
+    expect(WA).toMatch(/agentReplySegments\(\{/u);
   });
 });

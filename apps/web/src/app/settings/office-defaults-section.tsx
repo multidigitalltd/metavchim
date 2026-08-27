@@ -110,6 +110,7 @@ export function OfficeDefaultsSection({
             row={row}
             checked={value[row.key]}
             busy={busy === row.key}
+            locked={busy !== null}
             saved={saved === row.key}
             onChange={(next) => void toggle(row.key, next)}
           />
@@ -131,6 +132,7 @@ export function OfficeDefaultsSection({
           }}
           checked={value.autoEmailOffers}
           busy={busy === "autoEmailOffers"}
+          locked={busy !== null}
           saved={saved === "autoEmailOffers"}
           onChange={(next) => void toggle("autoEmailOffers", next)}
         />
@@ -143,12 +145,24 @@ function Row({
   row,
   checked,
   busy,
+  locked,
   saved,
   onChange,
 }: {
   row: { key: Key; title: string; detail: string };
   checked: boolean;
+  /** השורה הזו נשמרת כרגע. */
   busy: boolean;
+  /**
+   * שורה **אחרת** נשמרת כרגע.
+   *
+   * שלושת המתגים יושבים באותו מסמך הגדרות, וכל שמירה כותבת אותו
+   * במלואו. שתי שמירות שרצות במקביל קוראות את אותו צילום, וזו
+   * שכותבת שנייה מוחקת את הראשונה — והמסך היה מציג „נשמר” על
+   * שתיהן (ביקורת Codex). השרת נועל עכשיו את השורה וזה לא יקרה,
+   * אבל מתג שנראה זמין ואינו נשמר מיד הוא עדיין הבטחה לא מדויקת.
+   */
+  locked: boolean;
   saved: boolean;
   onChange: (next: boolean) => void;
 }) {
@@ -162,7 +176,7 @@ function Row({
         id={row.key}
         name={row.key}
         checked={checked}
-        disabled={busy}
+        disabled={busy || locked}
         onChange={(e) => onChange(e.target.checked)}
         className="mt-0.5"
       />

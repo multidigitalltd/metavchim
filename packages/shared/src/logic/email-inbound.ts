@@ -122,6 +122,28 @@ export function replyAddressFor(inboundAddress: string, token: string): string |
 }
 
 /**
+ * האם הכתובת היא **נתיב קליטה של הספק** ולא תיבה אמיתית.
+ *
+ * ‏Postmark מייצרת כתובת כמו `abc123@inbound.postmarkapp.com` לקליטה
+ * בלבד. היא **אינה חתימת שולח מאומתת**, ולכן הודעה שיוצאת ממנה
+ * כ-`From` נדחית על ידי הספק — ובשני הנתיבים שמשתמשים בה החריגה
+ * נבלעת, כלומר ההתראה פשוט לא מגיעה ואיש אינו יודע (ביקורת Codex).
+ *
+ * מי שהגדיר דומיין משלו (`service@metavchim.co.il`) כן יכול לשלוח
+ * ממנו, בהנחה שאימת אותו — ולכן הבדיקה היא על הדומיין של הספק ולא
+ * על „יש כתובת קליטה”.
+ *
+ * לשלוח ממנה אי אפשר; **לחזור אליה כן** — וזה בדיוק מה ש-`Reply-To`
+ * נועד לו.
+ */
+export function isProviderInboundRoute(address: string): boolean {
+  const at = address.lastIndexOf("@");
+  if (at < 0) return false;
+  const domain = address.slice(at + 1).trim().toLowerCase();
+  return domain === "postmarkapp.com" || domain.endsWith(".postmarkapp.com");
+}
+
+/**
  * הטוקן מתוך ה-MailboxHash — עם סובלנות לקלט עוין: הערך מגיע
  * מכותרת שכל שולח בעולם יכול לזייף, ולכן הוא **רק** מפתח חיפוש,
  * לעולם לא תוכן. צורה לא-חוקית ⟵ null, וההודעה מדולגת בשקט.
