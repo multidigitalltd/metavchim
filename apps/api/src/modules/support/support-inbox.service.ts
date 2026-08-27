@@ -6,6 +6,7 @@ import {
   EMAIL_OUTBOUND_ATTACHMENT_TOTAL_BYTES,
   emailAttachmentKind,
   inboundBody,
+  inboundProviderMessageId,
   inboundToken,
   parseSenderEmail,
   parseSenderName,
@@ -92,7 +93,12 @@ export class SupportInboxService {
    * הוא רעש. הדה-דופליקציה נשענת על `provider_message_id`.
    */
   async processInbound(payload: InboundEmailPayload): Promise<void> {
-    const body = inboundBody(payload).slice(0, BODY_MAX);
+    /*
+     * התקרה נמסרת פנימה. החיתוך היה **אחרי** הקריאה, כלומר על טקסט
+     * שכבר קוצץ ל-5,000 — התקרה של התמיכה לא התקיימה מעולם, ודוח
+     * שגיאה ארוך איבד עד 15,000 תווים (ביקורת Codex).
+     */
+    const body = inboundBody(payload, BODY_MAX);
     const incoming = payload.Attachments.slice(0, EMAIL_ATTACHMENT_MAX_COUNT)
       .map((attachment) => {
         const kind = emailAttachmentKind(attachment.ContentType);
@@ -129,7 +135,7 @@ export class SupportInboxService {
           direction: "in",
           body,
           fromEmail: senderEmail,
-          providerMessageId: payload.MessageID ?? null,
+          providerMessageId: inboundProviderMessageId(payload),
         },
       });
     } catch (error) {
@@ -350,6 +356,8 @@ export class SupportInboxService {
       direction: string;
       body: string;
       createdAt: Date;
+      /** ‏pending | sent | failed | unknown — ביוצאות בלבד. */
+      sendState?: string;
       attachments: { id: string; name: string; kind: string; sizeBytes: number }[];
     }[];
   }> {
@@ -357,7 +365,13 @@ export class SupportInboxService {
       where: { id: threadId },
       include: {
         messages: {
-          orderBy: { createdAt: "asc" },
+          /*
+           * ‎**החדשות תחילה ואז היפוך לתצוגה** — אותו כלל כמו בתיבת
+           * הלקוחות, שם הוא כבר תוקן ותועד. `asc` עם `take` מחזיר
+           * את **הישנות**, כלומר פנייה חדשה נעלמת מהשולחן בזמן
+           * שפתיחת השרשור מסמנת אותו כנקרא (ביקורת Codex).
+           */
+          orderBy: { createdAt: "desc" },
           take: 200,
           include: {
             attachments: { select: { id: true, name: true, kind: true, sizeBytes: true } },
@@ -388,11 +402,19 @@ export class SupportInboxService {
       contactEmail: row.contactEmail,
       tenantName: tenant?.name ?? null,
       status: row.status,
-      messages: row.messages.map((message) => ({
+      // נשלפו החדשות; ההיפוך מחזיר אותן לסדר קריאה
+      messages: [...row.messages].reverse().map((message) => ({
         id: message.id,
         direction: message.direction,
         body: message.body,
         createdAt: message.createdAt,
+        /*
+         * ‎**מצב השליחה מגיע למסך.** בלעדיו תשובה שהסתיימה בתוצאה
+         * עמומה נראית ככל תשובה שנשלחה, ומזמינה שליחה חוזרת לנמען
+         * שאולי כבר קיבל (ביקורת Codex) — אותו שדה, מאותה סיבה,
+         * כמו בתיבת הלקוחות.
+         */
+        ...(message.sendState === null ? {} : { sendState: message.sendState }),
         attachments: message.attachments,
       })),
     };

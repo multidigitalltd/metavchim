@@ -4,6 +4,7 @@ import {
   InboundEmailPayloadSchema,
   emailAttachmentKind,
   inboundBody,
+  inboundProviderMessageId,
   inboundSubject,
   inboundToken,
   replyAddressFor,
@@ -116,5 +117,53 @@ describe("InboundEmailPayloadSchema", () => {
     });
     expect(parsed.Subject).toBe("");
     expect(parsed.TextBody).toBe("");
+  });
+});
+
+/**
+ * ‎**„אין מזהה” אינו מזהה, ותקרה אחת אינה חלה על שתי תיבות.**
+ *
+ * שני כללים שתיבת התמיכה החמיצה בהעתקה מתיבת הלקוחות, ולכן הם כאן
+ * ולא בכל תיבה בנפרד.
+ */
+describe("מזהה ההודעה מהספק", () => {
+  const base = InboundEmailPayloadSchema.parse({});
+
+  it("מחרוזת ריקה אינה מזהה", () => {
+    expect(inboundProviderMessageId({ ...base, MessageID: "" })).toBeNull();
+  });
+
+  /*
+   * העמודה ייחודית: מחרוזת ריקה שנשמרת כערך אמיתי נתפסת על ידי
+   * ההודעה הראשונה בלי מזהה, וכל הבאות נדחות כ„כפילות”.
+   */
+  it("גם רווחים בלבד אינם מזהה", () => {
+    expect(inboundProviderMessageId({ ...base, MessageID: "   " })).toBeNull();
+  });
+
+  it("מזהה אמיתי חוזר כמות שהוא", () => {
+    expect(inboundProviderMessageId({ ...base, MessageID: "abc-123" })).toBe("abc-123");
+  });
+});
+
+describe("תקרת הגוף", () => {
+  const long = "א".repeat(30_000);
+  const payload = (text: string) =>
+    InboundEmailPayloadSchema.parse({ TextBody: text, StrippedTextReply: "" });
+
+  it("ברירת המחדל היא תקרת תיבת הלקוחות", () => {
+    expect(inboundBody(payload(long)).length).toBe(INBOUND_BODY_MAX + 1);
+  });
+
+  /*
+   * תיבת התמיכה הכריזה על תקרה משלה וחתכה אחרי הקריאה — כלומר על
+   * טקסט שכבר קוצץ. התקרה נמסרת עכשיו פנימה, ולכן היא מתקיימת.
+   */
+  it("תקרה שנמסרת גוברת, ולא נחתכת פעמיים", () => {
+    expect(inboundBody(payload(long), 20_000).length).toBe(20_001);
+  });
+
+  it("טקסט קצר מהתקרה אינו מסומן כחתוך", () => {
+    expect(inboundBody(payload("שלום"), 20_000)).toBe("שלום");
   });
 });

@@ -65,6 +65,11 @@ export function SupportInboxSection() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  /*
+   * השרשור הפתוח, לקריאה אחרי `await`: המשך שרץ בסגור של רינדור
+   * קודם קורא ערך ישן מ-state מעצם הגדרתו.
+   */
+  const openRef = useRef<string | null>(null);
 
   const load = useCallback(() => {
     apiGet<ThreadRow[]>("/platform/support/inbox")
@@ -75,6 +80,7 @@ export function SupportInboxSection() {
   useEffect(load, [load]);
 
   async function openThread(id: string): Promise<void> {
+    openRef.current = id;
     setNotice(null);
     try {
       setOpen(await apiGet<ThreadView>(`/platform/support/inbox/${id}`));
@@ -118,15 +124,26 @@ export function SupportInboxSection() {
       const sent = (await res.json().catch(() => null)) as { state?: string } | null;
       setReply("");
       if (fileInput.current) fileInput.current.value = "";
-      setNotice(
-        sent?.state === "unknown"
-          ? {
-              tone: "danger",
-              text: "לא התקבל אישור מספק הדואר — ייתכן שהתשובה יצאה. בדקו לפני שליחה חוזרת.",
-            }
-          : { tone: "success", text: "התשובה נשלחה" },
-      );
-      await openThread(open.id);
+      /*
+       * ‎**ההודעה נקבעת אחרי הטעינה מחדש, לא לפניה.** `openThread`
+       * פותח ב-`setNotice(null)`, ולכן אזהרה שנכתבה לפניו נמחקה
+       * לפני שהספיקה להיראות — והתשובה נראתה ככל תשובה שנשלחה,
+       * בהזמנה לשלוח שוב לנמען שאולי כבר קיבל (ביקורת Codex).
+       * אותו תיקון בדיוק כמו בתיבת הלקוחות.
+       */
+      const threadId = open.id;
+      await openThread(threadId);
+      // עבר בינתיים לשרשור אחר — האזהרה שייכת לזה שממנו נשלח
+      if (openRef.current === threadId) {
+        setNotice(
+          sent?.state === "unknown"
+            ? {
+                tone: "danger",
+                text: "לא התקבל אישור מספק הדואר — ייתכן שהתשובה יצאה. בדקו לפני שליחה חוזרת.",
+              }
+            : { tone: "success", text: "התשובה נשלחה" },
+        );
+      }
     } catch (err: unknown) {
       setNotice({ tone: "danger", text: err instanceof ApiError ? err.message : "השליחה נכשלה" });
     } finally {

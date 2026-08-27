@@ -71,3 +71,47 @@ describe("ההגנה מפני חשבונית כפולה", () => {
     expect(issue.slice(caught)).toContain('status: "failed"');
   });
 });
+
+/**
+ * ‎**תיקון ידני מדווח מה קרה באמת.**
+ *
+ * ‎`queueForPayment` בולעת כשלים **בכוונה** — היא נקראת גם מהוובהוק,
+ * ושם הסורק ידווח שוב — אבל הנתיב הידני הוא פעולת תיקון מפורשת:
+ * המסך אמר „נרשמה חשבונית” גם כשלא נרשם דבר, והתשלום נשאר בלי
+ * מסמך (ביקורת Codex).
+ */
+describe("רישום חשבונית ידני", () => {
+  const CONTROLLER = readFileSync(
+    new URL("../platform/platform.controller.ts", import.meta.url),
+    "utf8",
+  )
+    .replace(/\/\*[\s\S]*?\*\//gu, "")
+    .replace(/^[ \t]*\/\/.*$/gmu, "");
+
+  const WEB = readFileSync(
+    new URL("../../../../web/src/app/platform/invoices-section.tsx", import.meta.url),
+    "utf8",
+  )
+    .replace(/\/\*[\s\S]*?\*\//gu, "")
+    .replace(/^[ \t]*\/\/.*$/gmu, "");
+
+  it("הנתיב מחזיר את התוצאה ולא ok קבוע", () => {
+    const route = method(CONTROLLER, "  async invoiceForPayment(");
+    expect(route).toContain("return this.invoices.queueForPayment(id);");
+    expect(route).not.toMatch(/return \{ ok: true \};/u);
+  });
+
+  it("והמסך קורא אותה", () => {
+    expect(WEB).toMatch(/result\.ok\n?\s*\?/u);
+    expect(WEB).not.toMatch(/await apiPost\(`\/platform\/payments\/\$\{paymentId\}\/invoice`, \{\}\);/u);
+  });
+
+  /*
+   * שורה שכבר קיימת היא המצב התקין בוובהוק שחוזר — הצלחה, לא כשל.
+   */
+  it("כפילות נחשבת הצלחה", () => {
+    const queue = method(INVOICE, "  async queueForPayment(");
+    expect(queue).toMatch(/if \(code === "P2002"\) return \{ ok: true \};/u);
+    expect(queue).toContain('return { ok: false, error: "רישום החשבונית נכשל" };');
+  });
+});

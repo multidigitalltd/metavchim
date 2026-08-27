@@ -57,10 +57,39 @@ export const INBOUND_BODY_MAX = 5000;
  * הגוף שנשמר ומוצג: קודם התשובה החשופה, ואם הספק לא הצליח להפריד —
  * הטקסט המלא. חיתוך קשיח בסוף: הודעה חריגה לא מפילה את הקליטה.
  */
-export function inboundBody(payload: InboundEmailPayload): string {
+export function inboundBody(
+  payload: InboundEmailPayload,
+  /*
+   * ‎**התקרה כפרמטר, כי לא לכל תיבה יש אותה תקרה.**
+   *
+   * תיבת התמיכה הכריזה על תקרה משלה ואז חתכה **אחרי** הקריאה לכאן,
+   * כלומר על טקסט שכבר קוצץ ל-5,000 — התקרה שלה לא התקיימה מעולם,
+   * ודוח שגיאה או לוג ארוך איבד עד 15,000 תווים (ביקורת Codex).
+   * מי שצריך תקרה אחרת מבקש אותה, ולא חותך פעמיים.
+   */
+  max: number = INBOUND_BODY_MAX,
+): string {
   const preferred = payload.StrippedTextReply.trim();
   const body = preferred !== "" ? preferred : payload.TextBody.trim();
-  return body.length > INBOUND_BODY_MAX ? `${body.slice(0, INBOUND_BODY_MAX)}…` : body;
+  return body.length > max ? `${body.slice(0, max)}…` : body;
+}
+
+/**
+ * מזהה ההודעה אצל הספק — או `null` כשאין.
+ *
+ * ‎**„אין מזהה” אינו מזהה.** העמודה ייחודית ומשמשת לדה-דופליקציה,
+ * ולכן מחרוזת ריקה שנשמרת כערך אמיתי נתפסת על ידי ההודעה הראשונה
+ * שאין לה מזהה — וכל הודעה נוספת בלי מזהה נדחית כ„כפילות”, גם
+ * משולח אחר לגמרי. פניות שנעלמות בשקט (ביקורת Codex).
+ *
+ * הסכמה נותנת `""` כברירת מחדל, ולכן `?? null` **אינו** מספיק:
+ * הוא תופס `undefined` ולא מחרוזת ריקה. זו בדיוק ההבחנה שתיבת
+ * הלקוחות עושה נכון ותיבת התמיכה החמיצה, ולכן היא כאן — פעם אחת,
+ * לשתיהן.
+ */
+export function inboundProviderMessageId(payload: InboundEmailPayload): string | null {
+  const id = payload.MessageID.trim();
+  return id === "" ? null : id;
 }
 
 /**
