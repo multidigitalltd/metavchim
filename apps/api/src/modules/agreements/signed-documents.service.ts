@@ -465,10 +465,31 @@ export class SignedDocumentsService {
        * הכיסאות בדיוק כמו ההסכם הדיגיטלי. תיקון של אחת מהשתיים
        * בלבד הוא הפער שנפער כאן מלכתחילה.
        */
+      /*
+       * ‎**ליתום צריך גם את מבחן השימור — למנותק הוא כבר הוחל.**
+       *
+       * מחיקת לקוח משמרת **רק** הזמנה בכתב חתומה: `kind` מהרשימה
+       * ו-`signedOn` שאינו ריק. כל השאר — תעודת זהות, אישור
+       * זכויות, נספח — הוא מסמך של הלקוח עצמו, וזכות המחיקה חלה
+       * עליו במלואה; הוא **נמחק**. לכן שורה מנותקת היא ראיה משפטית
+       * בהגדרה, ואין מה לסנן בה.
+       *
+       * לכרטיס יתום מעולם לא רץ הניקוי הזה: המסמכים שלו נשארו
+       * כמות שהם. בלי המבחן כאן הארכיון היה חושף תעודות זהות
+       * ואישורי זכויות — ומציג אותם כהסכמים חתומים שנשמרו (ביקורת
+       * Codex). הרחבת נגישות היא לא המקום להרחיב **מה** נגיש.
+       *
+       * הרשימה מגיעה מ-shared, מאותו מקום שמכריע גם במחיקת הלקוח.
+       */
       const ids = await tx.$queryRaw<{ id: string }[]>`
         SELECT d.id FROM signed_documents d
          WHERE d.tenant_id = ${tenantId}
-           AND (d.contact_id IS NULL OR ${orphanContactCondition("d")})
+           AND (
+                d.contact_id IS NULL
+             OR (d.kind = ANY(${[...OFFER_DOCUMENT_KINDS]}::text[])
+                 AND d.signed_on IS NOT NULL
+                 AND ${orphanContactCondition("d")})
+           )
          ORDER BY d.signed_on DESC NULLS LAST
          LIMIT 500`;
       const found = await tx.signedDocument.findMany({

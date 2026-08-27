@@ -58,7 +58,8 @@ describe("ארכיון המסמכים שנשמרו", () => {
   for (const [name, body] of lists) {
     it(`${name}: כרטיס יתום נכנס לארכיון, לא רק כרטיס שנותק`, () => {
       expect(body).toContain("orphanContactCondition(");
-      expect(body).toMatch(/contact_id IS NULL OR /u);
+      // המנותק בענף אחד והיתום באחר; הניסוח נפרס לשורות בסריקות
+      expect(body).toMatch(/contact_id IS NULL\s*(?:OR |\n\s*OR \()/u);
     });
 
     /*
@@ -184,6 +185,34 @@ describe("ארכיון המסמכים שנשמרו", () => {
     expect(controller).toMatch(
       /@Get\("agreements\/:id\/document"\)\n\s*@RequireCapability\("buyers\.view_own", "settings\.manage"\)/u,
     );
+  });
+
+  /*
+   * ‎**הרחבת נגישות אינה המקום להרחיב מה נגיש.**
+   *
+   * מחיקת לקוח משמרת רק הזמנה בכתב חתומה — `kind` מהרשימה
+   * ו-`signedOn` שאינו ריק — ו**מוחקת** את השאר: תעודת זהות,
+   * אישור זכויות, נספח. לכן שורה מנותקת היא ראיה משפטית בהגדרה.
+   *
+   * לכרטיס יתום הניקוי מעולם לא רץ, ולכן בלי המבחן הזה הארכיון היה
+   * חושף את מסמכי הלקוח עצמם — ומציג אותם כהסכמים שנשמרו (ביקורת
+   * Codex).
+   */
+  it("ענף היתום מסנן לפי אותו מבחן שימור של מחיקת הלקוח", () => {
+    const body = method(DOCUMENTS, "  async listRetained(");
+    expect(body).toContain("OFFER_DOCUMENT_KINDS");
+    expect(body).toContain("d.signed_on IS NOT NULL");
+    // המבחן חל על ענף היתום, לא על המנותק — שם הוא כבר הוחל במחיקה
+    expect(body).toMatch(/d\.contact_id IS NULL\s*\n\s*OR \(d\.kind = ANY/u);
+  });
+
+  /*
+   * הרשימה מגיעה מ-shared, מאותו מקום שמכריע גם במחיקת הלקוח.
+   * רשימה שנכתבת כאן שוב היא בדיוק הפער.
+   */
+  it("רשימת הסוגים אינה משוכפלת בשאילתה", () => {
+    const body = method(DOCUMENTS, "  async listRetained(");
+    expect(body).not.toMatch(/'brokerage'|"brokerage"/u);
   });
 
   it("הכינוי מוגבל באיחוד סגור ולא ב-string", () => {
