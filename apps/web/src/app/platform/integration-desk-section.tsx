@@ -71,7 +71,16 @@ export function IntegrationDeskSection({
   agencies: { id: string; name: string }[];
 }) {
   const [agencyId, setAgencyId] = useState("");
-  const [data, setData] = useState<DeskStatus | null>(null);
+  /**
+   * מה שנטען — **ולאיזה משרד.**
+   *
+   * המזהה נשמר יחד עם הנתונים ולא לצדם. בלעדיו החלפת משרד השאירה את
+   * הטופס הקודם על המסך בזמן שהבקשה החדשה בדרך, ולחיצה על שמירה
+   * באותו חלון שלחה את **ההגדרות של משרד אחד אל המשרד השני** —
+   * כלומר דרסה חיבור עובד של מישהו שלא נגעו בו. תשובה של בקשה ישנה
+   * שחוזרת אחרי החדשה עושה בדיוק את אותו דבר (ביקורת Codex, P1).
+   */
+  const [loaded, setLoaded] = useState<{ agencyId: string; data: DeskStatus } | null>(null);
   const [provider, setProvider] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -79,34 +88,55 @@ export function IntegrationDeskSection({
   const [done, setDone] = useState<string | null>(null);
 
   useEffect(() => {
-    if (agencyId === "") {
-      setData(null);
-      return;
-    }
+    /*
+     * הניקוי מיידי ולפני הבקשה: כל עוד הטופס הישן על המסך אפשר
+     * ללחוץ עליו, והלחיצה תישלח למשרד החדש.
+     */
+    setLoaded(null);
+    setValues({});
+    setProvider("");
     setError(null);
     setDone(null);
+    if (agencyId === "") return;
+
+    // תשובה שחוזרת אחרי שהמשרד כבר הוחלף אינה נכנסת ל-state
+    let live = true;
     apiGet<DeskStatus>(`/platform/agencies/${agencyId}/integrations`)
       .then((res) => {
-        setData(res);
+        if (!live) return;
+        setLoaded({ agencyId, data: res });
         setProvider(res.telephony.provider ?? res.providers[0]?.id ?? "");
         /*
          * הטופס נטען עם מה ששמור — חוץ מהסודות, שאינם חוזרים
          * מהשרת מלכתחילה. שדה סוד ריק פירושו "אל תיגע", ולכן
          * הוא נשאר ריק גם כשיש ערך שמור.
          */
-        const loaded: Record<string, string> = {};
+        const fields: Record<string, string> = {};
         for (const [key, value] of Object.entries(res.telephony.config)) {
-          if (typeof value === "string") loaded[key] = value;
+          if (typeof value === "string") fields[key] = value;
         }
-        setValues(loaded);
+        setValues(fields);
       })
-      .catch(() => setError("טעינת החיבורים נכשלה"));
+      .catch(() => {
+        if (live) setError("טעינת החיבורים נכשלה");
+      });
+    return () => {
+      live = false;
+    };
   }, [agencyId]);
 
+  /** מוצג רק כשמה שנטען שייך למשרד שנבחר עכשיו. */
+  const data = loaded !== null && loaded.agencyId === agencyId ? loaded.data : null;
   const current = data?.providers.find((p) => p.id === provider);
 
   async function save(): Promise<void> {
-    if (!data || !current) return;
+    /*
+     * המשרד שאליו נשלח הוא זה שהנתונים נטענו עבורו, והבדיקה כאן
+     * חוזרת גם אחרי ה-`await`: אין שום מסלול שבו טופס אחד מגיע
+     * לכרטיס של משרד אחר.
+     */
+    if (!data || !current || loaded === null || loaded.agencyId !== agencyId) return;
+    const target = loaded.agencyId;
     setBusy(true);
     setError(null);
     setDone(null);
@@ -122,14 +152,20 @@ export function IntegrationDeskSection({
           config[field.key] = value;
         }
       }
-      await apiPost(`/platform/agencies/${agencyId}/integrations/telephony`, {
+      await apiPost(`/platform/agencies/${target}/integrations/telephony`, {
         provider,
         config,
         secrets,
       });
       setDone(`נשמר אצל ${data.agencyName}. המשרד קיבל התראה, והפעולה רשומה ביומן שלו.`);
-      const fresh = await apiGet<DeskStatus>(`/platform/agencies/${agencyId}/integrations`);
-      setData(fresh);
+      const fresh = await apiGet<DeskStatus>(`/platform/agencies/${target}/integrations`);
+      setLoaded({ agencyId: target, data: fresh });
+      // הסודות שהוזנו נמחקים מהטופס אחרי שנשמרו — הם לא נקראים בחזרה
+      setValues((prev) => {
+        const next = { ...prev };
+        for (const field of current.fields) if (field.secret) delete next[field.key];
+        return next;
+      });
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
     } finally {
@@ -253,7 +289,15 @@ export function IntegrationDeskSection({
                   <input
                     id={`desk-${field.key}`}
                     type={field.secret ? "password" : "text"}
-                    autoComplete="off"
+                    /*
+                      `new-password` ולא `off` בשדה סוד, כמו במסך של
+                      המשרד עצמו: כרום מתעלם מ-`off` בשדות סיסמה
+                      וממלא לתוכם סיסמה שמורה של המשתמש — כאן זו
+                      הסיסמה הפרטית של **מנהל הפלטפורמה**, והשמירה
+                      הייתה כותבת אותה כסיסמת המרכזייה של המשרד
+                      (ביקורת Codex, P1).
+                    */
+                    autoComplete={field.secret ? "new-password" : "off"}
                     dir="ltr"
                     value={values[field.key] ?? ""}
                     onChange={(e) => setValues({ ...values, [field.key]: e.target.value })}
