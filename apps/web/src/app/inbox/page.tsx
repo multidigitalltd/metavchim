@@ -61,13 +61,43 @@ interface Message {
  * הסוכן לשלוח שוב וללקוח להגיע אותה הודעה פעמיים.
  *
  * ‎`sent` וההודעות הנכנסות אינן מקבלות תווית: מצב תקין אינו הודעה.
+ *
+ * ‎**ו„בשליחה…” שאינו נגמר הוא שקר שקט.** השליחה היא בתוך בקשה אחת
+ * ואורכת שניות. אם השרת נפל בין כתיבת השורה לקריאה לספק, או שסימון
+ * המצב אחרי שליחה מוצלחת נכשל, הרשומה נשארת `pending` — ואין תהליך
+ * רקע שסוגר אותה (ביקורת Codex). שורה כזו אינה „בדרך”: היא תקועה,
+ * ו**זמן** הוא מה שמבדיל בין השתיים.
+ *
+ * מעבר לסף היא נקראת כמו `unknown`, ובאותן מילים — כי הפעולה
+ * הנדרשת מהסוכן זהה: לבדוק לפני שליחה חוזרת. „כנראה לא יצאה” אינו
+ * „לא יצאה”, וזו אותה טעות שכבר תוקנה כאן פעמיים.
  */
-function sendStateNote(state: string | undefined): { text: string; token: string } | null {
+const STALE_PENDING_MS = 5 * 60 * 1000;
+const UNKNOWN_NOTE = {
+  text: "לא ידוע אם נשלחה — בדקו לפני שליחה חוזרת",
+  token: "--color-danger",
+} as const;
+
+function sendStateNote(
+  state: string | undefined,
+  createdAt: string,
+  now: number,
+): { text: string; token: string } | null {
   if (state === "failed") return { text: "לא נשלחה", token: "--color-danger" };
-  if (state === "unknown") {
-    return { text: "לא ידוע אם נשלחה — בדקו לפני שליחה חוזרת", token: "--color-danger" };
+  if (state === "unknown") return { ...UNKNOWN_NOTE };
+  if (state === "pending") {
+    /*
+     * ‎**כמה זמן עבר — לא באיזו שעה.** שתי נקודות בזמן מוחלט, והפרש
+     * ביניהן. `createdAt` הוא ISO-8601 עם היסט, ולכן הפרסור אינו
+     * תלוי באזור הזמן של המכשיר; רק **השעון** שלו נקרא, ושעון נכון
+     * הוא נכון בכל אזור. אין כאן שעת קיר, אין „היום”, ואין גבול יום
+     * ישראלי — הפיכת ההפרש לשעון ישראל לא הייתה משנה בו דבר.
+     */
+    const at = Date.parse(createdAt); /* שעון-המכשיר-במכוון: הפרש זמנים מוחלט */
+    // חותמת שאינה נקראת אינה סיבה להסתיר אזהרה
+    if (Number.isNaN(at) || at <= now - STALE_PENDING_MS) return { ...UNKNOWN_NOTE };
+    return { text: "בשליחה…", token: "--color-text-muted" };
   }
-  if (state === "pending") return { text: "בשליחה…", token: "--color-text-muted" };
   return null;
 }
 
@@ -265,7 +295,11 @@ export default function InboxPage() {
                               {message.direction === "in" ? "הלקוח" : "המשרד"} ·{" "}
                               {formatDateTime(message.createdAt)}
                               {(() => {
-                                const note = sendStateNote(message.sendState);
+                                const note = sendStateNote(
+                                  message.sendState,
+                                  message.createdAt,
+                                  Date.now(),
+                                );
                                 return note === null ? null : (
                                   <>
                                     {" · "}

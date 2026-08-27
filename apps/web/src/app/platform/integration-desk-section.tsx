@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -87,7 +87,22 @@ export function IntegrationDeskSection({
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
+  /*
+   * ‎**הבחירה החיה, לקריאה אחרי `await`.**
+   *
+   * דגל ה-`live` של האפקט מכסה את הטעינה בלבד; המשך של `save`
+   * שרץ אחרי החלפת משרד אינו מכוסה בו כלל, והוא כותב `setLoaded`
+   * של המשרד הישן על זה שכבר נטען. מאחר שהתצוגה דורשת התאמה בין
+   * המזהה שנטען לנבחר, המשרד החדש נשאר **בלי טופס** עד שייבחר
+   * מחדש, וההודעה „נשמר אצל…” נושאת את השם הקודם (ביקורת Codex).
+   *
+   * ‎`ref` ולא `state`: הקריאה נעשית אחרי `await` בתוך סגור שנוצר
+   * ברינדור קודם, ולכן ערך מ-`state` שם הוא הישן מעצם הגדרתו.
+   */
+  const selected = useRef(agencyId);
+
   useEffect(() => {
+    selected.current = agencyId;
     /*
      * הניקוי מיידי ולפני הבקשה: כל עוד הטופס הישן על המסך אפשר
      * ללחוץ עליו, והלחיצה תישלח למשרד החדש.
@@ -157,8 +172,14 @@ export function IntegrationDeskSection({
         config,
         secrets,
       });
+      /*
+       * השמירה עצמה הושלמה אצל `target` בין אם המסך עבר הלאה ובין
+       * אם לא — אבל מכאן והלאה אין לכתוב דבר למסך של משרד אחר.
+       */
+      if (selected.current !== target) return;
       setDone(`נשמר אצל ${data.agencyName}. המשרד קיבל התראה, והפעולה רשומה ביומן שלו.`);
       const fresh = await apiGet<DeskStatus>(`/platform/agencies/${target}/integrations`);
+      if (selected.current !== target) return;
       setLoaded({ agencyId: target, data: fresh });
       // הסודות שהוזנו נמחקים מהטופס אחרי שנשמרו — הם לא נקראים בחזרה
       setValues((prev) => {
@@ -167,8 +188,10 @@ export function IntegrationDeskSection({
         return next;
       });
     } catch (err: unknown) {
+      if (selected.current !== target) return;
       setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
     } finally {
+      // הדגל משותף למסך ולא למשרד — שחרורו תמיד, אחרת הטופס החדש נעול
       setBusy(false);
     }
   }
