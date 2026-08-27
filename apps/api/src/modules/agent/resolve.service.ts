@@ -769,6 +769,14 @@ const ENTITY_LOOKUP: Record<
       kind: "property",
     },
   },
+  send_email: {
+    key: "buyerPhrase",
+    idKey: "buyerId",
+    label: "לאיזה לקוח לכתוב",
+    kind: "buyer",
+    // הודעה יוצאת ללקוח — בחירה מפורשת תמיד, כמו הצעה והסכם
+    alwaysChoose: true,
+  },
 };
 
 /**

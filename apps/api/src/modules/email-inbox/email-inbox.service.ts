@@ -19,6 +19,7 @@ import { EmailService } from "../../core/email.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
+import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import { ContactsService } from "../contacts/contacts.service";
 
 /** שורת תיבה — שיחה אחת עם לקוח, בתמצית. */
@@ -91,6 +92,7 @@ export class EmailInboxService {
     private readonly platformSettings: PlatformSettingsService,
     private readonly audit: AuditService,
     private readonly storage: StorageService,
+    private readonly waSend: WhatsAppSendService,
   ) {}
 
   /** כתובת ה-Inbound והסוד — הגדרות הפלטפורמה קודם, סביבה אחריהן. */
@@ -176,10 +178,8 @@ export class EmailInboxService {
     const { tenantId, contactId } = mapping;
     const stored = await this.prisma.withExplicitTenant(tenantId, async (tx) => {
       // הכרטיס עשוי להימחק אחרי שהטוקן הונפק — תשובה יתומה מדולגת
-      const contact = await tx.contact.findFirst({
-        where: { id: contactId, tenantId },
-        select: { id: true },
-      });
+      // השם דרך ContactsService — מוצפן במסד, ונחוץ להתראה בוואטסאפ
+      const contact = await this.contacts.getById(tx, contactId);
       if (contact === null) return null;
 
       const id = ulid();
@@ -254,7 +254,11 @@ export class EmailInboxService {
               : {}),
         },
       });
-      return id;
+      return {
+        messageId: id,
+        notifyUserId: buyer?.ownerUserId ?? lead?.assignedToUserId ?? null,
+        customerName: contact.name,
+      };
     });
 
     /*
@@ -263,18 +267,18 @@ export class EmailInboxService {
      * כפולה כבר הוכרעה בפנים (null) — Webhook חוזר לא כותב קובץ
      * פעמיים; כשל בקובץ אחד אינו מפיל את השאר, והטקסט כבר בתיבה.
      */
-    if (stored === null || incoming.length === 0) return;
+    if (stored === null) return;
     for (const attachment of incoming) {
       try {
         const attachmentId = ulid();
-        const s3Key = `tenants/${tenantId}/email-attachments/${stored}/${attachmentId}`;
+        const s3Key = `tenants/${tenantId}/email-attachments/${stored.messageId}/${attachmentId}`;
         await this.storage.put(s3Key, attachment.content, attachment.contentType);
         await this.prisma.withExplicitTenant(tenantId, (tx) =>
           tx.emailAttachment.create({
             data: {
               id: attachmentId,
               tenantId,
-              messageId: stored,
+              messageId: stored.messageId,
               name: attachment.name,
               contentType: attachment.contentType,
               kind: attachment.kind,
@@ -286,6 +290,50 @@ export class EmailInboxService {
       } catch (error: unknown) {
         this.logger.error(`שמירת קובץ מצורף נכשלה: ${String(error)}`);
       }
+    }
+
+    await this.notifyAgentOnWhatsApp(tenantId, stored.notifyUserId, stored.customerName);
+  }
+
+  /**
+   * "לקוח ענה במייל" — גם בוואטסאפ, לסוכן שמנוי עליו (`whatsappAccess`).
+   *
+   * ‏best-effort במופגן: ההתראה במערכת והדחיפה כבר יצאו, וזו תוספת.
+   * טקסט חופשי עובר רק בתוך חלון 24 השעות של Meta (סוכן שמדבר עם
+   * הסוכן האישי — החלון פתוח); מחוצה לו מנסים תבנית מאושרת, אם
+   * הוגדרה בפלטפורמה. בלי — כלום, בשקט.
+   *
+   * ההודעה נושאת **את שם הלקוח בלבד**, לא את תוכן המייל: וואטסאפ
+   * הוא ערוץ צד-שלישי, ותוכן ההתכתבות של הלקוח נשאר במערכת.
+   */
+  private async notifyAgentOnWhatsApp(
+    tenantId: string,
+    userId: string | null,
+    customerName: string,
+  ): Promise<void> {
+    // בלי סוכן אחראי אין נמען — ההתראה המשרדית במערכת מכסה את זה
+    if (userId === null) return;
+    try {
+      const user = await this.prisma.user.findFirst({
+        where: { id: userId, tenantId, isActive: true },
+        select: { phone: true, whatsappAccess: true },
+      });
+      if (user === null || !user.whatsappAccess || !user.phone) return;
+
+      const sent = await this.waSend.sendText(
+        user.phone,
+        `📧 תשובה חדשה במייל מ${customerName} — היכנסו לתיבת המייל במערכת כדי לקרוא ולהשיב.`,
+      );
+      if (sent) return;
+
+      const template = await this.platformSettings.get("whatsappEmailReplyTemplate");
+      const lang =
+        (await this.platformSettings.get("whatsappEmailReplyTemplateLang")) ?? "he";
+      if (template !== undefined && template !== "") {
+        await this.waSend.sendTemplate(user.phone, template, lang, [customerName]);
+      }
+    } catch (error: unknown) {
+      this.logger.warn(`התראת וואטסאפ על תשובת מייל נכשלה: ${String(error)}`);
     }
   }
 

@@ -71,6 +71,13 @@ export type PlatformSettingKey =
    */
   | "whatsappIntakeTemplate"
   | "whatsappIntakeTemplateLang"
+  /**
+   * התראת "לקוח ענה במייל" לסוכן בוואטסאפ, מחוץ לחלון 24 השעות:
+   * טקסט חופשי נדחה שם, ורק תבנית מאושרת עוברת. ריק = ההתראה
+   * במערכת ובדחיפה בלבד — התנהגות תקינה, לא תקלה.
+   */
+  | "whatsappEmailReplyTemplate"
+  | "whatsappEmailReplyTemplateLang"
   | "loginOtpEnabled"
   | "googleClientId"
   | "googleClientSecret"

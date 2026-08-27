@@ -263,6 +263,9 @@ const UpdateSettingsSchema = z
     whatsappAccessToken: z.union([z.string().trim().min(20).max(500), z.literal("")]).optional(),
     // מזהה ולא כמות — ספרות בלבד, אפסים מובילים משמעותיים
     whatsappPhoneNumberId: z.union([z.string().trim().regex(/^\d{5,30}$/u), z.literal("")]).optional(),
+    /** תבנית "לקוח ענה במייל" לסוכן — מחוץ לחלון 24 השעות של Meta */
+    whatsappEmailReplyTemplate: z.union([z.string().trim().max(200), z.literal("")]).optional(),
+    whatsappEmailReplyTemplateLang: z.union([z.string().trim().max(10), z.literal("")]).optional(),
     /** המענה למספר לא רשום — ריק = הנוסח המובנה, לא שתיקה */
     whatsappProspectReply: z.union([z.string().trim().min(10).max(2000), z.literal("")]).optional(),
     /*
