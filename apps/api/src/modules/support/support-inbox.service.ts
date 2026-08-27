@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   EMAIL_ATTACHMENT_MAX_BYTES,
@@ -88,9 +94,16 @@ export class SupportInboxService {
   /**
    * קליטת פנייה נכנסת.
    *
-   * לעולם אינה זורקת החוצה: הנתיב הציבורי מחזיר תמיד 200, כי ספק
-   * הדואר חוזר על הודעה שלא נענתה וניסיון חוזר על פנייה שכבר נקלטה
-   * הוא רעש. הדה-דופליקציה נשענת על `provider_message_id`.
+   * ‎**זורקת בדיוק במקרה אחד: קובץ שלא נשמר.**
+   *
+   * כל שאר הכשלים נבלעים, כי ספק הדואר חוזר על הודעה שלא נענתה
+   * וניסיון חוזר על פנייה שכבר נקלטה הוא רעש; הדה-דופליקציה נשענת
+   * על `provider_message_id`.
+   *
+   * קובץ הוא היוצא מן הכלל: 200 אומר לספק „התקבל”, ואז אין לו סיבה
+   * למסור שוב — והצילום שהלקוח צירף אבד לתמיד בעוד הפנייה נראית
+   * שלמה (ביקורת Codex). המסירה החוזרת בטוחה עכשיו: ההודעה מזוהה
+   * ככפילות, והקבצים ממשיכים מהמקום שנעצר לפי `(הודעה, מקום)`.
    */
   async processInbound(payload: InboundEmailPayload): Promise<void> {
     /*
@@ -153,26 +166,73 @@ export class SupportInboxService {
      * בדיוק את המצב שהניסיון החוזר בא לתקן: פנייה שיושבת בתחתית
      * הרשימה ואיש אינו רואה אותה (ביקורת Codex).
      *
-     * מה שכן מדולג הוא הקבצים בלבד: הם כבר נשמרו בסבב הקודם תחת
-     * מזהה ההודעה **שנוצר אז**, ושמירה חוזרת תחת מזהה חדש הייתה
-     * מכפילה אותם.
+     * ‎**והקבצים אינם מדולגים במסירה חוזרת — הם מושלמים.**
+     *
+     * הם היו מדולגים לגמרי, וזו הייתה ההזדמנות האחרונה להשלים אותם:
+     * ההודעה נראתה שלמה על השולחן, והצילום שהלקוח צירף פשוט לא היה
+     * שם (ביקורת Codex). עכשיו המזהים דטרמיניסטיים — `(הודעה, מקום)`
+     * ולא ULID אקראי — ולכן מסירה חוזרת ממשיכה מהמקום שנעצר במקום
+     * להכפיל או לוותר.
      *
      * הקבצים נשמרים **אחרי** ההודעה ולא בטרנזקציה אחת איתה: העלאה
      * לאחסון היא קריאת רשת, וטרנזקציה שמחזיקה חיבור למסד לאורכה היא
-     * בדיוק מה שנועל את המסד כשספק האחסון מאט. קובץ שנכשל מדולג —
-     * הפנייה עצמה כבר נקלטה, וזה מה שחשוב.
+     * בדיוק מה שנועל את המסד כשספק האחסון מאט.
      */
-    if (!duplicate) {
-      for (const attachment of incoming) {
-        await this.storeAttachment(thread.id, thread.tenantId, messageId, attachment);
-      }
-    }
+    /*
+     * ‎**החיפוש מותנה במזהה קיים, ולא רק ב„כפילות”.**
+     *
+     * ‎`providerMessageId` יכול להיות `null` (פנייה בלי מזהה), ואז
+     * ‎`findFirst({ providerMessageId: null })` מוצא **הודעה כלשהי**
+     * בלי מזהה — כלומר תולה את הקבצים בפנייה של אדם אחר. בפועל
+     * ‎`P2002` אינו יכול לקרות על `null`, כי Postgres מתייחס ל-NULL
+     * כערכים שונים באינדקס ייחודי; אבל תנאי שנשען על נימוק במקום
+     * על בדיקה הוא בדיוק הצורה שנשברת כשמישהו משנה את האינדקס.
+     */
+    const providerMessageId = inboundProviderMessageId(payload);
+    const existingId =
+      !duplicate
+        ? messageId
+        : providerMessageId === null
+          ? null
+          : ((
+              await this.prisma.supportMessage.findFirst({
+                where: { providerMessageId },
+                select: { id: true },
+              })
+            )?.id ?? null);
+    const pending =
+      existingId === null
+        ? 0
+        : await this.storeAttachments(
+            thread.id,
+            thread.tenantId,
+            existingId,
+            incoming,
+            duplicate,
+          );
 
     await this.prisma.supportThread.update({
       where: { id: thread.id },
       // פנייה חדשה פותחת מחדש שרשור סגור — הפונה חזר, והוא מחכה
       data: { lastMessageAt: new Date(), readAt: null, status: "open" },
     });
+
+    /*
+     * ‎**קובץ שלא נשמר מבקש מסירה חוזרת — אחרי שהשרשור עודכן.**
+     *
+     * הכשל נבלע ב-200, ולכן לספק לא הייתה סיבה למסור שוב והצילום
+     * אבד לתמיד (ביקורת Codex). זריקה **כאן** ולא במקום הכשל עצמו:
+     * לפני העדכון היא הייתה משאירה את הפנייה בשרשור סגור־ונקרא,
+     * כלומר מנציחה בדיוק את המצב שהמסירה החוזרת באה לתקן.
+     *
+     * המסירה החוזרת בטוחה: ההודעה מזוהה ככפילות לפי מזהה הספק,
+     * והקבצים ממשיכים מהמקום שנעצר.
+     */
+    if (pending > 0) {
+      throw new ServiceUnavailableException(
+        `שמירת ${pending} קבצים בפניית התמיכה נכשלה — נדרשת מסירה חוזרת`,
+      );
+    }
     this.logger.log(`פניית תמיכה נקלטה: ${thread.id}`);
   }
 
@@ -187,37 +247,91 @@ export class SupportInboxService {
    * המחיקה עצמה נכשלת בשקט: כאן כבר טיפלנו בכשל אחד, ואי אפשר
    * לתלות בו את קליטת הפנייה. מה שנשאר מדווח ביומן בשמו.
    */
-  private async storeAttachment(
+  /**
+   * ‎**הקבצים של הודעה אחת — ומה שלא הושלם, מושלם.**
+   *
+   * מחזיר כמה קבצים נותרו לא-מושלמים, כדי שהקורא יוכל לבקש מסירה
+   * חוזרת. שקט כאן פירושו שהצילום שהלקוח צירף נעלם והפנייה נראית
+   * שלמה.
+   *
+   * ‎**השורה קודם, ולכן אין אובייקט בלי שורה.** זו התכונה שסוגרת את
+   * חור המחיקה מהשורש: מחיקת לקוח ומחיקת משרד עוברות על **שורות**,
+   * וכאן אין מפתח שנכתב בלי שורה שתמצא אותו. אין צורך בפיצוי, ולכן
+   * אין מה שימחק בטעות קובץ חי.
+   *
+   * ‎**ואין חכירה ואין השתלטות.** שתיהן נוסו בתיבת הלקוחות וילדו שתי
+   * תקלות: תיאור של איך הקריאה **התחילה** במקום אם הבעלות עדיין
+   * בתוקף, ושחרור תביעה שפגה שמחק אובייקט שכותב אחר כבר השלים. המפתח
+   * דטרמיניסטי, ולכן העלאה חוזרת של אותם בתים לאותו מפתח היא
+   * **אידמפוטנטית** — אין מה לתאם ואין למי לתת בעלות.
+   *
+   * ‎**וה-`threadId` במפתח, לא ה-`tenantId`.** הטבלה יושבת ברמת
+   * הפלטפורמה: פנייה יכולה להגיע גם ממי שאינו לקוח של אף משרד, ואז
+   * אין דייר בכלל. השרשור הוא הזהות שקיימת תמיד.
+   */
+  private async storeAttachments(
     threadId: string,
     tenantId: string | null,
     messageId: string,
-    attachment: { kind: string; name: string; contentType: string; content: Buffer },
-  ): Promise<void> {
-    const attachmentId = ulid();
-    const s3Key = `support/${threadId}/${messageId}/${attachmentId}`;
-    let uploaded = false;
-    try {
-      await this.storage.put(s3Key, attachment.content, attachment.contentType, tenantId);
-      uploaded = true;
-      await this.prisma.supportAttachment.create({
-        data: {
-          id: attachmentId,
-          messageId,
-          kind: attachment.kind,
-          name: attachment.name,
-          contentType: attachment.contentType,
-          sizeBytes: attachment.content.length,
-          s3Key,
-        },
+    attachments: { kind: string; name: string; contentType: string; content: Buffer }[],
+    resume: boolean,
+  ): Promise<number> {
+    /*
+     * ‎**„נתבע” אינו „הועלה”**, ולכן הדילוג הוא על מה ש**הושלם**
+     * בלבד: שורה קיימת ולא-מושלמת היא בדיוק מה שבאנו להשלים.
+     */
+    const completed = new Set<number>();
+    if (resume) {
+      const rows = await this.prisma.supportAttachment.findMany({
+        where: { messageId, uploadedAt: { not: null } },
+        select: { ordinal: true },
       });
-    } catch (error) {
-      this.logger.error(`שמירת קובץ בפניית תמיכה נכשלה: ${String(error)}`);
-      if (uploaded) {
-        await this.storage
-          .delete(s3Key)
-          .catch(() => this.logger.error(`ניקוי קובץ תמיכה שנשאר באחסון נכשל: ${s3Key}`));
+      for (const row of rows) {
+        if (row.ordinal !== null) completed.add(row.ordinal);
+      }
+      this.logger.log(
+        `מסירה חוזרת של פניית תמיכה — ${completed.size} מתוך ${attachments.length} קבצים הושלמו`,
+      );
+    }
+
+    let pending = 0;
+    for (const [ordinal, attachment] of attachments.entries()) {
+      if (completed.has(ordinal)) continue;
+      const s3Key = `support/${threadId}/${messageId}/${ordinal}`;
+      try {
+        // ‏`skipDuplicates` ללא `continue`: התביעה כבר קיימת מהניסיון
+        // הקודם, וההעלאה שאחריה היא מה שנשאר לעשות
+        await this.prisma.supportAttachment.createMany({
+          data: [
+            {
+              id: ulid(),
+              messageId,
+              ordinal,
+              kind: attachment.kind,
+              name: attachment.name,
+              contentType: attachment.contentType,
+              sizeBytes: attachment.content.length,
+              s3Key,
+            },
+          ],
+          skipDuplicates: true,
+        });
+        await this.storage.put(s3Key, attachment.content, attachment.contentType, tenantId);
+        await this.prisma.supportAttachment.updateMany({
+          where: { messageId, ordinal },
+          data: { uploadedAt: new Date() },
+        });
+      } catch (error: unknown) {
+        /*
+         * ‎**ולא מוחקים דבר.** השורה נשארת לא-מושלמת, והמסירה החוזרת
+         * הבאה תעלה שוב לאותו מפתח ותסמן. מחיקה כאן היא ההזדמנות
+         * היחידה להשמיד קובץ של לקוח, ואין לה תמורה.
+         */
+        pending += 1;
+        this.logger.error(`שמירת קובץ בפניית תמיכה נכשלה: ${String(error)}`);
       }
     }
+    return pending;
   }
 
   /**
@@ -375,7 +489,16 @@ export class SupportInboxService {
           orderBy: { createdAt: "desc" },
           take: 200,
           include: {
-            attachments: { select: { id: true, name: true, kind: true, sizeBytes: true } },
+            /*
+             * ‎**רק מה שהועלה.** השורה נכתבת לפני ההעלאה, ולכן
+             * צירוף שטרם הושלם הוא קישור שבור: הוא היה מופיע
+             * בשרשור עם שם וגודל, וההורדה שלו נכשלת. אותו כלל
+             * בדיוק כמו בתיבת הלקוחות.
+             */
+            attachments: {
+              where: { uploadedAt: { not: null } },
+              select: { id: true, name: true, kind: true, sizeBytes: true },
+            },
           },
         },
       },
@@ -540,9 +663,12 @@ export class SupportInboxService {
         .catch(() => this.logger.error(`אישור שליחת תשובת תמיכה נכשל: ${messageId}`));
     }
 
-    for (const attachment of attachments) {
-      await this.storeAttachment(threadId, thread.tenantId, messageId, attachment);
-    }
+    /*
+     * ‎`resume: false` — התשובה נכתבת פעם אחת ואין מי שימסור אותה
+     * שוב, ולכן אין תביעות קודמות להשלים. כשל כאן מדווח ביומן
+     * ונשאר כשורה לא-מושלמת, שאינה מוצגת בשרשור.
+     */
+    await this.storeAttachments(threadId, thread.tenantId, messageId, attachments, false);
 
     await this.prisma.supportThread.update({
       where: { id: threadId },
@@ -577,8 +703,15 @@ export class SupportInboxService {
     name: string;
     kind: string;
   }> {
-    const row = await this.prisma.supportAttachment.findUnique({
-      where: { id: attachmentId },
+    /*
+     * ‎**אותו תנאי כמו ברשימה.** רשומה בלי `uploadedAt` היא תביעה על
+     * מקום שטרם הועלה, ולכן ההורדה שלה נכשלת מול האחסון בשגיאה שאינה
+     * אומרת דבר. הרשימה כבר סיננה אותה — והשער לא, כלומר אותה צורה
+     * בדיוק שהארכיון נשבר בה פעמיים היום: הרשימה והשער שמכריעים
+     * בכללים שונים.
+     */
+    const row = await this.prisma.supportAttachment.findFirst({
+      where: { id: attachmentId, uploadedAt: { not: null } },
       select: { s3Key: true, contentType: true, name: true, kind: true },
     });
     if (row === null) throw new NotFoundException("הקובץ לא נמצא");

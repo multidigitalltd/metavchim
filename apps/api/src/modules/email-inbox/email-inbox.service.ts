@@ -598,7 +598,12 @@ export class EmailInboxService {
     });
   }
 
-  /** הזרמת קובץ מצורף — דרך ה-API, לא ישירות מהאחסון הפנימי. */
+  /**
+   * הזרמת קובץ מצורף — דרך ה-API, לא ישירות מהאחסון הפנימי.
+   *
+   * ‎`uploadedAt` נדרש כאן כמו ברשימה: תביעה שטרם הועלתה אינה קובץ,
+   * והורדתה נכשלת מול האחסון בשגיאה שאינה אומרת דבר.
+   */
   async attachmentRaw(attachmentId: string): Promise<{
     body: NodeJS.ReadableStream;
     contentType: string;
@@ -609,7 +614,7 @@ export class EmailInboxService {
     const tenantId = TenantContext.current().tenantId;
     const row = await this.prisma.withTenant((tx) =>
       tx.emailAttachment.findFirst({
-        where: { id: attachmentId, tenantId },
+        where: { id: attachmentId, tenantId, uploadedAt: { not: null } },
         select: { s3Key: true, contentType: true, sizeBytes: true, name: true, kind: true },
       }),
     );
