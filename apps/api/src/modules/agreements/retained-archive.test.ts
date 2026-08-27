@@ -110,6 +110,53 @@ describe("ארכיון המסמכים שנשמרו", () => {
    * הכינוי נכנס דרך `Prisma.raw` — בלי פרמטר ובלי בריחה. הטיפוס הוא
    * מה שמונע ערך אחר, ולא משמעת הקורא.
    */
+  /*
+   * ‎**הרשימה והשער חייבים להסכים.** הרשימה הורחבה ליתומים והשער
+   * נשאר על „נותק” בלבד — ארכיון שמציג שורות שמנהל המשרד אינו יכול
+   * לפתוח, כי `assertContactAccess` נכשלת עליהן בהגדרה (ביקורת
+   * Codex). שני תנאים שאמורים להסכים, בשני מקומות, הם הצורה
+   * שנפרדת מעצמה; לכן הכרעה אחת לשניהם.
+   */
+  it("שער ההורדה מכריע באותו כלל כמו הרשימה", () => {
+    for (const [name, source, fn] of [
+      ["הסכמים", AGREEMENTS, "  async document("],
+      ["סריקות", DOCUMENTS, "  async getRaw("],
+    ] as const) {
+      const body = method(source, fn);
+      expect(body, `${name}: השער אינו עובר דרך ההכרעה המשותפת`).toContain(
+        "await contactGateFor(tx, tenantId,",
+      );
+      expect(body, `${name}: נשאר תנאי „נותק” ישיר`).not.toMatch(
+        /if \((?:row|found)\.contactId === null\)/u,
+      );
+    }
+  });
+
+  /*
+   * ‎**גם המחיקה.** אין נתיב מחיקה לשורת ארכיון — היא נשמרת מטעמים
+   * משפטיים — אבל הענף בדק „נותק” בלבד, ולכן סריקה של כרטיס יתום
+   * נפלה על `assertContactAccess` וקיבלה „איש קשר לא נמצא”: אותה
+   * דחייה, בהודעה שאינה נכונה. אותה הכרעה, ובלי „הלקוח נמחק” על
+   * לקוח שלא נמחק.
+   */
+  it("גם מסלול המחיקה מכריע באותו כלל, ואומר אמת", () => {
+    const body = method(DOCUMENTS, "  async remove(");
+    expect(body).toContain("await contactGateFor(tx, tenantId,");
+    expect(body).not.toMatch(/if \(row\.contactId === null\)/u);
+    expect(DOCUMENTS).not.toContain("הלקוח נמחק מהמערכת");
+  });
+
+  /*
+   * הענף „לקוח” מחזיר את המזהה, ולכן אין `!` אצל הקורא: „יש כרטיס
+   * לבדוק מולו” הוא בדיוק המידע שהמזהה קיים.
+   */
+  it("ההכרעה מחזירה את המזהה ולא דורשת אימות-לא-null מהקורא", () => {
+    const gate = method(OWNERSHIP, "export async function contactGateFor(");
+    expect(gate).toContain('{ mode: "contact"; contactId: string }');
+    expect(AGREEMENTS).not.toMatch(/assertContactAccess\(tx, tenantId, row\.contactId!\)/u);
+    expect(DOCUMENTS).not.toMatch(/assertContactAccess\(tx, tenantId, found\.contactId!\)/u);
+  });
+
   it("הכינוי מוגבל באיחוד סגור ולא ב-string", () => {
     expect(OWNERSHIP).toMatch(/type OrphanAlias = "a" \| "c" \| "d";/u);
     expect(OWNERSHIP).toMatch(/function orphanContactCondition\(alias: OrphanAlias\)/u);

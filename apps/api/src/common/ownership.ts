@@ -284,6 +284,34 @@ export async function isOrphanContact(
   return buyer === null && lead === null && property === null;
 }
 
+/**
+ * ‎**מול מי נבדקת הבעלות — או שהשורה שייכת לארכיון המשרד.**
+ *
+ * מסמך שנשמר מטעמים משפטיים מגיע לארכיון בשתי דרכים: מחיקת לקוח
+ * מנתקת אותו במפורש (`contactId = null`), **או** שהכרטיס שלו נשאר
+ * במקומו ואיבד את כל עוגני הגישה. שתי הדרכים מובילות לאותו מצב —
+ * אין כרטיס שאפשר לבדוק מולו בעלות — ולכן שתיהן צריכות את אותו שער.
+ *
+ * ‎**וזה חייב להיות אותו כלל שהרשימה משתמשת בו.** הרשימה הורחבה
+ * ליתומים, והשער נשאר על „נותק” בלבד; התוצאה הייתה ארכיון שמציג
+ * שורות שמנהל המשרד **אינו יכול לפתוח** — assertContactAccess נכשלת
+ * עליהן בהגדרה (ביקורת Codex). שני תנאים שאמורים להסכים, בשני
+ * מקומות, הם בדיוק הצורה שנפרדת מעצמה.
+ *
+ * מחזיר את המזהה בענף „לקוח” כדי שהקורא לא יצטרך `!`: „יש כרטיס
+ * לבדוק מולו” הוא בדיוק המידע שהמזהה קיים.
+ */
+export async function contactGateFor(
+  tx: TenantTx,
+  tenantId: string,
+  contactId: string | null,
+): Promise<{ mode: "archive" } | { mode: "contact"; contactId: string }> {
+  if (contactId === null) return { mode: "archive" };
+  return (await isOrphanContact(tx, tenantId, contactId))
+    ? { mode: "archive" }
+    : { mode: "contact", contactId };
+}
+
 export async function visibleContactIds(
   tx: TenantTx,
   tenantId: string,

@@ -10,6 +10,7 @@ import { ulid } from "ulid";
 import { AGREEMENT_KIND_LABELS, jerusalemDayStart, pendingAgreementRank, pendingAgreementState, REQUIRED_PLACEHOLDERS, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, type PendingAgreementState, whatsappLink } from "@metavchim/shared";
 import {
   assertContactAccess,
+  contactGateFor,
   orphanContactCondition,
   visibleContactIds,
 } from "../../common/ownership";
@@ -705,12 +706,11 @@ export class AgreementsService {
      * ולכן הוא נפתח בהרשאת ניהול בלבד. זה גם הנתיב שחייב לעבוד:
      * מסמך משפטי שנשמר ואי אפשר לפתוח אותו הוא מסמך שאבד.
      */
-    if (row.contactId === null) {
-      if (!TenantContext.current().capabilities.has("settings.manage")) {
-        throw new ForbiddenException("ההסכם שמור בארכיון המשרד — נדרשת הרשאת ניהול");
-      }
-    } else {
-      await assertContactAccess(tx, tenantId, row.contactId);
+    const gate = await contactGateFor(tx, tenantId, row.contactId);
+    if (gate.mode === "contact") {
+      await assertContactAccess(tx, tenantId, gate.contactId);
+    } else if (!TenantContext.current().capabilities.has("settings.manage")) {
+      throw new ForbiddenException("ההסכם שמור בארכיון המשרד — נדרשת הרשאת ניהול");
     }
 
     const tenant = await this.prisma.tenant.findUnique({

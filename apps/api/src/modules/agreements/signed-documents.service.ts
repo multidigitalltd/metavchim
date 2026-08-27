@@ -12,7 +12,11 @@ import {
   type DocumentKind,
 } from "@metavchim/shared";
 import { lockContact, lockProperty } from "../../common/locks";
-import { assertContactAccess, orphanContactCondition } from "../../common/ownership";
+import {
+  assertContactAccess,
+  contactGateFor,
+  orphanContactCondition,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -515,17 +519,18 @@ export class SignedDocumentsService {
        * ובלי הבדיקה סוכן שמנחש מזהה היה מוריד מסמך חתום של לקוח
        * שאינו שלו.
        */
-      if (found.contactId === null) {
+      const gate = await contactGateFor(tx, tenantId, found.contactId);
+      if (gate.mode === "contact") {
+        await assertContactAccess(tx, tenantId, gate.contactId);
+      } else if (opts.retained !== true) {
         /*
-         * שורה מנותקת שייכת לארכיון המשרד. היא נגישה רק דרך הנתיב
-         * שגדור ב-`settings.manage`; מסלול הלקוח הרגיל אינו מגיע
-         * אליה, כי אין לקוח שמולו לבדוק.
+         * שורה של הארכיון — מנותקת, או שכרטיסה איבד את כל עוגני
+         * הגישה — נגישה רק דרך הנתיב שגדור ב-`settings.manage`.
+         * מסלול הלקוח הרגיל אינו מגיע אליה, כי אין לקוח שמולו
+         * לבדוק. הענף היה על „נותק” בלבד, ולכן סריקה של כרטיס יתום
+         * הופיעה בארכיון ולא נפתחה (ביקורת Codex).
          */
-        if (opts.retained !== true) {
-          throw new NotFoundException("המסמך אינו משויך ללקוח — הלקוח נמחק מהמערכת");
-        }
-      } else {
-        await assertContactAccess(tx, tenantId, found.contactId);
+        throw new NotFoundException("המסמך שמור בארכיון המשרד ואינו משויך לכרטיס לקוח");
       }
       return found;
     });
@@ -627,15 +632,24 @@ export class SignedDocumentsService {
         select: { s3Key: true, contactId: true, kind: true, fileHash: true },
       });
       if (!row) throw new NotFoundException("מסמך לא נמצא");
-      if (row.contactId === null) {
-        throw new NotFoundException("המסמך אינו משויך ללקוח — הלקוח נמחק מהמערכת");
+      /*
+       * ‎**מחיקה מכרטיס לקוח, ולארכיון אין כרטיס.** אין נתיב מחיקה
+       * לשורה בארכיון — היא נשמרת מטעמים משפטיים — ולכן הענף הזה
+       * דוחה. הוא בדק „נותק” בלבד, ולכן סריקה של כרטיס **יתום**
+       * נפלה במקום זאת על `assertContactAccess` וקיבלה „איש קשר לא
+       * נמצא”: אותה דחייה, בהודעה שאינה נכונה.
+       */
+      const gate = await contactGateFor(tx, tenantId, row.contactId);
+      if (gate.mode === "archive") {
+        throw new NotFoundException("המסמך שמור בארכיון המשרד ואינו משויך לכרטיס לקוח");
       }
-      await assertContactAccess(tx, tenantId, row.contactId);
+      await assertContactAccess(tx, tenantId, gate.contactId);
       await tx.signedDocument.delete({ where: { id } });
       await this.audit.record(tx, {
         action: "agreement.document_delete",
         entityType: "contact",
-        entityId: row.contactId,
+        // מהענף שהוכרע, ולא מהשורה: כאן ידוע שיש כרטיס לבדוק מולו
+        entityId: gate.contactId,
         metadata: {
           documentId: id,
           kind: row.kind,
