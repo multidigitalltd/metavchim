@@ -98,8 +98,8 @@ export const apiPut = <T>(path: string, data: unknown) =>
  * שהוקלד, מסלול יעד), והוא נשלח בגוף ולא ב-query כדי שלא ייכנס
  * ליומני שרת ולהיסטוריית דפדפן.
  */
-export const apiDelete = (path: string, data?: unknown) =>
-  api<void>(path, {
+export const apiDelete = <T = void>(path: string, data?: unknown) =>
+  api<T>(path, {
     method: "DELETE",
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
