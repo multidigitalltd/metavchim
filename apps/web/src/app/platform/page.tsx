@@ -22,6 +22,7 @@ import { NumberRentalsSection } from "./number-rentals-section";
 import { AgentUsageSection } from "./agent-usage-section";
 import { PlatformSettingsSection } from "./platform-settings-section";
 import { LegalDocsSection } from "./legal-docs-section";
+import { IntegrationDeskSection } from "./integration-desk-section";
 import { TelephonyWebhooksSection } from "./telephony-webhooks-section";
 import { CreditEconomySection } from "./credit-economy-section";
 import { SystemUpdateSection } from "./system-update-section";
@@ -378,6 +379,7 @@ const JUMP_LINKS: readonly (readonly [string, string])[] = [
   ["lead-prices-heading", "תמחור לידים"],
   ["payments-heading", "תשלומים"],
   ["platform-settings-heading", "חיבורי המערכת"],
+  ["integration-desk-heading", "שולחן החיבורים"],
   ["legal-heading", "מסמכים משפטיים"],
   // ישירות אל כרטיס Google ולא אל כותרת הסעיף: זה הקיצור שבאמת
   // מחפשים, והוא חייב לנחות על השדות עצמם
@@ -683,6 +685,12 @@ export default function PlatformPage() {
         כלום", וזו הרשימה שאומרת אם הוא בכלל פונה אלינו.
       */}
       <TelephonyWebhooksSection />
+
+      {/*
+        צמוד ליומן הוובהוקים: שם רואים שהמרכזייה של משרד אינה פונה
+        אלינו, וכאן מתקנים לו את זה — בלי להיכנס לחשבון שלו.
+      */}
+      <IntegrationDeskSection agencies={(agencies ?? []).map((a) => ({ id: a.id, name: a.name }))} />
 
       <LegalDocsSection />
 
