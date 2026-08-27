@@ -560,6 +560,33 @@ export class AgentResolveService {
     if (kind === "lead") {
       return results.leads.slice(0, 8).map((l) => ({ id: l.id, label: l.name }));
     }
+    if (kind === "anyCard") {
+      /*
+       * ‎**„מה יש על הדירה ברמת גן” — השאלה שחסרה.**
+       *
+       * הכרטיס היה קונה או ליד בלבד, כלומר חצי מהמערכת לא נשאלה
+       * דרך הסוכן. הנכס נוסף כאן ולא ב-`card`, ראו ההערה על
+       * ‎`LookupKind`.
+       */
+      return [
+        ...results.buyers.slice(0, 4).map((b) => ({
+          id: `buyer:${b.id}`,
+          label: b.name,
+          detail: b.cities.length > 0 ? `קונה — ${b.cities.join(" / ")}` : "קונה",
+        })),
+        ...results.leads.slice(0, 4).map((l) => ({
+          id: `lead:${l.id}`,
+          label: l.name,
+          detail: "ליד",
+        })),
+        ...results.properties.slice(0, 4).map((p) => ({
+          id: `property:${p.id}`,
+          label:
+            p.marketingTitle ?? [p.street, p.neighborhood, p.city].filter(Boolean).join(", ") ?? p.id,
+          detail: p.city ? `נכס — ${p.city}` : "נכס",
+        })),
+      ];
+    }
     if (kind === "card") {
       /*
        * "הכרטיס של שרה" יכול להיות קונה או ליד, וההכרעה היא של
@@ -651,7 +678,16 @@ const DATE_FIELD: Record<string, string | undefined> = {
   show_schedule: "day",
 };
 
-type LookupKind = "buyer" | "property" | "lead" | "task" | "card";
+/*
+ * ‎`anyCard` ולא הרחבה של `card` — וזו ההבחנה שמונעת נזק.
+ *
+ * ‎`card` משותף ל-`show_card`, `add_note` ו-`play_recording`.
+ * הוספת נכסים אליו הייתה נותנת ל„תוסיף הערה” לכוון לנכס (הערה על
+ * נכס היא `internalNotes`, מסלול אחר לגמרי) ול„תשמיע לי” לכוון
+ * לישות שאין לה שיחות בכלל. הרחבה של מפתח משותף היא בדיוק סוג
+ * השינוי שנראה קטן ופוגע בשני מקומות אחרים.
+ */
+type LookupKind = "buyer" | "property" | "lead" | "task" | "card" | "anyCard";
 
 /**
  * צורת המזהה שהפעולה מצפה לה, לפי סוג החיפוש.
@@ -662,10 +698,19 @@ type LookupKind = "buyer" | "property" | "lead" | "task" | "card";
  * הזו (למשל נכס בפעולה שמדברת על קונה), וההחלטה חוזרת לחיפוש.
  */
 function entityRefId(kind: LookupKind, ref: AgentHistoryRef): string | null {
-  if (kind === "card") {
-    return ref.entityType === "buyer" || ref.entityType === "lead"
-      ? `${ref.entityType}:${ref.entityId}`
-      : null;
+  if (kind === "card" || kind === "anyCard") {
+    /*
+     * ‎**ההפניה מההיסטוריה חייבת לעבור גם ב-`anyCard`.**
+     *
+     * בלי הענף הזה „תראה לי את הכרטיס שלו” אחרי תוצאה קודמת היה
+     * נופל לחיפוש מחדש, כי `anyCard` לא היה שווה לשום `entityType`.
+     * ‎`anyCard` מקבל גם נכס — וזו כל הנקודה שלו.
+     */
+    const allowed =
+      kind === "anyCard"
+        ? ["buyer", "lead", "property"]
+        : ["buyer", "lead"];
+    return allowed.includes(ref.entityType) ? `${ref.entityType}:${ref.entityId}` : null;
   }
   return kind === ref.entityType ? ref.entityId : null;
 }
@@ -748,7 +793,7 @@ const ENTITY_LOOKUP: Record<
     optional: true,
   },
   add_note: { key: "cardPhrase", idKey: "cardId", label: "לאיזה כרטיס", kind: "card" },
-  show_card: { key: "cardPhrase", idKey: "cardId", label: "איזה כרטיס", kind: "card" },
+  show_card: { key: "cardPhrase", idKey: "cardId", label: "איזה כרטיס", kind: "anyCard" },
   play_recording: { key: "cardPhrase", idKey: "cardId", label: "שיחה עם מי", kind: "card" },
   update_lead_status: { key: "leadPhrase", idKey: "leadId", label: "איזה ליד", kind: "lead" },
   share_property: {

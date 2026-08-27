@@ -652,6 +652,40 @@ export class AgentExecuteService {
    * להיות קונה או ליד, וההכרעה היא של המתווך.
    */
   private async showCard(params: Record<string, unknown>): Promise<ExecuteResult> {
+    /*
+     * ‎**נכס נבדק כאן ולא ב-`cardTarget`.** אותו עוזר משרת גם
+     * „תוסיף הערה” וגם „תשמיע לי”, ולשתיהן נכס אינו יעד חוקי.
+     */
+    const raw = str(params["cardId"]) ?? "";
+    if (raw.startsWith("property:")) {
+      const propertyId = raw.slice("property:".length);
+      if (!TenantContext.current().capabilities.has("properties.view")) {
+        throw new ForbiddenException("אין לך הרשאה לצפות בנכסים");
+      }
+      const property = await this.properties.getById(propertyId);
+      const exclusivity = await this.exclusivity.current(propertyId);
+      const label =
+        property.marketingTitle ??
+        ([property.street, property.city].filter(Boolean).join(", ") || "הנכס");
+      return {
+        href: `/properties/${propertyId}`,
+        message: `הכרטיס של ${label}`,
+        data: {
+          card: {
+            kind: "property",
+            ...property,
+            /*
+             * ‎**הבלעדיות בתוך הכרטיס, ולא כשאלה נפרדת.**
+             * „מה יש על הדירה” כולל „ומתי היא נגמרת” — ומתווך
+             * שלא שאל במפורש הוא בדיוק מי שצריך לדעת.
+             */
+            ...(exclusivity === null ? {} : { exclusivity: exclusivity.summary }),
+          },
+        },
+        ...refOf(label, "property", propertyId),
+      };
+    }
+
     const { kind, id } = this.cardTarget(params);
 
     if (kind === "buyer") {
