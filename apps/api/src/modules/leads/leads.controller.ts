@@ -32,11 +32,18 @@ const CreateLeadSchema = z
 
 const StatusSchema = z.object({ status: LeadStatusSchema }).strict();
 
+/*
+ * `default({})` ולא רק שדה אופציונלי: בקשת DELETE בלי גוף כלל מגיעה
+ * ל-Pipe כ-`undefined` (מפרק הגוף אינו רץ בלי `Content-Type`), וסכמת
+ * אובייקט דוחה `undefined` — כלומר לקוח API ישן היה מקבל 400 במקום
+ * ההתנהגות ההיסטורית שהובטחה לו כאן (ביקורת Codex).
+ */
 const DeleteLeadSchema = z
   .object({
     scope: z.enum(["lead", "lead_and_contact"] satisfies [LeadDeletionScope, LeadDeletionScope]).optional(),
   })
-  .strict();
+  .strict()
+  .default({});
 const NoteSchema = z.object({ content: z.string().min(1).max(2000) }).strict();
 
 const ConvertSchema = z
