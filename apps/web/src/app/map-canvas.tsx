@@ -181,6 +181,7 @@ export function MapCanvas({
      * ו-onReady נקראים ביצירה, ובנייה מחדש בכל שינוי שלהם הייתה
      * מאפסת למשתמש את התצוגה באמצע עבודה.
      */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config]);
 
   if (config === null) {

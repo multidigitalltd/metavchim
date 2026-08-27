@@ -400,7 +400,15 @@ export function useDictation(
       return;
     }
     setRecording("browser");
-  }, [retireBrowser]);
+    /*
+     * ‎`opts.browserOnly` נקרא כאן פעמיים — הוא קובע את נוסח הודעת
+     * השגיאה. בלעדיו הסגור מחזיק את הערך שהיה בזמן שהפונקציה
+     * נוצרה, והמשתמש היה מקבל את ההודעה השגויה לאחר שינוי המצב.
+     *
+     * הערך עצמו ולא האובייקט: `opts` נבנה מחדש בכל רינדור, ואילו
+     * בוליאני יציב — כלומר התלות אינה גורמת ליצירה מחדש מיותרת.
+     */
+  }, [retireBrowser, opts.browserOnly]);
 
   /** מצב ההמתנה נכתב לשניהם יחד — ה-state לתצוגה, ה-ref ללוגיקה. */
   const markPending = useCallback((value: boolean): void => {
