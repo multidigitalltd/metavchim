@@ -11,6 +11,7 @@ import {
 } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { useUserDismissed } from "@/lib/dismissed-panels";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconMic, IconTarget } from "../icons";
 import { VoiceRecorder } from "../voice-recorder";
@@ -123,6 +124,12 @@ export default function AgentPage(): React.JSX.Element {
   const [transcript, setTranscript] = useState("");
   const [thread, setThread] = useState<ChatItem[]>([]);
   const [examples, setExamples] = useState<string[]>([]);
+  /*
+   * „אל תציג יותר” על הדוגמאות — העדפה שנשמרת למשתמש, בכל מכשיר.
+   * היא שרדה את המעבר לצ'אט: מי שסגר אותן לפניו לא מקבל אותן שוב
+   * רק כי הן עברו לבועת הפתיחה (ביקורת Codex).
+   */
+  const examplesBox = useUserDismissed("agent-examples");
   /**
    * זיכרון השיחה — רק מה ש**בוצע**, לא כל מה שהוצע. הצעה שבוטלה
    * אינה הקשר; פעולה שנעשתה כן. שישה תורות אחרונים מספיקים
@@ -444,18 +451,28 @@ export default function AgentPage(): React.JSX.Element {
               </ul>
             </div>
           )}
-          {examples.length === 0 ? null : (
-            <div className="mt-2.5 flex flex-wrap gap-2">
-              {examples.map((example) => (
-                <button
-                  key={example}
-                  type="button"
-                  className="mv-example-chip"
-                  onClick={() => void send(example)}
-                >
-                  {example}
-                </button>
-              ))}
+          {examples.length === 0 || examplesBox.hidden ? null : (
+            <div className="mt-2.5">
+              <div className="flex flex-wrap gap-2">
+                {examples.map((example) => (
+                  <button
+                    key={example}
+                    type="button"
+                    className="mv-example-chip"
+                    onClick={() => void send(example)}
+                  >
+                    {example}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="mt-1.5 text-[length:var(--type-caption)] underline"
+                style={{ color: "var(--color-text-muted)" }}
+                onClick={examplesBox.never}
+              >
+                אל תציג דוגמאות יותר
+              </button>
             </div>
           )}
         </div>
@@ -633,7 +650,16 @@ export default function AgentPage(): React.JSX.Element {
           onError={(message) => push({ role: "agent", kind: "note", tone: "danger", text: message })}
           onSubmit={() => void send(transcript)}
         />
-        <Button onClick={() => void send(transcript)} disabled={busy} className="w-full">
+        {/*
+          הכפתור מנוטרל עד שיש מה לשלוח — לחיצה על „שליחה” ריקה
+          שחוזרת בשקט נראית כמו כפתור שבור (ביקורת Codex). המינימום
+          זהה לזה של `send`, כדי ששניהם יסכימו תמיד.
+        */}
+        <Button
+          onClick={() => void send(transcript)}
+          disabled={busy || transcript.trim().length < 2}
+          className="w-full"
+        >
           {busy ? "חושב…" : "שליחה"}
         </Button>
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { ApiError, apiPost } from "@/lib/api";
 import { agentResultRefs, agentTurnRefs, type AgentHistoryRef } from "@metavchim/shared";
@@ -138,6 +138,12 @@ export function ProposalCard({
   /** תיקון בדיבור — „לא, 4 חדרים”. ההצעה הקודמת נשלחת כהקשר. */
   onRefine?: (params: Record<string, unknown>) => void;
 }): React.JSX.Element {
+  /*
+   * מזהה כותרת ייחודי לכל מופע: בצ'אט יכולים לחיות כמה כרטיסים
+   * שטרם הוכרעו, ו-id קבוע היה משכפל את עצמו — קורא מסך היה מתייג
+   * כל כרטיס בכותרת של הראשון (ביקורת Codex).
+   */
+  const titleId = useId();
   const [edits, setEdits] = useState<Record<string, unknown>>({});
   const [chosen, setChosen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -255,10 +261,10 @@ export function ProposalCard({
   }
 
   return (
-    <section className="mv-proposal" aria-labelledby="proposal-title">
+    <section className="mv-proposal" aria-labelledby={titleId}>
       <header className="mv-proposal-head">
         <div>
-          <h2 id="proposal-title" className="m-0 text-[length:var(--type-screen-title)] font-bold">
+          <h2 id={titleId} className="m-0 text-[length:var(--type-screen-title)] font-bold">
             {proposal.title}
           </h2>
           {proposal.summary === "" ? null : (
