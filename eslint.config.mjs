@@ -1,6 +1,7 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
+import israelTime from "./eslint-rules/israel-time.mjs";
 
 export default tseslint.config(
   {
@@ -8,6 +9,24 @@ export default tseslint.config(
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  /*
+   * ‎**שעון ישראל — על עץ התחביר, במקום סריקת טקסט.**
+   *
+   * מחליף את `verify:timezone`, שעבד ותפס 24 באגים אמיתיים אבל
+   * הגבול שלו נמדד: ארבעה סבבי ביקורת רצופים ב-#242 היו אותו דבר
+   * בדיוק — איות חוקי של אותו API שהתבניות לא מנו. ביטוי רגולרי
+   * אינו יכול למנות שפה.
+   *
+   * ‎**בדיקות אינן קוד מוצר**, בדיוק כמו בשער שקדם לו: בדיקה שבונה
+   * „עשר בבוקר מקומי” כדי לאמת המרה עושה זאת בכוונה, וסימון כל אחת
+   * מהן היה מלמד למחוק סימונים.
+   */
+  {
+    files: ["**/*.ts", "**/*.tsx"],
+    ignores: ["**/*.test.ts", "**/*.test.tsx"],
+    plugins: { "israel-time": israelTime },
+    rules: { "israel-time/device-clock": "error" },
+  },
   {
     plugins: { "react-hooks": reactHooks },
     rules: {

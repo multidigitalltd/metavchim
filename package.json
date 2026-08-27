@@ -12,6 +12,7 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
+    "test:eslint-rules": "node eslint-rules/israel-time.test.mjs",
     "test": "turbo run test",
     "format": "prettier --write ."
   },
