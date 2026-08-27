@@ -61,3 +61,27 @@ CREATE TABLE "email_reply_tokens" (
 -- טוקן ממילא נפתר לפי המזהה שלו. שליחה חדשה משתמשת בקיים הראשון.
 CREATE INDEX "email_reply_tokens_tenant_contact_idx"
   ON "email_reply_tokens" ("tenant_id", "contact_id");
+
+-- הקבצים המצורפים — נכנסים ויוצאים. התוכן עצמו באחסון האובייקטים
+-- (אותו אחסון כמו תמונות נכס והקלטות); כאן המפתח והמטא-נתונים.
+-- הסוג מוגבל לרשימה סגורה בקליטה (packages/shared — email-inbound.ts).
+CREATE TABLE "email_attachments" (
+  "id"           CHAR(26) PRIMARY KEY,
+  "tenant_id"    CHAR(26) NOT NULL REFERENCES "tenants"("id") ON DELETE CASCADE,
+  "message_id"   CHAR(26) NOT NULL,
+  "name"         VARCHAR(200) NOT NULL,
+  "content_type" VARCHAR(100) NOT NULL,
+  -- image | video | file — מוכרע פעם אחת בקליטה; המסך בוחר תצוגה לפיו
+  "kind"         VARCHAR(10) NOT NULL,
+  "size_bytes"   INTEGER NOT NULL,
+  "s3_key"       VARCHAR(500) NOT NULL,
+  "created_at"   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX "email_attachments_message_idx" ON "email_attachments" ("tenant_id", "message_id");
+
+ALTER TABLE "email_attachments" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "email_attachments" FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON "email_attachments"
+  USING ("tenant_id" = current_setting('app.tenant_id', true))
+  WITH CHECK ("tenant_id" = current_setting('app.tenant_id', true));

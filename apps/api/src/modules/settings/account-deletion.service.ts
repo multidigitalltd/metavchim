@@ -137,7 +137,7 @@ export class AccountDeletionService {
      * בהקשר של דייר אחר לגמרי, והטבלאות תחת FORCE RLS היו מחזירות
      * אפס מפתחות בשקט — כלומר הקבצים היו נשארים ב-S3 לנצח.
      */
-    const [media, documents, calls, tickets, tenantRow] = await Promise.all([
+    const [media, documents, calls, tickets, emailFiles, tenantRow] = await Promise.all([
       this.prisma.withExplicitTenant(tenantId, (tx) =>
         tx.propertyMedia.findMany({
           where: { tenantId },
@@ -178,6 +178,14 @@ export class AccountDeletionService {
           select: { screenshotKey: true },
         }),
       ),
+      // הקבצים המצורפים של תיבת המייל — אותו כלל כמו הסריקות: טבלה
+      // עם קבצים מאחוריה שהשורות שלה נמחקות, והקבצים חייבים ללכת איתן
+      this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.emailAttachment.findMany({
+          where: { tenantId },
+          select: { s3Key: true },
+        }),
+      ),
       /*
        * הלוגו — מפתח שיושב ב-`settings` ולא בטבלה משלו, ולכן הוא
        * אינו נאסף בשתי השאילתות שמעל. בלי השורה הזו הוא היה נשאר
@@ -205,6 +213,7 @@ export class AccountDeletionService {
     const s3Keys = [
       ...media.map((m) => m.s3Key),
       ...documents.map((d) => d.s3Key),
+      ...emailFiles.map((f) => f.s3Key),
       ...tickets
         .map((t) => t.screenshotKey)
         .filter((k): k is string => k !== null),
@@ -282,6 +291,7 @@ export class AccountDeletionService {
         await tx.signedDocument.deleteMany({ where: { tenantId } });
         await tx.integration.deleteMany({ where: { tenantId } });
         await tx.emailDomain.deleteMany({ where: { tenantId } });
+        await tx.emailAttachment.deleteMany({ where: { tenantId } });
         await tx.emailMessage.deleteMany({ where: { tenantId } });
         await tx.sharedDemand.deleteMany({ where: { tenantId } });
         /*

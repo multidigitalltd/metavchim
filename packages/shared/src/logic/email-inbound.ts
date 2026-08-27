@@ -33,6 +33,18 @@ export const InboundEmailPayloadSchema = z
     StrippedTextReply: z.string().default(""),
     TextBody: z.string().default(""),
     MessageID: z.string().max(200).default(""),
+    /** קבצים מצורפים — Base64 מהספק. הסינון (סוג, גודל, כמות) בקליטה. */
+    Attachments: z
+      .array(
+        z
+          .object({
+            Name: z.string().max(500).default(""),
+            Content: z.string().default(""),
+            ContentType: z.string().max(200).default(""),
+          })
+          .passthrough(),
+      )
+      .default([]),
   })
   .passthrough();
 
@@ -82,4 +94,72 @@ export function inboundToken(payload: InboundEmailPayload): string | null {
 export function inboundSubject(payload: InboundEmailPayload): string {
   const subject = payload.Subject.trim();
   return subject === "" ? "(ללא נושא)" : subject.slice(0, 200);
+}
+
+/*
+ * ## קבצים מצורפים — הכללים
+ *
+ * רשימה סגורה של סוגי תוכן, לא רשימה שחורה: הקובץ מגיע מהאינטרנט
+ * הפתוח (או מסוכן, שגם הוא אדם), והשרת יגיש אותו בחזרה לדפדפנים
+ * של המשרד. מה שאינו ברשימה — מדולג ונרשם, לא נשמר. במפורש בחוץ:
+ * HTML/SVG (סקריפטים שרצים בהגשה), וכל קובץ הרצה.
+ */
+export const EMAIL_ATTACHMENT_TYPES: Readonly<Record<string, "image" | "video" | "file">> = {
+  "image/jpeg": "image",
+  "image/png": "image",
+  "image/webp": "image",
+  "image/gif": "image",
+  "video/mp4": "video",
+  "video/quicktime": "video",
+  "video/webm": "video",
+  "application/pdf": "file",
+  "application/msword": "file",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "file",
+  "application/vnd.ms-excel": "file",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "file",
+  "application/vnd.ms-powerpoint": "file",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "file",
+  "text/plain": "file",
+  "text/csv": "file",
+};
+
+/**
+ * גודל מרבי לקובץ נכנס. תקרת ההודעה כולה אצל ספקי הדואר היא
+ * ‎25–35MB ממילא — הגבול כאן שומר עלינו, לא על הלקוח.
+ */
+export const EMAIL_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+
+/** קבצים לכל הודעה — נכנסת ויוצאת. מעבר לזה נשמרים הראשונים. */
+export const EMAIL_ATTACHMENT_MAX_COUNT = 10;
+
+/**
+ * סך הקבצים בתשובה **יוצאת**. Postmark מגביל הודעה יוצאת ל-10MB
+ * כולל קידוד Base64 (שמנפח פי 4/3) — ‏7MB גולמי משאיר מקום לגוף.
+ */
+export const EMAIL_OUTBOUND_ATTACHMENT_TOTAL_BYTES = 7 * 1024 * 1024;
+
+/**
+ * נרמול סוג תוכן מוצהר אל הרשימה הסגורה. `null` = לא נשמר.
+ * הפרמטרים שאחרי `;` (charset וכו') אינם חלק מההכרעה.
+ */
+export function emailAttachmentKind(
+  contentType: string,
+): "image" | "video" | "file" | null {
+  const normalized = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  return EMAIL_ATTACHMENT_TYPES[normalized] ?? null;
+}
+
+/**
+ * שם קובץ בטוח לתצוגה ולכותרת ההורדה: בלי תווי שליטה, בלי מפרידי
+ * נתיב, ובאורך שפוי. השם מגיע מהשולח — הוא תוכן, לא נתיב.
+ */
+export function safeAttachmentName(name: string): string {
+  // בלי Regex של תווי בקרה — no-control-regex; סינון לפי קוד התו
+  const cleaned = [...name]
+    .filter((c) => c.charCodeAt(0) >= 0x20 && c !== '"' && c !== "\\" && c !== "/")
+    .join("")
+    .replace(/\s+/gu, " ")
+    .trim();
+  const bounded = cleaned.length > 120 ? cleaned.slice(-120) : cleaned;
+  return bounded === "" ? "קובץ" : bounded;
 }

@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   INBOUND_BODY_MAX,
   InboundEmailPayloadSchema,
+  emailAttachmentKind,
   inboundBody,
   inboundSubject,
   inboundToken,
   replyAddressFor,
+  safeAttachmentName,
 } from "./email-inbound.js";
 
 const payload = (overrides: Record<string, unknown> = {}) =>
@@ -70,6 +72,39 @@ describe("inboundSubject", () => {
   it("נושא ריק מקבל תווית, לא מחרוזת ריקה במסך", () => {
     expect(inboundSubject(payload({ Subject: "  " }))).toBe("(ללא נושא)");
     expect(inboundSubject(payload())).toContain("Re:");
+  });
+});
+
+describe("emailAttachmentKind", () => {
+  it("רשימה סגורה: מוכר ⟵ סוג, לא מוכר ⟵ null", () => {
+    expect(emailAttachmentKind("image/jpeg")).toBe("image");
+    expect(emailAttachmentKind("video/mp4")).toBe("video");
+    expect(emailAttachmentKind("application/pdf")).toBe("file");
+    expect(emailAttachmentKind("text/html")).toBeNull();
+    expect(emailAttachmentKind("image/svg+xml")).toBeNull();
+    expect(emailAttachmentKind("application/x-msdownload")).toBeNull();
+  });
+
+  it("פרמטרים ואותיות גדולות אינם עוקפים את הרשימה", () => {
+    expect(emailAttachmentKind("Image/JPEG; charset=utf-8")).toBe("image");
+    expect(emailAttachmentKind(" text/plain ; boundary=x")).toBe("file");
+  });
+});
+
+describe("safeAttachmentName", () => {
+  it("מנקה נתיבים, ציטוטים ותווי שליטה — השם הוא תוכן, לא נתיב", () => {
+    expect(safeAttachmentName("../../etc/passwd")).not.toContain("/");
+    expect(safeAttachmentName("a\\b\\c.doc")).not.toContain("\\");
+    expect(safeAttachmentName('חוזה "סופי".pdf')).toBe("חוזה סופי.pdf");
+    expect(safeAttachmentName("a\u0000b\u001fc.txt")).toBe("abc.txt");
+  });
+
+  it("ריק מקבל שם, ושם ענק נחתך מהסוף — הסיומת נשמרת", () => {
+    expect(safeAttachmentName("   ")).toBe("קובץ");
+    const long = `${"א".repeat(300)}.pdf`;
+    const safe = safeAttachmentName(long);
+    expect(safe.length).toBeLessThanOrEqual(120);
+    expect(safe.endsWith(".pdf")).toBe(true);
   });
 });
 

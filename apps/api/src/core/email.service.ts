@@ -125,6 +125,11 @@ export class EmailService {
        * כ-From: הדומיין החתום נשאר השולח, וזו רק כתובת התשובה.
        */
       replyTo?: string;
+      /**
+       * קבצים מצורפים — תשובת סוכן מהתיבה. האכיפה (סוגים, גדלים)
+       * אצל הקורא; כאן רק הקידוד לפורמט הספק.
+       */
+      attachments?: readonly { name: string; contentType: string; content: Buffer }[];
     } = {},
   ): Promise<void> {
     const body: EmailContent =
@@ -163,7 +168,15 @@ export class EmailService {
       );
     }
     if (tenantFrom !== null) {
-      const res = await this.postmarkSend(creds.token, tenantFrom, to, subject, body, options.replyTo);
+      const res = await this.postmarkSend(
+        creds.token,
+        tenantFrom,
+        to,
+        subject,
+        body,
+        options.replyTo,
+        options.attachments,
+      );
       if (res.ok) return;
       const detail = await res.text().catch(() => "");
       this.logger.error(
@@ -179,7 +192,15 @@ export class EmailService {
       }
     }
 
-    const res = await this.postmarkSend(creds.token, creds.from, to, subject, body, options.replyTo);
+    const res = await this.postmarkSend(
+      creds.token,
+      creds.from,
+      to,
+      subject,
+      body,
+      options.replyTo,
+      options.attachments,
+    );
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       // 422 של Postmark כולל סיבה (כתובת From לא מאומתת וכו') — ללוג בלבד
@@ -208,6 +229,7 @@ export class EmailService {
     subject: string,
     body: EmailContent,
     replyTo?: string,
+    attachments?: readonly { name: string; contentType: string; content: Buffer }[],
   ): Promise<Response> {
     try {
       return await fetch("https://api.postmarkapp.com/email", {
@@ -221,6 +243,15 @@ export class EmailService {
           From: from,
           To: to,
           ...(replyTo === undefined ? {} : { ReplyTo: replyTo }),
+          ...(attachments === undefined || attachments.length === 0
+            ? {}
+            : {
+                Attachments: attachments.map((a) => ({
+                  Name: a.name,
+                  Content: a.content.toString("base64"),
+                  ContentType: a.contentType,
+                })),
+              }),
           Subject: subject,
           HtmlBody: renderEmailHtml(body),
           TextBody: renderEmailText(body),

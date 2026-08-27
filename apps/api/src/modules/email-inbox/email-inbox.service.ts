@@ -1,10 +1,15 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  EMAIL_ATTACHMENT_MAX_BYTES,
+  EMAIL_ATTACHMENT_MAX_COUNT,
+  EMAIL_OUTBOUND_ATTACHMENT_TOTAL_BYTES,
+  emailAttachmentKind,
   inboundBody,
   inboundSubject,
   inboundToken,
   replyAddressFor,
+  safeAttachmentName,
   type InboundEmailPayload,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
@@ -13,6 +18,7 @@ import { AuditService } from "../../core/audit.service";
 import { EmailService } from "../../core/email.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import { StorageService } from "../../core/storage.service";
 import { ContactsService } from "../contacts/contacts.service";
 
 /** שורת תיבה — שיחה אחת עם לקוח, בתמצית. */
@@ -28,6 +34,15 @@ export interface InboxThreadDto {
   buyerId?: string;
 }
 
+export interface InboxAttachmentDto {
+  id: string;
+  name: string;
+  /** image | video | file — המסך בוחר תצוגה לפיו */
+  kind: string;
+  contentType: string;
+  sizeBytes: number;
+}
+
 export interface InboxMessageDto {
   id: string;
   direction: string;
@@ -36,6 +51,7 @@ export interface InboxMessageDto {
   fromEmail?: string;
   readAt: Date | null;
   createdAt: Date;
+  attachments: InboxAttachmentDto[];
 }
 
 /**
@@ -74,6 +90,7 @@ export class EmailInboxService {
     private readonly contacts: ContactsService,
     private readonly platformSettings: PlatformSettingsService,
     private readonly audit: AuditService,
+    private readonly storage: StorageService,
   ) {}
 
   /** כתובת ה-Inbound והסוד — הגדרות הפלטפורמה קודם, סביבה אחריהן. */
@@ -129,17 +146,41 @@ export class EmailInboxService {
       return;
     }
 
+    /*
+     * קבצים מצורפים — סינון מוקדם, לפני כל כתיבה: רק סוגים מהרשימה
+     * הסגורה, עד הגבולות. הודעה יכולה להיות קובץ בלבד ("שלחתי לך
+     * את האישור") — ולכן גוף ריק עם קבצים תקפים אינו דילוג.
+     */
     const body = inboundBody(payload);
-    if (body === "") return; // אין תוכן — אין מה להציג
+    const incoming = payload.Attachments.slice(0, EMAIL_ATTACHMENT_MAX_COUNT)
+      .map((a) => {
+        const kind = emailAttachmentKind(a.ContentType);
+        if (kind === null || a.Content === "") return null;
+        const content = Buffer.from(a.Content, "base64");
+        if (content.length === 0 || content.length > EMAIL_ATTACHMENT_MAX_BYTES) return null;
+        return {
+          kind,
+          content,
+          name: safeAttachmentName(a.Name),
+          contentType: a.ContentType.split(";")[0]?.trim().toLowerCase() ?? "",
+        };
+      })
+      .filter((a): a is NonNullable<typeof a> => a !== null);
+    if (payload.Attachments.length > incoming.length) {
+      this.logger.log(
+        `תשובת מייל: ${payload.Attachments.length - incoming.length} קבצים דולגו (סוג/גודל)`,
+      );
+    }
+    if (body === "" && incoming.length === 0) return; // אין תוכן — אין מה להציג
 
     const { tenantId, contactId } = mapping;
-    await this.prisma.withExplicitTenant(tenantId, async (tx) => {
+    const stored = await this.prisma.withExplicitTenant(tenantId, async (tx) => {
       // הכרטיס עשוי להימחק אחרי שהטוקן הונפק — תשובה יתומה מדולגת
       const contact = await tx.contact.findFirst({
         where: { id: contactId, tenantId },
         select: { id: true },
       });
-      if (contact === null) return;
+      if (contact === null) return null;
 
       const id = ulid();
       try {
@@ -157,7 +198,7 @@ export class EmailInboxService {
         });
       } catch {
         // אותו MessageID פעם שנייה — הספק שלח שוב; ההודעה כבר אצלנו
-        return;
+        return null;
       }
 
       /*
@@ -178,7 +219,12 @@ export class EmailInboxService {
               select: { id: true, assignedToUserId: true },
             })
           : null;
-      const snippet = body.length > 120 ? `${body.slice(0, 120)}…` : body;
+      const snippet =
+        body === ""
+          ? `📎 ${incoming.length} קבצים מצורפים`
+          : body.length > 120
+            ? `${body.slice(0, 120)}…`
+            : body;
       if (buyer !== null || lead !== null) {
         await tx.interaction.create({
           data: {
@@ -208,7 +254,39 @@ export class EmailInboxService {
               : {}),
         },
       });
+      return id;
     });
+
+    /*
+     * הקבצים נכתבים **אחרי** הטרנזקציה: העלאה של עשרות MB לאחסון
+     * בתוך טרנזקציה פתוחה מחזיקה חיבור מסד לאורך ההעלאה. הודעה
+     * כפולה כבר הוכרעה בפנים (null) — Webhook חוזר לא כותב קובץ
+     * פעמיים; כשל בקובץ אחד אינו מפיל את השאר, והטקסט כבר בתיבה.
+     */
+    if (stored === null || incoming.length === 0) return;
+    for (const attachment of incoming) {
+      try {
+        const attachmentId = ulid();
+        const s3Key = `tenants/${tenantId}/email-attachments/${stored}/${attachmentId}`;
+        await this.storage.put(s3Key, attachment.content, attachment.contentType);
+        await this.prisma.withExplicitTenant(tenantId, (tx) =>
+          tx.emailAttachment.create({
+            data: {
+              id: attachmentId,
+              tenantId,
+              messageId: stored,
+              name: attachment.name,
+              contentType: attachment.contentType,
+              kind: attachment.kind,
+              sizeBytes: attachment.content.length,
+              s3Key,
+            },
+          }),
+        );
+      } catch (error: unknown) {
+        this.logger.error(`שמירת קובץ מצורף נכשלה: ${String(error)}`);
+      }
+    }
   }
 
   /** התיבה: שיחה אחת ללקוח, החדשה ראשונה, עם מונה שלא-נקראו. */
@@ -295,6 +373,23 @@ export class EmailInboxService {
           take: 200,
         })
       ).reverse();
+      const attachmentRows = await tx.emailAttachment.findMany({
+        where: { tenantId, messageId: { in: rows.map((r) => r.id) } },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, messageId: true, name: true, kind: true, contentType: true, sizeBytes: true },
+      });
+      const attachmentsByMessage = new Map<string, InboxAttachmentDto[]>();
+      for (const a of attachmentRows) {
+        const list = attachmentsByMessage.get(a.messageId) ?? [];
+        list.push({
+          id: a.id,
+          name: a.name,
+          kind: a.kind,
+          contentType: a.contentType,
+          sizeBytes: a.sizeBytes,
+        });
+        attachmentsByMessage.set(a.messageId, list);
+      }
       return {
         contactName: contact.name,
         messages: rows.map((row) => ({
@@ -305,9 +400,40 @@ export class EmailInboxService {
           ...(row.fromEmail === null ? {} : { fromEmail: row.fromEmail }),
           readAt: row.readAt,
           createdAt: row.createdAt,
+          attachments: attachmentsByMessage.get(row.id) ?? [],
         })),
       };
     });
+  }
+
+  /** הזרמת קובץ מצורף — דרך ה-API, לא ישירות מהאחסון הפנימי. */
+  async attachmentRaw(attachmentId: string): Promise<{
+    body: NodeJS.ReadableStream;
+    contentType: string;
+    contentLength?: number;
+    name: string;
+    kind: string;
+  }> {
+    const tenantId = TenantContext.current().tenantId;
+    const row = await this.prisma.withTenant((tx) =>
+      tx.emailAttachment.findFirst({
+        where: { id: attachmentId, tenantId },
+        select: { s3Key: true, contentType: true, sizeBytes: true, name: true, kind: true },
+      }),
+    );
+    if (row === null) throw new NotFoundException("הקובץ לא נמצא");
+    const obj = await this.storage.getObject(row.s3Key);
+    return {
+      body: obj.body as NodeJS.ReadableStream,
+      /*
+       * הסוג שנשמר בקליטה (מהרשימה הסגורה) ולא מה שהאחסון זוכר —
+       * ההכרעה הבטוחה כבר התקבלה פעם אחת, בכניסה.
+       */
+      contentType: row.contentType,
+      ...(obj.contentLength !== undefined ? { contentLength: obj.contentLength } : {}),
+      name: row.name,
+      kind: row.kind,
+    };
   }
 
   /** סימון השיחה כנקראה — בכניסה אליה, לא בהודעה-הודעה. */
@@ -327,9 +453,39 @@ export class EmailInboxService {
    * יעד היה הופך את התיבה לצינור שליחה לכל כתובת (אותו כלל כמו
    * בתשובת Gmail).
    */
-  async reply(contactId: string, body: string): Promise<void> {
+  async reply(
+    contactId: string,
+    body: string,
+    files: readonly { name: string; contentType: string; content: Buffer }[] = [],
+  ): Promise<void> {
     const ctx = TenantContext.current();
     const tenantId = ctx.tenantId;
+
+    /*
+     * הקבצים היוצאים באותה רשימה סגורה כמו הנכנסים, ובתקרת הספק
+     * להודעה יוצאת. הבדיקה כאן ולא רק במסך — המסך הוא נוחות.
+     */
+    if (files.length > EMAIL_ATTACHMENT_MAX_COUNT) {
+      throw new BadRequestException(`עד ${EMAIL_ATTACHMENT_MAX_COUNT} קבצים בהודעה`);
+    }
+    const outgoing = files.map((file) => {
+      const kind = emailAttachmentKind(file.contentType);
+      if (kind === null) {
+        throw new BadRequestException(`סוג הקובץ אינו נתמך: ${safeAttachmentName(file.name)}`);
+      }
+      return {
+        kind,
+        content: file.content,
+        name: safeAttachmentName(file.name),
+        contentType: file.contentType.split(";")[0]?.trim().toLowerCase() ?? "",
+      };
+    });
+    const totalBytes = outgoing.reduce((sum, f) => sum + f.content.length, 0);
+    if (totalBytes > EMAIL_OUTBOUND_ATTACHMENT_TOTAL_BYTES) {
+      throw new BadRequestException(
+        `סך הקבצים בהודעה יוצאת מוגבל ל-${Math.floor(EMAIL_OUTBOUND_ATTACHMENT_TOTAL_BYTES / (1024 * 1024))}MB — שלחו בכמה הודעות`,
+      );
+    }
 
     const target = await this.prisma.withTenant(async (tx) => {
       const to = await this.contacts.emailFor(tx, contactId);
@@ -351,12 +507,22 @@ export class EmailInboxService {
       tenantId,
       required: true,
       ...(replyTo === null ? {} : { replyTo }),
+      ...(outgoing.length === 0
+        ? {}
+        : {
+            attachments: outgoing.map((f) => ({
+              name: f.name,
+              contentType: f.contentType,
+              content: f.content,
+            })),
+          }),
     });
 
+    const messageId = ulid();
     await this.prisma.withTenant(async (tx) => {
       await tx.emailMessage.create({
         data: {
-          id: ulid(),
+          id: messageId,
           tenantId,
           contactId,
           direction: "out",
@@ -373,6 +539,32 @@ export class EmailInboxService {
         entityId: contactId,
       });
     });
+
+    // עותקי הקבצים נשמרים גם אצלנו — מה שנשלח ללקוח מופיע בשיחה,
+    // מחוץ לטרנזקציה מאותה סיבה כמו בקליטה
+    for (const file of outgoing) {
+      try {
+        const attachmentId = ulid();
+        const s3Key = `tenants/${tenantId}/email-attachments/${messageId}/${attachmentId}`;
+        await this.storage.put(s3Key, file.content, file.contentType);
+        await this.prisma.withTenant((tx) =>
+          tx.emailAttachment.create({
+            data: {
+              id: attachmentId,
+              tenantId,
+              messageId,
+              name: file.name,
+              contentType: file.contentType,
+              kind: file.kind,
+              sizeBytes: file.content.length,
+              s3Key,
+            },
+          }),
+        );
+      } catch (error: unknown) {
+        this.logger.error(`שמירת עותק קובץ יוצא נכשלה: ${String(error)}`);
+      }
+    }
   }
 
   private async recordReplyOnTimeline(

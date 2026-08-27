@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiPost } from "@/lib/api";
+import { API_BASE, apiGet, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { Notice } from "../notice";
@@ -28,6 +28,14 @@ interface ThreadRow {
   buyerId?: string;
 }
 
+interface Attachment {
+  id: string;
+  name: string;
+  kind: string;
+  contentType: string;
+  sizeBytes: number;
+}
+
 interface Message {
   id: string;
   direction: string;
@@ -35,6 +43,41 @@ interface Message {
   body: string;
   fromEmail?: string;
   createdAt: string;
+  attachments: Attachment[];
+}
+
+/** ‏1.2MB ⟵ "1.2MB"; 850KB ⟵ "850KB" — לתווית ההורדה. */
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))}KB`;
+}
+
+/** התצוגה לפי הסוג שהוכרע בקליטה: תמונה בפנים, וידאו בנגן, מסמך כהורדה. */
+function AttachmentView({ attachment }: { attachment: Attachment }) {
+  const src = `${API_BASE}/email-inbox/attachments/${attachment.id}/raw`;
+  if (attachment.kind === "image") {
+    return (
+      <a href={src} target="_blank" rel="noreferrer">
+        <img
+          src={src}
+          alt={attachment.name}
+          className="max-h-48 rounded-lg border"
+          style={{ borderColor: "var(--color-border)", maxWidth: "100%" }}
+        />
+      </a>
+    );
+  }
+  if (attachment.kind === "video") {
+    return (
+      // וידאו שלקוח צירף למייל — אין לו כתוביות; ההקשר מוסבר בטקסט ההודעה
+      <video src={src} controls className="max-h-48 rounded-lg" style={{ maxWidth: "100%" }} />
+    );
+  }
+  return (
+    <a href={src} className="underline" download={attachment.name}>
+      📎 {attachment.name} ({formatBytes(attachment.sizeBytes)})
+    </a>
+  );
 }
 
 export default function InboxPage() {
@@ -44,7 +87,9 @@ export default function InboxPage() {
   const [openContact, setOpenContact] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [reply, setReply] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
   const [sendState, setSendState] = useState<"idle" | "sending" | "failed">("idle");
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     apiGet<ThreadRow[]>("/email-inbox")
@@ -60,7 +105,9 @@ export default function InboxPage() {
     setOpenContact(contactId);
     setMessages(null);
     setReply("");
+    setFiles([]);
     setSendState("idle");
+    setSendError(null);
     try {
       const thread = await apiGet<{ messages: Message[] }>(`/email-inbox/${contactId}`);
       setMessages(thread.messages);
@@ -75,15 +122,30 @@ export default function InboxPage() {
   }
 
   async function sendReply() {
-    if (openContact === null || reply.trim() === "") return;
+    if (openContact === null || (reply.trim() === "" && files.length === 0)) return;
     setSendState("sending");
+    setSendError(null);
     try {
-      await apiPost(`/email-inbox/${openContact}/reply`, { body: reply.trim() });
+      // multipart — בלי Content-Type ידני; הדפדפן קובע boundary
+      const form = new FormData();
+      form.append("body", reply.trim());
+      for (const file of files) form.append("files", file);
+      const res = await fetch(`${API_BASE}/email-inbox/${openContact}/reply`, {
+        method: "POST",
+        credentials: "include",
+        body: form,
+      });
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(errBody?.message ?? "השליחה נכשלה");
+      }
       setReply("");
+      setFiles([]);
       setSendState("idle");
       await openThread(openContact);
       load();
-    } catch {
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "השליחה נכשלה — נסו שוב.");
       setSendState("failed");
     }
   }
@@ -169,7 +231,14 @@ export default function InboxPage() {
                               {message.direction === "in" ? "הלקוח" : "המשרד"} ·{" "}
                               {formatDateTime(message.createdAt)}
                             </p>
-                            {message.body}
+                            {message.body !== "" ? message.body : null}
+                            {message.attachments.length > 0 ? (
+                              <span className="mt-2 flex flex-col gap-2">
+                                {message.attachments.map((attachment) => (
+                                  <AttachmentView key={attachment.id} attachment={attachment} />
+                                ))}
+                              </span>
+                            ) : null}
                           </li>
                         ))}
                       </ul>
@@ -193,12 +262,27 @@ export default function InboxPage() {
                         style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
                       />
                     </label>
+                    <label className="mb-2 block text-sm">
+                      <span className="mv-visually-hidden">צירוף קבצים</span>
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv"
+                        onChange={(e) => setFiles([...(e.target.files ?? [])])}
+                      />
+                    </label>
+                    {files.length > 0 ? (
+                      <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                        {files.length} קבצים מצורפים ·{" "}
+                        {formatBytes(files.reduce((sum, f) => sum + f.size, 0))} (עד 7MB בהודעה)
+                      </p>
+                    ) : null}
                     {sendState === "failed" ? (
-                      <Notice tone="danger">השליחה נכשלה — נסו שוב.</Notice>
+                      <Notice tone="danger">{sendError ?? "השליחה נכשלה — נסו שוב."}</Notice>
                     ) : null}
                     <Button
                       onClick={() => void sendReply()}
-                      disabled={sendState === "sending" || reply.trim() === ""}
+                      disabled={sendState === "sending" || (reply.trim() === "" && files.length === 0)}
                     >
                       {sendState === "sending" ? "שולח…" : "שליחת תשובה במייל"}
                     </Button>
