@@ -9,6 +9,8 @@ import { CollaborationModule } from "../collaboration/collaboration.module";
 import { ContactsModule } from "../contacts/contacts.module";
 import { LeadsModule } from "../leads/leads.module";
 import { MatchingModule } from "../matching/matching.module";
+import { NotificationsModule } from "../notifications/notifications.module";
+import { OffersModule } from "../offers/offers.module";
 import { PropertiesModule } from "../properties/properties.module";
 import { SearchModule } from "../search/search.module";
 import { TasksModule } from "../tasks/tasks.module";
@@ -49,6 +51,10 @@ import { AgentResolveService } from "./resolve.service";
     ExclusivityModule,
     // שם הלקוח מוצפן במסד — רק ContactsService מפענח אותו
     ContactsModule,
+    // „מי פתח ולא הגיב” — אותה רשימה שמסך ההצעות מציג
+    OffersModule,
+    // „מה חדש” — אותו תנאי ראות שהמסך משתמש בו
+    NotificationsModule,
   ],
   controllers: [AgentController],
   providers: [

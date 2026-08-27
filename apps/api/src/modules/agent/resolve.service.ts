@@ -573,6 +573,19 @@ export class AgentResolveService {
         }));
     }
 
+    /*
+     * ‎**סוכן — מרשימת המשרד, לא מהחיפוש.** ההשוואה מכילה ובלי
+     * תלות ברישיות, בדיוק כמו במשימות: „דנה” צריך למצוא את „דנה
+     * לוי”, וזו הצורה היחידה שבה שם נאמר בדיבור.
+     */
+    if (kind === "user") {
+      const needle = phrase.toLowerCase();
+      return (await this.tasks.assignees())
+        .filter((user) => user.name.toLowerCase().includes(needle))
+        .slice(0, 8)
+        .map((user) => ({ id: user.id, label: user.name }));
+    }
+
     const results = await this.search.search(phrase);
     if (kind === "buyer") {
       return results.buyers.slice(0, 8).map((b) => ({
@@ -711,7 +724,14 @@ const DATE_FIELD: Record<string, string | undefined> = {
  * לישות שאין לה שיחות בכלל. הרחבה של מפתח משותף היא בדיוק סוג
  * השינוי שנראה קטן ופוגע בשני מקומות אחרים.
  */
-type LookupKind = "buyer" | "property" | "lead" | "task" | "card" | "anyCard";
+/*
+ * ‎`user` הוא הסוכן שבמשרד, לא לקוח. הוא נפתר מרשימת המשתמשים
+ * הפעילים (`TasksService.assignees`) ולא מהחיפוש הגלובלי — חיפוש
+ * טקסט מוצא לקוחות, ו„דנה” כשם סוכנת וכשם קונה הם שתי רשומות שונות
+ * לגמרי. שתיהן היו מוחזרות מאותה שאילתה, והבחירה בין „דנה הסוכנת”
+ * ל„דנה הקונה” הייתה נופלת על סדר התוצאות.
+ */
+type LookupKind = "buyer" | "property" | "lead" | "task" | "card" | "anyCard" | "user";
 
 /**
  * צורת המזהה שהפעולה מצפה לה, לפי סוג החיפוש.
@@ -851,6 +871,42 @@ const ENTITY_LOOKUP: Record<
     optional: true,
     also: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס", kind: "property" },
   },
+  /*
+   * ‎**„מה המשימות של דנה”.** רשות: בלי שם זו הרשימה הרגילה. השם
+   * נפתר לסוכן, והשרת מסנן — `TasksService.list` מקבל `assignee`
+   * מאז ומתמיד, ומה שחסר היה מי שיתרגם שם למזהה.
+   */
+  show_tasks: {
+    key: "assigneePhrase",
+    idKey: "assigneeId",
+    label: "של מי",
+    kind: "user",
+    optional: true,
+  },
+  /*
+   * ‎**וכאן חובה.** „תעביר את זה למישהו” בלי לדעת למי אינה הטלה;
+   * משימה שתישאר על היוצר בשקט היא בדיוק הכישלון שהפעולה נועדה
+   * למנוע.
+   */
+  assign_task: {
+    key: "taskPhrase",
+    idKey: "taskId",
+    label: "איזו משימה",
+    kind: "task",
+    also: { key: "assigneePhrase", idKey: "assigneeId", label: "על מי להטיל", kind: "user" },
+  },
+  /*
+   * ‎**התאמה מזוהה בזוג, לא במזהה.** אין ל„התאמה” שם שאפשר לומר
+   * אותו — היא (קונה, נכס), וכך גם נאמרת: „הדירה ברמת גן לא מתאימה
+   * למשה כהן”. שני הביטויים נדרשים, והביצוע מוצא את השורה מהם.
+   */
+  dismiss_match: {
+    key: "buyerPhrase",
+    idKey: "buyerId",
+    label: "איזה קונה",
+    kind: "buyer",
+    also: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס", kind: "property" },
+  },
   complete_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
   /*
    * „קשור ל” היה שדה מת: המודל התבקש למלא אותו, הוא הוצג בכרטיס,
@@ -960,6 +1016,8 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   show_exclusivity: ["propertyPhrase"],
   log_marketing_action: ["propertyPhrase"],
   complete_task: ["taskPhrase"],
+  assign_task: ["taskPhrase", "assigneePhrase"],
+  dismiss_match: ["buyerPhrase", "propertyPhrase", "dismissReason"],
   send_offer: ["buyerPhrase", "propertyPhrase"],
   send_agreement: ["buyerPhrase", "propertyPhrase"],
   share_property: ["propertyPhrase"],

@@ -17,15 +17,36 @@ export interface HelpAction {
   examples: readonly string[];
 }
 
-/** קבוצות התפריט לפי סדר השימוש בפועל, לא לפי סדר הקטלוג. */
+/**
+ * קבוצות התפריט לפי סדר השימוש בפועל, לא לפי סדר הקטלוג.
+ *
+ * ‎**כל פעולה בקטלוג חייבת להופיע כאן, ובקבוצה אחת בלבד.**
+ *
+ * זו רשימה מקבילה לקטלוג, וככזו היא נטתה ממנו: שש פעולות קיימות —
+ * „מי צריך שיחה חוזרת”, „הכרטיס של”, „תשמיע לי”, קישור החתימה,
+ * הבלעדיות ותיעוד השיווק — **לא הופיעו בתפריט כלל**. הן עבדו; פשוט
+ * אי אפשר היה לדעת מהסוכן עצמו שהן קיימות, וזה גרוע במיוחד בתפריט
+ * שכל תכליתו לענות „מה אתה יודע לעשות”.
+ *
+ * ‎`assistant-help.test.ts` אוכף את הכיסוי, ולכן פעולה חדשה שלא
+ * תשובץ תפיל את הבדיקה במקום להיעלם בשקט.
+ */
 const GROUPS: { label: string; ids: readonly string[] }[] = [
   {
     label: "לשאול על המאגר",
-    ids: ["find_buyers", "find_properties", "search", "show_matches"],
+    ids: ["find_buyers", "find_properties", "search", "show_matches", "show_card"],
   },
   {
     label: "היום שלי",
-    ids: ["show_schedule", "show_tasks", "show_calls", "show_deals", "office_report"],
+    ids: [
+      "show_schedule",
+      "show_tasks",
+      "show_notifications",
+      "show_callbacks",
+      "show_calls",
+      "play_recording",
+      "office_report",
+    ],
   },
   {
     label: "להוסיף ולעדכן",
@@ -39,11 +60,24 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "update_property",
       "update_lead_status",
       "complete_task",
+      "assign_task",
       "add_note",
+      "dismiss_match",
     ],
   },
-  { label: "רשת השיתופים", ids: ["share_property", "share_buyer", "send_offer"] },
+  {
+    label: "הצעות והחתמה",
+    ids: ["send_offer", "send_agreement", "show_offers", "show_agreements"],
+  },
+  { label: "בלעדיות", ids: ["show_exclusivity", "log_marketing_action"] },
+  {
+    label: "רשת המשרדים",
+    ids: ["share_property", "share_buyer", "show_demands", "show_deals"],
+  },
 ];
+
+/** מיוצאת לבדיקת הכיסוי בלבד — התפריט עצמו נבנה מ-`helpMenu`. */
+export const HELP_GROUP_IDS: readonly string[] = GROUPS.flatMap((group) => group.ids);
 
 /** כמה דוגמאות מוצגות בכל קבוצה — תפריט, לא קטלוג. */
 const EXAMPLES_PER_GROUP = 2;

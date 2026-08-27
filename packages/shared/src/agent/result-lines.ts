@@ -230,6 +230,70 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
         href: "/calls",
       };
     }),
+  /*
+   * ‎**ההסכם הממתין — המצב הוא הכותרת, לא הסוג.**
+   *
+   * „הזמנה בכתב — דנה לוי” אינו ניתן לפעולה; „דנה לוי — נפתח ולא
+   * נחתם, 9 ימים” אומר להתקשר. `meaning` הוא מה שעושים עם זה,
+   * ומגיע מהשרת ולא מנוסח כאן: אותו ניסוח בדיוק לשני הערוצים.
+   */
+  agreements: (value) =>
+    rowsOf(value).map((a) => ({
+      label: text(a["contactName"]) ?? "לקוח",
+      detail: join([
+        text(a["state"]),
+        text(a["kindLabel"]),
+        typeof a["daysWaiting"] === "number" ? `${a["daysWaiting"]} ימים` : null,
+        text(a["meaning"]),
+      ]),
+      kindLabel: "ממתין לחתימה",
+      href: "/offers",
+    })),
+  /*
+   * ‎**מספר הפתיחות נכנס לשורה עצמה.** „נפתחה” ו„נפתחה 4 פעמים” הם
+   * שני לקוחות שונים לגמרי, וההבדל ביניהם הוא כל הסיבה לשאול.
+   */
+  offers: (value) =>
+    rowsOf(value).map((o) => {
+      const opens = typeof o["openCount"] === "number" ? (o["openCount"] as number) : 0;
+      return {
+        label: text(o["buyerName"]) ?? text(o["title"]) ?? "הצעה",
+        detail: join([
+          text(o["status"]),
+          opens > 0 ? `נפתחה ${opens} פעמים` : null,
+          text(o["buyerName"]) === null ? null : text(o["title"]),
+          whenText(o["sentAt"]),
+        ]),
+        kindLabel: "הצעה",
+        href: "/offers",
+      };
+    }),
+  /*
+   * ‎**„יש לך נכס בשבילו” קודם לכל תיאור אחר.** ביקוש בלי התאמה הוא
+   * רקע; ביקוש עם שלוש התאמות הוא שיחת טלפון.
+   */
+  demands: (value) =>
+    rowsOf(value).map((d) => {
+      const count = typeof d["matchCount"] === "number" ? (d["matchCount"] as number) : 0;
+      return {
+        label: text(d["office"]) ?? "משרד ברשת",
+        detail: join([
+          count > 0 ? `${count} מהנכסים שלך מתאימים` : null,
+          rooms(d["roomsMin"], d["roomsMax"]),
+          Array.isArray(d["cities"]) ? d["cities"].join(" / ") : null,
+          price(d["budgetMaxAgorot"]) === null ? null : `עד ${price(d["budgetMaxAgorot"])!}`,
+        ]),
+        kindLabel: "ביקוש ברשת",
+        href: "/collaboration",
+      };
+    }),
+  notifications: (value) =>
+    rowsOf(value).map((n) => ({
+      label: text(n["title"]) ?? "התראה",
+      detail: join([text(n["body"]), whenText(n["createdAt"])]),
+      kindLabel: "התראה",
+      href: "/notifications",
+    })),
   deals: (value) =>
     rowsOf(value).map((d) => ({
       label: text(d["title"]) ?? "עסקה משותפת",
@@ -434,6 +498,10 @@ const SECTION_META: Record<string, { noun: string; counted: boolean }> = {
   matches: { noun: "התאמות", counted: true },
   exclusivity: { noun: "בלעדיות", counted: true },
   properties: { noun: "נכסים", counted: true },
+  agreements: { noun: "ממתינים לחתימה", counted: true },
+  offers: { noun: "הצעות", counted: true },
+  demands: { noun: "ביקושים ברשת", counted: true },
+  notifications: { noun: "התראות", counted: false },
 };
 
 /** הסדר קובע מה מוצג ראשון בתוצאת חיפוש כללי. */
