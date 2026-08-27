@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet, apiPost } from "@/lib/api";
@@ -140,6 +140,13 @@ export default function InboxPage() {
   const [threads, setThreads] = useState<ThreadRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openContact, setOpenContact] = useState<string | null>(null);
+  /*
+   * ‎**השיחה הפתוחה, לקריאה אחרי `await`.** אותה סיבה כמו ב-`ref`
+   * של שולחן החיבורים: המשך שרץ בסגור של רינדור קודם קורא ערך ישן
+   * מ-`state` מעצם הגדרתו, ואזהרה שנכתבת אחרי טעינה מחדש חייבת
+   * לדעת אם הסוכן כבר עבר לשיחה אחרת.
+   */
+  const openRef = useRef<string | null>(null);
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [reply, setReply] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -157,6 +164,7 @@ export default function InboxPage() {
   }, [authLoading, load]);
 
   async function openThread(contactId: string) {
+    openRef.current = contactId;
     setOpenContact(contactId);
     setMessages(null);
     setReply("");
@@ -201,12 +209,23 @@ export default function InboxPage() {
        * „לא ידוע” — ולכן הטיוטה **נמחקת** והשיחה נטענת מחדש, בדיוק
        * כמו בשליחה מוצלחת: כך הסוכן רואה את השורה ואת האזהרה שעליה,
        * במקום כפתור „נסו שוב” שיביא ללקוח את אותה הודעה פעמיים.
+       *
+       * ‎**והמצב נקבע אחרי הטעינה מחדש, לא לפניה.** `openThread`
+       * מאפס את מצב השליחה כחלק מפתיחת שיחה, ולכן „לא ידוע” שנכתב
+       * לפניו נמחק לפני שהספיק להיראות. בדרך התקינה השורה שנטענה
+       * נושאת את האזהרה בעצמה — אבל אם **הטעינה** נכשלה, הטיוטה
+       * כבר נמחקה והסוכן לא רואה לא שורה ולא אזהרה, ושולח שוב
+       * (ביקורת Codex). זו הפעם השלישית שהתיקון של המצב הזה נעצר
+       * צעד לפני מי שצריך לדעת, ולכן הוא נכתב עכשיו **אחרון**.
        */
       const okBody = (await res.json().catch(() => null)) as { state?: string } | null;
       setReply("");
       setFiles([]);
-      setSendState(okBody?.state === "unknown" ? "unknown" : "idle");
       await openThread(openContact);
+      // הסוכן עבר בינתיים לשיחה אחרת — האזהרה שייכת לשיחה שנשלחה
+      if (openRef.current === openContact) {
+        setSendState(okBody?.state === "unknown" ? "unknown" : "idle");
+      }
       load();
     } catch (err) {
       setSendError(err instanceof Error ? err.message : "השליחה נכשלה — נסו שוב.");
@@ -258,7 +277,11 @@ export default function InboxPage() {
                   type="button"
                   className="flex w-full flex-wrap items-center gap-2 p-3 text-start"
                   aria-expanded={open}
-                  onClick={() => (open ? setOpenContact(null) : void openThread(thread.contactId))}
+                  onClick={() => {
+                    if (!open) return void openThread(thread.contactId);
+                    openRef.current = null;
+                    setOpenContact(null);
+                  }}
                 >
                   <span className="font-bold">{thread.contactName}</span>
                   {thread.unread > 0 ? (

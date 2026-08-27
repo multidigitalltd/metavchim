@@ -147,3 +147,35 @@ describe("שולחן החיבורים והחלפת משרד באמצע שמיר�
     expect(tail).not.toContain("selected.current");
   });
 });
+
+/**
+ * ‎**„לא ידוע” שורד את הטעינה מחדש.**
+ *
+ * הפעם השלישית שהתיקון של המצב הזה נעצר צעד לפני מי שצריך לדעת.
+ * ‎1: השרת סימן הכול „נכשלה”. ‏2: הזריקה מנעה מהמסך לטעון את השורה.
+ * ‏3, כאן: `openThread` מאפס את מצב השליחה כחלק מפתיחת שיחה, ולכן
+ * ‎„לא ידוע” שנכתב **לפניו** נמחק לפני שהספיק להיראות (ביקורת
+ * Codex). בדרך התקינה השורה שנטענה נושאת את האזהרה בעצמה — אבל אם
+ * הטעינה עצמה נכשלה, הטיוטה כבר נמחקה ולסוכן לא נשאר דבר.
+ */
+describe("האזהרה ששורדת את פתיחת השיחה", () => {
+  const send = method(INBOX_PAGE, "  async function sendReply(");
+
+  it("המצב נקבע אחרי הטעינה מחדש ולא לפניה", () => {
+    const reload = send.indexOf("await openThread(openContact);");
+    const mark = send.indexOf('setSendState(okBody?.state === "unknown"');
+    expect(reload, "הטעינה מחדש לא נמצאה").toBeGreaterThan(-1);
+    expect(mark, "קביעת המצב לא נמצאה").toBeGreaterThan(reload);
+  });
+
+  it("והוא שייך לשיחה שממנה נשלח", () => {
+    expect(send).toContain("if (openRef.current === openContact) {");
+  });
+
+  it("הפתיחה והסגירה שתיהן מעדכנות את ה-ref", () => {
+    expect(INBOX_PAGE).toMatch(
+      /async function openThread\(contactId: string\) \{\n\s*openRef\.current = contactId;/u,
+    );
+    expect(INBOX_PAGE).toMatch(/openRef\.current = null;\n\s*setOpenContact\(null\);/u);
+  });
+});
