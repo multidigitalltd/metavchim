@@ -1031,6 +1031,14 @@ export class WhatsAppAssistantService {
      * הסדר: הרשימות הייעודיות (חזרות, כרטיס) קודם — הן יודעות על
      * הצורה שלהן יותר; אחר כך הרשימה המשותפת; ורק בסוף הכללי.
      */
+    /*
+     * המשפט הטבעי מוביל והרשימה אחריו — אותו סדר כמו במסך, שבו
+     * פסקת התובנה יושבת מעל הטבלה. עוזר פותח במסקנה; מערכת פותחת
+     * בטבלה.
+     */
+    if (primary.insight !== undefined && primary.insight !== "") {
+      lines.push(`💡 ${primary.insight}`);
+    }
     const dataSummary =
       formatCallbacks(primary.data) ??
       formatCard(primary.data) ??
@@ -1047,7 +1055,6 @@ export class WhatsAppAssistantService {
      */
     const scope = scopeNote(state.proposal.actionId);
     if (scope !== "") lines.push(scope);
-    if (primary.insight !== undefined && primary.insight !== "") lines.push(`💡 ${primary.insight}`);
 
     // צעדי המשך — לפי הסדר, וכישלון באמצע מדווח בשקיפות (כמו במסך)
     /*

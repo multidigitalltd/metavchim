@@ -109,6 +109,7 @@ export * from "./agent/actions.js";
 export * from "./agent/schema.js";
 export * from "./agent/prompt.js";
 export * from "./agent/history.js";
+export * from "./agent/insight-guard.js";
 export * from "./agent/next-step.js";
 export * from "./agent/proposal.js";
 export * from "./agent/result-lines.js";
