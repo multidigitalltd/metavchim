@@ -5,6 +5,7 @@ import {
   invoiceLineDescription,
   invoiceRejectionReason,
   invoiceRetryDelayMs,
+  linetNoResults,
   vatSplitFromGross,
 } from "./invoice.js";
 
@@ -80,5 +81,29 @@ describe("invoiceRejectionReason", () => {
   it("תשלום שלא נגבה ותשלום באפס אינם מזכים", () => {
     expect(invoiceRejectionReason({ status: "pending", amountAgorot: 29900 })).toContain("טרם נגבה");
     expect(invoiceRejectionReason({ status: "paid", amountAgorot: 0 })).toContain("אפס");
+  });
+});
+
+describe("linetNoResults", () => {
+  it("מזהה את הניסוח של לינט — כולל השגיאה ב-where", () => {
+    expect(linetNoResults("No items where found for model")).toBe(true);
+    expect(linetNoResults("No items were found for model")).toBe(true);
+  });
+
+  it("סובלני לרישיות, לרווחים ולצורת היחיד", () => {
+    expect(linetNoResults("NO ITEM WHERE FOUND for model account")).toBe(true);
+    expect(linetNoResults("no  items   were   found")).toBe(true);
+  });
+
+  /*
+   * זה החלק שמגן: כשל הזדהות **אינו** תוצאה ריקה, ובליעה שלו הייתה
+   * מחזירה „החיבור תקין” על מפתח שגוי — כלומר בדיוק הכישלון השקט
+   * שהבדיקה קיימת כדי למנוע.
+   */
+  it("אינו בולע כישלון אמיתי", () => {
+    expect(linetNoResults("Unauthorized")).toBe(false);
+    expect(linetNoResults("login_hash: המפתח שגוי")).toBe(false);
+    expect(linetNoResults("item_id: no such item")).toBe(false);
+    expect(linetNoResults("")).toBe(false);
   });
 });
