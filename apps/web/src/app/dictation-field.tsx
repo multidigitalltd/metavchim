@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, type ReactNode } from "react";
-import { appendDictated } from "@metavchim/shared";
+import { appendDictated, dictationMode } from "@metavchim/shared";
 import { useDictation, type DictationMode } from "@/lib/dictation";
 import { IconStop } from "./icons";
 
@@ -81,8 +81,18 @@ export function DictationControls({
    */
   browserOnly?: boolean;
 }) {
-  const { browserReady, detected, serverReady, recording, transcribing, pending, error, start, stop } =
-    useDictation((text) => onAppend(text), { browserOnly: browserOnly === true });
+  const {
+    browserReady,
+    browserFailed,
+    detected,
+    serverReady,
+    recording,
+    transcribing,
+    pending,
+    error,
+    start,
+    stop,
+  } = useDictation((text) => onAppend(text), { browserOnly: browserOnly === true });
 
   /*
    * סוף סבב = לא מקליט ולא מתמלל. בלי האיפוס הזה הקלטה שנייה באותו
@@ -160,14 +170,24 @@ export function DictationControls({
          *
          * המצב לא בוטל: זיהוי הדפדפן הוא ברירת המחדל כי הטקסט מופיע
          * בו תוך כדי הדיבור, ובדפדפן שאין בו כזה אותו כפתור נופל
-         * לתמלול בשרת. `browserOnly` נשאר החריג היחיד — שם אין
-         * נפילה, וזו החלטה מפורשת (ראו התיעוד של המאפיין).
+         * לתמלול בשרת — גם כשהוא **קיים ונכשל** (מכשיר בלי חבילת
+         * עברית), ולא רק כשהוא חסר. `browserOnly` נשאר החריג היחיד:
+         * שם אין נפילה, וזו החלטה מפורשת (ראו התיעוד של המאפיין).
          */
         <button
           type="button"
           className="mv-dictate-btn"
           disabled={disabled}
-          onClick={() => begin(browserReady ? "browser" : "server")}
+          onClick={() =>
+            begin(
+              dictationMode({
+                browserReady,
+                // ‏`browserOnly` אינו נופל לשרת — ראו התיעוד של המאפיין
+                serverReady: serverReady && browserOnly !== true,
+                browserFailed,
+              }),
+            )
+          }
           title={
             browserReady
               ? "הסוכן הקולי מקשיב וכותב — הטקסט מופיע תוך כדי הדיבור"

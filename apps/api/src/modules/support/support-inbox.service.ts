@@ -14,6 +14,7 @@ import {
   inboundBody,
   inboundProviderMessageId,
   inboundToken,
+  isProviderInboundRoute,
   parseSenderEmail,
   parseSenderName,
   replyAddressFor,
@@ -624,7 +625,11 @@ export class SupportInboxService {
            * מזמינה את הפונה להשיב לכתובת שאיש אינו קורא, ומאבדת
            * את השרשור שה-Reply-To בנה (ביקורת Codex).
            */
-          ...(config === null ? {} : { sender: await this.sender(config.address) }),
+          ...(config === null
+            ? {}
+            : await this.sender(config.address).then((sender) =>
+                sender === null ? {} : { sender },
+              )),
           ...(replyTo !== null ? { replyTo } : {}),
           ...(attachments.length > 0
             ? {
@@ -685,22 +690,43 @@ export class SupportInboxService {
    * שרת אחד הוא הגדרה חסרה, לא סיבה לענות מ-`no-reply`.
    */
   /**
-   * אותו שולח, לכל מה שיוצא מהתמיכה.
+   * מה שיוצא מהתמיכה — שולח, וכתובת לחזור אליה.
    *
    * ציבורית כי גם **תשובה לפנייה שנפתחה במערכת** (`SupportService`)
-   * חייבת לצאת מכתובת התמיכה. שם היא יצאה מהשולח הכללי — `no-reply`
-   * — כלומר מי שהשיב עליה כתב לתיבה שאיש אינו קורא, בעוד אותה תשובה
-   * בדיוק מהתיבה הנכנסת יצאה מהכתובת הנכונה. שני נתיבים לאותו דבר,
-   * ואחד מהם שקט.
+   * שייכת לתמיכה. שם היא יצאה מהשולח הכללי, כלומר מי שהשיב עליה
+   * כתב לתיבה שאיש אינו קורא — בעוד אותה תשובה בדיוק מהתיבה הנכנסת
+   * כן חזרה לשרשור. שני נתיבים לאותו דבר, ואחד מהם שקט.
    *
-   * ‎`null` = התיבה לא הוגדרה, ואז נשארת התנהגות ברירת המחדל.
+   * ‎**`replyTo` הוא העיקר, לא `from`.** מה שמחזיר את הפונה אלינו
+   * הוא הכתובת שהוא משיב אליה, ולא זו שכתובה בשורת „מאת”.
+   *
+   * ‎`null` בשניהם = התיבה לא הוגדרה, ונשארת התנהגות ברירת המחדל.
    */
-  async outgoingSender(): Promise<{ from: string; token?: string | undefined } | null> {
+  async outgoing(): Promise<{
+    sender: { from: string; token?: string | undefined } | null;
+    replyTo: string | null;
+  }> {
     const config = await this.config();
-    return config === null ? null : this.sender(config.address);
+    if (config === null) return { sender: null, replyTo: null };
+    return { sender: await this.sender(config.address), replyTo: config.address };
   }
 
-  private async sender(address: string): Promise<{ from: string; token?: string | undefined }> {
+  /**
+   * ‎**כתובת קליטה של הספק אינה שולח.**
+   *
+   * ‏Postmark דורשת חתימת שולח מאומתת, ו-`abc123@inbound.postmarkapp.com`
+   * היא נתיב קליטה בלבד — הודעה שיוצאת ממנה נדחית, והדחייה נבלעת
+   * בשני הנתיבים שקוראים לכאן (ביקורת Codex, P1). במצב הזה מוותרים
+   * על שורת „מאת” ונשארים עם השולח הכללי; מה שבאמת נדרש —
+   * ש**התשובה** תחזור לתיבה — נשמר ב-`Reply-To`, שאין עליו מגבלה
+   * כזו.
+   *
+   * מי שהגדיר כתובת בדומיין שלו ואימת אותו ממשיך לשלוח ממנה.
+   */
+  private async sender(
+    address: string,
+  ): Promise<{ from: string; token?: string | undefined } | null> {
+    if (isProviderInboundRoute(address)) return null;
     const token = (await this.settings.get("supportServerToken")) ?? "";
     return { from: `תמיכה מתווכים <${address}>`, ...(token === "" ? {} : { token }) };
   }

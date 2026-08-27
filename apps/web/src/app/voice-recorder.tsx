@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { appendDictated, collectDictation, createDictationSessions } from "@metavchim/shared";
+import {
+  appendDictated,
+  collectDictation,
+  createDictationSessions,
+  dictationMode,
+} from "@metavchim/shared";
 import {
   extensionForAudioType,
   preferredAudioFormat,
@@ -123,6 +128,15 @@ export function VoiceRecorder({
    * ממנו — הבחירה חייבת להיות במקום שבו לוחצים.
    */
   const [activeMode, setActiveMode] = useState<DictationMode | null>(null);
+  /**
+   * המנוע בדפדפן כבר נכשל כאן — הלחיצה הבאה תלך לשרת.
+   *
+   * מרגע שיש כפתור אחד הוא בוחר את המצב בעצמו, ובחירה לפי „הבנאי
+   * קיים” בלבד נועלת את המשתמש על מנוע שנכשל בכל ניסיון: באנדרואיד
+   * בלי חבילת עברית זה קורה תמיד, בעוד התמלול בשרת זמין ועובד
+   * (ביקורת Codex, P1).
+   */
+  const [browserFailed, setBrowserFailed] = useState(false);
   const segmentSecondsRef = useRef(DEFAULT_SEGMENT_SECONDS);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   /**
@@ -328,7 +342,8 @@ export function VoiceRecorder({
       streamRef.current = null;
       busyRef.current = false;
       setActiveMode(null);
-      onError?.("ההקלטה לא נפתחה במכשיר הזה — נסו „מהיר” או הקלידו");
+      // „מהיר” ירד מהמסך — הפניה אליו היא הוראה שאי אפשר לבצע
+      onError?.("ההקלטה לא נפתחה במכשיר הזה — אפשר להקליד במקום");
       return;
     }
     setRecording(true);
@@ -648,7 +663,12 @@ export function VoiceRecorder({
       setRecording(false);
       setFinishing(false);
       setActiveMode(null);
-      onError?.("זיהוי הדיבור נכשל — אפשר להקליד במקום");
+      setBrowserFailed(true);
+      onError?.(
+        serverAvailable
+          ? "זיהוי הדיבור בדפדפן נכשל — לחצו שוב, והתמלול יעבור לשרת"
+          : "זיהוי הדיבור נכשל — אפשר להקליד במקום",
+      );
     };
     recognitionRef.current = recognition;
     browserTokenRef.current = token;
@@ -660,7 +680,12 @@ export function VoiceRecorder({
       retireRecognition();
       busyRef.current = false;
       setActiveMode(null);
-      onError?.("זיהוי הדיבור נכשל — אפשר להקליד במקום");
+      setBrowserFailed(true);
+      onError?.(
+        serverAvailable
+          ? "זיהוי הדיבור בדפדפן נכשל — לחצו שוב, והתמלול יעבור לשרת"
+          : "זיהוי הדיבור נכשל — אפשר להקליד במקום",
+      );
       return;
     }
     setRecording(true);
@@ -794,13 +819,21 @@ export function VoiceRecorder({
               <Button
                 type="button"
                 variant="primary"
-                onClick={() => begin(browserAvailable ? "browser" : "server")}
+                onClick={() =>
+                  begin(
+                    dictationMode({
+                      browserReady: browserAvailable,
+                      serverReady: serverAvailable,
+                      browserFailed,
+                    }),
+                  )
+                }
                 className="min-w-56"
               >
                 🎤 דברו במקום להקליד
               </Button>
               <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                {browserAvailable ? (
+                {browserAvailable && !browserFailed ? (
                   "הסוכן הקולי מקשיב וכותב בשבילכם — הטקסט מופיע תוך כדי הדיבור, ואפשר לערוך אותו אחר כך."
                 ) : (
                   <>
