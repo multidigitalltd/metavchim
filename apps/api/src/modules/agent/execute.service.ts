@@ -737,56 +737,65 @@ export class AgentExecuteService {
    * מכריעה. הנתון היה במסך ולא היה נגיש בשאלה.
    */
   private async showOffers(params: Record<string, unknown>): Promise<ExecuteResult> {
-    const rows = await this.offers.listAll({ limit: 100 });
-    if (rows.length === 0) {
-      return { href: "/offers", message: "לא נשלחו הצעות", data: { offers: [] } };
-    }
-
     /*
      * ‎**המסננים הם שאלות, לא עמודות.** „נפתחה ולא נענתה” הוא סטטוס
      * ‎`opened` — `interested` ו-`declined` כבר יצאו ממנו — ו„ממתינה”
      * הוא שניים (`sent`, `delivered`). מיפוי כאן ולא חשיפת שמות
      * הטבלה לסוכן קולי.
      */
-    const FILTERS: Record<string, (row: (typeof rows)[number]) => boolean> = {
-      opened_no_reply: (row) => row.status === "opened",
-      interested: (row) => row.status === "interested",
-      declined: (row) => row.status === "declined",
-      failed: (row) => row.status === "email_failed",
-      waiting: (row) => row.status === "sent" || row.status === "delivered",
+    const BUCKETS: Record<string, { label: string; statuses: readonly string[] }> = {
+      opened_no_reply: { label: "נפתחו ולא נענו", statuses: ["opened"] },
+      interested: { label: "מעוניינים", statuses: ["interested"] },
+      declined: { label: "לא רלוונטי", statuses: ["declined"] },
+      failed: { label: "השליחה נכשלה", statuses: ["email_failed"] },
+      waiting: { label: "ממתינות", statuses: ["sent", "delivered"] },
     };
-    const filterKey = str(params["offerFilter"]);
-    const filter = filterKey === undefined ? undefined : FILTERS[filterKey];
-    const shown = filter === undefined ? rows : rows.filter(filter);
 
     /*
-     * ‎**התמונה נמדדת על הכול, גם כשמסננים.** „2 הצעות” אחרי סינון
-     * בלי לומר מתוך כמה קורא כאילו המשרד שלח שתיים.
+     * ‎**הספירה מהמסד, לא מהעמוד שהוחזר.**
+     *
+     * הניסוח הראשון שאל `listAll({ limit: 100 })` וספר את התוצאה.
+     * במשרד עם יותר ממאה הצעות זה שיקר בשני כיוונים: „אילו הצעות
+     * נכשלו” ענה „אף אחת” כשקיימות ישנות יותר, והכותרת נעצרה על 100
+     * לנצח (ביקורת Codex). ספירה ברמת המסד היא היחידה שיכולה לומר
+     * „12 הצעות” ולהתכוון לזה.
      */
-    const counts = Object.entries(FILTERS)
-      .map(([key, test]) => [key, rows.filter(test).length] as const)
-      .filter(([, count]) => count > 0);
-    const LABEL: Record<string, string> = {
-      opened_no_reply: "נפתחו ולא נענו",
-      interested: "מעוניינים",
-      declined: "לא רלוונטי",
-      failed: "השליחה נכשלה",
-      waiting: "ממתינות",
-    };
-    const summary = counts.map(([key, count]) => `${count} ${LABEL[key]}`).join(" · ");
+    const counts = await this.offers.statusCounts();
+    const total = [...counts.values()].reduce((sum, n) => sum + n, 0);
+    if (total === 0) {
+      return { href: "/offers", message: "לא נשלחו הצעות", data: { offers: [] } };
+    }
+    const inBucket = (key: string): number =>
+      BUCKETS[key]!.statuses.reduce((sum, status) => sum + (counts.get(status) ?? 0), 0);
+    const summary = Object.keys(BUCKETS)
+      .map((key) => [key, inBucket(key)] as const)
+      .filter(([, count]) => count > 0)
+      .map(([key, count]) => `${count} ${BUCKETS[key]!.label}`)
+      .join(" · ");
+
+    // הסינון יורד למסד, ולכן הוא חל על כל ההיסטוריה ולא על פרוסה
+    const bucket = str(params["offerFilter"]);
+    const spec = bucket === undefined ? undefined : BUCKETS[bucket];
+    const rows = await this.offers.listAll({
+      limit: MATCH_LIST_LIMIT,
+      ...(spec === undefined ? {} : { status: spec.statuses }),
+    });
+
+    const labelOf = (status: string): string =>
+      Object.values(BUCKETS).find((b) => b.statuses.includes(status))?.label ?? status;
 
     return {
       href: "/offers",
       message:
-        shown.length === 0
-          ? `אין הצעות במצב הזה. מתוך ${rows.length} הצעות: ${summary}`
-          : `${rows.length} הצעות — ${summary}`,
+        rows.length === 0
+          ? `אין הצעות במצב הזה. מתוך ${total} הצעות: ${summary}`
+          : `${total} הצעות — ${summary}`,
       data: {
-        offers: shown.slice(0, MATCH_LIST_LIMIT).map((row) => ({
+        offers: rows.map((row) => ({
           title: row.title,
           // קונה של סוכן אחר — ההצעה מוצגת, השם לא. אותו כלל כמו במסך
           ...(row.buyerName === null ? {} : { buyerName: row.buyerName }),
-          status: LABEL[Object.keys(FILTERS).find((k) => FILTERS[k]!(row)) ?? ""] ?? row.status,
+          status: labelOf(row.status),
           openCount: row.openCount,
           ...(row.sentAt === undefined ? {} : { sentAt: row.sentAt }),
         })),

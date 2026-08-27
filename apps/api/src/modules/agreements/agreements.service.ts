@@ -147,6 +147,47 @@ export class AgreementsService {
     return onPaper !== null;
   }
 
+  /**
+   * ‎**אותה הכרעה כמו `hasSigned`, לקבוצה — בשתי שאילתות במקום פי שתיים
+   * ממספר הנבדקים.**
+   *
+   * ‎`hasSigned` מריצה שתי שאילתות לכל בדיקה, וזה בסדר גמור לשער של
+   * פעולה בודדת. הסבב האוטומטי קורא לה **בלולאה בתוך טרנזקציה אחת**,
+   * ומספר המועמדים אינו חסום: ייבוא או חישוב-מחדש המוני מייצרים אלפי
+   * התאמות חזקות, וכל אחת מהן שתי שאילתות נוספות. משרד אחד היה מחזיק
+   * טרנזקציה פתוחה לאלפי שאילתות כל עשר דקות ומעכב את כל השאר
+   * (ביקורת Codex).
+   *
+   * מחזיר את הצמדים שנחתמו, כ-`contactId:propertyId`. **אותם שני
+   * מקורות בדיוק** כמו `hasSigned` — חתימה דיגיטלית ומסמך שנסרק — כי
+   * שתיהן חייבות להסכים: שער שמחמיר בקבוצה יותר מאשר ביחיד חוסם
+   * לקוחות שחתמו על נייר.
+   */
+  async signedPairs(
+    tx: TenantTx,
+    tenantId: string,
+    kind: AgreementKind,
+    contactIds: readonly string[],
+  ): Promise<Set<string>> {
+    const ids = [...new Set(contactIds)];
+    if (ids.length === 0) return new Set();
+    const scope = { tenantId, contactId: { in: ids }, kind, propertyId: { not: null } };
+    const [agreements, documents] = await Promise.all([
+      tx.agreement.findMany({
+        where: { ...scope, status: "signed" },
+        select: { contactId: true, propertyId: true },
+      }),
+      tx.signedDocument.findMany({
+        // אותה עמודה שמעידה „הוצהר כחתום” — ראו הנימוק ב-`hasSigned`
+        where: { ...scope, signedOn: { not: null } },
+        select: { contactId: true, propertyId: true },
+      }),
+    ]);
+    return new Set(
+      [...agreements, ...documents].map((row) => `${row.contactId!}:${row.propertyId!}`),
+    );
+  }
+
   /** הסכם ממתין קיים — כדי לא להציף את הלקוח בקישורים כפולים. */
   async pendingFor(
     tx: TenantTx,

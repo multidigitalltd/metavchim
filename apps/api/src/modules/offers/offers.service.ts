@@ -746,13 +746,40 @@ export class OffersService {
    *
    * שמות הנכס והקונה נשלפים בשאילתה מקובצת אחת לכל העמוד, לא לכל שורה.
    */
-  async listAll(query: { status?: string; limit: number }): Promise<OfferListItem[]> {
+  /**
+   * ‎**כמה הצעות יש בכל מצב — על כל המשרד, לא על עמוד.**
+   *
+   * ‎`listAll` מוגבל ב-`limit`, וכל ספירה שנגזרת ממנו נכונה רק לפרוסה
+   * שהוחזרה. „אילו הצעות נכשלו” שנענתה מתוך מאה השורות האחרונות
+   * יכולה לומר „אף אחת” כשקיימות ישנות יותר — תשובה שנשמעת מלאה
+   * ומדברת על שאלה אחרת (ביקורת Codex).
+   *
+   * ‎`groupBy` ולא ספירה לכל מצב: שאילתה אחת, וגם המצבים שאין בהם
+   * דבר נגזרים ממנה בהיעדרם.
+   */
+  async statusCounts(): Promise<Map<string, number>> {
+    const tenantId = TenantContext.current().tenantId;
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.offer.groupBy({ by: ["status"], where: { tenantId }, _count: { _all: true } }),
+    );
+    return new Map(rows.map((row) => [row.status, row._count._all]));
+  }
+
+  async listAll(query: {
+    /** מצב יחיד או כמה — „ממתינה” היא `sent` **וגם** `delivered`. */
+    status?: string | readonly string[];
+    limit: number;
+  }): Promise<OfferListItem[]> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       const offers = await tx.offer.findMany({
         where: {
           tenantId,
-          ...(query.status ? { status: query.status } : {}),
+          ...(query.status === undefined
+            ? {}
+            : typeof query.status === "string"
+              ? { status: query.status }
+              : { status: { in: [...query.status] } }),
         },
         orderBy: { createdAt: "desc" },
         take: query.limit,

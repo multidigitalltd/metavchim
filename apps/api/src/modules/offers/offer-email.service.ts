@@ -37,6 +37,17 @@ const MAX_BUYERS_PER_TENANT_SWEEP = 20;
 
 const TOKEN_TTL_DAYS = 14;
 
+/**
+ * תקרת מועמדים לבדיקת זכאות בסבב.
+ *
+ * הסבב שולח לכל היותר ל-20 לקוחות, ולכן העבודה שמעליהם היא בזבוז
+ * גם כשהיא זולה. ייבוא או חישוב-מחדש המוני מייצרים אלפי התאמות
+ * חזקות בבת אחת, והן היו נבדקות כולן — בתוך טרנזקציה אחת — לפני
+ * שהתקרה ההיא בכלל נכנסת לתמונה. המיון הוא לפי ציון יורד, כך
+ * שהנחתכות הן החלשות; והן חוזרות בסבב הבא, שכבר מתוזמן.
+ */
+const MAX_CANDIDATES_PER_SWEEP = 400;
+
 interface EligibleMatch {
   matchId: string;
   buyerId: string;
@@ -267,8 +278,15 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         },
         orderBy: { score: "desc" },
         select: { id: true, buyerId: true, propertyId: true },
+        take: MAX_CANDIDATES_PER_SWEEP,
       });
       if (candidates.length === 0) return [];
+      if (candidates.length === MAX_CANDIDATES_PER_SWEEP) {
+        // חיתוך שקט נקרא כמו „זה הכול” — ראו את אותו נימוק בוויסות הלקוחות
+        this.logger.log(
+          `משרד ${tenantId}: נבדקו ${MAX_CANDIDATES_PER_SWEEP} ההתאמות החזקות ביותר; השאר בסבב הבא`,
+        );
+      }
 
       // הצעה אחת פר התאמה — מה שכבר הוצע (בכל ערוץ) לא מוצע שוב
       const offered = new Set(
@@ -320,21 +338,30 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         ).map((c) => c.id),
       );
 
+      /*
+       * ‎**שער ההחתמה — בדיוק כמו בהצעה ידנית, אבל בשתי שאילתות.**
+       *
+       * זו הייתה קריאה ל-`hasSigned` **בתוך הלולאה**, כלומר שתי
+       * שאילתות לכל מועמד בתוך טרנזקציה אחת. מספר המועמדים חסום
+       * עכשיו (`MAX_CANDIDATES`), אבל גם אלף היו אלפיים שאילתות כל
+       * עשר דקות — ותקרת עשרים הלקוחות שבהמשך אינה חוסמת את זה, כי
+       * היא חלה אחרי (ביקורת Codex).
+       */
+      const signed = await this.agreements.signedPairs(
+        tx,
+        tenantId,
+        "brokerage",
+        [...contactByBuyer.values()].filter((id) => reachable.has(id)),
+      );
+
       const eligible: EligibleMatch[] = [];
       for (const candidate of candidates) {
         if (offered.has(candidate.id)) continue;
         if (!activeProperties.has(candidate.propertyId)) continue;
         const contactId = contactByBuyer.get(candidate.buyerId);
         if (contactId === undefined || !reachable.has(contactId)) continue;
-        // שער ההחתמה — בדיוק כמו בהצעה ידנית; בלי חתימה אין שליחה
-        const signed = await this.agreements.hasSigned(
-          tx,
-          tenantId,
-          contactId,
-          "brokerage",
-          candidate.propertyId,
-        );
-        if (!signed) continue;
+        // בלי הזמנה בכתב חתומה על **הנכס הזה** אין שליחה (§9)
+        if (!signed.has(`${contactId}:${candidate.propertyId}`)) continue;
         eligible.push({
           matchId: candidate.id,
           buyerId: candidate.buyerId,
@@ -361,6 +388,24 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         select: { contactId: true },
       });
       if (!buyer) return [];
+      /*
+       * ‎**ההסרה נקראת שוב, בטרנזקציה הזו.**
+       *
+       * ‎`eligibleMatches` בונה תמונת מצב של „מי ניתן להשגה”, ובין
+       * הרגע ההוא לרגע הזה הלקוח יכול היה ללחוץ על קישור ההסרה.
+       * ‎`ContactsService.getById` **אינו** שולף `optedOutAt` — הוא
+       * מפענח שם, טלפון ואימייל בלבד — ולכן הבדיקה כאן נראתה קיימת
+       * ולא הייתה: ההצעות נוצרו והמייל יצא ללקוח שכבר הסיר את עצמו,
+       * בניגוד לחוק התקשורת §30א (ביקורת Codex).
+       *
+       * מסלול הניסיון החוזר כבר עשה בדיוק את זה; זו הייתה א-סימטריה
+       * בין שני המסלולים ולא החלטה.
+       */
+      const consent = await tx.contact.findFirst({
+        where: { id: buyer.contactId, tenantId },
+        select: { optedOutAt: true },
+      });
+      if (consent === null || consent.optedOutAt !== null) return [];
       const contact = await this.contacts.getById(tx, buyer.contactId);
       if (!contact?.email) return [];
 

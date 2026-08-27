@@ -22,17 +22,31 @@ import { describe, expect, it } from "vitest";
  * ולכן זו בדיקה על המקור — כמו `match-created-at` ו-`office-names`.
  */
 
-const SOURCE = readFileSync(
-  join(import.meta.dirname, "offer-email.service.ts"),
-  "utf8",
-);
+const RAW = readFileSync(join(import.meta.dirname, "offer-email.service.ts"), "utf8");
+
+/**
+ * ‎**הקוד בלי ההערות — והסיבה שזה כאן ולא בכל טענה בנפרד.**
+ *
+ * הקובץ הזה מתעד למה כל שער קיים, ולכן ההערות שלו נוקבות במפורש
+ * בדיוק במה שהטענות מחפשות: `optedOutAt`, `hasSigned`, `draft`.
+ * שלוש פעמים בסבב אחד עברה כאן טענה **על ההערה של עצמה** — הקוד
+ * הוסר, הפרוזה שמסבירה אותו נשארה, והשער נשאר ירוק ולא שמר על דבר.
+ *
+ * תיקון פרטני לכל טענה („חפש `signedPairs(` ולא `signedPairs`”)
+ * מטפל במופע ולא במחלקה, וכל טענה חדשה מתחילה מאפס. הפשטת ההערות
+ * פעם אחת סוגרת את הדלת לכולן.
+ *
+ * ‎`//` מוסר רק כשהוא שורה שלמה, כדי ש-`https://` בתוך מחרוזת לא
+ * ייחתך באמצע.
+ */
+const SOURCE = RAW.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/^[ \t]*\/\/.*$/gmu, "");
 
 /** גוף פונקציה פרטית אחת, עד הפונקציה הבאה באותה רמת הזחה. */
 function body(name: string): string {
   const start = SOURCE.indexOf(`private async ${name}(`);
   expect(start, `${name} לא נמצאה בקובץ`).toBeGreaterThan(-1);
   const rest = SOURCE.slice(start + 1);
-  const end = rest.search(/\n {2}(?:private|public|async|\/\*\*)/u);
+  const end = rest.search(/\n {2}(?:private|public|async)/u);
   return end === -1 ? rest : rest.slice(0, end);
 }
 
@@ -76,19 +90,61 @@ describe("שער הנכס בהצעות האוטומטיות", () => {
   });
 
   /*
+   * ‎**ההסרה מרשימת התפוצה נבדקת בשני המסלולים.**
+   *
+   * ‎`eligibleMatches` בונה תמונת מצב של „מי ניתן להשגה”, ובין הרגע
+   * ההוא לרגע היצירה הלקוח יכול ללחוץ על קישור ההסרה.
+   * ‎`ContactsService.getById` אינו שולף `optedOutAt` — הוא מפענח שם,
+   * טלפון ואימייל בלבד — ולכן הבדיקה במסלול היצירה **נראתה קיימת
+   * ולא הייתה**: המייל יצא ללקוח שכבר הסיר את עצמו, בניגוד לחוק
+   * התקשורת §30א (ביקורת Codex).
+   */
+  it("שני המסלולים קוראים את ההסרה מהמסד, ולא נשענים על getById", () => {
+    for (const fn of ["eligibleMatches", "offerAndEmail", "retryPending"]) {
+      expect(body(fn), fn).toContain("optedOutAt");
+    }
+  });
+
+  /*
    * ‎**„טיוטה” אינה נכללת באוטומציה, וזו הסיבה שלא נעשה כאן שימוש
    * חוזר ב-`offerPropertyMarketable`.** הוא מתיר `draft | active`,
    * כי מתווך רשאי להציע טיוטה במודע; האוטומציה משווקת רק מה שהמשרד
    * סימן פעיל. שימוש חוזר בו היה מרחיב את האוטומציה בשקט.
    */
   it("האוטומציה אינה משווקת טיוטות", () => {
-    /*
-     * הטענה היא על **הקוד** ולא על הופעת המילה: `draft` מוזכר
-     * בהערות כאן בדיוק כדי להסביר למה הוא בחוץ, ובדיקה על הטקסט
-     * החופשי הייתה נופלת על ההסבר של עצמה.
-     */
     for (const fn of ["eligibleMatches", "retryPending"]) {
       expect(body(fn), fn).not.toMatch(/status:\s*\{\s*in:\s*\[[^\]]*"draft"/u);
     }
+  });
+});
+
+/**
+ * ‎**עבודה חסומה בתוך טרנזקציה.**
+ *
+ * שער ההחתמה נבדק לכל מועמד בנפרד (`hasSigned` — שתי שאילתות
+ * לקריאה), בלולאה, בתוך טרנזקציה אחת. מספר המועמדים לא היה חסום:
+ * ייבוא או חישוב-מחדש המוני מייצרים אלפי התאמות חזקות, ותקרת
+ * עשרים הלקוחות שבהמשך אינה חוסמת זאת — היא חלה **אחרי**. משרד
+ * אחד היה מחזיק טרנזקציה פתוחה לאלפי שאילתות כל עשר דקות ומעכב
+ * את כל השאר (ביקורת Codex).
+ */
+describe("חסימת העבודה בסבב", () => {
+  it("שער ההחתמה נבדק בקבוצה ולא בלולאה", () => {
+    const eligible = body("eligibleMatches");
+    expect(eligible).toContain("signedPairs(");
+    expect(eligible).not.toContain("hasSigned");
+  });
+
+  it("מספר המועמדים חסום", () => {
+    expect(body("eligibleMatches")).toMatch(/take:\s*MAX_CANDIDATES_PER_SWEEP/u);
+  });
+
+  /*
+   * ‎**וחיתוך נאמר בקול.** מגבלה שקטה נקראת כמו „זה הכול”, וזה בדיוק
+   * הכשל שהמערכת הזו חוזרת ומגנה מפניו — תשובה שנראית מלאה ומדברת
+   * על שאלה אחרת. אותו נימוק כמו בוויסות הלקוחות שכבר מדווח.
+   */
+  it("והחיתוך מדווח", () => {
+    expect(body("eligibleMatches")).toContain("this.logger");
   });
 });
