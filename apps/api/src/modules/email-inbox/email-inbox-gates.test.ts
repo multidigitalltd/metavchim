@@ -106,13 +106,50 @@ describe("ההמתנה שאינה נגמרת", () => {
   });
 
   it("מעבר לסף היא נקראת כמו „לא ידוע”, ובאותן מילים", () => {
-    expect(INBOX_PAGE).toMatch(/at <= now - STALE_PENDING_MS\) return \{ \.\.\.UNKNOWN_NOTE \}/u);
+    expect(INBOX_PAGE).toMatch(/deadline <= now\) return \{ \.\.\.UNKNOWN_NOTE \}/u);
     // אותה מחרוזת בדיוק לשני המצבים — הפעולה הנדרשת מהסוכן זהה
     expect((INBOX_PAGE.match(/UNKNOWN_NOTE/gu) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
   it("חותמת שאינה נקראת אינה מסתירה את האזהרה", () => {
-    expect(INBOX_PAGE).toContain("Number.isNaN(at)");
+    expect(INBOX_PAGE).toContain("Number.isNaN(deadline)");
+  });
+
+  /*
+   * ‎**זמן שעובר אינו מרנדר רכיב מחדש.** `Date.now()` ברינדור נקרא
+   * פעם אחת, ולכן שורה שנטענה צעירה נשארה „בשליחה…” כל עוד השיחה
+   * פתוחה — גם שעה אחרי שחצתה את הסף (ביקורת Codex). הסף שנוסף
+   * בקומיט הקודם פשוט לא היה מתקיים במסך שנשאר פתוח.
+   */
+  it("השעה מגיעה מ-state ולא מקריאה ברינדור", () => {
+    expect(INBOX_PAGE).toContain("const [now, setNow] = useState(() => Date.now());");
+    // אתר הקריאה ב-JSX מקבל את ה-state; קריאה ברינדור לא הייתה מתקדמת לעולם
+    expect(INBOX_PAGE).toMatch(
+      /sendStateNote\(\s*message\.sendState,\s*message\.createdAt,\s*now,\s*\)/u,
+    );
+    /*
+     * שלוש קריאות מותרות ל-`Date.now()`, וכולן **כותבות** את השעה:
+     * האתחול, הרענון עם רשימה חדשה, וההערה בתום התזמון. רביעית
+     * פירושה קריאה ברינדור, שהיא בדיוק התקלה.
+     */
+    expect((INBOX_PAGE.match(/Date\.now\(\)/gu) ?? []).length).toBe(3);
+  });
+
+  it("יש תזמון שמעיר את המסך במועד החצייה", () => {
+    expect(INBOX_PAGE).toMatch(/setTimeout\(\(\) => setNow\(Date\.now\(\)\), Math\.min\(/u);
+    // מותנה במועדים שטרם נחצו — אחרת התזמון חוזר על עצמו לנצח
+    expect(INBOX_PAGE).toMatch(/deadline > now\)/u);
+    expect(INBOX_PAGE).toContain("if (deadlines.length === 0) return;");
+    expect(INBOX_PAGE).toContain("return () => clearTimeout(timer);");
+  });
+
+  it("רשימה חדשה מרעננת גם את השעה", () => {
+    expect(INBOX_PAGE).toMatch(/setMessages\(thread\.messages\);\n\s*setNow\(Date\.now\(\)\);/u);
+  });
+
+  it("חישוב מועד החצייה נמצא במקום אחד", () => {
+    expect((INBOX_PAGE.match(/Date\.parse\(/gu) ?? []).length).toBe(1);
+    expect((INBOX_PAGE.match(/stalePendingDeadline\(/gu) ?? []).length).toBe(3);
   });
 });
 

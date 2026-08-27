@@ -78,6 +78,23 @@ const UNKNOWN_NOTE = {
   token: "--color-danger",
 } as const;
 
+/**
+ * הרגע שבו שורה ממתינה מפסיקה להיות „בדרך”. `NaN` אם החותמת אינה
+ * נקראת.
+ *
+ * ‎**כמה זמן עבר — לא באיזו שעה.** שתי נקודות בזמן מוחלט והפרש
+ * ביניהן. `createdAt` הוא ISO-8601 עם היסט, ולכן הפרסור אינו תלוי
+ * באזור הזמן של המכשיר; רק **השעון** שלו נקרא, ושעון נכון הוא נכון
+ * בכל אזור. אין כאן שעת קיר, אין „היום”, ואין גבול יום ישראלי —
+ * הפיכת ההפרש לשעון ישראל לא הייתה משנה בו דבר.
+ *
+ * במקום אחד, כי שני קוראים צריכים בדיוק את אותו מספר: התווית
+ * שמחליטה מה להציג, והתזמון שמעיר את המסך ברגע החצייה.
+ */
+function stalePendingDeadline(createdAt: string): number {
+  return Date.parse(createdAt) + STALE_PENDING_MS; /* שעון-המכשיר-במכוון: זמן מוחלט */
+}
+
 function sendStateNote(
   state: string | undefined,
   createdAt: string,
@@ -86,16 +103,9 @@ function sendStateNote(
   if (state === "failed") return { text: "לא נשלחה", token: "--color-danger" };
   if (state === "unknown") return { ...UNKNOWN_NOTE };
   if (state === "pending") {
-    /*
-     * ‎**כמה זמן עבר — לא באיזו שעה.** שתי נקודות בזמן מוחלט, והפרש
-     * ביניהן. `createdAt` הוא ISO-8601 עם היסט, ולכן הפרסור אינו
-     * תלוי באזור הזמן של המכשיר; רק **השעון** שלו נקרא, ושעון נכון
-     * הוא נכון בכל אזור. אין כאן שעת קיר, אין „היום”, ואין גבול יום
-     * ישראלי — הפיכת ההפרש לשעון ישראל לא הייתה משנה בו דבר.
-     */
-    const at = Date.parse(createdAt); /* שעון-המכשיר-במכוון: הפרש זמנים מוחלט */
+    const deadline = stalePendingDeadline(createdAt);
     // חותמת שאינה נקראת אינה סיבה להסתיר אזהרה
-    if (Number.isNaN(at) || at <= now - STALE_PENDING_MS) return { ...UNKNOWN_NOTE };
+    if (Number.isNaN(deadline) || deadline <= now) return { ...UNKNOWN_NOTE };
     return { text: "בשליחה…", token: "--color-text-muted" };
   }
   return null;
@@ -152,6 +162,16 @@ export default function InboxPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [sendState, setSendState] = useState<"idle" | "sending" | "failed" | "unknown">("idle");
   const [sendError, setSendError] = useState<string | null>(null);
+  /*
+   * ‎**השעה שלפיה נקראת ההמתנה — כ-state, לא כקריאה ברינדור.**
+   *
+   * ‎`Date.now()` בתוך הרינדור נקרא **פעם אחת**, ברינדור עצמו; זמן
+   * שעובר אינו מרנדר רכיב מחדש. שורה `pending` שנטענה בגיל עשר
+   * שניות הייתה נשארת „בשליחה…” כל עוד השיחה פתוחה, גם שעה אחרי
+   * שחצתה את הסף (ביקורת Codex) — כלומר הסף שהוספתי בקומיט הקודם
+   * לא היה מתקיים כלל במסך שנשאר פתוח.
+   */
+  const [now, setNow] = useState(() => Date.now());
 
   const load = useCallback(() => {
     apiGet<ThreadRow[]>("/email-inbox")
@@ -162,6 +182,27 @@ export default function InboxPage() {
   useEffect(() => {
     if (!authLoading) load();
   }, [authLoading, load]);
+
+  /*
+   * ‎**רינדור אחד לכל מועד חצייה, ולא טיקטוק מתמיד.**
+   *
+   * המועד ידוע מראש — `createdAt` ועוד הסף — ולכן אין צורך בשעון
+   * שרץ: מספיק להעיר את המסך בדיוק ברגע שבו „בשליחה…” מפסיק להיות
+   * נכון. אחרי ההערה `now` מתקדם, האפקט רץ שוב, וסופר את המועדים
+   * שטרם נחצו; כשלא נשאר אף אחד — אין תזמון, והמסך שוקט.
+   *
+   * ‎`now` מרוענן גם ב-`openThread` ברגע שרשימה חדשה נכנסת, אחרת
+   * מסך שנשאר פתוח שעה היה מחשב את התזמון מול שעה ישנה.
+   */
+  useEffect(() => {
+    const deadlines = (messages ?? [])
+      .filter((message) => message.sendState === "pending")
+      .map((message) => stalePendingDeadline(message.createdAt))
+      .filter((deadline) => !Number.isNaN(deadline) && deadline > now);
+    if (deadlines.length === 0) return;
+    const timer = setTimeout(() => setNow(Date.now()), Math.min(...deadlines) - now + 500);
+    return () => clearTimeout(timer);
+  }, [messages, now]);
 
   async function openThread(contactId: string) {
     openRef.current = contactId;
@@ -174,6 +215,8 @@ export default function InboxPage() {
     try {
       const thread = await apiGet<{ messages: Message[] }>(`/email-inbox/${contactId}`);
       setMessages(thread.messages);
+      // רשימה חדשה — גם השעה שלפיה נמדדת ההמתנה, אחרת התזמון נבנה מול ערך ישן
+      setNow(Date.now());
       // הכניסה לשיחה היא הקריאה — התג יורד מהסרגל ומהרשימה
       await apiPost(`/email-inbox/${contactId}/read`, {});
       setThreads(
@@ -321,7 +364,7 @@ export default function InboxPage() {
                                 const note = sendStateNote(
                                   message.sendState,
                                   message.createdAt,
-                                  Date.now(),
+                                  now,
                                 );
                                 return note === null ? null : (
                                   <>
