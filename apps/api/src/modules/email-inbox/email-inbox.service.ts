@@ -96,23 +96,21 @@ export class EmailInboxService {
   async replyAddressFor(tenantId: string, contactId: string): Promise<string | null> {
     const config = await this.inboundConfig();
     if (config === null) return null;
-    const existing = await this.prisma.emailReplyToken.findUnique({
-      where: { tenantId_contactId: { tenantId, contactId } },
+    /*
+     * לכרטיס יכולים להיות כמה טוקנים — מיזוג כפילויות מעביר את
+     * הטוקנים של הכפיל לשורד, וכולם ממשיכים לפעול. שליחה חדשה
+     * משתמשת בוותיק שבהם; מרוץ בין שתי שליחות מנפיק שניים, ושניהם
+     * תקפים — כפילות כאן זולה מהתנגשות.
+     */
+    const existing = await this.prisma.emailReplyToken.findFirst({
+      where: { tenantId, contactId },
+      orderBy: { createdAt: "asc" },
       select: { id: true },
     });
     if (existing !== null) return replyAddressFor(config.address, existing.id);
     const id = ulid();
-    try {
-      await this.prisma.emailReplyToken.create({ data: { id, tenantId, contactId } });
-      return replyAddressFor(config.address, id);
-    } catch {
-      // מרוץ בין שתי שליחות לאותו לקוח — הראשון ניצח, משתמשים בשלו
-      const raced = await this.prisma.emailReplyToken.findUnique({
-        where: { tenantId_contactId: { tenantId, contactId } },
-        select: { id: true },
-      });
-      return raced === null ? null : replyAddressFor(config.address, raced.id);
-    }
+    await this.prisma.emailReplyToken.create({ data: { id, tenantId, contactId } });
+    return replyAddressFor(config.address, id);
   }
 
   /**
@@ -217,36 +215,40 @@ export class EmailInboxService {
   async listThreads(): Promise<InboxThreadDto[]> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
-      const messages = await tx.emailMessage.findMany({
+      /*
+       * ‏`distinct` על הלקוח, לא חיתוך של זרם ההודעות: חיתוך גולמי
+       * היה מעלים שיחה שההודעה שלה נדחקה מעבר לגבול — כולל שיחה עם
+       * לא-נקראו שהתג בסרגל ממשיך לספור, בלי שום דרך לפתוח אותה
+       * (ביקורת Codex). כאן הגבול הוא על **שיחות**: 100 האחרונות.
+       */
+      const lastPerContact = await tx.emailMessage.findMany({
         where: { tenantId },
         orderBy: { createdAt: "desc" },
-        take: 500,
+        distinct: ["contactId"],
+        take: 100,
         select: {
           contactId: true,
           subject: true,
           body: true,
           direction: true,
-          readAt: true,
           createdAt: true,
         },
       });
-      const threads = new Map<
-        string,
-        { last: (typeof messages)[number]; unread: number }
-      >();
-      for (const message of messages) {
-        const thread = threads.get(message.contactId);
-        if (thread === undefined) {
-          threads.set(message.contactId, {
-            last: message,
-            unread: message.direction === "in" && message.readAt === null ? 1 : 0,
-          });
-        } else if (message.direction === "in" && message.readAt === null) {
-          thread.unread += 1;
-        }
-      }
-
-      const contactIds = [...threads.keys()];
+      const contactIds = lastPerContact.map((m) => m.contactId);
+      const unreadRows = await tx.emailMessage.groupBy({
+        by: ["contactId"],
+        where: { tenantId, contactId: { in: contactIds }, direction: "in", readAt: null },
+        _count: { _all: true },
+      });
+      const unreadByContact = new Map(
+        unreadRows.map((row) => [row.contactId, row._count._all]),
+      );
+      const threads = new Map(
+        lastPerContact.map((message) => [
+          message.contactId,
+          { last: message, unread: unreadByContact.get(message.contactId) ?? 0 },
+        ]),
+      );
       const [names, buyers] = await Promise.all([
         this.contacts.getByIds(tx, contactIds),
         tx.buyer.findMany({
@@ -281,11 +283,18 @@ export class EmailInboxService {
     return this.prisma.withTenant(async (tx) => {
       const contact = await this.contacts.getById(tx, contactId);
       if (contact === null) throw new NotFoundException("הלקוח לא נמצא");
-      const rows = await tx.emailMessage.findMany({
-        where: { tenantId, contactId },
-        orderBy: { createdAt: "asc" },
-        take: 200,
-      });
+      /*
+       * החדשות תחילה ואז היפוך לתצוגה: שיחה ארוכה מ-200 מציגה את
+       * הסוף — הרלוונטי — ולא את הפתיחה מלפני שנה, ש"קוראת" בטעות
+       * גם את מה שלא הוצג (ביקורת Codex).
+       */
+      const rows = (
+        await tx.emailMessage.findMany({
+          where: { tenantId, contactId },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+        })
+      ).reverse();
       return {
         contactName: contact.name,
         messages: rows.map((row) => ({

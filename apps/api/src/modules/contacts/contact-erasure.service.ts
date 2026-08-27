@@ -379,6 +379,10 @@ export class ContactErasureService {
     // תקשורת: שיחות (עם התמלול שעליהן) והודעות
     await tx.call.deleteMany({ where: { tenantId, contactId } });
     await tx.message.deleteMany({ where: { tenantId, contactId } });
+    // תיבת המייל: גוף ההודעות וכתובת השולח הם מידע על הנמחק — הולכים איתו,
+    // והטוקן יורד כדי שכתובת ה-Reply-To הישנה שבתיבת הלקוח תפסיק לפעול
+    await tx.emailMessage.deleteMany({ where: { tenantId, contactId } });
+    await tx.emailReplyToken.deleteMany({ where: { tenantId, contactId } });
     /*
      * הסכם חתום **אינו נמחק בשום מקרה** — הוא ראיה משפטית ובסיס
      * הזכאות לדמי התיווך, ואינו של הלקוח למחוק. הוא מנותק מהכרטיס

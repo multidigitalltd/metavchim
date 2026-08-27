@@ -698,7 +698,9 @@ model EmailReplyToken {
   contactId String   @map("contact_id") @db.Char(26)
   createdAt DateTime @default(now()) @map("created_at")
 
-  @@unique([tenantId, contactId])
+  /// אינדקס ולא ייחודיות: מיזוג כרטיסים מעביר טוקנים לשורד, וכתובת
+  /// Reply-To ישנה שבתיבת הלקוח חייבת להמשיך להגיע. נפתר לפי id.
+  @@index([tenantId, contactId])
   @@map("email_reply_tokens")
 }
 

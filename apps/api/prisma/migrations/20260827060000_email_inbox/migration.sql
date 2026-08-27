@@ -55,6 +55,9 @@ CREATE TABLE "email_reply_tokens" (
   "created_at" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- טוקן אחד ללקוח: שליחה חוזרת מוצאת את הקיים במקום להנפיק חדש
-CREATE UNIQUE INDEX "email_reply_tokens_tenant_contact_key"
+-- אינדקס ולא ייחודיות: מיזוג כרטיסים כפולים מעביר את הטוקנים של
+-- הכפיל אל השורד, וכרטיס ממוזג נושא אז יותר מטוקן אחד — בכוונה.
+-- כתובת Reply-To שכבר יושבת בתיבת הלקוח חייבת להמשיך להגיע, וכל
+-- טוקן ממילא נפתר לפי המזהה שלו. שליחה חדשה משתמשת בקיים הראשון.
+CREATE INDEX "email_reply_tokens_tenant_contact_idx"
   ON "email_reply_tokens" ("tenant_id", "contact_id");
