@@ -136,8 +136,10 @@ describe("כרטיס יתום במחיקת נכס לצמיתות", () => {
    * של אדם אינו. מתווך שמנקה כפילות אינו מתכוון למחוק אדם.
    */
   it("התצוגה המקדימה שואלת מה יישאר אחרי המחיקה", () => {
-    // ההחרגה הוכללה לשלושת סוגי העוגן — נכס, קונה, ליד — בכלל אחד
-    expect(OWNERSHIP).toMatch(/except\?: \{ propertyId\?: string; buyerId\?: string; leadId\?: string \}/u);
+    // ההחרגה הוכללה לשלושת סוגי העוגן — נכס, קונה (בודד וקבוצתי), ליד — בכלל אחד
+    expect(OWNERSHIP).toMatch(
+      /except\?: \{\s*propertyId\?: string;\s*buyerId\?: string;\s*buyerIds\?: readonly string\[\];\s*leadId\?: string;\s*\}/u,
+    );
     expect(OWNERSHIP).toContain(
       "...(except?.propertyId === undefined ? {} : { id: { not: except.propertyId } }),",
     );

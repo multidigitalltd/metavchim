@@ -17,7 +17,7 @@ export interface ContactErasureCounts {
   emails: number;
 }
 
-export function contactErasureDisclosure(erasure: ContactErasureCounts): string {
+function countedParts(erasure: ContactErasureCounts): string[] {
   const parts: string[] = [];
   const add = (n: number, one: string, many: string): void => {
     if (n > 0) parts.push(n === 1 ? one : `${n} ${many}`);
@@ -25,7 +25,30 @@ export function contactErasureDisclosure(erasure: ContactErasureCounts): string 
   add(erasure.calls, "שיחה מוקלטת אחת", "שיחות (כולל הקלטות)");
   add(erasure.messages, "הודעה אחת", "הודעות");
   add(erasure.emails, "מייל אחד", "מיילים");
+  return parts;
+}
+
+export function contactErasureDisclosure(erasure: ContactErasureCounts): string {
+  const parts = countedParts(erasure);
   return parts.length === 0
     ? "יימחק גם כרטיס הלקוח — השם, הטלפונים והאימייל. זה הקישור האחרון אליו במשרד, והפעולה אינה הפיכה."
     : `יימחק גם כרטיס הלקוח, כולל ${parts.join(", ")}. זה הקישור האחרון אליו במשרד, והפעולה אינה הפיכה.`;
+}
+
+/**
+ * ‎**הצורה הקבוצתית — למחיקה המרוכזת.** אפס כרטיסים = מחרוזת ריקה:
+ * כשאף כרטיס לקוח אינו נמחק אין מה לגלות, והאישור הרגיל עומד בפני
+ * עצמו. אותו עיקרון של ספירת האפס במשפט הבודד.
+ */
+export function bulkContactErasureDisclosure(
+  contacts: number,
+  erasure: ContactErasureCounts,
+): string {
+  if (contacts === 0) return "";
+  const who =
+    contacts === 1
+      ? "יימחק גם כרטיס לקוח אחד שזה הקישור האחרון אליו במשרד"
+      : `יימחקו גם ${contacts} כרטיסי לקוח שזה הקישור האחרון אליהם במשרד`;
+  const parts = countedParts(erasure);
+  return parts.length === 0 ? `${who}.` : `${who}, כולל ${parts.join(", ")}.`;
 }

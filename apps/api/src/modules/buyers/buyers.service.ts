@@ -1182,6 +1182,56 @@ export class BuyersService {
   }
 
   /**
+   * ‎**הגילוי של המחיקה המרוכזת — אותו כלל, בצורתו הקבוצתית.**
+   *
+   * המחיקה המרוכזת עוברת דרך `purge` לכל כרטיס, כלומר גם היא מוחקת
+   * כרטיסי לקוח יתומים — והאישור שלה לא אמר זאת (ביקורת Codex, P1).
+   * המסלול הבודד קיבל גילוי; המרוכז נשאר עם המשפט הישן. זהו בדיוק
+   * „התיקון שעצר צעד אחד לפני הסוף” — כל מסלול שמוחק בהרחבה חייב
+   * גילוי, וזה נאכף עכשיו בשער.
+   *
+   * ההחרגה היא **כל** הכרטיסים שנבחרו, לא אחד-אחד: לקוח ששני
+   * העוגנים שלו שניהם בבחירה נמחק כשהאחרון שבהם יורד, והחרגה
+   * בודדת הייתה עונה עליו „יישאר”.
+   *
+   * הבדיקה מוגבלת למה שהמחיקה עצמה תיגע בו: אותו שער בעלות בדיוק,
+   * כך שהתצוגה המקדימה אינה סופרת כרטיסים שהמחיקה תדלג עליהם.
+   */
+  async bulkDeletionPreview(ids: readonly string[]): Promise<{
+    /** כמה כרטיסי לקוח יימחקו יחד עם הקונים שנבחרו */
+    contacts: number;
+    erasure: { calls: number; messages: number; emails: number };
+  }> {
+    const { tenantId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.buyer.findMany({
+        where: {
+          id: { in: [...ids] },
+          tenantId,
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
+        select: { id: true, contactId: true },
+      });
+      const buyerIds = rows.map((row) => row.id);
+      const contactIds = [...new Set(rows.map((row) => row.contactId))];
+      let contacts = 0;
+      const erasure = { calls: 0, messages: 0, emails: 0 };
+      for (const contactId of contactIds) {
+        const counts = await this.erasure.erasurePreview(tx, tenantId, contactId, {
+          buyerIds,
+        });
+        if (counts !== null) {
+          contacts += 1;
+          erasure.calls += counts.calls;
+          erasure.messages += counts.messages;
+          erasure.emails += counts.emails;
+        }
+      }
+      return { contacts, erasure };
+    });
+  }
+
+  /**
    * ארכיון — הכרטיס יורד מהרשימות וההיסטוריה נשמרת.
    *
    * זו פעולת ברירת המחדל, ובכוונה: "הלקוח כבר לא מחפש" אינו "הלקוח

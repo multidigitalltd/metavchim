@@ -282,15 +282,31 @@ export async function isOrphanContact(
   tx: TenantTx,
   tenantId: string,
   contactId: string,
-  except?: { propertyId?: string; buyerId?: string; leadId?: string },
+  /**
+   * ‎`buyerIds` — הצורה הקבוצתית של אותה החרגה, למחיקה המרוכזת:
+   * „מה יקרה אחרי שכל הכרטיסים **שנבחרו** יירדו”. החרגה של כרטיס
+   * אחד בלבד הייתה עונה „יישאר” על לקוח ששני העוגנים שלו שניהם
+   * בבחירה — והמחיקה עצמה, שמוחקת אחד-אחד, כן הייתה מוחקת אותו
+   * בסוף (ביקורת Codex).
+   */
+  except?: {
+    propertyId?: string;
+    buyerId?: string;
+    buyerIds?: readonly string[];
+    leadId?: string;
+  },
 ): Promise<boolean> {
+  const exceptBuyers = [
+    ...(except?.buyerId === undefined ? [] : [except.buyerId]),
+    ...(except?.buyerIds ?? []),
+  ];
   const [buyer, lead, property, link] = await Promise.all([
     tx.buyer.findFirst({
       where: {
         tenantId,
         deletedAt: null,
         contactId,
-        ...(except?.buyerId === undefined ? {} : { id: { not: except.buyerId } }),
+        ...(exceptBuyers.length === 0 ? {} : { id: { notIn: exceptBuyers } }),
       },
       select: { id: true },
     }),

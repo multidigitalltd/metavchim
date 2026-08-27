@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { labelOf } from "@metavchim/shared";
+import { bulkContactErasureDisclosure, labelOf } from "@metavchim/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
@@ -195,8 +195,36 @@ export default function BuyersPage() {
   async function removeSelected(permanent: boolean): Promise<void> {
     const ids = selectedVisible.map((b) => b.id);
     if (ids.length === 0) return;
+    /*
+     * ‎**הגילוי לפני האישור — גם במחיקה המרוכזת.**
+     *
+     * המחיקה לצמיתות מוחקת גם כרטיסי לקוח יתומים, על השיחות
+     * וההודעות שלהם, והאישור חייב לומר את זה לפני (ביקורת Codex,
+     * P1 — המסלול הבודד גילה והמרוכז לא). כשהבדיקה נכשלת המחיקה
+     * **נחסמת**: „לא ידוע” לעולם אינו מוצג כ„לא יימחק”.
+     */
+    let disclosure = "";
+    if (permanent) {
+      setBulkBusy(true);
+      setError(null);
+      try {
+        const preview = await apiPost<{
+          contacts: number;
+          erasure: { calls: number; messages: number; emails: number };
+        }>("/buyers/bulk-deletion-preview", { ids });
+        disclosure = bulkContactErasureDisclosure(preview.contacts, preview.erasure);
+      } catch {
+        setError("בדיקת המחיקה נכשלה — לא נמחק דבר. נסו שוב.");
+        return;
+      } finally {
+        setBulkBusy(false);
+      }
+    }
     const question = permanent
-      ? `למחוק לצמיתות ${ids.length} כרטיסים? הפעולה אינה הפיכה, וכל ההיסטוריה שלהם תימחק.`
+      ? [
+          `למחוק לצמיתות ${ids.length} כרטיסים? הפעולה אינה הפיכה, וכל ההיסטוריה שלהם תימחק.`,
+          ...(disclosure === "" ? [] : [disclosure]),
+        ].join("\n")
       : `להעביר ${ids.length} כרטיסים לארכיון? הם יורדו מהרשימות וההיסטוריה תישמר.`;
     if (!window.confirm(question)) return;
 

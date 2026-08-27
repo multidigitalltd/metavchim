@@ -391,7 +391,7 @@ export class ContactErasureService {
     tx: TenantTx,
     tenantId: string,
     contactId: string,
-    except: { buyerId?: string; leadId?: string },
+    except: { buyerId?: string; buyerIds?: readonly string[]; leadId?: string },
   ): Promise<{ calls: number; messages: number; emails: number } | null> {
     if (!(await isOrphanContact(tx, tenantId, contactId, except))) return null;
     const [calls, messages, emails] = await Promise.all([

@@ -165,25 +165,45 @@ describe("עוגני הגישה לכרטיס לקוח", () => {
     expect(LEADS).toMatch(
       /erasurePreview\(tx, ctx\.tenantId, lead\.contactId, \{\s*leadId: id,\s*\}\)/u,
     );
-    // ושני המסכים מציגים את משפט הגילוי המשותף — לא ניסוח מקומי
+    /*
+     * והמחיקה המרוכזת — ההחרגה היא **כל** הבחירה: לקוח ששני
+     * העוגנים שלו בבחירה נמחק כשהאחרון יורד, והחרגה בודדת הייתה
+     * עונה עליו „יישאר”. המסלול הזה בדיוק נשמט מהגילוי בסבב
+     * הראשון (ביקורת Codex, P1).
+     */
+    expect(BUYERS).toMatch(/erasurePreview\(tx, tenantId, contactId, \{\s*buyerIds,\s*\}\)/u);
+    // והמסכים מציגים את משפטי הגילוי המשותפים — לא ניסוח מקומי
     const buyerDialog = read("../../../web/src/app/buyers/delete-buyer.tsx");
     const leadDialog = read("../../../web/src/app/leads/delete-lead-dialog.tsx");
+    const buyersList = read("../../../web/src/app/buyers/page.tsx");
     expect(buyerDialog).toContain("contactErasureDisclosure(preview.contactErasure)");
     expect(leadDialog).toContain("contactErasureDisclosure(erasure)");
+    expect(buyersList).toContain(
+      "bulkContactErasureDisclosure(preview.contacts, preview.erasure)",
+    );
   });
 
   /*
-   * ‎**„לא ידוע” אינו „לא יימחק”.** כשל בשליפת התצוגה המקדימה בדיאלוג
-   * הליד נופל לאזהרה הכללית — לא להבטחה הישנה. „כל מה שאינו אובייקט
-   * = יישאר” היה מציג את ההבטחה בדיוק כשהתשובה עוד בדרך.
+   * ‎**„לא ידוע” חוסם — אינו מבטיח ואינו מוחק.** בדיאלוג הליד, טעינה
+   * וכישלון הם מצבים שבהם הבחירה הרחבה אינה ניתנת לאישור: הגלגול
+   * הקודם המיר כישלון לספירת אפס ואפשר לאשר בזמן הטעינה — מחיקה
+   * רחבה אחרי גילוי שקרי (ביקורת Codex, P1). במחיקה המרוכזת כשל
+   * הבדיקה עוצר את הפעולה לפני חלון האישור.
    */
-  it("כשל בבדיקה מציג אזהרה, לא הבטחה", () => {
+  it("כשל או המתנה חוסמים את האישור הרחב — לא מבטיחים", () => {
     const leadDialog = read("../../../web/src/app/leads/delete-lead-dialog.tsx");
+    // כשל הוא מצב מפורש, לא ספירת אפס שנקראת כגילוי
+    expect(leadDialog).toMatch(/\.catch\(\(\) => setErasure\("failed"\)\)/u);
+    // ושני המצבים חוסמים את כפתור האישור עצמו
     expect(leadDialog).toMatch(
-      /\.catch\(\(\) => setErasure\(\{ calls: 0, messages: 0, emails: 0 \}\)\)/u,
+      /scope === "lead_and_contact" && \(erasure === "loading" \|\| erasure === "failed"\)/u,
     );
-    // ושלושה מצבים, לא שניים
-    expect(leadDialog).toContain('"loading"');
+    expect(leadDialog).toContain("confirmDisabled={undisclosed}");
+    // המחיקה המרוכזת: כשל בבדיקה עוצר לפני האישור
+    const buyersList = read("../../../web/src/app/buyers/page.tsx");
+    expect(buyersList).toMatch(
+      /catch \{\s*setError\("בדיקת המחיקה נכשלה — לא נמחק דבר\. נסו שוב\."\);\s*return;/u,
+    );
   });
 
   /*

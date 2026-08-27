@@ -46,14 +46,19 @@ export function DeleteLeadDialog({
   /**
    * ‎**הגילוי** — מה תגרור בחירת „גם את כרטיס הלקוח”.
    *
-   * שלושה מצבים ולא שניים: `"loading"` עד שהשרת ענה, `null` =
-   * הכרטיס יישאר, ואובייקט = הכרטיס יימחק עם מה שנספר בו. „כל מה
-   * שאינו אובייקט = יישאר” היה מבטיח את ההבטחה הישנה בדיוק בזמן
-   * שהתשובה עוד בדרך — אותה טעות שנתפסה בבאנר דף הנחיתה.
+   * ארבעה מצבים: `"loading"` עד שהשרת ענה, `"failed"` כשהבדיקה
+   * נכשלה, `null` = הכרטיס יישאר, ואובייקט = הכרטיס יימחק עם מה
+   * שנספר בו. בשני המצבים הראשונים הבחירה הרחבה **אינה ניתנת
+   * לאישור**: הגלגול הקודם המיר כישלון לספירת אפס ואפשר לאשר בזמן
+   * הטעינה — כלומר מחיקה רחבה יכלה לרוץ אחרי גילוי שקרי או לפני
+   * שהגיע גילוי בכלל (ביקורת Codex, P1).
    */
   const [erasure, setErasure] = useState<
-    { calls: number; messages: number; emails: number } | null | "loading"
+    { calls: number; messages: number; emails: number } | null | "loading" | "failed"
   >("loading");
+  /** הבחירה הרחבה עוד אינה מגולה — האישור חסום, הביטול פתוח. */
+  const undisclosed =
+    scope === "lead_and_contact" && (erasure === "loading" || erasure === "failed");
 
   // חלון שנפתח מחדש מתחיל נקי — גם אחרי כישלון וגם אחרי בחירה קודמת
   useEffect(() => {
@@ -65,11 +70,7 @@ export function DeleteLeadDialog({
         `/leads/${leadId}/deletion-preview`,
       )
         .then((res) => setErasure(res.contactErasure))
-        /*
-         * כשל בבדיקה אינו „הכרטיס יישאר”. הבחירה הרחבה מציגה אזהרה
-         * כללית במקום ספירה — „לא ידוע” לעולם אינו מוצג כ„לא יימחק”.
-         */
-        .catch(() => setErasure({ calls: 0, messages: 0, emails: 0 }));
+        .catch(() => setErasure("failed"));
     }
   }, [open, leadId]);
 
@@ -94,6 +95,7 @@ export function DeleteLeadDialog({
       confirmLabel="מחק"
       busyLabel="מוחק…"
       busy={busy}
+      confirmDisabled={undisclosed}
       onConfirm={() => void remove()}
       onClose={onClose}
     >
@@ -107,12 +109,25 @@ export function DeleteLeadDialog({
       */}
       <p className="mb-3 text-[length:var(--type-body-sm)]">
         ציר הזמן של הליד נמחק איתו, והפעולה אינה הפיכה.
-        {scope === "lead_and_contact" && erasure !== null && erasure !== "loading" ? (
+        {/*
+          ‎**„נשארות” נאמר רק כשהוא נכון.** בבחירה הרחבה המשפט המרגיע
+          הוצג גם בזמן הטעינה וגם אחרי כישלון — בדיוק כשהאישור יכול
+          היה למחוק את מה שהוא מבטיח שנשאר (ביקורת Codex, P1). עכשיו
+          שני המצבים האלה חוסמים את האישור, והמשפט אומר את זה.
+        */}
+        {scope !== "lead_and_contact" || erasure === null ? (
+          " פגישות ושיחות מוקלטות שכבר נרשמו נשארות."
+        ) : erasure === "loading" ? (
+          " בודק מה תלוי בכרטיס — עוד רגע…"
+        ) : erasure === "failed" ? (
+          <span className="block font-semibold" style={{ color: "var(--color-danger)" }}>
+            הבדיקה מה תלוי בכרטיס נכשלה, ולכן אי אפשר לאשר את הבחירה
+            הרחבה. סגרו ופתחו שוב, או מחקו את הליד בלבד.
+          </span>
+        ) : (
           <span className="block font-semibold" style={{ color: "var(--color-danger)" }}>
             {contactErasureDisclosure(erasure)}
           </span>
-        ) : (
-          " פגישות ושיחות מוקלטות שכבר נרשמו נשארות."
         )}
       </p>
       <fieldset className="m-0 border-0 p-0">
@@ -161,9 +176,11 @@ export function DeleteLeadDialog({
             <span className="block" style={{ color: "var(--color-text-muted)" }}>
               {erasure === "loading"
                 ? "לספאם ולטעות במספר. בודק מה תלוי בכרטיס…"
-                : erasure === null
-                  ? "לספאם ולטעות במספר. הכרטיס הזה יישאר — הוא עדיין קונה, בעל נכס, ליד אחר, או בן/בת זוג בכרטיס פעיל."
-                  : "לספאם ולטעות במספר. לכרטיס הזה אין עוגן נוסף במשרד — הוא יימחק, וההסכמים החתומים שלו יעברו לארכיון המשרד."}
+                : erasure === "failed"
+                  ? "לספאם ולטעות במספר. הבדיקה נכשלה — הבחירה הזו חסומה עד שתצליח."
+                  : erasure === null
+                    ? "לספאם ולטעות במספר. הכרטיס הזה יישאר — הוא עדיין קונה, בעל נכס, ליד אחר, או בן/בת זוג בכרטיס פעיל."
+                    : "לספאם ולטעות במספר. לכרטיס הזה אין עוגן נוסף במשרד — הוא יימחק, וההסכמים החתומים שלו יעברו לארכיון המשרד."}
             </span>
           </span>
         </label>
