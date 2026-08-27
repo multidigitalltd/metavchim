@@ -707,8 +707,16 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     const first = created[0];
     if (first === undefined) return 0;
 
-    await this.deliver(tenantId, officeName, first.to, first.buyerName, first.contactId, created);
-    return created.length;
+    const outcome = await this.deliver(
+      tenantId,
+      officeName,
+      first.to,
+      first.buyerName,
+      first.contactId,
+      created,
+    );
+    // דחייה ודאית — ההצעות קיימות כ-`email_failed`, אבל מייל לא יצא
+    return outcome === "sent" ? created.length : 0;
   }
 
   /** בניית המייל, שליחה, ואישור `sent` — או סימון הכישלון. */
@@ -719,9 +727,10 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     buyerName: string,
     contactId: string,
     rows: OutgoingOffer[],
-  ): Promise<void> {
+  ): Promise<"sent" | "unsent"> {
     const first = rows[0];
-    if (first === undefined) return;
+    // מנה ריקה — הגנה בלבד; שני הקוראים כבר סיננו. לא יצא מייל
+    if (first === undefined) return "unsent";
     const env = loadEnv();
     const items: OfferEmailItem[] = rows.map((row) => ({
       title: row.title,
@@ -766,7 +775,14 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(
           `מייל הצעות נדחה ללקוח במשרד ${tenantId} — ההצעות סומנו email_failed`,
         );
-        return;
+        /*
+         * ‎**נדחה אינו נשלח, וגם המונה צריך לדעת.**
+         *
+         * הענף סימן `email_failed` וחזר כרגיל, ולכן `offerAndEmail`
+         * החזיר את מספר ההצעות שנוצרו והסבב ספר „מייל נשלח”. כתובת
+         * פסולה נראתה בניטור כמו שליחה מוצלחת (ביקורת Codex).
+         */
+        return "unsent";
       }
       // תקלה עמומה (רשת/5xx) — נשאר pending_email לניסיון בסבב הבא
       throw error;
@@ -819,6 +835,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         await this.outbox.emit(tx, "offer.sent", { offerId: row.offerId, tenantId });
       }
     });
+    return "sent";
   }
 
   /**
@@ -922,10 +939,70 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     }
     const marketable = resolved.filter((row) => stillActive.has(row.propertyId));
 
+    /*
+     * ‎**וגם ההזמנה בכתב נבדקת שוב — כי אפשר למחוק אותה.**
+     *
+     * הזכאות הראשונית דורשת הזמנה חתומה על **הנכס הזה** (§9), אבל
+     * המסלול הזה בדק עד כה לקוח, הסרה, אימייל ונכס פעיל בלבד.
+     * ‎`SignedDocumentsService.remove` מוחקת את המסמך — ומתעדת
+     * ביומן ש**הוא זה שפתח הצעות** — ולכן שליחה שנכשלה בפסק זמן,
+     * ואחריה נמחקה הראיה, הייתה יוצאת בסבב הבא: הצעה ללקוח בלי
+     * הזמנה בכתב, ופעולת שיווק שנרשמת עליה (ביקורת Codex).
+     *
+     * ‎`signedPairs` היא בדיוק אותה בדיקה של הזכאות הראשונית —
+     * חתימה דיגיטלית **וגם** מסמך סרוק — ולא שער מחמיר יותר.
+     *
+     * ‎**ההצעה נמחקת וההתאמה חוזרת „מומלצת”, כמו בהסרה מהתפוצה
+     * ולא כמו בנכס שנמכר.** הראיה יכולה לחזור: הסוכן שולח הזמנה
+     * חדשה, הלקוח חותם, והסבב ייצור הצעה מחדש. `email_failed` היה
+     * קובר את ההתאמה לתמיד.
+     */
+    const contactByBuyer = await this.prisma.withTenant(async (tx) => {
+      const buyers = await tx.buyer.findMany({
+        where: {
+          tenantId,
+          id: { in: [...new Set(marketable.map((row) => row.buyerId))] },
+          deletedAt: null,
+        },
+        select: { id: true, contactId: true },
+      });
+      return new Map(buyers.map((buyer) => [buyer.id, buyer.contactId]));
+    });
+    const signed = await this.prisma.withTenant((tx) =>
+      this.agreements.signedPairs(tx, tenantId, "brokerage", [...contactByBuyer.values()]),
+    );
+    /*
+     * קונה שנעלם אינו נוגע לכאן: הוא מטופל בלולאה שבהמשך, ומחיקת
+     * ההצעה שלו כאן הייתה שינוי התנהגות שלא נתבקש.
+     */
+    const unsigned = new Set(
+      marketable
+        .filter((row) => {
+          const contactId = contactByBuyer.get(row.buyerId);
+          return contactId !== undefined && !signed.has(`${contactId}:${row.propertyId}`);
+        })
+        .map((row) => row.id),
+    );
+    if (unsigned.size > 0) {
+      await this.prisma.withTenant(async (tx) => {
+        for (const offer of marketable.filter((row) => unsigned.has(row.id))) {
+          await tx.offer.delete({ where: { id: offer.id } });
+          await tx.match.updateMany({
+            where: { id: offer.matchId, tenantId, status: "offered" },
+            data: { status: "suggested" },
+          });
+        }
+      });
+      this.logger.log(
+        `משרד ${tenantId}: ${unsigned.size} הצעות ממתינות בוטלו — אין הזמנה בכתב חתומה`,
+      );
+    }
+    const sendable = marketable.filter((row) => !unsigned.has(row.id));
+
     const buyerIds = new Set<string>();
     const now = new Date();
-    const byBuyer = new Map<string, typeof marketable>();
-    for (const offer of marketable) {
+    const byBuyer = new Map<string, typeof sendable>();
+    for (const offer of sendable) {
       buyerIds.add(offer.buyerId);
       if (offer.tokenExpires < now) {
         // הטוקן פג לפני שהשליחה הצליחה — סוף המחזור, הסוכן ממשיך ידנית
@@ -977,7 +1054,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
       if (contact === null || contact.email === undefined) continue;
 
       try {
-        await this.deliver(
+        const outcome = await this.deliver(
           tenantId,
           officeName,
           contact.email,
@@ -997,7 +1074,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
             };
           }),
         );
-        emails += 1;
+        if (outcome === "sent") emails += 1;
       } catch (error: unknown) {
         this.logger.warn(
           `ניסיון חוזר של מייל הצעות נכשל ללקוח ${buyerId} במשרד ${tenantId}: ${String(error)}`,

@@ -389,3 +389,68 @@ describe("הסמן והרשומה העמידה", () => {
     expect(sweep).toMatch(/let cursor = startCursor;/u);
   });
 });
+
+/**
+ * ‎**הזכאות נבדקת שוב בניסיון החוזר — כולל ההזמנה בכתב.**
+ *
+ * המסלול בדק לקוח, הסרה, אימייל ונכס פעיל, אבל **לא** את החתימה.
+ * ‎`SignedDocumentsService.remove` מוחקת את המסמך — ומתעדת ביומן
+ * ש**הוא זה שפתח הצעות** — ולכן שליחה שנכשלה בפסק זמן, ואחריה נמחקה
+ * הראיה, הייתה יוצאת בסבב הבא: הצעה ללקוח בלי הזמנה בכתב (§9),
+ * ופעולת שיווק שנרשמת עליה (ביקורת Codex).
+ */
+describe("ההחתמה בניסיון החוזר", () => {
+  const retry = body("retryPending");
+
+  it("שער ההחתמה נבדק גם כאן, ובאותה בדיקה של הזכאות", () => {
+    expect(retry).toContain("this.agreements.signedPairs(");
+    expect(retry).toContain('"brokerage"');
+    expect(retry).toMatch(/signed\.has\(`\$\{contactId\}:\$\{row\.propertyId\}`\)/u);
+  });
+
+  it("הלולאה שולחת רק את מה שעבר את השער", () => {
+    const gate = retry.indexOf("const sendable = marketable.filter");
+    const loop = retry.indexOf("for (const offer of sendable)");
+    expect(gate, "הסינון לא נמצא").toBeGreaterThan(-1);
+    expect(loop, "הלולאה אינה עוברת על המסוננים").toBeGreaterThan(gate);
+    expect(retry).not.toContain("for (const offer of marketable)");
+  });
+
+  /*
+   * ‎**„מומלצת” ולא `email_failed`.** הראיה יכולה לחזור: הסוכן שולח
+   * הזמנה חדשה, הלקוח חותם, והסבב ייצור הצעה מחדש. סימון ככישלון
+   * היה קובר את ההתאמה לתמיד, בניגוד לנכס שנמכר — שם זו הכוונה.
+   */
+  it("ההצעה נמחקת וההתאמה חוזרת מומלצת", () => {
+    const block = retry.slice(retry.indexOf("if (unsigned.size > 0)"));
+    expect(block).toContain("tx.offer.delete(");
+    expect(block).toMatch(/data: \{ status: "suggested" \}/u);
+    expect(block.slice(0, block.indexOf("this.logger"))).not.toContain("email_failed");
+  });
+});
+
+/**
+ * ‎**דחייה ודאית של הספק אינה „מייל שנשלח”.**
+ *
+ * הענף סימן `email_failed` וחזר כרגיל, ולכן `offerAndEmail` החזיר את
+ * מספר ההצעות שנוצרו והסבב ספר „מייל נשלח”; גם הניסיון החוזר קידם
+ * את המונה שלו. כתובת פסולה נראתה בניטור בדיוק כמו הצלחה (ביקורת
+ * Codex).
+ */
+describe("המונה והדחייה הוודאית", () => {
+  it("‏deliver מחזיר תוצאה, לא void", () => {
+    expect(SOURCE).toContain('Promise<"sent" | "unsent">');
+    expect(SOURCE).not.toMatch(/private async deliver\([\s\S]{0,400}Promise<void>/u);
+  });
+
+  it("שני הענפים מסומנים במפורש", () => {
+    const deliver = body("deliver");
+    expect(deliver).toContain('return "sent";');
+    expect((deliver.match(/return "unsent";/gu) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("שני הקוראים סופרים לפי התוצאה", () => {
+    expect(body("offerAndEmail")).toContain('outcome === "sent" ? created.length : 0');
+    expect(body("retryPending")).toContain('if (outcome === "sent") emails += 1;');
+  });
+});
