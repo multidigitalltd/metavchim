@@ -4,6 +4,7 @@ import type { CryptoService } from "../../core/crypto.service";
 import type { EmailService } from "../../core/email.service";
 import type { PrismaService } from "../../core/prisma.service";
 import type { NumberRentalService } from "./number-rental.service";
+import { InvoiceService } from "./invoice.service";
 import { NumberRentalRenewalService } from "./number-rental-renewal.service";
 
 /**
@@ -85,6 +86,19 @@ function build(mode: ChargeMode): {
   } as unknown as CardcomService;
   const crypto = { decrypt: (value: string) => value } as unknown as CryptoService;
   const email = { send: async () => undefined } as unknown as EmailService;
+  /*
+   * בדל החשבוניות — ורישום מה נדרש ממנו.
+   *
+   * החיווט הוא החלק השביר כאן: חידוש שגובה כסף ואינו רושם חשבונית
+   * הוא בדיוק כסף בלי מסמך, וזו הבדיקה היחידה שתתפוס הסרה בטעות
+   * של השורה הזו.
+   */
+  const invoicedFor: string[] = [];
+  const invoices = {
+    queueForPayment: async (paymentId: string) => {
+      invoicedFor.push(paymentId);
+    },
+  } as unknown as InvoiceService;
   const rentals = {
     notifyAdmins: async (subject: string) => {
       adminNotices.push(subject);
@@ -92,11 +106,12 @@ function build(mode: ChargeMode): {
     releaseNow: async () => ({ ok: true, message: "" }),
   } as unknown as NumberRentalService;
   return {
-    svc: new NumberRentalRenewalService(prisma, cardcom, crypto, email, rentals),
+    svc: new NumberRentalRenewalService(prisma, invoices, cardcom, crypto, email, rentals),
     rentalBatchUpdates,
     rentalUpdates,
     paymentUpdates,
     adminNotices,
+    invoicedFor,
   };
 }
 

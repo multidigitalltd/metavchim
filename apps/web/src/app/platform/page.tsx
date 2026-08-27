@@ -24,6 +24,7 @@ import { PlatformSettingsSection } from "./platform-settings-section";
 import { LegalDocsSection } from "./legal-docs-section";
 import { IntegrationDeskSection } from "./integration-desk-section";
 import { SupportInboxSection } from "./support-inbox-section";
+import { InvoicesSection } from "./invoices-section";
 import { TelephonyWebhooksSection } from "./telephony-webhooks-section";
 import { CreditEconomySection } from "./credit-economy-section";
 import { SystemUpdateSection } from "./system-update-section";
@@ -379,6 +380,7 @@ const JUMP_LINKS: readonly (readonly [string, string])[] = [
   ["coupons-heading", "קופונים"],
   ["lead-prices-heading", "תמחור לידים"],
   ["payments-heading", "תשלומים"],
+  ["invoices-heading", "חשבוניות"],
   ["platform-settings-heading", "חיבורי המערכת"],
   ["integration-desk-heading", "שולחן החיבורים"],
   ["legal-heading", "מסמכים משפטיים"],
@@ -679,6 +681,12 @@ export default function PlatformPage() {
       <LeadPricesSection />
       <CreditEconomySection refreshToken={referralFeeVersion} />
       <PaymentsSection />
+
+      {/*
+        לפני הגדרות הספקים ולא אחריהן: כסף שנכנס בלי מסמך הוא דבר
+        שצריך לראות בלי לחפש, וההגדרה שמאחוריו היא כבר הצעד השני.
+      */}
+      <InvoicesSection />
 
       <PlatformSettingsSection onReferralFeeChange={() => setReferralFeeVersion((v) => v + 1)} />
 

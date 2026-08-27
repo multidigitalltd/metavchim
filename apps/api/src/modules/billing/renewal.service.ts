@@ -7,6 +7,7 @@ import { CryptoService } from "../../core/crypto.service";
 import { EmailService } from "../../core/email.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
+import { InvoiceService } from "./invoice.service";
 
 /**
  * חידוש מנוי אוטומטי — בטוקן השמור, בלי דף תשלום ובלי וובהוק.
@@ -37,6 +38,7 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly invoices: InvoiceService,
     private readonly cardcom: CardcomService,
     private readonly crypto: CryptoService,
     private readonly plans: PlanCatalogService,
@@ -307,6 +309,9 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
         data: { paidUntil: accessUntil(periodEnd) },
       }),
     ]);
+
+    // חשבונית על החידוש — נרשמת כחוב, והסורק מפיק אותה
+    await this.invoices.queueForPayment(paymentId);
 
     this.logger.log(`מנוי חודש אוטומטית: ${tenantId} עד ${periodEnd.toISOString()}`);
     return true;

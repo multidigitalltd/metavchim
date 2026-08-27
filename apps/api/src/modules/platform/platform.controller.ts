@@ -23,6 +23,7 @@ import { z } from "zod";
 import {
   AGENT_ACTIONS,
   BLOCKABLE_MODULE_KEYS,
+  DEFAULT_VAT_PERCENT,
   buildInterpretPrompt,
   IdSchema,
   interpretJsonSchema,
@@ -73,6 +74,7 @@ import {
   type PlatformSettingKey,
 } from "../../core/platform-settings.service";
 import { CardcomService } from "../../core/cardcom.service";
+import { LinetService } from "../../core/linet.service";
 import { GeminiService } from "../../core/gemini.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import { GeocodingService } from "../../core/geocoding.service";
@@ -92,6 +94,7 @@ import {
   SubscriptionOfferService,
   type PlatformOfferRow,
 } from "../billing/subscription-offer.service";
+import { InvoiceService } from "../billing/invoice.service";
 import { NumberRentalService } from "../billing/number-rental.service";
 import { Pbx015NumbersService } from "../../core/pbx015-numbers.service";
 import {
@@ -262,6 +265,23 @@ const UpdateSettingsSchema = z
     supportInboundSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     /** ה-Server Token של שרת התמיכה — התשובות יוצאות דרכו */
     supportServerToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
+    /*
+     * לינט — הפקת חשבוניות. שילוש ההזדהות והקודים של החשבון.
+     *
+     * הקודים אינם סודות והם **נראים** במסך, בניגוד למפתח: מספר סוג
+     * מסמך שאי אפשר לראות הוא מספר שאי אפשר לוודא מול המסך של לינט,
+     * ובדיוק שם קורות הטעויות.
+     */
+    linetLoginId: z.union([z.string().trim().min(2).max(100), z.literal("")]).optional(),
+    linetKey: z.union([z.string().trim().min(8).max(300), z.literal("")]).optional(),
+    linetCompanyId: z.union([z.string().trim().min(1).max(40), z.literal("")]).optional(),
+    linetBaseUrl: z.union([z.string().trim().url().max(200), z.literal("")]).optional(),
+    linetDocType: z.union([z.string().trim().max(20), z.literal("")]).optional(),
+    linetVatCatTaxable: z.union([z.string().trim().max(20), z.literal("")]).optional(),
+    linetPaymentType: z.union([z.string().trim().max(20), z.literal("")]).optional(),
+    linetItemId: z.union([z.string().trim().max(20), z.literal("")]).optional(),
+    /** שיעור המע"מ באחוזים — משתנה בחקיקה, ולכן הגדרה ולא קבוע. */
+    vatPercent: z.union([z.string().trim().regex(/^\d{1,2}$/u), z.literal("")]).optional(),
     whatsappAppSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     whatsappVerifyToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     /** הסוכן האישי — טוקן קבוע של System User, לא הטוקן הזמני ממסך הפיתוח */
@@ -584,6 +604,8 @@ export class PlatformController {
     private readonly subscriptionOffers: SubscriptionOfferService,
     private readonly pbx015: Pbx015NumbersService,
     private readonly numberRentals: NumberRentalService,
+    private readonly linet: LinetService,
+    private readonly invoices: InvoiceService,
   ) {}
 
   /**
@@ -1357,6 +1379,24 @@ export class PlatformController {
     gemini: { configured: boolean; source: "db" | "env" | "none"; model: string };
     /** webhookUrl היא הכתובת שנרשמת אצל קארדקום — מוצגת כדי שלא ינחשו אותה. */
     cardcom: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
+    /**
+     * לינט — הפקת חשבוניות. הקודים מוצגים כערכם (הם אינם סודות
+     * ומוודאים מול המסך של לינט), המפתח רק "מוגדר/לא".
+     */
+    linet: {
+      configured: boolean;
+      loginId: string;
+      companyId: string;
+      keySet: boolean;
+      baseUrl: string;
+      docType: string;
+      vatCatTaxable: string;
+      paymentType: string;
+      itemId: string;
+      vatPercent: number;
+      /** מה חסר להפקה — ריק כשהכול מוגדר. */
+      missing: string[];
+    };
     loginOtpEnabled: boolean;
     /**
      * אחוז העמלה ממכירת הפניה — **הערך עצמו ולא רק "מוגדר".**
@@ -1546,6 +1586,19 @@ export class PlatformController {
         source: cardcomDb ? "db" : cardcomEnv ? "env" : "none",
         webhookUrl: `${env.WEB_ORIGIN}/api/v1/webhooks/cardcom`,
       },
+      linet: {
+        configured: await this.linet.isConfigured(),
+        loginId: (await this.platformSettings.get("linetLoginId")) ?? "",
+        companyId: (await this.platformSettings.get("linetCompanyId")) ?? "",
+        keySet: has("linetKey"),
+        baseUrl: (await this.platformSettings.get("linetBaseUrl")) ?? "",
+        docType: (await this.platformSettings.get("linetDocType")) ?? "",
+        vatCatTaxable: (await this.platformSettings.get("linetVatCatTaxable")) ?? "",
+        paymentType: (await this.platformSettings.get("linetPaymentType")) ?? "",
+        itemId: (await this.platformSettings.get("linetItemId")) ?? "",
+        vatPercent: Number((await this.platformSettings.get("vatPercent")) ?? DEFAULT_VAT_PERCENT),
+        missing: await this.linet.missingSettings(),
+      },
       loginOtpEnabled: otpDb !== undefined ? otpDb === "true" : env.LOGIN_OTP_ENABLED,
     };
   }
@@ -1611,6 +1664,102 @@ export class PlatformController {
       throw new BadRequestException("הסליקה טרם הוגדרה — מלאו מספר מסוף ושם API ושמרו");
     }
     return this.cardcom.testConnection();
+  }
+
+  /**
+   * בדיקת חיבור ללינט — חיפוש חשבון שאינו יוצר דבר.
+   *
+   * מדווחת גם על קודים חסרים: עדיף שהמפעיל יגלה הגדרה חלקית כאן,
+   * ולא מחשבונית שנכשלת אחרי שכסף כבר נגבה מהמשרד.
+   */
+  @Post("settings/test-linet")
+  @HttpCode(200)
+  async testLinet(): Promise<{ ok: boolean; message: string }> {
+    return this.linet.testConnection();
+  }
+
+  /**
+   * חשבוניות שדורשות עין — **ממתינות, נכשלו, ותשלומים בלי מסמך.**
+   *
+   * המסך הזה עונה על שאלה אחת: האם יש כסף שנכנס ואין עליו מסמך.
+   * לכן הוא מציג גם שורות שנכשלו וגם תשלומים שאין להם שורת חשבונית
+   * כלל — השנייה היא התקלה השקטה יותר, ובלי המסך הזה אין דרך לראותה.
+   */
+  @Get("invoices")
+  async invoiceProblems(): Promise<{
+    pending: {
+      id: string;
+      tenantId: string;
+      tenantName: string;
+      status: string;
+      grossAgorot: number;
+      description: string;
+      attempts: number;
+      lastError: string | null;
+      createdAt: Date;
+    }[];
+    paymentsWithoutInvoice: { id: string; tenantId: string; amountAgorot: number; paidAt: Date | null }[];
+  }> {
+    const rows = await this.prisma.invoice.findMany({
+      where: { status: { not: "issued" } },
+      orderBy: { createdAt: "asc" },
+      take: 100,
+      select: {
+        id: true,
+        tenantId: true,
+        status: true,
+        grossAgorot: true,
+        description: true,
+        attempts: true,
+        lastError: true,
+        createdAt: true,
+      },
+    });
+    /*
+     * תשלום ששולם ואין לו שורת חשבונית בכלל — הרישום עצמו נכשל.
+     * שאילתה נפרדת כי זו תקלה אחרת לגמרי: לא "הספק דחה" אלא "לא
+     * ביקשנו". תשלום באפס אינו נספר, כי עליו אין מסמך מלכתחילה.
+     */
+    const orphans = await this.prisma.payment.findMany({
+      where: { status: "paid", amountAgorot: { gt: 0 }, invoice: { is: null } },
+      orderBy: { paidAt: "desc" },
+      take: 50,
+      select: { id: true, tenantId: true, amountAgorot: true, paidAt: true },
+    });
+
+    const tenantIds = [...new Set([...rows, ...orphans].map((row) => row.tenantId))];
+    const tenants =
+      tenantIds.length > 0
+        ? await this.prisma.tenant.findMany({
+            where: { id: { in: tenantIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+    const nameById = new Map(tenants.map((tenant) => [tenant.id, tenant.name]));
+
+    return {
+      pending: rows.map((row) => ({ ...row, tenantName: nameById.get(row.tenantId) ?? row.tenantId })),
+      paymentsWithoutInvoice: orphans,
+    };
+  }
+
+  /** הפקה חוזרת של חשבונית שנכשלה, או רישום מסמך לתשלום שאין לו. */
+  @Post("invoices/:id/retry")
+  @HttpCode(200)
+  async retryInvoice(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    return this.invoices.issueOne(id);
+  }
+
+  /** רישום חשבונית לתשלום ששולם ואין לו שורה — ואז הפקה בסבב הבא. */
+  @Post("payments/:id/invoice")
+  @HttpCode(200)
+  async invoiceForPayment(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ ok: true }> {
+    await this.invoices.queueForPayment(id);
+    return { ok: true };
   }
 
   /**
