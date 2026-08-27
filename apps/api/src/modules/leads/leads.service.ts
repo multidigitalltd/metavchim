@@ -369,7 +369,8 @@ export class LeadsService {
    *
    * הרשימה כאן היא כל מי שמצביע על `contacts`; שכחה של טבלה אחת
    * פירושה כרטיס קונה או הסכם חתום שמצביעים על איש קשר שאיננו.
-   * `contact_phones` ו-`contact_links` יורדים ב-Cascade של המסד.
+   * `contact_phones` ו-`contact_links` יורדים ב-Cascade של המסד;
+   * טוקני התשובה של המייל יורדים כאן במפורש (הטבלה מחוץ ל-RLS).
    */
   private async deleteContactIfOrphan(tx: TenantTx, contactId: string): Promise<boolean> {
     const tenantId = TenantContext.current().tenantId;
@@ -380,28 +381,56 @@ export class LeadsService {
      * מפתח וקורא שוב אחרי הנעילה (ראו `common/locks.ts`).
      */
     await lockContact(tx, contactId);
-    const [leads, buyers, properties, agreements, calls, messages, linkedTo] = await Promise.all([
-      tx.lead.count({ where: { tenantId, contactId } }),
-      tx.buyer.count({ where: { tenantId, contactId } }),
-      /*
-       * גם שוכר הוא קשר. בלי הענף השני, מחיקת ליד של אדם שהוא
-       * **רק** השוכר בנכס הייתה מוחקת את איש הקשר — ומכיוון שלנכס
-       * אין מפתח זר לכוונה, `occupant_contact_id` היה נשאר מצביע על
-       * שורה שאיננה והשוכר היה נעלם מהכרטיס (ביקורת Codex, P1).
-       */
-      tx.property.count({
-        where: {
-          tenantId,
-          OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
-        },
-      }),
-      tx.agreement.count({ where: { tenantId, contactId } }),
-      tx.call.count({ where: { tenantId, contactId } }),
-      tx.message.count({ where: { tenantId, contactId } }),
-      // הוא בן/בת הזוג על כרטיס של מישהו אחר
-      tx.contactLink.count({ where: { tenantId, relatedContactId: contactId } }),
-    ]);
-    if (leads + buyers + properties + agreements + calls + messages + linkedTo > 0) return false;
+    const [leads, buyers, properties, agreements, calls, messages, emails, linkedTo] =
+      await Promise.all([
+        tx.lead.count({ where: { tenantId, contactId } }),
+        tx.buyer.count({ where: { tenantId, contactId } }),
+        /*
+         * גם שוכר הוא קשר. בלי הענף השני, מחיקת ליד של אדם שהוא
+         * **רק** השוכר בנכס הייתה מוחקת את איש הקשר — ומכיוון שלנכס
+         * אין מפתח זר לכוונה, `occupant_contact_id` היה נשאר מצביע על
+         * שורה שאיננה והשוכר היה נעלם מהכרטיס (ביקורת Codex, P1).
+         */
+        tx.property.count({
+          where: {
+            tenantId,
+            OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
+          },
+        }),
+        tx.agreement.count({ where: { tenantId, contactId } }),
+        tx.call.count({ where: { tenantId, contactId } }),
+        tx.message.count({ where: { tenantId, contactId } }),
+        /*
+         * **התכתבות במייל היא קשר לכל דבר.** לתיבה הפנימית אין מפתח
+         * זר אל `contacts`, ולכן מחיקת הכרטיס לא הייתה מוחקת את
+         * ההודעות — היא הייתה משאירה שיחה שמופיעה ברשימה ואי אפשר
+         * לפתוח אותה, כי `thread()` נשען על הכרטיס שאיננו. וגרוע
+         * מכך: גוף ההודעות, כתובת השולח והקבצים המצורפים היו נשארים
+         * במסד של מישהו שהמשרד חשב שמחק (ביקורת Codex, P1).
+         *
+         * שמירת הכרטיס ולא מחיקת השיחה: התכתבות אמיתית עם אדם היא
+         * בדיוק מה שהופך אותו ללקוח של המשרד, ומחיקה שמוחקת אותה
+         * מוחקת יותר ממה שביקשו. מי שכן רוצה להיפטר מהכול משתמש
+         * במחיקת הלקוח עצמה, שמוחקת גם את ההודעות, גם את הקבצים
+         * (דרך `storage.cleanup_object`) וגם את הטוקנים.
+         */
+        tx.emailMessage.count({ where: { tenantId, contactId } }),
+        // הוא בן/בת הזוג על כרטיס של מישהו אחר
+        tx.contactLink.count({ where: { tenantId, relatedContactId: contactId } }),
+      ]);
+    if (leads + buyers + properties + agreements + calls + messages + emails + linkedTo > 0) {
+      return false;
+    }
+    /*
+     * טוקני התשובה יורדים עם הכרטיס.
+     *
+     * לכרטיס בלי הודעות עדיין יכול להיות טוקן — הוא נוצר כשיצא אליו
+     * מייל, לא כשהוא ענה. טוקן ששרד את הכרטיס הוא כתובת תשובה
+     * חיה שממשיכה לקלוט: התשובה הבאה הייתה נכתבת עם `contact_id`
+     * שמצביע על שורה שאיננה, ומופיעה בתיבה כשיחה שאי אפשר לפתוח.
+     * הטבלה מחוץ ל-RLS ולכן הסינון לפי הדייר מפורש כאן.
+     */
+    await tx.emailReplyToken.deleteMany({ where: { tenantId, contactId } });
     await tx.contact.delete({ where: { id: contactId } });
     return true;
   }
