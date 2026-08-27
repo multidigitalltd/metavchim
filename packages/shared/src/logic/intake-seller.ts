@@ -138,6 +138,63 @@ export function intakeSellerRejectionReason(
   return null;
 }
 
+/**
+ * מה שמותר להחזיר לעמוד הציבורי כערכי פתיחה.
+ *
+ * ‎**הזהות אינה חוזרת — לעולם.** התשובות נשמרות כמו שהן על הבקשה,
+ * וכשהקישור פתוח הן כוללות גם שם ומספר טלפון. החזרה של האובייקט
+ * כמות שהוא הייתה הופכת את הקישור למקור שאפשר לשלוף ממנו שם ומספר
+ * של אדם אמיתי — גם אחרי שהטופס כבר מולא, וגם למי שמצא אותו ברחוב
+ * (ביקורת Codex, P1). זו גם ההבטחה שהצד השני נותן במפורש.
+ *
+ * רשימת היתר ולא „מחיקת שני שדות”: שדה זהות שיתווסף מחר לא ייכנס
+ * מעצמו למה שיוצא החוצה.
+ */
+export function pickSellerPrefill(answers: unknown): IntakeSellerAnswers {
+  if (!isRecord(answers)) return {};
+  const out: IntakeSellerAnswers = {};
+
+  const str = (key: "city" | "neighborhood" | "street" | "houseNumber" | "propertyType" | "entryDate" | "notes"): void => {
+    const value = answers[key];
+    if (typeof value === "string") out[key] = value;
+  };
+  const num = (key: "rooms" | "areaSqm" | "floor" | "totalFloors" | "priceAgorot"): void => {
+    const value = answers[key];
+    if (typeof value === "number" && Number.isFinite(value)) out[key] = value;
+  };
+
+  if (answers["dealType"] === "sale" || answers["dealType"] === "rent") {
+    out.dealType = answers["dealType"];
+  }
+  for (const key of ["city", "neighborhood", "street", "houseNumber", "propertyType", "entryDate", "notes"] as const) {
+    str(key);
+  }
+  for (const key of ["rooms", "areaSqm", "floor", "totalFloors", "priceAgorot"] as const) {
+    num(key);
+  }
+  if (typeof answers["priceFlexible"] === "boolean") {
+    out.priceFlexible = answers["priceFlexible"];
+  }
+  const entryType = answers["entryType"];
+  if (entryType === "immediate" || entryType === "from_date" || entryType === "flexible") {
+    out.entryType = entryType;
+  }
+  const features = answers["features"];
+  if (isRecord(features)) {
+    const picked: Partial<Record<IntakeSellerFeature, boolean>> = {};
+    for (const key of INTAKE_SELLER_FEATURES) {
+      const value = features[key];
+      if (typeof value === "boolean") picked[key] = value;
+    }
+    if (Object.keys(picked).length > 0) out.features = picked;
+  }
+  return out;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /** צורת השדות שכרטיס הנכס מקבל. רופף בכוונה — הסכימה נאכפת בשרת. */
 export type PropertyFieldsLike = Record<string, unknown>;
 

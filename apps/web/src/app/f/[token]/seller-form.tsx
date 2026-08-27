@@ -148,7 +148,12 @@ export function SellerForm({
         ...(numOrUndefined(price) !== undefined
           ? { priceAgorot: Math.round((numOrUndefined(price) ?? 0) * 100) }
           : {}),
-        ...(priceFlexible ? { priceFlexible: true } : {}),
+        /*
+         * נשלח תמיד, גם `false`: לתיבת סימון יש מצב ידוע בכל רגע,
+         * והשמטתו בשליחה חוזרת הייתה משאירה „המחיר גמיש” על הנכס
+         * אחרי שהמוכר הוריד את הסימון (ביקורת Codex).
+         */
+        priceFlexible,
         ...(Object.keys(features).length > 0 ? { features } : {}),
         ...(notes.trim() !== "" ? { notes: notes.trim() } : {}),
         ...(website !== "" ? { website } : {}),

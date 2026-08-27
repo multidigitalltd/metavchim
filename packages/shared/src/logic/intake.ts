@@ -102,13 +102,26 @@ export function intakeIdentityRejectionReason(input: {
  * זהו **ההבדל היחיד** בין הטופס הפתוח לטופס של כרטיס קיים: שם
  * הכרטיס כבר נושא סוג עסקה, ולכן שדה שלא נענה אינו מוחק אותו.
  */
-export function intakeOpenRejectionReason(input: {
-  fullName?: string;
-  phone?: string;
-  dealType?: "sale" | "rent";
-}): string | null {
-  const identity = intakeIdentityRejectionReason(input);
-  if (identity !== null) return identity;
+export function intakeOpenRejectionReason(
+  input: {
+    fullName?: string;
+    phone?: string;
+    dealType?: "sale" | "rent";
+  },
+  options: { needsIdentity?: boolean } = {},
+): string | null {
+  /*
+   * ‎**הזהות נדרשת כשאין איש קשר, ולא „כי הקישור פתוח”.**
+   *
+   * קישור פתוח שכבר נשלח פעם אחת — למשל כשהלקוח מילא את צד המוכר
+   * ואז חזר ובחר „דווקא אני מחפש” — **יש** לו איש קשר. דרישה לשם
+   * ולמספר מחדש הייתה מזמינה גרסה שנייה של אותו אדם, ובפועל הטופס
+   * גם לא הציג אותם: השליחה נדחתה תמיד (ביקורת Codex).
+   */
+  if (options.needsIdentity !== false) {
+    const identity = intakeIdentityRejectionReason(input);
+    if (identity !== null) return identity;
+  }
   if (input.dealType === undefined) return "נא לבחור קנייה או שכירות";
   return null;
 }

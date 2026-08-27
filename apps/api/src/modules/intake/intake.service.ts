@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -18,12 +19,15 @@ import {
   intakeOpenRejectionReason,
   intakeSellerRejectionReason,
   isIntakeSide,
+  pickSellerPrefill,
+  INTAKE_SELLER_FEATURES,
   sellerPropertyFields,
   sellerSummaryLines,
   normalizePhone,
   pickIntakeFeatures,
   PropertyTypeSchema,
   PropertyFieldsSchema,
+  type PropertyFields,
   type IntakeAnswers,
   type IntakeSellerAnswers,
   type IntakeSide,
@@ -478,7 +482,13 @@ export class IntakeService {
           submittedAt: full?.submittedAt?.toISOString() ?? null,
           needsIdentity: row.contactId === null,
           side: "seller" as const,
-          sellerPrefill: asRecord(full?.answers) as IntakeSellerAnswers,
+          /*
+           * ‏**רשימת היתר, ולא האובייקט כמות שהוא.** התשובות
+           * השמורות כוללות גם שם וטלפון בקישור פתוח, והחזרתן הייתה
+           * הופכת את הקישור למקור שאפשר לשלוף ממנו זהות של אדם —
+           * גם למי שמצא אותו (ביקורת Codex, P1).
+           */
+          sellerPrefill: pickSellerPrefill(full?.answers),
         };
       }
 
@@ -500,7 +510,16 @@ export class IntakeService {
             ? toAnswers(current)
             : toAnswers(asRecord(full?.answers)),
         submittedAt: full?.submittedAt?.toISOString() ?? null,
-        needsIdentity: row.subject === "open" && row.subjectId === null,
+        /*
+         * ‏**„אין איש קשר”, ולא „קישור פתוח שטרם נשלח”.**
+         *
+         * לקוח שמילא את צד המוכר בקישור פתוח ואז חזר ובחר „דווקא אני
+         * מחפש” — לבקשה שלו כבר יש איש קשר ואין לה עדיין כרטיס קונה.
+         * הניסוח הקודם היה מציג לו טופס בלי שם וטלפון ואז דוחה כל
+         * שליחה, כי הצד השני דרש אותם (ביקורת Codex). שני הצדדים
+         * שואלים עכשיו את אותה שאלה.
+         */
+        needsIdentity: row.contactId === null,
         side: chosen,
         sellerPrefill: {},
       };
@@ -824,6 +843,21 @@ export class IntakeService {
             })
           ).id;
 
+        /*
+         * ‎**מזהה הטיוטה נתפס כאן, לפני שהנכס נוצר בכלל.**
+         *
+         * יצירת הנכס חייבת לרוץ מחוץ לטרנזקציה הזו (`persist` פותחת
+         * טרנזקציה משלה), ולכן הנעילה משתחררת לפניה. שתי שליחות
+         * ראשונות מקבילות היו שתיהן קוראות „אין עדיין טיוטה”, שתיהן
+         * יוצרות, ורק אחת נקשרת — השנייה נשארת נכס יתום במאגר של
+         * המשרד (ביקורת Codex, P1).
+         *
+         * המזהה נכתב על הבקשה **בתוך** הטרנזקציה שתופסת את השליחה,
+         * ולכן מי שמגיע שני רואה אותו ויודע שהוא שליחה חוזרת. אם
+         * היצירה תיכשל אחר כך, ההזמנה משוחררת — ראו `draftFor`.
+         */
+        const reservedId = again.propertyId === null ? ulid() : null;
+
         const rev = ulid();
         const claimed = await tx.intakeRequest.updateMany({
           where: {
@@ -838,6 +872,7 @@ export class IntakeService {
             submissionRev: rev,
             side: "seller",
             contactId,
+            ...(reservedId === null ? {} : { propertyId: reservedId }),
             answers: answers as unknown as Prisma.InputJsonValue,
           },
         });
@@ -849,6 +884,7 @@ export class IntakeService {
         return {
           contactId,
           propertyId: again.propertyId,
+          reservedId,
           resubmit: again.submittedAt !== null,
           ownerName: contact?.name ?? (answers.fullName ?? "").trim(),
           ownerPhone: contact?.phone ?? normalizePhone(answers.phone ?? ""),
@@ -866,7 +902,7 @@ export class IntakeService {
    *
    * ## למה שליחה חוזרת מעדכנת ולא יוצרת
    *
-   * „שכחתי לציין שיש מעלית” הוא המקרה הנפוץ, ובלי הקישור שנשמר על
+   * „שכחתי לציין שיש מעלית” הוא המקרה הנפוץ, ובלי המזהה שנשמר על
    * הבקשה הוא היה פותח נכס שני לאותה דירה. כפילות כזו מתגלה רק
    * כשמישהו שואל למה יש שתי מודעות.
    *
@@ -875,75 +911,115 @@ export class IntakeService {
    * מרגע שהנכס אינו טיוטה, סוכן כבר בדק אותו, אולי תיקן מחיר שהוקלד
    * באלפים, ואולי פרסם. שליחה חוזרת שדורסת את זה מוחקת עבודה של אדם
    * בשם טופס — ולכן היא הופכת ל**דיווח** במשימה, והסוכן מחליט.
+   *
+   * ‎**התנאי נאכף מתחת לנעילת הנכס** (`expectStatus`) ולא בשאילתה
+   * שלפניה: סוכן שקידם את הנכס בין הקריאה לכתיבה היה מקבל את
+   * העדכון בכל זאת (ביקורת Codex, P1).
+   *
+   * ## ומה קורה למה שהמוכר **הוריד**
+   *
+   * שדה שרוקן ומאפיין שחזר ל„לא נשאל” נמחקים מהנכס (`clearFields`),
+   * ואינם נשארים על ערכם הקודם. בטופס שמתאר את הנכס במלואו „לא
+   * סימנתי” אינו „לא השתנה”, ונתון שנשאר הוא נתון שאיש כבר אינו
+   * טוען אותו.
    */
   private async draftFor(
     row: TokenRow,
-    claim: { propertyId: string | null; ownerName: string; ownerPhone: string },
+    claim: {
+      propertyId: string | null;
+      reservedId: string | null;
+      ownerName: string;
+      ownerPhone: string;
+    },
     answers: IntakeSellerAnswers,
   ): Promise<{ propertyId: string | null; created: boolean; note: string | null }> {
-    const fields = PropertyFieldsSchema.partial().parse(sellerPropertyFields(answers));
+    const raw = sellerPropertyFields(answers);
+    const fields = PropertyFieldsSchema.partial().parse(raw);
 
-    if (claim.propertyId !== null) {
-      const status = await this.prisma.withExplicitTenant(row.tenantId, (tx) =>
-        tx.property.findFirst({
-          where: { id: claim.propertyId ?? "", tenantId: row.tenantId },
-          select: { status: true, deletedAt: true },
-        }),
-      );
-      // נמחק — אין מה לעדכן, ואין מה ליצור במקומו בלי החלטה של אדם
-      if (status === null || status.deletedAt !== null) {
+    /* ---------- שליחה ראשונה: המזהה כבר נתפס, נותר ליצור ---------- */
+    if (claim.reservedId !== null) {
+      const propertyId = claim.reservedId;
+      try {
+        await this.properties.createFromIntake({
+          id: propertyId,
+          fields,
+          owner: { name: claim.ownerName, phone: claim.ownerPhone },
+          internalNotes: sellerSummaryLines(answers).join("\n"),
+        });
+        return { propertyId, created: true, note: null };
+      } catch (error: unknown) {
+        /*
+         * ‎**כישלון היצירה אינו כישלון השליחה.**
+         *
+         * המקרה הצפוי הוא מכסת הנכסים של המסלול, והוא אינו באשמת
+         * הלקוח: הוא מילא טופס שביקשו ממנו למלא. השליחה כבר נתפסה
+         * והתשובות שמורות; מה שצריך להתבטל היא **ההזמנה**, אחרת
+         * הבקשה מצביעה על נכס שלא נוצר — ושליחה חוזרת הייתה מנסה
+         * לעדכן אותו במקום ליצור.
+         */
+        await this.releaseDraft(row, propertyId);
+        this.logger.warn(
+          `יצירת טיוטה מטופס מוכר נכשלה (${row.tenantId}): ${
+            error instanceof Error ? error.message : "שגיאה לא ידועה"
+          }`,
+        );
         return {
           propertyId: null,
           created: false,
-          note: "הטיוטה הקודמת נמחקה — הפרטים כאן, בלי כרטיס.",
+          note: `לא נוצר כרטיס נכס אוטומטית (${
+            error instanceof Error ? error.message : "שגיאה לא ידועה"
+          }). הפרטים כאן.`,
         };
       }
-      if (status.status !== "draft") {
+    }
+
+    /* ---------- שליחה חוזרת ---------- */
+    if (claim.propertyId === null) {
+      return { propertyId: null, created: false, note: null };
+    }
+    const propertyId = claim.propertyId;
+
+    try {
+      await this.properties.update(propertyId, {
+        ...fields,
+        // ‏„הורדתי את הסימון” = אין, ולא „לא השתנה”. ראו התיעוד למעלה.
+        clearFields: clearedSellerFields(raw),
+        // התנאי נאכף מתחת לנעילת הנכס, לא כאן
+        expectStatus: "draft",
+      });
+      return { propertyId, created: false, note: null };
+    } catch (error: unknown) {
+      if (error instanceof ConflictException) {
         return {
-          propertyId: claim.propertyId,
+          propertyId,
           created: false,
           note: "הכרטיס כבר אינו טיוטה, ולכן לא עודכן אוטומטית — השוו לפרטים כאן.",
         };
       }
-      await this.properties.update(claim.propertyId, fields);
-      return { propertyId: claim.propertyId, created: false, note: null };
+      if (error instanceof NotFoundException) {
+        /*
+         * הכרטיס נמחק, **או** ששליחה מקבילה תפסה את המזהה ועדיין לא
+         * סיימה ליצור אותו. בשני המקרים אין מה לעדכן ואין מה ליצור
+         * במקומו בלי החלטה של אדם — ולכן הפרטים נמסרים במשימה.
+         */
+        return {
+          propertyId: null,
+          created: false,
+          note: "כרטיס הנכס אינו זמין כרגע — הפרטים כאן, בלי עדכון אוטומטי.",
+        };
+      }
+      throw error;
     }
+  }
 
-    try {
-      const propertyId = await this.properties.createFromIntake({
-        fields,
-        owner: { name: claim.ownerName, phone: claim.ownerPhone },
-        internalNotes: sellerSummaryLines(answers).join("\n"),
-      });
-      await this.prisma.withExplicitTenant(row.tenantId, (tx) =>
-        tx.intakeRequest.updateMany({
-          where: { id: row.id, tenantId: row.tenantId, propertyId: null },
-          data: { propertyId },
-        }),
-      );
-      return { propertyId, created: true, note: null };
-    } catch (error: unknown) {
-      /*
-       * ‎**כישלון היצירה אינו כישלון השליחה.**
-       *
-       * המקרה הצפוי הוא מכסת הנכסים של המסלול, והוא אינו באשמת
-       * הלקוח: הוא מילא טופס שביקשו ממנו למלא. השליחה כבר נתפסה,
-       * התשובות שמורות על הבקשה, והמשימה שנפתחת אומרת מה קרה —
-       * זה עדיף על שגיאה אצל הלקוח ועל אובדן הפרטים גם יחד.
-       */
-      this.logger.warn(
-        `יצירת טיוטה מטופס מוכר נכשלה (${row.tenantId}): ${
-          error instanceof Error ? error.message : "שגיאה לא ידועה"
-        }`,
-      );
-      return {
-        propertyId: null,
-        created: false,
-        note: `לא נוצר כרטיס נכס אוטומטית (${
-          error instanceof Error ? error.message : "שגיאה לא ידועה"
-        }). הפרטים כאן.`,
-      };
-    }
+  /** ביטול ההזמנה — רק אם היא עדיין שלנו. */
+  private async releaseDraft(row: TokenRow, propertyId: string): Promise<void> {
+    await this.prisma.withExplicitTenant(row.tenantId, (tx) =>
+      tx.intakeRequest.updateMany({
+        where: { id: row.id, tenantId: row.tenantId, propertyId },
+        data: { propertyId: null },
+      }),
+    );
   }
 
   /**
@@ -1055,7 +1131,17 @@ export class IntakeService {
     row: TokenRow,
     answers: IntakeAnswers,
   ): Promise<TokenRow & { preClaim: PreClaim | null }> {
-    const rejection = intakeOpenRejectionReason(answers);
+    /*
+     * ‎**איש קשר שכבר קיים פוטר מהזהות.**
+     *
+     * קישור פתוח שהלקוח כבר מילא בצד המוכר נושא `contactId`, והטופס
+     * אינו מציג לו שם וטלפון — כלומר הבקשה הייתה נדחית תמיד
+     * (ביקורת Codex). מי שכבר מוכר לנו אינו ממלא את שמו מחדש.
+     */
+    const known = row.contactId;
+    const rejection = intakeOpenRejectionReason(answers, {
+      needsIdentity: known === null,
+    });
     if (rejection !== null) throw new BadRequestException(rejection);
     const fullName = (answers.fullName ?? "").trim();
     // הצורה המנורמלת היא מה שנשמר ומה שמזהה כפילות — ראו `normalizePhone`
@@ -1170,10 +1256,29 @@ export class IntakeService {
             previousAnswers: asRecord(before?.answers),
           };
 
-          const contact = await this.contacts.findOrCreateByPhone(tx, {
-            name: fullName,
-            phone,
-          });
+          /*
+           * הכרטיס הקיים גובר: יצירה לפי טלפון הייתה מוצאת אותו
+           * ממילא כשהמספר זהה, ופותחת שני כרטיסים כשהלקוח הקליד
+           * אותו קצת אחרת.
+           */
+          const contact =
+            known === null
+              ? await this.contacts.findOrCreateByPhone(tx, {
+                  name: fullName,
+                  phone,
+                })
+              : { id: known };
+          /*
+           * ‏`createWithin` פותר את איש הקשר שוב לפי שם וטלפון. עם
+           * כרטיס קיים אלה אינם מגיעים מהטופס, ולכן הם נקראים ממנו —
+           * מחרוזות ריקות היו יוצרות כרטיס שלישי ריק.
+           */
+          const identity =
+            known === null
+              ? { name: fullName, phone }
+              : await this.contacts
+                  .getById(tx, known)
+                  .then((row) => ({ name: row?.name ?? "", phone: row?.phone ?? "" }));
           /*
            * נעילת **שורת** איש הקשר לפני בדיקת „יש כבר קונה”.
            *
@@ -1209,8 +1314,8 @@ export class IntakeService {
            * הרצות התאמה, והראשונה מהן על כרטיס שאין בו דבר.
            */
           const buyerId = await this.buyers.createWithin(tx, {
-            contactName: fullName,
-            contactPhone: phone,
+            contactName: identity.name,
+            contactPhone: identity.phone,
             requirements: BuyerRequirementsSchema.parse(
               applyIntakeAnswers({}, answers),
             ),
@@ -1623,6 +1728,39 @@ interface DtoContext {
  * מצומצמות לזו האחת בכוונה: ההקשר אינו עובר לשום ניתוב, והרחבה
  * שלו הייתה הרחבה של מה שקישור ברחוב שווה.
  */
+/**
+ * מה שהמוכר **הוריד** — השדות שהטופס מבטא ושהוא השאיר ריקים.
+ *
+ * ‎`sellerPropertyFields` כותב רק את מה שנענה, וזה נכון בשליחה
+ * ראשונה: „לא מילאתי” אינו „אין”. בשליחה חוזרת המשמעות הפוכה —
+ * המוכר ראה את הערך הקודם והוריד אותו, ושדה שנשאר על ערכו הישן
+ * הוא נתון שאיש כבר אינו טוען אותו (ביקורת Codex).
+ *
+ * הרשימה מוגבלת למה שהטופס באמת מציג. שדות שהסוכן מילא בכרטיס ואינם
+ * בטופס — שכונה מהקטלוג, מאפיינים מותאמים, מיקום על המפה — אינם
+ * נוגעים בזה, בדיוק כמו בצד הקונה.
+ */
+function clearedSellerFields(
+  written: Record<string, unknown>,
+): readonly (keyof PropertyFields)[] {
+  const candidates = [
+    "neighborhood",
+    "street",
+    "houseNumber",
+    "propertyType",
+    "rooms",
+    "areaSqm",
+    "floor",
+    "totalFloors",
+    "priceAgorot",
+    "priceFlexible",
+    "entryType",
+    "entryDate",
+    ...INTAKE_SELLER_FEATURES,
+  ] as const satisfies readonly (keyof PropertyFields)[];
+  return candidates.filter((key) => !(key in written));
+}
+
 /**
  * הצד שנבחר — או `null` כשעוד לא נבחר.
  *

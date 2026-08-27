@@ -3,6 +3,7 @@ import {
   INTAKE_SELLER_NOTES_MAX,
   intakeSellerRejectionReason,
   isIntakeSide,
+  pickSellerPrefill,
   sellerPropertyFields,
   sellerSummaryLines,
   type IntakeSellerAnswers,
@@ -226,5 +227,56 @@ describe("הצד נשמר ולא נגזר", () => {
     expect(isIntakeSide("seller")).toBe(true);
     expect(isIntakeSide("owner")).toBe(false);
     expect(isIntakeSide(undefined)).toBe(false);
+  });
+});
+
+describe("ערכי פתיחה לעמוד הציבורי", () => {
+  it("שם וטלפון אינם חוזרים — גם אחרי שהטופס מולא", () => {
+    /*
+     * הקישור הוא מפתח נושא (bearer). אם הזהות חוזרת ממנו, כל מי
+     * שמצא אותו שולף שם ומספר של אדם אמיתי.
+     */
+    const out = pickSellerPrefill({
+      fullName: "דנה כהן",
+      phone: "+972501234567",
+      dealType: "sale",
+      city: "חיפה",
+    });
+    expect(out).toEqual({ dealType: "sale", city: "חיפה" });
+    expect("fullName" in out).toBe(false);
+    expect("phone" in out).toBe(false);
+  });
+
+  it("שדה שאינו ברשימת ההיתר אינו יוצא החוצה", () => {
+    const out = pickSellerPrefill({ city: "חיפה", ownerEmail: "a@b.c", secret: 1 });
+    expect(out).toEqual({ city: "חיפה" });
+  });
+
+  it("טיפוס שגוי נדחה ואינו מגיע לעמוד", () => {
+    const out = pickSellerPrefill({
+      city: 5,
+      rooms: "שלוש",
+      priceFlexible: "כן",
+      entryType: "מתישהו",
+      dealType: "barter",
+    });
+    expect(out).toEqual({});
+  });
+
+  it("מאפיינים עוברים רק כבוליאנים, וריק אינו נשלח", () => {
+    expect(
+      pickSellerPrefill({ features: { hasElevator: true, hasParking: "כן" } }).features,
+    ).toEqual({ hasElevator: true });
+    expect("features" in pickSellerPrefill({ features: { nope: true } })).toBe(false);
+  });
+
+  it("קלט שאינו אובייקט מחזיר ריק ולא קורס", () => {
+    expect(pickSellerPrefill(null)).toEqual({});
+    expect(pickSellerPrefill("x")).toEqual({});
+    expect(pickSellerPrefill([1, 2])).toEqual({});
+  });
+
+  it("מספר שאינו סופי אינו עובר", () => {
+    expect("rooms" in pickSellerPrefill({ rooms: Number.NaN })).toBe(false);
   });
 });
