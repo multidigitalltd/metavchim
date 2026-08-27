@@ -206,7 +206,7 @@ export function ContactPeople({
                 setAddingPhone(false);
               }}
             >
-              + אדם
+              + איש קשר
             </button>
             <button
               type="button"
