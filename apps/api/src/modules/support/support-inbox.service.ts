@@ -684,6 +684,22 @@ export class SupportInboxService {
    * כשהוא ריק התשובה יוצאת בטוקן הכללי, ועדיין **מכתובת התמיכה**:
    * שרת אחד הוא הגדרה חסרה, לא סיבה לענות מ-`no-reply`.
    */
+  /**
+   * אותו שולח, לכל מה שיוצא מהתמיכה.
+   *
+   * ציבורית כי גם **תשובה לפנייה שנפתחה במערכת** (`SupportService`)
+   * חייבת לצאת מכתובת התמיכה. שם היא יצאה מהשולח הכללי — `no-reply`
+   * — כלומר מי שהשיב עליה כתב לתיבה שאיש אינו קורא, בעוד אותה תשובה
+   * בדיוק מהתיבה הנכנסת יצאה מהכתובת הנכונה. שני נתיבים לאותו דבר,
+   * ואחד מהם שקט.
+   *
+   * ‎`null` = התיבה לא הוגדרה, ואז נשארת התנהגות ברירת המחדל.
+   */
+  async outgoingSender(): Promise<{ from: string; token?: string | undefined } | null> {
+    const config = await this.config();
+    return config === null ? null : this.sender(config.address);
+  }
+
   private async sender(address: string): Promise<{ from: string; token?: string | undefined }> {
     const token = (await this.settings.get("supportServerToken")) ?? "";
     return { from: `תמיכה מתווכים <${address}>`, ...(token === "" ? {} : { token }) };

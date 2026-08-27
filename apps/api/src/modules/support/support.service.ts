@@ -15,6 +15,7 @@ import { EmailService } from "../../core/email.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
+import { SupportInboxService } from "./support-inbox.service";
 
 /**
  * פניות לתמיכה.
@@ -81,6 +82,11 @@ export class SupportService {
     private readonly audit: AuditService,
     private readonly email: EmailService,
     private readonly platformSettings: PlatformSettingsService,
+    /*
+     * לא בשביל התיבה הנכנסת, אלא בשביל **השולח**: כל מה שיוצא
+     * מהתמיכה יוצא מאותה כתובת. ראו `outgoingSender`.
+     */
+    private readonly inbox: SupportInboxService,
   ) {}
 
   async create(input: {
@@ -142,6 +148,8 @@ export class SupportService {
     try {
       const to = await this.platformSettings.get("supportEmail");
       if (to === undefined || to === "") return;
+      // גם ההתראה הפנימית — כדי ש„השב” עליה יגיע לתיבת התמיכה
+      const sender = await this.inbox.outgoingSender();
       await this.email.send(
         to,
         `פנייה חדשה: ${SUPPORT_KIND_LABEL[input.kind]} · ${area}`,
@@ -153,6 +161,7 @@ export class SupportService {
           "",
           `מזהה הפנייה: ${id}`,
         ].join("\n"),
+        sender === null ? {} : { sender },
       );
     } catch (error) {
       this.logger.warn(`התראת תמיכה נכשלה: ${(error as Error).message}`);
@@ -296,7 +305,24 @@ export class SupportService {
 
     if (input.reply !== undefined && input.reply !== "") {
       try {
-        await this.email.send(updated.userEmail, "תשובה לפנייה שלך לתמיכה", input.reply);
+        /*
+         * ‎**מכתובת התמיכה, ולא מ-`no-reply`.**
+         *
+         * זו תשובה שאדם כתב לאדם, והנמען עונה עליה — הוא לוחץ „השב”
+         * בתיבה שלו. כשהיא יוצאת מהשולח הכללי התשובה שלו נוחתת
+         * בתיבה שאיש אינו קורא, והשיחה נגמרת בלי שמישהו יידע. אותה
+         * תשובה בדיוק **מהתיבה הנכנסת** כבר יצאה מהכתובת הנכונה,
+         * וכאן היא לא — שני נתיבים לאותו דבר, ואחד מהם שקט.
+         *
+         * ריק = התיבה לא הוגדרה, וההתנהגות נשארת כשהייתה.
+         */
+        const sender = await this.inbox.outgoingSender();
+        await this.email.send(
+          updated.userEmail,
+          "תשובה לפנייה שלך לתמיכה",
+          input.reply,
+          sender === null ? {} : { sender },
+        );
       } catch (error) {
         // התשובה כבר שמורה ומוצגת במערכת; המייל הוא תזכורת, לא הערוץ
         this.logger.warn(`שליחת תשובת תמיכה נכשלה: ${(error as Error).message}`);
