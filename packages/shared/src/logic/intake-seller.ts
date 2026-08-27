@@ -89,6 +89,39 @@ export interface IntakeSellerAnswers {
   notes?: string;
 }
 
+/**
+ * שדות הנכס ש**הטופס באמת מציג**, ולכן שתיקה עליהם היא תשובה.
+ *
+ * זו הרשימה שמכריעה מה מתרוקן בשליחה חוזרת: מוכר שראה שדה והשאיר
+ * אותו ריק אמר „אין”. שדה שהטופס **אינו** מציג נשאר כמות שהוא —
+ * הוא לא נשאל, והמוכר לא ויתר עליו.
+ *
+ * ‎**`totalFloors` אינו כאן, וזו הנקודה.** הוא קיים ב-`IntakeSellerAnswers`
+ * ובמיפוי לשדות הנכס, אך אין לו שדה בטופס — ולכן כל שליחה חוזרת
+ * הייתה מוחקת את מספר הקומות שהסוכן הזין בכרטיס, בלי שהלקוח ראה
+ * אותו או נגע בו (ביקורת Codex).
+ *
+ * ‎`city` ו-`dealType` אינם כאן מסיבה אחרת: הם שדות חובה ותמיד
+ * נענים, ולכן לעולם אינם מועמדים לריקון.
+ *
+ * הרשימה כאן, ליד הטופס והמיפוי, כדי שמי שמוסיף שדה יראה את
+ * שלושת המקומות יחד.
+ */
+export const INTAKE_SELLER_FORM_FIELDS = [
+  "neighborhood",
+  "street",
+  "houseNumber",
+  "propertyType",
+  "rooms",
+  "areaSqm",
+  "floor",
+  "priceAgorot",
+  "priceFlexible",
+  "entryType",
+  "entryDate",
+  ...INTAKE_SELLER_FEATURES,
+] as const;
+
 /** מה שנדרש כדי לפתוח כרטיס לאדם שאינו במאגר. */
 export const INTAKE_SELLER_NAME_MIN = 2;
 export const INTAKE_SELLER_NAME_MAX = 80;
