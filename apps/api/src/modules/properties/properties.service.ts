@@ -1104,7 +1104,7 @@ export class PropertiesService {
       ];
       const orphaned = await Promise.all(
         // ‏`id` מוחרג: השאלה היא מה יישאר **אחרי** המחיקה
-        candidates.map((contactId) => isOrphanContact(tx, tenantId, contactId, id)),
+        candidates.map((contactId) => isOrphanContact(tx, tenantId, contactId, { propertyId: id })),
       );
       return { contacts: orphaned.filter(Boolean).length };
     });

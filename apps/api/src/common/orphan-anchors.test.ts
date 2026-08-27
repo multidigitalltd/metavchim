@@ -32,7 +32,6 @@ const OWNERSHIP = read("./ownership.ts");
 const LEADS = read("../modules/leads/leads.service.ts");
 const BUYERS = read("../modules/buyers/buyers.service.ts");
 const PROPERTIES = read("../modules/properties/properties.service.ts");
-const ERASURE = read("../modules/contacts/contact-erasure.service.ts");
 
 /** ארבעת העוגנים, כפי ששני הניסוחים חייבים לבטא. */
 const ANCHORS = ["buyer", "lead", "property", "contactLink"] as const;
@@ -86,7 +85,7 @@ describe("עוגני הגישה לכרטיס לקוח", () => {
       LEADS.indexOf("async addNote("),
     );
     expect(fn).toContain(
-      "this.erasure.eraseUnreachableWithoutHistory(tx, tenantId, lock, \"lead.delete\")",
+      "this.erasure.eraseUnreachable(tx, tenantId, lock, \"lead.delete\")",
     );
     for (const gone of ["tx.agreement.count(", "tx.call.count(", "tx.emailMessage.count("]) {
       expect(fn, `הספירה הישנה נשארה: ${gone}`).not.toContain(gone);
@@ -148,54 +147,43 @@ describe("עוגני הגישה לכרטיס לקוח", () => {
   });
 
   /*
-   * ‎**המסלול לא ימחק יותר ממה שהמסך שלו הבטיח.**
+   * ‎**מחיקה רחבה מותרת רק עם גילוי — והגילוי נאכף כאן.**
    *
-   * שני הדיאלוגים מפרטים מה נשאר — „הלידים של הלקוח יישארו”,
-   * „שיחות מוקלטות שכבר נרשמו נשארות”. הרחבתי את שניהם למחיקת
-   * כרטיס יתום ולא נגעתי בטקסט, כלומר הפכתי מחיקה מוגבלת לרחבה בלי
-   * הסכמה (ביקורת Codex, שני ממצאי P1). ההערה במחיקת ליד מזהירה
-   * מזה במילים האלה בדיוק: „הפעולה היחידה במערכת שמחקה יותר ממה
-   * שביקשו”.
-   *
-   * מחיקת נכס לצמיתות **מגלה** בדיאלוג שלה שכרטיס והתקשורת יורדים,
-   * ולכן דווקא היא רשאית לרחבה. ההבדל הוא הגילוי, והשמות נושאים
-   * אותו.
+   * הגלגול הקודם של השער הזה אכף צמצום: המסלולים בלי גילוי הורשו
+   * למחוק רק כרטיס בלי היסטוריה. הכרעת בעל המוצר החליפה את הצמצום
+   * בגילוי — הדיאלוגים מציגים לפני האישור מה יימחק, בספירה — ולכן
+   * מה שהשער אוכף עכשיו הוא **הצמדה**: מסלול שמוחק בהרחבה חייב
+   * תצוגה מקדימה בשרת וגילוי במסך. מחיקה רחבה בלי אחד מהשניים היא
+   * בדיוק שני ממצאי ה-P1 שפתחו את כל זה.
    */
-  it("מסלול בלי גילוי מוחק רק כרטיס בלי היסטוריה", () => {
-    for (const [name, source] of [
-      ["קונה", BUYERS],
-      ["ליד", LEADS],
-    ] as const) {
-      expect(source, `${name}: קורא לווריאנט הרחב`).toContain(
-        "eraseUnreachableWithoutHistory(",
-      );
-      expect(
-        /(?<!WithoutHistory)\berasure\.eraseUnreachable\(/u.test(source),
-        `${name}: קורא לווריאנט הרחב`,
-      ).toBe(false);
-    }
-    // ומחיקת נכס — שמגלה — נשארת על הרחב
-    expect(PROPERTIES).toMatch(/erasure\.eraseUnreachable\(/u);
+  it("כל מסלול שמוחק בהרחבה מגלה: תצוגה מקדימה בשרת וגילוי במסך", () => {
+    // הקונה — ה-preview שואל „מה יישאר אחרי” עם החרגת הקונה הנמחק
+    expect(BUYERS).toContain(
+      "this.erasure.erasurePreview(tx, tenantId, buyer.contactId, { buyerId: id })",
+    );
+    // הליד — אותו דבר, עם החרגת הליד
+    expect(LEADS).toMatch(
+      /erasurePreview\(tx, ctx\.tenantId, lead\.contactId, \{\s*leadId: id,\s*\}\)/u,
+    );
+    // ושני המסכים מציגים את משפט הגילוי המשותף — לא ניסוח מקומי
+    const buyerDialog = read("../../../web/src/app/buyers/delete-buyer.tsx");
+    const leadDialog = read("../../../web/src/app/leads/delete-lead-dialog.tsx");
+    expect(buyerDialog).toContain("contactErasureDisclosure(preview.contactErasure)");
+    expect(leadDialog).toContain("contactErasureDisclosure(erasure)");
   });
 
   /*
-   * ‎**וההגבלה מונה את מה שהמסכים באמת מבטיחים.** רשימה חלקית היא
-   * הבטחה חלקית: הדיאלוג של הליד מנה קונה, נכס, הסכם וליד — ופסח על
-   * שיחות והודעות, שההבטחה שמעליו שומרת עליהן.
+   * ‎**„לא ידוע” אינו „לא יימחק”.** כשל בשליפת התצוגה המקדימה בדיאלוג
+   * הליד נופל לאזהרה הכללית — לא להבטחה הישנה. „כל מה שאינו אובייקט
+   * = יישאר” היה מציג את ההבטחה בדיוק כשהתשובה עוד בדרך.
    */
-  it("ההגבלה מונה את כל מה שהובטח", () => {
-    const fn = ERASURE.slice(
-      ERASURE.indexOf("private async hasPromisedHistory("),
-      ERASURE.indexOf("private async collectStorageKeys("),
+  it("כשל בבדיקה מציג אזהרה, לא הבטחה", () => {
+    const leadDialog = read("../../../web/src/app/leads/delete-lead-dialog.tsx");
+    expect(leadDialog).toMatch(
+      /\.catch\(\(\) => setErasure\(\{ calls: 0, messages: 0, emails: 0 \}\)\)/u,
     );
-    for (const table of ["call", "message", "emailMessage", "agreement", "signedDocument"]) {
-      expect(fn, `${table} אינו נספר`).toContain(`tx.${table}.findFirst(`);
-    }
-    // והבדיקה קודמת למחיקה, לא אחריה
-    const guard = ERASURE.indexOf("if (await this.hasPromisedHistory(");
-    const call = ERASURE.indexOf("return this.eraseUnreachable(tx, tenantId, lock, cause);");
-    expect(guard, "ההגבלה לא נמצאה").toBeGreaterThan(-1);
-    expect(guard).toBeLessThan(call);
+    // ושלושה מצבים, לא שניים
+    expect(leadDialog).toContain('"loading"');
   });
 
   /*

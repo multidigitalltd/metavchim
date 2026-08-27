@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { leadDeletionOutcome, type LeadDeletionScope } from "@metavchim/shared";
-import { ApiError, apiDelete } from "@/lib/api";
+import {
+  contactErasureDisclosure,
+  leadDeletionOutcome,
+  type LeadDeletionScope,
+} from "@metavchim/shared";
+import { ApiError, apiDelete, apiGet } from "@/lib/api";
 import { ConfirmDialog } from "../confirm-dialog";
 import { Notice } from "../notice";
 
@@ -39,14 +43,35 @@ export function DeleteLeadDialog({
   const [scope, setScope] = useState<LeadDeletionScope>("lead");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * ‎**הגילוי** — מה תגרור בחירת „גם את כרטיס הלקוח”.
+   *
+   * שלושה מצבים ולא שניים: `"loading"` עד שהשרת ענה, `null` =
+   * הכרטיס יישאר, ואובייקט = הכרטיס יימחק עם מה שנספר בו. „כל מה
+   * שאינו אובייקט = יישאר” היה מבטיח את ההבטחה הישנה בדיוק בזמן
+   * שהתשובה עוד בדרך — אותה טעות שנתפסה בבאנר דף הנחיתה.
+   */
+  const [erasure, setErasure] = useState<
+    { calls: number; messages: number; emails: number } | null | "loading"
+  >("loading");
 
   // חלון שנפתח מחדש מתחיל נקי — גם אחרי כישלון וגם אחרי בחירה קודמת
   useEffect(() => {
     if (open) {
       setScope("lead");
       setError(null);
+      setErasure("loading");
+      apiGet<{ contactErasure: { calls: number; messages: number; emails: number } | null }>(
+        `/leads/${leadId}/deletion-preview`,
+      )
+        .then((res) => setErasure(res.contactErasure))
+        /*
+         * כשל בבדיקה אינו „הכרטיס יישאר”. הבחירה הרחבה מציגה אזהרה
+         * כללית במקום ספירה — „לא ידוע” לעולם אינו מוצג כ„לא יימחק”.
+         */
+        .catch(() => setErasure({ calls: 0, messages: 0, emails: 0 }));
     }
-  }, [open]);
+  }, [open, leadId]);
 
   async function remove() {
     setBusy(true);
@@ -72,9 +97,23 @@ export function DeleteLeadDialog({
       onConfirm={() => void remove()}
       onClose={onClose}
     >
+      {/*
+        ‎**ההבטחה נגזרת מהבחירה ומתשובת השרת, לא ממשפט קבוע.**
+
+        „שיחות מוקלטות נשארות” היה נכון ללא תנאי כשהמחיקה סירבה
+        לגעת בכרטיס עם היסטוריה. הכרעת בעל המוצר החליפה את הסירוב
+        בגילוי, ולכן המשפט חייב לומר את האמת של הבחירה הנוכחית:
+        בבחירה הרחבה, כשהכרטיס יימחק — השיחות יורדות איתו, בספירה.
+      */}
       <p className="mb-3 text-[length:var(--type-body-sm)]">
-        ציר הזמן של הליד נמחק איתו, והפעולה אינה הפיכה. פגישות ושיחות
-        מוקלטות שכבר נרשמו נשארות.
+        ציר הזמן של הליד נמחק איתו, והפעולה אינה הפיכה.
+        {scope === "lead_and_contact" && erasure !== null && erasure !== "loading" ? (
+          <span className="block font-semibold" style={{ color: "var(--color-danger)" }}>
+            {contactErasureDisclosure(erasure)}
+          </span>
+        ) : (
+          " פגישות ושיחות מוקלטות שכבר נרשמו נשארות."
+        )}
       </p>
       <fieldset className="m-0 border-0 p-0">
         <legend className="mb-2 text-[length:var(--type-body-sm)] font-bold">מה למחוק?</legend>
@@ -112,17 +151,19 @@ export function DeleteLeadDialog({
           <span>
             <b>גם את כרטיס הלקוח</b>
             {/*
-              ‎**הרשימה חייבת למנות את מה שבאמת עוצר את המחיקה.**
+              ‎**התיאור נגזר מתשובת השרת, לא מרשימה קבועה.**
 
-              היא מנתה קונה, נכס, הסכם וליד — ופסחה על שיחות והודעות,
-              שההבטחה שלמעלה („שיחות מוקלטות שכבר נרשמו נשארות”) שומרת
-              עליהן, ועל היותו בן/בת זוג בכרטיס חי. משפט שמונה ארבעה
-              מתוך שישה נקרא כרשימה מלאה (ביקורת Codex, P1).
+              הגלגול הקודם מנה את התנאים העוצרים ופסח על שניים —
+              רשימה חלקית שנקראת כמלאה (ביקורת Codex, P1). עכשיו
+              השרת עונה על הכרטיס **הזה**: יישאר (יש לו עוגן אחר),
+              או יימחק — ואז הגילוי המלא מוצג למעלה, בספירה.
             */}
             <span className="block" style={{ color: "var(--color-text-muted)" }}>
-              לספאם ולטעות במספר. הכרטיס יורד רק אם לא נשאר לו דבר במשרד —
-              לא קונה, נכס, הסכם או ליד אחר, לא שיחה או הודעה, והוא אינו
-              רשום כבן/בת זוג בכרטיס אחר.
+              {erasure === "loading"
+                ? "לספאם ולטעות במספר. בודק מה תלוי בכרטיס…"
+                : erasure === null
+                  ? "לספאם ולטעות במספר. הכרטיס הזה יישאר — הוא עדיין קונה, בעל נכס, ליד אחר, או בן/בת זוג בכרטיס פעיל."
+                  : "לספאם ולטעות במספר. לכרטיס הזה אין עוגן נוסף במשרד — הוא יימחק, וההסכמים החתומים שלו יעברו לארכיון המשרד."}
             </span>
           </span>
         </label>

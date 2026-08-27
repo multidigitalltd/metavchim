@@ -267,27 +267,46 @@ export function orphanContactCondition(alias: OrphanAlias): Prisma.Sql {
 }
 
 /**
- * ‎`exceptPropertyId` — „האם יהיה יתום **אחרי** שהנכס הזה יימחק”.
+ * ‎`except` — „האם יהיה יתום **אחרי** שהעוגן הזה יימחק”.
  *
- * מסך האישור של מחיקה לצמיתות חייב לשאול את השאלה הזו לפני שהשורה
- * נמחקה, והמחיקה עצמה שואלת אותה אחריה. אותו כלל בשני זמנים — ולכן
- * פרמטר ולא ניסוח שני, שהוא בדיוק הצורה שנפרדת מעצמה ומבטיחה למתווך
- * „לא יימחק אף כרטיס” על מחיקה שכן מוחקת אחד.
+ * מסך האישור חייב לשאול את השאלה הזו לפני שהשורה נמחקה, והמחיקה
+ * עצמה שואלת אותה אחריה. אותו כלל בשני זמנים — ולכן פרמטר ולא
+ * ניסוח שני, שהוא בדיוק הצורה שנפרדת מעצמה ומבטיחה למתווך „לא
+ * יימחק אף כרטיס” על מחיקה שכן מוחקת אחד.
+ *
+ * ההחרגה הוכללה מנכס בלבד לשלושת סוגי העוגן הנמחקים: מחיקת קונה
+ * ומחיקת ליד קיבלו מסכי גילוי משלהם, וכל אחד שואל „מה יקרה אחרי
+ * שהעוגן **שלי** יירד”. שלוש החרגות בכלל אחד, לא שלושה כללים.
  */
 export async function isOrphanContact(
   tx: TenantTx,
   tenantId: string,
   contactId: string,
-  exceptPropertyId?: string,
+  except?: { propertyId?: string; buyerId?: string; leadId?: string },
 ): Promise<boolean> {
   const [buyer, lead, property, link] = await Promise.all([
-    tx.buyer.findFirst({ where: { tenantId, deletedAt: null, contactId }, select: { id: true } }),
-    tx.lead.findFirst({ where: { tenantId, contactId }, select: { id: true } }),
+    tx.buyer.findFirst({
+      where: {
+        tenantId,
+        deletedAt: null,
+        contactId,
+        ...(except?.buyerId === undefined ? {} : { id: { not: except.buyerId } }),
+      },
+      select: { id: true },
+    }),
+    tx.lead.findFirst({
+      where: {
+        tenantId,
+        contactId,
+        ...(except?.leadId === undefined ? {} : { id: { not: except.leadId } }),
+      },
+      select: { id: true },
+    }),
     tx.property.findFirst({
       where: {
         tenantId,
         deletedAt: null,
-        ...(exceptPropertyId === undefined ? {} : { id: { not: exceptPropertyId } }),
+        ...(except?.propertyId === undefined ? {} : { id: { not: except.propertyId } }),
         // גם דייר קושר אדם לנכס — לא רק בעלות
         OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
       },

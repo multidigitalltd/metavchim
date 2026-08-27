@@ -143,6 +143,18 @@ export class LeadsController {
    * מחזיר גוף ולא 204 כדי שהמסך יוכל לומר אם גם כרטיס איש הקשר ירד —
    * זה מה שהמשתמש הכי רוצה לדעת מיד אחרי שלחץ.
    */
+  /**
+   * מה תגרור בחירת „גם את כרטיס הלקוח” — לקריאה לפני האישור.
+   * אותה יכולת כמו המחיקה: זה מידע על מה שהמחיקה תעשה.
+   */
+  @Get(":id/deletion-preview")
+  @RequireCapability("leads.delete")
+  async deletionPreview(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<Awaited<ReturnType<LeadsService["deletionPreview"]>>> {
+    return this.leads.deletionPreview(id);
+  }
+
   @Delete(":id")
   @RequireCapability("leads.delete")
   @HttpCode(200)

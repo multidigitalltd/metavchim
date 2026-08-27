@@ -136,12 +136,13 @@ describe("כרטיס יתום במחיקת נכס לצמיתות", () => {
    * של אדם אינו. מתווך שמנקה כפילות אינו מתכוון למחוק אדם.
    */
   it("התצוגה המקדימה שואלת מה יישאר אחרי המחיקה", () => {
-    expect(OWNERSHIP).toMatch(/exceptPropertyId\?: string,/u);
+    // ההחרגה הוכללה לשלושת סוגי העוגן — נכס, קונה, ליד — בכלל אחד
+    expect(OWNERSHIP).toMatch(/except\?: \{ propertyId\?: string; buyerId\?: string; leadId\?: string \}/u);
     expect(OWNERSHIP).toContain(
-      "...(exceptPropertyId === undefined ? {} : { id: { not: exceptPropertyId } }),",
+      "...(except?.propertyId === undefined ? {} : { id: { not: except.propertyId } }),",
     );
     // בלי ההחרגה הנכס עצמו נספר כעוגן, והתשובה תמיד אפס
-    expect(PROPERTIES).toContain("isOrphanContact(tx, tenantId, contactId, id)");
+    expect(PROPERTIES).toContain("isOrphanContact(tx, tenantId, contactId, { propertyId: id })");
     expect(PROPERTIES).toContain("async purgePreview(id: string): Promise<{ contacts: number }>");
   });
 
