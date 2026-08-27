@@ -44,10 +44,10 @@ interface Row {
 
 /* צבעי תגי הסוג מקובץ העיצוב; ירוק הטקסט הועמק ל-AA (docs/06 §4) */
 const KIND_PROPERTY = { fg: "var(--color-success)", bg: "var(--color-success-soft)" };
-const KIND_BUYER = { fg: "#7a5c1f", bg: "#f7efdd" };
-const KIND_LEAD = { fg: "#3F4742", bg: "#EDEFED" };
+const KIND_BUYER = { fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" };
+const KIND_LEAD = { fg: "var(--color-text-muted)", bg: "var(--domain-neutral-tile)" };
 /* טקסט חופשי שנכתב במערכת — יומן, משימות, שיחות והערות */
-const KIND_TEXT = { fg: "#616a63", bg: "#eef1ec" };
+const KIND_TEXT = { fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" };
 
 /** קיצור לשורה אחת בתפריט — הערה ארוכה לא שוברת את הפריסה. */
 function snip(text: string): string {

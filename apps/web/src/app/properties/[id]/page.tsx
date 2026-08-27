@@ -236,9 +236,9 @@ const MATCH_FILTERS: readonly {
 
 const MATURITY_TAG: Record<string, { fg: string; bg: string }> = {
   very_hot: { fg: "var(--color-danger)", bg: "var(--color-danger-soft)" },
-  hot: { fg: "#7a5c1f", bg: "#f7efdd" },
+  hot: { fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" },
   interested: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
-  not_ripe: { fg: "#616a63", bg: "#eef1ec" },
+  not_ripe: { fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" },
 };
 
 /*

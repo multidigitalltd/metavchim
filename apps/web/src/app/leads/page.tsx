@@ -43,9 +43,9 @@ const WAITING_COLOR: Record<LeadWaitingLevel, string> = {
 /* גלולת הסטטוס — אותה משפחת צבעים כמו בעיצוב */
 const STATUS_PILL: Record<string, { fg: string; bg: string }> = {
   new: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
-  in_progress: { fg: "#7a5c1f", bg: "#f7efdd" },
-  converted: { fg: "#3F4742", bg: "#EDEFED" },
-  closed: { fg: "#616a63", bg: "#eef1ec" },
+  in_progress: { fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" },
+  converted: { fg: "var(--color-text-muted)", bg: "var(--domain-neutral-tile)" },
+  closed: { fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" },
 };
 
 const GRID = "1.4fr 1fr 1.6fr 1fr 0.9fr 1.3fr";

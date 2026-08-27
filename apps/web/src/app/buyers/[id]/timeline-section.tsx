@@ -58,14 +58,14 @@ interface InteractionsPage {
  * שהיא קוראת.
  */
 const KINDS: Record<string, { icon: ReactNode; label: string; fg: string; bg: string }> = {
-  note: { icon: <IconDoc s={14} />, label: "הערה", fg: "#3F4742", bg: "#EDEFED" },
+  note: { icon: <IconDoc s={14} />, label: "הערה", fg: "var(--color-text-muted)", bg: "var(--domain-neutral-tile)" },
   call: { icon: <IconPhone s={14} />, label: "שיחה", fg: "var(--color-success)", bg: "var(--color-success-soft)" },
-  whatsapp: { icon: <IconChat s={14} />, label: "וואטסאפ", fg: "#7a5c1f", bg: "#f7efdd" },
+  whatsapp: { icon: <IconChat s={14} />, label: "וואטסאפ", fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" },
   status_change: { icon: <IconRefresh s={14} />, label: "שינוי סטטוס", fg: "var(--color-danger)", bg: "var(--color-danger-soft)" },
-  system: { icon: <IconGear s={14} />, label: "מערכת", fg: "#616a63", bg: "#eef1ec" },
+  system: { icon: <IconGear s={14} />, label: "מערכת", fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" },
 };
 
-const FALLBACK = { icon: <IconDoc s={14} />, label: "אירוע", fg: "#616a63", bg: "#eef1ec" };
+const FALLBACK = { icon: <IconDoc s={14} />, label: "אירוע", fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" };
 
 const hourFmt = new Intl.DateTimeFormat("he-IL", {
   timeZone: JERUSALEM_TZ, timeStyle: "short" });

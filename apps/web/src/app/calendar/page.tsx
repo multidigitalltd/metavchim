@@ -60,8 +60,8 @@ const KIND_LABELS: Record<string, string> = {
 /* צבעי בלוק האירוע מהעיצוב: פגישה ירוקה, סיור ענברי; שיחה — ניטרלי */
 const KIND_COLORS: Record<string, { fg: string; bg: string }> = {
   meeting: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
-  viewing: { fg: "#7a5c1f", bg: "#f7efdd" },
-  call: { fg: "#3F4742", bg: "#EDEFED" },
+  viewing: { fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" },
+  call: { fg: "var(--color-text-muted)", bg: "var(--domain-neutral-tile)" },
 };
 
 const DAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי"];
