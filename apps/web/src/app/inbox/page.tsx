@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet, apiPost } from "@/lib/api";
@@ -42,8 +42,73 @@ interface Message {
   subject: string;
   body: string;
   fromEmail?: string;
+  /** ‏pending | sent | failed — ביוצאות בלבד. */
+  sendState?: string;
   createdAt: string;
   attachments: Attachment[];
+}
+
+/**
+ * ‎**תשובה שלא יצאה חייבת להיראות אחרת — ו„לא ידוע” אינו „לא”.**
+ *
+ * השרת כותב את ההודעה לפני השליחה ומאשר אחריה, כדי שכשל לא ימחק כל
+ * זכר להודעה שהלקוח כבר קיבל. אם המסך יציג את השורה כמו כל שורה
+ * אחרת, כל התיקון נעצר צעד לפני מי שצריך לדעת.
+ *
+ * ‎**שלושה מצבים ולא שניים.** „נכשלה” נאמר רק כשהספק **ענה ודחה**,
+ * כלומר ידוע שההודעה לא יצאה ושליחה חוזרת בטוחה. פסק זמן או ‎5xx הם
+ * „איננו יודעים”: ייתכן שהיא כן יצאה, ו„לא נשלחה” שם היה שולח את
+ * הסוכן לשלוח שוב וללקוח להגיע אותה הודעה פעמיים.
+ *
+ * ‎`sent` וההודעות הנכנסות אינן מקבלות תווית: מצב תקין אינו הודעה.
+ *
+ * ‎**ו„בשליחה…” שאינו נגמר הוא שקר שקט.** השליחה היא בתוך בקשה אחת
+ * ואורכת שניות. אם השרת נפל בין כתיבת השורה לקריאה לספק, או שסימון
+ * המצב אחרי שליחה מוצלחת נכשל, הרשומה נשארת `pending` — ואין תהליך
+ * רקע שסוגר אותה (ביקורת Codex). שורה כזו אינה „בדרך”: היא תקועה,
+ * ו**זמן** הוא מה שמבדיל בין השתיים.
+ *
+ * מעבר לסף היא נקראת כמו `unknown`, ובאותן מילים — כי הפעולה
+ * הנדרשת מהסוכן זהה: לבדוק לפני שליחה חוזרת. „כנראה לא יצאה” אינו
+ * „לא יצאה”, וזו אותה טעות שכבר תוקנה כאן פעמיים.
+ */
+const STALE_PENDING_MS = 5 * 60 * 1000;
+const UNKNOWN_NOTE = {
+  text: "לא ידוע אם נשלחה — בדקו לפני שליחה חוזרת",
+  token: "--color-danger",
+} as const;
+
+/**
+ * הרגע שבו שורה ממתינה מפסיקה להיות „בדרך”. `NaN` אם החותמת אינה
+ * נקראת.
+ *
+ * ‎**כמה זמן עבר — לא באיזו שעה.** שתי נקודות בזמן מוחלט והפרש
+ * ביניהן. `createdAt` הוא ISO-8601 עם היסט, ולכן הפרסור אינו תלוי
+ * באזור הזמן של המכשיר; רק **השעון** שלו נקרא, ושעון נכון הוא נכון
+ * בכל אזור. אין כאן שעת קיר, אין „היום”, ואין גבול יום ישראלי —
+ * הפיכת ההפרש לשעון ישראל לא הייתה משנה בו דבר.
+ *
+ * במקום אחד, כי שני קוראים צריכים בדיוק את אותו מספר: התווית
+ * שמחליטה מה להציג, והתזמון שמעיר את המסך ברגע החצייה.
+ */
+function stalePendingDeadline(createdAt: string): number {
+  return Date.parse(createdAt) + STALE_PENDING_MS; /* שעון-המכשיר-במכוון: זמן מוחלט */
+}
+
+function sendStateNote(
+  state: string | undefined,
+  createdAt: string,
+  now: number,
+): { text: string; token: string } | null {
+  if (state === "failed") return { text: "לא נשלחה", token: "--color-danger" };
+  if (state === "unknown") return { ...UNKNOWN_NOTE };
+  if (state === "pending") {
+    const deadline = stalePendingDeadline(createdAt);
+    // חותמת שאינה נקראת אינה סיבה להסתיר אזהרה
+    if (Number.isNaN(deadline) || deadline <= now) return { ...UNKNOWN_NOTE };
+    return { text: "בשליחה…", token: "--color-text-muted" };
+  }
+  return null;
 }
 
 /** ‏1.2MB ⟵ "1.2MB"; 850KB ⟵ "850KB" — לתווית ההורדה. */
@@ -85,11 +150,28 @@ export default function InboxPage() {
   const [threads, setThreads] = useState<ThreadRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openContact, setOpenContact] = useState<string | null>(null);
+  /*
+   * ‎**השיחה הפתוחה, לקריאה אחרי `await`.** אותה סיבה כמו ב-`ref`
+   * של שולחן החיבורים: המשך שרץ בסגור של רינדור קודם קורא ערך ישן
+   * מ-`state` מעצם הגדרתו, ואזהרה שנכתבת אחרי טעינה מחדש חייבת
+   * לדעת אם הסוכן כבר עבר לשיחה אחרת.
+   */
+  const openRef = useRef<string | null>(null);
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [reply, setReply] = useState("");
   const [files, setFiles] = useState<File[]>([]);
-  const [sendState, setSendState] = useState<"idle" | "sending" | "failed">("idle");
+  const [sendState, setSendState] = useState<"idle" | "sending" | "failed" | "unknown">("idle");
   const [sendError, setSendError] = useState<string | null>(null);
+  /*
+   * ‎**השעה שלפיה נקראת ההמתנה — כ-state, לא כקריאה ברינדור.**
+   *
+   * ‎`Date.now()` בתוך הרינדור נקרא **פעם אחת**, ברינדור עצמו; זמן
+   * שעובר אינו מרנדר רכיב מחדש. שורה `pending` שנטענה בגיל עשר
+   * שניות הייתה נשארת „בשליחה…” כל עוד השיחה פתוחה, גם שעה אחרי
+   * שחצתה את הסף (ביקורת Codex) — כלומר הסף שהוספתי בקומיט הקודם
+   * לא היה מתקיים כלל במסך שנשאר פתוח.
+   */
+  const [now, setNow] = useState(() => Date.now());
 
   const load = useCallback(() => {
     apiGet<ThreadRow[]>("/email-inbox")
@@ -101,7 +183,29 @@ export default function InboxPage() {
     if (!authLoading) load();
   }, [authLoading, load]);
 
+  /*
+   * ‎**רינדור אחד לכל מועד חצייה, ולא טיקטוק מתמיד.**
+   *
+   * המועד ידוע מראש — `createdAt` ועוד הסף — ולכן אין צורך בשעון
+   * שרץ: מספיק להעיר את המסך בדיוק ברגע שבו „בשליחה…” מפסיק להיות
+   * נכון. אחרי ההערה `now` מתקדם, האפקט רץ שוב, וסופר את המועדים
+   * שטרם נחצו; כשלא נשאר אף אחד — אין תזמון, והמסך שוקט.
+   *
+   * ‎`now` מרוענן גם ב-`openThread` ברגע שרשימה חדשה נכנסת, אחרת
+   * מסך שנשאר פתוח שעה היה מחשב את התזמון מול שעה ישנה.
+   */
+  useEffect(() => {
+    const deadlines = (messages ?? [])
+      .filter((message) => message.sendState === "pending")
+      .map((message) => stalePendingDeadline(message.createdAt))
+      .filter((deadline) => !Number.isNaN(deadline) && deadline > now);
+    if (deadlines.length === 0) return;
+    const timer = setTimeout(() => setNow(Date.now()), Math.min(...deadlines) - now + 500);
+    return () => clearTimeout(timer);
+  }, [messages, now]);
+
   async function openThread(contactId: string) {
+    openRef.current = contactId;
     setOpenContact(contactId);
     setMessages(null);
     setReply("");
@@ -111,6 +215,8 @@ export default function InboxPage() {
     try {
       const thread = await apiGet<{ messages: Message[] }>(`/email-inbox/${contactId}`);
       setMessages(thread.messages);
+      // רשימה חדשה — גם השעה שלפיה נמדדת ההמתנה, אחרת התזמון נבנה מול ערך ישן
+      setNow(Date.now());
       // הכניסה לשיחה היא הקריאה — התג יורד מהסרגל ומהרשימה
       await apiPost(`/email-inbox/${contactId}/read`, {});
       setThreads(
@@ -139,10 +245,30 @@ export default function InboxPage() {
         const errBody = (await res.json().catch(() => null)) as { message?: string } | null;
         throw new Error(errBody?.message ?? "השליחה נכשלה");
       }
+      /*
+       * ‎**תוצאה עמומה אינה שגיאה, וגם אינה „נשלח”.**
+       *
+       * כשהספק לא ענה ייתכן שההודעה כן יצאה. השרת שומר אותה במצב
+       * „לא ידוע” — ולכן הטיוטה **נמחקת** והשיחה נטענת מחדש, בדיוק
+       * כמו בשליחה מוצלחת: כך הסוכן רואה את השורה ואת האזהרה שעליה,
+       * במקום כפתור „נסו שוב” שיביא ללקוח את אותה הודעה פעמיים.
+       *
+       * ‎**והמצב נקבע אחרי הטעינה מחדש, לא לפניה.** `openThread`
+       * מאפס את מצב השליחה כחלק מפתיחת שיחה, ולכן „לא ידוע” שנכתב
+       * לפניו נמחק לפני שהספיק להיראות. בדרך התקינה השורה שנטענה
+       * נושאת את האזהרה בעצמה — אבל אם **הטעינה** נכשלה, הטיוטה
+       * כבר נמחקה והסוכן לא רואה לא שורה ולא אזהרה, ושולח שוב
+       * (ביקורת Codex). זו הפעם השלישית שהתיקון של המצב הזה נעצר
+       * צעד לפני מי שצריך לדעת, ולכן הוא נכתב עכשיו **אחרון**.
+       */
+      const okBody = (await res.json().catch(() => null)) as { state?: string } | null;
       setReply("");
       setFiles([]);
-      setSendState("idle");
       await openThread(openContact);
+      // הסוכן עבר בינתיים לשיחה אחרת — האזהרה שייכת לשיחה שנשלחה
+      if (openRef.current === openContact) {
+        setSendState(okBody?.state === "unknown" ? "unknown" : "idle");
+      }
       load();
     } catch (err) {
       setSendError(err instanceof Error ? err.message : "השליחה נכשלה — נסו שוב.");
@@ -194,7 +320,11 @@ export default function InboxPage() {
                   type="button"
                   className="flex w-full flex-wrap items-center gap-2 p-3 text-start"
                   aria-expanded={open}
-                  onClick={() => (open ? setOpenContact(null) : void openThread(thread.contactId))}
+                  onClick={() => {
+                    if (!open) return void openThread(thread.contactId);
+                    openRef.current = null;
+                    setOpenContact(null);
+                  }}
                 >
                   <span className="font-bold">{thread.contactName}</span>
                   {thread.unread > 0 ? (
@@ -230,6 +360,19 @@ export default function InboxPage() {
                             <p className="mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
                               {message.direction === "in" ? "הלקוח" : "המשרד"} ·{" "}
                               {formatDateTime(message.createdAt)}
+                              {(() => {
+                                const note = sendStateNote(
+                                  message.sendState,
+                                  message.createdAt,
+                                  now,
+                                );
+                                return note === null ? null : (
+                                  <>
+                                    {" · "}
+                                    <span style={{ color: `var(${note.token})` }}>{note.text}</span>
+                                  </>
+                                );
+                              })()}
                             </p>
                             {message.body !== "" ? message.body : null}
                             {message.attachments.length > 0 ? (
@@ -279,6 +422,13 @@ export default function InboxPage() {
                     ) : null}
                     {sendState === "failed" ? (
                       <Notice tone="danger">{sendError ?? "השליחה נכשלה — נסו שוב."}</Notice>
+                    ) : null}
+                    {sendState === "unknown" ? (
+                      <Notice tone="danger">
+                        ספק הדואר לא אישר את השליחה, וייתכן שההודעה בכל זאת הגיעה
+                        ללקוח. היא מסומנת „לא ידוע אם נשלחה” בשיחה — בדקו מולו
+                        לפני שליחה חוזרת.
+                      </Notice>
                     ) : null}
                     <Button
                       onClick={() => void sendReply()}

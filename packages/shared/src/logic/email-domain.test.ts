@@ -43,8 +43,15 @@ describe("emailDomainRejectionReason", () => {
     expect(emailDomainRejectionReason("mail.gmail.com")).toMatch(/ציבורי/u);
   });
 
-  it("הדומיין של הפלטפורמה עצמה חסום — משרד אינו שולח בשמה", () => {
-    expect(emailDomainRejectionReason("metavchim.co.il")).not.toBeNull();
+  /*
+   * ההודעה, ולא רק החסימה: "ספק דואר ציבורי" על הדומיין של המערכת
+   * שולח את מי שקרא אותה לחפש תקלה שאינה קיימת.
+   */
+  it("הדומיין של המערכת חסום — ובלשון שאומרת למה", () => {
+    const reason = emailDomainRejectionReason("metavchim.co.il");
+    expect(reason).toMatch(/הדומיין של המערכת/u);
+    expect(reason).not.toMatch(/ציבורי/u);
+    expect(emailDomainRejectionReason("mail.metavchim.co.il")).toMatch(/הדומיין של המערכת/u);
   });
 });
 

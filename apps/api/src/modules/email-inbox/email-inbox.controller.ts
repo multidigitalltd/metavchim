@@ -118,7 +118,7 @@ export class EmailInboxController {
     @Param("contactId", new ZodValidationPipe(IdSchema)) contactId: string,
     @UploadedFiles() files: Express.Multer.File[] | undefined,
     @Body(new ZodValidationPipe(ReplyMultipartSchema)) body: z.infer<typeof ReplyMultipartSchema>,
-  ): Promise<{ ok: true }> {
+  ): Promise<{ ok: true; state: "sent" | "unknown" }> {
     const uploads = (files ?? []).map((file) => ({
       name: file.originalname,
       contentType: file.mimetype,
@@ -127,8 +127,13 @@ export class EmailInboxController {
     if (body.body === "" && uploads.length === 0) {
       throw new BadRequestException("אין מה לשלוח — כתבו הודעה או צרפו קובץ");
     }
-    await this.inbox.reply(contactId, body.body, uploads);
-    return { ok: true };
+    /*
+     * ‎`state` ולא רק `ok`: תוצאה עמומה אינה שגיאה — הספק אולי קיבל —
+     * אבל היא גם אינה „נשלח”. המסך צריך את ההבדל כדי לא להזמין
+     * שליחה חוזרת שתגיע ללקוח פעמיים.
+     */
+    const result = await this.inbox.reply(contactId, body.body, uploads);
+    return { ok: true, state: result.state };
   }
 
   /** הזרמת קובץ מצורף — תמונה/וידאו בתוך הדף, מסמך כהורדה. */

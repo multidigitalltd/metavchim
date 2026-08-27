@@ -29,6 +29,19 @@ export type PlatformSettingKey =
    */
   | "emailInboundAddress"
   | "emailInboundSecret"
+  /**
+   * תיבת התמיכה של הפלטפורמה — כתובת ה-Inbound שלה והסוד שבנתיב.
+   * שרת נפרד אצל הספק: פניות תמיכה ותשובות של לקוחות למשרדים הם
+   * שני זרמים עם כללי זיהוי שונים.
+   */
+  | "supportInboundAddress"
+  | "supportInboundSecret"
+  /**
+   * ה-Server Token של אותו שרת תמיכה — התשובות יוצאות דרכו ולא
+   * דרך השרת של המשרדים. ריק = נשלח בטוקן הכללי; זה עדיין יוצא
+   * **מכתובת התמיכה**, רק דרך אותו שרת.
+   */
+  | "supportServerToken"
   | "whatsappAppSecret"
   | "whatsappVerifyToken"
   /**
@@ -86,6 +99,32 @@ export type PlatformSettingKey =
   | "cardcomTerminalNumber"
   | "cardcomApiName"
   | "cardcomApiPassword"
+  /**
+   * לינט — הפקת חשבוניות מס קבלה על כל תשלום שנגבה.
+   *
+   * ההזדהות היא **שלישייה** ולא צמד: מזהה API, מפתח, ומזהה החברה
+   * בתוך החשבון. שלושתם נוסעים בגוף כל בקשה (אין כותרת Authorization).
+   *
+   * הקודים שאחריהם הם של החשבון בלינט ולא של הפרוטוקול — סוג המסמך,
+   * קטגוריית המע"מ ואמצעי התשלום נראים אחרת בכל חשבון, ולכן הם
+   * הגדרה ולא קבוע בקוד. בלעדיהם לא מופק דבר, והמסך אומר מה חסר.
+   */
+  | "linetLoginId"
+  | "linetKey"
+  | "linetCompanyId"
+  /** ברירת מחדל: https://app.linet.org.il/api */
+  | "linetBaseUrl"
+  | "linetDocType"
+  | "linetVatCatTaxable"
+  | "linetPaymentType"
+  /** הפריט שעליו נרשמת שורת המסמך; ברירת מחדל "1". */
+  | "linetItemId"
+  /**
+   * שיעור המע"מ באחוזים. הגדרה ולא קבוע — שיעור שמשתנה בחקיקה
+   * אינו אמור לדרוש פריסה, ומסמכים ישנים שומרים את השיעור שהיה
+   * נכון בזמנם.
+   */
+  | "vatPercent"
   /**
    * אחוז העמלה שהפלטפורמה גובה ממכירת הפניה בין משרדים.
    *

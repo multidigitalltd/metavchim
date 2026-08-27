@@ -70,8 +70,8 @@ export function SupportAccessSection(): React.JSX.Element {
         לשעה אחת בלבד, ורק בלחיצה שלכם. אפשר לסגור את הגישה בכל רגע, וכל כניסה
         של התמיכה נרשמת ביומן הפעילות של המשרד. פנייה רגילה אינה דורשת את זה:
         שולחים אותה מכפתור „תמיכה” שבצד כל מסך, או במייל ל־
-        <a href="mailto:service@multidigital.co.il" className="underline" dir="ltr">
-          service@multidigital.co.il
+        <a href="mailto:service@metavchim.co.il" className="underline" dir="ltr">
+          service@metavchim.co.il
         </a>
         .
       </p>

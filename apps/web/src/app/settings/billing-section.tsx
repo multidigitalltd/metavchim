@@ -57,6 +57,9 @@ interface PaymentRow {
   status: string;
   paidAt: string | null;
   createdAt: string;
+  /** ריק = החשבונית טרם הופקה; מלא = יש מסמך להורדה. */
+  invoiceId: string | null;
+  invoiceNumber: string | null;
 }
 
 const PAYMENT_STATUS: Record<string, string> = {
@@ -77,6 +80,35 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
   const [loadFailed, setLoadFailed] = useState(false);
 
   const mayManage = can(user, "billing.manage");
+  /** החשבונית שקישורה נמשך כרגע — כדי שלא ילחצו פעמיים. */
+  const [invoiceBusy, setInvoiceBusy] = useState<string | null>(null);
+
+  /*
+   * **הלשונית נפתחת בלחיצה עצמה, והכתובת נכנסת אליה אחר כך.**
+   *
+   * הקישור מגיע רק אחרי קריאה לשרת (הוא נמשך טרי מספק החשבוניות),
+   * ו-`window.open` שרץ אחרי ה-`await` כבר אינו נחשב "פעולת
+   * משתמש" בדפדפנים שאוכפים זאת — הוא נחסם, והלחיצה נראית כאילו
+   * לא עשתה כלום למרות שהשרת ענה בהצלחה (ביקורת Codex).
+   *
+   * לכן הלשונית נפתחת ריקה מיד, ומקבלת כתובת כשהיא ידועה. אם גם
+   * הפתיחה הריקה נחסמה — נפילה לניווט באותה לשונית, שאינה נחסמת.
+   */
+  async function openInvoice(invoiceId: string): Promise<void> {
+    setInvoiceBusy(invoiceId);
+    setError(null);
+    const tab = window.open("", "_blank", "noopener,noreferrer");
+    try {
+      const res = await apiGet<{ url: string }>(`/billing/invoices/${invoiceId}/download`);
+      if (tab !== null) tab.location.href = res.url;
+      else window.location.assign(res.url);
+    } catch (err) {
+      tab?.close();
+      setError(err instanceof ApiError ? err.message : "פתיחת החשבונית נכשלה");
+    } finally {
+      setInvoiceBusy(null);
+    }
+  }
 
   useEffect(() => {
     if (loading) return;
@@ -363,6 +395,7 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
                     <th scope="col">מסלול</th>
                     <th scope="col">סכום</th>
                     <th scope="col">מצב</th>
+                    <th scope="col">חשבונית</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -374,6 +407,30 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
                       </td>
                       <td>{formatNumber(row.amountAgorot / 100)} ₪</td>
                       <td>{PAYMENT_STATUS[row.status] ?? row.status}</td>
+                      {/*
+                        המסמך יושב אצל ספק החשבוניות, והקישור אליו אינו
+                        נצחי — לכן לחיצה מבקשת קישור טרי ורק אז פותחת
+                        אותו, במקום להציג קישור שמור שעלול להיות פג.
+                      */}
+                      <td>
+                        {row.invoiceId !== null ? (
+                          <button
+                            type="button"
+                            className="underline"
+                            style={{ color: "var(--color-primary)" }}
+                            disabled={invoiceBusy === row.invoiceId}
+                            onClick={() => void openInvoice(row.invoiceId as string)}
+                          >
+                            {invoiceBusy === row.invoiceId
+                              ? "פותח…"
+                              : (row.invoiceNumber ?? "הורדה")}
+                          </button>
+                        ) : row.status === "paid" ? (
+                          <span style={{ color: "var(--color-text-muted)" }}>בהפקה</span>
+                        ) : (
+                          <span style={{ color: "var(--color-text-muted)" }}>—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

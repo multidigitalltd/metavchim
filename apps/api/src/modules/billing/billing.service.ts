@@ -23,6 +23,7 @@ import { CardcomService, type Payer } from "../../core/cardcom.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
+import { InvoiceService } from "./invoice.service";
 import { NumberRentalService } from "./number-rental.service";
 import { SubscriptionOfferService } from "./subscription-offer.service";
 
@@ -76,6 +77,7 @@ export class BillingService {
     private readonly cardcom: CardcomService,
     private readonly crypto: CryptoService,
     private readonly audit: AuditService,
+    private readonly invoices: InvoiceService,
     private readonly creditEconomy: CreditEconomyService,
     private readonly offers: SubscriptionOfferService,
     private readonly numberRentals: NumberRentalService,
@@ -705,6 +707,15 @@ export class BillingService {
       await this.numberRentals.provisionAfterPayment(payment.rentalId);
     }
 
+    /*
+     * חשבונית מס קבלה — **נרשמת כחוב, לא מופקת כאן.**
+     *
+     * הכסף כבר נגבה והשירות כבר הופעל; קריאה ללינט בנקודה הזו הייתה
+     * מכניסה ספק חיצוני לנתיב הקריטי של הגבייה, ותקלה אצלו הייתה
+     * נראית למשרד כתשלום שנכשל. הסורק משלים את המסמך.
+     */
+    await this.invoices.queueForPayment(payment.id);
+
     this.logger.log(
       payment.purpose === "credits"
         ? `קרדיטים נרכשו: משרד ${payment.tenantId}, ${payment.creditsPurchased ?? 0} קרדיטים`
@@ -911,9 +922,13 @@ export class BillingService {
       status: string;
       paidAt: Date | null;
       createdAt: Date;
+      /** מזהה החשבונית להורדה — ריק כשהמסמך טרם הופק. */
+      invoiceId: string | null;
+      /** מספר המסמך אצל ספק החשבוניות, לאיתור בספרים. */
+      invoiceNumber: string | null;
     }[]
   > {
-    return this.prisma.payment.findMany({
+    const rows = await this.prisma.payment.findMany({
       where: { tenantId },
       orderBy: { createdAt: "desc" },
       take: 50,
@@ -928,6 +943,26 @@ export class BillingService {
         paidAt: true,
         createdAt: true,
       },
+    });
+
+    /*
+     * החשבוניות בשאילתה אחת ולא אחת לשורה, ו**רק אלה שהופקו**:
+     * שורה שממתינה או שנכשלה אינה מסמך שאפשר להוריד, והמסך צריך
+     * להציג "טרם הופקה" ולא כפתור שיחזיר 404.
+     */
+    const invoices = await this.prisma.invoice.findMany({
+      where: { tenantId, status: "issued", paymentId: { in: rows.map((row) => row.id) } },
+      select: { id: true, paymentId: true, documentNumber: true },
+    });
+    const byPayment = new Map(invoices.map((invoice) => [invoice.paymentId, invoice]));
+
+    return rows.map((row) => {
+      const invoice = byPayment.get(row.id);
+      return {
+        ...row,
+        invoiceId: invoice?.id ?? null,
+        invoiceNumber: invoice?.documentNumber ?? null,
+      };
     });
   }
 

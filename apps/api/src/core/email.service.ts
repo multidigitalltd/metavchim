@@ -161,11 +161,33 @@ export class EmailService {
        * אצל הקורא; כאן רק הקידוד לפורמט הספק.
        */
       attachments?: readonly { name: string; contentType: string; content: Buffer }[];
+      /**
+       * ‎**שולח משלו — לתיבה שהיא שרת נפרד אצל הספק.**
+       *
+       * תיבת התמיכה אינה עוד מייל שיוצא מהמערכת: היא כתובת שמקבלת,
+       * ולכן היא חייבת גם לשלוח מעצמה — תשובה שיוצאת מ-`no-reply`
+       * מזמינה את הפונה להשיב לכתובת שאיש אינו קורא (ביקורת Codex).
+       *
+       * ‎`token` נפרד כשהתיבה יושבת על שרת נפרד אצל הספק: כך תקלה
+       * או חסימה בזרם אחד אינה נוגעת בשני, וגם הסטטיסטיקה נפרדת.
+       * בלעדיו נשלח בטוקן הכללי — שרת אחד הוא הגדרה חסרה, לא סיבה
+       * לא לענות לפונה.
+       */
+      sender?: { from: string; token?: string | undefined };
     } = {},
   ): Promise<void> {
     const body: EmailContent =
       typeof content === "string" ? { paragraphs: [content] } : content;
-    const creds = await this.credentials();
+    const global = await this.credentials();
+    const creds =
+      options.sender === undefined
+        ? global
+        : ((): { token: string; from: string } | null => {
+            const token = options.sender.token ?? global?.token ?? "";
+            return token === "" || options.sender.from === ""
+              ? null
+              : { token, from: options.sender.from };
+          })();
     if (!creds) {
       if (options.required === true) {
         this.logger.error(`[אימייל נדרש ולא נשלח — אין ספק מחובר] ${subject}`);

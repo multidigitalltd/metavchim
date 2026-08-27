@@ -186,7 +186,15 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         const result = await TenantContext.run(
           // בלי משתמש ובלי יכולות — הסבב מבצע מדיניות משרד, לא פעולת סוכן
           { tenantId: tenant.id, userId: "", capabilities: new Set(), billingOnly: false },
-          () => this.sweepTenant(tenant.id, tenant.name, since),
+          () =>
+            this.sweepTenant(
+              tenant.id,
+              tenant.name,
+              since,
+              typeof settings["autoEmailOffersCursor"] === "string"
+                ? settings["autoEmailOffersCursor"]
+                : undefined,
+            ),
         );
         emails += result.emails;
         offers += result.offers;
@@ -205,6 +213,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     tenantId: string,
     officeName: string,
     since: Date,
+    startCursor: string | undefined,
   ): Promise<{ emails: number; offers: number }> {
     let emails = 0;
     let offers = 0;
@@ -221,10 +230,35 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
      * שלב ב' — התאמות חדשות. הזכאות נבדקת מחדש בכל סבב ולא נשמרת:
      * לקוח שהוסיף אימייל או חתם על הסכם אתמול נכנס מעצמו.
      */
-    const eligible = await this.eligibleMatches(tenantId, since);
+    const scan = await this.eligibleMatches(tenantId, since, startCursor);
+    const eligible = scan.eligible;
+    /*
+     * ‎**מה שמותר לסמן לעבור מעליו נמדד בהתאמות, לא בקונים.**
+     *
+     * הסימון היה לפי `buyerId`, ולכן קונה עם יותר מ-
+     * ‎`AUTO_OFFER_MAX_PER_EMAIL` התאמות סימן את **כולן** כמטופלות
+     * אף שרק החמש הראשונות נכנסו למייל. השאר נשארו בלי הצעה, והסמן
+     * עבר מעליהן עד שישלים סיבוב שלם (ביקורת Codex).
+     *
+     * ההתאמות הקטומות חוזרות מעצמן: החמש שנשלחו עוברות ל-`offered`
+     * ויוצאות מהזכאות, והבאות עולות למקומן — כלומר סבב אחד, ובלבד
+     * שהסמן לא דילג עליהן.
+     */
     const byBuyer = new Map<string, EligibleMatch[]>();
+    const claimed = new Set<string>();
     for (const match of eligible) {
-      if (pendingBuyers.buyerIds.has(match.buyerId)) continue;
+      /*
+       * ‎**קונה משלב א' — ההתאמה מסומנת, ובכוונה.**
+       *
+       * יש לו `pending_email` במסד: רשומה עמידה שהניסיון החוזר
+       * מחזיק בה. עצירת הסמן לפניו הייתה מקבעת את **כל** הסבב של
+       * המשרד מאחורי ספק שנתקע אצל קונה אחד — נזק גדול בהרבה
+       * מהתאמה חדשה שממתינה עד שהממתינות שלו ייסגרו.
+       */
+      if (pendingBuyers.buyerIds.has(match.buyerId)) {
+        claimed.add(match.matchId);
+        continue;
+      }
       const list = byBuyer.get(match.buyerId) ?? [];
       if (list.length < AUTO_OFFER_MAX_PER_EMAIL) list.push(match);
       byBuyer.set(match.buyerId, list);
@@ -241,6 +275,15 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
       processed += 1;
       try {
         const sent = await this.offerAndEmail(tenantId, officeName, buyerId, matches);
+        /*
+         * גם `sent === 0` הוא הכרעה: הלקוח נבדק שוב בטרנזקציה ונמצא
+         * מוסר, בלי אימייל, או שנכסיו ירדו. אין מה לנסות שוב, והסמן
+         * רשאי לעבור. רק **חריגה** משאירה אותו בלי דבר.
+         *
+         * מסומנות ההתאמות ש**נשלחו לטיפול** — כלומר אלה שנכנסו
+         * למנה. הקטומות אינן ביניהן, וזו כל הנקודה.
+         */
+        for (const match of matches) claimed.add(match.matchId);
         if (sent > 0) {
           emails += 1;
           offers += sent;
@@ -251,6 +294,44 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         );
       }
     }
+
+    /*
+     * ‎**הסמן נשמר רק אחרי שהשורות טופלו — ולא לפני.**
+     *
+     * הוא נשמר קודם מיד אחרי הסריקה, ואז קריסה או תקלת מסד בין
+     * השמירה ליצירת ההצעות הייתה מקדמת את הסמן מעל קונים שלא נוצרה
+     * להם שום רשומה עמידה: אין `pending_email` שינוסה שוב, והסבב
+     * הבא כבר מתחיל אחריהם (ביקורת Codex).
+     *
+     * ‎**וכן נשמר גם כשלא נשלח דבר** — ודווקא אז הוא חשוב: סבב
+     * שכולו לא-זכאי חייב להתקדם, אחרת הוא חוזר על עצמו לנצח. אחרי
+     * הלולאה שני המצבים מטופלים: מה שנוצר — נוצר; מה שלא היה זכאי —
+     * נסרק ואינו צריך להיסרק שוב מיד.
+     *
+     * ‎**אבל „אחרי הלולאה” אינו „הכול הצליח”.** התפיסה הפרטנית בתוך
+     * הלולאה בולעת תקלת מסד רגעית, והכתיבה כאן הייתה מקדמת את הסמן
+     * גם מעל אותו לקוח — בלי `pending_email` שינוסה שוב, ובלי חזרה
+     * אליו עד שהסמן ישלים סיבוב שלם. אצל משרד גדול זה הרבה סבבים
+     * ‎(ביקורת Codex; אותה הערה, שכבה אחת פנימה מהקודמת).
+     *
+     * לכן הסמן נעצר לפני **השורה הראשונה** שלא טופלה — בין אם
+     * הלקוח נכשל, בין אם לא הגיע אליו התור, ובין אם ההתאמה נקטמה
+     * מהמנה בתקרה שלה. אם זו השורה הראשונה בסריקה, הסמן נשאר במקום
+     * שממנו התחלנו.
+     *
+     * המחיר: לקוח שנכשל **דרך קבע** מקבע את המיקום. זו העדפה
+     * מודעת — עצירה שנרשמת ביומן בכל סבב עדיפה על דילוג שקט.
+     */
+    let cursor = startCursor;
+    let retained = false;
+    for (const row of eligible) {
+      if (!claimed.has(row.matchId)) {
+        retained = true;
+        break;
+      }
+      cursor = row.matchId;
+    }
+    await this.saveCursor(tenantId, since, retained ? cursor : scan.nextCursor);
     return { emails, offers };
   }
 
@@ -258,21 +339,35 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
    * ההתאמות שראויות להישלח אוטומטית. שאילתות גסות ואז סינון מדויק —
    * אותו סדר כמו במנוע ההתאמות עצמו.
    */
-  private async eligibleMatches(tenantId: string, since: Date): Promise<EligibleMatch[]> {
+  private async eligibleMatches(
+    tenantId: string,
+    since: Date,
+    startCursor: string | undefined,
+  ): Promise<{ eligible: EligibleMatch[]; nextCursor: string | undefined }> {
     /*
-     * ‎**סריקה בסמן, ולא „400 הראשונים”.**
+     * ‎**סריקה מסתובבת, והסמן **נשמר בין סבבים**.
      *
-     * התקרה הקודמת הייתה `take` דטרמיניסטי על מיון לפי ציון: אם
-     * למשרד יש 400 התאמות חזקות שאינן זכאות לצמיתות — לקוחות שלא
-     * חתמו, או שהסירו את עצמם — אותן 400 נבחרו **בכל סבב מחדש**,
-     * הסינון רץ אחריהן, והתאמות זכאות בציון נמוך יותר לא הגיעו
-     * לעיבוד לעולם. ההודעה שכתבתי שם („השאר בסבב הבא”) פשוט לא הייתה
-     * נכונה (ביקורת Codex).
+     * שתי גרסאות קודמות נכשלו כאן, ובשתיהן כתבתי ביומן משפט שאינו
+     * נכון:
      *
-     * הסמן ממשיך מהמקום שבו נעצר, ולכן החסימה נשברת: מנה שכולה
-     * לא-זכאית מקדמת את הסריקה במקום לחזור על עצמה. העצירה היא
-     * כשנאספו מספיק לקוחות לסבב, כשנגמרו השורות, או בתקרת סריקה —
-     * ואז מדובר באמת ב„השאר בסבב הבא”, כי הסמן התקדם.
+     * ‎**1 · `take` דטרמיניסטי.** 400 ההתאמות החזקות נבחרו בכל סבב
+     * מחדש; אם כולן לא-זכאיות לצמיתות, זכאיות בציון נמוך יותר לא
+     * הגיעו לעיבוד לעולם. כתבתי „השאר בסבב הבא”, וזה לא קרה.
+     *
+     * ‎**2 · סמן מקומי.** הוספתי סמן — והוא אותחל ל-`undefined` בכל
+     * קריאה. כלומר בדיוק אותה הרעבה, רק בגודל 2,000 במקום 400.
+     * כתבתי „הסמן יימשך בסבב הבא”, והוא לא נמשך לשום מקום (שתי
+     * ביקורות Codex, על אותו קוד).
+     *
+     * ‎**מה שנכון כאן, ולמה סיבוב ולא סמן שמתקדם לתמיד.** אי-זכאות
+     * כאן כמעט אף פעם אינה לצמיתות: לקוח שלא חתם יחתום, נכס שהוקפא
+     * יחזור, ומי שהסיר את עצמו יכול לחזור (יש עכשיו נתיב לכך). סמן
+     * שרק מתקדם היה מדלג עליהם לתמיד — ובאותה מידה על **התאמות
+     * חדשות**, שנכנסות לפי ציון ולכן נופלות לפניו.
+     *
+     * לכן הסמן מסתובב: הוא נשמר, ממשיך בסבב הבא, ומתאפס לתחילת
+     * הרשימה כשנגמרו השורות. כל שורה נסרקת בתוך מספר סבבים חסום,
+     * ואף אחת אינה נעלמת.
      */
     const where = {
       tenantId,
@@ -282,25 +377,118 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     };
     const eligible: EligibleMatch[] = [];
     const buyersFound = new Set<string>();
-    let cursor: string | undefined;
+    let cursor = startCursor;
     let scanned = 0;
+    let wrapped = false;
 
     while (scanned < MAX_MATCH_SCAN_PER_SWEEP && buyersFound.size < MAX_BUYERS_PER_TENANT_SWEEP) {
       const page = await this.scanBatch(tenantId, where, cursor);
-      if (page.scanned === 0) break;
+      if (page.scanned === 0) {
+        /*
+         * סוף הרשימה. הסיבוב חוזר לתחילתה — ומפסיק כאן, כדי שסבב
+         * אחד לא יוכל להסתובב על עצמו בלולאה אינסופית כשהרשימה
+         * קצרה מהתקרה.
+         */
+        cursor = undefined;
+        wrapped = true;
+        break;
+      }
       scanned += page.scanned;
-      cursor = page.cursor;
+
+      /*
+       * ‎**הסמן אינו עובר על מי שלא טופל.**
+       *
+       * הניסוח הראשון קידם את הסמן לסוף המנה וצבר את כולה. מנה עם
+       * 30 קונים זכאים נכנסה במלואה, `sweepTenant` שלח ל-20 הראשונים
+       * בלבד — והעשרה הנותרים דולגו עד שהסמן יסיים סיבוב שלם
+       * (ביקורת Codex). כלומר בדיוק ההרעבה שהסמן בא לפתור, בקנה מידה
+       * קטן יותר.
+       *
+       * ‎`deferred` נשבר על הקונה ה-21 בלבד: התאמה נוספת של קונה
+       * שכבר נאסף נכנסת, כי היא נשלחת באותו מייל ואינה מוסיפה נמען.
+       */
+      let lastTaken: string | undefined;
+      let deferred = false;
       for (const row of page.eligible) {
+        if (buyersFound.size >= MAX_BUYERS_PER_TENANT_SWEEP && !buyersFound.has(row.buyerId)) {
+          deferred = true;
+          break;
+        }
         eligible.push(row);
         buyersFound.add(row.buyerId);
+        lastTaken = row.matchId;
       }
+      /*
+       * נעצרנו באמצע — הסמן מצביע על השורה האחרונה **שנלקחה**, כדי
+       * שהסבב הבא יתחיל בדיוק מהקונה שנדחה. `lastTaken` ריק אפשרי
+       * רק אם המנה נעצרה על השורה הראשונה שלה, ואז הסמן נשאר כשהיה.
+       */
+      cursor = deferred ? (lastTaken ?? cursor) : page.cursor;
+      if (deferred) break;
     }
     if (scanned >= MAX_MATCH_SCAN_PER_SWEEP) {
       this.logger.log(
-        `משרד ${tenantId}: נסרקו ${scanned} התאמות בסבב הזה; הסמן יימשך בסבב הבא`,
+        `משרד ${tenantId}: נסרקו ${scanned} התאמות; הסריקה תימשך מכאן בסבב הבא`,
       );
     }
-    return eligible;
+    return { eligible, nextCursor: wrapped ? undefined : cursor };
+  }
+
+  /**
+   * ‎**שמירת הסמן — עדכון של שדה אחד ב-JSON, לא כתיבה מחדש של ההגדרות.**
+   *
+   * ‎`settings` הוא אובייקט שהמסך שומר בשלמותו. קריאה-שינוי-כתיבה
+   * מהסבב הייתה דורסת שינוי שבעל המשרד עשה בדיוק באותן עשר דקות.
+   * ‎`jsonb_set` נוגע במפתח אחד בלבד, בתוך שאילתה אחת.
+   *
+   * ‎`COALESCE` כי `settings` יכול להיות `null` בשורות ישנות, ואז
+   * ‎`jsonb_set` על `null` מחזיר `null` ומוחק את כל ההגדרות.
+   */
+  private async saveCursor(
+    tenantId: string,
+    since: Date,
+    cursor: string | undefined,
+  ): Promise<void> {
+    /*
+     * ‎**הכתיבה קשורה לתקופת ההפעלה שהסבב קרא.**
+     *
+     * הסבב קורא את ההגדרות פעם אחת ורץ אחר כך שניות ארוכות. בזמן
+     * הזה בעל המשרד יכול לכבות את הדגל — ואז שתי החותמות נמחקות,
+     * והכתיבה כאן הייתה **מחזירה את הסמן לחיים**. הדלקה מחדש הייתה
+     * מקבלת חותמת חדשה וסמן מהתקופה הקודמת, כלומר בדיוק המצב שהאיפוס
+     * בכיבוי בא למנוע (ביקורת Codex).
+     *
+     * התנאי על `autoEmailOffersSince` פותר את שניהם: כיבוי מחק אותו,
+     * והדלקה מחדש כתבה חותמת אחרת — ובשני המקרים ה-UPDATE אינו תואם
+     * שום שורה.
+     */
+    const epoch = since.toISOString();
+    try {
+      if (cursor === undefined) {
+        await this.prisma.$executeRaw`
+          UPDATE tenants
+             SET settings = COALESCE(settings, '{}'::jsonb) - 'autoEmailOffersCursor'
+           WHERE id = ${tenantId}
+             AND settings->>'autoEmailOffersSince' = ${epoch}`;
+        return;
+      }
+      await this.prisma.$executeRaw`
+        UPDATE tenants
+           SET settings = jsonb_set(
+                 COALESCE(settings, '{}'::jsonb),
+                 '{autoEmailOffersCursor}',
+                 to_jsonb(${cursor}::text),
+                 true)
+         WHERE id = ${tenantId}
+           AND settings->>'autoEmailOffersSince' = ${epoch}`;
+    } catch (error: unknown) {
+      /*
+       * הסמן הוא אופטימיזציה של הוגנות, לא נתון עסקי. כישלון בשמירתו
+       * מחזיר את הסבב הבא לתחילת הרשימה — פחות הוגן, ולא שגוי — ואינו
+       * סיבה להפיל סבב ששלח מיילים בהצלחה.
+       */
+      this.logger.warn(`שמירת סמן הסריקה נכשלה למשרד ${tenantId}: ${String(error)}`);
+    }
   }
 
   /**
@@ -519,8 +707,16 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     const first = created[0];
     if (first === undefined) return 0;
 
-    await this.deliver(tenantId, officeName, first.to, first.buyerName, first.contactId, created);
-    return created.length;
+    const outcome = await this.deliver(
+      tenantId,
+      officeName,
+      first.to,
+      first.buyerName,
+      first.contactId,
+      created,
+    );
+    // דחייה ודאית — ההצעות קיימות כ-`email_failed`, אבל מייל לא יצא
+    return outcome === "sent" ? created.length : 0;
   }
 
   /** בניית המייל, שליחה, ואישור `sent` — או סימון הכישלון. */
@@ -531,9 +727,10 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     buyerName: string,
     contactId: string,
     rows: OutgoingOffer[],
-  ): Promise<void> {
+  ): Promise<"sent" | "unsent"> {
     const first = rows[0];
-    if (first === undefined) return;
+    // מנה ריקה — הגנה בלבד; שני הקוראים כבר סיננו. לא יצא מייל
+    if (first === undefined) return "unsent";
     const env = loadEnv();
     const items: OfferEmailItem[] = rows.map((row) => ({
       title: row.title,
@@ -578,7 +775,14 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(
           `מייל הצעות נדחה ללקוח במשרד ${tenantId} — ההצעות סומנו email_failed`,
         );
-        return;
+        /*
+         * ‎**נדחה אינו נשלח, וגם המונה צריך לדעת.**
+         *
+         * הענף סימן `email_failed` וחזר כרגיל, ולכן `offerAndEmail`
+         * החזיר את מספר ההצעות שנוצרו והסבב ספר „מייל נשלח”. כתובת
+         * פסולה נראתה בניטור כמו שליחה מוצלחת (ביקורת Codex).
+         */
+        return "unsent";
       }
       // תקלה עמומה (רשת/5xx) — נשאר pending_email לניסיון בסבב הבא
       throw error;
@@ -631,6 +835,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         await this.outbox.emit(tx, "offer.sent", { offerId: row.offerId, tenantId });
       }
     });
+    return "sent";
   }
 
   /**
@@ -734,10 +939,70 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     }
     const marketable = resolved.filter((row) => stillActive.has(row.propertyId));
 
+    /*
+     * ‎**וגם ההזמנה בכתב נבדקת שוב — כי אפשר למחוק אותה.**
+     *
+     * הזכאות הראשונית דורשת הזמנה חתומה על **הנכס הזה** (§9), אבל
+     * המסלול הזה בדק עד כה לקוח, הסרה, אימייל ונכס פעיל בלבד.
+     * ‎`SignedDocumentsService.remove` מוחקת את המסמך — ומתעדת
+     * ביומן ש**הוא זה שפתח הצעות** — ולכן שליחה שנכשלה בפסק זמן,
+     * ואחריה נמחקה הראיה, הייתה יוצאת בסבב הבא: הצעה ללקוח בלי
+     * הזמנה בכתב, ופעולת שיווק שנרשמת עליה (ביקורת Codex).
+     *
+     * ‎`signedPairs` היא בדיוק אותה בדיקה של הזכאות הראשונית —
+     * חתימה דיגיטלית **וגם** מסמך סרוק — ולא שער מחמיר יותר.
+     *
+     * ‎**ההצעה נמחקת וההתאמה חוזרת „מומלצת”, כמו בהסרה מהתפוצה
+     * ולא כמו בנכס שנמכר.** הראיה יכולה לחזור: הסוכן שולח הזמנה
+     * חדשה, הלקוח חותם, והסבב ייצור הצעה מחדש. `email_failed` היה
+     * קובר את ההתאמה לתמיד.
+     */
+    const contactByBuyer = await this.prisma.withTenant(async (tx) => {
+      const buyers = await tx.buyer.findMany({
+        where: {
+          tenantId,
+          id: { in: [...new Set(marketable.map((row) => row.buyerId))] },
+          deletedAt: null,
+        },
+        select: { id: true, contactId: true },
+      });
+      return new Map(buyers.map((buyer) => [buyer.id, buyer.contactId]));
+    });
+    const signed = await this.prisma.withTenant((tx) =>
+      this.agreements.signedPairs(tx, tenantId, "brokerage", [...contactByBuyer.values()]),
+    );
+    /*
+     * קונה שנעלם אינו נוגע לכאן: הוא מטופל בלולאה שבהמשך, ומחיקת
+     * ההצעה שלו כאן הייתה שינוי התנהגות שלא נתבקש.
+     */
+    const unsigned = new Set(
+      marketable
+        .filter((row) => {
+          const contactId = contactByBuyer.get(row.buyerId);
+          return contactId !== undefined && !signed.has(`${contactId}:${row.propertyId}`);
+        })
+        .map((row) => row.id),
+    );
+    if (unsigned.size > 0) {
+      await this.prisma.withTenant(async (tx) => {
+        for (const offer of marketable.filter((row) => unsigned.has(row.id))) {
+          await tx.offer.delete({ where: { id: offer.id } });
+          await tx.match.updateMany({
+            where: { id: offer.matchId, tenantId, status: "offered" },
+            data: { status: "suggested" },
+          });
+        }
+      });
+      this.logger.log(
+        `משרד ${tenantId}: ${unsigned.size} הצעות ממתינות בוטלו — אין הזמנה בכתב חתומה`,
+      );
+    }
+    const sendable = marketable.filter((row) => !unsigned.has(row.id));
+
     const buyerIds = new Set<string>();
     const now = new Date();
-    const byBuyer = new Map<string, typeof marketable>();
-    for (const offer of marketable) {
+    const byBuyer = new Map<string, typeof sendable>();
+    for (const offer of sendable) {
       buyerIds.add(offer.buyerId);
       if (offer.tokenExpires < now) {
         // הטוקן פג לפני שהשליחה הצליחה — סוף המחזור, הסוכן ממשיך ידנית
@@ -789,7 +1054,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
       if (contact === null || contact.email === undefined) continue;
 
       try {
-        await this.deliver(
+        const outcome = await this.deliver(
           tenantId,
           officeName,
           contact.email,
@@ -809,7 +1074,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
             };
           }),
         );
-        emails += 1;
+        if (outcome === "sent") emails += 1;
       } catch (error: unknown) {
         this.logger.warn(
           `ניסיון חוזר של מייל הצעות נכשל ללקוח ${buyerId} במשרד ${tenantId}: ${String(error)}`,

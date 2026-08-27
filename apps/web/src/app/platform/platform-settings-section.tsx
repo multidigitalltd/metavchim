@@ -8,7 +8,7 @@ import {
   PLATFORM_REFERRAL_FEE_PERCENT,
   referralPayout,
 } from "@metavchim/shared";
-import { IconCard, IconChat, IconCoins, IconKey, IconLock, IconMail, IconPhone, IconPin } from "../icons";
+import { IconCard, IconChat, IconCoins, IconDoc, IconKey, IconLock, IconMail, IconPhone, IconPin } from "../icons";
 import { Notice } from "../notice";
 
 /**
@@ -29,6 +29,10 @@ interface PlatformSettings {
     /** תיבת הדואר הפנימית — כתובת ה-Inbound; ריק = לא הוגדרה */
     inboundAddress: string;
     inboundSecretSet: boolean;
+    /** תיבת התמיכה של הפלטפורמה — שרת Inbound נפרד. */
+    supportInboundAddress: string;
+    supportInboundSecretSet: boolean;
+    supportServerTokenSet: boolean;
   };
   whatsapp: {
     configured: boolean;
@@ -52,6 +56,20 @@ interface PlatformSettings {
   /** אופציונלי — שרת ישן עוד לא מחזיר אותו, והמסך לא נופל על זה */
   gemini?: { configured: boolean; source: "db" | "env" | "none"; model: string };
   cardcom: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
+  /** לינט — הפקת חשבוניות מס קבלה על כל תשלום שנגבה. */
+  linet: {
+    configured: boolean;
+    loginId: string;
+    companyId: string;
+    keySet: boolean;
+    baseUrl: string;
+    docType: string;
+    vatCatTaxable: string;
+    paymentType: string;
+    itemId: string;
+    vatPercent: number;
+    missing: string[];
+  };
   loginOtpEnabled: boolean;
   /** אחוז עמלת ההפניות — ערך ולא סטטוס; שרת ישן לא מחזיר אותו. */
   referralFeePercent?: number;
@@ -104,7 +122,7 @@ export function PlatformSettingsSection({
    * התוצאה, הלחיצה נראית כאילו לא עשתה כלום (דיווח המשתמש:
    * "הכפתור לא מגיב").
    */
-  const [probing, setProbing] = useState<"gemini" | "cardcom" | "whatsapp" | null>(null);
+  const [probing, setProbing] = useState<"gemini" | "cardcom" | "whatsapp" | "linet" | null>(null);
   const noticeRef = useRef<HTMLDivElement | null>(null);
   const showProbeResult = (): void => {
     // אחרי הרינדור של ההודעה — אחרת גוללים אל תיבה שעוד לא קיימת
@@ -120,6 +138,38 @@ export function PlatformSettingsSection({
   }
 
   useEffect(load, []);
+
+  /**
+   * תיבת התמיכה — הכתובת שהפניות **נכנסות** אליה.
+   *
+   * טופס נפרד מכתובת ההתראה שמעליו, ובכוונה: אחת אומרת "לאן להודיע
+   * לי", והשנייה "מאיפה לקרוא ולענות". הסוד נשלח רק כשהוקלד, כמו כל
+   * סוד אחר במסך הזה.
+   */
+  async function saveSupportInbox(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setMessage(null);
+    setBusy(true);
+    const form = event.currentTarget;
+    const f = new FormData(form);
+    const secret = String(f.get("supportInboundSecret") ?? "").trim();
+    const serverToken = String(f.get("supportServerToken") ?? "").trim();
+    try {
+      await apiPatch("/platform/settings", {
+        supportInboundAddress: String(f.get("supportInboundAddress") ?? "").trim(),
+        ...(secret !== "" ? { supportInboundSecret: secret } : {}),
+        ...(serverToken !== "" ? { supportServerToken: serverToken } : {}),
+      });
+      form.reset();
+      setMessage("✓ תיבת התמיכה נשמרה");
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function saveEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -339,6 +389,65 @@ export function PlatformSettingsSection({
       setBusy(false);
       setProbing(null);
       showProbeResult();
+    }
+  }
+
+  async function testLinet(): Promise<void> {
+    setBusy(true);
+    setProbing("linet");
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await apiPost<{ ok: boolean; message: string }>(
+        "/platform/settings/test-linet",
+        {},
+      );
+      if (res.ok) setMessage(`✓ ${res.message}`);
+      else setError(res.message);
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "בדיקת החיבור נכשלה");
+    } finally {
+      setBusy(false);
+      setProbing(null);
+      showProbeResult();
+    }
+  }
+
+  /*
+   * שדה ריק = בלי שינוי, כמו בשאר הכרטיסים. זה מה שמאפשר לתקן קוד
+   * אחד בלי להקליד מחדש את המפתח.
+   */
+  async function saveLinet(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setMessage(null);
+    setBusy(true);
+    const form = event.currentTarget;
+    const f = new FormData(form);
+    const patch: Record<string, string> = {};
+    for (const key of [
+      "linetLoginId",
+      "linetKey",
+      "linetCompanyId",
+      "linetBaseUrl",
+      "linetDocType",
+      "linetVatCatTaxable",
+      "linetPaymentType",
+      "linetItemId",
+      "vatPercent",
+    ]) {
+      const value = String(f.get(key) ?? "").trim();
+      if (value !== "") patch[key] = value;
+    }
+    try {
+      await apiPatch("/platform/settings", patch);
+      form.reset();
+      setMessage("✓ הגדרות לינט נשמרו");
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -627,7 +736,7 @@ export function PlatformSettingsSection({
             e.preventDefault();
             void saveSetting("supportEmail", new FormData(e.currentTarget).get("supportEmail"));
           }}
-          className="flex flex-wrap items-end gap-2"
+          className="mb-4 flex flex-wrap items-end gap-2"
         >
           <label className="grow">
             <span className="mb-1 block text-sm font-semibold">
@@ -651,6 +760,96 @@ export function PlatformSettingsSection({
           </label>
           <Button type="submit" disabled={busy}>שמור</Button>
         </form>
+
+        {/*
+          תיבת התמיכה — הכתובת שהפניות **נכנסות** אליה, ולא זו שאליה
+          נשלחת התראה. שדה נפרד ובכוונה: אחת היא "לאן להודיע לי", והשנייה
+          היא "מאיפה לקרוא ולענות", ואיחודן היה מחייב שהתיבה הפרטית של
+          המפעיל תהיה גם תיבת המערכת.
+        */}
+        <h4 className="mb-1 mt-4 font-semibold">תיבת התמיכה — קליטה ומענה מתוך המערכת</h4>
+        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          שרת Inbound <b>נפרד</b> מזה של תשובות הלקוחות למשרדים: שני זרמים עם
+          כללי זיהוי שונים. עם שני השדות האלה — פנייה שנשלחת לכתובת התמיכה
+          נפתחת כשרשור במסך „תיבת התמיכה”, והמענה יוצא מכתובת המערכת.
+        </p>
+        <form
+          method="post"
+          autoComplete="off"
+          onSubmit={(e) => void saveSupportInbox(e)}
+          className="flex flex-wrap items-end gap-3"
+        >
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="supportInboundAddress" className="mb-1 block font-medium">
+              כתובת Inbound של התמיכה
+            </label>
+            <input
+              id="supportInboundAddress"
+              name="supportInboundAddress"
+              type="email"
+              dir="ltr"
+              placeholder="abc123@inbound.postmarkapp.com"
+              defaultValue={settings.postmark.supportInboundAddress}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="supportInboundSecret" className="mb-1 block font-medium">
+              סוד ה-Webhook{" "}
+              <span className="font-normal">
+                {settings.postmark.supportInboundSecretSet
+                  ? "(ריק = ללא שינוי)"
+                  : "(16 תווים לפחות)"}
+              </span>
+            </label>
+            <input
+              id="supportInboundSecret"
+              name="supportInboundSecret"
+              type="password"
+              dir="ltr"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              placeholder={settings.postmark.supportInboundSecretSet ? "••••••••" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="supportServerToken" className="mb-1 block font-medium">
+              Server Token של שרת התמיכה{" "}
+              <span className="font-normal">
+                {settings.postmark.supportServerTokenSet ? "(ריק = ללא שינוי)" : "(לא חובה)"}
+              </span>
+            </label>
+            <input
+              id="supportServerToken"
+              name="supportServerToken"
+              type="password"
+              dir="ltr"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              placeholder={settings.postmark.supportServerTokenSet ? "••••••••" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <Button type="submit" disabled={busy}>שמור</Button>
+        </form>
+        <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          התשובות יוצאות מכתובת ה-Inbound שלמעלה. בלי Server Token הן נשלחות דרך
+          השרת הכללי — עדיין מכתובת התמיכה, רק לא בזרם נפרד.
+        </p>
+        <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          כתובת ה-Webhook להדבקה בפוסטמרק נבנית מהסוד:{" "}
+          <span dir="ltr" className="font-mono">
+            {settings.postmark.supportInboundSecretSet
+              ? "…/api/v1/public/support/inbound/<הסוד>"
+              : "תחילה שמרו סוד"}
+          </span>
+        </p>
       </div>
 
       {/* ---------- חיבורי Google ---------- */}
@@ -866,6 +1065,162 @@ export function PlatformSettingsSection({
           {settings.cardcom.configured ? (
             <Button type="button" variant="ghost" disabled={busy} onClick={() => void testCardcom()}>
               {probing === "cardcom" ? "בודק…" : "בדוק חיבור"}
+            </Button>
+          ) : null}
+        </form>
+      </div>
+
+      {/* ---------- חשבוניות (לינט) ---------- */}
+      <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold"><IconDoc s={16} /> חשבוניות מס קבלה (לינט)</h3>
+          <StatusBadge configured={settings.linet.configured} source={settings.linet.configured ? "db" : "none"} />
+        </div>
+        <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          על כל תשלום שנגבה מופקת בלינט חשבונית מס קבלה, והיא נשלחת ללקוח במייל.
+          בלי ההגדרות כאן הגבייה עובדת כרגיל — פשוט בלי מסמך, והתשלומים
+          שממתינים למסמך מוצגים למטה בסעיף החשבוניות.
+        </p>
+        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          ההזדהות בלינט היא <b>שלישייה</b>: מזהה API, מפתח ומזהה חברה — נוצרים
+          בלינט מתוך המשתמש המחובר. הקודים שאחריהם הם של החשבון שלכם ונראים
+          במסכי ההגדרות של לינט.
+        </p>
+        {settings.linet.missing.length > 0 ? (
+          <p className="mb-3 text-sm" style={{ color: "var(--color-danger)" }}>
+            חסר להפקה: {settings.linet.missing.join(", ")}
+          </p>
+        ) : null}
+        <form method="post" autoComplete="off" onSubmit={(e) => void saveLinet(e)} className="flex flex-wrap items-end gap-3">
+          <div className="flex-1" style={{ minWidth: "160px" }}>
+            <label htmlFor="linetLoginId" className="mb-1 block font-medium">
+              מזהה API {settings.linet.loginId !== "" ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}
+            </label>
+            <input
+              id="linetLoginId"
+              name="linetLoginId"
+              type="text"
+              dir="ltr"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              placeholder={settings.linet.loginId || ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div className="flex-1" style={{ minWidth: "160px" }}>
+            <label htmlFor="linetKey" className="mb-1 block font-medium">
+              מפתח API {settings.linet.keySet ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}
+            </label>
+            <input
+              id="linetKey"
+              name="linetKey"
+              type="password"
+              dir="ltr"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              placeholder={settings.linet.keySet ? "••••••••" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div style={{ minWidth: "120px" }}>
+            <label htmlFor="linetCompanyId" className="mb-1 block font-medium">
+              מזהה חברה
+            </label>
+            <input
+              id="linetCompanyId"
+              name="linetCompanyId"
+              type="text"
+              dir="ltr"
+              autoComplete="off"
+              placeholder={settings.linet.companyId || ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div style={{ minWidth: "120px" }}>
+            <label htmlFor="linetDocType" className="mb-1 block font-medium">
+              קוד סוג מסמך
+            </label>
+            <input
+              id="linetDocType"
+              name="linetDocType"
+              type="text"
+              dir="ltr"
+              autoComplete="off"
+              placeholder={settings.linet.docType || "חשבונית מס קבלה"}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div style={{ minWidth: "120px" }}>
+            <label htmlFor="linetVatCatTaxable" className="mb-1 block font-medium">
+              קוד מע&quot;מ חייב
+            </label>
+            <input
+              id="linetVatCatTaxable"
+              name="linetVatCatTaxable"
+              type="text"
+              dir="ltr"
+              autoComplete="off"
+              placeholder={settings.linet.vatCatTaxable || ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div style={{ minWidth: "120px" }}>
+            <label htmlFor="linetPaymentType" className="mb-1 block font-medium">
+              קוד אמצעי תשלום
+            </label>
+            <input
+              id="linetPaymentType"
+              name="linetPaymentType"
+              type="text"
+              dir="ltr"
+              autoComplete="off"
+              placeholder={settings.linet.paymentType || "אשראי"}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div style={{ minWidth: "100px" }}>
+            <label htmlFor="linetItemId" className="mb-1 block font-medium">
+              קוד פריט
+            </label>
+            <input
+              id="linetItemId"
+              name="linetItemId"
+              type="text"
+              dir="ltr"
+              autoComplete="off"
+              placeholder={settings.linet.itemId || "1"}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div style={{ minWidth: "100px" }}>
+            <label htmlFor="vatPercent" className="mb-1 block font-medium">
+              מע&quot;מ (%)
+            </label>
+            <input
+              id="vatPercent"
+              name="vatPercent"
+              type="text"
+              inputMode="numeric"
+              dir="ltr"
+              autoComplete="off"
+              placeholder={String(settings.linet.vatPercent)}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <Button type="submit" disabled={busy}>שמור</Button>
+          {settings.linet.loginId !== "" && settings.linet.keySet ? (
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => void testLinet()}>
+              {probing === "linet" ? "בודק…" : "בדוק חיבור"}
             </Button>
           ) : null}
         </form>
