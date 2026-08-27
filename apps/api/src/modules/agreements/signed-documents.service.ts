@@ -5,6 +5,7 @@ import {
   DOCUMENT_KINDS,
   MAX_DOCUMENT_BYTES,
   OFFER_DOCUMENT_KINDS,
+  isRetainedDocument,
   documentUnlocksOffers,
   isAfterJerusalemToday,
   safeFileName,
@@ -531,7 +532,14 @@ export class SignedDocumentsService {
     const row = await this.prisma.withTenant(async (tx) => {
       const found = await tx.signedDocument.findFirst({
         where: { id, tenantId },
-        select: { s3Key: true, mimeType: true, fileName: true, contactId: true },
+        select: {
+          s3Key: true,
+          mimeType: true,
+          fileName: true,
+          contactId: true,
+          kind: true,
+          signedOn: true,
+        },
       });
       if (!found) throw new NotFoundException("מסמך לא נמצא");
       /*
@@ -541,6 +549,18 @@ export class SignedDocumentsService {
        * שאינו שלו.
        */
       const gate = await contactGateFor(tx, tenantId, found.contactId);
+      /*
+       * ‎**מבחן השימור חל גם על ההורדה, לא רק על הרשימה.**
+       *
+       * הרשימה סוננה ומזהה ידוע נשאר פתוח: מנהל שמבקש מזהה מסוים
+       * הוריד תעודת זהות או מסמך שלא נחתם — בדיוק מה שהרשימה
+       * המתוקנת מסתירה ומה שמחיקת לקוח מוחקת (ביקורת Codex).
+       * רשימה שסוננה ושער שלא סונן הם שני ניסוחים של כלל אחד, וזו
+       * הפעם השנייה שהם נפרדו כאן.
+       */
+      if (gate.mode === "archive" && !isRetainedDocument(found.kind, found.signedOn)) {
+        throw new NotFoundException("המסמך אינו בארכיון המשרד");
+      }
       if (gate.mode === "contact") {
         await assertContactAccess(tx, tenantId, gate.contactId);
       } else if (opts.retained !== true) {

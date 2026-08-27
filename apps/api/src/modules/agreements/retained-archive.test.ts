@@ -215,6 +215,41 @@ describe("ארכיון המסמכים שנשמרו", () => {
     expect(body).not.toMatch(/'brokerage'|"brokerage"/u);
   });
 
+  /*
+   * ‎**מבחן השימור חל גם על השער, לא רק על הרשימה.**
+   *
+   * רשימה שסוננה ושער שלא סונן פירושם שמזהה ידוע פותח בדיוק את מה
+   * שהרשימה הסתירה — תעודת זהות, אישור זכויות, מסמך שלא נחתם
+   * ‎(ביקורת Codex). זו הפעם השנייה שהרשימה והשער נפרדו כאן, ולכן
+   * ההכרעה על „מה נשמר” יושבת ב-shared.
+   */
+  it("שער ההורדה דורש את מבחן השימור, לא רק יתמות", () => {
+    const body = method(DOCUMENTS, "  async getRaw(");
+    expect(body).toContain("isRetainedDocument(found.kind, found.signedOn)");
+    const guard = body.indexOf("isRetainedDocument(");
+    const auth = body.indexOf('gate.mode === "contact"');
+    expect(guard, "המבחן לא נמצא").toBeGreaterThan(-1);
+    expect(auth, "השער לא נמצא").toBeGreaterThan(guard);
+  });
+
+  it("ושער ההסכם דורש חתימה", () => {
+    const body = method(AGREEMENTS, "  async document(");
+    expect(body).toMatch(/gate\.mode === "archive" && row\.status !== "signed"/u);
+  });
+
+  /*
+   * ההכרעה על „מה נשמר” במקום אחד — אחרת השער והרשימה נפרדים שוב,
+   * והפעם בשקט.
+   */
+  it("מבחן השימור מוגדר ב-shared ולא בשער", () => {
+    const shared = readFileSync(
+      new URL("../../../../../packages/shared/src/logic/signed-documents.ts", import.meta.url),
+      "utf8",
+    );
+    expect(shared).toContain("export function isRetainedDocument(");
+    expect(DOCUMENTS).not.toMatch(/found\.signedOn !== null && documentUnlocksOffers\(/u);
+  });
+
   it("הכינוי מוגבל באיחוד סגור ולא ב-string", () => {
     expect(OWNERSHIP).toMatch(/type OrphanAlias = "a" \| "c" \| "d";/u);
     expect(OWNERSHIP).toMatch(/function orphanContactCondition\(alias: OrphanAlias\)/u);

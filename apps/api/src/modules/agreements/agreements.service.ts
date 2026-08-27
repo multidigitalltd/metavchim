@@ -707,6 +707,18 @@ export class AgreementsService {
      * מסמך משפטי שנשמר ואי אפשר לפתוח אותו הוא מסמך שאבד.
      */
     const gate = await contactGateFor(tx, tenantId, row.contactId);
+    /*
+     * ‎**ובארכיון יש רק מה שנשמר.** מחיקת לקוח מנתקת הסכם **חתום**
+     * ומוחקת את השאר — טיוטה, קישור שנשלח ולא נחתם, קישור שפג.
+     * שורה מנותקת היא לכן חתומה בהגדרה, אבל לכרטיס **יתום** הניקוי
+     * מעולם לא רץ: בלי הבדיקה הזו מזהה ידוע פתח מסמך שלא נחתם לכל
+     * בעל `settings.manage` (ביקורת Codex).
+     *
+     * הרשימה כבר מסננת `status = 'signed'`; זה השער שמסכים איתה.
+     */
+    if (gate.mode === "archive" && row.status !== "signed") {
+      throw new NotFoundException("ההסכם אינו בארכיון המשרד");
+    }
     if (gate.mode === "contact") {
       await assertContactAccess(tx, tenantId, gate.contactId);
     } else if (!TenantContext.current().capabilities.has("settings.manage")) {
