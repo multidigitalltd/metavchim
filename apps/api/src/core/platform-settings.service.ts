@@ -22,6 +22,13 @@ export type PlatformSettingKey =
    */
   | "postmarkAccountToken"
   | "emailFrom"
+  /**
+   * תיבת הדואר הפנימית: כתובת ה-Inbound של שרת Postmark, והסוד
+   * שבנתיב ה-Webhook. שניהם ריקים = מיילים יוצאים בלי Reply-To
+   * ייחודי ותשובות אינן נקלטות — והכל השאר ממשיך לעבוד.
+   */
+  | "emailInboundAddress"
+  | "emailInboundSecret"
   | "whatsappAppSecret"
   | "whatsappVerifyToken"
   /**

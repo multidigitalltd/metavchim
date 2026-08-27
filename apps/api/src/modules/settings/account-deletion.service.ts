@@ -282,6 +282,7 @@ export class AccountDeletionService {
         await tx.signedDocument.deleteMany({ where: { tenantId } });
         await tx.integration.deleteMany({ where: { tenantId } });
         await tx.emailDomain.deleteMany({ where: { tenantId } });
+        await tx.emailMessage.deleteMany({ where: { tenantId } });
         await tx.sharedDemand.deleteMany({ where: { tenantId } });
         /*
          * דירוגי הפניות — משני התפקידים. נמחקים **לפני** ההפניות
@@ -431,6 +432,8 @@ export class AccountDeletionService {
      */
     await this.prisma.$transaction([
       this.prisma.leadWebhook.deleteMany({ where: { tenantId } }),
+      // טוקני ה-Reply-To — מחוץ ל-RLS כמו ה-webhook, ולכן נמחקים כאן
+      this.prisma.emailReplyToken.deleteMany({ where: { tenantId } }),
       this.prisma.subscriptionOffer.deleteMany({ where: { tenantId } }),
       this.prisma.subscription.deleteMany({ where: { tenantId } }),
       /*

@@ -115,7 +115,17 @@ export class EmailService {
     to: string,
     subject: string,
     content: EmailContent | string,
-    options: { required?: boolean; tenantId?: string; tenantOnly?: boolean } = {},
+    options: {
+      required?: boolean;
+      tenantId?: string;
+      tenantOnly?: boolean;
+      /**
+       * כתובת Reply-To — תיבת הדואר הפנימית: מיילים ללקוח נושאים
+       * כתובת ייחודית שמחזירה את תשובתו אל תוך המערכת. לא נשלח
+       * כ-From: הדומיין החתום נשאר השולח, וזו רק כתובת התשובה.
+       */
+      replyTo?: string;
+    } = {},
   ): Promise<void> {
     const body: EmailContent =
       typeof content === "string" ? { paragraphs: [content] } : content;
@@ -153,7 +163,7 @@ export class EmailService {
       );
     }
     if (tenantFrom !== null) {
-      const res = await this.postmarkSend(creds.token, tenantFrom, to, subject, body);
+      const res = await this.postmarkSend(creds.token, tenantFrom, to, subject, body, options.replyTo);
       if (res.ok) return;
       const detail = await res.text().catch(() => "");
       this.logger.error(
@@ -169,7 +179,7 @@ export class EmailService {
       }
     }
 
-    const res = await this.postmarkSend(creds.token, creds.from, to, subject, body);
+    const res = await this.postmarkSend(creds.token, creds.from, to, subject, body, options.replyTo);
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       // 422 של Postmark כולל סיבה (כתובת From לא מאומתת וכו') — ללוג בלבד
@@ -197,6 +207,7 @@ export class EmailService {
     to: string,
     subject: string,
     body: EmailContent,
+    replyTo?: string,
   ): Promise<Response> {
     try {
       return await fetch("https://api.postmarkapp.com/email", {
@@ -209,6 +220,7 @@ export class EmailService {
         body: JSON.stringify({
           From: from,
           To: to,
+          ...(replyTo === undefined ? {} : { ReplyTo: replyTo }),
           Subject: subject,
           HtmlBody: renderEmailHtml(body),
           TextBody: renderEmailText(body),

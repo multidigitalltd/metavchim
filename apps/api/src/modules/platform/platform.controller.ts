@@ -254,6 +254,9 @@ const UpdateSettingsSchema = z
     /** טוקן ה-Account — ניהול דומיינים שמשרדים מחברים; נפרד מטוקן השרת */
     postmarkAccountToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     emailFrom: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    /** תיבת הדואר הפנימית — כתובת ה-Inbound של שרת Postmark והסוד שבנתיב ה-Webhook */
+    emailInboundAddress: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    emailInboundSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     whatsappAppSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     whatsappVerifyToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     /** הסוכן האישי — טוקן קבוע של System User, לא הטוקן הזמני ממסך הפיתוח */
@@ -1306,6 +1309,9 @@ export class PlatformController {
       emailFrom?: string;
       /** טוקן ה-Account מוגדר — משרדים יכולים לחבר דומיין משלהם */
       officeDomains: boolean;
+      /** תיבת הדואר הפנימית — כתובת ה-Inbound; ריק = לא הוגדרה */
+      inboundAddress: string;
+      inboundSecretSet: boolean;
     };
     /** webhookUrl מוגדר פעם אחת במטא לכל הפלטפורמה — ולכן הוא כאן ולא בהגדרות המשרד. */
     whatsapp: {
@@ -1459,6 +1465,16 @@ export class PlatformController {
         source: postmarkDb ? "db" : postmarkEnv ? "env" : "none",
         emailFrom: (await this.platformSettings.get("emailFrom")) ?? env.EMAIL_FROM,
         officeDomains: postmarkAccount,
+        /*
+         * התיבה הפנימית: הכתובת מוצגת (אינה סוד — היא כתובת דואר),
+         * הסוד רק "מוגדר/לא". ה-Webhook להדבקה אצל הספק נבנה במסך.
+         */
+        inboundAddress:
+          (await this.platformSettings.get("emailInboundAddress")) ??
+          env.EMAIL_INBOUND_ADDRESS ??
+          "",
+        inboundSecretSet:
+          has("emailInboundSecret") || env.EMAIL_INBOUND_SECRET !== undefined,
       },
       whatsapp: {
         configured: waDb || waEnv,

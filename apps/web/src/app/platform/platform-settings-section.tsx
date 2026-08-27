@@ -26,6 +26,9 @@ interface PlatformSettings {
     emailFrom?: string;
     /** טוקן ה-Account מוגדר — משרדים יכולים לחבר דומיין משלהם */
     officeDomains: boolean;
+    /** תיבת הדואר הפנימית — כתובת ה-Inbound; ריק = לא הוגדרה */
+    inboundAddress: string;
+    inboundSecretSet: boolean;
   };
   whatsapp: {
     configured: boolean;
@@ -128,10 +131,13 @@ export function PlatformSettingsSection({
     try {
       const token = String(f.get("postmarkServerToken")).trim();
       const accountToken = String(f.get("postmarkAccountToken")).trim();
+      const inboundSecret = String(f.get("emailInboundSecret")).trim();
       await apiPatch("/platform/settings", {
         ...(token !== "" ? { postmarkServerToken: token } : {}),
         ...(accountToken !== "" ? { postmarkAccountToken: accountToken } : {}),
         emailFrom: String(f.get("emailFrom")).trim(),
+        emailInboundAddress: String(f.get("emailInboundAddress")).trim(),
+        ...(inboundSecret !== "" ? { emailInboundSecret: inboundSecret } : {}),
       });
       form.reset();
       setMessage("✓ הגדרות האימייל נשמרו");
@@ -535,6 +541,48 @@ export function PlatformSettingsSection({
               data-1p-ignore
               data-lpignore="true"
               placeholder={settings.postmark.officeDomains ? "••••••••" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          {/*
+            תיבת הדואר הפנימית: כתובת ה-Inbound של שרת Postmark, והסוד
+            שסוגר את נתיב ה-Webhook. עם שניהם — מיילים ללקוחות נושאים
+            Reply-To ייחודי ותשובות נכנסות לתיבה; בלעדיהם הכל ממשיך
+            כרגיל. ה-Webhook להדבקה אצל הספק: ‎/api/v1/public/email/inbound/<הסוד>.
+          */}
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="emailInboundAddress" className="mb-1 block font-medium">
+              כתובת Inbound{" "}
+              <span className="font-normal">(תיבת המייל הפנימית — תשובות לקוחות)</span>
+            </label>
+            <input
+              id="emailInboundAddress"
+              name="emailInboundAddress"
+              type="email"
+              dir="ltr"
+              placeholder="abc123@inbound.postmarkapp.com"
+              defaultValue={settings.postmark.inboundAddress}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="emailInboundSecret" className="mb-1 block font-medium">
+              סוד ה-Webhook הנכנס{" "}
+              <span className="font-normal">
+                {settings.postmark.inboundSecretSet ? "(ריק = ללא שינוי)" : "(16 תווים לפחות)"}
+              </span>
+            </label>
+            <input
+              id="emailInboundSecret"
+              name="emailInboundSecret"
+              type="password"
+              dir="ltr"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              placeholder={settings.postmark.inboundSecretSet ? "••••••••" : ""}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />

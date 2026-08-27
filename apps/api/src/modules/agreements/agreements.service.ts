@@ -15,6 +15,7 @@ import { AuditService } from "../../core/audit.service";
 import { EmailService } from "../../core/email.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { EmailInboxService } from "../email-inbox/email-inbox.service";
 import { MessagingService } from "../messaging/messaging.service";
 
 /**
@@ -63,6 +64,7 @@ export class AgreementsService {
     private readonly audit: AuditService,
     private readonly messaging: MessagingService,
     private readonly email: EmailService,
+    private readonly emailInbox: EmailInboxService,
   ) {}
 
   private publicUrl(token: string): string {
@@ -348,6 +350,12 @@ export class AgreementsService {
       if (!(await this.email.isConfigured())) {
         throw new BadRequestException("שליחת אימייל אינה מוגדרת במערכת — שלחו בוואטסאפ");
       }
+      /*
+       * תשובת הלקוח ("מתי אפשר לדבר?", "יש טעות בסכום") חוזרת
+       * לתיבה הפנימית ולציר — ולא לתיבת no-reply שאיש לא קורא.
+       * null כשהתיבה לא הוגדרה — המייל יוצא כרגיל בלעדיה.
+       */
+      const replyTo = await this.emailInbox.replyAddressFor(tenantId, row.contactId);
       await this.email.send(
         contact.email,
         `${kindLabel} לחתימה — ${officeName}`,
@@ -372,7 +380,7 @@ export class AgreementsService {
          * ומשרד שחיבר דומיין שולח אותו מהכתובת שלו. בלי חיבור —
          * מכתובת הפלטפורמה, כמו עד היום.
          */
-        { required: true, tenantId },
+        { required: true, tenantId, ...(replyTo === null ? {} : { replyTo }) },
       );
       await this.messaging.recordOutbound(tx, {
         contactId: contact.id,
