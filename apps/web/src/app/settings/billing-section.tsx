@@ -57,6 +57,9 @@ interface PaymentRow {
   status: string;
   paidAt: string | null;
   createdAt: string;
+  /** ריק = החשבונית טרם הופקה; מלא = יש מסמך להורדה. */
+  invoiceId: string | null;
+  invoiceNumber: string | null;
 }
 
 const PAYMENT_STATUS: Record<string, string> = {
@@ -77,6 +80,26 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
   const [loadFailed, setLoadFailed] = useState(false);
 
   const mayManage = can(user, "billing.manage");
+  /** החשבונית שקישורה נמשך כרגע — כדי שלא ילחצו פעמיים. */
+  const [invoiceBusy, setInvoiceBusy] = useState<string | null>(null);
+
+  /*
+   * פתיחה בלשונית חדשה **אחרי** שהקישור חזר, ולא `window.open` על
+   * כתובת ה-API: הדפדפן חוסם פתיחה שאינה נובעת מלחיצה, ולכן הקישור
+   * נפתח כאן ברגע שהוא ידוע.
+   */
+  async function openInvoice(invoiceId: string): Promise<void> {
+    setInvoiceBusy(invoiceId);
+    setError(null);
+    try {
+      const res = await apiGet<{ url: string }>(`/billing/invoices/${invoiceId}/download`);
+      window.open(res.url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "פתיחת החשבונית נכשלה");
+    } finally {
+      setInvoiceBusy(null);
+    }
+  }
 
   useEffect(() => {
     if (loading) return;
@@ -363,6 +386,7 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
                     <th scope="col">מסלול</th>
                     <th scope="col">סכום</th>
                     <th scope="col">מצב</th>
+                    <th scope="col">חשבונית</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -374,6 +398,30 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
                       </td>
                       <td>{formatNumber(row.amountAgorot / 100)} ₪</td>
                       <td>{PAYMENT_STATUS[row.status] ?? row.status}</td>
+                      {/*
+                        המסמך יושב אצל ספק החשבוניות, והקישור אליו אינו
+                        נצחי — לכן לחיצה מבקשת קישור טרי ורק אז פותחת
+                        אותו, במקום להציג קישור שמור שעלול להיות פג.
+                      */}
+                      <td>
+                        {row.invoiceId !== null ? (
+                          <button
+                            type="button"
+                            className="underline"
+                            style={{ color: "var(--color-primary)" }}
+                            disabled={invoiceBusy === row.invoiceId}
+                            onClick={() => void openInvoice(row.invoiceId as string)}
+                          >
+                            {invoiceBusy === row.invoiceId
+                              ? "פותח…"
+                              : (row.invoiceNumber ?? "הורדה")}
+                          </button>
+                        ) : row.status === "paid" ? (
+                          <span style={{ color: "var(--color-text-muted)" }}>בהפקה</span>
+                        ) : (
+                          <span style={{ color: "var(--color-text-muted)" }}>—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

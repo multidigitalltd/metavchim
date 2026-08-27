@@ -1643,6 +1643,9 @@ model Invoice {
   tenantId       String    @map("tenant_id") @db.Char(26)
   /// ייחודי — מה שהופך את ההפקה לאידמפוטנטית מול וובהוק שחוזר
   paymentId      String    @unique @map("payment_id") @db.Char(26)
+  /// הקשר מוצהר כדי שאפשר יהיה לשאול "תשלום ששולם ואין לו מסמך" —
+  /// התקלה השקטה שבלי השאילתה הזו אין דרך לראות.
+  payment        Payment   @relation(fields: [paymentId], references: [id], onDelete: Restrict)
   provider       String    @default("linet") @db.VarChar(20)
   /// pending | issued | failed
   status         String    @default("pending") @db.VarChar(20)
@@ -1939,6 +1942,8 @@ model Payment {
   createdBy           String?   @map("created_by") @db.Char(26)
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  invoice             Invoice?
 
   @@index([tenantId, createdAt])
   @@map("payments")
