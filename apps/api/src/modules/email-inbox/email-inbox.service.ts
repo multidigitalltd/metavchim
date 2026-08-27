@@ -47,6 +47,13 @@ export interface InboxAttachmentDto {
 export interface InboxMessageDto {
   id: string;
   direction: string;
+  /**
+   * ‎`pending` | `sent` | `failed` — ביוצאות בלבד.
+   *
+   * מוחזר כדי שהמסך יוכל לומר „לא נשלחה”. תשובה שנכשלה ונראית
+   * ככל השאר היא בדיוק התיעוד הכוזב שהשדה הזה נועד למנוע.
+   */
+  sendState?: string;
   subject: string;
   body: string;
   fromEmail?: string;
@@ -183,9 +190,29 @@ export class EmailInboxService {
       if (contact === null) return null;
 
       const id = ulid();
-      try {
-        await tx.emailMessage.create({
-          data: {
+      /*
+       * ‎**`createMany` עם `skipDuplicates`, ולא `create` בתוך `try`.**
+       *
+       * הניסוח הקודם תפס את שגיאת האינדקס הייחודי וחזר בשקט. שתי
+       * בעיות, והשנייה היא החמורה:
+       *
+       * ‎**1 · שגיאה בתוך טרנזקציה מבטלת אותה.** Postgres מסמן את
+       * הטרנזקציה כמבוטלת ברגע ששאילתה בתוכה נכשלה; תפיסה ב-JS אינה
+       * משחזרת אותה. כאן לא רצה שום שאילתה אחרי התפיסה ולכן זה לא
+       * התפוצץ — אבל זו הסתמכות על מה שהקוד **אינו** עושה, ושורה
+       * אחת שתתווסף מתחתיה תשבור אותה.
+       *
+       * ‎**2 · `catch` ריק בולע כל שגיאה, לא רק כפילות.** תקלת רשת
+       * רגעית למסד נראתה בדיוק כמו „הספק שלח שוב”: הוובהוק נענה
+       * באישור, וההודעה של הלקוח **אבדה לתמיד** (ביקורת Codex).
+       *
+       * ‎`skipDuplicates` הוא `ON CONFLICT DO NOTHING` — אין שגיאה,
+       * אין ביטול טרנזקציה, וכפילות מובחנת מכשל אמיתי לפי `count`.
+       * זה גם מה שכבר נעשה ב-`recordAuto`.
+       */
+      const written = await tx.emailMessage.createMany({
+        data: [
+          {
             id,
             tenantId,
             contactId,
@@ -195,11 +222,11 @@ export class EmailInboxService {
             fromEmail: payload.From.slice(0, 320) || null,
             providerMessageId: payload.MessageID === "" ? null : payload.MessageID,
           },
-        });
-      } catch {
-        // אותו MessageID פעם שנייה — הספק שלח שוב; ההודעה כבר אצלנו
-        return null;
-      }
+        ],
+        skipDuplicates: true,
+      });
+      // אותו MessageID פעם שנייה — הספק שלח שוב; ההודעה כבר אצלנו
+      if (written.count === 0) return null;
 
       /*
        * ציר הלקוח והתראה — "כלום לא נשכח". ההודעה המלאה בתיבה;
@@ -269,10 +296,12 @@ export class EmailInboxService {
      */
     if (stored === null) return;
     for (const attachment of incoming) {
+      const attachmentId = ulid();
+      const s3Key = `tenants/${tenantId}/email-attachments/${stored.messageId}/${attachmentId}`;
+      let uploaded = false;
       try {
-        const attachmentId = ulid();
-        const s3Key = `tenants/${tenantId}/email-attachments/${stored.messageId}/${attachmentId}`;
         await this.storage.put(s3Key, attachment.content, attachment.contentType);
+        uploaded = true;
         await this.prisma.withExplicitTenant(tenantId, (tx) =>
           tx.emailAttachment.create({
             data: {
@@ -289,6 +318,8 @@ export class EmailInboxService {
         );
       } catch (error: unknown) {
         this.logger.error(`שמירת קובץ מצורף נכשלה: ${String(error)}`);
+        // הועלה ולא נרשם — אין לו שורה, ולכן אף מחיקה לא תמצא אותו
+        if (uploaded) await this.discardOrphan(s3Key);
       }
     }
 
@@ -446,6 +477,7 @@ export class EmailInboxService {
           subject: row.subject,
           body: row.body,
           ...(row.fromEmail === null ? {} : { fromEmail: row.fromEmail }),
+          ...(row.sendState === null ? {} : { sendState: row.sendState }),
           readAt: row.readAt,
           createdAt: row.createdAt,
           attachments: attachmentsByMessage.get(row.id) ?? [],
@@ -550,22 +582,22 @@ export class EmailInboxService {
 
     const subject = target.subject.startsWith("Re:") ? target.subject : `Re: ${target.subject}`;
     const replyTo = await this.replyAddressFor(tenantId, contactId);
-    // required: מסך שמראה "נשלח" אחרי שלא נשלח הוא תיעוד כוזב
-    await this.email.send(target.to, subject, body, {
-      tenantId,
-      required: true,
-      ...(replyTo === null ? {} : { replyTo }),
-      ...(outgoing.length === 0
-        ? {}
-        : {
-            attachments: outgoing.map((f) => ({
-              name: f.name,
-              contentType: f.contentType,
-              content: f.content,
-            })),
-          }),
-    });
 
+    /*
+     * ‎**הרשומה נכתבת לפני השליחה, ומאושרת אחריה.**
+     *
+     * הסדר היה הפוך: שולחים, ואז כותבים. כשהכתיבה נכשלה הלקוח כבר
+     * קיבל את ההודעה ולמערכת לא נשאר ממנה דבר — לא בתיבה, לא בציר
+     * ולא ביומן — הסוכן ראה שגיאה, ניסה שוב, והלקוח קיבל אותה
+     * פעמיים (ביקורת Codex).
+     *
+     * זו אותה מחלקה בדיוק שתוקנה בהצעות האוטומטיות, בכיוון ההפוך:
+     * שם התיעוד הקדים את השליחה וטען עליה, כאן הוא איחר אותה ואבד.
+     * הכלל אחד — **פעולה חיצונית בלתי הפיכה עטופה ברשומה עמידה**.
+     *
+     * ‎`audit` נכתב כאן כי הוא מתעד את מה שהמשתמש **ביקש**; הציר
+     * נכתב רק אחרי ההצלחה, כי הוא קביעה שההודעה נשלחה.
+     */
     const messageId = ulid();
     await this.prisma.withTenant(async (tx) => {
       await tx.emailMessage.create({
@@ -577,10 +609,10 @@ export class EmailInboxService {
           subject: subject.slice(0, 200),
           body: body.length > 5000 ? `${body.slice(0, 5000)}…` : body,
           readAt: new Date(),
+          sendState: "pending",
           createdBy: ctx.userId === "" ? null : ctx.userId,
         },
       });
-      await this.recordReplyOnTimeline(tx, tenantId, contactId, body);
       await this.audit.record(tx, {
         action: "email_inbox.reply",
         entityType: "contact",
@@ -588,13 +620,57 @@ export class EmailInboxService {
       });
     });
 
+    try {
+      // required: מסך שמראה "נשלח" אחרי שלא נשלח הוא תיעוד כוזב
+      await this.email.send(target.to, subject, body, {
+        tenantId,
+        required: true,
+        ...(replyTo === null ? {} : { replyTo }),
+        ...(outgoing.length === 0
+          ? {}
+          : {
+              attachments: outgoing.map((f) => ({
+                name: f.name,
+                contentType: f.contentType,
+                content: f.content,
+              })),
+            }),
+      });
+    } catch (error: unknown) {
+      /*
+       * ‎**הרשומה נשארת ומסומנת „נכשלה”.** מחיקתה הייתה מחזירה
+       * בדיוק את המצב הקודם — הודעה שאולי יצאה ואין לה זכר. הסוכן
+       * רואה בתיבה שהתשובה לא יצאה, ומחליט מה לעשות.
+       */
+      await this.prisma
+        .withTenant((tx) =>
+          tx.emailMessage.updateMany({
+            where: { id: messageId, tenantId },
+            data: { sendState: "failed" },
+          }),
+        )
+        .catch(() => this.logger.error(`סימון תשובה שנכשלה נכשל: ${messageId}`));
+      throw error;
+    }
+
+    await this.prisma.withTenant(async (tx) => {
+      await tx.emailMessage.updateMany({
+        where: { id: messageId, tenantId },
+        data: { sendState: "sent" },
+      });
+      // הציר קובע „נשלחה תשובה”, ולכן הוא כאן ולא לפני השליחה
+      await this.recordReplyOnTimeline(tx, tenantId, contactId, body);
+    });
+
     // עותקי הקבצים נשמרים גם אצלנו — מה שנשלח ללקוח מופיע בשיחה,
     // מחוץ לטרנזקציה מאותה סיבה כמו בקליטה
     for (const file of outgoing) {
+      const attachmentId = ulid();
+      const s3Key = `tenants/${tenantId}/email-attachments/${messageId}/${attachmentId}`;
+      let uploaded = false;
       try {
-        const attachmentId = ulid();
-        const s3Key = `tenants/${tenantId}/email-attachments/${messageId}/${attachmentId}`;
         await this.storage.put(s3Key, file.content, file.contentType);
+        uploaded = true;
         await this.prisma.withTenant((tx) =>
           tx.emailAttachment.create({
             data: {
@@ -611,7 +687,31 @@ export class EmailInboxService {
         );
       } catch (error: unknown) {
         this.logger.error(`שמירת עותק קובץ יוצא נכשלה: ${String(error)}`);
+        if (uploaded) await this.discardOrphan(s3Key);
       }
+    }
+  }
+
+  /**
+   * ‎**קובץ שהועלה ושורתו לא נכתבה — נמחק מהאחסון.**
+   *
+   * ‎`storage.put` מצליח, `emailAttachment.create` נכשל, והמפתח
+   * שנוצר אבד. לאובייקט אין שורה במסד, ולכן **מחיקת לקוח ומחיקת
+   * משרד אינן יכולות למצוא אותו**: הן עוברות על השורות. התוצאה היא
+   * קובץ שהלקוח שלח, שנשאר באחסון לצמיתות אחרי שביקש להימחק —
+   * כלומר זכות המחיקה שאינה מתקיימת בפועל (ביקורת Codex).
+   *
+   * הפיצוי אינו יכול להיכשל בקול: אנחנו כבר בתוך טיפול בשגיאה, ומה
+   * שנשאר הוא לרשום שהמפתח דורש ניקוי ידני. זה עדיין אינסוף פעמים
+   * טוב מלא לדעת עליו כלל.
+   */
+  private async discardOrphan(s3Key: string): Promise<void> {
+    try {
+      await this.storage.delete(s3Key);
+    } catch (error: unknown) {
+      this.logger.error(
+        `קובץ מצורף נשאר באחסון בלי שורה במסד ודורש ניקוי: ${s3Key} — ${String(error)}`,
+      );
     }
   }
 
