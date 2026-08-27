@@ -4,6 +4,7 @@ import { ulid } from "ulid";
 import {
   agentAction,
   agentHistorySummary,
+  agentReplySegments,
   agentResultRefs,
   proposalRunsImmediately,
   agentTurnRefs,
@@ -1006,53 +1007,95 @@ export class WhatsAppAssistantService {
      * לשאילתות אין סימן — שם התוצאה עצמה היא התשובה.
      */
     const done = state.proposal.risk === "read" ? "" : "✅ ";
-    const lines: string[] = [`${done}${primary.message}`];
     /*
-     * כרטיס יחיד מנוסח במלואו; רשימת תוצאות מקבלת את הסיכום. שני
-     * מנסחים ולא אחד, כי אלה שתי שאלות שונות — „מי הם” מול „מה יש
-     * עליו”, ומנסח אחד היה עונה על אחת מהן בלבד.
+     * ‎**ההרכב והסדר מגיעים מהתוכנית המשותפת** — `agentReplySegments`
+     * מכתיב מה מופיע ומתי לשני הערוצים (הנחיית בעל המוצר: ליבה
+     * אחת, בלי כפילות). כאן רק הרינדור לטקסט: כל מקטע לשורה.
+     * הראש (מסקנה⟵תובנה⟵נתונים) מרונדר לפני צעדי ההמשך המבוצעים,
+     * והזנב (קישורים⟵צעדים) אחריהם — כמו תמיד.
      */
-    /*
-     * רשימת החזרות מנוסחת בנפרד, ולפניה — ראו `assistant-callbacks`.
-     * הסיכום הכללי חותך בחמש שורות ומוותר על הסיבה ועל זמן ההמתנה,
-     * וזו בדיוק הרשימה שקיימת כדי לשאת אותם (ביקורת Codex).
-     */
-    /*
-     * ‎`agentResultText` הוא מה שהופך „5 שיחות אחרונות” לתשובה.
-     *
-     * המנסח הכללי מחפש `name`/`title` בלבד, ולכן על שיחות, על דוח
-     * המשרד ועל התאמות הוא החזיר **מחרוזת ריקה** — הודעה עם מספר
-     * ובלי שום פרט. הבחירה מה מציגים יושבת בלוגיקה המשותפת יחד עם
-     * זו של הפאנל במערכת, כדי ששתי הפנים של הסוכן לא יענו שתי
-     * תשובות שונות על אותה שאלה.
-     *
-     * הסדר: הרשימות הייעודיות (חזרות, כרטיס) קודם — הן יודעות על
-     * הצורה שלהן יותר; אחר כך הרשימה המשותפת; ורק בסוף הכללי.
-     */
-    /*
-     * המשפט הטבעי מוביל והרשימה אחריו — אותו סדר כמו במסך, שבו
-     * פסקת התובנה יושבת מעל הטבלה. עוזר פותח במסקנה; מערכת פותחת
-     * בטבלה.
-     */
-    if (primary.insight !== undefined && primary.insight !== "") {
-      lines.push(`💡 ${primary.insight}`);
-    }
-    const dataSummary =
-      formatCallbacks(primary.data) ??
-      formatCard(primary.data) ??
-      agentResultText(primary.data) ??
-      summarizeData(primary.data);
-    if (dataSummary !== "") lines.push(dataSummary);
-    /*
-     * סייג ההיקף — התשובה היא על *הנתונים שלו*, לא של המשרד.
-     *
-     * השאילתות מסוננות לפי בעלות מזה זמן (`ownershipFilter`), אבל
-     * התשובה לא אמרה זאת: „אין קונים בגבעתיים” נשמע כמו עובדה על
-     * המשרד, בזמן שלעמית ממול יש שלושה כאלה. משפט אחד הופך תשובה
-     * מטעה לתשובה נכונה.
-     */
-    const scope = scopeNote(state.proposal.actionId);
-    if (scope !== "") lines.push(scope);
+    const segments = agentReplySegments({
+      message: primary.message,
+      ...(primary.insight === undefined ? {} : { insight: primary.insight }),
+      ...(primary.data === undefined ? {} : { data: primary.data }),
+      ...(primary.href === undefined ? {} : { href: primary.href }),
+      ...(primary.link === undefined ? {} : { link: primary.link }),
+      ...(primary.suggestion === undefined ? {} : { suggestion: primary.suggestion }),
+      ...(primary.nextSteps === undefined ? {} : { nextSteps: primary.nextSteps }),
+    });
+    const tailStart = segments.findIndex(
+      (segment) =>
+        segment.kind === "screen-link" ||
+        segment.kind === "external-link" ||
+        segment.kind === "steps" ||
+        segment.kind === "suggestion",
+    );
+    const head = tailStart === -1 ? segments : segments.slice(0, tailStart);
+    const tail = tailStart === -1 ? [] : segments.slice(tailStart);
+
+    const lines: string[] = [];
+    let steps: { text: string; label: string }[] = [];
+    const renderSegment = (segment: (typeof segments)[number]): void => {
+      switch (segment.kind) {
+        case "headline":
+          lines.push(`${done}${segment.text}`);
+          break;
+        case "insight":
+          lines.push(`💡 ${segment.text}`);
+          break;
+        case "data": {
+          /*
+           * עיצוב הנתונים הוא של הערוץ: הרשימות הייעודיות (חזרות,
+           * כרטיס) קודם — הן יודעות על הצורה שלהן יותר; אחר כך
+           * הרשימה המשותפת (`agentResultText`, אותה בחירה כמו
+           * הפאנל); ורק בסוף הסורק הכללי.
+           */
+          const summary =
+            formatCallbacks(segment.data) ??
+            formatCard(segment.data) ??
+            agentResultText(segment.data) ??
+            summarizeData(segment.data);
+          if (summary !== "") lines.push(summary);
+          /*
+           * סייג ההיקף — מקטע ערוצי, צמוד לנתונים: „אין קונים
+           * בגבעתיים” בלי הסייג נשמע כמו עובדה על המשרד, בזמן
+           * שהתשובה מסוננת לבעלות.
+           */
+          const scope = scopeNote(state.proposal.actionId);
+          if (scope !== "") lines.push(scope);
+          break;
+        }
+        case "screen-link":
+          lines.push(`👈 ${loadEnv().WEB_ORIGIN}${segment.href}`);
+          break;
+        // קישור חיצוני (wa.me) — מוצג ואינו נשמר: יכול לשאת טלפון
+        case "external-link":
+          lines.push(`👈 ${segment.url}`);
+          break;
+        /*
+         * ‎**צעדי ההמשך — כפתורים שקשורים לתוכן, וגם טקסט.** כל צעד
+         * הופך לכפתור `cmd` שנושא את המשפט עצמו — לחיצה שולחת אותו
+         * למנוע כאילו הוקלד, אין מסלול ביצוע שני. המשפטים נשארים
+         * בטקסט: כשההודעה האינטראקטיבית אינה אפשרית `deliver` נופל
+         * לטקסט, והמתווך עדיין רואה מה אפשר לענות.
+         */
+        case "steps":
+          steps = segment.steps.filter((step) => step.text.length <= CMD_TEXT_MAX);
+          if (steps.length > 0) {
+            lines.push(
+              steps.length === 1
+                ? `👉 אפשר להמשיך: „${steps[0]!.text}”`
+                : ["👉 אפשר להמשיך:", ...steps.map((step) => `· „${step.text}”`)].join("\n"),
+            );
+          }
+          break;
+        // רשת הביטחון המנוסחת — התוכנית פולטת אותה רק בהיעדר צעדים
+        case "suggestion":
+          lines.push(`👉 אפשר להמשיך: „${segment.text}”`);
+          break;
+      }
+    };
+    for (const segment of head) renderSegment(segment);
 
     // צעדי המשך — לפי הסדר, וכישלון באמצע מדווח בשקיפות (כמו במסך)
     /*
@@ -1086,40 +1129,8 @@ export class WhatsAppAssistantService {
       }
     }
 
-    // קישור למסך המלא — לרשומה שנוצרה או לרשימה שנשאלה
-    if (primary.href !== undefined) {
-      lines.push(`👈 ${loadEnv().WEB_ORIGIN}${primary.href}`);
-    }
-    /*
-     * קישור חיצוני (wa.me עם הודעה מוכנה) — מוצג ואינו נשמר:
-     * הוא יכול לשאת טלפון, והזיכרון נוסע לפרומפט של מודל חיצוני.
-     */
-    if (primary.link !== undefined) {
-      lines.push(`👈 ${primary.link}`);
-    }
-    /*
-     * ‎**צעדי ההמשך — כפתורים שקשורים לתוכן, לא טקסט בלבד.**
-     *
-     * ‎`agentNextSteps` נגזר מהתוצאה שחזרה — שם שקיים בה, פעולה
-     * שמותרת — וכל צעד הופך לכפתור `cmd` שנושא את המשפט עצמו.
-     * לחיצה שולחת את המשפט למנוע כאילו הוקלד: אין מסלול ביצוע שני,
-     * ופעולה כותבת עדיין נעצרת על „אשר”.
-     *
-     * המשפטים נשארים גם בטקסט: כשההודעה האינטראקטיבית אינה אפשרית
-     * — גוף ארוך מהתקרה של Meta, או כשל בשליחה — `deliver` נופל
-     * לטקסט, והמתווך עדיין רואה מה אפשר לענות.
-     */
-    const steps = (primary.nextSteps ?? []).filter((step) => step.text.length <= CMD_TEXT_MAX);
-    if (steps.length > 0) {
-      lines.push(
-        steps.length === 1
-          ? `👉 אפשר להמשיך: „${steps[0]!.text}”`
-          : ["👉 אפשר להמשיך:", ...steps.map((step) => `· „${step.text}”`)].join("\n"),
-      );
-    } else if (primary.suggestion !== undefined && primary.suggestion !== "") {
-      // רשת הביטחון המנוסחת — למקרים שאין להם כלל נגזר
-      lines.push(`👉 אפשר להמשיך: „${primary.suggestion}”`);
-    }
+    // הזנב של התוכנית — קישורים וצעדי המשך, אחרי מה שכבר בוצע
+    for (const segment of tail) renderSegment(segment);
 
     /*
      * ההקלטה נשלפת **כאן**, בתוך הקשר הדייר.

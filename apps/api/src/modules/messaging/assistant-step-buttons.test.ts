@@ -68,21 +68,23 @@ describe("צעדי ההמשך הם כפתורים — מהתוכן, בשני ה�
     expect(WA).toMatch(/buttonAsText\(button\.action, button\.arg\)/u);
   });
 
-  it("המסך גוזר מאותו nextSteps, והלחיצה שולחת את אותו משפט", () => {
-    expect(VOICE_PAGE).toMatch(/result\.nextSteps \?\? \[\]/u);
+  it("המסך גוזר מאותם צעדים, והלחיצה שולחת את אותו משפט", () => {
+    // הצעדים מגיעים דרך התוכנית המשותפת — מקטע steps, לא שליפה מקומית
+    expect(VOICE_PAGE).toMatch(/segment\.steps\.map\(\(step\) =>/u);
     // בצ'אט הלחיצה שולחת את המשפט כתור חדש — אותו מסלול כמו הקלדה
     expect(VOICE_PAGE).toMatch(/void send\(step\.text\)/u);
   });
 
-  it("suggestion הוא רשת ביטחון — מוצג רק כשאין צעד נגזר, בשני הערוצים", () => {
+  it("suggestion הוא רשת ביטחון — הכלל בתוכנית המשותפת, ושני הערוצים צורכים אותה", () => {
     /*
-     * שני מקורות מוצגים יחד = אותה עצה פעמיים בניסוחים שונים.
-     * בשני הערוצים ההצעה המנוסחת חיה בענף ה-else של הצעדים.
+     * „רק כשאין צעד נגזר” יושב עכשיו ב-`agentReplySegments` (עם
+     * בדיקת יחידה משלו) — שני מקורות יחד היו אותה עצה פעמיים.
+     * מה שנאכף כאן: שני הערוצים בונים את התשובה מהתוכנית, ואינם
+     * שולפים `suggestion` ישירות מהתוצאה להצגה.
      */
-    expect(WA).toMatch(/\} else if \(primary\.suggestion !== undefined/u);
-    expect(VOICE_PAGE).toMatch(
-      /\(result\.nextSteps \?\? \[\]\)\.length > 0 \? \([\s\S]*?\) : result\.suggestion === undefined/u,
-    );
+    expect(WA).toMatch(/agentReplySegments\(\{/u);
+    expect(VOICE_PAGE).toMatch(/agentReplySegments\(item\.result\)/u);
+    expect(VOICE_PAGE).not.toMatch(/result\.suggestion/u);
   });
 
   it("הבדיקה אכן קוראת את ארבעת הקבצים", () => {

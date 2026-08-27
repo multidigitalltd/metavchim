@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   agentHistorySummary,
+  agentReplySegments,
   agentResultRefs,
   agentTurnRefs,
   proposalRunsImmediately,
@@ -520,76 +521,91 @@ export default function AgentPage(): React.JSX.Element {
               </div>
             );
           }
-          // kind === "reply"
-          const { result } = item;
+          /*
+           * ‎**בועת תשובה — ההרכב והסדר מהתוכנית המשותפת.**
+           *
+           * ‎`agentReplySegments` מכתיב לשני הערוצים מה מופיע ומתי:
+           * מסקנה⟵תובנה⟵נתונים⟵קישורים⟵צעדים, ו-`suggestion` רק
+           * בהיעדר צעד נגזר. כאן רק הרינדור: כל מקטע לצורתו במסך.
+           * לחיצה על צעד שולחת את המשפט כתור חדש — אותו מסלול
+           * הבנה⟵אישור, כמו כפתור בוואטסאפ.
+           */
           return (
             <div key={item.id} className="mv-chat-bubble mv-chat-agent">
-              {result.message === "" ? null : (
-                <p className="m-0" style={{ whiteSpace: "pre-line" }}>
-                  {result.message}
-                </p>
-              )}
-              {/* התובנה לפני הרשימה: המסקנה קודם, הפירוט למי שרוצה */}
-              {result.insight === undefined ? null : (
-                <p
-                  className="mb-0 mt-2 rounded-lg px-3 py-2 text-[length:var(--type-body-sm)] font-semibold"
-                  style={{ background: "var(--color-primary-soft)" }}
-                >
-                  {result.insight}
-                </p>
-              )}
-              {result.data === undefined ? null : (
-                <div className="mt-2">
-                  <AgentResults data={result.data} />
-                </div>
-              )}
-              {/*
-                הניווט הוא הצעה, לא כפייה: בצ'אט הקישור מוצג תמיד
-                כשיש מסך מלא, והמעבר אליו הוא בחירה — לא זריקה
-                מהשיחה באמצע.
-              */}
-              <p className="m-0 mt-2 text-[length:var(--type-body-sm)]">
-                {result.href === undefined ? null : (
-                  <a href={result.href} className="underline">
-                    למסך המלא ←
-                  </a>
-                )}{" "}
-                {result.link === undefined ? null : (
-                  <a href={result.link} target="_blank" rel="noreferrer" className="underline">
-                    פתיחה בוואטסאפ ←
-                  </a>
-                )}
-              </p>
-              {/*
-                ‎**צעדי ההמשך — אותם כפתורים כמו בוואטסאפ, ומאותו מקור.**
-                לחיצה שולחת את המשפט כתור חדש בשיחה, דרך אותו מסלול
-                הבנה⟵אישור. `suggestion` — רשת הביטחון המנוסחת —
-                מוצג רק כשאין אף צעד נגזר, בדיוק כמו בוואטסאפ.
-              */}
-              {(result.nextSteps ?? []).length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {(result.nextSteps ?? []).map((step) => (
-                    <button
-                      key={step.text}
-                      type="button"
-                      className="mv-example-chip"
-                      disabled={busy}
-                      onClick={() => void send(step.text)}
-                    >
-                      {step.label} — „{step.text}”
-                    </button>
-                  ))}
-                </div>
-              ) : result.suggestion === undefined || result.suggestion === "" ? null : (
-                <button
-                  type="button"
-                  className="mv-example-chip mt-2"
-                  disabled={busy}
-                  onClick={() => void send(result.suggestion ?? "")}
-                >
-                  אפשר להמשיך: „{result.suggestion}”
-                </button>
-              )}
+              {agentReplySegments(item.result).map((segment, i) => {
+                switch (segment.kind) {
+                  case "headline":
+                    return (
+                      <p key={i} className="m-0" style={{ whiteSpace: "pre-line" }}>
+                        {segment.text}
+                      </p>
+                    );
+                  case "insight":
+                    return (
+                      <p
+                        key={i}
+                        className="mb-0 mt-2 rounded-lg px-3 py-2 text-[length:var(--type-body-sm)] font-semibold"
+                        style={{ background: "var(--color-primary-soft)" }}
+                      >
+                        {segment.text}
+                      </p>
+                    );
+                  case "data":
+                    return (
+                      <div key={i} className="mt-2">
+                        <AgentResults data={segment.data} />
+                      </div>
+                    );
+                  /*
+                   * הניווט הוא הצעה, לא כפייה: הקישור מוצג והמעבר
+                   * הוא בחירה — לא זריקה מהשיחה באמצע.
+                   */
+                  case "screen-link":
+                    return (
+                      <p key={i} className="m-0 mt-2 text-[length:var(--type-body-sm)]">
+                        <a href={segment.href} className="underline">
+                          למסך המלא ←
+                        </a>
+                      </p>
+                    );
+                  case "external-link":
+                    return (
+                      <p key={i} className="m-0 mt-2 text-[length:var(--type-body-sm)]">
+                        <a href={segment.url} target="_blank" rel="noreferrer" className="underline">
+                          פתיחה בוואטסאפ ←
+                        </a>
+                      </p>
+                    );
+                  case "steps":
+                    return (
+                      <div key={i} className="mt-2 flex flex-wrap gap-2">
+                        {segment.steps.map((step) => (
+                          <button
+                            key={step.text}
+                            type="button"
+                            className="mv-example-chip"
+                            disabled={busy}
+                            onClick={() => void send(step.text)}
+                          >
+                            {step.label} — „{step.text}”
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  case "suggestion":
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        className="mv-example-chip mt-2"
+                        disabled={busy}
+                        onClick={() => void send(segment.text)}
+                      >
+                        אפשר להמשיך: „{segment.text}”
+                      </button>
+                    );
+                }
+              })}
             </div>
           );
         })}
