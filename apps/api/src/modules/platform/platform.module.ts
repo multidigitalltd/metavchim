@@ -8,6 +8,8 @@ import { AccountDeletionService } from "../settings/account-deletion.service";
 import { AgentUsageController } from "./agent-usage.controller";
 import { AgentUsageService } from "./agent-usage.service";
 import { BackupsService } from "./backups.service";
+import { IntegrationDeskController } from "./integration-desk.controller";
+import { IntegrationDeskService } from "./integration-desk.service";
 import { PlatformController } from "./platform.controller";
 import { PlatformCreditsService } from "./platform-credits.service";
 import { ServiceVersionsService } from "./service-versions.service";
@@ -23,9 +25,14 @@ import { ServiceVersionsService } from "./service-versions.service";
   // MessagingModule — בדיקת חיבור הוואטסאפ של הסוכן האישי מהמסך
   // BillingModule — יצירת הצעות מנוי בלינק (SubscriptionOfferService)
   imports: [AuthModule, TelephonyModule, MessagingModule, BillingModule],
-  controllers: [PlatformController, AgentUsageController],
+  /*
+   * שולחן החיבורים בקונטרולר משלו: הגבול שלו הוא שהוא נוגע בטבלת
+   * החיבורים בלבד, ומבחן מבני קורא בדיוק את שני הקבצים האלה.
+   */
+  controllers: [PlatformController, AgentUsageController, IntegrationDeskController],
   providers: [
     BackupsService,
+    IntegrationDeskService,
     CardcomService,
     AccountDeletionService,
     ServiceVersionsService,
