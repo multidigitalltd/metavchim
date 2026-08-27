@@ -591,6 +591,16 @@ export const IconInbox = ({ s }: IconProps) => (
   </svg>
 );
 
+/** מחיקה — הפעולה היחידה ברשימה שאין ממנה חזרה. */
+export const IconTrash = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M4 6.5h16" />
+    <path d="M9.5 6.5V4.5h5v2" />
+    <path d="M6.5 6.5 7.5 20h9l1-13.5" />
+    <path d="M10.5 10v6M13.5 10v6" />
+  </svg>
+);
+
 /** התאמה שהמנוע מצא — מה שהופך פיד לרשימת פעולות. */
 export const IconTarget = ({ s }: IconProps) => (
   <svg {...svgProps(s)}>

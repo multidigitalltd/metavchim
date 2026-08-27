@@ -9,6 +9,8 @@ import {
   LeadIntentSchema,
   LeadStatusSchema,
   PhoneSchema,
+  leadDeletionKeepsContact,
+  type LeadDeletionScope,
   type Page,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
@@ -29,6 +31,12 @@ const CreateLeadSchema = z
   .strict();
 
 const StatusSchema = z.object({ status: LeadStatusSchema }).strict();
+
+const DeleteLeadSchema = z
+  .object({
+    scope: z.enum(["lead", "lead_and_contact"] satisfies [LeadDeletionScope, LeadDeletionScope]).optional(),
+  })
+  .strict();
 const NoteSchema = z.object({ content: z.string().min(1).max(2000) }).strict();
 
 const ConvertSchema = z
@@ -119,6 +127,12 @@ export class LeadsController {
   /**
    * מחיקת ליד לא רלוונטי. יכולת נפרדת מ-`leads.edit`, כמו במחיקת נכס.
    *
+   * `scope` הוא הבחירה של המוחק: `lead` מוחק את הפנייה ומשאיר את
+   * כרטיס הלקוח (ליד כפול, פנייה שנסגרה), ו-`lead_and_contact` מרשה
+   * גם לכרטיס לרדת אם לא נשאר לו קשר אחר במשרד (ספאם, טעות במספר).
+   * **בהיעדר הגוף — ההתנהגות ההיסטורית**, כדי שלקוח API ישן לא ישנה
+   * משמעות בשקט; המסך שולח בחירה מפורשת תמיד.
+   *
    * מחזיר גוף ולא 204 כדי שהמסך יוכל לומר אם גם כרטיס איש הקשר ירד —
    * זה מה שהמשתמש הכי רוצה לדעת מיד אחרי שלחץ.
    */
@@ -127,8 +141,9 @@ export class LeadsController {
   @HttpCode(200)
   async remove(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(DeleteLeadSchema)) body: z.infer<typeof DeleteLeadSchema>,
   ): Promise<{ contactDeleted: boolean }> {
-    return this.leads.remove(id);
+    return this.leads.remove(id, leadDeletionKeepsContact(body.scope ?? "lead_and_contact"));
   }
 
   @Post(":id/notes")

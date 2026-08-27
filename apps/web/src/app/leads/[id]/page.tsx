@@ -32,7 +32,9 @@ import {
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { ClickToDial } from "../../click-to-dial";
+import { ConfirmDialog } from "../../confirm-dialog";
 import { ContactPeople } from "../../contact-people";
+import { DeleteLeadDialog } from "../delete-lead-dialog";
 import { DictateFor } from "../../dictation-field";
 import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
@@ -561,27 +563,8 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
  */
 function DeleteLeadSection({ leadId, contactName }: { leadId: string; contactName: string }) {
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function remove() {
-    if (
-      !window.confirm(
-        `למחוק את הליד של ${contactName}?\n\nציר הזמן נמחק איתו, וגם כרטיס איש הקשר — אם אין לו קונה, נכס או ליד אחר במשרד. הפעולה אינה הפיכה.`,
-      )
-    ) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      await apiDelete(`/leads/${leadId}`);
-      router.push("/leads");
-    } catch (err: unknown) {
-      setError(err instanceof ApiError ? err.message : "המחיקה נכשלה");
-      setBusy(false);
-    }
-  }
+  const [open, setOpen] = useState(false);
+  const [outcome, setOutcome] = useState<string | null>(null);
 
   return (
     <section
@@ -593,13 +576,38 @@ function DeleteLeadSection({ leadId, contactName }: { leadId: string; contactNam
         מחיקת הליד
       </h2>
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
-        פנייה שאינה רלוונטית בכלל — ספאם, טעות במספר או משהו שאינו נדל"ן.
-        מחיקה מוציאה אותה מהמאגר; פגישות ושיחות מוקלטות שכבר נרשמו נשארות.
+        ליד כפול, פנייה שנסגרה, או ספאם וטעות במספר. בחלון אפשר לבחור
+        למחוק את הליד בלבד ולהשאיר את כרטיס הלקוח — או למחוק את שניהם.
       </p>
-      {error ? <Notice tone="danger">{error}</Notice> : null}
-      <Button variant="ghost" disabled={busy} onClick={() => void remove()}>
-        {busy ? "מוחק…" : "מחק ליד"}
+      <Button variant="ghost" onClick={() => setOpen(true)}>
+        מחק ליד
       </Button>
+
+      <DeleteLeadDialog
+        leadId={leadId}
+        contactName={contactName}
+        open={open}
+        onClose={() => setOpen(false)}
+        onDeleted={(message) => {
+          setOpen(false);
+          setOutcome(message);
+        }}
+      />
+
+      {/*
+        התוצאה נאמרת לפני היציאה מהמסך ולא אחריה: השאלה היחידה
+        שיש למוחק ברגע הזה היא "וגם הלקוח ירד?", ורשימת הלידים
+        שנפתחת מיד אינה עונה עליה.
+      */}
+      <ConfirmDialog
+        open={outcome !== null}
+        title="הליד נמחק"
+        confirmLabel="חזרה לרשימת הלידים"
+        cancelLabel={null}
+        onClose={() => router.push("/leads")}
+      >
+        <p className="text-[length:var(--type-body-sm)]">{outcome}</p>
+      </ConfirmDialog>
     </section>
   );
 }
