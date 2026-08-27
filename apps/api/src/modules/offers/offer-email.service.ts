@@ -328,11 +328,37 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
         break;
       }
       scanned += page.scanned;
-      cursor = page.cursor;
+
+      /*
+       * ‎**הסמן אינו עובר על מי שלא טופל.**
+       *
+       * הניסוח הראשון קידם את הסמן לסוף המנה וצבר את כולה. מנה עם
+       * 30 קונים זכאים נכנסה במלואה, `sweepTenant` שלח ל-20 הראשונים
+       * בלבד — והעשרה הנותרים דולגו עד שהסמן יסיים סיבוב שלם
+       * (ביקורת Codex). כלומר בדיוק ההרעבה שהסמן בא לפתור, בקנה מידה
+       * קטן יותר.
+       *
+       * ‎`deferred` נשבר על הקונה ה-21 בלבד: התאמה נוספת של קונה
+       * שכבר נאסף נכנסת, כי היא נשלחת באותו מייל ואינה מוסיפה נמען.
+       */
+      let lastTaken: string | undefined;
+      let deferred = false;
       for (const row of page.eligible) {
+        if (buyersFound.size >= MAX_BUYERS_PER_TENANT_SWEEP && !buyersFound.has(row.buyerId)) {
+          deferred = true;
+          break;
+        }
         eligible.push(row);
         buyersFound.add(row.buyerId);
+        lastTaken = row.matchId;
       }
+      /*
+       * נעצרנו באמצע — הסמן מצביע על השורה האחרונה **שנלקחה**, כדי
+       * שהסבב הבא יתחיל בדיוק מהקונה שנדחה. `lastTaken` ריק אפשרי
+       * רק אם המנה נעצרה על השורה הראשונה שלה, ואז הסמן נשאר כשהיה.
+       */
+      cursor = deferred ? (lastTaken ?? cursor) : page.cursor;
+      if (deferred) break;
     }
     if (scanned >= MAX_MATCH_SCAN_PER_SWEEP) {
       this.logger.log(

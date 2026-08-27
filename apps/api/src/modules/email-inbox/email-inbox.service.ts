@@ -15,7 +15,7 @@ import {
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
-import { EmailService } from "../../core/email.service";
+import { EmailRejectedError, EmailService } from "../../core/email.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
@@ -48,7 +48,7 @@ export interface InboxMessageDto {
   id: string;
   direction: string;
   /**
-   * ‎`pending` | `sent` | `failed` — ביוצאות בלבד.
+   * ‎`pending` | `sent` | `failed` | `unknown` — ביוצאות בלבד.
    *
    * מוחזר כדי שהמסך יוכל לומר „לא נשלחה”. תשובה שנכשלה ונראית
    * ככל השאר היא בדיוק התיעוד הכוזב שהשדה הזה נועד למנוע.
@@ -638,29 +638,56 @@ export class EmailInboxService {
       });
     } catch (error: unknown) {
       /*
-       * ‎**הרשומה נשארת ומסומנת „נכשלה”.** מחיקתה הייתה מחזירה
-       * בדיוק את המצב הקודם — הודעה שאולי יצאה ואין לה זכר. הסוכן
-       * רואה בתיבה שהתשובה לא יצאה, ומחליט מה לעשות.
+       * ‎**„נכשלה” רק כשידוע שלא יצאה.**
+       *
+       * ‎`EmailRejectedError` פירושו שהספק **ענה ודחה** — ההודעה
+       * בוודאות לא יצאה, ושליחה חוזרת בטוחה. כל השאר — פסק זמן,
+       * נפילת רשת, ‎5xx — הוא „איננו יודעים”: ייתכן שהספק קלט ושלח
+       * ורק התשובה אבדה.
+       *
+       * הניסוח הראשון סימן **הכול** „נכשלה”, והמסך אמר „לא נשלחה”.
+       * הסוכן היה שולח שוב, והלקוח מקבל את אותה הודעה פעמיים
+       * (ביקורת Codex).
+       *
+       * ‎**וזו בדיוק ההבחנה שבניתי בעצמי ב-`EmailService`** בסבב
+       * מוקדם יותר, על אותו שיקול בדיוק — ואז לא השתמשתי בה כאן.
+       * ‎„לא ידוע” אינו „לא”, וזה נכון גם כשאני זה שכתב את הכלל.
        */
+      const certainlyNotSent = error instanceof EmailRejectedError;
       await this.prisma
         .withTenant((tx) =>
           tx.emailMessage.updateMany({
             where: { id: messageId, tenantId },
-            data: { sendState: "failed" },
+            data: { sendState: certainlyNotSent ? "failed" : "unknown" },
           }),
         )
-        .catch(() => this.logger.error(`סימון תשובה שנכשלה נכשל: ${messageId}`));
+        .catch(() => this.logger.error(`סימון מצב תשובה נכשל: ${messageId}`));
       throw error;
     }
 
-    await this.prisma.withTenant(async (tx) => {
-      await tx.emailMessage.updateMany({
-        where: { id: messageId, tenantId },
-        data: { sendState: "sent" },
+    /*
+     * ‎**מכאן הלקוח כבר קיבל את ההודעה, ולכן אין יותר „נכשל”.**
+     *
+     * כשל בטרנזקציה הזו הוא כשל ב**תיעוד**, לא בשליחה. הזרקתו
+     * לקורא הייתה אומרת לסוכן שהתשובה לא יצאה — הוא היה שולח שוב,
+     * והלקוח מקבל אותה פעמיים (ביקורת Codex). הרשומה כבר קיימת
+     * ונושאת את הגוף המלא; מה שחסר הוא האישור ושורת הציר, ושניהם
+     * נרשמים ברעש כדי שיהיה אפשר להשלים ידנית.
+     */
+    try {
+      await this.prisma.withTenant(async (tx) => {
+        await tx.emailMessage.updateMany({
+          where: { id: messageId, tenantId },
+          data: { sendState: "sent" },
+        });
+        // הציר קובע „נשלחה תשובה”, ולכן הוא כאן ולא לפני השליחה
+        await this.recordReplyOnTimeline(tx, tenantId, contactId, body);
       });
-      // הציר קובע „נשלחה תשובה”, ולכן הוא כאן ולא לפני השליחה
-      await this.recordReplyOnTimeline(tx, tenantId, contactId, body);
-    });
+    } catch (error: unknown) {
+      this.logger.error(
+        `התשובה נשלחה ללקוח והתיעוד נכשל — ההודעה ${messageId} נשארה ממתינה: ${String(error)}`,
+      );
+    }
 
     // עותקי הקבצים נשמרים גם אצלנו — מה שנשלח ללקוח מופיע בשיחה,
     // מחוץ לטרנזקציה מאותה סיבה כמו בקליטה

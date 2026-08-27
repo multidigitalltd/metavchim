@@ -680,7 +680,10 @@ model EmailMessage {
   providerMessageId String?   @map("provider_message_id") @db.VarChar(200)
   readAt            DateTime? @map("read_at")
   readBy            String?   @map("read_by") @db.Char(26)
-  /// pending | sent | failed — על הודעות **יוצאות** בלבד; NULL בנכנסות.
+  /// pending | sent | failed | unknown — על הודעות **יוצאות** בלבד; NULL בנכנסות.
+  ///
+  /// `failed` נאמר רק כשהספק ענה ודחה. פסק זמן או 5xx הם `unknown`:
+  /// ייתכן שההודעה כן יצאה, ו„לא נשלחה” שם מזמין שליחה כפולה.
   ///
   /// הרשומה נכתבת `pending` **לפני** השליחה ומאושרת אחריה: שליחה היא
   /// פעולה בלתי הפיכה, וכתיבה אחריה משמעה שכשל בכתיבה מוחק כל זכר
