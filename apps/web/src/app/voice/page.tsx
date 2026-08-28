@@ -58,6 +58,8 @@ interface AgentCapability {
 interface HistoryTurn {
   transcript: string;
   action: string;
+  /** ‎`"assistant"` = תור דיווח שהסוכן יזם (התראה) — לא משפט של המתווך */
+  origin?: "user" | "assistant";
   params: Record<string, unknown>;
   resultSummary?: string;
   /**
@@ -101,13 +103,16 @@ type ChatItem =
   | { id: number; role: "user"; text: string }
   | { id: number; role: "agent"; kind: "reply"; result: ExecuteResult }
   | { id: number; role: "agent"; kind: "note"; tone: "info" | "danger"; text: string }
+  /** תור משוחזר מהשיחה השמורה — תקציר, בלי הנתונים המלאים */
+  | { id: number; role: "agent"; kind: "recap"; text: string }
   | {
       id: number;
       role: "agent";
       kind: "proposal";
       proposal: Proposal;
       transcript: string;
-      settled?: "confirmed" | "cancelled";
+      /** `superseded` — נענה בניסוח חדש בהודעה הבאה, לא בוטל */
+      settled?: "confirmed" | "cancelled" | "superseded";
     };
 
 let nextId = 1;
@@ -191,6 +196,45 @@ export default function AgentPage(): React.JSX.Element {
    * לפי ההרשאות, ולכן מי שאין לו הרשאת שליחה אינו רואה „שלח את
    * הדירה למשה”. שש נבחרות ולא כל הקטלוג — קיר צ'יפים איש אינו קורא.
    */
+  /*
+   * ‎**השיחה נמשכת — מהשרת, לא מאפס.**
+   *
+   * אותה שורה שהוואטסאפ כותב אליה: שיחה שהתחילה שם נמשכת כאן,
+   * ורענון הדף אינו מוחק את ההקשר. התורות השמורים נזרעים גם
+   * כזיכרון (ל„ומה עם רמת גן?”) וגם כבועות תקציר בראש השרשור —
+   * תקציר ולא התוצאה המלאה, כי רק הוא נשמר.
+   */
+  useEffect(() => {
+    if (authLoading) return;
+    apiGet<{ turns: HistoryTurn[] }>("/agent/conversation")
+      .then(({ turns }) => {
+        if (turns.length === 0) return;
+        setHistory(turns.slice(-6));
+        setThread((prev) => [
+          ...turns.flatMap((turn): ChatItem[] =>
+            /*
+             * תור התראה הוא דיווח של הסוכן („עדכנתי אותך על…”) —
+             * בועה אחת שלו; הצגתו כבועת מתווך הייתה שמה בפיו מילים
+             * שהוא לא אמר.
+             */
+            turn.origin === "assistant"
+              ? [{ id: itemId(), role: "agent", kind: "recap", text: turn.transcript }]
+              : [
+                  { id: itemId(), role: "user", text: turn.transcript },
+                  {
+                    id: itemId(),
+                    role: "agent",
+                    kind: "recap",
+                    text: turn.resultSummary ?? "בוצע.",
+                  },
+                ],
+          ),
+          ...prev,
+        ]);
+      })
+      .catch(() => undefined); // אין שיחה שמורה — מתחילים נקי
+  }, [authLoading]);
+
   useEffect(() => {
     if (authLoading) return;
     const FEATURED = [
@@ -233,16 +277,20 @@ export default function AgentPage(): React.JSX.Element {
       executed: ExecuteResult,
       refs: AgentHistoryRef[],
     ): void => {
-      setHistory((prev) => [
-        ...prev.slice(-5),
-        {
-          transcript: said,
-          action: actionId,
-          params: executedParams,
-          resultSummary: agentHistorySummary(executed.message, executed.data),
-          refs,
-        },
-      ]);
+      const turn: HistoryTurn = {
+        transcript: said,
+        action: actionId,
+        params: executedParams,
+        resultSummary: agentHistorySummary(executed.message, executed.data),
+        refs,
+      };
+      setHistory((prev) => [...prev.slice(-5), turn]);
+      /*
+       * התור נרשם גם לשיחה השמורה בשרת — זו שהוואטסאפ קורא. כשל
+       * ברישום אינו מפיל את השיחה שעל המסך: ההקשר המקומי כבר עודכן,
+       * ורק ההמשכיות בין הערוצים מפסידה תור אחד.
+       */
+      void apiPost("/agent/conversation/turn", turn).catch(() => undefined);
     },
     [],
   );
@@ -267,11 +315,48 @@ export default function AgentPage(): React.JSX.Element {
     [push, remember, speakOut],
   );
 
+  /** הצעה בשרשור הוכרעה — מסומנת, לא נמחקת. */
+  const markSettled = useCallback((id: number, settled: "confirmed" | "cancelled" | "superseded"): void => {
+    setThread((prev) =>
+      prev.map((item) =>
+        item.id === id && item.role === "agent" && item.kind === "proposal"
+          ? { ...item, settled }
+          : item,
+      ),
+    );
+  }, []);
+
   const send = useCallback(
     async (raw: string) => {
       const text = raw.trim();
       if (text.length < 2 || busy) return;
-      const prior = priorForRefine ?? undefined;
+      /*
+       * ‎**תשובה לשאלה פתוחה היא תיקון, לא בקשה חדשה.**
+       *
+       * כשהסוכן שאל — הציג מועמדים או ביקש הבהרה — וההודעה הבאה
+       * מגיעה בהקלדה, היא התשובה לשאלה: „הראשון”, „4 חדרים”. ההצעה
+       * הפתוחה נשלחת כ-prior כדי שהמודל ישלים אותה במקום להתחיל
+       * מאפס, והכרטיס הישן מסומן כ„נענה בהמשך” — כמו שהוואטסאפ
+       * עושה עם מצב ההמתנה שלו. שאלה סגורה (הצעה רגילה) אינה
+       * נגררת: משפט חדש עליה הוא באמת בקשה חדשה.
+       */
+      let prior = priorForRefine ?? undefined;
+      if (prior === undefined) {
+        const last = thread[thread.length - 1];
+        if (
+          last !== undefined &&
+          last.role === "agent" &&
+          last.kind === "proposal" &&
+          last.settled === undefined &&
+          (last.proposal.candidates !== undefined || last.proposal.clarify !== undefined)
+        ) {
+          prior = {
+            action: last.proposal.actionId,
+            params: Object.fromEntries(last.proposal.fields.map((f) => [f.key, f.value])),
+          };
+          markSettled(last.id, "superseded");
+        }
+      }
       setPriorForRefine(null);
       setTranscript("");
       push({ role: "user", text });
@@ -353,19 +438,9 @@ export default function AgentPage(): React.JSX.Element {
         setBusy(false);
       }
     },
-    [busy, history, priorForRefine, push, settle, speakOut],
+    [busy, history, markSettled, priorForRefine, push, settle, speakOut, thread],
   );
 
-  /** הצעה בשרשור הוכרעה — מסומנת, לא נמחקת. */
-  const markSettled = useCallback((id: number, settled: "confirmed" | "cancelled"): void => {
-    setThread((prev) =>
-      prev.map((item) =>
-        item.id === id && item.role === "agent" && item.kind === "proposal"
-          ? { ...item, settled }
-          : item,
-      ),
-    );
-  }, []);
 
   if (authLoading) return <p aria-live="polite">טוען…</p>;
 
@@ -485,6 +560,18 @@ export default function AgentPage(): React.JSX.Element {
               </div>
             );
           }
+          if (item.kind === "recap") {
+            // תקציר מהשיחה השמורה — מוקטן: מה שקרה, לא התוצאה המלאה
+            return (
+              <div
+                key={item.id}
+                className="mv-chat-bubble mv-chat-agent"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                <span style={{ whiteSpace: "pre-line" }}>{item.text}</span>
+              </div>
+            );
+          }
           if (item.kind === "note") {
             return (
               <div
@@ -501,6 +588,14 @@ export default function AgentPage(): React.JSX.Element {
               return (
                 <div key={item.id} className="mv-chat-bubble mv-chat-agent" style={{ color: "var(--color-text-muted)" }}>
                   „{item.proposal.title}” — בוטל.
+                </div>
+              );
+            }
+            if (item.settled === "superseded") {
+              // הסוכן שאל, והתשובה הגיעה בהודעה הבאה — לא ביטול
+              return (
+                <div key={item.id} className="mv-chat-bubble mv-chat-agent" style={{ color: "var(--color-text-muted)" }}>
+                  ✏️ „{item.proposal.title}” — נענה בהמשך השיחה.
                 </div>
               );
             }

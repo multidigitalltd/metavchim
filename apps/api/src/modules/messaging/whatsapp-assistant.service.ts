@@ -42,6 +42,12 @@ import {
   isHelpMessage,
 } from "./assistant-lang";
 import { looksLikeWhatsappLinkCode } from "@metavchim/shared";
+import {
+  lockConversation,
+  mergeTurns,
+  parseTurns,
+  turnsAsJson,
+} from "../agent/conversation";
 import { phoneDigitsCondition } from "./phone-match";
 import { helpMenu, welcomeExamples, type HelpAction } from "./assistant-help";
 import {
@@ -1261,7 +1267,8 @@ export class WhatsAppAssistantService {
     externalId: string,
   ): Promise<ChatState | null> {
     return this.prisma.withExplicitTenant(tenantId, async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`wa-chat:${tenantId}:${userId}`}, 0))`;
+      // אותה נעילה של כל כותבי השיחה — ראו agent/conversation.ts
+      await lockConversation(tx, tenantId, userId);
       const row = await tx.whatsAppChat.findUnique({
         where: { tenantId_userId: { tenantId, userId } },
         select: { pending: true, history: true, handledIds: true },
@@ -1280,12 +1287,9 @@ export class WhatsAppAssistantService {
         create: { id: ulid(), tenantId, userId, handledIds, lastInboundAt },
         update: { handledIds, lastInboundAt },
       });
-      const history = Array.isArray(row?.history)
-        ? (row.history as unknown as AgentHistoryTurn[])
-        : [];
       return {
         pending: (row?.pending as unknown as PendingState | null) ?? null,
-        history,
+        history: parseTurns(row?.history),
         added: [],
         handledIds,
       };
@@ -1330,22 +1334,18 @@ export class WhatsAppAssistantService {
   private async saveChat(tenantId: string, userId: string, chat: ChatState): Promise<void> {
     await this.prisma.withExplicitTenant(tenantId, async (tx) => {
       /*
-       * אותה נעילה של `claimMessage` ושל סורק ההתראות בוורקר —
-       * שלושתם כותבים לאותה עמודה, והיא מה שמסדר אותם בתור.
+       * אותה נעילה של `claimMessage`, של צ'אט המסך ושל סורק
+       * ההתראות בוורקר — כולם כותבים לאותה עמודה, והיא מה שמסדר
+       * אותם בתור. הנעילה, הפירוק והמיזוג משותפים — ראו
+       * ‎agent/conversation.ts: ניסוח מקומי כאן הוא מה שמפריד
+       * את הערוצים.
        */
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`wa-chat:${tenantId}:${userId}`}, 0))`;
+      await lockConversation(tx, tenantId, userId);
       const row = await tx.whatsAppChat.findUnique({
         where: { tenantId_userId: { tenantId, userId } },
         select: { history: true },
       });
-      const stored = Array.isArray(row?.history)
-        ? (row.history as unknown as AgentHistoryTurn[])
-        : [];
-      /*
-       * רק מה שהתור הזה הוסיף. ההיסטוריה מתווספת בסופה ואינה
-       * נערכת אחורה, ולכן החיבור הזה הוא מיזוג נכון ולא ניחוש.
-       */
-      const merged = [...stored, ...chat.added].slice(-HISTORY_KEPT);
+      const merged = mergeTurns(parseTurns(row?.history), chat.added);
       const data = {
         // Prisma דורש את הסמן המפורש ל-null בעמודת JSON — לא null גולמי
         ...(chat.keepStoredPending === true
@@ -1356,7 +1356,7 @@ export class WhatsAppAssistantService {
                   ? Prisma.JsonNull
                   : (chat.pending as unknown as Prisma.InputJsonValue),
             }),
-        history: merged as unknown as Prisma.InputJsonValue,
+        history: turnsAsJson(merged),
       };
       await tx.whatsAppChat.upsert({
         where: { tenantId_userId: { tenantId, userId } },

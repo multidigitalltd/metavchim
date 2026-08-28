@@ -47,8 +47,10 @@ import {
   type MarketingActionKind,
   type SpeakerTurn,
   type TranscriptSegment,
-  AGENT_HISTORY_KEPT,
   assistantMemoryTurn,
+  conversationLockKey,
+  mergeStoredTurns,
+  parseStoredTurns,
   formatNotifyMessage,
   inQuietHours,
   type AgentHistoryTurn,
@@ -2690,7 +2692,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
          * מזהה — כדי ששני סבבים מקבילים לא ייתפסו זה בזה.
          */
         for (const userId of [...remembered.keys()].sort()) {
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`wa-chat:${tenant.id}:${userId}`}, 0))`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${conversationLockKey(tenant.id, userId)}, 0))`;
         }
         const existing =
           remembered.size === 0
@@ -2702,7 +2704,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
         const historyOf = new Map(
           existing.map((row) => [
             row.userId,
-            Array.isArray(row.history) ? (row.history as unknown as AgentHistoryTurn[]) : [],
+            parseStoredTurns(row.history),
           ]),
         );
 
@@ -2711,7 +2713,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
           const history =
             turn === undefined
               ? null
-              : ([...(historyOf.get(userId) ?? []).slice(-(AGENT_HISTORY_KEPT - 1)), turn] as unknown);
+              : (mergeStoredTurns(historyOf.get(userId) ?? [], [turn]) as unknown);
           await tx.whatsAppChat.upsert({
             where: { tenantId_userId: { tenantId: tenant.id, userId } },
             create: {
