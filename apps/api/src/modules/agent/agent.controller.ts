@@ -16,6 +16,7 @@ import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AgentExecuteService, type ExecuteResult } from "./execute.service";
 import { AgentInterpretService } from "./interpret.service";
+import { AgentConversationService } from "./agent-conversation.service";
 import { AgentMemoryService } from "./agent-memory.service";
 import { AgentResolveService } from "./resolve.service";
 
@@ -47,6 +48,47 @@ import { AgentResolveService } from "./resolve.service";
  * פעולות הרסניות בקטלוג בכלל.
  */
 
+/**
+ * תור אחד בשיחה — הצורה המשותפת לשני השימושים: פריט ברשימת
+ * ה-history של `interpret`, והגוף של `POST conversation/turn`.
+ * הצהרה אחת, כדי שמה שהמסך שומר לשיחה יהיה בדיוק מה שהוא רשאי
+ * לשלוח כהקשר.
+ */
+const TurnSchema = z
+  .object({
+    transcript: z.string().trim().min(1).max(4000),
+    /*
+     * ‎`"notify"` לצד פעולות הקטלוג: סורק ההתראות כותב לשיחה תורות
+     * דיווח (`assistantMemoryTurn`), והמסך מחזיר את השיחה השמורה
+     * כהקשר. סכימה שמכירה רק את הקטלוג דחתה כל בקשה שאחד מששת
+     * התורות שלה היה התראה — 400 על השיחה כולה (ביקורת Codex, P1).
+     */
+    action: z.enum([...AGENT_ACTION_IDS, "notify"] as unknown as [string, ...string[]]),
+    /** מי יזם את התור — תור התראה נושא `"assistant"` */
+    origin: z.enum(["user", "assistant"]).optional(),
+    params: z.record(z.string(), z.unknown()),
+    resultSummary: z.string().max(AGENT_RESULT_SUMMARY_MAX).optional(),
+    /*
+     * ההפניות לרשומות שהוצגו בתור ההוא — התווית והמזהה.
+     *
+     * **המזהה אינו מרחיב את מה שהדפדפן יכול לעשות:** פרמטרי
+     * הפעולה מגיעים ממנו ממילא, ובעלות נאכפת בפעולה עצמה. מה
+     * שהוא כן עושה הוא לפתור „הראשון מהם” בלי חיפוש טקסט —
+     * ולכן גם כשהתווית היא רישא של שם ארוך (ביקורת Codex).
+     */
+    refs: z
+      .array(
+        z.object({
+          label: z.string().trim().min(1).max(AGENT_RESULT_LABEL_MAX),
+          entityType: z.enum(["lead", "buyer", "property", "task"]),
+          entityId: z.string().length(26),
+        }),
+      )
+      .max(AGENT_RESULT_ROWS)
+      .optional(),
+  })
+  .strict();
+
 const InterpretSchema = z
   .object({
     transcript: z.string().trim().min(2).max(4000),
@@ -62,35 +104,7 @@ const InterpretSchema = z
      * המסך שולח את מה שבוצע בפועל, לא את מה שרק הוצע; שישה תורות
      * מספיקים לשיחה ומונעים פרומפט שמתנפח בלי סוף.
      */
-    history: z
-      .array(
-        z.object({
-          transcript: z.string().trim().min(1).max(4000),
-          action: z.enum(AGENT_ACTION_IDS as unknown as [string, ...string[]]),
-          params: z.record(z.string(), z.unknown()),
-          resultSummary: z.string().max(AGENT_RESULT_SUMMARY_MAX).optional(),
-          /*
-           * ההפניות לרשומות שהוצגו בתור ההוא — התווית והמזהה.
-           *
-           * **המזהה אינו מרחיב את מה שהדפדפן יכול לעשות:** פרמטרי
-           * הפעולה מגיעים ממנו ממילא, ובעלות נאכפת בפעולה עצמה. מה
-           * שהוא כן עושה הוא לפתור „הראשון מהם” בלי חיפוש טקסט —
-           * ולכן גם כשהתווית היא רישא של שם ארוך (ביקורת Codex).
-           */
-          refs: z
-            .array(
-              z.object({
-                label: z.string().trim().min(1).max(AGENT_RESULT_LABEL_MAX),
-                entityType: z.enum(["lead", "buyer", "property", "task"]),
-                entityId: z.string().length(26),
-              }),
-            )
-            .max(AGENT_RESULT_ROWS)
-            .optional(),
-        }),
-      )
-      .max(6)
-      .optional(),
+    history: z.array(TurnSchema).max(6).optional(),
   })
   .strict();
 
@@ -115,7 +129,37 @@ export class AgentController {
     private readonly resolve: AgentResolveService,
     private readonly executor: AgentExecuteService,
     private readonly memory: AgentMemoryService,
+    private readonly conversations: AgentConversationService,
   ) {}
+
+  /**
+   * ‎**השיחה השמורה — אותה שיחה כמו בוואטסאפ.**
+   *
+   * המסך קורא אותה בפתיחה, ולכן שיחה שהתחילה בוואטסאפ נמשכת במסך
+   * ולהפך; רענון הדף אינו מוחק את ההקשר. חוזרים התורות שבוצעו —
+   * התמלול, התקציר וההפניות — בלי טלפונים ובלי תוכן חופשי, בדיוק
+   * מה שממילא מותר לחזור לפרומפט כהקשר.
+   */
+  @Get("conversation")
+  @AnyAuthenticated()
+  async conversation(): Promise<{ turns: AgentHistoryTurn[] }> {
+    return { turns: await this.conversations.turns() };
+  }
+
+  /**
+   * רישום תור שבוצע — המסך כותב לשיחה מה שקרה בו, כמו שהוואטסאפ
+   * כותב בסבב ההודעה. אותו TurnSchema של ההקשר: מה שנשמר הוא
+   * בדיוק מה שמותר לחזור.
+   */
+  @Post("conversation/turn")
+  @HttpCode(200)
+  @AnyAuthenticated()
+  async appendTurn(
+    @Body(new ZodValidationPipe(TurnSchema)) body: z.infer<typeof TurnSchema>,
+  ): Promise<{ ok: true }> {
+    await this.conversations.append(body as AgentHistoryTurn);
+    return { ok: true };
+  }
 
   /** מה הסוכן יודע לעשות עבור המשתמש הזה — למסך הדוגמאות. */
   @Get("capabilities")
