@@ -19,7 +19,7 @@ import {
   waMeUrl,
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
-import { IconChat, IconEdit, IconPhone } from "../../icons";
+import { IconCalendar, IconChat, IconEdit, IconPhone } from "../../icons";
 import { NetworkShareSection } from "../../network-share-section";
 import { NetworkPropertyMatches } from "../network-property-matches";
 import { TimelineSection } from "./timeline-section";
@@ -383,6 +383,21 @@ export default function BuyerDetailPage({
             phone={buyer.contact.phone}
             label="מהמרכזייה"
           />
+          {/*
+            ‎**קביעת סיור מצד הלקוח.**
+
+            עד כה הכפתור היה קיים רק בכרטיס הנכס, ולכן הסיור נקבע
+            תמיד מהכיוון של „איזה נכס” — בזמן שהעבודה היומית של
+            מתווך מתחילה מ„עם מי”. מכאן הלקוח כבר מקושר, וטופס
+            הפגישה מבקש רק את הנכס (או פותח נכס חדש ומחזיר לכאן).
+          */}
+          <Link
+            href={`/calendar/new?buyerId=${id}&kind=viewing`}
+            className="mv-btn-plain"
+            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+          >
+            <IconCalendar s={14} /> קביעת סיור
+          </Link>
           <Link
             href={`/buyers/${id}/edit`}
             className="mv-btn-plain"

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
-import type { CustomFeature } from "@metavchim/shared";
+import { Suspense, useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { safeReturnPath, withQuery, type CustomFeature } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { FormSection } from "../../form-section";
 import { apiPost, ApiError } from "@/lib/api";
@@ -58,9 +58,19 @@ function parseCustomFeatures(raw: FormDataEntryValue | null): CustomFeature[] {
   }
 }
 
-export default function NewPropertyPage() {
+function NewPropertyForm() {
   useRequireAuth();
   const router = useRouter();
+  /*
+   * ‎**מאיפה הגיעו לכאן, וכשיש לאן — לשם חוזרים.**
+   *
+   * טופס הפגישה שולח לכאן את מי שגילה באמצע שהנכס עוד אינו במערכת,
+   * ומצפה לקבל אותו חזרה עם הנכס מקושר. הנתיב עובר דרך
+   * ‎`safeReturnPath`: פרמטר הפניה שאינו נבדק הוא open redirect,
+   * וכאן הוא היה מנחית סוכן טרי על מסך של מישהו אחר.
+   */
+  const params = useSearchParams();
+  const returnTo = safeReturnPath(params.get("returnTo"));
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   /*
@@ -147,7 +157,12 @@ export default function NewPropertyPage() {
             }
           : {}),
       });
-      router.replace(`/properties/${created.id}`);
+      router.replace(
+        returnTo === null
+          ? `/properties/${created.id}`
+          : // חזרה לטופס הפגישה עם הנכס שזה עתה נקלט כבר מקושר
+            withQuery(returnTo, "propertyId", created.id),
+      );
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "שמירת הנכס נכשלה");
       setSubmitting(false);
@@ -159,6 +174,9 @@ export default function NewPropertyPage() {
       <h1 className="mb-2 text-2xl font-bold">נכס חדש</h1>
       <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
         מלאו מה שידוע — המערכת תסמן מה חסר להשלמה. (קליטה בקול תתווסף בקרוב)
+        {returnTo === null
+          ? ""
+          : " אחרי השמירה נחזור לטופס הפגישה, והנכס כבר יהיה מקושר אליה."}
       </p>
 
       <form onSubmit={onSubmit} noValidate>
@@ -503,5 +521,15 @@ export default function NewPropertyPage() {
         </div>
       </form>
     </div>
+  );
+}
+
+export default function NewPropertyPage() {
+  // ‎`useSearchParams` דורש גבול Suspense, אחרת כל המסלול יוצא
+  // מהרינדור המוקדם
+  return (
+    <Suspense fallback={<p aria-live="polite">טוען…</p>}>
+      <NewPropertyForm />
+    </Suspense>
   );
 }

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
+import { safeReturnPath, withQuery } from "@metavchim/shared";
 import { apiPost, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../dictation-field";
@@ -17,9 +18,19 @@ function normalizePhone(raw: string): string {
   return digits;
 }
 
-export default function NewLeadPage() {
+function NewLeadForm() {
   useRequireAuth();
   const router = useRouter();
+  /*
+   * ‎**מאיפה הגיעו לכאן, וכשיש לאן — לשם חוזרים.**
+   *
+   * טופס הפגישה שולח לכאן את מי שגילה באמצע שהלקוח עוד אינו
+   * במערכת, ומצפה לקבל אותו חזרה עם הליד מקושר. הנתיב עובר דרך
+   * ‎`safeReturnPath`: פרמטר הפניה שאינו נבדק הוא open redirect,
+   * וכאן הוא היה מנחית סוכן טרי על מסך של מישהו אחר.
+   */
+  const params = useSearchParams();
+  const returnTo = safeReturnPath(params.get("returnTo"));
   const [error, setError] = useState<string | null>(null);
   // הפנייה מוזגה לליד פתוח של סוכן אחר — אין לאן לנווט (view_own), רק מיידעים
   const [mergedNotice, setMergedNotice] = useState(false);
@@ -39,9 +50,20 @@ export default function NewLeadPage() {
         summary: String(f.get("summary") ?? "").trim() || undefined,
       });
       if (created.merged && created.visible === false) {
-        // הליד הפתוח שייך לסוכן אחר — הפנייה נוספה אצלו והוא קיבל התראה
+        /*
+         * הליד הפתוח שייך לסוכן אחר — הפנייה נוספה אצלו והוא קיבל
+         * התראה. **אין ליד לחזור אליו**, ולכן גם אין חזרה אוטומטית:
+         * הודעה שנעלמת אחרי חצי שנייה בדרך למסך אחר היא הודעה
+         * שאיש לא קרא, ומי שקבע סיור היה חוזר עם ליד מקושר שאינו
+         * שלו.
+         */
         setMergedNotice(true);
         setSubmitting(false);
+        return;
+      }
+      if (returnTo !== null) {
+        // חזרה לטופס הפגישה עם הליד שזה עתה נוצר כבר מקושר
+        router.replace(withQuery(returnTo, "leadId", created.id));
         return;
       }
       // ליד פתוח כבר קיים לאיש הקשר — השרת מיזג את הפנייה אליו במקום לפצל
@@ -54,7 +76,12 @@ export default function NewLeadPage() {
 
   return (
     <div className="mx-auto max-w-lg">
-      <h1 className="mb-6 text-2xl font-bold">ליד חדש</h1>
+      <h1 className="mb-2 text-2xl font-bold">ליד חדש</h1>
+      {returnTo === null ? null : (
+        <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
+          אחרי השמירה נחזור לטופס הפגישה, והליד כבר יהיה מקושר אליה.
+        </p>
+      )}
       <form onSubmit={onSubmit} noValidate>
         {mergedNotice ? (
           <Notice tone="success">ℹ️ לאיש הקשר כבר יש ליד פתוח אצל סוכן אחר במשרד — הפנייה נוספה לציר הזמן של הליד שלו והוא קיבל
@@ -108,5 +135,15 @@ export default function NewLeadPage() {
         </div>
       </form>
     </div>
+  );
+}
+
+export default function NewLeadPage() {
+  // ‎`useSearchParams` דורש גבול Suspense, אחרת כל המסלול יוצא
+  // מהרינדור המוקדם
+  return (
+    <Suspense fallback={<p aria-live="polite">טוען…</p>}>
+      <NewLeadForm />
+    </Suspense>
   );
 }
