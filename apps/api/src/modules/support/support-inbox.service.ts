@@ -11,12 +11,8 @@ import {
   EMAIL_ATTACHMENT_MAX_COUNT,
   EMAIL_OUTBOUND_ATTACHMENT_TOTAL_BYTES,
   emailAttachmentKind,
-  autoReplyReason,
   inboundBody,
-  inboundDestination,
-  inboundHeaders,
   inboundProviderMessageId,
-  inboundReturnPath,
   inboundToken,
   isProviderInboundRoute,
   parseSenderEmail,
@@ -36,7 +32,6 @@ import { EmailRejectedError, EmailService } from "../../core/email.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
-import { EmailInboxService } from "../email-inbox/email-inbox.service";
 
 /**
  * תיבת התמיכה של הפלטפורמה.
@@ -79,15 +74,6 @@ export class SupportInboxService {
     private readonly email: EmailService,
     private readonly storage: StorageService,
     private readonly settings: PlatformSettingsService,
-    /*
-     * ‎**התיבה הכללית מכירה גם את הזרם השני.**
-     *
-     * מרגע שכל הדואר של הדומיין נכנס בדלת אחת, ההודעות של שני
-     * הזרמים מגיעות לכאן — וטוקן של תשובת לקוח שייפול לתמיכה הוא
-     * הודעה פרטית של לקוח על שולחן מנהלי הפלטפורמה. המסירה כאן
-     * היא מה שמונע את זה.
-     */
-    private readonly tenantInbox: EmailInboxService,
   ) {}
 
   /** כתובת ה-Inbound של תיבת התמיכה, והסוד שבנתיב ה-Webhook. */
@@ -154,56 +140,20 @@ export class SupportInboxService {
     const token = inboundToken(payload);
 
     /*
-     * ‎**מה שמכונה שלחה אינו פנייה.**
+     * ‎**הניתוב אינו כאן.** `InboundMailService` כבר הכריע שההודעה
+     * הזאת שייכת לתמיכה — הוא זה שמכיר את שני היעדים, ולכן גם
+     * סינון המענים האוטומטיים יושב שם: הודעת אי-מסירה אינה פנייה
+     * לתמיכה **וגם** אינה תשובת לקוח.
      *
-     * תיבה כללית על דומיין שלם מקבלת „מחוץ למשרד”, הודעות אי-מסירה
-     * ואישורי קריאה. כל אחת מהן הייתה פותחת פנייה עם מספר משלה,
-     * ובבוקר השולחן מלא בפניות שאיש לא כתב — ובתוכן נבלעות
-     * האמיתיות. וגרוע מזה: מענה אוטומטי לתשובה שלנו יוצר לולאה.
+     * מה שנשאר כאן הוא השאלה הפנימית: לאיזה שרשור.
      */
-    const automated = autoReplyReason({
-      subject: payload.Subject ?? "",
-      headers: inboundHeaders(payload),
-      returnPath: inboundReturnPath(payload),
-      fromEmail: senderEmail ?? undefined,
-    });
-    if (automated !== null) {
-      this.logger.log(`הודעה נכנסת לא פתחה פנייה: ${automated}`);
-      return;
-    }
-
-    /*
-     * ‎**הניתוב בין שני הזרמים.** הכרעה אחת, ב-shared, עם בדיקות —
-     * ולא תנאי שנכתב פעמיים בשני שירותים שיסטו זה מזה.
-     */
-    const [supportThread, tenantToken] =
+    const supportThread =
       token === null
-        ? [null, null]
-        : await Promise.all([
-            this.prisma.supportThread.findUnique({
-              where: { replyToken: token },
-              select: { id: true, tenantId: true },
-            }),
-            this.prisma.emailReplyToken.findUnique({
-              where: { id: token },
-              select: { id: true },
-            }),
-          ]);
-
-    const destination = inboundDestination({
-      supportThread: supportThread !== null,
-      tenantToken: tenantToken !== null,
-    });
-
-    if (destination.kind === "drop") {
-      this.logger.error(`הודעה נכנסת נזרקה: ${destination.reason}`);
-      return;
-    }
-    if (destination.kind === "tenant_reply") {
-      // תשובת לקוח של משרד — לא פנייה לתמיכה
-      await this.tenantInbox.processInbound(payload);
-      return;
-    }
+        ? null
+        : await this.prisma.supportThread.findUnique({
+            where: { replyToken: token },
+            select: { id: true, tenantId: true },
+          });
 
     const thread = await this.resolveThread({
       token,

@@ -16,6 +16,7 @@ import { CalendarModule } from "./modules/calendar/calendar.module";
 import { EmailInboxModule } from "./modules/email-inbox/email-inbox.module";
 import { GmailModule } from "./modules/gmail/gmail.module";
 import { CoachModule } from "./modules/coach/coach.module";
+import { InboundMailModule } from "./modules/inbound-mail/inbound-mail.module";
 import { SupportModule } from "./modules/support/support.module";
 import { PayoutsModule } from "./modules/payouts/payouts.module";
 import { CollaborationModule } from "./modules/collaboration/collaboration.module";
@@ -90,6 +91,7 @@ import { AgentModule } from "./modules/agent/agent.module";
     AnalyticsModule,
     CoachModule,
     SupportModule,
+    InboundMailModule,
     PayoutsModule,
     ImportModule,
     SearchModule,
