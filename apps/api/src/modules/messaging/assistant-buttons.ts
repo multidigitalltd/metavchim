@@ -28,6 +28,12 @@ export interface AgentReply {
   text: string;
   /** גוף קצר יותר לגרסת הכפתורים — בלי „השיבו *אשר*” המיותר שם */
   buttonBody?: string;
+  /**
+   * מה מוקרא בתשובה קולית — המסקנה והתובנה בלבד, בלי רשימות
+   * וקישורים שאי אפשר לשמוע. הטקסט כבר עבר את שומר העובדות;
+   * ההקראה אינה מסלול תוכן חדש.
+   */
+  speak?: string;
   buttons?: WhatsAppButton[];
   list?: { label: string; rows: WhatsAppListRow[] };
   /**

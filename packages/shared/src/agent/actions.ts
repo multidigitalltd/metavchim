@@ -416,6 +416,13 @@ const F_SUPPORT_MESSAGE: AgentFieldSpec = {
   maxLength: 2000,
 };
 
+const F_VOICE_REPLIES: AgentFieldSpec = {
+  key: "voiceReplies",
+  label: "תשובות בקול",
+  type: "boolean",
+  hint: "רק כשנאמר „תמיד תענה לי בקול” (true) או „תפסיק לענות בקול” (false)",
+};
+
 const F_PROPERTIES_ORDER: AgentFieldSpec = {
   key: "propertiesOrder",
   label: "סדר הנכסים",
@@ -1508,15 +1515,15 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
      */
     id: "set_preference",
     title: "העדפה קבועה",
-    when: "בקשת „תמיד” על התנהגות הסוכן — למשל תמיד להציג נכסים בסדר מסוים. לא לבקשה חד-פעמית על תשובה אחת.",
+    when: "בקשת „תמיד” על התנהגות הסוכן — סדר הצגת נכסים, או תשובות בקול בוואטסאפ. לא לבקשה חד-פעמית על תשובה אחת.",
     examples: [
       "תמיד תציג לי נכסים מהזול ליקר",
       "תמיד תראה את הנכסים החדשים קודם",
-      "תציג תמיד מהיקר לזול",
+      "תמיד תענה לי בהודעה קולית",
     ],
     capability: "properties.view",
     risk: "update",
-    fields: [F_PROPERTIES_ORDER],
+    fields: [F_PROPERTIES_ORDER, F_VOICE_REPLIES],
   },
 ];
 

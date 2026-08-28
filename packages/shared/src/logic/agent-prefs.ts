@@ -23,6 +23,8 @@ export const PROPERTY_ORDER_LABELS: Record<PropertyOrder, string> = {
 export interface AgentPrefs {
   /** סדר תוצאות הנכסים — undefined = ברירת המחדל (חדשים קודם) */
   propertiesOrder?: PropertyOrder;
+  /** „תמיד תענה לי בקול” — תשובת הסוכן בוואטסאפ מגיעה גם כהודעה קולית */
+  voiceReplies?: boolean;
 }
 
 /** ‎`preferences.agent` ⟵ העדפות. צורה לא מוכרת = ברירות מחדל. */
@@ -30,8 +32,14 @@ export function parseAgentPrefs(preferences: unknown): AgentPrefs {
   if (typeof preferences !== "object" || preferences === null) return {};
   const agent = (preferences as Record<string, unknown>)["agent"];
   if (typeof agent !== "object" || agent === null) return {};
-  const order = (agent as Record<string, unknown>)["propertiesOrder"];
-  return (PROPERTY_ORDER_VALUES as readonly unknown[]).includes(order)
-    ? { propertiesOrder: order as PropertyOrder }
-    : {};
+  const record = agent as Record<string, unknown>;
+  const order = record["propertiesOrder"];
+  return {
+    ...((PROPERTY_ORDER_VALUES as readonly unknown[]).includes(order)
+      ? { propertiesOrder: order as PropertyOrder }
+      : {}),
+    ...(typeof record["voiceReplies"] === "boolean"
+      ? { voiceReplies: record["voiceReplies"] }
+      : {}),
+  };
 }

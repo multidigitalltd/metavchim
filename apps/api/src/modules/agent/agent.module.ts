@@ -78,6 +78,6 @@ import { AgentResolveService } from "./resolve.service";
     AgentPrefsService,
   ],
   // הסוכן האישי בוואטסאפ מדבר עם אותו מנוע בדיוק — לא מסלול מקביל
-  exports: [AgentInterpretService, AgentResolveService, AgentExecuteService],
+  exports: [AgentInterpretService, AgentResolveService, AgentExecuteService, AgentPrefsService],
 })
 export class AgentModule {}
