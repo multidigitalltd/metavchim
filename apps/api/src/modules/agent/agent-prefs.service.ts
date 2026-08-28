@@ -1,5 +1,4 @@
 import { Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
 import { parseAgentPrefs, type AgentPrefs } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
@@ -28,25 +27,25 @@ export class AgentPrefsService {
     return parseAgentPrefs(user?.preferences);
   }
 
+  /**
+   * ‎**עדכון jsonb במשפט אחד, לא קריאה-ואז-כתיבה.** RMW בצד הלקוח
+   * תחת READ COMMITTED דורס כתיבה מקבילה לאותה עמודה — לשונית
+   * נגישות פתוחה או „אל תציג יותר” באותו רגע היו נמחקים בשקט
+   * (ביקורת Codex). `jsonb_set` נוגע בתת-המפתח `agent` בלבד, ושאר
+   * העמודה נשאר כפי שהכותב האחר השאיר אותו — אותו דפוס בדיוק כמו
+   * ‎`dismissPanel`.
+   */
   async set(patch: AgentPrefs): Promise<AgentPrefs> {
     const { userId } = TenantContext.current();
-    return this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.findUnique({
-        where: { id: userId },
-        select: { preferences: true },
-      });
-      const current =
-        typeof user?.preferences === "object" && user.preferences !== null
-          ? (user.preferences as Record<string, unknown>)
-          : {};
-      const merged = { ...parseAgentPrefs(current), ...patch };
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          preferences: { ...current, agent: merged } as unknown as Prisma.InputJsonValue,
-        },
-      });
-      return merged;
-    });
+    await this.prisma.$executeRaw`
+      UPDATE users
+      SET preferences = jsonb_set(
+        COALESCE(preferences, '{}'::jsonb),
+        '{agent}',
+        COALESCE(preferences->'agent', '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb
+      )
+      WHERE id = ${userId}
+    `;
+    return this.get();
   }
 }
