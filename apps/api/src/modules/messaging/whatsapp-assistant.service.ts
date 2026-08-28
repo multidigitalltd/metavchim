@@ -48,6 +48,9 @@ import {
   parseTurns,
   turnsAsJson,
 } from "../agent/conversation";
+import { AgentPrefsService } from "../agent/agent-prefs.service";
+import { GeminiService } from "../../core/gemini.service";
+import { toWhatsAppAudio } from "./audio-transcode";
 import { phoneDigitsCondition } from "./phone-match";
 import { helpMenu, welcomeExamples, type HelpAction } from "./assistant-help";
 import {
@@ -213,6 +216,8 @@ export class WhatsAppAssistantService {
     private readonly resolver: AgentResolveService,
     private readonly executor: AgentExecuteService,
     private readonly links: WhatsAppLinkService,
+    private readonly gemini: GeminiService,
+    private readonly agentPrefs: AgentPrefsService,
   ) {}
 
   /**
@@ -392,12 +397,19 @@ export class WhatsAppAssistantService {
     }
     const text = spoken.text ?? "";
 
+    const wasVoice = "transcribed" in spoken && spoken.transcribed === true;
     const reply = await TenantContext.run(context, () =>
-      this.converse(user, chat, text, "transcribed" in spoken && spoken.transcribed === true),
+      this.converse(user, chat, text, wasVoice),
     );
+    /*
+     * ‎**תשובה באותו מטבע.** מי שדיבר — שומע: הודעה קולית נכנסת, או
+     * העדפת „תמיד תענה לי בקול”, מוסיפות לתשובה גם הודעה קולית.
+     * הטקסט והכפתורים נשלחים תמיד לצדה — כפתור אי אפשר לשמוע.
+     */
+    const voiced = await TenantContext.run(context, () => this.withSpokenReply(reply, wasVoice));
 
     await this.saveChat(user.tenantId, user.id, chat);
-    await this.deliver(msg, reply);
+    await this.deliver(msg, voiced);
   }
 
   /**
@@ -407,13 +419,57 @@ export class WhatsAppAssistantService {
    * חזרה לטקסט המלא מבטיחה שהמתווך תמיד מקבל תשובה שאפשר לפעול
    * לפיה, גם אם בהקלדה במקום בלחיצה.
    */
+  /**
+   * ‎**התשובה הקולית — best-effort, אף פעם לא במקום הטקסט.**
+   *
+   * מוקרא רק `reply.speak` — המסקנה והתובנה שכבר עברו את שומר
+   * העובדות. הקלטת שיחה שכבר מצורפת גוברת: שתי הודעות שמע באותה
+   * תשובה הן רעש. כל כשל — TTS, המרה — משאיר את התשובה כטקסט.
+   */
+  private async withSpokenReply(reply: AgentReply, wasVoice: boolean): Promise<AgentReply> {
+    if (reply.audio !== undefined) return reply;
+    if (reply.speak === undefined || reply.speak.trim() === "") return reply;
+    const wanted = wasVoice || (await this.agentPrefs.get()).voiceReplies === true;
+    if (!wanted) return reply;
+    const wav = await this.gemini.speak(reply.speak);
+    if (wav === null) return reply;
+    const audio = await toWhatsAppAudio(wav, "audio/wav");
+    if (audio === null) return reply;
+    return {
+      ...reply,
+      audio: { buffer: audio.body, mimeType: audio.mimeType, label: "התשובה בקול" },
+    };
+  }
+
   private async deliver(msg: AssistantInbound, reply: AgentReply): Promise<void> {
     /*
      * הקלטה נשלחת אחרי הטקסט ולא במקומו: הטקסט אומר של מי השיחה
      * ומתי, וקובץ שמע שמגיע לבד אינו אומר דבר.
      */
-    if (reply.audio !== undefined) {
+    /*
+     * ‎**הטקסט/כפתורים קודם, השמע אחריו — לא במקומו.**
+     *
+     * עד עכשיו תשובה עם שמע (הקלטת שיחה) ויתרה על הכפתורים. מרגע
+     * שגם התשובה עצמה יכולה להיות קולית, השמע הוא תוספת: הכפתורים
+     * וצעדי ההמשך נשלחים כרגיל, וההודעה הקולית מצטרפת אחריהם.
+     */
+    const body = reply.buttonBody ?? reply.text;
+    let textDelivered = false;
+    if (reply.buttons && reply.buttons.length > 0) {
+      textDelivered = await this.sender.sendButtons(msg.fromWaId, body, reply.buttons);
+    } else if (reply.list && reply.list.rows.length > 0) {
+      textDelivered = await this.sender.sendList(
+        msg.fromWaId,
+        body,
+        reply.list.label,
+        reply.list.rows,
+      );
+    }
+    if (!textDelivered) {
       await this.sender.sendText(msg.fromWaId, reply.text, { replyTo: msg.externalId });
+    }
+
+    if (reply.audio !== undefined) {
       const sent = await this.sender.sendAudio(
         msg.fromWaId,
         reply.audio.buffer,
@@ -422,26 +478,17 @@ export class WhatsAppAssistantService {
       );
       /*
        * `sendAudio` מחזירה false ואינה זורקת — דחייה של Meta או צד
-       * יוצא שאינו מוגדר. בלי הבדיקה הזו המתווך היה מקבל „ההקלטה
-       * מ-14:20” ואז שקט, בלי לדעת אם היא בדרך (ביקורת Codex).
+       * יוצא שאינו מוגדר. על הקלטה זה מצריך הסבר וקישור (המתווך
+       * חיכה לה); על תשובה קולית — לא: הטקסט המלא כבר אצלו, ושורת
+       * „לא הצלחתי להקריא” הייתה רעש על תוספת נוחות.
        */
-      if (!sent) {
+      if (!sent && reply.audio.href !== undefined) {
         await this.sender.sendText(
           msg.fromWaId,
-          `🎧 לא הצלחתי לשלוח את ההקלטה לכאן. היא זמינה במסך השיחות: ${loadEnv().WEB_ORIGIN}${reply.audio.href ?? "/calls"}`,
+          `🎧 לא הצלחתי לשלוח את ההקלטה לכאן. היא זמינה במסך השיחות: ${loadEnv().WEB_ORIGIN}${reply.audio.href}`,
         );
       }
-      return;
     }
-    const body = reply.buttonBody ?? reply.text;
-    if (reply.buttons && reply.buttons.length > 0) {
-      if (await this.sender.sendButtons(msg.fromWaId, body, reply.buttons)) return;
-    } else if (reply.list && reply.list.rows.length > 0) {
-      if (await this.sender.sendList(msg.fromWaId, body, reply.list.label, reply.list.rows)) {
-        return;
-      }
-    }
-    await this.sender.sendText(msg.fromWaId, reply.text, { replyTo: msg.externalId });
   }
 
   /**
@@ -777,7 +824,8 @@ export class WhatsAppAssistantService {
       if (isCancelMessage(text)) {
         const took = await this.takePending(user.tenantId, user.id, pending.token);
         this.consumed(chat, took);
-        return { text: took ? "❌ בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול." };
+        const answer = took ? "בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול.";
+        return { text: took ? `❌ ${answer}` : answer, speak: answer };
       }
       if (pending.awaiting === "choice") {
         const options = pending.proposal.candidates?.options ?? [];
@@ -789,7 +837,7 @@ export class WhatsAppAssistantService {
             // שאילתה — הבחירה היא כל מה שחסר; הצריכה אטומית, מבצע יחיד
             const took = await this.takePending(user.tenantId, user.id, pending.token);
             this.consumed(chat, took);
-            if (!took) return { text: "הבקשה כבר טופלה." };
+            if (!took) return { text: "הבקשה כבר טופלה.", speak: "הבקשה כבר טופלה." };
             took.extraParams[idKey] = option.id;
             return this.runProposal(chat, took);
           }
@@ -817,7 +865,7 @@ export class WhatsAppAssistantService {
             next,
           );
           chat.keepStoredPending = true;
-          if (!advanced) return { text: STALE_PROPOSAL_TEXT };
+          if (!advanced) return { text: STALE_PROPOSAL_TEXT, speak: STALE_PROPOSAL_TEXT };
           chat.pending = next;
           const chosenBody = [
             `נבחר: ${option.label}${option.detail ? ` (${option.detail})` : ""}.`,
@@ -828,6 +876,8 @@ export class WhatsAppAssistantService {
             text: `${chosenBody}\n\n✅ לביצוע — *אשר* · ❌ לביטול — *בטל*`,
             buttonBody: chosenBody,
             buttons: confirmButtons(next.token),
+            // השם בלי ה-detail — הפרט מהמאגר יכול לשאת טלפון
+            speak: `נבחר ${option.label}. ${this.spokenProposal(next.proposal)}. לביצוע אמרו אשר.`,
           };
         }
       }
@@ -839,7 +889,10 @@ export class WhatsAppAssistantService {
          */
         const took = await this.takePending(user.tenantId, user.id, pending.token);
         this.consumed(chat, took);
-        if (!took) return { text: "הפעולה כבר בוצעה או בוטלה — אין הצעה ממתינה." };
+        if (!took) {
+          const answer = "הפעולה כבר בוצעה או בוטלה — אין הצעה ממתינה.";
+          return { text: answer, speak: answer };
+        }
         return this.runProposal(chat, took);
       }
       /*
@@ -885,10 +938,15 @@ export class WhatsAppAssistantService {
 
     if (proposal.actionId === "unknown") {
       // ברכה/שאלה כללית — תשובה שיחתית, לא "לא הבנתי" יבש
-      if (proposal.reply !== undefined && proposal.reply !== "") return { text: proposal.reply };
-      const lines = [proposal.clarify ?? "לא הצלחתי להבין מה לעשות — נסו לנסח אחרת."];
+      if (proposal.reply !== undefined && proposal.reply !== "") {
+        // תשובה שיחתית קצרה — מוקראת כולה בתשובה קולית
+        return { text: proposal.reply, speak: proposal.reply };
+      }
+      const clarify = proposal.clarify ?? "לא הצלחתי להבין מה לעשות — נסו לנסח אחרת.";
+      const lines = [clarify];
       for (const warning of proposal.warnings) lines.push(`⚠️ ${warning}`);
-      return { text: lines.join("\n") };
+      // מוקראת השאלה עצמה — האזהרות נשארות בטקסט
+      return { text: lines.join("\n"), speak: clarify };
     }
 
     const candidates = proposal.candidates;
@@ -903,12 +961,11 @@ export class WhatsAppAssistantService {
      */
     if (candidates && candidates.options.length === 0) {
       chat.pending = null;
-      return {
-        text:
-          candidates.reason === "unsaid"
-            ? `לא הבנתי ${candidates.label}. כתבו לי את השם ואמשיך מכאן.`
-            : `לא מצאתי רשומה מתאימה — ${candidates.label}. אפשר לנסח אחרת או לבדוק את השם.`,
-      };
+      const answer =
+        candidates.reason === "unsaid"
+          ? `לא הבנתי ${candidates.label}. כתבו לי את השם ואמשיך מכאן.`
+          : `לא מצאתי רשומה מתאימה — ${candidates.label}. אפשר לנסח אחרת או לבדוק את השם.`;
+      return { text: answer, speak: answer };
     }
     if (candidates && candidates.options.length > 0) {
       const token = ulid();
@@ -937,6 +994,11 @@ export class WhatsAppAssistantService {
         text: `${lines.join("\n")}\n\n🔢 השיבו עם המספר המתאים · ❌ לביטול — *בטל*`,
         buttonBody: header,
         ...choiceVariant(rows),
+        /*
+         * מוקראת רק השאלה — לא האפשרויות: הפרטים שלהן מגיעים מהמאגר
+         * ויכולים לשאת טלפון, והבחירה ממילא נעשית מול המסך.
+         */
+        speak: `${proposal.title} — ${candidates.label}. שלחתי רשימה לבחירה, אפשר לענות במספר.`,
       };
     }
 
@@ -960,6 +1022,8 @@ export class WhatsAppAssistantService {
       text: `${description}\n\n✅ לביצוע — *אשר* · ❌ לביטול — *בטל* · ✏️ לתיקון פשוט כתבו אותו`,
       buttonBody: `${description}\n\n✏️ לתיקון — פשוט כתבו מה לשנות`,
       buttons: confirmButtons(state.token),
+      // כרטיס אישור הוא התשובה הנפוצה ביותר — מי שדיבר שומע גם אותו
+      speak: `${this.spokenProposal(proposal)}. לביצוע אמרו אשר, לביטול בטל.`,
     };
   }
 
@@ -991,7 +1055,7 @@ export class WhatsAppAssistantService {
   private async runProposal(
     chat: ChatState,
     state: PendingState,
-  ): Promise<Pick<AgentReply, "text" | "audio" | "buttons" | "buttonBody">> {
+  ): Promise<Pick<AgentReply, "text" | "speak" | "audio" | "buttons" | "buttonBody">> {
     const params = this.paramsOf(state);
     let primary: ExecuteResult;
     try {
@@ -1002,7 +1066,9 @@ export class WhatsAppAssistantService {
         "whatsapp",
       );
     } catch (error) {
-      return { text: `⚠️ „${state.proposal.title}” לא בוצע: ${errorMessage(error)}` };
+      // גם הכישלון מדובר — שתיקה אחרי „אשר” קולי גרועה מכל תשובה
+      const failure = `„${state.proposal.title}” לא בוצע: ${errorMessage(error)}`;
+      return { text: `⚠️ ${failure}`, speak: failure };
     }
 
     /*
@@ -1217,6 +1283,16 @@ export class WhatsAppAssistantService {
      * הכפתורים — כשיש צעדים ואין שמע. הודעת שמע נשלחת בנפרד ואינה
      * אינטראקטיבית, וגוף ארוך מהתקרה ממילא נופל לטקסט ב-`deliver`.
      */
+    /*
+     * מה מוקרא בתשובה קולית: המסקנה והתובנה — המקטעים שעוזר היה
+     * אומר בקול. רשימות, קישורים וצעדים נשארים בטקסט: אי אפשר
+     * ללחוץ על משפט מוקרא.
+     */
+    const speak = segments
+      .filter((segment) => segment.kind === "headline" || segment.kind === "insight")
+      .map((segment) => segment.text)
+      .join(". ");
+
     const stepButtons: WhatsAppButton[] = steps.map((step) => ({
       action: "cmd",
       arg: step.text,
@@ -1224,11 +1300,31 @@ export class WhatsAppAssistantService {
     }));
     return {
       text: lines.join("\n"),
+      ...(speak === "" ? {} : { speak }),
       ...(audio === undefined ? {} : { audio }),
       ...(stepButtons.length > 0 && audio === undefined
         ? { buttons: stepButtons, buttonBody: lines.join("\n") }
         : {}),
     };
+  }
+
+  /**
+   * ההצעה כמו שאומרים אותה בקול — בלי כוכביות, אימוג'י ותבליטים.
+   *
+   * מוקרא רק מה שהמתווך עצמו אמר (השדות שפוענחו מהמשפט שלו) ומה
+   * שהסוכן שואל — לא פרטי מועמדים מהמאגר, שיכולים לשאת טלפון.
+   */
+  private spokenProposal(proposal: AgentProposal): string {
+    const parts = [proposal.title];
+    if (proposal.summary !== "") parts.push(proposal.summary);
+    const fields = proposal.fields.map((field) => `${field.label}: ${field.display}`);
+    if (fields.length > 0) parts.push(fields.join(", "));
+    if (proposal.missing.length > 0) {
+      parts.push(`חסר להשלמה: ${proposal.missing.map((m) => m.label).join(", ")}`);
+    }
+    for (const warning of proposal.warnings) parts.push(warning);
+    if (proposal.clarify !== undefined) parts.push(proposal.clarify);
+    return parts.join(". ");
   }
 
   /** ההצעה כפי שהמסך היה מציג אותה — כותרת, שדות, חוסרים ואזהרות. */

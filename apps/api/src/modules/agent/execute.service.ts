@@ -1910,12 +1910,28 @@ export class AgentExecuteService {
    */
   private async setPreference(params: Record<string, unknown>): Promise<ExecuteResult> {
     const order = str(params["propertiesOrder"]);
-    if (order === undefined || !(PROPERTY_ORDER_VALUES as readonly string[]).includes(order)) {
-      throw new BadRequestException("אמרו איזו העדפה לקבוע — למשל „תמיד תציג מהזול ליקר”");
+    const validOrder =
+      order !== undefined && (PROPERTY_ORDER_VALUES as readonly string[]).includes(order);
+    const voice = params["voiceReplies"];
+    const patch = {
+      ...(validOrder ? { propertiesOrder: order as PropertyOrder } : {}),
+      ...(typeof voice === "boolean" ? { voiceReplies: voice } : {}),
+    };
+    if (Object.keys(patch).length === 0) {
+      throw new BadRequestException(
+        "אמרו איזו העדפה לקבוע — למשל „תמיד תציג מהזול ליקר” או „תמיד תענה לי בקול”",
+      );
     }
-    await this.prefs.set({ propertiesOrder: order as PropertyOrder });
+    await this.prefs.set(patch);
+    const said: string[] = [];
+    if (validOrder) {
+      said.push(`מהיום אציג נכסים ${PROPERTY_ORDER_LABELS[order as PropertyOrder]}`);
+    }
+    if (typeof voice === "boolean") {
+      said.push(voice ? "אענה גם בהודעה קולית בוואטסאפ" : "אפסיק לענות בקול");
+    }
     return {
-      message: `נרשם — מהיום אציג נכסים ${PROPERTY_ORDER_LABELS[order as PropertyOrder]}. אפשר לשנות בכל רגע, למשל „תמיד תראה את החדשים קודם”.`,
+      message: `נרשם — ${said.join(", ו")}. אפשר לשנות בכל רגע.`,
     };
   }
 

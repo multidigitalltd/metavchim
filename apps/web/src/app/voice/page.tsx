@@ -141,6 +141,13 @@ export default function AgentPage(): React.JSX.Element {
    * ל"ומה עם…" בלי לנפח את הפרומפט.
    */
   const [history, setHistory] = useState<HistoryTurn[]>([]);
+  /**
+   * השיחה השמורה נטענה (או שאין כזו) — רק אז מותר למשפט מהדשבורד
+   * לרוץ. שליחה לפני הטעינה הייתה רצה בלי ההקשר השמור, ו„ומה עם
+   * רמת גן?” הראשון היה מאבד את ההמשכיות שבשבילה נכנסים לצ'אט
+   * (ביקורת Codex).
+   */
+  const [conversationLoaded, setConversationLoaded] = useState(false);
   // "כדאי לטפל היום" — הסוכן פותח ביוזמה, לא רק ממתין לפקודה
   const [recs, setRecs] = useState<Recommendation[]>([]);
   const [busy, setBusy] = useState(false);
@@ -232,7 +239,8 @@ export default function AgentPage(): React.JSX.Element {
           ...prev,
         ]);
       })
-      .catch(() => undefined); // אין שיחה שמורה — מתחילים נקי
+      .catch(() => undefined) // אין שיחה שמורה — מתחילים נקי
+      .finally(() => setConversationLoaded(true));
   }, [authLoading]);
 
   useEffect(() => {
@@ -440,6 +448,38 @@ export default function AgentPage(): React.JSX.Element {
     },
     [busy, history, markSettled, priorForRefine, push, settle, speakOut, thread],
   );
+
+  /*
+   * ‎**שורת הדשבורד פותחת את הצ'אט עם המשפט** — `/voice?q=…`.
+   *
+   * הפרמטר נקרא ונמחק מהכתובת מיד (רענון לא ישלח אותו שוב), אבל
+   * המשפט עצמו ממתין ב-state עד שהשיחה השמורה נטענה — ורק אז נשלח,
+   * כדי ש-`send` ייסגר על ההיסטוריה האמיתית ולא על הריקה (ביקורת
+   * Codex). קריאה מ-`window.location` ולא מ-`useSearchParams`,
+   * שדורש גבול Suspense על כל העמוד בשביל קריאה חד-פעמית.
+   */
+  const [bootQuery, setBootQuery] = useState<string | null>(null);
+  const bootRef = useRef(false);
+  useEffect(() => {
+    if (bootRef.current) return;
+    bootRef.current = true;
+    try {
+      const q = new URLSearchParams(window.location.search).get("q");
+      if (q !== null && q.trim().length >= 2) {
+        window.history.replaceState(null, "", "/voice");
+        setBootQuery(q);
+      }
+    } catch {
+      /* דפדפן בלי URL API — פשוט צ'אט ריק */
+    }
+  }, []);
+  useEffect(() => {
+    if (authLoading || !conversationLoaded || bootQuery === null) return;
+    // האיפוס לפני השליחה — ריצה חוזרת של האפקט לא תשלח שוב
+    setBootQuery(null);
+    void send(bootQuery);
+  }, [authLoading, conversationLoaded, bootQuery, send]);
+
 
 
   if (authLoading) return <p aria-live="polite">טוען…</p>;
