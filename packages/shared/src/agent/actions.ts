@@ -86,6 +86,7 @@ export const AGENT_ACTION_IDS = [
   "send_email",
   "send_message",
   "open_support_ticket",
+  "set_preference",
 ] as const;
 
 export type AgentActionId = (typeof AGENT_ACTION_IDS)[number];
@@ -413,6 +414,22 @@ const F_SUPPORT_MESSAGE: AgentFieldSpec = {
   type: "string",
   hint: "תיאור הבעיה או הבקשה, כפי שנאמר",
   maxLength: 2000,
+};
+
+const F_VOICE_REPLIES: AgentFieldSpec = {
+  key: "voiceReplies",
+  label: "תשובות בקול",
+  type: "boolean",
+  hint: "רק כשנאמר „תמיד תענה לי בקול” (true) או „תפסיק לענות בקול” (false)",
+};
+
+const F_PROPERTIES_ORDER: AgentFieldSpec = {
+  key: "propertiesOrder",
+  label: "סדר הנכסים",
+  type: "enum",
+  hint: "רק כשנאמר „תמיד” — העדפת קבע, לא בקשה חד-פעמית",
+  values: ["newest", "price_asc", "price_desc"],
+  valueLabels: { newest: "החדשים קודם", price_asc: "מהזול ליקר", price_desc: "מהיקר לזול" },
 };
 
 const F_MATURITY: AgentFieldSpec = {
@@ -1486,6 +1503,27 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capabilityAlts: ["buyers.view_own", "properties.view", "calendar.manage"],
     risk: "create",
     fields: [F_SUPPORT_KIND, F_SUPPORT_MESSAGE],
+  },
+  {
+    /*
+     * ‎**„תמיד” הוא הוראת קבע — והסוכן זוכר אותה.**
+     *
+     * העדפה נשמרת בפרופיל המשתמש (`preferences.agent`) וחלה מכאן
+     * והלאה בשני הערוצים, כי הביצוע אחד. `update` ולא `read`:
+     * שינוי העדפה הוא כתיבה, והמתווך רואה בכרטיס בדיוק מה ישתנה
+     * לפני שהוא מאשר.
+     */
+    id: "set_preference",
+    title: "העדפה קבועה",
+    when: "בקשת „תמיד” על התנהגות הסוכן — סדר הצגת נכסים, או תשובות בקול בוואטסאפ. לא לבקשה חד-פעמית על תשובה אחת.",
+    examples: [
+      "תמיד תציג לי נכסים מהזול ליקר",
+      "תמיד תראה את הנכסים החדשים קודם",
+      "תמיד תענה לי בהודעה קולית",
+    ],
+    capability: "properties.view",
+    risk: "update",
+    fields: [F_PROPERTIES_ORDER, F_VOICE_REPLIES],
   },
 ];
 

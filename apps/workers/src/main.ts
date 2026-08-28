@@ -49,6 +49,7 @@ import {
   type TranscriptSegment,
   assistantMemoryTurn,
   conversationLockKey,
+  dailyBriefBody,
   mergeStoredTurns,
   parseStoredTurns,
   formatNotifyMessage,
@@ -1278,14 +1279,29 @@ async function processDailyBrief(): Promise<void> {
           },
           select: { userId: true },
         }),
-        tx.appointment.groupBy({
-          by: ["createdBy"],
+        /*
+         * ‎**היומן של מי — `ownerUserId`, לא מי שהקליד.**
+         *
+         * הספירה הקודמת קיבצה לפי `createdBy`, והסכימה עצמה מזהירה
+         * שזה אינו אותו דבר: פגישה שמנהל קובע לסוכן שייכת ליומן של
+         * הסוכן — והדו"ח שלה הופיע אצל המנהל. שורות ולא groupBy,
+         * כי הדו"ח אומר עכשיו גם **מתי הראשונה ומה היא** — תדריך,
+         * לא מונה. היום של משרד אחד קטן ממילא, והמיון מהמסד.
+         */
+        /*
+         * בלי תקרה, בכוונה: `take` היה משמיט בשקט את הפגישות
+         * המאוחרות של יום עמוס — ספירה חסרה, ומי שכל פגישותיו אחרי
+         * החיתוך נשאר בלי דו"ח (ביקורת Codex). התוצאה תחומה ממילא
+         * ביום אחד של משרד אחד, והשדות מינימליים.
+         */
+        tx.appointment.findMany({
           where: {
             tenantId: tenant.id,
             status: "scheduled",
             startsAt: { gte: start, lte: end },
           },
-          _count: { _all: true },
+          orderBy: { startsAt: "asc" },
+          select: { ownerUserId: true, createdBy: true, startsAt: true, kind: true },
         }),
         tx.task.groupBy({
           by: ["assignedToUserId"],
@@ -1299,9 +1315,20 @@ async function processDailyBrief(): Promise<void> {
         }),
       ]);
       const alreadySent = new Set(sentToday.map((n) => n.userId));
-      const meetingsBy = new Map(
-        meetingRows.map((r) => [r.createdBy, r._count._all]),
-      );
+      const meetingsBy = new Map<
+        string | null,
+        { count: number; first?: { startsAt: Date; kind: string } }
+      >();
+      for (const row of meetingRows) {
+        const owner = row.ownerUserId ?? row.createdBy;
+        const entry = meetingsBy.get(owner) ?? { count: 0 };
+        entry.count += 1;
+        // הרשימה ממוינת עולה — הראשונה שנראית היא המוקדמת ביותר
+        if (entry.first === undefined) {
+          entry.first = { startsAt: row.startsAt, kind: row.kind };
+        }
+        meetingsBy.set(owner, entry);
+      }
       const tasksBy = new Map(
         taskRows.map((r) => [r.assignedToUserId, r._count._all]),
       );
@@ -1320,35 +1347,23 @@ async function processDailyBrief(): Promise<void> {
       }[] = [];
       for (const user of users) {
         if (alreadySent.has(user.id)) continue;
-        const meetings = meetingsBy.get(user.id) ?? 0;
+        const meetings = meetingsBy.get(user.id) ?? { count: 0 };
         const tasks = tasksBy.get(user.id) ?? 0;
         // לידים יתומים מוצגים לבעלים — הם האחראים כשאין משויך
         const waitingLeads =
           (leadsBy.get(user.id) ?? 0) +
           (user.role === "owner" ? orphanLeads : 0);
-        if (meetings === 0 && tasks === 0 && waitingLeads === 0) continue;
-
-        const parts: string[] = [];
-        if (meetings > 0)
-          parts.push(
-            meetings === 1 ? "פגישה אחת היום" : `${meetings} פגישות היום`,
-          );
-        if (tasks > 0)
-          parts.push(tasks === 1 ? "משימה אחת להיום" : `${tasks} משימות להיום`);
-        if (waitingLeads > 0)
-          parts.push(
-            waitingLeads === 1
-              ? "ליד אחד ממתין למענה"
-              : `${waitingLeads} לידים ממתינים למענה`,
-          );
+        // הניסוח בחבילה המשותפת — טקסט של הסוכן חי במקום אחד
+        const brief = dailyBriefBody({ meetings, tasks, waitingLeads });
+        if (brief === null) continue;
 
         rows.push({
           id: ulid(),
           tenantId: tenant.id,
           userId: user.id,
           type: "daily_brief",
-          title: '☀️ דו"ח בוקר',
-          body: `${parts.join(" · ")} — הדשבורד מחכה לכם.`,
+          title: brief.title,
+          body: brief.body,
         });
       }
       if (rows.length > 0) await tx.notification.createMany({ data: rows });

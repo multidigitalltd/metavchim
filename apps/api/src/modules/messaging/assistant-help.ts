@@ -85,7 +85,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
     label: "רשת המשרדים",
     ids: ["share_property", "share_buyer", "show_demands", "show_deals"],
   },
-  { label: "עזרה", ids: ["open_support_ticket"] },
+  { label: "עזרה", ids: ["open_support_ticket", "set_preference"] },
 ];
 
 /** מיוצאת לבדיקת הכיסוי בלבד — התפריט עצמו נבנה מ-`helpMenu`. */
