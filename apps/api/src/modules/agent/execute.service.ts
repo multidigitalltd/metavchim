@@ -473,6 +473,13 @@ export class AgentExecuteService {
     if (!INSIGHT_ACTIONS.has(actionId)) return result;
     if (result.data === undefined || transcript === undefined) return result;
     /*
+     * תובנה שהקוד כבר כתב — למשל „10 מהם יפוגו ב-…” של יתרת
+     * הקרדיטים — אינה מוחלפת בניסוח של מודל: היא דטרמיניסטית,
+     * מדויקת, ונשענת על נתונים (תאריך הפקיעה) שהמודל כלל אינו
+     * מקבל. הקריאה נחסכת, והמשפט החשוב נשאר (ביקורת Codex).
+     */
+    if (result.insight !== undefined) return result;
+    /*
      * אין תוצאות — אין קריאה. ההודעה כבר אומרת שלא נמצא דבר, ותובנה
      * על רשימה ריקה אינה שווה את הקריאה השנייה ל-Gemini שהיא עולה
      * (בקשת המשתמש: להוזיל כל הפעלה בלי לפגוע באיכות).
@@ -1731,6 +1738,25 @@ export class AgentExecuteService {
     const propertyId = str(params["propertyId"]);
     if (card === null && propertyId === undefined) {
       throw new BadRequestException("לא זיהיתי איזו פגישה — אמרו עם מי היא או באיזה נכס");
+    }
+    /*
+     * ‎**מפתח שנאמר ולא נפתר עוצר — לא מושמט.** „הסיור עם משה בדירה
+     * ברמת גן” שבו אחד המפתחות לא זוהה אסור שימשיך על המפתח שנשאר:
+     * זו הייתה בחירת פגישה לפי מה שנשאר אחרי שהמתווך אמר אחרת
+     * (ביקורת Codex). הבורר חוסם את זה לפני האישור; כאן הרשת
+     * האחרונה, לכל ערוץ.
+     */
+    const buyerPhrase = str(params["buyerPhrase"])?.trim() ?? "";
+    if (card === null && buyerPhrase.length >= 2) {
+      throw new BadRequestException(
+        `לא זיהיתי את „${buyerPhrase}” — אמרו את השם כפי שמופיע בכרטיס`,
+      );
+    }
+    const propertyPhrase = str(params["propertyPhrase"])?.trim() ?? "";
+    if (propertyId === undefined && propertyPhrase.length >= 2) {
+      throw new BadRequestException(
+        `לא זיהיתי את הנכס „${propertyPhrase}” — נסו לפי הרחוב או שם השיווק`,
+      );
     }
     const tenantId = TenantContext.current().tenantId;
     const rows = await this.prisma.withTenant((tx) =>

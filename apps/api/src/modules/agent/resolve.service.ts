@@ -417,7 +417,7 @@ export class AgentResolveService {
      * את הפעולה השכיחה ביותר לבלתי אפשרית.
      */
     if (typeof phrase !== "string" || phrase.trim().length < 2) {
-      if (spec.optional) return {};
+      if (spec.optional || spec.optionalIfUnsaid) return {};
       return {
         candidates: {
           key: spec.key,
@@ -776,6 +776,14 @@ interface LookupSpec {
    * לכמה — הפעולה ממשיכה בלי קישור, עם אזהרה גלויה.
    */
   optional?: boolean;
+  /**
+   * ‎**רשות רק כשלא נאמר.** ביטוי שלא נאמר כלל אינו חוסם — יש
+   * מפתח אחר לרשומה. אבל ביטוי **שנאמר** חייב להיפתר: לא נמצא או
+   * מתאים לכמה ⟵ בורר/עצירה, לא השמטה שקטה. ההבדל מ-`optional`
+   * הוא בדיוק זה — פעולה שמשנה רשומה קיימת אסור שתבחר אותה לפי
+   * מה שנשאר אחרי שהמפתח שנאמר הושלך (ביקורת Codex).
+   */
+  optionalIfUnsaid?: boolean;
 }
 
 const ENTITY_LOOKUP: Record<
@@ -880,16 +888,18 @@ const ENTITY_LOOKUP: Record<
   },
   /*
    * דחייה ועדכון פגישה — הפגישה מזוהה לפי הלקוח **או** לפי הנכס
-   * („תזיז את הסיור בדירה ברמת גן”). כל אחד מהם רשות, אבל הביצוע
-   * נעצר עם הסבר כשאין אף אחד מהם: בלי מפתח אין דרך לדעת על איזו
-   * פגישה מדובר. הפגישה עצמה נבחרת בביצוע לפי הכיוון בזמן.
+   * („תזיז את הסיור בדירה ברמת גן”). הלקוח הוא רשות רק כשלא נאמר
+   * (`optionalIfUnsaid`): שם שנאמר ולא נפתר פותח בורר או נעצר, כי
+   * השמטה שקטה הייתה מזיזה את הפגישה של הלקוח הלא נכון לפי הנכס
+   * שנשאר. הנכס שנאמר ולא נפתר נעצר בביצוע — ראו `appointmentOf`.
+   * הפגישה עצמה נבחרת בביצוע לפי הכיוון בזמן.
    */
   reschedule_appointment: {
     key: "buyerPhrase",
     idKey: "cardId",
     label: "עם מי הפגישה",
     kind: "card",
-    optional: true,
+    optionalIfUnsaid: true,
     also: {
       key: "propertyPhrase",
       idKey: "propertyId",
@@ -903,7 +913,7 @@ const ENTITY_LOOKUP: Record<
     idKey: "cardId",
     label: "עם מי הפגישה",
     kind: "card",
-    optional: true,
+    optionalIfUnsaid: true,
     also: {
       key: "propertyPhrase",
       idKey: "propertyId",
@@ -1093,6 +1103,7 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   schedule_appointment: ["startsAt"],
   reschedule_appointment: ["startsAt"],
   send_message: ["messageBody"],
+  message_owner: ["messageBody"],
   open_support_ticket: ["supportMessage"],
   create_task: ["title"],
   /*
