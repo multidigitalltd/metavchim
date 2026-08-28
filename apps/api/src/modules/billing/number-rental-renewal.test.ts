@@ -111,6 +111,8 @@ function build(mode: ChargeMode): {
   const vat = {
     percent: async () => 18,
     gross: async (net: number) => grossFromNet(net, 18),
+    // הסכום **והשיעור שלפיו נבנה** — השיעור נצרב על שורת התשלום
+    charge: async (net: number) => ({ amountAgorot: grossFromNet(net, 18), vatPercent: 18 }),
   } as unknown as VatService;
   return {
     svc: new NumberRentalRenewalService(prisma, invoices, cardcom, crypto, email, rentals, vat),

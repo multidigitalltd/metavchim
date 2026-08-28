@@ -243,7 +243,7 @@ export class BillingService {
      * ולכן שורת החשבונית נושאת את אותו מספר שכתוב במחירון.
      */
     const netAgorot = discountedAgorot(fullAgorot, percentOff);
-    const amountAgorot = await this.vat.gross(netAgorot);
+    const { amountAgorot, vatPercent } = await this.vat.charge(netAgorot);
 
     /*
      * **תשלום פתוח אחד לכל משרד.**
@@ -313,6 +313,7 @@ export class BillingService {
         planCode: plan!.code,
         billingCycle: cycle,
         amountAgorot,
+        vatPercent,
         status: "pending",
         // מציין מקום עד שקארדקום מחזיר מזהה אמיתי. הוא ייחודי כי הוא
         // מזהה השורה עצמה, והעמודה חייבת ערך.
@@ -381,7 +382,7 @@ export class BillingService {
     if (netAgorot < 1) {
       throw new BadRequestException("מחיר הקרדיטים אינו מוגדר — יש לפנות למנהל הפלטפורמה");
     }
-    const amountAgorot = await this.vat.gross(netAgorot);
+    const { amountAgorot, vatPercent } = await this.vat.charge(netAgorot);
 
     const paymentId = ulid();
     await this.prisma.payment.create({
@@ -391,6 +392,7 @@ export class BillingService {
         purpose: "credits",
         creditsPurchased: input.credits,
         amountAgorot,
+        vatPercent,
         status: "pending",
         lowProfileId: paymentId,
         createdBy: input.userId,
@@ -449,7 +451,7 @@ export class BillingService {
       amountAgorot: netAgorot,
     } = await this.offers.resolveForCheckout(input.token, input.tenantId, new Date());
     // גם המחיר שסוכם בהצעה הוא מחיר מחירון — נטו, ראו `startCheckout`
-    const amountAgorot = await this.vat.gross(netAgorot);
+    const { amountAgorot, vatPercent } = await this.vat.charge(netAgorot);
     if (!(await this.cardcom.isConfigured())) {
       throw new BadRequestException("הסליקה טרם הופעלה במערכת — פנו אלינו");
     }
@@ -468,6 +470,7 @@ export class BillingService {
         planCode: plan.code,
         billingCycle: offer.billingCycle,
         amountAgorot,
+        vatPercent,
         status: "pending",
         lowProfileId: paymentId,
         offerId: offer.id,

@@ -224,7 +224,7 @@ export class NumberRentalService {
      * גם מוצג במסך ובעמוד המחירים של הטלפוניה („+ מע\"מ”). הסכום
      * שנשלח לסולק הוא מה שבאמת יירד מהכרטיס, ולכן המע"מ נוסף כאן.
      */
-    const chargeAgorot = await this.vat.gross(monthlyAgorot!);
+    const { amountAgorot: chargeAgorot, vatPercent } = await this.vat.charge(monthlyAgorot!);
 
     const paymentId = ulid();
     await this.prisma.payment.create({
@@ -234,6 +234,7 @@ export class NumberRentalService {
         purpose: "number_rental",
         rentalId,
         amountAgorot: chargeAgorot,
+        vatPercent,
         status: "pending",
         lowProfileId: paymentId,
         createdBy: input.userId,

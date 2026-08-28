@@ -142,7 +142,9 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
        * הראשונה. חידוש שהיה מחייב את הנטו היה גובה 18% פחות מהחיוב
        * הראשון על אותו מספר, ומפיק מסמך שאינו תואם לו.
        */
-      const chargeAgorot = await this.vat.gross(rental.monthlyAgorot);
+      const { amountAgorot: chargeAgorot, vatPercent } = await this.vat.charge(
+        rental.monthlyAgorot,
+      );
       await this.prisma.payment.create({
         data: {
           id: paymentId,
@@ -150,6 +152,7 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
           purpose: "number_rental",
           rentalId: rental.id,
           amountAgorot: chargeAgorot,
+          vatPercent,
           status: "pending",
           lowProfileId: paymentId,
         },

@@ -96,6 +96,34 @@ function vatDerivedNames(body: ts.Node): Set<string> {
   return names;
 }
 
+/**
+ * שמות המשתנים שהושמו מפירוק של `await this.vat.charge(…)` — כלומר
+ * אתרי גבייה שקיבלו גם את השיעור, ולא רק את הסכום.
+ */
+function chargeDestructured(body: ts.Node): { amount: Set<string>; hasRate: boolean } {
+  const amount = new Set<string>();
+  let hasRate = false;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isObjectBindingPattern(node.name) &&
+      node.initializer !== undefined &&
+      fromVat(node.initializer)
+    ) {
+      for (const element of node.name.elements) {
+        if (!ts.isIdentifier(element.name)) continue;
+        const source = element.propertyName ?? element.name;
+        if (!ts.isIdentifier(source)) continue;
+        if (source.text === "amountAgorot") amount.add(element.name.text);
+        if (source.text === "vatPercent") hasRate = true;
+      }
+    }
+    node.forEachChild(visit);
+  };
+  visit(body);
+  return { amount, hasRate };
+}
+
 /** האם הביטוי מגיע מ-`this.vat.<משהו>(…)` — עם או בלי `await`. */
 function fromVat(expression: ts.Node): boolean {
   let node = expression;
@@ -148,7 +176,8 @@ function scan(): { charges: number; findings: Finding[] } {
           charges += 1;
           const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
           const body = enclosingBody(node);
-          const allowed = vatDerivedNames(body);
+          const destructured = chargeDestructured(body);
+          const allowed = new Set([...vatDerivedNames(body), ...destructured.amount]);
           const amount = arg.properties.find(
             (property) =>
               (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) &&
@@ -178,6 +207,20 @@ function scan(): { charges: number; findings: Finding[] } {
                 line,
                 method: name,
                 detail: `הסכום אינו מגיע מ-\`this.vat\` (נמצא: ${value?.getText(source) ?? "—"})`,
+              });
+            } else if (!destructured.hasRate) {
+              /*
+               * הסכום נכון, אבל השיעור שלפיו נבנה אינו נשמר — ולכן
+               * המסמך יפרק אותו לפי השיעור שיהיה בעת ההפקה. זהה כל
+               * עוד הוא לא השתנה, ושגוי בדיוק ביום שהוא משתנה.
+               */
+              findings.push({
+                file,
+                line,
+                method: name,
+                detail:
+                  "הסכום מגיע מ-`this.vat` אבל השיעור אינו נשמר — " +
+                  "השתמשו ב-`this.vat.charge()` וכתבו גם `vatPercent` על שורת התשלום",
               });
             }
           }

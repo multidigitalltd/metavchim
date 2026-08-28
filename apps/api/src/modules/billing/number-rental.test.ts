@@ -76,6 +76,8 @@ function service(fakes: Fakes = {}): {
   /** מה נשלח לסליקה, ומה נשמר בשורת התשלום — שניהם חייבים להיות הברוטו. */
   const charged: number[] = [];
   const payments: number[] = [];
+  /** השיעור שנצרב על שורת התשלום. */
+  const rates: (number | undefined)[] = [];
   const prisma = {
     rentedNumber: {
       /*
@@ -98,8 +100,11 @@ function service(fakes: Fakes = {}): {
       delete: async () => ({}),
     },
     payment: {
-      create: async (args: { data: { amountAgorot?: number } }) => {
-        if (typeof args.data.amountAgorot === "number") payments.push(args.data.amountAgorot);
+      create: async (args: { data: { amountAgorot?: number; vatPercent?: number } }) => {
+        if (typeof args.data.amountAgorot === "number") {
+          payments.push(args.data.amountAgorot);
+          rates.push(args.data.vatPercent);
+        }
         return args.data;
       },
       update: async () => ({}),
@@ -154,11 +159,14 @@ function service(fakes: Fakes = {}): {
   const vat = {
     percent: async () => 18,
     gross: async (net: number) => grossFromNet(net, 18),
+    // הסכום **והשיעור שלפיו נבנה** — השיעור נצרב על שורת התשלום
+    charge: async (net: number) => ({ amountAgorot: grossFromNet(net, 18), vatPercent: 18 }),
   } as unknown as VatService;
   return {
     svc: new NumberRentalService(prisma, pbx015, cardcom, email, vat),
     charged,
     payments,
+    rates,
     sentEmails,
     updates,
     paymentBatchUpdates,
@@ -226,10 +234,15 @@ describe("שערי פתיחת ההשכרה", () => {
      * המחירים. מה שנשלח לסליקה, ומה שנשמר בשורת התשלום, חייב
      * להיות מה שבאמת יירד מהכרטיס: 59 ₪.
      */
-    const { svc, charged, payments } = service({ monthlyAgorot: 5_000 });
+    const { svc, charged, payments, rates } = service({ monthlyAgorot: 5_000 });
     await svc.startCheckout({ tenantId: TENANT, userId: "01U", number: "0722776123" });
     expect(charged.at(-1)).toBe(grossFromNet(5_000, 18));
     expect(payments.at(-1)).toBe(grossFromNet(5_000, 18));
+    /*
+     * והשיעור נצרב על השורה: המסמך ייבנה מהברוטו הזה, ופירוק בשיעור
+     * שהשתנה מאז היה מחזיר נטו שאינו המחיר שהובטח (ביקורת Codex).
+     */
+    expect(rates.at(-1)).toBe(18);
   });
 });
 

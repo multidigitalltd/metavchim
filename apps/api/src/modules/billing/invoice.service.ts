@@ -116,7 +116,20 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
       const rejection = invoiceRejectionReason(payment);
       if (rejection !== null) return { ok: false, error: rejection };
 
-      const vatPercent = await this.vat.percent();
+      /*
+       * ‎**השיעור שנצרב על התשלום גובר על השיעור הנוכחי.**
+       *
+       * המסמך מפרק את הברוטו שנגבה בפועל, ולכן הוא חייב לפרק אותו
+       * באותו שיעור שבו הוא **הורכב**. קריאת השיעור העדכני כאן היא
+       * נכונה כל עוד הוא לא השתנה בין הגבייה להפקה — והיא נשברת
+       * בדיוק ביום שהוא משתנה בחקיקה, על כל התשלומים שהיו באוויר
+       * (ביקורת Codex). דף תשלום פתוח, סבב חידושים, וסורק שרץ כל
+       * חמש דקות — כולם מפרידים בין שני הרגעים.
+       *
+       * שורות שקדמו לשדה נופלות לשיעור הנוכחי: אין לנו מה לצרוב
+       * עליהן, וזו בדיוק ההתנהגות שהייתה להן ממילא.
+       */
+      const vatPercent = payment.vatPercent ?? (await this.vat.percent());
       const split = vatSplitFromGross(payment.amountAgorot, vatPercent);
       const description = await this.describe(payment);
 

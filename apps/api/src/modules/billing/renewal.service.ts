@@ -239,7 +239,7 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
       return false;
     }
     // מחיר מחירון ⟵ חיוב, בדיוק כמו ברכישה הראשונה
-    const amountAgorot = await this.vat.gross(netAgorot);
+    const { amountAgorot, vatPercent } = await this.vat.charge(netAgorot);
 
     const anchorDay = subscription.billingAnchorDay ?? billingAnchorDay(now);
     const periodEnd = nextPeriodEnd(subscription.currentPeriodEnd, now, cycle, anchorDay);
@@ -264,6 +264,7 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
         planCode: subscription.planCode,
         billingCycle: cycle,
         amountAgorot,
+        vatPercent,
         status: "pending",
         // אין דף תשלום בחידוש; המזהה של השורה משמש גם כמפתח הייחודי
         lowProfileId: paymentId,

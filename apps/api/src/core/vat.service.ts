@@ -53,4 +53,26 @@ export class VatService {
   async split(netAgorot: number): Promise<VatSplit> {
     return vatSplitFromNet(netAgorot, await this.percent());
   }
+
+  /**
+   * הסכום לחיוב **יחד עם השיעור שלפיו הוא נבנה** — מה שנכתב על
+   * שורת התשלום.
+   *
+   * ‎**השיעור נצרב, ולא נקרא מחדש בהפקת המסמך.** המסמך נבנה מהברוטו
+   * שנגבה (הוא חייב להסתכם בדיוק בשקל שנגבה), ולכן הוא מפרק אותו
+   * בחזרה — ופירוק בשיעור אחר מזה שבו הורכב מחזיר נטו אחר. שינוי
+   * חקיקה באמצע היה מוציא שורת חשבונית שאינה המחיר שהובטח, על כל
+   * התשלומים שהיו באוויר: 100 ₪ נטו שנגבו כ-118 ומפורקים ב-19%
+   * נרשמים כ-99.16 (ביקורת Codex).
+   *
+   * החלון אינו תיאורטי — דף תשלום שנשאר פתוח, סבב חידושים, וסורק
+   * החשבוניות שרץ כל חמש דקות.
+   *
+   * שני השדות חוזרים יחד ומיועדים לפריסה אחת לתוך `payment.create`,
+   * כדי שלא ייתכן אתר שכותב את הסכום ושוכח את השיעור.
+   */
+  async charge(netAgorot: number): Promise<{ amountAgorot: number; vatPercent: number }> {
+    const vatPercent = await this.percent();
+    return { amountAgorot: grossFromNet(netAgorot, vatPercent), vatPercent };
+  }
 }
