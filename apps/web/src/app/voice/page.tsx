@@ -58,6 +58,8 @@ interface AgentCapability {
 interface HistoryTurn {
   transcript: string;
   action: string;
+  /** ‎`"assistant"` = תור דיווח שהסוכן יזם (התראה) — לא משפט של המתווך */
+  origin?: "user" | "assistant";
   params: Record<string, unknown>;
   resultSummary?: string;
   /**
@@ -209,15 +211,24 @@ export default function AgentPage(): React.JSX.Element {
         if (turns.length === 0) return;
         setHistory(turns.slice(-6));
         setThread((prev) => [
-          ...turns.flatMap((turn): ChatItem[] => [
-            { id: itemId(), role: "user", text: turn.transcript },
-            {
-              id: itemId(),
-              role: "agent",
-              kind: "recap",
-              text: turn.resultSummary ?? "בוצע.",
-            },
-          ]),
+          ...turns.flatMap((turn): ChatItem[] =>
+            /*
+             * תור התראה הוא דיווח של הסוכן („עדכנתי אותך על…”) —
+             * בועה אחת שלו; הצגתו כבועת מתווך הייתה שמה בפיו מילים
+             * שהוא לא אמר.
+             */
+            turn.origin === "assistant"
+              ? [{ id: itemId(), role: "agent", kind: "recap", text: turn.transcript }]
+              : [
+                  { id: itemId(), role: "user", text: turn.transcript },
+                  {
+                    id: itemId(),
+                    role: "agent",
+                    kind: "recap",
+                    text: turn.resultSummary ?? "בוצע.",
+                  },
+                ],
+          ),
           ...prev,
         ]);
       })

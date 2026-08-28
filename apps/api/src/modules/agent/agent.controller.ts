@@ -57,7 +57,15 @@ import { AgentResolveService } from "./resolve.service";
 const TurnSchema = z
   .object({
     transcript: z.string().trim().min(1).max(4000),
-    action: z.enum(AGENT_ACTION_IDS as unknown as [string, ...string[]]),
+    /*
+     * ‎`"notify"` לצד פעולות הקטלוג: סורק ההתראות כותב לשיחה תורות
+     * דיווח (`assistantMemoryTurn`), והמסך מחזיר את השיחה השמורה
+     * כהקשר. סכימה שמכירה רק את הקטלוג דחתה כל בקשה שאחד מששת
+     * התורות שלה היה התראה — 400 על השיחה כולה (ביקורת Codex, P1).
+     */
+    action: z.enum([...AGENT_ACTION_IDS, "notify"] as unknown as [string, ...string[]]),
+    /** מי יזם את התור — תור התראה נושא `"assistant"` */
+    origin: z.enum(["user", "assistant"]).optional(),
     params: z.record(z.string(), z.unknown()),
     resultSummary: z.string().max(AGENT_RESULT_SUMMARY_MAX).optional(),
     /*

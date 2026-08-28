@@ -56,4 +56,17 @@ describe("ליבת אחסון השיחה", () => {
   it("המסך כותב היסטוריה בלבד — pending ו-handledIds הם של הוואטסאפ", () => {
     expect(SCREEN).not.toMatch(/pending|handledIds/u);
   });
+
+  /*
+   * ‎**תור התראה שנשמר חייב לעבור את סכימת ההקשר.** סורק ההתראות
+   * כותב לשיחה תורות `action: "notify"` עם `origin: "assistant"`,
+   * והמסך מחזיר את השיחה השמורה כ-history. סכימה שמכירה רק את
+   * קטלוג הפעולות דחתה כל בקשה שתור כזה נכלל בה — 400 על השיחה
+   * כולה, בדיוק במקום שההמשכיות הובטחה (ביקורת Codex, P1).
+   */
+  it("תור התראה עובר את הסכימה — לא 400 על השיחה כולה", () => {
+    const controller = read("./agent.controller.ts");
+    expect(controller).toMatch(/\[\.\.\.AGENT_ACTION_IDS, "notify"\]/u);
+    expect(controller).toMatch(/origin: z\.enum\(\["user", "assistant"\]\)\.optional\(\)/u);
+  });
 });
