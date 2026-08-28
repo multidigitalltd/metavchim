@@ -20,6 +20,7 @@ import { TasksModule } from "../tasks/tasks.module";
 import { AgentController } from "./agent.controller";
 import { AgentEventsService } from "./agent-events.service";
 import { AgentConversationService } from "./agent-conversation.service";
+import { AgentPrefsService } from "./agent-prefs.service";
 import { AgentMemoryService } from "./agent-memory.service";
 import { AgentExecuteService } from "./execute.service";
 import { AgentInterpretService } from "./interpret.service";
@@ -74,6 +75,7 @@ import { AgentResolveService } from "./resolve.service";
     AgentEventsService,
     AgentMemoryService,
     AgentConversationService,
+    AgentPrefsService,
   ],
   // הסוכן האישי בוואטסאפ מדבר עם אותו מנוע בדיוק — לא מסלול מקביל
   exports: [AgentInterpretService, AgentResolveService, AgentExecuteService],
