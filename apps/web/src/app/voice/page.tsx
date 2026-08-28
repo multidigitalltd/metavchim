@@ -441,6 +441,32 @@ export default function AgentPage(): React.JSX.Element {
     [busy, history, markSettled, priorForRefine, push, settle, speakOut, thread],
   );
 
+  /*
+   * ‎**שורת הדשבורד פותחת את הצ'אט עם המשפט** — `/voice?q=…`.
+   *
+   * המשפט נשלח כתור ראשון ברגע שהעמוד מוכן, והפרמטר נמחק מהכתובת
+   * כדי שרענון לא ישלח אותו שוב. קריאה מ-`window.location` ולא
+   * מ-`useSearchParams`, שדורש גבול Suspense על כל העמוד בשביל
+   * קריאה חד-פעמית.
+   */
+  const bootRef = useRef(false);
+  useEffect(() => {
+    if (authLoading || bootRef.current) return;
+    bootRef.current = true;
+    try {
+      const q = new URLSearchParams(window.location.search).get("q");
+      if (q !== null && q.trim().length >= 2) {
+        window.history.replaceState(null, "", "/voice");
+        void send(q);
+      }
+    } catch {
+      /* דפדפן בלי URL API — פשוט צ'אט ריק */
+    }
+    // send יציב דיו: bootRef מבטיח ריצה אחת
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading]);
+
+
 
   if (authLoading) return <p aria-live="polite">טוען…</p>;
 
