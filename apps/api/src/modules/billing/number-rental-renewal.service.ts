@@ -3,6 +3,7 @@ import { ulid } from "ulid";
 import { billingAnchorDay, formatRentalNumber, nextPeriodEnd } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { CardcomService } from "../../core/cardcom.service";
+import { VatService } from "../../core/vat.service";
 import { CryptoService } from "../../core/crypto.service";
 import { EmailService } from "../../core/email.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -40,6 +41,7 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
     private readonly crypto: CryptoService,
     private readonly email: EmailService,
     private readonly rentals: NumberRentalService,
+    private readonly vat: VatService,
   ) {}
 
   onModuleInit(): void {
@@ -135,13 +137,19 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
      */
     const paymentId = ulid();
     try {
+      /*
+       * ‎`monthlyAgorot` הוא מחיר המחירון — לפני מע"מ, כמו בהשכרה
+       * הראשונה. חידוש שהיה מחייב את הנטו היה גובה 18% פחות מהחיוב
+       * הראשון על אותו מספר, ומפיק מסמך שאינו תואם לו.
+       */
+      const chargeAgorot = await this.vat.gross(rental.monthlyAgorot);
       await this.prisma.payment.create({
         data: {
           id: paymentId,
           tenantId: rental.tenantId,
           purpose: "number_rental",
           rentalId: rental.id,
-          amountAgorot: rental.monthlyAgorot,
+          amountAgorot: chargeAgorot,
           status: "pending",
           lowProfileId: paymentId,
         },
@@ -150,7 +158,7 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
       const payer = await this.payer(rental.tenantId);
       const result = await this.cardcom.chargeToken({
         token: this.crypto.decrypt(subscription.cardTokenEncrypted),
-        amountAgorot: rental.monthlyAgorot,
+        amountAgorot: chargeAgorot,
         cardMonth: subscription.cardMonth,
         cardYear: subscription.cardYear,
         cardOwnerIdentity: subscription.cardOwnerIdEncrypted

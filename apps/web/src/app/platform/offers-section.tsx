@@ -307,7 +307,7 @@ export function OffersSection({
           </div>
           <div>
             <label htmlFor="of-price" className="mb-1 block text-sm font-semibold">
-              מחיר סופי (₪ ל{cycle === "yearly" ? "שנה" : "חודש"})
+              מחיר סופי (₪ ל{cycle === "yearly" ? "שנה" : "חודש"}, לפני מע&quot;מ)
             </label>
             <input
               id="of-price"
@@ -327,7 +327,8 @@ export function OffersSection({
               className="mv-btn-plain"
               onClick={() => setPrice(String(suggestedAgorot / 100))}
             >
-              מלא מוצע: {formatNumber(suggestedAgorot / 100)} ₪ (מסלול + תוספות)
+              מלא מוצע: {formatNumber(suggestedAgorot / 100)} ₪ לפני מע&quot;מ (מסלול +
+              תוספות)
             </button>
           ) : null}
         </div>
@@ -356,7 +357,7 @@ export function OffersSection({
                 style={inputStyle}
               />
               <label className="mv-visually-hidden" htmlFor={`of-item-amount-${index}`}>
-                מחיר תוספת {index + 1} בשקלים
+                מחיר תוספת {index + 1} בשקלים, לפני מע&quot;מ
               </label>
               <input
                 id={`of-item-amount-${index}`}
@@ -491,7 +492,7 @@ export function OffersSection({
                   {offer.planName} · {describeCycle(offer.billingCycle === "yearly" ? "yearly" : "monthly")}
                 </span>
                 {offer.amountAgorot !== null ? (
-                  <span>{formatNumber(offer.amountAgorot / 100)} ₪</span>
+                  <span>{formatNumber(offer.amountAgorot / 100)} ₪ לפני מע&quot;מ</span>
                 ) : null}
                 {offer.lineItems.length > 0 ? (
                   <span style={{ color: "var(--color-text-muted)" }}>

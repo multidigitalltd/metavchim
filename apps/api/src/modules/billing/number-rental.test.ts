@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BadRequestException } from "@nestjs/common";
+import { grossFromNet } from "@metavchim/shared";
 import type { CardcomService } from "../../core/cardcom.service";
 import type { EmailService } from "../../core/email.service";
 import type { Pbx015NumbersService } from "../../core/pbx015-numbers.service";
 import type { PrismaService } from "../../core/prisma.service";
+import type { VatService } from "../../core/vat.service";
 import { NumberRentalService } from "./number-rental.service";
 
 /**
@@ -71,6 +73,9 @@ function service(fakes: Fakes = {}): {
   const updates: Record<string, unknown>[] = [];
   const paymentBatchUpdates: Record<string, unknown>[] = [];
   const releaseCalls: string[] = [];
+  /** מה נשלח לסליקה, ומה נשמר בשורת התשלום — שניהם חייבים להיות הברוטו. */
+  const charged: number[] = [];
+  const payments: number[] = [];
   const prisma = {
     rentedNumber: {
       /*
@@ -93,7 +98,10 @@ function service(fakes: Fakes = {}): {
       delete: async () => ({}),
     },
     payment: {
-      create: async (args: { data: unknown }) => args.data,
+      create: async (args: { data: { amountAgorot?: number } }) => {
+        if (typeof args.data.amountAgorot === "number") payments.push(args.data.amountAgorot);
+        return args.data;
+      },
       update: async () => ({}),
       updateMany: async (args: { data: Record<string, unknown> }) => {
         paymentBatchUpdates.push(args.data);
@@ -128,15 +136,29 @@ function service(fakes: Fakes = {}): {
   } as unknown as Pbx015NumbersService;
   const cardcom = {
     isConfigured: async () => fakes.cardcomConfigured ?? true,
-    createPaymentPage: async () => ({ url: "https://pay.example.test", lowProfileId: "lp1" }),
+    createPaymentPage: async (args: { amountAgorot: number }) => {
+      charged.push(args.amountAgorot);
+      return { url: "https://pay.example.test", lowProfileId: "lp1" };
+    },
   } as unknown as CardcomService;
   const email = {
     send: async (to: string, subject: string) => {
       sentEmails.push({ to, subject });
     },
   } as unknown as EmailService;
+  /*
+   * מחיר המחירון נטו, והחיוב הוא הוא ועוד מע"מ. ה-double נוקב
+   * בשיעור מפורש ולא קורא הגדרה — כדי שהבדיקה תיפול אם מישהו
+   * יחזיר את החיוב לנטו.
+   */
+  const vat = {
+    percent: async () => 18,
+    gross: async (net: number) => grossFromNet(net, 18),
+  } as unknown as VatService;
   return {
-    svc: new NumberRentalService(prisma, pbx015, cardcom, email),
+    svc: new NumberRentalService(prisma, pbx015, cardcom, email, vat),
+    charged,
+    payments,
     sentEmails,
     updates,
     paymentBatchUpdates,
@@ -196,6 +218,18 @@ describe("שערי פתיחת ההשכרה", () => {
       number: "0722776123",
     });
     expect(result.url).toBe("https://pay.example.test");
+  });
+
+  it("הסכום לסולק הוא מחיר המחירון ועוד מע\"מ", async () => {
+    /*
+     * המחירון נוקב 50 ₪ לחודש לפני מע"מ — כך זה מוצג במסך ובעמוד
+     * המחירים. מה שנשלח לסליקה, ומה שנשמר בשורת התשלום, חייב
+     * להיות מה שבאמת יירד מהכרטיס: 59 ₪.
+     */
+    const { svc, charged, payments } = service({ monthlyAgorot: 5_000 });
+    await svc.startCheckout({ tenantId: TENANT, userId: "01U", number: "0722776123" });
+    expect(charged.at(-1)).toBe(grossFromNet(5_000, 18));
+    expect(payments.at(-1)).toBe(grossFromNet(5_000, 18));
   });
 });
 

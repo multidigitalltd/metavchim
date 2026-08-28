@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  CUSTOM_PRICE_LABEL,
   DEFAULT_PLANS,
+  FREE_PRICE_LABEL,
   PLAN_FEATURES,
+  PRICE_TERMS_NOTE,
   automationQuotaRejection,
   defaultPlan,
   effectiveFeatures,
   downgradeWarnings,
   featureLabel,
   formatPlanPrice,
+  formatPriceExVat,
+  formatPriceWithVatTotal,
   isPlanFeature,
   limitState,
   planAllows,
@@ -421,8 +426,11 @@ describe("planPriceLabel", () => {
     ).toBe("בהתאמה");
   });
 
-  it("מסלול בתשלום מוצג במחירו", () => {
-    expect(planPriceLabel(basePlan({ monthlyPriceAgorot: 29_900 }))).toBe("299 ₪");
+  it("מסלול בתשלום מוצג במחירו — ובציון שהוא לפני מע\"מ", () => {
+    // המחירון נקוב נטו, ולכן התווית אומרת זאת ליד המספר עצמו
+    expect(planPriceLabel(basePlan({ monthlyPriceAgorot: 29_900 }))).toBe(
+      "299 ₪ + מע\"מ",
+    );
   });
 
   /*
@@ -468,5 +476,38 @@ describe("מכסות הרשת באימות ובאזהרות", () => {
         { users: 1, properties: 5 },
       ),
     ).toEqual([]);
+  });
+});
+
+describe("מחירים לפני מע\"מ", () => {
+  it("מחיר מתומחר נושא את הסיומת", () => {
+    expect(formatPriceExVat(14_900)).toBe("149 ₪ + מע\"מ");
+  });
+
+  it("„חינם + מע\"מ” אינו דבר", () => {
+    /*
+     * זה הבאג שהפונקציה קיימת כדי למנוע: אתר קריאה ששרשר את
+     * הסיומת בעצמו היה מפיק אותו על מסלול חינמי ועל קופון של 100%,
+     * ושניהם קיימים בפועל.
+     */
+    expect(formatPriceExVat(0)).toBe(FREE_PRICE_LABEL);
+    expect(formatPriceExVat(-1)).toBe(FREE_PRICE_LABEL);
+  });
+
+  it("תווית המסלול מציינת מע\"מ, ו„בהתאמה” נשארת כשהיא", () => {
+    const paid = { ...DEFAULT_PLANS[0]!, monthlyPriceAgorot: 29_900, priceOnRequest: false };
+    expect(planPriceLabel(paid)).toBe("299 ₪ + מע\"מ");
+    expect(planPriceLabel({ ...paid, priceOnRequest: true })).toBe(CUSTOM_PRICE_LABEL);
+  });
+
+  it("הסכום לתשלום הוא הנטו ועוד המע\"מ", () => {
+    expect(formatPriceWithVatTotal(14_900, 18)).toBe("175.82 ₪ לתשלום");
+    // אין מה לחייב ⟵ אין מה להציג לצד המחיר
+    expect(formatPriceWithVatTotal(0, 18)).toBeNull();
+  });
+
+  it("הסייג שנשלח לאתר התדמית אומר את שני הדברים", () => {
+    expect(PRICE_TERMS_NOTE).toContain("אינם כוללים מע\"מ");
+    expect(PRICE_TERMS_NOTE).toContain("לשנה הראשונה");
   });
 });

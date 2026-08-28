@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { grossFromNet } from "@metavchim/shared";
 import type { CardcomService } from "../../core/cardcom.service";
 import type { CryptoService } from "../../core/crypto.service";
 import type { EmailService } from "../../core/email.service";
 import type { PrismaService } from "../../core/prisma.service";
+import type { VatService } from "../../core/vat.service";
 import type { NumberRentalService } from "./number-rental.service";
 import { InvoiceService } from "./invoice.service";
 import { NumberRentalRenewalService } from "./number-rental-renewal.service";
@@ -105,8 +107,13 @@ function build(mode: ChargeMode): {
     },
     releaseNow: async () => ({ ok: true, message: "" }),
   } as unknown as NumberRentalService;
+  /* מחיר המחירון נטו; החיוב הוא הוא ועוד מע"מ — כמו בהשכרה הראשונה. */
+  const vat = {
+    percent: async () => 18,
+    gross: async (net: number) => grossFromNet(net, 18),
+  } as unknown as VatService;
   return {
-    svc: new NumberRentalRenewalService(prisma, invoices, cardcom, crypto, email, rentals),
+    svc: new NumberRentalRenewalService(prisma, invoices, cardcom, crypto, email, rentals, vat),
     rentalBatchUpdates,
     rentalUpdates,
     paymentUpdates,

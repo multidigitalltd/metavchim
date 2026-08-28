@@ -23,6 +23,7 @@ import { CardcomService, type Payer } from "../../core/cardcom.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
+import { VatService } from "../../core/vat.service";
 import { InvoiceService } from "./invoice.service";
 import { NumberRentalService } from "./number-rental.service";
 import { SubscriptionOfferService } from "./subscription-offer.service";
@@ -81,6 +82,7 @@ export class BillingService {
     private readonly creditEconomy: CreditEconomyService,
     private readonly offers: SubscriptionOfferService,
     private readonly numberRentals: NumberRentalService,
+    private readonly vat: VatService,
   ) {}
 
   /** מצב המנוי של הדייר הנוכחי, כולל יצירה עצלה לדיירים ותיקים. */
@@ -227,7 +229,21 @@ export class BillingService {
       tenant?.couponPlanCode === undefined ||
       tenant.couponPlanCode === plan!.code;
     const percentOff = couponEligible ? (tenant?.couponPercentOff ?? null) : null;
-    const amountAgorot = discountedAgorot(fullAgorot, percentOff);
+    /*
+     * ‎**המחירון נטו, והחיוב ברוטו.**
+     *
+     * ‎`effectiveCyclePriceAgorot` מחזיר את מה שכתוב במחירון, וזה
+     * מספר **לפני מע"מ** — כך הוא מוצג למשרד, וכך הוא נמכר בעסק-
+     * לעסק בישראל. הסכום שנשלח לסולק חייב להיות מה שבאמת יירד
+     * מהכרטיס, ולכן המע"מ נוסף כאן, בשלב אחד, ואחרי ההנחה: המע"מ
+     * הוא על מה שמשלמים בפועל ולא על המחיר שלפני הקופון.
+     *
+     * ‎`vatSplitFromGross` בהפקת המסמך מחזיר מהברוטו הזה **בדיוק**
+     * את הנטו שיצאנו ממנו (יש על כך בדיקה ב-`invoice.test.ts`),
+     * ולכן שורת החשבונית נושאת את אותו מספר שכתוב במחירון.
+     */
+    const netAgorot = discountedAgorot(fullAgorot, percentOff);
+    const amountAgorot = await this.vat.gross(netAgorot);
 
     /*
      * **תשלום פתוח אחד לכל משרד.**
@@ -359,10 +375,13 @@ export class BillingService {
      * ביקש היא הפתעה, לשני הכיוונים.
      */
     const pkg = economy.packages.find((p) => p.credits === input.credits);
-    const amountAgorot = pkg ? pkg.priceAgorot : economy.unitPriceAgorot * input.credits;
-    if (amountAgorot < 1) {
+    // מחיר הקרדיטים במחירון הוא גם הוא נטו — ראו את ההערה ברכישת מנוי
+    const netAgorot = pkg ? pkg.priceAgorot : economy.unitPriceAgorot * input.credits;
+    /* הבדיקה על **מחיר המחירון**: שיעור מע"מ אפס אינו הופך "לא הוגדר מחיר" לתקין */
+    if (netAgorot < 1) {
       throw new BadRequestException("מחיר הקרדיטים אינו מוגדר — יש לפנות למנהל הפלטפורמה");
     }
+    const amountAgorot = await this.vat.gross(netAgorot);
 
     const paymentId = ulid();
     await this.prisma.payment.create({
@@ -424,11 +443,13 @@ export class BillingService {
     userId: string;
     token: string;
   }): Promise<{ url: string; paymentId: string }> {
-    const { offer, plan, amountAgorot } = await this.offers.resolveForCheckout(
-      input.token,
-      input.tenantId,
-      new Date(),
-    );
+    const {
+      offer,
+      plan,
+      amountAgorot: netAgorot,
+    } = await this.offers.resolveForCheckout(input.token, input.tenantId, new Date());
+    // גם המחיר שסוכם בהצעה הוא מחיר מחירון — נטו, ראו `startCheckout`
+    const amountAgorot = await this.vat.gross(netAgorot);
     if (!(await this.cardcom.isConfigured())) {
       throw new BadRequestException("הסליקה טרם הופעלה במערכת — פנו אלינו");
     }
