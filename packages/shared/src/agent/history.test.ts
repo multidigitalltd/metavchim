@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  AGENT_HISTORY_KEPT,
   AGENT_RESULT_ROWS,
   agentTurnRefs,
   assistantMemoryTurn,
+  conversationLockKey,
   historyRefs,
   matchHistoryRef,
+  mergeStoredTurns,
+  parseStoredTurns,
 } from "./history.js";
 import { buildInterpretPrompt, type AgentHistoryRef, type AgentHistoryTurn } from "./prompt.js";
 
@@ -264,5 +268,28 @@ describe("agentTurnRefs — תקרת הסכימה", () => {
     // מה שנגעו בו שורד; הקיצוץ הוא מזנב השורות
     expect(out.slice(0, 2)).toEqual(acted);
     expect(out[2]).toEqual(shown[0]);
+  });
+});
+
+describe("ליבת אחסון השיחה — פירוק ומיזוג", () => {
+  const turn = (transcript: string) =>
+    ({ transcript, action: "search", params: {} }) as import("./prompt.js").AgentHistoryTurn;
+
+  it("צורה לא מוכרת בעמודה = שיחה ריקה, לא קריסה", () => {
+    expect(parseStoredTurns(null)).toEqual([]);
+    expect(parseStoredTurns("garbage")).toEqual([]);
+    expect(parseStoredTurns([turn("א")])).toHaveLength(1);
+  });
+
+  it("המיזוג מוסיף בסוף וחותך בתקרה אחת — הישן יוצא ראשון", () => {
+    const stored = [1, 2, 3, 4, 5, 6].map((n) => turn(String(n)));
+    const merged = mergeStoredTurns(stored, [turn("7")]);
+    expect(merged).toHaveLength(AGENT_HISTORY_KEPT);
+    expect(merged[0]?.transcript).toBe("2");
+    expect(merged.at(-1)?.transcript).toBe("7");
+  });
+
+  it("מפתח המנעול זהה לכל הכותבים — נגזר מהמשרד והמשתמש", () => {
+    expect(conversationLockKey("t1", "u1")).toBe("wa-chat:t1:u1");
   });
 });

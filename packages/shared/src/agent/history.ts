@@ -33,6 +33,37 @@ import type { AgentHistoryRef, AgentHistoryTurn } from "./prompt.js";
 export const AGENT_HISTORY_KEPT = 6;
 
 /**
+ * ‎**ליבת האחסון של שיחת הסוכן — פעם אחת, לשלושת הכותבים.**
+ *
+ * צ'אט הוואטסאפ, צ'אט המסך וסורק ההתראות בוורקר כותבים כולם לאותה
+ * עמודת `history`. שלושת מרכיבי הליבה — מפתח המנעול, הפירוק
+ * והמיזוג — יושבים כאן, בחבילה ששלושתם צורכים; ניסוח מקומי אצל
+ * כותב אחד הוא בדיוק הכפילות שמפרידה את הערוצים (הנחיית בעל
+ * המוצר), וכבר קרתה פעם אחת עם שני חלונות היסטוריה שונים.
+ */
+
+/** מפתח מנעול-הייעוץ של שיחת המשתמש — זהה בכל הכותבים. */
+export function conversationLockKey(tenantId: string, userId: string): string {
+  return `wa-chat:${tenantId}:${userId}`;
+}
+
+/** עמודת ה-JSON ⟵ תורות. צורה לא מוכרת = שיחה ריקה, לא קריסה. */
+export function parseStoredTurns(history: unknown): AgentHistoryTurn[] {
+  return Array.isArray(history) ? (history as unknown as AgentHistoryTurn[]) : [];
+}
+
+/**
+ * מיזוג תורות חדשים אל השמורים — הוספה בסוף ותקרה אחת. ההיסטוריה
+ * אינה נערכת אחורה, ולכן החיבור הזה הוא מיזוג נכון ולא ניחוש.
+ */
+export function mergeStoredTurns(
+  stored: readonly AgentHistoryTurn[],
+  added: readonly AgentHistoryTurn[],
+): AgentHistoryTurn[] {
+  return [...stored, ...added].slice(-AGENT_HISTORY_KEPT);
+}
+
+/**
  * מה הסוכן אומר לעצמו שהוא שלח, לפי סוג ההתראה.
  *
  * סוג שאינו כאן אינו נכנס לזיכרון כלל. זו החלטה ולא פער: תור
