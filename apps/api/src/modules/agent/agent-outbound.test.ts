@@ -73,10 +73,21 @@ describe("גבולות ה-PII של הפעולות החדשות", () => {
     const source = read("./execute.service.ts");
     const method = source.slice(
       source.indexOf("private async sendMessage("),
-      source.indexOf("private async openSupportTicket("),
+      source.indexOf("private async messageOwner("),
     );
     expect(method).toContain("link: waUrl");
     // ה-message הוא מחרוזת קבועה עם שם בלבד — אין בה את הקישור
+    expect(method).not.toMatch(/message:[^,]*waUrl/u);
+  });
+
+  // אותו גבול בדיוק גם בהודעה לבעל הנכס — נמען שני, אותו כלל
+  it("גם קישור הוואטסאפ לבעל הנכס חוזר ב-link בלבד", () => {
+    const source = read("./execute.service.ts");
+    const method = source.slice(
+      source.indexOf("private async messageOwner("),
+      source.indexOf("private async showCredits("),
+    );
+    expect(method).toContain("link: waUrl");
     expect(method).not.toMatch(/message:[^,]*waUrl/u);
   });
 

@@ -57,6 +57,7 @@ export const AGENT_ACTION_IDS = [
   "show_card",
   "play_recording",
   "show_deals",
+  "show_credits",
   "office_report",
   "create_lead",
   "create_buyer",
@@ -85,6 +86,7 @@ export const AGENT_ACTION_IDS = [
   "assign_task",
   "send_email",
   "send_message",
+  "message_owner",
   "open_support_ticket",
   "set_preference",
 ] as const;
@@ -848,6 +850,15 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     fields: [],
   },
   {
+    id: "show_credits",
+    title: "יתרת קרדיטים",
+    when: "שאלה על קרדיטים של המשרד ברשת השיתופים — כמה נשארו, מתי פגים.",
+    examples: ["כמה קרדיטים נשארו לנו?", "מה יתרת הקרדיטים", "מתי הקרדיטים שלי פגים"],
+    capability: "collaboration.offer",
+    risk: "read",
+    fields: [],
+  },
+  {
     id: "office_report",
     title: "דוח המשרד",
     when: "בקשה לנתוני המשרד — לידים, עסקאות, ביצועים בתקופה.",
@@ -1061,29 +1072,29 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
      */
     id: "reschedule_appointment",
     title: "דחיית פגישה",
-    when: "הזזת פגישה קיימת למועד חדש — הפגישה הקרובה עם הלקוח שנאמר. לקביעת פגישה חדשה יש „פגישה / סיור”.",
+    when: "הזזת פגישה קיימת למועד חדש — הפגישה הקרובה עם הלקוח שנאמר, או זו בנכס שנאמר. לקביעת פגישה חדשה יש „פגישה / סיור”.",
     examples: [
       "תזיז את הסיור עם משה כהן למחר בעשר",
       "תדחה את הפגישה עם דנה ליום ראשון בארבע",
-      "הפגישה עם משפחת לוי נדחתה לשלישי",
+      "תזיז את הסיור בדירה ברמת גן למחר בשש",
     ],
     capability: "calendar.manage",
     risk: "update",
-    fields: [F_BUYER_PHRASE],
+    fields: [F_BUYER_PHRASE, F_PROPERTY_PHRASE],
     resolved: [{ key: "startsAt", label: "מועד חדש" }],
   },
   {
     id: "update_appointment",
     title: "עדכון פגישה",
-    when: "מה קרה עם פגישה — ביטול (של הקרובה), או „התקיימה” / „לא הגיע” / תוצאת סיור (על האחרונה שהייתה). הביטול הפיך: הפגישה נשארת ביומן כמבוטלת.",
+    when: "מה קרה עם פגישה — ביטול (של הקרובה), או „התקיימה” / „לא הגיע” / תוצאת סיור (על האחרונה שהייתה). הפגישה מזוהה לפי הלקוח או לפי הנכס. הביטול הפיך: הפגישה נשארת ביומן כמבוטלת.",
     examples: [
       "בטל את הפגישה עם משה כהן",
-      "הסיור עם דנה התקיים והיא אהבה את הנכס",
+      "הסיור בדירה ברמת גן התקיים והם אהבו את הנכס",
       "משפחת לוי לא הגיעו לסיור",
     ],
     capability: "calendar.manage",
     risk: "update",
-    fields: [F_BUYER_PHRASE, F_APPOINTMENT_STATUS, F_VIEWING_OUTCOME],
+    fields: [F_BUYER_PHRASE, F_PROPERTY_PHRASE, F_APPOINTMENT_STATUS, F_VIEWING_OUTCOME],
   },
   {
     id: "update_buyer",
@@ -1483,6 +1494,25 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capabilityAlts: ["leads.view_own"],
     risk: "outbound",
     fields: [F_BUYER_PHRASE, F_MESSAGE_BODY],
+  },
+  {
+    /*
+     * ‎**הצד השני של אותו וואטסאפ** — בעל הנכס במקום הקונה. פעולה
+     * נפרדת ולא שדה נוסף על `send_message`: נמען של פעולה יוצאת
+     * נבחר במפורש, ופעולה אחת עם שני סוגי נמענים הייתה מטשטשת
+     * בדיוק את הבחירה הזו.
+     */
+    id: "message_owner",
+    title: "הודעת וואטסאפ לבעל נכס",
+    when: "הכנת הודעת וואטסאפ לבעל הנכס — עדכון על סיור, התעניינות או התקדמות. ללקוח (קונה/ליד) יש „הודעת וואטסאפ ללקוח”.",
+    examples: [
+      "תשלח לבעלים של הדירה ברמת גן שהיה סיור היום",
+      "תכתוב לבעל הנכס בהרב שך שיש התעניינות רצינית",
+      "עדכן את הבעלים של הפנטהאוז שנקבע סיור למחר",
+    ],
+    capability: "properties.view",
+    risk: "outbound",
+    fields: [F_PROPERTY_PHRASE, F_MESSAGE_BODY],
   },
   {
     /*
