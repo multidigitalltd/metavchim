@@ -824,7 +824,8 @@ export class WhatsAppAssistantService {
       if (isCancelMessage(text)) {
         const took = await this.takePending(user.tenantId, user.id, pending.token);
         this.consumed(chat, took);
-        return { text: took ? "❌ בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול." };
+        const answer = took ? "בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול.";
+        return { text: took ? `❌ ${answer}` : answer, speak: answer };
       }
       if (pending.awaiting === "choice") {
         const options = pending.proposal.candidates?.options ?? [];
@@ -836,7 +837,7 @@ export class WhatsAppAssistantService {
             // שאילתה — הבחירה היא כל מה שחסר; הצריכה אטומית, מבצע יחיד
             const took = await this.takePending(user.tenantId, user.id, pending.token);
             this.consumed(chat, took);
-            if (!took) return { text: "הבקשה כבר טופלה." };
+            if (!took) return { text: "הבקשה כבר טופלה.", speak: "הבקשה כבר טופלה." };
             took.extraParams[idKey] = option.id;
             return this.runProposal(chat, took);
           }
@@ -864,7 +865,7 @@ export class WhatsAppAssistantService {
             next,
           );
           chat.keepStoredPending = true;
-          if (!advanced) return { text: STALE_PROPOSAL_TEXT };
+          if (!advanced) return { text: STALE_PROPOSAL_TEXT, speak: STALE_PROPOSAL_TEXT };
           chat.pending = next;
           const chosenBody = [
             `נבחר: ${option.label}${option.detail ? ` (${option.detail})` : ""}.`,
@@ -875,6 +876,8 @@ export class WhatsAppAssistantService {
             text: `${chosenBody}\n\n✅ לביצוע — *אשר* · ❌ לביטול — *בטל*`,
             buttonBody: chosenBody,
             buttons: confirmButtons(next.token),
+            // השם בלי ה-detail — הפרט מהמאגר יכול לשאת טלפון
+            speak: `נבחר ${option.label}. ${this.spokenProposal(next.proposal)}. לביצוע אמרו אשר.`,
           };
         }
       }
@@ -886,7 +889,10 @@ export class WhatsAppAssistantService {
          */
         const took = await this.takePending(user.tenantId, user.id, pending.token);
         this.consumed(chat, took);
-        if (!took) return { text: "הפעולה כבר בוצעה או בוטלה — אין הצעה ממתינה." };
+        if (!took) {
+          const answer = "הפעולה כבר בוצעה או בוטלה — אין הצעה ממתינה.";
+          return { text: answer, speak: answer };
+        }
         return this.runProposal(chat, took);
       }
       /*
@@ -936,9 +942,11 @@ export class WhatsAppAssistantService {
         // תשובה שיחתית קצרה — מוקראת כולה בתשובה קולית
         return { text: proposal.reply, speak: proposal.reply };
       }
-      const lines = [proposal.clarify ?? "לא הצלחתי להבין מה לעשות — נסו לנסח אחרת."];
+      const clarify = proposal.clarify ?? "לא הצלחתי להבין מה לעשות — נסו לנסח אחרת.";
+      const lines = [clarify];
       for (const warning of proposal.warnings) lines.push(`⚠️ ${warning}`);
-      return { text: lines.join("\n") };
+      // מוקראת השאלה עצמה — האזהרות נשארות בטקסט
+      return { text: lines.join("\n"), speak: clarify };
     }
 
     const candidates = proposal.candidates;
@@ -953,12 +961,11 @@ export class WhatsAppAssistantService {
      */
     if (candidates && candidates.options.length === 0) {
       chat.pending = null;
-      return {
-        text:
-          candidates.reason === "unsaid"
-            ? `לא הבנתי ${candidates.label}. כתבו לי את השם ואמשיך מכאן.`
-            : `לא מצאתי רשומה מתאימה — ${candidates.label}. אפשר לנסח אחרת או לבדוק את השם.`,
-      };
+      const answer =
+        candidates.reason === "unsaid"
+          ? `לא הבנתי ${candidates.label}. כתבו לי את השם ואמשיך מכאן.`
+          : `לא מצאתי רשומה מתאימה — ${candidates.label}. אפשר לנסח אחרת או לבדוק את השם.`;
+      return { text: answer, speak: answer };
     }
     if (candidates && candidates.options.length > 0) {
       const token = ulid();
@@ -987,6 +994,11 @@ export class WhatsAppAssistantService {
         text: `${lines.join("\n")}\n\n🔢 השיבו עם המספר המתאים · ❌ לביטול — *בטל*`,
         buttonBody: header,
         ...choiceVariant(rows),
+        /*
+         * מוקראת רק השאלה — לא האפשרויות: הפרטים שלהן מגיעים מהמאגר
+         * ויכולים לשאת טלפון, והבחירה ממילא נעשית מול המסך.
+         */
+        speak: `${proposal.title} — ${candidates.label}. שלחתי רשימה לבחירה, אפשר לענות במספר.`,
       };
     }
 
@@ -1010,6 +1022,8 @@ export class WhatsAppAssistantService {
       text: `${description}\n\n✅ לביצוע — *אשר* · ❌ לביטול — *בטל* · ✏️ לתיקון פשוט כתבו אותו`,
       buttonBody: `${description}\n\n✏️ לתיקון — פשוט כתבו מה לשנות`,
       buttons: confirmButtons(state.token),
+      // כרטיס אישור הוא התשובה הנפוצה ביותר — מי שדיבר שומע גם אותו
+      speak: `${this.spokenProposal(proposal)}. לביצוע אמרו אשר, לביטול בטל.`,
     };
   }
 
@@ -1041,7 +1055,7 @@ export class WhatsAppAssistantService {
   private async runProposal(
     chat: ChatState,
     state: PendingState,
-  ): Promise<Pick<AgentReply, "text" | "audio" | "buttons" | "buttonBody">> {
+  ): Promise<Pick<AgentReply, "text" | "speak" | "audio" | "buttons" | "buttonBody">> {
     const params = this.paramsOf(state);
     let primary: ExecuteResult;
     try {
@@ -1052,7 +1066,9 @@ export class WhatsAppAssistantService {
         "whatsapp",
       );
     } catch (error) {
-      return { text: `⚠️ „${state.proposal.title}” לא בוצע: ${errorMessage(error)}` };
+      // גם הכישלון מדובר — שתיקה אחרי „אשר” קולי גרועה מכל תשובה
+      const failure = `„${state.proposal.title}” לא בוצע: ${errorMessage(error)}`;
+      return { text: `⚠️ ${failure}`, speak: failure };
     }
 
     /*
@@ -1290,6 +1306,25 @@ export class WhatsAppAssistantService {
         ? { buttons: stepButtons, buttonBody: lines.join("\n") }
         : {}),
     };
+  }
+
+  /**
+   * ההצעה כמו שאומרים אותה בקול — בלי כוכביות, אימוג'י ותבליטים.
+   *
+   * מוקרא רק מה שהמתווך עצמו אמר (השדות שפוענחו מהמשפט שלו) ומה
+   * שהסוכן שואל — לא פרטי מועמדים מהמאגר, שיכולים לשאת טלפון.
+   */
+  private spokenProposal(proposal: AgentProposal): string {
+    const parts = [proposal.title];
+    if (proposal.summary !== "") parts.push(proposal.summary);
+    const fields = proposal.fields.map((field) => `${field.label}: ${field.display}`);
+    if (fields.length > 0) parts.push(fields.join(", "));
+    if (proposal.missing.length > 0) {
+      parts.push(`חסר להשלמה: ${proposal.missing.map((m) => m.label).join(", ")}`);
+    }
+    for (const warning of proposal.warnings) parts.push(warning);
+    if (proposal.clarify !== undefined) parts.push(proposal.clarify);
+    return parts.join(". ");
   }
 
   /** ההצעה כפי שהמסך היה מציג אותה — כותרת, שדות, חוסרים ואזהרות. */
