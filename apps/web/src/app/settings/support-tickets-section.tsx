@@ -39,7 +39,7 @@ interface Ticket {
 const STATUS_COLOR: Record<SupportStatus, string> = {
   open: "var(--color-danger)",
   in_progress: "var(--color-primary)",
-  resolved: "var(--color-success)",
+  closed: "var(--color-success)",
 };
 
 export function SupportTicketsSection(): React.JSX.Element {

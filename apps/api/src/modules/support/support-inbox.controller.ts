@@ -23,6 +23,7 @@ import {
   EMAIL_ATTACHMENT_MAX_COUNT,
   IdSchema,
   InboundEmailPayloadSchema,
+  SUPPORT_STATUSES,
 } from "@metavchim/shared";
 import { PlatformAdmin, Public } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
@@ -45,7 +46,8 @@ import { SupportInboxService } from "./support-inbox.service";
 const SecretSchema = z.string().min(16).max(200);
 
 const ReplySchema = z.object({ body: z.string().max(20_000).default("") }).strict();
-const StatusSchema = z.object({ status: z.enum(["open", "closed"]) }).strict();
+/* אותו אוצר מילים כמו פניות הכפתור — שולחן אחד לא מחזיק שניים. */
+const StatusSchema = z.object({ status: z.enum(SUPPORT_STATUSES) }).strict();
 
 @Controller()
 export class SupportInboxPublicController {

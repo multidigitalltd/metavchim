@@ -21,14 +21,13 @@ import { OffersSection } from "./offers-section";
 import { NumberRentalsSection } from "./number-rentals-section";
 import { AgentUsageSection } from "./agent-usage-section";
 import { PlatformSettingsSection } from "./platform-settings-section";
+import { SupportQueueSection } from "./support-queue-section";
 import { LegalDocsSection } from "./legal-docs-section";
 import { IntegrationDeskSection } from "./integration-desk-section";
-import { SupportInboxSection } from "./support-inbox-section";
 import { InvoicesSection } from "./invoices-section";
 import { TelephonyWebhooksSection } from "./telephony-webhooks-section";
 import { CreditEconomySection } from "./credit-economy-section";
 import { SystemUpdateSection } from "./system-update-section";
-import { SupportDeskSection } from "./support-desk-section";
 import { PayoutDeskSection } from "./payout-desk-section";
 import { ReferralRevenueSection } from "./referral-revenue-section";
 import { Notice } from "../notice";
@@ -635,15 +634,13 @@ export default function PlatformPage() {
       {/*
         תור התמיכה ראשון: זו הרשימה היחידה במסך הזה שמישהו ממתין
         בקצה השני שלה.
-      */}
-      <SupportDeskSection />
 
-      {/*
-        מיד אחרי תור הפניות מהמערכת: אותה עבודה בדיוק — מישהו ממתין
-        למענה — ורק הערוץ שונה. שני מסכים רחוקים זה מזה היו הופכים
-        "מה מחכה לי" לשתי שאלות.
+        **מקור אחד לשני הערוצים.** קודם ישבו כאן שני מסכים — פניות
+        מהכפתור, ותיבת המייל — עם שתי רשימות, שני סינונים ושני
+        מונים. מבחינת מי שמטפל זו אותה עבודה, ולכן "מה מחכה לי"
+        הייתה שתי שאלות.
       */}
-      <SupportInboxSection />
+      <SupportQueueSection />
 
       {/*
         מיד אחרי התמיכה: גם כאן מישהו ממתין בקצה השני, וכאן הוא ממתין

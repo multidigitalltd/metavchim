@@ -11,17 +11,24 @@ import {
   EMAIL_ATTACHMENT_MAX_COUNT,
   EMAIL_OUTBOUND_ATTACHMENT_TOTAL_BYTES,
   emailAttachmentKind,
+  autoReplyReason,
   inboundBody,
+  inboundDestination,
+  inboundHeaders,
   inboundProviderMessageId,
+  inboundReturnPath,
   inboundToken,
   isProviderInboundRoute,
   parseSenderEmail,
   parseSenderName,
+  referenceFromSubject,
   replyAddressFor,
+  subjectWithReference,
   safeAttachmentName,
   supportReplyRejectionReason,
   supportSubjectOrDefault,
   type InboundEmailPayload,
+  type SupportStatus,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
@@ -29,6 +36,7 @@ import { EmailRejectedError, EmailService } from "../../core/email.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
+import { EmailInboxService } from "../email-inbox/email-inbox.service";
 
 /**
  * תיבת התמיכה של הפלטפורמה.
@@ -71,6 +79,15 @@ export class SupportInboxService {
     private readonly email: EmailService,
     private readonly storage: StorageService,
     private readonly settings: PlatformSettingsService,
+    /*
+     * ‎**התיבה הכללית מכירה גם את הזרם השני.**
+     *
+     * מרגע שכל הדואר של הדומיין נכנס בדלת אחת, ההודעות של שני
+     * הזרמים מגיעות לכאן — וטוקן של תשובת לקוח שייפול לתמיכה הוא
+     * הודעה פרטית של לקוח על שולחן מנהלי הפלטפורמה. המסירה כאן
+     * היא מה שמונע את זה.
+     */
+    private readonly tenantInbox: EmailInboxService,
   ) {}
 
   /** כתובת ה-Inbound של תיבת התמיכה, והסוד שבנתיב ה-Webhook. */
@@ -136,7 +153,65 @@ export class SupportInboxService {
     const subject = supportSubjectOrDefault(payload.Subject);
     const token = inboundToken(payload);
 
-    const thread = await this.resolveThread({ token, senderEmail, senderName, subject });
+    /*
+     * ‎**מה שמכונה שלחה אינו פנייה.**
+     *
+     * תיבה כללית על דומיין שלם מקבלת „מחוץ למשרד”, הודעות אי-מסירה
+     * ואישורי קריאה. כל אחת מהן הייתה פותחת פנייה עם מספר משלה,
+     * ובבוקר השולחן מלא בפניות שאיש לא כתב — ובתוכן נבלעות
+     * האמיתיות. וגרוע מזה: מענה אוטומטי לתשובה שלנו יוצר לולאה.
+     */
+    const automated = autoReplyReason({
+      subject: payload.Subject ?? "",
+      headers: inboundHeaders(payload),
+      returnPath: inboundReturnPath(payload),
+      fromEmail: senderEmail ?? undefined,
+    });
+    if (automated !== null) {
+      this.logger.log(`הודעה נכנסת לא פתחה פנייה: ${automated}`);
+      return;
+    }
+
+    /*
+     * ‎**הניתוב בין שני הזרמים.** הכרעה אחת, ב-shared, עם בדיקות —
+     * ולא תנאי שנכתב פעמיים בשני שירותים שיסטו זה מזה.
+     */
+    const [supportThread, tenantToken] =
+      token === null
+        ? [null, null]
+        : await Promise.all([
+            this.prisma.supportThread.findUnique({
+              where: { replyToken: token },
+              select: { id: true, tenantId: true },
+            }),
+            this.prisma.emailReplyToken.findUnique({
+              where: { id: token },
+              select: { id: true },
+            }),
+          ]);
+
+    const destination = inboundDestination({
+      supportThread: supportThread !== null,
+      tenantToken: tenantToken !== null,
+    });
+
+    if (destination.kind === "drop") {
+      this.logger.error(`הודעה נכנסת נזרקה: ${destination.reason}`);
+      return;
+    }
+    if (destination.kind === "tenant_reply") {
+      // תשובת לקוח של משרד — לא פנייה לתמיכה
+      await this.tenantInbox.processInbound(payload);
+      return;
+    }
+
+    const thread = await this.resolveThread({
+      token,
+      knownThread: supportThread,
+      senderEmail,
+      senderName,
+      subject,
+    });
     if (thread === null) return;
 
     const messageId = ulid();
@@ -344,18 +419,37 @@ export class SupportInboxService {
    */
   private async resolveThread(input: {
     token: string | null;
+    /** השרשור שכבר נמצא לפי הטוקן בשלב הניתוב — לא נשלף פעמיים. */
+    knownThread: { id: string; tenantId: string | null } | null;
     senderEmail: string | null;
     senderName: string;
     subject: string;
   }): Promise<{ id: string; tenantId: string | null } | null> {
+    if (input.knownThread !== null) return input.knownThread;
     if (input.token !== null) {
-      const byToken = await this.prisma.supportThread.findUnique({
-        where: { replyToken: input.token },
-        select: { id: true, tenantId: true },
-      });
-      if (byToken !== null) return byToken;
       // טוקן לא מוכר אינו סיבה לזרוק פנייה — ממשיכים לשרשור לפי שולח
       this.logger.warn("פניית תמיכה עם טוקן לא מוכר — משויכת לפי כתובת השולח");
+    }
+
+    /*
+     * ‎**המספר שבנושא הוא רשת הביטחון של הטוקן.**
+     *
+     * מי שפותח מייל **חדש** במקום להשיב מאבד את ה-`+token`, ואז
+     * ההמשך של אותה שיחה נפתח כפנייה נפרדת — ומי שמטפל מגלה שתי
+     * פניות על אותו דבר בלי לדעת שהן אחת. המספר נדבק לנושא בכל
+     * תשובה שיוצאת, ולכן הוא חוזר אלינו מעצמו גם בלי הטוקן.
+     *
+     * הוא **רק** מפתח חיפוש: הנושא הוא טקסט של שולח, וכל אחד יכול
+     * לכתוב בו מספר. לכן ההצמדה מותנית גם בכתובת השולח — אחרת מי
+     * שמנחש מספר היה נכנס לשרשור של אדם אחר.
+     */
+    const fromSubject = referenceFromSubject(input.subject);
+    if (fromSubject !== null && input.senderEmail !== null) {
+      const byReference = await this.prisma.supportThread.findFirst({
+        where: { reference: fromSubject, contactEmail: input.senderEmail },
+        select: { id: true, tenantId: true },
+      });
+      if (byReference !== null) return byReference;
     }
 
     if (input.senderEmail !== null) {
@@ -395,6 +489,8 @@ export class SupportInboxService {
   async threads(): Promise<
     {
       id: string;
+      /** מספר הפנייה — משותף עם פניות הכפתור. */
+      reference: number;
       subject: string;
       contactName: string;
       contactEmail: string | null;
@@ -419,6 +515,7 @@ export class SupportInboxService {
      */
     const columns = {
       id: true,
+      reference: true,
       subject: true,
       contactName: true,
       contactEmail: true,
@@ -462,6 +559,7 @@ export class SupportInboxService {
   /** שרשור אחד — ההודעות לפי סדר, וסימונו כנקרא. */
   async thread(threadId: string): Promise<{
     id: string;
+    reference: number;
     subject: string;
     contactName: string;
     contactEmail: string | null;
@@ -522,6 +620,7 @@ export class SupportInboxService {
 
     return {
       id: row.id,
+      reference: row.reference,
       subject: row.subject,
       contactName: row.contactName,
       contactEmail: row.contactEmail,
@@ -611,7 +710,18 @@ export class SupportInboxService {
     try {
       await this.email.send(
         thread.contactEmail!,
-        thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`,
+        /*
+         * ‎**המספר נדבק לנושא, וזה מה שמחזיר אותו אלינו.**
+         *
+         * הטוקן ב-`Reply-To` עובד רק כשהפונה **משיב**; מי שפותח
+         * מייל חדש מאבד אותו, וההמשך של אותה שיחה נפתח כפנייה
+         * נפרדת. המספר שורד את זה, והוא גם מה שמאפשר לפונה לצטט
+         * „פנייה 1042” בטלפון.
+         */
+        subjectWithReference(
+          thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`,
+          thread.reference,
+        ),
         {
           heading: "תשובה מהתמיכה",
           paragraphs: body.trim() === "" ? ["מצורף:"] : body.trim().split("\n").filter(Boolean),
@@ -732,7 +842,7 @@ export class SupportInboxService {
   }
 
   /** סגירה ופתיחה מחדש — הסטטוס הוא מה שמסדר את הרשימה. */
-  async setStatus(threadId: string, status: "open" | "closed"): Promise<{ ok: true }> {
+  async setStatus(threadId: string, status: SupportStatus): Promise<{ ok: true }> {
     await this.prisma.supportThread.update({ where: { id: threadId }, data: { status } });
     return { ok: true };
   }

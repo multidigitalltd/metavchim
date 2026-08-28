@@ -28,6 +28,8 @@ import { SupportInboxService } from "./support-inbox.service";
 
 export interface SupportTicketDto {
   id: string;
+  /** מספר הפנייה — רצף משותף עם הפניות שהגיעו במייל. */
+  reference: number;
   kind: SupportKind;
   message: string;
   status: SupportStatus;
@@ -281,6 +283,32 @@ export class SupportService {
     }));
   }
 
+  /**
+   * פנייה אחת לשולחן — מה שהתור צריך כדי לפתוח אותה.
+   *
+   * התור המאוחד מציג שורה אחת לכל פנייה, ופותח את הפרטים בלחיצה.
+   * בלי הנתיב הזה הוא היה נאלץ למשוך את **כל** הרשימה רק כדי
+   * להציג אחת — ואז לשמור אותה בזיכרון כדי שהפתיחה תהיה מיידית,
+   * כלומר מצב שני שמתיישן.
+   */
+  async oneForDesk(ticketId: string): Promise<SupportTicketAdminDto> {
+    const row = await this.prisma.withSupportDesk(async (tx) =>
+      tx.supportTicket.findFirst({ where: { id: ticketId } }),
+    );
+    if (row === null) throw new NotFoundException("הפנייה לא נמצאה");
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: row.tenantId },
+      select: { name: true },
+    });
+    return {
+      ...this.toDto(row),
+      tenantId: row.tenantId,
+      tenantName: tenant?.name ?? "—",
+      userEmail: row.userEmail,
+      context: (row.context ?? {}) as SupportContext,
+    };
+  }
+
   /** עדכון סטטוס ו/או מענה. המענה נשלח גם במייל לפונה עצמו. */
   async respond(
     ticketId: string,
@@ -337,6 +365,7 @@ export class SupportService {
 
   private toDto(row: {
     id: string;
+    reference: number;
     kind: string;
     message: string;
     status: string;
@@ -350,6 +379,7 @@ export class SupportService {
   }): SupportTicketDto {
     return {
       id: row.id,
+      reference: row.reference,
       kind: row.kind as SupportKind,
       message: row.message,
       status: row.status as SupportStatus,
