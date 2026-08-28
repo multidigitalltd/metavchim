@@ -909,6 +909,12 @@ export class PropertiesService {
     minRooms?: number;
     maxRooms?: number;
     cursor?: string;
+    /**
+     * סדר התוצאות — „תמיד תציג מהזול ליקר” של הסוכן. עמוד ראשון
+     * בלבד: סמן העימוד (`cursor`) גזור ממיון לפי `id`, והסוכן —
+     * הקורא היחיד שמעביר סדר — אינו מעמד. נכס בלי מחיר אחרון.
+     */
+    order?: "newest" | "price_asc" | "price_desc";
     limit: number;
   }): Promise<Page<PropertyDto>> {
     const price = priceRangeAgorot(query.minPrice, query.maxPrice);
@@ -998,7 +1004,12 @@ export class PropertiesService {
             : {}),
           ...(query.cursor ? { id: { lt: query.cursor } } : {}),
         },
-        orderBy: { id: "desc" }, // ULID ממוין-זמן — חדש ראשון
+        orderBy:
+          query.order === "price_asc"
+            ? { priceAgorot: { sort: "asc" as const, nulls: "last" as const } }
+            : query.order === "price_desc"
+              ? { priceAgorot: { sort: "desc" as const, nulls: "last" as const } }
+              : { id: "desc" as const }, // ULID ממוין-זמן — חדש ראשון
         take: query.limit + 1,
       });
       const hasMore = rows.length > query.limit;

@@ -29,6 +29,33 @@ import { PlatformSettingsService } from "./platform-settings.service";
  */
 export const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
 
+/** מודל ה-TTS — משפחה נפרדת ממודל ההבנה, ואינו מוחלף איתו. */
+const GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
+/** קול אחד קבוע — הסוכן נשמע אותו דבר אצל כולם. */
+const GEMINI_TTS_VOICE = "Kore";
+
+/**
+ * ‎PCM 16-bit מונו ⟵ WAV. כותרת של 44 בייט — הפורמט הפשוט ביותר
+ * ש-ffmpeg מזהה בלי רמזים חיצוניים.
+ */
+function wavFromPcm16(pcm: Buffer, sampleRate: number): Buffer {
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16); // גודל תת-הצ'אנק
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // מונו
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28); // byte rate (16bit mono)
+  header.writeUInt16LE(2, 32); // block align
+  header.writeUInt16LE(16, 34); // bits per sample
+  header.write("data", 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
+}
+
 /**
  * צריכת האסימונים של קריאה אחת — מדווחת על ידי Google, לא מוערכת.
  *
@@ -158,6 +185,62 @@ export class GeminiService {
     options: { maxOutputTokens?: number; timeoutMs?: number } = {},
   ): Promise<unknown | null> {
     return (await this.generateStructuredDetailed(prompt, responseSchema, options)).value;
+  }
+
+  /**
+   * ‎**טקסט ⟵ דיבור (WAV).** התשובות הקוליות של הסוכן בוואטסאפ.
+   *
+   * best-effort במופגן, כמו התובנה: `null` על כל כשל — בלי מפתח,
+   * מודל לא זמין, תשובה בלי שמע — והתשובה בטקסט עומדת בפני עצמה
+   * ממילא. הטקסט המוקרא כבר עבר את שומר העובדות; ההקראה אינה
+   * מסלול תוכן חדש.
+   *
+   * מודל ה-TTS נפרד ממודל ההבנה: הם משפחות שונות אצל Google,
+   * והחלפת מודל ההבנה במסך ההגדרות אינה אמורה לשבור את הקול.
+   */
+  async speak(text: string): Promise<Buffer | null> {
+    const key = await this.apiKey();
+    const trimmed = text.trim();
+    if (key === "" || trimmed === "") return null;
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TTS_MODEL}:generateContent`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-goog-api-key": key },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: trimmed }] }],
+            generationConfig: {
+              responseModalities: ["AUDIO"],
+              speechConfig: {
+                voiceConfig: { prebuiltVoiceConfig: { voiceName: GEMINI_TTS_VOICE } },
+              },
+            },
+          }),
+          signal: AbortSignal.timeout(20_000),
+        },
+      );
+      if (!res.ok) {
+        this.lastFailure = {
+          at: new Date().toISOString(),
+          detail: `TTS: HTTP ${res.status}: ${await googleErrorMessage(res)}`,
+        };
+        return null;
+      }
+      const data = (await res.json()) as {
+        candidates?: { content?: { parts?: { inlineData?: { mimeType?: string; data?: string } }[] } }[];
+      };
+      const inline = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+      if (inline?.data === undefined || inline.data === "") return null;
+      const pcm = Buffer.from(inline.data, "base64");
+      // ‎Gemini מחזיר PCM גולמי (audio/L16;rate=24000) — עטיפת WAV
+      // היא מה שמאפשר ל-ffmpeg לזהות אותו בהמרה ל-Opus
+      const rate = Number(/rate=(\d+)/u.exec(inline.mimeType ?? "")?.[1] ?? 24000);
+      return wavFromPcm16(pcm, rate);
+    } catch (error) {
+      this.lastFailure = { at: new Date().toISOString(), detail: `TTS: ${String(error)}` };
+      return null;
+    }
   }
 
   /**
