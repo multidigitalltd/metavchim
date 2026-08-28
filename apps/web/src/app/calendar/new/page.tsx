@@ -74,8 +74,28 @@ function NewAppointmentForm() {
    * להחלפה כאן: מי שלחץ „קבע סיור” בנכס הלא נכון לא צריך לחזור
    * אחורה כדי לתקן.
    */
-  const [property, setProperty] = useState<PickedProperty | null>(null);
-  const [person, setPerson] = useState<PickedPerson | null>(null);
+  /*
+   * ‎**המזהה מהכתובת נכנס ל-state מיד, והשליפה רק משפרת את התווית**
+   * (ביקורת Codex).
+   *
+   * הגרסה הראשונה התחילה ב-`null` וחיכתה לשליפה. מי ששלח את הטופס
+   * לפני שהיא חזרה — קליק מהיר, רשת איטית — יצר פגישה **בלי
+   * הקישור**, בשקט: הכפתור היה פעיל, השמירה הצליחה, והנכס או הלקוח
+   * פשוט לא היו שם. חסימת הכפתור בזמן הטעינה הייתה פותרת את הדליפה
+   * במחיר של מסך שלא מגיב; כאן אין בכלל חלון — המזהה כבר נכון,
+   * ורק השם שמוצג לידו משתנה מ„הנכס שנבחר” לכתובת האמיתית.
+   */
+  const [property, setProperty] = useState<PickedProperty | null>(
+    propertyId === undefined ? null : { id: propertyId, label: "הנכס שנבחר" },
+  );
+  const [person, setPerson] = useState<PickedPerson | null>(
+    leadId !== undefined
+      ? { kind: "lead", id: leadId, label: "הליד שנבחר" }
+      : buyerId !== undefined
+        ? { kind: "buyer", id: buyerId, label: "הקונה שנבחר" }
+        : null,
+  );
+  /** נותרו תוויות לשלוף? רק כדי שהשליפה תרוץ פעם אחת. */
   const [resolving, setResolving] = useState(
     propertyId !== undefined || leadId !== undefined || buyerId !== undefined,
   );
@@ -86,7 +106,8 @@ function NewAppointmentForm() {
     /*
      * המזהה מהכתובת בא בלי תווית, והמסך חייב להראות **מה** נבחר ולא
      * רק שמשהו נבחר — אחרת „הנכס: ✓” הוא הבטחה שאי אפשר לבדוק.
-     * כישלון אינו עוצר: הפגישה עדיין תיווצר עם המזהה שבכתובת.
+     * זו שליפת **תווית** בלבד: המזהה כבר ב-state, ולכן כישלון כאן
+     * אינו פוגע בקישור אלא רק משאיר שם כללי.
      */
     const jobs: Promise<void>[] = [];
     if (propertyId !== undefined) {
@@ -109,9 +130,9 @@ function NewAppointmentForm() {
               label: where || row.marketingTitle || "הנכס שנבחר",
             });
           })
-          .catch(() => {
-            if (live) setProperty({ id: propertyId, label: "הנכס שנבחר" });
-          }),
+          // כישלון אינו מוחק דבר: המזהה כבר ב-state, והתווית נשארת
+          // המציין הכללי שנקבע בהתחלה
+          .catch(() => undefined),
       );
     }
     if (leadId !== undefined) {
@@ -129,9 +150,7 @@ function NewAppointmentForm() {
               phone: res.lead.contact.phone,
             });
           })
-          .catch(() => {
-            if (live) setPerson({ kind: "lead", id: leadId, label: "הליד שנבחר" });
-          }),
+          .catch(() => undefined),
       );
     } else if (buyerId !== undefined) {
       jobs.push(
@@ -145,9 +164,7 @@ function NewAppointmentForm() {
               phone: row.contact.phone,
             });
           })
-          .catch(() => {
-            if (live) setPerson({ kind: "buyer", id: buyerId, label: "הקונה שנבחר" });
-          }),
+          .catch(() => undefined),
       );
     }
     void Promise.all(jobs).then(() => {
@@ -168,9 +185,21 @@ function NewAppointmentForm() {
    * את `defaultValue` של המסלול הקולי כשאין טיוטה.
    */
   useEffect(() => {
+    /*
+     * ‎**הקריאה תמיד מוחקת; השימוש רק בחזרה מפורשת** (ביקורת Codex).
+     *
+     * הטיוטה נשמרת ברגע שיוצאים לטופס קליטה — וממנו אפשר גם **לא**
+     * לחזור: לנטוש, או להיתקל במיזוג לליד של סוכן אחר, שאין לו לאן
+     * להחזיר. הטיוטה נשארה אז באחסון הלשונית, ופתיחה עתידית של
+     * ‎`/calendar/new` על לקוח אחר לגמרי הייתה שואבת אליה את התאריך,
+     * השעה וההערות של הקודם — ושולחת אותם בשם מישהו שלא נאמרו עליו.
+     *
+     * ‎`draft=1` בנתיב החזרה הוא מה שמבדיל „חזרתי” מ„נכנסתי מחדש”,
+     * והמחיקה שקורית בכל מקרה מבטיחה שנטישה לא תשאיר זנב.
+     */
     const draft = takeDraft();
     const form = formRef.current;
-    if (draft === null || form === null) return;
+    if (params.get("draft") !== "1" || draft === null || form === null) return;
     for (const [name, value] of Object.entries(draft)) {
       const field = form.elements.namedItem(name);
       if (
@@ -183,6 +212,7 @@ function NewAppointmentForm() {
     }
     // פעם אחת בכניסה למסך: `takeDraft` מוחק, ולכן הרצה שנייה
     // הייתה מנקה טיוטה שזה עתה הוחזרה
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /**
@@ -206,7 +236,12 @@ function NewAppointmentForm() {
     }
     saveDraft(fields);
 
-    let back = SELF;
+    /*
+     * ‎`draft=1` מסמן לחזרה שהטיוטה שלה, ולא שריד של יציאה קודמת
+     * שננטשה. הוא עובר את רשימת ההיתר של `safeReturnPath` (אותיות,
+     * ספרות ומפרידים בלבד).
+     */
+    let back = withQuery(SELF, "draft", "1");
     const ids: [string, string][] = [
       ["propertyId", property?.id ?? ""],
       ["leadId", person?.kind === "lead" ? person.id : ""],
@@ -317,26 +352,18 @@ function NewAppointmentForm() {
           <Notice tone="danger">{error}</Notice>
         ) : null}
 
-        {resolving ? (
-          <p className="mb-4" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
-            טוען את הכרטיס…
-          </p>
-        ) : (
-          <>
-            <PersonPicker
-              value={person}
-              onPick={setPerson}
-              onClear={() => setPerson(null)}
-              onNew={() => leaveTo("/leads/new")}
-            />
-            <PropertyPicker
-              value={property}
-              onPick={setProperty}
-              onClear={() => setProperty(null)}
-              onNew={() => leaveTo("/properties/new")}
-            />
-          </>
-        )}
+        <PersonPicker
+          value={person}
+          onPick={setPerson}
+          onClear={() => setPerson(null)}
+          onNew={() => leaveTo("/leads/new")}
+        />
+        <PropertyPicker
+          value={property}
+          onPick={setProperty}
+          onClear={() => setProperty(null)}
+          onNew={() => leaveTo("/properties/new")}
+        />
 
         <div className="mb-4 grid gap-4 sm:grid-cols-2">
           <div>
