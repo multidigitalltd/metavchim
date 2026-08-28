@@ -58,6 +58,7 @@ export const AGENT_ACTION_IDS = [
   "play_recording",
   "show_deals",
   "show_credits",
+  "open_deal_room",
   "office_report",
   "create_lead",
   "create_buyer",
@@ -288,6 +289,15 @@ const F_BUYER_PHRASE: AgentFieldSpec = {
   label: "איזה לקוח",
   type: "string",
   hint: "השם או התיאור שנאמר, כפי שנאמר",
+  maxLength: 200,
+};
+
+/** פנייה נכנסת מהרשת — נכס שהוצע לביקוש, או התעניינות בנכס שפורסם. */
+const F_APPROACH_PHRASE: AgentFieldSpec = {
+  key: "approachPhrase",
+  label: "איזו פנייה",
+  type: "string",
+  hint: "מה שנאמר על הפנייה — שם הנכס, העיר או שם המשרד השני",
   maxLength: 200,
 };
 
@@ -848,6 +858,25 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capability: "collaboration.offer",
     risk: "read",
     fields: [],
+  },
+  {
+    /*
+     * ‎**חדר עסקה נפתח באישור פנייה** — אין „פתיחה” נפרדת במערכת:
+     * המסך עושה בדיוק את זה בכפתור האישור, והסוכן קורא לאותו
+     * שירות. `outbound` — האישור מודיע למשרד השני ופותח חדר משותף.
+     */
+    id: "open_deal_room",
+    title: "פתיחת חדר עסקה",
+    when: "אישור פנייה נכנסת מרשת השיתופים ופתיחת חדר עסקה משותף — נכס שהוצע לביקוש שפורסם, או משרד שמתעניין בנכס. „פתח חדר עסקה”, „תאשר את ההצעה”.",
+    examples: [
+      "פתח חדר עסקה על ההצעה לדירה בבני ברק",
+      "תאשר את ההצעה ממשרד כהן נכסים",
+      "יש התעניינות בנכס שפרסמתי — תפתח חדר עסקה",
+    ],
+    capability: "collaboration.offer",
+    capabilityAlts: ["collaboration.share"],
+    risk: "outbound",
+    fields: [F_APPROACH_PHRASE],
   },
   {
     id: "show_credits",

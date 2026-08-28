@@ -13,7 +13,10 @@ import {
   type AgentHistoryRef,
   type AgentProposal,
 } from "@metavchim/shared";
+import { TenantContext } from "../../common/tenant-context";
 import { BuyersService } from "../buyers/buyers.service";
+import { CollaborationService } from "../collaboration/collaboration.service";
+import { ListingsService } from "../collaboration/listings.service";
 import { SearchService } from "../search/search.service";
 import { TasksService } from "../tasks/tasks.service";
 import type { Interpretation } from "./interpret.service";
@@ -49,6 +52,8 @@ export class AgentResolveService {
     private readonly buyers: BuyersService,
     private readonly search: SearchService,
     private readonly tasks: TasksService,
+    private readonly collaboration: CollaborationService,
+    private readonly listings: ListingsService,
   ) {}
 
   async toProposal(
@@ -590,6 +595,54 @@ export class AgentResolveService {
         .map((user) => ({ id: user.id, label: user.name }));
     }
 
+    /*
+     * ‎**פניות נכנסות מהרשת** — ההיצע הוא רק מה שממתין לתשובה:
+     * אישור מדבר תמיד על פנייה פתוחה, כמו שסגירת משימה מדברת על
+     * משימה פתוחה. שני הכיוונים יחד — נכס שהוצע לביקוש שלי,
+     * ומשרד שמתעניין בנכס שלי — והמזהה נושא את הסוג, כמו בכרטיס.
+     *
+     * כשהביטוי לא מתאים לאף פנייה מוצגות **כולן**: יש לכל היותר
+     * קומץ פניות ממתינות, ובורר מלא עדיף על „לא נמצא” שמסתיר
+     * בדיוק את מה שהמתווך מנסה לאשר.
+     */
+    if (kind === "approach") {
+      const caps = TenantContext.current().capabilities;
+      const [offers, interests] = await Promise.all([
+        caps.has("collaboration.offer") ? this.collaboration.listCoopOffers() : [],
+        caps.has("collaboration.share") ? this.listings.listInterests() : [],
+      ]);
+      const all: AgentCandidate[] = [
+        ...offers
+          .filter((offer) => offer.direction === "incoming" && offer.status === "sent")
+          .map((offer) => {
+            const title = offer.presentation["title"];
+            return {
+              id: `offer:${offer.id}`,
+              label: typeof title === "string" && title !== "" ? title : "נכס שהוצע לכם",
+              detail: [
+                "הצעת נכס",
+                offer.officeName,
+                offer.buyerName === undefined ? undefined : `לקונה ${offer.buyerName}`,
+              ]
+                .filter(Boolean)
+                .join(" · "),
+            };
+          }),
+        ...interests
+          .filter((interest) => interest.status === "sent")
+          .map((interest) => ({
+            id: `interest:${interest.id}`,
+            label: interest.propertyTitle ?? "הנכס שפורסם",
+            detail: ["התעניינות בנכס", interest.officeName].filter(Boolean).join(" · "),
+          })),
+      ];
+      const needle = phrase.toLowerCase();
+      const matched = all.filter((option) =>
+        `${option.label} ${option.detail ?? ""}`.toLowerCase().includes(needle),
+      );
+      return (matched.length > 0 ? matched : all).slice(0, 9);
+    }
+
     const results = await this.search.search(phrase);
     if (kind === "buyer") {
       return results.buyers.slice(0, 8).map((b) => ({
@@ -737,7 +790,15 @@ const DATE_FIELD: Record<string, string | undefined> = {
  * לגמרי. שתיהן היו מוחזרות מאותה שאילתה, והבחירה בין „דנה הסוכנת”
  * ל„דנה הקונה” הייתה נופלת על סדר התוצאות.
  */
-type LookupKind = "buyer" | "property" | "lead" | "task" | "card" | "anyCard" | "user";
+type LookupKind =
+  | "buyer"
+  | "property"
+  | "lead"
+  | "task"
+  | "card"
+  | "anyCard"
+  | "user"
+  | "approach";
 
 /**
  * צורת המזהה שהפעולה מצפה לה, לפי סוג החיפוש.
@@ -942,6 +1003,18 @@ const ENTITY_LOOKUP: Record<
     idKey: "propertyId",
     label: "על איזה נכס",
     kind: "property",
+    alwaysChoose: true,
+  },
+  /*
+   * פתיחת חדר עסקה — אישור פנייה נכנסת. הפנייה נבחרת במפורש תמיד:
+   * האישור מודיע למשרד השני ומחבר בין המשרדים, ואסור שיקרה על
+   * „ההתאמה היחידה” בלי שהמתווך ראה על מה הוא מאשר.
+   */
+  open_deal_room: {
+    key: "approachPhrase",
+    idKey: "approachId",
+    label: "על איזו פנייה",
+    kind: "approach",
     alwaysChoose: true,
   },
   /*

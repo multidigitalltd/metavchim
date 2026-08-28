@@ -84,7 +84,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
   { label: "בלעדיות", ids: ["show_exclusivity", "log_marketing_action"] },
   {
     label: "רשת המשרדים",
-    ids: ["share_property", "share_buyer", "show_demands", "show_deals", "show_credits"],
+    ids: ["share_property", "share_buyer", "show_demands", "show_deals", "show_credits", "open_deal_room"],
   },
   { label: "עזרה", ids: ["open_support_ticket", "set_preference"] },
 ];

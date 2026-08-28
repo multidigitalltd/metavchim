@@ -58,6 +58,7 @@ import { CalendarService } from "../calendar/calendar.service";
 import type { Readable } from "node:stream";
 import { CallsService, type CallDto } from "../calls/calls.service";
 import { CollaborationService } from "../collaboration/collaboration.service";
+import { ListingsService } from "../collaboration/listings.service";
 import { DealRoomService } from "../collaboration/deal-room.service";
 import { LeadsService } from "../leads/leads.service";
 import { MATCH_LIST_LIMIT, MatchingService } from "../matching/matching.service";
@@ -271,6 +272,7 @@ export class AgentExecuteService {
     private readonly messaging: MessagingService,
     private readonly prefs: AgentPrefsService,
     private readonly support: SupportService,
+    private readonly listings: ListingsService,
   ) {}
 
   async execute(
@@ -439,6 +441,8 @@ export class AgentExecuteService {
         return this.messageOwner(params);
       case "show_credits":
         return this.showCredits();
+      case "open_deal_room":
+        return this.openDealRoom(params);
       case "open_support_ticket":
         return this.openSupportTicket(params);
       case "set_preference":
@@ -1997,6 +2001,53 @@ export class AgentExecuteService {
         credits: balance,
         ...(expiry.nextAmount === undefined ? {} : { expiring: expiry.nextAmount }),
       },
+    };
+  }
+
+  /**
+   * ‎**חדר עסקה נפתח באישור הפנייה** — אותם שירותים שכפתורי האישור
+   * במסך קוראים להם, כולל ההתראה והמייל למשרד השני. המזהה נושא את
+   * הסוג (`offer:` / `interest:`) כי שני הכיוונים הם שתי טבלאות,
+   * וההרשאה נבדקת לפי הכיוון — בדיוק כמו בבקר.
+   */
+  private async openDealRoom(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const raw = str(params["approachId"]) ?? "";
+    const caps = TenantContext.current().capabilities;
+    let dealId: string | null;
+    if (raw.startsWith("offer:")) {
+      if (!caps.has("collaboration.offer")) {
+        throw new ForbiddenException("אין לך הרשאה לאשר הצעות מהרשת");
+      }
+      ({ dealId } = await this.collaboration.respondToCoopOffer(
+        raw.slice("offer:".length),
+        "interested",
+      ));
+    } else if (raw.startsWith("interest:")) {
+      if (!caps.has("collaboration.share")) {
+        throw new ForbiddenException("אין לך הרשאה לאשר התעניינות בנכסים");
+      }
+      ({ dealId } = await this.listings.respondToInterest(
+        raw.slice("interest:".length),
+        "interested",
+      ));
+    } else {
+      throw new BadRequestException("לא נבחרה פנייה — אמרו על איזו הצעה לפתוח את החדר");
+    }
+    if (dealId === null) {
+      /*
+       * אישור בלי חדר — ביקוש ממקור חיצוני, שאין מאחוריו כרטיס
+       * קונה במערכת. האישור עצמו תקף ונמסר, ולכן זו תשובה ולא
+       * שגיאה.
+       */
+      return {
+        href: "/collaboration",
+        message: "הפנייה אושרה והצד השני קיבל עדכון, אבל אין לה חדר עסקה — היא מגיעה ממקור חיצוני.",
+      };
+    }
+    return {
+      href: "/collaboration?tab=deals",
+      message: "הפנייה אושרה וחדר העסקה נפתח — שני המשרדים מחוברים, וההמשך שם.",
+      data: { id: dealId },
     };
   }
 
