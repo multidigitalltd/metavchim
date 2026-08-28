@@ -46,6 +46,29 @@ describe("התשובה הקולית בוואטסאפ", () => {
     expect(spoken).not.toMatch(/speak\(reply\.text\)/u);
   });
 
+  it("גם שאלות הסוכן מדוברות — אישור ובחירה אינם שקטים (ביקורת Codex)", () => {
+    const propose = WA.slice(
+      WA.indexOf("private async propose("),
+      WA.indexOf("private paramsOf("),
+    );
+    // כרטיס האישור — התשובה הנפוצה ביותר — נושא speak
+    expect(propose).toContain("speak: `${this.spokenProposal(proposal)}");
+    // רשימת מועמדים — מוקראת השאלה, לא האפשרויות
+    const choice = propose.slice(
+      propose.indexOf("candidates.options.length > 0"),
+      propose.indexOf("const state: PendingState"),
+    );
+    expect(choice).toMatch(/speak: /u);
+    expect(choice).not.toMatch(/speak:[^\n]*detail/u);
+    // הניסוח המדובר לעולם אינו קורא פרטי מועמדים מהמאגר
+    const spokenProposal = WA.slice(
+      WA.indexOf("private spokenProposal("),
+      WA.indexOf("private describeProposal("),
+    );
+    expect(spokenProposal).not.toContain("candidates");
+    expect(spokenProposal).not.toContain("option");
+  });
+
   it("הקלטת שיחה גוברת על הקראה, וכשל משאיר טקסט", () => {
     const spoken = WA.slice(
       WA.indexOf("private async withSpokenReply("),
