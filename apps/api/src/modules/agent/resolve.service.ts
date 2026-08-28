@@ -879,21 +879,38 @@ const ENTITY_LOOKUP: Record<
     also: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס", kind: "property" },
   },
   /*
-   * דחייה ועדכון פגישה — הלקוח הוא המפתח לפגישה, ולכן **אינו**
-   * רשות: בלעדיו אין דרך לדעת על איזו פגישה מדובר, והביצוע נעצר
-   * עם הסבר. הפגישה עצמה נבחרת בביצוע לפי הכיוון בזמן.
+   * דחייה ועדכון פגישה — הפגישה מזוהה לפי הלקוח **או** לפי הנכס
+   * („תזיז את הסיור בדירה ברמת גן”). כל אחד מהם רשות, אבל הביצוע
+   * נעצר עם הסבר כשאין אף אחד מהם: בלי מפתח אין דרך לדעת על איזו
+   * פגישה מדובר. הפגישה עצמה נבחרת בביצוע לפי הכיוון בזמן.
    */
   reschedule_appointment: {
     key: "buyerPhrase",
     idKey: "cardId",
     label: "עם מי הפגישה",
     kind: "card",
+    optional: true,
+    also: {
+      key: "propertyPhrase",
+      idKey: "propertyId",
+      label: "איזה נכס",
+      kind: "property",
+      optional: true,
+    },
   },
   update_appointment: {
     key: "buyerPhrase",
     idKey: "cardId",
     label: "עם מי הפגישה",
     kind: "card",
+    optional: true,
+    also: {
+      key: "propertyPhrase",
+      idKey: "propertyId",
+      label: "איזה נכס",
+      kind: "property",
+      optional: true,
+    },
   },
   /*
    * הודעת וואטסאפ ללקוח — קונה או ליד, ובחירה מפורשת תמיד: הודעה
@@ -904,6 +921,17 @@ const ENTITY_LOOKUP: Record<
     idKey: "cardId",
     label: "לאיזה לקוח לשלוח",
     kind: "card",
+    alwaysChoose: true,
+  },
+  /*
+   * הודעה לבעל נכס — הנכס נבחר במפורש תמיד, כי הנמען נגזר ממנו:
+   * בחירת הנכס היא בחירת האדם שההודעה תגיע אליו.
+   */
+  message_owner: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "על איזה נכס",
+    kind: "property",
     alwaysChoose: true,
   },
   /*

@@ -75,6 +75,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "send_agreement",
       "send_email",
       "send_message",
+      "message_owner",
       "show_offers",
       "show_agreements",
       "show_emails",
@@ -83,7 +84,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
   { label: "בלעדיות", ids: ["show_exclusivity", "log_marketing_action"] },
   {
     label: "רשת המשרדים",
-    ids: ["share_property", "share_buyer", "show_demands", "show_deals"],
+    ids: ["share_property", "share_buyer", "show_demands", "show_deals", "show_credits"],
   },
   { label: "עזרה", ids: ["open_support_ticket", "set_preference"] },
 ];

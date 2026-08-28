@@ -435,6 +435,10 @@ export class AgentExecuteService {
         return this.showEmails();
       case "send_message":
         return this.sendMessage(params);
+      case "message_owner":
+        return this.messageOwner(params);
+      case "show_credits":
+        return this.showCredits();
       case "open_support_ticket":
         return this.openSupportTicket(params);
       case "set_preference":
@@ -1719,8 +1723,14 @@ export class AgentExecuteService {
     direction: "upcoming" | "past",
   ): Promise<{ id: string; startsAt: Date; endsAt: Date | null; extra: number }> {
     const card = await this.optionalCardTarget(params["cardId"]);
-    if (card === null) {
-      throw new BadRequestException("לא זיהיתי עם מי הפגישה — אמרו את שם הלקוח");
+    /*
+     * ‎**גם הנכס הוא מפתח לפגישה** — „תזיז את הסיור בדירה ברמת גן”.
+     * המזהה הגיע מבורר הנכסים (תחום-דייר, כמו בקביעת פגישה), וכשגם
+     * לקוח וגם נכס נאמרו — שניהם מסננים: זו הפגישה של שניהם.
+     */
+    const propertyId = str(params["propertyId"]);
+    if (card === null && propertyId === undefined) {
+      throw new BadRequestException("לא זיהיתי איזו פגישה — אמרו עם מי היא או באיזה נכס");
     }
     const tenantId = TenantContext.current().tenantId;
     const rows = await this.prisma.withTenant((tx) =>
@@ -1728,7 +1738,12 @@ export class AgentExecuteService {
         where: {
           tenantId,
           status: "scheduled",
-          ...(card.kind === "buyer" ? { buyerId: card.id } : { leadId: card.id }),
+          ...(card === null
+            ? {}
+            : card.kind === "buyer"
+              ? { buyerId: card.id }
+              : { leadId: card.id }),
+          ...(propertyId === undefined ? {} : { propertyId }),
           startsAt: direction === "upcoming" ? { gte: new Date() } : { lt: new Date() },
         },
         orderBy: { startsAt: direction === "upcoming" ? "asc" : "desc" },
@@ -1739,10 +1754,11 @@ export class AgentExecuteService {
     );
     const first = rows[0];
     if (first === undefined) {
+      const who = card === null ? "בנכס הזה" : "עם הלקוח הזה";
       throw new BadRequestException(
         direction === "upcoming"
-          ? "אין פגישה מתוכננת עם הלקוח הזה — אפשר לקבוע חדשה"
-          : "לא נמצאה פגישה שהתקיימה עם הלקוח הזה וממתינה לסיכום",
+          ? `אין פגישה מתוכננת ${who} — אפשר לקבוע חדשה`
+          : `לא נמצאה פגישה שהתקיימה ${who} וממתינה לסיכום`,
       );
     }
     return {
@@ -1779,7 +1795,7 @@ export class AgentExecuteService {
     return {
       href: "/calendar",
       message:
-        found.extra > 0 ? `${moved}. יש עוד פגישה מתוכננת עם הלקוח — היא לא זזה.` : moved,
+        found.extra > 0 ? `${moved}. יש עוד פגישה מתוכננת כזו — היא לא זזה.` : moved,
     };
   }
 
@@ -1881,6 +1897,80 @@ export class AgentExecuteService {
       message: `ההודעה ל${name} מוכנה ונרשמה בציר הלקוח — פתחו את הקישור ולחצו שלח.`,
       link: waUrl,
       ...refOf(name, card.kind, card.id),
+    };
+  }
+
+  /**
+   * ‎**וואטסאפ לבעל הנכס — אותו ערוץ `walink`, נמען אחר.**
+   *
+   * ההודעה נרשמת ב-Hub על איש הקשר של הבעלים (לנכס אין ציר לקוח),
+   * והקישור פותח את הצ'אט עם הטקסט מוכן — שום דבר לא יוצא מעצמו.
+   * אותו גבול PII כמו בהודעה ללקוח: הקישור נושא טלפון ולכן חוזר
+   * ב-`link`, לעולם לא ב-`message` שנשמר לזיכרון.
+   */
+  private async messageOwner(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = str(params["propertyId"]);
+    if (propertyId === undefined) throw new BadRequestException("לא נבחר נכס");
+    const body = str(params["messageBody"])?.trim();
+    if (body === undefined || body === "") {
+      throw new BadRequestException("אמרו מה לכתוב בהודעה");
+    }
+    const tenantId = TenantContext.current().tenantId;
+    const { name, label, waUrl } = await this.prisma.withTenant(async (tx) => {
+      const property = await tx.property.findFirst({
+        where: { id: propertyId, tenantId, deletedAt: null },
+        select: { ownerContactId: true, marketingTitle: true, street: true, city: true },
+      });
+      if (!property) throw new BadRequestException("הנכס לא נמצא");
+      if (property.ownerContactId === null) {
+        throw new BadRequestException("לנכס אין בעלים רשום — אפשר לקשר איש קשר במסך הנכס");
+      }
+      const contact = await this.contacts.getById(tx, property.ownerContactId);
+      if (!contact || contact.phone === "") {
+        throw new BadRequestException("לבעל הנכס אין מספר טלפון בכרטיס");
+      }
+      await this.messaging.recordOutbound(tx, {
+        contactId: property.ownerContactId,
+        channel: "whatsapp",
+        provider: "walink",
+        body,
+      });
+      return {
+        name: contact.name,
+        label:
+          property.marketingTitle ??
+          ([property.street, property.city].filter(Boolean).join(", ") || "הנכס"),
+        waUrl: whatsappLink(contact.phone, body),
+      };
+    });
+    return {
+      message: `ההודעה ל${name} — הבעלים של ${label} — מוכנה. פתחו את הקישור ולחצו שלח.`,
+      link: waUrl,
+      ...refOf(label, "property", propertyId),
+    };
+  }
+
+  /**
+   * יתרת הקרדיטים — אותה קריאה כמו מסך הרשת, כולל מה שעומד לפוג:
+   * „נשארו 25” בלי „10 מהם פגים בעוד שבוע” היא חצי תשובה.
+   */
+  private async showCredits(): Promise<ExecuteResult> {
+    const { balance, expiry } = await this.collaboration.credits();
+    const expiring =
+      expiry.nextAmount !== undefined && expiry.nextAt !== undefined
+        ? `${expiry.nextAmount} מהם יפוגו ב-${formatJerusalemDate(new Date(expiry.nextAt))} — כדאי להשתמש בהם קודם`
+        : undefined;
+    return {
+      href: "/collaboration",
+      message:
+        balance === 0
+          ? "לא נשארו קרדיטים למשרד — אפשר לרכוש חבילה במסך הרשת"
+          : `יתרת הקרדיטים של המשרד: ${balance}`,
+      ...(expiring === undefined ? {} : { insight: expiring }),
+      data: {
+        credits: balance,
+        ...(expiry.nextAmount === undefined ? {} : { expiring: expiry.nextAmount }),
+      },
     };
   }
 
