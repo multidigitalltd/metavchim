@@ -9,6 +9,9 @@ import {
   type LeadStatus,
   SUPPORT_KINDS,
   type SupportKind,
+  PROPERTY_ORDER_LABELS,
+  PROPERTY_ORDER_VALUES,
+  type PropertyOrder,
   formatJerusalemDate,
   formatJerusalemTime,
   whatsappLink,
@@ -45,6 +48,7 @@ import { AgreementsService } from "../agreements/agreements.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { EmailInboxService } from "../email-inbox/email-inbox.service";
+import { AgentPrefsService } from "./agent-prefs.service";
 import { MessagingService } from "../messaging/messaging.service";
 import { SupportService } from "../support/support.service";
 import { AnalyticsService, type ReportWindowDays } from "../analytics/analytics.service";
@@ -265,6 +269,7 @@ export class AgentExecuteService {
     private readonly notifications: NotificationsService,
     private readonly emailInbox: EmailInboxService,
     private readonly messaging: MessagingService,
+    private readonly prefs: AgentPrefsService,
     private readonly support: SupportService,
   ) {}
 
@@ -432,6 +437,8 @@ export class AgentExecuteService {
         return this.sendMessage(params);
       case "open_support_ticket":
         return this.openSupportTicket(params);
+      case "set_preference":
+        return this.setPreference(params);
       case "dismiss_match":
         return this.dismissMatch(params);
       case "assign_task":
@@ -606,8 +613,11 @@ export class AgentExecuteService {
   private async findProperties(params: Record<string, unknown>): Promise<ExecuteResult> {
     const cities = strList(params["cities"]);
     const must = strList(params["mustFeatures"]);
+    // „תמיד תציג מהזול ליקר” — ההעדפה השמורה חלה בכל שאילתה, בשני הערוצים
+    const prefs = await this.prefs.get();
     const page = await this.properties.list({
       limit: 50,
+      ...(prefs.propertiesOrder === undefined ? {} : { order: prefs.propertiesOrder }),
       ...(cities.length > 0 ? { cities } : {}),
       ...(str(params["dealType"]) !== undefined ? { dealType: str(params["dealType"])! } : {}),
       ...(num(params["roomsMin"]) !== undefined ? { minRooms: num(params["roomsMin"])! } : {}),
@@ -1890,6 +1900,22 @@ export class AgentExecuteService {
     return {
       href: "/settings",
       message: "הפנייה נפתחה — התמיכה תחזור אליך, והתשובה תופיע גם בהתראות",
+    };
+  }
+
+  /**
+   * „תמיד תציג…” — הוראת קבע. נשמרת בפרופיל וחלה מכאן והלאה בשני
+   * הערוצים; התשובה אומרת גם איך משנים, כדי שההעדפה לא תרגיש
+   * כמו דלת חד-כיוונית.
+   */
+  private async setPreference(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const order = str(params["propertiesOrder"]);
+    if (order === undefined || !(PROPERTY_ORDER_VALUES as readonly string[]).includes(order)) {
+      throw new BadRequestException("אמרו איזו העדפה לקבוע — למשל „תמיד תציג מהזול ליקר”");
+    }
+    await this.prefs.set({ propertiesOrder: order as PropertyOrder });
+    return {
+      message: `נרשם — מהיום אציג נכסים ${PROPERTY_ORDER_LABELS[order as PropertyOrder]}. אפשר לשנות בכל רגע, למשל „תמיד תראה את החדשים קודם”.`,
     };
   }
 
