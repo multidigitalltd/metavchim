@@ -60,13 +60,17 @@ export const AGENT_ACTION_IDS = [
   "show_credits",
   "open_deal_room",
   "office_report",
+  "show_recommendations",
   "create_lead",
   "create_buyer",
   "create_property",
   "create_task",
   "complete_task",
+  "update_task",
+  "create_recurring_task",
   "add_note",
   "update_lead_status",
+  "convert_lead",
   "schedule_appointment",
   "reschedule_appointment",
   "update_appointment",
@@ -81,12 +85,16 @@ export const AGENT_ACTION_IDS = [
   "show_agreements",
   "show_offers",
   "show_demands",
+  "show_network_listings",
+  "show_network_inbox",
   "show_notifications",
   "show_emails",
   "dismiss_match",
   "assign_task",
   "send_email",
   "send_message",
+  "call_contact",
+  "send_intake_form",
   "message_owner",
   "open_support_ticket",
   "set_preference",
@@ -315,6 +323,15 @@ const F_PROPERTY_PHRASE: AgentFieldSpec = {
   label: "איזה נכס",
   type: "string",
   hint: "התיאור שנאמר — כתובת, עיר, סוג או שם הבעלים",
+  maxLength: 200,
+};
+
+/** כותרת משימה — משותפת לתזכורת חד-פעמית ולמשימה הקבועה. */
+const F_TASK_TITLE: AgentFieldSpec = {
+  key: "title",
+  label: "מה להזכיר",
+  type: "string",
+  hint: 'בלי המילים "תזכיר לי", ובלי המועד',
   maxLength: 200,
 };
 
@@ -906,6 +923,15 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
   },
   {
+    id: "show_recommendations",
+    title: "מה כדאי עכשיו",
+    when: "בקשת הכוונה — „מה כדאי לי לעשות היום”, „ממה להתחיל”. ההמלצות של המאמן, לפי דחיפות.",
+    examples: ["מה כדאי לי לעשות היום?", "ממה להתחיל את הבוקר", "מה הכי דחוף עכשיו"],
+    capability: "matches.view",
+    risk: "read",
+    fields: [],
+  },
+  {
     id: "create_lead",
     title: "ליד חדש",
     when: "תיעוד פנייה או שיחה שהתקיימה, בלי מספיק פרטים לכרטיס קונה מלא.",
@@ -1000,13 +1026,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capability: "calendar.manage",
     risk: "create",
     fields: [
-      {
-        key: "title",
-        label: "מה להזכיר",
-        type: "string",
-        hint: 'בלי המילים "תזכיר לי", ובלי המועד',
-        maxLength: 200,
-      },
+      F_TASK_TITLE,
       {
         key: "relatedPhrase",
         label: "קשור ל",
@@ -1029,6 +1049,89 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capability: "calendar.manage",
     risk: "update",
     fields: [F_TASK_PHRASE],
+  },
+  {
+    id: "update_task",
+    title: "עדכון משימה",
+    when: "שינוי משימה קיימת — דחייה למועד אחר או שינוי דחיפות. לסימון כבוצעה יש „סגירת משימה”.",
+    examples: [
+      "תדחה את המשימה של החוזה למחר בבוקר",
+      "תעביר את התזכורת להתקשר לדוד ליום ראשון",
+      "תסמן את המשימה של ההצעה כדחופה",
+    ],
+    capability: "calendar.manage",
+    risk: "update",
+    fields: [
+      F_TASK_PHRASE,
+      {
+        key: "priority",
+        label: "דחיפות",
+        type: "enum",
+        values: ["low", "normal", "high"],
+        valueLabels: { low: "נמוכה", normal: "רגילה", high: "דחופה" },
+      },
+    ],
+    resolved: [{ key: "dueAt", label: "מועד חדש" }],
+  },
+  {
+    /*
+     * ‎**„כל יום ראשון בתשע” — הוראת קבע, לא תזכורת.** נשמרת ככלל
+     * שמייצר משימה בכל מחזור — אותו מנגנון של מסך המשימות הקבועות,
+     * ולכן `settings.manage`: כלל קבוע הוא הגדרת משרד.
+     */
+    id: "create_recurring_task",
+    title: "משימה קבועה",
+    when: "תזכורת שחוזרת בקביעות — „כל יום”, „כל שבוע ביום ראשון”, „כל חודש ב-1”. לתזכורת חד-פעמית יש „תזכורת / משימה”.",
+    examples: [
+      "תזכיר לי כל יום ראשון בתשע לעבור על הלידים",
+      "כל יום בשמונה בבוקר תזכיר לי לבדוק את ההתראות",
+      "כל חודש באחד לחודש משימה לחדש את הפרסומים",
+    ],
+    capability: "settings.manage",
+    risk: "create",
+    fields: [
+      F_TASK_TITLE,
+      {
+        key: "frequency",
+        label: "תדירות",
+        type: "enum",
+        values: ["daily", "weekly", "monthly"],
+        valueLabels: { daily: "כל יום", weekly: "כל שבוע", monthly: "כל חודש" },
+      },
+      {
+        key: "weekday",
+        label: "יום בשבוע",
+        type: "enum",
+        hint: "רק כשהתדירות שבועית",
+        values: ["0", "1", "2", "3", "4", "5", "6"],
+        valueLabels: {
+          "0": "ראשון",
+          "1": "שני",
+          "2": "שלישי",
+          "3": "רביעי",
+          "4": "חמישי",
+          "5": "שישי",
+          "6": "שבת",
+        },
+      },
+      {
+        key: "dayOfMonth",
+        label: "יום בחודש",
+        type: "integer",
+        hint: "רק כשהתדירות חודשית",
+        min: 1,
+        max: 31,
+      },
+      {
+        key: "hour",
+        label: "שעה",
+        type: "integer",
+        hint: '"בתשע בבוקר" ⇒ 9, "בשמונה בערב" ⇒ 20',
+        min: 0,
+        max: 23,
+      },
+      { key: "minute", label: "דקות", type: "integer", hint: "0 כשלא נאמר", min: 0, max: 59 },
+    ],
   },
   {
     id: "add_note",
@@ -1067,6 +1170,25 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       F_LEAD_PHRASE,
       F_LEAD_STATUS,
     ],
+  },
+  {
+    /*
+     * ‎**ליד שהבשיל הופך לקונה** — אותו נתיב כמו כפתור ההמרה במסך:
+     * קונה על אותו איש קשר, הליד מסומן כהומר, והמעבר נרשם בשני
+     * הצירים. `buyers.edit` ולא `leads.edit` — נוצרת ישות קונה.
+     */
+    id: "convert_lead",
+    title: "הפיכת ליד לקונה",
+    when: "ליד שהבשיל הופך לכרטיס קונה מלא — „תהפוך את הליד לקונה”, „תפתח לו כרטיס”. אפשר לומר באותו משפט גם מה הוא מחפש.",
+    examples: [
+      "תהפוך את הליד של דני לכרטיס קונה",
+      "דני רציני — תפתח לו כרטיס קונה, מחפש 4 חדרים בבני ברק עד 2.5 מיליון",
+      "תמיר את הליד של משפחת לוי לקונה",
+    ],
+    capability: "buyers.edit",
+    risk: "create",
+    // בלי F_AGENT_NOTES: קלט ההמרה אינו נושא הערות, ושדה שנופל בשקט הוא שדה מת
+    fields: [F_LEAD_PHRASE, ...BUYER_REQUIREMENT_FIELDS, F_MATURITY, F_FINANCING],
   },
   {
     id: "schedule_appointment",
@@ -1389,6 +1511,33 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     risk: "read",
     fields: [F_CITIES],
   },
+  {
+    id: "show_network_listings",
+    title: "נכסים ברשת",
+    when: "שאלה על נכסים שמשרדים אחרים פרסמו ברשת הבין-משרדית — מה מוצע ואיפה. לביקושים יש „ביקושים ברשת”.",
+    examples: [
+      "מה יש ברשת בגבעתיים",
+      "אילו דירות מוצעות ברשת המשרדים",
+      "יש ברשת משהו של 4 חדרים?",
+    ],
+    capability: "collaboration.offer",
+    risk: "read",
+    fields: [F_CITIES],
+  },
+  {
+    id: "show_network_inbox",
+    title: "פניות ממתינות מהרשת",
+    when: "מה מחכה לתשובה שלי ברשת — נכסים שהוצעו לביקושים שפרסמתי, ומשרדים שמתעניינים בנכסים שפרסמתי.",
+    examples: [
+      "מי התעניין בנכסים שפרסמתי?",
+      "אילו הצעות מחכות לי מהרשת",
+      "יש פניות חדשות ברשת?",
+    ],
+    capability: "collaboration.offer",
+    capabilityAlts: ["collaboration.share"],
+    risk: "read",
+    fields: [],
+  },
 
   /*
    * ‎**„מה חדש”** — השאלה הראשונה בבוקר, ועד כה היא חייבה פתיחת מסך.
@@ -1523,6 +1672,33 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capabilityAlts: ["leads.view_own"],
     risk: "outbound",
     fields: [F_BUYER_PHRASE, F_MESSAGE_BODY],
+  },
+  {
+    /*
+     * חיוג דרך מרכזיית המשרד — לא מספר חופשי: היעד הוא תמיד איש
+     * הקשר של הכרטיס שנבחר, אותו שער בדיוק כמו כפתור החיוג במסך.
+     */
+    id: "call_contact",
+    title: "חיוג ללקוח",
+    when: "חיוג דרך מרכזיית המשרד — „תתקשר ל…”, „תחייג ל…”. המרכזייה מצלצלת קודם אצל המתווך ואז אצל הלקוח.",
+    examples: ["תתקשר למשה כהן", "תחייג לדני מהליד החדש", "צלצל לשרה"],
+    capability: "leads.edit",
+    risk: "outbound",
+    fields: [F_BUYER_PHRASE],
+  },
+  {
+    id: "send_intake_form",
+    title: "טופס פרטים ללקוח",
+    when: "הכנת קישור לטופס מילוי-עצמי — „תשלח לו טופס פרטים”. הלקוח ממלא בעצמו והכרטיס מתעדכן מהתשובות.",
+    examples: [
+      "תשלח לשרה טופס למילוי פרטים",
+      "תכין לדני קישור לטופס קליטה",
+      "שלח למשפחת לוי טופס פרטים בוואטסאפ",
+    ],
+    capability: "buyers.edit",
+    capabilityAlts: ["leads.edit"],
+    risk: "outbound",
+    fields: [F_BUYER_PHRASE],
   },
   {
     /*

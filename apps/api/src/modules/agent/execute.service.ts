@@ -14,6 +14,8 @@ import {
   type PropertyOrder,
   formatJerusalemDate,
   formatJerusalemTime,
+  TASK_PRIORITIES,
+  type TaskPriority,
   whatsappLink,
   jerusalemWallParts,
   type MarketingActionKind,
@@ -59,6 +61,11 @@ import type { Readable } from "node:stream";
 import { CallsService, type CallDto } from "../calls/calls.service";
 import { CollaborationService } from "../collaboration/collaboration.service";
 import { ListingsService } from "../collaboration/listings.service";
+import { CoachService } from "../coach/coach.service";
+import { IntakeService } from "../intake/intake.service";
+import { RecurrenceService } from "../tasks/recurrence.service";
+import { TelephonyService } from "../telephony/telephony.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { DealRoomService } from "../collaboration/deal-room.service";
 import { LeadsService } from "../leads/leads.service";
 import { MATCH_LIST_LIMIT, MatchingService } from "../matching/matching.service";
@@ -273,6 +280,11 @@ export class AgentExecuteService {
     private readonly prefs: AgentPrefsService,
     private readonly support: SupportService,
     private readonly listings: ListingsService,
+    private readonly coach: CoachService,
+    private readonly intake: IntakeService,
+    private readonly recurrences: RecurrenceService,
+    private readonly telephony: TelephonyService,
+    private readonly plans: PlanCatalogService,
   ) {}
 
   async execute(
@@ -443,6 +455,22 @@ export class AgentExecuteService {
         return this.showCredits();
       case "open_deal_room":
         return this.openDealRoom(params);
+      case "show_recommendations":
+        return this.showRecommendations();
+      case "convert_lead":
+        return this.convertLead(params);
+      case "update_task":
+        return this.updateTask(params);
+      case "create_recurring_task":
+        return this.createRecurringTask(params);
+      case "show_network_listings":
+        return this.showNetworkListings(params);
+      case "show_network_inbox":
+        return this.showNetworkInbox();
+      case "call_contact":
+        return this.callContact(params);
+      case "send_intake_form":
+        return this.sendIntakeForm(params);
       case "open_support_ticket":
         return this.openSupportTicket(params);
       case "set_preference":
@@ -2048,6 +2076,225 @@ export class AgentExecuteService {
       href: "/collaboration?tab=deals",
       message: "הפנייה אושרה וחדר העסקה נפתח — שני המשרדים מחוברים, וההמשך שם.",
       data: { id: dealId },
+    };
+  }
+
+  /** ההמלצות של המאמן — אותה רשימה שהדשבורד מציג, לפי דחיפות. */
+  private async showRecommendations(): Promise<ExecuteResult> {
+    const recs = await this.coach.recommendations();
+    if (recs.length === 0) {
+      return { href: "/", message: "אין המלצות פתוחות כרגע — הכול מטופל." };
+    }
+    return {
+      href: "/",
+      message: `יש ${recs.length} דברים שכדאי לטפל בהם עכשיו`,
+      data: recs.slice(0, 6).map((rec) => ({ title: rec.title, body: rec.body })),
+    };
+  }
+
+  /**
+   * המרת ליד לקונה — אותו נתיב כמו כפתור ההמרה: קונה על אותו איש
+   * קשר, הליד מסומן כהומר. הדרישות נבנות מאותם שדות של יצירת קונה.
+   */
+  private async convertLead(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const leadId = str(params["leadId"]);
+    if (leadId === undefined) throw new BadRequestException("לא זוהה הליד — אמרו את שמו");
+    const buyer = await this.buyers.convertFromLead(leadId, {
+      requirements: this.buyerRequirements(params),
+      ...(str(params["maturity"]) !== undefined ? { maturity: str(params["maturity"])! } : {}),
+      ...(str(params["financing"]) !== undefined
+        ? { financing: str(params["financing"])! }
+        : {}),
+    });
+    return {
+      href: `/buyers/${buyer.id}`,
+      message: `הליד הפך לכרטיס קונה — ${buyer.contact.name}`,
+      ...refOf(buyer.contact.name, "buyer", buyer.id),
+    };
+  }
+
+  /** דחייה או שינוי דחיפות — אותו `TasksService.update` של המסך. */
+  private async updateTask(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const taskId = str(params["taskId"]);
+    if (taskId === undefined) {
+      throw new BadRequestException("לא זוהתה המשימה — אמרו מה כתוב בה");
+    }
+    const dueAt = date(params["dueAt"]);
+    const priority = str(params["priority"]);
+    const validPriority =
+      priority !== undefined && (TASK_PRIORITIES as readonly string[]).includes(priority);
+    if (dueAt === undefined && !validPriority) {
+      throw new BadRequestException("אמרו מה לשנות — מועד חדש או דחיפות");
+    }
+    const task = await this.tasks.update(taskId, {
+      ...(dueAt === undefined ? {} : { dueAt }),
+      ...(validPriority ? { priority: priority as TaskPriority } : {}),
+    });
+    const said: string[] = [];
+    if (dueAt !== undefined) {
+      said.push(`נדחתה ל-${formatJerusalemDate(dueAt)} ${formatJerusalemTime(dueAt)}`);
+    }
+    if (validPriority) said.push("הדחיפות עודכנה");
+    return { href: "/tasks", message: `המשימה „${task.title}” — ${said.join(", ")}` };
+  }
+
+  /**
+   * ‎**„כל יום ראשון בתשע” — כלל, לא תזכורת.** אותו שירות ואותה
+   * מכסה של מסך המשימות הקבועות; הזכאות למסלול נבדקת כאן כי
+   * הסוכן אינו עובר בשער הפיצ'ר של הבקר.
+   */
+  private async createRecurringTask(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const title = str(params["title"])?.trim();
+    if (title === undefined || title === "") {
+      throw new BadRequestException("אמרו מה המשימה שחוזרת");
+    }
+    const frequency = str(params["frequency"]);
+    if (frequency !== "daily" && frequency !== "weekly" && frequency !== "monthly") {
+      throw new BadRequestException("אמרו באיזו תדירות — כל יום, כל שבוע או כל חודש");
+    }
+    const tenantId = TenantContext.current().tenantId;
+    if (!(await this.plans.tenantHasFeature(tenantId, "automations"))) {
+      throw new BadRequestException(
+        "המסלול של המשרד אינו כולל משימות קבועות — אפשר לשדרג במסך החיוב",
+      );
+    }
+    const weekdayRaw = str(params["weekday"]);
+    const weekday = weekdayRaw === undefined ? undefined : Number(weekdayRaw);
+    if (frequency === "weekly" && (weekday === undefined || Number.isNaN(weekday))) {
+      throw new BadRequestException("אמרו באיזה יום בשבוע");
+    }
+    const dayOfMonth = num(params["dayOfMonth"]);
+    if (frequency === "monthly" && dayOfMonth === undefined) {
+      throw new BadRequestException("אמרו באיזה יום בחודש");
+    }
+    const hour = num(params["hour"]);
+    if (hour === undefined || hour < 0 || hour > 23) {
+      throw new BadRequestException("אמרו באיזו שעה להזכיר");
+    }
+    const minute = num(params["minute"]) ?? 0;
+    await this.recurrences.create({
+      title,
+      frequency,
+      hour,
+      minute: minute >= 0 && minute <= 59 ? minute : 0,
+      ...(frequency === "weekly" && weekday !== undefined ? { weekdays: [weekday] } : {}),
+      ...(frequency === "monthly" && dayOfMonth !== undefined ? { dayOfMonth } : {}),
+    });
+    return {
+      href: "/tasks",
+      message: `המשימה הקבועה נוצרה — „${title}”. אפשר לעצור או לערוך אותה במסך המשימות.`,
+    };
+  }
+
+  /** פיד הנכסים של הרשת — התמונה המשלימה של „ביקושים ברשת”. */
+  private async showNetworkListings(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const cities = strList(params["cities"]);
+    // עיר אחת מסוננת בשרת; כמה — מתוך החלון, כמו בביקושים (ראו שם)
+    const single = cities.length === 1 ? cities[0]! : null;
+    const feed = await this.listings.list(single === null ? {} : { q: single });
+    const rows =
+      cities.length > 1 ? feed.filter((row) => cities.includes(row.city ?? "")) : feed;
+    const where = cities.length > 0 ? ` ב${cities.join(" / ")}` : "";
+    if (rows.length === 0) {
+      return { href: "/collaboration", message: `אין כרגע נכסים ברשת${where}` };
+    }
+    return {
+      href: "/collaboration",
+      message: `${rows.length} נכסים ברשת${where}`,
+      data: rows.slice(0, 10).map((row) => ({
+        title: row.title ?? [row.propertyType, row.neighborhood, row.city].filter(Boolean).join(", "),
+        ...(row.city === undefined ? {} : { city: row.city }),
+        ...(row.rooms === undefined ? {} : { rooms: row.rooms }),
+        ...(row.priceAgorot === undefined ? {} : { priceAgorot: row.priceAgorot }),
+      })),
+    };
+  }
+
+  /**
+   * מה מחכה לתשובה שלי ברשת — אותה רשימה של בורר „פתח חדר עסקה”
+   * (`pendingApproaches`), כדי ששתי התשובות לא ייפרדו לעולם.
+   */
+  private async showNetworkInbox(): Promise<ExecuteResult> {
+    const pending = await this.resolver.pendingApproaches();
+    if (pending.length === 0) {
+      return {
+        href: "/collaboration?tab=incoming",
+        message: "אין פניות שממתינות לתשובה מהרשת",
+      };
+    }
+    const first = pending[0]!;
+    return {
+      href: "/collaboration?tab=incoming",
+      message: `${pending.length} פניות ממתינות לתשובה ברשת`,
+      data: pending.map((option) => ({ title: option.label, detail: option.detail })),
+      suggestion: `פתח חדר עסקה על ${first.label}`,
+    };
+  }
+
+  /** איש הקשר של הכרטיס — שליפה תחומת-דייר, כמו בהודעה. */
+  private async contactIdOf(card: { kind: "buyer" | "lead"; id: string }): Promise<string> {
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.withTenant(async (tx) => {
+      const row =
+        card.kind === "buyer"
+          ? await tx.buyer.findFirst({
+              where: { id: card.id, tenantId, deletedAt: null },
+              select: { contactId: true },
+            })
+          : await tx.lead.findFirst({
+              where: { id: card.id, tenantId },
+              select: { contactId: true },
+            });
+      if (!row) throw new BadRequestException("הלקוח לא נמצא");
+      return row.contactId;
+    });
+  }
+
+  /**
+   * חיוג דרך המרכזייה — `TelephonyService.dial` עם כל השערים שלו:
+   * בעלות על איש הקשר, מספר מהכרטיס בלבד, ופרטי חיבור מההגדרות.
+   * הזכאות למסלול נבדקת כאן, כמו במשימה הקבועה.
+   */
+  private async callContact(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const card = await this.optionalCardTarget(params["cardId"]);
+    if (card === null) throw new BadRequestException("לא נבחר לקוח לחיוג");
+    const tenantId = TenantContext.current().tenantId;
+    if (!(await this.plans.tenantHasFeature(tenantId, "telephony"))) {
+      throw new BadRequestException(
+        "המסלול של המשרד אינו כולל מרכזייה — אפשר לשדרג במסך החיוב",
+      );
+    }
+    const contactId = await this.contactIdOf(card);
+    const name = await this.prisma.withTenant(async (tx) => {
+      const contact = await this.contacts.getById(tx, contactId);
+      return contact?.name ?? "הלקוח";
+    });
+    const dialed = await this.telephony.dial({ contactId });
+    return { message: `חיוג ל${name}: ${dialed.message}`, ...refOf(name, card.kind, card.id) };
+  }
+
+  /**
+   * טופס פרטים ללקוח — אותו `IntakeService.ensure` של הכפתור בכרטיס.
+   * קישור ה-wa.me נושא טלפון ולכן חוזר ב-`link`, לא ב-`message`.
+   */
+  private async sendIntakeForm(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const card = await this.optionalCardTarget(params["cardId"]);
+    if (card === null) throw new BadRequestException("לא נבחר לקוח לטופס");
+    // אותה הרשאה כמו בבקר: יצירת בקשת קליטה היא עריכת הכרטיס
+    const needed = card.kind === "buyer" ? "buyers.edit" : "leads.edit";
+    if (!TenantContext.current().capabilities.has(needed)) {
+      throw new ForbiddenException("אין לך הרשאה לשלוח טופס פרטים ללקוח הזה");
+    }
+    const contactId = await this.contactIdOf(card);
+    const name = await this.prisma.withTenant(async (tx) => {
+      const contact = await this.contacts.getById(tx, contactId);
+      return contact?.name ?? "הלקוח";
+    });
+    const request = await this.intake.ensure(card.kind, card.id);
+    return {
+      message: `טופס הפרטים ל${name} מוכן — פתחו את הקישור ולחצו שלח. כשימולא, הכרטיס יתעדכן.`,
+      link: request.waUrl ?? request.url,
+      ...refOf(name, card.kind, card.id),
     };
   }
 

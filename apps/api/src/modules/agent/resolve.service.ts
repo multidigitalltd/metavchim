@@ -606,36 +606,7 @@ export class AgentResolveService {
      * בדיוק את מה שהמתווך מנסה לאשר.
      */
     if (kind === "approach") {
-      const caps = TenantContext.current().capabilities;
-      const [offers, interests] = await Promise.all([
-        caps.has("collaboration.offer") ? this.collaboration.listCoopOffers() : [],
-        caps.has("collaboration.share") ? this.listings.listInterests() : [],
-      ]);
-      const all: AgentCandidate[] = [
-        ...offers
-          .filter((offer) => offer.direction === "incoming" && offer.status === "sent")
-          .map((offer) => {
-            const title = offer.presentation["title"];
-            return {
-              id: `offer:${offer.id}`,
-              label: typeof title === "string" && title !== "" ? title : "נכס שהוצע לכם",
-              detail: [
-                "הצעת נכס",
-                offer.officeName,
-                offer.buyerName === undefined ? undefined : `לקונה ${offer.buyerName}`,
-              ]
-                .filter(Boolean)
-                .join(" · "),
-            };
-          }),
-        ...interests
-          .filter((interest) => interest.status === "sent")
-          .map((interest) => ({
-            id: `interest:${interest.id}`,
-            label: interest.propertyTitle ?? "הנכס שפורסם",
-            detail: ["התעניינות בנכס", interest.officeName].filter(Boolean).join(" · "),
-          })),
-      ];
+      const all = await this.pendingApproaches();
       const needle = phrase.toLowerCase();
       const matched = all.filter((option) =>
         `${option.label} ${option.detail ?? ""}`.toLowerCase().includes(needle),
@@ -710,6 +681,46 @@ export class AgentResolveService {
     }));
   }
 
+  /**
+   * ‎**הפניות הממתינות מהרשת — הרשימה האחת.** גם הבורר של „פתח
+   * חדר עסקה” וגם „מה מחכה לי מהרשת” קוראים מכאן: שתי גזירות של
+   * אותה רשימה היו נפרדות בשקט. ההיצע מסונן לפי ההרשאות, והמזהה
+   * נושא את הסוג (`offer:` / `interest:`) כי שני הכיוונים הם שתי
+   * טבלאות.
+   */
+  async pendingApproaches(): Promise<AgentCandidate[]> {
+    const caps = TenantContext.current().capabilities;
+    const [offers, interests] = await Promise.all([
+      caps.has("collaboration.offer") ? this.collaboration.listCoopOffers() : [],
+      caps.has("collaboration.share") ? this.listings.listInterests() : [],
+    ]);
+    return [
+      ...offers
+        .filter((offer) => offer.direction === "incoming" && offer.status === "sent")
+        .map((offer) => {
+          const title = offer.presentation["title"];
+          return {
+            id: `offer:${offer.id}`,
+            label: typeof title === "string" && title !== "" ? title : "נכס שהוצע לכם",
+            detail: [
+              "הצעת נכס",
+              offer.officeName,
+              offer.buyerName === undefined ? undefined : `לקונה ${offer.buyerName}`,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          };
+        }),
+      ...interests
+        .filter((interest) => interest.status === "sent")
+        .map((interest) => ({
+          id: `interest:${interest.id}`,
+          label: interest.propertyTitle ?? "הנכס שפורסם",
+          detail: ["התעניינות בנכס", interest.officeName].filter(Boolean).join(" · "),
+        })),
+    ];
+  }
+
   private toFields(
     actionId: string,
     params: Record<string, unknown>,
@@ -763,6 +774,8 @@ export class AgentResolveService {
 /** לאיזה שדה נכנס התאריך שנפתר מהתמלול, לכל פעולה. */
 const DATE_FIELD: Record<string, string | undefined> = {
   create_task: "dueAt",
+  // המועד **החדש** — המשימה עצמה נבחרת לפי הכותרת
+  update_task: "dueAt",
   schedule_appointment: "startsAt",
   // המועד **החדש** — הפגישה עצמה נבחרת לפי הלקוח, לא לפי תאריך
   reschedule_appointment: "startsAt",
@@ -1010,6 +1023,24 @@ const ENTITY_LOOKUP: Record<
    * האישור מודיע למשרד השני ומחבר בין המשרדים, ואסור שיקרה על
    * „ההתאמה היחידה” בלי שהמתווך ראה על מה הוא מאשר.
    */
+  /*
+   * חיוג וטופס פרטים — יוצאים אל אדם אמיתי, ולכן הנמען נבחר
+   * במפורש תמיד, כמו בהודעה ובהצעה.
+   */
+  call_contact: {
+    key: "buyerPhrase",
+    idKey: "cardId",
+    label: "למי לחייג",
+    kind: "card",
+    alwaysChoose: true,
+  },
+  send_intake_form: {
+    key: "buyerPhrase",
+    idKey: "cardId",
+    label: "לאיזה לקוח",
+    kind: "card",
+    alwaysChoose: true,
+  },
   open_deal_room: {
     key: "approachPhrase",
     idKey: "approachId",
@@ -1061,6 +1092,7 @@ const ENTITY_LOOKUP: Record<
     },
   },
   complete_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
+  update_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
   /*
    * „קשור ל” היה שדה מת: המודל התבקש למלא אותו, הוא הוצג בכרטיס,
    * ואיש לא קרא אותו — התזכורת נוצרה תמיד בלי שיוך. כאן הוא הופך
@@ -1078,6 +1110,8 @@ const ENTITY_LOOKUP: Record<
   show_card: { key: "cardPhrase", idKey: "cardId", label: "איזה כרטיס", kind: "anyCard" },
   play_recording: { key: "cardPhrase", idKey: "cardId", label: "שיחה עם מי", kind: "card" },
   update_lead_status: { key: "leadPhrase", idKey: "leadId", label: "איזה ליד", kind: "lead" },
+  // המרה יוצרת קונה על אותו איש קשר — הליד הוא המפתח היחיד
+  convert_lead: { key: "leadPhrase", idKey: "leadId", label: "איזה ליד", kind: "lead" },
   share_property: {
     key: "propertyPhrase",
     idKey: "propertyId",
@@ -1179,6 +1213,7 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   message_owner: ["messageBody"],
   open_support_ticket: ["supportMessage"],
   create_task: ["title"],
+  create_recurring_task: ["title"],
   /*
    * בפעולות שמכוונות לרשומה קיימת, הביטוי המזהה הוא ההשלמה החשובה
    * ביותר: בלעדיו הביצוע ייכשל ב"לא נבחר…" רק אחרי האישור. עדיף

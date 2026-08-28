@@ -47,6 +47,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "show_calls",
       "play_recording",
       "office_report",
+      "show_recommendations",
     ],
   },
   {
@@ -56,6 +57,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "create_buyer",
       "create_property",
       "create_task",
+      "convert_lead",
       "schedule_appointment",
       "reschedule_appointment",
       "update_appointment",
@@ -63,6 +65,8 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "update_property",
       "update_lead_status",
       "complete_task",
+      "update_task",
+      "create_recurring_task",
       "assign_task",
       "add_note",
       "dismiss_match",
@@ -75,6 +79,8 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "send_agreement",
       "send_email",
       "send_message",
+      "call_contact",
+      "send_intake_form",
       "message_owner",
       "show_offers",
       "show_agreements",
@@ -84,7 +90,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
   { label: "בלעדיות", ids: ["show_exclusivity", "log_marketing_action"] },
   {
     label: "רשת המשרדים",
-    ids: ["share_property", "share_buyer", "show_demands", "show_deals", "show_credits", "open_deal_room"],
+    ids: ["share_property", "share_buyer", "show_demands", "show_deals", "show_credits", "open_deal_room", "show_network_listings", "show_network_inbox"],
   },
   { label: "עזרה", ids: ["open_support_ticket", "set_preference"] },
 ];
