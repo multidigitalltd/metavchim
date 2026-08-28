@@ -75,6 +75,7 @@ export * from "./logic/automations.js";
 export * from "./logic/viewing-reminder.js";
 export * from "./logic/custom-automations.js";
 export * from "./logic/call-summary.js";
+export * from "./logic/daily-brief.js";
 export * from "./logic/hebrew-date.js";
 export * from "./logic/plans.js";
 export * from "./logic/recurrence.js";
