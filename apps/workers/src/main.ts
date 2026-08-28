@@ -1288,6 +1288,12 @@ async function processDailyBrief(): Promise<void> {
          * כי הדו"ח אומר עכשיו גם **מתי הראשונה ומה היא** — תדריך,
          * לא מונה. היום של משרד אחד קטן ממילא, והמיון מהמסד.
          */
+        /*
+         * בלי תקרה, בכוונה: `take` היה משמיט בשקט את הפגישות
+         * המאוחרות של יום עמוס — ספירה חסרה, ומי שכל פגישותיו אחרי
+         * החיתוך נשאר בלי דו"ח (ביקורת Codex). התוצאה תחומה ממילא
+         * ביום אחד של משרד אחד, והשדות מינימליים.
+         */
         tx.appointment.findMany({
           where: {
             tenantId: tenant.id,
@@ -1295,7 +1301,6 @@ async function processDailyBrief(): Promise<void> {
             startsAt: { gte: start, lte: end },
           },
           orderBy: { startsAt: "asc" },
-          take: 500,
           select: { ownerUserId: true, createdBy: true, startsAt: true, kind: true },
         }),
         tx.task.groupBy({
