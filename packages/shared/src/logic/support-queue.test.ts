@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isSupportWaiting,
   openSupportCount,
   orderSupportQueue,
   ticketTitle,
@@ -158,5 +159,37 @@ describe("הגבול חותך את הסגורות ולא את הממתינות",
   it("תור ריק אינו שגיאה", async () => {
     const { fetch } = desk(0, 0);
     expect(await waitingFirst(fetch, 100)).toEqual([]);
+  });
+});
+
+describe("„ממתינה” מוגדרת בשלילה", () => {
+  /*
+   * הכלל היה כתוב בשלושה נוסחים במקומות שונים, ושניים מהם הפסיקו
+   * להסכים ברגע ש-`in_progress` נולד. מנייה חיובית של המצבים
+   * הפתוחים הייתה משאירה כל סטטוס עתידי מחוץ למונה — בשקט.
+   */
+  it("כל מה שאינו סגור ממתין, כולל סטטוס שטרם קיים", () => {
+    expect(isSupportWaiting("open")).toBe(true);
+    expect(isSupportWaiting("in_progress")).toBe(true);
+    expect(isSupportWaiting("escalated")).toBe(true);
+    expect(isSupportWaiting("closed")).toBe(false);
+  });
+
+  it("‏„resolved” של פעם נחשב ממתין ולא נעלם", () => {
+    /*
+     * הסטטוס אוחד ל-`closed`, אבל שורה ישנה במסד עדיין יכולה
+     * לשאת אותו. הכיוון הבטוח הוא להציג פנייה סגורה כפתוחה, לא
+     * להעלים פנייה שמישהו מחכה לתשובה עליה.
+     */
+    expect(isSupportWaiting("resolved")).toBe(true);
+  });
+
+  it("המונה נגזר מאותו כלל", () => {
+    const rows = [
+      row({ id: "a", status: "open" }),
+      row({ id: "b", status: "in_progress" }),
+      row({ id: "c", status: "closed" }),
+    ];
+    expect(openSupportCount(rows)).toBe(2);
   });
 });

@@ -55,9 +55,26 @@ export function orderSupportQueue(rows: readonly SupportQueueRow[]): SupportQueu
   });
 }
 
+/**
+ * ‎**„ממתינה” — הגדרה אחת, בשלילה.**
+ *
+ * הכלל נכתב בשלושה מקומות בשלושה נוסחים: `!== "resolved"` בסוכן,
+ * `=== "open"` בשאילתה, ו-`!== "closed"` במסך. כל עוד היו שני
+ * מצבים כולם הסכימו; ברגע ש-`in_progress` נולד, שניים מהם החלו
+ * לספור אחרת — ואחד מהם הפסיק להתקמפל בכלל כשהסטטוס `resolved`
+ * אוחד ל-`closed`.
+ *
+ * שלילה ולא מנייה חיובית: סטטוס שייוולד מחר ייחשב ממתין מעצמו,
+ * וזה הכיוון הבטוח — עדיף לספור פנייה סגורה כפתוחה מאשר להעלים
+ * פנייה שמישהו מחכה לתשובה עליה.
+ */
+export function isSupportWaiting(status: string): boolean {
+  return status !== "closed";
+}
+
 /** כמה ממתינות באמת — המונה שמוצג לצד השולחן. */
 export function openSupportCount(rows: readonly SupportQueueRow[]): number {
-  return rows.filter((row) => row.status !== "closed").length;
+  return rows.filter((row) => isSupportWaiting(row.status)).length;
 }
 
 /** תווית המקור, לעברית. */
