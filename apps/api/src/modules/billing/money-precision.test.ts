@@ -53,10 +53,14 @@ describe("shekels המשותפת שומרת אגורות", () => {
 
 describe("אין עיגול לשקל במקום שבו נאמר סכום", () => {
   /*
-   * ‎`Math.round(x / 100)` הוא הניסוח שיצר את הפער. הוא נבדק
-   * בשמו: כל וריאציה שלו על סכום באגורות מחזירה שקלים שלמים.
+   * ‎`Math.round(x / 100)` הוא הניסוח שיצר את הפער.
+   *
+   * ‎`[\w.]` ולא `\w`: הגרסה הראשונה של השער תפסה רק מזהה עירום,
+   * ולכן `Math.round(row.amountAgorot / 100)` בתיבת הזיכוי חמק
+   * ממנה — שער שנותן ביטחון ומחמיץ הוא גרוע משער שאינו קיים
+   * (ביקורת Codex).
    */
-  const ROUNDED = /Math\.round\(\s*\w*[Aa]gorot\w*\s*\/\s*100\s*\)/u;
+  const ROUNDED = /Math\.round\(\s*[\w.]*[Aa]gorot\b\s*\/\s*100\s*\)/u;
 
   for (const [name, path] of [
     ["תזכורת החידוש", join(API, "modules/billing/renewal.service.ts")],
@@ -78,5 +82,28 @@ describe("אין עיגול לשקל במקום שבו נאמר סכום", () =>
     expect(read(join(WEB, "app/platform/payments-section.tsx"))).toContain(
       'shekels as formatAgorot } from "@metavchim/shared"',
     );
+  });
+
+  /*
+   * ‎**הודעת הזיכוי נוקבת במה שזוכה, לא במה שהוקלד.**
+   *
+   * זיכוי מלא נשלח בלי `amountAgorot`, והשרת מזכה את מלוא התשלום.
+   * הודעה שמנסחת את הקלט מדווחת מספר שלא זוכה מעולם.
+   */
+  it("הודעת הזיכוי נגזרת מהסכום שזוכה", () => {
+    const source = read(join(WEB, "app/platform/payments-section.tsx"));
+    expect(source).toContain("const full = agorot >= row.amountAgorot;");
+    expect(source).toContain("const refunded = full ? row.amountAgorot : agorot;");
+    expect(source).toContain("shekels(refunded)");
+  });
+
+  /*
+   * מקלדת `numeric` אינה מציגה נקודה עשרונית, ולכן זיכוי חלקי
+   * באגורות אינו ניתן להקלדה בנייד כלל.
+   */
+  it("תיבת הזיכוי מאפשרת להקליד אגורות", () => {
+    const source = read(join(WEB, "app/platform/payments-section.tsx"));
+    expect(source).toContain('inputMode="decimal"');
+    expect(source).not.toContain('inputMode="numeric"');
   });
 });

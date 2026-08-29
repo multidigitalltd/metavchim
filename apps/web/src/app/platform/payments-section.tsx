@@ -86,8 +86,15 @@ export function PaymentsSection(): React.JSX.Element {
 
   function startRefund(row: PaymentRow): void {
     setOpen(row.id);
-    // ברירת מחדל בשקלים שלמים — זה מה שמקלידים, והשרת מקבל אגורות
-    setAmount(String(Math.round(row.amountAgorot / 100)));
+    /*
+     * ‎**ברירת המחדל היא הסכום שנגבה, עד האגורה.**
+     *
+     * עיגול לשקל הציע 176 על תשלום של 175.82 — כלומר הציע לזכות
+     * **יותר** ממה שנגבה. הבקשה עצמה שרדה את זה במקרה (סכום שאינו
+     * קטן מהתשלום נשלח כזיכוי מלא), אבל להציע למנהל מספר שאינו
+     * הסכום זה להסתמך על מקריות (ביקורת Codex).
+     */
+    setAmount(formatAgorot(row.amountAgorot));
     setReason("");
     setError(null);
     setMessage(null);
@@ -103,12 +110,22 @@ export function PaymentsSection(): React.JSX.Element {
     setError(null);
     try {
       const agorot = Math.round(shekelAmount * 100);
+      /*
+       * ‎**ההודעה נוקבת במה שזוכה, לא במה שהוקלד.**
+       *
+       * זיכוי מלא נשלח בלי `amountAgorot`, והשרת מזכה את מלוא
+       * התשלום. מי שהקליד 176 על תשלום של 175.82 קיבל „זוכה
+       * 176 ₪” — מספר שלא זוכה מעולם, על מסך שמולו עושים התאמת
+       * ספרים.
+       */
+      const full = agorot >= row.amountAgorot;
+      const refunded = full ? row.amountAgorot : agorot;
       await apiPost(`/platform/payments/${row.id}/refund`, {
         // סכום מלא נשלח בלי amountAgorot — כך השרת יודע שזה זיכוי מלא
-        ...(agorot < row.amountAgorot ? { amountAgorot: agorot } : {}),
+        ...(full ? {} : { amountAgorot: agorot }),
         ...(reason.trim() !== "" ? { reason: reason.trim() } : {}),
       });
-      setMessage(`✓ זוכה ${shekels(Math.round(shekelAmount * 100))} ל${row.tenantName}`);
+      setMessage(`✓ זוכה ${shekels(refunded)} ל${row.tenantName}`);
       setOpen(null);
       load();
     } catch (err: unknown) {
@@ -199,7 +216,9 @@ export function PaymentsSection(): React.JSX.Element {
                               id={`amt-${row.id}`}
                               value={amount}
                               onChange={(event) => setAmount(event.target.value)}
-                              inputMode="numeric"
+                              // decimal ולא numeric: סכומים נושאים אגורות,
+                              // ומקלדת בלי נקודה עשרונית אינה יכולה להקליד אותם
+                              inputMode="decimal"
                               className="w-24 rounded-lg border px-2 py-1"
                               style={{
                                 borderColor: "var(--color-input-border)",
