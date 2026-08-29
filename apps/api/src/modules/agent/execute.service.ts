@@ -1642,13 +1642,10 @@ export class AgentExecuteService {
   }
 
   private async officeReport(params: Record<string, unknown>): Promise<ExecuteResult> {
-    // הקטלוג מדבר במחרוזות enum; השירות מקבל 30 | 90 | 365
-    const raw = Number(str(params["windowDays"]) ?? "30");
-    const windowDays: ReportWindowDays = raw === 90 ? 90 : raw === 365 ? 365 : 30;
     return {
       href: "/reports",
       message: "דוח המשרד",
-      data: { report: await this.analytics.officeStats(windowDays) },
+      data: { report: await this.analytics.officeStats(reportWindow(params)) },
     };
   }
 
@@ -2583,8 +2580,7 @@ export class AgentExecuteService {
 
   /** ביצועי הסוכנים — אותה שליפה של מסך הניתוח, באותה יכולת. */
   private async agentReport(params: Record<string, unknown>): Promise<ExecuteResult> {
-    const days = num(params["windowDays"]);
-    const window = days === 90 || days === 365 ? days : 30;
+    const window = reportWindow(params);
     const rows = await this.analytics.agentPerformance(window);
     if (rows.length === 0) {
       return { href: "/analytics", message: "אין נתוני סוכנים לתקופה הזו" };
@@ -3178,6 +3174,21 @@ function commissionSplitOf(params: Record<string, unknown>): number {
   return said >= MIN_COMMISSION_SHARE && said <= MAX_COMMISSION_SHARE
     ? said
     : DEFAULT_COMMISSION_SPLIT;
+}
+
+/**
+ * ‎**חלון הדוח — פענוח אחד לשני הדוחות.**
+ *
+ * הקטלוג מצהיר על `windowDays` כ-enum של **מחרוזות** ("30"/"90"/
+ * "365"), והשירות מקבל מספר. `num()` מחזיר `undefined` למחרוזת,
+ * ולכן פענוח שנשען עליו נופל תמיד לברירת המחדל — „ביצועים
+ * ברבעון” היה מחזיר חודש, בלי שדבר ייכשל ובלי שהתשובה תודה בכך.
+ * זה בדיוק „תשובה מלאה על שאלה אחרת”, ולכן הפענוח יושב במקום אחד
+ * ששני הדוחות קוראים לו.
+ */
+function reportWindow(params: Record<string, unknown>): ReportWindowDays {
+  const raw = Number(str(params["windowDays"]) ?? "30");
+  return raw === 90 ? 90 : raw === 365 ? 365 : 30;
 }
 
 function num(value: unknown): number | undefined {

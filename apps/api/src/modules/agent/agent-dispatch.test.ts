@@ -81,3 +81,35 @@ describe("כיסוי הביצוע מול קטלוג הפעולות", () => {
     expect(cases.length).toBe(catalogue.length);
   });
 });
+
+/**
+ * ‎**חלון הדוח — מחרוזת בקטלוג, מספר בשירות.**
+ *
+ * ‎`windowDays` מוצהר כ-enum של מחרוזות ("30"/"90"/"365"), והשירות
+ * מקבל מספר. פענוח שנשען על `num()` — שמחזיר `undefined` למחרוזת —
+ * נופל תמיד לברירת המחדל: „ביצועים ברבעון” מחזיר חודש, שום דבר
+ * אינו נכשל, ואיש אינו יודע. זו „תשובה מלאה על שאלה אחרת”, התקלה
+ * שהמערכת הזו חוזרת ונכוות בה.
+ *
+ * שני הדוחות חייבים לקרוא לאותו פענוח, ולא כל אחד לנסח לעצמו.
+ */
+describe("חלון הדוחות", () => {
+  const source = readFileSync(new URL("./execute.service.ts", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//gu, "")
+    .replace(/^[ \t]*\/\/.*$/gmu, "");
+
+  it("שני הדוחות קוראים לאותה פונקציית פענוח", () => {
+    expect(source).toContain("this.analytics.officeStats(reportWindow(params))");
+    expect(source).toContain("const window = reportWindow(params);");
+  });
+
+  it("הפענוח קורא מחרוזת ולא מספר", () => {
+    const fn = source.slice(
+      source.indexOf("function reportWindow("),
+      source.indexOf("function num("),
+    );
+    expect(fn).toContain('Number(str(params["windowDays"])');
+    // `num` על מחרוזת מחזיר undefined — שימוש בו כאן הוא הבאג עצמו
+    expect(fn).not.toMatch(/num\(params\["windowDays"\]\)/u);
+  });
+});
