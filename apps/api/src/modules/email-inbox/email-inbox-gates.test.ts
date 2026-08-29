@@ -191,7 +191,14 @@ describe("ההמתנה שאינה נגמרת", () => {
   });
 
   it("רשימה חדשה מרעננת גם את השעה", () => {
-    expect(INBOX_PAGE).toMatch(/setMessages\(thread\.messages\);\n\s*setNow\(Date\.now\(\)\);/u);
+    /*
+     * ההגנה `?? []` מותרת בין השניים: גוף בלי `messages` הופך
+     * ל-`undefined` ומפיל את המסך כולו ב-`.map`. מה שהשער שומר הוא
+     * הצמידות — שהשעה מתרעננת **עם** הרשימה — ולא הניסוח המדויק.
+     */
+    expect(INBOX_PAGE).toMatch(
+      /setMessages\(thread\.messages(?: \?\? \[\])?\);\n\s*setNow\(Date\.now\(\)\);/u,
+    );
   });
 
   it("חישוב מועד החצייה נמצא במקום אחד", () => {
