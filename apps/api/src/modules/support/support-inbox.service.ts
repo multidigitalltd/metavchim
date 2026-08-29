@@ -405,12 +405,23 @@ export class SupportInboxService {
     }
 
     if (input.senderEmail !== null) {
-      const open = await this.prisma.supportThread.findFirst({
-        where: { contactEmail: input.senderEmail, status: "open" },
+      /*
+       * ‎**כל מה שאינו סגור — לא רק `open`.**
+       *
+       * זה האתר השלישי שבו „ממתין” נוסח בחיוב, והוא נשבר באותה
+       * צורה: מרגע ש-`in_progress` נולד, מי שכתב שוב בזמן שהפנייה
+       * שלו **בטיפול** קיבל שרשור שני עם מספר פנייה חדש — כלומר
+       * בדיוק הפיצול שהמספר נועד למנוע (ביקורת Codex).
+       *
+       * ‎`not: "closed"` ולא `in [...]`: סטטוס שייוולד מחר ייכנס
+       * מעצמו, וגם ערך ישן שנשאר במסד.
+       */
+      const waiting = await this.prisma.supportThread.findFirst({
+        where: { contactEmail: input.senderEmail, status: { not: "closed" } },
         orderBy: { lastMessageAt: "desc" },
         select: { id: true, tenantId: true },
       });
-      if (open !== null) return open;
+      if (waiting !== null) return waiting;
     }
 
     const tenantId =

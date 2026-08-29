@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
-import { formatDate, formatNumber } from "@/lib/format";
+import { shekels as formatAgorot } from "@metavchim/shared";
+import { formatDate } from "@/lib/format";
 import { IconCard } from "../icons";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
@@ -48,7 +49,15 @@ const STATUS_LABELS: Record<string, string> = {
  * 18% וחושב שמישהו חויב ביתר.
  */
 function shekels(agorot: number): string {
-  return `${formatNumber(Math.round(agorot / 100))} ₪ כולל מע"מ`;
+  /*
+   * ‎**הסכום המדויק, כולל אגורות.**
+   *
+   * זה יומן של מה שנגבה בפועל, ומע"מ על מחירון נטו מייצר אגורות:
+   * 17,582 אגורות הן 175.82 ₪, לא 176. עיגול לשקל בטבלה שמולה
+   * עושים התאמת ספרים הוא פער שמתגלה חודשיים אחרי — ואותה
+   * פונקציה מנסחת גם את אישור הזיכוי (ביקורת Codex).
+   */
+  return `${formatAgorot(agorot)} ₪ כולל מע"מ`;
 }
 
 export function PaymentsSection(): React.JSX.Element {
