@@ -341,6 +341,205 @@ export function agentNextSteps(
       break;
     }
 
+    /*
+     * ‎**מי שממתין לחזרה — הצעד הוא לחזור אליו.** השם הוא שורת
+     * התוצאה הראשונה, שהיא כבר מדורגת לפי דחיפות בשרת; הצעד השני
+     * הוא הודעה, למי שעדיף לו לכתוב מאשר לחייג.
+     */
+    case "show_callbacks": {
+      const name = str(section(data, "callbacks")[0]?.["name"]);
+      if (name === null) break;
+      permit({
+        text: `להתקשר ל${name}?`,
+        label: "📞 התקשר",
+        action: "call_contact",
+        params: { buyerPhrase: name },
+      });
+      permit({
+        text: `לשלוח ל${name} הודעה?`,
+        label: "💬 שלח הודעה",
+        action: "send_message",
+        params: { buyerPhrase: name },
+      });
+      break;
+    }
+
+    /*
+     * ליד ברשימה — הצעד הוא לקדם אותו, לא לצפות בו שוב. פגישה
+     * ראשונה היא מה שמזיז ליד, ולכן היא הצעד הראשון.
+     */
+    case "show_leads": {
+      const name = str(section(data, "leads")[0]?.["name"]);
+      if (name === null) break;
+      permit({
+        text: `לקבוע פגישה עם ${name}?`,
+        label: "📅 קבע פגישה",
+        action: "schedule_appointment",
+        params: { buyerPhrase: name },
+      });
+      permit({
+        text: `להתקשר ל${name}?`,
+        label: "📞 התקשר",
+        action: "call_contact",
+        params: { buyerPhrase: name },
+      });
+      break;
+    }
+
+    /*
+     * ‎**בלעדיות בסיכון — הצעד הוא הפעולה שמצילה אותה.** רק כשחסרות
+     * פעולות שיווק בפועל (`missing > 0`): בלעדיות מלאה אינה צריכה
+     * שום דבר, והצעה עליה הייתה רעש.
+     */
+    case "show_exclusivity": {
+      const risky = section(data, "exclusivity").find(
+        (row) => typeof row["missing"] === "number" && (row["missing"] as number) > 0,
+      );
+      const title = str(risky?.["propertyTitle"]);
+      if (title === null) break;
+      permit({
+        text: `לתעד פעולת שיווק על ${title}?`,
+        label: "📋 תעד שיווק",
+        action: "log_marketing_action",
+        params: { propertyPhrase: title },
+      });
+      break;
+    }
+
+    /*
+     * ‎**ביקוש ברשת שיש לי נכס בשבילו** — וזה נמדד, לא משוער:
+     * ‎`matchCount` מגיע ממנוע ההתאמות. ביקוש בלי התאמה אינו מזמין
+     * שום צעד, כי אין מה להציע לו.
+     */
+    case "show_demands": {
+      const withMatch = section(data, "demands").find(
+        (row) => typeof row["matchCount"] === "number" && (row["matchCount"] as number) > 0,
+      );
+      const office = str(withMatch?.["office"]);
+      if (office === null) break;
+      const cities = withMatch?.["cities"];
+      const where = Array.isArray(cities) && cities.length > 0 ? ` ב${String(cities[0])}` : "";
+      permit({
+        text: `להציע נכס לביקוש של ${office}${where}?`,
+        label: "🤝 הצע נכס",
+        action: "offer_to_demand",
+        params: { demandPhrase: office },
+      });
+      break;
+    }
+
+    /*
+     * נכס ברשת — הצעד הוא להעמיד מולו קונה שלי. הכותרת מוכחת
+     * מהשורה הראשונה של הפיד.
+     */
+    case "show_network_listings": {
+      const first = rows(data)[0];
+      const title = str(first?.["title"]);
+      if (title === null) break;
+      permit({
+        text: `להביע התעניינות ב${title} בשביל קונה שלי?`,
+        label: "🤝 הבע התעניינות",
+        action: "express_interest",
+        params: { listingPhrase: title },
+      });
+      break;
+    }
+
+    /*
+     * ‎**פנייה שממתינה — הצעד הוא לענות לה.** זה כל מה שהרשימה
+     * הזו קיימת בשבילו: מה שממתין ולא נענה נשאר תלוי.
+     */
+    case "show_network_inbox": {
+      const title = str(rows(data)[0]?.["title"]);
+      if (title === null) break;
+      permit({
+        text: `לפתוח חדר עסקה על ${title}?`,
+        label: "🤝 פתח חדר עסקה",
+        action: "open_deal_room",
+        params: { approachPhrase: title },
+      });
+      break;
+    }
+
+    /*
+     * מייל שנכנס — הצעד הוא לענות. השם מוכח מהשורה, והנושא אינו
+     * נכנס לצעד: הוא תוכן של לקוח ואינו נחוץ לפקודה.
+     */
+    case "show_emails": {
+      const name = str(section(data, "emails")[0]?.["contactName"]);
+      if (name === null) break;
+      permit({
+        text: `לענות ל${name} במייל?`,
+        label: "✉️ ענה במייל",
+        action: "send_email",
+        params: { buyerPhrase: name },
+      });
+      break;
+    }
+
+    /*
+     * ‎**הצעה שנשלחה וממתינה — הצעד הוא המעקב.** הקונה מוכח מהשורה
+     * הראשונה; מה שעושים אחרי שנשלחה הצעה הוא לוודא שהיא נקראה.
+     */
+    case "show_offers": {
+      const name = str(section(data, "offers")[0]?.["buyerName"]);
+      if (name === null) break;
+      permit({
+        text: `להתקשר ל${name} לגבי ההצעה?`,
+        label: "📞 התקשר",
+        action: "call_contact",
+        params: { buyerPhrase: name },
+      });
+      break;
+    }
+
+    /*
+     * ליד שהפך לקונה — אותה שאלה בדיוק כמו אחרי `create_buyer`:
+     * כרטיס חדש בלי התאמות הוא רשומה שלא נעשה בה דבר.
+     */
+    case "convert_lead": {
+      const name = ref?.entityType === "buyer" ? str(ref.label) : null;
+      if (name === null) break;
+      permit({
+        text: `לראות מה מתאים ל${name} עכשיו?`,
+        label: "🔍 מצא התאמות",
+        action: "show_matches",
+        params: { buyerPhrase: name },
+      });
+      break;
+    }
+
+    /*
+     * ‎**עסקה שנפתחה — החדר ריק עד שמישהו כותב בו.** הצעד מפנה
+     * לשיחה עצמה; אין כאן שם להוכיח, ולכן הביטוי נשאר פתוח
+     * והבורר יציג את החדרים.
+     */
+    case "open_deal_room": {
+      permit({
+        text: "לכתוב הודעה בחדר העסקה?",
+        label: "💬 כתוב בחדר",
+        action: "post_deal_message",
+        params: {},
+      });
+      break;
+    }
+
+    /*
+     * סיור שנקבע — הצעד הוא להזכיר ללקוח. השם מגיע מהפרמטרים
+     * שהפעולה רצה איתם, כמו ב-`send_offer`.
+     */
+    case "schedule_appointment": {
+      const name = str(result.params?.["buyerPhrase"]);
+      if (name === null) break;
+      permit({
+        text: `לשלוח ל${name} הודעה עם פרטי הפגישה?`,
+        label: "💬 שלח תזכורת",
+        action: "send_message",
+        params: { buyerPhrase: name },
+      });
+      break;
+    }
+
     default:
       break;
   }

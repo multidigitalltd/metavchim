@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { wantsSpokenReply } from "./assistant-lang";
+
 /**
- * ‎**התשובה הקולית — תוספת, לעולם לא תחליף.**
+ * ‎**התשובה הקולית — תוספת, לעולם לא תחליף, ורק כשמבקשים.**
  *
  * שלושה גבולות שהפיצ'ר עומד עליהם ואף אחד מהם אינו נראה לקומפיילר:
  *
@@ -44,6 +46,47 @@ describe("התשובה הקולית בוואטסאפ", () => {
     );
     expect(spoken).toContain("this.gemini.speak(reply.speak)");
     expect(spoken).not.toMatch(/speak\(reply\.text\)/u);
+  });
+
+  /*
+   * ‎**הקראה אינה אוטומטית** (הכרעת בעל המוצר). היא עולה קריאת TTS
+   * בכל תשובה, ולכן קורית רק בבקשה מפורשת — „תקריא לי” בהודעה, או
+   * העדפת „תמיד תענה לי בקול”. הודעה קולית נכנסת **אינה** עילה:
+   * הניסוח „הודעה קולית או ההעדפה” גם התעלם מהעדפה שכובתה, כלומר
+   * כפתור כיבוי שאינו מכבה.
+   */
+  it("הודעה קולית נכנסת אינה מדליקה הקראה — רק בקשה מפורשת או העדפה", () => {
+    const spoken = WA.slice(
+      WA.indexOf("private async withSpokenReply("),
+      WA.indexOf("private async deliver("),
+    );
+    expect(spoken).toContain("askedAloud || (await this.agentPrefs.get()).voiceReplies === true");
+    expect(spoken).not.toMatch(/wasVoice/u);
+    // והדגל שנשלח הוא הבקשה שבטקסט, לא סוג ההודעה
+    expect(WA).toContain("const askedAloud = wantsSpokenReply(text);");
+    expect(WA).toContain("this.withSpokenReply(reply, askedAloud)");
+  });
+
+  it("„תקריא לי” מזוהה בתוך משפט, ובלי גבול־מילה שאינו עובד בעברית", () => {
+    expect(wantsSpokenReply("תקריא לי מה יש לי היום")).toBe(true);
+    expect(wantsSpokenReply("תמיד תענה לי בקול")).toBe(true);
+    expect(wantsSpokenReply("תשלח לי בהודעה קולית")).toBe(true);
+    // בקשה רגילה אינה מדליקה הקראה
+    expect(wantsSpokenReply("מה יש לי היום")).toBe(false);
+    expect(wantsSpokenReply("תתקשר למשה כהן")).toBe(false);
+  });
+
+  /*
+   * ‎**שלילה אינה בקשה** — והיא מכילה את הביטוי מילה במילה. בלי
+   * הבדיקה הזו „אל תענה לי בקול” הדליק הקראה, כלומר אישור ההפסקה
+   * הגיע כהודעה קולית (ביקורת Codex).
+   */
+  it("„אל תענה לי בקול” אינו בקשה להקראה", () => {
+    expect(wantsSpokenReply("אל תענה לי בקול")).toBe(false);
+    expect(wantsSpokenReply("אל תשלח לי בהודעה קולית")).toBe(false);
+    expect(wantsSpokenReply("בלי בהודעה קולית בבקשה")).toBe(false);
+    // ושלילה שאינה נוגעת להקראה אינה מבטלת בקשה אמיתית
+    expect(wantsSpokenReply("תקריא לי מה יש היום, אל תשכח את הפגישה")).toBe(true);
   });
 
   it("גם שאלות הסוכן מדוברות — אישור ובחירה אינם שקטים (ביקורת Codex)", () => {

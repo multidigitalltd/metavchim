@@ -65,6 +65,54 @@ export function isCancelMessage(text: string): boolean {
   return CANCEL_WORDS.has(normalizeShort(text));
 }
 
+/**
+ * ‎**בקשה מפורשת להקראה — לתשובה הזו בלבד.**
+ *
+ * הקראה אינה אוטומטית: היא עולה קריאת TTS בכל תשובה, ובעל המוצר
+ * ביקש שלא תקרה בלי שביקשו אותה. שתי דרכים לבקש — „תקריא לי” כאן
+ * ועכשיו, או „תמיד תענה לי בקול” כהעדפת קבע (`set_preference`).
+ *
+ * ‎**נבדק כהכלה ולא כהודעה שלמה**, בשונה מ„אשר”/„בטל”: הבקשה מגיעה
+ * בתוך משפט — „תקריא לי מה יש לי היום” — ולא לבדה. שאר המשפט ממשיך
+ * לפירוש כרגיל, ולכן אין כאן מסלול נפרד אלא דגל על התשובה.
+ */
+/*
+ * ‎**בלי `\b`.** גבול־מילה ב-JS מוגדר על תווי ASCII, ואות עברית
+ * אינה אחד מהם: ‎`/\bתקריא\b/` אינו מתאים ל„תקריא לי” כלל. ביטוי
+ * שנראה מדויק ואינו נפלט לעולם הוא בדיוק סוג הכלל המת שהמערכת
+ * הזו כבר נכוותה בו — ולכן ההשוואה כאן היא הכלה פשוטה.
+ */
+const SPEAK_PHRASES: readonly string[] = [
+  "תקריא",
+  "תענה לי בקול",
+  "תגיד לי בקול",
+  "תשלח לי בקול",
+  "בהודעה קולית",
+  "בקול בבקשה",
+];
+
+/*
+ * ‎**שלילה אינה בקשה.** „אל תענה לי בקול” מכיל „תענה לי בקול”,
+ * ולכן הכלה לבדה הפכה בדיוק את הכיבוי להדלקה: המשתמש ביקש
+ * להפסיק — וקיבל את אישור ההפסקה בהודעה קולית (ביקורת Codex).
+ */
+const NEGATIONS: readonly string[] = ["אל ", "בלי ", "לא ", "תפסיק", "די עם"];
+
+export function wantsSpokenReply(text: string): boolean {
+  const cleaned = normalizeShort(text);
+  if (!SPEAK_PHRASES.some((phrase) => cleaned.includes(phrase))) return false;
+  /*
+   * השלילה נבדקת **לפני** הביטוי שנתפס ולא בכל המשפט: „תקריא לי
+   * מה יש היום, אל תשכח את הפגישה” אינה שלילה של ההקראה.
+   */
+  const at = SPEAK_PHRASES.reduce((found, phrase) => {
+    const index = cleaned.indexOf(phrase);
+    return index === -1 ? found : Math.min(found, index);
+  }, cleaned.length);
+  const before = cleaned.slice(0, at);
+  return !NEGATIONS.some((negation) => before.includes(negation));
+}
+
 export function isHelpMessage(text: string): boolean {
   return HELP_PHRASES.has(normalizeShort(text));
 }

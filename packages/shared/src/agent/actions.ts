@@ -42,6 +42,7 @@ import {
 import { SUPPORT_KINDS, SUPPORT_KIND_LABEL } from "../logic/support.js";
 import { DISMISS_REASONS, DISMISS_REASON_LABEL } from "../logic/match-feedback.js";
 import type { Capability } from "../rbac.js";
+import type { PlanFeature } from "../logic/plans.js";
 import type { AgentFieldSpec } from "./field-spec.js";
 
 export const AGENT_ACTION_IDS = [
@@ -54,40 +55,67 @@ export const AGENT_ACTION_IDS = [
   "show_callbacks",
   "show_leads",
   "show_calls",
+  "log_call",
   "show_card",
   "play_recording",
   "show_deals",
   "show_credits",
+  "show_payout_balance",
+  "show_referral_board",
+  "show_reach",
+  "open_deal_room",
   "office_report",
+  "agent_report",
+  "show_recommendations",
   "create_lead",
   "create_buyer",
   "create_property",
   "create_task",
   "complete_task",
+  "update_task",
+  "create_recurring_task",
   "add_note",
   "update_lead_status",
+  "convert_lead",
+  "create_property_from_lead",
   "schedule_appointment",
   "reschedule_appointment",
   "update_appointment",
   "update_buyer",
+  "add_contact_detail",
   "update_property",
   "share_property",
+  "create_landing_page",
   "share_buyer",
   "send_offer",
+  "send_offers_bulk",
   "send_agreement",
   "show_exclusivity",
+  "start_exclusivity",
   "log_marketing_action",
   "show_agreements",
+  "show_retained_documents",
   "show_offers",
   "show_demands",
+  "show_network_listings",
+  "show_network_inbox",
+  "offer_to_demand",
+  "express_interest",
+  "post_deal_message",
+  "move_deal_stage",
   "show_notifications",
+  "mark_notifications_read",
   "show_emails",
   "dismiss_match",
   "assign_task",
   "send_email",
   "send_message",
+  "call_contact",
+  "send_intake_form",
   "message_owner",
+  "send_owner_update",
   "open_support_ticket",
+  "show_support_tickets",
   "set_preference",
 ] as const;
 
@@ -129,6 +157,19 @@ export interface AgentActionDef {
    * שנכתב במיוחד בשבילו נבדק (ביקורת Codex).
    */
   capabilityAlts?: readonly Capability[];
+  /**
+   * ‎**פיצ'ר המסלול שהפעולה דורשת** — הזכאות המסחרית, לא ההרשאה.
+   *
+   * הבקרים אוכפים אותה ב-`@RequireFeature`, והסוכן אינו עובר בהם:
+   * הוא קורא לשירותים ישירות. כל פעולה שנוגעת ביכולת מתומחרת חייבת
+   * להצהיר עליה כאן, והאכיפה נעשית **פעם אחת** בביצוע — לצד בדיקת
+   * היכולת — ולא בכל מתודה בנפרד.
+   *
+   * זה לא היה תיאורטי: „מה כדאי לי היום” ו„דף נחיתה” נפתחו למשרד
+   * שהמסלול שלו אינו כולל אותם, בזמן שהמסך המקביל חסום (ביקורת
+   * Codex); ו-„דוח המשרד” עשה זאת מלכתחילה, לפני הסבב הזה.
+   */
+  feature?: PlanFeature;
   risk: AgentRisk;
   fields: readonly AgentFieldSpec[];
   /**
@@ -291,6 +332,57 @@ const F_BUYER_PHRASE: AgentFieldSpec = {
   maxLength: 200,
 };
 
+/**
+ * חלוקת העמלה מול המשרד השני, באחוזים.
+ *
+ * מוצהר זהה בשתי הפעולות שמסכמות תנאים (הצעה לביקוש, התעניינות
+ * במודעה) — הקטלוג אוכף שמפתח משותף מוצהר אותו דבר בכולן.
+ */
+const F_COMMISSION_SPLIT: AgentFieldSpec = {
+  key: "commissionSplit",
+  label: "אחוז העמלה שלי",
+  type: "integer",
+  hint: 'ברירת המחדל 50 ("חצי חצי"). מותר 33 עד 67',
+  min: 33,
+  max: 67,
+};
+
+/** ביקוש שמשרד אחר פרסם ברשת — כפי שהוא מתואר בפיד. */
+const F_DEMAND_PHRASE: AgentFieldSpec = {
+  key: "demandPhrase",
+  label: "איזה ביקוש",
+  type: "string",
+  hint: "מה שנאמר על הביקוש — עיר, חדרים או שם המשרד שפרסם",
+  maxLength: 200,
+};
+
+/** מודעת נכס שמשרד אחר פרסם ברשת. */
+const F_LISTING_PHRASE: AgentFieldSpec = {
+  key: "listingPhrase",
+  label: "איזה נכס ברשת",
+  type: "string",
+  hint: "מה שנאמר על המודעה — עיר, כותרת או שם המשרד שפרסם",
+  maxLength: 200,
+};
+
+/** חדר עסקה משותף קיים. */
+const F_DEAL_PHRASE: AgentFieldSpec = {
+  key: "dealPhrase",
+  label: "איזו עסקה",
+  type: "string",
+  hint: "מה שנאמר על העסקה — הנכס או שם המשרד השני",
+  maxLength: 200,
+};
+
+/** פנייה נכנסת מהרשת — נכס שהוצע לביקוש, או התעניינות בנכס שפורסם. */
+const F_APPROACH_PHRASE: AgentFieldSpec = {
+  key: "approachPhrase",
+  label: "איזו פנייה",
+  type: "string",
+  hint: "מה שנאמר על הפנייה — שם הנכס, העיר או שם המשרד השני",
+  maxLength: 200,
+};
+
 /** תוכן מייל חופשי — מה שהמתווך הכתיב, מנוסח כפי שנאמר. */
 const F_EMAIL_BODY: AgentFieldSpec = {
   key: "emailBody",
@@ -305,6 +397,15 @@ const F_PROPERTY_PHRASE: AgentFieldSpec = {
   label: "איזה נכס",
   type: "string",
   hint: "התיאור שנאמר — כתובת, עיר, סוג או שם הבעלים",
+  maxLength: 200,
+};
+
+/** כותרת משימה — משותפת לתזכורת חד-פעמית ולמשימה הקבועה. */
+const F_TASK_TITLE: AgentFieldSpec = {
+  key: "title",
+  label: "מה להזכיר",
+  type: "string",
+  hint: 'בלי המילים "תזכיר לי", ובלי המועד',
   maxLength: 200,
 };
 
@@ -422,7 +523,7 @@ const F_VOICE_REPLIES: AgentFieldSpec = {
   key: "voiceReplies",
   label: "תשובות בקול",
   type: "boolean",
-  hint: "רק כשנאמר „תמיד תענה לי בקול” (true) או „תפסיק לענות בקול” (false)",
+  hint: "רק כשנאמר „תמיד תענה לי בקול” (true) או „תפסיק לענות בקול” (false). לבקשה חד-פעמית אומרים „תקריא לי” בהודעה עצמה — זו אינה העדפה",
 };
 
 const F_PROPERTIES_ORDER: AgentFieldSpec = {
@@ -798,6 +899,53 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     fields: [],
   },
   {
+    /*
+     * ‎**שיחה שהתקיימה — תיעוד, לא הערה.** „תוסיף הערה” שומר טקסט
+     * חופשי; שיחה היא רשומה עם כיוון, משך ותוצאה, וממנה נבנים
+     * „מי ממתין לחזרה” ודוח הפעילות לבעל הנכס. הערה במקומה הייתה
+     * מאבדת את כל אלה.
+     */
+    id: "log_call",
+    title: "תיעוד שיחה",
+    when: "רישום שיחה שכבר התקיימה עם לקוח קיים — כמה זמן ומה יצא ממנה. לחיוג עצמו יש „חיוג ללקוח”.",
+    examples: [
+      "תרשום שדיברתי עם שרה עשר דקות על הדירה",
+      "התקשרתי למשה כהן והוא לא ענה",
+      "היתה שיחה עם משפחת לוי, חמש דקות, הם מתלבטים",
+    ],
+    capability: "leads.edit",
+    risk: "create",
+    fields: [
+      F_BUYER_PHRASE,
+      {
+        key: "callDirection",
+        label: "כיוון",
+        type: "enum",
+        hint: "„התקשרתי” ⇒ יוצאת, „התקשרו אליי” ⇒ נכנסת. ברירת המחדל יוצאת",
+        values: ["outbound", "inbound"],
+        valueLabels: { outbound: "יוצאת", inbound: "נכנסת" },
+      },
+      {
+        key: "callOutcome",
+        label: "תוצאה",
+        type: "enum",
+        hint: "„דיברנו” ⇒ נענתה; „לא ענה” ⇒ ללא מענה",
+        values: ["answered", "no_answer"],
+        valueLabels: { answered: "נענתה", no_answer: "ללא מענה" },
+      },
+      {
+        key: "durationMinutes",
+        label: "משך בדקות",
+        type: "integer",
+        hint: "„עשר דקות” ⇒ 10",
+        min: 0,
+        max: 600,
+      },
+      { key: "callSummary", label: "מה נאמר", type: "string", maxLength: 4000 },
+    ],
+    resolved: [{ key: "occurredAt", label: "מתי" }],
+  },
+  {
     id: "show_card",
     /*
      * ‎**הכותרת והתיאור אומרים „נכס” — כי הביצוע כבר יודע.**
@@ -850,6 +998,136 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     fields: [],
   },
   {
+    /*
+     * ‎**הצד היוצר של הרשת** — עד כה הפיד היה קריאה בלבד: אפשר היה
+     * לשאול „מה מבוקש” ולא לענות על זה. `outbound` לא רק כי היא
+     * יוצאת למשרד אחר, אלא כי הצעה לביקוש ממקור חיצוני עולה
+     * קרדיטים — היא סוגרת תנאים מסחריים.
+     */
+    id: "offer_to_demand",
+    title: "הצעת נכס לביקוש ברשת",
+    when: "הצעת נכס שלי לביקוש שמשרד אחר פרסם ברשת. לשאלה מה מבוקש יש „ביקושים ברשת”.",
+    examples: [
+      "תציע את הדירה בהרב שך לביקוש של משרד כהן",
+      "יש לי נכס מתאים לביקוש בגבעתיים — תציע אותו",
+      "תציע את הפנטהאוז לביקוש של 5 חדרים בנתניה",
+    ],
+    capability: "collaboration.offer",
+    risk: "outbound",
+    fields: [F_DEMAND_PHRASE, F_PROPERTY_PHRASE, F_COMMISSION_SPLIT],
+  },
+  {
+    id: "express_interest",
+    title: "התעניינות בנכס ברשת",
+    when: "הבעת התעניינות בנכס שמשרד אחר פרסם ברשת, בשם קונה שלי. לשאלה מה יש ברשת יש „נכסים ברשת”.",
+    examples: [
+      "תביע התעניינות בדירה שברשת בגבעתיים בשביל משה כהן",
+      "הנכס ברמת גן שברשת מתאים למשפחת לוי — תפנה אליהם",
+      "תגיד למשרד שפרסם את הפנטהאוז שיש לי קונה",
+    ],
+    /*
+     * ‎`collaboration.offer` — אותה יכולת של הבקר. `share` הוא פרסום
+     * שלי לרשת; פנייה **אל** מודעה של אחר היא הצעה, ו-`expressInterest`
+     * אינו בודק יכולת בעצמו (ביקורת Codex).
+     */
+    capability: "collaboration.offer",
+    risk: "outbound",
+    fields: [F_LISTING_PHRASE, F_BUYER_PHRASE, F_COMMISSION_SPLIT],
+  },
+  {
+    id: "post_deal_message",
+    title: "הודעה בחדר עסקה",
+    when: "כתיבת הודעה בחדר עסקה משותף — מה שנאמר נשלח למשרד השני. לרשימת החדרים יש „עסקאות שת״פ”.",
+    examples: [
+      "תכתוב בחדר העסקה עם משרד לוי שהלקוח מאשר את המחיר",
+      "תעדכן בחדר העסקה על הדירה ברמת גן שנקבע סיור למחר",
+      "תשלח למשרד השני בחדר העסקה שאנחנו ממתינים לתשובה",
+    ],
+    capability: "collaboration.offer",
+    capabilityAlts: ["collaboration.share"],
+    risk: "outbound",
+    fields: [F_DEAL_PHRASE, F_MESSAGE_BODY],
+  },
+  {
+    /*
+     * ‎**„לא יצא לפועל” אינו נאמר בדיבור.** סגירת עסקה היא מצב סופי
+     * שאי אפשר לפתוח ממנו מחדש, ולכן היא נשארת במסך — כמו כל פעולה
+     * שאין ממנה חזרה. „נחתם” כן: זו הבשורה שמדווחים עליה מהשטח.
+     */
+    id: "move_deal_stage",
+    title: "קידום עסקה משותפת",
+    when: "העברת עסקה משותפת לשלב הבא — יצירת קשר, סיור, משא ומתן או נחתם. סגירת עסקה שלא יצאה לפועל נעשית במסך.",
+    examples: [
+      "תעביר את העסקה עם משרד כהן לשלב משא ומתן",
+      "העסקה על הדירה ברמת גן נחתמה",
+      "היה סיור בעסקה המשותפת — תעדכן",
+    ],
+    capability: "collaboration.offer",
+    capabilityAlts: ["collaboration.share"],
+    risk: "update",
+    fields: [
+      F_DEAL_PHRASE,
+      {
+        key: "dealStage",
+        label: "שלב",
+        type: "enum",
+        values: ["contact", "viewing", "negotiation", "signed"],
+        valueLabels: {
+          contact: "יצירת קשר",
+          viewing: "סיור בנכס",
+          negotiation: "משא ומתן",
+          signed: "נחתם",
+        },
+      },
+    ],
+  },
+  {
+    /*
+     * ‎**חדר עסקה נפתח באישור פנייה** — אין „פתיחה” נפרדת במערכת:
+     * המסך עושה בדיוק את זה בכפתור האישור, והסוכן קורא לאותו
+     * שירות. `outbound` — האישור מודיע למשרד השני ופותח חדר משותף.
+     */
+    id: "open_deal_room",
+    title: "פתיחת חדר עסקה",
+    when: "אישור פנייה נכנסת מרשת השיתופים ופתיחת חדר עסקה משותף — נכס שהוצע לביקוש שפורסם, או משרד שמתעניין בנכס. „פתח חדר עסקה”, „תאשר את ההצעה”.",
+    examples: [
+      "פתח חדר עסקה על ההצעה לדירה בבני ברק",
+      "תאשר את ההצעה ממשרד כהן נכסים",
+      "יש התעניינות בנכס שפרסמתי — תפתח חדר עסקה",
+    ],
+    capability: "collaboration.offer",
+    capabilityAlts: ["collaboration.share"],
+    risk: "outbound",
+    fields: [F_APPROACH_PHRASE],
+  },
+  {
+    id: "show_payout_balance",
+    title: "יתרת תשלומים",
+    when: "שאלה על כסף שמגיע למשרד מהפניות ברשת — כמה נצבר ומה הסף למשיכה. הבקשה למשיכה עצמה נעשית במסך.",
+    examples: ["כמה כסף מגיע לי מהפניות", "מה יתרת התשלומים שלי", "כמה צברתי מהרשת"],
+    capability: "billing.manage",
+    risk: "read",
+    fields: [],
+  },
+  {
+    id: "show_referral_board",
+    title: "לידים ברשת",
+    when: "שאלה על לידים שמשרדים אחרים פרסמו להפניה ברשת. קליטת ליד עצמה כרוכה בתשלום ונעשית במסך.",
+    examples: ["אילו לידים יש ברשת", "מה יש בלוח ההפניות", "יש לידים למכירה ברשת?"],
+    capability: "collaboration.offer",
+    risk: "read",
+    fields: [],
+  },
+  {
+    id: "show_reach",
+    title: "מה שווה לפרסם ברשת",
+    when: "שאלה מה מהמאגר שלי מתאים למשהו שכבר ברשת ועדיין לא פורסם בה.",
+    examples: ["מה שווה לי לפרסם ברשת", "מה אני מפספס ברשת", "יש לי משהו שמתאים לרשת?"],
+    capability: "collaboration.offer",
+    risk: "read",
+    fields: [],
+  },
+  {
     id: "show_credits",
     title: "יתרת קרדיטים",
     when: "שאלה על קרדיטים של המשרד ברשת השיתופים — כמה נשארו, מתי פגים.",
@@ -861,6 +1139,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
   {
     id: "office_report",
     title: "דוח המשרד",
+    feature: "analytics",
     when: "בקשה לנתוני המשרד — לידים, עסקאות, ביצועים בתקופה.",
     examples: ["תן לי את דוח המשרד", "כמה לידים נכנסו החודש", "סיכום החודש"],
     capability: "analytics.view",
@@ -875,6 +1154,39 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
         valueLabels: { "30": "30 יום", "90": "רבעון", "365": "שנה" },
       },
     ],
+  },
+  {
+    id: "agent_report",
+    title: "ביצועי הסוכנים",
+    feature: "analytics",
+    when: "שאלה על ביצועי הסוכנים במשרד — מי הכניס כמה, מי סוגר. לנתוני המשרד כמכלול יש „דוח המשרד”.",
+    examples: [
+      "תראה לי איך הסוכנים עבדו החודש",
+      "מי הסוכן הכי חזק שלי ברבעון",
+      "ביצועים לפי סוכן",
+    ],
+    capability: "users.manage",
+    risk: "read",
+    fields: [
+      {
+        key: "windowDays",
+        label: "תקופה",
+        type: "enum",
+        hint: '"החודש" ⇒ 30, "הרבעון" ⇒ 90, "השנה" ⇒ 365',
+        values: ["30", "90", "365"],
+        valueLabels: { "30": "30 יום", "90": "רבעון", "365": "שנה" },
+      },
+    ],
+  },
+  {
+    id: "show_recommendations",
+    title: "מה כדאי עכשיו",
+    feature: "ai_coach",
+    when: "בקשת הכוונה — „מה כדאי לי לעשות היום”, „ממה להתחיל”. ההמלצות של המאמן, לפי דחיפות.",
+    examples: ["מה כדאי לי לעשות היום?", "ממה להתחיל את הבוקר", "מה הכי דחוף עכשיו"],
+    capability: "matches.view",
+    risk: "read",
+    fields: [],
   },
   {
     id: "create_lead",
@@ -971,13 +1283,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capability: "calendar.manage",
     risk: "create",
     fields: [
-      {
-        key: "title",
-        label: "מה להזכיר",
-        type: "string",
-        hint: 'בלי המילים "תזכיר לי", ובלי המועד',
-        maxLength: 200,
-      },
+      F_TASK_TITLE,
       {
         key: "relatedPhrase",
         label: "קשור ל",
@@ -1000,6 +1306,90 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capability: "calendar.manage",
     risk: "update",
     fields: [F_TASK_PHRASE],
+  },
+  {
+    id: "update_task",
+    title: "עדכון משימה",
+    when: "שינוי משימה קיימת — דחייה למועד אחר או שינוי דחיפות. לסימון כבוצעה יש „סגירת משימה”.",
+    examples: [
+      "תדחה את המשימה של החוזה למחר בבוקר",
+      "תעביר את התזכורת להתקשר לדוד ליום ראשון",
+      "תסמן את המשימה של ההצעה כדחופה",
+    ],
+    capability: "calendar.manage",
+    risk: "update",
+    fields: [
+      F_TASK_PHRASE,
+      {
+        key: "priority",
+        label: "דחיפות",
+        type: "enum",
+        values: ["low", "normal", "high"],
+        valueLabels: { low: "נמוכה", normal: "רגילה", high: "דחופה" },
+      },
+    ],
+    resolved: [{ key: "dueAt", label: "מועד חדש" }],
+  },
+  {
+    /*
+     * ‎**„כל יום ראשון בתשע” — הוראת קבע, לא תזכורת.** נשמרת ככלל
+     * שמייצר משימה בכל מחזור — אותו מנגנון של מסך המשימות הקבועות,
+     * ולכן `settings.manage`: כלל קבוע הוא הגדרת משרד.
+     */
+    id: "create_recurring_task",
+    title: "משימה קבועה",
+    feature: "automations",
+    when: "תזכורת שחוזרת בקביעות — „כל יום”, „כל שבוע ביום ראשון”, „כל חודש ב-1”. לתזכורת חד-פעמית יש „תזכורת / משימה”.",
+    examples: [
+      "תזכיר לי כל יום ראשון בתשע לעבור על הלידים",
+      "כל יום בשמונה בבוקר תזכיר לי לבדוק את ההתראות",
+      "כל חודש באחד לחודש משימה לחדש את הפרסומים",
+    ],
+    capability: "settings.manage",
+    risk: "create",
+    fields: [
+      F_TASK_TITLE,
+      {
+        key: "frequency",
+        label: "תדירות",
+        type: "enum",
+        values: ["daily", "weekly", "monthly"],
+        valueLabels: { daily: "כל יום", weekly: "כל שבוע", monthly: "כל חודש" },
+      },
+      {
+        key: "weekday",
+        label: "יום בשבוע",
+        type: "enum",
+        hint: "רק כשהתדירות שבועית",
+        values: ["0", "1", "2", "3", "4", "5", "6"],
+        valueLabels: {
+          "0": "ראשון",
+          "1": "שני",
+          "2": "שלישי",
+          "3": "רביעי",
+          "4": "חמישי",
+          "5": "שישי",
+          "6": "שבת",
+        },
+      },
+      {
+        key: "dayOfMonth",
+        label: "יום בחודש",
+        type: "integer",
+        hint: "רק כשהתדירות חודשית",
+        min: 1,
+        max: 31,
+      },
+      {
+        key: "hour",
+        label: "שעה",
+        type: "integer",
+        hint: '"בתשע בבוקר" ⇒ 9, "בשמונה בערב" ⇒ 20',
+        min: 0,
+        max: 23,
+      },
+      { key: "minute", label: "דקות", type: "integer", hint: "0 כשלא נאמר", min: 0, max: 59 },
+    ],
   },
   {
     id: "add_note",
@@ -1038,6 +1428,44 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       F_LEAD_PHRASE,
       F_LEAD_STATUS,
     ],
+  },
+  {
+    /*
+     * ‎**ליד שהבשיל הופך לקונה** — אותו נתיב כמו כפתור ההמרה במסך:
+     * קונה על אותו איש קשר, הליד מסומן כהומר, והמעבר נרשם בשני
+     * הצירים. `buyers.edit` ולא `leads.edit` — נוצרת ישות קונה.
+     */
+    id: "convert_lead",
+    title: "הפיכת ליד לקונה",
+    when: "ליד שהבשיל הופך לכרטיס קונה מלא — „תהפוך את הליד לקונה”, „תפתח לו כרטיס”. אפשר לומר באותו משפט גם מה הוא מחפש.",
+    examples: [
+      "תהפוך את הליד של דני לכרטיס קונה",
+      "דני רציני — תפתח לו כרטיס קונה, מחפש 4 חדרים בבני ברק עד 2.5 מיליון",
+      "תמיר את הליד של משפחת לוי לקונה",
+    ],
+    capability: "buyers.edit",
+    risk: "create",
+    // בלי F_AGENT_NOTES: קלט ההמרה אינו נושא הערות, ושדה שנופל בשקט הוא שדה מת
+    fields: [F_LEAD_PHRASE, ...BUYER_REQUIREMENT_FIELDS, F_MATURITY, F_FINANCING],
+  },
+  {
+    /*
+     * ‎**הצד השני של ההמרה** — ליד שרוצה למכור הופך לנכס, לא לקונה.
+     * ‎`properties.create` ולא `edit`: הנתיב יוצר נכס, ומי שמורשה
+     * לערוך בלבד אינו עוקף את זה דרך המרה.
+     */
+    id: "create_property_from_lead",
+    title: "פתיחת נכס מליד",
+    when: "ליד של מוכר הופך לכרטיס נכס. להפיכת ליד לקונה יש „הפיכת ליד לקונה”.",
+    examples: [
+      "תפתח נכס מהליד של יוסי שרוצה למכור",
+      "הליד של משפחת דהן — תהפוך אותו לנכס, 4 חדרים ברמת גן",
+      "תמיר את הליד של אבי לכרטיס נכס",
+    ],
+    capability: "properties.create",
+    risk: "create",
+    fields: [F_LEAD_PHRASE, ...PROPERTY_FIELDS],
+    resolved: PROPERTY_RESOLVED,
   },
   {
     id: "schedule_appointment",
@@ -1110,6 +1538,41 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     fields: [F_BUYER_PHRASE, ...BUYER_REQUIREMENT_FIELDS, ...BUYER_PROFILE_FIELDS],
   },
   {
+    /*
+     * ‎**טלפון ואימייל לא היו ניתנים לתיקון בדיבור בכלל.**
+     * ‎`update_buyer` נושא דרישות חיפוש בלבד — תקציב, ערים, חדרים —
+     * ומספר שגוי בכרטיס נשאר שגוי עד שמישהו פתח מסך. זו הפעולה
+     * שסוגרת את הפער, והיא **מוסיפה** ולא מוחקת: מספר קיים נשאר.
+     */
+    id: "add_contact_detail",
+    title: "הוספת פרט קשר",
+    when: "הוספת טלפון נוסף או קביעת אימייל בכרטיס לקוח קיים. לשינוי דרישות החיפוש יש „עדכון כרטיס קונה”.",
+    examples: [
+      "תוסיף למשה כהן עוד טלפון 052-1234567",
+      "האימייל של דנה הוא dana@example.com",
+      "תוסיף לכרטיס של משפחת לוי את הנייד של הבעל 054-9876543",
+    ],
+    capability: "buyers.edit",
+    risk: "update",
+    fields: [
+      F_BUYER_PHRASE,
+      /*
+       * ‎**אותם קבועים של יצירת ליד, לא הצהרה מקומית.** מפתח שמופיע
+       * בכמה פעולות חייב להיות מוצהר זהה בכולן — והשער תפס בדיוק
+       * את זה כשניסחתי כאן „אימייל” מול „דוא\"ל”.
+       */
+      F_PHONE,
+      F_EMAIL,
+      {
+        key: "phoneLabel",
+        label: "סוג המספר",
+        type: "enum",
+        values: ["mobile", "home", "work", "other"],
+        valueLabels: { mobile: "נייד", home: "בית", work: "עבודה", other: "אחר" },
+      },
+    ],
+  },
+  {
     id: "update_property",
     title: "עדכון נכס",
     when: "שינוי פרט בנכס קיים — מחיר שירד, סטטוס, מועד כניסה.",
@@ -1151,6 +1614,20 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
     capability: "collaboration.share",
     risk: "read",
+    fields: [F_PROPERTY_PHRASE],
+  },
+  {
+    id: "create_landing_page",
+    title: "דף נחיתה לנכס",
+    feature: "landing_pages",
+    when: "יצירת קישור לדף נחיתה ציבורי של נכס — דף שאפשר לשלוח למתעניינים.",
+    examples: [
+      "תכין דף נחיתה לפנטהאוז בנתניה",
+      "תעשה קישור ציבורי לדירה ברמת גן",
+      "אני צריך דף נחיתה לנכס בהרב שך",
+    ],
+    capability: "properties.edit",
+    risk: "create",
     fields: [F_PROPERTY_PHRASE],
   },
   {
@@ -1206,6 +1683,34 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
    * הלקוח היא מפורשת תמיד, גם כשיש התאמה אחת.
    */
   {
+    /*
+     * ‎**שליחה מרובה — הפעולה שהמספר בה הוא כל הסיפור.** ההודעה
+     * אומרת לכמה נשלח בפועל וכמה דולגו, כי „נשלח לכולם” בלי מספר
+     * אינו מאפשר לזהות ששלושה קונים לא קיבלו כלום.
+     */
+    id: "send_offers_bulk",
+    title: "שליחת הצעה לכל המתאימים",
+    when: "שליחת נכס אחד לכל הקונים שמתאימים לו מעל סף ההתאמה. לשליחה לקונה אחד יש „שליחת הצעה”.",
+    examples: [
+      "תשלח את הדירה ברמת גן לכל הקונים המתאימים",
+      "תפיץ את הפנטהאוז לכל מי שמתאים מעל 70 אחוז",
+      "שלח הצעה על הנכס בהרב שך לכל ההתאמות",
+    ],
+    capability: "offers.send",
+    risk: "outbound",
+    fields: [
+      F_PROPERTY_PHRASE,
+      {
+        key: "minScore",
+        label: "סף התאמה",
+        type: "integer",
+        hint: 'באחוזים; ברירת המחדל 60 ("מעל 70 אחוז" ⇒ 70)',
+        min: 1,
+        max: 100,
+      },
+    ],
+  },
+  {
     id: "send_agreement",
     title: "קישור לחתימה על הזמנה בכתב",
     when: "הפקת קישור חתימה על הזמנה בכתב (הסכם תיווך) ללקוח על נכס מסוים. בחר בפעולה הזו כשמבקשים „קישור לחתימה”, „להחתים” או „הזמנה בכתב”. אין לבחור בה להסכם בלעדיות.",
@@ -1246,6 +1751,47 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
    * הבלעדיות מעבר לשליש, והוא נעשה בשטח — תולים שלט, מפרסמים — ולא
    * ליד המחשב. זו בדיוק פעולה שחייבת לעבוד מוואטסאפ.
    */
+  {
+    /*
+     * ‎**הבלעדיות כישות, לא כדגל.** ל-`update_property` יש `exclusive`
+     * בוליאני, והוא אינו יוצר את הרשומה המוסדרת ש„מה בסיכון” ותיעוד
+     * פעולות השיווק נשענים עליה. בלי הפעולה הזו אי אפשר היה לפתוח
+     * תקופת בלעדיות מהסוכן כלל.
+     *
+     * התקרה החוקית (סעיף 9(ב)) נאכפת בשירות ולא כאן — אותה אכיפה
+     * בדיוק כמו מהמסך.
+     */
+    id: "start_exclusivity",
+    title: "פתיחת בלעדיות",
+    when: "פתיחת תקופת בלעדיות מוסדרת על נכס — „קיבלתי בלעדיות”. לשאלה מה מסתיים יש „בלעדיות — מה בסיכון”.",
+    examples: [
+      "קיבלתי בלעדיות על הדירה ברמת גן לשלושה חודשים",
+      "תפתח בלעדיות על הפנטהאוז בנתניה עד סוף השנה",
+      "חתמנו בלעדיות על הנכס בהרב שך לחצי שנה",
+    ],
+    capability: "properties.edit",
+    risk: "create",
+    fields: [
+      F_PROPERTY_PHRASE,
+      {
+        key: "exclusivitySubject",
+        label: "סוג הנכס לעניין החוק",
+        type: "enum",
+        hint: "דירה = עד 6 חודשים; מקרקעין אחרים = עד 12",
+        values: ["apartment", "other"],
+        valueLabels: { apartment: "דירה", other: "מקרקעין שאינם דירה" },
+      },
+      {
+        key: "exclusivityMonths",
+        label: "לכמה חודשים",
+        type: "integer",
+        hint: '„לשלושה חודשים” ⇒ 3. בדירה עד 6, במקרקעין אחרים עד 12',
+        min: 1,
+        max: 12,
+      },
+    ],
+    resolved: [{ key: "startsAt", label: "מתחילה" }],
+  },
   {
     id: "log_marketing_action",
     title: "תיעוד פעולת שיווק",
@@ -1307,6 +1853,19 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
    * ולא היה נגיש בשאלה.
    */
   {
+    id: "show_retained_documents",
+    title: "מסמכים חתומים שמורים",
+    when: "שאלה על מסמכים חתומים שנשמרו במשרד — הארכיון. להסכמים שממתינים לחתימה יש „הסכמים ממתינים”.",
+    examples: [
+      "אילו מסמכים חתומים שמורים אצלי",
+      "תראה לי את ארכיון המסמכים",
+      "מה יש בתיק המסמכים החתומים",
+    ],
+    capability: "settings.manage",
+    risk: "read",
+    fields: [],
+  },
+  {
     id: "show_offers",
     title: "סטטוס הצעות",
     when: "שאלה על הצעות שנשלחו ומה קרה איתן — מי פתח, מי הגיב, מה נכשל.",
@@ -1360,6 +1919,33 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     risk: "read",
     fields: [F_CITIES],
   },
+  {
+    id: "show_network_listings",
+    title: "נכסים ברשת",
+    when: "שאלה על נכסים שמשרדים אחרים פרסמו ברשת הבין-משרדית — מה מוצע ואיפה. לביקושים יש „ביקושים ברשת”.",
+    examples: [
+      "מה יש ברשת בגבעתיים",
+      "אילו דירות מוצעות ברשת המשרדים",
+      "יש ברשת משהו של 4 חדרים?",
+    ],
+    capability: "collaboration.offer",
+    risk: "read",
+    fields: [F_CITIES],
+  },
+  {
+    id: "show_network_inbox",
+    title: "פניות ממתינות מהרשת",
+    when: "מה מחכה לתשובה שלי ברשת — נכסים שהוצעו לביקושים שפרסמתי, ומשרדים שמתעניינים בנכסים שפרסמתי.",
+    examples: [
+      "מי התעניין בנכסים שפרסמתי?",
+      "אילו הצעות מחכות לי מהרשת",
+      "יש פניות חדשות ברשת?",
+    ],
+    capability: "collaboration.offer",
+    capabilityAlts: ["collaboration.share"],
+    risk: "read",
+    fields: [],
+  },
 
   /*
    * ‎**„מה חדש”** — השאלה הראשונה בבוקר, ועד כה היא חייבה פתיחת מסך.
@@ -1385,6 +1971,20 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capability: "leads.view_own",
     capabilityAlts: ["buyers.view_own", "properties.view"],
     risk: "read",
+    fields: [],
+  },
+  {
+    /*
+     * ‎`update` ולא פעולה הרסנית: סימון כנקרא אינו מוחק התראה —
+     * היא נשארת ברשימה, רק בלי הסימון.
+     */
+    id: "mark_notifications_read",
+    title: "סימון התראות כנקראו",
+    when: "ניקוי סימון ההתראות שלא נקראו. לשאלה מה חדש יש „מה חדש”.",
+    examples: ["סמן את כל ההתראות כנקראו", "תנקה לי את ההתראות", "קראתי הכול, תסמן"],
+    capability: "leads.view_own",
+    capabilityAlts: ["buyers.view_own", "properties.view", "calendar.manage"],
+    risk: "update",
     fields: [],
   },
   {
@@ -1497,6 +2097,54 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
   },
   {
     /*
+     * ‎**נוסח שהמערכת כותבת, לא המתווך.** בשונה מ„הודעת וואטסאפ
+     * לבעל נכס” שנושאת טקסט חופשי, כאן התוכן נבנה מהנתונים —
+     * צפיות, הצעות, סיורים — וזה בדיוק מה שבעל נכס בבלעדיות מצפה
+     * לקבל בלי לבקש.
+     */
+    id: "send_owner_update",
+    title: "עדכון שיווקי לבעל נכס",
+    feature: "whatsapp",
+    when: "הכנת דיווח שיווק לבעל הנכס — מה נעשה עם הנכס בפועל. לנוסח חופשי יש „הודעת וואטסאפ לבעל נכס”.",
+    examples: [
+      "תשלח לבעלים של הדירה ברמת גן עדכון שיווקי",
+      "תכין דיווח לבעל הנכס בהרב שך",
+      "מגיע לבעלים של הפנטהאוז עדכון — תכין אותו",
+    ],
+    capability: "properties.edit",
+    risk: "outbound",
+    fields: [F_PROPERTY_PHRASE],
+  },
+  {
+    /*
+     * חיוג דרך מרכזיית המשרד — לא מספר חופשי: היעד הוא תמיד איש
+     * הקשר של הכרטיס שנבחר, אותו שער בדיוק כמו כפתור החיוג במסך.
+     */
+    id: "call_contact",
+    title: "חיוג ללקוח",
+    feature: "telephony",
+    when: "חיוג דרך מרכזיית המשרד — „תתקשר ל…”, „תחייג ל…”. המרכזייה מצלצלת קודם אצל המתווך ואז אצל הלקוח.",
+    examples: ["תתקשר למשה כהן", "תחייג לדני מהליד החדש", "צלצל לשרה"],
+    capability: "leads.edit",
+    risk: "outbound",
+    fields: [F_BUYER_PHRASE],
+  },
+  {
+    id: "send_intake_form",
+    title: "טופס פרטים ללקוח",
+    when: "הכנת קישור לטופס מילוי-עצמי — „תשלח לו טופס פרטים”. הלקוח ממלא בעצמו והכרטיס מתעדכן מהתשובות.",
+    examples: [
+      "תשלח לשרה טופס למילוי פרטים",
+      "תכין לדני קישור לטופס קליטה",
+      "שלח למשפחת לוי טופס פרטים בוואטסאפ",
+    ],
+    capability: "buyers.edit",
+    capabilityAlts: ["leads.edit"],
+    risk: "outbound",
+    fields: [F_BUYER_PHRASE],
+  },
+  {
+    /*
      * ‎**הצד השני של אותו וואטסאפ** — בעל הנכס במקום הקונה. פעולה
      * נפרדת ולא שדה נוסף על `send_message`: נמען של פעולה יוצאת
      * נבחר במפורש, ופעולה אחת עם שני סוגי נמענים הייתה מטשטשת
@@ -1533,6 +2181,20 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capabilityAlts: ["buyers.view_own", "properties.view", "calendar.manage"],
     risk: "create",
     fields: [F_SUPPORT_KIND, F_SUPPORT_MESSAGE],
+  },
+  {
+    id: "show_support_tickets",
+    title: "הפניות שלי לתמיכה",
+    when: "שאלה על פניות תמיכה שנפתחו — מה מצבן ומה נענה.",
+    examples: [
+      "מה קורה עם הפנייה שפתחתי לתמיכה",
+      "יש תשובה מהתמיכה?",
+      "תראה לי את הפניות שלי לתמיכה",
+    ],
+    capability: "leads.view_own",
+    capabilityAlts: ["buyers.view_own", "properties.view", "calendar.manage"],
+    risk: "read",
+    fields: [],
   },
   {
     /*
@@ -1578,6 +2240,14 @@ export const AGENT_ID_KEYS = [
   "relatedId",
   /** הסוכן שמשימה מוטלת עליו, או שמסננים לפיו (`assign_task`, `show_tasks`) */
   "assigneeId",
+  /** הפנייה מהרשת שנבחרה לאישור (`open_deal_room`) */
+  "approachId",
+  /** הביקוש ברשת שמציעים לו נכס (`offer_to_demand`) */
+  "demandId",
+  /** המודעה ברשת שמתעניינים בה (`express_interest`) */
+  "listingId",
+  /** חדר העסקה שמדברים בו (`post_deal_message`, `move_deal_stage`) */
+  "dealId",
 ] as const;
 
 const BY_ID = new Map(AGENT_ACTIONS.map((action) => [action.id, action]));

@@ -5,18 +5,22 @@ import { AnalyticsModule } from "../analytics/analytics.module";
 import { BuyersModule } from "../buyers/buyers.module";
 import { CalendarModule } from "../calendar/calendar.module";
 import { CallsModule } from "../calls/calls.module";
+import { CoachModule } from "../coach/coach.module";
 import { CollaborationModule } from "../collaboration/collaboration.module";
 import { EmailInboxModule } from "../email-inbox/email-inbox.module";
 import { ContactsModule } from "../contacts/contacts.module";
+import { IntakeModule } from "../intake/intake.module";
 import { LeadsModule } from "../leads/leads.module";
 import { MatchingModule } from "../matching/matching.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { SupportModule } from "../support/support.module";
 import { NotificationsModule } from "../notifications/notifications.module";
+import { PayoutsModule } from "../payouts/payouts.module";
 import { OffersModule } from "../offers/offers.module";
 import { PropertiesModule } from "../properties/properties.module";
 import { SearchModule } from "../search/search.module";
 import { TasksModule } from "../tasks/tasks.module";
+import { TelephonyModule } from "../telephony/telephony.module";
 import { AgentController } from "./agent.controller";
 import { AgentEventsService } from "./agent-events.service";
 import { AgentConversationService } from "./agent-conversation.service";
@@ -50,6 +54,14 @@ import { AgentResolveService } from "./resolve.service";
     CallsModule,
     AnalyticsModule,
     CollaborationModule,
+    // "מה כדאי עכשיו" — אותן המלצות של הדשבורד
+    CoachModule,
+    // טופס פרטים ללקוח — אותו שירות של הכפתור בכרטיס
+    IntakeModule,
+    // חיוג דרך המרכזייה — אותו שער של כפתור החיוג
+    TelephonyModule,
+    // „כמה כסף מגיע לי מהפניות” — אותה יתרה של מסך ההגדרות
+    PayoutsModule,
     // „קישור לחתימה על הזמנה בכתב” — דרך אותו שירות שהכרטיס משתמש בו
     AgreementsModule,
     // בלעדיות — „מה בסיכון” ותיעוד פעולת שיווק, דרך אותו שירות כמו הפאנל

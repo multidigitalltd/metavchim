@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_ACTIONS } from "@metavchim/shared";
-import { lookupPhraseKeys } from "./resolve.service";
+import { AGENT_ACTIONS, AGENT_ID_KEYS } from "@metavchim/shared";
+import { lookupIdKeys, lookupPhraseKeys } from "./resolve.service";
 
 /**
  * ‎**ביטוי מוצהר שאין מי שיפתור אותו — התקלה שחזרה שלוש פעמים.**
@@ -55,5 +55,28 @@ describe("ביטוי מזהה ⟵ רשומה", () => {
 
   it("פעולה בלי ביטוי מזהה אינה מקבלת רשומה", () => {
     expect(lookupPhraseKeys("office_report")).toEqual([]);
+  });
+
+  /*
+   * ‎**והמזהה שנכתב — שורד עד הביצוע.**
+   *
+   * הביטוי נפתר, המזהה נכתב לפרמטרים, ואז צמצום הפרמטרים מוחק
+   * אותו: הצמצום שומר שדות קטלוג ואת `AGENT_ID_KEYS` בלבד, ומזהה
+   * שאינו באף אחד מהם נעלם בין הבחירה שהמתווך עשה לביצוע — בשני
+   * הערוצים ובשקט. כך בדיוק `approachId` הפיל את „פתח חדר עסקה”
+   * מיד אחרי הבחירה (ביקורת Codex): הבחירה נשמרה, האישור התקבל,
+   * והביצוע קיבל רק את הביטוי.
+   */
+  it("כל מזהה שהטבלה כותבת שורד את צמצום הפרמטרים", () => {
+    const allowed = new Set<string>(AGENT_ID_KEYS);
+    for (const action of AGENT_ACTIONS) {
+      const declared = new Set(action.fields.map((f) => f.key));
+      for (const key of lookupIdKeys(action.id)) {
+        expect(
+          allowed.has(key) || declared.has(key),
+          `${action.id}.${key} — לא בקטלוג ולא ב-AGENT_ID_KEYS`,
+        ).toBe(true);
+      }
+    }
   });
 });

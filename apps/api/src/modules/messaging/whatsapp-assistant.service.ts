@@ -38,6 +38,7 @@ import { TranscriptionService } from "../../modules/voice-intake/transcription.s
 import {
   choiceIndex,
   isCancelMessage,
+  wantsSpokenReply,
   isConfirmMessage,
   isHelpMessage,
 } from "./assistant-lang";
@@ -402,11 +403,19 @@ export class WhatsAppAssistantService {
       this.converse(user, chat, text, wasVoice),
     );
     /*
-     * ‎**תשובה באותו מטבע.** מי שדיבר — שומע: הודעה קולית נכנסת, או
-     * העדפת „תמיד תענה לי בקול”, מוסיפות לתשובה גם הודעה קולית.
-     * הטקסט והכפתורים נשלחים תמיד לצדה — כפתור אי אפשר לשמוע.
+     * ‎**הקראה רק כשמבקשים אותה** (הכרעת בעל המוצר).
+     *
+     * הגרסה הראשונה הקריאה אוטומטית לכל הודעה קולית נכנסת — „מי
+     * שדיבר, שומע”. זה נשמע טבעי ועלה קריאת TTS בכל הודעה קולית,
+     * גם כשאיש לא ביקש לשמוע; ובנוסף היה שם כפתור כיבוי שאינו
+     * מכבה, כי „הודעה קולית **או** ההעדפה” התעלם מהעדפה שכובתה.
+     *
+     * עכשיו שתי דרכים לבקש, ושתיהן מפורשות: „תקריא לי” בתוך
+     * ההודעה עצמה, או „תמיד תענה לי בקול” כהעדפת קבע — שכיבויה
+     * באמת מכבה. `wasVoice` נשאר לתחילית „שמעתי:” בלבד.
      */
-    const voiced = await TenantContext.run(context, () => this.withSpokenReply(reply, wasVoice));
+    const askedAloud = wantsSpokenReply(text);
+    const voiced = await TenantContext.run(context, () => this.withSpokenReply(reply, askedAloud));
 
     await this.saveChat(user.tenantId, user.id, chat);
     await this.deliver(msg, voiced);
@@ -426,10 +435,10 @@ export class WhatsAppAssistantService {
    * העובדות. הקלטת שיחה שכבר מצורפת גוברת: שתי הודעות שמע באותה
    * תשובה הן רעש. כל כשל — TTS, המרה — משאיר את התשובה כטקסט.
    */
-  private async withSpokenReply(reply: AgentReply, wasVoice: boolean): Promise<AgentReply> {
+  private async withSpokenReply(reply: AgentReply, askedAloud: boolean): Promise<AgentReply> {
     if (reply.audio !== undefined) return reply;
     if (reply.speak === undefined || reply.speak.trim() === "") return reply;
-    const wanted = wasVoice || (await this.agentPrefs.get()).voiceReplies === true;
+    const wanted = askedAloud || (await this.agentPrefs.get()).voiceReplies === true;
     if (!wanted) return reply;
     const wav = await this.gemini.speak(reply.speak);
     if (wav === null) return reply;

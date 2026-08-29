@@ -13,7 +13,11 @@ import {
   type AgentHistoryRef,
   type AgentProposal,
 } from "@metavchim/shared";
+import { TenantContext } from "../../common/tenant-context";
 import { BuyersService } from "../buyers/buyers.service";
+import { CollaborationService } from "../collaboration/collaboration.service";
+import { DealRoomService } from "../collaboration/deal-room.service";
+import { ListingsService } from "../collaboration/listings.service";
 import { SearchService } from "../search/search.service";
 import { TasksService } from "../tasks/tasks.service";
 import type { Interpretation } from "./interpret.service";
@@ -49,6 +53,9 @@ export class AgentResolveService {
     private readonly buyers: BuyersService,
     private readonly search: SearchService,
     private readonly tasks: TasksService,
+    private readonly collaboration: CollaborationService,
+    private readonly listings: ListingsService,
+    private readonly dealRooms: DealRoomService,
   ) {}
 
   async toProposal(
@@ -590,6 +597,65 @@ export class AgentResolveService {
         .map((user) => ({ id: user.id, label: user.name }));
     }
 
+    /*
+     * ‎**פניות נכנסות מהרשת** — ההיצע הוא רק מה שממתין לתשובה:
+     * אישור מדבר תמיד על פנייה פתוחה, כמו שסגירת משימה מדברת על
+     * משימה פתוחה. שני הכיוונים יחד — נכס שהוצע לביקוש שלי,
+     * ומשרד שמתעניין בנכס שלי — והמזהה נושא את הסוג, כמו בכרטיס.
+     *
+     * כשהביטוי לא מתאים לאף פנייה מוצגות **כולן**: יש לכל היותר
+     * קומץ פניות ממתינות, ובורר מלא עדיף על „לא נמצא” שמסתיר
+     * בדיוק את מה שהמתווך מנסה לאשר.
+     */
+    /*
+     * ‎**פיד הרשת — ההיצע הוא הפיד עצמו, לא חיפוש טקסט במאגר.**
+     *
+     * ביקוש ומודעה של משרד אחר אינם רשומות שלנו: אין להם שם, יש
+     * להם תיאור. ההתאמה נעשית מול הטקסט שהמתווך רואה בפיד (עיר,
+     * כותרת, שם המשרד), ומה שלא נתפס בביטוי מציג את הפיד כולו —
+     * בורר עדיף על „לא נמצא” כשהרשימה קצרה ממילא.
+     */
+    if (kind === "demand") {
+      const feed = await this.collaboration.listDemands();
+      const options = feed
+        .filter((row) => row.mine !== true)
+        .map((row) => ({
+          id: row.id,
+          label:
+            [row.cities.join(" / "), roomsLabel(row.roomsMin, row.roomsMax)]
+              .filter((part) => part !== "")
+              .join(" · ") || "ביקוש ברשת",
+          detail: row.officeName ?? "משרד ברשת",
+        }));
+      return narrowByPhrase(options, phrase);
+    }
+    if (kind === "listing") {
+      // המודעות שלי יורדות — אי אפשר להביע עניין בנכס של המשרד עצמו
+      const feed = (await this.listings.list()).filter((row) => row.mine !== true);
+      const options = feed.map((row) => ({
+        id: row.id,
+        label:
+          row.title ??
+          [row.propertyType, row.neighborhood, row.city].filter(Boolean).join(", ") ??
+          "נכס ברשת",
+        detail: [row.city, roomsLabel(row.rooms, row.rooms)].filter(Boolean).join(" · "),
+      }));
+      return narrowByPhrase(options, phrase);
+    }
+    if (kind === "deal") {
+      const deals = await this.dealRooms.list();
+      const options = deals.map((deal) => ({
+        id: deal.id,
+        label: deal.title,
+        detail: `מול ${deal.counterpartOffice}`,
+      }));
+      return narrowByPhrase(options, phrase);
+    }
+
+    if (kind === "approach") {
+      return narrowByPhrase(await this.pendingApproaches(), phrase);
+    }
+
     const results = await this.search.search(phrase);
     if (kind === "buyer") {
       return results.buyers.slice(0, 8).map((b) => ({
@@ -657,6 +723,46 @@ export class AgentResolveService {
     }));
   }
 
+  /**
+   * ‎**הפניות הממתינות מהרשת — הרשימה האחת.** גם הבורר של „פתח
+   * חדר עסקה” וגם „מה מחכה לי מהרשת” קוראים מכאן: שתי גזירות של
+   * אותה רשימה היו נפרדות בשקט. ההיצע מסונן לפי ההרשאות, והמזהה
+   * נושא את הסוג (`offer:` / `interest:`) כי שני הכיוונים הם שתי
+   * טבלאות.
+   */
+  async pendingApproaches(): Promise<AgentCandidate[]> {
+    const caps = TenantContext.current().capabilities;
+    const [offers, interests] = await Promise.all([
+      caps.has("collaboration.offer") ? this.collaboration.listCoopOffers() : [],
+      caps.has("collaboration.share") ? this.listings.listInterests() : [],
+    ]);
+    return [
+      ...offers
+        .filter((offer) => offer.direction === "incoming" && offer.status === "sent")
+        .map((offer) => {
+          const title = offer.presentation["title"];
+          return {
+            id: `offer:${offer.id}`,
+            label: typeof title === "string" && title !== "" ? title : "נכס שהוצע לכם",
+            detail: [
+              "הצעת נכס",
+              offer.officeName,
+              offer.buyerName === undefined ? undefined : `לקונה ${offer.buyerName}`,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          };
+        }),
+      ...interests
+        .filter((interest) => interest.status === "sent")
+        .map((interest) => ({
+          id: `interest:${interest.id}`,
+          label: interest.propertyTitle ?? "הנכס שפורסם",
+          detail: ["התעניינות בנכס", interest.officeName].filter(Boolean).join(" · "),
+        })),
+    ];
+  }
+
   private toFields(
     actionId: string,
     params: Record<string, unknown>,
@@ -710,10 +816,16 @@ export class AgentResolveService {
 /** לאיזה שדה נכנס התאריך שנפתר מהתמלול, לכל פעולה. */
 const DATE_FIELD: Record<string, string | undefined> = {
   create_task: "dueAt",
+  // „אתמול בארבע” — מתי השיחה התקיימה; בלי מועד, עכשיו
+  log_call: "occurredAt",
+  // המועד **החדש** — המשימה עצמה נבחרת לפי הכותרת
+  update_task: "dueAt",
   schedule_appointment: "startsAt",
   // המועד **החדש** — הפגישה עצמה נבחרת לפי הלקוח, לא לפי תאריך
   reschedule_appointment: "startsAt",
   create_property: "entryDate",
+  // „מהיום” כברירת מחדל; „מהראשון לחודש” נתפס כאן
+  start_exclusivity: "startsAt",
   update_property: "entryDate",
   create_buyer: "entryBy",
   update_buyer: "entryBy",
@@ -737,7 +849,18 @@ const DATE_FIELD: Record<string, string | undefined> = {
  * לגמרי. שתיהן היו מוחזרות מאותה שאילתה, והבחירה בין „דנה הסוכנת”
  * ל„דנה הקונה” הייתה נופלת על סדר התוצאות.
  */
-type LookupKind = "buyer" | "property" | "lead" | "task" | "card" | "anyCard" | "user";
+type LookupKind =
+  | "buyer"
+  | "property"
+  | "lead"
+  | "task"
+  | "card"
+  | "anyCard"
+  | "user"
+  | "approach"
+  | "demand"
+  | "listing"
+  | "deal";
 
 /**
  * צורת המזהה שהפעולה מצפה לה, לפי סוג החיפוש.
@@ -763,6 +886,30 @@ function entityRefId(kind: LookupKind, ref: AgentHistoryRef): string | null {
     return allowed.includes(ref.entityType) ? `${ref.entityType}:${ref.entityId}` : null;
   }
   return kind === ref.entityType ? ref.entityId : null;
+}
+
+/**
+ * ‎**בורר על פיד, לא על מאגר.** רשומות של משרד אחר אינן נמצאות
+ * בחיפוש שלנו — הן מגיעות כרשימה קצרה, וההתאמה היא מול הטקסט
+ * שהמתווך רואה. ביטוי שלא תפס אף שורה מציג את הרשימה כולה: בורר
+ * מלא עדיף על „לא נמצא” כשיש קומץ אפשרויות ממילא.
+ */
+function narrowByPhrase(
+  options: readonly AgentCandidate[],
+  phrase: string,
+): AgentCandidate[] {
+  const needle = phrase.trim().toLowerCase();
+  const matched = options.filter((option) =>
+    `${option.label} ${option.detail ?? ""}`.toLowerCase().includes(needle),
+  );
+  return (matched.length > 0 ? matched : [...options]).slice(0, 9);
+}
+
+/** „3–4 חדרים” / „4 חדרים” — ריק כשאין טווח. */
+function roomsLabel(min: number | undefined, max: number | undefined): string {
+  if (min === undefined && max === undefined) return "";
+  if (min !== undefined && max !== undefined && min !== max) return `${min}–${max} חדרים`;
+  return `${min ?? max} חדרים`;
 }
 
 interface LookupSpec {
@@ -945,6 +1092,106 @@ const ENTITY_LOOKUP: Record<
     alwaysChoose: true,
   },
   /*
+   * פתיחת חדר עסקה — אישור פנייה נכנסת. הפנייה נבחרת במפורש תמיד:
+   * האישור מודיע למשרד השני ומחבר בין המשרדים, ואסור שיקרה על
+   * „ההתאמה היחידה” בלי שהמתווך ראה על מה הוא מאשר.
+   */
+  /*
+   * חיוג וטופס פרטים — יוצאים אל אדם אמיתי, ולכן הנמען נבחר
+   * במפורש תמיד, כמו בהודעה ובהצעה.
+   */
+  call_contact: {
+    key: "buyerPhrase",
+    idKey: "cardId",
+    label: "למי לחייג",
+    kind: "card",
+    alwaysChoose: true,
+  },
+  // תיעוד שיחה והוספת פרט קשר — על כרטיס קיים, קונה או ליד
+  log_call: { key: "buyerPhrase", idKey: "cardId", label: "עם מי השיחה", kind: "card" },
+  add_contact_detail: {
+    key: "buyerPhrase",
+    idKey: "cardId",
+    label: "לאיזה כרטיס",
+    kind: "card",
+  },
+  // עדכון שיווקי — יוצא לבעל הנכס, ולכן הנכס נבחר במפורש
+  send_owner_update: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "על איזה נכס",
+    kind: "property",
+    alwaysChoose: true,
+  },
+  send_intake_form: {
+    key: "buyerPhrase",
+    idKey: "cardId",
+    label: "לאיזה לקוח",
+    kind: "card",
+    alwaysChoose: true,
+  },
+  /*
+   * הצד היוצר של הרשת. הרשומה של הצד השני נבחרת במפורש תמיד —
+   * הצעה או פנייה יוצאת ממני אל משרד אחר, ואסור שתלך אל „ההתאמה
+   * היחידה” שאיש לא ראה.
+   */
+  offer_to_demand: {
+    key: "demandPhrase",
+    idKey: "demandId",
+    label: "לאיזה ביקוש",
+    kind: "demand",
+    alwaysChoose: true,
+    also: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס להציע", kind: "property" },
+  },
+  express_interest: {
+    key: "listingPhrase",
+    idKey: "listingId",
+    label: "איזה נכס ברשת",
+    kind: "listing",
+    alwaysChoose: true,
+    also: { key: "buyerPhrase", idKey: "buyerId", label: "בשביל איזה קונה", kind: "buyer" },
+  },
+  post_deal_message: {
+    key: "dealPhrase",
+    idKey: "dealId",
+    label: "באיזו עסקה",
+    kind: "deal",
+    alwaysChoose: true,
+  },
+  move_deal_stage: {
+    key: "dealPhrase",
+    idKey: "dealId",
+    label: "איזו עסקה",
+    kind: "deal",
+  },
+  // שליחה לכל המתאימים — נכס אחד, והרבה נמענים: בחירה מפורשת תמיד
+  send_offers_bulk: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "איזה נכס לשלוח",
+    kind: "property",
+    alwaysChoose: true,
+  },
+  create_landing_page: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "לאיזה נכס",
+    kind: "property",
+  },
+  start_exclusivity: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "על איזה נכס",
+    kind: "property",
+  },
+  open_deal_room: {
+    key: "approachPhrase",
+    idKey: "approachId",
+    label: "על איזו פנייה",
+    kind: "approach",
+    alwaysChoose: true,
+  },
+  /*
    * ‎**„מה המשימות של דנה”.** רשות: בלי שם זו הרשימה הרגילה. השם
    * נפתר לסוכן, והשרת מסנן — `TasksService.list` מקבל `assignee`
    * מאז ומתמיד, ומה שחסר היה מי שיתרגם שם למזהה.
@@ -988,6 +1235,7 @@ const ENTITY_LOOKUP: Record<
     },
   },
   complete_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
+  update_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
   /*
    * „קשור ל” היה שדה מת: המודל התבקש למלא אותו, הוא הוצג בכרטיס,
    * ואיש לא קרא אותו — התזכורת נוצרה תמיד בלי שיוך. כאן הוא הופך
@@ -1005,6 +1253,14 @@ const ENTITY_LOOKUP: Record<
   show_card: { key: "cardPhrase", idKey: "cardId", label: "איזה כרטיס", kind: "anyCard" },
   play_recording: { key: "cardPhrase", idKey: "cardId", label: "שיחה עם מי", kind: "card" },
   update_lead_status: { key: "leadPhrase", idKey: "leadId", label: "איזה ליד", kind: "lead" },
+  // המרה יוצרת קונה על אותו איש קשר — הליד הוא המפתח היחיד
+  convert_lead: { key: "leadPhrase", idKey: "leadId", label: "איזה ליד", kind: "lead" },
+  create_property_from_lead: {
+    key: "leadPhrase",
+    idKey: "leadId",
+    label: "איזה ליד",
+    kind: "lead",
+  },
   share_property: {
     key: "propertyPhrase",
     idKey: "propertyId",
@@ -1096,6 +1352,23 @@ export function lookupPhraseKeys(actionId: string): readonly string[] {
   return spec.also === undefined ? [spec.key] : [spec.key, spec.also.key];
 }
 
+/**
+ * ‎**המזהים שהטבלה כותבת** — הצד השני של אותה תקלה.
+ *
+ * הביטוי נפתר, המזהה נכתב לפרמטרים, ואז **צמצום הפרמטרים** מוחק
+ * אותו: `AGENT_ID_KEYS` היא רשימת ההיתר של המזהים שאינם שדות
+ * קטלוג, ומזהה חדש שאינו בה נעלם בין הבחירה לביצוע — בשני
+ * הערוצים, ובשקט (ביקורת Codex על `approachId`).
+ *
+ * מיוצאת כדי שהבדיקה תאכוף: כל `idKey` כאן חייב להיות מוצהר
+ * בקטלוג כשדה, או להופיע ברשימת ההיתר.
+ */
+export function lookupIdKeys(actionId: string): readonly string[] {
+  const spec = ENTITY_LOOKUP[actionId];
+  if (spec === undefined) return [];
+  return spec.also === undefined ? [spec.idKey] : [spec.idKey, spec.also.idKey];
+}
+
 const RECOMMENDED: Record<string, readonly string[]> = {
   create_lead: ["name", "phone"],
   create_buyer: ["name", "phone", "cities", "budgetMaxShekels"],
@@ -1104,8 +1377,17 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   reschedule_appointment: ["startsAt"],
   send_message: ["messageBody"],
   message_owner: ["messageBody"],
+  post_deal_message: ["messageBody"],
+  // אחוז העמלה נראה בכרטיס לפני האישור — תנאי מסחרי אינו מאושר בעיוורון
+  offer_to_demand: ["commissionSplit"],
+  express_interest: ["commissionSplit"],
+  start_exclusivity: ["exclusivitySubject", "exclusivityMonths"],
+  move_deal_stage: ["dealStage"],
   open_support_ticket: ["supportMessage"],
   create_task: ["title"],
+  create_recurring_task: ["title"],
+  log_call: ["callOutcome"],
+  agent_report: ["windowDays"],
   /*
    * בפעולות שמכוונות לרשומה קיימת, הביטוי המזהה הוא ההשלמה החשובה
    * ביותר: בלעדיו הביצוע ייכשל ב"לא נבחר…" רק אחרי האישור. עדיף

@@ -81,3 +81,58 @@ describe("כיסוי הביצוע מול קטלוג הפעולות", () => {
     expect(cases.length).toBe(catalogue.length);
   });
 });
+
+/**
+ * ‎**חלון הדוח — מחרוזת בקטלוג, מספר בשירות.**
+ *
+ * ‎`windowDays` מוצהר כ-enum של מחרוזות ("30"/"90"/"365"), והשירות
+ * מקבל מספר. פענוח שנשען על `num()` — שמחזיר `undefined` למחרוזת —
+ * נופל תמיד לברירת המחדל: „ביצועים ברבעון” מחזיר חודש, שום דבר
+ * אינו נכשל, ואיש אינו יודע. זו „תשובה מלאה על שאלה אחרת”, התקלה
+ * שהמערכת הזו חוזרת ונכוות בה.
+ *
+ * שני הדוחות חייבים לקרוא לאותו פענוח, ולא כל אחד לנסח לעצמו.
+ */
+describe("חלון הדוחות", () => {
+  const source = readFileSync(new URL("./execute.service.ts", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//gu, "")
+    .replace(/^[ \t]*\/\/.*$/gmu, "");
+
+  it("שני הדוחות קוראים לאותה פונקציית פענוח", () => {
+    expect(source).toContain("this.analytics.officeStats(reportWindow(params))");
+    expect(source).toContain("const window = reportWindow(params);");
+  });
+
+  it("הפענוח קורא מחרוזת ולא מספר", () => {
+    const fn = source.slice(
+      source.indexOf("function reportWindow("),
+      source.indexOf("function num("),
+    );
+    expect(fn).toContain('Number(str(params["windowDays"])');
+    // `num` על מחרוזת מחזיר undefined — שימוש בו כאן הוא הבאג עצמו
+    expect(fn).not.toMatch(/num\(params\["windowDays"\]\)/u);
+  });
+});
+
+/**
+ * ‎**„מה יש ברשת” הוא מה שאחרים פרסמו.** `ListingsService.list()`
+ * מחזיר גם את המודעות שלי (המסך מסמן „שלי”), ומודעה שלי בראש
+ * הרשימה גם ייצרה צעד „הבע התעניינות” שנכשל תמיד — אי אפשר להביע
+ * עניין בנכס של המשרד עצמו (ביקורת Codex). שני הצרכנים של הפיד
+ * מסננים.
+ */
+describe("פיד הרשת אינו כולל את המודעות שלי", () => {
+  const strip = (text: string): string =>
+    text.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/^[ \t]*\/\/.*$/gmu, "");
+
+  it("שני הצרכנים מסננים mine", () => {
+    const execute = strip(
+      readFileSync(new URL("./execute.service.ts", import.meta.url), "utf8"),
+    );
+    const resolve = strip(
+      readFileSync(new URL("./resolve.service.ts", import.meta.url), "utf8"),
+    );
+    expect(execute).toContain("row.mine !== true");
+    expect(resolve).toContain("row.mine !== true");
+  });
+});

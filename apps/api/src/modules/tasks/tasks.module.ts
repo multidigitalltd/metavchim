@@ -12,6 +12,6 @@ import { TasksService } from "./tasks.service";
   controllers: [TasksController, RecurrenceController],
   providers: [TasksService, RecurrenceService],
   // הסוכן יוצר משימות דרך אותו שירות שהמסך משתמש בו
-  exports: [TasksService],
+  exports: [TasksService, RecurrenceService],
 })
 export class TasksModule {}
