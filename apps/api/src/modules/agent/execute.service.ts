@@ -15,6 +15,8 @@ import {
   formatJerusalemDate,
   formatJerusalemTime,
   TASK_PRIORITIES,
+  PHONE_LABELS,
+  type PhoneLabel,
   COOP_DEAL_STAGE_LABELS,
   DEFAULT_COMMISSION_SPLIT,
   addMonths,
@@ -35,7 +37,9 @@ import {
   type CallbackCandidate,
   type PropertyFields,
 } from "@metavchim/shared";
-import { isCardAccessible } from "../../common/ownership";
+import { isCardAccessible,
+  assertContactAccess,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
 import { GeminiService } from "../../core/gemini.service";
@@ -488,6 +492,16 @@ export class AgentExecuteService {
         return this.sendOffersBulk(params);
       case "start_exclusivity":
         return this.startExclusivity(params);
+      case "create_property_from_lead":
+        return this.createPropertyFromLead(params);
+      case "add_contact_detail":
+        return this.addContactDetail(params);
+      case "log_call":
+        return this.logCall(params);
+      case "agent_report":
+        return this.agentReport(params);
+      case "send_owner_update":
+        return this.sendOwnerUpdate(params);
       case "open_support_ticket":
         return this.openSupportTicket(params);
       case "set_preference":
@@ -2450,6 +2464,130 @@ export class AgentExecuteService {
       href: `/properties/${propertyId}`,
       message: `הבלעדיות נפתחה עד ${formatJerusalemDate(endsAt)}. חשוב לתעד פעולות שיווק — אפשר לומר לי „תליתי שלט”.`,
       data: { id: exclusivity.id },
+    };
+  }
+
+  /** ליד של מוכר ⟵ כרטיס נכס. אותו נתיב כמו כפתור ההמרה במסך. */
+  private async createPropertyFromLead(
+    params: Record<string, unknown>,
+  ): Promise<ExecuteResult> {
+    const leadId = str(params["leadId"]);
+    if (leadId === undefined) throw new BadRequestException("לא זוהה הליד — אמרו את שמו");
+    const fields = this.propertyFields(params);
+    const property = await this.properties.convertFromLead(leadId, fields);
+    const label = buildTitle(fields) ?? "הנכס";
+    return {
+      href: `/properties/${property.id}`,
+      message: `הליד הפך לכרטיס נכס — ${label}`,
+      ...refOf(label, "property", property.id),
+    };
+  }
+
+  /**
+   * ‎**הוספה, לא דריסה.** מספר חדש מצטרף לכרטיס והקיים נשאר: תיקון
+   * בדיבור שמוחק מספר היה מוחק את הדרך היחידה להשיג לקוח. אימייל
+   * כן נקבע (יש אחד לכרטיס), ומחרוזת ריקה אינה מתקבלת — מחיקה
+   * נעשית במסך.
+   */
+  private async addContactDetail(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const card = await this.optionalCardTarget(params["cardId"]);
+    if (card === null) throw new BadRequestException("לא נבחר כרטיס");
+    if (!TenantContext.current().capabilities.has("buyers.edit")) {
+      throw new ForbiddenException("אין לך הרשאה לערוך פרטי לקוח");
+    }
+    const phone = str(params["phone"])?.trim();
+    const email = str(params["email"])?.trim();
+    if ((phone === undefined || phone === "") && (email === undefined || email === "")) {
+      throw new BadRequestException("אמרו מה להוסיף — טלפון או אימייל");
+    }
+    const labelRaw = str(params["phoneLabel"]);
+    const phoneLabel = (PHONE_LABELS as readonly string[]).includes(labelRaw ?? "")
+      ? (labelRaw as PhoneLabel)
+      : "mobile";
+    const contactId = await this.contactIdOf(card);
+    const tenantId = TenantContext.current().tenantId;
+    const said: string[] = [];
+    await this.prisma.withTenant(async (tx) => {
+      await assertContactAccess(tx, tenantId, contactId);
+      if (phone !== undefined && phone !== "") {
+        const result = await this.contacts.addPhone(tx, contactId, {
+          phone,
+          label: phoneLabel,
+        });
+        if (result.reason === "taken") {
+          throw new BadRequestException("המספר כבר רשום אצל לקוח אחר במשרד");
+        }
+        said.push("הטלפון נוסף");
+      }
+      if (email !== undefined && email !== "") {
+        await this.contacts.setEmail(tx, contactId, email);
+        said.push("האימייל נשמר");
+      }
+    });
+    return {
+      href: card.kind === "buyer" ? `/buyers/${card.id}` : `/leads/${card.id}`,
+      message: `${said.join(", ")} בכרטיס.`,
+      ...refOf(null, card.kind, card.id),
+    };
+  }
+
+  /**
+   * שיחה שהתקיימה — רשומה עם כיוון, משך ותוצאה, לא הערה חופשית:
+   * ממנה נבנים „מי ממתין לחזרה” ודוח הפעילות לבעל הנכס.
+   */
+  private async logCall(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const card = await this.optionalCardTarget(params["cardId"]);
+    if (card === null) throw new BadRequestException("לא נבחר לקוח לשיחה");
+    const direction = str(params["callDirection"]) === "inbound" ? "inbound" : "outbound";
+    const outcome = str(params["callOutcome"]) === "no_answer" ? "no_answer" : "answered";
+    const duration = num(params["durationMinutes"]);
+    const summary = str(params["callSummary"])?.trim();
+    const contactId = await this.contactIdOf(card);
+    await this.calls.create({
+      direction,
+      contactId,
+      ...(card.kind === "lead" ? { leadId: card.id } : {}),
+      // „אתמול בארבע” אם נאמר; אחרת השיחה שזה עתה הסתיימה
+      occurredAt: date(params["occurredAt"]) ?? new Date(),
+      outcome,
+      ...(duration !== undefined && duration >= 0 ? { durationMinutes: duration } : {}),
+      ...(summary === undefined || summary === "" ? {} : { summary }),
+    });
+    const how = outcome === "answered" ? "שיחה" : "שיחה ללא מענה";
+    const long = duration !== undefined && duration > 0 ? `, ${duration} דקות` : "";
+    return {
+      href: "/calls",
+      message: `${how} תועדה${long}.`,
+      ...refOf(null, card.kind, card.id),
+    };
+  }
+
+  /** ביצועי הסוכנים — אותה שליפה של מסך הניתוח, באותה יכולת. */
+  private async agentReport(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const days = num(params["windowDays"]);
+    const window = days === 90 || days === 365 ? days : 30;
+    const rows = await this.analytics.agentPerformance(window);
+    if (rows.length === 0) {
+      return { href: "/analytics", message: "אין נתוני סוכנים לתקופה הזו" };
+    }
+    return {
+      href: "/analytics",
+      message: `ביצועי ${rows.length} סוכנים ב-${window} הימים האחרונים`,
+      data: { agents: rows },
+    };
+  }
+
+  /**
+   * דיווח השיווק לבעל הנכס — הנוסח נבנה מהנתונים בשירות, לא כאן.
+   * הקישור נושא טלפון ולכן חוזר ב-`link`, כמו בכל הודעה יוצאת.
+   */
+  private async sendOwnerUpdate(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = str(params["propertyId"]);
+    if (propertyId === undefined) throw new BadRequestException("לא נבחר נכס");
+    const { waUrl } = await this.properties.prepareOwnerUpdate(propertyId);
+    return {
+      message: "דיווח השיווק לבעל הנכס מוכן ונרשם — פתחו את הקישור ולחצו שלח.",
+      link: waUrl,
     };
   }
 

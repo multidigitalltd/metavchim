@@ -815,6 +815,8 @@ export class AgentResolveService {
 /** לאיזה שדה נכנס התאריך שנפתר מהתמלול, לכל פעולה. */
 const DATE_FIELD: Record<string, string | undefined> = {
   create_task: "dueAt",
+  // „אתמול בארבע” — מתי השיחה התקיימה; בלי מועד, עכשיו
+  log_call: "occurredAt",
   // המועד **החדש** — המשימה עצמה נבחרת לפי הכותרת
   update_task: "dueAt",
   schedule_appointment: "startsAt",
@@ -1104,6 +1106,22 @@ const ENTITY_LOOKUP: Record<
     kind: "card",
     alwaysChoose: true,
   },
+  // תיעוד שיחה והוספת פרט קשר — על כרטיס קיים, קונה או ליד
+  log_call: { key: "buyerPhrase", idKey: "cardId", label: "עם מי השיחה", kind: "card" },
+  add_contact_detail: {
+    key: "buyerPhrase",
+    idKey: "cardId",
+    label: "לאיזה כרטיס",
+    kind: "card",
+  },
+  // עדכון שיווקי — יוצא לבעל הנכס, ולכן הנכס נבחר במפורש
+  send_owner_update: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "על איזה נכס",
+    kind: "property",
+    alwaysChoose: true,
+  },
   send_intake_form: {
     key: "buyerPhrase",
     idKey: "cardId",
@@ -1230,6 +1248,12 @@ const ENTITY_LOOKUP: Record<
   update_lead_status: { key: "leadPhrase", idKey: "leadId", label: "איזה ליד", kind: "lead" },
   // המרה יוצרת קונה על אותו איש קשר — הליד הוא המפתח היחיד
   convert_lead: { key: "leadPhrase", idKey: "leadId", label: "איזה ליד", kind: "lead" },
+  create_property_from_lead: {
+    key: "leadPhrase",
+    idKey: "leadId",
+    label: "איזה ליד",
+    kind: "lead",
+  },
   share_property: {
     key: "propertyPhrase",
     idKey: "propertyId",
@@ -1355,6 +1379,8 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   open_support_ticket: ["supportMessage"],
   create_task: ["title"],
   create_recurring_task: ["title"],
+  log_call: ["callOutcome"],
+  agent_report: ["windowDays"],
   /*
    * בפעולות שמכוונות לרשומה קיימת, הביטוי המזהה הוא ההשלמה החשובה
    * ביותר: בלעדיו הביצוע ייכשל ב"לא נבחר…" רק אחרי האישור. עדיף

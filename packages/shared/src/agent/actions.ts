@@ -54,12 +54,14 @@ export const AGENT_ACTION_IDS = [
   "show_callbacks",
   "show_leads",
   "show_calls",
+  "log_call",
   "show_card",
   "play_recording",
   "show_deals",
   "show_credits",
   "open_deal_room",
   "office_report",
+  "agent_report",
   "show_recommendations",
   "create_lead",
   "create_buyer",
@@ -71,10 +73,12 @@ export const AGENT_ACTION_IDS = [
   "add_note",
   "update_lead_status",
   "convert_lead",
+  "create_property_from_lead",
   "schedule_appointment",
   "reschedule_appointment",
   "update_appointment",
   "update_buyer",
+  "add_contact_detail",
   "update_property",
   "share_property",
   "share_buyer",
@@ -102,6 +106,7 @@ export const AGENT_ACTION_IDS = [
   "call_contact",
   "send_intake_form",
   "message_owner",
+  "send_owner_update",
   "open_support_ticket",
   "set_preference",
 ] as const;
@@ -873,6 +878,53 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     fields: [],
   },
   {
+    /*
+     * ‎**שיחה שהתקיימה — תיעוד, לא הערה.** „תוסיף הערה” שומר טקסט
+     * חופשי; שיחה היא רשומה עם כיוון, משך ותוצאה, וממנה נבנים
+     * „מי ממתין לחזרה” ודוח הפעילות לבעל הנכס. הערה במקומה הייתה
+     * מאבדת את כל אלה.
+     */
+    id: "log_call",
+    title: "תיעוד שיחה",
+    when: "רישום שיחה שכבר התקיימה עם לקוח קיים — כמה זמן ומה יצא ממנה. לחיוג עצמו יש „חיוג ללקוח”.",
+    examples: [
+      "תרשום שדיברתי עם שרה עשר דקות על הדירה",
+      "התקשרתי למשה כהן והוא לא ענה",
+      "היתה שיחה עם משפחת לוי, חמש דקות, הם מתלבטים",
+    ],
+    capability: "leads.edit",
+    risk: "create",
+    fields: [
+      F_BUYER_PHRASE,
+      {
+        key: "callDirection",
+        label: "כיוון",
+        type: "enum",
+        hint: "„התקשרתי” ⇒ יוצאת, „התקשרו אליי” ⇒ נכנסת. ברירת המחדל יוצאת",
+        values: ["outbound", "inbound"],
+        valueLabels: { outbound: "יוצאת", inbound: "נכנסת" },
+      },
+      {
+        key: "callOutcome",
+        label: "תוצאה",
+        type: "enum",
+        hint: "„דיברנו” ⇒ נענתה; „לא ענה” ⇒ ללא מענה",
+        values: ["answered", "no_answer"],
+        valueLabels: { answered: "נענתה", no_answer: "ללא מענה" },
+      },
+      {
+        key: "durationMinutes",
+        label: "משך בדקות",
+        type: "integer",
+        hint: "„עשר דקות” ⇒ 10",
+        min: 0,
+        max: 600,
+      },
+      { key: "callSummary", label: "מה נאמר", type: "string", maxLength: 4000 },
+    ],
+    resolved: [{ key: "occurredAt", label: "מתי" }],
+  },
+  {
     id: "show_card",
     /*
      * ‎**הכותרת והתיאור אומרים „נכס” — כי הביצוע כבר יודע.**
@@ -1037,6 +1089,28 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     when: "בקשה לנתוני המשרד — לידים, עסקאות, ביצועים בתקופה.",
     examples: ["תן לי את דוח המשרד", "כמה לידים נכנסו החודש", "סיכום החודש"],
     capability: "analytics.view",
+    risk: "read",
+    fields: [
+      {
+        key: "windowDays",
+        label: "תקופה",
+        type: "enum",
+        hint: '"החודש" ⇒ 30, "הרבעון" ⇒ 90, "השנה" ⇒ 365',
+        values: ["30", "90", "365"],
+        valueLabels: { "30": "30 יום", "90": "רבעון", "365": "שנה" },
+      },
+    ],
+  },
+  {
+    id: "agent_report",
+    title: "ביצועי הסוכנים",
+    when: "שאלה על ביצועי הסוכנים במשרד — מי הכניס כמה, מי סוגר. לנתוני המשרד כמכלול יש „דוח המשרד”.",
+    examples: [
+      "תראה לי איך הסוכנים עבדו החודש",
+      "מי הסוכן הכי חזק שלי ברבעון",
+      "ביצועים לפי סוכן",
+    ],
+    capability: "users.manage",
     risk: "read",
     fields: [
       {
@@ -1318,6 +1392,25 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     fields: [F_LEAD_PHRASE, ...BUYER_REQUIREMENT_FIELDS, F_MATURITY, F_FINANCING],
   },
   {
+    /*
+     * ‎**הצד השני של ההמרה** — ליד שרוצה למכור הופך לנכס, לא לקונה.
+     * ‎`properties.create` ולא `edit`: הנתיב יוצר נכס, ומי שמורשה
+     * לערוך בלבד אינו עוקף את זה דרך המרה.
+     */
+    id: "create_property_from_lead",
+    title: "פתיחת נכס מליד",
+    when: "ליד של מוכר הופך לכרטיס נכס. להפיכת ליד לקונה יש „הפיכת ליד לקונה”.",
+    examples: [
+      "תפתח נכס מהליד של יוסי שרוצה למכור",
+      "הליד של משפחת דהן — תהפוך אותו לנכס, 4 חדרים ברמת גן",
+      "תמיר את הליד של אבי לכרטיס נכס",
+    ],
+    capability: "properties.create",
+    risk: "create",
+    fields: [F_LEAD_PHRASE, ...PROPERTY_FIELDS],
+    resolved: PROPERTY_RESOLVED,
+  },
+  {
     id: "schedule_appointment",
     title: "פגישה / סיור",
     when: "קביעת מפגש עכשיו — פגישה, סיור בנכס או שיחה מתוזמנת.",
@@ -1386,6 +1479,41 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capability: "buyers.edit",
     risk: "update",
     fields: [F_BUYER_PHRASE, ...BUYER_REQUIREMENT_FIELDS, ...BUYER_PROFILE_FIELDS],
+  },
+  {
+    /*
+     * ‎**טלפון ואימייל לא היו ניתנים לתיקון בדיבור בכלל.**
+     * ‎`update_buyer` נושא דרישות חיפוש בלבד — תקציב, ערים, חדרים —
+     * ומספר שגוי בכרטיס נשאר שגוי עד שמישהו פתח מסך. זו הפעולה
+     * שסוגרת את הפער, והיא **מוסיפה** ולא מוחקת: מספר קיים נשאר.
+     */
+    id: "add_contact_detail",
+    title: "הוספת פרט קשר",
+    when: "הוספת טלפון נוסף או קביעת אימייל בכרטיס לקוח קיים. לשינוי דרישות החיפוש יש „עדכון כרטיס קונה”.",
+    examples: [
+      "תוסיף למשה כהן עוד טלפון 052-1234567",
+      "האימייל של דנה הוא dana@example.com",
+      "תוסיף לכרטיס של משפחת לוי את הנייד של הבעל 054-9876543",
+    ],
+    capability: "buyers.edit",
+    risk: "update",
+    fields: [
+      F_BUYER_PHRASE,
+      /*
+       * ‎**אותם קבועים של יצירת ליד, לא הצהרה מקומית.** מפתח שמופיע
+       * בכמה פעולות חייב להיות מוצהר זהה בכולן — והשער תפס בדיוק
+       * את זה כשניסחתי כאן „אימייל” מול „דוא\"ל”.
+       */
+      F_PHONE,
+      F_EMAIL,
+      {
+        key: "phoneLabel",
+        label: "סוג המספר",
+        type: "enum",
+        values: ["mobile", "home", "work", "other"],
+        valueLabels: { mobile: "נייד", home: "בית", work: "עבודה", other: "אחר" },
+      },
+    ],
   },
   {
     id: "update_property",
@@ -1868,6 +1996,25 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capabilityAlts: ["leads.view_own"],
     risk: "outbound",
     fields: [F_BUYER_PHRASE, F_MESSAGE_BODY],
+  },
+  {
+    /*
+     * ‎**נוסח שהמערכת כותבת, לא המתווך.** בשונה מ„הודעת וואטסאפ
+     * לבעל נכס” שנושאת טקסט חופשי, כאן התוכן נבנה מהנתונים —
+     * צפיות, הצעות, סיורים — וזה בדיוק מה שבעל נכס בבלעדיות מצפה
+     * לקבל בלי לבקש.
+     */
+    id: "send_owner_update",
+    title: "עדכון שיווקי לבעל נכס",
+    when: "הכנת דיווח שיווק לבעל הנכס — מה נעשה עם הנכס בפועל. לנוסח חופשי יש „הודעת וואטסאפ לבעל נכס”.",
+    examples: [
+      "תשלח לבעלים של הדירה ברמת גן עדכון שיווקי",
+      "תכין דיווח לבעל הנכס בהרב שך",
+      "מגיע לבעלים של הפנטהאוז עדכון — תכין אותו",
+    ],
+    capability: "properties.edit",
+    risk: "outbound",
+    fields: [F_PROPERTY_PHRASE],
   },
   {
     /*
