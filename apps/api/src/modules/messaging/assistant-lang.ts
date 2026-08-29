@@ -91,9 +91,26 @@ const SPEAK_PHRASES: readonly string[] = [
   "בקול בבקשה",
 ];
 
+/*
+ * ‎**שלילה אינה בקשה.** „אל תענה לי בקול” מכיל „תענה לי בקול”,
+ * ולכן הכלה לבדה הפכה בדיוק את הכיבוי להדלקה: המשתמש ביקש
+ * להפסיק — וקיבל את אישור ההפסקה בהודעה קולית (ביקורת Codex).
+ */
+const NEGATIONS: readonly string[] = ["אל ", "בלי ", "לא ", "תפסיק", "די עם"];
+
 export function wantsSpokenReply(text: string): boolean {
   const cleaned = normalizeShort(text);
-  return SPEAK_PHRASES.some((phrase) => cleaned.includes(phrase));
+  if (!SPEAK_PHRASES.some((phrase) => cleaned.includes(phrase))) return false;
+  /*
+   * השלילה נבדקת **לפני** הביטוי שנתפס ולא בכל המשפט: „תקריא לי
+   * מה יש היום, אל תשכח את הפגישה” אינה שלילה של ההקראה.
+   */
+  const at = SPEAK_PHRASES.reduce((found, phrase) => {
+    const index = cleaned.indexOf(phrase);
+    return index === -1 ? found : Math.min(found, index);
+  }, cleaned.length);
+  const before = cleaned.slice(0, at);
+  return !NEGATIONS.some((negation) => before.includes(negation));
 }
 
 export function isHelpMessage(text: string): boolean {

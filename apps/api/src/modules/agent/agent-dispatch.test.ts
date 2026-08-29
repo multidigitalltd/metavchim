@@ -113,3 +113,26 @@ describe("חלון הדוחות", () => {
     expect(fn).not.toMatch(/num\(params\["windowDays"\]\)/u);
   });
 });
+
+/**
+ * ‎**„מה יש ברשת” הוא מה שאחרים פרסמו.** `ListingsService.list()`
+ * מחזיר גם את המודעות שלי (המסך מסמן „שלי”), ומודעה שלי בראש
+ * הרשימה גם ייצרה צעד „הבע התעניינות” שנכשל תמיד — אי אפשר להביע
+ * עניין בנכס של המשרד עצמו (ביקורת Codex). שני הצרכנים של הפיד
+ * מסננים.
+ */
+describe("פיד הרשת אינו כולל את המודעות שלי", () => {
+  const strip = (text: string): string =>
+    text.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/^[ \t]*\/\/.*$/gmu, "");
+
+  it("שני הצרכנים מסננים mine", () => {
+    const execute = strip(
+      readFileSync(new URL("./execute.service.ts", import.meta.url), "utf8"),
+    );
+    const resolve = strip(
+      readFileSync(new URL("./resolve.service.ts", import.meta.url), "utf8"),
+    );
+    expect(execute).toContain("row.mine !== true");
+    expect(resolve).toContain("row.mine !== true");
+  });
+});

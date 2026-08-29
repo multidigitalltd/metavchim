@@ -630,7 +630,8 @@ export class AgentResolveService {
       return narrowByPhrase(options, phrase);
     }
     if (kind === "listing") {
-      const feed = await this.listings.list();
+      // המודעות שלי יורדות — אי אפשר להביע עניין בנכס של המשרד עצמו
+      const feed = (await this.listings.list()).filter((row) => row.mine !== true);
       const options = feed.map((row) => ({
         id: row.id,
         label:

@@ -42,6 +42,7 @@ import {
 import { SUPPORT_KINDS, SUPPORT_KIND_LABEL } from "../logic/support.js";
 import { DISMISS_REASONS, DISMISS_REASON_LABEL } from "../logic/match-feedback.js";
 import type { Capability } from "../rbac.js";
+import type { PlanFeature } from "../logic/plans.js";
 import type { AgentFieldSpec } from "./field-spec.js";
 
 export const AGENT_ACTION_IDS = [
@@ -156,6 +157,19 @@ export interface AgentActionDef {
    * שנכתב במיוחד בשבילו נבדק (ביקורת Codex).
    */
   capabilityAlts?: readonly Capability[];
+  /**
+   * ‎**פיצ'ר המסלול שהפעולה דורשת** — הזכאות המסחרית, לא ההרשאה.
+   *
+   * הבקרים אוכפים אותה ב-`@RequireFeature`, והסוכן אינו עובר בהם:
+   * הוא קורא לשירותים ישירות. כל פעולה שנוגעת ביכולת מתומחרת חייבת
+   * להצהיר עליה כאן, והאכיפה נעשית **פעם אחת** בביצוע — לצד בדיקת
+   * היכולת — ולא בכל מתודה בנפרד.
+   *
+   * זה לא היה תיאורטי: „מה כדאי לי היום” ו„דף נחיתה” נפתחו למשרד
+   * שהמסלול שלו אינו כולל אותם, בזמן שהמסך המקביל חסום (ביקורת
+   * Codex); ו-„דוח המשרד” עשה זאת מלכתחילה, לפני הסבב הזה.
+   */
+  feature?: PlanFeature;
   risk: AgentRisk;
   fields: readonly AgentFieldSpec[];
   /**
@@ -1011,7 +1025,12 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       "הנכס ברמת גן שברשת מתאים למשפחת לוי — תפנה אליהם",
       "תגיד למשרד שפרסם את הפנטהאוז שיש לי קונה",
     ],
-    capability: "collaboration.share",
+    /*
+     * ‎`collaboration.offer` — אותה יכולת של הבקר. `share` הוא פרסום
+     * שלי לרשת; פנייה **אל** מודעה של אחר היא הצעה, ו-`expressInterest`
+     * אינו בודק יכולת בעצמו (ביקורת Codex).
+     */
+    capability: "collaboration.offer",
     risk: "outbound",
     fields: [F_LISTING_PHRASE, F_BUYER_PHRASE, F_COMMISSION_SPLIT],
   },
@@ -1120,6 +1139,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
   {
     id: "office_report",
     title: "דוח המשרד",
+    feature: "analytics",
     when: "בקשה לנתוני המשרד — לידים, עסקאות, ביצועים בתקופה.",
     examples: ["תן לי את דוח המשרד", "כמה לידים נכנסו החודש", "סיכום החודש"],
     capability: "analytics.view",
@@ -1138,6 +1158,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
   {
     id: "agent_report",
     title: "ביצועי הסוכנים",
+    feature: "analytics",
     when: "שאלה על ביצועי הסוכנים במשרד — מי הכניס כמה, מי סוגר. לנתוני המשרד כמכלול יש „דוח המשרד”.",
     examples: [
       "תראה לי איך הסוכנים עבדו החודש",
@@ -1160,6 +1181,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
   {
     id: "show_recommendations",
     title: "מה כדאי עכשיו",
+    feature: "ai_coach",
     when: "בקשת הכוונה — „מה כדאי לי לעשות היום”, „ממה להתחיל”. ההמלצות של המאמן, לפי דחיפות.",
     examples: ["מה כדאי לי לעשות היום?", "ממה להתחיל את הבוקר", "מה הכי דחוף עכשיו"],
     capability: "matches.view",
@@ -1316,6 +1338,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
      */
     id: "create_recurring_task",
     title: "משימה קבועה",
+    feature: "automations",
     when: "תזכורת שחוזרת בקביעות — „כל יום”, „כל שבוע ביום ראשון”, „כל חודש ב-1”. לתזכורת חד-פעמית יש „תזכורת / משימה”.",
     examples: [
       "תזכיר לי כל יום ראשון בתשע לעבור על הלידים",
@@ -1596,6 +1619,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
   {
     id: "create_landing_page",
     title: "דף נחיתה לנכס",
+    feature: "landing_pages",
     when: "יצירת קישור לדף נחיתה ציבורי של נכס — דף שאפשר לשלוח למתעניינים.",
     examples: [
       "תכין דף נחיתה לפנטהאוז בנתניה",
@@ -2080,6 +2104,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
      */
     id: "send_owner_update",
     title: "עדכון שיווקי לבעל נכס",
+    feature: "whatsapp",
     when: "הכנת דיווח שיווק לבעל הנכס — מה נעשה עם הנכס בפועל. לנוסח חופשי יש „הודעת וואטסאפ לבעל נכס”.",
     examples: [
       "תשלח לבעלים של הדירה ברמת גן עדכון שיווקי",
@@ -2097,6 +2122,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
      */
     id: "call_contact",
     title: "חיוג ללקוח",
+    feature: "telephony",
     when: "חיוג דרך מרכזיית המשרד — „תתקשר ל…”, „תחייג ל…”. המרכזייה מצלצלת קודם אצל המתווך ואז אצל הלקוח.",
     examples: ["תתקשר למשה כהן", "תחייג לדני מהליד החדש", "צלצל לשרה"],
     capability: "leads.edit",

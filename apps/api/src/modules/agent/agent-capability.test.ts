@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 import { ForbiddenException } from "@nestjs/common";
-import { AGENT_ACTIONS, type Capability } from "@metavchim/shared";
+import { AGENT_ACTIONS, agentAction, type Capability } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AgentExecuteService } from "./execute.service";
 
@@ -68,5 +70,54 @@ describe("שער היכולות של הסוכן", () => {
     await expect(
       withCapabilities(["properties.view"], () => service.execute("delete_everything", {})),
     ).rejects.toThrow();
+  });
+});
+
+/**
+ * ‎**זכאות המסלול — הסוכן אינו עובר בבקרים.**
+ *
+ * ‎`@RequireFeature` יושב על הבקר, והסוכן קורא לשירותים ישירות.
+ * לכן כל פעולה שנוגעת ביכולת מתומחרת חייבת להצהיר `feature`,
+ * והאכיפה חייבת להיות **אחת** — בביצוע, לצד בדיקת היכולת.
+ *
+ * בלי זה: „מה כדאי לי היום” ו„דף נחיתה” נפתחו למשרד שהמסלול שלו
+ * אינו כולל אותם בזמן שהמסך המקביל חסם (ביקורת Codex), ו„דוח
+ * המשרד” עשה זאת עוד קודם. בדיקה שסופרת פעולות לא הייתה תופסת
+ * את זה — מה שנתפס הוא **מקום** האכיפה.
+ */
+describe("זכאות המסלול בסוכן", () => {
+  const source = readFileSync(new URL("./execute.service.ts", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//gu, "")
+    .replace(/^[ \t]*\/\/.*$/gmu, "");
+
+  it("האכיפה יושבת בביצוע המרכזי, על מה שהקטלוג מצהיר", () => {
+    expect(source).toContain("if (action.feature !== undefined) {");
+    expect(source).toContain("this.plans.tenantHasFeature(ctx.tenantId, action.feature)");
+  });
+
+  /*
+   * ‎**ואין בדיקה שנייה במתודה.** בדיקה מקומית נראית זהירה ומזיקה:
+   * היא מסתירה את החסר: פעולה שלישית תתווסף, מישהו יעתיק את הדפוס
+   * המקומי לחלקן, והשער המרכזי כבר לא יהיה מקור האמת.
+   */
+  it("אין בדיקת פיצ'ר מפוזרת במתודות", () => {
+    const calls = source.match(/tenantHasFeature\(/gu) ?? [];
+    expect(calls).toHaveLength(1);
+  });
+
+  /*
+   * הפעולות שידוע שהבקר המקביל שלהן חוסם — הצהרה חסרה כאן היא
+   * בדיוק הפער שנסגר, ולכן היא נבדקת בשם ולא רק במבנה.
+   */
+  it.each([
+    ["show_recommendations", "ai_coach"],
+    ["office_report", "analytics"],
+    ["agent_report", "analytics"],
+    ["create_landing_page", "landing_pages"],
+    ["send_owner_update", "whatsapp"],
+    ["create_recurring_task", "automations"],
+    ["call_contact", "telephony"],
+  ])("%s מצהירה על הפיצ'ר %s", (actionId, feature) => {
+    expect(agentAction(actionId)?.feature).toBe(feature);
   });
 });

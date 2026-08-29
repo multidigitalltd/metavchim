@@ -322,6 +322,24 @@ export class AgentExecuteService {
     }
 
     /*
+     * ‎**זכאות המסלול — כאן, פעם אחת.**
+     *
+     * הבקרים אוכפים אותה ב-`@RequireFeature`, והסוכן אינו עובר
+     * בהם. בדיקה שמפוזרת במתודות היא בדיוק מה שהשאיר את „מה כדאי
+     * לי היום” ואת „דף נחיתה” פתוחים למשרד חסום, בזמן שהמסך
+     * המקביל חסם (ביקורת Codex) — ואת „דוח המשרד” פתוח מלכתחילה.
+     * ההצהרה בקטלוג, האכיפה כאן, ואין דרך להוסיף פעולה מתומחרת
+     * ולשכוח את השער.
+     */
+    if (action.feature !== undefined) {
+      if (!(await this.plans.tenantHasFeature(ctx.tenantId, action.feature))) {
+        throw new ForbiddenException(
+          `${action.title} אינה כלולה במסלול של המשרד — אפשר לשדרג במסך החיוב`,
+        );
+      }
+    }
+
+    /*
      * ביטוי זהות בלי מזהה נפתר כאן, רגע לפני הביצוע — זה מה שמאפשר
      * לצעד המשך של שרשור ("תוסיף קונה משה ותוסיף לו הערה") למצוא
      * את הרשומה שהצעד הקודם יצר זה עתה. ריבוי התאמות או היעדר —
@@ -2199,12 +2217,6 @@ export class AgentExecuteService {
     if (frequency !== "daily" && frequency !== "weekly" && frequency !== "monthly") {
       throw new BadRequestException("אמרו באיזו תדירות — כל יום, כל שבוע או כל חודש");
     }
-    const tenantId = TenantContext.current().tenantId;
-    if (!(await this.plans.tenantHasFeature(tenantId, "automations"))) {
-      throw new BadRequestException(
-        "המסלול של המשרד אינו כולל משימות קבועות — אפשר לשדרג במסך החיוב",
-      );
-    }
     const weekdayRaw = str(params["weekday"]);
     const weekday = weekdayRaw === undefined ? undefined : Number(weekdayRaw);
     if (frequency === "weekly" && (weekday === undefined || Number.isNaN(weekday))) {
@@ -2238,7 +2250,15 @@ export class AgentExecuteService {
     const cities = strList(params["cities"]);
     // עיר אחת מסוננת בשרת; כמה — מתוך החלון, כמו בביקושים (ראו שם)
     const single = cities.length === 1 ? cities[0]! : null;
-    const feed = await this.listings.list(single === null ? {} : { q: single });
+    /*
+     * ‎**המודעות שלי יורדות מהפיד.** `list()` מחזיר גם אותן (המסך
+     * מסמן „שלי”), אבל השאלה כאן היא „מה יש **ברשת**” — ומודעה
+     * שלי בראש הרשימה גם ייצרה צעד „הבע התעניינות” שנכשל תמיד
+     * („אי אפשר להביע עניין בנכס של המשרד עצמו”) — ביקורת Codex.
+     */
+    const feed = (await this.listings.list(single === null ? {} : { q: single })).filter(
+      (row) => row.mine !== true,
+    );
     const rows =
       cities.length > 1 ? feed.filter((row) => cities.includes(row.city ?? "")) : feed;
     const where = cities.length > 0 ? ` ב${cities.join(" / ")}` : "";
@@ -2305,12 +2325,6 @@ export class AgentExecuteService {
   private async callContact(params: Record<string, unknown>): Promise<ExecuteResult> {
     const card = await this.optionalCardTarget(params["cardId"]);
     if (card === null) throw new BadRequestException("לא נבחר לקוח לחיוג");
-    const tenantId = TenantContext.current().tenantId;
-    if (!(await this.plans.tenantHasFeature(tenantId, "telephony"))) {
-      throw new BadRequestException(
-        "המסלול של המשרד אינו כולל מרכזייה — אפשר לשדרג במסך החיוב",
-      );
-    }
     const contactId = await this.contactIdOf(card);
     const name = await this.prisma.withTenant(async (tx) => {
       const contact = await this.contacts.getById(tx, contactId);

@@ -76,6 +76,19 @@ describe("התשובה הקולית בוואטסאפ", () => {
     expect(wantsSpokenReply("תתקשר למשה כהן")).toBe(false);
   });
 
+  /*
+   * ‎**שלילה אינה בקשה** — והיא מכילה את הביטוי מילה במילה. בלי
+   * הבדיקה הזו „אל תענה לי בקול” הדליק הקראה, כלומר אישור ההפסקה
+   * הגיע כהודעה קולית (ביקורת Codex).
+   */
+  it("„אל תענה לי בקול” אינו בקשה להקראה", () => {
+    expect(wantsSpokenReply("אל תענה לי בקול")).toBe(false);
+    expect(wantsSpokenReply("אל תשלח לי בהודעה קולית")).toBe(false);
+    expect(wantsSpokenReply("בלי בהודעה קולית בבקשה")).toBe(false);
+    // ושלילה שאינה נוגעת להקראה אינה מבטלת בקשה אמיתית
+    expect(wantsSpokenReply("תקריא לי מה יש היום, אל תשכח את הפגישה")).toBe(true);
+  });
+
   it("גם שאלות הסוכן מדוברות — אישור ובחירה אינם שקטים (ביקורת Codex)", () => {
     const propose = WA.slice(
       WA.indexOf("private async propose("),
