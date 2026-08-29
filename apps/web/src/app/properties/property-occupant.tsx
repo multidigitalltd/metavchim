@@ -201,7 +201,7 @@ export function PropertyOccupant({
         ‎**שלושת המצבים בראש הסעיף, ולפני כל השאר.**
 
         זו השאלה שהמסך הזה שואל, וכל היתר (שוכר, חוזה) הוא מה שנגזר
-        מתשובה אחת מהן. „טרם נסומן” מוצג כמצב ולא כשתיקה — נכס שאיש
+        מתשובה אחת מהן. „טרם סומן” מוצג כמצב ולא כשתיקה — נכס שאיש
         לא סימן בו דבר אינו נכס שהבעלים גר בו.
       */}
       <div className="mb-3" role="group" aria-label="מי גר בנכס">
@@ -253,8 +253,7 @@ export function PropertyOccupant({
             className="m-0 mt-1.5 text-[length:var(--type-caption)]"
             style={{ color: "var(--color-text-muted)" }}
           >
-            טרם נסומן. עד שנבחר מצב, המערכת אינה יודעת אם אפשר להראות את
-            הנכס בלי תיאום מראש.
+            טרם סומן — בחרו מצב לתיאום ביקורים.
           </p>
         ) : null}
       </div>
@@ -452,8 +451,7 @@ export function PropertyOccupant({
             המצב נבחר למעלה, וכאן נשארת רק הפעולה.
           */}
           <p className="m-0 mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-            אם הדירה מושכרת — הוסיפו את השוכר כדי שתיאום ביקור לא יעבור דרך
-            פתק.
+            אם הנכס מושכר, הוסיפו את השוכר לתיאום ביקורים.
           </p>
           {canEdit ? (
             <button type="button" className="mv-btn-plain" onClick={() => setAdding(true)}>
