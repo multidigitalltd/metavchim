@@ -497,7 +497,7 @@ const F_VOICE_REPLIES: AgentFieldSpec = {
   key: "voiceReplies",
   label: "תשובות בקול",
   type: "boolean",
-  hint: "רק כשנאמר „תמיד תענה לי בקול” (true) או „תפסיק לענות בקול” (false)",
+  hint: "רק כשנאמר „תמיד תענה לי בקול” (true) או „תפסיק לענות בקול” (false). לבקשה חד-פעמית אומרים „תקריא לי” בהודעה עצמה — זו אינה העדפה",
 };
 
 const F_PROPERTIES_ORDER: AgentFieldSpec = {

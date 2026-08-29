@@ -65,6 +65,37 @@ export function isCancelMessage(text: string): boolean {
   return CANCEL_WORDS.has(normalizeShort(text));
 }
 
+/**
+ * ‎**בקשה מפורשת להקראה — לתשובה הזו בלבד.**
+ *
+ * הקראה אינה אוטומטית: היא עולה קריאת TTS בכל תשובה, ובעל המוצר
+ * ביקש שלא תקרה בלי שביקשו אותה. שתי דרכים לבקש — „תקריא לי” כאן
+ * ועכשיו, או „תמיד תענה לי בקול” כהעדפת קבע (`set_preference`).
+ *
+ * ‎**נבדק כהכלה ולא כהודעה שלמה**, בשונה מ„אשר”/„בטל”: הבקשה מגיעה
+ * בתוך משפט — „תקריא לי מה יש לי היום” — ולא לבדה. שאר המשפט ממשיך
+ * לפירוש כרגיל, ולכן אין כאן מסלול נפרד אלא דגל על התשובה.
+ */
+/*
+ * ‎**בלי `\b`.** גבול־מילה ב-JS מוגדר על תווי ASCII, ואות עברית
+ * אינה אחד מהם: ‎`/\bתקריא\b/` אינו מתאים ל„תקריא לי” כלל. ביטוי
+ * שנראה מדויק ואינו נפלט לעולם הוא בדיוק סוג הכלל המת שהמערכת
+ * הזו כבר נכוותה בו — ולכן ההשוואה כאן היא הכלה פשוטה.
+ */
+const SPEAK_PHRASES: readonly string[] = [
+  "תקריא",
+  "תענה לי בקול",
+  "תגיד לי בקול",
+  "תשלח לי בקול",
+  "בהודעה קולית",
+  "בקול בבקשה",
+];
+
+export function wantsSpokenReply(text: string): boolean {
+  const cleaned = normalizeShort(text);
+  return SPEAK_PHRASES.some((phrase) => cleaned.includes(phrase));
+}
+
 export function isHelpMessage(text: string): boolean {
   return HELP_PHRASES.has(normalizeShort(text));
 }
