@@ -2579,6 +2579,55 @@ button.mv-list-row:hover {
 .mv-entity-tabs::-webkit-scrollbar {
   display: none;
 }
+/*
+ * ‎**הקצה נמוג במקום להיחתך.**
+ *
+ * הסרגל נגלל לרוחב (זו ההכרעה למעלה — עדיף על שבירה לשלוש שורות),
+ * ופס הגלילה מוסתר. התוצאה במסך צר הייתה לשונית שנקטעת באמצע מילה
+ * בדיוק על הקצה, בלי שום סימן שיש עוד — כלומר תוכן שנראה חתוך ולא
+ * תוכן שאפשר לגלול אליו (דיווח בעל המוצר).
+ *
+ * המסכה נמרחת על תיבת הגבול ולא על התוכן הנגלל, ולכן היא נשארת
+ * במקומה בזמן הגלילה. `data-fade` נקבע ב-JS כי CSS אינו יודע לשאול
+ * „האם יש עוד לגלול”, והכיוונים הפיזיים נכונים ל-RTL: תחילת הסרגל
+ * מימין, סופו משמאל.
+ */
+/*
+ * ‎**כיוון הגרדיאנט הפיזי, ולא ההיגיון של RTL.**
+ *
+ * ‎`to left` מתחיל בקצה ה**ימני** (שם המיקום 0) ונע שמאלה — כלומר
+ * הוא מְמַסֶּה את ימין. זה הפוך מהאינטואיציה, וזה נמדד בדפדפן ולא
+ * הונח: הגרסה הראשונה כאן מיסתה בדיוק את הצד הלא נכון, והקצה
+ * שנחתך נשאר חד.
+ *
+ * בעברית תחילת הסרגל מימין וסופו משמאל, ומכאן ההצמדה:
+ * ‎`end` (יש עוד לגלול שמאלה) ⟵ מיסוך שמאל ⟵ `to right`.
+ */
+.mv-entity-tabs[data-fade="end"] {
+  mask-image: linear-gradient(to right, transparent 0, #000 34px);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 34px);
+}
+.mv-entity-tabs[data-fade="start"] {
+  mask-image: linear-gradient(to left, transparent 0, #000 34px);
+  -webkit-mask-image: linear-gradient(to left, transparent 0, #000 34px);
+}
+.mv-entity-tabs[data-fade="both"] {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 34px,
+    #000 calc(100% - 34px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 34px,
+    #000 calc(100% - 34px),
+    transparent 100%
+  );
+}
+
 .mv-entity-tabs > button {
   position: relative;
   min-height: 44px;

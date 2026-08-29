@@ -11,7 +11,8 @@
     "verify:assets": "node scripts/verify-assets.mjs",
     "verify:contrast": "node scripts/verify-contrast.mjs",
     "verify:language": "node scripts/verify-referral-language.mjs",
-    "verify:typography": "node scripts/verify-typography.mjs"
+    "verify:typography": "node scripts/verify-typography.mjs",
+    "verify:scroll": "node scripts/verify-scroll-affordance.mjs"
   },
   "dependencies": {
     "@mapbox/mapbox-gl-rtl-text": "^0.4.0",

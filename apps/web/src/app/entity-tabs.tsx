@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * לשוניות של כרטיס ישות — **הסדר שהיה חסר.**
@@ -40,8 +40,76 @@ export function EntityTabs({
   /** שם הרשימה לקוראי מסך — "לשוניות כרטיס הקונה". */
   label: string;
 }) {
+  const strip = useRef<HTMLDivElement>(null);
+
+  /**
+   * ‎**האם יש עוד לגלול, ולאיזה צד** — ומכאן המסכה שמְמַסָּה את הקצה.
+   *
+   * CSS אינו יודע לשאול את זה, ולכן זה נמדד כאן ונמסר כ-`data-fade`.
+   * ‎`Math.abs` על `scrollLeft` כי ב-RTL הוא יורד לשלילי בכרום, ומדידה
+   * שמניחה חיובי הייתה מכריזה „אין מה לגלול” בדיוק במסך שבו יש.
+   */
+  const measure = useCallback((): void => {
+    const el = strip.current;
+    if (el === null) return;
+    const from = Math.abs(el.scrollLeft);
+    const room = el.scrollWidth - el.clientWidth;
+    if (room <= 1) {
+      el.dataset["fade"] = "none";
+      return;
+    }
+    const atStart = from <= 1;
+    const atEnd = from >= room - 1;
+    el.dataset["fade"] = atStart ? "end" : atEnd ? "start" : "both";
+  }, []);
+
+  useEffect(() => {
+    const el = strip.current;
+    if (el === null) return;
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    /*
+     * שינוי רוחב משנה את התשובה — סיבוב מכשיר, פתיחת סרגל הצד, או
+     * מונה שהתעדכן והרחיב לשונית. `ResizeObserver` ולא אירוע `resize`
+     * של החלון: הסרגל צר מהחלון, והוא משתנה גם כשהחלון אינו משתנה.
+     */
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      observer.disconnect();
+    };
+  }, [measure]);
+
+  /**
+   * ‎**הלשונית הפעילה נגללת לתצוגה.**
+   *
+   * כניסה עם `?tab=tasks` בחרה לשונית שיושבת מחוץ למסך, והמתווך ראה
+   * פאנל בלי לדעת מה נבחר — במסך צר הלשונית האחרונה הייתה 500 פיקסל
+   * משמאל לקצה. הגלילה נעשית על הסרגל בלבד (`scrollLeft`) ולא דרך
+   * `scrollIntoView`, שגורר גם את העמוד אנכית וקופץ מתחת לאצבע.
+   */
+  useEffect(() => {
+    const el = strip.current;
+    if (el === null) return;
+    const button = el.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (button === null) return;
+    const box = el.getBoundingClientRect();
+    const mark = button.getBoundingClientRect();
+    /*
+     * ‎**רוחב המסכה, לא ריווח נוח.** הקצה נמוג על פני 34 פיקסלים
+     * (‎`.mv-entity-tabs[data-fade]` ב-globals.css), וגלילה שעוצרת
+     * לפני כן הייתה מציבה את הלשונית ה**פעילה** מתחת למיסוך —
+     * כלומר בוחרת לשונית ומעמעמת אותה באותה נשימה.
+     */
+    const PAD = 38;
+    if (mark.left < box.left) el.scrollLeft -= box.left - mark.left + PAD;
+    else if (mark.right > box.right) el.scrollLeft += mark.right - box.right + PAD;
+    measure();
+  }, [active, measure]);
+
   return (
-    <div className="mv-entity-tabs" role="tablist" aria-label={label}>
+    <div className="mv-entity-tabs" role="tablist" aria-label={label} ref={strip}>
       {tabs.map((tab) => (
         <button
           key={tab.key}
