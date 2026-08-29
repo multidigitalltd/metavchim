@@ -88,9 +88,38 @@ if (!tabs.includes("Math.abs(el.scrollLeft)")) {
   problems.push("מדידת הגלילה חייבת Math.abs — ב-RTL scrollLeft שלילי");
 }
 
-/* 5 · הלשונית הפעילה נגללת לתצוגה, ומחוץ לאזור המיסוך */
+/*
+ * 5 · מונה שמגיע אחרי הטעינה מרחיב לשונית, ואז **שני** המנגנונים
+ * חייבים לרוץ מחדש: הדהייה (אחרת גלישה חדשה נשארת חדה) והגלילה
+ * (אחרת הרוחב שנוסף דוחף את הפעילה אל מחוץ לתצוגה). משקיף על
+ * הסרגל בלבד אינו נורה כאן — תיבת הגבול שלו לא זזה.
+ */
+if (!tabs.includes("const signature =")) {
+  problems.push("אין חתימה על תוויות ומונים — שינוי מונה לא יימדד מחדש");
+}
+for (const [what, marker] of [
+  ["המשקיפים", "[measure, signature]"],
+  ["גלילת הפעילה", "[active, measure, signature]"],
+]) {
+  if (!tabs.includes(marker)) {
+    problems.push(`${what} אינם תלויים בחתימה — מונה שמגיע מאוחר לא יטופל`);
+  }
+}
+if (!/observer\.observe\(child\)/u.test(tabs)) {
+  problems.push("המשקיף אינו מאזין ללשוניות עצמן — רק לסרגל, שרוחבו אינו משתנה");
+}
+
+/* 6 · הלשונית הפעילה נגללת לתצוגה, ומחוץ לאזור המיסוך */
 if (!/aria-selected="true"/u.test(tabs) || !tabs.includes("scrollLeft -=")) {
   problems.push("entity-tabs אינו גולל את הלשונית הפעילה לתצוגה");
+}
+/*
+ * ‎**הגבול הוא הקצה פחות המסכה.** השוואה מול `box.left`/`box.right`
+ * בלבד מדלגת על לשונית שנמצאת בתוך הסרגל אך יושבת בתוך הדהייה —
+ * כלומר לחיצה שבוחרת לשונית ומעמעמת אותה (ביקורת Codex).
+ */
+if (!tabs.includes("box.left + PAD") || !tabs.includes("box.right - PAD")) {
+  problems.push("הגלילה משווה מול קצה הסרגל ולא מול הקצה פחות המסכה");
 }
 const pad = tabs.match(/const PAD = (\d+);/u);
 if (pad === null) {

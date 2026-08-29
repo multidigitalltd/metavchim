@@ -152,7 +152,18 @@ export function EntityTasks({
     try {
       const data = await apiGet<TaskListResponse>(`/tasks/for/${entityType}/${entityId}`);
       if (mine !== requestId.current) return;
-      setList({ kind: "ready", rows: data.tasks, openSuggestionFields: data.openSuggestionFields });
+      /*
+       * ‎**`?? []` על שני השדות.** `apiGet` הוא הצהרת טיפוס ולא
+       * ולידציה: גוף בלי `tasks` נכנס למצב „ready” עם `undefined`,
+       * ו-`rows.filter` מפיל את **כל כרטיס הישות** ל„אירעה שגיאה” —
+       * לא את סעיף המשימות בלבד. נצפה בפועל בבדיקה בדפדפן, ואותה
+       * נפילה בדיוק אירעה בפאנל הבלעדיות מסיבה זהה.
+       */
+      setList({
+        kind: "ready",
+        rows: data.tasks ?? [],
+        openSuggestionFields: data.openSuggestionFields ?? [],
+      });
       /* השעון מתעדכן עם הרשימה — ראו `clock` למעלה */
       setClock(new Date());
     } catch {

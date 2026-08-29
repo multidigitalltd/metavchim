@@ -63,23 +63,36 @@ export function EntityTabs({
     el.dataset["fade"] = atStart ? "end" : atEnd ? "start" : "both";
   }, []);
 
+  /*
+   * ‎**גם הלשוניות עצמן נמדדות, לא רק הסרגל** (ביקורת Codex).
+   *
+   * המונים מגיעים אחרי הטעינה — „נכסים תואמים 1” נולד רחב יותר
+   * מ„נכסים תואמים”. כשזה קורה תיבת הגבול של הסרגל אינה משתנה
+   * כלל, ולכן משקיף שמאזין לו בלבד אינו נורה: הגלישה **נולדת**
+   * בלי שאיש ימדוד אותה, והקצה שנוסף נשאר חד עד שהמשתמש יגלול
+   * במקרה. החתימה מרכיבה תווית ומונה יחד, כך שהמשקיפים נבנים
+   * מחדש על הילדים החדשים בכל שינוי כזה.
+   */
+  const signature = tabs.map((tab) => `${tab.key}:${tab.label}:${tab.count ?? ""}`).join("|");
+
   useEffect(() => {
     const el = strip.current;
     if (el === null) return;
     measure();
     el.addEventListener("scroll", measure, { passive: true });
     /*
-     * שינוי רוחב משנה את התשובה — סיבוב מכשיר, פתיחת סרגל הצד, או
-     * מונה שהתעדכן והרחיב לשונית. `ResizeObserver` ולא אירוע `resize`
-     * של החלון: הסרגל צר מהחלון, והוא משתנה גם כשהחלון אינו משתנה.
+     * ‎`ResizeObserver` ולא אירוע `resize` של החלון: הסרגל צר
+     * מהחלון, והוא משתנה גם כשהחלון אינו משתנה — סרגל צד שנפתח,
+     * מכשיר שהסתובב, או לשונית שהתרחבה.
      */
     const observer = new ResizeObserver(measure);
     observer.observe(el);
+    for (const child of Array.from(el.children)) observer.observe(child);
     return () => {
       el.removeEventListener("scroll", measure);
       observer.disconnect();
     };
-  }, [measure]);
+  }, [measure, signature]);
 
   /**
    * ‎**הלשונית הפעילה נגללת לתצוגה.**
@@ -103,10 +116,25 @@ export function EntityTabs({
      * כלומר בוחרת לשונית ומעמעמת אותה באותה נשימה.
      */
     const PAD = 38;
-    if (mark.left < box.left) el.scrollLeft -= box.left - mark.left + PAD;
-    else if (mark.right > box.right) el.scrollLeft += mark.right - box.right + PAD;
+    /*
+     * ‎**הגבול הוא קצה הסרגל פחות המסכה, לא קצה הסרגל** (ביקורת
+     * Codex). לשונית שנמצאת בתוך הסרגל גיאומטרית אך יושבת בתוך
+     * אזור הדהייה לא הפעילה אף אחד משני התנאים — כלומר לחיצה על
+     * לשונית נראית בקצה בחרה אותה והשאירה אותה מעומעמת.
+     * הגלילה נחסמת ממילא בקצוות, ולכן ריפוד גם בצד שאינו ממוסך
+     * אינו מזיז דבר.
+     */
+    if (mark.left < box.left + PAD) el.scrollLeft -= box.left + PAD - mark.left;
+    else if (mark.right > box.right - PAD) el.scrollLeft += mark.right - (box.right - PAD);
     measure();
-  }, [active, measure]);
+    /*
+     * ‎`signature` בתלויות ולא רק `active`: המונה מגיע אחרי הטעינה
+     * ומרחיב לשוניות, והרוחב שנוסף דוחף את הפעילה אל מחוץ לתצוגה
+     * **אחרי** שהגלילה כבר רצה. נצפה בפועל — כניסה ל„משימות” ב-360
+     * וב-414 פיקסלים השאירה את הלשונית שנבחרה בלתי נראית, וזה
+     * התגלה רק אחרי שהלשונית הפסיקה לקרוס וניתן היה למדוד אותה.
+     */
+  }, [active, measure, signature]);
 
   return (
     <div className="mv-entity-tabs" role="tablist" aria-label={label} ref={strip}>
