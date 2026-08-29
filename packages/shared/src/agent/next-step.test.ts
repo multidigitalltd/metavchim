@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 import { AGENT_ACTION_IDS } from "./actions.js";
 import { agentNextSteps } from "./next-step.js";
@@ -17,6 +19,42 @@ import { agentNextSteps } from "./next-step.js";
  */
 
 const ALL: readonly string[] = AGENT_ACTION_IDS;
+
+/**
+ * ‎**דגימה אחת לכל כלל — בצורת הנתונים האמיתית.**
+ *
+ * כל שורה כאן הועתקה מצורת ה-`data` ש-`AgentExecuteService` מחזירה
+ * בפועל לאותה פעולה, ולא מצורה משוערת. זו בדיוק ההבחנה ששלושה
+ * כללים מתו עליה בגרסה הראשונה, והשער שמתחת אוכף שאף כלל לא
+ * יתווסף בלי שורה כזו.
+ */
+const FIRING_SAMPLES: Record<string, Parameters<typeof agentNextSteps>[1]> = {
+  show_matches: {
+    data: { matches: [{ buyerName: "א", score: 90, property: { title: "ג" } }] },
+  },
+  create_buyer: { ref: { label: "ב", entityType: "buyer" } },
+  create_property: { ref: { label: "ג", entityType: "property" } },
+  create_lead: { ref: { label: "ד", entityType: "lead" } },
+  show_tasks: { data: { tasks: [{ title: "ה", dueAt: "2026-01-01T00:00:00.000Z" }] } },
+  find_buyers: { data: { buyers: [{ name: "משה כהן" }] } },
+  find_properties: { data: { properties: [{ title: "הדירה ברמת גן" }] } },
+  send_offer: { params: { buyerPhrase: "משה כהן" } },
+  show_callbacks: { data: { callbacks: [{ name: "דנה לוי", reason: "waiting_lead" }] } },
+  show_leads: { data: { leads: [{ name: "יוסי מזרחי" }] } },
+  show_exclusivity: {
+    data: { exclusivity: [{ propertyTitle: "הדירה בהרב שך", daysLeft: 12, missing: 2 }] },
+  },
+  show_demands: {
+    data: { demands: [{ office: "כהן נכסים", cities: ["גבעתיים"], matchCount: 3 }] },
+  },
+  show_network_listings: { data: [{ title: "פנטהאוז בנתניה", city: "נתניה" }] },
+  show_network_inbox: { data: [{ title: "נכס שהוצע לכם", detail: "הצעת נכס" }] },
+  show_emails: { data: { emails: [{ contactName: "שרה לוי", lastSubject: "שאלה" }] } },
+  show_offers: { data: { offers: [{ buyerName: "משה כהן", status: "נשלחה" }] } },
+  convert_lead: { ref: { label: "דני", entityType: "buyer" } },
+  open_deal_room: { data: { id: "d1" } },
+  schedule_appointment: { params: { buyerPhrase: "משפחת לוי" } },
+};
 const NOW = new Date("2026-03-10T12:00:00.000Z");
 
 describe("agentNextSteps — התאמות", () => {
@@ -242,18 +280,25 @@ describe("שלמות", () => {
    * מהם ישבו בגרסה הראשונה.
    */
   it("כל פעולה שיש לה כלל באמת פולטת צעד", () => {
-    const covered: [string, Parameters<typeof agentNextSteps>[1]][] = [
-      [
-        "show_matches",
-        { data: { matches: [{ buyerName: "א", score: 90, property: { title: "ג" } }] } },
-      ],
-      ["create_buyer", { ref: { label: "ב", entityType: "buyer" } }],
-      ["create_property", { ref: { label: "ג", entityType: "property" } }],
-      ["create_lead", { ref: { label: "ד", entityType: "lead" } }],
-      ["show_tasks", { data: { tasks: [{ title: "ה", dueAt: "2026-01-01T00:00:00.000Z" }] } }],
-    ];
-    for (const [action, source] of covered) {
+    for (const [action, source] of Object.entries(FIRING_SAMPLES)) {
       expect(agentNextSteps(action, source, ALL, NOW).length, action).toBeGreaterThan(0);
+    }
+  });
+
+  /*
+   * ‎**והשער על השער.** הרשימה שמעליה נכתבת ביד, ולכן כלל חדש היה
+   * יכול להתווסף בלי דגימה — בדיוק המצב שהקובץ הזה נולד ממנו.
+   * הרשימה נגזרת עכשיו מהמקור עצמו: כל `case` ב-`next-step.ts`
+   * חייב דגימה שמוכיחה פליטה.
+   */
+  it("לכל כלל במקור יש דגימה שמוכיחה שהוא נפלט", () => {
+    const source = readFileSync(new URL("./next-step.ts", import.meta.url), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//gu, "")
+      .replace(/^[ \t]*\/\/.*$/gmu, "");
+    const cases = [...source.matchAll(/^\s*case "([a-z_]+)":/gmu)].map((m) => m[1]!);
+    expect(cases.length).toBeGreaterThan(10);
+    for (const action of cases) {
+      expect(Object.keys(FIRING_SAMPLES), `כלל בלי דגימה: ${action}`).toContain(action);
     }
   });
 
