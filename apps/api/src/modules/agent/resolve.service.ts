@@ -1171,6 +1171,12 @@ const ENTITY_LOOKUP: Record<
     kind: "property",
     alwaysChoose: true,
   },
+  create_landing_page: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "לאיזה נכס",
+    kind: "property",
+  },
   start_exclusivity: {
     key: "propertyPhrase",
     idKey: "propertyId",

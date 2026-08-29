@@ -15,6 +15,7 @@ import {
   formatJerusalemDate,
   formatJerusalemTime,
   TASK_PRIORITIES,
+  shekels,
   PHONE_LABELS,
   type PhoneLabel,
   COOP_DEAL_STAGE_LABELS,
@@ -71,6 +72,8 @@ import { CallsService, type CallDto } from "../calls/calls.service";
 import { CollaborationService } from "../collaboration/collaboration.service";
 import { ListingsService } from "../collaboration/listings.service";
 import { CoachService } from "../coach/coach.service";
+import { LandingService } from "../properties/landing.service";
+import { PayoutsService } from "../payouts/payouts.service";
 import { IntakeService } from "../intake/intake.service";
 import { RecurrenceService } from "../tasks/recurrence.service";
 import { TelephonyService } from "../telephony/telephony.service";
@@ -294,6 +297,8 @@ export class AgentExecuteService {
     private readonly recurrences: RecurrenceService,
     private readonly telephony: TelephonyService,
     private readonly plans: PlanCatalogService,
+    private readonly landing: LandingService,
+    private readonly payouts: PayoutsService,
   ) {}
 
   async execute(
@@ -502,6 +507,20 @@ export class AgentExecuteService {
         return this.agentReport(params);
       case "send_owner_update":
         return this.sendOwnerUpdate(params);
+      case "show_payout_balance":
+        return this.showPayoutBalance();
+      case "show_referral_board":
+        return this.showReferralBoard();
+      case "show_reach":
+        return this.showReach();
+      case "show_retained_documents":
+        return this.showRetainedDocuments();
+      case "create_landing_page":
+        return this.createLandingPage(params);
+      case "show_support_tickets":
+        return this.showSupportTickets();
+      case "mark_notifications_read":
+        return this.markNotificationsRead();
       case "open_support_ticket":
         return this.openSupportTicket(params);
       case "set_preference":
@@ -2589,6 +2608,132 @@ export class AgentExecuteService {
       message: "דיווח השיווק לבעל הנכס מוכן ונרשם — פתחו את הקישור ולחצו שלח.",
       link: waUrl,
     };
+  }
+
+  /** כמה כסף מגיע מהפניות — קריאה בלבד; המשיכה עצמה נעשית במסך. */
+  private async showPayoutBalance(): Promise<ExecuteResult> {
+    const { balanceAgorot, minimumAgorot, pendingAgorot } = await this.payouts.balance();
+    // `shekels` המשותפת ולא ניסוח מקומי — שער israel-time תפס
+    // ‎`toLocaleString` ישיר, והפורמט של כסף ממילא אחד לכל המערכת.
+    if (balanceAgorot === 0) {
+      return { href: "/settings", message: "אין כרגע יתרת תשלומים מהפניות ברשת" };
+    }
+    const parts = [`יתרת התשלומים: ${shekels(balanceAgorot)} ₪`];
+    if (pendingAgorot > 0) parts.push(`${shekels(pendingAgorot)} ₪ מוחזקים בבקשות פתוחות`);
+    if (balanceAgorot < minimumAgorot) {
+      parts.push(`סף המשיכה הוא ${shekels(minimumAgorot)} ₪`);
+    }
+    return { href: "/settings", message: parts.join(". "), data: { balanceAgorot } };
+  }
+
+  /** לוח ההפניות — מה שמשרדים אחרים פרסמו. הקליטה כרוכה בתשלום ובמסך. */
+  private async showReferralBoard(): Promise<ExecuteResult> {
+    const rows = await this.collaboration.listSharedLeads();
+    if (rows.length === 0) {
+      return { href: "/collaboration", message: "אין כרגע לידים בלוח ההפניות" };
+    }
+    return {
+      href: "/collaboration",
+      message: `${rows.length} לידים בלוח ההפניות ברשת`,
+      data: {
+        referrals: rows.slice(0, 10).map((row) => ({
+          ...(row.city === undefined ? {} : { city: row.city }),
+          priceCredits: row.priceCredits,
+        })),
+      },
+    };
+  }
+
+  /** מה מהמאגר שלי מתאים למה שכבר ברשת ולא פורסם בה. */
+  private async showReach(): Promise<ExecuteResult> {
+    const reach = await this.listings.reach();
+    /*
+     * ‎`any` הוא ההכרעה של המודול המשותף — „יש בכלל מה להציע” —
+     * ולא ספירה מקומית: אותה שאלה שהמסך שואל, אותה תשובה.
+     */
+    if (!reach.any) {
+      return {
+        href: "/collaboration",
+        message: "אין כרגע התאמות ברשת למה שלא פרסמתם",
+      };
+    }
+    const parts: string[] = [];
+    if (reach.properties.length > 0) {
+      parts.push(`${reach.properties.length} נכסים שלכם שביקוש ברשת מחפש`);
+    }
+    if (reach.buyers.length > 0) {
+      parts.push(`${reach.buyers.length} קונים שלכם שנכס ברשת מתאים להם`);
+    }
+    return {
+      href: "/collaboration",
+      message: `${parts.join(", ")} — ועדיין לא פרסמתם אותם`,
+      data: {
+        properties: reach.properties.length,
+        buyers: reach.buyers.length,
+      },
+    };
+  }
+
+  /** ארכיון המסמכים החתומים — כותרות בלבד, בלי תוכן המסמך. */
+  private async showRetainedDocuments(): Promise<ExecuteResult> {
+    const rows = await this.prisma.withTenant((tx) => this.agreements.listRetained(tx));
+    if (rows.length === 0) {
+      return { href: "/settings", message: "אין מסמכים חתומים בארכיון" };
+    }
+    return {
+      href: "/settings",
+      message: `${rows.length} מסמכים חתומים שמורים בארכיון`,
+      data: {
+        documents: rows.slice(0, 10).map((row) => ({
+          kind: row.kindLabel,
+          ...(row.signerName === null ? {} : { signerName: row.signerName }),
+          ...(row.signedAt === null ? {} : { signedAt: row.signedAt }),
+        })),
+      },
+    };
+  }
+
+  /**
+   * דף נחיתה ציבורי לנכס. הכתובת מוחלטת ולכן חוזרת ב-`link` ולא
+   * ב-`href` — `href` הוא נתיב יחסי שכל ערוץ מקדים לו את מוצא האתר.
+   */
+  private async createLandingPage(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = str(params["propertyId"]);
+    if (propertyId === undefined) throw new BadRequestException("לא נבחר נכס");
+    const { url } = await this.landing.ensure(propertyId);
+    return {
+      message: "דף הנחיתה מוכן — אפשר לשלוח את הקישור למתעניינים.",
+      link: url,
+    };
+  }
+
+  /** תיק הפניות התמיכה של המשרד — מה נפתח ומה נענה. */
+  private async showSupportTickets(): Promise<ExecuteResult> {
+    const tickets = await this.support.listMine();
+    if (tickets.length === 0) {
+      return { href: "/settings", message: "לא נפתחו פניות לתמיכה" };
+    }
+    // „פתוחה” = טרם נפתרה. „resolved” הוא הסטטוס הסופי, אין „closed”
+    const open = tickets.filter((ticket) => ticket.status !== "resolved").length;
+    return {
+      href: "/settings",
+      message:
+        open === 0
+          ? `${tickets.length} פניות לתמיכה, כולן נסגרו`
+          : `${tickets.length} פניות לתמיכה, ${open} עדיין פתוחות`,
+      data: {
+        tickets: tickets.slice(0, 10).map((ticket) => ({
+          status: ticket.status,
+          createdAt: ticket.createdAt,
+        })),
+      },
+    };
+  }
+
+  /** ניקוי סימון ההתראות — אינו מוחק אותן, רק את הסימון. */
+  private async markNotificationsRead(): Promise<ExecuteResult> {
+    await this.notifications.markAllRead();
+    return { href: "/notifications", message: "כל ההתראות סומנו כנקראו." };
   }
 
   /** פנייה לתמיכה — אותו שירות ואותו מיון כמו כפתור התמיכה במסך. */

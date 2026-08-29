@@ -15,6 +15,7 @@ import { MatchingModule } from "../matching/matching.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { SupportModule } from "../support/support.module";
 import { NotificationsModule } from "../notifications/notifications.module";
+import { PayoutsModule } from "../payouts/payouts.module";
 import { OffersModule } from "../offers/offers.module";
 import { PropertiesModule } from "../properties/properties.module";
 import { SearchModule } from "../search/search.module";
@@ -59,6 +60,8 @@ import { AgentResolveService } from "./resolve.service";
     IntakeModule,
     // חיוג דרך המרכזייה — אותו שער של כפתור החיוג
     TelephonyModule,
+    // „כמה כסף מגיע לי מהפניות” — אותה יתרה של מסך ההגדרות
+    PayoutsModule,
     // „קישור לחתימה על הזמנה בכתב” — דרך אותו שירות שהכרטיס משתמש בו
     AgreementsModule,
     // בלעדיות — „מה בסיכון” ותיעוד פעולת שיווק, דרך אותו שירות כמו הפאנל

@@ -43,6 +43,6 @@ import { PropertyTwinsService } from "./property-twins.service";
     MediaService,
     LandingService,
   ],
-  exports: [PropertiesService],
+  exports: [PropertiesService, LandingService],
 })
 export class PropertiesModule {}

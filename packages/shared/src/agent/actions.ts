@@ -59,6 +59,9 @@ export const AGENT_ACTION_IDS = [
   "play_recording",
   "show_deals",
   "show_credits",
+  "show_payout_balance",
+  "show_referral_board",
+  "show_reach",
   "open_deal_room",
   "office_report",
   "agent_report",
@@ -81,6 +84,7 @@ export const AGENT_ACTION_IDS = [
   "add_contact_detail",
   "update_property",
   "share_property",
+  "create_landing_page",
   "share_buyer",
   "send_offer",
   "send_offers_bulk",
@@ -89,6 +93,7 @@ export const AGENT_ACTION_IDS = [
   "start_exclusivity",
   "log_marketing_action",
   "show_agreements",
+  "show_retained_documents",
   "show_offers",
   "show_demands",
   "show_network_listings",
@@ -98,6 +103,7 @@ export const AGENT_ACTION_IDS = [
   "post_deal_message",
   "move_deal_stage",
   "show_notifications",
+  "mark_notifications_read",
   "show_emails",
   "dismiss_match",
   "assign_task",
@@ -108,6 +114,7 @@ export const AGENT_ACTION_IDS = [
   "message_owner",
   "send_owner_update",
   "open_support_ticket",
+  "show_support_tickets",
   "set_preference",
 ] as const;
 
@@ -1075,6 +1082,33 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     fields: [F_APPROACH_PHRASE],
   },
   {
+    id: "show_payout_balance",
+    title: "יתרת תשלומים",
+    when: "שאלה על כסף שמגיע למשרד מהפניות ברשת — כמה נצבר ומה הסף למשיכה. הבקשה למשיכה עצמה נעשית במסך.",
+    examples: ["כמה כסף מגיע לי מהפניות", "מה יתרת התשלומים שלי", "כמה צברתי מהרשת"],
+    capability: "billing.manage",
+    risk: "read",
+    fields: [],
+  },
+  {
+    id: "show_referral_board",
+    title: "לידים ברשת",
+    when: "שאלה על לידים שמשרדים אחרים פרסמו להפניה ברשת. קליטת ליד עצמה כרוכה בתשלום ונעשית במסך.",
+    examples: ["אילו לידים יש ברשת", "מה יש בלוח ההפניות", "יש לידים למכירה ברשת?"],
+    capability: "collaboration.offer",
+    risk: "read",
+    fields: [],
+  },
+  {
+    id: "show_reach",
+    title: "מה שווה לפרסם ברשת",
+    when: "שאלה מה מהמאגר שלי מתאים למשהו שכבר ברשת ועדיין לא פורסם בה.",
+    examples: ["מה שווה לי לפרסם ברשת", "מה אני מפספס ברשת", "יש לי משהו שמתאים לרשת?"],
+    capability: "collaboration.offer",
+    risk: "read",
+    fields: [],
+  },
+  {
     id: "show_credits",
     title: "יתרת קרדיטים",
     when: "שאלה על קרדיטים של המשרד ברשת השיתופים — כמה נשארו, מתי פגים.",
@@ -1560,6 +1594,19 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     fields: [F_PROPERTY_PHRASE],
   },
   {
+    id: "create_landing_page",
+    title: "דף נחיתה לנכס",
+    when: "יצירת קישור לדף נחיתה ציבורי של נכס — דף שאפשר לשלוח למתעניינים.",
+    examples: [
+      "תכין דף נחיתה לפנטהאוז בנתניה",
+      "תעשה קישור ציבורי לדירה ברמת גן",
+      "אני צריך דף נחיתה לנכס בהרב שך",
+    ],
+    capability: "properties.edit",
+    risk: "create",
+    fields: [F_PROPERTY_PHRASE],
+  },
+  {
     id: "share_buyer",
     title: "שיתוף ביקוש ברשת",
     when: "פרסום ביקוש של קונה לרשת השיתופים. הפעולה פותחת את מסך השיתוף — הפרסום עצמו נעשה שם.",
@@ -1782,6 +1829,19 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
    * ולא היה נגיש בשאלה.
    */
   {
+    id: "show_retained_documents",
+    title: "מסמכים חתומים שמורים",
+    when: "שאלה על מסמכים חתומים שנשמרו במשרד — הארכיון. להסכמים שממתינים לחתימה יש „הסכמים ממתינים”.",
+    examples: [
+      "אילו מסמכים חתומים שמורים אצלי",
+      "תראה לי את ארכיון המסמכים",
+      "מה יש בתיק המסמכים החתומים",
+    ],
+    capability: "settings.manage",
+    risk: "read",
+    fields: [],
+  },
+  {
     id: "show_offers",
     title: "סטטוס הצעות",
     when: "שאלה על הצעות שנשלחו ומה קרה איתן — מי פתח, מי הגיב, מה נכשל.",
@@ -1887,6 +1947,20 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capability: "leads.view_own",
     capabilityAlts: ["buyers.view_own", "properties.view"],
     risk: "read",
+    fields: [],
+  },
+  {
+    /*
+     * ‎`update` ולא פעולה הרסנית: סימון כנקרא אינו מוחק התראה —
+     * היא נשארת ברשימה, רק בלי הסימון.
+     */
+    id: "mark_notifications_read",
+    title: "סימון התראות כנקראו",
+    when: "ניקוי סימון ההתראות שלא נקראו. לשאלה מה חדש יש „מה חדש”.",
+    examples: ["סמן את כל ההתראות כנקראו", "תנקה לי את ההתראות", "קראתי הכול, תסמן"],
+    capability: "leads.view_own",
+    capabilityAlts: ["buyers.view_own", "properties.view", "calendar.manage"],
+    risk: "update",
     fields: [],
   },
   {
@@ -2081,6 +2155,20 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capabilityAlts: ["buyers.view_own", "properties.view", "calendar.manage"],
     risk: "create",
     fields: [F_SUPPORT_KIND, F_SUPPORT_MESSAGE],
+  },
+  {
+    id: "show_support_tickets",
+    title: "הפניות שלי לתמיכה",
+    when: "שאלה על פניות תמיכה שנפתחו — מה מצבן ומה נענה.",
+    examples: [
+      "מה קורה עם הפנייה שפתחתי לתמיכה",
+      "יש תשובה מהתמיכה?",
+      "תראה לי את הפניות שלי לתמיכה",
+    ],
+    capability: "leads.view_own",
+    capabilityAlts: ["buyers.view_own", "properties.view", "calendar.manage"],
+    risk: "read",
+    fields: [],
   },
   {
     /*

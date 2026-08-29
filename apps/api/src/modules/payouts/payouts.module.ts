@@ -10,5 +10,6 @@ import { PayoutsService } from "./payouts.service";
 @Module({
   controllers: [PayoutsController, PayoutDeskController],
   providers: [PayoutsService],
+  exports: [PayoutsService],
 })
 export class PayoutsModule {}
