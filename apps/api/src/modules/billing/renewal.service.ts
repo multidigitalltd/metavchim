@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ulid } from "ulid";
-import { BILLING_GRACE_DAYS, RENEWAL_WARN_WITHIN_DAYS, accessUntil, billingAnchorDay, describeCycle, effectiveCyclePriceAgorot, formatIsraeliNumber, formatJerusalemDate, isBillingCycle, nextPeriodEnd, periodDaysLeft, type BillingCycle } from "@metavchim/shared";
+import { BILLING_GRACE_DAYS, RENEWAL_WARN_WITHIN_DAYS, accessUntil, billingAnchorDay, describeCycle, effectiveCyclePriceAgorot, formatJerusalemDate, isBillingCycle, nextPeriodEnd, periodDaysLeft, shekels, type BillingCycle } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { CardcomService } from "../../core/cardcom.service";
 import { VatService } from "../../core/vat.service";
@@ -201,10 +201,16 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
      * בדיוק המקרה שהתזכורת נועדה למנוע.
      */
     const amountAgorot = netAgorot === null ? null : await this.vat.gross(netAgorot);
-    const amount =
-      amountAgorot !== null
-        ? `${formatIsraeliNumber(Math.round(amountAgorot / 100))} ₪ (כולל מע"מ)`
-        : "";
+    /*
+     * ‎**באגורות, ולא מעוגל לשקל.**
+     *
+     * מע"מ על מחירון נטו כמעט תמיד מייצר אגורות: 149 ₪ נטו הם
+     * 175.82 ₪ בפועל. `Math.round` הפך את זה ל„176 ₪” — כלומר
+     * ההודעה שכל תכליתה לומר מה בדיוק יירד מהכרטיס נקבה במספר
+     * שאינו זה שיירד (ביקורת Codex). `shekels` המשותפת שומרת עד
+     * שתי ספרות, ומספר עגול נשאר עגול.
+     */
+    const amount = amountAgorot !== null ? `${shekels(amountAgorot)} ₪ (כולל מע"מ)` : "";
 
     await this.email.send(payer.email, "המנוי מתחדש בקרוב", {
       heading: "תזכורת לפני חידוש",
