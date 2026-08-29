@@ -16,6 +16,7 @@ import {
 import { TenantContext } from "../../common/tenant-context";
 import { BuyersService } from "../buyers/buyers.service";
 import { CollaborationService } from "../collaboration/collaboration.service";
+import { DealRoomService } from "../collaboration/deal-room.service";
 import { ListingsService } from "../collaboration/listings.service";
 import { SearchService } from "../search/search.service";
 import { TasksService } from "../tasks/tasks.service";
@@ -54,6 +55,7 @@ export class AgentResolveService {
     private readonly tasks: TasksService,
     private readonly collaboration: CollaborationService,
     private readonly listings: ListingsService,
+    private readonly dealRooms: DealRoomService,
   ) {}
 
   async toProposal(
@@ -605,13 +607,52 @@ export class AgentResolveService {
      * קומץ פניות ממתינות, ובורר מלא עדיף על „לא נמצא” שמסתיר
      * בדיוק את מה שהמתווך מנסה לאשר.
      */
+    /*
+     * ‎**פיד הרשת — ההיצע הוא הפיד עצמו, לא חיפוש טקסט במאגר.**
+     *
+     * ביקוש ומודעה של משרד אחר אינם רשומות שלנו: אין להם שם, יש
+     * להם תיאור. ההתאמה נעשית מול הטקסט שהמתווך רואה בפיד (עיר,
+     * כותרת, שם המשרד), ומה שלא נתפס בביטוי מציג את הפיד כולו —
+     * בורר עדיף על „לא נמצא” כשהרשימה קצרה ממילא.
+     */
+    if (kind === "demand") {
+      const feed = await this.collaboration.listDemands();
+      const options = feed
+        .filter((row) => row.mine !== true)
+        .map((row) => ({
+          id: row.id,
+          label:
+            [row.cities.join(" / "), roomsLabel(row.roomsMin, row.roomsMax)]
+              .filter((part) => part !== "")
+              .join(" · ") || "ביקוש ברשת",
+          detail: row.officeName ?? "משרד ברשת",
+        }));
+      return narrowByPhrase(options, phrase);
+    }
+    if (kind === "listing") {
+      const feed = await this.listings.list();
+      const options = feed.map((row) => ({
+        id: row.id,
+        label:
+          row.title ??
+          [row.propertyType, row.neighborhood, row.city].filter(Boolean).join(", ") ??
+          "נכס ברשת",
+        detail: [row.city, roomsLabel(row.rooms, row.rooms)].filter(Boolean).join(" · "),
+      }));
+      return narrowByPhrase(options, phrase);
+    }
+    if (kind === "deal") {
+      const deals = await this.dealRooms.list();
+      const options = deals.map((deal) => ({
+        id: deal.id,
+        label: deal.title,
+        detail: `מול ${deal.counterpartOffice}`,
+      }));
+      return narrowByPhrase(options, phrase);
+    }
+
     if (kind === "approach") {
-      const all = await this.pendingApproaches();
-      const needle = phrase.toLowerCase();
-      const matched = all.filter((option) =>
-        `${option.label} ${option.detail ?? ""}`.toLowerCase().includes(needle),
-      );
-      return (matched.length > 0 ? matched : all).slice(0, 9);
+      return narrowByPhrase(await this.pendingApproaches(), phrase);
     }
 
     const results = await this.search.search(phrase);
@@ -780,6 +821,8 @@ const DATE_FIELD: Record<string, string | undefined> = {
   // המועד **החדש** — הפגישה עצמה נבחרת לפי הלקוח, לא לפי תאריך
   reschedule_appointment: "startsAt",
   create_property: "entryDate",
+  // „מהיום” כברירת מחדל; „מהראשון לחודש” נתפס כאן
+  start_exclusivity: "startsAt",
   update_property: "entryDate",
   create_buyer: "entryBy",
   update_buyer: "entryBy",
@@ -811,7 +854,10 @@ type LookupKind =
   | "card"
   | "anyCard"
   | "user"
-  | "approach";
+  | "approach"
+  | "demand"
+  | "listing"
+  | "deal";
 
 /**
  * צורת המזהה שהפעולה מצפה לה, לפי סוג החיפוש.
@@ -837,6 +883,30 @@ function entityRefId(kind: LookupKind, ref: AgentHistoryRef): string | null {
     return allowed.includes(ref.entityType) ? `${ref.entityType}:${ref.entityId}` : null;
   }
   return kind === ref.entityType ? ref.entityId : null;
+}
+
+/**
+ * ‎**בורר על פיד, לא על מאגר.** רשומות של משרד אחר אינן נמצאות
+ * בחיפוש שלנו — הן מגיעות כרשימה קצרה, וההתאמה היא מול הטקסט
+ * שהמתווך רואה. ביטוי שלא תפס אף שורה מציג את הרשימה כולה: בורר
+ * מלא עדיף על „לא נמצא” כשיש קומץ אפשרויות ממילא.
+ */
+function narrowByPhrase(
+  options: readonly AgentCandidate[],
+  phrase: string,
+): AgentCandidate[] {
+  const needle = phrase.trim().toLowerCase();
+  const matched = options.filter((option) =>
+    `${option.label} ${option.detail ?? ""}`.toLowerCase().includes(needle),
+  );
+  return (matched.length > 0 ? matched : [...options]).slice(0, 9);
+}
+
+/** „3–4 חדרים” / „4 חדרים” — ריק כשאין טווח. */
+function roomsLabel(min: number | undefined, max: number | undefined): string {
+  if (min === undefined && max === undefined) return "";
+  if (min !== undefined && max !== undefined && min !== max) return `${min}–${max} חדרים`;
+  return `${min ?? max} חדרים`;
 }
 
 interface LookupSpec {
@@ -1041,6 +1111,54 @@ const ENTITY_LOOKUP: Record<
     kind: "card",
     alwaysChoose: true,
   },
+  /*
+   * הצד היוצר של הרשת. הרשומה של הצד השני נבחרת במפורש תמיד —
+   * הצעה או פנייה יוצאת ממני אל משרד אחר, ואסור שתלך אל „ההתאמה
+   * היחידה” שאיש לא ראה.
+   */
+  offer_to_demand: {
+    key: "demandPhrase",
+    idKey: "demandId",
+    label: "לאיזה ביקוש",
+    kind: "demand",
+    alwaysChoose: true,
+    also: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס להציע", kind: "property" },
+  },
+  express_interest: {
+    key: "listingPhrase",
+    idKey: "listingId",
+    label: "איזה נכס ברשת",
+    kind: "listing",
+    alwaysChoose: true,
+    also: { key: "buyerPhrase", idKey: "buyerId", label: "בשביל איזה קונה", kind: "buyer" },
+  },
+  post_deal_message: {
+    key: "dealPhrase",
+    idKey: "dealId",
+    label: "באיזו עסקה",
+    kind: "deal",
+    alwaysChoose: true,
+  },
+  move_deal_stage: {
+    key: "dealPhrase",
+    idKey: "dealId",
+    label: "איזו עסקה",
+    kind: "deal",
+  },
+  // שליחה לכל המתאימים — נכס אחד, והרבה נמענים: בחירה מפורשת תמיד
+  send_offers_bulk: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "איזה נכס לשלוח",
+    kind: "property",
+    alwaysChoose: true,
+  },
+  start_exclusivity: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "על איזה נכס",
+    kind: "property",
+  },
   open_deal_room: {
     key: "approachPhrase",
     idKey: "approachId",
@@ -1228,6 +1346,12 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   reschedule_appointment: ["startsAt"],
   send_message: ["messageBody"],
   message_owner: ["messageBody"],
+  post_deal_message: ["messageBody"],
+  // אחוז העמלה נראה בכרטיס לפני האישור — תנאי מסחרי אינו מאושר בעיוורון
+  offer_to_demand: ["commissionSplit"],
+  express_interest: ["commissionSplit"],
+  start_exclusivity: ["exclusivitySubject", "exclusivityMonths"],
+  move_deal_stage: ["dealStage"],
   open_support_ticket: ["supportMessage"],
   create_task: ["title"],
   create_recurring_task: ["title"],

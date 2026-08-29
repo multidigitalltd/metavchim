@@ -15,6 +15,11 @@ import {
   formatJerusalemDate,
   formatJerusalemTime,
   TASK_PRIORITIES,
+  COOP_DEAL_STAGE_LABELS,
+  DEFAULT_COMMISSION_SPLIT,
+  addMonths,
+  MIN_COMMISSION_SHARE,
+  MAX_COMMISSION_SHARE,
   type TaskPriority,
   whatsappLink,
   jerusalemWallParts,
@@ -471,6 +476,18 @@ export class AgentExecuteService {
         return this.callContact(params);
       case "send_intake_form":
         return this.sendIntakeForm(params);
+      case "offer_to_demand":
+        return this.offerToDemand(params);
+      case "express_interest":
+        return this.expressInterest(params);
+      case "post_deal_message":
+        return this.postDealMessage(params);
+      case "move_deal_stage":
+        return this.moveDealStage(params);
+      case "send_offers_bulk":
+        return this.sendOffersBulk(params);
+      case "start_exclusivity":
+        return this.startExclusivity(params);
       case "open_support_ticket":
         return this.openSupportTicket(params);
       case "set_preference":
@@ -2298,6 +2315,144 @@ export class AgentExecuteService {
     };
   }
 
+  /**
+   * ‎**הצעת נכס לביקוש של משרד אחר** — הצד היוצר של הרשת. אותו
+   * שירות של כפתור „הצע נכס” בפיד, כולל בדיקת היתרה: הצעה לביקוש
+   * ממקור חיצוני עולה קרדיטים, והשירות הוא שאוכף.
+   */
+  private async offerToDemand(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const demandId = str(params["demandId"]);
+    if (demandId === undefined) throw new BadRequestException("לא נבחר ביקוש");
+    const propertyId = str(params["propertyId"]);
+    if (propertyId === undefined) {
+      throw new BadRequestException("אמרו איזה נכס להציע לביקוש הזה");
+    }
+    const split = commissionSplitOf(params);
+    await this.collaboration.offerProperty(demandId, propertyId, split);
+    return {
+      href: "/collaboration",
+      message: `ההצעה נשלחה למשרד שפרסם את הביקוש, בחלוקת עמלה של ${split}%. תקבלו התראה כשיענו.`,
+    };
+  }
+
+  /** הכיוון ההפוך: קונה שלי מול מודעה של משרד אחר. */
+  private async expressInterest(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const listingId = str(params["listingId"]);
+    if (listingId === undefined) throw new BadRequestException("לא נבחר נכס מהרשת");
+    const buyerId = str(params["buyerId"]);
+    if (buyerId === undefined) {
+      throw new BadRequestException("אמרו בשביל איזה קונה — פנייה יוצאת בשם לקוח מסוים");
+    }
+    const split = commissionSplitOf(params);
+    await this.listings.expressInterest(listingId, buyerId, split);
+    return {
+      href: "/collaboration",
+      message: `ההתעניינות נשלחה למשרד שפרסם את הנכס, בחלוקת עמלה של ${split}%. תקבלו התראה כשיענו.`,
+    };
+  }
+
+  /** הודעה בחדר העסקה — יוצאת למשרד השני, כמו מהמסך. */
+  private async postDealMessage(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const dealId = str(params["dealId"]);
+    if (dealId === undefined) throw new BadRequestException("לא נבחרה עסקה");
+    const body = str(params["messageBody"])?.trim();
+    if (body === undefined || body === "") {
+      throw new BadRequestException("אמרו מה לכתוב בחדר העסקה");
+    }
+    await this.dealRooms.post(dealId, body);
+    return {
+      href: `/collaboration?tab=deals`,
+      message: "ההודעה נכתבה בחדר העסקה — המשרד השני רואה אותה ומקבל התראה.",
+    };
+  }
+
+  /** קידום שלב — אותה אכיפת מעברים של המסך (צעד אחד בכל פעם). */
+  private async moveDealStage(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const dealId = str(params["dealId"]);
+    if (dealId === undefined) throw new BadRequestException("לא נבחרה עסקה");
+    const stage = str(params["dealStage"]);
+    /*
+     * ‎`cancelled` אינו בקטלוג ואינו מתקבל גם אם הגיע: סגירת עסקה
+     * שלא יצאה לפועל היא מצב סופי שאין ממנו חזרה, והיא נשארת במסך.
+     */
+    if (stage !== "contact" && stage !== "viewing" && stage !== "negotiation" && stage !== "signed") {
+      throw new BadRequestException(
+        "אמרו לאיזה שלב — יצירת קשר, סיור, משא ומתן או נחתם",
+      );
+    }
+    await this.dealRooms.move(dealId, stage);
+    return {
+      href: `/collaboration?tab=deals`,
+      message: `העסקה עודכנה לשלב „${COOP_DEAL_STAGE_LABELS[stage]}” — המשרד השני רואה את העדכון.`,
+    };
+  }
+
+  /**
+   * ‎**שליחה מרובה — המספר הוא התשובה.** „נשלח לכולם” בלי מספר
+   * אינו מאפשר לזהות שקונים דולגו, ולכן הספירה היא ההודעה.
+   */
+  private async sendOffersBulk(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = str(params["propertyId"]);
+    if (propertyId === undefined) throw new BadRequestException("לא נבחר נכס לשליחה");
+    const said = num(params["minScore"]);
+    const minScore = said !== undefined && said >= 1 && said <= 100 ? said : BULK_MIN_SCORE;
+    const { created, skipped, awaitingSignature } = await this.offers.createBulk(
+      propertyId,
+      minScore,
+    );
+    if (created === 0 && skipped === 0) {
+      return {
+        href: "/matches",
+        message: `אין התאמות מעל ${minScore}% לנכס הזה — לא נשלחה אף הצעה`,
+      };
+    }
+    const parts = [`נשלחו ${created} הצעות (התאמה מעל ${minScore}%)`];
+    if (skipped > 0) parts.push(`${skipped} דולגו — כבר נשלחה להם הצעה על הנכס`);
+    if (awaitingSignature.length > 0) {
+      parts.push(
+        `${awaitingSignature.length} ממתינים לחתימה על הזמנה בכתב — הקישורים מחכים במסך ההתאמות`,
+      );
+    }
+    return { href: "/offers", message: parts.join(". ") };
+  }
+
+  /**
+   * פתיחת תקופת בלעדיות — הישות המוסדרת, לא הדגל שב-`update_property`.
+   * התקרה החוקית (סעיף 9(ב)) נאכפת בשירות, כמו מהמסך.
+   */
+  private async startExclusivity(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = str(params["propertyId"]);
+    if (propertyId === undefined) throw new BadRequestException("לא נבחר נכס");
+    const subject = str(params["exclusivitySubject"]) === "other" ? "other" : "apartment";
+    const months = num(params["exclusivityMonths"]);
+    if (months === undefined || months < 1) {
+      throw new BadRequestException("אמרו לכמה חודשים — למשל „לשלושה חודשים”");
+    }
+    // „מהיום” כברירת מחדל: בלעדיות שנחתמה נכנסת לתוקף עכשיו
+    const startsAt = date(params["startsAt"]) ?? new Date();
+    /*
+     * ‎`addMonths` המשותפת ולא חשבון חודשים מקומי: היא מטפלת בחודש
+     * קצר (31 בינואר + חודש) ואינה נוגעת בשעון המכשיר — אותה
+     * פונקציה בדיוק שמחשבת את פקיעת הקרדיטים.
+     */
+    const endsAt = addMonths(startsAt, months);
+    const exclusivity = await this.exclusivity.start(propertyId, {
+      subject,
+      startsAt,
+      endsAt,
+      /*
+       * ‎`false` — פעולת שיווק שסוכמה בחוזה אינה נאמרת בדיבור: היא
+       * סעיף בהסכם החתום, ומי שמסמן אותה עושה זאת מול המסמך.
+       */
+      agreedCustomAction: false,
+    });
+    return {
+      href: `/properties/${propertyId}`,
+      message: `הבלעדיות נפתחה עד ${formatJerusalemDate(endsAt)}. חשוב לתעד פעולות שיווק — אפשר לומר לי „תליתי שלט”.`,
+      data: { id: exclusivity.id },
+    };
+  }
+
   /** פנייה לתמיכה — אותו שירות ואותו מיון כמו כפתור התמיכה במסך. */
   private async openSupportTicket(params: Record<string, unknown>): Promise<ExecuteResult> {
     const message = str(params["supportMessage"])?.trim();
@@ -2722,6 +2877,24 @@ export class AgentExecuteService {
 
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
+}
+
+/** סף ההתאמה לשליחה מרובה כשלא נאמר — אותו סף שהמסך מציע. */
+const BULK_MIN_SCORE = 60;
+
+/**
+ * חלוקת העמלה שנאמרה, או ברירת המחדל.
+ *
+ * ערך מחוץ לתחום החוקי אינו „מתוקן” לגבול הקרוב: הוא נופל לברירת
+ * המחדל, כי מספר שהמתווך לא אמר עדיף על מספר ששונה בשקט בתנאי
+ * עסקה.
+ */
+function commissionSplitOf(params: Record<string, unknown>): number {
+  const said = num(params["commissionSplit"]);
+  if (said === undefined) return DEFAULT_COMMISSION_SPLIT;
+  return said >= MIN_COMMISSION_SHARE && said <= MAX_COMMISSION_SHARE
+    ? said
+    : DEFAULT_COMMISSION_SPLIT;
 }
 
 function num(value: unknown): number | undefined {

@@ -76,6 +76,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
     label: "הצעות והחתמה",
     ids: [
       "send_offer",
+      "send_offers_bulk",
       "send_agreement",
       "send_email",
       "send_message",
@@ -87,10 +88,13 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "show_emails",
     ],
   },
-  { label: "בלעדיות", ids: ["show_exclusivity", "log_marketing_action"] },
+  {
+    label: "בלעדיות",
+    ids: ["show_exclusivity", "start_exclusivity", "log_marketing_action"],
+  },
   {
     label: "רשת המשרדים",
-    ids: ["share_property", "share_buyer", "show_demands", "show_deals", "show_credits", "open_deal_room", "show_network_listings", "show_network_inbox"],
+    ids: ["share_property", "share_buyer", "show_demands", "show_deals", "show_credits", "open_deal_room", "show_network_listings", "show_network_inbox", "offer_to_demand", "express_interest", "post_deal_message", "move_deal_stage"],
   },
   { label: "עזרה", ids: ["open_support_ticket", "set_preference"] },
 ];

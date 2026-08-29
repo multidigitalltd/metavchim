@@ -79,14 +79,20 @@ export const AGENT_ACTION_IDS = [
   "share_property",
   "share_buyer",
   "send_offer",
+  "send_offers_bulk",
   "send_agreement",
   "show_exclusivity",
+  "start_exclusivity",
   "log_marketing_action",
   "show_agreements",
   "show_offers",
   "show_demands",
   "show_network_listings",
   "show_network_inbox",
+  "offer_to_demand",
+  "express_interest",
+  "post_deal_message",
+  "move_deal_stage",
   "show_notifications",
   "show_emails",
   "dismiss_match",
@@ -297,6 +303,48 @@ const F_BUYER_PHRASE: AgentFieldSpec = {
   label: "איזה לקוח",
   type: "string",
   hint: "השם או התיאור שנאמר, כפי שנאמר",
+  maxLength: 200,
+};
+
+/**
+ * חלוקת העמלה מול המשרד השני, באחוזים.
+ *
+ * מוצהר זהה בשתי הפעולות שמסכמות תנאים (הצעה לביקוש, התעניינות
+ * במודעה) — הקטלוג אוכף שמפתח משותף מוצהר אותו דבר בכולן.
+ */
+const F_COMMISSION_SPLIT: AgentFieldSpec = {
+  key: "commissionSplit",
+  label: "אחוז העמלה שלי",
+  type: "integer",
+  hint: 'ברירת המחדל 50 ("חצי חצי"). מותר 33 עד 67',
+  min: 33,
+  max: 67,
+};
+
+/** ביקוש שמשרד אחר פרסם ברשת — כפי שהוא מתואר בפיד. */
+const F_DEMAND_PHRASE: AgentFieldSpec = {
+  key: "demandPhrase",
+  label: "איזה ביקוש",
+  type: "string",
+  hint: "מה שנאמר על הביקוש — עיר, חדרים או שם המשרד שפרסם",
+  maxLength: 200,
+};
+
+/** מודעת נכס שמשרד אחר פרסם ברשת. */
+const F_LISTING_PHRASE: AgentFieldSpec = {
+  key: "listingPhrase",
+  label: "איזה נכס ברשת",
+  type: "string",
+  hint: "מה שנאמר על המודעה — עיר, כותרת או שם המשרד שפרסם",
+  maxLength: 200,
+};
+
+/** חדר עסקה משותף קיים. */
+const F_DEAL_PHRASE: AgentFieldSpec = {
+  key: "dealPhrase",
+  label: "איזו עסקה",
+  type: "string",
+  hint: "מה שנאמר על העסקה — הנכס או שם המשרד השני",
   maxLength: 200,
 };
 
@@ -878,6 +926,85 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
   },
   {
     /*
+     * ‎**הצד היוצר של הרשת** — עד כה הפיד היה קריאה בלבד: אפשר היה
+     * לשאול „מה מבוקש” ולא לענות על זה. `outbound` לא רק כי היא
+     * יוצאת למשרד אחר, אלא כי הצעה לביקוש ממקור חיצוני עולה
+     * קרדיטים — היא סוגרת תנאים מסחריים.
+     */
+    id: "offer_to_demand",
+    title: "הצעת נכס לביקוש ברשת",
+    when: "הצעת נכס שלי לביקוש שמשרד אחר פרסם ברשת. לשאלה מה מבוקש יש „ביקושים ברשת”.",
+    examples: [
+      "תציע את הדירה בהרב שך לביקוש של משרד כהן",
+      "יש לי נכס מתאים לביקוש בגבעתיים — תציע אותו",
+      "תציע את הפנטהאוז לביקוש של 5 חדרים בנתניה",
+    ],
+    capability: "collaboration.offer",
+    risk: "outbound",
+    fields: [F_DEMAND_PHRASE, F_PROPERTY_PHRASE, F_COMMISSION_SPLIT],
+  },
+  {
+    id: "express_interest",
+    title: "התעניינות בנכס ברשת",
+    when: "הבעת התעניינות בנכס שמשרד אחר פרסם ברשת, בשם קונה שלי. לשאלה מה יש ברשת יש „נכסים ברשת”.",
+    examples: [
+      "תביע התעניינות בדירה שברשת בגבעתיים בשביל משה כהן",
+      "הנכס ברמת גן שברשת מתאים למשפחת לוי — תפנה אליהם",
+      "תגיד למשרד שפרסם את הפנטהאוז שיש לי קונה",
+    ],
+    capability: "collaboration.share",
+    risk: "outbound",
+    fields: [F_LISTING_PHRASE, F_BUYER_PHRASE, F_COMMISSION_SPLIT],
+  },
+  {
+    id: "post_deal_message",
+    title: "הודעה בחדר עסקה",
+    when: "כתיבת הודעה בחדר עסקה משותף — מה שנאמר נשלח למשרד השני. לרשימת החדרים יש „עסקאות שת״פ”.",
+    examples: [
+      "תכתוב בחדר העסקה עם משרד לוי שהלקוח מאשר את המחיר",
+      "תעדכן בחדר העסקה על הדירה ברמת גן שנקבע סיור למחר",
+      "תשלח למשרד השני בחדר העסקה שאנחנו ממתינים לתשובה",
+    ],
+    capability: "collaboration.offer",
+    capabilityAlts: ["collaboration.share"],
+    risk: "outbound",
+    fields: [F_DEAL_PHRASE, F_MESSAGE_BODY],
+  },
+  {
+    /*
+     * ‎**„לא יצא לפועל” אינו נאמר בדיבור.** סגירת עסקה היא מצב סופי
+     * שאי אפשר לפתוח ממנו מחדש, ולכן היא נשארת במסך — כמו כל פעולה
+     * שאין ממנה חזרה. „נחתם” כן: זו הבשורה שמדווחים עליה מהשטח.
+     */
+    id: "move_deal_stage",
+    title: "קידום עסקה משותפת",
+    when: "העברת עסקה משותפת לשלב הבא — יצירת קשר, סיור, משא ומתן או נחתם. סגירת עסקה שלא יצאה לפועל נעשית במסך.",
+    examples: [
+      "תעביר את העסקה עם משרד כהן לשלב משא ומתן",
+      "העסקה על הדירה ברמת גן נחתמה",
+      "היה סיור בעסקה המשותפת — תעדכן",
+    ],
+    capability: "collaboration.offer",
+    capabilityAlts: ["collaboration.share"],
+    risk: "update",
+    fields: [
+      F_DEAL_PHRASE,
+      {
+        key: "dealStage",
+        label: "שלב",
+        type: "enum",
+        values: ["contact", "viewing", "negotiation", "signed"],
+        valueLabels: {
+          contact: "יצירת קשר",
+          viewing: "סיור בנכס",
+          negotiation: "משא ומתן",
+          signed: "נחתם",
+        },
+      },
+    ],
+  },
+  {
+    /*
      * ‎**חדר עסקה נפתח באישור פנייה** — אין „פתיחה” נפרדת במערכת:
      * המסך עושה בדיוק את זה בכפתור האישור, והסוכן קורא לאותו
      * שירות. `outbound` — האישור מודיע למשרד השני ופותח חדר משותף.
@@ -1357,6 +1484,34 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
    * הלקוח היא מפורשת תמיד, גם כשיש התאמה אחת.
    */
   {
+    /*
+     * ‎**שליחה מרובה — הפעולה שהמספר בה הוא כל הסיפור.** ההודעה
+     * אומרת לכמה נשלח בפועל וכמה דולגו, כי „נשלח לכולם” בלי מספר
+     * אינו מאפשר לזהות ששלושה קונים לא קיבלו כלום.
+     */
+    id: "send_offers_bulk",
+    title: "שליחת הצעה לכל המתאימים",
+    when: "שליחת נכס אחד לכל הקונים שמתאימים לו מעל סף ההתאמה. לשליחה לקונה אחד יש „שליחת הצעה”.",
+    examples: [
+      "תשלח את הדירה ברמת גן לכל הקונים המתאימים",
+      "תפיץ את הפנטהאוז לכל מי שמתאים מעל 70 אחוז",
+      "שלח הצעה על הנכס בהרב שך לכל ההתאמות",
+    ],
+    capability: "offers.send",
+    risk: "outbound",
+    fields: [
+      F_PROPERTY_PHRASE,
+      {
+        key: "minScore",
+        label: "סף התאמה",
+        type: "integer",
+        hint: 'באחוזים; ברירת המחדל 60 ("מעל 70 אחוז" ⇒ 70)',
+        min: 1,
+        max: 100,
+      },
+    ],
+  },
+  {
     id: "send_agreement",
     title: "קישור לחתימה על הזמנה בכתב",
     when: "הפקת קישור חתימה על הזמנה בכתב (הסכם תיווך) ללקוח על נכס מסוים. בחר בפעולה הזו כשמבקשים „קישור לחתימה”, „להחתים” או „הזמנה בכתב”. אין לבחור בה להסכם בלעדיות.",
@@ -1397,6 +1552,47 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
    * הבלעדיות מעבר לשליש, והוא נעשה בשטח — תולים שלט, מפרסמים — ולא
    * ליד המחשב. זו בדיוק פעולה שחייבת לעבוד מוואטסאפ.
    */
+  {
+    /*
+     * ‎**הבלעדיות כישות, לא כדגל.** ל-`update_property` יש `exclusive`
+     * בוליאני, והוא אינו יוצר את הרשומה המוסדרת ש„מה בסיכון” ותיעוד
+     * פעולות השיווק נשענים עליה. בלי הפעולה הזו אי אפשר היה לפתוח
+     * תקופת בלעדיות מהסוכן כלל.
+     *
+     * התקרה החוקית (סעיף 9(ב)) נאכפת בשירות ולא כאן — אותה אכיפה
+     * בדיוק כמו מהמסך.
+     */
+    id: "start_exclusivity",
+    title: "פתיחת בלעדיות",
+    when: "פתיחת תקופת בלעדיות מוסדרת על נכס — „קיבלתי בלעדיות”. לשאלה מה מסתיים יש „בלעדיות — מה בסיכון”.",
+    examples: [
+      "קיבלתי בלעדיות על הדירה ברמת גן לשלושה חודשים",
+      "תפתח בלעדיות על הפנטהאוז בנתניה עד סוף השנה",
+      "חתמנו בלעדיות על הנכס בהרב שך לחצי שנה",
+    ],
+    capability: "properties.edit",
+    risk: "create",
+    fields: [
+      F_PROPERTY_PHRASE,
+      {
+        key: "exclusivitySubject",
+        label: "סוג הנכס לעניין החוק",
+        type: "enum",
+        hint: "דירה = עד 6 חודשים; מקרקעין אחרים = עד 12",
+        values: ["apartment", "other"],
+        valueLabels: { apartment: "דירה", other: "מקרקעין שאינם דירה" },
+      },
+      {
+        key: "exclusivityMonths",
+        label: "לכמה חודשים",
+        type: "integer",
+        hint: '„לשלושה חודשים” ⇒ 3. בדירה עד 6, במקרקעין אחרים עד 12',
+        min: 1,
+        max: 12,
+      },
+    ],
+    resolved: [{ key: "startsAt", label: "מתחילה" }],
+  },
   {
     id: "log_marketing_action",
     title: "תיעוד פעולת שיווק",
@@ -1785,6 +1981,12 @@ export const AGENT_ID_KEYS = [
   "assigneeId",
   /** הפנייה מהרשת שנבחרה לאישור (`open_deal_room`) */
   "approachId",
+  /** הביקוש ברשת שמציעים לו נכס (`offer_to_demand`) */
+  "demandId",
+  /** המודעה ברשת שמתעניינים בה (`express_interest`) */
+  "listingId",
+  /** חדר העסקה שמדברים בו (`post_deal_message`, `move_deal_stage`) */
+  "dealId",
 ] as const;
 
 const BY_ID = new Map(AGENT_ACTIONS.map((action) => [action.id, action]));
