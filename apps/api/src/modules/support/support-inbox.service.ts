@@ -15,7 +15,7 @@ import {
   inboundBody,
   inboundProviderMessageId,
   inboundToken,
-  isProviderInboundRoute,
+  supportFromAddress,
   parseSenderEmail,
   parseSenderName,
   referenceFromSubject,
@@ -695,11 +695,9 @@ export class SupportInboxService {
            * מזמינה את הפונה להשיב לכתובת שאיש אינו קורא, ומאבדת
            * את השרשור שה-Reply-To בנה (ביקורת Codex).
            */
-          ...(config === null
-            ? {}
-            : await this.sender(config.address).then((sender) =>
-                sender === null ? {} : { sender },
-              )),
+          ...(await this.sender(config?.address ?? null).then((sender) =>
+            sender === null ? {} : { sender },
+          )),
           ...(replyTo !== null ? { replyTo } : {}),
           ...(attachments.length > 0
             ? {
@@ -776,9 +774,19 @@ export class SupportInboxService {
     sender: { from: string; token?: string | undefined } | null;
     replyTo: string | null;
   }> {
+    /*
+     * ‎**השולח אינו תלוי בהגדרת הקליטה.**
+     *
+     * קודם `config === null` החזיר `null` בשניהם, ולכן כל עוד סוד
+     * ה-Webhook לא הוגדר — התשובות יצאו מ-`no_reply` **גם** כשכתובת
+     * שירות מוגדרת. שני הדברים אינם קשורים: „מאיפה זה יוצא” היא
+     * שאלה על השולח, „לאן זה חוזר” היא שאלה על הקליטה.
+     */
     const config = await this.config();
-    if (config === null) return { sender: null, replyTo: null };
-    return { sender: await this.sender(config.address), replyTo: config.address };
+    return {
+      sender: await this.sender(config?.address ?? null),
+      replyTo: config?.address ?? null,
+    };
   }
 
   /**
@@ -794,11 +802,16 @@ export class SupportInboxService {
    * מי שהגדיר כתובת בדומיין שלו ואימת אותו ממשיך לשלוח ממנה.
    */
   private async sender(
-    address: string,
+    inboundAddress: string | null,
   ): Promise<{ from: string; token?: string | undefined } | null> {
-    if (isProviderInboundRoute(address)) return null;
+    const from = supportFromAddress({
+      supportEmail: await this.settings.get("supportEmail"),
+      inboundAddress,
+      globalFrom: (await this.settings.get("emailFrom")) ?? loadEnv().EMAIL_FROM,
+    });
+    if (from === null) return null;
     const token = (await this.settings.get("supportServerToken")) ?? "";
-    return { from: `תמיכה מתווכים <${address}>`, ...(token === "" ? {} : { token }) };
+    return { from: `תמיכה מתווכים <${from}>`, ...(token === "" ? {} : { token }) };
   }
 
   /** סגירה ופתיחה מחדש — הסטטוס הוא מה שמסדר את הרשימה. */

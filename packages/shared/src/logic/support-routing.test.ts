@@ -5,6 +5,7 @@ import {
   inboundDestination,
   referenceFromSubject,
   subjectWithReference,
+  supportFromAddress,
 } from "./support-routing.js";
 
 describe("לאן הודעה נכנסת הולכת", () => {
@@ -150,5 +151,88 @@ describe("מספר הפנייה", () => {
 
   it("הזוג סוגר מעגל", () => {
     expect(referenceFromSubject(subjectWithReference("שאלה על החשבונית", 993))).toBe(993);
+  });
+});
+
+describe("מאיזו כתובת יוצא דואר התמיכה", () => {
+  const GLOBAL = "no_reply@metavchim.co.il";
+  const POSTMARK = "abc123def@inbound.postmarkapp.com";
+
+  it("כתובת השירות מנצחת — זה מה שהמשתמש הגדיר", () => {
+    /*
+     * המקרה שהוליד את התיקון: כתובת שירות מוגדרת, כתובת הקליטה היא
+     * נתיב של Postmark, והתשובות יצאו מ-`no_reply`.
+     */
+    expect(
+      supportFromAddress({
+        supportEmail: "service@metavchim.co.il",
+        inboundAddress: POSTMARK,
+        globalFrom: GLOBAL,
+      }),
+    ).toBe("service@metavchim.co.il");
+  });
+
+  it("גם כשהקליטה כלל לא הוגדרה", () => {
+    // „מאיפה זה יוצא” אינה שאלה על הקליטה
+    expect(
+      supportFromAddress({
+        supportEmail: "service@metavchim.co.il",
+        inboundAddress: null,
+        globalFrom: GLOBAL,
+      }),
+    ).toBe("service@metavchim.co.il");
+  });
+
+  it("דומיין שאינו מאומת נדחה — שליחה שנכשלת גרועה משורת „מאת” לא אידיאלית", () => {
+    expect(
+      supportFromAddress({
+        supportEmail: "service@example.com",
+        inboundAddress: POSTMARK,
+        globalFrom: GLOBAL,
+      }),
+    ).toBeNull();
+  });
+
+  it("נתיב קליטה של הספק אינו שולח, גם ככתובת שירות", () => {
+    expect(
+      supportFromAddress({
+        supportEmail: POSTMARK,
+        inboundAddress: POSTMARK,
+        globalFrom: GLOBAL,
+      }),
+    ).toBeNull();
+  });
+
+  it("בלי כתובת שירות — כתובת קליטה שהיא תיבה אמיתית", () => {
+    /*
+     * משרד שהגדיר דומיין משלו ואימת אותו ממשיך לשלוח ממנו, גם אם
+     * הוא אינו הדומיין של השולח הכללי.
+     */
+    expect(
+      supportFromAddress({
+        supportEmail: "",
+        inboundAddress: "tmicha@office.co.il",
+        globalFrom: GLOBAL,
+      }),
+    ).toBe("tmicha@office.co.il");
+  });
+
+  it("אין כלום — נשארים עם השולח הכללי", () => {
+    expect(
+      supportFromAddress({ supportEmail: null, inboundAddress: null, globalFrom: GLOBAL }),
+    ).toBeNull();
+    expect(
+      supportFromAddress({ supportEmail: "service@x.co.il", inboundAddress: null, globalFrom: "" }),
+    ).toBeNull();
+  });
+
+  it("רווחים ואותיות גדולות אינם משנים את ההכרעה", () => {
+    expect(
+      supportFromAddress({
+        supportEmail: "  Service@Metavchim.CO.IL  ",
+        inboundAddress: POSTMARK,
+        globalFrom: "no_reply@metavchim.co.il",
+      }),
+    ).toBe("Service@Metavchim.CO.IL");
   });
 });
