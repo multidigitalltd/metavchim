@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { useScrollAffordance } from "@/lib/use-scroll-affordance";
 import {
   COMMISSION_SIDES,
   COMMISSION_SIDE_HINT,
@@ -85,6 +86,8 @@ export function CommissionTermsTabs({
    * לשדה של פרסום אחר.
    */
   const uid = useId();
+  // שני צדדים בלבד, אבל אותה התנהגות: תווית ארוכה במסך צר נחתכת גם כאן
+  const strip = useScrollAffordance<HTMLDivElement>(side);
   const current = value[side];
   const splitOptions = commissionSplitOptionsWith(current.split);
 
@@ -94,7 +97,7 @@ export function CommissionTermsTabs({
 
   return (
     <div>
-      <div className="mv-tabs mb-3" role="tablist" aria-label="חלוקת העמלה">
+      <div className="mv-tabs mb-3" role="tablist" aria-label="חלוקת העמלה" ref={strip}>
         {COMMISSION_SIDES.map((option) => (
           <button
             key={option}

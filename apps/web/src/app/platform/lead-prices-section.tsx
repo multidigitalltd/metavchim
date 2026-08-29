@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@metavchim/ui";
 import type { LeadSourcePrice } from "@metavchim/shared";
-import { apiGet, apiPatch, ApiError } from "@/lib/api";
+import { apiGet, apiPatch, ApiError, apiList } from "@/lib/api";
 import { IconDiamond } from "../icons";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
@@ -32,7 +32,7 @@ export function LeadPricesSection(): React.JSX.Element {
   function load(): void {
     setLoadFailed(false);
     apiGet<{ prices: LeadSourcePrice[] }>("/platform/lead-prices")
-      .then((res) => setPrices(res.prices))
+      .then((res) => setPrices(apiList(res.prices, "prices")))
       .catch(() => setLoadFailed(true));
   }
 

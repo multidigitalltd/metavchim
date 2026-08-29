@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { compareLeadsByUrgency, leadWaiting, type LeadWaitingLevel , labelOf } from "@metavchim/shared";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiList } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -73,7 +73,7 @@ export default function LeadsPage() {
     if (authLoading) return;
     apiGet<{ items: LeadRow[] }>("/leads?limit=100")
       .then((res) => {
-        setItems([...res.items].sort(compareLeadsByUrgency));
+        setItems([...apiList(res.items, "items")].sort(compareLeadsByUrgency));
         setNow(new Date());
       })
       .catch(() => setError("טעינת הלידים נכשלה"));

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiList } from "@/lib/api";
 import { IconPlus, IconSearch } from "../../icons";
 
 /**
@@ -343,7 +343,7 @@ async function recentProperties(): Promise<SearchProperty[]> {
   const res = await apiGet<{ items: PropertyRow[] }>(
     `/properties?limit=${RECENT_LIMIT}`,
   );
-  return res.items.map((row) => ({
+  return apiList(res.items, "items").map((row) => ({
     id: row.id,
     city: row.city ?? null,
     street: row.street ?? null,

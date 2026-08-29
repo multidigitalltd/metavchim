@@ -5,7 +5,7 @@ import { bulkContactErasureDisclosure, labelOf } from "@metavchim/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiList, apiPost } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
@@ -133,7 +133,7 @@ export default function BuyersPage() {
     apiGet<{ items: BuyerRow[] }>(`/buyers?limit=100${filtersToQuery({ ...filters, q: "" })}`)
       .then((res) =>
         setItems(
-          [...res.items].sort(
+          [...apiList(res.items, "items")].sort(
             (a, b) => MATURITY_ORDER.indexOf(a.maturity) - MATURITY_ORDER.indexOf(b.maturity),
           ),
         ),
@@ -242,17 +242,32 @@ export default function BuyersPage() {
           : `${res.removed} ${permanent ? "נמחקו" : "הועברו לארכיון"}, ${res.skipped} דולגו — כרטיס של סוכן אחר, או כזה שכבר נמחק`,
       );
       setSelected(new Set());
-      setItems(null);
+    } catch {
+      setError("המחיקה נכשלה — נסו שוב");
+      setBulkBusy(false);
+      return;
+    }
+
+    /*
+     * ‎**הרענון בנפרד מהמחיקה, ולא באותו `try`.**
+     *
+     * קודם השניים חלקו בלוק אחד, ולכן כישלון של הרענון — רשת, או גוף
+     * תשובה חסר — דיווח „המחיקה נכשלה” על מחיקה שהצליחה, והזמין את
+     * המתווך למחוק שוב. ומאחר ש-`setItems(null)` כבר רץ לפניו,
+     * הרשימה גם נשארה תקועה במצב טעינה.
+     */
+    setItems(null);
+    try {
       const fresh = await apiGet<{ items: BuyerRow[] }>(
         `/buyers?limit=100${filtersToQuery({ ...filters, q: "" })}`,
       );
       setItems(
-        [...fresh.items].sort(
+        [...apiList(fresh.items, "items")].sort(
           (a, b) => MATURITY_ORDER.indexOf(a.maturity) - MATURITY_ORDER.indexOf(b.maturity),
         ),
       );
     } catch {
-      setError("המחיקה נכשלה — נסו שוב");
+      setError("הרשימה לא התרעננה — רעננו את הדף");
     } finally {
       setBulkBusy(false);
     }

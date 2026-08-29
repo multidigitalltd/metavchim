@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiPost, ApiError, apiList } from "@/lib/api";
 import { formatDate, formatNumber } from "@/lib/format";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
@@ -46,7 +46,7 @@ export function NumberRentalsSection(): React.JSX.Element {
   function load(): void {
     setLoadFailed(false);
     apiGet<{ rentals: RentalRow[] }>("/platform/number-rentals")
-      .then((res) => setRentals(res.rentals))
+      .then((res) => setRentals(apiList(res.rentals, "rentals")))
       .catch(() => setLoadFailed(true));
   }
 

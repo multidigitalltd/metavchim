@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { useScrollAffordance } from "@/lib/use-scroll-affordance";
+
 /**
  * לשוניות של כרטיס ישות — **הסדר שהיה חסר.**
  *
@@ -40,8 +42,17 @@ export function EntityTabs({
   /** שם הרשימה לקוראי מסך — "לשוניות כרטיס הקונה". */
   label: string;
 }) {
+  /*
+   * ‎**התווית והמונה בחתימה, לא רק המפתח.** המונה מגיע אחרי
+   * הטעינה ומרחיב את הלשונית; בלי שהוא בחתימה, הגלישה שנולדת אינה
+   * נמדדת והלשונית הפעילה נדחפת החוצה אחרי שהגלילה כבר רצה.
+   */
+  const strip = useScrollAffordance<HTMLDivElement>(
+    `${active}|${tabs.map((tab) => `${tab.key}:${tab.label}:${tab.count ?? ""}`).join(",")}`,
+  );
+
   return (
-    <div className="mv-entity-tabs" role="tablist" aria-label={label}>
+    <div className="mv-entity-tabs" role="tablist" aria-label={label} ref={strip}>
       {tabs.map((tab) => (
         <button
           key={tab.key}

@@ -5,7 +5,7 @@ import { Button } from "@metavchim/ui";
 import { platformCreditKindLabel, shekels,
   JERUSALEM_TZ,
 } from "@metavchim/shared";
-import { ApiError, apiGet, apiPost } from "@/lib/api";
+import { ApiError, apiGet, apiList, apiPost } from "@/lib/api";
 import { IconBanknote, IconCoins, IconFlame, IconGift, IconHandshake } from "../icons";
 import { Notice } from "../notice";
 
@@ -62,7 +62,7 @@ export function ReferralRevenueSection(): React.JSX.Element {
     apiGet<{ report: Report; entries: Entry[] }>("/platform/credits")
       .then((res) => {
         setReport(res.report);
-        setEntries(res.entries);
+        setEntries(apiList(res.entries, "entries"));
       })
       .catch((err: unknown) => {
         setError(err instanceof ApiError ? err.message : "טעינת ההכנסות נכשלה");

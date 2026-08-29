@@ -122,7 +122,17 @@ export function ExclusivityPanel({
       const res = await apiGet<{ exclusivity: ExclusivityDto | null }>(
         `/properties/${propertyId}/exclusivity`,
       );
-      setData(res.exclusivity);
+      /*
+       * ‎**`?? null` ולא `res.exclusivity` בלבד.**
+       *
+       * ‎`apiGet` הוא הצהרת טיפוס ולא ולידציה — גוף בלי המפתח
+       * ‎`exclusivity` מחזיר `undefined`, והבדיקה למטה היא
+       * ‎`data === null` בדיוק. `undefined` חומק ממנה, נכנס
+       * ל-`ActiveExclusivity`, ונופל על `data.missing` — כלומר
+       * **כל כרטיס הנכס** מוחלף ב„אירעה שגיאה” בגלל פאנל אחד.
+       * הנפילה הזו נצפתה בפועל בבדיקה בדפדפן.
+       */
+      setData(res.exclusivity ?? null);
       setError(null);
     } catch (e: unknown) {
       setError(e instanceof ApiError ? e.message : "טעינת הבלעדיות נכשלה");

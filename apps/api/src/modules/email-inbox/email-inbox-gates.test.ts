@@ -191,7 +191,15 @@ describe("ההמתנה שאינה נגמרת", () => {
   });
 
   it("רשימה חדשה מרעננת גם את השעה", () => {
-    expect(INBOX_PAGE).toMatch(/setMessages\(thread\.messages\);\n\s*setNow\(Date\.now\(\)\);/u);
+    /*
+     * מה שהשער שומר הוא **הצמידות** — שהשעה מתרעננת עם הרשימה — ולא
+     * הדרך שבה `messages` נקרא. אימות הרשימה (`apiList`) הוא שאלה
+     * נפרדת ששער אחר אוכף (`verify:lists`), ולכן הביטוי כאן נעצר
+     * בסוף השורה במקום למנות ניסוחים מותרים.
+     */
+    expect(INBOX_PAGE).toMatch(
+      /setMessages\(.*thread\.messages.*\);\n\s*setNow\(Date\.now\(\)\);/u,
+    );
   });
 
   it("חישוב מועד החצייה נמצא במקום אחד", () => {

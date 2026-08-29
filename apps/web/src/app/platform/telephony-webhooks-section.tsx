@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiList } from "@/lib/api";
 import { IconPhone } from "../icons";
 import { formatDateTime } from "@/lib/format";
 
@@ -118,7 +118,7 @@ export function TelephonyWebhooksSection() {
   const load = useCallback(() => {
     setFailed(false);
     apiGet<{ hits: Hit[] }>("/platform/telephony-webhooks")
-      .then((res) => setHits(res.hits))
+      .then((res) => setHits(apiList(res.hits, "hits")))
       .catch(() => setFailed(true));
   }, []);
 

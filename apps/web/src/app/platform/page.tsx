@@ -8,7 +8,7 @@ import {
   moduleLabel,
 } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
-import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, ApiError, apiList } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconPlus } from "../icons";
@@ -438,7 +438,7 @@ export default function PlatformPage() {
 
   const loadPlanOptions = useCallback(() => {
     apiGet<{ plans: PlanOption[] }>("/platform/plans")
-      .then((res) => setPlanOptions(res.plans))
+      .then((res) => setPlanOptions(apiList(res.plans, "plans")))
       .catch(() => undefined);
   }, []);
 

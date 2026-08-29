@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import { api, apiGet } from "@/lib/api";
+import { api, apiGet, apiList } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { notificationHref } from "@/lib/notification-links";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -34,7 +34,7 @@ export default function NotificationsPage() {
     setFailed(false);
     setItems(null);
     apiGet<{ items: NotificationRow[] }>("/notifications?limit=50")
-      .then((res) => setItems(res.items))
+      .then((res) => setItems(apiList(res.items, "items")))
       .catch(() => setFailed(true));
   }, []);
 

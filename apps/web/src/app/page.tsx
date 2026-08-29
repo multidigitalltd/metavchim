@@ -15,7 +15,7 @@ import {
   labelOf,
   type CoachRecommendation,
 } from "@metavchim/shared";
-import { apiGet, ApiError } from "@/lib/api";
+import { apiGet, ApiError, apiList } from "@/lib/api";
 import { MATURITY_LABELS } from "@/lib/format";
 import { readinessHref } from "@/lib/readiness";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -445,13 +445,13 @@ export default function DashboardPage() {
     };
     if (canSeeProperties) {
       apiGet<{ items: PropertyRow[] }>("/properties?limit=100")
-        .then(ok((r: { items: PropertyRow[] }) => setProperties(r.items)))
+        .then(ok((r: { items: PropertyRow[] }) => setProperties(apiList(r.items, "items"))))
         .catch(fail)
         .finally(settled);
     }
     if (canSeeBuyers) {
       apiGet<{ items: BuyerRow[] }>("/buyers?limit=100")
-        .then(ok((r: { items: BuyerRow[] }) => setBuyers(r.items)))
+        .then(ok((r: { items: BuyerRow[] }) => setBuyers(apiList(r.items, "items"))))
         .catch(fail)
         .finally(settled);
       apiGet<Breakdown<"byMaturity">>("/buyers/breakdown")
@@ -460,7 +460,7 @@ export default function DashboardPage() {
     }
     if (canSeeLeads) {
       apiGet<{ items: LeadRow[] }>("/leads?limit=100")
-        .then(ok((r: { items: LeadRow[] }) => setLeads(r.items)))
+        .then(ok((r: { items: LeadRow[] }) => setLeads(apiList(r.items, "items"))))
         .catch(fail)
         .finally(settled);
       apiGet<Breakdown<"byStatus">>("/leads/breakdown")
@@ -504,7 +504,7 @@ export default function DashboardPage() {
      */
     if (canSeeOffers) {
       apiGet<{ items: OfferRow[] }>("/offers")
-        .then(ok((r: { items: OfferRow[] }) => setOffers(r.items)))
+        .then(ok((r: { items: OfferRow[] }) => setOffers(apiList(r.items, "items"))))
         .catch(fail);
     }
     /*

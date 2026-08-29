@@ -8,7 +8,7 @@ import {
   formatFileSize,
   type DocumentKind,
 } from "@metavchim/shared";
-import { api, apiGet, API_BASE } from "@/lib/api";
+import { api, apiGet, API_BASE, apiList } from "@/lib/api";
 import { ConfirmDialog } from "./confirm-dialog";
 import { IconDoc, IconWarning } from "./icons";
 import { LoadError } from "./load-error";
@@ -131,7 +131,7 @@ export function DocumentsPanel({
   useEffect(() => {
     if (!open || !needsProperty || properties !== null) return;
     apiGet<{ items: PropertyOption[] }>("/properties?limit=100")
-      .then((res) => setProperties(res.items))
+      .then((res) => setProperties(apiList(res.items, "items")))
       .catch(() => setProperties([]));
   }, [open, needsProperty, properties]);
 

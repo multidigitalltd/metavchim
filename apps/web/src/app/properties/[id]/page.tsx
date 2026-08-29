@@ -22,7 +22,7 @@ import {
   type ScoreComponent,
 } from "@metavchim/shared";
 import { useRouter } from "next/navigation";
-import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { apiDelete, apiGet, apiList, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
 import {
   formatDate,
@@ -115,7 +115,7 @@ interface PropertyDetail {
   /** מי גר בנכס כשזה אינו הבעלים — דירה שמושכרת בזמן שהיא מוצעת. */
   occupantContact?: OccupantContact;
   /**
-   * ‎`undefined` = **טרם נסומן**, ולא „הבעלים גר בנכס”.
+   * ‎`undefined` = **טרם סומן**, ולא „הבעלים גר בנכס”.
    *
    * ‎`apiGet` הוא הצהרת טיפוס ולא ולידציה, ולכן ההערה הזו היא מה
    * שמחזיק את ההבחנה: כל הנכסים שקדמו לשדה מגיעים חסרים, והנחת ערך
@@ -373,7 +373,17 @@ export default function PropertyDetailPage({
   const offerClipboard = useCopy(0);
   const landingClipboard = useCopy(0);
   const [bulkConfirm, setBulkConfirm] = useState(false);
-  const [bulkResult, setBulkResult] = useState<string | null>(null);
+  /*
+   * תוצאת השליחה המרובה נושאת גם **האם הצליחה**.
+   *
+   * קודם היא הייתה מחרוזת שמוצגת תמיד כהודעת הצלחה, ולכן כישלון של
+   * ‎`/offers/bulk` — רשת, או גוף תשובה חסר — לא הגיע למסך כלל:
+   * הכפתור פשוט לא עשה כלום. פעולה שיוצרת הצעות ללקוחות חייבת לומר
+   * כשלא יצרה.
+   */
+  const [bulkResult, setBulkResult] = useState<
+    { text: string; ok: boolean } | null
+  >(null);
   /** matchId ⟵ קישור חתימה, להתאמות שנחסמו בשער ההחתמה */
   const [awaitingSignature, setAwaitingSignature] = useState<
     Record<string, string>
@@ -566,18 +576,30 @@ export default function PropertyDetailPage({
       return;
     }
     setBulkConfirm(false);
-    const result = await apiPost<{
+    setBulkResult(null);
+    let result: {
       created: number;
       awaitingSignature: { matchId: string; signUrl: string }[];
-    }>("/offers/bulk", { propertyId: id, minScore: 85 });
+    };
+    try {
+      result = await apiPost("/offers/bulk", { propertyId: id, minScore: 85 });
+    } catch (err: unknown) {
+      setBulkResult({
+        text: err instanceof ApiError ? err.message : "יצירת ההצעות נכשלה — נסו שוב",
+        ok: false,
+      });
+      return;
+    }
     /*
      * לקוח שטרם חתם על הזמנה בכתב אינו דילוג — הוא הפעולה הבאה של
      * המתווך. בלי השורה הזו התוצאה הייתה "נוצרו 0 הצעות" בלי שום
      * רמז למה ומה עושים עכשיו (ביקורת Codex).
      */
-    const waiting = result.awaitingSignature?.length ?? 0;
-    setBulkResult(
-      [
+    const pendingSignature = apiList(result.awaitingSignature, "awaitingSignature");
+    const waiting = pendingSignature.length;
+    setBulkResult({
+      ok: true,
+      text: [
         result.created > 0
           ? `נוצרו ${result.created} הצעות — לחצו "שלח בוואטסאפ" על כל אחת`
           : "לא נוצרו הצעות חדשות",
@@ -587,10 +609,10 @@ export default function PropertyDetailPage({
       ]
         .filter(Boolean)
         .join(". "),
-    );
+    });
     setAwaitingSignature(
       Object.fromEntries(
-        (result.awaitingSignature ?? []).map((row) => [
+        pendingSignature.map((row) => [
           row.matchId,
           row.signUrl,
         ]),
@@ -1334,7 +1356,10 @@ export default function PropertyDetailPage({
               ) : null}
             </div>
             {bulkResult ? (
-              <Notice tone="success">✓ {bulkResult}</Notice>
+              <Notice tone={bulkResult.ok ? "success" : "danger"}>
+                {bulkResult.ok ? "✓ " : ""}
+                {bulkResult.text}
+              </Notice>
             ) : null}
 
             {/*

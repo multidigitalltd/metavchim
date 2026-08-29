@@ -2579,6 +2579,54 @@ button.mv-list-row:hover {
 .mv-entity-tabs::-webkit-scrollbar {
   display: none;
 }
+/*
+ * ‎**הקצה נמוג במקום להיחתך** — לשני סרגלי הלשוניות במערכת.
+ *
+ * שניהם נגללים לרוחב (ההכרעה המכוונת למעלה: עדיף על שבירה לשלוש
+ * שורות) ומסתירים את פס הגלילה. הצירוף הפך לשונית שנקטעת באמצע
+ * מילה על הקצה לתוכן שנראה **חתוך**, בלי שום סימן שאפשר לגלול
+ * אליו (דיווח בעל המוצר).
+ *
+ * ‎**כיוון הגרדיאנט פיזי, לא לוגי.** `to left` מתחיל בקצה הימני
+ * ונע שמאלה — כלומר הוא מְמַסֶּה את **ימין**. זה הפוך מהאינטואיציה,
+ * וזה נמדד בדפדפן ולא הונח: הניסוח הראשון כאן מיסך בדיוק את הצד
+ * שאינו נחתך, והקצה שנחתך נשאר חד.
+ *
+ * בעברית תחילת הסרגל מימין וסופו משמאל, ומכאן ההצמדה:
+ * ‎`end` (יש עוד לגלול שמאלה) ⟵ מיסוך שמאל ⟵ `to right`.
+ *
+ * המסכה נמרחת על תיבת הגבול ולא על התוכן הנגלל, ולכן היא נשארת
+ * במקומה בזמן הגלילה. `data-fade` נקבע ב-`useScrollAffordance`, כי
+ * CSS אינו יודע לשאול „האם נשאר מה לגלול”.
+ */
+.mv-entity-tabs[data-fade="end"],
+.mv-tabs[data-fade="end"] {
+  mask-image: linear-gradient(to right, transparent 0, #000 34px);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 34px);
+}
+.mv-entity-tabs[data-fade="start"],
+.mv-tabs[data-fade="start"] {
+  mask-image: linear-gradient(to left, transparent 0, #000 34px);
+  -webkit-mask-image: linear-gradient(to left, transparent 0, #000 34px);
+}
+.mv-entity-tabs[data-fade="both"],
+.mv-tabs[data-fade="both"] {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 34px,
+    #000 calc(100% - 34px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 34px,
+    #000 calc(100% - 34px),
+    transparent 100%
+  );
+}
+
 .mv-entity-tabs > button {
   position: relative;
   min-height: 44px;

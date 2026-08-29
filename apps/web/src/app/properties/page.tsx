@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import type { PropertyStatus } from "@metavchim/shared";
-import { API_BASE, apiGet, apiPost } from "@/lib/api";
+import { API_BASE, apiGet, apiList, apiPost } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
@@ -148,7 +148,7 @@ export default function PropertiesPage() {
     if (authLoading) return;
     setItems(null);
     apiGet<{ items: PropertyRow[] }>(`/properties?limit=100${filtersToQuery(filters)}`)
-      .then((res) => setItems(res.items))
+      .then((res) => setItems(apiList(res.items, "items")))
       .catch(() => setError("טעינת הנכסים נכשלה"));
   }, [authLoading, filters]);
 

@@ -84,6 +84,30 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const apiGet = <T>(path: string) => api<T>(path);
+
+/**
+ * רשימה שהגיעה מהשרת — **או תקלה, ולא „ריק”.**
+ *
+ * ‎`apiGet<{ items: Row[] }>` הוא הצהרת טיפוס בלבד: הקומפיילר מאמין
+ * לה, ובזמן ריצה אין מי שיבדוק. תשובה שחזרה בלי השדה מפילה את המסך
+ * ב-`.map` על `undefined` — ולכן צריך שמירה. אבל `?? []` היא השמירה
+ * הלא נכונה: היא הופכת תשובה פגומה ל"רשימה ריקה", ובדיוק המסכים
+ * האלה מבחינים בין ריק לכשל — „עדיין אין קופונים” מזמין מנהל
+ * פלטפורמה ליצור מחדש קוד שכבר קיים (ביקורת Codex).
+ *
+ * לכן: שדה חסר הוא **כשל טעינה**. הזריקה כאן נופלת ל-`.catch` שכבר
+ * קיים אצל הקורא — אותו מסלול שאליו נופלת תקלת רשת — ולכן המסך מציג
+ * „לא הצלחנו לטעון” ולא רשימה ריקה שקרית.
+ *
+ * שם השדה נשמר ב-`issues` ולא בהודעה: ההודעה מוצגת למשתמש, ושמות
+ * שדות פנימיים אינם שפה שלו.
+ */
+export function apiList<T>(value: readonly T[] | null | undefined, field: string): T[] {
+  if (Array.isArray(value)) return value as T[];
+  throw new ApiError(502, "התשובה מהשרת הגיעה חסרה — נסו שוב", [
+    { path: field, message: "רשימה חסרה בתשובה" },
+  ]);
+}
 export const apiPost = <T>(path: string, data: unknown) =>
   api<T>(path, { method: "POST", body: JSON.stringify(data) });
 export const apiPatch = <T>(path: string, data: unknown) =>

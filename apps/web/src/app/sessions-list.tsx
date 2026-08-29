@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
+import { apiDelete, apiGet, apiPost, ApiError, apiList } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { Notice } from "./notice";
 
@@ -105,7 +105,7 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
 
   const load = useCallback(() => {
     apiGet<{ sessions: SessionRow[] }>(path)
-      .then((res) => setRows(res.sessions))
+      .then((res) => setRows(apiList(res.sessions, "sessions")))
       .catch((e: unknown) => {
         setRows([]);
         setError(e instanceof ApiError ? e.message : "טעינת החיבורים נכשלה");

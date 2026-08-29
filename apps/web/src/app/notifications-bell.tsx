@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { apiGet, apiPatch } from "@/lib/api";
+import { apiGet, apiList, apiPatch } from "@/lib/api";
 import { notificationHref } from "@/lib/notification-links";
 import { can, type AuthUser } from "@/lib/use-auth";
 
@@ -64,7 +64,7 @@ export function NotificationsBell({ user }: { user: AuthUser | null }) {
         .then((res) => {
           if (cancelled) return;
           setUnread(res.unreadCount);
-          setItems(res.items);
+          setItems(apiList(res.items, "items"));
         })
         .catch(() => undefined);
     };

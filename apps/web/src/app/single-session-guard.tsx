@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { apiDelete, apiGet, apiPost } from "@/lib/api";
+import { apiDelete, apiGet, apiList, apiPost } from "@/lib/api";
 import { resetA11ySync } from "@/lib/a11y-sync";
 import { clearSessionCache } from "@/lib/session-cache";
 import { formatDateTime } from "@/lib/format";
@@ -57,9 +57,10 @@ export function SingleSessionGuard(): React.JSX.Element | null {
          * היה מכריח את התומך לנתק את המשתמש או לנטוש את הטיפול
          * (ביקורת Codex). זו גישה בהסכמה, לא שיתוף מנוי.
          */
-        const current = res.sessions.find((row) => row.current);
+        const sessions = apiList(res.sessions, "sessions");
+        const current = sessions.find((row) => row.current);
         if (current !== undefined && current.supportAdminEmail !== null) return;
-        const foreign = res.sessions.filter(
+        const foreign = sessions.filter(
           (row) => !row.current && row.supportAdminEmail === null,
         );
         if (foreign.length > 0) setOthers(foreign);
