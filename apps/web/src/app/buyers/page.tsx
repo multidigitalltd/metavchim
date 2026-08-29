@@ -242,7 +242,22 @@ export default function BuyersPage() {
           : `${res.removed} ${permanent ? "נמחקו" : "הועברו לארכיון"}, ${res.skipped} דולגו — כרטיס של סוכן אחר, או כזה שכבר נמחק`,
       );
       setSelected(new Set());
-      setItems(null);
+    } catch {
+      setError("המחיקה נכשלה — נסו שוב");
+      setBulkBusy(false);
+      return;
+    }
+
+    /*
+     * ‎**הרענון בנפרד מהמחיקה, ולא באותו `try`.**
+     *
+     * קודם השניים חלקו בלוק אחד, ולכן כישלון של הרענון — רשת, או גוף
+     * תשובה חסר — דיווח „המחיקה נכשלה” על מחיקה שהצליחה, והזמין את
+     * המתווך למחוק שוב. ומאחר ש-`setItems(null)` כבר רץ לפניו,
+     * הרשימה גם נשארה תקועה במצב טעינה.
+     */
+    setItems(null);
+    try {
       const fresh = await apiGet<{ items: BuyerRow[] }>(
         `/buyers?limit=100${filtersToQuery({ ...filters, q: "" })}`,
       );
@@ -252,7 +267,7 @@ export default function BuyersPage() {
         ),
       );
     } catch {
-      setError("המחיקה נכשלה — נסו שוב");
+      setError("הרשימה לא התרעננה — רעננו את הדף");
     } finally {
       setBulkBusy(false);
     }
