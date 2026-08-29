@@ -46,7 +46,7 @@ export function NumberRentalsSection(): React.JSX.Element {
   function load(): void {
     setLoadFailed(false);
     apiGet<{ rentals: RentalRow[] }>("/platform/number-rentals")
-      .then((res) => setRentals(res.rentals))
+      .then((res) => setRentals(res.rentals ?? []))
       .catch(() => setLoadFailed(true));
   }
 

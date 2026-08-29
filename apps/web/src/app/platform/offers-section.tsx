@@ -99,7 +99,7 @@ export function OffersSection({
   function load(): void {
     setLoadFailed(false);
     apiGet<{ offers: OfferRow[] }>("/platform/offers")
-      .then((res) => setOffers(res.offers))
+      .then((res) => setOffers(res.offers ?? []))
       .catch(() => setLoadFailed(true));
   }
 
@@ -107,7 +107,7 @@ export function OffersSection({
     load();
     apiGet<{ plans: PlanDefinition[] }>("/platform/plans")
       .then((res) => {
-        setPlans(res.plans);
+        setPlans(res.plans ?? []);
         setPlanCode((current) => current || (res.plans[0]?.code ?? ""));
       })
       .catch(() => undefined);

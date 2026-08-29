@@ -214,7 +214,7 @@ export default function AgentPage(): React.JSX.Element {
   useEffect(() => {
     if (authLoading) return;
     apiGet<{ turns: HistoryTurn[] }>("/agent/conversation")
-      .then(({ turns }) => {
+      .then(({ turns = [] }) => {
         if (turns.length === 0) return;
         setHistory(turns.slice(-6));
         setThread((prev) => [

@@ -133,7 +133,7 @@ export default function BuyersPage() {
     apiGet<{ items: BuyerRow[] }>(`/buyers?limit=100${filtersToQuery({ ...filters, q: "" })}`)
       .then((res) =>
         setItems(
-          [...res.items].sort(
+          [...(res.items ?? [])].sort(
             (a, b) => MATURITY_ORDER.indexOf(a.maturity) - MATURITY_ORDER.indexOf(b.maturity),
           ),
         ),
@@ -247,7 +247,7 @@ export default function BuyersPage() {
         `/buyers?limit=100${filtersToQuery({ ...filters, q: "" })}`,
       );
       setItems(
-        [...fresh.items].sort(
+        [...(fresh.items ?? [])].sort(
           (a, b) => MATURITY_ORDER.indexOf(a.maturity) - MATURITY_ORDER.indexOf(b.maturity),
         ),
       );

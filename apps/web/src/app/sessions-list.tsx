@@ -105,7 +105,7 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
 
   const load = useCallback(() => {
     apiGet<{ sessions: SessionRow[] }>(path)
-      .then((res) => setRows(res.sessions))
+      .then((res) => setRows(res.sessions ?? []))
       .catch((e: unknown) => {
         setRows([]);
         setError(e instanceof ApiError ? e.message : "טעינת החיבורים נכשלה");

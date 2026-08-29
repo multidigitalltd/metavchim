@@ -215,7 +215,7 @@ export default function InboxPage() {
     setSendError(null);
     try {
       const thread = await apiGet<{ messages: Message[] }>(`/email-inbox/${contactId}`);
-      setMessages(thread.messages);
+      setMessages(thread.messages ?? []);
       // רשימה חדשה — גם השעה שלפיה נמדדת ההמתנה, אחרת התזמון נבנה מול ערך ישן
       setNow(Date.now());
       // הכניסה לשיחה היא הקריאה — התג יורד מהסרגל ומהרשימה

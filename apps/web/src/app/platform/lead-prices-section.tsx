@@ -32,7 +32,7 @@ export function LeadPricesSection(): React.JSX.Element {
   function load(): void {
     setLoadFailed(false);
     apiGet<{ prices: LeadSourcePrice[] }>("/platform/lead-prices")
-      .then((res) => setPrices(res.prices))
+      .then((res) => setPrices(res.prices ?? []))
       .catch(() => setLoadFailed(true));
   }
 

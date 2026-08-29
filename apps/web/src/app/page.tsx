@@ -445,13 +445,13 @@ export default function DashboardPage() {
     };
     if (canSeeProperties) {
       apiGet<{ items: PropertyRow[] }>("/properties?limit=100")
-        .then(ok((r: { items: PropertyRow[] }) => setProperties(r.items)))
+        .then(ok((r: { items: PropertyRow[] }) => setProperties(r.items ?? [])))
         .catch(fail)
         .finally(settled);
     }
     if (canSeeBuyers) {
       apiGet<{ items: BuyerRow[] }>("/buyers?limit=100")
-        .then(ok((r: { items: BuyerRow[] }) => setBuyers(r.items)))
+        .then(ok((r: { items: BuyerRow[] }) => setBuyers(r.items ?? [])))
         .catch(fail)
         .finally(settled);
       apiGet<Breakdown<"byMaturity">>("/buyers/breakdown")
@@ -460,7 +460,7 @@ export default function DashboardPage() {
     }
     if (canSeeLeads) {
       apiGet<{ items: LeadRow[] }>("/leads?limit=100")
-        .then(ok((r: { items: LeadRow[] }) => setLeads(r.items)))
+        .then(ok((r: { items: LeadRow[] }) => setLeads(r.items ?? [])))
         .catch(fail)
         .finally(settled);
       apiGet<Breakdown<"byStatus">>("/leads/breakdown")
@@ -504,7 +504,7 @@ export default function DashboardPage() {
      */
     if (canSeeOffers) {
       apiGet<{ items: OfferRow[] }>("/offers")
-        .then(ok((r: { items: OfferRow[] }) => setOffers(r.items)))
+        .then(ok((r: { items: OfferRow[] }) => setOffers(r.items ?? [])))
         .catch(fail);
     }
     /*

@@ -107,7 +107,7 @@ export default function SignupPage(): React.JSX.Element {
     setPlans(null);
     apiGet<{ plans: OfferedPlan[]; priceNote: string }>("/signup/plans")
       .then((res) => {
-        setPlans(res.plans);
+        setPlans(res.plans ?? []);
         setPriceNote(res.priceNote);
         // ברירת מחדל: המסלול האמצעי, לא הזול ביותר — הוא זה שמתאים
         // לרוב המשרדים, ומי שרוצה אחר בוחר בלחיצה

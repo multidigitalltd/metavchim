@@ -3,30 +3,26 @@
  *
  * ## התקלה שהשער הזה נולד ממנה
  *
- * סרגל הלשוניות של כרטיס הישות נגלל לרוחב (זו הכרעה מכוונת: שבירה
- * לשלוש שורות במסך צר גרועה יותר), ופס הגלילה מוסתר בכוונה — הוא
- * מכער רצועת גלולות. הצירוף הזה יצר בדיוק את מה שבעל המוצר דיווח
- * עליו: לשונית שנקטעת באמצע מילה על קצה המסך, בלי שום סימן שאפשר
- * לגלול אליה. תוכן שנראה **חתוך** ולא תוכן שאפשר להגיע אליו.
+ * שני סרגלי הלשוניות במערכת נגללים לרוחב (הכרעה מכוונת: שבירה
+ * לשלוש שורות במסך צר גרועה יותר) ומסתירים את פס הגלילה — הוא מכער
+ * רצועת גלולות. הצירוף יצר בדיוק את מה שבעל המוצר דיווח עליו:
+ * לשונית שנקטעת באמצע מילה על הקצה, בלי שום סימן שאפשר לגלול
+ * אליה. תוכן שנראה **חתוך** ולא תוכן שאפשר להגיע אליו.
  *
- * שתי תקלות היו שם, ושתיהן בלתי נראות לקומפיילר:
+ * שלוש תקלות היו שם, וכולן בלתי נראות לקומפיילר:
  *
  * 1. אין רמז שיש עוד — הקצה נחתך חד.
  * 2. כניסה עם `?tab=` בחרה לשונית שיושבת מחוץ למסך: במסך צר
- *    הלשונית האחרונה הייתה חמש מאות פיקסלים משמאל לקצה הנראה,
- *    כלומר המתווך ראה פאנל בלי לדעת מה נבחר.
+ *    הלשונית האחרונה הייתה כחמש מאות פיקסלים משמאל לקצה הנראה.
+ * 3. מונה שמגיע אחרי הטעינה מרחיב לשונית **בלי** לשנות את תיבת
+ *    הגבול של הסרגל, ולכן משקיף שמאזין לו בלבד אינו נורה כלל.
  *
  * ## למה שער סטטי ולא בדיקה בדפדפן
  *
  * המדידה האמיתית נעשתה בדפדפן על כל רוחבי המסך, וזו הדרך היחידה
  * לדעת שהתיקון עובד. אבל בדיקה כזו דורשת שרת פיתוח חי, ולכן היא
- * אינה שער. מה שכן ניתן לאכוף כאן זה שהמנגנון **לא ייעלם**: שלושת
- * חלקיו קשורים זה בזה, וכל אחד מהם לבדו חסר תועלת.
- *
- * ‎**רוחב המסכה וריווח הגלילה חייבים להתאים.** גלילה שעוצרת בתוך
- * אזור המיסוך מציבה את הלשונית הפעילה מתחת לדהייה — בוחרת לשונית
- * ומעמעמת אותה באותה נשימה. זה היה המצב בגרסה הראשונה של התיקון,
- * והוא נתפס במדידה ולא בקריאה.
+ * אינה שער. מה שכן ניתן לאכוף כאן זה שהמנגנון **לא ייעלם** ולא
+ * יישכפל: חלקיו תלויים זה בזה, וכל אחד לבדו חסר תועלת.
  */
 
 import { readFileSync } from "node:fs";
@@ -35,14 +31,39 @@ import { fileURLToPath } from "node:url";
 const read = (relative) => readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8");
 
 const css = read("../src/app/globals.css");
-const tabs = read("../src/app/entity-tabs.tsx");
+const hook = read("../src/lib/use-scroll-affordance.ts");
+
+/** כל סרגל שנגלל לרוחב ומסתיר את פס הגלילה חייב את הטיפול הזה. */
+const STRIPS = [".mv-entity-tabs", ".mv-tabs"];
+
+/** מי שמרנדר סרגל כזה — חייב לקרוא להוק, לא להעתיק אותו. */
+const CALLERS = [
+  "../src/app/entity-tabs.tsx",
+  "../src/app/settings/page.tsx",
+  "../src/app/collaboration/commission-terms-tabs.tsx",
+];
 
 const problems = [];
 
-/* 1 · המסכה קיימת לשלושת המצבים */
-for (const state of ["start", "end", "both"]) {
-  if (!css.includes(`.mv-entity-tabs[data-fade="${state}"]`)) {
-    problems.push(`חסרה מסכת קצה למצב "${state}" ב-.mv-entity-tabs`);
+/*
+ * 1 · אף סרגל נגלל לא נשאר בלי מסכה.
+ *
+ * הרשימה נגזרת מה-CSS עצמו ולא נכתבת כאן בלבד: סרגל שלישי שיתווסף
+ * עם `overflow-x: auto` ופס מוסתר ייתפס, במקום להיוולד עם התקלה.
+ */
+const scrollers = [...css.matchAll(/(\.[\w-]+)\s*\{[^}]*?overflow-x:\s*auto[^}]*?\}/gsu)]
+  .filter((m) => /scrollbar-width:\s*none/u.test(m[0]))
+  .map((m) => m[1]);
+for (const selector of scrollers) {
+  if (!STRIPS.includes(selector)) {
+    problems.push(`${selector} נגלל לרוחב עם פס מוסתר ואינו ברשימת הסרגלים המטופלים`);
+  }
+}
+for (const selector of STRIPS) {
+  for (const state of ["start", "end", "both"]) {
+    if (!css.includes(`${selector}[data-fade="${state}"]`)) {
+      problems.push(`חסרה מסכת קצה למצב "${state}" ב-${selector}`);
+    }
   }
 }
 
@@ -50,9 +71,9 @@ for (const state of ["start", "end", "both"]) {
  * 2 · הכיוונים הפיזיים נכונים.
  *
  * ‎`to left` מתחיל בקצה הימני ומְמַסֶּה את **ימין** — הפוך
- * מהאינטואיציה, וזה נמדד בדפדפן. בעברית סוף הסרגל משמאל, ולכן
- * ‎`end` חייב להיות `to right`. היפוך כאן מְמַסֶּה את הצד שאינו
- * נחתך, והקצה שנחתך נשאר חד — כלומר תיקון שנראה קיים ואינו עובד.
+ * מהאינטואיציה, וזה נמדד בדפדפן ולא הונח: הגרסה הראשונה מיסכה
+ * בדיוק את הצד שאינו נחתך, והקצה שנחתך נשאר חד. בעברית סוף הסרגל
+ * משמאל, ולכן `end` חייב להיות `to right`.
  */
 const fadeRule = (state) => {
   const at = css.indexOf(`.mv-entity-tabs[data-fade="${state}"]`);
@@ -65,77 +86,63 @@ if (!/to left/u.test(fadeRule("start"))) {
   problems.push('מצב "start" חייב למסך את ימין — כלומר linear-gradient(to left, …)');
 }
 
-/* 3 · הרוחב זהה בשלושת המצבים, והוא מה שריווח הגלילה מכבד */
-const widths = [...css.matchAll(/\.mv-entity-tabs\[data-fade[^}]*?#000 (\d+)px/gsu)].map((m) =>
-  Number(m[1]),
-);
+/* 3 · רוחב המסכה אחיד, וההוק מכיר את אותו מספר */
+const widths = [...css.matchAll(/\[data-fade[^}]*?#000 (\d+)px/gsu)].map((m) => Number(m[1]));
 if (widths.length === 0) {
   problems.push("לא נמצא רוחב מסכה — הכלל השתנה והשער אינו מודד עוד דבר");
 }
 const maskWidth = widths[0];
 if (widths.some((w) => w !== maskWidth)) {
-  problems.push(`רוחב המסכה אינו אחיד בין המצבים: ${widths.join(", ")}`);
+  problems.push(`רוחב המסכה אינו אחיד בין המצבים: ${[...new Set(widths)].join(", ")}`);
+}
+const declared = hook.match(/SCROLL_FADE_PX = (\d+);/u);
+if (declared === null) {
+  problems.push("ההוק אינו מצהיר על SCROLL_FADE_PX");
+} else if (Number(declared[1]) !== maskWidth) {
+  problems.push(`ההוק מצהיר ${declared[1]}px בזמן שה-CSS ממסך ${maskWidth}px`);
 }
 
-/* 4 · הדהייה נמדדת בזמן ריצה — CSS אינו יודע אם יש עוד לגלול */
-if (!tabs.includes('dataset["fade"]')) {
-  problems.push("entity-tabs אינו קובע data-fade — המסכה לעולם לא תידלק");
-}
-if (!tabs.includes("ResizeObserver")) {
-  problems.push("entity-tabs אינו מודד מחדש בשינוי רוחב — סיבוב מכשיר ישאיר דהייה שקרית");
-}
-if (!tabs.includes("Math.abs(el.scrollLeft)")) {
-  problems.push("מדידת הגלילה חייבת Math.abs — ב-RTL scrollLeft שלילי");
-}
-
-/*
- * 5 · מונה שמגיע אחרי הטעינה מרחיב לשונית, ואז **שני** המנגנונים
- * חייבים לרוץ מחדש: הדהייה (אחרת גלישה חדשה נשארת חדה) והגלילה
- * (אחרת הרוחב שנוסף דוחף את הפעילה אל מחוץ לתצוגה). משקיף על
- * הסרגל בלבד אינו נורה כאן — תיבת הגבול שלו לא זזה.
- */
-if (!tabs.includes("const signature =")) {
-  problems.push("אין חתימה על תוויות ומונים — שינוי מונה לא יימדד מחדש");
-}
+/* 4 · הדהייה נמדדת בזמן ריצה — CSS אינו יודע אם נשאר מה לגלול */
 for (const [what, marker] of [
-  ["המשקיפים", "[measure, signature]"],
-  ["גלילת הפעילה", "[active, measure, signature]"],
+  ["הדהייה אינה נקבעת", 'dataset["fade"]'],
+  ["אין מדידה מחדש בשינוי רוחב", "ResizeObserver"],
+  ["המשקיף אינו מאזין ללשוניות עצמן", "observer.observe(child)"],
+  ["מדידת הגלילה חסרת Math.abs (ב-RTL scrollLeft שלילי)", "Math.abs(el.scrollLeft)"],
+  ["הנבחר אינו נגלל לתצוגה", "scrollLeft -="],
 ]) {
-  if (!tabs.includes(marker)) {
-    problems.push(`${what} אינם תלויים בחתימה — מונה שמגיע מאוחר לא יטופל`);
-  }
-}
-if (!/observer\.observe\(child\)/u.test(tabs)) {
-  problems.push("המשקיף אינו מאזין ללשוניות עצמן — רק לסרגל, שרוחבו אינו משתנה");
+  if (!hook.includes(marker)) problems.push(`${what} — חסר ${marker}`);
 }
 
-/* 6 · הלשונית הפעילה נגללת לתצוגה, ומחוץ לאזור המיסוך */
-if (!/aria-selected="true"/u.test(tabs) || !tabs.includes("scrollLeft -=")) {
-  problems.push("entity-tabs אינו גולל את הלשונית הפעילה לתצוגה");
-}
 /*
- * ‎**הגבול הוא הקצה פחות המסכה.** השוואה מול `box.left`/`box.right`
- * בלבד מדלגת על לשונית שנמצאת בתוך הסרגל אך יושבת בתוך הדהייה —
- * כלומר לחיצה שבוחרת לשונית ומעמעמת אותה (ביקורת Codex).
+ * 5 · הגלילה מכבדת את רוחב המסכה.
+ *
+ * השוואה מול קצה הסרגל בלבד מדלגת על לשונית שנמצאת בתוכו אך יושבת
+ * בתוך הדהייה — כלומר לחיצה שבוחרת לשונית ומעמעמת אותה.
  */
-if (!tabs.includes("box.left + PAD") || !tabs.includes("box.right - PAD")) {
+if (!hook.includes("box.left + PAD") || !hook.includes("box.right - PAD")) {
   problems.push("הגלילה משווה מול קצה הסרגל ולא מול הקצה פחות המסכה");
 }
-const pad = tabs.match(/const PAD = (\d+);/u);
-if (pad === null) {
-  problems.push("לא נמצא PAD — ריווח הגלילה אינו ניתן להשוואה מול רוחב המסכה");
-} else if (Number(pad[1]) <= maskWidth) {
-  problems.push(
-    `PAD (${pad[1]}) אינו גדול מרוחב המסכה (${maskWidth}) — הלשונית הפעילה תשב מתחת לדהייה`,
-  );
+if (!/const PAD = SCROLL_FADE_PX \+ \d+;/u.test(hook)) {
+  problems.push("PAD אינו נגזר מרוחב המסכה — השניים יכולים להיפרד בשקט");
+}
+
+/* 6 · אף קורא אינו מחזיק עותק משלו */
+for (const caller of CALLERS) {
+  const src = read(caller);
+  if (!src.includes("useScrollAffordance")) {
+    problems.push(`${caller} מרנדר סרגל נגלל ואינו קורא ל-useScrollAffordance`);
+  }
+  if (src.includes('dataset["fade"]')) {
+    problems.push(`${caller} מחשב דהייה בעצמו — ההיגיון שייך להוק אחד`);
+  }
 }
 
 if (problems.length > 0) {
-  console.error("✗ רמז הגלילה בסרגל הלשוניות נשבר:\n");
+  console.error("✗ רמז הגלילה בסרגלי הלשוניות נשבר:\n");
   for (const problem of problems) console.error(`  · ${problem}`);
   process.exit(1);
 }
 
 console.log(
-  `✓ סרגל הלשוניות: מסכת קצה בשלושה מצבים (${maskWidth}px), נמדדת בזמן ריצה, והלשונית הפעילה נגללת מעבר לה (${pad[1]}px)`,
+  `✓ ${STRIPS.length} סרגלים נגללים · מסכה ${maskWidth}px בשלושה מצבים · ${CALLERS.length} קוראים על הוק אחד`,
 );

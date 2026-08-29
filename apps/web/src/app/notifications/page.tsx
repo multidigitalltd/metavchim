@@ -34,7 +34,7 @@ export default function NotificationsPage() {
     setFailed(false);
     setItems(null);
     apiGet<{ items: NotificationRow[] }>("/notifications?limit=50")
-      .then((res) => setItems(res.items))
+      .then((res) => setItems(res.items ?? []))
       .catch(() => setFailed(true));
   }, []);
 

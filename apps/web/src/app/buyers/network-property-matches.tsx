@@ -67,7 +67,7 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
     apiGet<{ shared: boolean; offers: NetworkPropertyOffer[] }>(
       `/collaboration/network-matches/buyer/${buyerId}`,
     )
-      .then(setData)
+      .then((res) => setData({ shared: res.shared === true, offers: res.offers ?? [] }))
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 403) setAllowed(false);
         else setData({ shared: false, offers: [] });

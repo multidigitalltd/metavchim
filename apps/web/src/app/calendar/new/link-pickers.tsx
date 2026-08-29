@@ -343,7 +343,7 @@ async function recentProperties(): Promise<SearchProperty[]> {
   const res = await apiGet<{ items: PropertyRow[] }>(
     `/properties?limit=${RECENT_LIMIT}`,
   );
-  return res.items.map((row) => ({
+  return (res.items ?? []).map((row) => ({
     id: row.id,
     city: row.city ?? null,
     street: row.street ?? null,

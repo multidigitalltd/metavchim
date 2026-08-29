@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ASSIGNABLE_ROLES, ROLE_CAPABILITIES, ROLE_LABELS, roleLabel } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { useScrollAffordance } from "@/lib/use-scroll-affordance";
 import { formatDateTime } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
@@ -196,6 +197,13 @@ const TABS: [key: string, label: string][] = [
 export default function SettingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const [tab, setTab] = useState("team");
+  /*
+   * הסרגל נגלל לרוחב עם פס גלילה מוסתר, ומסך ההגדרות צמח לתריסר
+   * נושאים — כלומר לשונית שנקטעת על הקצה בלי סימן שיש עוד, ולשונית
+   * שנבחרה מהכתובת (`?tab=billing`) שיושבת מחוץ לתצוגה. אותו טיפול
+   * בדיוק כמו בלשוניות כרטיס הישות, מאותו הוק.
+   */
+  const strip = useScrollAffordance<HTMLDivElement>(tab);
 
   /*
    * הלשונית נקראת מהכתובת בטעינה ונכתבת אליה בכל מעבר — כך קישור
@@ -256,7 +264,7 @@ export default function SettingsPage() {
       .then(setTeam)
       .catch(() => undefined);
     apiGet<{ items: AuditRow[] }>("/settings/audit?limit=30")
-      .then((r) => setAudit(r.items))
+      .then((r) => setAudit(r.items ?? []))
       .catch(() => undefined);
   }, []);
 
@@ -405,6 +413,7 @@ export default function SettingsPage() {
         className="mv-tabs mb-[18px]"
         role="tablist"
         aria-label="נושאי ניהול המשרד"
+        ref={strip}
       >
         {TABS.map(([key, label]) => (
           <button

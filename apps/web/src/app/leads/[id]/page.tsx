@@ -864,7 +864,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
     )
       .then((res) => {
         setLead(res.lead);
-        setTimeline(res.timeline);
+        setTimeline(res.timeline ?? []);
         setDialed(res.dialedNumber ?? null);
       })
       .catch(() => setError("הליד לא נמצא"));

@@ -44,7 +44,7 @@ export function ExclusivityWatch() {
       try {
         const res = await apiGet<{ items: WatchItem[] }>("/exclusivity");
         setItems(
-          res.items.filter(
+          (res.items ?? []).filter(
             (item) =>
               item.phase === "ended_by_third_rule" ||
               item.missing > 0 ||

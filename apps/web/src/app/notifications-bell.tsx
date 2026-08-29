@@ -64,7 +64,7 @@ export function NotificationsBell({ user }: { user: AuthUser | null }) {
         .then((res) => {
           if (cancelled) return;
           setUnread(res.unreadCount);
-          setItems(res.items);
+          setItems(res.items ?? []);
         })
         .catch(() => undefined);
     };

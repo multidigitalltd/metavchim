@@ -62,7 +62,7 @@ export function ReferralRevenueSection(): React.JSX.Element {
     apiGet<{ report: Report; entries: Entry[] }>("/platform/credits")
       .then((res) => {
         setReport(res.report);
-        setEntries(res.entries);
+        setEntries(res.entries ?? []);
       })
       .catch((err: unknown) => {
         setError(err instanceof ApiError ? err.message : "טעינת ההכנסות נכשלה");

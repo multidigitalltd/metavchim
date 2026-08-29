@@ -192,7 +192,7 @@ export function PropertyTwins({
       const page = await apiGet<{ items: PickerRow[] }>(
         `/properties?limit=${PICKER_LIMIT}`,
       );
-      setOptions(page.items);
+      setOptions(page.items ?? []);
     } catch {
       setError("לא הצלחנו לטעון את רשימת הנכסים — סגרו ופתחו שוב.");
     }

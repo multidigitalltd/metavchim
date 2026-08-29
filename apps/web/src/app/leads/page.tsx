@@ -73,7 +73,7 @@ export default function LeadsPage() {
     if (authLoading) return;
     apiGet<{ items: LeadRow[] }>("/leads?limit=100")
       .then((res) => {
-        setItems([...res.items].sort(compareLeadsByUrgency));
+        setItems([...(res.items ?? [])].sort(compareLeadsByUrgency));
         setNow(new Date());
       })
       .catch(() => setError("טעינת הלידים נכשלה"));

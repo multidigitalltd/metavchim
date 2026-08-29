@@ -438,7 +438,7 @@ export default function PlatformPage() {
 
   const loadPlanOptions = useCallback(() => {
     apiGet<{ plans: PlanOption[] }>("/platform/plans")
-      .then((res) => setPlanOptions(res.plans))
+      .then((res) => setPlanOptions(res.plans ?? []))
       .catch(() => undefined);
   }, []);
 

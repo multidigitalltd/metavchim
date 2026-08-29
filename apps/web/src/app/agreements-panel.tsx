@@ -126,7 +126,7 @@ export function AgreementsPanel({
   useEffect(() => {
     if (!open || !needsProperty || properties !== null) return;
     apiGet<{ items: PropertyOption[] }>("/properties?limit=100")
-      .then((res) => setProperties(res.items))
+      .then((res) => setProperties(res.items ?? []))
       .catch(() => setProperties([]));
   }, [open, needsProperty, properties]);
 

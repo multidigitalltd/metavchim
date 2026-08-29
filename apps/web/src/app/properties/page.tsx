@@ -148,7 +148,7 @@ export default function PropertiesPage() {
     if (authLoading) return;
     setItems(null);
     apiGet<{ items: PropertyRow[] }>(`/properties?limit=100${filtersToQuery(filters)}`)
-      .then((res) => setItems(res.items))
+      .then((res) => setItems(res.items ?? []))
       .catch(() => setError("טעינת הנכסים נכשלה"));
   }, [authLoading, filters]);
 

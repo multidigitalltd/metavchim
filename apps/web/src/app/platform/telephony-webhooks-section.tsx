@@ -118,7 +118,7 @@ export function TelephonyWebhooksSection() {
   const load = useCallback(() => {
     setFailed(false);
     apiGet<{ hits: Hit[] }>("/platform/telephony-webhooks")
-      .then((res) => setHits(res.hits))
+      .then((res) => setHits(res.hits ?? []))
       .catch(() => setFailed(true));
   }, []);
 

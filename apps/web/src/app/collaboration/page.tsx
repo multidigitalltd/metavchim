@@ -641,10 +641,10 @@ export default function CollaborationPage() {
       })
       .catch(() => undefined);
     apiGet<{ items: PropertyOption[] }>("/properties?limit=50")
-      .then((r) => setProperties(r.items))
+      .then((r) => setProperties(r.items ?? []))
       .catch(() => undefined);
     apiGet<{ items: BuyerOption[] }>("/buyers?limit=50")
-      .then((r) => setBuyers(r.items))
+      .then((r) => setBuyers(r.items ?? []))
       .catch(() => undefined);
     // שינוי הסינון טוען מחדש — הפיד מסונן בשרת ולא במסך
   }, [netQuery]);

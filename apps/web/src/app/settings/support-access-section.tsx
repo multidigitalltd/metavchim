@@ -22,7 +22,13 @@ export function SupportAccessSection(): React.JSX.Element {
 
   function load(): void {
     apiGet<{ activeUntil: string | null }>("/settings/support-access")
-      .then((res) => setActiveUntil(res.activeUntil))
+      /*
+       * ‎`?? null` — `undefined` חומק מ-`!== null` שלמטה, וגורר
+       * ‎`new Date(undefined)` שהוא Invalid Date. אותו דפוס בדיוק
+       * שהפיל את פאנל הבלעדיות; כאן הוא רק מכער, וזה עדיין לא סיבה
+       * להשאיר אותו.
+       */
+      .then((res) => setActiveUntil(res.activeUntil ?? null))
       .catch(() => undefined);
   }
 

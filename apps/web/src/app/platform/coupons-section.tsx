@@ -47,7 +47,7 @@ export function CouponsSection(): React.JSX.Element {
   function load(): void {
     setLoadFailed(false);
     apiGet<{ coupons: Coupon[] }>("/platform/coupons")
-      .then((res) => setCoupons(res.coupons))
+      .then((res) => setCoupons(res.coupons ?? []))
       .catch(() => setLoadFailed(true));
   }
 
