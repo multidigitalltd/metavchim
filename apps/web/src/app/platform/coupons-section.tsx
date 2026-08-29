@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
+import { apiDelete, apiGet, apiPost, ApiError, apiList } from "@/lib/api";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
 import { formatDate } from "@/lib/format";
@@ -47,7 +47,7 @@ export function CouponsSection(): React.JSX.Element {
   function load(): void {
     setLoadFailed(false);
     apiGet<{ coupons: Coupon[] }>("/platform/coupons")
-      .then((res) => setCoupons(res.coupons ?? []))
+      .then((res) => setCoupons(apiList(res.coupons, "coupons")))
       .catch(() => setLoadFailed(true));
   }
 

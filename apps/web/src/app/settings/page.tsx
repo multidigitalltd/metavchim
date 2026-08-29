@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { ASSIGNABLE_ROLES, ROLE_CAPABILITIES, ROLE_LABELS, roleLabel } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, ApiError, apiList } from "@/lib/api";
 import { useScrollAffordance } from "@/lib/use-scroll-affordance";
 import { formatDateTime } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -264,7 +264,7 @@ export default function SettingsPage() {
       .then(setTeam)
       .catch(() => undefined);
     apiGet<{ items: AuditRow[] }>("/settings/audit?limit=30")
-      .then((r) => setAudit(r.items ?? []))
+      .then((r) => setAudit(apiList(r.items, "items")))
       .catch(() => undefined);
   }, []);
 

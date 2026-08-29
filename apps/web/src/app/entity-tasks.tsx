@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@metavchim/ui";
-import { api, apiGet, apiPost, ApiError } from "@/lib/api";
+import { api, apiGet, apiPost, ApiError, apiList } from "@/lib/api";
 import { IconCheck, IconClock, IconUser } from "./icons";
 import { LoadError } from "./load-error";
 import { Notice } from "./notice";
@@ -153,16 +153,20 @@ export function EntityTasks({
       const data = await apiGet<TaskListResponse>(`/tasks/for/${entityType}/${entityId}`);
       if (mine !== requestId.current) return;
       /*
-       * ‎**`?? []` על שני השדות.** `apiGet` הוא הצהרת טיפוס ולא
+       * ‎**`apiList` על שני השדות.** `apiGet` הוא הצהרת טיפוס ולא
        * ולידציה: גוף בלי `tasks` נכנס למצב „ready” עם `undefined`,
        * ו-`rows.filter` מפיל את **כל כרטיס הישות** ל„אירעה שגיאה” —
        * לא את סעיף המשימות בלבד. נצפה בפועל בבדיקה בדפדפן, ואותה
        * נפילה בדיוק אירעה בפאנל הבלעדיות מסיבה זהה.
+       *
+       * ‎`apiList` זורק ולא ממלא `[]`, ולכן הגוף הפגום נופל ל-`catch`
+       * שמתחת ומגיע ל„הטעינה נכשלה” עם כפתור לנסות שוב — ולא ל„אין
+       * משימות”, שהוא תשובה שקרית לשאלה אחרת.
        */
       setList({
         kind: "ready",
-        rows: data.tasks ?? [],
-        openSuggestionFields: data.openSuggestionFields ?? [],
+        rows: apiList(data.tasks, "tasks"),
+        openSuggestionFields: apiList(data.openSuggestionFields, "openSuggestionFields"),
       });
       /* השעון מתעדכן עם הרשימה — ראו `clock` למעלה */
       setClock(new Date());

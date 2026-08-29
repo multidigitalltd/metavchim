@@ -20,7 +20,7 @@ import {
   type CommissionTerms,
   type PayoutMode,  labelOf } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
-import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, ApiError, apiList } from "@/lib/api";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import Link from "next/link";
@@ -641,10 +641,10 @@ export default function CollaborationPage() {
       })
       .catch(() => undefined);
     apiGet<{ items: PropertyOption[] }>("/properties?limit=50")
-      .then((r) => setProperties(r.items ?? []))
+      .then((r) => setProperties(apiList(r.items, "items")))
       .catch(() => undefined);
     apiGet<{ items: BuyerOption[] }>("/buyers?limit=50")
-      .then((r) => setBuyers(r.items ?? []))
+      .then((r) => setBuyers(apiList(r.items, "items")))
       .catch(() => undefined);
     // שינוי הסינון טוען מחדש — הפיד מסונן בשרת ולא במסך
   }, [netQuery]);

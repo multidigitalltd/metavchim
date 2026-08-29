@@ -10,7 +10,7 @@ import {
   type BillingCycle,
   type PlanDefinition,
 } from "@metavchim/shared";
-import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
+import { apiDelete, apiGet, apiPost, ApiError, apiList } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
 import { formatDate, formatNumber } from "@/lib/format";
 import { LoadError } from "../load-error";
@@ -99,7 +99,7 @@ export function OffersSection({
   function load(): void {
     setLoadFailed(false);
     apiGet<{ offers: OfferRow[] }>("/platform/offers")
-      .then((res) => setOffers(res.offers ?? []))
+      .then((res) => setOffers(apiList(res.offers, "offers")))
       .catch(() => setLoadFailed(true));
   }
 
@@ -107,8 +107,9 @@ export function OffersSection({
     load();
     apiGet<{ plans: PlanDefinition[] }>("/platform/plans")
       .then((res) => {
-        setPlans(res.plans ?? []);
-        setPlanCode((current) => current || (res.plans[0]?.code ?? ""));
+        const rows = apiList(res.plans, "plans");
+        setPlans(rows);
+        setPlanCode((current) => current || (rows[0]?.code ?? ""));
       })
       .catch(() => undefined);
   }, []);

@@ -22,7 +22,7 @@ import {
   shekels,
   type CreditEconomy,
   type PayoutMode,  labelOf } from "@metavchim/shared";
-import { apiDelete, apiGet, apiPost, apiPatch, ApiError } from "@/lib/api";
+import { apiDelete, apiGet, apiPost, apiPatch, ApiError, apiList } from "@/lib/api";
 import {
   formatDate,
   PROPERTY_TYPE_LABELS,
@@ -864,7 +864,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
     )
       .then((res) => {
         setLead(res.lead);
-        setTimeline(res.timeline ?? []);
+        setTimeline(apiList(res.timeline, "timeline"));
         setDialed(res.dialedNumber ?? null);
       })
       .catch(() => setError("הליד לא נמצא"));

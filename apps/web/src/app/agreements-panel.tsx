@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiPost, ApiError, apiList } from "@/lib/api";
 import { ConfirmDialog } from "./confirm-dialog";
 import { IconDoc, IconEdit, IconWarning } from "./icons";
 import { LoadError } from "./load-error";
@@ -126,7 +126,7 @@ export function AgreementsPanel({
   useEffect(() => {
     if (!open || !needsProperty || properties !== null) return;
     apiGet<{ items: PropertyOption[] }>("/properties?limit=100")
-      .then((res) => setProperties(res.items ?? []))
+      .then((res) => setProperties(apiList(res.items, "items")))
       .catch(() => setProperties([]));
   }, [open, needsProperty, properties]);
 

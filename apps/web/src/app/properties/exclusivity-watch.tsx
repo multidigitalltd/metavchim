@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiList } from "@/lib/api";
 
 /**
  * הבלעדיויות שדורשות פעולה — **ורק הן.**
@@ -44,7 +44,7 @@ export function ExclusivityWatch() {
       try {
         const res = await apiGet<{ items: WatchItem[] }>("/exclusivity");
         setItems(
-          (res.items ?? []).filter(
+          apiList(res.items, "items").filter(
             (item) =>
               item.phase === "ended_by_third_rule" ||
               item.missing > 0 ||

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { presentationChips } from "@metavchim/shared";
-import { ApiError, apiGet, apiPatch } from "@/lib/api";
+import { ApiError, apiGet, apiList, apiPatch } from "@/lib/api";
 import { NetChips } from "../collaboration/net-chips";
 import { IconHandshake, IconHome } from "../icons";
 import { Notice } from "../notice";
@@ -67,7 +67,7 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
     apiGet<{ shared: boolean; offers: NetworkPropertyOffer[] }>(
       `/collaboration/network-matches/buyer/${buyerId}`,
     )
-      .then((res) => setData({ shared: res.shared === true, offers: res.offers ?? [] }))
+      .then((res) => setData({ shared: res.shared === true, offers: apiList(res.offers, "offers") }))
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 403) setAllowed(false);
         else setData({ shared: false, offers: [] });

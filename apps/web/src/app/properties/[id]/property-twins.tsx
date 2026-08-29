@@ -9,7 +9,7 @@ import {
   TWIN_NOTE_MAX,
   type PropertyStatus,
 } from "@metavchim/shared";
-import { ApiError, API_BASE, apiDelete, apiGet, apiPost } from "@/lib/api";
+import { ApiError, API_BASE, apiDelete, apiGet, apiPost, apiList } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { ConfirmDialog } from "../../confirm-dialog";
 import { IconHome, IconPlus, IconSearch, IconX } from "../../icons";
@@ -192,7 +192,7 @@ export function PropertyTwins({
       const page = await apiGet<{ items: PickerRow[] }>(
         `/properties?limit=${PICKER_LIMIT}`,
       );
-      setOptions(page.items ?? []);
+      setOptions(apiList(page.items, "items"));
     } catch {
       setError("לא הצלחנו לטעון את רשימת הנכסים — סגרו ופתחו שוב.");
     }

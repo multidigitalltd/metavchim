@@ -5,7 +5,7 @@ import { bulkContactErasureDisclosure, labelOf } from "@metavchim/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiList, apiPost } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
@@ -133,7 +133,7 @@ export default function BuyersPage() {
     apiGet<{ items: BuyerRow[] }>(`/buyers?limit=100${filtersToQuery({ ...filters, q: "" })}`)
       .then((res) =>
         setItems(
-          [...(res.items ?? [])].sort(
+          [...apiList(res.items, "items")].sort(
             (a, b) => MATURITY_ORDER.indexOf(a.maturity) - MATURITY_ORDER.indexOf(b.maturity),
           ),
         ),
@@ -247,7 +247,7 @@ export default function BuyersPage() {
         `/buyers?limit=100${filtersToQuery({ ...filters, q: "" })}`,
       );
       setItems(
-        [...(fresh.items ?? [])].sort(
+        [...apiList(fresh.items, "items")].sort(
           (a, b) => MATURITY_ORDER.indexOf(a.maturity) - MATURITY_ORDER.indexOf(b.maturity),
         ),
       );

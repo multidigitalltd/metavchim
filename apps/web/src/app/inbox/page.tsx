@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import { API_BASE, apiGet, apiPost } from "@/lib/api";
+import { API_BASE, apiGet, apiList, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { Notice } from "../notice";
@@ -215,7 +215,7 @@ export default function InboxPage() {
     setSendError(null);
     try {
       const thread = await apiGet<{ messages: Message[] }>(`/email-inbox/${contactId}`);
-      setMessages(thread.messages ?? []);
+      setMessages(apiList(thread.messages, "messages"));
       // רשימה חדשה — גם השעה שלפיה נמדדת ההמתנה, אחרת התזמון נבנה מול ערך ישן
       setNow(Date.now());
       // הכניסה לשיחה היא הקריאה — התג יורד מהסרגל ומהרשימה

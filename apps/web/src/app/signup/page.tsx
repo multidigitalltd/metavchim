@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { featureLabel, FREE_PRICE_LABEL, normalizeSignupCode } from "@metavchim/shared";
-import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiPost, ApiError, apiList } from "@/lib/api";
 import { clearSessionCache } from "@/lib/session-cache";
 import { AuthShell } from "../auth-shell";
 import { Notice } from "../notice";
@@ -107,11 +107,12 @@ export default function SignupPage(): React.JSX.Element {
     setPlans(null);
     apiGet<{ plans: OfferedPlan[]; priceNote: string }>("/signup/plans")
       .then((res) => {
-        setPlans(res.plans ?? []);
+        const rows = apiList(res.plans, "plans");
+        setPlans(rows);
         setPriceNote(res.priceNote);
         // ברירת מחדל: המסלול האמצעי, לא הזול ביותר — הוא זה שמתאים
         // לרוב המשרדים, ומי שרוצה אחר בוחר בלחיצה
-        setChosen(res.plans[Math.min(1, res.plans.length - 1)]?.code ?? null);
+        setChosen(rows[Math.min(1, rows.length - 1)]?.code ?? null);
       })
       .catch(() => setPlansFailed(true));
   }, []);
