@@ -68,15 +68,25 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
 
   if (error) {
     return (
-      <Notice tone="danger">{error}</Notice>
+      <div className="mx-auto max-w-lg py-10">
+        <Notice tone="danger">{error}</Notice>
+      </div>
     );
   }
-  if (view === null) return <p aria-live="polite" className="py-16 text-center">טוען…</p>;
+  if (view === null) {
+    return (
+      <p aria-live="polite" className="py-16 text-center">
+        טוען…
+      </p>
+    );
+  }
 
   if (view.status === "unavailable") {
     return (
       <div className="mx-auto max-w-lg py-16 text-center">
-        <h1 className="mb-2 text-xl font-extrabold">הנכס כבר לא זמין</h1>
+        <h1 className="mb-2 text-xl font-extrabold" style={{ color: "var(--domain-peach-fg)" }}>
+          הנכס כבר לא זמין
+        </h1>
         <p style={{ color: "var(--color-text-muted)" }}>
           לפרטים על נכסים דומים — פנו אל {view.officeName}.
         </p>
@@ -94,28 +104,62 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
   ];
 
   return (
+    /*
+     * בלי ריפוד צדדי משלו: המעטפת הציבורית (`AppShell`, ענף
+     * `isPublic`) כבר עוטפת כל מסך ציבורי ב-`px-4`. ריפוד נוסף כאן
+     * היה מכפיל אותו ל-32px, כלומר מצר את התוכן דווקא במסך הצר.
+     */
     <div className="mx-auto max-w-3xl pb-16">
       {/* כותרת */}
-      <header className="mb-5 pt-4">
+      <header className="mb-5 pt-5">
         <p className="m-0 text-[length:var(--type-caption-lg)] font-bold" style={{ color: "var(--color-primary)" }}>
           {view.officeName}
         </p>
-        <h1 className="m-0 mt-1" style={{ fontSize: "calc(27 / 16 * 1rem)", fontWeight: 800, letterSpacing: "-0.01em" }}>
+        {/*
+          ‎`clamp` ולא גודל קבוע: 27px על מסך של 360 שובר כותרת
+          לשלוש שורות ודוחף את המחיר אל מתחת לקיפול.
+        */}
+        <h1
+          className="m-0 mt-1"
+          style={{
+            fontSize: "clamp(1.4rem, 5.5vw, calc(27 / 16 * 1rem))",
+            fontWeight: 800,
+            letterSpacing: "-0.01em",
+            lineHeight: 1.2,
+            color: "var(--domain-peach-fg)",
+          }}
+        >
           {view.title}
         </h1>
-        <p className="m-0 mt-1 flex flex-wrap items-baseline gap-3">
+        {/*
+          המחיר בשורה משלו בנייד ולצד המיקום ברוחב גדול: הוא המספר
+          שבגללו נכנסים לדף, ובשורה משותפת צרה הוא נדחק לקצה.
+        */}
+        <div className="mt-1.5 flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-3">
           <span style={{ color: "var(--color-text-muted)" }}>
             {[view.neighborhood, view.city].filter(Boolean).join(", ")}
           </span>
           {view.priceAgorot !== undefined ? (
-            <span className="text-2xl font-extrabold">{formatPrice(view.priceAgorot)}</span>
+            <span
+              className="font-extrabold"
+              style={{ fontSize: "clamp(1.25rem, 5vw, 1.5rem)" }}
+            >
+              {formatPrice(view.priceAgorot)}
+            </span>
           ) : null}
-        </p>
+        </div>
       </header>
 
-      {/* תמונות */}
+      {/*
+        גלריה ביחס-ממדים ולא בגבהים קבועים.
+
+        ‎`height: 160` על מסך של 360 נותן תמונה ברוחב 165 וגובה 160 —
+        כמעט ריבוע, שחותך כל צילום פנים לרוחב. יחס קבוע נותן לתמונה
+        להתכווץ עם המסך במקום להתעוות, והראשונה נשארת רחבה כי היא זו
+        שמחליטה אם ממשיכים לגלול.
+      */}
       {view.images.length > 0 ? (
-        <div className="mb-6 grid gap-2.5" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
+        <div className="mb-6 grid grid-cols-2 gap-2 sm:gap-2.5">
           {view.images.slice(0, 6).map((img, index) => (
             // img רגיל בכוונה — מוזרם דרך ה-API הציבורי
             <img
@@ -123,7 +167,10 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
               src={API_BASE + img.url}
               alt={img.alt ?? `תמונת הנכס ${index + 1}`}
               className="w-full rounded-xl object-cover"
-              style={{ height: index === 0 ? 280 : 160, gridColumn: index === 0 ? "1 / -1" : undefined }}
+              style={{
+                aspectRatio: index === 0 ? "16 / 10" : "4 / 3",
+                gridColumn: index === 0 ? "1 / -1" : undefined,
+              }}
             />
           ))}
         </div>
@@ -131,8 +178,13 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
 
       {/* מפרט */}
       {specs.length > 0 || view.features.length > 0 ? (
-        <section className="mv-list-card mb-6 p-5" aria-label="פרטי הנכס">
-          <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))" }}>
+        <section className="mv-list-card mb-6 p-4 sm:p-5" aria-label="פרטי הנכס">
+          {/*
+            שתי עמודות בנייד ואז auto-fit: `minmax(110px, 1fr)` לבדו
+            נותן על 360px שתי עמודות עם עמודה שלישית חסרה למחצה,
+            ושורה אחרונה יתומה. מספר עמודות מפורש בנייד נקי יותר.
+          */}
+          <div className="grid grid-cols-2 gap-4 sm:[grid-template-columns:repeat(auto-fit,minmax(110px,1fr))]">
             {specs.map(([label, value]) => (
               <div key={label}>
                 <div className="text-sm font-semibold" style={{ color: "var(--color-text-muted)" }}>
@@ -162,7 +214,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
       ) : null}
 
       {/* טופס פנייה */}
-      <section className="mv-list-card p-6" aria-labelledby="contact-heading">
+      <section className="mv-list-card p-4 sm:p-6" aria-labelledby="contact-heading">
         {sent ? (
           <div className="text-center" role="status">
             <p className="mb-1 text-lg font-extrabold" style={{ color: "var(--color-primary)" }}>
@@ -174,7 +226,15 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
           </div>
         ) : (
           <>
-            <h2 id="contact-heading" className="m-0 mb-1" style={{ fontSize: "var(--type-metric)", fontWeight: 800 }}>
+            <h2
+              id="contact-heading"
+              className="m-0 mb-1"
+              style={{
+                fontSize: "var(--type-metric)",
+                fontWeight: 800,
+                color: "var(--domain-peach-fg)",
+              }}
+            >
               מעוניינים בנכס?
             </h2>
             <p className="m-0 mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -234,11 +294,16 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
           <LogoMark s={16} />
           הדף מופעל על ידי {view.officeName} · מערכת מתווכים
         </span>
-        <a href="/privacy" className="underline">
+        {/*
+          ‎`inline-block` עם ריפוד אנכי: הקישורים האלה היו בגובה 16px,
+          כלומר יעד מגע שצריך לכוון אליו. הם משפטיים ולא שיווקיים,
+          ולכן הם נשארים קטנים בטיפוגרפיה — אבל שטח הלחיצה גדל.
+        */}
+        <a href="/privacy" className="inline-block px-1 py-2 underline">
           מדיניות פרטיות
-        </a>{" "}
-        ·{" "}
-        <a href="/accessibility" className="underline">
+        </a>
+        <span aria-hidden="true"> · </span>
+        <a href="/accessibility" className="inline-block px-1 py-2 underline">
           הצהרת נגישות
         </a>
       </p>
