@@ -1,8 +1,5 @@
 import { Module } from "@nestjs/common";
-import {
-  SupportInboxDeskController,
-  SupportInboxPublicController,
-} from "./support-inbox.controller";
+import { SupportInboxDeskController } from "./support-inbox.controller";
 import { SupportInboxService } from "./support-inbox.service";
 import { SupportController, SupportDeskController } from "./support.controller";
 import { SupportService } from "./support.service";
@@ -16,7 +13,6 @@ import { SupportService } from "./support.service";
   controllers: [
     SupportController,
     SupportDeskController,
-    SupportInboxPublicController,
     SupportInboxDeskController,
   ],
   providers: [SupportService, SupportInboxService],

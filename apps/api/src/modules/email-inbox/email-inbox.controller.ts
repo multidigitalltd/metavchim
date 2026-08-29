@@ -5,7 +5,6 @@ import {
   Get,
   Header,
   HttpCode,
-  NotFoundException,
   Param,
   Post,
   Res,
@@ -15,15 +14,13 @@ import {
 } from "@nestjs/common";
 import { FilesInterceptor } from "@nestjs/platform-express";
 import type { Response } from "express";
-import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import {
   EMAIL_ATTACHMENT_MAX_BYTES,
   EMAIL_ATTACHMENT_MAX_COUNT,
   IdSchema,
-  InboundEmailPayloadSchema,
 } from "@metavchim/shared";
-import { Public, RequireCapability } from "../../common/auth.decorators";
+import { RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   EmailInboxService,
@@ -37,46 +34,19 @@ const ReplyMultipartSchema = z
   .strict();
 
 /** הסוד שבנתיב — מגביל אורך כדי שהשוואה עוינת לא תהיה זולה מדי. */
-const SecretSchema = z.string().min(16).max(200);
-
 /**
- * תיבת הדואר הפנימית.
+ * תיבת הדואר הפנימית — התיבה של המשרד.
  *
- * הנתיב הציבורי הוא ה-Webhook של ספק האימייל; הסוד שבכתובת הוא
- * מה שסוגר אותו. שאר הנתיבים — התיבה של המשרד: משותפת לכל הסוכנים
- * (כמו מספר הוואטסאפ המשרדי), בשער `buyers.view_own` — היכולת
- * הבסיסית שיש לכל מי שמטפל בלקוחות.
+ * משותפת לכל הסוכנים (כמו מספר הוואטסאפ המשרדי), בשער
+ * `buyers.view_own` — היכולת הבסיסית שיש לכל מי שמטפל בלקוחות.
+ *
+ * ‎**ה-Webhook הנכנס אינו כאן.** שני הנתיבים הציבוריים עברו
+ * ל-`InboundMailModule`: הם מתנהגים זהה, וההכרעה „תשובת לקוח או
+ * פנייה לתמיכה” זקוקה לשני היעדים.
  */
 @Controller()
 export class EmailInboxController {
   constructor(private readonly inbox: EmailInboxService) {}
-
-  /**
-   * ה-Webhook הנכנס. תמיד 200 על קלט חוקי — גם כשהטוקן לא מוכר:
-   * שגיאה הייתה גורמת לספק לנסות שוב לנצח הודעה שלא תיקלט לעולם.
-   * סוד שגוי לעומת זאת הוא 404 — אין סיבה לאשר לדופק-בדלתות שהנתיב
-   * קיים.
-   */
-  @Public()
-  @Post("public/email/inbound/:secret")
-  @HttpCode(200)
-  async inbound(
-    @Param("secret", new ZodValidationPipe(SecretSchema)) secret: string,
-    @Body() body: unknown,
-  ): Promise<{ ok: true }> {
-    const config = await this.inbox.inboundConfig();
-    if (config === null) throw new NotFoundException("לא נמצא");
-    const expected = Buffer.from(config.secret);
-    const actual = Buffer.from(secret);
-    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
-      throw new NotFoundException("לא נמצא");
-    }
-
-    // קלט שאינו בצורה המוכרת נבלע — הספק ניסה, אין מה לנסות שוב
-    const parsed = InboundEmailPayloadSchema.safeParse(body);
-    if (parsed.success) await this.inbox.processInbound(parsed.data);
-    return { ok: true };
-  }
 
   @Get("email-inbox")
   @RequireCapability("buyers.view_own")

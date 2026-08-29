@@ -132,6 +132,51 @@ export default function DocsPage() {
               </li>
             ))}
           </ol>
+          {/*
+            ההעמקה והשאלות מוצגות כאן ולא רק במערכת.
+
+            ‎`guideMarkdown` כבר כוללת אותן, ולכן עמוד שמדלג עליהן
+            הוא בדיוק הפער שהתיעוד הזה כבר נכשל בו פעם: „העתקת
+            התיעוד” מוסרת תוכן שהעמוד עצמו לא הראה, והקורא האנושי
+            והמודל רואים שני מסמכים שונים (ביקורת Codex).
+          */}
+          {(guide.sections ?? []).map((section) => (
+            <div key={section.title} className="mt-4">
+              <h3 className="m-0 mb-1 text-base font-extrabold">{section.title}</h3>
+              <p className="m-0">{section.body}</p>
+              {section.bullets !== undefined ? (
+                <ul className="m-0 mt-1.5 flex list-disc flex-col gap-1 ps-5">
+                  {section.bullets.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {section.note !== undefined ? (
+                <p
+                  className="mt-2 mb-0 rounded-lg border p-3 text-sm"
+                  style={{
+                    borderColor: "var(--color-border)",
+                    background: "var(--color-hover-soft)",
+                  }}
+                >
+                  {section.note}
+                </p>
+              ) : null}
+            </div>
+          ))}
+          {(guide.faq ?? []).length > 0 ? (
+            <div className="mt-4">
+              <h3 className="m-0 mb-1 text-base font-extrabold">שאלות נפוצות</h3>
+              <dl className="m-0">
+                {(guide.faq ?? []).map((item) => (
+                  <div key={item.q} className="mt-2">
+                    <dt className="font-bold">{item.q}</dt>
+                    <dd className="m-0">{item.a}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ) : null}
           {guide.tip ? (
             <p
               className="mt-3 mb-0 rounded-lg border p-3 text-sm"

@@ -27,13 +27,21 @@ export const SUPPORT_KIND_LABEL: Record<SupportKind, string> = {
   billing: "מנוי ותשלום",
 };
 
-export const SUPPORT_STATUSES = ["open", "in_progress", "resolved"] as const;
+/**
+ * ‎**אוצר מילים אחד לשני מקורות הפניות.**
+ *
+ * הפניות מהכפתור נשאו `resolved` והשרשורים שהגיעו במייל נשאו
+ * `closed` — שני קודים לאותו מצב, שכבר הוצג בעברית באותה מילה.
+ * שולחן אחד לא יכול להחזיק שניים: פילטר „סגורות” היה מסנן חצי
+ * מהתור, ומיון לפי סטטוס היה מפצל את אותו מצב לשתי קבוצות.
+ */
+export const SUPPORT_STATUSES = ["open", "in_progress", "closed"] as const;
 export type SupportStatus = (typeof SUPPORT_STATUSES)[number];
 
 export const SUPPORT_STATUS_LABEL: Record<SupportStatus, string> = {
   open: "נפתחה",
   in_progress: "בטיפול",
-  resolved: "נסגרה",
+  closed: "נסגרה",
 };
 
 export const MAX_SUPPORT_MESSAGE = 2000;

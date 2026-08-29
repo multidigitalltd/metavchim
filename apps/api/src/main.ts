@@ -31,7 +31,13 @@ async function bootstrap(): Promise<void> {
    * הבקשה פנימה כדי שהטקסט ייקלט. הסיכון תחום: נתיב אחד, והמפרק
    * של Express דוחה מעל הגבול תוך כדי קריאה, בלי לצבור מעבר לו.
    */
+  /*
+   * שני נתיבי הקליטה, ולא אחד. לתמיכה חסרה התקרה הזאת, ולכן פנייה
+   * עם צילום מסך גדול נדחתה על גבול הגוף המוגדר כברירת מחדל —
+   * הספק קיבל שגיאה וניסה שוב, והצילום לא נשמר מעולם.
+   */
   app.use("/api/v1/public/email/inbound", json({ limit: "40mb" }));
+  app.use("/api/v1/public/support/inbound", json({ limit: "40mb" }));
   app.useBodyParser("json", { limit: "2mb" });
   app.useBodyParser("urlencoded", { limit: "2mb", extended: true });
 

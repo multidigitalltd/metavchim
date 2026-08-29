@@ -33,6 +33,23 @@ export const InboundEmailPayloadSchema = z
     StrippedTextReply: z.string().default(""),
     TextBody: z.string().default(""),
     MessageID: z.string().max(200).default(""),
+    /**
+     * כותרות ההודעה כפי שהספק מסר אותן.
+     *
+     * נדרשות מרגע שיש **תיבה כללית**: דומיין שלם מקבל גם מענים
+     * אוטומטיים והודעות אי-מסירה, ורק הכותרות מבדילות אותם ממייל
+     * של אדם. בלעדיהן כל „מחוץ למשרד” היה פותח פנייה חדשה.
+     */
+    Headers: z
+      .array(
+        z
+          .object({
+            Name: z.string().max(200).default(""),
+            Value: z.string().max(2000).default(""),
+          })
+          .passthrough(),
+      )
+      .default([]),
     /** קבצים מצורפים — Base64 מהספק. הסינון (סוג, גודל, כמות) בקליטה. */
     Attachments: z
       .array(
@@ -151,6 +168,27 @@ export function isProviderInboundRoute(address: string): boolean {
 export function inboundToken(payload: InboundEmailPayload): string | null {
   const hash = payload.MailboxHash.trim();
   return /^[0-9A-Z]{26}$/u.test(hash) ? hash : null;
+}
+
+/** כותרות ההודעה בצורה שהלוגיקה המשותפת מצפה לה. */
+export function inboundHeaders(
+  payload: InboundEmailPayload,
+): { name: string; value: string }[] {
+  return payload.Headers.map((header) => ({ name: header.Name, value: header.Value }));
+}
+
+/**
+ * מעטפת השולח (`Return-Path`) מתוך הכותרות, או `undefined`.
+ *
+ * ‎`undefined` ו-`<>` אינם אותו דבר: הראשון פירושו „הספק לא מסר”
+ * והשני „הודעת מערכת”. ערבוב ביניהם היה זורק כל הודעה שהספק לא
+ * צירף לה את הכותרת.
+ */
+export function inboundReturnPath(payload: InboundEmailPayload): string | undefined {
+  const header = payload.Headers.find(
+    (candidate) => candidate.Name.trim().toLowerCase() === "return-path",
+  );
+  return header === undefined ? undefined : header.Value;
 }
 
 /** כותרת ההודעה לתצוגה — "ללא נושא" במקום מחרוזת ריקה. */

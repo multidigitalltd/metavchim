@@ -29,6 +29,7 @@ import {
   type MarketingActionKind,
   agentAction,
   AGENT_RESULT_LABEL_MAX,
+  isSupportWaiting,
   jerusalemDayRange,
   mayUseAction,
   pendingMissedCalls,
@@ -2723,8 +2724,12 @@ export class AgentExecuteService {
     if (tickets.length === 0) {
       return { href: "/settings", message: "לא נפתחו פניות לתמיכה" };
     }
-    // „פתוחה” = טרם נפתרה. „resolved” הוא הסטטוס הסופי, אין „closed”
-    const open = tickets.filter((ticket) => ticket.status !== "resolved").length;
+    /*
+     * „ממתינה” נקבע ב-`isSupportWaiting` ולא כאן: שני המקורות
+     * (הכפתור והמייל) חולקים אוצר מילים אחד, ו-`resolved` אוחד
+     * ל-`closed`. השורה הזאת ספרה לפי הסטטוס הישן.
+     */
+    const open = tickets.filter((ticket) => isSupportWaiting(ticket.status)).length;
     return {
       href: "/settings",
       message:
