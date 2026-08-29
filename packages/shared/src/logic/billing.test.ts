@@ -239,12 +239,16 @@ describe("checkoutRejectionReason", () => {
 });
 
 describe("describeCyclePrice", () => {
-  it("חודשי", () => {
-    expect(describeCyclePrice(plan(), "monthly")).toBe("199 ₪ לחודש");
+  /*
+   * המחירון נקוב לפני מע"מ, ולכן הציון נצמד למספר עצמו ולא נשאר
+   * בהערת שוליים: את המספר קוראים, את השוליים לא.
+   */
+  it("חודשי — עם ציון שהמחיר לפני מע\"מ", () => {
+    expect(describeCyclePrice(plan(), "monthly")).toBe("199 ₪ לחודש + מע\"מ");
   });
 
-  it("שנתי", () => {
-    expect(describeCyclePrice(plan(), "yearly")).toBe("1,990 ₪ לשנה");
+  it("שנתי — אותו ציון, בלי לבלוע את המחזור", () => {
+    expect(describeCyclePrice(plan(), "yearly")).toBe("1,990 ₪ לשנה + מע\"מ");
   });
 
   it("null כשאין מחיר — הקורא לא אמור להציג כפתור בכלל", () => {

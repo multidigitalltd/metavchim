@@ -7,6 +7,8 @@ import {
   describeCycle,
   describeOfferPrice,
   featureLabel,
+  VAT_EXCLUDED_NOTE,
+  VAT_EXCLUDED_SUFFIX,
   withLoginReturn,
   type BillingCycle,
 } from "@metavchim/shared";
@@ -195,7 +197,7 @@ export default function SubscribeOfferPage(): React.JSX.Element | null {
                   <span style={{ color: "var(--color-text-muted)" }}>
                     {item.amountAgorot === 0
                       ? "כלול במחיר"
-                      : `${formatNumber(item.amountAgorot / 100)} ₪`}
+                      : `${formatNumber(item.amountAgorot / 100)} ₪ ${VAT_EXCLUDED_SUFFIX}`}
                   </span>
                 </li>
               ))}
@@ -206,9 +208,15 @@ export default function SubscribeOfferPage(): React.JSX.Element | null {
         <p className="m-0 text-xl font-bold">
           {describeOfferPrice(offer.amountAgorot, offer.billingCycle)}
         </p>
+        {/*
+          הדף שממנו לוחצים „לתשלום” הוא המקום שבו הפער בין המחיר
+          המוצג לסכום שיירד מהכרטיס הופך להפתעה — ולכן הסייג כאן
+          במפורש, ולא רק כסיומת ליד המספר.
+        */}
         <p className="m-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          המנוי מתחדש אוטומטית בחיוב {describeCycle(offer.billingCycle)} באותו סכום, וניתן
-          לביטול בכל עת ממסך המנוי.
+          {VAT_EXCLUDED_NOTE} החיוב בפועל כולל מע&quot;מ כחוק. המנוי מתחדש אוטומטית
+          בחיוב {describeCycle(offer.billingCycle)} באותו סכום, וניתן לביטול בכל עת
+          ממסך המנוי.
         </p>
         {offer.expiresAt ? (
           <p className="m-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>

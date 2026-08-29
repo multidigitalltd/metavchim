@@ -3,6 +3,7 @@ import { ulid } from "ulid";
 import { BILLING_GRACE_DAYS, RENEWAL_WARN_WITHIN_DAYS, accessUntil, billingAnchorDay, describeCycle, effectiveCyclePriceAgorot, formatIsraeliNumber, formatJerusalemDate, isBillingCycle, nextPeriodEnd, periodDaysLeft, type BillingCycle } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { CardcomService } from "../../core/cardcom.service";
+import { VatService } from "../../core/vat.service";
 import { CryptoService } from "../../core/crypto.service";
 import { EmailService } from "../../core/email.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
@@ -43,6 +44,7 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
     private readonly crypto: CryptoService,
     private readonly plans: PlanCatalogService,
     private readonly email: EmailService,
+    private readonly vat: VatService,
   ) {}
 
   onModuleInit(): void {
@@ -189,11 +191,20 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
     // התזכורת נוקבת בסכום, ולכן חייבת לדעת על המחיר המוסכם — אחרת
     // הלקוח מקבל מייל עם מחיר אחד ומחויב באחר
     const priceOverride = await this.plans.tenantPriceOverride(tenantId);
-    const amountAgorot = plan ? effectiveCyclePriceAgorot(plan, cycle, priceOverride) : null;
+    const netAgorot = plan ? effectiveCyclePriceAgorot(plan, cycle, priceOverride) : null;
     const days = periodDaysLeft(row.currentPeriodEnd, now) ?? 0;
     const when = row.currentPeriodEnd ? formatJerusalemDate(row.currentPeriodEnd) : "";
+    /*
+     * ‎**התזכורת נוקבת בסכום שיירד מהכרטיס** — כולל מע"מ, ואומרת
+     * זאת. המחירון נטו, ולכן הסכום שהמשרד רגיל לראות („299 ₪”)
+     * אינו הסכום שיחויב; מייל שנוקב בנטו ואז חיוב גבוה ב-18% הוא
+     * בדיוק המקרה שהתזכורת נועדה למנוע.
+     */
+    const amountAgorot = netAgorot === null ? null : await this.vat.gross(netAgorot);
     const amount =
-      amountAgorot !== null ? `${formatIsraeliNumber(Math.round(amountAgorot / 100))} ₪` : "";
+      amountAgorot !== null
+        ? `${formatIsraeliNumber(Math.round(amountAgorot / 100))} ₪ (כולל מע"מ)`
+        : "";
 
     await this.email.send(payer.email, "המנוי מתחדש בקרוב", {
       heading: "תזכורת לפני חידוש",
@@ -222,11 +233,13 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
       : "monthly";
     const plan = await this.plans.byCode(subscription.planCode);
     const priceOverride = await this.plans.tenantPriceOverride(tenantId);
-    const amountAgorot = plan ? effectiveCyclePriceAgorot(plan, cycle, priceOverride) : null;
-    if (plan === undefined || amountAgorot === null || amountAgorot <= 0) {
+    const netAgorot = plan ? effectiveCyclePriceAgorot(plan, cycle, priceOverride) : null;
+    if (plan === undefined || netAgorot === null || netAgorot <= 0) {
       this.logger.warn(`מסלול ${subscription.planCode} אינו ניתן לחיוב — חידוש מדולג`);
       return false;
     }
+    // מחיר מחירון ⟵ חיוב, בדיוק כמו ברכישה הראשונה
+    const { amountAgorot, vatPercent } = await this.vat.charge(netAgorot);
 
     const anchorDay = subscription.billingAnchorDay ?? billingAnchorDay(now);
     const periodEnd = nextPeriodEnd(subscription.currentPeriodEnd, now, cycle, anchorDay);
@@ -251,6 +264,7 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
         planCode: subscription.planCode,
         billingCycle: cycle,
         amountAgorot,
+        vatPercent,
         status: "pending",
         // אין דף תשלום בחידוש; המזהה של השורה משמש גם כמפתח הייחודי
         lowProfileId: paymentId,

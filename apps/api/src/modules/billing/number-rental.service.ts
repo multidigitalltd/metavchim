@@ -14,6 +14,7 @@ import {
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { CardcomService } from "../../core/cardcom.service";
+import { VatService } from "../../core/vat.service";
 import { EmailService } from "../../core/email.service";
 import { Pbx015NumbersService } from "../../core/pbx015-numbers.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -57,6 +58,7 @@ export class NumberRentalService {
     private readonly pbx015: Pbx015NumbersService,
     private readonly cardcom: CardcomService,
     private readonly email: EmailService,
+    private readonly vat: VatService,
   ) {}
 
   private toRow(row: {
@@ -217,6 +219,13 @@ export class NumberRentalService {
       data: { status: "superseded", failureReason: "נפתח דף תשלום חדש במקומו" },
     });
 
+    /*
+     * ‎`monthlyAgorot` הוא מחיר המחירון — **לפני מע"מ**, וכך הוא
+     * גם מוצג במסך ובעמוד המחירים של הטלפוניה („+ מע\"מ”). הסכום
+     * שנשלח לסולק הוא מה שבאמת יירד מהכרטיס, ולכן המע"מ נוסף כאן.
+     */
+    const { amountAgorot: chargeAgorot, vatPercent } = await this.vat.charge(monthlyAgorot!);
+
     const paymentId = ulid();
     await this.prisma.payment.create({
       data: {
@@ -224,7 +233,8 @@ export class NumberRentalService {
         tenantId: input.tenantId,
         purpose: "number_rental",
         rentalId,
-        amountAgorot: monthlyAgorot!,
+        amountAgorot: chargeAgorot,
+        vatPercent,
         status: "pending",
         lowProfileId: paymentId,
         createdBy: input.userId,
@@ -235,7 +245,7 @@ export class NumberRentalService {
     try {
       const page = await this.cardcom.createPaymentPage({
         reference: paymentId,
-        amountAgorot: monthlyAgorot!,
+        amountAgorot: chargeAgorot,
         productName: `השכרת מספר וירטואלי ${formatRentalNumber(input.number)} — חודש`,
         successUrl: `${origin}/settings/billing/return?payment=${paymentId}`,
         failureUrl: `${origin}/settings/billing/return?payment=${paymentId}&failed=1`,

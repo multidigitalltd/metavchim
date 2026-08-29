@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { VAT_EXCLUDED_SUFFIX } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { formatDate, formatNumber } from "@/lib/format";
@@ -56,7 +57,7 @@ export function NumberRentalPanel(): React.JSX.Element | null {
     const price = offering?.monthlyAgorot ?? 0;
     if (
       !window.confirm(
-        `לשכור את המספר ${number} תמורת ${formatNumber(price / 100)} ₪ לחודש?\n\nהתשלום מתחדש אוטומטית מדי חודש (חלק מחודש מחויב כחודש מלא), וניתן לבטל בכל עת — המספר יישאר עד סוף התקופה ששולמה.`,
+        `לשכור את המספר ${number} תמורת ${formatNumber(price / 100)} ₪ לחודש ${VAT_EXCLUDED_SUFFIX}?\n\nהתשלום מתחדש אוטומטית מדי חודש (חלק מחודש מחויב כחודש מלא), וניתן לבטל בכל עת — המספר יישאר עד סוף התקופה ששולמה.`,
       )
     ) {
       return;
@@ -99,7 +100,8 @@ export function NumberRentalPanel(): React.JSX.Element | null {
     >
       <p className="m-0 mb-2 text-sm">
         <b>אין לכם מספר פנוי? שכרו אחד דרך המערכת</b> —{" "}
-        {formatNumber(offering.monthlyAgorot / 100)} ₪ לחודש, מופעל אוטומטית אחרי התשלום.
+        {formatNumber(offering.monthlyAgorot / 100)} ₪ לחודש {VAT_EXCLUDED_SUFFIX}, מופעל
+        אוטומטית אחרי התשלום.
         חלק מחודש מחויב כחודש מלא, וביטול משאיר את המספר עד סוף התקופה ששולמה.
       </p>
 

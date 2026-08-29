@@ -42,8 +42,13 @@ const STATUS_LABELS: Record<string, string> = {
   failed: "נכשל",
 };
 
+/*
+ * סכומי התשלומים הם מה **שנגבה בפועל** — כולל מע"מ, בניגוד למחירון
+ * שנקוב נטו. בלי הציון, מי שמשווה תשלום למחיר המסלול רואה פער של
+ * 18% וחושב שמישהו חויב ביתר.
+ */
 function shekels(agorot: number): string {
-  return `${formatNumber(Math.round(agorot / 100))} ₪`;
+  return `${formatNumber(Math.round(agorot / 100))} ₪ כולל מע"מ`;
 }
 
 export function PaymentsSection(): React.JSX.Element {
@@ -177,8 +182,9 @@ export function PaymentsSection(): React.JSX.Element {
                       open === row.id ? (
                         <div className="flex flex-wrap items-end gap-2">
                           <div>
+                            {/* זיכוי הוא של מה שנגבה, ולכן כולל מע"מ */}
                             <label htmlFor={`amt-${row.id}`} className="block text-sm">
-                              סכום (₪)
+                              סכום (₪, כולל מע&quot;מ)
                             </label>
                             <input
                               id={`amt-${row.id}`}

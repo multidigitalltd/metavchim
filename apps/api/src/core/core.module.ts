@@ -18,6 +18,7 @@ import { PlatformSettingsService } from "./platform-settings.service";
 import { OutboxService } from "./outbox.service";
 import { PrismaService } from "./prisma.service";
 import { StorageService } from "./storage.service";
+import { VatService } from "./vat.service";
 
 /** שירותי תשתית רוחביים — זמינים לכל מודול בלי ייבוא חוזר. */
 @Global()
@@ -42,6 +43,7 @@ import { StorageService } from "./storage.service";
     AutomationQuotaService,
     LeadPricingService,
     StorageService,
+    VatService,
   ],
   exports: [
     PrismaService,
@@ -65,6 +67,7 @@ import { StorageService } from "./storage.service";
     AutomationQuotaService,
     LeadPricingService,
     StorageService,
+    VatService,
   ],
 })
 export class CoreModule {}

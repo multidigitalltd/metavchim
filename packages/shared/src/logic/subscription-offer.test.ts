@@ -305,11 +305,12 @@ describe("sanitizeOfferLineItems", () => {
 
 describe("describeOfferPrice", () => {
   it("סכום עגול בלי אגורות, חודשי ושנתי", () => {
-    expect(describeOfferPrice(24_900, "monthly")).toBe("249 ₪ לחודש");
-    expect(describeOfferPrice(199_000, "yearly")).toBe("1,990 ₪ לשנה");
+    // גם המחיר שסוכם בהצעה נקוב לפני מע"מ, כמו כל מחיר במערכת
+    expect(describeOfferPrice(24_900, "monthly")).toBe("249 ₪ לחודש + מע\"מ");
+    expect(describeOfferPrice(199_000, "yearly")).toBe("1,990 ₪ לשנה + מע\"מ");
   });
 
   it("אגורות מוצגות רק כשהן קיימות", () => {
-    expect(describeOfferPrice(24_950, "monthly")).toBe("249.5 ₪ לחודש");
+    expect(describeOfferPrice(24_950, "monthly")).toBe("249.5 ₪ לחודש + מע\"מ");
   });
 });

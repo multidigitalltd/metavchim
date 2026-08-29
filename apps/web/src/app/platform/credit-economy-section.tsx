@@ -208,7 +208,7 @@ export function CreditEconomySection({ refreshToken = 0 }: { refreshToken?: numb
           step="0.01"
           value={form.unitPrice ?? ""}
           onChange={(v) => setForm({ ...form, unitPrice: v })}
-          hint="הבסיס לחישוב ההנחה בחבילות ולפדיון בכסף"
+          hint="לפני מע&quot;מ, כמו כל מחיר במערכת. הבסיס לחישוב ההנחה בחבילות ולפדיון בכסף"
         />
         <NumberField
           label="מענק פתיחה למשרד חדש"
@@ -254,7 +254,9 @@ export function CreditEconomySection({ refreshToken = 0 }: { refreshToken?: numb
                 />
               </label>
               <label className="grow">
-                <span className="mb-1 block text-sm font-semibold">מחיר (₪)</span>
+                <span className="mb-1 block text-sm font-semibold">
+                  מחיר (₪, לפני מע&quot;מ)
+                </span>
                 <input
                   type="number"
                   min="0"

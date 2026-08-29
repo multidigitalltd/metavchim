@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@metavchim/ui";
 import { packageDiscountPercent } from "@metavchim/shared";
 import { ApiError, apiPost } from "@/lib/api";
+import { VAT_EXCLUDED_NOTE, VAT_EXCLUDED_SUFFIX } from "@metavchim/shared";
 import { formatNumber } from "@/lib/format";
 import { Notice } from "../notice";
 
@@ -93,7 +94,7 @@ export function BuyCredits({
                   {pkg.credits} קרדיטים
                 </span>
                 <span className="block text-[length:var(--type-caption-lg)]">
-                  {shekels(pkg.priceAgorot)} ₪
+                  {shekels(pkg.priceAgorot)} ₪ {VAT_EXCLUDED_SUFFIX}
                 </span>
                 {/* הנחה שלילית לא מוצגת כ"הנחה" — היא טעות תמחור, לא מבצע */}
                 {discount > 0 ? (
@@ -113,7 +114,7 @@ export function BuyCredits({
       <div className="flex flex-wrap items-end gap-2">
         <label className="grow">
           <span className="mb-1 block text-sm font-semibold">
-            כמות אחרת ({shekels(unitPriceAgorot)} ₪ לקרדיט)
+            כמות אחרת ({shekels(unitPriceAgorot)} ₪ לקרדיט {VAT_EXCLUDED_SUFFIX})
           </span>
           <input
             type="number"
@@ -135,10 +136,18 @@ export function BuyCredits({
           {busy
             ? "מעביר לתשלום…"
             : customValid
-              ? `לתשלום — ${shekels(unitPriceAgorot * customCredits)} ₪`
+              ? `לתשלום — ${shekels(unitPriceAgorot * customCredits)} ₪ ${VAT_EXCLUDED_SUFFIX}`
               : "לתשלום"}
         </Button>
       </div>
+
+      {/*
+        הסייג פעם אחת מתחת לכל האפשרויות, ולא רק לצד כל מספר: מי
+        שקורא רק את הסכום הגדול בכפתור עדיין רואה אותו.
+      */}
+      <p className="m-0 mt-2 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
+        {VAT_EXCLUDED_NOTE}
+      </p>
 
       {error !== null ? (
         <Notice tone="danger">{error}</Notice>

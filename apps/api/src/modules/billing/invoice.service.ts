@@ -7,7 +7,6 @@ import {
 } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
-  DEFAULT_VAT_PERCENT,
   INVOICE_MAX_ATTEMPTS,
   invoiceLineDescription,
   invoiceRejectionReason,
@@ -17,7 +16,7 @@ import {
 } from "@metavchim/shared";
 import { LinetService } from "../../core/linet.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
-import { PlatformSettingsService } from "../../core/platform-settings.service";
+import { VatService } from "../../core/vat.service";
 import { PrismaService } from "../../core/prisma.service";
 
 /**
@@ -72,7 +71,7 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly linet: LinetService,
     private readonly plans: PlanCatalogService,
-    private readonly settings: PlatformSettingsService,
+    private readonly vat: VatService,
   ) {}
 
   onModuleInit(): void {
@@ -104,12 +103,6 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async vatPercent(): Promise<number> {
-    const raw = await this.settings.get("vatPercent");
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) && parsed >= 0 && parsed <= 100 ? parsed : DEFAULT_VAT_PERCENT;
-  }
-
   /**
    * רישום חוב מסמך על תשלום שנגבה — **לא מפיק, רק רושם**.
    *
@@ -123,7 +116,20 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
       const rejection = invoiceRejectionReason(payment);
       if (rejection !== null) return { ok: false, error: rejection };
 
-      const vatPercent = await this.vatPercent();
+      /*
+       * ‎**השיעור שנצרב על התשלום גובר על השיעור הנוכחי.**
+       *
+       * המסמך מפרק את הברוטו שנגבה בפועל, ולכן הוא חייב לפרק אותו
+       * באותו שיעור שבו הוא **הורכב**. קריאת השיעור העדכני כאן היא
+       * נכונה כל עוד הוא לא השתנה בין הגבייה להפקה — והיא נשברת
+       * בדיוק ביום שהוא משתנה בחקיקה, על כל התשלומים שהיו באוויר
+       * (ביקורת Codex). דף תשלום פתוח, סבב חידושים, וסורק שרץ כל
+       * חמש דקות — כולם מפרידים בין שני הרגעים.
+       *
+       * שורות שקדמו לשדה נופלות לשיעור הנוכחי: אין לנו מה לצרוב
+       * עליהן, וזו בדיוק ההתנהגות שהייתה להן ממילא.
+       */
+      const vatPercent = payment.vatPercent ?? (await this.vat.percent());
       const split = vatSplitFromGross(payment.amountAgorot, vatPercent);
       const description = await this.describe(payment);
 

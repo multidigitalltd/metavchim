@@ -145,7 +145,8 @@ export function InvoicesSection() {
             >
               <div className="flex flex-wrap items-center gap-2">
                 <b>{row.tenantName}</b>
-                <span>{formatNumber(row.grossAgorot / 100)} ₪</span>
+                {/* סכום המסמך = מה שנגבה בפועל, כולל מע"מ */}
+                <span>{formatNumber(row.grossAgorot / 100)} ₪ כולל מע&quot;מ</span>
                 <span style={{ color: "var(--color-text-muted)" }}>{row.description}</span>
                 <span className="ms-auto">{STATUS_LABEL[row.status] ?? row.status}</span>
               </div>
@@ -183,7 +184,7 @@ export function InvoicesSection() {
                 <span dir="ltr" className="font-mono">
                   {row.id}
                 </span>
-                <span>{formatNumber(row.amountAgorot / 100)} ₪</span>
+                <span>{formatNumber(row.amountAgorot / 100)} ₪ כולל מע&quot;מ</span>
                 <span style={{ color: "var(--color-text-muted)" }}>
                   {row.paidAt ? formatDateTime(row.paidAt) : ""}
                 </span>
