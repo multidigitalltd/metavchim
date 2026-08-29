@@ -52,6 +52,15 @@ export class DomainNotFoundAtProviderError extends BadRequestException {}
 
 const API_BASE = "https://api.postmarkapp.com";
 
+/** חלון המטמון של רשימת השולחים המאומתים. */
+const SENDABLE_TTL_MS = 5 * 60 * 1000;
+
+/** מי רשאי לשלוח — חתימות בודדות ודומיינים מאומתים, בשמות קטנים. */
+interface SendableAddresses {
+  signatures: Set<string>;
+  domains: Set<string>;
+}
+
 /** צורת התשובה של Postmark על דומיין — השדות שאנחנו קוראים בלבד. */
 interface PostmarkDomainResponse {
   ID: number;
@@ -167,6 +176,97 @@ export class EmailDomainProviderService {
       dkimVerified: res.DKIMVerified === true,
       returnPathVerified: res.ReturnPathDomainVerified === true,
     };
+  }
+
+  /**
+   * ‎**האם הספק ירשה לשלוח מהכתובת הזאת.**
+   *
+   * ‏Postmark מאשרת שולח בשתי דרכים, וצריך את שתיהן:
+   *
+   * - ‎**Sender Signature** — כתובת יחידה שאושרה בלחיצה על מייל.
+   * - ‎**דומיין מאומת** — DKIM שפורסם, וכל כתובת על הדומיין עוברת.
+   *
+   * זה קיים כי הניחוש „אותו דומיין כמו השולח הכללי” אינו תקף:
+   * `EMAIL_FROM` מתועדת אצלנו כחתימה **בודדת**, ואימות שלה אינו
+   * אומר דבר על כתובת אחרת באותו דומיין (ביקורת Codex).
+   *
+   * ‎`false` בכל מצב של ספק — אין טוקן, לא ענה, החזיר שגיאה. שליחה
+   * שנדחית משאירה את הפונה בלי תשובה בכלל, וזה גרוע משורת „מאת”
+   * לא אידיאלית.
+   */
+  async canSendFrom(address: string): Promise<boolean> {
+    const wanted = address.trim().toLowerCase();
+    const at = wanted.lastIndexOf("@");
+    if (at <= 0) return false;
+    const domain = wanted.slice(at + 1);
+
+    const allowed = await this.sendableAddresses();
+    if (allowed === null) return false;
+    return allowed.signatures.has(wanted) || allowed.domains.has(domain);
+  }
+
+  /*
+   * ‎**נשמר במטמון לדקות ספורות.**
+   *
+   * הבדיקה רצה על כל תשובת תמיכה, ושתי קריאות רשת לכל מייל הן
+   * עלות שאין לה הצדקה: אימות שולח משתנה פעם בחודשים. חלון קצר
+   * שומר על התנהגות סבירה גם מיד אחרי שמישהו מאמת כתובת חדשה.
+   */
+  private sendableCache: { at: number; value: SendableAddresses | null } | null = null;
+
+  private async sendableAddresses(): Promise<SendableAddresses | null> {
+    const now = Date.now();
+    if (this.sendableCache !== null && now - this.sendableCache.at < SENDABLE_TTL_MS) {
+      return this.sendableCache.value;
+    }
+    const value = await this.fetchSendable();
+    this.sendableCache = { at: now, value };
+    return value;
+  }
+
+  private async fetchSendable(): Promise<SendableAddresses | null> {
+    const token = await this.accountToken();
+    if (token === null) return null;
+    try {
+      const [senders, domains] = await Promise.all([
+        this.list(token, "/senders?count=500&offset=0"),
+        this.list(token, "/domains?count=500&offset=0"),
+      ]);
+      return {
+        signatures: new Set(
+          (senders?.["SenderSignatures"] ?? [])
+            .filter((row) => row["Confirmed"] === true)
+            .map((row) => String(row["EmailAddress"] ?? "").trim().toLowerCase())
+            .filter((value) => value !== ""),
+        ),
+        domains: new Set(
+          (domains?.["Domains"] ?? [])
+            .filter((row) => row["DKIMVerified"] === true)
+            .map((row) => String(row["Name"] ?? "").trim().toLowerCase())
+            .filter((value) => value !== ""),
+        ),
+      };
+    } catch (error) {
+      this.logger.warn(`Postmark — בדיקת שולחים מאומתים נכשלה: ${String(error)}`);
+      return null;
+    }
+  }
+
+  /** קריאת רשימה מה-Account API. חריגה נבלעת אצל הקורא. */
+  private async list(
+    token: string,
+    path: string,
+  ): Promise<Record<string, Record<string, unknown>[]> | null> {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "GET",
+      headers: { Accept: "application/json", "X-Postmark-Account-Token": token },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      this.logger.warn(`Postmark GET ${path} → ${res.status}`);
+      return null;
+    }
+    return (await res.json()) as Record<string, Record<string, unknown>[]>;
   }
 
   private async request(

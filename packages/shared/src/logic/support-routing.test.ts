@@ -155,19 +155,21 @@ describe("מספר הפנייה", () => {
 });
 
 describe("מאיזו כתובת יוצא דואר התמיכה", () => {
-  const GLOBAL = "no_reply@metavchim.co.il";
   const POSTMARK = "abc123def@inbound.postmarkapp.com";
+  /** הספק מאשר רק את מה שברשימה — בדיוק כמו Postmark. */
+  const only = (...verified: string[]) => (address: string) =>
+    verified.includes(address.trim().toLowerCase());
 
-  it("כתובת השירות מנצחת — זה מה שהמשתמש הגדיר", () => {
+  it("כתובת השירות מנצחת כשהספק מאשר אותה", () => {
     /*
-     * המקרה שהוליד את התיקון: כתובת שירות מוגדרת, כתובת הקליטה היא
-     * נתיב של Postmark, והתשובות יצאו מ-`no_reply`.
+     * המקרה שהוליד את התיקון: כתובת שירות מוגדרת ומאומתת, כתובת
+     * הקליטה היא נתיב של Postmark, והתשובות יצאו מ-`no_reply`.
      */
     expect(
       supportFromAddress({
         supportEmail: "service@metavchim.co.il",
         inboundAddress: POSTMARK,
-        globalFrom: GLOBAL,
+        canSend: only("service@metavchim.co.il"),
       }),
     ).toBe("service@metavchim.co.il");
   });
@@ -178,51 +180,68 @@ describe("מאיזו כתובת יוצא דואר התמיכה", () => {
       supportFromAddress({
         supportEmail: "service@metavchim.co.il",
         inboundAddress: null,
-        globalFrom: GLOBAL,
+        canSend: only("service@metavchim.co.il"),
       }),
     ).toBe("service@metavchim.co.il");
   });
 
-  it("דומיין שאינו מאומת נדחה — שליחה שנכשלת גרועה משורת „מאת” לא אידיאלית", () => {
+  it("‏**כתובת שהספק אינו מאשר נדחית — גם באותו דומיין**", () => {
+    /*
+     * הלב של הממצא: `no_reply@x` מאומתת כחתימה **בודדת**, וזה אינו
+     * אומר דבר על `service@x`. שליחה שנדחית משאירה את הפונה בלי
+     * תשובה בכלל (ביקורת Codex).
+     */
     expect(
       supportFromAddress({
-        supportEmail: "service@example.com",
+        supportEmail: "service@metavchim.co.il",
         inboundAddress: POSTMARK,
-        globalFrom: GLOBAL,
+        canSend: only("no_reply@metavchim.co.il"),
       }),
     ).toBeNull();
   });
 
-  it("נתיב קליטה של הספק אינו שולח, גם ככתובת שירות", () => {
+  it("דומיין מאומת מכשיר כל כתובת עליו — זה מה שהספק אומר", () => {
+    expect(
+      supportFromAddress({
+        supportEmail: "service@metavchim.co.il",
+        inboundAddress: POSTMARK,
+        // הקורא מתרגם „הדומיין מאומת” לתשובה על הכתובת
+        canSend: (address) => address.endsWith("@metavchim.co.il"),
+      }),
+    ).toBe("service@metavchim.co.il");
+  });
+
+  it("נתיב קליטה של הספק אינו שולח, גם אם הוא נקבע ככתובת שירות", () => {
     expect(
       supportFromAddress({
         supportEmail: POSTMARK,
         inboundAddress: POSTMARK,
-        globalFrom: GLOBAL,
+        canSend: () => true,
       }),
     ).toBeNull();
   });
 
-  it("בלי כתובת שירות — כתובת קליטה שהיא תיבה אמיתית", () => {
-    /*
-     * משרד שהגדיר דומיין משלו ואימת אותו ממשיך לשלוח ממנו, גם אם
-     * הוא אינו הדומיין של השולח הכללי.
-     */
+  it("בלי כתובת שירות — כתובת קליטה שהיא תיבה אמיתית ומאומתת", () => {
     expect(
       supportFromAddress({
         supportEmail: "",
         inboundAddress: "tmicha@office.co.il",
-        globalFrom: GLOBAL,
+        canSend: only("tmicha@office.co.il"),
       }),
     ).toBe("tmicha@office.co.il");
   });
 
-  it("אין כלום — נשארים עם השולח הכללי", () => {
+  it("הספק אינו זמין — נשארים עם השולח הכללי", () => {
+    /*
+     * אין טוקן Account, או שהספק לא ענה. „לא יודע” נספר כ„לא”,
+     * כי הכיוון הבטוח הוא שההודעה תצא.
+     */
     expect(
-      supportFromAddress({ supportEmail: null, inboundAddress: null, globalFrom: GLOBAL }),
-    ).toBeNull();
-    expect(
-      supportFromAddress({ supportEmail: "service@x.co.il", inboundAddress: null, globalFrom: "" }),
+      supportFromAddress({
+        supportEmail: "service@metavchim.co.il",
+        inboundAddress: "tmicha@office.co.il",
+        canSend: () => false,
+      }),
     ).toBeNull();
   });
 
@@ -231,7 +250,7 @@ describe("מאיזו כתובת יוצא דואר התמיכה", () => {
       supportFromAddress({
         supportEmail: "  Service@Metavchim.CO.IL  ",
         inboundAddress: POSTMARK,
-        globalFrom: "no_reply@metavchim.co.il",
+        canSend: only("service@metavchim.co.il"),
       }),
     ).toBe("Service@Metavchim.CO.IL");
   });

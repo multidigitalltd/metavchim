@@ -200,20 +200,24 @@ export function referenceFromSubject(subject: string): number | null {
  * שורת „מאת” נגזרה מ**כתובת הקליטה** בלבד. אצל Postmark כתובת
  * הקליטה היא `abc123@inbound.postmarkapp.com` — נתיב, לא תיבה —
  * והיא אינה חתימת שולח מאומתת, ולכן היא נפסלה כשולח ובצדק. אבל מה
- * שקרה אז היה נפילה אל השולח הכללי, כלומר `no_reply@…`: הפונה קיבל
+ * שקרה אז היה נפילה אל השולח הכללי, כלומר `no_reply@`: הפונה קיבל
  * תשובה מכתובת שנראית כאילו אין לאן להשיב אליה, גם כשמוגדרת במערכת
  * כתובת שירות אמיתית.
  *
  * כתובת השירות (`supportEmail`) הייתה שם כל הזמן — היא פשוט שימשה
  * רק כ**נמען** של התראות פנימיות וכטקסט תצוגה, ומעולם לא כשולח.
  *
- * ## הכלל
+ * ## למה `canSend` ולא השוואת דומיין
  *
- * ‎**אותו דומיין כמו השולח הכללי.** זו אינה החמרה שרירותית: אם
- * המערכת כבר שולחת בפועל מ-`no_reply@metavchim.co.il`, הדומיין
- * הזה מאומת אצל הספק, וכל כתובת עליו תעבור. כתובת בדומיין אחר
- * עלולה שלא להיות מאומתת — ושליחה שנדחית גרועה משורת „מאת” לא
- * אידיאלית, כי היא משאירה את הפונה בלי תשובה בכלל.
+ * הניסיון הראשון כאן היה „אותו דומיין כמו השולח הכללי”, בהנחה
+ * שדומיין ששולח בפועל הוא דומיין מאומת. **ההנחה שגויה**: `EMAIL_FROM`
+ * מתועדת ברפו עצמו כ-Sender Signature **בודדת**, ו-Postmark מאמתת
+ * או כתובת יחידה או דומיין שלם. אימות של `no_reply@x.co.il` אינו
+ * אומר דבר על `service@x.co.il` (ביקורת Codex).
+ *
+ * ההכרעה מי מאומת שייכת לספק, ולכן היא נכנסת לכאן כתשובה ולא
+ * כניחוש. הפונקציה נשארת טהורה: הקורא שואל את הספק, וזה מחליט מה
+ * לעשות עם התשובה.
  *
  * ‎`replyTo` אינו מושפע מכאן ונשאר על כתובת הקליטה עם הטוקן: הוא
  * מה שמחזיר את התשובה לשרשור, ועליו אין מגבלת אימות.
@@ -223,31 +227,28 @@ export function supportFromAddress(input: {
   supportEmail: string | null | undefined;
   /** כתובת הקליטה — אצל Postmark זה נתיב ולא תיבה. */
   inboundAddress: string | null | undefined;
-  /** השולח הכללי — הדומיין שלו הוא זה שידוע כמאומת. */
-  globalFrom: string | null | undefined;
+  /**
+   * האם הספק מאשר שהכתובת רשאית לשלוח.
+   *
+   * ‎`false` כשאין דרך לדעת (אין טוקן Account, הספק לא ענה) — וזה
+   * הכיוון הבטוח: שליחה שנדחית משאירה את הפונה בלי תשובה בכלל,
+   * וזה גרוע משורת „מאת” לא אידיאלית.
+   */
+  canSend: (address: string) => boolean;
 }): string | null {
-  const domainOf = (address: string | null | undefined): string | null => {
-    const at = (address ?? "").lastIndexOf("@");
-    return at <= 0 ? null : address!.slice(at + 1).trim().toLowerCase();
-  };
-
   const support = (input.supportEmail ?? "").trim();
-  const verified = domainOf(input.globalFrom);
-  if (
-    support !== "" &&
-    !isProviderInboundRoute(support) &&
-    verified !== null &&
-    domainOf(support) === verified
-  ) {
+  if (support !== "" && !isProviderInboundRoute(support) && input.canSend(support)) {
     return support;
   }
 
   /*
-   * אין כתובת שירות שמישה — כתובת הקליטה, אם היא בכלל תיבה אמיתית.
-   * משרד שהגדיר דומיין משלו ואימת אותו ממשיך לשלוח ממנו.
+   * אין כתובת שירות שמישה — כתובת הקליטה, אם היא בכלל תיבה אמיתית
+   * ומאומתת. משרד שהגדיר דומיין משלו ואימת אותו שולח ממנו.
    */
   const inbound = (input.inboundAddress ?? "").trim();
-  if (inbound !== "" && !isProviderInboundRoute(inbound)) return inbound;
+  if (inbound !== "" && !isProviderInboundRoute(inbound) && input.canSend(inbound)) {
+    return inbound;
+  }
 
   // `null` = להישאר עם השולח הכללי; ה-Reply-To עדיין מחזיר לשרשור
   return null;

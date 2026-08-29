@@ -31,6 +31,7 @@ import {
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { EmailRejectedError, EmailService } from "../../core/email.service";
+import { EmailDomainProviderService } from "../../core/email-domain-provider.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
@@ -76,6 +77,11 @@ export class SupportInboxService {
     private readonly email: EmailService,
     private readonly storage: StorageService,
     private readonly settings: PlatformSettingsService,
+    /*
+     * ‎**מי רשאי לשלוח היא שאלה לספק, לא ניחוש.** נכנס לכאן רק בשביל
+     * `canSendFrom`; הרישום של דומייני המשרדים אינו נוגע לתמיכה.
+     */
+    private readonly provider: EmailDomainProviderService,
   ) {}
 
   /** כתובת ה-Inbound של תיבת התמיכה, והסוד שבנתיב ה-Webhook. */
@@ -804,11 +810,37 @@ export class SupportInboxService {
   private async sender(
     inboundAddress: string | null,
   ): Promise<{ from: string; token?: string | undefined } | null> {
+    const supportEmail = (await this.settings.get("supportEmail")) ?? "";
+    /*
+     * הרשימה נשאלת פעם אחת (ומוחזקת במטמון אצל הספק), ולא פעם לכל
+     * מועמד — `supportFromAddress` היא הכרעה טהורה שמקבלת תשובה.
+     */
+    const sendable = new Map<string, boolean>();
+    for (const candidate of [supportEmail, inboundAddress ?? ""]) {
+      const address = candidate.trim();
+      if (address === "" || sendable.has(address)) continue;
+      sendable.set(address, await this.provider.canSendFrom(address));
+    }
+
     const from = supportFromAddress({
-      supportEmail: await this.settings.get("supportEmail"),
+      supportEmail,
       inboundAddress,
-      globalFrom: (await this.settings.get("emailFrom")) ?? loadEnv().EMAIL_FROM,
+      canSend: (address) => sendable.get(address.trim()) === true,
     });
+
+    /*
+     * כתובת שירות שהוגדרה ואינה שמישה היא **הגדרה שבשקט אינה
+     * עובדת**: המנהל רואה אותה במסך ומצפה שהיא תופיע ב„מאת”, והדואר
+     * ממשיך לצאת מהשולח הכללי. ברמת `error` כדי שזה יופיע בניטור
+     * ולא ייבלע ביומן.
+     */
+    if (supportEmail.trim() !== "" && from !== supportEmail.trim()) {
+      this.logger.error(
+        `כתובת התמיכה ${supportEmail} אינה מאומתת אצל ספק הדואר — ` +
+          "התשובות ימשיכו לצאת מהשולח הכללי. אמתו אותה כ-Sender Signature או אמתו את הדומיין.",
+      );
+    }
+
     if (from === null) return null;
     const token = (await this.settings.get("supportServerToken")) ?? "";
     return { from: `תמיכה מתווכים <${from}>`, ...(token === "" ? {} : { token }) };
