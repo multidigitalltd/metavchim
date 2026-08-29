@@ -1203,6 +1203,23 @@ export function lookupPhraseKeys(actionId: string): readonly string[] {
   return spec.also === undefined ? [spec.key] : [spec.key, spec.also.key];
 }
 
+/**
+ * ‎**המזהים שהטבלה כותבת** — הצד השני של אותה תקלה.
+ *
+ * הביטוי נפתר, המזהה נכתב לפרמטרים, ואז **צמצום הפרמטרים** מוחק
+ * אותו: `AGENT_ID_KEYS` היא רשימת ההיתר של המזהים שאינם שדות
+ * קטלוג, ומזהה חדש שאינו בה נעלם בין הבחירה לביצוע — בשני
+ * הערוצים, ובשקט (ביקורת Codex על `approachId`).
+ *
+ * מיוצאת כדי שהבדיקה תאכוף: כל `idKey` כאן חייב להיות מוצהר
+ * בקטלוג כשדה, או להופיע ברשימת ההיתר.
+ */
+export function lookupIdKeys(actionId: string): readonly string[] {
+  const spec = ENTITY_LOOKUP[actionId];
+  if (spec === undefined) return [];
+  return spec.also === undefined ? [spec.idKey] : [spec.idKey, spec.also.idKey];
+}
+
 const RECOMMENDED: Record<string, readonly string[]> = {
   create_lead: ["name", "phone"],
   create_buyer: ["name", "phone", "cities", "budgetMaxShekels"],

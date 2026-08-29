@@ -1783,6 +1783,8 @@ export const AGENT_ID_KEYS = [
   "relatedId",
   /** הסוכן שמשימה מוטלת עליו, או שמסננים לפיו (`assign_task`, `show_tasks`) */
   "assigneeId",
+  /** הפנייה מהרשת שנבחרה לאישור (`open_deal_room`) */
+  "approachId",
 ] as const;
 
 const BY_ID = new Map(AGENT_ACTIONS.map((action) => [action.id, action]));
