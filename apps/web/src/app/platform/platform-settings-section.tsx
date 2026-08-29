@@ -1473,7 +1473,7 @@ export function PlatformSettingsSection({
             </div>
             <div style={{ minWidth: "150px" }}>
               <label htmlFor="rentalMonthly" className="mb-1 block font-medium">
-                מחיר חודשי (₪)
+                מחיר חודשי (₪, לפני מע&quot;מ)
               </label>
               <input
                 id="rentalMonthly"

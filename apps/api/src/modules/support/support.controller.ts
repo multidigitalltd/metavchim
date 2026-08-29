@@ -1,8 +1,10 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   Header,
+  HttpCode,
   Param,
   Patch,
   Post,
@@ -20,8 +22,11 @@ import {
   MAX_SUPPORT_MESSAGE,
   MAX_SUPPORT_REPLY,
   MAX_SUPPORT_SCREENSHOT_BYTES,
+  orderSupportQueue,
   SUPPORT_KINDS,
   SUPPORT_STATUSES,
+  ticketTitle,
+  type SupportQueueRow,
 } from "@metavchim/shared";
 import {
   AnyAuthenticated,
@@ -30,6 +35,7 @@ import {
 } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { SupportInboxService } from "./support-inbox.service";
 import {
   SupportService,
   type SupportTicketAdminDto,
@@ -66,6 +72,8 @@ const CreateSchema = z
       .optional(),
   })
   .strict();
+
+const QueueStatusSchema = z.object({ status: z.enum(SUPPORT_STATUSES) }).strict();
 
 const RespondSchema = z
   .object({
@@ -147,7 +155,81 @@ export class SupportController {
 @Controller("platform/support")
 @UseGuards(PlatformAdminGuard)
 export class SupportDeskController {
-  constructor(private readonly support: SupportService) {}
+  constructor(
+    private readonly support: SupportService,
+    private readonly inbox: SupportInboxService,
+  ) {}
+
+  /**
+   * ‎**התור המאוחד — שני המקורות ברשימה אחת.**
+   *
+   * פנייה מהכפתור ופנייה במייל הן אותה עבודה: מישהו מחכה לתשובה.
+   * שני מסכים נפרדים פירושם שני תורים לבדוק, שתי ספירות „כמה
+   * פתוחות”, ושתי פניות שיכולות להיות של אותו אדם על אותו דבר בלי
+   * שאיש ישים לב.
+   *
+   * המקור נשאר מסומן על כל שורה — הוא קובע איך עונים — אבל אינו
+   * מפצל את הרשימה. הסדר עצמו ב-`orderSupportQueue`, עם בדיקה:
+   * מיון נאיבי לפי `status` היה דוחף את הסגורות לראש.
+   */
+  @Get("queue")
+  @PlatformAdmin()
+  async queue(): Promise<SupportQueueRow[]> {
+    const [tickets, threads] = await Promise.all([
+      this.support.listForDesk({}),
+      this.inbox.threads(),
+    ]);
+    return orderSupportQueue([
+      ...tickets.map(
+        (ticket): SupportQueueRow => ({
+          source: "app",
+          id: ticket.id,
+          reference: ticket.reference,
+          title: ticketTitle(ticket.message),
+          who: ticket.userName,
+          tenantName: ticket.tenantName,
+          status: ticket.status,
+          /* פנייה מהכפתור „ממתינה” כל עוד לא נענתה */
+          unread: ticket.reply === undefined,
+          lastActivityAt: ticket.repliedAt ?? ticket.createdAt,
+        }),
+      ),
+      ...threads.map(
+        (thread): SupportQueueRow => ({
+          source: "email",
+          id: thread.id,
+          reference: thread.reference,
+          title: thread.subject,
+          who: thread.contactName,
+          tenantName: thread.tenantName,
+          status: thread.status as SupportQueueRow["status"],
+          unread: thread.unread,
+          lastActivityAt: thread.lastMessageAt.toISOString(),
+        }),
+      ),
+    ]);
+  }
+
+  /**
+   * סגירה (או פתיחה מחדש) של פנייה — **בלי שהמסך יידע איזה נתיב**.
+   *
+   * שני המקורות נשמרים בטבלאות שונות ולכן יש להם שתי דרכים לעדכן
+   * סטטוס. מסך שמכיר את שתיהן הוא מסך שמחזיק את הפיצול שהתור הזה
+   * בא לבטל — ובדיוק שם נולד הבאג של „סגרתי ונשארה פתוחה”, כשמישהו
+   * שולח פנייה ממקור אחד לנתיב של השני.
+   */
+  @Post("queue/:source/:id/status")
+  @PlatformAdmin()
+  @HttpCode(200)
+  async setQueueStatus(
+    @Param("source") source: string,
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(QueueStatusSchema)) body: z.infer<typeof QueueStatusSchema>,
+  ): Promise<{ ok: true }> {
+    if (source === "email") return this.inbox.setStatus(id, body.status);
+    if (source === "app") return this.support.respond(id, { status: body.status });
+    throw new BadRequestException("מקור פנייה לא מוכר");
+  }
 
   @Get("tickets")
   @PlatformAdmin()
@@ -156,6 +238,12 @@ export class SupportDeskController {
   ): Promise<SupportTicketAdminDto[]> {
     const parsed = SUPPORT_STATUSES.find((s) => s === status);
     return this.support.listForDesk(parsed === undefined ? {} : { status: parsed });
+  }
+
+  @Get("tickets/:id")
+  @PlatformAdmin()
+  one(@Param("id", IdParam) id: string): Promise<SupportTicketAdminDto> {
+    return this.support.oneForDesk(id);
   }
 
   @Patch("tickets/:id")

@@ -23,7 +23,7 @@ function read(relative: string): string {
 
 const SUPPORT = read("./support-inbox.service.ts");
 const CUSTOMER = read("../email-inbox/email-inbox.service.ts");
-const SUPPORT_WEB = read("../../../../web/src/app/platform/support-inbox-section.tsx");
+const SUPPORT_WEB = read("../../../../web/src/app/platform/support-queue-section.tsx");
 
 describe("תיבת התמיכה מול תיבת הלקוחות", () => {
   /*
@@ -88,19 +88,15 @@ describe("תיבת התמיכה מול תיבת הלקוחות", () => {
   });
 
   /*
-   * ‎`openThread` פותח ב-`setNotice(null)`, ולכן אזהרה שנכתבת לפניו
-   * נמחקת לפני שנראתה. אותו תיקון בדיוק כמו בתיבת הלקוחות.
+   * ‎**הטעינה קודמת לאזהרה.** הטעינה מחדש מאפסת את ההודעה הצפה,
+   * ולכן אזהרה שנכתבת לפניה נמחקת לפני שנראתה — ותשובה שהסתיימה
+   * בתוצאה עמומה נראית ככל תשובה שנשלחה.
    */
-  it("האזהרה נקבעת אחרי הטעינה מחדש ושייכת לשרשור שממנו נשלח", () => {
-    const reload = SUPPORT_WEB.indexOf("await openThread(threadId);");
+  it("האזהרה נקבעת אחרי הטעינה מחדש", () => {
+    const reload = SUPPORT_WEB.indexOf("await open();");
     const notice = SUPPORT_WEB.indexOf('sent?.state === "unknown"');
     expect(reload, "הטעינה מחדש לא נמצאה").toBeGreaterThan(-1);
     expect(notice, "קביעת ההודעה לא נמצאה").toBeGreaterThan(reload);
-    expect(SUPPORT_WEB).toContain("if (openRef.current === threadId) {");
-    // ‏`openRef` נקבע בפתיחה (אחרי המונה), ולכן הבדיקה שלפני הטעינה משמעותית
-    expect(SUPPORT_WEB).toMatch(
-      /async function openThread\(id: string\): Promise<void> \{[\s\S]{0,120}openRef\.current = id;/u,
-    );
   });
 
   /*
@@ -127,16 +123,26 @@ describe("תיבת התמיכה מול תיבת הלקוחות", () => {
   });
 
   /*
-   * ‎`openThread` מעדכן את `openRef` בשורתו הראשונה, ולכן בדיקה
-   * אחריו בלבד מסכימה עם עצמה תמיד — והטעינה מושכת את השולחן
-   * בחזרה לשרשור הישן.
+   * ‎**„אזהרה שנחתה על השרשור הלא נכון” — עכשיו מונע במבנה.**
+   *
+   * הגרסה הקודמת החזיקה שרשור נבחר אחד ב-state של המסך, ולכן
+   * שליחה שרצה ברקע יכלה לכתוב את סיומה על שרשור שנבחר בינתיים.
+   * זה נשמר בשני שומרי `openRef` ידניים לפני הטעינה ואחריה, וזו
+   * הייתה נקודת הכשל: כל מי שיערוך את הפונקציה צריך לזכור אותם.
+   *
+   * בתור המאוחד לכל שרשור יש רכיב משלו, עם `key` שהוא מזהה
+   * השרשור — מעבר לשרשור אחר **מפרק** את הרכיב, והמשך שרץ ברקע
+   * כותב לרכיב שאינו על המסך, כלומר לשומקום. אין מה לזכור.
+   *
+   * הבדיקה עברה לאכוף את המבנה הזה, כי הוא מה שמחזיק את ההבטחה.
    */
-  it("הבדיקה נעשית גם לפני הטעינה מחדש", () => {
-    const send = SUPPORT_WEB.slice(SUPPORT_WEB.indexOf("async function send("));
-    const guard = send.indexOf("if (openRef.current !== threadId) return;");
-    const reload = send.indexOf("await openThread(threadId);");
-    expect(guard, "הבדיקה המקדימה לא נמצאה").toBeGreaterThan(-1);
-    expect(reload, "הטעינה מחדש לא נמצאה").toBeGreaterThan(guard);
+  it("לכל שרשור רכיב משלו — מעבר מפרק אותו", () => {
+    const element = /<ThreadDetail\b[\s\S]{0,300}?\/>/u.exec(SUPPORT_WEB)?.[0] ?? "";
+    expect(element, "רכיב השרשור לא נמצא").toContain("key={row.id}");
+    expect(element).toContain("threadId={row.id}");
+    // הטעינה נגזרת מה-prop בלבד; אין „שרשור נוכחי” משותף לכולם
+    expect(SUPPORT_WEB).toMatch(/\}, \[threadId\]\);/u);
+    expect(SUPPORT_WEB).not.toContain("openRef");
   });
 
   /*
@@ -146,4 +152,42 @@ describe("תיבת התמיכה מול תיבת הלקוחות", () => {
     expect(SUPPORT_WEB).toContain("const mine = ++openSeq.current;");
     expect((SUPPORT_WEB.match(/if \(openSeq\.current !== mine\) return;/gu) ?? []).length).toBe(2);
   });
+});
+
+
+/**
+ * ‎**גבול השליפה חותך את מה שנסגר, לא את מי שמחכה.**
+ *
+ * שני מקורות הפניות יושבים בשתי טבלאות, ולכן לשולחן המאוחד יש שתי
+ * שאילתות. הן טעו את אותה טעות בשני נוסחים: שאילתה אחת עם `take`
+ * שנתנה למאה פניות סגורות חדשות למחוק מהמסך פנייה ישנה שממתינה,
+ * ודלי „פתוח” שנוסח כ-`status: "open"` והפיל את `in_progress` אל
+ * הצד של הסגורים (שתי ביקורות Codex).
+ *
+ * הכלל ירד ל-`waitingFirst` ב-`packages/shared`, ויש לו בדיקה
+ * משלו. השער כאן מוודא ששתי השאילתות באמת עוברות דרכו — כי כל
+ * אחת מהן יכולה לחזור להיות „רק שאילתה אחת קטנה”.
+ */
+describe("שולחן התמיכה שולף את הממתינות ראשונות", () => {
+  const TICKETS = read("./support.service.ts");
+
+  for (const [name, source] of [
+    ["שרשורי מייל", SUPPORT],
+    ["פניות מהכפתור", TICKETS],
+  ] as const) {
+    it(`${name} — דרך waitingFirst, ולא take ידני`, () => {
+      expect(source, `${name}: לא עובר דרך waitingFirst`).toContain("waitingFirst(");
+      expect(source, `${name}: גבול מספרי במקום הקבוע המשותף`).toContain("SUPPORT_DESK_LIMIT");
+    });
+
+    it(`${name} — הדלי הממתין מוגדר בשלילה`, () => {
+      /*
+       * ‎`status: "open"` הוא הניסוח שמפיל כל סטטוס שייוולד מחר.
+       * הדלי חייב להיות „כל מה שאינו סגור”.
+       */
+      const at = source.indexOf('bucket === "waiting"');
+      expect(at, `${name}: הדלי לא נמצא`).toBeGreaterThan(-1);
+      expect(source.slice(at, at + 200)).toContain('{ status: { not: "closed" } }');
+    });
+  }
 });

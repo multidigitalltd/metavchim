@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
-import { formatDate, formatNumber } from "@/lib/format";
+import { shekels as formatAgorot } from "@metavchim/shared";
+import { formatDate } from "@/lib/format";
 import { IconCard } from "../icons";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
@@ -42,8 +43,21 @@ const STATUS_LABELS: Record<string, string> = {
   failed: "נכשל",
 };
 
+/*
+ * סכומי התשלומים הם מה **שנגבה בפועל** — כולל מע"מ, בניגוד למחירון
+ * שנקוב נטו. בלי הציון, מי שמשווה תשלום למחיר המסלול רואה פער של
+ * 18% וחושב שמישהו חויב ביתר.
+ */
 function shekels(agorot: number): string {
-  return `${formatNumber(Math.round(agorot / 100))} ₪`;
+  /*
+   * ‎**הסכום המדויק, כולל אגורות.**
+   *
+   * זה יומן של מה שנגבה בפועל, ומע"מ על מחירון נטו מייצר אגורות:
+   * 17,582 אגורות הן 175.82 ₪, לא 176. עיגול לשקל בטבלה שמולה
+   * עושים התאמת ספרים הוא פער שמתגלה חודשיים אחרי — ואותה
+   * פונקציה מנסחת גם את אישור הזיכוי (ביקורת Codex).
+   */
+  return `${formatAgorot(agorot)} ₪ כולל מע"מ`;
 }
 
 export function PaymentsSection(): React.JSX.Element {
@@ -72,8 +86,15 @@ export function PaymentsSection(): React.JSX.Element {
 
   function startRefund(row: PaymentRow): void {
     setOpen(row.id);
-    // ברירת מחדל בשקלים שלמים — זה מה שמקלידים, והשרת מקבל אגורות
-    setAmount(String(Math.round(row.amountAgorot / 100)));
+    /*
+     * ‎**ברירת המחדל היא הסכום שנגבה, עד האגורה.**
+     *
+     * עיגול לשקל הציע 176 על תשלום של 175.82 — כלומר הציע לזכות
+     * **יותר** ממה שנגבה. הבקשה עצמה שרדה את זה במקרה (סכום שאינו
+     * קטן מהתשלום נשלח כזיכוי מלא), אבל להציע למנהל מספר שאינו
+     * הסכום זה להסתמך על מקריות (ביקורת Codex).
+     */
+    setAmount(formatAgorot(row.amountAgorot));
     setReason("");
     setError(null);
     setMessage(null);
@@ -89,12 +110,22 @@ export function PaymentsSection(): React.JSX.Element {
     setError(null);
     try {
       const agorot = Math.round(shekelAmount * 100);
+      /*
+       * ‎**ההודעה נוקבת במה שזוכה, לא במה שהוקלד.**
+       *
+       * זיכוי מלא נשלח בלי `amountAgorot`, והשרת מזכה את מלוא
+       * התשלום. מי שהקליד 176 על תשלום של 175.82 קיבל „זוכה
+       * 176 ₪” — מספר שלא זוכה מעולם, על מסך שמולו עושים התאמת
+       * ספרים.
+       */
+      const full = agorot >= row.amountAgorot;
+      const refunded = full ? row.amountAgorot : agorot;
       await apiPost(`/platform/payments/${row.id}/refund`, {
         // סכום מלא נשלח בלי amountAgorot — כך השרת יודע שזה זיכוי מלא
-        ...(agorot < row.amountAgorot ? { amountAgorot: agorot } : {}),
+        ...(full ? {} : { amountAgorot: agorot }),
         ...(reason.trim() !== "" ? { reason: reason.trim() } : {}),
       });
-      setMessage(`✓ זוכה ${shekels(Math.round(shekelAmount * 100))} ל${row.tenantName}`);
+      setMessage(`✓ זוכה ${shekels(refunded)} ל${row.tenantName}`);
       setOpen(null);
       load();
     } catch (err: unknown) {
@@ -177,14 +208,17 @@ export function PaymentsSection(): React.JSX.Element {
                       open === row.id ? (
                         <div className="flex flex-wrap items-end gap-2">
                           <div>
+                            {/* זיכוי הוא של מה שנגבה, ולכן כולל מע"מ */}
                             <label htmlFor={`amt-${row.id}`} className="block text-sm">
-                              סכום (₪)
+                              סכום (₪, כולל מע&quot;מ)
                             </label>
                             <input
                               id={`amt-${row.id}`}
                               value={amount}
                               onChange={(event) => setAmount(event.target.value)}
-                              inputMode="numeric"
+                              // decimal ולא numeric: סכומים נושאים אגורות,
+                              // ומקלדת בלי נקודה עשרונית אינה יכולה להקליד אותם
+                              inputMode="decimal"
                               className="w-24 rounded-lg border px-2 py-1"
                               style={{
                                 borderColor: "var(--color-input-border)",

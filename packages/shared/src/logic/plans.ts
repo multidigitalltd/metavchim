@@ -1,4 +1,5 @@
 import { formatIsraeliNumber } from "./israel-time.js";
+import { grossFromNet } from "./invoice.js";
 /**
  * מסלולי המנוי — מה כלול בכל אחד.
  *
@@ -394,13 +395,30 @@ export const CUSTOM_PRICE_LABEL = "בהתאמה";
 export const FREE_PRICE_LABEL = "חינם";
 
 /**
+ * ‎**כל מחיר במערכת נקוב לפני מע"מ.**
+ *
+ * זו הנורמה בעסק-לעסק בישראל — הלקוח הוא עוסק שמקזז את המע"מ, ולכן
+ * המספר שמעניין אותו הוא הנטו — וכך כבר נכתב בעמוד המחירים של
+ * הטלפוניה. מה שהיה חסר הוא שזה ייאמר **בכל מקום**: מחיר שמוצג
+ * בלי הסייג נקרא כסכום שיירד מהכרטיס, והפער מתגלה בדף התשלום.
+ *
+ * הסיומת קצרה בכוונה — היא נצמדת למספר עצמו ולא לפסקה מתחתיו,
+ * כי היא חלק מהמחיר ולא הערת שוליים.
+ */
+export const VAT_EXCLUDED_SUFFIX = "+ מע\"מ";
+
+/** משפט מלא, למקום שבו הסיומת לבדה אינה מספיקה (מחירון, דף תשלום). */
+export const VAT_EXCLUDED_NOTE = "כל המחירים אינם כוללים מע\"מ.";
+
+/**
  * הסייג שמלווה כל מחיר מוצג.
  *
- * המחירון תקף למצטרפים חדשים ולשנה הראשונה. מחיר שמוצג בלי הסייג
- * הזה נקרא כהתחייבות לתמיד, וזה בדיוק מה שמייצר ויכוח בחידוש.
+ * המחירון תקף למצטרפים חדשים ולשנה הראשונה, ואינו כולל מע"מ. מחיר
+ * שמוצג בלי הסייג הזה נקרא כהתחייבות לתמיד, וזה בדיוק מה שמייצר
+ * ויכוח בחידוש.
  */
 export const PRICE_TERMS_NOTE =
-  "המחירים למצטרפים חדשים ולשנה הראשונה בלבד.";
+  `${VAT_EXCLUDED_NOTE} המחירים למצטרפים חדשים ולשנה הראשונה בלבד.`;
 
 /**
  * המחיר החודשי לתצוגה.
@@ -418,7 +436,7 @@ export const PRICE_TERMS_NOTE =
  */
 export function planPriceLabel(plan: PlanDefinition): string {
   if (plan.priceOnRequest) return CUSTOM_PRICE_LABEL;
-  return formatPlanPrice(plan.monthlyPriceAgorot);
+  return formatPriceExVat(plan.monthlyPriceAgorot);
 }
 
 /** מחיר לתצוגה — אגורות לשקלים, בלי אגורות מיותרות. */
@@ -427,6 +445,33 @@ export function formatPlanPrice(agorot: number): string {
   const shekels = agorot / 100;
   const rounded = Number.isInteger(shekels) ? shekels : Number(shekels.toFixed(2));
   return `${formatIsraeliNumber(rounded)} ₪`;
+}
+
+/**
+ * מחיר לתצוגה **עם ציון שהוא לפני מע"מ** — וזו ברירת המחדל.
+ *
+ * ‎**„חינם + מע"מ” אינו דבר**, וזו בדיוק הסיבה שההחלטה יושבת
+ * בפונקציה אחת ולא בשרשור מחרוזות באתר הקריאה: מסלול באפס, קופון
+ * שמכסה הכול, ומסלול שנסגר בשיחה — בכולם אין מה לחייב, ולכן אין
+ * מע"מ להוסיף. אתר קריאה שכותב `` `${formatPlanPrice(x)} + מע"מ` ``
+ * יפיק את השטות הזאת ברגע שהמחיר יהיה אפס, וזה קורה בפועל.
+ */
+export function formatPriceExVat(agorot: number): string {
+  if (agorot <= 0) return FREE_PRICE_LABEL;
+  return `${formatPlanPrice(agorot)} ${VAT_EXCLUDED_SUFFIX}`;
+}
+
+/**
+ * ‎**מה באמת יירד מהכרטיס** — הנטו ועוד המע"מ, בשקלים.
+ *
+ * מוצג לצד המחיר ולא במקומו. „149 ₪ + מע"מ” לבדו מחייב את המשרד
+ * לחשב בראש כמה יחויב, ומי שלא חישב מגלה את ההפרש בדף התשלום —
+ * שם זה כבר נראה כמו הפתעה ולא כמו תמחור.
+ */
+export function formatPriceWithVatTotal(agorot: number, vatPercent: number): string | null {
+  if (agorot <= 0) return null;
+  const gross = grossFromNet(agorot, vatPercent);
+  return `${formatPlanPrice(gross)} לתשלום`;
 }
 
 /**

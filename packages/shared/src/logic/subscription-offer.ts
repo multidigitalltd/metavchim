@@ -22,7 +22,7 @@ import {
   type BillingCycle,
   type TenantPriceOverride,
 } from "./billing.js";
-import type { PlanDefinition } from "./plans.js";
+import { VAT_EXCLUDED_SUFFIX, type PlanDefinition } from "./plans.js";
 import { formatIsraeliNumber } from "./israel-time.js";
 
 /** custom = הצעה אישית למשרד; plan_link = לינק מכירה לחבילה קיימת. */
@@ -267,5 +267,12 @@ export function offerCreationRejection(
 export function describeOfferPrice(amountAgorot: number, cycle: BillingCycle): string {
   const shekels = amountAgorot / 100;
   const rounded = Number.isInteger(shekels) ? shekels : Number(shekels.toFixed(2));
-  return `${formatIsraeliNumber(rounded)} ₪ ${cycle === "yearly" ? "לשנה" : "לחודש"}`;
+  /*
+   * גם המחיר שסוכם בהצעה הוא **נטו**, כמו כל מחיר במערכת, והחיוב
+   * מוסיף עליו מע"מ. דף ההצעה הוא הדף שממנו לוחצים „לתשלום”, ולכן
+   * הוא בדיוק המקום שבו הפער בין המספר המוצג לסכום שיירד מהכרטיס
+   * הופך להפתעה.
+   */
+  const per = cycle === "yearly" ? "לשנה" : "לחודש";
+  return `${formatIsraeliNumber(rounded)} ₪ ${per} ${VAT_EXCLUDED_SUFFIX}`;
 }

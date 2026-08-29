@@ -1,158 +1,159 @@
 "use client";
 
-import { useState } from "react";
-import { guideMarkdown, GUIDES } from "@/lib/guide-content";
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { GUIDES, GUIDE_AREAS } from "@/lib/guide-content";
 import { useRequireAuth } from "@/lib/use-auth";
-import { CopyMarkdown } from "../copy-markdown";
-import { IconMail } from "../icons";
-
-/** כתובת התמיכה של המערכת — פנייה כללית, לא קשורה לגישת התמיכה לחשבון. */
-const SUPPORT_EMAIL = "service@metavchim.co.il";
+import { SupportCard } from "./support-card";
 
 /**
- * עמוד ההדרכות — מדריך מפורט לכל זרימה מרכזית, עם צילומי מסך.
+ * ‎**מדף ההדרכות — עמוד לכל נושא, ולא מגילה אחת.**
  *
- * הכל בעמוד אחד עם ניווט פנימי (צ'יפים), ולא עמוד לכל נושא: מתווך
- * שמחפש "איך משתפים קונה" לא יודע באיזה נושא זה יושב — Ctrl+F על
- * עמוד אחד מוצא הכל.
+ * ## מה היה כאן קודם, ולמה זה הפסיק לעבוד
  *
- * הצילומים יושבים ב-public/guides/; צילום שחסר פשוט לא מוצג —
- * ההדרכה שלמה גם בלעדיו.
+ * כל ההדרכות ישבו בעמוד אחד עם שורת עוגנים, מתוך נימוק שנשמע נכון:
+ * „מתווך שמחפש איך משתפים קונה לא יודע באיזה נושא זה יושב —
+ * ‏Ctrl+F על עמוד אחד מוצא הכל”.
+ *
+ * הנימוק החזיק כל עוד היו שם עשרה מדריכים קצרים. הוא נשבר בשלוש
+ * נקודות:
+ *
+ * - ‎**Ctrl+F אינו קיים בנייד**, ורוב המתווכים פותחים את המערכת
+ *   בנייד. בעמוד של אלפי מילים בלי חיפוש נשאר רק לגלול.
+ * - ‎**אי אפשר לשלוח קישור לנושא.** „תקרא על הבלעדיות” הפך לקישור
+ *   לעמוד שלם, שבו הבלעדיות היא סעיף אחד מתוך עשרים.
+ * - ‎**הכל נטען תמיד.** עשרים ואחד מדריכים עם צילומי מסך בכל
+ *   כניסה, גם כשבאתם לשאלה אחת.
+ *
+ * החיפוש שהיה ב-Ctrl+F חוזר כאן כשדה סינון על הכרטיסים, והוא
+ * מחפש גם בכותרות, גם בתקצירים וגם בכותרות הצעדים שבתוך כל
+ * מדריך — כלומר גם במילה שיושבת עמוק, כמו „שליש” או „סופטפון”.
  */
-
-/** צילום מסך של הדרכה — נעלם בשקט אם הקובץ עוד לא קיים. */
-function GuideImage({ src, alt }: { src: string; alt: string }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) return null;
-  return (
-    // img רגיל בכוונה — קבצים סטטיים מ-public, בלי אופטימיזציית Next
-    <img
-      src={src}
-      alt={alt}
-      onError={() => setFailed(true)}
-      className="mb-4 w-full rounded-xl border"
-      style={{ borderColor: "var(--color-border)", maxHeight: 420, objectFit: "cover", objectPosition: "top" }}
-    />
-  );
-}
-
 export default function GuidesPage() {
   const { loading } = useRequireAuth();
+  const [query, setQuery] = useState("");
+
+  /*
+   * המפתח לחיפוש נבנה פעם אחת ולא בכל הקלדה. הוא כולל את כותרות
+   * הצעדים והסעיפים, כי המילה שמחפשים כמעט תמיד יושבת שם ולא
+   * בכותרת המדריך.
+   */
+  const haystack = useMemo(
+    () =>
+      new Map(
+        GUIDES.map((guide) => [
+          guide.id,
+          [
+            guide.title,
+            guide.summary,
+            guide.intro,
+            ...guide.steps.map((step) => step.title),
+            ...(guide.sections ?? []).map((section) => section.title),
+            ...(guide.faq ?? []).map((item) => item.q),
+          ]
+            .join(" ")
+            .toLowerCase(),
+        ]),
+      ),
+    [],
+  );
+
   if (loading) return <p aria-live="polite">טוען…</p>;
 
+  const needle = query.trim().toLowerCase();
+  const matches = (id: string): boolean =>
+    needle === "" || (haystack.get(id) ?? "").includes(needle);
+  const found = GUIDES.filter((guide) => matches(guide.id));
+
   return (
-    <div className="mx-auto max-w-3xl pb-12">
+    <div className="mx-auto max-w-4xl pb-12">
       <h1 className="mb-1 text-2xl font-bold">הדרכות</h1>
       <p className="mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
-        מדריך צעד-אחר-צעד לכל מה שהמערכת יודעת לעשות.
+        מדריך צעד-אחר-צעד לכל מה שהמערכת יודעת לעשות — {GUIDES.length} נושאים.
       </p>
 
-      {/* פנייה לתמיכה — כאן, ולא מוסתרת בתוך ניהול המשרד */}
-      <section
-        className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border p-4"
-        style={{ borderColor: "var(--color-border)", background: "var(--color-table-head)" }}
-        aria-labelledby="support-heading"
-      >
-        <div className="min-w-0">
-          <h2 id="support-heading" className="m-0 text-sm font-extrabold">
-            לא מצאתם תשובה?
-          </h2>
-          <p className="m-0 mt-0.5 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
-            צוות התמיכה שלנו כאן — כתבו לנו ונחזור אליכם.
-          </p>
-        </div>
-        <a
-          href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("פנייה לתמיכה — מערכת מתווכים")}`}
-          className="mv-btn-action ms-auto"
-          style={{ minHeight: 38, textDecoration: "none" }}
-        >
-          <IconMail s={15} /> פנייה לתמיכה
-        </a>
-        <a
-          href={`mailto:${SUPPORT_EMAIL}`}
-          className="text-[length:var(--type-caption-lg)] underline"
-          style={{ color: "var(--color-text-muted)" }}
-          dir="ltr"
-        >
-          {SUPPORT_EMAIL}
-        </a>
-      </section>
+      <SupportCard />
 
-      {/* ניווט פנימי — קפיצה לנושא */}
-      <nav aria-label="נושאי ההדרכה" className="mb-6 flex flex-wrap gap-2">
-        {GUIDES.map((guide) => (
-          <a key={guide.id} href={`#guide-${guide.id}`} className="mv-chip no-underline">
-            {guide.title}
-          </a>
-        ))}
-      </nav>
+      <label className="mb-6 block">
+        <span className="mb-1 block text-sm font-medium">חיפוש בהדרכות</span>
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="בלעדיות, סופטפון, ייבוא, קרדיטים…"
+          className="w-full rounded-lg border px-3 py-2.5"
+          style={{
+            borderColor: "var(--color-input-border)",
+            background: "var(--color-field)",
+          }}
+        />
+      </label>
 
-      <div className="flex flex-col gap-5">
-        {GUIDES.map((guide) => (
-          <section
-            key={guide.id}
-            id={`guide-${guide.id}`}
-            aria-labelledby={`gh-${guide.id}`}
-            className="mv-list-card px-5 py-[18px]"
-            style={{ scrollMarginTop: 80 }}
-          >
-            <h2 id={`gh-${guide.id}`} className="m-0 mb-1" style={{ fontSize: "calc(18 / 16 * 1rem)", fontWeight: 800 }}>
-              {guide.title}
-            </h2>
-            <p className="m-0 mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              {guide.intro}
-            </p>
+      {needle !== "" ? (
+        <p className="mb-4 text-sm" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
+          {found.length === 0
+            ? "אין מדריך שמתאים לחיפוש הזה. נסו מילה אחרת, או כתבו לתמיכה."
+            : `${found.length} מדריכים תואמים`}
+        </p>
+      ) : null}
 
-            {guide.image ? <GuideImage src={guide.image} alt={`צילום מסך: ${guide.title}`} /> : null}
-
-            <ol className="m-0 flex list-none flex-col gap-3 p-0">
-              {guide.steps.map((step, index) => (
-                <li key={step.title} className="flex gap-3">
-                  <span
-                    aria-hidden="true"
-                    className="grid flex-none place-items-center rounded-full text-sm font-extrabold"
-                    style={{
-                      width: 28,
-                      height: 28,
-                      background: "var(--color-primary-soft)",
-                      color: "var(--color-primary)",
-                    }}
-                  >
-                    {index + 1}
-                  </span>
-                  <div className="min-w-0">
-                    <h3 className="m-0 text-sm font-bold">{step.title}</h3>
-                    <p className="m-0 mt-0.5 text-sm" style={{ color: "var(--color-text-soft)", lineHeight: 1.65 }}>
-                      {step.body}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-
-            {guide.tip ? (
-              <p
-                className="m-0 mt-4 rounded-lg border p-3 text-sm"
-                style={{ borderColor: "var(--color-border)", background: "var(--color-table-head)" }}
-              >
-                <b>טיפ:</b> {guide.tip}
+      <div className="flex flex-col gap-8">
+        {GUIDE_AREAS.map((area) => {
+          const inArea = found.filter((guide) => guide.area === area.key);
+          /* אזור ריק אחרי סינון נעלם — כותרת בלי כרטיסים היא רעש */
+          if (inArea.length === 0) return null;
+          return (
+            <section key={area.key} aria-labelledby={`area-${area.key}`}>
+              <h2 id={`area-${area.key}`} className="m-0 mb-0.5 text-lg font-extrabold">
+                {area.title}
+              </h2>
+              <p className="m-0 mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                {area.blurb}
               </p>
-            ) : null}
-
-            {/*
-              אותה אפשרות בדיוק כמו בתיעוד הציבורי, ומאותה סיבה:
-              מי שכבר בפנים שואל את ChatGPT „איך אני עושה X במערכת”
-              לא פחות ממי שעדיין בחוץ — ומקבל תשובה מומצאת אלא אם
-              נתן למודל את ההדרכה עצמה.
-            */}
-            <CopyMarkdown
-              markdown={guideMarkdown(guide)}
-              href={`/docs/md/${guide.id}`}
-              subject={guide.title}
-            />
-          </section>
-        ))}
+              <ul
+                className="m-0 grid list-none gap-3 p-0"
+                style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}
+              >
+                {inArea.map((guide) => (
+                  <li key={guide.id}>
+                    <Link
+                      href={`/guides/${guide.id}`}
+                      className="mv-list-card block h-full px-4 py-3.5 no-underline"
+                    >
+                      <span className="block font-bold">{guide.title}</span>
+                      <span
+                        className="mt-1 block text-sm"
+                        style={{ color: "var(--color-text-soft)", lineHeight: 1.6 }}
+                      >
+                        {guide.summary}
+                      </span>
+                      <span
+                        className="mt-2 block text-[length:var(--type-caption-lg)]"
+                        style={{ color: "var(--color-text-muted)" }}
+                      >
+                        {guide.steps.length} צעדים
+                        {(guide.faq ?? []).length > 0 ? " · שאלות נפוצות" : ""}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          );
+        })}
       </div>
+
+      {/*
+        הקישור לתיעוד המלא נשאר: מי שרוצה להדביק את הכול לכלי בינה
+        מלאכותית צריך מסמך אחד, וזו בדיוק הסיבה שעמוד אחד ארוך היה
+        פתרון טוב לקהל הזה — ופתרון גרוע לקורא אנושי.
+      */}
+      <p className="mt-8 text-sm" style={{ color: "var(--color-text-muted)" }}>
+        רוצים את כל התיעוד בקובץ אחד (למשל כדי להדביק לכלי בינה מלאכותית)?{" "}
+        <Link href="/docs" className="underline">
+          התיעוד המלא
+        </Link>
+      </p>
     </div>
   );
 }

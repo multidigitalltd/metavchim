@@ -9,7 +9,7 @@
  * שלוש גרסאות של "עד מתי" היו נפרדות ביום הראשון של החודש הקצר.
  */
 
-import type { PlanDefinition } from "./plans.js";
+import { VAT_EXCLUDED_SUFFIX, type PlanDefinition } from "./plans.js";
 import { formatIsraeliNumber } from "./israel-time.js";
 
 /** מחזור החיוב. אין "שבועי" ואין "רבעוני" — לא נמכרים. */
@@ -224,7 +224,18 @@ export function describeCyclePrice(plan: PlanDefinition, cycle: BillingCycle): s
   if (agorot === null || agorot <= 0) return null;
   const shekels = agorot / 100;
   const rounded = Number.isInteger(shekels) ? shekels : Number(shekels.toFixed(2));
-  return `${formatIsraeliNumber(rounded)} ₪ ${cycle === "yearly" ? "לשנה" : "לחודש"}`;
+  /*
+   * ‎**„+ מע"מ” נצמד למספר ולא לפסקה מתחתיו.**
+   *
+   * המחירון נקוב נטו, וזו הנורמה בעסק-לעסק בישראל. מחיר שמוצג בלי
+   * הציון נקרא כסכום שיירד מהכרטיס, וההפרש מתגלה בדף התשלום —
+   * שם הוא כבר נראה כמו הפתעה ולא כמו תמחור. הסייג הכללי בתחתית
+   * המסך אינו תחליף: את המספר קוראים, את השוליים לא.
+   *
+   * המחזור אינו נבלע: „299 ₪ לחודש + מע"מ” ולא „299 ₪ + מע"מ”.
+   */
+  const per = cycle === "yearly" ? "לשנה" : "לחודש";
+  return `${formatIsraeliNumber(rounded)} ₪ ${per} ${VAT_EXCLUDED_SUFFIX}`;
 }
 
 /**

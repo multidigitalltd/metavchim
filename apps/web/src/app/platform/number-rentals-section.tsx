@@ -107,7 +107,9 @@ export function NumberRentalsSection(): React.JSX.Element {
               >
                 <b className="mv-ltr">{rental.numberDisplay}</b>
                 <span>{rental.tenantName}</span>
-                <span>{formatNumber(rental.monthlyAgorot / 100)} ₪ לחודש</span>
+                <span>
+                  {formatNumber(rental.monthlyAgorot / 100)} ₪ לחודש לפני מע&quot;מ
+                </span>
                 <span style={needsAttention ? { color: "var(--color-danger)", fontWeight: 700 } : undefined}>
                   {STATUS_LABELS[rental.status] ?? rental.status}
                   {rental.status === "active" && !rental.provisioned ? " · שולם אך לא נתפס!" : ""}

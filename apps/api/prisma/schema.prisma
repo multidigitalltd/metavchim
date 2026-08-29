@@ -1679,13 +1679,17 @@ model TaskRecurrence {
 /// השולח, ונשאר ריק כשלא.
 model SupportThread {
   id            String    @id @db.Char(26)
+  /// מספר הפנייה כפי שאדם קורא אותו — **רצף משותף עם פניות הכפתור**,
+  /// כי מבחינת מי שמטפל זה תור אחד. הוא נדבק לנושא של המייל, ולכן
+  /// תשובה שנפתחה כמייל חדש (בלי הטוקן) עדיין מוצאת את דרכה.
+  reference     Int       @unique @default(dbgenerated("nextval('support_reference_seq')"))
   /// הטוקן שנשתל בכתובת התשובה — מה שמחזיר את תשובת הפונה לשרשור
   replyToken    String    @unique @map("reply_token") @db.Char(26)
   tenantId      String?   @map("tenant_id") @db.Char(26)
   contactEmail  String?   @map("contact_email") @db.VarChar(254)
   contactName   String    @map("contact_name") @db.VarChar(120)
   subject       String    @db.VarChar(200)
-  /// open | closed
+  /// open | in_progress | closed — אותו אוצר מילים כמו פניות הכפתור
   status        String    @default("open") @db.VarChar(20)
   lastMessageAt DateTime  @default(now()) @map("last_message_at")
   readAt        DateTime? @map("read_at")
@@ -2054,6 +2058,18 @@ model Payment {
   /// ההשכרה שהתשלום הזה משלם — ריק בתשלום שאינו השכרת מספר. זה מה
   /// שמפעיל בהצלחה את תפיסת המספר אצל 015 ואת תקופת ההשכרה.
   rentalId            String?   @map("rental_id") @db.Char(26)
+  /// שיעור המע"מ שלפיו נבנה **הסכום הזה**, באחוזים.
+  ///
+  /// המחירון נקוב נטו, והסכום שנגבה הוא נטו ועוד מע"מ. המסמך נבנה
+  /// אחר כך מהברוטו שנגבה — ולכן הוא חייב לפרק אותו **באותו שיעור
+  /// שבו הוא הורכב**. קריאה של השיעור העדכני בעת ההפקה נכונה כל עוד
+  /// הוא לא השתנה בין השניים, ובדיוק ביום שהוא משתנה בחקיקה כל
+  /// המסמכים הפתוחים יוצאים עם נטו שאינו המחיר שהובטח (ביקורת
+  /// Codex): 100 ₪ נטו שנגבו כ-118 ומפורקים ב-19% נרשמים כ-99.16.
+  ///
+  /// ריק בשורות שנוצרו לפני השדה — שם ההפקה נופלת לשיעור הנוכחי,
+  /// כלומר בדיוק ההתנהגות שהייתה להן ממילא.
+  vatPercent          Int?      @map("vat_percent")
   paidAt              DateTime? @map("paid_at")
   createdBy           String?   @map("created_by") @db.Char(26)
   createdAt           DateTime  @default(now()) @map("created_at")
@@ -2625,6 +2641,8 @@ model GoogleCalendarLink {
  */
 model SupportTicket {
   id            String    @id @db.Char(26)
+  /// אותו רצף בדיוק כמו `SupportThread.reference` — ראו שם.
+  reference     Int       @unique @default(dbgenerated("nextval('support_reference_seq')"))
   tenantId      String    @map("tenant_id") @db.Char(26)
   /**
    * מי פנה. נשמר גם אחרי שהמשתמש הוסר — התמיכה צריכה לדעת עם מי דיברה.
@@ -2635,7 +2653,7 @@ model SupportTicket {
   /// bug | idea | question | billing
   kind          String    @db.VarChar(20)
   message       String    @db.VarChar(2000)
-  /// open | in_progress | resolved
+  /// open | in_progress | closed
   status        String    @default("open") @db.VarChar(20)
   /**
    * מיון אוטומטי — נגזר מההקשר ברגע הפתיחה, ראו logic/support.ts

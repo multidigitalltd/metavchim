@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import {
@@ -8,6 +8,7 @@ import {
   jerusalemWallErrorMessage,
   jerusalemWallParts,
   resolveJerusalemWall,
+  withQuery,
 } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
@@ -15,6 +16,13 @@ import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../dictation-field";
 import { IconChat } from "../../icons";
 import { Notice } from "../../notice";
+import { saveDraft, takeDraft } from "./draft";
+import {
+  PersonPicker,
+  PropertyPicker,
+  type PickedPerson,
+  type PickedProperty,
+} from "./link-pickers";
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
@@ -24,11 +32,16 @@ const KIND_LABELS: Record<string, string> = {
   call: "שיחה",
 };
 
+/** מסלול החזרה מטופסי הקליטה — חייב להתאים ל-`safeReturnPath`. */
+const SELF = "/calendar/new";
+
 function NewAppointmentForm() {
   useRequireAuth();
   const router = useRouter();
   const params = useSearchParams();
+  const formRef = useRef<HTMLFormElement>(null);
   const leadId = params.get("leadId") ?? undefined;
+  const buyerId = params.get("buyerId") ?? undefined;
   const propertyId = params.get("propertyId") ?? undefined;
   // מהפקודה הקולית: הטקסט נכנס כהערות, והתאריך/שעה/סוג שזוהו ממלאים
   // את הטופס מראש — המתווך רק מאשר או מתקן
@@ -50,8 +63,195 @@ function NewAppointmentForm() {
   const initialTime = initialWall?.time ?? "";
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  /** אחרי היצירה, כשהפגישה מקושרת לליד: הצעה לעדכן את הלקוח בוואטסאפ. */
+  /** אחרי היצירה, כשהפגישה מקושרת ללקוח: הצעה לעדכן אותו בוואטסאפ. */
   const [notify, setNotify] = useState<{ waUrl: string } | null>(null);
+
+  /*
+   * שני צדי הפגישה — מי ואיפה — הם state ולא פרמטרים בלבד.
+   *
+   * הכתובת נותנת את הצד שממנו הגיעו (מכרטיס הנכס: הנכס; מכרטיס
+   * הלקוח: הלקוח), והמסך משלים את השני. גם הצד שהגיע מהכתובת ניתן
+   * להחלפה כאן: מי שלחץ „קבע סיור” בנכס הלא נכון לא צריך לחזור
+   * אחורה כדי לתקן.
+   */
+  /*
+   * ‎**המזהה מהכתובת נכנס ל-state מיד, והשליפה רק משפרת את התווית**
+   * (ביקורת Codex).
+   *
+   * הגרסה הראשונה התחילה ב-`null` וחיכתה לשליפה. מי ששלח את הטופס
+   * לפני שהיא חזרה — קליק מהיר, רשת איטית — יצר פגישה **בלי
+   * הקישור**, בשקט: הכפתור היה פעיל, השמירה הצליחה, והנכס או הלקוח
+   * פשוט לא היו שם. חסימת הכפתור בזמן הטעינה הייתה פותרת את הדליפה
+   * במחיר של מסך שלא מגיב; כאן אין בכלל חלון — המזהה כבר נכון,
+   * ורק השם שמוצג לידו משתנה מ„הנכס שנבחר” לכתובת האמיתית.
+   */
+  const [property, setProperty] = useState<PickedProperty | null>(
+    propertyId === undefined ? null : { id: propertyId, label: "הנכס שנבחר" },
+  );
+  const [person, setPerson] = useState<PickedPerson | null>(
+    leadId !== undefined
+      ? { kind: "lead", id: leadId, label: "הליד שנבחר" }
+      : buyerId !== undefined
+        ? { kind: "buyer", id: buyerId, label: "הקונה שנבחר" }
+        : null,
+  );
+  /** נותרו תוויות לשלוף? רק כדי שהשליפה תרוץ פעם אחת. */
+  const [resolving, setResolving] = useState(
+    propertyId !== undefined || leadId !== undefined || buyerId !== undefined,
+  );
+
+  useEffect(() => {
+    if (!resolving) return;
+    let live = true;
+    /*
+     * המזהה מהכתובת בא בלי תווית, והמסך חייב להראות **מה** נבחר ולא
+     * רק שמשהו נבחר — אחרת „הנכס: ✓” הוא הבטחה שאי אפשר לבדוק.
+     * זו שליפת **תווית** בלבד: המזהה כבר ב-state, ולכן כישלון כאן
+     * אינו פוגע בקישור אלא רק משאיר שם כללי.
+     */
+    const jobs: Promise<void>[] = [];
+    if (propertyId !== undefined) {
+      jobs.push(
+        apiGet<{
+          id: string;
+          city?: string;
+          street?: string;
+          neighborhood?: string;
+          rooms?: number;
+          marketingTitle?: string;
+        }>(`/properties/${propertyId}`)
+          .then((row) => {
+            if (!live) return;
+            const where = [row.street, row.neighborhood, row.city]
+              .filter(Boolean)
+              .join(", ");
+            setProperty({
+              id: row.id,
+              label: where || row.marketingTitle || "הנכס שנבחר",
+            });
+          })
+          // כישלון אינו מוחק דבר: המזהה כבר ב-state, והתווית נשארת
+          // המציין הכללי שנקבע בהתחלה
+          .catch(() => undefined),
+      );
+    }
+    if (leadId !== undefined) {
+      jobs.push(
+        // התשובה עטופה: { lead, timeline } — לא LeadDto ישירות (ביקורת Codex)
+        apiGet<{ lead: { contact: { name: string; phone: string } } }>(
+          `/leads/${leadId}`,
+        )
+          .then((res) => {
+            if (!live) return;
+            setPerson({
+              kind: "lead",
+              id: leadId,
+              label: res.lead.contact.name,
+              phone: res.lead.contact.phone,
+            });
+          })
+          .catch(() => undefined),
+      );
+    } else if (buyerId !== undefined) {
+      jobs.push(
+        apiGet<{ contact: { name: string; phone: string } }>(`/buyers/${buyerId}`)
+          .then((row) => {
+            if (!live) return;
+            setPerson({
+              kind: "buyer",
+              id: buyerId,
+              label: row.contact.name,
+              phone: row.contact.phone,
+            });
+          })
+          .catch(() => undefined),
+      );
+    }
+    void Promise.all(jobs).then(() => {
+      if (live) setResolving(false);
+    });
+    return () => {
+      live = false;
+    };
+  }, [resolving, propertyId, leadId, buyerId]);
+
+  /*
+   * ‎**הטיוטה חוזרת אחרי הרכבת המסך, ולא כערך התחלתי.**
+   *
+   * ‎`sessionStorage` אינו קיים בשרת, ולכן קריאה שלו בזמן הרינדור
+   * הייתה מייצרת שרת שמרנדר טופס ריק ולקוח שמרנדר טופס מלא —
+   * אזהרת אי-התאמה, ובגרסאות מסוימות גם ערך שנדרס בחזרה לריק.
+   * הכתיבה הישירה לשדות אחרי ההרכבה עוקפת את זה לגמרי, ומכבדת
+   * את `defaultValue` של המסלול הקולי כשאין טיוטה.
+   */
+  useEffect(() => {
+    /*
+     * ‎**הקריאה תמיד מוחקת; השימוש רק בחזרה מפורשת** (ביקורת Codex).
+     *
+     * הטיוטה נשמרת ברגע שיוצאים לטופס קליטה — וממנו אפשר גם **לא**
+     * לחזור: לנטוש, או להיתקל במיזוג לליד של סוכן אחר, שאין לו לאן
+     * להחזיר. הטיוטה נשארה אז באחסון הלשונית, ופתיחה עתידית של
+     * ‎`/calendar/new` על לקוח אחר לגמרי הייתה שואבת אליה את התאריך,
+     * השעה וההערות של הקודם — ושולחת אותם בשם מישהו שלא נאמרו עליו.
+     *
+     * ‎`draft=1` בנתיב החזרה הוא מה שמבדיל „חזרתי” מ„נכנסתי מחדש”,
+     * והמחיקה שקורית בכל מקרה מבטיחה שנטישה לא תשאיר זנב.
+     */
+    const draft = takeDraft();
+    const form = formRef.current;
+    if (params.get("draft") !== "1" || draft === null || form === null) return;
+    for (const [name, value] of Object.entries(draft)) {
+      const field = form.elements.namedItem(name);
+      if (
+        field instanceof HTMLInputElement ||
+        field instanceof HTMLSelectElement ||
+        field instanceof HTMLTextAreaElement
+      ) {
+        field.value = value;
+      }
+    }
+    // פעם אחת בכניסה למסך: `takeDraft` מוחק, ולכן הרצה שנייה
+    // הייתה מנקה טיוטה שזה עתה הוחזרה
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * יוצאים לטופס קליטה, ומשאירים כאן את מה שכבר נכתב.
+   *
+   * בלי זה, מי שגילה באמצע שהנכס אינו במערכת היה חוזר לטופס ריק
+   * ומקליד מחדש את המועד וההערות. השדות אינם מנוהלים ב-state (הם
+   * נקראים ב-`FormData` בשליחה), ולכן הם נקראים כאן מהטופס עצמו
+   * ברגע הלחיצה — מה שכתוב עכשיו, לא מה שהיה ברינדור האחרון.
+   *
+   * המזהים נוסעים בכתובת והטקסט ב-`sessionStorage`; ההפרדה מנומקת
+   * ב-`draft.ts`.
+   */
+  function leaveTo(target: string): void {
+    const f = formRef.current === null ? null : new FormData(formRef.current);
+    const read = (key: string): string => String(f?.get(key) ?? "").trim();
+    const fields: Record<string, string> = {};
+    for (const key of ["kind", "title", "date", "time", "duration", "notes"]) {
+      const value = read(key);
+      if (value !== "") fields[key] = value;
+    }
+    saveDraft(fields);
+
+    /*
+     * ‎`draft=1` מסמן לחזרה שהטיוטה שלה, ולא שריד של יציאה קודמת
+     * שננטשה. הוא עובר את רשימת ההיתר של `safeReturnPath` (אותיות,
+     * ספרות ומפרידים בלבד).
+     */
+    let back = withQuery(SELF, "draft", "1");
+    const ids: [string, string][] = [
+      ["propertyId", property?.id ?? ""],
+      ["leadId", person?.kind === "lead" ? person.id : ""],
+      ["buyerId", person?.kind === "buyer" ? person.id : ""],
+    ];
+    for (const [key, value] of ids) {
+      if (value !== "") back = withQuery(back, key, value);
+    }
+    router.push(withQuery(target, "returnTo", back));
+  }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -81,37 +281,37 @@ function NewAppointmentForm() {
         startsAt: startsAt.toISOString(),
         durationMinutes: Number(f.get("duration")),
         notes: String(f.get("notes") ?? "").trim() || undefined,
-        leadId,
-        propertyId,
+        /*
+         * שלושת הקישורים יחד. `buyerId` נשלח כאן לראשונה — השער כבר
+         * קיבל אותו מאז שהיומן נבנה, אבל שום מסך לא שלח אותו, ולכן
+         * סיור עם קונה נשמר בלי הקונה.
+         */
+        leadId: person?.kind === "lead" ? person.id : undefined,
+        buyerId: person?.kind === "buyer" ? person.id : undefined,
+        propertyId: property?.id,
       });
       /*
-       * "תיאום ביומן עם הודעה ללקוח": כשהפגישה מקושרת לליד, ההודעה
+       * "תיאום ביומן עם הודעה ללקוח": כשהפגישה מקושרת ללקוח, ההודעה
        * נפתחת בוואטסאפ מנוסחת ומוכנה — המתווך רק לוחץ שליחה. השליחה
        * לעולם לא אוטומטית: הודעה ללקוח יוצאת רק ביד של בן אדם.
        */
-      if (leadId) {
-        try {
-          // התשובה עטופה: { lead, timeline } — לא LeadDto ישירות (ביקורת Codex)
-          const { lead } = await apiGet<{ lead: { contact: { name: string; phone: string } } }>(
-            `/leads/${leadId}`,
-          );
-          // ההודעה ללקוח נוקבת בשעה — ולכן בשעון ישראל, לא בזה של המכשיר
-          const when = new Intl.DateTimeFormat("he-IL", {
-            timeZone: JERUSALEM_TZ,
-            dateStyle: "full",
-            timeStyle: "short",
-          }).format(startsAt);
-          setNotify({
-            waUrl: waMeUrl(
-              lead.contact.phone,
-              `שלום ${lead.contact.name}, קבענו ${KIND_LABELS[kind] ?? "פגישה"} ל${when}. נתראה!`,
-            ),
-          });
-          setSubmitting(false);
-          return;
-        } catch {
-          // אין גישה לליד — פשוט בלי ההצעה; הפגישה כבר נקבעה
-        }
+      if (person !== null && person.phone !== undefined) {
+        // ההודעה ללקוח נוקבת בשעה — ולכן בשעון ישראל, לא בזה של המכשיר
+        const when = new Intl.DateTimeFormat("he-IL", {
+          timeZone: JERUSALEM_TZ,
+          dateStyle: "full",
+          timeStyle: "short",
+        }).format(startsAt);
+        // הכתובת בהודעה היא מה שהלקוח באמת צריך כדי להגיע
+        const where = property === null ? "" : ` ב${property.label}`;
+        setNotify({
+          waUrl: waMeUrl(
+            person.phone,
+            `שלום ${person.label}, קבענו ${KIND_LABELS[kind] ?? "פגישה"}${where} ל${when}. נתראה!`,
+          ),
+        });
+        setSubmitting(false);
+        return;
       }
       router.replace("/calendar");
     } catch (err: unknown) {
@@ -142,16 +342,28 @@ function NewAppointmentForm() {
   return (
     <div className="mx-auto max-w-lg">
       <h1 className="mb-2 text-2xl font-bold">פגישה חדשה</h1>
-      {leadId ? (
-        <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
-          הפגישה תקושר לליד ותתועד בציר הזמן שלו.
-        </p>
-      ) : null}
+      <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
+        מי ואיפה — שניהם ניתנים לבחירה כאן. הפגישה תתועד בציר הזמן של
+        הכרטיסים שיקושרו אליה.
+      </p>
 
-      <form onSubmit={onSubmit} noValidate>
+      <form onSubmit={onSubmit} noValidate ref={formRef}>
         {error ? (
           <Notice tone="danger">{error}</Notice>
         ) : null}
+
+        <PersonPicker
+          value={person}
+          onPick={setPerson}
+          onClear={() => setPerson(null)}
+          onNew={() => leaveTo("/leads/new")}
+        />
+        <PropertyPicker
+          value={property}
+          onPick={setProperty}
+          onClear={() => setProperty(null)}
+          onNew={() => leaveTo("/properties/new")}
+        />
 
         <div className="mb-4 grid gap-4 sm:grid-cols-2">
           <div>

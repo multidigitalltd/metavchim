@@ -405,7 +405,13 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
                       <td>
                         {row.planCode} · {describeCycle(row.billingCycle === "yearly" ? "yearly" : "monthly")}
                       </td>
-                      <td>{formatNumber(row.amountAgorot / 100)} ₪</td>
+                      {/*
+                        זה הסכום שנגבה בפועל — **כולל** מע"מ, בניגוד
+                        למחירון שלמעלה. בלי הציון אותה טבלה מציגה שני
+                        מספרים שנראים כמו אותו דבר ואינם, ומי שמשווה
+                        בין המחיר ששילם למחיר שראה חושב שחויב ביתר.
+                      */}
+                      <td>{formatNumber(row.amountAgorot / 100)} ₪ כולל מע"מ</td>
                       <td>{PAYMENT_STATUS[row.status] ?? row.status}</td>
                       {/*
                         המסמך יושב אצל ספק החשבוניות, והקישור אליו אינו

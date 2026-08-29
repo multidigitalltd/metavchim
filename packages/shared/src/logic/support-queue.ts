@@ -1,0 +1,138 @@
+import { type SupportStatus } from "./support.js";
+
+/**
+ * תור אחד לשני מקורות הפניות.
+ *
+ * ## למה מאוחד
+ *
+ * פנייה שנפתחה מכפתור התמיכה שבמערכת ופנייה שהגיעה במייל הן **אותה
+ * עבודה**: מישהו מחכה לתשובה. שני מסכים נפרדים פירושם שני תורים
+ * לבדוק, שתי ספירות "כמה פתוחות", ושתי פניות שיכולות להיות של אותו
+ * אדם על אותו דבר בלי שאיש ישים לב.
+ *
+ * המקור נשאר מסומן — הוא משנה **איך** עונים (מייל חוזר בשרשור;
+ * פנייה מהכפתור מקבלת תשובה בכרטיס ובמייל) — אבל הוא אינו מפצל את
+ * הרשימה.
+ */
+
+/** מאיפה הפנייה הגיעה. משנה איך עונים, לא היכן היא מופיעה. */
+export type SupportSource = "app" | "email";
+
+export interface SupportQueueRow {
+  source: SupportSource;
+  id: string;
+  reference: number;
+  /** שורת הכותרת בתור — נושא המייל, או תחילת ההודעה מהכפתור. */
+  title: string;
+  /** מי פנה. */
+  who: string;
+  tenantName: string | null;
+  status: SupportStatus;
+  /** טרם נקראה/נענתה — מה שמסמן „מחכה לך”. */
+  unread: boolean;
+  lastActivityAt: string;
+}
+
+/**
+ * הסדר: **מה שפתוח קודם, והחדש שבו בראש.**
+ *
+ * ‎`status` אינו שדה מיון. מיון לפי הערך עצמו הוא לקסיקוגרפי, ושם
+ * `closed` קטן מ-`in_progress` שקטן מ-`open` — כלומר הסגורות היו
+ * עולות לראש והתור הפתוח נדחק מתחתן. זו בדיוק תקלה שכבר קרתה כאן
+ * פעם (ביקורת Codex, על רשימת השרשורים), ולכן הכלל יושב בפונקציה
+ * אחת עם בדיקה במקום להיכתב מחדש בכל קורא.
+ *
+ * ‎`in_progress` נחשב פתוח: מישהו מטפל, אבל הפונה עדיין מחכה.
+ */
+export function orderSupportQueue(rows: readonly SupportQueueRow[]): SupportQueueRow[] {
+  return [...rows].sort((a, b) => {
+    const openA = a.status === "closed" ? 1 : 0;
+    const openB = b.status === "closed" ? 1 : 0;
+    if (openA !== openB) return openA - openB;
+    // חדש בראש; שוויון מוכרע במספר הפנייה כדי שהסדר יהיה יציב
+    const byTime = b.lastActivityAt.localeCompare(a.lastActivityAt);
+    return byTime !== 0 ? byTime : b.reference - a.reference;
+  });
+}
+
+/**
+ * ‎**„ממתינה” — הגדרה אחת, בשלילה.**
+ *
+ * הכלל נכתב בשלושה מקומות בשלושה נוסחים: `!== "resolved"` בסוכן,
+ * `=== "open"` בשאילתה, ו-`!== "closed"` במסך. כל עוד היו שני
+ * מצבים כולם הסכימו; ברגע ש-`in_progress` נולד, שניים מהם החלו
+ * לספור אחרת — ואחד מהם הפסיק להתקמפל בכלל כשהסטטוס `resolved`
+ * אוחד ל-`closed`.
+ *
+ * שלילה ולא מנייה חיובית: סטטוס שייוולד מחר ייחשב ממתין מעצמו,
+ * וזה הכיוון הבטוח — עדיף לספור פנייה סגורה כפתוחה מאשר להעלים
+ * פנייה שמישהו מחכה לתשובה עליה.
+ */
+export function isSupportWaiting(status: string): boolean {
+  return status !== "closed";
+}
+
+/** כמה ממתינות באמת — המונה שמוצג לצד השולחן. */
+export function openSupportCount(rows: readonly SupportQueueRow[]): number {
+  return rows.filter((row) => isSupportWaiting(row.status)).length;
+}
+
+/** תווית המקור, לעברית. */
+export const SUPPORT_SOURCE_LABEL: Record<SupportSource, string> = {
+  app: "מהמערכת",
+  email: "במייל",
+};
+
+/**
+ * שורת הכותרת של פנייה מהכפתור.
+ *
+ * להודעה מהכפתור אין נושא — היא טקסט חופשי — ולכן התור מציג את
+ * תחילתה. בלי החיתוך שורה אחת בתור הייתה בגובה פסקה.
+ */
+export function ticketTitle(message: string, max = 80): string {
+  const line = message.trim().split("\n")[0]?.trim() ?? "";
+  if (line === "") return "(פנייה ללא טקסט)";
+  return line.length <= max ? line : `${line.slice(0, max - 1)}…`;
+}
+
+/**
+ * כמה שורות השולחן מושך בכל מקור. גבול קיים כדי שמסך אחד לא ימשוך
+ * טבלה שלמה; הוא **לא** אמור להכריע מי מוצג.
+ */
+export const SUPPORT_DESK_LIMIT = 100;
+
+/** שני הדליים שהשולחן שולף מהם. „פתוח” הוא כל מה שאינו סגור. */
+export type SupportBucket = "waiting" | "closed";
+
+/**
+ * ‎**הממתינות נשלפות ראשונות — הגבול חותך את הסגורות, לא אותן.**
+ *
+ * ## התקלה
+ *
+ * שאילתה אחת עם `orderBy` על הזמן ו-`take: 100` נראית תמימה, והיא
+ * בדיוק זו שמאבדת פניות: מאה פניות **סגורות** חדשות דוחקות מהמסך
+ * פנייה פתוחה ישנה. היא לא מסומנת, לא נספרת במונה „ממתינות”, ואין
+ * שום סימן שהייתה — המסך פשוט מציג תור קצר יותר ממה שיש.
+ *
+ * ## והתקלה התאומה
+ *
+ * הניסוח „קודם הפתוחות” נכתב פעם כ-`status: "open"`, וזה נכון רק
+ * כל עוד יש שני מצבים. מרגע ש-`in_progress` נולד, פנייה שמישהו
+ * לקח לטיפול נפלה לדלי של הסגורות — כלומר נעלמה מהמסך בדיוק כשהיא
+ * באחריות של מישהו. לכן הדלי הראשון מוגדר בשלילה: **כל מה שאינו
+ * `closed`**. סטטוס חדש שייוולד מחר ייכנס אליו מעצמו, וגם ערך
+ * ישן שנשאר במסד מלפני שינוי שם — הכיוון הבטוח הוא להציג.
+ *
+ * שתי השאילתות ולא אחת מסוננת בזיכרון: אי אפשר לסנן בזיכרון את מה
+ * שהמסד כבר לא החזיר.
+ */
+export async function waitingFirst<T>(
+  fetch: (bucket: SupportBucket, take: number) => Promise<T[]>,
+  limit: number = SUPPORT_DESK_LIMIT,
+): Promise<T[]> {
+  const waiting = await fetch("waiting", limit);
+  // אין מקום לסגורות — ולא שאילתה מיותרת כדי לגלות את זה
+  if (waiting.length >= limit) return waiting.slice(0, limit);
+  const closed = await fetch("closed", limit - waiting.length);
+  return [...waiting, ...closed];
+}

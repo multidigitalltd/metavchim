@@ -10,6 +10,7 @@ import {
   EMAIL_ATTACHMENT_MAX_BYTES,
   EMAIL_ATTACHMENT_MAX_COUNT,
   EMAIL_OUTBOUND_ATTACHMENT_TOTAL_BYTES,
+  SUPPORT_DESK_LIMIT,
   emailAttachmentKind,
   inboundBody,
   inboundProviderMessageId,
@@ -17,11 +18,15 @@ import {
   isProviderInboundRoute,
   parseSenderEmail,
   parseSenderName,
+  referenceFromSubject,
   replyAddressFor,
+  subjectWithReference,
   safeAttachmentName,
   supportReplyRejectionReason,
   supportSubjectOrDefault,
+  waitingFirst,
   type InboundEmailPayload,
+  type SupportStatus,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
@@ -136,7 +141,29 @@ export class SupportInboxService {
     const subject = supportSubjectOrDefault(payload.Subject);
     const token = inboundToken(payload);
 
-    const thread = await this.resolveThread({ token, senderEmail, senderName, subject });
+    /*
+     * ‎**הניתוב אינו כאן.** `InboundMailService` כבר הכריע שההודעה
+     * הזאת שייכת לתמיכה — הוא זה שמכיר את שני היעדים, ולכן גם
+     * סינון המענים האוטומטיים יושב שם: הודעת אי-מסירה אינה פנייה
+     * לתמיכה **וגם** אינה תשובת לקוח.
+     *
+     * מה שנשאר כאן הוא השאלה הפנימית: לאיזה שרשור.
+     */
+    const supportThread =
+      token === null
+        ? null
+        : await this.prisma.supportThread.findUnique({
+            where: { replyToken: token },
+            select: { id: true, tenantId: true },
+          });
+
+    const thread = await this.resolveThread({
+      token,
+      knownThread: supportThread,
+      senderEmail,
+      senderName,
+      subject,
+    });
     if (thread === null) return;
 
     const messageId = ulid();
@@ -344,27 +371,57 @@ export class SupportInboxService {
    */
   private async resolveThread(input: {
     token: string | null;
+    /** השרשור שכבר נמצא לפי הטוקן בשלב הניתוב — לא נשלף פעמיים. */
+    knownThread: { id: string; tenantId: string | null } | null;
     senderEmail: string | null;
     senderName: string;
     subject: string;
   }): Promise<{ id: string; tenantId: string | null } | null> {
+    if (input.knownThread !== null) return input.knownThread;
     if (input.token !== null) {
-      const byToken = await this.prisma.supportThread.findUnique({
-        where: { replyToken: input.token },
-        select: { id: true, tenantId: true },
-      });
-      if (byToken !== null) return byToken;
       // טוקן לא מוכר אינו סיבה לזרוק פנייה — ממשיכים לשרשור לפי שולח
       this.logger.warn("פניית תמיכה עם טוקן לא מוכר — משויכת לפי כתובת השולח");
     }
 
+    /*
+     * ‎**המספר שבנושא הוא רשת הביטחון של הטוקן.**
+     *
+     * מי שפותח מייל **חדש** במקום להשיב מאבד את ה-`+token`, ואז
+     * ההמשך של אותה שיחה נפתח כפנייה נפרדת — ומי שמטפל מגלה שתי
+     * פניות על אותו דבר בלי לדעת שהן אחת. המספר נדבק לנושא בכל
+     * תשובה שיוצאת, ולכן הוא חוזר אלינו מעצמו גם בלי הטוקן.
+     *
+     * הוא **רק** מפתח חיפוש: הנושא הוא טקסט של שולח, וכל אחד יכול
+     * לכתוב בו מספר. לכן ההצמדה מותנית גם בכתובת השולח — אחרת מי
+     * שמנחש מספר היה נכנס לשרשור של אדם אחר.
+     */
+    const fromSubject = referenceFromSubject(input.subject);
+    if (fromSubject !== null && input.senderEmail !== null) {
+      const byReference = await this.prisma.supportThread.findFirst({
+        where: { reference: fromSubject, contactEmail: input.senderEmail },
+        select: { id: true, tenantId: true },
+      });
+      if (byReference !== null) return byReference;
+    }
+
     if (input.senderEmail !== null) {
-      const open = await this.prisma.supportThread.findFirst({
-        where: { contactEmail: input.senderEmail, status: "open" },
+      /*
+       * ‎**כל מה שאינו סגור — לא רק `open`.**
+       *
+       * זה האתר השלישי שבו „ממתין” נוסח בחיוב, והוא נשבר באותה
+       * צורה: מרגע ש-`in_progress` נולד, מי שכתב שוב בזמן שהפנייה
+       * שלו **בטיפול** קיבל שרשור שני עם מספר פנייה חדש — כלומר
+       * בדיוק הפיצול שהמספר נועד למנוע (ביקורת Codex).
+       *
+       * ‎`not: "closed"` ולא `in [...]`: סטטוס שייוולד מחר ייכנס
+       * מעצמו, וגם ערך ישן שנשאר במסד.
+       */
+      const waiting = await this.prisma.supportThread.findFirst({
+        where: { contactEmail: input.senderEmail, status: { not: "closed" } },
         orderBy: { lastMessageAt: "desc" },
         select: { id: true, tenantId: true },
       });
-      if (open !== null) return open;
+      if (waiting !== null) return waiting;
     }
 
     const tenantId =
@@ -395,6 +452,8 @@ export class SupportInboxService {
   async threads(): Promise<
     {
       id: string;
+      /** מספר הפנייה — משותף עם פניות הכפתור. */
+      reference: number;
       subject: string;
       contactName: string;
       contactEmail: string | null;
@@ -406,19 +465,23 @@ export class SupportInboxService {
     }[]
   > {
     /*
-     * **הפתוחים נשלפים בשאילתה נפרדת, ולא לפי סדר האלפבית.**
+     * **הממתינים נשלפים בשאילתה נפרדת, ולא לפי סדר האלפבית.**
      *
      * ‎`orderBy: { status: "asc" }` נראה כמו „פתוחים קודם” ואינו
      * כזה: `closed` קטן מ-`open` לקסיקוגרפית, ולכן הוא דחף את כל
-     * הסגורים לראש. עם `take: 100` פירושו שמאה סגורים מוחקים מהמסך
-     * את כל מי שבאמת מחכה (ביקורת Codex). סדר שנשען על איות הערך
-     * הוא סדר שמשתנה כשמישהו יקרא לסטטוס בשם אחר.
+     * הסגורים לראש. עם `take` פירושו שמאה סגורים מוחקים מהמסך את
+     * כל מי שבאמת מחכה (ביקורת Codex). סדר שנשען על איות הערך הוא
+     * סדר שמשתנה כשמישהו יקרא לסטטוס בשם אחר.
      *
-     * שתי שאילתות ולא ביטוי מחושב: התור הפתוח הוא מה שמסך התמיכה
-     * קיים בשבילו, והסגורים הם השלמה למי שיש מקום להציג.
+     * הדלי הראשון מוגדר ב**שלילה** — כל מה שאינו `closed`. ניסוח
+     * חיובי (`status: "open"`) היה נכון רק כשהיו שני מצבים; מרגע
+     * ש-`in_progress` נולד, שרשור שמישהו לקח לטיפול נפל לדלי של
+     * הסגורים ונעלם מהמסך בדיוק כשהוא באחריות מישהו (ביקורת
+     * Codex). הכלל עצמו ב-`waitingFirst`, משותף עם פניות הכפתור.
      */
     const columns = {
       id: true,
+      reference: true,
       subject: true,
       contactName: true,
       contactEmail: true,
@@ -427,22 +490,16 @@ export class SupportInboxService {
       readAt: true,
       lastMessageAt: true,
     } as const;
-    const open = await this.prisma.supportThread.findMany({
-      where: { status: "open" },
-      orderBy: { lastMessageAt: "desc" },
-      take: 100,
-      select: columns,
-    });
-    const closed =
-      open.length >= 100
-        ? []
-        : await this.prisma.supportThread.findMany({
-            where: { status: { not: "open" } },
-            orderBy: { lastMessageAt: "desc" },
-            take: 100 - open.length,
-            select: columns,
-          });
-    const rows = [...open, ...closed];
+    const rows = await waitingFirst(
+      (bucket, take) =>
+        this.prisma.supportThread.findMany({
+          where: bucket === "waiting" ? { status: { not: "closed" } } : { status: "closed" },
+          orderBy: { lastMessageAt: "desc" },
+          take,
+          select: columns,
+        }),
+      SUPPORT_DESK_LIMIT,
+    );
     const tenantIds = [...new Set(rows.map((row) => row.tenantId).filter((id) => id !== null))];
     const tenants =
       tenantIds.length > 0
@@ -462,6 +519,7 @@ export class SupportInboxService {
   /** שרשור אחד — ההודעות לפי סדר, וסימונו כנקרא. */
   async thread(threadId: string): Promise<{
     id: string;
+    reference: number;
     subject: string;
     contactName: string;
     contactEmail: string | null;
@@ -522,6 +580,7 @@ export class SupportInboxService {
 
     return {
       id: row.id,
+      reference: row.reference,
       subject: row.subject,
       contactName: row.contactName,
       contactEmail: row.contactEmail,
@@ -611,7 +670,18 @@ export class SupportInboxService {
     try {
       await this.email.send(
         thread.contactEmail!,
-        thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`,
+        /*
+         * ‎**המספר נדבק לנושא, וזה מה שמחזיר אותו אלינו.**
+         *
+         * הטוקן ב-`Reply-To` עובד רק כשהפונה **משיב**; מי שפותח
+         * מייל חדש מאבד אותו, וההמשך של אותה שיחה נפתח כפנייה
+         * נפרדת. המספר שורד את זה, והוא גם מה שמאפשר לפונה לצטט
+         * „פנייה 1042” בטלפון.
+         */
+        subjectWithReference(
+          thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`,
+          thread.reference,
+        ),
         {
           heading: "תשובה מהתמיכה",
           paragraphs: body.trim() === "" ? ["מצורף:"] : body.trim().split("\n").filter(Boolean),
@@ -732,7 +802,7 @@ export class SupportInboxService {
   }
 
   /** סגירה ופתיחה מחדש — הסטטוס הוא מה שמסדר את הרשימה. */
-  async setStatus(threadId: string, status: "open" | "closed"): Promise<{ ok: true }> {
+  async setStatus(threadId: string, status: SupportStatus): Promise<{ ok: true }> {
     await this.prisma.supportThread.update({ where: { id: threadId }, data: { status } });
     return { ok: true };
   }

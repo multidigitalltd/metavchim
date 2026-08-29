@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import {
+  CUSTOM_PRICE_LABEL,
+  describeCyclePrice,
   formatPlanPrice,
-  planPriceLabel,
+  FREE_PRICE_LABEL,
   planRejectionReason,
   yearlySavingPercent,
   type PlanDefinition,
@@ -92,7 +94,7 @@ function planEditor(
       </label>
       <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <label className="text-sm font-semibold">
-          ₪ לחודש
+          ₪ לחודש, לפני מע"מ
           <input
             value={toShekels(draft.monthlyPriceAgorot)}
             inputMode="decimal"
@@ -104,7 +106,7 @@ function planEditor(
           />
         </label>
         <label className="text-sm font-semibold">
-          ₪ לשנה (ריק = חודשי בלבד)
+          ₪ לשנה, לפני מע"מ (ריק = חודשי בלבד)
           <input
             value={toShekels(draft.yearlyPriceAgorot)}
             inputMode="decimal"
@@ -523,18 +525,26 @@ export function PlansSection({
                       {plan.description || "—"}
                     </p>
                     <p className="m-0 mb-2 text-sm">
-                      {/* מסלול ציבורי ב-0 הוא חינם ולא "לפי הצעה" */}
-                      <strong>{planPriceLabel(plan)}</strong>
-                      {plan.priceOnRequest || plan.monthlyPriceAgorot <= 0
-                        ? ""
-                        : " לחודש"}
-                      {plan.yearlyPriceAgorot !== null ? (
+                      {/*
+                        ‎`describeCyclePrice` נושא כבר את המחזור ואת
+                        „+ מע\"מ” יחד, ולכן אין כאן שרשור ידני של
+                        „ לחודש” — הוא היה נוחת **אחרי** הסייג
+                        („149 ₪ + מע\"מ לחודש”). מסלול ציבורי ב-0
+                        הוא חינם ולא „לפי הצעה”.
+                      */}
+                      <strong>
+                        {plan.priceOnRequest
+                          ? CUSTOM_PRICE_LABEL
+                          : (describeCyclePrice(plan, "monthly") ?? FREE_PRICE_LABEL)}
+                      </strong>
+                      {plan.priceOnRequest || plan.yearlyPriceAgorot === null ? null : (
                         <>
                           {" · "}
-                          {formatPlanPrice(plan.yearlyPriceAgorot)} לשנה
+                          {describeCyclePrice(plan, "yearly") ??
+                            `${formatPlanPrice(plan.yearlyPriceAgorot)} לשנה`}
                           {saving !== null ? ` (חיסכון ${saving}%)` : ""}
                         </>
-                      ) : null}
+                      )}
                     </p>
                     <p className="m-0 mb-2 text-sm">
                       {plan.maxUsers === null ? "משתמשים ללא הגבלה" : `עד ${plan.maxUsers} משתמשים`}

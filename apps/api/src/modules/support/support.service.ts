@@ -2,9 +2,11 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from "@nes
 import { ulid } from "ulid";
 import {
   MAX_SUPPORT_SCREENSHOT_BYTES,
+  SUPPORT_DESK_LIMIT,
   SUPPORT_KIND_LABEL,
   sanitizeSupportContext,
   triageTicket,
+  waitingFirst,
   type SupportContext,
   type SupportKind,
   type SupportStatus,
@@ -28,6 +30,8 @@ import { SupportInboxService } from "./support-inbox.service";
 
 export interface SupportTicketDto {
   id: string;
+  /** מספר הפנייה — רצף משותף עם הפניות שהגיעו במייל. */
+  reference: number;
   kind: SupportKind;
   message: string;
   status: SupportStatus;
@@ -255,13 +259,32 @@ export class SupportService {
    * פנייה שנפתחה לפני שבוע וממתינה חשובה מפנייה שנסגרה אתמול.
    */
   async listForDesk(filter: { status?: SupportStatus }): Promise<SupportTicketAdminDto[]> {
-    const rows = await this.prisma.withSupportDesk(async (tx) =>
-      tx.supportTicket.findMany({
-        where: filter.status === undefined ? {} : { status: filter.status },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      }),
-    );
+    const rows = await this.prisma.withSupportDesk(async (tx) => {
+      // סינון מפורש — המנהל ביקש מצב אחד, והגבול חותך בתוכו
+      if (filter.status !== undefined) {
+        return tx.supportTicket.findMany({
+          where: { status: filter.status },
+          orderBy: { createdAt: "desc" },
+          take: SUPPORT_DESK_LIMIT,
+        });
+      }
+      /*
+       * ‎**התור המלא — הממתינות ראשונות, ורק אז מה שנסגר.**
+       *
+       * שאילתה אחת עם `take` הייתה נותנת למאה פניות סגורות חדשות
+       * למחוק מהמסך פנייה פתוחה ישנה (ביקורת Codex). לא כשורה
+       * מסומנת ולא במונה — פשוט לא הייתה שם.
+       */
+      return waitingFirst(
+        (bucket, take) =>
+          tx.supportTicket.findMany({
+            where: bucket === "waiting" ? { status: { not: "closed" } } : { status: "closed" },
+            orderBy: { createdAt: "desc" },
+            take,
+          }),
+        SUPPORT_DESK_LIMIT,
+      );
+    });
     /*
      * שמות המשרדים בשאילתה אחת. `tenants` מחוץ ל-RLS, ובלי הקיבוץ
      * הזה תור של 100 פניות היה 100 שאילתות.
@@ -279,6 +302,32 @@ export class SupportService {
       userEmail: r.userEmail,
       context: (r.context ?? {}) as SupportContext,
     }));
+  }
+
+  /**
+   * פנייה אחת לשולחן — מה שהתור צריך כדי לפתוח אותה.
+   *
+   * התור המאוחד מציג שורה אחת לכל פנייה, ופותח את הפרטים בלחיצה.
+   * בלי הנתיב הזה הוא היה נאלץ למשוך את **כל** הרשימה רק כדי
+   * להציג אחת — ואז לשמור אותה בזיכרון כדי שהפתיחה תהיה מיידית,
+   * כלומר מצב שני שמתיישן.
+   */
+  async oneForDesk(ticketId: string): Promise<SupportTicketAdminDto> {
+    const row = await this.prisma.withSupportDesk(async (tx) =>
+      tx.supportTicket.findFirst({ where: { id: ticketId } }),
+    );
+    if (row === null) throw new NotFoundException("הפנייה לא נמצאה");
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: row.tenantId },
+      select: { name: true },
+    });
+    return {
+      ...this.toDto(row),
+      tenantId: row.tenantId,
+      tenantName: tenant?.name ?? "—",
+      userEmail: row.userEmail,
+      context: (row.context ?? {}) as SupportContext,
+    };
   }
 
   /** עדכון סטטוס ו/או מענה. המענה נשלח גם במייל לפונה עצמו. */
@@ -337,6 +386,7 @@ export class SupportService {
 
   private toDto(row: {
     id: string;
+    reference: number;
     kind: string;
     message: string;
     status: string;
@@ -350,6 +400,7 @@ export class SupportService {
   }): SupportTicketDto {
     return {
       id: row.id,
+      reference: row.reference,
       kind: row.kind as SupportKind,
       message: row.message,
       status: row.status as SupportStatus,
