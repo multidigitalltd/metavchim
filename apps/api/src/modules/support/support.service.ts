@@ -2,9 +2,11 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from "@nes
 import { ulid } from "ulid";
 import {
   MAX_SUPPORT_SCREENSHOT_BYTES,
+  SUPPORT_DESK_LIMIT,
   SUPPORT_KIND_LABEL,
   sanitizeSupportContext,
   triageTicket,
+  waitingFirst,
   type SupportContext,
   type SupportKind,
   type SupportStatus,
@@ -257,13 +259,32 @@ export class SupportService {
    * פנייה שנפתחה לפני שבוע וממתינה חשובה מפנייה שנסגרה אתמול.
    */
   async listForDesk(filter: { status?: SupportStatus }): Promise<SupportTicketAdminDto[]> {
-    const rows = await this.prisma.withSupportDesk(async (tx) =>
-      tx.supportTicket.findMany({
-        where: filter.status === undefined ? {} : { status: filter.status },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      }),
-    );
+    const rows = await this.prisma.withSupportDesk(async (tx) => {
+      // סינון מפורש — המנהל ביקש מצב אחד, והגבול חותך בתוכו
+      if (filter.status !== undefined) {
+        return tx.supportTicket.findMany({
+          where: { status: filter.status },
+          orderBy: { createdAt: "desc" },
+          take: SUPPORT_DESK_LIMIT,
+        });
+      }
+      /*
+       * ‎**התור המלא — הממתינות ראשונות, ורק אז מה שנסגר.**
+       *
+       * שאילתה אחת עם `take` הייתה נותנת למאה פניות סגורות חדשות
+       * למחוק מהמסך פנייה פתוחה ישנה (ביקורת Codex). לא כשורה
+       * מסומנת ולא במונה — פשוט לא הייתה שם.
+       */
+      return waitingFirst(
+        (bucket, take) =>
+          tx.supportTicket.findMany({
+            where: bucket === "waiting" ? { status: { not: "closed" } } : { status: "closed" },
+            orderBy: { createdAt: "desc" },
+            take,
+          }),
+        SUPPORT_DESK_LIMIT,
+      );
+    });
     /*
      * שמות המשרדים בשאילתה אחת. `tenants` מחוץ ל-RLS, ובלי הקיבוץ
      * הזה תור של 100 פניות היה 100 שאילתות.

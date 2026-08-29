@@ -10,6 +10,7 @@ import {
   EMAIL_ATTACHMENT_MAX_BYTES,
   EMAIL_ATTACHMENT_MAX_COUNT,
   EMAIL_OUTBOUND_ATTACHMENT_TOTAL_BYTES,
+  SUPPORT_DESK_LIMIT,
   emailAttachmentKind,
   inboundBody,
   inboundProviderMessageId,
@@ -23,6 +24,7 @@ import {
   safeAttachmentName,
   supportReplyRejectionReason,
   supportSubjectOrDefault,
+  waitingFirst,
   type InboundEmailPayload,
   type SupportStatus,
 } from "@metavchim/shared";
@@ -452,16 +454,19 @@ export class SupportInboxService {
     }[]
   > {
     /*
-     * **הפתוחים נשלפים בשאילתה נפרדת, ולא לפי סדר האלפבית.**
+     * **הממתינים נשלפים בשאילתה נפרדת, ולא לפי סדר האלפבית.**
      *
      * ‎`orderBy: { status: "asc" }` נראה כמו „פתוחים קודם” ואינו
      * כזה: `closed` קטן מ-`open` לקסיקוגרפית, ולכן הוא דחף את כל
-     * הסגורים לראש. עם `take: 100` פירושו שמאה סגורים מוחקים מהמסך
-     * את כל מי שבאמת מחכה (ביקורת Codex). סדר שנשען על איות הערך
-     * הוא סדר שמשתנה כשמישהו יקרא לסטטוס בשם אחר.
+     * הסגורים לראש. עם `take` פירושו שמאה סגורים מוחקים מהמסך את
+     * כל מי שבאמת מחכה (ביקורת Codex). סדר שנשען על איות הערך הוא
+     * סדר שמשתנה כשמישהו יקרא לסטטוס בשם אחר.
      *
-     * שתי שאילתות ולא ביטוי מחושב: התור הפתוח הוא מה שמסך התמיכה
-     * קיים בשבילו, והסגורים הם השלמה למי שיש מקום להציג.
+     * הדלי הראשון מוגדר ב**שלילה** — כל מה שאינו `closed`. ניסוח
+     * חיובי (`status: "open"`) היה נכון רק כשהיו שני מצבים; מרגע
+     * ש-`in_progress` נולד, שרשור שמישהו לקח לטיפול נפל לדלי של
+     * הסגורים ונעלם מהמסך בדיוק כשהוא באחריות מישהו (ביקורת
+     * Codex). הכלל עצמו ב-`waitingFirst`, משותף עם פניות הכפתור.
      */
     const columns = {
       id: true,
@@ -474,22 +479,16 @@ export class SupportInboxService {
       readAt: true,
       lastMessageAt: true,
     } as const;
-    const open = await this.prisma.supportThread.findMany({
-      where: { status: "open" },
-      orderBy: { lastMessageAt: "desc" },
-      take: 100,
-      select: columns,
-    });
-    const closed =
-      open.length >= 100
-        ? []
-        : await this.prisma.supportThread.findMany({
-            where: { status: { not: "open" } },
-            orderBy: { lastMessageAt: "desc" },
-            take: 100 - open.length,
-            select: columns,
-          });
-    const rows = [...open, ...closed];
+    const rows = await waitingFirst(
+      (bucket, take) =>
+        this.prisma.supportThread.findMany({
+          where: bucket === "waiting" ? { status: { not: "closed" } } : { status: "closed" },
+          orderBy: { lastMessageAt: "desc" },
+          take,
+          select: columns,
+        }),
+      SUPPORT_DESK_LIMIT,
+    );
     const tenantIds = [...new Set(rows.map((row) => row.tenantId).filter((id) => id !== null))];
     const tenants =
       tenantIds.length > 0

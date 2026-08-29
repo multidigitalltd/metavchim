@@ -77,3 +77,45 @@ export function ticketTitle(message: string, max = 80): string {
   if (line === "") return "(פנייה ללא טקסט)";
   return line.length <= max ? line : `${line.slice(0, max - 1)}…`;
 }
+
+/**
+ * כמה שורות השולחן מושך בכל מקור. גבול קיים כדי שמסך אחד לא ימשוך
+ * טבלה שלמה; הוא **לא** אמור להכריע מי מוצג.
+ */
+export const SUPPORT_DESK_LIMIT = 100;
+
+/** שני הדליים שהשולחן שולף מהם. „פתוח” הוא כל מה שאינו סגור. */
+export type SupportBucket = "waiting" | "closed";
+
+/**
+ * ‎**הממתינות נשלפות ראשונות — הגבול חותך את הסגורות, לא אותן.**
+ *
+ * ## התקלה
+ *
+ * שאילתה אחת עם `orderBy` על הזמן ו-`take: 100` נראית תמימה, והיא
+ * בדיוק זו שמאבדת פניות: מאה פניות **סגורות** חדשות דוחקות מהמסך
+ * פנייה פתוחה ישנה. היא לא מסומנת, לא נספרת במונה „ממתינות”, ואין
+ * שום סימן שהייתה — המסך פשוט מציג תור קצר יותר ממה שיש.
+ *
+ * ## והתקלה התאומה
+ *
+ * הניסוח „קודם הפתוחות” נכתב פעם כ-`status: "open"`, וזה נכון רק
+ * כל עוד יש שני מצבים. מרגע ש-`in_progress` נולד, פנייה שמישהו
+ * לקח לטיפול נפלה לדלי של הסגורות — כלומר נעלמה מהמסך בדיוק כשהיא
+ * באחריות של מישהו. לכן הדלי הראשון מוגדר בשלילה: **כל מה שאינו
+ * `closed`**. סטטוס חדש שייוולד מחר ייכנס אליו מעצמו, וגם ערך
+ * ישן שנשאר במסד מלפני שינוי שם — הכיוון הבטוח הוא להציג.
+ *
+ * שתי השאילתות ולא אחת מסוננת בזיכרון: אי אפשר לסנן בזיכרון את מה
+ * שהמסד כבר לא החזיר.
+ */
+export async function waitingFirst<T>(
+  fetch: (bucket: SupportBucket, take: number) => Promise<T[]>,
+  limit: number = SUPPORT_DESK_LIMIT,
+): Promise<T[]> {
+  const waiting = await fetch("waiting", limit);
+  // אין מקום לסגורות — ולא שאילתה מיותרת כדי לגלות את זה
+  if (waiting.length >= limit) return waiting.slice(0, limit);
+  const closed = await fetch("closed", limit - waiting.length);
+  return [...waiting, ...closed];
+}

@@ -31,6 +31,7 @@ import { SystemUpdateSection } from "./system-update-section";
 import { PayoutDeskSection } from "./payout-desk-section";
 import { ReferralRevenueSection } from "./referral-revenue-section";
 import { Notice } from "../notice";
+import { EntityTabs, TabPanel, useEntityTab } from "../entity-tabs";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים בלי SSH. נגיש רק למנהלי
@@ -365,33 +366,51 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 /**
- * קיצורי הקפיצה בראש העמוד — [עוגן, תווית].
+ * לשוניות מסך הפלטפורמה.
  *
- * הסדר הוא סדר הסעיפים בעמוד, כדי שהשורה תתפקד גם כתוכן עניינים.
- * "התחברות עם Google" מופיע כאן במפורש: זה הסעיף שמחפשים כשמחברים
- * את המערכת לראשונה, והוא היה קבור בין עשרה סעיפים אחרים.
+ * ## למה זה השתנה מעוגנים ללשוניות
+ *
+ * העמוד גדל לעשרים סעיפים בגלילה אחת. הפתרון הקודם היה שורת עוגנים
+ * („קיצורי דרך בעמוד”) עם הנימוק שהסעיפים נקראים ברצף ואין סיבה
+ * להסתיר אף אחד — וזה הפסיק להיות נכון: עוגן מקפיץ אותך למקום
+ * בתוך מסמך שממשיך להיות ארוך, ולכן אחרי הקפיצה עדיין לא ברור מה
+ * שייך למה ואיפה נגמר הסעיף. בעיקר, **הכול נטען תמיד**: עשרים
+ * סעיפים ששולפים במקביל בכל כניסה, גם כשבאת לדבר אחד.
+ *
+ * לשוניות פותרות את שניהם — וקיים כאן כבר `EntityTabs` שעושה בדיוק
+ * את זה בכרטיסי הקונה והנכס, כולל שמירת הבחירה בכתובת.
+ *
+ * ## הקיבוץ
+ *
+ * לפי **מה באת לעשות**, לא לפי מה שקרוב במימוש:
+ *
+ * - **תמיכה** ראשונה: זו הרשימה היחידה שמישהו ממתין בקצה השני שלה.
+ * - **משרדים** — הקמה, הרשימה, ושולחן החיבורים שמתקן להם הגדרות.
+ * - **מסלולים ומחירים** — כל מה שקובע כמה גובים.
+ * - **גבייה** — כל מה שקרה עם הכסף בפועל.
+ * - **חיבורים** — ספקים חיצוניים והוובהוקים שלהם.
+ * - **מערכת** — גרסאות, גיבויים, שימוש בסוכן ומסמכים משפטיים.
+ *
+ * ## מה שאבד, ולמה זה בסדר
+ *
+ * שורת העוגנים החזיקה קיצור ישיר לכרטיס „התחברות עם Google” — לא
+ * לכותרת הסעיף אלא לשדות עצמם — כי זה מה שמחפשים בחיבור הראשון.
+ * הקיצור הזה נעלם, אבל מה שהוליד אותו נעלם איתו: הכרטיס היה קבור
+ * באמצע עשרים סעיפים, ועכשיו הוא בלשונית „חיבורים” שבה יש חמישה.
  */
-const JUMP_LINKS: readonly (readonly [string, string])[] = [
-  ["platform-system-heading", "עדכוני מערכת"],
-  ["platform-backups-heading", "גיבויים"],
-  ["plans-heading", "מסלולים"],
-  ["offers-heading", "הצעות בלינק"],
-  ["coupons-heading", "קופונים"],
-  ["lead-prices-heading", "תמחור לידים"],
-  ["payments-heading", "תשלומים"],
-  ["invoices-heading", "חשבוניות"],
-  ["platform-settings-heading", "חיבורי המערכת"],
-  ["integration-desk-heading", "שולחן החיבורים"],
-  ["legal-heading", "מסמכים משפטיים"],
-  // ישירות אל כרטיס Google ולא אל כותרת הסעיף: זה הקיצור שבאמת
-  // מחפשים, והוא חייב לנחות על השדות עצמם
-  ["google-connections", "חיבורי Google"],
-  ["new-agency", "משרד חדש"],
-  ["agencies-list", "המשרדים"],
-];
+const PLATFORM_TABS = [
+  { key: "support", label: "תמיכה" },
+  { key: "agencies", label: "משרדים" },
+  { key: "pricing", label: "מסלולים ומחירים" },
+  { key: "billing", label: "גבייה" },
+  { key: "integrations", label: "חיבורים" },
+  { key: "system", label: "מערכת" },
+] as const;
 
+const PLATFORM_TAB_KEYS = PLATFORM_TABS.map((tab) => tab.key);
 export default function PlatformPage() {
   const { loading: authLoading } = useRequireAuth();
+  const [tab, setTab] = useEntityTab(PLATFORM_TAB_KEYS, "support");
   const [agencies, setAgencies] = useState<AgencyRow[] | null>(null);
   /** המשרד שעורכים לו כרגע את חסימות המודולים; null = אף אחד. */
   const [modulesFor, setModulesFor] = useState<string | null>(null);
@@ -597,115 +616,120 @@ export default function PlatformPage() {
         הקמת משרדי תיווך חדשים וניהולם — כל משרד מבודד לחלוטין, עם הצוות והנתונים שלו.
       </p>
 
-      {/*
-        קיצורי קפיצה לסעיפים. העמוד צמח לעשרה סעיפים, ו"התחברות עם
-        Google" — הסעיף שמחפשים בו בפועל כשמחברים את המערכת — יושב
-        באמצע ואי אפשר למצוא אותו בלי לגלול את כולו. עוגנים ולא
-        לשוניות: הסעיפים כאן נקראים ברצף ואין סיבה להסתיר אף אחד.
-      */}
-      <nav aria-label="קיצורי דרך בעמוד" className="mb-6 flex flex-wrap gap-2">
-        {JUMP_LINKS.map(([anchor, label]) => (
-          <a key={anchor} href={`#${anchor}`} className="mv-chip" style={{ textDecoration: "none" }}>
-            {label}
-          </a>
-        ))}
-      </nav>
-
-      {error ? (
-        <Notice tone="danger">{error}</Notice>
-      ) : null}
-
-      {created ? (
-        <div role="alert" className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-success)" }}>
-          <p className="mb-1 font-semibold">✓ המשרד הוקם!</p>
-          <p>
-            התחברות: <span dir="ltr" className="font-mono">{created.ownerEmail}</span>
-          </p>
-          <p>
-            סיסמה זמנית (מוצגת פעם אחת — העבירו לבעל המשרד):{" "}
-            <span dir="ltr" className="font-mono text-lg">{created.tempPassword}</span>
-          </p>
-          <Button variant="ghost" className="mt-2" onClick={() => setCreated(null)}>
-            סגור
-          </Button>
-        </div>
-      ) : null}
-
-      {/*
-        תור התמיכה ראשון: זו הרשימה היחידה במסך הזה שמישהו ממתין
-        בקצה השני שלה.
-
-        **מקור אחד לשני הערוצים.** קודם ישבו כאן שני מסכים — פניות
-        מהכפתור, ותיבת המייל — עם שתי רשימות, שני סינונים ושני
-        מונים. מבחינת מי שמטפל זו אותה עבודה, ולכן "מה מחכה לי"
-        הייתה שתי שאלות.
-      */}
-      <SupportQueueSection />
-
-      {/*
-        מיד אחרי התמיכה: גם כאן מישהו ממתין בקצה השני, וכאן הוא ממתין
-        לכסף. תור משיכות ששוכב שבוע הוא הדרך המהירה ביותר לאבד את
-        אמון המשרדים ברשת ההפניות.
-      */}
-      <PayoutDeskSection />
-
-      {/*
-        צמוד לתור המשיכות: שם רואים מה יוצא מהפלטפורמה, וכאן מה נשאר
-        בה. עד עכשיו היה רק הצד הראשון על המסך.
-      */}
-      <ReferralRevenueSection />
-
-      <SystemUpdateSection />
-
-      <BackupsSection />
-
-      <PlansSection onCatalogChange={loadPlanOptions} />
-      {/*
-        מיד אחרי המסלולים: הצעה בלינק היא "מסלול + חריגים למשרד אחד",
-        וזה המסך שממנו יוצאים אליה אחרי שיחת מכירה.
-      */}
-      <OffersSection
-        agencies={(agencies ?? []).map((a) => ({
-          id: a.id,
-          name: a.name,
-          priceOverrideMonthlyAgorot: a.priceOverrideMonthlyAgorot,
-          priceOverrideYearlyAgorot: a.priceOverrideYearlyAgorot,
-        }))}
+      <EntityTabs
+        tabs={PLATFORM_TABS.map((entry) => ({ key: entry.key, label: entry.label }))}
+        active={tab}
+        onSelect={setTab}
+        label="לשוניות ניהול הפלטפורמה"
       />
-      {/* מוצג רק כשיש השכרות — רוב הזמן אין, ורשימה ריקה קבועה היא רעש */}
-      <NumberRentalsSection />
-      <CouponsSection />
-      <LeadPricesSection />
-      <CreditEconomySection refreshToken={referralFeeVersion} />
-      <PaymentsSection />
 
       {/*
-        לפני הגדרות הספקים ולא אחריהן: כסף שנכנס בלי מסמך הוא דבר
-        שצריך לראות בלי לחפש, וההגדרה שמאחוריו היא כבר הצעד השני.
+        השגיאה מחוץ ללשוניות: היא נובעת מפעולות של יותר מאחת מהן
+        (הקמת משרד, שינוי מסלול, השהיה), והצגתה רק בלשונית שממנה
+        יצאה הייתה מסתירה אותה ממי שהחליף לשונית בינתיים.
       */}
-      <InvoicesSection />
+      {error ? <Notice tone="danger">{error}</Notice> : null}
 
-      <PlatformSettingsSection onReferralFeeChange={() => setReferralFeeVersion((v) => v + 1)} />
+      <TabPanel tab="support" active={tab}>
+        {/*
+          ‎**מקור אחד לשני הערוצים.** קודם ישבו כאן שני מסכים —
+          פניות מהכפתור, ותיבת המייל — עם שתי רשימות, שני סינונים
+          ושני מונים. מבחינת מי שמטפל זו אותה עבודה, ולכן "מה מחכה
+          לי" הייתה שתי שאלות.
+        */}
+        <SupportQueueSection />
+      </TabPanel>
 
-      {/*
-        צמוד להגדרות הספקים: מפתח ה-Gemini מוגדר שם, וכאן רואים כמה
-        הוא עולה בפועל — פקודות, אסימונים, ואיפה זה נצרך.
-      */}
-      <AgentUsageSection />
+      <TabPanel tab="pricing" active={tab}>
+        <PlansSection onCatalogChange={loadPlanOptions} />
+        {/*
+          מיד אחרי המסלולים: הצעה בלינק היא "מסלול + חריגים למשרד
+          אחד", וזה המסך שממנו יוצאים אליה אחרי שיחת מכירה.
+        */}
+        <OffersSection
+          agencies={(agencies ?? []).map((a) => ({
+            id: a.id,
+            name: a.name,
+            priceOverrideMonthlyAgorot: a.priceOverrideMonthlyAgorot,
+            priceOverrideYearlyAgorot: a.priceOverrideYearlyAgorot,
+          }))}
+        />
+        {/* מוצג רק כשיש השכרות — רוב הזמן אין, ורשימה ריקה קבועה היא רעש */}
+        <NumberRentalsSection />
+        <CouponsSection />
+        <LeadPricesSection />
+        <CreditEconomySection refreshToken={referralFeeVersion} />
+      </TabPanel>
 
-      {/*
-        צמוד להגדרות הספקים: שתיהן עונות על "חיברתי ספק ולא קורה
-        כלום", וזו הרשימה שאומרת אם הוא בכלל פונה אלינו.
-      */}
-      <TelephonyWebhooksSection />
+      <TabPanel tab="billing" active={tab}>
+        {/*
+          תור המשיכות ראשון בלשונית: מישהו ממתין בקצה השני שלו, והוא
+          ממתין לכסף. תור ששוכב שבוע הוא הדרך המהירה ביותר לאבד את
+          אמון המשרדים ברשת ההפניות.
+        */}
+        <PayoutDeskSection />
+        {/*
+          צמוד לתור המשיכות: שם רואים מה יוצא מהפלטפורמה, וכאן מה
+          נשאר בה. עד עכשיו היה רק הצד הראשון על המסך.
+        */}
+        <ReferralRevenueSection />
+        <PaymentsSection />
+        {/*
+          כסף שנכנס בלי מסמך הוא דבר שצריך לראות בלי לחפש, ולכן
+          החשבוניות יושבות עם התשלומים ולא עם ההגדרה שמייצרת אותן.
+        */}
+        <InvoicesSection />
+      </TabPanel>
 
-      {/*
-        צמוד ליומן הוובהוקים: שם רואים שהמרכזייה של משרד אינה פונה
-        אלינו, וכאן מתקנים לו את זה — בלי להיכנס לחשבון שלו.
-      */}
-      <IntegrationDeskSection agencies={(agencies ?? []).map((a) => ({ id: a.id, name: a.name }))} />
+      <TabPanel tab="integrations" active={tab}>
+        <PlatformSettingsSection onReferralFeeChange={() => setReferralFeeVersion((v) => v + 1)} />
+        {/*
+          צמוד להגדרות הספקים: שתיהן עונות על "חיברתי ספק ולא קורה
+          כלום", וזו הרשימה שאומרת אם הוא בכלל פונה אלינו.
+        */}
+        <TelephonyWebhooksSection />
+      </TabPanel>
 
-      <LegalDocsSection />
+      <TabPanel tab="system" active={tab}>
+        <SystemUpdateSection />
+        <BackupsSection />
+        {/*
+          מפתח ה-Gemini מוגדר ב"חיבורים", וכאן רואים כמה הוא עולה
+          בפועל — פקודות, אסימונים, ואיפה זה נצרך.
+        */}
+        <AgentUsageSection />
+        <LegalDocsSection />
+      </TabPanel>
+
+      <TabPanel tab="agencies" active={tab}>
+        {/*
+          אישור ההקמה בתוך הלשונית ולא מעליה: הסיסמה הזמנית מוצגת
+          פעם אחת בלבד, וטופס ההקמה יושב כאן — הודעה שנחתה בלשונית
+          אחרת היא הודעה שאפשר לפספס ואי אפשר לשחזר.
+        */}
+        {created ? (
+          <div role="alert" className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-success)" }}>
+            <p className="mb-1 font-semibold">✓ המשרד הוקם!</p>
+            <p>
+              התחברות: <span dir="ltr" className="font-mono">{created.ownerEmail}</span>
+            </p>
+            <p>
+              סיסמה זמנית (מוצגת פעם אחת — העבירו לבעל המשרד):{" "}
+              <span dir="ltr" className="font-mono text-lg">{created.tempPassword}</span>
+            </p>
+            <Button variant="ghost" className="mt-2" onClick={() => setCreated(null)}>
+              סגור
+            </Button>
+          </div>
+        ) : null}
+
+        {/*
+          שולחן החיבורים בלשונית המשרדים ולא ב"חיבורים": מה שמתקנים
+          בו הוא ההגדרה של **משרד מסוים**, וזו שאלה על המשרד.
+        */}
+        <IntegrationDeskSection
+          agencies={(agencies ?? []).map((a) => ({ id: a.id, name: a.name }))}
+        />
 
       <section aria-labelledby="new-agency" className="mb-8 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
         <h2 id="new-agency" className="mb-3 text-lg font-semibold"><IconPlus s={16} /> משרד חדש</h2>
@@ -907,6 +931,7 @@ export default function PlatformPage() {
           </div>
         )}
       </section>
+      </TabPanel>
     </>
   );
 }

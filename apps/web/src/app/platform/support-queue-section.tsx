@@ -292,7 +292,12 @@ export function SupportQueueSection() {
                         יכולה לכתוב הודעה על השרשור שנבחר בינתיים.
                         זה מה שהחליף את שומרי ה-`openRef` הידניים.
                       */
-                      <ThreadDetail key={row.id} threadId={row.id} onChanged={load} />
+                      <ThreadDetail
+                        key={row.id}
+                        threadId={row.id}
+                        wasUnread={row.unread}
+                        onChanged={load}
+                      />
                     ) : (
                       <TicketDetail key={row.id} ticketId={row.id} onChanged={load} />
                     )}
@@ -314,7 +319,16 @@ export function SupportQueueSection() {
  * בינתיים אינה דורסת את מה שנבחר, ותשובה שהסתיימה בתוצאה עמומה
  * מסומנת ככזו במקום כ„נשלחה”.
  */
-function ThreadDetail({ threadId, onChanged }: { threadId: string; onChanged: () => void }) {
+function ThreadDetail({
+  threadId,
+  wasUnread,
+  onChanged,
+}: {
+  threadId: string;
+  /** האם השורה נשאה „חדש” ברגע הפתיחה — קובע אם צריך לרענן אחריה. */
+  wasUnread: boolean;
+  onChanged: () => void;
+}) {
   const [view, setView] = useState<ThreadView | null>(null);
   const [reply, setReply] = useState("");
   const [busy, setBusy] = useState(false);
@@ -340,7 +354,22 @@ function ThreadDetail({ threadId, onChanged }: { threadId: string; onChanged: ()
   }, [threadId]);
 
   useEffect(() => {
-    void open();
+    /*
+     * ‎**הפתיחה עצמה מסמנת „נקרא” בשרת — והשורה לא ידעה על כך.**
+     *
+     * הקריאה הזאת היא שכותבת `readAt`, ולכן הרגע שאחריה הוא הרגע
+     * שבו התג „חדש” על השורה הפך לשקר. בלי רענון הוא נשאר עד
+     * לפעולה אחרת או רענון דף — כלומר המונה „ממתינות” והתג מספרים
+     * משהו שכבר לא נכון (ביקורת Codex).
+     *
+     * ‎`wasUnread` ולא רענון תמידי: פתיחה של שרשור שכבר נקרא אינה
+     * משנה דבר בשרת, ושאילתה על כל לחיצה היא רעש.
+     */
+    void open().then(() => {
+      if (wasUnread) onChanged();
+    });
+    // `onChanged`/`wasUnread` אינם מפעילים פתיחה מחדש — רק `open` כן
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   async function send(): Promise<void> {

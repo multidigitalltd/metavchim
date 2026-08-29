@@ -3,6 +3,8 @@ import {
   openSupportCount,
   orderSupportQueue,
   ticketTitle,
+  waitingFirst,
+  type SupportBucket,
   type SupportQueueRow,
 } from "./support-queue.js";
 
@@ -102,5 +104,59 @@ describe("כותרת פנייה מהכפתור", () => {
 
   it("ריקה אינה שורה ריקה בתור", () => {
     expect(ticketTitle("   \n  ")).toBe("(פנייה ללא טקסט)");
+  });
+});
+
+describe("הגבול חותך את הסגורות ולא את הממתינות", () => {
+  /** מסד מדומה: שני דליים, כל אחד ממוין מהחדש לישן. */
+  function desk(waiting: number, closed: number) {
+    const calls: { bucket: string; take: number }[] = [];
+    const rows = (prefix: string, n: number) =>
+      Array.from({ length: n }, (_, i) => `${prefix}${i}`);
+    return {
+      calls,
+      fetch: async (bucket: SupportBucket, take: number): Promise<string[]> => {
+        calls.push({ bucket, take });
+        return rows(bucket === "waiting" ? "w" : "c", bucket === "waiting" ? waiting : closed).slice(
+          0,
+          take,
+        );
+      },
+    };
+  }
+
+  it("פנייה ממתינה ישנה שורדת מאה סגורות חדשות", async () => {
+    /*
+     * זה כל הממצא: בשאילתה אחת עם `take`, מאה סגורות חדשות מוחקות
+     * מהמסך את מי שבאמת מחכה — בלי שום סימן.
+     */
+    const { fetch } = desk(1, 500);
+    const out = await waitingFirst(fetch, 100);
+    expect(out[0]).toBe("w0");
+    expect(out).toHaveLength(100);
+  });
+
+  it("כשהתור הממתין מלא — הסגורות לא נשלפות כלל", async () => {
+    const { fetch, calls } = desk(500, 500);
+    const out = await waitingFirst(fetch, 100);
+    expect(out).toHaveLength(100);
+    expect(out.every((row) => row.startsWith("w"))).toBe(true);
+    expect(calls.map((call) => call.bucket)).toEqual(["waiting"]);
+  });
+
+  it("הסגורות ממלאות בדיוק את מה שנשאר", async () => {
+    const { fetch, calls } = desk(30, 500);
+    const out = await waitingFirst(fetch, 100);
+    expect(calls).toEqual([
+      { bucket: "waiting", take: 100 },
+      { bucket: "closed", take: 70 },
+    ]);
+    expect(out).toHaveLength(100);
+    expect(out.filter((row) => row.startsWith("w"))).toHaveLength(30);
+  });
+
+  it("תור ריק אינו שגיאה", async () => {
+    const { fetch } = desk(0, 0);
+    expect(await waitingFirst(fetch, 100)).toEqual([]);
   });
 });

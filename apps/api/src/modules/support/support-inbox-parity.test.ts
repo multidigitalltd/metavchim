@@ -137,8 +137,9 @@ describe("תיבת התמיכה מול תיבת הלקוחות", () => {
    * הבדיקה עברה לאכוף את המבנה הזה, כי הוא מה שמחזיק את ההבטחה.
    */
   it("לכל שרשור רכיב משלו — מעבר מפרק אותו", () => {
-    expect(SUPPORT_WEB).toMatch(/<ThreadDetail key=\{row\.id\} threadId=\{row\.id\}/u);
-    expect(SUPPORT_WEB).toMatch(/function ThreadDetail\(\{ threadId, onChanged \}/u);
+    const element = /<ThreadDetail\b[\s\S]{0,300}?\/>/u.exec(SUPPORT_WEB)?.[0] ?? "";
+    expect(element, "רכיב השרשור לא נמצא").toContain("key={row.id}");
+    expect(element).toContain("threadId={row.id}");
     // הטעינה נגזרת מה-prop בלבד; אין „שרשור נוכחי” משותף לכולם
     expect(SUPPORT_WEB).toMatch(/\}, \[threadId\]\);/u);
     expect(SUPPORT_WEB).not.toContain("openRef");
@@ -151,4 +152,42 @@ describe("תיבת התמיכה מול תיבת הלקוחות", () => {
     expect(SUPPORT_WEB).toContain("const mine = ++openSeq.current;");
     expect((SUPPORT_WEB.match(/if \(openSeq\.current !== mine\) return;/gu) ?? []).length).toBe(2);
   });
+});
+
+
+/**
+ * ‎**גבול השליפה חותך את מה שנסגר, לא את מי שמחכה.**
+ *
+ * שני מקורות הפניות יושבים בשתי טבלאות, ולכן לשולחן המאוחד יש שתי
+ * שאילתות. הן טעו את אותה טעות בשני נוסחים: שאילתה אחת עם `take`
+ * שנתנה למאה פניות סגורות חדשות למחוק מהמסך פנייה ישנה שממתינה,
+ * ודלי „פתוח” שנוסח כ-`status: "open"` והפיל את `in_progress` אל
+ * הצד של הסגורים (שתי ביקורות Codex).
+ *
+ * הכלל ירד ל-`waitingFirst` ב-`packages/shared`, ויש לו בדיקה
+ * משלו. השער כאן מוודא ששתי השאילתות באמת עוברות דרכו — כי כל
+ * אחת מהן יכולה לחזור להיות „רק שאילתה אחת קטנה”.
+ */
+describe("שולחן התמיכה שולף את הממתינות ראשונות", () => {
+  const TICKETS = read("./support.service.ts");
+
+  for (const [name, source] of [
+    ["שרשורי מייל", SUPPORT],
+    ["פניות מהכפתור", TICKETS],
+  ] as const) {
+    it(`${name} — דרך waitingFirst, ולא take ידני`, () => {
+      expect(source, `${name}: לא עובר דרך waitingFirst`).toContain("waitingFirst(");
+      expect(source, `${name}: גבול מספרי במקום הקבוע המשותף`).toContain("SUPPORT_DESK_LIMIT");
+    });
+
+    it(`${name} — הדלי הממתין מוגדר בשלילה`, () => {
+      /*
+       * ‎`status: "open"` הוא הניסוח שמפיל כל סטטוס שייוולד מחר.
+       * הדלי חייב להיות „כל מה שאינו סגור”.
+       */
+      const at = source.indexOf('bucket === "waiting"');
+      expect(at, `${name}: הדלי לא נמצא`).toBeGreaterThan(-1);
+      expect(source.slice(at, at + 200)).toContain('{ status: { not: "closed" } }');
+    });
+  }
 });
