@@ -101,14 +101,38 @@ export class CalendarService {
           createdBy: ctx.userId,
         },
       });
-      if (input.leadId) {
+      /*
+       * ‎**שני צירי הזמן, לא אחד** (ביקורת Codex).
+       *
+       * עד כה נרשמה שורה רק כשהפגישה קושרה לליד — בזמן ש-`buyerId`
+       * נשמר על הפגישה, ושכרטיס הקונה קורא ציר זמן משלו
+       * (`/buyers/:id/interactions`). התוצאה: סיור שנקבע לקונה לא
+       * הופיע אצלו בכלל. זה לא נראה כי שום מסך לא שלח `buyerId`;
+       * ברגע שכרטיס הקונה מקבל כפתור „קביעת סיור”, זה הופך להבטחה
+       * שבורה במסך עצמו.
+       *
+       * הדחייה (`reschedule`, למטה) כבר כותבת לשניהם — כאן זו רק
+       * השלמה לאותה צורה.
+       *
+       * ‎**והמועד בשעון ישראל.** `toISOString()` הציג לסוכן
+       * „2026-09-10T07:30:00.000Z” על סיור ב-10:30 — חותמת UTC בציר
+       * זמן בעברית, בדיוק מה שכלל ה-ESLint על שעון המכשיר נלחם בו.
+       */
+      const scheduled = `נקבעה פגישה (${input.kind}) ל-${formatJerusalemDate(
+        input.startsAt,
+      )} ${formatJerusalemTime(input.startsAt)}`;
+      for (const link of [
+        input.leadId ? { leadId: input.leadId } : null,
+        input.buyerId ? { buyerId: input.buyerId } : null,
+      ]) {
+        if (!link) continue;
         await tx.interaction.create({
           data: {
             id: ulid(),
             tenantId: ctx.tenantId,
-            leadId: input.leadId,
+            ...link,
             kind: "system",
-            content: `נקבעה פגישה (${input.kind}) ל-${input.startsAt.toISOString()}`,
+            content: scheduled,
             createdBy: ctx.userId,
           },
         });
