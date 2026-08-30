@@ -1,17 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
-import type { PropertyStatus } from "@metavchim/shared";
+import { MATCHABLE_PROPERTY_STATUSES, type PropertyStatus } from "@metavchim/shared";
 import { API_BASE, apiGet, apiList, apiPost } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
-import { IconHome, IconMic, IconPlus, IconSheet } from "../icons";
+import {
+  IconDoc,
+  IconHome,
+  IconMic,
+  IconPlus,
+  IconSearch,
+  IconSheet,
+  IconUsers,
+  IconX,
+} from "../icons";
 import { ExclusivityWatch } from "./exclusivity-watch";
-import { CapNote, FilterBar, FilterChips, FilterSelect, SortSelect } from "../list-controls";
+import { CapNote, FilterChips, FilterSelect, SortSelect } from "../list-controls";
 import {
   EMPTY_FILTERS,
   ListFilters,
@@ -74,7 +83,12 @@ function statusDomain(status: string): string {
  * נושאת כעת שתי שורות („‎82%” ומתחתיו „חסרים 2 שדות”), והסטטוס
  * וההתאמות הפכו מטקסט לגלולות. ‎0.6fr‎ היה חותך „12 התאמות”.
  */
-const GRID = "2fr 0.8fr 0.6fr 0.9fr 1.3fr 1fr 1fr";
+/*
+ * ‎**שש עמודות, בסדר של הצילום.** העיר, החדרים והסוג ירדו לשורת
+ * המשנה שמתחת לכתובת, ולכן `2.2fr` לעמודת הנכס — היא נושאת עכשיו
+ * שתי שורות — והרוחב שהתפנה הלך לעמודת הפעולה.
+ */
+const GRID = "2.2fr 0.9fr 1.4fr 1fr 1fr 1.2fr";
 
 const SORTS: [string, string][] = [
   ["newest", "חדשים קודם"],
@@ -100,6 +114,186 @@ function sortRows(rows: PropertyRow[], sort: string): PropertyRow[] {
   }
 }
 
+/**
+ * ‎**המשפט שמתחת לכותרת — מצב המאגר, ולא ספירת שורות.**
+ *
+ * „‏4 נכסים” אינו אומר דבר. „‏4 פעילים · אחד עדיין בטיוטה” אומר מה
+ * מחכה. הנוסח נבנה מהמצב עצמו ולא מתבנית קבועה: משרד בלי טיוטות
+ * אינו מקבל „0 בטיוטה”, כי אפס אינו ידיעה.
+ */
+function summaryLine(items: PropertyRow[], truncated: boolean): string {
+  const active = items.filter((p) => p.status === "active").length;
+  const drafts = items.filter((p) => p.status === "draft").length;
+  const parts = [`${active} נכסים פעילים`];
+  if (drafts === 1) parts.push("אחד עדיין בטיוטה");
+  else if (drafts > 1) parts.push(`${drafts} עדיין בטיוטה`);
+  /*
+   * ‎**היקף המספר נאמר כשהוא אינו כל המאגר.**
+   *
+   * הבקשה מוגבלת ל-100, והמסך הציג את המניין כאילו הוא של המשרד
+   * כולו — כלומר משרד עם 400 נכסים ראה „4 פעילים” וזה פשוט לא נכון
+   * (ביקורת Codex). הסיכום נשאר שימושי, אבל אומר על מה הוא מדבר.
+   */
+  return truncated ? `${parts.join(" · ")} — מבין 100 שנטענו` : parts.join(" · ");
+}
+
+/** אריח מונה אחד — מספר גדול, ומתחתיו מה שהוא אומר. */
+function StatTile({
+  domain,
+  icon,
+  label,
+  value,
+  note,
+}: {
+  domain: string;
+  icon: ReactNode;
+  label: string;
+  value: number;
+  note: string;
+}) {
+  return (
+    <div className={`mv-stat-tile ${domain}`}>
+      <div className="mv-card-head">
+        <span className="mv-tile mv-tile--44" aria-hidden="true">
+          {icon}
+        </span>
+        <h2 className="mv-card-head__title">{label}</h2>
+      </div>
+      <p
+        className="m-0 mt-2"
+        style={{
+          fontSize: "var(--type-metric)",
+          fontWeight: 900,
+          letterSpacing: "var(--type-metric-track)",
+        }}
+      >
+        {value}
+      </p>
+      <p className="m-0 mt-1" style={{ fontSize: "var(--type-caption-lg)" }}>
+        {note}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * ארבעת המונים שבראש המסך.
+ *
+ * ‎**כולם נגזרים מהרשימה שכבר נטענה** — אין קריאה נוספת, ואין מספר
+ * שיכול לסטות ממה שמוצג מתחתיו.
+ *
+ * ‎**אפס אינו נראה ככישלון**: אריח שערכו אפס עובר לניטרלי, והכיתוב
+ * שמתחתיו אומר „הכל טופל” ולא „אין”.
+ */
+function PropertyStats({
+  items,
+  truncated,
+}: {
+  items: PropertyRow[];
+  truncated: boolean;
+}) {
+  const active = items.filter((p) => p.status === "active");
+  const ready = active.filter((p) => p.missingFields.length === 0).length;
+  const matches = items.reduce((sum, p) => sum + (p.suggestedMatchCount ?? 0), 0);
+  const busiest = items.reduce((top, p) => Math.max(top, p.suggestedMatchCount ?? 0), 0);
+  const drafts = items.filter((p) => p.status === "draft");
+  /*
+   * ‎**רק נכס שיכול היה לקבל התאמות נספר כ„בלי התאמות”.**
+   *
+   * נכס שנמכר, הושכר, הוקפא או אורכב **אינו מקבל התאמות מלכתחילה**:
+   * ‎`matching.service` מוחק את ההצעות שלו ואינו מייצר חדשות. ספירתו
+   * כאן הייתה מנפחת לנצח אזהרה שאומרת „כדאי לבדוק מחיר או דרישות”
+   * על נכס שאין מה לבדוק בו (ביקורת Codex).
+   *
+   * הרשימה מיובאת מהחבילה ואינה נכתבת כאן מחדש — היא **אותה** רשימה
+   * שהשרת מחליט לפיה, ולכן סטטוס שיתווסף לה יגיע לשני הצדדים.
+   */
+  const lonely = items.filter(
+    (p) =>
+      (MATCHABLE_PROPERTY_STATUSES as readonly string[]).includes(p.status) &&
+      (p.suggestedMatchCount ?? 0) === 0,
+  );
+
+  return (
+    <div
+      className="mb-[18px] grid gap-3"
+      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}
+    >
+      <StatTile
+        domain="mv-domain-blue"
+        icon={<IconHome s={20} />}
+        label="נכסים פעילים"
+        value={active.length}
+        note={
+          active.length === 0
+            ? "אין נכס פעיל כרגע"
+            : ready === active.length
+              ? "כולם מוכנים לשיווק"
+              : `${ready} מהם מוכנים לשיווק`
+        }
+      />
+      <StatTile
+        domain={matches > 0 ? "mv-domain-violet" : "mv-domain-neutral"}
+        icon={<IconUsers s={20} />}
+        label="התאמות פתוחות"
+        value={matches}
+        note={
+          matches === 0
+            ? "עוד לא חושבו התאמות"
+            : busiest > 1
+              ? `${busiest} מהן על נכס אחד`
+              : "אחת לכל נכס"
+        }
+      />
+      <StatTile
+        domain={drafts.length > 0 ? "mv-domain-peach" : "mv-domain-neutral"}
+        icon={<IconDoc s={20} />}
+        label="טיוטה להשלמה"
+        value={drafts.length}
+        note={
+          drafts.length === 0
+            ? "אין טיוטות פתוחות"
+            : drafts.length === 1
+              ? addressOf(drafts[0]!)
+              : "פתחו את הרשימה כדי להשלים"
+        }
+      />
+      {/*
+        ‎**„בלי התאמות” ולא „בלי הצעה שנשלחה”.**
+
+        בצילום האריח הרביעי סופר נכסים שטרם נשלחה עליהם הצעה. השדה
+        הזה **אינו חוזר מרשימת הנכסים**, ומספר שאין לו מקור הוא מספר
+        מומצא. „בלי התאמות” הוא אותה שאלה — איזה נכס אף אחד עדיין לא
+        נגע בו — ונגזר ממה שכן נטען.
+      */}
+      <StatTile
+        domain={lonely.length > 0 ? "mv-domain-peach" : "mv-domain-neutral"}
+        icon={<IconSearch s={20} />}
+        label="נכסים בלי התאמות"
+        value={lonely.length}
+        note={lonely.length === 0 ? "לכל נכס יש למי להציע" : "כדאי לבדוק מחיר או דרישות"}
+      />
+      {/*
+        משפט אחד על כל הארבעה, ולא סייג בכל אריח: הם נגזרים מאותה
+        רשימה, ולכן ההיקף שלהם זהה.
+      */}
+      {truncated ? (
+        <p
+          className="m-0"
+          style={{
+            gridColumn: "1 / -1",
+            fontSize: "var(--type-caption)",
+            color: "var(--color-text-muted)",
+          }}
+        >
+          המונים מחושבים על 100 הנכסים שנטענו, ולא על כל המאגר. צמצמו את הסינון כדי
+          לראות קבוצה מדויקת.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function Thumb({ url }: { url?: string }) {
   if (url) {
     // img רגיל בכוונה: מוזרם דרך ה-API, לא לאופטימיזציית Next
@@ -122,6 +316,11 @@ export default function PropertiesPage() {
   const canVoice = useFeature("voice_intake");
   const router = useRouter();
   const [items, setItems] = useState<PropertyRow[] | null>(null);
+  /*
+   * ‎**האם יש עוד מעבר למה שנטען.** מהשרת עצמו (`nextCursor`) ולא
+   * מ-`items.length === 100`: הניחוש טועה בדיוק על מאגר של 100.
+   */
+  const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [city, setCity] = useState("הכל");
   const [status, setStatus] = useState("");
@@ -147,8 +346,13 @@ export default function PropertiesPage() {
   useEffect(() => {
     if (authLoading) return;
     setItems(null);
-    apiGet<{ items: PropertyRow[] }>(`/properties?limit=100${filtersToQuery(filters)}`)
-      .then((res) => setItems(apiList(res.items, "items")))
+    apiGet<{ items: PropertyRow[]; nextCursor?: string | null }>(
+      `/properties?limit=100${filtersToQuery(filters)}`,
+    )
+      .then((res) => {
+        setItems(apiList(res.items, "items"));
+        setTruncated(res.nextCursor !== undefined && res.nextCursor !== null);
+      })
       .catch(() => setError("טעינת הנכסים נכשלה"));
   }, [authLoading, filters]);
 
@@ -185,6 +389,8 @@ export default function PropertiesPage() {
    */
   const maySelect = mayShare || mayDelete;
   const selectedVisible = visible.filter((p) => selected.has(p.id));
+  /* סך ההתאמות שכבר חושבו — הידיעה שבכותרת, מאותה רשימה שנטענה */
+  const openMatches = (items ?? []).reduce((sum, p) => sum + (p.suggestedMatchCount ?? 0), 0);
   const allVisibleSelected = visible.length > 0 && selectedVisible.length === visible.length;
 
   function toggle(id: string): void {
@@ -313,10 +519,11 @@ export default function PropertiesPage() {
      */
     setItems(null);
     try {
-      const fresh = await apiGet<{ items: PropertyRow[] }>(
+      const fresh = await apiGet<{ items: PropertyRow[]; nextCursor?: string | null }>(
         `/properties?limit=100${filtersToQuery(filters)}`,
       );
       setItems(apiList(fresh.items, "items"));
+      setTruncated(fresh.nextCursor !== undefined && fresh.nextCursor !== null);
     } catch {
       setError("הרשימה לא רועננה — רעננו את העמוד");
     } finally {
@@ -337,22 +544,57 @@ export default function PropertiesPage() {
           וזו הידיעה היחידה במסך הזה שיש לה תאריך תפוגה */}
       <ExclusivityWatch />
 
-      <ListFilters
-        values={filters}
-        onApply={setFilters}
-        searchLabel="חיפוש נכס"
-        searchHint="כתובת, תיאור, סוג נכס או הערה"
-        priceLabel="מחיר"
-      />
+      {/*
+        ‎**כותרת המסך, ומה שאפשר לעשות בו — שורה אחת.**
 
-      {/* שורת הצ'יפים והפעולות — כמו בעיצוב */}
-      <div className="mb-[18px] flex flex-wrap items-center gap-2.5">
-        <FilterChips
-          label="סינון לפי עיר"
-          value={city}
-          onChange={setCity}
-          options={cities.map((c) => [c, c] as [string, string])}
-        />
+        הכותרת נשאה עד כה רק את שם המסך שבסרגל הצד, והפעולות ישבו
+        בשורת הצ'יפים. בצילום הן צמודות לכותרת, ומתחתיה משפט שאומר
+        **מה מצב המאגר** — לא כמה שורות יש, אלא מה מחכה.
+      */}
+      <div className="mb-[18px] flex flex-wrap items-start gap-4">
+        <div className="min-w-0">
+          <h1
+            className="m-0"
+            style={{
+              fontSize: "var(--type-screen-title)",
+              fontWeight: 900,
+              letterSpacing: "-0.03em",
+            }}
+          >
+            נכסים
+            {/* הנקודה של המותג, כמו בסרגל הצד */}
+            <span aria-hidden="true" style={{ color: "var(--color-primary)" }}>
+              .
+            </span>
+          </h1>
+          {/*
+            ‎**המשפט נבנה ממה שנטען, ואינו מוצג לפני שיש מה לומר.**
+
+            ‎`items === null` הוא „עוד לא ידוע”, ומשפט שנכתב עליו היה
+            אומר „0 נכסים פעילים” על מאגר מלא — בדיוק ההסוואה ששער
+            ‎`verify:lists` קיים כדי למנוע.
+          */}
+          {items === null ? null : (
+            <p
+              className="m-0 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1"
+              style={{ fontSize: "var(--type-body-sm)", color: "var(--color-text-muted)" }}
+            >
+              <span>{summaryLine(items, truncated)}</span>
+              {openMatches > 0 ? (
+                <>
+                  <span aria-hidden="true">|</span>
+                  <Link
+                    href="/matches"
+                    className="font-bold no-underline"
+                    style={{ color: "var(--domain-violet-fg)" }}
+                  >
+                    {openMatches} התאמות מחכות לשליחה
+                  </Link>
+                </>
+              ) : null}
+            </p>
+          )}
+        </div>
         <div className="ms-auto flex flex-wrap items-center gap-2.5">
           {/* כפתור שמוביל לפיצ'ר שאינו במסלול נחסם בשרת ממילא —
               עדיף לא להציג אותו מאשר להסביר 403 אחרי בחירת קובץ */}
@@ -371,6 +613,38 @@ export default function PropertiesPage() {
           </Link>
         </div>
       </div>
+
+      {/*
+        החיפוש והצ'יפים בכרטיס אחד — כך בצילום, וזה גם נכון: שניהם
+        מצמצמים את אותה רשימה, ושורה חופשית מתחת לכרטיס נראתה כמו
+        עוד אזור.
+      */}
+      <ListFilters
+        values={filters}
+        onApply={setFilters}
+        searchLabel="חיפוש נכס"
+        searchHint="כתובת, תיאור, סוג נכס או הערה"
+        priceLabel="מחיר"
+        card={{ example: 'למשל: "3 חדרים בבני ברק עד 2.2 מיליון"' }}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <FilterChips
+            label="סינון לפי עיר"
+            value={city}
+            onChange={setCity}
+            options={cities.map((c) => [c, c] as [string, string])}
+          />
+        </div>
+      </ListFilters>
+
+      {/*
+        ‎**ארבעה מונים — מה מחכה, ולא כמה שורות יש.**
+
+        כולם נגזרים מהרשימה שכבר נטענה, בלי קריאה נוספת. `null`
+        פירושו „עוד לא ידוע”, ואז אין כרטיסים בכלל: אריח שמראה „0”
+        על טעינה שטרם הסתיימה הוא בדיוק אותו שקר של רשימה ריקה.
+      */}
+      {items === null ? null : <PropertyStats items={items} truncated={truncated} />}
 
       {error ? (
         <Notice tone="danger">{error}</Notice>
@@ -421,35 +695,83 @@ export default function PropertiesPage() {
         </div>
       ) : (
         <>
-          <FilterBar
-            shown={visible.length}
-            total={items.length}
-            noun="נכסים"
-            active={filtering}
-            onClear={() => {
-              setFilters(EMPTY_FILTERS);
-              setCity("הכל");
-              setStatus("");
-              setType("");
-              setSort("newest");
-            }}
-          >
-            <FilterSelect
-              label="סינון לפי סטטוס"
-              value={status}
-              onChange={setStatus}
-              allLabel="כל הסטטוסים"
-              options={Object.entries(STATUS_LABELS)}
-            />
-            <FilterSelect
-              label="סינון לפי סוג נכס"
-              value={type}
-              onChange={setType}
-              allLabel="כל הסוגים"
-              options={Object.entries(PROPERTY_TYPE_LABELS)}
-            />
-            <SortSelect value={sort} onChange={setSort} options={SORTS} />
-          </FilterBar>
+          {/*
+            ‎**כרטיס אחד לרשימה: כותרת, פקדים, שורות ופעולות.**
+
+            הפקדים ישבו עד כה בסרגל נפרד מעל הרשימה, וסרגל הבחירה
+            הופיע ונעלם בין שניהם — כלומר הרשימה „קפצה” בכל בחירה.
+            בצילום הכל בכרטיס אחד, והפעולות בתחתיתו קבועות.
+          */}
+          <div className="mv-card mv-card--pad">
+            <div className="mv-card-head flex-wrap">
+              <span className="mv-tile mv-tile--44 mv-domain-blue" aria-hidden="true">
+                <IconHome s={20} />
+              </span>
+              <h2 className="mv-card-head__title">
+                {visible.length} נכסים
+              </h2>
+              <span
+                style={{ fontSize: "var(--type-body-sm)", color: "var(--color-text-muted)" }}
+              >
+                {/*
+                  מה שהמיון עושה, במילים. „מסודר לפי” ולא „מיון:” —
+                  זו הצהרה על מה שרואים, לא שם של פקד.
+                */}
+                מסודר לפי {(SORTS.find(([key]) => key === sort) ?? SORTS[0])?.[1] ?? ""}
+                {visible.length === items.length
+                  ? null
+                  : ` · מתוך ${items.length}`}
+              </span>
+
+              <span className="ms-auto flex flex-wrap items-center gap-2">
+                {maySelect ? (
+                  <label className="mv-btn-plain" style={{ cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleAll}
+                      disabled={visible.length === 0}
+                    />
+                    בחירת הכל
+                  </label>
+                ) : null}
+                <FilterSelect
+                  label="סינון לפי סטטוס"
+                  value={status}
+                  onChange={setStatus}
+                  allLabel="כל הסטטוסים"
+                  options={Object.entries(STATUS_LABELS)}
+                />
+                <FilterSelect
+                  label="סינון לפי סוג נכס"
+                  value={type}
+                  onChange={setType}
+                  allLabel="כל הסוגים"
+                  options={Object.entries(PROPERTY_TYPE_LABELS)}
+                />
+                <SortSelect value={sort} onChange={setSort} options={SORTS} />
+                {/*
+                  ‎**ניקוי הסינון נשאר**, אף שאינו בצילום: בלעדיו
+                  מתווך שסינן לפי עיר וסטטוס צריך לאפס שלושה פקדים
+                  אחד-אחד כדי לראות שוב את כל המאגר.
+                */}
+                {filtering ? (
+                  <button
+                    type="button"
+                    className="mv-filter-clear"
+                    onClick={() => {
+                      setFilters(EMPTY_FILTERS);
+                      setCity("הכל");
+                      setStatus("");
+                      setType("");
+                      setSort("newest");
+                    }}
+                  >
+                    <IconX s={14} /> נקה סינון
+                  </button>
+                ) : null}
+              </span>
+            </div>
 
           {visible.length === 0 ? (
             /*
@@ -481,56 +803,6 @@ export default function PropertiesPage() {
             </div>
           ) : (
             <>
-              {/* סרגל הבחירה מופיע רק כשיש בחירה — כמו במסך הקונים */}
-              {maySelect && selected.size > 0 ? (
-                <div
-                  className="mv-list-card mb-3 flex flex-wrap items-center gap-2 px-4 py-3"
-                  role="status"
-                >
-                  <strong className="text-[length:var(--type-body-sm)]">{selectedVisible.length} נבחרו</strong>
-                  <button
-                    type="button"
-                    className="mv-btn-plain"
-                    disabled={bulkBusy}
-                    onClick={() => setSelected(new Set())}
-                  >
-                    בטל בחירה
-                  </button>
-                  {mayShare ? (
-                    <button
-                      type="button"
-                      className="mv-btn-plain ms-auto"
-                      disabled={bulkBusy}
-                      onClick={() => void shareSelected()}
-                      style={{ color: "var(--color-primary)" }}
-                    >
-                      {bulkBusy ? "מפרסם…" : "העלה לרשת השיתופים"}
-                    </button>
-                  ) : null}
-                  {mayDelete ? (
-                    <>
-                      <button
-                        type="button"
-                        className={mayShare ? "mv-btn-plain" : "mv-btn-plain ms-auto"}
-                        disabled={bulkBusy}
-                        onClick={() => void removeSelected(false)}
-                      >
-                        העבר לארכיון
-                      </button>
-                      <button
-                        type="button"
-                        className="mv-btn-plain"
-                        disabled={bulkBusy}
-                        onClick={() => void removeSelected(true)}
-                        style={{ color: "var(--color-danger)" }}
-                      >
-                        מחק לצמיתות
-                      </button>
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
-
               {bulkNote ? <Notice tone="success">{bulkNote}</Notice> : null}
 
               <div className="mv-list-switch">
@@ -656,25 +928,19 @@ export default function PropertiesPage() {
 
               {/* שולחני: טבלת ה-grid מהעיצוב. הנקודה מנומקת ליד `xl:hidden` */}
               <div className="mv-list-as-table mv-list-card">
+                {/*
+                  ‎**סדר העמודות של הצילום.** העיר, החדרים והסוג ירדו
+                  מעמודות משלהן אל שורת המשנה שמתחת לכתובת — אותן
+                  עובדות בדיוק, במקום שבו קוראים אותן ממילא, והרוחב
+                  שהתפנה הלך לעמודת הפעולה.
+                */}
                 <div className="mv-list-head" style={{ gridTemplateColumns: GRID }}>
-                  <span className="flex items-center gap-2">
-                    {maySelect ? (
-                      <input
-                        type="checkbox"
-                        checked={allVisibleSelected}
-                        onChange={toggleAll}
-                        aria-label="בחר את כל הנכסים המוצגים"
-                        title="בחר הכל"
-                      />
-                    ) : null}
-                    כתובת
-                  </span>
-                  <span>עיר</span>
-                  <span>חדרים</span>
-                  <span>מחיר</span>
-                  <span>מוכנות לשיווק</span>
+                  <span>נכס</span>
                   <span>סטטוס</span>
+                  <span>מוכנות לשיווק</span>
+                  <span>מחיר</span>
                   <span>התאמות</span>
+                  <span className="mv-visually-hidden">פעולה</span>
                 </div>
                 {visible.map((p) => {
                   const ready = readinessBand(p.readinessScore);
@@ -696,21 +962,37 @@ export default function PropertiesPage() {
                       style={{ gridTemplateColumns: GRID }}
                       onClick={() => router.push(`/properties/${p.id}`)}
                     >
-                      <span className="flex items-center gap-2 truncate text-[length:var(--type-body)] font-bold">
-                        {addressOf(p)}
-                        {isNew(p) ? (
-                          <span className="mv-tag" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}>
-                            חדש
-                          </span>
-                        ) : null}
+                      <span className="min-w-0">
+                        <span className="flex items-center gap-2 text-[length:var(--type-body)] font-bold">
+                          <span className="truncate">{addressOf(p)}</span>
+                          {isNew(p) ? (
+                            <span className="mv-tag" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}>
+                              חדש
+                            </span>
+                          ) : null}
+                        </span>
+                        {/*
+                          העיר, החדרים והסוג — שלוש עמודות שהיו,
+                          בשורה אחת מתחת לכתובת. שום עובדה לא ירדה.
+                        */}
+                        <span
+                          className="mt-0.5 block truncate"
+                          style={{ fontSize: "var(--type-caption-lg)", color: "var(--color-text-muted)" }}
+                        >
+                          {[
+                            p.city,
+                            p.rooms ? `${p.rooms} חדרים` : null,
+                            p.propertyType ? PROPERTY_TYPE_LABELS[p.propertyType] : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ") || "—"}
+                        </span>
                       </span>
-                      <span className="truncate text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-soft)" }}>
-                        {p.city ?? "—"}
+                      <span>
+                        <span className={`mv-pill ${statusDomain(p.status)}`}>
+                          {STATUS_LABELS[p.status] ?? p.status}
+                        </span>
                       </span>
-                      <span className="text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-soft)" }}>
-                        {p.rooms ?? "—"}
-                      </span>
-                      <span className="text-sm font-bold">{formatPrice(p.priceAgorot)}</span>
                       <span className="flex flex-col gap-1">
                         <span className="flex items-center gap-2">
                           <span className="mv-progress">
@@ -722,18 +1004,8 @@ export default function PropertiesPage() {
                         </span>
                         {/*
                           „‎82% · חסרים 2 שדות” — **גלוי, ולא רק לקורא מסך.**
-
-                          המספר היה כאן ב-`mv-visually-hidden`, כלומר מתווך
-                          רואה אחוז ואינו יודע כמה שדות עומדים מאחוריו ולא
-                          שהם בכלל ניתנים להשלמה. זו העמודה שכל תכליתה לומר
-                          „מה חסר”, והמידע כבר הגיע מהשרת.
-
-                          ‎**„שדות” ולא „שדות חובה”.** הניסוח נשא פעם את
-                          המילה „חובה”, כי הציון היה משוקלל — 80% לשדות
-                          החובה ועוד עשרה אחוזים על כותרת ועשרה על תיאור —
-                          ולכן „כל השדות מלאים” הופיע ליד „80%”. מרגע
-                          ש-`computeReadiness` הוא ‎`filled / 9`‎ בדיוק
-                          (SPEC-3b §4), אין פער להסביר והסייג ירד.
+                          זו העמודה שכל תכליתה לומר „מה חסר”, והמידע
+                          כבר הגיע מהשרת.
                         */}
                         <span style={{ fontSize: "var(--type-caption)", color: "var(--color-text-muted)" }}>
                           {p.missingFields.length > 0
@@ -741,19 +1013,11 @@ export default function PropertiesPage() {
                             : "כל השדות מלאים"}
                         </span>
                       </span>
-                      <span>
-                        <span className={`mv-pill ${statusDomain(p.status)}`}>
-                          {STATUS_LABELS[p.status] ?? p.status}
-                        </span>
-                      </span>
+                      <span className="text-sm font-bold">{formatPrice(p.priceAgorot)}</span>
                       {/*
                         התאמות הן **סגול** ולא ירוק (§2 של מערכת העיצוב:
-                        „VIOLET — matching engine: matches, offers”). הירוק
-                        שהיה כאן שייך לכסף ולשיתופי פעולה, ושורה אחת בשני
-                        דומיינים היא בדיוק מה שהכלל אוסר.
-
-                        אפס עובר לניטרלי — „Zero must never look like
-                        failure”.
+                        „VIOLET — matching engine”). אפס עובר לניטרלי —
+                        „Zero must never look like failure”.
                       */}
                       <span>
                         <span
@@ -763,8 +1027,23 @@ export default function PropertiesPage() {
                         >
                           {p.suggestedMatchCount
                             ? `${p.suggestedMatchCount} התאמות`
-                            : "אין עדיין"}
+                            : "0 התאמות"}
                         </span>
+                      </span>
+                      {/*
+                        ‎**עמודת הפעולה — הצעד הבא של השורה הזאת.**
+
+                        ‎`span` ולא כפתור: השורה כולה כבר כפתור ניווט,
+                        וכפתור בתוך כפתור אינו חוקי ואינו נגיש. הלחיצה
+                        נוחתת על כרטיס הנכס, ומשם ההתאמות בלשונית —
+                        אותו יעד, בלי ניווט כפול שמבלבל.
+                      */}
+                      <span
+                        aria-hidden="true"
+                        className="mv-btn-plain justify-self-end"
+                        style={{ pointerEvents: "none" }}
+                      >
+                        {p.suggestedMatchCount ? "לצפות בהתאמות" : "לחפש התאמות"}
                       </span>
                     </button>
                     </div>
@@ -774,6 +1053,105 @@ export default function PropertiesPage() {
               </div>
             </>
           )}
+
+          {/*
+            ‎**סרגל הפעולות בתחתית הכרטיס, וקבוע.**
+
+            הוא הופיע ונעלם לפי הבחירה, ולכן הרשימה קפצה בכל סימון
+            ראשון — והפעולות עצמן היו מפתיעות: איש לא ידע שהן קיימות
+            עד שסימן. עכשיו הן שם תמיד, ומושבתות עד שיש על מה להפעיל
+            אותן. „נבחרו 0” הוא מצב, לא שגיאה.
+          */}
+          {maySelect && visible.length > 0 ? (
+            <div
+              className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4"
+              style={{ borderColor: "var(--color-border)" }}
+            >
+              <strong className="text-[length:var(--type-body-sm)]" role="status">
+                נבחרו {selectedVisible.length} נכסים
+              </strong>
+              {/*
+                ‎**מבוטל לפי `selected`, ולא לפי מה שנראה כרגע.**
+
+                סינון שמסתיר את כל מה שנבחר מאפס את `selectedVisible`
+                אבל לא את הבחירה עצמה — והכפתור היחיד שמנקה אותה היה
+                מושבת. הבחירה נתקעה, וצצה שוב כשהסינון נוקה (ביקורת
+                Codex). הסרגל הישן לא סבל מזה כי הוא כולו נעלם.
+              */}
+              <button
+                type="button"
+                className="mv-btn-plain"
+                disabled={bulkBusy || selected.size === 0}
+                onClick={() => setSelected(new Set())}
+              >
+                בטל בחירה
+                {selected.size > selectedVisible.length
+                  ? ` (${selected.size - selectedVisible.length} מוסתרים בסינון)`
+                  : ""}
+              </button>
+              <span className="ms-auto flex flex-wrap items-center gap-2">
+                {/*
+                  ‎**„שליחה לקונים” פועלת על נכס אחד.**
+
+                  בצילום היא נראית כפעולה מרוכזת, אבל שליחת הצעה היא
+                  בחירה של **קונים מתוך ההתאמות של נכס מסוים** — אין
+                  לה משמעות על חמישה נכסים יחד, וכפתור שנראה פעיל
+                  ואינו עושה דבר גרוע מכפתור מושבת. עם נכס אחד מסומן
+                  הוא פותח את ההתאמות שלו, ששם ההצעה נשלחת.
+                */}
+                <button
+                  type="button"
+                  className="mv-btn-plain"
+                  disabled={bulkBusy || selectedVisible.length !== 1}
+                  title={
+                    selectedVisible.length === 1
+                      ? "פתיחת ההתאמות של הנכס שנבחר"
+                      : "בחרו נכס אחד — ההצעה נשלחת לקונים של נכס מסוים"
+                  }
+                  onClick={() => {
+                    const one = selectedVisible[0];
+                    if (one) router.push(`/matches?property=${one.id}`);
+                  }}
+                >
+                  שליחה לקונים
+                </button>
+                {mayShare ? (
+                  <button
+                    type="button"
+                    className="mv-btn-plain"
+                    disabled={bulkBusy || selectedVisible.length === 0}
+                    onClick={() => void shareSelected()}
+                    style={{ color: "var(--color-primary)" }}
+                  >
+                    {bulkBusy ? "מפרסם…" : "שיתוף לרשת"}
+                  </button>
+                ) : null}
+                {mayDelete ? (
+                  <>
+                    <button
+                      type="button"
+                      className="mv-btn-plain"
+                      disabled={bulkBusy || selectedVisible.length === 0}
+                      onClick={() => void removeSelected(false)}
+                    >
+                      העבר לארכיון
+                    </button>
+                    <button
+                      type="button"
+                      className="mv-btn-plain"
+                      disabled={bulkBusy || selectedVisible.length === 0}
+                      onClick={() => void removeSelected(true)}
+                      style={{ color: "var(--color-danger)" }}
+                    >
+                      מחק לצמיתות
+                    </button>
+                  </>
+                ) : null}
+              </span>
+            </div>
+          ) : null}
+          </div>
+
           <CapNote show={filtering && items.length === 100} noun="נכסים" />
         </>
       )}

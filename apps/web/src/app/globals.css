@@ -5712,6 +5712,27 @@ a.mv-bar-row:focus-visible {
  * ‎`--d-tile` עם נפילה לניטרלי: אריח שהוצב בטעות מחוץ למכל דומיין
  * מקבל מראה ניטרלי תקין במקום רקע שקוף.
  */
+/*
+ * ‎**אריח מונה — רקע הדומיין, ומספר גדול מתחת לכותרת.**
+ *
+ * הצבע נגזר מהדומיין ולא נכתב כאן: `--d-bg` ו-`--d-line` מגיעים
+ * מ-`mv-domain-*`, ולכן אותו אריח נכון בבהיר, בכהה ובניגודיות
+ * גבוהה. מדד שערכו אפס מקבל `mv-domain-neutral` בזמן ריצה —
+ * „Zero must never look like failure”.
+ */
+.mv-stat-tile {
+  /*
+   * הנפילות זהות ל-`mv-kpi` ולא נבחרו מחדש: `--color-input-border`
+   * ולא `--color-border`. המסגרת הדקורטיבית עומדת על 1.65:1, ושער
+   * הניגודיות חוסם אותה כאן — בצדק, כי אריח הדומיין נסמך על הקצה
+   * שלו כדי להיפרד מהרקע הצבעוני שלצדו.
+   */
+  background: var(--d-bg, var(--domain-neutral-bg));
+  border: 1px solid var(--d-line, var(--color-input-border));
+  border-radius: var(--radius);
+  padding: 18px;
+}
+
 .mv-tile {
   display: inline-flex;
   align-items: center;

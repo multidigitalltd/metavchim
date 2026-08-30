@@ -208,12 +208,28 @@ export function ListFilters({
   searchLabel,
   searchHint,
   priceLabel,
+  card,
+  children,
 }: {
   values: ListFilterValues;
   onApply: (next: ListFilterValues) => void;
   searchLabel: string;
   searchHint: string;
   priceLabel: string;
+  /**
+   * ‎**צורת הכרטיס — כותרת עם אריח, ודוגמה בשדה.**
+   *
+   * בלי זה הרכיב נשאר טופס חשוף, וזו הצורה שכל שאר הרשימות מציגות.
+   * ‎`example` מחליף את `searchHint` כטקסט הרפאים בשדה, כי במצב הזה
+   * הרמז כבר נאמר בכותרת — ושדה שחוזר על מה שכתוב מעליו מבזבז את
+   * המקום היחיד שבו אפשר להראות **איך** מנסחים חיפוש.
+   *
+   * התווית של השדה נשארת ב-DOM ומוסתרת חזותית: היא מה שקורא מסך
+   * מקריא, וכותרת הכרטיס אינה קשורה אליו ב-`htmlFor`.
+   */
+  card?: { example: string };
+  /** צ'יפים או פקדים שיושבים בתחתית אותו כרטיס. */
+  children?: React.ReactNode;
 }): React.JSX.Element {
   const [draft, setDraft] = useState(values);
   const [open, setOpen] = useState(hasActiveFilters(values));
@@ -269,18 +285,42 @@ export function ListFilters({
   }
 
   return (
-    <form onSubmit={submit} className="mb-4">
+    <form
+      onSubmit={submit}
+      className={card === undefined ? "mb-4" : "mv-card mv-card--pad mb-[18px]"}
+    >
+      {card === undefined ? null : (
+        <div className="mv-card-head">
+          <span className="mv-tile mv-tile--44 mv-domain-blue" aria-hidden="true">
+            <IconSearch s={20} />
+          </span>
+          <h2 className="mv-card-head__title">{searchLabel}</h2>
+          <span
+            className="min-w-0"
+            style={{ fontSize: "var(--type-body-sm)", color: "var(--color-text-muted)" }}
+          >
+            {searchHint}
+          </span>
+        </div>
+      )}
       {/* גובה אחיד (38px) לשדה ולכפתונים — שורה אחת ישרה שגם נשברת
           יפה במובייל בזכות flex-wrap */}
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-0 flex-1" style={{ minWidth: 200 }}>
-          <label htmlFor="flt-q" className="mb-1 block text-sm font-semibold">
+          <label
+            htmlFor="flt-q"
+            className={
+              card === undefined
+                ? "mb-1 block text-sm font-semibold"
+                : "mv-visually-hidden"
+            }
+          >
             {searchLabel}
           </label>
           <input
             id="flt-q"
             value={draft.q}
-            placeholder={searchHint}
+            placeholder={card?.example ?? searchHint}
             onChange={(event) => setDraft({ ...draft, q: event.target.value })}
             className="w-full rounded-lg border px-3 text-sm"
             style={{ ...inputStyle, minHeight: 38 }}
@@ -327,6 +367,8 @@ export function ListFilters({
           {field("maxRooms", "חדרים — עד", "5")}
         </div>
       ) : null}
+
+      {children === undefined ? null : <div className="mt-3">{children}</div>}
 
       {/*
         הצירים מתחת לשדות ולא במקומם: גרירה מהירה למי שרוצה טווח,
