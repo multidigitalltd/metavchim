@@ -1238,8 +1238,20 @@ export class PropertiesService {
   async bulkDeletionPreview(ids: readonly string[]): Promise<{ contacts: number }> {
     const { tenantId } = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**גם נכס שכבר בארכיון — והמסנן שהיה כאן הוא בדיוק הבאג.**
+       *
+       * ‎`deletedAt: null` נראה סביר („הרשימה מציגה פעילים”), אבל
+       * המחיקה המרוכזת **כן** מוחקת נכס שכבר בארכיון: היא מארכבת
+       * ומתעלמת מכישלון, ואז מוחקת. נכס שאורכב בלשונית אחרת בין
+       * הטעינה לאישור היה נשמט מהתצוגה המקדימה — והאישור היה מודיע
+       * „לא יימחקו כרטיסים” בזמן שכרטיסי הבעלים שלו נמחקים
+       * (ביקורת Codex, P1).
+       *
+       * המסלול הבודד מעולם לא סינן כך; זו הייתה סטייה שלי ממנו.
+       */
       const rows = await tx.property.findMany({
-        where: { id: { in: [...ids] }, tenantId, deletedAt: null },
+        where: { id: { in: [...ids] }, tenantId },
         select: { id: true, ownerContactId: true, occupantContactId: true },
       });
       const propertyIds = rows.map((row) => row.id);
