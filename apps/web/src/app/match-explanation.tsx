@@ -29,13 +29,47 @@ import type { MatchCriterion, ScoreComponent } from "@metavchim/shared";
  * הרצת בדיקות.
  */
 
+/*
+ * ‎**טוקנים, ולא ערכי הקס — אותו תיקון שכבר נעשה בקובץ האחות.**
+ *
+ * ‏שלושת ערכי האפור כאן — `#F1F3EF`, `#DCE1D8`, `#5E6860` — הם
+ * **בדיוק** אותם שלושה ש-`matches-empty-state.tsx` מתעד שהוחלפו
+ * בטוקנים, כי הם הוקפאו בערכה הבהירה: בערכה הכהה זה אפור בהיר על
+ * רקע כהה. אותו דבר בירוק. הבאג תוקן שם ונשאר כאן, בצ'יפים של
+ * אותה לשונית בדיוק.
+ */
 const TONE: Record<MatchChipTone, { bg: string; border: string; fg: string }> = {
   /* ירוק — התחום שכבר מסמן „תקין” בכל המערכת */
-  matched: { bg: "#E9F7EE", border: "#BCE3C9", fg: "#1E6B39" },
+  matched: {
+    bg: "var(--domain-green-bg)",
+    border: "var(--domain-green-line)",
+    fg: "var(--domain-green-fg)",
+  },
   /* ענבר — בדיוק הצמד מ-SPEC-4a לאזהרה שאינה שגיאה */
   partial: { bg: "var(--domain-amber-bg)", border: "var(--domain-amber-line)", fg: "var(--domain-amber-fg)" },
-  /* אפור — „אין נתון”, ובמכוון לא אזהרה: איש לא עשה כאן דבר שגוי */
-  missing: { bg: "#F1F3EF", border: "#DCE1D8", fg: "#5E6860" },
+  /*
+   * ‎**אפרסק — „חסר בנכס”, שהוא שדה שאפשר להשלים.**
+   *
+   * היה אפור, בנימוק ש„איש לא עשה כאן דבר שגוי”. הנימוק נכון לגבי
+   * אשמה ושגוי לגבי פעולה: הצ'יפ הזה מופיע בדיוק על מה שהרצועה
+   * הכתומה מעל הרשימה כבר קוראת להשלים („הנכס עדיין ללא מחיר”),
+   * ושתי אמירות על אותו שדה בשני צבעים קוראות כשתי דחיפויות.
+   *
+   * אפרסק ולא ענבר, כדי ש„חסר” ו„חלקי” יישארו נבדלים: חלקי הוא
+   * פער אמיתי בהתאמה, חסר הוא נתון שלא הוזן.
+   */
+  missing: {
+    bg: "var(--domain-peach-bg)",
+    border: "var(--domain-peach-line)",
+    fg: "var(--domain-peach-fg)",
+  },
+};
+
+/** ‎`✓` על מה שתואם, `!` על מה שדורש מבט — כמו בעיצוב. */
+const MARK: Record<MatchChipTone, string> = {
+  matched: "✓",
+  partial: "!",
+  missing: "!",
 };
 
 export function MatchExplanation({
@@ -56,23 +90,40 @@ export function MatchExplanation({
   if (chips.length === 0) return null;
 
   return (
+    /*
+     * ‎**רצועה תחתונה של כרטיס, ולכן בלי מרווח ובלי פינות משלה.**
+     *
+     * ‏הרכיב היה מקונן בתוך עמודת השם, ושם `mt-2` ופינות תחתונות
+     * היו הגיוניים. עכשיו הוא הילד האחרון של כרטיס ההתאמה, שחותך
+     * את הפינות בעצמו (`overflow-hidden`) — מרווח עליון היה פותח
+     * פס רקע בין הרצועה לשורה, ופינות כפולות היו נראות כשוליים
+     * כפולים.
+     */
     <div
-      className="mt-2 flex flex-wrap gap-1.5 px-3 py-2"
-      style={{
-        background: "var(--domain-neutral-bg)",
-        borderTop: "1px solid #EDF0EA",
-        borderRadius: "0 0 12px 12px",
-      }}
+      className="flex flex-wrap gap-1.5 px-4 py-2.5"
+      style={{ borderTop: "1px solid var(--color-row-border)" }}
     >
       {chips.map((chip) => {
         const tone = TONE[chip.tone];
         return (
           <span
             key={chip.criterion}
-            className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--type-caption-lg)] font-semibold"
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[length:var(--type-caption-lg)] font-semibold"
             style={{ background: tone.bg, border: `1px solid ${tone.border}`, color: tone.fg }}
           >
-            {chip.label}
+            {/*
+              ‎**הסימן מעוצב ואינו נקרא.** „✓ חדרים תואם” בקורא מסך
+              נשמע „סימן ביקורת חדרים תואם”; המילה „תואם” כבר אומרת
+              את מה שהסימן מראה, ולכן הסימן מוסתר.
+            */}
+            <span aria-hidden="true">{MARK[chip.tone]}</span>
+            {/*
+              ‎**„תואם” נוסף כאן ולא בתווית המשותפת.** `matchChips`
+              מחזיר „חדרים”, וזו אותה תווית שמסכים אחרים מציגים; מילת
+              המצב שייכת לתצוגה הזו בלבד. שאר הטונים כבר נושאים את
+              מצבם בתוך התווית („חסר בנכס: מחיר”, או הערת המנוע).
+            */}
+            {chip.tone === "matched" ? `${chip.label} תואם` : chip.label}
           </span>
         );
       })}
