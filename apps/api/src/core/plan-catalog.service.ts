@@ -296,6 +296,7 @@ export class PlanCatalogService {
     maxUsers: number | null;
     maxProperties: number | null;
     maxAutomations: number | null;
+    whatsappSeatMonthlyAgorot: number | null;
     maxNetworkListings: number | null;
     maxNetworkDemands: number | null;
     features: string[];
@@ -313,6 +314,7 @@ export class PlanCatalogService {
       maxUsers: row.maxUsers,
       maxProperties: row.maxProperties,
       maxAutomations: row.maxAutomations,
+      whatsappSeatMonthlyAgorot: row.whatsappSeatMonthlyAgorot,
       maxNetworkListings: row.maxNetworkListings,
       maxNetworkDemands: row.maxNetworkDemands,
       // ניקוי גם בקריאה: שורה שנשמרה לפני שקוד פיצ'ר הוסר מהקטלוג

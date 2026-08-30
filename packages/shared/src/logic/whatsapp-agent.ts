@@ -91,3 +91,24 @@ export function whatsappAgentSeats(planHasAgent: boolean, extraSeats: number): n
   if (!planHasAgent) return 0;
   return 1 + Math.max(0, Math.trunc(extraSeats));
 }
+
+/**
+ * מה להציע למי שאין לו מקום — **מחיר, או „פנו אלינו”.**
+ *
+ * ‎`null` בשדה המחיר של המסלול אינו „טרם הוגדר”: הוא אומר שהמסלול
+ * הזה אינו מוכר מקומות נוספים. הצגת כפתור קנייה שם הייתה מבטיחה
+ * רכישה שאין לה מחיר, ולכן ההבחנה נשמרת עד המסך.
+ */
+export type WhatsappSeatOffer =
+  /** אפשר לרכוש כאן ועכשיו, במחיר הזה */
+  | { kind: "purchase"; monthlyAgorot: number }
+  /** המסלול אינו מוכר מקומות נוספים — פנייה אנושית */
+  | { kind: "contact" };
+
+export function whatsappSeatOffer(
+  planSeatMonthlyAgorot: number | null,
+): WhatsappSeatOffer {
+  return planSeatMonthlyAgorot !== null && planSeatMonthlyAgorot > 0
+    ? { kind: "purchase", monthlyAgorot: planSeatMonthlyAgorot }
+    : { kind: "contact" };
+}

@@ -205,6 +205,17 @@ export interface PlanDefinition {
    * בשבילי מעצמה".
    */
   maxAutomations: PlanLimit;
+  /**
+   * מחיר חודשי לכל **סוכן וואטסאפ נוסף**, באגורות — מעבר לאחד
+   * שכלול במסלול.
+   *
+   * ‎`null` = לא נמכר במסלול הזה, והמסך יאמר „פנו אלינו” במקום
+   * להציג כפתור קנייה. זה מצב תקין ומכוון ולא „טרם הוגדר”: מסלול
+   * בסיסי יכול בכוונה לא למכור מקומות נוספים, ומסלול גבוה יכול
+   * למכור אותם בזול. המחיר יושב **במסלול** ולא כמספר גלובלי בדיוק
+   * מהסיבה הזו (הנחיית בעל המוצר).
+   */
+  whatsappSeatMonthlyAgorot: number | null;
   /** אותו היגיון לביקושים (קונים) שמתפרסמים ברשת. */
   maxNetworkDemands: PlanLimit;
   features: PlanFeature[];
@@ -260,6 +271,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     maxUsers: 2,
     maxProperties: 60,
     maxAutomations: null,
+    whatsappSeatMonthlyAgorot: null,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: ["whatsapp", "landing_pages", "voice_intake"],
@@ -277,6 +289,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     maxUsers: 6,
     maxProperties: 300,
     maxAutomations: null,
+    whatsappSeatMonthlyAgorot: null,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: [
@@ -301,6 +314,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     maxUsers: 20,
     maxProperties: null,
     maxAutomations: null,
+    whatsappSeatMonthlyAgorot: null,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: [
@@ -328,6 +342,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     maxUsers: null,
     maxProperties: null,
     maxAutomations: null,
+    whatsappSeatMonthlyAgorot: null,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: PLAN_FEATURES.map((f) => f.code),

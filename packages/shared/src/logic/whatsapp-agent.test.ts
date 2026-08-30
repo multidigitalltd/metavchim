@@ -100,9 +100,20 @@ describe("שני הצדדים משתמשים באותה הכרעה", () => {
     expect((SETTINGS.match(/await this\.whatsappAgentDenial\(\)/gu) ?? []).length).toBe(2);
   });
 
-  /* הסיבה נמסרת עם המצב, ולא רק כשגיאה אחרי לחיצה */
-  it("הזכאות נמסרת למסך יחד עם מצב החיבור", () => {
-    expect(SETTINGS).toMatch(/Promise<LinkStatus & \{ denial\?: WhatsappAgentDenial \}>/u);
+  /*
+   * הסיבה **ומה לעשות איתה** נמסרות עם המצב, ולא כשגיאה אחרי לחיצה.
+   *
+   * הביטוי בודק את שני השדות ולא את החתימה המלאה: חתימה שנבדקת
+   * כמחרוזת אחת נשברת בכל תוספת שדה — וזה בדיוק מה שקרה כאן
+   * כשנוסף `offer`, על שער שהיה ירוק רגע קודם.
+   */
+  it("הזכאות וההצעה נמסרות למסך יחד עם מצב החיבור", () => {
+    const signature = SETTINGS.slice(
+      SETTINGS.indexOf("async whatsappLink()"),
+      SETTINGS.indexOf("const status = await this.whatsappLinks.status"),
+    );
+    expect(signature).toContain("denial?: WhatsappAgentDenial");
+    expect(signature).toContain("offer?: WhatsappSeatOffer");
   });
 
   /*

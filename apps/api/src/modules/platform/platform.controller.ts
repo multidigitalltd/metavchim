@@ -237,6 +237,14 @@ const UpsertPlanSchema = z
      * ששולח גוף בלי השדה מקבל "ללא הגבלה", ולא שגיאה.
      */
     maxAutomations: LimitSchema.default(null),
+    /*
+     * מחיר לסוכן וואטסאפ נוסף. `null` = לא נמכר במסלול הזה, וזה
+     * מצב תקין; `default(null)` כמו שאר השדות, כדי שמסך ישן ששולח
+     * גוף בלי השדה לא ייכשל.
+     */
+    whatsappSeatMonthlyAgorot: z
+      .union([z.number().int().min(1).max(10_000_000), z.null()])
+      .default(null),
     maxNetworkListings: LimitSchema.default(null),
     maxNetworkDemands: LimitSchema.default(null),
     features: z.array(z.string().max(40)).max(50),
