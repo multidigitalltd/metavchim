@@ -33,6 +33,48 @@ describe("הרצפה הדטרמיניסטית", () => {
     expect(new Set(AGENT_RULE_ACTION_IDS)).toEqual(fromMap);
   });
 
+  /*
+   * ‎**כל פעולת קריאה מגיעה לרצפה, וכל פעולת כתיבה אינה.**
+   *
+   * הרצפה הכירה עשרים פעולות מתוך שבעים ואחת, ומה שמתווך מבקש
+   * דווקא כשההבנה החכמה נפלה הוא „פשוט תראה לי מה יש”. פעולת
+   * קריאה שזוהתה בטעות מציגה רשימה ולא כותבת דבר, ולכן היא זולה
+   * ובטוחה; פעולת כתיבה דורשת חילוץ פרמטרים, וניחוש פרמטר בפעולה
+   * שכותבת מסוכן יותר מ„לא הבנתי” כן.
+   */
+  it("כל פעולת קריאה בקטלוג נמצאת ברצפה", () => {
+    const missing = AGENT_ACTION_IDS.filter(
+      (id) => agentAction(id)?.risk === "read" && !AGENT_RULE_ACTION_IDS.includes(id),
+    );
+    expect(missing, "פעולות קריאה שאינן ברצפה").toEqual([]);
+  });
+
+  /*
+   * ‎**זיהוי בטעות של פעולה שכותבת גרוע מאי-זיהוי.** הרצפה מתאימה
+   * ביטויים ואינה מודדת כוונה, ולכן הכתיבות שבה הן רשימה סגורה —
+   * כל אחת עם תבנית פועל מפורשת („תוסיף”, „קבע”, „שלח”).
+   *
+   * ‎`share_property` ו-`share_buyer` אינן כאן: הן `read` בקטלוג
+   * ובצדק — הן פותחות את מסך השיתוף, והפרסום עצמו נעשה שם.
+   */
+  it("שום פעולה שכותבת אינה נכנסת לרצפה בטעות", () => {
+    const writes = AGENT_RULE_ACTION_IDS.filter((id) => agentAction(id)?.risk !== "read");
+    // אלה הפעולות הכותבות שנבחרו במפורש, עם תבנית פועל מפורשת
+    expect(writes.sort()).toEqual(
+      [
+        "add_note",
+        "complete_task",
+        "create_buyer",
+        "create_lead",
+        "create_property",
+        "create_task",
+        "schedule_appointment",
+        "send_offer",
+        "update_lead_status",
+      ].sort(),
+    );
+  });
+
   it("הרצפה מכסה חלק מהקטלוג בלבד — ולכן ההסבר נחוץ", () => {
     expect(AGENT_RULE_ACTION_IDS.length).toBeGreaterThan(0);
     expect(AGENT_RULE_ACTION_IDS.length).toBeLessThan(AGENT_ACTION_IDS.length);

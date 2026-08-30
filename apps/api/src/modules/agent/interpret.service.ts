@@ -457,6 +457,63 @@ export class AgentInterpretService {
     if (["show_schedule", "show_tasks", "show_calls", "show_deals"].includes(actionId)) {
       return {};
     }
+
+    /*
+     * ‎**„על מי” — לפעולות שבלעדיו אין להן מה לפתור.**
+     *
+     * ‎`show_card` ו-`play_recording` דורשות `cardPhrase`, וחילוץ
+     * האדם הכללי אינו מייצר את השדה הזה. בלי הענף הזה הן נותבו
+     * יפה ואז נתקעו על „לא נאמר על מי מדובר” — ו„איפה הכרטיס של
+     * יוסי” אף **נסוג**: קודם הוא נפל לחיפוש חופשי, שדווקא עבד
+     * (ביקורת Codex).
+     */
+    if (actionId === "show_card" || actionId === "play_recording") {
+      const match = /(?:ה?כרטיס|ה?הקלטה)\s+של\s+(?<name>[א-ת]+(?:\s+[א-ת]+)?)/u.exec(transcript);
+      /*
+       * בלי שם — מחזירים ריק, וההצעה תשאל „על מי”. התבנית דורשת
+       * „של” ואחריו שם, אבל אפשר להגיע לכאן גם מנעיצה על משפט
+       * אחר; ניחוש שם מתוך המשפט שם היה פותח כרטיס של מישהו אחר.
+       */
+      const name = match?.groups?.["name"];
+      return name === undefined ? {} : { cardPhrase: name };
+    }
+
+    /*
+     * ‎**מסנן שנאמר במפורש אינו נזרק.**
+     *
+     * „אילו לידים **חדשים**” הוחזר כרשימת כל הלידים הפתוחים,
+     * ו„ההצעות **הממתינות**” כרשימת כל ההצעות — כלומר תשובה רחבה
+     * בהרבה מהשאלה, בלי שדבר ייראה שבור. הבדיקות בדקו את מזהה
+     * הפעולה בלבד, ולכן לא ראו את זה (ביקורת Codex).
+     */
+    if (actionId === "show_leads") {
+      return {
+        leadStatus: /חדש/u.test(transcript)
+          ? "new"
+          : /בטיפול/u.test(transcript)
+            ? "in_progress"
+            : /ממתינ/u.test(transcript)
+              ? "waiting_customer"
+              : /סגור/u.test(transcript)
+                ? "closed"
+                : undefined,
+      };
+    }
+    if (actionId === "show_offers") {
+      return {
+        offerFilter: /ממתינ/u.test(transcript)
+          ? "waiting"
+          : /נפתח/u.test(transcript)
+            ? "opened_no_reply"
+            : /מעוניינ|מתעניינ/u.test(transcript)
+              ? "interested"
+              : /נדח|לא\s+רלוונטי/u.test(transcript)
+                ? "declined"
+                : /נכשל/u.test(transcript)
+                  ? "failed"
+                  : undefined,
+      };
+    }
     if (actionId === "office_report") {
       return {
         windowDays: /רבעון/u.test(transcript) ? "90" : /שנה/u.test(transcript) ? "365" : "30",
