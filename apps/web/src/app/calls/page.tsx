@@ -640,7 +640,7 @@ export default function CallsPage() {
                 */}
                 <CallHighlightFields
                   highlights={selected.highlights ?? {}}
-                  header={<CallSection title="פרטי לקוח" />}
+                  header={<CallSection title="פרטי לקוח" machine />}
                 />
 
                 <CallRecording
@@ -685,26 +685,40 @@ export default function CallsPage() {
 /**
  * ‎**כותרת סעיף בכרטיס השיחה.**
  *
- * הסמל אומר שהתוכן שמתחת **נכתב על ידי המערכת** ולא הוקלד ביד —
- * וזו ידיעה שמשנה כמה לסמוך עליו. כפתור ההעתקה מופיע רק כשיש מה
- * להעתיק: כפתור מעל טקסט ריק מבטיח פעולה שלא תעשה דבר.
+ * ‎`machine` אומר שהתוכן שמתחת **נכתב על ידי המערכת** ולא הוקלד
+ * ביד — וזו ידיעה שמשנה כמה לסמוך עליו. לכן הוא מוצהר בכל אתר
+ * קריאה בנפרד, ואינו ברירת מחדל: „סיכום שיחה” יכול להיות שדה
+ * ‎`summary` שהמתווך הקליד ביומן השיחות הידני, וסמל שאומר
+ * „נכתב אוטומטית” מעליו הוא ייחוס שקרי — הוא משנה כמה עמית סומך
+ * על הכתוב, ובכיוון ההפוך מהאמת (ביקורת Codex, P2).
+ *
+ * ‏„פרטי לקוח” הוא כן אוטומטי תמיד: `highlights` נכתב רק בצינור
+ * התמלול, ואין לו נתיב קלט ידני — סכמת היצירה `.strict()` אינה
+ * מקבלת אותו כלל.
+ *
+ * ‏כפתור ההעתקה מופיע רק כשיש מה להעתיק: כפתור מעל טקסט ריק
+ * מבטיח פעולה שלא תעשה דבר.
  */
 function CallSection({
   title,
+  machine,
   copy,
   copied,
   onCopy,
 }: {
   title: string;
+  machine?: boolean;
   copy?: string;
   copied?: boolean;
   onCopy?: () => void;
 }) {
   return (
     <div className="mb-2.5 flex items-center gap-2">
-      <span aria-hidden="true" style={{ color: "var(--color-primary)" }}>
-        <IconSparkle s={16} />
-      </span>
+      {machine === true ? (
+        <span aria-hidden="true" style={{ color: "var(--color-primary)" }}>
+          <IconSparkle s={16} />
+        </span>
+      ) : null}
       <span
         className="text-[length:var(--type-caption-lg)] font-extrabold"
         style={{ color: "var(--color-text-muted)" }}
