@@ -8,6 +8,7 @@ import {
   type WhatsAppButton,
   type WhatsAppListRow,
   type WhatsAppTemplateParam,
+  type WhatsAppTemplateQuickReply,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
@@ -132,6 +133,15 @@ export class WhatsAppSendService {
     languageCode: string,
     params: readonly WhatsAppTemplateParam[],
     urlSuffix?: string,
+    /**
+     * ‎**כפתורי „תשובה מהירה”, כשהתבנית נרשמה איתם.**
+     *
+     * ‏נמסרים כרכיבים ולא כדגל: המטען של כל כפתור נקבע לכל הודעה
+     * בנפרד, וזה מה שמאפשר לדעת על איזה סיור נלחץ. תבנית שנרשמה
+     * בלי כפתורים ומקבלת רכיבים כאלה נדחית — ולכן הקורא מצרף אותם
+     * רק לפי ההגדרה שאומרת מה נרשם בפועל.
+     */
+    quickReplies?: readonly WhatsAppTemplateQuickReply[],
   ): Promise<boolean> {
     const creds = await this.credentials();
     if (!creds) {
@@ -142,6 +152,7 @@ export class WhatsAppSendService {
     const components = [
       ...(params.length > 0 ? [{ type: "body", parameters: params }] : []),
       ...(button === null ? [] : [button]),
+      ...(quickReplies ?? []),
     ];
     return this.post(creds, {
       messaging_product: "whatsapp",

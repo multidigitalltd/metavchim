@@ -4,6 +4,7 @@ import { z } from "zod";
 import { rolesWithCapability } from "@metavchim/shared";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
+import { ViewingReplyService } from "../calendar/viewing-reply.service";
 import { WhatsAppAssistantService } from "./whatsapp-assistant.service";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 
@@ -58,6 +59,17 @@ const WebhookSchema = z.object({
                         .optional(),
                     })
                     .optional(),
+                  /**
+                   * ‎**לחיצה על כפתור של תבנית — וזה שדה אחר לגמרי.**
+                   *
+                   * ‏כפתור בהודעה אינטראקטיבית חוזר כ-`interactive`
+                   * עם מזהה; כפתור של **תבנית** חוזר כ-`type: "button"`
+                   * עם `payload` — המטען ששלחנו לאותה הודעה. השדה לא
+                   * היה בסכימה, ולכן לחיצה על תזכורת נזרקה בשקט.
+                   */
+                  button: z
+                    .object({ payload: z.string(), text: z.string().optional() })
+                    .optional(),
                 }),
               )
               .optional(),
@@ -77,6 +89,7 @@ export class WhatsAppInboundService {
     private readonly crypto: CryptoService,
     private readonly assistant: WhatsAppAssistantService,
     private readonly sender: WhatsAppSendService,
+    private readonly viewingReplies: ViewingReplyService,
   ) {}
 
   async handle(payload: Record<string, unknown>): Promise<void> {
@@ -104,6 +117,38 @@ export class WhatsAppInboundService {
          * לאיזה קו ההודעה הגיעה ולאיזה קו אנחנו מאזינים.
          */
         const incomingLine = value.metadata?.phone_number_id ?? "חסר";
+
+        /*
+         * ‎**תשובה לתזכורת סיור — לפני ניתוב הקווים, ולא אחריו.**
+         *
+         * ‏התזכורת יוצאת דרך `WhatsAppSendService`, שמחזיק זוג
+         * אישורים **אחד** — הקו של הפלטפורמה. כלומר הלחיצה חוזרת
+         * לאותו קו בדיוק שבו יושב הסוכן האישי, וענף הסוכן שמתחת
+         * בולע כל הודעה שמגיעה לשם ומסיים ב-`continue`. הטיפול
+         * שהיה בענף המשרדים לא נקרא לעולם, והלחיצה הייתה מגיעה
+         * לסוכן כאילו מתווך כתב לו (ביקורת Codex, P1).
+         *
+         * ‎**הדייר מגיע מהמטען** ולא מהקו: אין ב-Webhook שום דבר
+         * אחר שקושר את הלחיצה למשרד. זו אינה סמכות — `record`
+         * מאמת שהסיור שייך לדייר ושהשולח הוא נמען שלו.
+         */
+        const replies = (value.messages ?? []).filter(
+          (m) => m.type === "button" && m.button !== undefined,
+        );
+        if (replies.length > 0) {
+          for (const message of replies) {
+            if (!message.button) continue;
+            await this.viewingReplies.record(
+              message.button.payload,
+              normalizeWaPhone(message.from),
+            );
+          }
+          /*
+           * ‎**רק אם *כל* ההודעות היו לחיצות.** אצווה מעורבת קיימת,
+           * ולא נכון לזרוק בגללה הודעת טקסט שממתינה לצידה.
+           */
+          if (replies.length === (value.messages ?? []).length) continue;
+        }
         if (assistantCreds === null) {
           this.logger.warn(
             `הודעה הגיעה לקו ${incomingLine} אך הסוכן אינו מוגדר (חסר טוקן או מזהה מספר במסך הפלטפורמה)`,
@@ -157,6 +202,10 @@ export class WhatsAppInboundService {
         }
 
         for (const message of value.messages) {
+          /*
+           * לחיצות כפתור כבר טופלו למעלה, לפני ניתוב הקווים — הן
+           * חוזרות לקו של הפלטפורמה ולא לקו של המשרד.
+           */
           if (message.type !== "text" || !message.text) continue;
           const senderName =
             value.contacts?.find((c) => c.wa_id === message.from)?.profile?.name ?? "לקוח וואטסאפ";

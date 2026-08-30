@@ -1584,6 +1584,12 @@ model Appointment {
   /// מתי נשלחה התזכורת שלפני הסיור. NULL = טרם נשלחה, ולכן דחיית
   /// הסיור מנקה אותה — המועד החדש מקבל תזכורת משלו.
   reminderSentAt  DateTime? @map("reminder_sent_at")
+  /// מה הלקוח ענה לתזכורת בלחיצה: confirmed | reschedule.
+  /// NULL = לא ענה, וזה **אינו** "לא מגיע" — רוב הלקוחות לא לוחצים.
+  reminderReply   String?   @map("reminder_reply") @db.VarChar(12)
+  /// מתי נלחץ. בלעדיו "אישר" על סיור שנדחה מאז נקרא כאישור למועד
+  /// החדש, בזמן שהוא ניתן לישן. מתאפס יחד עם `reminderSentAt`.
+  reminderReplyAt DateTime? @map("reminder_reply_at")
   createdBy       String?   @map("created_by") @db.Char(26)
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
