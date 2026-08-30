@@ -1610,17 +1610,23 @@ async function callIntel(
   if (config === null || transcript.trim() === "") return null;
 
   const source = transcript.slice(0, CALL_INTEL_TRANSCRIPT_MAX);
-  try {
+  const prompt = buildCallIntelPrompt(source, context);
+
+  /** קריאה אחת. מחזירה את הטקסט, או את קוד ה-HTTP כדי שהקורא יחליט. */
+  const once = async (
+    model: string,
+    withSchema: boolean,
+  ): Promise<{ text: string } | { status: number }> => {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.model)}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {
         method: "POST",
         headers: { "content-type": "application/json", "x-goog-api-key": config.key },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: buildCallIntelPrompt(source, context) }] }],
+          contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             responseMimeType: "application/json",
-            responseSchema: CALL_INTEL_SCHEMA,
+            ...(withSchema ? { responseSchema: CALL_INTEL_SCHEMA } : {}),
             // חילוץ, לא כתיבה — דטרמיניזם עדיף על יצירתיות
             temperature: 0,
             maxOutputTokens: CALL_INTEL_MAX_TOKENS,
@@ -1629,18 +1635,45 @@ async function callIntel(
         signal: AbortSignal.timeout(CALL_INTEL_TIMEOUT_MS),
       },
     );
-    if (!res.ok) throw new Error(`gemini ${res.status}`);
+    if (!res.ok) return { status: res.status };
     const body = (await res.json()) as {
       candidates?: { content?: { parts?: { text?: string }[] } }[];
     };
-    const raw = body.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-    if (raw.trim() === "") return null;
+    return { text: body.candidates?.[0]?.content?.parts?.[0]?.text ?? "" };
+  };
+
+  try {
+    /*
+     * ‎**שני הניסיונות שה-API כבר למד לעשות, ומאותן סיבות.**
+     *
+     * ‎`GeminiService` מטפל בשני מצבים שקורים בייצור ואינם תקלה
+     * אצלנו: מודל שהוצא משימוש מחזיר 404, ומודל שאינו תומך
+     * ב-`responseSchema` מחזיר 400. בלי הניסיונות האלה שתי התצורות
+     * האלה משביתות את הבנת השיחה **בשקט** — כל שיחה נופלת לחילוץ
+     * הדטרמיניסטי ואיש אינו יודע למה (ביקורת Codex).
+     *
+     * הניסיון השני נעשה פעם אחת לכל שיחה ולא נזכר בין שיחות. זה
+     * המחיר של אי-החזקת מצב ב-Worker שרץ בסבבים, והוא זול: קריאה
+     * אחת נוספת על שיחה שממילא בילתה דקות בתמלול.
+     */
+    let out = await once(config.model, true);
+
+    if ("status" in out && out.status === 400) {
+      console.error(`[call-transcribe] intel: המודל ${config.model} דחה את הסכמה — ניסיון בלעדיה`);
+      out = await once(config.model, false);
+    } else if ("status" in out && out.status === 404 && config.model !== CALL_INTEL_MODEL_DEFAULT) {
+      console.error(`[call-transcribe] intel: המודל ${config.model} אינו קיים — ניסיון בברירת המחדל`);
+      out = await once(CALL_INTEL_MODEL_DEFAULT, true);
+    }
+
+    if ("status" in out) throw new Error(`gemini ${out.status}`);
+    if (out.text.trim() === "") return null;
     /*
      * הפענוח מקבל את התמלול **המלא** ולא את החתוך: הוא מקור האמת
      * לבדיקת המספרים, וחיתוך שלו היה פוסל מספר אמיתי שנאמר בסוף
      * שיחה ארוכה.
      */
-    return parseCallIntel(JSON.parse(raw), transcript);
+    return parseCallIntel(JSON.parse(out.text), transcript);
   } catch (error) {
     console.error(`[call-transcribe] intel skipped: ${String(error)}`);
     return null;

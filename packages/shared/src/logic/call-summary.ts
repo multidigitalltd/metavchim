@@ -285,20 +285,65 @@ export function followUpFromCall(summary: CallSummary, now: Date): CallFollowUp 
  * ואינו מפיל את שאר השדות איתו. שיחה שבה זוהה רק אזור תחזיר את
  * האזור, גם אם התקציב שנשמר לצידו מקולקל.
  */
+/**
+ * ה-JSON שנשמר ⟵ `CallHighlights`.
+ *
+ * ‎**כל שדה חייב לעבור כאן, ולא רק להיות מוגדר בטיפוס.**
+ *
+ * הפונקציה הזו היא גבול הקריאה מהמסד: מה שאינו מועתק בה נזרק בין
+ * העמודה לתשובת ה-API, גם כשהוא נשמר כראוי וגם כשיש לו תווית
+ * ורכיב שמציג אותו. הרחבת `CallHighlights` הוסיפה אחת-עשרה
+ * תגיות, והן נכתבו למסד ונעלמו בקריאה — הפיצ'ר כולו היה בלתי
+ * נראה (ביקורת Codex).
+ *
+ * ‎`CALL_HIGHLIGHT_LABELS` נאכף בטיפוס ולכן לא נשכח; זה **לא**
+ * נאכף בטיפוס, ולכן נשכח. בדיקת הלוך-ושוב עוברת על מפתחות
+ * התוויות ומוודאת שכל אחד מהם שורד את הפענוח — כך ששדה שיתווסף
+ * מחר ולא יתווסף כאן ייפול בבנייה.
+ */
 export function parseCallHighlights(value: unknown): CallHighlights {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
   const source = value as Record<string, unknown>;
   const out: CallHighlights = {};
+
   const positive = (raw: unknown): number | undefined =>
     typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : undefined;
-  const budget = positive(source["budget"]);
-  if (budget !== undefined) out.budget = budget;
-  const rooms = positive(source["rooms"]);
-  if (rooms !== undefined) out.rooms = rooms;
-  const city = source["city"];
-  if (typeof city === "string" && city.trim() !== "") out.city = city.trim();
-  const callback = source["callback"];
-  if (typeof callback === "string" && callback.trim() !== "") out.callback = callback.trim();
+  const str = (raw: unknown): string | undefined =>
+    typeof raw === "string" && raw.trim() !== "" ? raw.trim() : undefined;
+  const strList = (raw: unknown): string[] | undefined => {
+    if (!Array.isArray(raw)) return undefined;
+    const items = raw.map(str).filter((item): item is string => item !== undefined);
+    return items.length > 0 ? items : undefined;
+  };
+
+  for (const key of ["budget", "rooms", "areaSqm"] as const) {
+    const parsed = positive(source[key]);
+    if (parsed !== undefined) out[key] = parsed;
+  }
+  for (const key of [
+    "city",
+    "callback",
+    "propertyType",
+    "neighborhood",
+    "address",
+    "timeline",
+    "motivation",
+    "financing",
+  ] as const) {
+    const parsed = str(source[key]);
+    if (parsed !== undefined) out[key] = parsed;
+  }
+  for (const key of ["features", "objections", "commitments"] as const) {
+    const parsed = strList(source[key]);
+    if (parsed !== undefined) out[key] = parsed;
+  }
+
+  const side = source["side"];
+  if (side === "buyer" || side === "seller" || side === "renter" || side === "landlord") {
+    out.side = side;
+  }
+  if (typeof source["exclusivity"] === "boolean") out.exclusivity = source["exclusivity"];
+
   return out;
 }
 

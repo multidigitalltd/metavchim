@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { summarizeCall } from "./call-summary.js";
+import {
+  CALL_HIGHLIGHT_LABELS,
+  parseCallHighlights,
+  summarizeCall,
+  type CallHighlights,
+} from "./call-summary.js";
 import {
   buildCallIntelPrompt,
   formatRoleTranscript,
@@ -205,5 +210,65 @@ describe("ההנחיה", () => {
     const prompt = buildCallIntelPrompt(TRANSCRIPT, { agentName: "יוסי", contactName: "רות" });
     expect(prompt).toContain("שם המתווך: יוסי");
     expect(prompt).toContain("שם הלקוח: רות");
+  });
+});
+
+describe("כל תגית שורדת את המסע למסד ובחזרה", () => {
+  /*
+   * ‎**זו הבדיקה שהייתה חסרה, והיעדרה עלה בפיצ'ר שלם.**
+   *
+   * ‎`CallHighlights` הורחבה, התוויות נוספו (הטיפוס אכף אותן),
+   * המסך קיבל ענף לכל שדה — ו-`parseCallHighlights` נשאר עם ארבעה.
+   * התגיות נכתבו למסד ונזרקו בקריאה חזרה, כלומר כל העבודה הייתה
+   * בלתי נראית (ביקורת Codex).
+   *
+   * הבדיקה נבנית מ-`CALL_HIGHLIGHT_LABELS` ולא מרשימה כתובה ביד:
+   * התוויות נאכפות בטיפוס, ולכן שדה חדש **חייב** להופיע בהן — ומכאן
+   * הוא נגרר לבדיקה הזו בעל כורחו.
+   */
+  const SAMPLE: Required<CallHighlights> = {
+    budget: 2_500_000,
+    rooms: 4,
+    city: "רמת גן",
+    callback: "מחר",
+    side: "buyer",
+    propertyType: "דירה",
+    neighborhood: "שכונת הגפן",
+    address: "ביאליק 12",
+    areaSqm: 105,
+    timeline: "תוך שלושה חודשים",
+    motivation: "הרחבת משפחה",
+    financing: "משכנתה מאושרת",
+    features: ["מעלית", "חניה"],
+    objections: ["קומה ראשונה"],
+    commitments: ["לשלוח שלוש אפשרויות"],
+    exclusivity: true,
+  };
+
+  it("הדוגמה מכסה כל שדה שיש לו תווית — אחרת הבדיקה עצמה חלקית", () => {
+    expect(Object.keys(SAMPLE).sort()).toEqual(Object.keys(CALL_HIGHLIGHT_LABELS).sort());
+  });
+
+  it("כל שדה חוזר מהפענוח כפי שנשמר", () => {
+    expect(parseCallHighlights(JSON.parse(JSON.stringify(SAMPLE)))).toEqual(SAMPLE);
+  });
+
+  it("ערכים פסולים נזרקים בשקט ואינם מפילים את השאר", () => {
+    const parsed = parseCallHighlights({
+      ...SAMPLE,
+      budget: -1,
+      rooms: "ארבעה",
+      side: "investor",
+      features: [""],
+      exclusivity: "כן",
+    });
+    expect(parsed.budget).toBeUndefined();
+    expect(parsed.rooms).toBeUndefined();
+    expect(parsed.side).toBeUndefined();
+    expect(parsed.features).toBeUndefined();
+    expect(parsed.exclusivity).toBeUndefined();
+    // מה שתקין שרד
+    expect(parsed.city).toBe("רמת גן");
+    expect(parsed.commitments).toEqual(["לשלוח שלוש אפשרויות"]);
   });
 });
