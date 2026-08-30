@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
-import type { PropertyStatus } from "@metavchim/shared";
+import { MATCHABLE_PROPERTY_STATUSES, type PropertyStatus } from "@metavchim/shared";
 import { API_BASE, apiGet, apiList, apiPost } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -121,13 +121,20 @@ function sortRows(rows: PropertyRow[], sort: string): PropertyRow[] {
  * מחכה. הנוסח נבנה מהמצב עצמו ולא מתבנית קבועה: משרד בלי טיוטות
  * אינו מקבל „0 בטיוטה”, כי אפס אינו ידיעה.
  */
-function summaryLine(items: PropertyRow[]): string {
+function summaryLine(items: PropertyRow[], truncated: boolean): string {
   const active = items.filter((p) => p.status === "active").length;
   const drafts = items.filter((p) => p.status === "draft").length;
   const parts = [`${active} נכסים פעילים`];
   if (drafts === 1) parts.push("אחד עדיין בטיוטה");
   else if (drafts > 1) parts.push(`${drafts} עדיין בטיוטה`);
-  return parts.join(" · ");
+  /*
+   * ‎**היקף המספר נאמר כשהוא אינו כל המאגר.**
+   *
+   * הבקשה מוגבלת ל-100, והמסך הציג את המניין כאילו הוא של המשרד
+   * כולו — כלומר משרד עם 400 נכסים ראה „4 פעילים” וזה פשוט לא נכון
+   * (ביקורת Codex). הסיכום נשאר שימושי, אבל אומר על מה הוא מדבר.
+   */
+  return truncated ? `${parts.join(" · ")} — מבין 100 שנטענו` : parts.join(" · ");
 }
 
 /** אריח מונה אחד — מספר גדול, ומתחתיו מה שהוא אומר. */
@@ -178,13 +185,34 @@ function StatTile({
  * ‎**אפס אינו נראה ככישלון**: אריח שערכו אפס עובר לניטרלי, והכיתוב
  * שמתחתיו אומר „הכל טופל” ולא „אין”.
  */
-function PropertyStats({ items }: { items: PropertyRow[] }) {
+function PropertyStats({
+  items,
+  truncated,
+}: {
+  items: PropertyRow[];
+  truncated: boolean;
+}) {
   const active = items.filter((p) => p.status === "active");
   const ready = active.filter((p) => p.missingFields.length === 0).length;
   const matches = items.reduce((sum, p) => sum + (p.suggestedMatchCount ?? 0), 0);
   const busiest = items.reduce((top, p) => Math.max(top, p.suggestedMatchCount ?? 0), 0);
   const drafts = items.filter((p) => p.status === "draft");
-  const lonely = items.filter((p) => (p.suggestedMatchCount ?? 0) === 0);
+  /*
+   * ‎**רק נכס שיכול היה לקבל התאמות נספר כ„בלי התאמות”.**
+   *
+   * נכס שנמכר, הושכר, הוקפא או אורכב **אינו מקבל התאמות מלכתחילה**:
+   * ‎`matching.service` מוחק את ההצעות שלו ואינו מייצר חדשות. ספירתו
+   * כאן הייתה מנפחת לנצח אזהרה שאומרת „כדאי לבדוק מחיר או דרישות”
+   * על נכס שאין מה לבדוק בו (ביקורת Codex).
+   *
+   * הרשימה מיובאת מהחבילה ואינה נכתבת כאן מחדש — היא **אותה** רשימה
+   * שהשרת מחליט לפיה, ולכן סטטוס שיתווסף לה יגיע לשני הצדדים.
+   */
+  const lonely = items.filter(
+    (p) =>
+      (MATCHABLE_PROPERTY_STATUSES as readonly string[]).includes(p.status) &&
+      (p.suggestedMatchCount ?? 0) === 0,
+  );
 
   return (
     <div
@@ -245,6 +273,23 @@ function PropertyStats({ items }: { items: PropertyRow[] }) {
         value={lonely.length}
         note={lonely.length === 0 ? "לכל נכס יש למי להציע" : "כדאי לבדוק מחיר או דרישות"}
       />
+      {/*
+        משפט אחד על כל הארבעה, ולא סייג בכל אריח: הם נגזרים מאותה
+        רשימה, ולכן ההיקף שלהם זהה.
+      */}
+      {truncated ? (
+        <p
+          className="m-0"
+          style={{
+            gridColumn: "1 / -1",
+            fontSize: "var(--type-caption)",
+            color: "var(--color-text-muted)",
+          }}
+        >
+          המונים מחושבים על 100 הנכסים שנטענו, ולא על כל המאגר. צמצמו את הסינון כדי
+          לראות קבוצה מדויקת.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -271,6 +316,11 @@ export default function PropertiesPage() {
   const canVoice = useFeature("voice_intake");
   const router = useRouter();
   const [items, setItems] = useState<PropertyRow[] | null>(null);
+  /*
+   * ‎**האם יש עוד מעבר למה שנטען.** מהשרת עצמו (`nextCursor`) ולא
+   * מ-`items.length === 100`: הניחוש טועה בדיוק על מאגר של 100.
+   */
+  const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [city, setCity] = useState("הכל");
   const [status, setStatus] = useState("");
@@ -296,8 +346,13 @@ export default function PropertiesPage() {
   useEffect(() => {
     if (authLoading) return;
     setItems(null);
-    apiGet<{ items: PropertyRow[] }>(`/properties?limit=100${filtersToQuery(filters)}`)
-      .then((res) => setItems(apiList(res.items, "items")))
+    apiGet<{ items: PropertyRow[]; nextCursor?: string | null }>(
+      `/properties?limit=100${filtersToQuery(filters)}`,
+    )
+      .then((res) => {
+        setItems(apiList(res.items, "items"));
+        setTruncated(res.nextCursor !== undefined && res.nextCursor !== null);
+      })
       .catch(() => setError("טעינת הנכסים נכשלה"));
   }, [authLoading, filters]);
 
@@ -464,10 +519,11 @@ export default function PropertiesPage() {
      */
     setItems(null);
     try {
-      const fresh = await apiGet<{ items: PropertyRow[] }>(
+      const fresh = await apiGet<{ items: PropertyRow[]; nextCursor?: string | null }>(
         `/properties?limit=100${filtersToQuery(filters)}`,
       );
       setItems(apiList(fresh.items, "items"));
+      setTruncated(fresh.nextCursor !== undefined && fresh.nextCursor !== null);
     } catch {
       setError("הרשימה לא רועננה — רעננו את העמוד");
     } finally {
@@ -523,7 +579,7 @@ export default function PropertiesPage() {
               className="m-0 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1"
               style={{ fontSize: "var(--type-body-sm)", color: "var(--color-text-muted)" }}
             >
-              <span>{summaryLine(items)}</span>
+              <span>{summaryLine(items, truncated)}</span>
               {openMatches > 0 ? (
                 <>
                   <span aria-hidden="true">|</span>
@@ -588,7 +644,7 @@ export default function PropertiesPage() {
         פירושו „עוד לא ידוע”, ואז אין כרטיסים בכלל: אריח שמראה „0”
         על טעינה שטרם הסתיימה הוא בדיוק אותו שקר של רשימה ריקה.
       */}
-      {items === null ? null : <PropertyStats items={items} />}
+      {items === null ? null : <PropertyStats items={items} truncated={truncated} />}
 
       {error ? (
         <Notice tone="danger">{error}</Notice>
@@ -1014,13 +1070,24 @@ export default function PropertiesPage() {
               <strong className="text-[length:var(--type-body-sm)]" role="status">
                 נבחרו {selectedVisible.length} נכסים
               </strong>
+              {/*
+                ‎**מבוטל לפי `selected`, ולא לפי מה שנראה כרגע.**
+
+                סינון שמסתיר את כל מה שנבחר מאפס את `selectedVisible`
+                אבל לא את הבחירה עצמה — והכפתור היחיד שמנקה אותה היה
+                מושבת. הבחירה נתקעה, וצצה שוב כשהסינון נוקה (ביקורת
+                Codex). הסרגל הישן לא סבל מזה כי הוא כולו נעלם.
+              */}
               <button
                 type="button"
                 className="mv-btn-plain"
-                disabled={bulkBusy || selectedVisible.length === 0}
+                disabled={bulkBusy || selected.size === 0}
                 onClick={() => setSelected(new Set())}
               >
                 בטל בחירה
+                {selected.size > selectedVisible.length
+                  ? ` (${selected.size - selectedVisible.length} מוסתרים בסינון)`
+                  : ""}
               </button>
               <span className="ms-auto flex flex-wrap items-center gap-2">
                 {/*
