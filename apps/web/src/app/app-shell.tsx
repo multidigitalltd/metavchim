@@ -13,7 +13,6 @@ import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
 import { TrialBanner } from "./trial-banner";
 import { SoftphoneProvider } from "./softphone-bar";
-import { FeedbackButton } from "./feedback-button";
 import { SupportButton } from "./support-button";
 import { SingleSessionGuard } from "./single-session-guard";
 import { roleLabel } from "@metavchim/shared";
@@ -505,7 +504,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           המנוי משאירה בעיית תשלום בלי דרך לפתור אותה.
         */}
         <SupportButton />
-        <FeedbackButton />
       </div>
     );
   }
@@ -789,7 +787,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           במסלול או ביכולת: מי שנתקל בתקלה הוא זה שמדווח עליה.
         */}
         <SupportButton />
-        <FeedbackButton />
       </div>
     </div>
   );

@@ -68,6 +68,10 @@ import {
   WhatsAppLinkService,
   type LinkStatus,
 } from "../messaging/whatsapp-link.service";
+import {
+  WHATSAPP_AGENT_DENIAL_TEXT,
+  whatsappAgentDenial,
+} from "../messaging/whatsapp-entitlement";
 import { AccountDeletionService } from "./account-deletion.service";
 import { MAX_LOGO_BYTES, TenantLogoService } from "./tenant-logo.service";
 
@@ -1602,6 +1606,30 @@ export class SettingsController {
   @AnyAuthenticated()
   async whatsappLinkCode(): Promise<{ code: string; expiresInSeconds: number }> {
     const ctx = TenantContext.current();
+    /*
+     * ‎**הזכאות נבדקת כאן, ולא רק בהודעה הראשונה.**
+     *
+     * הנתיב היה פתוח לכל משתמש מאומת בכל מסלול: אפשר היה לייצר קוד,
+     * לצמד מכשיר, ולגלות רק בהודעה הראשונה שהסוכן אינו כלול. כלומר
+     * אונבורדינג מלא לתכונה שאינה נמכרת למשרד הזה, קישור חי במסד
+     * שאיש לא ישתמש בו, והודעת דחייה במקום שבו כבר מאוחר להסביר.
+     *
+     * אותה הכרעה בדיוק כמו בהודעה נכנסת (`whatsappAgentDenial`),
+     * ולכן שתי נקודות הכניסה אינן יכולות להיפרד.
+     */
+    const me = await this.prisma.withTenant((tx) =>
+      tx.user.findFirst({
+        where: { id: ctx.userId, tenantId: ctx.tenantId },
+        select: { role: true, whatsappAccess: true },
+      }),
+    );
+    if (me === null) throw new ForbiddenException("המשתמש לא נמצא");
+    const denial = whatsappAgentDenial({
+      planHasAgent: await this.plans.tenantHasFeature(ctx.tenantId, "voice_intake"),
+      role: me.role,
+      whatsappAccess: me.whatsappAccess,
+    });
+    if (denial !== null) throw new ForbiddenException(WHATSAPP_AGENT_DENIAL_TEXT[denial]);
     return this.whatsappLinks.issueCode(ctx.tenantId, ctx.userId);
   }
 
