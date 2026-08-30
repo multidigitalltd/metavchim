@@ -27,6 +27,8 @@ interface Totals {
   interpretCount: number;
   executeCount: number;
   rulesCount: number;
+  /** לחיצות שנחסמו — ההרשאה נשללה, ולכן לא רץ שום פירוש */
+  blockedCount: number;
   whatsappCount: number;
   promptTokens: number;
   outputTokens: number;
@@ -110,9 +112,18 @@ export function AgentUsageSection(): React.JSX.Element {
   }
 
   const t = report.totals;
-  const llmCount = t.interpretCount - t.rulesCount;
-  const rulesPct =
-    t.interpretCount === 0 ? 0 : Math.round((t.rulesCount / t.interpretCount) * 100);
+  /*
+   * ‎**הבסיס הוא פקודות שבאמת נפרשו.**
+   *
+   * לחיצה שנחסמה נספרת ב-`interpretCount` אבל לא רץ בה שום מנוע —
+   * לא מודל ולא חוקים. גזירת „כמה הבין המודל” כהפרש מול `rulesCount`
+   * בלבד הייתה סופרת כל חסימה כקריאה ששולמה, בדיוק בנתון שנועד
+   * למדוד עלות (ביקורת Codex). אותו בסיס משמש גם לשיעור הזיהוי
+   * הבסיסי, אחרת אותה הטיה נכנסת גם להתראה שמתבססת עליו.
+   */
+  const attempted = t.interpretCount - t.blockedCount;
+  const llmCount = attempted - t.rulesCount;
+  const rulesPct = attempted === 0 ? 0 : Math.round((t.rulesCount / attempted) * 100);
   const cachedPct =
     t.promptTokens === 0 ? 0 : Math.round((t.cachedTokens / t.promptTokens) * 100);
 
@@ -172,11 +183,16 @@ export function AgentUsageSection(): React.JSX.Element {
           icon={<IconClock s={18} />}
           label="זמן תשובה ממוצע"
           value={t.avgLatencyMs === 0 ? "—" : `${(t.avgLatencyMs / 1000).toFixed(1)} שנ׳`}
-          sub={`${num.format(llmCount)} הבין המודל · ${num.format(t.rulesCount)} זיהוי בסיסי`}
+          sub={[
+            `${num.format(llmCount)} הבין המודל`,
+            `${num.format(t.rulesCount)} זיהוי בסיסי`,
+            // מוצג רק כשיש — „0 נחסמו” הוא רעש קבוע
+            ...(t.blockedCount > 0 ? [`${num.format(t.blockedCount)} נחסמו`] : []),
+          ].join(" · ")}
         />
       </div>
 
-      {rulesPct > 20 && t.interpretCount >= 10 ? (
+      {rulesPct > 20 && attempted >= 10 ? (
         <p
           className="mb-4 flex items-center gap-2 rounded-xl px-4 py-3"
           style={{ background: "#fdeee7", border: "1px solid var(--color-danger)" }}

@@ -24,6 +24,16 @@ export interface AgentUsageTotals {
   executeCount: number;
   /** פקודות שנפלו לזיהוי הבסיסי — מד הבריאות של המנוע */
   rulesCount: number;
+  /**
+   * לחיצות על „אולי התכוונת” שנחסמו — ההרשאה נשללה בין ההצגה
+   * ללחיצה, ולכן לא רץ שום פירוש.
+   *
+   * ‎**נספר בנפרד כי הוא אינו אף אחד מהשניים.** מסך השימוש גוזר „כמה
+   * הבין המודל” כהפרש `interpretCount - rulesCount`, ובלי הניכוי הזה
+   * כל חסימה נספרת שם — כלומר קריאה שמעולם לא נעשתה מוצגת כקריאה
+   * ששולמה, בדיוק בנתון שנועד למדוד עלות (ביקורת Codex).
+   */
+  blockedCount: number;
   whatsappCount: number;
   promptTokens: number;
   outputTokens: number;
@@ -51,6 +61,7 @@ interface TotalsRow {
   interpret_count: number;
   execute_count: number;
   rules_count: number;
+  blocked_count: number;
   whatsapp_count: number;
   prompt_tokens: bigint;
   output_tokens: bigint;
@@ -67,6 +78,7 @@ const EMPTY: AgentUsageTotals = {
   interpretCount: 0,
   executeCount: 0,
   rulesCount: 0,
+  blockedCount: 0,
   whatsappCount: 0,
   promptTokens: 0,
   outputTokens: 0,
@@ -100,6 +112,8 @@ export class AgentUsageService {
               COUNT(*) FILTER (WHERE kind = 'execute')::int              AS execute_count,
               COUNT(*) FILTER (WHERE kind = 'interpret'
                                  AND source = 'rules')::int              AS rules_count,
+              COUNT(*) FILTER (WHERE kind = 'interpret'
+                                 AND source = 'blocked')::int            AS blocked_count,
               COUNT(*) FILTER (WHERE kind = 'interpret'
                                  AND channel = 'whatsapp')::int          AS whatsapp_count,
               COALESCE(SUM((usage->>'promptTokens')::bigint), 0)::bigint AS prompt_tokens,
@@ -146,6 +160,7 @@ export class AgentUsageService {
         interpretCount: acc.interpretCount + row.interpretCount,
         executeCount: acc.executeCount + row.executeCount,
         rulesCount: acc.rulesCount + row.rulesCount,
+        blockedCount: acc.blockedCount + row.blockedCount,
         whatsappCount: acc.whatsappCount + row.whatsappCount,
         promptTokens: acc.promptTokens + row.promptTokens,
         outputTokens: acc.outputTokens + row.outputTokens,
@@ -250,6 +265,7 @@ function mapTotals(row: TotalsRow): AgentUsageTotals {
     interpretCount: row.interpret_count,
     executeCount: row.execute_count,
     rulesCount: row.rules_count,
+    blockedCount: row.blocked_count,
     whatsappCount: row.whatsapp_count,
     promptTokens: Number(row.prompt_tokens),
     outputTokens: Number(row.output_tokens),

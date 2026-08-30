@@ -194,6 +194,34 @@ describe("‎הנעיצה — הבחירה של המתווך", () => {
   });
 });
 
+describe("‎חסימה אינה נספרת כקריאה למודל", () => {
+  const USAGE_SERVICE = source("../platform/agent-usage.service.ts");
+  const USAGE_SECTION = readFileSync(
+    new URL("../../../../web/src/app/platform/agent-usage-section.tsx", import.meta.url),
+    "utf8",
+  );
+
+  /*
+   * ‎**הצריכה נספרת בהפרש, ולכן קטגוריה שלישית חייבת להיספר בעצמה.**
+   *
+   * מסך השימוש גוזר „כמה הבין המודל” כ-`interpretCount - rulesCount`.
+   * חסימה נכנסת ל-`interpretCount` ואינה `rules`, ולכן בלי ניכוי
+   * מפורש כל לחיצה חסומה מוצגת כקריאה ששולמה — בדיוק בנתון שנועד
+   * למדוד עלות (ביקורת Codex).
+   */
+  it("הצבירה סופרת חסימות בנפרד", () => {
+    expect(USAGE_SERVICE).toContain("blockedCount");
+    expect(USAGE_SERVICE).toMatch(/source = 'blocked'\)::int\s+AS blocked_count/u);
+  });
+
+  it("מסך השימוש מנכה אותן מהספירה של המודל", () => {
+    expect(USAGE_SECTION).toContain("const attempted = t.interpretCount - t.blockedCount;");
+    expect(USAGE_SECTION).toContain("const llmCount = attempted - t.rulesCount;");
+    // אותו בסיס גם לשיעור הזיהוי הבסיסי, אחרת ההטיה נכנסת להתראה
+    expect(USAGE_SECTION).not.toContain("t.rulesCount / t.interpretCount");
+  });
+});
+
 describe("‎התפריט המלא — נגיש גם למי שהסתיר את הדוגמאות", () => {
   const VOICE_PAGE = readFileSync(
     new URL("../../../../web/src/app/voice/page.tsx", import.meta.url),
