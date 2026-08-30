@@ -205,7 +205,17 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
   { action: "show_credits", pattern: /כמה\s+קרדיטים|ה?קרדיטים\s+שלי|יתרת\s+ה?קרדיטים/u, confidence: "high" },
   { action: "show_payout_balance", pattern: /כמה\s+מגיע\s+לי|יתרת\s+ה?תשלום|ה?יתרה\s+ל?משיכה/u, confidence: "high" },
   { action: "show_referral_board", pattern: /לוח\s+ה?הפניות|ה?הפניות\s+שלי|דירוג\s+ה?הפניות/u, confidence: "high" },
-  { action: "show_reach", pattern: /ה?חשיפה\s+ש?ל?י?|כמה\s+(?:אנשים\s+)?ראו\s+(?:את\s+)?ה?נכס/u, confidence: "low" },
+  /*
+   * ‎**„מה שווה לפרסם”, ולא „כמה צפו”.**
+   *
+   * התבנית הראשונה שכתבתי כאן הייתה „כמה אנשים ראו את הנכס” —
+   * שאלה על צפיות, בעוד שהפעולה בקטלוג היא „מה מהמאגר שלי מתאים
+   * למשהו שכבר ברשת ועדיין לא פורסם”. כלומר המתווך היה שואל על
+   * צפיות ומקבל רשימת המלצות פרסום: תשובה מלאה ומנומקת לשאלה
+   * אחרת לגמרי (ביקורת Codex). ניסוח שאין לו פעולה עדיף שיישאר
+   * „לא הבנתי” עם ההסבר.
+   */
+  { action: "show_reach", pattern: /מה\s+(?:שווה|כדאי)\s+לפרסם|ה?חשיפה\s+ברשת/u, confidence: "high" },
   { action: "show_recommendations", pattern: /ה?המלצות|מה\s+כדאי\s+לי\s+לעשות|מה\s+מומלץ/u, confidence: "high" },
   { action: "show_exclusivity", pattern: /ה?בלעדיות|ה?בלעדיויות/u, confidence: "high" },
   { action: "show_agreements", pattern: /ה?הסכמים|ה?חוזים/u, confidence: "high" },
@@ -217,7 +227,15 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
   { action: "show_network_listings", pattern: /מה\s+יש\s+(?:לי\s+)?ברשת|ה?נכסים\s+ש?ברשת|ה?רשת\s+ה?שיתופית/u, confidence: "high" },
   { action: "show_network_inbox", pattern: /ה?תיבה\s+ש?ברשת|ה?פניות\s+ש?ברשת|מי\s+פנה\s+אלי\s+ברשת/u, confidence: "high" },
   { action: "show_support_tickets", pattern: /ה?פניות\s+ל?ה?תמיכה|ה?קריאות\s+ש?ה?שירות/u, confidence: "high" },
-  { action: "play_recording", pattern: /(?:תשמיע|להשמיע|השמע)\s+(?:לי\s+)?(?:את\s+)?ה?הקלטה|ה?הקלטה\s+של\s+[א-ת]/u, confidence: "high" },
+  /*
+   * ‎**שם חובה בשתי התבניות.**
+   *
+   * לשתי הפעולות האלה שדה `cardPhrase` נדרש, והרצפה חייבת למלא
+   * אותו. „תשמיע לי את ההקלטה” בלי שם אינו ניתן לפתרון — הוא היה
+   * מנותב לפעולה ואז נתקע על „לא נאמר על מי מדובר”, כלומר קיר
+   * מנומס במקום ההסבר על התקלה (ביקורת Codex).
+   */
+  { action: "play_recording", pattern: /(?:תשמיע|להשמיע|השמע)\s+(?:לי\s+)?(?:את\s+)?ה?הקלטה\s+של\s+[א-ת]|ה?הקלטה\s+של\s+[א-ת]/u, confidence: "high" },
 
   // --- עדכונים ממוקדים: הערה, סטטוס ליד, שיתוף ברשת ---
   { action: "add_note", pattern: /(?:הוסף|תוסיף|רשום|תרשום|כתוב|תכתוב)\s+(?:לי\s+)?הערה/u, confidence: "high" },

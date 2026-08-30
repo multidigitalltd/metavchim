@@ -345,7 +345,7 @@ describe("שאלות „תראה לי” — ומה שכבר עבד", () => {
     ["הפניות ברשת", "show_network_inbox"],
     ["הפניות לתמיכה", "show_support_tickets"],
     ["איפה הכרטיס של יוסי", "show_card"],
-    ["תשמיע לי את ההקלטה", "play_recording"],
+    ["תשמיע לי את ההקלטה של יוסי", "play_recording"],
     ["דוח שלי", "agent_report"],
   ];
 
