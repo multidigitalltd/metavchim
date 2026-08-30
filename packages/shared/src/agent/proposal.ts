@@ -104,7 +104,7 @@ export interface AgentProposal {
    * אותו משפט נעוץ לאותה פעולה — ומשם המסלול הרגיל, כולל אישור
    * לפעולה שכותבת. לחיצה אינה ביצוע.
    */
-  suggestions?: { actionId: string; title: string; example?: string }[];
+  suggestions?: { actionId: string; title: string; example: string }[];
   /** האם המנוע הדטרמיניסטי הכריע — כלומר Gemini לא היה זמין */
   fallback: boolean;
   /**

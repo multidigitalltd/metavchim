@@ -130,10 +130,17 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
 /** מיוצאת לבדיקת הכיסוי בלבד — התפריט עצמו נבנה מ-`agentHelpGroups`. */
 export const AGENT_HELP_GROUP_IDS: readonly string[] = GROUPS.flatMap((group) => group.ids);
 
-/** קבוצה אחת בתפריט, אחרי סינון למה שלמשתמש הזה מותר. */
+/**
+ * קבוצה אחת בתפריט, אחרי סינון למה שלמשתמש הזה מותר.
+ *
+ * ‎`example` **אינו אופציונלי**: הקטלוג אוכף שלוש דוגמאות לכל פעולה
+ * ‎(`actions.test.ts`), ושדה אופציונלי כאן היה מייצר ענף „אין דוגמה”
+ * בשלושה מסכים — ענף שלא יכול לרוץ, שאיש לא יבדוק, ושייראה למי
+ * שקורא כמו מקרה אמיתי.
+ */
 export interface AgentHelpGroup {
   label: string;
-  actions: { id: string; title: string; example?: string }[];
+  actions: { id: string; title: string; example: string }[];
 }
 
 /**
@@ -149,8 +156,10 @@ export function agentHelpGroups(allowedIds: readonly string[]): AgentHelpGroup[]
       if (!allowed.has(id)) return [];
       const action = AGENT_ACTIONS.find((candidate) => candidate.id === id);
       if (action === undefined) return [];
+      // מובטח בשער הקטלוג — הצרה של הטיפוס, לא מקרה שצפוי לקרות
       const example = action.examples[0];
-      return [{ id, title: action.title, ...(example === undefined ? {} : { example }) }];
+      if (example === undefined) return [];
+      return [{ id, title: action.title, example }];
     });
     if (actions.length > 0) groups.push({ label: group.label, actions });
   }

@@ -1031,14 +1031,14 @@ export class WhatsAppAssistantService {
           proposal.clarify ?? "לא הייתי בטוחה מה לעשות.",
           ...proposal.warnings.map((warning) => `⚠️ ${warning}`),
           "אולי התכוונתם ל:",
-          ...suggestions.map((s, i) => `${i + 1}. ${s.title}${s.example ? ` — „${s.example}”` : ""}`),
+          ...suggestions.map((s, i) => `${i + 1}. ${s.title} — „${s.example}”`),
         ].join("\n");
         const rows: WhatsAppListRow[] = suggestions.map((s, i) => ({
           action: "pick",
           arg: String(i + 1),
           token,
           title: s.title,
-          ...(s.example ? { description: s.example } : {}),
+          description: s.example,
         }));
         const speak = "לא הייתי בטוחה מה לעשות — הצעתי כמה אפשרויות.";
         return {

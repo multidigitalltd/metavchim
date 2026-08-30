@@ -66,7 +66,7 @@ export interface Proposal {
    * מגיעות מהקטלוג בשרת ולא מהמודל, ולחיצה עליהן מפרשת מחדש את
    * המשפט שנאמר נעוץ לאותה פעולה. ראו `suggestions` ב-`AgentProposal`.
    */
-  suggestions?: { actionId: string; title: string; example?: string }[];
+  suggestions?: { actionId: string; title: string; example: string }[];
   fallback: boolean;
   /** צעדי המשך — משפט אחד שביקש כמה פעולות, אישור אחד לכולן */
   followUps?: Proposal[];

@@ -79,14 +79,10 @@ export class AgentResolveService {
       const suggestions = interpretation.suggest.flatMap((id) => {
         const suggested = agentAction(id);
         if (suggested === undefined) return [];
+        // מובטח בשער הקטלוג — הצרה של הטיפוס, לא מקרה שצפוי לקרות
         const example = suggested.examples[0];
-        return [
-          {
-            actionId: suggested.id,
-            title: suggested.title,
-            ...(example === undefined ? {} : { example }),
-          },
-        ];
+        if (example === undefined) return [];
+        return [{ actionId: suggested.id, title: suggested.title, example }];
       });
       return {
         actionId: "unknown",

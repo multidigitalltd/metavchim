@@ -57,7 +57,7 @@ import { ProposalCard, type ExecuteResult, type Proposal } from "./proposal-card
  * ככרטיסים — אותן קבוצות, אותן דוגמאות, ערוץ אחר.
  */
 interface AgentHelp {
-  groups: { label: string; actions: { id: string; title: string; example?: string }[] }[];
+  groups: { label: string; actions: { id: string; title: string; example: string }[] }[];
   /** דוגמאות הפתיחה — מאותה גזירה משותפת, לא מרשימה מקומית */
   examples: string[];
 }
@@ -125,7 +125,7 @@ type ChatItem =
        * לכתוב הכול שוב. הלחיצה בוחרת כוונה; מה שכותב עדיין נעצר
        * על אישור, כמו כל הצעה.
        */
-      suggestions?: { actionId: string; title: string; example?: string }[];
+      suggestions?: { actionId: string; title: string; example: string }[];
       /** המשפט שייפרש מחדש בלחיצה — מה שהמתווך אמר, לא הכותרת */
       said?: string;
     }
@@ -663,11 +663,9 @@ export default function AgentPage(): React.JSX.Element {
                             key={action.id}
                             type="button"
                             className="mv-example-chip"
-                            disabled={busy || action.example === undefined}
+                            disabled={busy}
                             title={action.example}
-                            onClick={() =>
-                              action.example === undefined ? undefined : void send(action.example)
-                            }
+                            onClick={() => void send(action.example)}
                           >
                             {action.title}
                           </button>
@@ -735,17 +733,15 @@ export default function AgentPage(): React.JSX.Element {
                         }}
                       >
                         <span className="font-semibold">{option.title}</span>
-                        {option.example ? (
-                          <span
-                            className="block"
-                            style={{
-                              color: "var(--color-text-muted)",
-                              fontSize: "var(--type-caption-lg)",
-                            }}
-                          >
-                            „{option.example}”
-                          </span>
-                        ) : null}
+                        <span
+                          className="block"
+                          style={{
+                            color: "var(--color-text-muted)",
+                            fontSize: "var(--type-caption-lg)",
+                          }}
+                        >
+                          „{option.example}”
+                        </span>
                       </button>
                     ))}
                   </div>
