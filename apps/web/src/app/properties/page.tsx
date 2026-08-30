@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { MATCHABLE_PROPERTY_STATUSES, type PropertyStatus } from "@metavchim/shared";
 import { API_BASE, apiGet, apiList, apiPost } from "@/lib/api";
-import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
+import { formatDate, formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import {
@@ -85,10 +85,11 @@ function statusDomain(status: string): string {
  */
 /*
  * ‎**שש עמודות, בסדר של הצילום.** העיר, החדרים והסוג ירדו לשורת
- * המשנה שמתחת לכתובת, ולכן `2.2fr` לעמודת הנכס — היא נושאת עכשיו
- * שתי שורות — והרוחב שהתפנה הלך לעמודת הפעולה.
+ * המשנה שמתחת לכתובת, ולכן `2.4fr` לעמודת הנכס — היא נושאת עכשיו
+ * שתי שורות. העמודה האחרונה היא תאריך, לא תווית כפתור, ולכן היא
+ * צרה יותר והרוחב חזר לכתובת.
  */
-const GRID = "2.2fr 0.9fr 1.4fr 1fr 1fr 1.2fr";
+const GRID = "2.4fr 0.9fr 1.4fr 1fr 1fr 0.9fr";
 
 const SORTS: [string, string][] = [
   ["newest", "חדשים קודם"],
@@ -860,11 +861,16 @@ export default function PropertiesPage() {
                           </span>
                         ) : null}
                         <p className="mt-1" style={{ color: "var(--color-text-muted)" }}>
+                          {/*
+                            הכרטיס נושא את אותן עובדות כמו הטבלה —
+                            כולל תאריך הקליטה, שנוסף שם כעמודה.
+                          */}
                           {[
                             p.city,
                             p.propertyType ? PROPERTY_TYPE_LABELS[p.propertyType] : null,
                             p.rooms ? `${p.rooms} חד׳` : null,
                             formatPrice(p.priceAgorot),
+                            p.createdAt ? `נקלט ${formatDate(p.createdAt)}` : null,
                           ]
                             .filter(Boolean)
                             .join(" · ")}
@@ -940,7 +946,7 @@ export default function PropertiesPage() {
                   <span>מוכנות לשיווק</span>
                   <span>מחיר</span>
                   <span>התאמות</span>
-                  <span className="mv-visually-hidden">פעולה</span>
+                  <span>נקלט</span>
                 </div>
                 {visible.map((p) => {
                   const ready = readinessBand(p.readinessScore);
@@ -1031,19 +1037,23 @@ export default function PropertiesPage() {
                         </span>
                       </span>
                       {/*
-                        ‎**עמודת הפעולה — הצעד הבא של השורה הזאת.**
+                        ‎**תאריך הקליטה, ולא „לחפש התאמות”.**
 
-                        ‎`span` ולא כפתור: השורה כולה כבר כפתור ניווט,
-                        וכפתור בתוך כפתור אינו חוקי ואינו נגיש. הלחיצה
-                        נוחתת על כרטיס הנכס, ומשם ההתאמות בלשונית —
-                        אותו יעד, בלי ניווט כפול שמבלבל.
+                        מה שישב כאן היה תווית שנראתה ככפתור ולא הייתה
+                        כפתור — השורה כולה היא הניווט — ומה שהיא אמרה
+                        („התאמות”) כבר מופיע בעמודה שלצדה. כלומר עמודה
+                        שלמה שחזרה על שכנתה ולא הוסיפה דבר.
+
+                        התאריך הוא מה שחסר: כמה זמן הנכס יושב אצלנו.
+                        זו העובדה שמפרידה בין „חדש, תנו לו זמן” לבין
+                        „חודשיים בלי התאמה — משהו לא בסדר”, ושום עמודה
+                        אחרת אינה נושאת אותה.
                       */}
                       <span
-                        aria-hidden="true"
-                        className="mv-btn-plain justify-self-end"
-                        style={{ pointerEvents: "none" }}
+                        className="text-[length:var(--type-body-sm)]"
+                        style={{ color: "var(--color-text-soft)" }}
                       >
-                        {p.suggestedMatchCount ? "לצפות בהתאמות" : "לחפש התאמות"}
+                        {formatDate(p.createdAt)}
                       </span>
                     </button>
                     </div>
