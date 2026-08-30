@@ -45,6 +45,39 @@ function row(code: string, overrides: Record<string, unknown> = {}): PlanRow {
 describe("קטלוג המסלולים", () => {
   const builtIn = DEFAULT_PLANS[0]!.code;
 
+  /**
+   * ‎**שדה שנקרא ולא נכתב.**
+   *
+   * ‎`whatsappSeatMonthlyAgorot` נוסף לעורך, לסכימה ולקריאה — ולא
+   * לרשימת השדות שנכתבת. העורך שמר, השרת ענה „נשמר”, וטעינה מחדש
+   * החזירה `null`: כלומר מחיר שאי אפשר להגדיר, בלי שום סימן לתקלה.
+   *
+   * הבדיקה עוברת על **מפתחות המסלול עצמו** ולא על רשימה שנכתבת
+   * כאן ביד — רשימה ידנית שנייה הייתה נשכחת יחד עם הראשונה.
+   */
+  it("שמירה כותבת כל שדה של המסלול, ולא רק את אלה שנזכרו ביד", async () => {
+    const written: Record<string, unknown>[] = [];
+    const prisma = {
+      plan: {
+        findMany: async () => [],
+        upsert: async (args: { update: Record<string, unknown> }) => {
+          written.push(args.update);
+        },
+      },
+    } as unknown as PrismaService;
+
+    const plan = { ...DEFAULT_PLANS[0]!, whatsappSeatMonthlyAgorot: 19_950 };
+    await new PlanCatalogService(prisma).upsert(plan, "tester");
+
+    const data = written[0]!;
+    for (const field of Object.keys(plan)) {
+      // `code` הוא מפתח ה-`where`, ולא שדה שמתעדכן
+      if (field === "code") continue;
+      expect(data, `שדה שנשמט מהכתיבה: ${field}`).toHaveProperty(field);
+    }
+    expect(data.whatsappSeatMonthlyAgorot).toBe(19_950);
+  });
+
   it("מסלול מובנה שלא נערך מופיע בקטלוג", async () => {
     const codes = (await catalogWith([]).all()).map((p) => p.code);
     expect(codes).toContain(builtIn);

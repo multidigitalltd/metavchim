@@ -53,7 +53,9 @@ import {
   WHATSAPP_AGENT_DENIAL_TEXT,
   whatsappAgentDenial,
   whatsappAgentSeats,
+  whatsappSeatOffer,
   type WhatsappAgentDenial,
+  type WhatsappSeatOffer,
 } from "@metavchim/shared";
 import {
   AnyAuthenticated,
@@ -1680,7 +1682,9 @@ export class SettingsController {
    */
   @Get("whatsapp-link")
   @AnyAuthenticated()
-  async whatsappLink(): Promise<LinkStatus & { denial?: WhatsappAgentDenial }> {
+  async whatsappLink(): Promise<
+    LinkStatus & { denial?: WhatsappAgentDenial; offer?: WhatsappSeatOffer }
+  > {
     const ctx = TenantContext.current();
     const status = await this.whatsappLinks.status(ctx.userId);
     /*
@@ -1692,7 +1696,21 @@ export class SettingsController {
      * נמסרת מראש, והמסך אומר מה באמת אפשר לעשות.
      */
     const denial = await this.whatsappAgentDenial();
-    return { ...status, ...(denial === null ? {} : { denial }) };
+    if (denial === null) return status;
+    /*
+     * ‎**מה אפשר לעשות עם החסימה** — ולא רק שהיא קיימת.
+     *
+     * המחיר יושב במסלול ולא כמספר גלובלי: מסלול בסיסי יכול בכוונה
+     * לא למכור מקומות נוספים, וגבוה יכול למכור בזול. `null` שם אינו
+     * „טרם הוגדר” אלא „לא נמכר כאן”, ולכן המסך מציע פנייה אנושית
+     * במקום כפתור קנייה בלי מחיר.
+     */
+    const plan = await this.plans.forTenant(ctx.tenantId);
+    return {
+      ...status,
+      denial,
+      offer: whatsappSeatOffer(plan?.whatsappSeatMonthlyAgorot ?? null),
+    };
   }
 
   /**

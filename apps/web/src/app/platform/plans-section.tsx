@@ -159,6 +159,29 @@ function planEditor(
             style={inputStyle}
           />
         </label>
+        {/*
+          ‎**המחיר לסוכן וואטסאפ נוסף — לכל מסלול בנפרד.**
+
+          מספר גלובלי אחד היה מחייב את אותו מחיר בכל המסלולים, ובדיוק
+          זה מה שאין: מסלול בסיסי יכול בכוונה לא למכור מקומות נוספים,
+          ומסלול גבוה יכול למכור אותם בזול. ריק = לא נמכר, והמסך של
+          המתווך יאמר „פנו אלינו” במקום להציג כפתור קנייה.
+        */}
+        <label className="text-sm font-semibold">
+          מחיר לסוכן וואטסאפ נוסף (₪ לחודש; ריק = לא נמכר)
+          <input
+            value={toShekels(draft.whatsappSeatMonthlyAgorot)}
+            inputMode="numeric"
+            onChange={(e) =>
+              setDraft({
+                ...draft,
+                whatsappSeatMonthlyAgorot: toAgorot(e.target.value) ?? null,
+              })
+            }
+            className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
+            style={inputStyle}
+          />
+        </label>
         <label className="text-sm font-semibold">
           מקסימום נכסים ברשת (ריק = ללא הגבלה)
           <input
@@ -333,6 +356,7 @@ export function PlansSection({
       maxUsers: 5,
       maxProperties: 100,
       maxAutomations: null,
+      whatsappSeatMonthlyAgorot: null,
       maxNetworkListings: null,
       maxNetworkDemands: null,
       features: [],

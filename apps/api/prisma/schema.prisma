@@ -1953,6 +1953,9 @@ model Plan {
   /// החינמי מוגבל כאן ולא ב-`maxProperties`.
   /// מכסת האוטומציות — כללים שנבנו + משימות קבועות. null = ללא הגבלה.
   maxAutomations     Int?      @map("max_automations")
+  /// מחיר חודשי לכל סוכן וואטסאפ נוסף, באגורות. null = לא נמכר
+  /// במסלול הזה, והמסך אומר „פנו אלינו” במקום להציג כפתור קנייה.
+  whatsappSeatMonthlyAgorot Int? @map("whatsapp_seat_monthly_agorot")
   maxNetworkListings Int?      @map("max_network_listings")
   maxNetworkDemands  Int?      @map("max_network_demands")
   features           String[]  @default([])

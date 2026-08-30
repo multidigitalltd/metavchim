@@ -5,6 +5,8 @@ import {
   WHATSAPP_AGENT_DENIAL_TEXT,
   WHATSAPP_LINK_MAX_AGE_DAYS,
   type WhatsappAgentDenial,
+  whatsappSeatOfferText,
+  type WhatsappSeatOffer,
 } from "@metavchim/shared";
 import { ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
 import { Notice } from "../notice";
@@ -41,6 +43,14 @@ interface LinkStatus {
    * הוראה לנסות שוב על בקשה שלעולם לא תצליח (ביקורת Codex).
    */
   denial?: WhatsappAgentDenial;
+  /**
+   * מה אפשר לעשות עם החסימה — מחיר לרכישה, או פנייה אנושית.
+   *
+   * המחיר יושב **במסלול**: מסלול בסיסי יכול בכוונה לא למכור מקומות
+   * נוספים, וגבוה יכול למכור בזול. „לא נמכר” אינו „טרם הוגדר”,
+   * ולכן במקום כפתור בלי מחיר מוצגת פנייה.
+   */
+  offer?: WhatsappSeatOffer;
 }
 
 function dateText(iso: string | undefined): string {
@@ -195,7 +205,12 @@ export function WhatsAppLinkSection() {
         מכשיר חייב להיות מסוגל לנתק אותו.
       */}
       {status?.denial === undefined ? null : (
-        <Notice tone="info">{WHATSAPP_AGENT_DENIAL_TEXT[status.denial]}</Notice>
+        <Notice tone="info">
+          {WHATSAPP_AGENT_DENIAL_TEXT[status.denial]}
+          {status.denial === "seat" && status.offer !== undefined ? (
+            <span className="mt-1 block">{whatsappSeatOfferText(status.offer)}</span>
+          ) : null}
+        </Notice>
       )}
 
       <div className="flex flex-wrap gap-2">

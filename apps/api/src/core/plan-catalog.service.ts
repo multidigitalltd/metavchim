@@ -11,6 +11,46 @@ import {
 import { PrismaService, type TenantTx } from "./prisma.service";
 
 /**
+ * שדות המסלול לשורה — **מקור אחד, ובדיקת קומפיילר עליו.**
+ *
+ * הרשימה הייתה משוכפלת ביד בין `upsert` ל-`retire`, ושתיהן נכתבות
+ * שדה־שדה: כל שדה חדש ב-`PlanDefinition` נוסף לעורך, לסכימה
+ * ולקריאה — ונשכח כאן. `whatsappSeatMonthlyAgorot` עשה בדיוק את
+ * זה. העורך שמר, השרת ענה „נשמר”, הקריאה ידעה להחזיר את השדה —
+ * והכתיבה השמיטה אותו, כך שהמחיר נשאר `null` לנצח (ביקורת Codex).
+ *
+ * ‎**`satisfies` הוא מה שמונע את החזרה, ולא ערנות.** שדה חסר הוא
+ * שגיאת קומפילציה כאן ועכשיו, ולא באג שמתגלה ביום שבו משרד ראשון
+ * מנסה לקנות מקום נוסף ומגלה „פנו אלינו”.
+ *
+ * ‎`code` אינו כאן: הוא מפתח ה-`where`, ולא שדה שמתעדכן.
+ */
+function planRow(plan: PlanDefinition) {
+  return {
+    name: plan.name,
+    description: plan.description,
+    monthlyPriceAgorot: plan.monthlyPriceAgorot,
+    yearlyPriceAgorot: plan.yearlyPriceAgorot,
+    maxUsers: plan.maxUsers,
+    maxProperties: plan.maxProperties,
+    maxAutomations: plan.maxAutomations,
+    whatsappSeatMonthlyAgorot: plan.whatsappSeatMonthlyAgorot,
+    maxNetworkListings: plan.maxNetworkListings,
+    maxNetworkDemands: plan.maxNetworkDemands,
+    /*
+     * הפיצ'רים עוברים ניקוי ולא נשמרים כמות שהם: קוד שאינו בקטלוג
+     * הוא טעות הקלדה, ושמירה שלו הייתה יוצרת מסלול שמבטיח משהו
+     * שאף שורת קוד לא אוכפת.
+     */
+    features: sanitizeFeatures(plan.features),
+    trialDays: plan.trialDays,
+    priceOnRequest: plan.priceOnRequest,
+    isPublic: plan.isPublic,
+    sortOrder: plan.sortOrder,
+  } satisfies Omit<PlanDefinition, "code">;
+}
+
+/**
  * קטלוג המסלולים — מקור האמת היחיד לשאלה "מה כלול במסלול".
  *
  * שתי שכבות במכוון: מה שבעל הפלטפורמה שמר בטבלה, ומעליו ברירות
@@ -210,29 +250,11 @@ export class PlanCatalogService {
   }
 
   /**
-   * שמירת הגדרת מסלול.
-   *
-   * הפיצ'רים עוברים `sanitizeFeatures` ולא נשמרים כמות שהם: קוד שאינו
-   * בקטלוג הוא טעות הקלדה, ושמירה שלו הייתה יוצרת מסלול שמבטיח משהו
-   * שאף שורת קוד לא אוכפת.
+   * שמירת הגדרת מסלול. השדות עצמם ב-`planRow`.
    */
   async upsert(plan: PlanDefinition, updatedBy: string): Promise<void> {
-    const features = sanitizeFeatures(plan.features);
     const data = {
-      name: plan.name,
-      description: plan.description,
-      monthlyPriceAgorot: plan.monthlyPriceAgorot,
-      yearlyPriceAgorot: plan.yearlyPriceAgorot,
-      maxUsers: plan.maxUsers,
-      maxProperties: plan.maxProperties,
-      maxAutomations: plan.maxAutomations,
-      maxNetworkListings: plan.maxNetworkListings,
-      maxNetworkDemands: plan.maxNetworkDemands,
-      features,
-      trialDays: plan.trialDays,
-      priceOnRequest: plan.priceOnRequest,
-      isPublic: plan.isPublic,
-      sortOrder: plan.sortOrder,
+      ...planRow(plan),
       updatedBy,
       /*
        * שמירה מחזירה מסלול פרוש לחיים. זו הדרך היחידה לבטל מחיקה —
@@ -266,20 +288,7 @@ export class PlanCatalogService {
       where: { code: plan.code },
       create: {
         code: plan.code,
-        name: plan.name,
-        description: plan.description,
-        monthlyPriceAgorot: plan.monthlyPriceAgorot,
-        yearlyPriceAgorot: plan.yearlyPriceAgorot,
-        maxUsers: plan.maxUsers,
-        maxProperties: plan.maxProperties,
-        maxAutomations: plan.maxAutomations,
-      maxNetworkListings: plan.maxNetworkListings,
-        maxNetworkDemands: plan.maxNetworkDemands,
-        features: sanitizeFeatures(plan.features),
-        trialDays: plan.trialDays,
-        priceOnRequest: plan.priceOnRequest,
-        isPublic: plan.isPublic,
-        sortOrder: plan.sortOrder,
+        ...planRow(plan),
         updatedBy: retiredBy,
         retiredAt: now,
       },
@@ -296,6 +305,7 @@ export class PlanCatalogService {
     maxUsers: number | null;
     maxProperties: number | null;
     maxAutomations: number | null;
+    whatsappSeatMonthlyAgorot: number | null;
     maxNetworkListings: number | null;
     maxNetworkDemands: number | null;
     features: string[];
@@ -313,6 +323,7 @@ export class PlanCatalogService {
       maxUsers: row.maxUsers,
       maxProperties: row.maxProperties,
       maxAutomations: row.maxAutomations,
+      whatsappSeatMonthlyAgorot: row.whatsappSeatMonthlyAgorot,
       maxNetworkListings: row.maxNetworkListings,
       maxNetworkDemands: row.maxNetworkDemands,
       // ניקוי גם בקריאה: שורה שנשמרה לפני שקוד פיצ'ר הוסר מהקטלוג
