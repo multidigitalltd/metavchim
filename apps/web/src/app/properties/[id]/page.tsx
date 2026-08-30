@@ -40,8 +40,9 @@ import {
   propertySideOnlyMissing,
 } from "../matches-empty-state";
 import { useFeature } from "@/lib/use-features";
-import { ReadinessCard, ReadinessStrip } from "./readiness-card";
-import { DetailsCard, type DetailField } from "./details-card";
+import { ReadinessCard, ReadinessStrip, type DetailField } from "./readiness-card";
+import { SuggestionsCard } from "./suggestions-card";
+
 import { PropertyTimeline } from "./property-timeline";
 import { MediaSection } from "./media-section";
 import { PropertyTwins } from "./property-twins";
@@ -687,34 +688,19 @@ export default function PropertyDetailPage({
    * במקרה מקף — וגם `data-empty`, שצובע את החוסר, היה צריך לנחש
    * לפי תוכן.
    */
+  /*
+   * ‎**רק מה שאינו ברשת המוכנות.**
+   *
+   * ‎`חדרים`, `שטח` ו„קומה” היו כאן וגם בתשעת התאים — אותו נתון
+   * פעמיים בשני כרטיסים סמוכים. אחרי המיזוג נשארו שלושת השדות
+   * שהרשת אינה מכירה: הם אינם נספרים במוכנות, ולכן אין להם תא.
+   */
   const detailFields: DetailField[] = [
     {
       label: "סוג",
       value: property.propertyType
         ? (PROPERTY_TYPE_LABELS[property.propertyType] ?? property.propertyType)
         : null,
-    },
-    {
-      label: "חדרים",
-      value: property.rooms !== undefined ? String(property.rooms) : null,
-      ltr: true,
-    },
-    {
-      label: "שטח",
-      value: property.areaSqm ? `${property.areaSqm} מ"ר` : null,
-      ltr: true,
-    },
-    {
-      label: "קומה",
-      value:
-        property.floor !== undefined
-          ? `${property.floor}${property.totalFloors ? ` מתוך ${property.totalFloors}` : ""}`
-          : null,
-      /*
-       * ‎**לא `ltr`, אף שיש בה מספרים.** „3 מתוך 8” הוא ביטוי עברי
-       * שמכיל ספרות, ובידודו ל-LTR היה הופך אותו ל„8 מתוך 3”.
-       * הדגל שייך למספר עצמו, לא לכל דבר שיש בו ספרה.
-       */
     },
     {
       label: "כניסה / מסירה",
@@ -977,51 +963,17 @@ export default function PropertyDetailPage({
             עריכה
           </Link>
           {/*
-            מחיקה ליד עריכה — שם מחפשים אותה. היא נשארת בשני
-            שלבים: לחיצה ראשונה שואלת, שנייה מבצעת. נכס פעיל
-            עובר לארכיון וניתן לשחזור, ורק נכס שכבר בארכיון
-            נמחק לצמיתות — ולכן גם הניסוח משתנה, ואינו מבטיח
-            "מחיקה" למשהו שהוא שחזיר.
+            ‎**המחיקה אינה כאן עוד — היא ב„פעולות נוספות” שבסקירה.**
+
+            היא ישבה כאן **וגם** שם, שני כפתורים לאותה פעולה הרסנית
+            על אותו מסך. הכותרת נשארת לארבע הפעולות היומיומיות, ומה
+            שעושים פעם אחת בחיי הנכס יושב במקום אחד.
+
+            ‎**המחיר:** הכותרת נראית בכל הלשוניות והכרטיס רק בסקירה,
+            ולכן המחיקה דורשת חזרה לסקירה. זו הכרעת בעל המוצר,
+            והיא נכונה: מוחקים נכס מהמסך שמתאר אותו, לא מלשונית
+            ההסכמים.
           */}
-          <button
-            type="button"
-            /*
-              מסגרת רגילה שנכנסת לאדום-חמרה בריחוף, ואדומה במנוחה רק
-              אחרי הלחיצה הראשונה — אז זה כבר מצב „ממתין לאישור” ולא
-              אזהרה. הצבע יושב במחלקה ולא בשורה, כדי שמצב הניגודיות
-              הגבוהה יוכל לגבור עליו.
-            */
-            className={
-              archiveConfirm || purgeConfirm
-                ? "mv-btn-plain mv-btn-plain--danger"
-                : "mv-btn-plain mv-btn-plain--danger-hover"
-            }
-            style={HEADER_ACTION}
-            onClick={() => void (property.archived ? purge() : archive())}
-          >
-            {property.archived
-              ? purgeConfirm
-                ? "למחוק לצמיתות?"
-                : "מחיקה לצמיתות"
-              : archiveConfirm
-                ? "להעביר לארכיון?"
-                : "מחיקה"}
-          </button>
-          {archiveConfirm || purgeConfirm ? (
-            <button
-              type="button"
-              className="mv-btn-plain"
-              style={HEADER_ACTION}
-              onClick={() => {
-                setArchiveConfirm(false);
-                setPurgeConfirm(false);
-                // הבדיקה שבאוויר לא תכתוב על מסך שכבר בוטל
-                purgeSeq.current += 1;
-              }}
-            >
-              ביטול
-            </button>
-          ) : null}
         </div>
 
         {/*
@@ -1050,29 +1002,6 @@ export default function PropertyDetailPage({
           בין שתי הלחיצות, כלומר לפני שהמחיקה בוצעה ובזמן שעוד אפשר
           לבטל. „נמחק גם X” אחרי המעשה אינו אזהרה אלא הודעת ניחומים.
         */}
-        {purgeConfirm && purgeImpact !== "loading" && purgeImpact !== 0 ? (
-          <p
-            role="status"
-            className="m-0 mt-3 rounded-lg px-3 py-2 text-sm"
-            /*
-              טוקנים ולא ערכים ישירים (#266). ערך ישיר מקפיא את שלוש
-              הערכות — בהיר, כהה, וניגודיות גבוהה — ולכן מי שהדליק
-              ניגודיות גבוהה פשוט אינו מקבל אותה. זו האזהרה שאומרת
-              „יימחק גם כרטיס לקוח”, כלומר בדיוק המקום שבו זה חשוב.
-            */
-            style={{
-              background: "var(--color-danger-soft)",
-              border: "1px solid var(--color-danger)",
-              color: "var(--color-danger)",
-            }}
-          >
-            {purgeImpact === "unknown"
-              ? "לא הצלחנו לבדוק אם יימחקו גם כרטיסי לקוח — בדקו לפני המחיקה"
-              : purgeImpact === 1
-                ? "יימחק גם כרטיס לקוח אחד, שהנכס הזה הוא הקישור היחיד אליו — כולל שם, טלפונים והיסטוריית התקשורת"
-                : `יימחקו גם ${purgeImpact} כרטיסי לקוח, שהנכס הזה הוא הקישור היחיד אליהם — כולל שם, טלפונים והיסטוריית התקשורת`}
-          </p>
-        ) : null}
 
         {landingUrl ? (
           <p
@@ -1167,6 +1096,7 @@ export default function PropertyDetailPage({
               propertyId={id}
               property={property}
               onSelectTab={selectTab}
+              extraFields={detailFields}
               onScrollToSection={(sectionId) => {
                 /*
                   שני פריימים ולא אחד: `selectTab` מרכיב את הפאנל, והעוגן
@@ -1179,11 +1109,6 @@ export default function PropertyDetailPage({
                     ?.scrollIntoView({ behavior: "smooth", block: "start" });
                 });
               }}
-            />
-
-            <DetailsCard
-              fields={detailFields}
-              {...(canEditOwner ? { editHref: `/properties/${id}/edit` } : {})}
             />
 
             {/*
@@ -1273,58 +1198,141 @@ export default function PropertyDetailPage({
               <MediaSection propertyId={id} address={address} onMediaChanged={loadProperty} />
             </section>
 
-            <button
-              type="button"
-              className="mv-btn-plain self-start"
-              style={{
-                color: archiveConfirm
-                  ? "var(--color-danger)"
-                  : "var(--color-text-muted)",
+            {/*
+              ‎**„מה כדאי להשלים” — הסיבה, ולא רק החוסר.**
+
+              הרשת אומרת „חסר” והרצועה אומרת „7 שדות חסרים”; שתיהן
+              מדווחות מצב, ואף אחת אינה עונה על „למה שאכפת לי”. זו
+              השאלה שמכריעה אם ממלאים או ממשיכים הלאה.
+            */}
+            <SuggestionsCard
+              propertyId={id}
+              missingFields={property.missingFields}
+              onSelectTab={selectTab}
+              onScrollToSection={(sectionId) => {
+                requestAnimationFrame(() => {
+                  document
+                    .getElementById(sectionId)
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                });
               }}
-              onClick={() => void archive()}
-            >
-              {archiveConfirm ? "לאשר העברה לארכיון?" : "העבר לארכיון"}
-            </button>
-            {archiveConfirm ? (
-              <button
-                type="button"
-                className="mv-btn-plain self-start"
-                onClick={() => setArchiveConfirm(false)}
-              >
-                ביטול
-              </button>
-            ) : null}
+            />
+
+            {/*
+              ‎**„פעולות נוספות” — כרטיס אחד, אחרי שהיו שני מקומות.**
+
+              הארכיון והמחיקה ישבו גם כאן כפתורים חשופים בתחתית הטור
+              **וגם** בשורת הפעולות שבכותרת. שני מקומות לאותה פעולה
+              הרסנית הם שני מקומות שיכולים להיפרד, ומתווך שמחפש
+              „איפה מוחקים” מוצא תשובה אחת בכל פעם. הכותרת נשארה
+              לארבע הפעולות היומיומיות, וכאן יושב מה שעושים פעם.
+            */}
+            <section className="mv-card" aria-labelledby="extra-actions-heading">
+              <div className="mv-card-head">
+                <h2 id="extra-actions-heading" className="mv-card-head__title">
+                  פעולות נוספות
+                </h2>
+              </div>
+
+              <div className="flex flex-col gap-2.5">
+                <button
+                  type="button"
+                  className="mv-btn-plain"
+                  onClick={() => selectTab("network")}
+                >
+                  שיתוף לרשת המשרדים
+                </button>
+
+                <button
+                  type="button"
+                  className="mv-btn-plain"
+                  style={{
+                    color: archiveConfirm
+                      ? "var(--color-danger)"
+                      : "var(--color-text-muted)",
+                  }}
+                  onClick={() => void archive()}
+                >
+                  {archiveConfirm ? "לאשר העברה לארכיון?" : "העבר לארכיון"}
+                </button>
+                {archiveConfirm ? (
+                  <button
+                    type="button"
+                    className="mv-btn-plain"
+                    onClick={() => setArchiveConfirm(false)}
+                  >
+                    ביטול
+                  </button>
+                ) : null}
 
             {/*
               מחיקה לצמיתות מוצגת רק לנכס שכבר בארכיון: שני שלבים
               נפרדים, כדי שנכס פעיל לא ייעלם בלחיצה אחת.
             */}
-            {property.archived ? (
-              <>
-                <button
-                  type="button"
-                  className="mv-btn-plain self-start"
-                  style={{ color: "var(--color-danger)" }}
-                  onClick={() => void purge()}
-                >
-                  {purgeConfirm
-                    ? "לאשר מחיקה לצמיתות? התמונות יימחקו גם מהאחסון"
-                    : "מחק לצמיתות"}
-                </button>
-                {purgeConfirm ? (
-                  <button
-                    type="button"
-                    className="mv-btn-plain self-start"
-                    onClick={() => setPurgeConfirm(false)}
-                  >
-                    ביטול
-                  </button>
+                {property.archived ? (
+                  <>
+                    <button
+                      type="button"
+                      className="mv-btn-plain"
+                      style={{ color: "var(--color-danger)" }}
+                      onClick={() => void purge()}
+                    >
+                      {purgeConfirm
+                        ? "לאשר מחיקה לצמיתות? התמונות יימחקו גם מהאחסון"
+                        : "מחיקת נכס"}
+                    </button>
+                    {purgeConfirm ? (
+                      <button
+                        type="button"
+                        className="mv-btn-plain"
+                        onClick={() => {
+                          setPurgeConfirm(false);
+                          /*
+                            ‎**קידום המונה שייך לביטול, ולא לכפתור.**
+
+                            הוא ישב בכפתור הביטול שבכותרת, וזה שנמחק
+                            כשהמחיקה עברה לכאן. בלעדיו בדיקה שכבר
+                            באוויר כותבת `purgeImpact` אחרי הביטול,
+                            והפתיחה הבאה מציגה אזהרה של מחיקה קודמת.
+                          */
+                          purgeSeq.current += 1;
+                        }}
+                      >
+                        ביטול
+                      </button>
+                    ) : null}
+                    {/*
+                      ‎**האזהרה צמודה לכפתור שהיא מזהירה עליו.**
+
+                      היא ישבה בשורת הפעולות שבכותרת, ומרגע שהמחיקה
+                      עברה לכאן היא הייתה מופיעה במרחק מסך מהכפתור
+                      שגרם לה — כלומר גילוי שאפשר לפספס בדיוק ברגע
+                      שבו הוא נחוץ.
+                    */}
+                    {purgeConfirm && purgeImpact !== "loading" && purgeImpact !== 0 ? (
+                      <p
+                        role="status"
+                        className="m-0 rounded-lg px-3 py-2 text-sm"
+                        style={{
+                          background: "var(--color-danger-soft)",
+                          border: "1px solid var(--color-danger)",
+                          color: "var(--color-danger)",
+                        }}
+                      >
+                        {purgeImpact === "unknown"
+                          ? "לא הצלחנו לבדוק אם יימחקו גם כרטיסי לקוח — בדקו לפני המחיקה"
+                          : purgeImpact === 1
+                            ? "יימחק גם כרטיס לקוח אחד, שהנכס הזה הוא הקישור היחיד אליו — כולל שם, טלפונים והיסטוריית התקשורת"
+                            : `יימחקו גם ${purgeImpact} כרטיסי לקוח, שהנכס הזה הוא הקישור היחיד אליהם — כולל שם, טלפונים והיסטוריית התקשורת`}
+                      </p>
+                    ) : null}
+                    {purgeError !== null ? (
+                      <Notice tone="danger">{purgeError}</Notice>
+                    ) : null}
+                  </>
                 ) : null}
-                {purgeError !== null ? (
-                  <Notice tone="danger">{purgeError}</Notice>
-                ) : null}
-              </>
-            ) : null}
+              </div>
+            </section>
           </div>
         </div>
       </TabPanel>

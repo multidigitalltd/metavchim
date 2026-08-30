@@ -16,6 +16,25 @@ import {
 import { IconCheck, IconTarget } from "../../icons";
 
 /**
+ * שדה שאינו נספר במוכנות. `value: null` = חסר, ומוצג כמקף.
+ *
+ * ‎**המקף הוא תצוגה, ולא הערך.** „Missing value prints an em dash —
+ * never an empty cell” (SPEC-3c §5): תא ריק נראה כמו תקלת טעינה,
+ * ומקף אומר „נבדק, ואין”. `null` בקוד ולא המחרוזת „—”, אחרת אי
+ * אפשר להבדיל בין שדה חסר לשדה שערכו במקרה מקף.
+ *
+ * ‎`ltr` מסומן על השדה ואינו נגזר מהתוכן: „3 מתוך 8” הוא ביטוי
+ * עברי שמכיל ספרות, ובידודו היה הופך אותו ל„8 מתוך 3”.
+ */
+export interface DetailField {
+  label: string;
+  value: string | null;
+  /** מספרים, מידות ותאריכים — DESIGN-SYSTEM-4. */
+  ltr?: boolean;
+}
+
+
+/**
  * ‎**כרטיס המוכנות — SPEC-3b §4.**
  *
  * „The first card of the tab, and the reason the screen exists: it names
@@ -132,7 +151,7 @@ function fieldValue(
  * לתקן, מהכפתור הבולט ביותר בעמוד (ביקורת Codex). הכפתור מכוון
  * עכשיו לחוסר הראשון, דרך אותה פונקציה שמפעילה את תשע הגלולות.
  */
-function openReadinessField({
+export function openReadinessField({
   router,
   propertyId,
   field,
@@ -265,6 +284,16 @@ export function ReadinessStrip({
 export function ReadinessCard({
   propertyId,
   property,
+  /**
+   * ‎**מה שאינו נספר במוכנות ובכל זאת שייך לכרטיס.**
+   *
+   * הרשת מציגה את תשעת שדות המוכנות בלבד — זה מה שמגדיר את הציון,
+   * ותא עשירי היה שובר את „מספר אחד, תשעה שדות” (#247). אבל לנכס
+   * יש שדות שאינם נספרים: סוג הנכס, מועד הכניסה והמאפיינים. הם
+   * ישבו בכרטיס נפרד שנשא את אותה כותרת בדיוק, ולכן מוזגו לכאן —
+   * מתחת לרשת, כרשימת הגדרות.
+   */
+  extraFields,
   /** מעבר ללשונית אחרת בכרטיס — פעולה בתוך הדף, לא ניווט. */
   onSelectTab,
   /** גלילה לסעיף בלשונית הסקירה, אחרי שהיא נבחרה. */
@@ -272,6 +301,7 @@ export function ReadinessCard({
 }: {
   propertyId: string;
   property: ReadinessCardProperty;
+  extraFields: DetailField[];
   onSelectTab: (tab: string) => void;
   onScrollToSection: (id: string) => void;
 }) {
@@ -324,16 +354,14 @@ export function ReadinessCard({
           }}
         >
           {/*
-            ‎**לא „פרטי הנכס”** — הכותרת הזו כבר תפוסה.
+            ‎**כרטיס אחד, אחרי שהיו שניים.**
 
-            המוקאפ מראה כרטיס אחד בשם „פרטי הנכס” ובו תשעת התאים,
-            אבל בעמוד יושב מתחת `DetailsCard` שנושא בדיוק את השם
-            הזה (SPEC-3c §5) ומציג חלק מאותם שדות. שתי כותרות זהות
-            צמודות הן כפילות גם למי שקורא וגם לקורא מסך.
-            המיזוג ביניהם הוא הכרעת מוצר: הוא מוריד את שורת
-            „מאפיינים”, שאינה בתשעת התאים.
+            ‎`DetailsCard` נשא את אותה כותרת בדיוק (SPEC-3c §5) וישב
+            מיד מתחת, עם ארבעה שדות שכבר מופיעים ברשת. שלושת השדות
+            שהיו רק שם — סוג, כניסה/מסירה ומאפיינים — עברו לכאן
+            כ-`extraFields`, ולכן המיזוג אינו מוריד דבר.
           */}
-          מוכנות הנכס
+          פרטי הנכס
         </h2>
         {/*
           ‎**הספירה בכותרת, והאחוז ברצועה שבראש העמוד.**
@@ -519,6 +547,30 @@ export function ReadinessCard({
           );
         })}
       </dl>
+
+      {/*
+        ‎**מתחת לרשת, ולא בתוכה.** אלה שדות שאינם נספרים במוכנות,
+        ולכן אין להם תא עם גלולת „להשלים” — הצורה שלהם היא רשימת
+        הגדרות, וערך חסר בה הוא מקף („נבדק, ואין”) ולא תא ריק.
+      */}
+      {extraFields.length === 0 ? null : (
+        <dl className="mv-deflist mt-[15px]">
+          {extraFields.map((field) => (
+            <div className="mv-deflist__row" key={field.label}>
+              <dt className="mv-deflist__label">{field.label}</dt>
+              <dd
+                className="mv-deflist__value"
+                data-empty={field.value === null ? "true" : undefined}
+                {...(field.ltr && field.value !== null
+                  ? { dir: "ltr" as const, style: { unicodeBidi: "isolate" as const } }
+                  : {})}
+              >
+                {field.value ?? "—"}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </section>
   );
 }
