@@ -155,6 +155,8 @@ interface PlatformSettings {
       intakeTemplateButton?: boolean;
       viewingReminderTemplate?: string;
       viewingReminderTemplateLang?: string;
+      /** התבנית נושאת חמישה שדות; חסר = נוסח אחד */
+      viewingReminderTemplateFields?: boolean;
       emailReplyTemplate?: string;
       emailReplyTemplateLang?: string;
     };
@@ -385,6 +387,7 @@ export function PlatformSettingsSection({
       // תיבת סימון שאינה מסומנת אינה מופיעה ב-FormData כלל — היעדר הוא "כבוי"
       const notifyTemplateButton = f.get("whatsappNotifyTemplateButton") !== null;
       const intakeTemplateButton = f.get("whatsappIntakeTemplateButton") !== null;
+      const reminderTemplateFields = f.get("whatsappViewingReminderTemplateFields") !== null;
       const reminderTemplate = String(f.get("whatsappViewingReminderTemplate") ?? "").trim();
       const reminderTemplateLang = String(
         f.get("whatsappViewingReminderTemplateLang") ?? "",
@@ -411,6 +414,7 @@ export function PlatformSettingsSection({
         whatsappIntakeTemplateButton: intakeTemplateButton,
         whatsappViewingReminderTemplate: reminderTemplate,
         whatsappViewingReminderTemplateLang: reminderTemplateLang,
+        whatsappViewingReminderTemplateFields: reminderTemplateFields,
         whatsappEmailReplyTemplate: emailReplyTemplate,
         whatsappEmailReplyTemplateLang: emailReplyTemplateLang,
       });
@@ -1762,10 +1766,10 @@ export function PlatformSettingsSection({
             </label>
             <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
               הלקוח לא כתב לנו, ולכן הוא מחוץ לחלון 24 השעות שבו טקסט חופשי
-              מותר. נדרשת תבנית מסוג Utility עם <b>משתנה אחד</b> בגוף בשם
-              ‎{"{{reminder_text}}"}‎ — הודעת התזכורת שהמשרד ניסח. בלי תבנית
-              מוגדרת מי שאין לו מייל מגיע כמשימה לסוכן. <b>בלי כפתור</b>:
-              הנמען הוא לקוח, ואין לו מה לפתוח במערכת.
+              מותר. נדרשת תבנית מסוג Utility, ויש לה <b>שתי צורות</b> — סמנו
+              למטה איזו מהן נרשמה בפועל, אחרת ההודעה תידחה אצל Meta בשקט.
+              בלי תבנית מוגדרת מי שאין לו מייל מגיע כמשימה לסוכן.{" "}
+              <b>בלי כפתור</b>: הנמען הוא לקוח, ואין לו מה לפתוח במערכת.
             </p>
             <div className="flex flex-wrap gap-2">
               <input
@@ -1790,6 +1794,41 @@ export function PlatformSettingsSection({
                 style={inputStyle}
               />
             </div>
+            {/*
+              ‎**איזו צורה נרשמה — הגדרה ולא ניחוש.**
+
+              מאחורי השם השמור עומדת תבנית שאושרה עם חוזה מסוים.
+              מעבר שקט לשדות היה שולח חמישה שמות לתבנית שיש בה אחד,
+              ‎Meta הייתה דוחה, ובערוץ „שניהם” המייל מצליח — ולכן גם
+              לא נפתחת משימה, והתזכורת בוואטסאפ נעלמת בלי סימן.
+            */}
+            <label className="mt-2 flex items-start gap-2">
+              <input
+                id="whatsappViewingReminderTemplateFields"
+                name="whatsappViewingReminderTemplateFields"
+                type="checkbox"
+                className="mt-1"
+                key={`rfields-${String(settings.whatsapp.assistant.viewingReminderTemplateFields)}`}
+                defaultChecked={
+                  settings.whatsapp.assistant.viewingReminderTemplateFields ?? false
+                }
+              />
+              <span>
+                התבנית נושאת <b>חמישה שדות</b> ולא נוסח אחד{" "}
+                <span className="font-normal">
+                  (‎{"{{customer_name}}"}‎, ‎{"{{visit_date}}"}‎,
+                  ‎{"{{visit_time}}"}‎, ‎{"{{visit_address}}"}‎,
+                  ‎{"{{office_name}}"}‎ — מומלץ: Meta מסווגת כ-Marketing תבנית
+                  שגופה משתנה יחיד, כי היא אינה יכולה לקרוא אותה. הנוסח
+                  שניסחתם באוטומציות ממשיך לצאת <b>במייל</b> כלשונו.)
+                </span>
+                <br />
+                <span className="font-normal">
+                  לא מסומן = נוסח אחד ‎{"{{reminder_text}}"}‎ — הצורה שנרשמה עד
+                  היום.
+                </span>
+              </span>
+            </label>
           </div>
           <div className="mb-3">
             <label htmlFor="whatsappEmailReplyTemplate" className="mb-1 block font-medium">

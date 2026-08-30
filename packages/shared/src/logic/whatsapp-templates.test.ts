@@ -49,17 +49,56 @@ describe("ערכי התבנית נושאים שמות", () => {
    * זה לא מקרה קצה תיאורטי אלא מה שקורה כשמשרד מעצב לעצמו הודעה.
    */
   it("ערך רב-שורתי מיושר לשורה אחת", () => {
-    const [param] = whatsappTemplateParams("viewingReminder", [
-      "היי דנה,\nמזכירים שמחר ב-17:30\n\nנתראה!",
-    ]);
-    expect(param?.text).toBe("היי דנה, מזכירים שמחר ב-17:30 נתראה!");
+    const [param] = whatsappTemplateParams("emailReply", ["דנה\nכהן\n\nלוי"]);
+    expect(param?.text).toBe("דנה כהן לוי");
   });
 
   /* גוף התבנית מוגבל ל-1024 תווים, וחריגה פוסלת — לא מקצרת */
   it("ערך ארוך נחתך ואינו פוסל את ההודעה", () => {
-    const [param] = whatsappTemplateParams("viewingReminder", ["א".repeat(2000)]);
+    const [param] = whatsappTemplateParams("emailReply", ["א".repeat(2000)]);
     expect(param?.text.length).toBeLessThanOrEqual(900);
     expect(param?.text.endsWith("…")).toBe(true);
+  });
+
+  /*
+   * ‎**התזכורת נשלחת בשדות, ולא כנוסח אחד.**
+   *
+   * משתנה יחיד שמכיל את כל ההודעה אינו קריא ל-Meta, והיא מסווגת מה
+   * שאינה מבינה כ-Marketing — כלומר תזכורת לפגישה, השירותית
+   * שבהודעות, נחסמת כדיוור. חזרה למשתנה אחד מפילה את הבדיקה הזאת.
+   */
+  it("תזכורת הסיור בשדות — כשזו התבנית שנרשמה", () => {
+    const params = whatsappTemplateParams("viewingReminderFields", [
+      "דנה",
+      "27/08",
+      "17:30",
+      "הרצל 12, רעננה",
+      'נדל"ן רעננה',
+    ]);
+    expect(params.map((p) => p.parameter_name)).toEqual([
+      "customer_name",
+      "visit_date",
+      "visit_time",
+      "visit_address",
+      "office_name",
+    ]);
+    expect(params[2]?.text).toBe("17:30");
+  });
+
+  /*
+   * ‎**החוזה הישן נשאר, ואינו „מוחלף בשקט”.**
+   *
+   * מאחורי שם התבנית ששמור בהגדרות עומדת תבנית שאושרה ב-Meta עם
+   * משתנה אחד. שליחת חמישה שמות אחרים אליה נדחית — ובערוץ „שניהם”
+   * המייל מצליח, ולכן גם לא נפתחת משימה לסוכן: התזכורת בוואטסאפ
+   * נעלמת בלי שאיש יידע (ביקורת Codex, P1). מחיקת הצורה הישנה מכאן
+   * מפילה את הבדיקה הזאת.
+   */
+  it("הצורה הישנה — נוסח אחד — נשמרת", () => {
+    expect(WHATSAPP_TEMPLATE_PARAMS.viewingReminder).toEqual(["reminder_text"]);
+    expect(whatsappTemplateParams("viewingReminder", ["היי דנה, מחר ב-17:30"])).toEqual([
+      { type: "text", parameter_name: "reminder_text", text: "היי דנה, מחר ב-17:30" },
+    ]);
   });
 
   /* ‏Meta דוחה ערך ריק; רווח יחיד עובר ומשאיר את ההודעה חסרה אך נמסרת */
