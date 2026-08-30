@@ -2660,6 +2660,14 @@ model SupportTicket {
   userId        String    @map("user_id") @db.Char(26)
   userName      String    @map("user_name") @db.VarChar(120)
   userEmail     String    @map("user_email") @db.VarChar(254)
+  /**
+   * הטלפון של מי שפנה — נלקח מהפרופיל ברגע הפתיחה.
+   *
+   * תקלה חוסמת נסגרת בשיחה, לא בשרשור מיילים. בלי המספר על הפנייה
+   * התמיכה נאלצה לחפש את המשתמש בנפרד, וזה בדיוק החיכוך שגורם
+   * להסתפק במייל. ריק = לא היה טלפון בפרופיל.
+   */
+  userPhone     String?   @map("user_phone") @db.VarChar(32)
   /// bug | idea | question | billing
   kind          String    @db.VarChar(20)
   message       String    @db.VarChar(2000)
@@ -2684,9 +2692,66 @@ model SupportTicket {
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
+  messages SupportTicketMessage[]
+
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([status, createdAt(sort: Desc)])
   @@map("support_tickets")
+}
+
+/**
+ * הודעה בתוך פנייה מהכפתור — **השיחה, ולא „התשובה האחרונה”.**
+ *
+ * ‎`SupportTicket.reply` הוא עמודה בודדת: תשובה שנייה דרסה את
+ * הראשונה. הוא נשאר לתאימות ומוזן מההודעה האחרונה, אבל מה שמוצג
+ * ומה שנשלח נגזר מכאן.
+ *
+ * ‎`sendState` הוא מה שהיה חסר בכלל: בלי שורה שאפשר לסמן עליה
+ * ‏„נשלח” או „נכשל”, שליחה שנדחתה נעטפה ב-catch ונרשמה כאזהרה —
+ * והמסך הציג „נענה” על מייל שלא יצא.
+ */
+model SupportTicketMessage {
+  id        String   @id @db.Char(26)
+  ticketId  String   @map("ticket_id") @db.Char(26)
+  /// נשמר על ההודעה ולא נגזר מהפנייה: פוליסת RLS אינה יכולה להצטרף לטבלה אחרת.
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  /// in = מה שהמשרד כתב, out = מה שהתמיכה השיבה
+  direction String   @db.VarChar(3)
+  body      String   @db.VarChar(20000)
+  /// pending | sent | failed | unknown. null = הודעה נכנסת, אין מה לשלוח.
+  sendState String?  @map("send_state") @db.VarChar(10)
+  createdBy String?  @map("created_by") @db.Char(26)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  ticket      SupportTicket              @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  attachments SupportTicketAttachment[]
+
+  @@index([ticketId, createdAt])
+  @@map("support_ticket_messages")
+}
+
+/** צירוף על תשובת התמיכה — אותה מכניקה של `SupportAttachment`. */
+model SupportTicketAttachment {
+  id          String    @id @db.Char(26)
+  messageId   String    @map("message_id") @db.Char(26)
+  tenantId    String    @map("tenant_id") @db.Char(26)
+  /// מקומו של הקובץ בהודעה — שני כותבים מקבילים גוזרים ממנו אותו מפתח אחסון.
+  ordinal     Int?
+  /// image | video | file
+  kind        String    @db.VarChar(10)
+  name        String    @db.VarChar(200)
+  contentType String    @map("content_type") @db.VarChar(100)
+  sizeBytes   Int       @map("size_bytes")
+  s3Key       String    @map("s3_key") @db.VarChar(300)
+  /// null = השורה נתבעה וטרם הועלתה. צירוף שטרם הועלה אינו מוצג.
+  uploadedAt  DateTime? @map("uploaded_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  message SupportTicketMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, ordinal])
+  @@index([messageId])
+  @@map("support_ticket_attachments")
 }
 
 /// אוטומציה שהמשרד בנה בעצמו: טריגר, תנאים, פעולה.

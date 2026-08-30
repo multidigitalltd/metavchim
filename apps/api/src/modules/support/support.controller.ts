@@ -9,15 +9,20 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   StreamableFile,
   UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from "@nestjs/common";
-import { FileInterceptor } from "@nestjs/platform-express";
+import { FileInterceptor, FilesInterceptor } from "@nestjs/platform-express";
+import type { Response } from "express";
 import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
 import {
+  EMAIL_ATTACHMENT_MAX_BYTES,
+  EMAIL_ATTACHMENT_MAX_COUNT,
   IdSchema,
   MAX_SUPPORT_MESSAGE,
   MAX_SUPPORT_REPLY,
@@ -40,6 +45,7 @@ import {
   SupportService,
   type SupportTicketAdminDto,
   type SupportTicketDto,
+  type SupportTicketListDto,
 } from "./support.service";
 
 /**
@@ -235,7 +241,7 @@ export class SupportDeskController {
   @PlatformAdmin()
   list(
     @Query("status") status?: string,
-  ): Promise<SupportTicketAdminDto[]> {
+  ): Promise<SupportTicketListDto[]> {
     const parsed = SUPPORT_STATUSES.find((s) => s === status);
     return this.support.listForDesk(parsed === undefined ? {} : { status: parsed });
   }
@@ -246,13 +252,49 @@ export class SupportDeskController {
     return this.support.oneForDesk(id);
   }
 
+  /*
+   * ‎`Patch` נשמר ולא הוחלף ב-`Post`: הוא כבר בשימוש, והחוזה לא
+   * השתנה — נוספו קבצים אופציונליים ושדה `state` בתשובה. לקוח
+   * שממשיך לשלוח JSON בלי קבצים מקבל בדיוק את מה שקיבל.
+   */
   @Patch("tickets/:id")
   @PlatformAdmin()
+  @UseInterceptors(
+    FilesInterceptor("files", EMAIL_ATTACHMENT_MAX_COUNT, {
+      limits: { fileSize: EMAIL_ATTACHMENT_MAX_BYTES },
+    }),
+  )
   respond(
     @Param("id", IdParam) id: string,
     @Body(new ZodValidationPipe(RespondSchema)) body: z.infer<typeof RespondSchema>,
-  ): Promise<{ ok: true }> {
-    return this.support.respond(id, body);
+    @UploadedFiles()
+    files:
+      | { buffer: Buffer; originalname: string; mimetype: string; size: number }[]
+      | undefined,
+  ): Promise<{ ok: true; state?: "sent" | "unknown" }> {
+    return this.support.respond(id, { ...body, files: files ?? [] });
+  }
+
+  /**
+   * צירוף בתשובת התמיכה.
+   *
+   * ‎`Content-Disposition: attachment` על קובץ שאינו תמונה או וידאו:
+   * דפדפן שמרנדר PDF או HTML מתוך הדומיין שלנו הוא בדיוק המקום שבו
+   * צירוף הופך לנשק. תמונות מוצגות, השאר יורד.
+   */
+  @Get("tickets/attachments/:id/raw")
+  @PlatformAdmin()
+  @Header("Cache-Control", "private, max-age=600")
+  async replyAttachment(
+    @Param("id", IdParam) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const object = await this.support.replyAttachment(id);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename*=UTF-8''${encodeURIComponent(object.name)}`,
+    );
+    return new StreamableFile(object.body as never, { type: object.contentType });
   }
 
   @Get("tickets/:id/screenshot")

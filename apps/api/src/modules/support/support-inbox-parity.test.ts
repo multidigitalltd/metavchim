@@ -70,9 +70,16 @@ describe("תיבת התמיכה מול תיבת הלקוחות", () => {
   it("מצב השליחה מגיע למסך בשתי התיבות — וגם מוצג", () => {
     expect(SUPPORT).toMatch(/sendState\?: string;/u);
     expect(SUPPORT).toMatch(/message\.sendState === null \? \{\} : \{ sendState: message\.sendState \}/u);
-    expect(SUPPORT_WEB).toMatch(/sendState\?: string;/u);
+    expect(SUPPORT_WEB).toMatch(/sendState\?: string \| null;/u);
     expect(SUPPORT_WEB).toContain("function sendStateNote(");
-    expect(SUPPORT_WEB).toContain("sendStateNote(message.sendState)");
+    /*
+     * הקריאה עברה לרכיב `Conversation` המשותף, שמציג את שני מקורות
+     * הפניות. `?? undefined` הוא הגישור בין `null` שמגיע מהשרת
+     * לחתימה שמקבלת `undefined` — הכוונה נשמרה: המצב מוצג, ובמקום
+     * אחד לשניהם.
+     */
+    expect(SUPPORT_WEB).toContain("sendStateNote(message.sendState ?? undefined)");
+    expect(SUPPORT_WEB).toContain("<Conversation");
     // אותן מילים כמו בתיבת הלקוחות — הפעולה הנדרשת זהה
     expect(SUPPORT_WEB).toContain("לא ידוע אם נשלחה — בדקו לפני שליחה חוזרת");
   });
