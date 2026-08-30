@@ -451,18 +451,31 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
        */
       const template = await this.settings.get("whatsappViewingReminderTemplate");
       const lang = (await this.settings.get("whatsappViewingReminderTemplateLang")) ?? "he";
+      /*
+       * ‎**איזו תבנית נרשמה בפועל — הגדרה, לא הנחה.**
+       *
+       * מאחורי השם השמור עומדת תבנית שאושרה ב-Meta עם חוזה מסוים.
+       * מעבר שקט לשדות היה שולח חמישה שמות לתבנית שיש בה אחד, Meta
+       * הייתה דוחה, ובערוץ „שניהם” המייל מצליח ולכן `deliver` מחזיר
+       * ‎`true` ולא נפתחת משימה — כלומר התזכורת בוואטסאפ נעלמת בלי
+       * שאיש יידע (ביקורת Codex, P1). ברירת המחדל היא הנוסח האחד.
+       */
+      const fields =
+        (await this.settings.get("whatsappViewingReminderTemplateFields")) === "true";
       if (template !== undefined && template !== "") {
         const ok = await this.whatsapp.sendTemplate(
           recipient.phone,
           template,
           lang,
-          whatsappTemplateParams("viewingReminder", [
-            vars["שם"],
-            vars["תאריך"],
-            vars["שעה"],
-            vars["כתובת"],
-            vars["משרד"],
-          ]),
+          fields
+            ? whatsappTemplateParams("viewingReminderFields", [
+                vars["שם"],
+                vars["תאריך"],
+                vars["שעה"],
+                vars["כתובת"],
+                vars["משרד"],
+              ])
+            : whatsappTemplateParams("viewingReminder", [body]),
         );
         if (ok) delivered = true;
       }

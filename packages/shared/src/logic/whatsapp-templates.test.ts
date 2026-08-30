@@ -67,15 +67,8 @@ describe("ערכי התבנית נושאים שמות", () => {
    * שאינה מבינה כ-Marketing — כלומר תזכורת לפגישה, השירותית
    * שבהודעות, נחסמת כדיוור. חזרה למשתנה אחד מפילה את הבדיקה הזאת.
    */
-  it("תזכורת הסיור נושאת שדות נפרדים", () => {
-    expect(WHATSAPP_TEMPLATE_PARAMS.viewingReminder).toEqual([
-      "customer_name",
-      "visit_date",
-      "visit_time",
-      "visit_address",
-      "office_name",
-    ]);
-    const params = whatsappTemplateParams("viewingReminder", [
+  it("תזכורת הסיור בשדות — כשזו התבנית שנרשמה", () => {
+    const params = whatsappTemplateParams("viewingReminderFields", [
       "דנה",
       "27/08",
       "17:30",
@@ -90,6 +83,22 @@ describe("ערכי התבנית נושאים שמות", () => {
       "office_name",
     ]);
     expect(params[2]?.text).toBe("17:30");
+  });
+
+  /*
+   * ‎**החוזה הישן נשאר, ואינו „מוחלף בשקט”.**
+   *
+   * מאחורי שם התבנית ששמור בהגדרות עומדת תבנית שאושרה ב-Meta עם
+   * משתנה אחד. שליחת חמישה שמות אחרים אליה נדחית — ובערוץ „שניהם”
+   * המייל מצליח, ולכן גם לא נפתחת משימה לסוכן: התזכורת בוואטסאפ
+   * נעלמת בלי שאיש יידע (ביקורת Codex, P1). מחיקת הצורה הישנה מכאן
+   * מפילה את הבדיקה הזאת.
+   */
+  it("הצורה הישנה — נוסח אחד — נשמרת", () => {
+    expect(WHATSAPP_TEMPLATE_PARAMS.viewingReminder).toEqual(["reminder_text"]);
+    expect(whatsappTemplateParams("viewingReminder", ["היי דנה, מחר ב-17:30"])).toEqual([
+      { type: "text", parameter_name: "reminder_text", text: "היי דנה, מחר ב-17:30" },
+    ]);
   });
 
   /* ‏Meta דוחה ערך ריק; רווח יחיד עובר ומשאיר את ההודעה חסרה אך נמסרת */

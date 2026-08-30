@@ -69,6 +69,25 @@ describe("שליחת תבנית", () => {
   });
 
   /*
+   * ‎**הצורה נקבעת מההגדרה, לא מהגרסה.**
+   *
+   * תבנית שנרשמה עם נוסח אחד ומקבלת חמישה שמות נדחית אצל Meta,
+   * ובערוץ „שניהם” המייל מצליח ולכן `deliver` מחזיר `true` ולא
+   * נפתחת משימה — התזכורת בוואטסאפ נעלמת בלי סימן (ביקורת Codex,
+   * P1). ברירת המחדל היא הישן, ולכן `=== "true"` ולא `!== "false"`.
+   */
+  it("צורת תזכורת הסיור נקראת מההגדרה, וברירת המחדל היא הישנה", () => {
+    expect(VIEWING).toContain(
+      'this.settings.get("whatsappViewingReminderTemplateFields")) === "true"',
+    );
+    expect(VIEWING).toContain('whatsappTemplateParams("viewingReminderFields"');
+    expect(
+      VIEWING,
+      "בלי המסלול הישן, תבנית שכבר אושרה מפסיקה לעבוד בשקט",
+    ).toContain('whatsappTemplateParams("viewingReminder", [body])');
+  });
+
+  /*
    * ‎**התזכורת לסיור אינה נושאת כפתור, בכוונה.** הנמען הוא לקוח או
    * דייר, ואין לו חשבון במערכת — כפתור „פתח במערכת” היה שולח אותו
    * למסך התחברות שאינו שלו.

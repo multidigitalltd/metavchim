@@ -350,6 +350,8 @@ const UpdateSettingsSchema = z
     whatsappViewingReminderTemplateLang: z
       .union([z.string().trim().regex(/^[a-zA-Z]{2}(_[A-Z]{2})?$/u), z.literal("")])
       .optional(),
+    /** התבנית נרשמה עם חמישה שדות ולא עם נוסח אחד */
+    whatsappViewingReminderTemplateFields: z.boolean().optional(),
     loginOtpEnabled: z.boolean().optional(),
     googleClientId: z.union([z.string().trim().min(10).max(200), z.literal("")]).optional(),
     googleClientSecret: z.union([z.string().trim().min(10).max(200), z.literal("")]).optional(),
@@ -1460,6 +1462,8 @@ export class PlatformController {
         intakeTemplateButton: boolean;
         viewingReminderTemplate: string;
         viewingReminderTemplateLang: string;
+        /** התבנית נושאת חמישה שדות; חסר/false = נוסח אחד */
+        viewingReminderTemplateFields: boolean;
         emailReplyTemplate: string;
         emailReplyTemplateLang: string;
       };
@@ -1685,6 +1689,12 @@ export class PlatformController {
             (await this.platformSettings.get("whatsappViewingReminderTemplate")) ?? "",
           viewingReminderTemplateLang:
             (await this.platformSettings.get("whatsappViewingReminderTemplateLang")) ?? "he",
+          /*
+           * ברירת המחדל היא **הנוסח האחד**: זה מה שנרשם עד היום,
+           * ומעבר שקט לשדות היה משבית את התזכורות בלי סימן.
+           */
+          viewingReminderTemplateFields:
+            (await this.platformSettings.get("whatsappViewingReminderTemplateFields")) === "true",
           // ריק = "הלקוח ענה במייל" מגיע במערכת ובדחיפה בלבד. מצב, לא שגיאה.
           emailReplyTemplate:
             (await this.platformSettings.get("whatsappEmailReplyTemplate")) ?? "",
