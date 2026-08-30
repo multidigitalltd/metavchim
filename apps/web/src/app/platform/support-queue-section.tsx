@@ -305,7 +305,16 @@ export function SupportQueueSection() {
   const load = useCallback(() => {
     apiGet<SupportQueueRow[]>("/platform/support/queue")
       .then(setRows)
-      .catch(() => setRows([]));
+      /*
+       * ‎**כשל ברענון אינו מרוקן את השולחן (ביקורת Codex).**
+       *
+       * ‎`setRows([])` היה נכון כשהייתה טעינה אחת: היא מוציאה את המסך
+       * ממצב „טוען…”. מרגע שנוסף סקר כל 45 שניות, תקלת רשת חולפת
+       * אחת הפכה תור מלא ל„אין פניות בסינון הזה” — עם מונים באפס —
+       * עד שהסקר הבא יצליח. `current ?? []` שומר את התמונה האחרונה
+       * שהצליחה, ועדיין פותר את הטעינה הראשונה.
+       */
+      .catch(() => setRows((current) => current ?? []));
   }, []);
 
   useEffect(load, [load]);

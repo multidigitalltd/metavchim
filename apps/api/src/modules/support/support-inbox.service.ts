@@ -78,6 +78,23 @@ const BODY_MAX = 20_000;
  */
 const NOTICE_BODY_MAX = 500;
 
+/**
+ * ‎**ההתראה אומרת במפורש שהיא אינה ערוץ תשובה (ביקורת Codex).**
+ *
+ * היא נשלחה עם `replyTo` של כתובת התמיכה הכללית, ובנושא שלה מספר
+ * הפנייה — כלומר היא נראתה בדיוק כמו הודעה שאפשר להשיב עליה. בפועל
+ * תשובה של מנהל **לא** מגיעה לפנייה: `resolveThread` מצמיד לפי מספר
+ * רק כשכתובת השולח היא זו של הפונה המקורי, ו-`appendToTicket` דורש
+ * את אותו הדבר. כתובת של מנהל אינה מתאימה לאף אחד מהם, ולכן התשובה
+ * הייתה פותחת **שרשור חדש על שם המנהל** — והלקוח לא היה מקבל דבר.
+ *
+ * ‎`replyTo` ירד, וההערה אומרת לאן באמת כותבים. תשובה במייל מטעם
+ * התמיכה היא פיצ'ר בפני עצמו (זיהוי השולח כמנהל, וכתיבת ההודעה
+ * כ-`out` עם `sendState`), ולא משהו שנופל מהתראה.
+ */
+export const ADMIN_NOTICE_FOOTNOTE =
+  "התשובה ללקוח נכתבת בשולחן התמיכה — תשובה על המייל הזה לא תגיע אליו.";
+
 @Injectable()
 export class SupportInboxService {
   private readonly logger = new Logger(SupportInboxService.name);
@@ -186,7 +203,19 @@ export class SupportInboxService {
      * זה נבדק לפני פתרון השרשור, אבל **אחרי** הטוקן: טוקן הוא
      * ראיה חזקה יותר, והוא לעולם אינו מצביע על פנייה מהכפתור.
      */
-    if (supportThread === null && (await this.appendToTicket(subject, senderEmail, body))) return;
+    /*
+     * ‎**מזהה הספק נגזר פעם אחת, לפני שתי הדרכים שמשתמשות בו.** הוא
+     * חושב קודם רק במסלול השרשורים, ולכן מסלול הפניות מהכפתור לא היה
+     * מוגן בכלל מפני מסירה חוזרת (ביקורת Codex).
+     */
+    const providerMessageId = inboundProviderMessageId(payload);
+
+    if (
+      supportThread === null &&
+      (await this.appendToTicket(subject, senderEmail, body, providerMessageId))
+    ) {
+      return;
+    }
 
     const thread = await this.resolveThread({
       token,
@@ -247,7 +276,6 @@ export class SupportInboxService {
      * כערכים שונים באינדקס ייחודי; אבל תנאי שנשען על נימוק במקום
      * על בדיקה הוא בדיוק הצורה שנשברת כשמישהו משנה את האינדקס.
      */
-    const providerMessageId = inboundProviderMessageId(payload);
     const existingId =
       !duplicate
         ? messageId
@@ -443,6 +471,8 @@ export class SupportInboxService {
     subject: string,
     senderEmail: string | null,
     body: string,
+    /** מזהה ההודעה אצל הספק — הגנה מפני מסירה חוזרת. `null` = אין. */
+    providerMessageId: string | null,
   ): Promise<boolean> {
     const reference = referenceFromSubject(subject);
     if (reference === null || senderEmail === null) return false;
@@ -455,38 +485,65 @@ export class SupportInboxService {
     );
     if (ticket === null) return false;
 
-    await this.prisma.withSupportDesk(async (tx) => {
-      await tx.supportTicketMessage.create({
-        data: {
-          id: ulid(),
-          ticketId: ticket.id,
-          tenantId: ticket.tenantId,
-          direction: "in",
-          body: body.slice(0, BODY_MAX),
-        },
+    /*
+     * ‎**מסירה חוזרת אינה הודעה שנייה (ביקורת Codex).**
+     *
+     * הספק מוסר שוב על כל תשובה שאינה 2xx, והמסלול הזה לא היה מוגן
+     * בכלל: כל מסירה כתבה את אותה תשובה שוב על הפנייה, ומרגע
+     * שנוספה התראה למנהלים — גם שלחה מייל נוסף על כל אחת. מסלול
+     * השרשורים היה מוגן מהיום הראשון; זה נשכח כשהוא נולד.
+     *
+     * האילוץ במסד מכריע ולא בדיקה מקדימה: שתי מסירות בו-זמנית אינן
+     * צריכות לקרוא זו את זו.
+     */
+    let duplicate = false;
+    try {
+      await this.prisma.withSupportDesk(async (tx) => {
+        await tx.supportTicketMessage.create({
+          data: {
+            id: ulid(),
+            ticketId: ticket.id,
+            tenantId: ticket.tenantId,
+            direction: "in",
+            body: body.slice(0, BODY_MAX),
+            providerMessageId,
+          },
+        });
+        /*
+         * פנייה סגורה שקיבלה תשובה **נפתחת מחדש**. „סגורה” אמרה
+         * ‎„טופל”, ומי שכתב שוב אומר שלא — והשארתה סגורה מפילה אותה
+         * מתור הממתינות, כלומר איש לא יראה את מה שנכתב.
+         */
+        if (ticket.status === "closed") {
+          await tx.supportTicket.update({ where: { id: ticket.id }, data: { status: "open" } });
+        }
       });
-      /*
-       * פנייה סגורה שקיבלה תשובה **נפתחת מחדש**. „סגורה” אמרה
-       * ‎„טופל”, ומי שכתב שוב אומר שלא — והשארתה סגורה מפילה אותה
-       * מתור הממתינות, כלומר איש לא יראה את מה שנכתב.
-       */
-      if (ticket.status === "closed") {
-        await tx.supportTicket.update({ where: { id: ticket.id }, data: { status: "open" } });
-      }
-    });
+    } catch (error) {
+      if ((error as { code?: string }).code !== "P2002") throw error;
+      duplicate = true;
+    }
     /*
      * גם כאן, ולא רק בשרשורי המייל: מבחינת מי שמטפל זו אותה עבודה
      * בדיוק — מישהו כתב וממתין. פנייה מהכפתור שקיבלה תשובה במייל
      * הייתה נכתבת לשולחן בשקט מוחלט.
+     *
+     * ‎`!duplicate` כמו במסלול השרשורים: מייל על כל מסירה חוזרת הוא
+     * בדיוק מה שגורם לאנשים לכבות התראות.
      */
-    void this.notifyDesk({
-      reference,
-      who: senderEmail,
-      subject,
-      body,
-      opening: false,
-    });
-    this.logger.log(`תשובה במייל צורפה לפנייה ${reference}`);
+    if (!duplicate) {
+      void this.notifyDesk({
+        reference,
+        who: senderEmail,
+        subject,
+        body,
+        opening: false,
+      });
+    }
+    this.logger.log(
+      duplicate
+        ? `מסירה חוזרת של תשובה בפנייה ${reference} — נדחתה`
+        : `תשובה במייל צורפה לפנייה ${reference}`,
+    );
     return true;
   }
 
@@ -518,7 +575,7 @@ export class SupportInboxService {
   }): Promise<void> {
     try {
       const to = await this.settings.get("supportEmail");
-      const { sender, replyTo } = await this.outgoing();
+      const { sender } = await this.outgoing();
       const headline = what.opening ? "פנייה חדשה במייל" : "תשובה בפנייה קיימת";
       await this.admins.notify({
         subject: `${formatSupportReference(what.reference)} ${headline}: ${what.subject}`,
@@ -529,11 +586,11 @@ export class SupportInboxService {
           what.body.length > NOTICE_BODY_MAX
             ? `${what.body.slice(0, NOTICE_BODY_MAX)}…`
             : what.body,
+          ADMIN_NOTICE_FOOTNOTE,
         ],
         button: { label: "לשולחן התמיכה", url: this.admins.deskUrl() },
         also: [to],
         ...(sender === null ? {} : { sender }),
-        ...(replyTo === null ? {} : { replyTo }),
       });
     } catch (error) {
       this.logger.warn(`התראת פנייה נכשלה: ${(error as Error).message}`);

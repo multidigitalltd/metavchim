@@ -27,8 +27,24 @@ import { describe, expect, it } from "vitest";
  */
 
 const HERE = import.meta.dirname;
-const INBOX = readFileSync(join(HERE, "support-inbox.service.ts"), "utf8");
-const TICKETS = readFileSync(join(HERE, "support.service.ts"), "utf8");
+
+/**
+ * ‎**השער קורא קוד, לא הערות.**
+ *
+ * הוא נכתב תחילה על המקור כמות שהוא, וההרחבה „ההתראה אינה נושאת
+ * ‎`replyTo`” נפלה מיד — על **ההערה** שמסבירה למה הוא ירד. שער
+ * שמוצא את מה שהוא אוסר בתוך הסבר על איסורו הוא שער שמדווח שקר
+ * לשני הכיוונים: כאן על שלילה, ובמקום אחר היה מאשר קוד חסר בזכות
+ * הערה שמזכירה אותו.
+ */
+function code(name: string): string {
+  return readFileSync(join(HERE, name), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//gu, "")
+    .replace(/^[ \t]*\/\/.*$/gmu, "");
+}
+
+const INBOX = code("support-inbox.service.ts");
+const TICKETS = code("support.service.ts");
 
 /** גוף המתודה, מהחתימה ועד הסוגר שלה. */
 function method(source: string, signature: string): string {
@@ -242,11 +258,63 @@ describe("כל פנייה שנכנסת מודיעה למנהלי הפלטפור�
    * ‎**מסירה חוזרת אינה פנייה חדשה.** הספק מוסר שוב על כל 5xx, ומייל
    * לכל מסירה הוא בדיוק מה שגורם לאנשים לכבות התראות.
    */
-  it("מסירה חוזרת של אותה הודעה אינה מייצרת התראה שנייה", () => {
-    const scope = method(INBOX, "  async processInbound(");
-    const guard = scope.indexOf("if (!duplicate)");
-    const notify = scope.indexOf("this.notifyDesk(");
-    expect(guard, "אין תנאי שמונע התראה על מסירה חוזרת").toBeGreaterThan(-1);
-    expect(notify, "ההתראה אינה בתוך התנאי").toBeGreaterThan(guard);
+  for (const [name, signature] of [
+    ["שרשור מייל", "  async processInbound("],
+    ["פנייה מהכפתור", "  private async appendToTicket("],
+  ] as const) {
+    it(`${name}: מסירה חוזרת של אותה הודעה אינה מייצרת התראה שנייה`, () => {
+      const scope = method(INBOX, signature);
+      const guard = scope.indexOf("if (!duplicate)");
+      const notify = scope.indexOf("this.notifyDesk(");
+      expect(guard, `${name}: אין תנאי שמונע התראה על מסירה חוזרת`).toBeGreaterThan(-1);
+      expect(notify, `${name}: ההתראה אינה בתוך התנאי`).toBeGreaterThan(guard);
+      /*
+       * ‎**ושהדגל באמת נדלק, מהאילוץ.** הניסוח הראשון בדק סדר טקסטואלי
+       * בלבד — „‏`if (!duplicate)` מופיע לפני `notifyDesk`” — ולכן היה
+       * מאשר גם תנאי שאיש אינו מדליק. שתי השורות האלה דורשות שהדגל
+       * נכתב ושהכפילות נתפסת מ-P2002 ולא מבדיקה מקדימה, ששתי מסירות
+       * בו-זמנית עוברות יחד.
+       *
+       * גבול השער נשאר: הוא קורא טקסט, ולכן אינו מבחין בין קוד חי
+       * לקוד מת. קוד מת כזה אינו מתקמפל, וזה מה שתופס אותו.
+       */
+      expect(scope, `${name}: הדגל לעולם אינו נדלק`).toContain("duplicate = true");
+      expect(scope, `${name}: הכפילות אינה נתפסת מהאילוץ`).toContain('.code !== "P2002"');
+    });
+  }
+
+  /*
+   * ‎**וההגנה עצמה היא האילוץ במסד, לא בדיקה מקדימה.**
+   *
+   * מסלול הפניות מהכפתור לא היה מוגן בכלל: `appendToTicket` כתב את
+   * ההודעה בלי מזהה ספק, ולכן כל מסירה חוזרת כפלה אותה על הפנייה
+   * (ביקורת Codex). `findFirst` לפני `create` אינו תחליף — שתי
+   * מסירות בו-זמנית עוברות אותו יחד.
+   */
+  it("תשובה בפנייה מהכפתור נכתבת עם מזהה הספק, וכפילות נתפסת ב-P2002", () => {
+    const scope = method(INBOX, "  private async appendToTicket(");
+    expect(scope, "ההודעה נכתבת בלי מזהה ספק").toContain("providerMessageId,");
+    expect(scope, "אין תפיסת כפילות").toContain('.code !== "P2002"');
   });
+
+  /*
+   * ‎**ההתראה אינה ערוץ תשובה.**
+   *
+   * עם `replyTo` של כתובת התמיכה הכללית היא נראתה כמו הודעה שאפשר
+   * להשיב עליה — ותשובה של מנהל פתחה שרשור חדש על שמו במקום להגיע
+   * לפנייה, כי הצמדה לפי מספר דורשת את כתובת הפונה המקורי (ביקורת
+   * Codex). המסקנה: לא לשתול כתובת תשובה, ולומר לאן כותבים.
+   */
+  for (const [name, source] of [
+    ["פניות מהכפתור", TICKETS],
+    ["פניות במייל", INBOX],
+  ] as const) {
+    it(`${name}: ההתראה אינה מתחזה לערוץ תשובה`, () => {
+      const scope = method(source, "  private async notifyDesk(");
+      expect(scope, `${name}: ההתראה נושאת replyTo`).not.toMatch(/replyTo/u);
+      expect(scope, `${name}: אין הערה שאומרת לאן כותבים`).toContain(
+        "ADMIN_NOTICE_FOOTNOTE",
+      );
+    });
+  }
 });

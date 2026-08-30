@@ -24,7 +24,7 @@ import { PlatformAdminNotifierService } from "../../core/platform-admin-notifier
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
-import { SupportInboxService } from "./support-inbox.service";
+import { ADMIN_NOTICE_FOOTNOTE, SupportInboxService } from "./support-inbox.service";
 
 /**
  * פניות לתמיכה.
@@ -223,8 +223,13 @@ export class SupportService {
   ): Promise<void> {
     try {
       const to = await this.platformSettings.get("supportEmail");
-      // גם ההתראה הפנימית — כדי ש„השב” עליה יגיע לתיבת התמיכה
-      const { sender, replyTo } = await this.inbox.outgoing();
+      /*
+       * ‎**בלי `replyTo` (ביקורת Codex).** הוא הצביע על כתובת התמיכה
+       * הכללית, ותשובה של מנהל משם אינה מגיעה לפנייה אלא פותחת שרשור
+       * חדש על שמו — הצמדה לפי מספר דורשת שכתובת השולח תהיה של הפונה
+       * המקורי. ההערה בסוף אומרת לאן באמת כותבים.
+       */
+      const { sender } = await this.inbox.outgoing();
       await this.admins.notify({
         subject: `פנייה חדשה: ${SUPPORT_KIND_LABEL[input.kind]} · ${area}`,
         heading: `פנייה חדשה מהמערכת · ${area}`,
@@ -234,11 +239,11 @@ export class SupportService {
           ...hints.map((h) => `• ${h}`),
           input.message,
           `מזהה הפנייה: ${id}`,
+          ADMIN_NOTICE_FOOTNOTE,
         ],
         button: { label: "לשולחן התמיכה", url: this.admins.deskUrl() },
         also: [to],
         ...(sender === null ? {} : { sender }),
-        ...(replyTo === null ? {} : { replyTo }),
       });
     } catch (error) {
       this.logger.warn(`התראת תמיכה נכשלה: ${(error as Error).message}`);
