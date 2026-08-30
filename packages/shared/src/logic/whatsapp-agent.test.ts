@@ -156,11 +156,35 @@ describe("הקצאת המקום — נספרת, ניתנת להעברה, ומו�
    */
   it("ההעברה מותרת, ושאר שדות הזהות נשארים חסומים", () => {
     expect(SETTINGS).toContain("const onlyWhatsappSeat =");
-    expect(SETTINGS).toContain("body.role === undefined");
-    expect(SETTINGS).toContain("body.isActive === undefined");
-    expect(SETTINGS).toContain("body.phone === undefined");
     expect(SETTINGS).toMatch(/id === ctx\.userId && !onlyWhatsappSeat/u);
     expect(SETTINGS).toMatch(/target\.role === "owner" && !onlyWhatsappSeat/u);
+  });
+
+  /*
+   * ‎**„רק המקום” נגזר מהמפתחות, ולא מרשימה ידנית.**
+   *
+   * מנייה של שלושת השדות האחרים עובדת היום ונשברת בשקט מחר: שדה
+   * רביעי שיתווסף לסכימה ייחשב „רק המקום” — כלומר עריכה עצמית שלו
+   * תעקוף את החסימה שנועדה למנוע בדיוק אותה.
+   */
+  it("הפטור מוגבל למפתח אחד בלבד, בלי מנייה ידנית", () => {
+    expect(SETTINGS).toMatch(
+      /Object\.keys\(body\)\.every\(\(key\) => key === "whatsappAccess"\)/u,
+    );
+  });
+
+  /*
+   * ‎**הפעלה מחדש של מי שמחזיק במקום נספרת גם היא.**
+   *
+   * חשבון מושבת אינו נספר, ולכן המקום שלו התפנה ובעל המשרד יכול
+   * היה להקצות אותו לסוכן אחר. הפעלה מחדש שבודקת רק את מכסת
+   * המשתמשים מחזירה אותו עם המקום ביד — מעל המכסה, ובלי חיוב.
+   */
+  it("הפעלה מחדש נספרת מול מכסת המקומות", () => {
+    expect(SETTINGS).toContain("const takesWhatsappSeat =");
+    expect(SETTINGS).toMatch(
+      /body\.isActive === true && !target\.isActive && holdsSeatAfter/u,
+    );
   });
 
   it("המסך מראה למי הסוכן מוקצה וכמה מקומות בשימוש", () => {

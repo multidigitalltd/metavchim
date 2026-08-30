@@ -1318,7 +1318,7 @@ export class SettingsController {
       select: { whatsappAgentSeatsExtra: true },
     });
     const seats = whatsappAgentSeats(
-      await this.plans.tenantHasFeature(tenantId, "voice_intake"),
+      await this.plans.tenantHasFeature(tenantId, "voice_intake", tx),
       tenant?.whatsappAgentSeatsExtra ?? 0,
     );
     if (seats === 0) {
@@ -1405,9 +1405,7 @@ export class SettingsController {
      */
     const onlyWhatsappSeat =
       body.whatsappAccess !== undefined &&
-      body.role === undefined &&
-      body.isActive === undefined &&
-      body.phone === undefined;
+      Object.keys(body).every((key) => key === "whatsappAccess");
     if (id === ctx.userId && !onlyWhatsappSeat) {
       throw new BadRequestException("אי אפשר לשנות את המשתמש של עצמך מכאן");
     }
@@ -1459,7 +1457,20 @@ export class SettingsController {
        * מקום אחד כלול במסלול וכל נוסף כרוך בתשלום, ולכן בלי המכסה
        * בעל משרד יכול היה להדליק את הסוכן לכל הצוות בלי לרכוש דבר.
        */
-      if (body.whatsappAccess === true && !target.whatsappAccess) {
+      /*
+       * ‎**וגם הפעלה מחדש של מי שמחזיק במקום.**
+       *
+       * חשבון מושבת אינו נספר, ולכן המקום שלו התפנה — ובעל המשרד
+       * יכול היה להקצות אותו לסוכן אחר בינתיים. הפעלה מחדש שבודקת
+       * רק את מכסת המשתמשים הייתה מחזירה אותו עם המקום ביד, מעל
+       * המכסה ובלי חיוב. אותה תקלה בדיוק כבר נמצאה פעם במכסת
+       * המשתמשים (ביקורת Codex).
+       */
+      const holdsSeatAfter = body.whatsappAccess ?? target.whatsappAccess;
+      const takesWhatsappSeat =
+        (body.whatsappAccess === true && !target.whatsappAccess) ||
+        (body.isActive === true && !target.isActive && holdsSeatAfter);
+      if (takesWhatsappSeat) {
         await this.assertWhatsappSeatAvailable(tx, ctx.tenantId);
       }
       const nextPhone =

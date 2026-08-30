@@ -110,7 +110,16 @@ export function WhatsAppLinkSection() {
   }
 
   return (
-    <section className="mv-list-card px-5 py-[17px]" aria-labelledby="wa-link-heading">
+    /*
+     * ‎`id` — הסוכן בוואטסאפ שולח לכאן קישור ישיר. בלעדיו ההנחיה
+     * הייתה „היכנסו למערכת ← פרופיל ← גללו”, וזה בדיוק המקום שבו
+     * מי שכבר בוואטסאפ מוותר.
+     */
+    <section
+      id="whatsapp-link"
+      className="mv-list-card px-5 py-[17px] scroll-mt-24"
+      aria-labelledby="wa-link-heading"
+    >
       <h2 id="wa-link-heading" className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
         המכשיר שמחובר לסוכן
       </h2>
