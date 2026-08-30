@@ -28,6 +28,8 @@
  * נוסח שיושב בצד אחד בלבד הוא נוסח שהצד השני ימציא מחדש.
  */
 
+import { VAT_EXCLUDED_SUFFIX, formatPlanPrice } from "./plans.js";
+
 /** למה נדחה — כל סיבה היא מצב אחר, והפעולה של המתווך שונה. */
 export type WhatsappAgentDenial =
   /** המסלול של המשרד אינו כולל את הסוכן כלל */
@@ -111,4 +113,30 @@ export function whatsappSeatOffer(
   return planSeatMonthlyAgorot !== null && planSeatMonthlyAgorot > 0
     ? { kind: "purchase", monthlyAgorot: planSeatMonthlyAgorot }
     : { kind: "contact" };
+}
+
+/**
+ * הנוסח שההצעה נקראת בו — **ליד ההצעה עצמה, לא באתר הקריאה.**
+ *
+ * המסך עיגל את המחיר לשקלים שלמים (`Math.round(agorot / 100)`),
+ * ולכן מחיר של 199.50 ₪ הוצג „200 ₪” — כלומר פרסום מחיר שאינו מה
+ * שיחויב, על סכום שהעורך והסכימה מאפשרים במפורש (ביקורת Codex).
+ * ‎`formatPlanPrice` כבר יודע לשמור אגורות כשיש, ולהשמיט כשאין.
+ *
+ * הנוסח יושב כאן ולא במסך גם מסיבה שנייה: **הסוכן בוואטסאפ אומר
+ * את אותו הדבר.** מחיר שנוסח פעמיים נפרד פעם אחת, והמתווך שרואה
+ * במסך סכום אחד ובוואטסאפ אחר אינו יודע מה נכון.
+ *
+ * ואפס אינו מקרה כאן: `whatsappSeatOffer` הוא היחיד שמייצר
+ * ‎`purchase`, והוא מייצר אותו רק מעל אפס — ולכן „חינם + מע"מ”,
+ * שהוא השטות ש-`formatPriceExVat` נועד למנוע, אינו נגזר מכאן.
+ */
+export function whatsappSeatOfferText(offer: WhatsappSeatOffer): string {
+  if (offer.kind === "contact") {
+    return "המסלול הנוכחי אינו כולל מקומות נוספים — פנו אלינו ונתאים.";
+  }
+  return (
+    `מקום נוסף לסוכן במשרד: ${formatPlanPrice(offer.monthlyAgorot)} לחודש ` +
+    `${VAT_EXCLUDED_SUFFIX}. פנו לבעל המשרד להוספה.`
+  );
 }

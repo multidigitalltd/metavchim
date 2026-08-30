@@ -5,6 +5,8 @@ import {
   WHATSAPP_AGENT_DENIAL_TEXT,
   whatsappAgentDenial,
   whatsappAgentSeats,
+  whatsappSeatOffer,
+  whatsappSeatOfferText,
 } from "./whatsapp-agent";
 
 /**
@@ -246,5 +248,33 @@ describe("הקצאת המקום — נספרת, ניתנת להעברה, ומו�
    */
   it("ההגירה מעניקה לבעלי המשרדים את מה שכבר היה להם", () => {
     expect(MIGRATION).toMatch(/SET "whatsapp_access" = TRUE[\s\S]*?"role" = 'owner'/u);
+  });
+
+  /*
+   * ‎**המחיר המוצג הוא המחיר שיחויב.**
+   *
+   * המסך עיגל לשקלים שלמים, ולכן 199.50 ₪ הופיע „200 ₪” — פרסום
+   * של מחיר שאינו נגבה, על סכום שהעורך מאפשר במפורש.
+   */
+  it("מחיר עם אגורות אינו מעוגל כלפי מעלה", () => {
+    const text = whatsappSeatOfferText(whatsappSeatOffer(19_950));
+    expect(text).toContain("199.5");
+    expect(text).not.toContain("200");
+  });
+
+  it("מחיר עגול מוצג בלי אגורות מיותרות", () => {
+    const text = whatsappSeatOfferText(whatsappSeatOffer(20_000));
+    expect(text).toContain("200 ₪");
+    expect(text).not.toContain("200.00");
+  });
+
+  /*
+   * ‎`null` = המסלול אינו מוכר מקומות נוספים, ולא „טרם הוגדר”.
+   * הצגת מחיר כלשהי שם הייתה מבטיחה רכישה שאין לה מחיר.
+   */
+  it("מסלול שאינו מוכר מקומות מפנה לפנייה אנושית, בלי מספר", () => {
+    const text = whatsappSeatOfferText(whatsappSeatOffer(null));
+    expect(text).toContain("פנו אלינו");
+    expect(text).not.toMatch(/\d/u);
   });
 });

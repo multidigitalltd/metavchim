@@ -5,6 +5,7 @@ import {
   WHATSAPP_AGENT_DENIAL_TEXT,
   WHATSAPP_LINK_MAX_AGE_DAYS,
   type WhatsappAgentDenial,
+  whatsappSeatOfferText,
   type WhatsappSeatOffer,
 } from "@metavchim/shared";
 import { ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
@@ -50,11 +51,6 @@ interface LinkStatus {
    * ולכן במקום כפתור בלי מחיר מוצגת פנייה.
    */
   offer?: WhatsappSeatOffer;
-}
-
-/** ‎₪ שלמים — המחיר במסלול נשמר באגורות, לפני מע"מ. */
-function shekels(agorot: number): string {
-  return new Intl.NumberFormat("he-IL").format(Math.round(agorot / 100));
 }
 
 function dateText(iso: string | undefined): string {
@@ -212,11 +208,7 @@ export function WhatsAppLinkSection() {
         <Notice tone="info">
           {WHATSAPP_AGENT_DENIAL_TEXT[status.denial]}
           {status.denial === "seat" && status.offer !== undefined ? (
-            <span className="mt-1 block">
-              {status.offer.kind === "purchase"
-                ? `מקום נוסף לסוכן במשרד: ${shekels(status.offer.monthlyAgorot)} ₪ לחודש + מע"מ. פנו לבעל המשרד להוספה.`
-                : "המסלול הנוכחי אינו כולל מקומות נוספים — פנו אלינו ונתאים."}
-            </span>
+            <span className="mt-1 block">{whatsappSeatOfferText(status.offer)}</span>
           ) : null}
         </Notice>
       )}
