@@ -68,6 +68,7 @@ import {
   IconTrash,
   IconUsers,
   IconCamera,
+  IconLink,
 } from "../../icons";
 import { IconAction } from "../../icon-action";
 import { LoadError } from "../../load-error";
@@ -149,6 +150,63 @@ interface MatchRow {
   status: string;
   buyerName: string | null;
   buyerMaturity: string | null;
+  /**
+   * עובדות הקונה לשורה — תקציב, חדרים, ערים ומתי נפתח הכרטיס.
+   *
+   * ‎`null` = הקונה אינו במסלול הצפייה של הסוכן. השרת מגדר אותן
+   * באותו `ownershipFilter` שמגדר את השם, ולכן שורה שאומרת „קונה
+   * של סוכן אחר” אינה נושאת גם את המספרים שלו.
+   */
+  buyerFacts: BuyerFacts | null;
+}
+
+/**
+ * ‎**התקרה שהשרת חותך בה** (`MATCH_LIST_LIMIT`).
+ *
+ * נכתבת כאן ולא מיובאת: היא קבוע של שירות ה-API ואינה בחבילה
+ * המשותפת. הערך משמש **רק** להצגת „+” — כלומר סטייה בינו לבין
+ * השרת אינה מסתירה מידע ואינה משנה התנהגות, רק את הסימן.
+ */
+const MATCH_PAGE_LIMIT = 100;
+
+interface BuyerFacts {
+  budgetMaxAgorot: number | null;
+  roomsMin: number | null;
+  roomsMax: number | null;
+  cities: string[];
+  searchingSince: string;
+}
+
+/**
+ * „‏4 חדרים · בני ברק · חיפוש פעיל 3 שבועות”.
+ *
+ * ‎**כל חלק מופיע רק כשהוא ידוע.** „0 חדרים” או „ללא עיר” הם רעש
+ * שנראה כמו נתון, וקונה שלא מילא דרישה אינו קונה גרוע.
+ */
+function buyerFactsLine(facts: BuyerFacts): string {
+  const parts: string[] = [];
+  const { roomsMin, roomsMax } = facts;
+  if (roomsMin !== null && roomsMax !== null && roomsMin !== roomsMax) {
+    parts.push(`${roomsMin}–${roomsMax} חדרים`);
+  } else if (roomsMin !== null || roomsMax !== null) {
+    parts.push(`${roomsMin ?? roomsMax} חדרים`);
+  }
+  const city = facts.cities[0];
+  if (city !== undefined) {
+    parts.push(facts.cities.length > 1 ? `${city} +${facts.cities.length - 1}` : city);
+  }
+  parts.push(`חיפוש פעיל ${searchAge(facts.searchingSince)}`);
+  return parts.join(" · ");
+}
+
+/** „‏3 שבועות” / „חודשיים” — משך, ולא תאריך שצריך לחשב ממנו. */
+function searchAge(since: string): string {
+  const days = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 86_400_000));
+  if (days < 7) return days <= 1 ? "מהיום" : `${days} ימים`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return weeks === 1 ? "שבוע" : `${weeks} שבועות`;
+  const months = Math.floor(days / 30);
+  return months === 1 ? "חודש" : months === 2 ? "חודשיים" : `${months} חודשים`;
 }
 
 interface OfferInfo {
@@ -455,6 +513,46 @@ export default function PropertyDetailPage({
       })
       .catch(() => setMatchesFailed(true));
   }, [id, loadOffers]);
+
+  /*
+   * ‎**„חישוב מחדש” — הסבב המשרדי.** `settings.manage` ולא
+   * ‎`matches.view`: הסבב רץ על כל הדייר, וכפתור שנחסם ב-403 אחרי
+   * לחיצה גרוע מכפתור שאינו מוצג.
+   */
+  const canRecalc = can(user, "settings.manage");
+  const [recalcBusy, setRecalcBusy] = useState(false);
+  /** כישלון הסבב בלבד — השורות שכבר נטענו נשארות תקפות ומוצגות. */
+  const [recalcFailed, setRecalcFailed] = useState(false);
+
+  /**
+   * מריץ את הסבב ואז טוען מחדש את שורות הנכס.
+   *
+   * ‎**שתי הפעולות ולא אחת:** הסבב מחשב במסד ואינו מחזיר את ההתאמות
+   * של הנכס הזה, ולכן בלי הטעינה השנייה הכפתור היה „מצליח” והמסך
+   * היה ממשיך להציג את המספר הישן — כלומר מסך שמבטיח חישוב ומראה
+   * את התוצאה הקודמת.
+   */
+  async function recalcMatches(): Promise<void> {
+    setRecalcBusy(true);
+    setRecalcFailed(false);
+    try {
+      await apiPost("/matches/refresh", {});
+      loadMatches();
+    } catch {
+      /*
+       * ‎**מצב משלו, ולא `matchesFailed`.**
+       *
+       * ‎`matchesFailed` פירושו „טעינת ההתאמות נכשלה”, והוא מסתיר את
+       * השורות מאחורי „לא הצלחנו לטעון את ההתאמות” — גם בלשונית וגם
+       * בכרטיס הסיכום שבסקירה. סבב שנכשל אינו פוגם בשורות שכבר
+       * מוצגות ותקפות, ולכן שימוש באותו דגל היה מוחק תוכן תקין
+       * ומדווח תקלה שלא קרתה (ביקורת Codex).
+       */
+      setRecalcFailed(true);
+    } finally {
+      setRecalcBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (authLoading) return;
@@ -1533,23 +1631,63 @@ export default function PropertyDetailPage({
           */}
         <div className="grid items-start gap-4 lg:grid-cols-2">
           <section
-            className="mv-list-card px-[22px] py-[18px]"
+            className="mv-card mv-card--pad"
             aria-labelledby="matches-heading"
           >
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <h2
-                id="matches-heading"
-                className="m-0"
-                style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
-              >
+            <div className="mv-card-head flex-wrap">
+              <span className="mv-tile mv-tile--44 mv-domain-violet" aria-hidden="true">
+                <IconUsers s={20} />
+              </span>
+              <h2 id="matches-heading" className="mv-card-head__title">
                 קונים מתאימים מהמאגר
               </h2>
-              <span
-                className="text-[length:var(--type-caption)]"
-                style={{ color: "var(--color-text-muted)" }}
-              >
-                כל התאמה מוסברת — בלי קופסה שחורה
-              </span>
+              {/*
+                ‎**המונה נאמר רק כשהוא ידוע.** `null` הוא „עוד לא
+                חושב”, וגלולת „0” עליו אומרת „אין קונים מתאימים” על
+                חישוב שטרם חזר.
+              */}
+              {matches !== null && matches.length > 0 ? (
+                <span className="mv-pill mv-domain-violet">
+                  {/*
+                    ‎**עמוד מלא אינו סך הכול.** השרת מחזיר עד
+                    ‎`MATCH_LIST_LIMIT` שורות וחותך; בדיוק במאה
+                    הגלולה הייתה אומרת „100 התאמות” על נכס שיש לו
+                    מאה ועשרים (ביקורת Codex). „100+” אומרת את מה
+                    שידוע, ולא יותר.
+                  */}
+                  {matches.length === 1
+                    ? "התאמה אחת"
+                    : matches.length >= MATCH_PAGE_LIMIT
+                      ? `${MATCH_PAGE_LIMIT}+ התאמות`
+                      : `${matches.length} התאמות`}
+                </span>
+              ) : null}
+              {/*
+                ‎**„חישוב מחדש” מוצג רק למי שרשאי להריץ אותו.**
+
+                הסבב הוא פעולה משרדית (`settings.manage`) ולא פעולת
+                סוכן, וכפתור שנחסם ב-403 אחרי לחיצה גרוע מכפתור שאינו
+                שם. הוא מריץ את הסבב האמיתי ואז טוען מחדש — „חישוב”
+                ולא „רענון”, כי זה מה שהוא באמת עושה.
+              */}
+              {canRecalc ? (
+                <button
+                  type="button"
+                  className="mv-btn-plain ms-auto"
+                  disabled={recalcBusy}
+                  onClick={() => void recalcMatches()}
+                >
+                  {recalcBusy ? "מחשב…" : "חישוב מחדש"}
+                </button>
+              ) : null}
+            </div>
+            <p
+              className="m-0 mb-3 text-[length:var(--type-body-sm)]"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              כל התאמה מוסברת — רואים למה הקונה מתאים ומה חסר, בלי קופסה שחורה
+            </p>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
               {bulkEligible >= 2 ? (
                 <button
                   type="button"
@@ -1571,6 +1709,12 @@ export default function PropertyDetailPage({
                 </button>
               ) : null}
             </div>
+            {recalcFailed ? (
+              <Notice tone="danger">
+                החישוב מחדש נכשל — ההתאמות שמוצגות כאן הן האחרונות שנטענו, והן
+                עדיין תקפות. נסו שוב בעוד רגע.
+              </Notice>
+            ) : null}
             {bulkResult ? (
               <Notice tone={bulkResult.ok ? "success" : "danger"}>
                 {bulkResult.ok ? "✓ " : ""}
@@ -1758,16 +1902,45 @@ export default function PropertyDetailPage({
                       borderBottom: "1px solid var(--color-row-border)",
                     }}
                   >
+                    {/*
+                      ‎**אריח ציון, לא טבעת אחוזים.**
+
+                      הטבעת נבנתה מ-`conic-gradient` עם `#2ECC66` —
+                      ערך ירוק קשיח, שהוא גם הדומיין הלא נכון: התאמות
+                      הן סגול (§2). והמילה „ציון” מתחת למספר אומרת מה
+                      הוא; „92%” לבדו נקרא כאחוז התאמה מדויק, שאינו
+                      מה שהמנוע מחשב.
+                    */}
                     <span
-                      className="mv-score-ring mv-score-ring--lg"
+                      className="flex flex-none flex-col items-center justify-center rounded-[14px] px-3 py-2"
+                      /*
+                        ‎**טוקני הדומיין עצמם, ולא `--d-bg`.**
+
+                        ‎`--d-*` נקבעים על ידי `mv-domain-*` בגיליון,
+                        ושער הניגודיות אינו יכול לפתור אותם מתוך
+                        סגנון בשורה — כלומר הצמד לא היה **נמדד**,
+                        והשער היה מדפיס „הכול נמדד”. ערך שאי אפשר
+                        לפתור אינו „עובר”. האריח כאן תמיד סגול, ולכן
+                        הטוקן הישיר הוא גם המדויק.
+                      */
                       style={{
-                        background: `conic-gradient(#2ECC66 ${Math.round(m.score * 3.6)}deg, var(--color-progress-track) 0deg)`,
+                        minWidth: 56,
+                        background: "var(--domain-violet-bg)",
+                        border: "1px solid var(--domain-violet-line)",
+                        color: "var(--domain-violet-fg)",
                       }}
-                      aria-hidden="true"
                     >
-                      <span>
-                        {m.score}%
+                      <span
+                        style={{
+                          fontSize: "var(--type-metric)",
+                          fontWeight: 900,
+                          lineHeight: 1.1,
+                          letterSpacing: "var(--type-metric-track)",
+                        }}
+                      >
+                        {m.score}
                       </span>
+                      <span style={{ fontSize: "var(--type-caption)" }}>ציון</span>
                     </span>
                     <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
                       <div className="text-[length:var(--type-body)] font-bold">
@@ -1800,6 +1973,22 @@ export default function PropertyDetailPage({
                           </span>
                         ) : null}
                       </div>
+                      {/*
+                        ‎**מי הקונה — ולא רק למה הוא מתאים.**
+
+                        ההסבר אומר „למה”, אבל מתווך שמחליט למי להתקשר
+                        ראשון צריך גם „מה הוא מחפש וכמה זמן”. השדות
+                        מגיעים מהשרת רק לקונה שהסוכן רשאי לראות, ולכן
+                        שורה של קונה של סוכן אחר נשארת בלעדיהם.
+                      */}
+                      {m.buyerFacts ? (
+                        <div
+                          className="text-[length:var(--type-caption-lg)]"
+                          style={{ color: "var(--color-text-muted)" }}
+                        >
+                          {buyerFactsLine(m.buyerFacts)}
+                        </div>
+                      ) : null}
                       <div
                         className="text-[length:var(--type-caption-lg)]"
                         style={{ color: "var(--color-text-muted)" }}
@@ -1880,7 +2069,37 @@ export default function PropertyDetailPage({
                         </div>
                       ) : null}
                     </div>
-                    <div className="ms-auto flex flex-none gap-2">
+                    {/*
+                      תקציב הקונה — המספר שמכריע אם ההצעה הזאת בכלל
+                      בטווח. `null` = לא הוזן, ואז אין מה להציג.
+                    */}
+                    {m.buyerFacts?.budgetMaxAgorot ? (
+                      <div className="flex-none text-start">
+                        <div
+                          className="text-[length:var(--type-caption)]"
+                          style={{ color: "var(--color-text-muted)" }}
+                        >
+                          תקציב הקונה
+                        </div>
+                        <div
+                          dir="ltr"
+                          className="font-bold"
+                          style={{ unicodeBidi: "isolate", fontSize: "var(--type-body)" }}
+                        >
+                          {formatPrice(m.buyerFacts.budgetMaxAgorot)}
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="ms-auto flex flex-none flex-wrap gap-2">
+                      {/* „כרטיס קונה” — הצילום מבקש אותו לצד ההצעה */}
+                      {m.buyerName ? (
+                        <Link
+                          href={`/buyers/${m.buyerId}`}
+                          className="mv-btn-plain no-underline"
+                        >
+                          כרטיס קונה
+                        </Link>
+                      ) : null}
                       {/*
                         ‎**„שלח הצעה” היא טענה, לא רק פעולה** — היא
                         אומרת „לא נשלחה”. כשזה אינו ידוע היא נעלמת
@@ -1938,32 +2157,49 @@ export default function PropertyDetailPage({
             !outOfMarket(property.status) &&
             matchGateMissing(property, matchEvaluable).length === 0 ? (
               <div
-                className="mt-4 flex flex-wrap items-center gap-3 px-4 py-3.5"
+                className="mt-4 flex flex-wrap items-center gap-3.5 px-[18px] py-4"
                 style={{ background: "var(--color-tab-active-bg)", borderRadius: 18 }}
               >
-                <span
-                  className="min-w-0 flex-1 text-[length:var(--type-body-sm)]"
-                  /*
-                    ‎**הטקסט נגזר מאותו צמד כמו הרקע.**
+                {/*
+                  ‎**הטקסט נגזר מאותו צמד כמו הרקע.**
 
-                    ‎`--color-tab-active-*` **מתהפך** בערכה הכהה: הרקע
-                    הופך ל-`#d8e6dc` הבהיר והטקסט ל-`#111710` הכהה.
-                    הרקע כאן הומר לטוקן והטקסט נשאר `#E8EDE9` — כלומר
-                    לבן על בהיר, ‎1.07:1, בלתי קריא (ביקורת Codex).
-                  */
+                  ‎`--color-tab-active-*` **מתהפך** בערכה הכהה: הרקע
+                  הופך ל-`#d8e6dc` הבהיר והטקסט ל-`#111710` הכהה. ערך
+                  קשיח כאן היה לבן על בהיר, ‎1.07:1 (ביקורת Codex) —
+                  ולכן גם האריח והכותרת יורשים את אותו טוקן.
+                */}
+                <span
+                  aria-hidden="true"
+                  className="grid flex-none place-items-center rounded-[14px]"
+                  style={{
+                    width: 44,
+                    height: 44,
+                    background: "var(--color-tab-active-fg)",
+                    color: "var(--color-tab-active-bg)",
+                  }}
+                >
+                  <IconLink s={20} />
+                </span>
+                <span
+                  className="min-w-0 flex-1"
                   style={{ color: "var(--color-tab-active-fg)" }}
                 >
-                  {matches.length === 0
-                    ? "אף קונה מהמאגר לא התאים — אולי יש קונה מתאים אצל משרד אחר."
-                    : "אפשר להרחיב את החיפוש גם לקונים של משרדים אחרים ברשת."}
+                  <span className="block font-bold" style={{ fontSize: "var(--type-body)" }}>
+                    אפשר להרחיב את החיפוש לרשת המשרדים
+                  </span>
+                  <span className="block text-[length:var(--type-body-sm)]">
+                    {matches.length === 0
+                      ? "גם בלי קונים במאגר שלכם — אם יש ברשת קונה שמתאים לנכס הזה, תקבלו התאמה עם הסכם עמלה כתוב מראש."
+                      : "גם מעבר למאגר שלכם — אם יש ברשת קונה שמתאים לנכס הזה, תקבלו התאמה עם הסכם עמלה כתוב מראש."}
+                  </span>
                 </span>
                 <button
                   type="button"
-                  className="mv-btn-action"
+                  className="mv-btn-action flex-none"
                   style={{ padding: "8px 16px", fontSize: "var(--type-caption-lg)" }}
                   onClick={() => selectTab("network")}
                 >
-                  פרסום לרשת
+                  חיפוש ברשת
                 </button>
               </div>
             ) : null}
