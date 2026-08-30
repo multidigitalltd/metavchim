@@ -77,9 +77,18 @@ describe("מקום נוסף לסוכן הוואטסאפ — מנוי חודשי"
    * אחד מצליח בעדכון המותנה, ולכן רק אחד מחייב.
    */
   it("החידוש תופס את התקופה לפני החיוב, ומחזיר אותה בכישלון", () => {
-    expect(RENEWAL).toMatch(
-      /updateMany\(\{\s*where: \{ id: seat\.id, currentPeriodEnd: seat\.currentPeriodEnd, status: "active" \}/u,
+    /*
+     * נבדקים השדות ולא החתימה כמחרוזת אחת: חתימה שנבדקת ככה
+     * נשברת בכל תוספת שדה — וזה בדיוק מה שקרה כאן כשהתפיסה
+     * הורחבה לכלול `past_due`, על שער שהיה ירוק רגע קודם.
+     */
+    const claim = RENEWAL.slice(
+      RENEWAL.indexOf("const claimed = await"),
+      RENEWAL.indexOf("if (claimed.count === 0)"),
     );
+    expect(claim).toContain("id: seat.id");
+    expect(claim).toContain("currentPeriodEnd: seat.currentPeriodEnd");
+    expect(claim).toContain("data: { currentPeriodEnd: periodEnd }");
     expect(RENEWAL).toMatch(
       /where: \{ id: seat\.id, currentPeriodEnd: periodEnd \},\s*data: \{ currentPeriodEnd: seat\.currentPeriodEnd \}/u,
     );
@@ -91,8 +100,8 @@ describe("מקום נוסף לסוכן הוואטסאפ — מנוי חודשי"
    */
   it("כשל חיוב משאיר את המקום תופס מכסה", () => {
     expect(RENEWAL).toMatch(/data: \{ status: "past_due" \}/u);
-    // `past_due` נספר במכסה — ההכרעה יושבת ב-shared, לשני הצדדים
-    expect(SERVICE).toContain("WHATSAPP_SEAT_LIVE_STATUSES");
+    // `past_due` נספר במכסה — ההכרעה יושבת בבונה התנאי המשותף
+    expect(read("../../core/whatsapp-seat-quota.ts")).toContain("WHATSAPP_SEAT_LIVE_STATUSES");
   });
 
   /*
@@ -103,7 +112,7 @@ describe("מקום נוסף לסוכן הוואטסאפ — מנוי חודשי"
    * זמן — כלומר הביטול אינו עושה דבר.
    */
   it("סגירת מקום מורידה הקצאה, ולא רק מכסה", () => {
-    expect(RENEWAL).toContain("this.seats.revokeOverQuota(seat.tenantId)");
+    expect(RENEWAL).toMatch(/this\.seats\.revokeOverQuota\(seat\.tenantId/u);
     expect(SERVICE).toContain("async revokeOverQuota(");
   });
 
@@ -145,6 +154,75 @@ describe("מקום נוסף לסוכן הוואטסאפ — מנוי חודשי"
   it("הסגירה מותנית, ולא מוחקת חודש ששולם", () => {
     expect(RENEWAL).toMatch(
       /updateMany\(\{\s*where: \{ id: seat\.id, status: "cancelled" \}/u,
+    );
+  });
+
+  /*
+   * ‎**חיוב שנכשל פעם אחת חייב להיגבות שוב.**
+   *
+   * הסורק בחר `active` בלבד ושום מסלול אחר לא החזיר מקום
+   * מ-`past_due` — כלומר המקום עבד בלי תשלום לנצח, והמייל שהבטיח
+   * „החיוב הבא יעבור” הבטיח חיוב שלא היה מגיע (ביקורת Codex).
+   */
+  it("מקום בכשל חיוב נגבה שוב, ולא נשכח", () => {
+    const due = RENEWAL.slice(RENEWAL.indexOf("async renewDue("), RENEWAL.indexOf("take: BATCH"));
+    expect(due).toContain('status: "past_due"');
+    expect(due).toContain('{ status: "active" }');
+  });
+
+  /* ניסיון כל שעה על כרטיס שנדחה הוא מה שמסמן את המשרד אצל המנפיק */
+  it("הניסיון החוזר יומי ולא שעתי", () => {
+    expect(RENEWAL).toMatch(/RETRY_EVERY_MS = 24 \* 60 \* 60 \* 1000/u);
+    expect(RENEWAL).toContain("updatedAt: { lte: new Date(now.getTime() - RETRY_EVERY_MS) }");
+  });
+
+  /*
+   * ובלי גבול, „ממשיך לתפוס מכסה” נכון לנצח: כרטיס שלא יתוקן
+   * לעולם הוא מקום חינם לעולם.
+   */
+  it("תקופת חסד מוגבלת, ואז המקום נסגר וההקצאה יורדת", () => {
+    expect(RENEWAL).toMatch(/GRACE_MS = 14 \* 24 \* 60 \* 60 \* 1000/u);
+    expect(RENEWAL).toContain("private async closeUnpaid(");
+    const close = RENEWAL.slice(RENEWAL.indexOf("private async closeUnpaid("));
+    expect(close).toContain("revokeOverQuota");
+  });
+
+  /* גבייה שהצליחה מחזירה את המקום למצב תקין */
+  it("גבייה שהצליחה מוציאה את המקום מכשל", () => {
+    expect(RENEWAL).toMatch(/seat\.status === "past_due"[\s\S]{0,200}status: "active"/u);
+  });
+
+  /*
+   * ‎**מקום שבוטל נספר עד תום התקופה ששולמה.**
+   *
+   * הביטול מבטיח בדיוק את זה. ספירה של `active | past_due` בלבד
+   * הורידה את המכסה ברגע הלחיצה — ובעל משרד שכיבה מחזיק כדי
+   * להעביר מקום ששולם נחסם בהקצאה החוזרת (ביקורת Codex).
+   */
+  it("ספירת המכסה כוללת מקום שבוטל וטרם פג", () => {
+    const QUOTA = read("../../core/whatsapp-seat-quota.ts");
+    expect(QUOTA).toContain('status: "cancelled", currentPeriodEnd: { gt: now }');
+    // וכל הסופרים עוברים דרכה — ארבעה עותקים היו נפרדים ביום שינוי
+    for (const file of [SERVICE, read("../settings/settings.controller.ts"), read("../platform/platform.controller.ts")]) {
+      expect(file).toContain("whatsappSeatQuotaWhere(");
+    }
+  });
+
+  /*
+   * ‎**המסמך מתאר את מה שנקנה.** כל תשלום שאינו קרדיטים או השכרה
+   * נפל לברירת המחדל והופק כמסמך של מנוי המסלול.
+   */
+  it("החשבונית מתארת מקום לסוכן, ולא מנוי", () => {
+    expect(read("./invoice.service.ts")).toContain('"whatsapp_seat"');
+  });
+
+  /*
+   * דף שננטש נפתח שוב אחרי שינוי מסלול או מחיר: בלי הרענון החיוב
+   * הראשון נגבה במחיר הנוכחי וכל החידושים במחיר הישן.
+   */
+  it("מחיר על שורה ממתינה שנעשה בה שימוש חוזר מתרענן", () => {
+    expect(SERVICE).toMatch(
+      /where: \{ id: seatId \},\s*data: \{ monthlyAgorot: offer\.monthlyAgorot \}/u,
     );
   });
 

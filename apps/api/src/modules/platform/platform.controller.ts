@@ -61,13 +61,13 @@ import {
   planRejectionReason,
   sanitizeFeatures,
   whatsappAgentSeats,
-  WHATSAPP_SEAT_LIVE_STATUSES,
   type PlanDefinition,
   type ServiceVersion,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlatformAdmin } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
+import { whatsappSeatQuotaWhere } from "../../core/whatsapp-seat-quota";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { EmailService } from "../../core/email.service";
@@ -1322,7 +1322,7 @@ export class PlatformController {
            * כלומר בעל הפלטפורמה לא היה יכול לבטל הענקה למשרד שקנה.
            */
           paid: await this.prisma.whatsappSeat.count({
-            where: { tenantId: id, status: { in: [...WHATSAPP_SEAT_LIVE_STATUSES] } },
+            where: whatsappSeatQuotaWhere(id, new Date()),
           }),
         });
         if (holders > seats) {

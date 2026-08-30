@@ -53,7 +53,6 @@ import {
   WHATSAPP_AGENT_DENIAL_TEXT,
   whatsappAgentDenial,
   whatsappAgentSeats,
-  WHATSAPP_SEAT_LIVE_STATUSES,
   whatsappSeatOffer,
   type WhatsappAgentDenial,
   type WhatsappSeatOffer,
@@ -63,6 +62,7 @@ import {
   RequireCapability,
 } from "../../common/auth.decorators";
 import { lockTenantRow } from "../../common/locks";
+import { whatsappSeatQuotaWhere } from "../../core/whatsapp-seat-quota";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
@@ -1324,7 +1324,7 @@ export class SettingsController {
    */
   private async paidSeatCount(tenantId: string): Promise<number> {
     return this.prisma.whatsappSeat.count({
-      where: { tenantId, status: { in: [...WHATSAPP_SEAT_LIVE_STATUSES] } },
+      where: whatsappSeatQuotaWhere(tenantId, new Date()),
     });
   }
 

@@ -6,13 +6,13 @@ import {
   nextPeriodEnd,
   whatsappAgentSeats,
   whatsappSeatOffer,
-  WHATSAPP_SEAT_LIVE_STATUSES,
   type WhatsappSeatOffer,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { CardcomService } from "../../core/cardcom.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
+import { whatsappSeatQuotaWhere } from "../../core/whatsapp-seat-quota";
 import { VatService } from "../../core/vat.service";
 
 /**
@@ -158,6 +158,20 @@ export class WhatsappSeatService {
           createdBy: input.userId,
         },
       });
+    } else {
+      /*
+       * ‎**המחיר על שורה ממתינה שנעשה בה שימוש חוזר מתרענן.**
+       *
+       * דף שננטש יכול להיפתח שוב אחרי שהמשרד שינה מסלול או אחרי
+       * שהמחיר במסלול השתנה. בלי העדכון החיוב הראשון נגבה במחיר
+       * הנוכחי (הוא נגזר מ-`offer`) בעוד **כל החידושים** נגבים
+       * מהמחיר הישן שנשמר על השורה — כלומר סכום חודשי שונה מזה
+       * שהוצג, בשקט, לנצח (ביקורת Codex).
+       */
+      await this.prisma.whatsappSeat.update({
+        where: { id: seatId },
+        data: { monthlyAgorot: offer.monthlyAgorot },
+      });
     }
 
     /*
@@ -297,7 +311,7 @@ export class WhatsappSeatService {
   /** מקומות בתשלום שתופסים מכסה — כולל מקום שהחיוב עליו נכשל. */
   private async paidCount(tenantId: string): Promise<number> {
     return this.prisma.whatsappSeat.count({
-      where: { tenantId, status: { in: [...WHATSAPP_SEAT_LIVE_STATUSES] } },
+      where: whatsappSeatQuotaWhere(tenantId, new Date()),
     });
   }
 
@@ -315,7 +329,7 @@ export class WhatsappSeatService {
    * הכלל דטרמיניסטי כדי שהתשובה לשאלה „למה דווקא הוא” תהיה אותה
    * תשובה בכל פעם, והמשרד מקבל התראה כדי שיוכל להקצות מחדש.
    */
-  async revokeOverQuota(tenantId: string): Promise<number> {
+  async revokeOverQuota(tenantId: string, now = new Date()): Promise<number> {
     return this.prisma.withExplicitTenant(tenantId, async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${tenantId}`}))`;
       const seats = whatsappAgentSeats({
@@ -327,9 +341,7 @@ export class WhatsappSeatService {
               select: { whatsappAgentSeatsExtra: true },
             })
           )?.whatsappAgentSeatsExtra ?? 0,
-        paid: await tx.whatsappSeat.count({
-          where: { tenantId, status: { in: [...WHATSAPP_SEAT_LIVE_STATUSES] } },
-        }),
+        paid: await tx.whatsappSeat.count({ where: whatsappSeatQuotaWhere(tenantId, now) }),
       });
       const holders = await tx.user.findMany({
         where: { tenantId, isActive: true, whatsappAccess: true },

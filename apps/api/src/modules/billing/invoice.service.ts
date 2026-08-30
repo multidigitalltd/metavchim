@@ -173,7 +173,9 @@ export class InvoiceService implements OnModuleInit, OnModuleDestroy {
         ? "credits"
         : payment.purpose === "number_rental"
           ? "number_rental"
-          : "subscription";
+          : payment.purpose === "whatsapp_seat"
+            ? "whatsapp_seat"
+            : "subscription";
     let planLabel: string | undefined;
     if (purpose === "subscription" && payment.planCode) {
       const plan = (await this.plans.all()).find((item) => item.code === payment.planCode);
