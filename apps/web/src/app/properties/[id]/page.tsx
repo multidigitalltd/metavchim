@@ -40,7 +40,7 @@ import {
   propertySideOnlyMissing,
 } from "../matches-empty-state";
 import { useFeature } from "@/lib/use-features";
-import { ReadinessCard } from "./readiness-card";
+import { ReadinessCard, ReadinessStrip } from "./readiness-card";
 import { DetailsCard, type DetailField } from "./details-card";
 import { PropertyTimeline } from "./property-timeline";
 import { MediaSection } from "./media-section";
@@ -1023,6 +1023,15 @@ export default function PropertyDetailPage({
             </button>
           ) : null}
         </div>
+
+        {/*
+          ‎**רצועת המוכנות צמודה לכותרת.**
+
+          האחוז הוא הדבר הראשון שמתווך בודק כשהוא פותח נכס, והוא ישב
+          עד כה בתוך כרטיס שמתחת ללשוניות — כלומר נראה רק אחרי בחירת
+          לשונית וגלילה. כאן הוא ליד שם הנכס, עם הכפתור שמתקן אותו.
+        */}
+        <ReadinessStrip propertyId={property.id} property={property} />
 
         {/*
           מה שהמתווך אינו מצפה לו — כרטיס של אדם שיורד עם הנכס. מוצג

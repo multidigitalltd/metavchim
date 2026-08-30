@@ -119,6 +119,90 @@ function fieldValue(
   }
 }
 
+/**
+ * ‎**רצועת המוכנות — בראש העמוד, לא בתוך הכרטיס.**
+ *
+ * האחוז הוא הדבר הראשון שמתווך מסתכל עליו כשהוא פותח נכס, והוא ישב
+ * בתוך כרטיס שנמצא אחרי הלשוניות — כלומר מתחת לקפל, אחרי שכבר בחר
+ * לשונית. כאן הוא צמוד לכותרת הנכס, לצד הכפתור שמתקן אותו.
+ *
+ * הרצועה והכרטיס חולקים קובץ אחד בכוונה: `readinessBand` מחזיקה שני
+ * ערכים לכל רצועה — 3:1 לגרפיקה ו-4.5:1 לטקסט — ופיצול בין קבצים
+ * היה מזמין עותק שני של הספים.
+ */
+export function ReadinessStrip({
+  propertyId,
+  property,
+}: {
+  propertyId: string;
+  property: Pick<ReadinessCardProperty, "readinessScore" | "missingFields">;
+}) {
+  const router = useRouter();
+  const band = readinessBand(property.readinessScore);
+  const missing = property.missingFields.length;
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2.5">
+      <p className="m-0 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span
+          style={{
+            fontSize: "var(--type-metric)",
+            fontWeight: 900,
+            letterSpacing: "var(--type-metric-track)",
+            color: band.text,
+          }}
+        >
+          <Ltr>{property.readinessScore}%</Ltr>
+        </span>
+        <span style={{ fontSize: "var(--type-body)", fontWeight: 800 }}>מוכנות לשיווק</span>
+        {missing > 0 ? (
+          <span style={{ fontSize: "var(--type-body)", color: "var(--color-text-muted)" }}>
+            {missing === 1 ? "שדה אחד חסר" : `${missing} שדות חסרים`} — נכס מלא מקבל יותר פניות
+          </span>
+        ) : (
+          <span
+            className="flex items-center gap-1.5 font-bold"
+            style={{ fontSize: "var(--type-body-sm)", color: "var(--color-primary)" }}
+          >
+            <IconCheck s={16} />
+            הנכס מוכן לשיווק
+          </span>
+        )}
+      </p>
+
+      {missing > 0 ? (
+        <button
+          type="button"
+          className="mv-btn-soft ms-auto"
+          onClick={() => router.push(`/properties/${propertyId}/edit`)}
+        >
+          השלם פרטים
+        </button>
+      ) : null}
+
+      {/*
+        הפס אחרון בסדר ה-DOM ותופס שורה מלאה: הוא גרפיקה שמשכפלת את
+        האחוז שכבר נאמר במילים, ולכן `aria-hidden`. קורא מסך שמקבל
+        „34%” ואחריו סרגל התקדמות מקבל את אותו נתון פעמיים.
+      */}
+      <div
+        aria-hidden="true"
+        className="w-full overflow-hidden rounded-full"
+        style={{ height: 8, background: "var(--color-progress-track)" }}
+      >
+        <div
+          style={{
+            height: "100%",
+            width: `${property.readinessScore}%`,
+            background: band.bar,
+            borderRadius: 999,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function ReadinessCard({
   propertyId,
   property,
@@ -133,7 +217,6 @@ export function ReadinessCard({
   onScrollToSection: (id: string) => void;
 }) {
   const router = useRouter();
-  const band = readinessBand(property.readinessScore);
   const missing = new Set(property.missingFields);
 
   /*
@@ -191,47 +274,37 @@ export function ReadinessCard({
             letterSpacing: "-0.025em",
           }}
         >
-          מוכנות הנכס
+          פרטי הנכס
         </h2>
         {/*
-          גלולת האחוז בצבע הרצועה. `readinessBand` מחזיקה שני ערכים
-          לכל רצועה כי הספים שונים — 3:1 לגרפיקה, 4.5:1 לטקסט — וכאן
-          הטקסט הוא שנקרא.
+          ‎**הספירה בכותרת, והאחוז ברצועה שבראש העמוד.**
+
+          שני המספרים תיארו את אותו דבר פעמיים בתוך כרטיס אחד —
+          גלולת אחוז, פס התקדמות, ומשפט „‏2 מתוך 9”. הרצועה שבראש
+          העמוד נושאת עכשיו את האחוז ואת הפס (`ReadinessStrip`),
+          והכרטיס נושא את מה שהוא באמת מציג: אילו שדות מלאים.
         */}
         <span
-          className="mv-pill ms-auto"
-          style={{
-            background: "var(--color-surface-sunken)",
-            color: band.text,
-            fontWeight: 900,
-            fontSize: "var(--type-metric)",
-            letterSpacing: "var(--type-metric-track)",
-          }}
+          className="m-0"
+          style={{ fontSize: "var(--type-body)", color: "var(--color-text-muted)" }}
         >
-          <Ltr>{property.readinessScore}%</Ltr>
+          {readinessCount(property.missingFields.length, PROPERTY_READINESS_FIELDS.length)}
         </span>
-      </div>
+        {/*
+          ‎**„עריכת פרטים” לצד תשע הגלולות, ולא במקומן.**
 
-      <div
-        className="mt-[15px] overflow-hidden rounded-full"
-        style={{ height: 8, background: "var(--color-progress-track)" }}
-      >
-        <div
-          style={{
-            height: "100%",
-            width: `${property.readinessScore}%`,
-            background: band.bar,
-            borderRadius: 999,
-          }}
-        />
+          הגלולה פותחת את השדה שחסר; הכפתור הזה פותח את הטופס כולו.
+          מי שיודע מה הוא רוצה לתקן לוחץ על התא, ומי שממלא נכס חדש
+          מלמעלה למטה פותח את הטופס פעם אחת.
+        */}
+        <button
+          type="button"
+          className="mv-btn-plain ms-auto"
+          onClick={() => router.push(`/properties/${propertyId}/edit`)}
+        >
+          עריכת פרטים
+        </button>
       </div>
-
-      <p
-        className="m-0 mt-2.5"
-        style={{ fontSize: "var(--type-body)", color: "var(--color-text-muted)" }}
-      >
-        {readinessCount(property.missingFields.length, PROPERTY_READINESS_FIELDS.length)}
-      </p>
 
       {property.missingFields.length === 0 ? (
         <p
@@ -285,12 +358,25 @@ export function ReadinessCard({
         {PROPERTY_READINESS_FIELDS.map((field) => {
           const isMissing = missing.has(field);
           return (
+            /*
+             * ‎**התא צבוע לפי מצבו — ולא ניטרלי לכולם.**
+             *
+             * תשעה תאים זהים דורשים קריאה של כל אחד כדי לדעת מה
+             * חסר; הצבע עונה על זה במבט. ירוק רך למלא, אפרסק לחסר —
+             * אותם טוקנים של הצלחה ושל חוסר בשאר המערכת, ולכן הם
+             * נכונים גם בכהה ובניגודיות גבוהה. הצבע אינו הסימן
+             * היחיד: הגלולה „להשלים” אומרת זאת גם במילים.
+             */
             <div
               key={field}
               className="rounded-[17px] px-4 py-3.5"
               style={{
-                background: "var(--color-surface-sunken)",
-                border: "1px solid var(--color-border)",
+                background: isMissing
+                  ? "var(--color-danger-soft)"
+                  : "var(--color-success-soft)",
+                border: `1px solid ${
+                  isMissing ? "var(--color-danger)" : "var(--color-success)"
+                }`,
               }}
             >
               <dt
@@ -302,8 +388,17 @@ export function ReadinessCard({
               >
                 {readinessFieldLabel(field)}
               </dt>
-              <dd className="m-0 mt-1.5">
+              <dd className="m-0 mt-1.5 flex items-center gap-2">
                 {isMissing ? (
+                  <>
+                    {/*
+                      הקו המפריד — „אין כאן ערך”, לפני שהגלולה אומרת
+                      מה לעשות עם זה. `aria-hidden`: קורא המסך מקבל
+                      את אותו מידע מהתווית שעל הכפתור.
+                    */}
+                    <span aria-hidden="true" style={{ color: "var(--color-text-muted)" }}>
+                      —
+                    </span>
                   <button
                     type="button"
                     className="mv-pill"
@@ -346,8 +441,9 @@ export function ReadinessCard({
                     }}
                     onClick={() => openField(field)}
                   >
-                    חסר
+                    להשלים
                   </button>
+                  </>
                 ) : (
                   <span
                     style={{
