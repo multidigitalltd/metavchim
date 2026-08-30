@@ -32,11 +32,13 @@ describe("שינוי שם הכרטיס", () => {
    * הכפילות שנוצרה עכשיו.
    */
   it("חתימת השם נכתבת יחד עם השם", () => {
-    expect(setName).toContain("nameEncrypted: this.crypto.encrypt(next)");
+    expect(setName).toContain(
+      "const nextHash = this.crypto.nameHash(normalizeNameForMatch(next));",
+    );
     expect(
       setName,
       "בלי עדכון החתימה, איתור הכפילויות עובד מול שם ישן",
-    ).toContain("nameHash: this.crypto.nameHash(normalizeNameForMatch(next))");
+    ).toContain("data: { nameEncrypted: this.crypto.encrypt(next), nameHash: nextHash },");
   });
 
   /*
@@ -47,6 +49,23 @@ describe("שינוי שם הכרטיס", () => {
   it("הנרמול זהה לזה של יצירת כרטיס", () => {
     const create = SERVICE.slice(0, SERVICE.indexOf("async getById("));
     expect(create).toContain("nameHash: this.crypto.nameHash(normalizeNameForMatch(input.name))");
+  });
+
+  /*
+   * ‎**דחיית כפילות היא טענה על חברוּת, לא על גודל** (ביקורת Codex).
+   *
+   * ‏„אלה אינם אותו אדם” נשמר כגודל הקבוצה ברגע הדחייה, וההצעה
+   * חוזרת רק כשהגודל עולה מעליו. שינוי שם מזיז כרטיס בין קבוצות,
+   * ולכן הגודל יכול לחזור לאותו מספר עם אנשים אחרים: קבוצה שנדחתה
+   * בגודל 2, אחד יצא ואחר נכנס — שוב 2, ושוב מוסתרת, אף שזהו זוג
+   * שאיש לא אמר עליו דבר. שתי הדחיות נמחקות, כמו במחיקת כרטיס.
+   */
+  it("דחיות הכפילות של שני השמות נמחקות", () => {
+    expect(setName).toContain("tx.duplicateDismissal.deleteMany");
+    expect(
+      setName,
+      "גם השם הישן וגם החדש — בשתי הקבוצות החברוּת השתנתה",
+    ).toContain("const stale = [row.nameHash, nextHash]");
   });
 
   /* קריאה שאינה משנה דבר אינה אירוע, ולכן אינה רשומת ביקורת */
