@@ -1173,7 +1173,7 @@ export default function PropertyDetailPage({
               נכס בלי לעזוב את הכרטיס, וסוכן שצריך לנווט למסך אחר
               כדי למקם נכס פשוט לא ימקם אותו.
             */}
-            <section className="mv-card" aria-labelledby="place-heading">
+            <section className="mv-card mv-card--pad" aria-labelledby="place-heading">
               <div className="mv-card-head">
                 <span className="mv-tile mv-tile--44 mv-domain-blue" aria-hidden="true">
                   <IconMap s={20} />
@@ -1264,7 +1264,7 @@ export default function PropertyDetailPage({
               התקלה ששער `verify:lists` קיים כדי למנוע.
             */}
             {matchesFailed || (matches !== null && matches.length > 0) ? (
-              <section className="mv-card" aria-labelledby="match-summary-heading">
+              <section className="mv-card mv-card--pad" aria-labelledby="match-summary-heading">
                 <div className="mv-card-head">
                   <span className="mv-tile mv-tile--44 mv-domain-blue" aria-hidden="true">
                     <IconUsers s={20} />
@@ -1358,7 +1358,7 @@ export default function PropertyDetailPage({
             {/* „מה קורה עם הנכס” — SPEC-3c §6a */}
             <PropertyTimeline propertyId={id} />
 
-            <section className="mv-card" aria-labelledby="media-heading">
+            <section className="mv-card mv-card--pad" aria-labelledby="media-heading">
               <div className="mv-card-head">
                 <span className="mv-tile mv-tile--44 mv-domain-blue" aria-hidden="true">
                   <IconCamera s={20} />
@@ -1414,7 +1414,7 @@ export default function PropertyDetailPage({
               „איפה מוחקים” מוצא תשובה אחת בכל פעם. הכותרת נשארה
               לארבע הפעולות היומיומיות, וכאן יושב מה שעושים פעם.
             */}
-            <section className="mv-card" aria-labelledby="extra-actions-heading">
+            <section className="mv-card mv-card--pad" aria-labelledby="extra-actions-heading">
               <div className="mv-card-head">
                 <h2 id="extra-actions-heading" className="mv-card-head__title">
                   פעולות נוספות

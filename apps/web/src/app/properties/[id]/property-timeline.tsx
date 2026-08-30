@@ -75,7 +75,7 @@ export function PropertyTimeline({ propertyId }: { propertyId: string }) {
   const recent = entries === null ? [] : entries.slice(0, MAX_ROWS);
 
   return (
-    <section className="mv-card" aria-labelledby="timeline-heading">
+    <section className="mv-card mv-card--pad" aria-labelledby="timeline-heading">
       <div className="mv-card-head">
         <span className="mv-tile mv-tile--44 mv-domain-neutral" aria-hidden="true">
           <IconClock s={20} />

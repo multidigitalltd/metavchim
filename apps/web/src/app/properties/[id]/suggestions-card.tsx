@@ -60,7 +60,7 @@ export function SuggestionsCard({
   if (shown.length === 0) return null;
 
   return (
-    <section className="mv-card" aria-labelledby="suggestions-heading">
+    <section className="mv-card mv-card--pad" aria-labelledby="suggestions-heading">
       <div className="mv-card-head">
         <span className="mv-tile mv-tile--44 mv-domain-green" aria-hidden="true">
           <IconPlus s={20} />
