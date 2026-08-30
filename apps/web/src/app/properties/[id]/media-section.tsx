@@ -24,6 +24,7 @@ export function MediaSection({
   propertyId,
   address,
   onMediaChanged,
+  onCountChange,
 }: {
   propertyId: string;
   address: string;
@@ -34,6 +35,14 @@ export function MediaSection({
    * (ביקורת Codex).
    */
   onMediaChanged?: () => void;
+  /**
+   * מספר התמונות, לגלולת המונה שבכותרת הכרטיס.
+   *
+   * ‎`null` = טרם ידוע (בטעינה או בכישלון) — ולא אפס. גלולת „0” על
+   * טעינה שנפלה אומרת „אין תמונות” על נכס שיש בו עשרים, וזו בדיוק
+   * ההסוואה ששער `verify:lists` קיים כדי למנוע.
+   */
+  onCountChange?: (count: number | null) => void;
 }) {
   const [items, setItems] = useState<MediaItem[] | null>(null);
   const [altText, setAltText] = useState("");
@@ -49,11 +58,29 @@ export function MediaSection({
    */
   const [loadFailed, setLoadFailed] = useState(false);
 
+  /*
+   * ‎**הקריאה החוצה יושבת ב-ref, ואינה תלות של `load`.**
+   *
+   * ‎`useEffect(load)` נסמך על זהות `load`. קורא שמעביר פונקציה
+   * אנונימית (`onCountChange={(n) => …}`) מייצר זהות חדשה בכל
+   * רינדור, ואז: טעינה ⟵ עדכון מצב ⟵ רינדור ⟵ `load` חדש ⟵ טעינה.
+   * לולאת רשת אינסופית שנראית כמו „הדף איטי”. `ref` מנתק את
+   * הקשירה בלי לדרוש מהקורא לעטוף ב-`useCallback`.
+   */
+  const countRef = useRef(onCountChange);
+  countRef.current = onCountChange;
+
   const load = useCallback(() => {
     setLoadFailed(false);
     apiGet<MediaItem[]>(`/properties/${propertyId}/media`)
-      .then(setItems)
-      .catch(() => setLoadFailed(true));
+      .then((rows) => {
+        setItems(rows);
+        countRef.current?.(rows.length);
+      })
+      .catch(() => {
+        setLoadFailed(true);
+        countRef.current?.(null);
+      });
   }, [propertyId]);
 
   useEffect(load, [load]);
@@ -64,7 +91,9 @@ export function MediaSection({
    * שיתווסף סוג שינוי שלישי.
    */
   async function refresh(): Promise<void> {
-    setItems(await apiGet<MediaItem[]>(`/properties/${propertyId}/media`));
+    const rows = await apiGet<MediaItem[]>(`/properties/${propertyId}/media`);
+    setItems(rows);
+    countRef.current?.(rows.length);
     onMediaChanged?.();
   }
 
@@ -143,11 +172,13 @@ export function MediaSection({
   }
 
   return (
-    <section aria-labelledby="media-heading" className="mb-8">
-      <h2 id="media-heading" className="mb-3 text-lg font-semibold">
-        תמונות {items ? `(${items.length})` : ""}
-      </h2>
-
+    /*
+     * ‎**בלי כותרת משלו.** הכרטיס העוטף נושא „תמונות”, את אריח
+     * האייקון ואת גלולת המונה. כותרת שנייה כאן הייתה מציגה „תמונות”
+     * פעמיים זו מתחת לזו — ומחזירה `id="media-heading"` כפול, כלומר
+     * ‎`aria-labelledby` שמצביע על אחד משניים באקראי.
+     */
+    <div>
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <div className="flex-1" style={{ minWidth: "220px", maxWidth: "420px" }}>
           <label htmlFor="media-alt" className="mb-1 block text-sm font-medium">
@@ -194,9 +225,35 @@ export function MediaSection({
       ) : items === null ? (
         <p aria-live="polite">טוען תמונות…</p>
       ) : items.length === 0 ? (
-        <p style={{ color: "var(--color-text-muted)" }}>
-          אין תמונות עדיין — נכס עם תמונות מקבל יותר פניות.
-        </p>
+        /*
+         * ‎**ארבע משבצות שמורות, ולא משפט.**
+         *
+         * הצילום מראה את המקום שהתמונות ימלאו — הריק מקבל צורה,
+         * ולכן קריא כ„חסר כאן משהו” ולא כ„הכרטיס נגמר”. המשבצות
+         * ‎`aria-hidden`: הן גרפיקה, והמשפט שמתחתן אומר את אותו
+         * דבר במילים.
+         */
+        <>
+          <ul
+            aria-hidden="true"
+            className="m-0 grid list-none gap-3 p-0 [grid-template-columns:repeat(auto-fill,minmax(120px,1fr))]"
+          >
+            {[0, 1, 2, 3].map((slot) => (
+              <li
+                key={slot}
+                className="rounded-xl"
+                style={{
+                  aspectRatio: "4 / 3",
+                  border: "1px dashed var(--color-border)",
+                  background: "var(--color-surface-sunken)",
+                }}
+              />
+            ))}
+          </ul>
+          <p className="mt-3" style={{ color: "var(--color-text-muted)" }}>
+            נכס עם תמונות מקבל יותר פניות. אפשר לשלוח תמונות גם בוואטסאפ לסוכן.
+          </p>
+        </>
       ) : (
         /*
          * רוחב מינימלי לתא ולא מספר עמודות קבוע: הסעיף יושב גם בטור
@@ -278,6 +335,6 @@ export function MediaSection({
           ))}
         </ul>
       )}
-    </section>
+    </div>
   );
 }

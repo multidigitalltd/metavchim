@@ -292,6 +292,7 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
         body,
         config.channel,
         whenLabel,
+        vars,
       );
       if (delivered) sent += 1;
       else unreachable.push(recipient);
@@ -427,6 +428,15 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
     body: string,
     channel: ViewingReminderChannel,
     whenLabel: string,
+    /**
+     * השדות עצמם, לתבנית הוואטסאפ.
+     *
+     * ‎`body` הוא הנוסח שהמשרד ניסח, והוא מה שיוצא **במייל**.
+     * בוואטסאפ יוצאים השדות: תבנית שגופה משתנה יחיד אינה קריאה
+     * ל-Meta, והיא מסווגת מה שאינה מבינה כ-Marketing — כלומר
+     * תזכורת לפגישה, השירותית שבהודעות, נחסמת כדיוור.
+     */
+    vars: ViewingReminderVars,
   ): Promise<boolean> {
     if (recipient.optedOut) return false;
 
@@ -446,7 +456,13 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
           recipient.phone,
           template,
           lang,
-          whatsappTemplateParams("viewingReminder", [body]),
+          whatsappTemplateParams("viewingReminder", [
+            vars["שם"],
+            vars["תאריך"],
+            vars["שעה"],
+            vars["כתובת"],
+            vars["משרד"],
+          ]),
         );
         if (ok) delivered = true;
       }

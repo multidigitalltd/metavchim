@@ -59,7 +59,17 @@ import { ExclusivityPanel } from "../exclusivity-panel";
 import { EntityNotes } from "../../entity-notes";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { RelatedEntities } from "../../related-entities";
-import { IconThumbUp, IconMap } from "../../icons";
+import {
+  IconThumbUp,
+  IconMap,
+  IconHome,
+  IconGlobe,
+  IconEdit,
+  IconTrash,
+  IconUsers,
+  IconCamera,
+} from "../../icons";
+import { IconAction } from "../../icon-action";
 import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 
@@ -346,6 +356,8 @@ export default function PropertyDetailPage({
    * שולח את המתווך לעבוד במקום שבו כבר יש לו תשובה.
    */
   const [matchesFailed, setMatchesFailed] = useState(false);
+  /** מספר התמונות לגלולה שבכותרת; `null` = טרם ידוע, ולא אפס. */
+  const [mediaCount, setMediaCount] = useState<number | null>(null);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
   /**
    * ‎**האם אנחנו כבר יודעים למי נשלחה הצעה.**
@@ -797,8 +809,28 @@ export default function PropertyDetailPage({
         className="mv-list-card mb-[18px] p-6"
         style={{ overflow: "visible" }}
       >
-        {/* ---- שורה 1: מי הנכס, ומה מחירו ---- */}
+        {/* ---- שורה 1: מי הנכס, ומה אפשר לעשות איתו ---- */}
         <div className="flex flex-wrap items-start gap-4">
+          {/*
+            ‎**אריח הזהות.** הצילום פותח את הכותרת באריח מעוגל עם
+            סמל בית — עוגן ויזואלי שאומר „זה נכס” לפני שקוראים את
+            השם. בטוקנים של המערכת ולא בכחול שבצילום: ערך ישיר היה
+            מקפיא את שלוש הערכות (בהיר, כהה, ניגודיות גבוהה), וזו
+            התקלה ש-#266 תיקן.
+          */}
+          <span
+            aria-hidden="true"
+            className="grid flex-none place-items-center rounded-[16px]"
+            style={{
+              width: 52,
+              height: 52,
+              background: "var(--color-surface-sunken)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-muted)",
+            }}
+          >
+            <IconHome s={26} />
+          </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
               <h1
@@ -856,6 +888,32 @@ export default function PropertyDetailPage({
                     ))}
                 </select>
               </label>
+              {/*
+                ‎**המחיר בשורת הכותרת, וכלום כשאין מחיר.**
+
+                בצילום אין מחיר כלל — כי לנכס שבו אין. הוא ישב עד כה
+                בטור נפרד בקצה השורה, ואותו קצה שייך עכשיו לסרגל
+                הפעולות; כאן הוא צמוד לשם, שם הוא נקרא ממילא.
+
+                ‎**„טרם הוזן מחיר” ירד.** זו הייתה אזהרה שלישית על
+                אותו חוסר — הרצועה סופרת אותו, ותא „מחיר” שברשת
+                מציע „להשלים” ומוביל לאותו טופס בדיוק. שלוש אזהרות
+                לאותו שדה הן רעש, לא דגש, והצילום אינו מראה אף אחת
+                מהן בכותרת.
+              */}
+              {property.priceAgorot === undefined ? null : (
+                <span
+                  dir="ltr"
+                  style={{
+                    unicodeBidi: "isolate",
+                    fontSize: "calc(21 / 16 * 1rem)",
+                    fontWeight: 900,
+                    letterSpacing: "-0.03em",
+                  }}
+                >
+                  {formatPrice(property.priceAgorot)}
+                </span>
+              )}
             </div>
             <p
               className="m-0 mt-[5px]"
@@ -875,105 +933,97 @@ export default function PropertyDetailPage({
             </p>
           </div>
 
-          <div className="ms-auto text-start">
-            {property.priceAgorot === undefined ? (
-              /*
-                „טרם הוזן מחיר” — ולא „—”.
-                מחיר חסר הוא הדבר היחיד בכרטיס שעוצר שיווק בפועל,
-                ולכן הוא נאמר במילים ועם דרך לתקן אותו. המסמך מוסיף:
-                כשיש מחיר, אין שום אזהרה על מחיר חסר בשום מקום במסך.
-              */
-              <div className="flex flex-col items-start gap-1">
-                <span
-                  style={{
-                    fontSize: "calc(19 / 16 * 1rem)",
-                    fontWeight: 800,
-                    color: "var(--color-warning)",
-                  }}
-                >
-                  טרם הוזן מחיר
-                </span>
-                <button
-                  type="button"
-                  className="mv-btn-plain"
-                  style={{ color: "var(--color-warning)", fontWeight: 800 }}
-                  onClick={() => router.push(`/properties/${id}/edit?focus=price`)}
-                >
-                  הזנת מחיר
-                </button>
-              </div>
-            ) : (
-              <div
-                dir="ltr"
-                style={{
-                  unicodeBidi: "isolate",
-                  fontSize: "calc(27 / 16 * 1rem)",
-                  fontWeight: 900,
-                  letterSpacing: "-0.03em",
-                }}
-              >
-                {formatPrice(property.priceAgorot)}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ---- שורה 2: סרגל הפעולות ---- */}
-        <div className="mt-[18px] flex flex-wrap gap-2.5">
           {/*
-            כפתור ולא עוגן: מאז שההתאמות עברו ללשונית, הפאנל שלהן
-            אינו קיים ב-DOM כל עוד לשונית אחרת פתוחה — ועוגן אל
-            מזהה שאינו קיים אינו עושה דבר. הלחיצה קודם בוחרת את
-            הלשונית, ורק אחרי שהיא הורכבה גוללת אליה (ביקורת Codex).
+            ‎**סרגל הפעולות באותה שורה, ולא בשורה שמתחת.**
+
+            כך בצילום, וזה גם מה שמפנה את הרוחב: הכותרת נושאת את
+            הזהות מימין ואת מה שעושים איתה משמאל. הסדר הוא סדר
+            הצילום — שלושת האייקונים ואז שלושת הכפתורים, כשהראשי
+            („מצא לי קונים”) בקצה.
           */}
-          <button
-            type="button"
-            className="mv-btn-action"
-            style={HEADER_ACTION}
-            onClick={() => {
-              selectTab("matches");
-              requestAnimationFrame(() => {
-                document
-                  .getElementById("matches-heading")
-                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
-              });
-            }}
-          >
-            מצא לי קונים
-          </button>
-          {canLanding ? (
+          <div className="ms-auto flex flex-wrap items-center gap-2.5">
+            {/*
+              ‎**שלושת האייקונים נושאים טולטיפ, ולא רק צורה.**
+
+              עיפרון ופח אשפה יושבים זה לצד זה, ואחד מהם הרסני.
+              ‎`IconAction` כופה שההסבר שבבועה יהיה גם `aria-label`,
+              כדי שהרואה והמאזין יקבלו בדיוק את אותו משפט.
+            */}
+            <IconAction label="שיתוף הנכס לרשת המשרדים" onClick={() => selectTab("network")}>
+              <IconGlobe s={19} />
+            </IconAction>
+            <IconAction
+              label="עריכת פרטי הנכס"
+              onClick={() => router.push(`/properties/${id}/edit`)}
+            >
+              <IconEdit s={19} />
+            </IconAction>
+            {/*
+              ‎**המחיקה חזרה לכותרת לבקשת בעל המוצר**, לצד „פעולות
+              נוספות” שבסקירה. הכפילות מכוונת ולא נשכחה: הכותרת
+              נראית בכל הלשוניות והכרטיס רק בסקירה, ומי שרוצה למחוק
+              מלשונית ההסכמים נאלץ עד כה לחזור אחורה.
+
+              שני המסלולים מובילים לאותו מקום בדיוק — הכפתור כאן
+              גולל אל הכרטיס, ששם יושבים האישור הדו-שלבי והגילוי
+              שסופר כמה כרטיסי אדם יימחקו. אישור מקוצר כאן היה מוחק
+              בלי אותו גילוי.
+            */}
+            <IconAction
+              label="מחיקת הנכס — לאישור בכרטיס „פעולות נוספות”"
+              tone="danger"
+              onClick={() => {
+                selectTab("overview");
+                requestAnimationFrame(() => {
+                  document
+                    .getElementById("extra-actions-heading")
+                    ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                });
+              }}
+            >
+              <IconTrash s={19} />
+            </IconAction>
+
+            <Link
+              href={`/calendar/new?propertyId=${id}`}
+              className="mv-btn-plain"
+              style={HEADER_ACTION}
+            >
+              קבע סיור
+            </Link>
+            {canLanding ? (
+              <button
+                type="button"
+                className="mv-btn-soft"
+                style={HEADER_ACTION}
+                disabled={landingBusy}
+                onClick={() => void createLanding()}
+              >
+                {landingBusy ? "יוצר…" : "דף נחיתה"}
+              </button>
+            ) : null}
+            {/*
+              כפתור ולא עוגן: מאז שההתאמות עברו ללשונית, הפאנל שלהן
+              אינו קיים ב-DOM כל עוד לשונית אחרת פתוחה — ועוגן אל
+              מזהה שאינו קיים אינו עושה דבר. הלחיצה קודם בוחרת את
+              הלשונית, ורק אחרי שהיא הורכבה גוללת אליה (ביקורת Codex).
+            */}
             <button
               type="button"
-              className="mv-btn-soft"
+              className="mv-btn-action"
               style={HEADER_ACTION}
-              disabled={landingBusy}
-              onClick={() => void createLanding()}
+              onClick={() => {
+                selectTab("matches");
+                requestAnimationFrame(() => {
+                  document
+                    .getElementById("matches-heading")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                });
+              }}
             >
-              {landingBusy ? "יוצר…" : "צור דף נחיתה"}
+              מצא לי קונים
             </button>
-          ) : null}
-          <Link
-            href={`/calendar/new?propertyId=${id}`}
-            className="mv-btn-plain"
-            style={HEADER_ACTION}
-          >
-            קבע סיור
-          </Link>
-          <Link href={`/properties/${id}/edit`} className="mv-btn-plain" style={HEADER_ACTION}>
-            עריכה
-          </Link>
-          {/*
-            ‎**המחיקה אינה כאן עוד — היא ב„פעולות נוספות” שבסקירה.**
-
-            היא ישבה כאן **וגם** שם, שני כפתורים לאותה פעולה הרסנית
-            על אותו מסך. הכותרת נשארת לארבע הפעולות היומיומיות, ומה
-            שעושים פעם אחת בחיי הנכס יושב במקום אחד.
-
-            ‎**המחיר:** הכותרת נראית בכל הלשוניות והכרטיס רק בסקירה,
-            ולכן המחיקה דורשת חזרה לסקירה. זו הכרעת בעל המוצר,
-            והיא נכונה: מוחקים נכס מהמסך שמתאר אותו, לא מלשונית
-            ההסכמים.
-          */}
+          </div>
         </div>
 
         {/*
@@ -1112,27 +1162,6 @@ export default function PropertyDetailPage({
             />
 
             {/*
-              הערות פנימיות — מה שנאמר בשיחה עם בעל הנכס ואינו נכנס
-              לאף שדה: "הדוד לא מסכים לפחות מ-2.1", "אפשר להיכנס רק
-              אחרי החגים", "השכנים מלמעלה בשיפוץ". בכרטיס הקונה זה
-              קיים מהיום הראשון; בנכס הטקסט נשמר במסד
-              (`internal_notes`) וה-API קיבל אותו — ושום מסך לא הציג
-              אותו, כלומר שדה שהיה קיים ולא היה בנמצא.
-            */}
-            <EntityNotes
-              value={property.internalNotes}
-              fieldId="internalNotes"
-              title="הערות פנימיות"
-              empty="אין הערות עדיין — מה שנאמר בשיחה עם בעל הנכס נכתב כאן."
-              canEdit={canEditOwner}
-              onSave={saveNotes}
-            />
-          </div>
-          <div className="flex flex-col gap-[18px]">
-            {/* „מה קורה עם הנכס” — SPEC-3c §6a */}
-            <PropertyTimeline propertyId={id} />
-
-            {/*
               ‎**„מקום הנכס” — SPEC-3c §6b.**
 
               המסמך מבקש „משבצת שמורה” בגובה 220 ומורה במפורש
@@ -1150,8 +1179,34 @@ export default function PropertyDetailPage({
                   <IconMap s={20} />
                 </span>
                 <h2 id="place-heading" className="mv-card-head__title">
-                  מקום הנכס
+                  מיקום
                 </h2>
+                {/*
+                  ‎**הכתובת בכותרת הכרטיס.** בצילום היא שם, ולא
+                  מתחת למפה — וזה גם נכון יותר: הכתובת היא מה
+                  שהמפה מציגה, לא הערת שוליים אחריה.
+                */}
+                <span
+                  className="min-w-0"
+                  style={{
+                    fontSize: "var(--type-body-sm)",
+                    color: "var(--color-text-muted)",
+                  }}
+                >
+                  {address === "" ? "טרם הוזנה כתובת" : address}
+                </span>
+                {/*
+                  המפה עצמה נשארת עריכה במקום — הכפתור הוא הדרך
+                  לשנות את **הכתובת הכתובה**, שאינה נגזרת מהסימון
+                  על המפה ויושבת בטופס.
+                */}
+                <button
+                  type="button"
+                  className="mv-btn-plain ms-auto"
+                  onClick={() => router.push(`/properties/${id}/edit?focus=street`)}
+                >
+                  עדכון כתובת
+                </button>
               </div>
               {/*
                 ‎**המפה מקבלת מידה, ולא נחתכת בעטיפה.** 220 הוא גובה
@@ -1175,27 +1230,159 @@ export default function PropertyDetailPage({
                   );
                 }}
               />
-              {/*
-                שורת הכתובת מתחת למשבצת — וכשאין כתובת נאמר זאת
-                במפורש, כי „every empty state names the action”.
-              */}
-              <p className="m-0 mt-2.5 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
-                {address === "" ? "טרם הוזנה כתובת לנכס." : address}
-              </p>
             </section>
 
-            <section
-              className="mv-list-card px-5 py-[18px]"
-              aria-labelledby="media-heading"
-            >
-              <h2
-                id="media-heading"
-                className="m-0 mb-3"
-                style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
-              >
-                תמונות
-              </h2>
-              <MediaSection propertyId={id} address={address} onMediaChanged={loadProperty} />
+            {/*
+              הערות פנימיות — מה שנאמר בשיחה עם בעל הנכס ואינו נכנס
+              לאף שדה: "הדוד לא מסכים לפחות מ-2.1", "אפשר להיכנס רק
+              אחרי החגים", "השכנים מלמעלה בשיפוץ". בכרטיס הקונה זה
+              קיים מהיום הראשון; בנכס הטקסט נשמר במסד
+              (`internal_notes`) וה-API קיבל אותו — ושום מסך לא הציג
+              אותו, כלומר שדה שהיה קיים ולא היה בנמצא.
+            */}
+            <EntityNotes
+              value={property.internalNotes}
+              fieldId="internalNotes"
+              title="הערות פנימיות"
+              empty="אין הערות עדיין — מה שנאמר בשיחה עם בעל הנכס נכתב כאן."
+              canEdit={canEditOwner}
+              onSave={saveNotes}
+            />
+          </div>
+          <div className="flex flex-col gap-[18px]">
+            {/*
+              ‎**ההתאמות בראש הטור הצדדי — סיכום, לא העתק.**
+
+              הן חיות בלשונית משלהן, ומי שפותח נכס אינו רואה משם
+              דבר: הוא צריך לדעת שיש לשונית, לבחור בה, ורק אז לגלות
+              שיש קונה בציון 92. הכרטיס הזה עונה על „יש למי להציע
+              את זה?” במסך הפתיחה, והפעולה עצמה נשארת במקום אחד —
+              הלחיצה מעבירה ללשונית שבה ההצעה נשלחת.
+
+              ‎**כשל טעינה נאמר, ואינו מוצג כאפס.** רשימה ריקה בגלל
+              בקשה שנפלה נראית בדיוק כמו „אין התאמות”, וזו בדיוק
+              התקלה ששער `verify:lists` קיים כדי למנוע.
+            */}
+            {matchesFailed || (matches !== null && matches.length > 0) ? (
+              <section className="mv-card" aria-labelledby="match-summary-heading">
+                <div className="mv-card-head">
+                  <span className="mv-tile mv-tile--44 mv-domain-blue" aria-hidden="true">
+                    <IconUsers s={20} />
+                  </span>
+                  <h2 id="match-summary-heading" className="mv-card-head__title">
+                    התאמות
+                  </h2>
+                  {matchesFailed ? null : (
+                    <span className="mv-pill ms-auto" style={{ fontWeight: 800 }}>
+                      {matches?.length ?? 0}
+                    </span>
+                  )}
+                </div>
+
+                {matchesFailed ? (
+                  <p
+                    className="m-0"
+                    style={{ fontSize: "var(--type-body-sm)", color: "var(--color-danger)" }}
+                  >
+                    לא הצלחנו לטעון את ההתאמות. פתחו את לשונית „התאמות” כדי לנסות שוב.
+                  </p>
+                ) : (
+                  <>
+                    <ul className="m-0 flex list-none flex-col gap-2 p-0">
+                      {/*
+                        שלוש ולא כולן: זה סיכום. הרשימה המלאה,
+                        הסינון וההסברים יושבים בלשונית.
+                      */}
+                      {(matches ?? []).slice(0, 3).map((match) => (
+                        <li
+                          key={match.id}
+                          className="flex items-center gap-2.5 rounded-[14px] px-3 py-2.5"
+                          style={{
+                            background: "var(--color-surface-sunken)",
+                            border: "1px solid var(--color-border)",
+                          }}
+                        >
+                          {/*
+                            ‎`min` ולא `width`/`height`: בתוך התיבה
+                            יושב **טקסט**, והגדלת טקסט ל-200% הייתה
+                            מוציאה אותו מריבוע קבוע (שער הטיפוגרפיה).
+                          */}
+                          <span
+                            className="grid flex-none place-items-center rounded-[11px] px-2"
+                            style={{
+                              minWidth: 38,
+                              minHeight: 38,
+                              background: "var(--color-primary-soft)",
+                              fontWeight: 900,
+                              fontSize: "var(--type-body-sm)",
+                            }}
+                          >
+                            {match.score}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block font-bold">
+                              {match.buyerName ?? "קונה ללא שם"}
+                            </span>
+                            <span
+                              className="block"
+                              style={{
+                                fontSize: "var(--type-caption)",
+                                color: "var(--color-text-muted)",
+                              }}
+                            >
+                              {match.explanation}
+                            </span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <button
+                      type="button"
+                      className="mv-btn-soft mt-3 w-full"
+                      onClick={() => {
+                        selectTab("matches");
+                        requestAnimationFrame(() => {
+                          document
+                            .getElementById("matches-heading")
+                            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        });
+                      }}
+                    >
+                      לשלוח הצעה
+                    </button>
+                  </>
+                )}
+              </section>
+            ) : null}
+
+            {/* „מה קורה עם הנכס” — SPEC-3c §6a */}
+            <PropertyTimeline propertyId={id} />
+
+            <section className="mv-card" aria-labelledby="media-heading">
+              <div className="mv-card-head">
+                <span className="mv-tile mv-tile--44 mv-domain-blue" aria-hidden="true">
+                  <IconCamera s={20} />
+                </span>
+                <h2 id="media-heading" className="mv-card-head__title">
+                  תמונות
+                </h2>
+                {/*
+                  ‎**גלולה רק כשהמספר ידוע.** `null` הוא „טרם נטען
+                  או נכשל”, ו„0” עליו היה אומר „אין תמונות” על נכס
+                  שיש בו — ההסוואה ששער `verify:lists` מונע.
+                */}
+                {mediaCount === null ? null : (
+                  <span className="mv-pill ms-auto" style={{ fontWeight: 800 }}>
+                    {mediaCount}
+                  </span>
+                )}
+              </div>
+              <MediaSection
+                propertyId={id}
+                address={address}
+                onMediaChanged={loadProperty}
+                onCountChange={setMediaCount}
+              />
             </section>
 
             {/*
