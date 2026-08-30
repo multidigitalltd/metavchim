@@ -1,0 +1,189 @@
+import { readFileSync } from "node:fs";
+
+import { describe, expect, it } from "vitest";
+import { AGENT_ACTIONS, InterpretResponseSchema, buildInterpretPrompt } from "@metavchim/shared";
+
+/**
+ * ‎**„לא הבנתי” עם דרך החוצה — ובלי שהיציאה תהפוך לניחוש.**
+ *
+ * ## התקלה שהבדיקה הזו נולדה ממנה
+ *
+ * המודל סורק שבעים ושתיים פעולות, מכריע שאף אחת אינה מספיק קרובה
+ * כדי לפעול לפיה — הכרעה נכונה — ואז המתווך מקבל „נסו לנסח אחרת”.
+ * הוא אינו יודע *איך* אחרת, ולרוב פשוט מפסיק. הידיעה מה **כן** היה
+ * קרוב הייתה קיימת אצל המודל באותו רגע, ונזרקה.
+ *
+ * ## ומה מסוכן בתיקון
+ *
+ * „אולי התכוונת” הוא בדיוק המקום שבו ניחוש מתחפש לעזרה. שלושה
+ * גבולות מפרידים בין השניים, וכולם נבדקים כאן:
+ *
+ * 1. ‎**הצעה אינה ביצוע.** הלחיצה מפרשת מחדש; פעולה שכותבת עדיין
+ *    נעצרת על אישור, ופעולה יוצאת עדיין דורשת בחירת נמען.
+ * 2. ‎**הטקסט מהקטלוג, המזהה מהמודל.** מה שהמתווך קורא נכתב ונבדק
+ *    מראש; „אולי התכוונת” אינו משטח שדרכו טקסט של מודל מגיע למסך.
+ * 3. ‎**הבחירה של המתווך גוברת.** נעיצה שמומשה בפרומפט בלבד היא
+ *    בקשה מנומסת: מודל שיחזיר פעולה אחרת היה מבטל בשקט את הלחיצה,
+ *    וזה בדיוק מה שהופך כפתור לניחוש. היא נאכפת בקוד.
+ */
+
+const source = (relative: string): string =>
+  readFileSync(new URL(relative, import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//gu, "")
+    .replace(/^[ \t]*\/\/.*$/gmu, "");
+
+const INTERPRET = source("./interpret.service.ts");
+const RESOLVE = source("./resolve.service.ts");
+const WHATSAPP = source("../messaging/whatsapp-assistant.service.ts");
+
+describe("‎„אולי התכוונת” — ניקוי התשובה", () => {
+  it("מזהה שאינו בקטלוג יורד, והתקין נשאר", () => {
+    const parsed = InterpretResponseSchema.safeParse({
+      action: "unknown",
+      suggest: ["show_schedule", "פעולה_שאינה_קיימת", "create_task"],
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.suggest).toEqual(["show_schedule", "create_task"]);
+  });
+
+  /*
+   * הצעה היא שדה עזר, ולכן סטייה בה מנוקה ואינה מפילה — בדיוק
+   * כמו `unmapped` ו-`clarify`. פענוח תקין שנפל בגלל שורה שרק
+   * מציעה היה הופך שיפור לנסיגה.
+   */
+  it.each([
+    ["מחרוזת בודדת", "show_tasks", ["show_tasks"]],
+    ["מספר", 7, []],
+    ["אובייקט", { a: 1 }, []],
+    ["רשימה עם זבל", ["show_tasks", 3, null], ["show_tasks"]],
+  ])("%s אינו מפיל את הפענוח", (_label, suggest, expected) => {
+    const parsed = InterpretResponseSchema.safeParse({ action: "unknown", suggest });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.suggest).toEqual(expected);
+  });
+
+  it("היעדר השדה הוא רשימה ריקה ולא undefined", () => {
+    const parsed = InterpretResponseSchema.safeParse({ action: "unknown" });
+    expect(parsed.success && parsed.data.suggest).toEqual([]);
+  });
+
+  /* שלוש הצעות הן תפריט; רשימה ארוכה מזו היא הקטלוג מחדש. */
+  it("יותר משלוש נחתך", () => {
+    const parsed = InterpretResponseSchema.safeParse({
+      action: "unknown",
+      suggest: ["show_tasks", "show_calls", "show_leads", "show_deals"],
+    });
+    expect(parsed.success && parsed.data.suggest).toHaveLength(3);
+  });
+});
+
+describe("‎הנעיצה — הבחירה של המתווך", () => {
+  const allowedActions = AGENT_ACTIONS.map((action) => action.id);
+
+  it("הפרומפט אומר למודל שהפעולה כבר נבחרה", () => {
+    const pinned = buildInterpretPrompt("משהו", {
+      nowText: "היום",
+      allowedActions,
+      pin: "create_task",
+    });
+    expect(pinned).toContain("הפעולה כבר נבחרה");
+    expect(pinned).toContain("create_task");
+  });
+
+  it("בלי נעיצה אין סעיף נעיצה", () => {
+    const plain = buildInterpretPrompt("משהו", { nowText: "היום", allowedActions });
+    expect(plain).not.toContain("הפעולה כבר נבחרה");
+  });
+
+  /*
+   * מזהה שאינו בקטלוג אינו כותב סעיף — אחרת הפרומפט היה מצהיר על
+   * „פעולה” שאינה קיימת, והמודל היה נדרש לבחור בין הוראה למציאות.
+   */
+  it("נעיצה למזהה שאינו קיים אינה כותבת דבר", () => {
+    const bogus = buildInterpretPrompt("משהו", {
+      nowText: "היום",
+      allowedActions,
+      pin: "אין_כזו",
+    });
+    expect(bogus).not.toContain("הפעולה כבר נבחרה");
+  });
+
+  /*
+   * ‎**האכיפה בקוד ולא בפרומפט בלבד.**
+   *
+   * זו השורה שהופכת את הלחיצה להכרעה: הפעולה שנבחרה גוברת על מה
+   * שהמודל החזיר. בלעדיה כל הבדיקות שמעליה עוברות — הפרומפט מנוסח
+   * יפה — והלחיצה עדיין מתבטלת בשקט כשהמודל בוחר אחרת.
+   */
+  it("הפעולה הנעוצה גוברת על תשובת המודל", () => {
+    expect(INTERPRET).toContain("const chosenId = pin ?? answer.action;");
+    expect(INTERPRET).toContain("agentAction(chosenId)");
+  });
+
+  it("הרשאה נבדקת על הנעיצה — בחירה אינה מרחיבה הרשאות", () => {
+    expect(INTERPRET).toMatch(/pin !== undefined && allowed\.some\(\(a\) => a\.id === pin\)/u);
+  });
+
+  /*
+   * המתווך לחץ על פעולה **אחת**. צעד המשך שהמודל היה מוסיף כאן הוא
+   * פעולה שאיש לא בחר, נגררת אחרי לחיצה על אחרת.
+   */
+  it("נעיצה אינה גוררת צעדי המשך", () => {
+    expect(INTERPRET).toContain("pin !== undefined ? [] : answer.steps");
+  });
+});
+
+describe("‎ההצעות — מסוננות, מהקטלוג, ובשני הערוצים", () => {
+  /*
+   * הצעה שתיחסם בביצוע גרועה מהיעדר הצעה: היא נראית כמו דרך החוצה
+   * ואינה. המודל רואה רק פעולות מותרות, אבל „רואה” אינו „מובטח”.
+   */
+  it("מסוננות למה שלמשתמש מותר", () => {
+    expect(INTERPRET).toMatch(/suggest: \[\.\.\.new Set\(answer\.suggest\)\]\.filter/u);
+    expect(INTERPRET).toContain("allowed.some((a) => a.id === id)");
+  });
+
+  it("הכותרת והדוגמה נגזרות מהקטלוג ולא מהמודל", () => {
+    expect(RESOLVE).toMatch(/interpretation\.suggest\.flatMap/u);
+    expect(RESOLVE).toContain("const suggested = agentAction(id);");
+    expect(RESOLVE).toContain("title: suggested.title");
+    expect(RESOLVE).toContain("suggested.examples[0]");
+  });
+
+  /*
+   * ‎**שני הערוצים, אותה יציאה.** ליבה אחת משרתת את הוואטסאפ ואת
+   * הצ'אט במסך, והנחיית בעל המוצר מפורשת: שיפור בסוכן אחד הוא
+   * שיפור בשניהם. „לא הבנתי” שנשאר קיר בערוץ אחד הוא בדיוק חצי
+   * התיקון שהיה נשכח.
+   */
+  it("הוואטסאפ מציע אותן, ושומר את הבחירה כמצב ממתין", () => {
+    expect(WHATSAPP).toContain('awaiting: "suggest"');
+    expect(WHATSAPP).toContain("proposal.suggestions ?? []");
+    expect(WHATSAPP).toMatch(/suggestions: suggestions\.map\(\(s\) => s\.actionId\)/u);
+  });
+
+  /*
+   * לחיצה מפרשת מחדש את **המשפט שנאמר** ולא את הדוגמה: הפרטים
+   * שהמתווך כבר אמר — שם, עיר, מועד — חייבים לשרוד את הבחירה,
+   * אחרת „אולי התכוונת” הוא בקשה להתחיל מהתחלה.
+   */
+  it("הלחיצה מפרשת מחדש את המשפט המקורי", () => {
+    expect(WHATSAPP).toMatch(
+      /this\.propose\(chat, pending\.transcript, null, speaker, ids\[picked\]!\)/u,
+    );
+  });
+
+  /*
+   * ‎**בחירת כוונה אינה נצרכת אטומית.** `takePending` קיים כדי
+   * שאישור כפול לא יבצע פעמיים; כאן אין ביצוע, והתחרטות („בעצם
+   * השנייה”) חייבת להישאר אפשרית.
+   */
+  it("בחירת הצעה אינה עוברת דרך הצריכה האטומית", () => {
+    const branch = WHATSAPP.slice(
+      WHATSAPP.indexOf('if (pending.awaiting === "suggest")'),
+      WHATSAPP.indexOf('if (pending.awaiting === "choice")'),
+    );
+    expect(branch.length).toBeGreaterThan(0);
+    expect(branch).not.toContain("takePending");
+  });
+});

@@ -10,7 +10,7 @@ import {
   type AgentHistoryRef,
 } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiList, apiPost, ApiError } from "@/lib/api";
 import { useUserDismissed } from "@/lib/dismissed-panels";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconMic, IconTarget } from "../icons";
@@ -48,10 +48,18 @@ import { ProposalCard, type ExecuteResult, type Proposal } from "./proposal-card
  * דורש להישאר). הקישור לכרטיס מוצג בבועה, והבחירה לעבור היא שלו.
  */
 
-interface AgentCapability {
-  id: string;
-  title: string;
-  examples: readonly string[];
+/**
+ * ‎**„מה את יודעת לעשות” — אותו תפריט שהוואטסאפ שולח.**
+ *
+ * המסך הציג עד כה שש דוגמאות קבועות מתוך שבעים ושתיים פעולות, ולא
+ * הייתה שום דרך לגלות ממנו את השאר: התפריט המלא נבנה בתוך מודול
+ * הוואטסאפ והיה שלו בלבד. החלוקה עברה ל-`shared`, וכאן היא מרונדרת
+ * ככרטיסים — אותן קבוצות, אותן דוגמאות, ערוץ אחר.
+ */
+interface AgentHelp {
+  groups: { label: string; actions: { id: string; title: string; example?: string }[] }[];
+  /** דוגמאות הפתיחה — מאותה גזירה משותפת, לא מרשימה מקומית */
+  examples: string[];
 }
 
 /** תור בשיחה — נשלח לשרת כהקשר למשפטי המשך ("ומה עם רמת גן?"). */
@@ -102,7 +110,25 @@ function recHref(rec: Recommendation): string | null {
 type ChatItem =
   | { id: number; role: "user"; text: string }
   | { id: number; role: "agent"; kind: "reply"; result: ExecuteResult }
-  | { id: number; role: "agent"; kind: "note"; tone: "info" | "danger"; text: string }
+  | {
+      id: number;
+      role: "agent";
+      kind: "note";
+      tone: "info" | "danger";
+      text: string;
+      /**
+       * ‎**„אולי התכוונת” — היציאה מ„לא הבנתי”.**
+       *
+       * „אפשר לנסח אחרת” הוא קיר: המתווך אינו יודע *איך* אחרת. כאן
+       * מוצעות הפעולות שכמעט התאימו, ולחיצה מפרשת מחדש את המשפט
+       * ‎**שכבר נאמר** (`said`) נעוץ לפעולה שנבחרה — במקום לבקש
+       * לכתוב הכול שוב. הלחיצה בוחרת כוונה; מה שכותב עדיין נעצר
+       * על אישור, כמו כל הצעה.
+       */
+      suggestions?: { actionId: string; title: string; example?: string }[];
+      /** המשפט שייפרש מחדש בלחיצה — מה שהמתווך אמר, לא הכותרת */
+      said?: string;
+    }
   /** תור משוחזר מהשיחה השמורה — תקציר, בלי הנתונים המלאים */
   | { id: number; role: "agent"; kind: "recap"; text: string }
   | {
@@ -129,6 +155,9 @@ export default function AgentPage(): React.JSX.Element {
   const [transcript, setTranscript] = useState("");
   const [thread, setThread] = useState<ChatItem[]>([]);
   const [examples, setExamples] = useState<string[]>([]);
+  const [helpGroups, setHelpGroups] = useState<AgentHelp["groups"]>([]);
+  /** התפריט המלא נפתח לפי בקשה — פתיחה כברירת מחדל היא קיר של 72 שורות */
+  const [helpOpen, setHelpOpen] = useState(false);
   /*
    * „אל תציג יותר” על הדוגמאות — העדפה שנשמרת למשתמש, בכל מכשיר.
    * היא שרדה את המעבר לצ'אט: מי שסגר אותן לפניו לא מקבל אותן שוב
@@ -245,22 +274,15 @@ export default function AgentPage(): React.JSX.Element {
 
   useEffect(() => {
     if (authLoading) return;
-    const FEATURED = [
-      "search",
-      "find_buyers",
-      "create_buyer",
-      "create_property",
-      "create_task",
-      "share_property",
-    ];
-    apiGet<AgentCapability[]>("/agent/capabilities")
-      .then((caps) => {
-        const featured = caps.filter((cap) => FEATURED.includes(cap.id));
-        const rest = caps.filter((cap) => !FEATURED.includes(cap.id));
-        const picked = [...featured, ...rest].slice(0, 6);
-        setExamples(picked.map((cap) => cap.examples[0]).filter(Boolean) as string[]);
+    apiGet<AgentHelp>("/agent/help")
+      .then((help) => {
+        setExamples(apiList(help.examples, "examples"));
+        setHelpGroups(apiList(help.groups, "groups"));
       })
-      .catch(() => setExamples([]));
+      .catch(() => {
+        setExamples([]);
+        setHelpGroups([]);
+      });
     // אותן המלצות של המאמן בדשבורד — שלוש הדחופות, כפתיחה יזומה
     apiGet<Recommendation[]>("/coach/recommendations")
       .then((all) => setRecs(all.slice(0, 3)))
@@ -335,7 +357,7 @@ export default function AgentPage(): React.JSX.Element {
   }, []);
 
   const send = useCallback(
-    async (raw: string) => {
+    async (raw: string, pin?: string) => {
       const text = raw.trim();
       if (text.length < 2 || busy) return;
       /*
@@ -348,8 +370,8 @@ export default function AgentPage(): React.JSX.Element {
        * עושה עם מצב ההמתנה שלו. שאלה סגורה (הצעה רגילה) אינה
        * נגררת: משפט חדש עליה הוא באמת בקשה חדשה.
        */
-      let prior = priorForRefine ?? undefined;
-      if (prior === undefined) {
+      let prior = pin === undefined ? (priorForRefine ?? undefined) : undefined;
+      if (pin === undefined && prior === undefined) {
         const last = thread[thread.length - 1];
         if (
           last !== undefined &&
@@ -367,11 +389,17 @@ export default function AgentPage(): React.JSX.Element {
       }
       setPriorForRefine(null);
       setTranscript("");
-      push({ role: "user", text });
+      /*
+       * בלחיצה על הצעה אין בועה חדשה: המשפט כבר מופיע בשרשור, וכפילות
+       * שלו הייתה נראית כאילו המתווך אמר אותו פעמיים. מה שנוסף הוא
+       * התוצאה בלבד.
+       */
+      if (pin === undefined) push({ role: "user", text });
       setBusy(true);
       try {
         const proposal = await apiPost<Proposal>("/agent/interpret", {
           transcript: text,
+          ...(pin === undefined ? {} : { pin }),
           ...(prior ? { prior } : {}),
           ...(history.length > 0 ? { history: history.slice(-6) } : {}),
         });
@@ -390,12 +418,22 @@ export default function AgentPage(): React.JSX.Element {
            * המשתמש). "אינו זמין כרגע" ולא "אינו מוגדר": ה-fallback
            * נדלק גם על כשל רגעי של הספק (ביקורת Codex).
            */
+          const suggestions = proposal.suggestions ?? [];
           push({
             role: "agent",
             kind: "note",
             tone: "info",
+            ...(suggestions.length > 0 ? { suggestions, said: text } : {}),
             text: [
-              proposal.clarify ?? "לא הצלחתי לזהות מה לעשות — אפשר לנסח אחרת.",
+              /*
+               * שאלת ההבהרה של המודל קודמת לכותרת ההצעות ואינה נבלעת
+               * בה: היא ספציפית למשפט, וההצעות הן הכללי שמתחתיה.
+               */
+              proposal.clarify ??
+                (suggestions.length > 0
+                  ? "לא הייתי בטוחה מה לעשות."
+                  : "לא הצלחתי לזהות מה לעשות — אפשר לנסח אחרת."),
+              ...(suggestions.length > 0 ? ["אולי התכוונתם ל:"] : []),
               ...(proposal.fallback
                 ? [
                     "שירות ההבנה החכמה אינו זמין כרגע, ולכן זוהו רק ניסוחים מוכרים. אם זה חוזר — בדקו את ההגדרה שלו במסך ההגדרות.",
@@ -580,14 +618,65 @@ export default function AgentPage(): React.JSX.Element {
                   </button>
                 ))}
               </div>
-              <button
-                type="button"
-                className="mt-1.5 text-[length:var(--type-caption)] underline"
-                style={{ color: "var(--color-text-muted)" }}
-                onClick={examplesBox.never}
-              >
-                אל תציג דוגמאות יותר
-              </button>
+              <div className="mt-1.5 flex flex-wrap items-center gap-3">
+                {helpGroups.length === 0 ? null : (
+                  <button
+                    type="button"
+                    className="text-[length:var(--type-caption)] underline"
+                    style={{ color: "var(--color-text-muted)" }}
+                    aria-expanded={helpOpen}
+                    onClick={() => setHelpOpen((was) => !was)}
+                  >
+                    {helpOpen ? "סגירת הרשימה המלאה" : "מה עוד את יודעת לעשות?"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="text-[length:var(--type-caption)] underline"
+                  style={{ color: "var(--color-text-muted)" }}
+                  onClick={examplesBox.never}
+                >
+                  אל תציג דוגמאות יותר
+                </button>
+              </div>
+              {/*
+                ‎**הרשימה המלאה — אותה רשימה שהוואטסאפ שולח על „עזרה”.**
+
+                הקבוצות הן קבוצות שימוש ולא סדר הקטלוג, והדוגמה שמתחת
+                לכל שם היא ניסוח אמיתי מהקטלוג: לחיצה עליה **מריצה**
+                אותה, ולכן היא גם מלמדת איך לבקש בפעם הבאה. פעולה
+                שכותבת עדיין נעצרת על אישור, כמו כל משפט שהוקלד.
+              */}
+              {helpOpen && helpGroups.length > 0 ? (
+                <div className="mt-3 flex flex-col gap-3">
+                  {helpGroups.map((group) => (
+                    <div key={group.label}>
+                      <div
+                        className="mb-1.5 font-semibold"
+                        style={{ fontSize: "var(--type-caption-lg)" }}
+                      >
+                        {group.label}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {group.actions.map((action) => (
+                          <button
+                            key={action.id}
+                            type="button"
+                            className="mv-example-chip"
+                            disabled={busy || action.example === undefined}
+                            title={action.example}
+                            onClick={() =>
+                              action.example === undefined ? undefined : void send(action.example)
+                            }
+                          >
+                            {action.title}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           )}
         </div>
@@ -613,6 +702,8 @@ export default function AgentPage(): React.JSX.Element {
             );
           }
           if (item.kind === "note") {
+            const offered = item.suggestions ?? [];
+            const said = item.said;
             return (
               <div
                 key={item.id}
@@ -620,6 +711,45 @@ export default function AgentPage(): React.JSX.Element {
                 style={item.tone === "danger" ? { borderColor: "var(--color-danger)" } : undefined}
               >
                 <span style={{ whiteSpace: "pre-line" }}>{item.text}</span>
+                {offered.length > 0 && said !== undefined ? (
+                  /*
+                   * ‎**כפתור לכל הצעה — לא רשימת קריאה.**
+                   *
+                   * דוגמת הניסוח מוצגת מתחת לשם: היא מלמדת *איך* לבקש
+                   * בפעם הבאה, וזה מה שהופך „לא הבנתי” יחיד לשיפור
+                   * קבוע. הלחיצה מפרשת מחדש את המשפט שנאמר — לא את
+                   * הדוגמה — ולכן הפרטים שהמתווך כבר אמר נשמרים.
+                   */
+                  <div className="mt-[10px] flex flex-col gap-2">
+                    {offered.map((option) => (
+                      <button
+                        key={option.actionId}
+                        type="button"
+                        className="mv-btn-plain text-start"
+                        disabled={busy}
+                        onClick={() => void send(said, option.actionId)}
+                        style={{
+                          borderColor: "var(--color-border)",
+                          padding: "8px 12px",
+                          lineHeight: 1.35,
+                        }}
+                      >
+                        <span className="font-semibold">{option.title}</span>
+                        {option.example ? (
+                          <span
+                            className="block"
+                            style={{
+                              color: "var(--color-text-muted)",
+                              fontSize: "var(--type-caption-lg)",
+                            }}
+                          >
+                            „{option.example}”
+                          </span>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             );
           }

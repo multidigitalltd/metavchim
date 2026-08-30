@@ -42,7 +42,7 @@ import {
   isConfirmMessage,
   isHelpMessage,
 } from "./assistant-lang";
-import { looksLikeWhatsappLinkCode } from "@metavchim/shared";
+import { agentWelcomeExamples, looksLikeWhatsappLinkCode } from "@metavchim/shared";
 import {
   lockConversation,
   mergeTurns,
@@ -53,7 +53,7 @@ import { AgentPrefsService } from "../agent/agent-prefs.service";
 import { GeminiService } from "../../core/gemini.service";
 import { toWhatsAppAudio } from "./audio-transcode";
 import { phoneDigitsCondition } from "./phone-match";
-import { helpMenu, welcomeExamples, type HelpAction } from "./assistant-help";
+import { helpMenu } from "./assistant-help";
 import {
   buttonAsText,
   choiceVariant,
@@ -141,7 +141,12 @@ export interface AssistantInbound {
 interface PendingState {
   transcript: string;
   proposal: AgentProposal;
-  awaiting: "confirm" | "choice";
+  /**
+   * ‎`"suggest"` = הוצג „לא הבנתי, אולי התכוונת” והמתווך בוחר פעולה.
+   * זו הבחירה היחידה כאן שאינה על **רשומה** אלא על **כוונה**, ולכן
+   * היא אינה נצרכת אטומית: לחיצה חוזרת רק מפרשת מחדש, לא מבצעת.
+   */
+  awaiting: "confirm" | "choice" | "suggest";
   /**
    * חותם ההצעה — נכנס למזהי הכפתורים שלה.
    *
@@ -153,6 +158,14 @@ interface PendingState {
   token?: string;
   /** בחירות שכבר נעשו (מזהה מועמד) — מעבר לשדות ההצעה */
   extraParams: Record<string, unknown>;
+  /**
+   * מזהי הפעולות שהוצעו אחרי „לא הבנתי”, לפי הסדר שהוצג.
+   *
+   * נשמרים כאן ולא במזהה הכפתור: מזהה כפתור ב-Meta מוגבל באורך,
+   * והמשפט המקורי — שהוא מה שנפרש מחדש — ארוך ממנו ממילא. המספר
+   * הסידורי הוא מה שנוסע, בדיוק כמו בבחירת רשומה.
+   */
+  suggestions?: string[];
 }
 
 interface ChatState {
@@ -350,7 +363,13 @@ export class WhatsAppAssistantService {
      * מזהי ההודעות שטופלו: בהודעה הראשונה יש בדיוק אחד.
      */
     if (chat.handledIds.length <= 1) {
-      await this.sender.sendText(msg.fromWaId, welcomeText(user.name, allowed));
+      await this.sender.sendText(
+        msg.fromWaId,
+        welcomeText(
+          user.name,
+          allowed.map((action) => action.id),
+        ),
+      );
     }
 
     /*
@@ -371,9 +390,14 @@ export class WhatsAppAssistantService {
 
     // „עזרה” — מהקטלוג, בלי קריאת מודל ובלי סיכוי להזכיר פעולה חסומה
     if (msg.type === "text" && isHelpMessage(msg.text ?? "")) {
-      await this.sender.sendText(msg.fromWaId, helpMenu(allowed, firstName(user.name)), {
-        replyTo: msg.externalId,
-      });
+      await this.sender.sendText(
+        msg.fromWaId,
+        helpMenu(
+          allowed.map((action) => action.id),
+          firstName(user.name),
+        ),
+        { replyTo: msg.externalId },
+      );
       return;
     }
 
@@ -836,6 +860,35 @@ export class WhatsAppAssistantService {
         const answer = took ? "בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול.";
         return { text: took ? `❌ ${answer}` : answer, speak: answer };
       }
+      /*
+       * ‎**„אולי התכוונת” — בחירת כוונה, לא בחירת רשומה.**
+       *
+       * המתווך בחר מה הוא רצה, והמשפט שכבר אמר נפרש מחדש נעוץ לאותה
+       * פעולה. משם המסלול הרגיל לגמרי: פעולת קריאה רצה, פעולה
+       * שכותבת נעצרת על „אשר”. הלחיצה בחרה כוונה — היא לא ביצעה.
+       *
+       * ‎`takePending` לא נקרא כאן בכוונה: אין מה לצרוך אטומית,
+       * ובחירה שנייה (התחרטתי, ההצעה השנייה) חייבת להישאר אפשרית.
+       */
+      if (pending.awaiting === "suggest") {
+        const ids = pending.suggestions ?? [];
+        const picked = choiceIndex(text, ids.length);
+        chat.pending = null;
+        /*
+         * ‎**לא מספר = ניסוח מחדש, לא תיקון.**
+         *
+         * ההצעה שממתינה כאן היא `unknown` — אין בה פעולה ואין בה
+         * שדות. העברתה כ„הצעה קודמת” הייתה מספרת למודל שהמתווך מתקן
+         * משהו, בשעה שהוא פשוט מנסח מחדש אחרי שלא הבנו. משפט חדש
+         * נשלח כמשפט חדש.
+         */
+        return withHeard(
+          picked === null
+            ? await this.propose(chat, text, null, speaker)
+            : await this.propose(chat, pending.transcript, null, speaker, ids[picked]!),
+          heard,
+        );
+      }
       if (pending.awaiting === "choice") {
         const options = pending.proposal.candidates?.options ?? [];
         const idKey = pending.proposal.candidates?.idKey;
@@ -920,6 +973,8 @@ export class WhatsAppAssistantService {
     text: string,
     prior: PendingState | null,
     speaker: { name: string; roleLabel: string },
+    /** הפעולה שהמתווך בחר מ„אולי התכוונת” — הבחירה שלו, לא של המודל */
+    pin?: string,
   ): Promise<AgentReply> {
     const interpretation = await this.interpreter.interpret(
       text,
@@ -929,6 +984,7 @@ export class WhatsAppAssistantService {
       chat.history.slice(-HISTORY_KEPT),
       "whatsapp",
       speaker,
+      pin,
     );
     /*
      * ההפניות מהעדכונים שהסוכן שלח — מה ש„אליו” חל עליו.
@@ -950,6 +1006,47 @@ export class WhatsAppAssistantService {
       if (proposal.reply !== undefined && proposal.reply !== "") {
         // תשובה שיחתית קצרה — מוקראת כולה בתשובה קולית
         return { text: proposal.reply, speak: proposal.reply };
+      }
+      const suggestions = proposal.suggestions ?? [];
+      /*
+       * ‎**„לא הבנתי” עם דרך החוצה.**
+       *
+       * „נסו לנסח אחרת” הוא קיר: המתווך אינו יודע *איך* אחרת, ולרוב
+       * פשוט מפסיק. כאן מוצעות הפעולות שכמעט התאימו — בשמן ובדוגמת
+       * הניסוח שלהן — ולחיצה מפרשת מחדש את **המשפט שכבר אמר** במקום
+       * לבקש ממנו לכתוב הכול שוב.
+       */
+      if (suggestions.length > 0) {
+        const token = ulid();
+        chat.pending = {
+          transcript: text,
+          proposal,
+          awaiting: "suggest",
+          extraParams: {},
+          token,
+          suggestions: suggestions.map((s) => s.actionId),
+        };
+        const body = [
+          // שאלת ההבהרה קודמת ואינה נבלעת: היא ספציפית, וההצעות כלליות
+          proposal.clarify ?? "לא הייתי בטוחה מה לעשות.",
+          ...proposal.warnings.map((warning) => `⚠️ ${warning}`),
+          "אולי התכוונתם ל:",
+          ...suggestions.map((s, i) => `${i + 1}. ${s.title}${s.example ? ` — „${s.example}”` : ""}`),
+        ].join("\n");
+        const rows: WhatsAppListRow[] = suggestions.map((s, i) => ({
+          action: "pick",
+          arg: String(i + 1),
+          token,
+          title: s.title,
+          ...(s.example ? { description: s.example } : {}),
+        }));
+        const speak = "לא הייתי בטוחה מה לעשות — הצעתי כמה אפשרויות.";
+        return {
+          text: `${body}\n\nאפשר לענות במספר, או לנסח אחרת.`,
+          buttonBody: body,
+          ...choiceVariant(rows),
+          speak,
+        };
       }
       const clarify = proposal.clarify ?? "לא הצלחתי להבין מה לעשות — נסו לנסח אחרת.";
       const lines = [clarify];
@@ -1566,14 +1663,15 @@ function firstName(name: string): string {
  * מי שלא יודע *באיזה ניסוח* לבקש מנסה פעם אחת, מקבל „לא הבנתי”,
  * וחוזר לדשבורד. הדוגמאות הן הניסוחים שהמודל מאומן עליהם.
  */
-function welcomeText(name: string, actions: readonly HelpAction[]): string {
-  const examples = welcomeExamples(actions);
+function welcomeText(name: string, allowedIds: readonly string[]): string {
+  /** עד שלוש דוגמאות — הכרות, לא קטלוג. */
+  const examples = agentWelcomeExamples(allowedIds, 3);
   return [
     `היי ${firstName(name)} 👋`,
     "אני העוזרת האישית שלך במתווכים — כאן בוואטסאפ, בלי להיכנס למערכת.",
     "",
     ...(examples.length > 0
-      ? ["אפשר לכתוב לי או *להקליט* הודעה קולית, למשל:", ...examples.map((e) => `   „${e}”`), ""]
+      ? ["אפשר לכתוב לי או *להקליט* הודעה קולית, למשל:", ...examples.map((e: string) => `   „${e}”`), ""]
       : ["אפשר לכתוב לי או *להקליט* הודעה קולית.", ""]),
     "לרשימה המלאה כתבו *עזרה*.",
   ].join("\n");

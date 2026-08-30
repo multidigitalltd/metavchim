@@ -7,7 +7,10 @@ import {
   AGENT_RESULT_ROWS,
   AGENT_RESULT_SUMMARY_MAX,
   agentAction,
+  agentHelpGroups,
+  agentWelcomeExamples,
   historyRefs,
+  type AgentHelpGroup,
   type AgentHistoryTurn,
   type AgentProposal,
 } from "@metavchim/shared";
@@ -105,6 +108,15 @@ const InterpretSchema = z
      * מספיקים לשיחה ומונעים פרומפט שמתנפח בלי סוף.
      */
     history: z.array(TurnSchema).max(6).optional(),
+    /**
+     * הפעולה שהמתווך בחר מתוך „אולי התכוונת”, אחרי „לא הבנתי”.
+     *
+     * ‎**אינה מרחיבה דבר.** היא מדלגת על שאלת הבחירה בלבד: הרשאה
+     * נבדקת ב-`allowedActions` לפני הפירוש ושוב ב-`execute`, ופעולה
+     * שכותבת עדיין עוצרת על אישור. מה שהיא חוסכת הוא ניסוח מחדש של
+     * משפט שכבר נאמר.
+     */
+    pin: z.enum(AGENT_ACTION_IDS as unknown as [string, ...string[]]).optional(),
   })
   .strict();
 
@@ -161,15 +173,25 @@ export class AgentController {
     return { ok: true };
   }
 
-  /** מה הסוכן יודע לעשות עבור המשתמש הזה — למסך הדוגמאות. */
-  @Get("capabilities")
+  /**
+   * ‎**„מה את יודעת לעשות” — אותו תפריט שהוואטסאפ שולח.**
+   *
+   * התפריט המלא היה של הוואטסאפ בלבד: הצ'אט במסך הציג שש דוגמאות
+   * קבועות מתוך שבעים ושתיים פעולות, ולא הייתה שום דרך לגלות ממנו
+   * את השאר. אותה חלוקה יושבת ב-`shared`, וכל ערוץ מרנדר אותה בשפה
+   * שלו — כאן כנתונים, שם כטקסט.
+   *
+   * ‎`examples` הן דוגמאות הפתיחה, מאותה גזירה משותפת: שתי רשימות
+   * העדפה נפרדות (שלוש בוואטסאפ, שש במסך) נטו זו מזו בשקט.
+   */
+  @Get("help")
   @AnyAuthenticated()
-  capabilities(): { id: string; title: string; examples: readonly string[] }[] {
-    return this.interpret.allowedActions().map((action) => ({
-      id: action.id,
-      title: action.title,
-      examples: action.examples,
-    }));
+  help(): { groups: AgentHelpGroup[]; examples: string[] } {
+    const allowedIds = this.interpret.allowedActions().map((action) => action.id);
+    return {
+      groups: agentHelpGroups(allowedIds),
+      examples: agentWelcomeExamples(allowedIds, 6),
+    };
   }
 
   @Post("interpret")
@@ -208,6 +230,9 @@ export class AgentController {
       body.transcript,
       body.prior as { action: string; params: Record<string, unknown> } | undefined,
       history,
+      "web",
+      undefined,
+      body.pin,
     );
     return this.resolve.toProposal(
       body.transcript,

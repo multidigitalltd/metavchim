@@ -61,6 +61,12 @@ export interface Proposal {
   clarify?: string;
   /** תשובה שיחתית לברכה/שאלה כללית — מוצגת במקום "לא הבנתי" */
   reply?: string;
+  /**
+   * „אולי התכוונת” — רק כש-`actionId` הוא `unknown`. הכותרת והדוגמה
+   * מגיעות מהקטלוג בשרת ולא מהמודל, ולחיצה עליהן מפרשת מחדש את
+   * המשפט שנאמר נעוץ לאותה פעולה. ראו `suggestions` ב-`AgentProposal`.
+   */
+  suggestions?: { actionId: string; title: string; example?: string }[];
   fallback: boolean;
   /** צעדי המשך — משפט אחד שביקש כמה פעולות, אישור אחד לכולן */
   followUps?: Proposal[];

@@ -130,6 +130,12 @@ export function interpretJsonSchema(): Record<string, unknown> {
         description:
           "רק כש-action=unknown: אם המשפט הוא ברכה, תודה או שאלה כללית — תשובה קצרה, חמה ומועילה בעברית, שמסתיימת בהכוונה עדינה למה שאתה כן יודע לעשות. אחרת השאר ריק.",
       },
+      suggest: {
+        type: "array",
+        description:
+          "רק כש-action=unknown: עד שלוש פעולות מהרשימה שהיו הקרובות ביותר למה שנאמר, לפי סדר הקרבה. המתווך יראה אותן ויוכל לבחור — הן אינן מבוצעות מעצמן. רק פעולות שסביר שהתכוון אליהן; אין כזו — השאר ריק.",
+        items: { type: "string", enum: [...AGENT_ACTION_IDS] },
+      },
       dateText: {
         type: "string",
         description:
@@ -203,6 +209,22 @@ function tolerantInterpretInput(raw: unknown): unknown {
   else delete value["clarify"];
   if (typeof value["reply"] === "string") value["reply"] = value["reply"].slice(0, 600);
   else delete value["reply"];
+  /*
+   * ‎`suggest` מנוקה ולא נאכף: מזהה שאינו בקטלוג יורד, וכל צורה אחרת
+   * נמחקת. הצעה היא שדה עזר — אכיפה שלה הייתה מפילה פענוח תקין בגלל
+   * מזהה שהמודל המציא בשורה שממילא רק מציעה.
+   */
+  if (typeof value["suggest"] === "string") value["suggest"] = [value["suggest"]];
+  if (Array.isArray(value["suggest"])) {
+    value["suggest"] = (value["suggest"] as unknown[])
+      .filter(
+        (v): v is string =>
+          typeof v === "string" && (AGENT_ACTION_IDS as readonly string[]).includes(v),
+      )
+      .slice(0, 3);
+  } else {
+    delete value["suggest"];
+  }
   if (typeof value["dateText"] === "string") value["dateText"] = value["dateText"].slice(0, 200);
   else delete value["dateText"];
   /*
@@ -256,6 +278,20 @@ export const InterpretResponseSchema = z.preprocess(
     clarify: z.string().max(300).optional(),
     /** תשובה שיחתית לברכה/תודה/שאלה כללית — מוצגת בלבד, לעולם לא מבוצעת */
     reply: z.string().max(600).optional(),
+    /*
+     * ‎**הפעולות הקרובות — כש`action` הוא `unknown`.**
+     *
+     * „לא הבנתי, נסו לנסח אחרת” היה קיר: המתווך אמר משפט סביר, קיבל
+     * דחייה, ולא קיבל שום כיוון — בזמן שהקטלוג שהמודל בדיוק סרק
+     * מכיל שבעים ושתיים פעולות עם דוגמאות ניסוח. המודל הוא היחיד
+     * שיודע מה **כמעט** התאים, וזו ידיעה שנזרקה.
+     *
+     * הרשימה מוצעת ואינה מבוצעת: בחירה בה מריצה פירוש מחדש של אותו
+     * משפט, נעוץ לפעולה שהמתווך בחר, וממשיכה משם במסלול הרגיל —
+     * כולל אישור לפעולה שכותבת. מזהה לא מוכר מנוקה ב-
+     * ‎`tolerantInterpretInput` ולא מפיל את הפענוח.
+     */
+    suggest: z.array(z.string()).max(3).default([]),
     /*
      * מילות המועד של הפעולה הראשית — **לא תאריך מחושב.**
      *

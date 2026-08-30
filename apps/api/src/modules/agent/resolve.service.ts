@@ -76,6 +76,18 @@ export class AgentResolveService {
   ): Promise<AgentProposal> {
     const action = agentAction(interpretation.actionId);
     if (!action) {
+      const suggestions = interpretation.suggest.flatMap((id) => {
+        const suggested = agentAction(id);
+        if (suggested === undefined) return [];
+        const example = suggested.examples[0];
+        return [
+          {
+            actionId: suggested.id,
+            title: suggested.title,
+            ...(example === undefined ? {} : { example }),
+          },
+        ];
+      });
       return {
         actionId: "unknown",
         title: "לא הבנתי",
@@ -87,6 +99,14 @@ export class AgentResolveService {
         ...(interpretation.clarify ? { clarify: interpretation.clarify } : {}),
         // ברכה/שאלה כללית — תשובה שיחתית במקום "לא הבנתי" יבש
         ...(interpretation.reply ? { reply: interpretation.reply } : {}),
+        /*
+         * ‎**הטקסט מהקטלוג, המזהה מהמודל.**
+         *
+         * המודל בחר מזהים; הכותרת והדוגמה שהמתווך יקרא הן אלה שכבר
+         * נכתבו ונבדקו בקטלוג. כך „אולי התכוונת” אינו משטח שדרכו
+         * טקסט של מודל מגיע למסך, ומזהה שאינו בקטלוג פשוט יורד.
+         */
+        ...(suggestions.length > 0 ? { suggestions } : {}),
         fallback: interpretation.fallback,
       };
     }
@@ -166,6 +186,8 @@ export class AgentResolveService {
           evidence: {},
           unmapped: [],
           rejected: step.rejected,
+          // „אולי התכוונת” שייך ל„לא הבנתי” — לצעד המשך יש פעולה
+          suggest: [],
           fallback: interpretation.fallback,
           steps: [],
         },
