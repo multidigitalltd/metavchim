@@ -17,6 +17,7 @@ import { CardcomService } from "../../core/cardcom.service";
 import { VatService } from "../../core/vat.service";
 import { EmailService } from "../../core/email.service";
 import { Pbx015NumbersService } from "../../core/pbx015-numbers.service";
+import { PlatformAdminNotifierService } from "../../core/platform-admin-notifier.service";
 import { PrismaService } from "../../core/prisma.service";
 
 /**
@@ -59,6 +60,7 @@ export class NumberRentalService {
     private readonly cardcom: CardcomService,
     private readonly email: EmailService,
     private readonly vat: VatService,
+    private readonly admins: PlatformAdminNotifierService,
   ) {}
 
   private toRow(row: {
@@ -534,18 +536,18 @@ export class NumberRentalService {
    * גלוי במסך הפלטפורמה.
    */
   async notifyAdmins(subject: string, text: string): Promise<void> {
-    const admins = loadEnv().PLATFORM_ADMIN_EMAILS;
-    for (const admin of admins) {
-      try {
-        await this.email.send(admin, subject, {
-          heading: subject,
-          paragraphs: [text],
-          button: { label: "למסך הפלטפורמה", url: `${loadEnv().WEB_ORIGIN}/platform` },
-        });
-      } catch (error) {
-        this.logger.warn(`מייל למנהל ${admin} נכשל: ${String(error)}`);
-      }
-    }
+    /*
+     * הלולאה עברה ל-`PlatformAdminNotifierService`. היא נכתבה כאן
+     * ראשונה, ואז התמיכה הייתה צריכה בדיוק אותה — שני מימושים של
+     * ‎„הודע למנהלים” הם המקום שבו אחד מקבל תיקון והשני לא. החתימה
+     * נשארת כפי שהיא: שישה קוראים במודול החיוב מכירים אותה.
+     */
+    await this.admins.notify({
+      subject,
+      heading: subject,
+      paragraphs: [text],
+      button: { label: "למסך הפלטפורמה", url: `${loadEnv().WEB_ORIGIN}/platform` },
+    });
   }
 
   /** מי משלם — אותה הכרעה כמו במנוי: בעל/ת המשרד, לחשבונית. */

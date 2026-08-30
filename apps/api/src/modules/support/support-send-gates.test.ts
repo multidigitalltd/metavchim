@@ -27,8 +27,24 @@ import { describe, expect, it } from "vitest";
  */
 
 const HERE = import.meta.dirname;
-const INBOX = readFileSync(join(HERE, "support-inbox.service.ts"), "utf8");
-const TICKETS = readFileSync(join(HERE, "support.service.ts"), "utf8");
+
+/**
+ * ‎**השער קורא קוד, לא הערות.**
+ *
+ * הוא נכתב תחילה על המקור כמות שהוא, וההרחבה „ההתראה אינה נושאת
+ * ‎`replyTo`” נפלה מיד — על **ההערה** שמסבירה למה הוא ירד. שער
+ * שמוצא את מה שהוא אוסר בתוך הסבר על איסורו הוא שער שמדווח שקר
+ * לשני הכיוונים: כאן על שלילה, ובמקום אחר היה מאשר קוד חסר בזכות
+ * הערה שמזכירה אותו.
+ */
+function code(name: string): string {
+  return readFileSync(join(HERE, name), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//gu, "")
+    .replace(/^[ \t]*\/\/.*$/gmu, "");
+}
+
+const INBOX = code("support-inbox.service.ts");
+const TICKETS = code("support.service.ts");
 
 /** גוף המתודה, מהחתימה ועד הסוגר שלה. */
 function method(source: string, signature: string): string {
@@ -175,3 +191,130 @@ describe("תשובה במייל חוזרת לפנייה שעליה היא עונ
   });
 });
 
+
+/**
+ * ‎**כל דרך שבה פנייה נכנסת — מודיעה למנהלים.**
+ *
+ * ## התקלה שהשער הזה נולד ממנה
+ *
+ * היו שלוש דרכים להיכנס לשולחן, ורק אחת מהן הודיעה למישהו:
+ *
+ * ‎1. הכפתור שבמערכת — מייל ל-`supportEmail` בלבד, וכשהיא לא
+ *    מוגדרת: לאיש.
+ * ‎2. מייל לכתובת התמיכה — **שקט מוחלט**. נכתב לשולחן וחיכה שמישהו
+ *    יפתח את המסך מיוזמתו.
+ * ‎3. תשובה במייל על פנייה מהכפתור — שקט מוחלט גם כן.
+ *
+ * ## למה שער ולא הנחיה
+ *
+ * זה בדיוק סוג הכשל שאינו נראה: המערכת עובדת, הפנייה נשמרה, המסך
+ * מציג אותה — ואיש אינו יודע שהיא שם. הדרך הרביעית שתיוולד תיוולד
+ * באותה צורה, כי שום דבר בקוד לא יזכיר שצריך להודיע. השער אוכף
+ * שכל מסלול קליטה עובר דרך `notifyDesk`, ושהיא פונה למנהלים ולא
+ * לכתובת בודדת.
+ */
+describe("כל פנייה שנכנסת מודיעה למנהלי הפלטפורמה", () => {
+  const INTAKE = [
+    ["הכפתור שבמערכת", method(TICKETS, "  async create(")],
+    ["מייל לכתובת התמיכה", method(INBOX, "  async processInbound(")],
+    ["תשובה במייל על פנייה מהכפתור", method(INBOX, "  private async appendToTicket(")],
+  ] as const;
+
+  for (const [name, scope] of INTAKE) {
+    it(`${name}: קורא ל-notifyDesk`, () => {
+      expect(scope, `${name}: אין קריאה ל-notifyDesk`).toMatch(/this\.notifyDesk\(/u);
+    });
+  }
+
+  /*
+   * ‎`supportEmail` הייתה הנמענת **היחידה**, ולכן חוסר הגדרה שלה
+   * השתיק את ההתראה לגמרי. עכשיו היא נמענת נוספת בלבד: רשימת
+   * המנהלים היא זו שאין דרך לשכוח למלא — בלעדיה גם מסך הפלטפורמה
+   * עצמו סגור.
+   */
+  for (const [name, source] of [
+    ["פניות מהכפתור", TICKETS],
+    ["פניות במייל", INBOX],
+  ] as const) {
+    it(`${name}: ההתראה עוברת דרך רשימת המנהלים`, () => {
+      const scope = method(source, "  private async notifyDesk(");
+      expect(scope, `${name}: ההתראה אינה פונה למנהלים`).toContain("this.admins.notify(");
+      expect(scope, `${name}: כתובת התמיכה אינה נמענת נוספת`).toMatch(/also: \[to\]/u);
+      expect(scope, `${name}: השליחה עוקפת את המודיע`).not.toContain("this.email.send(");
+    });
+
+    /*
+     * ההתראה נשלחת אחרי שהפנייה כבר נשמרה, ולכן חריגה ממנה הייתה
+     * מפילה את הקליטה עצמה — כלומר ספק הדואר קובע אם פנייה נקלטת.
+     */
+    it(`${name}: כישלון התראה אינו מפיל את הקליטה`, () => {
+      const scope = method(source, "  private async notifyDesk(");
+      expect(scope, `${name}: אין catch סביב ההתראה`).toMatch(/catch \(error\)/u);
+      expect(scope, `${name}: הכישלון אינו נרשם ביומן`).toMatch(/this\.logger\.warn\(/u);
+    });
+  }
+
+  /*
+   * ‎**מסירה חוזרת אינה פנייה חדשה.** הספק מוסר שוב על כל 5xx, ומייל
+   * לכל מסירה הוא בדיוק מה שגורם לאנשים לכבות התראות.
+   */
+  for (const [name, signature] of [
+    ["שרשור מייל", "  async processInbound("],
+    ["פנייה מהכפתור", "  private async appendToTicket("],
+  ] as const) {
+    it(`${name}: מסירה חוזרת של אותה הודעה אינה מייצרת התראה שנייה`, () => {
+      const scope = method(INBOX, signature);
+      const guard = scope.indexOf("if (!duplicate)");
+      const notify = scope.indexOf("this.notifyDesk(");
+      expect(guard, `${name}: אין תנאי שמונע התראה על מסירה חוזרת`).toBeGreaterThan(-1);
+      expect(notify, `${name}: ההתראה אינה בתוך התנאי`).toBeGreaterThan(guard);
+      /*
+       * ‎**ושהדגל באמת נדלק, מהאילוץ.** הניסוח הראשון בדק סדר טקסטואלי
+       * בלבד — „‏`if (!duplicate)` מופיע לפני `notifyDesk`” — ולכן היה
+       * מאשר גם תנאי שאיש אינו מדליק. שתי השורות האלה דורשות שהדגל
+       * נכתב ושהכפילות נתפסת מ-P2002 ולא מבדיקה מקדימה, ששתי מסירות
+       * בו-זמנית עוברות יחד.
+       *
+       * גבול השער נשאר: הוא קורא טקסט, ולכן אינו מבחין בין קוד חי
+       * לקוד מת. קוד מת כזה אינו מתקמפל, וזה מה שתופס אותו.
+       */
+      expect(scope, `${name}: הדגל לעולם אינו נדלק`).toContain("duplicate = true");
+      expect(scope, `${name}: הכפילות אינה נתפסת מהאילוץ`).toContain('.code !== "P2002"');
+    });
+  }
+
+  /*
+   * ‎**וההגנה עצמה היא האילוץ במסד, לא בדיקה מקדימה.**
+   *
+   * מסלול הפניות מהכפתור לא היה מוגן בכלל: `appendToTicket` כתב את
+   * ההודעה בלי מזהה ספק, ולכן כל מסירה חוזרת כפלה אותה על הפנייה
+   * (ביקורת Codex). `findFirst` לפני `create` אינו תחליף — שתי
+   * מסירות בו-זמנית עוברות אותו יחד.
+   */
+  it("תשובה בפנייה מהכפתור נכתבת עם מזהה הספק, וכפילות נתפסת ב-P2002", () => {
+    const scope = method(INBOX, "  private async appendToTicket(");
+    expect(scope, "ההודעה נכתבת בלי מזהה ספק").toContain("providerMessageId,");
+    expect(scope, "אין תפיסת כפילות").toContain('.code !== "P2002"');
+  });
+
+  /*
+   * ‎**ההתראה אינה ערוץ תשובה.**
+   *
+   * עם `replyTo` של כתובת התמיכה הכללית היא נראתה כמו הודעה שאפשר
+   * להשיב עליה — ותשובה של מנהל פתחה שרשור חדש על שמו במקום להגיע
+   * לפנייה, כי הצמדה לפי מספר דורשת את כתובת הפונה המקורי (ביקורת
+   * Codex). המסקנה: לא לשתול כתובת תשובה, ולומר לאן כותבים.
+   */
+  for (const [name, source] of [
+    ["פניות מהכפתור", TICKETS],
+    ["פניות במייל", INBOX],
+  ] as const) {
+    it(`${name}: ההתראה אינה מתחזה לערוץ תשובה`, () => {
+      const scope = method(source, "  private async notifyDesk(");
+      expect(scope, `${name}: ההתראה נושאת replyTo`).not.toMatch(/replyTo/u);
+      expect(scope, `${name}: אין הערה שאומרת לאן כותבים`).toContain(
+        "ADMIN_NOTICE_FOOTNOTE",
+      );
+    });
+  }
+});

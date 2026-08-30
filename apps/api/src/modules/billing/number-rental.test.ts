@@ -6,6 +6,7 @@ import type { EmailService } from "../../core/email.service";
 import type { Pbx015NumbersService } from "../../core/pbx015-numbers.service";
 import type { PrismaService } from "../../core/prisma.service";
 import type { VatService } from "../../core/vat.service";
+import { PlatformAdminNotifierService } from "../../core/platform-admin-notifier.service";
 import { NumberRentalService } from "./number-rental.service";
 
 /**
@@ -152,6 +153,20 @@ function service(fakes: Fakes = {}): {
     },
   } as unknown as EmailService;
   /*
+   * ‎**התפר הוא „הודע למנהלים”, לא „שלח מייל”.**
+   *
+   * הלולאה על `PLATFORM_ADMIN_EMAILS` עברה ל-`PlatformAdminNotifier`
+   * ויש לה בדיקה משלה. כאן נבדק מה שהמודול הזה אחראי לו: שההתראה
+   * יוצאת, ועם הנוסח הנכון. ‎double שקורא את משתני הסביבה היה הופך
+   * את הבדיקות האלה לתלויות בהגדרה חיצונית.
+   */
+  const admins = {
+    notify: async ({ subject }: { subject: string }) => {
+      sentEmails.push({ to: "admin@example.test", subject });
+      return { sent: 1, failed: 0 };
+    },
+  } as unknown as PlatformAdminNotifierService;
+  /*
    * מחיר המחירון נטו, והחיוב הוא הוא ועוד מע"מ. ה-double נוקב
    * בשיעור מפורש ולא קורא הגדרה — כדי שהבדיקה תיפול אם מישהו
    * יחזיר את החיוב לנטו.
@@ -163,7 +178,7 @@ function service(fakes: Fakes = {}): {
     charge: async (net: number) => ({ amountAgorot: grossFromNet(net, 18), vatPercent: 18 }),
   } as unknown as VatService;
   return {
-    svc: new NumberRentalService(prisma, pbx015, cardcom, email, vat),
+    svc: new NumberRentalService(prisma, pbx015, cardcom, email, vat, admins),
     charged,
     payments,
     rates,

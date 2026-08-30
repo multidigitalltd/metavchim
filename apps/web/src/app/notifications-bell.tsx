@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { apiGet, apiList, apiPatch } from "@/lib/api";
+import { timeAgo } from "@/lib/format";
 import { notificationHref } from "@/lib/notification-links";
 import { can, type AuthUser } from "@/lib/use-auth";
 
@@ -31,16 +32,6 @@ function dotColor(type: string): string {
   if (type.includes("interest") || type.includes("signed") || type.includes("match"))
     return "#12A150";
   return "#c98a2e";
-}
-
-function timeAgo(iso: string): string {
-  const minutes = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60_000));
-  if (minutes < 1) return "עכשיו";
-  if (minutes < 60) return `לפני ${minutes} דק׳`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return hours === 1 ? "לפני שעה" : `לפני ${hours} שעות`;
-  const days = Math.floor(hours / 24);
-  return days === 1 ? "אתמול" : `לפני ${days} ימים`;
 }
 
 /**

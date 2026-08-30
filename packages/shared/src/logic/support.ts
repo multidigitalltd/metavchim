@@ -136,6 +136,35 @@ export const SUPPORT_SEVERITY_LABEL: Record<SupportSeverity, string> = {
   normal: "רגיל",
 };
 
+/**
+ * ‎**ערך שהגיע מהמסד אינו טיפוס — עד שבודקים אותו.**
+ *
+ * העמודות `kind` ו-`severity` הן טקסט חופשי במסד, והמרה ישירה
+ * ‎(`as SupportSeverity`) היא הבטחה לקומפיילר ולא בדיקה. ערך ישן או
+ * שגוי היה מגיע כך עד לאינדוקס בטבלת התוויות — ומצייר `undefined`
+ * על המסך במקום להיעלם.
+ *
+ * ‎`null` ולא ברירת מחדל: „לא ידוע” אינו „רגיל”. פנייה חוסמת שאיבדה
+ * את הערך שלה חייבת להיראות חסרת סיווג, לא שגרתית.
+ */
+export function asSupportKind(value: string | null | undefined): SupportKind | null {
+  return known(SUPPORT_KIND_LABEL, value) ? (value as SupportKind) : null;
+}
+
+export function asSupportSeverity(value: string | null | undefined): SupportSeverity | null {
+  return known(SUPPORT_SEVERITY_LABEL, value) ? (value as SupportSeverity) : null;
+}
+
+/**
+ * ‎`Object.hasOwn` ולא `in`: `"toString" in record` הוא `true` דרך
+ * שרשרת האב־טיפוס, ולכן ערך כזה מהמסד היה עובר כסיווג תקין — ואז
+ * נשלף מטבלת התוויות כ-`undefined`. הבדיקה נכתבה תחילה עם `in`,
+ * ובדיקת היחידה היא זו שתפסה.
+ */
+function known(labels: Record<string, string>, value: string | null | undefined): boolean {
+  return value !== null && value !== undefined && Object.hasOwn(labels, value);
+}
+
 export interface SupportTriage {
   area: string;
   severity: SupportSeverity;

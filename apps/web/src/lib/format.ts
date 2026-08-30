@@ -53,6 +53,28 @@ export function formatDateTime(value: string | Date | undefined): string {
   return value === undefined ? "—" : dateTimeFmt.format(new Date(value));
 }
 
+/**
+ * ‎**„לפני כמה זמן” — ולא תאריך מלא.**
+ *
+ * ‏„30 באוגוסט 2026, 10:14” מחייב את מי שקורא לחשב בעצמו כמה זמן
+ * זה מחכה; „לפני 3 שעות” הוא התשובה עצמה. בתור של פניות זו השאלה
+ * היחידה שנשאלת על הזמן, ולכן זה מה שמוצג — התאריך המדויק נשאר
+ * זמין כ-`title` על אותה שורה.
+ *
+ * הפונקציה נכתבה כאן אחרי שנמצאו לה שני עותקים פרטיים במסכים
+ * שונים. גרסה שלישית הייתה נכתבת מחדש בניסוח רביעי.
+ */
+export function timeAgo(value: string | Date | undefined): string {
+  if (value === undefined) return "—";
+  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60_000));
+  if (minutes < 1) return "עכשיו";
+  if (minutes < 60) return `לפני ${minutes} דק׳`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours === 1 ? "לפני שעה" : `לפני ${hours} שעות`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "אתמול" : `לפני ${days} ימים`;
+}
+
 export { MATURITY_LABELS } from "@metavchim/shared";
 
 /**

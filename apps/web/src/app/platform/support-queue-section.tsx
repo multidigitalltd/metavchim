@@ -4,21 +4,28 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@metavchim/ui";
 import {
   formatSupportReference,
+  matchesSupportFilter,
   openSupportCount,
+  searchSupportQueue,
   SUPPORT_KIND_LABEL,
+  SUPPORT_QUEUE_FILTER_LABEL,
+  SUPPORT_QUEUE_FILTERS,
+  supportQueueCounts,
   SUPPORT_SEVERITY_LABEL,
   SUPPORT_SOURCE_LABEL,
   SUPPORT_STATUSES,
   SUPPORT_STATUS_LABEL,
   type SupportContext,
   type SupportKind,
+  type SupportQueueFilter,
   type SupportQueueRow,
   type SupportSeverity,
   type SupportStatus,
 } from "@metavchim/shared";
 import { API_BASE, ApiError, apiGet, apiPost } from "@/lib/api";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, timeAgo } from "@/lib/format";
 import { IconMail } from "../icons";
+import { SearchField } from "../list-controls";
 import { Notice } from "../notice";
 
 /**
@@ -48,25 +55,18 @@ import { Notice } from "../notice";
  * לגלילה — בדיוק השאלה שהמסך אמור לענות עליה במבט.
  */
 
-/**
- * ‎**„ממתינות” היא ברירת המחדל, ולא „נפתחה”.**
+/*
+ * ‎**„ממתינות” היא ברירת המחדל, ולא „נפתחה”** — והכלל עצמו ירד
+ * ל-`packages/shared` (‏`matchesSupportFilter`). הוא נשאר כאן כל עוד
+ * היה לו קורא אחד; ברגע שנולד לו שני — המספר שעל כל לשונית — שני
+ * מימושים היו נפרדים בדיוק בלידת המצב הבא, והלשונית הייתה מבטיחה
+ * שבע ופותחת חמש.
  *
- * המונה שליד הכותרת סופר כל מה שאינו סגור — כולל „בטיפול”, כי שם
- * הפונה עדיין מחכה. סינון שברירת המחדל שלו היא `open` בלבד היה
- * מציג רשימה קצרה מהמונה שמעליה, וזו סתירה שרואים מיד: „כתוב 2,
- * מוצגת אחת”.
+ * ‎**וכמה זמן מרענן.** השולחן פתוח כשמישהו יושב מולו, ופנייה שנכנסה
+ * בינתיים לא הופיעה עד רענון ידני. הסקר מותנה בכך שהלשונית גלויה:
+ * טאב ברקע אינו מקום שצריך לעדכן.
  */
-type Filter = SupportStatus | "waiting" | "all";
-
-const FILTER_LABEL: Record<Filter, string> = {
-  waiting: "ממתינות",
-  open: "נפתחה",
-  in_progress: "בטיפול",
-  closed: "נסגרה",
-  all: "הכול",
-};
-
-const FILTERS: readonly Filter[] = ["waiting", "in_progress", "closed", "all"];
+const REFRESH_MS = 45_000;
 
 interface ThreadView {
   id: string;
@@ -264,6 +264,18 @@ function Composer({
         id={id}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        /*
+         * ‎**Ctrl/⌘+Enter שולח.** תשובה קצרה היא הרוב, והמסלול
+         * ‎„כתוב, קח את העכבר, מצא את הכפתור” חוזר על עצמו עשרות
+         * פעמים ביום. `Enter` לבדו נשאר שורה חדשה: תשובת תמיכה היא
+         * פסקה, ושליחה בטעות באמצע משפט גרועה מלחיצה נוספת.
+         */
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !busy) {
+            event.preventDefault();
+            onSend();
+          }
+        }}
         rows={4}
         className="mb-2 w-full rounded-lg border px-3 py-2"
         style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
@@ -274,7 +286,7 @@ function Composer({
           {busy ? "שולח…" : "שלח תשובה"}
         </Button>
         <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-          עד 7MB קבצים בהודעה
+          עד 7MB קבצים בהודעה · ‎Ctrl+Enter שולח
         </span>
         {children}
       </div>
@@ -284,7 +296,8 @@ function Composer({
 
 export function SupportQueueSection() {
   const [rows, setRows] = useState<SupportQueueRow[] | null>(null);
-  const [filter, setFilter] = useState<Filter>("waiting");
+  const [filter, setFilter] = useState<SupportQueueFilter>("waiting");
+  const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<SupportQueueRow | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -292,10 +305,38 @@ export function SupportQueueSection() {
   const load = useCallback(() => {
     apiGet<SupportQueueRow[]>("/platform/support/queue")
       .then(setRows)
-      .catch(() => setRows([]));
+      /*
+       * ‎**כשל ברענון אינו מרוקן את השולחן (ביקורת Codex).**
+       *
+       * ‎`setRows([])` היה נכון כשהייתה טעינה אחת: היא מוציאה את המסך
+       * ממצב „טוען…”. מרגע שנוסף סקר כל 45 שניות, תקלת רשת חולפת
+       * אחת הפכה תור מלא ל„אין פניות בסינון הזה” — עם מונים באפס —
+       * עד שהסקר הבא יצליח. `current ?? []` שומר את התמונה האחרונה
+       * שהצליחה, ועדיין פותר את הטעינה הראשונה.
+       */
+      .catch(() => setRows((current) => current ?? []));
   }, []);
 
   useEffect(load, [load]);
+
+  /*
+   * ‎**רענון שקט — כדי שפנייה שנכנסה תופיע בלי לרענן דף.**
+   *
+   * זה המסך שיושבים מולו, ועד עכשיו הוא הציג את מה שהיה בו ברגע
+   * הטעינה. הפנייה הגיעה, ההתראה במייל יצאה — והמסך הפתוח המשיך
+   * לומר „אין פניות בסינון הזה”.
+   *
+   * ‎`document.hidden` בתנאי: טאב ברקע אינו מקום שצריך לעדכן, וסקר
+   * שרץ בכל הטאבים הפתוחים הוא עומס בלי קורא. הרשימה מתחלפת מתחת
+   * לכרטיס הפתוח בלי להרוס אותו — הוא מזוהה ב-`key` לפי מזהה
+   * הפנייה, ולכן הטיוטה שבתוכו שורדת.
+   */
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (!document.hidden) load();
+    }, REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [load]);
 
   async function setStatus(row: SupportQueueRow, status: SupportStatus): Promise<void> {
     setBusy(true);
@@ -307,8 +348,17 @@ export function SupportQueueSection() {
        */
       await apiPost(`/platform/support/queue/${row.source}/${row.id}/status`, { status });
       load();
+      /*
+       * ‎**פנייה שנסגרה מתקפלת.** היא כבר אינה מה שמטפלים בו, וכרטיס
+       * פתוח שנשאר פתוח דוחף את הפנייה הבאה מתחת לקפל — כלומר כל
+       * סגירה עולה לחיצה נוספת רק כדי לחזור לרשימה.
+       */
       setSelected((current) =>
-        current !== null && current.id === row.id ? { ...current, status } : current,
+        current === null || current.id !== row.id
+          ? current
+          : status === "closed"
+            ? null
+            : { ...current, status },
       );
     } catch (err: unknown) {
       setNotice({ tone: "danger", text: err instanceof ApiError ? err.message : "העדכון נכשל" });
@@ -328,12 +378,17 @@ export function SupportQueueSection() {
     );
   }
 
-  const shown = rows.filter((row) => {
-    if (filter === "all") return true;
-    if (filter === "waiting") return row.status !== "closed";
-    return row.status === filter;
-  });
+  /*
+   * הסינון קודם לחיפוש: „ממתינות” היא ההקשר, והחיפוש מצמצם בתוכו.
+   * הסדר ההפוך היה מציג תוצאה מלשונית אחרת מזו שסומנה.
+   */
+  const shown = searchSupportQueue(
+    rows.filter((row) => matchesSupportFilter(row, filter)),
+    query,
+  );
   const waiting = openSupportCount(rows);
+  /* המספרים נספרים על התור המלא — לשונית שסופרת את עצמה אינה מידע */
+  const counts = supportQueueCounts(rows);
 
   return (
     <section
@@ -355,8 +410,8 @@ export function SupportQueueSection() {
         מספר, והוא נדבק לנושא של המייל כדי שתשובה תחזור לאותה פנייה.
       </p>
 
-      <div className="mb-3 flex flex-wrap gap-1.5">
-        {FILTERS.map((value) => (
+      <div className="mb-3 flex flex-wrap items-center gap-1.5">
+        {SUPPORT_QUEUE_FILTERS.map((value) => (
           <button
             key={value}
             type="button"
@@ -364,15 +419,40 @@ export function SupportQueueSection() {
             aria-pressed={filter === value}
             onClick={() => setFilter(value)}
           >
-            {FILTER_LABEL[value]}
+            {/*
+              ‎**המספר על הלשונית עצמה.** בלעדיו „בטיפול” היא ניחוש:
+              צריך ללחוץ כדי לגלות שהיא ריקה, ואז ללחוץ חזרה. שלוש
+              לשוניות פירושן שלוש לחיצות רק כדי לדעת מה יש.
+            */}
+            {SUPPORT_QUEUE_FILTER_LABEL[value]} ({counts[value]})
           </button>
         ))}
+        {/*
+          ‎**חיפוש — הרגע השכיח ביותר מול השולחן.**
+
+          ‏„הלקוח מתקשר ושואל מה עם הפנייה שלו”. עד עכשיו הדרך היחידה
+          למצוא אותה הייתה גלילה, ועם מאה שורות זו לא דרך. החיפוש עובר
+          על מספר הפנייה, השם, הכתובת, הטלפון, שם המשרד וטקסט הפנייה —
+          כלומר על כל מה שהמתקשר יכול למסור.
+        */}
+        <div className="ms-auto">
+          <SearchField
+            label="חיפוש בתור התמיכה"
+            placeholder="מספר פנייה, שם או טלפון"
+            value={query}
+            onChange={setQuery}
+          />
+        </div>
       </div>
 
       {notice ? <Notice tone={notice.tone}>{notice.text}</Notice> : null}
 
       {shown.length === 0 ? (
-        <p style={{ color: "var(--color-text-muted)" }}>אין פניות בסינון הזה.</p>
+        <p style={{ color: "var(--color-text-muted)" }}>
+          {query.trim() === ""
+            ? "אין פניות בסינון הזה."
+            : `לא נמצאה פנייה שמתאימה ל„${query.trim()}” בסינון הזה.`}
+        </p>
       ) : (
         <ul className="mb-4 flex list-none flex-col gap-2 p-0">
           {shown.map((row) => {
@@ -395,6 +475,28 @@ export function SupportQueueSection() {
                   <span className="flex flex-wrap items-center gap-2">
                     <b dir="ltr">{formatSupportReference(row.reference)}</b>
                     <span className="mv-tag">{SUPPORT_SOURCE_LABEL[row.source]}</span>
+                    {/*
+                      ‎**חומרה על השורה, ולא מאחורי לחיצה.**
+
+                      ‏„חוסם עבודה” פירושו שמישהו עומד **עכשיו** מול
+                      מסך שאינו עובד. הוא היה קריא רק אחרי פתיחת
+                      הפנייה, כלומר תקלה חוסמת נראתה בתור בדיוק כמו
+                      בקשת שיפור — ומי שמטפל היה צריך לפתוח את כולן
+                      כדי לדעת במה להתחיל.
+
+                      רק „חוסם” מסומן: תג על כל שורה אינו סימון אלא
+                      רעש, ומה שמסמן הכול אינו מסמן דבר.
+                    */}
+                    {row.severity === "blocking" ? (
+                      <b style={{ color: "var(--color-danger)" }}>
+                        {SUPPORT_SEVERITY_LABEL.blocking}
+                      </b>
+                    ) : null}
+                    {row.kind !== null ? (
+                      <span className="mv-tag" style={{ color: "var(--color-text-muted)" }}>
+                        {SUPPORT_KIND_LABEL[row.kind]}
+                      </span>
+                    ) : null}
                     <b>{row.who}</b>
                     {row.tenantName !== null ? (
                       <span className="mv-tag">{row.tenantName}</span>
@@ -416,8 +518,20 @@ export function SupportQueueSection() {
                         {SUPPORT_STATUS_LABEL[row.status]}
                       </span>
                     ) : null}
-                    <span className="ms-auto" style={{ color: "var(--color-text-muted)" }}>
-                      {formatDateTime(row.lastActivityAt)}
+                    {/*
+                      ‎**„לפני 3 שעות” ולא „30 באוגוסט, 10:14”.**
+
+                      השאלה היחידה שנשאלת על הזמן בתור הזה היא „כמה
+                      זמן זה מחכה”, ותאריך מלא מחייב את מי שקורא לחשב
+                      אותה בעצמו — מאה פעם בגלילה אחת. התאריך המדויק
+                      נשאר ב-`title`, במרחק ריחוף.
+                    */}
+                    <span
+                      className="ms-auto"
+                      style={{ color: "var(--color-text-muted)" }}
+                      title={formatDateTime(row.lastActivityAt)}
+                    >
+                      {timeAgo(row.lastActivityAt)}
                     </span>
                   </span>
                   <span className="mt-1 block truncate">{row.title}</span>
@@ -454,7 +568,24 @@ export function SupportQueueSection() {
                         onChanged={load}
                       />
                     ) : (
-                      <TicketDetail key={row.id} ticketId={row.id} onChanged={load} />
+                      <TicketDetail
+                        key={row.id}
+                        ticketId={row.id}
+                        onChanged={load}
+                        /*
+                          ‎**ההודעה עוברת להורה, כי הילד נעלם.**
+
+                          ‏„התשובה נשלחה” נכתבה ב-`TicketDetail`
+                          ומוצגת בתוכו — וקיפול הכרטיס מפרק אותו,
+                          כלומר מוחק את האישור באותו רגע שבו הוא
+                          נכתב. מי ששלח וסגר היה רואה את הכרטיס
+                          נעלם בלי לדעת אם התשובה יצאה.
+                        */
+                        onClosed={() => {
+                          setSelected(null);
+                          setNotice({ tone: "success", text: "התשובה נשלחה והפנייה נסגרה" });
+                        }}
+                      />
                     )}
                   </div>
                 ) : null}
@@ -643,7 +774,16 @@ function ThreadDetail({
  * נשלחה” ואותה תיבת מענה. מה שנשאר שונה הוא מה שבאמת שונה: ההקשר
  * הטכני, צילום המסך, והטלפון של מי שפנה.
  */
-function TicketDetail({ ticketId, onChanged }: { ticketId: string; onChanged: () => void }) {
+function TicketDetail({
+  ticketId,
+  onChanged,
+  onClosed,
+}: {
+  ticketId: string;
+  onChanged: () => void;
+  /** „שליחה וסגירה” מקפלת את הכרטיס — הפנייה כבר אינה מה שמטפלים בו. */
+  onClosed: () => void;
+}) {
   const [ticket, setTicket] = useState<AdminTicket | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -703,6 +843,14 @@ function TicketDetail({ ticketId, onChanged }: { ticketId: string; onChanged: ()
             }
           : { tone: "success", text: "התשובה נשלחה" },
       );
+      /*
+       * ‎**הקיפול רק כששליחה הצליחה, ורק כשהיא ודאית.**
+       *
+       * ‏„לא ידוע” נשאר פתוח בכוונה: זו בדיוק הפנייה שצריך להסתכל
+       * עליה שוב לפני שליחה חוזרת, וקיפול היה מסתיר את האזהרה
+       * שנכתבה עכשיו.
+       */
+      if (close && sent?.state !== "unknown") onClosed();
     } catch (err: unknown) {
       setNotice({ tone: "danger", text: err instanceof ApiError ? err.message : "השליחה נכשלה" });
     } finally {

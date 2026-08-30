@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  asSupportKind,
+  asSupportSeverity,
   EXTERNAL_ERROR_PREFIX,
   isExternalError,
   redactUrl,
@@ -153,5 +155,33 @@ describe("שגיאה חיצונית אינה מכתיבה חומרה", () => {
     });
     expect(t.severity).toBe("blocking");
     expect(t.hints.some((h) => h.includes("TypeError"))).toBe(true);
+  });
+});
+
+describe("סיווג שהגיע מהמסד", () => {
+  it("ערך מוכר עובר כמו שהוא", () => {
+    expect(asSupportKind("bug")).toBe("bug");
+    expect(asSupportSeverity("blocking")).toBe("blocking");
+  });
+
+  /*
+   * ‎**„לא ידוע” אינו „רגיל”.** ברירת מחדל כאן הייתה הופכת פנייה
+   * שאיבדה את הסיווג שלה לפנייה שגרתית למראה — כלומר ממציאה נתון
+   * במקום להודות שאין. `null` נראה על המסך כמה שהוא: בלי תווית.
+   */
+  it("ערך זר הופך ל-null ולא לברירת מחדל", () => {
+    expect(asSupportKind("whatever")).toBeNull();
+    expect(asSupportSeverity("critical")).toBeNull();
+    expect(asSupportSeverity(null)).toBeNull();
+    expect(asSupportKind(undefined)).toBeNull();
+  });
+
+  /*
+   * ‎`"toString" in record` הוא `true` דרך שרשרת האב־טיפוס. בלי
+   * הבדיקה הזאת ערך כזה מהמסד היה עובר כסיווג תקין.
+   */
+  it("מפתח שיורש מהאב־טיפוס אינו סיווג", () => {
+    expect(asSupportKind("toString")).toBeNull();
+    expect(asSupportSeverity("constructor")).toBeNull();
   });
 });

@@ -14,6 +14,7 @@ import { CreditEconomyService } from "./credit-economy.service";
 import { CreditExpiryService } from "./credit-expiry.service";
 import { OnboardingOutreachService } from "./onboarding-outreach.service";
 import { Pbx015NumbersService } from "./pbx015-numbers.service";
+import { PlatformAdminNotifierService } from "./platform-admin-notifier.service";
 import { PlatformSettingsService } from "./platform-settings.service";
 import { OutboxService } from "./outbox.service";
 import { PrismaService } from "./prisma.service";
@@ -33,6 +34,7 @@ import { VatService } from "./vat.service";
     OutboxService,
     OutboxDispatcherService,
     PlatformSettingsService,
+    PlatformAdminNotifierService,
     Pbx015NumbersService,
     GeocodingService,
     CreditEconomyService,
@@ -54,6 +56,7 @@ import { VatService } from "./vat.service";
     AuditService,
     OutboxService,
     PlatformSettingsService,
+    PlatformAdminNotifierService,
     Pbx015NumbersService,
     /*
      * חייב להיות מיוצא ולא רק מסופק: `@Global()` חושף את מה שהמודול

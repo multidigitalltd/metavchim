@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   isSupportWaiting,
+  matchesSupportFilter,
   openSupportCount,
   orderSupportQueue,
+  searchSupportQueue,
+  SUPPORT_QUEUE_FILTERS,
+  supportQueueCounts,
   ticketTitle,
   waitingFirst,
   type SupportBucket,
+  type SupportQueueFilter,
   type SupportQueueRow,
 } from "./support-queue.js";
 
@@ -19,6 +24,10 @@ const row = (over: Partial<SupportQueueRow>): SupportQueueRow => ({
   status: "open",
   unread: false,
   lastActivityAt: "2026-08-01T10:00:00.000Z",
+  kind: null,
+  severity: null,
+  contactEmail: null,
+  contactPhone: null,
   ...over,
 });
 
@@ -191,5 +200,143 @@ describe("„ממתינה” מוגדרת בשלילה", () => {
       row({ id: "c", status: "closed" }),
     ];
     expect(openSupportCount(rows)).toBe(2);
+  });
+});
+
+describe("לשוניות הסינון", () => {
+  /*
+   * ‎**המספר על הלשונית ומה שהיא פותחת — אותו כלל.**
+   *
+   * זו הסיבה שהסינון ירד לכאן מהמסך. שני מימושים של „מה נכנס
+   * ללשונית” נפרדים ברגע שנולד מצב חדש, ואז הלשונית מבטיחה שבע
+   * ופותחת חמש — בלי ששום דבר נראה שבור.
+   */
+  it("הספירה מסכימה עם מה שהלשונית באמת מציגה", () => {
+    const rows = [
+      row({ id: "א", status: "open" }),
+      row({ id: "ב", status: "in_progress" }),
+      row({ id: "ג", status: "closed" }),
+      row({ id: "ד", status: "closed" }),
+    ];
+    const counts = supportQueueCounts(rows);
+    for (const filter of SUPPORT_QUEUE_FILTERS) {
+      expect(rows.filter((r) => matchesSupportFilter(r, filter)).length, filter).toBe(
+        counts[filter],
+      );
+    }
+  });
+
+  it("„ממתינות” מסכימה עם המונה שליד הכותרת", () => {
+    const rows = [
+      row({ status: "open" }),
+      row({ status: "in_progress" }),
+      row({ status: "closed" }),
+    ];
+    expect(supportQueueCounts(rows).waiting).toBe(openSupportCount(rows));
+  });
+
+  /*
+   * מפתח שנוסף לטיפוס ואינו נספר היה מציג „0” על לשונית מלאה. הבדיקה
+   * נבנית מרשימת הלשוניות עצמה, ולכן לשונית עתידית נגררת אליה.
+   */
+  it("לכל לשונית מוגדרת יש מונה", () => {
+    const counts = supportQueueCounts([row({})]);
+    for (const filter of SUPPORT_QUEUE_FILTERS) {
+      expect(typeof counts[filter], filter).toBe("number");
+    }
+    // גם „נפתחה”, שאינה על הסרגל אך קיימת כמצב
+    expect(counts satisfies Record<SupportQueueFilter, number>).toBeDefined();
+  });
+});
+
+describe("חיפוש בתור", () => {
+  const rows = [
+    row({
+      id: "דוד",
+      reference: 1042,
+      who: "דוד כהן",
+      title: "לא מצליח להעלות תמונות",
+      contactEmail: "david@example.co.il",
+      contactPhone: "052-123-4567",
+      severity: "blocking",
+      kind: "bug",
+    }),
+    row({
+      id: "רונית",
+      reference: 1043,
+      who: "רונית לוי",
+      title: "בקשה להוסיף שדה",
+      contactEmail: "ronit@example.co.il",
+      tenantName: "משרד הצפון",
+    }),
+  ];
+
+  it("שאילתה ריקה מחזירה הכול", () => {
+    expect(searchSupportQueue(rows, "   ")).toHaveLength(2);
+  });
+
+  it("מוצא לפי מספר פנייה, עם סולמית ובלעדיה", () => {
+    expect(searchSupportQueue(rows, "1042").map((r) => r.id)).toEqual(["דוד"]);
+    expect(searchSupportQueue(rows, "#1042").map((r) => r.id)).toEqual(["דוד"]);
+  });
+
+  /*
+   * ‎**המקפים הם של מי שהקליד, לא של מי שחיפש.** מספר נשמר בכל מיני
+   * ניסוחים, וחיפוש שנשען על ההתאמה המדויקת שלהם אינו מוצא כלום
+   * בדיוק כשצריך להתקשר.
+   */
+  it("מוצא טלפון גם כשהמקפים אינם במקום", () => {
+    expect(searchSupportQueue(rows, "0521234567").map((r) => r.id)).toEqual(["דוד"]);
+    expect(searchSupportQueue(rows, "052-1234").map((r) => r.id)).toEqual(["דוד"]);
+  });
+
+  it("מוצא לפי כתובת, שם משרד, וטקסט הפנייה", () => {
+    expect(searchSupportQueue(rows, "ronit@").map((r) => r.id)).toEqual(["רונית"]);
+    expect(searchSupportQueue(rows, "הצפון").map((r) => r.id)).toEqual(["רונית"]);
+    expect(searchSupportQueue(rows, "תמונות").map((r) => r.id)).toEqual(["דוד"]);
+  });
+
+  /*
+   * ‎**„וגם”, לא „או”.** חיפוש שמאחד את התוצאות של כל מילה מציף
+   * במקום לצמצם — כלומר הופך שאילתה מדויקת יותר לרשימה ארוכה יותר,
+   * ההפך הגמור ממה שמי שמקליד מנסה לעשות.
+   */
+  it("כל מילה חייבת להימצא", () => {
+    expect(searchSupportQueue(rows, "דוד חוסם").map((r) => r.id)).toEqual(["דוד"]);
+    expect(searchSupportQueue(rows, "דוד רונית")).toHaveLength(0);
+  });
+
+  it("מוצא לפי החומרה והסוג כפי שהם כתובים על השורה", () => {
+    expect(searchSupportQueue(rows, "חוסם").map((r) => r.id)).toEqual(["דוד"]);
+  });
+
+  /*
+   * ‎**ההשוואה על הספרות בלבד שמורה למילה שכולה מספר (ביקורת Codex).**
+   *
+   * היא הופעלה על כל מילה שיש בה ולו ספרה אחת, ולכן
+   * ‎`user2@example.com` הצטמצם ל-„2” — שנמצא כמעט בכל שורה, כי מספר
+   * הפנייה תמיד בערימת החיפוש. חיפוש אחרי כתובת **שאינה קיימת** החזיר
+   * תוצאות, בניגוד גמור להבטחה ש„כל מילה חייבת להימצא”.
+   */
+  it("כתובת שאינה קיימת אינה מוצאת דבר — גם כשיש בה ספרה", () => {
+    expect(searchSupportQueue(rows, "user2@example.com")).toHaveLength(0);
+    expect(searchSupportQueue(rows, "david2@example.co.il")).toHaveLength(0);
+  });
+
+  it("שם עם ספרה אינו נופל להשוואת הספרות", () => {
+    expect(searchSupportQueue(rows, "משרד2")).toHaveLength(0);
+  });
+
+  /*
+   * ומה שבאמת מספר — עדיין עובד, בכל צורת כתיבה של אותן ספרות.
+   *
+   * ‎`+972…` אינו כאן בכוונה: המספר נשמר בצורה המקומית, והמרה בין
+   * הצורות אינה מה שהחיפוש הזה עושה. הבדיקה נכתבה תחילה איתו,
+   * נפלה, והתשובה הייתה שהציפייה שגויה — לא הקוד.
+   */
+  it("מספר עם מפרידים עדיין נמצא", () => {
+    for (const term of ["052 123 4567", "(052) 123-4567", "0521234567", "#1042", "1042"]) {
+      expect(searchSupportQueue(rows, term).map((r) => r.id), term).toEqual(["דוד"]);
+    }
   });
 });
