@@ -103,6 +103,13 @@ jobs:
       - name: Server lists fail loudly
         run: pnpm --filter @metavchim/web verify:lists
 
+      # מה שהמסך מצהיר עליו מול מה שהבקר מחזיר. `apiGet<T>` הוא
+      # הצהרה ולא ולידציה: הדשבורד ביקש `{ items }` מ-`GET /offers`
+      # שמחזיר מערך, ולכן המונה „הצעות ממתינות” הראה אפס מאז ומתמיד
+      # בלי להיראות שבור.
+      - name: Response shapes match the controller
+        run: pnpm --filter @metavchim/web verify:shapes
+
       # עליית ה-API על הפלט המהודר. חייב לרוץ אחרי הבנייה ולא כבדיקת
       # יחידה: רק `tsc` פולט את מטא-דאטת הבנאי ש-Nest צריך כדי לפתור
       # תלויות, ולכן חיווט שבור נראה רק כאן. תקלת ייצור אחת עברה את

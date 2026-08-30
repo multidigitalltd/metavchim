@@ -503,8 +503,17 @@ export default function DashboardPage() {
      * ולכן היא ידועה כאן ואינה משתנה תחת הרגליים.
      */
     if (canSeeOffers) {
-      apiGet<{ items: OfferRow[] }>("/offers")
-        .then(ok((r: { items: OfferRow[] }) => setOffers(apiList(r.items, "items"))))
+      /*
+       * ‎**`GET /offers` מחזיר מערך, לא `{ items }`.**
+       *
+       * הקריאה כאן ביקשה `r.items` מנתיב שמחזיר את הרשימה עצמה,
+       * ולכן היא קיבלה `undefined` **תמיד** — והמונה „הצעות
+       * ממתינות” הראה אפס מאז ומתמיד, בלי שדבר נראה שבור. ההגנה
+       * הישנה (`?? []`) היא שהסתירה את זה; האימות חשף אותו כתקלת
+       * טעינה אמיתית תוך שעות.
+       */
+      apiGet<OfferRow[]>("/offers")
+        .then(ok((rows: OfferRow[]) => setOffers(apiList(rows, "offers"))))
         .catch(fail);
     }
     /*

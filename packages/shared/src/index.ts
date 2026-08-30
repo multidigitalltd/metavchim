@@ -107,6 +107,7 @@ export * from "./queues.js";
 export * from "./logic/whatsapp-link.js";
 export * from "./logic/signature-image.js";
 export * from "./logic/tasks.js";
+export * from "./logic/whatsapp-agent.js";
 export * from "./agent/field-spec.js";
 export * from "./agent/actions.js";
 export * from "./agent/help.js";

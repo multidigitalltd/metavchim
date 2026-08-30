@@ -50,6 +50,11 @@ import {
 import { loadEnv } from "../../config/env";
 import { emailDomainStatus, onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
 import {
+  WHATSAPP_AGENT_DENIAL_TEXT,
+  whatsappAgentDenial,
+  type WhatsappAgentDenial,
+} from "@metavchim/shared";
+import {
   AnyAuthenticated,
   RequireCapability,
 } from "../../common/auth.decorators";
@@ -1590,8 +1595,40 @@ export class SettingsController {
    */
   @Get("whatsapp-link")
   @AnyAuthenticated()
-  async whatsappLink(): Promise<LinkStatus> {
-    return this.whatsappLinks.status(TenantContext.current().userId);
+  async whatsappLink(): Promise<LinkStatus & { denial?: WhatsappAgentDenial }> {
+    const ctx = TenantContext.current();
+    const status = await this.whatsappLinks.status(ctx.userId);
+    /*
+     * ‎**הזכאות במצב, ולא רק בתשובת השגיאה.**
+     *
+     * המסך הציג „חברו מכשיר” לכל אחד, וההסבר האמיתי הגיע רק אחרי
+     * לחיצה — כ-403 שהממשק בלע והחליף ב„נסו שוב”. כלומר הוראה
+     * לנסות שוב על בקשה שלעולם לא תצליח (ביקורת Codex). הסיבה
+     * נמסרת מראש, והמסך אומר מה באמת אפשר לעשות.
+     */
+    const denial = await this.whatsappAgentDenial();
+    return { ...status, ...(denial === null ? {} : { denial }) };
+  }
+
+  /**
+   * ‎**האם המשתמש הנוכחי רשאי לסוכן בוואטסאפ** — הכרעה אחת לשני
+   * הנתיבים: זה שמציג את המצב, וזה שמפיק את קוד הצימוד. שתי
+   * בדיקות מקבילות היו נפרדות ביום שאחת מהן משתנה.
+   */
+  private async whatsappAgentDenial(): Promise<WhatsappAgentDenial | null> {
+    const ctx = TenantContext.current();
+    const me = await this.prisma.withTenant((tx) =>
+      tx.user.findFirst({
+        where: { id: ctx.userId, tenantId: ctx.tenantId },
+        select: { role: true, whatsappAccess: true },
+      }),
+    );
+    if (me === null) return "seat";
+    return whatsappAgentDenial({
+      planHasAgent: await this.plans.tenantHasFeature(ctx.tenantId, "voice_intake"),
+      role: me.role,
+      whatsappAccess: me.whatsappAccess,
+    });
   }
 
   /**
@@ -1602,6 +1639,19 @@ export class SettingsController {
   @AnyAuthenticated()
   async whatsappLinkCode(): Promise<{ code: string; expiresInSeconds: number }> {
     const ctx = TenantContext.current();
+    /*
+     * ‎**הזכאות נבדקת כאן, ולא רק בהודעה הראשונה.**
+     *
+     * הנתיב היה פתוח לכל משתמש מאומת בכל מסלול: אפשר היה לייצר קוד,
+     * לצמד מכשיר, ולגלות רק בהודעה הראשונה שהסוכן אינו כלול. כלומר
+     * אונבורדינג מלא לתכונה שאינה נמכרת למשרד הזה, קישור חי במסד
+     * שאיש לא ישתמש בו, והודעת דחייה במקום שבו כבר מאוחר להסביר.
+     *
+     * אותה הכרעה בדיוק כמו בהודעה נכנסת (`whatsappAgentDenial`),
+     * ולכן שתי נקודות הכניסה אינן יכולות להיפרד.
+     */
+    const denial = await this.whatsappAgentDenial();
+    if (denial !== null) throw new ForbiddenException(WHATSAPP_AGENT_DENIAL_TEXT[denial]);
     return this.whatsappLinks.issueCode(ctx.tenantId, ctx.userId);
   }
 

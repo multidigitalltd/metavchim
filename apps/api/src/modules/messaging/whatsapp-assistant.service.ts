@@ -42,7 +42,12 @@ import {
   isConfirmMessage,
   isHelpMessage,
 } from "./assistant-lang";
-import { agentWelcomeExamples, looksLikeWhatsappLinkCode } from "@metavchim/shared";
+import {
+  agentWelcomeExamples,
+  looksLikeWhatsappLinkCode,
+  WHATSAPP_AGENT_DENIAL_TEXT,
+  whatsappAgentDenial,
+} from "@metavchim/shared";
 import {
   lockConversation,
   mergeTurns,
@@ -322,24 +327,21 @@ export class WhatsAppAssistantService {
       );
       return;
     }
-    if (!(await this.plans.tenantHasFeature(user.tenantId, FEATURE_ID))) {
-      await this.sender.sendText(msg.fromWaId, "הסוכן החכם אינו כלול במסלול של המשרד.", {
+    /*
+     * ‎**אותה הכרעה בדיוק שחוסמת את הפקת קוד הצימוד** — ראו
+     * ‎`whatsappAgentDenial`. המנוי הוא לכל סוכן בנפרד ולא לכל
+     * המשרד, ובעל המשרד כלול תמיד: הוא בעל המנוי, ואיש אינו מוסמך
+     * להדליק לו את הדגל (הנתיב מגן על שורת ה-owner מכל עריכה).
+     */
+    const denial = whatsappAgentDenial({
+      planHasAgent: await this.plans.tenantHasFeature(user.tenantId, FEATURE_ID),
+      role: user.role,
+      whatsappAccess: user.whatsappAccess,
+    });
+    if (denial !== null) {
+      await this.sender.sendText(msg.fromWaId, WHATSAPP_AGENT_DENIAL_TEXT[denial], {
         replyTo: msg.externalId,
       });
-      return;
-    }
-    /*
-     * המנוי לסוכן הוואטסאפ הוא **לכל סוכן בנפרד** — לא לכל המשרד.
-     * בעל המשרד מפעיל אותו לכל סוכן במסך ניהול המשרד, ורק בעל
-     * המשרד עצמו כלול תמיד: הוא בעל המנוי, ואיש אינו מוסמך להדליק
-     * לו את הדגל (הנתיב מגן על שורת ה-owner מכל עריכה).
-     */
-    if (!user.whatsappAccess && user.role !== "owner") {
-      await this.sender.sendText(
-        msg.fromWaId,
-        "הסוכן האישי בוואטסאפ אינו פעיל עבורך עדיין. בעל המשרד יכול להפעיל אותו במסך ניהול משרד ← סוכני המשרד.",
-        { replyTo: msg.externalId },
-      );
       return;
     }
 
