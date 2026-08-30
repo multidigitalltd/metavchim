@@ -61,6 +61,24 @@ export interface EmailContent {
    * מוצג גדול, במרווח אותיות, ולא כקישור.
    */
   code?: string;
+  /**
+   * ‎**ציטוט של מה שנאמר קודם** — הפנייה שעליה עונים.
+   *
+   * תשובה בלי הציטוט מגיעה כפסקה יחפה: הנמען פנה לפני שבוע, שכח
+   * בדיוק מה שאל, ואין בהודעה דבר שיזכיר לו. הוא נשלח מודגש ומופרד
+   * מהגוף כדי שיהיה ברור מה נכתב עכשיו ומה מצוטט.
+   */
+  quote?: EmailQuote;
+}
+
+/** גוש מצוטט: כותרת, שורות הקשר, והטקסט עצמו. */
+export interface EmailQuote {
+  /** „הפנייה שלך מ-12.3” — מה מצוטט ומתי. */
+  title: string;
+  /** שורות קצרות של הקשר: סוג הפנייה, המסך, מספר הפנייה. */
+  meta?: readonly string[];
+  /** הטקסט שנאמר. */
+  body: string;
 }
 
 /**
@@ -100,6 +118,18 @@ export function renderEmailText(content: EmailContent): string {
     if (content.links.length > 0) lines.push("");
   }
   if (content.button) lines.push(`${content.button.label}: ${content.button.url}`, "");
+  if (content.quote) {
+    /*
+     * ‎`>` בתחילת כל שורה — המוסכמה שכל לקוח דואר מציג כציטוט,
+     * וגם מי שקורא טקסט גולמי מזהה מיד. שורה ריקה בתוך הציטוט
+     * מקבלת גם היא `>`, אחרת הציטוט נראה כשניים.
+     */
+    lines.push(content.quote.title);
+    for (const item of content.quote.meta ?? []) lines.push(`> ${item}`);
+    if ((content.quote.meta ?? []).length > 0) lines.push(">");
+    for (const line of content.quote.body.split("\n")) lines.push(`> ${line}`);
+    lines.push("");
+  }
   if (content.footnote) lines.push(content.footnote);
   return lines.join("\n").trimEnd();
 }
@@ -170,6 +200,31 @@ export function renderEmailHtml(content: EmailContent, productName = "מתווכ
         // הכתובת גם כטקסט: לקוחות שחוסמים כפתורים, ומי שרוצה להעתיק
         `<p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:${BRAND.muted};word-break:break-all;">` +
         `<span dir="ltr">${url}</span></p>`,
+    );
+  }
+
+  if (content.quote) {
+    /*
+     * גבול בצד ההתחלה (`border-inline-start` אינו נתמך בלקוחות
+     * דואר) — `border-right` כי המסמך כולו RTL. הרקע והגבול הם מה
+     * שמבדיל בין „מה שכתבנו עכשיו” ל„מה ששאלת אז”.
+     */
+    const meta = (content.quote.meta ?? [])
+      .map(
+        (item) =>
+          `<span style="display:inline-block;margin-left:10px;">${escapeHtml(item)}</span>`,
+      )
+      .join("");
+    parts.push(
+      `<div style="margin:22px 0 0;padding:12px 14px;background:${BRAND.background};` +
+        `border-right:3px solid ${BRAND.border};border-radius:8px;">` +
+        `<p style="margin:0 0 6px;font-size:14px;font-weight:700;color:${BRAND.muted};">` +
+        `${escapeHtml(content.quote.title)}</p>` +
+        (meta === ""
+          ? ""
+          : `<p style="margin:0 0 8px;font-size:14px;color:${BRAND.muted};">${meta}</p>`) +
+        `<p style="margin:0;font-size:15px;line-height:1.6;color:${BRAND.text};white-space:pre-wrap;">` +
+        `${escapeHtml(content.quote.body)}</p></div>`,
     );
   }
 

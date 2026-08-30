@@ -213,7 +213,7 @@ export class AccountDeletionService {
          * כרגיל. הסכנה שהערה קודמת הזהירה ממנה — אפס מפתחות בשקט —
          * נשארת בעינה בכל קריאה שתיכתב **מחוץ** לטרנזקציה הזו.
          */
-        const [media, documents, calls, tickets, emailFiles, supportFiles, tenantRow] =
+        const [media, documents, calls, tickets, emailFiles, supportFiles, ticketFiles, tenantRow] =
           await Promise.all([
             tx.propertyMedia.findMany({ where: { tenantId }, select: { s3Key: true } }),
             /*
@@ -247,6 +247,12 @@ export class AccountDeletionService {
               select: { s3Key: true },
             }),
             /*
+             * הצירופים שהתמיכה שלחה בתשובה לפנייה מהכפתור. הטבלה
+             * הזו כן נושאת `tenantId` משלה — היא תמיד שייכת למשרד —
+             * ולכן אין צורך לעבור דרך הפנייה.
+             */
+            tx.supportTicketAttachment.findMany({ where: { tenantId }, select: { s3Key: true } }),
+            /*
              * הלוגו — מפתח שיושב ב-`settings` ולא בטבלה משלו, ולכן
              * אינו נאסף באף אחת מהשאילתות שמעל. בלי השורה הזו הוא
              * היה נשאר ב-S3 אחרי מחיקת המשרד.
@@ -259,6 +265,7 @@ export class AccountDeletionService {
           ...documents.map((d) => d.s3Key),
           ...emailFiles.map((f) => f.s3Key),
           ...supportFiles.map((f) => f.s3Key),
+          ...ticketFiles.map((f) => f.s3Key),
           ...tickets.map((t) => t.screenshotKey).filter((k): k is string => k !== null),
           ...calls.map((c) => c.recordingKey).filter((k): k is string => k !== null),
           ...(typeof logoKey === "string" ? [logoKey] : []),
@@ -399,6 +406,14 @@ export class AccountDeletionService {
          * הפוליסה `support_desk` אינה מפריעה: היא **מוסיפה** גישה
          * לתמיכה, וה-`tenant_isolation` הרגילה מספיקה למחיקה כאן.
          */
+        /*
+         * השיחה והצירופים שלה נמחקים **לפני** הפנייה. המפתח הזר
+         * מוחק אותם ממילא ב-CASCADE, אבל מחיקה מפורשת היא מה שקורא
+         * הקובץ הזה רואה — וגם מה שגורם למחיקה לעבוד אם מישהו ישנה
+         * את ה-CASCADE יום אחד.
+         */
+        await tx.supportTicketAttachment.deleteMany({ where: { tenantId } });
+        await tx.supportTicketMessage.deleteMany({ where: { tenantId } });
         await tx.supportTicket.deleteMany({ where: { tenantId } });
         await tx.duplicateDismissal.deleteMany({ where: { tenantId } });
         await tx.googleCalendarLink.deleteMany({ where: { tenantId } });

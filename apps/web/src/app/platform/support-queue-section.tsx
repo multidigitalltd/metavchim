@@ -16,7 +16,7 @@ import {
   type SupportSeverity,
   type SupportStatus,
 } from "@metavchim/shared";
-import { API_BASE, ApiError, apiGet, apiPatch, apiPost } from "@/lib/api";
+import { API_BASE, ApiError, apiGet, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { IconMail } from "../icons";
 import { Notice } from "../notice";
@@ -87,6 +87,17 @@ interface ThreadView {
   }[];
 }
 
+/** הודעה בשיחה — אותה צורה לשני המקורות, ולכן רכיב אחד מציג אותן. */
+interface ConversationMessage {
+  id: string;
+  direction: string;
+  body: string;
+  createdAt: string;
+  /** ‏pending | sent | failed | unknown — ביוצאות בלבד. */
+  sendState?: string | null;
+  attachments: { id: string; name: string; kind: string; sizeBytes: number }[];
+}
+
 interface AdminTicket {
   id: string;
   reference: number;
@@ -100,9 +111,12 @@ interface AdminTicket {
   createdAt: string;
   userName: string;
   userEmail: string;
+  /** ריק כשלא היה טלפון בפרופיל. */
+  userPhone: string | null;
   tenantId: string;
   tenantName: string;
   context: SupportContext;
+  messages: ConversationMessage[];
 }
 
 /**
@@ -125,6 +139,147 @@ function formatBytes(bytes: number): string {
   return bytes >= 1024 * 1024
     ? `${(bytes / (1024 * 1024)).toFixed(1)}MB`
     : `${Math.max(1, Math.round(bytes / 1024))}KB`;
+}
+
+/**
+ * ‎**השיחה — רכיב אחד לשני מקורות הפניות.**
+ *
+ * עד עכשיו שרשור מייל הוצג כשיחה מלאה, ופנייה מהכפתור כשורת „נענה:”
+ * עם מה שנכתב לאחרונה. זה לא היה הבדל בתצוגה אלא במבנה: לפנייה
+ * מהכפתור באמת הייתה תשובה **אחת**, שתשובה שנייה דרסה. מרגע
+ * שלשתיהן יש הודעות, אין סיבה לשני רכיבים — ורכיב אחד הוא גם מה
+ * שמונע מהם להיפרד שוב.
+ */
+function Conversation({
+  messages,
+  incomingLabel,
+  attachmentBase,
+}: {
+  messages: readonly ConversationMessage[];
+  /** מי כתב את הנכנסות — שם הפונה. */
+  incomingLabel: string;
+  /** הנתיב שממנו נמשכים הצירופים; שונה בין המקורות. */
+  attachmentBase: string;
+}) {
+  if (messages.length === 0) return null;
+  return (
+    <ol className="m-0 mb-3 flex list-none flex-col gap-2 p-0">
+      {messages.map((message) => (
+        <li
+          key={message.id}
+          className="rounded-lg border p-2 text-sm"
+          style={{
+            borderColor: "var(--color-border)",
+            background:
+              message.direction === "out" ? "var(--color-primary-soft)" : "var(--color-surface)",
+          }}
+        >
+          <p className="m-0 whitespace-pre-wrap" dir="auto">
+            {message.body}
+          </p>
+          {message.attachments.length > 0 ? (
+            <ul className="m-0 mt-2 flex list-none flex-wrap gap-2 p-0">
+              {message.attachments.map((attachment) => (
+                <li key={attachment.id}>
+                  <a
+                    href={`${attachmentBase}/${attachment.id}/raw`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  >
+                    {attachment.name} ({formatBytes(attachment.sizeBytes)})
+                  </a>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <p
+            className="m-0 mt-1 text-[length:var(--type-caption-lg)]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            {message.direction === "out" ? "תשובת התמיכה" : incomingLabel} ·{" "}
+            {formatDateTime(message.createdAt)}
+            {(() => {
+              /*
+               * ‎**יוצאת בלי מצב היא „לא ידוע”, ולא „נשלחה”.**
+               *
+               * המיגרציה שמרה `NULL` על תשובות היסטוריות בכוונה —
+               * איננו יודעים אם הן יצאו. תרגום של `NULL` ל„בלי
+               * תווית” הציג אותן בדיוק כמו שליחה מאושרת, כלומר
+               * הנציח את ההנחה שהמיגרציה סירבה לעשות (ביקורת
+               * Codex). נכנסת נשארת בלי תווית: אין בה מה לשלוח.
+               */
+              const note = sendStateNote(
+                message.direction === "out" ? (message.sendState ?? "unknown") : undefined,
+              );
+              return note === null ? null : (
+                <>
+                  {" · "}
+                  <span style={{ color: `var(${note.token})` }}>{note.text}</span>
+                </>
+              );
+            })()}
+          </p>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** סוגי הקבצים שהתמיכה יכולה לצרף — זהה בשני המסלולים. */
+const ATTACH_ACCEPT =
+  "image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm," +
+  "application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv";
+
+/**
+ * תיבת המענה.
+ *
+ * ‎`rows={4}` ולא 2: תשובת תמיכה אמיתית היא פסקה, ותיבה בגובה שתי
+ * שורות אומרת „כתוב משפט” — וזה מה שנכתב בה.
+ */
+function Composer({
+  id,
+  value,
+  onChange,
+  fileInput,
+  busy,
+  onSend,
+  children,
+}: {
+  id: string;
+  value: string;
+  onChange: (next: string) => void;
+  fileInput: React.RefObject<HTMLInputElement | null>;
+  busy: boolean;
+  onSend: () => void;
+  /** פעולות נוספות לצד הכפתור — למשל קביעת סטטוס. */
+  children?: React.ReactNode;
+}) {
+  return (
+    <>
+      <label htmlFor={id} className="mb-1 block text-sm font-medium">
+        תשובה
+      </label>
+      <textarea
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={4}
+        className="mb-2 w-full rounded-lg border px-3 py-2"
+        style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <input ref={fileInput} type="file" multiple accept={ATTACH_ACCEPT} className="text-sm" />
+        <Button disabled={busy} onClick={onSend}>
+          {busy ? "שולח…" : "שלח תשובה"}
+        </Button>
+        <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+          עד 7MB קבצים בהודעה
+        </span>
+        {children}
+      </div>
+    </>
+  );
 }
 
 export function SupportQueueSection() {
@@ -440,87 +595,22 @@ function ThreadDetail({
         </span>
       </p>
 
-      <ol className="m-0 mb-3 flex list-none flex-col gap-2 p-0">
-        {view.messages.map((message) => (
-          <li
-            key={message.id}
-            className="rounded-lg border p-2 text-sm"
-            style={{
-              borderColor: "var(--color-border)",
-              background:
-                message.direction === "out" ? "var(--color-primary-soft)" : "var(--color-surface)",
-            }}
-          >
-            <p className="m-0 whitespace-pre-wrap" dir="auto">
-              {message.body}
-            </p>
-            {message.attachments.length > 0 ? (
-              <ul className="m-0 mt-2 flex list-none flex-wrap gap-2 p-0">
-                {message.attachments.map((attachment) => (
-                  <li key={attachment.id}>
-                    <a
-                      href={`${API_BASE}/platform/support/inbox/attachments/${attachment.id}/raw`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline"
-                    >
-                      {attachment.name} ({formatBytes(attachment.sizeBytes)})
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            <p
-              className="m-0 mt-1 text-[length:var(--type-caption-lg)]"
-              style={{ color: "var(--color-text-muted)" }}
-            >
-              {message.direction === "out" ? "תשובת התמיכה" : view.contactName} ·{" "}
-              {formatDateTime(message.createdAt)}
-              {(() => {
-                const note = sendStateNote(message.sendState);
-                return note === null ? null : (
-                  <>
-                    {" · "}
-                    <span style={{ color: `var(${note.token})` }}>{note.text}</span>
-                  </>
-                );
-              })()}
-            </p>
-          </li>
-        ))}
-      </ol>
+      <Conversation
+        messages={view.messages}
+        incomingLabel={view.contactName}
+        attachmentBase={`${API_BASE}/platform/support/inbox/attachments`}
+      />
 
       {view.contactEmail !== null ? (
         <>
-          <label htmlFor={`support-reply-${view.id}`} className="mb-1 block text-sm font-medium">
-            תשובה
-          </label>
-          <textarea
+          <Composer
             id={`support-reply-${view.id}`}
             value={reply}
-            onChange={(event) => setReply(event.target.value)}
-            rows={4}
-            className="mb-2 w-full rounded-lg border px-3 py-2"
-            style={{
-              borderColor: "var(--color-input-border)",
-              background: "var(--color-field)",
-            }}
+            onChange={setReply}
+            fileInput={fileInput}
+            busy={busy}
+            onSend={() => void send()}
           />
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              ref={fileInput}
-              type="file"
-              multiple
-              accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv"
-              className="text-sm"
-            />
-            <Button disabled={busy} onClick={() => void send()}>
-              {busy ? "שולח…" : "שלח תשובה"}
-            </Button>
-            <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-              עד 7MB קבצים בהודעה
-            </span>
-          </div>
         </>
       ) : (
         <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -538,11 +628,28 @@ function ThreadDetail({
  * שממנו נשלחה, מה נכשל בו, וצילום. פנייה חוסמת מסומנת באדום — שם
  * מישהו עומד עכשיו מול מסך שאינו עובד.
  */
+/**
+ * פנייה מהכפתור — **שיחה, ולא „התשובה האחרונה”.**
+ *
+ * ## מה הוצג כאן קודם
+ *
+ * הפנייה, ההקשר הטכני, ואז שורה אחת: „נענה: …” עם מה שנכתב
+ * לאחרונה. תיבת המענה הייתה בגובה שתי שורות ובלי צירוף קבצים, ולא
+ * היה שום סימן אם התשובה בכלל יצאה — כי לא הייתה שורה שאפשר לסמן
+ * עליה. השליחה נבלעה ב-`catch`, והמסך הציג „נענה” גם על מייל
+ * שנדחה.
+ *
+ * עכשיו זה אותו רכיב שיחה של שרשורי המייל, עם אותה תווית „לא
+ * נשלחה” ואותה תיבת מענה. מה שנשאר שונה הוא מה שבאמת שונה: ההקשר
+ * הטכני, צילום המסך, והטלפון של מי שפנה.
+ */
 function TicketDetail({ ticketId, onChanged }: { ticketId: string; onChanged: () => void }) {
   const [ticket, setTicket] = useState<AdminTicket | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ tone: "danger" | "success"; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
     apiGet<AdminTicket>(`/platform/support/tickets/${ticketId}`)
@@ -554,17 +661,50 @@ function TicketDetail({ ticketId, onChanged }: { ticketId: string; onChanged: ()
 
   useEffect(load, [load]);
 
-  async function sendReply(): Promise<void> {
-    if (draft.trim() === "") return;
+  async function sendReply(close: boolean): Promise<void> {
+    const files = fileInput.current?.files;
+    const hasFiles = files !== null && files !== undefined && files.length > 0;
+    if (draft.trim() === "" && !hasFiles) return;
     setBusy(true);
-    setError(null);
+    setNotice(null);
     try {
-      await apiPatch(`/platform/support/tickets/${ticketId}`, { reply: draft.trim() });
+      /*
+       * ‎`FormData` ולא JSON: הצירופים נוסעים באותה בקשה כמו
+       * התשובה. שתי בקשות היו יוצרות מצב שבו הקבצים נשמרו והמייל
+       * לא יצא — או להפך.
+       */
+      const form = new FormData();
+      form.append("reply", draft.trim());
+      if (close) form.append("status", "closed");
+      for (const file of files ?? []) form.append("files", file);
+      const res = await fetch(`${API_BASE}/platform/support/tickets/${ticketId}`, {
+        method: "PATCH",
+        credentials: "include",
+        body: form,
+      });
+      if (!res.ok) {
+        const problem = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new ApiError(res.status, problem?.message ?? "השליחה נכשלה", []);
+      }
+      const sent = (await res.json().catch(() => null)) as { state?: string } | null;
       setDraft("");
+      if (fileInput.current) fileInput.current.value = "";
       load();
       onChanged();
+      /*
+       * ‎**„לא ידוע” אינו „נשלח”.** תוצאה עמומה מהספק מוצגת
+       * כאזהרה ולא כהצלחה, אחרת שולחים שוב לנמען שאולי כבר קיבל.
+       */
+      setNotice(
+        sent?.state === "unknown"
+          ? {
+              tone: "danger",
+              text: "לא התקבל אישור מספק הדואר — ייתכן שהתשובה יצאה. בדקו לפני שליחה חוזרת.",
+            }
+          : { tone: "success", text: "התשובה נשלחה" },
+      );
     } catch (err: unknown) {
-      setError(err instanceof ApiError ? err.message : "העדכון נכשל");
+      setNotice({ tone: "danger", text: err instanceof ApiError ? err.message : "השליחה נכשלה" });
     } finally {
       setBusy(false);
     }
@@ -575,10 +715,25 @@ function TicketDetail({ ticketId, onChanged }: { ticketId: string; onChanged: ()
 
   return (
     <>
+      {notice ? <Notice tone={notice.tone}>{notice.text}</Notice> : null}
+
       <div className="mb-1 flex flex-wrap items-center gap-2 text-[length:var(--type-caption-lg)]">
-        <span style={{ color: "var(--color-text-muted)" }}>
-          {ticket.userName} · {ticket.userEmail}
-        </span>
+        <span style={{ color: "var(--color-text-muted)" }}>{ticket.userName}</span>
+        <a href={`mailto:${ticket.userEmail}`} dir="ltr" className="underline">
+          {ticket.userEmail}
+        </a>
+        {/*
+          הטלפון כקישור חיוג ולא כטקסט: תקלה חוסמת נסגרת בשיחה, וזה
+          המסך שממנו מתקשרים. „—” היה נראה כמו מספר חסר; „אין טלפון
+          בפרופיל” אומר למה.
+        */}
+        {ticket.userPhone !== null && ticket.userPhone !== "" ? (
+          <a href={`tel:${ticket.userPhone}`} dir="ltr" className="underline">
+            {ticket.userPhone}
+          </a>
+        ) : (
+          <span style={{ color: "var(--color-text-muted)" }}>· אין טלפון בפרופיל</span>
+        )}
         <span>· {SUPPORT_KIND_LABEL[ticket.kind]}</span>
         <span>· {ticket.area}</span>
         {ticket.severity === "blocking" ? (
@@ -589,13 +744,11 @@ function TicketDetail({ ticketId, onChanged }: { ticketId: string; onChanged: ()
         </span>
       </div>
 
-      <p className="m-0 whitespace-pre-wrap text-[length:var(--type-body-sm)]">{ticket.message}</p>
-
       {/*
         ההקשר בפתיח מתקפל: הוא מה שמקצר את הטיפול, אבל אם הוא פתוח
         תמיד הוא קובר את מה שהמשתמש כתב.
       */}
-      <details className="mt-2 text-[length:var(--type-caption)]">
+      <details className="mb-2 text-[length:var(--type-caption)]">
         <summary style={{ cursor: "pointer", color: "var(--color-text-muted)" }}>הקשר טכני</summary>
         <dl className="m-0 mt-1 grid gap-0.5">
           <div>מסך: {ticket.context.path ?? "—"}</div>
@@ -614,7 +767,7 @@ function TicketDetail({ ticketId, onChanged }: { ticketId: string; onChanged: ()
       </details>
 
       {ticket.hasScreenshot ? (
-        <p className="m-0 mt-1 text-[length:var(--type-caption)]">
+        <p className="m-0 mb-2 text-[length:var(--type-caption)]">
           <a
             href={`${API_BASE}/platform/support/tickets/${ticket.id}/screenshot`}
             target="_blank"
@@ -626,31 +779,40 @@ function TicketDetail({ ticketId, onChanged }: { ticketId: string; onChanged: ()
         </p>
       ) : null}
 
-      {ticket.reply !== undefined ? (
-        <p className="m-0 mt-2 text-[length:var(--type-caption-lg)]">
-          <b>נענה:</b> {ticket.reply}
-        </p>
-      ) : null}
+      {/*
+        אין נפילה-לאחור ל-`ticket.message` כשהרשימה ריקה: המיגרציה
+        כתבה הודעה ראשונה לכל פנייה קיימת, ורשימה ריקה כאן פירושה
+        תקלה אמיתית — שכפול הטקסט היה מסתיר אותה.
+      */}
+      <Conversation
+        messages={ticket.messages}
+        incomingLabel={ticket.userName}
+        attachmentBase={`${API_BASE}/platform/support/tickets/attachments`}
+      />
 
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <textarea
-          rows={2}
-          maxLength={2000}
-          placeholder="תשובה למשרד"
-          aria-label="תשובה לפנייה"
-          className="mv-field grow"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-        <button
-          type="button"
-          className="mv-btn-action"
-          disabled={busy || draft.trim() === ""}
-          onClick={() => void sendReply()}
-        >
-          שליחת תשובה
-        </button>
-      </div>
+      <Composer
+        id={`ticket-reply-${ticket.id}`}
+        value={draft}
+        onChange={setDraft}
+        fileInput={fileInput}
+        busy={busy}
+        onSend={() => void sendReply(false)}
+      >
+        {/*
+          ‎„שליחה וסגירה” בלחיצה אחת. רוב התשובות הן התשובה האחרונה,
+          וסגירה בנפרד פירושה שהתור מלא בפניות שכבר טופלו.
+        */}
+        {ticket.status !== "closed" ? (
+          <button
+            type="button"
+            className="mv-chip"
+            disabled={busy || (draft.trim() === "" && ticket.messages.length === 0)}
+            onClick={() => void sendReply(true)}
+          >
+            שליחה וסגירה
+          </button>
+        ) : null}
+      </Composer>
     </>
   );
 }

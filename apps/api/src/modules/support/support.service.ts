@@ -1,19 +1,25 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  EMAIL_OUTBOUND_ATTACHMENT_TOTAL_BYTES,
   MAX_SUPPORT_SCREENSHOT_BYTES,
   SUPPORT_DESK_LIMIT,
   SUPPORT_KIND_LABEL,
+  emailAttachmentKind,
+  safeAttachmentName,
   sanitizeSupportContext,
+  supportReplyEmail,
+  supportReplySubject,
   triageTicket,
   waitingFirst,
   type SupportContext,
   type SupportKind,
+  type SupportReplyContext,
   type SupportStatus,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
-import { EmailService } from "../../core/email.service";
+import { EmailRejectedError, EmailService } from "../../core/email.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
@@ -44,12 +50,40 @@ export interface SupportTicketDto {
   userName: string;
 }
 
-/** מה שהתמיכה רואה — כולל ההקשר הטכני ושם המשרד. */
-export interface SupportTicketAdminDto extends SupportTicketDto {
+/** הודעה בשיחה — אותה צורה לשני מקורות הפניות. */
+export interface SupportTicketMessageDto {
+  id: string;
+  direction: "in" | "out";
+  body: string;
+  /**
+   * ‎`null` בהודעה נכנסת (אין מה לשלוח) ובתשובות שהיגרו מהעמודה
+   * הישנה — שם באמת אין לנו ידיעה אם המייל יצא, ולסמן „נשלח” על
+   * סמך כלום היה להנציח בדיוק את התקלה שהשדה הזה בא לחשוף.
+   */
+  sendState: "pending" | "sent" | "failed" | "unknown" | null;
+  createdAt: string;
+  attachments: { id: string; name: string; kind: string; sizeBytes: number }[];
+}
+
+/** שורה בתור של התמיכה — בלי השיחה. */
+export interface SupportTicketListDto extends SupportTicketDto {
   tenantId: string;
   tenantName: string;
   userEmail: string;
+  /** ריק כשלא היה טלפון בפרופיל — לא מקף שנראה כמו מספר. */
+  userPhone: string | null;
   context: SupportContext;
+}
+
+/**
+ * פנייה פתוחה על השולחן — כולל השיחה.
+ *
+ * השיחה אינה נטענת בתור אלא רק כאן: תור של מאה פניות היה מושך מאה
+ * שיחות עם הצירופים שלהן, וזה בדיוק סוג העומס שהופך מסך לאיטי בלי
+ * שאיש יידע למה.
+ */
+export interface SupportTicketAdminDto extends SupportTicketListDto {
+  messages: SupportTicketMessageDto[];
 }
 
 /** זיהוי לפי Magic Bytes — ה-Content-Type של הדפדפן אינו גבול אמון. */
@@ -110,8 +144,15 @@ export class SupportService {
      */
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { name: true, email: true },
+      select: { name: true, email: true, phone: true },
     });
+    /*
+     * ‎**גם הטלפון, ולא רק המייל.** תקלה חוסמת נסגרת בשיחה; בלי
+     * המספר על הפנייה התמיכה נאלצה לחפש את המשתמש בנפרד, וזה החיכוך
+     * שגורם להסתפק בשרשור מיילים. ריק = לא היה טלפון בפרופיל, וזה
+     * מוצג ככה ולא כמקף שנראה כמו מספר חסר.
+     */
+    const phone = user?.phone?.trim() ?? "";
 
     await this.prisma.withTenant(async (tx) => {
       await tx.supportTicket.create({
@@ -121,11 +162,27 @@ export class SupportService {
           userId,
           userName: user?.name ?? "—",
           userEmail: user?.email ?? "—",
+          ...(phone === "" ? {} : { userPhone: phone }),
           kind: input.kind,
           message: input.message,
           area: triage.area,
           severity: triage.severity,
           context: context as object,
+        },
+      });
+      /*
+       * ‎**מה שנכתב הוא ההודעה הראשונה בשיחה**, ולא רק שדה על
+       * הפנייה. בלעדיה השיחה במסך מתחילה מהתשובה, והשאלה נעלמת —
+       * וזו בדיוק המחצית שהתומך צריך כדי לענות.
+       */
+      await tx.supportTicketMessage.create({
+        data: {
+          id: ulid(),
+          ticketId: id,
+          tenantId,
+          direction: "in",
+          body: input.message,
+          createdBy: userId,
         },
       });
       await this.audit.record(tx, {
@@ -137,7 +194,7 @@ export class SupportService {
     });
 
     // ההתראה אחרי השמירה ומחוץ לטרנזקציה: שרת דואר שנופל לא יבטל פנייה
-    void this.notifyDesk(id, input, triage.area, triage.hints, user?.email ?? "—");
+    void this.notifyDesk(id, input, triage.area, triage.hints, user?.email ?? "—", phone);
     return { id };
   }
 
@@ -148,6 +205,7 @@ export class SupportService {
     area: string,
     hints: string[],
     from: string,
+    phone: string,
   ): Promise<void> {
     try {
       const to = await this.platformSettings.get("supportEmail");
@@ -158,7 +216,8 @@ export class SupportService {
         to,
         `פנייה חדשה: ${SUPPORT_KIND_LABEL[input.kind]} · ${area}`,
         [
-          `מאת: ${from}`,
+          // הטלפון בשורה הראשונה: תקלה חוסמת נסגרת בשיחה, לא בשרשור
+          phone === "" ? `מאת: ${from}` : `מאת: ${from} · ${phone}`,
           ...hints.map((h) => `• ${h}`),
           "",
           input.message,
@@ -258,7 +317,7 @@ export class SupportService {
    * תור הפניות של הפלטפורמה. הפתוחות קודם — ולא רק מיון לפי תאריך:
    * פנייה שנפתחה לפני שבוע וממתינה חשובה מפנייה שנסגרה אתמול.
    */
-  async listForDesk(filter: { status?: SupportStatus }): Promise<SupportTicketAdminDto[]> {
+  async listForDesk(filter: { status?: SupportStatus }): Promise<SupportTicketListDto[]> {
     const rows = await this.prisma.withSupportDesk(async (tx) => {
       // סינון מפורש — המנהל ביקש מצב אחד, והגבול חותך בתוכו
       if (filter.status !== undefined) {
@@ -300,6 +359,7 @@ export class SupportService {
       tenantId: r.tenantId,
       tenantName: nameById.get(r.tenantId) ?? "—",
       userEmail: r.userEmail,
+      userPhone: r.userPhone,
       context: (r.context ?? {}) as SupportContext,
     }));
   }
@@ -326,62 +386,296 @@ export class SupportService {
       tenantId: row.tenantId,
       tenantName: tenant?.name ?? "—",
       userEmail: row.userEmail,
+      userPhone: row.userPhone,
       context: (row.context ?? {}) as SupportContext,
+      messages: await this.messages(ticketId),
     };
   }
 
+  /**
+   * השיחה של פנייה אחת.
+   *
+   * ‎`uploadedAt: { not: null }` — צירוף שנתבע ולא הועלה אינו מוצג.
+   * שורה בלי חותמת פירושה שההעלאה נקטעה, וקישור להורדה שלה מחזיר
+   * שגיאה; עדיף שלא יופיע מלכתחילה.
+   */
+  private async messages(ticketId: string): Promise<SupportTicketMessageDto[]> {
+    const rows = await this.prisma.withSupportDesk((tx) =>
+      tx.supportTicketMessage.findMany({
+        where: { ticketId },
+        orderBy: { createdAt: "asc" },
+        include: { attachments: { where: { uploadedAt: { not: null } } } },
+      }),
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      direction: row.direction === "out" ? "out" : "in",
+      body: row.body,
+      sendState: (row.sendState ?? null) as SupportTicketMessageDto["sendState"],
+      createdAt: row.createdAt.toISOString(),
+      attachments: row.attachments.map((file) => ({
+        id: file.id,
+        name: file.name,
+        kind: file.kind,
+        sizeBytes: file.sizeBytes,
+      })),
+    }));
+  }
+
+  /**
+   * צירוף בתשובת התמיכה — הבתים עצמם.
+   *
+   * נקרא דרך `withSupportDesk` כי הוא מוגש לשולחן; הנתיב חסום
+   * מאחורי PlatformAdminGuard כמו כל שאר השולחן.
+   */
+  async replyAttachment(
+    attachmentId: string,
+  ): Promise<{ body: NodeJS.ReadableStream; contentType: string; name: string }> {
+    const row = await this.prisma.withSupportDesk((tx) =>
+      tx.supportTicketAttachment.findFirst({
+        where: { id: attachmentId, uploadedAt: { not: null } },
+      }),
+    );
+    if (row === null) throw new NotFoundException("הצירוף לא נמצא");
+    try {
+      const object = await this.storage.getObject(row.s3Key);
+      return { body: object.body, contentType: row.contentType, name: row.name };
+    } catch (error) {
+      // אותו כלל של צילום המסך: שורה שמצביעה על אובייקט שאיננו היא 404
+      if (StorageService.isMissingObjectError(error)) {
+        throw new NotFoundException("הצירוף אינו זמין יותר");
+      }
+      throw error;
+    }
+  }
+
   /** עדכון סטטוס ו/או מענה. המענה נשלח גם במייל לפונה עצמו. */
+  /**
+   * מענה לפנייה מהכפתור.
+   *
+   * ## מה היה שבור, ולמה זה לא נראה
+   *
+   * השליחה הייתה עטופה ב-`catch` שרשם אזהרה ליומן והמשיך, עם הערה
+   * שאמרה „המייל הוא תזכורת, לא הערוץ”. הנימוק היה סביר כשהמשרד
+   * ראה את התשובה גם במערכת — אבל התוצאה בפועל הייתה שהמסך הציג
+   * ‎„נענה” על מייל שנדחה, ואיש לא ידע. ספק שמפסיק לקבל את כתובת
+   * השולח מפסיק להעביר תשובות, והשולחן ממשיך להיראות תקין.
+   *
+   * עכשיו זה עובד כמו במסלול המייל, ומאותו נימוק בדיוק: השורה
+   * נכתבת לפני השליחה ומסומנת אחריה. דחייה ודאית נזרקת אל המסך;
+   * תוצאה עמומה (פסק זמן, 5xx) נשמרת כ-`unknown`, כי ייתכן שהפונה
+   * כן קיבל — וסימון הכול ככישלון מזמין שליחה כפולה.
+   *
+   * ## התשובה נושאת את השאלה
+   *
+   * הנוסח היה „תשובה לפנייה שלך לתמיכה” ובגוף רק מה שהתומך הקליד.
+   * ‎`supportReplyEmail` בונה במקומו נושא עם מספר הפנייה וגוף שמצטט
+   * את מה שנשאל — ראו שם.
+   */
   async respond(
     ticketId: string,
-    input: { status?: SupportStatus; reply?: string },
-  ): Promise<{ ok: true }> {
-    const updated = await this.prisma.withSupportDesk(async (tx) => {
+    input: {
+      status?: SupportStatus;
+      reply?: string;
+      files?: { buffer: Buffer; originalname: string; mimetype: string; size: number }[];
+    },
+  ): Promise<{ ok: true; state?: "sent" | "unknown" }> {
+    const replyBody = (input.reply ?? "").trim();
+    const files = input.files ?? [];
+    const attachments = files.map((file) => {
+      const kind = emailAttachmentKind(file.mimetype);
+      if (kind === null) throw new BadRequestException(`סוג קובץ שאינו נתמך: ${file.originalname}`);
+      return {
+        name: safeAttachmentName(file.originalname),
+        contentType: file.mimetype.split(";")[0]?.trim().toLowerCase() ?? "",
+        content: file.buffer,
+        kind,
+      };
+    });
+    const total = attachments.reduce((sum, file) => sum + file.content.length, 0);
+    if (total > EMAIL_OUTBOUND_ATTACHMENT_TOTAL_BYTES) {
+      throw new BadRequestException("הקבצים כבדים מדי לשליחה במייל (עד 7MB בהודעה)");
+    }
+
+    const replied = replyBody !== "" || attachments.length > 0;
+    const ticket = await this.prisma.withSupportDesk(async (tx) => {
       const row = await tx.supportTicket.findFirst({ where: { id: ticketId } });
       if (!row) throw new NotFoundException("הפנייה לא נמצאה");
-      const replied = input.reply !== undefined && input.reply !== "";
-      /*
-       * מענה מקדם מ"נפתחה" ל"בטיפול" מעצמו, אלא אם נבחר סטטוס אחר
-       * במפורש. בלי זה כל פנייה שנענתה נשארה בתור הפתוח, והתור חדל
-       * לשקף מה עוד ממתין — כלומר מפסיקים להסתכל עליו.
-       */
-      const status =
-        input.status ?? (replied && row.status === "open" ? "in_progress" : undefined);
-      return tx.supportTicket.update({
-        where: { id: ticketId },
-        data: {
-          ...(status === undefined ? {} : { status }),
-          ...(replied ? { reply: input.reply, repliedAt: new Date() } : {}),
-        },
-      });
+      return row;
     });
 
-    if (input.reply !== undefined && input.reply !== "") {
-      try {
-        /*
-         * ‎**התשובה חוזרת לתיבת התמיכה.**
-         *
-         * זו תשובה שאדם כתב לאדם, והנמען עונה עליה — הוא לוחץ „השב”
-         * בתיבה שלו. עד כה היא יצאה בלי `Reply-To`, ולכן התשובה שלו
-         * נחתה בתיבה שאיש אינו קורא והשיחה נגמרה בלי שאיש יידע.
-         *
-         * ‎`Reply-To` הוא מה שפותר את זה, ולא שורת „מאת”: כתובת
-         * הקליטה של הספק אינה חתימת שולח מאומתת ולכן אינה יכולה
-         * לשמש כ-`From` (ראו `sender`), אבל **לחזור אליה** אפשר.
-         * מי שהגדיר כתובת בדומיין שלו מקבל גם את שורת „מאת”.
-         *
-         * ריק = התיבה לא הוגדרה, וההתנהגות נשארת כשהייתה.
-         */
-        const { sender, replyTo } = await this.inbox.outgoing();
-        await this.email.send(updated.userEmail, "תשובה לפנייה שלך לתמיכה", input.reply, {
+    /*
+     * ‎**סטטוס בלי מענה מוחל מיד** — זה הנתיב של „סמן: נסגרה”
+     * מהתור, ואין בו שליחה שאפשר להיכשל בה.
+     */
+    if (!replied) {
+      if (input.status !== undefined) {
+        await this.prisma.withSupportDesk((tx) =>
+          tx.supportTicket.update({ where: { id: ticketId }, data: { status: input.status! } }),
+        );
+      }
+      return { ok: true };
+    }
+
+    /*
+     * ‎**השורה נכתבת לפני השליחה, ומאושרת אחריה** — אותו סדר כמו
+     * בשרשורי המייל. כשהסדר הפוך והכתיבה נופלת, הפונה כבר קיבל
+     * תשובה שאין לה זכר בשיחה.
+     */
+    const messageId = ulid();
+    await this.prisma.withSupportDesk((tx) =>
+      tx.supportTicketMessage.create({
+        data: {
+          id: messageId,
+          ticketId,
+          tenantId: ticket.tenantId,
+          direction: "out",
+          body: replyBody,
+          sendState: "pending",
+          createdBy: TenantContext.current().userId,
+        },
+      }),
+    );
+
+    if (attachments.length > 0) {
+      await this.storeReplyAttachments(messageId, ticket.tenantId, attachments);
+    }
+
+    const context: SupportReplyContext = {
+      reference: ticket.reference,
+      original: ticket.message,
+      openedAt: ticket.createdAt,
+      kind: ticket.kind as SupportKind,
+      ...(typeof (ticket.context as { path?: unknown } | null)?.path === "string"
+        ? { screen: (ticket.context as { path: string }).path }
+        : {}),
+    };
+
+    let state: "sent" | "unknown" = "sent";
+    try {
+      const { sender, replyTo } = await this.inbox.outgoing();
+      await this.email.send(
+        ticket.userEmail,
+        supportReplySubject(context),
+        supportReplyEmail({ body: replyBody, context }),
+        {
+          /*
+           * ‎`required` — **זה כל השינוי.** בלעדיו דחייה של הספק
+           * נבלעת, והמסך מדווח „נענה” על מייל שלא יצא.
+           */
+          required: true,
           ...(sender === null ? {} : { sender }),
           ...(replyTo === null ? {} : { replyTo }),
-        });
-      } catch (error) {
-        // התשובה כבר שמורה ומוצגת במערכת; המייל הוא תזכורת, לא הערוץ
-        this.logger.warn(`שליחת תשובת תמיכה נכשלה: ${(error as Error).message}`);
-      }
+          ...(attachments.length > 0
+            ? {
+                attachments: attachments.map(({ name, contentType, content }) => ({
+                  name,
+                  contentType,
+                  content,
+                })),
+              }
+            : {}),
+        },
+      );
+    } catch (error: unknown) {
+      /*
+       * ‎**„נכשלה” רק כשידוע שלא יצאה.** דחייה של הספק היא ודאות;
+       * פסק זמן ו-5xx אינם, וייתכן שהפונה כן קיבל.
+       */
+      const certainlyNotSent = error instanceof EmailRejectedError;
+      await this.prisma
+        .withSupportDesk((tx) =>
+          tx.supportTicketMessage.update({
+            where: { id: messageId },
+            data: { sendState: certainlyNotSent ? "failed" : "unknown" },
+          }),
+        )
+        .catch(() => this.logger.error(`סימון מצב תשובת תמיכה נכשל: ${messageId}`));
+      if (certainlyNotSent) throw error;
+      state = "unknown";
+      this.logger.warn(`תשובת תמיכה הסתיימה בתוצאה עמומה: ${messageId} — ${String(error)}`);
     }
-    return { ok: true };
+
+    /*
+     * ‎**הסטטוס מוחל רק אחרי שהשליחה הצליחה.**
+     *
+     * הוא נכתב קודם בטרנזקציה נפרדת, לפני האחסון והשליחה. „שליחה
+     * וסגירה” שנדחתה על ידי הספק הותירה פנייה **סגורה** שהלקוח לא
+     * קיבל עליה דבר — היא נשרה מתור הממתינות, וזו בדיוק ההיעלמות
+     * השקטה שה-PR הזה בא לסגור, רק דרך אחרת (ביקורת Codex).
+     *
+     * דחייה ודאית זורקת למעלה לפני השורה הזו, ולכן הסטטוס נשאר
+     * כשהיה והפנייה נשארת בתור. תוצאה עמומה כן מחילה אותו: ייתכן
+     * שהפונה קיבל, והשארת הפנייה פתוחה על סמך ספק מזמינה מענה כפול.
+     */
+    const promoted =
+      input.status ?? (ticket.status === "open" ? "in_progress" : undefined);
+    await this.prisma
+      .withSupportDesk(async (tx) => {
+        if (state === "sent") {
+          await tx.supportTicketMessage.update({
+            where: { id: messageId },
+            data: { sendState: "sent" },
+          });
+        }
+        /*
+         * ‎`reply` ו-`repliedAt` נשמרים מסונכרנים עם ההודעה
+         * האחרונה. הם אינם מקור האמת יותר, אבל מסכים וקוראים
+         * קיימים נשענים עליהם — והשארתם מיושנים הייתה מציגה למשרד
+         * תשובה ישנה לצד חדשה.
+         */
+        await tx.supportTicket.update({
+          where: { id: ticketId },
+          data: {
+            reply: replyBody.slice(0, 2000),
+            repliedAt: new Date(),
+            ...(promoted === undefined ? {} : { status: promoted }),
+          },
+        });
+      })
+      // המייל כבר יצא; כשל כאן הוא כשל בתיעוד ולא בשליחה
+      .catch(() => this.logger.error(`אישור שליחת תשובת תמיכה נכשל: ${messageId}`));
+
+    return { ok: true, state };
+  }
+
+  /**
+   * צירופים על תשובת התמיכה — אותה מכניקה של שרשורי המייל.
+   *
+   * השורה נתבעת לפני ההעלאה ו-`uploadedAt` נכתב אחריה: קיום השורה
+   * אינו מעיד שהאובייקט קיים, ולכן צירוף שטרם הועלה אינו מוצג.
+   * ‎`ordinal` הוא מה שהופך את המפתח לדטרמיניסטי — שני ניסיונות
+   * מקבילים מחשבים אותו מפתח ולא שני עותקים.
+   */
+  private async storeReplyAttachments(
+    messageId: string,
+    tenantId: string,
+    attachments: { name: string; contentType: string; content: Buffer; kind: string }[],
+  ): Promise<void> {
+    const rows = attachments.map((attachment, ordinal) => ({
+      id: ulid(),
+      messageId,
+      tenantId,
+      ordinal,
+      kind: attachment.kind,
+      name: attachment.name,
+      contentType: attachment.contentType,
+      sizeBytes: attachment.content.length,
+      s3Key: `support/tickets/${messageId}/${ordinal}`,
+    }));
+    await this.prisma.withSupportDesk((tx) =>
+      tx.supportTicketAttachment.createMany({ data: rows, skipDuplicates: true }),
+    );
+    for (const [index, attachment] of attachments.entries()) {
+      const row = rows[index]!;
+      await this.storage.put(row.s3Key, attachment.content, attachment.contentType, tenantId);
+      await this.prisma.withSupportDesk((tx) =>
+        tx.supportTicketAttachment.updateMany({
+          where: { messageId, ordinal: index },
+          data: { uploadedAt: new Date() },
+        }),
+      );
+    }
   }
 
   private toDto(row: {
