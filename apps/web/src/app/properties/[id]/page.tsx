@@ -160,6 +160,15 @@ interface MatchRow {
   buyerFacts: BuyerFacts | null;
 }
 
+/**
+ * ‎**התקרה שהשרת חותך בה** (`MATCH_LIST_LIMIT`).
+ *
+ * נכתבת כאן ולא מיובאת: היא קבוע של שירות ה-API ואינה בחבילה
+ * המשותפת. הערך משמש **רק** להצגת „+” — כלומר סטייה בינו לבין
+ * השרת אינה מסתירה מידע ואינה משנה התנהגות, רק את הסימן.
+ */
+const MATCH_PAGE_LIMIT = 100;
+
 interface BuyerFacts {
   budgetMaxAgorot: number | null;
   roomsMin: number | null;
@@ -512,6 +521,8 @@ export default function PropertyDetailPage({
    */
   const canRecalc = can(user, "settings.manage");
   const [recalcBusy, setRecalcBusy] = useState(false);
+  /** כישלון הסבב בלבד — השורות שכבר נטענו נשארות תקפות ומוצגות. */
+  const [recalcFailed, setRecalcFailed] = useState(false);
 
   /**
    * מריץ את הסבב ואז טוען מחדש את שורות הנכס.
@@ -523,11 +534,21 @@ export default function PropertyDetailPage({
    */
   async function recalcMatches(): Promise<void> {
     setRecalcBusy(true);
+    setRecalcFailed(false);
     try {
       await apiPost("/matches/refresh", {});
       loadMatches();
     } catch {
-      setMatchesFailed(true);
+      /*
+       * ‎**מצב משלו, ולא `matchesFailed`.**
+       *
+       * ‎`matchesFailed` פירושו „טעינת ההתאמות נכשלה”, והוא מסתיר את
+       * השורות מאחורי „לא הצלחנו לטעון את ההתאמות” — גם בלשונית וגם
+       * בכרטיס הסיכום שבסקירה. סבב שנכשל אינו פוגם בשורות שכבר
+       * מוצגות ותקפות, ולכן שימוש באותו דגל היה מוחק תוכן תקין
+       * ומדווח תקלה שלא קרתה (ביקורת Codex).
+       */
+      setRecalcFailed(true);
     } finally {
       setRecalcBusy(false);
     }
@@ -1627,7 +1648,18 @@ export default function PropertyDetailPage({
               */}
               {matches !== null && matches.length > 0 ? (
                 <span className="mv-pill mv-domain-violet">
-                  {matches.length === 1 ? "התאמה אחת" : `${matches.length} התאמות`}
+                  {/*
+                    ‎**עמוד מלא אינו סך הכול.** השרת מחזיר עד
+                    ‎`MATCH_LIST_LIMIT` שורות וחותך; בדיוק במאה
+                    הגלולה הייתה אומרת „100 התאמות” על נכס שיש לו
+                    מאה ועשרים (ביקורת Codex). „100+” אומרת את מה
+                    שידוע, ולא יותר.
+                  */}
+                  {matches.length === 1
+                    ? "התאמה אחת"
+                    : matches.length >= MATCH_PAGE_LIMIT
+                      ? `${MATCH_PAGE_LIMIT}+ התאמות`
+                      : `${matches.length} התאמות`}
                 </span>
               ) : null}
               {/*
@@ -1677,6 +1709,12 @@ export default function PropertyDetailPage({
                 </button>
               ) : null}
             </div>
+            {recalcFailed ? (
+              <Notice tone="danger">
+                החישוב מחדש נכשל — ההתאמות שמוצגות כאן הן האחרונות שנטענו, והן
+                עדיין תקפות. נסו שוב בעוד רגע.
+              </Notice>
+            ) : null}
             {bulkResult ? (
               <Notice tone={bulkResult.ok ? "success" : "danger"}>
                 {bulkResult.ok ? "✓ " : ""}
