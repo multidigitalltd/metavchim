@@ -52,6 +52,7 @@ export * from "./logic/occupancy.js";
 export * from "./logic/web-push.js";
 export * from "./logic/whatsapp-buttons.js";
 export * from "./logic/whatsapp-notify.js";
+export * from "./logic/whatsapp-templates.js";
 export * from "./logic/whatsapp-text.js";
 export * from "./logic/contact-people.js";
 export * from "./logic/parse-search-query.js";

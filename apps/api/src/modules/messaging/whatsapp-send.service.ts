@@ -4,8 +4,10 @@ import {
   listPayload,
   replyButtonsPayload,
   splitForWhatsApp,
+  whatsappTemplateButton,
   type WhatsAppButton,
   type WhatsAppListRow,
+  type WhatsAppTemplateParam,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
@@ -109,18 +111,38 @@ export class WhatsAppSendService {
    * ושליחה שנכשלה אינה סיבה להפיל אותן. הקורא מקבל `false` ומחליט
    * — בפועל: פותח משימה עם ההודעה מוכנה, כדי שהמתווך ישלח בלחיצה
    * במקום שהלקוח לא יקבל דבר.
+   *
+   * ## למה הערכים נושאים שמות
+   *
+   * Meta עברה למשתנים בעלי שם (`{{form_link}}` ולא `{{1}}`), ותבנית
+   * כזו דורשת ש**כל ערך יישא את `parameter_name` שלו**. משלוח מיקומי
+   * אליה נדחה. הערכים נבנים ב-`whatsappTemplateParams` שבחבילה
+   * המשותפת, ששם המשתנים בו הוא אותו שם שנרשם ב-WhatsApp Manager.
+   *
+   * ## הכפתור
+   *
+   * ‎`urlSuffix` נמסר רק כשהתבנית הוגדרה עם **כתובת דינמית**. אין
+   * דרך שהקוד יידע זאת לבדו: תבנית בלי כפתור שנשלח אליה רכיב כפתור
+   * נדחית, וכך גם ההפך. לכן הקורא — שיודע איזו תבנית זו — מחליט,
+   * ותבנית בלי כפתור פשוט אינה מעבירה את הארגומנט.
    */
   async sendTemplate(
     to: string,
     name: string,
     languageCode: string,
-    params: readonly string[],
+    params: readonly WhatsAppTemplateParam[],
+    urlSuffix?: string,
   ): Promise<boolean> {
     const creds = await this.credentials();
     if (!creds) {
       this.logger.warn("תבנית לא נשלחה — הצד היוצא אינו מוגדר");
       return false;
     }
+    const button = urlSuffix === undefined ? null : whatsappTemplateButton(urlSuffix);
+    const components = [
+      ...(params.length > 0 ? [{ type: "body", parameters: params }] : []),
+      ...(button === null ? [] : [button]),
+    ];
     return this.post(creds, {
       messaging_product: "whatsapp",
       to,
@@ -128,16 +150,7 @@ export class WhatsAppSendService {
       template: {
         name,
         language: { code: languageCode },
-        ...(params.length > 0
-          ? {
-              components: [
-                {
-                  type: "body",
-                  parameters: params.map((text) => ({ type: "text", text })),
-                },
-              ],
-            }
-          : {}),
+        ...(components.length > 0 ? { components } : {}),
       },
     });
   }

@@ -63,6 +63,10 @@ import {
   sessionWindowOpen,
   shouldNotifyByWhatsApp,
   templateParams,
+  notificationUrl,
+  whatsappDeepLinkSuffix,
+  whatsappTemplateButton,
+  whatsappTemplateParams,
   resolveAutomationSettings,
   automationThresholdMs,
   type AutomationKey,
@@ -2366,6 +2370,13 @@ interface WhatsAppConfig {
   /** שם תבנית מאושרת לשליחה מחוץ לחלון 24 השעות; ריק = אין */
   template: string | null;
   templateLang: string;
+  /**
+   * האם התבנית נרשמה עם כפתור „פתח במערכת” בכתובת דינמית.
+   *
+   * ‏Meta דוחה משני הכיוונים — כפתור לתבנית שאין בה, וגם תבנית עם
+   * כפתור שלא קיבלה את ערכו — ולכן זו הגדרה מפורשת ולא ניחוש.
+   */
+  buttonUrl: boolean;
 }
 
 let waConfigCache: { config: WhatsAppConfig | null; until: number } | null = null;
@@ -2408,6 +2419,7 @@ async function whatsappConfig(): Promise<WhatsAppConfig | null> {
           "whatsappPhoneNumberId",
           "whatsappNotifyTemplate",
           "whatsappNotifyTemplateLang",
+          "whatsappNotifyTemplateButton",
         ],
       },
     },
@@ -2428,6 +2440,7 @@ async function whatsappConfig(): Promise<WhatsAppConfig | null> {
           phoneNumberId,
           template: template !== null && template.trim() !== "" ? template.trim() : null,
           templateLang: stored.get("whatsappNotifyTemplateLang")?.trim() || "he",
+          buttonUrl: stored.get("whatsappNotifyTemplateButton")?.trim() === "true",
         }
       : null;
   waConfigCache = { config, until: now + WA_CONFIG_TTL_MS };
@@ -2651,6 +2664,18 @@ async function processWhatsAppNotifySweep(): Promise<void> {
           }
         }
       } else {
+        /*
+         * ‎**הכפתור מוביל לכרטיס עצמו, לא לדף הבית.**
+         *
+         * ‎`notificationUrl` היא אותה פונקציה שקובעת לאן מובילה
+         * התראת הדפדפן, ולכן שני הערוצים נוחתים באותו מקום —
+         * ולא כל אחד במסך אחר על אותו אירוע. אגד של כמה עדכונים
+         * אינו מצביע על כרטיס אחד, ולכן הוא נופל למסך ההתראות.
+         */
+        const first = items[0];
+        const target =
+          items.length === 1 && first !== undefined ? notificationUrl(first) : "";
+        const button = config.buttonUrl ? whatsappTemplateButton(whatsappDeepLinkSuffix(target)) : null;
         ok = await sendWhatsApp(config, {
           messaging_product: "whatsapp",
           to: recipient.phone,
@@ -2661,8 +2686,10 @@ async function processWhatsAppNotifySweep(): Promise<void> {
             components: [
               {
                 type: "body",
-                parameters: templateParams(items).map((text) => ({ type: "text", text })),
+                // שמות המשתנים, ולא מיקומים — תבנית של Meta בעלת שמות דוחה משלוח מיקומי
+                parameters: whatsappTemplateParams("notify", templateParams(items)),
               },
+              ...(button === null ? [] : [button]),
             ],
           },
         });
