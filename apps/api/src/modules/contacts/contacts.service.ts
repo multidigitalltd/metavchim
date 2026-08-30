@@ -167,6 +167,61 @@ export class ContactsService {
   }
 
   /**
+   * ‎**שינוי שם הכרטיס.**
+   *
+   * ‏כרטיס שנוצר משיחה נכנסת שבה לא זוהה שם נשמר עם מספר הטלפון
+   * במקומו (`callerName ?? phone` בשירות הטלפוניה), וכך הוא נשאר:
+   * לא היה נתיב לתקן אותו, והמתווך ראה מספר במקום שם בכל מסך —
+   * בכרטיס הקונה, ברשימות, ובכל התאמה.
+   *
+   * ‎**וחתימת השם משתנה יחד איתו.** `nameHash` היא מה שאיתור
+   * הכפילויות והחיפוש עובדים מולו, בלי לפענח. שם שהשתנה וחתימה
+   * שנשארה מאחור פירושם מנוע כפילויות שמשווה שמות שכבר אינם
+   * קיימים — הוא ימשיך להצביע על „כפילות” שנעלמה, ויחמיץ את זו
+   * שנוצרה עכשיו. שני השדות נכתבים באותה פעולה, או ששניהם לא.
+   *
+   * מחזיר `true` רק כשהשם באמת השתנה: קריאה שאינה משנה דבר אינה
+   * אירוע, ואינה אמורה להשאיר רשומת ביקורת שמתעדת שינוי שלא היה.
+   */
+  async setName(tx: TenantTx, contactId: string, name: string): Promise<boolean> {
+    const tenantId = TenantContext.current().tenantId;
+    const next = name.trim();
+    const row = await tx.contact.findFirst({
+      where: { id: contactId, tenantId },
+      select: { nameEncrypted: true, nameHash: true },
+    });
+    if (!row) return false;
+    if (this.crypto.decrypt(row.nameEncrypted) === next) return false;
+
+    const nextHash = this.crypto.nameHash(normalizeNameForMatch(next));
+    await tx.contact.updateMany({
+      where: { id: contactId, tenantId },
+      data: { nameEncrypted: this.crypto.encrypt(next), nameHash: nextHash },
+    });
+
+    /*
+     * ‎**„אלה אינם אותו אדם” נאמר על חברוּת מסוימת, והשם שזז שינה
+     * אותה — בשתי הקבוצות** (ביקורת Codex, P2).
+     *
+     * הדחייה נשמרת כ„גודל הקבוצה ברגע הדחייה”, וההצעה חוזרת רק
+     * כשהגודל עולה מעליו. אבל שינוי שם מזיז כרטיס **בין** קבוצות,
+     * והגודל יכול לחזור לאותו מספר עם אנשים אחרים לגמרי: קבוצה
+     * שנדחתה בגודל 2, כרטיס אחד יצא ממנה ואחר נכנס — שוב 2, ולכן
+     * שוב מוסתרת, אף שזהו זוג שאיש מעולם לא אמר עליו שאינו אותו
+     * אדם. הצעת מיזוג אמיתית נשארת נסתרת עד שהגודל ישתנה שוב.
+     *
+     * שתי הדחיות נמחקות — של השם הישן ושל החדש — כי בשתיהן החברוּת
+     * כבר אינה זו שנדחתה. אותה הכרעה בדיוק כמו במחיקת כרטיס: המחיר
+     * הוא שההצעה עשויה לחזור, וזה עדיף על הסתרה שאיש לא ביקש.
+     */
+    const stale = [row.nameHash, nextHash].filter((h): h is string => h !== null);
+    await tx.duplicateDismissal.deleteMany({
+      where: { tenantId, nameHash: { in: stale } },
+    });
+    return true;
+  }
+
+  /**
    * קביעת/ניקוי האימייל של הכרטיס — מוצפן כמו השם והטלפון, ולצידו
    * חתימת HMAC שמאפשרת לסנכרון ה-Gmail להתאים שולח נכנס לכרטיס.
    */

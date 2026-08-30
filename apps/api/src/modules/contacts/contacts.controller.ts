@@ -47,6 +47,13 @@ const UpdateEmailSchema = z
   .object({ email: z.union([z.string().trim().email().max(254), z.literal("")]) })
   .strict();
 
+/**
+ * שם הכרטיס — אותה מידה בדיוק כמו שם של אדם שמתווסף לכרטיס
+ * (`AddPersonSchema`), כי זה אותו סוג של נתון. אין „ריק”: כרטיס
+ * בלי שם אינו מצב שהמערכת יודעת להציג.
+ */
+const UpdateNameSchema = z.object({ name: z.string().trim().min(2).max(120) }).strict();
+
 const AddPhoneSchema = z
   .object({ phone: PhoneField, label: z.enum(PHONE_LABELS).default("mobile") })
   .strict();
@@ -275,6 +282,46 @@ export class ContactsController {
       ]);
       return { people, phones, ...(email !== undefined ? { email } : {}) };
     });
+  }
+
+  /**
+   * ‎**תיקון שם הכרטיס.**
+   *
+   * ‏שיחה נכנסת שבה לא זוהה שם יוצרת כרטיס ששמו הוא מספר הטלפון,
+   * ועד כה זה היה סופי — לא היה נתיב לשנות אותו, והמתווך ראה מספר
+   * במקום שם בכרטיס הקונה ובכל מסך שמציג אותו.
+   *
+   * ‎**היקף הגישה הוא היקף הלקוח** (`assertContactAccess`), והיכולת
+   * היא `buyers.edit` — אותה יכולת שנדרשת כדי לשנות את האימייל שלו
+   * או להוסיף לו אדם, שהם בדיוק אותו סוג של נתון.
+   *
+   * ‎**ביומן הביקורת נרשם שהשם שונה — ולא מה הוא היה.** השם הוא PII
+   * מוצפן במנוחה, ורישום שלו בטקסט גלוי במטא-דאטה של הביקורת היה
+   * מבטל בדיוק את ההצפנה הזו. אותה מוסכמה כמו `duplicate_dismiss`,
+   * ששומר חתימה ולא שם.
+   */
+  @RequireCapability("buyers.edit")
+  @Patch(":id/name")
+  @HttpCode(200)
+  async setName(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(UpdateNameSchema)) body: z.infer<typeof UpdateNameSchema>,
+  ): Promise<{ ok: true; changed: boolean }> {
+    const tenantId = TenantContext.current().tenantId;
+    const changed = await this.prisma.withTenant(async (tx) => {
+      await assertContactAccess(tx, tenantId, id);
+      const did = await this.contacts.setName(tx, id, body.name);
+      // רק שינוי אמיתי הוא אירוע; שמירה חוזרת של אותו שם אינה שינוי
+      if (did) {
+        await this.audit.record(tx, {
+          action: "contact.renamed",
+          entityType: "contact",
+          entityId: id,
+        });
+      }
+      return did;
+    });
+    return { ok: true, changed };
   }
 
   /** אימייל הכרטיס — עריכת לקוח; מחרוזת ריקה מוחקת. */
