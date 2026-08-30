@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { STATUS_LABELS } from "@/lib/format";
+import { IconInfo, IconUsers, IconWarning } from "../icons";
 import {
   MANDATORY_MATCH_CRITERIA,
   MATCH_CRITERION_LABELS,
@@ -177,23 +178,54 @@ export function MatchesEmptyState({
   }
 
   return (
-    <div className="py-2">
-      <h3
-        className="m-0 mb-1.5 text-[length:var(--type-title-sm)]"
-        style={{ fontWeight: 900, letterSpacing: "-0.025em" }}
+    <div>
+      {/*
+        ‎**הריק מקבל צורה — מסגרת מקווקוות, אריח ופעולה.**
+
+        עד כה היו כאן כותרת ומשפט על רקע הכרטיס, כלומר טקסט שנקרא
+        כמו הערה. המסגרת המקווקוות אומרת „כאן ייכנס תוכן”, והפעולה
+        יושבת באותה תיבה במקום להיגרר לתחתית הכרטיס.
+      */}
+      <div
+        className="flex flex-wrap items-center gap-3 rounded-[18px] px-4 py-4"
+        style={{
+          border: "1px dashed var(--color-input-border)",
+          background: "var(--color-primary-soft)",
+        }}
       >
-        אין עדיין קונים מתאימים
-      </h3>
-      <p
-        className="m-0 mb-3 text-[length:var(--type-body-sm)]"
-        style={{ color: "var(--color-text-muted)" }}
-      >
-        הוסיפו קונה למאגר — וההתאמות יחושבו אוטומטית, בלי לחפש ידנית.
-      </p>
+        <span
+          aria-hidden="true"
+          className="mv-tile mv-tile--44 mv-domain-neutral flex-none"
+        >
+          <IconUsers s={20} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3
+            className="m-0 text-[length:var(--type-title-sm)]"
+            style={{ fontWeight: 900, letterSpacing: "-0.025em" }}
+          >
+            אין עדיין קונים מתאימים
+          </h3>
+          <p
+            className="m-0 mt-1 text-[length:var(--type-body-sm)]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            הוסיפו קונה למאגר — וההתאמות יחושבו אוטומטית, בלי לחפש ידנית.
+          </p>
+        </div>
+        <div className="flex flex-none flex-wrap gap-2">
+          <Link href="/import" className="mv-btn-plain no-underline">
+            ייבוא קונים
+          </Link>
+          <Link href="/buyers/new" className="mv-btn-action no-underline">
+            הוספת קונה
+          </Link>
+        </div>
+      </div>
 
       {blocking.length > 0 ? (
         <div
-          className="mb-3 rounded-xl px-3.5 py-2.5 text-[length:var(--type-body-sm)]"
+          className="mt-3 flex items-start gap-2 rounded-xl px-3.5 py-2.5 text-[length:var(--type-body-sm)]"
           style={{ background: "var(--domain-amber-bg)", border: "1px solid var(--domain-amber-line)", color: "var(--domain-amber-fg)" }}
         >
           {/*
@@ -201,6 +233,10 @@ export function MatchesEmptyState({
             שקורא „הנכס אינו נכנס לחישוב” ומחפש למה, כבר איבד את
             השורה.
           */}
+          <span aria-hidden="true" className="flex-none pt-0.5">
+            <IconWarning s={16} />
+          </span>
+          <span>
           <b>{blocking.join(" · ")}</b> — עד שאלה מלאים הנכס אינו נכנס לחישוב ההתאמות.{" "}
           <Link
             href={`/properties/${propertyId}/edit`}
@@ -209,6 +245,7 @@ export function MatchesEmptyState({
           >
             להשלמת הפרטים
           </Link>
+          </span>
         </div>
       ) : null}
 
@@ -220,9 +257,23 @@ export function MatchesEmptyState({
       */}
       {oneSided.length > 0 ? (
         <div
-          className="mb-3 rounded-xl px-3.5 py-2.5 text-[length:var(--type-body-sm)]"
-          style={{ background: "#F1F3EF", border: "1px solid #DCE1D8", color: "#5E6860" }}
+          className="mt-3 flex items-start gap-2 rounded-xl px-3.5 py-2.5 text-[length:var(--type-body-sm)]"
+          /*
+            טוקנים ולא ערכי הקס. שלושת הערכים שהיו כאן — `#F1F3EF`,
+            ‎`#DCE1D8`, `#5E6860` — הוקפאו בערכה הבהירה, כלומר בכהה
+            הם אפור בהיר על כהה. הדומיין הניטרלי כבר נמדד בשלוש
+            הערכות.
+          */
+          style={{
+            background: "var(--domain-neutral-bg)",
+            border: "1px solid var(--color-input-border)",
+            color: "var(--domain-neutral-fg)",
+          }}
         >
+          <span aria-hidden="true" className="flex-none pt-0.5">
+            <IconInfo s={16} />
+          </span>
+          <span>
           <b>{oneSided.join(" · ")}</b> — בלעדיהם הנכס אינו מחפש קונים מיוזמתו, אבל
           התאמה עדיין תיווצר כשקונה מתאים ייכנס למאגר.{" "}
           <Link
@@ -232,17 +283,9 @@ export function MatchesEmptyState({
           >
             להשלמת הפרטים
           </Link>
+          </span>
         </div>
       ) : null}
-
-      <div className="flex flex-wrap gap-2">
-        <Link href="/buyers/new" className="mv-btn-action no-underline">
-          הוספת קונה
-        </Link>
-        <Link href="/import" className="mv-btn-plain no-underline">
-          ייבוא קונים
-        </Link>
-      </div>
     </div>
   );
 }

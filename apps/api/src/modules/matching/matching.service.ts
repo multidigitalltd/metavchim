@@ -142,6 +142,27 @@ function officeMatchesOf(tenantId: string, query: { minScore: number; propertyId
   };
 }
 
+/**
+ * ‎**מה שהשורה בכרטיס הנכס מספרת על הקונה.**
+ *
+ * הציון לבדו אומר „מתאים” ולא אומר **למה שווה להתקשר עכשיו**:
+ * תקציב, כמה חדרים הוא מחפש, איפה, וכמה זמן הוא כבר מחפש. כל אלה
+ * כבר יושבים בשורת הקונה, ובלעדיהם המתווך פותח כרטיס אחרי כרטיס
+ * רק כדי להחליט למי לפנות ראשון.
+ *
+ * ‎`null` = הקונה אינו של הסוכן הזה ואינו במסלול הצפייה שלו. אותו
+ * גדר של השם, ומאותה סיבה.
+ */
+export interface BuyerFacts {
+  /** תקרת התקציב באגורות; `null` = לא הוזנה. */
+  budgetMaxAgorot: number | null;
+  roomsMin: number | null;
+  roomsMax: number | null;
+  cities: string[];
+  /** מתי נפתח כרטיס הקונה — „מחפש כבר שלושה שבועות”. */
+  searchingSince: string;
+}
+
 @Injectable()
 export class MatchingService {
   constructor(
@@ -703,7 +724,13 @@ export class MatchingService {
   async listForProperty(
     propertyId: string,
     limit: number = MATCH_LIST_LIMIT,
-  ): Promise<(MatchDto & { buyerName: string | null; buyerMaturity: string | null })[]> {
+  ): Promise<
+    (MatchDto & {
+      buyerName: string | null;
+      buyerMaturity: string | null;
+      buyerFacts: BuyerFacts | null;
+    })[]
+  > {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
       const rows = await tx.match.findMany({
@@ -732,7 +759,23 @@ export class MatchingService {
           id: { in: buyers.map((b) => b.id) },
           ...ownershipFilter("buyers.view_all", "ownerUserId"),
         },
-        select: { id: true, contactId: true },
+        /*
+         * ‎**עובדות הקונה — רק למי שרשאי לראות אותו.**
+         *
+         * אותו גדר בדיוק של השם: `visibleBuyers` כבר מסונן ב-
+         * ‎`ownershipFilter`, ולכן תקציב ודרישות של קונה של סוכן אחר
+         * אינם יוצאים מכאן. השורה שלו תמשיך לומר „קונה של סוכן אחר”
+         * — עכשיו גם בלי המספרים שלו.
+         */
+        select: {
+          id: true,
+          contactId: true,
+          budgetMaxAgorot: true,
+          roomsMin: true,
+          roomsMax: true,
+          cities: true,
+          createdAt: true,
+        },
       });
       const maturityById = new Map(buyers.map((b) => [b.id, b.maturity]));
       const contactsById = await this.contacts.getByIds(
@@ -740,9 +783,19 @@ export class MatchingService {
         visibleBuyers.map((b) => b.contactId),
       );
       const nameById = new Map<string, string>();
+      const factsById = new Map<string, BuyerFacts>();
       for (const buyer of visibleBuyers) {
         const name = contactsById.get(buyer.contactId)?.name;
         if (name !== undefined) nameById.set(buyer.id, name);
+        factsById.set(buyer.id, {
+          // ‏`BigInt` אינו עובר ב-JSON; אגורות נכנסות בשלמות ל-`number`
+          budgetMaxAgorot:
+            buyer.budgetMaxAgorot === null ? null : Number(buyer.budgetMaxAgorot),
+          roomsMin: buyer.roomsMin === null ? null : Number(buyer.roomsMin),
+          roomsMax: buyer.roomsMax === null ? null : Number(buyer.roomsMax),
+          cities: buyer.cities,
+          searchingSince: buyer.createdAt.toISOString(),
+        });
       }
 
       return rows
@@ -752,6 +805,7 @@ export class MatchingService {
           ...toMatchDto(row),
           buyerName: nameById.get(row.buyerId) ?? null,
           buyerMaturity: maturityById.get(row.buyerId) ?? null,
+          buyerFacts: factsById.get(row.buyerId) ?? null,
         }));
     });
   }
