@@ -76,7 +76,17 @@ export class ViewingReplyService {
         if (appointment.propertyId !== null) {
           const property = await tx.property.findFirst({
             where: { id: appointment.propertyId, tenantId },
-            select: { occupantContactId: true, occupancy: true },
+            /*
+             * ‎**גם `ownerContactId`, ולא רק הדייר.**
+             *
+             * ‎`viewingReminderOccupantContactId` מחזיר את הדייר רק
+             * בנכס מושכר, ובכל שאר המקרים **נופל לבעלים** — וכל
+             * שלושת השדות שלו אופציונליים, ולכן `select` חלקי עובר
+             * הידור בשקט ומחזיר `null`. בלי השדה הזה בעל נכס שלוחץ
+             * על הכפתור נדחה כ„אינו נמען”, התשובה נזרקת, ואיש לא
+             * יודע — בדיוק הכשל שהתכונה הזו באה למנוע.
+             */
+            select: { occupantContactId: true, occupancy: true, ownerContactId: true },
           });
           const occupant =
             property === null ? null : viewingReminderOccupantContactId(property);

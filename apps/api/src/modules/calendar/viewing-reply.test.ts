@@ -94,6 +94,20 @@ describe("רישום התשובה", () => {
     expect(REPLY).toContain("allowed.has(sender.id)");
   });
 
+  /*
+   * ‎**כל שלושת השדות שהמאתר קורא.**
+   *
+   * ‎`viewingReminderOccupantContactId` מחזיר את הדייר רק בנכס
+   * מושכר ונופל לבעלים בכל השאר, ושלושת שדותיו אופציונליים —
+   * ‎`select` חלקי עובר הידור ומחזיר `null`. בעל נכס שלוחץ על
+   * הכפתור היה נדחה כ„אינו נמען” והתשובה נזרקת בשקט (ביקורת עצמית).
+   */
+  it("מאתר הנמען מקבל גם את הבעלים", () => {
+    expect(REPLY).toContain(
+      "select: { occupantContactId: true, occupancy: true, ownerContactId: true },",
+    );
+  });
+
   /* וובהוק חוזר ולחיצה כפולה אינם שתי תשובות */
   it("תשובה זהה אינה אירוע נוסף", () => {
     expect(REPLY).toContain("appointment.reminderReply === parsed.reply");
