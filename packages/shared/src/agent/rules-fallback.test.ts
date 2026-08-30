@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 import { AGENT_ACTION_IDS, agentAction } from "./actions";
 import {
@@ -61,6 +63,41 @@ describe("הרצפה הדטרמיניסטית", () => {
    */
   it("בלי פעולות מותרות נאמרת הסיבה בלבד, בלי כותרת ריקה", () => {
     expect(agentDegradedNotice([])).toEqual([AGENT_DEGRADED_REASON]);
+  });
+
+  /*
+   * ‎**„נסחו אחרת” מוחלף, ואינו מוקדם להסבר.**
+   *
+   * שום ניסוח לא יצליח עד שהספק יחזור, ולכן ההוראה הזו מיד לפני
+   * ההסבר על התקלה היא בדיוק הקיר שההסבר בא לפרק. הוואטסאפ מחליף
+   * מלכתחילה; המסך היה מוסיף (ביקורת Codex).
+   */
+  it("שני הערוצים מחליפים את „נסחו אחרת” ואינם מוסיפים לו", () => {
+    const read = (relative: string): string =>
+      readFileSync(new URL(relative, import.meta.url), "utf8");
+    const WEB = read("../../../../apps/web/src/app/voice/page.tsx");
+    const WA = read(
+      "../../../../apps/api/src/modules/messaging/whatsapp-assistant.service.ts",
+    );
+    expect(WEB).toMatch(/proposal\.degraded\.length > 0\s*\?\s*proposal\.degraded/u);
+    expect(WA).toMatch(/proposal\.degraded\.length > 0 \? \[\.\.\.proposal\.degraded\] : \[clarify\]/u);
+  });
+
+  /*
+   * ‎**הרשאה אינה זכאות.** פעולה יכולה לדרוש תכונה במסלול, והביצוע
+   * דוחה בלעדיה — כלומר הבטחה שלה ברשימה היא קיר שני.
+   */
+  it("הרשימה מסוננת גם לפי תכונות המסלול, ולא רק לפי תפקיד", () => {
+    const RESOLVE = readFileSync(
+      new URL("../../../../apps/api/src/modules/agent/resolve.service.ts", import.meta.url),
+      "utf8",
+    );
+    const fn = RESOLVE.slice(
+      RESOLVE.indexOf("private async allowedActionIds()"),
+      RESOLVE.indexOf(".map((a) => a.id);", RESOLVE.indexOf("private async allowedActionIds()")),
+    );
+    expect(fn).toContain("mayUseAction");
+    expect(fn).toContain("tenantHasFeature");
   });
 
   it("מספר הדוגמאות מוגבל — הודעת וואטסאפ אינה רשימה של עשרים", () => {
