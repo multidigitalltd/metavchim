@@ -36,6 +36,39 @@ export type VoiceAction =
   | "share_buyer"
   | "send_offer"
   | "search"
+  /*
+   * ‎--- שאלות „תראה לי” ---
+   *
+   * ‎**רצפת החירום הכירה עשרים פעולות מתוך שבעים ואחת.** כשספק
+   * ההבנה אינו זמין זה כל מה שנשאר, ומה שמתווך מבקש דווקא ברגע
+   * כזה הוא „פשוט תראה לי מה יש”. הפעולות האלה אינן דורשות חילוץ
+   * שדות בכלל — רק זיהוי הביטוי — ולכן הן זולות להוספה ובטוחות:
+   * פעולת קריאה שזוהתה בטעות מציגה רשימה, ולא כותבת דבר.
+   *
+   * פעולות **כתיבה** נשארות מחוץ לרצפה בכוונה. הן דורשות חילוץ
+   * פרמטרים מדויק, וניחוש פרמטר בפעולה שכותבת מסוכן יותר מ„לא
+   * הבנתי” כן.
+   */
+  | "show_matches"
+  | "show_leads"
+  | "show_offers"
+  | "show_demands"
+  | "show_notifications"
+  | "show_emails"
+  | "show_credits"
+  | "show_payout_balance"
+  | "show_referral_board"
+  | "show_reach"
+  | "show_recommendations"
+  | "show_exclusivity"
+  | "show_agreements"
+  | "show_retained_documents"
+  | "show_network_listings"
+  | "show_network_inbox"
+  | "show_support_tickets"
+  | "show_card"
+  | "play_recording"
+  | "agent_report"
   | "unknown";
 
 export interface VoiceCommand {
@@ -153,6 +186,39 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
   { action: "show_deals", pattern: /ה?עסקאות\s+(?:ה?משותפות|בשת["״]?פ)|חדרי?\s+ה?עסקה|שיתופי\s+ה?פעולה\s+(?:שלי|הפעילים)/u, confidence: "high" },
   { action: "office_report", pattern: /דו["״]?ח\s+ה?משרד|כמה\s+לידים\s+(?:נכנסו|הגיעו)|נתוני\s+ה?משרד|סיכום\s+ה?(?:שבוע|חודש)/u, confidence: "high" },
 
+  /*
+   * --- „תראה לי” על שאר המערכת ---
+   *
+   * כולן פעולות **קריאה**, ולכן זיהוי שגוי מציג רשימה ולא כותב
+   * דבר. הן יושבות כאן, בתוך בלוק השאלות, ולפני בלוק הנכסים
+   * והחיפוש — סדר ולא נוחות: „מה יש לי ברשת” מתאים גם לתבנית
+   * הנכסים (`לי` ואחריו `ב`+אות), ו„איפה הכרטיס של יוסי” מתאים
+   * לתבנית החיפוש. בתוך אותה רמת ביטחון הכלל הראשון מנצח.
+   */
+  { action: "agent_report", pattern: /דו["״]?ח\s+(?:ה?סוכן|שלי)|ה?ביצועים\s+שלי|סיכום\s+ה?פעילות\s+שלי/u, confidence: "high" },
+  { action: "show_matches", pattern: /ה?התאמות\s+(?:שלי|חדשות|ה?אחרונות)|(?:מה|אילו|איזה)\s+ה?התאמות/u, confidence: "high" },
+  { action: "show_leads", pattern: /ה?לידים\s+(?:שלי|חדשים|ה?אחרונים)|(?:אילו|איזה)\s+ה?לידים/u, confidence: "high" },
+  { action: "show_offers", pattern: /ה?הצעות\s+(?:שלי|ה?ממתינות|ה?אחרונות)|(?:אילו|איזה)\s+ה?הצעות|מצב\s+ה?הצעות/u, confidence: "high" },
+  { action: "show_demands", pattern: /ה?ביקושים|ה?דרישות\s+ש?ברשת/u, confidence: "high" },
+  { action: "show_notifications", pattern: /ה?התראות|ה?עדכונים\s+שלי|מה\s+חדש\s+ב?ה?מערכת/u, confidence: "high" },
+  { action: "show_emails", pattern: /ה?מיילים|ה?דוא["״]?ל|ה?הודעות\s+ש?ב?מייל/u, confidence: "high" },
+  { action: "show_credits", pattern: /כמה\s+קרדיטים|ה?קרדיטים\s+שלי|יתרת\s+ה?קרדיטים/u, confidence: "high" },
+  { action: "show_payout_balance", pattern: /כמה\s+מגיע\s+לי|יתרת\s+ה?תשלום|ה?יתרה\s+ל?משיכה/u, confidence: "high" },
+  { action: "show_referral_board", pattern: /לוח\s+ה?הפניות|ה?הפניות\s+שלי|דירוג\s+ה?הפניות/u, confidence: "high" },
+  { action: "show_reach", pattern: /ה?חשיפה\s+ש?ל?י?|כמה\s+(?:אנשים\s+)?ראו\s+(?:את\s+)?ה?נכס/u, confidence: "low" },
+  { action: "show_recommendations", pattern: /ה?המלצות|מה\s+כדאי\s+לי\s+לעשות|מה\s+מומלץ/u, confidence: "high" },
+  { action: "show_exclusivity", pattern: /ה?בלעדיות|ה?בלעדיויות/u, confidence: "high" },
+  { action: "show_agreements", pattern: /ה?הסכמים|ה?חוזים/u, confidence: "high" },
+  { action: "show_retained_documents", pattern: /ה?מסמכים\s+(?:ש?שמורים|שלי)|ה?ארכיון/u, confidence: "high" },
+  /*
+   * הרשת קודמת לנכסים: „מה יש לי ברשת” הוא שאלה על הרשת ולא על
+   * המאגר, ותבנית הנכסים הייתה בולעת אותה.
+   */
+  { action: "show_network_listings", pattern: /מה\s+יש\s+(?:לי\s+)?ברשת|ה?נכסים\s+ש?ברשת|ה?רשת\s+ה?שיתופית/u, confidence: "high" },
+  { action: "show_network_inbox", pattern: /ה?תיבה\s+ש?ברשת|ה?פניות\s+ש?ברשת|מי\s+פנה\s+אלי\s+ברשת/u, confidence: "high" },
+  { action: "show_support_tickets", pattern: /ה?פניות\s+ל?ה?תמיכה|ה?קריאות\s+ש?ה?שירות/u, confidence: "high" },
+  { action: "play_recording", pattern: /(?:תשמיע|להשמיע|השמע)\s+(?:לי\s+)?(?:את\s+)?ה?הקלטה|ה?הקלטה\s+של\s+[א-ת]/u, confidence: "high" },
+
   // --- עדכונים ממוקדים: הערה, סטטוס ליד, שיתוף ברשת ---
   { action: "add_note", pattern: /(?:הוסף|תוסיף|רשום|תרשום|כתוב|תכתוב)\s+(?:לי\s+)?הערה/u, confidence: "high" },
   { action: "update_lead_status", pattern: /(?:עדכן|תעדכן|שנה|תשנה|העבר|תעביר)\s+(?:את\s+)?(?:ה?סטטוס|ה?שלב|ה?ליד)/u, confidence: "high" },
@@ -177,6 +243,12 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
    */
   { action: "query_properties", pattern: /(?:מה|כמה)\s+(?:יש|נשאר|נשארו)\s+(?:לי|לנו)\s+(?:ב[א-ת]|עד\s|מ-?\d|\d)/u, confidence: "high" },
   { action: "query_properties", pattern: /(?:נכסים|דירות)\s+(?:ב[א-ת]|עד\s|מ-?\d|להשכרה|למכירה)/u, confidence: "low" },
+
+  /*
+   * „איפה הכרטיס של יוסי” הוא בקשה לכרטיס, לא חיפוש חופשי —
+   * ולכן **לפני** כלל החיפוש, שהיה בולע אותו על `איפה`.
+   */
+  { action: "show_card", pattern: /ה?כרטיס\s+של\s+[א-ת]/u, confidence: "high" },
 
   // --- חיפוש ---
   { action: "search", pattern: /(?:חפש|תחפש|מצא|תמצא|איפה)\s+/u, confidence: "high" },

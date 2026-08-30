@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { extractPersonFromTranscript } from "./extract-person.js";
 import {
   routeVoiceCommand,
   stripCommandPrefix,
@@ -314,5 +315,80 @@ describe("שאלות קריאה על כל המערכת", () => {
       "send_offer",
     );
     expect(routeVoiceCommand("תוסיף משימה לבדוק את החוזה").action).toBe("add_task");
+  });
+});
+
+/**
+ * ‎**הרחבת הרצפה — ומה שהיא הייתה יכולה לבלוע.**
+ *
+ * הכללים נבדקים בסדר, והכלל הראשון שמתאים באותה רמת ביטחון מנצח.
+ * לכן כל תבנית חדשה היא סיכון לתבנית ותיקה: „מה יש לי ברשת” מתאים
+ * גם לתבנית הנכסים, ו„איפה הכרטיס של יוסי” לתבנית החיפוש. הבדיקה
+ * הזו מכסה את שני הכיוונים יחד — החדשות מנתבות, והוותיקות לא זזו.
+ */
+describe("שאלות „תראה לי” — ומה שכבר עבד", () => {
+  const routes: [string, string][] = [
+    ["ההתאמות שלי", "show_matches"],
+    ["אילו לידים חדשים יש", "show_leads"],
+    ["מצב ההצעות", "show_offers"],
+    ["הביקושים ברשת", "show_demands"],
+    ["מה ההתראות שלי", "show_notifications"],
+    ["תראה לי את המיילים", "show_emails"],
+    ["כמה קרדיטים נשארו לי", "show_credits"],
+    ["כמה מגיע לי", "show_payout_balance"],
+    ["לוח ההפניות", "show_referral_board"],
+    ["ההמלצות שלי", "show_recommendations"],
+    ["הבלעדיות שלי", "show_exclusivity"],
+    ["ההסכמים שלי", "show_agreements"],
+    ["המסמכים שלי", "show_retained_documents"],
+    ["מה יש לי ברשת", "show_network_listings"],
+    ["הפניות ברשת", "show_network_inbox"],
+    ["הפניות לתמיכה", "show_support_tickets"],
+    ["איפה הכרטיס של יוסי", "show_card"],
+    ["תשמיע לי את ההקלטה", "play_recording"],
+    ["דוח שלי", "agent_report"],
+  ];
+
+  it.each(routes)("„%s” ⟵ %s", (text, action) => {
+    expect(routeVoiceCommand(text).action).toBe(action);
+  });
+
+  /* מה שכבר עבד ממשיך לעבוד — כאן נשברת הרחבה שבלעה כלל ותיק */
+  const unchanged: [string, string][] = [
+    ["דוח המשרד", "office_report"],
+    ["כמה לידים נכנסו", "office_report"],
+    ["מה יש לי ברמת גן עד שני מיליון", "query_properties"],
+    ["חפש את שרה לוי", "search"],
+    ["קבע פגישה עם משה מחר", "schedule_appointment"],
+    ["תזכיר לי להתקשר לדנה", "add_task"],
+    ["מי התקשר", "show_calls"],
+    ["למי אני צריך לחזור", "show_callbacks"],
+    ["מה יש לי היום", "show_schedule"],
+    ["שתף את הנכס", "share_property"],
+    ["תוסיף קונה חדש", "add_buyer"],
+  ];
+
+  it.each(unchanged)("„%s” נשאר %s", (text, action) => {
+    expect(routeVoiceCommand(text).action).toBe(action);
+  });
+
+  /*
+   * ‎**„ברשת” אינו עיר.**
+   *
+   * שתיים מהפעולות החדשות (`show_demands`, `show_network_listings`)
+   * מצהירות על שדה `cities`, והרצפה ממלאת אותו מחילוץ הערים של
+   * המשפט. זו התנהגות רצויה — „מה יש לי ברשת בחיפה” מסנן לפי
+   * חיפה — אבל רק כל עוד מילות הניסוח עצמן אינן נקראות כעיר:
+   * עיר מדומה הייתה מצמצמת את הרשימה לריק **בשקט**, כי פעולת
+   * קריאה רצה מיד בלי אישור.
+   */
+  it.each([
+    ["הביקושים ברשת", []],
+    ["מה יש לי ברשת", []],
+    ["הנכסים ברשת", []],
+    ["מה יש לי ברשת בחיפה", ["חיפה"]],
+    ["הביקושים בתל אביב", ["תל אביב"]],
+  ] as [string, string[]][])("„%s” ⟵ ערים: %j", (text, cities) => {
+    expect(extractPersonFromTranscript(text).person.cities ?? []).toEqual(cities);
   });
 });

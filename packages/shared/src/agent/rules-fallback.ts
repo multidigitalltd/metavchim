@@ -60,6 +60,33 @@ export const RULE_ACTION_MAP: Record<VoiceAction, AgentActionId | null> = {
   share_buyer: "share_buyer",
   send_offer: "send_offer",
   search: "search",
+  /*
+   * ‎**שאלות „תראה לי” — שמן זהה למזהה בקטלוג.**
+   *
+   * מיפוי זהות ולא שכבת תרגום: הכוונות הוותיקות נקראו אחרת
+   * מהפעולות (`add_property` ⟵ `create_property`) והשם הכפול הוא
+   * מקור טעויות בלי שום תמורה. לחדשות אין סיבה לחזור על זה.
+   */
+  show_matches: "show_matches",
+  show_leads: "show_leads",
+  show_offers: "show_offers",
+  show_demands: "show_demands",
+  show_notifications: "show_notifications",
+  show_emails: "show_emails",
+  show_credits: "show_credits",
+  show_payout_balance: "show_payout_balance",
+  show_referral_board: "show_referral_board",
+  show_reach: "show_reach",
+  show_recommendations: "show_recommendations",
+  show_exclusivity: "show_exclusivity",
+  show_agreements: "show_agreements",
+  show_retained_documents: "show_retained_documents",
+  show_network_listings: "show_network_listings",
+  show_network_inbox: "show_network_inbox",
+  show_support_tickets: "show_support_tickets",
+  show_card: "show_card",
+  play_recording: "play_recording",
+  agent_report: "agent_report",
   unknown: null,
 };
 
