@@ -152,12 +152,19 @@ export class AgentInterpretService {
         transcript,
         channel,
         null,
+        "blocked",
       );
     }
     const attempt = await this.viaLlm(transcript, allowed, prior, history, channel, speaker, pin);
     const interpretation =
       attempt?.interpretation ?? this.viaRules(transcript, allowed, pin);
-    return this.recorded(interpretation, transcript, channel, attempt);
+    return this.recorded(
+      interpretation,
+      transcript,
+      channel,
+      attempt,
+      interpretation.fallback ? "rules" : "llm",
+    );
   }
 
   /**
@@ -175,6 +182,17 @@ export class AgentInterpretService {
     transcript: string,
     channel: "web" | "whatsapp",
     attempt: { model: string; latencyMs: number; usage?: GeminiUsage } | null,
+    /**
+     * מי הכריע בפועל — **נמסר במפורש ואינו נגזר מ-`fallback`.**
+     *
+     * הגזירה `fallback ? "rules" : "llm"` הייתה נכונה כל עוד היו שני
+     * מסלולים בלבד. נעיצה שנחסמה אינה אף אחד מהם — לא נקראה קריאה
+     * ולא רץ מנוע החוקים — ובגזירה היא נרשמה כ„llm” בלי מודל ובלי
+     * זמן תגובה. יצוא השימוש בפלטפורמה חושף את השדה כמו שהוא, ולכן
+     * זו הייתה שורה שקרית בדיוק בנתון שנועד למדוד עלות (ביקורת
+     * Codex). `blocked` הוא גם נתון שכדאי לספור בפני עצמו.
+     */
+    source: "llm" | "rules" | "blocked",
   ): Interpretation {
     void this.events.record({
       channel,
@@ -182,7 +200,7 @@ export class AgentInterpretService {
       transcript,
       actionId: interpretation.actionId,
       payload: interpretation as unknown as Record<string, unknown>,
-      source: interpretation.fallback ? "rules" : "llm",
+      source,
       ...(attempt === null
         ? {}
         : {

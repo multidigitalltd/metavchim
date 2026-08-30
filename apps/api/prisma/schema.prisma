@@ -1524,7 +1524,7 @@ model AgentEvent {
   actionId   String?  @map("action_id") @db.VarChar(40)
   /// interpret: הפירוש המלא (שדות, ראיות, צעדים); execute: פרמטרים ותקציר תוצאה
   payload    Json
-  /// llm | rules — מי הכריע בפועל (interpret בלבד)
+  /// llm | rules | blocked — מי הכריע בפועל (interpret בלבד)
   source     String?  @db.VarChar(10)
   model      String?  @db.VarChar(60)
   latencyMs  Int?     @map("latency_ms")

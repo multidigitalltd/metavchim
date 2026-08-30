@@ -154,6 +154,23 @@ describe("‎הנעיצה — הבחירה של המתווך", () => {
   });
 
   /*
+   * ‎**חסימה אינה „פירוש של מודל”.**
+   *
+   * הגזירה `fallback ? "rules" : "llm"` הייתה נכונה כל עוד היו שני
+   * מסלולים. נעיצה שנחסמה אינה אף אחד מהם — לא נקראה קריאה ולא רץ
+   * מנוע החוקים — ובגזירה היא נרשמה כ„llm” בלי מודל ובלי זמן תגובה.
+   * יצוא השימוש בפלטפורמה חושף את השדה כמו שהוא, ולכן זו הייתה שורה
+   * שקרית בדיוק בנתון שנועד למדוד עלות (ביקורת Codex).
+   */
+  it("חסימה נרשמת כ-blocked ולא כפירוש של מודל", () => {
+    expect(INTERPRET).toContain('source: "llm" | "rules" | "blocked"');
+    expect(INTERPRET).toMatch(/null,\s*"blocked",/u);
+    // המקור נמסר במפורש ואינו נגזר בתוך הרישום
+    const journal = INTERPRET.slice(INTERPRET.indexOf("private recorded("));
+    expect(journal).not.toContain('interpretation.fallback ? "rules" : "llm"');
+  });
+
+  /*
    * המתווך לחץ על פעולה **אחת**. צעד המשך שהמודל היה מוסיף כאן הוא
    * פעולה שאיש לא בחר, נגררת אחרי לחיצה על אחרת.
    */
@@ -174,6 +191,35 @@ describe("‎הנעיצה — הבחירה של המתווך", () => {
   it("הנעיצה עוברת גם לרצפה הדטרמיניסטית", () => {
     expect(INTERPRET).toContain("this.viaRules(transcript, allowed, pin)");
     expect(INTERPRET).toContain("const actionId = pin ?? RULE_ACTION_MAP[command.action];");
+  });
+});
+
+describe("‎התפריט המלא — נגיש גם למי שהסתיר את הדוגמאות", () => {
+  const VOICE_PAGE = readFileSync(
+    new URL("../../../../web/src/app/voice/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  /*
+   * „אל תציג דוגמאות יותר” היא העדפה שנשמרת לכל המכשירים, ומי שסימן
+   * אותה בעבר הסתיר בכך את שורת הפתיחה — לא את התפריט. כשהמפתח
+   * לרשימה ישב **בתוך** התיבה, בדיוק המשתמשים הוותיקים ביותר איבדו
+   * את הדרך היחידה לגלות את מלוא היכולות — והיא נועדה בראש ובראשונה
+   * להם (ביקורת Codex).
+   */
+  it("המפתח לרשימה יושב מחוץ לתיבת הדוגמאות שניתן להסתיר", () => {
+    const dismissible = VOICE_PAGE.indexOf("examplesBox.hidden");
+    const trigger = VOICE_PAGE.indexOf("מה את יודעת לעשות?");
+    const never = VOICE_PAGE.indexOf("examplesBox.never");
+    expect(dismissible).toBeGreaterThan(-1);
+    expect(trigger).toBeGreaterThan(-1);
+    // המפתח בא אחרי כפתור ההסתרה, כלומר מחוץ לגוש שנסגר יחד איתו
+    expect(trigger).toBeGreaterThan(never);
+  });
+
+  it("התפריט נטען מהנתיב המשותף ולא מרשימה מקומית", () => {
+    expect(VOICE_PAGE).toContain('apiGet<AgentHelp>("/agent/help")');
+    expect(VOICE_PAGE).not.toContain("const FEATURED");
   });
 });
 

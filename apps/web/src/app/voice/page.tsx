@@ -618,27 +618,36 @@ export default function AgentPage(): React.JSX.Element {
                   </button>
                 ))}
               </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-3">
-                {helpGroups.length === 0 ? null : (
-                  <button
-                    type="button"
-                    className="text-[length:var(--type-caption)] underline"
-                    style={{ color: "var(--color-text-muted)" }}
-                    aria-expanded={helpOpen}
-                    onClick={() => setHelpOpen((was) => !was)}
-                  >
-                    {helpOpen ? "סגירת הרשימה המלאה" : "מה עוד את יודעת לעשות?"}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="text-[length:var(--type-caption)] underline"
-                  style={{ color: "var(--color-text-muted)" }}
-                  onClick={examplesBox.never}
-                >
-                  אל תציג דוגמאות יותר
-                </button>
-              </div>
+              <button
+                type="button"
+                className="mt-1.5 text-[length:var(--type-caption)] underline"
+                style={{ color: "var(--color-text-muted)" }}
+                onClick={examplesBox.never}
+              >
+                אל תציג דוגמאות יותר
+              </button>
+            </div>
+          )}
+          {/*
+            ‎**הרשימה המלאה יושבת מחוץ לתיבת הדוגמאות, ובכוונה.**
+
+            „אל תציג דוגמאות יותר” היא העדפה שנשמרת לכל המכשירים, ומי
+            שסימן אותה בעבר הסתיר בכך את שורת הפתיחה — לא את התפריט.
+            כשהמפתח לרשימה ישב **בתוך** התיבה, בדיוק המשתמשים הוותיקים
+            ביותר איבדו את הדרך היחידה לגלות את שבעים ואחת היכולות,
+            והיא נועדה בראש ובראשונה להם (ביקורת Codex).
+          */}
+          {helpGroups.length === 0 ? null : (
+            <div className="mt-2.5">
+              <button
+                type="button"
+                className="text-[length:var(--type-caption)] underline"
+                style={{ color: "var(--color-text-muted)" }}
+                aria-expanded={helpOpen}
+                onClick={() => setHelpOpen((was) => !was)}
+              >
+                {helpOpen ? "סגירת הרשימה המלאה" : "מה את יודעת לעשות?"}
+              </button>
               {/*
                 ‎**הרשימה המלאה — אותה רשימה שהוואטסאפ שולח על „עזרה”.**
 
@@ -647,7 +656,7 @@ export default function AgentPage(): React.JSX.Element {
                 אותה, ולכן היא גם מלמדת איך לבקש בפעם הבאה. פעולה
                 שכותבת עדיין נעצרת על אישור, כמו כל משפט שהוקלד.
               */}
-              {helpOpen && helpGroups.length > 0 ? (
+              {helpOpen ? (
                 <div className="mt-3 flex flex-col gap-3">
                   {helpGroups.map((group) => (
                     <div key={group.label}>
