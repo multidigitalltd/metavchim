@@ -148,6 +148,9 @@ interface TenantSettings {
   autoShareProperties: boolean;
   autoShareBuyers: boolean;
   autoEmailOffers: boolean;
+  /** מקומות לסוכן הוואטסאפ — כמה יש למשרד, וכמה מהם תפוסים */
+  whatsappAgentSeats: number;
+  whatsappAgentSeatsUsed: number;
 }
 
 /**
@@ -390,6 +393,11 @@ export default function SettingsPage() {
     load();
   }
 
+  /** מי מחזיק בסוכן הוואטסאפ — בשמות, כי זו השאלה שנשאלת. */
+  const whatsappHolders = team
+    .filter((member) => member.whatsappAccess && member.isActive)
+    .map((member) => member.name);
+
   if (authLoading) return <p aria-live="polite">טוען…</p>;
   if (forbidden) {
     return (
@@ -496,6 +504,33 @@ export default function SettingsPage() {
                   {adding ? "ביטול" : "+ הוסף סוכן"}
                 </button>
               </div>
+
+              {/*
+                ‎**למי הסוכן מוקצה, ובאיזה מצב המקומות.**
+
+                המקום הוא מנוי: אחד כלול בכל מסלול שיש בו סוכן, וכל
+                נוסף נרכש. בלי השורה הזו בעל המשרד אינו יודע אם
+                „הקצה” יעבוד עד שינסה — והוא גם אינו יודע למי הסוכן
+                שייך כרגע, שזו השאלה הראשונה שהוא שואל.
+              */}
+              {tenant === null || tenant.whatsappAgentSeats === 0 ? null : (
+                <p
+                  className="mx-5 mt-3 mb-0 text-[length:var(--type-caption-lg)]"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  <span className="font-semibold" style={{ color: "var(--color-text)" }}>
+                    הסוכן בוואטסאפ:
+                  </span>{" "}
+                  {whatsappHolders.length === 0
+                    ? "לא מוקצה לאיש כרגע."
+                    : `מוקצה ל${whatsappHolders.join(", ")}.`}{" "}
+                  {tenant.whatsappAgentSeatsUsed} מתוך {tenant.whatsappAgentSeats}{" "}
+                  {tenant.whatsappAgentSeats === 1 ? "מקום" : "מקומות"} בשימוש
+                  {tenant.whatsappAgentSeatsUsed >= tenant.whatsappAgentSeats
+                    ? " — כדי להקצות לסוכן אחר, כבו קודם אצל מי שמחזיק."
+                    : "."}
+                </p>
+              )}
 
               {tempPassword ? (
                 <div
@@ -613,6 +648,17 @@ export default function SettingsPage() {
                     const seesAll = caps.includes("buyers.view_all");
                     const editable =
                       member.role !== "owner" && member.id !== user?.id;
+                    /*
+                     * ‎**הקצאת המקום נערכת גם על שורת בעל המשרד ועל
+                     * השורה של עצמך.**
+                     *
+                     * ‎`editable` חוסם את שתיהן, ובצדק — תפקיד, טלפון
+                     * והשבתה הם זהות. אבל המקום בוואטסאפ הוא מנוי,
+                     * ובלי היכולת לכבות אותו אצל מי שמחזיק בו **אין
+                     * דרך להעביר אותו לסוכן אחר**. השרת אוכף את אותה
+                     * הבחנה בדיוק.
+                     */
+                    const seatEditable = can(user, "billing.manage");
                     return (
                       <div key={member.id}>
                         <div
@@ -713,7 +759,7 @@ export default function SettingsPage() {
                                   זו רכישה, לא ניהול צוות — והשרת
                                   אוכף את אותו כלל (ביקורת Codex).
                                 */}
-                                {can(user, "billing.manage") ? (
+                                {seatEditable ? (
                                   <button
                                     type="button"
                                     className="mv-pill"
@@ -731,9 +777,7 @@ export default function SettingsPage() {
                                     aria-pressed={member.whatsappAccess}
                                     onClick={() => void toggleWhatsapp(member)}
                                   >
-                                    {member.whatsappAccess
-                                      ? "מנוי פעיל"
-                                      : "הפעל מנוי"}
+                                    {member.whatsappAccess ? "מחזיק בסוכן" : "הקצה"}
                                   </button>
                                 ) : (
                                   <span
@@ -748,9 +792,7 @@ export default function SettingsPage() {
                                         : "var(--color-hover-soft)",
                                     }}
                                   >
-                                    {member.whatsappAccess
-                                      ? "מנוי פעיל"
-                                      : "כבוי"}
+                                    {member.whatsappAccess ? "מחזיק בסוכן" : "כבוי"}
                                   </span>
                                 )}
                               </>
@@ -759,28 +801,48 @@ export default function SettingsPage() {
                                 <span className="text-sm" dir="ltr">
                                   {member.phone ?? "—"}
                                 </span>
-                                <span
-                                  className="mv-pill"
-                                  style={{
-                                    fontSize: "var(--type-caption)",
-                                    color:
-                                      member.role === "owner" ||
-                                      member.whatsappAccess
+                                {/*
+                                  ‎„כלול תמיד” ירד: בעל המשרד מחזיק
+                                  במקום כברירת מחדל ורשאי להעביר
+                                  אותו, ולכן התווית חייבת לומר מה
+                                  המצב **בפועל** ולא מה התפקיד.
+                                */}
+                                {seatEditable ? (
+                                  <button
+                                    type="button"
+                                    className="mv-pill"
+                                    style={{
+                                      fontSize: "var(--type-caption)",
+                                      cursor: "pointer",
+                                      border: "none",
+                                      color: member.whatsappAccess
                                         ? "var(--color-primary)"
                                         : "var(--color-text-muted)",
-                                    background:
-                                      member.role === "owner" ||
-                                      member.whatsappAccess
+                                      background: member.whatsappAccess
                                         ? "var(--color-primary-soft)"
                                         : "var(--color-hover-soft)",
-                                  }}
-                                >
-                                  {member.role === "owner"
-                                    ? "כלול תמיד"
-                                    : member.whatsappAccess
-                                      ? "מנוי פעיל"
-                                      : "כבוי"}
-                                </span>
+                                    }}
+                                    aria-pressed={member.whatsappAccess}
+                                    onClick={() => void toggleWhatsapp(member)}
+                                  >
+                                    {member.whatsappAccess ? "מחזיק בסוכן" : "הקצה"}
+                                  </button>
+                                ) : (
+                                  <span
+                                    className="mv-pill"
+                                    style={{
+                                      fontSize: "var(--type-caption)",
+                                      color: member.whatsappAccess
+                                        ? "var(--color-primary)"
+                                        : "var(--color-text-muted)",
+                                      background: member.whatsappAccess
+                                        ? "var(--color-primary-soft)"
+                                        : "var(--color-hover-soft)",
+                                    }}
+                                  >
+                                    {member.whatsappAccess ? "מחזיק בסוכן" : "כבוי"}
+                                  </span>
+                                )}
                               </>
                             )}
                           </span>

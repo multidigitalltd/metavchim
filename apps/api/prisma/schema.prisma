@@ -21,6 +21,13 @@ datasource db {
 model Tenant {
   id                         String           @id @db.Char(26)
   name                       String           @db.VarChar(120)
+  /// מקומות **נוספים** שנרכשו לסוכן הוואטסאפ, מעבר לאחד שכלול.
+  ///
+  /// המקום הראשון מגיע מהמסלול: כל מסלול שכולל את הסוכן מזכה
+  /// בסוכן אחד. כאן נספר רק מה שנרכש מעבר לו, ולכן `0` הוא המצב
+  /// הרגיל ולא „לא הוגדר”. בעל המשרד מחליט **מי** מחזיק במקומות.
+  /// ראו `whatsappAgentSeats` ב-shared לחישוב הסכום.
+  whatsappAgentSeatsExtra    Int              @default(0) @map("whatsapp_agent_seats_extra")
   plan                       String           @default("basic") @db.VarChar(20)
   status                     String           @default("trial") @db.VarChar(20)
   /// סוף תקופת הניסיון. null = אין תפוגה — משרד שהוקם ידנית או ששילם.
@@ -110,8 +117,11 @@ model User {
   phone                String?   @db.VarChar(20)
   role                 String    @db.VarChar(20)
   isActive             Boolean   @default(true) @map("is_active")
-  /// גישה לסוכן האישי בוואטסאפ — מנוי נפרד לכל סוכן, בעל המשרד מפעיל.
-  /// בעל המשרד עצמו תמיד כלול (ראו whatsapp-assistant.service).
+  /// גישה לסוכן האישי בוואטסאפ — **מקום מוקצה, ולא הרשאה שנגזרת מתפקיד.**
+  ///
+  /// בעל המשרד היה כלול אוטומטית לפי `role`, ולכן לא הייתה שום דרך
+  /// להעביר את המקום לסוכן אחר: הדגל שלו לא נשמר בשום מקום. כאן הוא
+  /// נשמר לכולם, כולל לבעל המשרד, וההקצאה היא החלטה מפורשת שרואים.
   whatsappAccess       Boolean   @default(false) @map("whatsapp_access")
   totpSecret           String?   @map("totp_secret") @db.VarChar(255)
   // סיסמה זמנית שחובה להחליף בכניסה ראשונה (ביקורת Codex, PR #5)

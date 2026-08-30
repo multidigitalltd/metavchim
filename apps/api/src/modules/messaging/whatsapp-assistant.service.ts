@@ -119,9 +119,29 @@ const SLOW_TRANSCRIBE_NOTICE_MS = 6_000;
  * לפי ההשוואה בלבד היה מבטל את הניתוק עצמו.
  */
 const NEEDS_LINK = "needs-link";
-/** מה שנאמר למספר מוכר שאינו מקושר. בלי שם ובלי פרט מזהה. */
-const NEEDS_LINK_TEXT =
-  "המכשיר הזה אינו מחובר לחשבון. היכנסו למערכת ← פרופיל ← „המכשיר שמחובר לסוכן”, הפיקו קוד חיבור, ושלחו אותו לכאן.";
+/**
+ * מה שנאמר למספר מוכר שאינו מקושר — **עם קישור ישיר, ולא עם מסלול
+ * ניווט.**
+ *
+ * ‎„היכנסו למערכת ← פרופיל ← גללו” הוא בדיוק המקום שבו מי שכבר
+ * נמצא בוואטסאפ מוותר: שלושה צעדים ידניים כדי להגיע למסך אחד.
+ * הקישור פותח את המסך עצמו, ושם הוא רואה בין כה מה מצבו — קוד
+ * חיבור אם הוא זכאי, או הסיבה אם לא.
+ *
+ * בלי שם ובלי פרט מזהה: הנמען אינו מזוהה, וייתכן שמדובר במי
+ * שמחזיק עכשיו במספר שהוחלף.
+ */
+function needsLinkText(webOrigin: string): string {
+  const link = `${webOrigin.replace(/\/+$/u, "")}/profile#whatsapp-link`;
+  return [
+    "המכשיר הזה אינו מחובר לחשבון, ולכן אני לא יכולה לעבוד ממנו.",
+    "",
+    `לחיבור: ${link}`,
+    "שם תראו אם אפשר להפיק קוד חיבור — ואם הסוכן אינו כלול אצלכם, מה צריך כדי שיהיה.",
+    "",
+    "אחרי שתפיקו קוד — שלחו אותו לכאן ואתחיל לעבוד.",
+  ].join("\n");
+}
 /**
  * מה שנאמר כשההצעה שהמתווך פעל עליה כבר אינה הממתינה.
  *
@@ -293,7 +313,9 @@ export class WhatsAppAssistantService {
     if (identified === NEEDS_LINK) {
       void this.sender.markRead(msg.externalId);
       if (await this.links.claimUnlinkedHint(msg.fromWaId)) {
-        await this.sender.sendText(msg.fromWaId, NEEDS_LINK_TEXT, { replyTo: msg.externalId });
+        await this.sender.sendText(msg.fromWaId, needsLinkText(loadEnv().WEB_ORIGIN), {
+          replyTo: msg.externalId,
+        });
       }
       return;
     }
@@ -329,19 +351,28 @@ export class WhatsAppAssistantService {
     }
     /*
      * ‎**אותה הכרעה בדיוק שחוסמת את הפקת קוד הצימוד** — ראו
-     * ‎`whatsappAgentDenial`. המנוי הוא לכל סוכן בנפרד ולא לכל
-     * המשרד, ובעל המשרד כלול תמיד: הוא בעל המנוי, ואיש אינו מוסמך
-     * להדליק לו את הדגל (הנתיב מגן על שורת ה-owner מכל עריכה).
+     * ‎`whatsappAgentDenial`. המקום מוקצה לסוכן מסוים ואינו נגזר
+     * מתפקיד: בעל המשרד מחזיק בו כברירת מחדל ורשאי להעביר אותו.
      */
     const denial = whatsappAgentDenial({
       planHasAgent: await this.plans.tenantHasFeature(user.tenantId, FEATURE_ID),
-      role: user.role,
       whatsappAccess: user.whatsappAccess,
     });
     if (denial !== null) {
-      await this.sender.sendText(msg.fromWaId, WHATSAPP_AGENT_DENIAL_TEXT[denial], {
-        replyTo: msg.externalId,
-      });
+      /*
+       * ‎**הסיבה, ואז לאן ללכת איתה.**
+       *
+       * הנוסח המשותף אומר *למה* — הוא נכון בשני הערוצים. הקישור
+       * נוסף כאן בלבד: במסך הוא היה מפנה למסך עצמו. בלעדיו המתווך
+       * יודע שמשהו חסום ואינו יודע איפה לטפל בזה, וזה בדיוק המקום
+       * שבו הוא מפסיק לנסות.
+       */
+      const link = `${loadEnv().WEB_ORIGIN.replace(/\/+$/u, "")}/profile#whatsapp-link`;
+      await this.sender.sendText(
+        msg.fromWaId,
+        `${WHATSAPP_AGENT_DENIAL_TEXT[denial]}\n\nלבדיקה ולהפעלה: ${link}`,
+        { replyTo: msg.externalId },
+      );
       return;
     }
 

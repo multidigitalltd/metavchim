@@ -60,6 +60,8 @@ interface AgencyRow {
   featureDenials: string[];
   /** מחיר מוסכם באגורות; null = מחיר המסלול. */
   priceOverrideMonthlyAgorot: number | null;
+  /** מקומות נוספים שנרכשו לסוכן הוואטסאפ, מעבר לאחד שכלול במסלול */
+  whatsappAgentSeatsExtra: number;
   priceOverrideYearlyAgorot: number | null;
 }
 
@@ -185,6 +187,15 @@ function TenantOverrides({
   const [paidUntil, setPaidUntil] = useState(dateInputValue(agency.paidUntil));
   const [monthly, setMonthly] = useState(shekelInputValue(agency.priceOverrideMonthlyAgorot));
   const [yearly, setYearly] = useState(shekelInputValue(agency.priceOverrideYearlyAgorot));
+  /*
+   * ‎**מקומות נוספים לסוכן הוואטסאפ.**
+   *
+   * הוספתי את השדה ל-API ולא למסך, ולכן אי אפשר היה למכור מקום דרך
+   * המוצר — כל משרד היה נעול על אחד אלא אם מישהו קורא ל-API ידנית
+   * (ביקורת Codex). זו הייתה הדרישה עצמה: „כל 1 נוסף זה בתוספת
+   * תשלום” אינו קיים אם אין איפה להוסיף אותו.
+   */
+  const [waSeats, setWaSeats] = useState(String(agency.whatsappAgentSeatsExtra));
 
   /** „לפי המסלול” | „פתוח” | „סגור” — שלושת המצבים של תכונה. */
   function stateOf(code: string): "plan" | "open" | "closed" {
@@ -309,6 +320,21 @@ function TenantOverrides({
           />
         </label>
         <label className="text-[length:var(--type-caption)]">
+          <span className="mb-1 block font-medium">מקומות נוספים לסוכן וואטסאפ</span>
+          <input
+            type="number"
+            min={0}
+            max={20}
+            value={waSeats}
+            onChange={(e) => setWaSeats(e.target.value)}
+            className="w-32 rounded-lg border px-2 py-1"
+            style={inputStyle}
+          />
+          <span className="mt-1 block" style={{ color: "var(--color-text-muted)" }}>
+            מעבר לאחד שכלול במסלול
+          </span>
+        </label>
+        <label className="text-[length:var(--type-caption)]">
           <span className="mb-1 block font-medium">מחיר שנתי מוסכם (₪)</span>
           <input
             type="number"
@@ -345,6 +371,10 @@ function TenantOverrides({
                   : jerusalemWallIsoToUtc(`${paidUntil}T23:59:59.000`).toISOString(),
               priceOverrideMonthlyAgorot: shekelToAgorot(monthly),
               priceOverrideYearlyAgorot: shekelToAgorot(yearly),
+              // ריק = בלי שינוי; מספר לא תקין אינו נשלח כאפס
+              ...(waSeats.trim() === "" || !Number.isInteger(Number(waSeats))
+                ? {}
+                : { whatsappAgentSeatsExtra: Number(waSeats) }),
             })
           }
         >
