@@ -157,6 +157,7 @@ interface PlatformSettings {
       viewingReminderTemplateLang?: string;
       /** התבנית נושאת חמישה שדות; חסר = נוסח אחד */
       viewingReminderTemplateFields?: boolean;
+      viewingReminderTemplateButtons?: boolean;
       emailReplyTemplate?: string;
       emailReplyTemplateLang?: string;
     };
@@ -388,6 +389,7 @@ export function PlatformSettingsSection({
       const notifyTemplateButton = f.get("whatsappNotifyTemplateButton") !== null;
       const intakeTemplateButton = f.get("whatsappIntakeTemplateButton") !== null;
       const reminderTemplateFields = f.get("whatsappViewingReminderTemplateFields") !== null;
+      const reminderTemplateButtons = f.get("whatsappViewingReminderTemplateButtons") !== null;
       const reminderTemplate = String(f.get("whatsappViewingReminderTemplate") ?? "").trim();
       const reminderTemplateLang = String(
         f.get("whatsappViewingReminderTemplateLang") ?? "",
@@ -415,6 +417,7 @@ export function PlatformSettingsSection({
         whatsappViewingReminderTemplate: reminderTemplate,
         whatsappViewingReminderTemplateLang: reminderTemplateLang,
         whatsappViewingReminderTemplateFields: reminderTemplateFields,
+        whatsappViewingReminderTemplateButtons: reminderTemplateButtons,
         whatsappEmailReplyTemplate: emailReplyTemplate,
         whatsappEmailReplyTemplateLang: emailReplyTemplateLang,
       });
@@ -1828,6 +1831,45 @@ export function PlatformSettingsSection({
                 <span className="font-normal">
                   לא מסומן = נוסח אחד ‎{"{{reminder_text}}"}‎ — הצורה שנרשמה עד
                   היום.
+                </span>
+              </span>
+            </label>
+            {/*
+              ‎**כפתורי התשובה — והסדר שהוא חלק מהחוזה.**
+
+              המטען נשלח לפי אינדקס: מה שנשלח לכפתור הראשון חוזר
+              כשנלחץ הכפתור הראשון שנרשם. רישום בסדר הפוך מחזיר
+              „אישר” על לחיצה ב„צריך לשנות מועד” — היפוך שקט של
+              המשמעות, ואין דרך שהקוד יאמת אותו. לכן הסדר כתוב כאן.
+            */}
+            <label className="mt-2 flex items-start gap-2">
+              <input
+                id="whatsappViewingReminderTemplateButtons"
+                name="whatsappViewingReminderTemplateButtons"
+                type="checkbox"
+                className="mt-1"
+                key={`rbtns-${String(settings.whatsapp.assistant.viewingReminderTemplateButtons)}`}
+                defaultChecked={
+                  settings.whatsapp.assistant.viewingReminderTemplateButtons ?? false
+                }
+              />
+              <span>
+                התבנית נושאת <b>שני כפתורי תשובה מהירה</b>{" "}
+                <span className="font-normal">
+                  (הלקוח מאשר או מבקש מועד אחר בלחיצה, בלי לצאת מוואטסאפ ובלי
+                  חשבון במערכת. התשובה נרשמת על הסיור והסוכן מקבל התראה;
+                  „צריך לשנות מועד” פותח גם משימה.)
+                </span>
+                <br />
+                <span className="font-normal">
+                  <b>הסדר ברישום ב-Meta קובע</b>: ראשון „קיבלתי, תודה”, שני
+                  „צריך לשנות מועד”. רישום בסדר הפוך יירשם כאישור על לחיצה
+                  בבקשה לשנות — ואין דרך לזהות זאת מכאן.
+                </span>
+                <br />
+                <span className="font-normal">
+                  לא מסומן = בלי כפתורים. תבנית שנרשמה בלעדיהם ומקבלת רכיבי
+                  כפתור נדחית אצל Meta, ואז לא נשלחת תזכורת כלל.
                 </span>
               </span>
             </label>

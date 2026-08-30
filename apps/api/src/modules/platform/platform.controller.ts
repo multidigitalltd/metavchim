@@ -352,6 +352,7 @@ const UpdateSettingsSchema = z
       .optional(),
     /** התבנית נרשמה עם חמישה שדות ולא עם נוסח אחד */
     whatsappViewingReminderTemplateFields: z.boolean().optional(),
+    whatsappViewingReminderTemplateButtons: z.boolean().optional(),
     loginOtpEnabled: z.boolean().optional(),
     googleClientId: z.union([z.string().trim().min(10).max(200), z.literal("")]).optional(),
     googleClientSecret: z.union([z.string().trim().min(10).max(200), z.literal("")]).optional(),
@@ -1464,6 +1465,7 @@ export class PlatformController {
         viewingReminderTemplateLang: string;
         /** התבנית נושאת חמישה שדות; חסר/false = נוסח אחד */
         viewingReminderTemplateFields: boolean;
+        viewingReminderTemplateButtons: boolean;
         emailReplyTemplate: string;
         emailReplyTemplateLang: string;
       };
@@ -1695,6 +1697,13 @@ export class PlatformController {
            */
           viewingReminderTemplateFields:
             (await this.platformSettings.get("whatsappViewingReminderTemplateFields")) === "true",
+          /*
+           * ברירת המחדל היא **בלי כפתורים**: תבנית שנרשמה בלעדיהם
+           * ומקבלת רכיבי כפתור נדחית, ואז אין תזכורת כלל.
+           */
+          viewingReminderTemplateButtons:
+            (await this.platformSettings.get("whatsappViewingReminderTemplateButtons")) ===
+            "true",
           // ריק = "הלקוח ענה במייל" מגיע במערכת ובדחיפה בלבד. מצב, לא שגיאה.
           emailReplyTemplate:
             (await this.platformSettings.get("whatsappEmailReplyTemplate")) ?? "",

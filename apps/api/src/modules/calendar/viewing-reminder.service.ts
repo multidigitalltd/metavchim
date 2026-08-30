@@ -11,6 +11,7 @@ import {
   viewingReminderSkipReason,
   viewingReminderUses,
   whatsappTemplateParams,
+  viewingReminderQuickReplies,
   type ViewingReminderAudience,
   type ViewingReminderChannel,
   type ViewingReminderVars,
@@ -292,6 +293,7 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
         body,
         config.channel,
         whenLabel,
+        appointment.id,
         vars,
       );
       if (delivered) sent += 1;
@@ -429,6 +431,12 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
     channel: ViewingReminderChannel,
     whenLabel: string,
     /**
+     * ‎**על איזה סיור התזכורת.** נכנס למטען של כפתורי התשובה, וזה
+     * מה שמאפשר לדעת מאוחר יותר על מה נלחץ: הלחיצה חוזרת בלי הקשר
+     * אחר, ולקוח עם שני סיורים באותו יום אינו ניתן להבחנה בלעדיו.
+     */
+    appointmentId: string,
+    /**
      * השדות עצמם, לתבנית הוואטסאפ.
      *
      * ‎`body` הוא הנוסח שהמשרד ניסח, והוא מה שיוצא **במייל**.
@@ -462,6 +470,13 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
        */
       const fields =
         (await this.settings.get("whatsappViewingReminderTemplateFields")) === "true";
+      /*
+       * ‎**כפתורי התשובה נשלחים רק לתבנית שנרשמה איתם.** תבנית בלי
+       * כפתורים שמקבלת רכיבי כפתור נדחית — ואז אין תזכורת בכלל,
+       * לא רק „בלי כפתורים”. אותה משמעת כמו בשאר כפתורי התבניות.
+       */
+      const withButtons =
+        (await this.settings.get("whatsappViewingReminderTemplateButtons")) === "true";
       if (template !== undefined && template !== "") {
         const ok = await this.whatsapp.sendTemplate(
           recipient.phone,
@@ -476,6 +491,14 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
                 vars["משרד"],
               ])
             : whatsappTemplateParams("viewingReminder", [body]),
+          /*
+           * ‎**התזכורת אינה נושאת כפתור כתובת, בכוונה** — הנמען הוא
+           * לקוח או דייר בלי חשבון, ו„פתח במערכת” היה שולח אותו
+           * למסך התחברות שאינו שלו. כפתורי התשובה המהירה הם ההפך:
+           * הם עונים בלי לצאת מוואטסאפ ובלי חשבון.
+           */
+          undefined,
+          withButtons ? viewingReminderQuickReplies(appointmentId) : undefined,
         );
         if (ok) delivered = true;
       }

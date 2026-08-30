@@ -4,6 +4,7 @@ import { z } from "zod";
 import { rolesWithCapability } from "@metavchim/shared";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
+import { ViewingReplyService } from "../calendar/viewing-reply.service";
 import { WhatsAppAssistantService } from "./whatsapp-assistant.service";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 
@@ -58,6 +59,17 @@ const WebhookSchema = z.object({
                         .optional(),
                     })
                     .optional(),
+                  /**
+                   * ‎**לחיצה על כפתור של תבנית — וזה שדה אחר לגמרי.**
+                   *
+                   * ‏כפתור בהודעה אינטראקטיבית חוזר כ-`interactive`
+                   * עם מזהה; כפתור של **תבנית** חוזר כ-`type: "button"`
+                   * עם `payload` — המטען ששלחנו לאותה הודעה. השדה לא
+                   * היה בסכימה, ולכן לחיצה על תזכורת נזרקה בשקט.
+                   */
+                  button: z
+                    .object({ payload: z.string(), text: z.string().optional() })
+                    .optional(),
                 }),
               )
               .optional(),
@@ -77,6 +89,7 @@ export class WhatsAppInboundService {
     private readonly crypto: CryptoService,
     private readonly assistant: WhatsAppAssistantService,
     private readonly sender: WhatsAppSendService,
+    private readonly viewingReplies: ViewingReplyService,
   ) {}
 
   async handle(payload: Record<string, unknown>): Promise<void> {
@@ -157,6 +170,22 @@ export class WhatsAppInboundService {
         }
 
         for (const message of value.messages) {
+          /*
+           * ‎**לחיצה על כפתור בתזכורת לסיור — לפני מסנן הטקסט.**
+           *
+           * ‏עד כה השורה הבאה זרקה כל מה שאינו טקסט, ולחיצה על
+           * כפתור תבנית מגיעה כ-`type: "button"` — כלומר התשובה
+           * נעלמה בשקט. היא גם אינה „הודעה מלקוח” שצריך לקלוט
+           * כליד: זו תשובה על סיור קיים.
+           */
+          if (message.type === "button" && message.button) {
+            await this.viewingReplies.record(
+              tenantId,
+              message.button.payload,
+              normalizeWaPhone(message.from),
+            );
+            continue;
+          }
           if (message.type !== "text" || !message.text) continue;
           const senderName =
             value.contacts?.find((c) => c.wa_id === message.from)?.profile?.name ?? "לקוח וואטסאפ";

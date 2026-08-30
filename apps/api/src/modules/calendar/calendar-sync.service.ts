@@ -369,7 +369,14 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
             data: {
               startsAt: times.startsAt,
               endsAt: times.endsAt,
-              ...(moved ? { reminderSentAt: null } : {}),
+              /*
+               * ‎**התשובה שייכת למועד שעליו נשאלה.** פגישה שזזה
+               * ביומן Google ונשארה מסומנת „הלקוח אישר” מציגה
+               * אישור למועד שהלקוח לא ראה.
+               */
+              ...(moved
+                ? { reminderSentAt: null, reminderReply: null, reminderReplyAt: null }
+                : {}),
               ...(existing.syncSource === "google"
                 ? { title: (event.summary ?? "").slice(0, 200) || null, notes: (event.description ?? "").slice(0, 2000) || null }
                 : {}),

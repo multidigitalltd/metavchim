@@ -204,3 +204,84 @@ export function whatsappTemplateButton(suffix: string): WhatsAppTemplateButton |
     parameters: [{ type: "text", text }],
   };
 }
+
+/* ============ תשובה מהירה בתזכורת לסיור ============ */
+
+/**
+ * רכיב כפתור „תשובה מהירה” בתבנית.
+ *
+ * ‎**המטען נקבע לכל הודעה בנפרד**, ולא בהגדרת התבנית — וזה מה
+ * שמאפשר לדעת על **איזה** סיור נלחץ. בלעדיו הלחיצה חוזרת בלי
+ * הקשר, ותזכורת לשני סיורים באותו יום אינה ניתנת להבחנה.
+ */
+export interface WhatsAppTemplateQuickReply {
+  readonly type: "button";
+  readonly sub_type: "quick_reply";
+  readonly index: string;
+  readonly parameters: readonly [{ readonly type: "payload"; readonly payload: string }];
+}
+
+/** מה הלקוח אמר בלחיצה. סגור בכוונה — מטען חופשי אינו תשובה. */
+export type ViewingReminderReply = "confirmed" | "reschedule";
+
+const REPLY_PREFIX = "vr";
+
+/**
+ * ‎**סדר הכפתורים אצל Meta הוא חלק מהחוזה, ואין דרך שהקוד יאמת
+ * אותו.**
+ *
+ * ‏המטען נשלח לפי **אינדקס**: מה שנשלח באינדקס 0 חוזר כשנלחץ
+ * הכפתור הראשון שנרשם. אם בעל הפלטפורמה ירשום את „צריך לשנות
+ * מועד” ראשון, לחיצה עליו תחזיר „אישר” — היפוך שקט של המשמעות,
+ * ושום בדיקה כאן אינה יכולה לתפוס אותו.
+ *
+ * לכן הסדר מוצהר כאן במפורש, והוא מה שמסך ההגדרות ומסמך הרישום
+ * חייבים לשקף: **ראשון אישור, שני שינוי מועד.**
+ */
+export const VIEWING_REMINDER_REPLY_ORDER: readonly ViewingReminderReply[] = [
+  "confirmed",
+  "reschedule",
+];
+
+/** ‎`vr:<מזהה הסיור>:<תשובה>` — התחילית מוודאת שאנחנו מפענחים רק שלנו. */
+export function viewingReminderReplyPayload(
+  appointmentId: string,
+  reply: ViewingReminderReply,
+): string {
+  return [REPLY_PREFIX, appointmentId, reply].join(":");
+}
+
+/**
+ * רכיבי שני הכפתורים לסיור אחד, לפי הסדר המוצהר למעלה.
+ *
+ * ‎`index` הוא מחרוזת ולא מספר — כך Meta מצפה לו.
+ */
+export function viewingReminderQuickReplies(
+  appointmentId: string,
+): readonly WhatsAppTemplateQuickReply[] {
+  return VIEWING_REMINDER_REPLY_ORDER.map((reply, index) => ({
+    type: "button" as const,
+    sub_type: "quick_reply" as const,
+    index: String(index),
+    parameters: [
+      { type: "payload" as const, payload: viewingReminderReplyPayload(appointmentId, reply) },
+    ] as readonly [{ readonly type: "payload"; readonly payload: string }],
+  }));
+}
+
+/**
+ * ‎`null` = לא מטען שלנו, או תשובה שאיננו מכירים.
+ *
+ * מזהה הסיור אינו מפוענח כאן מעבר לצורתו: מי שקורא בודק אותו מול
+ * הדייר שלו ממילא, ומטען שהומצא לא ימצא סיור.
+ */
+export function parseViewingReminderReply(
+  payload: string,
+): { appointmentId: string; reply: ViewingReminderReply } | null {
+  const parts = payload.trim().split(":");
+  if (parts.length !== 3 || parts[0] !== REPLY_PREFIX) return null;
+  const [, appointmentId, reply] = parts;
+  if (appointmentId === undefined || appointmentId === "") return null;
+  if (reply !== "confirmed" && reply !== "reschedule") return null;
+  return { appointmentId, reply };
+}
