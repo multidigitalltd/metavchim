@@ -10,10 +10,18 @@ import { NumberRentalRenewalService } from "./number-rental-renewal.service";
 import { NumberRentalService } from "./number-rental.service";
 import { RenewalService } from "./renewal.service";
 import { SubscriptionOfferService } from "./subscription-offer.service";
+import { WhatsappSeatController } from "./whatsapp-seat.controller";
+import { WhatsappSeatRenewalService } from "./whatsapp-seat-renewal.service";
+import { WhatsappSeatService } from "./whatsapp-seat.service";
 
 /** מנוי בתשלום וסליקת קארדקום — ראו billing.service.ts. */
 @Module({
-  controllers: [BillingController, CardcomWebhookController, NumberRentalController],
+  controllers: [
+    BillingController,
+    CardcomWebhookController,
+    NumberRentalController,
+    WhatsappSeatController,
+  ],
   providers: [
     BillingService,
     CardcomService,
@@ -21,6 +29,8 @@ import { SubscriptionOfferService } from "./subscription-offer.service";
     SubscriptionOfferService,
     NumberRentalService,
     NumberRentalRenewalService,
+    WhatsappSeatService,
+    WhatsappSeatRenewalService,
     /*
      * חשבוניות מס קבלה — השירות נושא גם את הסורק שמשלים מסמכים
      * שנכשלו, ולכן הוא כאן ולא ב-core: הוא שייך לגבייה.
@@ -29,6 +39,13 @@ import { SubscriptionOfferService } from "./subscription-offer.service";
     LinetService,
   ],
   // מיוצאים למסך הפלטפורמה: שם יוצרים הצעות ומנהלים השכרות מספרים
-  exports: [BillingService, SubscriptionOfferService, NumberRentalService, InvoiceService, LinetService],
+  exports: [
+    BillingService,
+    SubscriptionOfferService,
+    NumberRentalService,
+    WhatsappSeatService,
+    InvoiceService,
+    LinetService,
+  ],
 })
 export class BillingModule {}

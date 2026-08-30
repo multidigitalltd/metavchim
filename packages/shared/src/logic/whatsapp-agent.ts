@@ -87,12 +87,39 @@ export const WHATSAPP_AGENT_DENIAL_TEXT: Record<WhatsappAgentDenial, string> = {
  * ב„אחד שחסום” — שני המצבים נראים דומה מבחוץ והם שונים לגמרי
  * כשמשרד משדרג מסלול.
  *
- * מעבר לזה, כל מקום נרכש בנפרד ונספר ב-`whatsappAgentSeatsExtra`.
+ * ## שני מקורות למקומות הנוספים, ובכוונה
+ *
+ * ‎`granted` הוא מה שבעל הפלטפורמה העניק ידנית — עסקה, פיילוט,
+ * פיצוי. `paid` הוא מספר המנויים החודשיים הפעילים. הם **נספרים
+ * יחד ואינם מחליפים זה את זה**: הענקה שהייתה נמחקת ברגע שהמשרד
+ * קונה מקום, או להפך, היא בדיוק הבאג שגורם למשרד לשלם על מה שכבר
+ * קיבל.
+ *
+ * ‎**ארגומנט אחד בשם ולא שניים לפי סדר.** החתימה הקודמת קיבלה
+ * „מספר מקומות נוספים” יחיד; קורא ששכח את המקומות בתשלום היה
+ * מחשב מכסה נמוכה מדי וחוסם לקוח **משלם**, בלי ששום דבר ייראה
+ * שבור. שם מפורש לכל מקור הוא מה שהופך את ההשמטה לגלויה.
  */
-export function whatsappAgentSeats(planHasAgent: boolean, extraSeats: number): number {
-  if (!planHasAgent) return 0;
-  return 1 + Math.max(0, Math.trunc(extraSeats));
+export function whatsappAgentSeats(input: {
+  planHasAgent: boolean;
+  /** מקומות שבעל הפלטפורמה העניק ידנית */
+  granted: number;
+  /** מנויים חודשיים פעילים למקום נוסף */
+  paid: number;
+}): number {
+  if (!input.planHasAgent) return 0;
+  return 1 + Math.max(0, Math.trunc(input.granted)) + Math.max(0, Math.trunc(input.paid));
 }
+
+/**
+ * מצבי מקום ש**תופסים מכסה** — כולל מקום שהחיוב עליו נכשל.
+ *
+ * ‎`past_due` נשאר בפנים במכוון, ומאותה סיבה שהשכרת מספר שנכשלה
+ * אינה משחררת את המספר: ניתוק מיידי על כשל חיוב רגעי (כרטיס שפג,
+ * סירוב חד-פעמי) מוציא סוכן מהעבודה באמצע יום, והכסף ממילא נגבה
+ * בניסיון הבא. ההכרעה לשחרר נשארת אנושית, או מגיעה עם ביטול.
+ */
+export const WHATSAPP_SEAT_LIVE_STATUSES = ["active", "past_due"] as const;
 
 /**
  * מה להציע למי שאין לו מקום — **מחיר, או „פנו אלינו”.**

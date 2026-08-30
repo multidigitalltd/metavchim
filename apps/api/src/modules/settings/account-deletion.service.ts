@@ -497,6 +497,19 @@ export class AccountDeletionService {
         data: { status: "cancelled", cancelledAt: new Date(), currentPeriodEnd: new Date() },
       }),
       /*
+       * מקומות הוואטסאפ — **מבוטלים ולא נמחקים**, מאותה סיבה.
+       *
+       * אין כאן ספק חיצוני לשחרר, אבל יש חיוב חודשי מתחדש: מחיקת
+       * השורה הייתה משאירה מנוי בלי רישום, ומשרד שנמחק היה ממשיך
+       * להיות מחויב בלי שדבר יצביע על מה. תקופה שהסתיימה מכניסה
+       * אותם למסלול הרגיל של הסורק. אין בשורה פרט אישי, כמו
+       * ב-payments.
+       */
+      this.prisma.whatsappSeat.updateMany({
+        where: { tenantId, status: { not: "released" } },
+        data: { status: "cancelled", cancelledAt: new Date(), currentPeriodEnd: new Date() },
+      }),
+      /*
        * יומן הוובהוקים מנוקה מהשיוך ולא נמחק: הערך שלו הוא „האם
        * הגיעה בקשה בכלל”, והוא נשמר גם בלי לדעת של מי. השורות
        * שמעולם לא שויכו למשרד נשארות כפי שהן — הן כל הסיבה שהטבלה

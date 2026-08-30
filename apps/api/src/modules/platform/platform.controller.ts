@@ -61,6 +61,7 @@ import {
   planRejectionReason,
   sanitizeFeatures,
   whatsappAgentSeats,
+  WHATSAPP_SEAT_LIVE_STATUSES,
   type PlanDefinition,
   type ServiceVersion,
 } from "@metavchim/shared";
@@ -1312,10 +1313,18 @@ export class PlatformController {
         const holders = await tx.user.count({
           where: { tenantId: id, isActive: true, whatsappAccess: true },
         });
-        const seats = whatsappAgentSeats(
-          await this.plans.tenantHasFeature(id, "voice_intake", tx),
-          next,
-        );
+        const seats = whatsappAgentSeats({
+          planHasAgent: await this.plans.tenantHasFeature(id, "voice_intake", tx),
+          granted: next,
+          /*
+           * מקומות בתשלום נספרים גם כאן — אחרת הורדת ההענקה הידנית
+           * הייתה נדחית על מחזיקים שיושבים על מקומות **ששולמו**,
+           * כלומר בעל הפלטפורמה לא היה יכול לבטל הענקה למשרד שקנה.
+           */
+          paid: await this.prisma.whatsappSeat.count({
+            where: { tenantId: id, status: { in: [...WHATSAPP_SEAT_LIVE_STATUSES] } },
+          }),
+        });
         if (holders > seats) {
           throw new BadRequestException(
             `במשרד ${holders} סוכנים מחזיקים בסוכן הוואטסאפ, והמספר המבוקש מאפשר ${seats}. הסירו את ההקצאה מהעודפים לפני ההורדה.`,
