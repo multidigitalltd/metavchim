@@ -501,20 +501,21 @@ export class SupportService {
     const ticket = await this.prisma.withSupportDesk(async (tx) => {
       const row = await tx.supportTicket.findFirst({ where: { id: ticketId } });
       if (!row) throw new NotFoundException("הפנייה לא נמצאה");
-      /*
-       * מענה מקדם מ"נפתחה" ל"בטיפול" מעצמו, אלא אם נבחר סטטוס אחר
-       * במפורש. בלי זה כל פנייה שנענתה נשארה בתור הפתוח, והתור חדל
-       * לשקף מה עוד ממתין — כלומר מפסיקים להסתכל עליו.
-       */
-      const status =
-        input.status ?? (replied && row.status === "open" ? "in_progress" : undefined);
-      if (status !== undefined) {
-        await tx.supportTicket.update({ where: { id: ticketId }, data: { status } });
-      }
       return row;
     });
 
-    if (!replied) return { ok: true };
+    /*
+     * ‎**סטטוס בלי מענה מוחל מיד** — זה הנתיב של „סמן: נסגרה”
+     * מהתור, ואין בו שליחה שאפשר להיכשל בה.
+     */
+    if (!replied) {
+      if (input.status !== undefined) {
+        await this.prisma.withSupportDesk((tx) =>
+          tx.supportTicket.update({ where: { id: ticketId }, data: { status: input.status! } }),
+        );
+      }
+      return { ok: true };
+    }
 
     /*
      * ‎**השורה נכתבת לפני השליחה, ומאושרת אחריה** — אותו סדר כמו
@@ -595,6 +596,20 @@ export class SupportService {
       this.logger.warn(`תשובת תמיכה הסתיימה בתוצאה עמומה: ${messageId} — ${String(error)}`);
     }
 
+    /*
+     * ‎**הסטטוס מוחל רק אחרי שהשליחה הצליחה.**
+     *
+     * הוא נכתב קודם בטרנזקציה נפרדת, לפני האחסון והשליחה. „שליחה
+     * וסגירה” שנדחתה על ידי הספק הותירה פנייה **סגורה** שהלקוח לא
+     * קיבל עליה דבר — היא נשרה מתור הממתינות, וזו בדיוק ההיעלמות
+     * השקטה שה-PR הזה בא לסגור, רק דרך אחרת (ביקורת Codex).
+     *
+     * דחייה ודאית זורקת למעלה לפני השורה הזו, ולכן הסטטוס נשאר
+     * כשהיה והפנייה נשארת בתור. תוצאה עמומה כן מחילה אותו: ייתכן
+     * שהפונה קיבל, והשארת הפנייה פתוחה על סמך ספק מזמינה מענה כפול.
+     */
+    const promoted =
+      input.status ?? (ticket.status === "open" ? "in_progress" : undefined);
     await this.prisma
       .withSupportDesk(async (tx) => {
         if (state === "sent") {
@@ -611,7 +626,11 @@ export class SupportService {
          */
         await tx.supportTicket.update({
           where: { id: ticketId },
-          data: { reply: replyBody.slice(0, 2000), repliedAt: new Date() },
+          data: {
+            reply: replyBody.slice(0, 2000),
+            repliedAt: new Date(),
+            ...(promoted === undefined ? {} : { status: promoted }),
+          },
         });
       })
       // המייל כבר יצא; כשל כאן הוא כשל בתיעוד ולא בשליחה

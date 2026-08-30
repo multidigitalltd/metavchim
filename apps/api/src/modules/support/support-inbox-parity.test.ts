@@ -78,7 +78,14 @@ describe("תיבת התמיכה מול תיבת הלקוחות", () => {
      * לחתימה שמקבלת `undefined` — הכוונה נשמרה: המצב מוצג, ובמקום
      * אחד לשניהם.
      */
-    expect(SUPPORT_WEB).toContain("sendStateNote(message.sendState ?? undefined)");
+    /*
+     * יוצאת בלי מצב מתורגמת ל-`unknown` ולא ל„בלי תווית”: תשובות
+     * שהיגרו נושאות `NULL` בכוונה, והצגתן כשליחה מאושרת הייתה
+     * מנציחה את ההנחה שהמיגרציה סירבה לעשות.
+     */
+    expect(SUPPORT_WEB).toContain(
+      'message.direction === "out" ? (message.sendState ?? "unknown") : undefined',
+    );
     expect(SUPPORT_WEB).toContain("<Conversation");
     // אותן מילים כמו בתיבת הלקוחות — הפעולה הנדרשת זהה
     expect(SUPPORT_WEB).toContain("לא ידוע אם נשלחה — בדקו לפני שליחה חוזרת");

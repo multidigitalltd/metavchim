@@ -200,7 +200,18 @@ function Conversation({
             {message.direction === "out" ? "תשובת התמיכה" : incomingLabel} ·{" "}
             {formatDateTime(message.createdAt)}
             {(() => {
-              const note = sendStateNote(message.sendState ?? undefined);
+              /*
+               * ‎**יוצאת בלי מצב היא „לא ידוע”, ולא „נשלחה”.**
+               *
+               * המיגרציה שמרה `NULL` על תשובות היסטוריות בכוונה —
+               * איננו יודעים אם הן יצאו. תרגום של `NULL` ל„בלי
+               * תווית” הציג אותן בדיוק כמו שליחה מאושרת, כלומר
+               * הנציח את ההנחה שהמיגרציה סירבה לעשות (ביקורת
+               * Codex). נכנסת נשארת בלי תווית: אין בה מה לשלוח.
+               */
+              const note = sendStateNote(
+                message.direction === "out" ? (message.sendState ?? "unknown") : undefined,
+              );
               return note === null ? null : (
                 <>
                   {" · "}

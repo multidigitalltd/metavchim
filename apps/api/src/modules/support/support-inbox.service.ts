@@ -163,6 +163,20 @@ export class SupportInboxService {
             select: { id: true, tenantId: true },
           });
 
+    /*
+     * ‎**תשובה על פנייה מהכפתור חוזרת לאותה פנייה.**
+     *
+     * המייל שיוצא משם נושא מספר פנייה בנושא ואומר במפורש „אפשר
+     * להשיב על המייל הזה והתשובה תיכנס לאותה פנייה”. עד כאן זה לא
+     * היה נכון: החיפוש לפי מספר עבר על `supportThread` בלבד, ולכן
+     * התשובה פתחה **שרשור מייל נפרד** — שתי כניסות בתור על אותה
+     * שיחה, בדיוק הפיצול שהמספר נועד למנוע (ביקורת Codex).
+     *
+     * זה נבדק לפני פתרון השרשור, אבל **אחרי** הטוקן: טוקן הוא
+     * ראיה חזקה יותר, והוא לעולם אינו מצביע על פנייה מהכפתור.
+     */
+    if (supportThread === null && (await this.appendToTicket(subject, senderEmail, body))) return;
+
     const thread = await this.resolveThread({
       token,
       knownThread: supportThread,
@@ -375,6 +389,63 @@ export class SupportInboxService {
    * למשרד שלו, וזה מה שמאפשר לתמיכה לדעת עם מי היא מדברת בלי לשאול.
    * מי שאינו מוכר מקבל שרשור בלי משרד — לא דחייה.
    */
+  /**
+   * מייל שנושאו נושא מספר של פנייה מהכפתור — נכנס לאותה פנייה.
+   *
+   * ‎`false` = אין פנייה כזו, וההודעה ממשיכה במסלול השרשורים.
+   *
+   * ## שתי הגנות, ולמה שתיהן
+   *
+   * הנושא הוא טקסט של שולח: כל אחד יכול לכתוב בו מספר. לכן ההצמדה
+   * מותנית גם בכתובת השולח מול `userEmail` של הפנייה — אותו כלל
+   * בדיוק שחל על שרשורי המייל, ומאותה סיבה: בלעדיו מי שמנחש מספר
+   * נכנס לפנייה של אדם אחר.
+   *
+   * ## למה זה יושב כאן
+   *
+   * ‎`SupportService` כבר תלוי בשירות הזה (עבור `outgoing()`),
+   * ותלות הפוכה הייתה מעגלית. הכתיבה עצמה היא שתי שורות Prisma,
+   * והשאלה „לאן שייכת ההודעה הנכנסת” היא ממילא של הקובץ הזה.
+   */
+  private async appendToTicket(
+    subject: string,
+    senderEmail: string | null,
+    body: string,
+  ): Promise<boolean> {
+    const reference = referenceFromSubject(subject);
+    if (reference === null || senderEmail === null) return false;
+
+    const ticket = await this.prisma.withSupportDesk((tx) =>
+      tx.supportTicket.findFirst({
+        where: { reference, userEmail: senderEmail },
+        select: { id: true, tenantId: true, status: true },
+      }),
+    );
+    if (ticket === null) return false;
+
+    await this.prisma.withSupportDesk(async (tx) => {
+      await tx.supportTicketMessage.create({
+        data: {
+          id: ulid(),
+          ticketId: ticket.id,
+          tenantId: ticket.tenantId,
+          direction: "in",
+          body: body.slice(0, BODY_MAX),
+        },
+      });
+      /*
+       * פנייה סגורה שקיבלה תשובה **נפתחת מחדש**. „סגורה” אמרה
+       * ‎„טופל”, ומי שכתב שוב אומר שלא — והשארתה סגורה מפילה אותה
+       * מתור הממתינות, כלומר איש לא יראה את מה שנכתב.
+       */
+      if (ticket.status === "closed") {
+        await tx.supportTicket.update({ where: { id: ticket.id }, data: { status: "open" } });
+      }
+    });
+    this.logger.log(`תשובה במייל צורפה לפנייה ${reference}`);
+    return true;
+  }
+
   private async resolveThread(input: {
     token: string | null;
     /** השרשור שכבר נמצא לפי הטוקן בשלב הניתוב — לא נשלף פעמיים. */

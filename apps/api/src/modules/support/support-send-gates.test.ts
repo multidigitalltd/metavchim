@@ -114,3 +114,64 @@ describe("הפנייה נושאת גם טלפון", () => {
     expect(method(TICKETS, "  private async notifyDesk(")).toContain("phone === \"\"");
   });
 });
+
+describe("סגירה אינה מקדימה את השליחה", () => {
+  /*
+   * ‎„שליחה וסגירה” כתבה `closed` בטרנזקציה נפרדת **לפני** האחסון
+   * והשליחה. דחייה של הספק הותירה פנייה סגורה שהלקוח לא קיבל עליה
+   * דבר — היא נשרה מתור הממתינות, וזו אותה היעלמות שקטה שהקובץ הזה
+   * בא לסגור, רק דרך אחרת (ביקורת Codex).
+   */
+  const RESPOND = method(TICKETS, "  async respond(");
+
+  it("הסטטוס אינו נכתב לפני השליחה", () => {
+    const send = RESPOND.indexOf("this.email.send(");
+    const status = RESPOND.indexOf("status: promoted");
+    expect(status, "כתיבת הסטטוס לא נמצאה").toBeGreaterThan(-1);
+    expect(status, "הסטטוס נכתב לפני השליחה").toBeGreaterThan(send);
+  });
+
+  it("הצורה שכתבה סטטוס מראש אינה חוזרת", () => {
+    expect(RESPOND).not.toContain("await tx.supportTicket.update({ where: { id: ticketId }, data: { status } });");
+  });
+
+  /*
+   * הנתיב של „סמן: נסגרה” מהתור אינו נושא מענה, ואין בו שליחה
+   * שאפשר להיכשל בה — הוא חייב להמשיך להחיל מיד.
+   */
+  it("סטטוס בלי מענה עדיין מוחל מיד", () => {
+    expect(RESPOND).toContain("if (!replied) {");
+    expect(RESPOND).toContain("data: { status: input.status! }");
+  });
+});
+
+describe("תשובה במייל חוזרת לפנייה שעליה היא עונה", () => {
+  /*
+   * המייל אומר „אפשר להשיב על המייל הזה והתשובה תיכנס לאותה
+   * פנייה”. עד התיקון החיפוש לפי מספר עבר על שרשורי המייל בלבד,
+   * והתשובה פתחה שרשור נפרד — שתי כניסות בתור על אותה שיחה.
+   */
+  it("החיפוש לפי מספר מכסה גם פניות מהכפתור", () => {
+    expect(INBOX).toContain("private async appendToTicket(");
+    expect(method(INBOX, "  private async appendToTicket(")).toContain(
+      "where: { reference, userEmail: senderEmail }",
+    );
+  });
+
+  it("וזה נבדק לפני פתרון השרשור", () => {
+    const scope = method(INBOX, "  async processInbound(");
+    const ticket = scope.indexOf("this.appendToTicket(");
+    const thread = scope.indexOf("this.resolveThread(");
+    expect(ticket, "הבדיקה מול פניות הכפתור לא נמצאה").toBeGreaterThan(-1);
+    expect(thread, "היא אינה קודמת לפתרון השרשור").toBeGreaterThan(ticket);
+  });
+
+  /*
+   * הנושא הוא טקסט של שולח. בלי ההצמדה לכתובת, מי שמנחש מספר
+   * נכנס לפנייה של אדם אחר — אותו כלל שכבר חל על השרשורים.
+   */
+  it("טוקן גובר על המספר", () => {
+    expect(method(INBOX, "  async processInbound(")).toContain("supportThread === null &&");
+  });
+});
+
