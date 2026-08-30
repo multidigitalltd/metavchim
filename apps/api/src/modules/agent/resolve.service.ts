@@ -1,9 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import {
   agentAction,
+  agentDegradedNotice,
+  AGENT_ACTIONS,
   agentFieldLabel,
   formatFieldValue,
   matchHistoryRef,
+  mayUseAction,
   normalizePhone,
   parseHebrewDateTime,
   PhoneSchema,
@@ -104,6 +107,15 @@ export class AgentResolveService {
          */
         ...(suggestions.length > 0 ? { suggestions } : {}),
         fallback: interpretation.fallback,
+        /*
+         * ‎**„נסו לנסח אחרת” כשאף ניסוח לא יעזור.**
+         *
+         * מנוע החוקים מגיע לחלק מהפעולות בלבד, ואינו מייצר הצעות —
+         * ולכן בכל שאר המקרים המתווך קיבל הוראה לנסח מחדש בקשה
+         * שתיכשל שוב עד שהספק יחזור. הרשימה נגזרת מהמפה שמכריעה מה
+         * המנוע מזהה, ומצטמצמת למה שמותר למתווך הזה.
+         */
+        degraded: interpretation.fallback ? agentDegradedNotice(this.allowedActionIds()) : [],
       };
     }
 
@@ -212,6 +224,8 @@ export class AgentResolveService {
       actionId: action.id,
       title: action.title,
       risk: action.risk,
+      // ההסבר על מצב מושבת שייך ל„לא הבנתי” — כאן הפעולה זוהתה
+      degraded: [],
       summary: summarize(action.id, params),
       fields,
       missing: this.missingFields(action.id, params),
@@ -232,6 +246,18 @@ export class AgentResolveService {
    * שמסומנות alwaysChoose (שליחה ללקוח, חשיפה לרשת) לעולם אינן
    * נפתרות כאן אוטומטית — הבחירה המפורשת היא חלק מהפעולה.
    */
+  /**
+   * מה שמותר למתווך הזה — לצורך „מה עדיין עובד” בלבד.
+   *
+   * אותה גזירה כמו ב-`AgentInterpretService.allowedActions`, ולא
+   * העתק שלה: שתיהן קוראות `mayUseAction` על אותו קטלוג ועל אותן
+   * יכולות. הצעה לפעולה חסומה גרועה מהיעדר הצעה.
+   */
+  private allowedActionIds(): string[] {
+    const caps = TenantContext.current().capabilities;
+    return AGENT_ACTIONS.filter((action) => mayUseAction(action, caps)).map((a) => a.id);
+  }
+
   async resolveForExecution(
     actionId: string,
     params: Record<string, unknown>,
