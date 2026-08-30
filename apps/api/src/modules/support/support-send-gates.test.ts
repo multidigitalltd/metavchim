@@ -175,3 +175,78 @@ describe("תשובה במייל חוזרת לפנייה שעליה היא עונ
   });
 });
 
+
+/**
+ * ‎**כל דרך שבה פנייה נכנסת — מודיעה למנהלים.**
+ *
+ * ## התקלה שהשער הזה נולד ממנה
+ *
+ * היו שלוש דרכים להיכנס לשולחן, ורק אחת מהן הודיעה למישהו:
+ *
+ * ‎1. הכפתור שבמערכת — מייל ל-`supportEmail` בלבד, וכשהיא לא
+ *    מוגדרת: לאיש.
+ * ‎2. מייל לכתובת התמיכה — **שקט מוחלט**. נכתב לשולחן וחיכה שמישהו
+ *    יפתח את המסך מיוזמתו.
+ * ‎3. תשובה במייל על פנייה מהכפתור — שקט מוחלט גם כן.
+ *
+ * ## למה שער ולא הנחיה
+ *
+ * זה בדיוק סוג הכשל שאינו נראה: המערכת עובדת, הפנייה נשמרה, המסך
+ * מציג אותה — ואיש אינו יודע שהיא שם. הדרך הרביעית שתיוולד תיוולד
+ * באותה צורה, כי שום דבר בקוד לא יזכיר שצריך להודיע. השער אוכף
+ * שכל מסלול קליטה עובר דרך `notifyDesk`, ושהיא פונה למנהלים ולא
+ * לכתובת בודדת.
+ */
+describe("כל פנייה שנכנסת מודיעה למנהלי הפלטפורמה", () => {
+  const INTAKE = [
+    ["הכפתור שבמערכת", method(TICKETS, "  async create(")],
+    ["מייל לכתובת התמיכה", method(INBOX, "  async processInbound(")],
+    ["תשובה במייל על פנייה מהכפתור", method(INBOX, "  private async appendToTicket(")],
+  ] as const;
+
+  for (const [name, scope] of INTAKE) {
+    it(`${name}: קורא ל-notifyDesk`, () => {
+      expect(scope, `${name}: אין קריאה ל-notifyDesk`).toMatch(/this\.notifyDesk\(/u);
+    });
+  }
+
+  /*
+   * ‎`supportEmail` הייתה הנמענת **היחידה**, ולכן חוסר הגדרה שלה
+   * השתיק את ההתראה לגמרי. עכשיו היא נמענת נוספת בלבד: רשימת
+   * המנהלים היא זו שאין דרך לשכוח למלא — בלעדיה גם מסך הפלטפורמה
+   * עצמו סגור.
+   */
+  for (const [name, source] of [
+    ["פניות מהכפתור", TICKETS],
+    ["פניות במייל", INBOX],
+  ] as const) {
+    it(`${name}: ההתראה עוברת דרך רשימת המנהלים`, () => {
+      const scope = method(source, "  private async notifyDesk(");
+      expect(scope, `${name}: ההתראה אינה פונה למנהלים`).toContain("this.admins.notify(");
+      expect(scope, `${name}: כתובת התמיכה אינה נמענת נוספת`).toMatch(/also: \[to\]/u);
+      expect(scope, `${name}: השליחה עוקפת את המודיע`).not.toContain("this.email.send(");
+    });
+
+    /*
+     * ההתראה נשלחת אחרי שהפנייה כבר נשמרה, ולכן חריגה ממנה הייתה
+     * מפילה את הקליטה עצמה — כלומר ספק הדואר קובע אם פנייה נקלטת.
+     */
+    it(`${name}: כישלון התראה אינו מפיל את הקליטה`, () => {
+      const scope = method(source, "  private async notifyDesk(");
+      expect(scope, `${name}: אין catch סביב ההתראה`).toMatch(/catch \(error\)/u);
+      expect(scope, `${name}: הכישלון אינו נרשם ביומן`).toMatch(/this\.logger\.warn\(/u);
+    });
+  }
+
+  /*
+   * ‎**מסירה חוזרת אינה פנייה חדשה.** הספק מוסר שוב על כל 5xx, ומייל
+   * לכל מסירה הוא בדיוק מה שגורם לאנשים לכבות התראות.
+   */
+  it("מסירה חוזרת של אותה הודעה אינה מייצרת התראה שנייה", () => {
+    const scope = method(INBOX, "  async processInbound(");
+    const guard = scope.indexOf("if (!duplicate)");
+    const notify = scope.indexOf("this.notifyDesk(");
+    expect(guard, "אין תנאי שמונע התראה על מסירה חוזרת").toBeGreaterThan(-1);
+    expect(notify, "ההתראה אינה בתוך התנאי").toBeGreaterThan(guard);
+  });
+});

@@ -1,0 +1,129 @@
+import { Injectable, Logger } from "@nestjs/common";
+
+import { loadEnv } from "../config/env";
+import { EmailService } from "./email.service";
+
+/**
+ * ‎**התראה לכל מנהלי הפלטפורמה — מקום אחד, ולא אחד לכל מודול.**
+ *
+ * ## התקלה שהשירות הזה נולד ממנה
+ *
+ * ‏„מישהו פנה לתמיכה” הגיע עד עכשיו לכתובת **אחת** (`supportEmail`
+ * מהגדרות הפלטפורמה) — ורק כשהפנייה הגיעה מהכפתור שבמערכת. פנייה
+ * שהגיעה **במייל** לא הפעילה שום התראה בכלל: היא נכתבה לשולחן
+ * וחיכתה שמישהו יפתח את המסך מיוזמתו. מי שלא פתח, לא ידע.
+ *
+ * במקביל, `NumberRentalService` כבר החזיק לולאה משלו על
+ * ‎`PLATFORM_ADMIN_EMAILS`. שני מימושים של „הודע למנהלים” הם בדיוק
+ * המקום שבו אחד מהם מקבל תיקון והשני לא — וזה מה שקרה כאן: הוא ידע
+ * לפנות לכל המנהלים, והתמיכה לא.
+ *
+ * ## מה מובטח כאן
+ *
+ * ‎**כישלון שליחה אינו מפיל את מה שקרה.** פנייה נשמרה כבר; שרת דואר
+ * שנופל אינו סיבה להחזיר שגיאה למי שפנה, ובוודאי לא לבטל את הפנייה.
+ * מה שנכשל נרשם ביומן ונספר בערך המוחזר, כדי שקורא שרוצה לדעת יוכל.
+ *
+ * ‎**וכתובת אינה מקבלת שני עותקים.** כתובת התמיכה יכולה להיות גם
+ * אחת מכתובות המנהלים, וזה הדבר הסביר להגדיר. בלי איחוד היה מגיע
+ * לשם אותו מייל פעמיים, וזו בדיוק הצורה שגורמת לאנשים לכבות התראות.
+ */
+/**
+ * ‎**נגזר מהחתימה של `EmailService.send` ולא משוכפל ממנה.**
+ *
+ * ‏`sender` הוא `{ from, token }` ולא מחרוזת, ושכפול הצורה כאן היה
+ * מחזיק עותק שמתיישן ברגע שהיא משתנה. הקומפיילר תפס את זה מיד;
+ * הגזירה היא מה שמונע את הסבב הבא.
+ */
+type SendOptions = NonNullable<Parameters<EmailService["send"]>[3]>;
+
+@Injectable()
+export class PlatformAdminNotifierService {
+  private readonly logger = new Logger(PlatformAdminNotifierService.name);
+
+  constructor(private readonly email: EmailService) {}
+
+  /**
+   * שולח לכל מנהלי הפלטפורמה, ולכתובות הנוספות שנמסרו.
+   *
+   * מחזיר כמה יצאו וכמה נכשלו — **ואינו זורק**. הקורא מחליט אם
+   * לרשום ביומן; אין לו מה לעשות עם חריגה, כי הפעולה שקדמה כבר
+   * הצליחה.
+   */
+  async notify(notice: {
+    subject: string;
+    heading: string;
+    paragraphs: readonly string[];
+    button?: { label: string; url: string };
+    /** כתובות נוספות — למשל כתובת התמיכה מהגדרות הפלטפורמה. */
+    also?: readonly (string | null | undefined)[];
+    /** תשובה שתחזור לתוך המערכת ולא לתיבה הפרטית של מי ששלח. */
+    replyTo?: SendOptions["replyTo"];
+    /** שולח משלו — לתיבה שהיא שרת נפרד אצל הספק. */
+    sender?: SendOptions["sender"];
+  }): Promise<{ sent: number; failed: number }> {
+    const to = platformAdminRecipients(loadEnv().PLATFORM_ADMIN_EMAILS, notice.also ?? []);
+    let sent = 0;
+    let failed = 0;
+    for (const address of to) {
+      try {
+        await this.email.send(
+          address,
+          notice.subject,
+          {
+            heading: notice.heading,
+            paragraphs: [...notice.paragraphs],
+            ...(notice.button === undefined ? {} : { button: notice.button }),
+          },
+          {
+            ...(notice.replyTo === undefined ? {} : { replyTo: notice.replyTo }),
+            ...(notice.sender === undefined ? {} : { sender: notice.sender }),
+          },
+        );
+        sent += 1;
+      } catch (error) {
+        failed += 1;
+        this.logger.warn(`התראה למנהל ${address} נכשלה: ${(error as Error).message}`);
+      }
+    }
+    if (to.length === 0) {
+      this.logger.warn(`אין נמענים להתראה „${notice.subject}” — PLATFORM_ADMIN_EMAILS ריק`);
+    }
+    return { sent, failed };
+  }
+
+  /** קישור אל השולחן, לכפתור שבהתראה. */
+  deskUrl(): string {
+    return `${loadEnv().WEB_ORIGIN}/platform?tab=support`;
+  }
+}
+
+/**
+ * רשימת הנמענים — **מאוחדת, ובלי כפילות.**
+ *
+ * ‎`PLATFORM_ADMIN_EMAILS` כבר מגיע מנורמל מ-`env.ts`; הכתובות
+ * הנוספות מגיעות מהגדרות שמישהו הקליד, ולכן יכולות לשאת רווחים
+ * ואותיות גדולות. האיחוד לפי **המפתח באותיות קטנות** ולא לפי המחרוזת
+ * כפי שהיא: `Support@x.co.il` ו-`support@x.co.il` הם אותה תיבה, ומי
+ * שמגדיר אותם בשני מקומות אינו מבקש שני עותקים.
+ *
+ * הכתובת עצמה נשמרת **כפי שנראתה ראשונה** ואינה מומרת לאותיות
+ * קטנות: החלק שלפני ה-‎`@` הוא רשמית רגיש לרישיות, ואיחוד הוא סיבה
+ * לזהות כפילות — לא רשות לשנות כתובת של מישהו.
+ */
+export function platformAdminRecipients(
+  admins: readonly string[],
+  also: readonly (string | null | undefined)[],
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const candidate of [...admins, ...also]) {
+    const address = (candidate ?? "").trim();
+    if (address === "" || !address.includes("@")) continue;
+    const key = address.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(address);
+  }
+  return out;
+}

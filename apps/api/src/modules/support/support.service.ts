@@ -20,6 +20,7 @@ import {
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { EmailRejectedError, EmailService } from "../../core/email.service";
+import { PlatformAdminNotifierService } from "../../core/platform-admin-notifier.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
@@ -125,6 +126,7 @@ export class SupportService {
      * מהתמיכה יוצא מאותה כתובת. ראו `outgoingSender`.
      */
     private readonly inbox: SupportInboxService,
+    private readonly admins: PlatformAdminNotifierService,
   ) {}
 
   async create(input: {
@@ -198,7 +200,19 @@ export class SupportService {
     return { id };
   }
 
-  /** התראה לכתובת התמיכה. כישלון נרשם ביומן ואינו נזרק למשתמש. */
+  /**
+   * ‎**התראה לכל מנהלי הפלטפורמה — ולא לכתובת אחת.**
+   *
+   * עד עכשיו זה הלך ל-`supportEmail` בלבד, וכשהיא לא הייתה מוגדרת
+   * — לאיש. כלומר פנייה יכלה לשבת על השולחן עד שמישהו יפתח את המסך
+   * מיוזמתו. `PLATFORM_ADMIN_EMAILS` הוא מי שאחראי, והוא הרשימה
+   * שאין דרך לשכוח למלא: בלעדיה גם מסך הפלטפורמה עצמו סגור.
+   *
+   * כתובת התמיכה נשארת נמענת — היא רק אינה **הנמענת היחידה**, ואם
+   * היא ממילא אחת מכתובות המנהלים היא מקבלת עותק אחד.
+   *
+   * כישלון שליחה נרשם ביומן ואינו נזרק: הפנייה כבר נשמרה.
+   */
   private async notifyDesk(
     id: string,
     input: { kind: SupportKind; message: string },
@@ -209,26 +223,23 @@ export class SupportService {
   ): Promise<void> {
     try {
       const to = await this.platformSettings.get("supportEmail");
-      if (to === undefined || to === "") return;
       // גם ההתראה הפנימית — כדי ש„השב” עליה יגיע לתיבת התמיכה
       const { sender, replyTo } = await this.inbox.outgoing();
-      await this.email.send(
-        to,
-        `פנייה חדשה: ${SUPPORT_KIND_LABEL[input.kind]} · ${area}`,
-        [
+      await this.admins.notify({
+        subject: `פנייה חדשה: ${SUPPORT_KIND_LABEL[input.kind]} · ${area}`,
+        heading: `פנייה חדשה מהמערכת · ${area}`,
+        paragraphs: [
           // הטלפון בשורה הראשונה: תקלה חוסמת נסגרת בשיחה, לא בשרשור
           phone === "" ? `מאת: ${from}` : `מאת: ${from} · ${phone}`,
           ...hints.map((h) => `• ${h}`),
-          "",
           input.message,
-          "",
           `מזהה הפנייה: ${id}`,
-        ].join("\n"),
-        {
-          ...(sender === null ? {} : { sender }),
-          ...(replyTo === null ? {} : { replyTo }),
-        },
-      );
+        ],
+        button: { label: "לשולחן התמיכה", url: this.admins.deskUrl() },
+        also: [to],
+        ...(sender === null ? {} : { sender }),
+        ...(replyTo === null ? {} : { replyTo }),
+      });
     } catch (error) {
       this.logger.warn(`התראת תמיכה נכשלה: ${(error as Error).message}`);
     }

@@ -21,6 +21,8 @@ import type { Response } from "express";
 import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
 import {
+  asSupportKind,
+  asSupportSeverity,
   EMAIL_ATTACHMENT_MAX_BYTES,
   EMAIL_ATTACHMENT_MAX_COUNT,
   IdSchema,
@@ -198,6 +200,16 @@ export class SupportDeskController {
           /* פנייה מהכפתור „ממתינה” כל עוד לא נענתה */
           unread: ticket.reply === undefined,
           lastActivityAt: ticket.repliedAt ?? ticket.createdAt,
+          /*
+           * ‎**הסיווג נבדק ואינו מומר.** העמודות האלה הן טקסט חופשי
+           * במסד, ו-`as SupportSeverity` הוא הבטחה לקומפיילר ולא
+           * בדיקה: ערך ישן היה מגיע עד לאינדוקס בטבלת התוויות
+           * ומצייר `undefined` על השורה.
+           */
+          kind: asSupportKind(ticket.kind),
+          severity: asSupportSeverity(ticket.severity),
+          contactEmail: ticket.userEmail,
+          contactPhone: ticket.userPhone,
         }),
       ),
       ...threads.map(
@@ -211,6 +223,15 @@ export class SupportDeskController {
           status: thread.status as SupportQueueRow["status"],
           unread: thread.unread,
           lastActivityAt: thread.lastMessageAt.toISOString(),
+          /*
+           * ‎`null` ולא ברירת מחדל: פנייה שהגיעה במייל אינה עוברת
+           * בטופס שמסווג אותה. „רגיל” כאן היה נתון שהמצאנו, ועל
+           * השורה הוא נראה בדיוק כמו סיווג אמיתי.
+           */
+          kind: null,
+          severity: null,
+          contactEmail: thread.contactEmail,
+          contactPhone: thread.contactPhone,
         }),
       ),
     ]);

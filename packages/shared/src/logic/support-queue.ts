@@ -1,4 +1,10 @@
-import { type SupportStatus } from "./support.js";
+import {
+  SUPPORT_KIND_LABEL,
+  SUPPORT_SEVERITY_LABEL,
+  type SupportKind,
+  type SupportSeverity,
+  type SupportStatus,
+} from "./support.js";
 
 /**
  * תור אחד לשני מקורות הפניות.
@@ -31,6 +37,28 @@ export interface SupportQueueRow {
   /** טרם נקראה/נענתה — מה שמסמן „מחכה לך”. */
   unread: boolean;
   lastActivityAt: string;
+  /**
+   * ‎**מה שקובע במה מטפלים קודם — על השורה, ולא מאחורי לחיצה.**
+   *
+   * ‎`severity` ו-`kind` היו קיימים מהיום הראשון, ונקראו רק אחרי
+   * פתיחת הפנייה. כלומר תקלה **חוסמת** — מישהו עומד עכשיו מול מסך
+   * שאינו עובד — נראתה בתור בדיוק כמו בקשת שיפור, ומי שמטפל היה
+   * צריך לפתוח את כולן כדי לדעת במה להתחיל.
+   *
+   * ‎`null` בשני השדות אינו „לא ידוע” אלא **„לא קיים”**: פנייה
+   * שהגיעה במייל אינה עוברת בטופס שמסווג אותה, ואין לה סוג ואין לה
+   * חומרה. ערך ברירת מחדל כאן היה המצאה שנראית כמו נתון.
+   */
+  kind: SupportKind | null;
+  severity: SupportSeverity | null;
+  /**
+   * דרכי הקשר — כדי שאפשר יהיה להשיב או להתקשר **מהשורה**.
+   *
+   * תקלה חוסמת נסגרת בשיחה, לא בשרשור. ‎`null` = אין כזה, ולא מקף
+   * שנראה כמו מספר.
+   */
+  contactEmail: string | null;
+  contactPhone: string | null;
 }
 
 /**
@@ -135,4 +163,116 @@ export async function waitingFirst<T>(
   if (waiting.length >= limit) return waiting.slice(0, limit);
   const closed = await fetch("closed", limit - waiting.length);
   return [...waiting, ...closed];
+}
+
+/**
+ * הסינון של השולחן — **הגדרה אחת, ולא אחת במסך ואחת במונה.**
+ *
+ * ‏„ממתינות” היא ברירת המחדל ולא „נפתחה”: המונה שליד הכותרת סופר כל
+ * מה שאינו סגור — כולל „בטיפול”, כי שם הפונה עדיין מחכה. סינון
+ * שברירת המחדל שלו `open` בלבד היה מציג רשימה קצרה מהמונה שמעליה,
+ * וזו סתירה שרואים מיד: „כתוב 2, מוצגת אחת”.
+ *
+ * הכלל ירד לכאן מהמסך כי נולד לו קורא שני — המספרים שעל לשוניות
+ * הסינון. שני מימושים של „מה נכנס ללשונית הזאת” הם בדיוק המקום שבו
+ * המספר על הלשונית מפסיק להסכים עם מה שהיא פותחת.
+ */
+export type SupportQueueFilter = SupportStatus | "waiting" | "all";
+
+/** סדר הלשוניות על השולחן — הממתינות ראשונות. */
+export const SUPPORT_QUEUE_FILTERS: readonly SupportQueueFilter[] = [
+  "waiting",
+  "in_progress",
+  "closed",
+  "all",
+];
+
+export const SUPPORT_QUEUE_FILTER_LABEL: Record<SupportQueueFilter, string> = {
+  waiting: "ממתינות",
+  open: "נפתחה",
+  in_progress: "בטיפול",
+  closed: "נסגרה",
+  all: "הכול",
+};
+
+/** האם השורה שייכת ללשונית. */
+export function matchesSupportFilter(row: SupportQueueRow, filter: SupportQueueFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "waiting") return isSupportWaiting(row.status);
+  return row.status === filter;
+}
+
+/**
+ * המספר שעל כל לשונית.
+ *
+ * ‎**נספר על התור המלא ולא על המסונן** — אחרת כל לשונית הייתה מציגה
+ * את מספר השורות שכבר על המסך, כלומר את עצמה.
+ */
+export function supportQueueCounts(
+  rows: readonly SupportQueueRow[],
+): Record<SupportQueueFilter, number> {
+  const counts: Record<SupportQueueFilter, number> = {
+    waiting: 0,
+    open: 0,
+    in_progress: 0,
+    closed: 0,
+    all: 0,
+  };
+  for (const row of rows) {
+    for (const filter of Object.keys(counts) as SupportQueueFilter[]) {
+      if (matchesSupportFilter(row, filter)) counts[filter] += 1;
+    }
+  }
+  return counts;
+}
+
+/** רק ספרות — כדי ש-„052-123” ימצא מספר ששמור כרצף. */
+function digits(value: string): string {
+  return value.replace(/\D+/gu, "");
+}
+
+/**
+ * ‎**חיפוש חופשי בתור — כי סינון לפי מצב אינו מוצא פנייה מסוימת.**
+ *
+ * ## מה זה פותר
+ *
+ * ‏„הלקוח מתקשר ושואל מה עם הפנייה שלו” הוא הרגע השכיח ביותר מול
+ * השולחן, ועד עכשיו הדרך היחידה למצוא אותה הייתה גלילה. עם מאה
+ * שורות זו לא דרך.
+ *
+ * ## איך זה מחפש
+ *
+ * כל מילה בשאילתה חייבת להימצא — **וגם** ולא **או**. „דוד חוסם”
+ * מוצא את הפנייה של דוד שסומנה חוסמת, ולא את כל דוד ואת כל החוסמות.
+ * זה ההבדל בין חיפוש שמצמצם לחיפוש שמציף.
+ *
+ * מילה שכולה ספרות נבדקת **גם** מול הספרות בלבד של השורה, ולכן
+ * ‎„0521234567” מוצא טלפון שנשמר עם מקפים, ו-„1042” מוצא את `#1042`.
+ */
+export function searchSupportQueue(
+  rows: readonly SupportQueueRow[],
+  query: string,
+): SupportQueueRow[] {
+  const terms = query.trim().toLowerCase().split(/\s+/u).filter(Boolean);
+  if (terms.length === 0) return [...rows];
+  return rows.filter((row) => {
+    const parts = [
+      `#${row.reference}`,
+      row.title,
+      row.who,
+      row.tenantName ?? "",
+      row.contactEmail ?? "",
+      row.contactPhone ?? "",
+      row.kind === null ? "" : SUPPORT_KIND_LABEL[row.kind],
+      row.severity === null ? "" : SUPPORT_SEVERITY_LABEL[row.severity],
+      SUPPORT_SOURCE_LABEL[row.source],
+    ];
+    const haystack = parts.join(" ").toLowerCase();
+    const onlyDigits = digits(haystack);
+    return terms.every((term) => {
+      if (haystack.includes(term)) return true;
+      const asDigits = digits(term);
+      return asDigits !== "" && onlyDigits.includes(asDigits);
+    });
+  });
 }

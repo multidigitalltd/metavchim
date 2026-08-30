@@ -12,6 +12,7 @@ import {
   EMAIL_OUTBOUND_ATTACHMENT_TOTAL_BYTES,
   SUPPORT_DESK_LIMIT,
   emailAttachmentKind,
+  formatSupportReference,
   inboundBody,
   inboundProviderMessageId,
   inboundToken,
@@ -32,6 +33,7 @@ import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { EmailRejectedError, EmailService } from "../../core/email.service";
 import { EmailDomainProviderService } from "../../core/email-domain-provider.service";
+import { PlatformAdminNotifierService } from "../../core/platform-admin-notifier.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
@@ -68,6 +70,14 @@ import { StorageService } from "../../core/storage.service";
 /** גוף הודעה נשמר עד הגבול הזה. פנייה ארוכה מזה נחתכת ולא נדחית. */
 const BODY_MAX = 20_000;
 
+/**
+ * כמה מהפנייה נכנס להתראה עצמה.
+ *
+ * ‎**התראה אינה מקום לקרוא בו דוח מלא.** הגוף המלא יושב על השולחן,
+ * והכפתור שבהתראה קרוב יותר מגלילה במייל של 20,000 תווים.
+ */
+const NOTICE_BODY_MAX = 500;
+
 @Injectable()
 export class SupportInboxService {
   private readonly logger = new Logger(SupportInboxService.name);
@@ -82,6 +92,7 @@ export class SupportInboxService {
      * `canSendFrom`; הרישום של דומייני המשרדים אינו נוגע לתמיכה.
      */
     private readonly provider: EmailDomainProviderService,
+    private readonly admins: PlatformAdminNotifierService,
   ) {}
 
   /** כתובת ה-Inbound של תיבת התמיכה, והסוד שבנתיב ה-Webhook. */
@@ -160,7 +171,7 @@ export class SupportInboxService {
         ? null
         : await this.prisma.supportThread.findUnique({
             where: { replyToken: token },
-            select: { id: true, tenantId: true },
+            select: { id: true, tenantId: true, reference: true },
           });
 
     /*
@@ -280,6 +291,27 @@ export class SupportInboxService {
       throw new ServiceUnavailableException(
         `שמירת ${pending} קבצים בפניית התמיכה נכשלה — נדרשת מסירה חוזרת`,
       );
+    }
+    /*
+     * ‎**וההתראה — אחרי שהכול נשמר, ורק על מסירה ראשונה.**
+     *
+     * אחרי: התראה על פנייה שנכשלה בהמשך הייתה שולחת מנהל לחפש משהו
+     * שאינו על השולחן. `!duplicate`: הספק מוסר שוב על כל 5xx, ומייל
+     * לכל מסירה חוזרת הוא בדיוק מה שגורם לאנשים לכבות התראות.
+     */
+    if (!duplicate) {
+      /*
+       * ‎`void` ולא `await`: זה גוף של Webhook, והספק מוסר שוב על כל
+       * תשובה שאינה 2xx. המתנה לספק דואר איטי הייתה הופכת פנייה
+       * שנקלטה בהצלחה למסירה חוזרת. הכישלון נתפס בתוך `notifyDesk`.
+       */
+      void this.notifyDesk({
+        reference: thread.reference,
+        who: senderName,
+        subject,
+        body,
+        opening: thread.created,
+      });
     }
     this.logger.log(`פניית תמיכה נקלטה: ${thread.id}`);
   }
@@ -442,19 +474,81 @@ export class SupportInboxService {
         await tx.supportTicket.update({ where: { id: ticket.id }, data: { status: "open" } });
       }
     });
+    /*
+     * גם כאן, ולא רק בשרשורי המייל: מבחינת מי שמטפל זו אותה עבודה
+     * בדיוק — מישהו כתב וממתין. פנייה מהכפתור שקיבלה תשובה במייל
+     * הייתה נכתבת לשולחן בשקט מוחלט.
+     */
+    void this.notifyDesk({
+      reference,
+      who: senderEmail,
+      subject,
+      body,
+      opening: false,
+    });
     this.logger.log(`תשובה במייל צורפה לפנייה ${reference}`);
     return true;
+  }
+
+  /**
+   * ‎**„נכנסה פנייה” — לכל מנהלי הפלטפורמה.**
+   *
+   * ## מה היה כאן קודם
+   *
+   * כלום. פנייה שהגיעה במייל נכתבה לשולחן וחיכתה שמישהו יפתח את
+   * המסך מיוזמתו; רק פנייה מהכפתור שלחה מייל, ורק לכתובת אחת. זה
+   * ההבדל בין „יש שולחן” ובין „מישהו יודע שמשהו מחכה עליו”.
+   *
+   * ## ההודעה עצמה
+   *
+   * מספר הפנייה בכותרת כדי שתשובה של מנהל תחזור לאותה פנייה, וכדי
+   * שאפשר יהיה לחפש אותו על השולחן. הגוף מקוצר: התראה אינה מקום
+   * לקרוא בו דוח באורך מלא, והלחיצה על הכפתור קרובה יותר מגלילה.
+   *
+   * הכישלון נבלע **בכוונה**: ההודעה כבר נשמרה, ומסירה חוזרת שנגרמת
+   * משרת דואר שנפל הייתה כותבת אותה פעם שנייה.
+   */
+  private async notifyDesk(what: {
+    reference: number;
+    who: string;
+    subject: string;
+    body: string;
+    /** פנייה חדשה, או המשך של שיחה שכבר קיימת. */
+    opening: boolean;
+  }): Promise<void> {
+    try {
+      const to = await this.settings.get("supportEmail");
+      const { sender, replyTo } = await this.outgoing();
+      const headline = what.opening ? "פנייה חדשה במייל" : "תשובה בפנייה קיימת";
+      await this.admins.notify({
+        subject: `${formatSupportReference(what.reference)} ${headline}: ${what.subject}`,
+        heading: `${headline} · ${formatSupportReference(what.reference)}`,
+        paragraphs: [
+          `מאת: ${what.who}`,
+          what.subject,
+          what.body.length > NOTICE_BODY_MAX
+            ? `${what.body.slice(0, NOTICE_BODY_MAX)}…`
+            : what.body,
+        ],
+        button: { label: "לשולחן התמיכה", url: this.admins.deskUrl() },
+        also: [to],
+        ...(sender === null ? {} : { sender }),
+        ...(replyTo === null ? {} : { replyTo }),
+      });
+    } catch (error) {
+      this.logger.warn(`התראת פנייה נכשלה: ${(error as Error).message}`);
+    }
   }
 
   private async resolveThread(input: {
     token: string | null;
     /** השרשור שכבר נמצא לפי הטוקן בשלב הניתוב — לא נשלף פעמיים. */
-    knownThread: { id: string; tenantId: string | null } | null;
+    knownThread: { id: string; tenantId: string | null; reference: number } | null;
     senderEmail: string | null;
     senderName: string;
     subject: string;
-  }): Promise<{ id: string; tenantId: string | null } | null> {
-    if (input.knownThread !== null) return input.knownThread;
+  }): Promise<{ id: string; tenantId: string | null; reference: number; created: boolean } | null> {
+    if (input.knownThread !== null) return { ...input.knownThread, created: false };
     if (input.token !== null) {
       // טוקן לא מוכר אינו סיבה לזרוק פנייה — ממשיכים לשרשור לפי שולח
       this.logger.warn("פניית תמיכה עם טוקן לא מוכר — משויכת לפי כתובת השולח");
@@ -476,9 +570,9 @@ export class SupportInboxService {
     if (fromSubject !== null && input.senderEmail !== null) {
       const byReference = await this.prisma.supportThread.findFirst({
         where: { reference: fromSubject, contactEmail: input.senderEmail },
-        select: { id: true, tenantId: true },
+        select: { id: true, tenantId: true, reference: true },
       });
-      if (byReference !== null) return byReference;
+      if (byReference !== null) return { ...byReference, created: false };
     }
 
     if (input.senderEmail !== null) {
@@ -496,9 +590,9 @@ export class SupportInboxService {
       const waiting = await this.prisma.supportThread.findFirst({
         where: { contactEmail: input.senderEmail, status: { not: "closed" } },
         orderBy: { lastMessageAt: "desc" },
-        select: { id: true, tenantId: true },
+        select: { id: true, tenantId: true, reference: true },
       });
-      if (waiting !== null) return waiting;
+      if (waiting !== null) return { ...waiting, created: false };
     }
 
     const tenantId =
@@ -512,7 +606,13 @@ export class SupportInboxService {
           )?.tenantId ?? null);
 
     const id = ulid();
-    await this.prisma.supportThread.create({
+    /*
+     * ‎`select` על היצירה: `reference` הוא רצף שהמסד מקצה, ולכן זה
+     * הרגע היחיד שבו הוא נקרא בלי שאילתה נוספת. ההתראה שיוצאת מיד
+     * אחרי כן זקוקה לו — מספר הפנייה הוא מה שמאפשר למי שמקבל אותה
+     * למצוא אותה על השולחן.
+     */
+    const created = await this.prisma.supportThread.create({
       data: {
         id,
         replyToken: ulid(),
@@ -521,8 +621,9 @@ export class SupportInboxService {
         contactName: input.senderName,
         subject: input.subject,
       },
+      select: { reference: true },
     });
-    return { id, tenantId };
+    return { id, tenantId, reference: created.reference, created: true };
   }
 
   /** רשימת השרשורים לשולחן התמיכה — מי מחכה, לפי הסדר. */
@@ -534,6 +635,12 @@ export class SupportInboxService {
       subject: string;
       contactName: string;
       contactEmail: string | null;
+      /**
+       * הטלפון של הפונה — **כשהוא לקוח מוכר**, ואז `null` פירושו „אין
+       * לנו”. פנייה שהגיעה במייל אינה נושאת טלפון; הוא נשלף מהפרופיל
+       * לפי הכתובת, כדי שתקלה חוסמת תוכל להיסגר בשיחה מהשורה עצמה.
+       */
+      contactPhone: string | null;
       tenantId: string | null;
       tenantName: string | null;
       status: string;
@@ -586,9 +693,33 @@ export class SupportInboxService {
           })
         : [];
     const nameById = new Map(tenants.map((tenant) => [tenant.id, tenant.name]));
+    /*
+     * ‎**הטלפונים בשאילתה אחת, לא אחת לשורה.**
+     *
+     * אותו שיקול כמו בשמות המשרדים למעלה: תור של מאה שרשורים היה
+     * מאה שאילתות. `findMany` על רשימת הכתובות שכבר בידינו הוא
+     * מעבר אחד, וכתובת שאינה של משתמש פשוט אינה חוזרת ממנו.
+     *
+     * ‎`isActive` בתנאי: מספר של מי שהוסר מהמשרד אינו מספר שרוצים
+     * לחייג אליו מהשולחן.
+     */
+    const emails = [...new Set(rows.map((row) => row.contactEmail).filter((e) => e !== null))];
+    const contacts =
+      emails.length > 0
+        ? await this.prisma.user.findMany({
+            where: { email: { in: emails }, isActive: true },
+            select: { email: true, phone: true },
+          })
+        : [];
+    const phoneByEmail = new Map(
+      contacts
+        .filter((contact) => contact.phone !== null && contact.phone !== "")
+        .map((contact) => [contact.email, contact.phone]),
+    );
     return rows.map(({ readAt, ...row }) => ({
       ...row,
       tenantName: row.tenantId === null ? null : (nameById.get(row.tenantId) ?? null),
+      contactPhone: row.contactEmail === null ? null : (phoneByEmail.get(row.contactEmail) ?? null),
       unread: readAt === null,
     }));
   }
