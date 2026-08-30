@@ -1805,6 +1805,15 @@ async function transcribeOneCall(): Promise<void> {
           direction: true,
           // מי תיעד את השיחה — עליו תיפול משימת ההמשך
           createdBy: true,
+          /*
+           * ‎**מה שהמתווך כתב ביד — כדי לא לדרוס אותו.**
+           *
+           * ההערה בכתיבה למטה הבטיחה זאת מזמן, אבל השדה לא נקרא
+           * כאן ולכן אי אפשר היה לקיים אותה: מי שתיעד שיחה ידנית,
+           * כתב סיכום, ואז העלה הקלטה — היה מאבד את מה שכתב
+           * ברגע שהתמלול הסתיים, בלי אזהרה ובלי דרך לשחזר.
+           */
+          summary: true,
         },
       });
       if (!row?.recordingKey) return null;
@@ -1892,8 +1901,19 @@ async function transcribeOneCall(): Promise<void> {
         intel.turns.length > 0 ? formatRoleTranscript(intel.turns) : diarizedText;
       const summary = intel.summary;
       const highlights = intel.highlights;
+      /*
+       * ‎**הסיכום שהמתווך הקליד גובר, וגם נשאר זה שממנו נגזרת
+       * משימת ההמשך.** אחרת המשימה הייתה נבנית מטקסט אחד והמסך
+       * מציג טקסט אחר, ומי שקורא את שניהם אינו יכול ליישב ביניהם.
+       */
+      const manualSummary = pending.summary ?? "";
       const followUp = followUpFromCall(
-        { ...parsedCall, summary, highlights, suggestedOutcome: intel.suggestedOutcome },
+        {
+          ...parsedCall,
+          summary: manualSummary !== "" ? manualSummary : summary,
+          highlights,
+          suggestedOutcome: intel.suggestedOutcome,
+        },
         new Date(),
       );
       /** המשימה שנוצרה, אם נוצרה — קובעת את נוסח ההתראה היחידה. */
@@ -1912,7 +1932,7 @@ async function transcribeOneCall(): Promise<void> {
             transcript,
             // הסיכום נכתב רק כשלא נרשם אחד ידנית — מה שהמתווך
             // כתב בעצמו גובר תמיד על החילוץ האוטומטי
-            ...(summary ? { summary } : {}),
+            ...(summary && !manualSummary ? { summary } : {}),
             /*
              * ‎**השדות שחולצו נשמרים, ולא רק השורה שנבנתה מהם.**
              *

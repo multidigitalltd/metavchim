@@ -168,12 +168,47 @@ function formatBudget(value: number): string {
  * מוצא ביטויים בטקסט, ומה שלא נמצא יכול היה גם להיאמר ולא להיתפס.
  * „לא צוין תקציב” הייתה טענה על השיחה שאיננו יכולים להצדיק.
  */
+/**
+ * ‎**הגוון נגזר ממה שהשדה אומר, ולא מסדר ההופעה שלו.**
+ *
+ * ‏עשרה צ'יפים באותו אפור דורשים לקרוא את כולם כדי למצוא את השניים
+ * שמשנים. החלוקה היא לפי מה שמתווך עושה עם השדה:
+ *
+ * - ‎`decision` — מה שקובע את כל השאר: הצד (קונה/מוכר) והבלעדיות.
+ *   שדה אחד שגוי כאן הופך את השיחה כולה לעבודה ההפוכה.
+ * - ‎`money` — תקציב ומימון. המספר שמכריע אם יש בכלל על מה לדבר.
+ * - ‎`attention` — מה שדורש פעולה או שעלול לחסום: לוח זמנים,
+ *   הסתייגויות, מה שהתחייבנו, ומתי לחזור.
+ * - ‎`wanted` — מה שהוא מחפש. הרוב, ולכן ניטרלי: אחרת הכל צועק.
+ */
+type Tone = "decision" | "money" | "attention" | "wanted";
+
+const TONE_DOMAIN: Record<Tone, string> = {
+  decision: "mv-domain-green",
+  money: "mv-domain-blue",
+  attention: "mv-domain-peach",
+  wanted: "mv-domain-neutral",
+};
+
+/**
+ * ‎**הכותרת נמסרת פנימה, ולא נבנית בחוץ.**
+ *
+ * ‏מי שרוצה כותרת מעל התגיות חייב לדעת אם יהיו תגיות — ובדיקה
+ * נפרדת אצל הקורא היא בדיקה שנייה שסוטה מהראשונה. `exclusivity`
+ * למשל נשמר גם כ-`false`, ולכן „יש שדה” אינו „יש מה להציג”:
+ * כותרת „פרטי לקוח” הייתה מופיעה מעל ריק, ונקראת כטענה על השיחה
+ * („אין ללקוח דרישות”) במקום על מה שלא זוהה.
+ *
+ * ‏ההחלטה מתקבלת כאן, במקום שבו ממילא יודעים כמה שדות נבנו.
+ */
 export function CallHighlightFields({
   highlights,
+  header,
 }: {
   highlights: CallHighlights;
+  header?: React.ReactNode;
 }): React.JSX.Element | null {
-  const fields: { label: string; value: string; ltr?: boolean }[] = [];
+  const fields: { label: string; value: string; ltr?: boolean; tone: Tone }[] = [];
   /*
    * ‎**הצד ראשון, ובכוונה.**
    *
@@ -182,48 +217,50 @@ export function CallHighlightFields({
    * עושים עם כל השאר, ולכן הוא נקרא ראשון.
    */
   if (highlights.side !== undefined) {
-    fields.push({ label: CALL_HIGHLIGHT_LABELS.side, value: CALL_SIDE_LABELS[highlights.side] });
+    fields.push({ tone: "decision", label: CALL_HIGHLIGHT_LABELS.side, value: CALL_SIDE_LABELS[highlights.side] });
   }
   if (highlights.propertyType !== undefined) {
-    fields.push({ label: CALL_HIGHLIGHT_LABELS.propertyType, value: highlights.propertyType });
+    fields.push({ tone: "wanted", label: CALL_HIGHLIGHT_LABELS.propertyType, value: highlights.propertyType });
   }
   if (highlights.budget !== undefined) {
     fields.push({
+      tone: "money",
       label: CALL_HIGHLIGHT_LABELS.budget,
       value: formatBudget(highlights.budget),
       ltr: true,
     });
   }
   if (highlights.rooms !== undefined) {
-    fields.push({ label: CALL_HIGHLIGHT_LABELS.rooms, value: String(highlights.rooms), ltr: true });
+    fields.push({ tone: "wanted", label: CALL_HIGHLIGHT_LABELS.rooms, value: String(highlights.rooms), ltr: true });
   }
   if (highlights.areaSqm !== undefined) {
     fields.push({
+      tone: "wanted",
       label: CALL_HIGHLIGHT_LABELS.areaSqm,
       value: `${highlights.areaSqm} מ״ר`,
       ltr: true,
     });
   }
   if (highlights.city !== undefined) {
-    fields.push({ label: CALL_HIGHLIGHT_LABELS.city, value: highlights.city });
+    fields.push({ tone: "wanted", label: CALL_HIGHLIGHT_LABELS.city, value: highlights.city });
   }
   if (highlights.neighborhood !== undefined) {
-    fields.push({ label: CALL_HIGHLIGHT_LABELS.neighborhood, value: highlights.neighborhood });
+    fields.push({ tone: "wanted", label: CALL_HIGHLIGHT_LABELS.neighborhood, value: highlights.neighborhood });
   }
   if (highlights.address !== undefined) {
-    fields.push({ label: CALL_HIGHLIGHT_LABELS.address, value: highlights.address });
+    fields.push({ tone: "wanted", label: CALL_HIGHLIGHT_LABELS.address, value: highlights.address });
   }
   if (highlights.timeline !== undefined) {
-    fields.push({ label: CALL_HIGHLIGHT_LABELS.timeline, value: highlights.timeline });
+    fields.push({ tone: "attention", label: CALL_HIGHLIGHT_LABELS.timeline, value: highlights.timeline });
   }
   if (highlights.financing !== undefined) {
-    fields.push({ label: CALL_HIGHLIGHT_LABELS.financing, value: highlights.financing });
+    fields.push({ tone: "money", label: CALL_HIGHLIGHT_LABELS.financing, value: highlights.financing });
   }
   if (highlights.motivation !== undefined) {
-    fields.push({ label: CALL_HIGHLIGHT_LABELS.motivation, value: highlights.motivation });
+    fields.push({ tone: "wanted", label: CALL_HIGHLIGHT_LABELS.motivation, value: highlights.motivation });
   }
   if (highlights.exclusivity === true) {
-    fields.push({ label: CALL_HIGHLIGHT_LABELS.exclusivity, value: "עלתה בשיחה" });
+    fields.push({ tone: "decision", label: CALL_HIGHLIGHT_LABELS.exclusivity, value: "עלתה בשיחה" });
   }
   /*
    * הרשימות מאוחדות לשדה אחד ולא לשדה לכל פריט: „ביקש: מעלית,
@@ -233,33 +270,31 @@ export function CallHighlightFields({
   for (const key of ["features", "objections", "commitments"] as const) {
     const items = highlights[key];
     if (items !== undefined && items.length > 0) {
-      fields.push({ label: CALL_HIGHLIGHT_LABELS[key], value: items.join(" · ") });
+      fields.push({
+        tone: key === "features" ? "wanted" : "attention",
+        label: CALL_HIGHLIGHT_LABELS[key],
+        value: items.join(" · "),
+      });
     }
   }
   if (highlights.callback !== undefined) {
-    fields.push({ label: CALL_HIGHLIGHT_LABELS.callback, value: highlights.callback });
+    fields.push({ tone: "attention", label: CALL_HIGHLIGHT_LABELS.callback, value: highlights.callback });
   }
   if (fields.length === 0) return null;
 
   return (
-    <dl className="mt-3 mb-0 flex flex-wrap gap-2">
-      {fields.map((field) => (
-        <div
-          key={field.label}
-          className="rounded-[11px] border px-3 py-2"
-          style={{ background: "var(--color-field)", borderColor: "var(--color-border)" }}
-        >
-          <dt
-            className="text-[length:var(--type-caption-lg)] font-extrabold"
-            style={{ color: "var(--color-text-muted)" }}
-          >
-            {field.label}
-          </dt>
-          <dd className="m-0 text-sm font-bold" {...(field.ltr ? { dir: "ltr" as const } : {})}>
-            {field.value}
-          </dd>
-        </div>
-      ))}
-    </dl>
+    <div className={header === undefined ? undefined : "mt-4"}>
+      {header}
+      <dl className="m-0 flex flex-wrap gap-2">
+        {fields.map((field) => (
+          <div key={field.label} className={`mv-call-chip ${TONE_DOMAIN[field.tone]}`}>
+            <dt className="font-extrabold">{field.label}:</dt>
+            <dd className="m-0" {...(field.ltr ? { dir: "ltr" as const } : {})}>
+              {field.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }

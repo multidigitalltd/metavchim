@@ -18,6 +18,7 @@ import {
   JERUSALEM_TZ,
 } from "@metavchim/shared";
 import { CallHighlightFields, CallTranscript } from "./call-parts";
+import { IconCopy, IconSparkle } from "../icons";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
@@ -149,6 +150,31 @@ export default function CallsPage() {
   const [query, setQuery] = useState("");
   const [direction, setDirection] = useState("");
   const [selected, setSelected] = useState<CallRow | null>(null);
+  /*
+   * ‎**„הועתק” נאמר רק כשההעתקה הצליחה.** דפדפן שחוסם את הלוח
+   * מחזיר דחייה, והודעת הצלחה עליה שולחת את המתווך להדביק כלום.
+   *
+   * ‏והוא נאמר רק לרגע: „הועתק” הוא אישור לפעולה שזה עתה נעשתה,
+   * לא הצהרה על מה שיש בלוח. מי שהעתיק, עבר לשיחה אחרת וחזר, היה
+   * מוצא „הועתק” על לוח שמאז הוחלף — טענה שאיננו יכולים לבדוק.
+   */
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (copiedKey === null) return;
+    const timer = setTimeout(() => setCopiedKey(null), 2000);
+    return () => clearTimeout(timer);
+  }, [copiedKey]);
+
+  async function copySection(key: string, text: string): Promise<void> {
+    if (text === "") return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+    } catch {
+      setCopiedKey(null);
+    }
+  }
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -579,9 +605,21 @@ export default function CallsPage() {
               </div>
 
               <div className="px-[22px] py-5">
-                <p className="mb-2.5 mt-0 text-[length:var(--type-caption-lg)] font-extrabold" style={{ color: "var(--color-text-muted)" }}>
-                  סיכום השיחה
-                </p>
+                {/*
+                  ‎**שני סעיפים, וכל אחד עם כותרת משלו.**
+
+                  הסיכום והפרטים שחולצו הוצגו כגוש אחד, ולכן מי שרצה
+                  „מה הוא מחפש” היה קורא את הסיכום כדי להגיע לשדות
+                  שמתחתיו. הכותרות אומרות מה יש בכל חלק, והסמל אומר
+                  שזה נכתב על ידי המערכת ולא הוקלד ביד — מה שקובע כמה
+                  לסמוך על זה.
+                */}
+                <CallSection
+                  title="סיכום שיחה"
+                  copy={selected.summary ?? undefined}
+                  copied={copiedKey === `sum-${selected.id}`}
+                  onCopy={() => void copySection(`sum-${selected.id}`, selected.summary ?? "")}
+                />
                 <div
                   className="whitespace-pre-wrap rounded-[13px] border p-3.5 text-sm"
                   style={{ background: "var(--color-field)", borderColor: "var(--color-border)", lineHeight: 1.55 }}
@@ -590,7 +628,20 @@ export default function CallsPage() {
                     <span style={{ color: "var(--color-text-muted)" }}>לא נרשם סיכום.</span>
                   )}
                 </div>
-                <CallHighlightFields highlights={selected.highlights ?? {}} />
+
+                {/*
+                  ‎**„פרטי לקוח” — התגיות שהמערכת חילצה מהשיחה עצמה.**
+
+                  הכותרת נמסרת פנימה ולא נבנית כאן: רק `CallHighlightFields`
+                  יודע אם נבנתה ולו תגית אחת, והוא מחזיר `null` כשלא.
+                  כותרת מעל ריק אומרת „לא נמצא כלום”, בזמן שהאמת היא
+                  „לא ידוע” — המחלץ מוצא ביטויים בטקסט, ומה שלא נתפס
+                  יכול היה להיאמר.
+                */}
+                <CallHighlightFields
+                  highlights={selected.highlights ?? {}}
+                  header={<CallSection title="פרטי לקוח" machine />}
+                />
 
                 <CallRecording
                   call={selected}
@@ -600,9 +651,15 @@ export default function CallsPage() {
                 />
 
                 <div className="mt-4 flex flex-wrap gap-3">
+                  {/*
+                    ‎**„צפייה בכרטיס לקוח” — היעד שקיים, ולא זה שהיינו
+                    רוצים.** לשיחה יש קישור לליד ולא לאיש הקשר, ולכן
+                    הכפתור מופיע רק כשיש ליד: קישור לכרטיס שאיננו
+                    יודעים לאתר היה נוחת על 404.
+                  */}
                   {selected.leadId ? (
                     <Link href={`/leads/${selected.leadId}`} className="mv-btn-soft">
-                      לכרטיס הליד
+                      צפייה בכרטיס לקוח ←
                     </Link>
                   ) : null}
                   {mayEdit ? (
@@ -622,6 +679,63 @@ export default function CallsPage() {
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * ‎**כותרת סעיף בכרטיס השיחה.**
+ *
+ * ‎`machine` אומר שהתוכן שמתחת **נכתב על ידי המערכת** ולא הוקלד
+ * ביד — וזו ידיעה שמשנה כמה לסמוך עליו. לכן הוא מוצהר בכל אתר
+ * קריאה בנפרד, ואינו ברירת מחדל: „סיכום שיחה” יכול להיות שדה
+ * ‎`summary` שהמתווך הקליד ביומן השיחות הידני, וסמל שאומר
+ * „נכתב אוטומטית” מעליו הוא ייחוס שקרי — הוא משנה כמה עמית סומך
+ * על הכתוב, ובכיוון ההפוך מהאמת (ביקורת Codex, P2).
+ *
+ * ‏„פרטי לקוח” הוא כן אוטומטי תמיד: `highlights` נכתב רק בצינור
+ * התמלול, ואין לו נתיב קלט ידני — סכמת היצירה `.strict()` אינה
+ * מקבלת אותו כלל.
+ *
+ * ‏כפתור ההעתקה מופיע רק כשיש מה להעתיק: כפתור מעל טקסט ריק
+ * מבטיח פעולה שלא תעשה דבר.
+ */
+function CallSection({
+  title,
+  machine,
+  copy,
+  copied,
+  onCopy,
+}: {
+  title: string;
+  machine?: boolean;
+  copy?: string;
+  copied?: boolean;
+  onCopy?: () => void;
+}) {
+  return (
+    <div className="mb-2.5 flex items-center gap-2">
+      {machine === true ? (
+        <span aria-hidden="true" style={{ color: "var(--color-primary)" }}>
+          <IconSparkle s={16} />
+        </span>
+      ) : null}
+      <span
+        className="text-[length:var(--type-caption-lg)] font-extrabold"
+        style={{ color: "var(--color-text-muted)" }}
+      >
+        {title}
+      </span>
+      {copy !== undefined && copy !== "" && onCopy ? (
+        <button
+          type="button"
+          className="mv-btn-plain"
+          style={{ padding: "3px 9px", fontSize: "var(--type-caption)" }}
+          onClick={onCopy}
+        >
+          <IconCopy s={13} /> {copied ? "הועתק" : "העתקה"}
+        </button>
+      ) : null}
+    </div>
   );
 }
 

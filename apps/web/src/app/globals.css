@@ -4333,6 +4333,30 @@ a.mv-bar-row:focus-visible {
   gap: 12px;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
+/*
+ * ‎**צ'יפ פרט-שיחה — תווית וערך בשורה אחת.**
+ *
+ * הפרטים שחולצו הוצגו כקופסאות דו-שורתיות, ועשרה מהן מילאו את
+ * הכרטיס ודחקו את הסיכום החוצה. שורה אחת נסרקת במבט, והגוון מגיע
+ * מהדומיין (`mv-domain-*`) ולכן נכון בבהיר, בכהה ובניגודיות גבוהה.
+ *
+ * ‎`inline-flex` ולא `flex`: הצ'יפ מתרחב לפי תוכנו, ו„הערות נוספות”
+ * הארוך נשבר לשורות בתוך עצמו במקום לחתוך.
+ */
+.mv-call-chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 100%;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: var(--type-caption-lg);
+  background: var(--d-bg, var(--domain-neutral-bg));
+  border: 1px solid var(--d-line, var(--color-input-border));
+  color: var(--d-fg, var(--domain-neutral-fg));
+}
+
 .mv-stat-tile {
   display: flex;
   flex-direction: column;
