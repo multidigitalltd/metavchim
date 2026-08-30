@@ -42,7 +42,12 @@ import {
   isConfirmMessage,
   isHelpMessage,
 } from "./assistant-lang";
-import { agentWelcomeExamples, looksLikeWhatsappLinkCode } from "@metavchim/shared";
+import {
+  agentWelcomeExamples,
+  looksLikeWhatsappLinkCode,
+  WHATSAPP_AGENT_DENIAL_TEXT,
+  whatsappAgentDenial,
+} from "@metavchim/shared";
 import {
   lockConversation,
   mergeTurns,
@@ -54,7 +59,6 @@ import { GeminiService } from "../../core/gemini.service";
 import { toWhatsAppAudio } from "./audio-transcode";
 import { phoneDigitsCondition } from "./phone-match";
 import { helpMenu } from "./assistant-help";
-import { WHATSAPP_AGENT_DENIAL_TEXT, whatsappAgentDenial } from "./whatsapp-entitlement";
 import {
   buttonAsText,
   choiceVariant,

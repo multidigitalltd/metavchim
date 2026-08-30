@@ -1,8 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { WHATSAPP_LINK_MAX_AGE_DAYS } from "@metavchim/shared";
-import { apiDelete, apiGet, apiPost } from "@/lib/api";
+import {
+  WHATSAPP_AGENT_DENIAL_TEXT,
+  WHATSAPP_LINK_MAX_AGE_DAYS,
+  type WhatsappAgentDenial,
+} from "@metavchim/shared";
+import { ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
 import { Notice } from "../notice";
 import { formatDate } from "@/lib/format";
 
@@ -28,6 +32,15 @@ interface LinkStatus {
   lastSeenAt?: string;
   implicit?: boolean;
   needsReverification?: boolean;
+  /**
+   * ‎**למה אי אפשר לחבר** — כשהמסלול אינו כולל את הסוכן, או שלא
+   * הופעל מנוי אישי.
+   *
+   * מגיע מהשרת יחד עם המצב, ולא רק כשגיאה אחרי לחיצה: המסך הציע
+   * „הפקת קוד חיבור” לכל אחד, וההסבר האמיתי נבלע ל„נסו שוב” —
+   * הוראה לנסות שוב על בקשה שלעולם לא תצליח (ביקורת Codex).
+   */
+  denial?: WhatsappAgentDenial;
 }
 
 function dateText(iso: string | undefined): string {
@@ -64,7 +77,13 @@ export function WhatsAppLinkSection() {
     setCode(null);
     apiPost<{ code: string }>("/settings/whatsapp-link/code", {})
       .then((res) => setCode(res.code))
-      .catch(() => setMessage("הפקת הקוד נכשלה — נסו שוב"))
+      /*
+       * הודעת השרת נשמרת ואינה מוחלפת: 403 כאן נושא את הסיבה
+       * המדויקת, ו„נסו שוב” במקומה שולח את המתווך ללחוץ שוב.
+       */
+      .catch((err: unknown) =>
+        setMessage(err instanceof ApiError ? err.message : "הפקת הקוד נכשלה — נסו שוב"),
+      )
       .finally(() => setBusy(false));
   }
 
@@ -137,7 +156,9 @@ export function WhatsAppLinkSection() {
         </dl>
       ) : (
         <p className="m-0 mb-3 text-[length:var(--type-caption-lg)]">
-          אין כרגע מכשיר מחובר. הפיקו קוד ושלחו אותו בוואטסאפ מהמכשיר שלכם.
+          {status.denial === undefined
+            ? 'אין כרגע מכשיר מחובר. הפיקו קוד ושלחו אותו בוואטסאפ מהמכשיר שלכם.'
+            : 'אין כרגע מכשיר מחובר.'}
         </p>
       )}
 
@@ -158,10 +179,22 @@ export function WhatsAppLinkSection() {
         </div>
       )}
 
+      {/*
+        ‎**כשאי אפשר — אומרים למה, ולא מציעים כפתור.**
+
+        הניתוק נשאר זמין גם אז: מי שהזכאות שלו נשללה אחרי שכבר חיבר
+        מכשיר חייב להיות מסוגל לנתק אותו.
+      */}
+      {status?.denial === undefined ? null : (
+        <Notice tone="info">{WHATSAPP_AGENT_DENIAL_TEXT[status.denial]}</Notice>
+      )}
+
       <div className="flex flex-wrap gap-2">
-        <button type="button" className="mv-btn-primary" onClick={issue} disabled={busy}>
-          {status?.linked === true ? "לחבר מכשיר אחר" : "הפקת קוד חיבור"}
-        </button>
+        {status?.denial === undefined ? (
+          <button type="button" className="mv-btn-primary" onClick={issue} disabled={busy}>
+            {status?.linked === true ? "לחבר מכשיר אחר" : "הפקת קוד חיבור"}
+          </button>
+        ) : null}
         {status?.linked === true || code !== null ? (
           <button type="button" className="mv-btn-ghost" onClick={revokeLink} disabled={busy}>
             {status?.linked === true ? "לנתק את המכשיר" : "לבטל את הקוד"}
