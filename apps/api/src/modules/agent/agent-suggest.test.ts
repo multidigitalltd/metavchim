@@ -120,8 +120,37 @@ describe("‎הנעיצה — הבחירה של המתווך", () => {
     expect(INTERPRET).toContain("agentAction(chosenId)");
   });
 
-  it("הרשאה נבדקת על הנעיצה — בחירה אינה מרחיבה הרשאות", () => {
-    expect(INTERPRET).toMatch(/pin !== undefined && allowed\.some\(\(a\) => a\.id === pin\)/u);
+  /*
+   * ‎**נעיצה שאינה מותרת עוצרת — ואינה מושמטת.**
+   *
+   * ההרשאה יכולה להישלל בין הרגע שההצעה הוצגה לרגע שנלחצה. השמטת
+   * הנעיצה נראית כמו הגנה והיא ההפך: המשפט נפרש מחדש וחופשי, נבחרת
+   * פעולה מותרת **אחרת**, ופעולת קריאה רצה מיד בשני הערוצים — אותה
+   * תקלה בדיוק, בדלת אחרת (ביקורת Codex, P1).
+   *
+   * הכלל מוחלט: לחיצה מניבה את הפעולה שנלחצה, או שום פעולה.
+   */
+  it("נעיצה שאינה מותרת עוצרת ואינה מושמטת", () => {
+    expect(INTERPRET).toMatch(
+      /if \(pin !== undefined && !allowed\.some\(\(a\) => a\.id === pin\)\) \{/u,
+    );
+    const guard = INTERPRET.slice(
+      INTERPRET.indexOf("if (pin !== undefined && !allowed.some"),
+      INTERPRET.indexOf("const attempt = await this.viaLlm("),
+    );
+    expect(guard).toContain('actionId: "unknown"');
+    // לא נקראת קריאה, ולא נופלים לחוקים — שניהם היו בוחרים פעולה אחרת
+    expect(guard).not.toContain("viaRules");
+    expect(guard).not.toContain("viaLlm");
+  });
+
+  /*
+   * גם החסימה נרשמת ביומן: יציאה מוקדמת שאינה עוברת ברישום היא
+   * בדיוק המקרה שנעלם ממנו.
+   */
+  it("גם נעיצה שנחסמה נרשמת ביומן", () => {
+    expect(INTERPRET).toContain("private recorded(");
+    expect(INTERPRET).toMatch(/return this\.recorded\(\s*\{/u);
   });
 
   /*
@@ -143,7 +172,7 @@ describe("‎הנעיצה — הבחירה של המתווך", () => {
    * המנגנון הזה נועד למנוע (ביקורת Codex, P1).
    */
   it("הנעיצה עוברת גם לרצפה הדטרמיניסטית", () => {
-    expect(INTERPRET).toContain("this.viaRules(transcript, allowed, pinned)");
+    expect(INTERPRET).toContain("this.viaRules(transcript, allowed, pin)");
     expect(INTERPRET).toContain("const actionId = pin ?? RULE_ACTION_MAP[command.action];");
   });
 });

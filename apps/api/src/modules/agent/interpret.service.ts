@@ -124,24 +124,58 @@ export class AgentInterpretService {
     pin?: string,
   ): Promise<Interpretation> {
     const allowed = this.allowedActions();
-    const pinned =
-      pin !== undefined && allowed.some((a) => a.id === pin) ? pin : undefined;
-    const attempt = await this.viaLlm(
-      transcript,
-      allowed,
-      prior,
-      history,
-      channel,
-      speaker,
-      pinned,
-    );
-    const interpretation =
-      attempt?.interpretation ?? this.viaRules(transcript, allowed, pinned);
     /*
-     * כל פירוש נרשם ביומן המשימות — גם כשה-LLM נכשל ונפלנו לחוקים,
-     * כי אז נרשמת גם העלות ששולמה על הכישלון. fire-and-forget:
-     * הרישום לעולם אינו מעכב את התשובה למתווך.
+     * ‎**נעיצה שאינה מותרת עוצרת — ואינה מושמטת.**
+     *
+     * ההרשאה יכולה להישלל בין הרגע שההצעה הוצגה לרגע שנלחצה. השמטת
+     * הנעיצה במקרה כזה נראית כמו הגנה והיא ההפך: המשפט נפרש **מחדש
+     * וחופשי**, המודל או מנוע החוקים בוחרים פעולה מותרת אחרת, ופעולת
+     * קריאה רצה מיד בשני הערוצים. כלומר לחיצה על „קבע פגישה” שנחסמה
+     * הייתה מריצה בשקט חיפוש קונים — בדיוק אותה תקלה, בדלת אחרת
+     * (ביקורת Codex).
+     *
+     * הכלל מוחלט: לחיצה מניבה את הפעולה שנלחצה, או שום פעולה.
      */
+    if (pin !== undefined && !allowed.some((a) => a.id === pin)) {
+      return this.recorded(
+        {
+          actionId: "unknown",
+          params: {},
+          evidence: {},
+          unmapped: [],
+          rejected: [],
+          clarify: "הפעולה שבחרתם אינה זמינה לכם כרגע — אפשר לנסח אחרת.",
+          suggest: [],
+          fallback: false,
+          steps: [],
+        },
+        transcript,
+        channel,
+        null,
+      );
+    }
+    const attempt = await this.viaLlm(transcript, allowed, prior, history, channel, speaker, pin);
+    const interpretation =
+      attempt?.interpretation ?? this.viaRules(transcript, allowed, pin);
+    return this.recorded(interpretation, transcript, channel, attempt);
+  }
+
+  /**
+   * רישום ביומן המשימות, והחזרת הפירוש כפי שהוא.
+   *
+   * ‎**כל** פירוש נרשם — גם כשה-LLM נכשל ונפלנו לחוקים (כי אז נרשמת
+   * העלות ששולמה על הכישלון), וגם כשלא נקראה קריאה כלל, כמו נעיצה
+   * שנחסמה. יציאה מוקדמת שאינה עוברת כאן היא בדיוק המקרה שנעלם
+   * מהיומן, ולכן הרישום יושב בפונקציה אחת ולא בזנב.
+   *
+   * fire-and-forget: הרישום לעולם אינו מעכב את התשובה למתווך.
+   */
+  private recorded(
+    interpretation: Interpretation,
+    transcript: string,
+    channel: "web" | "whatsapp",
+    attempt: { model: string; latencyMs: number; usage?: GeminiUsage } | null,
+  ): Interpretation {
     void this.events.record({
       channel,
       kind: "interpret",
