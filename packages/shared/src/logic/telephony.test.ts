@@ -364,52 +364,113 @@ describe("ולידציה של המספר", () => {
 
 describe("build015DialUrl", () => {
   const base = {
+    customer: "54936",
     authUsername: "office",
     authPassword: "s3cret",
-    agentLine: "0501234567",
+    agentLine: "201",
+    softphone: true,
     destination: "0529876543",
   };
 
-  it("שמות הפרמטרים בדיוק כמו בתיעוד של 015", () => {
-    const url = new URL(build015DialUrl(base));
-    expect(url.origin + url.pathname).toBe(PBX015_MAKE_URL);
-    expect(url.searchParams.get("auth_username")).toBe("office");
-    expect(url.searchParams.get("auth_password")).toBe("s3cret");
-    expect(url.searchParams.get("stype")).toBe("phone");
-    expect(url.searchParams.get("snumber")).toBe("0501234567");
-    expect(url.searchParams.get("cnumber")).toBe("0529876543");
+  /*
+   * השאילתה מופרדת ב**נקודה-פסיק** ולא ב-`&`, ולכן `new URL(...)`
+   * רואה פרמטר אחד ארוך. הפענוח כאן מפרק לפי הצורה שנשלחת בפועל —
+   * בדיקה שמפרקת אחרת אינה בודקת את מה שיוצא לרשת.
+   */
+  function params(url: string): Map<string, string> {
+    const query = url.slice(url.indexOf("?") + 1).replace(/;$/u, "");
+    return new Map(
+      query.split(";").map((pair) => {
+        const at = pair.indexOf("=");
+        return [pair.slice(0, at), decodeURIComponent(pair.slice(at + 1))] as [string, string];
+      }),
+    );
+  }
+
+  it("הצורה שהתמיכה של 015 מסרה — פרמטר-פרמטר", () => {
+    const url = build015DialUrl(base);
+    expect(url.startsWith(`${PBX015_MAKE_URL}?`)).toBe(true);
+    const p = params(url);
+    expect(p.get("customer")).toBe("54936");
+    expect(p.get("auth_username")).toBe("office");
+    expect(p.get("auth_password")).toBe("s3cret");
+    expect(p.get("stype")).toBe("phone");
+    expect(p.get("snumber")).toBe("201");
+    expect(p.get("ctype")).toBe("forward");
+    expect(p.get("cnumber")).toBe("0529876543");
+    expect(p.get("callerid1")).toBe("0529876543");
+    expect(p.get("answer1")).toBe("1");
+  });
+
+  it("המפריד הוא נקודה-פסיק, והיא גם סוגרת", () => {
+    const url = build015DialUrl(base);
+    expect(url.includes("&")).toBe(false);
+    expect(url.endsWith(";")).toBe(true);
   });
 
   /*
-   * ‎`ctype` ריק = מספר חיצוני. התיעוד מסמן אותו כ"מומלץ", והשמטתו
-   * הותירה את הפירוש לברירת המחדל של הספק — שאם תיפול ל"קו", היעד
-   * היה מתפרש כשלוחה פנימית והשיחה ללקוח לא הייתה יוצאת.
+   * ‎`ctype` היה נשלח **ריק**, עם נימוק בקוד ש„ריק = מספר חיצוני”.
+   * זו הייתה השערה מול התיעוד, והתמיכה מסרה `forward`. הבדיקה
+   * ננעלת על הערך שנמסר כדי שהניחוש לא יחזור.
    */
-  it("ctype נשלח ריק — היעד הוא מספר חיצוני ולא שלוחה", () => {
-    const url = new URL(build015DialUrl(base));
-    expect(url.searchParams.has("ctype")).toBe(true);
-    expect(url.searchParams.get("ctype")).toBe("");
+  it("ctype הוא forward — לא ריק", () => {
+    expect(params(build015DialUrl(base)).get("ctype")).toBe("forward");
   });
 
   it("הסוכן ראשון והלקוח שני — ולא הפוך", () => {
     // היפוך היה מצלצל אצל הלקוח וממתין שהוא יענה כדי לחייג לסוכן
-    const url = new URL(build015DialUrl(base));
-    expect(url.searchParams.get("snumber")).toBe(base.agentLine);
-    expect(url.searchParams.get("cnumber")).toBe(base.destination);
+    const p = params(build015DialUrl(base));
+    expect(p.get("snumber")).toBe(base.agentLine);
+    expect(p.get("cnumber")).toBe(base.destination);
   });
 
-  it("wait נשלח תמיד — בלעדיו אין callid לקשור אליו את הוובהוק", () => {
-    expect(new URL(build015DialUrl(base)).searchParams.get("wait")).toBe("5");
+  /*
+   * ‎`callerid1` הוא מספר **הלקוח** ולא של המשרד: הרגל הראשונה
+   * מצלצלת אצל הסוכן, ומה שמוצג עליה הוא מי שהוא עומד לדבר איתו.
+   */
+  it("מזהה המתקשר על הרגל הראשונה הוא מספר הלקוח", () => {
+    expect(params(build015DialUrl(base)).get("callerid1")).toBe(base.destination);
   });
 
-  it("מזהה המתקשר יושב על הרגל השנייה — זו שהלקוח רואה", () => {
-    const url = new URL(build015DialUrl({ ...base, callerId: "037654321" }));
-    expect(url.searchParams.get("callerid2")).toBe("037654321");
-    expect(url.searchParams.get("callerid1")).toBeNull();
+  /*
+   * נייד אינו „עונה מעצמו”. `answer1` על מספר סלולרי הוא במקרה
+   * הטוב חסר משמעות, ובמקרה הרע שיחה שנפתחת בלי שאיש מחזיק את
+   * המכשיר — ולכן הוא נגזר מהסוג של הקו ולא נשלח תמיד.
+   */
+  it("answer1 רק על שלוחת סופטפון", () => {
+    expect(params(build015DialUrl({ ...base, softphone: false })).has("answer1")).toBe(false);
   });
 
-  it("בלי מזהה מתקשר — הפרמטר לא נשלח כלל", () => {
-    expect(new URL(build015DialUrl(base)).searchParams.get("callerid2")).toBeNull();
+  it("מזהה המתקשר של המשרד יושב על הרגל השנייה — זו שהלקוח רואה", () => {
+    const p = params(build015DialUrl({ ...base, callerId: "037654321" }));
+    expect(p.get("callerid2")).toBe("037654321");
+  });
+
+  it("בלי מזהה מתקשר — callerid2 לא נשלח כלל", () => {
+    expect(params(build015DialUrl(base)).has("callerid2")).toBe(false);
+  });
+
+  /*
+   * ‎`wait` הוסר: הוא אינו בתבנית שהתמיכה מסרה. הבדיקה שומרת על כך
+   * שלא יחזור בטעות — שליחתו החזירה 204 עם `callid`, וכעת התשובה
+   * עשויה להגיע בלעדיו, וזה בסדר.
+   */
+  it("wait אינו נשלח", () => {
+    expect(params(build015DialUrl(base)).has("wait")).toBe(false);
+  });
+
+  /*
+   * המפריד הוא `;`, ולכן ערך שיש בו `;` חייב להיות מקודד — אחרת
+   * סיסמה נחתכת לשני פרמטרים, והבקשה מתאמתת בסיסמה קטועה ומחזירה
+   * ‎„פרטי התחברות שגויים”. `encodeURIComponent` אכן מקודדת אותו
+   * ל-`%3B`, והבדיקה נועלת את זה: היא בודקת את המחרוזת שיוצאת
+   * לרשת, ולא את מה שאנחנו זוכרים על הפונקציה.
+   */
+  it("ערך שיש בו נקודה-פסיק אינו שובר את השאילתה", () => {
+    const url = build015DialUrl({ ...base, authPassword: "a;b=c" });
+    expect(url.includes("a;b")).toBe(false);
+    expect(params(url).get("auth_password")).toBe("a;b=c");
+    expect(params(url).get("stype")).toBe("phone");
   });
 });
 

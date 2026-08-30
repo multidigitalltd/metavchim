@@ -512,18 +512,29 @@ export class TelephonyService {
     const authUsername = (config["authUsername"] ?? secrets["authUsername"] ?? "").trim();
     const authPassword = (secrets["authPassword"] ?? "").trim();
     /*
+     * ‎`customer` הצטרף לשלישייה. הוא נדרש ב-`calls/make` לפי התמיכה
+     * של 015, ולא נשלח מעולם — משרד שכבר מחובר לא מילא אותו, ולכן
+     * הבדיקה כאן היא מה שהופך „החיוג לא עובד” להוראה מה להשלים.
+     */
+    const customer = (config["customer"] ?? "").trim();
+    /*
      * ההודעה נוקבת ב**שדה החסר**. "חסרים פרטי ההתחברות" שלח את המשתמש
      * למסך שבו שם המשתמש נראה מלא, ולכן לא היה ברור מה בעצם להשלים.
      */
-    if (authUsername === "" || authPassword === "") {
-      const missing =
-        authUsername === "" && authPassword === ""
-          ? "שם המשתמש והסיסמה"
-          : authUsername === ""
-            ? "שם המשתמש"
-            : "הסיסמה";
+    const missing = [
+      ["מספר הלקוח", customer],
+      ["שם המשתמש", authUsername],
+      ["הסיסמה", authPassword],
+    ]
+      .filter(([, value]) => value === "")
+      .map(([label]) => label);
+    if (missing.length > 0) {
+      const list =
+        missing.length === 1
+          ? missing[0]
+          : `${missing.slice(0, -1).join(", ")} ו${missing.at(-1)}`;
       throw new BadRequestException(
-        `חסר ${missing} של 015 — השלימו בהגדרות המשרד, במרכזיית הטלפון`,
+        `חסר ${list} של 015 — השלימו בהגדרות המשרד, במרכזיית הטלפון`,
       );
     }
 
@@ -545,9 +556,21 @@ export class TelephonyService {
 
     const agent = await this.prisma.user.findFirst({
       where: { id: userId, tenantId },
-      select: { phone: true },
+      select: { phone: true, sipUsername: true },
     });
-    const agentLine = agent?.phone?.trim() || config["defaultLine"]?.trim() || "";
+    /*
+     * ‎**שלוחת הסופטפון ראשונה, הנייד אחריה.**
+     *
+     * עד עכשיו החיוג צלצל תמיד בנייד שבפרופיל. זו הייתה החלטה
+     * סבירה כשלא היה סופטפון — היום יש, והסוכן שלחץ „חייג” במסך
+     * מצפה שהשיחה תיפתח **באותו מסך**, ולא שהכיס יתחיל לרטוט.
+     *
+     * הנייד נשאר כנפילה-לאחור, ולא כברירת מחדל: סוכן שטרם הוקצתה
+     * לו שלוחה ממשיך לחייג בדיוק כמו קודם. הסדר הזה הוא מה שמאפשר
+     * להפעיל את הסופטפון בהדרגה, סוכן-סוכן, בלי יום מעבר.
+     */
+    const sipLine = agent?.sipUsername?.trim() ?? "";
+    const agentLine = sipLine || agent?.phone?.trim() || config["defaultLine"]?.trim() || "";
     if (agentLine === "") {
       throw new BadRequestException(
         /*
@@ -555,15 +578,19 @@ export class TelephonyService {
          * תיאור מדויק של התקלה ועדיין משאיר את המשתמש לחפש — והמסך
          * שבו מוסיפים את המספר אינו מסך המרכזייה, אלא הפרופיל.
          */
-        "אין טלפון בפרופיל שלכם ולא הוגדר קו ברירת מחדל — החיוג לא יודע לאן לצלצל. " +
-          "הוסיפו את מספר הטלפון שלכם במסך הפרופיל, או קו ברירת מחדל בהגדרות המרכזייה.",
+        "אין שלוחת סופטפון ולא טלפון בפרופיל שלכם, ולא הוגדר קו ברירת מחדל — " +
+          "החיוג לא יודע לאן לצלצל. הוסיפו את מספר הטלפון שלכם במסך הפרופיל, " +
+          "או בקשו ממנהל המשרד שלוחה בהגדרות המרכזייה.",
       );
     }
 
     const url = build015DialUrl({
+      customer,
       authUsername,
       authPassword,
       agentLine,
+      // ‎`answer1` רק על שלוחה — נייד אינו יכול „לענות מעצמו”
+      softphone: sipLine !== "",
       destination,
       ...(config["callerId"] ? { callerId: config["callerId"] } : {}),
     });
