@@ -1,3 +1,5 @@
+import type { PropertyReadinessField } from "@metavchim/shared";
+
 /**
  * רצועות המוכנות — **מקום אחד, שני מסכים.**
  *
@@ -192,3 +194,56 @@ export function readinessTargetHref(propertyId: string, target: ReadinessTarget)
   if (target.kind === "tab") return `/properties/${propertyId}?tab=${target.tab}`;
   return `/properties/${propertyId}#${target.id}`;
 }
+
+/**
+ * ‎**למה שווה להשלים את השדה הזה** — ולא רק שהוא חסר.
+ *
+ * הרשת שבכרטיס אומרת „חסר”, והרצועה שבכותרת אומרת „7 שדות חסרים”.
+ * שתיהן נכונות ואף אחת אינה עונה על השאלה שמתווך באמת שואל: למה
+ * שאכפת לי. „בלי מחיר הנכס לא נכנס להתאמות” הוא סיבה; „חסר מחיר”
+ * הוא דיווח.
+ *
+ * ‎`Record` על הטיפוס ולא על מחרוזת: שדה עשירי שיתווסף למוכנות
+ * יפיל את המהדר כאן, ולא יופיע ברשימה בלי נימוק.
+ */
+export const READINESS_ADVICE: Record<
+  PropertyReadinessField,
+  { action: string; why: string }
+> = {
+  priceAgorot: {
+    action: "להוסיף מחיר מבוקש",
+    why: "בלי מחיר הנכס אינו נכנס להתאמות",
+  },
+  images: {
+    action: "להעלות תמונות",
+    why: "נכס עם תמונות מקבל יותר פניות",
+  },
+  areaSqm: {
+    action: 'למלא שטח במ"ר',
+    why: "משפיע על דיוק ההתאמה",
+  },
+  rooms: {
+    action: "למלא מספר חדרים",
+    why: "זה השדה הראשון שקונה מסנן לפיו",
+  },
+  floor: {
+    action: "לציין קומה",
+    why: "קונים רבים מסננים לפי קומה ומעלית",
+  },
+  hasElevator: {
+    action: "לסמן אם יש מעלית",
+    why: "שאלה ראשונה בכל סיור, ועשר שניות למלא",
+  },
+  hasParking: {
+    action: "לסמן אם יש חניה",
+    why: "שאלה ראשונה בכל סיור, ועשר שניות למלא",
+  },
+  marketingDescription: {
+    action: "לכתוב תיאור שיווקי",
+    why: "זה מה שנשלח ללקוח ומופיע בדף הנחיתה",
+  },
+  owner: {
+    action: "לשייך בעל נכס",
+    why: "בלעדיו אין למי לחזור עם עדכון",
+  },
+};
