@@ -62,24 +62,41 @@ describe("זכאות לסוכן בוואטסאפ", () => {
  * נראים דומה מבחוץ והם שונים לגמרי כשמשרד משדרג מסלול.
  */
 describe("מקומות לסוכן הוואטסאפ", () => {
+  const seats = (planHasAgent: boolean, granted = 0, paid = 0): number =>
+    whatsappAgentSeats({ planHasAgent, granted, paid });
+
   it("מסלול שכולל את הסוכן מזכה באחד", () => {
-    expect(whatsappAgentSeats(true, 0)).toBe(1);
+    expect(seats(true)).toBe(1);
   });
 
   it("מסלול שאינו כולל מזכה באפס, גם אם נרכשו תוספות", () => {
-    expect(whatsappAgentSeats(false, 0)).toBe(0);
-    expect(whatsappAgentSeats(false, 5)).toBe(0);
+    expect(seats(false)).toBe(0);
+    expect(seats(false, 5, 3)).toBe(0);
   });
 
-  it("כל תוספת שנרכשה מצטרפת לאחד הכלול", () => {
-    expect(whatsappAgentSeats(true, 1)).toBe(2);
-    expect(whatsappAgentSeats(true, 4)).toBe(5);
+  it("כל תוספת שהוענקה מצטרפת לאחד הכלול", () => {
+    expect(seats(true, 1)).toBe(2);
+    expect(seats(true, 4)).toBe(5);
+  });
+
+  it("כל מנוי בתשלום מצטרף לאחד הכלול", () => {
+    expect(seats(true, 0, 1)).toBe(2);
+    expect(seats(true, 0, 3)).toBe(4);
+  });
+
+  /*
+   * ‎**הענקה ותשלום נספרים יחד ואינם מחליפים זה את זה.** הענקה
+   * שהייתה נבלעת ברגע שהמשרד קונה מקום היא בדיוק הבאג שגורם לו
+   * לשלם על מה שכבר קיבל.
+   */
+  it("הענקה ידנית ומנוי בתשלום מצטברים", () => {
+    expect(seats(true, 2, 3)).toBe(6);
   });
 
   /* ערך פגום בעמודה לא יגדיל מכסה ולא ירד מתחת לכלול */
   it("ערך שלילי או שבור אינו גורע מהמקום הכלול", () => {
-    expect(whatsappAgentSeats(true, -3)).toBe(1);
-    expect(whatsappAgentSeats(true, 1.7)).toBe(2);
+    expect(seats(true, -3, -2)).toBe(1);
+    expect(seats(true, 1.7, 2.9)).toBe(4);
   });
 });
 

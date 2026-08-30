@@ -106,7 +106,7 @@ export function grossFromNet(netAgorot: number, vatPercent: number): number {
 }
 
 /** מה נקנה — הבסיס לשורת המסמך. */
-export type InvoicePurpose = "subscription" | "credits" | "number_rental";
+export type InvoicePurpose = "subscription" | "credits" | "number_rental" | "whatsapp_seat";
 
 /**
  * תיאור השורה במסמך.
@@ -132,6 +132,16 @@ export function invoiceLineDescription(input: {
     return input.phone
       ? `השכרת מספר טלפון ${input.phone} — חודש`
       : "השכרת מספר טלפון — חודש";
+  }
+  /*
+   * ‎**מקום לסוכן אינו „מנוי חודשי” סתם.** בלי השורה הזו כל חיוב
+   * על מקום נפל לברירת המחדל והופק כמסמך של מנוי המסלול — כלומר
+   * מסמך חשבונאי שמתאר מוצר אחר מזה שנקנה, ורואה חשבון שמנסה
+   * להתאים תשלום למסמך רואה שני „מנוי חודשי” באותו חודש בלי דרך
+   * להבדיל ביניהם (ביקורת Codex).
+   */
+  if (input.purpose === "whatsapp_seat") {
+    return "מקום נוסף לסוכן הוואטסאפ — חודש";
   }
   const cycle = input.billingCycle === "yearly" ? "מנוי שנתי" : "מנוי חודשי";
   return input.planLabel ? `${cycle} — מסלול ${input.planLabel}` : cycle;

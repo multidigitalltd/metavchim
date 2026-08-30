@@ -17,6 +17,7 @@ import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
 import { PlanSection } from "./plan-section";
 import { WhatsAppStatusSection } from "./whatsapp-status-section";
+import { WhatsAppSeatPanel } from "./whatsapp-seat-panel";
 import { LockedFeature } from "./locked-feature";
 import { TelephonySection } from "./telephony-section";
 import { VirtualNumbersSection } from "./virtual-numbers-section";
@@ -531,6 +532,17 @@ export default function SettingsPage() {
                     : "."}
                 </p>
               )}
+
+              {/*
+                ‎**הרכישה במקום שבו נגמרו המקומות.**
+
+                בעל משרד שנחסם בהקצאה צריך את הכפתור כאן, ולא הפניה
+                למסך חיוב אחר — הרגע שבו הוא יודע שהוא צריך מקום
+                נוסף הוא הרגע הזה בדיוק.
+              */}
+              <div className="mx-5 mt-3">
+                <WhatsAppSeatPanel />
+              </div>
 
               {tempPassword ? (
                 <div

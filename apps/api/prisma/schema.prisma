@@ -2071,6 +2071,8 @@ model Payment {
   /// ההשכרה שהתשלום הזה משלם — ריק בתשלום שאינו השכרת מספר. זה מה
   /// שמפעיל בהצלחה את תפיסת המספר אצל 015 ואת תקופת ההשכרה.
   rentalId            String?   @map("rental_id") @db.Char(26)
+  /// המקום לסוכן הוואטסאפ שהתשלום הזה משלם — ריק בכל תשלום אחר.
+  seatId              String?   @map("seat_id") @db.Char(26)
   /// שיעור המע"מ שלפיו נבנה **הסכום הזה**, באחוזים.
   ///
   /// המחירון נקוב נטו, והסכום שנגבה הוא נטו ועוד מע"מ. המסמך נבנה
@@ -2092,6 +2094,45 @@ model Payment {
 
   @@index([tenantId, createdAt])
   @@map("payments")
+}
+
+/// מקום נוסף לסוכן הוואטסאפ — **מנוי חודשי, ולא רכישה לצמיתות.**
+///
+/// מקום אחד כלול בכל מסלול שכולל את הסוכן; כל מקום נוסף הוא שורה
+/// כאן, ומחויב מדי חודש בכרטיס השמור. שורה אחת = מקום אחד, ולא
+/// מונה: ביטול של מקום בודד, תאריך סיום שונה לכל אחד, וחשבונית
+/// לכל חיוב — כולם דורשים שורה, ומונה לא היה יודע לבטא אף אחד מהם.
+///
+/// מחוץ ל-RLS, כמו payments ומאותה סיבה: ההפעלה מגיעה מהוובהוק של
+/// קארדקום — נתיב ציבורי בלי הקשר דייר — וסורק החידושים עובר על כל
+/// המשרדים יחד. אין כאן מידע על לקוחות קצה; הסינון לפי דייר נאכף
+/// בשכבת האפליקציה.
+model WhatsappSeat {
+  id               String    @id @db.Char(26)
+  tenantId         String    @map("tenant_id") @db.Char(26)
+  /// המחיר החודשי שסוכם ברגע הרכישה, באגורות. צילום ולא הפניה
+  /// למסלול: שינוי מחיר במסך הפלטפורמה חל על רכישות חדשות בלבד,
+  /// ומשרד שקנה במחיר ישן ממשיך בו.
+  monthlyAgorot    Int       @map("monthly_agorot")
+  /// pending | active | past_due | cancelled | released
+  status           String    @default("pending") @db.VarChar(20)
+  /// יום החיוב בחודש — אותו עוגן ומאותה סיבה כמו במנוי: בלעדיו
+  /// מקום שנרכש ב-31 בחודש היה מתקצר לצמיתות אחרי פברואר.
+  billingAnchorDay Int?      @map("billing_anchor_day") @db.SmallInt
+  /// עד מתי שולם. חלק מחודש מחויב כחודש מלא — אין חישוב יחסי.
+  currentPeriodEnd DateTime? @map("current_period_end")
+  cancelledAt      DateTime? @map("cancelled_at")
+  /// מתי המקום נסגר בפועל והמכסה ירדה. `cancelledAt` הוא הבקשה,
+  /// וזה הביצוע — ביניהם המשרד ממשיך להשתמש במה ששילם עליו.
+  releasedAt       DateTime? @map("released_at")
+  createdBy        String?   @map("created_by") @db.Char(26)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, status])
+  /// סורק החידושים והשחרורים עובר על הצירוף הזה
+  @@index([status, currentPeriodEnd])
+  @@map("whatsapp_seats")
 }
 
 /// השכרת מספר וירטואלי מחשבון 015 של הפלטפורמה — מחוץ ל-RLS, כמו

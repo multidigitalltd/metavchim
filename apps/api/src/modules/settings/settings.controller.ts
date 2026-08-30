@@ -62,6 +62,7 @@ import {
   RequireCapability,
 } from "../../common/auth.decorators";
 import { lockTenantRow } from "../../common/locks";
+import { whatsappSeatQuotaWhere } from "../../core/whatsapp-seat-quota";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
@@ -603,10 +604,11 @@ export class SettingsController {
         typeof settings["defaultPaymentTerms"] === "string"
           ? settings["defaultPaymentTerms"]
           : undefined,
-      whatsappAgentSeats: whatsappAgentSeats(
-        await this.plans.tenantHasFeature(tenantId, "voice_intake"),
-        tenant?.whatsappAgentSeatsExtra ?? 0,
-      ),
+      whatsappAgentSeats: whatsappAgentSeats({
+        planHasAgent: await this.plans.tenantHasFeature(tenantId, "voice_intake"),
+        granted: tenant?.whatsappAgentSeatsExtra ?? 0,
+        paid: await this.paidSeatCount(tenantId),
+      }),
       whatsappAgentSeatsUsed: await this.prisma.withTenant((tx) =>
         tx.user.count({ where: { tenantId, isActive: true, whatsappAccess: true } }),
       ),
@@ -1313,16 +1315,30 @@ export class SettingsController {
    * הנעילה זהה לזו של מכסת המשתמשים ונלקחת באותה עסקה — היא ניתנת
    * לנעילה חוזרת, ולכן קריאה מתוך מסלול שכבר נעל אינה נחסמת.
    */
+  /**
+   * מקומות בתשלום פעילים — נספרים **מחוץ ל-RLS**.
+   *
+   * ‎`whatsapp_seats` היא טבלת פלטפורמה, כמו `payments`: ההפעלה
+   * מגיעה מהוובהוק של קארדקום בלי הקשר דייר. הסינון לפי דייר נאכף
+   * כאן, מפורשות, ולא נשען על מדיניות שאינה קיימת על הטבלה.
+   */
+  private async paidSeatCount(tenantId: string): Promise<number> {
+    return this.prisma.whatsappSeat.count({
+      where: whatsappSeatQuotaWhere(tenantId, new Date()),
+    });
+  }
+
   private async assertWhatsappSeatAvailable(tx: TenantTx, tenantId: string): Promise<void> {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${tenantId}`}))`;
     const tenant = await tx.tenant.findUnique({
       where: { id: tenantId },
       select: { whatsappAgentSeatsExtra: true },
     });
-    const seats = whatsappAgentSeats(
-      await this.plans.tenantHasFeature(tenantId, "voice_intake", tx),
-      tenant?.whatsappAgentSeatsExtra ?? 0,
-    );
+    const seats = whatsappAgentSeats({
+      planHasAgent: await this.plans.tenantHasFeature(tenantId, "voice_intake", tx),
+      granted: tenant?.whatsappAgentSeatsExtra ?? 0,
+      paid: await this.paidSeatCount(tenantId),
+    });
     if (seats === 0) {
       throw new BadRequestException(WHATSAPP_AGENT_DENIAL_TEXT.plan);
     }

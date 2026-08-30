@@ -26,6 +26,7 @@ import { PrismaService } from "../../core/prisma.service";
 import { VatService } from "../../core/vat.service";
 import { InvoiceService } from "./invoice.service";
 import { NumberRentalService } from "./number-rental.service";
+import { WhatsappSeatService } from "./whatsapp-seat.service";
 import { SubscriptionOfferService } from "./subscription-offer.service";
 
 /**
@@ -82,6 +83,7 @@ export class BillingService {
     private readonly creditEconomy: CreditEconomyService,
     private readonly offers: SubscriptionOfferService,
     private readonly numberRentals: NumberRentalService,
+    private readonly whatsappSeats: WhatsappSeatService,
     private readonly vat: VatService,
   ) {}
 
@@ -671,6 +673,35 @@ export class BillingService {
         return activated.periodEnd;
       }
 
+      /*
+       * מקום נוסף לסוכן הוואטסאפ — אותו דפוס בדיוק כמו השכרת מספר.
+       * אין כאן ספק חיצוני לתפוס, ולכן הכול נגמר בטרנזקציה.
+       */
+      if (payment.purpose === "whatsapp_seat") {
+        if (payment.seatId === null) return null;
+        const activated = await this.whatsappSeats.activateWithin(tx, payment.seatId, now);
+        if (activated === null) return null;
+        /*
+         * הכרטיס נשמר על שורת המנוי — אמצעי תשלום אחד למשרד, וזה
+         * מה שהחיוב החודשי המתחדש של המקום יחייב בו.
+         */
+        if (token !== null) {
+          await tx.subscription.updateMany({
+            where: { tenantId: payment.tenantId },
+            data: {
+              cardTokenEncrypted: token,
+              cardLast4: verified.cardLast4,
+              cardMonth: verified.cardMonth,
+              cardYear: verified.cardYear,
+              cardOwnerIdEncrypted: verified.cardOwnerIdentity
+                ? this.crypto.encrypt(verified.cardOwnerIdentity)
+                : null,
+            },
+          });
+        }
+        return activated.periodEnd;
+      }
+
       // מכאן והלאה — מנוי. בלי מסלול אין מה להפעיל.
       const planCode = payment.planCode;
       if (planCode === null) return null;
@@ -718,6 +749,9 @@ export class BillingService {
       if (payment.purpose === "number_rental") {
         await this.numberRentals.reportOrphanPayment(payment.id, payment.rentalId);
       }
+      if (payment.purpose === "whatsapp_seat") {
+        await this.whatsappSeats.reportOrphanPayment(payment.id, payment.seatId);
+      }
       return { applied: false, status: "paid" };
     }
 
@@ -745,7 +779,9 @@ export class BillingService {
         ? `קרדיטים נרכשו: משרד ${payment.tenantId}, ${payment.creditsPurchased ?? 0} קרדיטים`
         : payment.purpose === "number_rental"
           ? `השכרת מספר שולמה: משרד ${payment.tenantId}, עד ${outcome.toISOString()}`
-          : `מנוי הופעל: משרד ${payment.tenantId}, מסלול ${payment.planCode}, עד ${outcome.toISOString()}`,
+          : payment.purpose === "whatsapp_seat"
+            ? `מקום לסוכן הוואטסאפ שולם: משרד ${payment.tenantId}, עד ${outcome.toISOString()}`
+            : `מנוי הופעל: משרד ${payment.tenantId}, מסלול ${payment.planCode}, עד ${outcome.toISOString()}`,
     );
     return { applied: true, status: "paid" };
   }
