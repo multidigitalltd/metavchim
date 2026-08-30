@@ -1624,12 +1624,16 @@ export default function PropertyDetailPage({
 
       <TabPanel tab="matches" active={tab}>
         {/*
-            ---- שתי עמודות ההתאמה ----
-            שמאל: המאגר הפנימי. ימין: הרשת. אותה שאלה ("מי מתאים
-            לנכס הזה") משני מקורות, ובאותו סרגל ניקוד — כל עוד הן
-            היו במסכים נפרדים הסוכן ראה חצי תשובה וסגר את הכרטיס.
+            ‎**רוחב מלא, ולא חצי מסך ריק.**
+
+            כאן היה `lg:grid-cols-2` — שריד מהתקופה שבה המאגר והרשת
+            עמדו זה לצד זה. הרשת ירדה לרצועה משלה, והמסגרת נשארה: על
+            מסך רחב הכרטיס תפס **חצי** מהרוחב ולצידו עמודה ריקה,
+            והרשימה נדחסה לחצי בלי סיבה. שורת התאמה נושאת ציון, שם,
+            עובדות, תקציב, שתי פעולות ורצועת צ'יפים — היא צריכה את
+            כל הרוחב שיש.
           */}
-        <div className="grid items-start gap-4 lg:grid-cols-2">
+        <div className="flex flex-col gap-4">
           <section
             className="mv-card mv-card--pad"
             aria-labelledby="matches-heading"
@@ -1895,13 +1899,22 @@ export default function PropertyDetailPage({
                   ? MATURITY_TAG[m.buyerMaturity]
                   : undefined;
                 return (
+                  /*
+                    ‎**ההתאמה היא כרטיס, ורצועת הצ'יפים היא רצועה.**
+
+                    הצ'יפים היו מקוננים בתוך עמודת השם — כלומר „חדרים
+                    תואם · אזור תואם · חסר מחיר” נדחסו לרוחב שנשאר בין
+                    התקציב לכפתורים, ונשברו לשלוש שורות. `MatchExplanation`
+                    בנוי כרצועה תחתונה של כרטיס (יש לו `borderTop`
+                    ופינות תחתונות מעוגלות משלו), ומיקומו בפנים ביטל
+                    בדיוק את מה שהוא נבנה בשבילו.
+                  */
                   <div
                     key={m.id}
-                    className="flex flex-wrap items-center gap-[15px] py-[13px]"
-                    style={{
-                      borderBottom: "1px solid var(--color-row-border)",
-                    }}
+                    className="mt-2.5 overflow-hidden rounded-[14px]"
+                    style={{ border: "1px solid var(--color-row-border)" }}
                   >
+                    <div className="flex flex-wrap items-center gap-[15px] px-4 py-[13px]">
                     {/*
                       ‎**אריח ציון, לא טבעת אחוזים.**
 
@@ -1995,16 +2008,6 @@ export default function PropertyDetailPage({
                       >
                         {m.explanation}
                       </div>
-                      {/*
-                        רצועת ההסבר — SPEC-4a §1: „זה מה שהופך ציון
-                        לפעולה”. היא יושבת אחרי ההסבר המילולי ולא
-                        במקומו: המשפט אומר את המסקנה, והצ'יפים אומרים
-                        על מה היא נשענת ומה אפשר להשלים.
-                      */}
-                      <MatchExplanation
-                        breakdown={m.breakdown}
-                        propertyEvaluable={matchEvaluable}
-                      />
                       {awaitingSignature[m.id] ? (
                         <div className="mt-1.5 text-[length:var(--type-caption-lg)]">
                           <span style={{ color: "var(--color-danger)" }}>
@@ -2126,6 +2129,17 @@ export default function PropertyDetailPage({
                         </button>
                       )}
                     </div>
+                    </div>
+                    {/*
+                      רצועת ההסבר — SPEC-4a §1: „זה מה שהופך ציון
+                      לפעולה”. היא יושבת אחרי ההסבר המילולי ולא
+                      במקומו: המשפט אומר את המסקנה, והצ'יפים אומרים
+                      על מה היא נשענת ומה אפשר להשלים.
+                    */}
+                    <MatchExplanation
+                      breakdown={m.breakdown}
+                      propertyEvaluable={matchEvaluable}
+                    />
                   </div>
                 );
               })
@@ -2140,8 +2154,9 @@ export default function PropertyDetailPage({
               קונים שדרישת חובה שלהם נשברת (למשל: חובה מעלית ואין) — לא מוצגים
               כאן בכלל.
             </p>
+          </section>
 
-            {/*
+          {/*
               ‎**רצועת הרשת (SPEC-4a §1).**
 
               מוצגת **רק כשהחישוב באמת רץ** — כלומר `matches` נטען
@@ -2157,7 +2172,7 @@ export default function PropertyDetailPage({
             !outOfMarket(property.status) &&
             matchGateMissing(property, matchEvaluable).length === 0 ? (
               <div
-                className="mt-4 flex flex-wrap items-center gap-3.5 px-[18px] py-4"
+                className="flex flex-wrap items-center gap-3.5 px-[18px] py-4"
                 style={{ background: "var(--color-tab-active-bg)", borderRadius: 18 }}
               >
                 {/*
@@ -2203,7 +2218,6 @@ export default function PropertyDetailPage({
                 </button>
               </div>
             ) : null}
-          </section>
         </div>
       </TabPanel>
 
