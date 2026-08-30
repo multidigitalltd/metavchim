@@ -15,7 +15,7 @@ import {
   inboundBody,
   inboundProviderMessageId,
   inboundToken,
-  isProviderInboundRoute,
+  supportFromAddress,
   parseSenderEmail,
   parseSenderName,
   referenceFromSubject,
@@ -31,6 +31,7 @@ import {
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { EmailRejectedError, EmailService } from "../../core/email.service";
+import { EmailDomainProviderService } from "../../core/email-domain-provider.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
@@ -76,6 +77,11 @@ export class SupportInboxService {
     private readonly email: EmailService,
     private readonly storage: StorageService,
     private readonly settings: PlatformSettingsService,
+    /*
+     * ‎**מי רשאי לשלוח היא שאלה לספק, לא ניחוש.** נכנס לכאן רק בשביל
+     * `canSendFrom`; הרישום של דומייני המשרדים אינו נוגע לתמיכה.
+     */
+    private readonly provider: EmailDomainProviderService,
   ) {}
 
   /** כתובת ה-Inbound של תיבת התמיכה, והסוד שבנתיב ה-Webhook. */
@@ -695,11 +701,9 @@ export class SupportInboxService {
            * מזמינה את הפונה להשיב לכתובת שאיש אינו קורא, ומאבדת
            * את השרשור שה-Reply-To בנה (ביקורת Codex).
            */
-          ...(config === null
-            ? {}
-            : await this.sender(config.address).then((sender) =>
-                sender === null ? {} : { sender },
-              )),
+          ...(await this.sender(config?.address ?? null).then((sender) =>
+            sender === null ? {} : { sender },
+          )),
           ...(replyTo !== null ? { replyTo } : {}),
           ...(attachments.length > 0
             ? {
@@ -776,9 +780,19 @@ export class SupportInboxService {
     sender: { from: string; token?: string | undefined } | null;
     replyTo: string | null;
   }> {
+    /*
+     * ‎**השולח אינו תלוי בהגדרת הקליטה.**
+     *
+     * קודם `config === null` החזיר `null` בשניהם, ולכן כל עוד סוד
+     * ה-Webhook לא הוגדר — התשובות יצאו מ-`no_reply` **גם** כשכתובת
+     * שירות מוגדרת. שני הדברים אינם קשורים: „מאיפה זה יוצא” היא
+     * שאלה על השולח, „לאן זה חוזר” היא שאלה על הקליטה.
+     */
     const config = await this.config();
-    if (config === null) return { sender: null, replyTo: null };
-    return { sender: await this.sender(config.address), replyTo: config.address };
+    return {
+      sender: await this.sender(config?.address ?? null),
+      replyTo: config?.address ?? null,
+    };
   }
 
   /**
@@ -794,11 +808,42 @@ export class SupportInboxService {
    * מי שהגדיר כתובת בדומיין שלו ואימת אותו ממשיך לשלוח ממנה.
    */
   private async sender(
-    address: string,
+    inboundAddress: string | null,
   ): Promise<{ from: string; token?: string | undefined } | null> {
-    if (isProviderInboundRoute(address)) return null;
+    const supportEmail = (await this.settings.get("supportEmail")) ?? "";
+    /*
+     * הרשימה נשאלת פעם אחת (ומוחזקת במטמון אצל הספק), ולא פעם לכל
+     * מועמד — `supportFromAddress` היא הכרעה טהורה שמקבלת תשובה.
+     */
+    const sendable = new Map<string, boolean>();
+    for (const candidate of [supportEmail, inboundAddress ?? ""]) {
+      const address = candidate.trim();
+      if (address === "" || sendable.has(address)) continue;
+      sendable.set(address, await this.provider.canSendFrom(address));
+    }
+
+    const from = supportFromAddress({
+      supportEmail,
+      inboundAddress,
+      canSend: (address) => sendable.get(address.trim()) === true,
+    });
+
+    /*
+     * כתובת שירות שהוגדרה ואינה שמישה היא **הגדרה שבשקט אינה
+     * עובדת**: המנהל רואה אותה במסך ומצפה שהיא תופיע ב„מאת”, והדואר
+     * ממשיך לצאת מהשולח הכללי. ברמת `error` כדי שזה יופיע בניטור
+     * ולא ייבלע ביומן.
+     */
+    if (supportEmail.trim() !== "" && from !== supportEmail.trim()) {
+      this.logger.error(
+        `כתובת התמיכה ${supportEmail} אינה מאומתת אצל ספק הדואר — ` +
+          "התשובות ימשיכו לצאת מהשולח הכללי. אמתו אותה כ-Sender Signature או אמתו את הדומיין.",
+      );
+    }
+
+    if (from === null) return null;
     const token = (await this.settings.get("supportServerToken")) ?? "";
-    return { from: `תמיכה מתווכים <${address}>`, ...(token === "" ? {} : { token }) };
+    return { from: `תמיכה מתווכים <${from}>`, ...(token === "" ? {} : { token }) };
   }
 
   /** סגירה ופתיחה מחדש — הסטטוס הוא מה שמסדר את הרשימה. */

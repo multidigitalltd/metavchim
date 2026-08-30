@@ -5,6 +5,7 @@ import {
   inboundDestination,
   referenceFromSubject,
   subjectWithReference,
+  supportFromAddress,
 } from "./support-routing.js";
 
 describe("לאן הודעה נכנסת הולכת", () => {
@@ -150,5 +151,107 @@ describe("מספר הפנייה", () => {
 
   it("הזוג סוגר מעגל", () => {
     expect(referenceFromSubject(subjectWithReference("שאלה על החשבונית", 993))).toBe(993);
+  });
+});
+
+describe("מאיזו כתובת יוצא דואר התמיכה", () => {
+  const POSTMARK = "abc123def@inbound.postmarkapp.com";
+  /** הספק מאשר רק את מה שברשימה — בדיוק כמו Postmark. */
+  const only = (...verified: string[]) => (address: string) =>
+    verified.includes(address.trim().toLowerCase());
+
+  it("כתובת השירות מנצחת כשהספק מאשר אותה", () => {
+    /*
+     * המקרה שהוליד את התיקון: כתובת שירות מוגדרת ומאומתת, כתובת
+     * הקליטה היא נתיב של Postmark, והתשובות יצאו מ-`no_reply`.
+     */
+    expect(
+      supportFromAddress({
+        supportEmail: "service@metavchim.co.il",
+        inboundAddress: POSTMARK,
+        canSend: only("service@metavchim.co.il"),
+      }),
+    ).toBe("service@metavchim.co.il");
+  });
+
+  it("גם כשהקליטה כלל לא הוגדרה", () => {
+    // „מאיפה זה יוצא” אינה שאלה על הקליטה
+    expect(
+      supportFromAddress({
+        supportEmail: "service@metavchim.co.il",
+        inboundAddress: null,
+        canSend: only("service@metavchim.co.il"),
+      }),
+    ).toBe("service@metavchim.co.il");
+  });
+
+  it("‏**כתובת שהספק אינו מאשר נדחית — גם באותו דומיין**", () => {
+    /*
+     * הלב של הממצא: `no_reply@x` מאומתת כחתימה **בודדת**, וזה אינו
+     * אומר דבר על `service@x`. שליחה שנדחית משאירה את הפונה בלי
+     * תשובה בכלל (ביקורת Codex).
+     */
+    expect(
+      supportFromAddress({
+        supportEmail: "service@metavchim.co.il",
+        inboundAddress: POSTMARK,
+        canSend: only("no_reply@metavchim.co.il"),
+      }),
+    ).toBeNull();
+  });
+
+  it("דומיין מאומת מכשיר כל כתובת עליו — זה מה שהספק אומר", () => {
+    expect(
+      supportFromAddress({
+        supportEmail: "service@metavchim.co.il",
+        inboundAddress: POSTMARK,
+        // הקורא מתרגם „הדומיין מאומת” לתשובה על הכתובת
+        canSend: (address) => address.endsWith("@metavchim.co.il"),
+      }),
+    ).toBe("service@metavchim.co.il");
+  });
+
+  it("נתיב קליטה של הספק אינו שולח, גם אם הוא נקבע ככתובת שירות", () => {
+    expect(
+      supportFromAddress({
+        supportEmail: POSTMARK,
+        inboundAddress: POSTMARK,
+        canSend: () => true,
+      }),
+    ).toBeNull();
+  });
+
+  it("בלי כתובת שירות — כתובת קליטה שהיא תיבה אמיתית ומאומתת", () => {
+    expect(
+      supportFromAddress({
+        supportEmail: "",
+        inboundAddress: "tmicha@office.co.il",
+        canSend: only("tmicha@office.co.il"),
+      }),
+    ).toBe("tmicha@office.co.il");
+  });
+
+  it("הספק אינו זמין — נשארים עם השולח הכללי", () => {
+    /*
+     * אין טוקן Account, או שהספק לא ענה. „לא יודע” נספר כ„לא”,
+     * כי הכיוון הבטוח הוא שההודעה תצא.
+     */
+    expect(
+      supportFromAddress({
+        supportEmail: "service@metavchim.co.il",
+        inboundAddress: "tmicha@office.co.il",
+        canSend: () => false,
+      }),
+    ).toBeNull();
+  });
+
+  it("רווחים ואותיות גדולות אינם משנים את ההכרעה", () => {
+    expect(
+      supportFromAddress({
+        supportEmail: "  Service@Metavchim.CO.IL  ",
+        inboundAddress: POSTMARK,
+        canSend: only("service@metavchim.co.il"),
+      }),
+    ).toBe("Service@Metavchim.CO.IL");
   });
 });
