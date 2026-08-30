@@ -243,12 +243,34 @@ export const VIEWING_REMINDER_REPLY_ORDER: readonly ViewingReminderReply[] = [
   "reschedule",
 ];
 
-/** ‎`vr:<מזהה הסיור>:<תשובה>` — התחילית מוודאת שאנחנו מפענחים רק שלנו. */
+/**
+ * ‎`vr:<דייר>:<סיור>:<מועד>:<תשובה>` — התחילית מוודאת שאנחנו
+ * מפענחים רק שלנו.
+ *
+ * ## למה הדייר במטען
+ *
+ * ‏התזכורת יוצאת מהקו של הפלטפורמה (`WhatsAppSendService` מחזיק
+ * זוג אישורים אחד), ולכן הלחיצה **חוזרת לאותו קו** — שאינו הקו של
+ * המשרד. אין ב-Webhook שום דבר שקושר אותה לדייר, ולכן הקישור חייב
+ * להיות במטען עצמו. הוא אינו מהווה סמכות: מי שקורא מאמת שהסיור
+ * שייך לדייר **ושהשולח הוא נמען של אותו סיור**, ומטען שהומצא לא
+ * יעבור את שתי אלה.
+ *
+ * ## ולמה גם המועד
+ *
+ * ‏הודעת וואטסאפ נשארת בצ'אט של הלקוח לנצח, והכפתורים שבה חיים.
+ * לקוח שיגלול לתזכורת ישנה **אחרי** שהסיור נדחה, וילחץ „קיבלתי” —
+ * היה מסמן אישור על **המועד החדש**, שאותו מעולם לא ראה. ניקוי
+ * ‎`reminderReply` בדחייה אינו מבטל כפתור שכבר יצא (ביקורת Codex,
+ * P1). המועד במטען הופך את הלחיצה לשייכת למופע אחד ויחיד.
+ */
 export function viewingReminderReplyPayload(
+  tenantId: string,
   appointmentId: string,
+  startsAtMs: number,
   reply: ViewingReminderReply,
 ): string {
-  return [REPLY_PREFIX, appointmentId, reply].join(":");
+  return [REPLY_PREFIX, tenantId, appointmentId, String(startsAtMs), reply].join(":");
 }
 
 /**
@@ -257,31 +279,46 @@ export function viewingReminderReplyPayload(
  * ‎`index` הוא מחרוזת ולא מספר — כך Meta מצפה לו.
  */
 export function viewingReminderQuickReplies(
+  tenantId: string,
   appointmentId: string,
+  startsAtMs: number,
 ): readonly WhatsAppTemplateQuickReply[] {
   return VIEWING_REMINDER_REPLY_ORDER.map((reply, index) => ({
     type: "button" as const,
     sub_type: "quick_reply" as const,
     index: String(index),
     parameters: [
-      { type: "payload" as const, payload: viewingReminderReplyPayload(appointmentId, reply) },
+      {
+        type: "payload" as const,
+        payload: viewingReminderReplyPayload(tenantId, appointmentId, startsAtMs, reply),
+      },
     ] as readonly [{ readonly type: "payload"; readonly payload: string }],
   }));
+}
+
+export interface ViewingReminderReplyRef {
+  tenantId: string;
+  appointmentId: string;
+  /** המועד שעליו נשאלה השאלה — נבדק מול המועד הנוכחי לפני רישום. */
+  startsAtMs: number;
+  reply: ViewingReminderReply;
 }
 
 /**
  * ‎`null` = לא מטען שלנו, או תשובה שאיננו מכירים.
  *
- * מזהה הסיור אינו מפוענח כאן מעבר לצורתו: מי שקורא בודק אותו מול
- * הדייר שלו ממילא, ומטען שהומצא לא ימצא סיור.
+ * המזהים אינם מפוענחים כאן מעבר לצורתם: מי שקורא מאמת אותם מול
+ * בסיס הנתונים ממילא, ומטען שהומצא לא ימצא סיור.
  */
-export function parseViewingReminderReply(
-  payload: string,
-): { appointmentId: string; reply: ViewingReminderReply } | null {
+export function parseViewingReminderReply(payload: string): ViewingReminderReplyRef | null {
   const parts = payload.trim().split(":");
-  if (parts.length !== 3 || parts[0] !== REPLY_PREFIX) return null;
-  const [, appointmentId, reply] = parts;
+  if (parts.length !== 5 || parts[0] !== REPLY_PREFIX) return null;
+  const [, tenantId, appointmentId, startsAt, reply] = parts;
+  if (tenantId === undefined || tenantId === "") return null;
   if (appointmentId === undefined || appointmentId === "") return null;
   if (reply !== "confirmed" && reply !== "reschedule") return null;
-  return { appointmentId, reply };
+  // ‎`Number` על מחרוזת ריקה מחזיר 0, ועל זבל NaN — שניהם נפסלים
+  const startsAtMs = Number(startsAt);
+  if (!Number.isSafeInteger(startsAtMs) || startsAtMs <= 0) return null;
+  return { tenantId, appointmentId, startsAtMs, reply };
 }

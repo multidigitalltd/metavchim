@@ -294,6 +294,7 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
         config.channel,
         whenLabel,
         appointment.id,
+        appointment.startsAt.getTime(),
         vars,
       );
       if (delivered) sent += 1;
@@ -437,6 +438,14 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
      */
     appointmentId: string,
     /**
+     * ‎**המועד שעליו נשלחת התזכורת**, במילישניות.
+     *
+     * נכנס למטען הכפתור והופך את הלחיצה לשייכת למופע אחד: הודעה
+     * נשארת בצ'אט של הלקוח לנצח, ולחיצה על תזכורת ישנה אחרי דחייה
+     * הייתה מסמנת אישור על מועד שהלקוח מעולם לא ראה.
+     */
+    startsAtMs: number,
+    /**
      * השדות עצמם, לתבנית הוואטסאפ.
      *
      * ‎`body` הוא הנוסח שהמשרד ניסח, והוא מה שיוצא **במייל**.
@@ -498,7 +507,9 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
            * הם עונים בלי לצאת מוואטסאפ ובלי חשבון.
            */
           undefined,
-          withButtons ? viewingReminderQuickReplies(appointmentId) : undefined,
+          withButtons
+            ? viewingReminderQuickReplies(tenantId, appointmentId, startsAtMs)
+            : undefined,
         );
         if (ok) delivered = true;
       }

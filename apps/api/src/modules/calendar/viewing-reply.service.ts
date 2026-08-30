@@ -35,10 +35,11 @@ export class ViewingReplyService {
     private readonly contacts: ContactsService,
   ) {}
 
-  async record(tenantId: string, payload: string, fromPhone: string): Promise<void> {
+  async record(payload: string, fromPhone: string): Promise<void> {
     const parsed = parseViewingReminderReply(payload);
     // מטען שאינו שלנו — כפתור של תבנית אחרת, או זבל. אין מה לרשום.
     if (parsed === null) return;
+    const tenantId = parsed.tenantId;
 
     try {
       await this.prisma.withExplicitTenant(tenantId, async (tx) => {
@@ -55,6 +56,16 @@ export class ViewingReplyService {
           },
         });
         if (appointment === null) return;
+
+        /*
+         * ‎**הלחיצה שייכת למועד שעליו נשאלה** (ביקורת Codex, P1).
+         *
+         * ‏ההודעה נשארת בצ'אט של הלקוח לנצח והכפתורים שבה חיים.
+         * לקוח שגלל לתזכורת ישנה אחרי שהסיור נדחה, ולחץ „קיבלתי” —
+         * היה מסמן אישור על מועד שמעולם לא ראה. ניקוי `reminderReply`
+         * בדחייה אינו מבטל כפתור שכבר יצא; רק ההשוואה הזו עושה זאת.
+         */
+        if (appointment.startsAt.getTime() !== parsed.startsAtMs) return;
 
         /*
          * ‎**רק מי שקיבל את התזכורת יכול לענות עליה.**
@@ -99,16 +110,27 @@ export class ViewingReplyService {
         }
 
         /*
-         * ‎**לחיצה חוזרת אינה אירוע חדש.** Meta שולחת וובהוק שוב
-         * כשלא קיבלה 200 בזמן, ולקוח יכול ללחוץ פעמיים. בלי הבדיקה
-         * הזו המתווך היה מקבל שתי התראות על אותה תשובה.
+         * ‎**העדכון עצמו הוא המנעול** (ביקורת Codex, P2).
+         *
+         * ‏קריאה ואז כתיבה אינן אטומיות: וובהוק שנשלח שוב במקביל,
+         * או לחיצה כפולה מהירה, היו נקראים שניהם לפני שאחד מהם
+         * כתב — ושתי ההתראות היו יוצאות. `updateMany` עם התנאי
+         * בתוכו מסתמך על נעילת השורה: השני ממתין, ואז בודק שוב את
+         * התנאי מול הערך שכבר נכתב, ומחזיר `count: 0`.
+         *
+         * כל מה שאחרי זה תלוי ב-`count === 1`, ולכן רץ פעם אחת.
          */
-        if (appointment.reminderReply === parsed.reply) return;
-
-        await tx.appointment.updateMany({
-          where: { id: appointment.id, tenantId },
+        const claimed = await tx.appointment.updateMany({
+          where: {
+            id: appointment.id,
+            tenantId,
+            // ‎`startsAt` בתנאי גם כאן: הסיור יכול לזוז בין הקריאה לכתיבה
+            startsAt: appointment.startsAt,
+            OR: [{ reminderReply: null }, { reminderReply: { not: parsed.reply } }],
+          },
           data: { reminderReply: parsed.reply, reminderReplyAt: new Date() },
         });
+        if (claimed.count !== 1) return;
 
         const assignee = appointment.ownerUserId ?? appointment.createdBy;
         const entity =
@@ -140,7 +162,15 @@ export class ViewingReplyService {
          * עליו הייתה רעש שמלמד להתעלם מהרשימה.
          */
         if (parsed.reply === "reschedule" && assignee !== null) {
-          const sourceKey = `viewing-reschedule:${appointment.id}`;
+          /*
+           * ‎**המפתח נושא גם את המועד** (ביקורת Codex, P2).
+           *
+           * ‏מפתח לכל הסיור היה חד-פעמי לתמיד: אחרי שהבקשה הראשונה
+           * טופלה, המשימה הושלמה והסיור נדחה — בקשה שנייה מהתזכורת
+           * החדשה הייתה מוצאת את המשימה **המושלמת** ולא פותחת דבר.
+           * ‏הלקוח ביקש, ואיש לא ידע. מועד חדש = מפתח חדש = משימה.
+           */
+          const sourceKey = `viewing-reschedule:${appointment.id}:${parsed.startsAtMs}`;
           const existing = await tx.task.findFirst({
             where: { tenantId, sourceKey },
             select: { id: true },

@@ -117,6 +117,38 @@ export class WhatsAppInboundService {
          * לאיזה קו ההודעה הגיעה ולאיזה קו אנחנו מאזינים.
          */
         const incomingLine = value.metadata?.phone_number_id ?? "חסר";
+
+        /*
+         * ‎**תשובה לתזכורת סיור — לפני ניתוב הקווים, ולא אחריו.**
+         *
+         * ‏התזכורת יוצאת דרך `WhatsAppSendService`, שמחזיק זוג
+         * אישורים **אחד** — הקו של הפלטפורמה. כלומר הלחיצה חוזרת
+         * לאותו קו בדיוק שבו יושב הסוכן האישי, וענף הסוכן שמתחת
+         * בולע כל הודעה שמגיעה לשם ומסיים ב-`continue`. הטיפול
+         * שהיה בענף המשרדים לא נקרא לעולם, והלחיצה הייתה מגיעה
+         * לסוכן כאילו מתווך כתב לו (ביקורת Codex, P1).
+         *
+         * ‎**הדייר מגיע מהמטען** ולא מהקו: אין ב-Webhook שום דבר
+         * אחר שקושר את הלחיצה למשרד. זו אינה סמכות — `record`
+         * מאמת שהסיור שייך לדייר ושהשולח הוא נמען שלו.
+         */
+        const replies = (value.messages ?? []).filter(
+          (m) => m.type === "button" && m.button !== undefined,
+        );
+        if (replies.length > 0) {
+          for (const message of replies) {
+            if (!message.button) continue;
+            await this.viewingReplies.record(
+              message.button.payload,
+              normalizeWaPhone(message.from),
+            );
+          }
+          /*
+           * ‎**רק אם *כל* ההודעות היו לחיצות.** אצווה מעורבת קיימת,
+           * ולא נכון לזרוק בגללה הודעת טקסט שממתינה לצידה.
+           */
+          if (replies.length === (value.messages ?? []).length) continue;
+        }
         if (assistantCreds === null) {
           this.logger.warn(
             `הודעה הגיעה לקו ${incomingLine} אך הסוכן אינו מוגדר (חסר טוקן או מזהה מספר במסך הפלטפורמה)`,
@@ -171,21 +203,9 @@ export class WhatsAppInboundService {
 
         for (const message of value.messages) {
           /*
-           * ‎**לחיצה על כפתור בתזכורת לסיור — לפני מסנן הטקסט.**
-           *
-           * ‏עד כה השורה הבאה זרקה כל מה שאינו טקסט, ולחיצה על
-           * כפתור תבנית מגיעה כ-`type: "button"` — כלומר התשובה
-           * נעלמה בשקט. היא גם אינה „הודעה מלקוח” שצריך לקלוט
-           * כליד: זו תשובה על סיור קיים.
+           * לחיצות כפתור כבר טופלו למעלה, לפני ניתוב הקווים — הן
+           * חוזרות לקו של הפלטפורמה ולא לקו של המשרד.
            */
-          if (message.type === "button" && message.button) {
-            await this.viewingReplies.record(
-              tenantId,
-              message.button.payload,
-              normalizeWaPhone(message.from),
-            );
-            continue;
-          }
           if (message.type !== "text" || !message.text) continue;
           const senderName =
             value.contacts?.find((c) => c.wa_id === message.from)?.profile?.name ?? "לקוח וואטסאפ";
