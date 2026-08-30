@@ -136,13 +136,25 @@ describe("כרטיס יתום במחיקת נכס לצמיתות", () => {
    * של אדם אינו. מתווך שמנקה כפילות אינו מתכוון למחוק אדם.
    */
   it("התצוגה המקדימה שואלת מה יישאר אחרי המחיקה", () => {
-    // ההחרגה הוכללה לשלושת סוגי העוגן — נכס, קונה (בודד וקבוצתי), ליד — בכלל אחד
-    expect(OWNERSHIP).toMatch(
-      /except\?: \{\s*propertyId\?: string;\s*buyerId\?: string;\s*buyerIds\?: readonly string\[\];\s*leadId\?: string;\s*\}/u,
-    );
+    /*
+     * ההחרגה הוכללה לשלושת סוגי העוגן — נכס, קונה וליד — בכלל אחד,
+     * ולכל אחד מהם גם צורה קבוצתית למחיקה המרוכזת.
+     *
+     * ‎**נבדקים השדות ולא צורת האובייקט כמחרוזת.** ביטוי שנעוץ
+     * בליטרל המלא נשבר בכל תוספת שדה — וזה בדיוק מה שקרה כאן
+     * כשנוסף `propertyIds`, על שער שהיה ירוק רגע קודם.
+     */
+    const from = OWNERSHIP.indexOf("  except?: {");
+    // הסוף נמדד **מהתחלה** — יש `): Promise<boolean> {` גם קודם בקובץ
+    const except = OWNERSHIP.slice(from, OWNERSHIP.indexOf("): Promise<boolean> {", from));
+    for (const field of ["propertyId?", "propertyIds?", "buyerId?", "buyerIds?", "leadId?"]) {
+      expect(except, `ההחרגה אינה מכירה ${field}`).toContain(field);
+    }
+    // ההחרגה מיושמת בפועל על ענף הנכס — הרשימה מכילה גם את הבודד
     expect(OWNERSHIP).toContain(
-      "...(except?.propertyId === undefined ? {} : { id: { not: except.propertyId } }),",
+      "...(exceptProperties.length === 0 ? {} : { id: { notIn: exceptProperties } }),",
     );
+    expect(OWNERSHIP).toContain("...(except?.propertyId === undefined ? [] : [except.propertyId]),");
     // בלי ההחרגה הנכס עצמו נספר כעוגן, והתשובה תמיד אפס
     expect(PROPERTIES).toContain("isOrphanContact(tx, tenantId, contactId, { propertyId: id })");
     expect(PROPERTIES).toContain("async purgePreview(id: string): Promise<{ contacts: number }>");

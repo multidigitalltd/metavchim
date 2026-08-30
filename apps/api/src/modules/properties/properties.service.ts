@@ -1221,6 +1221,91 @@ export class PropertiesService {
     });
   }
 
+  /**
+   * ‎**מה תגרור המחיקה המרוכזת — לפני האישור.**
+   *
+   * אותו גילוי כמו במחיקה הבודדת, בצורתו הקבוצתית: כמה כרטיסי אדם
+   * יתומים יירדו יחד עם הנכסים שנבחרו. בעלים שהנכס הזה הוא העוגן
+   * היחיד שלו יורד עם הנכס, על שמו וטלפוניו — ומתווך שמנקה
+   * כפילויות אינו מתכוון לזה.
+   *
+   * ‎**ההחרגה היא של כל הבחירה, ולא של נכס אחד.** בעלים ששני
+   * הנכסים שלו נבחרו היה נענה „יישאר” על החרגה בודדת, בעוד
+   * שהמחיקה — שרצה נכס-נכס — כן הייתה מוחקת אותו בסוף. אותה תקלה
+   * בדיוק נמצאה במחיקת הקונים המרוכזת (ביקורת Codex), והכלל
+   * המשותף כבר יודע לקבל רשימה.
+   */
+  async bulkDeletionPreview(ids: readonly string[]): Promise<{ contacts: number }> {
+    const { tenantId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**גם נכס שכבר בארכיון — והמסנן שהיה כאן הוא בדיוק הבאג.**
+       *
+       * ‎`deletedAt: null` נראה סביר („הרשימה מציגה פעילים”), אבל
+       * המחיקה המרוכזת **כן** מוחקת נכס שכבר בארכיון: היא מארכבת
+       * ומתעלמת מכישלון, ואז מוחקת. נכס שאורכב בלשונית אחרת בין
+       * הטעינה לאישור היה נשמט מהתצוגה המקדימה — והאישור היה מודיע
+       * „לא יימחקו כרטיסים” בזמן שכרטיסי הבעלים שלו נמחקים
+       * (ביקורת Codex, P1).
+       *
+       * המסלול הבודד מעולם לא סינן כך; זו הייתה סטייה שלי ממנו.
+       */
+      const rows = await tx.property.findMany({
+        where: { id: { in: [...ids] }, tenantId },
+        select: { id: true, ownerContactId: true, occupantContactId: true },
+      });
+      const propertyIds = rows.map((row) => row.id);
+      const candidates = [
+        ...new Set(
+          rows
+            .flatMap((row) => [row.ownerContactId, row.occupantContactId])
+            .filter((value): value is string => typeof value === "string"),
+        ),
+      ];
+      const orphaned = await Promise.all(
+        candidates.map((contactId) =>
+          isOrphanContact(tx, tenantId, contactId, { propertyIds }),
+        ),
+      );
+      return { contacts: orphaned.filter(Boolean).length };
+    });
+  }
+
+  /**
+   * מחיקה מרוכזת — ארכיון, או ארכיון ואז מחיקה לצמיתות.
+   *
+   * ‎**המחיקה לצמיתות עוברת דרך הארכיון ולא במקומו.** `purge` דורש
+   * נכס שכבר בארכיון, וזו דרישה נכונה במחיקה בודדת — שם המשתמש
+   * רואה את הנכס בארכיון ובוחר למחוק אותו משם. אבל הרשימה שממנה
+   * נבחרים הנכסים מציגה **פעילים**, ולכן קריאה ישירה ל-`purge`
+   * הייתה נדחית על כל אחד מהם ומדווחת אפס מחיקות בלי הסבר. שני
+   * השלבים ברצף שומרים על אותו כלל, בלי להכריח מאתיים לחיצות.
+   *
+   * נכס שנכשל נספר כ„דולג” ואינו מפיל את השאר: הבחירה יכולה לכלול
+   * נכס של עמית, או כזה שכבר נמחק ממסך אחר.
+   */
+  async removeMany(
+    ids: readonly string[],
+    permanent: boolean,
+  ): Promise<{ removed: number; skipped: number }> {
+    let removed = 0;
+    let skipped = 0;
+    for (const id of ids) {
+      try {
+        if (permanent) {
+          await this.softDelete(id).catch(() => undefined); // כבר בארכיון — תקין
+          await this.purge(id);
+        } else {
+          await this.softDelete(id);
+        }
+        removed += 1;
+      } catch {
+        skipped += 1;
+      }
+    }
+    return { removed, skipped };
+  }
+
   async purge(id: string): Promise<void> {
     const ctx = TenantContext.current();
     await this.prisma.withTenant(async (tx) => {

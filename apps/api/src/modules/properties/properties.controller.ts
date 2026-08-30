@@ -119,6 +119,26 @@ const ActivityQuerySchema = z
 
 type ActivityQuery = z.infer<typeof ActivityQuerySchema>;
 
+/**
+ * תקרה של 500 — מכסה בחירה של „כל מה שמוצג” בכל מסך סביר, ומונעת
+ * בקשה שמנסה למחוק מאגר שלם בקריאה אחת.
+ */
+const BulkDeleteSchema = z
+  .object({
+    ids: z.array(IdSchema).min(1).max(500),
+    /**
+     * ‎**מפורש ולא ברירת מחדל שקטה.** ארכיון ומחיקה לצמיתות הן שתי
+     * פעולות שונות לחלוטין, ואחת מהן אינה הפיכה.
+     */
+    permanent: z.boolean().default(false),
+  })
+  .strict();
+
+/** אותה תקרה כמו המחיקה עצמה — התצוגה המקדימה עונה על אותה בקשה. */
+const BulkPreviewSchema = z
+  .object({ ids: z.array(IdSchema).min(1).max(500) })
+  .strict();
+
 @Controller("properties")
 export class PropertiesController {
   constructor(
@@ -243,6 +263,33 @@ export class PropertiesController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
   ): Promise<{ waUrl: string; message: string }> {
     return this.properties.prepareOwnerUpdate(id);
+  }
+
+  /**
+   * ‎**מה תגרור המחיקה המרוכזת — לפני האישור.**
+   *
+   * אותו גילוי כמו במחיקה הבודדת, בצורתו הקבוצתית: כמה כרטיסי אדם
+   * יירדו עם הנכסים שנבחרו. המסך חוסם מחיקה לצמיתות כשהבדיקה
+   * נכשלת — „לא ידוע” אינו „לא יימחק”.
+   */
+  @Post("bulk-deletion-preview")
+  @RequireCapability("properties.delete")
+  @HttpCode(200)
+  async bulkDeletionPreview(
+    @Body(new ZodValidationPipe(BulkPreviewSchema))
+    body: z.infer<typeof BulkPreviewSchema>,
+  ): Promise<{ contacts: number }> {
+    return this.properties.bulkDeletionPreview(body.ids);
+  }
+
+  @Post("bulk-delete")
+  @RequireCapability("properties.delete")
+  @HttpCode(200)
+  async bulkDelete(
+    @Body(new ZodValidationPipe(BulkDeleteSchema))
+    body: z.infer<typeof BulkDeleteSchema>,
+  ): Promise<{ removed: number; skipped: number }> {
+    return this.properties.removeMany(body.ids, body.permanent);
   }
 
   @Delete(":id")
