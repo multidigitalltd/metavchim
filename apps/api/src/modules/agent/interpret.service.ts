@@ -11,6 +11,7 @@ import {
   mayUseAction,
   narrowParams,
   routeVoiceCommand,
+  RULE_ACTION_MAP,
   stripCommandPrefix,
   taskTitleFromTranscript,
   type AgentActionDef,
@@ -395,7 +396,7 @@ export class AgentInterpretService {
   ): Interpretation {
     const command = routeVoiceCommand(transcript);
     const actionId = pin ?? RULE_ACTION_MAP[command.action];
-    if (actionId === undefined || !allowed.some((a) => a.id === actionId)) {
+    if (actionId === null || !allowed.some((a) => a.id === actionId)) {
       return {
         actionId: "unknown",
         params: {},
@@ -611,31 +612,6 @@ export class AgentInterpretService {
  */
 const CLAUSE_OPENER =
   /^ש(?:הוא|היא|הם|הן|יש|אין|צריך|צריכה|רוצה|רוצים|מחפש|מחפשת|ביקש|ביקשה|אמר|אמרה)/u;
-
-/** הכוונות של מנוע החוקים ⟵ מזהי הקטלוג. */
-const RULE_ACTION_MAP: Record<string, string | undefined> = {
-  add_property: "create_property",
-  add_buyer: "create_buyer",
-  add_lead: "create_lead",
-  schedule_appointment: "schedule_appointment",
-  add_task: "create_task",
-  query_buyers: "find_buyers",
-  query_properties: "find_properties",
-  show_schedule: "show_schedule",
-  show_tasks: "show_tasks",
-  show_callbacks: "show_callbacks",
-  show_calls: "show_calls",
-  show_deals: "show_deals",
-  office_report: "office_report",
-  complete_task: "complete_task",
-  add_note: "add_note",
-  update_lead_status: "update_lead_status",
-  share_property: "share_property",
-  share_buyer: "share_buyer",
-  send_offer: "send_offer",
-  search: "search",
-  unknown: undefined,
-};
 
 function featureKeys(
   features: Partial<Record<string, "must" | "nice">>,

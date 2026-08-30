@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
   agentAction,
+  AGENT_DEGRADED_REASON,
   agentHistorySummary,
   agentReplySegments,
   agentResultRefs,
@@ -1081,8 +1082,22 @@ export class WhatsAppAssistantService {
           speak,
         };
       }
-      const clarify = proposal.clarify ?? "לא הצלחתי להבין מה לעשות — נסו לנסח אחרת.";
-      const lines = [clarify];
+      /*
+       * ‎**„נסו לנסח אחרת” כשאף ניסוח לא יעזור.**
+       *
+       * ‎`fallback` = מנוע ההבנה לא היה זמין והכריע מנוע החוקים,
+       * שמגיע לחלק מהפעולות בלבד. עבור כל השאר אין הצעות (מנוע
+       * החוקים אינו יודע „מה כמעט התאים”, ובצדק) — ולכן המתווך קיבל
+       * הוראה לנסח מחדש בקשה שתיכשל שוב עד שהספק יחזור, והסיק
+       * שהסוכן אינו מבין אותו.
+       *
+       * המסך אמר את זה; כאן זה פשוט לא נאמר. הנוסח משותף לשני
+       * הערוצים, והרשימה נגזרת מאותה מפה שמכריעה מה עובד.
+       */
+      const clarify = proposal.fallback
+        ? AGENT_DEGRADED_REASON
+        : (proposal.clarify ?? "לא הצלחתי להבין מה לעשות — נסו לנסח אחרת.");
+      const lines = proposal.degraded.length > 0 ? [...proposal.degraded] : [clarify];
       for (const warning of proposal.warnings) lines.push(`⚠️ ${warning}`);
       // מוקראת השאלה עצמה — האזהרות נשארות בטקסט
       return { text: lines.join("\n"), speak: clarify };

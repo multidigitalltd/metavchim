@@ -1,9 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import {
   agentAction,
+  agentDegradedNotice,
+  AGENT_ACTIONS,
   agentFieldLabel,
   formatFieldValue,
   matchHistoryRef,
+  mayUseAction,
   normalizePhone,
   parseHebrewDateTime,
   PhoneSchema,
@@ -13,6 +16,7 @@ import {
   type AgentHistoryRef,
   type AgentProposal,
 } from "@metavchim/shared";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { TenantContext } from "../../common/tenant-context";
 import { BuyersService } from "../buyers/buyers.service";
 import { CollaborationService } from "../collaboration/collaboration.service";
@@ -56,6 +60,7 @@ export class AgentResolveService {
     private readonly collaboration: CollaborationService,
     private readonly listings: ListingsService,
     private readonly dealRooms: DealRoomService,
+    private readonly plans: PlanCatalogService,
   ) {}
 
   async toProposal(
@@ -104,6 +109,17 @@ export class AgentResolveService {
          */
         ...(suggestions.length > 0 ? { suggestions } : {}),
         fallback: interpretation.fallback,
+        /*
+         * ‎**„נסו לנסח אחרת” כשאף ניסוח לא יעזור.**
+         *
+         * מנוע החוקים מגיע לחלק מהפעולות בלבד, ואינו מייצר הצעות —
+         * ולכן בכל שאר המקרים המתווך קיבל הוראה לנסח מחדש בקשה
+         * שתיכשל שוב עד שהספק יחזור. הרשימה נגזרת מהמפה שמכריעה מה
+         * המנוע מזהה, ומצטמצמת למה שמותר למתווך הזה.
+         */
+        degraded: interpretation.fallback
+          ? agentDegradedNotice(await this.allowedActionIds())
+          : [],
       };
     }
 
@@ -212,6 +228,8 @@ export class AgentResolveService {
       actionId: action.id,
       title: action.title,
       risk: action.risk,
+      // ההסבר על מצב מושבת שייך ל„לא הבנתי” — כאן הפעולה זוהתה
+      degraded: [],
       summary: summarize(action.id, params),
       fields,
       missing: this.missingFields(action.id, params),
@@ -232,6 +250,41 @@ export class AgentResolveService {
    * שמסומנות alwaysChoose (שליחה ללקוח, חשיפה לרשת) לעולם אינן
    * נפתרות כאן אוטומטית — הבחירה המפורשת היא חלק מהפעולה.
    */
+  /**
+   * מה שמותר למתווך הזה — לצורך „מה עדיין עובד” בלבד.
+   *
+   * אותה גזירה כמו ב-`AgentInterpretService.allowedActions`, ולא
+   * העתק שלה: שתיהן קוראות `mayUseAction` על אותו קטלוג ועל אותן
+   * יכולות. הצעה לפעולה חסומה גרועה מהיעדר הצעה.
+   */
+  private async allowedActionIds(): Promise<string[]> {
+    const ctx = TenantContext.current();
+    const byRole = AGENT_ACTIONS.filter((action) => mayUseAction(action, ctx.capabilities));
+
+    /*
+     * ‎**הרשאה אינה זכאות.** `mayUseAction` בודק את התפקיד בלבד;
+     * פעולה יכולה לדרוש גם תכונה במסלול, והביצוע דוחה בלעדיה. סוכן
+     * עם `analytics.view` במשרד שאין לו `analytics` היה מקבל „דוח
+     * המשרד” ברשימת מה שכן עובד — ונדחה כשינסה (ביקורת Codex).
+     * כלומר בדיוק הקיר השני שהרשימה נועדה למנוע.
+     *
+     * כל תכונה נבדקת פעם אחת: הקטלוג חוזר על אותן תכונות בעשרות
+     * פעולות, ובדיקה לכל אחת הייתה עשרות שאילתות על מסלול יחיד.
+     */
+    const features = [...new Set(byRole.flatMap((a) => (a.feature ? [a.feature] : [])))];
+    const granted = new Map(
+      await Promise.all(
+        features.map(
+          async (feature) =>
+            [feature, await this.plans.tenantHasFeature(ctx.tenantId, feature)] as const,
+        ),
+      ),
+    );
+    return byRole
+      .filter((action) => action.feature === undefined || granted.get(action.feature) === true)
+      .map((a) => a.id);
+  }
+
   async resolveForExecution(
     actionId: string,
     params: Record<string, unknown>,
