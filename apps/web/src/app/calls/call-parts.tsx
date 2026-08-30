@@ -190,10 +190,23 @@ const TONE_DOMAIN: Record<Tone, string> = {
   wanted: "mv-domain-neutral",
 };
 
+/**
+ * ‎**הכותרת נמסרת פנימה, ולא נבנית בחוץ.**
+ *
+ * ‏מי שרוצה כותרת מעל התגיות חייב לדעת אם יהיו תגיות — ובדיקה
+ * נפרדת אצל הקורא היא בדיקה שנייה שסוטה מהראשונה. `exclusivity`
+ * למשל נשמר גם כ-`false`, ולכן „יש שדה” אינו „יש מה להציג”:
+ * כותרת „פרטי לקוח” הייתה מופיעה מעל ריק, ונקראת כטענה על השיחה
+ * („אין ללקוח דרישות”) במקום על מה שלא זוהה.
+ *
+ * ‏ההחלטה מתקבלת כאן, במקום שבו ממילא יודעים כמה שדות נבנו.
+ */
 export function CallHighlightFields({
   highlights,
+  header,
 }: {
   highlights: CallHighlights;
+  header?: React.ReactNode;
 }): React.JSX.Element | null {
   const fields: { label: string; value: string; ltr?: boolean; tone: Tone }[] = [];
   /*
@@ -270,15 +283,18 @@ export function CallHighlightFields({
   if (fields.length === 0) return null;
 
   return (
-    <dl className="m-0 flex flex-wrap gap-2">
-      {fields.map((field) => (
-        <div key={field.label} className={`mv-call-chip ${TONE_DOMAIN[field.tone]}`}>
-          <dt className="font-extrabold">{field.label}:</dt>
-          <dd className="m-0" {...(field.ltr ? { dir: "ltr" as const } : {})}>
-            {field.value}
-          </dd>
-        </div>
-      ))}
-    </dl>
+    <div className={header === undefined ? undefined : "mt-4"}>
+      {header}
+      <dl className="m-0 flex flex-wrap gap-2">
+        {fields.map((field) => (
+          <div key={field.label} className={`mv-call-chip ${TONE_DOMAIN[field.tone]}`}>
+            <dt className="font-extrabold">{field.label}:</dt>
+            <dd className="m-0" {...(field.ltr ? { dir: "ltr" as const } : {})}>
+              {field.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }

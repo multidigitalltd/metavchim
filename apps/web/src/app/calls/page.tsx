@@ -153,8 +153,18 @@ export default function CallsPage() {
   /*
    * ‎**„הועתק” נאמר רק כשההעתקה הצליחה.** דפדפן שחוסם את הלוח
    * מחזיר דחייה, והודעת הצלחה עליה שולחת את המתווך להדביק כלום.
+   *
+   * ‏והוא נאמר רק לרגע: „הועתק” הוא אישור לפעולה שזה עתה נעשתה,
+   * לא הצהרה על מה שיש בלוח. מי שהעתיק, עבר לשיחה אחרת וחזר, היה
+   * מוצא „הועתק” על לוח שמאז הוחלף — טענה שאיננו יכולים לבדוק.
    */
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (copiedKey === null) return;
+    const timer = setTimeout(() => setCopiedKey(null), 2000);
+    return () => clearTimeout(timer);
+  }, [copiedKey]);
 
   async function copySection(key: string, text: string): Promise<void> {
     if (text === "") return;
@@ -622,18 +632,16 @@ export default function CallsPage() {
                 {/*
                   ‎**„פרטי לקוח” — התגיות שהמערכת חילצה מהשיחה עצמה.**
 
-                  ‎`CallHighlightFields` מחזיר `null` כשלא זוהה דבר,
-                  ולכן הכותרת נבנית רק כשיש מה להכתיר: כותרת מעל ריק
-                  אומרת „לא נמצא כלום”, בזמן שהאמת היא „לא ידוע” —
-                  המחלץ מוצא ביטויים בטקסט, ומה שלא נתפס יכול היה
-                  להיאמר.
+                  הכותרת נמסרת פנימה ולא נבנית כאן: רק `CallHighlightFields`
+                  יודע אם נבנתה ולו תגית אחת, והוא מחזיר `null` כשלא.
+                  כותרת מעל ריק אומרת „לא נמצא כלום”, בזמן שהאמת היא
+                  „לא ידוע” — המחלץ מוצא ביטויים בטקסט, ומה שלא נתפס
+                  יכול היה להיאמר.
                 */}
-                {hasHighlights(selected.highlights) ? (
-                  <div className="mt-4">
-                    <CallSection title="פרטי לקוח" />
-                    <CallHighlightFields highlights={selected.highlights ?? {}} />
-                  </div>
-                ) : null}
+                <CallHighlightFields
+                  highlights={selected.highlights ?? {}}
+                  header={<CallSection title="פרטי לקוח" />}
+                />
 
                 <CallRecording
                   call={selected}
@@ -714,19 +722,6 @@ function CallSection({
         </button>
       ) : null}
     </div>
-  );
-}
-
-/**
- * האם חולץ משהו בכלל.
- *
- * ‎`{}` הוא „לא זוהה דבר”, ומעליו כותרת „פרטי לקוח” הייתה נקראת
- * כטענה על השיחה — „אין ללקוח דרישות” — במקום „לא ידוע”.
- */
-function hasHighlights(highlights: CallHighlights | undefined): boolean {
-  if (highlights === undefined) return false;
-  return Object.values(highlights).some(
-    (value) => value !== undefined && (!Array.isArray(value) || value.length > 0),
   );
 }
 
