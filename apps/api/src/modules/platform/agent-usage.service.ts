@@ -218,7 +218,25 @@ export class AgentUsageService {
       for (;;) {
         const rows = await this.prisma.withExplicitTenant(tenant.id, (tx) =>
           tx.agentEvent.findMany({
-            where: { tenantId: tenant.id, kind: "interpret", createdAt: { gte: since } },
+            where: {
+              tenantId: tenant.id,
+              kind: "interpret",
+              createdAt: { gte: since },
+              /*
+               * ‎**חסימה אינה צמד אימון.**
+               *
+               * הייצוא הוא „מה נאמר ⟵ מה הובן”, ובלחיצה שנחסמה לא
+               * הובן דבר: לא רצה שום קריאה, והשורה נושאת `unknown`
+               * מסיבה שאין לה קשר למשפט עצמו. אימון עליה היה מלמד
+               * שמשפטים תקינים לגמרי אינם מובנים — כלומר הרעלה של
+               * הדאטה בדיוק בשדה שהוא לומד.
+               *
+               * ‎`source: null` נשאר בפנים: שורות ותיקות מלפני שהמקור
+               * נרשם הן פירושים לכל דבר, ו-`not` לבדו היה מפיל אותן
+               * ‎(ב-SQL השוואה מול NULL אינה אמת).
+               */
+              OR: [{ source: null }, { source: { not: "blocked" } }],
+            },
             orderBy: { id: "asc" },
             take: Math.min(EXPORT_PAGE, maxRows - emitted),
             ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),

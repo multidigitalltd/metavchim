@@ -214,6 +214,20 @@ describe("‎חסימה אינה נספרת כקריאה למודל", () => {
     expect(USAGE_SERVICE).toMatch(/source = 'blocked'\)::int\s+AS blocked_count/u);
   });
 
+  /*
+   * ‎**והשכבה השלישית: דאטת האימון.**
+   *
+   * הייצוא הוא „מה נאמר ⟵ מה הובן”, ובחסימה לא הובן דבר. השורה
+   * נושאת `unknown` מסיבה שאין לה קשר למשפט, ואימון עליה מלמד
+   * שמשפטים תקינים אינם מובנים.
+   *
+   * שורה ותיקה בלי מקור נשארת בפנים — היא פירוש לכל דבר, ותנאי
+   * ‎`not` לבדו היה מפיל אותה (השוואה מול NULL אינה אמת).
+   */
+  it("חסימה אינה נכנסת לדאטת האימון, ושורה בלי מקור כן", () => {
+    expect(USAGE_SERVICE).toContain('OR: [{ source: null }, { source: { not: "blocked" } }]');
+  });
+
   it("מסך השימוש מנכה אותן מהספירה של המודל", () => {
     expect(USAGE_SECTION).toContain("const attempted = t.interpretCount - t.blockedCount;");
     expect(USAGE_SECTION).toContain("const llmCount = attempted - t.rulesCount;");
