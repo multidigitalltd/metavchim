@@ -319,6 +319,16 @@ export class SettingsController {
      * דבר שאינו קורה, ומשרד שעורך נוסח ומאמין שנשלח.
      */
     whatsappViewingReminderFields: boolean;
+    /**
+     * ‎**האם בכלל נרשמה תבנית לתזכורת בוואטסאפ.**
+     *
+     * ‏`deliver` קורא ל-`sendTemplate` רק כששם התבנית אינו ריק —
+     * „בלי תבנית מוגדרת אין שליחה בוואטסאפ”, כלשון ההערה שם. שתי
+     * ההגדרות עצמאיות, ומנהל פלטפורמה יכול לסמן „שדות” ולהשאיר את
+     * השם ריק: אז בוואטסאפ לא יוצא **כלום**, והודעה שמבטיחה „יוצאת
+     * תבנית קבועה” הייתה מבטיחה משלוח שאינו קורה (ביקורת Codex, P2).
+     */
+    whatsappViewingReminderTemplateSet: boolean;
   }> {
     const tenantId = TenantContext.current().tenantId;
     const tenant = await this.prisma.tenant.findUnique({
@@ -338,6 +348,9 @@ export class SettingsController {
       whatsappViewingReminderFields:
         (await this.platformSettings.get("whatsappViewingReminderTemplateFields")) ===
         "true",
+      /* אותו תנאי בדיוק שבו `deliver` מכריע אם לשלוח בכלל */
+      whatsappViewingReminderTemplateSet:
+        ((await this.platformSettings.get("whatsappViewingReminderTemplate")) ?? "") !== "",
     };
   }
 

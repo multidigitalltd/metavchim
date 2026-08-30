@@ -67,4 +67,32 @@ describe("גילוי נאות על נוסח תזכורת הסיור", () => {
   it("המסך מצהיר על השדה", () => {
     expect(SCREEN).toContain("whatsappViewingReminderFields: boolean;");
   });
+
+  /*
+   * ‎**„יוצאת תבנית קבועה” מותנה בכך שיש תבנית** (ביקורת Codex, P2).
+   *
+   * ‏שתי ההגדרות עצמאיות: מנהל פלטפורמה יכול לסמן „שדות” ולהשאיר
+   * את שם התבנית ריק. `deliver` שולח רק כששם התבנית אינו ריק —
+   * ואז בוואטסאפ לא יוצא דבר, בזמן שההודעה מבטיחה שכן. החלק
+   * הראשון („במייל בלבד”) נכון בכל מקרה; רק השני מותנה.
+   */
+  it("ההבטחה על תבנית בוואטסאפ מותנית בכך שנרשמה תבנית", () => {
+    expect(CONTROLLER).toContain("whatsappViewingReminderTemplateSet:");
+    expect(CONTROLLER).toContain(
+      'this.platformSettings.get("whatsappViewingReminderTemplate")',
+    );
+    expect(SCREEN).toContain("data.whatsappViewingReminderTemplateSet");
+    expect(
+      SCREEN,
+      "בלי הענף השני ההודעה מבטיחה משלוח שאינו קורה",
+    ).toContain("תזכורת בוואטסאפ אינה נשלחת כרגע");
+  });
+
+  /*
+   * ‎**אותו תנאי בדיוק שבו השולח מכריע.** תנאי שנבדל מזה של
+   * ‎`deliver` היה מציג הבטחה על מצב אחר מזה שקובע את המשלוח.
+   */
+  it("התנאי זהה לזה שבשולח", () => {
+    expect(SENDER).toContain('if (template !== undefined && template !== "") {');
+  });
 });
