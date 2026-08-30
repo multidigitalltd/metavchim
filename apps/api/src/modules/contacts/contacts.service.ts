@@ -167,6 +167,43 @@ export class ContactsService {
   }
 
   /**
+   * ‎**שינוי שם הכרטיס.**
+   *
+   * ‏כרטיס שנוצר משיחה נכנסת שבה לא זוהה שם נשמר עם מספר הטלפון
+   * במקומו (`callerName ?? phone` בשירות הטלפוניה), וכך הוא נשאר:
+   * לא היה נתיב לתקן אותו, והמתווך ראה מספר במקום שם בכל מסך —
+   * בכרטיס הקונה, ברשימות, ובכל התאמה.
+   *
+   * ‎**וחתימת השם משתנה יחד איתו.** `nameHash` היא מה שאיתור
+   * הכפילויות והחיפוש עובדים מולו, בלי לפענח. שם שהשתנה וחתימה
+   * שנשארה מאחור פירושם מנוע כפילויות שמשווה שמות שכבר אינם
+   * קיימים — הוא ימשיך להצביע על „כפילות” שנעלמה, ויחמיץ את זו
+   * שנוצרה עכשיו. שני השדות נכתבים באותה פעולה, או ששניהם לא.
+   *
+   * מחזיר `true` רק כשהשם באמת השתנה: קריאה שאינה משנה דבר אינה
+   * אירוע, ואינה אמורה להשאיר רשומת ביקורת שמתעדת שינוי שלא היה.
+   */
+  async setName(tx: TenantTx, contactId: string, name: string): Promise<boolean> {
+    const tenantId = TenantContext.current().tenantId;
+    const next = name.trim();
+    const row = await tx.contact.findFirst({
+      where: { id: contactId, tenantId },
+      select: { nameEncrypted: true },
+    });
+    if (!row) return false;
+    if (this.crypto.decrypt(row.nameEncrypted) === next) return false;
+
+    await tx.contact.updateMany({
+      where: { id: contactId, tenantId },
+      data: {
+        nameEncrypted: this.crypto.encrypt(next),
+        nameHash: this.crypto.nameHash(normalizeNameForMatch(next)),
+      },
+    });
+    return true;
+  }
+
+  /**
    * קביעת/ניקוי האימייל של הכרטיס — מוצפן כמו השם והטלפון, ולצידו
    * חתימת HMAC שמאפשרת לסנכרון ה-Gmail להתאים שולח נכנס לכרטיס.
    */

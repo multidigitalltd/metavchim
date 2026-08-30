@@ -190,6 +190,50 @@ export default function BuyerDetailPage({
     "overview",
   );
 
+  /*
+   * ‎**תיקון השם — במקום שבו הוא מוצג.**
+   *
+   * ‏קונה שנוצר משיחה נכנסת שבה לא זוהה שם נשמר עם מספר הטלפון
+   * במקומו, וזה נשאר סופי: לא היה נתיב לשנות אותו בשום מסך.
+   *
+   * ‎`renaming` הוא הטקסט שבעריכה, ו-`null` הוא „לא עורכים כרגע” —
+   * שני מצבים ולא דגל נפרד, כדי שלא ייווצר מצב שבו התיבה פתוחה
+   * בלי ערך או סגורה עם ערך שנשמר בצד.
+   */
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameFailed, setRenameFailed] = useState(false);
+  const [renameBusy, setRenameBusy] = useState(false);
+
+  async function saveName(): Promise<void> {
+    const next = (renaming ?? "").trim();
+    if (next === "" || buyer === null) return;
+    /*
+     * שם זהה אינו שינוי — סוגרים בלי לפנות לשרת. שמירה שאינה
+     * משנה דבר לא אמורה להשאיר רשומת ביקורת שמתעדת שינוי שלא היה.
+     */
+    if (next === buyer.contact.name) {
+      setRenaming(null);
+      return;
+    }
+    setRenameBusy(true);
+    setRenameFailed(false);
+    try {
+      await apiPatch(`/contacts/${buyer.contact.id}/name`, { name: next });
+      /*
+       * המסך מתעדכן רק אחרי שהשרת אישר. עדכון אופטימי היה מציג
+       * שם חדש על כרטיס ששמו לא השתנה — והמתווך היה ממשיך משם.
+       */
+      setBuyer((prev) =>
+        prev ? { ...prev, contact: { ...prev.contact, name: next } } : prev,
+      );
+      setRenaming(null);
+    } catch {
+      setRenameFailed(true);
+    } finally {
+      setRenameBusy(false);
+    }
+  }
+
   /** עדכון בשלות במקום — הקונה "התחמם"? בחירה אחת והמערכת מסונכרנת. */
   async function changeMaturity(maturity: string) {
     await apiPatch(`/buyers/${id}`, { maturity });
@@ -310,6 +354,25 @@ export default function BuyerDetailPage({
               {buyer.contact.name}
             </h1>
             {/*
+              ‎**עריכת השם ליד השם.**
+
+              היכולת היא `buyers.edit` — אותה יכולת שהשרת דורש, כך
+              ששינוי הרשאות במקום אחד לא ישאיר כאן כפתור שיידחה.
+            */}
+            {canEditPeople ? (
+              <button
+                type="button"
+                className="mv-btn-plain"
+                style={{ padding: "3px 9px", fontSize: "var(--type-caption)" }}
+                onClick={() => {
+                  setRenameFailed(false);
+                  setRenaming(buyer.contact.name);
+                }}
+              >
+                <IconEdit s={13} /> שינוי שם
+              </button>
+            ) : null}
+            {/*
               קונה או שוכר — צמוד לשם.
 
               ההבדל קובע כמעט כל שיחה עם הלקוח (תקציב חודשי מול
@@ -347,6 +410,64 @@ export default function BuyerDetailPage({
               tone={{ fg: pill.fg, bg: pill.bg }}
             />
           </div>
+          {/*
+            ‎**התיבה נפתחת מתחת לשם, ולא במקומו.**
+
+            השם הנוכחי נשאר גלוי בזמן העריכה: מי שמתקן „מספר טלפון
+            במקום שם” צריך לראות מול מה הוא מתקן.
+          */}
+          {renaming !== null ? (
+            <form
+              className="mt-2 flex flex-wrap items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveName();
+              }}
+            >
+              <input
+                autoFocus
+                value={renaming}
+                onChange={(event) => setRenaming(event.target.value)}
+                aria-label="שם הקונה"
+                maxLength={120}
+                className="rounded-lg border px-3 py-2"
+                style={{
+                  background: "var(--color-field)",
+                  borderColor: "var(--color-input-border)",
+                  minWidth: 220,
+                }}
+              />
+              <button
+                type="submit"
+                className="mv-btn-action"
+                disabled={renameBusy || renaming.trim().length < 2}
+              >
+                שמירה
+              </button>
+              <button
+                type="button"
+                className="mv-btn-plain"
+                onClick={() => {
+                  setRenaming(null);
+                  setRenameFailed(false);
+                }}
+              >
+                ביטול
+              </button>
+              {/*
+                ‎**כישלון נאמר, והתיבה נשארת פתוחה.** סגירה שקטה
+                הייתה מציגה את השם הישן וקוראת כאילו נשמר.
+              */}
+              {renameFailed ? (
+                <span
+                  className="text-[length:var(--type-caption-lg)]"
+                  style={{ color: "var(--color-danger)" }}
+                >
+                  השם לא נשמר. אפשר לנסות שוב.
+                </span>
+              ) : null}
+            </form>
+          ) : null}
           <p
             className="m-0 mt-1 text-[length:var(--type-caption-lg)]"
             style={{ color: "var(--color-text-muted)" }}
