@@ -329,13 +329,11 @@ export class WhatsAppAssistantService {
     }
     /*
      * ‎**אותה הכרעה בדיוק שחוסמת את הפקת קוד הצימוד** — ראו
-     * ‎`whatsappAgentDenial`. המנוי הוא לכל סוכן בנפרד ולא לכל
-     * המשרד, ובעל המשרד כלול תמיד: הוא בעל המנוי, ואיש אינו מוסמך
-     * להדליק לו את הדגל (הנתיב מגן על שורת ה-owner מכל עריכה).
+     * ‎`whatsappAgentDenial`. המקום מוקצה לסוכן מסוים ואינו נגזר
+     * מתפקיד: בעל המשרד מחזיק בו כברירת מחדל ורשאי להעביר אותו.
      */
     const denial = whatsappAgentDenial({
       planHasAgent: await this.plans.tenantHasFeature(user.tenantId, FEATURE_ID),
-      role: user.role,
       whatsappAccess: user.whatsappAccess,
     });
     if (denial !== null) {

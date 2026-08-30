@@ -172,6 +172,14 @@ const TenantBillingOverrideSchema = z
     paidUntil: z.union([z.string().datetime(), z.null()]).optional(),
     priceOverrideMonthlyAgorot: z.union([z.number().int().min(1).max(10_000_000), z.null()]).optional(),
     priceOverrideYearlyAgorot: z.union([z.number().int().min(1).max(100_000_000), z.null()]).optional(),
+    /**
+     * מקומות **נוספים** לסוכן הוואטסאפ, מעבר לאחד שכלול במסלול.
+     *
+     * זו רכישה: המשרד משלם לכל סוכן נוסף, ובעל הפלטפורמה מעלה כאן
+     * את המספר. תקרה של עשרים — מעבר לה זו כמעט בוודאות טעות
+     * הקלדה, ולא משרד עם עשרים ואחד סוכנים בוואטסאפ.
+     */
+    whatsappAgentSeatsExtra: z.number().int().min(0).max(20).optional(),
   })
   .strict();
 
@@ -1250,6 +1258,7 @@ export class PlatformController {
         paidUntil: true,
         priceOverrideMonthlyAgorot: true,
         priceOverrideYearlyAgorot: true,
+        whatsappAgentSeatsExtra: true,
       },
     });
     if (!tenant) throw new BadRequestException("משרד לא נמצא");
@@ -1259,6 +1268,7 @@ export class PlatformController {
       paidUntil?: Date | null;
       priceOverrideMonthlyAgorot?: number | null;
       priceOverrideYearlyAgorot?: number | null;
+      whatsappAgentSeatsExtra?: number;
     } = {};
     // `in` ולא בדיקת ערך: `null` הוא הוראה מפורשת לבטל, ושדה חסר
     // הוא "אל תיגע" — שני מצבים שונים שאסור לאחד
@@ -1269,6 +1279,9 @@ export class PlatformController {
     }
     if ("priceOverrideYearlyAgorot" in body) {
       data.priceOverrideYearlyAgorot = body.priceOverrideYearlyAgorot ?? null;
+    }
+    if ("whatsappAgentSeatsExtra" in body && body.whatsappAgentSeatsExtra !== undefined) {
+      data.whatsappAgentSeatsExtra = body.whatsappAgentSeatsExtra;
     }
     if (Object.keys(data).length === 0) return { ok: true };
 
@@ -1288,6 +1301,7 @@ export class PlatformController {
               paidUntil: tenant.paidUntil,
               monthly: tenant.priceOverrideMonthlyAgorot,
               yearly: tenant.priceOverrideYearlyAgorot,
+              whatsappSeatsExtra: tenant.whatsappAgentSeatsExtra,
             },
             after: data,
           },

@@ -38,9 +38,14 @@ export type WhatsappAgentDenial =
 export interface WhatsappAgentEligibility {
   /** האם המסלול של המשרד כולל את הסוכן */
   planHasAgent: boolean;
-  /** בעל המשרד כלול תמיד — הוא בעל המנוי */
-  role: string;
-  /** מנוי אישי שבעל המשרד הפעיל למשתמש הזה */
+  /**
+   * האם המקום מוקצה למשתמש הזה.
+   *
+   * ‎**כולל בעל המשרד.** קודם הוא היה מורשה אוטומטית לפי `role`,
+   * ולכן לא הייתה שום דרך להעביר את המקום לסוכן אחר — הדגל שלו לא
+   * נשמר בשום מקום, ולא היה מה לכבות. עכשיו זו הקצאה מפורשת:
+   * ברירת המחדל היא בעל המשרד, והוא רשאי להעביר אותה.
+   */
   whatsappAccess: boolean;
 }
 
@@ -56,7 +61,6 @@ export function whatsappAgentDenial(
   eligibility: WhatsappAgentEligibility,
 ): WhatsappAgentDenial | null {
   if (!eligibility.planHasAgent) return "plan";
-  if (eligibility.role === "owner") return null;
   return eligibility.whatsappAccess ? null : "seat";
 }
 
@@ -69,6 +73,21 @@ export function whatsappAgentDenial(
 export const WHATSAPP_AGENT_DENIAL_TEXT: Record<WhatsappAgentDenial, string> = {
   plan: "הסוכן החכם אינו כלול במסלול של המשרד.",
   seat:
-    "הסוכן האישי בוואטסאפ אינו פעיל עבורך עדיין. " +
-    "בעל המשרד יכול להפעיל אותו במסך ניהול משרד ← סוכני המשרד.",
+    "הסוכן בוואטסאפ מוקצה כרגע לסוכן אחר במשרד. " +
+    "בעל המשרד יכול להעביר אותו אליכם במסך ניהול משרד ← סוכני המשרד.",
 };
+
+/**
+ * כמה סוכנים במשרד רשאים להחזיק בסוכן הוואטסאפ.
+ *
+ * ‎**המקום הראשון מגיע מהמסלול, לא מהמשרד.** כל מסלול שכולל את
+ * הסוכן מזכה בסוכן אחד; מסלול שאינו כולל אותו מזכה באפס, ולא
+ * ב„אחד שחסום” — שני המצבים נראים דומה מבחוץ והם שונים לגמרי
+ * כשמשרד משדרג מסלול.
+ *
+ * מעבר לזה, כל מקום נרכש בנפרד ונספר ב-`whatsappAgentSeatsExtra`.
+ */
+export function whatsappAgentSeats(planHasAgent: boolean, extraSeats: number): number {
+  if (!planHasAgent) return 0;
+  return 1 + Math.max(0, Math.trunc(extraSeats));
+}

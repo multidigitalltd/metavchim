@@ -52,6 +52,7 @@ import { emailDomainStatus, onboardingSteps, type OnboardingProgress } from "@me
 import {
   WHATSAPP_AGENT_DENIAL_TEXT,
   whatsappAgentDenial,
+  whatsappAgentSeats,
   type WhatsappAgentDenial,
 } from "@metavchim/shared";
 import {
@@ -558,11 +559,19 @@ export class SettingsController {
     autoShareProperties: boolean;
     autoShareBuyers: boolean;
     autoEmailOffers: boolean;
+    /**
+     * ‎**כמה מקומות לסוכן הוואטסאפ יש למשרד, וכמה תפוסים.**
+     *
+     * מוצג במסך הצוות לצד ההקצאה עצמה: המקום הוא מנוי, ובלי המספר
+     * הזה בעל המשרד אינו יודע אם „הפעל” ייכשל עד שינסה.
+     */
+    whatsappAgentSeats: number;
+    whatsappAgentSeatsUsed: number;
   }> {
     const tenantId = TenantContext.current().tenantId;
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { name: true, plan: true, settings: true },
+      select: { name: true, plan: true, settings: true, whatsappAgentSeatsExtra: true },
     });
     const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
     return {
@@ -592,6 +601,13 @@ export class SettingsController {
         typeof settings["defaultPaymentTerms"] === "string"
           ? settings["defaultPaymentTerms"]
           : undefined,
+      whatsappAgentSeats: whatsappAgentSeats(
+        await this.plans.tenantHasFeature(tenantId, "voice_intake"),
+        tenant?.whatsappAgentSeatsExtra ?? 0,
+      ),
+      whatsappAgentSeatsUsed: await this.prisma.withTenant((tx) =>
+        tx.user.count({ where: { tenantId, isActive: true, whatsappAccess: true } }),
+      ),
       // חסר = כבוי: מדיניות שמפרסמת נתונים החוצה חייבת הפעלה מפורשת
       autoShareProperties: settings["autoShareProperties"] === true,
       autoShareBuyers: settings["autoShareBuyers"] === true,
@@ -1285,6 +1301,41 @@ export class SettingsController {
     }
   }
 
+  /**
+   * ‎**מקום פנוי לסוכן הוואטסאפ** — אחרת הרכישה היא בקשה ולא תנאי.
+   *
+   * מקום אחד כלול, וכל נוסף כרוך בתשלום; בעל הפלטפורמה מעלה את
+   * המספר כשהמשרד רוכש. הספירה היא על מי שמוקצה לו המקום **ופעיל**:
+   * חשבון מושבת אינו שולח הודעות, ואין סיבה שיחזיק מקום ששולם עליו.
+   *
+   * הנעילה זהה לזו של מכסת המשתמשים ונלקחת באותה עסקה — היא ניתנת
+   * לנעילה חוזרת, ולכן קריאה מתוך מסלול שכבר נעל אינה נחסמת.
+   */
+  private async assertWhatsappSeatAvailable(tx: TenantTx, tenantId: string): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${tenantId}`}))`;
+    const tenant = await tx.tenant.findUnique({
+      where: { id: tenantId },
+      select: { whatsappAgentSeatsExtra: true },
+    });
+    const seats = whatsappAgentSeats(
+      await this.plans.tenantHasFeature(tenantId, "voice_intake"),
+      tenant?.whatsappAgentSeatsExtra ?? 0,
+    );
+    if (seats === 0) {
+      throw new BadRequestException(WHATSAPP_AGENT_DENIAL_TEXT.plan);
+    }
+    const used = await tx.user.count({
+      where: { tenantId, isActive: true, whatsappAccess: true },
+    });
+    if (used >= seats) {
+      throw new BadRequestException(
+        seats === 1
+          ? "הסוכן בוואטסאפ כלול לסוכן אחד במשרד. כדי להעביר אותו — כבו אותו אצל מי שמחזיק בו כרגע, או פנו אלינו להוספת מקום."
+          : `המשרד מחזיק ${seats} מקומות לסוכן בוואטסאפ, וכולם תפוסים. כבו אצל אחד המחזיקים, או פנו אלינו להוספת מקום.`,
+      );
+    }
+  }
+
   @Post("users")
   @RequireCapability("users.manage")
   async createUser(
@@ -1343,7 +1394,21 @@ export class SettingsController {
     body: z.infer<typeof UpdateUserSchema>,
   ): Promise<{ ok: true }> {
     const ctx = TenantContext.current();
-    if (id === ctx.userId) {
+    /*
+     * ‎**הקצאת מקום הוואטסאפ מותרת גם על השורה של עצמך.**
+     *
+     * שאר השדות אינם: תפקיד, פעילות וטלפון הם זהות, ועריכה עצמית
+     * שלהם היא בדיוק הדרך להעלות את עצמך בדרגה. אבל המקום בוואטסאפ
+     * הוא הקצאה שבעל המשרד מחזיק כברירת מחדל, ובלי היכולת לכבות
+     * אותה אצל עצמו **אין לו שום דרך להעביר אותה לסוכן אחר** —
+     * וזו הדרישה עצמה.
+     */
+    const onlyWhatsappSeat =
+      body.whatsappAccess !== undefined &&
+      body.role === undefined &&
+      body.isActive === undefined &&
+      body.phone === undefined;
+    if (id === ctx.userId && !onlyWhatsappSeat) {
       throw new BadRequestException("אי אפשר לשנות את המשתמש של עצמך מכאן");
     }
     /*
@@ -1378,15 +1443,24 @@ export class SettingsController {
       await this.whatsappLinks.lockAccount(tx, id);
       const target = await tx.user.findFirst({
         where: { id, tenantId: ctx.tenantId },
-        select: { role: true, isActive: true, phone: true },
+        select: { role: true, isActive: true, phone: true, whatsappAccess: true },
       });
       if (!target) throw new BadRequestException("משתמש לא נמצא");
-      if (target.role === "owner") {
+      if (target.role === "owner" && !onlyWhatsappSeat) {
         throw new BadRequestException("אי אפשר לשנות את בעל המשרד");
       }
       // הפעלה מחדש תופסת מושב — אותה מכסה בדיוק כמו ביצירה
       if (body.isActive === true && !target.isActive) {
         await this.assertSeatAvailable(tx, ctx.tenantId);
+      }
+      /*
+       * ‎**מקום הוואטסאפ נספר בהדלקה, ובתוך הנעילה שכבר נלקחה.**
+       *
+       * מקום אחד כלול במסלול וכל נוסף כרוך בתשלום, ולכן בלי המכסה
+       * בעל משרד יכול היה להדליק את הסוכן לכל הצוות בלי לרכוש דבר.
+       */
+      if (body.whatsappAccess === true && !target.whatsappAccess) {
+        await this.assertWhatsappSeatAvailable(tx, ctx.tenantId);
       }
       const nextPhone =
         body.phone === undefined ? undefined : body.phone.trim() === "" ? null : body.phone.trim();
@@ -1626,7 +1700,6 @@ export class SettingsController {
     if (me === null) return "seat";
     return whatsappAgentDenial({
       planHasAgent: await this.plans.tenantHasFeature(ctx.tenantId, "voice_intake"),
-      role: me.role,
       whatsappAccess: me.whatsappAccess,
     });
   }
