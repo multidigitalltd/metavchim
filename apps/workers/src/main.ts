@@ -23,6 +23,13 @@ import {
   effectiveFeatures,
   diarizeTimeoutMs,
   formatDiarizedTranscript,
+  buildCallIntelPrompt,
+  CALL_INTEL_SCHEMA,
+  formatRoleTranscript,
+  mergeCallIntel,
+  parseCallIntel,
+  type CallIntel,
+  type CallIntelContext,
   nextOccurrenceUtc,
   sanitizeFeatures,
   subscriptionGrantsAccess,
@@ -1550,6 +1557,96 @@ async function fetchSpeakerTurns(
   }
 }
 
+/* ==================== הבנת השיחה (Gemini) ==================== */
+
+/** ברירת המחדל תואמת ל-`DEFAULT_GEMINI_MODEL` ב-API. */
+const CALL_INTEL_MODEL_DEFAULT = "gemini-3.6-flash";
+const CALL_INTEL_TIMEOUT_MS = Number(process.env["CALL_INTEL_TIMEOUT_MS"] ?? 45_000);
+/*
+ * תמלול של שיחה ארוכה חוצה בקלות את חלון ברירת המחדל. התקרה כאן
+ * נדיבה כי הפלט כולל את התורות עצמן — כלומר בערך באורך הקלט.
+ */
+const CALL_INTEL_MAX_TOKENS = 8_192;
+/** תמלול ארוך מזה נחתך: שיחה בת שעה אינה נכנסת לחלון, ובלי חיתוך הקריאה נכשלת כולה. */
+const CALL_INTEL_TRANSCRIPT_MAX = 60_000;
+
+let geminiCache: { key: string | null; model: string; until: number } | null = null;
+
+/**
+ * המפתח והמודל — מהגדרות הפלטפורמה, עם משתני הסביבה כ-Fallback.
+ *
+ * אותה תבנית של `whatsappConfig` ומאותה סיבה: ההגדרה נערכת במסך
+ * הפלטפורמה ולא בקובץ סביבה, וה-Worker חייב לראות את אותו ערך.
+ */
+async function geminiConfig(): Promise<{ key: string; model: string } | null> {
+  const now = Date.now();
+  if (geminiCache && now < geminiCache.until) {
+    return geminiCache.key ? { key: geminiCache.key, model: geminiCache.model } : null;
+  }
+  const rows = await prisma.platformSetting.findMany({
+    where: { key: { in: ["geminiApiKey", "geminiModel"] } },
+    select: { key: true, valueEncrypted: true },
+  });
+  const stored = new Map(rows.map((row) => [row.key, decryptSetting(row.valueEncrypted)] as const));
+  const key = stored.get("geminiApiKey") ?? process.env["GEMINI_API_KEY"] ?? null;
+  const model =
+    stored.get("geminiModel") ?? process.env["GEMINI_MODEL"] ?? CALL_INTEL_MODEL_DEFAULT;
+  geminiCache = { key, model, until: now + 60_000 };
+  return key ? { key, model } : null;
+}
+
+/**
+ * ‎**מה שהמודל מוסיף לשיחה — ו-`null` בכל כשל.**
+ *
+ * ‎`null` אינו מקרה קצה אלא מסלול צפוי: מפתח שלא הוגדר, מכסה
+ * שנגמרה, פסק זמן, או תשובה שנפסלה בבדיקת המספרים. הקורא ממזג עם
+ * `summarizeCall` וממשיך — שיחה לעולם אינה נתקעת בגלל המודל.
+ */
+async function callIntel(
+  transcript: string,
+  context: CallIntelContext,
+): Promise<CallIntel | null> {
+  const config = await geminiConfig();
+  if (config === null || transcript.trim() === "") return null;
+
+  const source = transcript.slice(0, CALL_INTEL_TRANSCRIPT_MAX);
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.model)}:generateContent`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": config.key },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: buildCallIntelPrompt(source, context) }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: CALL_INTEL_SCHEMA,
+            // חילוץ, לא כתיבה — דטרמיניזם עדיף על יצירתיות
+            temperature: 0,
+            maxOutputTokens: CALL_INTEL_MAX_TOKENS,
+          },
+        }),
+        signal: AbortSignal.timeout(CALL_INTEL_TIMEOUT_MS),
+      },
+    );
+    if (!res.ok) throw new Error(`gemini ${res.status}`);
+    const body = (await res.json()) as {
+      candidates?: { content?: { parts?: { text?: string }[] } }[];
+    };
+    const raw = body.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    if (raw.trim() === "") return null;
+    /*
+     * הפענוח מקבל את התמלול **המלא** ולא את החתוך: הוא מקור האמת
+     * לבדיקת המספרים, וחיתוך שלו היה פוסל מספר אמיתי שנאמר בסוף
+     * שיחה ארוכה.
+     */
+    return parseCallIntel(JSON.parse(raw), transcript);
+  } catch (error) {
+    console.error(`[call-transcribe] intel skipped: ${String(error)}`);
+    return null;
+  }
+}
+
 /**
  * זכאות המסלול — בתוך ה-Worker.
  *
@@ -1667,6 +1764,8 @@ async function transcribeOneCall(): Promise<void> {
           recordingKey: true,
           leadId: true,
           contactId: true,
+          // רמז לזיהוי מי הוא מי: בשיחה יוצאת המתווך הוא שפותח
+          direction: true,
           // מי תיעד את השיחה — עליו תיפול משימת ההמשך
           createdBy: true,
         },
@@ -1713,12 +1812,53 @@ async function transcribeOneCall(): Promise<void> {
         segments.length > 0 ? await fetchSpeakerTurns(audio, audioSeconds) : [];
       const diarized = formatDiarizedTranscript(segments, turns);
       // נפילה חזרה ל-text כשהשירות הישן עדיין לא מחזיר segments
-      const transcript = (diarized.text || body.text || "").trim();
-      // הסיכום מחולץ מהטקסט הנקי, בלי תוויות הדובר וחותמות הזמן —
-      // ביטויי המפתח שהוא מחפש היו נשברים על "[01:15] דובר 2:"
-      const parsedCall = summarizeCall((body.text ?? "").trim() || transcript);
-      const { summary, highlights } = parsedCall;
-      const followUp = followUpFromCall(parsedCall, new Date());
+      const diarizedText = (diarized.text || body.text || "").trim();
+      /*
+       * ‎**הטקסט הנקי הוא מה שנשלח להבנה, לא הטקסט המתויג.**
+       *
+       * גם החילוץ הדטרמיניסטי וגם המודל קוראים את מה שנאמר, בלי
+       * ‎"[01:15] דובר 2:" באמצע. ביטויי המפתח של הראשון נשברים על
+       * התוויות, והשני היה מקבל שני סימוני דוברים סותרים.
+       */
+      const plain = (body.text ?? "").trim() || diarizedText;
+      const parsedCall = summarizeCall(plain);
+
+      /*
+       * ‎**שם הלקוח אינו נמסר למודל, אף שהוא היה עוזר.**
+       *
+       * ‎„היי רות” בפי אחד הדוברים מכריע מיד מי המתווך. אבל השם
+       * יושב ב-`nameEncrypted` — הוא מוצפן במנוחה בכוונה, ופענוח
+       * שלו כדי לשלוח אותו לספק חיצוני הופך החלטת פרטיות מפורשת
+       * על פיה בשביל רמז. כיוון השיחה נמסר במקומו, והוא חינם.
+       */
+
+      /*
+       * ‎**ההבנה רצה אחרי החילוץ, לא במקומו.**
+       *
+       * ‎`summarizeCall` הוא רשת הביטחון: הוא אינו נשען על רשת, אינו
+       * עולה כסף ואינו ממציא. המודל מוסיף מעליו את מה שדורש הבנה —
+       * מי דיבר, מה הצד, ומה באמת סוכם — וכשהוא אינו מוגדר או נכשל,
+       * השיחה מקבלת בדיוק את מה שקיבלה עד היום.
+       */
+      const intel = mergeCallIntel(
+        await callIntel(plain, {
+          direction: pending.direction === "outbound" ? "outbound" : "inbound",
+        }),
+        parsedCall,
+      );
+      /*
+       * תורות מתויגות בתפקיד גוברות על „דובר 1/2”: הן אומרות מי
+       * מהשניים המתווך, וזו כל השאלה. כשהמודל לא החזיר תורות —
+       * נשאר מה שהיה.
+       */
+      const transcript =
+        intel.turns.length > 0 ? formatRoleTranscript(intel.turns) : diarizedText;
+      const summary = intel.summary;
+      const highlights = intel.highlights;
+      const followUp = followUpFromCall(
+        { ...parsedCall, summary, highlights, suggestedOutcome: intel.suggestedOutcome },
+        new Date(),
+      );
       /** המשימה שנוצרה, אם נוצרה — קובעת את נוסח ההתראה היחידה. */
       let followUpNotice:
         | {

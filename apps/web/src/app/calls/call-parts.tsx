@@ -2,8 +2,11 @@
 
 import {
   CALL_HIGHLIGHT_LABELS,
+  CALL_SIDE_LABELS,
   hasSpeakerTurns,
   parseDiarizedTranscript,
+  parseRoleTranscript,
+  CALL_ROLE_LABELS,
   type CallHighlights,
 } from "@metavchim/shared";
 
@@ -35,6 +38,54 @@ const SPEAKER_TONES = [
  * כי לא ידוע מי דיבר.
  */
 export function CallTranscript({ transcript }: { transcript: string }): React.JSX.Element {
+  /*
+   * ‎**תפקידים לפני מספרים.**
+   *
+   * שני פורמטים יושבים בעמודה הזו: „מתווך:” / „לקוח:” שמודל השפה
+   * מייצר, ו-„[01:15] דובר 2:” של זיהוי הדוברים האקוסטי. הראשון
+   * נבדק קודם כי הוא עונה על השאלה שבאמת נשאלת — מי מהשניים אמר
+   * את זה — והשני נשאר בשביל כל מה שכבר תומלל.
+   */
+  const roleTurns = parseRoleTranscript(transcript);
+  if (roleTurns.length >= 2) {
+    return (
+      <ol
+        className="mt-2 max-h-80 list-none overflow-y-auto rounded-[13px] border p-3 text-sm"
+        style={{ background: "var(--color-bg)", borderColor: "var(--color-border)", margin: 0 }}
+      >
+        {roleTurns.map((turn, index) => {
+          /*
+           * המתווך מקבל את צבע המערכת והלקוח נשאר ניטרלי. זו אינה
+           * הערכה של מי חשוב יותר — היא מה שמאפשר לסרוק שיחה בעין
+           * ולראות מיד מי הוביל אותה.
+           */
+          const mine = turn.role === "agent";
+          return (
+            <li
+              key={`${turn.role}-${index}`}
+              className="mb-2 rounded-[11px] p-2.5 last:mb-0"
+              style={{
+                background: mine ? "var(--color-primary-soft)" : "var(--color-field)",
+                borderInlineStart: `3px solid ${
+                  mine ? "var(--color-primary)" : "var(--color-text-muted)"
+                }`,
+                lineHeight: 1.6,
+              }}
+            >
+              <p
+                className="m-0 mb-1 text-[length:var(--type-caption-lg)] font-extrabold"
+                style={{ color: mine ? "var(--color-primary)" : "var(--color-text-muted)" }}
+              >
+                {CALL_ROLE_LABELS[turn.role]}
+              </p>
+              <p className="m-0 whitespace-pre-wrap">{turn.text}</p>
+            </li>
+          );
+        })}
+      </ol>
+    );
+  }
+
   const lines = parseDiarizedTranscript(transcript);
   if (!hasSpeakerTurns(lines)) {
     return (
@@ -123,6 +174,19 @@ export function CallHighlightFields({
   highlights: CallHighlights;
 }): React.JSX.Element | null {
   const fields: { label: string; value: string; ltr?: boolean }[] = [];
+  /*
+   * ‎**הצד ראשון, ובכוונה.**
+   *
+   * „תקציב 2.4 מיליון, 4 חדרים, רמת גן” אינו אומר אם זה מי שמחפש
+   * או מי שמוכר — ואלה שתי עבודות הפוכות. הצד הוא מה שקובע מה
+   * עושים עם כל השאר, ולכן הוא נקרא ראשון.
+   */
+  if (highlights.side !== undefined) {
+    fields.push({ label: CALL_HIGHLIGHT_LABELS.side, value: CALL_SIDE_LABELS[highlights.side] });
+  }
+  if (highlights.propertyType !== undefined) {
+    fields.push({ label: CALL_HIGHLIGHT_LABELS.propertyType, value: highlights.propertyType });
+  }
   if (highlights.budget !== undefined) {
     fields.push({
       label: CALL_HIGHLIGHT_LABELS.budget,
@@ -133,8 +197,44 @@ export function CallHighlightFields({
   if (highlights.rooms !== undefined) {
     fields.push({ label: CALL_HIGHLIGHT_LABELS.rooms, value: String(highlights.rooms), ltr: true });
   }
+  if (highlights.areaSqm !== undefined) {
+    fields.push({
+      label: CALL_HIGHLIGHT_LABELS.areaSqm,
+      value: `${highlights.areaSqm} מ״ר`,
+      ltr: true,
+    });
+  }
   if (highlights.city !== undefined) {
     fields.push({ label: CALL_HIGHLIGHT_LABELS.city, value: highlights.city });
+  }
+  if (highlights.neighborhood !== undefined) {
+    fields.push({ label: CALL_HIGHLIGHT_LABELS.neighborhood, value: highlights.neighborhood });
+  }
+  if (highlights.address !== undefined) {
+    fields.push({ label: CALL_HIGHLIGHT_LABELS.address, value: highlights.address });
+  }
+  if (highlights.timeline !== undefined) {
+    fields.push({ label: CALL_HIGHLIGHT_LABELS.timeline, value: highlights.timeline });
+  }
+  if (highlights.financing !== undefined) {
+    fields.push({ label: CALL_HIGHLIGHT_LABELS.financing, value: highlights.financing });
+  }
+  if (highlights.motivation !== undefined) {
+    fields.push({ label: CALL_HIGHLIGHT_LABELS.motivation, value: highlights.motivation });
+  }
+  if (highlights.exclusivity === true) {
+    fields.push({ label: CALL_HIGHLIGHT_LABELS.exclusivity, value: "עלתה בשיחה" });
+  }
+  /*
+   * הרשימות מאוחדות לשדה אחד ולא לשדה לכל פריט: „ביקש: מעלית,
+   * חניה, ממ״ד” נסרק במבט, ושלושה כרטיסים נפרדים היו מציפים את
+   * השורה ודוחקים את מה שחשוב ממנה.
+   */
+  for (const key of ["features", "objections", "commitments"] as const) {
+    const items = highlights[key];
+    if (items !== undefined && items.length > 0) {
+      fields.push({ label: CALL_HIGHLIGHT_LABELS[key], value: items.join(" · ") });
+    }
   }
   if (highlights.callback !== undefined) {
     fields.push({ label: CALL_HIGHLIGHT_LABELS.callback, value: highlights.callback });

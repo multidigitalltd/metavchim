@@ -23,12 +23,46 @@ import { jerusalemWallToUtc, toJerusalemWall } from "./recurrence.js";
  * במקום שבו הנתון עובר גבול.
  */
 export type CallHighlights = {
+  /* ---------- מה שהחילוץ הדטרמיניסטי ידע לזהות מאז ומתמיד ---------- */
   /** תקציב שנאמר, בשקלים. */
   budget?: number;
   rooms?: number;
   city?: string;
   /** מתי סוכם לחזור — כפי שנאמר, לא כתאריך. */
   callback?: string;
+
+  /* ---------- מה שמודל השפה מוסיף (ראו `call-intel.ts`) ---------- */
+
+  /**
+   * ‎**הצד שבו הלקוח עומד — השדה היחיד שמשנה את כל השיחה.**
+   *
+   * מתווך שמקבל „תקציב 2.4 מיליון, 4 חדרים, רמת גן” אינו יודע אם
+   * מדובר במי שמחפש או במי שמוכר, ואלה שתי עבודות הפוכות: לאחד
+   * שולחים נכסים, לשני מבקשים בלעדיות. עד כה זה היה חסר לגמרי.
+   */
+  side?: "buyer" | "seller" | "renter" | "landlord";
+  /** דירה, פנטהאוז, דו-משפחתי, מגרש, חנות, משרד… כלשון הדובר. */
+  propertyType?: string;
+  /** שכונה או אזור בתוך העיר — „רמת אביב ג'”, „הצפון הישן”. */
+  neighborhood?: string;
+  /** כתובת הנכס, כשנאמרה. אצל מוכר זו העובדה המרכזית בשיחה. */
+  address?: string;
+  /** שטח במ"ר. */
+  areaSqm?: number;
+  /** מתי הוא צריך להיכנס או למכור — „תוך שלושה חודשים”, „לא בלחץ”. */
+  timeline?: string;
+  /** למה הוא קונה או מוכר — הרחבת משפחה, גירושין, השקעה, מעבר עבודה. */
+  motivation?: string;
+  /** משכנתה מאושרת, הון עצמי, מזומן, תלוי במכירת נכס קיים. */
+  financing?: string;
+  /** מה שביקש במפורש: קומה גבוהה, מעלית, חניה, ממ"ד, מרפסת. */
+  features?: string[];
+  /** מה שהרתיע אותו — מחיר, קומה, רעש, מצב הנכס. */
+  objections?: string[];
+  /** מה שהמתווך הבטיח לעשות. זה מה שהופך שיחה למשימה. */
+  commitments?: string[];
+  /** האם עלתה בלעדיות בשיחה עם מוכר. */
+  exclusivity?: boolean;
 };
 
 export interface CallSummary {
@@ -269,9 +303,34 @@ export function parseCallHighlights(value: unknown): CallHighlights {
 }
 
 /** תוויות בעברית לשדות שחולצו — למסך, במקום אחד. */
+/*
+ * ‎`Record<keyof CallHighlights, string>` ולא `Partial`: הטיפוס הוא
+ * מה שמכריח להוסיף תווית לכל שדה חדש. שדה בלי תווית היה מחולץ,
+ * נשמר, ולא מוצג — כלומר עבודה שנעשית ואיש אינו רואה.
+ */
 export const CALL_HIGHLIGHT_LABELS: Record<keyof CallHighlights, string> = {
   budget: "תקציב",
   rooms: "חדרים",
   city: "אזור",
   callback: "לחזור",
+  side: "צד",
+  propertyType: "סוג נכס",
+  neighborhood: "שכונה",
+  address: "כתובת",
+  areaSqm: "שטח",
+  timeline: "לוח זמנים",
+  motivation: "מה מניע",
+  financing: "מימון",
+  features: "ביקש",
+  objections: "הסתייגויות",
+  commitments: "התחייבנו",
+  exclusivity: "בלעדיות",
+};
+
+/** „קונה” / „מוכר” — הצד כפי שהוא מוצג, ולא כקוד. */
+export const CALL_SIDE_LABELS: Record<NonNullable<CallHighlights["side"]>, string> = {
+  buyer: "קונה",
+  seller: "מוכר",
+  renter: "שוכר",
+  landlord: "משכיר",
 };
