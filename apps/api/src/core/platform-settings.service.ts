@@ -71,6 +71,18 @@ export type PlatformSettingKey =
   | "whatsappNotifyTemplate"
   | "whatsappNotifyTemplateLang"
   /**
+   * ‎**האם התבנית שנרשמה כוללת כפתור „פתח במערכת” בכתובת דינמית.**
+   *
+   * ‏Meta מקפידה משני הצדדים: תבנית בלי כפתור שנשלח אליה רכיב כפתור
+   * נדחית, ותבנית **עם** כפתור שלא קיבלה את ערכו נדחית גם היא.
+   * לקוד אין דרך לדעת מה נרשם, ולכן זו הגדרה ולא ניחוש — ואי-התאמה
+   * מתוקנת מהמסך, בלי גרסה חדשה.
+   *
+   * ברירת המחדל היא **בלי** כפתור: זה מה שנכון לתבנית שנרשמה לפני
+   * שהאפשרות הזו הייתה קיימת.
+   */
+  | "whatsappNotifyTemplateButton"
+  /**
    * תבנית ההזמנה למילוי טופס הדרישות, ושפתה.
    *
    * **תבנית נפרדת מ-`whatsappNotifyTemplate` בכוונה.** ההתראות
@@ -84,6 +96,8 @@ export type PlatformSettingKey =
    */
   | "whatsappIntakeTemplate"
   | "whatsappIntakeTemplateLang"
+  /** כמו `whatsappNotifyTemplateButton`, לתבנית טופס הדרישות. */
+  | "whatsappIntakeTemplateButton"
   /**
    * תבנית התזכורת שלפני סיור, ושפתה.
    *

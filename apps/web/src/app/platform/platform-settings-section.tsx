@@ -148,8 +148,11 @@ interface PlatformSettings {
       /** תבנית ההתראה המאושרת ב-Meta; ריק = דחיפה רק בתוך חלון 24 השעות */
       notifyTemplate?: string;
       notifyTemplateLang?: string;
+      /** התבנית נרשמה עם כפתור בכתובת דינמית; חסר = בלי כפתור */
+      notifyTemplateButton?: boolean;
       intakeTemplate?: string;
       intakeTemplateLang?: string;
+      intakeTemplateButton?: boolean;
       viewingReminderTemplate?: string;
       viewingReminderTemplateLang?: string;
       emailReplyTemplate?: string;
@@ -379,6 +382,9 @@ export function PlatformSettingsSection({
       const notifyTemplateLang = String(f.get("whatsappNotifyTemplateLang") ?? "").trim();
       const intakeTemplate = String(f.get("whatsappIntakeTemplate") ?? "").trim();
       const intakeTemplateLang = String(f.get("whatsappIntakeTemplateLang") ?? "").trim();
+      // תיבת סימון שאינה מסומנת אינה מופיעה ב-FormData כלל — היעדר הוא "כבוי"
+      const notifyTemplateButton = f.get("whatsappNotifyTemplateButton") !== null;
+      const intakeTemplateButton = f.get("whatsappIntakeTemplateButton") !== null;
       const reminderTemplate = String(f.get("whatsappViewingReminderTemplate") ?? "").trim();
       const reminderTemplateLang = String(
         f.get("whatsappViewingReminderTemplateLang") ?? "",
@@ -399,8 +405,10 @@ export function PlatformSettingsSection({
         // רק בתוך חלון 24 השעות — מצב תקין ולא היעדר שינוי
         whatsappNotifyTemplate: notifyTemplate,
         whatsappNotifyTemplateLang: notifyTemplateLang,
+        whatsappNotifyTemplateButton: notifyTemplateButton,
         whatsappIntakeTemplate: intakeTemplate,
         whatsappIntakeTemplateLang: intakeTemplateLang,
+        whatsappIntakeTemplateButton: intakeTemplateButton,
         whatsappViewingReminderTemplate: reminderTemplate,
         whatsappViewingReminderTemplateLang: reminderTemplateLang,
         whatsappEmailReplyTemplate: emailReplyTemplate,
@@ -1642,8 +1650,9 @@ export function PlatformSettingsSection({
             </label>
             <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
               שם תבנית מסוג Utility שאושרה ב-WhatsApp Manager, עם שני משתנים
-              בגוף — כותרת ופירוט. למשל תבנית בשם ‎metavchim_update‎ שגופה
-              „‎{"{{1}}"} — {"{{2}}"}‎”. אותיות קטנות, ספרות וקו תחתון בלבד.
+              בגוף — ‎{"{{update_title}}"}‎ ו-‎{"{{update_details}}"}‎. Meta
+              דורשת <b>משתנים בעלי שם</b> ודוחה ‎{"{{1}}"}‎, והשמות חייבים
+              להיות בדיוק אלה. אותיות קטנות, ספרות וקו תחתון בלבד.
             </p>
             <div className="flex flex-wrap gap-2">
               <input
@@ -1668,6 +1677,27 @@ export function PlatformSettingsSection({
                 style={inputStyle}
               />
             </div>
+            {/*
+              תיבה ולא ניחוש: Meta דוחה כפתור לתבנית שאין בה כפתור,
+              וגם תבנית שיש בה כפתור שלא קיבל ערך. אי-התאמה משביתה
+              את כל ההתראות בשקט, ומכאן היא מתוקנת בלי גרסה חדשה.
+            */}
+            <label className="mt-2 flex items-center gap-2">
+              <input
+                id="whatsappNotifyTemplateButton"
+                name="whatsappNotifyTemplateButton"
+                type="checkbox"
+                key={`nbtn-${String(settings.whatsapp.assistant.notifyTemplateButton)}`}
+                defaultChecked={settings.whatsapp.assistant.notifyTemplateButton ?? false}
+              />
+              <span>
+                לתבנית יש כפתור „פתח במערכת” בכתובת דינמית{" "}
+                <span className="font-normal">
+                  (כתובת הבסיס של המערכת ואחריה ‎{"{{1}}"}‎ — הלחיצה נוחתת על
+                  הכרטיס עצמו ולא על דף הבית)
+                </span>
+              </span>
+            </label>
           </div>
 
           <div className="mb-3">
@@ -1677,8 +1707,8 @@ export function PlatformSettingsSection({
             </label>
             <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
               נשלחת ל<b>לקוח</b> שהתקשר ולא נענה, ולכן היא מחוץ לחלון 24 השעות
-              של Meta ודורשת תבנית מסוג Utility עם <b>משתנה אחד</b> בגוף — הקישור
-              לטופס הדרישות. למשל תבנית שגופה „‎{"{{1}}"}‎”. בלי תבנית מוגדרת
+              של Meta ודורשת תבנית מסוג Utility עם <b>משתנה אחד</b> בגוף בשם
+              ‎{"{{form_link}}"}‎ — הקישור לטופס הדרישות. בלי תבנית מוגדרת
               הקישור אינו נשלח, וההודעה המוכנה חוזרת בגוף ההתראה כדי שהסוכן
               ישלח אותה בעצמו.
             </p>
@@ -1705,6 +1735,21 @@ export function PlatformSettingsSection({
                 style={inputStyle}
               />
             </div>
+            <label className="mt-2 flex items-center gap-2">
+              <input
+                id="whatsappIntakeTemplateButton"
+                name="whatsappIntakeTemplateButton"
+                type="checkbox"
+                key={`ibtn-${String(settings.whatsapp.assistant.intakeTemplateButton)}`}
+                defaultChecked={settings.whatsapp.assistant.intakeTemplateButton ?? false}
+              />
+              <span>
+                לתבנית יש כפתור „מילוי הפרטים” בכתובת דינמית{" "}
+                <span className="font-normal">
+                  (אותו קישור, בלחיצה במקום בהדבקה)
+                </span>
+              </span>
+            </label>
           </div>
 
           <div className="mb-3">
@@ -1717,9 +1762,10 @@ export function PlatformSettingsSection({
             </label>
             <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
               הלקוח לא כתב לנו, ולכן הוא מחוץ לחלון 24 השעות שבו טקסט חופשי
-              מותר. נדרשת תבנית מסוג Utility עם <b>משתנה אחד</b> בגוף — הודעת
-              התזכורת שהמשרד ניסח. למשל תבנית שגופה „‎{"{{1}}"}‎”. בלי תבנית
-              מוגדרת מי שאין לו מייל מגיע כמשימה לסוכן.
+              מותר. נדרשת תבנית מסוג Utility עם <b>משתנה אחד</b> בגוף בשם
+              ‎{"{{reminder_text}}"}‎ — הודעת התזכורת שהמשרד ניסח. בלי תבנית
+              מוגדרת מי שאין לו מייל מגיע כמשימה לסוכן. <b>בלי כפתור</b>:
+              הנמען הוא לקוח, ואין לו מה לפתוח במערכת.
             </p>
             <div className="flex flex-wrap gap-2">
               <input
@@ -1752,9 +1798,10 @@ export function PlatformSettingsSection({
             </label>
             <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
               היחידה כאן שנשלחת ל<b>סוכן</b> ולא ללקוח, ורק כשהוא מחוץ לחלון 24
-              השעות. תבנית עם <b>משתנה אחד</b> — שם הלקוח שהשיב. למשל „תשובה
-              חדשה במייל מ‎{"{{1}}"}‎”. בלי תבנית ההתראה עדיין מגיעה במערכת
-              ובדחיפה, רק לא בוואטסאפ.
+              השעות. תבנית עם <b>משתנה אחד</b> בשם ‎{"{{customer_name}}"}‎ —
+              שם הלקוח שהשיב. בלי תבנית ההתראה עדיין מגיעה במערכת ובדחיפה,
+              רק לא בוואטסאפ. כפתור כאן הוא <b>קבוע</b> ל-‎/inbox‎, ולכן אין
+              לו תיבת סימון.
             </p>
             <div className="flex flex-wrap gap-2">
               <input

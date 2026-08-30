@@ -32,6 +32,8 @@ import {
   canonicalVirtualNumber,
   leadSourceFor,
   matchVirtualNumber,
+  whatsappDeepLinkSuffix,
+  whatsappTemplateParams,
   type SoftphoneConfig,
   type SoftphoneGap,
   type VirtualNumberRule,
@@ -1189,12 +1191,22 @@ export class TelephonyService {
       const template = await this.platformSettings.get("whatsappIntakeTemplate");
       const lang =
         (await this.platformSettings.get("whatsappIntakeTemplateLang")) ?? "he";
+      // כפתור נשלח רק לתבנית שנרשמה איתו — ראו `whatsappIntakeTemplateButton`
+      const hasButton =
+        (await this.platformSettings.get("whatsappIntakeTemplateButton")) === "true";
 
       const sent =
         contact !== null && template !== undefined && template !== ""
-          ? await this.waSend.sendTemplate(contact.phone, template, lang, [
-              created.url,
-            ])
+          ? await this.waSend.sendTemplate(
+              contact.phone,
+              template,
+              lang,
+              whatsappTemplateParams("intake", [created.url]),
+              // כפתור „מילוי הפרטים” — אותו קישור, בלחיצה במקום בהדבקה
+              hasButton
+                ? whatsappDeepLinkSuffix(created.url, loadEnv().WEB_ORIGIN)
+                : undefined,
+            )
           : false;
 
       if (sent) return "נשלחה ללקוח הודעה עם קישור למילוי מה הוא מחפש";

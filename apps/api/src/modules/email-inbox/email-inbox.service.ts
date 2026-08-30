@@ -11,6 +11,7 @@ import {
   inboundToken,
   replyAddressFor,
   safeAttachmentName,
+  whatsappTemplateParams,
   type InboundEmailPayload,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
@@ -464,7 +465,12 @@ export class EmailInboxService {
       const lang =
         (await this.platformSettings.get("whatsappEmailReplyTemplateLang")) ?? "he";
       if (template !== undefined && template !== "") {
-        await this.waSend.sendTemplate(user.phone, template, lang, [customerName]);
+        await this.waSend.sendTemplate(
+          user.phone,
+          template,
+          lang,
+          whatsappTemplateParams("emailReply", [customerName]),
+        );
       }
     } catch (error: unknown) {
       this.logger.warn(`התראת וואטסאפ על תשובת מייל נכשלה: ${String(error)}`);

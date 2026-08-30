@@ -10,6 +10,7 @@ import {
   viewingReminderOccupantContactId,
   viewingReminderSkipReason,
   viewingReminderUses,
+  whatsappTemplateParams,
   type ViewingReminderAudience,
   type ViewingReminderChannel,
   type ViewingReminderVars,
@@ -441,7 +442,12 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
       const template = await this.settings.get("whatsappViewingReminderTemplate");
       const lang = (await this.settings.get("whatsappViewingReminderTemplateLang")) ?? "he";
       if (template !== undefined && template !== "") {
-        const ok = await this.whatsapp.sendTemplate(recipient.phone, template, lang, [body]);
+        const ok = await this.whatsapp.sendTemplate(
+          recipient.phone,
+          template,
+          lang,
+          whatsappTemplateParams("viewingReminder", [body]),
+        );
         if (ok) delivered = true;
       }
     }

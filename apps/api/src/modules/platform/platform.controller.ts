@@ -326,6 +326,8 @@ const UpdateSettingsSchema = z
     whatsappNotifyTemplateLang: z
       .union([z.string().trim().regex(/^[a-zA-Z]{2}(_[A-Z]{2})?$/u), z.literal("")])
       .optional(),
+    /** התבנית נרשמה עם כפתור בכתובת דינמית — ראו את התיעוד בהגדרות */
+    whatsappNotifyTemplateButton: z.boolean().optional(),
     /*
      * תבנית ההזמנה למילוי טופס הדרישות. אותה צורה בדיוק, ובכוונה
      * תבנית נפרדת: זו נשלחת ל**לקוח** שהתקשר ולא נענה, ולא לסוכן.
@@ -336,6 +338,7 @@ const UpdateSettingsSchema = z
     whatsappIntakeTemplateLang: z
       .union([z.string().trim().regex(/^[a-zA-Z]{2}(_[A-Z]{2})?$/u), z.literal("")])
       .optional(),
+    whatsappIntakeTemplateButton: z.boolean().optional(),
     /*
      * תבנית התזכורת שלפני סיור. אותה צורה בדיוק — שם תבנית הוא
      * מזהה טכני אצל Meta, וטעות הקלדה נתפסת כאן ולא בדחייה של
@@ -1450,8 +1453,11 @@ export class PlatformController {
         /** תבנית ההתראות; ריק = דחיפה רק בתוך חלון 24 השעות של Meta */
         notifyTemplate: string;
         notifyTemplateLang: string;
+        /** התבנית נרשמה עם כפתור בכתובת דינמית — ראו את ההגדרה */
+        notifyTemplateButton: boolean;
         intakeTemplate: string;
         intakeTemplateLang: string;
+        intakeTemplateButton: boolean;
         viewingReminderTemplate: string;
         viewingReminderTemplateLang: string;
         emailReplyTemplate: string;
@@ -1659,12 +1665,21 @@ export class PlatformController {
           notifyTemplateLang:
             (await this.platformSettings.get("whatsappNotifyTemplateLang")) ?? "he",
           /*
+           * ‎**לא מסומן היא ברירת המחדל הבטוחה**: תבנית שנרשמה לפני
+           * שהאפשרות הזו קיימת אינה נושאת כפתור, ושליחת רכיב כפתור
+           * אליה הייתה מפילה כל התראה.
+           */
+          notifyTemplateButton:
+            (await this.platformSettings.get("whatsappNotifyTemplateButton")) === "true",
+          /*
            * ריק = הקישור לטופס הדרישות אינו נשלח אוטומטית, וההודעה
            * המוכנה חוזרת בגוף ההתראה לסוכן. מצב, לא שגיאה.
            */
           intakeTemplate: (await this.platformSettings.get("whatsappIntakeTemplate")) ?? "",
           intakeTemplateLang:
             (await this.platformSettings.get("whatsappIntakeTemplateLang")) ?? "he",
+          intakeTemplateButton:
+            (await this.platformSettings.get("whatsappIntakeTemplateButton")) === "true",
           // ריק = התזכורת שלפני סיור יוצאת במייל בלבד. מצב, לא שגיאה.
           viewingReminderTemplate:
             (await this.platformSettings.get("whatsappViewingReminderTemplate")) ?? "",
