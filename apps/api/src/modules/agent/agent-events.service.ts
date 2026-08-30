@@ -44,7 +44,13 @@ export class AgentEventsService {
     transcript?: string;
     actionId?: string;
     payload: Record<string, unknown>;
-    source?: "llm" | "rules";
+    /**
+     * מי הכריע בפועל. `blocked` = לא הוכרע כלל — נעיצה לפעולה שאינה
+     * מותרת נעצרה לפני כל פירוש, בלי קריאה למודל ובלי מנוע חוקים.
+     * בלעדיו היא הייתה נרשמת כפירוש של מודל בלי מודל ובלי זמן תגובה,
+     * ויצוא השימוש חושף את השדה כמו שהוא.
+     */
+    source?: "llm" | "rules" | "blocked";
     model?: string;
     latencyMs?: number;
     usage?: GeminiUsage;

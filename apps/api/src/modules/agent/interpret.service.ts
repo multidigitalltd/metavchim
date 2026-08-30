@@ -59,6 +59,13 @@ export interface Interpretation {
   /** תשובה שיחתית לברכה/שאלה כללית — תצוגה בלבד, במקום "לא הבנתי" */
   reply?: string;
   /**
+   * הפעולות הקרובות ל„לא הבנתי” — מוצעות ואינן מבוצעות.
+   *
+   * מסוננות למה שלמשתמש **מותר**: הצעה שתיחסם בביצוע גרועה מהיעדר
+   * הצעה, כי היא נראית כמו דרך החוצה ואינה.
+   */
+  suggest: string[];
+  /**
    * מילות המועד של הפעולה הראשית, כפי שהמודל שמע אותן.
    *
    * הקוד מחשב מהן את התאריך; בלעדיהן הוא סורק את המשפט המלא כרשת
@@ -107,22 +114,93 @@ export class AgentInterpretService {
     channel: "web" | "whatsapp" = "web",
     /** מי מדבר — שם ותפקיד. ההיקף נגזר מהיכולות ולא מהקורא. */
     speaker?: { name?: string; roleLabel?: string },
+    /**
+     * הפעולה שהמתווך בחר מתוך ההצעות שאחרי „לא הבנתי”.
+     *
+     * ‎**נאכפת כאן ולא רק מוצעת למודל.** הבחירה היא של המתווך, ומודל
+     * שיחזיר פעולה אחרת יעקוף אותה בשקט — בדיוק ההתנהגות שהופכת
+     * כפתור לניחוש. הרשאה נבדקת כרגיל: בחירה אינה מרחיבה הרשאות.
+     */
+    pin?: string,
   ): Promise<Interpretation> {
     const allowed = this.allowedActions();
-    const attempt = await this.viaLlm(transcript, allowed, prior, history, channel, speaker);
-    const interpretation = attempt?.interpretation ?? this.viaRules(transcript, allowed);
     /*
-     * כל פירוש נרשם ביומן המשימות — גם כשה-LLM נכשל ונפלנו לחוקים,
-     * כי אז נרשמת גם העלות ששולמה על הכישלון. fire-and-forget:
-     * הרישום לעולם אינו מעכב את התשובה למתווך.
+     * ‎**נעיצה שאינה מותרת עוצרת — ואינה מושמטת.**
+     *
+     * ההרשאה יכולה להישלל בין הרגע שההצעה הוצגה לרגע שנלחצה. השמטת
+     * הנעיצה במקרה כזה נראית כמו הגנה והיא ההפך: המשפט נפרש **מחדש
+     * וחופשי**, המודל או מנוע החוקים בוחרים פעולה מותרת אחרת, ופעולת
+     * קריאה רצה מיד בשני הערוצים. כלומר לחיצה על „קבע פגישה” שנחסמה
+     * הייתה מריצה בשקט חיפוש קונים — בדיוק אותה תקלה, בדלת אחרת
+     * (ביקורת Codex).
+     *
+     * הכלל מוחלט: לחיצה מניבה את הפעולה שנלחצה, או שום פעולה.
      */
+    if (pin !== undefined && !allowed.some((a) => a.id === pin)) {
+      return this.recorded(
+        {
+          actionId: "unknown",
+          params: {},
+          evidence: {},
+          unmapped: [],
+          rejected: [],
+          clarify: "הפעולה שבחרתם אינה זמינה לכם כרגע — אפשר לנסח אחרת.",
+          suggest: [],
+          fallback: false,
+          steps: [],
+        },
+        transcript,
+        channel,
+        null,
+        "blocked",
+      );
+    }
+    const attempt = await this.viaLlm(transcript, allowed, prior, history, channel, speaker, pin);
+    const interpretation =
+      attempt?.interpretation ?? this.viaRules(transcript, allowed, pin);
+    return this.recorded(
+      interpretation,
+      transcript,
+      channel,
+      attempt,
+      interpretation.fallback ? "rules" : "llm",
+    );
+  }
+
+  /**
+   * רישום ביומן המשימות, והחזרת הפירוש כפי שהוא.
+   *
+   * ‎**כל** פירוש נרשם — גם כשה-LLM נכשל ונפלנו לחוקים (כי אז נרשמת
+   * העלות ששולמה על הכישלון), וגם כשלא נקראה קריאה כלל, כמו נעיצה
+   * שנחסמה. יציאה מוקדמת שאינה עוברת כאן היא בדיוק המקרה שנעלם
+   * מהיומן, ולכן הרישום יושב בפונקציה אחת ולא בזנב.
+   *
+   * fire-and-forget: הרישום לעולם אינו מעכב את התשובה למתווך.
+   */
+  private recorded(
+    interpretation: Interpretation,
+    transcript: string,
+    channel: "web" | "whatsapp",
+    attempt: { model: string; latencyMs: number; usage?: GeminiUsage } | null,
+    /**
+     * מי הכריע בפועל — **נמסר במפורש ואינו נגזר מ-`fallback`.**
+     *
+     * הגזירה `fallback ? "rules" : "llm"` הייתה נכונה כל עוד היו שני
+     * מסלולים בלבד. נעיצה שנחסמה אינה אף אחד מהם — לא נקראה קריאה
+     * ולא רץ מנוע החוקים — ובגזירה היא נרשמה כ„llm” בלי מודל ובלי
+     * זמן תגובה. יצוא השימוש בפלטפורמה חושף את השדה כמו שהוא, ולכן
+     * זו הייתה שורה שקרית בדיוק בנתון שנועד למדוד עלות (ביקורת
+     * Codex). `blocked` הוא גם נתון שכדאי לספור בפני עצמו.
+     */
+    source: "llm" | "rules" | "blocked",
+  ): Interpretation {
     void this.events.record({
       channel,
       kind: "interpret",
       transcript,
       actionId: interpretation.actionId,
       payload: interpretation as unknown as Record<string, unknown>,
-      source: interpretation.fallback ? "rules" : "llm",
+      source,
       ...(attempt === null
         ? {}
         : {
@@ -148,6 +226,7 @@ export class AgentInterpretService {
     history?: AgentHistoryTurn[],
     channel: "web" | "whatsapp" = "web",
     speaker?: { name?: string; roleLabel?: string },
+    pin?: string,
   ): Promise<{
     interpretation: Interpretation | null;
     model: string;
@@ -170,6 +249,7 @@ export class AgentInterpretService {
       allowedActions: allowed.map((a) => a.id),
       channel,
       speaker: { ...speaker, scope },
+      ...(pin === undefined ? {} : { pin }),
       ...(prior ? { prior } : {}),
       ...(history !== undefined && history.length > 0 ? { history } : {}),
     });
@@ -187,7 +267,18 @@ export class AgentInterpretService {
     if (!parsed.success) return withMeta(null);
 
     const answer = parsed.data;
-    if (answer.action === "unknown") {
+    /*
+     * ‎**הנעיצה גוברת על תשובת המודל.**
+     *
+     * המסלול היחיד לכאן הוא לחיצה של המתווך על שם פעולה שהוצג לו,
+     * ולכן הבחירה כבר נעשתה — על ידו. מודל שיחזיר משהו אחר (או
+     * ‎`unknown` שוב, על משפט שבאמת אין בו שדות) היה מבטל בשקט את
+     * הלחיצה, וזה בדיוק מה שהופך כפתור לניחוש. מה שנלקח ממנו כאן
+     * הוא השדות בלבד; ההרשאה לפעולה כבר נבדקה אצל הקורא, והביצוע
+     * בודק אותה שוב.
+     */
+    const chosenId = pin ?? answer.action;
+    if (chosenId === "unknown") {
       /*
        * לא נופלים לחוקים כאן. המודל ראה את כל הפעולות ואת הדוגמאות
        * שלהן ואמר במפורש שאינו יודע; מנוע החוקים, שמזהה ביטויים
@@ -202,19 +293,26 @@ export class AgentInterpretService {
         rejected: [],
         ...(answer.clarify ? { clarify: answer.clarify } : {}),
         ...(answer.reply ? { reply: answer.reply } : {}),
+        /*
+         * מסונן למותר, וללא כפילויות: המודל רואה רק פעולות מותרות
+         * אבל „רואה” אינו „מובטח”, והצעה חסומה היא דרך יציאה מדומה.
+         */
+        suggest: [...new Set(answer.suggest)].filter((id) =>
+          allowed.some((a) => a.id === id),
+        ),
         fallback: false,
         steps: [],
       });
     }
 
-    const action = agentAction(answer.action);
+    const action = agentAction(chosenId);
     /*
      * פעולה שהמודל בחר ואין אליה הרשאה. היא לא הייתה בפרומפט, ולכן
      * זה אמור להיות בלתי אפשרי — אבל „אמור” אינו הרשאה. עדיף לומר
      * שלא הבנו מאשר להציע פעולה שתיחסם בביצוע.
      */
     if (!action || !allowed.some((a) => a.id === action.id)) {
-      this.logger.warn(`המודל בחר פעולה שאינה מותרת: ${answer.action}`);
+      this.logger.warn(`המודל בחר פעולה שאינה מותרת: ${chosenId}`);
       return withMeta(null);
     }
 
@@ -228,7 +326,12 @@ export class AgentInterpretService {
      * אליה הרשאה יורדת (ולא מפילה את השרשור כולו), והפרמטרים
      * מצטמצמים לסכימה של הפעולה שלהם.
      */
-    const steps = answer.steps.flatMap((step) => {
+    /*
+     * בנעיצה אין צעדי המשך: המתווך לחץ על **פעולה אחת** מתוך רשימה,
+     * ולא ביקש שרשור. צעד שהמודל היה מוסיף כאן הוא פעולה שאיש לא
+     * בחר, נגררת אחרי לחיצה על אחרת.
+     */
+    const steps = (pin !== undefined ? [] : answer.steps).flatMap((step) => {
       const stepAction = agentAction(step.action);
       if (!stepAction || !allowed.some((a) => a.id === stepAction.id)) {
         this.logger.warn(`צעד המשך לפעולה שאינה מותרת: ${step.action}`);
@@ -260,6 +363,8 @@ export class AgentInterpretService {
       ...(answer.dateText !== undefined && answer.dateText.trim() !== ""
         ? { dateText: answer.dateText.trim() }
         : {}),
+      // פעולה נבחרה — אין „אולי התכוונת”; ההצעות שייכות ל„לא הבנתי” בלבד
+      suggest: [],
       fallback: false,
       steps,
     });
@@ -272,9 +377,24 @@ export class AgentInterpretService {
    * הסיבה לשכתוב — אבל הוא עובד בלי רשת ובלי מפתח. פעולה שהחוקים
    * אינם מכירים מוחזרת כ-`unknown` ולא נדחקת למשבצת הקרובה.
    */
-  private viaRules(transcript: string, allowed: AgentActionDef[]): Interpretation {
+  private viaRules(
+    transcript: string,
+    allowed: AgentActionDef[],
+    /**
+     * ‎**הפעולה שהמתווך בחר שורדת גם את נפילת המודל.**
+     *
+     * בלי זה הרצפה הדטרמיניסטית הייתה בוחרת מחדש: קריאה נעוצה
+     * שנכשלה (ספק שותק, תשובה פגומה) נופלת לכאן, מנוע החוקים מתאים
+     * את המשפט המקורי לביטוי שהוא כן מכיר — ופעולת קריאה **רצה
+     * מיד** בשני הערוצים. כלומר לחיצה על „קבע פגישה” הייתה יכולה
+     * להריץ בשקט חיפוש קונים ולהציג את תוצאותיו (ביקורת Codex).
+     *
+     * הבחירה היא של המתווך; כשל רגעי אינו רשות לבחור במקומו.
+     */
+    pin?: string,
+  ): Interpretation {
     const command = routeVoiceCommand(transcript);
-    const actionId = RULE_ACTION_MAP[command.action];
+    const actionId = pin ?? RULE_ACTION_MAP[command.action];
     if (actionId === undefined || !allowed.some((a) => a.id === actionId)) {
       return {
         actionId: "unknown",
@@ -282,6 +402,12 @@ export class AgentInterpretService {
         evidence: {},
         unmapped: [],
         rejected: [],
+        /*
+         * מנוע החוקים אינו יודע „מה כמעט התאים” — הוא מתאים ביטויים
+         * ולא מודד קרבה. הצעה שהיה מייצר הייתה הפעולה שהתבנית שלה
+         * הכי דומה, לא הפעולה שהמתווך התכוון אליה.
+         */
+        suggest: [],
         fallback: true,
         steps: [],
       };
@@ -296,6 +422,7 @@ export class AgentInterpretService {
       evidence: {},
       unmapped: [],
       rejected,
+      suggest: [],
       fallback: true,
       steps: [],
     };
