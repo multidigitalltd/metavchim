@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import { OPEN_LEAD_STATUSES, leadDeletionRejectionReason, type Page } from "@metavchim/shared";
-import { lockContact } from "../../common/locks";
+import { lockContact, lockLead } from "../../common/locks";
 import { assertLeadAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -275,6 +275,16 @@ export class LeadsService {
     await this.prisma.withTenant(async (tx) => {
       // הרשאה לפני הכתיבה — כמו בשינוי סטטוס
       await assertLeadAccess(tx, ctx.tenantId, id);
+      /*
+       * ‎**הנעילה לפני הקריאה** (ביקורת Codex, P2).
+       *
+       * ‏השינוי נרשם יחד עם הערך שקדם לו, ולכן קריאה-השוואה-כתיבה
+       * ללא נעילה מייצרת היסטוריה שקרית: שתי בקשות מקבילות קוראות
+       * את אותו צילום, השנייה דורסת את הראשונה ורושמת `from` שהוא
+       * הערך המקורי ולא זה שהיא החליפה. ואם שתיהן בוחרות אותו ערך,
+       * שתיהן עוברות את „אין שינוי” ושתיהן רושמות אירוע.
+       */
+      await lockLead(tx, ctx.tenantId, id);
       const lead = await tx.lead.findFirst({
         where: { id, tenantId: ctx.tenantId },
         select: { source: true },
