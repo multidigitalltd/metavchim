@@ -727,7 +727,8 @@ export default function AgentPage(): React.JSX.Element {
                         disabled={busy}
                         onClick={() => void send(said, option.actionId)}
                         style={{
-                          borderColor: "var(--color-border)",
+                          // גבול פקד ולא מסגרת כרטיס — 3:1, WCAG 1.4.11
+                          borderColor: "var(--color-input-border)",
                           padding: "8px 12px",
                           lineHeight: 1.35,
                         }}

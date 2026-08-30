@@ -135,7 +135,8 @@ export class AgentInterpretService {
       speaker,
       pinned,
     );
-    const interpretation = attempt?.interpretation ?? this.viaRules(transcript, allowed);
+    const interpretation =
+      attempt?.interpretation ?? this.viaRules(transcript, allowed, pinned);
     /*
      * כל פירוש נרשם ביומן המשימות — גם כשה-LLM נכשל ונפלנו לחוקים,
      * כי אז נרשמת גם העלות ששולמה על הכישלון. fire-and-forget:
@@ -324,9 +325,24 @@ export class AgentInterpretService {
    * הסיבה לשכתוב — אבל הוא עובד בלי רשת ובלי מפתח. פעולה שהחוקים
    * אינם מכירים מוחזרת כ-`unknown` ולא נדחקת למשבצת הקרובה.
    */
-  private viaRules(transcript: string, allowed: AgentActionDef[]): Interpretation {
+  private viaRules(
+    transcript: string,
+    allowed: AgentActionDef[],
+    /**
+     * ‎**הפעולה שהמתווך בחר שורדת גם את נפילת המודל.**
+     *
+     * בלי זה הרצפה הדטרמיניסטית הייתה בוחרת מחדש: קריאה נעוצה
+     * שנכשלה (ספק שותק, תשובה פגומה) נופלת לכאן, מנוע החוקים מתאים
+     * את המשפט המקורי לביטוי שהוא כן מכיר — ופעולת קריאה **רצה
+     * מיד** בשני הערוצים. כלומר לחיצה על „קבע פגישה” הייתה יכולה
+     * להריץ בשקט חיפוש קונים ולהציג את תוצאותיו (ביקורת Codex).
+     *
+     * הבחירה היא של המתווך; כשל רגעי אינו רשות לבחור במקומו.
+     */
+    pin?: string,
+  ): Interpretation {
     const command = routeVoiceCommand(transcript);
-    const actionId = RULE_ACTION_MAP[command.action];
+    const actionId = pin ?? RULE_ACTION_MAP[command.action];
     if (actionId === undefined || !allowed.some((a) => a.id === actionId)) {
       return {
         actionId: "unknown",
