@@ -121,6 +121,11 @@ const KIND_LABELS: Record<string, ReactNode> = {
   call: <><IconPhone s={15} /> שיחה</>,
   whatsapp: <><IconChat s={15} /> וואטסאפ</>,
   status_change: <><IconRefresh s={15} /> שינוי סטטוס</>,
+  /*
+   * ‎**המקור נרשם בציר הזמן כי הוא ייחוס.** דוח מקורות שאי אפשר
+   * ליישב מול „מי שינה ומתי” אינו דוח.
+   */
+  source_change: <><IconRefresh s={15} /> שינוי מקור</>,
   system: <><IconGear s={15} /> מערכת</>,
 };
 
@@ -879,6 +884,54 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
     ]);
   }
 
+  /*
+   * ‎**תיקון מקור הליד.**
+   *
+   * ‏המקור נקבע בקליטה ולא תמיד נכון: שיחה למספר הכללי נרשמת
+   * ‎`phone` גם כשהלקוח הגיע מהמלצה.
+   *
+   * ‎`editingSource` הוא הערך שבעריכה, ו-`null` הוא „לא עורכים” —
+   * שני מצבים ולא דגל נפרד, כדי שלא ייווצר מצב שהתיבה פתוחה בלי
+   * ערך או סגורה עם ערך שנשמר בצד.
+   */
+  const [editingSource, setEditingSource] = useState<string | null>(null);
+  const [sourceBusy, setSourceBusy] = useState(false);
+  const [sourceFailed, setSourceFailed] = useState(false);
+
+  async function saveSource(): Promise<void> {
+    const next = (editingSource ?? "").trim();
+    if (next === "" || lead === null) return;
+    // שינוי לאותו ערך אינו שינוי — סוגרים בלי לפנות לשרת
+    if (next === lead.source) {
+      setEditingSource(null);
+      return;
+    }
+    setSourceBusy(true);
+    setSourceFailed(false);
+    try {
+      await apiPatch(`/leads/${id}/source`, { source: next });
+      /*
+       * המסך מתעדכן רק אחרי אישור השרת. עדכון אופטימי היה מציג
+       * מקור חדש על ליד שמקורו לא השתנה — והמתווך היה ממשיך משם.
+       */
+      setLead((prev) => (prev ? { ...prev, source: next } : prev));
+      setTimeline((prev) => [
+        {
+          id: `local-source-${next}`,
+          kind: "source_change",
+          content: next,
+          createdAt: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+      setEditingSource(null);
+    } catch {
+      setSourceFailed(true);
+    } finally {
+      setSourceBusy(false);
+    }
+  }
+
   async function addNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -974,6 +1027,29 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             <span dir="ltr">{lead.contact.phone}</span> · מקור:{" "}
             {labelOf(LEAD_SOURCE_LABELS, lead.source) ?? lead.source}
             {/*
+              ‎**תיקון המקור — ליד המקור עצמו.**
+
+              המקור נקבע אוטומטית בקליטה ולא תמיד נכון, ועד כה לא
+              הייתה שום דרך לתקן. היכולת היא `leads.edit` — אותה
+              יכולת שהשרת דורש.
+            */}
+            {can(user, "leads.edit") && editingSource === null ? (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  className="underline"
+                  style={{ color: "inherit" }}
+                  onClick={() => {
+                    setSourceFailed(false);
+                    setEditingSource(lead.source);
+                  }}
+                >
+                  שינוי
+                </button>
+              </>
+            ) : null}
+            {/*
               מתי הכרטיס נכנס למערכת. התאריך היה בנתונים מהיום הראשון
               ולא הוצג באף מסך, ולכן „מתי הליד הזה נכנס?” הייתה שאלה
               בלי תשובה — גם כשהיא ההבדל בין פנייה טרייה לבין אחת
@@ -998,6 +1074,76 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
               </>
             ) : null}
           </p>
+          {/*
+            ‎**רשימה של המוכרים, ולצידה טקסט חופשי.**
+
+            המקור אינו רשימה סגורה בפועל: צינור הטלפוניה כותב
+            ‎`phone`, `outbound_call`, או את תווית הקמפיין שהמשרד
+            הקליד במספר הווירטואלי — טקסט חופשי עד 20 תווים. רשימה
+            סגורה הייתה מציגה ליד כזה כריק, ובחירה ממנה הייתה מוחקת
+            ייחוס קמפיין אמיתי בלי שאיש יבחין.
+
+            ‎`datalist` ולא `select`: הוא מציע את המוכרים בלחיצה,
+            ומאפשר להקליד ערך שאינו בהם — שני הצרכים באותו שדה.
+          */}
+          {editingSource !== null ? (
+            <form
+              className="mt-2 flex flex-wrap items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveSource();
+              }}
+            >
+              <input
+                autoFocus
+                list="lead-source-options"
+                value={editingSource}
+                onChange={(event) => setEditingSource(event.target.value)}
+                aria-label="מקור הליד"
+                maxLength={20}
+                className="rounded-lg border px-3 py-2"
+                style={{
+                  background: "var(--color-field)",
+                  borderColor: "var(--color-input-border)",
+                  minWidth: 190,
+                }}
+              />
+              <datalist id="lead-source-options">
+                {Object.entries(LEAD_SOURCE_LABELS).map(([value, label]) => (
+                  <option key={value} value={value} label={label} />
+                ))}
+              </datalist>
+              <button
+                type="submit"
+                className="mv-btn-action"
+                disabled={sourceBusy || editingSource.trim() === ""}
+              >
+                שמירה
+              </button>
+              <button
+                type="button"
+                className="mv-btn-plain"
+                onClick={() => {
+                  setEditingSource(null);
+                  setSourceFailed(false);
+                }}
+              >
+                ביטול
+              </button>
+              {/*
+                כישלון נאמר והתיבה נשארת פתוחה — סגירה שקטה הייתה
+                מציגה את המקור הישן וקוראת כאילו נשמר.
+              */}
+              {sourceFailed ? (
+                <span
+                  className="text-[length:var(--type-caption-lg)]"
+                  style={{ color: "var(--color-danger)" }}
+                >
+                  המקור לא נשמר. אפשר לנסות שוב.
+                </span>
+              ) : null}
+            </form>
+          ) : null}
         </div>
         <div className="ms-auto flex flex-wrap items-center gap-2">
           <a
@@ -1365,7 +1511,14 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                   <p className="m-0 whitespace-pre-line text-[length:var(--type-body)]">
                     {item.kind === "status_change"
                       ? `הסטטוס שונה ל: ${labelOf(LEAD_STATUS_LABELS, item.content) ?? item.content}`
-                      : item.content}
+                      : item.kind === "source_change"
+                        ? /*
+                            ‎`?? item.content` ולא תווית ריקה: מקור
+                            יכול להיות תווית קמפיין חופשית שאינה
+                            ברשימה, והצגתה כפי שהיא היא האמת.
+                          */
+                          `המקור שונה ל: ${labelOf(LEAD_SOURCE_LABELS, item.content) ?? item.content}`
+                        : item.content}
                   </p>
                 </li>
               ))}
