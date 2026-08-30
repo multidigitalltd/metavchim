@@ -291,6 +291,14 @@ export async function isOrphanContact(
    */
   except?: {
     propertyId?: string;
+    /**
+     * ‎`propertyIds` — הצורה הקבוצתית, למחיקת נכסים מרוכזת. אותה
+     * סיבה בדיוק כמו `buyerIds`: בעלים ששני הנכסים שלו בבחירה היה
+     * נענה „יישאר” על החרגה של אחד בלבד, בעוד שהמחיקה עצמה —
+     * שרצה נכס-נכס — כן הייתה מוחקת אותו בסוף. כלומר התצוגה
+     * שלפני האישור הייתה מבטיחה פחות ממה שקורה.
+     */
+    propertyIds?: readonly string[];
     buyerId?: string;
     buyerIds?: readonly string[];
     leadId?: string;
@@ -299,6 +307,10 @@ export async function isOrphanContact(
   const exceptBuyers = [
     ...(except?.buyerId === undefined ? [] : [except.buyerId]),
     ...(except?.buyerIds ?? []),
+  ];
+  const exceptProperties = [
+    ...(except?.propertyId === undefined ? [] : [except.propertyId]),
+    ...(except?.propertyIds ?? []),
   ];
   const [buyer, lead, property, link] = await Promise.all([
     tx.buyer.findFirst({
@@ -322,7 +334,7 @@ export async function isOrphanContact(
       where: {
         tenantId,
         deletedAt: null,
-        ...(except?.propertyId === undefined ? {} : { id: { not: except.propertyId } }),
+        ...(exceptProperties.length === 0 ? {} : { id: { notIn: exceptProperties } }),
         // גם דייר קושר אדם לנכס — לא רק בעלות
         OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
       },

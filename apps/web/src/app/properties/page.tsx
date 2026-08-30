@@ -175,6 +175,15 @@ export default function PropertiesPage() {
 
   /* הבחירה מוצגת רק למי שרשאי לפרסם לרשת — כמו הגישה במסך הקונים */
   const mayShare = can(user, "collaboration.share");
+  const mayDelete = can(user, "properties.delete");
+  /*
+   * ‎**הבחירה שייכת לשתי היכולות, ולא לשיתוף בלבד.**
+   *
+   * תיבות הסימון היו מותנות ב-`mayShare` — ולכן מי שרשאי למחוק ואינו
+   * רשאי לפרסם לרשת לא ראה תיבות כלל, כלומר המחיקה המרוכזת הייתה
+   * קיימת בשרת ובלתי נגישה במסך. אותו מבנה בדיוק כמו במסך הקונים.
+   */
+  const maySelect = mayShare || mayDelete;
   const selectedVisible = visible.filter((p) => selected.has(p.id));
   const allVisibleSelected = visible.length > 0 && selectedVisible.length === visible.length;
 
@@ -219,6 +228,97 @@ export default function PropertiesPage() {
       setSelected(new Set());
     } catch {
       setError("הפרסום לרשת נכשל — נסו שוב");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  /**
+   * מחיקה מרוכזת — ארכיון, או מחיקה לצמיתות.
+   *
+   * ברירת המחדל היא ארכיון, בדיוק כמו במחיקה בודדת: נכס שנמכר הוא
+   * היסטוריה עסקית. הכפתור השני קיים בשביל המקרה שבשבילו הפעולה
+   * נבנתה — ייבוא שגוי או כפילות שצריכים להיעלם.
+   */
+  async function removeSelected(permanent: boolean): Promise<void> {
+    const ids = selectedVisible.map((p) => p.id);
+    if (ids.length === 0) return;
+
+    /*
+     * ‎**הגילוי לפני האישור.**
+     *
+     * המחיקה לצמיתות מוחקת גם כרטיסי אדם שהנכס הזה הוא הקישור
+     * האחרון אליהם — בעלים או דייר, על שמם וטלפוניהם. מתווך שמנקה
+     * כפילות אינו מתכוון לזה, ולכן זה נאמר **לפני**.
+     *
+     * וכשהבדיקה נכשלת המחיקה **נחסמת**: „לא ידוע” לעולם אינו מוצג
+     * כ„לא יימחק”. אותה הכרעה כמו במסך הקונים.
+     */
+    let disclosure = "";
+    if (permanent) {
+      setBulkBusy(true);
+      setError(null);
+      try {
+        const preview = await apiPost<{ contacts: number }>(
+          "/properties/bulk-deletion-preview",
+          { ids },
+        );
+        disclosure =
+          preview.contacts === 0
+            ? ""
+            : preview.contacts === 1
+              ? "יימחק גם כרטיס אדם אחד שהנכס הזה הוא הקישור האחרון אליו במשרד — כולל שם, טלפונים והיסטוריית התקשורת."
+              : `יימחקו גם ${preview.contacts} כרטיסי אדם שהנכסים האלה הם הקישור האחרון אליהם במשרד — כולל שם, טלפונים והיסטוריית התקשורת.`;
+      } catch {
+        setError("בדיקת המחיקה נכשלה — לא נמחק דבר. נסו שוב.");
+        return;
+      } finally {
+        setBulkBusy(false);
+      }
+    }
+
+    const question = permanent
+      ? [
+          `למחוק לצמיתות ${ids.length} נכסים? הפעולה אינה הפיכה, וכל ההיסטוריה שלהם תימחק.`,
+          ...(disclosure === "" ? [] : [disclosure]),
+        ].join("\n")
+      : `להעביר ${ids.length} נכסים לארכיון? הם יורדו מהרשימות וההיסטוריה תישמר.`;
+    if (!window.confirm(question)) return;
+
+    setBulkBusy(true);
+    setBulkNote(null);
+    setError(null);
+    try {
+      const res = await apiPost<{ removed: number; skipped: number }>(
+        "/properties/bulk-delete",
+        { ids, permanent },
+      );
+      setBulkNote(
+        res.skipped === 0
+          ? `${res.removed} נכסים ${permanent ? "נמחקו" : "הועברו לארכיון"}`
+          : `${res.removed} ${permanent ? "נמחקו" : "הועברו לארכיון"}, ${res.skipped} דולגו — נכס של סוכן אחר, או כזה שכבר נמחק`,
+      );
+      setSelected(new Set());
+    } catch {
+      setError("המחיקה נכשלה — נסו שוב");
+      setBulkBusy(false);
+      return;
+    }
+
+    /*
+     * ‎**הרענון בנפרד מהמחיקה, ולא באותו `try`.**
+     *
+     * כישלון של הרענון — רשת, או גוף תשובה חסר — היה מדווח „המחיקה
+     * נכשלה” על מחיקה שהצליחה, ומזמין את המתווך למחוק שוב.
+     */
+    setItems(null);
+    try {
+      const fresh = await apiGet<{ items: PropertyRow[] }>(
+        `/properties?limit=100${filtersToQuery(filters)}`,
+      );
+      setItems(apiList(fresh.items, "items"));
+    } catch {
+      setError("הרשימה לא רועננה — רעננו את העמוד");
     } finally {
       setBulkBusy(false);
     }
@@ -382,7 +482,7 @@ export default function PropertiesPage() {
           ) : (
             <>
               {/* סרגל הבחירה מופיע רק כשיש בחירה — כמו במסך הקונים */}
-              {mayShare && selected.size > 0 ? (
+              {maySelect && selected.size > 0 ? (
                 <div
                   className="mv-list-card mb-3 flex flex-wrap items-center gap-2 px-4 py-3"
                   role="status"
@@ -396,15 +496,38 @@ export default function PropertiesPage() {
                   >
                     בטל בחירה
                   </button>
-                  <button
-                    type="button"
-                    className="mv-btn-plain ms-auto"
-                    disabled={bulkBusy}
-                    onClick={() => void shareSelected()}
-                    style={{ color: "var(--color-primary)" }}
-                  >
-                    {bulkBusy ? "מפרסם…" : "העלה לרשת השיתופים"}
-                  </button>
+                  {mayShare ? (
+                    <button
+                      type="button"
+                      className="mv-btn-plain ms-auto"
+                      disabled={bulkBusy}
+                      onClick={() => void shareSelected()}
+                      style={{ color: "var(--color-primary)" }}
+                    >
+                      {bulkBusy ? "מפרסם…" : "העלה לרשת השיתופים"}
+                    </button>
+                  ) : null}
+                  {mayDelete ? (
+                    <>
+                      <button
+                        type="button"
+                        className={mayShare ? "mv-btn-plain" : "mv-btn-plain ms-auto"}
+                        disabled={bulkBusy}
+                        onClick={() => void removeSelected(false)}
+                      >
+                        העבר לארכיון
+                      </button>
+                      <button
+                        type="button"
+                        className="mv-btn-plain"
+                        disabled={bulkBusy}
+                        onClick={() => void removeSelected(true)}
+                        style={{ color: "var(--color-danger)" }}
+                      >
+                        מחק לצמיתות
+                      </button>
+                    </>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -447,7 +570,7 @@ export default function PropertiesPage() {
                     <div className="flex gap-3">
                       <Thumb url={p.thumbnailUrl} />
                       <div className="min-w-0 flex-1">
-                        {mayShare ? (
+                        {maySelect ? (
                           <input
                             type="checkbox"
                             className="me-2 align-middle"
@@ -535,7 +658,7 @@ export default function PropertiesPage() {
               <div className="mv-list-as-table mv-list-card">
                 <div className="mv-list-head" style={{ gridTemplateColumns: GRID }}>
                   <span className="flex items-center gap-2">
-                    {mayShare ? (
+                    {maySelect ? (
                       <input
                         type="checkbox"
                         checked={allVisibleSelected}
@@ -559,7 +682,7 @@ export default function PropertiesPage() {
                     /* התיבה לצד השורה ולא בתוכה — השורה כולה כפתור
                        ניווט, ותיבת סימון בתוך כפתור אינה נגישה */
                     <div key={p.id} className="mv-list-select-row">
-                      {mayShare ? (
+                      {maySelect ? (
                         <input
                           type="checkbox"
                           checked={selected.has(p.id)}
