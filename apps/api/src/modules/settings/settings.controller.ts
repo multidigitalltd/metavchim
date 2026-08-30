@@ -305,6 +305,30 @@ export class SettingsController {
   async automations(): Promise<{
     settings: AutomationSettings;
     catalogue: readonly AutomationSpec[];
+    /**
+     * ‎**האם תזכורת הסיור בוואטסאפ נשלחת בשדות קבועים.**
+     *
+     * ‏זו הגדרת פלטפורמה (`whatsappViewingReminderTemplateFields`)
+     * ולא של המשרד, והמשרד אינו יכול לשנות אותה — היא אומרת איזו
+     * תבנית נרשמה מול Meta. אבל היא **משנה את מה שקורה לטקסט
+     * שהמשרד כותב כאן**: כשהיא דולקת, בוואטסאפ יוצאים רק שם, תאריך,
+     * שעה, כתובת ושם המשרד, והנוסח החופשי יוצא במייל בלבד.
+     *
+     * בלי הדגל הזה המסך היה מציג תיבת „נוסח התזכורת” ובורר ערוץ עם
+     * „וואטסאפ”, בזמן שהנוסח אינו יוצא שם כלל — כלומר מסך שטוען
+     * דבר שאינו קורה, ומשרד שעורך נוסח ומאמין שנשלח.
+     */
+    whatsappViewingReminderFields: boolean;
+    /**
+     * ‎**האם בכלל נרשמה תבנית לתזכורת בוואטסאפ.**
+     *
+     * ‏`deliver` קורא ל-`sendTemplate` רק כששם התבנית אינו ריק —
+     * „בלי תבנית מוגדרת אין שליחה בוואטסאפ”, כלשון ההערה שם. שתי
+     * ההגדרות עצמאיות, ומנהל פלטפורמה יכול לסמן „שדות” ולהשאיר את
+     * השם ריק: אז בוואטסאפ לא יוצא **כלום**, והודעה שמבטיחה „יוצאת
+     * תבנית קבועה” הייתה מבטיחה משלוח שאינו קורה (ביקורת Codex, P2).
+     */
+    whatsappViewingReminderTemplateSet: boolean;
   }> {
     const tenantId = TenantContext.current().tenantId;
     const tenant = await this.prisma.tenant.findUnique({
@@ -315,6 +339,18 @@ export class SettingsController {
     return {
       settings: resolveAutomationSettings(settings["automations"]),
       catalogue: AUTOMATIONS,
+      /*
+       * ‎`=== "true"` ולא `!== "false"` — אותה ברירת מחדל בדיוק כמו
+       * בשולח (`viewing-reminder.service.ts`). שתי קריאות של אותה
+       * הגדרה שנבדלות בברירת המחדל היו מציגות מסך שאינו מתאר את מה
+       * שהשולח עושה.
+       */
+      whatsappViewingReminderFields:
+        (await this.platformSettings.get("whatsappViewingReminderTemplateFields")) ===
+        "true",
+      /* אותו תנאי בדיוק שבו `deliver` מכריע אם לשלוח בכלל */
+      whatsappViewingReminderTemplateSet:
+        ((await this.platformSettings.get("whatsappViewingReminderTemplate")) ?? "") !== "",
     };
   }
 

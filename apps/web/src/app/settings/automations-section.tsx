@@ -37,6 +37,23 @@ import { Notice } from "../notice";
 interface Loaded {
   settings: AutomationSettings;
   catalogue: AutomationSpec[];
+  /**
+   * ‎**תזכורת הסיור בוואטסאפ נשלחת בשדות קבועים.**
+   *
+   * ‏הגדרת פלטפורמה שאומרת איזו תבנית נרשמה מול Meta — המשרד אינו
+   * יכול לשנות אותה, אבל היא קובעת מה קורה לנוסח שהוא כותב כאן:
+   * כשהיא דולקת הנוסח יוצא **במייל בלבד**, ובוואטסאפ יוצאים שם,
+   * תאריך, שעה, כתובת ושם המשרד.
+   */
+  whatsappViewingReminderFields: boolean;
+  /**
+   * ‎**האם בכלל נרשמה תבנית לתזכורת בוואטסאפ.**
+   *
+   * ‏בלי שם תבנית `deliver` אינו שולח דבר בוואטסאפ. שתי ההגדרות
+   * עצמאיות, ולכן „נשלח במייל בלבד” נכון תמיד כשהשדות דולקים, אבל
+   * „בוואטסאפ יוצאת תבנית קבועה” נכון רק כששתיהן מוגדרות.
+   */
+  whatsappViewingReminderTemplateSet: boolean;
 }
 
 export function AutomationsSection() {
@@ -267,6 +284,42 @@ export function AutomationsSection() {
                       </option>
                     ))}
                   </select>
+
+                  {/*
+                    ‎**איפה הנוסח הזה באמת יוצא.**
+
+                    כשהתבנית שנרשמה מול Meta היא זו עם השדות, הנוסח
+                    החופשי אינו נשלח בוואטסאפ כלל — שם יוצאים שם,
+                    תאריך, שעה, כתובת ושם המשרד. בלי המשפט הזה המסך
+                    מציג „נוסח התזכורת” ובורר ערוץ עם „וואטסאפ”, ומי
+                    שעורך כאן מאמין שמה שכתב נשלח.
+
+                    נאמר פעם אחת מעל התיבות ולא בכל אחת: זו עובדה על
+                    הערוץ, לא על הנמען.
+                  */}
+                  {data.whatsappViewingReminderFields ? (
+                    <p
+                      className="m-0 mb-3 rounded-[9px] px-[13px] py-[9px] text-[length:var(--type-caption-lg)]"
+                      style={{
+                        background: "var(--domain-neutral-bg)",
+                        border: "1px solid var(--color-input-border)",
+                        color: "var(--domain-neutral-fg)",
+                      }}
+                    >
+                      {/*
+                        ‎**החלק הראשון נכון תמיד; השני רק כשיש תבנית.**
+
+                        שתי ההגדרות עצמאיות — „שדות” מסומן ושם התבנית
+                        ריק הוא צירוף אפשרי, ואז בוואטסאפ לא יוצא
+                        כלום. הבטחה על „תבנית קבועה שאושרה” במצב הזה
+                        הייתה מבטיחה משלוח שאינו קורה (ביקורת Codex).
+                      */}
+                      הנוסח שכאן נשלח <b>במייל בלבד</b>.{" "}
+                      {data.whatsappViewingReminderTemplateSet
+                        ? "בוואטסאפ יוצאת תבנית קבועה שאושרה מראש, ובה שם הלקוח, תאריך, שעה, כתובת ושם המשרד."
+                        : "תזכורת בוואטסאפ אינה נשלחת כרגע — לא הוגדרה תבנית מאושרת."}
+                    </p>
+                  ) : null}
 
                   {spec.outbound.audiences.map((audience) => (
                     <div key={audience.key} className="mb-3">
