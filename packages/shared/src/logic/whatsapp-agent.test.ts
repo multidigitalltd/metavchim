@@ -194,6 +194,39 @@ describe("הקצאת המקום — נספרת, ניתנת להעברה, ומו�
   });
 
   /*
+   * ‎**המקום ניתן למכירה דרך המוצר.**
+   *
+   * השדה נוסף ל-API ולא למסך, ולכן אי אפשר היה למכור מקום בכלל —
+   * כל משרד נעול על אחד אלא אם מישהו קורא ל-API ידנית (ביקורת
+   * Codex). „כל אחד נוסף בתוספת תשלום” אינו קיים אם אין איפה
+   * להוסיף אותו.
+   */
+  it("מסך הפלטפורמה מציג ושולח את המקומות הנוספים", () => {
+    const PLATFORM_API = read("../../../../apps/api/src/modules/platform/platform.controller.ts");
+    const PLATFORM_UI = read("../../../../apps/web/src/app/platform/page.tsx");
+    expect(PLATFORM_API).toMatch(/whatsappAgentSeatsExtra: t\.whatsappAgentSeatsExtra/u);
+    expect(PLATFORM_UI).toContain("agency.whatsappAgentSeatsExtra");
+    expect(PLATFORM_UI).toContain("whatsappAgentSeatsExtra: Number(waSeats)");
+  });
+
+  /*
+   * ‎**הורדת מכסה מתחת למוקצים נדחית.**
+   *
+   * הזכאות בזמן ריצה קוראת את דגל המשתמש ואת המסלול — לא את המכסה.
+   * הורדת המספר לבדה אינה מנתקת איש, ולכן המחזיקים ממשיכים לעבוד
+   * מעל מה ששולם ללא הגבלת זמן.
+   */
+  it("הורדת מקומות מתחת למספר המחזיקים נדחית", () => {
+    const PLATFORM_API = read("../../../../apps/api/src/modules/platform/platform.controller.ts");
+    expect(PLATFORM_API).toMatch(/if \(holders > seats\)/u);
+    const guard = PLATFORM_API.slice(
+      PLATFORM_API.indexOf('if ("whatsappAgentSeatsExtra" in body'),
+      PLATFORM_API.indexOf("data.whatsappAgentSeatsExtra = next;"),
+    );
+    expect(guard).toContain("pg_advisory_xact_lock");
+  });
+
+  /*
    * ‎**ההגירה אינה מנתקת את בעלי המשרדים.**
    *
    * הגישה שלהם נגזרה מהתפקיד ולא נשמרה בדגל. בלי הצעד הזה, הרגע

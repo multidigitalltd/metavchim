@@ -60,6 +60,7 @@ import {
   MAX_OFFER_PRICE_AGOROT,
   planRejectionReason,
   sanitizeFeatures,
+  whatsappAgentSeats,
   type PlanDefinition,
   type ServiceVersion,
 } from "@metavchim/shared";
@@ -515,6 +516,8 @@ export interface AgencyRow {
   /** מחיר מוסכם באגורות; null = מחיר המסלול. */
   priceOverrideMonthlyAgorot: number | null;
   priceOverrideYearlyAgorot: number | null;
+  /** מקומות נוספים שנרכשו לסוכן הוואטסאפ, מעבר לאחד שכלול במסלול */
+  whatsappAgentSeatsExtra: number;
   /**
    * התפוגות, ומה שנגזר מהן.
    *
@@ -952,6 +955,7 @@ export class PlatformController {
         featureDenials: true,
         priceOverrideMonthlyAgorot: true,
         priceOverrideYearlyAgorot: true,
+        whatsappAgentSeatsExtra: true,
         createdAt: true,
         _count: { select: { users: true } },
       },
@@ -970,6 +974,7 @@ export class PlatformController {
       featureGrants: t.featureGrants,
       featureDenials: t.featureDenials,
       priceOverrideMonthlyAgorot: t.priceOverrideMonthlyAgorot,
+      whatsappAgentSeatsExtra: t.whatsappAgentSeatsExtra,
       priceOverrideYearlyAgorot: t.priceOverrideYearlyAgorot,
       createdAt: t.createdAt,
       trialEndsAt: t.trialEndsAt,
@@ -1281,7 +1286,35 @@ export class PlatformController {
       data.priceOverrideYearlyAgorot = body.priceOverrideYearlyAgorot ?? null;
     }
     if ("whatsappAgentSeatsExtra" in body && body.whatsappAgentSeatsExtra !== undefined) {
-      data.whatsappAgentSeatsExtra = body.whatsappAgentSeatsExtra;
+      /*
+       * ‎**הורדה מתחת למספר המוקצים נדחית.**
+       *
+       * הזכאות בזמן ריצה קוראת את הדגל של המשתמש ואת המסלול — לא את
+       * המכסה. כלומר הורדת המספר לבדה אינה מנתקת איש: המחזיקים
+       * הקיימים ממשיכים לעבוד מעל מה ששולם, ללא הגבלת זמן (ביקורת
+       * Codex). ההכרעה היא לדחות ולא לנתק בשקט — ניתוק אוטומטי של מי
+       * שעובד היה מפתיע את המשרד בלי שאיש החליט מי יורד.
+       *
+       * הנעילה זהה לזו של ההקצאה, ולכן הספירה אינה מתיישנת בין
+       * הבדיקה לכתיבה.
+       */
+      const next = body.whatsappAgentSeatsExtra;
+      await this.prisma.withExplicitTenant(id, async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${id}`}))`;
+        const holders = await tx.user.count({
+          where: { tenantId: id, isActive: true, whatsappAccess: true },
+        });
+        const seats = whatsappAgentSeats(
+          await this.plans.tenantHasFeature(id, "voice_intake", tx),
+          next,
+        );
+        if (holders > seats) {
+          throw new BadRequestException(
+            `במשרד ${holders} סוכנים מחזיקים בסוכן הוואטסאפ, והמספר המבוקש מאפשר ${seats}. הסירו את ההקצאה מהעודפים לפני ההורדה.`,
+          );
+        }
+      });
+      data.whatsappAgentSeatsExtra = next;
     }
     if (Object.keys(data).length === 0) return { ok: true };
 
