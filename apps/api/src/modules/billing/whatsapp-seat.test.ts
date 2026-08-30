@@ -21,7 +21,7 @@ const SERVICE = read("./whatsapp-seat.service.ts");
 const RENEWAL = read("./whatsapp-seat-renewal.service.ts");
 const BILLING = read("./billing.service.ts");
 const MIGRATION = read(
-  "../../../prisma/migrations/20260830090000_whatsapp_seats/migration.sql",
+  "../../../prisma/migrations/20260830100000_whatsapp_seats/migration.sql",
 );
 
 describe("מקום נוסף לסוכן הוואטסאפ — מנוי חודשי", () => {
