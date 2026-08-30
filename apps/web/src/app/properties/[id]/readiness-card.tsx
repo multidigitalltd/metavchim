@@ -120,6 +120,45 @@ function fieldValue(
 }
 
 /**
+ * ‎**„לאן שולחים כדי לתקן את השדה הזה” — הכרעה אחת, לשני הקוראים.**
+ *
+ * שני השדות `images` ו-`owner` **אינם בטופס העריכה**: תמונות יושבות
+ * ברכיב ההעלאה שבסקירה, ובעל הנכס הוא קישור לכרטיס איש קשר שנבחר
+ * בלשונית שלו. `readinessFieldTarget` יודעת את זה מאז שהמוכנות עברה
+ * לתשעה שדות.
+ *
+ * הרצועה שבכותרת נכתבה בתחילה עם ניווט ישיר לטופס — ולכן נכס שכל
+ * מה שחסר בו הוא תמונות או בעלים היה שולח את המתווך למסך שאין בו מה
+ * לתקן, מהכפתור הבולט ביותר בעמוד (ביקורת Codex). הכפתור מכוון
+ * עכשיו לחוסר הראשון, דרך אותה פונקציה שמפעילה את תשע הגלולות.
+ */
+function openReadinessField({
+  router,
+  propertyId,
+  field,
+  onSelectTab,
+  onScrollToSection,
+}: {
+  router: ReturnType<typeof useRouter>;
+  propertyId: string;
+  field: string;
+  onSelectTab: (tab: string) => void;
+  onScrollToSection: (id: string) => void;
+}): void {
+  const target = readinessFieldTarget(field);
+  if (target.kind === "form") {
+    router.push(readinessTargetHref(propertyId, target));
+    return;
+  }
+  if (target.kind === "tab") {
+    onSelectTab(target.tab);
+    return;
+  }
+  onSelectTab("overview");
+  onScrollToSection(target.id);
+}
+
+/**
  * ‎**רצועת המוכנות — בראש העמוד, לא בתוך הכרטיס.**
  *
  * האחוז הוא הדבר הראשון שמתווך מסתכל עליו כשהוא פותח נכס, והוא ישב
@@ -133,13 +172,24 @@ function fieldValue(
 export function ReadinessStrip({
   propertyId,
   property,
+  onSelectTab,
+  onScrollToSection,
 }: {
   propertyId: string;
   property: Pick<ReadinessCardProperty, "readinessScore" | "missingFields">;
+  onSelectTab: (tab: string) => void;
+  onScrollToSection: (id: string) => void;
 }) {
   const router = useRouter();
   const band = readinessBand(property.readinessScore);
   const missing = property.missingFields.length;
+  /*
+   * ‎**החוסר הראשון, ולא הטופס.** ראו `openReadinessField` — תמונות
+   * ובעלים אינם בטופס העריכה, והכפתור הבולט בעמוד היה שולח אליו.
+   * הסדר הוא של `PROPERTY_READINESS_FIELDS`, כלומר אותו סדר שבו
+   * התאים מוצגים.
+   */
+  const firstGap = property.missingFields[0];
 
   return (
     <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2.5">
@@ -174,7 +224,16 @@ export function ReadinessStrip({
         <button
           type="button"
           className="mv-btn-soft ms-auto"
-          onClick={() => router.push(`/properties/${propertyId}/edit`)}
+          onClick={() => {
+            if (firstGap === undefined) return;
+            openReadinessField({
+              router,
+              propertyId,
+              field: firstGap,
+              onSelectTab,
+              onScrollToSection,
+            });
+          }}
         >
           השלם פרטים
         </button>
@@ -230,17 +289,7 @@ export function ReadinessCard({
    * לתשעה תאים במקום פעם אחת לכפתור.
    */
   function openField(field: string): void {
-    const target = readinessFieldTarget(field);
-    if (target.kind === "form") {
-      router.push(readinessTargetHref(propertyId, target));
-      return;
-    }
-    if (target.kind === "tab") {
-      onSelectTab(target.tab);
-      return;
-    }
-    onSelectTab("overview");
-    onScrollToSection(target.id);
+    openReadinessField({ router, propertyId, field, onSelectTab, onScrollToSection });
   }
 
   return (
@@ -274,7 +323,17 @@ export function ReadinessCard({
             letterSpacing: "-0.025em",
           }}
         >
-          פרטי הנכס
+          {/*
+            ‎**לא „פרטי הנכס”** — הכותרת הזו כבר תפוסה.
+
+            המוקאפ מראה כרטיס אחד בשם „פרטי הנכס” ובו תשעת התאים,
+            אבל בעמוד יושב מתחת `DetailsCard` שנושא בדיוק את השם
+            הזה (SPEC-3c §5) ומציג חלק מאותם שדות. שתי כותרות זהות
+            צמודות הן כפילות גם למי שקורא וגם לקורא מסך.
+            המיזוג ביניהם הוא הכרעת מוצר: הוא מוריד את שורת
+            „מאפיינים”, שאינה בתשעת התאים.
+          */}
+          מוכנות הנכס
         </h2>
         {/*
           ‎**הספירה בכותרת, והאחוז ברצועה שבראש העמוד.**

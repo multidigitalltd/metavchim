@@ -1031,7 +1031,19 @@ export default function PropertyDetailPage({
           עד כה בתוך כרטיס שמתחת ללשוניות — כלומר נראה רק אחרי בחירת
           לשונית וגלילה. כאן הוא ליד שם הנכס, עם הכפתור שמתקן אותו.
         */}
-        <ReadinessStrip propertyId={property.id} property={property} />
+        <ReadinessStrip
+          propertyId={property.id}
+          property={property}
+          onSelectTab={selectTab}
+          onScrollToSection={(sectionId) => {
+            // שני פריימים, כמו בכרטיס: הפאנל מורכב ואז נגלל אליו
+            requestAnimationFrame(() => {
+              document
+                .getElementById(sectionId)
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            });
+          }}
+        />
 
         {/*
           מה שהמתווך אינו מצפה לו — כרטיס של אדם שיורד עם הנכס. מוצג
