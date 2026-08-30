@@ -69,6 +69,20 @@ describe("שליחת תבנית", () => {
   });
 
   /*
+   * ‎**שם המשרד נלקח מהדייר, ולא מהגדרה שיכולה לסטות ממנו.**
+   *
+   * הלקוח התקשר למשרד הזה, וההודעה חוזרת אליו בשמו. שדה נפרד היה
+   * יכול להישאר על שם ישן אחרי שינוי שם משרד.
+   */
+  it("שם המשרד בהזמנת הדרישות מגיע מהדייר", () => {
+    expect(TELEPHONY).toContain('select: { settings: true, name: true }');
+    expect(TELEPHONY).toContain('const officeName = tenant?.name ?? "";');
+    expect(TELEPHONY).toContain(
+      'whatsappTemplateParams("intake", [officeName, created.url])',
+    );
+  });
+
+  /*
    * ‎**הצורה נקבעת מההגדרה, לא מהגרסה.**
    *
    * תבנית שנרשמה עם נוסח אחד ומקבלת חמישה שמות נדחית אצל Meta,

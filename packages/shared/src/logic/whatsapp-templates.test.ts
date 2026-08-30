@@ -101,6 +101,21 @@ describe("ערכי התבנית נושאים שמות", () => {
     ]);
   });
 
+  /*
+   * ‎**שם המשרד ראשון, לפני הקישור.**
+   *
+   * הלקוח התקשר למשרד מסוים, וההודעה מגיעה אליו ממספר שאינו מוכר
+   * לו — בלי השם אינו יודע למי הוא עונה, ואין בהודעה סימן לעסקה
+   * שהוא צד לה. גם הסדר נבדק: היפוך היה שותל את הקישור בשם.
+   */
+  it("הזמנת הדרישות נושאת את שם המשרד לפני הקישור", () => {
+    expect(WHATSAPP_TEMPLATE_PARAMS.intake).toEqual(["office_name", "form_link"]);
+    expect(whatsappTemplateParams("intake", ['נדל"ן רעננה', "https://a/f/tok"])).toEqual([
+      { type: "text", parameter_name: "office_name", text: 'נדל"ן רעננה' },
+      { type: "text", parameter_name: "form_link", text: "https://a/f/tok" },
+    ]);
+  });
+
   /* ‏Meta דוחה ערך ריק; רווח יחיד עובר ומשאיר את ההודעה חסרה אך נמסרת */
   it("ערך ריק אינו נשלח ריק", () => {
     expect(whatsappTemplateParams("emailReply", [""])[0]?.text).toBe(" ");

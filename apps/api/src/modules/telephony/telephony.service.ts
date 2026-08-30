@@ -1170,7 +1170,8 @@ export class TelephonyService {
     try {
       const tenant = await tx.tenant.findUnique({
         where: { id: tenantId },
-        select: { settings: true },
+        // שם המשרד — הלקוח התקשר אליו, וההודעה חוזרת בשמו
+        select: { settings: true, name: true },
       });
       const raw = (tenant?.settings ?? {}) as Record<string, unknown>;
       if (!resolveAutomationSettings(raw["automations"])["missed_call_intake"].enabled) {
@@ -1194,6 +1195,11 @@ export class TelephonyService {
       // כפתור נשלח רק לתבנית שנרשמה איתו — ראו `whatsappIntakeTemplateButton`
       const hasButton =
         (await this.platformSettings.get("whatsappIntakeTemplateButton")) === "true";
+      /*
+       * ‎**שם המשרד נלקח מהדייר עצמו** ולא מהגדרה נפרדת שיכולה לסטות
+       * ממנו. הלקוח התקשר למשרד הזה, וההודעה חוזרת אליו בשמו.
+       */
+      const officeName = tenant?.name ?? "";
 
       const sent =
         contact !== null && template !== undefined && template !== ""
@@ -1201,7 +1207,7 @@ export class TelephonyService {
               contact.phone,
               template,
               lang,
-              whatsappTemplateParams("intake", [created.url]),
+              whatsappTemplateParams("intake", [officeName, created.url]),
               // כפתור „מילוי הפרטים” — אותו קישור, בלחיצה במקום בהדבקה
               hasButton
                 ? whatsappDeepLinkSuffix(created.url, loadEnv().WEB_ORIGIN)
