@@ -1,4 +1,5 @@
 import { Global, Module } from "@nestjs/common";
+import { ActivationNudgeService } from "./activation-nudge.service";
 import { AuditService } from "./audit.service";
 import { AutomationQuotaService } from "./automation-quota.service";
 import { CryptoService } from "./crypto.service";
@@ -40,6 +41,7 @@ import { VatService } from "./vat.service";
     CreditEconomyService,
     CreditExpiryService,
     OnboardingOutreachService,
+    ActivationNudgeService,
     GeminiService,
     PlanCatalogService,
     AutomationQuotaService,

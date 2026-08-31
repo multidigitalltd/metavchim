@@ -147,6 +147,7 @@ model User {
   capabilityOverrides UserCapability[]
   agentEvents         AgentEvent[]
   whatsappLinks       WhatsAppLink[]
+  nudgeOptOut         ActivationNudgeOptOut?
 
   @@index([tenantId, isActive])
   @@map("users")
@@ -762,6 +763,27 @@ model EmailAttachment {
 /// טוקן ה-Reply-To של לקוח — `local+<token>@inbound` על כל מייל
 /// יוצא אליו. בלי RLS בכוונה (כמו lead_webhooks): ה-Webhook הנכנס
 /// מזהה את הדייר דרך הטוקן, לפני שיש הקשר דייר. אין כאן PII.
+/// ‎**הסרה מתזכורות ההפעלה — הטוקן שבתחתית כל תזכורת.**
+///
+/// טבלה נפרדת ולא עמודה על `users`: פוליסת RLS שחושפת שורה לפי טוקן
+/// הייתה פותחת את כל עמודות המשתמש לטרנזקציה הציבורית, כולל
+/// `password_hash`. RLS אינו יודע להגביל עמודות, ולכן הגבול הוא
+/// טבלה שאין בה דבר מלבד הטוקן וההסרה. כמו `email_reply_tokens`.
+model ActivationNudgeOptOut {
+  id         String    @id @db.Char(26)
+  tenantId   String    @map("tenant_id") @db.Char(26)
+  userId     String    @unique @map("user_id") @db.Char(26)
+  /// מה שבקישור — אקראי, ובלתי ניתן לניחוש.
+  token      String    @unique @db.VarChar(64)
+  /// NULL = עדיין מקבל. חותמת = ביקש להפסיק, ולתמיד.
+  optedOutAt DateTime? @map("opted_out_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("activation_nudge_optouts")
+}
+
 model EmailReplyToken {
   id        String   @id @db.Char(26)
   tenantId  String   @map("tenant_id") @db.Char(26)

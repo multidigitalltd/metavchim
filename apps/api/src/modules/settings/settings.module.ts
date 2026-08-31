@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { MatchingModule } from "../matching/matching.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { AccountDeletionService } from "./account-deletion.service";
+import { ActivationNudgeController } from "./activation-nudge.controller";
 import { AgreementTemplatesController } from "./agreement-templates.controller";
 import { AutomationRulesController } from "./automation-rules.controller";
 import { EmailDomainController } from "./email-domain.controller";
@@ -19,6 +20,7 @@ import { TenantLogoService } from "./tenant-logo.service";
     AgreementTemplatesController,
     AutomationRulesController,
     EmailDomainController,
+    ActivationNudgeController,
   ],
   providers: [AccountDeletionService, TenantLogoService],
 })

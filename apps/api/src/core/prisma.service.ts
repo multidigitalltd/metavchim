@@ -116,6 +116,20 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     });
   }
 
+  /**
+   * ‎**הסרה מתזכורות ההפעלה — הטוקן שבתחתית התזכורת.**
+   *
+   * בלי הקשר דייר בכוונה: ההודעה נשלחת דווקא למי שהחשבון שלו ננעל,
+   * ו„היכנסו למערכת כדי להסיר” אינה דרך סבירה להודיע על סירוב.
+   * הפוליסה חושפת שורה אחת בטבלה שאין בה דבר מלבד הטוקן וההסרה.
+   */
+  async withPublicNudge<T>(token: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.nudge_token', ${token}, true)`;
+      return fn(tx);
+    });
+  }
+
   /** גישת הלקוח החותם — הטוקן שבקישור הוא המפתח, בלי הקשר דייר. */
   async withPublicAgreement<T>(token: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
     return this.$transaction(async (tx) => {
