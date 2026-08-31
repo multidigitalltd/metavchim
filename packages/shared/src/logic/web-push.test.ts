@@ -51,6 +51,41 @@ describe("notificationUrl", () => {
   it("נופל לדשבורד גם על ישות שאינה מוכרת", () => {
     expect(notificationUrl(note({ entityType: "widget", entityId: "abc" }))).toBe("/");
   });
+
+  /*
+   * ‏הבקשה שהולידה את השורה: המתווך שהציע קיבל „נפתח חדר עסקה”
+   * בלי לדעת איפה החדר. `"/"` הוא בדיוק מה ש-`formatNotifyMessage`
+   * מדלגת עליו, ולכן חוסר בטבלה נראה כהודעה בלי קישור — ולא ככשל.
+   */
+  it("מקשר ישירות לחדר העסקה", () => {
+    expect(notificationUrl(note({ entityType: "coop_deal", entityId: "d1" }))).toBe(
+      "/collaboration/deals/d1",
+    );
+  });
+
+  it("חדר עסקה בלי מזהה נוחת בלשונית העסקאות", () => {
+    expect(notificationUrl(note({ entityType: "coop_deal", entityId: null }))).toBe(
+      "/collaboration?tab=deals",
+    );
+  });
+
+  /*
+   * שלוש הישויות שייצרו 404: לכל אחת יש מסך רשימה בלבד, ומזהה
+   * שנדבק אליו הפיל את הלחיצה על נתיב שאינו קיים.
+   */
+  it("הצעה נוחתת ברשימה גם כשיש מזהה — אין מסך להצעה בודדת", () => {
+    expect(notificationUrl(note({ entityType: "offer", entityId: "o1" }))).toBe("/offers");
+  });
+
+  it("התאמה נוחתת ברשימה גם כשיש מזהה", () => {
+    expect(notificationUrl(note({ entityType: "match", entityId: "m1" }))).toBe("/matches");
+  });
+
+  it("הצעת שיתוף נוחתת בלשונית „הצעות שקיבלתי”", () => {
+    expect(notificationUrl(note({ entityType: "coop_offer", entityId: "c1" }))).toBe(
+      "/collaboration?tab=incoming",
+    );
+  });
 });
 
 describe("pushPayload", () => {

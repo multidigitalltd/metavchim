@@ -50,16 +50,45 @@ export function shouldPush(notification: PushableNotification): boolean {
  * פריט בנתיב משלו. שיחה נבחרת בתוך רשימת השיחות ולכן היא פרמטר
  * בכתובת, ותבנית אחידה הייתה מייצרת `/calls/<id>` — נתיב שאינו
  * קיים, כלומר בדיוק הכתובת השבורה שהפונקציה למטה מבטיחה למנוע.
+ *
+ * ## הכלל שנשבר כאן שלוש פעמים, ומה שומר עליו עכשיו
+ *
+ * ‎**נתיב שנכתב כאן חייב להתקיים ב-`apps/web/src/app`.** שלוש
+ * מהשורות ייצרו 404: `/offers/<id>`, `/matches/<id>` ו-
+ * ‎`/collaboration/<id>` — לשלושתם יש מסך רשימה בלבד, ואין
+ * ‎`[id]` מתחתיו. שום בדיקה לא ראתה את זה: הטיפוס מסתפק
+ * במחרוזת, והפונקציה מחזירה אותה בהצלחה.
+ *
+ * ‎`scripts/verify-notification-routes.mjs` בודק כל נתיב שהטבלה
+ * יכולה לייצר מול עץ הנתיבים של Next, וזה מה שמחליף את ההבטחה
+ * שבתיעוד בבדיקה שנכשלת.
  */
 const ENTITY_ROUTES: Record<string, (id?: string) => string> = {
   lead: (id) => (id ? `/leads/${id}` : "/leads"),
   buyer: (id) => (id ? `/buyers/${id}` : "/buyers"),
   property: (id) => (id ? `/properties/${id}` : "/properties"),
-  offer: (id) => (id ? `/offers/${id}` : "/offers"),
+  // אין `/offers/<id>` — ההצעות מוצגות ברשימה אחת
+  offer: () => "/offers",
   appointment: () => "/calendar",
   task: () => "/tasks",
-  match: (id) => (id ? `/matches/${id}` : "/matches"),
-  coop_offer: (id) => (id ? `/collaboration/${id}` : "/collaboration"),
+  // אין `/matches/<id>` — ההתאמות מוצגות ברשימה אחת
+  match: () => "/matches",
+  /*
+   * ‎**הצעה שהתקבלה נמצאת בלשונית „הצעות שקיבלתי”, לא בנתיב משלה.**
+   * הלשונית נבחרת ב-`?tab=`, וזה מה ש-`TabFromQuery` קורא.
+   */
+  coop_offer: () => "/collaboration?tab=incoming",
+  /*
+   * ‎**חדר העסקה — הנתיב שהיה חסר לגמרי.**
+   *
+   * ‏שלוש התראות נכתבות עם `entityType: "coop_deal"`, ובראשן זו
+   * שנשלחת למתווך שהציע ברגע שהצד השני אישר. בלי שורה כאן
+   * ‎`notificationUrl` החזירה `"/"`, ו-`formatNotifyMessage`
+   * מדלגת על שורת הקישור בדיוק כשהיא `"/"` — כלומר ההודעה
+   * בוואטסאפ בישרה שנפתח חדר ולא אמרה איפה הוא (בקשת המשתמש).
+   */
+  coop_deal: (id) =>
+    id ? `/collaboration/deals/${id}` : "/collaboration?tab=deals",
   call: (id) => (id ? `/calls?call=${id}` : "/calls"),
 };
 

@@ -170,6 +170,27 @@ describe("formatNotifyMessage", () => {
   it("רשימה ריקה אינה מייצרת הודעה", () => {
     expect(formatNotifyMessage([], "https://x")).toBe("");
   });
+
+  /*
+   * ‏הבקשה עצמה: המתווך שהציע קיבל בוואטסאפ „נפתח חדר עסקה משותף”
+   * ולא קיבל לאן. שורת הקישור נשמטת בדיוק כש-`notificationUrl`
+   * מחזירה `"/"`, ולכן ישות חסרה בטבלה נראית כאן כהודעה תקינה
+   * בלי כתובת — ולא ככשל.
+   */
+  it("„נפתח חדר עסקה” נושאת קישור ישיר לחדר", () => {
+    const text = formatNotifyMessage(
+      [
+        item({
+          title: "נפתח חדר עסקה משותף",
+          type: "coop_deal",
+          entityType: "coop_deal",
+          entityId: "D7",
+        }),
+      ],
+      "https://app.example.com",
+    );
+    expect(text).toContain("https://app.example.com/collaboration/deals/D7");
+  });
 });
 
 describe("sessionWindowOpen", () => {

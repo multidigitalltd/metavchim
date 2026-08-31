@@ -165,6 +165,13 @@ jobs:
       - name: Media backup chain is consistent
         run: pnpm verify:backup
 
+      # לאן נוחתת לחיצה על התראה. הטבלה היא מחרוזות, ולכן נתיב
+      # שאינו קיים עובר טיפוסים ובדיקות: שלוש ישויות קישרו ל-404,
+      # ו-`coop_deal` לא הייתה בה כלל — כלומר ההודעה בוואטסאפ
+      # בישרה שנפתח חדר עסקה בלי לומר איפה הוא.
+      - name: Notifications land on screens that exist
+        run: pnpm verify:notify
+
       - name: Audit dependencies (fail on high)
         run: pnpm audit --audit-level high
 

@@ -15,7 +15,8 @@
     "test:eslint-rules": "node eslint-rules/israel-time.test.mjs",
     "test": "turbo run test",
     "format": "prettier --write .",
-    "verify:backup": "node scripts/verify-backup-chain.mjs"
+    "verify:backup": "node scripts/verify-backup-chain.mjs",
+    "verify:notify": "node scripts/verify-notification-routes.mjs"
   },
   "pnpm": {
     "overrides": {
