@@ -77,14 +77,49 @@ describe("תזכורות ההפעלה", () => {
    * שאין על מה להזכיר. שניהם נבדקים לפני בחירת השלב.
    */
   it("מסלול חינמי וכרטיס תקף אינם מקבלים תזכורת", () => {
+    expect(SERVICE, "מסלול חינמי אינו נבדק").toContain("isFreeCode(");
+    expect(SERVICE, "תוקף הכרטיס אינו נבדק").toContain("hasValidCard(");
+  });
+
+  /*
+   * ‎**הסבב חייב להתקדם.** `take` על החלון כולו בלי סדר ובלי סמן
+   * שולף בכל שעה את אותם הראשונים, ומי שמעבר להם מזדקן ויוצא מחלון
+   * הפיגור בלי לקבל דבר — בשקט מוחלט (ביקורת Codex). התקרה עברה
+   * לשליחות, שהן היקר האמיתי.
+   */
+  it("הסריקה עוברת על כל החלון, ולא על הדף הראשון בלבד", () => {
+    expect(SERVICE, "אין סמן").toMatch(/cursor: \{ id: cursor \}/u);
+    expect(SERVICE, "אין סדר יציב").toMatch(/orderBy: \[\{ trialEndsAt: "asc" \}/u);
+    expect(SERVICE, "התקרה עדיין על המועמדים").not.toMatch(/take: BATCH/u);
+    expect(SERVICE, "אין תקרת שליחות").toContain("MAX_SENDS_PER_SWEEP");
+  });
+
+  /*
+   * ‎**ההבטחה שבמייל חייבת להיות אמת ברגע שהוא נוחת.**
+   *
+   * ההודעה אמרה „רשת שיתופי הפעולה נשארת פתוחה” בזמן ששום דבר לא
+   * שינה את מסלול המשרד: הניסיון פג, `tenantPeriodEnded` החזיר
+   * `true`, ו-`AuthGuard` דחה כל נתיב ב-402 (ביקורת Codex).
+   *
+   * שני התנאים: המסלול חייב להיות **חינמי** (רק כזה אינו פוקע,
+   * ולכן רק הוא באמת פותח משהו), וההעברה חייבת לקרות **לפני**
+   * השליחה.
+   */
+  it("מסלול השותפים מוזכר רק כשהמשרד באמת מועבר אליו", () => {
+    const at = SERVICE.indexOf("private async partnerPlan(");
+    const scope = SERVICE.slice(at, SERVICE.indexOf("\n  }\n", at));
+    expect(scope, "מסלול בתשלום מוצג כאילו הוא פותח משהו").toContain("isFreeCode(");
+  });
+
+  it("ההעברה למסלול השותפים קודמת לשליחה", () => {
     const at = SERVICE.indexOf("private async nudgeTenant(");
     const scope = SERVICE.slice(at, SERVICE.indexOf("\n  }\n", at));
-    const free = scope.indexOf("isFreeCode(");
-    const card = scope.indexOf("hasValidCard(");
-    const stage = scope.indexOf("dueActivationNudge(");
-    expect(free, "מסלול חינמי אינו נבדק").toBeGreaterThan(-1);
-    expect(card, "תוקף הכרטיס אינו נבדק").toBeGreaterThan(-1);
-    expect(stage, "השלב נבחר לפני הסינון").toBeGreaterThan(Math.max(free, card));
+    const move = scope.indexOf("this.moveToPartnerPlan(");
+    const send = scope.indexOf("this.email.send(");
+    expect(move, "אין העברה בפועל").toBeGreaterThan(-1);
+    expect(send, "ההודעה יוצאת לפני ההעברה").toBeGreaterThan(move);
+    // ב-`heads_up` הניסיון עדיין בתוקף — אין מה להעביר
+    expect(scope, "ההעברה קורית גם באזהרה המוקדמת").toMatch(/stage !== "heads_up"/u);
   });
 
   /*
