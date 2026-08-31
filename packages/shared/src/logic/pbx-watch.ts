@@ -126,15 +126,25 @@ export function insideWatchWindow(at: Date, window: PbxWatchWindow): boolean {
 const HOUR_MS = 60 * 60 * 1000;
 
 /**
- * ‎**כמה שעות מנוטרות עברו מאז הרגע הזה** — לא כמה שעות עברו.
+ * ‎**כמה זמן מנוטר עבר מאז הרגע הזה** — לא כמה זמן עבר.
  *
- * הספירה נעשית בצעדי שעה אחורה ולא בנוסחה סגורה: החלון תלוי בשעון
- * ישראל, וישראל מעבירה שעון פעמיים בשנה. נוסחה שמניחה 24 שעות ליום
- * נכונה חצי שנה, וביום המעבר היא נותנת תשובה שגויה בשעה בדיוק —
- * כלומר בדיוק בגודל של הסף.
+ * ## למה החלוקה לפרוסות ולא נוסחה סגורה
  *
- * ‎`cap` חוסם את הלולאה: `null` (מעולם לא הגיעה שיחה) או חותמת
- * עתיקה אינם סיבה לסרוק שנתיים אחורה בכל סבב.
+ * החלון תלוי בשעון ישראל, וישראל מעבירה שעון פעמיים בשנה. נוסחה
+ * שמניחה 24 שעות ליום נכונה חצי שנה, וביום המעבר היא שוגה בשעה
+ * בדיוק — כלומר בגודל של הסף.
+ *
+ * ## ולמה **חפיפה** ולא ספירת דגימות
+ *
+ * הגרסה הראשונה ספרה כל דגימה כשעה מלאה, ולכן שני קצוות חלקיים
+ * נספרו כשעתיים שלמות: שיחה אחרונה ב-10:59 וסבב ב-14:00 החזירו 4
+ * — כלומר סף של ארבע שעות נפרץ אחרי שלוש שעות ודקה (ביקורת Codex).
+ * בסף המינימלי של שעה זה חמור עוד יותר: חיבור שנוצר ב-11:59 היה
+ * מתריע ב-12:00.
+ *
+ * כאן נצבר **הזמן בפועל**: כל פרוסה היא שעת-קיר ישראלית שלמה,
+ * חתוכה בקצוות ל-`since` ול-`now`. מכיוון שגבולות החלון הם שעות
+ * עגולות, דגימה אחת בתוך הפרוסה מסווגת אותה כולה נכון.
  */
 export function monitoredHoursSince(
   since: Date | null,
@@ -144,12 +154,34 @@ export function monitoredHoursSince(
 ): number {
   const floor = since === null ? now.getTime() - capHours * HOUR_MS : since.getTime();
   let counted = 0;
-  for (let step = 0; step < capHours; step += 1) {
-    const at = new Date(now.getTime() - step * HOUR_MS);
-    if (at.getTime() <= floor) break;
-    if (insideWatchWindow(at, window)) counted += 1;
+  let end = now.getTime();
+  /*
+   * ‎`+ 2` מעל התקרה: הפרוסה הראשונה והאחרונה חלקיות, ולכן מספר
+   * הגבולות שנחצים גדול בפרוסה מכמות השעות.
+   */
+  for (let step = 0; step < capHours + 2 && end > floor; step += 1) {
+    const inside = new Date(end - 1);
+    const start = Math.max(floor, jerusalemHourStart(end));
+    if (insideWatchWindow(inside, window)) counted += end - start;
+    end = start;
   }
-  return counted;
+  return counted / HOUR_MS;
+}
+
+/**
+ * תחילת שעת-הקיר הישראלית שהרגע שלפני `at` נמצא בתוכה.
+ *
+ * ‎**דקות ושניות של UTC, ולא של ישראל** — וזה נכון ולא קיצור דרך:
+ * ההיסט של ישראל הוא מספר שלם של שעות (‎+2 ו-+3), ולכן הדקה
+ * הישראלית והדקה ב-UTC זהות תמיד. גבול השעה משותף לשתיהן.
+ */
+function jerusalemHourStart(at: number): number {
+  const d = new Date(at - 1);
+  return (
+    at -
+    1 -
+    (d.getUTCMinutes() * 60_000 + d.getUTCSeconds() * 1_000 + d.getUTCMilliseconds())
+  );
 }
 
 export interface PbxSilenceInput {
@@ -194,7 +226,10 @@ export function pbxSilenceMessage(input: {
   now: Date;
   window: PbxWatchWindow;
 }): { title: string; body: string } {
-  const hours = monitoredHoursSince(input.lastInboundAt, input.now, input.window);
+  // שעות שלמות בתצוגה — „3.4 שעות עבודה” אינו מה שמתווך רוצה לקרוא
+  const hours = Math.floor(
+    monitoredHoursSince(input.lastInboundAt, input.now, input.window),
+  );
   return {
     title: "לא נקלטו שיחות מהמרכזייה",
     body:

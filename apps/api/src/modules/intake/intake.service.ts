@@ -35,7 +35,7 @@ import {
   type IntakeSubject,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
-import { lockIntakeRequest } from "../../common/locks";
+import { lockContact, lockIntakeRequest } from "../../common/locks";
 import { leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -1511,6 +1511,20 @@ export class IntakeService {
     contactId: string,
   ): Promise<{ url: string; message: string } | null> {
     const now = new Date();
+    /*
+     * ‎**נעילת הכרטיס לפני הבדיקה — אחרת ההבטחה נכונה רק ברצף.**
+     *
+     * ‏שתי שיחות שלא נענו מאותו לקוח מגיעות עם `providerCallId`
+     * שונה, ולכן `lockProviderCall` **אינה** מסדרת ביניהן: שתי
+     * הטרנזקציות קוראות „אין בקשה בתוקף”, שתיהן יוצרות, והלקוח
+     * מקבל שתי הודעות — בדיוק מה שהמנגנון הזה קיים כדי למנוע
+     * (ביקורת Codex).
+     *
+     * אין אילוץ ייחודיות על „בקשה פעילה לכרטיס”, ולכן המסד אינו
+     * תופס את זה במקומנו. הנעילה היא מה שהופך את הקרא-ואז-כתוב
+     * לאטומי, בדיוק כמו במסלולים האחרים כאן.
+     */
+    await lockContact(tx, contactId);
     /*
      * ‎**הכפילות נמדדת לפי איש הקשר, לא לפי הכרטיס.**
      *

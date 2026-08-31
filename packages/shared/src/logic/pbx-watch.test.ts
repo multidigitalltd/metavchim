@@ -3,6 +3,7 @@ import {
   DEFAULT_PBX_WATCH,
   insideWatchWindow,
   monitoredHoursSince,
+  PBX_SILENT_MIN_HOURS,
   pbxSilenceDedupeKey,
   pbxSilenceMessage,
   resolvePbxWatch,
@@ -214,5 +215,67 @@ describe("בסיס הספירה בחיבור חדש", () => {
         window: DEFAULT_PBX_WATCH,
       }),
     ).toBe(true);
+  });
+});
+
+/*
+ * ‎**החישוב סופר זמן, לא דגימות.**
+ *
+ * הגרסה הראשונה ספרה כל דגימה כשעה מלאה, ולכן שני קצוות חלקיים
+ * נספרו כשעתיים שלמות — סף נפרץ מוקדם מדי, וזו בדיוק ההתראה
+ * שערכה תלוי באמינותה (ביקורת Codex). שני המקרים שהיא נתנה:
+ */
+describe("דיוק הספירה בקצוות", () => {
+  const at3 = (wall: string): Date => new Date(`${wall}+03:00`);
+
+  it("שיחה ב-10:59 וסבב ב-14:00 — שלוש שעות ודקה, לא ארבע", () => {
+    const hours = monitoredHoursSince(
+      at3("2026-08-30T10:59"),
+      at3("2026-08-30T14:00"),
+      DEFAULT_PBX_WATCH,
+    );
+    expect(hours).toBeCloseTo(3 + 1 / 60, 3);
+    expect(
+      shouldAlertPbxSilence({
+        lastInboundAt: at3("2026-08-30T10:59"),
+        now: at3("2026-08-30T14:00"),
+        thresholdHours: 4,
+        window: DEFAULT_PBX_WATCH,
+      }),
+    ).toBe(false);
+  });
+
+  it("חיבור ב-11:59 אינו מתריע ב-12:00 גם בסף המינימלי", () => {
+    expect(
+      shouldAlertPbxSilence({
+        lastInboundAt: at3("2026-08-30T11:59"),
+        now: at3("2026-08-30T12:00"),
+        thresholdHours: PBX_SILENT_MIN_HOURS,
+        window: DEFAULT_PBX_WATCH,
+      }),
+    ).toBe(false);
+  });
+
+  /* והסף כן נפרץ כשהזמן באמת עבר */
+  it("שעה מלאה בדיוק פורצת סף של שעה", () => {
+    expect(
+      shouldAlertPbxSilence({
+        lastInboundAt: at3("2026-08-30T11:00"),
+        now: at3("2026-08-30T12:00"),
+        thresholdHours: PBX_SILENT_MIN_HOURS,
+        window: DEFAULT_PBX_WATCH,
+      }),
+    ).toBe(true);
+  });
+
+  /* גבול החלון חותך את הפרוסה: 08:30–09:30 שווה חצי שעה מנוטרת */
+  it("פרוסה שחוצה את שעת הפתיחה נספרת חלקית", () => {
+    expect(
+      monitoredHoursSince(
+        at3("2026-08-30T08:30"),
+        at3("2026-08-30T09:30"),
+        DEFAULT_PBX_WATCH,
+      ),
+    ).toBeCloseTo(0.5, 3);
   });
 });
