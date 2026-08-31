@@ -22,6 +22,8 @@ const CreateLeadSchema = z
   .object({
     contactName: z.string().min(2).max(120),
     contactPhone: PhoneSchema,
+    /* אותו פער בדיוק כמו בקונה: השירות ידע לשמור, הסכימה לא קיבלה */
+    contactEmail: z.string().trim().email().max(254).optional(),
     source: LeadSourceSchema,
     intent: LeadIntentSchema,
     summary: z.string().max(2000).optional(),

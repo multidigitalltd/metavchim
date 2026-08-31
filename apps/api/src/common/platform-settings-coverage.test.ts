@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
@@ -24,6 +24,16 @@ import { describe, expect, it } from "vitest";
  * ‎**קריאוּת אינה נבדקת כאן בכוונה.** רוב המפתחות הם סודות ספקים,
  * והתשובה מחזירה עליהם "מוגדר/לא" ולא את הערך — החזרת ערך של כל
  * מפתח הייתה הופכת את הבדיקה הזאת לדרישה להדליף אותם.
+ *
+ * ## ומה שהבדיקה הזאת פספסה עד עכשיו
+ *
+ * הודעת הכישלון כאן אמרה מאז ומתמיד „הוסיפו אותם ל-UpdateSettingsSchema
+ * ‎(ושדה במסך)” — והסוגריים לא נאכפו. כך נולד `partnerPlanCode`: הוא
+ * היה בטיפוס, בסכימת הכתיבה ובתשובת ה-GET, ועבר את הבדיקה הזאת
+ * במלואה — אבל **שדה במסך לא היה**. מפעיל הפלטפורמה לא יכול היה
+ * להגדיר אותו בשום דרך, ולכן ההעברה למסלול השותפים לא קרתה מעולם.
+ *
+ * הבדיקה השלישית סוגרת את זה: כל מפתח חייב להופיע גם במסך הפלטפורמה.
  */
 
 const SERVICE = join(import.meta.dirname, "..", "core", "platform-settings.service.ts");
@@ -44,6 +54,27 @@ const CONTROLLER = join(
  * כמו ב-`RLS_EXEMPT`, במקום למחוק את הבדיקה.
  */
 const WRITE_EXEMPT: Record<string, string> = {};
+
+const WEB_PLATFORM_DIR = join(
+  import.meta.dirname,
+  "..",
+  "..",
+  "..",
+  "..",
+  "apps",
+  "web",
+  "src",
+  "app",
+  "platform",
+);
+
+/**
+ * מפתחות שנכתבים מהמסך אבל לא דרך מסך הפלטפורמה.
+ *
+ * ריק, וזה המצב הנכון: כל הגדרה כאן היא ערך שמפעיל הפלטפורמה קובע,
+ * ומסך הפלטפורמה הוא המקום היחיד שבו הוא קובע אותו.
+ */
+const SCREEN_EXEMPT: Record<string, string> = {};
 
 function parse(file: string): ts.SourceFile {
   return ts.createSourceFile(
@@ -133,6 +164,41 @@ describe("כיסוי הגדרות הפלטפורמה", () => {
         `ריקים לנצח, והתכונה שתלויה בהם פשוט לא תעבוד — בשקט. הוסיפו ` +
         `אותם ל-UpdateSettingsSchema בבקר הפלטפורמה (ושדה במסך), או ` +
         `ל-WRITE_EXEMPT עם נימוק אם הקוד הוא שכותב אותם:\n${unreachable.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("כל מפתח הגדרה מופיע גם במסך הפלטפורמה", () => {
+    /*
+     * ‎**התאמה על מילה שלמה בכל קובצי המסך, ולא על מחרוזת מצוטטת.**
+     *
+     * חלק מההגדרות נערכות בטופס מקובץ ונשלחות כמפתח באובייקט הגוף
+     * (`legalOperator: legal.operator.trim()`) ולא כשם שדה במרכאות.
+     * דרישה למחרוזת מצוטטת הייתה מייצרת שמונה־עשרה חריגות עם אותו
+     * נימוק בדיוק — ורשימת חריגות שגדלה בשגרה מפסיקה להיקרא.
+     *
+     * המחיר: מפתח שמוזכר רק בהערה במסך יעבור. זה ויתור מודע — מה
+     * שהבדיקה מונעת הוא הגדרה **בלי שום ממשק**, ולא הגדרה שמישהו
+     * תיעד ושכח לחבר.
+     */
+    const screen = readdirSync(WEB_PLATFORM_DIR)
+      .filter((name) => name.endsWith(".tsx"))
+      .map((name) => readFileSync(join(WEB_PLATFORM_DIR, name), "utf8"))
+      .join("\n");
+
+    expect(screen.length).toBeGreaterThan(10_000); // רשת ביטחון: הנתיב נקרא
+
+    const invisible = keys.filter(
+      (key) =>
+        SCREEN_EXEMPT[key] === undefined &&
+        !new RegExp(`\\b${key}\\b`, "u").test(screen),
+    );
+
+    expect(
+      invisible,
+      `המפתחות הבאים ניתנים לכתיבה ב-API אבל אין להם זכר במסך ` +
+        `הפלטפורמה — כלומר אין דרך להגדיר אותם בפועל, והתכונה שתלויה ` +
+        `בהם לא תעבוד לעולם. הוסיפו שדה תחת apps/web/src/app/platform, ` +
+        `או ל-SCREEN_EXEMPT עם נימוק:\n${invisible.join("\n")}`,
     ).toEqual([]);
   });
 

@@ -69,6 +69,8 @@ export class BuyersService {
   async create(input: {
     contactName: string;
     contactPhone: string;
+    /** נשמר על כרטיס איש הקשר — `createWithin` כבר ידע, `create` לא הצהיר */
+    contactEmail?: string;
     requirements: BuyerRequirements;
     financing?: string;
     maturity?: string;

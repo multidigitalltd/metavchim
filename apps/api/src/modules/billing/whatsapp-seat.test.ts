@@ -150,11 +150,37 @@ describe("מקום נוסף לסוכן הוואטסאפ — מנוי חודשי"
   /*
    * ‎**סגירה מותנית בסטטוס.** תשלום שנתפס בין השליפה לסגירה החזיר
    * את המקום ל-`active`; סגירה עיוורת הייתה מוחקת חודש ששולם.
+   *
+   * התנאי הוא `seat.status` ולא `"cancelled"` מאז שנוספו מקומות
+   * שהוענקו: הם נסגרים בתום תקופת הניסיון בלי שאיש ביטל אותם, ותנאי
+   * שנעול על „cancelled” היה מדלג עליהם בשקט — כלומר „ניסיון עד ה-30”
+   * שאינו נגמר לעולם. ‎`seat.status` שומר על אותה הגנה בדיוק (הסטטוס
+   * שנקרא הוא הסטטוס שנכתב) ומכסה את שני המקרים.
    */
   it("הסגירה מותנית, ולא מוחקת חודש ששולם", () => {
     expect(RENEWAL).toMatch(
-      /updateMany\(\{\s*where: \{ id: seat\.id, status: "cancelled" \}/u,
+      /updateMany\(\{[\s\S]{0,400}?where: \{ id: seat\.id, status: seat\.status \}/u,
     );
+  });
+
+  /*
+   * ‎**מה שהוענק נסגר, ומה שהוענק אינו נגבה.**
+   *
+   * שני צדדים של אותה הבחנה, ושניהם חייבים להתקיים: מקום ניסיון חייב
+   * ‎`currentPeriodEnd` כדי שמשהו יסגור אותו, וסורק החידושים אוסף כל
+   * שורה שהתאריך שלה עבר. בלי הסינון הוא היה מנסה לחייב כרטיס על
+   * מתנה; בלי ענף השחרור הניסיון לא היה נגמר לעולם.
+   */
+  it("מקום שהוענק אינו נכנס לגבייה", () => {
+    const due = RENEWAL.slice(RENEWAL.indexOf("async renewDue("), RENEWAL.indexOf("take: BATCH"));
+    expect(due).toMatch(/origin: \{ not: "granted" \}/u);
+    // ושוב ברמת השורה הבודדת, ממש לפני הפנייה לסולק
+    expect(RENEWAL).toContain("whatsappSeatIsBillable(seat)");
+  });
+
+  it("מקום שהוענק לתקופה נסגר בתומה", () => {
+    const release = RENEWAL.slice(RENEWAL.indexOf("async releaseDue("));
+    expect(release).toMatch(/origin: "granted",[\s\S]{0,200}currentPeriodEnd: \{ not: null, lte: now \}/u);
   });
 
   /*

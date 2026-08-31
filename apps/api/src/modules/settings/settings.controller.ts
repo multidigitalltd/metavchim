@@ -48,7 +48,12 @@ import {
   normalizePhone,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
-import { emailDomainStatus, onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
+import {
+  emailDomainStatus,
+  onboardingSteps,
+  whatsappPairingLink,
+  type OnboardingProgress,
+} from "@metavchim/shared";
 import {
   WHATSAPP_AGENT_DENIAL_TEXT,
   whatsappAgentDenial,
@@ -77,6 +82,7 @@ import {
   WhatsAppLinkService,
   type LinkStatus,
 } from "../messaging/whatsapp-link.service";
+import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import { AccountDeletionService } from "./account-deletion.service";
 import { MAX_LOGO_BYTES, TenantLogoService } from "../../core/tenant-logo.service";
 
@@ -269,6 +275,7 @@ export class SettingsController {
     private readonly matchRefresh: MatchRefreshService,
     private readonly platformSettings: PlatformSettingsService,
     private readonly whatsappLinks: WhatsAppLinkService,
+    private readonly whatsappSender: WhatsAppSendService,
     private readonly emailDomainProvider: EmailDomainProviderService,
   ) {}
 
@@ -1791,7 +1798,17 @@ export class SettingsController {
    */
   @Post("whatsapp-link/code")
   @AnyAuthenticated()
-  async whatsappLinkCode(): Promise<{ code: string; expiresInSeconds: number }> {
+  async whatsappLinkCode(): Promise<{
+    code: string;
+    expiresInSeconds: number;
+    /**
+     * ‎`wa.me` עם הקוד כבר בפנים — הקיצור, לא היכולת.
+     *
+     * ‎`null` = אין מספר עסקי (הצד היוצא לא הוגדר, או ש-Meta לא ענתה).
+     * המסך מציג אז את הקוד בלבד, בדיוק כמו קודם.
+     */
+    link: string | null;
+  }> {
     const ctx = TenantContext.current();
     /*
      * ‎**הזכאות נבדקת כאן, ולא רק בהודעה הראשונה.**
@@ -1806,7 +1823,16 @@ export class SettingsController {
      */
     const denial = await this.whatsappAgentDenial();
     if (denial !== null) throw new ForbiddenException(WHATSAPP_AGENT_DENIAL_TEXT[denial]);
-    return this.whatsappLinks.issueCode(ctx.tenantId, ctx.userId);
+    const issued = await this.whatsappLinks.issueCode(ctx.tenantId, ctx.userId);
+    /*
+     * המספר נשלף **אחרי** ההנפקה ובנפרד ממנה: פנייה ל-Meta שנכשלת
+     * או מתעכבת אינה יכולה למנוע קוד. במטמון של שעה זו ממילא
+     * קריאת רשת אחת ליום עבודה.
+     */
+    return {
+      ...issued,
+      link: whatsappPairingLink(await this.whatsappSender.businessNumber(), issued.code),
+    };
   }
 
   /**

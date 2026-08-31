@@ -28,6 +28,11 @@ const CreateBuyerSchema = z
   .object({
     contactName: z.string().min(2).max(120),
     contactPhone: PhoneSchema,
+    /*
+     * ‎`.strict()` למטה הוא מה שהופך את זה לחובה ולא לנוחות: בלי
+     * המפתח כאן, טופס ששולח כתובת מקבל 400 ולא „נשמר בלי המייל”.
+     */
+    contactEmail: z.string().trim().email().max(254).optional(),
     requirements: BuyerRequirementsSchema,
     financing: FinancingStatusSchema.optional(),
     maturity: BuyerMaturitySchema.optional(),
