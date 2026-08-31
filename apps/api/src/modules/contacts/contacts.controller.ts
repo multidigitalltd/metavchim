@@ -19,7 +19,7 @@ import {
   type ContactPerson,
   type DuplicateGroup,
 } from "@metavchim/shared";
-import { assertContactAccess, ownershipFilter } from "../../common/ownership";
+import { assertContactAccess, leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
@@ -229,7 +229,7 @@ export class ContactsController {
           where: {
             tenantId,
             contactId: id,
-            ...ownershipFilter("leads.view_all", "assignedToUserId"),
+            ...leadOwnershipFilter(),
           },
           orderBy: { createdAt: "desc" },
           take: 10,

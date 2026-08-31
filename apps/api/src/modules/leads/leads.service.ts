@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { ulid } from "ulid";
 import { OPEN_LEAD_STATUSES, leadDeletionRejectionReason, type Page } from "@metavchim/shared";
 import { lockContact, lockLead } from "../../common/locks";
-import { assertLeadAccess, ownershipFilter } from "../../common/ownership";
+import { assertLeadAccess, leadOwnershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -513,7 +513,7 @@ export class LeadsService {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
       const row = await tx.lead.findFirst({
-        where: { id, tenantId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
+        where: { id, tenantId, ...leadOwnershipFilter() },
       });
       if (!row) throw new NotFoundException("ליד לא נמצא");
       const contact = await this.contacts.getById(tx, row.contactId);
@@ -585,7 +585,7 @@ export class LeadsService {
     const tenantId = TenantContext.current().tenantId;
     const where = {
       tenantId,
-      ...ownershipFilter("leads.view_all", "assignedToUserId"),
+      ...leadOwnershipFilter(),
     };
     const rows = await this.prisma.withTenant((tx) =>
       tx.lead.groupBy({ by: ["status"], where, _count: { _all: true } }),
@@ -616,7 +616,7 @@ export class LeadsService {
       const rows = await tx.lead.findMany({
         where: {
           tenantId,
-          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          ...leadOwnershipFilter(),
           ...(query.status
             ? { status: query.status }
             : query.open === true
@@ -668,7 +668,7 @@ export class LeadsService {
       const rows = await tx.lead.findMany({
         where: {
           tenantId,
-          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          ...leadOwnershipFilter(),
           status: { in: ["new", "in_progress"] },
         },
         orderBy: { createdAt: "asc" },
@@ -713,7 +713,7 @@ export class LeadsService {
       const rows = await tx.lead.findMany({
         where: {
           tenantId,
-          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          ...leadOwnershipFilter(),
           id: { in: [...new Set(ids)] },
           status: { in: [...OPEN_LEAD_STATUSES] },
         },

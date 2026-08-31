@@ -7,11 +7,7 @@ import {
   type ParsedSearchQuery,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
-import {
-  ownershipFilter,
-  visibleCallsCondition,
-  visibleContactIds,
-} from "../../common/ownership";
+import { leadOwnershipFilter, ownershipFilter, visibleCallsCondition, visibleContactIds } from "../../common/ownership";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 
@@ -195,7 +191,7 @@ export class SearchService {
               where: {
                 tenantId,
                 contactId: contact.id,
-                ...ownershipFilter("leads.view_all", "assignedToUserId"),
+                ...leadOwnershipFilter(),
               },
               select: { id: true, status: true, requiresHuman: true },
               take: GROUP_PROBE,
@@ -493,7 +489,7 @@ export class SearchService {
               where: {
                 tenantId,
                 contactId: { in: matchedIds },
-                ...ownershipFilter("leads.view_all", "assignedToUserId"),
+                ...leadOwnershipFilter(),
               },
               select: { id: true, status: true, requiresHuman: true, contactId: true },
               take: GROUP_PROBE,
@@ -751,7 +747,7 @@ export class SearchService {
             where: {
               tenantId,
               id: { in: leadIds },
-              ...ownershipFilter("leads.view_all", "assignedToUserId"),
+              ...leadOwnershipFilter(),
             },
             select: { id: true },
           })

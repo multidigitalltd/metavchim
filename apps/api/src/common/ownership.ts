@@ -22,6 +22,47 @@ export function ownershipFilter(
 }
 
 /**
+ * ‎**ליד בלי סוכן משויך שייך לערימה המשותפת — לא לאיש.**
+ *
+ * ## מה היה שבור
+ *
+ * ‏`ownershipFilter` מייצר `{ assignedToUserId: <אני> }`, ו-NULL
+ * אינו שווה לכלום ב-SQL — כלומר ליד לא-משויך אינו מתאים **לאף
+ * סוכן**. הוא אינו „של מישהו אחר”; הוא בלתי נראה.
+ *
+ * וזה בדיוק המצב שנוצר הכי הרבה: `openLeadForUnknownCaller` כותב
+ * ‎`assignedToUserId = null` בכל שיחה שלא הגיעה דרך מספר וירטואלי
+ * עם סוכן משויך — כלומר רוב השיחות ממספר לא מוכר. ההערה שם אפילו
+ * מנמקת את הנפילה ל-null במילים „ליד בלתי נראה גרוע מליד בערימה
+ * המשותפת” — אבל null **הוא** הבלתי נראה. הנפילה שנועדה למנוע את
+ * הבעיה הייתה הבעיה.
+ *
+ * ## ומה זה עשה ליומן השיחות
+ *
+ * ‏`visibleContactIds` אוסף לקוחות דרך הלידים שלהם, ולכן הלקוח
+ * שנפתח מהשיחה לא נכנס לרשימה. ואז ארבעת הענפים של
+ * ‎`visibleCallsCondition` נכשלים כולם: השיחה נושאת `contact_id`
+ * (ולכן שני הענפים של „בלי איש קשר” אינם חלים) ו-`created_by` ריק
+ * (וובהוק, לא אדם). התוצאה: **מסך שיחות ריק לכל סוכן בלי
+ * ‎`view_all`, בזמן שהמסד מלא.** בעל המשרד ראה הכול, ולכן זה שרד.
+ *
+ * הענף „בלי בעלים ובלי איש קשר” נכתב בדיוק נגד התקלה הזו — אבל
+ * ברגע שנפתח ליד נוצר גם `contact_id`, והענף מפסיק לחול. החור
+ * נפתח מחדש צעד אחד קדימה.
+ *
+ * ## למה זו אינה הרחבת הרשאות
+ *
+ * ‏„לא משויך” פירושו שאין סוכן שהליד שייך לו. אין כאן לקוח של
+ * עמית שנחשף — יש לקוח שאיש לא לקח. ליד משויך נשאר מוסתר בדיוק
+ * כמו קודם, וגבול הדייר (RLS) לא זז.
+ */
+export function leadOwnershipFilter(): Prisma.LeadWhereInput {
+  const ctx = TenantContext.current();
+  if (ctx.capabilities.has("leads.view_all")) return {};
+  return { OR: [{ assignedToUserId: ctx.userId }, { assignedToUserId: null }] };
+}
+
+/**
  * שערי גישה לישות בודדת **לפני פעולה עליה**.
  *
  * למה הם קיימים: `ownershipFilter` הוחל בעקביות על נתיבי הקריאה
@@ -45,7 +86,7 @@ export async function assertLeadAccess(
   leadId: string,
 ): Promise<void> {
   const lead = await tx.lead.findFirst({
-    where: { id: leadId, tenantId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
+    where: { id: leadId, tenantId, ...leadOwnershipFilter() },
     select: { id: true },
   });
   if (!lead) throw new NotFoundException("ליד לא נמצא");
@@ -104,7 +145,7 @@ export async function isCardAccessible(
           where: {
             id,
             tenantId,
-            ...ownershipFilter("leads.view_all", "assignedToUserId"),
+            ...leadOwnershipFilter(),
           },
           select: { id: true },
         });
@@ -420,7 +461,7 @@ export async function visibleContactIds(
       : [],
     sources.leads
       ? tx.lead.findMany({
-          where: { tenantId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
+          where: { tenantId, ...leadOwnershipFilter() },
           select: { contactId: true },
         })
       : [],
@@ -476,7 +517,7 @@ export async function assertContactAccess(
       : null,
     sources.leads
       ? tx.lead.findFirst({
-          where: { tenantId, contactId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
+          where: { tenantId, contactId, ...leadOwnershipFilter() },
           select: { id: true },
         })
       : null,
