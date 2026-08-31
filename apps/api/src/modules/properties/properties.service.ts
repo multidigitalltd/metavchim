@@ -32,7 +32,7 @@ function propertyTypesFor(term: string): string[] {
     .map(([value]) => value);
 }
 import { lockContact, lockProperty, type ContactLock } from "../../common/locks";
-import { isOrphanContact, ownershipFilter } from "../../common/ownership";
+import { isOrphanContact, leadOwnershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { AuditService } from "../../core/audit.service";
@@ -252,7 +252,7 @@ export class PropertiesService {
         where: {
           id: leadId,
           tenantId: ctx.tenantId,
-          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          ...leadOwnershipFilter(),
         },
       });
       if (!lead) throw new NotFoundException("ליד לא נמצא");

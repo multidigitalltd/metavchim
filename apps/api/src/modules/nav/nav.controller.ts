@@ -1,7 +1,7 @@
 import { Controller, Get } from "@nestjs/common";
 import { isTaskUrgent } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
-import { ownershipFilter } from "../../common/ownership";
+import { leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AnyAuthenticated } from "../../common/auth.decorators";
@@ -89,7 +89,7 @@ export class NavController {
           where: {
             tenantId,
             status: "new",
-            ...ownershipFilter("leads.view_all", "assignedToUserId"),
+            ...leadOwnershipFilter(),
           },
         }),
         /*

@@ -36,7 +36,7 @@ import {
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { lockIntakeRequest } from "../../common/locks";
-import { ownershipFilter } from "../../common/ownership";
+import { leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -1648,7 +1648,7 @@ export class IntakeService {
       where: {
         id: subjectId,
         tenantId,
-        ...ownershipFilter("leads.view_all", "assignedToUserId"),
+        ...leadOwnershipFilter(),
       },
       select: { contactId: true },
     });

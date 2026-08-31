@@ -18,7 +18,7 @@ import {
   type IntakeAnswers,
   type Page,
 } from "@metavchim/shared";
-import { assertBuyerAccess, ownershipFilter } from "../../common/ownership";
+import { assertBuyerAccess, leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
 import {
   cleanVocabulary,
   freeTextTerms,
@@ -176,7 +176,7 @@ export class BuyersService {
         where: {
           id: leadId,
           tenantId: ctx.tenantId,
-          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          ...leadOwnershipFilter(),
         },
       });
       if (!lead) throw new NotFoundException("ליד לא נמצא");
