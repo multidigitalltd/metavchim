@@ -32,6 +32,20 @@ const CreateLeadSchema = z
 
 const StatusSchema = z.object({ status: LeadStatusSchema }).strict();
 
+/**
+ * ‎**מקור הליד — מחרוזת חופשית, ולא הרשימה המוכרת.**
+ *
+ * ‏מפתה לכתוב כאן `LeadSourceSchema`, וזה היה **פוסל ערכים שהמערכת
+ * עצמה כותבת**: צינור הטלפוניה שומר `outbound_call`, `phone`, או
+ * את תווית הקמפיין שהמשרד הקליד במספר הווירטואלי (`leadSourceFor`,
+ * טקסט חופשי עד 20 תווים). אלה ייחוסי קמפיין אמיתיים, לא זבל —
+ * וסכימה סגורה הייתה הופכת „תיקון מקור” לפעולה שמוחקת אותם.
+ *
+ * ‎`max(20)` הוא בדיוק רוחב העמודה (`VarChar(20)`), ולא מספר שנבחר
+ * כאן: ערך ארוך יותר נחתך במסד או מפיל את הכתיבה.
+ */
+const SourceSchema = z.object({ source: z.string().trim().min(1).max(20) }).strict();
+
 /*
  * `default({})` ולא רק שדה אופציונלי: בקשת DELETE בלי גוף כלל מגיעה
  * ל-Pipe כ-`undefined` (מפרק הגוף אינו רץ בלי `Content-Type`), וסכמת
@@ -115,6 +129,28 @@ export class LeadsController {
     @Body(new ZodValidationPipe(StatusSchema)) body: z.infer<typeof StatusSchema>,
   ): Promise<{ ok: true }> {
     await this.leads.updateStatus(id, body.status);
+    return { ok: true };
+  }
+
+  /**
+   * ‎**תיקון מקור הליד.**
+   *
+   * ‏המקור נקבע אוטומטית בקליטה, והוא לא תמיד נכון: שיחה שנכנסה
+   * למספר הכללי נרשמת `phone` גם כשהלקוח הגיע מהמלצה, וקמפיין
+   * שהוגדר בטעות מייחס לידים לתווית שגויה. עד כה לא הייתה שום דרך
+   * לתקן — לא בממשק ולא בשרת.
+   *
+   * ‎`leads.edit` והיקף הליד (`assertLeadAccess` בשירות) — אותה
+   * הרשאה בדיוק שנדרשת לשינוי הסטטוס.
+   */
+  @Patch(":id/source")
+  @RequireCapability("leads.edit")
+  @HttpCode(200)
+  async updateSource(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(SourceSchema)) body: z.infer<typeof SourceSchema>,
+  ): Promise<{ ok: true }> {
+    await this.leads.updateSource(id, body.source);
     return { ok: true };
   }
 
