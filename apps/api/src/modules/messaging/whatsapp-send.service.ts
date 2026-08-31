@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import {
   fitsInteractive,
   listPayload,
+  normalizePhoneForWhatsapp,
   replyButtonsPayload,
   splitForWhatsApp,
   whatsappTemplateButton,
@@ -94,9 +95,14 @@ export class WhatsAppSendService {
      * הכישלון הזה, ושעה שבה היא אינה נכנסת לתוקף נראית כמו שדה
      * שבור. ‎`PlatformSettingsService` ממילא ממטמן ל-30 שניות.
      */
-    const manual = ((await this.platformSettings.get("whatsappBotNumber")) ?? "").replace(
-      /\D/gu,
-      "",
+    /*
+     * ‎`normalizePhoneForWhatsapp` ולא הסרת תווים בלבד: המנהל מקליד
+     * ‎`0553142235`, וזו הצורה שהתיעוד מציג. מספר מקומי שיוצא מכאן
+     * כמות שהוא הופך ל-`+0553142235` בתצוגה ובקישור החיוג — מספר
+     * שאינו קיים. הנרמול כאן, כי זה הגבול שממנו כל השאר צורך.
+     */
+    const manual = normalizePhoneForWhatsapp(
+      (await this.platformSettings.get("whatsappBotNumber")) ?? "",
     );
     return manual === "" ? null : manual;
   }

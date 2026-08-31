@@ -1,5 +1,5 @@
 import { stripPastedNoise } from "./pasted-code.js";
-import { whatsappLink } from "./whatsapp-link.js";
+import { normalizePhoneForWhatsapp, whatsappLink } from "./whatsapp-link.js";
 
 /**
  * קוד הקישור בין מספר וואטסאפ לחשבון — **הזהות המפורשת.**
@@ -155,9 +155,17 @@ export function linkNeedsReverification(verifiedAt: Date, now: Date): boolean {
  *
  * ‎`972…` מוצג בפורמט המקומי (`055-314-2235`) כי זה מה שמקלידים
  * בישראל; כל השאר בפורמט בינלאומי, כי שם ההקשר הוא המספר המלא.
+ *
+ * ## הנרמול כאן, ולא רק אצל הקורא
+ *
+ * מנהל שמקליד `0553142235` — הצורה שהתיעוד עצמו מציג — מסר מספר
+ * מקומי. בלי הנרמול הוא נפל אל הענף הבינלאומי ויצא `+0553142235`:
+ * מספר שאינו קיים, וגם `tel:` שבור. הקישור ל-`wa.me` דווקא עבד, כי
+ * הוא מנרמל בעצמו — וזה מה שהסתיר את התקלה בשני המסלולים האחרים
+ * (ביקורת Codex).
  */
 export function displayWhatsappNumber(digits: string): string {
-  const clean = digits.replace(/\D/gu, "");
+  const clean = normalizePhoneForWhatsapp(digits);
   if (clean === "") return "";
   if (clean.startsWith("972") && clean.length === 12) {
     const local = `0${clean.slice(3)}`;

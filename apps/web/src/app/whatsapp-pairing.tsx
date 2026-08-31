@@ -1,7 +1,7 @@
 "use client";
 
 import { QRCodeSVG } from "qrcode.react";
-import { displayWhatsappNumber } from "@metavchim/shared";
+import { displayWhatsappNumber, normalizePhoneForWhatsapp } from "@metavchim/shared";
 
 /**
  * ‎**חיבור מכשיר וואטסאפ — הקוד, הברקוד, והלחיצה.**
@@ -45,7 +45,13 @@ export function WhatsappPairing({
   botNumber: string | null;
   forSomeoneElse?: boolean;
 }) {
-  const numberText = botNumber === null ? null : displayWhatsappNumber(botNumber);
+  /*
+   * שני הייצוגים נגזרים מאותו ערך מנורמל, ולא כל אחד מהקלט הגולמי:
+   * ‎`tel:+0553142235` היה מספר שאינו קיים, בעוד שהטקסט לידו נראה
+   * תקין. ‎`""` אחרי נרמול פירושו „אין מספר”, כמו `null`.
+   */
+  const digits = normalizePhoneForWhatsapp(botNumber ?? "");
+  const numberText = digits === "" ? null : displayWhatsappNumber(digits);
   return (
     <div
       className="mb-3 rounded-xl px-4 py-3"
@@ -75,7 +81,7 @@ export function WhatsappPairing({
         {numberText === null ? null : (
           <>
             {forSomeoneElse ? "הקוד נשלח בוואטסאפ אל " : "שלחו את הקוד הזה בוואטסאפ אל "}
-            <a href={`tel:+${botNumber ?? ""}`} dir="ltr" className="select-all font-bold underline">
+            <a href={`tel:+${digits}`} dir="ltr" className="select-all font-bold underline">
               {numberText}
             </a>
             {forSomeoneElse
