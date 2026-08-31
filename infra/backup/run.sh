@@ -42,6 +42,11 @@ MEDIA_FULL_DAYS="${BACKUP_MEDIA_FULL_DAYS:-7}"
 # אם המדיה תופחת, הגיבוי הוא מה שימלא את הדיסק — ודיסק מלא מפיל את
 # המערכת כולה, לא רק את הגיבוי. גיבוי שהורג את הייצור גרוע מגיבוי
 # שדילג על יום אחד וצעק על כך ביומן.
+#
+# ‎**המרווח נבדק מעל גודל הארכיון, לא במקומו.** סף קבוע לבדו אינו
+# שומר על כלום: 3GB פנויים עוברים סף של 2GB, ואז ארכיון של 5GB ממלא
+# את הדיסק עד הסוף בדיוק כפי שהסף נועד למנוע. לכן נמדד מראש מה
+# עומדים לארכב, ונדרש מקום לזה **ועוד** המרווח.
 MIN_FREE_MB="${BACKUP_MIN_FREE_MB:-2048}"
 
 # מתי נלקח הארכיון המלא האחרון, ומי הוא. זמן השינוי של הקובץ הזה הוא
@@ -95,6 +100,35 @@ prune_media() {
   done
 }
 
+# רשימת הקבצים שהארכיון המשלים יכיל — נבנית פעם אחת ומשמשת גם
+# למדידה וגם ל-tar עצמו.
+MEDIA_LIST="/backups/.media-diff-list.tmp"
+
+# כמה מקום צריך לארכיון של הדרגה הזאת, ב-MB.
+#
+# הגודל הגולמי הוא **חסם עליון** על הארכיון הדחוס — gzip לא מגדיל —
+# ולכן די בו כדי להבטיח שהכתיבה לא תיגע במרווח. `du` על עץ המדיה
+# עולה מעבר אחד, זניח מול ה-tar שבא אחריו.
+media_need_mb() {
+  tier="$1"
+  if [ "$tier" = "full" ]; then
+    raw_kb="$(du -sk /minio-data 2>/dev/null | awk '{print $1+0}')"
+  else
+    ( cd /minio-data && find . -newer "$MEDIA_MARK" \( -type f -o -type l \) -print ) \
+      > "$MEDIA_LIST" 2>/dev/null
+    if [ -s "$MEDIA_LIST" ]; then
+      # ‎`tr` ל-NUL ו-`xargs -0`: שם קובץ עם רווח אינו מקרה קצה
+      # תיאורטי באחסון אובייקטים, והוא היה מפצל את הספירה.
+      raw_kb="$(cd /minio-data && tr '\n' '\0' < "$MEDIA_LIST" |
+        xargs -0 du -k 2>/dev/null | awk '{s+=$1} END {print s+0}')"
+    else
+      raw_kb=0
+    fi
+  fi
+  case "$raw_kb" in ''|*[!0-9]*) raw_kb=0 ;; esac
+  echo $(( raw_kb / 1024 + 1 + MIN_FREE_MB ))
+}
+
 # ארכיון המדיה של היום — מלא או משלים, לפי גיל המלא האחרון.
 #
 # tar על volume חי: העלאה שרצה בדיוק ברגע הגיבוי עלולה להיתפס חלקית
@@ -104,22 +138,13 @@ backup_media() {
   stamp="$1"
   [ -d /minio-data ] || return 0
 
-  free_mb="$(df -Pm /backups 2>/dev/null | awk 'NR==2 {print $4}')"
-  case "$free_mb" in ''|*[!0-9]*) free_mb=0 ;; esac
-  if [ "$free_mb" -lt "$MIN_FREE_MB" ]; then
-    # לא כותבים ולא מוחקים — רק צועקים. המקום הפנוי הוא בעיה
-    # תפעולית, והשתקתה בכתיבה חלקית הופכת אותה לתקלת ייצור.
-    echo "[backup] ✗ אין מספיק מקום לארכיון המדיה (${free_mb}MB פנויים, נדרש ${MIN_FREE_MB}MB) — דולג" >&2
-    return 0
-  fi
-
   # ‎**מתי מותר להסתפק במשלים.** שלושה תנאים, וכולם נדרשים: הסימון
   # קיים ותקין, הארכיון המלא שהוא מצביע עליו עדיין על הדיסק (אפשר
   # למחוק אותו מהממשק), והוא צעיר מספיק. כל כישלון ⟵ ארכיון מלא.
   base="$(cat "$MEDIA_MARK" 2>/dev/null)"
   echo "$base" | grep -Eq '^media_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{4}_full\.tar\.gz$' || base=""
-  if [ -n "$base" ] && [ -f "/backups/${base}" ] &&
-     [ -n "$(find "$MEDIA_MARK" -mtime "-${MEDIA_FULL_DAYS}" 2>/dev/null)" ]; then
+  [ -n "$base" ] && [ -f "/backups/${base}" ] || base=""
+  if [ -n "$base" ] && [ -n "$(find "$MEDIA_MARK" -mtime "-${MEDIA_FULL_DAYS}" 2>/dev/null)" ]; then
     tier="diff"
     label="משלים, מאז ${base}"
   else
@@ -127,10 +152,33 @@ backup_media() {
     label="מלא"
   fi
 
+  free_mb="$(df -Pm /backups 2>/dev/null | awk 'NR==2 {print $4}')"
+  case "$free_mb" in ''|*[!0-9]*) free_mb=0 ;; esac
+  need_mb="$(media_need_mb "$tier")"
+
+  # ‎**כשהמלא אינו נכנס, לוקחים משלים במקומו.**
+  #
+  # דילוג גורר את עצמו: הסימון אינו מתקדם, מחר שוב ייבחר „מלא”, ושוב
+  # ייחסם — וכך אין שום גיבוי מדיה עד שיתפנה מקום. משלים על גבי המלא
+  # הישן קטן בהרבה, ומחזיק את ההקלטות והחתימות של היום.
+  if [ "$tier" = "full" ] && [ "$free_mb" -lt "$need_mb" ] && [ -n "$base" ]; then
+    echo "[backup] ! הארכיון המלא נדחה — ${free_mb}MB פנויים מול ${need_mb}MB דרושים; נלקח משלים במקומו" >&2
+    tier="diff"
+    label="משלים, מאז ${base} — המלא נדחה מחוסר מקום"
+    need_mb="$(media_need_mb "$tier")"
+  fi
+
+  if [ "$free_mb" -lt "$need_mb" ]; then
+    # לא כותבים ולא מוחקים — רק צועקים. המקום הפנוי הוא בעיה
+    # תפעולית, והשתקתה בכתיבה חלקית הופכת אותה לתקלת ייצור.
+    rm -f "$MEDIA_LIST"
+    echo "[backup] ✗ אין מספיק מקום לארכיון המדיה (${free_mb}MB פנויים, נדרשים ${need_mb}MB — הארכיון ועוד ${MIN_FREE_MB}MB מרווח) — דולג" >&2
+    return 0
+  fi
+
   mtmp="/backups/media_${stamp}_${tier}.tar.gz.tmp"
   mout="/backups/media_${stamp}_${tier}.tar.gz"
   mark_tmp="${MEDIA_MARK}.tmp"
-  list="/backups/.media-diff-list.tmp"
   empty_dir="/tmp/media-empty"
   ok=0
 
@@ -140,19 +188,16 @@ backup_media() {
     # ייכנס לא לארכיון הזה ולא למשלים שאחריו.
     printf '%s\n' "media_${stamp}_full.tar.gz" > "$mark_tmp"
     tar czf "$mtmp" -C /minio-data . && tar tzf "$mtmp" > /dev/null && ok=1
+  elif [ -s "$MEDIA_LIST" ]; then
+    tar czf "$mtmp" -C /minio-data -T "$MEDIA_LIST" && tar tzf "$mtmp" > /dev/null && ok=1
   else
-    ( cd /minio-data && find . -newer "$MEDIA_MARK" \( -type f -o -type l \) -print ) > "$list" 2>/dev/null
-    if [ -s "$list" ]; then
-      tar czf "$mtmp" -C /minio-data -T "$list" && tar tzf "$mtmp" > /dev/null && ok=1
-    else
-      # יום בלי שינוי במדיה עדיין מקבל ארכיון — ריק, כמה עשרות בתים.
-      # ארכיון חסר נראה בדיוק כמו מנגנון שנפל, וזה ההבדל שאסור לטשטש:
-      # מסך הגיבויים מזהיר על מדיה שלא גובתה 48 שעות.
-      mkdir -p "$empty_dir" &&
-        tar czf "$mtmp" -C "$empty_dir" . && tar tzf "$mtmp" > /dev/null && ok=1
-    fi
-    rm -f "$list"
+    # יום בלי שינוי במדיה עדיין מקבל ארכיון — ריק, כמה עשרות בתים.
+    # ארכיון חסר נראה בדיוק כמו מנגנון שנפל, וזה ההבדל שאסור לטשטש:
+    # מסך הגיבויים מזהיר על מדיה שלא גובתה 48 שעות.
+    mkdir -p "$empty_dir" &&
+      tar czf "$mtmp" -C "$empty_dir" . && tar tzf "$mtmp" > /dev/null && ok=1
   fi
+  rm -f "$MEDIA_LIST"
 
   if [ "$ok" = 1 ]; then
     mv "$mtmp" "$mout"

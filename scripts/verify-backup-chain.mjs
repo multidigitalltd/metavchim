@@ -72,7 +72,32 @@ if (!runCode.includes('printf \'%s\\n\' "media_${stamp}_full.tar.gz" > "$mark_tm
   errors.push("run.sh אינו רושם את שם הארכיון המלא בקובץ הסימון");
 }
 
-/* 2. restore.sh פורס את המלא **לפני** המשלים. */
+/* 2. בדיקת המקום נעשית מול גודל הארכיון, לא מול הסף לבדו. */
+if (!/media_need_mb\(\) \{/u.test(runCode)) {
+  errors.push("run.sh אינו מחשב כמה מקום הארכיון דורש");
+} else {
+  if (!/du -sk \/minio-data/u.test(runCode) || !/xargs -0 du -k/u.test(runCode)) {
+    errors.push("media_need_mb אינו מודד את הגודל הגולמי — ההערכה אינה חסם עליון");
+  }
+  if (!/need_mb="\$\(media_need_mb/u.test(runCode)) {
+    errors.push("run.sh אינו לוקח את הדרישה מ-media_need_mb");
+  }
+  /*
+   * ‎**כל** השוואה של המקום הפנוי, ולא „לפחות אחת”. יש שתיים —
+   * הדחייה של המלא והדילוג — ובדיקה שמסתפקת באחת עוברת גם כשהשנייה
+   * חזרה לסף הקבוע, כלומר בדיוק במצב שהשער נועד לתפוס.
+   */
+  const freeChecks = [...runCode.matchAll(/\[ "\$free_mb" -lt "\$([A-Za-z_]+)" \]/gu)].map(
+    (match) => match[1],
+  );
+  if (freeChecks.length === 0) {
+    errors.push("אין בדיקת מקום פנוי לפני כתיבת ארכיון המדיה");
+  } else if (freeChecks.some((name) => name !== "need_mb")) {
+    errors.push("בדיקת המקום מושווית לסף הקבוע ולא לגודל הארכיון ועוד המרווח");
+  }
+}
+
+/* 3. restore.sh פורס את המלא **לפני** המשלים. */
 if (!/\*_diff\.tar\.gz\)/u.test(restoreCode)) {
   errors.push("restore.sh אינו מזהה ארכיון משלים (_diff)");
 } else {
@@ -88,7 +113,7 @@ if (!/\*_diff\.tar\.gz\)/u.test(restoreCode)) {
   }
 }
 
-/* 3. הניקוי אינו מוחק ארכיון מלא שמשלים נשען עליו. */
+/* 4. הניקוי אינו מוחק ארכיון מלא שמשלים נשען עליו. */
 const prune = runCode.slice(runCode.indexOf("prune_media() {"));
 if (!prune.startsWith("prune_media() {")) {
   errors.push("run.sh אינו מגדיר prune_media");
