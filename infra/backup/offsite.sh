@@ -77,7 +77,10 @@ while true; do
   # מוחק גם את העותק המרוחק, כלומר הורס בדיוק את מה שאמור להציל.
   # לכן: אין קבצים מקומיים ⇒ לא נוגעים ביעד.
   # ------------------------------------------------------------------
-  count=$(find /backups -type f ! -name '*.tmp' 2>/dev/null | head -1 | wc -l)
+  # ‎`! -name '.*'`‎ — קובצי הסימון של גיבוי המדיה (‎.media-full-at‎)
+  # אינם גיבוי. בלעדיהם ברשימה, „נשארו רק קובצי עזר” נספר כתיקייה
+  # ריקה — וזה בדיוק המצב שהבדיקה הזאת נועדה לתפוס.
+  count=$(find /backups -type f ! -name '*.tmp' ! -name '.*' 2>/dev/null | head -1 | wc -l)
   if [ "$count" -eq 0 ]; then
     echo "[offsite] ✗ תיקיית הגיבויים המקומית ריקה — הסנכרון דולג כדי לא למחוק את העותק המרוחק" >&2
     write_status "skipped" "תיקיית הגיבויים המקומית ריקה — הסנכרון דולג בכוונה"
@@ -86,6 +89,7 @@ while true; do
     # במקום להימחק. מחיקה שגויה ניתנת לשחזור.
     if rclone sync /backups "$dest" \
         --exclude "*.tmp" \
+        --exclude ".*" \
         --backup-dir "${archive}/$(date +%Y-%m-%d)" \
         --transfers 2 \
         --stats-one-line --stats 0; then

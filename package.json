@@ -14,7 +14,8 @@
     "lint": "turbo run lint",
     "test:eslint-rules": "node eslint-rules/israel-time.test.mjs",
     "test": "turbo run test",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "verify:backup": "node scripts/verify-backup-chain.mjs"
   },
   "pnpm": {
     "overrides": {

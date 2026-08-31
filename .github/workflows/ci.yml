@@ -159,6 +159,12 @@ jobs:
       - name: IaC template matches env example
         run: pnpm verify:iac
 
+      # ארכיון מדיה משלים מחזיק רק את מה שהשתנה. run.sh, restore.sh
+      # ו-backup-file.ts חייבים להסכים על כך; אם לא — השחזור פורס
+      # ארכיון חלקי לתוך אחסון שנמחק זה עתה, בלי שגיאה אחת בדרך.
+      - name: Media backup chain is consistent
+        run: pnpm verify:backup
+
       - name: Audit dependencies (fail on high)
         run: pnpm audit --audit-level high
 

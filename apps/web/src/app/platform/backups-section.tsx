@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@metavchim/ui";
 import {
+  backupDeleteBlock,
+  mediaBaseFor,
+  mediaTier,
   summarizeRestoreDrill,
   type BackupFile,
   type BackupHealth,
@@ -37,7 +40,7 @@ interface Overview {
   health: BackupHealth;
   offsite: OffsiteStatus;
   drill: RestoreDrill;
-  protectedName: string | null;
+  protectedNames: string[];
   restoreAvailable: boolean;
 }
 
@@ -64,8 +67,15 @@ const LEVEL_ICON: Record<BackupHealth["level"], string> = {
 
 const KIND_LABELS: Record<BackupFile["kind"], string> = {
   db: "מסד נתונים",
-  media: "תמונות",
+  media: "מדיה",
 };
+
+/**
+ * ארכיון מדיה משלים אינו עומד בפני עצמו — הוא נשען על המלא שלפניו.
+ * המסך אומר את זה בשורה עצמה ולא רק בתיעוד, כי כאן יושבים כפתורי
+ * המחיקה והשחזור.
+ */
+const TIER_LABELS = { full: "מלא", diff: "משלים" } as const;
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} ב׳`;
@@ -194,10 +204,22 @@ export function BackupsSection() {
     }
   }
 
-  async function onRestore(file: BackupFile) {
-    const what = file.kind === "db" ? "כל נתוני המערכת" : "כל התמונות במערכת";
+  // הרשימה מגיעה מהקורא ולא מ-`data`: הכפתור יושב בטבלה שמוצגת רק
+  // כשיש נתונים, ובדיקת השרשרת על רשימה ריקה הייתה מכריזה על כל
+  // ארכיון משלים כיתום.
+  async function onRestore(file: BackupFile, files: BackupFile[]) {
+    const what = file.kind === "db" ? "כל נתוני המערכת" : "כל המדיה במערכת";
+    // ארכיון משלים משוחזר יחד עם המלא שהוא נשען עליו. מי שלוחץ צריך
+    // לדעת את זה **לפני** האישור, לא לגלות אותו מהיומן אחר כך.
+    const base = mediaBaseFor(file.name, files);
+    if (mediaTier(file.name) === "diff" && base === null) {
+      setError(`אין ארכיון מדיה מלא שקודם ל-${file.name} — לא ניתן לשחזר ממנו`);
+      return;
+    }
+    const chain = base === null ? "" : `השחזור יפרוס קודם את הארכיון המלא ${base}, ואז את השינויים.\n`;
     const typed = window.prompt(
       `שחזור מ-${file.name}\n\n` +
+        chain +
         `הפעולה תחליף את ${what} בתוכן הגיבוי, לכל המשרדים יחד, ` +
         `והשירות ירד לכמה דקות.\n` +
         `לפני השחזור יישמר אוטומטית דאמפ בטיחות של המצב הנוכחי.\n\n` +
@@ -415,13 +437,28 @@ export function BackupsSection() {
                 </thead>
                 <tbody>
                   {data.files.map((f) => {
-                    const isProtected = f.name === data.protectedName;
+                    const blocked = backupDeleteBlock(f.name, data.files);
+                    const tier = mediaTier(f.name);
                     return (
                       <tr key={f.name} className="border-t" style={{ borderColor: "var(--color-border)" }}>
                         <td className="p-3 font-mono text-sm" dir="ltr">
                           {f.name}
                         </td>
-                        <td className="p-3">{KIND_LABELS[f.kind]}</td>
+                        <td className="p-3">
+                          {KIND_LABELS[f.kind]}
+                          {tier === null ? null : (
+                            <span
+                              className="mv-pill ms-2"
+                              style={
+                                tier === "full"
+                                  ? { background: "var(--color-primary-soft)", color: "var(--color-primary)" }
+                                  : { background: "var(--color-surface)", color: "var(--color-text-muted)" }
+                              }
+                            >
+                              {TIER_LABELS[tier]}
+                            </span>
+                          )}
+                        </td>
                         <td className="p-3">{formatSize(f.sizeBytes)}</td>
                         <td className="p-3">{formatDateTime(f.createdAt)}</td>
                         <td className="p-3">
@@ -430,22 +467,18 @@ export function BackupsSection() {
                               <Button
                                 variant="secondary"
                                 disabled={busy !== null || restore?.running === true}
-                                onClick={() => void onRestore(f)}
+                                onClick={() => void onRestore(f, data.files)}
                               >
                                 שחזר
                               </Button>
                             ) : null}
                             <Button
                               variant="ghost"
-                              disabled={busy !== null || isProtected || restore?.running === true}
-                              title={
-                                isProtected
-                                  ? "הגיבוי האחרון של מסד הנתונים מוגן ממחיקה"
-                                  : undefined
-                              }
+                              disabled={busy !== null || blocked !== null || restore?.running === true}
+                              title={blocked ?? undefined}
                               onClick={() => void onDelete(f.name)}
                             >
-                              {isProtected ? "מוגן" : "מחק"}
+                              {blocked === null ? "מחק" : "מוגן"}
                             </Button>
                           </div>
                         </td>
