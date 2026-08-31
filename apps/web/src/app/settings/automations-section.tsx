@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import {
   automationUnitLabel,
+  DEFAULT_PBX_WATCH,
+  WEEKDAY_LABELS,
   VIEWING_REMINDER_CHANNELS,
   VIEWING_REMINDER_PLACEHOLDERS,
   VIEWING_REMINDER_TEXT_MAX,
@@ -10,6 +12,7 @@ import {
   type AutomationKey,
   type AutomationSettings,
   type AutomationSpec,
+  type PbxWatchWindow,
   type ViewingReminderChannel,
 } from "@metavchim/shared";
 import { ApiError, apiGet, apiPatch } from "@/lib/api";
@@ -82,6 +85,7 @@ export function AutomationsSection() {
       value?: number;
       channel?: ViewingReminderChannel;
       messages?: Record<string, string>;
+      watch?: PbxWatchWindow;
     },
   ) {
     setError(null);
@@ -246,6 +250,106 @@ export function AutomationsSection() {
                   נשמר
                 </span>
               ) : null}
+              {/*
+                ‎**שעות הניטור — רק לאוטומציה שמתריעה על היעדר.**
+
+                כל השאר מגיבות לאירוע שקרה, ואירוע שקרה בשבת עדיין
+                קרה. „לא נכנסה שיחה” בשבת הוא המצב התקין, ובלי החלון
+                הזה ההתראה הייתה יוצאת כל מוצאי שבת וכל בוקר — ואז
+                נכבית, ואיתה גם השתיקה האמיתית.
+              */}
+              {spec.watch === true && setting.enabled ? (
+                <div
+                  className="mt-3 border-t pt-3"
+                  style={{ borderColor: "var(--color-input-border)" }}
+                >
+                  <span className="mb-1.5 block text-[length:var(--type-caption)] font-medium">
+                    מנטרים בימים האלה
+                  </span>
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {WEEKDAY_LABELS.map((label, day) => {
+                      const current = setting.watch ?? DEFAULT_PBX_WATCH;
+                      const on = current.days.includes(day);
+                      return (
+                        <label
+                          key={label}
+                          className="flex items-center gap-1 text-[length:var(--type-caption-lg)]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            disabled={busy === spec.key}
+                            onChange={() => {
+                              const days = on
+                                ? current.days.filter((d) => d !== day)
+                                : [...current.days, day].sort((a, b) => a - b);
+                              /*
+                                ‏בלי יום אחד לפחות אין מה לנטר, והשרת
+                                דוחה — עוצרים כאן כדי שהמשרד יראה למה
+                                במקום לקבל שגיאה על לחיצה.
+                              */
+                              if (days.length === 0) return;
+                              void save(spec.key, {
+                                watch: { ...current, days } as PbxWatchWindow,
+                              });
+                            }}
+                          />
+                          {label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="flex flex-wrap items-end gap-2">
+                    {(["fromHour", "toHour"] as const).map((field) => (
+                      <label key={field} className="text-[length:var(--type-caption)]">
+                        <span className="mb-0.5 block font-semibold">
+                          {field === "fromHour" ? "משעה" : "עד שעה"}
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={24}
+                          value={(setting.watch ?? DEFAULT_PBX_WATCH)[field]}
+                          disabled={busy === spec.key}
+                          className="w-24 rounded-lg border px-2.5 py-1.5"
+                          style={{
+                            borderColor: "var(--color-input-border)",
+                            background: "var(--color-field)",
+                          }}
+                          onChange={(e) => {
+                            const value = Number(e.target.value);
+                            setSaved(null);
+                            setData((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    settings: {
+                                      ...prev.settings,
+                                      [spec.key]: {
+                                        ...setting,
+                                        watch: {
+                                          ...(setting.watch ?? DEFAULT_PBX_WATCH),
+                                          [field]: value,
+                                        },
+                                      },
+                                    },
+                                  }
+                                : prev,
+                            );
+                          }}
+                          /* נשמר ביציאה מהשדה — לא בכל הקלדה של ספרה */
+                          onBlur={() => {
+                            const current = setting.watch ?? DEFAULT_PBX_WATCH;
+                            if (current.fromHour >= current.toHour) return;
+                            void save(spec.key, { watch: current });
+                          }}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               {/*
                 ‎**הערוץ והנוסח — רק לאוטומציה שפונה ללקוח.**
 

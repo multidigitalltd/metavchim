@@ -51,6 +51,8 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   call_transcribed: "calls",
   call_follow_up: "calls",
   call_transcribe_failed: "calls",
+  /* המרכזייה עצמה — אותה קטגוריה, כי מי שכיבה „שיחות” אינו רוצה גם את זה */
+  pbx_silent: "calls",
 
   lead: "leads",
   lead_sla: "leads",

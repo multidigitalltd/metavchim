@@ -107,6 +107,15 @@ const AutomationsSchema = z
          */
         channel: z.enum(["email", "whatsapp", "both"]).optional(),
         messages: z.record(z.string().max(40), z.string().max(600)).optional(),
+        /* חלון הניטור — רק לאוטומציה שמסומנת `watch` בקטלוג */
+        watch: z
+          .object({
+            days: z.array(z.number().int().min(0).max(6)).max(7),
+            fromHour: z.number().int().min(0).max(24),
+            toHour: z.number().int().min(0).max(24),
+          })
+          .strict()
+          .optional(),
       })
       .strict(),
   )
