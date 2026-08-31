@@ -395,6 +395,14 @@ const UpdateSettingsSchema = z
     supportEmail: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
 
     /*
+     * המסלול שאליו יורד חשבון שלא הופעל. ריק = אין כזה, והתזכורת
+     * אומרת „החשבון ננעל” במקום לנקוב בשם של מסלול שאינו קיים.
+     * הערך אינו מאומת מול הקטלוג כאן: מסלול נמחק או נוצר אחרי
+     * ההגדרה, והשולח בודק בזמן השליחה — שם זה נכון.
+     */
+    partnerPlanCode: z.union([z.string().trim().max(20), z.literal("")]).optional(),
+
+    /*
      * השכרת מספרים — חשבון 015 **של הפלטפורמה**. ריק = מחיקת ההגדרה.
      * ה-ingroup הוא מזהה ולא כמות (ספרות בלבד, אפסים משמעותיים),
      * והמחיר באגורות — ריק מוחק, לא מאפס: `Number("")` הוא 0, ושדה
@@ -1536,6 +1544,8 @@ export class PlatformController {
      * מסיק, בצדק, שהכפתור אינו עובד.
      */
     supportEmail: string;
+    /** קוד מסלול השותפים — ערך ולא „מוגדר”, מאותו טעם כמו `supportEmail`. */
+    partnerPlanCode: string;
     /**
      * השכרת מספרים מ-015 — **הערכים העסקיים ולא רק "מוגדר"**: שם
      * המשתמש, הקבוצה והמחיר מוצגים כי זה מסך העריכה שלהם; הסיסמה
@@ -1609,6 +1619,7 @@ export class PlatformController {
       },
       // הערך ולא רק "מוגדר" — ראו ההסבר בטיפוס המוחזר
       supportEmail: (await this.platformSettings.get("supportEmail")) ?? "",
+      partnerPlanCode: (await this.platformSettings.get("partnerPlanCode")) ?? "",
       numberRental: {
         configured: await this.pbx015.isConfigured(),
         username: (await this.platformSettings.get("pbx015AuthUsername")) ?? "",

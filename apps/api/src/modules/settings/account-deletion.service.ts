@@ -419,6 +419,8 @@ export class AccountDeletionService {
         await tx.googleCalendarLink.deleteMany({ where: { tenantId } });
         await tx.gmailLink.deleteMany({ where: { tenantId } });
         await tx.userCapability.deleteMany({ where: { tenantId } });
+        // הסרות מתזכורות ההפעלה — טוקן וכתובת שנקשרה למשתמש שנמחק
+        await tx.activationNudgeOptOut.deleteMany({ where: { tenantId } });
         /*
          * רישומי „עדכנו אותי כשזה עולה” וקישורי הנכסים התואמים.
          *
