@@ -26,14 +26,6 @@ const FEATURES = [
   ["hasStorage", "מחסן"],
 ] as const;
 
-/** נרמול טלפון ישראלי ל-E.164 — ‎050-1234567 → ‎+972501234567 */
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[^\d+]/gu, "");
-  if (digits.startsWith("+972")) return digits;
-  if (digits.startsWith("0")) return `+972${digits.slice(1)}`;
-  return digits;
-}
-
 export default function NewBuyerPage() {
   useRequireAuth();
   const router = useRouter();
@@ -72,7 +64,7 @@ export default function NewBuyerPage() {
     try {
       const created = await apiPost<{ id: string }>("/buyers", {
         contactName: String(f.get("contactName")).trim(),
-        contactPhone: normalizePhone(String(f.get("contactPhone"))),
+        contactPhone: String(f.get("contactPhone")).trim(),
         /* ריק לא נשלח: הסכימה בשרת מקפידה, ומחרוזת ריקה אינה כתובת */
         contactEmail: String(f.get("contactEmail") ?? "").trim() || undefined,
         source: String(f.get("source")),

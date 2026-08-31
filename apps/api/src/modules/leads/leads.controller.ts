@@ -8,7 +8,7 @@ import {
   LeadSourceSchema,
   LeadIntentSchema,
   LeadStatusSchema,
-  PhoneSchema,
+  PhoneInputSchema,
   leadDeletionKeepsContact,
   type LeadDeletionScope,
   type Page,
@@ -21,7 +21,7 @@ import { LeadsService, type InteractionDto, type LeadDto } from "./leads.service
 const CreateLeadSchema = z
   .object({
     contactName: z.string().min(2).max(120),
-    contactPhone: PhoneSchema,
+    contactPhone: PhoneInputSchema,
     /* אותו פער בדיוק כמו בקונה: השירות ידע לשמור, הסכימה לא קיבלה */
     contactEmail: z.string().trim().email().max(254).optional(),
     source: LeadSourceSchema,

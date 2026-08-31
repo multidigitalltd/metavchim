@@ -11,13 +11,6 @@ import { Notice } from "../../notice";
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[^\d+]/gu, "");
-  if (digits.startsWith("+972")) return digits;
-  if (digits.startsWith("0")) return `+972${digits.slice(1)}`;
-  return digits;
-}
-
 function NewLeadForm() {
   useRequireAuth();
   const router = useRouter();
@@ -44,7 +37,7 @@ function NewLeadForm() {
     try {
       const created = await apiPost<{ id: string; merged?: boolean; visible?: boolean }>("/leads", {
         contactName: String(f.get("contactName")).trim(),
-        contactPhone: normalizePhone(String(f.get("contactPhone"))),
+        contactPhone: String(f.get("contactPhone")).trim(),
         /* ריק לא נשלח — מחרוזת ריקה אינה כתובת, והסכימה מקפידה */
         contactEmail: String(f.get("contactEmail") ?? "").trim() || undefined,
         source: String(f.get("source")),

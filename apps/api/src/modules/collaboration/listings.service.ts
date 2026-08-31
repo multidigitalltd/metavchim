@@ -21,6 +21,7 @@ import {
   summarizeReach,
   type PropertyFields,
   type ReachSummary,
+  networkSafeTitle,
 } from "@metavchim/shared";
 import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -215,7 +216,13 @@ export class ListingsService {
       entryType: property.entryType,
       entryDate: property.entryDate,
       features,
-      title: property.marketingTitle,
+      /* נגזרת ולא `marketingTitle` — ראו `networkSafeTitle` */
+      title: networkSafeTitle({
+        propertyType: property.propertyType ?? undefined,
+        rooms: property.rooms === null ? undefined : Number(property.rooms),
+        neighborhood: property.neighborhood ?? undefined,
+        city: property.city ?? undefined,
+      }),
       latitude: roundCoord(property.latitude),
       longitude: roundCoord(property.longitude),
     };

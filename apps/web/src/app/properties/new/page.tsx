@@ -20,14 +20,6 @@ const inputStyle = {
   background: "var(--color-field)",
 } as const;
 
-/** נרמול טלפון ישראלי ל-E.164 — ‎050-1234567 → ‎+972501234567 */
-function normalizeOwnerPhone(raw: string): string {
-  const digits = raw.replace(/[^\d+]/gu, "");
-  if (digits.startsWith("+972")) return digits;
-  if (digits.startsWith("0")) return `+972${digits.slice(1)}`;
-  return digits;
-}
-
 function triState(form: FormData, name: string): boolean | undefined {
   const value = String(form.get(name) ?? "");
   return value === "yes" ? true : value === "no" ? false : undefined;
@@ -153,7 +145,7 @@ function NewPropertyForm() {
         String(f.get("ownerPhone") ?? "").trim() !== ""
           ? {
               ownerName: String(f.get("ownerName")).trim(),
-              ownerPhone: normalizeOwnerPhone(String(f.get("ownerPhone"))),
+              ownerPhone: String(f.get("ownerPhone")).trim(),
             }
           : {}),
       });

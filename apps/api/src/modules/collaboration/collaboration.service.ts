@@ -32,6 +32,7 @@ import {
   CLIENT_RATING_DIMENSIONS,
   referralReasonRejectionReason,
   presentationChips,
+  withNetworkSafeTitle,
   type NetworkPresentationFields,
   scoreMatch,
   suggestedReferralPrice,
@@ -1298,7 +1299,11 @@ export class CollaborationService {
       shared: true,
       offers: rows.map((row) => ({
         id: row.id,
-        presentation: row.presentation as Record<string, unknown>,
+        /* גזירה בקריאה — כך גם הצעות שנשלחו לפני התיקון מפסיקות לדלוף */
+        presentation: withNetworkSafeTitle(row.presentation as NetworkPresentationFields) as Record<
+          string,
+          unknown
+        >,
         commissionSplit: row.commissionSplit,
         status: row.status,
         createdAt: row.createdAt,
@@ -1502,8 +1507,13 @@ export class CollaborationService {
         entryType: property.entryType ?? undefined,
         entryDate: property.entryDate ?? undefined,
         features,
-        title: property.marketingTitle ?? undefined,
       };
+      /*
+       * הכותרת נגזרת מהשדות שכבר גלויים, ואינה `marketingTitle`.
+       * הטקסט החופשי הזה נושא בפועל את הכתובת — „ירושלים 67” — וכך
+       * הכרטיס הבטיח „כתובת רק אחרי אישור” והציג אותה בכותרת.
+       */
+      const presentationWithTitle = withNetworkSafeTitle(presentation);
 
       await tx.coopOffer
         .create({
@@ -1513,7 +1523,7 @@ export class CollaborationService {
             fromTenantId: ctx.tenantId,
             toTenantId: demand.tenantId,
             propertyId,
-            presentation,
+            presentation: presentationWithTitle,
             creditsCost: cost,
             commissionSplit,
             // מי הציע — כדי שחדר העסקה יידע למי להרים טלפון
@@ -1822,7 +1832,10 @@ export class CollaborationService {
           : {}),
         direction: row.toTenantId === tenantId ? "incoming" : "outgoing",
         commissionSplit: row.commissionSplit,
-        presentation: row.presentation as Record<string, unknown>,
+        presentation: withNetworkSafeTitle(row.presentation as NetworkPresentationFields) as Record<
+          string,
+          unknown
+        >,
         status: row.status,
         ...(office === undefined ? {} : { officeName: office.name }),
         ...(office?.logoUrl === undefined

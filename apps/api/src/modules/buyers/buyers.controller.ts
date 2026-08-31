@@ -15,7 +15,7 @@ import {
   BuyerRequirementsSchema,
   FinancingStatusSchema,
   IdSchema,
-  PhoneSchema,
+  PhoneInputSchema,
   type Page,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
@@ -27,7 +27,7 @@ import { BuyersService, type BuyerDto } from "./buyers.service";
 const CreateBuyerSchema = z
   .object({
     contactName: z.string().min(2).max(120),
-    contactPhone: PhoneSchema,
+    contactPhone: PhoneInputSchema,
     /*
      * ‎`.strict()` למטה הוא מה שהופך את זה לחובה ולא לנוחות: בלי
      * המפתח כאן, טופס ששולח כתובת מקבל 400 ולא „נשמר בלי המייל”.
