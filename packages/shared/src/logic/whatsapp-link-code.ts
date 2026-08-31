@@ -145,6 +145,27 @@ export function linkNeedsReverification(verifiedAt: Date, now: Date): boolean {
  * ‎`null` = אין מספר עסקי (הצד היוצא לא הוגדר, או ש-Meta לא ענתה).
  * הקוד עצמו עדיין מוצג — הקיצור נעלם, לא היכולת.
  */
+/**
+ * ‎**המספר עצמו, לקריאה בעין.**
+ *
+ * הקישור והברקוד מסתירים אותו בתוכם, וזה בסדר כל עוד הם עובדים.
+ * הם לא תמיד עובדים: מחשב בלי וואטסאפ מותקן, טלפון שהקישור נפתח בו
+ * בדפדפן, או מספר עסקי שלא נשלף. במצבים האלה המסך אמר „שלחו את הקוד
+ * ידנית” בלי לומר **למי** — כלומר הוראה שאי אפשר לבצע.
+ *
+ * ‎`972…` מוצג בפורמט המקומי (`055-314-2235`) כי זה מה שמקלידים
+ * בישראל; כל השאר בפורמט בינלאומי, כי שם ההקשר הוא המספר המלא.
+ */
+export function displayWhatsappNumber(digits: string): string {
+  const clean = digits.replace(/\D/gu, "");
+  if (clean === "") return "";
+  if (clean.startsWith("972") && clean.length === 12) {
+    const local = `0${clean.slice(3)}`;
+    return `${local.slice(0, 3)}-${local.slice(3, 6)}-${local.slice(6)}`;
+  }
+  return `+${clean}`;
+}
+
 export function whatsappPairingLink(
   businessNumber: string | null,
   formattedCode: string,

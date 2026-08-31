@@ -65,6 +65,7 @@ export function WhatsAppLinkSection() {
   const [code, setCode] = useState<string | null>(null);
   /** הקיצור שמגיע יחד עם הקוד; `null` = אין מספר עסקי, ואז רק הקוד. */
   const [link, setLink] = useState<string | null>(null);
+  const [botNumber, setBotNumber] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -89,10 +90,14 @@ export function WhatsAppLinkSection() {
     setMessage(null);
     setCode(null);
     setLink(null);
-    apiPost<{ code: string; link: string | null }>("/settings/whatsapp-link/code", {})
+    apiPost<{ code: string; link: string | null; botNumber: string | null }>(
+      "/settings/whatsapp-link/code",
+      {},
+    )
       .then((res) => {
         setCode(res.code);
         setLink(res.link);
+        setBotNumber(res.botNumber);
       })
       /*
        * הודעת השרת נשמרת ואינה מוחלפת: 403 כאן נושא את הסיבה
@@ -188,7 +193,7 @@ export function WhatsAppLinkSection() {
         </p>
       )}
 
-      {code === null ? null : <WhatsappPairing code={code} link={link} />}
+      {code === null ? null : <WhatsappPairing code={code} link={link} botNumber={botNumber} />}
 
       {/*
         ‎**כשאי אפשר — אומרים למה, ולא מציעים כפתור.**

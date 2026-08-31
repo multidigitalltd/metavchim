@@ -78,7 +78,7 @@ export function WhatsappSeatsPanel({ tenantId }: { tenantId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /** הקוד שהופק עכשיו — מוצג עם ברקוד, ולמי הוא שייך. */
-  const [issued, setIssued] = useState<{ name: string; code: string; link: string | null } | null>(
+  const [issued, setIssued] = useState<{ name: string; code: string; link: string | null; botNumber: string | null } | null>(
     null,
   );
 
@@ -101,11 +101,11 @@ export function WhatsappSeatsPanel({ tenantId }: { tenantId: string }) {
     setError(null);
     setIssued(null);
     try {
-      const res = await apiPost<{ code: string; link: string | null }>(
+      const res = await apiPost<{ code: string; link: string | null; botNumber: string | null }>(
         `/platform/agencies/${tenantId}/whatsapp/link-code`,
         { userId: sub.userId },
       );
-      setIssued({ name: sub.name, code: res.code, link: res.link });
+      setIssued({ name: sub.name, code: res.code, link: res.link, botNumber: res.botNumber });
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הפקת הקוד נכשלה");
     } finally {
@@ -238,7 +238,12 @@ export function WhatsappSeatsPanel({ tenantId }: { tenantId: string }) {
           <p className="m-0 mb-1 text-sm">
             קוד חיבור עבור <b>{issued.name}</b>:
           </p>
-          <WhatsappPairing code={issued.code} link={issued.link} forSomeoneElse />
+          <WhatsappPairing
+            code={issued.code}
+            link={issued.link}
+            botNumber={issued.botNumber}
+            forSomeoneElse
+          />
         </div>
       )}
 

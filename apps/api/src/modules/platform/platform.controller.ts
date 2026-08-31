@@ -332,6 +332,15 @@ const UpdateSettingsSchema = z
     whatsappAccessToken: z.union([z.string().trim().min(20).max(500), z.literal("")]).optional(),
     // מזהה ולא כמות — ספרות בלבד, אפסים מובילים משמעותיים
     whatsappPhoneNumberId: z.union([z.string().trim().regex(/^\d{5,30}$/u), z.literal("")]).optional(),
+    /*
+     * מספר הבוט לתצוגה — גיבוי ל-`display_phone_number` של Meta.
+     * ספרות בלבד, עם קידומת מדינה או בלעדיה; הנרמול ל-`wa.me` נעשה
+     * ב-`normalizePhoneForWhatsapp` ולא כאן, כדי שיהיה מקום אחד
+     * שיודע להפוך `055…` ל-`972…`.
+     */
+    whatsappBotNumber: z
+      .union([z.string().trim().regex(/^\+?[\d\s()-]{9,20}$/u), z.literal("")])
+      .optional(),
     /** תבנית "לקוח ענה במייל" לסוכן — מחוץ לחלון 24 השעות של Meta */
     whatsappEmailReplyTemplate: z
       .union([z.string().trim().regex(/^[a-z0-9_]{1,512}$/u), z.literal("")])
@@ -1440,7 +1449,7 @@ export class PlatformController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Body(new ZodValidationPipe(z.object({ userId: IdSchema }).strict()))
     body: { userId: string },
-  ): Promise<{ code: string; expiresInSeconds: number; link: string | null }> {
+  ): Promise<{ code: string; expiresInSeconds: number; botNumber: string | null; link: string | null }> {
     const user = await this.prisma.user.findFirst({
       where: { id: body.userId, tenantId: id },
       select: { id: true, name: true, isActive: true },
@@ -1452,9 +1461,16 @@ export class PlatformController {
     this.logger.warn(
       `קוד חיבור וואטסאפ הופק ממסך הפלטפורמה עבור ${user.name} (${user.id}) במשרד ${id}`,
     );
+    /*
+     * ‎`botNumber` ולא רק `link`: הקישור והברקוד מסתירים את המספר
+     * בתוכם, והמסך היה אומר „שלחו ידנית” בלי לומר למי. המספר הוא
+     * מה שמאפשר לבצע את ההוראה כשהקיצור אינו עובד.
+     */
+    const botNumber = await this.whatsappSender.businessNumber();
     return {
       ...issued,
-      link: whatsappPairingLink(await this.whatsappSender.businessNumber(), issued.code),
+      botNumber,
+      link: whatsappPairingLink(botNumber, issued.code),
     };
   }
 
@@ -1727,6 +1743,11 @@ export class PlatformController {
       configured: boolean;
       source: "db" | "env" | "none";
       webhookUrl: string;
+      /**
+       * המספר שמוצג במסך חיבור המכשיר כשלא נשלף מ-Meta.
+       * הערך ולא „מוגדר”: זה מסך העריכה שלו.
+       */
+      botNumber: string;
       /** הצד היוצא — הסוכן האישי עונה רק כשהוא מוגדר */
       assistant: {
         configured: boolean;
@@ -1881,6 +1902,7 @@ export class PlatformController {
     const waEnv = env.WHATSAPP_APP_SECRET !== undefined && env.WHATSAPP_VERIFY_TOKEN !== undefined;
     // הצד היוצא של הסוכן האישי — טוקן ומזהה מספר, שניהם יחד
     const waOutDb = has("whatsappAccessToken") && has("whatsappPhoneNumberId");
+    const whatsappBotNumber = (await this.platformSettings.get("whatsappBotNumber")) ?? "";
     const waOutEnv =
       env.WHATSAPP_ACCESS_TOKEN !== undefined && env.WHATSAPP_PHONE_NUMBER_ID !== undefined;
     const googleDb = has("googleClientId") && has("googleClientSecret");
@@ -1969,6 +1991,7 @@ export class PlatformController {
         configured: waDb || waEnv,
         source: waDb ? "db" : waEnv ? "env" : "none",
         webhookUrl: `${env.WEB_ORIGIN}/api/v1/webhooks/whatsapp`,
+        botNumber: whatsappBotNumber,
         assistant: {
           configured: waOutDb || waOutEnv,
           source: waOutDb ? "db" : waOutEnv ? "env" : "none",
