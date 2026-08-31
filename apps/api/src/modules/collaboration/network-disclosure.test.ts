@@ -280,6 +280,26 @@ describe("הכותרת ברשת אינה טקסט חופשי", () => {
   });
 
   /**
+   * ‎**הצד שהגרסה הראשונה של השער החמיצה.**
+   *
+   * היא דרשה גזירה בקריאה מההצעה, ולא מהפרסום. `snapshot()` מגן
+   * רק על פרסום חדש, ו-`toDto` המשיך להחזיר את `row.title` —
+   * כלומר כל פרסום שנוצר לפני התיקון המשיך לחשוף את הכתובת עד
+   * שהנכס שמאחוריו היה מתעדכן במקרה (ביקורת Codex).
+   */
+  const toDtoBody = (): string => {
+    const from = LISTINGS.indexOf("private toDto(");
+    expect(from, "לא נמצאה הפונקציה שבונה את התשובה").toBeGreaterThan(-1);
+    const end = LISTINGS.indexOf("\n  }", from);
+    return LISTINGS.slice(from, end === -1 ? undefined : end);
+  };
+
+  it("גם בקריאה — פרסומים שנוצרו לפני התיקון מפסיקים לדלוף", () => {
+    expect(toDtoBody()).toMatch(/title:\s*networkSafeTitle\(/u);
+    expect(toDtoBody()).not.toMatch(/title:\s*row\.title/u);
+  });
+
+  /**
    * ‎**רק מה שחוצה את הגבול.**
    *
    * גרסה ראשונה של הטענה סרקה את הקובץ כולו ונפלה על `summarizeReach`

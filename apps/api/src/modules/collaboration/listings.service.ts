@@ -697,7 +697,26 @@ export class ListingsService {
       ...(row.entryDate === null ? {} : { entryDate: row.entryDate }),
       features: row.features,
       photos,
-      ...(row.title === null ? {} : { title: row.title }),
+      /*
+       * ‎**הכותרת נגזרת בקריאה, ולא נלקחת מהשורה.**
+       *
+       * ‏`snapshot()` שומר כותרת נגזרת — אבל רק לפרסום חדש. כל
+       * ‎`SharedListing` שנוצר לפני התיקון עדיין נושא בעמודה את
+       * ‎`marketingTitle` המקורי, כלומר את הכתובת שהמתווך כתב
+       * בטקסט חופשי, וזה מה שמשרד אחר היה רואה עד שהנכס היה
+       * מתעדכן במקרה (ביקורת Codex). גזירה כאן אינה דורשת
+       * מיגרציה ואינה יכולה לפספס שורה.
+       *
+       * ‎**גם לבעלים.** אחרת אותו משרד רואה בפרסום ישן כותרת
+       * אחת ובחדש אחרת — וזו בדיוק האסימטריה שהסתירה את הדליפה:
+       * מי שפרסם לא ראה מה הרשת רואה.
+       */
+      title: networkSafeTitle({
+        propertyType: row.propertyType ?? undefined,
+        rooms: row.rooms === null ? undefined : Number(row.rooms),
+        neighborhood: row.neighborhood ?? undefined,
+        city: row.city ?? undefined,
+      }),
       ...(row.notes === null ? {} : { notes: row.notes }),
       commissionSplit: row.commissionSplit,
       terms: commissionTermsFromRow(row),
