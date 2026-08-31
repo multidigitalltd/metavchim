@@ -73,6 +73,8 @@ export default function NewBuyerPage() {
       const created = await apiPost<{ id: string }>("/buyers", {
         contactName: String(f.get("contactName")).trim(),
         contactPhone: normalizePhone(String(f.get("contactPhone"))),
+        /* ריק לא נשלח: הסכימה בשרת מקפידה, ומחרוזת ריקה אינה כתובת */
+        contactEmail: String(f.get("contactEmail") ?? "").trim() || undefined,
         source: String(f.get("source")),
         maturity: String(f.get("maturity")),
         requirements: {
@@ -134,6 +136,31 @@ export default function NewBuyerPage() {
             <div>
               <label htmlFor="contactPhone" className="mb-1 block font-medium">טלפון *</label>
               <input id="contactPhone" name="contactPhone" type="tel" required dir="ltr" placeholder="050-1234567" autoComplete="tel" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+            </div>
+            {/*
+              ‎**השדה שלא היה כאן.** הכתובת נשמרת בכרטיס איש הקשר, וכל
+              מה שמתחת לטופס ידע לשמור אותה מאז ומתמיד — ייבוא מקובץ
+              ופנייה מדף נחיתה שניהם כתבו אותה. רק הטופס שהסוכן ממלא
+              לא שאל, ולכן קונה שהוקלד ידנית לא יכול היה לקבל הצעה
+              במייל בלי מעבר נוסף בכרטיס.
+            */}
+            <div className="sm:col-span-2">
+              <label htmlFor="contactEmail" className="mb-1 block font-medium">
+                דוא&quot;ל{" "}
+                <span className="font-normal" style={{ color: "var(--color-text-muted)" }}>
+                  (לא חובה — לשליחת הצעות והסכמים)
+                </span>
+              </label>
+              <input
+                id="contactEmail"
+                name="contactEmail"
+                type="email"
+                dir="ltr"
+                autoComplete="email"
+                placeholder="name@example.com"
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
             </div>
           </div>
         </FormSection>
