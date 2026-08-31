@@ -334,12 +334,6 @@ export default function IntakeFormPage({
         >
           יש לי נכס למכירה או להשכרה
         </button>
-        <p
-          className="m-0 mt-4 text-center text-[length:var(--type-caption)]"
-          style={{ color: "var(--color-text-muted)" }}
-        >
-          הפרטים נשמרים אצל {view.officeName} בלבד ואינם מועברים לאיש.
-        </p>
       </Shell>
     );
   }
@@ -624,12 +618,6 @@ export default function IntakeFormPage({
       >
         רגע, דווקא יש לי נכס
       </button>
-      <p
-        className="m-0 mt-3 text-center text-[length:var(--type-caption)]"
-        style={{ color: "var(--color-text-muted)" }}
-      >
-        הפרטים נשמרים אצל {view.officeName} בלבד ואינם מועברים לאיש.
-      </p>
     </Shell>
   );
 }
