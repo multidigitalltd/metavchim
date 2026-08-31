@@ -55,11 +55,53 @@ export function ownershipFilter(
  * ‏„לא משויך” פירושו שאין סוכן שהליד שייך לו. אין כאן לקוח של
  * עמית שנחשף — יש לקוח שאיש לא לקח. ליד משויך נשאר מוסתר בדיוק
  * כמו קודם, וגבול הדייר (RLS) לא זז.
+ *
+ * ## ‎**ומי שהמודול חסום אצלו אינו מקבל את הערימה**
+ *
+ * ‏`ownershipFilter` הגולמי היה בטוח כאן **במקרה**: הוא ייצר
+ * ‎`{ assignedToUserId: <אני> }`, ולמי שמודול הלידים חסום אצלו כמעט
+ * אף ליד אינו משויך, ולכן הוא קיבל רשימה ריקה. הערימה המשותפת
+ * מבטלת את המקריות הזו — ובלי שער היא נפתחת דווקא למי שנחסם
+ * (ביקורת Codex, P1).
+ *
+ * וזה אינו תיאורטי: `ContactsController.related` מוצהר
+ * ‎`@AnyAuthenticated()`, וההערה שם אומרת במפורש שההרשאה „נאכפת
+ * בתוך השאילתה עצמה” — כלומר כאן. `CoachService` דורש
+ * ‎`matches.view` בלבד, ומסלולי ההמרה דורשים יכולות של קונים
+ * ונכסים. בכל אחד מהם הסינון הזה הוא ההרשאה.
+ *
+ * ‎`view_own` הוא הסף: בלעדיו נדרשת קבוצה שלא תתאים לשום שורה,
+ * ולא אובייקט ריק — ריק פירושו „בלי סינון”, כלומר ההפך הגמור.
  */
 export function leadOwnershipFilter(): Prisma.LeadWhereInput {
   const ctx = TenantContext.current();
   if (ctx.capabilities.has("leads.view_all")) return {};
+  if (!ctx.capabilities.has("leads.view_own")) return { id: { in: [] } };
   return { OR: [{ assignedToUserId: ctx.userId }, { assignedToUserId: null }] };
+}
+
+/**
+ * ‎**אותו כלל, לקורא שאינו יכול לקבל אובייקט Prisma.**
+ *
+ * שני מקומות מכריעים אותו בעצמם — חישוב בוליאני ב-`LeadsService`
+ * ותנאי ב-SQL גולמי ב-`TasksService` — ושניהם החזיקו העתק ידני של
+ * „שלי או `view_all`”. העתק שלישי שאינו מכיר את הערימה המשותפת הוא
+ * בדיוק הדרך שבה התיקון הזה נשחק (שתי ביקורות Codex).
+ *
+ * ‎`null` = „אין הגבלה”, ולכן הוא מתאים גם ל-SQL שמשווה מול פרמטר
+ * שעשוי להיות NULL.
+ */
+export function leadPoolOwner(): string | null {
+  const ctx = TenantContext.current();
+  return ctx.capabilities.has("leads.view_all") ? null : ctx.userId;
+}
+
+/** האם הליד הזה נגיש לי — שלי, של אף אחד, או שאני רואה הכול. */
+export function leadIsVisible(assignedToUserId: string | null): boolean {
+  const ctx = TenantContext.current();
+  if (ctx.capabilities.has("leads.view_all")) return true;
+  if (!ctx.capabilities.has("leads.view_own")) return false;
+  return assignedToUserId === null || assignedToUserId === ctx.userId;
 }
 
 /**

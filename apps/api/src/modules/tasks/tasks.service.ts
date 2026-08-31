@@ -3,6 +3,7 @@ import { ulid } from "ulid";
 import { Prisma } from "@prisma/client";
 import { isTaskUrgent, OPEN_LEAD_STATUSES, type TaskPriority } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
+import { leadPoolOwner } from "../../common/ownership";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -534,7 +535,13 @@ export class TasksService {
      * אחר כך, אבל אחרי ה-LIMIT. זו בדיוק אותה תקלה שההערה שמתחת
      * מתארת על סטטוס הליד, רק על הממד השני שלו (ביקורת Codex).
      */
-    const leadOwnerOnly = ctx.capabilities.has("leads.view_all") ? null : ctx.userId;
+    /*
+     * ‎`leadPoolOwner` ולא חישוב מקומי — ראו `leadOwnershipFilter`.
+     * התנאי למטה מקבל גם ליד לא-משויך: משימת חזרה על ליד שאיש לא
+     * לקח היא בדיוק המשימה שאסור שתיעלם, ובליד `waiting_customer`
+     * היא המקור היחיד לחזרה ללקוח (ביקורת Codex).
+     */
+    const leadOwnerOnly = leadPoolOwner();
     return this.prisma.withTenant(async (tx) => {
       /*
        * המיון הוא לפי **אותו זמן שהדירוג משתמש בו** — `due_at`, ובלעדיו
@@ -573,7 +580,9 @@ export class TasksService {
            AND (${ownerOnly}::char(26) IS NULL OR t.assigned_to_user_id = ${ownerOnly})
            -- הליד עצמו חייב להיות חי **ונגיש**; ראו את ההסבר שמעל
            AND l.status IN (${Prisma.join([...OPEN_LEAD_STATUSES])})
-           AND (${leadOwnerOnly}::char(26) IS NULL OR l.assigned_to_user_id = ${leadOwnerOnly})
+           AND (${leadOwnerOnly}::char(26) IS NULL
+                OR l.assigned_to_user_id IS NULL
+                OR l.assigned_to_user_id = ${leadOwnerOnly})
          ORDER BY COALESCE(t.due_at, t.created_at) ASC
          LIMIT ${limit}
       `;

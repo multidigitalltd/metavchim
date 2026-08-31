@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { ulid } from "ulid";
 import { OPEN_LEAD_STATUSES, leadDeletionRejectionReason, type Page } from "@metavchim/shared";
 import { lockContact, lockLead } from "../../common/locks";
-import { assertLeadAccess, leadOwnershipFilter } from "../../common/ownership";
+import { assertLeadAccess, leadIsVisible, leadOwnershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -101,7 +101,13 @@ export class LeadsService {
       });
       if (open) {
         mergedInto = open.id;
-        mergedVisible = ctx.capabilities.has("leads.view_all") || open.assignedToUserId === ctx.userId;
+        /*
+         * ‎`leadIsVisible` ולא חישוב מקומי: זה היה העתק ידני של הכלל,
+         * והוא לא ידע על הערימה המשותפת. ליד לא-משויך שהמערכת דווקא
+         * פתחה לסוכן היה מסומן „של מישהו אחר”, והמסך היה מסרב לנווט
+         * אליו — כלומר ליד נגיש שאי אפשר להגיע אליו (ביקורת Codex).
+         */
+        mergedVisible = leadIsVisible(open.assignedToUserId);
         await tx.interaction.create({
           data: {
             id: ulid(),

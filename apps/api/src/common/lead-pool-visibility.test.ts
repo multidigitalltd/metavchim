@@ -66,6 +66,48 @@ describe("ליד לא-משויך הוא הערימה המשותפת", () => {
   });
 
   /*
+   * ‎**ומי שהמודול חסום אצלו אינו מקבל את הערימה** (ביקורת Codex, P1).
+   *
+   * ‏`ContactsController.related` מוצהר `@AnyAuthenticated()` ומסתמך
+   * על הסינון הזה כהרשאה. בלי סף `view_own` הערימה המשותפת נפתחת
+   * דווקא למי שנחסם — והפילטר הישן היה בטוח כאן רק במקרה.
+   */
+  it("בלי אף יכולת צפייה בלידים — קבוצה שאינה מתאימה לכלום", () => {
+    const body = /export function leadOwnershipFilter\([\s\S]*?\n\}/u.exec(OWNERSHIP.code)![0];
+    expect(body).toMatch(/leads\.view_own/u);
+    // ולא אובייקט ריק, שפירושו „בלי סינון” — כלומר ההפך הגמור
+    expect(body).toMatch(/return \{ id: \{ in: \[\] \} \};/u);
+  });
+
+  /*
+   * ‎**ושלוש הצורות של אותו כלל אינן נפרדות.**
+   *
+   * ‏הכלל חי כאובייקט Prisma, כבוליאני, וכתנאי ב-SQL גולמי. שתי
+   * הצורות האחרונות היו העתקים ידניים שלא ידעו על הערימה המשותפת —
+   * ליד נגיש שהמסך סירב לנווט אליו, ומשימת חזרה שנעלמה (שתי ביקורות
+   * Codex). עכשיו כולן נגזרות מ-`ownership.ts`, וזה מה שנאכף כאן.
+   */
+  it("אין העתק ידני של „שלי או view_all” מחוץ ל-ownership.ts", () => {
+    const offenders: string[] = [];
+    for (const file of FILES) {
+      if (file.path === "common/ownership.ts") continue;
+      // בוליאני: `capabilities.has("leads.view_all") || … assignedToUserId ===`
+      if (/leads\.view_all[\s\S]{0,120}assignedToUserId\s*===/u.test(file.code)) {
+        offenders.push(`${file.path} (בוליאני)`);
+      }
+      // ‏SQL גולמי: השוואת העמודה בלי לקבל NULL
+      for (const m of file.code.matchAll(/assigned_to_user_id\s*=/gu)) {
+        const window = file.code.slice(Math.max(0, m.index - 200), m.index + 60);
+        if (/\bl\.assigned_to_user_id\s*=/u.test(file.code.slice(m.index - 2, m.index + 30)) &&
+            !/assigned_to_user_id IS NULL/u.test(window)) {
+          offenders.push(`${file.path} (SQL)`);
+        }
+      }
+    }
+    expect([...new Set(offenders)]).toEqual([]);
+  });
+
+  /*
    * ‎**ושהוא יחיד.** אתר אחד שחוזר ל-`ownershipFilter` הגולמי הוא
    * מסך אחד שבו הליד נעלם שוב — וזה בדיוק מה שקרה עד עכשיו.
    */
