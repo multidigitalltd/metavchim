@@ -189,7 +189,7 @@ for (const file of sources(srcDir)) {
   for (const match of readFileSync(file, "utf8").matchAll(INTERNAL_HREF)) {
     const href = match[1];
     if (ASSET_HREF.test(href)) continue;
-    const key = `${href} ${file}`;
+    const key = `${href}\u0000${file}`;
     if (links.has(key)) continue;
     links.add(key);
     if (!routeExists(href)) {
