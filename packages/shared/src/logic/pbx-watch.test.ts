@@ -182,3 +182,37 @@ describe("ההתראה עצמה", () => {
     expect(stopped.body).toContain("שעות עבודה");
   });
 });
+
+/*
+ * ‎**חיבור חדש אינו „שתיקה”** — הבסיס הוא מועד החיבור ולא `null`.
+ *
+ * ‏`monitoredHoursSince(null, …)` סופר עד התקרה, ולכן הסבב הראשון
+ * בתוך החלון היה מתריע מיד על משרד שרק חיבר את המרכזייה — התראת
+ * שווא בדיוק בזמן ההתקנה (ביקורת Codex).
+ */
+describe("בסיס הספירה בחיבור חדש", () => {
+  const at2 = (wall: string): Date => new Date(`${wall}+03:00`);
+
+  it("חיבור שנוצר לפני שעה אינו מתריע בסף של ארבע שעות", () => {
+    expect(
+      shouldAlertPbxSilence({
+        lastInboundAt: at2("2026-08-30T11:00"), // מועד החיבור, כפי שהסבב מוסר
+        now: at2("2026-08-30T12:00"),
+        thresholdHours: 4,
+        window: DEFAULT_PBX_WATCH,
+      }),
+    ).toBe(false);
+  });
+
+  /* ‏`null` הוא עדיין „מעולם לא” — הסבב הוא זה שמחליף אותו במועד החיבור */
+  it("‏null עדיין נספר עד התקרה, ולכן הבסיס חייב לבוא מהקורא", () => {
+    expect(
+      shouldAlertPbxSilence({
+        lastInboundAt: null,
+        now: at2("2026-08-30T12:00"),
+        thresholdHours: 4,
+        window: DEFAULT_PBX_WATCH,
+      }),
+    ).toBe(true);
+  });
+});

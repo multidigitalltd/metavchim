@@ -41,3 +41,18 @@ export function normalizePhoneForWhatsapp(phone: string): string {
 export function whatsappLink(phone: string, message: string): string {
   return `https://wa.me/${normalizePhoneForWhatsapp(phone)}?text=${encodeURIComponent(message)}`;
 }
+
+/**
+ * ‎**האם אפשר בכלל לשלוח וואטסאפ למספר הזה.**
+ *
+ * ‎`ISRAELI_PHONE` מקבל גם קווי — `+9722…` עד `+9724…`, `+9728…`,
+ * ‎`+9729…` — כי שיחה נכנסת מקו נייח היא שיחה לכל דבר. אבל **הודעת
+ * וואטסאפ לקו נייח אינה נכשלת ברעש**: Meta מקבלת את הבקשה, ההודעה
+ * אינה מגיעה לאיש, ומבחינת המערכת „נשלח”.
+ *
+ * ולכן זו הבדיקה שקובעת אם יש בכלל טעם לפתוח כרטיס ולשלוח: מה
+ * שאינו נייד ישראלי אינו נמען.
+ */
+export function canReceiveWhatsapp(phone: string): boolean {
+  return /^9725\d{8}$/u.test(normalizePhoneForWhatsapp(phone));
+}

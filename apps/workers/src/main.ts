@@ -2508,7 +2508,7 @@ async function processPbxSilenceSweep(): Promise<void> {
         await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
         return tx.integration.findFirst({
           where: { tenantId, kind: "telephony", status: "active" },
-          select: { id: true },
+          select: { id: true, createdAt: true },
         });
       });
       if (connected === null) continue;
@@ -2530,9 +2530,26 @@ async function processPbxSilenceSweep(): Promise<void> {
         });
       });
       const lastInboundAt = last?.occurredAt ?? null;
+      /*
+       * ‎**משרד שרק חיבר את המרכזייה אינו „שותק”.**
+       *
+       * בלי שיחה כלל `monitoredHoursSince` סופר עד התקרה — כלומר
+       * חודש — והסבב הראשון בתוך חלון הניטור היה מתריע מיד, בלי
+       * קשר לסף שהוגדר. חיבור חדש (או חיבור מחדש) היה מקבל התראת
+       * שווא בדיוק בזמן ההתקנה, שהוא הרגע הגרוע ביותר ללמד משרד
+       * שההתראות שלנו לא מדויקות (ביקורת Codex).
+       *
+       * מועד יצירת החיבור הוא הבסיס: ממנו והלאה באמת מצפים לשיחות.
+       */
+      const since = lastInboundAt ?? connected.createdAt;
 
-      if (!shouldAlertPbxSilence({ lastInboundAt, now, thresholdHours, window })) continue;
+      if (
+        !shouldAlertPbxSilence({ lastInboundAt: since, now, thresholdHours, window })
+      ) {
+        continue;
+      }
 
+      // הנוסח עדיין מבחין בין „הפסיקו להגיע” לבין „מעולם לא הגיעו”
       const message = pbxSilenceMessage({ lastInboundAt, now, window });
       const written = await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
