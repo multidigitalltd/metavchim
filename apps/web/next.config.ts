@@ -11,6 +11,12 @@ const nextConfig: NextConfig = {
   // פלט עצמאי לתמונת ה-Docker — server.js מינימלי בלי node_modules מלא
   output: "standalone",
   transpilePackages: ["@metavchim/ui"],
+  /*
+   * המערכת אינה משתמשת ב-next/image בכוונה (תמונות מוגשות דרך ה-API
+   * המאומת או כ-data-URL) — ההצהרה חוסכת את צירוף שירות האופטימיזציה
+   * לתמונת ה-standalone והופכת את הבחירה למפורשת.
+   */
+  images: { unoptimized: true },
   poweredByHeader: false,
   headers() {
     return Promise.resolve([{ source: "/:path*", headers: securityHeaders }]);

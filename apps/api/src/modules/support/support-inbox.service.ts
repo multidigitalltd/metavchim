@@ -154,10 +154,12 @@ export class SupportInboxService {
     const body = inboundBody(payload, BODY_MAX);
     const incoming = payload.Attachments.slice(0, EMAIL_ATTACHMENT_MAX_COUNT)
       .map((attachment) => {
-        const kind = emailAttachmentKind(attachment.ContentType);
-        if (kind === null || attachment.Content === "") return null;
+        if (attachment.Content === "") return null;
         const content = Buffer.from(attachment.Content, "base64");
         if (content.length === 0 || content.length > EMAIL_ATTACHMENT_MAX_BYTES) return null;
+        // התוכן נמסר לבדיקת Magic Bytes — הצהרה כוזבת יורדת ל"קובץ"
+        const kind = emailAttachmentKind(attachment.ContentType, content);
+        if (kind === null) return null;
         return {
           kind,
           content,
@@ -887,7 +889,7 @@ export class SupportInboxService {
     if (rejection !== null) throw new BadRequestException(rejection);
 
     const attachments = files.map((file) => {
-      const kind = emailAttachmentKind(file.mimetype);
+      const kind = emailAttachmentKind(file.mimetype, file.buffer);
       if (kind === null) throw new BadRequestException(`סוג קובץ שאינו נתמך: ${file.originalname}`);
       return {
         name: safeAttachmentName(file.originalname),

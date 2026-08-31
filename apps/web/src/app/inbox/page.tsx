@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet, apiList, apiPost } from "@/lib/api";
-import { formatDateTime } from "@/lib/format";
+import { formatBytes, formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { Notice } from "../notice";
 import { OfficeDomainNudge } from "../office-domain-nudge";
@@ -110,12 +110,6 @@ function sendStateNote(
     return { text: "בשליחה…", token: "--color-text-muted" };
   }
   return null;
-}
-
-/** ‏1.2MB ⟵ "1.2MB"; 850KB ⟵ "850KB" — לתווית ההורדה. */
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-  return `${Math.max(1, Math.round(bytes / 1024))}KB`;
 }
 
 /** התצוגה לפי הסוג שהוכרע בקליטה: תמונה בפנים, וידאו בנגן, מסמך כהורדה. */

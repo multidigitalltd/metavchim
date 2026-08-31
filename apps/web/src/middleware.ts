@@ -174,5 +174,5 @@ export const config = {
    * הכל חוץ מנכסים סטטיים: הם אינם מריצים סקריפטים, והרצת
    * Middleware על כל אריח ותמונה היא עלות בלי תמורה.
    */
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icons/|guides/|.*\\.(?:png|jpg|jpeg|svg|webp|ico|webmanifest)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icons/|guides/|fonts/|.*\\.(?:png|jpg|jpeg|svg|webp|ico|webmanifest|woff|woff2)$).*)"],
 };

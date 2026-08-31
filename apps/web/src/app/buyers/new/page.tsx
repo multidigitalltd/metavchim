@@ -13,7 +13,7 @@ import { PriceField } from "../../price-field";
 import { EntryTimingField } from "../../properties/entry-timing-field";
 import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
-import type { SearchArea } from "@metavchim/shared";
+import { normalizePhone, type SearchArea } from "@metavchim/shared";
 import { Notice } from "../../notice";
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;

@@ -18,28 +18,37 @@
 /* ---------- הפונט העברי של המותג ----------
    מוגש מהשרת עצמו (public/fonts) ולא מ-CDN: אין בקשה לצד שלישי,
    ואין תלות ברשת חיצונית בזמן טעינה. font-display: swap מציג טקסט
-   מיד בפונט המערכת ומחליף כשהקובץ מוכן — עדיף על מסך ריק. */
+   מיד בפונט המערכת ומחליף כשהקובץ מוכן — עדיף על מסך ריק.
+   ‏woff2 קודם (‏~22% קטן יותר); ה-woff נשאר לדפדפנים עתיקים. */
 @font-face {
   font-family: Almoni;
-  src: url("/fonts/almoni-regular-aaa.woff") format("woff");
+  src:
+    url("/fonts/almoni-regular-aaa.woff2") format("woff2"),
+    url("/fonts/almoni-regular-aaa.woff") format("woff");
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
   font-family: Almoni;
-  src: url("/fonts/almoni-medium-aaa.woff") format("woff");
+  src:
+    url("/fonts/almoni-medium-aaa.woff2") format("woff2"),
+    url("/fonts/almoni-medium-aaa.woff") format("woff");
   font-weight: 500 600;
   font-display: swap;
 }
 @font-face {
   font-family: Almoni;
-  src: url("/fonts/almoni-bold-aaa.woff") format("woff");
+  src:
+    url("/fonts/almoni-bold-aaa.woff2") format("woff2"),
+    url("/fonts/almoni-bold-aaa.woff") format("woff");
   font-weight: 700;
   font-display: swap;
 }
 @font-face {
   font-family: Almoni;
-  src: url("/fonts/almoni-ultrabold-aaa.woff") format("woff");
+  src:
+    url("/fonts/almoni-ultrabold-aaa.woff2") format("woff2"),
+    url("/fonts/almoni-ultrabold-aaa.woff") format("woff");
   font-weight: 800 900;
   font-display: swap;
 }
