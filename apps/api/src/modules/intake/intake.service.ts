@@ -1506,15 +1506,23 @@ export class IntakeService {
     tx: TenantTx,
     tenantId: string,
     subject: IntakeSubject,
-    subjectId: string,
+    /** `null` בקישור פתוח — אין כרטיס לתלות בו לפני שהלקוח ממלא. */
+    subjectId: string | null,
     contactId: string,
   ): Promise<{ url: string; message: string } | null> {
     const now = new Date();
+    /*
+     * ‎**הכפילות נמדדת לפי איש הקשר, לא לפי הכרטיס.**
+     *
+     * ההבטחה היא „לקוח שהתקשר שלוש פעמים אינו מקבל שלוש הודעות”,
+     * והיא על **אדם**. סינון לפי `subjectId` קיים אותה רק כל עוד
+     * העוגן היה תמיד ליד; קישור פתוח נושא `subjectId: null`, ושתי
+     * שיחות שלא נענו היו מייצרות שתי בקשות ושתי הודעות.
+     */
     const existing = await tx.intakeRequest.findFirst({
       where: {
         tenantId,
-        subject,
-        subjectId,
+        contactId,
         status: { not: "revoked" },
         expiresAt: { gt: now },
       },

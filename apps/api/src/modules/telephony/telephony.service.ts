@@ -37,6 +37,7 @@ import {
   type SoftphoneConfig,
   type SoftphoneGap,
   type VirtualNumberRule,
+  OPEN_LEAD_STATUSES,
 } from "@metavchim/shared";
 import { lockContactPhone, lockProviderCall } from "../../common/locks";
 import { notifyOnce } from "../../common/notify-once";
@@ -1095,6 +1096,8 @@ export class TelephonyService {
             tenantId,
             leadId,
             contactId,
+            event.peerPhone,
+            event.callerName,
           );
 
           await notifyOnce(tx, {
@@ -1164,9 +1167,9 @@ export class TelephonyService {
     tenantId: string,
     leadId: string | null,
     contactId: string | null,
+    phone: string,
+    callerName: string | undefined,
   ): Promise<string | null> {
-    // בלי ליד אין כרטיס לתלות בו את הדרישות, ובלי איש קשר אין למי לשלוח
-    if (leadId === null || contactId === null) return null;
     try {
       const tenant = await tx.tenant.findUnique({
         where: { id: tenantId },
@@ -1178,17 +1181,68 @@ export class TelephonyService {
         return null;
       }
 
+      /*
+       * ‎**איש הקשר נוצר כאן כשאין כזה — אחרת אין למי לשלוח.**
+       *
+       * שיחה שלא נענתה אינה פותחת ליד: `callAction.createLead` דורש
+       * ‎`type === "ended"` **ושמישהו דיבר**, ושניהם שקריים בהגדרה
+       * בענף הזה. לכן גם איש הקשר לא נוצר — הוא נוצר רק בתוך
+       * ‎`openLeadForUnknownCaller`. התוצאה הייתה ששני השדות ריקים
+       * תמיד, והשומר הישן („בלי ליד ובלי איש קשר”) הפיל את הפונקציה
+       * בשורתה הראשונה **בכל שיחה שלא נענתה, מאז ומעולם**.
+       *
+       * כלומר הפיצ'ר ששמו „הצע טופס אחרי שיחה שלא נענתה” מעולם לא
+       * שלח דבר (דיווח מהשטח, ייצור).
+       *
+       * ‎`findOrCreateByPhone` ולא יצירה ישירה: הוא נועל את המספר,
+       * מכיר גם מספר משני, ולכן מתקשר חוזר אינו מקבל כרטיס שני.
+       */
+      const person =
+        contactId === null
+          ? await this.contacts.findOrCreateByPhone(tx, {
+              name: callerName ?? phone,
+              phone,
+            })
+          : null;
+      const targetContactId = contactId ?? person?.id ?? null;
+      if (targetContactId === null) return null;
+
+      /*
+       * ‎**העוגן: ליד פתוח אם יש, ואחרת קישור פתוח.**
+       *
+       * לליד אין דרישות משלו — הן שדה של קונה — ולכן הגשה על ליד
+       * נכתבת לכרטיס הקונה של אותו איש קשר (`targetBuyerId`). כשאין
+       * ליד, `subject: "open"` מתממש לכרטיס קונה חדש בהגשה
+       * (`materializeOpen`), והוא כבר יודע לדלג על שאלת הזהות
+       * כשהבקשה נושאת `contactId` — כלומר מי שאנחנו מכירים אינו
+       * ממלא את שמו מחדש.
+       */
+      const openLead =
+        leadId ??
+        (
+          await tx.lead.findFirst({
+            where: {
+              tenantId,
+              contactId: targetContactId,
+              status: { in: [...OPEN_LEAD_STATUSES] },
+            },
+            select: { id: true },
+            orderBy: { createdAt: "desc" },
+          })
+        )?.id ??
+        null;
+
       const created = await this.intake.ensureForMissedCall(
         tx,
         tenantId,
-        "lead",
-        leadId,
-        contactId,
+        openLead === null ? "open" : "lead",
+        openLead,
+        targetContactId,
       );
       // כבר יש קישור בתוקף — לקוח שהתקשר שלוש פעמים אינו מקבל שלוש הודעות
       if (created === null) return null;
 
-      const contact = await this.contacts.getById(tx, contactId);
+      const contact = await this.contacts.getById(tx, targetContactId);
       const template = await this.platformSettings.get("whatsappIntakeTemplate");
       const lang =
         (await this.platformSettings.get("whatsappIntakeTemplateLang")) ?? "he";
