@@ -14,7 +14,7 @@ import {
 import {
   LocationPicker,
   type LocationValue,
-} from "../properties/location-picker";
+} from "../properties/location-picker-lazy";
 import { Notice } from "../notice";
 
 /**

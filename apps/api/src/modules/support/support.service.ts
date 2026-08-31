@@ -499,7 +499,7 @@ export class SupportService {
     const replyBody = (input.reply ?? "").trim();
     const files = input.files ?? [];
     const attachments = files.map((file) => {
-      const kind = emailAttachmentKind(file.mimetype);
+      const kind = emailAttachmentKind(file.mimetype, file.buffer);
       if (kind === null) throw new BadRequestException(`סוג קובץ שאינו נתמך: ${file.originalname}`);
       return {
         name: safeAttachmentName(file.originalname),

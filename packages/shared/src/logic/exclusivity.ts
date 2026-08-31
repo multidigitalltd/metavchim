@@ -105,10 +105,6 @@ export const MARKETING_ACTION_LABEL: Record<MarketingActionKind, string> = {
   agreed_other: "פעולה אחרת שהוסכמה עם הלקוח",
 };
 
-/** פריט (7) עומד בפני עצמו רק בהסכמה — ולכן הוא מסומן בנפרד. */
-export const LISTED_MARKETING_ACTIONS: readonly MarketingActionKind[] =
-  MARKETING_ACTION_KINDS.filter((kind) => kind !== "agreed_other");
-
 /**
  * מה שהמערכת יודעת לתעד בעצמה — ולמה זה חשוב.
  *

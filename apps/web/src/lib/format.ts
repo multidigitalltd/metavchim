@@ -116,8 +116,6 @@ export const STATUS_LABELS: Record<PropertyStatus, string> = {
 /* התוויות יושבות ליד הסכימה — ראו `lead-labels.ts` לאותו נימוק. */
 export { FINANCING_LABELS } from "@metavchim/shared";
 
-export { BUYER_SOURCE_LABELS } from "@metavchim/shared";
-
 /** קישור צ'אט וואטסאפ מטלפון שמור (E.164) — wa.me דורש ספרות בלבד */
 export function waMeUrl(phone: string, text?: string): string {
   // הנרמול משותף עם השרת: `wa.me/0501234567` אינו נפתח — וואטסאפ
@@ -132,18 +130,8 @@ export function formatBuyerSource(source: string): string {
   return buyerSourceLabel(source) ?? source;
 }
 
-export const FIELD_LABELS: Record<string, string> = {
-  city: "עיר",
-  neighborhood: "שכונה",
-  street: "רחוב",
-  propertyType: "סוג נכס",
-  dealType: "סוג עסקה",
-  rooms: "חדרים",
-  areaSqm: 'שטח במ"ר',
-  floor: "קומה",
-  hasElevator: "מעלית",
-  hasParking: "חניה",
-  priceAgorot: "מחיר",
-  entryType: "מועד כניסה/מסירה",
-  entryDate: "תאריך כניסה",
-};
+/** ‏1.2MB ⟵ "1.2MB"; 850KB ⟵ "850KB" — לתווית קובץ מצורף. */
+export function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))}KB`;
+}

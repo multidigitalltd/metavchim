@@ -173,13 +173,6 @@ export function groupTasksByBucket<T extends SortableTask & { status?: string }>
   }));
 }
 
-/** הישויות שמשימה יכולה להיתלות עליהן, והמסך שאליו מקשרים. */
-export const TASK_ENTITY_LABELS: Record<string, string> = {
-  lead: "ליד",
-  buyer: "קונה",
-  property: "נכס",
-};
-
 export function taskEntityHref(entityType: string, entityId: string): string | null {
   switch (entityType) {
     case "lead":

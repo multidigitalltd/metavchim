@@ -57,6 +57,7 @@ import {
   assistantMemoryTurn,
   conversationLockKey,
   dailyBriefBody,
+  jerusalemDayRange,
   mergeStoredTurns,
   parseStoredTurns,
   formatNotifyMessage,
@@ -1031,45 +1032,6 @@ async function processStaleLeadSweep(): Promise<void> {
   }
 }
 
-const JERUSALEM_TZ = "Asia/Jerusalem";
-
-/** ההיסט של שעון ישראל מ-UTC ברגע נתון (מ"ש) — תלוי-רגע, לא קבוע. */
-function jerusalemOffsetMs(at: Date): number {
-  const wallAsUtc = new Date(
-    at.toLocaleString("en-US", { timeZone: JERUSALEM_TZ }),
-  );
-  return wallAsUtc.getTime() - at.getTime();
-}
-
-/**
- * הרגע (UTC) שבו שעת-קיר מקומית מתרחשת: ניחוש ותיקון כפול, כי ההיסט
- * הנכון הוא זה שבתוקף ברגע המבוקש עצמו — ביום מעבר שעון ההיסט של
- * חצות שונה מההיסט של שעת ריצת ה-Job (ביקורת Codex).
- */
-function jerusalemWallToUtc(wallIso: string): Date {
-  const wallMs = new Date(`${wallIso}Z`).getTime();
-  let guess = new Date(wallMs);
-  for (let i = 0; i < 2; i++)
-    guess = new Date(wallMs - jerusalemOffsetMs(guess));
-  return guess;
-}
-
-/** גבולות היום הנוכחי בשעון ישראל, כערכי UTC לשאילתות — כל גבול בהיסט שלו. */
-function jerusalemDayRange(): { start: Date; end: Date } {
-  const today = new Intl.DateTimeFormat("en-CA", {
-    timeZone: JERUSALEM_TZ,
-  }).format(new Date());
-  const start = jerusalemWallToUtc(`${today}T00:00:00.000`);
-  // 30 שעות אחרי תחילת היום נופלות תמיד בתוך היום המקומי הבא (גם ביום של 25 שעות)
-  const nextDay = new Intl.DateTimeFormat("en-CA", {
-    timeZone: JERUSALEM_TZ,
-  }).format(new Date(start.getTime() + 30 * 60 * 60 * 1000));
-  const end = new Date(  // נושא-שעת-קיר
-    jerusalemWallToUtc(`${nextDay}T00:00:00.000`).getTime() - 1,
-  );
-  return { start, end };
-}
-
 /**
  * משימות אוטומטיות קבועות — יצירת המופע שהגיע זמנו.
  *
@@ -1267,7 +1229,8 @@ async function processRecurringTasks(): Promise<void> {
  * בלי רעש: אין כלום — אין התראה. אידמפוטנטי פר יום (בדיקת קיים).
  */
 async function processDailyBrief(): Promise<void> {
-  const { start, end } = jerusalemDayRange();
+  // הגבולות מהחבילה המשותפת: start כולל, end בלעדי (חצות היום הבא)
+  const { start, end } = jerusalemDayRange(new Date());
   const tenants = await prisma.tenant.findMany({ select: { id: true } });
   for (const tenant of tenants) {
     if (!(await automationOn(tenant.id, "daily_brief"))) continue;
@@ -1309,14 +1272,14 @@ async function processDailyBrief(): Promise<void> {
           where: {
             tenantId: tenant.id,
             status: "scheduled",
-            startsAt: { gte: start, lte: end },
+            startsAt: { gte: start, lt: end },
           },
           orderBy: { startsAt: "asc" },
           select: { ownerUserId: true, createdBy: true, startsAt: true, kind: true },
         }),
         tx.task.groupBy({
           by: ["assignedToUserId"],
-          where: { tenantId: tenant.id, status: "open", dueAt: { lte: end } },
+          where: { tenantId: tenant.id, status: "open", dueAt: { lt: end } },
           _count: { _all: true },
         }),
         tx.lead.groupBy({
