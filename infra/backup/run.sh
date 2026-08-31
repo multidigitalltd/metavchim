@@ -2,9 +2,14 @@
 # ============================================================
 # שירות הגיבוי — רץ כקונטיינר צד לצד עם ה-DB (docs/10-deployment.md).
 #
-# כל 24 שעות: pg_dump בפורמט custom (דחוס, מתאים ל-pg_restore) אל
-# תיקיית הגיבויים שממופה למארח, עם ניקוי גיבויים ישנים. פעם בשבוע
-# (יום ראשון) נארז גם אחסון התמונות (MinIO) כ-tar.gz.
+# כל 24 שעות: pg_dump בפורמט custom (דחוס, מתאים ל-pg_restore) **וגם**
+# ארכיון של אחסון המדיה (MinIO) כ-tar.gz, אל תיקיית הגיבויים שממופה
+# למארח, עם ניקוי גיבויים ישנים.
+#
+# ‎**המדיה עברה משבועי ליומי (בקשת בעל המוצר).** מה שיושב שם אינו
+# „תמונות”: הקלטות שיחה, צירופי פניות וחתימות על מסמכים — נתונים
+# שאין להם מקור אחר לשחזור מתוכו. גיבוי שבועי פירושו שעד שישה ימי
+# הקלטות וחתימות אינם מגובים בשום מקום.
 #
 # הגיבוי הראשון רץ מיד בעליית הקונטיינר — כך תמיד יש גיבוי טרי
 # אחרי התקנה או עדכון, וקל לוודא שהמנגנון עובד.
@@ -14,11 +19,30 @@ set -u
 # הגיבויים מכילים את כל נתוני הלקוחות — קבצים נקראים לבעלים בלבד (0600)
 umask 077
 
-KEEP_DAYS="${BACKUP_KEEP_DAYS:-14}"
-MEDIA_KEEP_DAYS="${BACKUP_MEDIA_KEEP_DAYS:-28}"
+KEEP_DAYS="${BACKUP_KEEP_DAYS:-30}"
+MEDIA_KEEP_DAYS="${BACKUP_MEDIA_KEEP_DAYS:-30}"
+
+# ‎**מרווח ביטחון על הדיסק — לפני כתיבת ארכיון המדיה.**
+#
+# ארכיון יומי שנשמר 30 יום פירושו עד 30 עותקים כמעט זהים. אם המדיה
+# תופחת, הגיבוי הוא מה שימלא את הדיסק — ודיסק מלא מפיל את המערכת
+# כולה, לא רק את הגיבוי. גיבוי שהורג את הייצור גרוע מגיבוי שדילג
+# על יום אחד וצעק על כך ביומן.
+#
+# הסף באחוזים מהמקום הפנוי אחרי הניקוי; מתחתיו מדלגים וזועקים.
+MIN_FREE_MB="${BACKUP_MIN_FREE_MB:-2048}"
 
 backup_once() {
   stamp="$(date +%Y-%m-%d_%H%M)"
+
+  # ‎**הניקוי לפני הכתיבה ולא אחריה.**
+  #
+  # כשנשמרים 30 עותקים, המקום לארכיון של היום מגיע מזה שפג היום.
+  # ניקוי בסוף פירושו שיא רגעי של 31 עותקים — ובדיוק הרגע הזה הוא
+  # שממלא דיסק שכמעט מלא.
+  find /backups -name 'db_*.dump' -mtime "+${KEEP_DAYS}" -delete 2>/dev/null
+  find /backups -name 'media_*.tar.gz' -mtime "+${MEDIA_KEEP_DAYS}" -delete 2>/dev/null
+  find /backups -name '*.tmp' -mmin +120 -delete 2>/dev/null
 
   # --- מסד הנתונים ---
   tmp="/backups/db_${stamp}.dump.tmp"
@@ -35,10 +59,16 @@ backup_once() {
   # tar על volume חי: העלאה שרצה בדיוק ברגע הגיבוי עלולה להיתפס חלקית
   # (חלון קטן — הריצה בשעת לילה). האימות עם tar tzf תופס ארכיון קטוע/פגום;
   # לגיבוי עקבי-לחלוטין עוצרים רגעית את minio ומגבים ידנית (docs/10).
-  if [ "$(date +%u)" = "7" ] && [ -d /minio-data ]; then
+  if [ -d /minio-data ]; then
     mtmp="/backups/media_${stamp}.tar.gz.tmp"
     mout="/backups/media_${stamp}.tar.gz"
-    if tar czf "$mtmp" -C /minio-data . && tar tzf "$mtmp" > /dev/null; then
+    free_mb="$(df -Pm /backups 2>/dev/null | awk 'NR==2 {print $4}')"
+    case "$free_mb" in ''|*[!0-9]*) free_mb=0 ;; esac
+    if [ "$free_mb" -lt "$MIN_FREE_MB" ]; then
+      # לא כותבים ולא מוחקים — רק צועקים. המקום הפנוי הוא בעיה
+      # תפעולית, והשתקתה בכתיבה חלקית הופכת אותה לתקלת ייצור.
+      echo "[backup] ✗ אין מספיק מקום לארכיון המדיה (${free_mb}MB פנויים, נדרש ${MIN_FREE_MB}MB) — דולג" >&2
+    elif tar czf "$mtmp" -C /minio-data . && tar tzf "$mtmp" > /dev/null; then
       mv "$mtmp" "$mout"
       echo "[backup] ✓ מדיה → ${mout} ($(du -h "$mout" | cut -f1))"
     else
@@ -56,10 +86,6 @@ backup_once() {
     /backup/verify.sh once || echo "[backup] ✗ תרגיל השחזור נכשל — ראו את verify.json" >&2
   fi
 
-  # --- ניקוי ישנים ---
-  find /backups -name 'db_*.dump' -mtime "+${KEEP_DAYS}" -delete 2>/dev/null
-  find /backups -name 'media_*.tar.gz' -mtime "+${MEDIA_KEEP_DAYS}" -delete 2>/dev/null
-  find /backups -name '*.tmp' -mmin +120 -delete 2>/dev/null
 }
 
 # הרצה חד-פעמית: `run.sh once` מבצע גיבוי ויוצא.
@@ -81,7 +107,7 @@ if [ "${1:-}" = "verify" ]; then
   exec /backup/verify.sh once
 fi
 
-echo "[backup] שירות הגיבוי עלה — גיבוי DB כל 24 שעות, מדיה בימי ראשון, תרגיל שחזור בימי שני, שמירה ${KEEP_DAYS} ימים"
+echo "[backup] שירות הגיבוי עלה — DB ומדיה כל 24 שעות, תרגיל שחזור בימי שני, שמירה ${KEEP_DAYS}/${MEDIA_KEEP_DAYS} ימים"
 while true; do
   backup_once
   sleep 86400
