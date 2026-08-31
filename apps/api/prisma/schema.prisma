@@ -2144,6 +2144,13 @@ model WhatsappSeat {
   monthlyAgorot    Int       @map("monthly_agorot")
   /// pending | active | past_due | cancelled | released
   status           String    @default("pending") @db.VarChar(20)
+  /// ‎`purchased` = המשרד קנה ומחויב מדי חודש. `granted` = בעל
+  /// הפלטפורמה העניק — **לא מחויב לעולם**, גם כשיש לו תאריך סיום.
+  ///
+  /// ההבחנה נדרשת דווקא בגלל התאריך: מקום ניסיון חייב `currentPeriodEnd`
+  /// כדי שמשהו יסגור אותו, וסורק החידושים אוסף כל שורה שהתאריך שלה
+  /// עבר. בלי השדה הזה הוא היה מנסה לחייב כרטיס על מקום שניתן בחינם.
+  origin           String    @default("purchased") @db.VarChar(10)
   /// יום החיוב בחודש — אותו עוגן ומאותה סיבה כמו במנוי: בלעדיו
   /// מקום שנרכש ב-31 בחודש היה מתקצר לצמיתות אחרי פברואר.
   billingAnchorDay Int?      @map("billing_anchor_day") @db.SmallInt
@@ -2160,6 +2167,9 @@ model WhatsappSeat {
   @@index([tenantId, status])
   /// סורק החידושים והשחרורים עובר על הצירוף הזה
   @@index([status, currentPeriodEnd])
+  /// והשחרור של מה שהוענק עובר על זה — מקומות שהוענקו הם מיעוט,
+  /// וסריקה לפי תאריך בלבד הייתה קוראת גם את כל מה שנקנה
+  @@index([origin, currentPeriodEnd])
   @@map("whatsapp_seats")
 }
 

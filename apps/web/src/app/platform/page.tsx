@@ -13,6 +13,7 @@ import { formatDate } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconPlus } from "../icons";
 import { BackupsSection } from "./backups-section";
+import { WhatsappSeatsPanel } from "./whatsapp-seats-panel";
 import { LeadPricesSection } from "./lead-prices-section";
 import { PaymentsSection } from "./payments-section";
 import { PlansSection } from "./plans-section";
@@ -445,6 +446,7 @@ export default function PlatformPage() {
   /** המשרד שעורכים לו כרגע את חסימות המודולים; null = אף אחד. */
   const [modulesFor, setModulesFor] = useState<string | null>(null);
   const [overridesFor, setOverridesFor] = useState<string | null>(null);
+  const [waFor, setWaFor] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ ownerEmail: string; tempPassword: string } | null>(null);
@@ -921,11 +923,30 @@ export default function PlatformPage() {
                           פתח ללא תפוגה
                         </Button>
                       ) : null}
+                      {/*
+                        מנויי הוואטסאפ ליד שאר פעולות המשרד: כשסוכן
+                        מתקשר ואומר „הסוכן לא עונה לי”, זו השורה שבה
+                        התמיכה כבר נמצאת.
+                      */}
+                      <Button
+                        variant="secondary"
+                        aria-expanded={waFor === a.id}
+                        onClick={() => setWaFor(waFor === a.id ? null : a.id)}
+                      >
+                        וואטסאפ
+                      </Button>
                       <Button variant="ghost" onClick={() => void deleteAgency(a)}>
                         <span style={{ color: "var(--color-danger)" }}>מחק משרד</span>
                       </Button>
                     </td>
                   </tr>
+                  {waFor === a.id ? (
+                    <tr style={{ background: "var(--color-bg)" }}>
+                      <td colSpan={7} className="p-3">
+                        <WhatsappSeatsPanel tenantId={a.id} />
+                      </td>
+                    </tr>
+                  ) : null}
                   {overridesFor === a.id ? (
                     <tr style={{ background: "var(--color-bg)" }}>
                       <td colSpan={7} className="p-3">
