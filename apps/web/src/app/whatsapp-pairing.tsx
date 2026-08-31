@@ -1,6 +1,7 @@
 "use client";
 
 import { QRCodeSVG } from "qrcode.react";
+import { displayWhatsappNumber, normalizePhoneForWhatsapp } from "@metavchim/shared";
 
 /**
  * ‎**חיבור מכשיר וואטסאפ — הקוד, הברקוד, והלחיצה.**
@@ -22,17 +23,35 @@ import { QRCodeSVG } from "qrcode.react";
  * הוא אינו גיבוי מנומס אלא המסלול היחיד שעובד כשאין מספר עסקי
  * (הצד היוצא לא הוגדר, או ש-Meta לא ענתה) — ואז `link` הוא `null`.
  * הסתרתו הייתה הופכת תקלת הגדרה זמנית לחוסר יכולת לחבר מכשיר.
+ *
+ * ## ‎**והמספר נכתב, לא רק מקודד**
+ *
+ * הקישור והברקוד מסתירים את המספר בתוכם. זה בסדר כל עוד הם עובדים,
+ * והם לא תמיד: מחשב בלי וואטסאפ מותקן, טלפון שהקישור נפתח בו
+ * בדפדפן, או משתמש שפשוט מעדיף להקליד. המסך אמר „שלחו את הקוד
+ * ידנית” בלי לומר **למי** — הוראה שאי אפשר לבצע. המספר מוצג עכשיו
+ * בטקסט, `select-all`, וגם כקישור חיוג.
  */
 export function WhatsappPairing({
   code,
   link,
+  botNumber,
   /** „מהמכשיר שתרצו לחבר” מול „מהמכשיר של הסוכן” — מי מסתכל במסך. */
   forSomeoneElse = false,
 }: {
   code: string;
   link: string | null;
+  /** ספרות בלבד; `null` = לא נשלף מ-Meta וגם לא הוגדר ידנית. */
+  botNumber: string | null;
   forSomeoneElse?: boolean;
 }) {
+  /*
+   * שני הייצוגים נגזרים מאותו ערך מנורמל, ולא כל אחד מהקלט הגולמי:
+   * ‎`tel:+0553142235` היה מספר שאינו קיים, בעוד שהטקסט לידו נראה
+   * תקין. ‎`""` אחרי נרמול פירושו „אין מספר”, כמו `null`.
+   */
+  const digits = normalizePhoneForWhatsapp(botNumber ?? "");
+  const numberText = digits === "" ? null : displayWhatsappNumber(digits);
   return (
     <div
       className="mb-3 rounded-xl px-4 py-3"
@@ -42,10 +61,45 @@ export function WhatsappPairing({
         className="m-0 mb-1 text-[length:var(--type-caption)]"
         style={{ color: "var(--color-text-muted)" }}
       >
-        {forSomeoneElse
-          ? "העבירו את אלה לסוכן — הקישור או הברקוד פותחים אצלו וואטסאפ עם הקוד מוכן לשליחה:"
-          : "שלחו את הקוד הזה בהודעת וואטסאפ לסוכן, מהמכשיר שתרצו לחבר:"}
+        {/*
+          ‎**המספר בתוך המשפט, ולא בשורה נפרדת.**
+
+          „שלחו את הקוד” בלי לומר למי היא הוראה שאי אפשר לבצע, וזה
+          מה שהמסך אמר. הקישור והברקוד מסתירים את המספר בתוכם והם
+          לא תמיד עובדים — מחשב בלי וואטסאפ, קישור שנפתח בדפדפן, או
+          מי שפשוט מעדיף להקליד.
+
+          ‎`tel:` ולא `wa.me`: הכפתור שמתחת כבר פותח את השיחה עם הקוד
+          בפנים, וקישור שני לאותו יעד מיותר. מי שנוגע כאן רוצה את
+          המספר עצמו — לשמור באנשי הקשר או לחפש אותו בעצמו.
+        */}
+        {numberText === null
+          ? forSomeoneElse
+            ? "העבירו את אלה לסוכן — הקישור או הברקוד פותחים אצלו וואטסאפ עם הקוד מוכן לשליחה:"
+            : "שלחו את הקוד הזה בהודעת וואטסאפ לסוכן, מהמכשיר שתרצו לחבר:"
+          : null}
+        {numberText === null ? null : (
+          <>
+            {forSomeoneElse ? "הקוד נשלח בוואטסאפ אל " : "שלחו את הקוד הזה בוואטסאפ אל "}
+            <a href={`tel:+${digits}`} dir="ltr" className="select-all font-bold underline">
+              {numberText}
+            </a>
+            {forSomeoneElse
+              ? " — העבירו לסוכן את הקישור או הברקוד, והם פותחים אצלו את השיחה מוכנה:"
+              : ", מהמכשיר שתרצו לחבר:"}
+          </>
+        )}
       </p>
+
+      {numberText === null ? (
+        <p
+          className="m-0 mb-2 text-[length:var(--type-caption)]"
+          style={{ color: "var(--color-danger)" }}
+        >
+          מספר הוואטסאפ של המערכת אינו מוגדר — פנו למנהל הפלטפורמה. בלעדיו אין לאן
+          לשלוח את הקוד.
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-4">
         <div className="min-w-0 grow">
@@ -71,8 +125,8 @@ export function WhatsappPairing({
             style={{ color: "var(--color-text-muted)" }}
           >
             הקוד תקף לרבע שעה ולשימוש אחד.
-            {link === null
-              ? " המספר העסקי אינו זמין כרגע, ולכן אין קיצור — שלחו את הקוד ידנית."
+            {link === null && numberText !== null
+              ? " הקיצור אינו זמין כרגע — שלחו את הקוד למספר שלמעלה."
               : ""}
           </p>
         </div>

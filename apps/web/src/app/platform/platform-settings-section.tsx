@@ -141,6 +141,8 @@ interface PlatformSettings {
     configured: boolean;
     source: "db" | "env" | "none";
     webhookUrl: string;
+    /** מספר הבוט לתצוגה — גיבוי לשליפה מ-Meta. הערך עצמו. */
+    botNumber?: string;
     assistant: {
       configured: boolean;
       source: "db" | "env" | "none";
@@ -388,6 +390,7 @@ export function PlatformSettingsSection({
       const verify = String(f.get("whatsappVerifyToken")).trim();
       const accessToken = String(f.get("whatsappAccessToken") ?? "").trim();
       const phoneNumberId = String(f.get("whatsappPhoneNumberId") ?? "").trim();
+      const botNumber = String(f.get("whatsappBotNumber") ?? "").trim();
       const prospectReply = String(f.get("whatsappProspectReply") ?? "").trim();
       const notifyTemplate = String(f.get("whatsappNotifyTemplate") ?? "").trim();
       const notifyTemplateLang = String(f.get("whatsappNotifyTemplateLang") ?? "").trim();
@@ -411,6 +414,10 @@ export function PlatformSettingsSection({
         ...(verify !== "" ? { whatsappVerifyToken: verify } : {}),
         ...(accessToken !== "" ? { whatsappAccessToken: accessToken } : {}),
         ...(phoneNumberId !== "" ? { whatsappPhoneNumberId: phoneNumberId } : {}),
+        // ‎`botNumber` נשלח תמיד, גם ריק: הוא גיבוי שמכוון למחוק אותו
+        // ברגע ש-Meta מתחילה לענות, וריק כאן פירושו „חזרו להסתמך על
+        // Meta בלבד” ולא „בלי שינוי”
+        whatsappBotNumber: botNumber,
         // נשלח תמיד, גם ריק: זה שדה ערך (כמו המסמכים המשפטיים),
         // וריקון מכוון הוא חזרה לנוסח המובנה — לא "בלי שינוי"
         whatsappProspectReply: prospectReply,
@@ -1727,6 +1734,32 @@ export function PlatformSettingsSection({
               inputMode="numeric"
               autoComplete="off"
               placeholder={settings.whatsapp.assistant.configured ? "מוגדר" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          {/*
+            ‎**המספר שהמשתמש רואה — לא זה ש-Meta מזהה לפיו.**
+
+            ‎`Phone Number ID` הוא מזהה פנימי ואי אפשר לחייג אליו.
+            המספר עצמו נשלף מ-Meta אוטומטית, והשדה הזה נכנס רק כשהיא
+            אינה עונה — או כשהצד היוצא כלל אינו מוגדר. בלעדיו מסך
+            חיבור המכשיר מציג קוד ואומר „שלחו ידנית” בלי לומר למי.
+          */}
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="whatsappBotNumber" className="mb-1 block font-medium">
+              מספר הבוט לתצוגה{" "}
+              <span className="font-normal">(ריק = נשלף מ-Meta)</span>
+            </label>
+            <input
+              id="whatsappBotNumber"
+              name="whatsappBotNumber"
+              type="tel"
+              dir="ltr"
+              autoComplete="off"
+              key={settings.whatsapp.botNumber ?? ""}
+              defaultValue={settings.whatsapp.botNumber ?? ""}
+              placeholder="0553142235"
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />

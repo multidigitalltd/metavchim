@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import {
   fitsInteractive,
   listPayload,
+  normalizePhoneForWhatsapp,
   replyButtonsPayload,
   splitForWhatsApp,
   whatsappTemplateButton,
@@ -84,6 +85,29 @@ export class WhatsAppSendService {
   private displayNumber: { value: string | null; at: number } | null = null;
 
   async businessNumber(): Promise<string | null> {
+    const fromMeta = await this.metaDisplayNumber();
+    if (fromMeta !== null) return fromMeta;
+    /*
+     * ‎**הגיבוי אינו במטמון של Meta, בכוונה.**
+     *
+     * המטמון שומר גם כישלון, ולשעה — אחרת כל פתיחת מסך הייתה ממתינה
+     * לפסק זמן. אבל ההגדרה הידנית היא בדיוק מה שממלאים **בגלל**
+     * הכישלון הזה, ושעה שבה היא אינה נכנסת לתוקף נראית כמו שדה
+     * שבור. ‎`PlatformSettingsService` ממילא ממטמן ל-30 שניות.
+     */
+    /*
+     * ‎`normalizePhoneForWhatsapp` ולא הסרת תווים בלבד: המנהל מקליד
+     * ‎`0553142235`, וזו הצורה שהתיעוד מציג. מספר מקומי שיוצא מכאן
+     * כמות שהוא הופך ל-`+0553142235` בתצוגה ובקישור החיוג — מספר
+     * שאינו קיים. הנרמול כאן, כי זה הגבול שממנו כל השאר צורך.
+     */
+    const manual = normalizePhoneForWhatsapp(
+      (await this.platformSettings.get("whatsappBotNumber")) ?? "",
+    );
+    return manual === "" ? null : manual;
+  }
+
+  private async metaDisplayNumber(): Promise<string | null> {
     const TTL_MS = 60 * 60 * 1000;
     if (this.displayNumber !== null && Date.now() - this.displayNumber.at < TTL_MS) {
       return this.displayNumber.value;

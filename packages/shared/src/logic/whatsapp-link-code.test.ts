@@ -3,6 +3,7 @@ import {
   WHATSAPP_LINK_CODE_ALPHABET,
   WHATSAPP_LINK_CODE_LENGTH,
   WHATSAPP_LINK_MAX_AGE_DAYS,
+  displayWhatsappNumber,
   formatWhatsappLinkCode,
   looksLikeWhatsappLinkCode,
   linkNeedsReverification,
@@ -146,5 +147,47 @@ describe("whatsappPairingLink", () => {
     const text = url.searchParams.get("text")!;
     expect(looksLikeWhatsappLinkCode(text)).toBe(true);
     expect(normalizeWhatsappLinkCode(text)).toBe("4F7K2Q");
+  });
+});
+
+describe("displayWhatsappNumber", () => {
+  it("מספר ישראלי מוצג בפורמט המקומי — כך מקלידים אותו", () => {
+    expect(displayWhatsappNumber("972553142235")).toBe("055-314-2235");
+  });
+
+  it("סימני עיצוב במקור אינם משנים את התוצאה", () => {
+    expect(displayWhatsappNumber("+972-55-314-2235")).toBe("055-314-2235");
+  });
+
+  it("מספר זר נשאר בינלאומי — שם הקידומת היא ההקשר", () => {
+    expect(displayWhatsappNumber("14155552671")).toBe("+14155552671");
+  });
+
+  it("אורך ישראלי חריג אינו מפוצל כאילו היה תקין", () => {
+    expect(displayWhatsappNumber("97255314")).toBe("+97255314");
+  });
+
+  it("ריק נשאר ריק — אין מה להציג", () => {
+    expect(displayWhatsappNumber("")).toBe("");
+    expect(displayWhatsappNumber("---")).toBe("");
+  });
+});
+
+describe("displayWhatsappNumber — הצורה שהמנהל באמת מקליד", () => {
+  /*
+   * ‎`0553142235` הוא מה שהתיעוד ושדה ההגדרה מציגים. בלי נרמול הוא
+   * יצא `+0553142235` — מספר שאינו קיים, וגם `tel:` שבור. הקישור
+   * ל-`wa.me` עבד בכל זאת, וזה מה שהסתיר את זה.
+   */
+  it("מספר מקומי מוצג כמו מספר ישראלי, לא כמו בינלאומי שבור", () => {
+    expect(displayWhatsappNumber("0553142235")).toBe("055-314-2235");
+  });
+
+  it("אותה תוצאה בדיוק כמו מהצורה הבינלאומית — אין שני מסלולים", () => {
+    expect(displayWhatsappNumber("0553142235")).toBe(displayWhatsappNumber("972553142235"));
+  });
+
+  it("חיוג בינלאומי ישן (00) נפתר גם הוא", () => {
+    expect(displayWhatsappNumber("00972553142235")).toBe("055-314-2235");
   });
 });
