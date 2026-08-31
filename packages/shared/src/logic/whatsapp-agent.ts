@@ -126,34 +126,6 @@ export function whatsappAgentSeats(input: {
 export const WHATSAPP_SEAT_LIVE_STATUSES = ["active", "past_due"] as const;
 
 /**
- * ‎**מקום שבוטל ממשיך להיספר עד תום התקופה ששולמה.**
- *
- * הביטול אומר במפורש „המקום יישאר עד סוף התקופה, בלי החזר”, וכל
- * ספירות המכסה בדקו `active | past_due` בלבד — כלומר המכסה ירדה
- * ברגע הלחיצה. המשרד ראה פחות מקומות ממה ששילם עליהם, וגרוע מזה:
- * בעל משרד שכיבה מחזיק אחד כדי להעביר את המקום **ששולם** לסוכן
- * אחר נחסם בהקצאה החוזרת (ביקורת Codex).
- *
- * ולכן אי אפשר לבטא את זה ברשימת סטטוסים: המצב תלוי בזמן. הפונקציה
- * הזו מחזירה את התנאי המלא, והיא המקום היחיד שמכיר אותו.
- */
-export function whatsappSeatCountsForQuota(
-  seat: { status: string; currentPeriodEnd: Date | null },
-  now: Date,
-): boolean {
-  if ((WHATSAPP_SEAT_LIVE_STATUSES as readonly string[]).includes(seat.status)) return true;
-  /*
-   * ‎`null` בתקופה = מעולם לא שולם (ביטול לפני תשלום), ואז אין מה
-   * לספור — להבדיל מתקופה שעברה, שגם היא אינה נספרת.
-   */
-  return (
-    seat.status === "cancelled" &&
-    seat.currentPeriodEnd !== null &&
-    seat.currentPeriodEnd.getTime() > now.getTime()
-  );
-}
-
-/**
  * מה להציע למי שאין לו מקום — **מחיר, או „פנו אלינו”.**
  *
  * ‎`null` בשדה המחיר של המסלול אינו „טרם הוגדר”: הוא אומר שהמסלול

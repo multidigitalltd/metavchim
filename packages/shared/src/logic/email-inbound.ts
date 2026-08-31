@@ -239,15 +239,62 @@ export const EMAIL_ATTACHMENT_MAX_COUNT = 10;
  */
 export const EMAIL_OUTBOUND_ATTACHMENT_TOTAL_BYTES = 7 * 1024 * 1024;
 
+/** בייתים בפתיחת הקובץ תואמים לחתימה, החל מהיסט נתון. */
+function bytesAt(content: Uint8Array, offset: number, signature: readonly number[]): boolean {
+  if (content.length < offset + signature.length) return false;
+  return signature.every((byte, i) => content[offset + i] === byte);
+}
+
+/**
+ * האם התוכן עצמו פותח בחתימה (Magic Bytes) של הסוג המוצהר. מוגבל
+ * במכוון לתמונות ווידאו — הסוגים שמרונדרים inline בדפדפן; מסמכים
+ * מוגשים כהורדה ממילא ואין להם מה להרוויח כאן.
+ */
+function matchesMagicBytes(mime: string, content: Uint8Array): boolean {
+  switch (mime) {
+    case "image/jpeg":
+      return bytesAt(content, 0, [0xff, 0xd8, 0xff]);
+    case "image/png":
+      return bytesAt(content, 0, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    case "image/webp":
+      // RIFF....WEBP
+      return bytesAt(content, 0, [0x52, 0x49, 0x46, 0x46]) &&
+        bytesAt(content, 8, [0x57, 0x45, 0x42, 0x50]);
+    case "image/gif":
+      // GIF8
+      return bytesAt(content, 0, [0x47, 0x49, 0x46, 0x38]);
+    case "video/mp4":
+    case "video/quicktime":
+      // תיבת ftyp בהיסט 4 — משותפת ל-MP4 ול-MOV
+      return bytesAt(content, 4, [0x66, 0x74, 0x79, 0x70]);
+    case "video/webm":
+      // כותרת EBML
+      return bytesAt(content, 0, [0x1a, 0x45, 0xdf, 0xa3]);
+    default:
+      return false;
+  }
+}
+
 /**
  * נרמול סוג תוכן מוצהר אל הרשימה הסגורה. `null` = לא נשמר.
  * הפרמטרים שאחרי `;` (charset וכו') אינם חלק מההכרעה.
+ *
+ * כשהתוכן עצמו נמסר, ההצהרה נבדקת מולו: קובץ שמוצהר כתמונה או וידאו
+ * אך אינו פותח בחתימה המתאימה יורד ל-`"file"` — נשמר ומוגש כהורדה
+ * בלבד, לא מרונדר inline. ההצהרה מגיעה מהשולח והיא אינה גבול אמון;
+ * זה אותו עיקרון שכבר חל על העלאות מאומתות (media/tenant-logo).
  */
 export function emailAttachmentKind(
   contentType: string,
+  content?: Uint8Array,
 ): "image" | "video" | "file" | null {
   const normalized = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
-  return EMAIL_ATTACHMENT_TYPES[normalized] ?? null;
+  const kind = EMAIL_ATTACHMENT_TYPES[normalized] ?? null;
+  if (kind === null || content === undefined) return kind;
+  if ((kind === "image" || kind === "video") && !matchesMagicBytes(normalized, content)) {
+    return "file";
+  }
+  return kind;
 }
 
 /**

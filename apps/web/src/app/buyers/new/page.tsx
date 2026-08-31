@@ -13,7 +13,7 @@ import { PriceField } from "../../price-field";
 import { EntryTimingField } from "../../properties/entry-timing-field";
 import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
-import type { SearchArea } from "@metavchim/shared";
+import { normalizePhone, type SearchArea } from "@metavchim/shared";
 import { Notice } from "../../notice";
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
@@ -25,14 +25,6 @@ const FEATURES = [
   ["hasSafeRoom", 'ממ"ד'],
   ["hasStorage", "מחסן"],
 ] as const;
-
-/** נרמול טלפון ישראלי ל-E.164 — ‎050-1234567 → ‎+972501234567 */
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[^\d+]/gu, "");
-  if (digits.startsWith("+972")) return digits;
-  if (digits.startsWith("0")) return `+972${digits.slice(1)}`;
-  return digits;
-}
 
 export default function NewBuyerPage() {
   useRequireAuth();

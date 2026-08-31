@@ -46,6 +46,23 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="he" dir="rtl">
       <head>
+        {/* שני המשקלים שכמעט כל מסך פותח בהם נטענים מיד, בלי להמתין
+            ל-CSS — מקצר את חלון ה-FOUT של font-display: swap.
+            השאר (medium/ultrabold) נטענים כרגיל לפי הצורך. */}
+        <link
+          rel="preload"
+          href="/fonts/almoni-regular-aaa.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+        <link
+          rel="preload"
+          href="/fonts/almoni-bold-aaa.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
         {/* יישום ערכת הנושא לפני הצביעה הראשונה — בלי זה מסך כהה
             שנבחר ידנית היה מהבהב בלבן בכל טעינת דף */}
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />

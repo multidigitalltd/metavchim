@@ -1,19 +1,12 @@
 import { Body, Controller, HttpCode, Param, Post } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
-import { IdSchema, LeadIntentSchema, PhoneSchema } from "@metavchim/shared";
+import { IdSchema, LeadIntentSchema, PhoneSchema, normalizePhone } from "@metavchim/shared";
 import { Public } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { WebLeadService } from "./web-lead.service";
 
-/** גולש מקליד "050-1234567" — מנרמלים ל-E.164 לפני הוולידציה. */
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[^\d+]/gu, "");
-  if (digits.startsWith("+972")) return digits;
-  if (digits.startsWith("972")) return `+${digits}`;
-  if (digits.startsWith("0")) return `+972${digits.slice(1)}`;
-  return digits;
-}
+// גולש מקליד "050-1234567" — מנרמלים ל-E.164 (normalizePhone המשותפת) לפני הוולידציה.
 
 /**
  * קליטת ליד מטופס באתר של המשרד — ציבורי, מזוהה במפתח ייעודי בלבד.

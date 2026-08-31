@@ -54,7 +54,7 @@ import { EntityTasks, type TaskListResponse } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { OwnerActivity } from "./owner-activity";
 import { PropertyOccupant, type OccupantContact } from "../property-occupant";
-import { LocationPicker } from "../location-picker";
+import { LocationPicker } from "../location-picker-lazy";
 import { ExclusivityPanel } from "../exclusivity-panel";
 import { EntityNotes } from "../../entity-notes";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";

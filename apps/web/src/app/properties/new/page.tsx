@@ -12,7 +12,7 @@ import { DictateFor } from "../../dictation-field";
 import { PriceField } from "../../price-field";
 import { FeatureChips } from "../feature-chips";
 import { EntryTimingField } from "../entry-timing-field";
-import { LocationPicker, type LocationValue } from "../location-picker";
+import { LocationPicker, type LocationValue } from "../location-picker-lazy";
 import { Notice } from "../../notice";
 
 const inputStyle = {

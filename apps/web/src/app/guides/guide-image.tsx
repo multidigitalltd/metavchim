@@ -18,6 +18,9 @@ export function GuideImage({ src, alt }: { src: string; alt: string }) {
     <img
       src={src}
       alt={alt}
+      // צילומי המסך יושבים לאורך עמוד ההדרכה — נטענים רק כשמתקרבים אליהם
+      loading="lazy"
+      decoding="async"
       onError={() => setFailed(true)}
       className="mb-4 w-full rounded-xl border"
       style={{
