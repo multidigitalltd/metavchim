@@ -3,7 +3,7 @@
 import { Suspense, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
-import { normalizePhone, safeReturnPath, withQuery } from "@metavchim/shared";
+import { safeReturnPath, withQuery } from "@metavchim/shared";
 import { apiPost, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../dictation-field";
@@ -37,7 +37,7 @@ function NewLeadForm() {
     try {
       const created = await apiPost<{ id: string; merged?: boolean; visible?: boolean }>("/leads", {
         contactName: String(f.get("contactName")).trim(),
-        contactPhone: normalizePhone(String(f.get("contactPhone"))),
+        contactPhone: String(f.get("contactPhone")).trim(),
         /* ריק לא נשלח — מחרוזת ריקה אינה כתובת, והסכימה מקפידה */
         contactEmail: String(f.get("contactEmail") ?? "").trim() || undefined,
         source: String(f.get("source")),

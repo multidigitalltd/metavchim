@@ -13,7 +13,7 @@ import { PriceField } from "../../price-field";
 import { EntryTimingField } from "../../properties/entry-timing-field";
 import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
-import { normalizePhone, type SearchArea } from "@metavchim/shared";
+import { type SearchArea } from "@metavchim/shared";
 import { Notice } from "../../notice";
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
@@ -64,7 +64,7 @@ export default function NewBuyerPage() {
     try {
       const created = await apiPost<{ id: string }>("/buyers", {
         contactName: String(f.get("contactName")).trim(),
-        contactPhone: normalizePhone(String(f.get("contactPhone"))),
+        contactPhone: String(f.get("contactPhone")).trim(),
         /* ריק לא נשלח: הסכימה בשרת מקפידה, ומחרוזת ריקה אינה כתובת */
         contactEmail: String(f.get("contactEmail") ?? "").trim() || undefined,
         source: String(f.get("source")),

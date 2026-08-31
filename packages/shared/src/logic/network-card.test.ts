@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { demandChips, entryChip, presentationChips } from "./network-card.js";
+import {
+  demandChips,
+  entryChip,
+  networkSafeTitle,
+  presentationChips,
+  withNetworkSafeTitle,
+} from "./network-card.js";
 
 const base = {
   dealType: "sale",
@@ -189,5 +195,49 @@ describe("שם האייקון ולא אימוג'י", () => {
       expect(EMOJI.test(chip.icon), chip.icon).toBe(false);
       expect(chip.icon).toMatch(/^[a-z]+$/);
     }
+  });
+});
+
+describe("networkSafeTitle — הכותרת שחוצה את גבול הדייר", () => {
+  /*
+   * הבאג שנסגר: `marketingTitle` הוא טקסט חופשי, ומתווכים כותבים
+   * בו את הכתובת. הכרטיס הבטיח „כתובת רק אחרי אישור” והציג אותה.
+   */
+  it("נבנית מסוג הנכס, החדרים והשכונה", () => {
+    expect(
+      networkSafeTitle({
+        propertyType: "apartment",
+        rooms: 3.5,
+        neighborhood: "אזור העיריה",
+        city: "בני ברק",
+      }),
+    ).toBe("דירה 3.5 חדרים · אזור העיריה");
+  });
+
+  it("בלי שכונה — העיר; היא ממילא גלויה בכרטיס", () => {
+    expect(networkSafeTitle({ propertyType: "apartment", rooms: 4, city: "בני ברק" })).toBe(
+      "דירה 4 חדרים · בני ברק",
+    );
+  });
+
+  it("בלי שום שדה — „נכס”, ולא מחרוזת ריקה", () => {
+    expect(networkSafeTitle({})).toBe("נכס");
+  });
+
+  it("‎**הכותרת השמורה נדרסת** — גם ברשומה שנכתבה לפני התיקון", () => {
+    const stored = {
+      title: "ירושלים 67",
+      propertyType: "apartment",
+      rooms: 3.5,
+      neighborhood: "אזור העיריה",
+      city: "בני ברק",
+    };
+    expect(withNetworkSafeTitle(stored).title).toBe("דירה 3.5 חדרים · אזור העיריה");
+  });
+
+  it("שאר השדות אינם נוגעים — רק הכותרת מוחלפת", () => {
+    const stored = { title: "ירושלים 67", city: "בני ברק", priceAgorot: 200000000 };
+    expect(withNetworkSafeTitle(stored).priceAgorot).toBe(200000000);
+    expect(withNetworkSafeTitle(stored).city).toBe("בני ברק");
   });
 });

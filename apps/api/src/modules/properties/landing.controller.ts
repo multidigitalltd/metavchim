@@ -11,7 +11,7 @@ import {
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
-import { IdSchema, PhoneSchema, normalizePhone } from "@metavchim/shared";
+import { IdSchema, PhoneInputSchema } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -24,11 +24,10 @@ import { LandingService, type LandingView } from "./landing.service";
 
 const TokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
 
-// גולש מקליד "050-1234567" — מנרמלים ל-E.164 (normalizePhone המשותפת) לפני הוולידציה.
 const LandingLeadSchema = z
   .object({
     name: z.string().trim().min(2).max(120),
-    phone: z.string().trim().max(25).transform(normalizePhone).pipe(PhoneSchema),
+    phone: PhoneInputSchema,
     message: z.string().trim().max(2000).optional(),
     website: z.string().max(200).optional(), // honeypot — אמור להישאר ריק
   })

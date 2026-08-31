@@ -16,7 +16,7 @@ import {
   MAX_NOTICE_PERIOD_DAYS,
   OCCUPANCY_STATES,
   PAGE_LIMIT_MAX,
-  PhoneSchema,
+  PhoneInputSchema,
   PropertyFieldsSchema,
   PropertyStatusSchema,
   type Page,
@@ -39,13 +39,13 @@ const CreatePropertySchema = PropertyFieldsSchema.extend({
   internalNotes: z.string().max(4000).optional(),
   // בעל הנכס (המוכר) — contact לפי טלפון; מזין את התיק המאוחד (docs/03)
   ownerName: z.string().min(2).max(120).optional(),
-  ownerPhone: PhoneSchema.optional(),
+  ownerPhone: PhoneInputSchema.optional(),
   /*
    * מי גר בנכס כשזה אינו הבעלים — דירה שמושכרת בזמן שהיא מוצעת.
    * הבעלים מחליט על המכירה, אבל הדלת נפתחת על ידי מי שגר שם.
    */
   occupantName: z.string().min(2).max(120).optional(),
-  occupantPhone: PhoneSchema.optional(),
+  occupantPhone: PhoneInputSchema.optional(),
 }).strict();
 
 const UpdatePropertySchema = CreatePropertySchema.partial()
