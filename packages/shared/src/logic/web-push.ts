@@ -89,6 +89,12 @@ const ENTITY_ROUTES: Record<string, (id?: string) => string> = {
    */
   coop_deal: (id) =>
     id ? `/collaboration/deals/${id}` : "/collaboration?tab=deals",
+  /*
+   * ‎**חיבור המרכזייה — מסך ההגדרות שלו.** המזהה הוא של המשרד ולא
+   * של החיבור, ולכן אין כאן פריט בודד לפתוח; מסך החיבורים הוא
+   * המקום שבו באמת עושים משהו עם „המרכזייה השתתקה”.
+   */
+  integration: () => "/settings/integrations",
   call: (id) => (id ? `/calls?call=${id}` : "/calls"),
 };
 

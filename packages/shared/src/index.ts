@@ -28,6 +28,7 @@ export * from "./logic/voice-command.js";
 export * from "./logic/parse-hebrew-datetime.js";
 export * from "./logic/notifications.js";
 export * from "./logic/israel-time.js";
+export * from "./logic/pbx-watch.js";
 export * from "./logic/coach.js";
 export * from "./logic/support.js";
 export * from "./logic/support-inbox.js";

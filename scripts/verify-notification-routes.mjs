@@ -125,7 +125,6 @@ const FALLBACK_BY_DESIGN = new Set([
   "credit_batch", // מנת קרדיטים שעומדת לפוג — אין מסך למנה בודדת
   "exclusivity", // המזהה הוא של הבלעדיות ולא של הנכס
   "payout_request", // בקשת משיכה — נצפית ברשימת התשלומים
-  "integration", // המזהה הוא של המשרד, לא של החיבור
 ]);
 
 const sources = [join(root, "apps/api/src"), join(root, "apps/workers/src")];

@@ -33,6 +33,15 @@ import {
 } from "./viewing-reminder.js";
 
 /** מפתח אוטומציה — נשמר ב-DB, ולכן אינו משתנה אחרי שיצא לאוויר. */
+import {
+  DEFAULT_PBX_SILENT_HOURS,
+  DEFAULT_PBX_WATCH,
+  PBX_SILENT_MAX_HOURS,
+  PBX_SILENT_MIN_HOURS,
+  resolvePbxWatch,
+  type PbxWatchWindow,
+} from "./pbx-watch.js";
+
 export type AutomationKey =
   | "lead_sla"
   | "stale_lead"
@@ -43,6 +52,7 @@ export type AutomationKey =
   | "weekly_summary"
   | "exclusivity"
   | "missed_call_intake"
+  | "pbx_silent"
   | "viewing_reminder";
 
 /** יחידת הסף שאפשר לכוון. `null` = לאוטומציה אין מספר, רק כן/לא. */
@@ -86,6 +96,13 @@ export interface AutomationSpec {
    * תאריך חוזי אינה שליטה, היא מלכודת.
    */
   required?: boolean;
+  /**
+   * ‎**לאוטומציה יש חלון ניטור** — ימים ושעות שבהם היא בכלל בודקת.
+   *
+   * רק לזו שמתריעה על **היעדר**. כל השאר מגיבות לאירוע שקרה, ואירוע
+   * שקרה בשבת עדיין קרה; „לא קרה כלום” בשבת הוא המצב התקין.
+   */
+  watch?: true;
 }
 
 export const AUTOMATIONS: readonly AutomationSpec[] = [
@@ -166,6 +183,25 @@ export const AUTOMATIONS: readonly AutomationSpec[] = [
     unit: null,
   },
   {
+    /*
+     * ‎**התראה על מה ש*לא* קרה — היחידה כזו בקטלוג.**
+     *
+     * שני משרדים לא קיבלו אף אירוע מרכזייה ארבעה וחמישה ימים ואיש
+     * לא ידע; שלישי נפל באמצע יום עבודה, ואת זה גילה מתווך שהתלונן.
+     * תקלה במרכזייה אינה מרעישה — היא היעדר, ושום מסך אינו מציג
+     * היעדר.
+     */
+    key: "pbx_silent",
+    title: "המרכזייה השתתקה",
+    what: "התראה למשרד כשלא נקלטה אף שיחה נכנסת — סימן שהוובהוק אצל ספק המרכזייה כבוי.",
+    when: "נבדק כל שעה, ורק בימים ובשעות שהוגדרו כשעות הפעילות. מתריע פעם ביום לכל היותר.",
+    unit: "hours",
+    defaultValue: DEFAULT_PBX_SILENT_HOURS,
+    min: PBX_SILENT_MIN_HOURS,
+    max: PBX_SILENT_MAX_HOURS,
+    watch: true,
+  },
+  {
     key: "viewing_reminder",
     title: "תזכורת לפני סיור",
     what: "נשלחת תזכורת למי שגר בנכס ולקונה שקבוע לו סיור. מי שאי אפשר להגיע אליו — נפתחת משימה לסוכן.",
@@ -211,6 +247,8 @@ export interface AutomationSetting {
   channel?: ViewingReminderChannel;
   /** נוסח פר-נמען. מפתח חסר ⇒ נוסח ברירת המחדל שבקטלוג. */
   messages?: Record<string, string>;
+  /** חלון הניטור — רק לאוטומציה שמסומנת `watch`. */
+  watch?: PbxWatchWindow;
 }
 
 export type AutomationSettings = Record<AutomationKey, AutomationSetting>;
@@ -227,6 +265,7 @@ export function defaultAutomationSettings(): AutomationSettings {
        * בלבד מפספסת בדיוק את הלקוח שאינו חי בערוץ הזה, ואת המשרד
        * זה עולה בנסיעה לשווא. מי שרוצה פחות — מצמצם במסך.
        */
+      ...(spec.watch === undefined ? {} : { watch: DEFAULT_PBX_WATCH }),
       ...(spec.outbound === undefined
         ? {}
         : {
@@ -267,6 +306,15 @@ export function resolveAutomationSettings(raw: unknown): AutomationSettings {
     }
     if (spec.unit !== null && typeof record["value"] === "number") {
       current.value = clampValue(spec, record["value"]);
+    }
+
+    /*
+     * ‎`resolvePbxWatch` ולא קריאה ידנית של השדות: ההכרעה מה נחשב
+     * חלון תקין — ומה קורה כשהוא נשמר שבור — יושבת ליד הלוגיקה
+     * שמשתמשת בו, ולא בשני מקומות שיסטו זה מזה.
+     */
+    if (spec.watch !== undefined) {
+      current.watch = resolvePbxWatch(record["watch"]);
     }
 
     if (spec.outbound !== undefined) {
@@ -312,7 +360,13 @@ function clampValue(spec: AutomationSpec, value: number): number {
  */
 export function automationRejectionReason(
   key: string,
-  setting: { enabled?: unknown; value?: unknown; channel?: unknown; messages?: unknown },
+  setting: {
+    enabled?: unknown;
+    value?: unknown;
+    channel?: unknown;
+    messages?: unknown;
+    watch?: unknown;
+  },
 ): string | null {
   const spec = BY_KEY.get(key as AutomationKey);
   if (spec === undefined) return `אוטומציה לא מוכרת: ${key}`;
@@ -322,6 +376,43 @@ export function automationRejectionReason(
   }
   if (spec.required === true && setting.enabled === false) {
     return `${spec.title}: אי אפשר לכבות — אלו מועדים שנובעים מהחוזה`;
+  }
+
+  /*
+   * ‎**חלון ניטור על אוטומציה שאין לה כזה נדחה** — מאותו נימוק
+   * בדיוק כמו הערוץ למטה: 200 על הגדרה שלא נשמרה הוא מסך שמשקר.
+   */
+  if (setting.watch !== undefined) {
+    if (spec.watch === undefined) return `${spec.title}: אין לה שעות ניטור`;
+    if (typeof setting.watch !== "object" || setting.watch === null) {
+      return `${spec.title}: שעות הניטור חייבות להיות ימים ושעות`;
+    }
+    const watch = setting.watch as Record<string, unknown>;
+    if (!Array.isArray(watch["days"])) return `${spec.title}: חסרה רשימת ימים`;
+    /*
+     * ‎**רשימה ריקה נדחית ולא נבלעת.** `resolvePbxWatch` מחזיר את
+     * ברירת המחדל על ריק — הגנה נכונה על **קריאה** של הגדרה שנשמרה
+     * שבורה, אבל בכתיבה היא הייתה אומרת „נשמר” ומחזירה למשרד בדיוק
+     * את מה שהוא ניסה לשנות.
+     */
+    if (watch["days"].length === 0) return `${spec.title}: בחרו לפחות יום אחד`;
+    if (
+      watch["days"].some(
+        (day) => typeof day !== "number" || !Number.isInteger(day) || day < 0 || day > 6,
+      )
+    ) {
+      return `${spec.title}: יום לא תקין`;
+    }
+    const from = watch["fromHour"];
+    const to = watch["toHour"];
+    for (const hour of [from, to]) {
+      if (typeof hour !== "number" || !Number.isInteger(hour) || hour < 0 || hour > 24) {
+        return `${spec.title}: שעה לא תקינה`;
+      }
+    }
+    if ((from as number) >= (to as number)) {
+      return `${spec.title}: שעת הסיום חייבת להיות אחרי שעת ההתחלה`;
+    }
   }
 
   /*
