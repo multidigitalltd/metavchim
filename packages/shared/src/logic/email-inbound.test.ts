@@ -107,6 +107,15 @@ describe("emailAttachmentKind", () => {
     expect(emailAttachmentKind("video/webm", webm)).toBe("video");
   });
 
+  it("Magic Bytes: ‏MOV ישן בלי ftyp — האטום הראשון יכול להיות moov/mdat/wide", () => {
+    for (const atom of ["moov", "mdat", "wide", "free"]) {
+      const mov = Uint8Array.from([0, 0, 0, 0x08, ...Buffer.from(atom)]);
+      expect(emailAttachmentKind("video/quicktime", mov)).toBe("video");
+      // ‏MP4 עדיין דורש ftyp — ההרחבה היא ל-QuickTime בלבד
+      expect(emailAttachmentKind("video/mp4", mov)).toBe("file");
+    }
+  });
+
   it("Magic Bytes: הצהרת תמונה/וידאו על תוכן אחר יורדת ל-file (הורדה בלבד)", () => {
     const html = Uint8Array.from(Buffer.from("<html><script>alert(1)</script>"));
     expect(emailAttachmentKind("image/png", html)).toBe("file");

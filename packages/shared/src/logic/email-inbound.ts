@@ -264,9 +264,18 @@ function matchesMagicBytes(mime: string, content: Uint8Array): boolean {
       // GIF8
       return bytesAt(content, 0, [0x47, 0x49, 0x46, 0x38]);
     case "video/mp4":
-    case "video/quicktime":
-      // תיבת ftyp בהיסט 4 — משותפת ל-MP4 ול-MOV
+      // תיבת ftyp בהיסט 4
       return bytesAt(content, 4, [0x66, 0x74, 0x79, 0x70]);
+    case "video/quicktime":
+      /*
+       * ‏MOV ישן אינו חייב לפתוח ב-ftyp: מבנה QuickTime הוא רצף
+       * אטומים ‎[גודל][סוג]‎, והראשון יכול להיות גם moov, mdat,
+       * free, wide, skip או pnot (ביקורת Codex). מזהים לפי סוג
+       * האטום בהיסט 4, לא לפי אטום ספציפי.
+       */
+      return ["ftyp", "moov", "mdat", "free", "wide", "skip", "pnot"].some((atom) =>
+        bytesAt(content, 4, [...atom].map((c) => c.charCodeAt(0))),
+      );
     case "video/webm":
       // כותרת EBML
       return bytesAt(content, 0, [0x1a, 0x45, 0xdf, 0xa3]);
