@@ -66,6 +66,55 @@ export class WhatsAppSendService {
   }
 
   /**
+   * ‎**המספר העסקי שהלקוחות שולחים אליו — כפי ש-Meta מכירה אותו.**
+   *
+   * ‎`phoneNumberId` הוא מזהה אטום ואי אפשר לחייג אליו; המספר לחיוג
+   * יושב אצל Meta ומגיע רק מהגרף. הוא נדרש כדי לבנות קישור
+   * ‎`wa.me` — כלומר כדי שאפשר יהיה **לסרוק ברקוד** או ללחוץ על
+   * קישור במקום להקליד קוד בן שש אותיות ביד.
+   *
+   * הוא אינו נשמר כהגדרה בכוונה: הגדרה כזאת אפשר להקליד שגוי, והיא
+   * מתיישנת בשקט אם המספר מוחלף. המקור הוא Meta, והמטמון כאן קצר
+   * דיו כדי שהחלפה תתפוס תוך שעה.
+   *
+   * ‎`null` = הצד היוצא לא הוגדר, או ש-Meta לא ענתה. הקוד עצמו עדיין
+   * מוצג, והמשתמש עדיין יכול לשלוח אותו ידנית — הקיצור נעלם, לא
+   * היכולת.
+   */
+  private displayNumber: { value: string | null; at: number } | null = null;
+
+  async businessNumber(): Promise<string | null> {
+    const TTL_MS = 60 * 60 * 1000;
+    if (this.displayNumber !== null && Date.now() - this.displayNumber.at < TTL_MS) {
+      return this.displayNumber.value;
+    }
+    const creds = await this.credentials();
+    if (!creds) return null;
+    let value: string | null = null;
+    try {
+      const res = await fetch(`${GRAPH_BASE}/${creds.phoneNumberId}?fields=display_phone_number`, {
+        headers: { authorization: `Bearer ${creds.token}` },
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { display_phone_number?: string };
+        const digits = (data.display_phone_number ?? "").replace(/\D/gu, "");
+        value = digits === "" ? null : digits;
+      } else {
+        this.logger.warn(`Meta לא החזירה את המספר העסקי: HTTP ${res.status}`);
+      }
+    } catch (error) {
+      this.logger.warn(`שליפת המספר העסקי מ-Meta נכשלה: ${String(error)}`);
+    }
+    /*
+     * גם כישלון נשמר במטמון, ולזמן מלא: בלי זה כל פתיחת מסך שמציג
+     * את הקוד הייתה פונה שוב ל-Meta ומחכה לפסק הזמן.
+     */
+    this.displayNumber = { value, at: Date.now() };
+    return value;
+  }
+
+  /**
    * שליחת טקסט. false = לא נשלח (לא מוגדר / Meta דחה) — נרשם ללוג.
    *
    * תשובה ארוכה נשלחת בכמה הודעות ולא נחתכת: ראו `whatsapp-text`.

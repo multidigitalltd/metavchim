@@ -7,6 +7,7 @@ import {
   looksLikeWhatsappLinkCode,
   linkNeedsReverification,
   normalizeWhatsappLinkCode,
+  whatsappPairingLink,
 } from "./whatsapp-link-code.js";
 
 describe("קוד הקישור — הצורה שהמתווך מעתיק", () => {
@@ -112,5 +113,38 @@ describe("אימות מחדש", () => {
   it("ובגיל המרבי — כן", () => {
     expect(linkNeedsReverification(daysAgo(WHATSAPP_LINK_MAX_AGE_DAYS), now)).toBe(true);
     expect(linkNeedsReverification(daysAgo(WHATSAPP_LINK_MAX_AGE_DAYS + 30), now)).toBe(true);
+  });
+});
+
+describe("whatsappPairingLink", () => {
+  const CODE = formatWhatsappLinkCode("4F7K2Q");
+
+  it("בונה קישור wa.me אל המספר העסקי עם הקוד כטקסט", () => {
+    expect(whatsappPairingLink("972501234567", CODE)).toBe(
+      "https://wa.me/972501234567?text=MV-4F7K2Q",
+    );
+  });
+
+  it("מנרמל מספר מקומי — מי שמקליד 05… לא מקבל קישור שבור", () => {
+    expect(whatsappPairingLink("050-1234567", CODE)).toBe(
+      "https://wa.me/972501234567?text=MV-4F7K2Q",
+    );
+  });
+
+  it("null כשאין מספר עסקי — הקוד עדיין מוצג, רק הקיצור נעלם", () => {
+    expect(whatsappPairingLink(null, CODE)).toBeNull();
+    expect(whatsappPairingLink("  ", CODE)).toBeNull();
+  });
+
+  /*
+   * ‎**זו הטענה שמחזיקה את כל התכונה.** הטקסט שהקישור פותח איתו
+   * חייב לעבור בדיוק את אותה בדיקה שהשרת עושה על הודעה נכנסת —
+   * אחרת הלחיצה שולחת הודעה שתפורש כשאלה לסוכן, לא כקוד.
+   */
+  it("הטקסט שנשלח מזוהה בשרת כקוד, ומפוענח חזרה לאותו קוד", () => {
+    const url = new URL(whatsappPairingLink("972501234567", CODE)!);
+    const text = url.searchParams.get("text")!;
+    expect(looksLikeWhatsappLinkCode(text)).toBe(true);
+    expect(normalizeWhatsappLinkCode(text)).toBe("4F7K2Q");
   });
 });

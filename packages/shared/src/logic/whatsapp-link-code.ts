@@ -1,4 +1,5 @@
 import { stripPastedNoise } from "./pasted-code.js";
+import { whatsappLink } from "./whatsapp-link.js";
 
 /**
  * קוד הקישור בין מספר וואטסאפ לחשבון — **הזהות המפורשת.**
@@ -118,4 +119,36 @@ export function looksLikeWhatsappLinkCode(text: string): boolean {
 export function linkNeedsReverification(verifiedAt: Date, now: Date): boolean {
   const days = (now.getTime() - verifiedAt.getTime()) / 86_400_000;
   return days >= WHATSAPP_LINK_MAX_AGE_DAYS;
+}
+
+/**
+ * ‎**הקישור שפותח וואטסאפ עם הקוד כבר בפנים.**
+ *
+ * ## מה זה מחליף
+ *
+ * עד כה המסך הציג „MV-4F7K2Q” והנחה לשלוח אותו בוואטסאפ אל המספר
+ * העסקי. מי שיושב מול מחשב צריך לזכור שש אותיות, לפתוח את הטלפון,
+ * למצוא את המספר, ולהקליד. כל שלב שם הוא מקום להיעצר בו, ואות
+ * שגויה אחת שורפת ניסיון מתוך חמישה.
+ *
+ * ‎`wa.me` עם `?text=` פותח את השיחה כשההודעה כבר מוקלדת — נשאר
+ * ללחוץ „שלח”. אותו קישור מקודד גם כברקוד, ואז מי שמול המחשב סורק
+ * אותו בטלפון ומקבל את אותה שיחה מוכנה.
+ *
+ * ## והטקסט הוא הקוד ותו לא
+ *
+ * ‎`looksLikeWhatsappLinkCode` תופס הודעה שאורכה עד `ATTEMPT_MAX_LENGTH`
+ * ‎(12) ומתחילה ב-„MV”. משפט מלווה ידידותי — „שלום, הקוד שלי הוא…” —
+ * היה מוציא את ההודעה מהחלון הזה, והשרת היה מפרש אותה כשאלה לסוכן
+ * במקום כקוד. הנימוס כאן עולה בכך שהקישור לא יעבוד.
+ *
+ * ‎`null` = אין מספר עסקי (הצד היוצא לא הוגדר, או ש-Meta לא ענתה).
+ * הקוד עצמו עדיין מוצג — הקיצור נעלם, לא היכולת.
+ */
+export function whatsappPairingLink(
+  businessNumber: string | null,
+  formattedCode: string,
+): string | null {
+  if (businessNumber === null || businessNumber.trim() === "") return null;
+  return whatsappLink(businessNumber, formattedCode);
 }
