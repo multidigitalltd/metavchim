@@ -44,6 +44,8 @@ import { SellerForm } from "./seller-form";
 
 interface PublicView {
   officeName: string;
+  /** נתיב הלוגו של המשרד, או `null` כשלא הועלה. */
+  logoUrl: string | null;
   greetingName: string;
   status: string;
   inactive: "revoked" | "expired" | null;
@@ -273,7 +275,7 @@ export default function IntakeFormPage({
   }
   if (view.inactive !== null) {
     return (
-      <Shell officeName={view.officeName}>
+      <Shell officeName={view.officeName} logoUrl={view.logoUrl}>
         <h1 className="m-0 text-center text-2xl font-extrabold">
           {view.inactive === "expired" ? "הקישור פג תוקף" : "הקישור בוטל"}
         </h1>
@@ -287,7 +289,7 @@ export default function IntakeFormPage({
   }
   if (done) {
     return (
-      <Shell officeName={view.officeName}>
+      <Shell officeName={view.officeName} logoUrl={view.logoUrl}>
         <h1 className="m-0 text-center text-2xl font-extrabold">✓ קיבלנו, תודה!</h1>
         <p className="m-0 mt-3 text-center text-[length:var(--type-button)] leading-relaxed">
           הפרטים נשמרו אצל {view.officeName}. אם יימצא נכס שמתאים למה שסימנתם —
@@ -307,7 +309,7 @@ export default function IntakeFormPage({
    */
   if (side === null) {
     return (
-      <Shell officeName={view.officeName}>
+      <Shell officeName={view.officeName} logoUrl={view.logoUrl}>
         <header className="text-center">
           <h1 className="m-0 text-2xl font-extrabold">
             שלום {view.greetingName}, איך נוכל לעזור?
@@ -347,6 +349,7 @@ export default function IntakeFormPage({
       <SellerForm
         token={token}
         officeName={view.officeName}
+        logoUrl={view.logoUrl}
         greetingName={view.greetingName}
         /*
          * ‎`needsIdentity` של צד המוכר הוא „אין איש קשר”, ולא „קישור
@@ -362,7 +365,7 @@ export default function IntakeFormPage({
   }
 
   return (
-    <Shell officeName={view.officeName}>
+    <Shell officeName={view.officeName} logoUrl={view.logoUrl}>
       <header className="text-center">
         <h1 className="m-0 text-2xl font-extrabold">
           שלום {view.greetingName}, מה אתם מחפשים?

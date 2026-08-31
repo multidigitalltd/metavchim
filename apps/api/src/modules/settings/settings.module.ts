@@ -7,7 +7,6 @@ import { AgreementTemplatesController } from "./agreement-templates.controller";
 import { AutomationRulesController } from "./automation-rules.controller";
 import { EmailDomainController } from "./email-domain.controller";
 import { SettingsController } from "./settings.controller";
-import { TenantLogoService } from "./tenant-logo.service";
 
 @Module({
   /*
@@ -22,6 +21,6 @@ import { TenantLogoService } from "./tenant-logo.service";
     EmailDomainController,
     ActivationNudgeController,
   ],
-  providers: [AccountDeletionService, TenantLogoService],
+  providers: [AccountDeletionService],
 })
 export class SettingsModule {}

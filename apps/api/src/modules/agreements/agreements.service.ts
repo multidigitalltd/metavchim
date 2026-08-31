@@ -20,6 +20,7 @@ import { AuditService } from "../../core/audit.service";
 import { EmailService } from "../../core/email.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { TenantLogoService } from "../../core/tenant-logo.service";
 import { EmailInboxService } from "../email-inbox/email-inbox.service";
 import { MessagingService } from "../messaging/messaging.service";
 
@@ -68,6 +69,8 @@ export interface PublicAgreementView {
   kind: AgreementKind;
   kindLabel: string;
   officeName: string;
+  /** נתיב ציבורי ללוגו המשרד, או `null` כשאין. */
+  logoUrl: string | null;
   body: string;
   status: string;
   signedAt?: Date;
@@ -84,7 +87,29 @@ export class AgreementsService {
     private readonly messaging: MessagingService,
     private readonly email: EmailService,
     private readonly emailInbox: EmailInboxService,
+    private readonly logo: TenantLogoService,
   ) {}
+
+  /**
+   * ‎**הלוגו של המשרד, לדף החתימה הציבורי.**
+   *
+   * המשרד נגזר מהשורה שהטוקן פתח — לעולם לא מקלט של הקורא. הטוקן
+   * שפג אינו חוסם כאן בכוונה: הוא חוסם את המסמך, ואילו הלוגו הוא
+   * נכס מותג שכבר הוצג למי שקיבל את הקישור.
+   */
+  async publicLogo(
+    token: string,
+  ): Promise<{ body: NodeJS.ReadableStream; contentType: string; contentLength?: number }> {
+    const tenantId = await this.prisma.withPublicAgreement(token, async (tx) => {
+      const row = await tx.agreement.findFirst({
+        where: { publicToken: token },
+        select: { tenantId: true },
+      });
+      if (!row) throw new NotFoundException("ההסכם לא נמצא");
+      return row.tenantId;
+    });
+    return this.logo.rawFor(tenantId);
+  }
 
   private publicUrl(token: string): string {
     return `${loadEnv().WEB_ORIGIN}/sign/${token}`;
@@ -593,6 +618,14 @@ export class AgreementsService {
         kind: row.kind as AgreementKind,
         kindLabel: AGREEMENT_KIND_LABELS[row.kind as AgreementKind],
         officeName: tenant?.name ?? "",
+        /*
+         * ‎**נתיב, ולא הקובץ.** הדף טוען אותו כתמונה רגילה, ולכן
+         * ‎`null` פירושו „אין לוגו” — והמסך יודע להציג מונוגרמה
+         * במקום, בלי בקשה שתחזור 404 בכל טעינה.
+         */
+        logoUrl: (await this.logo.has(row.tenantId))
+          ? `/public/agreements/${token}/logo`
+          : null,
         body: row.renderedBody,
         status: row.status,
         signedAt: row.signedAt ?? undefined,
