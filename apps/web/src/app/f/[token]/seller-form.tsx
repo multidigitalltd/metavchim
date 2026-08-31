@@ -444,13 +444,6 @@ export function SellerForm({
       >
         רגע, אני דווקא מחפש/ת נכס
       </button>
-
-      <p
-        className="m-0 mt-3 text-center text-[length:var(--type-caption)]"
-        style={{ color: "var(--color-text-muted)" }}
-      >
-        הפרטים נשמרים אצל {officeName} בלבד ואינם מועברים לאיש.
-      </p>
     </Shell>
   );
 }
