@@ -68,6 +68,20 @@ export class LandingController {
     return this.landing.publicView(token);
   }
 
+  /** הלוגו של המשרד — נטען כתמונה רגילה מהדף הציבורי. */
+  @Public()
+  @Get("public/landing/:token/logo")
+  @Header("Cache-Control", "private, max-age=3600")
+  async logo(
+    @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
+  ): Promise<StreamableFile> {
+    const obj = await this.landing.publicLogo(token);
+    return new StreamableFile(obj.body as never, {
+      type: obj.contentType,
+      ...(obj.contentLength !== undefined ? { length: obj.contentLength } : {}),
+    });
+  }
+
   @Public()
   @Get("public/landing/:token/media/:mediaId")
   @Header("Cache-Control", "public, max-age=3600")

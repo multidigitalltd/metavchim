@@ -188,16 +188,19 @@ services:
       retries: 5
       start_period: 90s
 
-  # גיבוי אוטומטי — pg_dump יומי + ארכיון תמונות שבועי אל ${BACKUP_DIR}
-  # במארח. שחזור: ראו docs/10-deployment.md §גיבוי ושחזור.
+  # גיבוי אוטומטי — pg_dump יומי + ארכיון מדיה יומי אל ${BACKUP_DIR}
+  # במארח. המדיה מארכבת במלואה אחת ל-BACKUP_MEDIA_FULL_DAYS ובין לבין
+  # רק מה שהשתנה. שחזור: ראו docs/10-deployment.md §גיבוי ושחזור.
   backup:
     image: postgres:16-alpine
     restart: unless-stopped
     entrypoint: ["/bin/sh", "/backup/run.sh"]
     environment:
       PGPASSWORD: ${DB_OWNER_PASSWORD:?חסר DB_OWNER_PASSWORD ב-.env.production}
-      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
-      BACKUP_MEDIA_KEEP_DAYS: ${BACKUP_MEDIA_KEEP_DAYS:-28}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
+      BACKUP_MEDIA_KEEP_DAYS: ${BACKUP_MEDIA_KEEP_DAYS:-30}
+      BACKUP_MEDIA_FULL_DAYS: ${BACKUP_MEDIA_FULL_DAYS:-7}
+      BACKUP_MIN_FREE_MB: ${BACKUP_MIN_FREE_MB:-2048}
     volumes:
       - ./infra/backup:/backup:ro
       - ${BACKUP_DIR:-./backups}:/backups

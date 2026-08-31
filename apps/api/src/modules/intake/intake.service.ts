@@ -42,6 +42,7 @@ import { AuditService } from "../../core/audit.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { BuyersService } from "../buyers/buyers.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { TenantLogoService } from "../../core/tenant-logo.service";
 import { PropertiesService } from "../properties/properties.service";
 
 /**
@@ -73,6 +74,8 @@ import { PropertiesService } from "../properties/properties.service";
 /** מבט הלקוח. `inactive` = הקישור לא פעיל, ואז אין `prefill`. */
 export interface IntakePublicView {
   officeName: string;
+  /** נתיב ציבורי ללוגו המשרד, או `null` כשאין. */
+  logoUrl: string | null;
   /** השם הפרטי בלבד — „שלום דנה”, בלי שם משפחה ובלי טלפון. */
   greetingName: string;
   status: IntakeStatus;
@@ -187,7 +190,16 @@ export class IntakeService {
     private readonly contacts: ContactsService,
     private readonly buyers: BuyersService,
     private readonly properties: PropertiesService,
+    private readonly logo: TenantLogoService,
   ) {}
+
+  /** הלוגו של המשרד — נגזר מהשורה שהטוקן פתח, לטופס הציבורי. */
+  async publicLogo(
+    token: string,
+  ): Promise<{ body: NodeJS.ReadableStream; contentType: string; contentLength?: number }> {
+    const row = await this.resolveToken(token);
+    return this.logo.rawFor(row.tenantId);
+  }
 
   /* ================= הצד הפנימי — המתווך ================= */
 
@@ -416,6 +428,8 @@ export class IntakeService {
     const row = await this.resolveToken(token);
     return this.asOffice(row.tenantId, async (tx) => {
       const officeName = await this.officeName(tx, row.tenantId);
+      /* נתיב ולא הקובץ; `null` = אין לוגו, והמסך מצייר מונוגרמה */
+      const logoUrl = (await this.logo.has(row.tenantId)) ? `/f/${token}/logo` : null;
       // קישור פתוח שטרם נשלח — אין עדיין איש קשר להביא ממנו שם
       const contact =
         row.contactId === null
@@ -435,6 +449,7 @@ export class IntakeService {
       if (inactive !== null) {
         return {
           officeName,
+          logoUrl,
           greetingName: firstName(contact?.name),
           status: row.status as IntakeStatus,
           inactive,
@@ -475,6 +490,7 @@ export class IntakeService {
       if (chosen === "seller") {
         return {
           officeName,
+          logoUrl,
           greetingName: firstName(contact?.name),
           status: (full?.status ?? row.status) as IntakeStatus,
           inactive: null,
@@ -496,6 +512,7 @@ export class IntakeService {
       const current = await this.currentRequirements(tx, row, buyerId);
       return {
         officeName,
+        logoUrl,
         greetingName: firstName(contact?.name),
         status: (full?.status ?? row.status) as IntakeStatus,
         inactive: null,

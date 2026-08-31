@@ -78,7 +78,7 @@ import {
   type LinkStatus,
 } from "../messaging/whatsapp-link.service";
 import { AccountDeletionService } from "./account-deletion.service";
-import { MAX_LOGO_BYTES, TenantLogoService } from "./tenant-logo.service";
+import { MAX_LOGO_BYTES, TenantLogoService } from "../../core/tenant-logo.service";
 
 /**
  * הגדרת האוטומציות שמגיעה מהמסך.
