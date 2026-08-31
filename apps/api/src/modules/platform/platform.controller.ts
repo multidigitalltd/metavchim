@@ -668,6 +668,22 @@ export class PlatformController {
   ) {}
 
   /**
+   * מסלול השותפים כפי שהוא נפתר **באותם שני תנאים** שהשולח בודק:
+   * הקוד בקטלוג, והמסלול חינמי. הכפילות מכוונת — כאן זו תצוגה ושם
+   * זו הכרעה — אבל שתיהן חייבות לומר את אותו דבר, ולכן שתיהן עוברות
+   * דרך `PlanCatalogService` ולא דרך שאילתה משלהן.
+   */
+  private async resolvePartnerPlan(
+    code: string,
+  ): Promise<{ name: string; isFree: boolean } | null> {
+    if (code === "") return null;
+    const plan = await this.plans.byCode(code);
+    if (plan === undefined) return null;
+    return { name: plan.name, isFree: await this.plans.isFreeCode(code) };
+  }
+
+
+  /**
    * יומן הפניות לנתיב הוובהוק של המרכזיות — **כולל אלה שנדחו**.
    *
    * בפלטפורמה ולא בהגדרות המשרד, כי הפנייה המעניינת ביותר היא זו
@@ -1547,6 +1563,18 @@ export class PlatformController {
     /** קוד מסלול השותפים — ערך ולא „מוגדר”, מאותו טעם כמו `supportEmail`. */
     partnerPlanCode: string;
     /**
+     * ‎**למה הקוד הזה נפתר עכשיו — ולא רק מה נכתב בשדה.**
+     *
+     * השולח בודק את הקוד בזמן השליחה, ואם הוא אינו בקטלוג או שהמסלול
+     * בתשלום הוא מוותר על ההעברה ורושם אזהרה ביומן. מי שהקליד קוד
+     * שגוי לא רואה שום דבר במסך: התזכורות ממשיכות לצאת, אף משרד אינו
+     * עובר, והתקלה מתגלה חודש אחר כך. השורה הזאת היא ההבדל.
+     *
+     * ‎`null` = הקוד ריק או שאינו בקטלוג; ה-`partnerPlanCode` שלצדו
+     * מבחין בין השניים.
+     */
+    partnerPlan: { name: string; isFree: boolean } | null;
+    /**
      * השכרת מספרים מ-015 — **הערכים העסקיים ולא רק "מוגדר"**: שם
      * המשתמש, הקבוצה והמחיר מוצגים כי זה מסך העריכה שלהם; הסיסמה
      * לעולם לא חוזרת — רק אם היא מוגדרת.
@@ -1603,6 +1631,7 @@ export class PlatformController {
       env.CARDCOM_API_NAME !== undefined &&
       env.CARDCOM_API_PASSWORD !== undefined;
     const otpDb = await this.platformSettings.get("loginOtpEnabled");
+    const partnerPlanCode = (await this.platformSettings.get("partnerPlanCode")) ?? "";
     // אותה פונקציה שהשרת גובה לפיה — לא העתק שלה
     const referralFeePercent = resolveReferralFeePercent(
       await this.platformSettings.get("referralFeePercent"),
@@ -1619,7 +1648,8 @@ export class PlatformController {
       },
       // הערך ולא רק "מוגדר" — ראו ההסבר בטיפוס המוחזר
       supportEmail: (await this.platformSettings.get("supportEmail")) ?? "",
-      partnerPlanCode: (await this.platformSettings.get("partnerPlanCode")) ?? "",
+      partnerPlanCode: partnerPlanCode,
+      partnerPlan: await this.resolvePartnerPlan(partnerPlanCode),
       numberRental: {
         configured: await this.pbx015.isConfigured(),
         username: (await this.platformSettings.get("pbx015AuthUsername")) ?? "",

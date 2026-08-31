@@ -199,6 +199,12 @@ interface PlatformSettings {
   geocoding?: { provider: string; forward: boolean; reverse: boolean };
   /** כתובת התמיכה — הערך עצמו. אופציונלי לשמרנות מול שרת שטרם עודכן. */
   supportEmail?: string;
+  /**
+   * קוד מסלול השותפים, ולצדו מה הוא פותר לו עכשיו בקטלוג.
+   * ‎`partnerPlan: null` = הקוד ריק או שאינו קיים; הקוד שלצדו מבחין.
+   */
+  partnerPlanCode?: string;
+  partnerPlan?: { name: string; isFree: boolean } | null;
   /** השכרת מספרים מ-015 — הערכים העסקיים; הסיסמה רק "מוגדרת/לא". */
   numberRental?: {
     configured: boolean;
@@ -1024,6 +1030,77 @@ export function PlatformSettingsSection({
           secret={supportSecret}
           alreadySet={settings.postmark.supportInboundSecretSet}
         />
+      </div>
+
+      {/*
+        ‎**מסלול השותפים — השדה שלא היה.**
+
+        התזכורות למי שלא הפעיל חשבון מבטיחות „מה שנשאר פתוח הוא מסלול
+        השותפים”, והשולח מעביר את המשרד לשם. אבל הקוד היה קריא וכתיב
+        ב-API בלבד: במסך לא היה שדה, ולכן ההגדרה נשארה ריקה לנצח —
+        התזכורות יצאו, אף משרד לא עבר, ואיש לא ראה למה.
+      */}
+      <div
+        id="partner-plan"
+        className="mb-4 rounded-xl border p-4"
+        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+      >
+        <h3 className="mb-1 font-semibold">מסלול השותפים</h3>
+        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          לשם יורד משרד שסיים ניסיון בלי להפעיל כרטיס אשראי, במקום להינעל.{" "}
+          <b>המסלול חייב להיות חינמי</b> — מסלול בתשלום פוקע בדיוק כמו הניסיון,
+          והמשרד היה ננעל בכל מקרה. ריק = אין הורדה, והתזכורת אומרת „החשבון ננעל”
+          בלי להמציא מסלול.
+        </p>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void saveSetting(
+              "partnerPlanCode",
+              new FormData(e.currentTarget).get("partnerPlanCode"),
+            );
+          }}
+          className="flex flex-wrap items-end gap-2"
+        >
+          <label className="grow">
+            <span className="mb-1 block text-sm font-semibold">קוד המסלול</span>
+            <input
+              name="partnerPlanCode"
+              dir="ltr"
+              maxLength={20}
+              defaultValue={settings.partnerPlanCode ?? ""}
+              key={settings.partnerPlanCode ?? ""}
+              placeholder="partners"
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </label>
+          <Button type="submit" disabled={busy}>שמור</Button>
+        </form>
+        {/*
+          ‎**מה הקוד פותר לו עכשיו** — לא רק מה נשמר. קוד שגוי אינו
+          נכשל בשמירה: הוא נכשל חודש אחר כך, בשקט, ביומן.
+        */}
+        <p className="m-0 mt-2 text-sm">
+          {(settings.partnerPlanCode ?? "") === "" ? (
+            <span style={{ color: "var(--color-text-muted)" }}>
+              לא הוגדר — התזכורות ייצאו בלי הצעת מסלול.
+            </span>
+          ) : settings.partnerPlan === null || settings.partnerPlan === undefined ? (
+            <span style={{ color: "var(--color-danger)" }}>
+              ✗ הקוד אינו בקטלוג המסלולים — לא תתבצע אף העברה.
+            </span>
+          ) : settings.partnerPlan.isFree ? (
+            <span style={{ color: "var(--color-success)" }}>
+              ✓ „{settings.partnerPlan.name}” — מסלול חינמי, ההעברה תעבוד.
+            </span>
+          ) : (
+            <span style={{ color: "var(--color-danger)" }}>
+              ✗ „{settings.partnerPlan.name}” אינו חינמי — משרד שיועבר אליו ייחסם
+              בכל מקרה, ולכן אין העברה.
+            </span>
+          )}
+        </p>
       </div>
 
       {/* ---------- חיבורי Google ---------- */}
