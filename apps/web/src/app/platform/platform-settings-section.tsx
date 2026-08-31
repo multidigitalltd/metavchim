@@ -205,6 +205,8 @@ interface PlatformSettings {
    */
   partnerPlanCode?: string;
   partnerPlan?: { name: string; isFree: boolean } | null;
+  /** קטלוג המסלולים לבחירה; שרת ישן לא מחזיר אותו, ואז אין מה לבחור. */
+  partnerPlanOptions?: { code: string; name: string; isFree: boolean }[];
   /** השכרת מספרים מ-015 — הערכים העסקיים; הסיסמה רק "מוגדרת/לא". */
   numberRental?: {
     configured: boolean;
@@ -1052,6 +1054,17 @@ export function PlatformSettingsSection({
           והמשרד היה ננעל בכל מקרה. ריק = אין הורדה, והתזכורת אומרת „החשבון ננעל”
           בלי להמציא מסלול.
         </p>
+        {/*
+          ‎**בחירה מהקטלוג ולא הקלדת קוד.**
+
+          קוד שמוקלד ביד יכול להיות שגוי — ואז אין העברה, אין שגיאה,
+          ואיש אינו יודע עד שמישהו קורא את היומן. רשימה סוגרת את זה
+          במקור: אי אפשר לבחור מסלול שאינו קיים.
+
+          מסלולים בתשלום מוצגים מנוטרלים ולא נעלמים: „למה המסלול שלי
+          לא ברשימה” היא שאלה שאין לה תשובה במסך, ו„בתשלום — לא
+          מתאים” היא תשובה.
+        */}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -1063,17 +1076,35 @@ export function PlatformSettingsSection({
           className="flex flex-wrap items-end gap-2"
         >
           <label className="grow">
-            <span className="mb-1 block text-sm font-semibold">קוד המסלול</span>
-            <input
+            <span className="mb-1 block text-sm font-semibold">המסלול</span>
+            <select
               name="partnerPlanCode"
-              dir="ltr"
-              maxLength={20}
               defaultValue={settings.partnerPlanCode ?? ""}
               key={settings.partnerPlanCode ?? ""}
-              placeholder="partners"
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
-            />
+            >
+              <option value="">— אין. החשבון ננעל בתום הניסיון —</option>
+              {(settings.partnerPlanOptions ?? []).map((plan) => (
+                <option key={plan.code} value={plan.code} disabled={!plan.isFree}>
+                  {plan.name}
+                  {plan.isFree ? "" : " — בתשלום, לא מתאים"}
+                </option>
+              ))}
+              {/*
+                המסלול השמור נמחק מהקטלוג? הוא עדיין הערך הנוכחי, ובלי
+                האפשרות הזאת ה-`select` היה מציג „אין” — כלומר משקר על
+                מה ששמור, ושמירה אחת בטעות הייתה מוחקת אותו.
+              */}
+              {(settings.partnerPlanCode ?? "") !== "" &&
+              !(settings.partnerPlanOptions ?? []).some(
+                (plan) => plan.code === settings.partnerPlanCode,
+              ) ? (
+                <option value={settings.partnerPlanCode}>
+                  {settings.partnerPlanCode} — אינו בקטלוג
+                </option>
+              ) : null}
+            </select>
           </label>
           <Button type="submit" disabled={busy}>שמור</Button>
         </form>

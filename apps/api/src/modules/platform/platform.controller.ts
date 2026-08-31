@@ -401,6 +401,7 @@ const UpdateSettingsSchema = z
      * ההגדרה, והשולח בודק בזמן השליחה — שם זה נכון.
      */
     partnerPlanCode: z.union([z.string().trim().max(20), z.literal("")]).optional(),
+    // (הערך נבחר מרשימת המסלולים במסך; הקאפ כאן הוא הגנה בעומק)
 
     /*
      * השכרת מספרים — חשבון 015 **של הפלטפורמה**. ריק = מחיקת ההגדרה.
@@ -1575,6 +1576,15 @@ export class PlatformController {
      */
     partnerPlan: { name: string; isFree: boolean } | null;
     /**
+     * המסלולים שאפשר לבחור מהם — **הבחירה מהקטלוג ולא הקלדה.**
+     *
+     * קוד שמוקלד ביד יכול להיות שגוי, ואז אין העברה ואיש אינו יודע.
+     * רשימה סוגרת את זה במקור. המסלולים בתשלום נשלחים גם הם ומסומנים
+     * ‎`isFree: false` — הם מוצגים מנוטרלים ולא נעלמים, כי „למה
+     * המסלול שלי לא ברשימה” היא שאלה בלי תשובה במסך.
+     */
+    partnerPlanOptions: { code: string; name: string; isFree: boolean }[];
+    /**
      * השכרת מספרים מ-015 — **הערכים העסקיים ולא רק "מוגדר"**: שם
      * המשתמש, הקבוצה והמחיר מוצגים כי זה מסך העריכה שלהם; הסיסמה
      * לעולם לא חוזרת — רק אם היא מוגדרת.
@@ -1650,6 +1660,11 @@ export class PlatformController {
       supportEmail: (await this.platformSettings.get("supportEmail")) ?? "",
       partnerPlanCode: partnerPlanCode,
       partnerPlan: await this.resolvePartnerPlan(partnerPlanCode),
+      partnerPlanOptions: (await this.plans.all()).map((plan) => ({
+        code: plan.code,
+        name: plan.name,
+        isFree: isFreePlan(plan),
+      })),
       numberRental: {
         configured: await this.pbx015.isConfigured(),
         username: (await this.platformSettings.get("pbx015AuthUsername")) ?? "",
