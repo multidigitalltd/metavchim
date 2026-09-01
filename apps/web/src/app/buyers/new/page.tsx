@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { NeighborhoodInput } from "../../neighborhood-input";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
@@ -173,16 +174,21 @@ export default function NewBuyerPage() {
             אינה סגורה — שמות שכונות אינם רשומים בשום מרשם, ורשימה
             נפתחת הייתה מכריחה לבחור „אחר” על כל שכונה שלא חשבנו
             עליה. השדה קיים בסכימה מזמן ופשוט לא נשאל בטופס.
+
+            ‎**ההצעות אינן מצומצמות לעיר כאן**, בשונה מטופס הנכס:
+            קונה יכול לחפש בכמה ערים, וצמצום לאחת מהן היה מסתיר
+            בדיוק את השכונות של השאר. בנכס יש עיר אחת ודאית, ושם
+            הצמצום נכון.
           */}
           <div className="mb-4">
             <label htmlFor="neighborhoods" className="mb-1 block font-medium">
               שכונות <span className="font-normal">(לא חובה, מופרדות בפסיק)</span>
             </label>
-            <input
+            <NeighborhoodInput
               id="neighborhoods"
               name="neighborhoods"
+              multi
               placeholder="רמת אהרון, פרדס כץ"
-              className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />
           </div>

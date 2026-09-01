@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, use, type FormEvent } from "react";
+import { NeighborhoodInput } from "../../../neighborhood-input";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
@@ -216,12 +217,12 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
               <label htmlFor="neighborhoods" className="mb-1 mt-3 block font-medium">
                 שכונות <span className="font-normal">(לא חובה, מופרדות בפסיק)</span>
               </label>
-              <input
+              <NeighborhoodInput
                 id="neighborhoods"
                 name="neighborhoods"
+                multi
                 defaultValue={req.neighborhoods.join(", ")}
                 placeholder="רמת אהרון, פרדס כץ"
-                className="w-full rounded-lg border px-3 py-2.5"
                 style={inputStyle}
               />
               {/*

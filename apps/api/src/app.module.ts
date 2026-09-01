@@ -32,6 +32,7 @@ import { MatchingModule } from "./modules/matching/matching.module";
 import { MessagingModule } from "./modules/messaging/messaging.module";
 import { WhatsAppModule } from "./modules/messaging/whatsapp.module";
 import { NavModule } from "./modules/nav/nav.module";
+import { SuggestModule } from "./modules/suggest/suggest.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { AgreementsModule } from "./modules/agreements/agreements.module";
 import { ExclusivityModule } from "./modules/exclusivity/exclusivity.module";
@@ -74,6 +75,7 @@ import { AgentModule } from "./modules/agent/agent.module";
     VoiceIntakeModule,
     AgentModule,
     NavModule,
+    SuggestModule,
     NotificationsModule,
     AnnouncementsModule,
     MessagingModule,
