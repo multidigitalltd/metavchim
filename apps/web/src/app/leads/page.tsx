@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import { compareLeadsByUrgency, leadWaiting, type LeadWaitingLevel , labelOf } from "@metavchim/shared";
+import {
+  compareLeadsByUrgency,
+  leadWaiting,
+  OPEN_LEAD_STATUSES,
+  type LeadWaitingLevel,
+  labelOf,
+} from "@metavchim/shared";
 import { apiGet, apiList } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
@@ -61,6 +67,19 @@ export default function LeadsPage() {
   const [deleted, setDeleted] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
+  /*
+   * ‎**„לטיפול” היא ברירת המחדל, לא „הכל”** (בקשת המשתמש).
+   *
+   * ‏ליד שהומר כבר הפך לכרטיס קונה, וכל מה שנעשה איתו נעשה שם.
+   * הצגתו לצד מי שממתין למענה מנפחת את הרשימה במשהו שאין בו
+   * פעולה — והופכת „כמה לידים יש לי” למספר שאי אפשר לאפס, כלומר
+   * למד עומס במקום לרשימת עבודה.
+   *
+   * ‎`OPEN_LEAD_STATUSES` ולא רשימה שנכתבת כאן: היא כבר מגדירה
+   * „ליד חי” בשרת (פנייה נוספת מצטרפת אליו במקום לפצל ציר זמן),
+   * ושתי הגדרות שנפרדות היו מציגות מסך שאינו תואם להתנהגות.
+   */
+  const [bucket, setBucket] = useState<"open" | "done" | "all">("open");
   const [urgency, setUrgency] = useState("");
   const [intent, setIntent] = useState("");
 
@@ -84,6 +103,14 @@ export default function LeadsPage() {
       (items ?? []).filter(
         (l) =>
           textMatches(query, l.contact.name, l.contact.phone) &&
+          /*
+           * הלשונית היא סינון גס, והבורר שמתחתיה מדויק — הם
+           * מצטלבים ואינם מתחרים: „טופל” + „סגור” הוא חיתוך תקין.
+           */
+          (bucket === "all" ||
+            (bucket === "open"
+              ? (OPEN_LEAD_STATUSES as readonly string[]).includes(l.status)
+              : !(OPEN_LEAD_STATUSES as readonly string[]).includes(l.status))) &&
           (!status || l.status === status) &&
           (!intent || l.intent === intent) &&
           // "מי מחכה יותר מדי" — הסינון שמייצר את שיחת הטלפון הבאה
@@ -93,7 +120,7 @@ export default function LeadsPage() {
               now !== null &&
               leadWaiting(l.createdAt, l.status, now)?.level === "late")),
       ),
-    [items, query, status, intent, urgency, now],
+    [items, query, bucket, status, intent, urgency, now],
   );
 
   return (
@@ -160,6 +187,57 @@ export default function LeadsPage() {
               setStatus("");
             }}
           />
+
+          {/*
+            שלוש לשוניות ולא בורר רביעי: זו החלוקה שקובעת *על מה
+            מסתכלים*, והיא צריכה להיות גלויה תמיד — בורר נוסף בשורת
+            הסינונים היה מסתיר את העובדה שהרשימה מסוננת כברירת מחדל.
+          */}
+          <div className="mb-3 flex gap-1.5" role="tablist" aria-label="אילו לידים להציג">
+            {(
+              [
+                ["open", "לטיפול"],
+                ["done", "טופל"],
+                ["all", "הכל"],
+              ] as const
+            ).map(([key, label]) => {
+              const count = (items ?? []).filter(
+                (l) =>
+                  key === "all" ||
+                  (key === "open") ===
+                    (OPEN_LEAD_STATUSES as readonly string[]).includes(l.status),
+              ).length;
+              const on = bucket === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={on}
+                  onClick={() => {
+                    setBucket(key);
+                    /* בורר סטטוס שנשאר מהלשונית הקודמת מייצר רשימה ריקה בלי סיבה נראית. */
+                    setStatus("");
+                  }}
+                  /*
+                    ‎`primary-soft` על `primary` — אותה גלולה נבחרת
+                    שכבר בשימוש במסכים אחרים. `--color-on-primary`
+                    שכתבתי כאן קודם אינו קיים כלל, ו-`--color-border`
+                    הוא מסגרת דקורטיבית (1.65:1) ולא גבול פקד —
+                    שער הניגודיות תפס את שניהם.
+                  */
+                  className="rounded-full border px-3.5 py-1.5 text-sm font-semibold"
+                  style={{
+                    background: on ? "var(--color-primary-soft)" : "var(--color-surface)",
+                    color: on ? "var(--color-primary)" : "var(--color-text)",
+                    borderColor: on ? "var(--color-primary)" : "var(--color-input-border)",
+                  }}
+                >
+                  {label} ({count})
+                </button>
+              );
+            })}
+          </div>
 
           <FilterBar
             shown={visible.length}

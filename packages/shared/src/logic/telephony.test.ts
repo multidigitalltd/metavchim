@@ -7,6 +7,7 @@ import {
   nextRefusalStreak,
   callSpoke,
   describeCall,
+  isGeneratedCallSummary,
   incomingCallTitle,
   parseTelephonyEvent,
   telephonyProvider,
@@ -1240,5 +1241,52 @@ describe("nextRefusalStreak", () => {
   it("כישלון מקומי בין סירובים אינו מבטל את הרצף", () => {
     const seq = ["refused", "refused", "other", "refused"] as const;
     expect(seq.reduce<number>((n, r) => nextRefusalStreak(n, r), 0)).toBe(3);
+  });
+});
+
+describe("isGeneratedCallSummary — מה שהמערכת כתבה מול מה שאדם כתב", () => {
+  /*
+   * ‎**בדיקת הלוך-ושוב.** כל צורה ש-`describeCall` מסוגלת לייצר
+   * חייבת להיות מזוהה, אחרת התמלול ימשיך לכבד טקסט אוטומטי כאילו
+   * מתווך כתב אותו. זו הטענה שמונעת מהשתיים להיפרד כשתתווסף צורה
+   * חמישית.
+   */
+  it("מזהה כל פלט של describeCall", () => {
+    const events = [
+      { type: "missed", direction: "inbound" },
+      { type: "missed", direction: "outbound" },
+      { type: "answered", direction: "inbound", durationSeconds: 0 },
+      { type: "answered", direction: "outbound", durationSeconds: 0 },
+      { type: "answered", direction: "inbound", durationSeconds: 45 },
+      { type: "answered", direction: "outbound", durationSeconds: 185 },
+      { type: "answered", direction: "inbound", durationSeconds: 3600 },
+    ] as unknown as Parameters<typeof describeCall>[0][];
+    for (const event of events) {
+      const text = describeCall(event);
+      expect(isGeneratedCallSummary(text), text).toBe(true);
+    }
+  });
+
+  it("ריק נחשב אוטומטי — אין מה לשמר", () => {
+    expect(isGeneratedCallSummary("")).toBe(true);
+    expect(isGeneratedCallSummary(null)).toBe(true);
+    expect(isGeneratedCallSummary(undefined)).toBe(true);
+    expect(isGeneratedCallSummary("   ")).toBe(true);
+  });
+
+  /*
+   * ‎**הצד השני חשוב לא פחות:** סיכום שמתווך הקליד לא ייחשב
+   * אוטומטי, אחרת התמלול ידרוס עבודה אנושית — וזה נזק חמור יותר
+   * מהבאג שהפונקציה באה לתקן.
+   */
+  it("סיכום שאדם כתב אינו אוטומטי", () => {
+    for (const written of [
+      "הלקוח מחפש 4 חדרים בבני ברק, תקציב 2.4 מיליון",
+      "שיחה נכנסת — הלקוח ביקש שנחזור מחר",
+      "לא נענתה, ניסיתי שוב בערב",
+      "שיחה נכנסת שלא נענתה. השארתי הודעה.",
+    ]) {
+      expect(isGeneratedCallSummary(written), written).toBe(false);
+    }
   });
 });
