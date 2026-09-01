@@ -14,7 +14,8 @@ import { PriceField } from "../../price-field";
 import { EntryTimingField } from "../../properties/entry-timing-field";
 import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
-import { type SearchArea } from "@metavchim/shared";
+import { activeOfficeStatuses, type SearchArea } from "@metavchim/shared";
+import { useOfficeStatuses } from "../../use-office-statuses";
 import { Notice } from "../../notice";
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
@@ -38,6 +39,8 @@ export default function NewBuyerPage() {
    * לכרטיס אחר כך פשוט לא זוכה לזה.
    */
   const [areas, setAreas] = useState<SearchArea[]>([]);
+  const { statuses: officeStatuses } = useOfficeStatuses();
+  const officeOptions = activeOfficeStatuses(officeStatuses);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -70,6 +73,14 @@ export default function NewBuyerPage() {
         contactEmail: String(f.get("contactEmail") ?? "").trim() || undefined,
         source: String(f.get("source")),
         maturity: String(f.get("maturity")),
+        /*
+         * ‎**נשלח רק כשנבחר.** בחירת סטטוס גוררת בשרת גם את הדרגה
+         * שהוא נשען עליה, ולכן מחרוזת ריקה הייתה נדחית כמזהה לא
+         * מוכר — במקום פשוט לא לבחור סטטוס.
+         */
+        ...(String(f.get("officeStatus") ?? "") === ""
+          ? {}
+          : { officeStatus: String(f.get("officeStatus")) }),
         requirements: {
           cities: String(f.get("cities"))
             .split(",")
@@ -250,6 +261,34 @@ export default function NewBuyerPage() {
                 <option value="not_ripe">לא בשל</option>
               </select>
             </div>
+            {/*
+              ‎**שכבה ב׳ — רק כשהמשרד הגדיר סטטוסים.**
+
+              הבחירה כאן קובעת גם את רמת הבשלות (הסטטוס נשען עליה),
+              ולכן הבורר יושב לצידה ולא במקומה: מי שלא עובד לפי
+              סטטוסים ממשיך למלא בדיוק כפי שמילא עד היום.
+            */}
+            {officeOptions.length > 0 ? (
+              <div>
+                <label htmlFor="officeStatus" className="mb-1 block font-medium">
+                  סטטוס המשרד
+                </label>
+                <select
+                  id="officeStatus"
+                  name="officeStatus"
+                  defaultValue=""
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                >
+                  <option value="">בלי סטטוס</option>
+                  {officeOptions.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             <div>
               <label htmlFor="source" className="mb-1 block font-medium">מקור הליד</label>
               <select id="source" name="source" defaultValue="phone" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>

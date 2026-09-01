@@ -608,9 +608,16 @@ export class LeadsService {
   async list(query: {
     status?: string;
     /**
-     * רק לידים „חיים” — במסד, לא אחרי העימוד. סינון על העמוד שחזר
-     * היה מחסיר בשקט בדיוק כמו שמתואר ב-`openAwaitingResponse`.
-     * נדחה מפני `status` מפורש.
+     * ‎`true` = רק לידים „חיים”; `false` = רק מה שנסגר או הומר.
+     * חסר = בלי צמצום.
+     *
+     * ‎**במסד, לא אחרי העימוד.** סינון על העמוד שחזר היה מחסיר בשקט
+     * בדיוק כמו שמתואר ב-`openAwaitingResponse`. נדחה מפני `status`
+     * מפורש.
+     *
+     * ‎`false` נוסף בגלל לשוניות מסך הלידים (ביקורת Codex): „טופל”
+     * חייב לשלול את אותה רשימה שממנה „לטיפול” נבנה, אחרת שתי
+     * הלשוניות מסתמכות על שתי הגדרות שיכולות להיפרד.
      */
     open?: boolean;
     requiresHuman?: boolean;
@@ -627,7 +634,9 @@ export class LeadsService {
             ? { status: query.status }
             : query.open === true
               ? { status: { in: [...OPEN_LEAD_STATUSES] } }
-              : {}),
+              : query.open === false
+                ? { status: { notIn: [...OPEN_LEAD_STATUSES] } }
+                : {}),
           ...(query.requiresHuman !== undefined ? { requiresHuman: query.requiresHuman } : {}),
           ...(query.cursor ? { id: { lt: query.cursor } } : {}),
         },

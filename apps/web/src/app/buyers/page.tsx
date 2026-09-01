@@ -21,6 +21,7 @@ import {
   type ListFilterValues,
 } from "../list-filters";
 import { Notice } from "../notice";
+import { useOfficeStatuses } from "../use-office-statuses";
 import { OpenIntakePanel } from "./open-intake-panel";
 
 /**
@@ -40,6 +41,8 @@ interface BuyerRow {
     roomsMax?: number;
   };
   maturity: string;
+  /** מזהה סטטוס המשרד — התווית נפתרת מול הרשימה שנטענת בנפרד. */
+  officeStatus?: string;
   source: string;
   offersReceived?: number;
   lastActivityAt?: string;
@@ -102,6 +105,15 @@ export default function BuyersPage() {
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
   const [maturity, setMaturity] = useState("");
+  /*
+   * ‎**סטטוס המשרד מצטלב עם הבשלות ואינו מתחרה בה.**
+   *
+   * כל סטטוס נושא דרגה, ולכן „חם” + „בסבב סיורים” הוא חיתוך תקין
+   * ולעולם לא סתירה שמחזירה רשימה ריקה בלי הסבר. הבשלות היא הסינון
+   * הגס, והסטטוס הוא המדויק.
+   */
+  const [officeStatus, setOfficeStatus] = useState("");
+  const { statuses: officeStatuses } = useOfficeStatuses();
   const [offersFilter, setOffersFilter] = useState("");
   /** קונה (sale) או שוכר (rent) — הלשונית היא "קונים · שוכרים" */
   const [dealType, setDealType] = useState("");
@@ -117,7 +129,11 @@ export default function BuyersPage() {
   const [bulkNote, setBulkNote] = useState<string | null>(null);
 
   // קישורי הפילוח מהדשבורד: /buyers?maturity=hot וכדומה
-  useFilterFromUrl({ maturity: setMaturity, dealType: setDealType });
+  useFilterFromUrl({
+    maturity: setMaturity,
+    dealType: setDealType,
+    officeStatus: setOfficeStatus,
+  });
 
   /*
    * טווחי התקציב והחדרים נשלחים לשרת; החיפוש הטקסטואלי נשאר בדפדפן.
@@ -127,10 +143,27 @@ export default function BuyersPage() {
    * שמתווך מחפש הכי הרבה — "איפה הכרטיס של כהן". החיפוש לפי שם על
    * פני כל המאגר קיים בחיפוש הגלובלי, שמשתמש ב-name_hash.
    */
+  /*
+   * ‎**הבשלות והסטטוס נשלחים לשרת** (ביקורת Codex).
+   *
+   * שניהם סוננו על 100 השורות שחזרו, ולכן במשרד עם יותר מ-100 קונים
+   * מי שנושא את הסטטוס המבוקש ונמצא מחוץ לעמוד **דווח כלא קיים** —
+   * לא רשימה חלקית, אלא „אין כאלה”. שני הבוררים כבר נתמכים
+   * ב-`ListQuerySchema`, ולכן זה חיווט של מה שכבר קיים.
+   *
+   * ‎**גם הבשלות ולא רק החדש שבהם:** שני בוררים זהים במראה שאחד
+   * מהם מסנן במסד והשני על העמוד הם בדיוק המקום שבו התיקון הבא
+   * מפספס את מה שנשאר.
+   */
   useEffect(() => {
     if (authLoading) return;
     setItems(null);
-    apiGet<{ items: BuyerRow[] }>(`/buyers?limit=100${filtersToQuery({ ...filters, q: "" })}`)
+    const scope =
+      (maturity === "" ? "" : `&maturity=${encodeURIComponent(maturity)}`) +
+      (officeStatus === "" ? "" : `&officeStatus=${encodeURIComponent(officeStatus)}`);
+    apiGet<{ items: BuyerRow[] }>(
+      `/buyers?limit=100${scope}${filtersToQuery({ ...filters, q: "" })}`,
+    )
       .then((res) =>
         setItems(
           [...apiList(res.items, "items")].sort(
@@ -139,7 +172,7 @@ export default function BuyersPage() {
         ),
       )
       .catch(() => setError("טעינת הקונים נכשלה"));
-  }, [authLoading, filters]);
+  }, [authLoading, filters, maturity, officeStatus]);
 
   function toggle(id: string): void {
     setSelected((was) => {
@@ -150,19 +183,41 @@ export default function BuyersPage() {
     });
   }
 
+  /*
+   * ‎**כולל מה שהוסר משימוש.** סטטוס שהמשרד הסתיר עדיין רשום על
+   * כרטיסים, ובלעדיו הם קבוצה שרואים ואי אפשר לבודד.
+   *
+   * ‎**ולא „רק מה שמופיע בשורות שנטענו”:** הרשימה סוננה בשרת לפי
+   * הבורר הזה עצמו, ולכן גזירה ממנה הייתה מעגלית — ברגע שנבחר
+   * סטטוס אחד, כל השאר היו נעלמים מהתפריט. תקרת הרשימה היא 20,
+   * והצגת כולה זולה.
+   */
+  const statusFilterOptions = useMemo<[string, string][]>(
+    () =>
+      officeStatuses.map((entry) => [
+        entry.id,
+        entry.archived ? `${entry.label} (הוסר)` : entry.label,
+      ]),
+    [officeStatuses],
+  );
+
   const visible = useMemo(
     () =>
       (items ?? []).filter(
         (b) =>
           textMatches(filters.q, b.contact.name, b.contact.phone, ...b.requirements.cities) &&
-          (!maturity || b.maturity === maturity) &&
+          /*
+           * הבשלות והסטטוס כבר סוננו במסד (ראו האפקט למעלה) ואינם
+           * חוזרים כאן. סוג העסקה נשאר מקומי — הוא יושב בתוך
+           * `requirements` ואינו פרמטר של הרשימה.
+           */
           (!dealType || (b.requirements.dealType ?? "sale") === dealType) &&
           // "מי לא קיבל כלום" הוא הסינון שמייצר עבודה בפועל
           (offersFilter === "" ||
             (offersFilter === "none" && (b.offersReceived ?? 0) === 0) ||
             (offersFilter === "some" && (b.offersReceived ?? 0) > 0)),
       ),
-    [items, filters.q, maturity, offersFilter, dealType],
+    [items, filters.q, offersFilter, dealType],
   );
 
   /*
@@ -406,6 +461,19 @@ export default function BuyersPage() {
               allLabel="כל רמות הבשלות"
               options={Object.entries(MATURITY_LABELS)}
             />
+            {/*
+              מוצג רק כשיש מה לבחור: משרד שלא הגדיר סטטוסים היה מקבל
+              בורר ריק שנראה כמו תקלה.
+            */}
+            {statusFilterOptions.length > 0 ? (
+              <FilterSelect
+                label="סינון לפי סטטוס המשרד"
+                value={officeStatus}
+                onChange={setOfficeStatus}
+                allLabel="כל הסטטוסים"
+                options={statusFilterOptions}
+              />
+            ) : null}
             <FilterSelect
               label="סינון לפי הצעות שקיבל"
               value={offersFilter}
@@ -613,16 +681,12 @@ export default function BuyersPage() {
               </div>
             </>
           )}
-          <CapNote
-            show={
-              (hasActiveFilters(filters) ||
-                maturity !== "" ||
-                offersFilter !== "" ||
-                dealType !== "") &&
-              items.length === 100
-            }
-            noun="קונים"
-          />
+          {/*
+            התקרה חלה **אחרי** הבשלות והסטטוס, שסוננו במסד. היא ראויה
+            לציון גם בלי סינון מקומי: מי שבחר „חם” ורואה 100 שורות
+            צריך לדעת שיש עוד.
+          */}
+          <CapNote show={items.length === 100} noun="קונים" />
         </>
       )}
     </>

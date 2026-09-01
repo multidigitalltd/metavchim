@@ -14,6 +14,7 @@ import { BillingSection } from "./billing-section";
 import { PayoutPanel } from "./payout-panel";
 import { DeleteAccountSection } from "./delete-account-section";
 import { ExportSection } from "./export-section";
+import { BuyerStatusesSection } from "./buyer-statuses-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
 import { PlanSection } from "./plan-section";
 import { WhatsAppStatusSection } from "./whatsapp-status-section";
@@ -1138,6 +1139,16 @@ export default function SettingsPage() {
               )}
             </section>
           ) : null}
+
+          {/*
+            ‎**קופסה נפרדת מ„פרטי המשרד”.**
+
+            פרטי המשרד הם שדות שממלאים פעם אחת בהקמה. רשימת הסטטוסים
+            היא תהליך העבודה של המשרד, נערכת לאורך זמן, ויש לה שמירה
+            משלה לכל שורה. טופס אחד עם כפתור „שמור” בסופו היה מסתיר
+            את זה שהעריכה כאן כבר נשמרה.
+          */}
+          {tab === "office" ? <BuyerStatusesSection /> : null}
 
           {tab === "integrations" ? (
             <>

@@ -628,6 +628,17 @@ model Buyer {
   financing          String    @default("unknown") @db.VarChar(20)
   maturity           String    @default("interested") @db.VarChar(20)
   maturityOverridden Boolean   @default(false) @map("maturity_overridden")
+  /// סטטוס המשרד — **מזהה** מתוך `tenants.settings -> 'buyerStatuses'`.
+  ///
+  /// שכבה שנייה מעל `maturity` ולא במקומה: כל סטטוס נושא דרגה שהוא
+  /// נשען עליה, ובחירה בו קובעת את שתיהן. כך המשרד מקבל את המילים
+  /// שלו והמערכת ממשיכה לקרוא `maturity` בדיוק כפי שקראה.
+  ///
+  /// מזהה ולא תווית: שינוי שם הסטטוס בהגדרות אינו אמור לנתק אותו
+  /// מהכרטיסים שנושאים אותו. `null` = שכבה א' בלבד, וזה תקין —
+  /// והוא גם הרוב המכריע של השורות, ולכן האינדקס **חלקי** ומוגדר
+  /// במיגרציה 20260901080000 בלבד (Prisma אינו יודע לתאר אותו).
+  officeStatus       String?   @map("office_status") @db.VarChar(24)
   source             String    @db.VarChar(60)
   aiNotes            String?   @map("ai_notes")
   agentNotes         String?   @map("agent_notes")

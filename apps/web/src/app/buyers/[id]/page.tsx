@@ -7,6 +7,7 @@ import {
   describeEntryNeed,
   priceInWordsWithCurrency,  labelOf } from "@metavchim/shared";
 import type { BuyerRequirements } from "@metavchim/shared";
+import { activeOfficeStatuses, officeStatusById } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import {
   DEAL_TYPE_LABELS,
@@ -34,6 +35,7 @@ import { AgreementsPanel } from "../../agreements-panel";
 import { DocumentsPanel } from "../../documents-panel";
 import { EntityNotes } from "../../entity-notes";
 import { SelectMenu } from "../../select-menu";
+import { useOfficeStatuses } from "../../use-office-statuses";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { IntakePanel } from "../../intake-panel";
 import { LoadError } from "../../load-error";
@@ -87,6 +89,8 @@ interface BuyerDetail {
   };
   financing: string;
   maturity: string;
+  /** מזהה סטטוס המשרד — התווית נפתרת מול הרשימה שנטענת בנפרד. */
+  officeStatus?: string;
   source: string;
   agentNotes?: string;
   /** מתי הכרטיס נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
@@ -151,6 +155,7 @@ export default function BuyerDetailPage({
   // שינוי הרשאות במקום אחד לא ישאיר כאן כפתור שהשרת ידחה
   const canEditPeople = can(user, "buyers.edit");
   const [buyer, setBuyer] = useState<BuyerDetail | null>(null);
+  const { statuses: officeStatuses } = useOfficeStatuses();
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   /*
    * „אין עדיין נכסים מתאימים במאגר” הוא משפט על המאגר, לא על הרשת.
@@ -234,10 +239,29 @@ export default function BuyerDetailPage({
     }
   }
 
-  /** עדכון בשלות במקום — הקונה "התחמם"? בחירה אחת והמערכת מסונכרנת. */
-  async function changeMaturity(maturity: string) {
-    await apiPatch(`/buyers/${id}`, { maturity });
-    setBuyer((prev) => (prev ? { ...prev, maturity } : prev));
+  /**
+   * ‎**שתי השכבות עוברות דרך אותה פונקציה, והשרת הוא שמכריע.**
+   *
+   * בחירת סטטוס משרד גוררת דרגה, ושינוי דרגה עשוי להפיל סטטוס סותר
+   * ‎(ראו `statusAfterMaturityChange`). מסך שהיה מעדכן רק את השדה
+   * שנשלח היה מציג „במשא ומתן” לצד „לא בשל” עד לרענון — כלומר מראה
+   * מצב שאינו קיים במסד.
+   *
+   * ולכן התשובה נכתבת כמו שהיא: הכרטיס המעודכן חוזר מה-PATCH ממילא.
+   */
+  async function changeStatus(patch: {
+    maturity?: string;
+    officeStatus?: string | null;
+  }) {
+    const saved = await apiPatch<{ maturity: string; officeStatus?: string }>(
+      `/buyers/${id}`,
+      patch,
+    );
+    setBuyer((prev) =>
+      prev === null
+        ? prev
+        : { ...prev, maturity: saved.maturity, officeStatus: saved.officeStatus },
+    );
   }
 
   async function saveNotes(next: string): Promise<void> {
@@ -306,6 +330,25 @@ export default function BuyerDetailPage({
     ([, l]) => l === "nice",
   );
   const pill = MATURITY_PILL[buyer.maturity] ?? MATURITY_PILL["not_ripe"]!;
+  /*
+   * ‎**הסטטוס ששמור על הכרטיס נכנס לרשימה גם כשהוא הוסר משימוש.**
+   *
+   * בלעדיו הבורר לא היה מוצא התאמה לערך שלו ומציג את הפריט הראשון —
+   * כלומר כרטיס שנראה כאילו הוא בסטטוס אחר לגמרי, בלי שאיש שינה
+   * אותו. הבחירה בו אינה אפשרית מחדש אחרי שיוצאים ממנו, וזה בסדר:
+   * הוא מתעד מה היה.
+   */
+  const current = officeStatusById(officeStatuses, buyer.officeStatus);
+  const statusOptions = [
+    { value: "", label: "בלי סטטוס" },
+    ...activeOfficeStatuses(officeStatuses).map((entry) => ({
+      value: entry.id,
+      label: entry.label,
+    })),
+    ...(current !== null && current.archived
+      ? [{ value: current.id, label: `${current.label} (הוסר)` }]
+      : []),
+  ];
   const sentOffers = Object.entries(offers);
   const isHotNoOffers =
     (buyer.maturity === "very_hot" || buyer.maturity === "hot") &&
@@ -401,7 +444,7 @@ export default function BuyerDetailPage({
             */}
             <SelectMenu
               value={buyer.maturity}
-              onChange={(next) => void changeMaturity(next)}
+              onChange={(next) => void changeStatus({ maturity: next })}
               options={Object.entries(MATURITY_LABELS).map(
                 ([value, label]) => ({ value, label }),
               )}
@@ -409,6 +452,28 @@ export default function BuyerDetailPage({
               minWidth={128}
               tone={{ fg: pill.fg, bg: pill.bg }}
             />
+            {/*
+              ‎**שכבה ב׳ — הסטטוס של המשרד, לצד הדרגה ולא במקומה.**
+
+              הדרגה נשארת גלויה כי היא מה שכל שאר המערכת פועלת לפיו
+              (דשבורד, התאמות, התראות), והמתווך יכול לשנות גם אותה
+              ישירות. הסטטוס הוא המילים של המשרד עליה.
+
+              הבורר אינו מוצג כשהמשרד לא הגדיר סטטוסים **ולכרטיס אין
+              אחד** — שדה ריק שאין בו מה לבחור הוא רעש. משרד שהגדיר
+              ואז מחק רואה עדיין את מה ששמור על הכרטיס.
+            */}
+            {statusOptions.length > 1 ? (
+              <SelectMenu
+                value={buyer.officeStatus ?? ""}
+                onChange={(next) =>
+                  void changeStatus({ officeStatus: next === "" ? null : next })
+                }
+                options={statusOptions}
+                label="סטטוס המשרד"
+                minWidth={150}
+              />
+            ) : null}
           </div>
           {/*
             ‎**התיבה נפתחת מתחת לשם, ולא במקומו.**
