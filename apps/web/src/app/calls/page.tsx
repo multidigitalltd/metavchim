@@ -415,6 +415,17 @@ export default function CallsPage() {
     );
   })();
 
+  /*
+   * ‎**„מתחת לשורה” תקף רק כשהשורה באמת מוצגת.**
+   *
+   * שינוי מסנן התוצאה אינו מנקה את הבחירה, ולכן שיחה נבחרת יכולה
+   * לצאת מהרשימה בזמן שהיא פתוחה. בלי הבדיקה הזו הכרטיס לא היה
+   * נמצא **בשום מקום**: לא בתוך שורה שאינה מרונדרת, ולא אחרי
+   * הרשימה. הוא חוזר למקומו הקודם — נראה, גם אם לא צמוד לשורה.
+   */
+  const inlineDetail =
+    underRow && selected !== null && visible.some((call) => call.id === selected.id);
+
   const detail = selected ? (
     <section
       aria-label="פרטי השיחה"
@@ -424,10 +435,16 @@ export default function CallsPage() {
         נראית כמו תקלה. קו הפרדה עליון מספיק כדי לומר „זה שייך
         לשורה שמעליי”.
       */
-      className={underRow ? "" : "mv-list-card"}
+      className={inlineDetail ? "" : "mv-list-card"}
+      /*
+        ‎**קו אחד בין השורה לכרטיס, לא שניים.** לכפתור השורה כבר יש
+        ‎`border-bottom`, וקו עליון כאן היה מצייר אותו פעמיים. הקו
+        התחתון הוא מה שסוגר את הקבוצה מול השורה הבאה — בלעדיו
+        הכרטיס נראה כשייך למי שמתחתיו.
+      */
       style={
-        underRow
-          ? { borderTop: "1px solid var(--color-row-border)" }
+        inlineDetail
+          ? { borderBottom: "1px solid var(--color-row-border)" }
           : undefined
       }
     >
@@ -790,13 +807,13 @@ export default function CallsPage() {
                     לרשימה. במסך של עשרים שיחות זה אומר שלחיצה על
                     השורה הראשונה לא משנה כלום ממה שרואים.
                   */}
-                  {underRow && active ? detail : null}
+                  {inlineDetail && active ? detail : null}
                 </li>
               );
             })}
           </ul>
 
-          {underRow ? null : detail}
+          {inlineDetail ? null : detail}
         </div>
       )}
     </>
