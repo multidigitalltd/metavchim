@@ -1,6 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import {
   AGENT_ACTIONS,
+  activeOfficeStatuses,
+  matchOfficeStatus,
   MARKETING_ACTION_KINDS,
   MARKETING_ACTION_LABEL,
   agentNextSteps,
@@ -43,6 +45,7 @@ import { isCardAccessible,
   assertContactAccess,
 } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
+import { readOfficeStatuses } from "../../common/office-buyer-statuses";
 import { PrismaService } from "../../core/prisma.service";
 import { GeminiService } from "../../core/gemini.service";
 import { AgentEventsService } from "./agent-events.service";
@@ -1706,11 +1709,19 @@ export class AgentExecuteService {
     if (name === undefined || phone === undefined) {
       throw new BadRequestException("כרטיס קונה דורש שם וטלפון");
     }
+    /*
+     * ‎`create_buyer` נושא את אותם שדות פרופיל כמו `update_buyer`,
+     * ולכן המודל יכול לומר שלב כבר בכרטיס הראשון. שדה שמוצהר בקטלוג
+     * ואינו נקרא כאן הוא בדיוק „המודל מציע והשרת זורק בשקט” שהקטלוג
+     * נבנה כדי למנוע.
+     */
+    const officeStatus = await this.spokenOfficeStatus(str(params["officeStatus"]));
     const buyer = await this.buyers.create({
       contactName: name,
       contactPhone: phone,
       source: "voice",
       requirements: this.buyerRequirements(params),
+      ...(officeStatus === undefined ? {} : { officeStatus }),
       ...(str(params["maturity"]) !== undefined ? { maturity: str(params["maturity"])! } : {}),
       ...(str(params["financing"]) !== undefined ? { financing: str(params["financing"])! } : {}),
       ...(str(params["agentNotes"]) !== undefined
@@ -2817,8 +2828,10 @@ export class AgentExecuteService {
      */
     const existing = await this.buyers.getById(buyerId);
     const patch = this.buyerRequirements(params, existing.requirements);
+    const officeStatus = await this.spokenOfficeStatus(str(params["officeStatus"]));
     const buyer = await this.buyers.update(buyerId, {
       requirements: patch,
+      ...(officeStatus === undefined ? {} : { officeStatus }),
       ...(str(params["maturity"]) !== undefined ? { maturity: str(params["maturity"])! } : {}),
       ...(str(params["financing"]) !== undefined ? { financing: str(params["financing"])! } : {}),
       ...(str(params["agentNotes"]) !== undefined
@@ -2831,6 +2844,34 @@ export class AgentExecuteService {
       // הכרטיס נשלף ממילא בשביל המיזוג, ולכן השם כאן חינם
       ...refOf(existing.contact.name, "buyer", buyer.id),
     };
+  }
+
+  /**
+   * ‎**שם השלב שנאמר בקול ⟵ מזהה מרשימת המשרד.**
+   *
+   * הרשימה חיה ב-`tenants.settings` ושונה לכל משרד, ולכן היא אינה
+   * יכולה להיות `enum` בסכימת הפעולה. ההכרעה נעשית כאן, מול הרשימה
+   * האמיתית — אותו דפוס שהקטלוג כבר מגדיר לתאריך ולמיקום.
+   *
+   * ‎**כישלון נאמר במפורש ואינו נבלע.** מתווך שאמר „תסמן אותו
+   * בסיורים” וקיבל „הכרטיס עודכן” בלי שהסטטוס השתנה היה מגלה זאת
+   * ימים אחר כך, אם בכלל. ההודעה מונה את מה שכן קיים, כי זו בדיוק
+   * המידה שהוא צריך כדי לתקן את עצמו במשפט הבא.
+   *
+   * ‎`undefined` = לא נאמר שלב, ואין מה לעדכן.
+   */
+  private async spokenOfficeStatus(spoken: string | undefined): Promise<string | undefined> {
+    if (spoken === undefined || spoken.trim() === "") return undefined;
+    const tenantId = TenantContext.current().tenantId;
+    const list = await this.prisma.withTenant((tx) => readOfficeStatuses(tx, tenantId));
+    const matched = matchOfficeStatus(list, spoken);
+    if (matched !== null) return matched.id;
+    const open = activeOfficeStatuses(list);
+    throw new BadRequestException(
+      open.length === 0
+        ? `אין סטטוסים מוגדרים במשרד, ולכן אי אפשר לסמן „${spoken}”`
+        : `„${spoken}” אינו שלב מוכר. הסטטוסים במשרד: ${open.map((e) => e.label).join(" · ")}`,
+    );
   }
 
   private async updateProperty(params: Record<string, unknown>): Promise<ExecuteResult> {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   activeOfficeStatuses,
   buyerStatusChangeLine,
+  matchOfficeStatus,
   addOfficeStatus,
   DEFAULT_OFFICE_STATUSES,
   MAX_OFFICE_STATUS_LABEL,
@@ -321,5 +322,54 @@ describe("השורה שנרשמת בציר הזמן", () => {
   it("קביעה חוזרת של אותו ערך אינה נרשמת", () => {
     expect(line({})).toBe("");
     expect(line({ pickedStatus: true, statusMoved: false })).toBe("");
+  });
+});
+
+describe("מה שנאמר בקול ⟵ הסטטוס של המשרד", () => {
+  const SPOKEN: OfficeBuyerStatus[] = [
+    { id: "s1", label: "בבירור צרכים", maturity: "interested", archived: false },
+    { id: "s2", label: "בסבב סיורים", maturity: "hot", archived: false },
+    { id: "s3", label: "סיור שני", maturity: "hot", archived: false },
+    { id: "s4", label: "במשא ומתן", maturity: "very_hot", archived: false },
+    { id: "s5", label: "שלב ישן", maturity: "not_ripe", archived: true },
+  ];
+
+  it("התאמה מדויקת אחרי קיפול", () => {
+    expect(matchOfficeStatus(SPOKEN, "  בסבב   סיורים ")?.id).toBe("s2");
+  });
+
+  /* מתווך אומר את החלק המזהה ולא את השם המלא. */
+  it("הכלה בכיוון אחד כשהיא חד-משמעית", () => {
+    expect(matchOfficeStatus(SPOKEN, "משא ומתן")?.id).toBe("s4");
+    expect(matchOfficeStatus(SPOKEN, "בבירור צרכים של הלקוח")?.id).toBe("s1");
+  });
+
+  /*
+   * ‎**זו הטענה שמונעת סימון שגוי בשקט.** „סיור” מתאים גם ל„בסבב
+   * סיורים” וגם ל„סיור שני”; ניחוש ביניהן מסמן כרטיס בשלב שגוי
+   * ואיש לא יבחין. אי-ודאות מדווחת ואינה מוכרעת.
+   */
+  it("שני מועמדים הם אי-ודאות ולא בחירה", () => {
+    expect(matchOfficeStatus(SPOKEN, "סיור")).toBeNull();
+  });
+
+  it("מה שהוסר משימוש אינו ניתן לשיוך מחדש", () => {
+    expect(matchOfficeStatus(SPOKEN, "שלב ישן")).toBeNull();
+  });
+
+  it("מה שאינו ברשימה מחזיר null ולא את הקרוב ביותר", () => {
+    expect(matchOfficeStatus(SPOKEN, "ממתין למשכנתא")).toBeNull();
+    expect(matchOfficeStatus(SPOKEN, "")).toBeNull();
+    expect(matchOfficeStatus(SPOKEN, "   ")).toBeNull();
+    expect(matchOfficeStatus([], "בסבב סיורים")).toBeNull();
+  });
+
+  /* התאמה מדויקת גוברת על הכלה — אחרת „סיור שני” היה נבלע. */
+  it("מדויק גובר על חלקי", () => {
+    const list: OfficeBuyerStatus[] = [
+      { id: "s1", label: "סיור", maturity: "hot", archived: false },
+      { id: "s2", label: "סיור שני", maturity: "hot", archived: false },
+    ];
+    expect(matchOfficeStatus(list, "סיור")?.id).toBe("s1");
   });
 });
