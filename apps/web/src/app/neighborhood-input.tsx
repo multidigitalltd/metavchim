@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { neighborhoodMatches, NEIGHBORHOOD_SUGGESTION_LIMIT } from "@metavchim/shared";
+import {
+  neighborhoodKey,
+  neighborhoodMatches,
+  NEIGHBORHOOD_SUGGESTION_LIMIT,
+} from "@metavchim/shared";
 import { apiGet } from "../lib/api";
 
 /**
@@ -34,6 +38,26 @@ function activeToken(value: string, multi: boolean): string {
   if (!multi) return value;
   const at = value.lastIndexOf(",");
   return at === -1 ? value : value.slice(at + 1);
+}
+
+/**
+ * מה שכבר נבחר בשדה — כל האסימונים חוץ מזה שנערך כרגע.
+ *
+ * ‎`neighborhoodKey` ולא הטקסט הגולמי: „שיכון ג'” ו„שיכון ג” הן
+ * אותה שכונה, ורשימה שמכילה את שתיהן היא בדיוק הכפילות שהפיצ'ר
+ * נועד למנוע — במיוחד כשהיא נוצרת מתוך ההצעות שלו עצמו.
+ */
+function completedKeys(value: string, multi: boolean): Set<string> {
+  if (!multi) return new Set();
+  const at = value.lastIndexOf(",");
+  if (at === -1) return new Set();
+  return new Set(
+    value
+      .slice(0, at)
+      .split(",")
+      .map(neighborhoodKey)
+      .filter((key) => key !== ""),
+  );
 }
 
 /** החלפת האסימון הפעיל בהצעה שנבחרה, בלי לגעת בשאר. */
@@ -98,7 +122,20 @@ export function NeighborhoodInput({
     names: [],
   });
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(-1);
+  /*
+   * ‎**מה שמסומן נשמר כשם ולא כמיקום** (ביקורת Codex, סבב רביעי).
+   *
+   * בדיקת הגבולות שהוספתי קודם דחתה מדד ישן רק כשהרשימה החדשה
+   * **קצרה יותר**. רשימה ארוכה דיה מהעיר החדשה השאירה אותו בתחום,
+   * והוא הצביע על שורה אחרת לגמרי — Enter היה בוחר אותה בלי שהמתווך
+   * ניווט אליה מעולם.
+   *
+   * שם אינו יכול להצביע על השורה הלא נכונה: הוא או קיים ברשימה
+   * הנוכחית, ואז הסימון נכון גם אחרי החלפת עיר, או שאינו קיים ואז
+   * אין סימון. זו החלפה של מחלקת באגים שלמה בהגדרה, ולא עוד שכבת
+   * בדיקה מעליה.
+   */
+  const [activeName, setActiveName] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const listId = useId();
 
@@ -158,24 +195,27 @@ export function NeighborhoodInput({
     /* תוצאה של עיר אחרת אינה „ישנה” אלא **שגויה** — היא יוצאת כולה. */
     if (suggestions.city !== (city?.trim() ?? "")) return [];
     const token = activeToken(value, multi);
+    /*
+     * ‎**מה שכבר נבחר יורד מהרשימה** (ביקורת Codex).
+     *
+     * אחרי בחירה והקלדת פסיק האסימון ריק, ואז *הכול* מתאים —
+     * כולל השכונה שזה עתה נבחרה. בחירה חוזרת בה מוסיפה אותה
+     * פעמיים, שני מסלולי השמירה של הקונה רק מפצלים ומנקים רווחים,
+     * והכפילות נשמרת. גרוע מזה: שאילתת האוצר סופרת אותה פעמיים
+     * ומנפחת את הדירוג של הצורה הזו — כלומר ההצעה מזינה את עצמה.
+     */
+    const taken = completedKeys(value, multi);
     return suggestions.names
-      .filter((s) => neighborhoodMatches(s, token))
+      .filter((s) => neighborhoodMatches(s, token) && !taken.has(neighborhoodKey(s)))
       .slice(0, NEIGHBORHOOD_SUGGESTION_LIMIT);
   }, [suggestions, value, multi, city]);
 
   /*
-   * ‎**המדד הפעיל נגזר ואינו נסמך על המצב** (ביקורת Codex).
-   *
-   * ‎`active` מתאפס בהקלדה, אבל שינוי עיר או תשובת שרת קצרה יותר
-   * מקצרים את `shown` בלי שום הקלדה — והמדד השמור נשאר מצביע
-   * מחוץ לתחום. אז `shown[active]!` היה מחזיר `undefined` וכותב
-   * אותו לשדה, או בוחר שורה אחרת לגמרי.
-   *
-   * גזירה במקום עוד `useEffect` שמאפס: אפקט רץ אחרי הרינדור,
-   * כלומר היה נשאר בדיוק אותו חלון שבו Enter פועל על מדד ישן.
-   * מה שנגזר אינו יכול להיות מיושן.
+   * המיקום נגזר מהשם בכל רינדור, ולכן אינו יכול להיות מיושן —
+   * ואין צורך ב-`useEffect` שמאפס, שממילא רץ אחרי הרינדור ומשאיר
+   * את חלון המרוץ שהוא אמור לסגור.
    */
-  const activeIndex = active >= 0 && active < shown.length ? active : -1;
+  const activeIndex = activeName === null ? -1 : shown.indexOf(activeName);
 
   const visible = open && shown.length > 0;
 
@@ -191,14 +231,14 @@ export function NeighborhoodInput({
      * רץ אחרי הרינדור — כלומר נשאר חלון שבו הקלדה כבר קרתה והבחירה
      * עדיין מצביעה על השורה הקודמת.
      */
-    setActive(-1);
+    setActiveName(null);
     onValueChange?.(next);
   }
 
   function pick(suggestion: string): void {
     commit(withToken(value, multi, suggestion));
     setOpen(false);
-    setActive(-1);
+    setActiveName(null);
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>): void {
@@ -210,10 +250,10 @@ export function NeighborhoodInput({
       return;
     }
     if (event.key === "ArrowDown") {
-      setActive((activeIndex + 1) % shown.length);
+      setActiveName(shown[(activeIndex + 1) % shown.length] ?? null);
       event.preventDefault();
     } else if (event.key === "ArrowUp") {
-      setActive(activeIndex <= 0 ? shown.length - 1 : activeIndex - 1);
+      setActiveName(shown[activeIndex <= 0 ? shown.length - 1 : activeIndex - 1] ?? null);
       event.preventDefault();
     } else if (event.key === "Enter" && activeIndex >= 0) {
       /*
@@ -224,7 +264,7 @@ export function NeighborhoodInput({
       event.preventDefault();
     } else if (event.key === "Escape") {
       setOpen(false);
-      setActive(-1);
+      setActiveName(null);
     }
   }
 
@@ -276,7 +316,7 @@ export function NeighborhoodInput({
                   event.preventDefault();
                   pick(suggestion);
                 }}
-                onMouseEnter={() => setActive(index)}
+                onMouseEnter={() => setActiveName(suggestion)}
                 className="block w-full px-3 py-2 text-start"
                 style={{
                   background: index === activeIndex ? "var(--color-field)" : "transparent",
