@@ -1228,10 +1228,18 @@ export function PlatformSettingsSection({
           {/*
             מפתח Gemini באותו טופס: שני מפתחות Google, מסך אחד.
             "מוגדר" מציג גם את המודל שרץ בפועל — אחרת אין דרך לדעת.
+
+            ‎**התווית אמרה „פקודות קוליות” בלבד, וזה היה מטעה.**
+            אותו מפתח מפעיל גם את הבנת השיחות: הסיכום שנכתב אחרי
+            תמלול, וההפרדה בין המתווך ללקוח. מנהל שאינו משתמש
+            בפקודות קוליות דילג על השדה בהיגיון מלא — ואיבד את
+            שניהם בלי שאיש אמר לו. ההשבתה שקטה לגמרי: השיחה
+            מתומללת, הסיכום נופל לחילוץ דטרמיניסטי, ואין שגיאה.
           */}
           <div className="flex-1" style={{ minWidth: "220px" }}>
             <label htmlFor="geminiApiKey" className="mb-1 block font-medium">
-              Gemini API Key (פקודות קוליות){" "}
+              Gemini API Key{" "}
+              <span className="font-normal">(פקודות קוליות + סיכומי שיחות)</span>{" "}
               {settings.gemini?.configured ? (
                 <span className="font-normal">
                   ✓ מוגדר · {settings.gemini.model} (ריק = ללא שינוי)
@@ -1250,6 +1258,14 @@ export function PlatformSettingsSection({
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />
+            {settings.gemini?.configured ? null : (
+              <p className="mt-1 text-sm" style={{ color: "var(--color-warning)" }}>
+                ⚠️ בלי המפתח הזה שיחות עדיין מתומללות, אבל <strong>הסיכום נכתב
+                בחילוץ אוטומטי פשוט</strong> („הביע עניין · 4 חדרים”) ו<strong>אין
+                הפרדה בין המתווך ללקוח</strong> בתמלול. אין שגיאה ואין התראה —
+                זה פשוט נראה כאילו זו איכות המערכת.
+              </p>
+            )}
           </div>
           <div className="flex-1" style={{ minWidth: "220px" }}>
             <label htmlFor="geminiModel" className="mb-1 block font-medium">
