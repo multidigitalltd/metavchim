@@ -47,7 +47,7 @@ describe("כל שדה של פעולות הקונה נקרא בביצוע", () =>
    * את מה שנאמר במקום מזהה מהרשימה.
    */
   it("סטטוס המשרד נפתר מול הרשימה ואינו נשמר כטקסט", () => {
-    expect(EXECUTE).toMatch(/matchOfficeStatus\(list, spoken\)/u);
+    expect(EXECUTE).toMatch(/matchOfficeStatus\(statuses, spoken\)/u);
     /* מה שנשמר הוא המזהה שחזר מההתאמה, ולא הטקסט. */
     expect(EXECUTE).toMatch(/if \(matched !== null\) return matched\.id;/u);
     /*
@@ -61,6 +61,27 @@ describe("כל שדה של פעולות הקונה נקרא בביצוע", () =>
     ];
     expect(raw.length).toBeGreaterThan(1);
     expect(resolved.length).toBe(raw.length);
+  });
+
+  /*
+   * ‎**ההכרעה חייבת לרוץ בזמן הכתיבה ולא לפניה** (ביקורת Codex).
+   *
+   * הגרסה הראשונה קראה את הרשימה בטרנזקציה משלה והחזירה מזהה. מנהל
+   * ששינה תווית או דרגה בין הקריאה לכתיבה השאיר את המזהה **תקף**
+   * ואת המשמעות שונה — הכרטיס קיבל שלב אחר מזה שהמתווך אמר.
+   *
+   * הצורה היא מה שמונע את זה: פונקציה שמקבלת את הרשימה נקראת בהכרח
+   * על ידי מי שקרא אותה, כלומר מתחת לנעילה.
+   */
+  it("ההכרעה מוחזרת כפונקציה ואינה קוראת את המסד בעצמה", () => {
+    const body = EXECUTE.slice(
+      EXECUTE.indexOf("private spokenOfficeStatus"),
+      EXECUTE.indexOf("private async updateProperty"),
+    );
+    expect(body).not.toBe("");
+    expect(body).toMatch(/\(statuses: readonly OfficeBuyerStatus\[\]\) => string/u);
+    /* טרנזקציה משלה כאן היא בדיוק המרוץ שההערה למעלה מתארת. */
+    expect(body).not.toMatch(/withTenant|readOfficeStatuses/u);
   });
 
   /* הפונקציה מיוצאת ובשימוש — לא העתק מקומי שיתיישן. */

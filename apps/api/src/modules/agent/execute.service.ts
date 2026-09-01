@@ -3,6 +3,7 @@ import {
   AGENT_ACTIONS,
   activeOfficeStatuses,
   matchOfficeStatus,
+  type OfficeBuyerStatus,
   MARKETING_ACTION_KINDS,
   MARKETING_ACTION_LABEL,
   agentNextSteps,
@@ -45,7 +46,6 @@ import { isCardAccessible,
   assertContactAccess,
 } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
-import { readOfficeStatuses } from "../../common/office-buyer-statuses";
 import { PrismaService } from "../../core/prisma.service";
 import { GeminiService } from "../../core/gemini.service";
 import { AgentEventsService } from "./agent-events.service";
@@ -1715,7 +1715,7 @@ export class AgentExecuteService {
      * ואינו נקרא כאן הוא בדיוק „המודל מציע והשרת זורק בשקט” שהקטלוג
      * נבנה כדי למנוע.
      */
-    const officeStatus = await this.spokenOfficeStatus(str(params["officeStatus"]));
+    const officeStatus = this.spokenOfficeStatus(str(params["officeStatus"]));
     const buyer = await this.buyers.create({
       contactName: name,
       contactPhone: phone,
@@ -2828,7 +2828,7 @@ export class AgentExecuteService {
      */
     const existing = await this.buyers.getById(buyerId);
     const patch = this.buyerRequirements(params, existing.requirements);
-    const officeStatus = await this.spokenOfficeStatus(str(params["officeStatus"]));
+    const officeStatus = this.spokenOfficeStatus(str(params["officeStatus"]));
     const buyer = await this.buyers.update(buyerId, {
       requirements: patch,
       ...(officeStatus === undefined ? {} : { officeStatus }),
@@ -2850,8 +2850,17 @@ export class AgentExecuteService {
    * ‎**שם השלב שנאמר בקול ⟵ מזהה מרשימת המשרד.**
    *
    * הרשימה חיה ב-`tenants.settings` ושונה לכל משרד, ולכן היא אינה
-   * יכולה להיות `enum` בסכימת הפעולה. ההכרעה נעשית כאן, מול הרשימה
+   * יכולה להיות `enum` בסכימת הפעולה. ההכרעה נעשית מול הרשימה
    * האמיתית — אותו דפוס שהקטלוג כבר מגדיר לתאריך ולמיקום.
+   *
+   * ‎**מוחזרת פונקציה ולא מזהה** (ביקורת Codex). הגרסה הראשונה קראה
+   * את הרשימה בטרנזקציה משלה והחזירה מזהה; מנהל ששינה תווית או דרגה
+   * בין הקריאה לכתיבה השאיר את המזהה תקף — והכרטיס קיבל שלב אחר
+   * מזה שהמתווך אמר. ההכרעה רצה עכשיו **בתוך** הטרנזקציה הנעולה של
+   * הכתיבה, על הרשימה שהיא עצמה קראה.
+   *
+   * זה גם הדפוס שכבר קיים ב-`BuyersService.update` עבור `requirements`:
+   * פרמטר שמקבל פונקציה כדי שהגזירה תקרה אחרי הנעילה.
    *
    * ‎**כישלון נאמר במפורש ואינו נבלע.** מתווך שאמר „תסמן אותו
    * בסיורים” וקיבל „הכרטיס עודכן” בלי שהסטטוס השתנה היה מגלה זאת
@@ -2860,18 +2869,20 @@ export class AgentExecuteService {
    *
    * ‎`undefined` = לא נאמר שלב, ואין מה לעדכן.
    */
-  private async spokenOfficeStatus(spoken: string | undefined): Promise<string | undefined> {
+  private spokenOfficeStatus(
+    spoken: string | undefined,
+  ): ((statuses: readonly OfficeBuyerStatus[]) => string) | undefined {
     if (spoken === undefined || spoken.trim() === "") return undefined;
-    const tenantId = TenantContext.current().tenantId;
-    const list = await this.prisma.withTenant((tx) => readOfficeStatuses(tx, tenantId));
-    const matched = matchOfficeStatus(list, spoken);
-    if (matched !== null) return matched.id;
-    const open = activeOfficeStatuses(list);
-    throw new BadRequestException(
-      open.length === 0
-        ? `אין סטטוסים מוגדרים במשרד, ולכן אי אפשר לסמן „${spoken}”`
-        : `„${spoken}” אינו שלב מוכר. הסטטוסים במשרד: ${open.map((e) => e.label).join(" · ")}`,
-    );
+    return (statuses) => {
+      const matched = matchOfficeStatus(statuses, spoken);
+      if (matched !== null) return matched.id;
+      const open = activeOfficeStatuses(statuses);
+      throw new BadRequestException(
+        open.length === 0
+          ? `אין סטטוסים מוגדרים במשרד, ולכן אי אפשר לסמן „${spoken}”`
+          : `„${spoken}” אינו שלב מוכר. הסטטוסים במשרד: ${open.map((e) => e.label).join(" · ")}`,
+      );
+    };
   }
 
   private async updateProperty(params: Record<string, unknown>): Promise<ExecuteResult> {

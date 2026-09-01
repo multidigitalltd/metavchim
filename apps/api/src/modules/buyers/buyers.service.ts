@@ -15,6 +15,7 @@ import {
   buyerStatusChangeLine,
   officeStatusById,
   statusAfterMaturityChange,
+  type OfficeBuyerStatus,
   type BuyerRequirements,
   type IntakeAnswers,
   type Page,
@@ -84,8 +85,8 @@ export class BuyersService {
     requirements: BuyerRequirements;
     financing?: string;
     maturity?: string;
-    /** מזהה סטטוס משרד — הבחירה קובעת גם את הדרגה, כמו בעדכון. */
-    officeStatus?: string;
+    /** מזהה סטטוס משרד, או פונקציה שמכריעה — הבחירה קובעת גם את הדרגה. */
+    officeStatus?: string | ((statuses: readonly OfficeBuyerStatus[]) => string);
     source: string;
     agentNotes?: string;
   }): Promise<BuyerDto> {
@@ -365,7 +366,7 @@ export class BuyersService {
     requirements: BuyerRequirements;
     financing?: string;
     maturity?: string;
-    officeStatus?: string;
+    officeStatus?: string | ((statuses: readonly OfficeBuyerStatus[]) => string);
     source: string;
     agentNotes?: string;
   }): Promise<string> {
@@ -394,7 +395,8 @@ export class BuyersService {
       requirements: BuyerRequirements;
       financing?: string;
       maturity?: string;
-      officeStatus?: string;
+      /** מזהה, או פונקציה שמכריעה מול הרשימה — ראו `update`. */
+      officeStatus?: string | ((statuses: readonly OfficeBuyerStatus[]) => string);
       source: string;
       agentNotes?: string;
       ownerUserId?: string;
@@ -412,10 +414,12 @@ export class BuyersService {
     if (input.officeStatus !== undefined && input.officeStatus !== "") {
       /* אותה נעילה משותפת כמו בעדכון — ראו ההסבר שם. */
       await shareTenantRow(tx, tenantId);
-      const entry = officeStatusById(
-        await readOfficeStatuses(tx, tenantId),
-        input.officeStatus,
-      );
+      const statuses = await readOfficeStatuses(tx, tenantId);
+      const wanted =
+        typeof input.officeStatus === "function"
+          ? input.officeStatus(statuses)
+          : input.officeStatus;
+      const entry = officeStatusById(statuses, wanted);
       if (entry === null || entry.archived) {
         throw new BadRequestException("הסטטוס אינו קיים ברשימת המשרד");
       }
@@ -542,8 +546,20 @@ export class BuyersService {
        * בהגדרה. אם נשלחו שניהם באותה בקשה, הסטטוס מנצח: הוא
        * האמירה הספציפית יותר, ושמירת דרגה שסותרת אותו הייתה
        * מייצרת כרטיס שקורא שני דברים הפוכים.
+       *
+       * ‎**ופונקציה, לקורא שצריך להכריע מול הרשימה** (ביקורת Codex).
+       * הסוכן הקולי מתאים את מה שנאמר לשלב, והתאמה שרצה בטרנזקציה
+       * נפרדת יכולה להתיישן: מנהל ששינה תווית או דרגה בין ההתאמה
+       * לכתיבה משאיר את המזהה תקף ואת המשמעות שונה. הפונקציה מקבלת
+       * את הרשימה **שנקראה כאן, מתחת לנעילה**, ולכן היא מכריעה על
+       * מה שבאמת נשמר.
+       *
+       * אותו נימוק בדיוק של `requirements` שמקבל פונקציה למעלה.
        */
-      officeStatus?: string | null;
+      officeStatus?:
+        | string
+        | null
+        | ((statuses: readonly OfficeBuyerStatus[]) => string);
       agentNotes?: string;
     },
   ): Promise<BuyerDto> {
@@ -626,14 +642,19 @@ export class BuyersService {
       let nextOfficeStatus: string | null | undefined;
       let nextMaturity = patch.maturity;
       if (patch.officeStatus !== undefined) {
-        if (patch.officeStatus === null || patch.officeStatus === "") {
+        /* פונקציה מכריעה כאן, על הרשימה שנקראה מתחת לנעילה. */
+        const wanted =
+          typeof patch.officeStatus === "function"
+            ? patch.officeStatus(statuses)
+            : patch.officeStatus;
+        if (wanted === null || wanted === "") {
           /*
            * הסרת הסטטוס **אינה** נוגעת בדרגה: הכרטיס עדיין דחוף
            * כפי שהיה, רק בלי המילה של המשרד עליו.
            */
           nextOfficeStatus = null;
         } else {
-          const entry = officeStatusById(statuses, patch.officeStatus);
+          const entry = officeStatusById(statuses, wanted);
           /*
            * ‎**מוסתר נדחה בכתיבה ולא רק בתפריט.** בורר שנפתח לפני
            * שהמשרד הסתיר סטטוס עדיין מחזיק אותו, ושמירה שקטה שלו
