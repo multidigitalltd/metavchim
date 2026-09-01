@@ -172,6 +172,12 @@ jobs:
       - name: Notifications land on screens that exist
         run: pnpm verify:notify
 
+      # רמז אוצר המילים הוא הדבר היחיד שמטה את מודל התמלול לטובת
+      # „ממ״ד” על פני „ממד”. ההכתבה שלחה אותו, תמלול השיחות לא —
+      # כלומר האודיו הגרוע ביותר היה היחיד בלי הקשר, בשקט מוחלט.
+      - name: Every /transcribe caller sends the vocabulary hint
+        run: pnpm verify:stt
+
       - name: Audit dependencies (fail on high)
         run: pnpm audit --audit-level high
 

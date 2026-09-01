@@ -23,6 +23,7 @@ import {
   effectiveFeatures,
   diarizeTimeoutMs,
   formatDiarizedTranscript,
+  STT_CALL_HINT,
   buildCallIntelPrompt,
   CALL_INTEL_SCHEMA,
   formatRoleTranscript,
@@ -61,6 +62,11 @@ import {
   mergeStoredTurns,
   parseStoredTurns,
   formatNotifyMessage,
+  notifyFollowUp,
+  AGENT_ACTIONS,
+  mayUseAction,
+  ROLE_CAPABILITIES,
+  type Capability,
   inQuietHours,
   type AgentHistoryTurn,
   fitsInteractive,
@@ -1802,6 +1808,16 @@ async function transcribeOneCall(): Promise<void> {
       const audio = new Uint8Array(await storageGet(pending.recordingKey));
       const form = new FormData();
       form.append("file", new Blob([audio]), "call.webm");
+      /*
+       * ‎**רמז אוצר המילים — שתמלול השיחות לא שלח עד כה.**
+       *
+       * ‎`/transcribe` מקבל `prompt` ומעביר אותו ל-`initial_prompt`
+       * של המודל, וההכתבה בדפדפן שלחה אותו מהיום הראשון. הקלטת
+       * שיחה — אודיו טלפוני צר-פס, רועש, ועם שני דוברים — הגיעה
+       * לכאן בלי שום הקשר, כלומר דווקא המסלול שהכי תלוי ברמז היה
+       * היחיד בלעדיו. „ממ״ד” חזר „ממד” ו„בלעדיות” חזרה „בעלות”.
+       */
+      form.append("prompt", STT_CALL_HINT);
       const res = await fetch(`${sttUrl}/transcribe`, {
         method: "POST",
         headers: { "x-stt-secret": sttSecret },
@@ -2793,6 +2809,37 @@ interface WaRecipient {
   snoozed: boolean;
   /** עד מתי כבר קיבל — מונע כפילות כשנמען אחר של אותה התראה נכשל */
   notifiedThrough: Date | null;
+  /**
+   * ‎**מזהי הפעולות** שמותרות לו — לא היכולות שלו.
+   *
+   * ‏ההבחנה אינה סמנטית: `notifyFollowUp` משווה מול מזהה פעולה
+   * (`show_callbacks`), ורשימת יכולות (`leads.view_own`) לעולם
+   * אינה מכילה אותו. כלומר העברת היכולות הייתה מכבה את הכפתור
+   * הנגזר תמיד, בשקט — אותה טעות שהפילה כאן דברים בעבר.
+   *
+   * נגזר מהתפקיד ואינו נשמר: הרשאות משתנות, והסבב רץ כל דקה.
+   */
+  allowedActionIds: readonly string[];
+}
+
+/**
+ * הפעולות שתפקיד מסוים רשאי להריץ — אותו סינון שהסוכן עושה לפני
+ * שהוא מציע צעד, כאן לפני שהוא מציע כפתור.
+ *
+ * המטמון הוא פר-תפקיד ולא פר-משתמש: יש חמישה תפקידים, והסבב עובר
+ * על כל המשרדים בכל דקה.
+ */
+const ACTIONS_BY_ROLE = new Map<string, readonly string[]>();
+
+function allowedActionsForRole(role: string): readonly string[] {
+  const cached = ACTIONS_BY_ROLE.get(role);
+  if (cached !== undefined) return cached;
+  const capabilities = new Set<Capability>(ROLE_CAPABILITIES[role] ?? []);
+  const ids = AGENT_ACTIONS.filter((action) => mayUseAction(action, capabilities)).map(
+    (action) => action.id,
+  );
+  ACTIONS_BY_ROLE.set(role, ids);
+  return ids;
 }
 
 async function processWhatsAppNotifySweep(): Promise<void> {
@@ -2841,7 +2888,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
         phone: { not: null },
         OR: [{ whatsappAccess: true }, { role: "owner" }],
       },
-      select: { id: true, phone: true, preferences: true },
+      select: { id: true, phone: true, preferences: true, role: true },
     });
     if (users.length === 0) continue;
 
@@ -2879,6 +2926,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
         windowOpen: sessionWindowOpen(chat?.lastInboundAt ?? null, now),
         snoozed: chat?.notifySnoozeUntil ? chat.notifySnoozeUntil > now : false,
         notifiedThrough: chat?.notifiedThrough ?? null,
+        allowedActionIds: allowedActionsForRole(user.role),
       });
     }
     if (recipients.size === 0) continue;
@@ -2929,10 +2977,25 @@ async function processWhatsAppNotifySweep(): Promise<void> {
          */
         const message = formatNotifyMessage(items, webOrigin);
         if (fitsInteractive(message)) {
+          /*
+           * ‎**הכפתור הראשון נגזר ממה שכתוב מעליו.**
+           *
+           * עד כה הוצמדו לכל הודעה אותם שניים בדיוק, ו„מה דחוף
+           * היום?” מתחת להתראה על שיחה שלא נענתה או על פנייה ברשת
+           * הוא כפתור שאינו קשור להודעה. `notifyFollowUp` נשען על
+           * אותה קטגוריה שממנה נגזר כבר משפט הסיום — ומחזיר `null`
+           * לתקציר יומי, שם „מה דחוף היום?” הוא דווקא הצעד הנכון.
+           *
+           * ההשתקה נשארת שנייה תמיד: היא פקד על הסוכן עצמו, ואינה
+           * תלויה בשום דבר שכתוב בהודעה.
+           */
+          const follow = notifyFollowUp(items, recipient.allowedActionIds);
           ok = await sendWhatsApp(
             config,
             replyButtonsPayload(recipient.phone, message, [
-              { action: "cmd", arg: "urgent", title: "📋 מה דחוף היום?" },
+              follow === null
+                ? { action: "cmd", arg: "urgent", title: "📋 מה דחוף היום?" }
+                : { action: "cmd", arg: follow.text, title: follow.label },
               { action: "snooze", arg: "120", title: "🔕 שקט לשעתיים" },
             ]),
           );

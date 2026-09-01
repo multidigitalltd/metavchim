@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import {
+  displayWhatsappNumber,
   fitsInteractive,
   listPayload,
   normalizePhoneForWhatsapp,
@@ -499,9 +500,38 @@ export class WhatsAppSendService {
         display_phone_number?: string;
         verified_name?: string;
       };
+      const connected = normalizePhoneForWhatsapp(data.display_phone_number ?? "");
+      const name = data.verified_name ?? "ללא שם מאומת";
+
+      /*
+       * ‎**החיבור עלה — אבל לאיזה קו?**
+       *
+       * ‎`Phone Number ID` הוא מזהה אטום, ולחשבון עסקי אחד ב-Meta
+       * יכולים להיות כמה מספרים. הדבקה של המזהה של המספר השני
+       * באותו חשבון אינה נכשלת בשום מקום: האסימון תקף, Meta עונה,
+       * ההודעות יוצאות — פשוט מהמספר הלא נכון. עד כאן הבדיקה הייתה
+       * מחזירה „מחובר” ירוק בדיוק על התקלה הזאת.
+       *
+       * ‎`whatsappBotNumber` הוא ההצהרה של המנהל על מה *אמור* להיות
+       * מחובר, ולכן הוא אמת המידה. ריק = לא הוצהר דבר, ואין מה
+       * להשוות — הבדיקה נשארת כשהייתה ואינה ממציאה כשל.
+       */
+      const expected = normalizePhoneForWhatsapp(
+        (await this.platformSettings.get("whatsappBotNumber")) ?? "",
+      );
+      if (expected !== "" && connected !== "" && expected !== connected) {
+        return {
+          ok: false,
+          message:
+            `מחובר למספר הלא נכון: ${displayWhatsappNumber(connected)} (${name}), ` +
+            `בעוד שמספר הבוט המוגדר הוא ${displayWhatsappNumber(expected)}. ` +
+            "‏החליפו את Phone Number ID לזה של המספר הנכון — או תקנו את שדה מספר הבוט אם הוא זה שגוי.",
+        };
+      }
+
       return {
         ok: true,
-        message: `מחובר: ${data.verified_name ?? "ללא שם מאומת"} · ${data.display_phone_number ?? creds.phoneNumberId}`,
+        message: `מחובר: ${name} · ${connected === "" ? creds.phoneNumberId : displayWhatsappNumber(connected)}`,
       };
     } catch (error) {
       return { ok: false, message: `החיבור ל-Meta נכשל: ${String(error)}` };

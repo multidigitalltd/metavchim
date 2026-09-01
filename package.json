@@ -16,7 +16,8 @@
     "test": "turbo run test",
     "format": "prettier --write .",
     "verify:backup": "node scripts/verify-backup-chain.mjs",
-    "verify:notify": "node scripts/verify-notification-routes.mjs"
+    "verify:notify": "node scripts/verify-notification-routes.mjs",
+    "verify:stt": "node scripts/verify-stt-prompt.mjs"
   },
   "pnpm": {
     "overrides": {
