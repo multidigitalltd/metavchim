@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, use, type FormEvent } from "react";
+import { NeighborhoodInput } from "../../../neighborhood-input";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CustomFeature } from "@metavchim/shared";
@@ -221,7 +222,19 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
             </div>
             <div>
               <label htmlFor="neighborhood" className="mb-1 block font-medium">שכונה</label>
-              <input id="neighborhood" name="neighborhood" defaultValue={property.neighborhood ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              {/*
+                העיר לצמצום היא זו **השמורה** ולא זו שבשדה: שדה העיר
+                כאן אינו מנוהל, ועריכת עיר היא מקרה נדיר לעומת תיקון
+                שכונה. הצעה לפי העיר השמורה נכונה כמעט תמיד, ובמקרה
+                הנדיר היא רק לא מציעה — השדה נשאר חופשי להקלדה.
+              */}
+              <NeighborhoodInput
+                id="neighborhood"
+                name="neighborhood"
+                defaultValue={property.neighborhood ?? ""}
+                city={property.city ?? ""}
+                style={inputStyle}
+              />
             </div>
             <div>
               <label htmlFor="street" className="mb-1 block font-medium">רחוב</label>

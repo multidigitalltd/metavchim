@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState, type FormEvent } from "react";
+import { NeighborhoodInput } from "../../neighborhood-input";
 import { useRouter, useSearchParams } from "next/navigation";
 import { safeReturnPath, withQuery, type CustomFeature } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
@@ -201,13 +202,18 @@ function NewPropertyForm() {
               <label htmlFor="neighborhood" className="mb-1 block font-medium">
                 שכונה
               </label>
-              <input
+              {/*
+                העיר מצמצמת: „שיכון ג'” קיימת בכמה ערים ואינה אותה
+                שכונה, ולנכס יש עיר אחת ודאית — בשונה מקונה, שיכול
+                לחפש בכמה ערים בבת אחת.
+              */}
+              <NeighborhoodInput
                 id="neighborhood"
                 name="neighborhood"
-                onChange={(e) =>
-                  setAddress((a) => ({ ...a, neighborhood: e.target.value }))
+                city={address.city}
+                onValueChange={(neighborhood) =>
+                  setAddress((a) => ({ ...a, neighborhood }))
                 }
-                className="w-full rounded-lg border px-3 py-2.5"
                 style={inputStyle}
               />
             </div>
