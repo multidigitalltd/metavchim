@@ -178,6 +178,12 @@ jobs:
       - name: Every /transcribe caller sends the vocabulary hint
         run: pnpm verify:stt
 
+      # ‏תפקיד הוא נקודת פתיחה, לא הרשאה: מעליו יושבים חריגים
+      # פר-משתמש וחסימת מודולים. גזירה מהתפקיד בלבד מציעה פעולה
+      # שהשרת ידחה — או מסתירה יכולת שניתנה במפורש — בשקט מוחלט.
+      - name: Action permissions come from effective capabilities
+        run: pnpm verify:caps
+
       - name: Audit dependencies (fail on high)
         run: pnpm audit --audit-level high
 

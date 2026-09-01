@@ -65,8 +65,10 @@ import {
   notifyFollowUp,
   AGENT_ACTIONS,
   mayUseAction,
-  ROLE_CAPABILITIES,
+  applyBlockedModules,
+  resolveCapabilities,
   type Capability,
+  type CapabilityOverride,
   inQuietHours,
   type AgentHistoryTurn,
   fitsInteractive,
@@ -2815,31 +2817,38 @@ interface WaRecipient {
    * ‏ההבחנה אינה סמנטית: `notifyFollowUp` משווה מול מזהה פעולה
    * (`show_callbacks`), ורשימת יכולות (`leads.view_own`) לעולם
    * אינה מכילה אותו. כלומר העברת היכולות הייתה מכבה את הכפתור
-   * הנגזר תמיד, בשקט — אותה טעות שהפילה כאן דברים בעבר.
+   * הנגזר תמיד, בשקט.
    *
-   * נגזר מהתפקיד ואינו נשמר: הרשאות משתנות, והסבב רץ כל דקה.
+   * נגזר מהיכולות **בפועל** (תפקיד + חריגים + מודולים חסומים) —
+   * ראו `allowedActionsFor`.
    */
   allowedActionIds: readonly string[];
 }
 
 /**
- * הפעולות שתפקיד מסוים רשאי להריץ — אותו סינון שהסוכן עושה לפני
- * שהוא מציע צעד, כאן לפני שהוא מציע כפתור.
+ * ‎**הפעולות שהמשתמש הזה רשאי להריץ — ביכולות שלו בפועל.**
  *
- * המטמון הוא פר-תפקיד ולא פר-משתמש: יש חמישה תפקידים, והסבב עובר
- * על כל המשרדים בכל דקה.
+ * ‏הגרסה הראשונה גזרה מ-`ROLE_CAPABILITIES` בלבד, במטמון פר-תפקיד.
+ * זה נראה זול ונכון, והוא **חולק על מסלול ההרשאה האמיתי** שאותו
+ * מריץ הסוכן ברגע שלוחצים על הכפתור (`buildContext`): שם התפקיד
+ * הוא רק נקודת הפתיחה, ומעליו יושבים חריגי `userCapability`
+ * וחסימת מודולים של המשרד (ביקורת Codex).
+ *
+ * שני הכיוונים נשברו, ולשניהם יש קורבן:
+ *
+ * ‎**חריג `deny`, או מודול חסום** ⟵ הכפתור מוצג, והלחיצה נוחתת על
+ * „אין לך הרשאה”. זה בדיוק מה שהסינון נועד למנוע.
+ *
+ * ‎**חריג `grant`** ⟵ המשתמש קיבל את היכולת, ובכל זאת רואה רק את
+ * הכפתור הכללי. יכולת שניתנה במפורש ואינה מגיעה למסך.
+ *
+ * ולכן אין כאן מטמון פר-תפקיד: החריגים הם פר-משתמש, ומטמון כזה
+ * שגוי בהגדרה ולא רק לא-מדויק.
  */
-const ACTIONS_BY_ROLE = new Map<string, readonly string[]>();
-
-function allowedActionsForRole(role: string): readonly string[] {
-  const cached = ACTIONS_BY_ROLE.get(role);
-  if (cached !== undefined) return cached;
-  const capabilities = new Set<Capability>(ROLE_CAPABILITIES[role] ?? []);
-  const ids = AGENT_ACTIONS.filter((action) => mayUseAction(action, capabilities)).map(
+function allowedActionsFor(capabilities: Set<Capability>): readonly string[] {
+  return AGENT_ACTIONS.filter((action) => mayUseAction(action, capabilities)).map(
     (action) => action.id,
   );
-  ACTIONS_BY_ROLE.set(role, ids);
-  return ids;
 }
 
 async function processWhatsAppNotifySweep(): Promise<void> {
@@ -2849,7 +2858,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
   const now = new Date();
   const since = new Date(now.getTime() - WA_NOTIFY_MAX_AGE_MS);
   const hour = jerusalemHour(now);
-  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  const tenants = await prisma.tenant.findMany({ select: { id: true, blockedModules: true } });
 
   for (const tenant of tenants) {
     // אותו שער כמו הסוכן עצמו: הדחיפה היא חלק מהפיצ'ר, לא תוספת חינם
@@ -2906,6 +2915,31 @@ async function processWhatsAppNotifySweep(): Promise<void> {
     });
     const chatOf = new Map(chats.map((chat) => [chat.userId, chat]));
 
+    /*
+     * ‎**החריגים — באותה שאילתה אחת לכל הנמענים של המשרד.**
+     *
+     * ‏אותו מקור שהסוכן קורא ב-`buildContext`, ולכן הכפתור מציע
+     * בדיוק את מה שהלחיצה תורשה להריץ. שאילתה אחת ולא אחת לכל
+     * משתמש: הסבב עובר על כל המשרדים בכל דקה.
+     */
+    const overrides = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      return tx.userCapability.findMany({
+        where: { tenantId: tenant.id, userId: { in: users.map((u) => u.id) } },
+        select: { userId: true, capability: true, effect: true, expiresAt: true },
+      });
+    });
+    const overridesOf = new Map<string, CapabilityOverride[]>();
+    for (const row of overrides) {
+      const list = overridesOf.get(row.userId) ?? [];
+      list.push({
+        capability: row.capability as Capability,
+        effect: row.effect === "grant" ? "grant" : "deny",
+        expiresAt: row.expiresAt,
+      });
+      overridesOf.set(row.userId, list);
+    }
+
     const recipients = new Map<string, WaRecipient>();
     for (const user of users) {
       const prefs = parseWhatsAppNotifyPrefs(user.preferences);
@@ -2926,7 +2960,12 @@ async function processWhatsAppNotifySweep(): Promise<void> {
         windowOpen: sessionWindowOpen(chat?.lastInboundAt ?? null, now),
         snoozed: chat?.notifySnoozeUntil ? chat.notifySnoozeUntil > now : false,
         notifiedThrough: chat?.notifiedThrough ?? null,
-        allowedActionIds: allowedActionsForRole(user.role),
+        allowedActionIds: allowedActionsFor(
+          applyBlockedModules(
+            resolveCapabilities(user.role, overridesOf.get(user.id) ?? [], now),
+            tenant.blockedModules,
+          ),
+        ),
       });
     }
     if (recipients.size === 0) continue;
