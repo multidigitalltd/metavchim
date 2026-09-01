@@ -25,6 +25,8 @@ import {
  */
 
 const TENANT = "01STATUSTENANTAAAAAAAAAAAA";
+/** חיבור שני — נעילה נבדקת רק בין שתי טרנזקציות נפרדות. */
+let other: PrismaClient | undefined;
 const CONTACT = "01STATUSCONTACTAAAAAAAAAAA";
 let owner: PrismaClient | undefined;
 
@@ -52,6 +54,9 @@ const LIST: OfficeBuyerStatus[] = [
 
 beforeAll(async () => {
   owner = new PrismaClient({
+    datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } },
+  });
+  other = new PrismaClient({
     datasources: { db: { url: requiredEnv("DIRECT_DATABASE_URL") } },
   });
 
@@ -90,6 +95,7 @@ afterAll(async () => {
   await owner.$executeRaw`DELETE FROM contacts WHERE tenant_id = ${TENANT}`;
   await owner.$executeRaw`DELETE FROM tenants WHERE id = ${TENANT}`;
   await owner.$disconnect();
+  await other?.$disconnect();
 });
 
 describe("סטטוס המשרד מול מסד אמיתי", () => {
@@ -168,6 +174,78 @@ describe("סטטוס המשרד מול מסד אמיתי", () => {
     );
     expect(inUse).toBe(2);
     expect(free).toBe(0);
+  });
+
+  /*
+   * ‎**קונה בארכיון עדיין נושא את הסטטוס** (ביקורת Codex).
+   *
+   * הספירה סיננה `deletedAt: null`, ולכן סטטוס שרק כרטיסים בארכיון
+   * נשאו נמחק לגמרי — ושחזור של אחד מהם היה מחזיר כרטיס עם מזהה
+   * שאינו נפתר לשום תווית. „היסטוריה נשמרת” חייב לכלול את מה
+   * שבארכיון, אחרת הוא לא נשמר.
+   */
+  it("ספירת השימוש כוללת קונים בארכיון", async () => {
+    await owner!.$executeRaw`
+      INSERT INTO buyers (id, tenant_id, contact_id, requirements, deal_type, source,
+                          maturity, office_status, deleted_at, created_at, updated_at)
+      VALUES ('01STATUSBUYERARCHIVEDAAAAA', ${TENANT}, ${CONTACT}, '{}'::jsonb, 'sale', 'manual',
+              'hot', 's9', now(), now(), now())
+      ON CONFLICT (id) DO NOTHING
+    `;
+    const all = await inTenant((tx) => tx.buyer.count({ where: { officeStatus: "s9" } }));
+    const liveOnly = await inTenant((tx) =>
+      tx.buyer.count({ where: { officeStatus: "s9", deletedAt: null } }),
+    );
+    expect(all).toBe(1);
+    /* הגרסה השגויה ספרה כך, וקיבלה „אף אחד לא נושא אותו”. */
+    expect(liveOnly).toBe(0);
+    await owner!.$executeRaw`DELETE FROM buyers WHERE id = '01STATUSBUYERARCHIVEDAAAAA'`;
+  });
+
+  /*
+   * ‎**הנעילה נבדקת ולא מונחת.**
+   *
+   * ‎`NOWAIT` הופך את ההמתנה לשגיאה מיידית, ולכן הבדיקה דטרמיניסטית
+   * ואינה תלויה בתזמון: או שהנעילה תפוסה, או שאינה.
+   */
+  it("FOR UPDATE על שורת המשרד מסדר עריכות הגדרות בתור", async () => {
+    let blocked = false;
+    await owner!.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT id FROM tenants WHERE id = ${TENANT} FOR UPDATE`;
+      await other!
+        .$queryRaw`SELECT id FROM tenants WHERE id = ${TENANT} FOR UPDATE NOWAIT`
+        .then(() => {
+          blocked = false;
+        })
+        .catch(() => {
+          blocked = true;
+        });
+    });
+    expect(blocked).toBe(true);
+  });
+
+  /*
+   * הצד השני של אותו זוג: שיוך סטטוס לשני קונים במקביל **אינו**
+   * אמור להסתדר בתור — רק מול עריכת ההגדרות.
+   */
+  it("FOR SHARE אינו חוסם FOR SHARE, אבל כן חוסם עריכת הגדרות", async () => {
+    let shareBlocked = false;
+    let updateBlocked = false;
+    await owner!.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT id FROM tenants WHERE id = ${TENANT} FOR SHARE`;
+      await other!
+        .$queryRaw`SELECT id FROM tenants WHERE id = ${TENANT} FOR SHARE NOWAIT`
+        .catch(() => {
+          shareBlocked = true;
+        });
+      await other!
+        .$queryRaw`SELECT id FROM tenants WHERE id = ${TENANT} FOR UPDATE NOWAIT`
+        .catch(() => {
+          updateBlocked = true;
+        });
+    });
+    expect(shareBlocked).toBe(false);
+    expect(updateBlocked).toBe(true);
   });
 
   it("העמודה מקבלת מזהה באורך המלא ומחזירה אותו כמו שהוא", async () => {

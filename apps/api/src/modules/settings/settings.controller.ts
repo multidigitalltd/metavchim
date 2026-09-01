@@ -982,28 +982,49 @@ export class SettingsController {
   async deleteBuyerStatus(
     @Param("id", new ZodValidationPipe(BuyerStatusIdSchema)) id: string,
   ): Promise<{ statuses: OfficeBuyerStatus[] }> {
-    const inUse = await this.prisma.withTenant((tx) =>
-      tx.buyer.count({ where: { officeStatus: id, deletedAt: null } }),
-    );
-    return this.saveBuyerStatuses("settings.buyer_status_delete", (list) =>
-      removeOfficeStatus(list, id, inUse > 0),
+    return this.saveBuyerStatuses(
+      "settings.buyer_status_delete",
+      (list, inUse) => removeOfficeStatus(list, id, inUse > 0),
+      id,
     );
   }
 
   /**
-   * ‎**קריאה-שינוי-כתיבה בטרנזקציה אחת.**
+   * ‎**קריאה-שינוי-כתיבה, בטרנזקציה אחת ומתחת לנעילת שורת המשרד.**
    *
-   * הרשימה יושבת ב-`tenants.settings`, ולכן כתיבה שקראה מחוץ
-   * לטרנזקציה הייתה דורסת עריכה מקבילה של סטטוס אחר — או של הגדרה
-   * אחרת לגמרי, כי כולן חולקות את אותו אובייקט JSON.
+   * ## למה הנעילה
+   *
+   * הרשימה יושבת ב-`tenants.settings`, שהוא **מסמך JSON אחד**. בלי
+   * הנעילה שני מנהלים שעורכים סטטוסים במקביל — או אחד שעורך סטטוס
+   * בזמן שהשני שומר את פרטי המשרד — קוראים את אותו צילום, והשני
+   * שכותב מוחק את מה שהראשון שמר. בלי שגיאה ובלי שאיש ידע
+   * ‎(ביקורת Codex). `updateTenant` כבר עשה בדיוק את זה, ופספסתי.
+   *
+   * ## ולמה הספירה כאן ולא אצל הקורא
+   *
+   * ‎`inUse` הוא מה שמכריע בין מחיקה להסתרה, והוא **חייב** להימדד
+   * תחת אותה נעילה ובאותה טרנזקציה: ספירה שרצה קודם, בטרנזקציה
+   * משלה, מאפשרת לסוכן לשייך את הסטטוס לקונה בין הספירה למחיקה —
+   * והכרטיס נשאר עם מזהה שאינו נפתר לשום תווית. הצד השני של המרוץ
+   * נסגר ב-`shareTenantRow` במסלול הכתיבה של הקונה.
+   *
+   * ‎**והספירה אינה מסננת `deletedAt`**: קונה בארכיון עדיין נושא את
+   * הסטטוס, ושחזור שלו היה מחזיר כרטיס עם תווית שנעלמה.
    */
   private async saveBuyerStatuses(
     action: string,
-    change: (list: OfficeBuyerStatus[]) => OfficeStatusResult,
+    change: (list: OfficeBuyerStatus[], inUse: number) => OfficeStatusResult,
+    /** מזהה שצריך ספירת שימוש — רק מחיקה צריכה אותה. */
+    countFor?: string,
   ): Promise<{ statuses: OfficeBuyerStatus[] }> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
-      const result = change(await readOfficeStatuses(tx, tenantId));
+      await lockTenantRow(tx, tenantId);
+      const inUse =
+        countFor === undefined
+          ? 0
+          : await tx.buyer.count({ where: { officeStatus: countFor } });
+      const result = change(await readOfficeStatuses(tx, tenantId), inUse);
       if (!result.ok) throw new BadRequestException(result.error);
       await writeOfficeStatuses(tx, tenantId, result.list);
       await this.audit.record(tx, {

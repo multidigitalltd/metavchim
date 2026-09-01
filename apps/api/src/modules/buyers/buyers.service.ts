@@ -33,7 +33,7 @@ import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
-import { lockContact } from "../../common/locks";
+import { lockContact, shareTenantRow } from "../../common/locks";
 import { ContactErasureService } from "../contacts/contact-erasure.service";
 import { ContactsService } from "../contacts/contacts.service";
 import {
@@ -410,6 +410,8 @@ export class BuyersService {
     let maturity = input.maturity ?? "interested";
     let officeStatus: string | null = null;
     if (input.officeStatus !== undefined && input.officeStatus !== "") {
+      /* אותה נעילה משותפת כמו בעדכון — ראו ההסבר שם. */
+      await shareTenantRow(tx, tenantId);
       const entry = officeStatusById(
         await readOfficeStatuses(tx, tenantId),
         input.officeStatus,
@@ -606,6 +608,17 @@ export class BuyersService {
        */
       const touchesStatus =
         patch.officeStatus !== undefined || patch.maturity !== undefined;
+      /*
+       * ‎**נעילה משותפת על שורת המשרד לפני קריאת הרשימה** (ביקורת
+       * Codex). מחיקה מלאה של סטטוס מותרת רק כשאיש אינו נושא אותו,
+       * והיא סופרת תחת `FOR UPDATE`; בלי הנעילה כאן, שיוך שקרה בין
+       * הספירה למחיקה היה משאיר על הכרטיס מזהה שאינו נפתר לשום
+       * תווית — כלומר אובדן ההיסטוריה שההסתרה נועדה למנוע.
+       *
+       * ‎`FOR SHARE` אינו חוסם שיוך מקביל של קונה אחר; הוא חוסם רק
+       * את עריכת ההגדרות, וזה בדיוק הזוג שצריך להיות סדרתי.
+       */
+      if (touchesStatus) await shareTenantRow(tx, tenantId);
       const statuses = touchesStatus
         ? await readOfficeStatuses(tx, tenantId)
         : [];
