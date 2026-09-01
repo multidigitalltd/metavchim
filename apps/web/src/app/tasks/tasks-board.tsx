@@ -254,6 +254,23 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
         setError(jerusalemWallErrorMessage(resolved.reason));
         return;
       }
+      /*
+       * ‎**מועד מהיר שפג בין הבחירה לשליחה** (ביקורת Codex).
+       *
+       * מי שבחר „היום” ב-17:55 והקליד כותרת עד 18:05 שולח ערך שכבר
+       * בעבר, בלי שנגע בצ׳יפ שוב. אותה הבטחה בדיוק כמו בלחיצה, שכבה
+       * אחת פנימה — וזו הצורה שכבר קיימת ב-`entity-tasks.tsx`.
+       *
+       * ‎**רק על מועד שהצ׳יפ קבע.** תאריך שהוקלד ביד, גם בעבר, הוא
+       * בחירה לגיטימית של המתווך ואיני דוחה אותה.
+       */
+      if (dueSource !== null && resolved.at.getTime() <= Date.now()) {
+        setError("המועד המהיר שנבחר כבר חלף. בחרו מועד חדש.");
+        setDueAt("");
+        setDueSource(null);
+        setNow(new Date());
+        return;
+      }
       due = resolved.at.toISOString();
     }
     setBusy(true);
@@ -455,7 +472,13 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
                 onClick={() => void onSnooze(task.id, task.dueAt)}
               >
                 <IconCalendar s={15} /> דחה
-                <span className="mv-visually-hidden"> את {task.title} למחר בבוקר</span>
+                {/*
+                  ‎**בלי יעד קבוע בשם הנגיש** (ביקורת Codex). היעד
+                  תלוי במועד הקיים — מחר בבוקר למשימה שאיחרה, יום
+                  קדימה למשימה עתידית — ו„למחר בבוקר” היה אומר לקורא
+                  מסך דבר שאינו נכון על רוב השורות.
+                */}
+                <span className="mv-visually-hidden"> את {task.title}</span>
               </button>
             </>
           ) : null}
