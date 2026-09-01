@@ -39,6 +39,16 @@ export const VOCABULARY_MAX = 400;
 export async function neighborhoodVocabulary(
   tx: Prisma.TransactionClient,
   city: string,
+  /**
+   * ‎**המפתח המקופל של מה שהוקלד — מסנן במסד, לפני התקרה.**
+   *
+   * בלעדיו התקרה חתכה את 400 השכיחים ורק *אחר כך* הקוד סינן לפי
+   * מה שהוקלד, כך שבמשרד עם יותר מ-400 כתיבים שונים השכונה
+   * ה-401 הייתה **בלתי נראית לצמיתות** — גם בהקלדה מדויקת שלה.
+   *
+   * ‎`""` = בלי סינון (המצב שממנו נבנית רשימה ראשונית בפוקוס).
+   */
+  queryKey = "",
 ): Promise<NeighborhoodUse[]> {
   /*
    * שני מקורות, כי שכונה נכתבת בשני מקומות: על נכס (עמודה), ועל
@@ -49,6 +59,16 @@ export async function neighborhoodVocabulary(
    * קונה בודד שאצלו `neighborhoods` אינו מערך — ייבוא ישן, תיקון
    * ידני — היה מפיל את ההצעות **לכל המשרד**, לא רק אצלו.
    */
+  /*
+   * ‎**הסינון במסד רחב מהסינון בקוד, בכוונה.**
+   *
+   * הקיפול האמיתי (`neighborhoodKey`) חי ב-JS, והעתקה שלו ל-SQL
+   * הייתה שני מימושים שנפרדים ביום שמישהו יערוך אחד מהם. במקום
+   * זאת המסד עושה סינון **מרשים יותר** — הסרת גרשיים ומקפים,
+   * כיווץ רווחים, ותת-מחרוזת — ולכן כל מה שהקוד היה מקבל עובר
+   * אותו בוודאות. ההכרעה נשארת בקוד; המסד רק מונע מהתקרה לחתוך
+   * את מה שרלוונטי.
+   */
   const rows = await tx.$queryRaw<{ name: string; count: bigint }[]>`
     SELECT name, COUNT(*)::bigint AS count
       FROM (
@@ -58,7 +78,20 @@ export async function neighborhoodVocabulary(
            AND p.deleted_at IS NULL
            AND (${city}::text = '' OR p.city = ${city})
         UNION ALL
-        SELECT n AS name
+        /*
+         * ‎**DISTINCT על הזוג (קונה, שכונה)** (ביקורת Codex).
+         *
+         * ‎השדה יכול להכיל את אותה שכונה פעמיים — הדבקה,
+         * ייבוא ישן, כתיבה דרך ה-API — והסכימה מתירה זאת. בלי
+         * צמצום כל מופע נספר בנפרד, וקונה **אחד** ניפח כתיב
+         * מסוים כאילו כמה אנשים בחרו בו. הסינון בממשק מונע יצירה
+         * של כפילות חדשה, אך אינו מנקה את מה שכבר שמור.
+         *
+         * אחרי הצמצום, המונה על השם סופר **קונים** ולא מופעים —
+         * וזו גם המידה הנכונה: „כמה כרטיסים משתמשים בכתיב הזה”.
+         */
+        SELECT name FROM (
+          SELECT DISTINCT b.id AS buyer_id, n AS name
           FROM buyers b
          CROSS JOIN LATERAL jsonb_array_elements_text(
                  CASE
@@ -94,8 +127,18 @@ export async function neighborhoodVocabulary(
                AND b.requirements -> 'cities' ->> 0 = ${city}
              )
            )
+        ) AS per_buyer
       ) AS used
      WHERE btrim(name) <> ''
+       AND (
+         ${queryKey}::text = ''
+         OR lower(
+              regexp_replace(
+                translate(name, '''"’‘”“׳״-־', '         '),
+                '\s+', ' ', 'g'
+              )
+            ) LIKE '%' || ${queryKey} || '%'
+       )
      GROUP BY name
      ORDER BY count DESC, name
      LIMIT ${VOCABULARY_MAX}

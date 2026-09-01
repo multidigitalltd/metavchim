@@ -35,10 +35,13 @@ function requiredEnv(name: string): string {
 }
 
 /** השאילתה חייבת הקשר דייר; כאן הוא נקבע במפורש, כמו ב-`withTenant`. */
-async function vocabulary(city: string): Promise<{ name: string; count: number }[]> {
+async function vocabulary(
+  city: string,
+  queryKey = "",
+): Promise<{ name: string; count: number }[]> {
   return owner!.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.tenant_id', ${TENANT}, true)`;
-    return neighborhoodVocabulary(tx, city);
+    return neighborhoodVocabulary(tx, city, queryKey);
   });
 }
 
@@ -137,6 +140,57 @@ afterAll(async () => {
 });
 
 describe("אוצר השכונות מול מסד אמיתי", () => {
+  /*
+   * ‎**התקרה חתכה לפני הסינון** (ביקורת Codex).
+   *
+   * במשרד עם יותר מ-400 כתיבים שונים, השכונה ה-401 לפי שכיחות
+   * הייתה בלתי נראית לצמיתות — גם בהקלדה מדויקת שלה — כי הסינון
+   * לפי מה שהוקלד קרה בקוד, על מה שכבר נחתך.
+   */
+  it("שכונה מעבר לתקרה נמצאת כשמקלידים אותה", async () => {
+    const needle = "שכונה נדירה מאוד";
+    await owner!.$executeRaw`
+      INSERT INTO properties (id, tenant_id, status, city, neighborhood, deal_type, created_at, updated_at)
+      SELECT 'RARE' || lpad(g::text, 22, '0'), ${TENANT}, 'draft', 'עיר עמוסה',
+             'שכונה מספר ' || g, 'sale', now(), now()
+        FROM generate_series(1, 450) AS g
+      ON CONFLICT (id) DO NOTHING
+    `;
+    await owner!.$executeRaw`
+      INSERT INTO properties (id, tenant_id, status, city, neighborhood, deal_type, created_at, updated_at)
+      VALUES ('01SUGGESTRAREAAAAAAAAAAAAA', ${TENANT}, 'draft', 'עיר עמוסה', ${needle}, 'sale', now(), now())
+      ON CONFLICT (id) DO NOTHING
+    `;
+
+    /* בלי סינון — היא נופלת מחוץ לתקרה, וזה בסדר. */
+    const unfiltered = (await vocabulary("עיר עמוסה")).map((u) => u.name);
+    expect(unfiltered).not.toContain(needle);
+
+    /* עם המפתח שהוקלד — היא חייבת להימצא. */
+    const filtered = (await vocabulary("עיר עמוסה", "שכונה נדירה")).map((u) => u.name);
+    expect(filtered).toContain(needle);
+
+    await owner!.$executeRaw`DELETE FROM properties WHERE tenant_id = ${TENANT} AND city = 'עיר עמוסה'`;
+  });
+
+  /*
+   * ‎**קונה אחד עם אותה שכונה פעמיים ניפח כתיב לכולם.** הסכימה
+   * מתירה זאת, וייבוא או כתיבה דרך ה-API מייצרים את זה בפועל.
+   */
+  it("כפילות אצל אותו קונה נספרת פעם אחת", async () => {
+    const contactId = "01SUGGESTCONTACTAAAAAAAAAA";
+    await owner!.$executeRaw`
+      INSERT INTO buyers (id, tenant_id, contact_id, requirements, deal_type, source, created_at, updated_at)
+      VALUES ('01SUGGESTBUYERDUPEAAAAAAAA', ${TENANT}, ${contactId},
+              ${JSON.stringify({ cities: ["בני ברק"], neighborhoods: ["כפול כפול", "כפול כפול", "כפול כפול"] })}::jsonb,
+              'sale', 'manual', now(), now())
+      ON CONFLICT (id) DO NOTHING
+    `;
+    const found = (await vocabulary("")).find((u) => u.name === "כפול כפול");
+    expect(found?.count).toBe(1);
+    await owner!.$executeRaw`DELETE FROM buyers WHERE id = '01SUGGESTBUYERDUPEAAAAAAAA'`;
+  });
+
   it("קורא משני המקורות — עמודת הנכס ומערך הקונה", async () => {
     const names = (await vocabulary("")).map((u) => u.name);
     expect(names).toContain("שיכון ג'");

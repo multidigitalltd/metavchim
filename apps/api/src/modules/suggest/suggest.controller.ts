@@ -1,6 +1,10 @@
 import { Controller, Get, Query } from "@nestjs/common";
 import { z } from "zod";
-import { NEIGHBORHOOD_SUGGESTION_LIMIT, suggestNeighborhoods } from "@metavchim/shared";
+import {
+  neighborhoodKey,
+  NEIGHBORHOOD_SUGGESTION_LIMIT,
+  suggestNeighborhoods,
+} from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { PrismaService } from "../../core/prisma.service";
@@ -59,8 +63,12 @@ export class SuggestController {
     const { q = "", city } = query;
     const cityFilter = city?.trim() ?? "";
 
+    /*
+     * המפתח המקופל נשלח למסד כדי שהסינון יקרה **לפני** התקרה. הקיפול
+     * עצמו נשאר כאן — ה-SQL רק מרחיב, ואינו מכריע.
+     */
     const vocabulary = await this.prisma.withTenant((tx) =>
-      neighborhoodVocabulary(tx, cityFilter),
+      neighborhoodVocabulary(tx, cityFilter, neighborhoodKey(q)),
     );
     return { suggestions: suggestNeighborhoods(vocabulary, q, NEIGHBORHOOD_SUGGESTION_LIMIT) };
   }
