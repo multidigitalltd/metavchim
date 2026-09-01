@@ -39,6 +39,17 @@ export interface CallDto {
   contactId?: string;
   contactName?: string;
   leadId?: string;
+  /**
+   * ‎**הסטטוס של הליד שהשיחה פתחה — כדי שהמסך ידע אם עוד יש מה להמיר.**
+   *
+   * מסך השיחות מציע להמיר את הליד לקונה או לנכס. בלי הסטטוס הוא
+   * היה מציע את זה גם על ליד שכבר הומר, וההמרה הייתה נכשלת ב-409
+   * אחרי שהמתווך מילא טופס — כלומר כפתור שמוביל למבוי סתום.
+   *
+   * חסר = לשיחה אין ליד כלל, וזה תקין: שיחה מלקוח שכבר יש לו כרטיס
+   * אינה פותחת ליד.
+   */
+  leadStatus?: string;
   phone?: string;
   occurredAt: Date;
   durationMinutes?: number;
@@ -287,7 +298,26 @@ export class CallsService {
         tx,
         allowed.map((row) => row.contactId).filter((id): id is string => id !== null),
       );
-      return Promise.all(allowed.map((row) => this.toDto(tx, row, contactsById)));
+      /*
+       * ‎**שאילתה אחת לכל הלידים של העמוד** — אותו כלל של אנשי הקשר
+       * שמעליי. שליפה לכל שורה הייתה חמישים הלוך-ושוב על אותו חיבור.
+       */
+      const leadIds = [
+        ...new Set(allowed.map((row) => row.leadId).filter((id): id is string => id !== null)),
+      ];
+      const leadStatusById = new Map<string, string>(
+        leadIds.length === 0
+          ? []
+          : (
+              await tx.lead.findMany({
+                where: { tenantId, id: { in: leadIds } },
+                select: { id: true, status: true },
+              })
+            ).map((lead) => [lead.id, lead.status]),
+      );
+      return Promise.all(
+        allowed.map((row) => this.toDto(tx, row, contactsById, leadStatusById)),
+      );
     });
   }
 
@@ -631,6 +661,8 @@ export class CallsService {
      * וזה הנתיב של יצירה או של כרטיס יחיד.
      */
     contactsById?: Map<string, ContactDto>,
+    /** סטטוסי הלידים של העמוד — חסר ⇒ הסטטוס לא מוחזר. */
+    leadStatusById?: Map<string, string>,
   ): Promise<CallDto> {
     const contact =
       row.contactId === null
@@ -643,6 +675,9 @@ export class CallsService {
       ...(row.contactId ? { contactId: row.contactId } : {}),
       ...(contact ? { contactName: contact.name } : {}),
       ...(row.leadId ? { leadId: row.leadId } : {}),
+      ...(row.leadId && leadStatusById?.has(row.leadId)
+        ? { leadStatus: leadStatusById.get(row.leadId)! }
+        : {}),
       // הטלפון של איש הקשר מנצח — הוא המקור המעודכן
       ...(contact?.phone
         ? { phone: contact.phone }

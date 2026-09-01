@@ -36,6 +36,7 @@ export * from "./logic/csv-import.js";
 export * from "./logic/csv-import-buyers.js";
 export * from "./logic/csv-export.js";
 export * from "./logic/buyer-status.js";
+export * from "./logic/call-conversion.js";
 export * from "./logic/neighborhood.js";
 export * from "./logic/stt-hint.js";
 export * from "./logic/stt-segment.js";
