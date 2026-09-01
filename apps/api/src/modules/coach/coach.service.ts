@@ -9,7 +9,7 @@ import {
   type CoachSignals,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
-import { ownershipFilter } from "../../common/ownership";
+import { leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
 import { PrismaService } from "../../core/prisma.service";
 import { rowToFields } from "../properties/property.mapper";
 import { loadEnv } from "../../config/env";
@@ -40,7 +40,7 @@ export class CoachService {
     const canSeeCalendar = ctx.capabilities.has("calendar.manage");
     const signals = await this.prisma.withTenant(async (tx): Promise<CoachSignals> => {
       const buyerScope = ownershipFilter("buyers.view_all", "ownerUserId");
-      const leadScope = ownershipFilter("leads.view_all", "assignedToUserId");
+      const leadScope = leadOwnershipFilter();
       // מזהי הקונים שהמשתמש רשאי אליהם — לסינון הצעות מתלבטות לפי בעלות
       const scopedBuyerIds = (
         await tx.buyer.findMany({

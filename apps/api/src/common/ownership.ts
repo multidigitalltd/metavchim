@@ -22,6 +22,89 @@ export function ownershipFilter(
 }
 
 /**
+ * ‎**ליד בלי סוכן משויך שייך לערימה המשותפת — לא לאיש.**
+ *
+ * ## מה היה שבור
+ *
+ * ‏`ownershipFilter` מייצר `{ assignedToUserId: <אני> }`, ו-NULL
+ * אינו שווה לכלום ב-SQL — כלומר ליד לא-משויך אינו מתאים **לאף
+ * סוכן**. הוא אינו „של מישהו אחר”; הוא בלתי נראה.
+ *
+ * וזה בדיוק המצב שנוצר הכי הרבה: `openLeadForUnknownCaller` כותב
+ * ‎`assignedToUserId = null` בכל שיחה שלא הגיעה דרך מספר וירטואלי
+ * עם סוכן משויך — כלומר רוב השיחות ממספר לא מוכר. ההערה שם אפילו
+ * מנמקת את הנפילה ל-null במילים „ליד בלתי נראה גרוע מליד בערימה
+ * המשותפת” — אבל null **הוא** הבלתי נראה. הנפילה שנועדה למנוע את
+ * הבעיה הייתה הבעיה.
+ *
+ * ## ומה זה עשה ליומן השיחות
+ *
+ * ‏`visibleContactIds` אוסף לקוחות דרך הלידים שלהם, ולכן הלקוח
+ * שנפתח מהשיחה לא נכנס לרשימה. ואז ארבעת הענפים של
+ * ‎`visibleCallsCondition` נכשלים כולם: השיחה נושאת `contact_id`
+ * (ולכן שני הענפים של „בלי איש קשר” אינם חלים) ו-`created_by` ריק
+ * (וובהוק, לא אדם). התוצאה: **מסך שיחות ריק לכל סוכן בלי
+ * ‎`view_all`, בזמן שהמסד מלא.** בעל המשרד ראה הכול, ולכן זה שרד.
+ *
+ * הענף „בלי בעלים ובלי איש קשר” נכתב בדיוק נגד התקלה הזו — אבל
+ * ברגע שנפתח ליד נוצר גם `contact_id`, והענף מפסיק לחול. החור
+ * נפתח מחדש צעד אחד קדימה.
+ *
+ * ## למה זו אינה הרחבת הרשאות
+ *
+ * ‏„לא משויך” פירושו שאין סוכן שהליד שייך לו. אין כאן לקוח של
+ * עמית שנחשף — יש לקוח שאיש לא לקח. ליד משויך נשאר מוסתר בדיוק
+ * כמו קודם, וגבול הדייר (RLS) לא זז.
+ *
+ * ## ‎**ומי שהמודול חסום אצלו אינו מקבל את הערימה**
+ *
+ * ‏`ownershipFilter` הגולמי היה בטוח כאן **במקרה**: הוא ייצר
+ * ‎`{ assignedToUserId: <אני> }`, ולמי שמודול הלידים חסום אצלו כמעט
+ * אף ליד אינו משויך, ולכן הוא קיבל רשימה ריקה. הערימה המשותפת
+ * מבטלת את המקריות הזו — ובלי שער היא נפתחת דווקא למי שנחסם
+ * (ביקורת Codex, P1).
+ *
+ * וזה אינו תיאורטי: `ContactsController.related` מוצהר
+ * ‎`@AnyAuthenticated()`, וההערה שם אומרת במפורש שההרשאה „נאכפת
+ * בתוך השאילתה עצמה” — כלומר כאן. `CoachService` דורש
+ * ‎`matches.view` בלבד, ומסלולי ההמרה דורשים יכולות של קונים
+ * ונכסים. בכל אחד מהם הסינון הזה הוא ההרשאה.
+ *
+ * ‎`view_own` הוא הסף: בלעדיו נדרשת קבוצה שלא תתאים לשום שורה,
+ * ולא אובייקט ריק — ריק פירושו „בלי סינון”, כלומר ההפך הגמור.
+ */
+export function leadOwnershipFilter(): Prisma.LeadWhereInput {
+  const ctx = TenantContext.current();
+  if (ctx.capabilities.has("leads.view_all")) return {};
+  if (!ctx.capabilities.has("leads.view_own")) return { id: { in: [] } };
+  return { OR: [{ assignedToUserId: ctx.userId }, { assignedToUserId: null }] };
+}
+
+/**
+ * ‎**אותו כלל, לקורא שאינו יכול לקבל אובייקט Prisma.**
+ *
+ * שני מקומות מכריעים אותו בעצמם — חישוב בוליאני ב-`LeadsService`
+ * ותנאי ב-SQL גולמי ב-`TasksService` — ושניהם החזיקו העתק ידני של
+ * „שלי או `view_all`”. העתק שלישי שאינו מכיר את הערימה המשותפת הוא
+ * בדיוק הדרך שבה התיקון הזה נשחק (שתי ביקורות Codex).
+ *
+ * ‎`null` = „אין הגבלה”, ולכן הוא מתאים גם ל-SQL שמשווה מול פרמטר
+ * שעשוי להיות NULL.
+ */
+export function leadPoolOwner(): string | null {
+  const ctx = TenantContext.current();
+  return ctx.capabilities.has("leads.view_all") ? null : ctx.userId;
+}
+
+/** האם הליד הזה נגיש לי — שלי, של אף אחד, או שאני רואה הכול. */
+export function leadIsVisible(assignedToUserId: string | null): boolean {
+  const ctx = TenantContext.current();
+  if (ctx.capabilities.has("leads.view_all")) return true;
+  if (!ctx.capabilities.has("leads.view_own")) return false;
+  return assignedToUserId === null || assignedToUserId === ctx.userId;
+}
+
+/**
  * שערי גישה לישות בודדת **לפני פעולה עליה**.
  *
  * למה הם קיימים: `ownershipFilter` הוחל בעקביות על נתיבי הקריאה
@@ -45,7 +128,7 @@ export async function assertLeadAccess(
   leadId: string,
 ): Promise<void> {
   const lead = await tx.lead.findFirst({
-    where: { id: leadId, tenantId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
+    where: { id: leadId, tenantId, ...leadOwnershipFilter() },
     select: { id: true },
   });
   if (!lead) throw new NotFoundException("ליד לא נמצא");
@@ -104,7 +187,7 @@ export async function isCardAccessible(
           where: {
             id,
             tenantId,
-            ...ownershipFilter("leads.view_all", "assignedToUserId"),
+            ...leadOwnershipFilter(),
           },
           select: { id: true },
         });
@@ -420,7 +503,7 @@ export async function visibleContactIds(
       : [],
     sources.leads
       ? tx.lead.findMany({
-          where: { tenantId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
+          where: { tenantId, ...leadOwnershipFilter() },
           select: { contactId: true },
         })
       : [],
@@ -476,7 +559,7 @@ export async function assertContactAccess(
       : null,
     sources.leads
       ? tx.lead.findFirst({
-          where: { tenantId, contactId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
+          where: { tenantId, contactId, ...leadOwnershipFilter() },
           select: { id: true },
         })
       : null,

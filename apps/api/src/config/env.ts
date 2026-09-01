@@ -53,7 +53,7 @@ const EnvSchema = z.object({
   OFFER_FOLLOWUP_HOURS: z.coerce.number().positive().default(48),
   /** SLA לליד (docs/01 — "כל ליד מקבל מענה"): שעות עד אסקלציה על ליד ללא טיפול. */
   LEAD_SLA_HOURS: z.coerce.number().positive().default(2),
-  /** Secure cookies — חובה true בפרודקשן. */
+  /** Secure cookies — חובה true בפרודקשן (נאכף ב-superRefine למטה). */
   COOKIE_SECURE: z
     .enum(["true", "false"])
     .default("false")
@@ -164,6 +164,15 @@ const EnvSchema = z.object({
         .map((e) => e.trim().toLowerCase())
         .filter(Boolean),
     ),
+}).superRefine((env, ctx) => {
+  // עוגייה לא-Secure בפרודקשן היא טעות תפעולית, לא בחירה — מפילים בעלייה.
+  if (env.NODE_ENV === "production" && !env.COOKIE_SECURE) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["COOKIE_SECURE"],
+      message: "בפרודקשן חובה COOKIE_SECURE=true — עוגיית ה-Session לא תישלח בלי HTTPS",
+    });
+  }
 });
 
 export type Env = z.infer<typeof EnvSchema>;

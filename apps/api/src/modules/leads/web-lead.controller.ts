@@ -1,19 +1,10 @@
 import { Body, Controller, HttpCode, Param, Post } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
-import { IdSchema, LeadIntentSchema, PhoneSchema } from "@metavchim/shared";
+import { IdSchema, LeadIntentSchema, PhoneInputSchema } from "@metavchim/shared";
 import { Public } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { WebLeadService } from "./web-lead.service";
-
-/** גולש מקליד "050-1234567" — מנרמלים ל-E.164 לפני הוולידציה. */
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[^\d+]/gu, "");
-  if (digits.startsWith("+972")) return digits;
-  if (digits.startsWith("972")) return `+${digits}`;
-  if (digits.startsWith("0")) return `+972${digits.slice(1)}`;
-  return digits;
-}
 
 /**
  * קליטת ליד מטופס באתר של המשרד — ציבורי, מזוהה במפתח ייעודי בלבד.
@@ -33,7 +24,7 @@ function normalizePhone(raw: string): string {
 const WebLeadSchema = z
   .object({
     name: z.string().trim().min(2).max(120),
-    phone: z.string().trim().max(25).transform(normalizePhone).pipe(PhoneSchema),
+    phone: PhoneInputSchema,
     message: z.string().trim().max(2000).optional(),
     pageUrl: z.string().trim().max(300).optional(),
     /** נשמר על הכרטיס ומאפשר זיהוי של פניות עתידיות מאותה כתובת. */

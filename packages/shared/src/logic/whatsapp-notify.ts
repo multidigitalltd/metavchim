@@ -15,6 +15,7 @@
  * בלי מסד ובלי Meta. טעות כאן שקטה: התראה שלא נשלחה אינה מתלוננת.
  */
 
+import { agentAction, type AgentActionId } from "../agent/actions.js";
 import { notificationUrl, type PushableNotification } from "./web-push.js";
 
 /* ==================== קטגוריות ==================== */
@@ -51,6 +52,8 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   call_transcribed: "calls",
   call_follow_up: "calls",
   call_transcribe_failed: "calls",
+  /* המרכזייה עצמה — אותה קטגוריה, כי מי שכיבה „שיחות” אינו רוצה גם את זה */
+  pbx_silent: "calls",
 
   lead: "leads",
   lead_sla: "leads",
@@ -305,6 +308,83 @@ export function formatNotifyMessage(items: readonly NotifyItem[], webOrigin: str
   }
   lines.push(CATEGORY_CALL_TO_ACTION[dominantCategory(shown)]);
   return lines.join("\n").trim();
+}
+
+/* ==================== הכפתור שמתחת להודעה ==================== */
+
+/**
+ * ‎**הפעולה שכל קטגוריה מזמינה — ומה שהיה כאן קודם.**
+ *
+ * ## הבעיה
+ *
+ * לכל הודעת התראה הוצמדו אותם שני כפתורים בדיוק: „מה דחוף היום?”
+ * ו„שקט לשעתיים”. השני הוא פקד השתקה ומתאים תמיד; הראשון נכון
+ * לתקציר בוקר, ומוזר מתחת להתראה על שיחה שלא נענתה או על פנייה
+ * שממתינה ברשת. שאלה שאינה קשורה למה שכתוב מעליה מלמדת להתעלם
+ * מהכפתורים (דיווח מהשטח).
+ *
+ * ## למה דווקא הקטגוריה
+ *
+ * ‏משפט הסיום של ההודעה כבר נגזר מ-`dominantCategory` — אותה
+ * הודעה כבר יודעת על מה היא. הכפתור פשוט לא נשען על זה. אין כאן
+ * טקסונומיה שנייה, ולכן גם אין שתיים שיכולות להיפרד.
+ *
+ * ## ולמה המשפט מגיע מהקטלוג
+ *
+ * מה שהכפתור שולח נכנס למנוע **כאילו הוקלד**, ולכן משפט שהמנוע
+ * אינו מזהה הופך כפתור ל„לא הבנתי”. `examples[0]` של הפעולה הוא
+ * בדיוק הניסוח שהמערכת מבטיחה שהיא מכירה — אותו מקור שממנו נבנית
+ * רשימת „מה שכן עובד עכשיו” כשההבנה החכמה למטה. ניסוח שנכתב כאן
+ * ביד היה מתיישן ברגע שהקטלוג משתנה, בשקט.
+ *
+ * ‎`null` = אין פעולה מזמינה לקטגוריה הזו, והכללי נשאר. תקציר יומי
+ * הוא בדיוק המקרה שבו „מה דחוף היום?” הוא הצעד הנכון.
+ */
+const CATEGORY_ACTION: Record<
+  WhatsAppNotifyCategory,
+  { id: AgentActionId; caption: string } | null
+> = {
+  calls: { id: "show_callbacks", caption: "למי לחזור" },
+  leads: { id: "show_leads", caption: "הלידים שלי" },
+  tasks: { id: "show_tasks", caption: "המשימות שלי" },
+  matches: { id: "show_matches", caption: "ההתאמות שלי" },
+  /*
+   * ‎`caption` ולא `action.title`: „פניות ממתינות מהרשת” הוא 19
+   * תווים, ועם האייקון הוא חוצה את תקרת 20 התווים של Meta ונחתך
+   * ל„פניות ממתינות מה…”. הכיתוב הוא תצוגה ומותר לקצר אותו;
+   * ‎**המשפט** שנשלח נשאר מהקטלוג, כי אותו המנוע צריך לזהות.
+   */
+  network: { id: "show_network_inbox", caption: "מה מחכה ברשת" },
+  digests: null,
+  system: null,
+};
+
+/** מה שכפתור ההמשך נושא: מה כתוב עליו, ומה נשלח בלחיצה. */
+export interface NotifyFollowUp {
+  /** כותרת הכפתור — Meta חותכת ל-20 תווים */
+  label: string;
+  /** המשפט שנשלח למנוע כאילו הוקלד */
+  text: string;
+}
+
+/**
+ * ‎**כפתור ההמשך שההתראות האלה מצדיקות** — או `null` לכללי.**
+ *
+ * ‎`allowed` הוא אותו סינון שנעשה בהצעות הסוכן ומאותה סיבה: כפתור
+ * לפעולה שהמתווך חסום ממנה שולח אותו אל „אין לך הרשאה” על משהו
+ * שהמערכת עצמה הציעה.
+ */
+export function notifyFollowUp(
+  items: readonly NotifyItem[],
+  allowed: readonly string[],
+): NotifyFollowUp | null {
+  if (items.length === 0) return null;
+  const category = dominantCategory(items.slice(0, NOTIFY_ITEMS_PER_MESSAGE));
+  const entry = CATEGORY_ACTION[category];
+  if (entry === null || !allowed.includes(entry.id)) return null;
+  const example = agentAction(entry.id)?.examples[0];
+  if (example === undefined) return null;
+  return { label: `${CATEGORY_ICON[category]} ${entry.caption}`, text: example };
 }
 
 /* ==================== חלון 24 השעות של Meta ==================== */

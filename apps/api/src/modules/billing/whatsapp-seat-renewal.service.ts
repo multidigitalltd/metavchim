@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ulid } from "ulid";
-import { billingAnchorDay, nextPeriodEnd } from "@metavchim/shared";
+import { billingAnchorDay, nextPeriodEnd, whatsappSeatIsBillable } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { CardcomService } from "../../core/cardcom.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -116,6 +116,15 @@ export class WhatsappSeatRenewalService implements OnModuleInit, OnModuleDestroy
 
     const due = await this.prisma.whatsappSeat.findMany({
       where: {
+        /*
+         * ‎**מה שהוענק אינו נגבה — גם כשיש לו תאריך סיום.**
+         *
+         * מקום ניסיון חייב `currentPeriodEnd` כדי שמשהו יסגור אותו,
+         * והתנאי שמעליו אוסף כל שורה שהתאריך שלה עבר. בלי הסינון
+         * הזה הסורק היה מנסה לחייב את הכרטיס השמור של המשרד על
+         * מקום שניתן במתנה, בסכום אפס, מדי שעה.
+         */
+        origin: { not: "granted" },
         currentPeriodEnd: { not: null, lte: now },
         OR: [
           { status: "active" },
@@ -150,6 +159,11 @@ export class WhatsappSeatRenewalService implements OnModuleInit, OnModuleDestroy
   private async renewOne(seatId: string, now: Date): Promise<boolean> {
     const seat = await this.prisma.whatsappSeat.findUnique({ where: { id: seatId } });
     if (seat === null || (seat.status !== "active" && seat.status !== "past_due")) return false;
+    /*
+     * שוב, ולא במקום הסינון: השאילתה למעלה בוחרת אצווה, וזו הנקודה
+     * שממש לפני הפנייה לסולק. שתיהן עוברות דרך אותו תנאי משותף.
+     */
+    if (!whatsappSeatIsBillable(seat)) return false;
 
     /*
      * ‎**תקופת החסד נגמרה — סוגרים.**
@@ -362,8 +376,25 @@ export class WhatsappSeatRenewalService implements OnModuleInit, OnModuleDestroy
   async releaseDue(now = new Date()): Promise<number> {
     const due = await this.prisma.whatsappSeat.findMany({
       where: {
-        status: "cancelled",
-        OR: [{ currentPeriodEnd: null }, { currentPeriodEnd: { lte: now } }],
+        OR: [
+          {
+            status: "cancelled",
+            OR: [{ currentPeriodEnd: null }, { currentPeriodEnd: { lte: now } }],
+          },
+          /*
+           * ‎**וגם ניסיון שנגמר.** מקום שהוענק לתקופה הוא היחיד
+           * שנסגר בלי שאיש ביטל אותו: אין לו חיוב שייכשל ואין מי
+           * שילחץ „בטל”. בלי הענף הזה „ניסיון עד ה-30 בחודש” היה
+           * נשאר פתוח לנצח — כלומר „בחינם לתמיד” בתחפושת.
+           *
+           * ‎`status` מוגבל למצבים חיים: מקום שכבר שוחרר לא יילקח שוב.
+           */
+          {
+            origin: "granted",
+            status: { in: ["active", "pending"] },
+            currentPeriodEnd: { not: null, lte: now },
+          },
+        ],
       },
       take: BATCH,
     });
@@ -376,7 +407,12 @@ export class WhatsappSeatRenewalService implements OnModuleInit, OnModuleDestroy
          * את המקום ל-`active`, וסגירה שלו הייתה מוחקת חודש ששולם.
          */
         const closed = await this.prisma.whatsappSeat.updateMany({
-          where: { id: seat.id, status: "cancelled" },
+          /*
+           * התנאי חוזר על מה שהשליפה בחרה, ולא על „cancelled” בלבד:
+           * מקום שהוענק לתקופה נסגר גם הוא, ותנאי צר היה מדלג עליו
+           * בשקט — כלומר ניסיון שלא נגמר לעולם.
+           */
+          where: { id: seat.id, status: seat.status },
           data: { status: "released", releasedAt: now },
         });
         if (closed.count === 0) continue;

@@ -35,13 +35,14 @@ import {
   type IntakeSubject,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
-import { lockIntakeRequest } from "../../common/locks";
-import { ownershipFilter } from "../../common/ownership";
+import { lockContact, lockIntakeRequest } from "../../common/locks";
+import { leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { BuyersService } from "../buyers/buyers.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { TenantLogoService } from "../../core/tenant-logo.service";
 import { PropertiesService } from "../properties/properties.service";
 
 /**
@@ -73,6 +74,8 @@ import { PropertiesService } from "../properties/properties.service";
 /** מבט הלקוח. `inactive` = הקישור לא פעיל, ואז אין `prefill`. */
 export interface IntakePublicView {
   officeName: string;
+  /** נתיב ציבורי ללוגו המשרד, או `null` כשאין. */
+  logoUrl: string | null;
   /** השם הפרטי בלבד — „שלום דנה”, בלי שם משפחה ובלי טלפון. */
   greetingName: string;
   status: IntakeStatus;
@@ -187,7 +190,16 @@ export class IntakeService {
     private readonly contacts: ContactsService,
     private readonly buyers: BuyersService,
     private readonly properties: PropertiesService,
+    private readonly logo: TenantLogoService,
   ) {}
+
+  /** הלוגו של המשרד — נגזר מהשורה שהטוקן פתח, לטופס הציבורי. */
+  async publicLogo(
+    token: string,
+  ): Promise<{ body: NodeJS.ReadableStream; contentType: string; contentLength?: number }> {
+    const row = await this.resolveToken(token);
+    return this.logo.rawFor(row.tenantId);
+  }
 
   /* ================= הצד הפנימי — המתווך ================= */
 
@@ -416,6 +428,8 @@ export class IntakeService {
     const row = await this.resolveToken(token);
     return this.asOffice(row.tenantId, async (tx) => {
       const officeName = await this.officeName(tx, row.tenantId);
+      /* נתיב ולא הקובץ; `null` = אין לוגו, והמסך מצייר מונוגרמה */
+      const logoUrl = (await this.logo.has(row.tenantId)) ? `/f/${token}/logo` : null;
       // קישור פתוח שטרם נשלח — אין עדיין איש קשר להביא ממנו שם
       const contact =
         row.contactId === null
@@ -435,6 +449,7 @@ export class IntakeService {
       if (inactive !== null) {
         return {
           officeName,
+          logoUrl,
           greetingName: firstName(contact?.name),
           status: row.status as IntakeStatus,
           inactive,
@@ -475,6 +490,7 @@ export class IntakeService {
       if (chosen === "seller") {
         return {
           officeName,
+          logoUrl,
           greetingName: firstName(contact?.name),
           status: (full?.status ?? row.status) as IntakeStatus,
           inactive: null,
@@ -496,6 +512,7 @@ export class IntakeService {
       const current = await this.currentRequirements(tx, row, buyerId);
       return {
         officeName,
+        logoUrl,
         greetingName: firstName(contact?.name),
         status: (full?.status ?? row.status) as IntakeStatus,
         inactive: null,
@@ -1489,15 +1506,37 @@ export class IntakeService {
     tx: TenantTx,
     tenantId: string,
     subject: IntakeSubject,
-    subjectId: string,
+    /** `null` בקישור פתוח — אין כרטיס לתלות בו לפני שהלקוח ממלא. */
+    subjectId: string | null,
     contactId: string,
   ): Promise<{ url: string; message: string } | null> {
     const now = new Date();
+    /*
+     * ‎**נעילת הכרטיס לפני הבדיקה — אחרת ההבטחה נכונה רק ברצף.**
+     *
+     * ‏שתי שיחות שלא נענו מאותו לקוח מגיעות עם `providerCallId`
+     * שונה, ולכן `lockProviderCall` **אינה** מסדרת ביניהן: שתי
+     * הטרנזקציות קוראות „אין בקשה בתוקף”, שתיהן יוצרות, והלקוח
+     * מקבל שתי הודעות — בדיוק מה שהמנגנון הזה קיים כדי למנוע
+     * (ביקורת Codex).
+     *
+     * אין אילוץ ייחודיות על „בקשה פעילה לכרטיס”, ולכן המסד אינו
+     * תופס את זה במקומנו. הנעילה היא מה שהופך את הקרא-ואז-כתוב
+     * לאטומי, בדיוק כמו במסלולים האחרים כאן.
+     */
+    await lockContact(tx, contactId);
+    /*
+     * ‎**הכפילות נמדדת לפי איש הקשר, לא לפי הכרטיס.**
+     *
+     * ההבטחה היא „לקוח שהתקשר שלוש פעמים אינו מקבל שלוש הודעות”,
+     * והיא על **אדם**. סינון לפי `subjectId` קיים אותה רק כל עוד
+     * העוגן היה תמיד ליד; קישור פתוח נושא `subjectId: null`, ושתי
+     * שיחות שלא נענו היו מייצרות שתי בקשות ושתי הודעות.
+     */
     const existing = await tx.intakeRequest.findFirst({
       where: {
         tenantId,
-        subject,
-        subjectId,
+        contactId,
         status: { not: "revoked" },
         expiresAt: { gt: now },
       },
@@ -1631,7 +1670,7 @@ export class IntakeService {
       where: {
         id: subjectId,
         tenantId,
-        ...ownershipFilter("leads.view_all", "assignedToUserId"),
+        ...leadOwnershipFilter(),
       },
       select: { contactId: true },
     });

@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Header,
+  HttpCode,
+  Param,
+  Post,
+  StreamableFile,
+} from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
 import {
@@ -223,6 +233,21 @@ export class IntakeController {
     @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
   ): Promise<IntakePublicView> {
     return this.intake.publicView(token);
+  }
+
+  /** הלוגו של המשרד — הטופס הציבורי טוען אותו כתמונה רגילה. */
+  @Get("f/:token/logo")
+  @Public()
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Header("Cache-Control", "private, max-age=3600")
+  async logo(
+    @Param("token", new ZodValidationPipe(TokenSchema)) token: string,
+  ): Promise<StreamableFile> {
+    const obj = await this.intake.publicLogo(token);
+    return new StreamableFile(obj.body as never, {
+      type: obj.contentType,
+      ...(obj.contentLength !== undefined ? { length: obj.contentLength } : {}),
+    });
   }
 
   @Post("f/:token")

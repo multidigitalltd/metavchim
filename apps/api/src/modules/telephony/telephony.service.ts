@@ -37,6 +37,9 @@ import {
   type SoftphoneConfig,
   type SoftphoneGap,
   type VirtualNumberRule,
+  OPEN_LEAD_STATUSES,
+  type Capability,
+  canReceiveWhatsapp,
 } from "@metavchim/shared";
 import { lockContactPhone, lockProviderCall } from "../../common/locks";
 import { notifyOnce } from "../../common/notify-once";
@@ -1090,12 +1093,32 @@ export class TelephonyService {
            * בתוך אותה טרנזקציה של קליטת האירוע: בקשה שנוצרה בלי
            * שהשיחה נרשמה היא קישור שאיש לא יודע למה נשלח.
            */
-          const pending = await this.offerIntakeAfterMissedCall(
+          const offered = await this.offerIntakeAfterMissedCall(
             tx,
             tenantId,
             leadId,
             contactId,
+            event.peerPhone,
+            event.callerName,
           );
+          const pending = offered.pending;
+          /*
+           * ‎**איש הקשר שנוצר זה עתה נתפר לשיחה ולהתראה.**
+           *
+           * שורת השיחה נכתבה למעלה עם `contact_id` ריק — היא נכתבת
+           * לפני הענף הזה. בלי התפירה כאן נוצר כרטיס שהשיחה שיצרה
+           * אותו אינה בהיסטוריה שלו, וההתראה „התקשר ולא נענה”
+           * מצביעה לשום מקום (ביקורת Codex, P1).
+           *
+           * באותה טרנזקציה, ולכן או ששניהם נכתבים או שאף אחד.
+           */
+          const callContactId = contactId ?? offered.contactId;
+          if (contactId === null && offered.contactId !== null) {
+            await tx.call.updateMany({
+              where: { tenantId, providerCallId: event.providerCallId },
+              data: { contactId: offered.contactId },
+            });
+          }
 
           await notifyOnce(tx, {
             tenantId,
@@ -1117,8 +1140,8 @@ export class TelephonyService {
              * שהאוטומציה נועדה לחסוך.
              */
             body: pending ?? (leadId ? "נפתח ליד חדש מהשיחה" : null),
-            entityType: leadId ? "lead" : contactId ? "contact" : null,
-            entityId: leadId ?? contactId,
+            entityType: leadId ? "lead" : callContactId ? "contact" : null,
+            entityId: leadId ?? callContactId,
           });
         }
       });
@@ -1164,9 +1187,41 @@ export class TelephonyService {
     tenantId: string,
     leadId: string | null,
     contactId: string | null,
-  ): Promise<string | null> {
-    // בלי ליד אין כרטיס לתלות בו את הדרישות, ובלי איש קשר אין למי לשלוח
-    if (leadId === null || contactId === null) return null;
+    phone: string,
+    callerName: string | undefined,
+  ): Promise<{ pending: string | null; contactId: string | null }> {
+    /*
+     * ‎**הקשר דייר מפורש — הנתיב הזה ציבורי.**
+     *
+     * ‏`ingest` נכנס ל-`withExplicitTenant` בלבד, שמזריק את
+     * ‎`app.tenant_id` לטרנזקציה ואוכף את ה-RLS — אבל **אינו** ממלא
+     * את `TenantContext`. `ContactsService` קורא `TenantContext
+     * .current()`, שזורק כשאין הקשר, ולכן גם יצירת איש הקשר וגם
+     * קריאתו היו נופלות — נבלעות ב-`catch` שלמטה, ומחזירות את
+     * הפיצ'ר בדיוק למקום שממנו בא: שקט (ביקורת Codex, P1).
+     *
+     * וגרוע מכך אצל מתקשר מוכר: הבקשה כבר נוצרה לפני הנפילה, והיא
+     * נשמרת עם הטרנזקציה — כלומר מניעת הכפילות חוסמת גם את כל
+     * הניסיונות הבאים.
+     *
+     * זה אותו דפוס בדיוק שכבר מתועד ב-`IntakeService`: שתי השכבות —
+     * ה-RLS וההקשר — חייבות להיות מוגדרות יחד.
+     */
+    return TenantContext.run(
+      { tenantId, userId: "", capabilities: new Set<Capability>(), billingOnly: false },
+      () => this.intakeForMissedCall(tx, tenantId, leadId, contactId, phone, callerName),
+    );
+  }
+
+  /** הגוף עצמו — ראו את ההקשר שנפתח ב-`offerIntakeAfterMissedCall`. */
+  private async intakeForMissedCall(
+    tx: Parameters<Parameters<PrismaService["withExplicitTenant"]>[1]>[0],
+    tenantId: string,
+    leadId: string | null,
+    contactId: string | null,
+    phone: string,
+    callerName: string | undefined,
+  ): Promise<{ pending: string | null; contactId: string | null }> {
     try {
       const tenant = await tx.tenant.findUnique({
         where: { id: tenantId },
@@ -1175,20 +1230,98 @@ export class TelephonyService {
       });
       const raw = (tenant?.settings ?? {}) as Record<string, unknown>;
       if (!resolveAutomationSettings(raw["automations"])["missed_call_intake"].enabled) {
-        return null;
+        return { pending: null, contactId };
       }
+
+      /*
+       * ‎**איש הקשר נוצר כאן כשאין כזה — אחרת אין למי לשלוח.**
+       *
+       * שיחה שלא נענתה אינה פותחת ליד: `callAction.createLead` דורש
+       * ‎`type === "ended"` **ושמישהו דיבר**, ושניהם שקריים בהגדרה
+       * בענף הזה. לכן גם איש הקשר לא נוצר — הוא נוצר רק בתוך
+       * ‎`openLeadForUnknownCaller`. התוצאה הייתה ששני השדות ריקים
+       * תמיד, והשומר הישן („בלי ליד ובלי איש קשר”) הפיל את הפונקציה
+       * בשורתה הראשונה **בכל שיחה שלא נענתה, מאז ומעולם**.
+       *
+       * כלומר הפיצ'ר ששמו „הצע טופס אחרי שיחה שלא נענתה” מעולם לא
+       * שלח דבר (דיווח מהשטח, ייצור).
+       *
+       * ‎`findOrCreateByPhone` ולא יצירה ישירה: הוא נועל את המספר,
+       * מכיר גם מספר משני, ולכן מתקשר חוזר אינו מקבל כרטיס שני.
+       */
+      /*
+       * ‎**מי שאי אפשר לשלוח לו — לא נוגעים בו בכלל.**
+       *
+       * ‏`ISRAELI_PHONE` מקבל גם קו נייח, ושיחה נכנסת ממנו היא שיחה
+       * לכל דבר. אבל הודעת וואטסאפ לקו נייח אינה נכשלת ברעש: Meta
+       * מקבלת את הבקשה, איש אינו מקבל את ההודעה, והמערכת סבורה
+       * ש„נשלח”.
+       *
+       * הבדיקה **לפני** יצירת איש הקשר, וזו כל הנקודה (שאלת
+       * המשתמש: „למה צריך ליצור איש קשר?”). כרטיס נפתח רק כשהוא
+       * קונה משהו — מישהו שבאמת מקבל את הקישור, ואם ימלא אותו
+       * ייפתח לו כרטיס קונה. מספר שאי אפשר להגיע אליו אינו מייצר
+       * כלום: לא כרטיס, לא בקשה, ולא רעש ברשימת אנשי הקשר.
+       */
+      if (!canReceiveWhatsapp(phone)) {
+        return { pending: "לא נשלחה הודעה — המספר אינו נייד ישראלי", contactId };
+      }
+
+      const person =
+        contactId === null
+          ? await this.contacts.findOrCreateByPhone(tx, {
+              name: callerName ?? phone,
+              phone,
+            })
+          : null;
+      const targetContactId = contactId ?? person?.id ?? null;
+      if (targetContactId === null) return { pending: null, contactId: null };
+
+      /*
+       * ‎**העוגן: ליד פתוח אם יש, ואחרת קישור פתוח.**
+       *
+       * לליד אין דרישות משלו — הן שדה של קונה — ולכן הגשה על ליד
+       * נכתבת לכרטיס הקונה של אותו איש קשר (`targetBuyerId`). כשאין
+       * ליד, `subject: "open"` מתממש לכרטיס קונה חדש בהגשה
+       * (`materializeOpen`), והוא כבר יודע לדלג על שאלת הזהות
+       * כשהבקשה נושאת `contactId` — כלומר מי שאנחנו מכירים אינו
+       * ממלא את שמו מחדש.
+       */
+      const openLead =
+        leadId ??
+        (
+          await tx.lead.findFirst({
+            where: {
+              tenantId,
+              contactId: targetContactId,
+              status: { in: [...OPEN_LEAD_STATUSES] },
+            },
+            select: { id: true },
+            orderBy: { createdAt: "desc" },
+          })
+        )?.id ??
+        null;
 
       const created = await this.intake.ensureForMissedCall(
         tx,
         tenantId,
-        "lead",
-        leadId,
-        contactId,
+        openLead === null ? "open" : "lead",
+        openLead,
+        targetContactId,
       );
-      // כבר יש קישור בתוקף — לקוח שהתקשר שלוש פעמים אינו מקבל שלוש הודעות
-      if (created === null) return null;
+      /*
+       * כבר יש קישור בתוקף — לקוח שהתקשר שלוש פעמים אינו מקבל שלוש
+       * הודעות. נאמר במפורש ולא בשתיקה: „לא קיבל” ו„כבר קיבל
+       * אתמול” הן שתי מסקנות שונות למתווך (בקשת המשתמש).
+       */
+      if (created === null) {
+        return {
+          pending: "הלקוח כבר קיבל לאחרונה קישור למילוי הפרטים — לא נשלח שוב",
+          contactId: targetContactId,
+        };
+      }
 
-      const contact = await this.contacts.getById(tx, contactId);
+      const contact = await this.contacts.getById(tx, targetContactId);
       const template = await this.platformSettings.get("whatsappIntakeTemplate");
       const lang =
         (await this.platformSettings.get("whatsappIntakeTemplateLang")) ?? "he";
@@ -1215,7 +1348,12 @@ export class TelephonyService {
             )
           : false;
 
-      if (sent) return "נשלחה ללקוח הודעה עם קישור למילוי מה הוא מחפש";
+      if (sent) {
+        return {
+          pending: "✅ נשלחה ללקוח הודעה בוואטסאפ עם קישור למילוי הפרטים",
+          contactId: targetContactId,
+        };
+      }
 
       /*
        * לא נשלח — ההודעה המוכנה חוזרת לגוף ההתראה.
@@ -1225,7 +1363,10 @@ export class TelephonyService {
        * עצמה נוצרת בלי `userId`. משימה שהייתה מוצמדת למישהו
        * שרירותי הייתה נוחתת אצל מי שלא ענה לשיחה ולא יודע עליה.
        */
-      return `לא נשלח אוטומטית (אין תבנית מאושרת). שלחו ללקוח:\n${created.message}`;
+      return {
+        pending: `לא נשלח אוטומטית (אין תבנית מאושרת). שלחו ללקוח:\n${created.message}`,
+        contactId: targetContactId,
+      };
     } catch (error: unknown) {
       /*
        * בלוע במתכוון, וברמת `warn` ולא `error`: השיחה נרשמה,
@@ -1237,7 +1378,7 @@ export class TelephonyService {
           error instanceof Error ? error.message : "שגיאה לא ידועה"
         }`,
       );
-      return null;
+      return { pending: null, contactId };
     }
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizePhoneForWhatsapp, whatsappLink } from "./whatsapp-link.js";
+import { canReceiveWhatsapp, normalizePhoneForWhatsapp, whatsappLink } from "./whatsapp-link.js";
 
 describe("normalizePhoneForWhatsapp", () => {
   it("מספר ישראלי מקומי מקבל קידומת — 0 בהתחלה שובר את הקישור", () => {
@@ -35,5 +35,28 @@ describe("whatsappLink", () => {
     expect(url.startsWith("https://wa.me/972501234567?text=")).toBe(true);
     expect(url).not.toContain("\n");
     expect(url).not.toContain(" ");
+  });
+});
+
+describe("canReceiveWhatsapp", () => {
+  it("נייד ישראלי — כן", () => {
+    expect(canReceiveWhatsapp("+972501234567")).toBe(true);
+    expect(canReceiveWhatsapp("0501234567")).toBe(true);
+    expect(canReceiveWhatsapp("054-123-4567")).toBe(true);
+  });
+
+  /*
+   * ‏קו נייח עובר את `ISRAELI_PHONE` — שיחה נכנסת ממנו היא שיחה
+   * לכל דבר — אבל הודעה אליו אינה מגיעה לאיש, ו-Meta אינה אומרת
+   * זאת. „נשלח” על הודעה שאיש לא קיבל גרוע מלא לשלוח.
+   */
+  it("קו נייח — לא", () => {
+    expect(canReceiveWhatsapp("+97236543210")).toBe(false);
+    expect(canReceiveWhatsapp("026543210")).toBe(false);
+  });
+
+  it("מספר זר — לא", () => {
+    expect(canReceiveWhatsapp("+14155550100")).toBe(false);
+    expect(canReceiveWhatsapp("")).toBe(false);
   });
 });

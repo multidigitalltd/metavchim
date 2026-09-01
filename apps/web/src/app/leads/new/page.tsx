@@ -11,13 +11,6 @@ import { Notice } from "../../notice";
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[^\d+]/gu, "");
-  if (digits.startsWith("+972")) return digits;
-  if (digits.startsWith("0")) return `+972${digits.slice(1)}`;
-  return digits;
-}
-
 function NewLeadForm() {
   useRequireAuth();
   const router = useRouter();
@@ -44,7 +37,9 @@ function NewLeadForm() {
     try {
       const created = await apiPost<{ id: string; merged?: boolean; visible?: boolean }>("/leads", {
         contactName: String(f.get("contactName")).trim(),
-        contactPhone: normalizePhone(String(f.get("contactPhone"))),
+        contactPhone: String(f.get("contactPhone")).trim(),
+        /* ריק לא נשלח — מחרוזת ריקה אינה כתובת, והסכימה מקפידה */
+        contactEmail: String(f.get("contactEmail") ?? "").trim() || undefined,
         source: String(f.get("source")),
         intent: String(f.get("intent")),
         summary: String(f.get("summary") ?? "").trim() || undefined,
@@ -99,6 +94,29 @@ function NewLeadForm() {
           <div>
             <label htmlFor="contactPhone" className="mb-1 block font-medium">טלפון *</label>
             <input id="contactPhone" name="contactPhone" type="tel" required dir="ltr" placeholder="050-1234567" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+          </div>
+          {/*
+            כמו בטופס הקונה: השירות ידע לשמור כתובת מאז ומתמיד — ייבוא
+            מקובץ ופנייה מדף נחיתה כתבו אותה — ורק הטופס שהסוכן ממלא
+            לא שאל.
+          */}
+          <div className="sm:col-span-2">
+            <label htmlFor="contactEmail" className="mb-1 block font-medium">
+              דוא&quot;ל{" "}
+              <span className="font-normal" style={{ color: "var(--color-text-muted)" }}>
+                (לא חובה)
+              </span>
+            </label>
+            <input
+              id="contactEmail"
+              name="contactEmail"
+              type="email"
+              dir="ltr"
+              autoComplete="email"
+              placeholder="name@example.com"
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
           </div>
           <div>
             <label htmlFor="intent" className="mb-1 block font-medium">מה הוא רוצה?</label>

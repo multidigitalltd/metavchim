@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { NeighborhoodInput } from "../../neighborhood-input";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
@@ -13,7 +14,8 @@ import { PriceField } from "../../price-field";
 import { EntryTimingField } from "../../properties/entry-timing-field";
 import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
-import type { SearchArea } from "@metavchim/shared";
+import { activeOfficeStatuses, type SearchArea } from "@metavchim/shared";
+import { useOfficeStatuses } from "../../use-office-statuses";
 import { Notice } from "../../notice";
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
@@ -26,14 +28,6 @@ const FEATURES = [
   ["hasStorage", "מחסן"],
 ] as const;
 
-/** נרמול טלפון ישראלי ל-E.164 — ‎050-1234567 → ‎+972501234567 */
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[^\d+]/gu, "");
-  if (digits.startsWith("+972")) return digits;
-  if (digits.startsWith("0")) return `+972${digits.slice(1)}`;
-  return digits;
-}
-
 export default function NewBuyerPage() {
   useRequireAuth();
   const router = useRouter();
@@ -45,6 +39,8 @@ export default function NewBuyerPage() {
    * לכרטיס אחר כך פשוט לא זוכה לזה.
    */
   const [areas, setAreas] = useState<SearchArea[]>([]);
+  const { statuses: officeStatuses } = useOfficeStatuses();
+  const officeOptions = activeOfficeStatuses(officeStatuses);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -72,9 +68,19 @@ export default function NewBuyerPage() {
     try {
       const created = await apiPost<{ id: string }>("/buyers", {
         contactName: String(f.get("contactName")).trim(),
-        contactPhone: normalizePhone(String(f.get("contactPhone"))),
+        contactPhone: String(f.get("contactPhone")).trim(),
+        /* ריק לא נשלח: הסכימה בשרת מקפידה, ומחרוזת ריקה אינה כתובת */
+        contactEmail: String(f.get("contactEmail") ?? "").trim() || undefined,
         source: String(f.get("source")),
         maturity: String(f.get("maturity")),
+        /*
+         * ‎**נשלח רק כשנבחר.** בחירת סטטוס גוררת בשרת גם את הדרגה
+         * שהוא נשען עליה, ולכן מחרוזת ריקה הייתה נדחית כמזהה לא
+         * מוכר — במקום פשוט לא לבחור סטטוס.
+         */
+        ...(String(f.get("officeStatus") ?? "") === ""
+          ? {}
+          : { officeStatus: String(f.get("officeStatus")) }),
         requirements: {
           cities: String(f.get("cities"))
             .split(",")
@@ -135,6 +141,31 @@ export default function NewBuyerPage() {
               <label htmlFor="contactPhone" className="mb-1 block font-medium">טלפון *</label>
               <input id="contactPhone" name="contactPhone" type="tel" required dir="ltr" placeholder="050-1234567" autoComplete="tel" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
             </div>
+            {/*
+              ‎**השדה שלא היה כאן.** הכתובת נשמרת בכרטיס איש הקשר, וכל
+              מה שמתחת לטופס ידע לשמור אותה מאז ומתמיד — ייבוא מקובץ
+              ופנייה מדף נחיתה שניהם כתבו אותה. רק הטופס שהסוכן ממלא
+              לא שאל, ולכן קונה שהוקלד ידנית לא יכול היה לקבל הצעה
+              במייל בלי מעבר נוסף בכרטיס.
+            */}
+            <div className="sm:col-span-2">
+              <label htmlFor="contactEmail" className="mb-1 block font-medium">
+                דוא&quot;ל{" "}
+                <span className="font-normal" style={{ color: "var(--color-text-muted)" }}>
+                  (לא חובה — לשליחת הצעות והסכמים)
+                </span>
+              </label>
+              <input
+                id="contactEmail"
+                name="contactEmail"
+                type="email"
+                dir="ltr"
+                autoComplete="email"
+                placeholder="name@example.com"
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
           </div>
         </FormSection>
 
@@ -154,16 +185,21 @@ export default function NewBuyerPage() {
             אינה סגורה — שמות שכונות אינם רשומים בשום מרשם, ורשימה
             נפתחת הייתה מכריחה לבחור „אחר” על כל שכונה שלא חשבנו
             עליה. השדה קיים בסכימה מזמן ופשוט לא נשאל בטופס.
+
+            ‎**ההצעות אינן מצומצמות לעיר כאן**, בשונה מטופס הנכס:
+            קונה יכול לחפש בכמה ערים, וצמצום לאחת מהן היה מסתיר
+            בדיוק את השכונות של השאר. בנכס יש עיר אחת ודאית, ושם
+            הצמצום נכון.
           */}
           <div className="mb-4">
             <label htmlFor="neighborhoods" className="mb-1 block font-medium">
               שכונות <span className="font-normal">(לא חובה, מופרדות בפסיק)</span>
             </label>
-            <input
+            <NeighborhoodInput
               id="neighborhoods"
               name="neighborhoods"
+              multi
               placeholder="רמת אהרון, פרדס כץ"
-              className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />
           </div>
@@ -225,6 +261,34 @@ export default function NewBuyerPage() {
                 <option value="not_ripe">לא בשל</option>
               </select>
             </div>
+            {/*
+              ‎**שכבה ב׳ — רק כשהמשרד הגדיר סטטוסים.**
+
+              הבחירה כאן קובעת גם את רמת הבשלות (הסטטוס נשען עליה),
+              ולכן הבורר יושב לצידה ולא במקומה: מי שלא עובד לפי
+              סטטוסים ממשיך למלא בדיוק כפי שמילא עד היום.
+            */}
+            {officeOptions.length > 0 ? (
+              <div>
+                <label htmlFor="officeStatus" className="mb-1 block font-medium">
+                  סטטוס המשרד
+                </label>
+                <select
+                  id="officeStatus"
+                  name="officeStatus"
+                  defaultValue=""
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                >
+                  <option value="">בלי סטטוס</option>
+                  {officeOptions.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             <div>
               <label htmlFor="source" className="mb-1 block font-medium">מקור הליד</label>
               <select id="source" name="source" defaultValue="phone" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>

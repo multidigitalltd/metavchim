@@ -15,6 +15,7 @@ import {
   Res,
   ServiceUnavailableException,
   UseGuards,
+  Logger,
 } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { randomBytes } from "node:crypto";
@@ -61,6 +62,11 @@ import {
   planRejectionReason,
   sanitizeFeatures,
   whatsappAgentSeats,
+  whatsappPairingLink,
+  whatsappSeatGrant,
+  WhatsappSeatGrantError,
+  whatsappSeatOriginLabel,
+  linkNeedsReverification,
   type PlanDefinition,
   type ServiceVersion,
 } from "@metavchim/shared";
@@ -68,6 +74,7 @@ import { loadEnv } from "../../config/env";
 import { PlatformAdmin } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
 import { whatsappSeatQuotaWhere } from "../../core/whatsapp-seat-quota";
+import { CryptoService } from "../../core/crypto.service";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { EmailService } from "../../core/email.service";
@@ -79,6 +86,7 @@ import { CardcomService } from "../../core/cardcom.service";
 import { LinetService } from "../../core/linet.service";
 import { GeminiService } from "../../core/gemini.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
+import { WhatsAppLinkService } from "../messaging/whatsapp-link.service";
 import { GeocodingService } from "../../core/geocoding.service";
 import { CreditEconomyService } from "../../core/credit-economy.service";
 import {
@@ -168,6 +176,24 @@ const TenantFeaturesSchema = z
  * המחיר **חיובי בלבד**: „חינם למשרד הזה” הוא הארכת החלון ולא סכום
  * אפס, שהיה נשלח לסולק כחיוב על אפס ונדחה.
  */
+/**
+ * הוספת מקום וואטסאפ ממסך הפלטפורמה.
+ *
+ * ‎`.strict()` ושדות מותנים: „ניסיון בלי תאריך” ו„בתשלום בלי מחיר”
+ * הם שתי בקשות חסרות שהיו נשמרות כמקום חינם לנצח. ההכרעה עצמה
+ * ‎(`whatsappSeatGrant`) דוחה אותן גם היא — כאן זו דחייה עם 400
+ * במקום חריגה, ושם זה הכלל.
+ */
+const GrantWhatsappSeatSchema = z
+  .object({
+    mode: z.enum(["free", "trial", "billed"]),
+    /** ל-`trial`: מתי המקום נסגר מעצמו. */
+    endsAt: z.string().datetime().optional(),
+    /** ל-`billed`: המחיר החודשי שסוכם, באגורות. */
+    monthlyAgorot: z.number().int().min(1).max(MAX_RENTAL_MONTHLY_AGOROT).optional(),
+  })
+  .strict();
+
 const TenantBillingOverrideSchema = z
   .object({
     trialEndsAt: z.union([z.string().datetime(), z.null()]).optional(),
@@ -316,6 +342,15 @@ const UpdateSettingsSchema = z
     whatsappAccessToken: z.union([z.string().trim().min(20).max(500), z.literal("")]).optional(),
     // מזהה ולא כמות — ספרות בלבד, אפסים מובילים משמעותיים
     whatsappPhoneNumberId: z.union([z.string().trim().regex(/^\d{5,30}$/u), z.literal("")]).optional(),
+    /*
+     * מספר הבוט לתצוגה — גיבוי ל-`display_phone_number` של Meta.
+     * ספרות בלבד, עם קידומת מדינה או בלעדיה; הנרמול ל-`wa.me` נעשה
+     * ב-`normalizePhoneForWhatsapp` ולא כאן, כדי שיהיה מקום אחד
+     * שיודע להפוך `055…` ל-`972…`.
+     */
+    whatsappBotNumber: z
+      .union([z.string().trim().regex(/^\+?[\d\s()-]{9,20}$/u), z.literal("")])
+      .optional(),
     /** תבנית "לקוח ענה במייל" לסוכן — מחוץ לחלון 24 השעות של Meta */
     whatsappEmailReplyTemplate: z
       .union([z.string().trim().regex(/^[a-z0-9_]{1,512}$/u), z.literal("")])
@@ -411,6 +446,7 @@ const UpdateSettingsSchema = z
      * ההגדרה, והשולח בודק בזמן השליחה — שם זה נכון.
      */
     partnerPlanCode: z.union([z.string().trim().max(20), z.literal("")]).optional(),
+    // (הערך נבחר מרשימת המסלולים במסך; הקאפ כאן הוא הגנה בעומק)
 
     /*
      * השכרת מספרים — חשבון 015 **של הפלטפורמה**. ריק = מחיקת ההגדרה.
@@ -654,6 +690,8 @@ interface CouponRow {
 @UseGuards(PlatformAdminGuard)
 @PlatformAdmin()
 export class PlatformController {
+  private readonly logger = new Logger(PlatformController.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly platformSettings: PlatformSettingsService,
@@ -670,12 +708,30 @@ export class PlatformController {
     private readonly platformCredits: PlatformCreditsService,
     private readonly gemini: GeminiService,
     private readonly whatsappSender: WhatsAppSendService,
+    private readonly whatsappLinks: WhatsAppLinkService,
     private readonly subscriptionOffers: SubscriptionOfferService,
     private readonly pbx015: Pbx015NumbersService,
     private readonly numberRentals: NumberRentalService,
     private readonly linet: LinetService,
     private readonly invoices: InvoiceService,
+    private readonly crypto: CryptoService,
   ) {}
+
+  /**
+   * מסלול השותפים כפי שהוא נפתר **באותם שני תנאים** שהשולח בודק:
+   * הקוד בקטלוג, והמסלול חינמי. הכפילות מכוונת — כאן זו תצוגה ושם
+   * זו הכרעה — אבל שתיהן חייבות לומר את אותו דבר, ולכן שתיהן עוברות
+   * דרך `PlanCatalogService` ולא דרך שאילתה משלהן.
+   */
+  private async resolvePartnerPlan(
+    code: string,
+  ): Promise<{ name: string; isFree: boolean } | null> {
+    if (code === "") return null;
+    const plan = await this.plans.byCode(code);
+    if (plan === undefined) return null;
+    return { name: plan.name, isFree: await this.plans.isFreeCode(code) };
+  }
+
 
   /**
    * יומן הפניות לנתיב הוובהוק של המרכזיות — **כולל אלה שנדחו**.
@@ -1271,6 +1327,238 @@ export class PlatformController {
     return { ok: true, grants, denials };
   }
 
+
+  /* ============================================================
+     מנויי הוואטסאפ של משרד — מי מחזיק, מי אימת, ומה אפשר להוסיף.
+
+     ‎**למה זה כאן ולא במסך של המשרד.** המשרד רואה כמה מקומות יש לו
+     וקונה עוד; מי שמוסיף מקום בחינם, פותח פיילוט לחודש או קובע מחיר
+     שסוכם בטלפון הוא מפעיל הפלטפורמה. ובעיקר: כשסוכן אינו מצליח
+     לאמת את המספר שלו, מי שמקבל את הטלפון הוא התמיכה — ועד היום לא
+     הייתה לה שום דרך לראות מה מצבו, ולא כלי לעזור.
+     ============================================================ */
+
+  /**
+   * ‎**המספרים עצמם אינם מוחזרים — רק ארבע ספרות אחרונות.**
+   *
+   * מסך התמיכה צריך לענות על „האם המכשיר שלי מחובר”, ולזה די בזנב:
+   * הוא מספיק כדי שהסוכן יזהה את המספר שלו בטלפון, ואינו מספיק כדי
+   * לבנות ממנו רשימת מספרים של כל הסוכנים בכל המשרדים. אותה הכרעה
+   * בדיוק כמו ב-`WhatsAppLinkService.status`, ומאותה סיבה.
+   */
+  @Get("agencies/:id/whatsapp")
+  async agencyWhatsapp(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<{
+    seats: { total: number; used: number; grantedCounter: number };
+    rows: {
+      id: string;
+      origin: string;
+      label: string;
+      monthlyAgorot: number;
+      status: string;
+      currentPeriodEnd: string | null;
+      createdAt: string;
+    }[];
+    subscribers: {
+      userId: string;
+      name: string;
+      role: string;
+      isActive: boolean;
+      whatsappAccess: boolean;
+      linked: boolean;
+      tail: string | null;
+      verifiedAt: string | null;
+      needsReverification: boolean;
+      implicit: boolean;
+    }[];
+  }> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { id: true, whatsappAgentSeatsExtra: true },
+    });
+    if (!tenant) throw new BadRequestException("משרד לא נמצא");
+
+    const now = new Date();
+    const [users, rows, paid] = await Promise.all([
+      this.prisma.withExplicitTenant(id, (tx) =>
+        tx.user.findMany({
+          where: { tenantId: id },
+          select: { id: true, name: true, role: true, isActive: true, whatsappAccess: true },
+          orderBy: [{ isActive: "desc" }, { name: "asc" }],
+        }),
+      ),
+      this.prisma.whatsappSeat.findMany({
+        where: { tenantId: id, status: { not: "released" } },
+        orderBy: { createdAt: "desc" },
+      }),
+      this.prisma.whatsappSeat.count({ where: whatsappSeatQuotaWhere(id, now) }),
+    ]);
+
+    /*
+     * ‎`whatsapp_links` יושב מחוץ ל-RLS (הוא נקרא בנתיב הוובהוק לפני
+     * שידוע מיהו הדייר), ולכן הסינון לפי דייר נאכף כאן: המשתמשים
+     * נשלפו תחת הדייר, והקישורים נשלפים לפיהם בלבד.
+     */
+    const links =
+      users.length === 0
+        ? []
+        : await this.prisma.whatsAppLink.findMany({
+            where: { userId: { in: users.map((u) => u.id) }, revokedAt: null },
+            select: { userId: true, waIdEncrypted: true, verifiedAt: true, source: true },
+          });
+    const byUser = new Map(links.map((link) => [link.userId, link]));
+
+    return {
+      seats: {
+        total: whatsappAgentSeats({
+          planHasAgent: await this.plans.tenantHasFeature(id, "voice_intake"),
+          granted: tenant.whatsappAgentSeatsExtra,
+          paid,
+        }),
+        used: users.filter((u) => u.isActive && u.whatsappAccess).length,
+        grantedCounter: tenant.whatsappAgentSeatsExtra,
+      },
+      rows: rows.map((row) => ({
+        id: row.id,
+        origin: row.origin,
+        label: whatsappSeatOriginLabel(row),
+        monthlyAgorot: row.monthlyAgorot,
+        status: row.status,
+        currentPeriodEnd: row.currentPeriodEnd?.toISOString() ?? null,
+        createdAt: row.createdAt.toISOString(),
+      })),
+      subscribers: users.map((user) => {
+        const link = byUser.get(user.id);
+        return {
+          userId: user.id,
+          name: user.name,
+          role: user.role,
+          isActive: user.isActive,
+          whatsappAccess: user.whatsappAccess,
+          linked: link !== undefined,
+          tail: link === undefined ? null : this.crypto.decrypt(link.waIdEncrypted).slice(-4),
+          verifiedAt: link?.verifiedAt.toISOString() ?? null,
+          needsReverification:
+            link !== undefined && linkNeedsReverification(link.verifiedAt, now),
+          implicit: link?.source === "phone",
+        };
+      }),
+    };
+  }
+
+  /**
+   * הפקת קוד חיבור **עבור סוכן מסוים**, כדי שהתמיכה תוכל לשלוח לו
+   * ברקוד או קישור במקום להכתיב שש אותיות בטלפון.
+   *
+   * ‎**וזה נרשם ביומן.** הקוד מקשר את המכשיר ששולח אותו לחשבון של
+   * אותו סוכן — כלומר מי שמחזיק בו יכול לקשר את המכשיר **שלו**.
+   * הסמכות קיימת ממילא (מפעיל הפלטפורמה יכול הכול), אבל פעולה
+   * שמייצרת מפתח לחשבון של מישהו אחר חייבת להשאיר עקבות.
+   */
+  @Post("agencies/:id/whatsapp/link-code")
+  async agencyWhatsappLinkCode(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(z.object({ userId: IdSchema }).strict()))
+    body: { userId: string },
+  ): Promise<{ code: string; expiresInSeconds: number; botNumber: string | null; link: string | null }> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: body.userId, tenantId: id },
+      select: { id: true, name: true, isActive: true },
+    });
+    if (!user) throw new BadRequestException("המשתמש אינו שייך למשרד הזה");
+    if (!user.isActive) throw new BadRequestException("החשבון אינו פעיל");
+
+    const issued = await this.whatsappLinks.issueCode(id, user.id);
+    this.logger.warn(
+      `קוד חיבור וואטסאפ הופק ממסך הפלטפורמה עבור ${user.name} (${user.id}) במשרד ${id}`,
+    );
+    /*
+     * ‎`botNumber` ולא רק `link`: הקישור והברקוד מסתירים את המספר
+     * בתוכם, והמסך היה אומר „שלחו ידנית” בלי לומר למי. המספר הוא
+     * מה שמאפשר לבצע את ההוראה כשהקיצור אינו עובד.
+     */
+    const botNumber = await this.whatsappSender.businessNumber();
+    return {
+      ...issued,
+      botNumber,
+      link: whatsappPairingLink(botNumber, issued.code),
+    };
+  }
+
+  /**
+   * הוספת מקום למשרד — בחינם, לניסיון, או בתשלום חודשי.
+   *
+   * ההכרעה מה נכתב בשורה יושבת ב-`whatsappSeatGrant` שב-shared, ולא
+   * כאן: היא נבדקת בלי מסד ובלי סולק, וכל תנאי שלה הוא כלל עסקי
+   * ולא פרט מימוש.
+   */
+  @Post("agencies/:id/whatsapp/seats")
+  async grantWhatsappSeat(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(GrantWhatsappSeatSchema))
+    body: z.infer<typeof GrantWhatsappSeatSchema>,
+  ): Promise<{ id: string }> {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true } });
+    if (!tenant) throw new BadRequestException("משרד לא נמצא");
+
+    let grant;
+    try {
+      grant = whatsappSeatGrant({
+        mode: body.mode,
+        now: new Date(),
+        endsAt: body.endsAt === undefined ? null : new Date(body.endsAt),
+        monthlyAgorot: body.monthlyAgorot ?? null,
+      });
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof WhatsappSeatGrantError ? error.message : "בקשה לא תקינה",
+      );
+    }
+
+    const seat = await this.prisma.whatsappSeat.create({
+      data: {
+        id: ulid(),
+        tenantId: id,
+        origin: grant.origin,
+        monthlyAgorot: grant.monthlyAgorot,
+        /*
+         * ‎`active` ולא `pending`: `pending` פירושו „ממתין לתשלום”,
+         * וכאן אין דף תשלום שממתינים לו. המקום פתוח מרגע הלחיצה,
+         * וזו גם המשמעות של „הוספתי לו מקום”.
+         */
+        status: "active",
+        currentPeriodEnd: grant.currentPeriodEnd,
+        billingAnchorDay: grant.billingAnchorDay,
+        createdBy: TenantContext.current().userId,
+      },
+      select: { id: true },
+    });
+    this.logger.log(`מקום וואטסאפ (${body.mode}) נוסף למשרד ${id}: ${seat.id}`);
+    return seat;
+  }
+
+  /**
+   * סגירת מקום שנוסף מהמסך הזה.
+   *
+   * ‎**רק מה שהוענק, ומיד.** מקום שהמשרד קנה מבוטל אצלו ונשאר פתוח
+   * עד תום התקופה ששולמה — סגירה שלו מכאן הייתה מוחקת חודש ששולם.
+   */
+  @Delete("agencies/:id/whatsapp/seats/:seatId")
+  async releaseWhatsappSeat(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("seatId", new ZodValidationPipe(IdSchema)) seatId: string,
+  ): Promise<{ ok: true }> {
+    const now = new Date();
+    const closed = await this.prisma.whatsappSeat.updateMany({
+      where: { id: seatId, tenantId: id, origin: "granted", status: { not: "released" } },
+      data: { status: "released", releasedAt: now, cancelledAt: now },
+    });
+    if (closed.count === 0) {
+      throw new BadRequestException("המקום לא נמצא, או שהוא מקום בתשלום של המשרד");
+    }
+    this.logger.warn(`מקום וואטסאפ שהוענק נסגר ממסך הפלטפורמה: ${seatId} (משרד ${id})`);
+    return { ok: true };
+  }
+
   /**
    * חלון החינם והמחיר המוסכם של משרד יחיד.
    *
@@ -1465,6 +1753,11 @@ export class PlatformController {
       configured: boolean;
       source: "db" | "env" | "none";
       webhookUrl: string;
+      /**
+       * המספר שמוצג במסך חיבור המכשיר כשלא נשלף מ-Meta.
+       * הערך ולא „מוגדר”: זה מסך העריכה שלו.
+       */
+      botNumber: string;
       /** הצד היוצא — הסוכן האישי עונה רק כשהוא מוגדר */
       assistant: {
         configured: boolean;
@@ -1557,6 +1850,27 @@ export class PlatformController {
     /** קוד מסלול השותפים — ערך ולא „מוגדר”, מאותו טעם כמו `supportEmail`. */
     partnerPlanCode: string;
     /**
+     * ‎**למה הקוד הזה נפתר עכשיו — ולא רק מה נכתב בשדה.**
+     *
+     * השולח בודק את הקוד בזמן השליחה, ואם הוא אינו בקטלוג או שהמסלול
+     * בתשלום הוא מוותר על ההעברה ורושם אזהרה ביומן. מי שהקליד קוד
+     * שגוי לא רואה שום דבר במסך: התזכורות ממשיכות לצאת, אף משרד אינו
+     * עובר, והתקלה מתגלה חודש אחר כך. השורה הזאת היא ההבדל.
+     *
+     * ‎`null` = הקוד ריק או שאינו בקטלוג; ה-`partnerPlanCode` שלצדו
+     * מבחין בין השניים.
+     */
+    partnerPlan: { name: string; isFree: boolean } | null;
+    /**
+     * המסלולים שאפשר לבחור מהם — **הבחירה מהקטלוג ולא הקלדה.**
+     *
+     * קוד שמוקלד ביד יכול להיות שגוי, ואז אין העברה ואיש אינו יודע.
+     * רשימה סוגרת את זה במקור. המסלולים בתשלום נשלחים גם הם ומסומנים
+     * ‎`isFree: false` — הם מוצגים מנוטרלים ולא נעלמים, כי „למה
+     * המסלול שלי לא ברשימה” היא שאלה בלי תשובה במסך.
+     */
+    partnerPlanOptions: { code: string; name: string; isFree: boolean }[];
+    /**
      * השכרת מספרים מ-015 — **הערכים העסקיים ולא רק "מוגדר"**: שם
      * המשתמש, הקבוצה והמחיר מוצגים כי זה מסך העריכה שלהם; הסיסמה
      * לעולם לא חוזרת — רק אם היא מוגדרת.
@@ -1598,6 +1912,7 @@ export class PlatformController {
     const waEnv = env.WHATSAPP_APP_SECRET !== undefined && env.WHATSAPP_VERIFY_TOKEN !== undefined;
     // הצד היוצא של הסוכן האישי — טוקן ומזהה מספר, שניהם יחד
     const waOutDb = has("whatsappAccessToken") && has("whatsappPhoneNumberId");
+    const whatsappBotNumber = (await this.platformSettings.get("whatsappBotNumber")) ?? "";
     const waOutEnv =
       env.WHATSAPP_ACCESS_TOKEN !== undefined && env.WHATSAPP_PHONE_NUMBER_ID !== undefined;
     const googleDb = has("googleClientId") && has("googleClientSecret");
@@ -1613,6 +1928,7 @@ export class PlatformController {
       env.CARDCOM_API_NAME !== undefined &&
       env.CARDCOM_API_PASSWORD !== undefined;
     const otpDb = await this.platformSettings.get("loginOtpEnabled");
+    const partnerPlanCode = (await this.platformSettings.get("partnerPlanCode")) ?? "";
     // אותה פונקציה שהשרת גובה לפיה — לא העתק שלה
     const referralFeePercent = resolveReferralFeePercent(
       await this.platformSettings.get("referralFeePercent"),
@@ -1629,7 +1945,13 @@ export class PlatformController {
       },
       // הערך ולא רק "מוגדר" — ראו ההסבר בטיפוס המוחזר
       supportEmail: (await this.platformSettings.get("supportEmail")) ?? "",
-      partnerPlanCode: (await this.platformSettings.get("partnerPlanCode")) ?? "",
+      partnerPlanCode: partnerPlanCode,
+      partnerPlan: await this.resolvePartnerPlan(partnerPlanCode),
+      partnerPlanOptions: (await this.plans.all()).map((plan) => ({
+        code: plan.code,
+        name: plan.name,
+        isFree: isFreePlan(plan),
+      })),
       numberRental: {
         configured: await this.pbx015.isConfigured(),
         username: (await this.platformSettings.get("pbx015AuthUsername")) ?? "",
@@ -1679,6 +2001,7 @@ export class PlatformController {
         configured: waDb || waEnv,
         source: waDb ? "db" : waEnv ? "env" : "none",
         webhookUrl: `${env.WEB_ORIGIN}/api/v1/webhooks/whatsapp`,
+        botNumber: whatsappBotNumber,
         assistant: {
           configured: waOutDb || waOutEnv,
           source: waOutDb ? "db" : waOutEnv ? "env" : "none",

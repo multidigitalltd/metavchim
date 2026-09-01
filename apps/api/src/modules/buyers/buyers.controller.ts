@@ -15,7 +15,7 @@ import {
   BuyerRequirementsSchema,
   FinancingStatusSchema,
   IdSchema,
-  PhoneSchema,
+  PhoneInputSchema,
   type Page,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
@@ -27,10 +27,21 @@ import { BuyersService, type BuyerDto } from "./buyers.service";
 const CreateBuyerSchema = z
   .object({
     contactName: z.string().min(2).max(120),
-    contactPhone: PhoneSchema,
+    contactPhone: PhoneInputSchema,
+    /*
+     * ‎`.strict()` למטה הוא מה שהופך את זה לחובה ולא לנוחות: בלי
+     * המפתח כאן, טופס ששולח כתובת מקבל 400 ולא „נשמר בלי המייל”.
+     */
+    contactEmail: z.string().trim().email().max(254).optional(),
     requirements: BuyerRequirementsSchema,
     financing: FinancingStatusSchema.optional(),
     maturity: BuyerMaturitySchema.optional(),
+    /*
+     * ‎**מזהה בלבד, והתקפות שלו נבדקת בשירות מול רשימת המשרד.**
+     * ‎`z.string()` כאן מגביל רק את הצורה: הרשימה חיה בהגדרות ולא
+     * בסכימה, ולכן `enum` היה מתיישן ברגע שמשרד יוסיף סטטוס.
+     */
+    officeStatus: z.string().max(24).optional(),
     source: z.string().min(1).max(60),
     agentNotes: z.string().max(4000).optional(),
   })
@@ -41,6 +52,8 @@ const UpdateBuyerSchema = z
     requirements: BuyerRequirementsSchema.optional(),
     financing: FinancingStatusSchema.optional(),
     maturity: BuyerMaturitySchema.optional(),
+    /** `""` או `null` = הסרת הסטטוס; מזהה = בחירה בו. */
+    officeStatus: z.union([z.string().max(24), z.null()]).optional(),
     agentNotes: z.string().max(4000).optional(),
   })
   .strict();
@@ -48,6 +61,8 @@ const UpdateBuyerSchema = z
 const ListQuerySchema = z
   .object({
     maturity: BuyerMaturitySchema.optional(),
+    /** מצטלב עם `maturity` ואינו מתחרה בו — ראו `BuyersService.list`. */
+    officeStatus: z.string().max(24).optional(),
     /** חיפוש חופשי — ערים מבוקשות, הערות הסוכן, סיכומי AI ומקור */
     q: z.string().max(120).optional(),
     /** בשקלים; נבדק בחפיפה מול טווח התקציב של הקונה */

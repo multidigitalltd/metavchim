@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState, type FormEvent } from "react";
+import { NeighborhoodInput } from "../../neighborhood-input";
 import { useRouter, useSearchParams } from "next/navigation";
 import { safeReturnPath, withQuery, type CustomFeature } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
@@ -12,21 +13,13 @@ import { DictateFor } from "../../dictation-field";
 import { PriceField } from "../../price-field";
 import { FeatureChips } from "../feature-chips";
 import { EntryTimingField } from "../entry-timing-field";
-import { LocationPicker, type LocationValue } from "../location-picker";
+import { LocationPicker, type LocationValue } from "../location-picker-lazy";
 import { Notice } from "../../notice";
 
 const inputStyle = {
   borderColor: "var(--color-input-border)",
   background: "var(--color-field)",
 } as const;
-
-/** נרמול טלפון ישראלי ל-E.164 — ‎050-1234567 → ‎+972501234567 */
-function normalizeOwnerPhone(raw: string): string {
-  const digits = raw.replace(/[^\d+]/gu, "");
-  if (digits.startsWith("+972")) return digits;
-  if (digits.startsWith("0")) return `+972${digits.slice(1)}`;
-  return digits;
-}
 
 function triState(form: FormData, name: string): boolean | undefined {
   const value = String(form.get(name) ?? "");
@@ -153,7 +146,7 @@ function NewPropertyForm() {
         String(f.get("ownerPhone") ?? "").trim() !== ""
           ? {
               ownerName: String(f.get("ownerName")).trim(),
-              ownerPhone: normalizeOwnerPhone(String(f.get("ownerPhone"))),
+              ownerPhone: String(f.get("ownerPhone")).trim(),
             }
           : {}),
       });
@@ -209,13 +202,18 @@ function NewPropertyForm() {
               <label htmlFor="neighborhood" className="mb-1 block font-medium">
                 שכונה
               </label>
-              <input
+              {/*
+                העיר מצמצמת: „שיכון ג'” קיימת בכמה ערים ואינה אותה
+                שכונה, ולנכס יש עיר אחת ודאית — בשונה מקונה, שיכול
+                לחפש בכמה ערים בבת אחת.
+              */}
+              <NeighborhoodInput
                 id="neighborhood"
                 name="neighborhood"
-                onChange={(e) =>
-                  setAddress((a) => ({ ...a, neighborhood: e.target.value }))
+                city={address.city}
+                onValueChange={(neighborhood) =>
+                  setAddress((a) => ({ ...a, neighborhood }))
                 }
-                className="w-full rounded-lg border px-3 py-2.5"
                 style={inputStyle}
               />
             </div>

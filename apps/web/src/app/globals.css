@@ -18,28 +18,37 @@
 /* ---------- הפונט העברי של המותג ----------
    מוגש מהשרת עצמו (public/fonts) ולא מ-CDN: אין בקשה לצד שלישי,
    ואין תלות ברשת חיצונית בזמן טעינה. font-display: swap מציג טקסט
-   מיד בפונט המערכת ומחליף כשהקובץ מוכן — עדיף על מסך ריק. */
+   מיד בפונט המערכת ומחליף כשהקובץ מוכן — עדיף על מסך ריק.
+   ‏woff2 קודם (‏~22% קטן יותר); ה-woff נשאר לדפדפנים עתיקים. */
 @font-face {
   font-family: Almoni;
-  src: url("/fonts/almoni-regular-aaa.woff") format("woff");
+  src:
+    url("/fonts/almoni-regular-aaa.woff2") format("woff2"),
+    url("/fonts/almoni-regular-aaa.woff") format("woff");
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
   font-family: Almoni;
-  src: url("/fonts/almoni-medium-aaa.woff") format("woff");
+  src:
+    url("/fonts/almoni-medium-aaa.woff2") format("woff2"),
+    url("/fonts/almoni-medium-aaa.woff") format("woff");
   font-weight: 500 600;
   font-display: swap;
 }
 @font-face {
   font-family: Almoni;
-  src: url("/fonts/almoni-bold-aaa.woff") format("woff");
+  src:
+    url("/fonts/almoni-bold-aaa.woff2") format("woff2"),
+    url("/fonts/almoni-bold-aaa.woff") format("woff");
   font-weight: 700;
   font-display: swap;
 }
 @font-face {
   font-family: Almoni;
-  src: url("/fonts/almoni-ultrabold-aaa.woff") format("woff");
+  src:
+    url("/fonts/almoni-ultrabold-aaa.woff2") format("woff2"),
+    url("/fonts/almoni-ultrabold-aaa.woff") format("woff");
   font-weight: 800 900;
   font-display: swap;
 }
@@ -1304,23 +1313,70 @@ code {
   min-height: 1em;
 }
 
+/*
+ * ‎**אריחים, שניים בשורה — ולא רשימה של תשע-עשרה שורות.**
+ *
+ * הסרגל מונה תשע-עשרה פריטים. כשורות ברוחב מלא זה כ-900 פיקסלים של
+ * ניווט, כלומר גלילה בתוך הסרגל כמעט בכל מסך — ומי שגולל בתוכו
+ * מאבד את חצי התפריט מהעין בדיוק כשהוא מחפש בו.
+ *
+ * שתי עמודות חוצות את מספר השורות. האריח גבוה משורה (הסמל מעל
+ * התווית במקום לצדה), ולכן החיסכון אינו מחצית — אבל הוא ממשי, והוא
+ * מה שמכניס את כל הניווט למסך אחד.
+ *
+ * ‎`align-content: start` — בלעדיו, כשהתפריט קצר מהסרגל, ה-grid
+ * מותח את השורות לגובה הזמין והאריחים מתנפחים.
+ */
 .mv-sidebar-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  /*
+   * ‎**שורה לפריט.**
+   *
+   * הייתה כאן פריסת אריחים, שניים בשורה — היא אכן הכניסה את כל
+   * התפריט למסך בלי גלילה, אבל בעל המוצר קרא אותה כעמוסה לעין,
+   * וזו ההכרעה. שורה נקראת בסריקה אחת מלמעלה למטה; אריחים דורשים
+   * לסרוק שני צירים כדי למצוא פריט אחד.
+   *
+   * הגריד נשאר — עמודה אחת — ולא חזר ל-flex, וזה לא עניין של סגנון:
+   * ‎`grid-auto-rows: max-content` הוא מה שמונע את באג הנגישות שמתחת,
+   * ואין לו מקבילה ב-flex.
+   */
+  display: grid;
+  grid-template-columns: 1fr;
+  /*
+   * ‎**`max-content` ולא `auto`.**
+   *
+   * לתיבת הניווט יש גובה מוגדר (‎`flex: 1` בתוך סרגל בן ‎100dvh‎),
+   * ושורות `auto` בגובה מוגדר **מותאמות למקום הפנוי** במקום להיגזר
+   * מהתוכן. בסקלת נגישות 200% הגופן מכפיל את עצמו, השורה נשארת
+   * בגובה שהוקצה לה, והתווית גולשת ומכסה את הפריט שמתחת — כלומר
+   * דווקא ההגדרה שנועדה לעזור למי שמתקשה לקרוא הפכה את הניווט
+   * הראשי לבלתי שמיש. כך היה בפריסת השורות הראשונה, בכל שבעה־עשר
+   * הפריטים.
+   *
+   * ‎`max-content` מוציא את השורות מהחישוב: הן נגזרות מהתוכן, והתיבה
+   * גוללת כשצריך — וגלילה היא בדיוק מה ש-`overflow-y: auto` כאן
+   * נועד לעשות.
+   */
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 3px;
   /*
    * הריפוד האופקי הוא גם המרחק שפס הפריט הפעיל צריך לחצות כדי
    * להגיע לשפת המסך, ולכן הוא משתנה ולא מספר שכתוב פעמיים.
    */
   --sidebar-nav-pad: 12px;
-  padding: 14px var(--sidebar-nav-pad);
+  padding: 12px var(--sidebar-nav-pad);
   flex: 1;
   overflow-y: auto;
 }
 .mv-sidebar-link {
+  /* המיקום היחסי נדרש לפס המסגרת של הפריט הפעיל — ראו למטה */
+  position: relative;
   display: flex;
+  /* סמל, תווית, ואז המונה או התג — בשורה אחת */
+  flex-direction: row;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   /*
    * ‎`min-height` ולא `height`, ועם ריפוד אנכי.
    *
@@ -1339,8 +1395,8 @@ code {
    * שומר על יעד המגע של 44 (WCAG 2.5.8) ומאפשר לשורה לגדול.
    */
   min-height: 44px;
-  padding: 8px 12px;
-  border-radius: 14px;
+  padding: 9px 12px;
+  border-radius: 12px;
   font-size: var(--type-nav);
   font-weight: 600;
   color: #b6c0b8; /* ‎`dark-text-2`‎ מהחבילה — על ‎#0B0E0C‎: ~9:1 */
@@ -1349,6 +1405,29 @@ code {
     background-color 0.15s ease,
     color 0.15s ease;
 }
+/*
+ * ‎**הסמל והתג אינם מתכווצים; התווית כן — והיא זו שעוטפת.**
+ *
+ * זו המלכודת שהפילה את פריסת השורות הראשונה: `flex-shrink` ברירת
+ * המחדל דחס את **כל** הילדים, כולל הסמל והתג, וכשהמכל צר מהתוכן
+ * הטקסט גלש מחוץ לתיבה במקום לרדת שורה.
+ *
+ * החלוקה כאן מפורשת: הסמל והתג שומרים על מידתם, והתווית מקבלת את
+ * מה שנשאר ועוטפת בתוכו. ‎`min-width: 0` הוא מה שמאפשר לה בכלל
+ * לרדת מתחת לרוחב התוכן שלה — בלעדיו פריט flex אינו מתכווץ מתחת
+ * ל-`min-content`, ושורה ארוכה הייתה מרחיבה את הסרגל.
+ *
+ * שורת ה-grid גדלה עם התווית (`grid-auto-rows: max-content`), ולכן
+ * ‎`min-height` נשאר רצפה ליעד המגע ולא תקרה שגולשים ממנה.
+ */
+.mv-sidebar-link > * {
+  flex: none;
+}
+.mv-sidebar-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .mv-sidebar-link:hover {
   background: rgba(255, 255, 255, 0.06);
   color: #fff;
@@ -1382,15 +1461,19 @@ code {
 .mv-sidebar-link[aria-current="page"]::after {
   content: "";
   position: absolute;
-  inset-inline-start: calc(-1 * var(--sidebar-nav-pad));
-  width: 3px;
-  height: 22px;
-  border-radius: 2px;
-  background: #70ee91;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1.5px #70ee91;
+  pointer-events: none;
 }
-/* מונה ליד פריט ניווט (נכסים, קונים, התאמות) */
+/*
+ * מונה ליד פריט ניווט (נכסים, קונים, התאמות) — ‎**בפינת האריח.**
+ *
+ * ‎`margin-inline-start: auto` דחף אותו לקצה כל עוד הפריט היה שורה.
+ * באריח הכיוון הוא מאונך, ואותה שורה הייתה דוחפת את המספר אל מתחת
+ * לתווית — כלומר שורה שלישית לכל אריח שיש בו מונה.
+ */
 .mv-nav-count {
-  margin-inline-start: auto;
   font-size: var(--type-caption);
   font-weight: 700;
   color: #9aa89e;
@@ -1407,7 +1490,6 @@ code {
  * הערכות — באותה צורה שבה שאר תגי הסרגל נכתבים כאן במפורש.
  */
 .mv-nav-badge {
-  margin-inline-start: auto;
   background: rgba(245, 180, 142, 0.16);
   color: #f5b48e;
   font-size: var(--type-caption);
@@ -1417,7 +1499,7 @@ code {
 }
 /* תג "בקרוב" — פיצ'ר שהוכרז וטרם הושק. ירוק על כהה, לא כתום: הבטחה ולא דחיפות */
 .mv-nav-soon {
-  margin-inline-start: auto;
+  margin: 0;
   background: rgba(112, 238, 145, 0.16);
   color: #8cf2a6;
   font-size: var(--type-caption);
@@ -1432,7 +1514,7 @@ code {
  * תגים באותו צבע היו נקראים כאותו דבר.
  */
 .mv-nav-ai {
-  margin-inline-start: auto;
+  margin: 0;
   background: rgba(167, 139, 250, 0.18);
   color: #c4b5fd;
   font-size: var(--type-caption);
@@ -1441,9 +1523,9 @@ code {
   border-radius: 99px;
   padding: 2px 9px;
 }
-/* כששני התגים יחד — הראשון מוותר על הדחיפה לקצה */
+/* שני התגים יחד יושבים זה לצד זה בסוף השורה */
 .mv-nav-ai + .mv-nav-soon {
-  margin-inline-start: 6px;
+  margin-inline-start: 4px;
 }
 .mv-sidebar-link:focus-visible {
   outline: 3px solid var(--dk-primary);
@@ -6472,4 +6554,47 @@ a.mv-bar-row:focus-visible {
   margin: 2px 0 0;
   font-size: calc(14 / 16 * 1rem);
   color: var(--color-text-muted);
+}
+
+/* ==================================================================
+   הדפסה — המסמך שנחתם, ולא המסך שממנו חתמו.
+
+   ‎**למה זה כאן.** אדם שחותם על הסכם תיווך מדפיס אותו או שומר PDF.
+   בלי הכללים האלה יוצא לו דף עם כפתור „אני חותם על ההסכם”, תיבת
+   סימון ריקה ולוח חתימה — כלומר מסמך שנראה כאילו לא נחתם. מה שכן
+   חייב לצאת: נייר המכתבים של המשרד, נוסח ההסכם, ואישור החתימה עם
+   מזהה המסמך — הראיה עצמה.
+
+   ‎`!important` בכוונה: המחלקות של Tailwind יושבות באותה ספציפיות,
+   וכלל הדפסה שמפסיד להן אינו כלל.
+   ================================================================== */
+@media print {
+  /* מה שאין לו משמעות על נייר: טפסים, כפתורים וניווט */
+  .mv-no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* הדף כבר ממוסגר בנייר עצמו — מסגרת, פינות מעוגלות וצל סביבו הם
+     שאריות של כרטיס במסך, ועל נייר הם נראים כמו טעות דפוס */
+  .mv-doc {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    max-width: none !important;
+    background: transparent !important;
+    /* נוסח משפטי שנקטע באמצע משפט בין עמודים קשה לקריאה ולציטוט */
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* הכתובת שמאחורי כל קישור אינה מעניינת כאן — היא טוקן ארוך */
+  a[href]::after {
+    content: "" !important;
+  }
 }

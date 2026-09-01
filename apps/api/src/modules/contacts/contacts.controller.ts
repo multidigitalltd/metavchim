@@ -15,12 +15,11 @@ import {
   CONTACT_ROLES,
   IdSchema,
   PHONE_LABELS,
-  PhoneSchema,
-  normalizePhone,
+  PhoneInputSchema,
   type ContactPerson,
   type DuplicateGroup,
 } from "@metavchim/shared";
-import { assertContactAccess, ownershipFilter } from "../../common/ownership";
+import { assertContactAccess, leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
@@ -30,8 +29,8 @@ import { ContactsService } from "./contacts.service";
 import { ContactErasureService } from "./contact-erasure.service";
 import { DuplicatesService } from "./duplicates.service";
 
-/** אותו נרמול של קליטת הלידים — שני כתיבים של מספר חייבים להתלכד. */
-const PhoneField = z.string().trim().max(25).transform(normalizePhone).pipe(PhoneSchema);
+/** אותו נרמול בכל מקום שמקבל מספר שאדם הקליד — ראו `PhoneInputSchema`. */
+const PhoneField = PhoneInputSchema;
 
 const MergeSchema = z
   .object({ survivorId: IdSchema, duplicateId: IdSchema })
@@ -230,7 +229,7 @@ export class ContactsController {
           where: {
             tenantId,
             contactId: id,
-            ...ownershipFilter("leads.view_all", "assignedToUserId"),
+            ...leadOwnershipFilter(),
           },
           orderBy: { createdAt: "desc" },
           take: 10,

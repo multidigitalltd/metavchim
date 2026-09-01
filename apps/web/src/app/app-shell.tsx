@@ -548,7 +548,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         aria-current={active ? "page" : undefined}
       >
         {icon}
-        <span>{label}</span>
+        {/* מחלקה מפורשת: התווית היא הילד היחיד שאמור לעטוף, והתגים
+            שאחריה הם `span` גם הם — בורר מיקום היה שביר */}
+        <span className="mv-sidebar-label">{label}</span>
         {end}
       </Link>
     );

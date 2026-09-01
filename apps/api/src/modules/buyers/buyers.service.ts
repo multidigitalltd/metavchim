@@ -12,13 +12,16 @@ import {
   DEFAULT_COMMISSION_SPLIT,
   mergeIntakeSeed,
   uniformTerms,
-  labelOf,
-  MATURITY_LABELS,
+  buyerStatusChangeLine,
+  officeStatusById,
+  statusAfterMaturityChange,
+  type OfficeBuyerStatus,
   type BuyerRequirements,
   type IntakeAnswers,
   type Page,
 } from "@metavchim/shared";
-import { assertBuyerAccess, ownershipFilter } from "../../common/ownership";
+import { assertBuyerAccess, leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
+import { readOfficeStatuses } from "../../common/office-buyer-statuses";
 import {
   cleanVocabulary,
   freeTextTerms,
@@ -31,7 +34,7 @@ import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
-import { lockContact } from "../../common/locks";
+import { lockContact, shareTenantRow } from "../../common/locks";
 import { ContactErasureService } from "../contacts/contact-erasure.service";
 import { ContactsService } from "../contacts/contacts.service";
 import {
@@ -46,6 +49,14 @@ export interface BuyerDto {
   requirements: BuyerRequirements;
   financing: string;
   maturity: string;
+  /**
+   * ‎**מזהה סטטוס המשרד — התווית נפתרת בלקוח.**
+   *
+   * הלקוח שולף ממילא את רשימת הסטטוסים (הוא צריך אותה לבורר
+   * ולסינון), ולכן שליחת התווית מכאן הייתה עותק שני של אותו מידע —
+   * שמתיישן ברגע שמשנים שם סטטוס בזמן שכרטיס פתוח.
+   */
+  officeStatus?: string;
   source: string;
   agentNotes?: string;
   createdAt: Date;
@@ -69,9 +80,13 @@ export class BuyersService {
   async create(input: {
     contactName: string;
     contactPhone: string;
+    /** נשמר על כרטיס איש הקשר — `createWithin` כבר ידע, `create` לא הצהיר */
+    contactEmail?: string;
     requirements: BuyerRequirements;
     financing?: string;
     maturity?: string;
+    /** מזהה סטטוס משרד, או פונקציה שמכריעה — הבחירה קובעת גם את הדרגה. */
+    officeStatus?: string | ((statuses: readonly OfficeBuyerStatus[]) => string);
     source: string;
     agentNotes?: string;
   }): Promise<BuyerDto> {
@@ -174,7 +189,7 @@ export class BuyersService {
         where: {
           id: leadId,
           tenantId: ctx.tenantId,
-          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          ...leadOwnershipFilter(),
         },
       });
       if (!lead) throw new NotFoundException("ליד לא נמצא");
@@ -351,6 +366,7 @@ export class BuyersService {
     requirements: BuyerRequirements;
     financing?: string;
     maturity?: string;
+    officeStatus?: string | ((statuses: readonly OfficeBuyerStatus[]) => string);
     source: string;
     agentNotes?: string;
   }): Promise<string> {
@@ -379,6 +395,8 @@ export class BuyersService {
       requirements: BuyerRequirements;
       financing?: string;
       maturity?: string;
+      /** מזהה, או פונקציה שמכריעה מול הרשימה — ראו `update`. */
+      officeStatus?: string | ((statuses: readonly OfficeBuyerStatus[]) => string);
       source: string;
       agentNotes?: string;
       ownerUserId?: string;
@@ -386,6 +404,28 @@ export class BuyersService {
   ): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const id = ulid();
+    /*
+     * ‎**אותו כלל כמו בעדכון:** סטטוס משרד גורר את הדרגה שהוא נשען
+     * עליה. כרטיס שנפתח עם „במשא ומתן” ועם דרגת ברירת המחדל
+     * „מתעניין” היה יוצא מהטופס כשהוא כבר סותר את עצמו.
+     */
+    let maturity = input.maturity ?? "interested";
+    let officeStatus: string | null = null;
+    if (input.officeStatus !== undefined && input.officeStatus !== "") {
+      /* אותה נעילה משותפת כמו בעדכון — ראו ההסבר שם. */
+      await shareTenantRow(tx, tenantId);
+      const statuses = await readOfficeStatuses(tx, tenantId);
+      const wanted =
+        typeof input.officeStatus === "function"
+          ? input.officeStatus(statuses)
+          : input.officeStatus;
+      const entry = officeStatusById(statuses, wanted);
+      if (entry === null || entry.archived) {
+        throw new BadRequestException("הסטטוס אינו קיים ברשימת המשרד");
+      }
+      officeStatus = entry.id;
+      maturity = entry.maturity;
+    }
 
     {
       const contact = await this.contacts.findOrCreateByPhone(tx, {
@@ -427,7 +467,8 @@ export class BuyersService {
           roomsMax: input.requirements.roomsMax ?? null,
           requirements: input.requirements as object,
           financing: input.financing ?? "unknown",
-          maturity: input.maturity ?? "interested",
+          maturity,
+          officeStatus,
           source: input.source,
           agentNotes: input.agentNotes ?? null,
         },
@@ -498,6 +539,27 @@ export class BuyersService {
           ) => Promise<BuyerRequirements> | BuyerRequirements);
       financing?: string;
       maturity?: string;
+      /**
+       * ‎`null` או `""` = הסרת סטטוס המשרד; מזהה = בחירה בו.
+       *
+       * ‎**בחירה בסטטוס קובעת גם את הדרגה**, כי הסטטוס נושא אותה
+       * בהגדרה. אם נשלחו שניהם באותה בקשה, הסטטוס מנצח: הוא
+       * האמירה הספציפית יותר, ושמירת דרגה שסותרת אותו הייתה
+       * מייצרת כרטיס שקורא שני דברים הפוכים.
+       *
+       * ‎**ופונקציה, לקורא שצריך להכריע מול הרשימה** (ביקורת Codex).
+       * הסוכן הקולי מתאים את מה שנאמר לשלב, והתאמה שרצה בטרנזקציה
+       * נפרדת יכולה להתיישן: מנהל ששינה תווית או דרגה בין ההתאמה
+       * לכתיבה משאיר את המזהה תקף ואת המשמעות שונה. הפונקציה מקבלת
+       * את הרשימה **שנקראה כאן, מתחת לנעילה**, ולכן היא מכריעה על
+       * מה שבאמת נשמר.
+       *
+       * אותו נימוק בדיוק של `requirements` שמקבל פונקציה למעלה.
+       */
+      officeStatus?:
+        | string
+        | null
+        | ((statuses: readonly OfficeBuyerStatus[]) => string);
       agentNotes?: string;
     },
   ): Promise<BuyerDto> {
@@ -554,6 +616,64 @@ export class BuyersService {
         };
       }
 
+      /*
+       * ‎**שתי השכבות נפתרות יחד, לפני הכתיבה.**
+       *
+       * הרשימה נקראת רק כשאחת מהן נגעה בכלל: שאילתה נוספת בכל
+       * עדכון דרישות היא מחיר על מה שלא השתנה.
+       */
+      const touchesStatus =
+        patch.officeStatus !== undefined || patch.maturity !== undefined;
+      /*
+       * ‎**נעילה משותפת על שורת המשרד לפני קריאת הרשימה** (ביקורת
+       * Codex). מחיקה מלאה של סטטוס מותרת רק כשאיש אינו נושא אותו,
+       * והיא סופרת תחת `FOR UPDATE`; בלי הנעילה כאן, שיוך שקרה בין
+       * הספירה למחיקה היה משאיר על הכרטיס מזהה שאינו נפתר לשום
+       * תווית — כלומר אובדן ההיסטוריה שההסתרה נועדה למנוע.
+       *
+       * ‎`FOR SHARE` אינו חוסם שיוך מקביל של קונה אחר; הוא חוסם רק
+       * את עריכת ההגדרות, וזה בדיוק הזוג שצריך להיות סדרתי.
+       */
+      if (touchesStatus) await shareTenantRow(tx, tenantId);
+      const statuses = touchesStatus
+        ? await readOfficeStatuses(tx, tenantId)
+        : [];
+      /** `undefined` = לא נגענו בעמודה; `null` = הסטטוס יורד. */
+      let nextOfficeStatus: string | null | undefined;
+      let nextMaturity = patch.maturity;
+      if (patch.officeStatus !== undefined) {
+        /* פונקציה מכריעה כאן, על הרשימה שנקראה מתחת לנעילה. */
+        const wanted =
+          typeof patch.officeStatus === "function"
+            ? patch.officeStatus(statuses)
+            : patch.officeStatus;
+        if (wanted === null || wanted === "") {
+          /*
+           * הסרת הסטטוס **אינה** נוגעת בדרגה: הכרטיס עדיין דחוף
+           * כפי שהיה, רק בלי המילה של המשרד עליו.
+           */
+          nextOfficeStatus = null;
+        } else {
+          const entry = officeStatusById(statuses, wanted);
+          /*
+           * ‎**מוסתר נדחה בכתיבה ולא רק בתפריט.** בורר שנפתח לפני
+           * שהמשרד הסתיר סטטוס עדיין מחזיק אותו, ושמירה שקטה שלו
+           * הייתה מחזירה לשימוש מה שהוסר בכוונה.
+           */
+          if (entry === null || entry.archived) {
+            throw new BadRequestException("הסטטוס אינו קיים ברשימת המשרד");
+          }
+          nextOfficeStatus = entry.id;
+          nextMaturity = entry.maturity;
+        }
+      } else if (patch.maturity !== undefined) {
+        nextOfficeStatus = statusAfterMaturityChange(
+          statuses,
+          existing.officeStatus,
+          patch.maturity,
+        );
+      }
+
       await tx.buyer.update({
         where: { id },
         data: {
@@ -578,26 +698,48 @@ export class BuyersService {
           ...(patch.financing !== undefined
             ? { financing: patch.financing }
             : {}),
-          ...(patch.maturity !== undefined
-            ? { maturity: patch.maturity, maturityOverridden: true }
+          ...(nextMaturity !== undefined
+            ? { maturity: nextMaturity, maturityOverridden: true }
+            : {}),
+          ...(nextOfficeStatus !== undefined
+            ? { officeStatus: nextOfficeStatus }
             : {}),
           ...(patch.agentNotes !== undefined
             ? { agentNotes: patch.agentNotes }
             : {}),
         },
       });
-      // שינוי בשלות אמיתי נרשם בציר — קביעה חוזרת של אותו ערך רק מקבעת override
-      if (
-        patch.maturity !== undefined &&
-        patch.maturity !== existing.maturity
-      ) {
+      /*
+       * ‎**רשומת ציר אחת לכל פעולה, ולא אחת לכל עמודה שזזה.**
+       *
+       * בחירת סטטוס מזיזה גם את הדרגה, ושתי שורות („סטטוס: …” ואחריה
+       * „בשלות: …”) היו קוראות כמו שני דברים שקרו — במקום כמו הדבר
+       * האחד שהמתווך עשה. השורה נכתבת לפי מה שנשלח, לא לפי מה שהשתנה.
+       */
+      const statusMoved =
+        nextOfficeStatus !== undefined &&
+        (nextOfficeStatus ?? null) !== (existing.officeStatus ?? null);
+      const maturityMoved =
+        nextMaturity !== undefined && nextMaturity !== existing.maturity;
+      const timeline = buyerStatusChangeLine({
+        statuses,
+        pickedStatus: patch.officeStatus !== undefined,
+        statusMoved,
+        maturityMoved,
+        beforeStatus: existing.officeStatus,
+        afterStatus: nextOfficeStatus ?? null,
+        beforeMaturity: existing.maturity,
+        afterMaturity: nextMaturity,
+      });
+      // קביעה חוזרת של אותו ערך רק מקבעת override — ואין לה מה לספר
+      if (timeline !== "") {
         await tx.interaction.create({
           data: {
             id: ulid(),
             tenantId,
             buyerId: id,
             kind: "status_change",
-            content: `בשלות: ${labelOf(MATURITY_LABELS, existing.maturity)} ← ${labelOf(MATURITY_LABELS, patch.maturity)}`,
+            content: timeline,
             createdBy: TenantContext.current().userId,
           },
         });
@@ -829,6 +971,8 @@ export class BuyersService {
 
   async list(query: {
     maturity?: string;
+    /** מזהה סטטוס משרד — מצטלב עם `maturity` ואינו מתחרה בו. */
+    officeStatus?: string;
     q?: string;
     /** ערים מפורשות — קונה מתאים אם אחת מהן ברשימת הערים שלו (hasSome) */
     cities?: string[];
@@ -1003,6 +1147,12 @@ export class BuyersService {
           deletedAt: null,
           ...ownershipFilter("buyers.view_all", "ownerUserId"),
           ...(query.maturity ? { maturity: query.maturity } : {}),
+          /*
+           * ‎**חיתוך ולא תחרות.** סטטוס המשרד גורר דרגה, ולכן צירוף
+           * של השניים הוא תמיד תת-קבוצה — ולעולם לא סתירה שמחזירה
+           * רשימה ריקה בלי הסבר.
+           */
+          ...(query.officeStatus ? { officeStatus: query.officeStatus } : {}),
           ...(conditions.length > 0 ? { AND: conditions } : {}),
           ...(query.cursor ? { id: { lt: query.cursor } } : {}),
         },
@@ -1078,6 +1228,7 @@ export class BuyersService {
       requirements: unknown;
       financing: string;
       maturity: string;
+      officeStatus: string | null;
       source: string;
       agentNotes: string | null;
       createdAt: Date;
@@ -1091,6 +1242,7 @@ export class BuyersService {
       requirements: BuyerRequirementsSchema.parse(row.requirements),
       financing: row.financing,
       maturity: row.maturity,
+      ...(row.officeStatus === null ? {} : { officeStatus: row.officeStatus }),
       source: row.source,
       agentNotes: row.agentNotes ?? undefined,
       createdAt: row.createdAt,

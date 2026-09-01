@@ -8,7 +8,7 @@ import {
   LeadSourceSchema,
   LeadIntentSchema,
   LeadStatusSchema,
-  PhoneSchema,
+  PhoneInputSchema,
   leadDeletionKeepsContact,
   type LeadDeletionScope,
   type Page,
@@ -21,7 +21,9 @@ import { LeadsService, type InteractionDto, type LeadDto } from "./leads.service
 const CreateLeadSchema = z
   .object({
     contactName: z.string().min(2).max(120),
-    contactPhone: PhoneSchema,
+    contactPhone: PhoneInputSchema,
+    /* אותו פער בדיוק כמו בקונה: השירות ידע לשמור, הסכימה לא קיבלה */
+    contactEmail: z.string().trim().email().max(254).optional(),
     source: LeadSourceSchema,
     intent: LeadIntentSchema,
     summary: z.string().max(2000).optional(),
@@ -71,6 +73,17 @@ const ConvertSchema = z
 const ListQuerySchema = z
   .object({
     status: LeadStatusSchema.optional(),
+    /**
+     * ‎**„לטיפול” מול „טופל” — במסד, לפני העימוד** (ביקורת Codex).
+     *
+     * המסך חילק את מה ש-`/leads?limit=100` החזיר, ולכן במשרד עם יותר
+     * מ-100 לידים ליד פתוח שנדחק מחוץ לעמוד פשוט לא הופיע בתור
+     * העבודה — בלי שום סימן לכך שהוא קיים.
+     */
+    open: z
+      .enum(["true", "false"])
+      .optional()
+      .transform((v) => (v === undefined ? undefined : v === "true")),
     requiresHuman: z
       .enum(["true", "false"])
       .optional()

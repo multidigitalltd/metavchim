@@ -27,11 +27,9 @@ import { formatIsraeliNumber } from "./israel-time.js";
  * מסלול תמורה על הפניה — הבחירה שנעשית ברגע הפרסום.
  *
  * הטיפוס עצמו חי ב-`credit-economy`, לצד `settleReferral` שמחשב את
- * החלוקה. כאן רק הרשימה והתוויות, כדי שלא ייווצרו שתי הגדרות
- * למסלולים שצריכות להישאר מסונכרנות.
+ * החלוקה. כאן רק התוויות, כדי שלא ייווצרו שתי הגדרות למסלולים
+ * שצריכות להישאר מסונכרנות.
  */
-export const PAYOUT_MODES: readonly PayoutMode[] = ["credits", "cash"];
-
 export const PAYOUT_MODE_LABEL: Record<PayoutMode, string> = {
   credits: "קרדיטים",
   cash: "כסף",
@@ -53,9 +51,6 @@ export const PAYOUT_STATUS_LABEL: Record<PayoutStatus, string> = {
   paid: "שולמה",
   rejected: "נדחתה",
 };
-
-/** תנועות בספר הכספי. */
-export const PAYOUT_LEDGER_KINDS = ["lead_sale", "withdrawal", "withdrawal_reversed"] as const;
 
 export const MAX_PAYOUT_NOTE = 300;
 export const MAX_PAYOUT_REFERENCE = 120;

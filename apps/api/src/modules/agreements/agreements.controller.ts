@@ -1,4 +1,14 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Req } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpCode,
+  Param,
+  Post,
+  Req,
+  StreamableFile,
+} from "@nestjs/common";
 import type { Request } from "express";
 import { z } from "zod";
 import { AGREEMENT_KINDS, IdSchema, isSignatureDataUrl } from "@metavchim/shared";
@@ -144,6 +154,24 @@ export class AgreementsController {
   @Get("public/agreements/:token")
   async publicView(@Param("token") token: string): Promise<PublicAgreementView> {
     return this.agreements.publicView(token);
+  }
+
+  /**
+   * הלוגו של המשרד — הדף הציבורי טוען אותו כתמונה רגילה.
+   *
+   * מטמון ארוך: הקובץ מזוהה בטוקן של ההסכם, והוא אינו משתנה במהלך
+   * חייו. `private` ולא `public` — זהו נכס של משרד מסוים.
+   */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  @Get("public/agreements/:token/logo")
+  @Header("Cache-Control", "private, max-age=3600")
+  async publicLogo(@Param("token") token: string): Promise<StreamableFile> {
+    const obj = await this.agreements.publicLogo(token);
+    return new StreamableFile(obj.body as never, {
+      type: obj.contentType,
+      ...(obj.contentLength !== undefined ? { length: obj.contentLength } : {}),
+    });
   }
 
   @Public()

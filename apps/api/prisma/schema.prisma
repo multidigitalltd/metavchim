@@ -629,6 +629,17 @@ model Buyer {
   financing          String    @default("unknown") @db.VarChar(20)
   maturity           String    @default("interested") @db.VarChar(20)
   maturityOverridden Boolean   @default(false) @map("maturity_overridden")
+  /// סטטוס המשרד — **מזהה** מתוך `tenants.settings -> 'buyerStatuses'`.
+  ///
+  /// שכבה שנייה מעל `maturity` ולא במקומה: כל סטטוס נושא דרגה שהוא
+  /// נשען עליה, ובחירה בו קובעת את שתיהן. כך המשרד מקבל את המילים
+  /// שלו והמערכת ממשיכה לקרוא `maturity` בדיוק כפי שקראה.
+  ///
+  /// מזהה ולא תווית: שינוי שם הסטטוס בהגדרות אינו אמור לנתק אותו
+  /// מהכרטיסים שנושאים אותו. `null` = שכבה א' בלבד, וזה תקין —
+  /// והוא גם הרוב המכריע של השורות, ולכן האינדקס **חלקי** ומוגדר
+  /// במיגרציה 20260901080000 בלבד (Prisma אינו יודע לתאר אותו).
+  officeStatus       String?   @map("office_status") @db.VarChar(24)
   source             String    @db.VarChar(60)
   aiNotes            String?   @map("ai_notes")
   agentNotes         String?   @map("agent_notes")
@@ -2218,6 +2229,13 @@ model WhatsappSeat {
   monthlyAgorot    Int       @map("monthly_agorot")
   /// pending | active | past_due | cancelled | released
   status           String    @default("pending") @db.VarChar(20)
+  /// ‎`purchased` = המשרד קנה ומחויב מדי חודש. `granted` = בעל
+  /// הפלטפורמה העניק — **לא מחויב לעולם**, גם כשיש לו תאריך סיום.
+  ///
+  /// ההבחנה נדרשת דווקא בגלל התאריך: מקום ניסיון חייב `currentPeriodEnd`
+  /// כדי שמשהו יסגור אותו, וסורק החידושים אוסף כל שורה שהתאריך שלה
+  /// עבר. בלי השדה הזה הוא היה מנסה לחייב כרטיס על מקום שניתן בחינם.
+  origin           String    @default("purchased") @db.VarChar(10)
   /// יום החיוב בחודש — אותו עוגן ומאותה סיבה כמו במנוי: בלעדיו
   /// מקום שנרכש ב-31 בחודש היה מתקצר לצמיתות אחרי פברואר.
   billingAnchorDay Int?      @map("billing_anchor_day") @db.SmallInt
@@ -2234,6 +2252,9 @@ model WhatsappSeat {
   @@index([tenantId, status])
   /// סורק החידושים והשחרורים עובר על הצירוף הזה
   @@index([status, currentPeriodEnd])
+  /// והשחרור של מה שהוענק עובר על זה — מקומות שהוענקו הם מיעוט,
+  /// וסריקה לפי תאריך בלבד הייתה קוראת גם את כל מה שנקנה
+  @@index([origin, currentPeriodEnd])
   @@map("whatsapp_seats")
 }
 

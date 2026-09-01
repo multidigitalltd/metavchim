@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { PrismaService } from "../../core/prisma.service";
-import { StorageService } from "../../core/storage.service";
-import { TenantContext } from "../../common/tenant-context";
+import { PrismaService } from "./prisma.service";
+import { StorageService } from "./storage.service";
+import { TenantContext } from "../common/tenant-context";
 
 /**
  * הלוגו של המשרד.
@@ -147,7 +147,24 @@ export class TenantLogoService {
    * שעובר כאן נבדק מול ה-Session בכל בקשה.
    */
   async raw(): Promise<{ body: NodeJS.ReadableStream; contentType: string; contentLength?: number }> {
-    const tenantId = TenantContext.current().tenantId;
+    return this.rawFor(TenantContext.current().tenantId);
+  }
+
+  /**
+   * ‎**אותו קובץ, למשרד שנגזר מטוקן ציבורי ולא מ-Session.**
+   *
+   * דף חתימה, דף נחיתה וטופס מילוי פרטים נפתחים בלי התחברות — ולכן
+   * הלוגו של המשרד לא הופיע בהם כלל: הנתיב היחיד שהגיש אותו קרא את
+   * ‎`TenantContext`, שאינו קיים שם. המסמך שהלקוח חותם עליו נשא את
+   * שם המשרד בלבד, בטקסט אפור.
+   *
+   * המזהה מגיע **תמיד** מהשורה שהטוקן פתח, לעולם לא מקלט של הקורא;
+   * זו הסיבה שהמתודה מקבלת `tenantId` ולא טוקן — ההכרעה מי המשרד
+   * נעשית אצל מי שמכיר את הטוקן, וכאן רק מגישים.
+   */
+  async rawFor(
+    tenantId: string,
+  ): Promise<{ body: NodeJS.ReadableStream; contentType: string; contentLength?: number }> {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { settings: true },

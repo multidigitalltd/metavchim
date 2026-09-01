@@ -26,6 +26,13 @@ import {
   IdSchema,
   PLAN_FEATURES,
   AssignableRoleSchema,
+  BuyerMaturitySchema,
+  MAX_OFFICE_STATUS_LABEL,
+  addOfficeStatus,
+  removeOfficeStatus,
+  updateOfficeStatus,
+  type OfficeBuyerStatus,
+  type OfficeStatusResult,
   clearEffect,
   describeOverride,
   isOverrideActive,
@@ -48,7 +55,12 @@ import {
   normalizePhone,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
-import { emailDomainStatus, onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
+import {
+  emailDomainStatus,
+  onboardingSteps,
+  whatsappPairingLink,
+  type OnboardingProgress,
+} from "@metavchim/shared";
 import {
   WHATSAPP_AGENT_DENIAL_TEXT,
   whatsappAgentDenial,
@@ -63,6 +75,10 @@ import {
 } from "../../common/auth.decorators";
 import { lockTenantRow } from "../../common/locks";
 import { whatsappSeatQuotaWhere } from "../../core/whatsapp-seat-quota";
+import {
+  readOfficeStatuses,
+  writeOfficeStatuses,
+} from "../../common/office-buyer-statuses";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
@@ -77,8 +93,9 @@ import {
   WhatsAppLinkService,
   type LinkStatus,
 } from "../messaging/whatsapp-link.service";
+import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import { AccountDeletionService } from "./account-deletion.service";
-import { MAX_LOGO_BYTES, TenantLogoService } from "./tenant-logo.service";
+import { MAX_LOGO_BYTES, TenantLogoService } from "../../core/tenant-logo.service";
 
 /**
  * הגדרת האוטומציות שמגיעה מהמסך.
@@ -101,6 +118,15 @@ const AutomationsSchema = z
          */
         channel: z.enum(["email", "whatsapp", "both"]).optional(),
         messages: z.record(z.string().max(40), z.string().max(600)).optional(),
+        /* חלון הניטור — רק לאוטומציה שמסומנת `watch` בקטלוג */
+        watch: z
+          .object({
+            days: z.array(z.number().int().min(0).max(6)).max(7),
+            fromHour: z.number().int().min(0).max(24),
+            toHour: z.number().int().min(0).max(24),
+          })
+          .strict()
+          .optional(),
       })
       .strict(),
   )
@@ -199,6 +225,31 @@ const AuditQuerySchema = z
   .object({ limit: z.coerce.number().int().min(1).max(100).default(50) })
   .strict();
 
+/**
+ * סטטוס משרד: התווית והדרגה שהוא נשען עליה. המזהה נקבע בשרת
+ * (`nextOfficeStatusId`) ואינו נשלח — לקוח שקובע מזהים היה יכול
+ * לדרוס סטטוס קיים בכתיבה „חדשה”.
+ */
+const CreateBuyerStatusSchema = z
+  .object({
+    label: z.string().trim().min(2).max(MAX_OFFICE_STATUS_LABEL),
+    maturity: BuyerMaturitySchema,
+  })
+  .strict();
+
+const UpdateBuyerStatusSchema = z
+  .object({
+    label: z.string().trim().min(2).max(MAX_OFFICE_STATUS_LABEL).optional(),
+    maturity: BuyerMaturitySchema.optional(),
+    /** החזרה משימוש, או הוצאה ממנו בלי למחוק. */
+    archived: z.boolean().optional(),
+  })
+  .strict()
+  .refine((body) => Object.keys(body).length > 0, { message: "לא נשלח שינוי" });
+
+/** ‎`IdSchema` הוא ULID; מזהה סטטוס הוא קצר ומהצורה `s7`. */
+const BuyerStatusIdSchema = z.string().regex(/^[a-z0-9]{2,24}$/u);
+
 /** שם המקור נכנס כ-source של הליד — ולכן מוגבל לאורך העמודה שם (20) */
 const LeadWebhookSchema = z
   .object({ sourceLabel: z.string().trim().min(2).max(20) })
@@ -269,6 +320,7 @@ export class SettingsController {
     private readonly matchRefresh: MatchRefreshService,
     private readonly platformSettings: PlatformSettingsService,
     private readonly whatsappLinks: WhatsAppLinkService,
+    private readonly whatsappSender: WhatsAppSendService,
     private readonly emailDomainProvider: EmailDomainProviderService,
   ) {}
 
@@ -857,6 +909,132 @@ export class SettingsController {
         entityId: tenantId,
       }),
     );
+  }
+
+  /*
+   * ‎-------------------------------------------------------------
+   * ‎סטטוסי הקונים של המשרד — שכבה ב'
+   * ‎-------------------------------------------------------------
+   *
+   * ראו `packages/shared/logic/buyer-status.ts` להסבר מלא על שתי
+   * השכבות. בקצרה: `maturity` (ארבע דרגות) נשארת כפי שהיא ומזינה את
+   * הדשבורד, ההתאמות וההתראות; הרשימה כאן היא המילים של המשרד,
+   * וכל סטטוס נושא דרגה שהוא נשען עליה.
+   */
+
+  /**
+   * ‎**קריאה פתוחה למי שעורך כרטיסים, ולא ל-`settings.manage` בלבד.**
+   *
+   * הבורר על כרטיס הקונה, הבורר בטופס קונה חדש והסינון ברשימה — כולם
+   * צריכים את הרשימה כדי להציג בכלל את הסטטוס שכבר שמור. סוכן שאינו
+   * מנהל היה רואה כרטיס עם מזהה במקום שם, כלומר תקלה שנראית כמו
+   * נתון פגום.
+   *
+   * ‎**מי שרואה כרטיס קונה** — גם `view_own` בלבד — צריך את התוויות.
+   * זו אינה הגדרה שהוא יכול לשנות: הכתיבה למטה דורשת `settings.manage`.
+   */
+  @Get("buyer-statuses")
+  @RequireCapability(
+    "buyers.view_all",
+    "buyers.view_own",
+    "buyers.edit",
+    "settings.manage",
+  )
+  async buyerStatuses(): Promise<{ statuses: OfficeBuyerStatus[] }> {
+    const tenantId = TenantContext.current().tenantId;
+    return { statuses: await readOfficeStatuses(this.prisma, tenantId) };
+  }
+
+  @Post("buyer-statuses")
+  @RequireCapability("settings.manage")
+  @HttpCode(200)
+  async createBuyerStatus(
+    @Body(new ZodValidationPipe(CreateBuyerStatusSchema))
+    body: z.infer<typeof CreateBuyerStatusSchema>,
+  ): Promise<{ statuses: OfficeBuyerStatus[] }> {
+    return this.saveBuyerStatuses("settings.buyer_status_create", (list) =>
+      addOfficeStatus(list, body),
+    );
+  }
+
+  @Patch("buyer-statuses/:id")
+  @RequireCapability("settings.manage")
+  async updateBuyerStatus(
+    @Param("id", new ZodValidationPipe(BuyerStatusIdSchema)) id: string,
+    @Body(new ZodValidationPipe(UpdateBuyerStatusSchema))
+    body: z.infer<typeof UpdateBuyerStatusSchema>,
+  ): Promise<{ statuses: OfficeBuyerStatus[] }> {
+    return this.saveBuyerStatuses("settings.buyer_status_update", (list) =>
+      updateOfficeStatus(list, id, body),
+    );
+  }
+
+  /**
+   * ‎**מחיקה שהופכת להסתרה כשהסטטוס בשימוש.**
+   *
+   * המחיקה אינה נחסמת „עד שיתפנה”: היא מוחלפת בהסתרה, שנותנת את אותה
+   * תוצאה בתפריט בלי לגעת בכרטיסים שנושאים אותו. חסימה הייתה מכריחה
+   * את המשרד לעבור כרטיס-כרטיס כדי לנקות שלב שיצא משימוש, ומחיקה
+   * שקטה הייתה הופכת אותם ל„סטטוס לא ידוע”.
+   */
+  @Delete("buyer-statuses/:id")
+  @RequireCapability("settings.manage")
+  async deleteBuyerStatus(
+    @Param("id", new ZodValidationPipe(BuyerStatusIdSchema)) id: string,
+  ): Promise<{ statuses: OfficeBuyerStatus[] }> {
+    return this.saveBuyerStatuses(
+      "settings.buyer_status_delete",
+      (list, inUse) => removeOfficeStatus(list, id, inUse > 0),
+      id,
+    );
+  }
+
+  /**
+   * ‎**קריאה-שינוי-כתיבה, בטרנזקציה אחת ומתחת לנעילת שורת המשרד.**
+   *
+   * ## למה הנעילה
+   *
+   * הרשימה יושבת ב-`tenants.settings`, שהוא **מסמך JSON אחד**. בלי
+   * הנעילה שני מנהלים שעורכים סטטוסים במקביל — או אחד שעורך סטטוס
+   * בזמן שהשני שומר את פרטי המשרד — קוראים את אותו צילום, והשני
+   * שכותב מוחק את מה שהראשון שמר. בלי שגיאה ובלי שאיש ידע
+   * ‎(ביקורת Codex). `updateTenant` כבר עשה בדיוק את זה, ופספסתי.
+   *
+   * ## ולמה הספירה כאן ולא אצל הקורא
+   *
+   * ‎`inUse` הוא מה שמכריע בין מחיקה להסתרה, והוא **חייב** להימדד
+   * תחת אותה נעילה ובאותה טרנזקציה: ספירה שרצה קודם, בטרנזקציה
+   * משלה, מאפשרת לסוכן לשייך את הסטטוס לקונה בין הספירה למחיקה —
+   * והכרטיס נשאר עם מזהה שאינו נפתר לשום תווית. הצד השני של המרוץ
+   * נסגר ב-`shareTenantRow` במסלול הכתיבה של הקונה.
+   *
+   * ‎**והספירה אינה מסננת `deletedAt`**: קונה בארכיון עדיין נושא את
+   * הסטטוס, ושחזור שלו היה מחזיר כרטיס עם תווית שנעלמה.
+   */
+  private async saveBuyerStatuses(
+    action: string,
+    change: (list: OfficeBuyerStatus[], inUse: number) => OfficeStatusResult,
+    /** מזהה שצריך ספירת שימוש — רק מחיקה צריכה אותה. */
+    countFor?: string,
+  ): Promise<{ statuses: OfficeBuyerStatus[] }> {
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.withTenant(async (tx) => {
+      await lockTenantRow(tx, tenantId);
+      const inUse =
+        countFor === undefined
+          ? 0
+          : await tx.buyer.count({ where: { officeStatus: countFor } });
+      const result = change(await readOfficeStatuses(tx, tenantId), inUse);
+      if (!result.ok) throw new BadRequestException(result.error);
+      await writeOfficeStatuses(tx, tenantId, result.list);
+      await this.audit.record(tx, {
+        action,
+        entityType: "tenant",
+        entityId: tenantId,
+        metadata: { statusId: result.id },
+      });
+      return { statuses: result.list };
+    });
   }
 
   @Patch("tenant")
@@ -1791,7 +1969,24 @@ export class SettingsController {
    */
   @Post("whatsapp-link/code")
   @AnyAuthenticated()
-  async whatsappLinkCode(): Promise<{ code: string; expiresInSeconds: number }> {
+  async whatsappLinkCode(): Promise<{
+    code: string;
+    expiresInSeconds: number;
+    /**
+     * המספר שאליו שולחים — לקריאה בעין, ולא רק בתוך הקישור.
+     *
+     * ‎`null` = לא נשלף מ-Meta וגם לא הוגדר ידנית. אז המסך אומר את
+     * זה במפורש, במקום „שלחו ידנית” בלי לומר למי.
+     */
+    botNumber: string | null;
+    /**
+     * ‎`wa.me` עם הקוד כבר בפנים — הקיצור, לא היכולת.
+     *
+     * ‎`null` = אין מספר עסקי (הצד היוצא לא הוגדר, או ש-Meta לא ענתה).
+     * המסך מציג אז את הקוד והמספר, ומי שרוצה שולח ידנית.
+     */
+    link: string | null;
+  }> {
     const ctx = TenantContext.current();
     /*
      * ‎**הזכאות נבדקת כאן, ולא רק בהודעה הראשונה.**
@@ -1806,7 +2001,23 @@ export class SettingsController {
      */
     const denial = await this.whatsappAgentDenial();
     if (denial !== null) throw new ForbiddenException(WHATSAPP_AGENT_DENIAL_TEXT[denial]);
-    return this.whatsappLinks.issueCode(ctx.tenantId, ctx.userId);
+    const issued = await this.whatsappLinks.issueCode(ctx.tenantId, ctx.userId);
+    /*
+     * המספר נשלף **אחרי** ההנפקה ובנפרד ממנה: פנייה ל-Meta שנכשלת
+     * או מתעכבת אינה יכולה למנוע קוד. במטמון של שעה זו ממילא
+     * קריאת רשת אחת ליום עבודה.
+     */
+    /*
+     * ‎`botNumber` ולא רק `link`: הקישור והברקוד מסתירים את המספר
+     * בתוכם, והמסך היה אומר „שלחו ידנית” בלי לומר למי. המספר הוא
+     * מה שמאפשר לבצע את ההוראה כשהקיצור אינו עובד.
+     */
+    const botNumber = await this.whatsappSender.businessNumber();
+    return {
+      ...issued,
+      botNumber,
+      link: whatsappPairingLink(botNumber, issued.code),
+    };
   }
 
   /**

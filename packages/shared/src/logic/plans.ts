@@ -376,8 +376,6 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
   },
 ];
 
-export const DEFAULT_PLAN_CODE = "pro";
-
 export function defaultPlan(code: string): PlanDefinition | undefined {
   return DEFAULT_PLANS.find((p) => p.code === code);
 }

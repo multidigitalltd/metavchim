@@ -23,6 +23,8 @@ import {
   effectiveFeatures,
   diarizeTimeoutMs,
   formatDiarizedTranscript,
+  isGeneratedCallSummary,
+  STT_CALL_HINT,
   buildCallIntelPrompt,
   CALL_INTEL_SCHEMA,
   formatRoleTranscript,
@@ -57,9 +59,17 @@ import {
   assistantMemoryTurn,
   conversationLockKey,
   dailyBriefBody,
+  jerusalemDayRange,
   mergeStoredTurns,
   parseStoredTurns,
   formatNotifyMessage,
+  notifyFollowUp,
+  AGENT_ACTIONS,
+  mayUseAction,
+  applyBlockedModules,
+  resolveCapabilities,
+  type Capability,
+  type CapabilityOverride,
   inQuietHours,
   type AgentHistoryTurn,
   fitsInteractive,
@@ -78,6 +88,11 @@ import {
   automationThresholdMs,
   type AutomationKey,
   type AutomationSettings,
+  DEFAULT_PBX_SILENT_HOURS,
+  DEFAULT_PBX_WATCH,
+  pbxSilenceDedupeKey,
+  pbxSilenceMessage,
+  shouldAlertPbxSilence,
 } from "@metavchim/shared";
 
 for (const candidate of [
@@ -1031,45 +1046,6 @@ async function processStaleLeadSweep(): Promise<void> {
   }
 }
 
-const JERUSALEM_TZ = "Asia/Jerusalem";
-
-/** ההיסט של שעון ישראל מ-UTC ברגע נתון (מ"ש) — תלוי-רגע, לא קבוע. */
-function jerusalemOffsetMs(at: Date): number {
-  const wallAsUtc = new Date(
-    at.toLocaleString("en-US", { timeZone: JERUSALEM_TZ }),
-  );
-  return wallAsUtc.getTime() - at.getTime();
-}
-
-/**
- * הרגע (UTC) שבו שעת-קיר מקומית מתרחשת: ניחוש ותיקון כפול, כי ההיסט
- * הנכון הוא זה שבתוקף ברגע המבוקש עצמו — ביום מעבר שעון ההיסט של
- * חצות שונה מההיסט של שעת ריצת ה-Job (ביקורת Codex).
- */
-function jerusalemWallToUtc(wallIso: string): Date {
-  const wallMs = new Date(`${wallIso}Z`).getTime();
-  let guess = new Date(wallMs);
-  for (let i = 0; i < 2; i++)
-    guess = new Date(wallMs - jerusalemOffsetMs(guess));
-  return guess;
-}
-
-/** גבולות היום הנוכחי בשעון ישראל, כערכי UTC לשאילתות — כל גבול בהיסט שלו. */
-function jerusalemDayRange(): { start: Date; end: Date } {
-  const today = new Intl.DateTimeFormat("en-CA", {
-    timeZone: JERUSALEM_TZ,
-  }).format(new Date());
-  const start = jerusalemWallToUtc(`${today}T00:00:00.000`);
-  // 30 שעות אחרי תחילת היום נופלות תמיד בתוך היום המקומי הבא (גם ביום של 25 שעות)
-  const nextDay = new Intl.DateTimeFormat("en-CA", {
-    timeZone: JERUSALEM_TZ,
-  }).format(new Date(start.getTime() + 30 * 60 * 60 * 1000));
-  const end = new Date(  // נושא-שעת-קיר
-    jerusalemWallToUtc(`${nextDay}T00:00:00.000`).getTime() - 1,
-  );
-  return { start, end };
-}
-
 /**
  * משימות אוטומטיות קבועות — יצירת המופע שהגיע זמנו.
  *
@@ -1267,7 +1243,8 @@ async function processRecurringTasks(): Promise<void> {
  * בלי רעש: אין כלום — אין התראה. אידמפוטנטי פר יום (בדיקת קיים).
  */
 async function processDailyBrief(): Promise<void> {
-  const { start, end } = jerusalemDayRange();
+  // הגבולות מהחבילה המשותפת: start כולל, end בלעדי (חצות היום הבא)
+  const { start, end } = jerusalemDayRange(new Date());
   const tenants = await prisma.tenant.findMany({ select: { id: true } });
   for (const tenant of tenants) {
     if (!(await automationOn(tenant.id, "daily_brief"))) continue;
@@ -1309,14 +1286,14 @@ async function processDailyBrief(): Promise<void> {
           where: {
             tenantId: tenant.id,
             status: "scheduled",
-            startsAt: { gte: start, lte: end },
+            startsAt: { gte: start, lt: end },
           },
           orderBy: { startsAt: "asc" },
           select: { ownerUserId: true, createdBy: true, startsAt: true, kind: true },
         }),
         tx.task.groupBy({
           by: ["assignedToUserId"],
-          where: { tenantId: tenant.id, status: "open", dueAt: { lte: end } },
+          where: { tenantId: tenant.id, status: "open", dueAt: { lt: end } },
           _count: { _all: true },
         }),
         tx.lead.groupBy({
@@ -1834,6 +1811,16 @@ async function transcribeOneCall(): Promise<void> {
       const audio = new Uint8Array(await storageGet(pending.recordingKey));
       const form = new FormData();
       form.append("file", new Blob([audio]), "call.webm");
+      /*
+       * ‎**רמז אוצר המילים — שתמלול השיחות לא שלח עד כה.**
+       *
+       * ‎`/transcribe` מקבל `prompt` ומעביר אותו ל-`initial_prompt`
+       * של המודל, וההכתבה בדפדפן שלחה אותו מהיום הראשון. הקלטת
+       * שיחה — אודיו טלפוני צר-פס, רועש, ועם שני דוברים — הגיעה
+       * לכאן בלי שום הקשר, כלומר דווקא המסלול שהכי תלוי ברמז היה
+       * היחיד בלעדיו. „ממ״ד” חזר „ממד” ו„בלעדיות” חזרה „בעלות”.
+       */
+      form.append("prompt", STT_CALL_HINT);
       const res = await fetch(`${sttUrl}/transcribe`, {
         method: "POST",
         headers: { "x-stt-secret": sttSecret },
@@ -1905,8 +1892,19 @@ async function transcribeOneCall(): Promise<void> {
        * ‎**הסיכום שהמתווך הקליד גובר, וגם נשאר זה שממנו נגזרת
        * משימת ההמשך.** אחרת המשימה הייתה נבנית מטקסט אחד והמסך
        * מציג טקסט אחר, ומי שקורא את שניהם אינו יכול ליישב ביניהם.
+       *
+       * ‎**אבל „קיים” אינו „נכתב ביד”** — וזה מה שהיה שבור. בשיחה
+       * שלא נענתה `describeCall` כותב „שיחה נכנסת שלא נענתה” ברגע
+       * שהוובהוק נקלט, בלי שאיש נגע. מי שהעלה אחר כך הקלטה לאותה
+       * שיחה קיבל תמלול, סיכום אמיתי — **ואז הסיכום נזרק**, כי
+       * השדה „כבר תפוס”. הכרטיס נשאר „שיחה שלא נענתה” לנצח, וזה
+       * נראה כאילו התמלול לא עבד (דיווח מהשטח).
+       *
+       * ‎`isGeneratedCallSummary` יושב לצד `describeCall` ומזהה
+       * בדיוק את מה שהוא מייצר, עם בדיקת הלוך-ושוב — כדי ששניהם
+       * לא ייפרדו כשתתווסף צורה חמישית.
        */
-      const manualSummary = pending.summary ?? "";
+      const manualSummary = isGeneratedCallSummary(pending.summary) ? "" : pending.summary!;
       const followUp = followUpFromCall(
         {
           ...parsedCall,
@@ -2499,6 +2497,130 @@ const AGENT_EVENTS_RETENTION_DAYS = (() => {
  * דייר-דייר תחת RLS, כמו שאר הסורקים כאן ומאותה סיבה — שאילתה בלי
  * הקשר דייר מוחקת אפס שורות בלי שגיאה.
  */
+/**
+ * ‎**מרכזייה ששתקה — ומי שם לב.**
+ *
+ * שני משרדים לא קיבלו אף אירוע מרכזייה ארבעה וחמישה ימים ואיש לא
+ * ידע; שלישי נפל באמצע יום עבודה, וזה התגלה רק כשמתווך התלונן —
+ * חמש שעות ו-47 דקות של שיחות שהספק לא שלח ולא ישלח, כי הוא אינו
+ * שומר מה שלא יצא.
+ *
+ * ‎**רק משרד שהמרכזייה שלו מחוברת.** משרד בלי אינטגרציה פעילה אינו
+ * „שותק” — הוא פשוט לא חיבר, והתראה עליו היא רעש שמלמד להתעלם.
+ *
+ * ההכרעה עצמה ב-`shouldAlertPbxSilence`, שם היא נבדקת בלי מסד ובלי
+ * שעון. כאן רק השליפה והכתיבה.
+ */
+async function processPbxSilenceSweep(): Promise<void> {
+  const now = new Date();
+  /*
+   * ‎**המשרדים תחילה, והחיבור נבדק בתוך ההקשר שלהם.**
+   *
+   * ‏`integrations` תחת RLS, ושליפה רוחבית ממנה עוקפת את הבידוד —
+   * זה מה שהשער `rls-access` אוסר, ובצדק. `tenants` אינה תחת RLS
+   * (היא מרשם הדיירים עצמו), ולכן הסבב מתחיל ממנה כמו שאר הסבבים
+   * כאן, ושואל על החיבור בתוך טרנזקציה עם `app.tenant_id`.
+   */
+  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  let alerted = 0;
+
+  for (const { id: tenantId } of tenants) {
+    try {
+      const settings = (await automationSettings(tenantId))["pbx_silent"];
+      if (!settings.enabled) continue;
+
+      /*
+       * ‎**רק משרד שהמרכזייה שלו מחוברת.** משרד בלי חיבור פעיל אינו
+       * „שותק” — הוא פשוט לא חיבר, והתראה עליו היא רעש שמלמד
+       * להתעלם משאר ההתראות.
+       */
+      const connected = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+        return tx.integration.findFirst({
+          where: { tenantId, kind: "telephony", status: "active" },
+          select: { id: true, createdAt: true },
+        });
+      });
+      if (connected === null) continue;
+      const window = settings.watch ?? DEFAULT_PBX_WATCH;
+      const thresholdHours = settings.value ?? DEFAULT_PBX_SILENT_HOURS;
+
+      /*
+       * ‎**השיחה האחרונה, ולא הפגיעה האחרונה ביומן הוובהוקים.**
+       * ‏`telephony_webhook_hits` מקבלת שורה גם מבדיקה ידנית ומכל
+       * פנייה שלא נותחה — כלומר גם כשהמרכזייה עצמה שותקת. מה
+       * שמעניין הוא שיחה נכנסת שנרשמה בפועל.
+       */
+      const last = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+        return tx.call.findFirst({
+          where: { tenantId, direction: "inbound", providerCallId: { not: null } },
+          orderBy: { occurredAt: "desc" },
+          select: { occurredAt: true },
+        });
+      });
+      const lastInboundAt = last?.occurredAt ?? null;
+      /*
+       * ‎**משרד שרק חיבר את המרכזייה אינו „שותק”.**
+       *
+       * בלי שיחה כלל `monitoredHoursSince` סופר עד התקרה — כלומר
+       * חודש — והסבב הראשון בתוך חלון הניטור היה מתריע מיד, בלי
+       * קשר לסף שהוגדר. חיבור חדש (או חיבור מחדש) היה מקבל התראת
+       * שווא בדיוק בזמן ההתקנה, שהוא הרגע הגרוע ביותר ללמד משרד
+       * שההתראות שלנו לא מדויקות (ביקורת Codex).
+       *
+       * מועד יצירת החיבור הוא הבסיס: ממנו והלאה באמת מצפים לשיחות.
+       */
+      const since = lastInboundAt ?? connected.createdAt;
+
+      if (
+        !shouldAlertPbxSilence({ lastInboundAt: since, now, thresholdHours, window })
+      ) {
+        continue;
+      }
+
+      // הנוסח עדיין מבחין בין „הפסיקו להגיע” לבין „מעולם לא הגיעו”
+      const message = pbxSilenceMessage({ lastInboundAt, now, window });
+      const written = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+        /*
+         * ‎**מפתח ליום, ולא בדיקה של „כבר התרענו”.** מרכזייה שנפלה
+         * נשארת נפולה, והסבב רץ כל שעה — בלי המפתח המשרד היה מקבל
+         * את אותה התראה עשר פעמים ביום, וזו הדרך הבטוחה להרגיל אותו
+         * לכבות אותה.
+         */
+        const key = pbxSilenceDedupeKey(tenantId, now);
+        const seen = await tx.notification.findFirst({
+          where: { tenantId, type: "pbx_silent", dedupeKey: key },
+          select: { id: true },
+        });
+        if (seen !== null) return false;
+        await tx.notification.create({
+          data: {
+            id: ulid(),
+            tenantId,
+            // לכל המשרד: אין סוכן אחד שהמרכזייה „שלו”
+            userId: null,
+            type: "pbx_silent",
+            dedupeKey: key,
+            title: message.title,
+            body: message.body,
+            entityType: "integration",
+            entityId: tenantId,
+          },
+        });
+        return true;
+      });
+      if (written) alerted += 1;
+    } catch (error: unknown) {
+      console.error(`[pbx-silence-sweep] ${tenantId}: ${String(error)}`);
+    }
+  }
+  if (alerted > 0) {
+    console.warn(`[pbx-silence-sweep] ${alerted} משרדים קיבלו התראה על שתיקת מרכזייה`);
+  }
+}
+
 async function processAgentEventsRetention(): Promise<void> {
   const cutoff = new Date(
     Date.now() - AGENT_EVENTS_RETENTION_DAYS * 24 * 60 * 60 * 1000,
@@ -2701,6 +2823,44 @@ interface WaRecipient {
   snoozed: boolean;
   /** עד מתי כבר קיבל — מונע כפילות כשנמען אחר של אותה התראה נכשל */
   notifiedThrough: Date | null;
+  /**
+   * ‎**מזהי הפעולות** שמותרות לו — לא היכולות שלו.
+   *
+   * ‏ההבחנה אינה סמנטית: `notifyFollowUp` משווה מול מזהה פעולה
+   * (`show_callbacks`), ורשימת יכולות (`leads.view_own`) לעולם
+   * אינה מכילה אותו. כלומר העברת היכולות הייתה מכבה את הכפתור
+   * הנגזר תמיד, בשקט.
+   *
+   * נגזר מהיכולות **בפועל** (תפקיד + חריגים + מודולים חסומים) —
+   * ראו `allowedActionsFor`.
+   */
+  allowedActionIds: readonly string[];
+}
+
+/**
+ * ‎**הפעולות שהמשתמש הזה רשאי להריץ — ביכולות שלו בפועל.**
+ *
+ * ‏הגרסה הראשונה גזרה מ-`ROLE_CAPABILITIES` בלבד, במטמון פר-תפקיד.
+ * זה נראה זול ונכון, והוא **חולק על מסלול ההרשאה האמיתי** שאותו
+ * מריץ הסוכן ברגע שלוחצים על הכפתור (`buildContext`): שם התפקיד
+ * הוא רק נקודת הפתיחה, ומעליו יושבים חריגי `userCapability`
+ * וחסימת מודולים של המשרד (ביקורת Codex).
+ *
+ * שני הכיוונים נשברו, ולשניהם יש קורבן:
+ *
+ * ‎**חריג `deny`, או מודול חסום** ⟵ הכפתור מוצג, והלחיצה נוחתת על
+ * „אין לך הרשאה”. זה בדיוק מה שהסינון נועד למנוע.
+ *
+ * ‎**חריג `grant`** ⟵ המשתמש קיבל את היכולת, ובכל זאת רואה רק את
+ * הכפתור הכללי. יכולת שניתנה במפורש ואינה מגיעה למסך.
+ *
+ * ולכן אין כאן מטמון פר-תפקיד: החריגים הם פר-משתמש, ומטמון כזה
+ * שגוי בהגדרה ולא רק לא-מדויק.
+ */
+function allowedActionsFor(capabilities: Set<Capability>): readonly string[] {
+  return AGENT_ACTIONS.filter((action) => mayUseAction(action, capabilities)).map(
+    (action) => action.id,
+  );
 }
 
 async function processWhatsAppNotifySweep(): Promise<void> {
@@ -2710,7 +2870,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
   const now = new Date();
   const since = new Date(now.getTime() - WA_NOTIFY_MAX_AGE_MS);
   const hour = jerusalemHour(now);
-  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  const tenants = await prisma.tenant.findMany({ select: { id: true, blockedModules: true } });
 
   for (const tenant of tenants) {
     // אותו שער כמו הסוכן עצמו: הדחיפה היא חלק מהפיצ'ר, לא תוספת חינם
@@ -2749,7 +2909,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
         phone: { not: null },
         OR: [{ whatsappAccess: true }, { role: "owner" }],
       },
-      select: { id: true, phone: true, preferences: true },
+      select: { id: true, phone: true, preferences: true, role: true },
     });
     if (users.length === 0) continue;
 
@@ -2766,6 +2926,31 @@ async function processWhatsAppNotifySweep(): Promise<void> {
       });
     });
     const chatOf = new Map(chats.map((chat) => [chat.userId, chat]));
+
+    /*
+     * ‎**החריגים — באותה שאילתה אחת לכל הנמענים של המשרד.**
+     *
+     * ‏אותו מקור שהסוכן קורא ב-`buildContext`, ולכן הכפתור מציע
+     * בדיוק את מה שהלחיצה תורשה להריץ. שאילתה אחת ולא אחת לכל
+     * משתמש: הסבב עובר על כל המשרדים בכל דקה.
+     */
+    const overrides = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      return tx.userCapability.findMany({
+        where: { tenantId: tenant.id, userId: { in: users.map((u) => u.id) } },
+        select: { userId: true, capability: true, effect: true, expiresAt: true },
+      });
+    });
+    const overridesOf = new Map<string, CapabilityOverride[]>();
+    for (const row of overrides) {
+      const list = overridesOf.get(row.userId) ?? [];
+      list.push({
+        capability: row.capability as Capability,
+        effect: row.effect === "grant" ? "grant" : "deny",
+        expiresAt: row.expiresAt,
+      });
+      overridesOf.set(row.userId, list);
+    }
 
     const recipients = new Map<string, WaRecipient>();
     for (const user of users) {
@@ -2787,6 +2972,12 @@ async function processWhatsAppNotifySweep(): Promise<void> {
         windowOpen: sessionWindowOpen(chat?.lastInboundAt ?? null, now),
         snoozed: chat?.notifySnoozeUntil ? chat.notifySnoozeUntil > now : false,
         notifiedThrough: chat?.notifiedThrough ?? null,
+        allowedActionIds: allowedActionsFor(
+          applyBlockedModules(
+            resolveCapabilities(user.role, overridesOf.get(user.id) ?? [], now),
+            tenant.blockedModules,
+          ),
+        ),
       });
     }
     if (recipients.size === 0) continue;
@@ -2837,10 +3028,25 @@ async function processWhatsAppNotifySweep(): Promise<void> {
          */
         const message = formatNotifyMessage(items, webOrigin);
         if (fitsInteractive(message)) {
+          /*
+           * ‎**הכפתור הראשון נגזר ממה שכתוב מעליו.**
+           *
+           * עד כה הוצמדו לכל הודעה אותם שניים בדיוק, ו„מה דחוף
+           * היום?” מתחת להתראה על שיחה שלא נענתה או על פנייה ברשת
+           * הוא כפתור שאינו קשור להודעה. `notifyFollowUp` נשען על
+           * אותה קטגוריה שממנה נגזר כבר משפט הסיום — ומחזיר `null`
+           * לתקציר יומי, שם „מה דחוף היום?” הוא דווקא הצעד הנכון.
+           *
+           * ההשתקה נשארת שנייה תמיד: היא פקד על הסוכן עצמו, ואינה
+           * תלויה בשום דבר שכתוב בהודעה.
+           */
+          const follow = notifyFollowUp(items, recipient.allowedActionIds);
           ok = await sendWhatsApp(
             config,
             replyButtonsPayload(recipient.phone, message, [
-              { action: "cmd", arg: "urgent", title: "📋 מה דחוף היום?" },
+              follow === null
+                ? { action: "cmd", arg: "urgent", title: "📋 מה דחוף היום?" }
+                : { action: "cmd", arg: follow.text, title: follow.label },
               { action: "snooze", arg: "120", title: "🔕 שקט לשעתיים" },
             ]),
           );
@@ -3014,6 +3220,7 @@ async function processLow(job: Job): Promise<void> {
   if (job.name === "subscription-expiry") return processSubscriptionExpiry();
   if (job.name === "exclusivity-sweep") return processExclusivitySweep();
   if (job.name === "custom-automations") return processCustomAutomations(job);
+  if (job.name === "pbx-silence-sweep") return processPbxSilenceSweep();
   if (job.name === "agent-events-retention") return processAgentEventsRetention();
 }
 
@@ -3098,6 +3305,20 @@ void lowQueue
   .catch((error: unknown) => {
     console.error(
       `exclusivity-sweep scheduler registration failed: ${String(error)}`,
+    );
+  });
+// שתיקת מרכזייה — פעם בשעה. הסף הקטן ביותר שאפשר להגדיר הוא שעה,
+// ולכן רזולוציה גבוהה יותר רק הייתה סורקת את אותם משרדים בלי שדבר
+// השתנה. ההתראה עצמה יוצאת פעם ביום לכל היותר.
+void lowQueue
+  .upsertJobScheduler(
+    "pbx-silence-sweep",
+    { every: 60 * 60 * 1000 },
+    { name: "pbx-silence-sweep" },
+  )
+  .catch((error: unknown) => {
+    console.error(
+      `pbx-silence-sweep scheduler registration failed: ${String(error)}`,
     );
   });
 // תפוגת מנויים — פעם בשעה. הרזולוציה מספיקה: שער הגישה עצמו נבדק

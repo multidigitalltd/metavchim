@@ -3,10 +3,12 @@ import {
   WHATSAPP_LINK_CODE_ALPHABET,
   WHATSAPP_LINK_CODE_LENGTH,
   WHATSAPP_LINK_MAX_AGE_DAYS,
+  displayWhatsappNumber,
   formatWhatsappLinkCode,
   looksLikeWhatsappLinkCode,
   linkNeedsReverification,
   normalizeWhatsappLinkCode,
+  whatsappPairingLink,
 } from "./whatsapp-link-code.js";
 
 describe("קוד הקישור — הצורה שהמתווך מעתיק", () => {
@@ -112,5 +114,80 @@ describe("אימות מחדש", () => {
   it("ובגיל המרבי — כן", () => {
     expect(linkNeedsReverification(daysAgo(WHATSAPP_LINK_MAX_AGE_DAYS), now)).toBe(true);
     expect(linkNeedsReverification(daysAgo(WHATSAPP_LINK_MAX_AGE_DAYS + 30), now)).toBe(true);
+  });
+});
+
+describe("whatsappPairingLink", () => {
+  const CODE = formatWhatsappLinkCode("4F7K2Q");
+
+  it("בונה קישור wa.me אל המספר העסקי עם הקוד כטקסט", () => {
+    expect(whatsappPairingLink("972501234567", CODE)).toBe(
+      "https://wa.me/972501234567?text=MV-4F7K2Q",
+    );
+  });
+
+  it("מנרמל מספר מקומי — מי שמקליד 05… לא מקבל קישור שבור", () => {
+    expect(whatsappPairingLink("050-1234567", CODE)).toBe(
+      "https://wa.me/972501234567?text=MV-4F7K2Q",
+    );
+  });
+
+  it("null כשאין מספר עסקי — הקוד עדיין מוצג, רק הקיצור נעלם", () => {
+    expect(whatsappPairingLink(null, CODE)).toBeNull();
+    expect(whatsappPairingLink("  ", CODE)).toBeNull();
+  });
+
+  /*
+   * ‎**זו הטענה שמחזיקה את כל התכונה.** הטקסט שהקישור פותח איתו
+   * חייב לעבור בדיוק את אותה בדיקה שהשרת עושה על הודעה נכנסת —
+   * אחרת הלחיצה שולחת הודעה שתפורש כשאלה לסוכן, לא כקוד.
+   */
+  it("הטקסט שנשלח מזוהה בשרת כקוד, ומפוענח חזרה לאותו קוד", () => {
+    const url = new URL(whatsappPairingLink("972501234567", CODE)!);
+    const text = url.searchParams.get("text")!;
+    expect(looksLikeWhatsappLinkCode(text)).toBe(true);
+    expect(normalizeWhatsappLinkCode(text)).toBe("4F7K2Q");
+  });
+});
+
+describe("displayWhatsappNumber", () => {
+  it("מספר ישראלי מוצג בפורמט המקומי — כך מקלידים אותו", () => {
+    expect(displayWhatsappNumber("972553142235")).toBe("055-314-2235");
+  });
+
+  it("סימני עיצוב במקור אינם משנים את התוצאה", () => {
+    expect(displayWhatsappNumber("+972-55-314-2235")).toBe("055-314-2235");
+  });
+
+  it("מספר זר נשאר בינלאומי — שם הקידומת היא ההקשר", () => {
+    expect(displayWhatsappNumber("14155552671")).toBe("+14155552671");
+  });
+
+  it("אורך ישראלי חריג אינו מפוצל כאילו היה תקין", () => {
+    expect(displayWhatsappNumber("97255314")).toBe("+97255314");
+  });
+
+  it("ריק נשאר ריק — אין מה להציג", () => {
+    expect(displayWhatsappNumber("")).toBe("");
+    expect(displayWhatsappNumber("---")).toBe("");
+  });
+});
+
+describe("displayWhatsappNumber — הצורה שהמנהל באמת מקליד", () => {
+  /*
+   * ‎`0553142235` הוא מה שהתיעוד ושדה ההגדרה מציגים. בלי נרמול הוא
+   * יצא `+0553142235` — מספר שאינו קיים, וגם `tel:` שבור. הקישור
+   * ל-`wa.me` עבד בכל זאת, וזה מה שהסתיר את זה.
+   */
+  it("מספר מקומי מוצג כמו מספר ישראלי, לא כמו בינלאומי שבור", () => {
+    expect(displayWhatsappNumber("0553142235")).toBe("055-314-2235");
+  });
+
+  it("אותה תוצאה בדיוק כמו מהצורה הבינלאומית — אין שני מסלולים", () => {
+    expect(displayWhatsappNumber("0553142235")).toBe(displayWhatsappNumber("972553142235"));
+  });
+
+  it("חיוג בינלאומי ישן (00) נפתר גם הוא", () => {
+    expect(displayWhatsappNumber("00972553142235")).toBe("055-314-2235");
   });
 });

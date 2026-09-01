@@ -10,6 +10,7 @@ import {
 } from "@metavchim/shared";
 import { ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
 import { Notice } from "../notice";
+import { WhatsappPairing } from "../whatsapp-pairing";
 import { formatDate } from "@/lib/format";
 
 /**
@@ -62,6 +63,9 @@ function dateText(iso: string | undefined): string {
 export function WhatsAppLinkSection() {
   const [status, setStatus] = useState<LinkStatus | null>(null);
   const [code, setCode] = useState<string | null>(null);
+  /** הקיצור שמגיע יחד עם הקוד; `null` = אין מספר עסקי, ואז רק הקוד. */
+  const [link, setLink] = useState<string | null>(null);
+  const [botNumber, setBotNumber] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -85,8 +89,16 @@ export function WhatsAppLinkSection() {
     setBusy(true);
     setMessage(null);
     setCode(null);
-    apiPost<{ code: string }>("/settings/whatsapp-link/code", {})
-      .then((res) => setCode(res.code))
+    setLink(null);
+    apiPost<{ code: string; link: string | null; botNumber: string | null }>(
+      "/settings/whatsapp-link/code",
+      {},
+    )
+      .then((res) => {
+        setCode(res.code);
+        setLink(res.link);
+        setBotNumber(res.botNumber);
+      })
       /*
        * הודעת השרת נשמרת ואינה מוחלפת: 403 כאן נושא את הסיבה
        * המדויקת, ו„נסו שוב” במקומה שולח את המתווך ללחוץ שוב.
@@ -181,22 +193,7 @@ export function WhatsAppLinkSection() {
         </p>
       )}
 
-      {code === null ? null : (
-        <div
-          className="mb-3 rounded-xl px-4 py-3"
-          style={{ background: "var(--color-field)", border: "1px solid var(--color-input-border)" }}
-        >
-          <p className="m-0 mb-1 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-            שלחו את הקוד הזה בהודעת וואטסאפ לסוכן, מהמכשיר שתרצו לחבר:
-          </p>
-          <p className="m-0 select-all" style={{ fontSize: "var(--type-panel)", fontWeight: 800, letterSpacing: 2 }}>
-            {code}
-          </p>
-          <p className="m-0 mt-1 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-            הקוד תקף לרבע שעה ולשימוש אחד. אם נמלכתם בדעתכם — אפשר לבטל אותו כאן.
-          </p>
-        </div>
-      )}
+      {code === null ? null : <WhatsappPairing code={code} link={link} botNumber={botNumber} />}
 
       {/*
         ‎**כשאי אפשר — אומרים למה, ולא מציעים כפתור.**

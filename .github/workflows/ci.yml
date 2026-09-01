@@ -159,6 +159,31 @@ jobs:
       - name: IaC template matches env example
         run: pnpm verify:iac
 
+      # ארכיון מדיה משלים מחזיק רק את מה שהשתנה. run.sh, restore.sh
+      # ו-backup-file.ts חייבים להסכים על כך; אם לא — השחזור פורס
+      # ארכיון חלקי לתוך אחסון שנמחק זה עתה, בלי שגיאה אחת בדרך.
+      - name: Media backup chain is consistent
+        run: pnpm verify:backup
+
+      # לאן נוחתת לחיצה על התראה. הטבלה היא מחרוזות, ולכן נתיב
+      # שאינו קיים עובר טיפוסים ובדיקות: שלוש ישויות קישרו ל-404,
+      # ו-`coop_deal` לא הייתה בה כלל — כלומר ההודעה בוואטסאפ
+      # בישרה שנפתח חדר עסקה בלי לומר איפה הוא.
+      - name: Notifications land on screens that exist
+        run: pnpm verify:notify
+
+      # רמז אוצר המילים הוא הדבר היחיד שמטה את מודל התמלול לטובת
+      # „ממ״ד” על פני „ממד”. ההכתבה שלחה אותו, תמלול השיחות לא —
+      # כלומר האודיו הגרוע ביותר היה היחיד בלי הקשר, בשקט מוחלט.
+      - name: Every /transcribe caller sends the vocabulary hint
+        run: pnpm verify:stt
+
+      # ‏תפקיד הוא נקודת פתיחה, לא הרשאה: מעליו יושבים חריגים
+      # פר-משתמש וחסימת מודולים. גזירה מהתפקיד בלבד מציעה פעולה
+      # שהשרת ידחה — או מסתירה יכולת שניתנה במפורש — בשקט מוחלט.
+      - name: Action permissions come from effective capabilities
+        run: pnpm verify:caps
+
       - name: Audit dependencies (fail on high)
         run: pnpm audit --audit-level high
 

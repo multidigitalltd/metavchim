@@ -54,6 +54,7 @@ function numOrUndefined(raw: string): number | undefined {
 export function SellerForm({
   token,
   officeName,
+  logoUrl,
   greetingName,
   needsIdentity,
   submittedAt,
@@ -62,6 +63,7 @@ export function SellerForm({
 }: {
   token: string;
   officeName: string;
+  logoUrl: string | null;
   greetingName: string;
   needsIdentity: boolean;
   submittedAt: string | null;
@@ -180,7 +182,7 @@ export function SellerForm({
 
   if (done) {
     return (
-      <Shell officeName={officeName}>
+      <Shell officeName={officeName} logoUrl={logoUrl}>
         <h1 className="m-0 text-center text-2xl font-extrabold">✓ קיבלנו, תודה!</h1>
         <p className="m-0 mt-3 text-center text-[length:var(--type-button)] leading-relaxed">
           הפרטים הגיעו ל{officeName}. ניצור אתכם קשר כדי להשלים את מה שחסר
@@ -191,7 +193,7 @@ export function SellerForm({
   }
 
   return (
-    <Shell officeName={officeName}>
+    <Shell officeName={officeName} logoUrl={logoUrl}>
       <header className="text-center">
         <h1 className="m-0 text-2xl font-extrabold">
           שלום {greetingName}, ספרו לנו על הנכס
@@ -442,13 +444,6 @@ export function SellerForm({
       >
         רגע, אני דווקא מחפש/ת נכס
       </button>
-
-      <p
-        className="m-0 mt-3 text-center text-[length:var(--type-caption)]"
-        style={{ color: "var(--color-text-muted)" }}
-      >
-        הפרטים נשמרים אצל {officeName} בלבד ואינם מועברים לאיש.
-      </p>
     </Shell>
   );
 }

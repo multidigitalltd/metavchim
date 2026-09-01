@@ -141,6 +141,8 @@ interface PlatformSettings {
     configured: boolean;
     source: "db" | "env" | "none";
     webhookUrl: string;
+    /** מספר הבוט לתצוגה — גיבוי לשליפה מ-Meta. הערך עצמו. */
+    botNumber?: string;
     assistant: {
       configured: boolean;
       source: "db" | "env" | "none";
@@ -199,6 +201,14 @@ interface PlatformSettings {
   geocoding?: { provider: string; forward: boolean; reverse: boolean };
   /** כתובת התמיכה — הערך עצמו. אופציונלי לשמרנות מול שרת שטרם עודכן. */
   supportEmail?: string;
+  /**
+   * קוד מסלול השותפים, ולצדו מה הוא פותר לו עכשיו בקטלוג.
+   * ‎`partnerPlan: null` = הקוד ריק או שאינו קיים; הקוד שלצדו מבחין.
+   */
+  partnerPlanCode?: string;
+  partnerPlan?: { name: string; isFree: boolean } | null;
+  /** קטלוג המסלולים לבחירה; שרת ישן לא מחזיר אותו, ואז אין מה לבחור. */
+  partnerPlanOptions?: { code: string; name: string; isFree: boolean }[];
   /** השכרת מספרים מ-015 — הערכים העסקיים; הסיסמה רק "מוגדרת/לא". */
   numberRental?: {
     configured: boolean;
@@ -382,6 +392,7 @@ export function PlatformSettingsSection({
       const phoneNumberId = String(f.get("whatsappPhoneNumberId") ?? "").trim();
       const appId = String(f.get("whatsappAppId") ?? "").trim();
       const signupConfigId = String(f.get("whatsappSignupConfigId") ?? "").trim();
+      const botNumber = String(f.get("whatsappBotNumber") ?? "").trim();
       const prospectReply = String(f.get("whatsappProspectReply") ?? "").trim();
       const notifyTemplate = String(f.get("whatsappNotifyTemplate") ?? "").trim();
       const notifyTemplateLang = String(f.get("whatsappNotifyTemplateLang") ?? "").trim();
@@ -407,6 +418,10 @@ export function PlatformSettingsSection({
         ...(phoneNumberId !== "" ? { whatsappPhoneNumberId: phoneNumberId } : {}),
         ...(appId !== "" ? { whatsappAppId: appId } : {}),
         ...(signupConfigId !== "" ? { whatsappSignupConfigId: signupConfigId } : {}),
+        // ‎`botNumber` נשלח תמיד, גם ריק: הוא גיבוי שמכוון למחוק אותו
+        // ברגע ש-Meta מתחילה לענות, וריק כאן פירושו „חזרו להסתמך על
+        // Meta בלבד” ולא „בלי שינוי”
+        whatsappBotNumber: botNumber,
         // נשלח תמיד, גם ריק: זה שדה ערך (כמו המסמכים המשפטיים),
         // וריקון מכוון הוא חזרה לנוסח המובנה — לא "בלי שינוי"
         whatsappProspectReply: prospectReply,
@@ -1030,6 +1045,106 @@ export function PlatformSettingsSection({
         />
       </div>
 
+      {/*
+        ‎**מסלול השותפים — השדה שלא היה.**
+
+        התזכורות למי שלא הפעיל חשבון מבטיחות „מה שנשאר פתוח הוא מסלול
+        השותפים”, והשולח מעביר את המשרד לשם. אבל הקוד היה קריא וכתיב
+        ב-API בלבד: במסך לא היה שדה, ולכן ההגדרה נשארה ריקה לנצח —
+        התזכורות יצאו, אף משרד לא עבר, ואיש לא ראה למה.
+      */}
+      <div
+        id="partner-plan"
+        className="mb-4 rounded-xl border p-4"
+        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+      >
+        <h3 className="mb-1 font-semibold">מסלול השותפים</h3>
+        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          לשם יורד משרד שסיים ניסיון בלי להפעיל כרטיס אשראי, במקום להינעל.{" "}
+          <b>המסלול חייב להיות חינמי</b> — מסלול בתשלום פוקע בדיוק כמו הניסיון,
+          והמשרד היה ננעל בכל מקרה. ריק = אין הורדה, והתזכורת אומרת „החשבון ננעל”
+          בלי להמציא מסלול.
+        </p>
+        {/*
+          ‎**בחירה מהקטלוג ולא הקלדת קוד.**
+
+          קוד שמוקלד ביד יכול להיות שגוי — ואז אין העברה, אין שגיאה,
+          ואיש אינו יודע עד שמישהו קורא את היומן. רשימה סוגרת את זה
+          במקור: אי אפשר לבחור מסלול שאינו קיים.
+
+          מסלולים בתשלום מוצגים מנוטרלים ולא נעלמים: „למה המסלול שלי
+          לא ברשימה” היא שאלה שאין לה תשובה במסך, ו„בתשלום — לא
+          מתאים” היא תשובה.
+        */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void saveSetting(
+              "partnerPlanCode",
+              new FormData(e.currentTarget).get("partnerPlanCode"),
+            );
+          }}
+          className="flex flex-wrap items-end gap-2"
+        >
+          <label className="grow">
+            <span className="mb-1 block text-sm font-semibold">המסלול</span>
+            <select
+              name="partnerPlanCode"
+              defaultValue={settings.partnerPlanCode ?? ""}
+              key={settings.partnerPlanCode ?? ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            >
+              <option value="">— אין. החשבון ננעל בתום הניסיון —</option>
+              {(settings.partnerPlanOptions ?? []).map((plan) => (
+                <option key={plan.code} value={plan.code} disabled={!plan.isFree}>
+                  {plan.name}
+                  {plan.isFree ? "" : " — בתשלום, לא מתאים"}
+                </option>
+              ))}
+              {/*
+                המסלול השמור נמחק מהקטלוג? הוא עדיין הערך הנוכחי, ובלי
+                האפשרות הזאת ה-`select` היה מציג „אין” — כלומר משקר על
+                מה ששמור, ושמירה אחת בטעות הייתה מוחקת אותו.
+              */}
+              {(settings.partnerPlanCode ?? "") !== "" &&
+              !(settings.partnerPlanOptions ?? []).some(
+                (plan) => plan.code === settings.partnerPlanCode,
+              ) ? (
+                <option value={settings.partnerPlanCode}>
+                  {settings.partnerPlanCode} — אינו בקטלוג
+                </option>
+              ) : null}
+            </select>
+          </label>
+          <Button type="submit" disabled={busy}>שמור</Button>
+        </form>
+        {/*
+          ‎**מה הקוד פותר לו עכשיו** — לא רק מה נשמר. קוד שגוי אינו
+          נכשל בשמירה: הוא נכשל חודש אחר כך, בשקט, ביומן.
+        */}
+        <p className="m-0 mt-2 text-sm">
+          {(settings.partnerPlanCode ?? "") === "" ? (
+            <span style={{ color: "var(--color-text-muted)" }}>
+              לא הוגדר — התזכורות ייצאו בלי הצעת מסלול.
+            </span>
+          ) : settings.partnerPlan === null || settings.partnerPlan === undefined ? (
+            <span style={{ color: "var(--color-danger)" }}>
+              ✗ הקוד אינו בקטלוג המסלולים — לא תתבצע אף העברה.
+            </span>
+          ) : settings.partnerPlan.isFree ? (
+            <span style={{ color: "var(--color-success)" }}>
+              ✓ „{settings.partnerPlan.name}” — מסלול חינמי, ההעברה תעבוד.
+            </span>
+          ) : (
+            <span style={{ color: "var(--color-danger)" }}>
+              ✗ „{settings.partnerPlan.name}” אינו חינמי — משרד שיועבר אליו ייחסם
+              בכל מקרה, ולכן אין העברה.
+            </span>
+          )}
+        </p>
+      </div>
+
       {/* ---------- חיבורי Google ---------- */}
       <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -1117,10 +1232,18 @@ export function PlatformSettingsSection({
           {/*
             מפתח Gemini באותו טופס: שני מפתחות Google, מסך אחד.
             "מוגדר" מציג גם את המודל שרץ בפועל — אחרת אין דרך לדעת.
+
+            ‎**התווית אמרה „פקודות קוליות” בלבד, וזה היה מטעה.**
+            אותו מפתח מפעיל גם את הבנת השיחות: הסיכום שנכתב אחרי
+            תמלול, וההפרדה בין המתווך ללקוח. מנהל שאינו משתמש
+            בפקודות קוליות דילג על השדה בהיגיון מלא — ואיבד את
+            שניהם בלי שאיש אמר לו. ההשבתה שקטה לגמרי: השיחה
+            מתומללת, הסיכום נופל לחילוץ דטרמיניסטי, ואין שגיאה.
           */}
           <div className="flex-1" style={{ minWidth: "220px" }}>
             <label htmlFor="geminiApiKey" className="mb-1 block font-medium">
-              Gemini API Key (פקודות קוליות){" "}
+              Gemini API Key{" "}
+              <span className="font-normal">(פקודות קוליות + סיכומי שיחות)</span>{" "}
               {settings.gemini?.configured ? (
                 <span className="font-normal">
                   ✓ מוגדר · {settings.gemini.model} (ריק = ללא שינוי)
@@ -1139,6 +1262,14 @@ export function PlatformSettingsSection({
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />
+            {settings.gemini?.configured ? null : (
+              <p className="mt-1 text-sm" style={{ color: "var(--color-warning)" }}>
+                ⚠️ בלי המפתח הזה שיחות עדיין מתומללות, אבל <strong>הסיכום נכתב
+                בחילוץ אוטומטי פשוט</strong> („הביע עניין · 4 חדרים”) ו<strong>אין
+                הפרדה בין המתווך ללקוח</strong> בתמלול. אין שגיאה ואין התראה —
+                זה פשוט נראה כאילו זו איכות המערכת.
+              </p>
+            )}
           </div>
           <div className="flex-1" style={{ minWidth: "220px" }}>
             <label htmlFor="geminiModel" className="mb-1 block font-medium">
@@ -1623,6 +1754,32 @@ export function PlatformSettingsSection({
               inputMode="numeric"
               autoComplete="off"
               placeholder={settings.whatsapp.assistant.configured ? "מוגדר" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          {/*
+            ‎**המספר שהמשתמש רואה — לא זה ש-Meta מזהה לפיו.**
+
+            ‎`Phone Number ID` הוא מזהה פנימי ואי אפשר לחייג אליו.
+            המספר עצמו נשלף מ-Meta אוטומטית, והשדה הזה נכנס רק כשהיא
+            אינה עונה — או כשהצד היוצא כלל אינו מוגדר. בלעדיו מסך
+            חיבור המכשיר מציג קוד ואומר „שלחו ידנית” בלי לומר למי.
+          */}
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="whatsappBotNumber" className="mb-1 block font-medium">
+              מספר הבוט לתצוגה{" "}
+              <span className="font-normal">(ריק = נשלף מ-Meta)</span>
+            </label>
+            <input
+              id="whatsappBotNumber"
+              name="whatsappBotNumber"
+              type="tel"
+              dir="ltr"
+              autoComplete="off"
+              key={settings.whatsapp.botNumber ?? ""}
+              defaultValue={settings.whatsapp.botNumber ?? ""}
+              placeholder="0553142235"
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />

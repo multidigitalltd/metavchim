@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { useFeature } from "@/lib/use-features";
-import { Softphone, type SoftphoneState } from "@/lib/softphone";
+import type { Softphone, SoftphoneState } from "@/lib/softphone";
 import { IconMic, IconMicOff, IconPhone } from "./icons";
 
 /**
@@ -66,11 +66,30 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }): 
    */
   const [available, setAvailable] = useState(false);
 
-  const instance = useCallback((): Softphone => {
-    phoneRef.current ??= new Softphone(async (phone: string) => {
-      const res = await apiPost<{ name?: string }>("/settings/telephony/resolve-caller", { phone });
-      return res.name;
-    });
+  /** דגל פירוק — מנוע שסיים להיטען אחרי שהרכיב ירד לא יירשם למרכזייה. */
+  const disposedRef = useRef(false);
+
+  /*
+   * ‎**טעינה עצלה של מנוע ה-SIP.** ‏sip.js שוקל ‎~50KB gz, והייבוא
+   * הסטטי שלו כאן — רכיב שיושב בפריסה — גרר אותו לכל עמוד, גם אצל
+   * משרדים בלי טלפוניה. המחלקה נטענת רק ברגע החיבור בפועל; שאר
+   * הכפתורים (ענה, נתק, השתק) עובדים מול מופע שכבר קיים דרך
+   * `phoneRef`, ולכן אינם צריכים את הייבוא.
+   */
+  const instance = useCallback(async (): Promise<Softphone | null> => {
+    const { Softphone: SoftphoneClass } = await import("@/lib/softphone");
+    if (disposedRef.current) return null;
+    if (phoneRef.current === null) {
+      const created = new SoftphoneClass(async (phone: string) => {
+        const res = await apiPost<{ name?: string }>("/settings/telephony/resolve-caller", {
+          phone,
+        });
+        return res.name;
+      });
+      // המנוי נפתח עם המופע ונסגר יחד איתו ב-destroy
+      created.subscribe(setState);
+      phoneRef.current = created;
+    }
     return phoneRef.current;
   }, []);
 
@@ -97,7 +116,9 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }): 
       return;
     }
     try {
-      await instance().connect({
+      const phone = await instance();
+      if (phone === null) return; // הרכיב ירד בזמן טעינת המנוע
+      await phone.connect({
         wssUrl: dto.wssUrl!,
         domain: dto.domain!,
         username: dto.username!,
@@ -154,15 +175,14 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }): 
 
   useEffect(() => {
     if (!enabled) return;
-    const phone = instance();
-    const unsubscribe = phone.subscribe(setState);
+    disposedRef.current = false;
     /*
      * חיבור מחדש רק למי שכבר בחר בו. בלי הזיכרון הזה הסוכן היה לוחץ
-     * "התחבר" בכל רענון דף — כלומר עשרות פעמים ביום.
+     * "התחבר" בכל רענון דף — כלומר עשרות פעמים ביום. המנוע (והמנוי
+     * על המצב) נוצרים בתוך `connect` — מי שלא התחבר לא טוען דבר.
      */
     if (window.localStorage.getItem(REMEMBER_KEY) === "1") void connect();
     return () => {
-      unsubscribe();
       /*
        * **ניתוק מלא בפירוק הרכיב, ולא רק ביטול המנוי.**
        *
@@ -170,20 +190,26 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }): 
        * ה-UserAgent נשאר רשום למרכזייה: שיחה שהייתה באוויר ממשיכה
        * אחרי היציאה, ולקוח ממשיך לקבל שיחות נכנסות בלי שום פס על
        * המסך שדרכו אפשר לענות או לנתק (ביקורת Codex).
+       *
+       * הדגל סוגר גם את מסלול הטעינה העצלה: מנוע שה-import שלו
+       * הסתיים אחרי הפירוק לא ייווצר ולא יירשם.
        */
+      disposedRef.current = true;
+      const phone = phoneRef.current;
       phoneRef.current = null;
-      void phone.destroy();
+      void phone?.destroy();
     };
-  }, [enabled, instance, connect]);
+  }, [enabled, connect]);
 
   const api = useMemo<SoftphoneApi>(
     () => ({
       state,
+      /* `registered` פירושו שהמופע כבר קיים — הכפתורים עובדים מולו ישירות */
       ...(state.status === "registered"
-        ? { call: (phone: string, name?: string) => void instance().call(phone, name) }
+        ? { call: (phone: string, name?: string) => void phoneRef.current?.call(phone, name) }
         : {}),
     }),
-    [state, instance],
+    [state],
   );
 
   return (
@@ -198,11 +224,11 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }): 
           onConnect={() => void connect()}
           onDisconnect={() => {
             window.localStorage.removeItem(REMEMBER_KEY);
-            void instance().disconnect();
+            void phoneRef.current?.disconnect();
           }}
-          onAnswer={() => void instance().answer()}
-          onHangup={() => void instance().hangup()}
-          onToggleMute={() => instance().setMuted(!state.muted)}
+          onAnswer={() => void phoneRef.current?.answer()}
+          onHangup={() => void phoneRef.current?.hangup()}
+          onToggleMute={() => phoneRef.current?.setMuted(!state.muted)}
         />
       ) : null}
     </SoftphoneContext.Provider>

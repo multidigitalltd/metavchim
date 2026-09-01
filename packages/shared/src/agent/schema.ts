@@ -61,15 +61,6 @@ export function actionParamsZod(action: AgentActionDef): z.ZodTypeAny {
   return z.object(shape);
 }
 
-/** הסכימה של פעולה כפי ש-Gemini מקבל אותה. */
-export function actionJsonSchema(action: AgentActionDef): Record<string, unknown> {
-  const properties: Record<string, unknown> = {};
-  for (const field of action.fields) {
-    properties[field.key] = fieldJsonSchema(field);
-  }
-  return { type: "object", properties };
-}
-
 /**
  * התשובה המלאה שהמודל מחזיר.
  *

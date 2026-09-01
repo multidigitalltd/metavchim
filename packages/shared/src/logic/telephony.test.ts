@@ -7,6 +7,7 @@ import {
   nextRefusalStreak,
   callSpoke,
   describeCall,
+  isGeneratedCallSummary,
   incomingCallTitle,
   parseTelephonyEvent,
   telephonyProvider,
@@ -1240,5 +1241,92 @@ describe("nextRefusalStreak", () => {
   it("כישלון מקומי בין סירובים אינו מבטל את הרצף", () => {
     const seq = ["refused", "refused", "other", "refused"] as const;
     expect(seq.reduce<number>((n, r) => nextRefusalStreak(n, r), 0)).toBe(3);
+  });
+});
+
+describe("isGeneratedCallSummary — מה שהמערכת כתבה מול מה שאדם כתב", () => {
+  /*
+   * ‎**בדיקת הלוך-ושוב.** כל צורה ש-`describeCall` מסוגלת לייצר
+   * חייבת להיות מזוהה, אחרת התמלול ימשיך לכבד טקסט אוטומטי כאילו
+   * מתווך כתב אותו. זו הטענה שמונעת מהשתיים להיפרד כשתתווסף צורה
+   * חמישית.
+   */
+  it("מזהה כל פלט של describeCall", () => {
+    const events = [
+      { type: "missed", direction: "inbound" },
+      { type: "missed", direction: "outbound" },
+      { type: "answered", direction: "inbound", durationSeconds: 0 },
+      { type: "answered", direction: "outbound", durationSeconds: 0 },
+      { type: "answered", direction: "inbound", durationSeconds: 45 },
+      { type: "answered", direction: "outbound", durationSeconds: 185 },
+      { type: "answered", direction: "inbound", durationSeconds: 3600 },
+    ] as unknown as Parameters<typeof describeCall>[0][];
+    for (const event of events) {
+      const text = describeCall(event);
+      expect(isGeneratedCallSummary(text), text).toBe(true);
+    }
+  });
+
+  it("ריק נחשב אוטומטי — אין מה לשמר", () => {
+    expect(isGeneratedCallSummary("")).toBe(true);
+    expect(isGeneratedCallSummary(null)).toBe(true);
+    expect(isGeneratedCallSummary(undefined)).toBe(true);
+    expect(isGeneratedCallSummary("   ")).toBe(true);
+  });
+
+  /*
+   * ‎**הצד השני חשוב לא פחות:** סיכום שמתווך הקליד לא ייחשב
+   * אוטומטי, אחרת התמלול ידרוס עבודה אנושית — וזה נזק חמור יותר
+   * מהבאג שהפונקציה באה לתקן.
+   */
+  it("סיכום שאדם כתב אינו אוטומטי", () => {
+    for (const written of [
+      "הלקוח מחפש 4 חדרים בבני ברק, תקציב 2.4 מיליון",
+      "שיחה נכנסת — הלקוח ביקש שנחזור מחר",
+      "לא נענתה, ניסיתי שוב בערב",
+      "שיחה נכנסת שלא נענתה. השארתי הודעה.",
+    ]) {
+      expect(isGeneratedCallSummary(written), written).toBe(false);
+    }
+  });
+
+  /*
+   * ‎**המקרה שהפיל את הגרסה הראשונה** (ביקורת Codex).
+   *
+   * הדקדוק הסתיים ב-`· .+`, כלומר *כל* טקסט אחרי הנקודה. מתווך
+   * שכתב „שיחה נכנסת · הלקוח ביקש שנחזור מחר” — משפט סביר לגמרי,
+   * ובאותו סימן הפרדה שהמערכת עצמה משתמשת בו — סווג כאוטומטי,
+   * והעלאת הקלטה **דרסה את ההערה שלו**. הערה ביד אינה ניתנת
+   * לשחזור.
+   */
+  it("נקודת ההפרדה של המערכת אינה הופכת טקסט אנושי לאוטומטי", () => {
+    for (const written of [
+      "שיחה נכנסת · הלקוח ביקש שנחזור מחר",
+      "שיחה יוצאת · לא ענה, ננסה שוב",
+      "שיחה נכנסת · 3 חדרים בפרדס כץ",
+      /* מספר בלי יחידה — נראה קרוב, ואינו פלט של describeCall */
+      "שיחה נכנסת · 45",
+      "שיחה יוצאת · 2 דק׳",
+      /* צירוף מוצלב: הכיוונים צמודים לניסוח שלהם */
+      "שיחה נכנסת ללא מענה",
+      "שיחה יוצאת שלא נענתה",
+    ]) {
+      expect(isGeneratedCallSummary(written), written).toBe(false);
+    }
+  });
+
+  /*
+   * הדקדוק חייב לכסות **כל** אורך אפשרי, ולא רק את הדגימות למעלה:
+   * שנייה בודדת, גבול הדקה, ושעה עגולה עם אפס שניות.
+   */
+  it("כל אורך שיחה אפשרי מזוהה", () => {
+    for (let seconds = 0; seconds <= 3700; seconds += 7) {
+      const text = describeCall({
+        type: "answered",
+        direction: "inbound",
+        durationSeconds: seconds,
+      } as unknown as Parameters<typeof describeCall>[0]);
+      expect(isGeneratedCallSummary(text), text).toBe(true);
+    }
   });
 });

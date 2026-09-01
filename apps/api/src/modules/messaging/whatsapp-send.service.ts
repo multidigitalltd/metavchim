@@ -1,7 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import {
+  displayWhatsappNumber,
   fitsInteractive,
   listPayload,
+  normalizePhoneForWhatsapp,
   replyButtonsPayload,
   splitForWhatsApp,
   whatsappTemplateButton,
@@ -63,6 +65,78 @@ export class WhatsAppSendService {
       (await this.platformSettings.get("whatsappPhoneNumberId")) ?? env.WHATSAPP_PHONE_NUMBER_ID;
     if (!token || !phoneNumberId) return null;
     return { token, phoneNumberId };
+  }
+
+  /**
+   * ‎**המספר העסקי שהלקוחות שולחים אליו — כפי ש-Meta מכירה אותו.**
+   *
+   * ‎`phoneNumberId` הוא מזהה אטום ואי אפשר לחייג אליו; המספר לחיוג
+   * יושב אצל Meta ומגיע רק מהגרף. הוא נדרש כדי לבנות קישור
+   * ‎`wa.me` — כלומר כדי שאפשר יהיה **לסרוק ברקוד** או ללחוץ על
+   * קישור במקום להקליד קוד בן שש אותיות ביד.
+   *
+   * הוא אינו נשמר כהגדרה בכוונה: הגדרה כזאת אפשר להקליד שגוי, והיא
+   * מתיישנת בשקט אם המספר מוחלף. המקור הוא Meta, והמטמון כאן קצר
+   * דיו כדי שהחלפה תתפוס תוך שעה.
+   *
+   * ‎`null` = הצד היוצא לא הוגדר, או ש-Meta לא ענתה. הקוד עצמו עדיין
+   * מוצג, והמשתמש עדיין יכול לשלוח אותו ידנית — הקיצור נעלם, לא
+   * היכולת.
+   */
+  private displayNumber: { value: string | null; at: number } | null = null;
+
+  async businessNumber(): Promise<string | null> {
+    const fromMeta = await this.metaDisplayNumber();
+    if (fromMeta !== null) return fromMeta;
+    /*
+     * ‎**הגיבוי אינו במטמון של Meta, בכוונה.**
+     *
+     * המטמון שומר גם כישלון, ולשעה — אחרת כל פתיחת מסך הייתה ממתינה
+     * לפסק זמן. אבל ההגדרה הידנית היא בדיוק מה שממלאים **בגלל**
+     * הכישלון הזה, ושעה שבה היא אינה נכנסת לתוקף נראית כמו שדה
+     * שבור. ‎`PlatformSettingsService` ממילא ממטמן ל-30 שניות.
+     */
+    /*
+     * ‎`normalizePhoneForWhatsapp` ולא הסרת תווים בלבד: המנהל מקליד
+     * ‎`0553142235`, וזו הצורה שהתיעוד מציג. מספר מקומי שיוצא מכאן
+     * כמות שהוא הופך ל-`+0553142235` בתצוגה ובקישור החיוג — מספר
+     * שאינו קיים. הנרמול כאן, כי זה הגבול שממנו כל השאר צורך.
+     */
+    const manual = normalizePhoneForWhatsapp(
+      (await this.platformSettings.get("whatsappBotNumber")) ?? "",
+    );
+    return manual === "" ? null : manual;
+  }
+
+  private async metaDisplayNumber(): Promise<string | null> {
+    const TTL_MS = 60 * 60 * 1000;
+    if (this.displayNumber !== null && Date.now() - this.displayNumber.at < TTL_MS) {
+      return this.displayNumber.value;
+    }
+    const creds = await this.credentials();
+    if (!creds) return null;
+    let value: string | null = null;
+    try {
+      const res = await fetch(`${GRAPH_BASE}/${creds.phoneNumberId}?fields=display_phone_number`, {
+        headers: { authorization: `Bearer ${creds.token}` },
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { display_phone_number?: string };
+        const digits = (data.display_phone_number ?? "").replace(/\D/gu, "");
+        value = digits === "" ? null : digits;
+      } else {
+        this.logger.warn(`Meta לא החזירה את המספר העסקי: HTTP ${res.status}`);
+      }
+    } catch (error) {
+      this.logger.warn(`שליפת המספר העסקי מ-Meta נכשלה: ${String(error)}`);
+    }
+    /*
+     * גם כישלון נשמר במטמון, ולזמן מלא: בלי זה כל פתיחת מסך שמציג
+     * את הקוד הייתה פונה שוב ל-Meta ומחכה לפסק הזמן.
+     */
+    this.displayNumber = { value, at: Date.now() };
+    return value;
   }
 
   /**
@@ -426,9 +500,38 @@ export class WhatsAppSendService {
         display_phone_number?: string;
         verified_name?: string;
       };
+      const connected = normalizePhoneForWhatsapp(data.display_phone_number ?? "");
+      const name = data.verified_name ?? "ללא שם מאומת";
+
+      /*
+       * ‎**החיבור עלה — אבל לאיזה קו?**
+       *
+       * ‎`Phone Number ID` הוא מזהה אטום, ולחשבון עסקי אחד ב-Meta
+       * יכולים להיות כמה מספרים. הדבקה של המזהה של המספר השני
+       * באותו חשבון אינה נכשלת בשום מקום: האסימון תקף, Meta עונה,
+       * ההודעות יוצאות — פשוט מהמספר הלא נכון. עד כאן הבדיקה הייתה
+       * מחזירה „מחובר” ירוק בדיוק על התקלה הזאת.
+       *
+       * ‎`whatsappBotNumber` הוא ההצהרה של המנהל על מה *אמור* להיות
+       * מחובר, ולכן הוא אמת המידה. ריק = לא הוצהר דבר, ואין מה
+       * להשוות — הבדיקה נשארת כשהייתה ואינה ממציאה כשל.
+       */
+      const expected = normalizePhoneForWhatsapp(
+        (await this.platformSettings.get("whatsappBotNumber")) ?? "",
+      );
+      if (expected !== "" && connected !== "" && expected !== connected) {
+        return {
+          ok: false,
+          message:
+            `מחובר למספר הלא נכון: ${displayWhatsappNumber(connected)} (${name}), ` +
+            `בעוד שמספר הבוט המוגדר הוא ${displayWhatsappNumber(expected)}. ` +
+            "‏החליפו את Phone Number ID לזה של המספר הנכון — או תקנו את שדה מספר הבוט אם הוא זה שגוי.",
+        };
+      }
+
       return {
         ok: true,
-        message: `מחובר: ${data.verified_name ?? "ללא שם מאומת"} · ${data.display_phone_number ?? creds.phoneNumberId}`,
+        message: `מחובר: ${name} · ${connected === "" ? creds.phoneNumberId : displayWhatsappNumber(connected)}`,
       };
     } catch (error) {
       return { ok: false, message: `החיבור ל-Meta נכשל: ${String(error)}` };

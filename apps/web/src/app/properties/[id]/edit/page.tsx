@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, use, type FormEvent } from "react";
+import { NeighborhoodInput } from "../../../neighborhood-input";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CustomFeature } from "@metavchim/shared";
@@ -93,13 +94,26 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
   const { loading: authLoading } = useRequireAuth();
   const router = useRouter();
   const [property, setProperty] = useState<PropertyDetail | null>(null);
+  /*
+   * ‎**העיר מנוהלת — כדי שהצעות השכונה יעקבו אחריה** (ביקורת Codex).
+   *
+   * הצורה הקודמת העבירה את העיר **השמורה**, ונימקתי שעריכת עיר היא
+   * מקרה נדיר שבו „פשוט לא יוצעו הצעות”. זה היה שגוי: במקרה הזה
+   * ההצעות דווקא כן מוצגות — מהעיר הישנה — והבחירה בהן נשמרת יחד
+   * עם העיר החדשה. כלומר בדיוק שיבוש החוצה-עיר שהצמצום בשרת נועד
+   * למנוע, רק דרך הדלת השנייה.
+   */
+  const [city, setCity] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
     apiGet<PropertyDetail>(`/properties/${id}`)
-      .then(setProperty)
+      .then((loaded) => {
+        setProperty(loaded);
+        setCity(loaded.city ?? "");
+      })
       .catch(() => setError("הנכס לא נמצא"));
   }, [authLoading, id]);
 
@@ -217,11 +231,29 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label htmlFor="city" className="mb-1 block font-medium">עיר</label>
-              <input id="city" name="city" defaultValue={property.city ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              <input
+                id="city"
+                name="city"
+                value={city}
+                onChange={(event) => setCity(event.target.value)}
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
             </div>
             <div>
               <label htmlFor="neighborhood" className="mb-1 block font-medium">שכונה</label>
-              <input id="neighborhood" name="neighborhood" defaultValue={property.neighborhood ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              {/*
+                העיר שבשדה, לא זו השמורה: מי שמתקן עיר ואז בוחר
+                שכונה חייב לקבל הצעות מהעיר החדשה — אחרת הבחירה
+                שומרת שכונה מהעיר הישנה תחת החדשה.
+              */}
+              <NeighborhoodInput
+                id="neighborhood"
+                name="neighborhood"
+                defaultValue={property.neighborhood ?? ""}
+                city={city}
+                style={inputStyle}
+              />
             </div>
             <div>
               <label htmlFor="street" className="mb-1 block font-medium">רחוב</label>

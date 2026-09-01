@@ -552,3 +552,49 @@ export function presentationChips(p: NetworkPresentationFields): NetworkChip[] {
   }
   return chips;
 }
+
+/**
+ * ‎**הכותרת שנכס נושא ברשת — נגזרת, ולא טקסט חופשי.**
+ *
+ * ## הדליפה שזה סוגר
+ *
+ * הכרטיס ברשת מבטיח „כתובת מדויקת ופרטי קשר — רק אחרי אישור”,
+ * והכותרת שלו הייתה ‎`marketingTitle`‎ של הנכס: טקסט חופשי שהמשרד
+ * המפרסם כתב. מתווכים כותבים שם את הכתובת — „ירושלים 67” — כי זו
+ * הדרך הטבעית לזהות נכס. התוצאה היא כרטיס שמבטיח חיסיון בשורה אחת
+ * ומפר אותו בשורה שמעליה, וכל מתווך ברשת יכול לעקוף את המפרסם.
+ *
+ * ‎**השדות נבדקו, הערכים לא.** ההצהרה על מה חוצה את גבול הדייר
+ * בודקת שמות שדות; `title` הוא שדה מאושר, ולכן שום שער לא ראה מה
+ * יושב בתוכו. זה בדיוק הפער שהבדיקה עצמה מתעדת שאינה מכסה.
+ *
+ * ## ולמה נגזרת ולא מסוננת
+ *
+ * אי אפשר לזהות כתובת בטקסט חופשי בביטחון — „ירושלים 67” היא גם
+ * כתובת וגם שם של פרויקט. כותרת שנבנית משדות שממילא גלויים בכרטיס
+ * אינה יכולה לדלוף, ובלי להסתמך על ניחוש.
+ */
+export function networkSafeTitle(p: NetworkPresentationFields): string {
+  const type =
+    p.propertyType === undefined
+      ? undefined
+      : (PROPERTY_TYPE_LABELS_HE[p.propertyType as keyof typeof PROPERTY_TYPE_LABELS_HE] ??
+        p.propertyType);
+  const what = [type, p.rooms === undefined ? undefined : `${p.rooms} חדרים`]
+    .filter((part): part is string => part !== undefined && part !== "")
+    .join(" ");
+  /* השכונה לפני העיר, ורק אחת מהן: „אזור העיריה, בני ברק” כבר מופיע כתגית */
+  const where = p.neighborhood ?? p.city;
+  return [what, where].filter((part) => part !== undefined && part !== "").join(" · ") || "נכס";
+}
+
+/**
+ * מחליף את הכותרת השמורה בנגזרת — **גם ברשומות שנכתבו קודם.**
+ *
+ * הצעות שכבר יושבות במסד נושאות את הכותרת החופשית, ולכן תיקון בצד
+ * הכתיבה בלבד היה משאיר את הכתובת גלויה בכל מה שכבר נשלח. הגזירה
+ * בקריאה אינה דורשת מיגרציה ואינה יכולה לפספס שורה.
+ */
+export function withNetworkSafeTitle<T extends NetworkPresentationFields>(presentation: T): T {
+  return { ...presentation, title: networkSafeTitle(presentation) };
+}
