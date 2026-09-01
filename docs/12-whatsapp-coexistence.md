@@ -193,8 +193,12 @@ model WhatsAppBusinessConnection {
   phoneNumberId         String    @unique @map("phone_number_id") @db.VarChar(32)
   /// המספר המוצג — ספרות בלבד (9725...), לתצוגה ולגיבוי ניתוב
   displayPhone          String    @map("display_phone") @db.VarChar(20)
-  /// ה-business token של המתווך — הסוד של החיבור, מוצפן במנוחה
-  accessTokenEncrypted  String    @map("access_token_encrypted") @db.Text
+  /// ה-business token של המתווך — הסוד של החיבור, מוצפן במנוחה.
+  /// **Nullable בכוונה**: בניתוק הסוד נמחק מיד (null) אבל השורה
+  /// נשארת — הסטטוס, הסיבה וההיסטוריה הם מידע שהמשרד צריך לראות.
+  /// עמודה חובה הייתה כופה בחירה בין שמירת סוד חי אחרי ניתוק לבין
+  /// מחיקת כל המטא-דאטה (ביקורת Codex על התכנון, P1).
+  accessTokenEncrypted  String?   @map("access_token_encrypted") @db.Text
   /// pending_history | connected | payment_required | disconnected | error
   status                String    @default("pending_history") @db.VarChar(20)
   /// האם המתווך אישר שיתוף היסטוריה, והיכן הסנכרון עומד
@@ -250,10 +254,12 @@ model WhatsAppConversation {
 ### 4.3 שינויים בקיים
 
 - **`Message.provider`** מקבל ערכים חדשים: `coexistence_api` (הבוט
-  שלח דרך הקו של המתווך) ו-`coexistence_echo` (המתווך שלח ידנית
-  מהאפליקציה — direction=out, נכתב מתוך `smb_message_echoes`).
-- **`Interaction`** — ללא שינוי סכימה; הודעות היסטוריה מיובאות
-  מסומנות בתוכן (ראו §5.3) כדי שציר הזמן יבחין בין "נקלט חי" ל"יובא".
+  שלח דרך הקו של המתווך), `coexistence_echo` (המתווך שלח ידנית
+  מהאפליקציה — direction=out, נכתב מתוך `smb_message_echoes`)
+  ו-`coexistence_history` (הודעה מיובאת מסנכרון ההיסטוריה, ראו §5.3).
+- **`Interaction`** — ללא שינוי סכימה. היסטוריה מיובאת **אינה**
+  נכתבת לכאן: האילוץ `interaction_exactly_one_parent` מחייב ליד או
+  קונה, ולמיובא אין כזה — היא נשמרת כ-`Message` על איש הקשר.
 - **ניתוב הדייר ב-`WhatsAppInboundService`** משתדרג: קודם
   `phone_number_id` מול `whatsapp_business_connections` (מפתח יציב,
   באינדקס ייחודי), ורק כ-fallback המנגנון הקיים של
@@ -309,8 +315,13 @@ interaction ⇒ אירוע `lead.created`) נשארת הבסיס. נוספים:
 מגיע בשלבים ויכול להיות גדול (חצי שנה של משרד פעיל) — לכן **תור
 BullMQ**, לא בנתיב ה-Webhook:
 
-- כל שיחה ⇒ איש קשר (קיים לפי hash או חדש) + interactions עם התוכן
-  והחותמת המקורית, מסומנים `[ייבוא]`.
+- כל שיחה ⇒ איש קשר (קיים לפי hash או חדש) + שורות **`Message`**
+  (‏`provider: coexistence_history`, `contactId`, חותמת הזמן
+  המקורית) — **לא `Interaction`**: האילוץ
+  `interaction_exactly_one_parent` דורש ליד או קונה לכל interaction,
+  והיסטוריה מיובאת שייכת לאיש הקשר, לא לליד (ביקורת Codex על
+  התכנון, P1). ציר הזמן של תיק הלקוח קורא את שני המקורות לפי
+  `contactId` ומציג את המיובא עם סימון `[ייבוא]`.
 - **לא** נפתחים לידים ולא נורים אירועים מהיסטוריה — ייבוא אינו פנייה
   חדשה, ומשרד לא רוצה 400 "לידים חדשים" ביום החיבור. ההיסטוריה
   נקשרת ללידים רק כשלקוח מיובא כותב שוב.
