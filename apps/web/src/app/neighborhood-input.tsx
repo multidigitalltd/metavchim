@@ -163,6 +163,20 @@ export function NeighborhoodInput({
       .slice(0, NEIGHBORHOOD_SUGGESTION_LIMIT);
   }, [suggestions, value, multi, city]);
 
+  /*
+   * ‎**המדד הפעיל נגזר ואינו נסמך על המצב** (ביקורת Codex).
+   *
+   * ‎`active` מתאפס בהקלדה, אבל שינוי עיר או תשובת שרת קצרה יותר
+   * מקצרים את `shown` בלי שום הקלדה — והמדד השמור נשאר מצביע
+   * מחוץ לתחום. אז `shown[active]!` היה מחזיר `undefined` וכותב
+   * אותו לשדה, או בוחר שורה אחרת לגמרי.
+   *
+   * גזירה במקום עוד `useEffect` שמאפס: אפקט רץ אחרי הרינדור,
+   * כלומר היה נשאר בדיוק אותו חלון שבו Enter פועל על מדד ישן.
+   * מה שנגזר אינו יכול להיות מיושן.
+   */
+  const activeIndex = active >= 0 && active < shown.length ? active : -1;
+
   const visible = open && shown.length > 0;
 
   /*
@@ -196,17 +210,17 @@ export function NeighborhoodInput({
       return;
     }
     if (event.key === "ArrowDown") {
-      setActive((i) => (i + 1) % shown.length);
+      setActive((activeIndex + 1) % shown.length);
       event.preventDefault();
     } else if (event.key === "ArrowUp") {
-      setActive((i) => (i <= 0 ? shown.length - 1 : i - 1));
+      setActive(activeIndex <= 0 ? shown.length - 1 : activeIndex - 1);
       event.preventDefault();
-    } else if (event.key === "Enter" && active >= 0) {
+    } else if (event.key === "Enter" && activeIndex >= 0) {
       /*
        * ‎`preventDefault` רק כשההצעה נבחרת בפועל. Enter בלי הצעה
        * מסומנת חייב להמשיך לשלוח את הטופס כרגיל.
        */
-      pick(shown[active]!);
+      pick(shown[activeIndex]!);
       event.preventDefault();
     } else if (event.key === "Escape") {
       setOpen(false);
@@ -227,7 +241,7 @@ export function NeighborhoodInput({
         aria-expanded={visible}
         aria-controls={listId}
         aria-autocomplete="list"
-        {...(visible && active >= 0 ? { "aria-activedescendant": `${listId}-${active}` } : {})}
+        {...(visible && activeIndex >= 0 ? { "aria-activedescendant": `${listId}-${activeIndex}` } : {})}
         onChange={(event) => {
           commit(event.target.value);
           setOpen(true);
@@ -250,7 +264,7 @@ export function NeighborhoodInput({
           }}
         >
           {shown.map((suggestion, index) => (
-            <li key={suggestion} id={`${listId}-${index}`} role="option" aria-selected={index === active}>
+            <li key={suggestion} id={`${listId}-${index}`} role="option" aria-selected={index === activeIndex}>
               {/*
                 ‎`onMouseDown` ולא `onClick`: הלחיצה מוציאה פוקוס
                 מהשדה, וה-blur היה סוגר את הרשימה לפני שה-click
@@ -265,7 +279,7 @@ export function NeighborhoodInput({
                 onMouseEnter={() => setActive(index)}
                 className="block w-full px-3 py-2 text-start"
                 style={{
-                  background: index === active ? "var(--color-field)" : "transparent",
+                  background: index === activeIndex ? "var(--color-field)" : "transparent",
                   color: "var(--color-text)",
                 }}
               >
