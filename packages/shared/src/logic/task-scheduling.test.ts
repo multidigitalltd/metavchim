@@ -70,19 +70,38 @@ describe("דחיית משימה", () => {
       expect(wall(snoozeTaskDue(now)!)).toBe("2026-03-11 09:00");
     });
 
-    /* התכונה שמחזיקה את כל השאר: התוצאה תמיד מאוחרת מהמועד שהיה */
-    it("לעולם אינה מוקדמת מהמועד הקיים", () => {
-      for (const iso of [
-        "2026-03-01T09:00:00Z",
-        "2026-03-10T13:00:00Z",
-        "2026-03-17T14:30:00Z",
-        "2026-06-30T21:00:00Z",
-      ]) {
-        const due = new Date(iso);
-        const at = snoozeTaskDue(now, due)!;
-        expect(at.getTime(), iso).toBeGreaterThan(due.getTime());
-        expect(at.getTime(), iso).toBeGreaterThan(now.getTime());
+    /*
+     * ‎**התכונה שמחזיקה את כל השאר** — ונסרקת ולא נדגמת.
+     *
+     * הגרסה הראשונה בדקה ארבעה תאריכים נבחרים, וכולם עברו. מה
+     * שנפל מביניהם הוא בדיוק המקרה שבו השעה **אינה קיימת למחרת**:
+     * משימה ל-02:30 בליל המעבר לשעון קיץ נדחתה חמישה-עשר יום
+     * אחורה (ביקורת Codex). דגימה אינה תופסת חור ברוחב שעה; סריקה
+     * של כל השעות סביב שני המעברים כן.
+     */
+    it("לעולם אינה מוקדמת מהמועד הקיים — בכל שעה סביב שני המעברים", () => {
+      const spans = [
+        "2026-03-25", "2026-03-26", "2026-03-27" /* מעבר לשעון קיץ */,
+        "2026-10-24", "2026-10-25", "2026-10-26" /* חזרה לשעון חורף */,
+      ];
+      for (const day of spans) {
+        for (let hour = 0; hour < 24; hour += 1) {
+          const due = new Date(`${day}T${String(hour).padStart(2, "0")}:30:00Z`);
+          const at = snoozeTaskDue(now, due);
+          const where = `${day} ${hour}:30Z`;
+          expect(at, where).not.toBeNull();
+          expect(at!.getTime(), where).toBeGreaterThan(due.getTime());
+          expect(at!.getTime(), where).toBeGreaterThan(now.getTime());
+        }
       }
+    });
+
+    /* המקרה המדויק שנפל: 02:30 בערב המעבר — שעה שאינה קיימת למחרת */
+    it("שעה שאינה קיימת למחרת נופלת לתחילת אותו יום, לא אחורה", () => {
+      const due = new Date("2026-03-26T00:30:00Z"); // 02:30 בישראל
+      const at = snoozeTaskDue(now, due)!;
+      expect(at.getTime()).toBeGreaterThan(due.getTime());
+      expect(wall(at).slice(0, 10)).toBe("2026-03-27");
     });
 
     /* יום לוח ולא 24 שעות — אחרת שעת המשימה נודדת בליל המעבר */

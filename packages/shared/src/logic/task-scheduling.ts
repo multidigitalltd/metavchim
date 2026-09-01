@@ -42,21 +42,33 @@ export function snoozeTaskDue(now: Date, currentDueAt?: Date | null): Date | nul
   const tomorrow = quickDueOptions(now).find((option) => option.key === "tomorrow");
   if (tomorrow === undefined) return null;
   const floor = jerusalemWallIsoToUtc(tomorrow.value);
-  const shifted = currentDueAt ? nextDayKeepingTime(currentDueAt) : null;
+  const shifted = currentDueAt ? shiftFutureDue(currentDueAt) : null;
   return shifted !== null && shifted.getTime() > floor.getTime() ? shifted : floor;
 }
 
 /**
- * יום לוח ישראלי אחד קדימה, **באותה שעת קיר**.
+ * יום לוח ישראלי אחד קדימה מהמועד הקיים — ולעולם לא לפניו.
  *
- * לא „ועוד 24 שעות”: בליל מעבר השעון יום אינו 24 שעות, ומשימה
- * ל-09:00 הייתה נודדת ל-08:00 או ל-10:00 בלי שאיש נגע בה.
+ * ‎**שעת הקיר נשמרת, ואם היא אינה קיימת למחרת — תחילת אותו יום.**
+ *
+ * משימה ל-02:30 בליל המעבר לשעון קיץ אינה יכולה לשמור את שעתה: השעה
+ * הזו פשוט אינה קיימת ביום שאחריה. הגרסה הראשונה החזירה כאן `null`,
+ * והקורא נפל בחזרה על „מחר בבוקר” — כלומר משימה ל-26 במרץ נדחתה
+ * ל-11 בו, **חמישה-עשר יום אחורה** (ביקורת Codex). זו בדיוק ההבטחה
+ * שהפונקציה הזו נוספה כדי לשמור.
+ *
+ * תחילת היום שאחרי היא רגע קיים תמיד, והיא מאוחרת מכל שעה ביום
+ * שלפניו — ולכן היא נפילה-לאחור שאינה יכולה לשבור את ההבטחה.
+ *
+ * ולמה בכלל שעת קיר ולא „ועוד 24 שעות”: בליל מעבר השעון יום אינו
+ * 24 שעות, ומשימה ל-09:00 הייתה נודדת ל-08:00 או ל-10:00 לבדה.
  */
-function nextDayKeepingTime(at: Date): Date | null {
+function shiftFutureDue(at: Date): Date {
+  const nextDay = jerusalemDayStart(at, 1);
   const { time } = jerusalemWallParts(at);
-  const { date } = jerusalemWallParts(jerusalemDayStart(at, 1));
+  const { date } = jerusalemWallParts(nextDay);
   const resolved = resolveJerusalemWall(date, time, at);
-  return resolved.ok ? resolved.at : null;
+  return resolved.ok ? resolved.at : nextDay;
 }
 
 /**
