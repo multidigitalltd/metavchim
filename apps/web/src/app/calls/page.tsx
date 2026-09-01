@@ -18,7 +18,7 @@ import {
   JERUSALEM_TZ,
 } from "@metavchim/shared";
 import { CallHighlightFields, CallTranscript } from "./call-parts";
-import { IconCopy, IconSparkle } from "../icons";
+import { IconSparkle } from "../icons";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
@@ -150,31 +150,6 @@ export default function CallsPage() {
   const [query, setQuery] = useState("");
   const [direction, setDirection] = useState("");
   const [selected, setSelected] = useState<CallRow | null>(null);
-  /*
-   * ‎**„הועתק” נאמר רק כשההעתקה הצליחה.** דפדפן שחוסם את הלוח
-   * מחזיר דחייה, והודעת הצלחה עליה שולחת את המתווך להדביק כלום.
-   *
-   * ‏והוא נאמר רק לרגע: „הועתק” הוא אישור לפעולה שזה עתה נעשתה,
-   * לא הצהרה על מה שיש בלוח. מי שהעתיק, עבר לשיחה אחרת וחזר, היה
-   * מוצא „הועתק” על לוח שמאז הוחלף — טענה שאיננו יכולים לבדוק.
-   */
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (copiedKey === null) return;
-    const timer = setTimeout(() => setCopiedKey(null), 2000);
-    return () => clearTimeout(timer);
-  }, [copiedKey]);
-
-  async function copySection(key: string, text: string): Promise<void> {
-    if (text === "") return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedKey(key);
-    } catch {
-      setCopiedKey(null);
-    }
-  }
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -614,12 +589,7 @@ export default function CallsPage() {
                   שזה נכתב על ידי המערכת ולא הוקלד ביד — מה שקובע כמה
                   לסמוך על זה.
                 */}
-                <CallSection
-                  title="סיכום שיחה"
-                  copy={selected.summary ?? undefined}
-                  copied={copiedKey === `sum-${selected.id}`}
-                  onCopy={() => void copySection(`sum-${selected.id}`, selected.summary ?? "")}
-                />
+                <CallSection title="סיכום שיחה" />
                 <div
                   className="whitespace-pre-wrap rounded-[13px] border p-3.5 text-sm"
                   style={{ background: "var(--color-field)", borderColor: "var(--color-border)", lineHeight: 1.55 }}
@@ -696,21 +666,17 @@ export default function CallsPage() {
  * התמלול, ואין לו נתיב קלט ידני — סכמת היצירה `.strict()` אינה
  * מקבלת אותו כלל.
  *
- * ‏כפתור ההעתקה מופיע רק כשיש מה להעתיק: כפתור מעל טקסט ריק
- * מבטיח פעולה שלא תעשה דבר.
+ * ‎**בלי כפתור העתקה** (בקשת המשתמש). הסיכום היה הצרכן היחיד שלו,
+ * ולכן ירד כאן המנגנון כולו — המצב, הטיימר שמנקה אותו, והמטפל —
+ * ולא רק הכפתור. פקד שנשאר מחובר לכלום הוא מה שהקורא הבא מנסה
+ * להבין למה הוא קיים.
  */
 function CallSection({
   title,
   machine,
-  copy,
-  copied,
-  onCopy,
 }: {
   title: string;
   machine?: boolean;
-  copy?: string;
-  copied?: boolean;
-  onCopy?: () => void;
 }) {
   return (
     <div className="mb-2.5 flex items-center gap-2">
@@ -725,16 +691,6 @@ function CallSection({
       >
         {title}
       </span>
-      {copy !== undefined && copy !== "" && onCopy ? (
-        <button
-          type="button"
-          className="mv-btn-plain"
-          style={{ padding: "3px 9px", fontSize: "var(--type-caption)" }}
-          onClick={onCopy}
-        >
-          <IconCopy s={13} /> {copied ? "הועתק" : "העתקה"}
-        </button>
-      ) : null}
     </div>
   );
 }

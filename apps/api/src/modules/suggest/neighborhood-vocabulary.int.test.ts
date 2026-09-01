@@ -1,7 +1,7 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { suggestNeighborhoods } from "@metavchim/shared";
-import { neighborhoodVocabulary } from "./neighborhood-vocabulary";
+import { mergeNeighborhoodUses, neighborhoodKey, suggestNeighborhoods } from "@metavchim/shared";
+import { foldedNeighborhood, neighborhoodVocabulary } from "./neighborhood-vocabulary";
 
 /**
  * ‎**אוצר השכונות — מול מסד אמיתי, כי זו שאילתה גולמית.**
@@ -23,6 +23,8 @@ import { neighborhoodVocabulary } from "./neighborhood-vocabulary";
  * 3. נמחקים, ריקים ו-NULL אינם נספרים.
  * 4. סינון העיר מצמצם את שני המקורות.
  * 5. וכשמחברים לקיפול — שלוש צורות הופכות להצעה אחת.
+ * 6. ‎**והקיפול שב-SQL זהה לזה שב-JavaScript** — נבדק תו-תו, כי
+ *    שני הצדדים תלויים בזהות הזו לשני דברים מנוגדים.
  */
 
 const TENANT = "01SUGGESTTENANTAAAAAAAAAAA";
@@ -248,5 +250,103 @@ describe("אוצר השכונות מול מסד אמיתי", () => {
    */
   it("שלוש צורות במסד ⟵ הצעה אחת, הנפוצה", async () => {
     expect(suggestNeighborhoods(await vocabulary(""), "שיכון")).toEqual(["שיכון ג'"]);
+  });
+
+  /*
+   * ‎**הבדיקה שמחזיקה את כל השאר.**
+   *
+   * ‎`foldedNeighborhood` הוא תרגום של `neighborhoodKey` לשפת המסד,
+   * ושני מימושים שאמורים להיות זהים נפרדים בשקט. כאן הם מורצים זה
+   * מול זה על הקלטים שבאמת מבדילים ביניהם: גרשיים בכל צורותיהם,
+   * מקף עברי, קידומת „שכונת ”, רווח בלתי שביר שמגיע מהדבקה, ותווים
+   * שאינם עבריים.
+   *
+   * ‎**למה זה לא פרט טכני.** ההפרה הקודמת הייתה בדיוק כאן: `translate`
+   * הפך גרשיים לרווח במקום למחוק אותם, ולכן `רמת ח"ן` נשמר במסד
+   * כ„רמת ח ן” בעוד המפתח שהוקלד הוא „רמת חן” — והשכונה לא הגיעה
+   * לקוד מעולם. ובאותה שורה, המקף העברי נמחק במקום להפוך לרווח.
+   */
+  it("הקיפול ב-SQL זהה לקיפול ב-JavaScript", async () => {
+    const inputs = [
+      'רמת ח"ן',
+      "רמת חן",
+      "שיכון ג'",
+      "שיכון ג׳",
+      'שיכון ג״',
+      "שכונת שיכון ג",
+      "שכונת   שיכון   ג",
+      "רמת־אהרון",
+      "רמת-אהרון",
+      "רמת–אהרון",
+      "  כפול   רווח  ",
+      "נווה\u00a0שאנן",
+      "גן\u2009העיר",
+      "בית\ufeffהכרם",
+      "‘גבעה’ „חדשה”",
+      "Ramat Gan",
+      '"\'',
+      "   ",
+      "שכונתיים",
+    ];
+    for (const input of inputs) {
+      const [row] = await owner!.$queryRaw<{ folded: string }[]>`
+        SELECT ${foldedNeighborhood(Prisma.sql`${input}::text`)} AS folded
+      `;
+      expect(`${input} ⟵ ${row!.folded}`).toBe(`${input} ⟵ ${neighborhoodKey(input)}`);
+    }
+  });
+
+  /*
+   * ‎**הסינון במסד חייב להעביר את מה שהקוד היה מקבל** (ביקורת Codex).
+   *
+   * שני השמות האלה חיים בעיר משלהם כדי שהתקרה לא תסתיר את הכישלון:
+   * אם הסינון פוסל אותם, הם פשוט אינם — בדיוק כפי שהמתווך חווה זאת,
+   * הקלדה מדויקת של השם שהוא רואה בכרטיס אחר, ואפס הצעות.
+   */
+  it("שם עם גרשיים ושם עם מקף עברי נמצאים לפי המפתח שהוקלד", async () => {
+    const quoted = 'רמת ח"ן';
+    const dashed = "שיכון ד־ה";
+    await owner!.$executeRaw`
+      INSERT INTO properties (id, tenant_id, status, city, neighborhood, deal_type, created_at, updated_at)
+      VALUES ('01SUGGESTQUOTEAAAAAAAAAAAA', ${TENANT}, 'draft', 'עיר פיסוק', ${quoted}, 'sale', now(), now()),
+             ('01SUGGESTDASHAAAAAAAAAAAAA', ${TENANT}, 'draft', 'עיר פיסוק', ${dashed}, 'sale', now(), now())
+      ON CONFLICT (id) DO NOTHING
+    `;
+
+    const byQuoted = (await vocabulary("עיר פיסוק", neighborhoodKey(quoted))).map((u) => u.name);
+    expect(byQuoted).toContain(quoted);
+
+    const byDashed = (await vocabulary("עיר פיסוק", neighborhoodKey(dashed))).map((u) => u.name);
+    expect(byDashed).toContain(dashed);
+
+    await owner!.$executeRaw`DELETE FROM properties WHERE tenant_id = ${TENANT} AND city = 'עיר פיסוק'`;
+  });
+
+  /*
+   * ‎**קונה אחד ששמר שתי צורות של אותה שכונה** (ביקורת Codex).
+   *
+   * הצמצום היה על השם הגולמי, ולכן שלוש הצורות עברו כשלוש שורות;
+   * הקיפול בקוד איחד אותן וסכם את המונים, וקונה **בודד** נראה
+   * כשלושה כרטיסים. זה מנפח בדיוק את הצורה שהמשרד כתב הכי הרבה
+   * פעמים בטעות — כלומר ההצעה מלמדת את הטעות.
+   */
+  it("שלוש צורות אצל אותו קונה נספרות כקונה אחד", async () => {
+    const contactId = "01SUGGESTCONTACTAAAAAAAAAA";
+    await owner!.$executeRaw`
+      INSERT INTO buyers (id, tenant_id, contact_id, requirements, deal_type, source, created_at, updated_at)
+      VALUES ('01SUGGESTBUYERFORMSAAAAAAA', ${TENANT}, ${contactId},
+              ${JSON.stringify({
+                cities: ["רחובות"],
+                neighborhoods: ["בן גוריון", "בן־גוריון", "שכונת בן גוריון"],
+              })}::jsonb,
+              'sale', 'manual', now(), now())
+      ON CONFLICT (id) DO NOTHING
+    `;
+
+    const merged = mergeNeighborhoodUses(await vocabulary("רחובות"));
+    const found = merged.find((u) => neighborhoodKey(u.name) === "בן גוריון");
+    expect(found?.count).toBe(1);
+
+    await owner!.$executeRaw`DELETE FROM buyers WHERE id = '01SUGGESTBUYERFORMSAAAAAAA'`;
   });
 });

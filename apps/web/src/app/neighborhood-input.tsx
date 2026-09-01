@@ -268,8 +268,26 @@ export function NeighborhoodInput({
     }
   }
 
+  /*
+   * ‎**יציאה מהשדה סוגרת את הרשימה — גם בלי עכבר** (ביקורת Codex).
+   *
+   * הסגירה נשענה על `mousedown` מחוץ לרכיב בלבד, ולכן Tab מהשדה
+   * הלאה — הדרך שבה ממלאים טופס במקלדת — השאיר את הרשימה פתוחה.
+   * היא ממוקמת `absolute`, כך שהיא נשארה **מעל השדות הבאים**
+   * וחסמה אותם.
+   *
+   * ‎`relatedTarget` הוא מה שקיבל את הפוקוס. מעבר בין השדה לכפתורי
+   * ההצעות הוא פוקוס שנשאר בתוך הרכיב, ולכן אינו סוגר — ובחירה
+   * בעכבר ממילא מוגנת ב-`preventDefault` על `mousedown`.
+   */
+  function onFocusOut(event: React.FocusEvent<HTMLDivElement>): void {
+    if (rootRef.current?.contains(event.relatedTarget)) return;
+    setOpen(false);
+    setActiveName(null);
+  }
+
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className="relative" onBlur={onFocusOut}>
       <input
         id={id}
         name={name}

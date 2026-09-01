@@ -23,6 +23,7 @@ import {
   effectiveFeatures,
   diarizeTimeoutMs,
   formatDiarizedTranscript,
+  isGeneratedCallSummary,
   STT_CALL_HINT,
   buildCallIntelPrompt,
   CALL_INTEL_SCHEMA,
@@ -1891,8 +1892,19 @@ async function transcribeOneCall(): Promise<void> {
        * ‎**הסיכום שהמתווך הקליד גובר, וגם נשאר זה שממנו נגזרת
        * משימת ההמשך.** אחרת המשימה הייתה נבנית מטקסט אחד והמסך
        * מציג טקסט אחר, ומי שקורא את שניהם אינו יכול ליישב ביניהם.
+       *
+       * ‎**אבל „קיים” אינו „נכתב ביד”** — וזה מה שהיה שבור. בשיחה
+       * שלא נענתה `describeCall` כותב „שיחה נכנסת שלא נענתה” ברגע
+       * שהוובהוק נקלט, בלי שאיש נגע. מי שהעלה אחר כך הקלטה לאותה
+       * שיחה קיבל תמלול, סיכום אמיתי — **ואז הסיכום נזרק**, כי
+       * השדה „כבר תפוס”. הכרטיס נשאר „שיחה שלא נענתה” לנצח, וזה
+       * נראה כאילו התמלול לא עבד (דיווח מהשטח).
+       *
+       * ‎`isGeneratedCallSummary` יושב לצד `describeCall` ומזהה
+       * בדיוק את מה שהוא מייצר, עם בדיקת הלוך-ושוב — כדי ששניהם
+       * לא ייפרדו כשתתווסף צורה חמישית.
        */
-      const manualSummary = pending.summary ?? "";
+      const manualSummary = isGeneratedCallSummary(pending.summary) ? "" : pending.summary!;
       const followUp = followUpFromCall(
         {
           ...parsedCall,
