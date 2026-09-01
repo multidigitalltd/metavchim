@@ -1,6 +1,7 @@
 import { buyerSourceLabel, normalizePhoneForWhatsapp,
   JERUSALEM_TZ,
   type PropertyStatus,
+  type PropertyType,
 } from "@metavchim/shared";
 
 const nis = new Intl.NumberFormat("he-IL", {
@@ -88,7 +89,19 @@ export const DEAL_TYPE_LABELS: Record<string, string> = {
   rent: "שוכר",
 };
 
-export const PROPERTY_TYPE_LABELS: Record<string, string> = {
+/**
+ * ‎**`satisfies` ולא טיפוס על המשתנה** — הוא מה שהופך סוג חסר לשגיאת
+ * הידור.
+ *
+ * הטבלה הזו נכתבה ביד ופיגרה אחרי הסכימה: חמישה סוגים היו חסרים בה
+ * בשקט, והמסך פשוט הציג את שם השדה באנגלית. `Record<string, string>`
+ * לבדו אינו תופס את זה — כל מפתח חוקי בו.
+ *
+ * הייצוא נשאר `Record<string, string>` בכוונה, כי רוב המסכים
+ * מאנדקסים אותה במחרוזת שהגיעה מהשרת. הטיפוס ההדוק על הליטרל נותן
+ * את הבדיקה; הייצוא הרחב נותן את הנוחות — בלי אף המרה שתסתיר פער.
+ */
+const PROPERTY_TYPE_LABEL_TABLE = {
   apartment: "דירה",
   garden_apartment: "דירת גן",
   penthouse: "פנטהאוז",
@@ -99,10 +112,13 @@ export const PROPERTY_TYPE_LABELS: Record<string, string> = {
   unit: "יחידת דיור",
   shared_tabu: "טאבו משותף",
   divisible_apartment: "דירה מתאימה לחלוקה",
+  accessible_apartment: "דירת נכה",
   plot: "מגרש",
   commercial: "מסחרי",
   other: "אחר",
-};
+} satisfies Record<PropertyType, string>;
+
+export const PROPERTY_TYPE_LABELS: Record<string, string> = PROPERTY_TYPE_LABEL_TABLE;
 
 export const STATUS_LABELS: Record<PropertyStatus, string> = {
   draft: "טיוטה",

@@ -233,6 +233,7 @@ export const PROPERTY_TYPE_MAP: Record<string, PropertyType> = {
   "יחידת דיור": "unit",
   "טאבו משותף": "shared_tabu",
   "דירה מתאימה לחלוקה": "divisible_apartment",
+  "דירת נכה": "accessible_apartment",
   מגרש: "plot",
   מסחרי: "commercial",
   אחר: "other",
