@@ -55,7 +55,10 @@ interface CallRow {
   source: string;
   contactName?: string;
   leadId?: string;
-  /** ‎`converted` = כבר הפך לכרטיס, ואין מה להמיר. חסר = אין ליד. */
+  /**
+   * ‎`converted` = כבר הפך לכרטיס. **חסר = אין ליד, או שהליד אינו
+   * שלך** — ובשני המקרים אין מה להציע. ראו את ה-DTO בשרת.
+   */
   leadStatus?: string;
   phone?: string;
   occurredAt: string;
@@ -375,6 +378,13 @@ export default function CallsPage() {
    */
   const convert = ((): ReactNode => {
     if (selected?.leadId === undefined) return null;
+    /*
+     * ‎**נוכחות השדה היא הרשות** (ביקורת Codex). השרת מחזיר סטטוס רק
+     * לליד שהמשתמש רשאי לגעת בו: ראות שיחה וראות ליד אינן אותו דבר,
+     * וסוכן יכול לראות שיחה דרך נכס גלוי בזמן שהליד שייך לאחר.
+     * בלי הבדיקה הזו הוא היה ממלא טופס שלם ומקבל 404.
+     */
+    if (selected.leadStatus === undefined) return null;
     if (selected.leadStatus === "converted") return null;
     const mayBuyer = can(user, "buyers.edit");
     const mayProperty = can(user, "properties.create");
@@ -390,11 +400,28 @@ export default function CallsPage() {
       ...(hint.dealType === undefined ? {} : { dealType: hint.dealType }),
     };
 
+    /*
+     * ‎**המפתח נושא את מזהה השיחה** (ביקורת Codex).
+     *
+     * מפתח קבוע השאיר את הטפסים מחוברים במעבר בין שיחות: השדות
+     * אינם מבוקרים (`defaultValue`), ולכן מה שהוקלד — או מה שמולא
+     * מראש — לשיחה א׳ נשאר על המסך בזמן ש-`leadId` כבר מצביע על
+     * ב׳. שליחה שמרה את העיר, התקציב והכתובת של א׳ **על הכרטיס של
+     * ב׳**, בשקט.
+     *
+     * ‎**מזהה השיחה ולא מזהה הליד:** המילוי מראש נגזר מ-`highlights`
+     * של השיחה, ולשתי שיחות של אותו ליד יש מילוי שונה. מפתח לפי ליד
+     * היה משאיר על המסך את הערכים של השיחה הקודמת.
+     */
     const buyer = mayBuyer ? (
-      <ConvertSection key="buyer" leadId={selected.leadId} prefill={prefill} />
+      <ConvertSection key={`buyer-${selected.id}`} leadId={selected.leadId} prefill={prefill} />
     ) : null;
     const property = mayProperty ? (
-      <ConvertToPropertySection key="property" leadId={selected.leadId} prefill={prefill} />
+      <ConvertToPropertySection
+        key={`property-${selected.id}`}
+        leadId={selected.leadId}
+        prefill={prefill}
+      />
     ) : null;
 
     return (
