@@ -20,6 +20,7 @@
 | 09 | [מפת דרכים](09-roadmap.md) | MVP → שלב 4, קריטריוני מעבר בין שלבים |
 | 10 | [פריסה לפרודקשן](10-deployment.md) | VPS + Docker, הקמה, עדכון בלחיצת כפתור |
 | 12 | [וואטסאפ של המתווך](12-whatsapp-coexistence.md) | חיבור המספר של כל מתווך: Embedded Signup, Coexistence, בוט ללקוחות |
+| — | [הפעלת החיבור העצמאי ב-Meta](whatsapp-tech-provider-setup.md) | מדריך תפעולי: Configuration, שדות Webhook, App Review, Tech Provider |
 | ADR | [החלטות ארכיטקטוניות](adr/) | ההחלטות המרכזיות והנימוקים |
 
 ## עקרונות-על (חלים על כל מסמך)

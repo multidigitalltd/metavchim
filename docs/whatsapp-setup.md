@@ -265,8 +265,11 @@ Meta יוצרת אוטומטית:
 
 ## נספח · חיבור מספר בידי כל משרד (Embedded Signup)
 
-שלב עתידי — **התכנון המלא, כולל דו-קיום עם אפליקציית WhatsApp
-Business בטלפון של המתווך: [docs/12](12-whatsapp-coexistence.md)**.
+**נבנה.** התכנון המלא, כולל דו-קיום עם אפליקציית WhatsApp Business
+בטלפון של המתווך: [docs/12](12-whatsapp-coexistence.md). מה שצריך
+לעשות ב-Meta כדי להפעיל את זה, שלב אחרי שלב:
+[מדריך ההפעלה](whatsapp-tech-provider-setup.md).
+
 מסלול נפרד ב-Meta שדורש רישום כ-**Tech Provider**:
 
 1. בעל המשרד לוחץ "חבר וואטסאפ" אצלנו ← נפתח פופאפ של Meta
