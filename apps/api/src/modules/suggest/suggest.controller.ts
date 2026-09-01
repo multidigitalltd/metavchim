@@ -2,6 +2,7 @@ import { Controller, Get, Query } from "@nestjs/common";
 import { z } from "zod";
 import { NEIGHBORHOOD_SUGGESTION_LIMIT, suggestNeighborhoods } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { PrismaService } from "../../core/prisma.service";
 import { neighborhoodVocabulary } from "./neighborhood-vocabulary";
 
@@ -46,8 +47,16 @@ export class SuggestController {
    */
   @Get("neighborhoods")
   @RequireCapability("properties.create", "properties.edit", "buyers.edit")
-  async neighborhoods(@Query() query: unknown): Promise<{ suggestions: string[] }> {
-    const { q = "", city } = QuerySchema.parse(query ?? {});
+  async neighborhoods(
+    /*
+     * ‎`ZodValidationPipe` ולא `QuerySchema.parse` בגוף (ביקורת Codex).
+     * ‏`ZodError` גולמי אינו `HttpException`, ולכן Nest מחזיר עליו 500:
+     * שאילתה ארוכה מ-80 תווים — שהשדה עצמו מסוגל לייצר בהדבקה —
+     * הייתה מחזירה שגיאת שרת ומרעישה את הלוג, במקום 400 שקט.
+     */
+    @Query(new ZodValidationPipe(QuerySchema)) query: z.infer<typeof QuerySchema>,
+  ): Promise<{ suggestions: string[] }> {
+    const { q = "", city } = query;
     const cityFilter = city?.trim() ?? "";
 
     const vocabulary = await this.prisma.withTenant((tx) =>

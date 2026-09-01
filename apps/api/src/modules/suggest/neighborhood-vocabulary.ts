@@ -68,8 +68,32 @@ export async function neighborhoodVocabulary(
                  END
                ) AS n
          WHERE b.deleted_at IS NULL
-           AND (${city}::text = ''
-                OR b.requirements -> 'cities' @> to_jsonb(${city}::text))
+           AND (
+             ${city}::text = ''
+             OR (
+/*
+                * ‎**עיר יחידה בלבד** (ביקורת Codex).
+                *
+                * שתי הרשימות — הערים והשכונות — הן מערכים שטוחים
+                * ובלתי תלויים: אין בנתונים שום קשר בין שכונה לעיר
+                * שלה. קונה שמחפש בבני ברק **וגם** בחיפה, עם
+                * „פרדס כץ” ו„נווה שאנן”, היה תורם את *שתיהן*
+                * לשאילתה על בני ברק — וטופס הנכס היה מציע „נווה
+                * שאנן” בבני ברק. כלומר הפיצ׳ר שנועד למנוע שכונות
+                * שגויות היה מלמד להזין אחת.
+                *
+                * כשלקונה עיר אחת, השיוך חד-משמעי וכל שכונותיו
+                * שייכות לה. זה גם הרוב המכריע של הקונים, ולכן
+                * המחיר נמוך — ובלי הימור על נתון שאינו קיים.
+                *
+                * ‎(בלי גרשיים אחוריים כאן: הטקסט יושב בתוך תבנית,
+                * וגרש אחורי היה סוגר אותה באמצע השאילתה.)
+                */
+               jsonb_typeof(b.requirements -> 'cities') = 'array'
+               AND jsonb_array_length(b.requirements -> 'cities') = 1
+               AND b.requirements -> 'cities' ->> 0 = ${city}
+             )
+           )
       ) AS used
      WHERE btrim(name) <> ''
      GROUP BY name

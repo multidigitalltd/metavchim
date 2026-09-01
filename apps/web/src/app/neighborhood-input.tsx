@@ -84,7 +84,19 @@ export function NeighborhoodInput({
   style?: React.CSSProperties;
 }) {
   const [value, setValue] = useState(defaultValue);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  /*
+   * ‎**ההצעות נושאות את העיר שהן נשלפו עבורה** (ביקורת Codex).
+   *
+   * הסינון המקומי בודק את האסימון בלבד, ולכן שינוי עיר לא ביטל
+   * אותן: בטופס נכס חדש, מי שמילא עיר ואז מיקד את שדה השכונה ראה
+   * — במשך ההשהיה והרשת — הצעות מהעיר הקודמת או מהמאגר הכללי,
+   * לחיצות וניתנות לבחירה ב-Enter. שם העיר צמוד לתוצאה, וההשוואה
+   * מול העיר הנוכחית מוציאה אותן מיד.
+   */
+  const [suggestions, setSuggestions] = useState<{ city: string; names: string[] }>({
+    city: "",
+    names: [],
+  });
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -97,21 +109,23 @@ export function NeighborhoodInput({
    */
   useEffect(() => {
     const token = activeToken(value, multi).trim();
+    /* אותו נרמול שההשוואה למטה משתמשת בו — אחרת רווח נגרר פוסל התאמה. */
+    const requestedCity = city?.trim() ?? "";
     const controller = new AbortController();
     const timer = setTimeout(() => {
       const params = new URLSearchParams({ q: token });
-      if (city !== undefined && city.trim() !== "") params.set("city", city.trim());
+      if (requestedCity !== "") params.set("city", requestedCity);
       apiGet<{ suggestions: string[] }>(`/suggest/neighborhoods?${params.toString()}`)
         .then((res) => {
           if (controller.signal.aborted) return;
-          setSuggestions(res.suggestions);
+          setSuggestions({ city: requestedCity, names: res.suggestions });
         })
         /*
          * כשל אינו מרעיש: השדה עובד בלעדיו בדיוק כמו קודם, והצגת
          * שגיאה על השלמה אוטומטית מפחידה יותר משהיא עוזרת.
          */
         .catch(() => {
-          if (!controller.signal.aborted) setSuggestions([]);
+          if (!controller.signal.aborted) setSuggestions({ city: requestedCity, names: [] });
         });
     }, DEBOUNCE_MS);
     return () => {
@@ -141,11 +155,13 @@ export function NeighborhoodInput({
    * מרענן את המאגר, ומה שאינו תואם נעלם מיד.
    */
   const shown = useMemo(() => {
+    /* תוצאה של עיר אחרת אינה „ישנה” אלא **שגויה** — היא יוצאת כולה. */
+    if (suggestions.city !== (city?.trim() ?? "")) return [];
     const token = activeToken(value, multi);
-    return suggestions
+    return suggestions.names
       .filter((s) => neighborhoodMatches(s, token))
       .slice(0, NEIGHBORHOOD_SUGGESTION_LIMIT);
-  }, [suggestions, value, multi]);
+  }, [suggestions, value, multi, city]);
 
   const visible = open && shown.length > 0;
 
