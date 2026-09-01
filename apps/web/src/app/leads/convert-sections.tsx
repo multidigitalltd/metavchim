@@ -36,11 +36,32 @@ export interface ConvertPrefill {
   city?: string;
   /** בשקלים — תקציב אצל קונה, מחיר מבוקש אצל מוכר. */
   priceShekels?: number;
+  /**
+   * ‎**מספר אחד שנכנס לשני גבולות.** בכרטיס קונה החדרים הם טווח
+   * (`roomsMin`–`roomsMax`), ובשיחה נאמר מספר אחד. ההמרה היא זו
+   * שכבר נקבעה בקטלוג הפעולות של הסוכן הקולי: „4 חדרים” ⇒ גם
+   * המינימום וגם המקסימום 4. אותו משפט חייב לייצר את אותו כרטיס
+   * בין אם הגיע מהסוכן ובין אם מהמרה במסך.
+   */
   rooms?: number;
   /** כתובת שנאמרה בשיחה — נכנסת לשדה הרחוב בהמרה לנכס. */
   street?: string;
   /** ‎`rent` כשהצד שזוהה בשיחה הוא שוכר או משכיר. */
   dealType?: "sale" | "rent";
+}
+
+/**
+ * שדה מספרי שלא מולא אינו נשלח כלל.
+ *
+ * ‎`Number("")` הוא ‎`0`, ואפס בדרישות אינו „לא ידוע” אלא דרישה
+ * ממשית — קונה בלי תקציב שנשמר עם ‎`0` נקרא במנוע ההתאמות כמי שאינו
+ * יכול להרשות לעצמו דבר. אותו מלכוד בדיוק חוזר בחדרים.
+ */
+function optionalNumber(form: FormData, name: string): Record<string, number> {
+  const raw = String(form.get(name) ?? "").trim();
+  if (raw === "") return {};
+  const value = Number(raw);
+  return Number.isFinite(value) ? { [name]: value } : {};
 }
 
 export function ConvertSection({
@@ -75,6 +96,8 @@ export function ConvertSection({
           ...(budget === undefined || !Number.isFinite(budget)
             ? {}
             : { budgetMaxAgorot: shekelsToAgorot(budget) }),
+          ...optionalNumber(f, "roomsMin"),
+          ...optionalNumber(f, "roomsMax"),
         },
       });
       router.push(`/buyers/${buyer.id}`);
@@ -145,6 +168,45 @@ export function ConvertSection({
             defaultValue={prefill?.priceShekels ?? ""}
             min={1}
             className="rounded-lg border px-3 py-2"
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
+            dir="ltr"
+          />
+        </div>
+        {/*
+          שני גבולות ולא שדה אחד — זו הצורה שכרטיס הקונה נושא, ואותה
+          צורה כבר מוצגת ב„קונה חדש”, בעריכת הקונה ובטופס הפנייה
+          הציבורי. שדה יחיד כאן היה נראה זהה ומייצר כרטיס אחר.
+        */}
+        <div>
+          <label htmlFor="cv-rooms-min" className="mb-1 block text-sm font-medium">
+            חדרים מ- (לא חובה)
+          </label>
+          <input
+            id="cv-rooms-min"
+            name="roomsMin"
+            type="number"
+            defaultValue={prefill?.rooms ?? ""}
+            min={1}
+            max={20}
+            step={0.5}
+            inputMode="decimal"
+            className="w-24 rounded-lg border px-3 py-2"
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
+            dir="ltr"
+          />
+        </div>
+        <div>
+          <label htmlFor="cv-rooms-max" className="mb-1 block text-sm font-medium">עד</label>
+          <input
+            id="cv-rooms-max"
+            name="roomsMax"
+            type="number"
+            defaultValue={prefill?.rooms ?? ""}
+            min={1}
+            max={20}
+            step={0.5}
+            inputMode="decimal"
+            className="w-24 rounded-lg border px-3 py-2"
             style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
             dir="ltr"
           />
