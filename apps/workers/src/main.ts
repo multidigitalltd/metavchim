@@ -23,6 +23,7 @@ import {
   effectiveFeatures,
   diarizeTimeoutMs,
   formatDiarizedTranscript,
+  STT_CALL_HINT,
   buildCallIntelPrompt,
   CALL_INTEL_SCHEMA,
   formatRoleTranscript,
@@ -61,6 +62,13 @@ import {
   mergeStoredTurns,
   parseStoredTurns,
   formatNotifyMessage,
+  notifyFollowUp,
+  AGENT_ACTIONS,
+  mayUseAction,
+  applyBlockedModules,
+  resolveCapabilities,
+  type Capability,
+  type CapabilityOverride,
   inQuietHours,
   type AgentHistoryTurn,
   fitsInteractive,
@@ -1802,6 +1810,16 @@ async function transcribeOneCall(): Promise<void> {
       const audio = new Uint8Array(await storageGet(pending.recordingKey));
       const form = new FormData();
       form.append("file", new Blob([audio]), "call.webm");
+      /*
+       * ‎**רמז אוצר המילים — שתמלול השיחות לא שלח עד כה.**
+       *
+       * ‎`/transcribe` מקבל `prompt` ומעביר אותו ל-`initial_prompt`
+       * של המודל, וההכתבה בדפדפן שלחה אותו מהיום הראשון. הקלטת
+       * שיחה — אודיו טלפוני צר-פס, רועש, ועם שני דוברים — הגיעה
+       * לכאן בלי שום הקשר, כלומר דווקא המסלול שהכי תלוי ברמז היה
+       * היחיד בלעדיו. „ממ״ד” חזר „ממד” ו„בלעדיות” חזרה „בעלות”.
+       */
+      form.append("prompt", STT_CALL_HINT);
       const res = await fetch(`${sttUrl}/transcribe`, {
         method: "POST",
         headers: { "x-stt-secret": sttSecret },
@@ -2793,6 +2811,44 @@ interface WaRecipient {
   snoozed: boolean;
   /** עד מתי כבר קיבל — מונע כפילות כשנמען אחר של אותה התראה נכשל */
   notifiedThrough: Date | null;
+  /**
+   * ‎**מזהי הפעולות** שמותרות לו — לא היכולות שלו.
+   *
+   * ‏ההבחנה אינה סמנטית: `notifyFollowUp` משווה מול מזהה פעולה
+   * (`show_callbacks`), ורשימת יכולות (`leads.view_own`) לעולם
+   * אינה מכילה אותו. כלומר העברת היכולות הייתה מכבה את הכפתור
+   * הנגזר תמיד, בשקט.
+   *
+   * נגזר מהיכולות **בפועל** (תפקיד + חריגים + מודולים חסומים) —
+   * ראו `allowedActionsFor`.
+   */
+  allowedActionIds: readonly string[];
+}
+
+/**
+ * ‎**הפעולות שהמשתמש הזה רשאי להריץ — ביכולות שלו בפועל.**
+ *
+ * ‏הגרסה הראשונה גזרה מ-`ROLE_CAPABILITIES` בלבד, במטמון פר-תפקיד.
+ * זה נראה זול ונכון, והוא **חולק על מסלול ההרשאה האמיתי** שאותו
+ * מריץ הסוכן ברגע שלוחצים על הכפתור (`buildContext`): שם התפקיד
+ * הוא רק נקודת הפתיחה, ומעליו יושבים חריגי `userCapability`
+ * וחסימת מודולים של המשרד (ביקורת Codex).
+ *
+ * שני הכיוונים נשברו, ולשניהם יש קורבן:
+ *
+ * ‎**חריג `deny`, או מודול חסום** ⟵ הכפתור מוצג, והלחיצה נוחתת על
+ * „אין לך הרשאה”. זה בדיוק מה שהסינון נועד למנוע.
+ *
+ * ‎**חריג `grant`** ⟵ המשתמש קיבל את היכולת, ובכל זאת רואה רק את
+ * הכפתור הכללי. יכולת שניתנה במפורש ואינה מגיעה למסך.
+ *
+ * ולכן אין כאן מטמון פר-תפקיד: החריגים הם פר-משתמש, ומטמון כזה
+ * שגוי בהגדרה ולא רק לא-מדויק.
+ */
+function allowedActionsFor(capabilities: Set<Capability>): readonly string[] {
+  return AGENT_ACTIONS.filter((action) => mayUseAction(action, capabilities)).map(
+    (action) => action.id,
+  );
 }
 
 async function processWhatsAppNotifySweep(): Promise<void> {
@@ -2802,7 +2858,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
   const now = new Date();
   const since = new Date(now.getTime() - WA_NOTIFY_MAX_AGE_MS);
   const hour = jerusalemHour(now);
-  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  const tenants = await prisma.tenant.findMany({ select: { id: true, blockedModules: true } });
 
   for (const tenant of tenants) {
     // אותו שער כמו הסוכן עצמו: הדחיפה היא חלק מהפיצ'ר, לא תוספת חינם
@@ -2841,7 +2897,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
         phone: { not: null },
         OR: [{ whatsappAccess: true }, { role: "owner" }],
       },
-      select: { id: true, phone: true, preferences: true },
+      select: { id: true, phone: true, preferences: true, role: true },
     });
     if (users.length === 0) continue;
 
@@ -2858,6 +2914,31 @@ async function processWhatsAppNotifySweep(): Promise<void> {
       });
     });
     const chatOf = new Map(chats.map((chat) => [chat.userId, chat]));
+
+    /*
+     * ‎**החריגים — באותה שאילתה אחת לכל הנמענים של המשרד.**
+     *
+     * ‏אותו מקור שהסוכן קורא ב-`buildContext`, ולכן הכפתור מציע
+     * בדיוק את מה שהלחיצה תורשה להריץ. שאילתה אחת ולא אחת לכל
+     * משתמש: הסבב עובר על כל המשרדים בכל דקה.
+     */
+    const overrides = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      return tx.userCapability.findMany({
+        where: { tenantId: tenant.id, userId: { in: users.map((u) => u.id) } },
+        select: { userId: true, capability: true, effect: true, expiresAt: true },
+      });
+    });
+    const overridesOf = new Map<string, CapabilityOverride[]>();
+    for (const row of overrides) {
+      const list = overridesOf.get(row.userId) ?? [];
+      list.push({
+        capability: row.capability as Capability,
+        effect: row.effect === "grant" ? "grant" : "deny",
+        expiresAt: row.expiresAt,
+      });
+      overridesOf.set(row.userId, list);
+    }
 
     const recipients = new Map<string, WaRecipient>();
     for (const user of users) {
@@ -2879,6 +2960,12 @@ async function processWhatsAppNotifySweep(): Promise<void> {
         windowOpen: sessionWindowOpen(chat?.lastInboundAt ?? null, now),
         snoozed: chat?.notifySnoozeUntil ? chat.notifySnoozeUntil > now : false,
         notifiedThrough: chat?.notifiedThrough ?? null,
+        allowedActionIds: allowedActionsFor(
+          applyBlockedModules(
+            resolveCapabilities(user.role, overridesOf.get(user.id) ?? [], now),
+            tenant.blockedModules,
+          ),
+        ),
       });
     }
     if (recipients.size === 0) continue;
@@ -2929,10 +3016,25 @@ async function processWhatsAppNotifySweep(): Promise<void> {
          */
         const message = formatNotifyMessage(items, webOrigin);
         if (fitsInteractive(message)) {
+          /*
+           * ‎**הכפתור הראשון נגזר ממה שכתוב מעליו.**
+           *
+           * עד כה הוצמדו לכל הודעה אותם שניים בדיוק, ו„מה דחוף
+           * היום?” מתחת להתראה על שיחה שלא נענתה או על פנייה ברשת
+           * הוא כפתור שאינו קשור להודעה. `notifyFollowUp` נשען על
+           * אותה קטגוריה שממנה נגזר כבר משפט הסיום — ומחזיר `null`
+           * לתקציר יומי, שם „מה דחוף היום?” הוא דווקא הצעד הנכון.
+           *
+           * ההשתקה נשארת שנייה תמיד: היא פקד על הסוכן עצמו, ואינה
+           * תלויה בשום דבר שכתוב בהודעה.
+           */
+          const follow = notifyFollowUp(items, recipient.allowedActionIds);
           ok = await sendWhatsApp(
             config,
             replyButtonsPayload(recipient.phone, message, [
-              { action: "cmd", arg: "urgent", title: "📋 מה דחוף היום?" },
+              follow === null
+                ? { action: "cmd", arg: "urgent", title: "📋 מה דחוף היום?" }
+                : { action: "cmd", arg: follow.text, title: follow.label },
               { action: "snooze", arg: "120", title: "🔕 שקט לשעתיים" },
             ]),
           );

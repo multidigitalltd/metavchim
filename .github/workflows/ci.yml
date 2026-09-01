@@ -172,6 +172,18 @@ jobs:
       - name: Notifications land on screens that exist
         run: pnpm verify:notify
 
+      # רמז אוצר המילים הוא הדבר היחיד שמטה את מודל התמלול לטובת
+      # „ממ״ד” על פני „ממד”. ההכתבה שלחה אותו, תמלול השיחות לא —
+      # כלומר האודיו הגרוע ביותר היה היחיד בלי הקשר, בשקט מוחלט.
+      - name: Every /transcribe caller sends the vocabulary hint
+        run: pnpm verify:stt
+
+      # ‏תפקיד הוא נקודת פתיחה, לא הרשאה: מעליו יושבים חריגים
+      # פר-משתמש וחסימת מודולים. גזירה מהתפקיד בלבד מציעה פעולה
+      # שהשרת ידחה — או מסתירה יכולת שניתנה במפורש — בשקט מוחלט.
+      - name: Action permissions come from effective capabilities
+        run: pnpm verify:caps
+
       - name: Audit dependencies (fail on high)
         run: pnpm audit --audit-level high
 

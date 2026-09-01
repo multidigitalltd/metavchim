@@ -4,6 +4,7 @@ import {
   formatNotifyMessage,
   inQuietHours,
   notifyCategory,
+  notifyFollowUp,
   parseWhatsAppNotifyPrefs,
   sessionWindowOpen,
   shouldNotifyByWhatsApp,
@@ -231,5 +232,118 @@ describe("templateParams", () => {
   it("משטח שורות חדשות — תבנית של Meta דוחה אותן", () => {
     const [, detail] = templateParams([item({ title: "כותרת", body: "שורה\nשנייה" })]);
     expect(detail).toBe("שורה שנייה");
+  });
+});
+
+describe("notifyFollowUp", () => {
+  /*
+   * ‎**כל היכולות** — הבדיקות כאן על הגזירה, לא על ההרשאות; אלה
+   * נבדקות בנפרד למטה.
+   */
+  const ALL = [
+    "show_callbacks",
+    "show_leads",
+    "show_tasks",
+    "show_matches",
+    "show_network_inbox",
+  ];
+
+  it("שיחה שלא נענתה מזמינה את „למי לחזור”, לא את „מה דחוף היום”", () => {
+    const step = notifyFollowUp([item({ type: "call_missed" })], ALL);
+    expect(step).not.toBeNull();
+    expect(step?.label).toContain("למי לחזור");
+    expect(step?.text).not.toBe("");
+  });
+
+  it("פנייה מהרשת מזמינה את הפניות הממתינות", () => {
+    const step = notifyFollowUp([item({ type: "coop_offer" })], ALL);
+    expect(step?.label).toContain("מה מחכה ברשת");
+  });
+
+  /*
+   * ‎**התקציר היומי הוא המקרה שבו הכפתור הישן היה נכון.** `null`
+   * כאן אינו „לא מצאנו” אלא „הכללי מתאים”, והקורא נשען על זה.
+   */
+  it("תקציר יומי נשאר עם הכפתור הכללי", () => {
+    expect(notifyFollowUp([item({ type: "daily_brief" })], ALL)).toBeNull();
+  });
+
+  /*
+   * ‎**הקטגוריה השכיחה, ולא הפריט הראשון.** אגד של חמש התראות
+   * לידים ושיחה אחת הוא אגד לידים, וזו גם הקטגוריה שממנה כבר נגזר
+   * משפט הסיום של אותה הודעה.
+   */
+  it("אגד מעורב הולך אחרי הרוב", () => {
+    const items = [
+      item({ type: "call_missed" }),
+      item({ type: "lead" }),
+      item({ type: "lead_sla" }),
+      item({ type: "lead_stale" }),
+    ];
+    expect(notifyFollowUp(items, ALL)?.label).toContain("הלידים שלי");
+  });
+
+  /*
+   * ‎**כפתור לפעולה חסומה שולח את המתווך אל „אין לך הרשאה” על משהו
+   * שהמערכת עצמה הציעה.** אותו כלל בדיוק כמו בהצעות הסוכן.
+   */
+  it("פעולה שאינה מותרת אינה נהפכת לכפתור", () => {
+    expect(notifyFollowUp([item({ type: "call_missed" })], [])).toBeNull();
+    expect(notifyFollowUp([item({ type: "call_missed" })], ["show_leads"])).toBeNull();
+  });
+
+  it("אגד ריק אינו מייצר כפתור", () => {
+    expect(notifyFollowUp([], ALL)).toBeNull();
+  });
+
+  /*
+   * ‎**`allowed` הוא מזהי פעולות, לא יכולות** — וזו הבחנה ששוברת
+   * בשקט. רשימת יכולות (`leads.view_own`) לעולם אינה מכילה
+   * ‎`show_callbacks`, ולכן קורא שמעביר אותה מכבה את הכפתור הנגזר
+   * תמיד ומקבל את הכללי — בלי שגיאה, בלי לוג, ובלי בדיקה אדומה.
+   * זו בדיוק הטעות שנעשתה בקורא הראשון, והבדיקה הזו מקבעת אותה.
+   */
+  it("רשימת יכולות אינה רשימת פעולות — והיא אינה פותחת כפתור", () => {
+    const capabilities = ["leads.view_own", "leads.view_all", "collaboration.offer"];
+    expect(notifyFollowUp([item({ type: "call_missed" })], capabilities)).toBeNull();
+  });
+
+  /*
+   * ‎**המסלול המלא כפי שהקורא בונה אותו:** תפקיד ⟵ יכולות ⟵
+   * הפעולות המותרות ⟵ כפתור. בעלים אמור לקבל כפתור על שיחה
+   * שלא נענתה; אם הגזירה נשברת, זה נשבר כאן ולא אצל המתווך.
+   */
+  it("בעלים מקבל כפתור דרך הגזירה האמיתית מהתפקיד", async () => {
+    const { AGENT_ACTIONS, mayUseAction } = await import("../agent/actions.js");
+    const { ROLE_CAPABILITIES } = await import("../rbac.js");
+    const capabilities = new Set(ROLE_CAPABILITIES["owner"] ?? []);
+    const ids = AGENT_ACTIONS.filter((a) => mayUseAction(a, capabilities)).map((a) => a.id);
+    expect(notifyFollowUp([item({ type: "call_missed" })], ids)?.label).toContain("למי לחזור");
+  });
+
+  /*
+   * ‎**המשפט חייב להיות אחד שהמנוע מכיר.** הוא נשלח כאילו הוקלד,
+   * ולכן הוא נלקח מהקטלוג ולא נכתב כאן — הבדיקה מקבעת את המקור.
+   */
+  it("המשפט מגיע מהדוגמאות של הפעולה בקטלוג", async () => {
+    const { agentAction } = await import("../agent/actions.js");
+    const step = notifyFollowUp([item({ type: "task_reminder" })], ALL);
+    expect(step?.text).toBe(agentAction("show_tasks")?.examples[0]);
+  });
+
+  /*
+   * ‎**כיתוב שנחתך הוא כיתוב שגוי, לא כיתוב קצר.** Meta חותכת ב-20
+   * תווים ומוסיפה „…”, ו„פניות ממתינות מה…” אינו אומר דבר. הבדיקה
+   * עוברת על *כל* הקטגוריות ולא על אחת, כדי שגם כיתוב שיתארך בעתיד
+   * ייתפס כאן ולא אצל המתווך.
+   */
+  it("שום כיתוב אינו נחתך על ידי Meta", async () => {
+    const { buttonTitle } = await import("./whatsapp-buttons.js");
+    const types = ["call_missed", "lead", "task_reminder", "matches_refreshed", "coop_offer"];
+    for (const type of types) {
+      const step = notifyFollowUp([item({ type })], ALL);
+      expect(step, type).not.toBeNull();
+      expect(buttonTitle(step!.label), type).toBe(step!.label);
+    }
   });
 });
