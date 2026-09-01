@@ -1,7 +1,7 @@
 import { Controller, Get, Query } from "@nestjs/common";
 import { z } from "zod";
 import { NEIGHBORHOOD_SUGGESTION_LIMIT, suggestNeighborhoods } from "@metavchim/shared";
-import { AnyAuthenticated } from "../../common/auth.decorators";
+import { RequireCapability } from "../../common/auth.decorators";
 import { PrismaService } from "../../core/prisma.service";
 import { neighborhoodVocabulary } from "./neighborhood-vocabulary";
 
@@ -32,12 +32,20 @@ export class SuggestController {
   /**
    * השכונות שכבר הוזנו במשרד, מסוננות למה שהוקלד עד כה.
    *
-   * ‎`AnyAuthenticated`: זו רשימת שמות שכונות של המשרד עצמו, בלי שום
-   * פרט מזהה — מי שרשאי לפתוח כרטיס רשאי לראות באילו שכונות המשרד
-   * כבר עובד. ה-RLS מגביל לדייר בכל מקרה.
+   * ‎**היכולת ולא `AnyAuthenticated`** (ביקורת Codex, P1). הסימון
+   * ההוא מיועד לנתיב שכל תוכנו נגזר מהמשתמש עצמו — הפרופיל שלו,
+   * ההתראות שלו — וזה מחזיר נתוני משרד. ההצהרה כאן היא מי שממלא
+   * את השדות האלה בפועל: מי שיוצר או עורך נכס, ומי שעורך קונה.
+   * ‎`viewer` שאינו כותב דבר אינו צריך הצעות השלמה.
+   *
+   * ‎**ובכוונה בלי צמצום בעלות.** ההצעה היא *אוצר המילים של
+   * המשרד*, וזו כל מטרתה: סוכן ב' צריך לראות את הכתיב שסוכן א'
+   * כבר השתמש בו, אחרת שניהם ימציאו צורות שונות — כלומר בדיוק
+   * הכפילות שהפיצ'ר בא למנוע. מה שנחשף הוא שם מקום, בלי קישור
+   * לרשומה, ללקוח או לסוכן.
    */
   @Get("neighborhoods")
-  @AnyAuthenticated()
+  @RequireCapability("properties.create", "properties.edit", "buyers.edit")
   async neighborhoods(@Query() query: unknown): Promise<{ suggestions: string[] }> {
     const { q = "", city } = QuerySchema.parse(query ?? {});
     const cityFilter = city?.trim() ?? "";

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { neighborhoodMatches, NEIGHBORHOOD_SUGGESTION_LIMIT } from "@metavchim/shared";
 import { apiGet } from "../lib/api";
 
 /**
@@ -104,7 +105,6 @@ export function NeighborhoodInput({
         .then((res) => {
           if (controller.signal.aborted) return;
           setSuggestions(res.suggestions);
-          setActive(-1);
         })
         /*
          * כשל אינו מרעיש: השדה עובד בלעדיו בדיוק כמו קודם, והצגת
@@ -128,7 +128,26 @@ export function NeighborhoodInput({
     return () => document.removeEventListener("mousedown", onOutside);
   }, []);
 
-  const visible = open && suggestions.length > 0;
+  /*
+   * ‎**סינון מקומי מעל מה שכבר בידינו — וזה מה שמעלים הצעות ישנות.**
+   *
+   * השרת עונה אחרי השהיה ורשת, ובין לבין הרשימה הציגה מועמדים
+   * שאינם תואמים למה שכתוב בשדה; הצעה מסומנת כזו נבחרה ב-Enter
+   * ודרסה את השדה בתוצאה לא קשורה (ביקורת Codex). הסינון כאן
+   * מיידי ומשתמש **באותה** פונקציית התאמה שהשרת משתמש בה, ולכן
+   * אינו יכול לחלוק עליו: הוא רק מקדים אותו.
+   *
+   * ולכן גם בלי הבהוב — מה שכבר תואם נשאר על המסך בזמן שהשרת
+   * מרענן את המאגר, ומה שאינו תואם נעלם מיד.
+   */
+  const shown = useMemo(() => {
+    const token = activeToken(value, multi);
+    return suggestions
+      .filter((s) => neighborhoodMatches(s, token))
+      .slice(0, NEIGHBORHOOD_SUGGESTION_LIMIT);
+  }, [suggestions, value, multi]);
+
+  const visible = open && shown.length > 0;
 
   /*
    * ‎**נקודת כתיבה אחת.** גם הקלדה וגם בחירה מהרשימה עוברות כאן,
@@ -137,6 +156,12 @@ export function NeighborhoodInput({
    */
   function commit(next: string): void {
     setValue(next);
+    /*
+     * ‎**האיפוס כאן ולא באפקט.** `active` הוא מה ש-Enter בוחר, ואפקט
+     * רץ אחרי הרינדור — כלומר נשאר חלון שבו הקלדה כבר קרתה והבחירה
+     * עדיין מצביעה על השורה הקודמת.
+     */
+    setActive(-1);
     onValueChange?.(next);
   }
 
@@ -148,24 +173,24 @@ export function NeighborhoodInput({
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>): void {
     if (!visible) {
-      if (event.key === "ArrowDown" && suggestions.length > 0) {
+      if (event.key === "ArrowDown" && shown.length > 0) {
         setOpen(true);
         event.preventDefault();
       }
       return;
     }
     if (event.key === "ArrowDown") {
-      setActive((i) => (i + 1) % suggestions.length);
+      setActive((i) => (i + 1) % shown.length);
       event.preventDefault();
     } else if (event.key === "ArrowUp") {
-      setActive((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
+      setActive((i) => (i <= 0 ? shown.length - 1 : i - 1));
       event.preventDefault();
     } else if (event.key === "Enter" && active >= 0) {
       /*
        * ‎`preventDefault` רק כשההצעה נבחרת בפועל. Enter בלי הצעה
        * מסומנת חייב להמשיך לשלוח את הטופס כרגיל.
        */
-      pick(suggestions[active]!);
+      pick(shown[active]!);
       event.preventDefault();
     } else if (event.key === "Escape") {
       setOpen(false);
@@ -208,7 +233,7 @@ export function NeighborhoodInput({
             borderColor: "var(--color-border)",
           }}
         >
-          {suggestions.map((suggestion, index) => (
+          {shown.map((suggestion, index) => (
             <li key={suggestion} id={`${listId}-${index}`} role="option" aria-selected={index === active}>
               {/*
                 ‎`onMouseDown` ולא `onClick`: הלחיצה מוציאה פוקוס
