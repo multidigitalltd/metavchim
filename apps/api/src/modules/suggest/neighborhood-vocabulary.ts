@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type { NeighborhoodUse } from "@metavchim/shared";
 
 /**
@@ -30,6 +30,59 @@ import type { NeighborhoodUse } from "@metavchim/shared";
  */
 export const VOCABULARY_MAX = 400;
 
+/*
+ * ‎**שלוש המחלקות הן תרגום מדויק של `neighborhood.ts`** — ולכן הן
+ * כתובות בבריחות `\uXXXX` ולא בתווים עצמם: כך אפשר להשוות אותן
+ * לקוד המשותף תו-תו, ואין בהן גרש שהיה מסבך את הציטוט ב-SQL.
+ */
+
+/**
+ * ‎`\s` של JavaScript — ולא של Postgres.
+ *
+ * ‎`[[:space:]]` תלוי ב-ctype ואינו כולל רווח בלתי שביר (`U+00A0`),
+ * ‎`U+2007`, `U+202F` ו-`U+FEFF`. JavaScript כן כולל אותם, ולכן
+ * הסתמכות על `\s` לבדו הייתה מייצרת מפתח שונה בדיוק בתווים שדבקה
+ * מאתר אינטרנט מכניסה — כלומר בשם שנראה תקין על המסך.
+ */
+const WHITESPACE = String.raw`[\s\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+`;
+/** גרש וגרשיים על כל צורותיהם — נמחקים, בדיוק כמו ב-JavaScript. */
+const QUOTES = String.raw`[\u0022\u0027\u05F3\u05F4\u2018\u2019\u201C\u201D]`;
+/** מקף רגיל, מקף עברי, ומקפים טיפוגרפיים — הופכים לרווח. */
+const DASHES = String.raw`[\u002D\u05BE\u2010-\u2015]`;
+/** ‎„שכונת רמת אהרון” ו„רמת אהרון” הן אותה שכונה. */
+const PREFIX = "^שכונת ";
+
+/**
+ * ‎**`neighborhoodKey` בשפת המסד — אותו קיפול, מילה במילה.**
+ *
+ * ## למה זה חייב להיות זהה ולא „בערך”
+ *
+ * הקיפול משמש כאן לשני דברים שמושכים לכיוונים הפוכים:
+ *
+ * 1. ‎**הסינון לפני התקרה.** כדי שמה שהקוד היה מקבל לא ייחתך, על
+ *    הקיפול במסד להיות **לא אגרסיבי יותר** מזה שבקוד — אחרת תו
+ *    שהמסד מוחק והקוד שומר מפיל התאמה אמיתית.
+ * 2. ‎**הצמצום לכל קונה.** כדי שקונה אחד לא ייספר פעמיים על שתי
+ *    צורות של אותה שכונה, על הקיפול במסד להיות **לא אגרסיבי
+ *    פחות** מזה שבקוד.
+ *
+ * שתי הדרישות יחד משאירות בדיוק אפשרות אחת: זהות. ולכן היא נבדקת
+ * ישירות — `neighborhood-vocabulary.int.test.ts` מריץ את הביטוי
+ * הזה מול מסד אמיתי על טבלת קלטים ומשווה ל-`neighborhoodKey`.
+ *
+ * ‎**הביטוי כתוב פעם אחת** ומורכב לשני המקומות. שני עותקים היו
+ * נפרדים ביום שמישהו יערוך אחד מהם, וההפרה הייתה שקטה: הצעה
+ * שנעלמת, או מונה שמנופח.
+ */
+export function foldedNeighborhood(expr: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`lower(btrim(regexp_replace(regexp_replace(regexp_replace(regexp_replace(
+    btrim(regexp_replace(${expr}, ${WHITESPACE}, ' ', 'g')),
+    ${PREFIX}, ''),
+    ${QUOTES}, '', 'g'),
+    ${DASHES}, ' ', 'g'),
+    ${WHITESPACE}, ' ', 'g')))`;
+}
+
 /**
  * ‎**חייב לרוץ בתוך `withTenant`.** אין כאן סינון לפי דייר בכוונה:
  * ‎`FORCE ROW LEVEL SECURITY` על `properties` ועל `buyers` עושה את
@@ -60,85 +113,103 @@ export async function neighborhoodVocabulary(
    * ידני — היה מפיל את ההצעות **לכל המשרד**, לא רק אצלו.
    */
   /*
-   * ‎**הסינון במסד רחב מהסינון בקוד, בכוונה.**
-   *
-   * הקיפול האמיתי (`neighborhoodKey`) חי ב-JS, והעתקה שלו ל-SQL
-   * הייתה שני מימושים שנפרדים ביום שמישהו יערוך אחד מהם. במקום
-   * זאת המסד עושה סינון **מרשים יותר** — הסרת גרשיים ומקפים,
-   * כיווץ רווחים, ותת-מחרוזת — ולכן כל מה שהקוד היה מקבל עובר
-   * אותו בוודאות. ההכרעה נשארת בקוד; המסד רק מונע מהתקרה לחתוך
-   * את מה שרלוונטי.
+   * ‎**המפתח המקופל נבחר כעמודה ולא מחושב פעמיים.** הוא משמש גם
+   * לצמצום לכל קונה וגם לסינון לפני התקרה, ושני חישובים נפרדים היו
+   * שני מקומות שיכולים להיפרד.
    */
   const rows = await tx.$queryRaw<{ name: string; count: bigint }[]>`
     SELECT name, COUNT(*)::bigint AS count
       FROM (
-        SELECT p.neighborhood AS name
+        SELECT p.neighborhood AS name,
+               ${foldedNeighborhood(Prisma.raw("p.neighborhood"))} AS folded
           FROM properties p
          WHERE p.neighborhood IS NOT NULL
            AND p.deleted_at IS NULL
            AND (${city}::text = '' OR p.city = ${city})
         UNION ALL
         /*
-         * ‎**DISTINCT על הזוג (קונה, שכונה)** (ביקורת Codex).
+         * ‎**DISTINCT על הזוג (קונה, מפתח מקופל)** (ביקורת Codex).
          *
-         * ‎השדה יכול להכיל את אותה שכונה פעמיים — הדבקה,
-         * ייבוא ישן, כתיבה דרך ה-API — והסכימה מתירה זאת. בלי
-         * צמצום כל מופע נספר בנפרד, וקונה **אחד** ניפח כתיב
-         * מסוים כאילו כמה אנשים בחרו בו. הסינון בממשק מונע יצירה
-         * של כפילות חדשה, אך אינו מנקה את מה שכבר שמור.
+         * ‎השדה יכול להכיל את אותה שכונה פעמיים — הדבקה, ייבוא ישן,
+         * כתיבה דרך ה-API — והסכימה מתירה זאת. בלי צמצום כל מופע
+         * נספר בנפרד, וקונה **אחד** ניפח כתיב מסוים כאילו כמה
+         * אנשים בחרו בו.
+         *
+         * ‎**על המפתח ולא על השם הגולמי:** קונה שאצלו רשומות שתי
+         * צורות של אותה שכונה — „שיכון ג” ו„שיכון ג׳” — עבר צמצום
+         * לפי שם ותרם שתיהן, והקיפול בקוד איחד אותן וסכם את שני
+         * המונים. כלומר אותו קונה בודד נספר פעמיים דווקא במקרה
+         * שהפיצ׳ר נולד בשבילו.
+         *
+         * ‎ORDER BY הוא מה שקובע איזו צורה שורדת: הראשונה
+         * אלפביתית, כדי שהתוצאה לא תשתנה בין קריאות על אותם נתונים.
          *
          * אחרי הצמצום, המונה על השם סופר **קונים** ולא מופעים —
          * וזו גם המידה הנכונה: „כמה כרטיסים משתמשים בכתיב הזה”.
          */
-        SELECT name FROM (
-          SELECT DISTINCT b.id AS buyer_id, n AS name
-          FROM buyers b
-         CROSS JOIN LATERAL jsonb_array_elements_text(
-                 CASE
-                   WHEN jsonb_typeof(b.requirements -> 'neighborhoods') = 'array'
-                   THEN b.requirements -> 'neighborhoods'
-                   ELSE '[]'::jsonb
-                 END
-               ) AS n
-         WHERE b.deleted_at IS NULL
-           AND (
-             ${city}::text = ''
-             OR (
+        SELECT name, folded FROM (
+          SELECT DISTINCT ON (buyer_id, folded) buyer_id, folded, name
+            FROM (
+              SELECT b.id AS buyer_id,
+                     n AS name,
+                     ${foldedNeighborhood(Prisma.raw("n"))} AS folded
+                FROM buyers b
+               CROSS JOIN LATERAL jsonb_array_elements_text(
+                       CASE
+                         WHEN jsonb_typeof(b.requirements -> 'neighborhoods') = 'array'
+                         THEN b.requirements -> 'neighborhoods'
+                         ELSE '[]'::jsonb
+                       END
+                     ) AS n
+               WHERE b.deleted_at IS NULL
+                 AND (
+                   ${city}::text = ''
+                   OR (
 /*
-                * ‎**עיר יחידה בלבד** (ביקורת Codex).
-                *
-                * שתי הרשימות — הערים והשכונות — הן מערכים שטוחים
-                * ובלתי תלויים: אין בנתונים שום קשר בין שכונה לעיר
-                * שלה. קונה שמחפש בבני ברק **וגם** בחיפה, עם
-                * „פרדס כץ” ו„נווה שאנן”, היה תורם את *שתיהן*
-                * לשאילתה על בני ברק — וטופס הנכס היה מציע „נווה
-                * שאנן” בבני ברק. כלומר הפיצ׳ר שנועד למנוע שכונות
-                * שגויות היה מלמד להזין אחת.
-                *
-                * כשלקונה עיר אחת, השיוך חד-משמעי וכל שכונותיו
-                * שייכות לה. זה גם הרוב המכריע של הקונים, ולכן
-                * המחיר נמוך — ובלי הימור על נתון שאינו קיים.
-                *
-                * ‎(בלי גרשיים אחוריים כאן: הטקסט יושב בתוך תבנית,
-                * וגרש אחורי היה סוגר אותה באמצע השאילתה.)
-                */
-               jsonb_typeof(b.requirements -> 'cities') = 'array'
-               AND jsonb_array_length(b.requirements -> 'cities') = 1
-               AND b.requirements -> 'cities' ->> 0 = ${city}
-             )
-           )
+                      * ‎**עיר יחידה בלבד** (ביקורת Codex).
+                      *
+                      * שתי הרשימות — הערים והשכונות — הן מערכים
+                      * שטוחים ובלתי תלויים: אין בנתונים שום קשר
+                      * בין שכונה לעיר שלה. קונה שמחפש בבני ברק
+                      * ‎**וגם** בחיפה, עם „פרדס כץ” ו„נווה שאנן”,
+                      * היה תורם את *שתיהן* לשאילתה על בני ברק —
+                      * וטופס הנכס היה מציע „נווה שאנן” בבני ברק.
+                      * כלומר הפיצ׳ר שנועד למנוע שכונות שגויות היה
+                      * מלמד להזין אחת.
+                      *
+                      * כשלקונה עיר אחת, השיוך חד-משמעי וכל
+                      * שכונותיו שייכות לה. זה גם הרוב המכריע של
+                      * הקונים, ולכן המחיר נמוך — ובלי הימור על
+                      * נתון שאינו קיים.
+                      *
+                      * ‎(בלי גרשיים אחוריים כאן: הטקסט יושב בתוך
+                      * תבנית, וגרש אחורי היה סוגר אותה באמצע
+                      * השאילתה.)
+                      */
+                     jsonb_typeof(b.requirements -> 'cities') = 'array'
+                     AND jsonb_array_length(b.requirements -> 'cities') = 1
+                     AND b.requirements -> 'cities' ->> 0 = ${city}
+                   )
+                 )
+            ) AS buyer_names
+           ORDER BY buyer_id, folded, name
         ) AS per_buyer
       ) AS used
-     WHERE btrim(name) <> ''
-       AND (
-         ${queryKey}::text = ''
-         OR lower(
-              regexp_replace(
-                translate(name, '''"’‘”“׳״-־', '         '),
-                '\s+', ' ', 'g'
-              )
-            ) LIKE '%' || ${queryKey} || '%'
-       )
+     /*
+      * ‎**מה שהמפתח שלו ריק אינו שכונה** — וזה בדיוק התנאי שהקוד
+      * המשותף מפעיל. „רווחים בלבד” ו„גרשיים בלבד” נופלים כאן,
+      * ו-NULL (איבר null בתוך המערך) נופל איתם.
+      */
+     WHERE folded <> ''
+       /*
+        * ‎**הסינון במסד שקול לזה שבקוד, לא רק „דומה”.**
+        *
+        * ההכרעה נשארת בקוד — התאמה מגבול מילה, לא כל תת-מחרוזת —
+        * והמסד עושה את הבדיקה הרחבה יותר (תת-מחרוזת על אותו
+        * מפתח). כל מה שעובר את הבדיקה בקוד עובר גם כאן, כי תחילית
+        * מגבול מילה היא מקרה פרטי של תת-מחרוזת.
+        */
+       AND (${queryKey}::text = '' OR folded LIKE '%' || ${queryKey} || '%')
      GROUP BY name
      ORDER BY count DESC, name
      LIMIT ${VOCABULARY_MAX}
