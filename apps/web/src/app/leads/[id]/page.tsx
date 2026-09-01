@@ -44,6 +44,7 @@ import {
   type ReferralConfirmationValue,
 } from "../../collaboration/client-rating";
 import {
+  IconBolt,
   IconCalendar,
   IconChat,
   IconCoins,
@@ -105,11 +106,6 @@ const STATUS_PILL: Record<string, { fg: string; bg: string }> = {
   converted: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
   closed: { fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" },
 };
-
-/** האות הראשונה לעיגול הכותרת — כמו בכרטיס הקונה. */
-function initials(name: string): string {
-  return name.trim().slice(0, 1);
-}
 
 const KIND_LABELS: Record<string, ReactNode> = {
   note: <><IconDoc s={15} /> הערה</>,
@@ -746,23 +742,17 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         מקווקוים ותיבת סטטוס שצפה מתחתיה, וזה מה שהפך את המסך
         למבולגן: אין בו היררכיה, ולכן העין לא יודעת איפה להתחיל.
       */}
-      <div
-        className="mv-list-card mb-3 flex flex-wrap items-center gap-4 px-6 py-5"
-        style={{ overflow: "visible" }}
-      >
-        <span
-          aria-hidden="true"
-          className="grid flex-none place-items-center rounded-full"
-          style={{
-            width: 48,
-            height: 48,
-            background: "var(--color-primary-soft)",
-            color: "var(--color-primary)",
-            fontWeight: 800,
-            fontSize: "19px",
-          }}
-        >
-          {initials(lead.contact.name)}
+      <div className="mv-list-card mb-3 px-6 py-5" style={{ overflow: "visible" }}>
+      <div className="flex flex-wrap items-center gap-4">
+        {/*
+          ‎**אריח הליד ולא ראשי תיבות.**
+
+          ליד נקלט לעיתים קרובות בלי שם — משיחה שלא נענתה, מטופס בלי
+          שדה שם — וראשי תיבות של מחרוזת ריקה הם עיגול ריק. הסמל אומר
+          מה זה הכרטיס הזה, וזה נכון גם כשאין למי שבו שם.
+        */}
+        <span className="mv-tile mv-domain-green" aria-hidden="true">
+          <IconBolt s={19} />
         </span>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2.5">
@@ -921,7 +911,31 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             </form>
           ) : null}
         </div>
-        <div className="ms-auto flex flex-wrap items-center gap-2">
+      </div>
+
+      {/*
+        ‎**שורת הפעולות מתחת לזהות, ולא לצידה.**
+
+        ‎`ms-auto` דחף אותה לקצה השני של אותה שורה, ולכן ברוחב בינוני
+        היא נדחסה אל השם ובצר נשברה מתחתיו בלי סדר. שורה משלה נותנת
+        לכל הפעולות את אותו משקל ואותו מקום בכל רוחב.
+      */}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+          {/*
+            ‎**„המר לקונה” ראשון, ובירוק** — זו הפעולה שכל הכרטיס
+            קיים בשבילה. הטפסים עצמם נשארים בלשונית „המשך טיפול”
+            ואינם משוכפלים כאן; הכפתור רק מוביל אליהם. ליד שכבר הומר
+            אינו מציג אותו — אין מה להמיר.
+          */}
+          {lead.status !== "converted" && canEditPeople ? (
+            <button
+              type="button"
+              className="mv-btn-action"
+              onClick={() => selectTab("next")}
+            >
+              <IconHandshake s={15} /> המשך טיפול
+            </button>
+          ) : null}
           <a
             href={waMeUrl(lead.contact.phone)}
             target="_blank"
@@ -960,19 +974,22 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             <IconCalendar s={14} /> קבע פגישה
           </Link>
         </div>
-      </div>
 
       {/*
         **הדחוף קודם.** ההתראה ישבה קודם במקום העשירי, מתחת לשש
         קופסאות — כלומר הדבר היחיד במסך שדורש פעולה מיידית היה
-        הדבר שהכי קשה לראות.
+        הדבר שהכי קשה לראות. עכשיו היא בתוך כרטיס הזהות עצמו,
+        מתחת לפעולות: אי אפשר להתחיל לטפל בליד בלי לעבור דרכה.
       */}
       {lead.requiresHuman ? (
-        <Notice tone="danger">
-          ● דורש טיפול אנושי
-          {lead.requiresHumanReason ? `: ${lead.requiresHumanReason}` : ""}
-        </Notice>
+        <div className="mt-4">
+          <Notice tone="danger">
+            ● דורש טיפול אנושי
+            {lead.requiresHumanReason ? `: ${lead.requiresHumanReason}` : ""}
+          </Notice>
+        </div>
       ) : null}
+      </div>
 
       {merged ? (
         <Notice tone="info">

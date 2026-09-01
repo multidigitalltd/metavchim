@@ -12,6 +12,7 @@ import {
 } from "@metavchim/shared";
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { ContactErasure } from "./contact-erasure";
+import { IconUser } from "./icons";
 import { LoadError } from "./load-error";
 import { Notice } from "./notice";
 
@@ -190,9 +191,13 @@ export function ContactPeople({
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <h2
           id="people-heading"
-          className="m-0"
+          className="m-0 flex items-center gap-2"
           style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
         >
+          {/* אריח מגוון לצד הכותרת — אותה שפה בכל כרטיסי המסך */}
+          <span className="mv-tile mv-domain-violet" aria-hidden="true">
+            <IconUser s={17} />
+          </span>
           אנשי קשר וטלפונים
         </h2>
         {canEdit ? (
