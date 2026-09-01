@@ -6,6 +6,7 @@ import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
 import { ViewingReplyService } from "../calendar/viewing-reply.service";
 import { WhatsAppAssistantService } from "./whatsapp-assistant.service";
+import { WhatsAppConnectionService } from "./whatsapp-connection.service";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 
 /**
@@ -18,11 +19,31 @@ import { WhatsAppSendService } from "./whatsapp-send.service";
  * Idempotency: מזהה ההודעה של Meta נבדק מול interactions שכבר נקלטו.
  */
 
+/**
+ * כמה זמן הבוט שותק אחרי שהמתווך ענה ידנית.
+ *
+ * שש שעות ולא „עד ההודעה הבאה של הלקוח”: מתווך שענה בעצמו ממשיך
+ * בדרך כלל לנהל את השיחה, והבוט שקופץ אחרי תשובה אחת שלו נראה
+ * כמו שני נציגים שמדברים זה על זה. ההודעה הנכנסת הבאה **אינה**
+ * מבטלת את ההשתקה — רק חלוף הזמן.
+ */
+const BOT_PAUSE_MS = 6 * 60 * 60 * 1000;
+
 const WebhookSchema = z.object({
   entry: z.array(
     z.object({
       changes: z.array(
         z.object({
+          /**
+           * ‎**שם השדה — מה שמבדיל בין ארבעת סוגי המטען.**
+           *
+           * עד היום הגיע `messages` בלבד, ולכן השדה לא נקרא. חיבור
+           * של משרד מוסיף שלושה: `account_update` (ניתוק ושינוי
+           * דירוג), `smb_message_echoes` (המתווך ענה מהטלפון)
+           * ו-`history` (סנכרון ראשוני). מטען שאינו מוכר מדולג
+           * בשקט ולא נבלע כאילו היה הודעה.
+           */
+          field: z.string().optional(),
           value: z.object({
             metadata: z
               .object({
@@ -73,6 +94,32 @@ const WebhookSchema = z.object({
                 }),
               )
               .optional(),
+            /**
+             * ‎**הד של הודעה שהמתווך שלח מהאפליקציה בטלפון.**
+             *
+             * זה מה שהופך את דו-הקיום לאמיתי: התשובה הידנית שלו
+             * נרשמת בציר הזמן, ומשתיקה את הבוט באותה שיחה — אדם
+             * לקח פיקוד. `to` הוא הלקוח שאליו נשלחה.
+             */
+            message_echoes: z
+              .array(
+                z.object({
+                  id: z.string(),
+                  to: z.string().optional(),
+                  from: z.string().optional(),
+                  type: z.string(),
+                  text: z.object({ body: z.string() }).optional(),
+                  timestamp: z.string().optional(),
+                }),
+              )
+              .optional(),
+            /**
+             * עדכון חשבון מ-Meta: ניתוק מהטלפון, שינוי דירוג איכות,
+             * חסימה. `event` נושא את הסוג ו-`ban_info`/`current_limit`
+             * את הפרטים — נקראים רק כשהם שם.
+             */
+            event: z.string().optional(),
+            current_limit: z.string().optional(),
           }),
         }),
       ),
@@ -90,6 +137,7 @@ export class WhatsAppInboundService {
     private readonly assistant: WhatsAppAssistantService,
     private readonly sender: WhatsAppSendService,
     private readonly viewingReplies: ViewingReplyService,
+    private readonly connections: WhatsAppConnectionService,
   ) {}
 
   async handle(payload: Record<string, unknown>): Promise<void> {
@@ -117,6 +165,29 @@ export class WhatsAppInboundService {
          * לאיזה קו ההודעה הגיעה ולאיזה קו אנחנו מאזינים.
          */
         const incomingLine = value.metadata?.phone_number_id ?? "חסר";
+
+        /*
+         * ‎**עדכוני חשבון והדים — לפני ניתוב ההודעות.**
+         *
+         * שניהם מגיעים על אותו Webhook ואינם הודעות של לקוח; לולאת
+         * ההודעות שמתחת הייתה מדלגת עליהם בשקט, וניתוק שהמתווך עשה
+         * מהטלפון היה נשאר „מחובר” אצלנו לנצח.
+         */
+        if (change.field === "account_update") {
+          const lineId = value.metadata?.phone_number_id;
+          if (lineId) {
+            await this.connections.applyAccountUpdate(lineId, {
+              ...(value.event ? { event: value.event } : {}),
+              ...(value.current_limit ? { qualityRating: value.current_limit } : {}),
+            });
+          }
+          continue;
+        }
+
+        if (value.message_echoes?.length) {
+          await this.handleEchoes(incomingLine, value.message_echoes);
+          continue;
+        }
 
         /*
          * ‎**תשובה לתזכורת סיור — לפני ניתוב הקווים, ולא אחריו.**
@@ -192,12 +263,27 @@ export class WhatsAppInboundService {
           })();
           continue;
         }
-        const businessNumber = value.metadata?.display_phone_number;
-        if (!businessNumber || !value.messages?.length) continue;
+        if (!value.messages?.length) continue;
 
-        const tenantId = await this.resolveTenant(businessNumber);
+        /*
+         * ‎**הניתוב לפי `phone_number_id` קודם למספר המוצג.**
+         *
+         * המזהה הוא מפתח יציב של Meta ויושב על אינדקס ייחודי; המספר
+         * המוצג חוזר בפורמטים שונים ומושווה כספרות אחרי ניקוי. משרד
+         * שחיבר את הקו שלו דרך Embedded Signup מזוהה מיד, ומשרד
+         * שהוגדר ידנית לפני כן ממשיך לעבוד דרך ה-Fallback — שני
+         * המנגנונים חיים זה לצד זה, בלי מיגרציה של נתונים.
+         */
+        const businessNumber = value.metadata?.display_phone_number;
+        const connection = value.metadata?.phone_number_id
+          ? await this.connections.byPhoneNumberId(value.metadata.phone_number_id)
+          : null;
+        const tenantId =
+          connection?.tenantId ?? (businessNumber ? await this.resolveTenant(businessNumber) : null);
         if (!tenantId) {
-          this.logger.warn(`הודעה למספר לא-משויך ${businessNumber} — נזרקת`);
+          this.logger.warn(
+            `הודעה לקו ${incomingLine} (${businessNumber ?? "ללא מספר מוצג"}) — אינו מחובר לאף משרד; נזרקת`,
+          );
           continue;
         }
 
@@ -214,8 +300,123 @@ export class WhatsAppInboundService {
             fromPhone: normalizeWaPhone(message.from),
             senderName,
             text: message.text.body,
+            ...(connection ? { connectionId: connection.id } : {}),
           });
         }
+      }
+    }
+  }
+
+  /**
+   * ‎**המתווך ענה ידנית מהאפליקציה — וזה מה שדו-קיום נועד לו.**
+   *
+   * שתי פעולות, ושתיהן נחוצות:
+   * 1. ההודעה נרשמת בציר הזמן של הליד, כך שההיסטוריה במערכת שלמה גם
+   *    כשהמתווך עובד רק מהטלפון ולא נוגע במסך.
+   * 2. הבוט מושתק באותה שיחה. בלי זה שני צדדים עונים ללקוח במקביל —
+   *    התקלה שהופכת את הפיצ'ר למביך במקום לשימושי.
+   *
+   * ‏אינו זורק לעולם: הוובהוק חייב להחזיר 200 גם כשהרישום נכשל,
+   * אחרת Meta תשלח את ההד שוב ושוב.
+   */
+  private async handleEchoes(
+    lineId: string,
+    echoes: readonly { id: string; to?: string; type: string; text?: { body: string } }[],
+  ): Promise<void> {
+    const connection = await this.connections.byPhoneNumberId(lineId);
+    if (!connection) {
+      this.logger.warn(`הד הגיע מקו ${lineId} שאינו מחובר לאף משרד — נזרק`);
+      return;
+    }
+    for (const echo of echoes) {
+      // רק טקסט בשלב הזה; מדיה שנשלחה ידנית נוספת עם שכבת המדיה
+      if (echo.type !== "text" || !echo.text || !echo.to) continue;
+      /*
+       * הערכים נלכדים כאן ולא נקראים מתוך הסגור: הצרה של הטיפוס
+       * אובדת בתוך ה-callback של הטרנזקציה, והקומפיילר צודק — `echo`
+       * הוא משתנה לולאה שאיש אינו מבטיח שלא ישתנה עד שהוא ייקרא.
+       */
+      const body = echo.text.body;
+      const echoId = echo.id;
+      const customerPhone = normalizeWaPhone(echo.to);
+      try {
+        await this.prisma.withExplicitTenant(connection.tenantId, async (tx) => {
+          const phoneHash = this.crypto.phoneHash(customerPhone);
+          const contact = await tx.contact.findUnique({
+            where: { tenantId_phoneHash: { tenantId: connection.tenantId, phoneHash } },
+            select: { id: true },
+          });
+          /*
+           * אין איש קשר ⇒ המתווך פתח שיחה עם מישהו שאינו במערכת.
+           * לא יוצרים כרטיס מהד: יצירת אנשי קשר מכל הודעה יוצאת
+           * הייתה ממלאת את המאגר בכל מי שהמתווך אי פעם כתב לו.
+           */
+          if (!contact) return;
+
+          const lead = await tx.lead.findFirst({
+            where: {
+              tenantId: connection.tenantId,
+              contactId: contact.id,
+              status: { in: ["new", "in_progress", "waiting_customer"] },
+            },
+            select: { id: true },
+          });
+
+          // Idempotency — Meta שולחת הדים כפולים כמו כל מטען אחר
+          const dupe = await tx.message.findFirst({
+            where: { tenantId: connection.tenantId, providerMessageId: echoId },
+            select: { id: true },
+          });
+          if (dupe) return;
+
+          await tx.message.create({
+            data: {
+              id: ulid(),
+              tenantId: connection.tenantId,
+              contactId: contact.id,
+              direction: "out",
+              channel: "whatsapp",
+              provider: "coexistence_echo",
+              body: body.slice(0, 4000),
+              providerMessageId: echoId,
+              status: "sent",
+            },
+          });
+
+          if (lead) {
+            await tx.interaction.create({
+              data: {
+                id: ulid(),
+                tenantId: connection.tenantId,
+                leadId: lead.id,
+                kind: "whatsapp",
+                direction: "out",
+                content: `📱 נשלח מהוואטסאפ של המתווך: ${body}`.slice(0, 4000),
+              },
+            });
+          }
+
+          /*
+           * ההשתקה על השיחה ולא על הליד: לקוח יכול להיות בלי ליד
+           * פתוח, והבוט עדיין חייב לשתוק מולו.
+           */
+          const pausedUntil = new Date(Date.now() + BOT_PAUSE_MS);
+          await tx.whatsAppConversation.upsert({
+            where: {
+              connectionId_contactId: { connectionId: connection.id, contactId: contact.id },
+            },
+            create: {
+              id: ulid(),
+              tenantId: connection.tenantId,
+              connectionId: connection.id,
+              contactId: contact.id,
+              botPausedUntil: pausedUntil,
+            },
+            update: { botPausedUntil: pausedUntil },
+          });
+        });
+      } catch (error) {
+        this.logger.warn(`רישום הד ${echoId} נכשל: ${String(error)}`);
       }
     }
   }
@@ -231,7 +432,18 @@ export class WhatsAppInboundService {
 
   private async ingestMessage(
     tenantId: string,
-    msg: { externalId: string; fromPhone: string; senderName: string; text: string },
+    msg: {
+      externalId: string;
+      fromPhone: string;
+      senderName: string;
+      text: string;
+      /**
+       * הקו שדרכו נכנסה ההודעה. קיים כשהמשרד חיבר את המספר שלו
+       * דרך Embedded Signup; חסר במסלול הישן (מספר שהוקלד בהגדרות),
+       * ואז אין שיחה לעדכן — וזה תקין.
+       */
+      connectionId?: string;
+    },
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
@@ -259,6 +471,29 @@ export class WhatsAppInboundService {
         },
         select: { id: true },
       });
+
+      /*
+       * ‎**פתיחת חלון 24 השעות של Meta.**
+       *
+       * מהרגע הזה מותר לענות ללקוח בטקסט חופשי, ובחינם, למשך 24
+       * שעות. בלי החותמת הזו כל תשובה של הבוט הייתה יוצאת אל דחייה
+       * של Meta — או, גרוע מכך, אל חיוב מיותר על תבנית.
+       */
+      if (msg.connectionId !== undefined) {
+        await tx.whatsAppConversation.upsert({
+          where: {
+            connectionId_contactId: { connectionId: msg.connectionId, contactId: contact.id },
+          },
+          create: {
+            id: ulid(),
+            tenantId,
+            connectionId: msg.connectionId,
+            contactId: contact.id,
+            lastInboundAt: new Date(),
+          },
+          update: { lastInboundAt: new Date() },
+        });
+      }
 
       // נעילה פר איש-קשר: קליטה מקבילה (וובהוק + ידנית) לא תיצור ליד כפול
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`lead-intake:${tenantId}:${contact.id}`}, 0))`;

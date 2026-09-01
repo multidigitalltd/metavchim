@@ -9,3 +9,4 @@
 | [ADR-003](ADR-003-multi-tenancy.md) | Multi-Tenancy בבסיס משותף עם RLS | מוצע |
 | [ADR-004](ADR-004-whatsapp.md) | WhatsApp Cloud API רשמי בלבד | מוצע |
 | [ADR-005](ADR-005-voice-agent.md) | Voice-AI מנוהל תחילה, עם הפשטה למעבר עצמי | מוצע |
+| [ADR-006](ADR-006-tech-provider-coexistence.md) | מספרי המתווכים: Tech Provider + Embedded Signup + Coexistence | מוצע |

@@ -99,6 +99,7 @@ model Tenant {
   users         User[]
   properties    Property[]
   whatsappLinks WhatsAppLink[]
+  whatsappBusinessConnections WhatsAppBusinessConnection[]
 
   @@index([trialEndsAt])
   @@index([paidUntil])
@@ -1530,6 +1531,79 @@ model WhatsAppLink {
 
   @@index([userId])
   @@map("whatsapp_links")
+}
+
+/// חיבור וואטסאפ ביזנס של משרד — הקו **שלו**, לא של הפלטפורמה
+/// (docs/12, ADR-006). נוצר בסיום Embedded Signup, ומכאן כל הודעה
+/// שמגיעה לאותו קו יודעת לאיזה משרד היא שייכת.
+///
+/// ‎**אינו תחת RLS למרות ה-tenant_id** — כמו `WhatsAppLink` ומאותה
+/// סיבה בדיוק: הוא נקרא בנתיב הציבורי של ה-Webhook, ברגע שבו הדייר
+/// עדיין אינו ידוע, והוא עצמו מה שמגלה אותו.
+model WhatsAppBusinessConnection {
+  id                   String    @id @db.Char(26)
+  tenantId             String    @map("tenant_id") @db.Char(26)
+  /// מזהי Meta — יציבים, לא-סודיים, מפתחות הניתוב
+  wabaId               String    @map("waba_id") @db.VarChar(32)
+  phoneNumberId        String    @map("phone_number_id") @db.VarChar(32)
+  /// המספר המוצג — ספרות בלבד (9725...), לתצוגה ולגיבוי ניתוב
+  displayPhone         String    @map("display_phone") @db.VarChar(20)
+  /// השם שהלקוחות רואים, כפי ש-Meta אישרה אותו
+  verifiedName         String?   @map("verified_name") @db.VarChar(120)
+  /**
+   * ה-business token של המתווך — הסוד של החיבור, מוצפן במנוחה.
+   *
+   * ‎**Nullable בכוונה**: בניתוק הסוד נמחק מיד והשורה נשארת, כי
+   * הסטטוס והסיבה הם מידע שהמשרד צריך לראות. עמודת חובה הייתה כופה
+   * בחירה בין החזקת סוד חי אחרי ניתוק לבין מחיקת כל המטא-דאטה.
+   */
+  accessTokenEncrypted String?   @map("access_token_encrypted") @db.Text
+  /// pending_history | connected | payment_required | disconnected | error
+  status               String    @default("pending_history") @db.VarChar(20)
+  /// האם המתווך אישר שיתוף היסטוריה, והיכן הסנכרון עומד
+  historyShared        Boolean   @default(false) @map("history_shared")
+  historySyncedThrough DateTime? @map("history_synced_through")
+  /// בריאות הקו כפי ש-Meta מדווחת ב-account_update
+  qualityRating        String?   @map("quality_rating") @db.VarChar(10)
+  messagingTier        String?   @map("messaging_tier") @db.VarChar(20)
+  connectedAt          DateTime  @default(now()) @map("connected_at")
+  disconnectedAt       DateTime? @map("disconnected_at")
+  disconnectReason     String?   @map("disconnect_reason") @db.VarChar(40)
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversations WhatsAppConversation[]
+
+  @@index([tenantId])
+  @@index([displayPhone])
+  @@map("whatsapp_business_connections")
+}
+
+/// מצב שיחת לקוח על קו של משרד (docs/12 §6): חלון 24 השעות של Meta,
+/// והאם המתווך ענה ידנית מהטלפון — ואז הבוט שותק.
+///
+/// תחת RLS מלא, בניגוד לחיבור עצמו: כאן הדייר כבר ידוע, ויש נתוני
+/// לקוחות קצה.
+model WhatsAppConversation {
+  id             String    @id @db.Char(26)
+  tenantId       String    @map("tenant_id") @db.Char(26)
+  connectionId   String    @map("connection_id") @db.Char(26)
+  contactId      String    @map("contact_id") @db.Char(26)
+  /// פתיחת חלון 24 השעות — ההודעה הנכנסת האחרונה מהלקוח
+  lastInboundAt  DateTime? @map("last_inbound_at")
+  /// המתווך ענה ידנית מהאפליקציה (echo) ⇒ הבוט שותק עד כאן
+  botPausedUntil DateTime? @map("bot_paused_until")
+  /// שלב תסריט הבוט ומה שנאסף עד כה
+  botState       Json      @default("{}") @map("bot_state")
+  /// הלקוח ביקש הסרה — אין פנייה יזומה אליו לעולם
+  optedOutAt     DateTime? @map("opted_out_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  connection WhatsAppBusinessConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, contactId])
+  @@index([tenantId, contactId])
+  @@map("whatsapp_conversations")
 }
 
 /// מספר שכתב לסוכן ואינו מזוהה כמשתמש — מתעניין, לא לקוח.

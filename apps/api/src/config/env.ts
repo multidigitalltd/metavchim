@@ -37,6 +37,16 @@ const EnvSchema = z.object({
   WHATSAPP_ACCESS_TOKEN: z.string().min(20).optional(),
   /** מזהה המספר העסקי אצל Meta (Phone Number ID) — גם מזהה את קו הסוכן בקליטה. */
   WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d{5,30}$/u).optional(),
+  /**
+   * חיבור המספר של כל משרד דרך Embedded Signup (docs/12).
+   *
+   * ‎`APP_ID` הוא מזהה האפליקציה של **הפלטפורמה** (ציבורי — הוא נשלח
+   * לדפדפן כדי לפתוח את הפופאפ), ו-`SIGNUP_CONFIG_ID` הוא מזהה
+   * הקונפיגורציה של Facebook Login for Business. חסרים = כפתור
+   * החיבור מוסתר במסך ההגדרות, וזו התנהגות תקינה ולא תקלה.
+   */
+  WHATSAPP_APP_ID: z.string().regex(/^\d{5,30}$/u).optional(),
+  WHATSAPP_SIGNUP_CONFIG_ID: z.string().regex(/^\d{5,30}$/u).optional(),
   /** סוד ה-Webhook של Kanko — קליטת ביקושים סגורה עד שהוא מוגדר. */
   KANKO_WEBHOOK_SECRET: z.string().min(16).optional(),
   /** שעות מהפתיחה הראשונה של הצעה ועד משימת פולו-אפ אם הקונה לא הגיב. */

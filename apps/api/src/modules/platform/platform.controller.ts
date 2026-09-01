@@ -328,6 +328,16 @@ const UpdateSettingsSchema = z
     vatPercent: z.union([z.string().trim().regex(/^\d{1,2}$/u), z.literal("")]).optional(),
     whatsappAppSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     whatsappVerifyToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
+    /**
+     * חיבור המספר של כל משרד (docs/12) — מזהה האפליקציה ומזהה
+     * הקונפיגורציה של Embedded Signup. שניהם מזהים ציבוריים של Meta
+     * (הם נשלחים לדפדפן כדי לפתוח את הפופאפ), ולכן ספרות בלבד ובלי
+     * דרישת אורך של סוד.
+     */
+    whatsappAppId: z.union([z.string().trim().regex(/^\d{5,30}$/u), z.literal("")]).optional(),
+    whatsappSignupConfigId: z
+      .union([z.string().trim().regex(/^\d{5,30}$/u), z.literal("")])
+      .optional(),
     /** הסוכן האישי — טוקן קבוע של System User, לא הטוקן הזמני ממסך הפיתוח */
     whatsappAccessToken: z.union([z.string().trim().min(20).max(500), z.literal("")]).optional(),
     // מזהה ולא כמות — ספרות בלבד, אפסים מובילים משמעותיים
