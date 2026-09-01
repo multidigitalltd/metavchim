@@ -26,6 +26,13 @@ import {
   IdSchema,
   PLAN_FEATURES,
   AssignableRoleSchema,
+  BuyerMaturitySchema,
+  MAX_OFFICE_STATUS_LABEL,
+  addOfficeStatus,
+  removeOfficeStatus,
+  updateOfficeStatus,
+  type OfficeBuyerStatus,
+  type OfficeStatusResult,
   clearEffect,
   describeOverride,
   isOverrideActive,
@@ -68,6 +75,10 @@ import {
 } from "../../common/auth.decorators";
 import { lockTenantRow } from "../../common/locks";
 import { whatsappSeatQuotaWhere } from "../../core/whatsapp-seat-quota";
+import {
+  readOfficeStatuses,
+  writeOfficeStatuses,
+} from "../../common/office-buyer-statuses";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
@@ -213,6 +224,31 @@ const UpdateUserSchema = z
 const AuditQuerySchema = z
   .object({ limit: z.coerce.number().int().min(1).max(100).default(50) })
   .strict();
+
+/**
+ * סטטוס משרד: התווית והדרגה שהוא נשען עליה. המזהה נקבע בשרת
+ * (`nextOfficeStatusId`) ואינו נשלח — לקוח שקובע מזהים היה יכול
+ * לדרוס סטטוס קיים בכתיבה „חדשה”.
+ */
+const CreateBuyerStatusSchema = z
+  .object({
+    label: z.string().trim().min(2).max(MAX_OFFICE_STATUS_LABEL),
+    maturity: BuyerMaturitySchema,
+  })
+  .strict();
+
+const UpdateBuyerStatusSchema = z
+  .object({
+    label: z.string().trim().min(2).max(MAX_OFFICE_STATUS_LABEL).optional(),
+    maturity: BuyerMaturitySchema.optional(),
+    /** החזרה משימוש, או הוצאה ממנו בלי למחוק. */
+    archived: z.boolean().optional(),
+  })
+  .strict()
+  .refine((body) => Object.keys(body).length > 0, { message: "לא נשלח שינוי" });
+
+/** ‎`IdSchema` הוא ULID; מזהה סטטוס הוא קצר ומהצורה `s7`. */
+const BuyerStatusIdSchema = z.string().regex(/^[a-z0-9]{2,24}$/u);
 
 /** שם המקור נכנס כ-source של הליד — ולכן מוגבל לאורך העמודה שם (20) */
 const LeadWebhookSchema = z
@@ -873,6 +909,111 @@ export class SettingsController {
         entityId: tenantId,
       }),
     );
+  }
+
+  /*
+   * ‎-------------------------------------------------------------
+   * ‎סטטוסי הקונים של המשרד — שכבה ב'
+   * ‎-------------------------------------------------------------
+   *
+   * ראו `packages/shared/logic/buyer-status.ts` להסבר מלא על שתי
+   * השכבות. בקצרה: `maturity` (ארבע דרגות) נשארת כפי שהיא ומזינה את
+   * הדשבורד, ההתאמות וההתראות; הרשימה כאן היא המילים של המשרד,
+   * וכל סטטוס נושא דרגה שהוא נשען עליה.
+   */
+
+  /**
+   * ‎**קריאה פתוחה למי שעורך כרטיסים, ולא ל-`settings.manage` בלבד.**
+   *
+   * הבורר על כרטיס הקונה, הבורר בטופס קונה חדש והסינון ברשימה — כולם
+   * צריכים את הרשימה כדי להציג בכלל את הסטטוס שכבר שמור. סוכן שאינו
+   * מנהל היה רואה כרטיס עם מזהה במקום שם, כלומר תקלה שנראית כמו
+   * נתון פגום.
+   *
+   * ‎**מי שרואה כרטיס קונה** — גם `view_own` בלבד — צריך את התוויות.
+   * זו אינה הגדרה שהוא יכול לשנות: הכתיבה למטה דורשת `settings.manage`.
+   */
+  @Get("buyer-statuses")
+  @RequireCapability(
+    "buyers.view_all",
+    "buyers.view_own",
+    "buyers.edit",
+    "settings.manage",
+  )
+  async buyerStatuses(): Promise<{ statuses: OfficeBuyerStatus[] }> {
+    const tenantId = TenantContext.current().tenantId;
+    return { statuses: await readOfficeStatuses(this.prisma, tenantId) };
+  }
+
+  @Post("buyer-statuses")
+  @RequireCapability("settings.manage")
+  @HttpCode(200)
+  async createBuyerStatus(
+    @Body(new ZodValidationPipe(CreateBuyerStatusSchema))
+    body: z.infer<typeof CreateBuyerStatusSchema>,
+  ): Promise<{ statuses: OfficeBuyerStatus[] }> {
+    return this.saveBuyerStatuses("settings.buyer_status_create", (list) =>
+      addOfficeStatus(list, body),
+    );
+  }
+
+  @Patch("buyer-statuses/:id")
+  @RequireCapability("settings.manage")
+  async updateBuyerStatus(
+    @Param("id", new ZodValidationPipe(BuyerStatusIdSchema)) id: string,
+    @Body(new ZodValidationPipe(UpdateBuyerStatusSchema))
+    body: z.infer<typeof UpdateBuyerStatusSchema>,
+  ): Promise<{ statuses: OfficeBuyerStatus[] }> {
+    return this.saveBuyerStatuses("settings.buyer_status_update", (list) =>
+      updateOfficeStatus(list, id, body),
+    );
+  }
+
+  /**
+   * ‎**מחיקה שהופכת להסתרה כשהסטטוס בשימוש.**
+   *
+   * המחיקה אינה נחסמת „עד שיתפנה”: היא מוחלפת בהסתרה, שנותנת את אותה
+   * תוצאה בתפריט בלי לגעת בכרטיסים שנושאים אותו. חסימה הייתה מכריחה
+   * את המשרד לעבור כרטיס-כרטיס כדי לנקות שלב שיצא משימוש, ומחיקה
+   * שקטה הייתה הופכת אותם ל„סטטוס לא ידוע”.
+   */
+  @Delete("buyer-statuses/:id")
+  @RequireCapability("settings.manage")
+  async deleteBuyerStatus(
+    @Param("id", new ZodValidationPipe(BuyerStatusIdSchema)) id: string,
+  ): Promise<{ statuses: OfficeBuyerStatus[] }> {
+    const inUse = await this.prisma.withTenant((tx) =>
+      tx.buyer.count({ where: { officeStatus: id, deletedAt: null } }),
+    );
+    return this.saveBuyerStatuses("settings.buyer_status_delete", (list) =>
+      removeOfficeStatus(list, id, inUse > 0),
+    );
+  }
+
+  /**
+   * ‎**קריאה-שינוי-כתיבה בטרנזקציה אחת.**
+   *
+   * הרשימה יושבת ב-`tenants.settings`, ולכן כתיבה שקראה מחוץ
+   * לטרנזקציה הייתה דורסת עריכה מקבילה של סטטוס אחר — או של הגדרה
+   * אחרת לגמרי, כי כולן חולקות את אותו אובייקט JSON.
+   */
+  private async saveBuyerStatuses(
+    action: string,
+    change: (list: OfficeBuyerStatus[]) => OfficeStatusResult,
+  ): Promise<{ statuses: OfficeBuyerStatus[] }> {
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.withTenant(async (tx) => {
+      const result = change(await readOfficeStatuses(tx, tenantId));
+      if (!result.ok) throw new BadRequestException(result.error);
+      await writeOfficeStatuses(tx, tenantId, result.list);
+      await this.audit.record(tx, {
+        action,
+        entityType: "tenant",
+        entityId: tenantId,
+        metadata: { statusId: result.id },
+      });
+      return { statuses: result.list };
+    });
   }
 
   @Patch("tenant")

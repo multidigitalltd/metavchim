@@ -21,6 +21,7 @@ import {
   type ListFilterValues,
 } from "../list-filters";
 import { Notice } from "../notice";
+import { useOfficeStatuses } from "../use-office-statuses";
 import { OpenIntakePanel } from "./open-intake-panel";
 
 /**
@@ -40,6 +41,8 @@ interface BuyerRow {
     roomsMax?: number;
   };
   maturity: string;
+  /** מזהה סטטוס המשרד — התווית נפתרת מול הרשימה שנטענת בנפרד. */
+  officeStatus?: string;
   source: string;
   offersReceived?: number;
   lastActivityAt?: string;
@@ -102,6 +105,15 @@ export default function BuyersPage() {
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
   const [maturity, setMaturity] = useState("");
+  /*
+   * ‎**סטטוס המשרד מצטלב עם הבשלות ואינו מתחרה בה.**
+   *
+   * כל סטטוס נושא דרגה, ולכן „חם” + „בסבב סיורים” הוא חיתוך תקין
+   * ולעולם לא סתירה שמחזירה רשימה ריקה בלי הסבר. הבשלות היא הסינון
+   * הגס, והסטטוס הוא המדויק.
+   */
+  const [officeStatus, setOfficeStatus] = useState("");
+  const { statuses: officeStatuses } = useOfficeStatuses();
   const [offersFilter, setOffersFilter] = useState("");
   /** קונה (sale) או שוכר (rent) — הלשונית היא "קונים · שוכרים" */
   const [dealType, setDealType] = useState("");
@@ -117,7 +129,11 @@ export default function BuyersPage() {
   const [bulkNote, setBulkNote] = useState<string | null>(null);
 
   // קישורי הפילוח מהדשבורד: /buyers?maturity=hot וכדומה
-  useFilterFromUrl({ maturity: setMaturity, dealType: setDealType });
+  useFilterFromUrl({
+    maturity: setMaturity,
+    dealType: setDealType,
+    officeStatus: setOfficeStatus,
+  });
 
   /*
    * טווחי התקציב והחדרים נשלחים לשרת; החיפוש הטקסטואלי נשאר בדפדפן.
@@ -150,19 +166,32 @@ export default function BuyersPage() {
     });
   }
 
+  /*
+   * ‎**כולל מה שהוסר משימוש, כשכרטיס עדיין נושא אותו.** אחרת סטטוס
+   * שהמשרד הסתיר היה הופך את הכרטיסים שנושאים אותו לבלתי ניתנים
+   * לסינון — כלומר קבוצה שרואים ואי אפשר לבודד.
+   */
+  const statusFilterOptions = useMemo<[string, string][]>(() => {
+    const used = new Set((items ?? []).map((b) => b.officeStatus ?? ""));
+    return officeStatuses
+      .filter((entry) => !entry.archived || used.has(entry.id))
+      .map((entry) => [entry.id, entry.archived ? `${entry.label} (הוסר)` : entry.label]);
+  }, [officeStatuses, items]);
+
   const visible = useMemo(
     () =>
       (items ?? []).filter(
         (b) =>
           textMatches(filters.q, b.contact.name, b.contact.phone, ...b.requirements.cities) &&
           (!maturity || b.maturity === maturity) &&
+          (!officeStatus || b.officeStatus === officeStatus) &&
           (!dealType || (b.requirements.dealType ?? "sale") === dealType) &&
           // "מי לא קיבל כלום" הוא הסינון שמייצר עבודה בפועל
           (offersFilter === "" ||
             (offersFilter === "none" && (b.offersReceived ?? 0) === 0) ||
             (offersFilter === "some" && (b.offersReceived ?? 0) > 0)),
       ),
-    [items, filters.q, maturity, offersFilter, dealType],
+    [items, filters.q, maturity, officeStatus, offersFilter, dealType],
   );
 
   /*
@@ -406,6 +435,19 @@ export default function BuyersPage() {
               allLabel="כל רמות הבשלות"
               options={Object.entries(MATURITY_LABELS)}
             />
+            {/*
+              מוצג רק כשיש מה לבחור: משרד שלא הגדיר סטטוסים היה מקבל
+              בורר ריק שנראה כמו תקלה.
+            */}
+            {statusFilterOptions.length > 0 ? (
+              <FilterSelect
+                label="סינון לפי סטטוס המשרד"
+                value={officeStatus}
+                onChange={setOfficeStatus}
+                allLabel="כל הסטטוסים"
+                options={statusFilterOptions}
+              />
+            ) : null}
             <FilterSelect
               label="סינון לפי הצעות שקיבל"
               value={offersFilter}
@@ -617,6 +659,7 @@ export default function BuyersPage() {
             show={
               (hasActiveFilters(filters) ||
                 maturity !== "" ||
+                officeStatus !== "" ||
                 offersFilter !== "" ||
                 dealType !== "") &&
               items.length === 100
