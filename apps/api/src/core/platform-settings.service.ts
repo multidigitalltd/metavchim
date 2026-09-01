@@ -45,6 +45,18 @@ export type PlatformSettingKey =
   | "whatsappAppSecret"
   | "whatsappVerifyToken"
   /**
+   * חיבור המספר של כל משרד דרך Embedded Signup (docs/12, ADR-006).
+   *
+   * ‎`whatsappAppId` הוא מזהה האפליקציה של הפלטפורמה — **ציבורי
+   * מעצם טיבו**, הוא נשלח לדפדפן כדי לפתוח את פופאפ החיבור, וההצפנה
+   * באחסון היא של המנגנון ואינה מעידה על סודיות (כמו `mapboxToken`).
+   * ‎`whatsappSignupConfigId` הוא מזהה הקונפיגורציה של Facebook Login
+   * for Business, המוגדרת פעם אחת אצל Meta. חסרים = כפתור החיבור
+   * מוסתר, במקום להיכשל בלחיצה.
+   */
+  | "whatsappAppId"
+  | "whatsappSignupConfigId"
+  /**
    * הסוכן האישי בוואטסאפ — האסימון והמספר שדרכם הוא עונה.
    *
    * ה-Access Token הוא של System User קבוע (לא הטוקן הזמני ממסך

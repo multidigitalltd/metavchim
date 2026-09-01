@@ -380,6 +380,8 @@ export function PlatformSettingsSection({
       const verify = String(f.get("whatsappVerifyToken")).trim();
       const accessToken = String(f.get("whatsappAccessToken") ?? "").trim();
       const phoneNumberId = String(f.get("whatsappPhoneNumberId") ?? "").trim();
+      const appId = String(f.get("whatsappAppId") ?? "").trim();
+      const signupConfigId = String(f.get("whatsappSignupConfigId") ?? "").trim();
       const prospectReply = String(f.get("whatsappProspectReply") ?? "").trim();
       const notifyTemplate = String(f.get("whatsappNotifyTemplate") ?? "").trim();
       const notifyTemplateLang = String(f.get("whatsappNotifyTemplateLang") ?? "").trim();
@@ -403,6 +405,8 @@ export function PlatformSettingsSection({
         ...(verify !== "" ? { whatsappVerifyToken: verify } : {}),
         ...(accessToken !== "" ? { whatsappAccessToken: accessToken } : {}),
         ...(phoneNumberId !== "" ? { whatsappPhoneNumberId: phoneNumberId } : {}),
+        ...(appId !== "" ? { whatsappAppId: appId } : {}),
+        ...(signupConfigId !== "" ? { whatsappSignupConfigId: signupConfigId } : {}),
         // נשלח תמיד, גם ריק: זה שדה ערך (כמו המסמכים המשפטיים),
         // וריקון מכוון הוא חזרה לנוסח המובנה — לא "בלי שינוי"
         whatsappProspectReply: prospectReply,
@@ -1619,6 +1623,52 @@ export function PlatformSettingsSection({
               inputMode="numeric"
               autoComplete="off"
               placeholder={settings.whatsapp.assistant.configured ? "מוגדר" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+
+          {/*
+            חיבור עצמאי של מספרי המשרדים (docs/12). שני מזהים ציבוריים
+            של Meta ולא סודות — הם נשלחים לדפדפן כדי לפתוח את פופאפ
+            החיבור. בלעדיהם הכפתור אצל המשרדים פשוט אינו מוצג.
+          */}
+          <div className="w-full border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
+            <p className="mb-2 font-medium">חיבור עצמאי של מספרי המשרדים</p>
+            <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              מה שמאפשר לכל משרד לחבר את המספר שלו בעצמו, בלי לוותר על אפליקציית
+              WhatsApp Business בטלפון. ה-App ID מופיע בלוח הבקרה של האפליקציה
+              ב-Meta; ה-Configuration ID נוצר תחת Facebook Login for Business ←
+              Configurations. ריקים = כפתור החיבור מוסתר במסך ההגדרות של המשרדים.
+            </p>
+          </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="whatsappAppId" className="mb-1 block font-medium">
+              App ID <span className="font-normal">(ספרות בלבד)</span>
+            </label>
+            <input
+              id="whatsappAppId"
+              name="whatsappAppId"
+              type="text"
+              dir="ltr"
+              inputMode="numeric"
+              autoComplete="off"
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="whatsappSignupConfigId" className="mb-1 block font-medium">
+              Embedded Signup Configuration ID{" "}
+              <span className="font-normal">(ספרות בלבד)</span>
+            </label>
+            <input
+              id="whatsappSignupConfigId"
+              name="whatsappSignupConfigId"
+              type="text"
+              dir="ltr"
+              inputMode="numeric"
+              autoComplete="off"
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />

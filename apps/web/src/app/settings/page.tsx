@@ -16,6 +16,7 @@ import { DeleteAccountSection } from "./delete-account-section";
 import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
 import { PlanSection } from "./plan-section";
+import { WhatsAppBusinessSection } from "./whatsapp-business-section";
 import { WhatsAppStatusSection } from "./whatsapp-status-section";
 import { WhatsAppSeatPanel } from "./whatsapp-seat-panel";
 import { LockedFeature } from "./locked-feature";
@@ -1181,7 +1182,8 @@ export default function SettingsPage() {
             הקטע רק מציג ✗ אדומים שאין להם מה לעשות איתם.
           */}
               {user?.role === "owner" ? (
-                <div id="whatsapp">
+                <div id="whatsapp" className="flex flex-col gap-4">
+                  <WhatsAppBusinessSection />
                   <WhatsAppStatusSection />
                 </div>
               ) : null}

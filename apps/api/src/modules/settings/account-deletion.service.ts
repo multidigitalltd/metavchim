@@ -299,6 +299,13 @@ export class AccountDeletionService {
         await tx.message.deleteMany({ where: { tenantId } });
         // שיחות הסוכן בוואטסאפ — ההצעות וההיסטוריה מכילות פרטי לקוחות
         await tx.whatsAppChat.deleteMany({ where: { tenantId } });
+        /*
+         * שיחות הבוט מול לקוחות הקצה על הקו של המשרד (docs/12).
+         * ‎`whatsapp_business_connections` עצמו נמחק ב-Cascade של
+         * ה-FK לדייר, והשיחות תלויות בו — אבל המחיקה כאן מפורשת
+         * ולא נסמכת על סדר: השורות מכילות מזהי לקוחות ומצב שיחה.
+         */
+        await tx.whatsAppConversation.deleteMany({ where: { tenantId } });
         await tx.agentEvent.deleteMany({ where: { tenantId } });
         await tx.call.deleteMany({ where: { tenantId } });
         // צילומי הניתוב של שיחות שעדיין באוויר ברגע המחיקה
