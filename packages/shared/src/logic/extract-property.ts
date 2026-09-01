@@ -294,6 +294,11 @@ export function extractPropertyFromTranscript(
     [/דופלקס/u, "duplex"],
     [/בית פרטי|קוטג/u, "private_house"],
     [/יחידת דיור/u, "unit"],
+    /*
+     * לפני „דירה” הכללית, אחרת „דירת נכה” נבלעת בה: הביטוי מכיל
+     * „דירת”, והדפוס הכללי היה תופס אותו ראשון ושומר `apartment`.
+     */
+    [/דירת נכה|דירת נכים|דירה לנכה|דירה לנכים|דירה מונגשת/u, "accessible_apartment"],
     [/דירה|דירת/u, "apartment"],
   ];
   for (const [re, type, unless] of typeMap) {

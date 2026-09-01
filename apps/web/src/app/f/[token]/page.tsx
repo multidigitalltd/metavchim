@@ -8,6 +8,7 @@ import {
   type IntakeAnswers,
   type IntakeFeature,
   type IntakeSellerAnswers,
+  type PropertyType,
 } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { PROPERTY_TYPE_LABELS } from "@/lib/format";
@@ -74,12 +75,18 @@ interface PublicView {
  * המחרוזת הגולמית, ומנוע ההתאמות לא היה מוצא לו אף נכס — בלי ששום
  * דבר נראה שבור. השמות הנכונים הם `private_house` ו-`plot`.
  */
-const TYPES = [
+const TYPES: PropertyType[] = [
   "apartment",
   "garden_apartment",
   "penthouse",
   "duplex",
   "private_house",
+  /*
+   * ‎**דירת נכה מוצגת גם ללקוח ולא רק למתווך.** מי שזקוק לנגישות
+   * יודע את זה מראש וזו הדרישה הראשונה שלו, ובלי הכפתור הוא היה
+   * בוחר „דירה” — והמשרד היה מגלה את הצורך רק בסיור.
+   */
+  "accessible_apartment",
   "plot",
 ];
 

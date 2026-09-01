@@ -148,12 +148,34 @@ describe("extractPropertyFromTranscript — קליטת נכס בקול", () => {
         ["דופלקס בחיפה", "duplex"],
         ["בית פרטי בהרצליה", "private_house"],
         ["יחידת דיור בירושלים", "unit"],
+        ["דירת נכה בבני ברק", "accessible_apartment"],
       ];
       for (const [said, expected] of cases) {
         expect(
           extractPropertyFromTranscript(said).fields.propertyType,
           said,
         ).toBe(expected);
+      }
+    });
+
+    /*
+     * ‎**„דירת נכה” מכילה „דירת”, והדפוס הכללי בא אחרון בכוונה.**
+     * לו הסדר היה הפוך הסוג היה נשמר כ-`apartment`, והמתווך שאמר
+     * במפורש „דירת נכה” היה מקבל כרטיס שלא ניתן למצוא לפי מה שאמר.
+     * הניסוחים כאן הם מה שנאמר בטלפון בפועל, ולא צורה קנונית אחת.
+     */
+    it("דירת נכה מזוהה בכל ניסוחיה ואינה נבלעת ב„דירה”", () => {
+      for (const said of [
+        "דירת נכה",
+        "דירת נכים",
+        "דירה לנכה עם כניסה מהרחוב",
+        "דירה לנכים",
+        "דירה מונגשת בקומת קרקע",
+      ]) {
+        expect(
+          extractPropertyFromTranscript(said).fields.propertyType,
+          said,
+        ).toBe("accessible_apartment");
       }
     });
 

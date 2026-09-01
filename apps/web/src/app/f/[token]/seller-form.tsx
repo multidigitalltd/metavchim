@@ -7,6 +7,7 @@ import {
   INTAKE_SELLER_NOTES_MAX,
   type IntakeSellerAnswers,
   type IntakeSellerFeature,
+  type PropertyType,
 } from "@metavchim/shared";
 import { ApiError, apiPost } from "@/lib/api";
 import { PROPERTY_TYPE_LABELS } from "@/lib/format";
@@ -35,12 +36,18 @@ import { Choice, Field, Shell } from "./form-parts";
  */
 
 /** סוגי הנכס שמוצעים למוכר. אותה רשימה קצרה של הצד השני. */
-const TYPES = [
+const TYPES: PropertyType[] = [
   "apartment",
   "garden_apartment",
   "penthouse",
   "duplex",
   "private_house",
+  /*
+   * ‎**דירת נכה מוצגת גם ללקוח ולא רק למתווך.** מי שזקוק לנגישות
+   * יודע את זה מראש וזו הדרישה הראשונה שלו, ובלי הכפתור הוא היה
+   * בוחר „דירה” — והמשרד היה מגלה את הצורך רק בסיור.
+   */
+  "accessible_apartment",
   "plot",
 ];
 

@@ -44,6 +44,7 @@ import { DISMISS_REASONS, DISMISS_REASON_LABEL } from "../logic/match-feedback.j
 import type { Capability } from "../rbac.js";
 import type { PlanFeature } from "../logic/plans.js";
 import type { AgentFieldSpec } from "./field-spec.js";
+import type { PropertyType } from "../schemas/property.js";
 
 export const AGENT_ACTION_IDS = [
   "search",
@@ -197,10 +198,17 @@ const PROPERTY_TYPE_LABELS = {
   unit: "יחידת דיור",
   shared_tabu: "טאבו משותף",
   divisible_apartment: "דירה מתאימה לחלוקה",
+  accessible_apartment: "דירת נכה",
   plot: "מגרש",
   commercial: "מסחרי",
   other: "אחר",
-} as const;
+  /*
+   * ‎`satisfies` ולא רק `as const`: הקטלוג הזה הוא מה שהסוכן הקולי
+   * מקבל כרשימת הערכים החוקיים, וסוג שחסר בו פשוט אינו קיים בשבילו
+   * — המתווך אומר „דירת נכה” והסוכן עונה שאינו מכיר סוג כזה. השגיאה
+   * הזו שייכת להידור ולא לשיחה עם לקוח.
+   */
+} as const satisfies Record<PropertyType, string>;
 
 const FEATURE_LABELS = {
   hasElevator: "מעלית",
