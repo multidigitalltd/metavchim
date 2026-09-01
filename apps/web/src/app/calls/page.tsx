@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { API_BASE, ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
@@ -11,6 +18,7 @@ import {
   CALL_OUTCOME_MANUAL,
   jerusalemLocalInputValue,
   jerusalemWallErrorMessage,
+  callConversionHint,
   recordingStateLabel,
   resolveJerusalemLocalInput,
   type CallHighlights,
@@ -18,6 +26,12 @@ import {
   JERUSALEM_TZ,
 } from "@metavchim/shared";
 import { CallHighlightFields, CallTranscript } from "./call-parts";
+import {
+  ConvertSection,
+  ConvertToPropertySection,
+  type ConvertPrefill,
+} from "../leads/convert-sections";
+
 import { IconSparkle } from "../icons";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
@@ -41,6 +55,11 @@ interface CallRow {
   source: string;
   contactName?: string;
   leadId?: string;
+  /**
+   * ‎`converted` = כבר הפך לכרטיס. **חסר = אין ליד, או שהליד אינו
+   * שלך** — ובשני המקרים אין מה להציע. ראו את ה-DTO בשרת.
+   */
+  leadStatus?: string;
   phone?: string;
   occurredAt: string;
   durationMinutes?: number;
@@ -125,6 +144,34 @@ const timeFmt = new Intl.DateTimeFormat("he-IL", {
   minute: "2-digit",
 });
 
+/**
+ * ‎**האם כרטיס הפרטים נפתח מתחת לשורה שנלחצה.**
+ *
+ * הפריסה היא שתי עמודות מ-`lg` ומעלה, ועמודה אחת מתחת לזה. בעמודה
+ * אחת „העמודה השנייה” נערמת **מתחת לרשימה כולה** — כלומר לחיצה על
+ * שורה במסך של עשרים שיחות לא משנה שום דבר ממה שרואים.
+ *
+ * ‎**1024 ולא ניחוש:** זו נקודת `lg` של טיילווינד, אותה נקודה שבה
+ * ‎`lg:grid-cols-[330px_1fr]` נכנס לתוקף. שני מספרים שהיו נפרדים היו
+ * מייצרים רוחב שבו הכרטיס מוצג פעמיים או באף מקום.
+ *
+ * ‎**חסר ב-SSR זה בסדר כאן:** אין שיחה נבחרת ברינדור הראשון, ולכן
+ * אין מה למקם עד שמישהו לוחץ — וזה תמיד אחרי ההידרציה.
+ */
+const TWO_PANE = "(min-width: 1024px)";
+
+function useDetailUnderRow(): boolean {
+  const [underRow, setUnderRow] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia(TWO_PANE);
+    const apply = (): void => setUnderRow(!query.matches);
+    apply();
+    query.addEventListener("change", apply);
+    return () => query.removeEventListener("change", apply);
+  }, []);
+  return underRow;
+}
+
 export default function CallsPage() {
   const { user, loading: authLoading } = useRequireAuth();
   /*
@@ -150,6 +197,7 @@ export default function CallsPage() {
   const [query, setQuery] = useState("");
   const [direction, setDirection] = useState("");
   const [selected, setSelected] = useState<CallRow | null>(null);
+  const underRow = useDetailUnderRow();
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -298,6 +346,245 @@ export default function CallsPage() {
     await apiDelete(`/calls/${id}`);
     load();
   }
+
+  /*
+   * ‎**כרטיס הפרטים נבנה פעם אחת ומוצב במקום אחד** — במובייל מתחת
+   * לשורה שנלחצה, ובמסך רחב בעמודה שלצידה.
+   *
+   * ‎**ולא שני עותקים עם `hidden` לכל אחד:** התמלול, ההערות ונגן
+   * ההקלטה היו נטענים פעמיים, שני נגני `‎<audio>` לאותה שיחה היו
+   * חיים במקביל, והמזהים בתוכם היו כפולים. עותק שני שמוסתר ב-CSS
+   * אינו חינם — הוא פשוט לא נראה.
+   */
+  /*
+   * ‎**ההמרה — לקונה או לנכס — ישירות מהשיחה** (בקשת המשתמש).
+   *
+   * ## מה השיחה כבר יודעת
+   *
+   * ‎`highlights.side` הוא הצד שבו הלקוח עומד, כפי שחולץ ממה שנאמר
+   * בפועל. זו ההבחנה שמשנה את כל ההמשך: למי שמחפש שולחים נכסים,
+   * ממי שמוכר מבקשים בלעדיות. לכן היא **קובעת את הסדר** — הכיוון
+   * שהשיחה זיהתה מופיע ראשון — ולא מסתירה את השני: זיהוי אוטומטי
+   * שטועה וסוגר את הדרך הנכונה גרוע משני כפתורים.
+   *
+   * ## ומה כבר לא נשאל שוב
+   *
+   * עיר, תקציב, חדרים וכתובת נכנסים לטופס מ-`highlights`. טופס ריק
+   * מיד אחרי שהמסך הציג „4 חדרים בבני ברק, 2.4 מיליון” מבקש
+   * להקליד מחדש את מה שנקרא זה עתה.
+   *
+   * ‎`null` בשלושה מקרים, וכולם תקינים: אין ליד (שיחה מלקוח שכבר יש
+   * לו כרטיס), הליד כבר הומר, או שאין הרשאה לאף אחת משתי ההמרות.
+   */
+  const convert = ((): ReactNode => {
+    if (selected?.leadId === undefined) return null;
+    /*
+     * ‎**נוכחות השדה היא הרשות** (ביקורת Codex). השרת מחזיר סטטוס רק
+     * לליד שהמשתמש רשאי לגעת בו: ראות שיחה וראות ליד אינן אותו דבר,
+     * וסוכן יכול לראות שיחה דרך נכס גלוי בזמן שהליד שייך לאחר.
+     * בלי הבדיקה הזו הוא היה ממלא טופס שלם ומקבל 404.
+     */
+    if (selected.leadStatus === undefined) return null;
+    if (selected.leadStatus === "converted") return null;
+    const mayBuyer = can(user, "buyers.edit");
+    const mayProperty = can(user, "properties.create");
+    if (!mayBuyer && !mayProperty) return null;
+
+    const highlights = selected.highlights ?? {};
+    const hint = callConversionHint(highlights);
+    const prefill: ConvertPrefill = {
+      ...(highlights.city === undefined ? {} : { city: highlights.city }),
+      ...(highlights.budget === undefined ? {} : { priceShekels: highlights.budget }),
+      ...(highlights.rooms === undefined ? {} : { rooms: highlights.rooms }),
+      ...(highlights.address === undefined ? {} : { street: highlights.address }),
+      ...(hint.dealType === undefined ? {} : { dealType: hint.dealType }),
+    };
+
+    /*
+     * ‎**המפתח נושא את מזהה השיחה** (ביקורת Codex).
+     *
+     * מפתח קבוע השאיר את הטפסים מחוברים במעבר בין שיחות: השדות
+     * אינם מבוקרים (`defaultValue`), ולכן מה שהוקלד — או מה שמולא
+     * מראש — לשיחה א׳ נשאר על המסך בזמן ש-`leadId` כבר מצביע על
+     * ב׳. שליחה שמרה את העיר, התקציב והכתובת של א׳ **על הכרטיס של
+     * ב׳**, בשקט.
+     *
+     * ‎**מזהה השיחה ולא מזהה הליד:** המילוי מראש נגזר מ-`highlights`
+     * של השיחה, ולשתי שיחות של אותו ליד יש מילוי שונה. מפתח לפי ליד
+     * היה משאיר על המסך את הערכים של השיחה הקודמת.
+     */
+    const buyer = mayBuyer ? (
+      <ConvertSection key={`buyer-${selected.id}`} leadId={selected.leadId} prefill={prefill} />
+    ) : null;
+    const property = mayProperty ? (
+      <ConvertToPropertySection
+        key={`property-${selected.id}`}
+        leadId={selected.leadId}
+        prefill={prefill}
+      />
+    ) : null;
+
+    return (
+      <div className="mt-5">
+        <CallSection title="המשך טיפול" />
+        {hint.sentence === "" ? null : (
+          <p
+            className="mb-2 mt-0 text-[length:var(--type-caption-lg)]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            {`מהשיחה עולה ש${hint.sentence}`}
+          </p>
+        )}
+        <div className="flex flex-wrap items-start gap-3">
+          {hint.sellerFirst ? [property, buyer] : [buyer, property]}
+        </div>
+      </div>
+    );
+  })();
+
+  /*
+   * ‎**„מתחת לשורה” תקף רק כשהשורה באמת מוצגת.**
+   *
+   * שינוי מסנן התוצאה אינו מנקה את הבחירה, ולכן שיחה נבחרת יכולה
+   * לצאת מהרשימה בזמן שהיא פתוחה. בלי הבדיקה הזו הכרטיס לא היה
+   * נמצא **בשום מקום**: לא בתוך שורה שאינה מרונדרת, ולא אחרי
+   * הרשימה. הוא חוזר למקומו הקודם — נראה, גם אם לא צמוד לשורה.
+   */
+  const inlineDetail =
+    underRow && selected !== null && visible.some((call) => call.id === selected.id);
+
+  const detail = selected ? (
+    <section
+      aria-label="פרטי השיחה"
+      /*
+        ‎**במובייל אין לו מסגרת כרטיס משלו.** הוא יושב בתוך שורת
+        הרשימה, שהיא עצמה בתוך כרטיס — מסגרת שנייה בתוך הראשונה
+        נראית כמו תקלה. קו הפרדה עליון מספיק כדי לומר „זה שייך
+        לשורה שמעליי”.
+      */
+      className={inlineDetail ? "" : "mv-list-card"}
+      /*
+        ‎**קו אחד בין השורה לכרטיס, לא שניים.** לכפתור השורה כבר יש
+        ‎`border-bottom`, וקו עליון כאן היה מצייר אותו פעמיים. הקו
+        התחתון הוא מה שסוגר את הקבוצה מול השורה הבאה — בלעדיו
+        הכרטיס נראה כשייך למי שמתחתיו.
+      */
+      style={
+        inlineDetail
+          ? { borderBottom: "1px solid var(--color-row-border)" }
+          : undefined
+      }
+    >
+      <div
+        className="flex flex-wrap items-center gap-3 px-[22px] py-4"
+        style={{ borderBottom: "1px solid var(--color-card-head-border)" }}
+      >
+        <div style={{ lineHeight: 1.35 }}>
+          <h2 className="m-0" style={{ fontSize: "calc(18 / 16 * 1rem)", fontWeight: 800 }}>
+            {selected.contactName ?? selected.phone ?? "לא מזוהה"}
+          </h2>
+          <p className="m-0 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
+            {selected.phone ? <span dir="ltr">{selected.phone} · </span> : null}
+            {selected.direction === "inbound" ? "שיחה נכנסת" : "שיחה יוצאת"} ·{" "}
+            {timeFmt.format(new Date(selected.occurredAt))}
+            {selected.durationMinutes !== undefined ? ` · משך ${selected.durationMinutes} דק׳` : ""}
+          </p>
+        </div>
+        {selected.phone ? (
+          <div className="ms-auto flex gap-2">
+            <a
+              href={waMeUrl(selected.phone)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mv-btn-plain"
+              style={{ padding: "7px 14px", fontSize: "var(--type-caption-lg)" }}
+            >
+              וואטסאפ
+            </a>
+            <a href={`tel:${selected.phone}`} className="mv-btn-plain" style={{ padding: "7px 14px", fontSize: "var(--type-caption-lg)" }}>
+              חייג
+            </a>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="px-[22px] py-5">
+        {/*
+          ‎**שני סעיפים, וכל אחד עם כותרת משלו.**
+
+          הסיכום והפרטים שחולצו הוצגו כגוש אחד, ולכן מי שרצה
+          „מה הוא מחפש” היה קורא את הסיכום כדי להגיע לשדות
+          שמתחתיו. הכותרות אומרות מה יש בכל חלק, והסמל אומר
+          שזה נכתב על ידי המערכת ולא הוקלד ביד — מה שקובע כמה
+          לסמוך על זה.
+        */}
+        <CallSection title="סיכום שיחה" />
+        <div
+          className="whitespace-pre-wrap rounded-[13px] border p-3.5 text-sm"
+          style={{ background: "var(--color-field)", borderColor: "var(--color-border)", lineHeight: 1.55 }}
+        >
+          {selected.summary ?? (
+            <span style={{ color: "var(--color-text-muted)" }}>לא נרשם סיכום.</span>
+          )}
+        </div>
+
+        {/*
+          ‎**„פרטי לקוח” — התגיות שהמערכת חילצה מהשיחה עצמה.**
+
+          הכותרת נמסרת פנימה ולא נבנית כאן: רק `CallHighlightFields`
+          יודע אם נבנתה ולו תגית אחת, והוא מחזיר `null` כשלא.
+          כותרת מעל ריק אומרת „לא נמצא כלום”, בזמן שהאמת היא
+          „לא ידוע” — המחלץ מוצא ביטויים בטקסט, ומה שלא נתפס
+          יכול היה להיאמר.
+        */}
+        <CallHighlightFields
+          highlights={selected.highlights ?? {}}
+          header={<CallSection title="פרטי לקוח" machine />}
+        />
+
+        <CallRecording
+          call={selected}
+          onChanged={load}
+          mayEdit={mayEdit}
+          mayRetryRecording={mayRetryRecording}
+        />
+
+        {/*
+          ‎**המשך הטיפול נעשה כאן, ולא במסך אחר** (בקשת המשתמש).
+
+          זה הרגע שבו המתווך יודע הכי טוב מי הלקוח: הוא זה עתה
+          שמע את השיחה. שליחה שלו לכרטיס הליד כדי ללחוץ שם על
+          אותם שני כפתורים היא בדיוק המקום שבו המרה נדחית ל„אחר
+          כך” — ואז לא קורית.
+        */}
+        {convert}
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          {/*
+            ‎**„צפייה בכרטיס לקוח” — היעד שקיים, ולא זה שהיינו
+            רוצים.** לשיחה יש קישור לליד ולא לאיש הקשר, ולכן
+            הכפתור מופיע רק כשיש ליד: קישור לכרטיס שאיננו
+            יודעים לאתר היה נוחת על 404.
+          */}
+          {selected.leadId ? (
+            <Link href={`/leads/${selected.leadId}`} className="mv-btn-soft">
+              צפייה בכרטיס לקוח ←
+            </Link>
+          ) : null}
+          {mayEdit ? (
+            <button
+              type="button"
+              onClick={() => void onDelete(selected.id)}
+              className="mv-btn-plain"
+              style={{ color: "var(--color-danger)" }}
+            >
+              מחק תיעוד
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  ) : null;
 
   return (
     <>
@@ -539,113 +826,21 @@ export default function CallsPage() {
                       ) : null}
                     </span>
                   </button>
+                  {/*
+                    ‎**במובייל הפרטים נפתחים כאן — מתחת לשורה שנלחצה**
+                    (בקשת המשתמש). קודם הם נחתו בתחתית העמוד, אחרי
+                    הרשימה כולה: הפריסה היא שתי עמודות שנערמות זו על
+                    זו כשאין רוחב, ולכן „העמודה השנייה” נפלה מתחת
+                    לרשימה. במסך של עשרים שיחות זה אומר שלחיצה על
+                    השורה הראשונה לא משנה כלום ממה שרואים.
+                  */}
+                  {inlineDetail && active ? detail : null}
                 </li>
               );
             })}
           </ul>
 
-          {selected ? (
-            <section aria-label="פרטי השיחה" className="mv-list-card">
-              <div
-                className="flex flex-wrap items-center gap-3 px-[22px] py-4"
-                style={{ borderBottom: "1px solid var(--color-card-head-border)" }}
-              >
-                <div style={{ lineHeight: 1.35 }}>
-                  <h2 className="m-0" style={{ fontSize: "calc(18 / 16 * 1rem)", fontWeight: 800 }}>
-                    {selected.contactName ?? selected.phone ?? "לא מזוהה"}
-                  </h2>
-                  <p className="m-0 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
-                    {selected.phone ? <span dir="ltr">{selected.phone} · </span> : null}
-                    {selected.direction === "inbound" ? "שיחה נכנסת" : "שיחה יוצאת"} ·{" "}
-                    {timeFmt.format(new Date(selected.occurredAt))}
-                    {selected.durationMinutes !== undefined ? ` · משך ${selected.durationMinutes} דק׳` : ""}
-                  </p>
-                </div>
-                {selected.phone ? (
-                  <div className="ms-auto flex gap-2">
-                    <a
-                      href={waMeUrl(selected.phone)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mv-btn-plain"
-                      style={{ padding: "7px 14px", fontSize: "var(--type-caption-lg)" }}
-                    >
-                      וואטסאפ
-                    </a>
-                    <a href={`tel:${selected.phone}`} className="mv-btn-plain" style={{ padding: "7px 14px", fontSize: "var(--type-caption-lg)" }}>
-                      חייג
-                    </a>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="px-[22px] py-5">
-                {/*
-                  ‎**שני סעיפים, וכל אחד עם כותרת משלו.**
-
-                  הסיכום והפרטים שחולצו הוצגו כגוש אחד, ולכן מי שרצה
-                  „מה הוא מחפש” היה קורא את הסיכום כדי להגיע לשדות
-                  שמתחתיו. הכותרות אומרות מה יש בכל חלק, והסמל אומר
-                  שזה נכתב על ידי המערכת ולא הוקלד ביד — מה שקובע כמה
-                  לסמוך על זה.
-                */}
-                <CallSection title="סיכום שיחה" />
-                <div
-                  className="whitespace-pre-wrap rounded-[13px] border p-3.5 text-sm"
-                  style={{ background: "var(--color-field)", borderColor: "var(--color-border)", lineHeight: 1.55 }}
-                >
-                  {selected.summary ?? (
-                    <span style={{ color: "var(--color-text-muted)" }}>לא נרשם סיכום.</span>
-                  )}
-                </div>
-
-                {/*
-                  ‎**„פרטי לקוח” — התגיות שהמערכת חילצה מהשיחה עצמה.**
-
-                  הכותרת נמסרת פנימה ולא נבנית כאן: רק `CallHighlightFields`
-                  יודע אם נבנתה ולו תגית אחת, והוא מחזיר `null` כשלא.
-                  כותרת מעל ריק אומרת „לא נמצא כלום”, בזמן שהאמת היא
-                  „לא ידוע” — המחלץ מוצא ביטויים בטקסט, ומה שלא נתפס
-                  יכול היה להיאמר.
-                */}
-                <CallHighlightFields
-                  highlights={selected.highlights ?? {}}
-                  header={<CallSection title="פרטי לקוח" machine />}
-                />
-
-                <CallRecording
-                  call={selected}
-                  onChanged={load}
-                  mayEdit={mayEdit}
-                  mayRetryRecording={mayRetryRecording}
-                />
-
-                <div className="mt-4 flex flex-wrap gap-3">
-                  {/*
-                    ‎**„צפייה בכרטיס לקוח” — היעד שקיים, ולא זה שהיינו
-                    רוצים.** לשיחה יש קישור לליד ולא לאיש הקשר, ולכן
-                    הכפתור מופיע רק כשיש ליד: קישור לכרטיס שאיננו
-                    יודעים לאתר היה נוחת על 404.
-                  */}
-                  {selected.leadId ? (
-                    <Link href={`/leads/${selected.leadId}`} className="mv-btn-soft">
-                      צפייה בכרטיס לקוח ←
-                    </Link>
-                  ) : null}
-                  {mayEdit ? (
-                    <button
-                      type="button"
-                      onClick={() => void onDelete(selected.id)}
-                      className="mv-btn-plain"
-                      style={{ color: "var(--color-danger)" }}
-                    >
-                      מחק תיעוד
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </section>
-          ) : null}
+          {inlineDetail ? null : detail}
         </div>
       )}
     </>

@@ -4,6 +4,7 @@ import { ulid } from "ulid";
 import {
   assertContactAccess,
   isOrphanContact,
+  leadOwnershipFilter,
   seesAllContacts,
   visibleCallsCondition,
   visibleContactIds,
@@ -39,6 +40,23 @@ export interface CallDto {
   contactId?: string;
   contactName?: string;
   leadId?: string;
+  /**
+   * ‎**„אפשר להמיר את הליד הזה, והנה מצבו”** — שדה אחד לשתי שאלות.
+   *
+   * מסך השיחות מציע להמיר את הליד לקונה או לנכס, ושתי דרכים להגיע
+   * שם למבוי סתום אחרי מילוי טופס שלם:
+   *
+   * 1. הליד **כבר הומר** — ההמרה מחזירה 409.
+   * 2. הליד שייך לסוכן אחר — שירותי ההמרה מפעילים
+   *    ‎`leadOwnershipFilter()` ומחזירים 404, בעוד שהשיחה **כן**
+   *    נראית למשתמש (דרך נכס גלוי לכולם, או קונה שלו). ראות שיחה
+   *    וראות ליד אינן אותו דבר (ביקורת Codex).
+   *
+   * ולכן השליפה מסננת בעלות: חסר = אין ליד, או שהוא אינו שלך —
+   * ובשני המקרים אין מה להציע. המסך דורש **נוכחות** של השדה ולא רק
+   * ערך שאינו `converted`.
+   */
+  leadStatus?: string;
   phone?: string;
   occurredAt: Date;
   durationMinutes?: number;
@@ -287,7 +305,31 @@ export class CallsService {
         tx,
         allowed.map((row) => row.contactId).filter((id): id is string => id !== null),
       );
-      return Promise.all(allowed.map((row) => this.toDto(tx, row, contactsById)));
+      /*
+       * ‎**שאילתה אחת לכל הלידים של העמוד** — אותו כלל של אנשי הקשר
+       * שמעליי. שליפה לכל שורה הייתה חמישים הלוך-ושוב על אותו חיבור.
+       */
+      const leadIds = [
+        ...new Set(allowed.map((row) => row.leadId).filter((id): id is string => id !== null)),
+      ];
+      const leadStatusById = new Map<string, string>(
+        leadIds.length === 0
+          ? []
+          : (
+              await tx.lead.findMany({
+                /*
+                 * ‎**פילטר הבעלות כאן ולא רק בהמרה עצמה** (ביקורת
+                 * Codex). הוא מה שהופך את השדה ל„אפשר להמיר”: ליד של
+                 * סוכן אחר פשוט אינו במפה, והמסך אינו מציע דבר.
+                 */
+                where: { tenantId, id: { in: leadIds }, ...leadOwnershipFilter() },
+                select: { id: true, status: true },
+              })
+            ).map((lead) => [lead.id, lead.status]),
+      );
+      return Promise.all(
+        allowed.map((row) => this.toDto(tx, row, contactsById, leadStatusById)),
+      );
     });
   }
 
@@ -631,6 +673,8 @@ export class CallsService {
      * וזה הנתיב של יצירה או של כרטיס יחיד.
      */
     contactsById?: Map<string, ContactDto>,
+    /** סטטוסי הלידים של העמוד — חסר ⇒ הסטטוס לא מוחזר. */
+    leadStatusById?: Map<string, string>,
   ): Promise<CallDto> {
     const contact =
       row.contactId === null
@@ -643,6 +687,9 @@ export class CallsService {
       ...(row.contactId ? { contactId: row.contactId } : {}),
       ...(contact ? { contactName: contact.name } : {}),
       ...(row.leadId ? { leadId: row.leadId } : {}),
+      ...(row.leadId && leadStatusById?.has(row.leadId)
+        ? { leadStatus: leadStatusById.get(row.leadId)! }
+        : {}),
       // הטלפון של איש הקשר מנצח — הוא המקור המעודכן
       ...(contact?.phone
         ? { phone: contact.phone }
