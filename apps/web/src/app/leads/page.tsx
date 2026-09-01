@@ -56,6 +56,26 @@ const STATUS_PILL: Record<string, { fg: string; bg: string }> = {
 
 const GRID = "1.4fr 1fr 1.6fr 1fr 0.9fr 1.3fr";
 
+/**
+ * ‎**המונה על הלשונית — מהפירוק שהמסד החזיר.**
+ *
+ * ‎`OPEN_LEAD_STATUSES` היא אותה הגדרה שהשרת מסנן לפיה, ולכן החיבור
+ * כאן אינו יכול לחלוק על מה שהלשונית תציג. `null` = הפירוק לא נטען,
+ * והלשונית מוצגת בלי מספר — עדיף על מספר שאינו נכון.
+ */
+function bucketCount(
+  counts: Record<string, number> | null,
+  bucket: "open" | "done" | "all",
+): number | null {
+  if (counts === null) return null;
+  let total = 0;
+  for (const [statusKey, n] of Object.entries(counts)) {
+    const open = (OPEN_LEAD_STATUSES as readonly string[]).includes(statusKey);
+    if (bucket === "all" || (bucket === "open") === open) total += n;
+  }
+  return total;
+}
+
 export default function LeadsPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const canVoice = useFeature("voice_intake");
@@ -66,7 +86,18 @@ export default function LeadsPage() {
   const [deleting, setDeleting] = useState<LeadRow | null>(null);
   const [deleted, setDeleted] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("");
+  /*
+   * ‎**„חדש” כברירת מחדל** (בקשת המשתמש).
+   *
+   * מה שמתווך פותח את המסך כדי לעשות הוא לטפל במה שעוד לא טופל.
+   * ‏„בטיפול” ו„ממתין ללקוח” הם לידים שכבר נגעו בהם, והם דוחקים
+   * למטה בדיוק את מי שממתין למגע ראשון.
+   *
+   * ‎**זה סינון גלוי ולא מצב נסתר:** שורת הסינון מציגה „מציג X
+   * מתוך Y” עם כפתור ניקוי, לחיצה על לשונית מנקה אותו, וקישור
+   * מהדשבורד עם `?status=` גובר עליו.
+   */
+  const [status, setStatus] = useState("new");
   /*
    * ‎**„לטיפול” היא ברירת המחדל, לא „הכל”** (בקשת המשתמש).
    *
@@ -83,20 +114,83 @@ export default function LeadsPage() {
   const [urgency, setUrgency] = useState("");
   const [intent, setIntent] = useState("");
 
-  // קישורי המשפך מהדשבורד: /leads?status=new וכדומה
-  useFilterFromUrl({ status: setStatus, intent: setIntent });
+  /*
+   * קישורי המשפך מהדשבורד: ‎/leads?status=new‎ וכדומה.
+   *
+   * ‎**הלשונית נגררת אחרי הסטטוס שבקישור.** מרגע שהלשונית מסננת
+   * במסד, קישור לסטטוס שאינו בלשונית הנוכחית היה נוחת על רשימה
+   * ריקה בלי שום הסבר — הסטטוס נבחר, והשורות פשוט אינן שם. היום
+   * הדשבורד מקשר רק לשלושת הפתוחים, וזו בדיוק הסיבה לסגור את זה
+   * עכשיו ולא אחרי שיתווסף הקישור הרביעי.
+   */
+  useFilterFromUrl({
+    status: (value) => {
+      setStatus(value);
+      setBucket(
+        (OPEN_LEAD_STATUSES as readonly string[]).includes(value) ? "open" : "done",
+      );
+    },
+    intent: setIntent,
+  });
   // שעון קפוא לרינדור — כדי שכל השורות ימדדו מול אותו רגע
   const [now, setNow] = useState<Date | null>(null);
 
+  /*
+   * ‎**הלשונית מסננת במסד, לא על העמוד שחזר** (ביקורת Codex).
+   *
+   * החלוקה רצה קודם על מה ש-`/leads?limit=100` החזיר. במשרד עם יותר
+   * מ-100 לידים, ליד פתוח שנדחק מחוץ לעמוד על-ידי לידים סגורים
+   * חדשים ממנו **פשוט לא הופיע בתור העבודה** — ואין שום סימן לכך
+   * שהוא קיים. הפרמטר `open` עושה את החלוקה ב-`where` של השאילתה,
+   * לפני התקרה.
+   *
+   * שאר הסינונים (חיפוש, כוונה, דחיפות) נשארים מקומיים: הם מצמצמים
+   * בתוך הלשונית, ו-`CapNote` אומר מתי התקרה נגעה.
+   */
   useEffect(() => {
     if (authLoading) return;
-    apiGet<{ items: LeadRow[] }>("/leads?limit=100")
+    setItems(null);
+    const scope = bucket === "all" ? "" : `&open=${bucket === "open"}`;
+    apiGet<{ items: LeadRow[] }>(`/leads?limit=100${scope}`)
       .then((res) => {
         setItems([...apiList(res.items, "items")].sort(compareLeadsByUrgency));
         setNow(new Date());
       })
       .catch(() => setError("טעינת הלידים נכשלה"));
+  }, [authLoading, bucket]);
+
+  /*
+   * ‎**המונים על הלשוניות מגיעים מהמסד** ולא מספירת השורות שהמסך
+   * במקרה טען. מונה שנספר מ-100 שורות היה מציג „לטיפול (63)” במשרד
+   * שיש בו 400 — מספר שנראה סמכותי ואינו נכון, וזו בדיוק הסיבה
+   * ש-`/leads/breakdown` כבר קיים.
+   */
+  const [counts, setCounts] = useState<Record<string, number> | null>(null);
+  useEffect(() => {
+    if (authLoading) return;
+    apiGet<{ byStatus: Record<string, number> }>("/leads/breakdown")
+      .then((res) => setCounts(res.byStatus))
+      /* בלי מונים הלשוניות עדיין עובדות — הן פשוט בלי המספר. */
+      .catch(() => setCounts(null));
   }, [authLoading]);
+
+  /*
+   * ‎**„אין לידים” הוא משפט על המשרד, לא על הלשונית.**
+   *
+   * מסך הפתיחה עם „חברו את טופס האתר” נכון למשרד שאין לו לידים
+   * כלל. מרגע שהלשונית מסננת במסד, לשונית ריקה הייתה מציגה אותו —
+   * ובעיקר **מסתירה את הלשוניות עצמן**, כי כל הפריסה יושבת בענף
+   * השני. משרד עם 400 לידים שלחץ „טופל” היה נתקע במסך הדרכה בלי
+   * דרך לחזור.
+   *
+   * הפירוק יודע את התשובה במדויק. כשהוא לא נטען נשארת ההתנהגות
+   * הקודמת — לשונית ברירת המחדל בלבד — כדי שמשרד חדש עדיין יקבל
+   * את מסך הפתיחה.
+   */
+  const officeEmpty =
+    counts === null
+      ? items !== null && items.length === 0 && bucket === "open"
+      : bucketCount(counts, "all") === 0;
 
   const visible = useMemo(
     () =>
@@ -104,13 +198,10 @@ export default function LeadsPage() {
         (l) =>
           textMatches(query, l.contact.name, l.contact.phone) &&
           /*
-           * הלשונית היא סינון גס, והבורר שמתחתיה מדויק — הם
-           * מצטלבים ואינם מתחרים: „טופל” + „סגור” הוא חיתוך תקין.
+           * הלשונית כבר סוננה במסד (ראו האפקט למעלה), ולכן אינה
+           * מופיעה כאן. הבורר שמתחתיה מדויק, והם מצטלבים ואינם
+           * מתחרים: „טופל” + „סגור” הוא חיתוך תקין.
            */
-          (bucket === "all" ||
-            (bucket === "open"
-              ? (OPEN_LEAD_STATUSES as readonly string[]).includes(l.status)
-              : !(OPEN_LEAD_STATUSES as readonly string[]).includes(l.status))) &&
           (!status || l.status === status) &&
           (!intent || l.intent === intent) &&
           // "מי מחכה יותר מדי" — הסינון שמייצר את שיחת הטלפון הבאה
@@ -120,7 +211,7 @@ export default function LeadsPage() {
               now !== null &&
               leadWaiting(l.createdAt, l.status, now)?.level === "late")),
       ),
-    [items, query, bucket, status, intent, urgency, now],
+    [items, query, status, intent, urgency, now],
   );
 
   return (
@@ -157,9 +248,9 @@ export default function LeadsPage() {
         <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען לידים…</p>
-      ) : items.length === 0 ? (
+      ) : officeEmpty ? (
         <div className="rounded-xl border p-8 text-center" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-          <p className="mb-3 text-lg font-semibold">אין לידים פתוחים</p>
+          <p className="mb-3 text-lg font-semibold">אין עדיין לידים</p>
           <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
             אפשר להוסיף ליד ידנית או בקול — וגם לחבר את טופס יצירת הקשר
             שבאתר המשרד, כך שכל פנייה תיכנס לכאן אוטומטית.
@@ -201,12 +292,7 @@ export default function LeadsPage() {
                 ["all", "הכל"],
               ] as const
             ).map(([key, label]) => {
-              const count = (items ?? []).filter(
-                (l) =>
-                  key === "all" ||
-                  (key === "open") ===
-                    (OPEN_LEAD_STATUSES as readonly string[]).includes(l.status),
-              ).length;
+              const count = bucketCount(counts, key);
               const on = bucket === key;
               return (
                 <button
@@ -233,7 +319,7 @@ export default function LeadsPage() {
                     borderColor: on ? "var(--color-primary)" : "var(--color-input-border)",
                   }}
                 >
-                  {label} ({count})
+                  {count === null ? label : `${label} (${count})`}
                 </button>
               );
             })}
@@ -467,7 +553,11 @@ export default function LeadsPage() {
           </div>
 
           <CapNote
-            show={(query.trim() !== "" || status !== "" || intent !== "" || urgency !== "") && items.length === 100}
+            /*
+              התקרה חלה **בתוך הלשונית**, ולכן היא ראויה לציון גם בלי
+              סינון מקומי: הלשונית עצמה כבר מצמצמת במסד.
+            */
+            show={items.length === 100}
             noun="לידים"
           />
         </>
