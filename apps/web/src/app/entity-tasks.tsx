@@ -336,8 +336,21 @@ export function EntityTasks({
       style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
       aria-labelledby={`tasks-${entityId}`}
     >
-      <h2 id={`tasks-${entityId}`} className="mb-3 text-lg font-semibold">
-        <IconCheck s={16} /> משימות {list.kind === "ready" ? `(${open.length})` : ""}
+      {/*
+        אריח מגוון ומונה בגלולה — אותה שפה שבה נספרות כל שאר הקבוצות
+        במערכת, במקום מספר בסוגריים בתוך הכותרת.
+      */}
+      <h2
+        id={`tasks-${entityId}`}
+        className="mb-3 flex items-center gap-2 text-lg font-semibold"
+      >
+        <span className="mv-tile mv-domain-green" aria-hidden="true">
+          <IconCheck s={17} />
+        </span>
+        משימות
+        {list.kind === "ready" && open.length > 0 ? (
+          <span className="mv-chip">{open.length}</span>
+        ) : null}
       </h2>
 
       {error ? (
@@ -411,8 +424,15 @@ export function EntityTasks({
       )}
 
       <form onSubmit={onCreate} className="flex flex-wrap items-end gap-2">
+        {/*
+          ‎**התוויות נסתרות ולא הוסרו.**
+
+          שורה אחת נקייה היא מה שמזמין להקליד; שתי תוויות מעל שני
+          שדות הופכות שורת משימה לטופס. אבל תווית היא גם מה שקורא
+          מסך מקריא, ולכן היא נשארת — `mv-visually-hidden` ולא מחיקה.
+        */}
         <div className="flex-1" style={{ minWidth: "180px" }}>
-          <label htmlFor={`nt-${entityId}`} className="mb-1 block text-sm font-medium">
+          <label htmlFor={`nt-${entityId}`} className="mv-visually-hidden">
             משימה חדשה
           </label>
           <input
@@ -426,7 +446,7 @@ export function EntityTasks({
           />
         </div>
         <div>
-          <label htmlFor={`nd-${entityId}`} className="mb-1 block text-sm font-medium">
+          <label htmlFor={`nd-${entityId}`} className="mv-visually-hidden">
             מועד
           </label>
           <input
@@ -458,10 +478,11 @@ export function EntityTasks({
         „עוד 24 שעות” בליל מעבר שעון. מועד שכבר חלף אינו מוצע.
       */}
       {quickDue.length > 0 ? (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-            מועד מהיר
-          </span>
+        <div
+          className="mt-2 flex flex-wrap items-center gap-1.5"
+          role="group"
+          aria-label="מועד מהיר"
+        >
           {quickDue.map((option) => (
             <button
               key={option.key}

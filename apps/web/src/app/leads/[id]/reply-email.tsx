@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { DictateFor } from "../../dictation-field";
+import { IconMail } from "../../icons";
 import { Notice } from "../../notice";
 
 /**
@@ -73,7 +74,15 @@ export function ReplyEmail({
       aria-labelledby="reply-email-heading"
     >
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 id="reply-email-heading" className="m-0" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
+        {/* אריח מגוון לצד הכותרת — אותה שפה בכל כרטיסי המסך */}
+        <h2
+          id="reply-email-heading"
+          className="m-0 flex items-center gap-2"
+          style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
+        >
+          <span className="mv-tile mv-domain-blue" aria-hidden="true">
+            <IconMail s={17} />
+          </span>
           תשובה במייל
         </h2>
         {state.from ? (
