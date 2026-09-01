@@ -48,6 +48,50 @@ describe("דחיית משימה", () => {
   it("מעבר לשעון קיץ אינו מזיז את שעת הבוקר", () => {
     expect(wall(snoozeTaskDue(new Date("2026-03-26T12:00:00Z"))!)).toBe("2026-03-27 09:00");
   });
+
+  /*
+   * ‎**דחייה שמקדימה היא ההפך ממה שכתוב על הכפתור** (ביקורת Codex).
+   *
+   * ‎„דחה” מוצג על כל משימה פתוחה, כולל כאלה שמועדן בשבוע הבא.
+   * כתיבה עיוורת של „מחר ב-9” הייתה **מקרבת** אותן.
+   */
+  describe("אינה מקדימה משימה עתידית", () => {
+    const now = new Date("2026-03-10T12:00:00Z");
+
+    it("משימה בשבוע הבא נדחקת יום קדימה ושומרת את שעתה", () => {
+      const due = new Date("2026-03-17T14:30:00Z"); // 16:30 בישראל
+      expect(wall(snoozeTaskDue(now, due)!)).toBe("2026-03-18 16:30");
+    });
+
+    it("משימה באיחור, בלי מועד, או להיום — נוחתות על מחר בבוקר", () => {
+      const overdue = new Date("2026-03-01T09:00:00Z");
+      expect(wall(snoozeTaskDue(now, overdue)!)).toBe("2026-03-11 09:00");
+      expect(wall(snoozeTaskDue(now, null)!)).toBe("2026-03-11 09:00");
+      expect(wall(snoozeTaskDue(now)!)).toBe("2026-03-11 09:00");
+    });
+
+    /* התכונה שמחזיקה את כל השאר: התוצאה תמיד מאוחרת מהמועד שהיה */
+    it("לעולם אינה מוקדמת מהמועד הקיים", () => {
+      for (const iso of [
+        "2026-03-01T09:00:00Z",
+        "2026-03-10T13:00:00Z",
+        "2026-03-17T14:30:00Z",
+        "2026-06-30T21:00:00Z",
+      ]) {
+        const due = new Date(iso);
+        const at = snoozeTaskDue(now, due)!;
+        expect(at.getTime(), iso).toBeGreaterThan(due.getTime());
+        expect(at.getTime(), iso).toBeGreaterThan(now.getTime());
+      }
+    });
+
+    /* יום לוח ולא 24 שעות — אחרת שעת המשימה נודדת בליל המעבר */
+    it("מעבר שעון אינו מזיז את שעת המשימה הנדחית", () => {
+      const due = new Date("2026-03-26T12:00:00Z"); // 14:00 בישראל
+      expect(wall(due)).toBe("2026-03-26 14:00");
+      expect(wall(snoozeTaskDue(now, due)!)).toBe("2026-03-27 14:00");
+    });
+  });
 });
 
 describe("שורת המצב", () => {

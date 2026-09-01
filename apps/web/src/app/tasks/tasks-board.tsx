@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import {
+  appendDictated,
   TASK_PRIORITIES,
   TASK_PRIORITY_LABELS,
   groupTasksByBucket,
@@ -29,7 +30,7 @@ import {
   IconUser,
   IconWarning,
 } from "../icons";
-import { DictateFor } from "../dictation-field";
+import { DictationControls } from "../dictation-field";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
 
@@ -170,6 +171,49 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => setNow(new Date()), []);
 
+  /** הטקסט שהיה בשדה כשסבב ההכתבה התחיל — כדי לצרף ולא לדרוס. */
+  const dictationBase = useRef<string | null>(null);
+
+  /**
+   * ‎**איזה צ׳יפ קבע את המועד** — ריק אם הוקלד ביד.
+   *
+   * זה מה שמאפשר למחוק מועד שפג **בלי** לדרוס תאריך שהמתווך הקליד
+   * בעצמו: מועד שהוא כתב הוא בחירה שלו, גם אם היא בעבר.
+   */
+  const [dueSource, setDueSource] = useState<string | null>(null);
+
+  /**
+   * ‎**האימות בלחיצה הוא זה שמחייב** (ביקורת Codex).
+   *
+   * ‎`now` נקבע בהרכבה, והמסך נשאר פתוח. עמוד שנפתח ב-17:50 עדיין
+   * מציג את „היום 18:00” בשעה 18:30 — ולחיצה עליו הייתה קובעת מועד
+   * שכבר חלף. השעון נקרא **ברגע הלחיצה**, וצ׳יפ שפג פשוט נעלם.
+   *
+   * ‎`entity-tasks.tsx` כבר עושה בדיוק את זה; זו אותה הכרעה, ולא
+   * שנייה שתסטה ממנה.
+   */
+  function chooseQuickDue(key: string): void {
+    const fresh = new Date();
+    setNow(fresh);
+    const option = quickDueOptions(fresh).find((o) => o.key === key);
+    if (option === undefined) {
+      /* הצ׳יפ פג — וגם מה שהוא קבע קודם יורד, אחרת נשאר מועד בעבר */
+      if (dueSource === key) {
+        setDueAt("");
+        setDueSource(null);
+      }
+      return;
+    }
+    /* לחיצה שנייה על צ׳יפ נבחר מבטלת אותו */
+    if (dueAt === option.value && dueSource === key) {
+      setDueAt("");
+      setDueSource(null);
+      return;
+    }
+    setDueAt(option.value);
+    setDueSource(key);
+  }
+
   /*
    * „הכל נקי ✓” נאמר גם כשהטעינה נכשלה. זו ההודעה שהכי מסוכן
    * לשקר בה: מי שראה אותה סגר את המסך והלך, בזמן שיש לו משימות
@@ -223,6 +267,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
       });
       setTitle("");
       setDueAt("");
+      setDueSource(null);
       setPriority("normal");
       load();
     } catch (err: unknown) {
@@ -249,13 +294,18 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
   }
 
   /**
-   * ‎**„דחה” — מחר בבוקר, בלחיצה אחת.**
+   * ‎**„דחה” — יום קדימה, ולעולם לא אחורה.**
    *
-   * הרגע מגיע מ-`snoozeTaskDue` ולא מחשבון מקומי: הוא נשען על אותו
-   * צ׳יפ „מחר בבוקר”, ולכן שניהם אינם יכולים להיפרד.
+   * המועד הקיים נשלח פנימה: הכפתור מוצג על כל משימה פתוחה, ובלעדיו
+   * לחיצה על משימה שמועדה בשבוע הבא הייתה **מקרבת** אותה למחר
+   * (ביקורת Codex). ההכרעה עצמה ב-`snoozeTaskDue`, שנשענת על אותו
+   * צ׳יפ „מחר בבוקר” כדי ששניהם לא יוכלו להיפרד.
    */
-  async function onSnooze(id: string): Promise<void> {
-    const at = snoozeTaskDue(new Date());
+  async function onSnooze(id: string, currentDueAt?: string): Promise<void> {
+    const at = snoozeTaskDue(
+      new Date(),
+      currentDueAt === undefined ? null : new Date(currentDueAt),
+    );
     if (at === null) {
       setError("לא הצלחנו לחשב מועד לדחייה");
       return;
@@ -402,7 +452,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
                 type="button"
                 className="mv-btn-plain"
                 disabled={busy}
-                onClick={() => void onSnooze(task.id)}
+                onClick={() => void onSnooze(task.id, task.dueAt)}
               >
                 <IconCalendar s={15} /> דחה
                 <span className="mv-visually-hidden"> את {task.title} למחר בבוקר</span>
@@ -583,9 +633,22 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
             className="mv-control"
             style={{ flex: "1 1 260px" }}
           />
-          {/* הכתבה לשדה עצמו — משימה נאמרת מהר יותר משהיא נכתבת,
-              והמתווך מקליד אותה בין שתי שיחות */}
-          <DictateFor targetId="task-title" />
+          {/*
+            ‎**הכתבה אל ה-state ולא אל צומת ה-DOM** (ביקורת Codex).
+
+            ‎`DictateFor` נכתב במפורש לשדות **לא מבוקרים**: הוא כותב
+            ל-`el.value` ומפיץ אירוע. השדה כאן מבוקר, ו-React משווה
+            מול העוקב הפנימי שלו — הטקסט המוכתב היה נמחק ברינדור
+            הבא, והשליחה הייתה מוציאה את מה שהיה לפניו.
+          */}
+          <DictationControls
+            onAppend={(text) => {
+              /* נלכד בצירוף הראשון של הסבב — אחר כך הוא כבר משתנה */
+              dictationBase.current ??= title;
+              setTitle(appendDictated(dictationBase.current, text));
+            }}
+            onIdle={() => (dictationBase.current = null)}
+          />
           <button
             type="button"
             className="mv-btn-plain"
@@ -619,7 +682,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
                   className={picked ? "mv-btn-soft" : "mv-btn-plain"}
                   style={{ borderRadius: 999 }}
                   aria-pressed={picked}
-                  onClick={() => setDueAt(picked ? "" : option.value)}
+                  onClick={() => chooseQuickDue(option.key)}
                 >
                   {option.label}
                 </button>
@@ -642,7 +705,10 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
                 id="task-due"
                 type="datetime-local"
                 value={dueAt}
-                onChange={(e) => setDueAt(e.target.value)}
+                onChange={(e) => {
+                  setDueAt(e.target.value);
+                  setDueSource(null);
+                }}
                 className="mv-control"
               />
             </div>

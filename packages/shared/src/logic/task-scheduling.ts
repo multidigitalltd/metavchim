@@ -1,4 +1,9 @@
-import { jerusalemWallIsoToUtc } from "./israel-time.js";
+import {
+  jerusalemDayStart,
+  jerusalemWallIsoToUtc,
+  jerusalemWallParts,
+  resolveJerusalemWall,
+} from "./israel-time.js";
 import { quickDueOptions } from "./quick-due.js";
 
 /**
@@ -18,10 +23,40 @@ import { quickDueOptions } from "./quick-due.js";
  * לוחץ „דחה” הוא „לא עכשיו, מחר”.
  */
 
-/** ‎`מחר בבוקר` כרגע UTC — או `null` אם הצ׳יפ אינו זמין. */
-export function snoozeTaskDue(now: Date): Date | null {
+/**
+ * ‎**„דחה” אף פעם לא מקדים** (ביקורת Codex).
+ *
+ * הגרסה הראשונה כתבה „מחר ב-9” בלי לקרוא את המועד הקיים, והכפתור
+ * מוצג על **כל** משימה פתוחה — כלומר לחיצה על משימה שמועדה בשבוע
+ * הבא הייתה **מקרבת** אותה למחר. „דחייה” שמקדימה היא בדיוק ההפך
+ * ממה שכתוב על הכפתור.
+ *
+ * לכן היעד הוא המאוחר מבין שניים: „מחר בבוקר”, ויום לוח אחד אחרי
+ * המועד הקיים **בשעתו**. משימה באיחור או בלי מועד נוחתת על מחר
+ * בבוקר; משימה עתידית נדחקת יום קדימה ושומרת את שעתה.
+ *
+ * ‎`null` = אין מועד לחשב ממנו (הצ׳יפ אינו זמין) — והמסך אינו כותב
+ * מועד שהוא לא הצליח לחשב.
+ */
+export function snoozeTaskDue(now: Date, currentDueAt?: Date | null): Date | null {
   const tomorrow = quickDueOptions(now).find((option) => option.key === "tomorrow");
-  return tomorrow ? jerusalemWallIsoToUtc(tomorrow.value) : null;
+  if (tomorrow === undefined) return null;
+  const floor = jerusalemWallIsoToUtc(tomorrow.value);
+  const shifted = currentDueAt ? nextDayKeepingTime(currentDueAt) : null;
+  return shifted !== null && shifted.getTime() > floor.getTime() ? shifted : floor;
+}
+
+/**
+ * יום לוח ישראלי אחד קדימה, **באותה שעת קיר**.
+ *
+ * לא „ועוד 24 שעות”: בליל מעבר השעון יום אינו 24 שעות, ומשימה
+ * ל-09:00 הייתה נודדת ל-08:00 או ל-10:00 בלי שאיש נגע בה.
+ */
+function nextDayKeepingTime(at: Date): Date | null {
+  const { time } = jerusalemWallParts(at);
+  const { date } = jerusalemWallParts(jerusalemDayStart(at, 1));
+  const resolved = resolveJerusalemWall(date, time, at);
+  return resolved.ok ? resolved.at : null;
 }
 
 /**
