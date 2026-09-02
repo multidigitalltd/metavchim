@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiDelete, apiGet, apiList, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { LoadError } from "../load-error";
+import { WhatsAppBotPanel } from "./whatsapp-bot-panel";
 
 /**
  * חיבור המספר העסקי **של הסוכן** לוואטסאפ (docs/12).
@@ -428,6 +429,13 @@ export function WhatsAppBusinessSection() {
                 >
                   ניתוק המספר
                 </button>
+
+                {/*
+                  הגדרות הבוט יושבות בתוך כרטיס הקו ולא בסעיף נפרד:
+                  הבוט עונה **על הקו הזה**, וסוכן עם שני קווים צריך
+                  לדעת לאיזה מהם ההגדרה שייכת.
+                */}
+                <WhatsAppBotPanel connectionId={connection.id} included={data.botIncluded} />
               </li>
             );
           })}

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import { loadEnv } from "../../config/env";
 import { CryptoService } from "../../core/crypto.service";
@@ -312,6 +313,45 @@ export class WhatsAppConnectionService {
       where: { phoneNumberId, disconnectedAt: null },
       select: { id: true, tenantId: true, userId: true, status: true },
     });
+  }
+
+  /**
+   * קריאת הגדרות הבוט של קו — **רק אם הוא של הסוכן ששואל.**
+   *
+   * ‏null = לא נמצא או לא שלו. אין הבחנה בין השניים כלפי חוץ: „הקו
+   * הזה קיים אבל אינו שלך” הוא בעצמו מידע על עמית.
+   */
+  async botSettingsFor(
+    tenantId: string,
+    connectionId: string,
+    userId: string,
+  ): Promise<unknown | null> {
+    const row = await this.prisma.whatsAppBusinessConnection.findFirst({
+      where: { id: connectionId, tenantId, userId },
+      select: { botSettings: true },
+    });
+    return row ? (row.botSettings ?? null) : null;
+  }
+
+  /**
+   * שמירת הגדרות הבוט. מחזירה `false` כשהקו אינו של הסוכן.
+   *
+   * מה שנשמר הוא **הטעם בלבד** — נוסח, שעות, שאלות. השלד (הצגה
+   * עצמית כבוט, „הסר”, אסקלציה) קבוע ב-`bot-policy` ואינו עובר
+   * כאן, כדי שלא ניתן יהיה לבטלו דרך המסך.
+   */
+  async saveBotSettings(
+    tenantId: string,
+    connectionId: string,
+    userId: string,
+    settings: Record<string, unknown>,
+  ): Promise<boolean> {
+    const { count } = await this.prisma.whatsAppBusinessConnection.updateMany({
+      where: { id: connectionId, tenantId, userId },
+      /* ‏Prisma דורש את טיפוס ה-JSON שלו; המבנה כבר אומת ב-Zod בבקר */
+      data: { botSettings: settings as Prisma.InputJsonValue },
+    });
+    return count > 0;
   }
 
   /** אישורי השליחה של קו מסוים — לבוט ולתשובות על הקו של המשרד. */

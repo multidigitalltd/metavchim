@@ -1,4 +1,13 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Post } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+} from "@nestjs/common";
 import { z } from "zod";
 import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
@@ -27,6 +36,25 @@ import { WhatsAppConnectionService } from "./whatsapp-connection.service";
  * האלה מחזירים נתוני משרד ולכן הם תחת `settings.manage`, ומופרדים
  * מהאישיים במקום להרחיב אותם בשקט לפי תפקיד.
  */
+
+/**
+ * ‎**מה שסוכן רשאי לשנות בבוט — וזו הרשימה המלאה.**
+ *
+ * מה שאינו כאן אינו ניתן לשינוי בכוונה: הצגה עצמית כבוט, טיפול
+ * ב„הסר”, אסקלציה לאדם ואיסור יזימה הם מדיניות של Meta ושל המוצר.
+ * שדה „פרומפט” היה מאפשר לבטל כל אחד מהם בטעות, והנזק נוחת על
+ * דירוג האיכות של המספר הפרטי של הסוכן.
+ */
+const BotSettingsSchema = z.object({
+  enabled: z.boolean(),
+  officeName: z.string().trim().min(1).max(60),
+  greeting: z.string().trim().min(1).max(400),
+  questions: z.array(z.string().trim().min(1).max(200)).max(8),
+  afterHoursMessage: z.string().trim().min(1).max(400),
+  hoursFrom: z.number().int().min(0).max(23),
+  hoursTo: z.number().int().min(0).max(23),
+  days: z.array(z.number().int().min(0).max(6)).max(7),
+});
 
 const CompleteSchema = z.object({
   /**
@@ -116,6 +144,35 @@ export class WhatsAppConnectionController {
         action: "whatsapp.connection.disconnected",
         entityType: "whatsapp_connection",
         entityId: id,
+      });
+    });
+    return { ok: true };
+  }
+
+  /** הגדרות הבוט של קו — של הסוכן עצמו בלבד. */
+  @Get(":id/bot")
+  @AnyAuthenticated()
+  async botSettings(@Param("id") id: string): Promise<{ settings: unknown | null }> {
+    const { tenantId, userId } = TenantContext.current();
+    const settings = await this.connections.botSettingsFor(tenantId, id, userId);
+    return { settings };
+  }
+
+  @Patch(":id/bot")
+  @AnyAuthenticated()
+  async saveBotSettings(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(BotSettingsSchema)) body: z.infer<typeof BotSettingsSchema>,
+  ): Promise<{ ok: true }> {
+    const { tenantId, userId } = TenantContext.current();
+    const saved = await this.connections.saveBotSettings(tenantId, id, userId, body);
+    if (!saved) throw new BadRequestException("החיבור לא נמצא");
+    await this.prisma.withTenant(async (tx) => {
+      await this.audit.record(tx, {
+        action: "whatsapp.bot.updated",
+        entityType: "whatsapp_connection",
+        entityId: id,
+        metadata: { enabled: body.enabled },
       });
     });
     return { ok: true };
