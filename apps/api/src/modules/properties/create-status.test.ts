@@ -27,7 +27,48 @@ import { CreatePropertySchema } from "./properties.controller";
  * ‏ולא על טקסט הקובץ. שדה שיתווסף לטופס וייחסם יפיל אותה מיד.
  */
 
-/** הגוף שהמסך בונה — נשמר כאן כדי שהבדיקה תרוץ על צורה אמיתית. */
+const FORM = readFileSync(
+  new URL("../../../../web/src/app/properties/new/page.tsx", import.meta.url),
+  "utf8",
+);
+
+/**
+ * ‎**כל המפתחות שהטופס יכול לשלוח** — נחלצים מהקוד שלו, לא מועתקים.
+ *
+ * ‏זה התיקון לביקורת Codex (P2) על הגרסה הראשונה של הקובץ הזה:
+ * ‏`FROM_THE_FORM` למטה הוא עותק ידני של חלק מהגוף, ולכן הוא מוכיח
+ * שדבר אחד מתקבל — ולא שהגוף **כולו** מתקבל. שדה שיתווסף לטופס
+ * מחר, או שדה קיים ש-`.strict()` יפסיק לקבל, היו חוסמים שוב את
+ * הקליטה בזמן שהבדיקה ירוקה. בדיוק אותו כשל שהיא נכתבה בשבילו.
+ *
+ * החילוץ הוא של **המפתחות**, לא של הערכים: `.strict()` נופל על שם
+ * מפתח שאינו מוצהר, וזו הבדיקה שצריכה לרוץ על הרשימה המלאה. הערכים
+ * עצמם נבדקים בגוף לדוגמה שמתחת.
+ *
+ * ‏מפתחות שבתוך ה-spread המותנה (`ownerName`, `ownerPhone`) נאספים
+ * גם הם — הם נשלחים בפועל כשהשדות מולאו, וזו בדיוק הצורה שבה שדה
+ * „לא חובה” מתגלה כחסום רק אצל מי שמילא אותו.
+ */
+function keysTheFormSends(): string[] {
+  const at = FORM.indexOf('apiPost<{ id: string }>("/properties", {');
+  if (at === -1) return [];
+  const start = FORM.indexOf("{", FORM.indexOf('"/properties"'));
+  let depth = 0;
+  let end = start;
+  for (; end < FORM.length; end += 1) {
+    if (FORM[end] === "{") depth += 1;
+    else if (FORM[end] === "}") {
+      depth -= 1;
+      if (depth === 0) break;
+    }
+  }
+  const body = FORM.slice(start, end)
+    .replace(/\/\*[\s\S]*?\*\//gu, "")
+    .replace(/^[ \t]*\/\/.*$/gmu, "");
+  return [...new Set([...body.matchAll(/^\s*([A-Za-z_$][\w$]*)\s*:/gmu)].map((m) => m[1]!))];
+}
+
+/** גוף לדוגמה — לבדיקת **ערכים**; המפתחות נבדקים מהחילוץ שלמעלה. */
 const FROM_THE_FORM = {
   status: "active",
   city: "בני ברק",
@@ -44,6 +85,24 @@ const FROM_THE_FORM = {
 } as const;
 
 describe("יצירת נכס — הגוף שהטופס שולח", () => {
+  /*
+   * ‎**הבדיקה המרכזית.** `.strict()` דוחה בקשה בגלל **שם** מפתח
+   * שאינו מוצהר, ולכן ההשוואה היא בין רשימת המפתחות שהטופס בונה
+   * לבין הצורה של הסכימה. שדה שיתווסף לטופס ולא לסכימה — ייפול
+   * כאן, ולא אצל המתווך.
+   */
+  it("כל מפתח שהטופס שולח מוצהר בסכימת היצירה", () => {
+    const sent = keysTheFormSends();
+    /* ‎**אפס מפתחות אינו „הכול תקין”** — זו הסריקה שנשברה */
+    expect(sent.length, "לא נמצא גוף הבקשה בטופס — הסריקה אינה קוראת").toBeGreaterThan(15);
+    const declared = new Set(Object.keys(CreatePropertySchema.shape));
+    const missing = sent.filter((key) => !declared.has(key));
+    expect(
+      missing,
+      `‎.strict() יחסום את הקליטה: ${missing.join(", ")}`,
+    ).toEqual([]);
+  });
+
   it("‎`status: \"active\"` מתקבל, ולא נחסם על ידי `.strict()`", () => {
     const parsed = CreatePropertySchema.safeParse(FROM_THE_FORM);
     expect(
