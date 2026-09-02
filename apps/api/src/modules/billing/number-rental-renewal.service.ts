@@ -338,6 +338,18 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
             `השכרת המספר ${formatRentalNumber(rental.number)} הסתיימה והמספר שוחרר מחשבון 015 של הפלטפורמה. ודאו שאין ניתוב ידני שנשאר מאחור.`,
           );
         }
+        /*
+         * חיוב מהפלטפורמה שהגיע לסוף התקופה ששולמה: מרגע זה המספר
+         * מנותב בלי תשלום. תזכורת שנייה, בנקודת הזמן שבה זה נהיה
+         * אמיתי — המייל הראשון יצא כבר בביטול, אבל הוא יכול היה
+         * להגיע חודש קודם.
+         */
+        if (rental.origin === "platform") {
+          await this.rentals.notifyAdmins(
+            "חיוב חודשי על מספר הסתיים — המספר מנותב בלי תשלום",
+            `התקופה ששולמה על המספר ${formatRentalNumber(rental.number)} נגמרה והחיוב נפסק. המספר של המשרד ממשיך להיות מנותב במערכת. כבו או מחקו אותו בשולחן החיבורים, או פתחו חיוב חדש אם סוכם אחרת.`,
+          );
+        }
         released += 1;
       } catch (error) {
         this.logger.error(`שחרור השכרה ${rental.id} נכשל: ${String(error)}`);

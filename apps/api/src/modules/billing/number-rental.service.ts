@@ -388,6 +388,29 @@ export class NumberRentalService {
       where: { id: rentalId },
       data: { status: "cancelled", cancelledAt: new Date() },
     });
+    /*
+     * ‎**חיוב מהפלטפורמה שבוטל הוא עבודה ידנית, ובכוונה.**
+     *
+     * בהשכרה מהמלאי הסורק סוגר את המעגל: התקופה נגמרת, המספר חוזר
+     * ל-015, ואיש אינו נשאר עם שירות בחינם. בחיוב על מספר של המשרד
+     * אין מה להחזיר — המספר שלו, והניתוב ממשיך לעבוד גם אחרי
+     * שהגבייה נפסקה. בלי מייל שאומר זאת במפורש, ביטול מצד המשרד
+     * היה הופך בשקט לשירות חינם (בקשת בעל הפלטפורמה).
+     */
+    if (rental.origin === "platform") {
+      const agency = await this.agencyName(rental.tenantId);
+      await this.notifyAdmins(
+        "משרד ביטל חיוב חודשי על מספר — הניתוב עדיין פעיל",
+        [
+          `המשרד „${agency}” ביטל את החיוב החודשי על המספר ${formatRentalNumber(rental.number)}.`,
+          rental.currentPeriodEnd !== null
+            ? `החיוב ייפסק ב-${formatJerusalemDate(rental.currentPeriodEnd)}.`
+            : "החיוב ייפסק בסבב הסורק הבא.",
+          "המספר של המשרד הוא ואינו משוחרר: הניתוב שלו במערכת ממשיך לעבוד בלי תשלום עד שתחליטו — לכבות או למחוק אותו בשולחן החיבורים, או לסכם עם המשרד על המשך החיוב.",
+        ].join(" "),
+      );
+      return;
+    }
     await this.notifyAdmins(
       "בוטלה השכרת מספר וירטואלי",
       [
@@ -397,6 +420,15 @@ export class NumberRentalService {
           : "המספר ישוחרר אוטומטית אצל 015 בסבב הסורק הבא.",
       ].join(" "),
     );
+  }
+
+  /** שם המשרד למייל למנהלים — כדי שיֵדעו אצל מי לטפל בלי לחפש. */
+  private async agencyName(tenantId: string): Promise<string> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true },
+    });
+    return tenant?.name ?? tenantId;
   }
 
   /**
