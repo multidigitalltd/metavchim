@@ -18,9 +18,15 @@ import { Notice } from "../notice";
  * ## מה המסך עושה
  *
  * טבלה אחת: כל המספרים של המשרד, ולכל אחד בחירת סוכן ושם. מספר
- * שאינו קיים עדיין מתווסף בשורה חדשה. **שמירה אחת** שולחת את כל
- * הטבלה — השרת מעדכן את הקיימים ויוצר את החסרים — ומייצרת אצל
- * המשרד רישום אחד ביומן והתראה אחת.
+ * שאינו קיים עדיין מתווסף בשורה חדשה. **שמירה אחת** שולחת את
+ * השורות שהשתנו — השרת מעדכן את הקיימים ויוצר את החסרים — ומייצרת
+ * אצל המשרד רישום אחד ביומן והתראה אחת.
+ *
+ * **רק שורות שהשתנו, ולא הטבלה כולה.** כל שורה מחזיקה את מה שנטען
+ * מהשרת, והשמירה משווה אליו. שליחת הכול הייתה דורסת שיוך שמנהל
+ * המשרד שינה בינתיים בשורה שכאן איש לא נגע בה — בשקט (ביקורת
+ * Codex). זה גם מה שמשאיר את תקרת מאה השורות בשרת רחוקה מכל
+ * שימוש אמיתי.
  *
  * הרכיב ממוענן מחדש לכל משרד (`key={agencyId}` אצל ההורה), ולכן
  * אין מצב שבו טבלה של משרד אחד נשלחת למשרד אחר. דגל ה-`live`
@@ -47,6 +53,17 @@ interface Row {
   label: string;
   assignedToUserId: string;
   isActive: boolean;
+  /** מה שנטען מהשרת — הבסיס להשוואת „האם השורה השתנתה”. */
+  initial: { label: string; assignedToUserId: string } | null;
+}
+
+/** שורה נשלחת רק אם היא חדשה עם מספר, או קיימת ושונה ממה שנטען. */
+function isDirty(row: Row): boolean {
+  if (row.id === null) return row.phone.trim() !== "";
+  if (row.initial === null) return true;
+  return (
+    row.label.trim() !== row.initial.label || row.assignedToUserId !== row.initial.assignedToUserId
+  );
 }
 
 const inputStyle = {
@@ -81,6 +98,7 @@ export function DeskVirtualNumbers({
         label: n.label,
         assignedToUserId: n.assignedToUserId ?? "",
         isActive: n.isActive,
+        initial: { label: n.label, assignedToUserId: n.assignedToUserId ?? "" },
       })),
     );
   }
@@ -111,7 +129,15 @@ export function DeskVirtualNumbers({
     nextKey += 1;
     setRows((prev) => [
       ...prev,
-      { key: `new-${nextKey}`, id: null, phone: "", label: "", assignedToUserId: "", isActive: true },
+      {
+        key: `new-${nextKey}`,
+        id: null,
+        phone: "",
+        label: "",
+        assignedToUserId: "",
+        isActive: true,
+        initial: null,
+      },
     ]);
   }
 
@@ -122,18 +148,15 @@ export function DeskVirtualNumbers({
   async function save(): Promise<void> {
     /*
      * שורה חדשה בלי מספר היא שורה שנפתחה ולא מולאה — מדלגים ולא
-     * דוחים. שורה קיימת נשלחת תמיד, גם בלי שינוי: השרת ממילא כותב
-     * את אותו ערך, וכך אין צורך לעקוב אחרי „מה השתנה” בצד הלקוח.
+     * דוחים. שורה קיימת שלא השתנתה אינה נשלחת כלל — ראו למעלה.
      */
-    const numbers = rows
-      .filter((row) => row.phone.trim() !== "")
-      .map((row) => ({
-        phone: row.phone.trim(),
-        label: row.label.trim(),
-        assignedToUserId: row.assignedToUserId === "" ? null : row.assignedToUserId,
-      }));
+    const numbers = rows.filter(isDirty).map((row) => ({
+      phone: row.phone.trim(),
+      label: row.label.trim(),
+      assignedToUserId: row.assignedToUserId === "" ? null : row.assignedToUserId,
+    }));
     if (numbers.length === 0) {
-      setError("אין מספרים לשמירה");
+      setError("אין שינויים לשמירה");
       return;
     }
     setBusy(true);
@@ -289,7 +312,7 @@ export function DeskVirtualNumbers({
             <button type="button" className="mv-btn-plain" onClick={addRow}>
               + הוסף מספר
             </button>
-            <Button disabled={busy || rows.length === 0} onClick={() => void save()}>
+            <Button disabled={busy || !rows.some(isDirty)} onClick={() => void save()}>
               {busy ? "שומר…" : "שמור שיוכים עבור המשרד"}
             </Button>
           </div>

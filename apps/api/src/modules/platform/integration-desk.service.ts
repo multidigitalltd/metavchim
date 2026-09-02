@@ -257,7 +257,7 @@ export class IntegrationDeskService {
    */
   async virtualNumbers(tenantId: string): Promise<DeskVirtualNumbers> {
     await this.agencyName(tenantId);
-    const [numbers, users] = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+    const [rows, users] = await this.prisma.withExplicitTenant(tenantId, (tx) =>
       Promise.all([
         tx.virtualNumber.findMany({
           where: { tenantId },
@@ -277,6 +277,23 @@ export class IntegrationDeskService {
         }),
       ]),
     );
+    /*
+     * שיוך לסוכן שהושבת חוזר כ-`null` — **כי זה מה שהוא בפועל.**
+     *
+     * הניתוב מאמת את הסוכן בזמן הכתיבה ונופל ל-null כשאינו פעיל,
+     * ולכן „משויך למושבת” ו„לערימה המשותפת” הם אותו דבר לכל שיחה
+     * שתגיע. להחזיר את המזהה הישן היה מציג במסך בחירה ריקה, ושמירה
+     * של השורה הייתה נדחית על „סוכן לא פעיל” שאיש לא בחר בו
+     * (ביקורת Codex).
+     */
+    const active = new Set(users.map((user) => user.id));
+    const numbers = rows.map((row) => ({
+      ...row,
+      assignedToUserId:
+        row.assignedToUserId !== null && active.has(row.assignedToUserId)
+          ? row.assignedToUserId
+          : null,
+    }));
     return { numbers, users };
   }
 
@@ -290,6 +307,11 @@ export class IntegrationDeskService {
    *
    * השורה כולה בטרנזקציה אחת ועם רישום אחד ביומן והתראה אחת: עשרה
    * מספרים לעשרה סוכנים הם פעולה אחת של המשרד, לא עשר.
+   *
+   * **המסך שולח רק שורות שהשתנו.** שליחת הטבלה כולה הייתה דורסת
+   * שיוך שמנהל המשרד שינה בין הטעינה לשמירה — בשקט, ובלי שאיש
+   * התכוון (ביקורת Codex). השרת אינו יכול להבחין בין „לא נגעתי”
+   * ל„בחרתי את אותו ערך”, ולכן ההבחנה נעשית אצל מי שיודע: הלקוח.
    *
    * מה **לא** נשמר כאן: נכס, מקור ליד וכיבוי. אלה בחירות של המשרד
    * על הקמפיינים שלו; השולחן פותר את החיבור הטכני בלבד.
