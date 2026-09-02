@@ -31,6 +31,16 @@ export const MATCH_CRITERIA = [
   "features_must",
   "features_nice",
   "entry_date",
+  /*
+   * ‎**`floor` חזר, ועכשיו עם כל מה שהיה חסר לו.**
+   *
+   * הוא היה כאן פעם — בסכמה בלבד, בלי משקל, בלי תווית ובלי שום קוד
+   * שמייצר אותו — והוסר בדיוק מהסיבה הזו. הפעם הוא מגיע יחד עם
+   * ‎`floorPreference` בדרישות הקונה, עם משקל, עם תווית ועם ענף
+   * ניקוד. הטיפוסים אוכפים את השלושה: קריטריון בלי משקל או בלי
+   * תווית אינו עובר קומפילציה.
+   */
+  "floor",
 ] as const;
 
 export type MatchCriterion = (typeof MATCH_CRITERIA)[number];

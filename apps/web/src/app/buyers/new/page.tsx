@@ -9,6 +9,7 @@ import { DictateFor } from "../../dictation-field";
 import { FormSection } from "../../form-section";
 import { FeatureRequirements } from "../feature-requirements";
 import { SearchAreas } from "../search-areas";
+import { FloorPreferenceField, readFloorPreference } from "../floor-preference-field";
 import { PropertyTypesField, readPropertyTypes } from "../property-types-field";
 import { PriceField } from "../../price-field";
 import { EntryTimingField } from "../../properties/entry-timing-field";
@@ -100,6 +101,8 @@ export default function NewBuyerPage() {
             budgetShekels === undefined ? undefined : shekelsToAgorot(budgetShekels),
           roomsMin: num("roomsMin"),
           roomsMax: num("roomsMax"),
+          /* „לא משנה” = חסר, ולא אובייקט ריק שמנוע ההתאמות יקרא כדרישה */
+          floorPreference: readFloorPreference(f.get("floorPreference")),
           /* ריק = "לא נבחר" — מוסר מהדרישות ולא נשמר כמחרוזת ריקה */
           entryType: String(f.get("entryType") ?? "") || undefined,
           entryBy: String(f.get("entryBy") ?? "")
@@ -238,6 +241,7 @@ export default function NewBuyerPage() {
                 <input id="roomsMax" name="roomsMax" type="number" step="0.5" min="1" inputMode="decimal" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
               </div>
             </div>
+            <FloorPreferenceField disabled={submitting} />
             {/*
               מועד הכניסה כבר ברגע הקליטה. הוא היה קיים רק במסך העריכה,
               כלומר נשאל אחרי שהשיחה עם הלקוח נגמרה — ובפועל כמעט אף

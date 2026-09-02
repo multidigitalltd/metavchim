@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { IdSchema, MoneyAgorotSchema } from "./common.js";
 import { PropertyTypeSchema, DealTypeSchema } from "./property.js";
+import { FLOOR_CHOICES, FLOOR_MAX, FLOOR_MIN } from "../logic/floor-preference.js";
 import {
   MAX_SEARCH_AREAS,
   MAX_SEARCH_RADIUS_KM,
@@ -50,6 +51,28 @@ export const FINANCING_LABELS: Record<FinancingStatus, string> = {
   not_started: "טרם התחיל מימון",
   unknown: "לא ידוע",
 };
+
+/**
+ * ‎**הקומה הרצויה — טווח או רשימה, ולעולם לא שניהם.**
+ *
+ * מיוצא בנפרד כי הטופס במסך צריך לאמת בדיוק את מה שהשרת יקבל: שדה
+ * שנשלח כ-JSON וסונן בכללים משלו הוא כלל שני שיתיישן.
+ */
+export const FloorPreferenceSchema = z.union([
+  z.object({
+    mode: z.literal("range"),
+    min: z.number().int().min(FLOOR_MIN).max(FLOOR_MAX).optional(),
+    max: z.number().int().min(FLOOR_MIN).max(FLOOR_MAX).optional(),
+  }),
+  z.object({
+    mode: z.literal("list"),
+    floors: z
+      .array(z.number().int().min(FLOOR_MIN).max(FLOOR_MAX))
+      .min(1)
+      .max(FLOOR_CHOICES.length),
+  }),
+]);
+export type FloorPreference = z.infer<typeof FloorPreferenceSchema>;
 
 /** דרישה בודדת של קונה: חובה או עדיפות — ההבחנה מזינה ישירות את מנוע ההתאמות. */
 export const RequirementLevelSchema = z.enum(["must", "nice"]);
@@ -103,6 +126,21 @@ export const BuyerRequirementsSchema = z.object({
   roomsMin: z.number().multipleOf(0.5).optional(),
   roomsMax: z.number().multipleOf(0.5).optional(),
   areaSqmMin: z.number().int().optional(),
+  /**
+   * ‎**הקומה הרצויה — טווח או רשימה, ולעולם לא שניהם.**
+   *
+   * ‎„משלוש ומעלה” ו„קרקע או ראשונה” הן שתי דרישות שונות בצורתן, ולא
+   * רק בערכיהן: הראשונה פתוחה בקצה אחד, השנייה היא בחירה של קומות
+   * בודדות מסיבות שונות. שדה אחד שמנסה לשאת את שתיהן היה מוליד את
+   * השאלה „מה גובר”, ולכל תשובה יש מקרה שבו היא מפתיעה.
+   *
+   * ‎`union` מתויג מונע את השאלה מלהיוולד: המצבים אינם יכולים
+   * להתקיים יחד — לא במסד, לא בזיכרון ולא במסך.
+   *
+   * חסר = לא נאמר, וקונה כזה מתאים לכל קומה. ראו
+   * ‎`logic/floor-preference.ts`.
+   */
+  floorPreference: FloorPreferenceSchema.optional(),
   /** מאפיין → רמת דרישה. למשל: { hasElevator: "must", hasSafeRoom: "nice" } */
   /*
    * מפתח חופשי ולא `enum` סגור: מאז שהמשרד יכול להוסיף מאפיינים

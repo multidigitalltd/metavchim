@@ -4,6 +4,7 @@ import { useEffect, useState, use, type FormEvent } from "react";
 import { NeighborhoodInput } from "../../../neighborhood-input";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { FloorPreference } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
 import { DictateFor } from "../../../dictation-field";
@@ -13,6 +14,7 @@ import { FINANCING_LABELS, shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { EntryTimingField } from "../../../properties/entry-timing-field";
 import { FeatureRequirements } from "../../feature-requirements";
+import { FloorPreferenceField, readFloorPreference } from "../../floor-preference-field";
 import { PropertyTypesField, readPropertyTypes } from "../../property-types-field";
 import { SearchAreas } from "../../search-areas";
 import type { SearchArea } from "@metavchim/shared";
@@ -51,6 +53,7 @@ interface BuyerRequirements {
   roomsMin?: number;
   roomsMax?: number;
   areaSqmMin?: number;
+  floorPreference?: FloorPreference;
   features: Record<string, "must" | "nice">;
   searchAreas?: SearchArea[];
   entryType?: string;
@@ -156,6 +159,8 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
           roomsMin: num("roomsMin"),
           roomsMax: num("roomsMax"),
           areaSqmMin: num("areaSqmMin"),
+          /* „לא משנה” = חסר, ולכן השדה יורד מהדרישות ואינו נשמר ריק */
+          floorPreference: readFloorPreference(f.get("floorPreference")),
           /*
              ריק = "לא נבחר", ונשלח כ-undefined כדי שהשדה יוסר מהדרישות
              במקום להישמר כמחרוזת ריקה שאף בדיקה לא מזהה.
@@ -302,6 +307,10 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
                 style={inputStyle}
               />
             </div>
+            <FloorPreferenceField
+              {...(req.floorPreference === undefined ? {} : { initial: req.floorPreference })}
+              disabled={submitting}
+            />
             {/*
               אילוץ הכניסה של הקונה — "גמיש" הוא תשובה, ולא היעדר.
             */}

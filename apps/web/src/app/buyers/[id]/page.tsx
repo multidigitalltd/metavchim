@@ -6,7 +6,8 @@ import {
   buyerProfileCompleteness,
   describeEntryNeed,
   priceInWordsWithCurrency,  labelOf } from "@metavchim/shared";
-import type { BuyerRequirements } from "@metavchim/shared";
+import type { BuyerRequirements, FloorPreference } from "@metavchim/shared";
+import { floorPreferenceText } from "@metavchim/shared";
 import { activeOfficeStatuses, officeStatusById } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import {
@@ -80,6 +81,7 @@ interface BuyerDetail {
     }[];
     budgetMinAgorot?: number;
     budgetMaxAgorot?: number;
+    floorPreference?: FloorPreference;
     roomsMin?: number;
     roomsMax?: number;
     areaSqmMin?: number;
@@ -330,6 +332,7 @@ export default function BuyerDetailPage({
   const musts = Object.entries(buyer.requirements.features).filter(
     ([, l]) => l === "must",
   );
+  const floorNeed = floorPreferenceText(buyer.requirements.floorPreference);
   const entryNeed = describeEntryNeed({
     entryType: buyer.requirements.entryType as Parameters<
       typeof describeEntryNeed
@@ -811,6 +814,22 @@ export default function BuyerDetailPage({
                   <div className="mb-3.5 text-[length:var(--type-body)] font-bold">
                     {buyer.requirements.areaSqmMin} מ&quot;ר
                   </div>
+                </>
+              ) : null}
+              {/*
+                ‎**הקומה מוצגת כמשפט ולא כמספרים.** „קרקע, קומה 1” ו„קומה
+                3 ומעלה” הן שתי דרישות שונות בצורתן, וזוג מספרים לא היה
+                יכול לשאת את שתיהן.
+              */}
+              {floorNeed !== undefined ? (
+                <>
+                  <div
+                    className="mb-1.5 text-[length:var(--type-caption-lg)] font-semibold"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    קומה רצויה
+                  </div>
+                  <div className="mb-3.5 text-[length:var(--type-body)] font-bold">{floorNeed}</div>
                 </>
               ) : null}
               {/* "גמיש" ו"מיידי" הם אילוץ בדיוק כמו תאריך — ולכן מוצגים */}
