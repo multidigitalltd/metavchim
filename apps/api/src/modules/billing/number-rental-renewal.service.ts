@@ -167,7 +167,10 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
         cardOwnerIdentity: subscription.cardOwnerIdEncrypted
           ? this.crypto.decrypt(subscription.cardOwnerIdEncrypted)
           : null,
-        productName: `השכרת מספר וירטואלי ${formatRentalNumber(rental.number)} — חידוש חודשי`,
+        productName:
+          rental.origin === "platform"
+            ? `שירות מספר וירטואלי ${formatRentalNumber(rental.number)} — חיוב חודשי`
+            : `השכרת מספר וירטואלי ${formatRentalNumber(rental.number)} — חידוש חודשי`,
         payer,
       });
 

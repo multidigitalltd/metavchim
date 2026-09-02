@@ -455,6 +455,52 @@ export class IntegrationDeskService {
   }
 
   /**
+   * מחיקת מספר וירטואלי בשם המשרד.
+   *
+   * מוציאה את ההגדרה בלבד — **ההיסטוריה שורדת**: כל שיחה מחזיקה את
+   * המספר ואת שמו כצילום, בדיוק כמו במחיקה ממסך המשרד. חיוב חודשי
+   * שנפתח על המספר אינו נסגר מכאן; הוא נסגר במסך ההשכרות.
+   */
+  async deleteVirtualNumber(tenantId: string, numberId: string): Promise<{ ok: true }> {
+    await this.agencyName(tenantId);
+    const adminEmail = await this.adminEmail();
+    await this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      const row = await tx.virtualNumber.findFirst({
+        where: { id: numberId, tenantId },
+        select: { phone: true, label: true },
+      });
+      if (row === null) {
+        throw new BadRequestException("המספר כבר אינו קיים אצל המשרד — טענו את הרשימה מחדש");
+      }
+      await tx.virtualNumber.deleteMany({ where: { id: numberId, tenantId } });
+      await tx.auditLog.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          userId: null,
+          action: "virtual_number.platform_delete",
+          entityType: "virtual_number",
+          entityId: numberId,
+          metadata: { platformAdmin: adminEmail, phone: row.phone, label: row.label } as object,
+        },
+      });
+      await tx.notification.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          userId: null,
+          type: "integration_platform_change",
+          title: "מנהל הפלטפורמה מחק מספר וירטואלי",
+          body: `${row.label} (${row.phone}) הוסר על ידי ${adminEmail}. השיחות שכבר נקלטו נשמרות.`,
+          entityType: "virtual_number",
+          entityId: tenantId,
+        },
+      });
+    });
+    return { ok: true };
+  }
+
+  /**
    * היומן וההתראה על שיוך — אצל המשרד, כמו על חיבור המרכזייה.
    *
    * ה-`metadata` נושא את הרשימה עצמה (מספר ← מה השתנה בו): זה מה

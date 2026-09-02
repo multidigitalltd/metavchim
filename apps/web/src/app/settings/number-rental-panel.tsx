@@ -27,6 +27,8 @@ interface RentalRow {
   statusLabel: string;
   currentPeriodEnd: string | null;
   provisioned: boolean;
+  /** `platform` = חיוב שירות על מספר של המשרד; אין תפיסה אצל 015. */
+  origin: string;
 }
 
 interface Offering {
@@ -124,7 +126,7 @@ export function NumberRentalPanel(): React.JSX.Element | null {
                   שולם והמספר טרם נתפס — המשרד צריך לדעת שזה בטיפול,
                   לא לחשוב שהכסף נעלם.
                 */}
-                {rental.status === "active" && !rental.provisioned
+                {rental.status === "active" && !rental.provisioned && rental.origin !== "platform"
                   ? " · בהקמה — ניצור קשר בהקדם"
                   : ""}
               </span>

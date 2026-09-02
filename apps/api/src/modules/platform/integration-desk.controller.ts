@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, UseGuards } from "@nestjs/common";
 import { z } from "zod";
 import { IdSchema } from "@metavchim/shared";
 import { PlatformAdmin } from "../../common/auth.decorators";
@@ -144,5 +144,18 @@ export class IntegrationDeskController {
     body: z.infer<typeof AssignVirtualNumbersSchema>,
   ): Promise<{ ok: true; saved: number }> {
     return this.desk.assignVirtualNumbers(id, body.numbers);
+  }
+
+  /**
+   * מחיקת מספר בשם המשרד — ההגדרה בלבד, ההיסטוריה נשארת.
+   * ראו `IntegrationDeskService.deleteVirtualNumber`.
+   */
+  @Delete(":id/integrations/virtual-numbers/:numberId")
+  @HttpCode(200)
+  async deleteVirtualNumber(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("numberId", new ZodValidationPipe(IdSchema)) numberId: string,
+  ): Promise<{ ok: true }> {
+    return this.desk.deleteVirtualNumber(id, numberId);
   }
 }
