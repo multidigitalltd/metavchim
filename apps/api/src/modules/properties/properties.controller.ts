@@ -46,6 +46,12 @@ const CreatePropertySchema = PropertyFieldsSchema.extend({
    */
   occupantName: z.string().min(2).max(120).optional(),
   occupantPhone: PhoneInputSchema.optional(),
+  /*
+   * ‎**הסוכן המטפל.** מזהה של משתמש במשרד, או מחרוזת ריקה לניתוק.
+   * השרת מאמת שהמזהה שייך למשרד — מסך אינו רשות לשייך נכס לאדם
+   * שאינו בו.
+   */
+  agentUserId: z.union([IdSchema, z.literal("")]).optional(),
 }).strict();
 
 const UpdatePropertySchema = CreatePropertySchema.partial()
@@ -183,6 +189,7 @@ export class PropertiesController {
       ownerPhone,
       occupantName,
       occupantPhone,
+      agentUserId,
       ...fields
     } = body;
     return this.properties.create({
@@ -190,6 +197,8 @@ export class PropertiesController {
       marketingTitle,
       marketingDescription,
       internalNotes,
+      /* ריק ביצירה = „אני”, וזו כבר ברירת המחדל בשירות */
+      ...(agentUserId === undefined || agentUserId === "" ? {} : { agentUserId }),
       ...(ownerName !== undefined && ownerPhone !== undefined
         ? { owner: { name: ownerName, phone: ownerPhone } }
         : {}),

@@ -72,6 +72,7 @@ import {
 } from "../../icons";
 import { IconAction } from "../../icon-action";
 import { LoadError } from "../../load-error";
+import { AgentTag } from "../../agent-tag";
 import { Notice } from "../../notice";
 
 /**
@@ -121,6 +122,9 @@ interface PropertyDetail {
    */
   status: PropertyStatus;
   marketingTitle?: string;
+  /** הסוכן המטפל. חסר = לא משויך. */
+  agentName?: string;
+  agentUserId?: string;
   readinessScore: number;
   missingFields: string[];
   ownerContact?: OwnerContact;
@@ -620,6 +624,46 @@ export default function PropertyDetailPage({
   }
 
   /** שינוי סטטוס (פעיל/בהמתנה/נמכר…) ישירות מהכרטיס — בלי להיכנס לעריכה. */
+  /**
+   * ‎**מי מטפל בנכס — נקבע מהכרטיס, לא ממסך עריכה.**
+   *
+   * העברת נכס בין סוכנים היא פעולה של מנהל שסורק רשימה, ולא עריכה
+   * של פרטי הנכס. אותו נימוק בדיוק שבגללו הסטטוס הוא בורר בכותרת
+   * ולא שדה בטופס.
+   */
+  const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (!canEditOwner) return;
+    apiGet<{ id: string; name: string }[]>("/tasks/assignees")
+      .then(setMembers)
+      .catch(() => setMembers([]));
+  }, [canEditOwner]);
+
+  async function changeAgent(agentUserId: string): Promise<void> {
+    const saved = await apiPatch<{ agentUserId?: string; agentName?: string }>(
+      `/properties/${id}`,
+      { agentUserId },
+    );
+    /*
+     * השם מגיע **מהשרת** ולא נבחר מהרשימה המקומית: הרשימה נטענה
+     * פעם אחת, והשרת הוא זה שיודע מי במשרד עכשיו. שם שנלקח מכאן
+     * היה מציג בחירה שהשרת אולי דחה.
+     */
+    setProperty((prev) =>
+      prev
+        ? {
+            ...prev,
+            ...(saved.agentUserId === undefined
+              ? { agentUserId: undefined }
+              : { agentUserId: saved.agentUserId }),
+            ...(saved.agentName === undefined
+              ? { agentName: undefined }
+              : { agentName: saved.agentName }),
+          }
+        : prev,
+    );
+  }
+
   async function changeStatus(status: PropertyStatus) {
     setStatusSaving(true);
     try {
@@ -985,6 +1029,43 @@ export default function PropertyDetailPage({
                       </option>
                     ))}
                 </select>
+                {/* „של מי הנכס הזה?” — השאלה הראשונה של מנהל בסוכנות */}
+                {canEditOwner ? (
+                  <>
+                    <label htmlFor="prop-agent" className="mv-visually-hidden">
+                      הסוכן המטפל
+                    </label>
+                    <select
+                      id="prop-agent"
+                      className="mv-control"
+                      value={property.agentUserId ?? ""}
+                      onChange={(event) => void changeAgent(event.target.value)}
+                    >
+                      <option value="">לא משויך</option>
+                      {/*
+                        ‎**סוכן שהושבת נשאר בבורר.** `/tasks/assignees`
+                        מחזיר פעילים בלבד, ובלי השורה הזו נכס ששויך למי
+                        שעזב היה נראה „לא משויך” — כלומר המסך היחיד
+                        שבו אפשר לתקן את זה היה גם זה שמסתיר אותו.
+                      */}
+                      {property.agentUserId !== undefined &&
+                      !members.some((member) => member.id === property.agentUserId) ? (
+                        <option value={property.agentUserId}>
+                          {property.agentName ?? "סוכן שאינו במשרד"} (לא פעיל)
+                        </option>
+                      ) : null}
+                      {members.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.name}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                ) : (
+                  <AgentTag
+                    {...(property.agentName === undefined ? {} : { name: property.agentName })}
+                  />
+                )}
               </label>
               {/*
                 ‎**המחיר בשורת הכותרת, וכלום כשאין מחיר.**

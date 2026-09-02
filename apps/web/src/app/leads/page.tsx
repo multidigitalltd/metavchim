@@ -19,6 +19,7 @@ import { IconChat, IconGlobe, IconLink, IconMic, IconPhone, IconTrash } from "..
 import { CapNote, FilterBar, FilterSelect, SearchField, textMatches,
   useFilterFromUrl,
 } from "../list-controls";
+import { AgentTag } from "../agent-tag";
 import { Notice } from "../notice";
 import { DeleteLeadDialog } from "./delete-lead-dialog";
 import { LeadsPulse } from "./leads-pulse";
@@ -36,6 +37,8 @@ interface LeadRow {
   intent: string;
   status: string;
   requiresHuman: boolean;
+  /** הסוכן המטפל. חסר = לא משויך. */
+  agentName?: string;
   createdAt: string;
 }
 
@@ -488,7 +491,10 @@ export default function LeadsPage() {
                       <span className="text-[length:var(--type-caption-lg)] font-extrabold" style={{ color: waiting ? WAITING_COLOR[waiting.level] : "var(--color-text-muted)" }}>
                         {waiting?.label ?? "—"}
                       </span>
-                      <span>
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <AgentTag
+                          {...(lead.agentName === undefined ? {} : { name: lead.agentName })}
+                        />
                         <span className="mv-pill" style={{ color: pill.fg, background: pill.bg, fontSize: "var(--type-caption)" }}>
                           {labelOf(LEAD_STATUS_LABELS, lead.status) ?? lead.status}
                         </span>

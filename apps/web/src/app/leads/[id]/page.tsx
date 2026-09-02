@@ -58,6 +58,7 @@ import {
   IconRefresh,
   IconUser,
 } from "../../icons";
+import { AgentTag } from "../../agent-tag";
 import { Notice } from "../../notice";
 
 interface LeadDetail {
@@ -69,6 +70,8 @@ interface LeadDetail {
   requiresHuman: boolean;
   requiresHumanReason?: string;
   summary?: string;
+  /** הסוכן המטפל, כפי שהשרת פתר אותו. חסר = לא משויך. */
+  agentName?: string;
   /** מתי הליד נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
   createdAt: string;
 }
@@ -770,6 +773,8 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             >
               {labelOf(LEAD_INTENT_LABELS, lead.intent) ?? lead.intent}
             </span>
+            {/* „של מי הליד הזה?” — השאלה הראשונה של מנהל בסוכנות */}
+            <AgentTag {...(lead.agentName === undefined ? {} : { name: lead.agentName })} />
             {/*
               רשימה מעוצבת ולא `select` נייטיב — אותו תיקון שכבר
               נעשה בכרטיס הקונה: הגלולה נראתה נכון סגורה, ובפתיחה

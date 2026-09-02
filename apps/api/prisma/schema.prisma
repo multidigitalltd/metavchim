@@ -436,6 +436,20 @@ model Property {
   marketingTitle       String?   @map("marketing_title") @db.VarChar(160)
   marketingDescription String?   @map("marketing_description")
   internalNotes        String?   @map("internal_notes")
+  /// ‎**הסוכן המטפל בנכס.**
+  ///
+  /// עד כה לנכס לא היה סוכן כלל: הוא היה של המשרד, וכל סוכן ראה את
+  /// כולם. במשרד עם סוכן אחד זה נכון; בסוכנות עם כמה סוכנים זו
+  /// השאלה הראשונה שמנהל שואל על נכס — „של מי זה?” — ולא הייתה לה
+  /// תשובה בשום מסך.
+  ///
+  /// ‎**השדה מתעד, ואינו מסתיר.** הוא אינו משנה מי רואה מה: נכסים
+  /// נשארים גלויים לכל המשרד, כפי שהיו. הגבלת ראייה היא החלטה
+  /// נפרדת עם מחיר תפעולי משלה, ואינה נגררת בשקט מתוך שדה חדש.
+  ///
+  /// ‎`null` = נכס שקדם לעמודה, או שלא שויך. המסך אומר „לא משויך”
+  /// ואינו מנחש בעל.
+  agentUserId          String?   @map("agent_user_id") @db.Char(26)
   attributes           Json      @default("{}")
   readinessScore       Int       @default(0) @map("readiness_score")
   // דף הנחיתה הציבורי של הנכס — הטוקן הוא ההרשאה (פוליסת RLS ייעודית)
@@ -449,6 +463,8 @@ model Property {
 
   @@index([tenantId, status, updatedAt])
   @@index([tenantId, city, status])
+  /// „הנכסים של סוכן פלוני” — השאילתה שהמסך החדש עושה.
+  @@index([tenantId, agentUserId])
   @@map("properties")
 }
 

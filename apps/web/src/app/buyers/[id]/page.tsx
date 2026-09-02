@@ -39,6 +39,7 @@ import { useOfficeStatuses } from "../../use-office-statuses";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { IntakePanel } from "../../intake-panel";
 import { LoadError } from "../../load-error";
+import { AgentTag } from "../../agent-tag";
 import { Notice } from "../../notice";
 
 /**
@@ -91,6 +92,8 @@ interface BuyerDetail {
   maturity: string;
   /** מזהה סטטוס המשרד — התווית נפתרת מול הרשימה שנטענת בנפרד. */
   officeStatus?: string;
+  /** הסוכן שהכרטיס שלו. חסר = לא משויך. */
+  agentName?: string;
   source: string;
   agentNotes?: string;
   /** מתי הכרטיס נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
@@ -437,6 +440,8 @@ export default function BuyerDetailPage({
             >
               {DEAL_TYPE_LABELS[buyer.requirements.dealType] ?? buyer.requirements.dealType}
             </span>
+            {/* „של מי הכרטיס הזה?” — השאלה הראשונה של מנהל בסוכנות */}
+            <AgentTag {...(buyer.agentName === undefined ? {} : { name: buyer.agentName })} />
             {/*
               רשימה מעוצבת ולא `select` נייטיב: הגלולה נראתה נכון
               סגורה, ובפתיחה נפתחה רשימת מערכת עם הדגשה כחולה שאינה

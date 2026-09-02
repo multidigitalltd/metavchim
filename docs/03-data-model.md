@@ -53,7 +53,8 @@ erDiagram
 - **interactions** — ציר זמן אחוד: שיחה (עם קישור להקלטה+תמלול+סיכום), הודעת וואטסאפ, פגישה, הערה. `interaction_type`, `direction`, `payload JSONB`.
 
 ### נכסים
-- **properties** — עיר, שכונה, רחוב, סוג, חדרים, מ"ר, קומה/מתוך, מחיר + גמישות, תאריך כניסה, בלעדיות (+תוקף), סטטוס (draft/active/on_hold/sold/rented/archived), בוליאנים נפוצים (מעלית, חניה, ממ"ד, מרפסת, מחסן), מצב הנכס, `attributes JSONB`, `readiness_score` (0–100, מחושב), `marketing_title`, `marketing_description`, `owner_contact_id`, הערות פנימיות.
+- **properties** — עיר, שכונה, רחוב, סוג, חדרים, מ"ר, קומה/מתוך, מחיר + גמישות, תאריך כניסה, בלעדיות (+תוקף), סטטוס (draft/active/on_hold/sold/rented/archived), בוליאנים נפוצים (מעלית, חניה, ממ"ד, מרפסת, מחסן), מצב הנכס, `attributes JSONB`, `readiness_score` (0–100, מחושב), `marketing_title`, `marketing_description`, `owner_contact_id`, `agent_user_id`, הערות פנימיות.
+  - `agent_user_id` הוא **הסוכן המטפל בנכס** — התשובה ל„של מי זה?” בסוכנות עם כמה סוכנים. נכס חדש שייך למי שיצר אותו, בדיוק כמו `buyers.owner_user_id`. השדה **מתעד ואינו מסתיר**: הוא אינו משנה מי רואה מה, ונכסים נשארים גלויים לכל המשרד. `NULL` = נכס שקדם לעמודה או שנותק ממנה במפורש, והמסך אומר „לא משויך”.
 - **property_media** — תמונות/מסמכים: S3 key, סוג, סדר, alt text.
 - **voice_intakes** — הקלטת קליטה: קובץ, תמלול, שדות שחולצו, שדות חסרים, סטטוס עיבוד. נשמר לצורך שחזור ותיקון.
 - **intake_requests** — הטופס שהלקוח ממלא בעצמו: טוקן (43 תווים, ייחודי גלובלית — הוא נפתר לפני שידוע הדייר), הכרטיס שאליו הוא מצביע, סטטוס, תפוגה, ומה שהלקוח שלח (`answers`). `side` הוא **לאיזה צד של העסקה הוא נענה** — `buyer` או `seller` — ונשמר על השורה ולא נגזר מהתשובות, כדי שלקוח שפותח את הקישור שוב כדי לתקן יחזור למסלול שבו כבר היה. `property_id` הוא טיוטת הנכס שהמוכר יצר, ובלעדיו שליחה חוזרת הייתה פותחת נכס שני לאותה דירה.
@@ -101,6 +102,7 @@ erDiagram
 | שאילתה | אינדקס |
 |--------|--------|
 | דשבורד: לידים פתוחים לסוכן | `leads (tenant_id, assigned_to, status, created_at)` |
+| הנכסים של סוכן | `properties (tenant_id, agent_user_id)` |
 | התאמות לנכס | `matches (tenant_id, property_id, score DESC) WHERE status='suggested'` |
 | חיפוש לקוח לפי טלפון | `contacts (tenant_id, phone_hash)` UNIQUE |
 | קונים לפי אזור+תקציב (מנוע התאמות) | `buyers (tenant_id, maturity)` + GIN על ערים; סינון תקציב בעמודות |
