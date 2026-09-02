@@ -44,6 +44,7 @@ import {
 } from "@metavchim/shared";
 import { isCardAccessible,
   assertContactAccess,
+  seesAllProperties,
 } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
@@ -1372,16 +1373,21 @@ export class AgentExecuteService {
       };
     }
     const items = await this.exclusivity.list();
+    /*
+     * ‎**המספר נאמר עם ההיקף שהוא מתאר** (ביקורת Codex).
+     *
+     * הרשימה מסוננת לנכסים שבטיפול הדובר, ומנהל מקבל את כל המשרד.
+     * ‏„שלוש בלעדיות” בלי ההבחנה הזו נשמע לסוכן כמו סך המשרד — כלומר
+     * דיווח שקרי על שקט שאין בו — ולכן ההיקף נגזר מאותה פונקציה
+     * שקבעה את הסינון עצמו, ולא מבדיקה שנייה שעלולה להיפרד ממנה.
+     */
+    const scope = seesAllProperties() ? "במשרד" : "בטיפולך";
     return {
       href: "/exclusivity",
       message:
         items.length === 0
-          /*
-           * בלי „במשרד”: הרשימה מסוננת לנכסים שבטיפול הדובר (ראו
-           * `ownedPropertyScope`), ולסוכן אחד זו טענה שאינה נכונה.
-           */
-          ? "אין בלעדיות פעילות"
-          : `${items.length} בלעדיות — לפי דחיפות`,
+          ? `אין בלעדיות פעילות ${scope}`
+          : `${items.length} בלעדיות ${scope} — לפי דחיפות`,
       data: { exclusivity: items.map(exclusivityRow) },
     };
   }

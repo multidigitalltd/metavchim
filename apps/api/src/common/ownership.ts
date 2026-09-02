@@ -667,9 +667,19 @@ export function visibleCallsCondition(
  * הזמנה לקחת אותו — ובלעדיות היא חובה חוזית של המשרד, שאין דרך
  * „לקחת” אותה בלי שיוך הנכס עצמו.
  */
+export function seesAllProperties(): boolean {
+  return TenantContext.current().capabilities.has("tasks.view_all");
+}
+
+/**
+ * ‎`ownedPropertyScope` היא הצורה ה-SQL של אותה שאלה. שתי הצורות
+ * נגזרות מ-`seesAllProperties` ולא מכריעות בעצמן: הסינון והמילים
+ * שמתארות אותו למשתמש חייבים לומר את אותו הדבר, ובדיקה שנייה של
+ * היכולת הייתה בדיוק העותק שנפרד ומשקר על עצמו.
+ */
 export function ownedPropertyScope(tenantId: string): Prisma.Sql {
   const ctx = TenantContext.current();
-  if (ctx.capabilities.has("tasks.view_all")) return Prisma.sql`TRUE`;
+  if (seesAllProperties()) return Prisma.sql`TRUE`;
   return Prisma.sql`
     property_id IN (SELECT id FROM properties
                      WHERE tenant_id = ${tenantId}
