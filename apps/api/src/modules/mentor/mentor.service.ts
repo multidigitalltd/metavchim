@@ -232,15 +232,33 @@ export class MentorService {
       const committed = weekGoal?.commitment ?? {};
       const score = weeklyScore(committed, actual);
 
-      const previousRow = await tx.mentorWeeklyScore.findFirst({
-        where: { ...scope, weekKey: weekKey(jerusalemWeekStart(now, -1)) },
-        select: { percent: true },
+      /*
+       * ‎**שני השבועות ש*הסתיימו*, ולא אחד** (ביקורת Codex, P2).
+       *
+       * ‏„פעמיים ברצף” נשען על שבועות שנסגרו. השבוע הנוכחי אינו
+       * אחד מהם — ביום ראשון הוא בן יום אחד וממילא מתחת לסף — ולכן
+       * הוא אינו נשלף כאן בכלל: המפתחות הם של השבוע שעבר ושלפניו.
+       */
+      const completedKeys = [
+        weekKey(jerusalemWeekStart(now, -1)),
+        weekKey(jerusalemWeekStart(now, -2)),
+      ];
+      const completedRows = await tx.mentorWeeklyScore.findMany({
+        where: { ...scope, weekKey: { in: completedKeys } },
+        select: { weekKey: true, percent: true },
       });
+      /*
+       * ‏לפי סדר המפתחות ולא לפי סדר החזרה מהמסד, ושבוע חסר נופל
+       * מהרשימה — כדי ששבוע ללא ציון לא ייחשב בטעות לשבוע חלש.
+       */
+      const previousPercents = completedKeys
+        .map((key) => completedRows.find((r) => r.weekKey === key)?.percent)
+        .filter((p): p is number => p !== undefined);
 
       const moments = mentorMoments({
         score,
         weekday: jerusalemWeekday(now),
-        ...(previousRow === null ? {} : { previousPercent: previousRow.percent }),
+        previousPercents,
       });
 
       /* ---- „איפה היית” ---- */
@@ -270,7 +288,9 @@ export class MentorService {
           committed,
           actual,
           score,
-          ...(previousRow === null ? {} : { previousPercent: previousRow.percent }),
+          ...(previousPercents[0] === undefined
+            ? {}
+            : { previousPercent: previousPercents[0] }),
         },
         moments,
         weekOverWeek: LEAD_MEASURES.map((measure) => ({

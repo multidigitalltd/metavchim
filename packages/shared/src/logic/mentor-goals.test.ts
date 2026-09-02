@@ -221,12 +221,47 @@ describe("מתי למנטור יש מה לומר", () => {
 
   /* שבוע חלש אחד אינו סיפור; שניים ברציפות הם שאלה, לא נזיפה */
   it("שני שבועות חלשים ברציפות — פנייה אחת, בתחילת השבוע", () => {
-    const kinds = mentorMoments({ score: behind, weekday: 0, previousPercent: 40 }).map(
-      (m) => m.kind,
-    );
+    const kinds = mentorMoments({
+      score: behind,
+      weekday: 0,
+      previousPercents: [40, 55],
+    }).map((m) => m.kind);
     expect(kinds).toContain("two_weak_weeks");
     expect(
-      mentorMoments({ score: behind, weekday: 0, previousPercent: 95 }).map((m) => m.kind),
+      mentorMoments({ score: behind, weekday: 0, previousPercents: [95, 90] }).map(
+        (m) => m.kind,
+      ),
+    ).not.toContain("two_weak_weeks");
+  });
+
+  it("שבוע חלש אחד שהסתיים אינו „פעמיים ברצף”", () => {
+    /*
+     * ‎**הבאג שהיה כאן** (ביקורת Codex, P2): ביום ראשון השבוע
+     * הנוכחי הוא בן יום אחד וממילא מתחת לסף, ולכן „השבוע שעבר היה
+     * חלש” לבדו הספיק — וההודעה נשלחה אחרי שבוע חלש **אחד**.
+     *
+     * ‏מנטור שסופר לא נכון גרוע ממנטור ששותק: ברגע שהוא טועה
+     * במספר, אי אפשר לסמוך על שום דבר אחר שהוא אומר.
+     */
+    expect(
+      mentorMoments({ score: behind, weekday: 0, previousPercents: [40] }).map(
+        (m) => m.kind,
+      ),
+    ).not.toContain("two_weak_weeks");
+    // השבוע שלפני האחרון היה טוב ⇒ אין רצף
+    expect(
+      mentorMoments({ score: behind, weekday: 0, previousPercents: [40, 92] }).map(
+        (m) => m.kind,
+      ),
+    ).not.toContain("two_weak_weeks");
+  });
+
+  it("„פעמיים ברצף” נאמר רק בתחילת שבוע, לא באמצעו", () => {
+    // באמצע השבוע יש עוד מה לתקן, ולכן ההודעה היא „midweek_behind”
+    expect(
+      mentorMoments({ score: behind, weekday: 3, previousPercents: [40, 55] }).map(
+        (m) => m.kind,
+      ),
     ).not.toContain("two_weak_weeks");
   });
 

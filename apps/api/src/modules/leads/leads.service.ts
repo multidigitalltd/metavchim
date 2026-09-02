@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
-import { OPEN_LEAD_STATUSES, leadDeletionRejectionReason, type Page } from "@metavchim/shared";
+import {
+  OPEN_LEAD_STATUSES,
+  leadDeletionRejectionReason,
+  leadSourceText,
+  type Page,
+} from "@metavchim/shared";
 import { lockContact, lockLead } from "../../common/locks";
 import { assertLeadAccess, leadIsVisible, leadOwnershipFilter } from "../../common/ownership";
 import { agentNameOf, agentNames } from "../../common/agent-names";
@@ -323,13 +328,27 @@ export class LeadsService {
       if (lead.source === next && (lead.sourceNote ?? null) === nextNote) return;
 
       await tx.lead.update({ where: { id }, data: { source: next, sourceNote: nextNote } });
+      /*
+       * ‎**ההיסטוריה שומרת את הטקסט המוצג, ולא את מפתח המקור**
+       * (ביקורת Codex, P2).
+       *
+       * ‏ליד „אחר” שהפירוט שלו תוקן מ„דוכן ביריד” ל„שלט על הרכב”
+       * הוא **שינוי אמיתי** — התנאי מעליו כבר מכיר בו — אבל שורת
+       * ציר-הזמן נכתבה כ„other” ורשומת הביקורת כ„other ⇒ other”.
+       * כלומר בדיוק התיקונים שהשדה החדש בא לאפשר היו נעלמים
+       * מההיסטוריה, ואי אפשר היה להבחין ביניהם.
+       *
+       * ‎`leadSourceText` היא אותה פונקציה שמציגה את המקור בכל
+       * מסך, ולכן השורה נקראת אותו דבר בציר הזמן ובכרטיס. שורות
+       * ישנות נושאות את המפתח („other”), והיא מתרגמת גם אותן.
+       */
       await tx.interaction.create({
         data: {
           id: ulid(),
           tenantId: ctx.tenantId,
           leadId: id,
           kind: "source_change",
-          content: next,
+          content: leadSourceText(next, nextNote),
           createdBy: ctx.userId,
         },
       });
@@ -337,7 +356,13 @@ export class LeadsService {
         action: "lead.source",
         entityType: "lead",
         entityId: id,
-        metadata: { from: lead.source, to: next },
+        metadata: {
+          from: lead.source,
+          to: next,
+          /* ‏ההערה בנפרד מהמקור: ביקורת מחפשת „מה היה” ולא טקסט מורכב */
+          fromNote: lead.sourceNote,
+          toNote: nextNote,
+        },
       });
     });
   }

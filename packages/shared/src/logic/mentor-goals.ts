@@ -321,8 +321,19 @@ export interface MomentInput {
   score: WeeklyScore;
   /** יום בשבוע ישראלי, 0 ראשון … 6 שבת. */
   weekday: number;
-  /** הציון של השבוע שעבר, אם היה. */
-  previousPercent?: number;
+  /**
+   * ‎**ציוני השבועות ש*הסתיימו*, מהאחרון אחורה.**
+   *
+   * ‏מערך ולא מספר בודד, וזה תיקון של באג ולא הרחבה (ביקורת Codex,
+   * P2). ‏עד כה נבדק „השבוע שעבר היה חלש” ביום ראשון, ואז **השבוע
+   * הנוכחי חלש מעצם היותו בן יום אחד** — כך ש„שבוע שני ברציפות”
+   * נשלח אחרי שבוע חלש **אחד**. מנטור שסופר לא נכון גרוע ממנטור
+   * ששותק, כי אי אפשר לסמוך על שום דבר אחר שהוא אומר.
+   *
+   * ‏שני האיברים הראשונים הם שני השבועות השלמים האחרונים, ורק
+   * כששניהם מתחת לסף יש „פעמיים ברצף”.
+   */
+  previousPercents?: number[];
 }
 
 /**
@@ -383,11 +394,17 @@ export function mentorMoments(input: MomentInput): MentorMoment[] {
    * ‎**שבוע חלש אחד אינו סיפור.** שניים ברציפות כן, וגם אז זו שאלה
    * („מה עצר אותך?”) ולא נזיפה: המכשול הוא המידע שאפשר לעבוד איתו,
    * ותוכנית „אם-אז” נבנית עליו.
+   *
+   * ‎**שני השבועות שנספרים הם שבועות שהסתיימו.** השבוע הנוכחי אינו
+   * אחד מהם: ביום ראשון הוא בן יום אחד וממילא מתחת לסף, וספירה
+   * שכוללת אותו הייתה שולחת „פעמיים ברצף” על שבוע חלש אחד.
    */
+  const completed = input.previousPercents ?? [];
   if (
-    input.previousPercent !== undefined &&
-    input.previousPercent < ON_TRACK_THRESHOLD &&
-    weekday === 0
+    weekday === 0 &&
+    completed.length >= 2 &&
+    completed[0]! < ON_TRACK_THRESHOLD &&
+    completed[1]! < ON_TRACK_THRESHOLD
   ) {
     out.push({ kind: "two_weak_weeks", percent: score.percent });
   }
