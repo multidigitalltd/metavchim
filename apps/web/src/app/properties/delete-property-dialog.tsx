@@ -104,10 +104,26 @@ export function DeletePropertyDialog({
   async function remove(): Promise<void> {
     setBusy("delete");
     setError(null);
+    /*
+     * ‎**„הועבר לארכיון” נאמר רק אחרי שזה קרה** (ביקורת Codex, P1).
+     *
+     * הניסוח הראשון גזר את המשפט מ-`!archived` — כלומר מהמצב שבו
+     * הנכס היה כשהחלון נפתח. נכשל הארכוב עצמו (403, נפילת
+     * טרנזקציה)? הקוד נכנס לאותו ענף בדיוק, והמסך הודיע שהנכס הוצא
+     * מהרשימה בזמן שהוא פעיל ומפורסם — הבטחה על שינוי מצב שלא
+     * התרחש, וזה גרוע משגיאה סתומה.
+     *
+     * ‎**משתנה מקומי ולא `state`**: `setStrandedInArchive` אינו
+     * נקרא באותו סבב, ולכן `strandedInArchive` בתוך ה-`catch` הוא
+     * עדיין הערך הישן. זו בדיוק הסיבה שהניסוח הראשון נשען על
+     * ‎`!archived` מלכתחילה.
+     */
+    let didArchiveNow = false;
     try {
       // השרת דורש ארכיון קודם; על נכס פעיל זה הצעד הראשון מהשניים
       if (!archived && !strandedInArchive) {
         await apiDelete(`/properties/${propertyId}`);
+        didArchiveNow = true;
         setStrandedInArchive(true);
       }
       await apiDelete(`/properties/${propertyId}/permanent`);
@@ -115,7 +131,7 @@ export function DeletePropertyDialog({
     } catch (err: unknown) {
       const message = err instanceof ApiError ? err.message : "המחיקה נכשלה";
       setError(
-        strandedInArchive || !archived
+        didArchiveNow || strandedInArchive
           ? `${message} — הנכס הועבר לארכיון ולא נמחק.`
           : message,
       );
