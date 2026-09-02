@@ -82,6 +82,43 @@ describe("החלפת המספר הראשי — השירות", () => {
   });
 
   /*
+   * ‎**„בדוק ואז כתוב” בלי נעילה נופל על האינדקס** (ביקורת Codex).
+   *
+   * שתי בקשות מקבילות על אותו מספר פנוי — או פנייה נכנסת שתופסת
+   * אותו בין הבדיקה לכתיבה — עוברות שתיהן את `findByAnyPhone`,
+   * והאינדקס הייחודי מפיל את השנייה. בתוך טרנזקציה זו נפילה של
+   * הבקשה כולה, ולא שגיאה שאפשר להחזיר במקומה „תפוס”.
+   *
+   * ‎**הנעילה חייבת לבוא לפני החיפוש**, אחרת היא מגנה על כלום:
+   * החלון שהיא סוגרת הוא בדיוק זה שבין הבדיקה לכתיבה.
+   */
+  it("המספר ננעל לפני הבדיקה, כמו ביצירת כרטיס", () => {
+    expect(setPrimaryPhone).toContain("await lockContactPhone(tx, tenantId, nextHash);");
+    expect(
+      setPrimaryPhone.indexOf("await lockContactPhone(tx, tenantId, nextHash);"),
+      "נעילה אחרי החיפוש אינה סוגרת את החלון",
+    ).toBeLessThan(setPrimaryPhone.indexOf("const owner = await this.findByAnyPhone(tx, phone);"));
+  });
+
+  /*
+   * אותו רצף בדיוק יושב ב-`addPhone` — אותה בדיקה, אותה כתיבה,
+   * אותו אינדקס. פונקציה נעולה לצד אחות שאינה נעולה היא הזמנה
+   * לחזור על הבאג במקום השני.
+   */
+  it("גם הוספת מספר נוסף נועלת לפני הבדיקה", () => {
+    const addPhone = SERVICE.slice(
+      SERVICE.indexOf("async addPhone("),
+      SERVICE.indexOf("async removePhone("),
+    );
+    expect(addPhone).toContain(
+      "await lockContactPhone(tx, tenantId, this.crypto.phoneHash(input.phone));",
+    );
+    expect(addPhone.indexOf("lockContactPhone")).toBeLessThan(
+      addPhone.indexOf("const owner = await this.findByAnyPhone(tx, input.phone);"),
+    );
+  });
+
+  /*
    * ‎**מספר שכבר רשום על הכרטיס עצמו עולה לראשי ואינו נשאר גם
    * כמספר נוסף.** אותו מספר בשתי הטבלאות מופיע פעמיים במסך, ומייצר
    * שורה שאי אפשר להסביר — ולא ניתן להסירה, כי הראשי אינו נמחק.
