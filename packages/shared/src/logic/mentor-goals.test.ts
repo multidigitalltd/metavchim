@@ -9,6 +9,14 @@ import {
   splitToHorizon,
   weekKey,
   weeklyScore,
+  goalPeriod,
+  GOAL_HORIZON_LABELS,
+  GOAL_HORIZONS,
+  LEAD_MEASURE_LABELS,
+  LEAD_MEASURES,
+  mentorLine,
+  mentorOpeningLine,
+  type MomentKind,
 } from "./mentor-goals.js";
 
 /**
@@ -274,5 +282,176 @@ describe("מפתח השבוע", () => {
 
   it("יום ראשון הבא פותח שבוע חדש", () => {
     expect(weekKey(new Date("2026-09-06T06:00:00Z"))).toBe("2026-09-06");
+  });
+});
+
+/* ==========================================================================
+ * ‏תקופות היעד — מרוצפות מהראשון בינואר, בלי חורים ובלי חפיפה
+ * ========================================================================== */
+
+describe("goalPeriod — התקופה שאליה היעד שייך", () => {
+  /** חצות בשעון ישראל של תאריך נתון, כ-`Date` */
+  const at = (iso: string): Date => new Date(`${iso}T09:00:00Z`);
+
+  it("השנה היא שנה קלנדרית מלאה", () => {
+    expect(goalPeriod("year", at("2026-06-15"))).toEqual({
+      start: "2026-01-01",
+      end: "2026-12-31",
+    });
+  });
+
+  it("שנה מעוברת נסגרת ב-31 בדצמבר גם היא", () => {
+    expect(goalPeriod("year", at("2028-03-01")).end).toBe("2028-12-31");
+  });
+
+  it("המחזור הראשון מתחיל בראשון בינואר", () => {
+    expect(goalPeriod("cycle", at("2026-01-05")).start).toBe("2026-01-01");
+  });
+
+  it("ארבעת המחזורים מכסים את השנה ברצף — בלי חור ובלי חפיפה", () => {
+    /*
+     * ‏זו הבדיקה שכל השאר משרתות. תקופות שאינן מתחברות פירושן יום
+     * שבו אין מחזור פעיל: המנטור שותק, והציון של אותו יום נעלם.
+     */
+    const seen: { start: string; end: string }[] = [];
+    for (const day of ["2026-01-01", "2026-04-15", "2026-07-20", "2026-11-30"]) {
+      const period = goalPeriod("cycle", at(day));
+      if (!seen.some((p) => p.start === period.start)) seen.push(period);
+    }
+    expect(seen).toHaveLength(4);
+    expect(seen[0]!.start).toBe("2026-01-01");
+    expect(seen[3]!.end).toBe("2026-12-31");
+    for (let i = 1; i < seen.length; i += 1) {
+      const previousEnd = new Date(`${seen[i - 1]!.end}T12:00:00Z`);
+      const thisStart = new Date(`${seen[i]!.start}T12:00:00Z`);
+      // היום שאחרי סוף הקודם הוא בדיוק תחילת הבא
+      expect((thisStart.getTime() - previousEnd.getTime()) / 86_400_000).toBe(1);
+    }
+  });
+
+  it("היום האחרון בשנה שייך למחזור האחרון, ולא לחמישי שאינו קיים", () => {
+    /*
+     * ‎4 × 13 שבועות הם 364 ימים. בלי המתיחה, ה-31 בדצמבר היה נופל
+     * מחוץ לכל מחזור — כלומר בדיוק ביום שבו סוגרים את השנה, המנטור
+     * לא היה יודע לאיזו תקופה הוא שייך.
+     */
+    const last = goalPeriod("cycle", at("2026-12-31"));
+    expect(last.start).toBe("2026-10-01");
+    expect(last.end).toBe("2026-12-31");
+  });
+
+  it("שני החצאים מכסים את השנה, והשני נסגר ב-31 בדצמבר", () => {
+    const first = goalPeriod("half", at("2026-02-01"));
+    const second = goalPeriod("half", at("2026-09-01"));
+    expect(first.start).toBe("2026-01-01");
+    expect(second.end).toBe("2026-12-31");
+    expect(first.end < second.start).toBe(true);
+  });
+
+  it("השבוע נמדד מיום ראשון של השבוע הנוכחי, ולא מינואר", () => {
+    // 2026-06-17 הוא יום רביעי; יום ראשון שלו הוא ה-14
+    const week = goalPeriod("week", at("2026-06-17"));
+    expect(week).toEqual({ start: "2026-06-14", end: "2026-06-20" });
+  });
+
+  it("שבוע שחוצה גבול שנה נשאר שבוע שלם", () => {
+    /*
+     * ‏השבוע הוא יחידת הביצוע. שבוע שנחתך ב-31 בדצמבר היה מייצר
+     * ציון על שלושה ימים ומשווה אותו לשבועות מלאים.
+     */
+    const week = goalPeriod("week", at("2026-12-31"));
+    const start = new Date(`${week.start}T12:00:00Z`);
+    const end = new Date(`${week.end}T12:00:00Z`);
+    expect((end.getTime() - start.getTime()) / 86_400_000).toBe(6);
+  });
+});
+
+/* ==========================================================================
+ * ‏המילים — קול אחד למסך ולוואטסאפ
+ * ========================================================================== */
+
+describe("mentorLine — מה המנטור אומר", () => {
+  it("לכל רגע יש נוסח, ואף אחד אינו ריק", () => {
+    /*
+     * ‏שער מול הכשל השקט: `MomentKind` שנוסף בלי משפט היה מחזיר
+     * ‎`undefined` וקורס במסך, או — גרוע יותר — שולח הודעה ריקה.
+     */
+    const kinds: MomentKind[] = [
+      "week_complete",
+      "almost_there",
+      "midweek_behind",
+      "two_weak_weeks",
+      "period_progress",
+    ];
+    for (const kind of kinds) {
+      const line = mentorLine({ kind, percent: 50, measure: "calls", remaining: 3 });
+      expect(line.title.length).toBeGreaterThan(5);
+      expect(line.body.length).toBeGreaterThan(20);
+    }
+  });
+
+  it("„כמעט שם” נוקב במספר שנשאר, ולא בעידוד ריק", () => {
+    const line = mentorLine({
+      kind: "almost_there",
+      measure: "calls",
+      remaining: 3,
+      percent: 92,
+    });
+    expect(line.title).toContain("3");
+    expect(line.title).toContain("שיחות");
+  });
+
+  it("אחד ביחיד — „נשארה שיחה אחת”, לא „נשאר 1 שיחות”", () => {
+    const line = mentorLine({
+      kind: "almost_there",
+      measure: "appointments",
+      remaining: 1,
+      percent: 95,
+    });
+    expect(line.title).toContain("פגישה אחת");
+    expect(line.title).not.toContain("1 פגישות");
+  });
+
+  it("שני שבועות חלשים הם שאלה, ולא נזיפה", () => {
+    /*
+     * ‏זו הכרעת המוצר המרכזית בטון: מעקב „הכול או כלום” מוביל
+     * לנטישה, ומנטור ששואל „מה עצר אותך” מקבל תשובה שאפשר לעבוד
+     * איתה. משפט שמתחיל ב„לא עמדת” סוגר את השיחה.
+     */
+    const line = mentorLine({ kind: "two_weak_weeks", percent: 40 });
+    expect(line.title).toContain("?");
+    expect(line.tone).toBe("ask");
+    for (const scold of ["נכשלת", "לא עמדת", "אכזבת"]) {
+      expect(line.title + line.body).not.toContain(scold);
+    }
+  });
+
+  it("החגיגה היא על מה שנעשה, ולא על האחוז", () => {
+    const line = mentorLine({ kind: "week_complete", percent: 100 });
+    expect(line.tone).toBe("celebrate");
+    expect(line.title).not.toContain("100");
+  });
+
+  it("המסך הריק מציע את הצעד הראשון, ולא „אין נתונים”", () => {
+    const first = mentorOpeningLine(false, false);
+    expect(first.title).toContain("?");
+    const second = mentorOpeningLine(true, false);
+    expect(second.title).not.toBe(first.title);
+    const third = mentorOpeningLine(true, true);
+    expect(third.title).not.toBe(second.title);
+    for (const line of [first, second, third]) {
+      expect(line.body).not.toContain("אין נתונים");
+    }
+  });
+
+  it("לכל מדד ולכל רמה יש תווית בעברית", () => {
+    expect(Object.keys(LEAD_MEASURE_LABELS).sort()).toEqual([...LEAD_MEASURES].sort());
+    expect(Object.keys(GOAL_HORIZON_LABELS).sort()).toEqual([...GOAL_HORIZONS].sort());
+    for (const label of [
+      ...Object.values(LEAD_MEASURE_LABELS),
+      ...Object.values(GOAL_HORIZON_LABELS),
+    ]) {
+      expect(/[֐-׿]/u.test(label)).toBe(true);
+    }
   });
 });

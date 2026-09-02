@@ -1,4 +1,8 @@
-import { jerusalemDayLabel, jerusalemWeekStart } from "./israel-time.js";
+import {
+  jerusalemDayLabel,
+  jerusalemDayStart,
+  jerusalemWeekStart,
+} from "./israel-time.js";
 
 /**
  * ‎**מנוע היעדים של המנטור — חשבון טהור, בלי מסד ובלי שעון פנימי.**
@@ -434,4 +438,196 @@ export function comparePeriods(current: number, previous: number): PeriodCompari
  */
 export function weekKey(at: Date): string {
   return jerusalemDayLabel(jerusalemWeekStart(at));
+}
+
+/** תקופה של יעד — שני תאריכים בשעון ישראל, `YYYY-MM-DD`. */
+export interface GoalPeriod {
+  start: string;
+  end: string;
+}
+
+/** מספר הימים באותה שנה — 365, או 366 בשנה מעוברת. */
+function daysInYear(year: number): number {
+  return (Date.UTC(year + 1, 0, 1) - Date.UTC(year, 0, 1)) / 86_400_000;
+}
+
+/**
+ * ‎**התקופה שאליה שייך יעד עכשיו — נגזרת, ולא נשלחת מהמסך.**
+ *
+ * ‏אילו הלקוח היה שולח תאריכים, שני מכשירים באזורי זמן שונים היו
+ * יוצרים שתי שורות „לאותה תקופה”, והאילוץ הייחודי במסד לא היה
+ * מונע זאת: הוא כולל את `period_start`.
+ *
+ * ‎**העיגון הוא ה-1 בינואר, וכל האופקים מרוצפים ממנו** — כך
+ * שמחזורים מתחברים לחצאים, וחצאים לשנה, בלי חורים ובלי חפיפה.
+ * המחזור האחרון בשנה נמתח עד 31 בדצמבר: 4 × 13 שבועות הם 364
+ * ימים, והיום או היומיים שנשארים חייבים להיות שייכים למישהו —
+ * אחרת נוצר יום שבו „אין מחזור פעיל”, והמנטור שותק בדיוק בסוף
+ * השנה.
+ *
+ * ‎`week` הוא היחיד שאינו מרוצף מינואר אלא מיום ראשון של השבוע
+ * הנוכחי: השבוע הוא יחידת הביצוע, ושבוע שנחתך באמצע בגלל גבול
+ * שנה הוא ציון שלא אומר דבר.
+ */
+export function goalPeriod(horizon: GoalHorizon, now: Date): GoalPeriod {
+  if (horizon === "week") {
+    const start = jerusalemWeekStart(now);
+    return {
+      start: jerusalemDayLabel(start),
+      end: jerusalemDayLabel(jerusalemDayStart(start, 6)),
+    };
+  }
+
+  const year = Number(jerusalemDayLabel(now).slice(0, 4));
+  const yearStart = jerusalemDayStart(new Date(Date.UTC(year, 0, 1, 12)));
+  const total = daysInYear(year);
+  if (horizon === "year") {
+    return {
+      start: jerusalemDayLabel(yearStart),
+      end: jerusalemDayLabel(jerusalemDayStart(yearStart, total - 1)),
+    };
+  }
+
+  const span = HORIZON_WEEKS[horizon] * 7;
+  const blocks = Math.round(HORIZON_WEEKS.year / HORIZON_WEEKS[horizon]);
+  const elapsed = Math.floor(
+    (jerusalemDayStart(now).getTime() - yearStart.getTime()) / 86_400_000,
+  );
+  /* ‏הימים שמעבר לריצוף שייכים לבלוק האחרון, ולא לבלוק חמישי */
+  const index = Math.min(blocks - 1, Math.floor(elapsed / span));
+  const last = index === blocks - 1;
+  return {
+    start: jerusalemDayLabel(jerusalemDayStart(yearStart, index * span)),
+    end: jerusalemDayLabel(
+      jerusalemDayStart(yearStart, (last ? total : (index + 1) * span) - 1),
+    ),
+  };
+}
+
+/* ==========================================================================
+ * ‏מה המנטור אומר
+ * ========================================================================== */
+
+/** שמות הפעולות בעברית — לכל מקום שמציג מדד. */
+export const LEAD_MEASURE_LABELS: Record<LeadMeasure, string> = {
+  calls: "שיחות",
+  appointments: "פגישות",
+  offers: "הצעות",
+  listings: "נכסים חדשים",
+};
+
+/** שמות הרמות. */
+export const GOAL_HORIZON_LABELS: Record<GoalHorizon, string> = {
+  year: "השנה",
+  half: "חצי שנה",
+  cycle: "המחזור",
+  week: "השבוע",
+};
+
+/** צורת יחיד, לניסוח „נשארה שיחה אחת”. */
+const MEASURE_SINGULAR: Record<LeadMeasure, string> = {
+  calls: "שיחה אחת",
+  appointments: "פגישה אחת",
+  offers: "הצעה אחת",
+  listings: "נכס אחד",
+};
+
+export interface MentorLine {
+  /** ‏הכותרת — משפט אחד, זה שנקרא. */
+  title: string;
+  /** ‏השורה שמתחת: מה לעשות, או למה זה חשוב. */
+  body: string;
+  /** ‏הטון, לצבע ולאייקון במסך. */
+  tone: "celebrate" | "push" | "steady" | "ask";
+}
+
+/**
+ * ‎**המילים של המנטור — במקום אחד, לשני הפיות.**
+ *
+ * ‏המסך והוואטסאפ חייבים לומר את אותו דבר: מתווך שקיבל „נשארו לך
+ * שלוש שיחות” בהודעה ורואה במסך ניסוח אחר מקבל שני מנטורים. הנוסח
+ * כאן, והשליחה במקום אחר.
+ *
+ * ‎**כל משפט כאן הוא החלטה על טון**, ולא מילוי תבנית:
+ *
+ * ‎`week_complete` — חוגגים **את מה שהוא עשה**, ולא את המספר. „100%”
+ * הוא ציון; „עמדת בכל מה שהתחייבת לו” הוא משפט של אדם.
+ *
+ * ‎`almost_there` — נוקבים במספר המדויק שנשאר. „כמעט שם” בלי מספר
+ * הוא עידוד ריק; „נשארו שלוש שיחות” הוא משימה שאפשר לסיים היום.
+ *
+ * ‎`two_weak_weeks` — **שאלה, לא נזיפה.** מנטור אמיתי שואל „מה עצר
+ * אותך”, כי המכשול הוא המידע שאפשר לעבוד איתו. „לא עמדת ביעד
+ * פעמיים” הוא משפט שגורם לאנשים לסגור את האפליקציה.
+ */
+export function mentorLine(moment: MentorMoment): MentorLine {
+  const measure = moment.measure;
+  const remaining = moment.remaining ?? 0;
+  const noun =
+    measure === undefined
+      ? ""
+      : remaining === 1
+        ? MEASURE_SINGULAR[measure]
+        : `${remaining} ${LEAD_MEASURE_LABELS[measure]}`;
+
+  switch (moment.kind) {
+    case "week_complete":
+      return {
+        title: "עמדת בכל מה שהתחייבת לו השבוע 🎉",
+        body: "זה בדיוק מה שמפריד בין מי שמגיע ליעד לבין מי שרק קבע אותו. תעצור רגע ותרשום לעצמך שעשית את זה.",
+        tone: "celebrate",
+      };
+    case "almost_there":
+      return {
+        title: `נשאר ${noun} והשבוע סגור`,
+        body: "אתה כבר בקצה. הפעולה הזו היא ההפרש בין שבוע שכמעט היה לשבוע שהיה.",
+        tone: "push",
+      };
+    case "midweek_behind":
+      return {
+        title: `${noun} עד סוף השבוע`,
+        body: "עוד אמצע שבוע, ויש מספיק זמן. חלק את זה על היומיים הקרובים ואל תשאיר הכול לחמישי.",
+        tone: "steady",
+      };
+    case "two_weak_weeks":
+      return {
+        title: "שבוע שני שלא נסגר — מה עצר אותך?",
+        body: "שבוע אחד קורה לכולם. שניים אומרים שמשהו בדרך לא עובד, וזה מה שכדאי לנסח: מה המכשול, ומה אתה עושה כשהוא חוזר.",
+        tone: "ask",
+      };
+    case "period_progress":
+      return {
+        title: "התקדמת מהתקופה הקודמת",
+        body: "המספרים עלו. זו לא הרגשה — זו השוואה למה שבאמת עשית קודם.",
+        tone: "celebrate",
+      };
+  }
+}
+
+/**
+ * ‎**מה אומרים כשאין רגע מיוחד — ואין יעד.**
+ *
+ * ‏מסך ריק הוא הרגע הכי חשוב במוצר הזה: זו הפעם הראשונה שמתווך
+ * פוגש את המנטור. הוא אינו מציג „אין נתונים”, אלא את הצעד הראשון.
+ */
+export function mentorOpeningLine(hasYearGoal: boolean, hasWeekGoal: boolean): MentorLine {
+  if (!hasYearGoal) {
+    return {
+      title: "נתחיל מהסוף — כמה אתה רוצה להרוויח השנה?",
+      body: "מספר אחד, ומכאן אני עושה את החשבון אחורה: כמה עסקאות זה, כמה הצעות, וכמה שיחות ביום. בלי לנחש.",
+      tone: "ask",
+    };
+  }
+  if (!hasWeekGoal) {
+    return {
+      title: "יש יעד. עכשיו נקבע מה קורה השבוע",
+      body: "יעד שנתי לא זז לבד. בחר כמה שיחות ופגישות אתה לוקח על עצמך השבוע — ואת השאר אני סופר בשבילך.",
+      tone: "push",
+    };
+  }
+  return {
+    title: "השבוע בעיצומו",
+    body: "אני סופר את מה שאתה עושה — שיחות, פגישות, הצעות ונכסים. אין מה לדווח, רק לעבוד.",
+    tone: "steady",
+  };
 }
