@@ -72,7 +72,7 @@ import {
 } from "../../icons";
 import { IconAction } from "../../icon-action";
 import { LoadError } from "../../load-error";
-import { AgentTag } from "../../agent-tag";
+import { AgentPicker } from "../../agent-picker";
 import { Notice } from "../../notice";
 
 /**
@@ -670,14 +670,6 @@ export default function PropertyDetailPage({
    * של פרטי הנכס. אותו נימוק בדיוק שבגללו הסטטוס הוא בורר בכותרת
    * ולא שדה בטופס.
    */
-  const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
-  useEffect(() => {
-    if (!canAssignAgent) return;
-    apiGet<{ id: string; name: string }[]>("/tasks/assignees")
-      .then(setMembers)
-      .catch(() => setMembers([]));
-  }, [canAssignAgent]);
-
   async function changeAgent(agentUserId: string): Promise<void> {
     const saved = await apiPatch<{ agentUserId?: string; agentName?: string }>(
       `/properties/${id}`,
@@ -1078,42 +1070,16 @@ export default function PropertyDetailPage({
                 לאיזה `select`, ולחיצה על הטקסט מפעילה את הפקד הלא
                 נכון (ביקורת Codex).
               */}
-              {canAssignAgent ? (
-                <>
-                  <label htmlFor="prop-agent" className="mv-visually-hidden">
-                    הסוכן המטפל
-                  </label>
-                  <select
-                    id="prop-agent"
-                    className="mv-control"
-                    value={property.agentUserId ?? ""}
-                    onChange={(event) => void changeAgent(event.target.value)}
-                  >
-                    <option value="">לא משויך</option>
-                    {/*
-                      ‎**סוכן שהושבת נשאר בבורר.** `/tasks/assignees`
-                      מחזיר פעילים בלבד, ובלי השורה הזו נכס ששויך למי
-                      שעזב היה נראה „לא משויך” — כלומר המסך היחיד שבו
-                      אפשר לתקן את זה היה גם זה שמסתיר אותו.
-                    */}
-                    {property.agentUserId !== undefined &&
-                    !members.some((member) => member.id === property.agentUserId) ? (
-                      <option value={property.agentUserId}>
-                        {property.agentName ?? "סוכן שאינו במשרד"} (לא פעיל)
-                      </option>
-                    ) : null}
-                    {members.map((member) => (
-                      <option key={member.id} value={member.id}>
-                        {member.name}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              ) : (
-                <AgentTag
-                  {...(property.agentName === undefined ? {} : { name: property.agentName })}
-                />
-              )}
+              <AgentPicker
+                canAssign={canAssignAgent}
+                allowUnassign
+                labelText="הסוכן המטפל בנכס"
+                onChange={changeAgent}
+                {...(property.agentUserId === undefined
+                  ? {}
+                  : { agentUserId: property.agentUserId })}
+                {...(property.agentName === undefined ? {} : { agentName: property.agentName })}
+              />
               {/*
                 ‎**המחיר בשורת הכותרת, וכלום כשאין מחיר.**
 

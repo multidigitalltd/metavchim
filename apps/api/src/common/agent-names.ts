@@ -76,3 +76,24 @@ export async function assertAgentInOffice(
     throw new BadRequestException("הסוכן שנבחר אינו במשרד הזה");
   }
 }
+
+/**
+ * ‎**העברה בין סוכנים היא אירוע, ולא „שדה שהשתנה”.**
+ *
+ * ‎`property.update` עם `changedFields: ["agentUserId"]` אומר שמשהו
+ * זז ולא **לאן**. וזו בדיוק השאלה שנשאלת אחר כך: „מי העביר את
+ * הכרטיס הזה, ומתי” — כשסוכן טוען שלא קיבל ליד, כשעמלה במחלוקת,
+ * או כשמנהל בודק חלוקת עומסים. השורה נושאת את שני הצדדים כדי
+ * שהתשובה תהיה ביומן ולא בשחזור.
+ *
+ * מחזירה `null` כשלא זזה — קביעה חוזרת של אותו ערך אינה העברה, ואין
+ * לה מה לספר.
+ */
+export function agentHandover(
+  before: string | null | undefined,
+  after: string | null | undefined,
+): { from: string | null; to: string | null } | null {
+  const from = before ?? null;
+  const to = after ?? null;
+  return from === to ? null : { from, to };
+}

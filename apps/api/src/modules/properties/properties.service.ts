@@ -31,7 +31,12 @@ function propertyTypesFor(term: string): string[] {
     .filter(([, label]) => label.toLowerCase().includes(needle))
     .map(([value]) => value);
 }
-import { agentNameOf, agentNames, assertAgentInOffice } from "../../common/agent-names";
+import {
+  agentHandover,
+  agentNameOf,
+  agentNames,
+  assertAgentInOffice,
+} from "../../common/agent-names";
 import { lockContact, lockProperty, type ContactLock } from "../../common/locks";
 import { isOrphanContact, leadOwnershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -833,6 +838,24 @@ export class PropertiesService {
         entityId: id,
         metadata: { changedFields: Object.keys(patch) },
       });
+      /*
+       * ‎**ההעברה נרשמת בנפרד, ועם שני הצדדים.**
+       *
+       * ‎`changedFields: ["agentUserId"]` אומר שמשהו זז ולא לאן —
+       * וזו השאלה שנשאלת אחר כך: „מי העביר את הנכס הזה ומתי”.
+       */
+      const handover = agentHandover(
+        existing.agentUserId,
+        agentUserId === undefined ? existing.agentUserId : agentUserId || null,
+      );
+      if (handover) {
+        await this.audit.record(tx, {
+          action: "property.agent_changed",
+          entityType: "property",
+          entityId: id,
+          metadata: handover,
+        });
+      }
       /*
        * **חציית הסף, ולא הימצאות מעליו.** האירוע נפלט עד כה ביצירה
        * בלבד, ולכן נכס שהגיע למוכנות בעריכה לא הפעיל את האוטומציה

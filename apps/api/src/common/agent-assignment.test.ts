@@ -135,11 +135,18 @@ describe("שיוך סוכן — נכס, ליד וקונה", () => {
     "buyers/page.tsx",
   ])("%s — מציג את הסוכן", (path) => {
     /*
-     * ‎`toContain("AgentTag")` היה עונה „כן” גם על `AgentTagX`, ועל
-     * שורת ה-`import` לבדה אחרי שהרכיב הוסר מה-JSX. לכן הטענה היא על
-     * ‎**אלמנט** שמקבל את `agentName` מה-DTO.
+     * ‎**שני רכיבים, טענה אחת.** ארבעה מסכים מציגים `AgentTag`,
+     * ובשני הכרטיסים שבהם מנהל גם מעביר יושב `AgentPicker` — שהוא
+     * מציג את אותה תגית בעצמו למי שאינו רשאי. מה שנבדק הוא שהמסך
+     * מציג את הסוכן, לא באיזה מהשניים.
+     *
+     * ‎`toContain` היה עונה „כן” גם על `AgentTagX`, ועל שורת
+     * ה-`import` לבדה אחרי שהרכיב הוסר מה-JSX. לכן: **אלמנט**
+     * שמקבל את השם מה-DTO.
      */
-    expect(WEB(path)).toMatch(/<AgentTag(?![A-Za-z0-9_])[\s\S]{0,160}?\.agentName/u);
+    expect(WEB(path)).toMatch(
+      /<Agent(?:Tag|Picker)(?![A-Za-z0-9_])[\s\S]{0,400}?\.agentName/u,
+    );
   });
 
   /**
@@ -150,12 +157,54 @@ describe("שיוך סוכן — נכס, ליד וקונה", () => {
    * ולא בראשונה — ואז הבקשה חוזרת 403, הרשימה ריקה, והפקד מציע „לא
    * משויך” בלבד: נראה עובד, ואינו יכול לשייך לאיש.
    */
-  it("בורר הסוכן נגזר מ-tasks.assign ולא מהרשאת עריכת נכס", () => {
-    const src = WEB("properties/[id]/page.tsx");
-    expect(src).toMatch(/const canAssignAgent = can\(user, "tasks\.assign"\)/u);
-    /* וגם השליפה עצמה — בורר שמוצג בלי רשימה גרוע מבורר שאינו מוצג */
-    expect(src).toMatch(/if \(!canAssignAgent\) return;/u);
-    expect(src).toMatch(/\{canAssignAgent \? \(/u);
+  it.each([["properties/[id]/page.tsx"], ["buyers/[id]/page.tsx"]])(
+    "%s — הבורר נגזר מ-tasks.assign ולא מהרשאת עריכה",
+    (path) => {
+      expect(WEB(path)).toMatch(/const canAssignAgent = can\(user, "tasks\.assign"\)/u);
+      expect(WEB(path)).toMatch(/canAssign=\{canAssignAgent\}/u);
+    },
+  );
+
+  /*
+   * ‎**והשליפה עצמה מותנית באותה יכולת.** `/tasks/assignees` דורש
+   * ‎`tasks.assign`; בלי התנאי הבקשה חוזרת 403, הרשימה נשארת ריקה,
+   * והבורר מציע „לא משויך” בלבד — פקד שנראה עובד ואינו יכול לשייך
+   * לאיש.
+   */
+  it("והרשימה נשלפת רק כשיש את היכולת", () => {
+    const picker = WEB("agent-picker.tsx");
+    expect(picker).toMatch(/if \(!canAssign\) return;/u);
+    expect(picker).toMatch(/if \(!canAssign\) \{\s*return <AgentTag/u);
+  });
+
+  /*
+   * ‎**„לא משויך” אינו מוצע בקונה.** `ownerUserId` מסנן ראייה
+   * ‎(`ownershipFilter`), ו-NULL אינו שווה לאף מזהה — כלומר קונה
+   * בלי בעלים אינו „של כולם” אלא **בלתי נראה** לכל סוכן שאין לו
+   * ‎`buyers.view_all`. ניתוק היה מעלים את הכרטיס בלי ששום מסך
+   * יאמר זאת. בנכס השדה מתעד בלבד, ולכן שם הניתוק מותר.
+   */
+  it("הקונה אינו ניתן לניתוק, והנכס כן", () => {
+    expect(WEB("buyers/[id]/page.tsx")).toMatch(/allowUnassign=\{false\}/u);
+    expect(WEB("properties/[id]/page.tsx")).toMatch(/\ballowUnassign\b(?!=)/u);
+    /* ‎`allowUnassign` באמת שולט באפשרות ולא רק מועבר כ-prop */
+    expect(WEB("agent-picker.tsx")).toMatch(
+      /\{allowUnassign \? <option value="">/u,
+    );
+  });
+
+  /*
+   * ‎**העברה נרשמת ביומן — עם שני הצדדים.** „שדה השתנה” אינו אומר
+   * לאן, וזו השאלה שנשאלת אחר כך: מי העביר את הכרטיס ומתי.
+   */
+  it.each([
+    ["properties/properties.service.ts", "property.agent_changed"],
+    ["buyers/buyers.service.ts", "buyer.agent_changed"],
+  ])("%s — ההעברה נרשמת כ-%s", (path, action) => {
+    const src = API(path);
+    expect(src).toContain("agentHandover(");
+    expect(src).toContain(`action: "${action}"`);
+    expect(src).toMatch(/metadata: handover/u);
   });
 
   /**
@@ -167,8 +216,8 @@ describe("שיוך סוכן — נכס, ליד וקונה", () => {
    * חייבת להיות שלו. קינון מחדש מחזיר לכאן את תווית הסטטוס.
    */
   it("בורר הסוכן אינו מקונן בתוך תווית אחרת", () => {
-    const src = WEB("properties/[id]/page.tsx");
-    const own = src.indexOf('<label htmlFor="prop-agent"');
+    const src = WEB("agent-picker.tsx");
+    const own = src.indexOf('<label htmlFor="agent-picker"');
     expect(own, "התווית של הבורר לא נמצאה").toBeGreaterThan(-1);
     /*
      * ‎**עומק ולא שכנות.** „התווית הקרובה ביותר היא שלו” עובר גם

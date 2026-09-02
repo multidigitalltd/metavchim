@@ -55,6 +55,12 @@ const UpdateBuyerSchema = z
     /** `""` או `null` = הסרת הסטטוס; מזהה = בחירה בו. */
     officeStatus: z.union([z.string().max(24), z.null()]).optional(),
     agentNotes: z.string().max(4000).optional(),
+    /*
+     * ‎**העברת הכרטיס לסוכן אחר.** מזהה בלבד — בלי מחרוזת ריקה:
+     * קונה בלי בעלים אינו „של כולם” אלא בלתי נראה לכל סוכן שאין לו
+     * ‎`buyers.view_all`. ראו ההסבר ב-`BuyersService.update`.
+     */
+    ownerUserId: IdSchema.optional(),
   })
   .strict();
 
