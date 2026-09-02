@@ -377,6 +377,17 @@ export default function PropertyDetailPage({
       .catch(() => setOpenTasks(undefined));
   }, [id]);
   const canEditOwner = can(user, "properties.edit");
+  /*
+   * ‎**הבורר נשען על `tasks.assign`, ולא על `properties.edit`.**
+   *
+   * הרשימה שהוא מציג מגיעה מ-`/tasks/assignees`, שדורש `tasks.assign`.
+   * ‎`agent` ו-`assistant` מחזיקים ב-`properties.edit` ולא בה, ולכן
+   * הבקשה חוזרת 403, הרשימה נשארת ריקה, והבורר שנפתח מציע „לא
+   * משויך” בלבד — פקד שנראה עובד ואינו יכול לשייך לאיש (ביקורת
+   * Codex). מי שאין לו את היכולת רואה את התגית, שהיא ממילא כל מה
+   * שהוא צריך: העברת נכס בין סוכנים היא פעולת מנהל.
+   */
+  const canAssignAgent = can(user, "tasks.assign");
   // אנשי הקשר של הבעלים נאכפים ב-ContactsController תחת buyers.edit
   const canEditOwnerPeople = can(user, "buyers.edit");
   const canLanding = useFeature("landing_pages");
@@ -661,11 +672,11 @@ export default function PropertyDetailPage({
    */
   const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => {
-    if (!canEditOwner) return;
+    if (!canAssignAgent) return;
     apiGet<{ id: string; name: string }[]>("/tasks/assignees")
       .then(setMembers)
       .catch(() => setMembers([]));
-  }, [canEditOwner]);
+  }, [canAssignAgent]);
 
   async function changeAgent(agentUserId: string): Promise<void> {
     const saved = await apiPatch<{ agentUserId?: string; agentName?: string }>(
@@ -1057,44 +1068,52 @@ export default function PropertyDetailPage({
                       </option>
                     ))}
                 </select>
-                {/* „של מי הנכס הזה?” — השאלה הראשונה של מנהל בסוכנות */}
-                {canEditOwner ? (
-                  <>
-                    <label htmlFor="prop-agent" className="mv-visually-hidden">
-                      הסוכן המטפל
-                    </label>
-                    <select
-                      id="prop-agent"
-                      className="mv-control"
-                      value={property.agentUserId ?? ""}
-                      onChange={(event) => void changeAgent(event.target.value)}
-                    >
-                      <option value="">לא משויך</option>
-                      {/*
-                        ‎**סוכן שהושבת נשאר בבורר.** `/tasks/assignees`
-                        מחזיר פעילים בלבד, ובלי השורה הזו נכס ששויך למי
-                        שעזב היה נראה „לא משויך” — כלומר המסך היחיד
-                        שבו אפשר לתקן את זה היה גם זה שמסתיר אותו.
-                      */}
-                      {property.agentUserId !== undefined &&
-                      !members.some((member) => member.id === property.agentUserId) ? (
-                        <option value={property.agentUserId}>
-                          {property.agentName ?? "סוכן שאינו במשרד"} (לא פעיל)
-                        </option>
-                      ) : null}
-                      {members.map((member) => (
-                        <option key={member.id} value={member.id}>
-                          {member.name}
-                        </option>
-                      ))}
-                    </select>
-                  </>
-                ) : (
-                  <AgentTag
-                    {...(property.agentName === undefined ? {} : { name: property.agentName })}
-                  />
-                )}
               </label>
+              {/*
+                ‎**„של מי הנכס הזה?” — ומחוץ לתווית הסטטוס.**
+
+                הבורר ישב בתוך ה-`<label>` של הסטטוס, וזה HTML פסול
+                בשתי דרכים: תווית מקוננת בתוך תווית, ותווית אחת
+                שמכילה שני פקדים. קורא מסך אינו יודע איזו תווית שייכת
+                לאיזה `select`, ולחיצה על הטקסט מפעילה את הפקד הלא
+                נכון (ביקורת Codex).
+              */}
+              {canAssignAgent ? (
+                <>
+                  <label htmlFor="prop-agent" className="mv-visually-hidden">
+                    הסוכן המטפל
+                  </label>
+                  <select
+                    id="prop-agent"
+                    className="mv-control"
+                    value={property.agentUserId ?? ""}
+                    onChange={(event) => void changeAgent(event.target.value)}
+                  >
+                    <option value="">לא משויך</option>
+                    {/*
+                      ‎**סוכן שהושבת נשאר בבורר.** `/tasks/assignees`
+                      מחזיר פעילים בלבד, ובלי השורה הזו נכס ששויך למי
+                      שעזב היה נראה „לא משויך” — כלומר המסך היחיד שבו
+                      אפשר לתקן את זה היה גם זה שמסתיר אותו.
+                    */}
+                    {property.agentUserId !== undefined &&
+                    !members.some((member) => member.id === property.agentUserId) ? (
+                      <option value={property.agentUserId}>
+                        {property.agentName ?? "סוכן שאינו במשרד"} (לא פעיל)
+                      </option>
+                    ) : null}
+                    {members.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                <AgentTag
+                  {...(property.agentName === undefined ? {} : { name: property.agentName })}
+                />
+              )}
               {/*
                 ‎**המחיר בשורת הכותרת, וכלום כשאין מחיר.**
 

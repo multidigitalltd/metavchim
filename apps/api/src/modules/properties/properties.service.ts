@@ -59,6 +59,18 @@ import {
   type PropertyDto,
 } from "./property.mapper";
 
+/**
+ * מי יצר את הנכס — או `null` כשאין אדם.
+ *
+ * הקשרי מערכת (קליטת מוכר, סורקים) רצים עם `userId: ""`. מחרוזת
+ * ריקה בעמודת שיוך היא „משויך למי ששמו ריק”, וזה מצב שאף שאילתה
+ * אינה מחפשת. `null` הוא „לא משויך”, וזה מה שקרה באמת.
+ */
+function creatorUserId(): string | null {
+  const { userId } = TenantContext.current();
+  return userId === "" ? null : userId;
+}
+
 @Injectable()
 export class PropertiesService {
   private readonly logger = new Logger(PropertiesService.name);
@@ -515,8 +527,15 @@ export class PropertiesService {
            * נהוג בקונה (`ownerUserId ?? current`). ברירת מחדל היא
            * מה שהופך את השדה למשויך בפועל: שדה שצריך למלא ביד
            * נשאר ריק, ואז השאלה „של מי זה?” חוזרת בדיוק כמו קודם.
+           *
+           * ‎**וכשאין יוצר — `null`, ולא מחרוזת ריקה.** נכס שנוצר
+           * מטופס קליטה של מוכר רץ בהקשר משרד עם `userId: ""`, ואז
+           * ברירת המחדל הזו הייתה כותבת `''` לעמודה: `agentNames`
+           * מסננת אותה והמסך מציג „לא משויך”, אבל שאילתה על
+           * ‎`agent_user_id IS NULL` **אינה מוצאת** את השורה. שני
+           * מקורות אמת על אותה שאלה, ואחד מהם שקט (ביקורת Codex).
            */
-          agentUserId: input.agentUserId ?? TenantContext.current().userId,
+          agentUserId: input.agentUserId ?? creatorUserId(),
           readinessScore: readiness.score,
           ...(fieldsToColumns(fields) as object),
         },

@@ -142,6 +142,64 @@ describe("שיוך סוכן — נכס, ליד וקונה", () => {
     expect(WEB(path)).toMatch(/<AgentTag(?![A-Za-z0-9_])[\s\S]{0,160}?\.agentName/u);
   });
 
+  /**
+   * ‎**הבורר יושב על היכולת של הנתיב שהוא קורא לו.**
+   *
+   * הרשימה מגיעה מ-`/tasks/assignees`, שדורש `tasks.assign`. גזירתו
+   * מ-`properties.edit` נתנה בורר לסוכן ולעוזר — שמחזיקים בשנייה
+   * ולא בראשונה — ואז הבקשה חוזרת 403, הרשימה ריקה, והפקד מציע „לא
+   * משויך” בלבד: נראה עובד, ואינו יכול לשייך לאיש.
+   */
+  it("בורר הסוכן נגזר מ-tasks.assign ולא מהרשאת עריכת נכס", () => {
+    const src = WEB("properties/[id]/page.tsx");
+    expect(src).toMatch(/const canAssignAgent = can\(user, "tasks\.assign"\)/u);
+    /* וגם השליפה עצמה — בורר שמוצג בלי רשימה גרוע מבורר שאינו מוצג */
+    expect(src).toMatch(/if \(!canAssignAgent\) return;/u);
+    expect(src).toMatch(/\{canAssignAgent \? \(/u);
+  });
+
+  /**
+   * ‎**תווית אחת לכל פקד.** הבורר ישב בתוך ה-`<label>` של הסטטוס:
+   * תווית מקוננת, ותווית שמכילה שני פקדים. קורא מסך אינו יודע איזו
+   * שייכת לאיזה `select`, ולחיצה על הטקסט מפעילה את הלא נכון.
+   *
+   * הטענה נמדדת ולא מונחת: התווית **האחרונה שנפתחה** לפני הבורר
+   * חייבת להיות שלו. קינון מחדש מחזיר לכאן את תווית הסטטוס.
+   */
+  it("בורר הסוכן אינו מקונן בתוך תווית אחרת", () => {
+    const src = WEB("properties/[id]/page.tsx");
+    const own = src.indexOf('<label htmlFor="prop-agent"');
+    expect(own, "התווית של הבורר לא נמצאה").toBeGreaterThan(-1);
+    /*
+     * ‎**עומק ולא שכנות.** „התווית הקרובה ביותר היא שלו” עובר גם
+     * כשתווית הסטטוס נשארה פתוחה מסביבו — כלומר בדיוק על הקינון
+     * שהטענה הזו קיימת בשבילו. ספירת הפתיחות מול הסגירות עד לנקודה
+     * הזו חייבת להתאזן: עומק 0 פירושו „אף תווית אינה פתוחה כאן”.
+     */
+    const before = src.slice(0, own);
+    const opens = (before.match(/<label[\s>]/gu) ?? []).length;
+    const closes = (before.match(/<\/label>/gu) ?? []).length;
+    expect(opens - closes, "הבורר יושב בתוך תווית פתוחה").toBe(0);
+  });
+
+  /**
+   * ‎**„נוצר בידי המערכת” הוא `null`, לא מחרוזת ריקה.**
+   *
+   * קליטת מוכר רצה בהקשר משרד עם `userId: ""`. ברירת מחדל ישירה
+   * הייתה כותבת `''` לעמודה: המסך מציג „לא משויך” (המפה מסננת
+   * מחרוזת ריקה), אבל `agent_user_id IS NULL` אינו מוצא את השורה —
+   * שני מקורות אמת על אותה שאלה, ואחד מהם שקט.
+   */
+  it("יצירה בלי יוצר אנושי אינה כותבת מחרוזת ריקה", () => {
+    const src = API("properties/properties.service.ts");
+    expect(src).toContain("agentUserId: input.agentUserId ?? creatorUserId()");
+    expect(src, "ברירת מחדל ישירה חזרה").not.toMatch(
+      /agentUserId: input\.agentUserId \?\? TenantContext\.current\(\)\.userId/u,
+    );
+    const helper = src.slice(src.indexOf("function creatorUserId("));
+    expect(helper).toMatch(/return userId === "" \? null : userId;/u);
+  });
+
   /*
    * ‎**„לא משויך” נראה.** זו ברירת המחדל של הרכיב, והיא מה שהופך
    * כרטיס בלי סוכן לגלוי במקום להיעדר שקט.
