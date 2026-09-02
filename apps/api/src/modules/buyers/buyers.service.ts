@@ -29,7 +29,13 @@ import {
   priceRangeAgorot,
 } from "@metavchim/shared";
 import type { Prisma } from "@prisma/client";
-import { agentNameOf, agentNames } from "../../common/agent-names";
+import {
+  agentHandover,
+  agentNameOf,
+  agentNames,
+  assertAgentInOffice,
+  assertCanAssignAgents,
+} from "../../common/agent-names";
 import { TenantContext } from "../../common/tenant-context";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { AuditService } from "../../core/audit.service";
@@ -571,6 +577,21 @@ export class BuyersService {
         | null
         | ((statuses: readonly OfficeBuyerStatus[]) => string);
       agentNotes?: string;
+      /**
+       * ‎**העברת הכרטיס לסוכן אחר — פעולת מנהל.**
+       *
+       * ‎`ownerUserId` בקונה **אינו כמו `agentUserId` בנכס**: הוא
+       * מסנן ראייה. סוכן בלי `buyers.view_all` רואה רק את הכרטיסים
+       * שלו, ולכן העברה כאן היא גם העברת גישה — הסוכן הקודם מפסיק
+       * לראות את הקונה. זו הכוונה, וזה מה שהופך את השדה למשמעותי
+       * יותר מהמקביל לו בנכס.
+       *
+       * ‎**ואין „לא משויך”.** מחרוזת ריקה אינה מתקבלת: קונה בלי
+       * בעלים אינו „של כולם” אלא **בלתי נראה** — `ownershipFilter`
+       * משווה מזהה, ו-NULL אינו שווה לאיש. ניתוק היה מעלים את
+       * הכרטיס מכל סוכן במשרד בלי ששום מסך יאמר זאת.
+       */
+      ownerUserId?: string;
     },
   ): Promise<BuyerDto> {
     const tenantId = TenantContext.current().tenantId;
@@ -644,6 +665,15 @@ export class BuyersService {
        * ‎`FOR SHARE` אינו חוסם שיוך מקביל של קונה אחר; הוא חוסם רק
        * את עריכת ההגדרות, וזה בדיוק הזוג שצריך להיות סדרתי.
        */
+      /*
+       * ‎**השומר באותה טרנזקציה שכותבת**, כמו בנכס: בדיקה לפניה
+       * הייתה חלון שבו הסוכן הוסר מהמשרד בין הבדיקה לכתיבה.
+       */
+      if (patch.ownerUserId !== undefined) {
+        /* הרשאה לפני קיום: „אינך רשאי” קודם ל„הסוכן אינו במשרד” */
+        assertCanAssignAgents();
+        await assertAgentInOffice(tx, tenantId, patch.ownerUserId);
+      }
       if (touchesStatus) await shareTenantRow(tx, tenantId);
       const statuses = touchesStatus
         ? await readOfficeStatuses(tx, tenantId)
@@ -717,6 +747,9 @@ export class BuyersService {
           ...(patch.agentNotes !== undefined
             ? { agentNotes: patch.agentNotes }
             : {}),
+          ...(patch.ownerUserId === undefined
+            ? {}
+            : { ownerUserId: patch.ownerUserId }),
         },
       });
       /*
@@ -760,6 +793,19 @@ export class BuyersService {
         entityId: id,
         metadata: { changedFields: Object.keys(patch) },
       });
+      /* ההעברה בנפרד, עם שני הצדדים — ראו `agentHandover`. */
+      const handover = agentHandover(
+        existing.ownerUserId,
+        patch.ownerUserId ?? existing.ownerUserId,
+      );
+      if (handover) {
+        await this.audit.record(tx, {
+          action: "buyer.agent_changed",
+          entityType: "buyer",
+          entityId: id,
+          metadata: handover,
+        });
+      }
       await this.outbox.emit(tx, "buyer.updated", {
         buyerId: id,
         tenantId,

@@ -1807,9 +1807,29 @@ export class SettingsController {
         },
       }),
     );
+    /*
+     * ‎**מי העביר, וגם ממי למי.**
+     *
+     * ‎`*.agent_changed` נושאת `from`/`to` — וזו כל הסיבה שהאירוע
+     * נפרד מ-`update`. בלי השורות האלה הן נכתבות ואי אפשר לקרוא
+     * אותן: המסך היה מציג „העברת נכס בין סוכנים” בלי לומר בין מי
+     * לבין מי, כלומר בדיוק את השאלה שהאירוע קיים בשבילה (ביקורת
+     * Codex).
+     *
+     * המזהים נכנסים לאותה שאילתת שמות שכבר רצה — לא שאילתה נוספת.
+     */
+    const handoverId = (row: (typeof rows)[number], key: "from" | "to"): string | null => {
+      const meta = row.metadata;
+      if (typeof meta !== "object" || meta === null) return null;
+      const value = (meta as Record<string, unknown>)[key];
+      return typeof value === "string" && value !== "" ? value : null;
+    };
     const userIds = [
       ...new Set(
-        rows.map((r) => r.userId).filter((u): u is string => u !== null),
+        [
+          ...rows.map((r) => r.userId),
+          ...rows.flatMap((r) => [handoverId(r, "from"), handoverId(r, "to")]),
+        ].filter((u): u is string => u !== null),
       ),
     ];
     const users = await this.prisma.user.findMany({
@@ -1825,11 +1845,22 @@ export class SettingsController {
           "supportAdmin" in r.metadata
             ? String((r.metadata as Record<string, unknown>)["supportAdmin"])
             : undefined;
+        /*
+         * שם ולא מזהה, ו„סוכן שאינו במשרד” כשהוא כבר לא שם: היומן
+         * הוא היסטוריה, ומי שעזב עדיין מופיע בה.
+         */
+        const from = handoverId(r, "from");
+        const to = handoverId(r, "to");
+        const agentName = (id: string | null): string | undefined =>
+          id === null ? undefined : (nameById.get(id) ?? "סוכן שאינו במשרד");
         return {
           action: r.action,
           entityType: r.entityType,
           userName: r.userId ? nameById.get(r.userId) : undefined,
           ...(supportAdmin ? { supportAdmin } : {}),
+          /* „לא משויך” הוא צד לגיטימי בהעברה, ולכן `null` נשלח כחסר */
+          ...(agentName(from) === undefined ? {} : { agentFrom: agentName(from)! }),
+          ...(agentName(to) === undefined ? {} : { agentTo: agentName(to)! }),
           createdAt: r.createdAt,
         };
       }),

@@ -1,5 +1,6 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException } from "@nestjs/common";
 
+import { TenantContext } from "./tenant-context";
 import type { TenantTx } from "../core/prisma.service";
 
 /**
@@ -74,5 +75,44 @@ export async function assertAgentInOffice(
   });
   if (found === null) {
     throw new BadRequestException("הסוכן שנבחר אינו במשרד הזה");
+  }
+}
+
+/**
+ * ‎**העברה בין סוכנים היא אירוע, ולא „שדה שהשתנה”.**
+ *
+ * ‎`property.update` עם `changedFields: ["agentUserId"]` אומר שמשהו
+ * זז ולא **לאן**. וזו בדיוק השאלה שנשאלת אחר כך: „מי העביר את
+ * הכרטיס הזה, ומתי” — כשסוכן טוען שלא קיבל ליד, כשעמלה במחלוקת,
+ * או כשמנהל בודק חלוקת עומסים. השורה נושאת את שני הצדדים כדי
+ * שהתשובה תהיה ביומן ולא בשחזור.
+ *
+ * מחזירה `null` כשלא זזה — קביעה חוזרת של אותו ערך אינה העברה, ואין
+ * לה מה לספר.
+ */
+export function agentHandover(
+  before: string | null | undefined,
+  after: string | null | undefined,
+): { from: string | null; to: string | null } | null {
+  const from = before ?? null;
+  const to = after ?? null;
+  return from === to ? null : { from, to };
+}
+
+/**
+ * ‎**העברה בין סוכנים היא פעולת מנהל — ונאכפת בשרת.**
+ *
+ * הבורר במסך כבר נשען על `tasks.assign`, אבל **בדיקה בלקוח אינה
+ * גבול הרשאה**: `PATCH` ישיר אינו עובר דרך המסך כלל. תפקיד `agent`
+ * מחזיק ב-`buyers.edit` ו-`properties.edit` ואין לו `tasks.assign`,
+ * ולכן בלי הבדיקה הזו סוכן יכול היה להעביר כרטיס שלו לכל אדם במשרד
+ * — פעולה שההגדרה כאן קובעת שהיא של מנהל (ביקורת Codex).
+ *
+ * ‎**רק בשינוי, ולא ביצירה.** כרטיס חדש נולד אצל מי שיצר אותו,
+ * וזו עבודת סוכן רגילה. מה שדורש מנהל הוא **העברה** של כרטיס קיים.
+ */
+export function assertCanAssignAgents(): void {
+  if (!TenantContext.current().capabilities.has("tasks.assign")) {
+    throw new ForbiddenException("העברת כרטיס בין סוכנים היא פעולת מנהל");
   }
 }

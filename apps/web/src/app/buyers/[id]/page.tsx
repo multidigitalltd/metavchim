@@ -40,7 +40,7 @@ import { useOfficeStatuses } from "../../use-office-statuses";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { IntakePanel } from "../../intake-panel";
 import { LoadError } from "../../load-error";
-import { AgentTag } from "../../agent-tag";
+import { AgentPicker } from "../../agent-picker";
 import { Notice } from "../../notice";
 
 /**
@@ -94,7 +94,8 @@ interface BuyerDetail {
   maturity: string;
   /** מזהה סטטוס המשרד — התווית נפתרת מול הרשימה שנטענת בנפרד. */
   officeStatus?: string;
-  /** הסוכן שהכרטיס שלו. חסר = לא משויך. */
+  /** הסוכן שהכרטיס שלו — שם ה-DTO, ולכן נקרא ישירות מה-GET. */
+  ownerUserId?: string;
   agentName?: string;
   source: string;
   agentNotes?: string;
@@ -168,6 +169,37 @@ export default function BuyerDetailPage({
   // היכולת נגזרת מטבלת התפקידים המשותפת ולא מרשימת תפקידים מקומית —
   // שינוי הרשאות במקום אחד לא ישאיר כאן כפתור שהשרת ידחה
   const canEditPeople = can(user, "buyers.edit");
+  /*
+   * ‎**העברת קונה בין סוכנים נשענת על `tasks.assign`** — היכולת
+   * שהנתיב `/tasks/assignees` דורש, ובמשמעותה „הטלת עבודה על סוכן
+   * אחר”. `buyers.edit` היא עריכת הכרטיס, לא העברת בעלות עליו.
+   */
+  const canAssignAgent = can(user, "tasks.assign");
+
+  /**
+   * ‎**העברה שגם מעבירה גישה.**
+   *
+   * ‎`ownerUserId` בקונה מסנן ראייה: הסוכן הקודם מפסיק לראות את
+   * הכרטיס (אלא אם יש לו `buyers.view_all`). התשובה מגיעה מהשרת
+   * ולא מהרשימה המקומית — הרשימה נטענה פעם אחת, והשרת הוא זה
+   * שיודע מי במשרד עכשיו.
+   */
+  async function changeAgent(ownerUserId: string): Promise<void> {
+    if (ownerUserId === "") return;
+    const saved = await apiPatch<{ ownerUserId?: string; agentName?: string }>(
+      `/buyers/${id}`,
+      { ownerUserId },
+    );
+    setBuyer((prev) =>
+      prev === null
+        ? prev
+        : {
+            ...prev,
+            ownerUserId: saved.ownerUserId,
+            agentName: saved.agentName,
+          },
+    );
+  }
   const [buyer, setBuyer] = useState<BuyerDetail | null>(null);
   const { statuses: officeStatuses } = useOfficeStatuses();
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
@@ -452,8 +484,19 @@ export default function BuyerDetailPage({
             >
               {DEAL_TYPE_LABELS[buyer.requirements.dealType] ?? buyer.requirements.dealType}
             </span>
-            {/* „של מי הכרטיס הזה?” — השאלה הראשונה של מנהל בסוכנות */}
-            <AgentTag {...(buyer.agentName === undefined ? {} : { name: buyer.agentName })} />
+            {/*
+              ‎„של מי הכרטיס הזה?” — והעברה בין סוכנים למי שרשאי.
+              ‎`allowUnassign` כבוי: קונה בלי בעלים אינו „של כולם”
+              אלא בלתי נראה לכל סוכן שאין לו `buyers.view_all`.
+            */}
+            <AgentPicker
+              canAssign={canAssignAgent}
+              allowUnassign={false}
+              labelText="הסוכן המטפל בקונה"
+              onChange={changeAgent}
+              {...(buyer.ownerUserId === undefined ? {} : { agentUserId: buyer.ownerUserId })}
+              {...(buyer.agentName === undefined ? {} : { agentName: buyer.agentName })}
+            />
             {/*
               רשימה מעוצבת ולא `select` נייטיב: הגלולה נראתה נכון
               סגורה, ובפתיחה נפתחה רשימת מערכת עם הדגשה כחולה שאינה
