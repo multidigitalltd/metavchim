@@ -1,0 +1,118 @@
+import { BadRequestException, ForbiddenException } from "@nestjs/common";
+
+import { TenantContext } from "./tenant-context";
+import type { TenantTx } from "../core/prisma.service";
+
+/**
+ * ‎**„של מי הכרטיס הזה?” — שם הסוכן, לשלושת סוגי הכרטיסים.**
+ *
+ * ## הבעיה
+ *
+ * לליד ולקונה כבר היה סוכן משויך במסד (`assignedToUserId`,
+ * ‎`ownerUserId`), ולנכס לא היה כלל. בשלושת המקרים **אף מסך לא הציג
+ * את זה** — כלומר במשרד עם כמה סוכנים, השאלה הראשונה שמנהל שואל על
+ * כרטיס לא הייתה לה תשובה בשום מקום במערכת.
+ *
+ * ## למה פונקציה אחת ולא שליפה בכל שירות
+ *
+ * שלוש שליפות שאמורות להסכים הן שלוש שליפות שיפסיקו להסכים — אחת
+ * תסנן משתמשים לא פעילים והשנייה לא, אחת תשלוף לכל שורה והשנייה
+ * תאגד. וחשוב מזה: **שאילתה אחת לכל העמוד**. שליפת שם לכל שורה היא
+ * N+1 שמתגלה רק כשלמשרד יש מאה נכסים.
+ *
+ * ## סוכן שאינו פעיל עוד
+ *
+ * ‎**נשלף בכל זאת.** הכרטיס שויך למי שכבר עזב, וזו עובדה היסטורית
+ * שהמנהל צריך לראות — „לא משויך” על נכס שכן שויך היה מסתיר בדיוק
+ * את מה שהוא מחפש: כרטיסים שנשארו בלי מטפל אחרי שסוכן עזב.
+ */
+export async function agentNames(
+  tx: TenantTx,
+  tenantId: string,
+  ids: readonly (string | null | undefined)[],
+): Promise<Map<string, string>> {
+  const unique = [...new Set(ids.filter((id): id is string => typeof id === "string" && id !== ""))];
+  if (unique.length === 0) return new Map();
+  const rows = await tx.user.findMany({
+    where: { tenantId, id: { in: unique } },
+    select: { id: true, name: true },
+  });
+  return new Map(rows.map((row) => [row.id, row.name]));
+}
+
+/**
+ * שם הסוכן לכרטיס אחד, לפי המפה שכבר נשלפה.
+ *
+ * ‎`undefined` = לא משויך, **או** משויך למי שאינו בטבלה עוד. המסך
+ * אומר „לא משויך” בשני המקרים ואינו ממציא שם.
+ */
+export function agentNameOf(
+  names: Map<string, string>,
+  id: string | null | undefined,
+): string | undefined {
+  return id === null || id === undefined ? undefined : names.get(id);
+}
+
+/**
+ * ‎**שיוך לאדם שאינו במשרד — נדחה בשרת, לא רק בבורר.**
+ *
+ * הבורר במסך מציג את אנשי המשרד, אבל הוא רשימה שנשלחה פעם אחת: מי
+ * שעזב באמצע נשאר בה, ובקשה ישירה ל-API אינה עוברת דרכו כלל. בלי
+ * הבדיקה הזו אפשר לשייך נכס לכל מזהה שהוא — כולל של משרד אחר, שאותו
+ * ה-RLS אמנם מסתיר מקריאה, אבל כאן היה נכתב לעמודה בשקט.
+ *
+ * ‎`isActive` **אינו** נבדק: שיוך למי שהושבת זה עתה הוא מצב לגיטימי
+ * שהמנהל מסדר אחר כך, ולא קלט שגוי.
+ */
+export async function assertAgentInOffice(
+  tx: TenantTx,
+  tenantId: string,
+  agentUserId: string,
+): Promise<void> {
+  const found = await tx.user.findFirst({
+    where: { tenantId, id: agentUserId },
+    select: { id: true },
+  });
+  if (found === null) {
+    throw new BadRequestException("הסוכן שנבחר אינו במשרד הזה");
+  }
+}
+
+/**
+ * ‎**העברה בין סוכנים היא אירוע, ולא „שדה שהשתנה”.**
+ *
+ * ‎`property.update` עם `changedFields: ["agentUserId"]` אומר שמשהו
+ * זז ולא **לאן**. וזו בדיוק השאלה שנשאלת אחר כך: „מי העביר את
+ * הכרטיס הזה, ומתי” — כשסוכן טוען שלא קיבל ליד, כשעמלה במחלוקת,
+ * או כשמנהל בודק חלוקת עומסים. השורה נושאת את שני הצדדים כדי
+ * שהתשובה תהיה ביומן ולא בשחזור.
+ *
+ * מחזירה `null` כשלא זזה — קביעה חוזרת של אותו ערך אינה העברה, ואין
+ * לה מה לספר.
+ */
+export function agentHandover(
+  before: string | null | undefined,
+  after: string | null | undefined,
+): { from: string | null; to: string | null } | null {
+  const from = before ?? null;
+  const to = after ?? null;
+  return from === to ? null : { from, to };
+}
+
+/**
+ * ‎**העברה בין סוכנים היא פעולת מנהל — ונאכפת בשרת.**
+ *
+ * הבורר במסך כבר נשען על `tasks.assign`, אבל **בדיקה בלקוח אינה
+ * גבול הרשאה**: `PATCH` ישיר אינו עובר דרך המסך כלל. תפקיד `agent`
+ * מחזיק ב-`buyers.edit` ו-`properties.edit` ואין לו `tasks.assign`,
+ * ולכן בלי הבדיקה הזו סוכן יכול היה להעביר כרטיס שלו לכל אדם במשרד
+ * — פעולה שההגדרה כאן קובעת שהיא של מנהל (ביקורת Codex).
+ *
+ * ‎**רק בשינוי, ולא ביצירה.** כרטיס חדש נולד אצל מי שיצר אותו,
+ * וזו עבודת סוכן רגילה. מה שדורש מנהל הוא **העברה** של כרטיס קיים.
+ */
+export function assertCanAssignAgents(): void {
+  if (!TenantContext.current().capabilities.has("tasks.assign")) {
+    throw new ForbiddenException("העברת כרטיס בין סוכנים היא פעולת מנהל");
+  }
+}

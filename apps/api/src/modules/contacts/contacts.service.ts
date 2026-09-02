@@ -320,6 +320,13 @@ export class ContactsService {
     input: { phone: string; label: string },
   ): Promise<{ added: boolean; reason?: "taken" }> {
     const tenantId = TenantContext.current().tenantId;
+    /*
+     * אותה נעילה כמו בהחלפת המספר הראשי, ומאותו נימוק: „בדוק ואז
+     * כתוב” בלי נעילה מפיל את הבקשה השנייה על האינדקס הייחודי
+     * במקום להחזיר „תפוס”. הפער היה כאן עוד לפני שהוחלף המספר
+     * הראשי, ושתי הפונקציות חולקות בדיוק את אותו רצף.
+     */
+    await lockContactPhone(tx, tenantId, this.crypto.phoneHash(input.phone));
     const owner = await this.findByAnyPhone(tx, input.phone);
     if (owner) return owner.id === contactId ? { added: false } : { added: false, reason: "taken" };
 
@@ -339,6 +346,76 @@ export class ContactsService {
   async removePhone(tx: TenantTx, contactId: string, phoneId: string): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
     await tx.contactPhone.deleteMany({ where: { id: phoneId, tenantId, contactId } });
+  }
+
+  /**
+   * ‎**החלפת המספר הראשי — התיקון שלא היה לו נתיב בשום מסך.**
+   *
+   * ליד נוצר ממספר שהגיע בשיחה או הוקלד בטופס, והמספר הזה היה סופי:
+   * ‎`ContactPeople` יודע להוסיף מספרים נוספים ולהסיר אותם, אבל
+   * הראשי יושב על `contacts` ומסומן שם במפורש כ„אי אפשר להסירו
+   * לבד”. ספרה שגויה אחת בקליטה נשארה על הכרטיס לתמיד.
+   *
+   * ‎**המספר הישן מוחלף ולא נשמר בצד.** זהו תיקון, לא „מספר נוסף”:
+   * מספר שגוי שנשאר באינדקס ממשיך לתפוס שיחות נכנסות אל הכרטיס
+   * הזה — בדיוק התקלה שהתיקון בא לסגור. מי שרוצה לשמור את הישן
+   * יכול להוסיפו כמספר נוסף, וזה מסלול קיים ומפורש.
+   *
+   * ‎**שני השדות נכתבים יחד**, כמו בשם: `phoneEncrypted` הוא מה
+   * שמוצג ומחייגים אליו, ו-`phoneHash` הוא מה שכל זיהוי נכנס עובד
+   * מולו בלי לפענח. עדכון של אחד בלבד אינו שובר שום טיפוס, והכשל
+   * שקט לגמרי — הכרטיס מציג מספר חדש והשיחות ממשיכות להתאים לישן.
+   */
+  async setPrimaryPhone(
+    tx: TenantTx,
+    contactId: string,
+    phone: string,
+  ): Promise<{ changed: boolean; reason?: "taken" }> {
+    const tenantId = TenantContext.current().tenantId;
+    const row = await tx.contact.findFirst({
+      where: { id: contactId, tenantId },
+      select: { phoneHash: true },
+    });
+    if (!row) return { changed: false };
+
+    const nextHash = this.crypto.phoneHash(phone);
+    // אותו מספר בדיוק אינו שינוי — ואינו אירוע ביומן הביקורת
+    if (row.phoneHash === nextHash) return { changed: false };
+
+    /*
+     * ‎**נעילת המספר לפני החיפוש** — אותו „בדוק ואז כתוב” שמוגן
+     * ב-`findOrCreateByPhone`, ומאותה סיבה בדיוק (ביקורת Codex).
+     *
+     * שתי בקשות מקבילות על אותו מספר פנוי — או פנייה נכנסת שתופסת
+     * אותו בין הבדיקה לכתיבה — עוברות שתיהן את `findByAnyPhone`,
+     * והאינדקס הייחודי מפיל את השנייה. בתוך טרנזקציה זו אינה שגיאה
+     * שאפשר לתפוס ולהחזיר „תפוס”, אלא נפילה של הבקשה כולה: המתווך
+     * מקבל שגיאת מסד במקום ההודעה שאומרת לו מה קרה.
+     */
+    await lockContactPhone(tx, tenantId, nextHash);
+
+    /*
+     * מספר ששייך לאדם אחר נדחה, מאותו נימוק כמו בהוספת מספר: הודעה
+     * או שיחה ממנו לא הייתה יכולה להכריע לאיזה כרטיס היא שייכת.
+     */
+    const owner = await this.findByAnyPhone(tx, phone);
+    if (owner && owner.id !== contactId) return { changed: false, reason: "taken" };
+
+    /*
+     * המספר כבר רשום על הכרטיס הזה כמספר נוסף — הוא **עולה** לראשי
+     * ואינו נשאר גם כאן וגם שם. אותו מספר בשתי הטבלאות היה מופיע
+     * פעמיים במסך ומייצר שורה שאי אפשר להסביר.
+     */
+    await tx.contactPhone.deleteMany({ where: { tenantId, contactId, phoneHash: nextHash } });
+
+    await tx.contact.updateMany({
+      where: { id: contactId, tenantId },
+      data: {
+        phoneEncrypted: this.crypto.encrypt(phone),
+        phoneHash: nextHash,
+      },
+    });
+    return { changed: true };
   }
 
   /* ---------- אנשים נוספים על הכרטיס ---------- */

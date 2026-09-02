@@ -27,6 +27,11 @@ import { NumberRentalService } from "./number-rental.service";
 /** כל שעה, כמו סורק המנויים — תקופה נמדדת בחודשים. */
 const TICK_MS = 60 * 60 * 1000;
 const BATCH = 25;
+/**
+ * ניסיון חוזר על חיוב שנכשל — יומי ולא שעתי, כמו במקומות הוואטסאפ:
+ * גבייה חוזרת כל שעה על כרטיס שנדחה היא מה שמסמן את המשרד אצל המנפיק.
+ */
+const RETRY_EVERY_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy {
@@ -67,12 +72,32 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
     }
   }
 
-  /** השכרות פעילות שתקופתן נגמרה — חיוב חודש נוסף בכרטיס השמור. */
+  /**
+   * השכרות שתקופתן נגמרה — חיוב חודש נוסף בכרטיס השמור.
+   *
+   * ‎**כולל שורות ב-`past_due`, וזה העיקר.** קודם נבחרו `active`
+   * בלבד, ושום מסלול אחר לא החזיר שורה מ-`past_due` — כלומר חיוב
+   * שנכשל פעם אחת לא נוסה שוב **לעולם**. עם חיוב שנפתח מהפלטפורמה
+   * למשרד שעדיין אין לו כרטיס שמור זה היה המסלול הרגיל, לא החריג:
+   * השורה נכנסת ל-`past_due` בסבב הראשון, המשרד מזין כרטיס כפי
+   * שהתבקש, ואיש אינו גובה (ביקורת Codex). אותו תיקון שנעשה
+   * במקומות הוואטסאפ, מאותה סיבה.
+   */
   async renewDue(now = new Date()): Promise<{ renewed: number; failed: number }> {
     if (!(await this.cardcom.isConfigured())) return { renewed: 0, failed: 0 };
 
     const due = await this.prisma.rentedNumber.findMany({
-      where: { status: "active", currentPeriodEnd: { not: null, lte: now } },
+      where: {
+        currentPeriodEnd: { not: null, lte: now },
+        OR: [
+          { status: "active" },
+          {
+            status: "past_due",
+            // `updatedAt` נכתב בכל מעבר ל-past_due, וזה הקצב
+            updatedAt: { lte: new Date(now.getTime() - RETRY_EVERY_MS) },
+          },
+        ],
+      },
       orderBy: { currentPeriodEnd: "asc" },
       take: BATCH,
     });
@@ -96,7 +121,9 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
 
   private async renewOne(rentalId: string, now: Date): Promise<boolean> {
     const rental = await this.prisma.rentedNumber.findUnique({ where: { id: rentalId } });
-    if (rental === null || rental.status !== "active") return false;
+    if (rental === null || (rental.status !== "active" && rental.status !== "past_due")) {
+      return false;
+    }
 
     /*
      * הכרטיס השמור של המשרד יושב על שורת המנוי — אמצעי תשלום אחד
@@ -121,7 +148,11 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
 
     // תפיסה מותנית לפני הפנייה לסולק — בדיוק כמו בחידוש המנוי
     const claimed = await this.prisma.rentedNumber.updateMany({
-      where: { id: rental.id, currentPeriodEnd: rental.currentPeriodEnd, status: "active" },
+      where: {
+        id: rental.id,
+        currentPeriodEnd: rental.currentPeriodEnd,
+        status: { in: ["active", "past_due"] },
+      },
       data: { currentPeriodEnd: periodEnd },
     });
     if (claimed.count === 0) return false;
@@ -167,7 +198,10 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
         cardOwnerIdentity: subscription.cardOwnerIdEncrypted
           ? this.crypto.decrypt(subscription.cardOwnerIdEncrypted)
           : null,
-        productName: `השכרת מספר וירטואלי ${formatRentalNumber(rental.number)} — חידוש חודשי`,
+        productName:
+          rental.origin === "platform"
+            ? `שירות מספר וירטואלי ${formatRentalNumber(rental.number)} — חיוב חודשי`
+            : `השכרת מספר וירטואלי ${formatRentalNumber(rental.number)} — חידוש חודשי`,
         payer,
       });
 
@@ -197,6 +231,17 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
       });
       // חשבונית על חידוש ההשכרה — נרשמת כחוב, והסורק מפיק אותה
       await this.invoices.queueForPayment(paymentId);
+      /*
+       * חיוב שעבר אחרי כישלון מחזיר את השורה ל-`active` ומנקה את
+       * השגיאה — אחרת מסך הפלטפורמה היה ממשיך להציג „חיוב נכשל”
+       * על שורה שכבר שולמה.
+       */
+      if (rental.status === "past_due") {
+        await this.prisma.rentedNumber.updateMany({
+          where: { id: rental.id, status: "past_due" },
+          data: { status: "active", providerError: null },
+        });
+      }
 
       this.logger.log(
         `השכרת מספר חודשה: ${rental.number} של ${rental.tenantId} עד ${periodEnd.toISOString()}`,
@@ -292,6 +337,21 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
             "מספר שכור שוחרר",
             `השכרת המספר ${formatRentalNumber(rental.number)} הסתיימה והמספר שוחרר מחשבון 015 של הפלטפורמה. ודאו שאין ניתוב ידני שנשאר מאחור.`,
           );
+        }
+        /*
+         * חיוב מהפלטפורמה שהגיע לסוף התקופה ששולמה: מרגע זה המספר
+         * מנותב בלי תשלום. תזכורת שנייה, בנקודת הזמן שבה זה נהיה
+         * אמיתי — המייל הראשון יצא כבר בביטול, אבל הוא יכול היה
+         * להגיע חודש קודם.
+         */
+        if (rental.origin === "platform") {
+          // רק כשבאמת יש ניתוב שנשאר בלי תשלום — ראו routingActive
+          if (await this.rentals.routingActive(rental.tenantId, rental.number)) {
+            await this.rentals.notifyAdmins(
+              "חיוב חודשי על מספר הסתיים — המספר מנותב בלי תשלום",
+              `התקופה ששולמה על המספר ${formatRentalNumber(rental.number)} נגמרה והחיוב נפסק. המספר של המשרד ממשיך להיות מנותב במערכת. כבו או מחקו אותו בשולחן החיבורים, או פתחו חיוב חדש אם סוכם אחרת.`,
+            );
+          }
         }
         released += 1;
       } catch (error) {

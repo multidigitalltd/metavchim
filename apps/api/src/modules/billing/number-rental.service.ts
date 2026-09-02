@@ -47,6 +47,8 @@ export interface RentalRow {
   currentPeriodEnd: Date | null;
   /** המספר נתפס בפועל אצל 015; false אחרי תשלום = בטיפול ידני. */
   provisioned: boolean;
+  /** `purchased` מהמלאי של 015, או `platform` — חיוב שנפתח מהפלטפורמה. */
+  origin: string;
   createdAt: Date;
 }
 
@@ -70,6 +72,7 @@ export class NumberRentalService {
     status: string;
     currentPeriodEnd: Date | null;
     providerPurchasedAt: Date | null;
+    origin: string;
     createdAt: Date;
   }): RentalRow {
     const status: RentedNumberStatus = isRentedNumberStatus(row.status) ? row.status : "pending";
@@ -82,8 +85,95 @@ export class NumberRentalService {
       statusLabel: describeRentalStatus(status),
       currentPeriodEnd: row.currentPeriodEnd,
       provisioned: row.providerPurchasedAt !== null,
+      origin: row.origin,
       createdAt: row.createdAt,
     };
+  }
+
+  /**
+   * חיוב חודשי על מספר שכבר בידי המשרד — **נפתח מהפלטפורמה.**
+   *
+   * ## למה זה כאן ולא טבלה חדשה
+   *
+   * משרד שהמרכזייה שלו נותנת מספר לכל סוכן אינו שוכר מספרים מהמלאי
+   * של 015, אבל הפלטפורמה כן גובה עליהם. הגבייה החודשית — כרטיס
+   * שמור, יום עוגן, `past_due` כשנכשל, מייל למנהלים — כבר קיימת
+   * להשכרות, ושורה כאן עם `origin: "platform"` נכנסת לאותו סורק
+   * בלי שום קוד חיוב חדש. מה שאין בה: תפיסה ושחרור אצל 015.
+   *
+   * ## מתי נגבה
+   *
+   * ‎`currentPeriodEnd` נקבע לעכשיו, ולכן סבב החידושים הקרוב גובה
+   * את החודש הראשון ומקדם את התקופה — אותו מסלול בדיוק כמו חידוש.
+   * בלי כרטיס שמור השורה תסומן `past_due` והמנהלים יקבלו מייל, וסבב
+   * החידושים מנסה שוב מדי יום — כך שכרטיס שהמשרד יזין נגבה מעצמו.
+   * זה מצב ידוע ולא כשל, ולכן חוזר כאזהרה ולא כדחייה.
+   */
+  async createPlatformCharge(input: {
+    tenantId: string;
+    phone: string;
+    monthlyAgorot: number;
+    createdBy: string;
+  }): Promise<{ id: string; number: string; warning: string | null }> {
+    const canonical = canonicalVirtualNumber(input.phone);
+    if (canonical === "") throw new BadRequestException("המספר אינו מספר טלפון ישראלי תקין");
+    // ‎+972XXXXXXXXX → 0XXXXXXXXX — הצורה שבה השכרות שומרות מספר
+    const number = `0${canonical.slice(4)}`;
+
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: input.tenantId },
+      select: { id: true },
+    });
+    if (tenant === null) throw new BadRequestException("משרד לא נמצא");
+
+    // שורה חיה אחת לכל מספר בכל המשרדים — אותו כלל כמו בהשכרה
+    const live = await this.prisma.rentedNumber.findFirst({
+      where: { number, status: { not: "released" } },
+      select: { tenantId: true },
+    });
+    if (live !== null) {
+      throw new BadRequestException(
+        live.tenantId === input.tenantId
+          ? "כבר יש חיוב פעיל על המספר הזה אצל המשרד"
+          : "המספר הזה כבר מחויב אצל משרד אחר",
+      );
+    }
+
+    const now = new Date();
+    const id = ulid();
+    try {
+      await this.prisma.rentedNumber.create({
+        data: {
+          id,
+          tenantId: input.tenantId,
+          number,
+          monthlyAgorot: input.monthlyAgorot,
+          status: "active",
+          origin: "platform",
+          billingAnchorDay: billingAnchorDay(now),
+          currentPeriodEnd: now,
+          createdBy: input.createdBy,
+        },
+      });
+    } catch (error) {
+      // שני מנהלים באותו רגע — האינדקס החלקי תופס מה שהבדיקה למעלה לא ראתה
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new BadRequestException("כבר יש חיוב פעיל על המספר הזה");
+      }
+      throw error;
+    }
+    // שורת ניתוב אצל המשרד, אם עוד אין — כדי שהמספר יופיע במסך שלו
+    await this.createRoutingRow(input.tenantId, number);
+
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { tenantId: input.tenantId },
+      select: { cardTokenEncrypted: true },
+    });
+    const warning =
+      subscription?.cardTokenEncrypted === null || subscription?.cardTokenEncrypted === undefined
+        ? "למשרד אין כרטיס שמור — החיוב יסומן „נכשל” וינוסה מחדש מדי יום עד שהמשרד יזין אמצעי תשלום במסך המנוי"
+        : null;
+    return { id, number, warning };
   }
 
   /**
@@ -298,6 +388,41 @@ export class NumberRentalService {
       where: { id: rentalId },
       data: { status: "cancelled", cancelledAt: new Date() },
     });
+    /*
+     * ‎**חיוב מהפלטפורמה שבוטל הוא עבודה ידנית, ובכוונה.**
+     *
+     * בהשכרה מהמלאי הסורק סוגר את המעגל: התקופה נגמרת, המספר חוזר
+     * ל-015, ואיש אינו נשאר עם שירות בחינם. בחיוב על מספר של המשרד
+     * אין מה להחזיר — המספר שלו, והניתוב ממשיך לעבוד גם אחרי
+     * שהגבייה נפסקה. בלי מייל שאומר זאת במפורש, ביטול מצד המשרד
+     * היה הופך בשקט לשירות חינם (בקשת בעל הפלטפורמה).
+     */
+    if (rental.origin === "platform") {
+      const agency = await this.agencyName(rental.tenantId);
+      const routed = await this.routingActive(rental.tenantId, rental.number);
+      const until =
+        rental.currentPeriodEnd !== null
+          ? `החיוב ייפסק ב-${formatJerusalemDate(rental.currentPeriodEnd)}.`
+          : "החיוב ייפסק בסבב הסורק הבא.";
+      await this.notifyAdmins(
+        routed
+          ? "משרד ביטל חיוב חודשי על מספר — הניתוב עדיין פעיל"
+          : "משרד ביטל חיוב חודשי על מספר",
+        [
+          `המשרד „${agency}” ביטל את החיוב החודשי על המספר ${formatRentalNumber(rental.number)}.`,
+          until,
+          /*
+           * הניתוב נבדק ולא מונח: מספר שכבר כובה או נמחק בשולחן
+           * החיבורים אינו „מנותב בלי תשלום”, ומייל שטוען זאת היה
+           * שולח לטפל במה שכבר טופל (ביקורת Codex).
+           */
+          routed
+            ? "המספר של המשרד הוא ואינו משוחרר: הניתוב שלו במערכת ממשיך לעבוד גם אחרי הפסקת החיוב, עד שתחליטו — לכבות או למחוק אותו בשולחן החיבורים, או לסכם עם המשרד על המשך החיוב."
+            : "הניתוב של המספר במערכת כבר כבוי או נמחק — אין שירות שנשאר בלי תשלום.",
+        ].join(" "),
+      );
+      return;
+    }
     await this.notifyAdmins(
       "בוטלה השכרת מספר וירטואלי",
       [
@@ -307,6 +432,39 @@ export class NumberRentalService {
           : "המספר ישוחרר אוטומטית אצל 015 בסבב הסורק הבא.",
       ].join(" "),
     );
+  }
+
+  /**
+   * האם המספר עדיין מנותב אצל המשרד — שורת מספר וירטואלי פעילה.
+   *
+   * ‎`withExplicitTenant` כי הטבלה תחת FORCE RLS והקריאה מגיעה מסורק
+   * או מנתיב חיוב, בלי הקשר דייר. כשל בבדיקה נקרא כ„מנותב”: עדיף
+   * מייל שמבקש לבדוק על מייל שמרגיע בטעות.
+   */
+  async routingActive(tenantId: string, number: string): Promise<boolean> {
+    const phone = canonicalVirtualNumber(number);
+    if (phone === "") return false;
+    try {
+      const row = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.virtualNumber.findFirst({
+          where: { tenantId, phone, isActive: true },
+          select: { id: true },
+        }),
+      );
+      return row !== null;
+    } catch (error) {
+      this.logger.warn(`בדיקת ניתוב (${tenantId}) נכשלה: ${String(error)}`);
+      return true;
+    }
+  }
+
+  /** שם המשרד למייל למנהלים — כדי שיֵדעו אצל מי לטפל בלי לחפש. */
+  private async agencyName(tenantId: string): Promise<string> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true },
+    });
+    return tenant?.name ?? tenantId;
   }
 
   /**
@@ -476,7 +634,14 @@ export class NumberRentalService {
         cancelledAt: rental.cancelledAt ?? new Date(),
       },
     });
-    await this.deactivateRoutingRow(rental.tenantId, rental.number);
+    /*
+     * חיוב שנפתח מהפלטפורמה: המספר של המשרד הוא, לא של 015. שחרור
+     * השורה מפסיק את החיוב בלבד; מי שרוצה לעצור גם את הניתוב עושה
+     * זאת במפורש במסך המספרים.
+     */
+    if (rental.origin !== "platform") {
+      await this.deactivateRoutingRow(rental.tenantId, rental.number);
+    }
     return { ok: true, message: "" };
   }
 

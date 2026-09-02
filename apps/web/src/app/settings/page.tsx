@@ -65,6 +65,14 @@ interface AuditRow {
   userName?: string;
   /** הפעולה בוצעה ע"י התמיכה — הכתובת שנכנסה. */
   supportAdmin?: string;
+  /**
+   * העברת כרטיס בין סוכנים — ממי, ולמי.
+   *
+   * חסר = הצד הזה היה „לא משויך”, וזה צד לגיטימי בהעברה: נכס שלא
+   * היה שייך לאיש וקיבל מטפל, או להפך.
+   */
+  agentFrom?: string;
+  agentTo?: string;
   createdAt: string;
 }
 
@@ -92,6 +100,9 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   "property.owner_update": "עדכון שיווק לבעל נכס",
   "buyer.create": "יצירת קונה",
   "buyer.update": "עדכון קונה",
+  // ‏„בין סוכנים” ולא „עדכון”: זו העברת אחריות, ולכן היא שורה משלה
+  "property.agent_changed": "העברת נכס בין סוכנים",
+  "buyer.agent_changed": "העברת קונה בין סוכנים",
   "buyer.interaction_add": "תיעוד אינטראקציה עם קונה",
   "lead.create": "יצירת ליד",
   "lead.status": "עדכון סטטוס ליד",
@@ -99,6 +110,16 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   // הרישום הזה הוא הראיה שבקשת המחיקה של לקוח בוצעה — ולכן הוא
   // חייב להיקרא בעברית ביומן, ולא כקוד
   "contact.erase": "מחיקת לקוח מהמערכת",
+  /*
+   * ‎**תיקון פרטי הזיהוי של לקוח — שתי שורות, ולא אחת.**
+   *
+   * שם שהוחלף ומספר שהוחלף הם שתי שאלות שונות לגמרי כשחוזרים
+   * ליומן: „למה הכרטיס נקרא אחרת” מול „למה השיחות הפסיקו להגיע
+   * לכאן”. שתיהן נרשמו בלי הערך עצמו (PII מוצפן), ולכן שם הפעולה
+   * הוא כל מה שיש — ותווית אחת לשתיהן הייתה מוחקת את ההבדל.
+   */
+  "contact.renamed": "תיקון שם לקוח",
+  "contact.phone_changed": "החלפת מספר הטלפון של לקוח",
   // החלטות פלטפורמה נרשמות ביומן של המשרד עצמו: בלעדיהן מודול שנעלם
   // נראה כמו תקלה, ואין למנהל שום דרך לדעת שזו הייתה החלטה
   "platform.blocked_modules": "שינוי חסימת מודולים בידי הפלטפורמה",
@@ -1388,6 +1409,14 @@ export default function SettingsPage() {
                       </span>
                       <span style={{ color: "var(--color-text-soft)" }}>
                         {AUDIT_ACTION_LABELS[row.action] ?? row.action}
+                        {/*
+                          ‎**„בין מי לבין מי” — כאן, לא בשורה נפרדת.**
+                          „העברת נכס בין סוכנים” בלי השמות אינו עונה
+                          על השאלה שבגללה האירוע נרשם בנפרד.
+                        */}
+                        {row.agentFrom !== undefined || row.agentTo !== undefined
+                          ? ` · ${row.agentFrom ?? "לא משויך"} ← ${row.agentTo ?? "לא משויך"}`
+                          : ""}
                       </span>
                       <span
                         className="ms-auto"

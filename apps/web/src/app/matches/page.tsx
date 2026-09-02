@@ -30,6 +30,20 @@ interface MatchRow {
   buyerName: string | null;
 }
 
+/**
+ * ‎**ההצעה של השורה — קישור שנוצר, ולא בהכרח משהו שנשלח.**
+ *
+ * ‎`pending_approval` = נוצר קישור ואיש עוד לא קיבל אותו. זה המצב
+ * שבו נולדת כל הצעה ידנית, וזה בדיוק המצב שהמסך הזה נהג לקרוא לו
+ * „הצעה נשלחה”.
+ */
+interface OfferInfo {
+  id: string;
+  status: string;
+  url: string;
+  openCount: number;
+}
+
 /** תקרת ה-API. תג "N קונים מתאימים" עשוי להצביע על יותר — ואז מוצגת הערה. */
 const LIST_LIMIT = 200;
 
@@ -103,6 +117,8 @@ function MatchesView() {
   const [sending, setSending] = useState<string | null>(null);
   /** ההתאמה שפתחה את בחירת סיבת הדחייה. */
   const [dismissing, setDismissing] = useState<string | null>(null);
+  /** ההצעות שכבר קיימות להתאמות שברשימה — לפי מזהה התאמה. */
+  const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
   const requestSeq = useRef(0);
 
   const load = useCallback(
@@ -113,7 +129,39 @@ function MatchesView() {
       const scope = property ? `&propertyId=${encodeURIComponent(property)}` : "";
       apiGet<MatchRow[]>(`/matches?minScore=${threshold}&limit=${LIST_LIMIT}${scope}`)
         .then((rows) => {
-          if (requestSeq.current === seq) setItems(rows);
+          if (requestSeq.current !== seq) return;
+          setItems(rows);
+          /*
+           * ‎**ההצעות שכבר קיימות — שאילתה אחת לכל הרשימה.**
+           *
+           * בלעדיה שורה שכבר יש לה הצעה הייתה מציגה „צור הצעה” אחרי
+           * רענון, והמתווך היה יוצר קישור שני לאותה התאמה — או
+           * מקבל 409 בלי להבין למה.
+           */
+          if (rows.length === 0) {
+            setOffers({});
+            return;
+          }
+          /*
+           * ‎**מנות של 100.** ה-API חוסם מחרוזת שאילתה ארוכה מ-2,800
+           * תווים, ו-200 מזהי ULID הם 5,400 — כלומר רשימה מלאה הייתה
+           * מוחזרת כשגיאה, וכל השורות היו מציגות „צור הצעה”.
+           */
+          const batches: string[][] = [];
+          for (let i = 0; i < rows.length; i += 100) {
+            batches.push(rows.slice(i, i + 100).map((row) => row.id));
+          }
+          Promise.all(
+            batches.map((ids) =>
+              apiGet<Record<string, OfferInfo>>(
+                `/offers/for-matches?matchIds=${ids.join(",")}`,
+              ).catch(() => ({}) as Record<string, OfferInfo>),
+            ),
+          )
+            .then((pages) => {
+              if (requestSeq.current === seq) setOffers(Object.assign({}, ...pages));
+            })
+            .catch(() => undefined);
         })
         .catch(() => {
           if (requestSeq.current === seq) setError("טעינת ההתאמות נכשלה");
@@ -145,14 +193,24 @@ function MatchesView() {
     setItems((prev) => (prev ? prev.filter((m) => m.id !== id) : prev));
   }
 
-  /** שליחת הצעה מהשורה. קונה שטרם חתם על הסכם — מוצג קישור ההחתמה. */
-  async function sendOffer(m: MatchRow): Promise<void> {
+  /**
+   * ‎**יצירת ההצעה — קישור, ולא שליחה.**
+   *
+   * זה מה שהפעולה הזו תמיד עשתה: היא כותבת snapshot ומחזירה כתובת
+   * ציבורית. עד כה המסך אמר עליה „ההצעה נשלחה” והשורה הפכה לגלולה
+   * סופית — כלומר המתווך סימן וי ואיש לא קיבל דבר. עכשיו היא אומרת
+   * מה קרה, ומציגה את שני הערוצים שבאמת מוציאים אותה ללקוח.
+   */
+  async function createOffer(m: MatchRow): Promise<void> {
     setSending(m.id);
     setNotice(null);
     setSignUrl(null);
     try {
-      await apiPost("/offers", { matchId: m.id });
-      setNotice(`ההצעה נשלחה — ${m.buyerName ?? "הקונה"} · ${m.property.title ?? m.property.address}`);
+      const offer = await apiPost<OfferInfo>("/offers", { matchId: m.id });
+      setOffers((prev) => ({ ...prev, [m.id]: offer }));
+      setNotice(
+        `ההצעה מוכנה — ${m.buyerName ?? "הקונה"} · ${m.property.title ?? m.property.address}. בחרו איך לשלוח אותה.`,
+      );
       setItems((prev) =>
         prev ? prev.map((x) => (x.id === m.id ? { ...x, status: "offered" } : x)) : prev,
       );
@@ -166,8 +224,58 @@ function MatchesView() {
           setNotice(err.message);
         }
       } else {
-        setNotice("שליחת ההצעה נכשלה — נסו שוב");
+        setNotice("יצירת ההצעה נכשלה — נסו שוב");
       }
+    } finally {
+      setSending(null);
+    }
+  }
+
+  /**
+   * ‎**וואטסאפ — הלשונית נפתחת לפני ה-`await`.**
+   *
+   * ‎`window.open` שרץ אחרי המתנה כבר אינו נחשב „פעולת משתמש”
+   * וחלק מהדפדפנים חוסמים אותו כחלון קופץ. אותו דפוס בדיוק כמו
+   * בשליחת הסכם לחתימה.
+   */
+  async function sendWhatsApp(m: MatchRow, offerId: string): Promise<void> {
+    setSending(m.id);
+    setNotice(null);
+    const tab = window.open("", "_blank", "noopener");
+    try {
+      const { waUrl } = await apiPost<{ waUrl: string }>(`/offers/${offerId}/whatsapp`, {});
+      if (tab) tab.location.href = waUrl;
+      else window.open(waUrl, "_blank", "noopener");
+      /*
+       * וואטסאפ אינו „נשלח” אלא „נפתח” — נותרה לחיצה אחת בלשונית.
+       * ניסוח שאומר „נשלח” הוא בדיוק הבאג שהמסך הזה סבל ממנו.
+       */
+      setNotice("וואטסאפ נפתח עם ההודעה מוכנה. נותרה לחיצה אחת על ״שלח״ בלשונית שנפתחה.");
+      setOffers((prev) => {
+        const current = prev[m.id];
+        return current === undefined ? prev : { ...prev, [m.id]: { ...current, status: "sent" } };
+      });
+    } catch (err: unknown) {
+      tab?.close();
+      setNotice(err instanceof ApiError ? err.message : "פתיחת וואטסאפ נכשלה — נסו שוב");
+    } finally {
+      setSending(null);
+    }
+  }
+
+  /** מייל — כאן „נשלח” אומר שהספק קיבל, ושגיאה נראית. */
+  async function sendEmail(m: MatchRow, offerId: string): Promise<void> {
+    setSending(m.id);
+    setNotice(null);
+    try {
+      const { sentTo } = await apiPost<{ sentTo: string }>(`/offers/${offerId}/email`, {});
+      setNotice(`ההצעה נשלחה לכתובת ${sentTo}.`);
+      setOffers((prev) => {
+        const current = prev[m.id];
+        return current === undefined ? prev : { ...prev, [m.id]: { ...current, status: "sent" } };
+      });
+    } catch (err: unknown) {
+      setNotice(err instanceof ApiError ? err.message : "שליחת המייל נכשלה — נסו שוב");
     } finally {
       setSending(null);
     }
@@ -272,7 +380,9 @@ function MatchesView() {
                 {g.items.length} התאמות
               </span>
             </div>
-            {g.items.map((m) => (
+            {g.items.map((m) => {
+              const offer = offers[m.id];
+              return (
               <div key={m.id} className="flex items-center gap-[15px] px-5 py-3" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
                 <ScoreRing score={m.score} />
                 <div className="min-w-0" style={{ lineHeight: 1.4 }}>
@@ -295,12 +405,17 @@ function MatchesView() {
                     {m.explanation}
                   </div>
                 </div>
-                <div className="ms-auto flex flex-none items-center gap-2">
-                  {m.status === "offered" ? (
-                    <span className="mv-pill" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}>
-                      הצעה נשלחה
-                    </span>
-                  ) : (
+                <div className="ms-auto flex flex-none flex-wrap items-center gap-2">
+                  {/*
+                    ‎**שלושה מצבים, ולא שניים.**
+
+                    „יש הצעה” אינו „נשלחה”: הצעה שנוצרה ולא יצאה
+                    בשום ערוץ היא `pending_approval`, וכאן היא
+                    מציגה את שני הכפתורים שמוציאים אותה. השורה
+                    הישנה הראתה „הצעה נשלחה” על בדיוק המצב הזה —
+                    כלומר המתווך סימן וי, והלקוח לא קיבל דבר.
+                  */}
+                  {offer === undefined ? (
                     <>
                       <button
                         type="button"
@@ -315,11 +430,38 @@ function MatchesView() {
                         className="mv-btn-action"
                         style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
                         disabled={sending !== null}
-                        onClick={() => void sendOffer(m)}
+                        onClick={() => void createOffer(m)}
                       >
-                        {sending === m.id ? "שולח…" : "שלח הצעה"}
+                        {sending === m.id ? "מכין…" : "הכן הצעה"}
                       </button>
                     </>
+                  ) : offer.status === "pending_approval" ? (
+                    <>
+                      <span className="mv-pill" style={{ background: "var(--domain-amber-bg)", color: "var(--domain-amber-fg)" }}>
+                        ממתינה לשליחה
+                      </span>
+                      <button
+                        type="button"
+                        className="mv-btn-plain"
+                        disabled={sending !== null}
+                        onClick={() => void sendEmail(m, offer.id)}
+                      >
+                        שלח במייל
+                      </button>
+                      <button
+                        type="button"
+                        className="mv-btn-action"
+                        style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
+                        disabled={sending !== null}
+                        onClick={() => void sendWhatsApp(m, offer.id)}
+                      >
+                        {sending === m.id ? "פותח…" : "שלח בוואטסאפ"}
+                      </button>
+                    </>
+                  ) : (
+                    <span className="mv-pill" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}>
+                      {offer.openCount > 0 ? "ההצעה נפתחה" : "הצעה נשלחה"}
+                    </span>
                   )}
                 </div>
                 {/*
@@ -346,7 +488,8 @@ function MatchesView() {
                   </div>
                 ) : null}
               </div>
-            ))}
+              );
+            })}
           </section>
         ))
       )}

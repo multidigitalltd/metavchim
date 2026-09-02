@@ -27,6 +27,7 @@ import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/li
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { ClickToDial } from "../../click-to-dial";
 import { ConfirmDialog } from "../../confirm-dialog";
+import { ContactIdentityEdit } from "../../contact-identity";
 import { ContactPeople } from "../../contact-people";
 import { ConvertSection, ConvertToPropertySection } from "../convert-sections";
 import { DeleteLeadDialog } from "../delete-lead-dialog";
@@ -58,6 +59,7 @@ import {
   IconRefresh,
   IconUser,
 } from "../../icons";
+import { AgentTag } from "../../agent-tag";
 import { Notice } from "../../notice";
 
 interface LeadDetail {
@@ -69,6 +71,8 @@ interface LeadDetail {
   requiresHuman: boolean;
   requiresHumanReason?: string;
   summary?: string;
+  /** הסוכן המטפל, כפי שהשרת פתר אותו. חסר = לא משויך. */
+  agentName?: string;
   /** מתי הליד נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
   createdAt: string;
 }
@@ -759,6 +763,40 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             <h1 className="m-0" style={{ fontSize: "calc(21 / 16 * 1rem)", fontWeight: 800 }}>
               {lead.contact.name}
             </h1>
+            {/*
+              ‎**תיקון הפרטים ליד הפרטים.**
+
+              ליד נקלט לעיתים בלי שם — שיחה שלא נענתה שומרת את מספר
+              הטלפון במקומו — ועם המספר שהגיע בשיחה או הוקלד בטופס.
+              עד כאן זה היה סופי בכרטיס הליד: לא השם, לא המספר ולא
+              האימייל. היכולת היא `buyers.edit`, אותה יכולת שהשרת
+              דורש בשלושת הנתיבים.
+            */}
+            <ContactIdentityEdit
+              contactId={lead.contact.id}
+              identity={lead.contact}
+              canEdit={canEditPeople}
+              /*
+                המפתח נבנה מחדש ולא נפרש על הקודם: אימייל שנמחק אינו
+                מגיע ב-`next`, ופרישה על הישן הייתה משאירה אותו על
+                המסך אחרי שכבר נמחק בשרת.
+              */
+              onSaved={(next) =>
+                setLead((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        contact: {
+                          id: prev.contact.id,
+                          name: next.name,
+                          phone: next.phone,
+                          ...(next.email === undefined ? {} : { email: next.email }),
+                        },
+                      }
+                    : prev,
+                )
+              }
+            />
             {/* הכוונה צמודה לשם: "קונה" ו"מוכר" הן שתי שיחות שונות */}
             <span
               className="mv-pill"
@@ -770,6 +808,8 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             >
               {labelOf(LEAD_INTENT_LABELS, lead.intent) ?? lead.intent}
             </span>
+            {/* „של מי הליד הזה?” — השאלה הראשונה של מנהל בסוכנות */}
+            <AgentTag {...(lead.agentName === undefined ? {} : { name: lead.agentName })} />
             {/*
               רשימה מעוצבת ולא `select` נייטיב — אותו תיקון שכבר
               נעשה בכרטיס הקונה: הגלולה נראתה נכון סגורה, ובפתיחה

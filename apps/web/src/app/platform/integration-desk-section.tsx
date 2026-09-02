@@ -6,6 +6,7 @@ import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { IconPhone } from "../icons";
 import { Notice } from "../notice";
+import { DeskVirtualNumbers } from "./desk-virtual-numbers";
 
 /**
  * שולחן החיבורים — **לתקן מרכזייה בלי להיכנס למשרד.**
@@ -339,6 +340,13 @@ export function IntegrationDeskSection({
           <Button disabled={busy} onClick={() => void save()}>
             {busy ? "שומר…" : "שמור עבור המשרד"}
           </Button>
+
+          {/*
+            ‎`key` לפי משרד: הרכיב נבנה מחדש בהחלפה, ולכן טבלה של
+            משרד אחד לעולם אינה נשלחת למשרד אחר — אותו כלל כמו
+            הטופס שמעליו, רק שכאן הוא נאכף בזהות הרכיב ולא בבדיקה.
+          */}
+          <DeskVirtualNumbers key={agencyId} agencyId={agencyId} agencyName={data.agencyName} />
         </>
       ) : null}
     </section>

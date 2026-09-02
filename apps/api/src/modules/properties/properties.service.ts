@@ -31,6 +31,13 @@ function propertyTypesFor(term: string): string[] {
     .filter(([, label]) => label.toLowerCase().includes(needle))
     .map(([value]) => value);
 }
+import {
+  agentHandover,
+  agentNameOf,
+  agentNames,
+  assertAgentInOffice,
+  assertCanAssignAgents,
+} from "../../common/agent-names";
 import { lockContact, lockProperty, type ContactLock } from "../../common/locks";
 import { isOrphanContact, leadOwnershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -57,6 +64,18 @@ import {
   rowToFields,
   type PropertyDto,
 } from "./property.mapper";
+
+/**
+ * מי יצר את הנכס — או `null` כשאין אדם.
+ *
+ * הקשרי מערכת (קליטת מוכר, סורקים) רצים עם `userId: ""`. מחרוזת
+ * ריקה בעמודת שיוך היא „משויך למי ששמו ריק”, וזה מצב שאף שאילתה
+ * אינה מחפשת. `null` הוא „לא משויך”, וזה מה שקרה באמת.
+ */
+function creatorUserId(): string | null {
+  const { userId } = TenantContext.current();
+  return userId === "" ? null : userId;
+}
 
 @Injectable()
 export class PropertiesService {
@@ -162,6 +181,8 @@ export class PropertiesService {
     marketingTitle?: string;
     marketingDescription?: string;
     internalNotes?: string;
+    /** הסוכן המטפל. חסר = מי שיוצר. */
+    agentUserId?: string;
     /** בעל הנכס (המוכר) — נקשר כ-contact לפי טלפון (docs/03: אדם אחד) */
     owner?: { name: string; phone: string };
     /** מי גר בנכס כשזה אינו הבעלים — לתיאום ביקור. */
@@ -445,6 +466,8 @@ export class PropertiesService {
     marketingDescription?: string;
     internalNotes?: string;
     status?: string;
+    /** הסוכן המטפל. חסר = מי שיוצר. */
+    agentUserId?: string;
     owner?: { name: string; phone: string };
     /** מי גר בנכס כשזה אינו הבעלים — לתיאום ביקור. */
     occupant?: { name: string; phone: string };
@@ -481,6 +504,14 @@ export class PropertiesService {
       // המכסה נבדקת כאן ולא לפני הקריאה: אותה טרנזקציה שכותבת היא
       // זו שסופרת, ולכן שתי בקשות מקבילות לא יכולות לעבור יחד
       await this.assertCanAddProperty(tx, tenantId);
+      /*
+       * ‎**באותה טרנזקציה שכותבת.** בדיקה לפניה הייתה חלון שבו הסוכן
+       * הוסר מהמשרד בין הבדיקה לכתיבה — נדיר, אבל זה בדיוק סוג
+       * החלון שהקוד הזה סוגר בכל מקום אחר.
+       */
+      if (input.agentUserId !== undefined && input.agentUserId !== "") {
+        await assertAgentInOffice(tx, tenantId, input.agentUserId);
+      }
       const ownerContact = input.owner
         ? await this.contacts.findOrCreateByPhone(tx, input.owner)
         : null;
@@ -497,6 +528,20 @@ export class PropertiesService {
           marketingTitle: input.marketingTitle ?? null,
           marketingDescription: input.marketingDescription ?? null,
           internalNotes: input.internalNotes ?? null,
+          /*
+           * ‎**נכס חדש שייך למי שיצר אותו** — אותו כלל בדיוק שכבר
+           * נהוג בקונה (`ownerUserId ?? current`). ברירת מחדל היא
+           * מה שהופך את השדה למשויך בפועל: שדה שצריך למלא ביד
+           * נשאר ריק, ואז השאלה „של מי זה?” חוזרת בדיוק כמו קודם.
+           *
+           * ‎**וכשאין יוצר — `null`, ולא מחרוזת ריקה.** נכס שנוצר
+           * מטופס קליטה של מוכר רץ בהקשר משרד עם `userId: ""`, ואז
+           * ברירת המחדל הזו הייתה כותבת `''` לעמודה: `agentNames`
+           * מסננת אותה והמסך מציג „לא משויך”, אבל שאילתה על
+           * ‎`agent_user_id IS NULL` **אינה מוצאת** את השורה. שני
+           * מקורות אמת על אותה שאלה, ואחד מהם שקט (ביקורת Codex).
+           */
+          agentUserId: input.agentUserId ?? creatorUserId(),
           readinessScore: readiness.score,
           ...(fieldsToColumns(fields) as object),
         },
@@ -564,6 +609,14 @@ export class PropertiesService {
        * ריקון בכל נתיב אחר, בלי שאיש ביקש זאת.
        */
       clearFields?: readonly (keyof PropertyFields)[];
+      /**
+       * שינוי הסוכן המטפל. מחרוזת ריקה = ניתוק השיוך.
+       *
+       * ‎`undefined` הוא „בלי שינוי” ולא „נתק”: רוב העריכות בכרטיס
+       * אינן נוגעות בשיוך כלל, ושדה חסר שהיה מנתק היה מוחק את
+       * הסוכן בכל שמירה של מחיר או תיאור.
+       */
+      agentUserId?: string;
     },
   ): Promise<PropertyDto> {
     const tenantId = TenantContext.current().tenantId;
@@ -580,6 +633,7 @@ export class PropertiesService {
       noticePeriodDays,
       expectStatus,
       clearFields,
+      agentUserId,
       ...fieldPatch
     } = patch;
 
@@ -698,6 +752,18 @@ export class PropertiesService {
         ...fieldPatch,
       };
       for (const key of clearFields ?? []) delete mergedFields[key];
+      /*
+       * ‎**אותה אכיפה בנכס.** הבורר בשני הכרטיסים נשען על
+       * ‎`tasks.assign`, ותפקיד `agent` מחזיק ב-`properties.edit`
+       * ואין לו אותה — כלומר בלי השורה הזו הגבול קיים במסך בלבד.
+       * הניתוק (`""`) הוא גם הוא העברה, ולכן גם הוא נאכף.
+       */
+      if (agentUserId !== undefined) {
+        assertCanAssignAgents();
+        if (agentUserId !== "") {
+          await assertAgentInOffice(tx, tenantId, agentUserId);
+        }
+      }
       const readiness = computeReadiness(mergedFields, {
         hasImages: await this.hasMedia(tx, id),
         hasDescription: Boolean(
@@ -726,6 +792,10 @@ export class PropertiesService {
             ? { marketingDescription }
             : {}),
           ...(internalNotes !== undefined ? { internalNotes } : {}),
+          /* מחרוזת ריקה = ניתוק מכוון; חסר = לא נגעו בשיוך */
+          ...(agentUserId === undefined
+            ? {}
+            : { agentUserId: agentUserId === "" ? null : agentUserId }),
           ...(ownerContact ? { ownerContactId: ownerContact.id } : {}),
           /*
            * `occupantCleared` נבדק בנפרד מ-`occupantContact`: דירה
@@ -778,6 +848,24 @@ export class PropertiesService {
         entityId: id,
         metadata: { changedFields: Object.keys(patch) },
       });
+      /*
+       * ‎**ההעברה נרשמת בנפרד, ועם שני הצדדים.**
+       *
+       * ‎`changedFields: ["agentUserId"]` אומר שמשהו זז ולא לאן —
+       * וזו השאלה שנשאלת אחר כך: „מי העביר את הנכס הזה ומתי”.
+       */
+      const handover = agentHandover(
+        existing.agentUserId,
+        agentUserId === undefined ? existing.agentUserId : agentUserId || null,
+      );
+      if (handover) {
+        await this.audit.record(tx, {
+          action: "property.agent_changed",
+          entityType: "property",
+          entityId: id,
+          metadata: handover,
+        });
+      }
       /*
        * **חציית הסף, ולא הימצאות מעליו.** האירוע נפלט עד כה ביצירה
        * בלבד, ולכן נכס שהגיע למוכנות בעריכה לא הפעיל את האוטומציה
@@ -842,10 +930,14 @@ export class PropertiesService {
       const occupantContact = row.occupantContactId
         ? await this.contacts.getById(tx, row.occupantContactId)
         : null;
+      const agents = await agentNames(tx, TenantContext.current().tenantId, [row.agentUserId]);
+      const agentName = agentNameOf(agents, row.agentUserId);
       return {
         ...fields,
         id: row.id,
         status: row.status,
+        ...(row.agentUserId === null ? {} : { agentUserId: row.agentUserId }),
+        ...(agentName === undefined ? {} : { agentName }),
         marketingTitle: row.marketingTitle ?? undefined,
         marketingDescription: row.marketingDescription ?? undefined,
         internalNotes: row.internalNotes ?? undefined,
@@ -1046,8 +1138,20 @@ export class PropertiesService {
         matchCounts.map((row) => [row.propertyId, row._count._all]),
       );
 
+      /*
+       * שם הסוכן — **שאילתה אחת לכל העמוד**, כמו התמונות והמונים
+       * שמעליה. שליפה לכל שורה היא N+1 שמתגלה רק כשלמשרד יש מאה
+       * נכסים, כלומר בדיוק אצל הסוכנות שהשדה נוסף בשבילה.
+       */
+      const agents = await agentNames(
+        tx,
+        TenantContext.current().tenantId,
+        pageRows.map((row) => row.agentUserId),
+      );
+
       const items = pageRows.map((row) => {
         const fields = rowToFields(row);
+        const agentName = agentNameOf(agents, row.agentUserId);
         const readiness = computeReadiness(fields, {
           // מפת התמונה הראשית כבר עונה על „יש מדיה” — בלי שאילתה נוספת
           hasImages: primaryIdByProperty.has(row.id),
@@ -1065,6 +1169,8 @@ export class PropertiesService {
           missingFields: readiness.missingFields,
           thumbnailUrl: primaryId ? mediaRawPath(row.id, primaryId) : undefined,
           suggestedMatchCount: matchCountByProperty.get(row.id) ?? 0,
+          ...(row.agentUserId === null ? {} : { agentUserId: row.agentUserId }),
+          ...(agentName === undefined ? {} : { agentName }),
           archived: row.deletedAt !== null,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,

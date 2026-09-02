@@ -114,11 +114,68 @@ const PROPERTY_TYPE_LABEL_TABLE = {
   divisible_apartment: "דירה מתאימה לחלוקה",
   accessible_apartment: "דירת נכה",
   plot: "מגרש",
-  commercial: "מסחרי",
+  /*
+   * ‎„מסחרי” נשאר כערך — הוא „מסחרי שלא נאמר איזה”, ולא רק תאימות
+   * לשורות קיימות. התווית מבחינה אותו מתשעת הענפים שתחתיו.
+   */
+  commercial: "מסחרי (לא צוין)",
+  commercial_shop: "חנות",
+  commercial_office: "משרד",
+  commercial_warehouse: "מחסן",
+  commercial_industrial: "תעשייה",
+  commercial_basement: "מרתף",
+  commercial_building: "בניין",
+  commercial_logistics: 'מרלו"ג',
+  commercial_parking: "חניה",
+  commercial_gas_station: "תחנת דלק",
   other: "אחר",
 } satisfies Record<PropertyType, string>;
 
 export const PROPERTY_TYPE_LABELS: Record<string, string> = PROPERTY_TYPE_LABEL_TABLE;
+
+/**
+ * ‎**סוגי הנכס לבורר — עם „מסחרי” כקבוצה.**
+ *
+ * ## למה `optgroup` ולא שני בוררים משורשרים
+ *
+ * הבקשה הייתה „בוחרים מסחרי ונפתחות תת-קטגוריות”, וזה בדיוק מה
+ * ש-`optgroup` עושה: כותרת „מסחרי” ותשעת הענפים מתחתיה. ההבדל הוא
+ * שזו **לחיצה אחת** ולא שתיים, ואין מצב ביניים של „נבחר מסחרי ולא
+ * נבחר ענף” שצריך לאמת בשרת.
+ *
+ * וחשוב מזה: הבורר הזה חוזר בארבעה מסכים (נכס חדש, עריכת נכס,
+ * המרת ליד, דרישות קונה). קבוצה בטבלה אחת מגיעה לארבעתם; רכיב
+ * מדורג היה צריך להיכתב לכל אחד מהם בנפרד — או להפוך את ארבעתם
+ * לרכיב אחד, שינוי גדול בהרבה ממה שהתבקש.
+ *
+ * ‎**„מסחרי (לא צוין)” נשאר בתוך הקבוצה** ולא מחוצה לה: הוא ערך
+ * חוקי — „מסחרי שטרם דייקתי” — ולא כותרת.
+ */
+export interface PropertyTypeGroup {
+  /** ‎`undefined` = ערכים בשורש הרשימה, בלי כותרת קבוצה. */
+  label?: string;
+  options: { value: string; label: string }[];
+}
+
+export function propertyTypeGroups(): PropertyTypeGroup[] {
+  const entries = Object.entries(PROPERTY_TYPE_LABEL_TABLE) as [string, string][];
+  const isCommercial = (value: string): boolean =>
+    value === "commercial" || value.startsWith("commercial_");
+  return [
+    {
+      options: entries
+        .filter(([value]) => !isCommercial(value))
+        .map(([value, label]) => ({ value, label })),
+    },
+    {
+      label: "מסחרי",
+      options: entries
+        .filter(([value]) => isCommercial(value))
+        .map(([value, label]) => ({ value, label })),
+    },
+  ];
+}
+
 
 export const STATUS_LABELS: Record<PropertyStatus, string> = {
   draft: "טיוטה",

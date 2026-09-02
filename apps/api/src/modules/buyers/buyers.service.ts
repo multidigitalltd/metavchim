@@ -29,6 +29,13 @@ import {
   priceRangeAgorot,
 } from "@metavchim/shared";
 import type { Prisma } from "@prisma/client";
+import {
+  agentHandover,
+  agentNameOf,
+  agentNames,
+  assertAgentInOffice,
+  assertCanAssignAgents,
+} from "../../common/agent-names";
 import { TenantContext } from "../../common/tenant-context";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { AuditService } from "../../core/audit.service";
@@ -57,6 +64,15 @@ export interface BuyerDto {
    * שמתיישן ברגע שמשנים שם סטטוס בזמן שכרטיס פתוח.
    */
   officeStatus?: string;
+  /**
+   * ‎**הסוכן שהכרטיס שלו — `ownerUserId`, שהיה במסד ולא הוצג.**
+   *
+   * הוא כבר מסנן ראייה (`buyers.view_all`), כלומר המערכת ידעה של מי
+   * הכרטיס בכל שאילתה — ורק המסך לא אמר זאת. חסר = לא משויך, או
+   * משויך למי שאינו במשרד עוד; המסך אומר „לא משויך” ואינו מנחש.
+   */
+  ownerUserId?: string;
+  agentName?: string;
   source: string;
   agentNotes?: string;
   createdAt: Date;
@@ -561,6 +577,21 @@ export class BuyersService {
         | null
         | ((statuses: readonly OfficeBuyerStatus[]) => string);
       agentNotes?: string;
+      /**
+       * ‎**העברת הכרטיס לסוכן אחר — פעולת מנהל.**
+       *
+       * ‎`ownerUserId` בקונה **אינו כמו `agentUserId` בנכס**: הוא
+       * מסנן ראייה. סוכן בלי `buyers.view_all` רואה רק את הכרטיסים
+       * שלו, ולכן העברה כאן היא גם העברת גישה — הסוכן הקודם מפסיק
+       * לראות את הקונה. זו הכוונה, וזה מה שהופך את השדה למשמעותי
+       * יותר מהמקביל לו בנכס.
+       *
+       * ‎**ואין „לא משויך”.** מחרוזת ריקה אינה מתקבלת: קונה בלי
+       * בעלים אינו „של כולם” אלא **בלתי נראה** — `ownershipFilter`
+       * משווה מזהה, ו-NULL אינו שווה לאיש. ניתוק היה מעלים את
+       * הכרטיס מכל סוכן במשרד בלי ששום מסך יאמר זאת.
+       */
+      ownerUserId?: string;
     },
   ): Promise<BuyerDto> {
     const tenantId = TenantContext.current().tenantId;
@@ -634,6 +665,15 @@ export class BuyersService {
        * ‎`FOR SHARE` אינו חוסם שיוך מקביל של קונה אחר; הוא חוסם רק
        * את עריכת ההגדרות, וזה בדיוק הזוג שצריך להיות סדרתי.
        */
+      /*
+       * ‎**השומר באותה טרנזקציה שכותבת**, כמו בנכס: בדיקה לפניה
+       * הייתה חלון שבו הסוכן הוסר מהמשרד בין הבדיקה לכתיבה.
+       */
+      if (patch.ownerUserId !== undefined) {
+        /* הרשאה לפני קיום: „אינך רשאי” קודם ל„הסוכן אינו במשרד” */
+        assertCanAssignAgents();
+        await assertAgentInOffice(tx, tenantId, patch.ownerUserId);
+      }
       if (touchesStatus) await shareTenantRow(tx, tenantId);
       const statuses = touchesStatus
         ? await readOfficeStatuses(tx, tenantId)
@@ -707,6 +747,9 @@ export class BuyersService {
           ...(patch.agentNotes !== undefined
             ? { agentNotes: patch.agentNotes }
             : {}),
+          ...(patch.ownerUserId === undefined
+            ? {}
+            : { ownerUserId: patch.ownerUserId }),
         },
       });
       /*
@@ -750,6 +793,19 @@ export class BuyersService {
         entityId: id,
         metadata: { changedFields: Object.keys(patch) },
       });
+      /* ההעברה בנפרד, עם שני הצדדים — ראו `agentHandover`. */
+      const handover = agentHandover(
+        existing.ownerUserId,
+        patch.ownerUserId ?? existing.ownerUserId,
+      );
+      if (handover) {
+        await this.audit.record(tx, {
+          action: "buyer.agent_changed",
+          entityType: "buyer",
+          entityId: id,
+          metadata: handover,
+        });
+      }
       await this.outbox.emit(tx, "buyer.updated", {
         buyerId: id,
         tenantId,
@@ -805,7 +861,8 @@ export class BuyersService {
       if (!row) throw new NotFoundException("קונה לא נמצא");
       const contact = await this.contacts.getById(tx, row.contactId);
       if (!contact) throw new NotFoundException("איש קשר לא נמצא");
-      return this.toDto(row, contact);
+      const agents = await agentNames(tx, TenantContext.current().tenantId, [row.ownerUserId]);
+      return this.toDto(row, contact, agents);
     });
   }
 
@@ -1203,6 +1260,12 @@ export class BuyersService {
         tx,
         page.map((row) => row.contactId),
       );
+      /* שם הסוכן — שאילתה אחת לכל העמוד, כמו אנשי הקשר שלצידה */
+      const agents = await agentNames(
+        tx,
+        TenantContext.current().tenantId,
+        page.map((row) => row.ownerUserId),
+      );
       const items: (BuyerDto & {
         offersReceived: number;
         lastActivityAt: Date;
@@ -1211,7 +1274,7 @@ export class BuyersService {
         const contact = contactsById.get(row.contactId);
         if (contact) {
           items.push({
-            ...this.toDto(row, contact),
+            ...this.toDto(row, contact, agents),
             offersReceived: offerCountByBuyer.get(row.id) ?? 0,
             // אין תיעוד אינטראקציה ⇒ העדכון האחרון של הכרטיס עצמו
             lastActivityAt: lastByBuyer.get(row.id) ?? row.updatedAt,
@@ -1229,13 +1292,16 @@ export class BuyersService {
       financing: string;
       maturity: string;
       officeStatus: string | null;
+      ownerUserId: string | null;
       source: string;
       agentNotes: string | null;
       createdAt: Date;
       updatedAt: Date;
     },
     contact: { id: string; name: string; phone: string },
+    agents?: Map<string, string>,
   ): BuyerDto {
+    const agentName = agentNameOf(agents ?? new Map(), row.ownerUserId);
     return {
       id: row.id,
       contact,
@@ -1243,6 +1309,8 @@ export class BuyersService {
       financing: row.financing,
       maturity: row.maturity,
       ...(row.officeStatus === null ? {} : { officeStatus: row.officeStatus }),
+      ...(row.ownerUserId === null ? {} : { ownerUserId: row.ownerUserId }),
+      ...(agentName === undefined ? {} : { agentName }),
       source: row.source,
       agentNotes: row.agentNotes ?? undefined,
       createdAt: row.createdAt,

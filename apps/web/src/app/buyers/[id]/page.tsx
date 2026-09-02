@@ -6,7 +6,8 @@ import {
   buyerProfileCompleteness,
   describeEntryNeed,
   priceInWordsWithCurrency,  labelOf } from "@metavchim/shared";
-import type { BuyerRequirements } from "@metavchim/shared";
+import type { BuyerRequirements, FloorPreference } from "@metavchim/shared";
+import { floorPreferenceText } from "@metavchim/shared";
 import { activeOfficeStatuses, officeStatusById } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import {
@@ -39,6 +40,7 @@ import { useOfficeStatuses } from "../../use-office-statuses";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { IntakePanel } from "../../intake-panel";
 import { LoadError } from "../../load-error";
+import { AgentPicker } from "../../agent-picker";
 import { Notice } from "../../notice";
 
 /**
@@ -79,6 +81,7 @@ interface BuyerDetail {
     }[];
     budgetMinAgorot?: number;
     budgetMaxAgorot?: number;
+    floorPreference?: FloorPreference;
     roomsMin?: number;
     roomsMax?: number;
     areaSqmMin?: number;
@@ -91,6 +94,9 @@ interface BuyerDetail {
   maturity: string;
   /** מזהה סטטוס המשרד — התווית נפתרת מול הרשימה שנטענת בנפרד. */
   officeStatus?: string;
+  /** הסוכן שהכרטיס שלו — שם ה-DTO, ולכן נקרא ישירות מה-GET. */
+  ownerUserId?: string;
+  agentName?: string;
   source: string;
   agentNotes?: string;
   /** מתי הכרטיס נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
@@ -134,6 +140,15 @@ function offerChip(o: OfferInfo): { label: string; fg: string; bg: string } {
     return { label: "מעוניין ✓", fg: "var(--color-success)", bg: "var(--color-success-soft)" };
   if (o.status === "declined")
     return { label: "לא מתאים", fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" };
+  /*
+   * ‎**„נשלחה” הייתה גם ברירת המחדל של הצעה שלא נשלחה.** הצעה
+   * ידנית נולדת `pending_approval` — נוצר לה קישור ואף ערוץ לא
+   * הוציא אותה — והגלולה הזו טענה עליה שהיא בדרך אל הלקוח.
+   */
+  if (o.status === "pending_approval")
+    return { label: "ממתינה לשליחה", fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" };
+  if (o.status === "email_failed")
+    return { label: "המייל נכשל", fg: "#8a3b21", bg: "#fbe9e1" };
   if (o.openCount >= 3)
     return { label: "מתלבט — שווה טלפון", fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" };
   if (o.openCount > 0) return { label: "נפתחה", fg: "var(--color-text-muted)", bg: "var(--domain-neutral-tile)" };
@@ -154,6 +169,37 @@ export default function BuyerDetailPage({
   // היכולת נגזרת מטבלת התפקידים המשותפת ולא מרשימת תפקידים מקומית —
   // שינוי הרשאות במקום אחד לא ישאיר כאן כפתור שהשרת ידחה
   const canEditPeople = can(user, "buyers.edit");
+  /*
+   * ‎**העברת קונה בין סוכנים נשענת על `tasks.assign`** — היכולת
+   * שהנתיב `/tasks/assignees` דורש, ובמשמעותה „הטלת עבודה על סוכן
+   * אחר”. `buyers.edit` היא עריכת הכרטיס, לא העברת בעלות עליו.
+   */
+  const canAssignAgent = can(user, "tasks.assign");
+
+  /**
+   * ‎**העברה שגם מעבירה גישה.**
+   *
+   * ‎`ownerUserId` בקונה מסנן ראייה: הסוכן הקודם מפסיק לראות את
+   * הכרטיס (אלא אם יש לו `buyers.view_all`). התשובה מגיעה מהשרת
+   * ולא מהרשימה המקומית — הרשימה נטענה פעם אחת, והשרת הוא זה
+   * שיודע מי במשרד עכשיו.
+   */
+  async function changeAgent(ownerUserId: string): Promise<void> {
+    if (ownerUserId === "") return;
+    const saved = await apiPatch<{ ownerUserId?: string; agentName?: string }>(
+      `/buyers/${id}`,
+      { ownerUserId },
+    );
+    setBuyer((prev) =>
+      prev === null
+        ? prev
+        : {
+            ...prev,
+            ownerUserId: saved.ownerUserId,
+            agentName: saved.agentName,
+          },
+    );
+  }
   const [buyer, setBuyer] = useState<BuyerDetail | null>(null);
   const { statuses: officeStatuses } = useOfficeStatuses();
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
@@ -318,6 +364,7 @@ export default function BuyerDetailPage({
   const musts = Object.entries(buyer.requirements.features).filter(
     ([, l]) => l === "must",
   );
+  const floorNeed = floorPreferenceText(buyer.requirements.floorPreference);
   const entryNeed = describeEntryNeed({
     entryType: buyer.requirements.entryType as Parameters<
       typeof describeEntryNeed
@@ -437,6 +484,19 @@ export default function BuyerDetailPage({
             >
               {DEAL_TYPE_LABELS[buyer.requirements.dealType] ?? buyer.requirements.dealType}
             </span>
+            {/*
+              ‎„של מי הכרטיס הזה?” — והעברה בין סוכנים למי שרשאי.
+              ‎`allowUnassign` כבוי: קונה בלי בעלים אינו „של כולם”
+              אלא בלתי נראה לכל סוכן שאין לו `buyers.view_all`.
+            */}
+            <AgentPicker
+              canAssign={canAssignAgent}
+              allowUnassign={false}
+              labelText="הסוכן המטפל בקונה"
+              onChange={changeAgent}
+              {...(buyer.ownerUserId === undefined ? {} : { agentUserId: buyer.ownerUserId })}
+              {...(buyer.agentName === undefined ? {} : { agentName: buyer.agentName })}
+            />
             {/*
               רשימה מעוצבת ולא `select` נייטיב: הגלולה נראתה נכון
               סגורה, ובפתיחה נפתחה רשימת מערכת עם הדגשה כחולה שאינה
@@ -797,6 +857,22 @@ export default function BuyerDetailPage({
                   <div className="mb-3.5 text-[length:var(--type-body)] font-bold">
                     {buyer.requirements.areaSqmMin} מ&quot;ר
                   </div>
+                </>
+              ) : null}
+              {/*
+                ‎**הקומה מוצגת כמשפט ולא כמספרים.** „קרקע, קומה 1” ו„קומה
+                3 ומעלה” הן שתי דרישות שונות בצורתן, וזוג מספרים לא היה
+                יכול לשאת את שתיהן.
+              */}
+              {floorNeed !== undefined ? (
+                <>
+                  <div
+                    className="mb-1.5 text-[length:var(--type-caption-lg)] font-semibold"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    קומה רצויה
+                  </div>
+                  <div className="mb-3.5 text-[length:var(--type-body)] font-bold">{floorNeed}</div>
                 </>
               ) : null}
               {/* "גמיש" ו"מיידי" הם אילוץ בדיוק כמו תאריך — ולכן מוצגים */}

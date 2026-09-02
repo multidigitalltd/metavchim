@@ -7,7 +7,7 @@ import { safeReturnPath, withQuery, type CustomFeature } from "@metavchim/shared
 import { Button } from "@metavchim/ui";
 import { FormSection } from "../../form-section";
 import { apiPost, ApiError } from "@/lib/api";
-import { shekelsToAgorot, PROPERTY_TYPE_LABELS } from "@/lib/format";
+import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../dictation-field";
 import { PriceField } from "../../price-field";
@@ -15,6 +15,7 @@ import { FeatureChips } from "../feature-chips";
 import { EntryTimingField } from "../entry-timing-field";
 import { LocationPicker, type LocationValue } from "../location-picker-lazy";
 import { Notice } from "../../notice";
+import { PropertyTypeOptions } from "../../property-type-options";
 
 const inputStyle = {
   borderColor: "var(--color-input-border)",
@@ -317,11 +318,7 @@ function NewPropertyForm() {
                 className="w-full rounded-lg border px-3 py-2.5"
                 style={inputStyle}
               >
-                {Object.entries(PROPERTY_TYPE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
+                <PropertyTypeOptions />
               </select>
             </div>
             <div>

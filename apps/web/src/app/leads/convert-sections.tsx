@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { MATURITY_LABELS as SHARED_MATURITY } from "@metavchim/shared";
 import { ApiError, apiPost } from "@/lib/api";
-import { PROPERTY_TYPE_LABELS, shekelsToAgorot } from "@/lib/format";
+import {  shekelsToAgorot } from "@/lib/format";
 import { IconHome, IconUser } from "../icons";
 import { Notice } from "../notice";
+import { PropertyTypeOptions } from "../property-type-options";
 
 /**
  * ‎**שתי הדרכים שבהן ליד הופך לכרטיס אצלנו — טופס אחד לכל אחת.**
@@ -318,11 +319,7 @@ export function ConvertToPropertySection({
               (דו-משפחתי, סטודיו, יחידת דיור, אחר), וכל סוג חדש היה
               נעדר ממנה בשקט. המקור הוא הטבלה המשותפת.
             */}
-            {Object.entries(PROPERTY_TYPE_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
+            <PropertyTypeOptions />
           </select>
         </div>
         <div>

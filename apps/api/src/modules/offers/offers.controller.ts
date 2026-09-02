@@ -14,6 +14,7 @@ import { IdSchema, OfferStatusSchema } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { OfferEmailService } from "./offer-email.service";
 import {
   OffersService,
   type OfferDto,
@@ -48,7 +49,10 @@ const ForMatchesQuerySchema = z
 
 @Controller()
 export class OffersController {
-  constructor(private readonly offers: OffersService) {}
+  constructor(
+    private readonly offers: OffersService,
+    private readonly offerEmail: OfferEmailService,
+  ) {}
 
   @Post("offers")
   @RequireCapability("offers.send")
@@ -105,6 +109,25 @@ export class OffersController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
   ): Promise<{ waUrl: string; message: string }> {
     return this.offers.prepareWhatsApp(id);
+  }
+
+  /**
+   * ‎**שליחת ההצעה במייל — הערוץ שבו „נשלח” באמת אומר נשלח.**
+   *
+   * ‎`POST /offers` יוצר קישור ותו לא. הערוץ היחיד שיצא ללקוח עד כה
+   * היה וואטסאפ; משרד שלקוחותיו עובדים במייל לא היה לו כפתור שליחה
+   * בכלל, והמסך בכל זאת אמר „ההצעה נשלחה”.
+   *
+   * אין `@RequireFeature`: המייל אינו תלוי בחיבור וואטסאפ, וזה הערוץ
+   * שנשאר למשרד שאין לו אחד.
+   */
+  @Post("offers/:id/email")
+  @RequireCapability("offers.send")
+  @HttpCode(200)
+  async sendEmail(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ sentTo: string }> {
+    return this.offerEmail.sendOne(id);
   }
 
   /** דף ההצעה ללקוח קצה — ציבורי, לפי טוקן בלבד, ללא Session. */

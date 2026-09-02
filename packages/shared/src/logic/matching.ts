@@ -1,7 +1,15 @@
 import type { PropertyFields } from "../schemas/property.js";
 import type { BuyerRequirements } from "../schemas/buyer.js";
 import type { MatchCriterion, ScoreComponent } from "../schemas/match.js";
+import { propertyTypeMatches } from "./commercial-types.js";
 import { scoreEntryFit } from "./entry-timing.js";
+import {
+  FLOOR_MAX,
+  FLOOR_MIN,
+  floorLabel,
+  floorMatches,
+  floorPreferenceText,
+} from "./floor-preference.js";
 import { bestLocationMatch } from "./location-text.js";
 import { bestAreaMatch, describeDistance } from "./proximity.js";
 import { CUSTOM_FEATURE_PREFIX, customFeatureMap, isCustomFeature } from "./custom-features.js";
@@ -190,6 +198,13 @@ export const DEFAULT_MATCH_WEIGHTS = {
   features_nice: 0.05,
   area: 0.05,
   entry_date: 0.05,
+  /*
+   * ‎**0.05, וזה מכוון.** קומה היא העדפה חזקה אצל מי שיש לו אותה
+   * ‎(„בלי מדרגות”, „לא קרקע”) ולא קיימת אצל השאר. משקל גבוה היה
+   * מזיז את הציון של כל המשרד בגלל שדה שרוב הכרטיסים אינם ממלאים,
+   * ומשרד שהקומה קריטית ללקוחותיו יכול להעלות אותו בהגדרות.
+   */
+  floor: 0.05,
 } as const;
 
 /*
@@ -265,6 +280,7 @@ export const MATCH_CRITERION_LABELS: Record<MatchCriterion, string> = {
   features_nice: "נחמד שיהיה",
   area: "שטח",
   entry_date: "מועד כניסה/מסירה",
+  floor: "קומה",
 };
 
 /**
@@ -459,7 +475,14 @@ export function scoreMatch(
    * זהה לזו של המיקום ושל החדרים שמעל.
    */
   if (property.propertyType !== undefined && buyer.propertyTypes.length > 0) {
-    const ok = buyer.propertyTypes.includes(property.propertyType);
+    /*
+     * ‎**לא `includes` ישיר.** „מסחרי” הוא „מסחרי שלא נאמר איזה”,
+     * ולכן הוא מתאים לכל ענף בשני הכיוונים — אחרת פיצול המסחרי
+     * לתשעה ענפים היה **פוסל** בשקט כל קונה קיים שסימן „מסחרי”,
+     * כי סוג שאינו ברשימה מוציא את ההתאמה לגמרי. ראו
+     * ‎`commercial-types.ts`.
+     */
+    const ok = propertyTypeMatches(buyer.propertyTypes, property.propertyType);
     parts.push({
       criterion: "property_type",
       weight: weights.property_type,
@@ -587,6 +610,34 @@ export function scoreMatch(
         shortfall <= 0
           ? undefined
           : `שטח קטן ב-${Math.round(shortfall * 100)}% מהמבוקש (${actual} מ"ר מול ${min})`,
+    });
+  }
+
+  /*
+   * --- קומה (0.05) ---
+   *
+   * ‎**נבדק רק כשהקונה אמר משהו והנכס יודע להשיב.** `floorMatches`
+   * מחזירה `null` בשני המקרים שאינם תשובה — אין העדפה, או שלנכס אין
+   * קומה רשומה — וחוסר מידע אינו אי-התאמה, בדיוק כמו בשאר
+   * הקריטריונים.
+   *
+   * ‎**ואינו פוסל.** קומה שאינה מה שביקש הקונה מורידה 0.05 מהציון
+   * ומסבירה למה; היא אינה מוציאה את ההתאמה מהרשימה. „קרקע או
+   * ראשונה” היא לרוב העדפה חזקה ולא תנאי, ומתווך שרואה קומה שנייה
+   * מצוינת בכל שאר הפרמטרים ירצה להתקשר — לא לגלות שהמערכת הסתירה
+   * אותה. מי שרוצה פסילה מוריד את הנכס דרך שאר הקריטריונים.
+   */
+  const floorFit = floorMatches(buyer.floorPreference, property.floor);
+  if (floorFit !== null) {
+    parts.push({
+      criterion: "floor",
+      weight: weights.floor,
+      score: floorFit ? 1 : 0,
+      ...(floorFit
+        ? {}
+        : {
+            note: `קומה ${floorLabel(property.floor!)} — הקונה ביקש ${floorPreferenceText(buyer.floorPreference)}`,
+          }),
     });
   }
 
@@ -757,6 +808,11 @@ const EVERY_REQUIREMENT_BUYER: BuyerRequirements = {
   features: { hasElevator: "must", hasParking: "nice" },
   entryType: "by_date",
   entryBy: PROBE_DEADLINE,
+  /*
+   * טווח פתוח משני הצדדים היה נקרא „לא נאמר” ולא היה נבחן כלל, ואז
+   * הבדיקה הזו לא הייתה שואלת דבר על הקומה. הטווח המלא שואל.
+   */
+  floorPreference: { mode: "range", min: FLOOR_MIN, max: FLOOR_MAX },
 };
 
 /**

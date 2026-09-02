@@ -235,7 +235,20 @@ export const PROPERTY_TYPE_MAP: Record<string, PropertyType> = {
   "דירה מתאימה לחלוקה": "divisible_apartment",
   "דירת נכה": "accessible_apartment",
   מגרש: "plot",
+  /*
+   * ‎**„מסחרי” נשאר ממופה לערך הכללי** — קובץ שיוצא לפני הפיצול
+   * חייב להיטען חזרה בלי לאבד את הסוג. הענפים נוספים לצידו.
+   */
   מסחרי: "commercial",
+  "חנות": "commercial_shop",
+  "משרד": "commercial_office",
+  "מחסן": "commercial_warehouse",
+  "תעשייה": "commercial_industrial",
+  "מרתף": "commercial_basement",
+  "בניין": "commercial_building",
+  "מרלוג": "commercial_logistics",
+  "חניה": "commercial_parking",
+  "תחנת דלק": "commercial_gas_station",
   אחר: "other",
 };
 
