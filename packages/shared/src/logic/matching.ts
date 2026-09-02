@@ -1,6 +1,7 @@
 import type { PropertyFields } from "../schemas/property.js";
 import type { BuyerRequirements } from "../schemas/buyer.js";
 import type { MatchCriterion, ScoreComponent } from "../schemas/match.js";
+import { propertyTypeMatches } from "./commercial-types.js";
 import { scoreEntryFit } from "./entry-timing.js";
 import {
   FLOOR_MAX,
@@ -474,7 +475,14 @@ export function scoreMatch(
    * זהה לזו של המיקום ושל החדרים שמעל.
    */
   if (property.propertyType !== undefined && buyer.propertyTypes.length > 0) {
-    const ok = buyer.propertyTypes.includes(property.propertyType);
+    /*
+     * ‎**לא `includes` ישיר.** „מסחרי” הוא „מסחרי שלא נאמר איזה”,
+     * ולכן הוא מתאים לכל ענף בשני הכיוונים — אחרת פיצול המסחרי
+     * לתשעה ענפים היה **פוסל** בשקט כל קונה קיים שסימן „מסחרי”,
+     * כי סוג שאינו ברשימה מוציא את ההתאמה לגמרי. ראו
+     * ‎`commercial-types.ts`.
+     */
+    const ok = propertyTypeMatches(buyer.propertyTypes, property.propertyType);
     parts.push({
       criterion: "property_type",
       weight: weights.property_type,

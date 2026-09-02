@@ -295,6 +295,20 @@ export function extractPropertyFromTranscript(
     [/בית פרטי|קוטג/u, "private_house"],
     [/יחידת דיור/u, "unit"],
     /*
+     * ‎**הענפים המסחריים לפני „מסחרי” הכללי**, מאותה סיבה ש„דירת
+     * נכה” יושבת לפני „דירה”: מי שאמר „חנות” אמר משהו מדויק יותר,
+     * ושמירת „מסחרי” במקומו מאבדת בדיוק את מה שנאמר.
+     */
+    [/תחנת דלק|תחנת תדלוק/u, "commercial_gas_station"],
+    [/מרלו״?ג|מרכז לוגיסטי/u, "commercial_logistics"],
+    [/חנות|חנויות/u, "commercial_shop"],
+    [/משרד(?:ים)?(?! ?תיווך)/u, "commercial_office"],
+    [/מחסן|מחסנים/u, "commercial_warehouse"],
+    [/מבנה תעשייה|תעשייה|תעשיה/u, "commercial_industrial"],
+    [/חני(?:ה|ות)/u, "commercial_parking"],
+    [/בניין שלם|בנין שלם/u, "commercial_building"],
+    [/מרתף/u, "commercial_basement"],
+    /*
      * לפני „דירה” הכללית, אחרת „דירת נכה” נבלעת בה: הביטוי מכיל
      * „דירת”, והדפוס הכללי היה תופס אותו ראשון ושומר `apartment`.
      */

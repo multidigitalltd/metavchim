@@ -13,6 +13,7 @@ export * from "./logic/matching.js";
 export * from "./logic/match-chips.js";
 export * from "./logic/quick-due.js";
 export * from "./logic/task-suggestions.js";
+export * from "./logic/commercial-types.js";
 export * from "./logic/entry-timing.js";
 export * from "./logic/floor-preference.js";
 export * from "./logic/credit-economy.js";

@@ -818,6 +818,34 @@ describe("שטח — רצועת סטייה חד-צדדית", () => {
  * הופיע על המסך כ„לא נבדק” (ביקורת Codex). הבדיקה מודדת מול
  * הסכמה עצמה, ולא מול חשבון תווים שכתבתי בהערה.
  */
+describe("מסחרי — המטרייה מגיעה עד המנוע", () => {
+  /*
+   * ‎**הבדיקות ב-`commercial-types.test.ts` הן על הפונקציה; זו על
+   * החיבור.** מנוע שממשיך לקרוא `includes` ישיר יעבור שם ויפיל
+   * כאן — וזה בדיוק הפער שהיה שובר קונים קיימים בשקט.
+   */
+  const shop = { ...baseProperty, propertyType: "commercial_shop" as const };
+
+  it("קונה שביקש „מסחרי” אינו מוחרג מול חנות", () => {
+    const buyer = { ...baseBuyer, propertyTypes: ["commercial"] };
+    const result = scoreMatch(shop, buyer);
+    expect(result.excluded).toBe(false);
+    expect(result.breakdown.find((p) => p.criterion === "property_type")?.score).toBe(1);
+  });
+
+  it("ונכס „מסחרי” אינו מוחרג מול קונה שמחפש משרד", () => {
+    const property = { ...baseProperty, propertyType: "commercial" as const };
+    const result = scoreMatch(property, { ...baseBuyer, propertyTypes: ["commercial_office"] });
+    expect(result.excluded).toBe(false);
+  });
+
+  /* ‎**וההפרדה עצמה עובדת**, אחרת הפיצול לא הוסיף דבר. */
+  it("אבל חנות מוחרגת מול מי שמחפש משרד", () => {
+    const result = scoreMatch(shop, { ...baseBuyer, propertyTypes: ["commercial_office"] });
+    expect(result.excluded).toBe(true);
+  });
+});
+
 describe("קומה — מוריד בציון, ואינו פוסל", () => {
   /* ‎`floor` מוסר ולא נדרס: ל-`baseProperty` יש קומה, וספרייד לא מוחק. */
   const part = (buyer: BuyerRequirements, floor?: number) => {
