@@ -1115,59 +1115,6 @@ export default function DashboardPage() {
       <SystemUpdate />
 
       {/*
-        הסוכן הקולי בראש המסך ולא בתחתיתו: הוא נקודת הכניסה לפעולה,
-        והמונים הם הרקע שמאחוריה. מאחורי אותו שער מסלול כמו הקידום
-        שהיה כאן — אין טעם להזמין לפיצ'ר שהשרת יחסום.
-      */}
-      {canVoice ? <VoiceConsole /> : null}
-
-      {statCards.length > 0 ? (
-      <section aria-labelledby="counts-heading" className="mb-7">
-        <h2 id="counts-heading" className="mv-visually-hidden">מונים</h2>
-        <dl className="grid grid-cols-2 items-stretch gap-4 lg:grid-cols-4">
-          {statCards.map((card) => (
-            /*
-              ‎**אפס עובר לניטרלי — מהנתון, לא מהמסך.**
-
-              „Any tile whose value is 0 switches to Neutral tokens
-              automatically — that is a data-driven rule, not
-              hard-coded”. הכלל הזה הוא מה שמונע מ„אין הצעות
-              פתוחות” להיראות כמו התרעה: אריח סגול עם 0 גדול קורא
-              כמו משהו שדורש טיפול, ובדיוק ההפך נכון.
-
-              ‎`undefined` (טרם נטען) אינו אפס ואינו עובר לניטרלי:
-              „עוד לא יודעים” ו„אין” הם שני מצבים שונים.
-            */
-            <Link
-              key={card.label}
-              href={card.href}
-              className={`mv-kpi no-underline ${
-                card.value === 0 ? "mv-domain-neutral" : `mv-domain-${card.domain}`
-              }`}
-            >
-              {/*
-                התווית בתחילת השורה והאריח בקצה — כמו במוקאפ: העין
-                הסורקת ימין-לשמאל פוגשת קודם את המילים, והאייקון
-                יושב בפינה כסימן זיהוי ולא כתחילת משפט.
-              */}
-              <dt className="mv-kpi__head">
-                <span className="mv-kpi__label">{card.label}</span>
-                <span className="mv-tile" aria-hidden="true">
-                  {card.icon}
-                </span>
-              </dt>
-              <dd className="mv-kpi__value mv-ltr m-0">{card.value ?? "…"}</dd>
-              <dd className="mv-kpi__note m-0" style={{ minHeight: "1.2em" }}>
-                {card.sub}
-              </dd>
-            </Link>
-          ))}
-        </dl>
-      </section>
-      ) : null}
-
-
-      {/*
         ‎`align-items: stretch` (ברירת המחדל) ולא `items-start`, ו-372
         ולא 340 — שניהם מ-§24. הכלל שם הוא „Both columns must end at
         the same height… No dead space at the bottom of either
@@ -1690,6 +1637,124 @@ export default function DashboardPage() {
           ) : null}
         </div>
       </div>
+
+      {/*
+        ‎**המונים והסוכן — בתחתית המסך, ובאותו סקשן** (בקשת בעל המוצר).
+
+        ‏§24 העמידה כאן בדיוק את ההפך: „voice-agent panel, full
+        width” ומיד אחריו „four KPI tiles, one row”, שניהם מעל
+        הרשת. ההערה שישבה על הסוכן אף נימקה זאת במפורש — „בראש
+        המסך ולא בתחתיתו”. בעל המוצר הפך את ההכרעה אחרי שראה את
+        המסך המלא: שני הבלוקים תופסים יחד את כל הקיפול הראשון,
+        וכשמתווך פותח דשבורד הוא בא לראות **מה לעשות עכשיו** ולא
+        ארבעה מספרים ושדה קלט ריק. „הכי חשוב שלא יהיה בראש
+        הדשבורד” — ולכן גם השער `verify:dashboard`, כי ההערה הישנה
+        מוכיחה שזה בדיוק סוג הסדר שמישהו יחזיר בתום לב.
+
+        ‎**ולמה יחד, ולא זה מתחת לזה.** שניהם „פחות חשוב” באותה
+        מידה, ושניהם צרים מכדי למלא שורה שלמה: אריח KPI ברוחב
+        רבע-מסך הוא בעיקר שטח לבן — התלונה השנייה של בעל המוצר,
+        „הקוביות מדי ריקות” — ופאנל הסוכן הוא שורת קלט אחת שנמתחה
+        על אלף פיקסלים. החלוקה כאן היא 1fr/372, **אותה חלוקה בדיוק
+        כמו הרשת שמעליה**, ולכן התפר האנכי נמשך עד תחתית העמוד:
+        הסוכן מתחת לטור הראשי, האריחים מתחת לטור הצדדי וברוחבו.
+
+        ‎`stretch` של הרשת מותח את פאנל הסוכן לגובה טור האריחים,
+        והפאנל ממרכז את תוכנו; שני הצדדים נגמרים באותו גובה —
+        אותו כלל של §24 שחל על הטורים שמעליהם.
+
+        וכשאחד מהשניים נעדר (אין הרשאת סוכן קולי, או שאין ולו
+        מונה אחד שמותר להציג) הנותר פורש על כל הרוחב: טור 372
+        בודד בקצה המסך היה נראה כמו שריד של משהו שלא נטען.
+      */}
+      {canVoice || statCards.length > 0 ? (
+        <div
+          className={`mt-4 grid gap-4 ${
+            canVoice && statCards.length > 0
+              ? "lg:[grid-template-columns:1fr_372px]"
+              : ""
+          }`}
+        >
+          {canVoice ? <VoiceConsole /> : null}
+          {statCards.length > 0 ? (
+            <section
+              aria-labelledby="counts-heading"
+              /*
+                ‎**האריחים בגובהם הטבעי — הפאנל הוא זה שנמתח.**
+
+                בארבעה אריחים שני הצדדים יוצאים באותו גובה מעצמם
+                (‏104+12+98 מול 174 שנמתחים ל-214), אבל זה מקרי:
+                לסוכן שאינו רואה הצעות או נכסים יש שני אריחים
+                בלבד, והרשת נמוכה מהפאנל. ‎`flex-1` היה מותח אותה
+                לגובהו, `margin-top: auto` היה דוחף את המספר
+                לתחתית האריח המנופח, ובין התווית למספר היה נפער
+                בדיוק החלל שבגללו נאמר „הקוביות מדי ריקות” — גובה
+                שנכפה מבחוץ אינו תוכן.
+
+                ‎`justify-center` נותן את שניהם: האריחים נשארים
+                בגודל תוכנם, והקבוצה ממורכזת מול הפאנל במקום
+                להיצמד לראש הטור.
+              */
+              className="flex flex-col justify-center"
+            >
+              <h2 id="counts-heading" className="mv-visually-hidden">מונים</h2>
+              <dl
+                className={`m-0 grid grid-cols-2 items-stretch gap-3 ${
+                  canVoice ? "" : "lg:grid-cols-4"
+                }`}
+              >
+                {statCards.map((card) => (
+                  /*
+                    ‎**אפס עובר לניטרלי — מהנתון, לא מהמסך.**
+
+                    „Any tile whose value is 0 switches to Neutral tokens
+                    automatically — that is a data-driven rule, not
+                    hard-coded”. הכלל הזה הוא מה שמונע מ„אין הצעות
+                    פתוחות” להיראות כמו התרעה: אריח סגול עם 0 גדול קורא
+                    כמו משהו שדורש טיפול, ובדיוק ההפך נכון.
+
+                    ‎`undefined` (טרם נטען) אינו אפס ואינו עובר לניטרלי:
+                    „עוד לא יודעים” ו„אין” הם שני מצבים שונים.
+                  */
+                  <Link
+                    key={card.label}
+                    href={card.href}
+                    className={`mv-kpi mv-kpi--sm no-underline ${
+                      card.value === 0 ? "mv-domain-neutral" : `mv-domain-${card.domain}`
+                    }`}
+                  >
+                    {/*
+                      התווית בתחילת השורה והאריח בקצה — כמו במוקאפ: העין
+                      הסורקת ימין-לשמאל פוגשת קודם את המילים, והאייקון
+                      יושב בפינה כסימן זיהוי ולא כתחילת משפט.
+                    */}
+                    <dt className="mv-kpi__head">
+                      <span className="mv-kpi__label">{card.label}</span>
+                      <span className="mv-tile" aria-hidden="true">
+                        {card.icon}
+                      </span>
+                    </dt>
+                    {/*
+                      ‎**המספר וההערה על קו בסיס אחד, ולא זה מתחת לזה.**
+
+                      בצורה המלאה הם שתי שורות, ולאריח בלי הערה נשמרה
+                      שורה ריקה בגובה `1.2em` רק כדי לשמור על יישור —
+                      כלומר חלל שנוסף בכוונה. באריח המצומצם ההערה יושבת
+                      לצד המספר וממלאת את הרוחב שהוא הותיר, וזה בדיוק
+                      החלל שנקרא „ריק”. היישור בין האריחים מגיע עכשיו
+                      מ-`margin-top: auto` על השורה הזו, ולא מגובה קבוע.
+                    */}
+                    <dd className="mv-kpi__foot m-0">
+                      <span className="mv-kpi__value mv-ltr">{card.value ?? "…"}</span>
+                      <span className="mv-kpi__note">{card.sub}</span>
+                    </dd>
+                  </Link>
+                ))}
+              </dl>
+            </section>
+          ) : null}
+        </div>
+      ) : null}
     </>
   );
 }

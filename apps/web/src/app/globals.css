@@ -5336,6 +5336,15 @@ a.mv-bar-row:focus-visible {
  */
 .mv-agent {
   position: relative;
+  /*
+   * ‎**עמודה שמרכזת את תוכנה.** הפאנל ירד לתחתית העמוד לצד רשת
+   * האריחים, והרשת גבוהה ממנו במעט. `stretch` מותח אותו לגובהה,
+   * ובלי המרכוז הכותרת והשדה נצמדים לקצה העליון ומשאירים רצועה
+   * ריקה מתחתם — בדיוק אותו „ריק” שהאריח המצומצם בא להסיר.
+   */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   border: 1px solid var(--domain-green-line);
   border-radius: 24px;
   padding: 26px 28px;
@@ -6076,6 +6085,71 @@ a.mv-bar-row:focus-visible {
   margin-top: 8px;
   font-size: var(--type-caption);
   color: var(--color-text-muted);
+}
+
+/*
+ * ‎**האריח המצומצם — כשהמונים אינם ראש המסך.**
+ *
+ * ‏§24 העמידה ארבעה אריחים בשורה מלאה, מיד מתחת לפאנל הסוכן ומעל
+ * הרשת. בעל המוצר הוריד את שניהם לתחתית העמוד („זה פחות חשוב”),
+ * ובאותה נשימה אמר גם „הקוביות מדי ריקות”. שתי הבקשות מתלכדות
+ * לאותו תיקון: אריח בגובה 150 שכל תוכנו תווית, מספר ושורת משנה
+ * קצרה הוא ריק **בגלל** גודלו, ואריח שיורד לטור ברוחב 372 חייב
+ * להצטמצם ממילא.
+ *
+ * שני שינויי מבנה, ולא רק מספרים קטנים יותר:
+ *
+ * ‎**1. המספר וההערה על קו בסיס אחד.** בצורה המלאה הם שתי שורות,
+ * ולאריח שאין לו הערה נשמרה שורה ריקה בגובה `1.2em` רק כדי לשמור
+ * על יישור — כלומר חלל שנוסף בכוונה. כאן ההערה יושבת לצד המספר
+ * וממלאת את הרוחב שהוא הותיר.
+ *
+ * ‎**2. ‎`min-height` יורד ל-0.** ‎`margin: auto 0 0` על השורה
+ * התחתונה ממשיך להצמיד אותה לתחתית, ולכן „ALL TILES IN A ROW SHARE
+ * ONE HEIGHT” נשמר — הפעם מה-`stretch` של הרשת ולא מגובה קשיח.
+ * הרשת עצמה נמתחת לגובה פאנל הסוכן שלצדה, וכך אין חלל מת באף אחד
+ * מן השניים.
+ *
+ * הרקע, המסגרת והמעבר לניטרלי באפס נשארים מ-`mv-kpi`: זו אותה
+ * צורה בקנה מידה אחר, ולא רכיב שני.
+ */
+.mv-kpi--sm {
+  min-height: 0;
+  padding: 13px 15px;
+}
+.mv-kpi--sm .mv-kpi__head {
+  gap: 9px;
+}
+.mv-kpi--sm .mv-tile {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+}
+.mv-kpi--sm .mv-tile svg {
+  width: 16px;
+  height: 16px;
+}
+.mv-kpi--sm .mv-kpi__label {
+  font-size: var(--type-caption-lg);
+  line-height: 1.25;
+}
+.mv-kpi__foot {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  /* ‎`auto` למעלה — זה מה שמיישר את השורה התחתונה בין האריחים */
+  margin: auto 0 0;
+  padding-top: 10px;
+}
+.mv-kpi--sm .mv-kpi__value {
+  margin-top: 0;
+  /* דרגת „מונה” (30) ולא דרגת KPI (46): אותו תפקיד, רבע מהשטח */
+  font-size: var(--type-counter);
+}
+.mv-kpi--sm .mv-kpi__note {
+  min-width: 0;
+  margin-top: 0;
+  line-height: 1.25;
 }
 
 /*

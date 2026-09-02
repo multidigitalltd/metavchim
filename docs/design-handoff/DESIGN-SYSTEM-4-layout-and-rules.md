@@ -23,15 +23,27 @@ multi-month trend.
 DASHBOARD-CLASS PAGE - any page whose job is answering "what should I do now":
 
     greeting row: h1 plus date line, then margin-inline-start auto, then the counter card
-    voice-agent panel, full width
-    four KPI tiles, one row, 1fr each
     grid 1fr / 372px, align-items stretch
         main column: the ranked action list card,
                      then a 1fr/1fr sub-grid of two analysis cards, stretched
         side column: calendar, tasks, network, dark mentor card with flex 1 on the last
+    summary strip, same 1fr / 372px split, at the very bottom
+        1fr: the voice-agent panel
+        372px: the KPI tiles, two by two, in their compact form
 
 Both columns must end at the same height: put flex 1 on the last card of the side column and on the
 main column sub-grid. No dead space at the bottom of either column.
+
+REVISED AFTER THE FIRST LIVE SCREEN. This section used to open the page with the voice-agent panel
+at full width and the four KPI tiles in one full-width row, both above the grid. Together they took
+the whole first fold, and the ranked action list - the one thing the page exists to answer - started
+below it. The product owner asked for the reverse and was explicit about it: both blocks move to the
+bottom, "the most important thing is that it is not at the top of the dashboard". He also called the
+tiles too empty, which is what the compact form answers: a 150-tall tile holding a label, a number
+and a short note is empty BECAUSE of its size. The compact tile drops the fixed height, puts the
+number and the note on one baseline row, and takes the 372 column so the vertical seam of the grid
+above runs to the bottom of the page. Enforced by apps/web/scripts/verify-dashboard-summary.mjs -
+order is not a type error and no other gate can see it.
 
 COUNTER CARD, top right: white, border 1px solid #DEE3D9, radius 16, padding 12px 18px, flex, gap 13.
 A big number at 30px/900 in brand-ink, then two lines at 15.5/800 and 13.5 ink-2. It is a CARD, not a
