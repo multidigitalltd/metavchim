@@ -423,3 +423,91 @@ describe("היסטוריה ואנשי קשר", () => {
     expect(fn.slice(0, 900)).toContain("disconnectedAt: null");
   });
 });
+
+/**
+ * ‎**הבוט שעונה ללקוחות** (docs/12 §6).
+ *
+ * הכללים הטהורים נבדקים ב-`bot-policy.test.ts` על קלט אמיתי. מה
+ * שנשאר כאן הוא **הסדר והחיווט** — שער שהוזז, קו שגוי לשליחה,
+ * ‏`await` שנשכח. כל אחד מהם משאיר בוט שנראה עובד.
+ */
+describe("הבוט על הקו של הסוכן", () => {
+  const BOT = read("./whatsapp-bot.service.ts");
+
+  /*
+   * לקוח שביקש „הסר” וקיבל במקום זה שאלת אפיון הוא בדיוק התלונה
+   * שמורידה דירוג איכות — ולכן השער הזה ראשון, גם לפני בדיקת מסלול.
+   */
+  it("„הסר” נבדק לפני כל שער אחר", () => {
+    const optOut = BOT.indexOf("isOptOut(input.text)");
+    const paused = BOT.indexOf("conversation.botPausedUntil");
+    const plan = BOT.indexOf("botAllowed(input.tenantId)");
+    const enabled = BOT.indexOf("settings.enabled");
+    expect(optOut).toBeGreaterThan(0);
+    expect(optOut).toBeLessThan(paused);
+    expect(optOut).toBeLessThan(plan);
+    expect(optOut).toBeLessThan(enabled);
+  });
+
+  it("השתקה אחרי מענה ידני גוברת על הגדרות הבוט", () => {
+    expect(BOT.indexOf("conversation.botPausedUntil")).toBeLessThan(
+      BOT.indexOf("settings.enabled"),
+    );
+  });
+
+  /*
+   * הלקוח כתב למספר של המתווך. תשובה שתצא מקו הפלטפורמה נראית לו
+   * כהודעה ממספר זר — ובמקרה הטוב מתעלמים ממנה.
+   */
+  it("התשובה יוצאת מקו הסוכן ולא מקו הפלטפורמה", () => {
+    expect(BOT).toContain("credentialsFor(input.connectionId)");
+    expect(BOT).toContain("sendTextAs(");
+    expect(BOT).not.toContain("this.sender.sendText(");
+  });
+
+  it("הבוט חסום כשהתוסף אינו במסלול", () => {
+    expect(BOT).toContain("botAllowed(input.tenantId)");
+    expect(BOT).toContain('return "not_in_plan"');
+  });
+
+  /*
+   * בלי ההשתקה הבוט היה ממשיך לענות בהודעה הבאה — בדיוק כשהלקוח
+   * כבר ביקש אדם.
+   */
+  it("אסקלציה משתיקה את הבוט ומתריעה לסוכן", () => {
+    const fn = BOT.slice(BOT.indexOf("private async escalate"));
+    const body = fn.slice(0, 1800);
+    expect(body).toContain("botPausedUntil");
+    expect(body).toContain("tx.notification.create");
+    expect(body).toContain("input.ownerUserId");
+  });
+
+  it("תשובת הבוט נרשמת בציר הזמן, כדי שהמתווך יראה מה נאמר בשמו", () => {
+    expect(BOT).toContain('provider: "coexistence_bot"');
+    expect(BOT).toContain("tx.interaction.create");
+  });
+
+  /* בלי המדידה אין דרך לתמחר תוסף שכל תשובה בו היא קריאת LLM */
+  it("כל תשובה נרשמת לצריכה", () => {
+    expect(BOT).toContain("tx.agentEvent.create");
+    expect(BOT).toContain('actionId: "bot.reply"');
+  });
+
+  /* הוובהוק חייב 200 מהר; תשובה שלמה היא שניות */
+  it("הבוט נקרא בלי await מנתיב הוובהוק", () => {
+    expect(INBOUND).toMatch(/void this\.bot\.maybeReply\(/u);
+  });
+
+  /*
+   * במסלול הישן (מספר שהוקלד ידנית) אין חיבור ולכן אין קו לענות
+   * ממנו. הקליטה חייבת להמשיך לעבוד — הבוט פשוט לא רץ.
+   */
+  it("בלי חיבור הבוט אינו רץ והקליטה ממשיכה", () => {
+    expect(INBOUND).toMatch(/if \(ingested && connection\)/u);
+  });
+
+  it("כישלון של הבוט אינו מפיל את הוובהוק", () => {
+    const fn = BOT.slice(BOT.indexOf("async maybeReply"));
+    expect(fn.slice(0, 800)).toContain("catch");
+  });
+});

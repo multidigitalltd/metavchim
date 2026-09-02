@@ -171,6 +171,37 @@ export class WhatsAppSendService {
   }
 
   /**
+   * שליחה **על קו של סוכן** ולא על קו הפלטפורמה.
+   *
+   * ‎`sendText` שולף את אישורי הפלטפורמה, וזה נכון לסוכן האישי אבל
+   * הפוך לבוט: הלקוח כתב למספר של המתווך, ותשובה שתצא ממספר אחר
+   * נראית לו כמו הודעה מזרה — ובמקרה הטוב מתעלמים ממנה. האישורים
+   * מגיעים מכאן מהחיבור עצמו (`credentialsFor`).
+   */
+  async sendTextAs(
+    creds: WhatsAppCredentials,
+    to: string,
+    body: string,
+    options: SendTextOptions = {},
+  ): Promise<boolean> {
+    const chunks = splitForWhatsApp(body);
+    if (chunks.length === 0) return true;
+    for (const [index, chunk] of chunks.entries()) {
+      const sent = await this.post(creds, {
+        messaging_product: "whatsapp",
+        to,
+        type: "text",
+        text: { body: chunk, preview_url: false },
+        ...(index === 0 && options.replyTo !== undefined
+          ? { context: { message_id: options.replyTo } }
+          : {}),
+      });
+      if (!sent) return false;
+    }
+    return true;
+  }
+
+  /**
    * הודעת **תבנית מאושרת** — הדרך היחידה לפנות למי שלא כתב לנו.
    *
    * ## למה זה קיים

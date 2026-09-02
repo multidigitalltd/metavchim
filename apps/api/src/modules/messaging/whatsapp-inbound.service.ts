@@ -6,6 +6,7 @@ import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
 import { ViewingReplyService } from "../calendar/viewing-reply.service";
 import { WhatsAppAssistantService } from "./whatsapp-assistant.service";
+import { WhatsAppBotService } from "./whatsapp-bot.service";
 import { WhatsAppConnectionService } from "./whatsapp-connection.service";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 
@@ -201,6 +202,7 @@ export class WhatsAppInboundService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly assistant: WhatsAppAssistantService,
+    private readonly bot: WhatsAppBotService,
     private readonly sender: WhatsAppSendService,
     private readonly viewingReplies: ViewingReplyService,
     private readonly connections: WhatsAppConnectionService,
@@ -379,13 +381,36 @@ export class WhatsAppInboundService {
           if (message.type !== "text" || !message.text) continue;
           const senderName =
             value.contacts?.find((c) => c.wa_id === message.from)?.profile?.name ?? "לקוח וואטסאפ";
-          await this.ingestMessage(tenantId, {
+          const ingested = await this.ingestMessage(tenantId, {
             externalId: message.id,
             fromPhone: normalizeWaPhone(message.from),
             senderName,
             text: message.text.body,
             ...(connection ? { connectionId: connection.id, ownerUserId: connection.userId } : {}),
           });
+
+          /*
+           * ‎**הבוט — בלי await, ורק על קו מחובר.**
+           *
+           * תשובה שלמה היא קריאת LLM של שניות; Meta שאינה מקבלת
+           * 200 בזמן שולחת את ההודעה שוב, כלומר תשובה כפולה ללקוח.
+           * במסלול הישן (מספר שהוקלד ידנית) אין `connection` ולכן
+           * גם אין קו לענות ממנו — הקליטה עובדת, הבוט פשוט לא רץ.
+           */
+          if (ingested && connection) {
+            const line = connection;
+            void this.bot.maybeReply({
+              connectionId: line.id,
+              tenantId,
+              ownerUserId: line.userId,
+              contactId: ingested.contactId,
+              leadId: ingested.leadId,
+              customerPhone: normalizeWaPhone(message.from),
+              customerName: senderName,
+              text: message.text.body,
+              messageId: message.id,
+            });
+          }
         }
       }
     }
@@ -772,8 +797,13 @@ export class WhatsAppInboundService {
        */
       ownerUserId?: string;
     },
-  ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    /**
+     * מה שהבוט צריך כדי לענות — או `null` כשההודעה כפולה ודולגה.
+     * מוחזר ולא נשלף שוב: הליד נוצר *בתוך* הטרנזקציה, ושליפה חוזרת
+     * אחריה הייתה מרוץ מול קליטה מקבילה.
+     */
+  ): Promise<{ contactId: string; leadId: string } | null> {
+    return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
 
       // Idempotency — הודעה שכבר נקלטה (Meta שולח כפולים) מדולגת.
@@ -781,7 +811,7 @@ export class WhatsAppInboundService {
         where: { tenantId, kind: "whatsapp", content: { startsWith: `[${msg.externalId}]` } },
         select: { id: true },
       });
-      if (dupe) return;
+      if (dupe) return null;
 
       // איש קשר: קיים לפי phone_hash או חדש
       const phoneHash = this.crypto.phoneHash(msg.fromPhone);
@@ -906,6 +936,7 @@ export class WhatsAppInboundService {
           content: `[${msg.externalId}] ${msg.text}`.slice(0, 4000),
         },
       });
+      return { contactId: contact.id, leadId: lead.id };
     });
   }
 }
