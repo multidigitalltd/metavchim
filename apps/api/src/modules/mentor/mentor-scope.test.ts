@@ -30,6 +30,11 @@ const CONTROLLER = readFileSync(
   join(import.meta.dirname, "mentor.controller.ts"),
   "utf8",
 );
+/** המקור השני לערכי הכיוון — מה שנכתב למסד בפועל. */
+const CALLS_SERVICE = readFileSync(
+  join(import.meta.dirname, "../calls/calls.service.ts"),
+  "utf8",
+);
 
 /**
  * ‎**כל קריאת `tx.<model>.<op>` בשירות, עם גוף ה-`where` שלה.**
@@ -90,22 +95,41 @@ describe("המנטור — היקף אישי", () => {
 
   it("ספירת המדדים משויכת לאדם בכל אחת מארבע הטבלאות", () => {
     const byCall = new Map(tenantQueries().map((q) => [q.call, q.body]));
-    expect(byCall.get("call.count")).toContain("createdBy: userId");
     expect(byCall.get("appointment.count")).toContain("ownerUserId: userId");
     expect(byCall.get("property.count")).toContain("agentUserId: userId");
-    // להצעה אין בעלים — היא מגיעה דרך הקונה, ולכן נבדקת בנפרד
+    /*
+     * ‏לשיחה ולהצעה אין בעלים ישיר: השיחה מגיעה דרך הליד שהיא נוגעת
+     * בו, וההצעה דרך ההתאמה והקונה. שתיהן נבדקות בשאילתת ההצלבה.
+     */
+    expect(byCall.get("lead.findMany")).toContain("assignedToUserId: scope.userId");
     expect(byCall.get("buyer.findMany")).toContain("ownerUserId: scope.userId");
   });
 });
 
 describe("המנטור — מה נחשב פעולה", () => {
-  it("רק שיחות יוצאות נספרות", () => {
+  it("רק שיחות יוצאות נספרות, בערך שהמערכת באמת שומרת", () => {
     /*
-     * ‏שיחה נכנסת היא תוצאה של השיווק, לא פעולה שנבחרה. בלי התנאי
-     * הזה מי שענה לעשרים שיחות מקבל ציון של מי שיזם עשרים.
+     * ‎**הבדיקה הזו נכשלה בתפקידה פעם אחת, ולכן היא נכתבה מחדש.**
+     *
+     * ‏הניסוח הראשון היה `toContain('direction: "out"')` — כלומר הוא
+     * אישר את המחרוזת שאני עצמי כתבתי, ולא בדק דבר. המערכת שומרת
+     * ‎`"outbound"`, ולכן הסינון התאים לאפס שורות תמיד: המדד המרכזי
+     * של המנטור החזיר 0 לכל סוכן, והשער היה ירוק (ביקורת Codex, P1).
+     *
+     * ‏עכשיו הערך **נגזר מהמקור השני** — הטיפוס ב-`CallsService`,
+     * שהוא מה שנכתב למסד — ולכן שני הצדדים חייבים להסכים. שער
+     * שמצטט את עצמו אינו שער.
      */
-    const calls = tenantQueries().find((q) => q.call === "call.count");
-    expect(calls?.body).toContain('direction: "out"');
+    const declared = [
+      ...CALLS_SERVICE.matchAll(/direction:\s*"(inbound)"\s*\|\s*"(outbound)"/gu),
+    ];
+    expect(declared.length).toBeGreaterThan(0);
+    const outbound = declared[0]![2]!;
+
+    const calls = tenantQueries().find((q) => q.call === "call.findMany");
+    expect(calls?.body).toContain(`direction: "${outbound}"`);
+    // ומה שאסור: הערך המקוצר שלא קיים בשום מקום במסד
+    expect(calls?.body).not.toContain('direction: "out"');
   });
 
   it("פגישה שבוטלה אינה נספרת", () => {
@@ -133,6 +157,33 @@ describe("המנטור — מה נחשב פעולה", () => {
     const buyersAt = SERVICE.indexOf("tx.buyer.findMany");
     expect(offersAt).toBeGreaterThan(-1);
     expect(buyersAt).toBeGreaterThan(offersAt);
+  });
+});
+
+describe("המנטור — מה שנספר כבר קרה", () => {
+  it("הטווח של התקופה הנוכחית נגמר עכשיו, ולא בסוף השבוע", () => {
+    /*
+     * ‎**„מה עשיתי” אינו „מה מתוכנן”** (ביקורת Codex, P2). ‏הגבול
+     * העליון היה יום ראשון הבא, ולכן פגישה שנקבעה ליום חמישי נספרה
+     * כבר ביום ראשון — והציון היה יכול להגיע ל-100% לפני שהתקיימה
+     * ולו פגישה אחת.
+     */
+    expect(SERVICE).toContain("countMeasures(tx, scope, thisWeek, now)");
+    expect(SERVICE).not.toMatch(/countMeasures\([^)]*jerusalemDayStart\(thisWeek, 7\)/u);
+  });
+
+  it("הציון השבועי נכתב, ולא רק נקרא", () => {
+    /*
+     * ‏הטבלה נקראה ולא נכתבה מעולם, ולכן ההיסטוריה לא נצברה
+     * ו„פעמיים ברצף” לא יכול היה לפעול לעולם (ביקורת Codex, P2).
+     * שער שבודק רק קריאות אינו רואה טבלה שאיש אינו ממלא.
+     */
+    const writes = tenantQueries().filter(
+      (q) => q.call === "mentorWeeklyScore.upsert" || q.call === "mentorWeeklyScore.create",
+    );
+    expect(writes.length).toBeGreaterThan(0);
+    const reads = tenantQueries().filter((q) => q.call.startsWith("mentorWeeklyScore."));
+    expect(reads.length).toBeGreaterThan(writes.length - 1);
   });
 });
 

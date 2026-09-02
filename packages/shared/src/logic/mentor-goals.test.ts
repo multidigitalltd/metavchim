@@ -490,3 +490,67 @@ describe("mentorLine — מה המנטור אומר", () => {
     }
   });
 });
+
+/* ==========================================================================
+ * ‏שתי רגרסיות מביקורת Codex
+ * ========================================================================== */
+
+describe("backwardPlan — „בלעדיות” אינן עסקאות", () => {
+  it("יעד בלעדיות אינו מייצר תוכנית משפך", () => {
+    /*
+     * ‏המשפך מתאר קונים: שיחה ⇐ פגישה ⇐ הצעה ⇐ עסקה. בלעדיות
+     * מגיעות מהצד השני — פנייה לבעל נכס, הערכת שווי, חתימה — ואין
+     * ביניהן ובין `offerToDeal` שום יחס. 20 בלעדיות שהוצגו כ„20
+     * עסקאות ו-3,472 שיחות” הן תוכנית שנבנתה על יחס שאינו קיים.
+     */
+    const plan = backwardPlan({ target: 20, unit: "exclusives", ratios: DEFAULT_RATIOS });
+    expect(plan.incomplete).toBe(true);
+    expect(plan.callsPerYear).toBe(0);
+    expect(plan.dealsPerYear).toBe(0);
+  });
+
+  it("„עסקאות” כן עוברות במשפך — היחסים כן מתארים אותן", () => {
+    const plan = backwardPlan({ target: 20, unit: "deals", ratios: DEFAULT_RATIOS });
+    expect(plan.incomplete).toBe(false);
+    expect(plan.dealsPerYear).toBe(20);
+    expect(plan.callsPerYear).toBeGreaterThan(0);
+  });
+});
+
+describe("goalPeriod — מעבר שעון הקיץ", () => {
+  it("היום הראשון של מחזור אינו נספר לקודם אחרי מעבר השעון", () => {
+    /*
+     * ‏שעון הקיץ בישראל מתחיל בסוף מרץ, ולכן הרבעון הראשון של 2026
+     * מכיל יממה בת 23 שעות. חלוקת מילישניות ב-24 שעות ספרה 90 ימים
+     * במקום 91, וה-2 באפריל — היום הראשון של המחזור השני — נשאר
+     * משויך לראשון. יעד שנקבע בו נשמר לתקופה שנגמרה ונעלם למחרת.
+     */
+    const q1 = goalPeriod("cycle", new Date("2026-04-01T09:00:00Z"));
+    const q2 = goalPeriod("cycle", new Date("2026-04-02T09:00:00Z"));
+    expect(q1.start).toBe("2026-01-01");
+    expect(q1.end).toBe("2026-04-01");
+    expect(q2.start).toBe("2026-04-02");
+    expect(q2.start).not.toBe(q1.start);
+  });
+
+  it("כל יום בשנה נופל בדיוק בתקופה אחת, בכל אחד מהאופקים", () => {
+    /*
+     * ‏הסריקה המלאה היא מה שתופס טעות של יום בודד: היא עוברת על כל
+     * ימי 2026 ודורשת שכל יום ייפול בין ה-`start` ל-`end` של התקופה
+     * שהפונקציה מחזירה עבורו. יום שנופל מחוץ לתקופה שלו הוא יום שבו
+     * המנטור אינו יודע לאיזו תקופה הוא שייך.
+     */
+    for (const horizon of ["cycle", "half", "year"] as const) {
+      let days = 0;
+      for (let i = 0; i < 365; i += 1) {
+        const at = new Date(Date.UTC(2026, 0, 1 + i, 9));
+        const label = at.toISOString().slice(0, 10);
+        const period = goalPeriod(horizon, at);
+        expect(period.start <= label).toBe(true);
+        expect(label <= period.end).toBe(true);
+        days += 1;
+      }
+      expect(days).toBe(365);
+    }
+  });
+});

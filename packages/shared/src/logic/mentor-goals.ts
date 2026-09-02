@@ -182,12 +182,28 @@ export function backwardPlan(input: BackwardPlanInput): BackwardPlan {
   if (!Number.isFinite(input.target) || input.target <= 0) return empty;
 
   /*
-   * ‎**„עסקאות” ו„בלעדיות” הן כבר ספירה** — אין להן עמלה ממוצעת
-   * לחלק בה. רק יעד בעמלות עובר המרה לכסף, ובלי עמלה ממוצעת אין
-   * חישוב כלל: להניח אותה פירושו להמציא את כל התוכנית.
+   * ‎**„בלעדיות” אינן עסקאות, ואין להן משפך** (ביקורת Codex, P2).
+   *
+   * ‏המשפך כאן הוא שיחה ⇐ פגישה ⇐ הצעה ⇐ **עסקה**, ויחסי ההמרה
+   * מתארים קונים. בלעדיות מגיעות מהצד השני לגמרי — פנייה לבעל
+   * נכס, הערכת שווי, חתימה — ואין ביניהן ובין `offerToDeal` שום
+   * יחס. עד כה 20 בלעדיות הוצגו כ„20 עסקאות, 167 הצעות ו-3,472
+   * שיחות”, כלומר תוכנית שלמה שנבנתה על יחס שאינו קיים.
+   *
+   * ‎`incomplete` ולא ניחוש: המסך אינו מציג את כרטיס „מה זה אומר
+   * על מחר בבוקר” על יעד בלעדיות, ומספר שהומצא גרוע ממספר חסר.
+   * (משפך בלעדיות משלו — פניות לבעלי נכסים, הערכות שווי — הוא
+   * מדידה שהמערכת עדיין אינה עושה.)
+   */
+  if (input.unit === "exclusives") return empty;
+
+  /*
+   * ‎**„עסקאות” היא כבר ספירה** — אין לה עמלה ממוצעת לחלק בה. רק
+   * יעד בעמלות עובר המרה לכסף, ובלי עמלה ממוצעת אין חישוב כלל:
+   * להניח אותה פירושו להמציא את כל התוכנית.
    */
   const dealsPerYear =
-    input.unit !== "commission"
+    input.unit === "deals"
       ? Math.ceil(input.target)
       : input.averageCommissionAgorot !== undefined &&
           input.averageCommissionAgorot > 0
@@ -463,6 +479,17 @@ export interface GoalPeriod {
   end: string;
 }
 
+/**
+ * ‎`YYYY-MM-DD` ⇒ חותמת UTC של אותו תאריך — חשבון לוח בלי שעון קיץ.
+ *
+ * ‏התווית כבר בשעון ישראל; מה שנדרש כאן הוא רק המרחק **בימי לוח**
+ * בינה לבין אחרת, ו-`Date.UTC` נותן בדיוק את זה.
+ */
+function dayNumber(label: string): number {
+  const [y, m, d] = label.split("-").map(Number) as [number, number, number];
+  return Date.UTC(y, m - 1, d);
+}
+
 /** מספר הימים באותה שנה — 365, או 366 בשנה מעוברת. */
 function daysInYear(year: number): number {
   return (Date.UTC(year + 1, 0, 1) - Date.UTC(year, 0, 1)) / 86_400_000;
@@ -507,8 +534,21 @@ export function goalPeriod(horizon: GoalHorizon, now: Date): GoalPeriod {
 
   const span = HORIZON_WEEKS[horizon] * 7;
   const blocks = Math.round(HORIZON_WEEKS.year / HORIZON_WEEKS[horizon]);
-  const elapsed = Math.floor(
-    (jerusalemDayStart(now).getTime() - yearStart.getTime()) / 86_400_000,
+  /*
+   * ‎**הימים נספרים בלוח, לא בחלוקת מילישניות** (ביקורת Codex, P2).
+   *
+   * ‏חיסור שתי חצות ישראליות וחלוקה ב-24 שעות טועה ביום שלם אחרי
+   * מעבר השעון באביב: הטווח מכיל יממה בת 23 שעות, ולכן ה-2 באפריל
+   * 2026 יצא 90 ימים במקום 91. התוצאה אינה קוסמטית — היום הראשון
+   * של מחזור חדש עדיין נספר לקודם, ויעד שנקבע בו נשמר לתקופה
+   * שנגמרה ונעלם למחרת.
+   *
+   * ‏התוויות הן `YYYY-MM-DD` בשעון ישראל, ולכן `Date.UTC` עליהן הוא
+   * חשבון לוח טהור שאין בו שעון קיץ כלל.
+   */
+  const elapsed = Math.round(
+    (dayNumber(jerusalemDayLabel(now)) - dayNumber(jerusalemDayLabel(yearStart))) /
+      86_400_000,
   );
   /* ‏הימים שמעבר לריצוף שייכים לבלוק האחרון, ולא לבלוק חמישי */
   const index = Math.min(blocks - 1, Math.floor(elapsed / span));

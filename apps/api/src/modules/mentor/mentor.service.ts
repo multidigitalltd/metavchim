@@ -6,7 +6,6 @@ import {
   DEFAULT_RATIOS,
   GOAL_HORIZONS,
   goalPeriod,
-  jerusalemDayStart,
   jerusalemWeekday,
   jerusalemWeekStart,
   LEAD_MEASURES,
@@ -228,7 +227,15 @@ export class MentorService {
 
       /* ---- הציון של השבוע, ממה שהמערכת ספרה ---- */
       const thisWeek = jerusalemWeekStart(now);
-      const actual = await this.countMeasures(tx, scope, thisWeek, jerusalemDayStart(thisWeek, 7));
+      /*
+       * ‎**ביצוע נמדד עד עכשיו, לא עד סוף השבוע** (ביקורת Codex, P2).
+       *
+       * ‏הגבול העליון היה יום ראשון הבא, ולכן פגישה שנקבעה ליום
+       * חמישי נספרה כבר ביום ראשון — והציון היה יכול להגיע ל-100%
+       * לפני שהתקיימה ולו פגישה אחת. „מה עשיתי” אינו „מה מתוכנן”,
+       * וזה בדיוק ההבדל שהופך את הציון למשהו שאפשר להאמין לו.
+       */
+      const actual = await this.countMeasures(tx, scope, thisWeek, now);
       const committed = weekGoal?.commitment ?? {};
       const score = weeklyScore(committed, actual);
 
@@ -255,6 +262,39 @@ export class MentorService {
         .map((key) => completedRows.find((r) => r.weekKey === key)?.percent)
         .filter((p): p is number => p !== undefined);
 
+      /*
+       * ‎**הציון של השבוע נשמר, ולא רק מוצג** (ביקורת Codex, P2).
+       *
+       * ‏הטבלה נקראה ולא נכתבה מעולם: אין לה שום `create` או
+       * ‎`upsert`. כלומר `previousPercents` היה תמיד ריק, וההיסטוריה
+       * — שעליה נשענים גם „פעמיים ברצף” וגם ההשוואה „איפה היית” —
+       * לא נצברה לעולם. שער `rls-access` בדק שאסור לגעת בטבלה
+       * מ-`prisma` הגלובלי; הוא אינו יכול לדעת שאיש אינו כותב אליה.
+       *
+       * ‎**הכתיבה כאן ולא בסורק לילי**, ובכוונה: הציון של השבוע
+       * הנוכחי משתנה עם כל שיחה, וכתיבה בכל קריאה משאירה במסד את
+       * הערך המעודכן. כששבוע נגמר איש אינו מחשב אותו מחדש, ולכן
+       * הערך האחרון שנכתב בו הוא בדיוק „מה שנאמר לו אז” — וזו
+       * ההבטחה שהטבלה הזו נועדה לקיים.
+       *
+       * ‎`upsert` על המפתח הייחודי: פתיחת המסך פעמיים אינה יוצרת שתי
+       * שורות לאותו שבוע.
+       */
+      const thisKey = weekKey(now);
+      await tx.mentorWeeklyScore.upsert({
+        where: { tenantId_userId_weekKey: { ...scope, weekKey: thisKey } },
+        update: { committed, actual, percent: score.percent, onTrack: score.onTrack },
+        create: {
+          id: ulid(),
+          ...scope,
+          weekKey: thisKey,
+          committed,
+          actual,
+          percent: score.percent,
+          onTrack: score.onTrack,
+        },
+      });
+
       const moments = mentorMoments({
         score,
         weekday: jerusalemWeekday(now),
@@ -270,12 +310,8 @@ export class MentorService {
       );
       const cycleStart = jerusalemWeekStart(now, -12);
       const priorCycleStart = jerusalemWeekStart(now, -25);
-      const thisCycle = await this.countMeasures(
-        tx,
-        scope,
-        cycleStart,
-        jerusalemDayStart(thisWeek, 7),
-      );
+      /* ‏גם כאן: עד עכשיו, כדי שההשוואה תהיה בין מה שנעשה למה שנעשה */
+      const thisCycle = await this.countMeasures(tx, scope, cycleStart, now);
       const lastCycle = await this.countMeasures(tx, scope, priorCycleStart, cycleStart);
 
       return {
@@ -403,10 +439,7 @@ export class MentorService {
     const { tenantId, userId } = scope;
     const range = { gte: from, lt: to };
 
-    const [calls, appointments, listings] = await Promise.all([
-      tx.call.count({
-        where: { tenantId, createdBy: userId, direction: "out", occurredAt: range },
-      }),
+    const [appointments, listings] = await Promise.all([
       tx.appointment.count({
         where: {
           tenantId,
@@ -421,11 +454,80 @@ export class MentorService {
     ]);
 
     return {
-      calls,
+      calls: await this.countOutboundCalls(tx, scope, range),
       appointments,
       offers: await this.countOffersSent(tx, scope, range),
       listings,
     };
+  }
+
+  /**
+   * ‎**שיחות יוצאות שלו — כולל אלה שהמרכזייה רשמה** (ביקורת Codex, P1).
+   *
+   * ## שני באגים שהיו כאן, ושניהם החזירו אפס
+   *
+   * ‎**1. הערך.** ‏הסינון היה `direction: "out"`, והמערכת שומרת
+   * ‎`"inbound"` / `"outbound"` — גם ברישום הידני וגם בקליטה
+   * מהמרכזייה. כלומר המדד המרכזי של המנטור התאים לאפס שורות תמיד,
+   * והמסך היה מציג „0 / 40” לסוכן שהתקשר ארבעים פעם.
+   *
+   * ‎**2. השיוך.** ‏`TelephonyService.ingest` יוצרת שיחות ספק **בלי
+   * ‎`createdBy`** — המרכזייה אינה אומרת איזו שלוחה חייגה. משרד
+   * שעובד עם 015 היה רואה רק שיחות שנרשמו ידנית, כלומר כמעט כלום.
+   *
+   * ## השיוך שנבחר, ומה גבולו
+   *
+   * ‏שיחה יוצאת שקשורה לליד שייכת לסוכן שהליד מוקצה לו. זה אינו
+   * ניחוש: שיחה יוצאת נוצרת מתוך עבודה על ליד, וההקצאה היא מי
+   * מטפל בו. `createdBy` קודם לה כשהוא קיים — רישום ידני יודע
+   * במדויק מי רשם.
+   *
+   * ‎**מה שנשאר בחוץ, ובכוונה:** שיחה יוצאת מהמרכזייה שאינה קשורה
+   * לשום ליד. אין לה שום עוגן לאדם, ולנחש אותה לפי „מי היה מחובר”
+   * היה מייצר ציון על עבודה של מישהו אחר. התיקון האמיתי הוא
+   * ‎`createdBy` בקליטה, וזה שינוי באינטגרציית הטלפוניה.
+   *
+   * ‏הכיוון הוא **משיחות הטווח החוצה**, כמו בהצעות: חסום בגודל
+   * הטווח ולא בגודל היסטוריית הלידים של המשרד.
+   */
+  private async countOutboundCalls(
+    tx: PrismaTx,
+    scope: { tenantId: string; userId: string },
+    range: { gte: Date; lt: Date },
+  ): Promise<number> {
+    const rows = await tx.call.findMany({
+      where: { tenantId: scope.tenantId, direction: "outbound", occurredAt: range },
+      select: { createdBy: true, leadId: true },
+    });
+    if (rows.length === 0) return 0;
+
+    const mine = rows.filter((r) => r.createdBy === scope.userId).length;
+
+    /* שיחות ספק ללא רושם — משויכות דרך הליד שהן נוגעות בו */
+    const orphanLeadIds = [
+      ...new Set(
+        rows
+          .filter((r) => r.createdBy === null && r.leadId !== null)
+          .map((r) => r.leadId as string),
+      ),
+    ];
+    if (orphanLeadIds.length === 0) return mine;
+
+    const myLeads = await tx.lead.findMany({
+      where: {
+        tenantId: scope.tenantId,
+        id: { in: orphanLeadIds },
+        assignedToUserId: scope.userId,
+      },
+      select: { id: true },
+    });
+    const myLeadIds = new Set(myLeads.map((l) => l.id));
+    return (
+      mine +
+      rows.filter(
+        (r) => r.createdBy === null && r.leadId !== null && myLeadIds.has(r.leadId),
+      ).length
+    );
   }
 
   /**
@@ -479,8 +581,8 @@ export class MentorService {
     now: Date,
   ): Promise<ConversionRatios | null> {
     const from = jerusalemWeekStart(now, -(MIN_WEEKS_FOR_RATIOS - 1));
-    const to = jerusalemDayStart(jerusalemWeekStart(now), 7);
-    const counted = await this.countMeasures(tx, scope, from, to);
+    /* עד עכשיו — יחס שנגזר מפגישות עתידיות מתאר תוכנית, לא ביצוע */
+    const counted = await this.countMeasures(tx, scope, from, now);
 
     const calls = counted.calls ?? 0;
     const appointments = counted.appointments ?? 0;
