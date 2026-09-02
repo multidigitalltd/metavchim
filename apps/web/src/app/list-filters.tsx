@@ -227,7 +227,15 @@ export function ListFilters({
    * התווית של השדה נשארת ב-DOM ומוסתרת חזותית: היא מה שקורא מסך
    * מקריא, וכותרת הכרטיס אינה קשורה אליו ב-`htmlFor`.
    */
-  card?: { example: string };
+  card?: {
+    example: string;
+    /**
+     * ‎**בלי המרווח התחתון** — הכרטיס יושב בתוך רשת שמנהלת את
+     * המרווחים בעצמה. `mb-[18px]` בתוך תא של רשת מוסיף מרווח
+     * שהרשת לא ביקשה, והתוצאה היא טור אחד שנגמר נמוך מהשני.
+     */
+    flush?: boolean;
+  };
   /** צ'יפים או פקדים שיושבים בתחתית אותו כרטיס. */
   children?: React.ReactNode;
 }): React.JSX.Element {
@@ -287,7 +295,13 @@ export function ListFilters({
   return (
     <form
       onSubmit={submit}
-      className={card === undefined ? "mb-4" : "mv-card mv-card--pad mb-[18px]"}
+      className={
+        card === undefined
+          ? "mb-4"
+          : /* ‎`mv-card--pad` נשאר אסימון שלם — שער הריפוד קורא מחרוזות
+               ומפצל ברווחים, ו-`mv-card--pad${…}` אינו נראה לו כמחלקה */
+            `mv-card mv-card--pad ${card.flush === true ? "" : "mb-[18px]"}`
+      }
     >
       {card === undefined ? null : (
         <div className="mv-card-head">

@@ -26,6 +26,7 @@ import { DuplicateContacts } from "./duplicate-contacts";
 import { LoadError } from "./load-error";
 import { SetupBanner } from "./setup-banner";
 import { SystemUpdate } from "./system-update";
+import { readDismissed, todayLabel, writeDismissed } from "./dismissed-actions";
 import { NowStamp } from "./now-stamp";
 import {
   IconBell,
@@ -307,6 +308,40 @@ export default function DashboardPage() {
    */
   const dayRange = jerusalemDayRange(now);
   const dayKey = dayRange.start.getTime();
+  /*
+   * ‎**„הבנתי” — שורות שהמתווך סימן שראה, עד מחר.**
+   *
+   * המפתח הוא היום הישראלי ולא חותמת זמן, כי זו בדיוק הרזולוציה של
+   * ההבטחה שהכפתור נותן. הקריאה יושבת ב-`useEffect` ולא ברינדור:
+   * ‎`localStorage` אינו קיים בשרת, וערך התחלתי שנקרא ממנו היה
+   * מייצר אי-התאמה בין הרינדור בשרת לזה שבדפדפן.
+   */
+  /* ‎`todayLabel` ולא `today`: `today` כבר תפוס כאן לפגישות היום */
+  const dismissDay = todayLabel(now);
+  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  const userId = user?.id ?? null;
+  useEffect(() => {
+    if (userId === null) return;
+    setDismissed(readDismissed(userId, dismissDay));
+  }, [userId, dismissDay]);
+  const dismiss = useCallback(
+    (key: string) => {
+      setDismissed((current) => {
+        const next = new Set(current);
+        next.add(key);
+        if (userId !== null) writeDismissed(userId, dismissDay, next);
+        return next;
+      });
+    },
+    [userId, dismissDay],
+  );
+  const restoreDismissed = useCallback(() => {
+    const empty = new Set<string>();
+    setDismissed(empty);
+    if (userId !== null) writeDismissed(userId, dismissDay, empty);
+  }, [userId, dismissDay]);
   /*
    * ‎**„של היום” נקבע מהערך, לא ממקורו.**
    *
@@ -904,15 +939,28 @@ export default function DashboardPage() {
    * המקורות — יציב בין רינדורים, וזה מה שחשוב כאן.
    */
   const seen = new Set<string>();
-  const shownTasks = [...candidates]
+  const ranked = [...candidates]
     .sort((a, b) => b.priority - a.priority)
     .filter((t) => {
       if (t.href === null) return true;
       if (seen.has(t.href)) return false;
       seen.add(t.href);
       return true;
-    })
-    .slice(0, 6);
+    });
+  /*
+   * ‎**ההסתרה אחרי הסרת הכפילויות, ולפני החיתוך לשש.**
+   *
+   * ‏אחרי — כי שתי שורות שמובילות לאותו כרטיס הן אותה פעולה, ומי
+   * שסימן „הבנתי” על המנצחת היה רואה את המפסידה עולה במקומה עם
+   * אותו יעד בדיוק. כלומר לחיצה שלא עשתה כלום.
+   *
+   * ולפני החיתוך — כי זו כל הנקודה: השורה שהוסתרה מפנה מקום
+   * לשביעית, ולא משאירה חור ברשימה.
+   */
+  const visibleRanked = ranked.filter((t) => !dismissed.has(t.key));
+  const shownTasks = visibleRanked.slice(0, 6);
+  /** כמה מהשורות של היום כבר סומנו „הבנתי” — לניסוח המצב הריק. */
+  const hiddenToday = ranked.length - visibleRanked.length;
 
   const todayEvents = (today ?? [])
     .filter((a) => a.status === "scheduled" && startsToday(a))
@@ -1193,6 +1241,29 @@ export default function DashboardPage() {
 
             {loading ? (
               <p aria-live="polite" className="px-5 py-4">טוען…</p>
+            ) : shownTasks.length === 0 && hiddenToday > 0 ? (
+              /*
+                ‎**„הכל מטופל” אינו נכון כשהמתווך רק סימן שראה.**
+
+                אותו מסך ריק בדיוק, ושתי משמעויות הפוכות: „אין מה
+                לעשות” מול „יש מה לעשות, ובחרת לדחות להיום”. משפט
+                אחד לשניהם היה מברך על עבודה שלא נעשתה — ולכן כאן
+                נאמר מה קרה, ויש דרך חזרה.
+              */
+              <div className="px-5 py-6 text-center">
+                <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
+                  {hiddenToday === 1
+                    ? "הסתרת שורה אחת להיום. היא תחזור מחר אם עדיין תהיה רלוונטית."
+                    : `הסתרת ${hiddenToday} שורות להיום. הן יחזרו מחר אם עדיין יהיו רלוונטיות.`}
+                </p>
+                <button
+                  type="button"
+                  className="mv-button mv-button--secondary mt-3"
+                  onClick={restoreDismissed}
+                >
+                  הצג אותן שוב
+                </button>
+              </div>
             ) : shownTasks.length === 0 ? (
               <p className="px-5 py-6 text-center" style={{ color: "var(--color-text-muted)" }}>
                 הכל מטופל ✓ — אפשר לקלוט נכס או קונה חדשים.
@@ -1236,16 +1307,49 @@ export default function DashboardPage() {
                       <span className="mv-row__title block">{t.title}</span>
                       <span className="mv-row__why block">{t.why}</span>
                     </span>
-                    {t.href ? (
-                      <Link
-                        href={t.href}
-                        className={`mv-row__action mv-button ${
-                          index === 0 ? "mv-button--primary" : "mv-button--secondary"
-                        } flex-none no-underline`}
+                    {/*
+                      ‎**שני כפתורים בעטיפה אחת, ולא שניים זה לצד זה.**
+
+                      ‎`mv-row__action` דוחף לקצה השורה, ובטלפון הכלל
+                      ‎`.mv-row--action > .mv-row__action` מוריד אותו
+                      לשורה משלו ברוחב מלא. שני ילדים ישירים עם אותה
+                      מחלקה היו יורדים לשתי שורות נפרדות, כל אחת
+                      ברוחב מלא. העטיפה שומרת עליהם כזוג.
+                    */}
+                    <span className="mv-row__action flex flex-none items-center gap-2">
+                      {t.href ? (
+                        <Link
+                          href={t.href}
+                          className={`mv-button ${
+                            index === 0 ? "mv-button--primary" : "mv-button--secondary"
+                          } flex-none no-underline`}
+                        >
+                          {t.action}
+                        </Link>
+                      ) : null}
+                      {/*
+                        ‎**„הבנתי” ולא „בוצע”.**
+
+                        מאחורי השורה אין רשומה שאפשר לסגור — היא
+                        נגזרת מחדש מהנתונים בכל טעינה, ותיעלם כשהמצב
+                        עצמו ישתנה. הכפתור אומר בדיוק מה שהוא עושה:
+                        מסתיר אותה עד מחר, ומפנה את המקום לשורה
+                        הבאה. „בוצע” היה מבטיח שינוי נתונים שלא קרה.
+
+                        ‎`mv-button--ghost` ולא עוד כפתור מסגרת: §13
+                        מקצה קריאה לפעולה **אחת** לשורה, ושני כפתורים
+                        באותו משקל היו מבטלים את הדירוג שהכרטיס הזה
+                        כולו בנוי עליו.
+                      */}
+                      <button
+                        type="button"
+                        className="mv-button mv-button--ghost flex-none"
+                        onClick={() => dismiss(t.key)}
+                        title="מסתיר את השורה עד מחר"
                       >
-                        {t.action}
-                      </Link>
-                    ) : null}
+                        הבנתי
+                      </button>
+                    </span>
                   </li>
                 ))}
               </ul>

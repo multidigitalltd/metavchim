@@ -242,8 +242,16 @@ export function jerusalemWallErrorMessage(reason: "missing" | "nonexistent"): st
     : "השעה שנבחרה אינה קיימת בתאריך הזה: בליל המעבר לשעון קיץ השעון מדלג מ-02:00 ל-03:00. בחרו שעה אחרת.";
 }
 
-/** התאריך הישראלי כתווית `YYYY-MM-DD` — הבסיס לכל חשבון הלוח כאן. */
-function jerusalemDayLabel(at: Date): string {
+/**
+ * התאריך הישראלי כתווית `YYYY-MM-DD` — הבסיס לכל חשבון הלוח כאן.
+ *
+ * ‎**מיוצא** כדי שמסך שצריך „איזה יום היום אצל המתווך” יקרא את אותה
+ * תשובה. הדשבורד שומר בדפדפן אילו שורות המתווך סימן „הבנתי”, והן
+ * חוזרות למחרת; „מחרת” חייב להיות היום הישראלי ולא היום של שעון
+ * המכשיר, אחרת מי שפותח את המערכת מחו״ל מקבל את השורות בחזרה
+ * באמצע יום העבודה שלו — או לא מקבל אותן בבוקר.
+ */
+export function jerusalemDayLabel(at: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: JERUSALEM_TZ }).format(at);
 }
 

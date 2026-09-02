@@ -5914,6 +5914,63 @@ a.mv-bar-row:focus-visible {
   padding: 18px;
 }
 
+/*
+ * ‎**האריח המצומצם של מסך הרשימה** — אותה הכרעה כמו במונים שבדשבורד,
+ * ומאותה סיבה.
+ *
+ * ‏ארבעה אריחים ברוחב רבע-מסך מעל טבלת הנכסים דוחקים את השורה
+ * הראשונה אל מתחת לקיפול, ובעל המוצר אמר זאת במפורש: „הקוביות
+ * תופסות הרבה מקום… שיהיו 2 בשורה, 2 שורות אחד מתחת לשני, ובאותו
+ * סקשן בצד ימין את איזור החיפוש”. בטור 372 האריח המלא (כותרת 18.5,
+ * אריח אייקון 44, ריפוד 18) פשוט אינו נכנס.
+ *
+ * ‎**המספר וההערה על קו בסיס אחד**, כמו ב-`mv-kpi--sm`: זה מה שממלא
+ * את הרוחב שהמספר הותיר במקום להוסיף שורה שלישית. ‎`margin-top: auto`
+ * על אותה שורה שומר על יישור המספרים בין שני האריחים שבשורה, גם
+ * כשתווית אחת נשברת לשתי שורות.
+ */
+.mv-stat-tile--sm {
+  gap: 0;
+  padding: 12px 14px;
+}
+.mv-stat-tile--sm > .mv-card-head {
+  gap: 9px;
+}
+.mv-stat-tile--sm .mv-tile {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+}
+.mv-stat-tile--sm .mv-tile svg {
+  width: 16px;
+  height: 16px;
+}
+.mv-stat-tile--sm .mv-card-head__title {
+  font-size: var(--type-body-sm);
+  letter-spacing: normal;
+  line-height: 1.25;
+}
+.mv-stat-tile__foot {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  /* ‎`auto` למעלה — זה מה שמיישר את המספרים בין אריחי אותה שורה */
+  margin: auto 0 0;
+  padding-top: 8px;
+}
+.mv-stat-tile__value {
+  font-size: var(--type-counter);
+  font-weight: 900;
+  letter-spacing: var(--type-kpi-track);
+  line-height: 1;
+}
+.mv-stat-tile__note {
+  min-width: 0;
+  font-size: var(--type-caption);
+  color: var(--color-text-muted);
+  line-height: 1.25;
+}
+
 .mv-tile {
   display: inline-flex;
   align-items: center;

@@ -156,25 +156,24 @@ function StatTile({
   note: string;
 }) {
   return (
-    <div className={`mv-stat-tile ${domain}`}>
+    <div className={`mv-stat-tile mv-stat-tile--sm ${domain}`}>
       <div className="mv-card-head">
-        <span className="mv-tile mv-tile--44" aria-hidden="true">
+        <span className="mv-tile" aria-hidden="true">
           {icon}
         </span>
         <h2 className="mv-card-head__title">{label}</h2>
       </div>
-      <p
-        className="m-0 mt-2"
-        style={{
-          fontSize: "var(--type-metric)",
-          fontWeight: 900,
-          letterSpacing: "var(--type-metric-track)",
-        }}
-      >
-        {value}
-      </p>
-      <p className="m-0 mt-1" style={{ fontSize: "var(--type-caption-lg)" }}>
-        {note}
+      {/*
+        ‎**המספר וההערה באותה שורה, על קו בסיס אחד.**
+
+        קודם הם היו שתי שורות נפרדות מתחת לכותרת, ובאריח ברוחב
+        רבע-מסך זה נראה דליל; בטור 372 זה פשוט לא נכנס. ההערה לצד
+        המספר ממלאת את הרוחב שהוא הותיר, וזה מה שמאפשר לאריח
+        להצטמצם בלי להתרוקן.
+      */}
+      <p className="mv-stat-tile__foot m-0">
+        <span className="mv-stat-tile__value mv-ltr">{value}</span>
+        <span className="mv-stat-tile__note">{note}</span>
       </p>
     </div>
   );
@@ -219,10 +218,23 @@ function PropertyStats({
   );
 
   return (
-    <div
-      className="mb-[18px] grid gap-3"
-      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}
-    >
+    /*
+      ‎**שתיים בשורה, שתי שורות — לצד החיפוש ולא מתחתיו** (בקשת בעל
+      המוצר).
+
+      קודם הייתה כאן שורה אחת של ארבעה אריחים ברוחב מלא
+      (`auto-fit, minmax(210px, 1fr)`), מתחת לכרטיס החיפוש ומעל
+      הטבלה. שני הבלוקים יחד דחקו את השורה הראשונה של הנכסים אל
+      מתחת לקיפול — ובמסך שכל תפקידו רשימה, זה בדיוק מה שהמתווך בא
+      לראות. עכשיו הם חולקים סקשן אחד: החיפוש בטור הרחב, האריחים
+      2×2 בטור 372 שלצדו.
+
+      ‎`justify-center` ולא מתיחה: האריחים נשארים בגובה תוכנם,
+      וכשכרטיס החיפוש נפתח („עוד סינון”) הם ממורכזים מולו במקום
+      להימתח ולפעור חלל בין התווית למספר.
+    */
+    <div className="flex flex-col justify-center">
+    <div className="grid items-stretch gap-3 grid-cols-2">
       <StatTile
         domain="mv-domain-blue"
         icon={<IconHome s={20} />}
@@ -281,11 +293,12 @@ function PropertyStats({
         משפט אחד על כל הארבעה, ולא סייג בכל אריח: הם נגזרים מאותה
         רשימה, ולכן ההיקף שלהם זהה.
       */}
+    </div>
+      {/* מחוץ לרשת — משפט שרץ על רוחב הטור, ולא תא חמישי בה */}
       {truncated ? (
         <p
-          className="m-0"
+          className="m-0 mt-2"
           style={{
-            gridColumn: "1 / -1",
             fontSize: "var(--type-caption)",
             color: "var(--color-text-muted)",
           }}
@@ -619,36 +632,57 @@ export default function PropertiesPage() {
       </div>
 
       {/*
-        החיפוש והצ'יפים בכרטיס אחד — כך בצילום, וזה גם נכון: שניהם
-        מצמצמים את אותה רשימה, ושורה חופשית מתחת לכרטיס נראתה כמו
-        עוד אזור.
+        ‎**החיפוש והמונים בסקשן אחד — זה לצד זה, ולא זה מתחת לזה**
+        (בקשת בעל המוצר).
+
+        עד כה כרטיס החיפוש ישב ברוחב מלא, ומתחתיו שורה של ארבעה
+        אריחים ברוחב מלא. יחד הם תפסו כ-350 פיקסלים לפני השורה
+        הראשונה של הרשימה — במסך שכל תפקידו **הרשימה**. „שורת
+        החיפושים תופסת מדי הרבה מקום, וגם הקוביות”: התיקון אינו
+        להקטין כל אחד מהם בנפרד אלא להושיב אותם באותו גובה.
+
+        החלוקה היא 1fr/372, אותה חלוקה שבתחתית הדשבורד ומאותו טעם:
+        לחיפוש מגיע הרוחב (יש בו שדה, כפתורים וצ'יפים של ערים),
+        ולמונים מספיק טור צר עם 2×2. וכשהרשימה עוד לא נטענה אין
+        מונים כלל, ואז החיפוש פורש על כל הרוחב במקום להשאיר טור
+        ריק לצדו.
+
+        ‎`items-start` ולא מתיחה: „עוד סינון” מכפיל את גובה כרטיס
+        החיפוש, ואריחים שנמתחים לגובה הזה הם בדיוק החלל שהתבקשנו
+        לצמצם. הם נשארים בגודלם, והכרטיס גדל לבדו.
       */}
-      <ListFilters
-        values={filters}
-        onApply={setFilters}
-        searchLabel="חיפוש נכס"
-        searchHint="כתובת, תיאור, סוג נכס או הערה"
-        priceLabel="מחיר"
-        card={{ example: 'למשל: "3 חדרים בבני ברק עד 2.2 מיליון"' }}
+      <div
+        className={`mb-[18px] grid items-start gap-4 ${
+          items === null ? "" : "lg:[grid-template-columns:1fr_372px]"
+        }`}
       >
-        <div className="flex flex-wrap items-center gap-2">
-          <FilterChips
-            label="סינון לפי עיר"
-            value={city}
-            onChange={setCity}
-            options={cities.map((c) => [c, c] as [string, string])}
-          />
-        </div>
-      </ListFilters>
+        <ListFilters
+          values={filters}
+          onApply={setFilters}
+          searchLabel="חיפוש נכס"
+          searchHint="כתובת, תיאור, סוג נכס או הערה"
+          priceLabel="מחיר"
+          card={{ example: 'למשל: "3 חדרים בבני ברק עד 2.2 מיליון"', flush: true }}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterChips
+              label="סינון לפי עיר"
+              value={city}
+              onChange={setCity}
+              options={cities.map((c) => [c, c] as [string, string])}
+            />
+          </div>
+        </ListFilters>
 
-      {/*
-        ‎**ארבעה מונים — מה מחכה, ולא כמה שורות יש.**
+        {/*
+          ‎**ארבעה מונים — מה מחכה, ולא כמה שורות יש.**
 
-        כולם נגזרים מהרשימה שכבר נטענה, בלי קריאה נוספת. `null`
-        פירושו „עוד לא ידוע”, ואז אין כרטיסים בכלל: אריח שמראה „0”
-        על טעינה שטרם הסתיימה הוא בדיוק אותו שקר של רשימה ריקה.
-      */}
-      {items === null ? null : <PropertyStats items={items} truncated={truncated} />}
+          כולם נגזרים מהרשימה שכבר נטענה, בלי קריאה נוספת. `null`
+          פירושו „עוד לא ידוע”, ואז אין כרטיסים בכלל: אריח שמראה „0”
+          על טעינה שטרם הסתיימה הוא בדיוק אותו שקר של רשימה ריקה.
+        */}
+        {items === null ? null : <PropertyStats items={items} truncated={truncated} />}
+      </div>
 
       {error ? (
         <Notice tone="danger">{error}</Notice>
@@ -776,6 +810,112 @@ export default function PropertiesPage() {
                 ) : null}
               </span>
             </div>
+
+          {/*
+            ‎**סרגל הפעולות מעל הטבלה, וקבוע** (בקשת בעל המוצר).
+
+            הוא הופיע ונעלם לפי הבחירה, ולכן הרשימה קפצה בכל סימון
+            ראשון — והפעולות עצמן היו מפתיעות: איש לא ידע שהן קיימות
+            עד שסימן. לכן הוא קבוע, ומושבת עד שיש על מה להפעיל אותו:
+            „נבחרו 0” הוא מצב, לא שגיאה.
+
+            ‎**מה שהשתנה עכשיו הוא המקום.** הוא ישב בתחתית הכרטיס,
+            מתחת לשורות — וזה עבד כל עוד יש שש שורות. במשרד עם מאה
+            נכסים המתווך מסמן שורה בראש הרשימה וצריך לגלול עמוד שלם
+            כדי להגיע לכפתור שיפעל עליה, ואז לגלול חזרה כדי לסמן את
+            הבאה. הפעולה שייכת לצד הבחירה, ולא לסוף הרשימה.
+
+            ‎`border-b` ולא `border-t`: הקו מפריד עכשיו בין הסרגל
+            לטבלה שמתחתיו, ולא בינו לבין השורות שמעליו.
+          */}
+          {maySelect && visible.length > 0 ? (
+            <div
+              className="mb-4 flex flex-wrap items-center gap-2 border-b pb-4"
+              style={{ borderColor: "var(--color-border)" }}
+            >
+              <strong className="text-[length:var(--type-body-sm)]" role="status">
+                נבחרו {selectedVisible.length} נכסים
+              </strong>
+              {/*
+                ‎**מבוטל לפי `selected`, ולא לפי מה שנראה כרגע.**
+
+                סינון שמסתיר את כל מה שנבחר מאפס את `selectedVisible`
+                אבל לא את הבחירה עצמה — והכפתור היחיד שמנקה אותה היה
+                מושבת. הבחירה נתקעה, וצצה שוב כשהסינון נוקה (ביקורת
+                Codex). הסרגל הישן לא סבל מזה כי הוא כולו נעלם.
+              */}
+              <button
+                type="button"
+                className="mv-btn-plain"
+                disabled={bulkBusy || selected.size === 0}
+                onClick={() => setSelected(new Set())}
+              >
+                בטל בחירה
+                {selected.size > selectedVisible.length
+                  ? ` (${selected.size - selectedVisible.length} מוסתרים בסינון)`
+                  : ""}
+              </button>
+              <span className="ms-auto flex flex-wrap items-center gap-2">
+                {/*
+                  ‎**„שליחה לקונים” פועלת על נכס אחד.**
+
+                  בצילום היא נראית כפעולה מרוכזת, אבל שליחת הצעה היא
+                  בחירה של **קונים מתוך ההתאמות של נכס מסוים** — אין
+                  לה משמעות על חמישה נכסים יחד, וכפתור שנראה פעיל
+                  ואינו עושה דבר גרוע מכפתור מושבת. עם נכס אחד מסומן
+                  הוא פותח את ההתאמות שלו, ששם ההצעה נשלחת.
+                */}
+                <button
+                  type="button"
+                  className="mv-btn-plain"
+                  disabled={bulkBusy || selectedVisible.length !== 1}
+                  title={
+                    selectedVisible.length === 1
+                      ? "פתיחת ההתאמות של הנכס שנבחר"
+                      : "בחרו נכס אחד — ההצעה נשלחת לקונים של נכס מסוים"
+                  }
+                  onClick={() => {
+                    const one = selectedVisible[0];
+                    if (one) router.push(`/matches?property=${one.id}`);
+                  }}
+                >
+                  שליחה לקונים
+                </button>
+                {mayShare ? (
+                  <button
+                    type="button"
+                    className="mv-btn-plain"
+                    disabled={bulkBusy || selectedVisible.length === 0}
+                    onClick={() => void shareSelected()}
+                    style={{ color: "var(--color-primary)" }}
+                  >
+                    {bulkBusy ? "מפרסם…" : "שיתוף לרשת"}
+                  </button>
+                ) : null}
+                {mayDelete ? (
+                  <>
+                    <button
+                      type="button"
+                      className="mv-btn-plain"
+                      disabled={bulkBusy || selectedVisible.length === 0}
+                      onClick={() => void removeSelected(false)}
+                    >
+                      העבר לארכיון
+                    </button>
+                    <button
+                      type="button"
+                      className="mv-btn-plain"
+                      disabled={bulkBusy || selectedVisible.length === 0}
+                      onClick={() => void removeSelected(true)}
+                      style={{ color: "var(--color-danger)" }}
+                    >
+                      מחק לצמיתות
+                    </button>
+                  </>
+                ) : null}
+              </span>
+            </div>
+          ) : null}
 
           {visible.length === 0 ? (
             /*
@@ -1074,102 +1214,6 @@ export default function PropertiesPage() {
             </>
           )}
 
-          {/*
-            ‎**סרגל הפעולות בתחתית הכרטיס, וקבוע.**
-
-            הוא הופיע ונעלם לפי הבחירה, ולכן הרשימה קפצה בכל סימון
-            ראשון — והפעולות עצמן היו מפתיעות: איש לא ידע שהן קיימות
-            עד שסימן. עכשיו הן שם תמיד, ומושבתות עד שיש על מה להפעיל
-            אותן. „נבחרו 0” הוא מצב, לא שגיאה.
-          */}
-          {maySelect && visible.length > 0 ? (
-            <div
-              className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4"
-              style={{ borderColor: "var(--color-border)" }}
-            >
-              <strong className="text-[length:var(--type-body-sm)]" role="status">
-                נבחרו {selectedVisible.length} נכסים
-              </strong>
-              {/*
-                ‎**מבוטל לפי `selected`, ולא לפי מה שנראה כרגע.**
-
-                סינון שמסתיר את כל מה שנבחר מאפס את `selectedVisible`
-                אבל לא את הבחירה עצמה — והכפתור היחיד שמנקה אותה היה
-                מושבת. הבחירה נתקעה, וצצה שוב כשהסינון נוקה (ביקורת
-                Codex). הסרגל הישן לא סבל מזה כי הוא כולו נעלם.
-              */}
-              <button
-                type="button"
-                className="mv-btn-plain"
-                disabled={bulkBusy || selected.size === 0}
-                onClick={() => setSelected(new Set())}
-              >
-                בטל בחירה
-                {selected.size > selectedVisible.length
-                  ? ` (${selected.size - selectedVisible.length} מוסתרים בסינון)`
-                  : ""}
-              </button>
-              <span className="ms-auto flex flex-wrap items-center gap-2">
-                {/*
-                  ‎**„שליחה לקונים” פועלת על נכס אחד.**
-
-                  בצילום היא נראית כפעולה מרוכזת, אבל שליחת הצעה היא
-                  בחירה של **קונים מתוך ההתאמות של נכס מסוים** — אין
-                  לה משמעות על חמישה נכסים יחד, וכפתור שנראה פעיל
-                  ואינו עושה דבר גרוע מכפתור מושבת. עם נכס אחד מסומן
-                  הוא פותח את ההתאמות שלו, ששם ההצעה נשלחת.
-                */}
-                <button
-                  type="button"
-                  className="mv-btn-plain"
-                  disabled={bulkBusy || selectedVisible.length !== 1}
-                  title={
-                    selectedVisible.length === 1
-                      ? "פתיחת ההתאמות של הנכס שנבחר"
-                      : "בחרו נכס אחד — ההצעה נשלחת לקונים של נכס מסוים"
-                  }
-                  onClick={() => {
-                    const one = selectedVisible[0];
-                    if (one) router.push(`/matches?property=${one.id}`);
-                  }}
-                >
-                  שליחה לקונים
-                </button>
-                {mayShare ? (
-                  <button
-                    type="button"
-                    className="mv-btn-plain"
-                    disabled={bulkBusy || selectedVisible.length === 0}
-                    onClick={() => void shareSelected()}
-                    style={{ color: "var(--color-primary)" }}
-                  >
-                    {bulkBusy ? "מפרסם…" : "שיתוף לרשת"}
-                  </button>
-                ) : null}
-                {mayDelete ? (
-                  <>
-                    <button
-                      type="button"
-                      className="mv-btn-plain"
-                      disabled={bulkBusy || selectedVisible.length === 0}
-                      onClick={() => void removeSelected(false)}
-                    >
-                      העבר לארכיון
-                    </button>
-                    <button
-                      type="button"
-                      className="mv-btn-plain"
-                      disabled={bulkBusy || selectedVisible.length === 0}
-                      onClick={() => void removeSelected(true)}
-                      style={{ color: "var(--color-danger)" }}
-                    >
-                      מחק לצמיתות
-                    </button>
-                  </>
-                ) : null}
-              </span>
-            </div>
-          ) : null}
           </div>
 
           <CapNote show={filtering && items.length === 100} noun="נכסים" />

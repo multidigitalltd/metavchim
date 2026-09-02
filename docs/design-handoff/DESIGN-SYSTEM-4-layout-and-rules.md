@@ -42,7 +42,7 @@ bottom, "the most important thing is that it is not at the top of the dashboard"
 tiles too empty, which is what the compact form answers: a 150-tall tile holding a label, a number
 and a short note is empty BECAUSE of its size. The compact tile drops the fixed height, puts the
 number and the note on one baseline row, and takes the 372 column so the vertical seam of the grid
-above runs to the bottom of the page. Enforced by apps/web/scripts/verify-dashboard-summary.mjs -
+above runs to the bottom of the page. Enforced by apps/web/scripts/verify-screen-layout.mjs -
 order is not a type error and no other gate can see it.
 
 COUNTER CARD, top right: white, border 1px solid #DEE3D9, radius 16, padding 12px 18px, flex, gap 13.
@@ -51,6 +51,19 @@ pill.
 
 LIST PAGE for properties, buyers or leads: the header, a filter bar of chips in the panel chip style,
 then a card with flush rows. Row actions are secondary; the single primary lives in the header.
+
+    header row: title, count line, then the page actions at the RTL end
+    filter strip, same 1fr / 372px split as the dashboard
+        1fr: the search card - field, buttons, city chips
+        372px: the KPI tiles, two by two, compact
+    list card: head with the sort and status controls,
+               then the bulk-selection bar with a rule under it,
+               then the rows
+
+The bulk-selection bar sits ABOVE the rows, not below them. It used to close the card, which reads
+fine with six rows and badly with a hundred: you tick a row at the top of the list and then scroll a
+full page to reach the button that acts on it. The action belongs next to the selection. The bar is
+always present and disabled until something is selected - "0 selected" is a state, not an error.
 
 DETAIL PAGE: 1fr 372px. Left is an identity card then domain cards. Right is an activity timeline and
 related items. The same card contract throughout.
