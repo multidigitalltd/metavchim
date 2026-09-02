@@ -77,6 +77,28 @@ describe("העשרת ההתראות בעובד", () => {
     expect(buttons, "כפתור כללי כברירת מחדל").not.toMatch(/follow === null\s*\n?\s*\?/u);
   });
 
+  /*
+   * ההשתקה נצמדה לכל הודעה כי היא הייתה פקד כפתור בלבד. מרגע
+   * ש-`parseSnoozeRequest` מבין אותה כמשפט, כפתור קבוע מתחת לכל
+   * עדכון הוא רעש. הבדיקה מקבעת גם את מה שמאפשר את ההסרה.
+   */
+  it("„שקט לשעתיים” ירד מההתראות — הוא משפט עכשיו", () => {
+    const send = WORKERS.slice(
+      WORKERS.indexOf("const buttons: WhatsAppButton[] = [];"),
+      WORKERS.indexOf("} else {", WORKERS.indexOf("const buttons: WhatsAppButton[] = [];")),
+    );
+    expect(send, "כפתור השתקה על כל התראה").not.toContain('action: "snooze"');
+  });
+
+  it("הודעה בלי כפתורים נשלחת כטקסט — אינטראקטיבית ריקה נדחית ב-Meta", () => {
+    const send = WORKERS.slice(
+      WORKERS.indexOf("const buttons: WhatsAppButton[] = [];"),
+      WORKERS.indexOf("} else {", WORKERS.indexOf("const buttons: WhatsAppButton[] = [];")),
+    );
+    expect(send).toContain("buttons.length === 0");
+    expect(send).toContain('type: "text"');
+  });
+
   it("כישלון בהעשרה מחזיר מפה ריקה ואינו מפיל את הסבב", () => {
     const fn = loader();
     expect(fn).toContain("catch (error)");

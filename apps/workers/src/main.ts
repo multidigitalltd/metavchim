@@ -3489,13 +3489,20 @@ async function processWhatsAppNotifySweep(): Promise<void> {
            * הוא כפתור שאינו קשור להודעה. `notifyFollowUp` נשען על
            * אותה קטגוריה שממנה נגזר כבר משפט הסיום.
            *
-           * ‎**וכשאין פעולה מזמינה — אין כפתור.** „מה דחוף היום?”
-           * היה ברירת המחדל לכל מה ש-`notifyFollowUp` לא כיסה,
-           * כלומר שאלה כללית מתחת להתראה ספציפית. עכשיו הוא נשאר
-           * רק במקום שבו הוא באמת הצעד הבא — התקציר היומי.
+           * ‎**וכשאין פעולה מזמינה — אין כפתור בכלל.**
            *
-           * ההשתקה נשארת שנייה תמיד: היא פקד על הסוכן עצמו, ואינה
-           * תלויה בשום דבר שכתוב בהודעה.
+           * „מה דחוף היום?” היה ברירת המחדל לכל מה ש-`notifyFollowUp`
+           * לא כיסה, כלומר שאלה כללית מתחת להתראה ספציפית. עכשיו
+           * הוא נשאר רק במקום שבו הוא באמת הצעד הבא — התקציר היומי.
+           *
+           * ‏ו„שקט לשעתיים” ירד לגמרי. הוא היה נצמד לכל הודעה כי
+           * הוא היה **הדרך היחידה** להשתיק — פקד כפתור שאין לו
+           * מקבילה בהקלדה. מאז שהסוכן מבין „שקט לחצי שעה”, „אל
+           * תפריע לי עד מחר” ו„מספיק שקט” (`parseSnoozeRequest`),
+           * כפתור קבוע מתחת לכל עדכון הוא רעש ולא שליטה.
+           *
+           * הודעה בלי אף כפתור נשלחת כטקסט: הודעה אינטראקטיבית
+           * בלי כפתורים אינה חוקית ב-Meta.
            */
           const follow = notifyFollowUp(items, recipient.allowedActionIds);
           const buttons: WhatsAppButton[] = [];
@@ -3504,8 +3511,18 @@ async function processWhatsAppNotifySweep(): Promise<void> {
           } else if (dominantNotifyCategory(items) === "digests") {
             buttons.push({ action: "cmd", arg: "urgent", title: "📋 מה דחוף היום?" });
           }
-          buttons.push({ action: "snooze", arg: "120", title: "🔕 שקט לשעתיים" });
-          ok = await sendWhatsApp(config, replyButtonsPayload(recipient.phone, message, buttons));
+          ok =
+            buttons.length === 0
+              ? await sendWhatsApp(config, {
+                  messaging_product: "whatsapp",
+                  to: recipient.phone,
+                  type: "text",
+                  text: { body: message, preview_url: false },
+                })
+              : await sendWhatsApp(
+                  config,
+                  replyButtonsPayload(recipient.phone, message, buttons),
+                );
         } else {
           ok = true;
           for (const chunk of splitForWhatsApp(message)) {
