@@ -4,7 +4,11 @@ import { IdSchema } from "@metavchim/shared";
 import { PlatformAdmin } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
-import { IntegrationDeskService, type DeskTelephonyStatus } from "./integration-desk.service";
+import {
+  IntegrationDeskService,
+  type DeskTelephonyStatus,
+  type DeskVirtualNumbers,
+} from "./integration-desk.service";
 
 /**
  * שולחן החיבורים של מנהל הפלטפורמה.
@@ -31,6 +35,36 @@ const SaveTelephonySchema = z
      * שהיה, ושום ערך אינו חוזר בשום נתיב של השולחן הזה.
      */
     secrets: z.record(z.string().max(40), z.string().max(400)).default({}),
+  })
+  .strict();
+
+/**
+ * רשימת „מספר ← סוכן”. שתי צורות של שורה:
+ *
+ * - **עם `id`** — מספר שכבר קיים אצל המשרד. נשלחים רק השדות שהשתנו,
+ *   ושדה שלא נשלח אינו נכתב. שורה שכבר אינה קיימת נדחית ולא נוצרת
+ *   מחדש: המשרד מחק אותה בכוונה.
+ * - **בלי `id`** — מספר חדש. השם רשות, ונגזר מהמספר כשחסר.
+ *
+ * התקרה היא על **שורות שהשתנו** בשמירה אחת, לא על מספר המספרים
+ * של המשרד: המסך שולח רק את מה שנגעו בו, ולכן משרד עם מאתיים
+ * מספרים אינו נחסם — הוא פשוט לא משנה מאה מהם בלחיצה אחת.
+ */
+const AssignVirtualNumbersSchema = z
+  .object({
+    numbers: z
+      .array(
+        z
+          .object({
+            id: IdSchema.optional(),
+            phone: z.string().trim().min(3).max(20),
+            label: z.string().trim().max(60).optional(),
+            assignedToUserId: IdSchema.nullable().optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
   })
   .strict();
 
@@ -83,5 +117,32 @@ export class IntegrationDeskController {
       config: body.config,
       secrets: body.secrets,
     });
+  }
+
+  /**
+   * המספרים הווירטואליים של המשרד והצוות שלו — כדי לשייך מספר לסוכן
+   * בלי להיכנס למשרד. ראו `IntegrationDeskService.virtualNumbers`.
+   */
+  @Get(":id/integrations/virtual-numbers")
+  async virtualNumbers(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<DeskVirtualNumbers> {
+    return this.desk.virtualNumbers(id);
+  }
+
+  /**
+   * שיוך מספרים לסוכנים בשם המשרד — הרשימה כולה בשמירה אחת.
+   *
+   * נרשם ביומן הביקורת של המשרד ומייצר אצלו התראה, כמו חיבור
+   * המרכזייה.
+   */
+  @Post(":id/integrations/virtual-numbers")
+  @HttpCode(200)
+  async assignVirtualNumbers(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(AssignVirtualNumbersSchema))
+    body: z.infer<typeof AssignVirtualNumbersSchema>,
+  ): Promise<{ ok: true; saved: number }> {
+    return this.desk.assignVirtualNumbers(id, body.numbers);
   }
 }

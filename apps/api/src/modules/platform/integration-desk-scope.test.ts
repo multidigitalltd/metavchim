@@ -25,13 +25,28 @@ import { describe, expect, it } from "vitest";
  *   **כתיבה בלבד** אצל המשרד, וזה מה שהופך את הפעולה לגלויה לו.
  * - `tenant` — שם המשרד, כדי שהמסך יאמר על מי מדובר. מנהל הפלטפורמה
  *   רואה אותו ממילא ברשימת המשרדים.
- * - `user` — **רק כדי לדעת מי הוא עצמו**: האימייל של מנהל הפלטפורמה
- *   הפועל, שנרשם ביומן של המשרד. לא משתמשי המשרד.
+ * - `user` — האימייל של מנהל הפלטפורמה הפועל, שנרשם ביומן של
+ *   המשרד; ורשימת **הצוות** של המשרד (מזהה ושם של סוכנים פעילים
+ *   בלבד), כדי שיהיה את מי לבחור בשיוך מספר. לא לקוחות.
+ * - `virtualNumber` — המספר, שמו והסוכן שמקבל ממנו לידים. זו הגדרת
+ *   ניתוב של המשרד, אותה שכבה כמו הספק ושם המשתמש שלו, ולא נתון
+ *   של לקוח. בלעדיה משרד שכל סוכן בו מקבל מספר נפרד היה נשלח שוב
+ *   לפתוח גישת תמיכה.
+ *
+ * מה שעדיין **אינו** כאן: `contact`, `lead`, `call`, `property`,
+ * `message` וכל טבלת כסף. שיוך נכס למספר נשאר של המשרד.
  */
 
 const DIR = import.meta.dirname;
 
-const ALLOWED = new Set(["integration", "auditLog", "notification", "tenant", "user"]);
+const ALLOWED = new Set([
+  "integration",
+  "auditLog",
+  "notification",
+  "tenant",
+  "user",
+  "virtualNumber",
+]);
 
 /** כל `X.<name>` שבו `X` הוא `tx`, `prisma` או `this.prisma`. */
 function modelsTouched(file: string): { name: string; line: number }[] {
