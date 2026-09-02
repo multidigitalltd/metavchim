@@ -327,6 +327,9 @@ const UpdateSettingsSchema = z
     /** שיעור המע"מ באחוזים — משתנה בחקיקה, ולכן הגדרה ולא קבוע. */
     vatPercent: z.union([z.string().trim().regex(/^\d{1,2}$/u), z.literal("")]).optional(),
     whatsappAppSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
+    whatsappConnectAppSecret: z
+      .union([z.string().trim().min(16).max(200), z.literal("")])
+      .optional(),
     whatsappVerifyToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     /**
      * חיבור המספר של כל משרד (docs/12) — מזהה האפליקציה ומזהה

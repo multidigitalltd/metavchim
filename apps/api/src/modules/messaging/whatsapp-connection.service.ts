@@ -66,8 +66,20 @@ export class WhatsAppConnectionService {
   private async appCredentials(): Promise<{ appId: string; appSecret: string } | null> {
     const env = loadEnv();
     const appId = (await this.platformSettings.get("whatsappAppId")) ?? env.WHATSAPP_APP_ID;
+    /*
+     * ‎**הסוד חייב להיות של אותה אפליקציה כמו `appId`.**
+     *
+     * ‏Meta מחליפה `code` לטוקן רק מול הצמד `client_id`+`client_secret`
+     * של אפליקציה אחת. כשחיבור המשרדים יושב באפליקציה נפרדת מקו
+     * הסוכן, `whatsappAppId` הוא כבר שלה — וצירוף שלו עם הסוד של
+     * האפליקציה השנייה נדחה ב-Meta עם שגיאת אימות שאינה מרמזת על
+     * הסיבה. הנפילה ל-`whatsappAppSecret` היא המצב של אפליקציה אחת.
+     */
     const appSecret =
-      (await this.platformSettings.get("whatsappAppSecret")) ?? env.WHATSAPP_APP_SECRET;
+      (await this.platformSettings.get("whatsappConnectAppSecret")) ??
+      env.WHATSAPP_CONNECT_APP_SECRET ??
+      (await this.platformSettings.get("whatsappAppSecret")) ??
+      env.WHATSAPP_APP_SECRET;
     if (!appId || !appSecret) return null;
     return { appId, appSecret };
   }

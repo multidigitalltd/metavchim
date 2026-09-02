@@ -32,6 +32,8 @@ const EnvSchema = z.object({
   PHONE_HASH_KEY: z.string().min(32),
   /** סודות WhatsApp Cloud API — ה-Webhook סגור עד שהם מוגדרים. */
   WHATSAPP_APP_SECRET: z.string().min(16).optional(),
+  /** ה-Secret של אפליקציית החיבור, כשהיא נפרדת מזו של קו הסוכן. */
+  WHATSAPP_CONNECT_APP_SECRET: z.string().min(16).optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().min(16).optional(),
   /** הסוכן האישי בוואטסאפ — שליחת תשובות דרך Graph API. חסר = קליטה בלבד. */
   WHATSAPP_ACCESS_TOKEN: z.string().min(20).optional(),

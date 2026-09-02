@@ -21,6 +21,44 @@ const read = (relative: string): string =>
 
 const INBOUND = read("./whatsapp-inbound.service.ts");
 const CONNECTION = read("./whatsapp-connection.service.ts");
+const WEBHOOK = read("./whatsapp-webhook.controller.ts");
+
+/**
+ * ‎**אפליקציית חיבור נפרדת מזו של קו הסוכן.**
+ *
+ * הפרדה לגיטימית ואף רצויה ב-Meta: חסימה של אפליקציה אחת אינה מפילה
+ * את השנייה. אבל אז שתי אפליקציות מצביעות על אותו Webhook וכל אחת
+ * חותמת בסוד משלה, ו-Meta מחליפה `code` לטוקן רק מול הצמד
+ * ‎`app_id`+`app_secret` של אותה אפליקציה. שתי הנקודות האלה נכשלות
+ * **בשקט**: הראשונה כ-401 על כל הודעה מהאפליקציה השנייה, השנייה
+ * כשגיאת אימות של Meta שאינה מרמזת על הסיבה.
+ */
+describe("אפליקציית חיבור נפרדת", () => {
+  it("אימות החתימה מנסה את שני הסודות ולא אחד", () => {
+    expect(WEBHOOK).toContain('this.platformSettings.get("whatsappConnectAppSecret")');
+    // ‏`some` על רשימת סודות — לא השוואה יחידה שנועלת אפליקציה אחת
+    expect(WEBHOOK).toMatch(/secrets\.some\(/u);
+  });
+
+  it("הסוד לנפילה חוזרת הוא של אפליקציה אחת, כך שהתקנה קיימת אינה נשברת", () => {
+    const connect = WEBHOOK.indexOf('"whatsappConnectAppSecret"');
+    const shared = WEBHOOK.indexOf('"whatsappAppSecret"');
+    expect(connect).toBeGreaterThan(0);
+    expect(shared).toBeGreaterThan(0);
+  });
+
+  /*
+   * ‎`appId` בא מ-`whatsappAppId` — של אפליקציית החיבור. צירופו עם
+   * הסוד של האפליקציה השנייה נדחה ב-Meta, ולכן הסוד הייעודי חייב
+   * להיקרא **לפני** המשותף.
+   */
+  it("המרת הקוד מעדיפה את הסוד של אפליקציית החיבור", () => {
+    const connect = CONNECTION.indexOf('"whatsappConnectAppSecret"');
+    const shared = CONNECTION.indexOf('"whatsappAppSecret"');
+    expect(connect).toBeGreaterThan(0);
+    expect(shared).toBeGreaterThan(connect);
+  });
+});
 
 describe("ניתוב הודעה נכנסת לקו של משרד", () => {
   /*
