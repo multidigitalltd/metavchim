@@ -72,6 +72,7 @@ import {
 } from "../../icons";
 import { IconAction } from "../../icon-action";
 import { LoadError } from "../../load-error";
+import { AgentTag } from "../../agent-tag";
 import { Notice } from "../../notice";
 
 /**
@@ -121,6 +122,9 @@ interface PropertyDetail {
    */
   status: PropertyStatus;
   marketingTitle?: string;
+  /** הסוכן המטפל. חסר = לא משויך. */
+  agentName?: string;
+  agentUserId?: string;
   readinessScore: number;
   missingFields: string[];
   ownerContact?: OwnerContact;
@@ -373,6 +377,17 @@ export default function PropertyDetailPage({
       .catch(() => setOpenTasks(undefined));
   }, [id]);
   const canEditOwner = can(user, "properties.edit");
+  /*
+   * ‎**הבורר נשען על `tasks.assign`, ולא על `properties.edit`.**
+   *
+   * הרשימה שהוא מציג מגיעה מ-`/tasks/assignees`, שדורש `tasks.assign`.
+   * ‎`agent` ו-`assistant` מחזיקים ב-`properties.edit` ולא בה, ולכן
+   * הבקשה חוזרת 403, הרשימה נשארת ריקה, והבורר שנפתח מציע „לא
+   * משויך” בלבד — פקד שנראה עובד ואינו יכול לשייך לאיש (ביקורת
+   * Codex). מי שאין לו את היכולת רואה את התגית, שהיא ממילא כל מה
+   * שהוא צריך: העברת נכס בין סוכנים היא פעולת מנהל.
+   */
+  const canAssignAgent = can(user, "tasks.assign");
   // אנשי הקשר של הבעלים נאכפים ב-ContactsController תחת buyers.edit
   const canEditOwnerPeople = can(user, "buyers.edit");
   const canLanding = useFeature("landing_pages");
@@ -455,6 +470,14 @@ export default function PropertyDetailPage({
   const [bulkResult, setBulkResult] = useState<
     { text: string; ok: boolean } | null
   >(null);
+  /**
+   * תוצאת שליחה של הצעה בודדת במייל.
+   *
+   * ‎`ok: false` הוא המצב שבאמת חסר: „לקונה אין כתובת”, „הלקוח
+   * הסיר את עצמו”, „הספק דחה” — שלושתם צריכים להיאמר, כי בכל אחד
+   * מהם ההצעה **לא** יצאה.
+   */
+  const [offerSent, setOfferSentState] = useState<{ text: string; ok: boolean } | null>(null);
   /** matchId ⟵ קישור חתימה, להתאמות שנחסמו בשער ההחתמה */
   const [awaitingSignature, setAwaitingSignature] = useState<
     Record<string, string>
@@ -586,6 +609,26 @@ export default function PropertyDetailPage({
     }
   }
 
+  /** שליחת ההצעה במייל — כאן „נשלח” אומר שהספק קיבל, וכישלון נראה. */
+  async function sendOfferEmail(matchId: string, offerId: string): Promise<void> {
+    setOfferSentState(null);
+    try {
+      const { sentTo } = await apiPost<{ sentTo: string }>(`/offers/${offerId}/email`, {});
+      setOffers((prev) => {
+        const current = prev[matchId];
+        return current === undefined
+          ? prev
+          : { ...prev, [matchId]: { ...current, status: "sent" } };
+      });
+      setOfferSentState({ ok: true, text: `ההצעה נשלחה לכתובת ${sentTo}.` });
+    } catch (err: unknown) {
+      setOfferSentState({
+        ok: false,
+        text: err instanceof ApiError ? err.message : "שליחת המייל נכשלה — נסו שוב",
+      });
+    }
+  }
+
   /** פותח וואטסאפ עם ההודעה והקישור מוכנים — המתווך רק לוחץ שלח (אפיון §10). */
   async function sendWhatsApp(offerId: string) {
     const { waUrl } = await apiPost<{ waUrl: string }>(
@@ -620,6 +663,46 @@ export default function PropertyDetailPage({
   }
 
   /** שינוי סטטוס (פעיל/בהמתנה/נמכר…) ישירות מהכרטיס — בלי להיכנס לעריכה. */
+  /**
+   * ‎**מי מטפל בנכס — נקבע מהכרטיס, לא ממסך עריכה.**
+   *
+   * העברת נכס בין סוכנים היא פעולה של מנהל שסורק רשימה, ולא עריכה
+   * של פרטי הנכס. אותו נימוק בדיוק שבגללו הסטטוס הוא בורר בכותרת
+   * ולא שדה בטופס.
+   */
+  const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (!canAssignAgent) return;
+    apiGet<{ id: string; name: string }[]>("/tasks/assignees")
+      .then(setMembers)
+      .catch(() => setMembers([]));
+  }, [canAssignAgent]);
+
+  async function changeAgent(agentUserId: string): Promise<void> {
+    const saved = await apiPatch<{ agentUserId?: string; agentName?: string }>(
+      `/properties/${id}`,
+      { agentUserId },
+    );
+    /*
+     * השם מגיע **מהשרת** ולא נבחר מהרשימה המקומית: הרשימה נטענה
+     * פעם אחת, והשרת הוא זה שיודע מי במשרד עכשיו. שם שנלקח מכאן
+     * היה מציג בחירה שהשרת אולי דחה.
+     */
+    setProperty((prev) =>
+      prev
+        ? {
+            ...prev,
+            ...(saved.agentUserId === undefined
+              ? { agentUserId: undefined }
+              : { agentUserId: saved.agentUserId }),
+            ...(saved.agentName === undefined
+              ? { agentName: undefined }
+              : { agentName: saved.agentName }),
+          }
+        : prev,
+    );
+  }
+
   async function changeStatus(status: PropertyStatus) {
     setStatusSaving(true);
     try {
@@ -986,6 +1069,51 @@ export default function PropertyDetailPage({
                     ))}
                 </select>
               </label>
+              {/*
+                ‎**„של מי הנכס הזה?” — ומחוץ לתווית הסטטוס.**
+
+                הבורר ישב בתוך ה-`<label>` של הסטטוס, וזה HTML פסול
+                בשתי דרכים: תווית מקוננת בתוך תווית, ותווית אחת
+                שמכילה שני פקדים. קורא מסך אינו יודע איזו תווית שייכת
+                לאיזה `select`, ולחיצה על הטקסט מפעילה את הפקד הלא
+                נכון (ביקורת Codex).
+              */}
+              {canAssignAgent ? (
+                <>
+                  <label htmlFor="prop-agent" className="mv-visually-hidden">
+                    הסוכן המטפל
+                  </label>
+                  <select
+                    id="prop-agent"
+                    className="mv-control"
+                    value={property.agentUserId ?? ""}
+                    onChange={(event) => void changeAgent(event.target.value)}
+                  >
+                    <option value="">לא משויך</option>
+                    {/*
+                      ‎**סוכן שהושבת נשאר בבורר.** `/tasks/assignees`
+                      מחזיר פעילים בלבד, ובלי השורה הזו נכס ששויך למי
+                      שעזב היה נראה „לא משויך” — כלומר המסך היחיד שבו
+                      אפשר לתקן את זה היה גם זה שמסתיר אותו.
+                    */}
+                    {property.agentUserId !== undefined &&
+                    !members.some((member) => member.id === property.agentUserId) ? (
+                      <option value={property.agentUserId}>
+                        {property.agentName ?? "סוכן שאינו במשרד"} (לא פעיל)
+                      </option>
+                    ) : null}
+                    {members.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                <AgentTag
+                  {...(property.agentName === undefined ? {} : { name: property.agentName })}
+                />
+              )}
               {/*
                 ‎**המחיר בשורת הכותרת, וכלום כשאין מחיר.**
 
@@ -1725,6 +1853,12 @@ export default function PropertyDetailPage({
                 {bulkResult.text}
               </Notice>
             ) : null}
+            {offerSent ? (
+              <Notice tone={offerSent.ok ? "success" : "danger"}>
+                {offerSent.ok ? "✓ " : ""}
+                {offerSent.text}
+              </Notice>
+            ) : null}
 
             {/*
               צ'יפי הסינון — SPEC-4a §1.
@@ -2109,24 +2243,41 @@ export default function PropertyDetailPage({
                         יחד עם שאר התוכן שנשען על אותה בקשה; הניסיון
                         החוזר יושב מעל הרשימה ומחזיר את שניהם.
                       */}
-                      {!offerKnown ? null : offer && canWhatsApp ? (
-                        <button
-                          type="button"
-                          className="mv-btn-action"
-                          style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
-                          onClick={() => void sendWhatsApp(offer.id)}
-                        >
-                          שלח בוואטסאפ
-                        </button>
-                      ) : offer ? null : (
+                      {!offerKnown ? null : offer === undefined ? (
                         <button
                           type="button"
                           className="mv-btn-action"
                           style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
                           onClick={() => void createOffer(m.id)}
                         >
-                          שלח הצעה
+                          הכן הצעה
                         </button>
+                      ) : (
+                        <>
+                          {/*
+                            ‎**מייל הוא הערוץ שנשאר למשרד בלי וואטסאפ.**
+                            עד כה הצעה שנוצרה אצל משרד כזה לא הייתה
+                            לה שום דרך לצאת — והמסך בכל זאת אמר
+                            „נשלחה”.
+                          */}
+                          <button
+                            type="button"
+                            className="mv-btn-plain"
+                            onClick={() => void sendOfferEmail(m.id, offer.id)}
+                          >
+                            שלח במייל
+                          </button>
+                          {canWhatsApp ? (
+                            <button
+                              type="button"
+                              className="mv-btn-action"
+                              style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
+                              onClick={() => void sendWhatsApp(offer.id)}
+                            >
+                              שלח בוואטסאפ
+                            </button>
+                          ) : null}
+                        </>
                       )}
                     </div>
                     </div>

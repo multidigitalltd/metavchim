@@ -3,6 +3,7 @@ import { ulid } from "ulid";
 import { OPEN_LEAD_STATUSES, leadDeletionRejectionReason, type Page } from "@metavchim/shared";
 import { lockContact, lockLead } from "../../common/locks";
 import { assertLeadAccess, leadIsVisible, leadOwnershipFilter } from "../../common/ownership";
+import { agentNameOf, agentNames } from "../../common/agent-names";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -24,6 +25,16 @@ export interface LeadDto {
   requiresHuman: boolean;
   requiresHumanReason?: string;
   summary?: string;
+  /**
+   * ‎**הסוכן המטפל — היה במסד מהיום הראשון ולא הוצג בשום מסך.**
+   *
+   * ‎`assignedToUserId` קיים ומסנן ראייה כבר עכשיו; מה שחסר היה
+   * התשובה לשאלה שמנהל שואל ראשונה על ליד — „של מי זה?”. חסר =
+   * הליד בערימה המשותפת ואינו של אף אחד, וזה מצב אמיתי שהמסך אומר
+   * במפורש ולא מסתיר מאחורי שם מנוחש.
+   */
+  assignedToUserId?: string;
+  agentName?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -529,8 +540,9 @@ export class LeadsService {
         orderBy: { createdAt: "desc" },
         take: 100,
       });
+      const agents = await agentNames(tx, tenantId, [row.assignedToUserId]);
       return {
-        lead: toLeadDto(row, contact),
+        lead: toLeadDto(row, contact, agents),
         ...(await this.dialedNumberFor(tx, tenantId, id)),
         timeline: interactions.map((i) => ({
           id: i.id,
@@ -650,10 +662,16 @@ export class LeadsService {
         tx,
         page.map((row) => row.contactId),
       );
+      /* שם הסוכן — שאילתה אחת לכל העמוד, כמו אנשי הקשר שלצידה */
+      const agents = await agentNames(
+        tx,
+        TenantContext.current().tenantId,
+        page.map((row) => row.assignedToUserId),
+      );
       const items: LeadDto[] = [];
       for (const row of page) {
         const contact = contactsById.get(row.contactId);
-        if (contact) items.push(toLeadDto(row, contact));
+        if (contact) items.push(toLeadDto(row, contact, agents));
       }
       return { items, nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null };
     });
@@ -693,10 +711,15 @@ export class LeadsService {
         tx,
         rows.map((row) => row.contactId),
       );
+      const agents = await agentNames(
+        tx,
+        TenantContext.current().tenantId,
+        rows.map((row) => row.assignedToUserId),
+      );
       const items: LeadDto[] = [];
       for (const row of rows) {
         const contact = contactsById.get(row.contactId);
-        if (contact) items.push(toLeadDto(row, contact));
+        if (contact) items.push(toLeadDto(row, contact, agents));
       }
       return items;
     });
@@ -737,10 +760,15 @@ export class LeadsService {
         tx,
         rows.map((row) => row.contactId),
       );
+      const agents = await agentNames(
+        tx,
+        TenantContext.current().tenantId,
+        rows.map((row) => row.assignedToUserId),
+      );
       const items: LeadDto[] = [];
       for (const row of rows) {
         const contact = contactsById.get(row.contactId);
-        if (contact) items.push(toLeadDto(row, contact));
+        if (contact) items.push(toLeadDto(row, contact, agents));
       }
       return items;
     });
@@ -756,11 +784,14 @@ function toLeadDto(
     requiresHuman: boolean;
     requiresHumanReason: string | null;
     summary: string | null;
+    assignedToUserId: string | null;
     createdAt: Date;
     updatedAt: Date;
   },
   contact: { id: string; name: string; phone: string; email?: string },
+  agents?: Map<string, string>,
 ): LeadDto {
+  const agentName = agentNameOf(agents ?? new Map(), row.assignedToUserId);
   return {
     id: row.id,
     contact,
@@ -770,6 +801,8 @@ function toLeadDto(
     requiresHuman: row.requiresHuman,
     requiresHumanReason: row.requiresHumanReason ?? undefined,
     summary: row.summary ?? undefined,
+    ...(row.assignedToUserId === null ? {} : { assignedToUserId: row.assignedToUserId }),
+    ...(agentName === undefined ? {} : { agentName }),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

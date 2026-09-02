@@ -28,6 +28,7 @@ import {
   hasActiveFilters,
   type ListFilterValues,
 } from "../list-filters";
+import { AgentTag } from "../agent-tag";
 import { Notice } from "../notice";
 import { readinessBand } from "@/lib/readiness";
 
@@ -50,6 +51,8 @@ interface PropertyRow {
    */
   status: PropertyStatus;
   readinessScore: number;
+  /** הסוכן המטפל. חסר = לא משויך. */
+  agentName?: string;
   missingFields: string[];
   thumbnailUrl?: string;
   suggestedMatchCount?: number;
@@ -994,10 +997,17 @@ export default function PropertiesPage() {
                             .join(" · ") || "—"}
                         </span>
                       </span>
-                      <span>
+                      {/*
+                        הסוכן לצד הסטטוס ולא בעמודה משלו: הרשת כאן
+                        קבועה, ועמודה שביעית הייתה דוחסת את כל השאר.
+                      */}
+                      <span className="flex flex-wrap items-center gap-1.5">
                         <span className={`mv-pill ${statusDomain(p.status)}`}>
                           {STATUS_LABELS[p.status] ?? p.status}
                         </span>
+                        <AgentTag
+                          {...(p.agentName === undefined ? {} : { name: p.agentName })}
+                        />
                       </span>
                       <span className="flex flex-col gap-1">
                         <span className="flex items-center gap-2">

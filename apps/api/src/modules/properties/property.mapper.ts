@@ -104,6 +104,18 @@ export interface PropertyDto extends PropertyFields {
   leaseEndsAt?: string;
   noticePeriodDays?: number;
   archived: boolean;
+  /**
+   * ‎**הסוכן המטפל — מזהה ושם, ושניהם דרושים.**
+   *
+   * המזהה הוא מה שהבורר שולח בחזרה; השם הוא מה שהמנהל קורא. בלי
+   * השם המסך היה צריך לשלוף את רשימת המשרד רק כדי להציג שורה,
+   * וברשימה של מאה נכסים זו שאילתה לכל שורה.
+   *
+   * שניהם חסרים = לא משויך. `agentUserId` קיים בלי `agentName` =
+   * שויך למי שאינו במשרד עוד, והמסך אומר בדיוק את זה.
+   */
+  agentUserId?: string;
+  agentName?: string;
   createdAt: Date;
   updatedAt: Date;
 }

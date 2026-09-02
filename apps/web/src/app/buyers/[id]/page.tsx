@@ -6,7 +6,8 @@ import {
   buyerProfileCompleteness,
   describeEntryNeed,
   priceInWordsWithCurrency,  labelOf } from "@metavchim/shared";
-import type { BuyerRequirements } from "@metavchim/shared";
+import type { BuyerRequirements, FloorPreference } from "@metavchim/shared";
+import { floorPreferenceText } from "@metavchim/shared";
 import { activeOfficeStatuses, officeStatusById } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import {
@@ -39,6 +40,7 @@ import { useOfficeStatuses } from "../../use-office-statuses";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { IntakePanel } from "../../intake-panel";
 import { LoadError } from "../../load-error";
+import { AgentTag } from "../../agent-tag";
 import { Notice } from "../../notice";
 
 /**
@@ -79,6 +81,7 @@ interface BuyerDetail {
     }[];
     budgetMinAgorot?: number;
     budgetMaxAgorot?: number;
+    floorPreference?: FloorPreference;
     roomsMin?: number;
     roomsMax?: number;
     areaSqmMin?: number;
@@ -91,6 +94,8 @@ interface BuyerDetail {
   maturity: string;
   /** מזהה סטטוס המשרד — התווית נפתרת מול הרשימה שנטענת בנפרד. */
   officeStatus?: string;
+  /** הסוכן שהכרטיס שלו. חסר = לא משויך. */
+  agentName?: string;
   source: string;
   agentNotes?: string;
   /** מתי הכרטיס נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
@@ -134,6 +139,15 @@ function offerChip(o: OfferInfo): { label: string; fg: string; bg: string } {
     return { label: "מעוניין ✓", fg: "var(--color-success)", bg: "var(--color-success-soft)" };
   if (o.status === "declined")
     return { label: "לא מתאים", fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" };
+  /*
+   * ‎**„נשלחה” הייתה גם ברירת המחדל של הצעה שלא נשלחה.** הצעה
+   * ידנית נולדת `pending_approval` — נוצר לה קישור ואף ערוץ לא
+   * הוציא אותה — והגלולה הזו טענה עליה שהיא בדרך אל הלקוח.
+   */
+  if (o.status === "pending_approval")
+    return { label: "ממתינה לשליחה", fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" };
+  if (o.status === "email_failed")
+    return { label: "המייל נכשל", fg: "#8a3b21", bg: "#fbe9e1" };
   if (o.openCount >= 3)
     return { label: "מתלבט — שווה טלפון", fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" };
   if (o.openCount > 0) return { label: "נפתחה", fg: "var(--color-text-muted)", bg: "var(--domain-neutral-tile)" };
@@ -318,6 +332,7 @@ export default function BuyerDetailPage({
   const musts = Object.entries(buyer.requirements.features).filter(
     ([, l]) => l === "must",
   );
+  const floorNeed = floorPreferenceText(buyer.requirements.floorPreference);
   const entryNeed = describeEntryNeed({
     entryType: buyer.requirements.entryType as Parameters<
       typeof describeEntryNeed
@@ -437,6 +452,8 @@ export default function BuyerDetailPage({
             >
               {DEAL_TYPE_LABELS[buyer.requirements.dealType] ?? buyer.requirements.dealType}
             </span>
+            {/* „של מי הכרטיס הזה?” — השאלה הראשונה של מנהל בסוכנות */}
+            <AgentTag {...(buyer.agentName === undefined ? {} : { name: buyer.agentName })} />
             {/*
               רשימה מעוצבת ולא `select` נייטיב: הגלולה נראתה נכון
               סגורה, ובפתיחה נפתחה רשימת מערכת עם הדגשה כחולה שאינה
@@ -797,6 +814,22 @@ export default function BuyerDetailPage({
                   <div className="mb-3.5 text-[length:var(--type-body)] font-bold">
                     {buyer.requirements.areaSqmMin} מ&quot;ר
                   </div>
+                </>
+              ) : null}
+              {/*
+                ‎**הקומה מוצגת כמשפט ולא כמספרים.** „קרקע, קומה 1” ו„קומה
+                3 ומעלה” הן שתי דרישות שונות בצורתן, וזוג מספרים לא היה
+                יכול לשאת את שתיהן.
+              */}
+              {floorNeed !== undefined ? (
+                <>
+                  <div
+                    className="mb-1.5 text-[length:var(--type-caption-lg)] font-semibold"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    קומה רצויה
+                  </div>
+                  <div className="mb-3.5 text-[length:var(--type-body)] font-bold">{floorNeed}</div>
                 </>
               ) : null}
               {/* "גמיש" ו"מיידי" הם אילוץ בדיוק כמו תאריך — ולכן מוצגים */}

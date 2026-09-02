@@ -20,6 +20,7 @@ import {
   hasActiveFilters,
   type ListFilterValues,
 } from "../list-filters";
+import { AgentTag } from "../agent-tag";
 import { Notice } from "../notice";
 import { useOfficeStatuses } from "../use-office-statuses";
 import { OpenIntakePanel } from "./open-intake-panel";
@@ -41,6 +42,8 @@ interface BuyerRow {
     roomsMax?: number;
   };
   maturity: string;
+  /** הסוכן שהכרטיס שלו. חסר = לא משויך. */
+  agentName?: string;
   /** מזהה סטטוס המשרד — התווית נפתרת מול הרשימה שנטענת בנפרד. */
   officeStatus?: string;
   source: string;
@@ -652,8 +655,11 @@ export default function BuyersPage() {
                         onClick={() => router.push(`/buyers/${b.id}`)}
                       >
                       <span className="truncate text-[length:var(--type-body)] font-bold">{b.contact.name}</span>
-                      <span>
+                      <span className="flex flex-wrap items-center gap-1.5">
                         <MaturityPill maturity={b.maturity} />
+                        <AgentTag
+                          {...(b.agentName === undefined ? {} : { name: b.agentName })}
+                        />
                       </span>
                       <span className="text-sm font-bold">{budgetText(b)}</span>
                       <span className="truncate text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-soft)" }}>

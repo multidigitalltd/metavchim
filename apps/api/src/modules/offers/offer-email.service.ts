@@ -1,4 +1,12 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import {
+  BadRequestException,
+  GoneException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
+} from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
@@ -8,6 +16,7 @@ import {
   OfferPresentationSchema,
   type OfferEmailItem,
 } from "@metavchim/shared";
+import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
@@ -717,6 +726,117 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     );
     // דחייה ודאית — ההצעות קיימות כ-`email_failed`, אבל מייל לא יצא
     return outcome === "sent" ? created.length : 0;
+  }
+
+  /**
+   * ‎**שליחה ידנית של הצעה אחת במייל — ה„שלח” שלא היה.**
+   *
+   * ## מה היה חסר
+   *
+   * ‎`POST /offers` יצר קישור וסימן „נשלח”, ומעולם לא שלח דבר. הערוץ
+   * היחיד שבאמת יצא ללקוח היה וואטסאפ, וגם הוא רק מכרטיס הנכס. משרד
+   * שלקוחותיו עובדים במייל ראה „ההצעה נשלחה” על כל הצעה, ואף לקוח לא
+   * קיבל דבר — וזו בדיוק התלונה.
+   *
+   * ## למה כאן ולא ב-`OffersService`
+   *
+   * בניית המייל, ההסרה לפי §30א, כתובת התשובה, סימון `email_failed`
+   * בדחייה ודאית ואישור ה-`sent` — כולם כבר כתובים ב-`deliver`,
+   * ונבדקו בסבב האוטומטי. שליחה ידנית שהייתה בונה מייל משלה הייתה
+   * מייל שני שמתיישן בנפרד.
+   *
+   * ## מה נדחה, ובמפורש
+   *
+   * לקוח בלי כתובת, לקוח שהסיר את עצמו, ספק דואר שאינו מוגדר —
+   * שלושתם **שגיאה שהמתווך רואה**, לא כישלון שקט. הודעת השגיאה
+   * מפנה לוואטסאפ, כי זה מה שנשאר לעשות.
+   */
+  async sendOne(offerId: string): Promise<{ sentTo: string }> {
+    const tenantId = TenantContext.current().tenantId;
+    /*
+     * שער ההחתמה — אותו שער בדיוק שבשליחה בוואטסאפ. הסכם יכול
+     * להידחות בין יצירת ההצעה לשליחתה, וזו הנקודה שבה היא באמת
+     * יוצאת ללקוח (חוק המתווכים §9).
+     */
+    await this.offers.assertSignatureSatisfied(offerId);
+
+    const ready = await this.prisma.withTenant(async (tx) => {
+      const offer = await tx.offer.findFirst({ where: { id: offerId, tenantId } });
+      if (!offer) throw new NotFoundException("הצעה לא נמצאה");
+      if (offer.tokenExpires < new Date()) {
+        throw new GoneException("תוקף קישור ההצעה פג — צרו הצעה חדשה");
+      }
+      const match = await tx.match.findFirst({
+        where: { id: offer.matchId, tenantId },
+        select: { buyerId: true, propertyId: true },
+      });
+      if (!match) throw new NotFoundException("התאמה לא נמצאה");
+      const buyer = await tx.buyer.findFirst({
+        where: {
+          id: match.buyerId,
+          tenantId,
+          deletedAt: null,
+          // הפעולה מחזירה כתובת של אדם — אותו פילטר בעלות כמו בוואטסאפ
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
+        select: { contactId: true },
+      });
+      if (!buyer) throw new NotFoundException("הצעה לא נמצאה");
+      const consent = await tx.contact.findFirst({
+        where: { id: buyer.contactId, tenantId },
+        select: { optedOutAt: true },
+      });
+      if (consent === null || consent.optedOutAt !== null) {
+        throw new BadRequestException(
+          "הלקוח ביקש להפסיק לקבל הצעות במייל — אפשר לשלוח בוואטסאפ",
+        );
+      }
+      const contact = await this.contacts.getById(tx, buyer.contactId);
+      if (!contact?.email) {
+        throw new BadRequestException("לקונה אין כתובת אימייל בכרטיס — שלחו בוואטסאפ");
+      }
+      const tenant = await tx.tenant.findFirst({ where: { id: tenantId }, select: { name: true } });
+      const presentation = OfferPresentationSchema.parse(offer.presentation);
+      return {
+        officeName: tenant?.name ?? "משרד התיווך",
+        to: contact.email,
+        buyerName: contact.name,
+        contactId: buyer.contactId,
+        row: {
+          offerId: offer.id,
+          token: offer.publicToken,
+          title: presentation.title,
+          ...(presentation.priceAgorot === undefined
+            ? {}
+            : { priceAgorot: presentation.priceAgorot }),
+          propertyId: match.propertyId,
+          buyerId: match.buyerId,
+        } satisfies OutgoingOffer,
+      };
+    });
+
+    if (!(await this.email.isConfigured())) {
+      throw new BadRequestException("שליחת אימייל אינה מוגדרת במערכת — שלחו בוואטסאפ");
+    }
+    const outcome = await this.deliver(
+      tenantId,
+      ready.officeName,
+      ready.to,
+      ready.buyerName,
+      ready.contactId,
+      [ready.row],
+    );
+    /*
+     * דחייה ודאית של הספק — ההצעה סומנה `email_failed` ב-`deliver`,
+     * והמתווך חייב לדעת שהמייל לא יצא. בסבב האוטומטי זו החזרה שקטה
+     * כי אין מי שמסתכל; כאן יש.
+     */
+    if (outcome === "unsent") {
+      throw new BadRequestException(
+        "ספק הדואר דחה את הכתובת — בדקו אותה בכרטיס הלקוח, או שלחו בוואטסאפ",
+      );
+    }
+    return { sentTo: ready.to };
   }
 
   /** בניית המייל, שליחה, ואישור `sent` — או סימון הכישלון. */

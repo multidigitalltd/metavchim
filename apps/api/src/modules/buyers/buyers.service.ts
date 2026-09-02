@@ -29,6 +29,7 @@ import {
   priceRangeAgorot,
 } from "@metavchim/shared";
 import type { Prisma } from "@prisma/client";
+import { agentNameOf, agentNames } from "../../common/agent-names";
 import { TenantContext } from "../../common/tenant-context";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { AuditService } from "../../core/audit.service";
@@ -57,6 +58,15 @@ export interface BuyerDto {
    * שמתיישן ברגע שמשנים שם סטטוס בזמן שכרטיס פתוח.
    */
   officeStatus?: string;
+  /**
+   * ‎**הסוכן שהכרטיס שלו — `ownerUserId`, שהיה במסד ולא הוצג.**
+   *
+   * הוא כבר מסנן ראייה (`buyers.view_all`), כלומר המערכת ידעה של מי
+   * הכרטיס בכל שאילתה — ורק המסך לא אמר זאת. חסר = לא משויך, או
+   * משויך למי שאינו במשרד עוד; המסך אומר „לא משויך” ואינו מנחש.
+   */
+  ownerUserId?: string;
+  agentName?: string;
   source: string;
   agentNotes?: string;
   createdAt: Date;
@@ -805,7 +815,8 @@ export class BuyersService {
       if (!row) throw new NotFoundException("קונה לא נמצא");
       const contact = await this.contacts.getById(tx, row.contactId);
       if (!contact) throw new NotFoundException("איש קשר לא נמצא");
-      return this.toDto(row, contact);
+      const agents = await agentNames(tx, TenantContext.current().tenantId, [row.ownerUserId]);
+      return this.toDto(row, contact, agents);
     });
   }
 
@@ -1203,6 +1214,12 @@ export class BuyersService {
         tx,
         page.map((row) => row.contactId),
       );
+      /* שם הסוכן — שאילתה אחת לכל העמוד, כמו אנשי הקשר שלצידה */
+      const agents = await agentNames(
+        tx,
+        TenantContext.current().tenantId,
+        page.map((row) => row.ownerUserId),
+      );
       const items: (BuyerDto & {
         offersReceived: number;
         lastActivityAt: Date;
@@ -1211,7 +1228,7 @@ export class BuyersService {
         const contact = contactsById.get(row.contactId);
         if (contact) {
           items.push({
-            ...this.toDto(row, contact),
+            ...this.toDto(row, contact, agents),
             offersReceived: offerCountByBuyer.get(row.id) ?? 0,
             // אין תיעוד אינטראקציה ⇒ העדכון האחרון של הכרטיס עצמו
             lastActivityAt: lastByBuyer.get(row.id) ?? row.updatedAt,
@@ -1229,13 +1246,16 @@ export class BuyersService {
       financing: string;
       maturity: string;
       officeStatus: string | null;
+      ownerUserId: string | null;
       source: string;
       agentNotes: string | null;
       createdAt: Date;
       updatedAt: Date;
     },
     contact: { id: string; name: string; phone: string },
+    agents?: Map<string, string>,
   ): BuyerDto {
+    const agentName = agentNameOf(agents ?? new Map(), row.ownerUserId);
     return {
       id: row.id,
       contact,
@@ -1243,6 +1263,8 @@ export class BuyersService {
       financing: row.financing,
       maturity: row.maturity,
       ...(row.officeStatus === null ? {} : { officeStatus: row.officeStatus }),
+      ...(row.ownerUserId === null ? {} : { ownerUserId: row.ownerUserId }),
+      ...(agentName === undefined ? {} : { agentName }),
       source: row.source,
       agentNotes: row.agentNotes ?? undefined,
       createdAt: row.createdAt,
