@@ -36,6 +36,8 @@ export function ConfirmDialog({
   busy = false,
   busyLabel = "שולח…",
   confirmDisabled = false,
+  secondary,
+  dismissIcon = false,
   onConfirm,
   onClose,
   children,
@@ -59,6 +61,23 @@ export function ConfirmDialog({
    * (ביקורת Codex, P1). הביטול נשאר פעיל תמיד.
    */
   confirmDisabled?: boolean;
+  /**
+   * ‎**פעולה שנייה, לצד האישור — הדרך הבטוחה מתוך אותו חלון.**
+   *
+   * ‏„למחוק את הנכס?” היא שאלה שהתשובה השימושית לה לרוב אינה „כן”
+   * ואינה „ביטול” אלא „לא, רק להוציא אותו מהרשימה”. כשהחלופה אינה
+   * בחלון, מי שהתכוון אליה סוגר, מחפש אותה במקום אחר, ולעיתים
+   * מוותר ומוחק.
+   */
+  secondary?: { label: string; onClick: () => void } | undefined;
+  /**
+   * ‎`X` לסגירה בפינה, במקום כפתור „ביטול” בשורת הפעולות.
+   *
+   * לחלון עם שתי פעולות אמיתיות, כפתור טקסט שלישי מטשטש איזו מהן
+   * היא הפעולה: שלוש מילים באותה שורה נקראות כשלוש אפשרויות
+   * שקולות. ה-`X` אומר „לצאת” בלי להתחרות עליהן.
+   */
+  dismissIcon?: boolean;
   /** `undefined` = אין מה לאשר; הכפתור היחיד סוגר. */
   onConfirm?: (() => void) | undefined;
   onClose: () => void;
@@ -87,6 +106,17 @@ export function ConfirmDialog({
         if (!busy) onClose();
       }}
     >
+      {dismissIcon ? (
+        <button
+          type="button"
+          aria-label="סגירה בלי לעשות דבר"
+          disabled={busy}
+          onClick={onClose}
+          className="mv-dialog-dismiss"
+        >
+          <span aria-hidden="true">✕</span>
+        </button>
+      ) : null}
       <h2 className="m-0 mb-2 text-[length:var(--type-metric)] font-extrabold" style={{ color: TONE_COLOR[tone] }}>
         {title}
       </h2>
@@ -99,6 +129,11 @@ export function ConfirmDialog({
         ) : (
           <Button onClick={onClose}>{confirmLabel}</Button>
         )}
+        {secondary ? (
+          <Button variant="ghost" disabled={busy} onClick={secondary.onClick}>
+            {secondary.label}
+          </Button>
+        ) : null}
         {onConfirm && cancelLabel !== null ? (
           <Button variant="ghost" disabled={busy} onClick={onClose}>
             {cancelLabel}

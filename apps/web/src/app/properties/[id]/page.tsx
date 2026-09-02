@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   use,
   type ReactNode,
@@ -22,7 +21,7 @@ import {
   type ScoreComponent,
 } from "@metavchim/shared";
 import { useRouter } from "next/navigation";
-import { apiDelete, apiGet, apiList, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiList, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
 import {
   formatDate,
@@ -74,6 +73,7 @@ import { IconAction } from "../../icon-action";
 import { LoadError } from "../../load-error";
 import { AgentPicker } from "../../agent-picker";
 import { Notice } from "../../notice";
+import { DeletePropertyDialog } from "../delete-property-dialog";
 
 /**
  * כרטיס הנכס לפי קובץ העיצוב: כרטיס כותרת עם מחיר ופעולות (עריכה /
@@ -402,26 +402,15 @@ export default function PropertyDetailPage({
    * חשובה יותר, וזו בדיוק ההחלטה שהוא רוצה לא לקבל.
    */
   const [matchFilters, setMatchFilters] = useState<Set<string>>(new Set());
-  const [archiveConfirm, setArchiveConfirm] = useState(false);
-  const [purgeConfirm, setPurgeConfirm] = useState(false);
-  /**
-   * כמה כרטיסי אדם יירדו עם הנכס — `"loading"` עד שהתשובה חוזרת,
-   * `"unknown"` כשהבדיקה עצמה נכשלה.
-   *
-   * שלושה מצבים ולא שניים, ומאותה סיבה שהבאנר של דף הנחיתה למד:
-   * „כל מה שאינו מספר = אפס” היה מבטיח „לא יימחק אף כרטיס” בדיוק
-   * כשלא ידענו.
-   */
-  const [purgeImpact, setPurgeImpact] = useState<number | "loading" | "unknown">(
-    "loading",
-  );
   /*
-   * תשובה של בדיקה שכבר בוטלה לא תכתוב על המסך. אותו מונה בדיוק
-   * שתיבת התמיכה נזקקה לו — לחיצה, ביטול, ולחיצה שנייה משאירים שתי
-   * בקשות באוויר, והישנה עלולה לחזור אחרונה.
+   * ‎**דגל אחד במקום מכונת אישורים.**
+   *
+   * כאן ישבו `archiveConfirm`, `purgeConfirm`, `purgeImpact`, מונה
+   * שמבטל תשובות ישנות ושדה שגיאה — כולם כדי לנהל אישור דו-לחיצה
+   * שהיה מפוזר על שני כפתורים בתחתית העמוד. החלון מנהל את כל אלה
+   * בתוכו, ונסגר יחד איתם.
    */
-  const purgeSeq = useRef(0);
-  const [purgeError, setPurgeError] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [statusSaving, setStatusSaving] = useState(false);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   /*
@@ -702,56 +691,6 @@ export default function PropertyDetailPage({
       setProperty((prev) => (prev ? { ...prev, status } : prev));
     } finally {
       setStatusSaving(false);
-    }
-  }
-
-  /** ארכוב בשני שלבים — לחיצה ראשונה מבקשת אישור, שנייה מבצעת. */
-  async function archive() {
-    if (!archiveConfirm) {
-      setArchiveConfirm(true);
-      return;
-    }
-    await apiDelete(`/properties/${id}`);
-    router.replace("/properties");
-  }
-
-  /**
-   * מחיקה לצמיתות — רק מנכס שכבר בארכיון, ובשני שלבים גם כאן.
-   *
-   * הארכיון הוא ברירת המחדל כי נכס שנמכר הוא היסטוריה עסקית; זה
-   * הנתיב לנכס שנקלט בטעות או לכפילות. התמונות נמחקות איתו מהאחסון.
-   *
-   * ‎**ולפעמים גם כרטיס של אדם.** בעלים שהנכס הזה הוא העוגן היחיד
-   * שלו אינו נגיש בשום מסך אחרי המחיקה, ולכן הוא נמחק איתה. מתווך
-   * שמנקה כפילות אינו מתכוון למחוק אדם — לכן השאלה נשאלת בשרת בין
-   * שתי הלחיצות, והתשובה מוצגת לפני השנייה.
-   *
-   * כשל בשליפת התצוגה המקדימה אינו חוסם את המחיקה — הוא אומר שלא
-   * ידוע. „לא הצלחנו לבדוק” אינו „לא יימחק אף כרטיס”, וזה בדיוק
-   * ההבדל שאסור לבלוע.
-   */
-  async function purge() {
-    if (!purgeConfirm) {
-      const mine = ++purgeSeq.current;
-      setPurgeConfirm(true);
-      setPurgeImpact("loading");
-      try {
-        const preview = await apiGet<{ contacts: number }>(
-          `/properties/${id}/permanent/preview`,
-        );
-        if (purgeSeq.current === mine) setPurgeImpact(preview.contacts);
-      } catch {
-        if (purgeSeq.current === mine) setPurgeImpact("unknown");
-      }
-      return;
-    }
-    setPurgeError(null);
-    try {
-      await apiDelete(`/properties/${id}/permanent`);
-      router.replace("/properties");
-    } catch (err: unknown) {
-      setPurgeError(err instanceof ApiError ? err.message : "המחיקה נכשלה");
-      setPurgeConfirm(false);
     }
   }
 
@@ -1151,27 +1090,19 @@ export default function PropertyDetailPage({
               <IconEdit s={19} />
             </IconAction>
             {/*
-              ‎**המחיקה חזרה לכותרת לבקשת בעל המוצר**, לצד „פעולות
-              נוספות” שבסקירה. הכפילות מכוונת ולא נשכחה: הכותרת
-              נראית בכל הלשוניות והכרטיס רק בסקירה, ומי שרוצה למחוק
-              מלשונית ההסכמים נאלץ עד כה לחזור אחורה.
+              ‎**הפח שואל, ולא גולל.**
 
-              שני המסלולים מובילים לאותו מקום בדיוק — הכפתור כאן
-              גולל אל הכרטיס, ששם יושבים האישור הדו-שלבי והגילוי
-              שסופר כמה כרטיסי אדם יימחקו. אישור מקוצר כאן היה מוחק
-              בלי אותו גילוי.
+              הכפתור הזה בחר את לשונית הסקירה וגלל אל כרטיס „פעולות
+              נוספות” שבתחתית העמוד — ומי שלוחץ על פח אשפה ומקבל
+              גלילה אינו יודע אם משהו קרה, ולכן לוחץ שוב. עכשיו
+              נפתחת השאלה עצמה, עם שתי הדרכים (מחיקה וארכיון) ועם
+              הגילוי שסופר כמה כרטיסי אדם יירדו — אותו גילוי שהיה
+              קודם בתחתית, ובלעדיו לא ניתן לאשר.
             */}
             <IconAction
-              label="מחיקת הנכס — לאישור בכרטיס „פעולות נוספות”"
+              label="מחיקת הנכס"
               tone="danger"
-              onClick={() => {
-                selectTab("overview");
-                requestAnimationFrame(() => {
-                  document
-                    .getElementById("extra-actions-heading")
-                    ?.scrollIntoView({ behavior: "smooth", block: "center" });
-                });
-              }}
+              onClick={() => setDeleteOpen(true)}
             >
               <IconTrash s={19} />
             </IconAction>
@@ -1622,94 +1553,22 @@ export default function PropertyDetailPage({
                   שיתוף לרשת המשרדים
                 </button>
 
+                {/*
+                  ‎**נתיב אחד לשתי הפעולות ההרסניות.**
+
+                  כאן ישבו אישור דו-לחיצה משלהם, אזהרה ושגיאה — כלומר
+                  ניסוח שני לאותה שאלה בדיוק שהפח שבכותרת שואל.
+                  שני ניסוחים של מחיקה באותו מסך הם שני מקומות
+                  לתקן, ואחד מהם תמיד נשכח.
+                */}
                 <button
                   type="button"
                   className="mv-btn-plain"
-                  style={{
-                    color: archiveConfirm
-                      ? "var(--color-danger)"
-                      : "var(--color-text-muted)",
-                  }}
-                  onClick={() => void archive()}
+                  style={{ color: "var(--color-danger)" }}
+                  onClick={() => setDeleteOpen(true)}
                 >
-                  {archiveConfirm ? "לאשר העברה לארכיון?" : "העבר לארכיון"}
+                  {property.archived ? "מחיקת נכס" : "מחיקה או העברה לארכיון"}
                 </button>
-                {archiveConfirm ? (
-                  <button
-                    type="button"
-                    className="mv-btn-plain"
-                    onClick={() => setArchiveConfirm(false)}
-                  >
-                    ביטול
-                  </button>
-                ) : null}
-
-            {/*
-              מחיקה לצמיתות מוצגת רק לנכס שכבר בארכיון: שני שלבים
-              נפרדים, כדי שנכס פעיל לא ייעלם בלחיצה אחת.
-            */}
-                {property.archived ? (
-                  <>
-                    <button
-                      type="button"
-                      className="mv-btn-plain"
-                      style={{ color: "var(--color-danger)" }}
-                      onClick={() => void purge()}
-                    >
-                      {purgeConfirm
-                        ? "לאשר מחיקה לצמיתות? התמונות יימחקו גם מהאחסון"
-                        : "מחיקת נכס"}
-                    </button>
-                    {purgeConfirm ? (
-                      <button
-                        type="button"
-                        className="mv-btn-plain"
-                        onClick={() => {
-                          setPurgeConfirm(false);
-                          /*
-                            ‎**קידום המונה שייך לביטול, ולא לכפתור.**
-
-                            הוא ישב בכפתור הביטול שבכותרת, וזה שנמחק
-                            כשהמחיקה עברה לכאן. בלעדיו בדיקה שכבר
-                            באוויר כותבת `purgeImpact` אחרי הביטול,
-                            והפתיחה הבאה מציגה אזהרה של מחיקה קודמת.
-                          */
-                          purgeSeq.current += 1;
-                        }}
-                      >
-                        ביטול
-                      </button>
-                    ) : null}
-                    {/*
-                      ‎**האזהרה צמודה לכפתור שהיא מזהירה עליו.**
-
-                      היא ישבה בשורת הפעולות שבכותרת, ומרגע שהמחיקה
-                      עברה לכאן היא הייתה מופיעה במרחק מסך מהכפתור
-                      שגרם לה — כלומר גילוי שאפשר לפספס בדיוק ברגע
-                      שבו הוא נחוץ.
-                    */}
-                    {purgeConfirm && purgeImpact !== "loading" && purgeImpact !== 0 ? (
-                      <p
-                        role="status"
-                        className="m-0 rounded-lg px-3 py-2 text-sm"
-                        style={{
-                          background: "var(--color-danger-soft)",
-                          border: "1px solid var(--color-danger)",
-                          color: "var(--color-danger)",
-                        }}
-                      >
-                        {purgeImpact === "unknown"
-                          ? "לא הצלחנו לבדוק אם יימחקו גם כרטיסי לקוח — בדקו לפני המחיקה"
-                          : purgeImpact === 1
-                            ? "יימחק גם כרטיס לקוח אחד, שהנכס הזה הוא הקישור היחיד אליו — כולל שם, טלפונים והיסטוריית התקשורת"
-                            : `יימחקו גם ${purgeImpact} כרטיסי לקוח, שהנכס הזה הוא הקישור היחיד אליהם — כולל שם, טלפונים והיסטוריית התקשורת`}
-                      </p>
-                    ) : null}
-                    {purgeError !== null ? (
-                      <Notice tone="danger">{purgeError}</Notice>
-                    ) : null}
-                  </>
-                ) : null}
               </div>
             </section>
           </div>
@@ -2471,6 +2330,20 @@ export default function PropertyDetailPage({
           suggestFrom={property.missingFields}
         />
       </TabPanel>
+
+      {/*
+        ‎**מחוץ ללשוניות, בכוונה.** ‏`dialog` שיושב בתוך פאנל לשונית
+        נעלם מה-DOM ברגע שנבחרת לשונית אחרת — והפח שבכותרת נראה בכל
+        הלשוניות. כאן הוא תמיד מורכב, ולכן תמיד ניתן לפתיחה.
+      */}
+      <DeletePropertyDialog
+        propertyId={property.id}
+        /* השדה אופציונלי בתשובה; „לא ידוע” נקרא כ„לא בארכיון” */
+        archived={property.archived === true}
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        onDone={() => router.replace("/properties")}
+      />
     </>
   );
 }

@@ -3569,6 +3569,40 @@ a.mv-bar-row:focus-visible {
   margin: auto;
   box-shadow: 0 24px 60px rgb(0 0 0 / 18%);
 }
+/*
+ * ‎`X` הסגירה — בפינה הפותחת של החלון (שמאל ב-RTL).
+ *
+ * ‎`position: relative` על `.mv-dialog` נדרש כדי שהמיקום המוחלט
+ * יימדד מול החלון ולא מול העמוד; בלעדיו ה-X נודד לפינת המסך.
+ */
+.mv-dialog {
+  position: relative;
+}
+.mv-dialog-dismiss {
+  position: absolute;
+  inset-inline-end: 14px;
+  inset-block-start: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* יעד נגיעה של 40px — האצבע אינה מכוונת לתו אחד */
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--type-body-sm);
+  cursor: pointer;
+}
+.mv-dialog-dismiss:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+.mv-dialog-dismiss:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
 .mv-dialog::backdrop {
   background: rgb(12 20 15 / 45%);
   backdrop-filter: blur(2px);
