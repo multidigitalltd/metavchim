@@ -100,9 +100,23 @@ export function NumberRentalsSection(): React.JSX.Element {
         <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {(rentals ?? []).map((rental) => {
             const platformCharge = rental.origin === "platform";
+            /*
+             * חיוב מהפלטפורמה שהסתיים: המספר עדיין מנותב ואיש לא
+             * משלם — שורה שדורשת החלטה, לא היסטוריה. ביטול **לפני**
+             * סוף התקופה ששולמה אינו כזה: המשרד שילם על החודש הזה,
+             * ושורה אדומה הייתה שולחת לכבות שירות ששולם (ביקורת Codex).
+             */
+            const periodOver =
+              rental.currentPeriodEnd === null || new Date(rental.currentPeriodEnd) <= new Date();
+            const unpaidRouting =
+              platformCharge &&
+              (rental.status === "released" || (rental.status === "cancelled" && periodOver));
+            const cancelledStillPaid =
+              platformCharge && rental.status === "cancelled" && !periodOver;
             const needsAttention =
               rental.status === "past_due" ||
               (rental.status === "active" && !rental.provisioned && !platformCharge) ||
+              unpaidRouting ||
               rental.providerError !== null;
             return (
               <li
@@ -110,7 +124,7 @@ export function NumberRentalsSection(): React.JSX.Element {
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border p-2.5 text-[length:var(--type-caption-lg)]"
                 style={{
                   borderColor: needsAttention ? "var(--color-danger)" : "var(--color-border)",
-                  opacity: rental.status === "released" ? 0.55 : 1,
+                  opacity: rental.status === "released" && !unpaidRouting ? 0.55 : 1,
                 }}
               >
                 <b className="mv-ltr">{rental.numberDisplay}</b>
@@ -126,6 +140,8 @@ export function NumberRentalsSection(): React.JSX.Element {
                   {rental.status === "active" && !rental.provisioned && !platformCharge
                     ? " · שולם אך לא נתפס!"
                     : ""}
+                  {unpaidRouting ? " · המספר עדיין מנותב בלי תשלום — לטפל" : ""}
+                  {cancelledStillPaid ? " · שולם עד סוף התקופה; אחריה לטפל בניתוב" : ""}
                 </span>
                 {rental.currentPeriodEnd ? (
                   <span style={{ color: "var(--color-text-muted)" }}>

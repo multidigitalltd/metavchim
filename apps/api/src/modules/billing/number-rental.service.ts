@@ -388,6 +388,41 @@ export class NumberRentalService {
       where: { id: rentalId },
       data: { status: "cancelled", cancelledAt: new Date() },
     });
+    /*
+     * ‎**חיוב מהפלטפורמה שבוטל הוא עבודה ידנית, ובכוונה.**
+     *
+     * בהשכרה מהמלאי הסורק סוגר את המעגל: התקופה נגמרת, המספר חוזר
+     * ל-015, ואיש אינו נשאר עם שירות בחינם. בחיוב על מספר של המשרד
+     * אין מה להחזיר — המספר שלו, והניתוב ממשיך לעבוד גם אחרי
+     * שהגבייה נפסקה. בלי מייל שאומר זאת במפורש, ביטול מצד המשרד
+     * היה הופך בשקט לשירות חינם (בקשת בעל הפלטפורמה).
+     */
+    if (rental.origin === "platform") {
+      const agency = await this.agencyName(rental.tenantId);
+      const routed = await this.routingActive(rental.tenantId, rental.number);
+      const until =
+        rental.currentPeriodEnd !== null
+          ? `החיוב ייפסק ב-${formatJerusalemDate(rental.currentPeriodEnd)}.`
+          : "החיוב ייפסק בסבב הסורק הבא.";
+      await this.notifyAdmins(
+        routed
+          ? "משרד ביטל חיוב חודשי על מספר — הניתוב עדיין פעיל"
+          : "משרד ביטל חיוב חודשי על מספר",
+        [
+          `המשרד „${agency}” ביטל את החיוב החודשי על המספר ${formatRentalNumber(rental.number)}.`,
+          until,
+          /*
+           * הניתוב נבדק ולא מונח: מספר שכבר כובה או נמחק בשולחן
+           * החיבורים אינו „מנותב בלי תשלום”, ומייל שטוען זאת היה
+           * שולח לטפל במה שכבר טופל (ביקורת Codex).
+           */
+          routed
+            ? "המספר של המשרד הוא ואינו משוחרר: הניתוב שלו במערכת ממשיך לעבוד גם אחרי הפסקת החיוב, עד שתחליטו — לכבות או למחוק אותו בשולחן החיבורים, או לסכם עם המשרד על המשך החיוב."
+            : "הניתוב של המספר במערכת כבר כבוי או נמחק — אין שירות שנשאר בלי תשלום.",
+        ].join(" "),
+      );
+      return;
+    }
     await this.notifyAdmins(
       "בוטלה השכרת מספר וירטואלי",
       [
@@ -397,6 +432,39 @@ export class NumberRentalService {
           : "המספר ישוחרר אוטומטית אצל 015 בסבב הסורק הבא.",
       ].join(" "),
     );
+  }
+
+  /**
+   * האם המספר עדיין מנותב אצל המשרד — שורת מספר וירטואלי פעילה.
+   *
+   * ‎`withExplicitTenant` כי הטבלה תחת FORCE RLS והקריאה מגיעה מסורק
+   * או מנתיב חיוב, בלי הקשר דייר. כשל בבדיקה נקרא כ„מנותב”: עדיף
+   * מייל שמבקש לבדוק על מייל שמרגיע בטעות.
+   */
+  async routingActive(tenantId: string, number: string): Promise<boolean> {
+    const phone = canonicalVirtualNumber(number);
+    if (phone === "") return false;
+    try {
+      const row = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.virtualNumber.findFirst({
+          where: { tenantId, phone, isActive: true },
+          select: { id: true },
+        }),
+      );
+      return row !== null;
+    } catch (error) {
+      this.logger.warn(`בדיקת ניתוב (${tenantId}) נכשלה: ${String(error)}`);
+      return true;
+    }
+  }
+
+  /** שם המשרד למייל למנהלים — כדי שיֵדעו אצל מי לטפל בלי לחפש. */
+  private async agencyName(tenantId: string): Promise<string> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true },
+    });
+    return tenant?.name ?? tenantId;
   }
 
   /**
