@@ -30,7 +30,12 @@ const ERASURE = read("../contacts/contact-erasure.service.ts");
 const LOCKS = read("../../common/locks.ts");
 const OWNERSHIP = read("../../common/ownership.ts");
 const MODULE = read("../contacts/contacts.module.ts");
-const WEB = read("../../../../web/src/app/properties/[id]/page.tsx");
+/*
+ * ‎**החלון, ולא העמוד.** האישור הדו-לחיצה שישב בתחתית כרטיס הנכס
+ * עבר לחלון שנפתח מאייקון הפח — הכלל שנשמר כאן לא השתנה, רק
+ * המקום שבו הוא חי.
+ */
+const WEB = read("../../../../web/src/app/properties/delete-property-dialog.tsx");
 
 /** גוף `purge`, מהחתימה ועד סוף המתודה. */
 const PURGE = (() => {
@@ -166,26 +171,35 @@ describe("כרטיס יתום במחיקת נכס לצמיתות", () => {
    * דף הנחיתה כבר למד, ושחזרה כאן על מידע חמור יותר.
    */
   it("המסך מבדיל בין אפס לבין „לא ידוע”", () => {
-    expect(WEB).toMatch(/useState<number \| "loading" \| "unknown">/u);
-    expect(WEB).toContain('setPurgeImpact("unknown")');
+    expect(WEB).toMatch(/type Impact = number \| "loading" \| "unknown";/u);
+    expect(WEB).toContain('setImpact("unknown")');
     expect(WEB).toContain("לא הצלחנו לבדוק אם יימחקו גם כרטיסי לקוח");
-    expect(WEB).toMatch(/purgeConfirm && purgeImpact !== "loading" && purgeImpact !== 0/u);
+    // אפס אינו אזהרה, ו„נטען” אינו אפס — שלושת המצבים נפרדים בתצוגה
+    expect(WEB).toMatch(/impact === "loading" \? \(/u);
+    expect(WEB).toMatch(/impact === "unknown" \? \(/u);
+    expect(WEB).toMatch(/impact > 0 \? \(/u);
   });
 
   /*
    * האזהרה נקראת בין שתי הלחיצות — כלומר לפני שהמחיקה בוצעה ובזמן
    * שעוד אפשר לבטל. „נמחק גם X” אחרי המעשה אינו אזהרה.
    */
-  it("הבדיקה נעשית בלחיצה הראשונה, לא בשנייה", () => {
-    const fn = WEB.slice(WEB.indexOf("async function purge()"));
-    const preview = fn.indexOf("/permanent/preview");
-    const remove = fn.indexOf("apiDelete(`/properties/${id}/permanent`)");
+  it("הבדיקה נעשית בפתיחת החלון, לא אחרי האישור", () => {
+    const preview = WEB.indexOf("/permanent/preview");
+    const remove = WEB.indexOf("apiDelete(`/properties/${propertyId}/permanent`)");
     expect(preview, "התצוגה המקדימה לא נמצאה").toBeGreaterThan(-1);
     expect(remove, "המחיקה לא נמצאה").toBeGreaterThan(-1);
     expect(preview, "הבדיקה אחרי המחיקה — מאוחר מדי").toBeLessThan(remove);
-    // תשובה של בדיקה שבוטלה לא תכתוב על המסך
-    expect(fn).toContain("const mine = ++purgeSeq.current;");
-    expect((fn.match(/if \(purgeSeq\.current === mine\)/gu) ?? []).length).toBe(2);
+    /*
+     * ‎**והאישור חסום עד שהיא חוזרת.** בגלגול הקודם זו הייתה לחיצה
+     * שנייה נפרדת; כאן הכפתור עצמו מושבת, וזו אכיפה חזקה יותר —
+     * אין רגע שבו „מחק” לחיץ בלי שהגילוי על המסך.
+     */
+    expect(WEB).toContain('confirmDisabled={impact === "loading"}');
+    // תשובה של בדיקה שבוטלה לא תכתוב על חלון שנסגר
+    expect(WEB).toContain("let live = true;");
+    expect((WEB.match(/if \(live\)/gu) ?? []).length).toBe(2);
+    expect(WEB).toContain("live = false;");
   });
 
   /*
