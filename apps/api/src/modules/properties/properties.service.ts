@@ -36,6 +36,7 @@ import {
   agentNameOf,
   agentNames,
   assertAgentInOffice,
+  assertCanAssignAgents,
 } from "../../common/agent-names";
 import { lockContact, lockProperty, type ContactLock } from "../../common/locks";
 import { isOrphanContact, leadOwnershipFilter } from "../../common/ownership";
@@ -751,8 +752,17 @@ export class PropertiesService {
         ...fieldPatch,
       };
       for (const key of clearFields ?? []) delete mergedFields[key];
-      if (agentUserId !== undefined && agentUserId !== "") {
-        await assertAgentInOffice(tx, tenantId, agentUserId);
+      /*
+       * ‎**אותה אכיפה בנכס.** הבורר בשני הכרטיסים נשען על
+       * ‎`tasks.assign`, ותפקיד `agent` מחזיק ב-`properties.edit`
+       * ואין לו אותה — כלומר בלי השורה הזו הגבול קיים במסך בלבד.
+       * הניתוק (`""`) הוא גם הוא העברה, ולכן גם הוא נאכף.
+       */
+      if (agentUserId !== undefined) {
+        assertCanAssignAgents();
+        if (agentUserId !== "") {
+          await assertAgentInOffice(tx, tenantId, agentUserId);
+        }
       }
       const readiness = computeReadiness(mergedFields, {
         hasImages: await this.hasMedia(tx, id),

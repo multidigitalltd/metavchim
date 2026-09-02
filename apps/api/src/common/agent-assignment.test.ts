@@ -249,6 +249,68 @@ describe("שיוך סוכן — נכס, ליד וקונה", () => {
     expect(helper).toMatch(/return userId === "" \? null : userId;/u);
   });
 
+  /**
+   * ‎**הגבול בשרת, לא במסך.**
+   *
+   * הבורר נשען על `tasks.assign`, אבל בדיקה בלקוח אינה גבול הרשאה:
+   * ‎`PATCH` ישיר אינו עובר דרך המסך כלל. תפקיד `agent` מחזיק
+   * ב-`buyers.edit` וב-`properties.edit` ואין לו `tasks.assign`,
+   * ולכן בלי האכיפה הזו סוכן היה מעביר כרטיס שלו לכל אדם במשרד —
+   * פעולה שהוגדרה כאן כשל מנהל (ביקורת Codex).
+   */
+  it.each([
+    ["properties/properties.service.ts", "נכס"],
+    ["buyers/buyers.service.ts", "קונה"],
+  ])("%s — העברה נאכפת בשרת ולא רק בבורר", (path) => {
+    expect(API(path)).toContain("assertCanAssignAgents()");
+  });
+
+  it("והשומר באמת בודק את היכולת וזורק 403", () => {
+    const helper = read(new URL("./agent-names.ts", import.meta.url));
+    const fn = helper.slice(helper.indexOf("export function assertCanAssignAgents"));
+    expect(fn).toMatch(/capabilities\.has\("tasks\.assign"\)/u);
+    expect(fn).toContain("ForbiddenException");
+  });
+
+  /*
+   * ‎**וניתוק הוא גם העברה.** מחרוזת ריקה בנכס מנתקת את השיוך, וזו
+   * בדיוק אותה פעולה — שער שחל רק על „העברה למישהו” היה מתיר לסוכן
+   * לנתק כרטיס בלי רשות.
+   */
+  it("גם ניתוק שיוך בנכס נאכף", () => {
+    const src = API("properties/properties.service.ts");
+    expect(src).toMatch(/if \(agentUserId !== undefined\) \{\s*assertCanAssignAgents\(\);/u);
+  });
+
+  /**
+   * ‎**מה שנרשם — נקרא.**
+   *
+   * ‎`from`/`to` הם כל הסיבה שהאירוע נפרד מ-`update`. נקודת הקצה
+   * החזירה `supportAdmin` בלבד מתוך ה-`metadata`, ולכן הם נכתבו ולא
+   * ניתנו לקריאה: המסך אמר „העברת נכס בין סוכנים” בלי לומר בין מי
+   * לבין מי — כלומר בדיוק את השאלה שהאירוע קיים בשבילה.
+   */
+  it("היומן מחזיר את שמות שני הצדדים", () => {
+    const src = read(new URL("../modules/settings/settings.controller.ts", import.meta.url));
+    expect(src).toMatch(/handoverId\(r, "from"\)/u);
+    expect(src).toMatch(/handoverId\(r, "to"\)/u);
+    /*
+     * השדה עצמו, ולא תת-מחרוזת: `/agentFrom/` עונה „כן” גם על
+     * ‎`agentFromX` — אותה חולשה שכבר נמצאה כאן פעם.
+     */
+    expect(src).toMatch(/\{ agentFrom: agentName\(from\)! \}/u);
+    expect(src).toMatch(/\{ agentTo: agentName\(to\)! \}/u);
+    /* ובאותה שאילתת שמות שכבר רצה — לא שאילתה לכל שורה */
+    expect(src).toMatch(/\.\.\.rows\.flatMap\(\(r\) => \[handoverId\(r, "from"\), handoverId\(r, "to"\)\]\)/u);
+  });
+
+  it("והמסך מציג אותם, ולא רק את שם הפעולה", () => {
+    const page = WEB("settings/page.tsx");
+    expect(page).toMatch(/agentFrom\?\?\s*"לא משויך"|agentFrom \?\? "לא משויך"/u);
+    expect(page).toContain('"property.agent_changed": "העברת נכס בין סוכנים"');
+    expect(page).toContain('"buyer.agent_changed": "העברת קונה בין סוכנים"');
+  });
+
   /*
    * ‎**„לא משויך” נראה.** זו ברירת המחדל של הרכיב, והיא מה שהופך
    * כרטיס בלי סוכן לגלוי במקום להיעדר שקט.

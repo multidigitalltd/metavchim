@@ -65,6 +65,14 @@ interface AuditRow {
   userName?: string;
   /** הפעולה בוצעה ע"י התמיכה — הכתובת שנכנסה. */
   supportAdmin?: string;
+  /**
+   * העברת כרטיס בין סוכנים — ממי, ולמי.
+   *
+   * חסר = הצד הזה היה „לא משויך”, וזה צד לגיטימי בהעברה: נכס שלא
+   * היה שייך לאיש וקיבל מטפל, או להפך.
+   */
+  agentFrom?: string;
+  agentTo?: string;
   createdAt: string;
 }
 
@@ -92,6 +100,9 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   "property.owner_update": "עדכון שיווק לבעל נכס",
   "buyer.create": "יצירת קונה",
   "buyer.update": "עדכון קונה",
+  // ‏„בין סוכנים” ולא „עדכון”: זו העברת אחריות, ולכן היא שורה משלה
+  "property.agent_changed": "העברת נכס בין סוכנים",
+  "buyer.agent_changed": "העברת קונה בין סוכנים",
   "buyer.interaction_add": "תיעוד אינטראקציה עם קונה",
   "lead.create": "יצירת ליד",
   "lead.status": "עדכון סטטוס ליד",
@@ -1388,6 +1399,14 @@ export default function SettingsPage() {
                       </span>
                       <span style={{ color: "var(--color-text-soft)" }}>
                         {AUDIT_ACTION_LABELS[row.action] ?? row.action}
+                        {/*
+                          ‎**„בין מי לבין מי” — כאן, לא בשורה נפרדת.**
+                          „העברת נכס בין סוכנים” בלי השמות אינו עונה
+                          על השאלה שבגללה האירוע נרשם בנפרד.
+                        */}
+                        {row.agentFrom !== undefined || row.agentTo !== undefined
+                          ? ` · ${row.agentFrom ?? "לא משויך"} ← ${row.agentTo ?? "לא משויך"}`
+                          : ""}
                       </span>
                       <span
                         className="ms-auto"

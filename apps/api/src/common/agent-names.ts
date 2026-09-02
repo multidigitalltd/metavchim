@@ -1,5 +1,6 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException } from "@nestjs/common";
 
+import { TenantContext } from "./tenant-context";
 import type { TenantTx } from "../core/prisma.service";
 
 /**
@@ -96,4 +97,22 @@ export function agentHandover(
   const from = before ?? null;
   const to = after ?? null;
   return from === to ? null : { from, to };
+}
+
+/**
+ * ‎**העברה בין סוכנים היא פעולת מנהל — ונאכפת בשרת.**
+ *
+ * הבורר במסך כבר נשען על `tasks.assign`, אבל **בדיקה בלקוח אינה
+ * גבול הרשאה**: `PATCH` ישיר אינו עובר דרך המסך כלל. תפקיד `agent`
+ * מחזיק ב-`buyers.edit` ו-`properties.edit` ואין לו `tasks.assign`,
+ * ולכן בלי הבדיקה הזו סוכן יכול היה להעביר כרטיס שלו לכל אדם במשרד
+ * — פעולה שההגדרה כאן קובעת שהיא של מנהל (ביקורת Codex).
+ *
+ * ‎**רק בשינוי, ולא ביצירה.** כרטיס חדש נולד אצל מי שיצר אותו,
+ * וזו עבודת סוכן רגילה. מה שדורש מנהל הוא **העברה** של כרטיס קיים.
+ */
+export function assertCanAssignAgents(): void {
+  if (!TenantContext.current().capabilities.has("tasks.assign")) {
+    throw new ForbiddenException("העברת כרטיס בין סוכנים היא פעולת מנהל");
+  }
 }

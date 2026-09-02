@@ -34,6 +34,7 @@ import {
   agentNameOf,
   agentNames,
   assertAgentInOffice,
+  assertCanAssignAgents,
 } from "../../common/agent-names";
 import { TenantContext } from "../../common/tenant-context";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
@@ -669,6 +670,8 @@ export class BuyersService {
        * הייתה חלון שבו הסוכן הוסר מהמשרד בין הבדיקה לכתיבה.
        */
       if (patch.ownerUserId !== undefined) {
+        /* הרשאה לפני קיום: „אינך רשאי” קודם ל„הסוכן אינו במשרד” */
+        assertCanAssignAgents();
         await assertAgentInOffice(tx, tenantId, patch.ownerUserId);
       }
       if (touchesStatus) await shareTenantRow(tx, tenantId);
