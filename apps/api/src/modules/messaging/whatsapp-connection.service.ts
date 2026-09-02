@@ -33,6 +33,8 @@ const REQUEST_TIMEOUT_MS = 15_000;
 
 export interface ConnectionSummary {
   id: string;
+  /** הסוכן שהקו שלו — מה שמאפשר למסך לומר „הקו שלך” מול „של דנה” */
+  userId: string;
   displayPhone: string;
   verifiedName: string | null;
   status: string;
@@ -97,13 +99,21 @@ export class WhatsAppConnectionService {
     return { appId: creds.appId, configId };
   }
 
-  /** החיבורים של המשרד — הפעילים ראשונים, לתצוגה במסך ההגדרות. */
-  async list(tenantId: string): Promise<ConnectionSummary[]> {
+  /**
+   * החיבורים לתצוגה — הפעילים ראשונים.
+   *
+   * ‎`userId` נתון ⇒ הקווים של אותו סוכן בלבד. זו התצוגה הרגילה:
+   * הקו הוא של הסוכן, ואין סיבה שיראה את המספרים הפרטיים של
+   * עמיתיו. השמטתו מחזירה את כל קווי המשרד, ושמורה למי שרשאי
+   * לנהל את המשרד — למשל כדי לנתק קו של סוכן שעזב.
+   */
+  async list(tenantId: string, userId?: string): Promise<ConnectionSummary[]> {
     const rows = await this.prisma.whatsAppBusinessConnection.findMany({
-      where: { tenantId },
+      where: { tenantId, ...(userId ? { userId } : {}) },
       orderBy: [{ disconnectedAt: "asc" }, { connectedAt: "desc" }],
       select: {
         id: true,
+        userId: true,
         displayPhone: true,
         verifiedName: true,
         status: true,
@@ -125,6 +135,7 @@ export class WhatsAppConnectionService {
    */
   async complete(
     tenantId: string,
+    userId: string,
     input: { code: string; wabaId: string; phoneNumberId: string },
   ): Promise<ConnectResult> {
     const app = await this.appCredentials();
@@ -163,8 +174,26 @@ export class WhatsAppConnectionService {
     const now = new Date();
     const existing = await this.prisma.whatsAppBusinessConnection.findFirst({
       where: { phoneNumberId: input.phoneNumberId, disconnectedAt: null },
-      select: { id: true, tenantId: true },
+      select: { id: true, tenantId: true, userId: true },
     });
+
+    /*
+     * ‎**אותו קו אצל סוכן אחר באותו משרד.**
+     *
+     * ‏קו שייך לסוכן אחד, ו„חיבור” מחדש בידי אחר היה מעביר אליו
+     * בשקט את הלידים של עמיתו — כולל שיחות שכבר רצות. זו טעות
+     * נפוצה (שני סוכנים על אותו מכשיר) ולא זדון, ולכן התשובה היא
+     * עצירה עם הסבר ולא השתלטות שקטה.
+     */
+    if (existing && existing.tenantId === tenantId && existing.userId !== userId) {
+      this.logger.warn(
+        `ניסיון לחבר קו ${input.phoneNumberId} שכבר מחובר לסוכן אחר במשרד — נדחה`,
+      );
+      return {
+        ok: false,
+        reason: "המספר הזה כבר מחובר לסוכן אחר במשרד. עליו לנתק אותו תחילה",
+      };
+    }
 
     /*
      * אותו קו אצל משרד אחר — לא נוגעים. זה או ניסיון השתלטות או
@@ -182,6 +211,7 @@ export class WhatsAppConnectionService {
 
     const data = {
       tenantId,
+      userId,
       wabaId: input.wabaId,
       phoneNumberId: input.phoneNumberId,
       displayPhone: line.displayPhone,
@@ -216,7 +246,7 @@ export class WhatsAppConnectionService {
       };
     }
 
-    this.logger.log(`קו ${line.displayPhone} חובר למשרד ${tenantId}`);
+    this.logger.log(`קו ${line.displayPhone} חובר לסוכן ${userId} במשרד ${tenantId}`);
     return { ok: true, connection: saved };
   }
 
@@ -227,9 +257,19 @@ export class WhatsAppConnectionService {
    * מציגה "מעולם לא חובר". מנגד, טוקן חי של עסק שכבר לא איתנו אינו
    * דבר שמחזיקים — ולכן העמודה Nullable והניתוק מרוקן אותה.
    */
-  async disconnect(tenantId: string, connectionId: string, reason: string): Promise<boolean> {
+  async disconnect(
+    tenantId: string,
+    connectionId: string,
+    reason: string,
+    /**
+     * ‎`userId` נתון ⇒ מותר לנתק רק את הקו של אותו סוכן. השמטתו
+     * מתירה ניתוק של כל קו במשרד, ושמורה לניהול המשרד: סוכן שעזב
+     * משאיר קו מחובר שאיש אחר אינו יכול לשחרר.
+     */
+    userId?: string,
+  ): Promise<boolean> {
     const row = await this.prisma.whatsAppBusinessConnection.findFirst({
-      where: { id: connectionId, tenantId, disconnectedAt: null },
+      where: { id: connectionId, tenantId, ...(userId ? { userId } : {}), disconnectedAt: null },
       select: { id: true, wabaId: true, accessTokenEncrypted: true },
     });
     if (!row) return false;
@@ -264,11 +304,13 @@ export class WhatsAppConnectionService {
   async byPhoneNumberId(phoneNumberId: string): Promise<{
     id: string;
     tenantId: string;
+    /// הסוכן שהקו שלו — הליד שייווצר מההודעה נוחת אצלו
+    userId: string;
     status: string;
   } | null> {
     return this.prisma.whatsAppBusinessConnection.findFirst({
       where: { phoneNumberId, disconnectedAt: null },
-      select: { id: true, tenantId: true, status: true },
+      select: { id: true, tenantId: true, userId: true, status: true },
     });
   }
 
@@ -477,6 +519,7 @@ export class WhatsAppConnectionService {
 
 const SUMMARY_SELECT = {
   id: true,
+  userId: true,
   displayPhone: true,
   verifiedName: true,
   status: true,

@@ -188,6 +188,8 @@ sequenceDiagram
 model WhatsAppBusinessConnection {
   id                    String    @id @db.Char(26)
   tenantId              String    @map("tenant_id") @db.Char(26)
+  /// הסוכן שחיבר את הקו — הקו אישי, והליד ממנו נוחת אצלו
+  userId                String    @map("user_id") @db.Char(26)
   /// מזהי Meta — יציבים, לא-סודיים, מפתחות הניתוב
   wabaId                String    @map("waba_id") @db.VarChar(32)
   phoneNumberId         String    @unique @map("phone_number_id") @db.VarChar(32)
@@ -220,8 +222,15 @@ model WhatsAppBusinessConnection {
 }
 ```
 
-משרד יכול להחזיק כמה קווים (סניפים) — לכן `tenantId` אינו ייחודי,
-אבל `phoneNumberId` כן: קו אחד שייך לחיבור אחד.
+‎**הקו שייך לסוכן ולא למשרד.** כל סוכן מחבר את המספר שבכיס שלו,
+והלקוחות שכותבים אליו הם שלו — ולכן ליד שנוצר מהקו מקבל
+`assignedToUserId` של אותו סוכן. בלי זה סוכן שחיבר את הטלפון הפרטי
+שלו היה מזין לידים למאגר שעמיתיו רואים.
+
+‎`tenantId` נשאר לצידו משתי סיבות: הוא מכריע לאיזה משרד ההודעה
+שייכת בנתיב הציבורי של הוובהוק, והוא מה שמאפשר לבעל משרד לנתק קו
+של סוכן שעזב. `phoneNumberId` ייחודי — קו אחד שייך לחיבור אחד,
+וניסיון לחבר קו שכבר שייך לסוכן אחר נדחה במפורש.
 
 ### 4.2 מצב שיחה מול לקוח: `whatsapp_conversations`
 

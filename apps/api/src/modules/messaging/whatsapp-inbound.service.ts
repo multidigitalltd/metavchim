@@ -300,7 +300,7 @@ export class WhatsAppInboundService {
             fromPhone: normalizeWaPhone(message.from),
             senderName,
             text: message.text.body,
-            ...(connection ? { connectionId: connection.id } : {}),
+            ...(connection ? { connectionId: connection.id, ownerUserId: connection.userId } : {}),
           });
         }
       }
@@ -443,6 +443,18 @@ export class WhatsAppInboundService {
        * ואז אין שיחה לעדכן — וזה תקין.
        */
       connectionId?: string;
+      /**
+       * ‎**הסוכן שהקו שלו — ואצלו הליד נוחת.**
+       *
+       * הלקוח כתב למספר הפרטי של סוכן מסוים, ולכן הפנייה שלו ולא
+       * של המשרד. בלי השיוך הליד היה נופל למאגר לא-משויך, שרק בעלי
+       * `leads.view_all` רואים — כלומר סוכן היה מחבר את הטלפון שלו
+       * ומאבד את הלקוח שכתב אליו אישית.
+       *
+       * חסר במסלול הישן (מספר שהוקלד בהגדרות המשרד), ואז ההתנהגות
+       * נשארת כשהייתה: ליד לא-משויך למאגר המשרד.
+       */
+      ownerUserId?: string;
     },
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
@@ -517,6 +529,7 @@ export class WhatsAppInboundService {
             intent: "unknown",
             status: "new",
             summary: msg.text.slice(0, 500),
+            ...(msg.ownerUserId ? { assignedToUserId: msg.ownerUserId } : {}),
           },
           select: { id: true },
         });

@@ -148,6 +148,7 @@ model User {
   capabilityOverrides UserCapability[]
   agentEvents         AgentEvent[]
   whatsappLinks       WhatsAppLink[]
+  whatsappConnections WhatsAppBusinessConnection[]
   nudgeOptOut         ActivationNudgeOptOut?
 
   @@index([tenantId, isActive])
@@ -1543,6 +1544,19 @@ model WhatsAppLink {
 model WhatsAppBusinessConnection {
   id                   String    @id @db.Char(26)
   tenantId             String    @map("tenant_id") @db.Char(26)
+  /**
+   * ‎**הסוכן שחיבר את הקו — הקו הוא שלו, לא של המשרד.**
+   *
+   * כל סוכן מחבר את המספר שלו, והלקוחות שכותבים אליו הם הלקוחות
+   * שלו. לכן ליד שנוצר מהקו הזה נוחת אצלו (`assignedToUserId`)
+   * ולא במאגר אנונימי של המשרד — אחרת סוכן שחיבר את המספר הפרטי
+   * שלו היה מזין לידים לעמיתיו בלי לדעת.
+   *
+   * ‏`tenantId` נשאר לצד זה: הוא מה שמכריע לאיזה משרד ההודעה שייכת
+   * בנתיב הציבורי של הוובהוק, והוא גם מה שמאפשר לבעל משרד לנתק קו
+   * של סוכן שעזב.
+   */
+  userId               String    @map("user_id") @db.Char(26)
   /// מזהי Meta — יציבים, לא-סודיים, מפתחות הניתוב
   wabaId               String    @map("waba_id") @db.VarChar(32)
   phoneNumberId        String    @map("phone_number_id") @db.VarChar(32)
@@ -1572,9 +1586,11 @@ model WhatsAppBusinessConnection {
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
   tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversations WhatsAppConversation[]
 
   @@index([tenantId])
+  @@index([userId])
   @@index([displayPhone])
   @@map("whatsapp_business_connections")
 }

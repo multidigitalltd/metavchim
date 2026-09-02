@@ -259,3 +259,79 @@ describe("הסוד אינו זולג ליומן", () => {
     }
   });
 });
+
+/**
+ * ‎**הקו שייך לסוכן, לא למשרד** (docs/12).
+ *
+ * ההבחנה הזו היא כל ההבדל בין „חיברתי את הטלפון שלי” לבין „חיברתי
+ * את הטלפון שלי והלידים שלי הלכו לעמיתים”. היא נשענת על שרשרת של
+ * ארבע חוליות, וכל חוליה שנשמטת שוברת אותה **בשקט**: השאילתה
+ * שאינה בוחרת `userId`, הניתוב שאינו מעביר אותו, היצירה שאינה
+ * משייכת, והסינון שאינו מגביל. אף אחת מהן אינה מייצרת שגיאה.
+ */
+describe("הקו שייך לסוכן", () => {
+  const CONTROLLER = read("./whatsapp-connection.controller.ts");
+
+  it("שאילתת הניתוב בוחרת את בעל הקו — בלעדיו אין את מי לשייך", () => {
+    const fn = CONNECTION.slice(CONNECTION.indexOf("async byPhoneNumberId"));
+    expect(fn.slice(0, 600)).toContain("userId: true");
+  });
+
+  it("הוובהוק מעביר את בעל הקו לקליטה", () => {
+    expect(INBOUND).toContain("ownerUserId: connection.userId");
+  });
+
+  it("הליד נוצר משויך לסוכן, ולא נופל למאגר לא-משויך", () => {
+    expect(INBOUND).toMatch(/assignedToUserId: msg\.ownerUserId/u);
+  });
+
+  /*
+   * המסלול הישן (מספר שהוקלד בהגדרות המשרד) אינו יודע של מי הקו,
+   * ושם ליד לא-משויך הוא ההתנהגות הנכונה. השיוך חייב להישאר מותנה
+   * ולא קבוע, אחרת קליטה ישנה הייתה נשברת.
+   */
+  it("השיוך מותנה — קליטה ללא חיבור ממשיכה כשהייתה", () => {
+    expect(INBOUND).toMatch(/\.\.\.\(msg\.ownerUserId \? \{ assignedToUserId/u);
+  });
+
+  it("רשימת הקווים מסוננת לסוכן", () => {
+    const fn = CONNECTION.slice(CONNECTION.indexOf("async list("));
+    expect(fn.slice(0, 400)).toMatch(/userId \? \{ userId \}/u);
+  });
+
+  it("ניתוק מוגבל לקו של הסוכן כשנמסר מזהה", () => {
+    const fn = CONNECTION.slice(CONNECTION.indexOf("async disconnect("));
+    expect(fn.slice(0, 700)).toMatch(/userId \? \{ userId \}/u);
+  });
+
+  /*
+   * שני סוכנים על אותו מכשיר הוא תרחיש אמיתי. „חיבור” של קו שכבר
+   * שייך לעמית היה מעביר אליו בשקט שיחות שכבר רצות, ולכן זו דחייה
+   * מפורשת ולא עדכון.
+   */
+  it("קו שכבר מחובר לסוכן אחר באותו משרד נדחה", () => {
+    expect(CONNECTION).toContain("existing.userId !== userId");
+    expect(CONNECTION).toContain("כבר מחובר לסוכן אחר במשרד");
+  });
+
+  /*
+   * חיבור הטלפון של הסוכן עצמו אינו הגדרת משרד. אם הנתיבים האישיים
+   * יידרשו `settings.manage`, רק בעל המשרד יוכל לחבר — כלומר
+   * הפיצ'ר מת עבור כל השאר.
+   */
+  it("הנתיבים האישיים פתוחים לכל סוכן מחובר", () => {
+    const personal = CONTROLLER.slice(0, CONTROLLER.indexOf('@Get("office")'));
+    expect(personal).toContain("@AnyAuthenticated()");
+    expect(personal).not.toContain('@RequireCapability("settings.manage")');
+  });
+
+  /*
+   * ומנגד: תצוגת המשרד וניתוק קו של אחר הם נתוני משרד, ולכן חייבים
+   * יכולת. בלי הנתיב הזה קו של סוכן שעזב נשאר מחובר לנצח.
+   */
+  it("תצוגת המשרד וניתוק קו של אחר דורשים יכולת ניהול", () => {
+    const office = CONTROLLER.slice(CONTROLLER.indexOf('@Get("office")'));
+    expect(office).toContain('@RequireCapability("settings.manage")');
+    expect(office).not.toContain("@AnyAuthenticated()");
+  });
+});
