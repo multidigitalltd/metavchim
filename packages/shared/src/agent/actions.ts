@@ -200,7 +200,16 @@ const PROPERTY_TYPE_LABELS = {
   divisible_apartment: "דירה מתאימה לחלוקה",
   accessible_apartment: "דירת נכה",
   plot: "מגרש",
-  commercial: "מסחרי",
+  commercial: "מסחרי (לא צוין)",
+  commercial_shop: "חנות",
+  commercial_office: "משרד",
+  commercial_warehouse: "מחסן",
+  commercial_industrial: "תעשייה",
+  commercial_basement: "מרתף",
+  commercial_building: "בניין",
+  commercial_logistics: 'מרלו"ג',
+  commercial_parking: "חניה",
+  commercial_gas_station: "תחנת דלק",
   other: "אחר",
   /*
    * ‎`satisfies` ולא רק `as const`: הקטלוג הזה הוא מה שהסוכן הקולי

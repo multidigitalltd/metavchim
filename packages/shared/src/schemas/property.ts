@@ -31,7 +31,25 @@ export const PropertyTypeSchema = z.enum([
    */
   "accessible_apartment",
   "plot",
+  /*
+   * ‎**„מסחרי” נשאר, ותשעת הסוגים נוספים לצידו.**
+   *
+   * הוא אינו רק תאימות לאחור לשורות קיימות: הוא **„מסחרי שלא נאמר
+   * איזה”** — מה שמתווך רושם בשיחה ראשונה לפני שראה את הנכס, ומה
+   * שקונה מתכוון אליו כשהוא אומר „מחפש נכס מסחרי”. ראו
+   * ‎`logic/commercial-types.ts`: בהתאמה הוא נחשב כמתאים לכל
+   * הענפים, בשני הכיוונים.
+   */
   "commercial",
+  "commercial_shop",
+  "commercial_office",
+  "commercial_warehouse",
+  "commercial_industrial",
+  "commercial_basement",
+  "commercial_building",
+  "commercial_logistics",
+  "commercial_parking",
+  "commercial_gas_station",
   "other",
 ]);
 export type PropertyType = z.infer<typeof PropertyTypeSchema>;
