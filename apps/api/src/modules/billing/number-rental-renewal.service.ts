@@ -345,10 +345,13 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
          * להגיע חודש קודם.
          */
         if (rental.origin === "platform") {
-          await this.rentals.notifyAdmins(
-            "חיוב חודשי על מספר הסתיים — המספר מנותב בלי תשלום",
-            `התקופה ששולמה על המספר ${formatRentalNumber(rental.number)} נגמרה והחיוב נפסק. המספר של המשרד ממשיך להיות מנותב במערכת. כבו או מחקו אותו בשולחן החיבורים, או פתחו חיוב חדש אם סוכם אחרת.`,
-          );
+          // רק כשבאמת יש ניתוב שנשאר בלי תשלום — ראו routingActive
+          if (await this.rentals.routingActive(rental.tenantId, rental.number)) {
+            await this.rentals.notifyAdmins(
+              "חיוב חודשי על מספר הסתיים — המספר מנותב בלי תשלום",
+              `התקופה ששולמה על המספר ${formatRentalNumber(rental.number)} נגמרה והחיוב נפסק. המספר של המשרד ממשיך להיות מנותב במערכת. כבו או מחקו אותו בשולחן החיבורים, או פתחו חיוב חדש אם סוכם אחרת.`,
+            );
+          }
         }
         released += 1;
       } catch (error) {

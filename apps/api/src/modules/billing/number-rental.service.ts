@@ -399,14 +399,26 @@ export class NumberRentalService {
      */
     if (rental.origin === "platform") {
       const agency = await this.agencyName(rental.tenantId);
+      const routed = await this.routingActive(rental.tenantId, rental.number);
+      const until =
+        rental.currentPeriodEnd !== null
+          ? `החיוב ייפסק ב-${formatJerusalemDate(rental.currentPeriodEnd)}.`
+          : "החיוב ייפסק בסבב הסורק הבא.";
       await this.notifyAdmins(
-        "משרד ביטל חיוב חודשי על מספר — הניתוב עדיין פעיל",
+        routed
+          ? "משרד ביטל חיוב חודשי על מספר — הניתוב עדיין פעיל"
+          : "משרד ביטל חיוב חודשי על מספר",
         [
           `המשרד „${agency}” ביטל את החיוב החודשי על המספר ${formatRentalNumber(rental.number)}.`,
-          rental.currentPeriodEnd !== null
-            ? `החיוב ייפסק ב-${formatJerusalemDate(rental.currentPeriodEnd)}.`
-            : "החיוב ייפסק בסבב הסורק הבא.",
-          "המספר של המשרד הוא ואינו משוחרר: הניתוב שלו במערכת ממשיך לעבוד בלי תשלום עד שתחליטו — לכבות או למחוק אותו בשולחן החיבורים, או לסכם עם המשרד על המשך החיוב.",
+          until,
+          /*
+           * הניתוב נבדק ולא מונח: מספר שכבר כובה או נמחק בשולחן
+           * החיבורים אינו „מנותב בלי תשלום”, ומייל שטוען זאת היה
+           * שולח לטפל במה שכבר טופל (ביקורת Codex).
+           */
+          routed
+            ? "המספר של המשרד הוא ואינו משוחרר: הניתוב שלו במערכת ממשיך לעבוד גם אחרי הפסקת החיוב, עד שתחליטו — לכבות או למחוק אותו בשולחן החיבורים, או לסכם עם המשרד על המשך החיוב."
+            : "הניתוב של המספר במערכת כבר כבוי או נמחק — אין שירות שנשאר בלי תשלום.",
         ].join(" "),
       );
       return;
@@ -420,6 +432,30 @@ export class NumberRentalService {
           : "המספר ישוחרר אוטומטית אצל 015 בסבב הסורק הבא.",
       ].join(" "),
     );
+  }
+
+  /**
+   * האם המספר עדיין מנותב אצל המשרד — שורת מספר וירטואלי פעילה.
+   *
+   * ‎`withExplicitTenant` כי הטבלה תחת FORCE RLS והקריאה מגיעה מסורק
+   * או מנתיב חיוב, בלי הקשר דייר. כשל בבדיקה נקרא כ„מנותב”: עדיף
+   * מייל שמבקש לבדוק על מייל שמרגיע בטעות.
+   */
+  async routingActive(tenantId: string, number: string): Promise<boolean> {
+    const phone = canonicalVirtualNumber(number);
+    if (phone === "") return false;
+    try {
+      const row = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.virtualNumber.findFirst({
+          where: { tenantId, phone, isActive: true },
+          select: { id: true },
+        }),
+      );
+      return row !== null;
+    } catch (error) {
+      this.logger.warn(`בדיקת ניתוב (${tenantId}) נכשלה: ${String(error)}`);
+      return true;
+    }
   }
 
   /** שם המשרד למייל למנהלים — כדי שיֵדעו אצל מי לטפל בלי לחפש. */

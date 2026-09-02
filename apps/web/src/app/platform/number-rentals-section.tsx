@@ -101,11 +101,18 @@ export function NumberRentalsSection(): React.JSX.Element {
           {(rentals ?? []).map((rental) => {
             const platformCharge = rental.origin === "platform";
             /*
-             * חיוב מהפלטפורמה שבוטל או הסתיים: המספר עדיין מנותב
-             * ואיש לא משלם — זו שורה שדורשת החלטה, לא היסטוריה.
+             * חיוב מהפלטפורמה שהסתיים: המספר עדיין מנותב ואיש לא
+             * משלם — שורה שדורשת החלטה, לא היסטוריה. ביטול **לפני**
+             * סוף התקופה ששולמה אינו כזה: המשרד שילם על החודש הזה,
+             * ושורה אדומה הייתה שולחת לכבות שירות ששולם (ביקורת Codex).
              */
+            const periodOver =
+              rental.currentPeriodEnd === null || new Date(rental.currentPeriodEnd) <= new Date();
             const unpaidRouting =
-              platformCharge && (rental.status === "cancelled" || rental.status === "released");
+              platformCharge &&
+              (rental.status === "released" || (rental.status === "cancelled" && periodOver));
+            const cancelledStillPaid =
+              platformCharge && rental.status === "cancelled" && !periodOver;
             const needsAttention =
               rental.status === "past_due" ||
               (rental.status === "active" && !rental.provisioned && !platformCharge) ||
@@ -134,6 +141,7 @@ export function NumberRentalsSection(): React.JSX.Element {
                     ? " · שולם אך לא נתפס!"
                     : ""}
                   {unpaidRouting ? " · המספר עדיין מנותב בלי תשלום — לטפל" : ""}
+                  {cancelledStillPaid ? " · שולם עד סוף התקופה; אחריה לטפל בניתוב" : ""}
                 </span>
                 {rental.currentPeriodEnd ? (
                   <span style={{ color: "var(--color-text-muted)" }}>
