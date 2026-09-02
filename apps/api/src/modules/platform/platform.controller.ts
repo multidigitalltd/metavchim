@@ -114,6 +114,7 @@ import {
   type RestoreStatus,
 } from "./backups.service";
 import { callUpdaterAgent, updaterFailure } from "./updater-agent";
+import { type DiskStatus, DiskSpaceService } from "./disk-space.service";
 import { ServiceVersionsService } from "./service-versions.service";
 import { TelephonyWebhookLogService } from "../telephony/webhook-log.service";
 
@@ -716,6 +717,7 @@ export class PlatformController {
     private readonly geocoding: GeocodingService,
     private readonly creditEconomy: CreditEconomyService,
     private readonly serviceVersions: ServiceVersionsService,
+    private readonly disk: DiskSpaceService,
     private readonly telephonyWebhookLog: TelephonyWebhookLogService,
     private readonly platformCredits: PlatformCreditsService,
     private readonly gemini: GeminiService,
@@ -2397,12 +2399,23 @@ export class PlatformController {
     version: string;
     updateAvailable: boolean;
     services: ServiceVersion[];
+    /**
+     * מצב הדיסק של השרת. מוצג תמיד ולא רק כשהוא נמוך: „כמה נשאר”
+     * הוא מה שמפעיל הפלטפורמה בא לבדוק, ומספר שמופיע רק כשכבר
+     * מאוחר אינו ניטור.
+     */
+    disk: DiskStatus;
   }> {
     const env = loadEnv();
+    const [services, disk] = await Promise.all([
+      this.serviceVersions.collect(),
+      this.disk.status(),
+    ]);
     return {
       version: env.APP_VERSION,
       updateAvailable: env.UPDATER_URL !== undefined && env.UPDATE_SECRET !== undefined,
-      services: await this.serviceVersions.collect(),
+      services,
+      disk,
     };
   }
 

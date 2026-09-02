@@ -17,6 +17,57 @@ interface SystemInfo {
   updateAvailable: boolean;
   /** אופציונלי: שרת ותיק שטרם עודכן אינו מחזיר את השדה. */
   services?: ServiceVersion[];
+  /** אופציונלי, מאותה סיבה — שרת שטרם עודכן אינו מדווח דיסק. */
+  disk?: DiskInfo;
+}
+
+interface DiskInfo {
+  /** null = הניטור כבוי או שהנתיב אינו נגיש */
+  freeBytes: number | null;
+  totalBytes: number | null;
+  thresholdBytes: number;
+  low: boolean;
+}
+
+const GB = 1024 ** 3;
+const gb = (bytes: number): string => (bytes / GB).toFixed(1);
+
+/**
+ * מצב הדיסק — **מוצג תמיד, לא רק כשהוא נמוך.**
+ *
+ * „כמה נשאר” הוא מה שמפעיל הפלטפורמה בא לבדוק, ומספר שמופיע רק
+ * כשכבר מאוחר אינו ניטור אלא הודעת אבל. כשהוא יורד מתחת לסף הוא
+ * מקבל צבע וטקסט פעולה — מה לעשות, לא רק שיש בעיה.
+ */
+function DiskRow({ disk }: { disk: DiskInfo }) {
+  if (disk.freeBytes === null || disk.totalBytes === null) {
+    return (
+      <p className="mt-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+        ניטור הדיסק אינו פעיל בשרת הזה.
+      </p>
+    );
+  }
+  const usedPct = Math.round(((disk.totalBytes - disk.freeBytes) / disk.totalBytes) * 100);
+  return (
+    <div className="mt-3 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="font-medium">מקום בדיסק</span>
+        <span
+          className="text-sm"
+          style={{ color: disk.low ? "var(--color-danger)" : "var(--color-text-muted)" }}
+        >
+          {gb(disk.freeBytes)}GB פנויים מתוך {gb(disk.totalBytes)}GB ({usedPct}% בשימוש)
+        </span>
+      </div>
+      {disk.low ? (
+        <p role="alert" className="mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
+          ⚠️ המקום הפנוי ירד מתחת ל-{gb(disk.thresholdBytes)}GB. הריצו{" "}
+          <code>docker image prune -f</code> בשרת, או מחקו גיבויים ישנים. כשהדיסק
+          נגמר בסיס הנתונים מפסיק לכתוב והגיבוי מדלג בשקט.
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 /**
@@ -179,6 +230,7 @@ export function SystemUpdateSection() {
         <p className="mt-2 text-sm" style={{ color: stateColor }} aria-live="polite">
           {alignment.message}
         </p>
+        {info.disk ? <DiskRow disk={info.disk} /> : null}
         {info.updateAvailable ? (
           <div className="mt-3 flex flex-wrap gap-2">
             <Button onClick={update} disabled={busy || agentBusy}>
