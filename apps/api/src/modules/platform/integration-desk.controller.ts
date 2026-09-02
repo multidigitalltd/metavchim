@@ -39,8 +39,12 @@ const SaveTelephonySchema = z
   .strict();
 
 /**
- * רשימת „מספר ← סוכן”. השם רשות: בעדכון של מספר קיים ריק פירושו
- * „השאר את השם שהמשרד נתן”, וביצירה נגזר שם מהמספר.
+ * רשימת „מספר ← סוכן”. שתי צורות של שורה:
+ *
+ * - **עם `id`** — מספר שכבר קיים אצל המשרד. נשלחים רק השדות שהשתנו,
+ *   ושדה שלא נשלח אינו נכתב. שורה שכבר אינה קיימת נדחית ולא נוצרת
+ *   מחדש: המשרד מחק אותה בכוונה.
+ * - **בלי `id`** — מספר חדש. השם רשות, ונגזר מהמספר כשחסר.
  *
  * התקרה היא על **שורות שהשתנו** בשמירה אחת, לא על מספר המספרים
  * של המשרד: המסך שולח רק את מה שנגעו בו, ולכן משרד עם מאתיים
@@ -52,9 +56,10 @@ const AssignVirtualNumbersSchema = z
       .array(
         z
           .object({
+            id: IdSchema.optional(),
             phone: z.string().trim().min(3).max(20),
-            label: z.string().trim().max(60).default(""),
-            assignedToUserId: IdSchema.nullable().default(null),
+            label: z.string().trim().max(60).optional(),
+            assignedToUserId: IdSchema.nullable().optional(),
           })
           .strict(),
       )

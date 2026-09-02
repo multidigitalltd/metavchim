@@ -150,11 +150,26 @@ export function DeskVirtualNumbers({
      * שורה חדשה בלי מספר היא שורה שנפתחה ולא מולאה — מדלגים ולא
      * דוחים. שורה קיימת שלא השתנתה אינה נשלחת כלל — ראו למעלה.
      */
-    const numbers = rows.filter(isDirty).map((row) => ({
-      phone: row.phone.trim(),
-      label: row.label.trim(),
-      assignedToUserId: row.assignedToUserId === "" ? null : row.assignedToUserId,
-    }));
+    /*
+     * שורה קיימת נשלחת עם המזהה שלה ועם **השדות שהשתנו בלבד**: שם
+     * שלא נגעו בו אינו נשלח, וכך אינו דורס שם שהמשרד שינה בינתיים —
+     * ובאותו אופן הסוכן (ביקורת Codex). שורה חדשה נשלחת מלאה.
+     */
+    const numbers = rows.filter(isDirty).map((row) => {
+      const assignee = row.assignedToUserId === "" ? null : row.assignedToUserId;
+      if (row.id === null || row.initial === null) {
+        return { phone: row.phone.trim(), label: row.label.trim(), assignedToUserId: assignee };
+      }
+      const label = row.label.trim();
+      return {
+        id: row.id,
+        phone: row.phone,
+        ...(label !== row.initial.label ? { label } : {}),
+        ...(row.assignedToUserId !== row.initial.assignedToUserId
+          ? { assignedToUserId: assignee }
+          : {}),
+      };
+    });
     if (numbers.length === 0) {
       setError("אין שינויים לשמירה");
       return;

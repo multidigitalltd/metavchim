@@ -93,11 +93,16 @@ export interface DeskVirtualNumbers {
   users: { id: string; name: string }[];
 }
 
-/** שורה אחת בשמירה: מספר, שם (רשות בעדכון) והסוכן. */
+/**
+ * שורה אחת בשמירה. עם `id` — עדכון של שדות שנשלחו בלבד; בלי — יצירה.
+ * שדה שאינו מופיע (`undefined`) אינו נכתב, ולכן שינוי מקביל של
+ * המשרד בשדה השני שורד.
+ */
 export interface DeskVirtualNumberInput {
+  id?: string;
   phone: string;
-  label: string;
-  assignedToUserId: string | null;
+  label?: string;
+  assignedToUserId?: string | null;
 }
 
 @Injectable()
@@ -300,10 +305,9 @@ export class IntegrationDeskService {
   /**
    * שיוך מספרים לסוכנים בשם המשרד — **שמירה אחת לכל הרשימה.**
    *
-   * כל שורה מזוהה לפי המספר ולא לפי מזהה: מספר שכבר קיים אצל המשרד
-   * (למשל שורה שנוצרה מהשכרה) מתעדכן, ומספר שאינו קיים נוצר. כך
-   * מנהל הפלטפורמה ממלא טבלה אחת של „מספר ← סוכן” ולוחץ פעם אחת,
-   * ולא מנהל בנפרד יצירה ועדכון.
+   * שורה קיימת מזוהה לפי המזהה שלה ומתעדכנת בשדות שנשלחו בלבד;
+   * שורה חדשה (בלי מזהה) נוצרת. כך מנהל הפלטפורמה ממלא טבלה אחת
+   * של „מספר ← סוכן” ולוחץ פעם אחת, ולא מנהל בנפרד יצירה ועדכון.
    *
    * השורה כולה בטרנזקציה אחת ועם רישום אחד ביומן והתראה אחת: עשרה
    * מספרים לעשרה סוכנים הם פעולה אחת של המשרד, לא עשר.
@@ -326,8 +330,14 @@ export class IntegrationDeskService {
     /*
      * הנרמול והדחייה **לפני** הטרנזקציה, על כל הרשימה: הודעה
      * ששמה את המספר הפגום עדיפה על גלגול-אחורה אחרי חצי רשימה.
+     * מספר של שורה קיימת אינו משתנה כאן, ולכן רק שורות חדשות
+     * מנורמלות ונבדקות לכפילות.
      */
-    const canonical = entries.map((entry) => {
+    const creations = entries.filter((entry) => entry.id === undefined);
+    const updates = entries.filter((entry): entry is DeskVirtualNumberInput & { id: string } =>
+      entry.id !== undefined,
+    );
+    const canonical = creations.map((entry) => {
       const phone = canonicalVirtualNumber(entry.phone);
       if (phone === "") {
         throw new BadRequestException(`המספר ${entry.phone} אינו מספר טלפון ישראלי תקין`);
@@ -350,9 +360,9 @@ export class IntegrationDeskService {
        */
       const wanted = [
         ...new Set(
-          canonical
+          entries
             .map((entry) => entry.assignedToUserId)
-            .filter((id): id is string => id !== null),
+            .filter((id): id is string => typeof id === "string"),
         ),
       ];
       const users =
@@ -368,52 +378,86 @@ export class IntegrationDeskService {
         throw new BadRequestException("אחד הסוכנים שנבחרו אינו פעיל במשרד הזה");
       }
 
+      /*
+       * **עדכון לפי מזהה, ולא לפי מספר.** שורה שהמשרד מחק בין
+       * הטעינה לשמירה אינה נוצרת מחדש בשקט עם ניתוב שהוא הסיר
+       * בכוונה — היא נדחית, והמסך נטען מחדש (ביקורת Codex).
+       *
+       * ורק השדות שנשלחו נכתבים: שם שלא נגעו בו אינו דורס שם
+       * שהמשרד שינה בינתיים, וכך גם הסוכן.
+       */
+      for (const entry of updates) {
+        const label = entry.label?.trim();
+        const data = {
+          ...(label !== undefined && label !== "" ? { label } : {}),
+          ...(entry.assignedToUserId !== undefined
+            ? { assignedToUserId: entry.assignedToUserId }
+            : {}),
+        };
+        if (Object.keys(data).length === 0) continue;
+        const changed = await tx.virtualNumber.updateMany({
+          where: { id: entry.id, tenantId },
+          data,
+        });
+        if (changed.count === 0) {
+          throw new BadRequestException(
+            `המספר ${entry.phone} כבר אינו קיים אצל המשרד — טענו את הרשימה מחדש`,
+          );
+        }
+      }
+
+      /*
+       * יצירה רק למספר שאינו קיים: מספר שכבר מוגדר אצל המשרד נדחה
+       * במקום להתעדכן בשקט מתחת לשורה שהמשרד מכיר.
+       */
       for (const entry of canonical) {
         const existing = await tx.virtualNumber.findFirst({
           where: { tenantId, phone: entry.phone },
           select: { id: true },
         });
-        const label = entry.label.trim();
         if (existing) {
-          await tx.virtualNumber.updateMany({
-            where: { id: existing.id, tenantId },
-            data: {
-              assignedToUserId: entry.assignedToUserId,
-              // שם ריק = „אל תיגע”: השם שהמשרד נתן נשאר
-              ...(label !== "" ? { label } : {}),
-            },
-          });
-        } else {
-          await tx.virtualNumber.create({
-            data: {
-              id: ulid(),
-              tenantId,
-              phone: entry.phone,
-              label: label !== "" ? label : `מספר ${entry.phone}`,
-              assignedToUserId: entry.assignedToUserId,
-              // אין משתמש של המשרד שיצר — מי שפעל רשום ביומן
-              createdBy: null,
-            },
-          });
+          throw new BadRequestException(`המספר ${entry.phone} כבר מוגדר אצל המשרד`);
         }
+        const label = entry.label?.trim() ?? "";
+        await tx.virtualNumber.create({
+          data: {
+            id: ulid(),
+            tenantId,
+            phone: entry.phone,
+            label: label !== "" ? label : `מספר ${entry.phone}`,
+            assignedToUserId: entry.assignedToUserId ?? null,
+            // אין משתמש של המשרד שיצר — מי שפעל רשום ביומן
+            createdBy: null,
+          },
+        });
       }
 
       await this.recordAssignmentsForOffice(tx, tenantId, {
         adminEmail,
         agency,
-        assignments: canonical.map((entry) => ({
+        assignments: [...updates, ...canonical].map((entry) => ({
           phone: entry.phone,
-          agent: entry.assignedToUserId === null ? null : (byId.get(entry.assignedToUserId) ?? null),
+          ...(entry.label !== undefined && entry.label.trim() !== ""
+            ? { label: entry.label.trim() }
+            : {}),
+          ...(entry.assignedToUserId !== undefined
+            ? {
+                agent:
+                  entry.assignedToUserId === null
+                    ? null
+                    : (byId.get(entry.assignedToUserId) ?? null),
+              }
+            : {}),
         })),
       });
     });
-    return { ok: true, saved: canonical.length };
+    return { ok: true, saved: entries.length };
   }
 
   /**
    * היומן וההתראה על שיוך — אצל המשרד, כמו על חיבור המרכזייה.
    *
-   * ה-`metadata` נושא את הרשימה עצמה (מספר ← שם סוכן): זה מה
+   * ה-`metadata` נושא את הרשימה עצמה (מספר ← מה השתנה בו): זה מה
    * שמנהל המשרד יקרא כשישאל „מי שינה את הניתוב של המספר של דוד”.
    */
   private async recordAssignmentsForOffice(
@@ -422,7 +466,8 @@ export class IntegrationDeskService {
     what: {
       adminEmail: string;
       agency: string;
-      assignments: { phone: string; agent: string | null }[];
+      /** לכל שורה: מה שהשתנה בה בלבד — שם, סוכן (null = ערימה), או שניהם. */
+      assignments: { phone: string; agent?: string | null; label?: string }[];
     },
   ): Promise<void> {
     await tx.auditLog.create({
