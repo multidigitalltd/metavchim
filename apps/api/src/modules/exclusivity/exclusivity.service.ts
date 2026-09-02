@@ -11,6 +11,7 @@ import {
   type ExclusivitySubject,
   type MarketingActionKind,
 } from "@metavchim/shared";
+import { ownedPropertyScope } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -335,11 +336,17 @@ export class ExclusivityService {
        * החישוב כאן הוא לצורך **הסדר** בלבד; הערך המדויק נגזר אחר כך
        * מ-`exclusivityState`, שהוא המקום היחיד שבו הכלל חי.
        */
+      /*
+       * ‎**הסינון בשאילתה ולא אחריה** — אחרת ה-`LIMIT` נספר על
+       * בלעדיויות של אחרים, והסוכן היה מקבל פחות משלו ככל שהמשרד
+       * גדול יותר.
+       */
       const ordered = await tx.$queryRaw<{ id: string }[]>`
         SELECT id
           FROM property_exclusivities
          WHERE tenant_id = ${tenantId}
            AND ended_at IS NULL
+           AND ${ownedPropertyScope(tenantId)}
          ORDER BY LEAST(ends_at, starts_at + ((ends_at - starts_at) / 3)) ASC
          LIMIT 200
       `;

@@ -1376,7 +1376,11 @@ export class AgentExecuteService {
       href: "/exclusivity",
       message:
         items.length === 0
-          ? "אין בלעדיות פעילות במשרד"
+          /*
+           * בלי „במשרד”: הרשימה מסוננת לנכסים שבטיפול הדובר (ראו
+           * `ownedPropertyScope`), ולסוכן אחד זו טענה שאינה נכונה.
+           */
+          ? "אין בלעדיות פעילות"
           : `${items.length} בלעדיות — לפי דחיפות`,
       data: { exclusivity: items.map(exclusivityRow) },
     };
