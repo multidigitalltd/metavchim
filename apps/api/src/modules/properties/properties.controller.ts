@@ -33,7 +33,15 @@ import {
 import { PropertiesService } from "./properties.service";
 import type { PropertyDto } from "./property.mapper";
 
-const CreatePropertySchema = PropertyFieldsSchema.extend({
+/*
+ * ‎**מיוצאת לבדיקה, ולא רק לשימוש כאן.**
+ *
+ * הסכימה הזו היא החוזה מול המסך, והיא `.strict()` — כלומר שדה
+ * שהמסך שולח ושאינו מוצהר בה **חוסם את הבקשה כולה**. זה בדיוק מה
+ * שקרה כשטופס „נכס חדש” התחיל לשלוח `status`. בדיקה שמריצה עליה
+ * את הגוף שהמסך באמת בונה היא הדבר היחיד שתופס את זה לפני המשתמש.
+ */
+export const CreatePropertySchema = PropertyFieldsSchema.extend({
   marketingTitle: z.string().max(160).optional(),
   marketingDescription: z.string().max(4000).optional(),
   internalNotes: z.string().max(4000).optional(),
@@ -52,6 +60,21 @@ const CreatePropertySchema = PropertyFieldsSchema.extend({
    * שאינו בו.
    */
   agentUserId: z.union([IdSchema, z.literal("")]).optional(),
+  /*
+   * ‎**הסטטוס ההתחלתי — ביצירה, ולא רק בעדכון** (ביקורת Codex, P1).
+   *
+   * ‏הוא היה קיים ב-`UpdatePropertySchema` בלבד, בזמן ש-`persist`
+   * כבר ידע לקרוא `input.status` — כלומר השירות תמך, וה-API לא
+   * חשף. ברגע שטופס „נכס חדש” התחיל לשלוח `status: "active"`,
+   * ‎`.strict()` דחה את הבקשה כולה ב-400: **אי אפשר היה לקלוט נכס
+   * מהמסך בכלל.** לא שדה שנבלע, אלא מסלול שנחסם.
+   *
+   * הסכימה מגבילה לשני מצבי פתיחה בלבד, ולא לכל `PropertyStatus`:
+   * „נמכר”, „הושכר” ו„הוקפא” הם תוצאות של מהלך ולא נקודות התחלה,
+   * ו„בארכיון” ביצירה פירושו נכס שנולד מוסתר. כל אלה עוברים דרך
+   * העדכון, ששם יש להם היסטוריה.
+   */
+  status: z.enum(["draft", "active"]).optional(),
 }).strict();
 
 const UpdatePropertySchema = CreatePropertySchema.partial()
@@ -190,6 +213,7 @@ export class PropertiesController {
       occupantName,
       occupantPhone,
       agentUserId,
+      status,
       ...fields
     } = body;
     return this.properties.create({
@@ -197,6 +221,8 @@ export class PropertiesController {
       marketingTitle,
       marketingDescription,
       internalNotes,
+      /* חסר ⇒ `draft`, וזו עדיין ברירת המחדל של מי שאינו נוקב בו */
+      ...(status === undefined ? {} : { status }),
       /* ריק ביצירה = „אני”, וזו כבר ברירת המחדל בשירות */
       ...(agentUserId === undefined || agentUserId === "" ? {} : { agentUserId }),
       ...(ownerName !== undefined && ownerPhone !== undefined

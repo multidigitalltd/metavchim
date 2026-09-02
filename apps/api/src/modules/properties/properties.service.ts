@@ -181,6 +181,13 @@ export class PropertiesService {
     marketingTitle?: string;
     marketingDescription?: string;
     internalNotes?: string;
+    /**
+     * ‎**הסטטוס ההתחלתי.** חסר ⇒ `draft`, וזו ברירת המחדל של כל מי
+     * שנוצר מבחוץ: טופס קליטה ציבורי של מוכר, והסוכן הקולי. טופס
+     * „נכס חדש” של המשרד נוקב ב-`active` במפורש — המתווך שמילא
+     * אותו כבר עשה את הבדיקה שהטיוטה קיימת בשבילה.
+     */
+    status?: string;
     /** הסוכן המטפל. חסר = מי שיוצר. */
     agentUserId?: string;
     /** בעל הנכס (המוכר) — נקשר כ-contact לפי טלפון (docs/03: אדם אחד) */
