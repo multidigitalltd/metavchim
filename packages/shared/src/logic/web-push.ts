@@ -95,6 +95,12 @@ const ENTITY_ROUTES: Record<string, (id?: string) => string> = {
    * המקום שבו באמת עושים משהו עם „המרכזייה השתתקה”.
    */
   integration: () => "/settings/integrations",
+  /*
+   * ‎**שיוך מספרים וירטואליים משולחן הפלטפורמה.** המזהה הוא של
+   * המשרד ולא של מספר בודד, ולכן היעד הוא סעיף המספרים במסך
+   * ההגדרות — שם מנהל המשרד רואה מה השתנה ויכול לתקן.
+   */
+  virtual_number: () => "/settings#virtual-numbers",
   call: (id) => (id ? `/calls?call=${id}` : "/calls"),
 };
 
