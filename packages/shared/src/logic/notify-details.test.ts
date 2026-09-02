@@ -8,10 +8,15 @@ import {
 } from "./notify-details.js";
 
 const AGENT = { userId: "agent1", capabilities: ["buyers.view_own", "leads.view_own"] };
+/** סוכן שהגישה שלו נשללה במפורש — `UserCapability` עם effect: deny. */
+const REVOKED = { userId: "agent1", capabilities: [] as string[] };
 const MANAGER = {
   userId: "boss",
   capabilities: ["buyers.view_all", "leads.view_all", "tasks.view_all", "properties.view"],
 };
+
+/** רוב הבדיקות כאן על הניסוח, לא על ההרשאה — הן רואות הכול. */
+const linesFor = (detail: NotifyDetail): string[] => notifyDetailLines(detail, MANAGER);
 
 describe("canSeeNotifyDetail — הרשאה, ולא רק ניסוח", () => {
   const buyerOfSomeoneElse: NotifyDetail = {
@@ -35,8 +40,50 @@ describe("canSeeNotifyDetail — הרשאה, ולא רק ניסוח", () => {
     expect(canSeeNotifyDetail({ ...buyerOfSomeoneElse, ownerUserId: "agent1" }, AGENT)).toBe(true);
   });
 
-  it("כרטיס בלי בעלים הוא משרדי ומגיע לכולם", () => {
-    expect(canSeeNotifyDetail({ ...buyerOfSomeoneElse, ownerUserId: null }, AGENT)).toBe(true);
+  /*
+   * ‎`ownershipFilter` משווה מזהה, ו-NULL אינו שווה לאיש: קונה בלי
+   * בעלים אינו „של כולם” אלא בלתי נראה. אותו כלל של המסך.
+   */
+  it("קונה בלי בעלים אינו „של כולם” אלא בלתי נראה", () => {
+    expect(canSeeNotifyDetail({ ...buyerOfSomeoneElse, ownerUserId: null }, AGENT)).toBe(false);
+    expect(canSeeNotifyDetail({ ...buyerOfSomeoneElse, ownerUserId: null }, MANAGER)).toBe(true);
+  });
+
+  /*
+   * ‎**ליד הוא ההפך מקונה כאן**, ובכוונה: ליד בלי סוכן משויך הוא
+   * הערימה המשותפת, וכל מי שיש לו `leads.view_own` רואה אותו.
+   */
+  it("ליד בלי סוכן משויך הוא הערימה המשותפת", () => {
+    const pooled: NotifyDetail = {
+      kind: "lead",
+      ownerUserId: null,
+      person: { name: "דני כהן", phone: "050-1234567" },
+      source: null,
+      summary: null,
+      property: null,
+    };
+    expect(canSeeNotifyDetail(pooled, AGENT)).toBe(true);
+  });
+
+  /*
+   * ‎`view_own` ניתנת לשלילה פר-משתמש, והזכאות לוואטסאפ אינה
+   * תלויה בה. בלי הבדיקה הזו סוכן שהגישה שלו נשללה היה ממשיך
+   * לקבל שמות וטלפונים בהודעה בזמן שהמסך אומר לו „אין הרשאה”.
+   */
+  it("בעלות בלי ההרשאה עצמה אינה מספיקה", () => {
+    expect(canSeeNotifyDetail({ ...buyerOfSomeoneElse, ownerUserId: "agent1" }, REVOKED)).toBe(
+      false,
+    );
+    const myLead: NotifyDetail = {
+      kind: "lead",
+      ownerUserId: "agent1",
+      person: { name: "דני", phone: null },
+      source: null,
+      summary: null,
+      property: null,
+    };
+    expect(canSeeNotifyDetail(myLead, AGENT)).toBe(true);
+    expect(canSeeNotifyDetail(myLead, REVOKED)).toBe(false);
   });
 
   it("הצעה נשענת על הרשאת הקונה, לא על הרשאה משלה", () => {
@@ -91,7 +138,7 @@ describe("canSeeNotifyDetail — הרשאה, ולא רק ניסוח", () => {
 
 describe("notifyDetailLines — מה שהסוכן צריך כדי לפעול", () => {
   it("ליד: שם, טלפון, נכס ומקור", () => {
-    const lines = notifyDetailLines({
+    const lines = linesFor({
       kind: "lead",
       ownerUserId: "agent1",
       person: { name: "דני כהן", phone: "050-1234567" },
@@ -106,7 +153,7 @@ describe("notifyDetailLines — מה שהסוכן צריך כדי לפעול", (
   });
 
   it("מקור שאינו בקטלוג מוצג כמות שהוא ולא נעלם", () => {
-    const lines = notifyDetailLines({
+    const lines = linesFor({
       kind: "lead",
       ownerUserId: null,
       person: null,
@@ -118,7 +165,7 @@ describe("notifyDetailLines — מה שהסוכן צריך כדי לפעול", (
   });
 
   it("כרטיס בלי טלפון אינו מייצר נקודה ריקה", () => {
-    const lines = notifyDetailLines({
+    const lines = linesFor({
       kind: "lead",
       ownerUserId: null,
       person: { name: "דני כהן", phone: null },
@@ -130,7 +177,7 @@ describe("notifyDetailLines — מה שהסוכן צריך כדי לפעול", (
   });
 
   it("הצעה: הקונה, הנכס והמחיר — ומספר פתיחות רק כשהוא סיפור", () => {
-    const once = notifyDetailLines({
+    const once = linesFor({
       kind: "offer",
       ownerUserId: "agent1",
       person: { name: "דנה לוי", phone: "050-1111111" },
@@ -141,7 +188,7 @@ describe("notifyDetailLines — מה שהסוכן צריך כדי לפעול", (
     });
     expect(once.some((line) => line.includes("פתח"))).toBe(false);
 
-    const thrice = notifyDetailLines({
+    const thrice = linesFor({
       kind: "offer",
       ownerUserId: "agent1",
       person: { name: "דנה לוי", phone: "050-1111111" },
@@ -153,32 +200,54 @@ describe("notifyDetailLines — מה שהסוכן צריך כדי לפעול", (
     expect(thrice).toContain("🔁 פתח 3 פעמים");
   });
 
+  const propertyWithMatches: NotifyDetail = {
+    kind: "property",
+    ownerUserId: null,
+    headline: "4 חדרים · הרצל 12, רמת גן",
+    price: "2,100,000 ₪",
+    people: [
+      { person: { name: "דנה לוי", phone: "050-1111111" }, ownerUserId: "agent1" },
+      { person: { name: "רון בר", phone: null }, ownerUserId: "agent2" },
+    ],
+    why: "תקציב, אזור ומספר חדרים תואמים",
+  };
+
   it("נכס עם התאמות: הכתובת, המחיר, הקונים והנימוק", () => {
-    const lines = notifyDetailLines({
-      kind: "property",
-      ownerUserId: null,
-      headline: "4 חדרים · הרצל 12, רמת גן",
-      price: "2,100,000 ₪",
-      people: [
-        { name: "דנה לוי", phone: "050-1111111" },
-        { name: "רון בר", phone: null },
-      ],
-      why: "תקציב, אזור ומספר חדרים תואמים",
-    });
+    const lines = notifyDetailLines(propertyWithMatches, MANAGER);
     expect(lines).toContain("👤 דנה לוי · 050-1111111");
     expect(lines).toContain("👤 רון בר");
     expect(lines).toContain("✨ תקציב, אזור ומספר חדרים תואמים");
   });
 
-  it("נימוק ארוך נקטע — השם והטלפון לעולם לא", () => {
-    const lines = notifyDetailLines({
-      kind: "property",
-      ownerUserId: null,
-      headline: "דירה",
-      price: null,
-      people: [{ name: "דנה לוי", phone: "050-1111111" }],
-      why: "א".repeat(400),
+  /*
+   * ‎**`properties.view` מתיר את הנכס, לא את הקונים שלו.**
+   *
+   * ‏המסך מסנן את ההתאמות ב-`ownershipFilter("buyers.view_all",
+   * "ownerUserId")` לפני שהוא מציג שם. התראה משרדית על התאמה
+   * הייתה הערוץ שבו סוכן מקבל את הטלפון של הקונה של עמיתו.
+   */
+  it("הנכס אינו מכשיר את הקונים שלו — כל אחד נבדק בנפרד", () => {
+    const lines = notifyDetailLines(propertyWithMatches, {
+      userId: "agent1",
+      capabilities: ["properties.view", "buyers.view_own"],
     });
+    expect(lines).toContain("🏠 4 חדרים · הרצל 12, רמת גן");
+    expect(lines).toContain("👤 דנה לוי · 050-1111111");
+    expect(lines, "הקונה של עמית").not.toContain("👤 רון בר");
+  });
+
+  it("נימוק ארוך נקטע — השם והטלפון לעולם לא", () => {
+    const lines = notifyDetailLines(
+      {
+        kind: "property",
+        ownerUserId: null,
+        headline: "דירה",
+        price: null,
+        people: [{ person: { name: "דנה לוי", phone: "050-1111111" }, ownerUserId: null }],
+        why: "א".repeat(400),
+      },
+      MANAGER,
+    );
     expect(lines).toContain("👤 דנה לוי · 050-1111111");
     const why = lines.find((line) => line.startsWith("✨"));
     expect(why?.length).toBeLessThan(130);
@@ -186,7 +255,7 @@ describe("notifyDetailLines — מה שהסוכן צריך כדי לפעול", (
   });
 
   it("קונה: הדרישות והתקציב בשורה שאפשר לסרוק", () => {
-    const lines = notifyDetailLines({
+    const lines = linesFor({
       kind: "buyer",
       ownerUserId: "agent1",
       person: { name: "דנה לוי", phone: "050-1111111" },
@@ -200,7 +269,7 @@ describe("notifyDetailLines — מה שהסוכן צריך כדי לפעול", (
 
   it("פריט בלי מה לומר מחזיר רשימה ריקה ולא „לא ידוע”", () => {
     expect(
-      notifyDetailLines({
+      linesFor({
         kind: "buyer",
         ownerUserId: null,
         person: null,

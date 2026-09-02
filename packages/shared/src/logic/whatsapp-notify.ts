@@ -345,7 +345,8 @@ function detailLinesFor(
   if (detail === undefined) return [];
   // ההרשאה נבדקת כאן ולא בטעינה: אותה שורה, נמענים שונים
   if (!canSeeNotifyDetail(detail, details.viewer)) return [];
-  return notifyDetailLines(detail);
+  // הצופה עובר הלאה: פריט אחד יכול לשאת כרטיסים בבעלויות שונות
+  return notifyDetailLines(detail, details.viewer);
 }
 
 /**

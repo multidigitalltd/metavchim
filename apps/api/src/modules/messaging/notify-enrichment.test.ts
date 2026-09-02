@@ -99,6 +99,23 @@ describe("העשרת ההתראות בעובד", () => {
     expect(send).toContain('type: "text"');
   });
 
+  /*
+   * ‎`presentation` הוא ה-Snapshot שנשלח לקונה, וזו כל הסיבה שהוא
+   * נשמר. שימוש בשורת הנכס היה גורם להתראה לתאר הצעה במחיר שהלקוח
+   * מעולם לא ראה — אחרי שהמחיר עודכן.
+   */
+  it("ההצעה מתוארת מה-Snapshot שנשלח לקונה, לא מהנכס של היום", () => {
+    const fn = loader();
+    expect(fn).toContain("presentation: true");
+    expect(fn).toContain("OfferPresentationSchema.safeParse(offer.presentation)");
+    expect(fn).toContain("snapshot?.title ?? headlineOf(match.propertyId)");
+  });
+
+  it("כל קונה מותאם נושא את הבעלים שלו — הסינון הוא פר-נמען", () => {
+    const fn = loader();
+    expect(fn).toContain("ownerUserId: buyerById.get(match.buyerId)?.ownerUserId ?? null");
+  });
+
   it("כישלון בהעשרה מחזיר מפה ריקה ואינו מפיל את הסבב", () => {
     const fn = loader();
     expect(fn).toContain("catch (error)");

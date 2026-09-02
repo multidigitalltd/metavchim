@@ -37,10 +37,24 @@ export interface NotifyPerson {
   phone: string | null;
 }
 
+/** אדם יחד עם הסוכן שהכרטיס שלו — הבסיס לסינון פר-נמען. */
+export interface OwnedPerson {
+  person: NotifyPerson;
+  ownerUserId: string | null;
+}
+
 interface DetailBase {
   /**
-   * הסוכן שהכרטיס שייך לו. ‎`null` = כרטיס משרדי (ליד במאגר, נכס),
-   * וכזה גלוי לכל מי שרשאי לראות את הסוג הזה בכלל.
+   * הסוכן שהכרטיס שייך לו. ‎`null` = בלי בעלים — ומה זה אומר
+   * **תלוי בסוג**, ולא אותו דבר בכולם:
+   *
+   * - **ליד** בלי סוכן משויך הוא הערימה המשותפת, וכל מי שיש לו
+   *   `leads.view_own` רואה אותו (`leadIsVisible` ב-API).
+   * - **קונה** בלי בעלים אינו „של כולם” אלא **בלתי נראה**:
+   *   `ownershipFilter` משווה מזהה, ו-NULL אינו שווה לאיש.
+   *
+   * שני הכללים חיים ב-`canSeeNotifyDetail` בנפרד, ובכוונה — הם
+   * לא אותו כלל, וטיפול אחיד בהם היה פותח את אחד מהם.
    */
   ownerUserId: string | null;
 }
@@ -65,8 +79,16 @@ export interface PropertyDetail extends DetailBase {
   kind: "property";
   headline: string;
   price: string | null;
-  /** הקונים שההתאמה מצאה — עד שלושה, החדשים ראשונים. */
-  people: readonly NotifyPerson[];
+  /**
+   * הקונים שההתאמה מצאה — עד שלושה, החזקים ראשונים.
+   *
+   * ‎**כל אחד עם הבעלים שלו**, ולא רשימת שמות שטוחה: `properties.view`
+   * מתיר לראות את הנכס, לא את זהות הקונים שהותאמו לו. המסך עצמו
+   * מסנן אותם ב-`ownershipFilter("buyers.view_all", "ownerUserId")`
+   * לפני שהוא מחזיר שם, וההתראה חייבת לעשות בדיוק אותו דבר —
+   * אחרת היא הערוץ שבו סוכן מקבל את הטלפון של הקונה של עמיתו.
+   */
+  people: readonly OwnedPerson[];
   /** נימוק ההתאמה כפי שהמנוע ניסח אותו. */
   why: string | null;
 }
@@ -116,32 +138,64 @@ export interface DetailViewer {
   capabilities: readonly string[];
 }
 
-function owns(detail: DetailBase, viewer: DetailViewer): boolean {
-  // כרטיס בלי בעלים הוא משרדי — במאגר המשותף, ולא של אף אחד
-  return detail.ownerUserId === null || detail.ownerUserId === viewer.userId;
+/**
+ * ‎**בעלות בלבד אינה הרשאה** — היא רק חצי ממנה.
+ *
+ * ‏`view_own` ניתנת לשלילה פר-משתמש (`UserCapability` עם
+ * ‎`effect: "deny"`), וגם נופלת עם חסימת מודול לכל המשרד. הזכאות
+ * לוואטסאפ אינה תלויה בשתיהן — כלומר סוכן שהגישה שלו ללידים
+ * נשללה במפורש היה ממשיך לקבל שמות וטלפונים בהודעה, בזמן
+ * שהמסך מציג לו „אין הרשאה”. הכלל כאן הוא אותו כלל של הנתיבים:
+ * ‎`view_all`, או `view_own` **וגם** בעלות.
+ */
+function ownedWith(
+  detail: DetailBase,
+  viewer: DetailViewer,
+  viewAll: string,
+  viewOwn: string,
+  /** האם „בלי בעלים” פירושו הערימה המשותפת (ליד) או בלתי נראה (קונה). */
+  nullIsShared: boolean,
+): boolean {
+  if (viewer.capabilities.includes(viewAll)) return true;
+  if (!viewer.capabilities.includes(viewOwn)) return false;
+  return detail.ownerUserId === null ? nullIsShared : detail.ownerUserId === viewer.userId;
 }
 
 /**
  * האם מותר לצרף את הפרטים האלה להודעה של הנמען הזה.
  *
  * הכללים הם אותם כללים של המסכים, ובכוונה: מה שסוכן אינו רואה
- * ברשימה אינו אמור להגיע אליו בהתראה. `view_all` היא סימן ההיכר
- * של מי שרואה את כל המשרד; בלעדיה נשארת הבעלות.
+ * ברשימה אינו אמור להגיע אליו בהתראה.
  */
 export function canSeeNotifyDetail(detail: NotifyDetail, viewer: DetailViewer): boolean {
   const has = (capability: string): boolean => viewer.capabilities.includes(capability);
   switch (detail.kind) {
     case "lead":
-      return has("leads.view_all") || owns(detail, viewer);
+      // ליד בלי סוכן משויך הוא הערימה המשותפת — ראו `leadIsVisible`
+      return ownedWith(detail, viewer, "leads.view_all", "leads.view_own", true);
     case "buyer":
     case "offer":
-      // הצעה היא תמיד על קונה, ולכן היא נשענת על אותה הרשאה
-      return has("buyers.view_all") || owns(detail, viewer);
+      /*
+       * הצעה היא תמיד על קונה ולכן נשענת על אותה הרשאה. וקונה בלי
+       * בעלים אינו „של כולם” אלא בלתי נראה — `false` ולא `true`.
+       */
+      return ownedWith(detail, viewer, "buyers.view_all", "buyers.view_own", false);
     case "property":
+      /*
+       * ‎`properties.view` מתיר את **הנכס** — הכתובת, המחיר, הנימוק.
+       * זהות הקונים שהותאמו לו נשענת על הרשאת הקונים, ומסוננת
+       * אחד-אחד ב-`notifyDetailLines`.
+       */
       return has("properties.view");
     case "task":
     case "appointment":
-      return has("tasks.view_all") || owns(detail, viewer);
+      /*
+       * ‎`tasks.view_own` אינה קיימת: משימה מוטלת על סוכן, ומי
+       * שהיא שלו רואה אותה בהגדרה. פגישה בלי בעלים היא פגישה
+       * משרדית, והיא נשארת למי שרואה את המשרד כולו — פרטי לקוח
+       * הם לא המקום להיות נדיבים בו.
+       */
+      return has("tasks.view_all") || detail.ownerUserId === viewer.userId;
     case "contact":
       /*
        * איש קשר בלי הקשר של ליד או קונה — הטלפון שלו הוא כל התוכן.
@@ -150,6 +204,17 @@ export function canSeeNotifyDetail(detail: NotifyDetail, viewer: DetailViewer): 
        */
       return has("leads.view_all") || has("buyers.view_all");
   }
+}
+
+/** אותה הרשאה בדיוק, על קונה בודד בתוך רשימת ההתאמות של נכס. */
+function canSeeBuyer(owned: OwnedPerson, viewer: DetailViewer): boolean {
+  return ownedWith(
+    { ownerUserId: owned.ownerUserId },
+    viewer,
+    "buyers.view_all",
+    "buyers.view_own",
+    false,
+  );
 }
 
 /* ==================== הניסוח ==================== */
@@ -194,8 +259,13 @@ const SUMMARY_MAX = 140;
  *
  * מחזירה רשימה ריקה כשאין מה לומר — פריט בלי פרטים אינו מקבל
  * שורה ריקה או „לא ידוע”, אלא נשאר כפי שהיה.
+ *
+ * ‎`viewer` נדרש כאן ולא רק ב-`canSeeNotifyDetail`, כי פריט אחד
+ * יכול לשאת **כמה כרטיסים בבעלויות שונות**: התאמות של נכס הן
+ * קונים של סוכנים שונים, ואישור הפריט כולו מכוח `properties.view`
+ * היה מוסר את זהותם לכל מי שרשאי לראות נכס.
  */
-export function notifyDetailLines(detail: NotifyDetail): string[] {
+export function notifyDetailLines(detail: NotifyDetail, viewer: DetailViewer): string[] {
   const lines: string[] = [];
   switch (detail.kind) {
     case "lead": {
@@ -224,7 +294,15 @@ export function notifyDetailLines(detail: NotifyDetail): string[] {
     case "property": {
       lines.push(`🏠 ${detail.headline}`);
       if (detail.price !== null) lines.push(`💰 ${detail.price}`);
-      for (const person of detail.people) lines.push(personLine(person));
+      /*
+       * ‎**הנכס אינו מכשיר את הקונים שלו.** הכתובת והמחיר גלויים
+       * לכל מי שרשאי לראות נכסים; שם וטלפון של קונה שהותאם אליו
+       * הם כרטיס של סוכן, ונבדקים אחד-אחד — בדיוק כפי שהמסך
+       * מסנן אותם לפני שהוא מציג את ההתאמות.
+       */
+      for (const owned of detail.people) {
+        if (canSeeBuyer(owned, viewer)) lines.push(personLine(owned.person));
+      }
       if (detail.why !== null && detail.why !== "") lines.push(`✨ ${clamp(detail.why, WHY_MAX)}`);
       return lines;
     }

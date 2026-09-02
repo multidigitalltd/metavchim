@@ -68,6 +68,7 @@ import {
   appointmentKindLabel,
   shekelLabel,
   propertyHeadline,
+  OfferPresentationSchema,
   type NotifyDetail,
   type NotifyPerson,
   AGENT_ACTIONS,
@@ -2915,7 +2916,7 @@ async function loadNotifyDetails(
           ? []
           : await tx.offer.findMany({
               where: { tenantId, id: { in: offerIds } },
-              select: { id: true, matchId: true, openCount: true },
+              select: { id: true, matchId: true, openCount: true, presentation: true },
             });
       const offerMatches =
         offers.length === 0
@@ -3154,9 +3155,17 @@ async function loadNotifyDetails(
               ownerUserId: null,
               headline: headlineOf(id) ?? "נכס ללא כתובת",
               price: moneyOf(property.priceAgorot),
-              people: matched
-                .map((match) => buyerPerson(match.buyerId))
-                .filter((person): person is NotifyPerson => person !== null),
+              /*
+               * כל קונה עם הבעלים שלו — הסינון נעשה פר-נמען
+               * ‏ב-`notifyDetailLines`, כי אותה שורה נשלחת לכמה
+               * סוכנים עם הרשאות שונות.
+               */
+              people: matched.flatMap((match) => {
+                const person = buyerPerson(match.buyerId);
+                return person === null
+                  ? []
+                  : [{ person, ownerUserId: buyerById.get(match.buyerId)?.ownerUserId ?? null }];
+              }),
               why: matched[0]?.explanation ?? null,
             });
             break;
@@ -3165,13 +3174,28 @@ async function loadNotifyDetails(
             const offer = offerById.get(id);
             const match = offer === undefined ? undefined : matchById.get(offer.matchId);
             if (offer === undefined || match === undefined) break;
+            /*
+             * ‎**מה שהקונה ראה, לא מה שהנכס אומר היום.**
+             *
+             * ‏`presentation` הוא ה-Snapshot הבלתי-משתנה שנשלח לקונה,
+             * וזו כל הסיבה שהוא נשמר. נכס שהמחיר שלו ירד אתמול היה
+             * גורם להתראה לומר „הקונה פתח הצעה על 1,900,000” על
+             * הצעה שהוצגה לו ב-2,100,000 — כלומר המתווך מתקשר עם
+             * מספר שהלקוח מעולם לא ראה. השורה הנוכחית היא הנפילה
+             * בלבד, לשורות ישנות שנשמרו לפני שדה כזה.
+             */
+            const shown = OfferPresentationSchema.safeParse(offer.presentation);
+            const snapshot = shown.success ? shown.data : null;
             const property = propertyById.get(match.propertyId);
             details.set(item.id, {
               kind: "offer",
               ownerUserId: buyerById.get(match.buyerId)?.ownerUserId ?? null,
               person: buyerPerson(match.buyerId),
-              property: headlineOf(match.propertyId),
-              price: moneyOf(property?.priceAgorot ?? null),
+              property: snapshot?.title ?? headlineOf(match.propertyId),
+              price:
+                snapshot?.priceAgorot === undefined
+                  ? moneyOf(property?.priceAgorot ?? null)
+                  : shekelLabel(snapshot.priceAgorot),
               openCount: offer.openCount,
               why: match.explanation,
             });
