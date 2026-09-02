@@ -58,6 +58,12 @@ const AddPhoneSchema = z
   .strict();
 
 /**
+ * ‎**המספר הראשי — תיקון, ולא תוספת.** אין כאן `label`: הראשי הוא
+ * הראשי, ומספר עם תפקיד אחר הוא `AddPhoneSchema`.
+ */
+const UpdatePhoneSchema = z.object({ phone: PhoneField }).strict();
+
+/**
  * ‎**הסכמה לדיוור — `true` להצטרפות מחדש, `false` להסרה.**
  *
  * בוליאני מפורש ולא שני נתיבים: זו עובדה אחת על הלקוח, ולנתיב
@@ -337,6 +343,53 @@ export class ContactsController {
       await this.contacts.setEmail(tx, id, body.email.trim());
     });
     return { ok: true };
+  }
+
+  /**
+   * ‎**תיקון המספר הראשי של הכרטיס.**
+   *
+   * ‏ליד שנוצר משיחה או מטופס נושא את המספר שהגיע איתו, וספרה
+   * שגויה אחת נשארה עליו לתמיד: המסך ידע להוסיף מספרים נוספים
+   * ולהסיר אותם, והראשי לא היה ניתן לשינוי בשום מסלול.
+   *
+   * ‎**היכולת היא `buyers.edit`** — בדיוק כמו השם והאימייל, שהם
+   * אותו סוג של נתון על אותו כרטיס.
+   *
+   * ‎**ביומן הביקורת נרשם שהמספר הוחלף — ולא מהו.** הטלפון הוא PII
+   * מוצפן במנוחה, ורישום שלו בטקסט גלוי במטא-דאטה היה מבטל את
+   * ההצפנה; אותה מוסכמה בדיוק כמו ב-`contact.renamed`.
+   */
+  @RequireCapability("buyers.edit")
+  @Patch(":id/phone")
+  @HttpCode(200)
+  async setPhone(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(UpdatePhoneSchema)) body: z.infer<typeof UpdatePhoneSchema>,
+  ): Promise<{ ok: true; changed: boolean; phone: string }> {
+    const tenantId = TenantContext.current().tenantId;
+    const changed = await this.prisma.withTenant(async (tx) => {
+      await assertContactAccess(tx, tenantId, id);
+      const result = await this.contacts.setPrimaryPhone(tx, id, body.phone);
+      if (result.reason === "taken") {
+        throw new BadRequestException("המספר כבר רשום אצל איש קשר אחר במשרד");
+      }
+      // רק החלפה אמיתית היא אירוע; שמירה חוזרת של אותו מספר אינה שינוי
+      if (result.changed) {
+        await this.audit.record(tx, {
+          action: "contact.phone_changed",
+          entityType: "contact",
+          entityId: id,
+        });
+      }
+      return result.changed;
+    });
+    /*
+     * ‎**המספר המנורמל חוזר, ולא זה שהוקלד.** הסכימה ממירה
+     * ‏„054-777-1122” ל-E.164, וזה מה ששמור ומה שיוצג בטעינה הבאה.
+     * מסך שהיה מציג את מה שהוקלד היה משנה צורה מעצמו ברענון — נראה
+     * כאילו משהו נערך שוב.
+     */
+    return { ok: true, changed, phone: body.phone };
   }
 
   /**

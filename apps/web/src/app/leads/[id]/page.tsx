@@ -27,6 +27,7 @@ import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/li
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { ClickToDial } from "../../click-to-dial";
 import { ConfirmDialog } from "../../confirm-dialog";
+import { ContactIdentityEdit } from "../../contact-identity";
 import { ContactPeople } from "../../contact-people";
 import { ConvertSection, ConvertToPropertySection } from "../convert-sections";
 import { DeleteLeadDialog } from "../delete-lead-dialog";
@@ -762,6 +763,40 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             <h1 className="m-0" style={{ fontSize: "calc(21 / 16 * 1rem)", fontWeight: 800 }}>
               {lead.contact.name}
             </h1>
+            {/*
+              ‎**תיקון הפרטים ליד הפרטים.**
+
+              ליד נקלט לעיתים בלי שם — שיחה שלא נענתה שומרת את מספר
+              הטלפון במקומו — ועם המספר שהגיע בשיחה או הוקלד בטופס.
+              עד כאן זה היה סופי בכרטיס הליד: לא השם, לא המספר ולא
+              האימייל. היכולת היא `buyers.edit`, אותה יכולת שהשרת
+              דורש בשלושת הנתיבים.
+            */}
+            <ContactIdentityEdit
+              contactId={lead.contact.id}
+              identity={lead.contact}
+              canEdit={canEditPeople}
+              /*
+                המפתח נבנה מחדש ולא נפרש על הקודם: אימייל שנמחק אינו
+                מגיע ב-`next`, ופרישה על הישן הייתה משאירה אותו על
+                המסך אחרי שכבר נמחק בשרת.
+              */
+              onSaved={(next) =>
+                setLead((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        contact: {
+                          id: prev.contact.id,
+                          name: next.name,
+                          phone: next.phone,
+                          ...(next.email === undefined ? {} : { email: next.email }),
+                        },
+                      }
+                    : prev,
+                )
+              }
+            />
             {/* הכוונה צמודה לשם: "קונה" ו"מוכר" הן שתי שיחות שונות */}
             <span
               className="mv-pill"
