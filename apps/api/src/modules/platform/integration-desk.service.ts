@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
   TELEPHONY_PROVIDERS,
+  canonicalVirtualNumber,
   mergeIntegrationSecrets,
   mergeLegacySecretsIntoConfig,
   telephonyProvider,
@@ -36,6 +37,16 @@ import { loadEnv } from "../../config/env";
  * ל-`calls` או ל-`messages`, ו-RLS ממשיך לאכוף שכל שאילתה כאן
  * מוגבלת למשרד שנבחר.
  *
+ * ## ומה עם המספרים הווירטואליים
+ *
+ * השולחן נוגע גם בטבלת `virtual_numbers` — המספר, שמו והסוכן
+ * שמקבל את הלידים ממנו — וברשימת **הצוות** של המשרד (מזהה ושם
+ * בלבד) כדי שיהיה את מי לבחור. שניהם הגדרות של המשרד ולא נתונים
+ * של לקוחותיו: הם אותה שכבה בדיוק כמו הספק ושם המשתמש שלו, ומאותה
+ * סיבה נתקעים בה. משרד שכל סוכן בו מקבל מספר נפרד מהמרכזייה מבקש
+ * מהפלטפורמה לחבר את המספרים לסוכנים, ובלי המסלול הזה התשובה
+ * הייתה שוב „פתחו לנו גישת תמיכה”.
+ *
  * הגבול הזה **נאכף במבחן מבני** (`integration-desk-scope.test.ts`):
  * הרשימה הלבנה של הטבלאות נגזרת מהקובץ הזה עצמו, כך ששינוי עתידי
  * שירחיב את הגישה ייפול בבדיקה ולא יעבור בשקט.
@@ -68,6 +79,25 @@ export interface DeskTelephonyStatus {
   /** שמות הסודות ששמורים — לעולם לא הערכים. */
   secretsSet: string[];
   config: Record<string, unknown>;
+}
+
+/** המספרים של משרד והצוות שאפשר לשייך אליו — למסך השולחן. */
+export interface DeskVirtualNumbers {
+  numbers: {
+    id: string;
+    phone: string;
+    label: string;
+    assignedToUserId: string | null;
+    isActive: boolean;
+  }[];
+  users: { id: string; name: string }[];
+}
+
+/** שורה אחת בשמירה: מספר, שם (רשות בעדכון) והסוכן. */
+export interface DeskVirtualNumberInput {
+  phone: string;
+  label: string;
+  assignedToUserId: string | null;
 }
 
 @Injectable()
@@ -214,6 +244,191 @@ export class IntegrationDeskService {
       });
     });
     return { ok: true };
+  }
+
+  /* ==================== מספרים וירטואליים ==================== */
+
+  /**
+   * המספרים של המשרד והצוות שאפשר לשייך אליו.
+   *
+   * הצוות מגיע עם מזהה ושם בלבד, ורק הפעילים: סוכן שהושבת אינו
+   * יעד לשיוך, ושיוך אליו היה מייצר לידים שאף סוכן פעיל אינו רואה
+   * (אותה בדיקה שהניתוב עצמו עושה בזמן הכתיבה).
+   */
+  async virtualNumbers(tenantId: string): Promise<DeskVirtualNumbers> {
+    await this.agencyName(tenantId);
+    const [numbers, users] = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      Promise.all([
+        tx.virtualNumber.findMany({
+          where: { tenantId },
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            phone: true,
+            label: true,
+            assignedToUserId: true,
+            isActive: true,
+          },
+        }),
+        tx.user.findMany({
+          where: { tenantId, isActive: true },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true },
+        }),
+      ]),
+    );
+    return { numbers, users };
+  }
+
+  /**
+   * שיוך מספרים לסוכנים בשם המשרד — **שמירה אחת לכל הרשימה.**
+   *
+   * כל שורה מזוהה לפי המספר ולא לפי מזהה: מספר שכבר קיים אצל המשרד
+   * (למשל שורה שנוצרה מהשכרה) מתעדכן, ומספר שאינו קיים נוצר. כך
+   * מנהל הפלטפורמה ממלא טבלה אחת של „מספר ← סוכן” ולוחץ פעם אחת,
+   * ולא מנהל בנפרד יצירה ועדכון.
+   *
+   * השורה כולה בטרנזקציה אחת ועם רישום אחד ביומן והתראה אחת: עשרה
+   * מספרים לעשרה סוכנים הם פעולה אחת של המשרד, לא עשר.
+   *
+   * מה **לא** נשמר כאן: נכס, מקור ליד וכיבוי. אלה בחירות של המשרד
+   * על הקמפיינים שלו; השולחן פותר את החיבור הטכני בלבד.
+   */
+  async assignVirtualNumbers(
+    tenantId: string,
+    entries: DeskVirtualNumberInput[],
+  ): Promise<{ ok: true; saved: number }> {
+    const agency = await this.agencyName(tenantId);
+    const adminEmail = await this.adminEmail();
+
+    /*
+     * הנרמול והדחייה **לפני** הטרנזקציה, על כל הרשימה: הודעה
+     * ששמה את המספר הפגום עדיפה על גלגול-אחורה אחרי חצי רשימה.
+     */
+    const canonical = entries.map((entry) => {
+      const phone = canonicalVirtualNumber(entry.phone);
+      if (phone === "") {
+        throw new BadRequestException(`המספר ${entry.phone} אינו מספר טלפון ישראלי תקין`);
+      }
+      return { ...entry, phone };
+    });
+    const seen = new Set<string>();
+    for (const entry of canonical) {
+      if (seen.has(entry.phone)) {
+        throw new BadRequestException(`המספר ${entry.phone} מופיע פעמיים ברשימה`);
+      }
+      seen.add(entry.phone);
+    }
+
+    await this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      /*
+       * הסוכנים מאומתים מול המשרד **הזה** ופעילים. מזהה של סוכן
+       * ממשרד אחר היה עובר את הסכמה ונשמר בשקט — ואז מנתב לידים
+       * לאדם שאינו קיים במשרד.
+       */
+      const wanted = [
+        ...new Set(
+          canonical
+            .map((entry) => entry.assignedToUserId)
+            .filter((id): id is string => id !== null),
+        ),
+      ];
+      const users =
+        wanted.length === 0
+          ? []
+          : await tx.user.findMany({
+              where: { tenantId, isActive: true, id: { in: wanted } },
+              select: { id: true, name: true },
+            });
+      const byId = new Map(users.map((user) => [user.id, user.name]));
+      const missing = wanted.find((id) => !byId.has(id));
+      if (missing !== undefined) {
+        throw new BadRequestException("אחד הסוכנים שנבחרו אינו פעיל במשרד הזה");
+      }
+
+      for (const entry of canonical) {
+        const existing = await tx.virtualNumber.findFirst({
+          where: { tenantId, phone: entry.phone },
+          select: { id: true },
+        });
+        const label = entry.label.trim();
+        if (existing) {
+          await tx.virtualNumber.updateMany({
+            where: { id: existing.id, tenantId },
+            data: {
+              assignedToUserId: entry.assignedToUserId,
+              // שם ריק = „אל תיגע”: השם שהמשרד נתן נשאר
+              ...(label !== "" ? { label } : {}),
+            },
+          });
+        } else {
+          await tx.virtualNumber.create({
+            data: {
+              id: ulid(),
+              tenantId,
+              phone: entry.phone,
+              label: label !== "" ? label : `מספר ${entry.phone}`,
+              assignedToUserId: entry.assignedToUserId,
+              // אין משתמש של המשרד שיצר — מי שפעל רשום ביומן
+              createdBy: null,
+            },
+          });
+        }
+      }
+
+      await this.recordAssignmentsForOffice(tx, tenantId, {
+        adminEmail,
+        agency,
+        assignments: canonical.map((entry) => ({
+          phone: entry.phone,
+          agent: entry.assignedToUserId === null ? null : (byId.get(entry.assignedToUserId) ?? null),
+        })),
+      });
+    });
+    return { ok: true, saved: canonical.length };
+  }
+
+  /**
+   * היומן וההתראה על שיוך — אצל המשרד, כמו על חיבור המרכזייה.
+   *
+   * ה-`metadata` נושא את הרשימה עצמה (מספר ← שם סוכן): זה מה
+   * שמנהל המשרד יקרא כשישאל „מי שינה את הניתוב של המספר של דוד”.
+   */
+  private async recordAssignmentsForOffice(
+    tx: TenantTx,
+    tenantId: string,
+    what: {
+      adminEmail: string;
+      agency: string;
+      assignments: { phone: string; agent: string | null }[];
+    },
+  ): Promise<void> {
+    await tx.auditLog.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        userId: null,
+        action: "virtual_number.platform_assign",
+        entityType: "virtual_number",
+        entityId: tenantId,
+        metadata: {
+          platformAdmin: what.adminEmail,
+          assignments: what.assignments,
+        } as object,
+      },
+    });
+    await tx.notification.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        userId: null,
+        type: "integration_platform_change",
+        title: "מנהל הפלטפורמה שייך מספרים וירטואליים לסוכנים",
+        body: `${what.assignments.length} מספרים עודכנו על ידי ${what.adminEmail}. הפירוט ביומן הפעילות של המשרד.`,
+        entityType: "virtual_number",
+        entityId: tenantId,
+      },
+    });
   }
 
   /** האימייל של מי שפועל — מה שהופך "מנהל הפלטפורמה" לשם. */
