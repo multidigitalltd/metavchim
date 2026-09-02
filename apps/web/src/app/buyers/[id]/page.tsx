@@ -137,6 +137,15 @@ function offerChip(o: OfferInfo): { label: string; fg: string; bg: string } {
     return { label: "מעוניין ✓", fg: "var(--color-success)", bg: "var(--color-success-soft)" };
   if (o.status === "declined")
     return { label: "לא מתאים", fg: "var(--chip-neutral-fg)", bg: "var(--chip-neutral-bg)" };
+  /*
+   * ‎**„נשלחה” הייתה גם ברירת המחדל של הצעה שלא נשלחה.** הצעה
+   * ידנית נולדת `pending_approval` — נוצר לה קישור ואף ערוץ לא
+   * הוציא אותה — והגלולה הזו טענה עליה שהיא בדרך אל הלקוח.
+   */
+  if (o.status === "pending_approval")
+    return { label: "ממתינה לשליחה", fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" };
+  if (o.status === "email_failed")
+    return { label: "המייל נכשל", fg: "#8a3b21", bg: "#fbe9e1" };
   if (o.openCount >= 3)
     return { label: "מתלבט — שווה טלפון", fg: "var(--domain-amber-fg)", bg: "var(--domain-amber-bg)" };
   if (o.openCount > 0) return { label: "נפתחה", fg: "var(--color-text-muted)", bg: "var(--domain-neutral-tile)" };

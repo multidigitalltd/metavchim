@@ -243,8 +243,23 @@ export class OffersService {
           presentation: presentation as object,
           publicToken: token,
           tokenExpires: new Date(Date.now() + TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000),
-          status: "sent",
-          sentAt: new Date(),
+          /*
+           * ‎**„נשלח” אינו מה שקרה כאן.**
+           *
+           * מה שקרה הוא שנוצר קישור. שום ערוץ לא נגע בלקוח: לא
+           * מייל, לא וואטסאפ, לא הודעה. עד כה נכתב כאן
+           * ‎`status: "sent"` עם `sentAt` של הרגע, ומכאן והלאה כל
+           * מסך במערכת אמר „ההצעה נשלחה” — בזמן שאיש לא קיבל דבר.
+           *
+           * ‎`pending_approval` (ברירת המחדל של העמודה) כבר קיים
+           * ושייך לקבוצה „ממתינות לשליחה”. `sentAt` נשאר `null`,
+           * ונכתב רק ברגע שערוץ באמת שימש — `prepareWhatsApp`,
+           * שליחה במייל, או פתיחה של הלקוח שמוכיחה שהקישור הגיע.
+           *
+           * זה בדיוק התיקון שהמסלול האוטומטי כבר קיבל: שם „כל מה
+           * שטוען „נשלח” — באותה טרנזקציה של הסטטוס”. המסלול הידני
+           * נשאר מאחור.
+           */
         },
       });
       await tx.match.update({ where: { id: matchId }, data: { status: "offered" } });
@@ -261,23 +276,23 @@ export class OffersService {
       });
       await this.audit.record(tx, { action: "offer.create", entityType: "offer", entityId: id });
       /*
-       * הצעה לקונה מהמאגר היא "פרסום בקרב קהל לקוחות מסוים של
-       * המתווך באמצעים אלקטרוניים" — פריט (2) ברשימת פעולות
-       * השיווק. זו הפעולה שהמשרד ממילא עושה הכי הרבה, וגם זו
-       * שלעולם לא הייתה נרשמת ידנית.
+       * ‎**פעולת השיווק וה-`offer.sent` ירדו מכאן — לשליחה עצמה.**
+       *
+       * „פרסום בקרב קהל לקוחות מסוים של המתווך באמצעים
+       * אלקטרוניים” הוא פריט (2) ברשימת פעולות השיווק, והוא נספר
+       * בכלל השליש שבסעיף 9(ב2). רישום שלו על קישור שלא נשלח היה
+       * שומר בלעדיות בזכות הודעה שאיש לא קיבל — ו-`removeAction`
+       * חוסמת מחיקה של רשומה אוטומטית, כלומר בלי דרך לתקן מהמסך.
+       *
+       * הרישום עבר ל-`markDelivered`, שרץ בערוץ אמיתי בלבד. אותו
+       * נימוק בדיוק כמו במסלול האוטומטי.
        */
-      await this.exclusivity.recordAuto(tx, property.id, "offer_sent", {
-        sourceKey: `offer:${id}`,
-        performedAt: new Date(),
-        detail: `הצעה נשלחה לקונה מהמאגר: ${presentation.title}`,
-      });
-      await this.outbox.emit(tx, "offer.sent", { offerId: id, tenantId });
     });
 
     return {
       id,
       matchId,
-      status: "sent",
+      status: "pending_approval",
       url: this.publicUrl(token),
       openCount: 0,
       createdAt: new Date(),
@@ -354,11 +369,29 @@ export class OffersService {
         where: { id: offer.id, firstOpenedAt: null },
         data: { firstOpenedAt: new Date() },
       });
+      /*
+       * ‎**פתיחה היא הוכחת מסירה — ולכן `pending_approval` נכנס לרשימה.**
+       *
+       * מתווך שהעתיק את הקישור ושלח אותו בעצמו לא עבר בשום ערוץ
+       * שהמערכת מכירה, וההצעה נשארה „ממתינה לשליחה”. הרגע שבו
+       * הלקוח פתח אותה סוגר את השאלה: הקישור הגיע. בלי השורה הזו
+       * הצעה כזו הייתה נתקעת ב„ממתינה לשליחה” גם אחרי שנקראה.
+       *
+       * ‎`sentAt` נכתב כאן רק אם היה ריק — לא כדי לדרוס מועד שליחה
+       * אמיתי אלא כדי שמסך ההצעות לא יראה „נפתחה” בלי תאריך.
+       *
+       * ‎**ופעולת השיווק אינה נרשמת מכאן.** הטרנזקציה הזו רצה על
+       * טוקן ציבורי: `TenantContext` אינו קיים בה, ולכן
+       * ‎`outbox.emit` היה זורק, ו-`recordAuto` אינה רואה את תיק
+       * הבלעדיות דרך ה-RLS ממילא. רשומה משפטית מזויפת גרועה
+       * מרשומה חסרה. שני הערוצים שהמערכת כן מכירה — וואטסאפ
+       * ומייל — רושמים אותה במקומם.
+       */
       // המעבר ל-opened מותנה ב-DB, לא בקריאה הישנה — פתיחה במקביל לתגובה
       // לא מחזירה סטטוס interested/declined אחורה ל-opened
       await tx.offer.updateMany({
-        where: { id: offer.id, status: { in: ["sent", "delivered"] } },
-        data: { status: "opened" },
+        where: { id: offer.id, status: { in: ["pending_approval", "sent", "delivered"] } },
+        data: { status: "opened", ...(offer.sentAt === null ? { sentAt: new Date() } : {}) },
       });
       await tx.offer.update({
         where: { id: offer.id },
@@ -590,23 +623,28 @@ export class OffersService {
    * ב-Messages Hub, ומחזיר קישור wa.me עם הטקסט מוכן — המתווך רק לוחץ
    * שלח. שליחה אוטומטית דרך Cloud API תחליף את ה-Provider בהמשך.
    */
-  async prepareWhatsApp(offerId: string): Promise<{ waUrl: string; message: string }> {
+  /**
+   * ‎**שער ההחתמה לפני שליחה — לשני הערוצים.**
+   *
+   * הוא כבר נבדק ביצירת ההצעה, ונבדק שוב כאן: הסכם יכול להידחות או
+   * לפוג בין השניים, וזו הנקודה שבה ההצעה באמת יוצאת ללקוח (חוק
+   * המתווכים §9). שער שיושב בערוץ אחד מתוך שניים אינו שער.
+   */
+  async assertSignatureSatisfied(offerId: string): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
-
-    /*
-     * השער נבדק שוב לפני השליחה בפועל, אף שהוא כבר נבדק ביצירת ההצעה:
-     * הסכם יכול להידחות או לפוג בין השניים, וזו הנקודה שבה ההצעה
-     * באמת יוצאת ללקוח.
-     */
     const matchOfOffer = await this.prisma.withTenant((tx) =>
       tx.offer.findFirst({ where: { id: offerId, tenantId }, select: { matchId: true } }),
     );
     // בלי היציאה הזו היה נשלח findFirst עם id: undefined — ש-Prisma
-    // מפרש כ"בלי סינון"; הזרימה למטה מחזירה את השגיאה המדויקת
-    if (matchOfOffer) {
-      const gate = await this.signatureGate(matchOfOffer.matchId);
-      if (gate) throw OffersService.signatureRequired(gate.url);
-    }
+    // מפרש כ"בלי סינון"; הקוראים מחזירים את השגיאה המדויקת בהמשך
+    if (!matchOfOffer) return;
+    const gate = await this.signatureGate(matchOfOffer.matchId);
+    if (gate) throw OffersService.signatureRequired(gate.url);
+  }
+
+  async prepareWhatsApp(offerId: string): Promise<{ waUrl: string; message: string }> {
+    const tenantId = TenantContext.current().tenantId;
+    await this.assertSignatureSatisfied(offerId);
 
     return this.prisma.withTenant(async (tx) => {
       const offer = await tx.offer.findFirst({ where: { id: offerId, tenantId } });
@@ -676,6 +714,20 @@ export class OffersService {
           },
         });
       }
+      /*
+       * ‎**זה רגע השליחה.** ההודעה מוכנה בלשונית והמתווך לוחץ „שלח”
+       * — אותו מודל בדיוק שההסכמים עובדים בו, והמסך אומר במפורש
+       * שנותרה לחיצה אחת. כאן, ולא ביצירת הקישור, ההצעה הופכת
+       * „נשלחה” ופעולת השיווק נרשמת.
+       */
+      await this.markDelivered(tx, {
+        offerId: offer.id,
+        tenantId,
+        propertyId: match.propertyId,
+        title: presentation.title,
+        at: new Date(),
+        detail: `הצעה נשלחה בוואטסאפ לקונה מהמאגר: ${presentation.title}`,
+      });
       await this.audit.record(tx, {
         action: "offer.whatsapp_prepared",
         entityType: "offer",
@@ -717,6 +769,50 @@ export class OffersService {
    * ריק, זו פעולת הקונה). מזהה הקונה נגזר מההתאמה של ההצעה; אם ההתאמה
    * נמחקה בינתיים לא מפילים את הדף הציבורי על רשומת ציר.
    */
+  /**
+   * ‎**„נשלח” נכתב כאן, ורק כאן — ברגע שערוץ באמת שימש.**
+   *
+   * שלושה מקומות מגיעים לכאן, וכולם אירועים אמיתיים: וואטסאפ נפתח
+   * עם ההודעה, מייל התקבל אצל הספק, או שהלקוח **פתח** את ההצעה —
+   * הוכחה שהקישור הגיע אליו, גם כשהמתווך העתיק אותו ושלח בעצמו.
+   *
+   * ‎**אטומי, ולכן נספר פעם אחת.** התנאי על הסטטוס במסד ולא בקריאה
+   * שקדמה לה: שתי לחיצות במקביל, או פתיחה בזמן שליחה, לא ירשמו שתי
+   * פעולות שיווק ולא ישלחו `offer.sent` פעמיים. `count === 0` פירושו
+   * שההצעה כבר סומנה — ואז אין מה לרשום.
+   *
+   * ‎**`performedAt` הוא רגע השליחה בפועל** ולא רגע היצירה: כלל
+   * השליש שבסעיף 9(ב2) מודד חלון זמן, ותיארוך אחורה היה מזיז פעולה
+   * אל לפני שקרתה.
+   */
+  private async markDelivered(
+    tx: Parameters<Parameters<PrismaService["withTenant"]>[0]>[0],
+    input: {
+      offerId: string;
+      tenantId: string;
+      propertyId: string;
+      title: string;
+      at: Date;
+      detail: string;
+    },
+  ): Promise<boolean> {
+    const first = await tx.offer.updateMany({
+      where: { id: input.offerId, tenantId: input.tenantId, sentAt: null },
+      data: { status: "sent", sentAt: input.at },
+    });
+    if (first.count === 0) return false;
+    await this.exclusivity.recordAuto(tx, input.propertyId, "offer_sent", {
+      sourceKey: `offer:${input.offerId}`,
+      performedAt: input.at,
+      detail: input.detail,
+    });
+    await this.outbox.emit(tx, "offer.sent", {
+      offerId: input.offerId,
+      tenantId: input.tenantId,
+    });
+    return true;
+  }
+
   private async recordOfferMoment(
     tx: Parameters<Parameters<PrismaService["withTenant"]>[0]>[0],
     offer: { id: string; tenantId: string; matchId: string; presentation: unknown },

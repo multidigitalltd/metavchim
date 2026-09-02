@@ -459,6 +459,14 @@ export default function PropertyDetailPage({
   const [bulkResult, setBulkResult] = useState<
     { text: string; ok: boolean } | null
   >(null);
+  /**
+   * תוצאת שליחה של הצעה בודדת במייל.
+   *
+   * ‎`ok: false` הוא המצב שבאמת חסר: „לקונה אין כתובת”, „הלקוח
+   * הסיר את עצמו”, „הספק דחה” — שלושתם צריכים להיאמר, כי בכל אחד
+   * מהם ההצעה **לא** יצאה.
+   */
+  const [offerSent, setOfferSentState] = useState<{ text: string; ok: boolean } | null>(null);
   /** matchId ⟵ קישור חתימה, להתאמות שנחסמו בשער ההחתמה */
   const [awaitingSignature, setAwaitingSignature] = useState<
     Record<string, string>
@@ -587,6 +595,26 @@ export default function PropertyDetailPage({
         return;
       }
       throw err;
+    }
+  }
+
+  /** שליחת ההצעה במייל — כאן „נשלח” אומר שהספק קיבל, וכישלון נראה. */
+  async function sendOfferEmail(matchId: string, offerId: string): Promise<void> {
+    setOfferSentState(null);
+    try {
+      const { sentTo } = await apiPost<{ sentTo: string }>(`/offers/${offerId}/email`, {});
+      setOffers((prev) => {
+        const current = prev[matchId];
+        return current === undefined
+          ? prev
+          : { ...prev, [matchId]: { ...current, status: "sent" } };
+      });
+      setOfferSentState({ ok: true, text: `ההצעה נשלחה לכתובת ${sentTo}.` });
+    } catch (err: unknown) {
+      setOfferSentState({
+        ok: false,
+        text: err instanceof ApiError ? err.message : "שליחת המייל נכשלה — נסו שוב",
+      });
     }
   }
 
@@ -1806,6 +1834,12 @@ export default function PropertyDetailPage({
                 {bulkResult.text}
               </Notice>
             ) : null}
+            {offerSent ? (
+              <Notice tone={offerSent.ok ? "success" : "danger"}>
+                {offerSent.ok ? "✓ " : ""}
+                {offerSent.text}
+              </Notice>
+            ) : null}
 
             {/*
               צ'יפי הסינון — SPEC-4a §1.
@@ -2190,24 +2224,41 @@ export default function PropertyDetailPage({
                         יחד עם שאר התוכן שנשען על אותה בקשה; הניסיון
                         החוזר יושב מעל הרשימה ומחזיר את שניהם.
                       */}
-                      {!offerKnown ? null : offer && canWhatsApp ? (
-                        <button
-                          type="button"
-                          className="mv-btn-action"
-                          style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
-                          onClick={() => void sendWhatsApp(offer.id)}
-                        >
-                          שלח בוואטסאפ
-                        </button>
-                      ) : offer ? null : (
+                      {!offerKnown ? null : offer === undefined ? (
                         <button
                           type="button"
                           className="mv-btn-action"
                           style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
                           onClick={() => void createOffer(m.id)}
                         >
-                          שלח הצעה
+                          הכן הצעה
                         </button>
+                      ) : (
+                        <>
+                          {/*
+                            ‎**מייל הוא הערוץ שנשאר למשרד בלי וואטסאפ.**
+                            עד כה הצעה שנוצרה אצל משרד כזה לא הייתה
+                            לה שום דרך לצאת — והמסך בכל זאת אמר
+                            „נשלחה”.
+                          */}
+                          <button
+                            type="button"
+                            className="mv-btn-plain"
+                            onClick={() => void sendOfferEmail(m.id, offer.id)}
+                          >
+                            שלח במייל
+                          </button>
+                          {canWhatsApp ? (
+                            <button
+                              type="button"
+                              className="mv-btn-action"
+                              style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
+                              onClick={() => void sendWhatsApp(offer.id)}
+                            >
+                              שלח בוואטסאפ
+                            </button>
+                          ) : null}
+                        </>
                       )}
                     </div>
                     </div>
