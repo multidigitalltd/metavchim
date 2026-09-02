@@ -73,9 +73,29 @@ export class WhatsAppWebhookController {
   @Post()
   @HttpCode(200)
   async receive(@Req() req: Request): Promise<{ ok: true }> {
-    const secret =
-      (await this.platformSettings.get("whatsappAppSecret")) ?? loadEnv().WHATSAPP_APP_SECRET;
-    if (!secret) {
+    /*
+     * ‎**שני סודות אפשריים, כי שתי אפליקציות יכולות לחתום על אותו קו.**
+     *
+     * ‏קו הסוכן האישי וחיבור המשרדים יכולים לשבת באפליקציות נפרדות
+     * ב-Meta — הפרדה לגיטימית ואף רצויה, כי חסימה של אחת אינה מפילה
+     * את השנייה. שתיהן מצביעות על אותה כתובת Webhook, וכל אחת חותמת
+     * ב-App Secret משלה. בדיקה מול סוד יחיד הייתה דוחה ב-401 את כל
+     * מה שמגיע מהאפליקציה השנייה — כלומר „החיבור הצליח ואין הודעות”,
+     * הכשל השקט שהכי קשה לאבחן כאן.
+     *
+     * ‏Set מסלק כפילות כשהוגדר אותו ערך פעמיים או כשיש רק אפליקציה אחת.
+     */
+    const env = loadEnv();
+    const secrets = [
+      ...new Set(
+        [
+          (await this.platformSettings.get("whatsappAppSecret")) ?? env.WHATSAPP_APP_SECRET,
+          (await this.platformSettings.get("whatsappConnectAppSecret")) ??
+            env.WHATSAPP_CONNECT_APP_SECRET,
+        ].filter((value): value is string => typeof value === "string" && value !== ""),
+      ),
+    ];
+    if (secrets.length === 0) {
       // אינטגרציה לא מוגדרת — לא מקבלים כלום (אין מצב "פתוח בטעות").
       this.logger.warn(
         "הודעת וואטסאפ נדחתה — לא מוגדר App Secret במערכת. הגדירו אותו במסך הפלטפורמה.",
@@ -91,17 +111,21 @@ export class WhatsAppWebhookController {
       );
       throw new UnauthorizedException();
     }
-    const expected = `sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`;
-    const a = Buffer.from(expected);
-    const b = Buffer.from(signature);
-    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    const received = Buffer.from(signature);
+    const matches = secrets.some((secret) => {
+      const expected = Buffer.from(
+        `sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`,
+      );
+      return expected.length === received.length && timingSafeEqual(expected, received);
+    });
+    if (!matches) {
       /*
        * הסיבה הנפוצה ביותר בהקמה, והיא בלתי נראית בלי השורה הזו:
        * ה-App Secret שנשמר אינו זה של האפליקציה ששולחת. אין כאן זליגה
        * — נאמר **מה** נכשל, לא מה הערך שהתקבל או הצפוי.
        */
       this.logger.warn(
-        "הודעת וואטסאפ נדחתה — חתימת HMAC אינה תואמת. כמעט תמיד: ה-App Secret במסך הפלטפורמה אינו של האפליקציה ב-Meta.",
+        `הודעת וואטסאפ נדחתה — חתימת HMAC אינה תואמת לאף אחד מ-${secrets.length} הסודות המוגדרים. כמעט תמיד: ה-App Secret במסך הפלטפורמה אינו של האפליקציה ששלחה. אפליקציית חיבור נפרדת דורשת את הסוד שלה בשדה הייעודי.`,
       );
       throw new UnauthorizedException();
     }

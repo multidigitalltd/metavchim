@@ -391,6 +391,7 @@ export function PlatformSettingsSection({
       const accessToken = String(f.get("whatsappAccessToken") ?? "").trim();
       const phoneNumberId = String(f.get("whatsappPhoneNumberId") ?? "").trim();
       const appId = String(f.get("whatsappAppId") ?? "").trim();
+      const connectAppSecret = String(f.get("whatsappConnectAppSecret") ?? "").trim();
       const signupConfigId = String(f.get("whatsappSignupConfigId") ?? "").trim();
       const botNumber = String(f.get("whatsappBotNumber") ?? "").trim();
       const prospectReply = String(f.get("whatsappProspectReply") ?? "").trim();
@@ -417,6 +418,7 @@ export function PlatformSettingsSection({
         ...(accessToken !== "" ? { whatsappAccessToken: accessToken } : {}),
         ...(phoneNumberId !== "" ? { whatsappPhoneNumberId: phoneNumberId } : {}),
         ...(appId !== "" ? { whatsappAppId: appId } : {}),
+        ...(connectAppSecret !== "" ? { whatsappConnectAppSecret: connectAppSecret } : {}),
         ...(signupConfigId !== "" ? { whatsappSignupConfigId: signupConfigId } : {}),
         // ‎`botNumber` נשלח תמיד, גם ריק: הוא גיבוי שמכוון למחוק אותו
         // ברגע ש-Meta מתחילה לענות, וריק כאן פירושו „חזרו להסתמך על
@@ -1809,6 +1811,27 @@ export function PlatformSettingsSection({
               type="text"
               dir="ltr"
               inputMode="numeric"
+              autoComplete="off"
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="whatsappConnectAppSecret" className="mb-1 block font-medium">
+              App Secret של אפליקציית החיבור{" "}
+              <span className="font-normal">(ריק = אותה אפליקציה)</span>
+            </label>
+            <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              רק אם חיבור המשרדים יושב באפליקציה נפרדת מזו של קו הסוכן. אז שתי
+              אפליקציות חותמות על אותו Webhook, וצריך את שני הסודות — אחרת
+              ההודעות מאפליקציית החיבור נדחות והחיבור נראה מוצלח בלי שאף הודעה
+              מגיעה.
+            </p>
+            <input
+              id="whatsappConnectAppSecret"
+              name="whatsappConnectAppSecret"
+              type="password"
+              dir="ltr"
               autoComplete="off"
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}

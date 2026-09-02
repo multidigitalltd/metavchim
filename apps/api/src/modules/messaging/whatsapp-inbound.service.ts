@@ -6,6 +6,7 @@ import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
 import { ViewingReplyService } from "../calendar/viewing-reply.service";
 import { WhatsAppAssistantService } from "./whatsapp-assistant.service";
+import { WhatsAppBotService } from "./whatsapp-bot.service";
 import { WhatsAppConnectionService } from "./whatsapp-connection.service";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 
@@ -114,6 +115,72 @@ const WebhookSchema = z.object({
               )
               .optional(),
             /**
+             * ‎**סנכרון ההיסטוריה מהטלפון** — עד חצי שנה אחורה, אם
+             * המתווך אישר. מגיע בנתחים (`chunk_order`) ובשלושה
+             * שלבים (`phase`), עם `progress` באחוזים.
+             *
+             * ‏סירוב לשתף מגיע באותו שדה כ-`errors` ולא כהיעדר
+             * מטען — ולכן „לא הגיעה היסטוריה” ו„המתווך בחר לא
+             * לשתף” נראים כאן שונה, וזה בדיוק ההבדל בין תקלה
+             * להחלטה.
+             */
+            history: z
+              .array(
+                z.object({
+                  metadata: z
+                    .object({
+                      phase: z.number().optional(),
+                      chunk_order: z.number().optional(),
+                      progress: z.number().optional(),
+                    })
+                    .optional(),
+                  errors: z
+                    .array(z.object({ code: z.number(), title: z.string().optional() }))
+                    .optional(),
+                  threads: z
+                    .array(
+                      z.object({
+                        id: z.string(),
+                        messages: z
+                          .array(
+                            z.object({
+                              id: z.string(),
+                              from: z.string().optional(),
+                              /** קיים רק בהד של המתווך — ולכן הוא שמכריע כיוון */
+                              to: z.string().optional(),
+                              type: z.string(),
+                              timestamp: z.string().optional(),
+                              text: z.object({ body: z.string() }).optional(),
+                            }),
+                          )
+                          .optional(),
+                      }),
+                    )
+                    .optional(),
+                }),
+              )
+              .optional(),
+            /**
+             * אנשי הקשר שבטלפון של המתווך. `add` מכסה גם הוספה וגם
+             * עריכה; `remove` הוא מחיקה מפנקס הכתובות שלו — **ולא**
+             * מהמערכת (ראו `handleStateSync`).
+             */
+            state_sync: z
+              .array(
+                z.object({
+                  type: z.string().optional(),
+                  action: z.string().optional(),
+                  contact: z
+                    .object({
+                      full_name: z.string().optional(),
+                      first_name: z.string().optional(),
+                      phone_number: z.string().optional(),
+                    })
+                    .optional(),
+                }),
+              )
+              .optional(),
+            /**
              * עדכון חשבון מ-Meta: ניתוק מהטלפון, שינוי דירוג איכות,
              * חסימה. `event` נושא את הסוג ו-`ban_info`/`current_limit`
              * את הפרטים — נקראים רק כשהם שם.
@@ -135,6 +202,7 @@ export class WhatsAppInboundService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly assistant: WhatsAppAssistantService,
+    private readonly bot: WhatsAppBotService,
     private readonly sender: WhatsAppSendService,
     private readonly viewingReplies: ViewingReplyService,
     private readonly connections: WhatsAppConnectionService,
@@ -186,6 +254,24 @@ export class WhatsAppInboundService {
 
         if (value.message_echoes?.length) {
           await this.handleEchoes(incomingLine, value.message_echoes);
+          continue;
+        }
+
+        /*
+         * ‎**היסטוריה — בלי await, ומאותו נימוק כמו הסוכן.**
+         *
+         * נתח יכול לשאת מאות הודעות, ו-Meta ששוב אינה מקבלת 200
+         * תוך שניות שולחת אותו שוב — כלומר ייבוא כפול. העיבוד
+         * ממשיך ברקע ו-`handle` לעולם אינו זורק.
+         */
+        if (change.field === "history" && value.history?.length) {
+          const chunks = value.history;
+          void this.handleHistory(incomingLine, chunks);
+          continue;
+        }
+
+        if (change.field === "smb_app_state_sync" && value.state_sync?.length) {
+          await this.handleStateSync(incomingLine, value.state_sync);
           continue;
         }
 
@@ -295,13 +381,36 @@ export class WhatsAppInboundService {
           if (message.type !== "text" || !message.text) continue;
           const senderName =
             value.contacts?.find((c) => c.wa_id === message.from)?.profile?.name ?? "לקוח וואטסאפ";
-          await this.ingestMessage(tenantId, {
+          const ingested = await this.ingestMessage(tenantId, {
             externalId: message.id,
             fromPhone: normalizeWaPhone(message.from),
             senderName,
             text: message.text.body,
-            ...(connection ? { connectionId: connection.id } : {}),
+            ...(connection ? { connectionId: connection.id, ownerUserId: connection.userId } : {}),
           });
+
+          /*
+           * ‎**הבוט — בלי await, ורק על קו מחובר.**
+           *
+           * תשובה שלמה היא קריאת LLM של שניות; Meta שאינה מקבלת
+           * 200 בזמן שולחת את ההודעה שוב, כלומר תשובה כפולה ללקוח.
+           * במסלול הישן (מספר שהוקלד ידנית) אין `connection` ולכן
+           * גם אין קו לענות ממנו — הקליטה עובדת, הבוט פשוט לא רץ.
+           */
+          if (ingested && connection) {
+            const line = connection;
+            void this.bot.maybeReply({
+              connectionId: line.id,
+              tenantId,
+              ownerUserId: line.userId,
+              contactId: ingested.contactId,
+              leadId: ingested.leadId,
+              customerPhone: normalizeWaPhone(message.from),
+              customerName: senderName,
+              text: message.text.body,
+              messageId: message.id,
+            });
+          }
         }
       }
     }
@@ -421,6 +530,238 @@ export class WhatsAppInboundService {
     }
   }
 
+  /**
+   * ‎**ייבוא ההיסטוריה מהטלפון** (docs/12 §5.3).
+   *
+   * ## למה `Message` ולא `Interaction`
+   *
+   * האילוץ `interaction_exactly_one_parent` מחייב שכל אינטראקציה
+   * תלויה בליד או בקונה. להיסטוריה מיובאת אין כזה — היא שייכת
+   * לאיש הקשר — וכתיבה לשם הייתה נכשלת על כל שורה. לכן
+   * ‎`Message` על `contactId`, וציר הזמן של תיק הלקוח קורא משני
+   * המקורות.
+   *
+   * ## למה לא נפתחים לידים
+   *
+   * ייבוא אינו פנייה חדשה. משרד פעיל שמחבר קו היה מקבל מאות
+   * „לידים חדשים” ביום החיבור, וכולם ישנים — כלומר רשימת העבודה
+   * שלו נהרסת ברגע שהוא מצטרף. ההיסטוריה נקשרת ללידים רק כשלקוח
+   * מיובא כותב שוב.
+   *
+   * ## מה קורה בכישלון
+   *
+   * ‏Meta אינה שולחת נתח שוב אחרי שקיבלה 200, ולכן אין למי לפנות
+   * לניסיון חוזר: התרופה היחידה היא ניתוק וחיבור מחדש. במקום
+   * לאבד את הנתח בשקט, הכישלון מסמן את החיבור כ-`error` — המסך
+   * כבר אומר „החיבור לא הושלם” ומציע לחבר מחדש, וזו בדיוק
+   * הפעולה הנכונה.
+   */
+  private async handleHistory(
+    lineId: string,
+    chunks: readonly {
+      metadata?: { phase?: number; chunk_order?: number; progress?: number };
+      errors?: readonly { code: number; title?: string }[];
+      threads?: readonly {
+        id: string;
+        messages?: readonly {
+          id: string;
+          from?: string;
+          to?: string;
+          type: string;
+          timestamp?: string;
+          text?: { body: string };
+        }[];
+      }[];
+    }[],
+  ): Promise<void> {
+    const connection = await this.connections.byPhoneNumberId(lineId);
+    if (!connection) {
+      this.logger.warn(`היסטוריה הגיעה לקו ${lineId} שאינו מחובר — נזרקת`);
+      return;
+    }
+
+    for (const chunk of chunks) {
+      /*
+       * סירוב לשתף אינו תקלה. הוא נרשם כדי שהמסך יאמר „ללא
+       * היסטוריה” במקום להיתקע על „מסתנכרן” לנצח.
+       */
+      if (chunk.errors?.length) {
+        this.logger.log(
+          `המתווך בחר לא לשתף היסטוריה בקו ${lineId} (${chunk.errors[0]?.code ?? "ללא קוד"})`,
+        );
+        await this.connections.markHistory(connection.id, { shared: false, done: true });
+        continue;
+      }
+
+      let imported = 0;
+      for (const thread of chunk.threads ?? []) {
+        try {
+          imported += await this.importThread(connection, thread);
+        } catch (error) {
+          /*
+           * טרנזקציה פר שיחה: שיחה אחת שנכשלת אינה מפילה את שאר
+           * הנתח, וההיסטוריה שכן נכנסה נשארת.
+           */
+          this.logger.error(`ייבוא שיחה ${thread.id} נכשל: ${String(error)}`);
+          await this.connections.markHistory(connection.id, { failed: true });
+        }
+      }
+
+      const progress = chunk.metadata?.progress ?? 0;
+      this.logger.log(
+        `היסטוריה: ${imported} הודעות מקו ${lineId} (שלב ${chunk.metadata?.phase ?? "?"}, ${progress}%)`,
+      );
+      if (progress >= 100) {
+        await this.connections.markHistory(connection.id, { shared: true, done: true });
+      }
+    }
+  }
+
+  /** שיחה אחת מההיסטוריה — איש קשר + ההודעות שטרם נקלטו. */
+  private async importThread(
+    connection: { id: string; tenantId: string },
+    thread: {
+      id: string;
+      messages?: readonly {
+        id: string;
+        from?: string;
+        to?: string;
+        type: string;
+        timestamp?: string;
+        text?: { body: string };
+      }[];
+    },
+  ): Promise<number> {
+    const texts = (thread.messages ?? []).filter((m) => m.type === "text" && m.text);
+    if (texts.length === 0) return 0;
+
+    const phone = normalizeWaPhone(thread.id);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${connection.tenantId}, true)`;
+
+      const phoneHash = this.crypto.phoneHash(phone);
+      let contact = await tx.contact.findUnique({
+        where: { tenantId_phoneHash: { tenantId: connection.tenantId, phoneHash } },
+        select: { id: true },
+      });
+      contact ??= await tx.contact.create({
+        data: {
+          id: ulid(),
+          tenantId: connection.tenantId,
+          nameEncrypted: this.crypto.encrypt("לקוח וואטסאפ"),
+          phoneEncrypted: this.crypto.encrypt(phone),
+          phoneHash,
+        },
+        select: { id: true },
+      });
+
+      /*
+       * ‎**סינון בשאילתה אחת ולא בדיקה פר הודעה.**
+       *
+       * נתח נושא מאות הודעות, ו-`findFirst` לכל אחת היה מייצר
+       * מאות הלוך-ושוב על שיחה אחת. Meta שולחת נתחים חוזרים
+       * (`chunk_order` אינו ערובה לחד-פעמיות), ולכן הסינון נחוץ —
+       * רק לא פעם אחת לכל שורה.
+       */
+      const ids = texts.map((m) => m.id);
+      const existing = await tx.message.findMany({
+        where: { tenantId: connection.tenantId, providerMessageId: { in: ids } },
+        select: { providerMessageId: true },
+      });
+      const seen = new Set(existing.map((m) => m.providerMessageId));
+      const fresh = texts.filter((m) => !seen.has(m.id));
+      if (fresh.length === 0) return 0;
+
+      await tx.message.createMany({
+        data: fresh.map((m) => ({
+          id: ulid(),
+          tenantId: connection.tenantId,
+          contactId: contact.id,
+          /* `to` קיים רק כשהמתווך הוא ששלח — וזה מה שמכריע כיוון */
+          direction: m.to ? "out" : "in",
+          channel: "whatsapp",
+          provider: "coexistence_history",
+          body: (m.text?.body ?? "").slice(0, 4000),
+          providerMessageId: m.id,
+          status: "sent",
+          /* החותמת המקורית ולא זמן הייבוא — אחרת כל ההיסטוריה נראית כאילו קרתה היום */
+          createdAt: m.timestamp ? new Date(Number(m.timestamp) * 1000) : new Date(),
+        })),
+      });
+      return fresh.length;
+    });
+  }
+
+  /**
+   * ‎**אנשי הקשר שבטלפון של המתווך** (docs/12 §5.4).
+   *
+   * ‎`add` מכסה הוספה ועריכה כאחת, ולכן זו כתיבה אידמפוטנטית.
+   *
+   * ‎**`remove` אינו מוחק אצלנו, וזו החלטה מפורשת.** מחיקה מפנקס
+   * הכתובות בטלפון היא ניקוי אישי — לא הצהרה שהלקוח יצא מהמערכת.
+   * מחיקה אוטומטית הייתה מוחקת איש קשר שתלויים בו לידים, הצעות
+   * וציר זמן שלם, בגלל פעולה שהמתווך עשה במכשיר שלו ולא במערכת.
+   * לכן היא נרשמת ביומן בלבד.
+   */
+  private async handleStateSync(
+    lineId: string,
+    entries: readonly {
+      type?: string;
+      action?: string;
+      contact?: { full_name?: string; first_name?: string; phone_number?: string };
+    }[],
+  ): Promise<void> {
+    const connection = await this.connections.byPhoneNumberId(lineId);
+    if (!connection) return;
+
+    for (const entry of entries) {
+      if (entry.type !== undefined && entry.type !== "contact") continue;
+      if (entry.action === "remove") {
+        this.logger.log("איש קשר נמחק מפנקס הכתובות של המתווך — לא נמחק מהמערכת");
+        continue;
+      }
+      const raw = entry.contact?.phone_number;
+      if (!raw) continue;
+
+      const phone = normalizeWaPhone(raw);
+      const name = entry.contact?.full_name ?? entry.contact?.first_name;
+      if (!name) continue;
+
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT set_config('app.tenant_id', ${connection.tenantId}, true)`;
+          const phoneHash = this.crypto.phoneHash(phone);
+          const existing = await tx.contact.findUnique({
+            where: { tenantId_phoneHash: { tenantId: connection.tenantId, phoneHash } },
+            select: { id: true },
+          });
+          if (existing) {
+            /*
+             * השם מהטלפון גובר: המתווך שמר שם „דנה קונה בבלי”,
+             * וזה שימושי יותר מ„לקוח וואטסאפ” שנוצר בקליטה.
+             */
+            await tx.contact.update({
+              where: { id: existing.id },
+              data: { nameEncrypted: this.crypto.encrypt(name) },
+            });
+            return;
+          }
+          await tx.contact.create({
+            data: {
+              id: ulid(),
+              tenantId: connection.tenantId,
+              nameEncrypted: this.crypto.encrypt(name),
+              phoneEncrypted: this.crypto.encrypt(phone),
+              phoneHash,
+            },
+          });
+        });
+      } catch (error) {
+        this.logger.warn(`סנכרון איש קשר נכשל: ${String(error)}`);
+      }
+    }
+  }
+
   private async resolveTenant(businessNumber: string): Promise<string | null> {
     const digits = businessNumber.replace(/\D/gu, "");
     const tenant = await this.prisma.tenant.findFirst({
@@ -443,9 +784,26 @@ export class WhatsAppInboundService {
        * ואז אין שיחה לעדכן — וזה תקין.
        */
       connectionId?: string;
+      /**
+       * ‎**הסוכן שהקו שלו — ואצלו הליד נוחת.**
+       *
+       * הלקוח כתב למספר הפרטי של סוכן מסוים, ולכן הפנייה שלו ולא
+       * של המשרד. בלי השיוך הליד היה נופל למאגר לא-משויך, שרק בעלי
+       * `leads.view_all` רואים — כלומר סוכן היה מחבר את הטלפון שלו
+       * ומאבד את הלקוח שכתב אליו אישית.
+       *
+       * חסר במסלול הישן (מספר שהוקלד בהגדרות המשרד), ואז ההתנהגות
+       * נשארת כשהייתה: ליד לא-משויך למאגר המשרד.
+       */
+      ownerUserId?: string;
     },
-  ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    /**
+     * מה שהבוט צריך כדי לענות — או `null` כשההודעה כפולה ודולגה.
+     * מוחזר ולא נשלף שוב: הליד נוצר *בתוך* הטרנזקציה, ושליפה חוזרת
+     * אחריה הייתה מרוץ מול קליטה מקבילה.
+     */
+  ): Promise<{ contactId: string; leadId: string } | null> {
+    return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
 
       // Idempotency — הודעה שכבר נקלטה (Meta שולח כפולים) מדולגת.
@@ -453,7 +811,7 @@ export class WhatsAppInboundService {
         where: { tenantId, kind: "whatsapp", content: { startsWith: `[${msg.externalId}]` } },
         select: { id: true },
       });
-      if (dupe) return;
+      if (dupe) return null;
 
       // איש קשר: קיים לפי phone_hash או חדש
       const phoneHash = this.crypto.phoneHash(msg.fromPhone);
@@ -517,6 +875,7 @@ export class WhatsAppInboundService {
             intent: "unknown",
             status: "new",
             summary: msg.text.slice(0, 500),
+            ...(msg.ownerUserId ? { assignedToUserId: msg.ownerUserId } : {}),
           },
           select: { id: true },
         });
@@ -577,6 +936,7 @@ export class WhatsAppInboundService {
           content: `[${msg.externalId}] ${msg.text}`.slice(0, 4000),
         },
       });
+      return { contactId: contact.id, leadId: lead.id };
     });
   }
 }

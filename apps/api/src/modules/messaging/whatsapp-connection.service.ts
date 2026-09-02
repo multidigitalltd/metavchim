@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import { loadEnv } from "../../config/env";
 import { CryptoService } from "../../core/crypto.service";
@@ -33,6 +34,8 @@ const REQUEST_TIMEOUT_MS = 15_000;
 
 export interface ConnectionSummary {
   id: string;
+  /** הסוכן שהקו שלו — מה שמאפשר למסך לומר „הקו שלך” מול „של דנה” */
+  userId: string;
   displayPhone: string;
   verifiedName: string | null;
   status: string;
@@ -66,8 +69,20 @@ export class WhatsAppConnectionService {
   private async appCredentials(): Promise<{ appId: string; appSecret: string } | null> {
     const env = loadEnv();
     const appId = (await this.platformSettings.get("whatsappAppId")) ?? env.WHATSAPP_APP_ID;
+    /*
+     * ‎**הסוד חייב להיות של אותה אפליקציה כמו `appId`.**
+     *
+     * ‏Meta מחליפה `code` לטוקן רק מול הצמד `client_id`+`client_secret`
+     * של אפליקציה אחת. כשחיבור המשרדים יושב באפליקציה נפרדת מקו
+     * הסוכן, `whatsappAppId` הוא כבר שלה — וצירוף שלו עם הסוד של
+     * האפליקציה השנייה נדחה ב-Meta עם שגיאת אימות שאינה מרמזת על
+     * הסיבה. הנפילה ל-`whatsappAppSecret` היא המצב של אפליקציה אחת.
+     */
     const appSecret =
-      (await this.platformSettings.get("whatsappAppSecret")) ?? env.WHATSAPP_APP_SECRET;
+      (await this.platformSettings.get("whatsappConnectAppSecret")) ??
+      env.WHATSAPP_CONNECT_APP_SECRET ??
+      (await this.platformSettings.get("whatsappAppSecret")) ??
+      env.WHATSAPP_APP_SECRET;
     if (!appId || !appSecret) return null;
     return { appId, appSecret };
   }
@@ -85,13 +100,21 @@ export class WhatsAppConnectionService {
     return { appId: creds.appId, configId };
   }
 
-  /** החיבורים של המשרד — הפעילים ראשונים, לתצוגה במסך ההגדרות. */
-  async list(tenantId: string): Promise<ConnectionSummary[]> {
+  /**
+   * החיבורים לתצוגה — הפעילים ראשונים.
+   *
+   * ‎`userId` נתון ⇒ הקווים של אותו סוכן בלבד. זו התצוגה הרגילה:
+   * הקו הוא של הסוכן, ואין סיבה שיראה את המספרים הפרטיים של
+   * עמיתיו. השמטתו מחזירה את כל קווי המשרד, ושמורה למי שרשאי
+   * לנהל את המשרד — למשל כדי לנתק קו של סוכן שעזב.
+   */
+  async list(tenantId: string, userId?: string): Promise<ConnectionSummary[]> {
     const rows = await this.prisma.whatsAppBusinessConnection.findMany({
-      where: { tenantId },
+      where: { tenantId, ...(userId ? { userId } : {}) },
       orderBy: [{ disconnectedAt: "asc" }, { connectedAt: "desc" }],
       select: {
         id: true,
+        userId: true,
         displayPhone: true,
         verifiedName: true,
         status: true,
@@ -113,6 +136,7 @@ export class WhatsAppConnectionService {
    */
   async complete(
     tenantId: string,
+    userId: string,
     input: { code: string; wabaId: string; phoneNumberId: string },
   ): Promise<ConnectResult> {
     const app = await this.appCredentials();
@@ -151,8 +175,26 @@ export class WhatsAppConnectionService {
     const now = new Date();
     const existing = await this.prisma.whatsAppBusinessConnection.findFirst({
       where: { phoneNumberId: input.phoneNumberId, disconnectedAt: null },
-      select: { id: true, tenantId: true },
+      select: { id: true, tenantId: true, userId: true },
     });
+
+    /*
+     * ‎**אותו קו אצל סוכן אחר באותו משרד.**
+     *
+     * ‏קו שייך לסוכן אחד, ו„חיבור” מחדש בידי אחר היה מעביר אליו
+     * בשקט את הלידים של עמיתו — כולל שיחות שכבר רצות. זו טעות
+     * נפוצה (שני סוכנים על אותו מכשיר) ולא זדון, ולכן התשובה היא
+     * עצירה עם הסבר ולא השתלטות שקטה.
+     */
+    if (existing && existing.tenantId === tenantId && existing.userId !== userId) {
+      this.logger.warn(
+        `ניסיון לחבר קו ${input.phoneNumberId} שכבר מחובר לסוכן אחר במשרד — נדחה`,
+      );
+      return {
+        ok: false,
+        reason: "המספר הזה כבר מחובר לסוכן אחר במשרד. עליו לנתק אותו תחילה",
+      };
+    }
 
     /*
      * אותו קו אצל משרד אחר — לא נוגעים. זה או ניסיון השתלטות או
@@ -170,6 +212,7 @@ export class WhatsAppConnectionService {
 
     const data = {
       tenantId,
+      userId,
       wabaId: input.wabaId,
       phoneNumberId: input.phoneNumberId,
       displayPhone: line.displayPhone,
@@ -204,7 +247,7 @@ export class WhatsAppConnectionService {
       };
     }
 
-    this.logger.log(`קו ${line.displayPhone} חובר למשרד ${tenantId}`);
+    this.logger.log(`קו ${line.displayPhone} חובר לסוכן ${userId} במשרד ${tenantId}`);
     return { ok: true, connection: saved };
   }
 
@@ -215,9 +258,19 @@ export class WhatsAppConnectionService {
    * מציגה "מעולם לא חובר". מנגד, טוקן חי של עסק שכבר לא איתנו אינו
    * דבר שמחזיקים — ולכן העמודה Nullable והניתוק מרוקן אותה.
    */
-  async disconnect(tenantId: string, connectionId: string, reason: string): Promise<boolean> {
+  async disconnect(
+    tenantId: string,
+    connectionId: string,
+    reason: string,
+    /**
+     * ‎`userId` נתון ⇒ מותר לנתק רק את הקו של אותו סוכן. השמטתו
+     * מתירה ניתוק של כל קו במשרד, ושמורה לניהול המשרד: סוכן שעזב
+     * משאיר קו מחובר שאיש אחר אינו יכול לשחרר.
+     */
+    userId?: string,
+  ): Promise<boolean> {
     const row = await this.prisma.whatsAppBusinessConnection.findFirst({
-      where: { id: connectionId, tenantId, disconnectedAt: null },
+      where: { id: connectionId, tenantId, ...(userId ? { userId } : {}), disconnectedAt: null },
       select: { id: true, wabaId: true, accessTokenEncrypted: true },
     });
     if (!row) return false;
@@ -252,12 +305,53 @@ export class WhatsAppConnectionService {
   async byPhoneNumberId(phoneNumberId: string): Promise<{
     id: string;
     tenantId: string;
+    /// הסוכן שהקו שלו — הליד שייווצר מההודעה נוחת אצלו
+    userId: string;
     status: string;
   } | null> {
     return this.prisma.whatsAppBusinessConnection.findFirst({
       where: { phoneNumberId, disconnectedAt: null },
-      select: { id: true, tenantId: true, status: true },
+      select: { id: true, tenantId: true, userId: true, status: true },
     });
+  }
+
+  /**
+   * קריאת הגדרות הבוט של קו — **רק אם הוא של הסוכן ששואל.**
+   *
+   * ‏null = לא נמצא או לא שלו. אין הבחנה בין השניים כלפי חוץ: „הקו
+   * הזה קיים אבל אינו שלך” הוא בעצמו מידע על עמית.
+   */
+  async botSettingsFor(
+    tenantId: string,
+    connectionId: string,
+    userId: string,
+  ): Promise<unknown | null> {
+    const row = await this.prisma.whatsAppBusinessConnection.findFirst({
+      where: { id: connectionId, tenantId, userId },
+      select: { botSettings: true },
+    });
+    return row ? (row.botSettings ?? null) : null;
+  }
+
+  /**
+   * שמירת הגדרות הבוט. מחזירה `false` כשהקו אינו של הסוכן.
+   *
+   * מה שנשמר הוא **הטעם בלבד** — נוסח, שעות, שאלות. השלד (הצגה
+   * עצמית כבוט, „הסר”, אסקלציה) קבוע ב-`bot-policy` ואינו עובר
+   * כאן, כדי שלא ניתן יהיה לבטלו דרך המסך.
+   */
+  async saveBotSettings(
+    tenantId: string,
+    connectionId: string,
+    userId: string,
+    settings: Record<string, unknown>,
+  ): Promise<boolean> {
+    const { count } = await this.prisma.whatsAppBusinessConnection.updateMany({
+      where: { id: connectionId, tenantId, userId },
+      /* ‏Prisma דורש את טיפוס ה-JSON שלו; המבנה כבר אומת ב-Zod בבקר */
+      data: { botSettings: settings as Prisma.InputJsonValue },
+    });
+    return count > 0;
   }
 
   /** אישורי השליחה של קו מסוים — לבוט ולתשובות על הקו של המשרד. */
@@ -337,16 +431,38 @@ export class WhatsAppConnectionService {
     return this.plans.tenantHasFeature(tenantId, "whatsapp_bot");
   }
 
-  /** סימון שההיסטוריה הגיעה — מוציא את החיבור ממצב ההמתנה. */
-  async markHistory(connectionId: string, shared: boolean): Promise<void> {
-    await this.prisma.whatsAppBusinessConnection.updateMany({
-      where: { id: connectionId, disconnectedAt: null },
-      data: {
-        historyShared: shared,
-        historySyncedThrough: new Date(),
-        status: "connected",
-      },
-    });
+  /**
+   * מצב סנכרון ההיסטוריה — מה שמוציא את החיבור ממצב ההמתנה.
+   *
+   * ‎`done` מסיים את ההמתנה: או שהסנכרון הושלם, או שהמתווך בחר לא
+   * לשתף. בשני המקרים הסטטוס עובר ל-`connected`, כי החיבור **עובד**
+   * — היעדר היסטוריה אינו תקלה ואינו ראוי לאזהרה במסך.
+   *
+   * ‎`failed` הוא היחיד שמסמן תקלה: Meta אינה שולחת נתח שוב אחרי
+   * שקיבלה 200, ולכן אין ניסיון חוזר והתרופה היחידה היא חיבור
+   * מחדש — בדיוק מה ש-`error` אומר למתווך במסך.
+   *
+   * ‎`updateMany` עם `disconnectedAt: null` ולא `update`: נתח
+   * שמגיע אחרי שהמתווך ניתק אינו מחייה את החיבור, והיעדר שורה
+   * אינו חריגה.
+   */
+  async markHistory(
+    connectionId: string,
+    state: { shared?: boolean; done?: boolean; failed?: boolean },
+  ): Promise<void> {
+    try {
+      await this.prisma.whatsAppBusinessConnection.updateMany({
+        where: { id: connectionId, disconnectedAt: null },
+        data: {
+          ...(state.shared === undefined ? {} : { historyShared: state.shared }),
+          ...(state.done ? { historySyncedThrough: new Date(), status: "connected" } : {}),
+          ...(state.failed ? { status: "error" } : {}),
+        },
+      });
+    } catch (error) {
+      /* מגיע מהוובהוק ולכן אינו זורק — כישלון סימון אינו שווה 500 */
+      this.logger.warn(`עדכון מצב היסטוריה לחיבור ${connectionId} נכשל: ${String(error)}`);
+    }
   }
 
   /**
@@ -465,6 +581,7 @@ export class WhatsAppConnectionService {
 
 const SUMMARY_SELECT = {
   id: true,
+  userId: true,
   displayPhone: true,
   verifiedName: true,
   status: true,

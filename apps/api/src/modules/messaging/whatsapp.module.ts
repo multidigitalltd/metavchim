@@ -5,6 +5,7 @@ import { ViewingReplyService } from "../calendar/viewing-reply.service";
 import { VoiceIntakeModule } from "../voice-intake/voice-intake.module";
 import { MessagingModule } from "./messaging.module";
 import { WhatsAppAssistantService } from "./whatsapp-assistant.service";
+import { WhatsAppBotService } from "./whatsapp-bot.service";
 import { WhatsAppConnectionController } from "./whatsapp-connection.controller";
 import { WhatsAppConnectionService } from "./whatsapp-connection.service";
 import { WhatsAppInboundService } from "./whatsapp-inbound.service";
@@ -36,6 +37,7 @@ import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
     WhatsAppAssistantService,
     ViewingReplyService,
     WhatsAppConnectionService,
+    WhatsAppBotService,
   ],
   /*
    * החיבורים מיוצאים: הבוט ושכבת השליחה על קו של משרד (שלבים 2–3)

@@ -8,6 +8,7 @@ import { AccountDeletionService } from "../settings/account-deletion.service";
 import { AgentUsageController } from "./agent-usage.controller";
 import { AgentUsageService } from "./agent-usage.service";
 import { BackupsService } from "./backups.service";
+import { DiskSpaceService } from "./disk-space.service";
 import { IntegrationDeskController } from "./integration-desk.controller";
 import { IntegrationDeskService } from "./integration-desk.service";
 import { PlatformController } from "./platform.controller";
@@ -32,6 +33,7 @@ import { ServiceVersionsService } from "./service-versions.service";
   controllers: [PlatformController, AgentUsageController, IntegrationDeskController],
   providers: [
     BackupsService,
+    DiskSpaceService,
     IntegrationDeskService,
     CardcomService,
     AccountDeletionService,
