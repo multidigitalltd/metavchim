@@ -16,6 +16,7 @@
  */
 
 import { agentAction, type AgentActionId } from "../agent/actions.js";
+import { canSeeNotifyDetail, notifyDetailLines, type DetailViewer, type NotifyDetail } from "./notify-details.js";
 import { notificationUrl, type PushableNotification } from "./web-push.js";
 
 /* ==================== קטגוריות ==================== */
@@ -60,6 +61,10 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   lead_stale: "leads",
   lead_repeat_inquiry: "leads",
   lead_returned: "leads",
+  lead_requires_human: "leads",
+  intake_submitted: "leads",
+  email_reply: "leads",
+  whatsapp_bot_escalation: "leads",
 
   task: "tasks",
   task_reminder: "tasks",
@@ -67,17 +72,33 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   viewing_followup: "tasks",
   offer_followup: "tasks",
   custom_automation: "tasks",
+  appointment_scheduled: "tasks",
 
   buyer: "matches",
   property: "matches",
   property_delisted: "matches",
   matches_refreshed: "matches",
   match_weights_calibrated: "matches",
+  /*
+   * ‎**ההצעות וההתאמות — הסוגים ששקטו.**
+   *
+   * ‏שישה סוגים שנוצרים בפועל לא היו ברשימה, ולכן נפלו ל-`system`:
+   * אייקון ℹ️ במקום 🎯, משפט סיום כללי במקום „יש התאמה”, וכפתור
+   * שאינו קשור למה שכתוב מעליו. גרוע מכך — מי שכיבה „התאמות,
+   * קונים ונכסים” המשיך לקבל אותם, כי הם נספרו כהודעת מערכת
+   * שאי אפשר לכבות. סוג שאינו כאן אינו ניטרלי; הוא פשוט לא נשלט.
+   */
+  offer_opened: "matches",
+  offer_interested: "matches",
+  matches_found: "matches",
+  opportunity_opened: "matches",
 
   coop_deal: "network",
   coop_offer: "network",
+  coop_offer_received: "network",
   coop_offer_declined: "network",
   payout_decision: "network",
+  shared_lead_sold: "network",
 
   daily_brief: "digests",
   weekly_summary: "digests",
@@ -200,6 +221,8 @@ export function inQuietHours(hour: number, prefs: WhatsAppNotifyPrefs): boolean 
 
 export interface NotifyItem extends PushableNotification {
   createdAt?: Date;
+  /** מזהה השורה — המפתח שהפרטים נטענים תחתיו. חסר = בלי פרטים. */
+  id?: string;
 }
 
 /** אייקון לפי קטגוריה — סריקה מהירה של הודעה עם כמה פריטים. */
@@ -230,6 +253,17 @@ const TYPE_ICON: Record<string, string> = {
   offer_followup: "📨",
   buyer: "🙋",
   property: "🏠",
+  offer_opened: "👀",
+  offer_interested: "👍",
+  matches_found: "🎯",
+  opportunity_opened: "🚪",
+  lead_requires_human: "🙋‍♂️",
+  intake_submitted: "📥",
+  email_reply: "✉️",
+  whatsapp_bot_escalation: "🆘",
+  coop_offer_received: "🤝",
+  shared_lead_sold: "💰",
+  appointment_scheduled: "📅",
   property_delisted: "🚫",
   matches_refreshed: "🎯",
   coop_deal: "🤝",
@@ -278,13 +312,54 @@ function dominantCategory(items: readonly NotifyItem[]): WhatsAppNotifyCategory 
 export const NOTIFY_ITEMS_PER_MESSAGE = 6;
 
 /**
+ * הקטגוריה ששולטת בהודעה — ממנה נגזרים משפט הסיום והכפתור.
+ *
+ * מיוצאת כדי שהעובד יזהה **תקציר** בלי טקסונומיה שנייה: „מה דחוף
+ * היום?” הוא הכפתור הנכון לתקציר בוקר ורק לו, וכל שאר ההודעות
+ * מקבלות את הכפתור של הקטגוריה שלהן — או אף אחד.
+ */
+export function dominantNotifyCategory(
+  items: readonly NotifyItem[],
+): WhatsAppNotifyCategory {
+  return dominantCategory(items.slice(0, NOTIFY_ITEMS_PER_MESSAGE));
+}
+
+/**
+ * הפרטים של כל התראה, לפי מזהה ההתראה, יחד עם מי קורא אותם.
+ *
+ * ‏המפה נבנית פעם אחת לכל הנמענים של המשרד (טעינה אחת), והצופה
+ * מוחלף פר-נמען — כך אותה התאמה מגיעה מלאה לסוכן שהכרטיס שלו,
+ * וכותרת בלבד למי שאינו רשאי לראות אותו.
+ */
+export interface NotifyDetailsLookup {
+  viewer: DetailViewer;
+  byNotificationId: ReadonlyMap<string, NotifyDetail>;
+}
+
+function detailLinesFor(
+  item: NotifyItem,
+  details: NotifyDetailsLookup | undefined,
+): readonly string[] {
+  if (details === undefined || item.id === undefined) return [];
+  const detail = details.byNotificationId.get(item.id);
+  if (detail === undefined) return [];
+  // ההרשאה נבדקת כאן ולא בטעינה: אותה שורה, נמענים שונים
+  if (!canSeeNotifyDetail(detail, details.viewer)) return [];
+  return notifyDetailLines(detail);
+}
+
+/**
  * הודעה אחת לכל מה שהצטבר, ולא הודעה לכל התראה.
  *
  * מתווך שהיה בפגישה חוזר לשבע התראות; שבע הודעות וואטסאפ ברצף הן
  * מטרד, ובמקרה הגרוע דירוג איכות נמוך למספר אצל Meta. ההודעה
  * מקבצת, ומצרפת קישור אחד לכל פריט — כי הפעולה עצמה נעשית במסך.
  */
-export function formatNotifyMessage(items: readonly NotifyItem[], webOrigin: string): string {
+export function formatNotifyMessage(
+  items: readonly NotifyItem[],
+  webOrigin: string,
+  details?: NotifyDetailsLookup,
+): string {
   if (items.length === 0) return "";
   const shown = items.slice(0, NOTIFY_ITEMS_PER_MESSAGE);
   const lines: string[] = [
@@ -296,6 +371,15 @@ export function formatNotifyMessage(items: readonly NotifyItem[], webOrigin: str
     const icon = TYPE_ICON[item.type] ?? CATEGORY_ICON[notifyCategory(item.type)];
     lines.push(`${icon} *${item.title}*`);
     if (item.body !== null && item.body !== "") lines.push(item.body);
+    /*
+     * ‎**מי ומה — מעל הקישור, לא במקומו.**
+     *
+     * הפרטים באים אחרי הגוף ולפני הקישור, כי זה סדר הקריאה: מה
+     * קרה, על מי, ורק אז „לאן ללחוץ אם רוצים עוד”. הקישור נשאר —
+     * הוא עדיין הדרך לפעולה מלאה — אבל הוא כבר לא התנאי לדעת
+     * במה מדובר.
+     */
+    for (const line of detailLinesFor(item, details)) lines.push(line);
     const url = notificationUrl(item);
     // "/" הוא הדשבורד — קישור כללי אינו מוסיף דבר להתראה
     if (url !== "/") lines.push(`👈 ${webOrigin}${url}`);
