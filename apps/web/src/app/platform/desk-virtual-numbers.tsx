@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@metavchim/ui";
-import { ApiError, apiGet, apiPost } from "@/lib/api";
+import { ApiError, apiDelete, apiGet, apiList, apiPost } from "@/lib/api";
+import { formatNumber } from "@/lib/format";
 import { Notice } from "../notice";
 
 /**
@@ -31,6 +32,14 @@ import { Notice } from "../notice";
  * הרכיב ממוענן מחדש לכל משרד (`key={agencyId}` אצל ההורה), ולכן
  * אין מצב שבו טבלה של משרד אחד נשלחת למשרד אחר. דגל ה-`live`
  * מכסה את מה שנותר: תשובה שחוזרת אחרי שהרכיב כבר ירד.
+ *
+ * ## חיוב חודשי ומחיקה
+ *
+ * ליד כל מספר קיים מוצג החיוב החודשי שפתוח עליו, אם יש — שורת
+ * השכרה עם `origin: "platform"` — או כפתור לפתוח אחד. החיוב נגבה
+ * בכרטיס השמור של המשרד באותו סורק של השכרות מ-015. מחיקת מספר
+ * מוציאה את ההגדרה בלבד; חיוב פתוח נסגר במסך ההשכרות, בכוונה
+ * בנפרד: מחיקת ניתוב בטעות לא אמורה לבטל גם גבייה.
  */
 
 interface DeskNumber {
@@ -44,6 +53,28 @@ interface DeskNumber {
 interface DeskVirtualNumbers {
   numbers: DeskNumber[];
   users: { id: string; name: string }[];
+}
+
+/** שורת חיוב/השכרה של המשרד, כפי שמסך ההשכרות מקבל אותה. */
+interface ChargeRow {
+  id: string;
+  number: string;
+  numberDisplay: string;
+  monthlyAgorot: number;
+  status: string;
+  origin: string;
+}
+
+const CHARGE_STATUS: Record<string, string> = {
+  active: "פעיל",
+  past_due: "חיוב נכשל",
+  cancelled: "בוטל — עד סוף התקופה",
+  pending: "ממתין לתשלום",
+};
+
+/** ‎+972XXXXXXXXX → 0XXXXXXXXX — הצורה שבה שורות ההשכרה שומרות מספר. */
+function localDigits(phone: string): string {
+  return phone.startsWith("+972") ? `0${phone.slice(4)}` : phone;
 }
 
 /** שורה בטופס — קיימת (עם `id`) או חדשה (בלי). */
@@ -86,6 +117,10 @@ export function DeskVirtualNumbers({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  /** חיובים חיים לפי מספר (בספרות מקומיות). */
+  const [charges, setCharges] = useState<Map<string, ChargeRow>>(new Map());
+  /** השורה שבה פתוח טופס „הוסף חיוב”, והסכום שהוקלד בש"ח. */
+  const [charging, setCharging] = useState<{ key: string; shekels: string } | null>(null);
   const mounted = useRef(true);
 
   function fromServer(res: DeskVirtualNumbers): void {
@@ -103,6 +138,19 @@ export function DeskVirtualNumbers({
     );
   }
 
+  /** החיובים החיים של המשרד — שורות שטרם שוחררו. */
+  async function loadCharges(): Promise<void> {
+    const res = await apiGet<{ rentals: ChargeRow[] }>(
+      `/platform/number-rentals?tenantId=${agencyId}`,
+    );
+    if (!mounted.current) return;
+    const next = new Map<string, ChargeRow>();
+    for (const row of apiList(res.rentals, "rentals")) {
+      if (row.status !== "released") next.set(row.number, row);
+    }
+    setCharges(next);
+  }
+
   useEffect(() => {
     mounted.current = true;
     let live = true;
@@ -115,11 +163,75 @@ export function DeskVirtualNumbers({
       .catch(() => {
         if (live) setError("טעינת המספרים נכשלה");
       });
+    // כשל בטעינת החיובים אינו מפיל את הטבלה — העמודה פשוט ריקה
+    void loadCharges().catch(() => undefined);
     return () => {
       live = false;
       mounted.current = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- הרכיב ממוען מחדש לכל משרד
   }, [agencyId]);
+
+  /** מחיקת ההגדרה בלבד — השיחות שנקלטו נשארות, וחיוב פתוח נסגר בנפרד. */
+  async function remove(row: Row & { key: string }): Promise<void> {
+    if (row.id === null) return;
+    const charge = charges.get(localDigits(row.phone));
+    const warning = charge
+      ? "\n\nשימו לב: על המספר פתוח חיוב חודשי. המחיקה אינה סוגרת אותו — סוגרים אותו במסך ההשכרות."
+      : "";
+    if (
+      !window.confirm(
+        `למחוק את המספר ${row.phone} („${row.label}”) אצל ${agencyName}?\n\nהניתוב ייפסק; השיחות שכבר נקלטו נשמרות.${warning}`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setDone(null);
+    try {
+      await apiDelete(`/platform/agencies/${agencyId}/integrations/virtual-numbers/${row.id}`);
+      if (!mounted.current) return;
+      setRows((prev) => prev.filter((r) => r.key !== row.key));
+      setDone(`המספר ${row.phone} נמחק אצל ${agencyName}. המשרד קיבל התראה.`);
+    } catch (err: unknown) {
+      if (!mounted.current) return;
+      setError(err instanceof ApiError ? err.message : "המחיקה נכשלה");
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }
+
+  /** פתיחת חיוב חודשי על מספר קיים — הסכום בש"ח לפני מע"מ. */
+  async function createCharge(row: Row & { key: string }): Promise<void> {
+    if (charging === null || charging.key !== row.key) return;
+    const shekels = Number(charging.shekels.replace(",", "."));
+    if (!Number.isFinite(shekels) || shekels <= 0) {
+      setError("הזינו סכום חודשי בש\"ח");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setDone(null);
+    try {
+      const res = await apiPost<{ id: string; number: string; warning: string | null }>(
+        "/platform/number-rentals",
+        { tenantId: agencyId, phone: row.phone, monthlyAgorot: Math.round(shekels * 100) },
+      );
+      if (!mounted.current) return;
+      setCharging(null);
+      setDone(
+        `נפתח חיוב של ${formatNumber(shekels)} ₪ לחודש על ${row.phone} אצל ${agencyName}. החודש הראשון ייגבה בסבב הקרוב.` +
+          (res.warning ? ` ${res.warning}.` : ""),
+      );
+      await loadCharges();
+    } catch (err: unknown) {
+      if (!mounted.current) return;
+      setError(err instanceof ApiError ? err.message : "פתיחת החיוב נכשלה");
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }
 
   function update(key: string, patch: Partial<Row>): void {
     setRows((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)));
@@ -212,7 +324,8 @@ export function DeskVirtualNumbers({
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         מספר לכל סוכן: שיחה שמגיעה אל המספר פותחת ליד שכבר משויך לו.
         המספרים כאן הם אלה שהמרכזייה של המשרד שולחת בשדה „אל מי חייגו”.
-        שם ריק במספר קיים משאיר את השם שהמשרד נתן.
+        שם ריק במספר קיים משאיר את השם שהמשרד נתן. חיוב חודשי נגבה בכרטיס
+        השמור של המשרד, לפני מע&quot;מ, ומופיע גם ברשימת ההשכרות.
       </p>
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
@@ -247,6 +360,9 @@ export function DeskVirtualNumbers({
                     </th>
                     <th scope="col" className="p-2 text-start font-medium">
                       סוכן מקבל
+                    </th>
+                    <th scope="col" className="p-2 text-start font-medium">
+                      חיוב חודשי
                     </th>
                     <th scope="col" className="p-2 text-start font-medium">
                       מצב
@@ -303,6 +419,67 @@ export function DeskVirtualNumbers({
                       </td>
                       <td className="p-2 whitespace-nowrap">
                         {row.id === null ? (
+                          <span style={{ color: "var(--color-text-muted)" }}>אחרי השמירה</span>
+                        ) : (
+                          (() => {
+                            const charge = charges.get(localDigits(row.phone));
+                            if (charge) {
+                              return (
+                                <span>
+                                  {formatNumber(charge.monthlyAgorot / 100)} ₪ ·{" "}
+                                  {CHARGE_STATUS[charge.status] ?? charge.status}
+                                  {charge.origin !== "platform" ? " (השכרה מ-015)" : ""}
+                                </span>
+                              );
+                            }
+                            if (charging?.key === row.key) {
+                              return (
+                                <span className="flex items-center gap-1">
+                                  <input
+                                    aria-label="סכום חודשי בש״ח לפני מע״מ"
+                                    dir="ltr"
+                                    inputMode="decimal"
+                                    placeholder="20"
+                                    value={charging.shekels}
+                                    onChange={(e) =>
+                                      setCharging({ key: row.key, shekels: e.target.value })
+                                    }
+                                    className="w-20 rounded-lg border px-2 py-1"
+                                    style={inputStyle}
+                                  />
+                                  <span>₪</span>
+                                  <button
+                                    type="button"
+                                    className="mv-btn-plain"
+                                    disabled={busy}
+                                    onClick={() => void createCharge(row)}
+                                  >
+                                    אשר
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="mv-btn-plain"
+                                    onClick={() => setCharging(null)}
+                                  >
+                                    בטל
+                                  </button>
+                                </span>
+                              );
+                            }
+                            return (
+                              <button
+                                type="button"
+                                className="mv-btn-plain"
+                                onClick={() => setCharging({ key: row.key, shekels: "" })}
+                              >
+                                + הוסף חיוב
+                              </button>
+                            );
+                          })()
+                        )}
+                      </td>
+                      <td className="p-2 whitespace-nowrap">
+                        {row.id === null ? (
                           <button
                             type="button"
                             className="mv-btn-plain"
@@ -310,10 +487,22 @@ export function DeskVirtualNumbers({
                           >
                             הסר
                           </button>
-                        ) : row.isActive ? (
-                          "פעיל"
                         ) : (
-                          <span style={{ color: "var(--color-text-muted)" }}>מושבת</span>
+                          <span className="flex items-center gap-2">
+                            {row.isActive ? (
+                              "פעיל"
+                            ) : (
+                              <span style={{ color: "var(--color-text-muted)" }}>מושבת</span>
+                            )}
+                            <button
+                              type="button"
+                              className="mv-btn-plain"
+                              disabled={busy}
+                              onClick={() => void remove(row)}
+                            >
+                              מחק
+                            </button>
+                          </span>
                         )}
                       </td>
                     </tr>

@@ -184,6 +184,15 @@ const TenantFeaturesSchema = z
  * ‎(`whatsappSeatGrant`) דוחה אותן גם היא — כאן זו דחייה עם 400
  * במקום חריגה, ושם זה הכלל.
  */
+/** חיוב חודשי על מספר של משרד — המחיר באגורות, לפני מע"מ, כמו בהשכרה. */
+const CreateNumberChargeSchema = z
+  .object({
+    tenantId: IdSchema,
+    phone: z.string().trim().min(3).max(20),
+    monthlyAgorot: z.number().int().min(1).max(MAX_RENTAL_MONTHLY_AGOROT),
+  })
+  .strict();
+
 const GrantWhatsappSeatSchema = z
   .object({
     mode: z.enum(["free", "trial", "billed"]),
@@ -2588,7 +2597,10 @@ export class PlatformController {
    * תפיסה שנכשלה, ו-`past_due` הוא חיוב חודשי שנדחה.
    */
   @Get("number-rentals")
-  async listNumberRentals(): Promise<{
+  async listNumberRentals(
+    /** סינון למשרד אחד — לשולחן החיבורים, שמציג חיוב ליד כל מספר. */
+    @Query("tenantId", new ZodValidationPipe(IdSchema.optional())) tenantId?: string,
+  ): Promise<{
     rentals: {
       id: string;
       tenantId: string;
@@ -2599,11 +2611,14 @@ export class PlatformController {
       status: string;
       currentPeriodEnd: Date | null;
       provisioned: boolean;
+      /** `purchased` מהמלאי של 015, או `platform` — חיוב שנפתח מכאן. */
+      origin: string;
       providerError: string | null;
       createdAt: Date;
     }[];
   }> {
     const rows = await this.prisma.rentedNumber.findMany({
+      where: tenantId === undefined ? {} : { tenantId },
       orderBy: { createdAt: "desc" },
       take: 200,
     });
@@ -2623,10 +2638,30 @@ export class PlatformController {
         status: row.status,
         currentPeriodEnd: row.currentPeriodEnd,
         provisioned: row.providerPurchasedAt !== null,
+        origin: row.origin,
         providerError: row.providerError,
         createdAt: row.createdAt,
       })),
     };
+  }
+
+  /**
+   * חיוב חודשי על מספר שכבר בידי המשרד — נפתח מהפלטפורמה.
+   *
+   * לא השכרה מהמלאי של 015: המספר של המשרד (למשל ממרכזייה משלו),
+   * והפלטפורמה גובה עליו שירות. אותו סורק חידושים ואותו כרטיס שמור.
+   * ראו `NumberRentalService.createPlatformCharge`.
+   */
+  @Post("number-rentals")
+  @HttpCode(200)
+  async createNumberCharge(
+    @Body(new ZodValidationPipe(CreateNumberChargeSchema))
+    body: z.infer<typeof CreateNumberChargeSchema>,
+  ): Promise<{ id: string; number: string; warning: string | null }> {
+    return this.numberRentals.createPlatformCharge({
+      ...body,
+      createdBy: TenantContext.current().userId,
+    });
   }
 
   /**

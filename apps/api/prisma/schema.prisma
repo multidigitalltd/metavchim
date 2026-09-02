@@ -2288,6 +2288,11 @@ model RentedNumber {
   monthlyAgorot       Int       @map("monthly_agorot")
   /// pending | active | past_due | cancelled | released
   status              String    @default("pending") @db.VarChar(20)
+  /// ‎`purchased` = נשכר מהמלאי של 015 דרך דף תשלום. `platform` = חיוב
+  /// שמנהל הפלטפורמה פתח על מספר שכבר בידי המשרד (למשל ממרכזייה
+  /// משלו): מחויב מדי חודש כמו השכרה, אבל אין תפיסה ואין שחרור
+  /// אצל 015, ושחרור השורה מפסיק חיוב בלבד — הניתוב נשאר.
+  origin              String    @default("purchased") @db.VarChar(10)
   /// יום החיוב בחודש — אותו עוגן ומאותה סיבה כמו במנוי: בלעדיו
   /// השכרה מ-31 בחודש הייתה מתקצרת לצמיתות אחרי פברואר.
   billingAnchorDay    Int?      @map("billing_anchor_day") @db.SmallInt
