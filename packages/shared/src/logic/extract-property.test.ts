@@ -324,3 +324,108 @@ describe("סכום חשוף — מה שאסור להיקרא כמחיר", () => 
     expect(fields.priceAgorot).toBeUndefined();
   });
 });
+
+/*
+ * ביקורת Codex על סניפי הנכס המסחרי: „דירה עם חניה” נשמרה כחניה
+ * מסחרית, וגם „דירה ללא חניה”.
+ *
+ * חניה, מחסן ומרתף הם סוג נכס **וגם** מאפיין של דירה — שני
+ * התפקידים חיים באותו קובץ, כי „חניה” ו„מחסן” הם גם `hasParking`
+ * ו-`hasStorage`. סוג שגוי כאן אינו אי-דיוק בתצוגה: סוג שאינו
+ * מבוקש **פוסל** התאמה, ולכן דירה שסווגה כחניה נעלמת מכל קונה
+ * מגורים במערכת.
+ */
+describe("חניה, מחסן ומרתף — מאפיין של דירה, ולא סוג הנכס", () => {
+  it("דירה עם המאפיין נשארת דירה", () => {
+    for (const said of [
+      "דירה עם חניה",
+      "דירת 4 חדרים בבני ברק עם חניה ומעלית",
+      "דירה ללא חניה",
+      "דירה בלי חניה בחיפה",
+      "דירת 4 חדרים עם 2 חניות",
+      "דירה עם מחסן",
+      "דירה כוללת מחסן",
+      "דירה עם מחסן וחניה",
+      "דירה עם מרתף",
+      /* „דירת מרתף” היא דירה — הדפוס הכללי תופס אותה, וזה הנכון */
+      "דירת מרתף בבני ברק",
+    ]) {
+      expect(
+        extractPropertyFromTranscript(said).fields.propertyType,
+        said,
+      ).toBe("apartment");
+    }
+  });
+
+  /* הסוג חזר לדירה — והמאפיין עצמו עדיין נקלט, בשני הכיוונים */
+  it("המאפיין ממשיך להיקלט כמאפיין", () => {
+    expect(
+      extractPropertyFromTranscript("דירה עם חניה").fields.hasParking,
+    ).toBe(true);
+    expect(
+      extractPropertyFromTranscript("דירה ללא חניה").fields.hasParking,
+    ).toBe(false);
+    expect(
+      extractPropertyFromTranscript("דירה עם מחסן").fields.hasStorage,
+    ).toBe(true);
+  });
+
+  /*
+   * הסדר לבדו אינו מספיק: „וילה” אינה ברשימת דפוסי המגורים, ולכן
+   * המשפט אינו נתפס קודם — הוא היה נופל ישר לחניה. סוג ריק עדיף
+   * על סוג שגוי, כי ריק נראה כמו מה שהוא.
+   */
+  it("נכס שאינו ברשימה עם מאפיין אינו נהפך לנכס מסחרי", () => {
+    for (const said of [
+      "וילה עם חניה",
+      "וילה עם 2 חניות",
+      "בית עם מחסן",
+      "וילה עם מרתף",
+    ]) {
+      const { propertyType } = extractPropertyFromTranscript(said).fields;
+      expect(propertyType, said).not.toBe("commercial_parking");
+      expect(propertyType, said).not.toBe("commercial_warehouse");
+      expect(propertyType, said).not.toBe("commercial_basement");
+    }
+  });
+
+  /* וכשהמילה היא הנושא ולא התוספת — זה באמת הנכס */
+  it("„מחסן להשכרה” הוא מחסן", () => {
+    const cases: [string, string][] = [
+      ["מחסן להשכרה ברחוב הרצל", "commercial_warehouse"],
+      ["מחסנים בבני ברק", "commercial_warehouse"],
+      ["חניון בתל אביב", "commercial_parking"],
+      ["חניה למכירה בבני ברק", "commercial_parking"],
+      ["מרתף להשכרה בחיפה", "commercial_basement"],
+    ];
+    for (const [said, expected] of cases) {
+      expect(
+        extractPropertyFromTranscript(said).fields.propertyType,
+        said,
+      ).toBe(expected);
+    }
+  });
+});
+
+/* הענפים המסחריים שנוספו לסכימה — הקול הוא אחד ממסלולי הכתיבה */
+describe("ענפי הנכס המסחרי מזוהים בקול", () => {
+  it("כל ענף מגיע לערך שלו", () => {
+    const cases: [string, string][] = [
+      ["חנות ברחוב עלייה בתל אביב", "commercial_shop"],
+      ["משרד להשכרה בתל אביב", "commercial_office"],
+      ["מבנה תעשייה בחולון", "commercial_industrial"],
+      ["תחנת דלק על כביש 4", "commercial_gas_station"],
+      ["מרלוג בלוד", "commercial_logistics"],
+      ["מרכז לוגיסטי במודיעין", "commercial_logistics"],
+      ["בניין שלם בבני ברק", "commercial_building"],
+      /* „מסחרי” בלי ענף הוא ערך חוקי, ולא סוג חסר */
+      ["נכס מסחרי בבני ברק", "commercial"],
+    ];
+    for (const [said, expected] of cases) {
+      expect(
+        extractPropertyFromTranscript(said).fields.propertyType,
+        said,
+      ).toBe(expected);
+    }
+  });
+});
