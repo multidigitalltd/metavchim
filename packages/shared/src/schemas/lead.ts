@@ -14,7 +14,23 @@ export const LeadSourceSchema = z.enum([
   "landing",
   "kanko",
   "referral",
+  /*
+   * ‎**פרסום לא-מקוון.** ‏עיתון מקומי ומודעה על עמוד חשמל הם עדיין
+   * שני הערוצים שמביאים מוכרים בשכונות ותיקות, והם נחתו עד היום
+   * תחת „ידני” — כלומר המשרד שילם על מודעה ולא יכול היה לדעת אם
+   * היא עבדה. שני ערכים ולא אחד („פרסום”), כי התשובה שמעניינת היא
+   * באיזה מהם להמשיך.
+   */
+  "newspaper",
+  "street_ad",
   "manual",
+  /*
+   * ‎**„אחר”, עם המקום לומר מה.** ‏רשימה סגורה תמיד תפספס משהו —
+   * דוכן ביריד, שלט על רכב, קבוצת ווטסאפ שכונתית. עד היום מי שבחר
+   * „אחר” איבד את המידע לגמרי; כאן הוא נשמר ב-`sourceNote` והוא מה
+   * שמוצג במסך במקום המילה „אחר”.
+   */
+  "other",
 ]);
 export type LeadSource = z.infer<typeof LeadSourceSchema>;
 
@@ -63,8 +79,28 @@ export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
   landing: "דף נחיתה",
   kanko: "Kanko",
   referral: "המלצה",
+  newspaper: "עיתון",
+  street_ad: "מודעת רחוב",
   manual: "ידני",
+  other: "אחר",
 };
+
+/**
+ * ‎**מה כתוב על המסך במקום „אחר”.**
+ *
+ * ‏מקור „אחר” הוא בדיוק כמה שהוא נשמע — לא-ידוע. אם המתווך טרח
+ * לרשום „דוכן ביריד הנדל״ן”, זה מה שצריך להופיע: הסיבה היחידה
+ * לשאול הייתה לדעת את התשובה.
+ *
+ * ‏הפונקציה כאן ולא בכל מסך בנפרד, כי יש ארבעה מקומות שמציגים מקור
+ * ליד (רשימה, כרטיס, שיתופי פעולה, וכרטיס הסוכן בוואטסאפ) — וארבעה
+ * עותקים של אותה החלטה הם ארבע הזדמנויות להיפרד.
+ */
+export function leadSourceText(source: string, sourceNote?: string | null): string {
+  const note = sourceNote?.trim();
+  if (source === "other" && note !== undefined && note !== "") return note;
+  return LEAD_SOURCE_LABELS[source as LeadSource] ?? source;
+}
 
 /** סטטוסים שבהם הליד עדיין "חי" — פנייה נוספת מצטרפת אליו במקום לפצל ציר זמן. */
 export const OPEN_LEAD_STATUSES: readonly LeadStatus[] = ["new", "in_progress", "waiting_customer"];
@@ -74,6 +110,8 @@ export const LeadSchema = z.object({
   tenantId: IdSchema,
   contactId: IdSchema,
   source: LeadSourceSchema,
+  /** ‏הטקסט החופשי של „אחר”. קצר בכוונה — תווית, לא סיפור. */
+  sourceNote: z.string().trim().max(60).optional(),
   intent: LeadIntentSchema,
   status: LeadStatusSchema,
   assignedToUserId: IdSchema.optional(),

@@ -21,7 +21,7 @@ import {
   type PayoutMode,  labelOf } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError, apiList } from "@/lib/api";
-import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS } from "@/lib/lead-labels";
+import { LEAD_INTENT_LABELS, leadSourceText } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -256,6 +256,8 @@ interface DemandRow {
   mustFeatures: string[];
   niceFeatures: string[];
   source: string;
+  /** ‏הטקסט שנכתב תחת מקור „אחר”. חסר בכל מקור אחר. */
+  sourceNote?: string;
   /** שם המקור לתצוגה, מקטלוג התמחור — לא שם ספק שכתוב במסך. */
   sourceLabel: string;
   /** כמה קרדיטים תעלה הצעה. 0 = חינם (ביקוש של משרד אחר). */
@@ -403,6 +405,8 @@ interface SharedLeadRow {
   id: string;
   intent: string;
   source: string;
+  /** ‏הטקסט שנכתב תחת מקור „אחר”. חסר בכל מקור אחר. */
+  sourceNote?: string;
   city?: string;
   note?: string;
   reason: string;
@@ -2345,7 +2349,7 @@ export default function CollaborationPage() {
                   </h4>
                   <span className="mv-net-chip">
                     <IconSend s={14} />{" "}
-                    {labelOf(LEAD_SOURCE_LABELS, lead.source) ?? lead.source}
+                    {leadSourceText(lead.source, lead.sourceNote)}
                   </span>
                   <span className="mv-net-chip mv-net-chip--money">
                     <IconCoins s={14} /> עמלת הפניה: {lead.priceCredits} קרדיטים

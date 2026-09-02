@@ -66,6 +66,7 @@ const PAGE = read("../src/app/page.tsx");
 const CSS = read("../src/app/globals.css");
 const PROPERTIES = read("../src/app/properties/page.tsx");
 const DISMISS = read("../src/app/dismissed-actions.ts");
+const FILTERS = read("../src/app/list-filters.tsx");
 
 const problems = [];
 
@@ -372,6 +373,45 @@ if (!PAGE.includes("shownTasks.length === 0 && hiddenToday > 0")) {
   problems.push("מסך ריק אחרי הסתרה מוצג כ„הכל מטופל” — ברכה על עבודה שלא נעשתה");
 }
 
+/* ==========================================================================
+ * ‎**4 · כרטיס החיפוש בנכסים — שדה נקי, וצ׳יפים בתוך „עוד סינון”.**
+ *
+ * ‏שתי הכרעות של בעל המוצר על אותו כרטיס, ושתיהן נשברות בשקט:
+ *
+ * ‎`example` שחוזר לשדה ממלא אותו במשפט שנקטע באמצע — הוא נראה
+ * כמו טקסט שהוקלד, ונעלם ברגע שמקלידים. הרמז כבר יושב בכותרת
+ * הכרטיס, ולכן השדה נשאר ריק.
+ *
+ * ‏וצ׳יפי הערים: משרד שעובד בתריסר ערים קיבל שתי שורות כפתורים
+ * לפני הנכס הראשון. הם בקרת סינון כמו טווח המחיר, ולכן הם יושבים
+ * במגירה איתו — עם `childrenActive` שפותח אותה כשעיר נבחרה, כדי
+ * שלא תיווצר רשימה מסוננת בלי שום סימן למה.
+ * ========================================================================== */
+
+const cardProp = /card=\{\{([^}]*)\}\}/u.exec(PROPERTIES);
+if (cardProp === null) {
+  problems.push("לא נמצאה תצורת כרטיס החיפוש (`card={{…}}`) בעמוד הנכסים");
+} else if (cardProp[1].includes("example")) {
+  problems.push("טקסט הדוגמה חזר אל תוך שדה החיפוש בעמוד הנכסים (`card.example`)");
+}
+
+/*
+ * ‎**הרינדור מותנה ב-`open`, ולא רק „קיים איפשהו”.**
+ *
+ * ‏בדיקה על `{children}` לבדו הייתה עוברת גם על הגרסה שהציגה אותם
+ * תמיד — זו בדיוק הצורה שהוחלפה כאן.
+ */
+if (!/\{open && children !== undefined \? <div className="mt-3">\{children\}<\/div> : null\}/u.test(FILTERS)) {
+  problems.push("‎`children` של כרטיס החיפוש אינם מותנים ב„עוד סינון” — הצ׳יפים חזרו לראש המסך");
+}
+/* המגירה נפתחת מעצמה כשיש סינון פעיל בתוכה */
+if (!/useState\(hasActiveFilters\(values\) \|\| childrenActive\)/u.test(FILTERS)) {
+  problems.push("המגירה אינה נפתחת על סינון פעיל שיושב בתוכה — עיר שנבחרה נשארת בלי סימן");
+}
+if (!/childrenActive=\{city !== "הכל"\}/u.test(PROPERTIES)) {
+  problems.push("עמוד הנכסים אינו מדווח על עיר שנבחרה (`childrenActive`)");
+}
+
 if (problems.length > 0) {
   console.error("✗ הכרעות פריסה שנשברו:\n");
   for (const problem of problems) console.error(`  ${problem}`);
@@ -379,9 +419,12 @@ if (problems.length > 0) {
   console.error("    • דשבורד — המונים והסוכן בתחתית, זה לצד זה, והאריח מצומצם.");
   console.error("    • נכסים  — הפעולות מעל הטבלה, והמונים 2×2 לצד החיפוש.");
   console.error("    • „הבנתי” — מסתיר עד מחר, ולא לתמיד.");
+  console.error("    • חיפוש נכס — שדה בלי טקסט רפאים, וצ׳יפי ערים בתוך „עוד סינון”.");
   console.error("  §24 של חבילת העיצוב מתארת סדר אחר לדשבורד, והיא מתוקנת");
   console.error("  ב-docs/design-handoff/DESIGN-SYSTEM-4-layout-and-rules.md.");
   process.exit(1);
 }
 
-console.log("✓ פריסת הדשבורד ועמוד הנכסים במקומה, ו„הבנתי” מסתיר עד מחר");
+console.log(
+  "✓ פריסת הדשבורד ועמוד הנכסים במקומה, „הבנתי” מסתיר עד מחר, וכרטיס החיפוש נקי",
+);

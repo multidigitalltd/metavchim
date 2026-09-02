@@ -708,6 +708,10 @@ model Lead {
   tenantId            String    @map("tenant_id") @db.Char(26)
   contactId           String    @map("contact_id") @db.Char(26)
   source              String    @db.VarChar(20)
+  /// ‏הטקסט של „אחר”: „דוכן ביריד”, „שלט על הרכב”. עמודה נפרדת ולא
+  /// דחיסה אל `source` — המקור נשאר ערך שאפשר לקבץ לפיו בדוח, וההערה
+  /// היא מה שרואים במקום המילה „אחר”.
+  sourceNote          String?   @map("source_note") @db.VarChar(60)
   intent              String    @default("unknown") @db.VarChar(20)
   status              String    @default("new") @db.VarChar(20)
   assignedToUserId    String?   @map("assigned_to_user_id") @db.Char(26)
@@ -3017,4 +3021,89 @@ model AutomationRun {
   @@id([ruleId, eventId])
   @@index([createdAt])
   @@map("automation_runs")
+}
+
+/// ‏יעד של מתווך — רמה אחת מתוך ארבע, לתקופה אחת.
+///
+/// ‎**שורה לכל רמה, ולא ארבע עמודות בשורה אחת.** לכל רמה יש תקופה
+/// משלה שמתחילה ומסתיימת בתאריך אחר, ומחזור שהסתיים אינו נמחק
+/// כשמתחיל הבא: „איפה היית לפני תקופה” — הבקשה המפורשת של בעל
+/// המוצר — אפשרי רק אם התקופות הקודמות שמורות.
+///
+/// ‎**היעד אישי ולא משרדי.** `userId` הוא חלק מהמפתח הייחודי: מנטור
+/// שמראה לסוכן את היעד של חברו אינו מנטור. ה-RLS מבודד בין משרדים,
+/// והשאילתה מסננת לפי המשתמש בתוך המשרד.
+///
+/// ‎`ratios` הוא JSON כי הוא נגזר מהיסטוריית הביצועים ומתעדכן, ו-
+/// ‎`targetAgorot` נשמר גם ליעד שאינו בעמלות: ביחידות „עסקאות” או
+/// „בלעדיות” הוא פשוט ספירה. BigInt כמו כל סכום אחר בסכימה — יעד
+/// שנתי של מיליוני שקלים באגורות עובר בקלות את גבול ה-Int.
+model MentorGoal {
+  id                      String    @id @db.Char(26)
+  tenantId                String    @map("tenant_id") @db.Char(26)
+  userId                  String    @map("user_id") @db.Char(26)
+  /// year | half | cycle | week — ‎`GOAL_HORIZONS` בחבילה המשותפת
+  horizon                 String    @db.VarChar(10)
+  /// commission | deals | exclusives
+  unit                    String    @db.VarChar(20)
+  /// היעד עצמו. עמלות — באגורות; עסקאות ובלעדיות — ספירה.
+  targetAgorot            BigInt    @map("target_agorot")
+  /// עמלה ממוצעת לעסקה, לחישוב לאחור. רק ליעד בעמלות.
+  averageCommissionAgorot BigInt?   @map("average_commission_agorot")
+  /// יחסי ההמרה שלפיהם נבנתה התוכנית — `ConversionRatios`
+  ratios                  Json      @default("{}")
+  /// ‏מה שהתחייב לעשות השבוע: `{ calls: 40, appointments: 5 }`.
+  /// רלוונטי לרמת `week` בלבד, ולכן אופציונלי.
+  commitment              Json      @default("{}")
+  /// ‎**המכשול, ותוכנית „אם-אז”.** מה שמפיל את השבוע ומה עושים
+  /// כשזה קורה. שאלה של מנטור, לא שדה הערות: ניסוח מראש של
+  /// התגובה למכשול הוא ההבדל בין כוונה לבין ביצוע.
+  obstacle                String?   @db.VarChar(400)
+  ifThenPlan              String?   @map("if_then_plan") @db.VarChar(400)
+  periodStart             DateTime  @map("period_start") @db.Date
+  periodEnd               DateTime  @map("period_end") @db.Date
+  /// מתי סומן כהושג — ריק כל עוד לא הושג. שדה ולא חישוב, כדי
+  /// שהחגיגה תישלח פעם אחת ולא בכל סריקה.
+  achievedAt              DateTime? @map("achieved_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  /// יעד אחד לכל רמה לכל תקופה — עדכון ולא שורה שנייה
+  @@unique([tenantId, userId, horizon, periodStart])
+  @@index([tenantId, userId, horizon])
+  @@map("mentor_goals")
+}
+
+/// ‏ציון הביצוע של שבוע אחד — „The 12 Week Year”: מודדים פעולות,
+/// לא תוצאות.
+///
+/// ‎**נשמר ולא מחושב מחדש.** אפשר היה לגזור את הציון בכל פעם מהשיחות
+/// ומהפגישות, אבל אז הוא היה משתנה למפרע: שיחה שתויגה מאוחר או
+/// פגישה שנמחקה היו משכתבות שבוע שכבר נחגג. השורה הזו היא **מה
+/// שנאמר לו אז**, וההשוואה „איפה היית” נשענת עליה.
+///
+/// ‎`weekKey` הוא `YYYY-MM-DD` של יום ראשון בשעון ישראל — מחרוזת
+/// יציבה שאינה תלויה באזור הזמן של המכשיר שפתח את המסך.
+model MentorWeeklyScore {
+  id          String   @id @db.Char(26)
+  tenantId    String   @map("tenant_id") @db.Char(26)
+  userId      String   @map("user_id") @db.Char(26)
+  weekKey     String   @map("week_key") @db.VarChar(10)
+  /// ‎`WeeklyCommitment` — מה שהתחייב לו באותו שבוע
+  committed   Json     @default("{}")
+  /// ‎`WeeklyActual` — מה שהמערכת ספרה בפועל
+  actual      Json     @default("{}")
+  /// 0..100
+  percent     Int      @default(0)
+  /// ‎`percent >= 85` בעת החישוב — נשמר כדי שסף שישתנה בעתיד לא
+  /// ישכתב שבועות שכבר נסגרו.
+  onTrack     Boolean  @default(false) @map("on_track")
+  /// אילו רגעים כבר נשלחו על השבוע הזה — מונע חגיגה כפולה
+  sentMoments Json     @default("[]") @map("sent_moments")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, userId, weekKey])
+  @@index([tenantId, userId, weekKey])
+  @@map("mentor_weekly_scores")
 }

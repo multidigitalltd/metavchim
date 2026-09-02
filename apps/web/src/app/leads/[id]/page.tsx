@@ -23,7 +23,12 @@ import {
   type PayoutMode,  labelOf } from "@metavchim/shared";
 import { apiDelete, apiGet, apiPost, apiPatch, ApiError, apiList } from "@/lib/api";
 import { formatDate, waMeUrl } from "@/lib/format";
-import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
+import {
+  LEAD_INTENT_LABELS,
+  LEAD_SOURCE_LABELS,
+  LEAD_STATUS_LABELS,
+  leadSourceText,
+} from "@/lib/lead-labels";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { ClickToDial } from "../../click-to-dial";
 import { ConfirmDialog } from "../../confirm-dialog";
@@ -70,6 +75,8 @@ interface LeadDetail {
   id: string;
   contact: { id: string; name: string; phone: string; email?: string };
   source: string;
+  /** ‏הטקסט שנכתב תחת מקור „אחר”. חסר בכל מקור אחר. */
+  sourceNote?: string;
   intent: string;
   status: string;
   requiresHuman: boolean;
@@ -689,26 +696,46 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
    * ערך או סגורה עם ערך שנשמר בצד.
    */
   const [editingSource, setEditingSource] = useState<string | null>(null);
+  /*
+   * ‎**הטקסט של „אחר”.** ‏„אחר” לבדו אינו אומר דבר, ולכן כשבוחרים
+   * אותו נפתחת לצידו תיבה: „דוכן ביריד”, „שלט על הרכב”. השדה נפרד
+   * מ-`editingSource` כי הוא נשמר בעמודה נפרדת — המקור נשאר ערך
+   * שאפשר לקבץ לפיו, וההערה היא מה שמוצג במקום המילה.
+   */
+  const [editingNote, setEditingNote] = useState("");
   const [sourceBusy, setSourceBusy] = useState(false);
   const [sourceFailed, setSourceFailed] = useState(false);
 
   async function saveSource(): Promise<void> {
     const next = (editingSource ?? "").trim();
     if (next === "" || lead === null) return;
+    const nextNote = next === "other" ? editingNote.trim() : "";
     // שינוי לאותו ערך אינו שינוי — סוגרים בלי לפנות לשרת
-    if (next === lead.source) {
+    if (next === lead.source && nextNote === (lead.sourceNote ?? "")) {
       setEditingSource(null);
       return;
     }
     setSourceBusy(true);
     setSourceFailed(false);
     try {
-      await apiPatch(`/leads/${id}/source`, { source: next });
+      await apiPatch(`/leads/${id}/source`, {
+        source: next,
+        ...(nextNote === "" ? {} : { sourceNote: nextNote }),
+      });
       /*
        * המסך מתעדכן רק אחרי אישור השרת. עדכון אופטימי היה מציג
        * מקור חדש על ליד שמקורו לא השתנה — והמתווך היה ממשיך משם.
        */
-      setLead((prev) => (prev ? { ...prev, source: next } : prev));
+      setLead((prev) =>
+        prev
+          ? {
+              ...prev,
+              source: next,
+              /* ההערה נמחקת יחד עם המעבר ממקור „אחר” — כמו בשרת */
+              ...(nextNote === "" ? { sourceNote: undefined } : { sourceNote: nextNote }),
+            }
+          : prev,
+      );
       setTimeline((prev) => [
         {
           id: `local-source-${next}`,
@@ -849,7 +876,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             style={{ color: "var(--color-text-muted)" }}
           >
             <span dir="ltr">{lead.contact.phone}</span> · מקור:{" "}
-            {labelOf(LEAD_SOURCE_LABELS, lead.source) ?? lead.source}
+            {leadSourceText(lead.source, lead.sourceNote)}
             {/*
               ‎**תיקון המקור — ליד המקור עצמו.**
 
@@ -867,6 +894,8 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                   onClick={() => {
                     setSourceFailed(false);
                     setEditingSource(lead.source);
+                    // התיבה נפתחת על מה שכבר רשום, ולא ריקה
+                    setEditingNote(lead.sourceNote ?? "");
                   }}
                 >
                   שינוי
@@ -937,6 +966,26 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                   <option key={value} value={value} label={label} />
                 ))}
               </datalist>
+              {/*
+                ‎**„אחר” פותח את התיבה שאומרת מה.** ‏מקור „אחר” בלי
+                המשך הוא בדיוק כמה שהוא נשמע — לא-ידוע שנרשם. התיבה
+                מופיעה רק עליו, כי לכל שאר הערכים היא סתם שדה ריק.
+              */}
+              {editingSource.trim() === "other" ? (
+                <input
+                  value={editingNote}
+                  onChange={(event) => setEditingNote(event.target.value)}
+                  aria-label="פירוט המקור"
+                  placeholder="למשל: דוכן ביריד"
+                  maxLength={60}
+                  className="rounded-lg border px-3 py-2"
+                  style={{
+                    background: "var(--color-field)",
+                    borderColor: "var(--color-input-border)",
+                    minWidth: 190,
+                  }}
+                />
+              ) : null}
               <button
                 type="submit"
                 className="mv-btn-action"
@@ -1380,7 +1429,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                             יכול להיות תווית קמפיין חופשית שאינה
                             ברשימה, והצגתה כפי שהיא היא האמת.
                           */
-                          `המקור שונה ל: ${labelOf(LEAD_SOURCE_LABELS, item.content) ?? item.content}`
+                          `המקור שונה ל: ${leadSourceText(item.content)}`
                         : item.content}
                   </p>
                 </li>
