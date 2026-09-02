@@ -14,8 +14,11 @@ import { Notice } from "../notice";
  * ומופיע ברשימת הניתוב אוטומטית. חלק מחודש מחויב כחודש מלא, וביטול
  * משאיר את המספר עד סוף התקופה ששולמה.
  *
- * הפאנל נעלם כשהפלטפורמה טרם הפעילה את השירות — תכונה שאי אפשר
- * להשתמש בה אינה מוצגת, לא "בקרוב".
+ * ההצעה לשכור נעלמת כשהפלטפורמה טרם הפעילה את השירות — תכונה שאי
+ * אפשר להשתמש בה אינה מוצגת, לא "בקרוב". **אבל חיובים קיימים מוצגים
+ * תמיד**: חיוב שנפתח מהפלטפורמה על מספר של המשרד (`origin =
+ * "platform"`) אינו תלוי במלאי של 015, והמשרד חייב לראות על מה הוא
+ * משלם ולוכל לבטל — גם כשאין שום הצעת השכרה (ביקורת Codex).
  */
 
 interface RentalRow {
@@ -76,10 +79,16 @@ export function NumberRentalPanel(): React.JSX.Element | null {
   }
 
   async function cancel(rental: RentalRow): Promise<void> {
+    /*
+     * חיוב מהפלטפורמה: המספר של המשרד הוא ואינו משוחרר — רק
+     * הגבייה נפסקת. לומר „ישוחרר” על פעולה כספית היה תיאור שגוי.
+     */
     const message =
       rental.status === "pending"
         ? `לבטל את ההשכרה הממתינה של ${rental.numberDisplay}?`
-        : `לבטל את חידוש ההשכרה של ${rental.numberDisplay}?\n\nהמספר יישאר פעיל עד סוף התקופה ששולמה ואז ישוחרר. אין החזר על חלק מחודש.`;
+        : rental.origin === "platform"
+          ? `לבטל את החיוב החודשי על ${rental.numberDisplay}?\n\nהחיוב ייפסק בסוף התקופה ששולמה. המספר שלכם והניתוב שלו נשארים. אין החזר על חלק מחודש.`
+          : `לבטל את חידוש ההשכרה של ${rental.numberDisplay}?\n\nהמספר יישאר פעיל עד סוף התקופה ששולמה ואז ישוחרר. אין החזר על חלק מחודש.`;
     if (!window.confirm(message)) return;
     setBusy(rental.id);
     setError(null);
@@ -93,19 +102,28 @@ export function NumberRentalPanel(): React.JSX.Element | null {
     }
   }
 
-  if (offering === null || !offering.configured || offering.monthlyAgorot === null) return null;
+  if (offering === null) return null;
+  // ההצעה לשכור מהמלאי — רק כשהשירות מופעל ויש מחיר
+  const offerAvailable = offering.configured && offering.monthlyAgorot !== null;
+  if (!offerAvailable && offering.rentals.length === 0) return null;
 
   return (
     <div
       className="mb-4 rounded-xl border p-3"
       style={{ borderColor: "var(--color-primary-accent)", background: "var(--color-bg)" }}
     >
-      <p className="m-0 mb-2 text-sm">
-        <b>אין לכם מספר פנוי? שכרו אחד דרך המערכת</b> —{" "}
-        {formatNumber(offering.monthlyAgorot / 100)} ₪ לחודש {VAT_EXCLUDED_SUFFIX}, מופעל
-        אוטומטית אחרי התשלום.
-        חלק מחודש מחויב כחודש מלא, וביטול משאיר את המספר עד סוף התקופה ששולמה.
-      </p>
+      {offerAvailable ? (
+        <p className="m-0 mb-2 text-sm">
+          <b>אין לכם מספר פנוי? שכרו אחד דרך המערכת</b> —{" "}
+          {formatNumber((offering.monthlyAgorot ?? 0) / 100)} ₪ לחודש {VAT_EXCLUDED_SUFFIX}, מופעל
+          אוטומטית אחרי התשלום.
+          חלק מחודש מחויב כחודש מלא, וביטול משאיר את המספר עד סוף התקופה ששולמה.
+        </p>
+      ) : (
+        <p className="m-0 mb-2 text-sm">
+          <b>מספרים בחיוב חודשי</b> — נגבים בכרטיס השמור במסך המנוי.
+        </p>
+      )}
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
 
@@ -114,6 +132,11 @@ export function NumberRentalPanel(): React.JSX.Element | null {
           {offering.rentals.map((rental) => (
             <li key={rental.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <b className="mv-ltr">{rental.numberDisplay}</b>
+              {rental.origin === "platform" ? (
+                <span style={{ color: "var(--color-text-muted)" }}>
+                  {formatNumber(rental.monthlyAgorot / 100)} ₪ לחודש {VAT_EXCLUDED_SUFFIX}
+                </span>
+              ) : null}
               <span
                 style={
                   rental.status === "past_due"
@@ -150,7 +173,7 @@ export function NumberRentalPanel(): React.JSX.Element | null {
         </ul>
       ) : null}
 
-      {!mayPay ? (
+      {!offerAvailable ? null : !mayPay ? (
         <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
           השכרה חדשה נעשית על ידי בעל/ת המשרד.
         </p>

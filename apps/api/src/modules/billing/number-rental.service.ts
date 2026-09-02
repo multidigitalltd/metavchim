@@ -105,7 +105,8 @@ export class NumberRentalService {
    *
    * ‎`currentPeriodEnd` נקבע לעכשיו, ולכן סבב החידושים הקרוב גובה
    * את החודש הראשון ומקדם את התקופה — אותו מסלול בדיוק כמו חידוש.
-   * בלי כרטיס שמור השורה תסומן `past_due` והמנהלים יקבלו מייל;
+   * בלי כרטיס שמור השורה תסומן `past_due` והמנהלים יקבלו מייל, וסבב
+   * החידושים מנסה שוב מדי יום — כך שכרטיס שהמשרד יזין נגבה מעצמו.
    * זה מצב ידוע ולא כשל, ולכן חוזר כאזהרה ולא כדחייה.
    */
   async createPlatformCharge(input: {
@@ -170,7 +171,7 @@ export class NumberRentalService {
     });
     const warning =
       subscription?.cardTokenEncrypted === null || subscription?.cardTokenEncrypted === undefined
-        ? "למשרד אין כרטיס שמור — החיוב הראשון ייכשל ויסומן לטיפול ידני עד שהמשרד יזין אמצעי תשלום"
+        ? "למשרד אין כרטיס שמור — החיוב יסומן „נכשל” וינוסה מחדש מדי יום עד שהמשרד יזין אמצעי תשלום במסך המנוי"
         : null;
     return { id, number, warning };
   }
