@@ -53,12 +53,24 @@ LIST PAGE for properties, buyers or leads: the header, a filter bar of chips in 
 then a card with flush rows. Row actions are secondary; the single primary lives in the header.
 
     header row: title, count line, then the page actions at the RTL end
-    filter strip, same 1fr / 372px split as the dashboard
-        1fr: the search card - field, buttons, city chips
-        372px: the KPI tiles, two by two, compact
+    filter strip, two columns
+        560px: the search card - field, buttons, city chips. Fixed, not 1fr:
+               the input is flex-1, so a free column turns it into 700px of
+               white. 560 is what one line actually needs - a field wide
+               enough to read the example placeholder, plus both buttons.
+        1fr:   the KPI tiles, compact. Two per row, four in one row from 2xl.
     list card: head with the sort and status controls,
                then the bulk-selection bar with a rule under it,
                then the rows
+
+A table head and its rows must start at the same x. The rows are not direct
+children of the card: each sits in a select-row next to its checkbox, because the
+row itself is a navigation button and a checkbox inside a button is not
+accessible. So the row's first column starts after the select-row padding, the
+checkbox and the gap, while the head's starts at its own padding - the headings
+do not stand above their columns, and the drift grows with every column. The
+head takes the same lead: --mv-select-lead is the sum of those three, and the
+head adds it when the list has checkboxes. Never re-type the numbers.
 
 The bulk-selection bar sits ABOVE the rows, not below them. It used to close the card, which reads
 fine with six rows and badly with a hundred: you tick a row at the top of the list and then scroll a

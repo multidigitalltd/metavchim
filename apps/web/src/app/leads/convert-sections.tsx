@@ -68,12 +68,21 @@ function optionalNumber(form: FormData, name: string): Record<string, number> {
 export function ConvertSection({
   leadId,
   prefill,
+  autoOpen = false,
 }: {
   leadId: string;
   prefill?: ConvertPrefill;
+  /**
+   * ‎**נפתח מעצמו כשהגיעו לכאן במפורש בשבילו.**
+   *
+   * ‏„המר ← קונה” ברשימת הלידים כבר ענה על השאלה שהכפתור הסגור
+   * שואל. פתיחה ידנית שנייה, אחרי ניווט שכל תכליתו הייתה הבחירה
+   * הזו, היא בדיוק המדרגה שהתפריט בא להסיר.
+   */
+  autoOpen?: boolean;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(autoOpen);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -241,12 +250,15 @@ export function ConvertSection({
 export function ConvertToPropertySection({
   leadId,
   prefill,
+  autoOpen = false,
 }: {
   leadId: string;
   prefill?: ConvertPrefill;
+  /** ראו ההסבר ב-`ConvertSection` — אותו טעם בדיוק. */
+  autoOpen?: boolean;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(autoOpen);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

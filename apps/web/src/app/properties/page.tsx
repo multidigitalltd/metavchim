@@ -92,7 +92,20 @@ function statusDomain(status: string): string {
  * שתי שורות. העמודה האחרונה היא תאריך, לא תווית כפתור, ולכן היא
  * צרה יותר והרוחב חזר לכתובת.
  */
-const GRID = "2.4fr 0.9fr 1.4fr 1fr 1fr 0.9fr";
+/*
+ * ‎**שבע עמודות, והסוכן אחת מהן.**
+ *
+ * הוא ישב עד כה בתא הסטטוס, לצד הגלולה, וההערה שם נימקה זאת ב„רשת
+ * קבועה — עמודה שביעית הייתה דוחסת את כל השאר”. בפועל זה נקרא
+ * כבלבול: גלולת „טיוטה” וגלולת „לא משויך” בתא אחד, מתחת לכותרת
+ * שאומרת „סטטוס”, הן שתי עובדות שונות שנראות כמו אחת. בעל המוצר
+ * דיווח על כך במילים „שיוך הסוכן התערבב עם העמודה של הסטטוס”.
+ *
+ * הרוחב שהעמודה החדשה צורכת נלקח מ„נכס” ומ„מוכנות לשיווק”, ששתיהן
+ * היו רחבות מהנדרש: הכתובת נחתכת ממילא ב-`truncate`, ופס המוכנות
+ * הוא פס.
+ */
+const GRID = "2.1fr 0.85fr 1fr 1.25fr 1fr 0.95fr 0.9fr";
 
 const SORTS: [string, string][] = [
   ["newest", "חדשים קודם"],
@@ -234,7 +247,12 @@ function PropertyStats({
       להימתח ולפעור חלל בין התווית למספר.
     */
     <div className="flex flex-col justify-center">
-    <div className="grid items-stretch gap-3 grid-cols-2">
+    {/*
+      שתיים בשורה כברירת מחדל, וארבע כשיש רוחב. `2xl` ולא `lg`:
+      מתחתיו הטור שנשאר לאריחים אחרי 560 של החיפוש צר מכדי שארבע
+      תוויות ייקראו בו, וארבעה אריחים דחוסים גרועים משתי שורות.
+    */}
+    <div className="grid items-stretch gap-3 grid-cols-2 2xl:grid-cols-4">
       <StatTile
         domain="mv-domain-blue"
         icon={<IconHome s={20} />}
@@ -650,10 +668,18 @@ export default function PropertiesPage() {
         ‎`items-start` ולא מתיחה: „עוד סינון” מכפיל את גובה כרטיס
         החיפוש, ואריחים שנמתחים לגובה הזה הם בדיוק החלל שהתבקשנו
         לצמצם. הם נשארים בגודלם, והכרטיס גדל לבדו.
+
+        ‎**והיחס בין השניים התהפך** (סבב שני של אותה בקשה). בחלוקה
+        הראשונה החיפוש קיבל את הטור הרחב — ושדה הקלט, שהוא `flex-1`,
+        נמתח ל-700 פיקסלים של לובן. „את השדה של החיפוש אפשר לקצר
+        משמעותית, ואז הקוביות יוכלו להיכנס בשורה אחת”: החיפוש קיבל
+        רוחב **נקוב** שמספיק בדיוק לשורה אחת — שדה עם הדוגמה קריאה
+        בתוכו, „חפש” ו„עוד סינון” — והשאר הולך לאריחים, שנפרשים
+        ארבעה ברוחב אחד.
       */}
       <div
         className={`mb-[18px] grid items-start gap-4 ${
-          items === null ? "" : "lg:[grid-template-columns:1fr_372px]"
+          items === null ? "" : "lg:[grid-template-columns:minmax(0,560px)_minmax(0,1fr)]"
         }`}
       >
         <ListFilters
@@ -1083,9 +1109,17 @@ export default function PropertiesPage() {
                   עובדות בדיוק, במקום שבו קוראים אותן ממילא, והרוחב
                   שהתפנה הלך לעמודת הפעולה.
                 */}
-                <div className="mv-list-head" style={{ gridTemplateColumns: GRID }}>
+                <div
+                  /*
+                    ‎`mv-list-head--select` בדיוק כשיש תיבות סימון: הן
+                    מזיזות את תחילת השורה, והכותרת חייבת לזוז איתן.
+                  */
+                  className={`mv-list-head${maySelect ? " mv-list-head--select" : ""}`}
+                  style={{ gridTemplateColumns: GRID }}
+                >
                   <span>נכס</span>
                   <span>סטטוס</span>
+                  <span>סוכן מטפל</span>
                   <span>מוכנות לשיווק</span>
                   <span>מחיר</span>
                   <span>התאמות</span>
@@ -1137,14 +1171,17 @@ export default function PropertiesPage() {
                             .join(" · ") || "—"}
                         </span>
                       </span>
-                      {/*
-                        הסוכן לצד הסטטוס ולא בעמודה משלו: הרשת כאן
-                        קבועה, ועמודה שביעית הייתה דוחסת את כל השאר.
-                      */}
-                      <span className="flex flex-wrap items-center gap-1.5">
+                      <span className="min-w-0">
                         <span className={`mv-pill ${statusDomain(p.status)}`}>
                           {STATUS_LABELS[p.status] ?? p.status}
                         </span>
+                      </span>
+                      {/*
+                        ‎**הסוכן בעמודה משלו.** שתי גלולות בתא אחד
+                        מתחת לכותרת „סטטוס” קראו כמו סתירה: „טיוטה”
+                        ו„לא משויך” הן שתי תשובות לשתי שאלות שונות.
+                      */}
+                      <span className="min-w-0">
                         <AgentTag
                           {...(p.agentName === undefined ? {} : { name: p.agentName })}
                         />

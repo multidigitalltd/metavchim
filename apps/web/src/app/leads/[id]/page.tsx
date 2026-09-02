@@ -29,7 +29,11 @@ import { ClickToDial } from "../../click-to-dial";
 import { ConfirmDialog } from "../../confirm-dialog";
 import { ContactIdentityEdit } from "../../contact-identity";
 import { ContactPeople } from "../../contact-people";
-import { ConvertSection, ConvertToPropertySection } from "../convert-sections";
+import {
+  ConvertSection,
+  ConvertToPropertySection,
+  type ConvertPrefill,
+} from "../convert-sections";
 import { DeleteLeadDialog } from "../delete-lead-dialog";
 import { DictateFor } from "../../dictation-field";
 import { RelatedEntities } from "../../related-entities";
@@ -619,7 +623,21 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   // אותה יכולת שמגינה על "המר לקונה" למטה — הרשאת עריכת לקוח
   const canEditPeople = can(user, "buyers.edit");
   // הגעה מטופס "ליד חדש" כשכבר היה ליד פתוח — השרת מיזג את הפנייה לכאן
-  const merged = useSearchParams().get("merged") === "1";
+  /* ‎`search` ולא `params`: `params` תפוס כאן לפרמטרי הנתיב */
+  const search = useSearchParams();
+  const merged = search.get("merged") === "1";
+  /*
+   * ‎**מה שהתפריט ברשימה כבר בחר** — הצד וסוג העסקה.
+   *
+   * ‏שני הפרמטרים מגיעים מכתובת, כלומר מבחוץ, ולכן הם **נבדקים
+   * מול ערכים ידועים ולא מועברים כמו שהם**: `deal` נכנס לתוך טופס
+   * ששולח אותו לשרת, וכתובת שהודבקה מאיפשהו אינה מקור לערכי
+   * שדות. מה שאינו „sale”/„rent” פשוט אינו קיים.
+   */
+  const convertSide = search.get("convert");
+  const convertDeal = search.get("deal") === "rent" ? "rent" : "sale";
+  const convertPrefill: ConvertPrefill | undefined =
+    convertSide === null ? undefined : { dealType: convertDeal };
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [dialed, setDialed] = useState<DialedNumber | null>(null);
@@ -1190,7 +1208,13 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                   הלקוח מחפש נכס — הכרטיס נכנס למנוע ההתאמות. איש
                   הקשר וההיסטוריה נשמרים.
                 </p>
-                <ConvertSection leadId={lead.id} />
+                <ConvertSection
+                  leadId={lead.id}
+                  autoOpen={convertSide === "buyer"}
+                  {...(convertSide === "buyer" && convertPrefill !== undefined
+                    ? { prefill: convertPrefill }
+                    : {})}
+                />
               </section>
             ) : null}
 
@@ -1207,7 +1231,13 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                   הלקוח מוכר או משכיר — איש הקשר של הליד הופך לבעל
                   הנכס אוטומטית.
                 </p>
-                <ConvertToPropertySection leadId={lead.id} />
+                <ConvertToPropertySection
+                  leadId={lead.id}
+                  autoOpen={convertSide === "property"}
+                  {...(convertSide === "property" && convertPrefill !== undefined
+                    ? { prefill: convertPrefill }
+                    : {})}
+                />
               </section>
             ) : null}
           </div>
