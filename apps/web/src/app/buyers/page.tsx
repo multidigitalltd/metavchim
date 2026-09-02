@@ -611,19 +611,29 @@ export default function BuyersPage() {
 
               {/* שולחני: טבלת ה-grid מהעיצוב */}
               <div className="mv-list-card hidden sm:block">
-                <div className="mv-list-head" style={{ gridTemplateColumns: GRID }}>
-                  <span className="flex items-center gap-2">
-                    {maySelect ? (
-                      <input
-                        type="checkbox"
-                        checked={allVisibleSelected}
-                        onChange={toggleAll}
-                        aria-label="בחר את כל הקונים המוצגים"
-                        title="בחר הכל"
-                      />
-                    ) : null}
-                    שם
-                  </span>
+                {/*
+                  ‎**הכותרת מוזחת ברוחב עמודת הסימון, ו„בחר הכל” יושבת
+                  בתוכה.**
+
+                  קודם התיבה ישבה בתוך תא „שם”, והפס כולו התחיל בקצה
+                  הכרטיס — כלומר קווי הרשת של הכותרת ושל השורות לא
+                  נפגשו, וההפרש גדל מעמודה לעמודה. אותה תקלה בדיוק
+                  דווחה בעמוד הנכסים.
+                */}
+                <div
+                  className={`mv-list-head${maySelect ? " mv-list-head--select" : ""}`}
+                  style={{ gridTemplateColumns: GRID }}
+                >
+                  {maySelect ? (
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleAll}
+                      aria-label="בחר את כל הקונים המוצגים"
+                      title="בחר הכל"
+                    />
+                  ) : null}
+                  <span>שם</span>
                   <span>בשלות</span>
                   <span>תקציב</span>
                   <span>מחפש</span>

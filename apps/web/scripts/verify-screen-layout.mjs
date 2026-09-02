@@ -309,7 +309,10 @@ if (statsCall !== null && filtersCall !== null) {
       problems.push("המונים יצאו מהמכל של החיפוש — הם אמורים לשבת לצדו באותו סקשן");
     }
   }
-  const wrapper = PROPERTIES.lastIndexOf("lg:[grid-template-columns:1fr_372px]", filtersCall);
+  const wrapper = PROPERTIES.lastIndexOf(
+    "lg:[grid-template-columns:minmax(0,560px)_minmax(0,1fr)]",
+    filtersCall,
+  );
   if (wrapper === -1) {
     problems.push("המכל של החיפוש והמונים אינו נושא את חלוקת שני הטורים");
   }
@@ -320,8 +323,8 @@ if (statsCall !== null && filtersCall !== null) {
 }
 
 /* האריחים 2×2, ובצורתם המצומצמת */
-if (!/className="grid items-stretch gap-3 grid-cols-2"/u.test(PROPERTIES)) {
-  problems.push("מוני עמוד הנכסים אינם 2×2 — `grid-cols-2` על רשת האריחים");
+if (!/className="grid items-stretch gap-3 grid-cols-2 2xl:grid-cols-4"/u.test(PROPERTIES)) {
+  problems.push("מוני עמוד הנכסים אינם שניים בשורה (וארבעה ברוחב מלא)");
 }
 if (!PROPERTIES.includes("mv-stat-tile mv-stat-tile--sm")) {
   problems.push("אריח המונה בעמוד הנכסים אינו בצורתו המצומצמת (`mv-stat-tile--sm`)");

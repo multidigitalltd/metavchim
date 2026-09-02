@@ -2029,15 +2029,70 @@ code {
   */
   position: relative;
 }
+/*
+ * ‎**הכותרת והשורות מתחילות באותו מקום.**
+ *
+ * ‏השורה אינה ילדה ישירה של הכרטיס: היא יושבת בתוך
+ * ‎`mv-list-select-row` יחד עם תיבת הסימון שלפניה, כי השורה כולה
+ * היא `button` ניווט ותיבת סימון בתוך כפתור אינה נגישה. המחיר הוא
+ * שהעמודה הראשונה של **השורה** מתחילה אחרי הריפוד של המכל, התיבה
+ * והמרווח — בזמן שהעמודה הראשונה של **הכותרת** מתחילה בריפוד שלה
+ * בלבד. שתי רשתות באותן פרופורציות, בשתי נקודות התחלה שונות:
+ * הכותרות אינן עומדות מעל העמודות שלהן, וההפרש גדל ככל שהעמודה
+ * רחוקה יותר. בעל המוצר דיווח על כך מצילום של המערכת החיה.
+ *
+ * המספרים אינם נכתבים פעמיים. שלושת חלקי „עמודת הסימון” הם
+ * טוקנים, `--mv-select-lead` הוא הסכום שלהם, וגם הריפוד האופקי
+ * של השורה עצמה הוא טוקן — כך שהזחת הכותרת אינה יכולה להיפרד
+ * ממה שהיא מיישרת אליו בשינוי הבא.
+ */
+:root {
+  --mv-list-row-pad: 20px;
+  --mv-select-pad: 12px;
+  --mv-select-box: 15px;
+  --mv-select-gap: 10px;
+  --mv-select-lead: calc(
+    var(--mv-select-pad) + var(--mv-select-box) + var(--mv-select-gap)
+  );
+}
 .mv-list-head {
   display: grid;
   gap: 10px;
-  padding: 11px 20px;
+  padding: 11px var(--mv-list-row-pad);
   background: var(--color-table-head);
   border-bottom: 1px solid var(--color-card-head-border);
   font-size: var(--type-caption);
   font-weight: 700;
   color: var(--color-text-muted);
+}
+/* יש עמודת סימון לפני השורות — הכותרת מוזחת בדיוק ברוחבה */
+.mv-list-head--select {
+  position: relative;
+  padding-inline-start: calc(var(--mv-list-row-pad) + var(--mv-select-lead));
+}
+/*
+ * ‎„בחר הכל” **במרזב שנפתח**, ולא בתוך התא הראשון.
+ *
+ * ‏בעמוד הקונים היא ישבה בתוך תא „שם”, כלומר דחפה את הכותרת הזו
+ * ימינה בזמן שהשורות שמתחתיה מתחילות בשם. עכשיו היא יושבת בדיוק
+ * מעל תיבות הסימון של השורות — אותו מקום, אותו רוחב — והתא הראשון
+ * חוזר להיות תווית בלבד. הרקע של פס הכותרת נשאר מקצה לקצה, מה
+ * שלא היה קורה אילו עטפנו את הפס כולו בשורת סימון.
+ */
+/*
+ * ‎**בורר צאצא ולא מחלקה על הפקד**, כמו אצל תיבות השורות שמעליו.
+ * שער הניגודיות דורש שכל מחלקה שיושבת על `input` תגדיר לו מסגרת —
+ * כלל נכון לשדה טקסט, ש-Preflight מפשיט; תיבת סימון מציירת את
+ * עצמה, ומחלקה שתיתן לה מסגרת רק תשבש אותה.
+ */
+.mv-list-head--select > input[type="checkbox"] {
+  position: absolute;
+  inset-inline-start: var(--mv-select-pad);
+  top: 50%;
+  transform: translateY(-50%);
+  width: var(--mv-select-box);
+  height: var(--mv-select-box);
+  margin: 0;
 }
 .mv-list-row {
   display: grid;
@@ -2045,7 +2100,7 @@ code {
   align-items: center;
   width: 100%;
   text-align: start;
-  padding: 13px 20px;
+  padding: 13px var(--mv-list-row-pad);
   border: none;
   border-bottom: 1px solid var(--color-row-border);
   background: var(--color-surface);
@@ -3805,8 +3860,22 @@ a.mv-bar-row:focus-visible {
 .mv-list-select-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding-inline-start: 12px;
+  gap: var(--mv-select-gap);
+  padding-inline-start: var(--mv-select-pad);
+}
+/*
+ * ‎**רוחב נקוב לתיבה, ולא ברירת המחדל של הדפדפן.**
+ *
+ * ‏ברירת המחדל היא 13px עם שוליים א-סימטריים (3 מצד אחד, 4 מהשני),
+ * והיא נבדלת בין דפדפנים. הזחת הכותרת נמדדת מול הרוחב הזה, ולכן
+ * הוא חייב להיות מספר שאנחנו קובעים — אחרת היישור נכון בכרום
+ * ושגוי בספארי.
+ */
+.mv-list-select-row > input[type="checkbox"] {
+  flex: none;
+  width: var(--mv-select-box);
+  height: var(--mv-select-box);
+  margin: 0;
 }
 
 /*

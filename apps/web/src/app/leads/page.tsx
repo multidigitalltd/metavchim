@@ -20,6 +20,7 @@ import { CapNote, FilterBar, FilterSelect, SearchField, textMatches,
   useFilterFromUrl,
 } from "../list-controls";
 import { AgentTag } from "../agent-tag";
+import { ConvertMenu } from "./convert-menu";
 import { Notice } from "../notice";
 import { DeleteLeadDialog } from "./delete-lead-dialog";
 import { LeadsPulse } from "./leads-pulse";
@@ -83,6 +84,15 @@ export default function LeadsPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const canVoice = useFeature("voice_intake");
   const canDelete = can(user, "leads.delete");
+  /*
+   * ‎**אותן שתי יכולות שכרטיס הליד בודק** — ולא יכולת חדשה ל„המרה”.
+   *
+   * התפריט אינו ממיר בעצמו: הוא מנווט אל הטפסים שכבר קיימים שם,
+   * וכל אחד מהם מוגן ביכולת שלו. הצגת אפשרות שהמסך הבא לא יראה
+   * הייתה שולחת את המתווך למקום ריק.
+   */
+  const canConvertBuyer = can(user, "buyers.edit");
+  const canConvertProperty = can(user, "properties.create");
   const [items, setItems] = useState<LeadRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   /* הליד שעליו נפתח חלון המחיקה — שורה אחת בכל רגע */
@@ -433,6 +443,18 @@ export default function LeadsPage() {
                         <a href={waMeUrl(lead.contact.phone)} target="_blank" rel="noopener noreferrer" className="mv-btn-plain">
                           <IconChat s={15} /> וואטסאפ
                         </a>
+                        {/*
+                          ‎**ההמרה מהרשימה** — הצד וסוג העסקה נבחרים
+                          כאן, והטופס נפתח כבר מלא בכרטיס.
+                        */}
+                        {lead.status !== "converted" ? (
+                          <ConvertMenu
+                            leadId={lead.id}
+                            leadName={lead.contact.name}
+                            canBuyer={canConvertBuyer}
+                            canProperty={canConvertProperty}
+                          />
+                        ) : null}
                         {/* ליד שהומר כבר יצר כרטיס — מוחקים את הכרטיס, לא את המקור */}
                         {canDelete && lead.status !== "converted" ? (
                           <button
@@ -506,6 +528,14 @@ export default function LeadsPage() {
                         <a href={waMeUrl(lead.contact.phone)} target="_blank" rel="noopener noreferrer" className="mv-btn-plain">
                           <IconChat s={15} /> וואטסאפ
                         </a>
+                        {lead.status !== "converted" ? (
+                          <ConvertMenu
+                            leadId={lead.id}
+                            leadName={lead.contact.name}
+                            canBuyer={canConvertBuyer}
+                            canProperty={canConvertProperty}
+                          />
+                        ) : null}
                         {/*
                           מחיקה מהשורה — בלי להיכנס לכרטיס ובלי לגלול
                           אליו עד הסוף. הכפתור בלי מילה כדי שלא ייקח
