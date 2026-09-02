@@ -391,16 +391,38 @@ export class WhatsAppConnectionService {
     return this.plans.tenantHasFeature(tenantId, "whatsapp_bot");
   }
 
-  /** סימון שההיסטוריה הגיעה — מוציא את החיבור ממצב ההמתנה. */
-  async markHistory(connectionId: string, shared: boolean): Promise<void> {
-    await this.prisma.whatsAppBusinessConnection.updateMany({
-      where: { id: connectionId, disconnectedAt: null },
-      data: {
-        historyShared: shared,
-        historySyncedThrough: new Date(),
-        status: "connected",
-      },
-    });
+  /**
+   * מצב סנכרון ההיסטוריה — מה שמוציא את החיבור ממצב ההמתנה.
+   *
+   * ‎`done` מסיים את ההמתנה: או שהסנכרון הושלם, או שהמתווך בחר לא
+   * לשתף. בשני המקרים הסטטוס עובר ל-`connected`, כי החיבור **עובד**
+   * — היעדר היסטוריה אינו תקלה ואינו ראוי לאזהרה במסך.
+   *
+   * ‎`failed` הוא היחיד שמסמן תקלה: Meta אינה שולחת נתח שוב אחרי
+   * שקיבלה 200, ולכן אין ניסיון חוזר והתרופה היחידה היא חיבור
+   * מחדש — בדיוק מה ש-`error` אומר למתווך במסך.
+   *
+   * ‎`updateMany` עם `disconnectedAt: null` ולא `update`: נתח
+   * שמגיע אחרי שהמתווך ניתק אינו מחייה את החיבור, והיעדר שורה
+   * אינו חריגה.
+   */
+  async markHistory(
+    connectionId: string,
+    state: { shared?: boolean; done?: boolean; failed?: boolean },
+  ): Promise<void> {
+    try {
+      await this.prisma.whatsAppBusinessConnection.updateMany({
+        where: { id: connectionId, disconnectedAt: null },
+        data: {
+          ...(state.shared === undefined ? {} : { historyShared: state.shared }),
+          ...(state.done ? { historySyncedThrough: new Date(), status: "connected" } : {}),
+          ...(state.failed ? { status: "error" } : {}),
+        },
+      });
+    } catch (error) {
+      /* מגיע מהוובהוק ולכן אינו זורק — כישלון סימון אינו שווה 500 */
+      this.logger.warn(`עדכון מצב היסטוריה לחיבור ${connectionId} נכשל: ${String(error)}`);
+    }
   }
 
   /**

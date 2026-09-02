@@ -335,3 +335,91 @@ describe("הקו שייך לסוכן", () => {
     expect(office).not.toContain("@AnyAuthenticated()");
   });
 });
+
+/**
+ * ‎**ייבוא ההיסטוריה וסנכרון אנשי הקשר** (docs/12 §5.3–5.4).
+ *
+ * שני מטענים שמגיעים פעם אחת בחיי החיבור, ואי אפשר לבקש אותם שוב:
+ * ‏Meta אינה שולחת נתח מחדש אחרי 200. לכן כל טעות כאן היא אובדן
+ * חד-פעמי של חצי שנה של שיחות — וכולן שקטות.
+ */
+describe("היסטוריה ואנשי קשר", () => {
+  it("ההיסטוריה נכתבת כ-Message ולא כ-Interaction", () => {
+    const fn = INBOUND.slice(INBOUND.indexOf("private async importThread"));
+    const body = fn.slice(0, 3000);
+    expect(body).toContain("tx.message.createMany");
+    // ‏`interaction_exactly_one_parent` דורש ליד או קונה, ולמיובא אין
+    expect(body).not.toContain("tx.interaction.create");
+  });
+
+  it("מיובא מסומן כמקורו, כדי שציר הזמן יבחין בין נקלט חי למיובא", () => {
+    expect(INBOUND).toContain('provider: "coexistence_history"');
+  });
+
+  /*
+   * החותמת המקורית היא כל הערך: היסטוריה שנכתבת בזמן הייבוא נראית
+   * כאילו כל חצי השנה קרתה היום, וציר הזמן מאבד משמעות.
+   */
+  it("החותמת המקורית נשמרת ולא זמן הייבוא", () => {
+    expect(INBOUND).toMatch(/createdAt: m\.timestamp \? new Date\(Number\(m\.timestamp\) \* 1000\)/u);
+  });
+
+  it("כיוון ההודעה נגזר מ-`to`, שקיים רק בהד של המתווך", () => {
+    expect(INBOUND).toMatch(/direction: m\.to \? "out" : "in"/u);
+  });
+
+  /*
+   * נתח נושא מאות הודעות. בדיקה פר הודעה הייתה מייצרת מאות
+   * הלוך-ושוב על שיחה אחת — ולכן הסינון הוא שאילתה אחת.
+   */
+  it("סינון הכפילויות הוא שאילתה אחת ולא בדיקה פר הודעה", () => {
+    const fn = INBOUND.slice(INBOUND.indexOf("private async importThread"));
+    expect(fn.slice(0, 3000)).toContain("providerMessageId: { in: ids }");
+  });
+
+  /*
+   * משרד פעיל שמחבר קו היה מקבל מאות „לידים חדשים” ביום החיבור,
+   * וכולם ישנים — כלומר רשימת העבודה שלו נהרסת ברגע שהוא מצטרף.
+   */
+  it("ייבוא אינו פותח לידים", () => {
+    const fn = INBOUND.slice(
+      INBOUND.indexOf("private async importThread"),
+      INBOUND.indexOf("private async handleStateSync"),
+    );
+    expect(fn).not.toContain("tx.lead.create");
+    expect(fn).not.toContain("lead.created");
+  });
+
+  /*
+   * „לא הגיעה היסטוריה” ו„המתווך בחר לא לשתף” הם מצבים שונים:
+   * הראשון תקלה, השני החלטה. בלי ההבחנה המסך נתקע על „מסתנכרן”.
+   */
+  it("סירוב לשתף מסיים את ההמתנה במקום להיתקע על מסתנכרן", () => {
+    const fn = INBOUND.slice(INBOUND.indexOf("private async handleHistory"));
+    expect(fn.slice(0, 2500)).toContain("{ shared: false, done: true }");
+  });
+
+  it("כישלון ייבוא מסמן את החיבור, כי אין ניסיון חוזר מול Meta", () => {
+    const fn = INBOUND.slice(INBOUND.indexOf("private async handleHistory"));
+    expect(fn.slice(0, 2500)).toContain("{ failed: true }");
+    expect(CONNECTION).toMatch(/state\.failed \? \{ status: "error" \}/u);
+  });
+
+  /*
+   * ‎**זו ההחלטה החשובה ביותר בסנכרון אנשי הקשר.** מחיקה מפנקס
+   * הכתובות בטלפון היא ניקוי אישי, לא הצהרה שהלקוח יצא מהמערכת —
+   * ומחיקה אוטומטית הייתה מוחקת איש קשר שתלויים בו לידים והצעות.
+   */
+  it("מחיקה מפנקס הכתובות אינה מוחקת איש קשר מהמערכת", () => {
+    const fn = INBOUND.slice(INBOUND.indexOf("private async handleStateSync"));
+    const body = fn.slice(0, 2500);
+    expect(body).toContain('entry.action === "remove"');
+    expect(body).not.toContain("tx.contact.delete");
+    expect(body).not.toContain("deleteMany");
+  });
+
+  it("נתח שמגיע אחרי ניתוק אינו מחייה את החיבור", () => {
+    const fn = CONNECTION.slice(CONNECTION.indexOf("async markHistory"));
+    expect(fn.slice(0, 900)).toContain("disconnectedAt: null");
+  });
+});
