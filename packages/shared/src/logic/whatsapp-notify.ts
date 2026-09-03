@@ -99,6 +99,13 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   coop_offer_declined: "network",
   payout_decision: "network",
   shared_lead_sold: "network",
+  /*
+   * ‏„נכנס נכס שמתאים לביקוש שאתה עוקב אחריו” — רשת, לא מערכת.
+   * בלי השורה הזו הוא נפל ל-`system`, כלומר מי שכיבה „רשת” המשיך
+   * לקבל אותו כהודעה שאי אפשר לכבות (ביקורת Codex) — בדיוק הכשל
+   * שההערה על ההצעות למעלה מתארת, שוב.
+   */
+  coop_demand_match: "network",
 
   daily_brief: "digests",
   weekly_summary: "digests",

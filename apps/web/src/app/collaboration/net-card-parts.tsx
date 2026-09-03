@@ -458,18 +458,9 @@ export function bestMatchScore(
 export function NetNoMatch({
   what,
   hint,
-  action,
 }: {
   what: string;
   hint: string;
-  /**
-   * ‎**מה אפשר לעשות בכל זאת.**
-   *
-   * ‏בלי זה הקטע הוא מבוי סתום: „אין לכם נכס מתאים”, סוף. מתווך
-   * קרא, הבין שאין לו מה להציע, וזה נגמר שם — גם כשהנכס שהיה
-   * מתאים בדיוק נכנס למאגר שלו שבוע אחר כך.
-   */
-  action?: React.ReactNode;
 }): React.JSX.Element {
   return (
     <div className="mv-net-nomatch" role="note">
@@ -482,7 +473,6 @@ export function NetNoMatch({
           {hint}
         </span>
       </span>
-      {action === undefined ? null : <span className="shrink-0">{action}</span>}
     </div>
   );
 }

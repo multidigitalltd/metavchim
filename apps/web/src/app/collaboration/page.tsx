@@ -1197,28 +1197,35 @@ export default function CollaborationPage() {
                               </ul>
                             </NetMatchStrip>
                           ) : (
-                            <NetNoMatch
-                              what={FOLLOW_EMPTY_TITLE}
-                              hint={FOLLOW_EMPTY_NOTE}
-                              action={
-                                <FollowButton
-                                  demandId={demand.id}
-                                  following={demand.following === true}
-                                  onChanged={(following) => {
-                                    setDemands((rows) =>
-                                      rows === null
-                                        ? rows
-                                        : rows.map((row) =>
-                                            row.id === demand.id
-                                              ? { ...row, following }
-                                              : row,
-                                          ),
-                                    );
-                                  }}
-                                />
-                              }
-                            />
+                            <NetNoMatch what={FOLLOW_EMPTY_TITLE} hint={FOLLOW_EMPTY_NOTE} />
                           )}
+
+                          {/*
+                            ‎**כפתור המעקב בשני הענפים, לא רק בזה שאין בו
+                            התאמה.** הוא ישב בתוך „אין לכם נכס מתאים”,
+                            וברגע שנכנס נכס מתאים הכרטיס עבר לענף השני —
+                            כלומר מי שקיבל את ההתראה שביקש כבר לא יכול
+                            היה להפסיק לעקוב, והמעקב הנסתר המשיך לתפוס
+                            מקום במכסת ה-40 שלו (ביקורת Codex).
+
+                            ‏שורה משלו ולא חריץ בתוך אחד מהם: המעקב הוא
+                            על **הביקוש**, ואינו תלוי במה שיש לי היום.
+                          */}
+                          <div className="mb-3 flex justify-end">
+                            <FollowButton
+                              demandId={demand.id}
+                              following={demand.following === true}
+                              onChanged={(following) => {
+                                setDemands((rows) =>
+                                  rows === null
+                                    ? rows
+                                    : rows.map((row) =>
+                                        row.id === demand.id ? { ...row, following } : row,
+                                      ),
+                                );
+                              }}
+                            />
+                          </div>
 
                           <details className="mv-net-foot">
                             <summary

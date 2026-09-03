@@ -40,6 +40,12 @@ describe("notifyCategory", () => {
    * שאליה הם שייכים. הבדיקה הזו היא מה שמונע נפילה חוזרת בשקט.
    */
   it("ההצעות, ההתאמות והרשת אינן הודעות מערכת", () => {
+    /*
+     * ‏„נכנס נכס שמתאים לביקוש שאתה עוקב אחריו” נפל ל-`system`
+     * בדיוק כמו השישה שלפניו (ביקורת Codex): מי שכיבה „רשת” המשיך
+     * לקבל אותו כהודעה שאי אפשר לכבות.
+     */
+    expect(notifyCategory("coop_demand_match")).toBe("network");
     expect(notifyCategory("offer_opened")).toBe("matches");
     expect(notifyCategory("offer_interested")).toBe("matches");
     expect(notifyCategory("matches_found")).toBe("matches");
