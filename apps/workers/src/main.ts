@@ -2877,10 +2877,17 @@ async function processMentorGoalSweep(): Promise<void> {
             actual: l.actual,
           }));
 
+          /*
+           * ‏המזהה נוצר מראש כדי שגם ההתראה תצביע על ההישג עצמו.
+           * ‎`createMany` אינה מחזירה מזהים, ובלי זה ההתראה הייתה
+           * נושאת `entityType: "user"` — סוג כללי שאין לו מסך, ולכן
+           * הלחיצה עליה הייתה נוחתת בדשבורד.
+           */
+          const achievementId = ulid();
           const created = await tx.mentorAchievement.createMany({
             data: [
               {
-                id: ulid(),
+                id: achievementId,
                 tenantId,
                 userId: goal.userId,
                 weekKey: key,
@@ -2910,8 +2917,8 @@ async function processMentorGoalSweep(): Promise<void> {
                 dedupeKey: goalReachedDedupeKey(goal.userId, key, m.id),
                 title: copy.title,
                 body: copy.body,
-                entityType: "user",
-                entityId: goal.userId,
+                entityType: "mentor_achievement",
+                entityId: achievementId,
               })),
             skipDuplicates: true,
           });
