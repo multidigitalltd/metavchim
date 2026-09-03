@@ -64,6 +64,7 @@ import {
   IconHome,
   IconInfo,
   IconMail,
+  IconMic,
   IconPhone,
   IconRefresh,
   IconUser,
@@ -791,7 +792,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         מקווקוים ותיבת סטטוס שצפה מתחתיה, וזה מה שהפך את המסך
         למבולגן: אין בו היררכיה, ולכן העין לא יודעת איפה להתחיל.
       */}
-      <div className="mv-list-card mb-3 px-6 py-5" style={{ overflow: "visible" }}>
+      <div className="mv-card mv-card--pad mb-3" style={{ overflow: "visible" }}>
       <div className="flex flex-wrap items-center gap-4">
         {/*
           ‎**אריח הליד ולא ראשי תיבות.**
@@ -1142,43 +1143,38 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             {lead.summary ? (
               <section
                 aria-labelledby="lead-summary-heading"
-                className="rounded-xl border px-5 py-[18px]"
-                style={{
-                  borderColor: "var(--color-primary)",
-                  background: "var(--color-primary-soft)",
-                }}
+                className="mv-card mv-card--pad"
               >
-                <h2
-                  id="lead-summary-heading"
-                  className="m-0 mb-1.5"
-                  style={{
-                    fontSize: "var(--type-caption-lg)",
-                    fontWeight: 800,
-                    color: "var(--color-primary)",
-                  }}
-                >
-                  תוכן הפנייה
-                </h2>
-                {/* whitespace-pre-line: שורות ההודעה נשמרות כפי שנשלחו */}
-                <p
-                  className="m-0 whitespace-pre-line"
-                  style={{ fontSize: "var(--type-body)", lineHeight: 1.5 }}
-                >
-                  {lead.summary}
-                </p>
+                <div className="mv-card-head">
+                  <span className="mv-tile mv-tile--44 mv-domain-green" aria-hidden="true">
+                    <IconMic s={20} />
+                  </span>
+                  <h2 id="lead-summary-heading" className="mv-card-head__title">
+                    תוכן הפנייה
+                  </h2>
+                </div>
+                {/*
+                  ‏מה שהלקוח כתב — בתיבה משלו. זה הציטוט היחיד בכרטיס,
+                  והוא מה שמפריד בין דבריו לבין מה שהמערכת מוסיפה עליהם.
+                  ‎`whitespace-pre-line` שומר את שורות ההודעה כפי שנשלחו.
+                */}
+                <blockquote className="mv-quote">
+                  <p className="m-0 whitespace-pre-line">{lead.summary}</p>
+                </blockquote>
               </section>
             ) : (
               <section
-                className="mv-list-card px-5 py-[18px]"
+                className="mv-card mv-card--pad"
                 aria-labelledby="lead-summary-heading"
               >
-                <h2
-                  id="lead-summary-heading"
-                  className="m-0 mb-1.5"
-                  style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
-                >
-                  תוכן הפנייה
-                </h2>
+                <div className="mv-card-head">
+                  <span className="mv-tile mv-tile--44 mv-domain-neutral" aria-hidden="true">
+                    <IconMic s={20} />
+                  </span>
+                  <h2 id="lead-summary-heading" className="mv-card-head__title">
+                    תוכן הפנייה
+                  </h2>
+                </div>
                 {/*
                   מצב ריק שאומר מה לעשות ולא רק שאין כלום: ליד
                   ממרכזייה מגיע בלי טקסט, וההערה בציר הזמן היא

@@ -120,15 +120,17 @@ export function IntakePanel({
   );
 
   return (
-    <section
-      className="mv-list-card px-[22px] py-[18px]"
-      aria-labelledby="intake-heading"
-    >
-      <h2 id="intake-heading" className="m-0" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
-        הלקוח ממלא בעצמו
-      </h2>
+    <section className="mv-card mv-card--pad" aria-labelledby="intake-heading">
+      <div className="mv-card-head">
+        <span className="mv-tile mv-tile--44 mv-domain-violet" aria-hidden="true">
+          <IconSend s={20} />
+        </span>
+        <h2 id="intake-heading" className="mv-card-head__title">
+          הלקוח ממלא בעצמו
+        </h2>
+      </div>
       <p
-        className="m-0 mt-1 text-[length:var(--type-caption-lg)] leading-relaxed"
+        className="m-0 text-[length:var(--type-caption-lg)] leading-relaxed"
         style={{ color: "var(--color-text-muted)" }}
       >
         שלחו ללקוח קישור לטופס קצר — מה הוא מחפש, באיזה אזור ובאיזה

@@ -7814,3 +7814,19 @@ a.mv-bar-row:focus-visible {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/*
+ * ‏ציטוט של הלקוח — התוכן שהוא כתב, בתיבה משלו.
+ *
+ * זה הטקסט היחיד בכרטיס שאיש אחר כתב, וכשהוא היה פסקה רגילה אי אפשר
+ * היה להבדיל בינו לבין מה שהמערכת מוסיפה עליו.
+ */
+.mv-quote {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--color-primary-accent);
+  border-radius: 14px;
+  background: var(--color-primary-soft);
+  font-size: var(--type-body-sm);
+  line-height: 1.55;
+}
