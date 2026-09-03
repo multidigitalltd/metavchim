@@ -7090,3 +7090,597 @@ a.mv-bar-row:focus-visible {
     content: "" !important;
   }
 }
+
+/* ============================================================
+   רשת שיתופי הפעולה — התאמה לקובץ העיצוב (בקשת בעל המוצר)
+   ------------------------------------------------------------
+   הצילומים שהגיעו מגדירים שפה אחת לכל מסכי הרשת, ולכן הכללים כאן
+   מחליפים כמה מהקודמים במקום להוסיף מחלקות מקבילות: שתי שפות
+   לאותו רכיב הן מה שיתפצל בעריכה הראשונה.
+   ============================================================ */
+
+/*
+ * המונה בלשונית — עיגול ולא מספר חשוף.
+ *
+ * בקובץ העיצוב הוא תג עגול אפור בלשונית רגילה, וירוק בלשונית
+ * הפעילה (הכהה). הצורה היא מה שהופך אותו למונה שנסרק במבט אחד
+ * במקום למילה נוספת בתווית.
+ */
+.mv-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(24 / 16 * 1rem);
+  height: calc(24 / 16 * 1rem);
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--color-hover-soft);
+  color: var(--color-text-soft);
+  font-size: var(--type-caption);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+/*
+ * ‏בלשונית הפעילה (הכהה) המונה מקבל את זוג הירוק של מערכת הדומיינים
+ * ולא את ירוק הפעולה: `--color-on-action` על `--color-primary` נותן
+ * ‎2.7:1 בערכה הבהירה — כלומר מספר שאי אפשר לקרוא בדיוק בלשונית
+ * שמסתכלים עליה. ‎`domain-green-tile/fg` הוא זוג שנבדק בשלוש
+ * הערכות.
+ */
+.mv-entity-tabs > button[aria-selected="true"] .mv-tab-count {
+  background: var(--domain-green-tile);
+  color: var(--domain-green-fg);
+}
+
+/*
+ * שורת הלשוניות — הסרגל ולצידו פקד שאינו לשונית.
+ *
+ * ‏„איך עובדת הרשת?” אינו מציג פאנל־אחות אלא פותח הסבר, ולכן הוא
+ * יושב **מחוץ** ל-`role="tablist"` ובאותה שורה: ילד שאינו `tab`
+ * בתוך רשימת לשוניות שובר את הניווט של קורא המסך.
+ */
+.mv-tabrow {
+  display: flex;
+  align-items: center;
+  /*
+   * עוטף, כדי שההסבר שנפתח מהקצה יקבל שורה משלו ברוחב מלא במקום
+   * למתוח את העמוד לרוחב (הוא ילד של אותה שורה — ראו `guide.tsx`).
+   */
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.mv-tabrow > section {
+  flex: 1 0 100%;
+  margin-bottom: 0;
+}
+.mv-tabrow > .mv-entity-tabs {
+  margin-bottom: 0;
+  min-width: 0;
+}
+.mv-tabrow__aside {
+  margin-inline-start: auto;
+  flex: none;
+}
+
+/*
+ * תת-לשוניות הרשת — גלולות נפרדות, והפעילה בירוק בהיר.
+ *
+ * ‏הן אינן הסרגל הראשי ואסור להן להיקרא כמוהו: הראשי מחליף **אזור**
+ * והפעילה בו כהה, ואלה מחליפות **כיוון בתוך אותו אזור**. אותה
+ * גלולה שחורה בשתי הרמות הייתה אומרת שיש כאן שני ניווטים שווים.
+ */
+.mv-subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mv-subtabs > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--type-caption-lg);
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.14s ease, border-color 0.14s ease;
+}
+.mv-subtabs > button > svg {
+  flex: none;
+  opacity: 0.6;
+}
+.mv-subtabs > button:hover {
+  border-color: var(--color-border-hover);
+  background: var(--color-surface-sunken);
+}
+.mv-subtabs > button[aria-selected="true"] {
+  background: var(--color-primary-soft);
+  /* גבול בצבע הפעולה ולא מילוי בלבד — 1.4.11 על פקד במצב נבחר */
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 800;
+}
+.mv-subtabs > button[aria-selected="true"] > svg {
+  opacity: 1;
+}
+.mv-subtab-count {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+.mv-subtabs > button[aria-selected="true"] .mv-subtab-count {
+  color: inherit;
+}
+
+/*
+ * שורת החיפוש — שדה רחב עם זכוכית מגדלת בתוכו, ו„עוד סינונים” בקצה.
+ *
+ * כפתור „חפש” נפרד ירד: השדה נשלח ב-Enter, והכפתור שלצידו רק גזל
+ * מרוחב השדה בלי להוסיף דרך פעולה.
+ */
+.mv-searchrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mv-searchbox {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.mv-searchbox > svg {
+  position: absolute;
+  /* בעברית תחילת השדה מימין — ‎`inset-inline-start` ולא `left` */
+  inset-inline-start: 15px;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+.mv-searchbox > input {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 14px;
+  background: var(--color-field);
+  color: var(--color-text);
+  padding-inline-start: 44px;
+  padding-inline-end: 14px;
+  font-size: var(--type-body-sm);
+}
+.mv-morefilters {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-height: 46px;
+  padding: 0 16px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--type-caption-lg);
+  font-weight: 700;
+  cursor: pointer;
+}
+.mv-morefilters:hover {
+  border-color: var(--color-border-hover);
+  background: var(--color-surface-sunken);
+}
+.mv-morefilters > svg {
+  flex: none;
+  opacity: 0.65;
+}
+.mv-morefilters__chevron {
+  display: inline-flex;
+  transition: transform 0.15s ease;
+}
+.mv-morefilters[aria-expanded="true"] .mv-morefilters__chevron {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mv-morefilters__chevron {
+    transition: none;
+  }
+}
+
+/* ההערה שבקצה כותרת הכרטיס — מה הקטע הזה, במשפט אחד */
+.mv-card-head__note {
+  margin: 0;
+  margin-inline-start: auto;
+  min-width: 0;
+  font-size: var(--type-caption-lg);
+  color: var(--color-text-muted);
+}
+
+/* ------------------------------------------------------------
+   כרטיס הרשת — הגרסה שבקובץ העיצוב
+   ------------------------------------------------------------ */
+
+/* הכרטיס נושא את צבע הקטע שלו: כחול לנכסים, סגול להתאמות, ניטרלי לשאר */
+.mv-net-card {
+  border-color: var(--d-line, var(--color-border));
+}
+
+/* פס עליון: מי פרסם (מימין) ומצב ההתאמה (משמאל) */
+.mv-net-top {
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+/*
+ * המשרד המפרסם — עיגול, שם, ועיר.
+ *
+ * הוא היה צ'יפ בין צ'יפים, כלומר פרט ברשימת פרטים. בפועל הוא
+ * הראשון שמסתכלים עליו: מודעה של משרד מוכר נקראת אחרת ממודעה של
+ * משרד שלא שמעו עליו, וההחלטה אם בכלל לקרוא נופלת שם.
+ */
+.mv-net-office {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.mv-net-office__avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(38 / 16 * 1rem);
+  height: calc(38 / 16 * 1rem);
+  border-radius: 50%;
+  background: var(--d-tile, var(--domain-neutral-tile));
+  color: var(--d-fg, var(--domain-neutral-fg));
+  font-size: var(--type-caption-lg);
+  font-weight: 800;
+  overflow: hidden;
+}
+.mv-net-office__avatar > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.mv-net-office__name {
+  display: block;
+  font-size: var(--type-caption-lg);
+  font-weight: 800;
+  line-height: 1.25;
+}
+.mv-net-office__place {
+  display: block;
+  font-size: var(--type-caption);
+  color: var(--color-text-muted);
+}
+
+/* שורת הכותרת — מה זה (מימין) ומה מיוחד בו (משמאל) */
+.mv-net-titlerow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mv-net-titlerow .mv-net-hero-title {
+  min-width: 0;
+}
+.mv-net-sub {
+  margin: 4px 0 12px;
+  font-size: var(--type-caption-lg);
+  color: var(--color-text-muted);
+}
+
+/* תיבת הכסף — בצבע הקטע, ולא בירוק אחיד בכל כרטיס */
+.mv-net-money {
+  align-items: center;
+  padding: 13px 16px;
+  border-color: var(--d-line, var(--color-border));
+  background: var(--d-bg, var(--color-surface-sunken));
+}
+.mv-net-money-label {
+  color: var(--color-text-muted);
+  font-weight: 700;
+}
+.mv-net-money-value {
+  color: var(--d-fg, var(--color-text));
+}
+
+/*
+ * אריחי המספרים — תווית מעל, ערך מתחת, בלי אייקון.
+ *
+ * האייקון שהיה כאן דרש לפענח סמל („סרגל = שטח?”), ואילו המילה
+ * אומרת זאת. באריח בגובה שתי שורות המילה גם אינה עולה במקום.
+ */
+.mv-net-fact {
+  gap: 3px;
+  padding: 9px 8px;
+  background: var(--color-surface);
+}
+.mv-net-fact-label {
+  order: -1;
+  font-weight: 700;
+}
+.mv-net-fact-value {
+  font-size: var(--type-body-sm);
+}
+
+/* ההערה — תיבה מלאה ולא קו צד; אותה צורה כמו שאר תיבות הכרטיס */
+.mv-net-say {
+  border-inline-start: none;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-sunken);
+  padding: 10px 14px;
+}
+.mv-net-say-label {
+  color: var(--color-text-muted);
+}
+
+/*
+ * רצועת ההתאמות — כותרת בשתי שורות, וסגורה כברירת מחדל.
+ *
+ * ‎**סגורה**: כך היא בקובץ העיצוב, ושורת התקציר („2 קונים · הגבוה
+ * 94”) היא מה שמאפשר זאת — כשהיא סגורה עדיין יודעים כמה יש וכמה
+ * טובה ההתאמה הטובה ביותר, וזו כל ההחלטה אם לפתוח.
+ */
+.mv-net-strip {
+  border-radius: 14px;
+}
+.mv-net-strip-head {
+  gap: 10px;
+  padding: 10px 12px;
+  color: var(--color-text);
+}
+.mv-net-strip__tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(34 / 16 * 1rem);
+  height: calc(34 / 16 * 1rem);
+  border-radius: 11px;
+  background: var(--d-tile);
+  color: var(--d-fg);
+}
+.mv-net-strip-title {
+  flex: 1 1 auto;
+  color: var(--d-fg);
+}
+.mv-net-strip__sub {
+  display: block;
+  font-size: var(--type-caption);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.mv-net-strip-count {
+  background: var(--color-surface);
+  color: var(--d-fg);
+  font-weight: 800;
+}
+.mv-net-strip-chevron {
+  margin-inline-start: 0;
+  color: var(--d-fg);
+}
+
+/*
+ * „אין התאמה” — תיבה מקווקוות וממורכזת.
+ *
+ * המקווקו אומר „עדיין לא”, ולא „שגיאה”: אין כאן תקלה אלא מצב שיכול
+ * להשתנות ברגע שייכנס נכס מתאים, וזה בדיוק מה שכפתור המעקב מציע.
+ */
+.mv-net-nomatch {
+  display: block;
+  text-align: center;
+  border-color: var(--color-border-hover);
+  background: var(--color-surface-sunken);
+  padding: 12px 14px;
+}
+.mv-net-nomatch__head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: var(--type-caption-lg);
+  font-weight: 800;
+}
+.mv-net-nomatch__head > svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+.mv-net-nomatch__hint {
+  margin: 4px 0 0;
+  font-size: var(--type-caption);
+  color: var(--color-text-soft);
+}
+
+/*
+ * תחתית הכרטיס — המזהה בשורה משלו, והפעולות בשתי גלולות שוות.
+ *
+ * שוות ברוחבן ובכוונה: „כל הפרטים” ו„עקוב” הן שתי דרכים סבירות
+ * להמשיך, ולא פעולה ראשית ומשנית. שם שיש פעולה ראשית אמיתית
+ * ‎(„בקש שיתוף”) היא זו שמקבלת מילוי.
+ */
+.mv-net-cardfoot {
+  display: block;
+  padding-top: 12px;
+}
+.mv-net-cardfoot .mv-net-meta {
+  justify-content: flex-start;
+  margin-bottom: 10px;
+}
+.mv-net-actions {
+  display: grid;
+  /*
+   * ‏עמודות שנגזרות ממספר הילדים ולא מספר קבוע: כרטיס שלי מציג רק
+   * „כל הפרטים”, וב-`1fr 1fr` הוא היה תופס חצי שורה ומשאיר חצי ריק.
+   */
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 10px;
+}
+.mv-net-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--type-caption-lg);
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.14s ease, border-color 0.14s ease;
+}
+.mv-net-act:hover:not(:disabled) {
+  border-color: var(--color-border-hover);
+  background: var(--color-surface-sunken);
+}
+.mv-net-act:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.mv-net-act > svg {
+  flex: none;
+  opacity: 0.7;
+}
+.mv-net-act--go {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-weight: 800;
+}
+.mv-net-act--go:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+  border-color: var(--color-primary);
+}
+.mv-net-act--go > svg {
+  opacity: 1;
+}
+/* מצב „כבר עוקב” — מסומן במילוי **ובגבול**, לא במילוי לבדו */
+.mv-net-act--on {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+/* „איך עובדת הרשת?” — נראה כלשונית אף שאינו אחת מהן */
+.mv-tabrow__aside > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 16px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--type-caption-lg);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mv-tabrow__aside > button:hover {
+  border-color: var(--color-border-hover);
+  background: var(--color-surface-sunken);
+}
+
+/*
+ * בורר „בקש שיתוף” — נפתח מעל תחתית הכרטיס.
+ *
+ * הוא היה `<details>` עם שורת פתיחה משלו בתוך הכרטיס; עכשיו הכפתור
+ * שבתחתית פותח אותו, וכך יש **פעולה אחת** ולא פעולה וקיצור־דרך.
+ */
+.mv-net-ask {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-primary-accent);
+  border-radius: 14px;
+  background: var(--color-primary-soft);
+}
+
+/* ------------------------------------------------------------
+   שורת רשת — הצעות, הפניות ועסקאות ברשימה ולא ברשת כרטיסים
+   ------------------------------------------------------------
+   ‏רשימה שכל פריט בה נסרק ולא נקרא: „מה זה, באיזה מצב, ומה עושים”.
+   כרטיס מלא לכל הצעה היה נותן לכל אחת גובה של מודעה, ורשימה של חמש
+   הצעות הפכה למסך שגוללים.
+   ------------------------------------------------------------ */
+.mv-net-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mv-net-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface-sunken);
+}
+.mv-net-line__main {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.mv-net-line__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: var(--type-row-title);
+  font-weight: 800;
+}
+.mv-net-line__sub {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--type-caption);
+  color: var(--color-text-muted);
+}
+.mv-net-line__aside {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-inline-start: auto;
+}
+.mv-net-line__meta {
+  font-size: var(--type-caption);
+  color: var(--color-text-muted);
+}
+
+/* מתג התצוגה בשורת החיפוש — אותו גובה כמו השדה ו„עוד סינונים” */
+.mv-searchrow .mv-seg {
+  min-height: 46px;
+  border-radius: 14px;
+}
+.mv-searchrow .mv-seg > button {
+  border-radius: 11px;
+}
+
+/*
+ * ‏„להציע נכס אחר” — שורה שקטה, לא כפתור שלישי.
+ *
+ * היא הגרסה הידנית של הפעולה שכבר יש בכרטיס, ולכן היא מקופלת
+ * ובמשקל של הערת שוליים.
+ */
+.mv-net-foot {
+  border-top: none;
+  padding-top: 0;
+  margin-bottom: 10px;
+  display: block;
+}

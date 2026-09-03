@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { IconFilter, IconSearch, IconX } from "./icons";
+import { IconChevronDown, IconFilter, IconSearch, IconX } from "./icons";
 import { formatNumber } from "@/lib/format";
 
 /**
@@ -209,6 +209,8 @@ export function ListFilters({
   searchHint,
   priceLabel,
   card,
+  layout = "card",
+  view,
   children,
   childrenActive = false,
 }: {
@@ -240,6 +242,16 @@ export function ListFilters({
      */
     flush?: boolean;
   };
+  /**
+   * ‎**`"inline"` — שורת חיפוש בתוך כרטיס של מישהו אחר.**
+   *
+   * ברשת שיתופי הפעולה החיפוש יושב בתוך כרטיס הכיוונים ולא בכרטיס
+   * משלו: שדה רחב עם זכוכית מגדלת בתוכו, ו„עוד סינונים” בקצה. כפתור
+   * „חפש” נפרד יורד — השדה נשלח ב-Enter, והכפתור רק גזל מרוחבו.
+   */
+  layout?: "card" | "inline";
+  /** פקד תצוגה שיושב בקצה שורת החיפוש — למשל כרטיסיות/שורות. */
+  view?: React.ReactNode;
   /** צ'יפים או פקדים שיושבים בתחתית אותו כרטיס, בתוך „עוד סינון”. */
   children?: React.ReactNode;
   /**
@@ -327,8 +339,41 @@ export function ListFilters({
           </span>
         </div>
       )}
-      {/* גובה אחיד (38px) לשדה ולכפתונים — שורה אחת ישרה שגם נשברת
-          יפה במובייל בזכות flex-wrap */}
+      {layout === "inline" ? (
+        <div className="mv-searchrow">
+          <label htmlFor="flt-q" className="mv-visually-hidden">
+            {searchLabel}
+          </label>
+          <span className="mv-searchbox">
+            <IconSearch s={18} />
+            <input
+              id="flt-q"
+              value={draft.q}
+              placeholder={searchHint}
+              onChange={(event) => setDraft({ ...draft, q: event.target.value })}
+            />
+          </span>
+          {view}
+          <button
+            type="button"
+            className="mv-morefilters"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+          >
+            <IconFilter s={16} /> עוד סינונים
+            <span className="mv-morefilters__chevron" aria-hidden="true">
+              <IconChevronDown s={15} />
+            </span>
+          </button>
+          {hasActiveFilters(draft) ? (
+            <button type="button" className="mv-morefilters" onClick={clear}>
+              <IconX s={15} /> נקה
+            </button>
+          ) : null}
+        </div>
+      ) : (
+      /* גובה אחיד (38px) לשדה ולכפתונים — שורה אחת ישרה שגם נשברת
+          יפה במובייל בזכות flex-wrap */
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-0 flex-1" style={{ minWidth: 200 }}>
           <label
@@ -377,6 +422,7 @@ export function ListFilters({
           </button>
         ) : null}
       </div>
+      )}
 
       {open ? (
         <div

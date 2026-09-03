@@ -28,6 +28,14 @@ export interface EntityTab {
   label: string;
   /** מונה קטן לצד התווית. `undefined` = אין מה לספור; 0 אינו מוצג. */
   count?: number | undefined;
+  /**
+   * אייקון לפני התווית — **אופציונלי, ובכוונה.**
+   *
+   * בכרטיסי הישויות הסרגל הוא רשימת פרקים של אותו כרטיס, ואייקון
+   * לכל פרק הוא רעש. ברשת הלשוניות הן אזורים שונים לגמרי, ושם
+   * הסמל הוא מה שמבדיל ביניהם בסריקה מהירה.
+   */
+  icon?: React.ReactNode;
 }
 
 export function EntityTabs({
@@ -35,12 +43,26 @@ export function EntityTabs({
   active,
   onSelect,
   label,
+  isActive,
+  idPrefix = "tab",
+  panelPrefix = "panel",
 }: {
   tabs: EntityTab[];
   active: string;
   onSelect: (key: string) => void;
   /** שם הרשימה לקוראי מסך — "לשוניות כרטיס הקונה". */
   label: string;
+  /**
+   * ‏מתי לשונית נחשבת פעילה, כשזה אינו „המפתח שווה למצב”.
+   *
+   * ברשת „הרשת” פעילה בשלוש תת-לשוניות שונות, ולכן המצב מחזיק
+   * ‎`demands` בזמן שהלשונית שצריכה להיראות פעילה היא `network`.
+   */
+  isActive?: (key: string) => boolean;
+  /** תחילית ל-`id` של הלשונית — למסך שכבר משתמש בשמות אחרים. */
+  idPrefix?: string;
+  /** תחילית ל-`aria-controls` — הפאנל שהלשונית פותחת. */
+  panelPrefix?: string;
 }) {
   /*
    * ‎**התווית והמונה בחתימה, לא רק המפתח.** המונה מגיע אחרי
@@ -58,11 +80,12 @@ export function EntityTabs({
           key={tab.key}
           type="button"
           role="tab"
-          id={`tab-${tab.key}`}
-          aria-selected={active === tab.key}
-          aria-controls={`panel-${tab.key}`}
+          id={`${idPrefix}-${tab.key}`}
+          aria-selected={isActive === undefined ? active === tab.key : isActive(tab.key)}
+          aria-controls={`${panelPrefix}-${tab.key}`}
           onClick={() => onSelect(tab.key)}
         >
+          {tab.icon}
           {tab.label}
           {tab.count !== undefined && tab.count > 0 ? (
             <span className="mv-tab-count">{tab.count}</span>

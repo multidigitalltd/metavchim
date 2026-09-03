@@ -106,13 +106,6 @@ export function NetworkHeader({
         <InviteOfficeButton />
       </div>
 
-      <p
-        className="m-0 mb-4 text-[length:var(--type-caption-lg)]"
-        style={{ color: "var(--color-text-muted)" }}
-      >
-        המערכת מצליבה את המאגר שלך מול כל המשרדים ברשת, כל הזמן.
-      </p>
-
       <dl className="m-0 grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
         {/*
           אריח הפעולה ראשון, ובצבע. הוא היחיד כאן שאפשר לעשות איתו
