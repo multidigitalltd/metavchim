@@ -63,6 +63,27 @@ function tenantQueries(): { call: string; body: string }[] {
   return out;
 }
 
+/**
+ * ‎**גוף של פונקציה אחת בשירות, לפי הכותרת שלה.**
+ *
+ * ‏ספירת סוגריים מהסוגר המסולסל הראשון שאחרי הכותרת — אותה שיטה
+ * כמו למעלה, מאותו טעם: חיתוך לפי שורות היה נשבר על כל תנאי מקונן.
+ */
+function functionBody(signature: string): string {
+  const at = SERVICE.indexOf(signature);
+  expect(at).toBeGreaterThan(-1);
+  const open = SERVICE.indexOf("{", SERVICE.indexOf(")", at));
+  let depth = 0;
+  for (let end = open; end < SERVICE.length; end += 1) {
+    if (SERVICE[end] === "{") depth += 1;
+    else if (SERVICE[end] === "}") {
+      depth -= 1;
+      if (depth === 0) return SERVICE.slice(open, end + 1);
+    }
+  }
+  throw new Error(`no body for ${signature}`);
+}
+
 describe("המנטור — היקף אישי", () => {
   it("יש שאילתות לבדוק בכלל", () => {
     /*
@@ -93,12 +114,39 @@ describe("המנטור — היקף אישי", () => {
     expect(leaky).toEqual([]);
   });
 
-  it("ספירת המדדים משויכת לאדם בכל אחת מארבע הטבלאות", () => {
+  it("כל שאילתה בספירת המדדים משויכת לאדם — כולל זו שתיכתב מחר", () => {
+    /*
+     * ‎**הבדיקה הזו נכשלה בתפקידה, ולכן היא נכתבה מחדש.**
+     *
+     * ‏הנוסח הקודם מנה ארבע טבלאות בשמן. כשנוספה ספירת לידים
+     * (`lead.count`) הוא עבר עליה בשתיקה — כולל כשהסרתי ממנה את
+     * `assignedToUserId` כדי לבדוק אותו. שער שמונה מקרים מכסה את מה
+     * שכבר נכתב ולא את מה שייכתב, וזו בדיוק הטעות שהוא נועד למנוע.
+     *
+     * ‏הנוסח הזה **מכמת**: כל שאילתה שיושבת בתוך `countMeasures`
+     * חייבת לסנן לפי עמודת בעלות של משתמש. הפונקציה הזו היא היחידה
+     * שסופרת „מה הוא עשה”, ולכן הכלל שלה מוחלט.
+     */
+    const body = functionBody("private async countMeasures");
+    const inside = [
+      ...body.matchAll(
+        /tx\.(\w+)\.(count|findMany|findFirst)\(\{[\s\S]*?\n {6}\}\)/gu,
+      ),
+    ];
+    expect(inside.length).toBeGreaterThan(2);
+    const leaky = inside
+      .filter((m) => !/\w+UserId: userId/u.test(m[0]))
+      .map((m) => `${m[1]}.${m[2]}`);
+    expect(leaky).toEqual([]);
+  });
+
+  it("הבעלות נקראת מהעמודה הנכונה בכל טבלה", () => {
     const byCall = new Map(tenantQueries().map((q) => [q.call, q.body]));
     expect(byCall.get("appointment.count")).toContain("ownerUserId: userId");
     // ‏פגישה שהתקיימה בלבד — לא `scheduled` שחלפה ולא `no_show`
     expect(byCall.get("appointment.count")).toContain('status: "completed"');
     expect(byCall.get("property.count")).toContain("agentUserId: userId");
+    expect(byCall.get("lead.count")).toContain("assignedToUserId: userId");
     /*
      * ‏לשיחה ולהצעה אין בעלים ישיר: השיחה מגיעה דרך הליד שהיא נוגעת
      * בו, וההצעה דרך ההתאמה והקונה. שתיהן נבדקות בשאילתת ההצלבה.

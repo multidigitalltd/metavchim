@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   GOAL_HORIZON_LABELS,
   GOAL_HORIZONS,
+  GOAL_UNIT_LABELS,
   formatIsraeliNumber,
   formatJerusalemDate,
   LEAD_MEASURE_LABELS,
@@ -105,11 +106,27 @@ function money(agorot: number): string {
   return `₪${formatIsraeliNumber(Math.round(agorot / 100))}`;
 }
 
+/*
+ * ‏השם מגיע מ-`GOAL_UNIT_LABELS` המשותפת ולא משלישייה מקומית: ברגע
+ * שנוספו יעדי פעילות, „אם עסקאות אחרת בלעדיות” היה מציג יעד של
+ * 1,000 שיחות בתור „1,000 בלעדיות”.
+ */
 function goalText(goal: GoalDto): string {
   if (goal.unit === "commission") return money(goal.target);
-  const noun = goal.unit === "deals" ? "עסקאות" : "בלעדיות";
-  return `${formatIsraeliNumber(goal.target)} ${noun}`;
+  return `${formatIsraeliNumber(goal.target)} ${GOAL_UNIT_LABELS[goal.unit]}`;
 }
+
+/**
+ * ‏כמה עמודות לפי כמה משבצות נשארו. יעד פעילות מייצר משבצת אחת,
+ * ורשת של ארבע הייתה משאירה אותה לבד עם שלושה רבעים ריקים.
+ */
+const PLAN_COLUMNS: Record<number, string> = {
+  1: "sm:grid-cols-1",
+  2: "sm:grid-cols-2",
+  3: "sm:grid-cols-3",
+  4: "sm:grid-cols-4",
+  5: "sm:grid-cols-5",
+};
 
 /** ‏הטון של המנטור ⇒ צבע הדומיין. אחד לכרטיס, כמו בכל המערכת. */
 const TONE_DOMAIN: Record<MentorLine["tone"], string> = {
@@ -124,6 +141,24 @@ export default function MentorPage(): React.JSX.Element | null {
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<GoalHorizon | null>(null);
+
+  /*
+   * ‎**הכפתור נראה שבור, והוא לא היה — הטופס נפתח מחוץ למסך.**
+   *
+   * ‏„קביעת יעד לשבוע” בכרטיס העליון קבע `editing`, והטופס עצמו
+   * מוצג ברשימת היעדים שהרבה מתחת לקיפול. מבחינת מי שלחץ, הלחיצה
+   * לא עשתה כלום — וזה גרוע מכפתור שמושבת, כי הוא מלמד שהמסך לא
+   * מגיב. אחרי שהטופס נרנדר אנחנו גוללים אליו וממקדים בשדה הראשון,
+   * כך שכל כפתור „קביעת יעד” במסך מוביל לאותו מקום גלוי.
+   */
+  useEffect(() => {
+    if (editing === null) return;
+    const node = document.getElementById(`goal-${editing}`);
+    if (node === null) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    node.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
+    node.querySelector<HTMLElement>("select, input")?.focus({ preventScroll: true });
+  }, [editing]);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -171,6 +206,21 @@ export default function MentorPage(): React.JSX.Element | null {
 
   const suggestedFor = new Map(data.suggested.map((s) => [s.horizon, s.target]));
 
+  const plan = data.plan;
+  const planRows: { label: string; value: number | null }[] =
+    plan === null
+      ? []
+      : [
+          { label: "עסקאות בשנה", value: plan.dealsPerYear },
+          { label: "הצעות בשנה", value: plan.offersPerYear },
+          { label: "לידים בשבוע", value: plan.leadsPerWeek },
+          { label: "פגישות בשבוע", value: plan.appointmentsPerWeek },
+          { label: "שיחות ביום עבודה", value: plan.callsPerWorkday },
+        ];
+  const planCells = planRows.flatMap((cell) =>
+    cell.value === null ? [] : [{ label: cell.label, value: cell.value }],
+  );
+
   return (
     <div className="mv-page">
       <h1 className="mb-1 text-2xl font-extrabold">המנטור האישי שלך</h1>
@@ -196,6 +246,21 @@ export default function MentorPage(): React.JSX.Element | null {
           </h2>
         </div>
         <p className="m-0 text-[length:var(--type-body)] leading-relaxed">{line.body}</p>
+        {/*
+           ‏הכרטיס הפותח *שואל* — „כמה אתה רוצה להרוויח השנה?” — ולא
+           היה בו במה לענות. שאלה בלי כפתור היא כותרת, לא התחלה.
+           הכפתור מופיע רק כשבאמת חסר יעד, כדי שלא יהפוך לרעש קבוע.
+        */}
+        {yearGoal !== undefined && weekGoal !== undefined ? null : (
+          <button
+            type="button"
+            className="mv-btn-action mt-3"
+            onClick={() => setEditing(yearGoal === undefined ? "year" : "week")}
+          >
+            <IconTarget s={15} />{" "}
+            {yearGoal === undefined ? "קביעת היעד השנתי" : "קביעת יעד לשבוע"}
+          </button>
+        )}
         {weekGoal?.ifThenPlan === undefined || first?.kind !== "midweek_behind" ? null : (
           /*
              ‏תוכנית „אם-אז” מוחזרת אליו **ברגע שהיא רלוונטית** ולא
@@ -360,13 +425,15 @@ export default function MentorPage(): React.JSX.Element | null {
           <p className="m-0 mb-3 text-[length:var(--type-body)]">
             כדי להגיע ל־{yearGoal === undefined ? "היעד" : goalText(yearGoal)} השנה:
           </p>
-          <div className="grid gap-2 sm:grid-cols-4">
-            {[
-              { label: "עסקאות בשנה", value: data.plan.dealsPerYear },
-              { label: "הצעות בשנה", value: data.plan.offersPerYear },
-              { label: "פגישות בשבוע", value: data.plan.appointmentsPerWeek },
-              { label: "שיחות ביום עבודה", value: data.plan.callsPerWorkday },
-            ].map((cell) => (
+          {/*
+             ‎`null` אינו אפס. יעד פעילות („1,000 שיחות השנה”) יודע את
+             שורת השיחות ואינו יודע כמה עסקאות ייסגרו ממנה — ו„0
+             עסקאות” לצידה היה אומר למתווך שהתוכנית שלו לא מובילה
+             לכלום. שורה שלא חושבה פשוט אינה מוצגת, ומספר העמודות
+             נגזר ממה שנשאר כדי שלא תיווצר משבצת בודדת בשורה של ארבע.
+          */}
+          <div className={`grid gap-2 ${PLAN_COLUMNS[planCells.length] ?? "sm:grid-cols-4"}`}>
+            {planCells.map((cell) => (
               <div
                 key={cell.label}
                 className="rounded-xl border px-3 py-2.5"
@@ -387,13 +454,21 @@ export default function MentorPage(): React.JSX.Element | null {
               </div>
             ))}
           </div>
+          {/*
+             ‏ההערה על יחסי ההמרה נאמרת רק כשהם באמת שימשו. יעד
+             פעילות אינו עובר במשפך כלל, ו„החשבון על יחסי המרה
+             ממוצעים בענף” מתחת ל„4 שיחות ביום עבודה” שנוצרו מחלוקה
+             ב-260 הוא בדיוק סוג השקר השקט שהמנטור הזה נמנע ממנו.
+          */}
           <p
             className="m-0 mt-2 text-[length:var(--type-caption)]"
             style={{ color: "var(--color-text-muted)" }}
           >
-            {data.usingDefaultRatios
-              ? "החשבון על יחסי המרה ממוצעים בענף — עוד מחזור של עבודה, ואחליף אותם ביחסים שלך."
-              : "החשבון על יחסי ההמרה שלך, מהמחזור האחרון. לא ממוצע של מישהו אחר."}
+            {plan !== null && plan.dealsPerYear === null
+              ? "היעד הזה הוא פעולה שאתה שולט בה, ולכן אין כאן חישוב המרה — רק חלוקה על ימי העבודה בשנה."
+              : data.usingDefaultRatios
+                ? "החשבון על יחסי המרה ממוצעים בענף — עוד מחזור של עבודה, ואחליף אותם ביחסים שלך."
+                : "החשבון על יחסי ההמרה שלך, מהמחזור האחרון. לא ממוצע של מישהו אחר."}
           </p>
         </section>
       )}
@@ -423,6 +498,7 @@ export default function MentorPage(): React.JSX.Element | null {
             return (
               <li
                 key={horizon}
+                id={`goal-${horizon}`}
                 className="rounded-xl border p-3"
                 style={{ borderColor: "var(--color-input-border)" }}
               >

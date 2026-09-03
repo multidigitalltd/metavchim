@@ -12,6 +12,9 @@ import {
   goalPeriod,
   GOAL_HORIZON_LABELS,
   GOAL_HORIZONS,
+  GOAL_UNIT_KIND,
+  GOAL_UNIT_LABELS,
+  GOAL_UNITS,
   LEAD_MEASURE_LABELS,
   LEAD_MEASURES,
   mentorLine,
@@ -73,7 +76,7 @@ describe("החישוב לאחור", () => {
   it("בלי עמלה ממוצעת — לא מחשב, ומודה בזה", () => {
     const plan = backwardPlan({ target: 65_000_000, unit: "commission", ratios: RATIOS });
     expect(plan.incomplete).toBe(true);
-    expect(plan.callsPerWorkday).toBe(0);
+    expect(plan.callsPerWorkday).toBeNull();
   });
 
   /* „עסקאות” ו„בלעדיות” הן כבר ספירה — אין להן המרה לכסף */
@@ -94,7 +97,16 @@ describe("החישוב לאחור", () => {
       ratios: { ...RATIOS, callToAppointment: 0 },
     });
     expect(plan.incomplete).toBe(true);
-    expect(Number.isFinite(plan.callsPerWorkday)).toBe(true);
+    /*
+     * ‏מה שנבדק כאן הוא שאינסוף לא דלף החוצה. מאז שהשורות הן
+     * ‎`number | null`, „לא חושב” הוא `null` — ו-`Number.isFinite`
+     * לבדו היה עובר גם על `Infinity` שהוסב ל-`null` וגם נכשל על
+     * ‎`null` תקין, כלומר בודק את הטיפוס ולא את הכוונה.
+     */
+    expect(plan.callsPerWorkday).toBeNull();
+    for (const value of Object.values(plan)) {
+      if (typeof value === "number") expect(Number.isFinite(value)).toBe(true);
+    }
   });
 
   it("יעד אפס או שלילי אינו תוכנית", () => {
@@ -505,8 +517,9 @@ describe("backwardPlan — „בלעדיות” אינן עסקאות", () => {
      */
     const plan = backwardPlan({ target: 20, unit: "exclusives", ratios: DEFAULT_RATIOS });
     expect(plan.incomplete).toBe(true);
-    expect(plan.callsPerYear).toBe(0);
-    expect(plan.dealsPerYear).toBe(0);
+    /* ‏`null` ולא אפס: „אין תשובה”, לא „אפס שיחות” */
+    expect(plan.callsPerYear).toBeNull();
+    expect(plan.dealsPerYear).toBeNull();
   });
 
   it("„עסקאות” כן עוברות במשפך — היחסים כן מתארים אותן", () => {
@@ -552,5 +565,63 @@ describe("goalPeriod — מעבר שעון הקיץ", () => {
       }
       expect(days).toBe(365);
     }
+  });
+});
+
+describe("יעדי פעילות — לידים ושיחות", () => {
+  /**
+   * ‎**המפה והענף חייבים לומר אותו דבר.**
+   *
+   * ‏`backwardPlan` מסתעפת על `"leads" | "calls"` מפורשות (כדי
+   * ש-TypeScript יצמצם את הטיפוס), ו-`GOAL_UNIT_KIND` היא מה שהמסך
+   * מקבץ לפיו. שתיהן אמת נפרדת על אותה שאלה, ובדיקה שמצטטת רק את
+   * אחת מהן מאשרת את עצמה — לכן הבדיקה הזו גוזרת את הרשימה מהמפה
+   * ומריצה דרכה את החישוב.
+   */
+  it("כל יחידה שהמפה קוראת לה פעילות אינה עוברת במשפך", () => {
+    const activity = GOAL_UNITS.filter((u) => GOAL_UNIT_KIND[u] === "activity");
+    expect(activity.length).toBeGreaterThan(0);
+    for (const unit of activity) {
+      const plan = backwardPlan({ target: 1000, unit, ratios: DEFAULT_RATIOS });
+      expect(plan.incomplete).toBe(false);
+      /* ‏אין עסקאות ואין הצעות — לא אפס, אלא „לא נאמר” */
+      expect(plan.dealsPerYear).toBeNull();
+      expect(plan.offersPerYear).toBeNull();
+    }
+  });
+
+  it("יעד שיחות מתחלק לימי עבודה ולא מומצא ממשפך", () => {
+    const plan = backwardPlan({ target: 1000, unit: "calls", ratios: DEFAULT_RATIOS });
+    expect(plan.callsPerYear).toBe(1000);
+    /* ‏52 שבועות × 5 ימים = 260 ימי עבודה; 1000/260 = 3.85 ⇒ 4 */
+    expect(plan.callsPerWorkday).toBe(4);
+    expect(plan.appointmentsPerWeek).toBeNull();
+  });
+
+  it("יעד לידים נפרס על השבועות", () => {
+    const plan = backwardPlan({ target: 104, unit: "leads", ratios: DEFAULT_RATIOS });
+    expect(plan.leadsPerYear).toBe(104);
+    expect(plan.leadsPerWeek).toBe(2);
+    expect(plan.callsPerWorkday).toBeNull();
+  });
+
+  it("יעד תוצאה ממשיך לרוץ במשפך המלא", () => {
+    const plan = backwardPlan({ target: 12, unit: "deals", ratios: DEFAULT_RATIOS });
+    expect(plan.dealsPerYear).toBe(12);
+    expect(plan.callsPerWorkday).not.toBeNull();
+    expect(plan.incomplete).toBe(false);
+  });
+
+  it("„לידים חדשים” נספרים בציון השבועי ככל פעולה אחרת", () => {
+    expect(LEAD_MEASURES).toContain("leads");
+    const score = weeklyScore({ leads: 10, calls: 40 }, { leads: 10, calls: 20 });
+    /* ‏לידים 100%, שיחות 50% ⇒ ממוצע 75% */
+    expect(score.percent).toBe(75);
+    expect(score.lines.map((l) => l.measure)).toContain("leads");
+  });
+
+  it("לכל יחידה יש שם, ולכל מדד יש שם", () => {
+    for (const unit of GOAL_UNITS) expect(GOAL_UNIT_LABELS[unit]).toBeTruthy();
+    for (const measure of LEAD_MEASURES) expect(LEAD_MEASURE_LABELS[measure]).toBeTruthy();
   });
 });

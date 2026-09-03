@@ -510,7 +510,7 @@ export class MentorService {
     const { tenantId, userId } = scope;
     const range = { gte: from, lt: to };
 
-    const [appointments, listings] = await Promise.all([
+    const [appointments, listings, leads] = await Promise.all([
       /*
        * ‎**רק פגישות שהתקיימו** (ביקורת Codex, P2). ‏הסינון היה „לא
        * מבוטלת”, וזה השאיר בפנים גם `scheduled` שחלפה בלי שאיש אישר
@@ -525,10 +525,22 @@ export class MentorService {
       tx.property.count({
         where: { tenantId, agentUserId: userId, deletedAt: null, createdAt: range },
       }),
+      /*
+       * ‎**לידים חדשים — שנוצרו בטווח ומוקצים אליו.**
+       *
+       * ‎`assignedToUserId` ולא `createdBy`: ליד שנכנס מטופס אינטרנט
+       * או מהמרכזייה נוצר בידי המערכת, והשאלה היא של מי הוא — כלומר
+       * מי אמור לעבוד עליו. זו גם ההקצאה שהמתווך רואה ברשימת הלידים,
+       * כך שהמספר כאן והמספר שם הם אותו מספר.
+       */
+      tx.lead.count({
+        where: { tenantId, assignedToUserId: userId, createdAt: range },
+      }),
     ]);
 
     return {
       calls: await this.countOutboundCalls(tx, scope, range),
+      leads,
       appointments,
       offers: await this.countOffersSent(tx, scope, range),
       listings,
