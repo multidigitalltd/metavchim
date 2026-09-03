@@ -67,6 +67,7 @@ const CSS = read("../src/app/globals.css");
 const PROPERTIES = read("../src/app/properties/page.tsx");
 const DISMISS = read("../src/app/dismissed-actions.ts");
 const FILTERS = read("../src/app/list-filters.tsx");
+const MENTOR = read("../src/app/mentor/page.tsx");
 
 const problems = [];
 
@@ -412,6 +413,20 @@ if (!/childrenActive=\{city !== "הכל"\}/u.test(PROPERTIES)) {
   problems.push("עמוד הנכסים אינו מדווח על עיר שנבחרה (`childrenActive`)");
 }
 
+/* ==========================================================================
+ * ‎**5 · המנטור אומר כשהספירה שלו חלקית.**
+ *
+ * ‏המרכזייה אינה מדווחת איזו שלוחה חייגה, ושיחה יוצאת שאינה קשורה
+ * לליד נשארת בלי עוגן לאדם. השרת סופר אותן ומחזיר `unattributedCalls`
+ * — ואם המסך לא יציג את זה, סוכן שהתקשר ארבעים פעם יראה „3 / 40”
+ * ויסיק שלא עבד. כלומר המנטור יאשים אותו במגבלה של האינטגרציה, וזה
+ * הכשל הגרוע ביותר האפשרי במוצר הזה.
+ * ========================================================================== */
+
+if (!/data\.unattributedCalls === 0 \? null : \(/u.test(MENTOR)) {
+  problems.push("מסך המנטור אינו מציג ששיחות מהמרכזייה לא שויכו — ספירה חלקית שמוצגת כמלאה");
+}
+
 if (problems.length > 0) {
   console.error("✗ הכרעות פריסה שנשברו:\n");
   for (const problem of problems) console.error(`  ${problem}`);
@@ -420,6 +435,7 @@ if (problems.length > 0) {
   console.error("    • נכסים  — הפעולות מעל הטבלה, והמונים 2×2 לצד החיפוש.");
   console.error("    • „הבנתי” — מסתיר עד מחר, ולא לתמיד.");
   console.error("    • חיפוש נכס — שדה בלי טקסט רפאים, וצ׳יפי ערים בתוך „עוד סינון”.");
+  console.error("    • המנטור   — אומר כשהספירה חלקית, ולא מציג אותה כמלאה.");
   console.error("  §24 של חבילת העיצוב מתארת סדר אחר לדשבורד, והיא מתוקנת");
   console.error("  ב-docs/design-handoff/DESIGN-SYSTEM-4-layout-and-rules.md.");
   process.exit(1);

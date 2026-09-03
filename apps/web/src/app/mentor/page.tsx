@@ -86,6 +86,7 @@ interface Overview {
   cycleOverCycle: Comparison[];
   derivedRatios: ConversionRatios | null;
   usingDefaultRatios: boolean;
+  unattributedCalls: number;
 }
 
 /**
@@ -316,6 +317,28 @@ export default function MentorPage(): React.JSX.Element | null {
                 </li>
               ))}
             </ul>
+            {/*
+              ‎**כשהספירה חלקית, אומרים את זה.**
+
+              ‏המרכזייה אינה מדווחת איזו שלוחה חייגה, ושיחה יוצאת
+              שאינה קשורה לליד נשארת בלי עוגן לאדם. בלי המשפט הזה
+              המסך היה מציג „3 / 40” לסוכן שהתקשר ארבעים פעם, והוא
+              היה מסיק שלא עבד — כלומר המנטור היה מאשים אותו במגבלה
+              של האינטגרציה.
+            */}
+            {data.unattributedCalls === 0 ? null : (
+              <p
+                className="m-0 mt-3 rounded-lg px-3 py-2 text-[length:var(--type-caption-lg)]"
+                style={{
+                  background: "var(--color-field)",
+                  color: "var(--color-text-muted)",
+                }}
+              >
+                ‏{formatIsraeliNumber(data.unattributedCalls)} שיחות יוצאות מהמרכזייה
+                השבוע לא שויכו לאף סוכן — המרכזייה אינה מדווחת מי חייג. ייתכן
+                שספרתי לך פחות ממה שעשית.
+              </p>
+            )}
             <button type="button" className="mv-btn-plain mt-3" onClick={() => setEditing("week")}>
               שינוי היעד השבועי
             </button>

@@ -6,6 +6,8 @@ import {
   DEFAULT_RATIOS,
   GOAL_HORIZONS,
   goalPeriod,
+  jerusalemDayLabel,
+  jerusalemDayStart,
   jerusalemWeekday,
   jerusalemWeekStart,
   LEAD_MEASURES,
@@ -95,6 +97,15 @@ export interface MentorOverviewDto {
   derivedRatios: ConversionRatios | null;
   /** ‎`true` כשהיחסים בשימוש הם ברירת המחדל הענפית ולא שלו. */
   usingDefaultRatios: boolean;
+  /**
+   * ‎**שיחות יוצאות מהמרכזייה שאי אפשר לשייך לאף אחד, השבוע.**
+   *
+   * ‏המרכזייה אינה מדווחת איזו שלוחה חייגה, ושיחה שאינה קשורה לליד
+   * נשארת בלי עוגן לאדם. המספר הזה אינו קישוט — הוא מה שמאפשר למסך
+   * לומר „ייתכן שספרתי לך פחות”, במקום להציג 3/40 לסוכן שהתקשר
+   * ארבעים פעם ולתת לו להסיק שהוא לא עבד.
+   */
+  unattributedCalls: number;
 }
 
 /** מה שהמסך שולח כשהוא קובע או מעדכן יעד. */
@@ -153,6 +164,40 @@ function dayToDate(label: string): Date {
   return new Date(`${label}T00:00:00.000Z`);
 }
 
+/**
+ * ‎**יחסי ההמרה שלו, מהפעילות שנספרה — או `null` כשאין מספיק.**
+ *
+ * ‏מתווך שסוגר אחת משש פגישות צריך תוכנית אחרת ממי שסוגר אחת
+ * משלוש. `null` ולא ברירת מחדל שקטה: המסך אומר במפורש „ממוצע ענפי,
+ * עד שיהיו לך מספרים”, ומספר שהומצא ומוצג כעובדה גרוע ממספר חסר.
+ *
+ * ‏פונקציה טהורה שמקבלת את הספירה, ולא שיטה שסופרת בעצמה: הטווח
+ * שהיא צריכה — שלושה-עשר השבועות האחרונים — כבר נספר עבור ההשוואה
+ * „איפה היית”, ושתי ספירות של אותו טווח היו שש שאילתות מיותרות.
+ */
+function ratiosFrom(counted: WeeklyActual): ConversionRatios | null {
+    const calls = counted.calls ?? 0;
+    const appointments = counted.appointments ?? 0;
+    const offers = counted.offers ?? 0;
+    /*
+     * ‏שלב שאין בו אף פעולה אינו „יחס אפס”, הוא **חוסר מידע**: יחס
+     * אפס היה מייצר תוכנית שדורשת אינסוף שיחות. אין מספיק ⇒ `null`,
+     * והמסך אומר את זה.
+     */
+    if (calls === 0 || appointments === 0 || offers === 0) return null;
+
+    return {
+      callToAppointment: Math.min(1, appointments / calls),
+      appointmentToOffer: Math.min(1, offers / appointments),
+      /*
+       * ‏עסקאות אינן נספרות אוטומטית בשלב הזה — אין במערכת חותמת
+       * „נסגרה”. לכן דווקא היחס הזה נשאר ברירת המחדל, ואינו מומצא
+       * ממספר שאיננו מודדים.
+       */
+      offerToDeal: DEFAULT_RATIOS.offerToDeal,
+    };
+  }
+
 @Injectable()
 export class MentorService {
   constructor(private readonly prisma: PrismaService) {}
@@ -165,6 +210,12 @@ export class MentorService {
     const ctx = TenantContext.current();
     const scope = { tenantId: ctx.tenantId, userId: ctx.userId };
 
+    /*
+     * ‎**סיכום קריאה-בלבד שסופר חמישה טווחים** — השבוע, המחזור,
+     * המחזור הקודם, ובימי ראשון גם שני שבועות שהסתיימו. חמש השניות
+     * שהן ברירת המחדל הפילו אותו, וההצהרה כאן מפורשת ומקומית ולא
+     * העלאה גורפת של הסף לכל המערכת.
+     */
     return this.prisma.withTenant(async (tx): Promise<MentorOverviewDto> => {
       const rows = await tx.mentorGoal.findMany({ where: { ...scope } });
 
@@ -202,8 +253,19 @@ export class MentorService {
       const yearly = goals.find((g) => g.horizon === "year");
       const weekGoal = goals.find((g) => g.horizon === "week");
 
+      /*
+       * ‎**הספירה של שלושה-עשר השבועות נעשית פעם אחת.**
+       *
+       * ‏אותו טווח בדיוק משרת שני צרכים — ההשוואה „איפה היית”
+       * וגזירת יחסי ההמרה — ושתי קריאות נפרדות אליו הכפילו שש
+       * שאילתות בלי להוסיף מידע. הן גם מה שהפיל את הטרנזקציה על
+       * מגבלת חמש השניות.
+       */
+      const cycleStart = jerusalemWeekStart(now, -(MIN_WEEKS_FOR_RATIOS - 1));
+      const thisCycle = await this.countMeasures(tx, scope, cycleStart, now);
+
       /* ---- החישוב לאחור, על היחסים שלו כשיש ---- */
-      const derivedRatios = await this.deriveRatios(tx, scope, now);
+      const derivedRatios = ratiosFrom(thisCycle);
       const ratios = derivedRatios ?? yearly?.ratios ?? DEFAULT_RATIOS;
       const plan =
         yearly === undefined
@@ -246,52 +308,59 @@ export class MentorService {
        * אחד מהם — ביום ראשון הוא בן יום אחד וממילא מתחת לסף — ולכן
        * הוא אינו נשלף כאן בכלל: המפתחות הם של השבוע שעבר ושלפניו.
        */
-      const completedKeys = [
-        weekKey(jerusalemWeekStart(now, -1)),
-        weekKey(jerusalemWeekStart(now, -2)),
-      ];
-      const completedRows = await tx.mentorWeeklyScore.findMany({
-        where: { ...scope, weekKey: { in: completedKeys } },
-        select: { weekKey: true, percent: true },
-      });
       /*
-       * ‏לפי סדר המפתחות ולא לפי סדר החזרה מהמסד, ושבוע חסר נופל
-       * מהרשימה — כדי ששבוע ללא ציון לא ייחשב בטעות לשבוע חלש.
+       * ‎**שני השבועות שהסתיימו — מחושבים, ולא נשלפים מארכיון**
+       * (ביקורת Codex, P2 ×2).
+       *
+       * ‏הגרסה הקודמת כתבה את ציון השבוע לטבלה בכל פתיחת מסך, וזו
+       * הייתה טעות בשורש: „היסטוריה” שנכתבת רק כשמישהו מסתכל היא
+       * היסטוריה של **מתי הוא הסתכל**. מי שפתח ביום שני ב-0%, עשה
+       * את העבודה ולא פתח שוב — נשאר עם 0% בארכיון, והמנטור היה
+       * מודיע לו ביום ראשון על שבוע חלש שלא היה. ומי שלא פתח כלל
+       * פשוט נעדר.
+       *
+       * ‏מה שנדרש כדי לדעת אם שבוע שהסתיים היה חלש נמצא כבר במסד:
+       * המחויבות שמורה על יעד השבוע של אותה תקופה, והפעילות נספרת
+       * מהשיחות והפגישות. לכן הציון **מחושב** — אותו חשבון בדיוק
+       * כמו לשבוע הנוכחי, על טווח סגור.
+       *
+       * ‎`mentor_weekly_scores` נשארת לשלב ב׳: הסורק היומי ישמור בה
+       * „מה נאמר לו אז” לצורך ההודעות. בשלב הזה **אין לה כותב**,
+       * וזה מוצהר ולא נסתר — טבלה ריקה עדיפה על ארכיון שקרי.
        */
-      const previousPercents = completedKeys
-        .map((key) => completedRows.find((r) => r.weekKey === key)?.percent)
-        .filter((p): p is number => p !== undefined);
+      /*
+       * ‏שני השבועות נספרים **רק ביום ראשון**, כי „פעמיים ברצף” הוא
+       * הרגע היחיד שנשען עליהם והוא נאמר רק בתחילת שבוע. שאר ימות
+       * השבוע זו עבודה שאיש אינו רואה — ושתים-עשרה שאילתות שהעמיסו
+       * את הטרנזקציה על לא כלום.
+       */
+      const [lastWeek, weekBefore] =
+        jerusalemWeekday(now) === 0
+          ? await Promise.all([
+              this.completedWeekScore(tx, scope, jerusalemWeekStart(now, -1)),
+              this.completedWeekScore(tx, scope, jerusalemWeekStart(now, -2)),
+            ])
+          : [null, null];
+      /*
+       * ‏סדר, ולא סינון: „פעמיים ברצף” בודק את שני האיברים הראשונים,
+       * ולכן שבוע חסר במקום הראשון חייב לקטוע את הרשימה ולא להידחס
+       * החוצה — אחרת שבוע ישן היה מתחזה לשבוע שעבר.
+       */
+      const previousPercents =
+        lastWeek === null ? [] : weekBefore === null ? [lastWeek] : [lastWeek, weekBefore];
 
       /*
-       * ‎**הציון של השבוע נשמר, ולא רק מוצג** (ביקורת Codex, P2).
-       *
-       * ‏הטבלה נקראה ולא נכתבה מעולם: אין לה שום `create` או
-       * ‎`upsert`. כלומר `previousPercents` היה תמיד ריק, וההיסטוריה
-       * — שעליה נשענים גם „פעמיים ברצף” וגם ההשוואה „איפה היית” —
-       * לא נצברה לעולם. שער `rls-access` בדק שאסור לגעת בטבלה
-       * מ-`prisma` הגלובלי; הוא אינו יכול לדעת שאיש אינו כותב אליה.
-       *
-       * ‎**הכתיבה כאן ולא בסורק לילי**, ובכוונה: הציון של השבוע
-       * הנוכחי משתנה עם כל שיחה, וכתיבה בכל קריאה משאירה במסד את
-       * הערך המעודכן. כששבוע נגמר איש אינו מחשב אותו מחדש, ולכן
-       * הערך האחרון שנכתב בו הוא בדיוק „מה שנאמר לו אז” — וזו
-       * ההבטחה שהטבלה הזו נועדה לקיים.
-       *
-       * ‎`upsert` על המפתח הייחודי: פתיחת המסך פעמיים אינה יוצרת שתי
-       * שורות לאותו שבוע.
+       * ‏ברמת המשרד ולא ברמת המשתמש, כי זה בדיוק מה שהן: שיחות
+       * שאיש אינו יכול לטעון לבעלות עליהן. אם יש כאלה, המסך אומר
+       * שהספירה חלקית.
        */
-      const thisKey = weekKey(now);
-      await tx.mentorWeeklyScore.upsert({
-        where: { tenantId_userId_weekKey: { ...scope, weekKey: thisKey } },
-        update: { committed, actual, percent: score.percent, onTrack: score.onTrack },
-        create: {
-          id: ulid(),
-          ...scope,
-          weekKey: thisKey,
-          committed,
-          actual,
-          percent: score.percent,
-          onTrack: score.onTrack,
+      const unattributedCalls = await tx.call.count({
+        where: {
+          tenantId: ctx.tenantId,
+          direction: "outbound",
+          occurredAt: { gte: thisWeek, lt: now },
+          createdBy: null,
+          leadId: null,
         },
       });
 
@@ -308,11 +377,12 @@ export class MentorService {
         jerusalemWeekStart(now, -1),
         thisWeek,
       );
-      const cycleStart = jerusalemWeekStart(now, -12);
-      const priorCycleStart = jerusalemWeekStart(now, -25);
-      /* ‏גם כאן: עד עכשיו, כדי שההשוואה תהיה בין מה שנעשה למה שנעשה */
-      const thisCycle = await this.countMeasures(tx, scope, cycleStart, now);
-      const lastCycle = await this.countMeasures(tx, scope, priorCycleStart, cycleStart);
+      const lastCycle = await this.countMeasures(
+        tx,
+        scope,
+        jerusalemWeekStart(now, -(MIN_WEEKS_FOR_RATIOS * 2 - 1)),
+        cycleStart,
+      );
 
       return {
         goals,
@@ -339,8 +409,9 @@ export class MentorService {
         })),
         derivedRatios,
         usingDefaultRatios: derivedRatios === null,
+        unattributedCalls,
       };
-    });
+    }, { timeout: 20_000 });
   }
 
   /* ======================================================================
@@ -440,13 +511,16 @@ export class MentorService {
     const range = { gte: from, lt: to };
 
     const [appointments, listings] = await Promise.all([
+      /*
+       * ‎**רק פגישות שהתקיימו** (ביקורת Codex, P2). ‏הסינון היה „לא
+       * מבוטלת”, וזה השאיר בפנים גם `scheduled` שחלפה בלי שאיש אישר
+       * אותה וגם `no_show` — כלומר פגישה שהלקוח לא הגיע אליה נספרה
+       * כפגישה שנעשתה. ‎`completed` הוא הסימן שהמערכת עצמה שמה
+       * כשנרשמת תוצאה (`calendar.service`), ואותו סינון בדיוק
+       * שהאנליטיקה משתמשת בו לסיורים שהתקיימו.
+       */
       tx.appointment.count({
-        where: {
-          tenantId,
-          ownerUserId: userId,
-          startsAt: range,
-          status: { not: "cancelled" },
-        },
+        where: { tenantId, ownerUserId: userId, startsAt: range, status: "completed" },
       }),
       tx.property.count({
         where: { tenantId, agentUserId: userId, deletedAt: null, createdAt: range },
@@ -459,6 +533,42 @@ export class MentorService {
       offers: await this.countOffersSent(tx, scope, range),
       listings,
     };
+  }
+
+  /**
+   * ‎**הציון של שבוע שהסתיים — מחושב מהמחויבות ומהפעילות.**
+   *
+   * ‎`null` כשלא הייתה מחויבות באותו שבוע, וזו הכרעה ולא פרט טכני
+   * (ביקורת Codex, P2): שבוע שהמתווך לא התחייב בו לכלום אינו „שבוע
+   * חלש”, הוא שבוע שלא נמדד. בלי ההבחנה הזו, מי שנכנס למסך פעמיים
+   * לפני שקבע יעד ראשון היה מקבל ביום ראשון „שבוע שני שלא נסגר” על
+   * שני שבועות שלא הבטיח בהם דבר — בדיוק ההפך ממה שהמנטור אמור
+   * לעשות בפגישה הראשונה איתו.
+   */
+  private async completedWeekScore(
+    tx: PrismaTx,
+    scope: { tenantId: string; userId: string },
+    weekStart: Date,
+  ): Promise<number | null> {
+    const row = await tx.mentorGoal.findFirst({
+      where: {
+        ...scope,
+        horizon: "week",
+        periodStart: dayToDate(jerusalemDayLabel(weekStart)),
+      },
+      select: { commitment: true },
+    });
+    const committed = toCommitment(row?.commitment ?? null);
+    if (Object.keys(committed).length === 0) return null;
+
+    /* טווח סגור — השבוע הזה כבר נגמר, ולכן נספר במלואו */
+    const actual = await this.countMeasures(
+      tx,
+      scope,
+      weekStart,
+      jerusalemDayStart(weekStart, 7),
+    );
+    return weeklyScore(committed, actual).percent;
   }
 
   /**
@@ -567,44 +677,7 @@ export class MentorService {
     return matches.filter((m) => mineIds.has(m.buyerId)).length;
   }
 
-  /**
-   * ‎**יחסי ההמרה שלו, מההיסטוריה — או `null` כשאין מספיק.**
-   *
-   * ‏מתווך שסוגר אחת משש פגישות צריך תוכנית אחרת ממי שסוגר אחת
-   * משלוש. `null` ולא ברירת מחדל שקטה: המסך אומר במפורש „ממוצע
-   * ענפי, עד שיהיו לך מספרים”, ומספר שהומצא ומוצג כעובדה גרוע
-   * ממספר חסר.
-   */
-  private async deriveRatios(
-    tx: PrismaTx,
-    scope: { tenantId: string; userId: string },
-    now: Date,
-  ): Promise<ConversionRatios | null> {
-    const from = jerusalemWeekStart(now, -(MIN_WEEKS_FOR_RATIOS - 1));
-    /* עד עכשיו — יחס שנגזר מפגישות עתידיות מתאר תוכנית, לא ביצוע */
-    const counted = await this.countMeasures(tx, scope, from, now);
 
-    const calls = counted.calls ?? 0;
-    const appointments = counted.appointments ?? 0;
-    const offers = counted.offers ?? 0;
-    /*
-     * ‏שלב שאין בו אף פעולה אינו „יחס אפס”, הוא **חוסר מידע**: יחס
-     * אפס היה מייצר תוכנית שדורשת אינסוף שיחות. אין מספיק ⇒ `null`,
-     * והמסך אומר את זה.
-     */
-    if (calls === 0 || appointments === 0 || offers === 0) return null;
-
-    return {
-      callToAppointment: Math.min(1, appointments / calls),
-      appointmentToOffer: Math.min(1, offers / appointments),
-      /*
-       * ‏עסקאות אינן נספרות אוטומטית בשלב הזה — אין במערכת חותמת
-       * „נסגרה”. לכן דווקא היחס הזה נשאר ברירת המחדל, ואינו מומצא
-       * ממספר שאיננו מודדים.
-       */
-      offerToDeal: DEFAULT_RATIOS.offerToDeal,
-    };
-  }
 }
 
 /** הטרנזקציה כפי ש-`withTenant` מוסרת אותה. */

@@ -96,6 +96,8 @@ describe("המנטור — היקף אישי", () => {
   it("ספירת המדדים משויכת לאדם בכל אחת מארבע הטבלאות", () => {
     const byCall = new Map(tenantQueries().map((q) => [q.call, q.body]));
     expect(byCall.get("appointment.count")).toContain("ownerUserId: userId");
+    // ‏פגישה שהתקיימה בלבד — לא `scheduled` שחלפה ולא `no_show`
+    expect(byCall.get("appointment.count")).toContain('status: "completed"');
     expect(byCall.get("property.count")).toContain("agentUserId: userId");
     /*
      * ‏לשיחה ולהצעה אין בעלים ישיר: השיחה מגיעה דרך הליד שהיא נוגעת
@@ -132,9 +134,15 @@ describe("המנטור — מה נחשב פעולה", () => {
     expect(calls?.body).not.toContain('direction: "out"');
   });
 
-  it("פגישה שבוטלה אינה נספרת", () => {
+  it("נספרות רק פגישות שהתקיימו", () => {
+    /*
+     * ‏הניסוח הראשון היה „לא מבוטלת”, והוא השאיר בפנים `scheduled`
+     * שחלפה בלי אישור ו-`no_show` — כלומר פגישה שהלקוח לא הגיע
+     * אליה נספרה כפגישה שנעשתה (ביקורת Codex, P2).
+     */
     const appointments = tenantQueries().find((q) => q.call === "appointment.count");
-    expect(appointments?.body).toContain('status: { not: "cancelled" }');
+    expect(appointments?.body).toContain('status: "completed"');
+    expect(appointments?.body).not.toContain('not: "cancelled"');
   });
 
   it("נספרות הצעות שנשלחו, ולא הצעות שנוצרו", () => {
@@ -172,18 +180,44 @@ describe("המנטור — מה שנספר כבר קרה", () => {
     expect(SERVICE).not.toMatch(/countMeasures\([^)]*jerusalemDayStart\(thisWeek, 7\)/u);
   });
 
-  it("הציון השבועי נכתב, ולא רק נקרא", () => {
+  it("שבוע שהסתיים מחושב, ואינו נשלף מארכיון שנכתב בפתיחת מסך", () => {
     /*
-     * ‏הטבלה נקראה ולא נכתבה מעולם, ולכן ההיסטוריה לא נצברה
-     * ו„פעמיים ברצף” לא יכול היה לפעול לעולם (ביקורת Codex, P2).
-     * שער שבודק רק קריאות אינו רואה טבלה שאיש אינו ממלא.
+     * ‎**התיקון בשורש** (ביקורת Codex, P2 ×2). ‏„היסטוריה” שנכתבה
+     * בכל פתיחת מסך היא היסטוריה של מתי הסתכלו: מי שפתח ביום שני
+     * ב-0% ואז עבד בלי לפתוח שוב נשאר עם 0% בארכיון. הציון של שבוע
+     * שהסתיים מחושב מהמחויבות השמורה ומהפעילות שנספרה — שניהם כבר
+     * במסד.
      */
-    const writes = tenantQueries().filter(
-      (q) => q.call === "mentorWeeklyScore.upsert" || q.call === "mentorWeeklyScore.create",
+    expect(SERVICE).toContain("completedWeekScore");
+    expect(SERVICE).not.toContain("mentorWeeklyScore.upsert");
+    expect(SERVICE).not.toContain("mentorWeeklyScore.findMany");
+  });
+
+  it("שבוע בלי מחויבות אינו נחשב לשבוע חלש", () => {
+    /*
+     * ‏מי שנכנס למסך פעמיים לפני שקבע יעד ראשון היה מקבל „שבוע שני
+     * שלא נסגר” על שני שבועות שלא הבטיח בהם דבר (ביקורת Codex, P2).
+     */
+    expect(SERVICE).toMatch(
+      /if \(Object\.keys\(committed\)\.length === 0\) return null;/u,
     );
-    expect(writes.length).toBeGreaterThan(0);
-    const reads = tenantQueries().filter((q) => q.call.startsWith("mentorWeeklyScore."));
-    expect(reads.length).toBeGreaterThan(writes.length - 1);
+  });
+
+  it("שיחות שאי אפשר לשייך נספרות ומדווחות, ולא נבלעות", () => {
+    /*
+     * ‏המרכזייה אינה אומרת מי חייג, ושיחה בלי ליד נשארת בלי עוגן
+     * לאדם. בלי המספר הזה המסך היה מציג „3 / 40” לסוכן שהתקשר
+     * ארבעים פעם, והוא היה מסיק שלא עבד (ביקורת Codex, P1).
+     */
+    /*
+     * ‏הערך **המחושב** מוחזר, ולא מספר קבוע: `toContain` לבדו עבר גם
+     * על `unattributedCalls: 0`, כלומר על מסך שלעולם לא יזהיר. זו
+     * בדיוק אותה חולשה שהפילה את בדיקת כיוון השיחה.
+     */
+    expect(SERVICE).toMatch(/^\s+unattributedCalls,$/mu);
+    const q = tenantQueries().find((x) => x.call === "call.count");
+    expect(q?.body).toContain("createdBy: null");
+    expect(q?.body).toContain("leadId: null");
   });
 });
 
