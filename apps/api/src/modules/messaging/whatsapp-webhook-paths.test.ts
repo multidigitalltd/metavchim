@@ -77,22 +77,34 @@ describe("שני נתיבי Webhook, וגבול שנאכף בעיבוד", () => 
   });
 
   /*
-   * ‎**המיקום הוא הכל.** השומר ישב תחילה רק לפני ענף הסוכן, וטיפול
-   * הלחיצות שמעליו (`viewingReplies.record`) נשאר חשוף: מטען מזויף
-   * חתום בסוד של אפליקציית החיבור היה רושם תשובה לתזכורת סיור
-   * ופותח בעקבותיה התראות ומשימות. גבול קיים למחצה הוא הסוג הגרוע,
-   * ולכן הבדיקה על **הסדר** ולא רק על הקיום (ביקורת Codex).
+   * ‎**הגבול נשען על המקור בלבד — לא על מה שכתוב במטען.**
+   *
+   * שתי גרסאות קודמות נפלו כאן. הראשונה שמה את השומר רק לפני ענף
+   * הסוכן, וטיפול הלחיצות שמעליו נשאר חשוף. השנייה העלתה אותו, אבל
+   * השוותה `incomingLine === assistantCreds.phoneNumberId` —
+   * ו-`metadata.phone_number_id` מגיע **מהגוף**, כלומר מי שמחזיק
+   * בסוד שולט בו: השמטת השדה או נקיבת קו של משרד עקפה את ההשוואה
+   * והגיעה הישר לטיפול הלחיצות, שאינו תלוי-קו כלל (ביקורת Codex).
+   *
+   * לכן הבדיקה על **הצורה**: תשובות לתזכורות נחסמות לפי `source`
+   * לבדו, וענף הסוכן בודק `source` לפני השוואת הקו.
    */
-  it("השומר קודם לכל טיפול שנוגע בקו הסוכן", () => {
+  it("תשובות לתזכורות נחסמות לפי המקור לבדו", () => {
     expect(INBOUND).toContain('source: InboundSource = "any"');
-    const at = INBOUND.indexOf('if (source === "connect" &&');
-    expect(at).toBeGreaterThan(0);
-    expect(INBOUND.slice(at, at + 400), "השומר חייב לעצור ולא רק לרשום ביומן").toContain(
-      "continue;",
+    expect(INBOUND).toContain('source === "connect"\n            ? []');
+    /* השוואת קו כתנאי לחסימה = הכרעה שנשענת על מטען מזויף */
+    expect(INBOUND, "החסימה תלויה בקו שבמטען").not.toContain(
+      'source === "connect" && incomingLine ===',
     );
-    for (const handler of ["this.viewingReplies.record(", "this.assistant.handle("]) {
-      expect(INBOUND.indexOf(handler), `${handler} רץ לפני השומר`).toBeGreaterThan(at);
-    }
+  });
+
+  it("ענף הסוכן בודק את המקור לפני שהוא משווה קו", () => {
+    const branch = INBOUND.slice(
+      INBOUND.indexOf("        if (\n          source !== \"connect\" &&"),
+      INBOUND.indexOf("this.assistant.handle("),
+    );
+    expect(branch.length).toBeGreaterThan(50);
+    expect(branch).toContain("assistantCreds !== null");
   });
 
   /*

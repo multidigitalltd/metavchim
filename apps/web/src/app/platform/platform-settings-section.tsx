@@ -147,6 +147,8 @@ interface PlatformSettings {
     connect?: {
       configured: boolean;
       source: "db" | "env" | "none";
+      /** ‎`WHATSAPP_CONNECT_APP_SECRET` קיים — גם כשערך המסד גובר עליו. */
+      envFallback?: boolean;
       webhookUrl: string;
     };
     assistant: {
@@ -1900,7 +1902,7 @@ export function PlatformSettingsSection({
             <span>
               לחזור לאפליקציה אחת — מוחק את הסוד ואת ה-Verify Token של אפליקציית
               החיבור, ושני הנתיבים חוזרים להישען על הערכים של קו הסוכן.
-              {settings.whatsapp.connect?.source === "env" ? (
+              {settings.whatsapp.connect?.envFallback === true ? (
                 /*
                  * ‏המחיקה נוגעת למסד בלבד, והקוד נופל חזרה למשתנה
                  * הסביבה — כלומר הסוד הנפרד ימשיך לפעול. בלי המשפט

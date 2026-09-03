@@ -1782,6 +1782,8 @@ export class PlatformController {
       connect: {
         configured: boolean;
         source: "db" | "env" | "none";
+        /** האם `WHATSAPP_CONNECT_APP_SECRET` קיים — גם כשהמסד גובר. */
+        envFallback: boolean;
         webhookUrl: string;
       };
       /** הצד היוצא — הסוכן האישי עונה רק כשהוא מוגדר */
@@ -2040,6 +2042,15 @@ export class PlatformController {
         connect: {
           configured: waConnectDb || waConnectEnv,
           source: waConnectDb ? "db" : waConnectEnv ? "env" : "none",
+          /*
+           * ‎**דגל נפרד, כי `source` מדווח מי גובר ולא מי קיים.**
+           *
+           * כששניהם מוגדרים `source` הוא `"db"`, והאזהרה על הסביבה
+           * הייתה נעלמת — דווקא במקרה שבו היא הכי נחוצה: הניקוי
+           * מוחק את שורות המסד, והסוד שבסביבה משתלט מיד (ביקורת
+           * Codex).
+           */
+          envFallback: waConnectEnv,
           webhookUrl: `${env.WEB_ORIGIN}/api/v1/webhooks/whatsapp/connect`,
         },
         assistant: {
