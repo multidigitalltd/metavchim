@@ -143,6 +143,12 @@ interface PlatformSettings {
     webhookUrl: string;
     /** מספר הבוט לתצוגה — גיבוי לשליפה מ-Meta. הערך עצמו. */
     botNumber?: string;
+    /** אפליקציית החיבור — הנתיב שלה, והאם היא מוגדרת ומאיפה. */
+    connect?: {
+      configured: boolean;
+      source: "db" | "env" | "none";
+      webhookUrl: string;
+    };
     assistant: {
       configured: boolean;
       source: "db" | "env" | "none";
@@ -1894,6 +1900,19 @@ export function PlatformSettingsSection({
             <span>
               לחזור לאפליקציה אחת — מוחק את הסוד ואת ה-Verify Token של אפליקציית
               החיבור, ושני הנתיבים חוזרים להישען על הערכים של קו הסוכן.
+              {settings.whatsapp.connect?.source === "env" ? (
+                /*
+                 * ‏המחיקה נוגעת למסד בלבד, והקוד נופל חזרה למשתנה
+                 * הסביבה — כלומר הסוד הנפרד ימשיך לפעול. בלי המשפט
+                 * הזה המסך מבטיח חזרה שלא קורית (ביקורת Codex).
+                 */
+                <b style={{ display: "block", color: "var(--color-danger)" }}>
+                  שימו לב: הסוד מוגדר גם במשתנה סביבה
+                  (<code dir="ltr">WHATSAPP_CONNECT_APP_SECRET</code>). ניקוי כאן
+                  מוחק את הערך מהמסד בלבד, והמערכת תיפול חזרה לסביבה — צריך
+                  להסיר אותו גם שם.
+                </b>
+              ) : null}
             </span>
           </label>
           <div className="flex-1" style={{ minWidth: "220px" }}>

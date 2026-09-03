@@ -76,15 +76,23 @@ describe("שני נתיבי Webhook, וגבול שנאכף בעיבוד", () => 
     expect(CONTROLLER).toContain('source: has(connect) ? "agent" : "any"');
   });
 
-  it("ענף הסוכן חסום למקור של אפליקציית החיבור", () => {
+  /*
+   * ‎**המיקום הוא הכל.** השומר ישב תחילה רק לפני ענף הסוכן, וטיפול
+   * הלחיצות שמעליו (`viewingReplies.record`) נשאר חשוף: מטען מזויף
+   * חתום בסוד של אפליקציית החיבור היה רושם תשובה לתזכורת סיור
+   * ופותח בעקבותיה התראות ומשימות. גבול קיים למחצה הוא הסוג הגרוע,
+   * ולכן הבדיקה על **הסדר** ולא רק על הקיום (ביקורת Codex).
+   */
+  it("השומר קודם לכל טיפול שנוגע בקו הסוכן", () => {
     expect(INBOUND).toContain('source: InboundSource = "any"');
-    expect(INBOUND).toContain('if (source === "connect" &&');
-    const guard = INBOUND.slice(
-      INBOUND.indexOf('if (source === "connect" &&'),
-      INBOUND.indexOf("this.assistant.handle("),
+    const at = INBOUND.indexOf('if (source === "connect" &&');
+    expect(at).toBeGreaterThan(0);
+    expect(INBOUND.slice(at, at + 400), "השומר חייב לעצור ולא רק לרשום ביומן").toContain(
+      "continue;",
     );
-    expect(guard.length).toBeGreaterThan(50);
-    expect(guard, "השומר חייב לעצור ולא רק לרשום ביומן").toContain("continue;");
+    for (const handler of ["this.viewingReplies.record(", "this.assistant.handle("]) {
+      expect(INBOUND.indexOf(handler), `${handler} רץ לפני השומר`).toBeGreaterThan(at);
+    }
   });
 
   /*

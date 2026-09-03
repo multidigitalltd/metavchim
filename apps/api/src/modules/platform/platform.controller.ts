@@ -1775,6 +1775,15 @@ export class PlatformController {
        * הערך ולא „מוגדר”: זה מסך העריכה שלו.
        */
       botNumber: string;
+      /**
+       * אפליקציית החיבור — נתיב משלה, ומאיפה הסוד שלה מגיע.
+       * ‎`source: "env"` הוא מה שהופך „ניקוי מהמסך” ללא-מספיק.
+       */
+      connect: {
+        configured: boolean;
+        source: "db" | "env" | "none";
+        webhookUrl: string;
+      };
       /** הצד היוצא — הסוכן האישי עונה רק כשהוא מוגדר */
       assistant: {
         configured: boolean;
@@ -1928,6 +1937,14 @@ export class PlatformController {
     const waDb = has("whatsappAppSecret") && has("whatsappVerifyToken");
     const waEnv = env.WHATSAPP_APP_SECRET !== undefined && env.WHATSAPP_VERIFY_TOKEN !== undefined;
     // הצד היוצא של הסוכן האישי — טוקן ומזהה מספר, שניהם יחד
+    /*
+     * ‎**מאיפה מגיע הסוד של אפליקציית החיבור** — והאם ניקוי מהמסך
+     * בכלל ישפיע. כשהוא מוגדר במשתנה סביבה, מחיקת השורה במסד
+     * מחזירה את הנפילה לסביבה, והמסך היה מבטיח „חזרה לאפליקציה
+     * אחת" בזמן שהסוד הנפרד ממשיך לפעול (ביקורת Codex).
+     */
+    const waConnectEnv = env.WHATSAPP_CONNECT_APP_SECRET !== undefined;
+    const waConnectDb = has("whatsappConnectAppSecret") || has("whatsappConnectVerifyToken");
     const waOutDb = has("whatsappAccessToken") && has("whatsappPhoneNumberId");
     const whatsappBotNumber = (await this.platformSettings.get("whatsappBotNumber")) ?? "";
     const waOutEnv =
@@ -2019,6 +2036,12 @@ export class PlatformController {
         source: waDb ? "db" : waEnv ? "env" : "none",
         webhookUrl: `${env.WEB_ORIGIN}/api/v1/webhooks/whatsapp`,
         botNumber: whatsappBotNumber,
+        /* אפליקציית החיבור — הנתיב שלה, והאם היא מוגדרת ומאיפה */
+        connect: {
+          configured: waConnectDb || waConnectEnv,
+          source: waConnectDb ? "db" : waConnectEnv ? "env" : "none",
+          webhookUrl: `${env.WEB_ORIGIN}/api/v1/webhooks/whatsapp/connect`,
+        },
         assistant: {
           configured: waOutDb || waOutEnv,
           source: waOutDb ? "db" : waOutEnv ? "env" : "none",
