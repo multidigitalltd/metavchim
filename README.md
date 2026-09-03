@@ -11,6 +11,7 @@ SaaS רב-דיירים (Multi-Tenant) למשרדי תיווך: לידים מכל
 | **מה המערכת עושה** (למשתמשים, בלי התחברות) | `/docs` בסביבה רצה — אותו תוכן שב-`/guides` בתוך המערכת; Markdown ב-`/docs/md` |
 | **קליטת לידים ממקורות חיצוניים** (API, Make, n8n) | `/docs/api` |
 | **חיבור שיחות ומרכזייה** | `/docs/telephony` |
+| **חיבור וואטסאפ עסקי** (Meta Cloud API, שלב אחרי שלב) | `/docs/whatsapp` · מצב המימוש ב-[docs/whatsapp-setup.md](docs/whatsapp-setup.md) |
 | **התכנון המלא** — ארכיטקטורה, נתונים, אבטחה, אינטגרציות, נגישות, ביצועים, תפעול, פריסה | [docs/README.md](docs/README.md) |
 | **איך כותבים תיעוד והדרכות** | [docs/12](docs/12-docs-and-guides.md) |
 
