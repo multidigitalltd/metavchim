@@ -79,12 +79,12 @@ export interface UploadDocumentInput {
 /** ‎50 מסמכים ללקוח — תקרה שמונעת מילוי אחסון, ורחוקה משימוש אמיתי. */
 const MAX_DOCUMENTS_PER_CONTACT = 50;
 
-export function documentDownloadPath(id: string): string {
+function documentDownloadPath(id: string): string {
   return `/signed-documents/${id}/raw`;
 }
 
 /** ההורדה מארכיון המשרד — שורה שכבר נותקה מלקוח שנמחק. */
-export function retainedDownloadPath(id: string): string {
+function retainedDownloadPath(id: string): string {
   return `/signed-documents/retained/${id}/raw`;
 }
 
