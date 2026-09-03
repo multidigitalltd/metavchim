@@ -13,6 +13,7 @@ import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
 import { EmailService } from "../../core/email.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 
@@ -118,6 +119,7 @@ export class PropertyActivityService {
     private readonly crypto: CryptoService,
     private readonly email: EmailService,
     private readonly whatsapp: WhatsAppSendService,
+    private readonly plans: PlanCatalogService,
   ) {}
 
   /** הדוח כפי שהמסך מציג אותו. */
@@ -290,15 +292,19 @@ export class PropertyActivityService {
      * שתי נוסחאות שונות היו נותנות דוח שכותרתו אינה הנכס שהמתווך
      * ראה על המסך כשלחץ.
      */
-    const propertyLabel =
-      context.property.marketingTitle ??
-      [
-        [context.property.street, context.property.houseNumber].filter(Boolean).join(" "),
-        context.property.city,
-      ]
-        .filter((part) => part !== undefined && part !== "")
-        .join(", ") ??
-      "הנכס";
+    const address = [
+      [context.property.street, context.property.houseNumber].filter(Boolean).join(" "),
+      context.property.city,
+    ]
+      .filter((part) => part !== undefined && part !== "")
+      .join(", ");
+    /*
+     * ‎`||` ולא `??` על החיבור: `join` מחזיר `""` על נכס טיוטה בלי
+     * כתובת ובלי כותרת שיווקית, ומחרוזת ריקה אינה nullish — כלומר
+     * ‎`?? "הנכס"` לא היה נתפס לעולם, והנושא של המייל היה נגמר
+     * ב„דוח פעילות — ” (ביקורת Codex).
+     */
+    const propertyLabel = context.property.marketingTitle || address || "הנכס";
 
     const sent =
       input.channel === "whatsapp"
@@ -348,6 +354,18 @@ export class PropertyActivityService {
     phone?: string;
     body: string;
   }): Promise<string> {
+    /*
+     * ‎**הזכאות נבדקת כאן ולא בדקורטור.** נתיב אחד משרת שני ערוצים,
+     * ו-`@RequireFeature("whatsapp")` עליו היה חוסם גם שליחה
+     * באימייל — שאינה תלויה בפיצ'ר הזה כלל. בלי הבדיקה, לעומת זאת,
+     * משרד שירד ממסלול והשאיר חיבור פעיל היה ממשיך לשלוח דרך הנתיב
+     * הזה בזמן שכל שאר נתיבי הוואטסאפ חסומים בפניו (ביקורת Codex).
+     */
+    if (!(await this.plans.tenantHasFeature(input.tenantId, "whatsapp"))) {
+      throw new BadRequestException(
+        "שליחה בוואטסאפ אינה כלולה במסלול של המשרד — אפשר לשלוח באימייל או להעתיק את ההודעה",
+      );
+    }
     if (input.phone === undefined) {
       throw new BadRequestException("אין טלפון בכרטיס בעל הנכס — אי אפשר לשלוח בוואטסאפ");
     }

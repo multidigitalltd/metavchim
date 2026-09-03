@@ -95,10 +95,13 @@ export function OwnerActivity({
   propertyId,
   propertyLabel,
   officeName,
+  canSend,
 }: {
   propertyId: string;
   propertyLabel: string;
   officeName: string;
+  /** ‏`properties.edit` — השליחה יוצאת ללקוח בשם המשרד. */
+  canSend: boolean;
 }) {
   /*
    * התקופה **וגבול הטווח שלה יחד**, בעדכון מצב אחד.
@@ -346,6 +349,18 @@ export function OwnerActivity({
             </Notice>
           ) : null}
 
+        </>
+      ) : null}
+
+      {/*
+        ‏פעולות המסירה מחוץ לענף „יש שורות”: תקופה בלי פעילות היא
+        דוח לגיטימי — השרת ובונה המייל שולחים עליה „לא נרשמה פעילות
+        בתקופה זו”, וזה בדיוק מה שבעל נכס ששאל „מה קורה” צריך לקבל.
+        כשהכפתורים ישבו בפנים, המצב הזה היה נתמך בשרת ובלתי אפשרי
+        מהמסך (ביקורת Codex).
+      */}
+      {!loading && report !== null ? (
+        <>
           {sent ? <Notice tone="success">{sent}</Notice> : null}
 
           {/*
@@ -358,11 +373,13 @@ export function OwnerActivity({
             <button
               type="button"
               className="mv-button mv-button--primary"
-              disabled={sending !== null || report.owner?.whatsapp !== true}
+              disabled={sending !== null || !canSend || report.owner?.whatsapp !== true}
               title={
-                report.owner?.whatsapp === true
-                  ? undefined
-                  : "אין טלפון בכרטיס בעל הנכס — אפשר להוסיף אותו בכרטיס"
+                !canSend
+                  ? "שליחה לבעל הנכס דורשת הרשאת עריכת נכסים"
+                  : report.owner?.whatsapp === true
+                    ? undefined
+                    : "אין טלפון בכרטיס בעל הנכס — אפשר להוסיף אותו בכרטיס"
               }
               onClick={() => void send("whatsapp")}
             >
@@ -371,11 +388,13 @@ export function OwnerActivity({
             <button
               type="button"
               className="mv-button mv-button--secondary"
-              disabled={sending !== null || report.owner?.email !== true}
+              disabled={sending !== null || !canSend || report.owner?.email !== true}
               title={
-                report.owner?.email === true
-                  ? undefined
-                  : "אין אימייל בכרטיס בעל הנכס — אפשר להוסיף אותו בכרטיס"
+                !canSend
+                  ? "שליחה לבעל הנכס דורשת הרשאת עריכת נכסים"
+                  : report.owner?.email === true
+                    ? undefined
+                    : "אין אימייל בכרטיס בעל הנכס — אפשר להוסיף אותו בכרטיס"
               }
               onClick={() => void send("email")}
             >

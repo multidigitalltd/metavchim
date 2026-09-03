@@ -2273,6 +2273,12 @@ export default function PropertyDetailPage({
             propertyId={property.id}
             propertyLabel={property.marketingTitle ?? (address || "הנכס")}
             officeName={user?.tenantName ?? "משרד התיווך"}
+            /*
+              ‏הדוח נצפה ב-`properties.view` והשליחה דורשת
+              ‎`properties.edit`. בלי זה צופה קיבל שני כפתורים
+              שנראים פעילים ותמיד מחזירים 403 (ביקורת Codex).
+            */
+            canSend={canEditOwner}
           />
         </div>
       </TabPanel>
