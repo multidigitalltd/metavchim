@@ -41,7 +41,6 @@ import {
 } from "../list-filters";
 import { formatDate } from "@/lib/format";
 import {
-  IconBank,
   IconCheck,
   IconClock,
   IconDiamond,
@@ -1730,38 +1729,37 @@ export default function CollaborationPage() {
                 aria-labelledby="interests-heading"
               >
                 {interests.map((interest) => (
-                  <li key={interest.id} className="mv-net-card">
-                    <div className="mv-net-head">
-                      <span className="mv-net-avatar">
-                        <IconUser s={20} />
+                  <li key={interest.id} className="mv-net-card mv-domain-green">
+                    {/* אותו פס עליון של כרטיסי הפיד: מי מציע, ובאיזו חלוקה */}
+                    <div className="mv-net-top">
+                      <NetOfficeHead name={interest.officeName ?? "משרד תיווך"} />
+                      <span className="mv-pill mv-domain-green">
+                        עמלה {describeCommissionSplit(interest.commissionSplit)}
                       </span>
-                      {/*
-                        הכותרת אומרת **על איזה נכס** ולא מה הקונה
-                        מחפש — זה כבר בשורת התגיות מתחתיה, ואילו
-                        הנכס הוא מה שמאפשר לזהות את הפנייה בשנייה.
-                      */}
-                      <h3 className="mv-net-title">
-                        קונה עבור „{interest.propertyTitle ?? "נכס שפרסמתם"}”
-                      </h3>
-                      {/* לאיזה נכס — משרד שפרסם חמישה נכסים קיבל חמש
-                          פניות שנראו זהות, ולא ידע על מה מדובר */}
-                      {interest.propertyId !== undefined ? (
-                        <Link
-                          href={`/properties/${interest.propertyId}`}
-                          className="mv-net-chip mv-net-chip--primary"
-                          style={{ textDecoration: "none" }}
-                        >
-                          <IconHome s={14} /> פתח את הנכס
-                        </Link>
-                      ) : null}
                     </div>
+                    {/*
+                      הכותרת אומרת **על איזה נכס** ולא מה הקונה מחפש —
+                      זה כבר בשורת התגיות מתחתיה, ואילו הנכס הוא מה
+                      שמאפשר לזהות את הפנייה בשנייה.
+                    */}
+                    <NetHero
+                      title={`קונה עבור „${interest.propertyTitle ?? "נכס שפרסמתם"}”`}
+                      aside={
+                        /* לאיזה נכס — משרד שפרסם חמישה נכסים קיבל חמש
+                           פניות שנראו זהות, ולא ידע על מה מדובר */
+                        interest.propertyId === undefined ? null : (
+                          <Link
+                            href={`/properties/${interest.propertyId}`}
+                            className="mv-net-chip mv-net-chip--primary"
+                            style={{ textDecoration: "none" }}
+                          >
+                            <IconHome s={14} /> פתח את הנכס
+                          </Link>
+                        )
+                      }
+                    />
 
-                    {/* אותו מבנה כמו בהצעות הנכסים — קודם תנאי ההצעה, ואז הקונה */}
-                    <h4 className="mv-net-sec">פרטי ההצעה</h4>
                     <ul className="mv-net-chips">
-                      <li className="mv-net-chip mv-net-chip--primary">
-                        <IconBank s={14} /> {interest.officeName ?? "משרד תיווך"}
-                      </li>
                       <li className="mv-net-chip mv-net-chip--money">
                         <IconCoins s={14} /> העמלה שלי{" "}
                         {100 - interest.commissionSplit}% · למציע{" "}
@@ -1772,7 +1770,6 @@ export default function CollaborationPage() {
                       </li>
                     </ul>
 
-                    <h4 className="mv-net-sec">הקונה המוצע</h4>
                     {/* כל מה שידוע על הקונה למעט מה שמזהה אותו */}
                     <NetChips chips={demandChips(interest.presentation)} />
                     <div className="mb-1">
@@ -1841,8 +1838,10 @@ export default function CollaborationPage() {
                             </div>
                           </div>
                         ) : (
-                          <span className="flex gap-2">
-                            <Button
+                          <span className="mv-net-actions w-full">
+                            <button
+                              type="button"
+                              className="mv-net-act mv-net-act--go"
                               onClick={() =>
                                 void respondToInterest(
                                   interest.id,
@@ -1850,10 +1849,11 @@ export default function CollaborationPage() {
                                 )
                               }
                             >
-                              מעניין — פתח חיבור
-                            </Button>
-                            <Button
-                              variant="ghost"
+                              <IconCheck s={15} /> אישור שיתוף
+                            </button>
+                            <button
+                              type="button"
+                              className="mv-net-act"
                               onClick={() => {
                                 setDeclineText("");
                                 setDeclining({
@@ -1862,8 +1862,8 @@ export default function CollaborationPage() {
                                 });
                               }}
                             >
-                              לא מתאים
-                            </Button>
+                              דחייה
+                            </button>
                           </span>
                         )
                       ) : interest.status === "interested" ? (
