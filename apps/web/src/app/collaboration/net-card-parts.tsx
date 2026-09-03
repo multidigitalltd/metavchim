@@ -362,21 +362,31 @@ export function NetDetailsButton({
 export function NetNoMatch({
   what,
   hint,
+  action,
 }: {
   what: string;
   hint: string;
+  /**
+   * ‎**מה אפשר לעשות בכל זאת.**
+   *
+   * ‏בלי זה הקטע הוא מבוי סתום: „אין לכם נכס מתאים”, סוף. מתווך
+   * קרא, הבין שאין לו מה להציע, וזה נגמר שם — גם כשהנכס שהיה
+   * מתאים בדיוק נכנס למאגר שלו שבוע אחר כך.
+   */
+  action?: React.ReactNode;
 }): React.JSX.Element {
   return (
     <div className="mv-net-nomatch" role="note">
       <span className="mv-net-nomatch-icon" aria-hidden="true">
         <IconUsers s={17} />
       </span>
-      <span className="min-w-0">
+      <span className="min-w-0 flex-1">
         <b className="block text-[length:var(--type-caption-lg)]">{what}</b>
         <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-soft)" }}>
           {hint}
         </span>
       </span>
+      {action === undefined ? null : <span className="shrink-0">{action}</span>}
     </div>
   );
 }
