@@ -2688,6 +2688,32 @@ button.mv-list-row:hover {
 }
 
 /*
+ * המונה שעל הלשונית — „קונים ברשת ⟨32⟩”.
+ *
+ * ‏פס לשוניות בלי מספרים מחייב ללחוץ על כל אחת כדי לדעת אם יש בה
+ * משהו, ובאזור הרשת זו בדיוק השאלה: מתווך פותח את המסך כדי לראות
+ * אם יש לו שם עבודה. המספר על הלשונית עונה עליה בלי לחיצה.
+ *
+ * ‏`currentColor` בשקיפות ולא צבע כתוב: הלשונית הנבחרת ירוקה מלאה
+ * והשאר על משטח בהיר, והמונה חייב להיקרא בשתיהן. כך הוא יורש את
+ * צבע הטקסט של הלשונית שהוא יושב בה — גם בערכה הכהה וגם בניגודיות
+ * גבוהה — במקום להיות בהיר על בהיר באחת מהן.
+ */
+.mv-seg-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentcolor 14%, transparent);
+  font-size: var(--type-caption);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+
+/*
  * לשוניות פנימיות במסך (ניהול משרד). נגללות לרוחב במובייל במקום
  * להישבר לשלוש שורות — פס לשוניות שמתפרס על חצי מסך הוא ניווט שקשה
  * לסרוק בעין.
@@ -4637,6 +4663,73 @@ a.mv-bar-row:focus-visible {
 .mv-net-badge--quiet {
   background: var(--color-hover-soft);
   color: var(--color-text-soft);
+}
+
+/*
+ * רצועת ההתאמות — הקטע המתקפל שבתוך כרטיס הרשת.
+ *
+ * ‏צבעי הדומיין הסגול (`mv-domain-violet` על האלמנט) ולא צבע כתוב:
+ * זה אותו סגול שאריח „מחכים לפעולה” נושא בכרטיס הפתיחה, וזה אותו
+ * דבר בדיוק — מה שמחכה לי לעשות. ‏`--d-line` ולא `--color-border`
+ * כדי שהרצועה תישאר רצועה גם כשהיא סגורה: בלי גבול בצבע שלה היא
+ * הייתה מלבן אפור בתוך כרטיס לבן.
+ */
+.mv-net-strip {
+  margin-bottom: 12px;
+  border: 1px solid var(--d-line);
+  border-radius: 12px;
+  background: var(--d-bg);
+  overflow: hidden;
+}
+.mv-net-strip-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+  color: var(--d-fg);
+  font-size: var(--type-caption-lg);
+  font-weight: 800;
+  /* המשולש הדיפולטי יורד — השברון בקצה הוא הסימן, והוא גם מסתובב */
+  list-style: none;
+}
+.mv-net-strip-head::-webkit-details-marker {
+  display: none;
+}
+.mv-net-strip-title {
+  min-width: 0;
+}
+.mv-net-strip-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  /*
+   * ‏שקיפות של צבע הטקסט עצמו ולא טוקן נוסף: הרצועה יכולה לקבל
+   * דומיין אחר ביום שיהיה כאן קטע שני, והמונה ימשיך להיקרא בלי
+   * לבחור מחדש זוג צבעים.
+   */
+  background: color-mix(in srgb, currentcolor 16%, transparent);
+  font-size: var(--type-caption);
+  font-variant-numeric: tabular-nums;
+}
+.mv-net-strip-chevron {
+  display: inline-flex;
+  margin-inline-start: auto;
+  transition: transform 0.15s ease;
+}
+.mv-net-strip[open] .mv-net-strip-chevron {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mv-net-strip-chevron {
+    transition: none;
+  }
+}
+.mv-net-strip-body {
+  padding: 0 12px 12px;
 }
 
 /* גיבור: אווטאר + מה מחפשים + סוג העסקה */

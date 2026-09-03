@@ -13,6 +13,7 @@ import {
   commissionSplitOptionsWith,
   publisherStatedSplit,
   describeReferralRating,
+  formatIsraeliNumber,
   presentationChips,
   presentationDetailRows,
   referralReasonLabel,
@@ -73,8 +74,11 @@ import { ReachBanner } from "./reach-banner";
 import { DealsList } from "./deals-list";
 import { NetChips } from "./net-chips";
 import {
+  bestMatchScore,
   NetFacts,
   NetHero,
+  NetMatchBadge,
+  NetMatchStrip,
   NetMeta,
   NetMoney,
   NetOffice,
@@ -896,6 +900,20 @@ export default function CollaborationPage() {
   const myDemands = demands === null ? null : demands.filter((d) => d.mine);
   const actionableCount = matchedDemands === null ? null : matchedDemands.length;
 
+  /**
+   * ‎**המספר שעל תת-הלשונית.** `null` = טרם נטען, וזה אינו אפס.
+   *
+   * ‏שלוש התת-לשוniות הן שלושה כיוונים של אותה רשת, ובלי מספר על
+   * אף אחת מהן צריך ללחוץ על כל אחת כדי לדעת אם יש בה משהו. הספירה
+   * מהשרת ולא מהפיד: הפיד חסום במאה שורות.
+   */
+  const subtabCount = (key: CoopTabKey): number | null => {
+    if (netSummary === null) return null;
+    if (key === "demands") return netSummary.demands;
+    if (key === "listings") return netSummary.listings;
+    return netSummary.referrals;
+  };
+
   const incoming = coopOffers.filter((o) => o.direction === "incoming");
   /* פניות שטרם נענו — הן שקובעות את המונה על הלשונית */
   const openInterests = interests.filter((i) => i.status === "sent");
@@ -934,17 +952,29 @@ export default function CollaborationPage() {
                         return (
                           <>
                             <div className="mv-net-top">
-                              {demand.mine ? (
-                                <span className="mv-net-badge mv-net-badge--quiet">
-                                  <IconStar s={14} /> הביקוש שלך
-                                </span>
-                              ) : demand.creditsCost > 0 ? (
-                                <span className="mv-net-badge">
-                                  <IconCoins s={14} /> {demand.creditsCost} קרדיטים
-                                </span>
-                              ) : (
-                                <span />
-                              )}
+                              {/*
+                                ‏שני תגים ולא אחד: „כמה זה מתאים לי”
+                                ו„כמה זה עולה” הן שתי שאלות שונות,
+                                וכשהן חלקו מקום אחד תג הקרדיטים בלע
+                                את ההתאמה בכל מודעה בתשלום.
+                              */}
+                              <span className="flex flex-wrap items-center gap-2">
+                                {demand.mine ? (
+                                  <span className="mv-net-badge mv-net-badge--quiet">
+                                    <IconStar s={14} /> הביקוש שלך
+                                  </span>
+                                ) : (
+                                  <NetMatchBadge
+                                    score={bestMatchScore(demand.myMatches)}
+                                    label="נכס"
+                                  />
+                                )}
+                                {demand.creditsCost > 0 ? (
+                                  <span className="mv-net-badge">
+                                    <IconCoins s={14} /> {demand.creditsCost} קרדיטים
+                                  </span>
+                                ) : null}
+                              </span>
                               <span className="flex flex-wrap items-center gap-2">
                                 {demand.mine ? (
                                   /*
@@ -1040,14 +1070,10 @@ export default function CollaborationPage() {
                           {/* המערכת מחשבת אילו מהנכסים שלי מתאימים — במקום
                         לבחור מרשימה של עשרות ולבזבז קרדיט על ניחוש */}
                           {demand.myMatches && demand.myMatches.length > 0 ? (
-                            <div className="mb-3">
-                              <p
-                                className="m-0 mb-2 text-[length:var(--type-body)] font-bold"
-                                style={{ color: "var(--color-primary)" }}
-                              >
-                                <IconTarget s={16} /> {demand.myMatches.length}{" "}
-                                מהנכסים שלכם מתאימים
-                              </p>
+                            <NetMatchStrip
+                              count={demand.myMatches.length}
+                              title="נכסים שלכם שמתאימים"
+                            >
                               {/*
                                 גם כאן, ולא רק ליד הבורר: „הצע נכס זה”
                                 שולח בלחיצה אחת, ובלי הבורר מולו הוא
@@ -1116,7 +1142,7 @@ export default function CollaborationPage() {
                                   </li>
                                 ))}
                               </ul>
-                            </div>
+                            </NetMatchStrip>
                           ) : (
                             <NetNoMatch
                               what={FOLLOW_EMPTY_TITLE}
@@ -1317,10 +1343,7 @@ export default function CollaborationPage() {
                 ופניות על הנכסים שלי יושבות באותה לשונית */}
               {key === "incoming" &&
               incoming.length + openInterests.length > 0 ? (
-                <span
-                  className="mv-chip ms-1.5"
-                  style={{ padding: "1px 7px", fontSize: "var(--type-caption)" }}
-                >
+                <span className="mv-seg-count">
                   {incoming.length + openInterests.length}
                 </span>
               ) : null}
@@ -1762,20 +1785,32 @@ export default function CollaborationPage() {
         >
           <div className="mb-3.5 flex flex-wrap items-center justify-between gap-2">
             <div className="mv-seg" role="tablist" aria-label="כיווני הרשת">
-              {NETWORK_SUBTABS.map(([key, label, Icon]) => (
-                <button
-                  key={key}
-                  type="button"
-                  role="tab"
-                  id={`coop-tab-${key}`}
-                  aria-selected={coopTab === key}
-                  aria-controls={`coop-panel-${key}`}
-                  aria-pressed={coopTab === key}
-                  onClick={() => setCoopTab(key)}
-                >
-                  <Icon s={15} /> {label}
-                </button>
-              ))}
+              {NETWORK_SUBTABS.map(([key, label, Icon]) => {
+                /*
+                  ‏המספר הוא של כל הרשת ולא של מה שנטען: הפיד חסום
+                  במאה שורות, וספירת הכרטיסים שעל המסך הייתה אומרת
+                  „100” על רשת של 340. מ-`/collaboration/summary`,
+                  אותו מקור שממנו האריחים בכרטיס הפתיחה.
+                */
+                const count = subtabCount(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    id={`coop-tab-${key}`}
+                    aria-selected={coopTab === key}
+                    aria-controls={`coop-panel-${key}`}
+                    aria-pressed={coopTab === key}
+                    onClick={() => setCoopTab(key)}
+                  >
+                    <Icon s={15} /> {label}
+                    {count === null ? null : (
+                      <span className="mv-seg-count">{formatIsraeliNumber(count)}</span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
             {coopTab === "market" ? null : (
               <div className="mv-seg" role="group" aria-label="אופן התצוגה">
@@ -2043,7 +2078,12 @@ export default function CollaborationPage() {
                                   <IconStar s={14} /> הנכס שלך
                                 </span>
                               ) : (
-                                <span />
+                                /* אותו תג בדיוק כמו בצד הקונים — כאן
+                                   הוא סופר קונים שלי ולא נכסים שלי */
+                                <NetMatchBadge
+                                  score={bestMatchScore(listing.myMatches)}
+                                  label="קונה"
+                                />
                               )}
                               <span className="flex flex-wrap items-center gap-2">
                                 {listing.mine ? (
@@ -2135,14 +2175,10 @@ export default function CollaborationPage() {
                             </p>
                           ) : listing.myMatches &&
                             listing.myMatches.length > 0 ? (
-                            <div className="mb-3">
-                              <p
-                                className="m-0 mb-2 text-[length:var(--type-body)] font-bold"
-                                style={{ color: "var(--color-primary)" }}
-                              >
-                                <IconTarget s={16} /> {listing.myMatches.length}{" "}
-                                מהקונים שלכם מתאימים
-                              </p>
+                            <NetMatchStrip
+                              count={listing.myMatches.length}
+                              title="קונים שלכם שמתאימים"
+                            >
                               {/* אותו נימוק בדיוק כמו בצד ההצעה על ביקוש */}
                               <ProposedSplitNote
                                 terms={listing.terms}
@@ -2197,7 +2233,7 @@ export default function CollaborationPage() {
                                   </li>
                                 ))}
                               </ul>
-                            </div>
+                            </NetMatchStrip>
                           ) : (
                             <NetNoMatch
                               what="אין לכם עדיין קונה שמתאים לנכס הזה"

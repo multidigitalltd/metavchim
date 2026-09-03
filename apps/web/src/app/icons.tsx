@@ -294,6 +294,14 @@ export const IconChevronLeft = ({ s }: IconProps) => (
   </svg>
 );
 
+/* ‏למטה — פתיחה וסגירה של קטע, ולא ניווט. כאן הכיוון אינו תלוי
+   בשפה: „פתוח” יורד ו„סגור” עולה בכל מסך. */
+export const IconChevronDown = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M5 9l7 7 7-7" />
+  </svg>
+);
+
 export const IconCoins = ({ s }: IconProps) => (
   <svg {...svgProps(s)}>
     <ellipse cx="12" cy="6.5" rx="7" ry="3" />
