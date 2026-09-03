@@ -65,6 +65,16 @@ import {
   formatNotifyMessage,
   notifyFollowUp,
   dominantNotifyCategory,
+  GOAL_REACHED_NOTIFICATION_TYPE,
+  goalReachedCopy,
+  goalReachedDedupeKey,
+  jerusalemDayLabel,
+  jerusalemWeekStart,
+  LEAD_MEASURE_LABELS,
+  rolesWithCapability,
+  parseWeeklyCommitment,
+  weeklyScore,
+  weekKey,
   appointmentKindLabel,
   shekelLabel,
   propertyHeadline,
@@ -2684,6 +2694,248 @@ async function processPbxSilenceSweep(): Promise<void> {
   }
 }
 
+/* ==========================================================================
+ * ‏המנטור — מי סגר את היעד השבועי, והמנהל שלו יודע לומר על כך משהו
+ * ========================================================================== */
+
+/**
+ * ‎**ספירת הפעולות של סוכן בשבוע — עותק מכוון של מה שה-API סופר.**
+ *
+ * ‏`apps/workers` אינה יכולה לייבא מ-`apps/api` (היא תלויה ב-`shared`
+ * וב-Prisma בלבד), ולכן ההחלטות „מה נחשב” חוזרות כאן: שיחה **יוצאת**
+ * בלבד ומשויכת דרך היוצר או דרך הליד, פגישה ש**התקיימה**, הצעה עם
+ * ‎`sentAt`, ונכס שלא נמחק.
+ *
+ * ‎**זהו הסיכון הגדול של הסורק הזה**, ולכן הוא נשמר בשער: בדיקה
+ * ב-`apps/api` גוזרת את הפרדיקטים מ-`mentor.service.ts` ודורשת
+ * שיופיעו גם כאן. סוכן שיראה במסך „40 שיחות” ומנהל שיקבל הודעה על
+ * 12 הם שני מקורות אמת — וזה בדיוק מה שהופך מנטור לבלתי אמין.
+ */
+async function mentorWeekActual(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  userId: string,
+  from: Date,
+  to: Date,
+): Promise<Record<string, number>> {
+  const range = { gte: from, lt: to };
+
+  const [appointments, listings, leads] = await Promise.all([
+    tx.appointment.count({
+      where: { tenantId, ownerUserId: userId, startsAt: range, status: "completed" },
+    }),
+    tx.property.count({
+      where: { tenantId, agentUserId: userId, deletedAt: null, createdAt: range },
+    }),
+    tx.lead.count({
+      where: { tenantId, assignedToUserId: userId, createdAt: range },
+    }),
+  ]);
+
+  /* שיחות יוצאות — לפי היוצר, ובהיעדרו לפי הליד שהשיחה נוגעת בו */
+  const callRows = await tx.call.findMany({
+    where: { tenantId, direction: "outbound", occurredAt: range },
+    select: { createdBy: true, leadId: true },
+  });
+  let calls = callRows.filter((r) => r.createdBy === userId).length;
+  const orphanLeadIds = [
+    ...new Set(
+      callRows
+        .filter((r) => r.createdBy === null && r.leadId !== null)
+        .map((r) => r.leadId as string),
+    ),
+  ];
+  if (orphanLeadIds.length > 0) {
+    const myLeads = await tx.lead.findMany({
+      where: { tenantId, id: { in: orphanLeadIds }, assignedToUserId: userId },
+      select: { id: true },
+    });
+    const mine = new Set(myLeads.map((l) => l.id));
+    calls += callRows.filter(
+      (r) => r.createdBy === null && r.leadId !== null && mine.has(r.leadId),
+    ).length;
+  }
+
+  /* הצעות — דרך ההתאמה אל הקונה, כי להצעה אין בעלים ישיר */
+  let offers = 0;
+  const sent = await tx.offer.findMany({
+    where: { tenantId, sentAt: range },
+    select: { matchId: true },
+  });
+  if (sent.length > 0) {
+    const matches = await tx.match.findMany({
+      where: { tenantId, id: { in: sent.map((o) => o.matchId) } },
+      select: { id: true, buyerId: true },
+    });
+    if (matches.length > 0) {
+      const mineBuyers = await tx.buyer.findMany({
+        where: {
+          tenantId,
+          ownerUserId: userId,
+          id: { in: [...new Set(matches.map((m) => m.buyerId))] },
+        },
+        select: { id: true },
+      });
+      const ids = new Set(mineBuyers.map((b) => b.id));
+      offers = matches.filter((m) => ids.has(m.buyerId)).length;
+    }
+  }
+
+  return { calls, leads, appointments, offers, listings };
+}
+
+/**
+ * ‎**הסורק: מי סגר את היעד השבועי, ומי צריך לדעת על כך.**
+ *
+ * ## למה סורק, ולא חישוב כשהסוכן פותח את המסך
+ *
+ * ‏המסך מחשב את הציון בכל פתיחה, והיה מפתה לרשום את ההישג שם. אבל
+ * אז „מי סגר את השבוע” היה תלוי במי **הסתכל**: סוכן שעשה את העבודה
+ * ולא נכנס למסך לא היה מזוהה כלל, והמנהל שלו לא היה שומע. אותה טעות
+ * בדיוק כמו ארכיון שנכתב בקריאה.
+ *
+ * ## למה כל יום ולא בסוף השבוע
+ *
+ * ‏שבח שמגיע ביום שבו הדבר קרה עובד; אותו שבח בישיבת צוות שבועיים
+ * אחר כך הוא סעיף בפרוטוקול. הסורק רץ אחת ליום, וסוכן שסגר ביום
+ * שלישי — המנהל שלו יודע ביום שלישי.
+ *
+ * ## מדוע אין כאן בדיקת „כבר שלחנו”
+ *
+ * ‏האילוץ הייחודי על `(tenant, user, week)` הוא שמכריע, והכתיבה היא
+ * ‎`createMany` עם `skipDuplicates`. שתי ריצות במקביל אינן צריכות
+ * לקרוא זו את זו, וגם ריצה שנפלה באמצע אינה מייצרת חגיגה כפולה.
+ */
+async function processMentorGoalSweep(): Promise<void> {
+  const now = new Date();
+  const weekStart = jerusalemWeekStart(now);
+  const key = weekKey(now);
+  const periodStart = new Date(`${jerusalemDayLabel(weekStart)}T00:00:00.000Z`);
+  const managerRoles = rolesWithCapability("analytics.view");
+  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  let celebrated = 0;
+
+  for (const { id: tenantId } of tenants) {
+    try {
+      const found = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+
+        const goals = await tx.mentorGoal.findMany({
+          where: { tenantId, horizon: "week", periodStart },
+          select: { userId: true, commitment: true },
+        });
+        if (goals.length === 0) return 0;
+
+        /*
+         * ‏מי כבר נחגג השבוע — שאילתה אחת, ולא אחת לסוכן. האילוץ
+         * במסד עדיין מגן, וזה רק חוסך את הספירה היקרה.
+         */
+        const done = new Set(
+          (
+            await tx.mentorAchievement.findMany({
+              where: { tenantId, weekKey: key },
+              select: { userId: true },
+            })
+          ).map((a) => a.userId),
+        );
+
+        /*
+         * ‎**מי מקבל את ההודעה — לפי יכולת, לא לפי רשימת תפקידים
+         * כתובה ביד.** תפקיד חדש שיחזיק ב-`analytics.view` יקבל את
+         * ההודעה בלי שאיש יזכור לעדכן כאן רשימה.
+         */
+        const managers = await tx.user.findMany({
+          where: { tenantId, role: { in: managerRoles }, isActive: true },
+          select: { id: true, name: true },
+        });
+        if (managers.length === 0) return 0;
+
+        let written = 0;
+        for (const goal of goals) {
+          if (done.has(goal.userId)) continue;
+          const committed = parseWeeklyCommitment(goal.commitment);
+          if (Object.keys(committed).length === 0) continue;
+
+          const actual = await mentorWeekActual(
+            tx,
+            tenantId,
+            goal.userId,
+            weekStart,
+            now,
+          );
+          const score = weeklyScore(committed, actual);
+          if (score.percent < 100) continue;
+
+          const agent = await tx.user.findFirst({
+            where: { tenantId, id: goal.userId },
+            select: { name: true },
+          });
+          const agentName = agent?.name ?? "הסוכן";
+          const lines = score.lines.map((l) => ({
+            label: LEAD_MEASURE_LABELS[l.measure],
+            committed: l.committed,
+            actual: l.actual,
+          }));
+
+          /*
+           * ‏המזהה נוצר מראש כדי שגם ההתראה תצביע על ההישג עצמו.
+           * ‎`createMany` אינה מחזירה מזהים, ובלי זה ההתראה הייתה
+           * נושאת `entityType: "user"` — סוג כללי שאין לו מסך, ולכן
+           * הלחיצה עליה הייתה נוחתת בדשבורד.
+           */
+          const achievementId = ulid();
+          const created = await tx.mentorAchievement.createMany({
+            data: [
+              {
+                id: achievementId,
+                tenantId,
+                userId: goal.userId,
+                weekKey: key,
+                percent: score.percent,
+                snapshot: lines,
+                reachedAt: now,
+              },
+            ],
+            skipDuplicates: true,
+          });
+          /*
+           * ‏אפס פירושו שריצה אחרת הקדימה — ואז גם ההתראות שלה כבר
+           * נכתבו, ואין מה להוסיף.
+           */
+          if (created.count === 0) continue;
+
+          const copy = goalReachedCopy({ agentName, percent: score.percent, lines });
+          await tx.notification.createMany({
+            data: managers
+              /* ‏מנהל שהוא גם הסוכן אינו מקבל הודעה על עצמו */
+              .filter((m) => m.id !== goal.userId)
+              .map((m) => ({
+                id: ulid(),
+                tenantId,
+                userId: m.id,
+                type: GOAL_REACHED_NOTIFICATION_TYPE,
+                dedupeKey: goalReachedDedupeKey(goal.userId, key, m.id),
+                title: copy.title,
+                body: copy.body,
+                entityType: "mentor_achievement",
+                entityId: achievementId,
+              })),
+            skipDuplicates: true,
+          });
+          written += 1;
+        }
+        return written;
+      });
+      celebrated += found;
+    } catch (error: unknown) {
+      console.error(`[mentor-goal-sweep] ${tenantId}: ${String(error)}`);
+    }
+  }
+  if (celebrated > 0) {
+    console.warn(`[mentor-goal-sweep] ${celebrated} סוכנים סגרו את היעד השבועי`);
+  }
+}
+
 async function processAgentEventsRetention(): Promise<void> {
   const cutoff = new Date(
     Date.now() - AGENT_EVENTS_RETENTION_DAYS * 24 * 60 * 60 * 1000,
@@ -3773,6 +4025,7 @@ async function processLow(job: Job): Promise<void> {
   if (job.name === "exclusivity-sweep") return processExclusivitySweep();
   if (job.name === "custom-automations") return processCustomAutomations(job);
   if (job.name === "pbx-silence-sweep") return processPbxSilenceSweep();
+  if (job.name === "mentor-goal-sweep") return processMentorGoalSweep();
   if (job.name === "agent-events-retention") return processAgentEventsRetention();
 }
 
@@ -3884,6 +4137,21 @@ void lowQueue
   .catch((error: unknown) => {
     console.error(
       `subscription-expiry scheduler registration failed: ${String(error)}`,
+    );
+  });
+// המנטור — 18:00 שעון ישראל, כל יום. סוכן שסגר את היעד בבוקר יישמע
+// אצל המנהל באותו יום, ולא בישיבת צוות שבועיים אחר כך: שבח שמגיע
+// בזמן עובד, ואותו שבח באיחור הוא סעיף בפרוטוקול. שעה מאוחרת ולא
+// מוקדמת, כדי שיום העבודה כבר יהיה מאחורי רוב הסוכנים.
+void lowQueue
+  .upsertJobScheduler(
+    "mentor-goal-sweep",
+    { pattern: "0 18 * * *", tz: "Asia/Jerusalem" },
+    { name: "mentor-goal-sweep" },
+  )
+  .catch((error: unknown) => {
+    console.error(
+      `mentor-goal-sweep scheduler registration failed: ${String(error)}`,
     );
   });
 // דו"ח בוקר — 07:00 שעון ישראל, כל יום

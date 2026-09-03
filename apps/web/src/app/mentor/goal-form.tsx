@@ -3,7 +3,8 @@
 import { useState, type FormEvent } from "react";
 import {
   GOAL_HORIZON_LABELS,
-  GOAL_UNITS,
+  GOAL_UNIT_LABELS,
+  GOAL_UNIT_NOTES,
   LEAD_MEASURE_LABELS,
   LEAD_MEASURES,
   type GoalHorizon,
@@ -32,11 +33,35 @@ import { Notice } from "../notice";
  * ושאלה כזו אחרי שבוע חלש נשמעת כמו חקירה.
  */
 
+/**
+ * ‏התווית במסך. השם הבסיסי מגיע מהחבילה המשותפת, וכאן נוספת רק
+ * יחידת המידה שרלוונטית לטופס („₪”).
+ */
 const UNIT_LABELS: Record<GoalUnit, string> = {
-  commission: "עמלות (₪)",
-  deals: "עסקאות",
-  exclusives: "בלעדיות",
+  commission: `${GOAL_UNIT_LABELS.commission} (₪)`,
+  deals: GOAL_UNIT_LABELS.deals,
+  exclusives: GOAL_UNIT_LABELS.exclusives,
+  leads: GOAL_UNIT_LABELS.leads,
+  calls: GOAL_UNIT_LABELS.calls,
 };
+
+/**
+ * ‎**שתי המשפחות, ולמה הן מופרדות בתפריט.**
+ *
+ * ‏„במה נמדד” הציג חמש אפשרויות ברצף, ומי שקרא אותן לא ידע שהן שני
+ * דברים שונים: „עסקאות” הוא מה שהוא רוצה שיקרה, ו„שיחות” הוא מה
+ * שהוא עושה כדי שזה יקרה. ההפרדה אינה קישוט — היא ההסבר.
+ *
+ * ‏ההסבר עצמו **אינו** לפי משפחה אלא לפי יחידה (`GOAL_UNIT_NOTES`
+ * בחבילה המשותפת). משפט למשפחה הבטיח חישוב לאחור „עד כמה שיחות
+ * ביום” גם ל„בלעדיות”, שעבורן הכרטיס הזה לעולם אינו מוצג — הבטחה
+ * לפלט שלא מגיע. בדיקה משותפת מריצה את `backwardPlan` על כל יחידה
+ * ומוודאת שהמשפט תואם למה שהיא באמת מחזירה.
+ */
+const UNIT_GROUPS: { legend: string; units: GoalUnit[] }[] = [
+  { legend: "תוצאה — מה שאני רוצה שיקרה", units: ["commission", "deals", "exclusives"] },
+  { legend: "פעילות — מה שאני עושה", units: ["leads", "calls"] },
+];
 
 /** ‏שקלים במסך, אגורות בשרת — המרה במקום אחד. */
 const toAgorot = (shekels: number): number => Math.round(shekels * 100);
@@ -146,12 +171,22 @@ export function GoalForm({
             className={field}
             style={style}
           >
-            {GOAL_UNITS.map((value) => (
-              <option key={value} value={value}>
-                {UNIT_LABELS[value]}
-              </option>
+            {UNIT_GROUPS.map((group) => (
+              <optgroup key={group.legend} label={group.legend}>
+                {group.units.map((value) => (
+                  <option key={value} value={value}>
+                    {UNIT_LABELS[value]}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
+          <p
+            className="m-0 mt-1 text-[length:var(--type-caption)]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            {GOAL_UNIT_NOTES[unit]}
+          </p>
         </div>
         <div>
           <label htmlFor={`target-${horizon}`} className="mb-1 block text-sm font-bold">
@@ -167,7 +202,9 @@ export function GoalForm({
             name="target"
             inputMode="numeric"
             defaultValue={startValue}
-            placeholder={unit === "commission" ? "500,000" : "12"}
+            placeholder={
+              unit === "commission" ? "500,000" : unit === "calls" ? "1,000" : "12"
+            }
             className={field}
             style={style}
           />

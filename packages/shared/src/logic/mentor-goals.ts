@@ -77,19 +77,85 @@ export const HORIZON_WEEKS: Record<GoalHorizon, number> = {
 };
 
 /**
- * ‏במה נמדד היעד. שלוש יחידות ולא אחת: יש מי שמנהל את עצמו לפי
- * עמלות, יש מי שסופר עסקאות, ויש מי שכל הרבעון שלו הוא „כמה
- * בלעדיות הבאתי”. החישוב לאחור עובד מכולן.
+ * ‎**במה נמדד היעד — ושתי משפחות, לא רשימה אחת.**
+ *
+ * ‎**תוצאה** (עמלות, עסקאות, בלעדיות) היא מה שהמתווך רוצה שיקרה,
+ * ואין לו שליטה ישירה עליה: היא נסגרת בהחלטה של מישהו אחר, ולעתים
+ * חודשיים אחרי העבודה שהביאה אליה.
+ *
+ * ‎**פעילות** (לידים, שיחות) היא מה שהוא עושה בעצמו, והיא היחידה
+ * שאפשר להתחייב לה מחר בבוקר.
+ *
+ * ‏שתיהן יעדים לגיטימיים, והן מתנהגות אחרת בחישוב לאחור: יעד תוצאה
+ * עובר במשפך ההמרה, ויעד פעילות רק נפרס על השנה — כי הוא **כבר**
+ * המספר שנמדד. להעביר „1,000 שיחות” במשפך היה ממציא שלב שאינו קיים.
  */
-export const GOAL_UNITS = ["commission", "deals", "exclusives"] as const;
+export const GOAL_UNITS = [
+  "commission",
+  "deals",
+  "exclusives",
+  "leads",
+  "calls",
+] as const;
 export type GoalUnit = (typeof GOAL_UNITS)[number];
+
+/**
+ * ‏לאיזו משפחה שייכת כל יחידה. המסך מקבץ לפי זה, והחישוב לאחור
+ * מסתעף לפי זה — ובדיקה מוודאת שהמפה והענף אומרים אותו דבר.
+ */
+export const GOAL_UNIT_KIND: Record<GoalUnit, "result" | "activity"> = {
+  commission: "result",
+  deals: "result",
+  exclusives: "result",
+  leads: "activity",
+  calls: "activity",
+};
+
+/** שם היחידה בעברית — לכל מקום שמציג יעד. */
+export const GOAL_UNIT_LABELS: Record<GoalUnit, string> = {
+  commission: "עמלות",
+  deals: "עסקאות",
+  exclusives: "בלעדיות",
+  leads: "לידים חדשים",
+  calls: "שיחות יוצאות",
+};
+
+/**
+ * ‎**מה הטופס אומר על כל יחידה — ולמה לכל אחת משפט משלה.**
+ *
+ * ‏המשפטים היו קודם לפי **משפחה**, ואז המשפחה „תוצאה” הבטיחה חישוב
+ * לאחור „עד כמה שיחות ביום” גם ל„בלעדיות” — שעבורן `backwardPlan`
+ * מחזירה `incomplete` והכרטיס אינו מוצג כלל. כלומר הטופס הבטיח פלט
+ * שלעולם אינו מגיע, וזה בדיוק הכשל שהמסך הזה נבנה כדי למנוע.
+ *
+ * ‏משפט לכל יחידה אינו יכול להיסדק כך, ובדיקה מריצה את `backwardPlan`
+ * על כל יחידה ומוודאת שמה שנכתב כאן מתאים למה שהיא באמת מחזירה.
+ */
+export const GOAL_UNIT_NOTES: Record<GoalUnit, string> = {
+  commission:
+    "נסגר בהחלטה של מישהו אחר, לפעמים חודשיים אחרי העבודה שהביאה אליו. מכאן אני עושה את החשבון אחורה עד כמה שיחות ביום.",
+  deals:
+    "נסגר בהחלטה של מישהו אחר, לפעמים חודשיים אחרי העבודה שהביאה אליו. מכאן אני עושה את החשבון אחורה עד כמה שיחות ביום.",
+  exclusives:
+    "בלעדיות מגיעות מהצד של בעל הנכס — פנייה, הערכת שווי, חתימה — ולא ממשפך הקונים. היעד נשמר ונמדד, אבל חישוב לאחור לא יוצג כאן: הוא היה מבוסס על יחס המרה שאינו קיים.",
+  leads:
+    "בשליטה מלאה שלך, ואפשר להתחייב לזה כבר מחר בבוקר. אין כאן חשבון אחורה — היעד עצמו הוא המספר, ואני רק פורס אותו על השבועות.",
+  calls:
+    "בשליטה מלאה שלך, ואפשר להתחייב לזה כבר מחר בבוקר. אין כאן חשבון אחורה — היעד עצמו הוא המספר, ואני רק מחלק אותו לימי העבודה.",
+};
 
 /**
  * ‏פעולות שהמתווך שולט בהן, ושהמערכת יודעת לספור לבד. אלה „מדדים
  * מובילים”: הם מנבאים את התוצאה, ואפשר לתקן אותם עוד השבוע — בניגוד
  * לעסקה שנסגרת בעוד חודשיים.
  */
-export const LEAD_MEASURES = ["calls", "appointments", "offers", "listings"] as const;
+export const LEAD_MEASURES = [
+  "calls",
+  "leads",
+  "appointments",
+  "offers",
+  "listings",
+] as const;
 export type LeadMeasure = (typeof LEAD_MEASURES)[number];
 
 /* ==========================================================================
@@ -137,18 +203,29 @@ export interface BackwardPlanInput {
   workDaysPerWeek?: number;
 }
 
+/**
+ * ‎**כל שורה היא `number | null`, ו-`null` אינו אפס.**
+ *
+ * ‏אפס הוא טענה — „לא צריך שיחות”. `null` הוא היעדר טענה: השורה לא
+ * חושבה, ולכן אינה מוצגת. ההבחנה נחוצה מרגע שיש יעדי פעילות: מיעד
+ * של „1,000 שיחות” ידועות השיחות בלבד, ולהציג לצידן „0 עסקאות” היה
+ * אומר למתווך שהתוכנית שלו אינה מובילה לשום עסקה.
+ */
 export interface BackwardPlan {
   /** עסקאות שנדרשות לשנה כדי לעמוד ביעד. */
-  dealsPerYear: number;
-  offersPerYear: number;
-  appointmentsPerYear: number;
-  callsPerYear: number;
+  dealsPerYear: number | null;
+  offersPerYear: number | null;
+  appointmentsPerYear: number | null;
+  callsPerYear: number | null;
+  leadsPerYear: number | null;
   /** השורה היחידה שמשנה מחר בבוקר. */
-  callsPerWorkday: number;
-  appointmentsPerWeek: number;
+  callsPerWorkday: number | null;
+  appointmentsPerWeek: number | null;
+  leadsPerWeek: number | null;
   /**
-   * ‎`true` כשאי אפשר לחשב — אין עמלה ממוצעת, או שאחד היחסים אפס.
-   * מסך שמציג „0 שיחות ביום” על חישוב שלא רץ משקר בשקט.
+   * ‎`true` כשאין ולו שורה אחת לחשב — אין עמלה ממוצעת, אחד היחסים
+   * אפס, או יחידה שאין לה משפך. מסך שמציג „0 שיחות ביום” על חישוב
+   * שלא רץ משקר בשקט, ולכן הכרטיס כולו אינו מוצג.
    */
   incomplete: boolean;
 }
@@ -171,15 +248,47 @@ function over(value: number, ratio: number): number | null {
  */
 export function backwardPlan(input: BackwardPlanInput): BackwardPlan {
   const empty: BackwardPlan = {
-    dealsPerYear: 0,
-    offersPerYear: 0,
-    appointmentsPerYear: 0,
-    callsPerYear: 0,
-    callsPerWorkday: 0,
-    appointmentsPerWeek: 0,
+    dealsPerYear: null,
+    offersPerYear: null,
+    appointmentsPerYear: null,
+    callsPerYear: null,
+    leadsPerYear: null,
+    callsPerWorkday: null,
+    appointmentsPerWeek: null,
+    leadsPerWeek: null,
     incomplete: true,
   };
   if (!Number.isFinite(input.target) || input.target <= 0) return empty;
+
+  const workDays = input.workDaysPerWeek ?? 5;
+
+  /*
+   * ‎**יעד פעילות אינו עובר במשפך — הוא כבר המספר שנמדד.**
+   *
+   * ‏„1,000 שיחות השנה” הוא יעד שלם בפני עצמו, ומה שחסר עליו הוא
+   * חלוקה: כמה זה ביום עבודה. להריץ אותו דרך `callToAppointment`
+   * היה עונה על שאלה אחרת לגמרי — כמה שיחות נדרשות כדי להגיע
+   * לעסקאות שמספרן לא נאמר.
+   *
+   * ‏שאר השורות נשארות `null`: מיעד שיחות אי אפשר לגזור כמה עסקאות
+   * ייסגרו בלי לדעת מה המתווך רוצה להרוויח.
+   */
+  if (input.unit === "leads" || input.unit === "calls") {
+    const perYear = Math.ceil(input.target);
+    return input.unit === "leads"
+      ? {
+          ...empty,
+          leadsPerYear: perYear,
+          leadsPerWeek: Math.ceil(perYear / HORIZON_WEEKS.year),
+          incomplete: false,
+        }
+      : {
+          ...empty,
+          callsPerYear: perYear,
+          callsPerWorkday: Math.ceil(perYear / (HORIZON_WEEKS.year * workDays)),
+          incomplete: false,
+        };
+  }
 
   /*
    * ‎**„בלעדיות” אינן עסקאות, ואין להן משפך** (ביקורת Codex, P2).
@@ -222,7 +331,6 @@ export function backwardPlan(input: BackwardPlanInput): BackwardPlan {
     return { ...empty, dealsPerYear };
   }
 
-  const workDays = input.workDaysPerWeek ?? 5;
   const callsPerYear = Math.ceil(calls);
   const appointmentsPerYear = Math.ceil(appointments);
   return {
@@ -232,6 +340,13 @@ export function backwardPlan(input: BackwardPlanInput): BackwardPlan {
     callsPerYear,
     callsPerWorkday: Math.ceil(callsPerYear / (HORIZON_WEEKS.year * workDays)),
     appointmentsPerWeek: Math.ceil(appointmentsPerYear / HORIZON_WEEKS.year),
+    /*
+     * ‏המשפך מתאר קונים ואינו יודע כמה **לידים** נדרשים: ליד מגיע
+     * משיווק, מהפניה או ממודעה, ואין יחס המרה בין שיחה לליד שהמערכת
+     * מודדת. `null` ולא ניחוש.
+     */
+    leadsPerYear: null,
+    leadsPerWeek: null,
     incomplete: false,
   };
 }
@@ -254,6 +369,28 @@ export function splitToHorizon(yearlyTarget: number, horizon: GoalHorizon): numb
 /** מה שהמתווך התחייב לו השבוע, ומה שהמערכת ספרה בפועל. */
 export type WeeklyCommitment = Partial<Record<LeadMeasure, number>>;
 export type WeeklyActual = Partial<Record<LeadMeasure, number>>;
+
+/**
+ * ‎**קריאת התחייבות מ-JSON — במקום אחד לשני התהליכים.**
+ *
+ * ‏ה-API קורא אותה כדי להציג את הציון, והסורק היומי קורא אותה כדי
+ * להחליט אם הסוכן סגר את השבוע. שני מפענחים נפרדים לאותו JSON הם
+ * שתי דעות על מה נחשב התחייבות — ומספיק שאחד מהם יקבל אפס או ערך
+ * שלילי כדי שהמנהל יקבל חגיגה על שבוע שהסוכן רואה כלא-סגור.
+ *
+ * ‏רק מספר חיובי הוא התחייבות: אפס פירושו „לא התחייבתי לזה”, ולא
+ * „התחייבתי לכלום”.
+ */
+export function parseWeeklyCommitment(value: unknown): WeeklyCommitment {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return {};
+  const raw = value as Record<string, unknown>;
+  const out: WeeklyCommitment = {};
+  for (const measure of LEAD_MEASURES) {
+    const n = raw[measure];
+    if (typeof n === "number" && Number.isFinite(n) && n > 0) out[measure] = Math.floor(n);
+  }
+  return out;
+}
 
 export interface WeeklyScore {
   /** אחוז ביצוע 0..100, ממוצע על הפעולות שהתחייב להן. */
@@ -568,6 +705,7 @@ export function goalPeriod(horizon: GoalHorizon, now: Date): GoalPeriod {
 /** שמות הפעולות בעברית — לכל מקום שמציג מדד. */
 export const LEAD_MEASURE_LABELS: Record<LeadMeasure, string> = {
   calls: "שיחות",
+  leads: "לידים חדשים",
   appointments: "פגישות",
   offers: "הצעות",
   listings: "נכסים חדשים",
@@ -584,6 +722,7 @@ export const GOAL_HORIZON_LABELS: Record<GoalHorizon, string> = {
 /** צורת יחיד, לניסוח „נשארה שיחה אחת”. */
 const MEASURE_SINGULAR: Record<LeadMeasure, string> = {
   calls: "שיחה אחת",
+  leads: "ליד אחד",
   appointments: "פגישה אחת",
   offers: "הצעה אחת",
   listings: "נכס אחד",

@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   backwardPlan,
@@ -14,6 +14,10 @@ import {
   mentorMoments,
   splitToHorizon,
   weeklyScore,
+  parseWeeklyCommitment,
+  cleanFeedback,
+  feedbackCopy,
+  FEEDBACK_NOTIFICATION_TYPE,
   weekKey,
   type BackwardPlan,
   type ConversionRatios,
@@ -93,6 +97,14 @@ export interface MentorOverviewDto {
   weekOverWeek: MeasureComparison[];
   /** ארבעת המדדים, שלושה-עשר השבועות האחרונים מול אלה שלפניהם. */
   cycleOverCycle: MeasureComparison[];
+  /**
+   * ‎**שלושה-עשר השבועות, כל אחד עם הציון שלו — הגרף.**
+   *
+   * ‎`percent: null` הוא שבוע שלא הייתה בו התחייבות, והוא נבדל
+   * מאפס בכוונה: עמודה בגובה אפס אומרת „נכשלת”, והיעדר עמודה אומר
+   * „לא הבטחת”.
+   */
+  weeklyTrend: WeekPoint[];
   /** ‏יחסי ההמרה שנגזרו מההיסטוריה שלו, או `null` כשאין מספיק. */
   derivedRatios: ConversionRatios | null;
   /** ‎`true` כשהיחסים בשימוש הם ברירת המחדל הענפית ולא שלו. */
@@ -106,6 +118,59 @@ export interface MentorOverviewDto {
    * ארבעים פעם ולתת לו להסיק שהוא לא עבד.
    */
   unattributedCalls: number;
+}
+
+/**
+ * ‎**שבוע שסוכן סגר בו את היעד, כפי שהמנהל רואה אותו.**
+ *
+ * ‏המספרים הם `snapshot` — מה שנקרא ברגע ההישג. חישוב מחדש בעת
+ * הצפייה היה משנה את מה שהמנהל מגיב עליו: שיחה שנמחקה חודש אחרי
+ * הייתה הופכת „42 מתוך 40” ל„41 מתוך 40”, ואת השבח לשגיאה.
+ */
+export interface AchievementDto {
+  id: string;
+  userId: string;
+  userName: string;
+  weekKey: string;
+  percent: number;
+  reachedAt: Date;
+  lines: { label: string; committed: number; actual: number }[];
+  feedback: { text: string; byName: string; at: Date } | null;
+}
+
+/**
+ * ‎**קריאת התצלום מ-JSON.**
+ *
+ * ‏העמודה היא `Json`, כלומר כל דבר יכול לשבת בה — כולל שורה שנכתבה
+ * בגרסה קודמת של הסורק. פענוח סלחני מחזיר רק שורות שלמות, ומסך
+ * שמציג „undefined מתוך undefined” גרוע ממסך שמציג פחות.
+ */
+function toSnapshotLines(
+  value: unknown,
+): { label: string; committed: number; actual: number }[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row) => {
+    if (row === null || typeof row !== "object") return [];
+    const r = row as Record<string, unknown>;
+    if (
+      typeof r["label"] !== "string" ||
+      typeof r["committed"] !== "number" ||
+      typeof r["actual"] !== "number"
+    ) {
+      return [];
+    }
+    return [{ label: r["label"], committed: r["committed"], actual: r["actual"] }];
+  });
+}
+
+/** ‏נקודה אחת בגרף השבועי. */
+export interface WeekPoint {
+  /** ‏יום ראשון של אותו שבוע, `YYYY-MM-DD` בשעון ישראל. */
+  weekKey: string;
+  /** ‏אחוז הביצוע, או `null` כששבוע זה לא נשא התחייבות. */
+  percent: number | null;
+  /** ‎`true` לשבוע שעוד רץ — הוא אינו נספר לרצף. */
+  current: boolean;
 }
 
 /** מה שהמסך שולח כשהוא קובע או מעדכן יעד. */
@@ -129,16 +194,6 @@ export interface SaveGoalInput {
 const MIN_WEEKS_FOR_RATIOS = 13;
 
 /** ‏המרה בטוחה של JSON מהמסד למחויבות שבועית. */
-function toCommitment(value: unknown): WeeklyCommitment {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return {};
-  const raw = value as Record<string, unknown>;
-  const out: WeeklyCommitment = {};
-  for (const measure of LEAD_MEASURES) {
-    const n = raw[measure];
-    if (typeof n === "number" && Number.isFinite(n) && n > 0) out[measure] = Math.floor(n);
-  }
-  return out;
-}
 
 /** ‏המרה בטוחה של JSON מהמסד ליחסי המרה. חסר ⇒ ברירת המחדל. */
 function toRatios(value: unknown): ConversionRatios {
@@ -241,7 +296,7 @@ export class MentorService {
             ? {}
             : { averageCommissionAgorot: Number(row.averageCommissionAgorot) }),
           ratios: toRatios(row.ratios),
-          commitment: toCommitment(row.commitment),
+          commitment: parseWeeklyCommitment(row.commitment),
           ...(row.obstacle === null ? {} : { obstacle: row.obstacle }),
           ...(row.ifThenPlan === null ? {} : { ifThenPlan: row.ifThenPlan }),
           periodStart: period.start,
@@ -262,7 +317,20 @@ export class MentorService {
        * מגבלת חמש השניות.
        */
       const cycleStart = jerusalemWeekStart(now, -(MIN_WEEKS_FOR_RATIOS - 1));
-      const thisCycle = await this.countMeasures(tx, scope, cycleStart, now);
+      /*
+       * ‎**שליפה אחת של זמנים, ולא שש ספירות של טווחים חופפים.**
+       *
+       * ‏השבוע הנוכחי, השבוע שעבר, המחזור, שני השבועות של הרצף
+       * והגרף השבועי — כולם חתכים של אותם שלושה-עשר שבועות. עד כה
+       * כל אחד מהם היה סבב שאילתות משלו, והם גם מה שהפיל את
+       * הטרנזקציה על מגבלת חמש השניות.
+       *
+       * ‏מעבר לביצועים יש כאן הכרעה על נכונות: כשכל החתכים נחתכים
+       * מאותה רשימה, הגרף אינו יכול לומר דבר אחר מהציון. שתי
+       * שאילתות נפרדות על אותה שאלה הן שתי אמיתות שממתינות להיפרד.
+       */
+      const cycleTimes = await this.measureTimes(tx, scope, cycleStart, now);
+      const thisCycle = this.countsIn(cycleTimes);
 
       /* ---- החישוב לאחור, על היחסים שלו כשיש ---- */
       const derivedRatios = ratiosFrom(thisCycle);
@@ -297,7 +365,7 @@ export class MentorService {
        * לפני שהתקיימה ולו פגישה אחת. „מה עשיתי” אינו „מה מתוכנן”,
        * וזה בדיוק ההבדל שהופך את הציון למשהו שאפשר להאמין לו.
        */
-      const actual = await this.countMeasures(tx, scope, thisWeek, now);
+      const actual = this.countsIn(cycleTimes, thisWeek);
       const committed = weekGoal?.commitment ?? {};
       const score = weeklyScore(committed, actual);
 
@@ -334,13 +402,15 @@ export class MentorService {
        * השבוע זו עבודה שאיש אינו רואה — ושתים-עשרה שאילתות שהעמיסו
        * את הטרנזקציה על לא כלום.
        */
-      const [lastWeek, weekBefore] =
-        jerusalemWeekday(now) === 0
-          ? await Promise.all([
-              this.completedWeekScore(tx, scope, jerusalemWeekStart(now, -1)),
-              this.completedWeekScore(tx, scope, jerusalemWeekStart(now, -2)),
-            ])
-          : [null, null];
+      /*
+       * ‏שלושה-עשר השבועות שהסתיימו, כל אחד עם הציון שלו — ‎`null`
+       * כשלא הייתה בו התחייבות. זה גם הגרף וגם המקור לרצף, ולכן
+       * אין דרך שהם יאמרו דברים שונים.
+       */
+      const trend = await this.weeklyTrend(tx, scope, cycleTimes, now);
+      const closed = trend.filter((w) => !w.current);
+      const lastWeek = closed[closed.length - 1]?.percent ?? null;
+      const weekBefore = closed[closed.length - 2]?.percent ?? null;
       /*
        * ‏סדר, ולא סינון: „פעמיים ברצף” בודק את שני האיברים הראשונים,
        * ולכן שבוע חסר במקום הראשון חייב לקטוע את הרשימה ולא להידחס
@@ -371,17 +441,15 @@ export class MentorService {
       });
 
       /* ---- „איפה היית” ---- */
-      const previousWeek = await this.countMeasures(
-        tx,
-        scope,
-        jerusalemWeekStart(now, -1),
-        thisWeek,
-      );
-      const lastCycle = await this.countMeasures(
-        tx,
-        scope,
-        jerusalemWeekStart(now, -(MIN_WEEKS_FOR_RATIOS * 2 - 1)),
-        cycleStart,
+      const previousWeek = this.countsIn(cycleTimes, jerusalemWeekStart(now, -1), thisWeek);
+      /* ‏המחזור שלפני הקודם הוא מחוץ לחלון, ולכן הוא השליפה השנייה והאחרונה */
+      const lastCycle = this.countsIn(
+        await this.measureTimes(
+          tx,
+          scope,
+          jerusalemWeekStart(now, -(MIN_WEEKS_FOR_RATIOS * 2 - 1)),
+          cycleStart,
+        ),
       );
 
       return {
@@ -407,6 +475,7 @@ export class MentorService {
           measure,
           ...comparePeriods(thisCycle[measure] ?? 0, lastCycle[measure] ?? 0),
         })),
+        weeklyTrend: trend,
         derivedRatios,
         usingDefaultRatios: derivedRatios === null,
         unattributedCalls,
@@ -478,6 +547,137 @@ export class MentorService {
     });
   }
 
+
+  /* ======================================================================
+   * ‏מי סגר את השבוע — והתגובה של המנהל
+   * ====================================================================== */
+
+  /**
+   * ‎**הסוכנים שסגרו את היעד לאחרונה, למסך המנהל.**
+   *
+   * ‏מוצגים גם אלה שכבר קיבלו מילה וגם אלה שלא, ומי שלא — ראשון.
+   * מסך שמציג רק את הממתינים היה מוחק את ההיסטוריה בכל פעם שהמנהל
+   * מגיב, ואז אי אפשר לראות מי נשאר בלי תגובה שבועיים ברצף.
+   *
+   * ‏הגישה נשמרת ב-`analytics.view` בבקר. אין כאן סינון לפי סוכן:
+   * ההישג הזה **נועד** להיראות בידי ההנהלה, וזה בדיוק ההבדל בינו
+   * לבין היעד עצמו — שהוא פרטי.
+   */
+  async achievements(limit = 20): Promise<AchievementDto[]> {
+    const ctx = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.mentorAchievement.findMany({
+        where: { tenantId: ctx.tenantId },
+        orderBy: [{ feedbackAt: { sort: "asc", nulls: "first" } }, { reachedAt: "desc" }],
+        take: limit,
+      });
+      if (rows.length === 0) return [];
+
+      /* ‏שמות בשליפה אחת — הסוכן והמגיב גם יחד */
+      const ids = [
+        ...new Set(
+          rows.flatMap((r) => [r.userId, r.feedbackByUserId].filter((v): v is string => v !== null)),
+        ),
+      ];
+      const users = await tx.user.findMany({
+        where: { tenantId: ctx.tenantId, id: { in: ids } },
+        select: { id: true, name: true },
+      });
+      const nameOf = new Map(users.map((u) => [u.id, u.name]));
+
+      return rows.map((row) => ({
+        id: row.id,
+        userId: row.userId,
+        userName: nameOf.get(row.userId) ?? "סוכן",
+        weekKey: row.weekKey,
+        percent: row.percent,
+        reachedAt: row.reachedAt,
+        lines: toSnapshotLines(row.snapshot),
+        feedback:
+          row.feedbackText === null || row.feedbackAt === null
+            ? null
+            : {
+                text: row.feedbackText,
+                byName: nameOf.get(row.feedbackByUserId ?? "") ?? "המנהל",
+                at: row.feedbackAt,
+              },
+      }));
+    });
+  }
+
+  /**
+   * ‎**המנהל כותב, והסוכן מקבל התראה.**
+   *
+   * ‏הכתיבה וההתראה באותה טרנזקציה: פידבק שנשמר בלי שההתראה נכתבה
+   * הוא פידבק שהסוכן לעולם לא יראה, וזה גרוע מלא לכתוב אותו.
+   *
+   * ‎**כתיבה חוזרת מעדכנת ואינה שולחת שוב.** מנהל שתיקן ניסוח אינו
+   * מתכוון להתריע פעמיים, והמפתח הייחודי על ההתראה מכריע גם אם כן.
+   */
+  async sendFeedback(achievementId: string, text: string): Promise<void> {
+    const ctx = TenantContext.current();
+    const clean = cleanFeedback(text);
+    if (clean === null) throw new BadRequestException("אין מה לשלוח — הטקסט ריק");
+
+    await this.prisma.withTenant(async (tx) => {
+      const row = await tx.mentorAchievement.findFirst({
+        where: { tenantId: ctx.tenantId, id: achievementId },
+        select: { id: true, userId: true, weekKey: true, feedbackAt: true },
+      });
+      if (row === null) throw new NotFoundException("ההישג לא נמצא");
+
+      const manager = await tx.user.findFirst({
+        where: { tenantId: ctx.tenantId, id: ctx.userId },
+        select: { name: true },
+      });
+      const managerName = manager?.name ?? "המנהל";
+
+      /*
+       * ‎`updateMany` עם `tenantId` ולא `update` לפי מפתח ראשי.
+       * ה-RLS היה מגן ממילא, אבל שער ההיקף דורש שכל שאילתה תסנן
+       * לפי משרד — והכלל הזה שווה יותר מהקיצור: הוא מה שמוודא
+       * שהשאילתה הבאה, שתיכתב מחוץ להקשר הזה, לא תסמוך על RLS לבדו.
+       */
+      await tx.mentorAchievement.updateMany({
+        where: { tenantId: ctx.tenantId, id: row.id },
+        data: {
+          feedbackText: clean,
+          feedbackByUserId: ctx.userId,
+          feedbackAt: new Date(),
+        },
+      });
+
+      /*
+       * ‏מנהל שמגיב על ההישג של עצמו אינו שולח לעצמו התראה. זה קורה
+       * במשרד קטן שבו הבעלים הוא גם סוכן, וזה המקרה הנפוץ אצלנו.
+       */
+      if (row.userId === ctx.userId) return;
+
+      const copy = feedbackCopy(managerName, clean);
+      await tx.notification.createMany({
+        data: [
+          {
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            userId: row.userId,
+            type: FEEDBACK_NOTIFICATION_TYPE,
+            /*
+             * ‏מפתח לכל תיקון ולא לכל הישג: מנהל שכתב שוב אחרי שבוע
+             * מתכוון שהסוכן יראה. מה שנמנע הוא לחיצה כפולה על אותו
+             * טקסט, ולכן המפתח נושא את התוכן.
+             */
+            dedupeKey: `mentor_feedback:${row.id}:${clean.length}:${clean.slice(0, 24)}`,
+            title: copy.title,
+            body: copy.body,
+            entityType: "mentor_achievement",
+            entityId: row.id,
+          },
+        ],
+        skipDuplicates: true,
+      });
+    });
+  }
+
   /* ======================================================================
    * ‏הספירה עצמה
    * ====================================================================== */
@@ -501,16 +701,16 @@ export class MentorService {
    * ‎**נכסים — שנקלטו בטווח ומשויכים אליו.** זה „מדד הבלעדיות”: מה
    * שהמתווך הכניס למלאי.
    */
-  private async countMeasures(
+  private async measureTimes(
     tx: PrismaTx,
     scope: { tenantId: string; userId: string },
     from: Date,
     to: Date,
-  ): Promise<WeeklyActual> {
+  ): Promise<Record<LeadMeasure, Date[]>> {
     const { tenantId, userId } = scope;
     const range = { gte: from, lt: to };
 
-    const [appointments, listings] = await Promise.all([
+    const [appointments, listings, leads] = await Promise.all([
       /*
        * ‎**רק פגישות שהתקיימו** (ביקורת Codex, P2). ‏הסינון היה „לא
        * מבוטלת”, וזה השאיר בפנים גם `scheduled` שחלפה בלי שאיש אישר
@@ -519,56 +719,111 @@ export class MentorService {
        * כשנרשמת תוצאה (`calendar.service`), ואותו סינון בדיוק
        * שהאנליטיקה משתמשת בו לסיורים שהתקיימו.
        */
-      tx.appointment.count({
+      tx.appointment.findMany({
         where: { tenantId, ownerUserId: userId, startsAt: range, status: "completed" },
+        select: { startsAt: true },
       }),
-      tx.property.count({
+      tx.property.findMany({
         where: { tenantId, agentUserId: userId, deletedAt: null, createdAt: range },
+        select: { createdAt: true },
+      }),
+      /*
+       * ‎**לידים חדשים — שנוצרו בטווח ומוקצים אליו.**
+       *
+       * ‎`assignedToUserId` ולא `createdBy`: ליד שנכנס מטופס אינטרנט
+       * או מהמרכזייה נוצר בידי המערכת, והשאלה היא של מי הוא — כלומר
+       * מי אמור לעבוד עליו. זו גם ההקצאה שהמתווך רואה ברשימת הלידים,
+       * כך שהמספר כאן והמספר שם הם אותו מספר.
+       */
+      tx.lead.findMany({
+        where: { tenantId, assignedToUserId: userId, createdAt: range },
+        select: { createdAt: true },
       }),
     ]);
 
     return {
-      calls: await this.countOutboundCalls(tx, scope, range),
-      appointments,
-      offers: await this.countOffersSent(tx, scope, range),
-      listings,
+      calls: await this.outboundCallTimes(tx, scope, range),
+      leads: leads.map((r) => r.createdAt),
+      appointments: appointments.map((r) => r.startsAt),
+      offers: await this.offerSentTimes(tx, scope, range),
+      listings: listings.map((r) => r.createdAt),
     };
   }
 
+  /** ‏אותה מדידה, כשכל מה שנדרש הוא כמה. */
+  private countsIn(times: Record<LeadMeasure, Date[]>, from?: Date, to?: Date): WeeklyActual {
+    const out: WeeklyActual = {};
+    for (const measure of LEAD_MEASURES) {
+      out[measure] = times[measure].filter(
+        (t) => (from === undefined || t >= from) && (to === undefined || t < to),
+      ).length;
+    }
+    return out;
+  }
+
   /**
-   * ‎**הציון של שבוע שהסתיים — מחושב מהמחויבות ומהפעילות.**
+   * ‎**שלושה-עשר השבועות האחרונים, כל אחד עם הציון שלו.**
    *
-   * ‎`null` כשלא הייתה מחויבות באותו שבוע, וזו הכרעה ולא פרט טכני
-   * (ביקורת Codex, P2): שבוע שהמתווך לא התחייב בו לכלום אינו „שבוע
-   * חלש”, הוא שבוע שלא נמדד. בלי ההבחנה הזו, מי שנכנס למסך פעמיים
-   * לפני שקבע יעד ראשון היה מקבל ביום ראשון „שבוע שני שלא נסגר” על
-   * שני שבועות שלא הבטיח בהם דבר — בדיוק ההפך ממה שהמנטור אמור
-   * לעשות בפגישה הראשונה איתו.
+   * ## שתי הכרעות שהגרף הזה נשען עליהן
+   *
+   * ‎**1. ההיסטוריה מחושבת, לא נשלפת מארכיון.** הגרסה הקודמת כתבה
+   * את ציון השבוע לטבלה בכל פתיחת מסך, וזו הייתה טעות בשורש:
+   * „היסטוריה” שנכתבת רק כשמישהו מסתכל היא היסטוריה של **מתי הוא
+   * הסתכל**. מי שפתח ביום שני ב-0%, עשה את העבודה ולא פתח שוב —
+   * היה נשאר עם 0%; ומי שלא פתח כלל פשוט נעדר. כל מה שנדרש כבר
+   * במסד: המחויבות על יעד השבוע, והפעילות שנספרת.
+   *
+   * ‎**2. שבוע בלי התחייבות הוא `null`, לא אפס.** עמודה בגובה אפס
+   * אומרת „נכשלת”; היעדר עמודה אומר „לא הבטחת”. ההבדל הוא כל
+   * ההבדל בין גרף שמלווה לגרף שמאשים, ובלעדיו מתווך חדש היה רואה
+   * שלושה-עשר כישלונות בפעם הראשונה שנכנס.
+   *
+   * ‏השבוע הנוכחי נכלל ומסומן `current`, כי הוא עוד נע — והוא גם
+   * היחיד שאינו נספר לרצף „פעמיים ברצף”.
    */
-  private async completedWeekScore(
+  private async weeklyTrend(
     tx: PrismaTx,
     scope: { tenantId: string; userId: string },
-    weekStart: Date,
-  ): Promise<number | null> {
-    const row = await tx.mentorGoal.findFirst({
+    times: Record<LeadMeasure, Date[]>,
+    now: Date,
+  ): Promise<WeekPoint[]> {
+    const weeks: Date[] = [];
+    for (let back = MIN_WEEKS_FOR_RATIOS - 1; back >= 0; back -= 1) {
+      weeks.push(jerusalemWeekStart(now, -back));
+    }
+
+    /*
+     * ‏שאילתה אחת לכל ההתחייבויות בחלון, ולא אחת לשבוע: שלוש-עשרה
+     * שליפות בזו אחר זו הן בדיוק מה שהעמיס את הטרנזקציה קודם.
+     */
+    const rows = await tx.mentorGoal.findMany({
       where: {
         ...scope,
         horizon: "week",
-        periodStart: dayToDate(jerusalemDayLabel(weekStart)),
+        periodStart: {
+          gte: dayToDate(jerusalemDayLabel(weeks[0] as Date)),
+          lte: dayToDate(jerusalemDayLabel(weeks[weeks.length - 1] as Date)),
+        },
       },
-      select: { commitment: true },
+      select: { periodStart: true, commitment: true },
     });
-    const committed = toCommitment(row?.commitment ?? null);
-    if (Object.keys(committed).length === 0) return null;
-
-    /* טווח סגור — השבוע הזה כבר נגמר, ולכן נספר במלואו */
-    const actual = await this.countMeasures(
-      tx,
-      scope,
-      weekStart,
-      jerusalemDayStart(weekStart, 7),
+    const byWeek = new Map(
+      rows.map((r) => [r.periodStart.toISOString().slice(0, 10), r.commitment]),
     );
-    return weeklyScore(committed, actual).percent;
+
+    const thisWeek = jerusalemWeekStart(now);
+    return weeks.map((weekStart) => {
+      const label = jerusalemDayLabel(weekStart);
+      const current = weekStart.getTime() === thisWeek.getTime();
+      const committed = parseWeeklyCommitment(byWeek.get(label) ?? null);
+      if (Object.keys(committed).length === 0) {
+        return { weekKey: label, percent: null, current };
+      }
+      /* ‏שבוע סגור נספר במלואו; השבוע הנוכחי רק עד עכשיו */
+      const until = current ? now : jerusalemDayStart(weekStart, 7);
+      const actual = this.countsIn(times, weekStart, until);
+      return { weekKey: label, percent: weeklyScore(committed, actual).percent, current };
+    });
   }
 
   /**
@@ -600,18 +855,18 @@ export class MentorService {
    * ‏הכיוון הוא **משיחות הטווח החוצה**, כמו בהצעות: חסום בגודל
    * הטווח ולא בגודל היסטוריית הלידים של המשרד.
    */
-  private async countOutboundCalls(
+  private async outboundCallTimes(
     tx: PrismaTx,
     scope: { tenantId: string; userId: string },
     range: { gte: Date; lt: Date },
-  ): Promise<number> {
+  ): Promise<Date[]> {
     const rows = await tx.call.findMany({
       where: { tenantId: scope.tenantId, direction: "outbound", occurredAt: range },
-      select: { createdBy: true, leadId: true },
+      select: { createdBy: true, leadId: true, occurredAt: true },
     });
-    if (rows.length === 0) return 0;
+    if (rows.length === 0) return [];
 
-    const mine = rows.filter((r) => r.createdBy === scope.userId).length;
+    const mine = rows.filter((r) => r.createdBy === scope.userId);
 
     /* שיחות ספק ללא רושם — משויכות דרך הליד שהן נוגעות בו */
     const orphanLeadIds = [
@@ -621,7 +876,7 @@ export class MentorService {
           .map((r) => r.leadId as string),
       ),
     ];
-    if (orphanLeadIds.length === 0) return mine;
+    if (orphanLeadIds.length === 0) return mine.map((r) => r.occurredAt);
 
     const myLeads = await tx.lead.findMany({
       where: {
@@ -632,12 +887,12 @@ export class MentorService {
       select: { id: true },
     });
     const myLeadIds = new Set(myLeads.map((l) => l.id));
-    return (
-      mine +
-      rows.filter(
+    return [
+      ...mine,
+      ...rows.filter(
         (r) => r.createdBy === null && r.leadId !== null && myLeadIds.has(r.leadId),
-      ).length
-    );
+      ),
+    ].map((r) => r.occurredAt);
   }
 
   /**
@@ -648,22 +903,22 @@ export class MentorService {
    * פנימה, וזה ההבדל בין שאילתה חסומה בגודל השבוע לבין שאילתה
    * שגדלה עם כל קונה שאי פעם היה במשרד.
    */
-  private async countOffersSent(
+  private async offerSentTimes(
     tx: PrismaTx,
     scope: { tenantId: string; userId: string },
     range: { gte: Date; lt: Date },
-  ): Promise<number> {
+  ): Promise<Date[]> {
     const sent = await tx.offer.findMany({
       where: { tenantId: scope.tenantId, sentAt: range },
-      select: { matchId: true },
+      select: { matchId: true, sentAt: true },
     });
-    if (sent.length === 0) return 0;
+    if (sent.length === 0) return [];
 
     const matches = await tx.match.findMany({
       where: { tenantId: scope.tenantId, id: { in: sent.map((o) => o.matchId) } },
       select: { id: true, buyerId: true },
     });
-    if (matches.length === 0) return 0;
+    if (matches.length === 0) return [];
 
     const mine = await tx.buyer.findMany({
       where: {
@@ -674,7 +929,17 @@ export class MentorService {
       select: { id: true },
     });
     const mineIds = new Set(mine.map((b) => b.id));
-    return matches.filter((m) => mineIds.has(m.buyerId)).length;
+    const myMatchIds = new Set(
+      matches.filter((m) => mineIds.has(m.buyerId)).map((m) => m.id),
+    );
+    /*
+     * ‏חוזרים אל ההצעות עצמן ולא סופרים התאמות: `sentAt` יושב על
+     * ההצעה, והוא הזמן שהגרף מציב לפיו. שתי הצעות על אותה התאמה הן
+     * שתי שליחות.
+     */
+    return sent
+      .filter((o) => myMatchIds.has(o.matchId) && o.sentAt !== null)
+      .map((o) => o.sentAt as Date);
   }
 
 

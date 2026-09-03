@@ -102,6 +102,17 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
 
   daily_brief: "digests",
   weekly_summary: "digests",
+
+  /*
+   * ‏„סוכן סגר את היעד” הוא סיכום ביצועים ולא משימה: הוא אינו דורש
+   * פעולה בשנייה הבאה, והוא שייך לאותה משפחה של הדוח היומי — מנהל
+   * שכיבה „סיכומים” לא רוצה גם את זה.
+   *
+   * ‏הפידבק לסוכן, לעומת זאת, הוא **הודעה מאדם**: מנהל כתב לו משהו,
+   * וזה מגיע גם למי שהשאיר רק את ההודעות החשובות דלוקות.
+   */
+  mentor_goal_reached: "digests",
+  mentor_feedback: "system",
 };
 
 export function notifyCategory(type: string): WhatsAppNotifyCategory {

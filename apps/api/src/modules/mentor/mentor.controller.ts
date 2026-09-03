@@ -1,9 +1,18 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Put } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put } from "@nestjs/common";
 import { z } from "zod";
-import { GOAL_HORIZONS, GOAL_UNITS, LEAD_MEASURES } from "@metavchim/shared";
-import { AnyAuthenticated } from "../../common/auth.decorators";
+import {
+  FEEDBACK_MAX_LENGTH,
+  GOAL_HORIZONS,
+  GOAL_UNITS,
+  LEAD_MEASURES,
+} from "@metavchim/shared";
+import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
-import { MentorService, type MentorOverviewDto } from "./mentor.service";
+import {
+  MentorService,
+  type AchievementDto,
+  type MentorOverviewDto,
+} from "./mentor.service";
 
 /**
  * ‎**המנטור האישי.**
@@ -23,6 +32,11 @@ const CommitmentSchema = z
       LEAD_MEASURES.map((m) => [m, z.number().int().min(0).max(1000).optional()]),
     ) as Record<(typeof LEAD_MEASURES)[number], z.ZodOptional<z.ZodNumber>>,
   )
+  .strict();
+
+/** ‏הפידבק שהמנהל כותב. הגבול הוא אורך העמודה במסד. */
+const FeedbackSchema = z
+  .object({ text: z.string().trim().min(1).max(FEEDBACK_MAX_LENGTH) })
   .strict();
 
 const SaveGoalSchema = z
@@ -67,6 +81,30 @@ export class MentorController {
     @Body(new ZodValidationPipe(SaveGoalSchema)) body: z.infer<typeof SaveGoalSchema>,
   ): Promise<{ ok: true }> {
     await this.mentor.saveGoal(horizon, body);
+    return { ok: true };
+  }
+
+  /**
+   * ‎**מי סגר את היעד השבועי — מסך ההנהלה.**
+   *
+   * ‏`analytics.view` ולא `AnyAuthenticated`: כאן, בניגוד לשאר הבקר,
+   * המידע הוא **על סוכן אחר**. היעד עצמו נשאר פרטי; מה שנחשף הוא
+   * שסוכן עמד בו — וזה מה שהמנהל אמור לראות כדי להגיב עליו.
+   */
+  @RequireCapability("analytics.view")
+  @Get("achievements")
+  async achievements(): Promise<AchievementDto[]> {
+    return this.mentor.achievements();
+  }
+
+  @RequireCapability("analytics.view")
+  @Post("achievements/:id/feedback")
+  @HttpCode(200)
+  async sendFeedback(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(FeedbackSchema)) body: z.infer<typeof FeedbackSchema>,
+  ): Promise<{ ok: true }> {
+    await this.mentor.sendFeedback(id, body.text);
     return { ok: true };
   }
 
