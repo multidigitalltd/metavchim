@@ -24,7 +24,7 @@ import { API_BASE } from "@/lib/api";
  */
 
 /** ראשי התיבות של שם המשרד — עד שתי מילים, כדי שהעיגול יישאר קריא. */
-export function officeInitials(officeName: string): string {
+function officeInitials(officeName: string): string {
   const words = officeName
     .replace(/["'׳״]/gu, "")
     .split(/\s+/u)

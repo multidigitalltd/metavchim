@@ -18,7 +18,7 @@ import type { TenantTx } from "../core/prisma.service";
  * (`officeStatuses`). אתר שיעשה רק את הראשון יקבל `unknown` ויפרש
  * אותו בעצמו — וזה בדיוק המקום שבו רשומה פגומה אחת מפילה מסך.
  */
-export const OFFICE_STATUS_SETTING_KEY = "buyerStatuses";
+const OFFICE_STATUS_SETTING_KEY = "buyerStatuses";
 
 /**
  * ‎**חייב לרוץ בהקשר הדייר.** הקריאה מגבילה ל-`tenantId` במפורש כי

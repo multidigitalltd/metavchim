@@ -165,7 +165,7 @@ export function readinessFieldTarget(field: string): ReadinessTarget {
   return { kind: "form", control: EDIT_FORM_CONTROL[field] };
 }
 
-export function readinessTarget(missingFields: readonly string[]): ReadinessTarget {
+function readinessTarget(missingFields: readonly string[]): ReadinessTarget {
   const fixableInForm = missingFields.some((f) => !FIELDS_OUTSIDE_EDIT_FORM.includes(f));
   if (fixableInForm) return { kind: "form" };
   if (missingFields.length === 1 && missingFields[0] === "owner") {
