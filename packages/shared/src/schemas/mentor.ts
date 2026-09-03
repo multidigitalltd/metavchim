@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { MENTOR_GOAL_METRICS, MENTOR_GOAL_PERIODS } from "../logic/mentor.js";
+import {
+  MENTOR_GOAL_METRICS,
+  MENTOR_GOAL_PERIODS,
+  MENTOR_GOAL_TARGET_MAX,
+} from "../logic/mentor.js";
 import { IdSchema } from "./common.js";
 
 /**
@@ -9,9 +13,8 @@ import { IdSchema } from "./common.js";
  * נכתבים כאן שוב: יעד קיים רק על מדד שה-API יודע לספור, ורשימה
  * שנייה הייתה מתיישנת בשקט ביום שמוסיפים מדד.
  *
- * הגבול העליון על היעד אינו מגבלת מוצר אלא בלם לטעות הקלדה:
- * „500 עסקאות בשבוע” הוא לא יעד שמישהו התכוון אליו, והמנטור היה
- * מודיע על פיגור בכל שבוע לנצח.
+ * הגבול העליון (`MENTOR_GOAL_TARGET_MAX`) הוא אותו קבוע שהצעות
+ * המנטור נחתכות בו — הצעה שהמסך מציע חייבת להיות יעד שהסכמה מקבלת.
  */
 export const MentorGoalMetricSchema = z.enum(MENTOR_GOAL_METRICS);
 export const MentorGoalPeriodSchema = z.enum(MENTOR_GOAL_PERIODS);
@@ -19,7 +22,7 @@ export const MentorGoalPeriodSchema = z.enum(MENTOR_GOAL_PERIODS);
 export const MentorGoalInputSchema = z.object({
   metric: MentorGoalMetricSchema,
   period: MentorGoalPeriodSchema,
-  target: z.number().int().min(1).max(200),
+  target: z.number().int().min(1).max(MENTOR_GOAL_TARGET_MAX),
   /**
    * ה„למה” של המתווך — „בשביל הדירה”, „להוכיח לעצמי”. עוגן שהמנטור
    * מצטט כשקשה. רשות: יעד בלי „למה” הוא יעד, רק בלי עוגן.

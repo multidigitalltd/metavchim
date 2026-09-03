@@ -82,6 +82,13 @@ export const MENTOR_GOAL_PERIODS = ["week", "month"] as const;
 export type MentorGoalPeriod = (typeof MENTOR_GOAL_PERIODS)[number];
 
 /**
+ * הגבול העליון ליעד — בלם לטעות הקלדה, לא מגבלת מוצר: „500 עסקאות
+ * בשבוע” אינו יעד שמישהו התכוון אליו. קבוע אחד לסכמה ולהצעות
+ * המנטור, כדי שהצעה שהמנטור מציע תמיד תהיה יעד שאפשר לשמור.
+ */
+export const MENTOR_GOAL_TARGET_MAX = 200;
+
+/**
  * ‎**תוצאה** — מה שהמתווך רוצה ואינו שולט בו במלואו (עסקה). ‎**תהליך** —
  * מה שבידיו לעשות (סיור, הצעה, מענה לליד). המנטור מציע יעדי תהליך
  * לכל יעד תוצאה, כי יעד שאינו בשליטה מייאש ולא מניע.
@@ -368,8 +375,12 @@ export function suggestProcessGoals(
     historyWeeks > 0 && history.deals_closed >= MIN_HISTORY_DEALS;
 
   const suggestions: ProcessGoalSuggestion[] = [];
+  /*
+   * מהעסקה אחורה: כל שלב צריך פי-יחס ממה **שהוצע** לשלב שאחריו —
+   * המספר המעוגל, לא השבר. אחרת „2 סיורים” מקבל „4 הצעות” כשהיחס
+   * אומר 3 לסיור, והיעדים סותרים זה את זה (ביקורת Codex).
+   */
   let needed = dealsPerWeek;
-  // מהעסקה אחורה: כל שלב צריך פי-יחס ממה שאחריו
   for (let i = MENTOR_FUNNEL.length - 2; i >= 0; i--) {
     const metric = MENTOR_FUNNEL[i]!;
     const next = MENTOR_FUNNEL[i + 1]!;
@@ -379,8 +390,12 @@ export function suggestProcessGoals(
       ratio = Math.max(1, history[metric] / history[next]);
       source = `לפי ${historyWeeks} השבועות האחרונים שלכם`;
     }
-    needed = needed * ratio;
-    const target = Math.max(1, Math.ceil(needed - 1e-9));
+    // לא מעל מה שהסכמה מקבלת — הצעה שאי אפשר ללחוץ עליה „קבע” אינה הצעה
+    const target = Math.min(
+      MENTOR_GOAL_TARGET_MAX,
+      Math.max(1, Math.ceil(needed * ratio - 1e-9)),
+    );
+    needed = target;
     const shown = Math.round(ratio * 10) / 10;
     suggestions.unshift({
       metric,
@@ -472,10 +487,16 @@ function goalSentence(goal: MentorGoalProgress): string {
     case "on_track":
       return `${label}: ${achieved} עד עכשיו, בקצב.`;
     case "behind": {
+      // „עוד יש זמן” רק כשבאמת יש — הסיכום השבועי נאמר אחרי שהשבוע נגמר (ביקורת Codex)
+      const periodOver = goal.elapsed >= 1;
       const base =
         goal.actual === 0
-          ? `${label}: עדיין לא התחיל. זה היעד שביקשתם מעצמכם, ועוד יש זמן.`
-          : `${label}: ${achieved} עד עכשיו. עוד ${mentorQuantity(goal.metric, goal.remaining)} ליעד שקבעתם.`;
+          ? periodOver
+            ? `${label}: לא יצא הפעם. זה היעד שביקשתם מעצמכם, והוא מתחיל מחדש.`
+            : `${label}: עדיין לא התחיל. זה היעד שביקשתם מעצמכם, ועוד יש זמן.`
+          : periodOver
+            ? `${label}: ${achieved}. חסרו ${mentorQuantity(goal.metric, goal.remaining)} ליעד שקבעתם.`
+            : `${label}: ${achieved} עד עכשיו. עוד ${mentorQuantity(goal.metric, goal.remaining)} ליעד שקבעתם.`;
       // ה„למה” של המתווך — עוגן, לא נזיפה. רק כשקשה, ורק אם כתב אחד.
       return goal.why === undefined || goal.why.trim() === ""
         ? base

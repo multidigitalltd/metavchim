@@ -6,10 +6,12 @@ import {
   mentorGoalProgress,
   mentorPeriodRange,
   mentorQuantity,
+  MENTOR_GOAL_TARGET_MAX,
   mentorReviewTitle,
   mentorWeeklyReview,
   suggestProcessGoals,
 } from "./mentor.js";
+import { MentorGoalInputSchema } from "../schemas/mentor.js";
 
 // ראשון 2026-09-06 00:00 שעון ישראל (UTC+3 בקיץ)
 const WEEK_START = new Date("2026-09-05T21:00:00.000Z");
@@ -256,7 +258,7 @@ describe("mentorWeeklyReview — מה המנטור אומר במוצאי שבת"
     expect(review?.mood).toBe("celebrate");
     expect(review?.paragraphs[0]).toContain("סגרתם את הרצל 12, רעננה");
     expect(review?.paragraphs[0]).toContain("כל הכבוד");
-    expect(review?.paragraphs[1]).toContain("עוד 3 הצעות ליעד שקבעתם");
+    expect(review?.paragraphs[1]).toContain("חסרו 3 הצעות ליעד שקבעתם");
     expect(mentorReviewTitle(review!)).toMatch(/^🎉 /);
   });
 
@@ -369,8 +371,31 @@ describe("suggestProcessGoals — מתוצאה לתהליך, לפי המשפך �
     const byMetric = Object.fromEntries(plan.map((p) => [p.metric, p.target]));
     // 1/4.33 עסקאות × 5 = 1.15 סיורים ⇒ 2
     expect(byMetric.viewings_held).toBe(2);
-    expect(byMetric.offers_sent).toBe(4);
+    // ומכאן **מהמעוגל**: 2 סיורים × 3 = 6 הצעות, לא 4 מהשבר — היעדים עקביים זה עם זה
+    expect(byMetric.offers_sent).toBe(6);
+    expect(byMetric.new_buyers).toBe(12);
+    expect(byMetric.leads_answered).toBe(24);
     expect(plan.every((p) => p.target >= 1)).toBe(true);
+  });
+
+  it("כל הצעה היא יעד שהסכמה מקבלת — גם כשהמשפך מייצר מספר גדול", () => {
+    const plan = suggestProcessGoals({
+      outcome: { target: 4, period: "week" },
+      history: quiet,
+      historyWeeks: 0,
+    });
+    expect(plan.find((p) => p.metric === "leads_answered")?.target).toBe(
+      MENTOR_GOAL_TARGET_MAX,
+    );
+    for (const p of plan) {
+      expect(
+        MentorGoalInputSchema.safeParse({
+          metric: p.metric,
+          period: p.period,
+          target: p.target,
+        }).success,
+      ).toBe(true);
+    }
   });
 
   it("עם היסטוריה מספקת: היחסים של המתווך, וההסבר נוקב בחלון", () => {
@@ -464,6 +489,35 @@ describe("mentorWeeklyReview — שיטת המאמן: „למה”, כוונת �
     expect(review?.askNextWeek).toContain(
       "התוכנית שכתבתם: „כל בוקר ב-11:00 שולח הצעות”.",
     );
+  });
+
+  it("אחרי שהתקופה נגמרה אין „עוד יש זמן” — הסיכום נאמר כשהשבוע כבר מאחור", () => {
+    const over = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [],
+      activity: quiet,
+      goals: [
+        goal({ pace: "behind", actual: 0, ratio: 0, remaining: 5, elapsed: 1 }),
+      ],
+    });
+    expect(over?.paragraphs[0]).not.toContain("עוד יש זמן");
+    expect(over?.paragraphs[0]).toContain("מתחיל מחדש");
+    const partial = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [],
+      activity: { ...quiet, offers_sent: 3 },
+      goals: [
+        goal({
+          pace: "behind",
+          actual: 3,
+          ratio: 0.6,
+          remaining: 2,
+          elapsed: 1,
+        }),
+      ],
+    });
+    expect(partial?.paragraphs[0]).toContain("חסרו 2 הצעות");
+    expect(partial?.paragraphs[0]).not.toContain("עד עכשיו");
   });
 
   it("פיגור מקבל שאלת רפלקציה אחת לפי המדד; בלי פיגור — אין שאלה", () => {
