@@ -32,6 +32,23 @@ import { PrismaService } from "../../core/prisma.service";
 const GRAPH_BASE = "https://graph.facebook.com/v23.0";
 const REQUEST_TIMEOUT_MS = 15_000;
 
+/**
+ * מרעננים כשנותרו פחות משבועיים. Meta מנפיקה 60 יום, כלומר הרענון
+ * מתחיל אחרי כ-46 יום ויש לו 56 סבבים לפני שהקו נופל.
+ */
+const REFRESH_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** הסיבה הכתובה בשורה — גם הסימן שההתראה כבר נשלחה פעם אחת */
+const TOKEN_EXPIRED = "token_expired";
+
+/** קו שהטוקן שלו מת — מה שההתראה צריכה כדי להגיע לסוכן הנכון. */
+export interface ExpiredLine {
+  id: string;
+  tenantId: string;
+  userId: string;
+  displayPhone: string;
+}
+
 export interface ConnectionSummary {
   id: string;
   /** הסוכן שהקו שלו — מה שמאפשר למסך לומר „הקו שלך” מול „של דנה” */
@@ -44,6 +61,33 @@ export interface ConnectionSummary {
   connectedAt: Date;
   disconnectedAt: Date | null;
   disconnectReason: string | null;
+}
+
+/**
+ * טוקן כפי ש-Meta הנפיקה אותו — הערך **ומתי הוא מת**.
+ *
+ * ‎`expiresAt: null` אינו "לא ידוע" אלא "אינו פג": Meta משמיטה את
+ * ‎`expires_in` בדיוק כשהטוקן ארוך-טווח. ההפרדה הזו היא מה שמונע
+ * מהסורק לרדוף אחרי טוקנים תקינים, ומהמסך להזהיר על תפוגה מומצאת.
+ */
+export interface IssuedToken {
+  token: string;
+  expiresAt: Date | null;
+}
+
+/**
+ * קריאת תשובת `/oauth/access_token`. שדה `expires_in` הוא שניות
+ * מעכשיו; אפס או שלילי הוא הדרך של Meta לומר "לא פג", ולכן אינו
+ * הופך לתאריך בעבר שהיה שולח את הסורק לרענן מיד ובלולאה.
+ */
+function readIssuedToken(payload: unknown): IssuedToken | null {
+  const json = payload as { access_token?: unknown; expires_in?: unknown };
+  if (typeof json.access_token !== "string" || json.access_token === "") return null;
+  const seconds = typeof json.expires_in === "number" ? json.expires_in : 0;
+  return {
+    token: json.access_token,
+    expiresAt: seconds > 0 ? new Date(Date.now() + seconds * 1000) : null,
+  };
 }
 
 /** תוצאת חיבור — הסיבה נועדה למסך, ולכן היא בעברית ובלי מונחי Graph. */
@@ -147,8 +191,8 @@ export class WhatsAppConnectionService {
       };
     }
 
-    const token = await this.exchangeCode(app, input.code);
-    if (token === null) {
+    const issued = await this.exchangeCode(app, input.code);
+    if (issued === null) {
       return {
         ok: false,
         reason: "‏Meta לא אישרה את החיבור. נסו שוב — ואם זה חוזר, התחילו את התהליך מחדש",
@@ -160,7 +204,7 @@ export class WhatsAppConnectionService {
      * שהמתווך מזהה במסך. חיבור ששמור בלי מספר מציג "מחובר" בלי לומר
      * *מה* מחובר — וזה בדיוק מה שמייצר פנייה לתמיכה.
      */
-    const line = await this.fetchLine(token, input.phoneNumberId);
+    const line = await this.fetchLine(issued.token, input.phoneNumberId);
     if (line === null) {
       return { ok: false, reason: "לא הצלחנו לקרוא את פרטי המספר מ-Meta" };
     }
@@ -170,7 +214,7 @@ export class WhatsAppConnectionService {
      * כ„מחובר” בלי שההודעות מנותבות אלינו הוא ההבטחה השקרית היחידה
      * שהמסך הזה יכול לתת.
      */
-    const subscribed = await this.subscribeApp(token, input.wabaId);
+    const subscribed = await this.subscribeApp(issued.token, input.wabaId);
 
     const now = new Date();
     const existing = await this.prisma.whatsAppBusinessConnection.findFirst({
@@ -217,7 +261,8 @@ export class WhatsAppConnectionService {
       phoneNumberId: input.phoneNumberId,
       displayPhone: line.displayPhone,
       verifiedName: line.verifiedName,
-      accessTokenEncrypted: this.crypto.encrypt(token),
+      accessTokenEncrypted: this.crypto.encrypt(issued.token),
+      accessTokenExpiresAt: issued.expiresAt,
       status: subscribed ? "pending_history" : "error",
       qualityRating: line.qualityRating,
       connectedAt: now,
@@ -289,6 +334,7 @@ export class WhatsAppConnectionService {
       where: { id: row.id },
       data: {
         accessTokenEncrypted: null,
+        accessTokenExpiresAt: null,
         status: "disconnected",
         disconnectedAt: new Date(),
         disconnectReason: reason.slice(0, 40),
@@ -354,6 +400,96 @@ export class WhatsAppConnectionService {
     return count > 0;
   }
 
+  /**
+   * ‎**סבב רענון הטוקנים — מה שמונע מהחיבורים למות בשקט.**
+   *
+   * ‏תצורת Embedded Signup מנפיקה טוקן קצוב, ו-Meta אינה מודיעה
+   * כשהוא פג: אין `account_update`, אין שגיאה במסך, ההודעות פשוט
+   * מפסיקות להגיע. הסבב הזה מאריך כל טוקן זמן רב לפני שזה קורה.
+   *
+   * ‎**למה חלון של שבועיים ולא יום לפני.** רענון שנכשל צריך מקום
+   * לניסיונות חוזרים: שיבוש רשת בן יומיים, או שעתיים שבהן Meta
+   * מחזירה 500, אינם אמורים לעלות בקו. שבועיים הם 56 סבבים.
+   *
+   * ‎**סימון `token_expired` הוא חד-פעמי.** כשלון רענון מסמן את הקו
+   * רק אחרי שהטוקן באמת פג — לא בכישלון הראשון — ורק אם עוד לא
+   * סומן. אחרת כל סבב היה מייצר התראה נוספת על אותה תקלה, והמתווך
+   * היה מכבה התראות במקום לחבר מחדש.
+   */
+  async sweepExpiringTokens(now: Date = new Date()): Promise<{
+    refreshed: number;
+    expired: ExpiredLine[];
+  }> {
+    const rows = await this.prisma.whatsAppBusinessConnection.findMany({
+      where: {
+        disconnectedAt: null,
+        accessTokenEncrypted: { not: null },
+        accessTokenExpiresAt: { not: null, lt: new Date(now.getTime() + REFRESH_WINDOW_MS) },
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        userId: true,
+        displayPhone: true,
+        accessTokenEncrypted: true,
+        accessTokenExpiresAt: true,
+        disconnectReason: true,
+      },
+    });
+
+    let refreshed = 0;
+    const expired: ExpiredLine[] = [];
+    for (const row of rows) {
+      /* ‏השורה נבחרה עם `not: null`, וההגנה כאן היא בשביל הטיפוס */
+      const stored = row.accessTokenEncrypted;
+      const token = stored === null ? null : this.safeDecrypt(stored);
+      const issued = token === null ? null : await this.refreshToken(token);
+
+      if (issued !== null) {
+        await this.prisma.whatsAppBusinessConnection.update({
+          where: { id: row.id },
+          data: {
+            accessTokenEncrypted: this.crypto.encrypt(issued.token),
+            accessTokenExpiresAt: issued.expiresAt,
+            /*
+             * קו שסומן „פג” וחזר לחיות — מוחזר למחובר. התנאי על
+             * הסיבה מכוון: `error` שנובע מכשל הרשמה ל-Webhooks
+             * הוא תקלה אחרת, ורענון טוקן אינו פותר אותה.
+             */
+            ...(row.disconnectReason === TOKEN_EXPIRED
+              ? { status: "connected", disconnectReason: null }
+              : {}),
+          },
+        });
+        refreshed += 1;
+        continue;
+      }
+
+      /*
+       * ‏רענון שנכשל בזמן שהטוקן עוד חי אינו אירוע: הסבב הבא ינסה
+       * שוב. רק טוקן שכבר פג הוא קו מת, ורק אז יש למתווך מה לעשות.
+       */
+      const dead = row.accessTokenExpiresAt !== null && row.accessTokenExpiresAt <= now;
+      if (!dead || row.disconnectReason === TOKEN_EXPIRED) continue;
+
+      await this.prisma.whatsAppBusinessConnection.update({
+        where: { id: row.id },
+        data: { status: "error", disconnectReason: TOKEN_EXPIRED },
+      });
+      expired.push({
+        id: row.id,
+        tenantId: row.tenantId,
+        userId: row.userId,
+        displayPhone: row.displayPhone,
+      });
+      this.logger.error(
+        `הטוקן של קו ${row.displayPhone} פג ולא ניתן לרענון — הקו מסומן לחיבור מחדש`,
+      );
+    }
+
+    return { refreshed, expired };
+  }
+
   /** אישורי השליחה של קו מסוים — לבוט ולתשובות על הקו של המשרד. */
   async credentialsFor(
     connectionId: string,
@@ -398,6 +534,7 @@ export class WhatsAppConnectionService {
         ...(disconnected
           ? {
               accessTokenEncrypted: null,
+              accessTokenExpiresAt: null,
               status: "disconnected",
               disconnectedAt: new Date(),
               disconnectReason: (update.event ?? "meta_update").slice(0, 40),
@@ -474,7 +611,7 @@ export class WhatsAppConnectionService {
   private async exchangeCode(
     app: { appId: string; appSecret: string },
     code: string,
-  ): Promise<string | null> {
+  ): Promise<IssuedToken | null> {
     try {
       const url = new URL(`${GRAPH_BASE}/oauth/access_token`);
       url.searchParams.set("client_id", app.appId);
@@ -486,10 +623,38 @@ export class WhatsAppConnectionService {
         this.logger.error(`המרת קוד החיבור נכשלה: HTTP ${res.status} — ${detail}`);
         return null;
       }
-      const json = (await res.json()) as { access_token?: unknown };
-      return typeof json.access_token === "string" ? json.access_token : null;
+      return readIssuedToken(await res.json());
     } catch (error) {
       this.logger.error(`המרת קוד החיבור נכשלה: ${String(error)}`);
+      return null;
+    }
+  }
+
+  /**
+   * הארכת טוקן קיים — `fb_exchange_token`, אותה משפחה של המרת ה-`code`.
+   *
+   * ‎`null` = Meta סירבה, וזה **אינו** בהכרח סוף הדרך: סירוב זמני
+   * (רשת, 500 אצל מטא) חוזר לסבב הבא, ורק טוקן שפג באמת מסמן את
+   * הקו. ההבחנה הזו נעשית אצל הקורא, שרואה גם כמה זמן נשאר.
+   */
+  async refreshToken(token: string): Promise<IssuedToken | null> {
+    const app = await this.appCredentials();
+    if (!app) return null;
+    try {
+      const url = new URL(`${GRAPH_BASE}/oauth/access_token`);
+      url.searchParams.set("grant_type", "fb_exchange_token");
+      url.searchParams.set("client_id", app.appId);
+      url.searchParams.set("client_secret", app.appSecret);
+      url.searchParams.set("fb_exchange_token", token);
+      const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      if (!res.ok) {
+        const detail = (await res.text()).slice(0, 300);
+        this.logger.warn(`הארכת טוקן נכשלה: HTTP ${res.status} — ${detail}`);
+        return null;
+      }
+      return readIssuedToken(await res.json());
+    } catch (error) {
+      this.logger.warn(`הארכת טוקן נכשלה: ${String(error)}`);
       return null;
     }
   }

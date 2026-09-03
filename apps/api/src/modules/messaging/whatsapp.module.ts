@@ -9,6 +9,7 @@ import { WhatsAppBotService } from "./whatsapp-bot.service";
 import { WhatsAppConnectionController } from "./whatsapp-connection.controller";
 import { WhatsAppConnectionService } from "./whatsapp-connection.service";
 import { WhatsAppInboundService } from "./whatsapp-inbound.service";
+import { WhatsAppTokenRefreshService } from "./whatsapp-token-refresh.service";
 import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
 
 /**
@@ -38,6 +39,12 @@ import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
     ViewingReplyService,
     WhatsAppConnectionService,
     WhatsAppBotService,
+    /*
+     * הסורק שמאריך את הטוקנים העסקיים. יושב כאן ולא במודול נפרד:
+     * הוא נשען על `WhatsAppConnectionService` בלבד, ומודול משלו
+     * היה מייבא את זה ממילא.
+     */
+    WhatsAppTokenRefreshService,
   ],
   /*
    * החיבורים מיוצאים: הבוט ושכבת השליחה על קו של משרד (שלבים 2–3)

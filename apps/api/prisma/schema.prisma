@@ -1618,6 +1618,17 @@ model WhatsAppBusinessConnection {
    */
   accessTokenEncrypted String?   @map("access_token_encrypted") @db.Text
   /**
+   * מתי הטוקן שמעליו פג — מה שהופך תפוגה שקטה לסבב רענון.
+   *
+   * ‎`null` = טוקן שאינו פג, ואז אין מה לרענן. ערך = מה ש-Meta
+   * החזירה ב-`expires_in` בהמרת ה-`code`. תצורות Embedded Signup
+   * מנפיקות היום טוקן קצוב (60 יום), וטוקן שפג מפסיק להביא הודעות
+   * **בלי ש-Meta מודיעה על כך בשום ערוץ**: המסך ממשיך להראות
+   * „מחובר”, הלידים פשוט מפסיקים להיכנס, והמתווך מגלה זאת מלקוח
+   * שמתלונן שלא ענו לו. זו העמודה שמאפשרת לסורק לפעול לפני כן.
+   */
+  accessTokenExpiresAt DateTime? @map("access_token_expires_at")
+  /**
    * ‎**הגדרות הבוט של הסוכן** (docs/12 §6.2).
    *
    * שלד קבוע עם גמישות מבוקרת: מה שנשמר כאן הוא נוסח הפתיחה, שעות
@@ -1650,6 +1661,8 @@ model WhatsAppBusinessConnection {
   @@index([tenantId])
   @@index([userId])
   @@index([displayPhone])
+  /// הסורק שואל „מה פג בקרוב” — בלי אינדקס זו סריקת טבלה כל שש שעות
+  @@index([accessTokenExpiresAt])
   @@map("whatsapp_business_connections")
 }
 
