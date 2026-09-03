@@ -1340,14 +1340,17 @@ export default function CollaborationPage() {
                       </li>
                     ))}
                   </ul>
-                {offerMore}
               </NetMatchStrip>
             ) : (
-              <>
-                <NetNoMatch what={FOLLOW_EMPTY_TITLE} hint={FOLLOW_EMPTY_NOTE} />
-                {offerMore}
-              </>
+              <NetNoMatch what={FOLLOW_EMPTY_TITLE} hint={FOLLOW_EMPTY_NOTE} />
             )}
+
+            {/*
+              ‏אותו טעם כמו בכרטיס הנכס: הבורר יושב מחוץ לרצועה
+              הסגורה. בתוכה הוא היה מגיע רק אחרי פתיחה שלה, כלומר
+              המסלול הידני להצעת נכס נעלם ממי שלא ידע לחפש אותו.
+            */}
+            {demand.mine ? null : offerMore}
 
             {/*
               ‏תחתית הכרטיס: המזהה בשורה משלו, ומתחתיו שתי גלולות
@@ -2550,7 +2553,6 @@ export default function CollaborationPage() {
                       </li>
                     ))}
                   </ul>
-                                {askMore}
                               </NetMatchStrip>
                             ) : (
                               <>
@@ -2558,9 +2560,19 @@ export default function CollaborationPage() {
                                   what="אין לכם עדיין קונה שמתאים לנכס הזה"
                                   hint="אפשר לפנות עם כל קונה אחר מהרשימה שלמטה — או לחזור כשייקלט קונה מתאים"
                                 />
-                                {askMore}
                               </>
                             )}
+
+                            {/*
+                              ‎**הבורר מחוץ לרצועה, לא בתוכה.**
+
+                              הוא ישב בתוך `NetMatchStrip`, והרצועה סגורה
+                              כברירת מחדל — כלומר „בקש שיתוף” הדליק
+                              ‎`aria-expanded` ושום דבר לא הופיע על המסך
+                              (ביקורת Codex). הפעולה שהכפתור מבטיח חייבת
+                              להיות במקום שאינו תלוי במצב של רכיב אחר.
+                            */}
+                            {askMore}
 
                             <div className="mv-net-cardfoot">
                               <NetMeta id={listing.id} />
