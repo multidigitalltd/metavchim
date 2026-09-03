@@ -134,6 +134,35 @@ const FALLBACK_BY_DESIGN = new Set([
   "mentor_achievement",
 ]);
 
+/**
+ * ‎**סוגים שנופלים ל-`system` במכוון.**
+ *
+ * ‏`system` אינה „ברירת מחדל” אלא הקטגוריה שאי אפשר לכבות, ולכן
+ * היא נכונה בדיוק לשני דברים: הודעה תפעולית שאסור לפספס, והודעה
+ * שאדם כתב. ארבע אלה נמצאו בזכות השער הזה, והן נשארות כפי שהן —
+ * אבל עכשיו כהחלטה רשומה ולא כשתיקה.
+ */
+const SYSTEM_BY_DESIGN = new Set([
+  // הקרדיטים שלך פגים — כסף, ולא נושא שמכבים
+  "credits_expiring",
+  // הלקוח ענה לתזכורת הסיור — הודעה מאדם, כמו `mentor_feedback`
+  "viewing_reminder_reply",
+  // מקום בדיסק אוזל — התראה תפעולית למנהלי הפלטפורמה
+  "platform_disk_low",
+  // שולחן הפלטפורמה שינה חיבור של המשרד — פעולה שנעשתה עליו, לא על ידו
+  "integration_platform_change",
+]);
+
+function tsFilesIn(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...tsFilesIn(full));
+    else if (/\.ts$/u.test(entry.name) && !/\.test\.ts$/u.test(entry.name)) out.push(full);
+  }
+  return out;
+}
+
 const sources = [join(root, "apps/api/src"), join(root, "apps/workers/src")];
 
 function tsFiles(dir) {
@@ -187,8 +216,45 @@ for (const type of onlyWeb) {
   );
 }
 
+/**
+ * ‎**קבועים מיוצאים שערכם מחרוזת — `type: DEMAND_MATCH_NOTIFICATION_TYPE`.**
+ *
+ * ‏בלי זה השער רואה רק `type: "..."` מילולי, ומפספס בדיוק את הכתיבות
+ * שעברו לקבוע — כולל זו שבגללה הוא נכתב. נבדק במוטציה: הסרת
+ * ‎`coop_demand_match` מ-`TYPE_CATEGORY` עברה בשקט עד שהפתרון הזה
+ * נוסף.
+ */
+const stringConstants = new Map();
+for (const file of tsFilesIn(join(root, "packages/shared/src"))) {
+  for (const match of readFileSync(file, "utf8").matchAll(
+    /export const ([A-Z][A-Z0-9_]*)\s*(?::\s*[\w<>[\].| ]+)?=\s*"([a-z_]+)"/gu,
+  )) {
+    stringConstants.set(match[1], match[2]);
+  }
+}
+
+/**
+ * ‏ערך `type:` — מחרוזת מילולית או קבוע מיוצא. `null` כשאינו ידוע.
+ *
+ * ‎**נקודה היא תו חוקי בשם סוג.** ‏`task.due` נכתב ב-`apps/workers`,
+ * ומחלקת התווים הראשונה כאן דחתה אותו — כלומר השער דילג עליו בשקט,
+ * והוא גם לא היה ב-`TYPE_CATEGORY` (ביקורת Codex). שער שמסנן את מה
+ * שהוא אמור לבדוק ירוק תמיד.
+ */
+function typeValue(window) {
+  const literal = /\btype:\s*"([a-z_][a-z_.]*)"/u.exec(window);
+  if (literal !== null) return literal[1];
+  const named = /\btype:\s*([A-Z][A-Z0-9_]*)\b/u.exec(window);
+  return named === null ? null : (stringConstants.get(named[1]) ?? null);
+}
+
 const known = new Set(entityTypes);
 const written = new Map();
+/**
+ * ‏סוג ההתראה (`type`), להבדיל מהישות שאליה היא מצביעה. שתי
+ * הרשימות נאספות באותה סריקה כי הן יושבות באותה כתיבה.
+ */
+const writtenTypes = new Map();
 for (const dir of sources) {
   for (const file of tsFiles(dir)) {
     /*
@@ -205,6 +271,8 @@ for (const dir of sources) {
       const window = text.slice(match.index, match.index + 900);
       const entity = /entityType:\s*"([a-z_]+)"/u.exec(window);
       if (entity !== null) written.set(entity[1], file.slice(root.length + 1));
+      const kind = typeValue(window);
+      if (kind !== null) writtenTypes.set(kind, file.slice(root.length + 1));
 
       /*
        * ‎**הצורה שהחלון לבדו לא רואה: `createMany({ data: rows })`.**
@@ -230,6 +298,8 @@ for (const dir of sources) {
         const block = text.slice(push.index, push.index + 900);
         const pushed = /entityType:\s*"([a-z_]+)"/u.exec(block);
         if (pushed !== null) written.set(pushed[1], file.slice(root.length + 1));
+        const pushedType = typeValue(block);
+        if (pushedType !== null) writtenTypes.set(pushedType, file.slice(root.length + 1));
       }
     }
   }
@@ -244,7 +314,46 @@ for (const [entityType, file] of written) {
   );
 }
 
-/* ==================== 3. עוגן בכתובת מגיע לאלמנט שמורכב ==================== */
+/* ============ 3. כל סוג התראה שנכתב נמצא ב-TYPE_CATEGORY ============ */
+
+/**
+ * ‎**סוג שאינו במפת הקטגוריות אינו ניטרלי — הוא פשוט לא נשלט.**
+ *
+ * ‏`notifyCategory` נופלת ל-`"system"`, ו-`system` היא הקטגוריה
+ * שאי אפשר לכבות. כלומר סוג חדש שנשכח שם אינו „מקבל ברירת מחדל”:
+ * הוא **עוקף את העדפות המשתמש** — מי שכיבה „רשת” ממשיך לקבל
+ * התראות רשת.
+ *
+ * ‏זה כבר קרה פעמיים: שישה סוגי הצעות והתאמות (מתועד בהערה בקובץ
+ * עצמו), ואז `coop_demand_match` (ביקורת Codex). ההערה שם הזהירה
+ * בדיוק מזה; מה שחסר היה שער.
+ *
+ * ‏אותה רשימת סוגים שכבר נאספה לטענה הקודמת — היא נסרקת מכל כתיבת
+ * התראה בקוד, כולל `createMany` דרך משתנה.
+ */
+const notifyPath = join(root, "packages/shared/src/logic/whatsapp-notify.ts");
+const notifySrc = readFileSync(notifyPath, "utf8");
+const categoryBlock = /const TYPE_CATEGORY[^{]*\{([\s\S]*?)\n\};/u.exec(notifySrc);
+if (categoryBlock === null) {
+  errors.push("‏לא נמצאה TYPE_CATEGORY ב-whatsapp-notify.ts — הביטוי שקורא אותה התיישן");
+} else {
+  /* ‏מפתח עם נקודה נכתב במרכאות — `"task.due": "tasks"` */
+  const categorised = new Set(
+    [...categoryBlock[1].matchAll(/^\s{2}"?([a-z_][a-z_.]*)"?:/gmu)].map((m) => m[1]),
+  );
+  if (categorised.size === 0) {
+    errors.push("‏TYPE_CATEGORY נקראה ריקה — הביטוי שקורא אותה כנראה התיישן");
+  }
+  for (const [type, file] of writtenTypes) {
+    if (categorised.has(type) || SYSTEM_BY_DESIGN.has(type)) continue;
+    errors.push(
+      `‏${type} נכתבת כהתראה (${file}) ואינה ב-TYPE_CATEGORY — היא תיפול ל-system, ` +
+        "כלומר תעקוף את מי שכיבה את הקטגוריה שלה",
+    );
+  }
+}
+
+/* ==================== 4. עוגן בכתובת מגיע לאלמנט שמורכב ==================== */
 
 /**
  * ‎**כתובת עם `#` — הכשל שהטענה הראשונה כאן לא ראתה.**

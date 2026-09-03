@@ -73,6 +73,13 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   offer_followup: "tasks",
   custom_automation: "tasks",
   appointment_scheduled: "tasks",
+  /*
+   * ‏תזכורת ממשימה חוזרת (`apps/workers`). היחיד ששמו נושא נקודה,
+   * ולכן במרכאות — וזה בדיוק מה שהחביא אותו: השער שנוסף כאן סינן
+   * נקודות ולכן דילג עליו, והוא נפל ל-`system` כלומר הגיע גם למי
+   * שכיבה „משימות” (ביקורת Codex).
+   */
+  "task.due": "tasks",
 
   buyer: "matches",
   property: "matches",
@@ -99,6 +106,13 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   coop_offer_declined: "network",
   payout_decision: "network",
   shared_lead_sold: "network",
+  /*
+   * ‏„נכנס נכס שמתאים לביקוש שאתה עוקב אחריו” — רשת, לא מערכת.
+   * בלי השורה הזו הוא נפל ל-`system`, כלומר מי שכיבה „רשת” המשיך
+   * לקבל אותו כהודעה שאי אפשר לכבות (ביקורת Codex) — בדיוק הכשל
+   * שההערה על ההצעות למעלה מתארת, שוב.
+   */
+  coop_demand_match: "network",
 
   daily_brief: "digests",
   weekly_summary: "digests",

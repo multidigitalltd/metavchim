@@ -30,6 +30,14 @@ describe("notifyCategory", () => {
     expect(notifyCategory("daily_brief")).toBe("digests");
   });
 
+  /*
+   * ‏שם עם נקודה הוא שם חוקי, והוא זה שהתחמק גם מהמפה וגם מהשער
+   * שנועד לשמור עליה — כי שניהם סיננו נקודות (ביקורת Codex).
+   */
+  it("שם עם נקודה נשלט כמו כל שם אחר", () => {
+    expect(notifyCategory("task.due")).toBe("tasks");
+  });
+
   it("סוג שאינו במפה נופל להודעות מערכת ולא נעלם", () => {
     expect(notifyCategory("something_new")).toBe("system");
   });
@@ -40,6 +48,12 @@ describe("notifyCategory", () => {
    * שאליה הם שייכים. הבדיקה הזו היא מה שמונע נפילה חוזרת בשקט.
    */
   it("ההצעות, ההתאמות והרשת אינן הודעות מערכת", () => {
+    /*
+     * ‏„נכנס נכס שמתאים לביקוש שאתה עוקב אחריו” נפל ל-`system`
+     * בדיוק כמו השישה שלפניו (ביקורת Codex): מי שכיבה „רשת” המשיך
+     * לקבל אותו כהודעה שאי אפשר לכבות.
+     */
+    expect(notifyCategory("coop_demand_match")).toBe("network");
     expect(notifyCategory("offer_opened")).toBe("matches");
     expect(notifyCategory("offer_interested")).toBe("matches");
     expect(notifyCategory("matches_found")).toBe("matches");
