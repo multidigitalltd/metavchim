@@ -150,6 +150,12 @@ interface PlatformSettings {
       /** ‎`WHATSAPP_CONNECT_APP_SECRET` קיים — גם כשערך המסד גובר עליו. */
       envFallback?: boolean;
       webhookUrl: string;
+      /** „מוגדר" לכל סוד בנפרד — מה שמאפשר להציג נקודות במקום שדה ריק. */
+      secretSet?: boolean;
+      verifyTokenSet?: boolean;
+      /** מזהים ציבוריים — הערך עצמו, לעריכה. */
+      appId?: string;
+      signupConfigId?: string;
     };
     assistant: {
       configured: boolean;
@@ -401,17 +407,6 @@ export function PlatformSettingsSection({
       const appId = String(f.get("whatsappAppId") ?? "").trim();
       const connectAppSecret = String(f.get("whatsappConnectAppSecret") ?? "").trim();
       const connectVerify = String(f.get("whatsappConnectVerifyToken") ?? "").trim();
-      /*
-       * ‎**שדה סוד ריק פירושו „בלי שינוי", ולכן אין דרך לרוקן אותו.**
-       *
-       * זה נכון לכל הסודות במסך — הם אינם מוצגים, ולכן ריק אינו יכול
-       * להיות „מחק". אבל שני ערכי אפליקציית החיבור הם **עקיפה**
-       * שהמסך מבטיח שאפשר לחזור ממנה („ריק = אותה אפליקציה"), והבטחה
-       * שאין לה כפתור היא הבטחה שבורה (ביקורת Codex). התיבה שולחת
-       * ‎`""` במפורש — שני הערכים יחד, כי „חזרה לאפליקציה אחת" היא
-       * הכרעה אחת ולא שתיים.
-       */
-      const clearConnect = f.get("whatsappConnectClear") !== null;
       const signupConfigId = String(f.get("whatsappSignupConfigId") ?? "").trim();
       const botNumber = String(f.get("whatsappBotNumber") ?? "").trim();
       const prospectReply = String(f.get("whatsappProspectReply") ?? "").trim();
@@ -438,12 +433,16 @@ export function PlatformSettingsSection({
         ...(accessToken !== "" ? { whatsappAccessToken: accessToken } : {}),
         ...(phoneNumberId !== "" ? { whatsappPhoneNumberId: phoneNumberId } : {}),
         ...(appId !== "" ? { whatsappAppId: appId } : {}),
-        ...(clearConnect
-          ? { whatsappConnectAppSecret: "", whatsappConnectVerifyToken: "" }
-          : {
-              ...(connectAppSecret !== "" ? { whatsappConnectAppSecret: connectAppSecret } : {}),
-              ...(connectVerify !== "" ? { whatsappConnectVerifyToken: connectVerify } : {}),
-            }),
+        /*
+         * ‎**ריק = „בלי שינוי", כמו כל סוד במסך הזה.**
+         *
+         * הייתה כאן תיבת „לחזור לאפליקציה אחת" ששלחה `""` לשני
+         * הערכים. היא הוסרה לבקשת בעל המוצר: היא ישבה בתוך `label`
+         * שעוטף פסקה ארוכה, ולכן סימון בטעות תוך כדי בחירת טקסט היה
+         * מוחק את שני הסודות בשמירה הבאה — בשקט.
+         */
+        ...(connectAppSecret !== "" ? { whatsappConnectAppSecret: connectAppSecret } : {}),
+        ...(connectVerify !== "" ? { whatsappConnectVerifyToken: connectVerify } : {}),
         ...(signupConfigId !== "" ? { whatsappSignupConfigId: signupConfigId } : {}),
         // ‎`botNumber` נשלח תמיד, גם ריק: הוא גיבוי שמכוון למחוק אותו
         // ברגע ש-Meta מתחילה לענות, וריק כאן פירושו „חזרו להסתמך על
@@ -1813,126 +1812,142 @@ export function PlatformSettingsSection({
           </div>
 
           {/*
-            חיבור עצמאי של מספרי המשרדים (docs/12). שני מזהים ציבוריים
-            של Meta ולא סודות — הם נשלחים לדפדפן כדי לפתוח את פופאפ
-            החיבור. בלעדיהם הכפתור אצל המשרדים פשוט אינו מוצג.
+            ‎**חיבור עצמאי של מספרי המשרדים (docs/12) — קבוצה סגורה.**
+
+            ‏קודם זו הייתה כותרת ואחריה שדות שהיו אחים בשורת ה-flex
+            הכללית. כותרת אינה עוטפת דבר, ולכן השדות של קו הסוכן
+            שאחריה זלגו לתוך הסעיף והמסך נקרא כערבוביה (דיווח
+            מהשטח). עכשיו זו מסגרת אחת שמכילה בדיוק את ארבעת
+            השדות שלה, ומה שאחריה מתחיל מחוץ לה.
           */}
-          <div className="w-full border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
-            <p className="mb-2 font-medium">חיבור עצמאי של מספרי המשרדים</p>
-            <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          <fieldset
+            className="w-full rounded-xl border p-4"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-table-head)" }}
+          >
+            <legend className="px-2 font-medium">חיבור עצמאי של מספרי המשרדים</legend>
+            <p className="m-0 mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
               מה שמאפשר לכל משרד לחבר את המספר שלו בעצמו, בלי לוותר על אפליקציית
-              WhatsApp Business בטלפון. ה-App ID מופיע בלוח הבקרה של האפליקציה
-              ב-Meta; ה-Configuration ID נוצר תחת Facebook Login for Business ←
-              Configurations. ריקים = כפתור החיבור מוסתר במסך ההגדרות של המשרדים.
+              WhatsApp Business בטלפון. <b>ריקים = כפתור החיבור מוסתר</b> במסך
+              ההגדרות של המשרדים.
             </p>
-          </div>
-          <div className="flex-1" style={{ minWidth: "220px" }}>
-            <label htmlFor="whatsappAppId" className="mb-1 block font-medium">
-              App ID <span className="font-normal">(ספרות בלבד)</span>
-            </label>
-            <input
-              id="whatsappAppId"
-              name="whatsappAppId"
-              type="text"
-              dir="ltr"
-              inputMode="numeric"
-              autoComplete="off"
-              className="w-full rounded-lg border px-3 py-2.5"
-              style={inputStyle}
-            />
-          </div>
-          <div className="flex-1" style={{ minWidth: "220px" }}>
-            <label htmlFor="whatsappConnectAppSecret" className="mb-1 block font-medium">
-              App Secret של אפליקציית החיבור{" "}
-              <span className="font-normal">(ריק = אותה אפליקציה)</span>
-            </label>
-            <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              רק אם חיבור המשרדים יושב באפליקציה נפרדת מזו של קו הסוכן. אז שתי
-              אפליקציות חותמות על אותו Webhook, וצריך את שני הסודות — אחרת
-              ההודעות מאפליקציית החיבור נדחות והחיבור נראה מוצלח בלי שאף הודעה
-              מגיעה.
-            </p>
-            <input
-              id="whatsappConnectAppSecret"
-              name="whatsappConnectAppSecret"
-              type="password"
-              dir="ltr"
-              autoComplete="off"
-              className="w-full rounded-lg border px-3 py-2.5"
-              style={inputStyle}
-            />
-          </div>
-          <div className="flex-1" style={{ minWidth: "220px" }}>
-            <label htmlFor="whatsappConnectVerifyToken" className="mb-1 block font-medium">
-              Verify Token של אפליקציית החיבור{" "}
-              <span className="font-normal">(ריק = כמו קו הסוכן)</span>
-            </label>
-            <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              אתם ממציאים אותו, והוא נפרד מזה של קו הסוכן — כך שאין צורך לדעת את
-              הישן (הסודות אינם ניתנים לשליפה, בכוונה). הכתובת לרישום ב-Meta היא{" "}
+            <p className="m-0 mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              הכתובת לרישום ב-Meta:{" "}
               <code dir="ltr" style={{ direction: "ltr", unicodeBidi: "isolate" }}>
-                /api/v1/webhooks/whatsapp/connect
+                {settings.whatsapp.connect?.webhookUrl ?? "/api/v1/webhooks/whatsapp/connect"}
               </code>{" "}
-              — נתיב אחר מזה של קו הסוכן, ולכן שינוי כאן אינו נוגע בו.
+              — נתיב נפרד מזה של קו הסוכן, ולכן מה שמוגדר כאן אינו נוגע בו.
             </p>
-            <input
-              id="whatsappConnectVerifyToken"
-              name="whatsappConnectVerifyToken"
-              type="password"
-              dir="ltr"
-              autoComplete="new-password"
-              data-1p-ignore
-              data-lpignore="true"
-              className="w-full rounded-lg border px-3 py-2.5"
-              style={inputStyle}
-            />
-          </div>
-          {/*
-            שדה סוד ריק פירושו „בלי שינוי" — ולכן בלי התיבה הזו אי
-            אפשר לחזור מאפליקציה נפרדת לאחת, וההבטחה „ריק = אותה
-            אפליקציה" הייתה נכונה רק בהתקנה חדשה.
-          */}
-          <label className="flex w-full items-start gap-2 text-sm">
-            <input
-              id="whatsappConnectClear"
-              name="whatsappConnectClear"
-              type="checkbox"
-              className="mt-0.5"
-            />
-            <span>
-              לחזור לאפליקציה אחת — מוחק את הסוד ואת ה-Verify Token של אפליקציית
-              החיבור, ושני הנתיבים חוזרים להישען על הערכים של קו הסוכן.
-              {settings.whatsapp.connect?.envFallback === true ? (
-                /*
-                 * ‏המחיקה נוגעת למסד בלבד, והקוד נופל חזרה למשתנה
-                 * הסביבה — כלומר הסוד הנפרד ימשיך לפעול. בלי המשפט
-                 * הזה המסך מבטיח חזרה שלא קורית (ביקורת Codex).
-                 */
-                <b style={{ display: "block", color: "var(--color-danger)" }}>
-                  שימו לב: הסוד מוגדר גם במשתנה סביבה
-                  (<code dir="ltr">WHATSAPP_CONNECT_APP_SECRET</code>). ניקוי כאן
-                  מוחק את הערך מהמסד בלבד, והמערכת תיפול חזרה לסביבה — צריך
-                  להסיר אותו גם שם.
-                </b>
-              ) : null}
-            </span>
-          </label>
-          <div className="flex-1" style={{ minWidth: "220px" }}>
-            <label htmlFor="whatsappSignupConfigId" className="mb-1 block font-medium">
-              Embedded Signup Configuration ID{" "}
-              <span className="font-normal">(ספרות בלבד)</span>
-            </label>
-            <input
-              id="whatsappSignupConfigId"
-              name="whatsappSignupConfigId"
-              type="text"
-              dir="ltr"
-              inputMode="numeric"
-              autoComplete="off"
-              className="w-full rounded-lg border px-3 py-2.5"
-              style={inputStyle}
-            />
-          </div>
+
+            <div className="flex flex-wrap gap-4">
+              {/*
+                שני המזהים מוצגים חזרה כערך — הם ציבוריים, ובלי זה
+                מי שהזין ושמר ראה שדה ריק ולא ידע אם נשמר.
+              */}
+              <div className="flex-1" style={{ minWidth: "220px" }}>
+                <label htmlFor="whatsappAppId" className="mb-1 block font-medium">
+                  App ID <span className="font-normal">(ספרות בלבד)</span>
+                </label>
+                <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  מלוח הבקרה של האפליקציה ב-Meta ← App settings ← בסיסי.
+                </p>
+                <input
+                  id="whatsappAppId"
+                  name="whatsappAppId"
+                  type="text"
+                  dir="ltr"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  key={settings.whatsapp.connect?.appId ?? ""}
+                  defaultValue={settings.whatsapp.connect?.appId ?? ""}
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+              </div>
+
+              <div className="flex-1" style={{ minWidth: "220px" }}>
+                <label htmlFor="whatsappSignupConfigId" className="mb-1 block font-medium">
+                  Embedded Signup Configuration ID{" "}
+                  <span className="font-normal">(ספרות בלבד)</span>
+                </label>
+                <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  נוצר תחת Facebook Login for Business ← Configurations.
+                </p>
+                <input
+                  id="whatsappSignupConfigId"
+                  name="whatsappSignupConfigId"
+                  type="text"
+                  dir="ltr"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  key={settings.whatsapp.connect?.signupConfigId ?? ""}
+                  defaultValue={settings.whatsapp.connect?.signupConfigId ?? ""}
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+              </div>
+
+              {/*
+                ‏שני הסודות מוצגים כ„מוגדר" ולא כערך, ולכן הם צריכים
+                את הנקודות בשדה — אחרת „ריק" נראה כמו „לא נשמר".
+              */}
+              <div className="flex-1" style={{ minWidth: "220px" }}>
+                <label htmlFor="whatsappConnectAppSecret" className="mb-1 block font-medium">
+                  App Secret של אפליקציית החיבור{" "}
+                  <span className="font-normal">(ריק = ללא שינוי)</span>
+                </label>
+                <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  רק אם חיבור המשרדים יושב באפליקציה נפרדת מזו של קו הסוכן.
+                  בלעדיו ההודעות ממנה נדחות, והחיבור נראה מוצלח בלי שאף הודעה
+                  מגיעה.
+                  {settings.whatsapp.connect?.envFallback === true ? (
+                    <b style={{ display: "block", color: "var(--color-danger)" }}>
+                      מוגדר גם במשתנה סביבה
+                      (<code dir="ltr">WHATSAPP_CONNECT_APP_SECRET</code>) — הערך שם
+                      גובר כשאין ערך שמור כאן.
+                    </b>
+                  ) : null}
+                </p>
+                <input
+                  id="whatsappConnectAppSecret"
+                  name="whatsappConnectAppSecret"
+                  type="password"
+                  dir="ltr"
+                  autoComplete="new-password"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  placeholder={settings.whatsapp.connect?.secretSet === true ? "••••••••" : ""}
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+              </div>
+
+              <div className="flex-1" style={{ minWidth: "220px" }}>
+                <label htmlFor="whatsappConnectVerifyToken" className="mb-1 block font-medium">
+                  Verify Token של אפליקציית החיבור{" "}
+                  <span className="font-normal">(ריק = ללא שינוי)</span>
+                </label>
+                <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  אתם ממציאים אותו, 16 תווים לפחות. נפרד מזה של קו הסוכן — ולכן
+                  אין צורך לדעת את הישן.
+                </p>
+                <input
+                  id="whatsappConnectVerifyToken"
+                  name="whatsappConnectVerifyToken"
+                  type="password"
+                  dir="ltr"
+                  autoComplete="new-password"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  placeholder={
+                    settings.whatsapp.connect?.verifyTokenSet === true ? "••••••••" : ""
+                  }
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+          </fieldset>
+
           <div className="w-full">
             <label htmlFor="whatsappProspectReply" className="mb-1 block font-medium">
               מענה למספר לא רשום{" "}
