@@ -152,6 +152,12 @@ jobs:
       - name: Layout decisions hold
         run: pnpm --filter @metavchim/web verify:layout
 
+      # ההדרכות והתיעוד הם בית אחד, והבית הוא הציבורי. השער מוודא
+      # ש-`/guides` נשאר הפניה ולא חוזר להיות מסך שני שמצייר את אותו
+      # תוכן — הפיצול הזה כבר ייצר כאן שתי גרסאות שנפרדו זו מזו.
+      - name: Docs are the single home
+        run: pnpm --filter @metavchim/web verify:docs
+
       # עליית ה-API על הפלט המהודר. חייב לרוץ אחרי הבנייה ולא כבדיקת
       # יחידה: רק `tsc` פולט את מטא-דאטת הבנאי ש-Nest צריך כדי לפתור
       # תלויות, ולכן חיווט שבור נראה רק כאן. תקלת ייצור אחת עברה את
