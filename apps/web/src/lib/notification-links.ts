@@ -62,6 +62,45 @@ function targetFor(entityType: string, entityId: string): Target | null {
         href: `/calls?call=${entityId}`,
         needs: ["leads.view_own", "buyers.view_own"],
       };
+    /*
+     * ‎**חדר העסקה — הישות שהתראותיה מתו בפעמון** (בקשת המשתמש:
+     * ‏„אם יש הודעה בחדר עסקה משותפת אז שההודעה תפתח את החדר”).
+     *
+     * ‏שתי התראות נכתבות עם `coop_deal` — „נפתח חדר עסקה משותף”
+     * ו„הודעה חדשה בחדר עסקה” — ולשתיהן היה מסלול תקין בוואטסאפ
+     * ובהתראת הדחיפה, ולא כאן. המפה הזו נעצרה ב-`default: null`,
+     * הפעמון תרגם `null` ל„לכל ההתראות”, והלחיצה נחתה ברשימה
+     * במקום בחדר.
+     *
+     * ‏שני הצדדים בעסקה: מי שהציע ומי שקיבל, ולכן די באחת מהשתיים.
+     */
+    case "coop_deal":
+      return {
+        href: `/collaboration/deals/${entityId}`,
+        needs: ["collaboration.offer", "collaboration.share"],
+      };
+    /* ‏ביקוש ברשת — הלשונית, כי לביקוש בודד אין מסך */
+    case "coop_demand":
+      return { href: "/collaboration?tab=demands", needs: ["collaboration.offer"] };
+    /* ‏להתאמה אין נתיב משלה; היא נמצאת ברשימה שההתראה מדברת עליה */
+    case "match":
+      return { href: "/matches", needs: ["matches.view"] };
+    /*
+     * ‏`mentor_achievement` ‎אינו כאן במכוון: `/mentor` מציג היום
+     * „בקרוב” בלבד, והמסך הבנוי מחכה ב-`mentor-screen.tsx` בלי ניתוב.
+     * הנפילה ל-`null` שולחת את הלוחץ למסך ההתראות, שבו גוף ההתראה
+     * מוצג — במקום לעמוד שאין בו ההישג (ביקורת Codex). ההסבר המלא,
+     * ומה להחזיר כשהמסך ייחשף, יושבים ב-`web-push.ts`.
+     */
+    /*
+     * ‏שתי אלה משרדיות ומגיעות גם לסוכן: „החיבור נפל”, „המספר
+     * שהושכר”. בלי `needs` הן היו שולחות אותו למסך הגדרות שיחזיר
+     * ‎403.
+     */
+    case "integration":
+      return { href: "/settings/integrations", needs: ["settings.manage"] };
+    case "virtual_number":
+      return { href: "/settings#virtual-numbers", needs: ["settings.manage"] };
     default:
       return null;
   }

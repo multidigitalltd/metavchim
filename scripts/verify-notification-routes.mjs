@@ -125,6 +125,13 @@ const FALLBACK_BY_DESIGN = new Set([
   "credit_batch", // מנת קרדיטים שעומדת לפוג — אין מסך למנה בודדת
   "exclusivity", // המזהה הוא של הבלעדיות ולא של הנכס
   "payout_request", // בקשת משיכה — נצפית ברשימת התשלומים
+  /*
+   * ‏ההישג השבועי — נופל בכוונה כל עוד מסך המנטור מוסתר. `/mentor`
+   * מציג „בקרוב”, והמסך הבנוי מחכה ב-`mentor-screen.tsx` בלי ניתוב;
+   * ניתוב ההתראה לשם היה שולח את המנהל לעמוד שאין בו ההישג. ביום
+   * שהמסך ייחשף מוסיפים את הישות לשתי המפות ומוציאים אותה מכאן.
+   */
+  "mentor_achievement",
 ]);
 
 const sources = [join(root, "apps/api/src"), join(root, "apps/workers/src")];
@@ -142,6 +149,42 @@ function tsFiles(dir) {
 /** הערות אינן קוד — ראו את הקורא למטה. */
 function stripComments(text) {
   return text.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/^\s*\/\/.*$/gmu, "");
+}
+
+/* ==================== המפה של הווב ==================== */
+
+/**
+ * ‎**שתי מפות ניתוב, ולכן שני מקומות להתפצל — וזה בדיוק מה שקרה.**
+ *
+ * ‎`ENTITY_ROUTES` בחבילה המשותפת מנתבת את התראת הדחיפה ואת ההודעה
+ * בוואטסאפ. ‏`notification-links.ts` בווב מנתבת את **הפעמון ומסך
+ * ההתראות**. הן נכתבו בנפרד, ובבדיקה הזו נמצא ששש ישויות היו
+ * בראשונה ולא בשנייה — ביניהן `coop_deal`: „הודעה חדשה בחדר עסקה”
+ * הובילה לחדר בוואטסאפ, ובפעמון נחתה ברשימת ההתראות (בקשת
+ * המשתמש). ‏`shared_lead` היה הפוך — בווב ולא במשותפת.
+ *
+ * ‏אי אפשר לאחד אותן: לווב יש `needs` (יכולות) שאין לה מקום בהודעת
+ * וואטסאפ, ולמשותפת יש מזהים שנבנים אחרת. מה שכן אפשר הוא לדרוש
+ * שהן **מכסות את אותן ישויות** — ומי שמוסיף סוג חדש בצד אחד יידע
+ * מיד שהשני מחכה.
+ */
+const webPath = join(root, "apps/web/src/lib/notification-links.ts");
+const webSrc = stripComments(readFileSync(webPath, "utf8"));
+const webTypes = [...webSrc.matchAll(/case "([a-z_]+)":/gu)].map((m) => m[1]);
+if (webTypes.length === 0) {
+  errors.push("‏לא נמצאה אף ישות ב-notification-links.ts — הביטוי שקורא אותה התיישן");
+}
+const onlyShared = entityTypes.filter((t) => !webTypes.includes(t));
+const onlyWeb = webTypes.filter((t) => !entityTypes.includes(t));
+for (const type of onlyShared) {
+  errors.push(
+    `‏${type} מנותבת בהתראת הדחיפה ולא בפעמון — הלחיצה בפעמון תנחת ברשימת ההתראות (notification-links.ts)`,
+  );
+}
+for (const type of onlyWeb) {
+  errors.push(
+    `‏${type} מנותבת בפעמון ולא בהתראת הדחיפה — ההודעה בוואטסאפ תנחת בדשבורד (web-push.ts)`,
+  );
 }
 
 const known = new Set(entityTypes);
@@ -162,6 +205,32 @@ for (const dir of sources) {
       const window = text.slice(match.index, match.index + 900);
       const entity = /entityType:\s*"([a-z_]+)"/u.exec(window);
       if (entity !== null) written.set(entity[1], file.slice(root.length + 1));
+
+      /*
+       * ‎**הצורה שהחלון לבדו לא רואה: `createMany({ data: rows })`.**
+       *
+       * ‏השורות נבנות בלולאה ונכתבות בבת אחת, ולכן `entityType` יושב
+       * מאות שורות **לפני** הקריאה. הסורק דיווח „תקין” על התראה
+       * שנכתבת עם ישות שאין לה מסלול — כלומר בדיוק הכשל שהוא קיים
+       * כדי למנוע, ובצורה שהולכת ונעשית נפוצה ככל שכתיבות מתקבצות.
+       *
+       * ‏הסריקה נשארת צרה: רק דחיפות אל **המשתנה עצמו** שנמסר
+       * ל-`data`, ולא כל `entityType` בקובץ — רישומי הביקורת
+       * ממשיכים להיות מחוץ לתמונה.
+       */
+      const dataVar = /^notification\.create(?:Many)?\(\s*\{\s*data:\s*([A-Za-z_$][\w$]*)\b/u.exec(
+        window,
+      );
+      if (dataVar === null) continue;
+      const pushes = new RegExp(
+        String.raw`\b${dataVar[1]}\.push\(`,
+        "gu",
+      );
+      for (const push of text.matchAll(pushes)) {
+        const block = text.slice(push.index, push.index + 900);
+        const pushed = /entityType:\s*"([a-z_]+)"/u.exec(block);
+        if (pushed !== null) written.set(pushed[1], file.slice(root.length + 1));
+      }
     }
   }
 }
@@ -175,6 +244,98 @@ for (const [entityType, file] of written) {
   );
 }
 
+/* ==================== 3. עוגן בכתובת מגיע לאלמנט שמורכב ==================== */
+
+/**
+ * ‎**כתובת עם `#` — הכשל שהטענה הראשונה כאן לא ראתה.**
+ *
+ * ‏הטענה הראשונה חותכת `?` ו-`#` לפני שהיא בודקת שהמסך קיים, וזה
+ * נכון: `/settings` אכן קיים. אבל `virtual_number` הצביעה על
+ * ‎`/settings#virtual-numbers`, ומסך ההגדרות מפוצל ללשוניות — הוא
+ * קורא את העוגן, מחפש אותו ב-`HASH_TABS`, ואם אינו שם **אינו מחליף
+ * לשונית כלל**. כלומר הכותרת שאליה כיוון העוגן יושבת בלשונית
+ * „חיבורים ומודולים” שלא הורכבה, והלוחץ נשאר על לשונית הצוות
+ * (ביקורת Codex). הכתובת קיימת, השער היה ירוק, והקישור מת.
+ *
+ * שתי הדרישות למטה הן שני החלקים שצריכים להתקיים כדי שעוגן יעבוד:
+ * שיש אלמנט עם המזהה הזה, ושהלשונית שמכילה אותו נבחרת.
+ */
+function webFiles(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...webFiles(full));
+    else if (/\.tsx?$/u.test(entry.name)) out.push(full);
+  }
+  return out;
+}
+const webSources = webFiles(join(root, "apps/web/src")).map((file) => ({
+  file: file.slice(root.length + 1),
+  text: readFileSync(file, "utf8"),
+}));
+
+/** קובץ ה-`page.tsx` שמאחורי נתיב, כדי לקרוא ממנו את `HASH_TABS`. */
+function pageFile(path) {
+  const segments = path.split("/").filter((s) => s !== "");
+  const route = appRoutes.find(
+    (candidate) =>
+      candidate.length === segments.length &&
+      candidate.every((seg, i) => seg === segments[i] || /^\[.+\]$/u.test(seg)),
+  );
+  if (route === undefined) return null;
+  const dir = join(root, "apps/web/src/app", ...route);
+  const page = readdirSync(dir).find((name) => /^page\.[jt]sx?$/u.test(name));
+  return page === undefined ? null : join(dir, page);
+}
+
+/*
+ * שני המקורות יחד: הכתובת של הפוש נבנית מהבנייה, וזו של הפעמון היא
+ * מחרוזת במקור. עוגן שבור באחת מהן שבור לגמרי — ולכן שתיהן נבדקות
+ * באותה טענה, ולא רק זו שבה הכשל נמצא.
+ */
+const anchored = new Map();
+const anchorFound = (url, where) => {
+  const sources = anchored.get(url) ?? new Set();
+  sources.add(where);
+  anchored.set(url, sources);
+};
+for (const entityType of entityTypes) {
+  const url = notificationUrl(note(entityType, "01HQ0000000000000000000001"));
+  if (url.includes("#")) anchorFound(url, `web-push.ts (${entityType})`);
+}
+for (const match of webSrc.matchAll(/href:\s*[`"']([^`"']*#[^`"']+)[`"']/gu)) {
+  anchorFound(match[1], "notification-links.ts");
+}
+
+for (const [url, sources] of anchored) {
+  const where = [...sources].join(", ");
+  const [path, anchor] = url.split("#");
+  const holder = webSources.find(({ text }) => text.includes(`id="${anchor}"`));
+  if (holder === undefined) {
+    errors.push(
+      `‏${url} (${where}) — אין ב-apps/web/src אלמנט עם id="${anchor}", והגלילה לא תמצא לאן`,
+    );
+    continue;
+  }
+  const page = pageFile(path);
+  if (page === null) continue;
+  const pageSrc = readFileSync(page, "utf8");
+  const tabs = /const HASH_TABS[^{]*\{([\s\S]*?)\n\};/u.exec(pageSrc);
+  // מסך שאינו מפוצל ללשוניות מרכיב את הכל תמיד — העוגן עובד כמו שהוא
+  if (tabs === null) continue;
+  const keys = [...tabs[1].matchAll(/^\s{2}"?([a-z][\w-]*)"?:/gmu)].map((m) => m[1]);
+  if (keys.length === 0) {
+    errors.push("‏לא נקרא אף מפתח מ-HASH_TABS — הביטוי שקורא אותה התיישן");
+    continue;
+  }
+  if (!keys.includes(anchor)) {
+    errors.push(
+      `‏${url} (${where}) — ‎"${anchor}" אינו ב-HASH_TABS של ${page.slice(root.length + 1)}, ` +
+        `ולכן הלשונית שמכילה את ${holder.file} לא תיבחר והלוחץ יישאר בלשונית הראשונה`,
+    );
+  }
+}
+
 /* ==================== התוצאה ==================== */
 
 if (errors.length > 0) {
@@ -183,5 +344,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `✓ ${entityTypes.length} ישויות בטבלה נוחתות על מסכים קיימים, ו-${written.size} סוגי התראות מכוסים`,
+  `✓ ${entityTypes.length} ישויות בטבלה נוחתות על מסכים קיימים, ${written.size} סוגי התראות מכוסים, ושתי מפות הניתוב מסכימות`,
 );
