@@ -13,7 +13,9 @@ import {
   type WhatsAppTemplateQuickReply,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
+import { CryptoService } from "../../core/crypto.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
+import { PrismaService } from "../../core/prisma.service";
 import { WA_AUDIO_MAX_BYTES } from "./assistant-buttons";
 import { toWhatsAppAudio } from "./audio-transcode";
 
@@ -54,7 +56,55 @@ export interface SendTextOptions {
 export class WhatsAppSendService {
   private readonly logger = new Logger(WhatsAppSendService.name);
 
-  constructor(private readonly platformSettings: PlatformSettingsService) {}
+  constructor(
+    private readonly platformSettings: PlatformSettingsService,
+    private readonly prisma: PrismaService,
+    private readonly crypto: CryptoService,
+  ) {}
+
+  /**
+   * ‎**שליחה בשם המשרד — לא מקו מסוים ולא מהמספר של הפלטפורמה.**
+   *
+   * ‏`sendText` יוצא מהקו של המערכת, ו-`sendTextAs` דורש שהקורא
+   * יביא כבר את פרטי החיבור. יש מקרה שלישי שלא היה לו בית: הודעה
+   * שהמשרד שולח ללקוח שלו — דוח פעילות לבעל נכס — שבה השולח הוא
+   * **המשרד** ואין בה קו שממנו לצאת.
+   *
+   * ‎`WhatsAppConnectionService` היה המקום המתבקש, והוא יושב
+   * ב-`WhatsAppModule` שתלוי ב-`AgentModule` שתלוי ב-
+   * ‎`PropertiesModule` — כלומר ייבוא שלו מנכסים הוא מעגל, בדיוק
+   * כפי שההערה ב-`messaging.module.ts` מזהירה. השאילתה כאן היא
+   * קריאה אחת ופענוח אחד, בלי אף אחת מהתלויות האלה, והיא יושבת
+   * לצד שאר השליחה.
+   *
+   * ‏החיבור הראשון שחובר ולא האחרון: משרד עם שני קווים שולח מזה
+   * שהלקוחות כבר מכירים.
+   *
+   * ‏`"no_connection"` ו-`"rejected"` הן שתי תשובות שונות ולא
+   * ‎`false` אחד: הראשונה אומרת „חברו וואטסאפ” והשנייה „חלון 24
+   * השעות סגור” — עצות הפוכות למי שלחץ.
+   */
+  async sendAsTenant(
+    tenantId: string,
+    to: string,
+    body: string,
+  ): Promise<"sent" | "no_connection" | "rejected"> {
+    const row = await this.prisma.whatsAppBusinessConnection.findFirst({
+      where: { tenantId, disconnectedAt: null },
+      orderBy: { connectedAt: "asc" },
+      select: { accessTokenEncrypted: true, phoneNumberId: true },
+    });
+    if (!row?.accessTokenEncrypted) return "no_connection";
+    let token: string;
+    try {
+      token = this.crypto.decrypt(row.accessTokenEncrypted);
+    } catch {
+      /* ‏טוקן שנכתב במפתח קודם — מבחינת השולח אין חיבור */
+      return "no_connection";
+    }
+    const sent = await this.sendTextAs({ token, phoneNumberId: row.phoneNumberId }, to, body);
+    return sent ? "sent" : "rejected";
+  }
 
   /** null = הצד היוצא לא הוגדר; הקליטה ממשיכה לעבוד בלעדיו. */
   async credentials(): Promise<WhatsAppCredentials | null> {

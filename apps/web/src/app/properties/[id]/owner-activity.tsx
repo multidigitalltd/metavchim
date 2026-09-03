@@ -9,7 +9,7 @@ import {
   type OwnerActivityKind,
   type OwnerActivityResult,
 } from "@metavchim/shared";
-import { API_BASE, apiGet } from "@/lib/api";
+import { API_BASE, ApiError, apiGet, apiPost } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
 import { Notice } from "../../notice";
 
@@ -36,7 +36,16 @@ interface ActivityReport {
   entries: ActivityEntry[];
   summary: { total: number; held: number; upcoming: number; inquiries: number; lastAt?: string };
   truncated: boolean;
+  /**
+   * ‏במה אפשר להגיע לבעל הנכס — מהשרת, כי פרטיו מוצפנים והמסך אינו
+   * מחזיק אותם. השדה אופציונלי כדי שגרסת מסך חדשה מול שרת ישן לא
+   * תקרוס; היעדרו נקרא כ„אין ערוצים”, וזו התשובה הבטוחה.
+   */
+  owner?: { name?: string; whatsapp: boolean; email: boolean };
 }
+
+/** ‏באיזה ערוץ הדוח יוצא — המתווך בוחר. */
+type SendChannel = "whatsapp" | "email";
 
 /** שלוש התקופות שמתווך באמת מבקש, ולא בורר תאריכים שאיש לא ממלא. */
 const PERIODS = [
@@ -108,6 +117,12 @@ export function OwnerActivity({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  /*
+   * ‎`null` = לא נשלח כלום כרגע. שם הערוץ = הכפתור הזה בעבודה —
+   * ולא דגל בוליאני אחד, שהיה מנטרל את שני הכפתורים כשנלחץ אחד.
+   */
+  const [sending, setSending] = useState<SendChannel | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
   const copy = useCopy();
   /*
    * מונה בקשות. בלעדיו החלפת תקופה מהירה משאירה שתי טעינות באוויר,
@@ -179,6 +194,44 @@ export function OwnerActivity({
       setError(err instanceof Error ? err.message : "הורדת הדוח נכשלה");
     } finally {
       setDownloading(false);
+    }
+  }
+
+  /**
+   * ‎**השליחה בפועל — הפעולה שהמסך הזה לא ידע לעשות.**
+   *
+   * ‏עד עכשיו היו כאן „הורדת קובץ” ו„העתקת הודעה”, כלומר הדוח נבנה
+   * והמתווך היה אמור להדביק אותו בעצמו לוואטסאפ. מי שלא עשה זאת
+   * השאיר את בעל הנכס בלי דוח, ומהמסך זה נראה כאילו נשלח.
+   *
+   * ‏השגיאה מהשרת מוצגת כלשונה ולא מוחלפת ב„השליחה נכשלה”: היא
+   * אומרת **מה** חסם — אין אימייל בכרטיס, הוואטסאפ אינו מחובר,
+   * חלון 24 השעות של Meta נסגר — וזה ההבדל בין מתווך שיודע מה
+   * לעשות עכשיו לבין מתווך שלוחץ שוב.
+   */
+  async function send(channel: SendChannel): Promise<void> {
+    setSending(channel);
+    setError(null);
+    setSent(null);
+    try {
+      const periodLabel = PERIODS.find((p) => p.key === selection.period)?.label ?? "כל התקופה";
+      const result = await apiPost<{ channel: SendChannel; to: string; count: number }>(
+        `/properties/${propertyId}/activity/send${query}`,
+        { channel, periodLabel },
+      );
+      setSent(
+        channel === "whatsapp"
+          ? `הדוח נשלח בוואטסאפ אל ${result.to}`
+          : `הדוח נשלח באימייל אל ${result.to}, עם הרשימה המלאה כקובץ מצורף`,
+      );
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.message.trim() !== ""
+          ? err.message
+          : "שליחת הדוח נכשלה — אפשר להעתיק את ההודעה ולשלוח ידנית",
+      );
+    } finally {
+      setSending(null);
     }
   }
 
@@ -293,7 +346,41 @@ export function OwnerActivity({
             </Notice>
           ) : null}
 
+          {sent ? <Notice tone="success">{sent}</Notice> : null}
+
+          {/*
+            ‏שתי השליחות ראשונות ומודגשות, ואחריהן ההורדה וההעתקה.
+            הסדר הוא ההבדל: עד עכשיו הפעולה הראשונה במסך הייתה
+            „הורדת קובץ”, כלומר המסך הציע למתווך לעשות את השליחה
+            בעצמו — וזה בדיוק מה שלא קרה.
+          */}
           <div className="mt-[14px] flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="mv-button mv-button--primary"
+              disabled={sending !== null || report.owner?.whatsapp !== true}
+              title={
+                report.owner?.whatsapp === true
+                  ? undefined
+                  : "אין טלפון בכרטיס בעל הנכס — אפשר להוסיף אותו בכרטיס"
+              }
+              onClick={() => void send("whatsapp")}
+            >
+              {sending === "whatsapp" ? "שולח…" : "שליחה בוואטסאפ"}
+            </button>
+            <button
+              type="button"
+              className="mv-button mv-button--secondary"
+              disabled={sending !== null || report.owner?.email !== true}
+              title={
+                report.owner?.email === true
+                  ? undefined
+                  : "אין אימייל בכרטיס בעל הנכס — אפשר להוסיף אותו בכרטיס"
+              }
+              onClick={() => void send("email")}
+            >
+              {sending === "email" ? "שולח…" : "שליחה באימייל"}
+            </button>
             <button
               type="button"
               className="mv-btn-plain"
@@ -303,6 +390,10 @@ export function OwnerActivity({
             >
               {downloading ? "מוריד…" : "הורדת קובץ"}
             </button>
+            {/*
+              ‏ההעתקה נשארת: היא המסלול של מי שרוצה לשלוח בערוץ אחר,
+              והיא גם מה שהשגיאות מפנות אליו כשהשליחה נחסמה.
+            */}
             <button
               type="button"
               className="mv-btn-plain"

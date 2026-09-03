@@ -29,6 +29,7 @@ import { FeatureCatalogueService } from "./feature-catalogue.service";
 import {
   PropertyActivityService,
   type OwnerActivityReportDto,
+  type OwnerReportSentDto,
 } from "./property-activity.service";
 import { PropertiesService } from "./properties.service";
 import type { PropertyDto } from "./property.mapper";
@@ -147,6 +148,23 @@ const ActivityQuerySchema = z
   .strict();
 
 type ActivityQuery = z.infer<typeof ActivityQuerySchema>;
+
+/**
+ * ‎**באיזה ערוץ, ואיזו תקופה נכתבת בגוף ההודעה.**
+ *
+ * ‏`periodLabel` מגיע מהמסך ולא נגזר מ-`from`/`to`: המסך מציג
+ * „‏30 הימים האחרונים” ולא טווח תאריכים, והדוח שנשלח צריך לומר
+ * בדיוק את מה שהמתווך בחר. גזירה שנייה כאן הייתה מייצרת ניסוח
+ * אחר מזה שעל המסך — על אותם נתונים בדיוק.
+ */
+const ActivitySendSchema = z
+  .object({
+    channel: z.enum(["whatsapp", "email"]),
+    periodLabel: z.string().trim().min(1).max(60),
+  })
+  .strict();
+
+type ActivitySend = z.infer<typeof ActivitySendSchema>;
 
 /**
  * תקרה של 500 — מכסה בחירה של „כל מה שמוצג” בכל מסך סביר, ומונעת
@@ -406,5 +424,22 @@ export class PropertiesController {
     @Query(new ZodValidationPipe(ActivityQuerySchema)) query: ActivityQuery,
   ): Promise<string> {
     return this.activityReport.csv(id, query);
+  }
+
+  /**
+   * ‎**שליחת הדוח לבעל הנכס.**
+   *
+   * ‎`properties.edit` ולא `properties.view`: צפייה בדוח היא קריאה,
+   * ושליחה היא פעולה שיוצאת מהמערכת אל לקוח בשם המשרד. מי שרשאי
+   * רק להסתכל בנכס אינו רשאי לכתוב לבעליו.
+   */
+  @Post(":id/activity/send")
+  @RequireCapability("properties.edit")
+  async activitySend(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Query(new ZodValidationPipe(ActivityQuerySchema)) query: ActivityQuery,
+    @Body(new ZodValidationPipe(ActivitySendSchema)) body: ActivitySend,
+  ): Promise<OwnerReportSentDto> {
+    return this.activityReport.sendToOwner(id, query, body);
   }
 }

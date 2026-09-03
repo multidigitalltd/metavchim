@@ -361,3 +361,77 @@ export function ownerActivityText(input: {
   }
   return lines.join("\n");
 }
+
+/**
+ * ‎**אותו דוח כאימייל — נושא וגוף.**
+ *
+ * ## למה זה קיים בנפרד מ-`ownerActivityText`
+ *
+ * ‏הטקסט נבנה להודעה אחת רצופה: שורת כותרת, שורת משרד, ואז נקודות.
+ * אימייל אינו הודעה רצופה — יש לו נושא משלו, פנייה בשם, פסקאות
+ * ותחתית — ודחיסת אותו טקסט לפסקה אחת נותנת מייל שנראה כמו הודעת
+ * ווטסאפ שהודבקה, וזה בדיוק מה שגורם לבעל נכס לא לקרוא אותו.
+ *
+ * ## הרשימה בגוף **וגם** בקובץ
+ *
+ * ‏הגוף נושא עד `OWNER_ACTIVITY_TEXT_LINES` שורות, והקובץ המצורף
+ * נושא הכול. בעל נכס פותח מייל בטלפון ולא מוריד CSV — אם הגוף ריק
+ * מתוכן והכול „בקובץ המצורף”, הוא לא ראה דבר. הקובץ הוא הגיבוי
+ * המלא, לא התוכן.
+ *
+ * ‏מה שנחתך נאמר, כאן כמו שם: „ועוד N פעולות” ולא שתיקה.
+ */
+export function ownerActivityEmail(input: {
+  propertyLabel: string;
+  officeName: string;
+  periodLabel: string;
+  /** שם בעל הנכס — לפנייה. חסר = פנייה כללית. */
+  ownerName?: string;
+  entries: readonly OwnerActivityEntry[];
+  truncated?: boolean;
+  now: Date;
+}): { subject: string; heading: string; greeting?: string; paragraphs: string[]; footnote: string } {
+  const summary = summarizeOwnerActivity(input.entries, input.now);
+  const paragraphs: string[] = [`${input.periodLabel} · ${input.officeName}`];
+
+  if (input.entries.length === 0) {
+    paragraphs.push("לא נרשמה פעילות בתקופה זו.");
+  } else {
+    const headline = [
+      summary.held > 0 ? `${summary.held} מפגשים התקיימו` : null,
+      summary.upcoming > 0 ? `${summary.upcoming} נקבעו וטרם התקיימו` : null,
+      summary.inquiries > 0 ? `${summary.inquiries} פניות של מתעניינים` : null,
+    ].filter((part): part is string => part !== null);
+    if (headline.length > 0) paragraphs.push(headline.join(" · "));
+
+    const shown = input.entries.slice(0, OWNER_ACTIVITY_TEXT_LINES);
+    for (const entry of shown) {
+      paragraphs.push(
+        `${formatJerusalemDate(entry.at)} ${formatJerusalemTime(entry.at)} — ` +
+          `${OWNER_ACTIVITY_KIND_LABELS[entry.kind]} · ${OWNER_ACTIVITY_RESULT_LABELS[entry.result]}`,
+      );
+    }
+
+    const omitted = input.entries.length - shown.length;
+    if (input.truncated === true) {
+      paragraphs.push("ועוד פעולות נוספות — הרשימה המלאה בקובץ המצורף.");
+    } else if (omitted > 0) {
+      paragraphs.push(`ועוד ${omitted} פעולות — הרשימה המלאה בקובץ המצורף.`);
+    }
+  }
+
+  return {
+    subject: `דוח פעילות — ${input.propertyLabel}`,
+    heading: `דוח פעילות — ${input.propertyLabel}`,
+    ...(input.ownerName === undefined || input.ownerName.trim() === ""
+      ? {}
+      : { greeting: `שלום ${input.ownerName.trim()},` }),
+    paragraphs,
+    /*
+     * ‏„אין צורך להשיב” **לא** נכתב כאן: המייל יוצא מהמשרד עם
+     * כתובת תשובה אמיתית, ובעל נכס שקורא דוח פעילות הוא בדיוק מי
+     * שעשוי לרצות לשאול עליו.
+     */
+    footnote: `הדוח מתאר ביקורים, פגישות ופניות בנכס. הוא אינו כולל שמות, מספרי טלפון או תוכן שיחות. נשלח מ${input.officeName}.`,
+  };
+}
