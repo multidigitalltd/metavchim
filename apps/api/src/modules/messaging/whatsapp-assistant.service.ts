@@ -16,6 +16,7 @@ import {
   roleLabel,
   decodeButtonId,
   historyRefs,
+  lastOffer,
   AGENT_HISTORY_KEPT,
   AGENT_ID_KEYS,
   type WhatsAppButton,
@@ -432,6 +433,12 @@ export class WhatsAppAssistantService {
       await this.sender.sendText(msg.fromWaId, snoozeReply(snooze), {
         replyTo: msg.externalId,
       });
+      /*
+       * ‎**גם מסלול שאינו מוסיף תור נשמר** — כדי שההצעה התלויה
+       * תפוג. ראו `withoutOffer`: „שקט לשעתיים” הוא הודעה שטופלה,
+       * ולכן „כן” אחריה כבר אינו על ההצעה שקדמה לה.
+       */
+      await this.saveChat(user.tenantId, user.id, chat);
       return;
     }
 
@@ -445,6 +452,8 @@ export class WhatsAppAssistantService {
         ),
         { replyTo: msg.externalId },
       );
+      // „עזרה” טופלה — ההצעה שקדמה לה פגה (ראו `withoutOffer`)
+      await this.saveChat(user.tenantId, user.id, chat);
       return;
     }
 
@@ -458,6 +467,7 @@ export class WhatsAppAssistantService {
         STALE_PROPOSAL_TEXT,
         { replyTo: msg.externalId },
       );
+      await this.saveChat(user.tenantId, user.id, chat);
       return;
     }
 
@@ -465,6 +475,7 @@ export class WhatsAppAssistantService {
     const spoken = asText === null ? await this.extractText(msg) : { text: asText };
     if ("reply" in spoken && spoken.reply !== undefined) {
       await this.sender.sendText(msg.fromWaId, spoken.reply, { replyTo: msg.externalId });
+      await this.saveChat(user.tenantId, user.id, chat);
       return;
     }
     const text = spoken.text ?? "";
@@ -1019,6 +1030,28 @@ export class WhatsAppAssistantService {
       return withHeard(await this.propose(chat, text, pending, speaker), heard);
     }
 
+    /*
+     * ‎**„כן” על מה שהסוכן הרגע הציע.**
+     *
+     * הסוכן מסיים תשובה בהצעת המשך („רוצה שנעבור על המשימות?”),
+     * המתווך עונה „כן” — ובלי הענף הזה המילה מגיעה למנוע תלושה
+     * לגמרי, כי ההצעה נוסחה בתשובה ולא נשמרה בשום מקום. מה שחזר
+     * בפועל היה „במה אוכל לעזור?”, כלומר הסוכן שאל את מה שהוא
+     * עצמו הרגע הציע (דיווח מהשטח).
+     *
+     * ‎**המשפט מוזרם כאילו הוקלד**, בדיוק כמו לחיצה על כפתור
+     * ההמשך — אותו מסלול, אותו אישור לפעולה שכותבת. „כן” אינו
+     * עוקף כלום; הוא רק אומר *על מה* מדובר.
+     *
+     * רק כשאין הצעה ממתינה (`pending` נבדק למעלה) ורק על ההצעה
+     * ‎**האחרונה**: „כן” אחרי שיחה שלמה על משהו אחר אינו חוזר
+     * להצעה משבוע שעבר.
+     */
+    const offered = isConfirmMessage(text) ? lastOffer(chat.history) : null;
+    if (offered !== null) {
+      return withHeard(await this.propose(chat, offered, null, speaker), heard);
+    }
+
     return withHeard(await this.propose(chat, text, null, speaker), heard);
   }
 
@@ -1282,6 +1315,13 @@ export class WhatsAppAssistantService {
 
     const lines: string[] = [];
     let steps: { text: string; label: string }[] = [];
+    /**
+     * ‎**המשפט שהסוכן הציע** — מה ש„כן” בתור הבא יפעיל.
+     *
+     * נלכד כאן ולא מנוסח מחדש: זה בדיוק אותו משפט שהכפתור נושא,
+     * ולכן „כן” והלחיצה מריצים את אותו הדבר בדיוק.
+     */
+    let offer: string | undefined;
     const renderSegment = (segment: (typeof segments)[number]): void => {
       switch (segment.kind) {
         case "headline":
@@ -1328,6 +1368,8 @@ export class WhatsAppAssistantService {
          */
         case "steps":
           steps = segment.steps.filter((step) => step.text.length <= CMD_TEXT_MAX);
+          // מה ש„כן” יפעיל בתור הבא — הראשון, שהוא גם הכפתור הראשון
+          if (steps[0] !== undefined) offer = steps[0].text;
           if (steps.length > 0) {
             lines.push(
               steps.length === 1
@@ -1338,6 +1380,7 @@ export class WhatsAppAssistantService {
           break;
         // רשת הביטחון המנוסחת — התוכנית פולטת אותה רק בהיעדר צעדים
         case "suggestion":
+          offer = segment.text;
           lines.push(`👉 אפשר להמשיך: „${segment.text}”`);
           break;
       }
@@ -1446,6 +1489,7 @@ export class WhatsAppAssistantService {
        * שנפתח, הקונה שנוצר — שאינה רשימה ולכן לא הותירה עקבה.
        */
       ...(refs.length === 0 ? {} : { refs }),
+      ...(offer === undefined ? {} : { offer }),
     };
     /*
      * שתי הרשימות: `history` היא מה שנשלח לפרומפט ולכן נחתכת
@@ -1616,7 +1660,20 @@ export class WhatsAppAssistantService {
         where: { tenantId_userId: { tenantId, userId } },
         select: { history: true },
       });
+      /*
+       * ‎**ההצעה שורדת עד ההודעה הבאה — ולא רגע אחד יותר.**
+       *
+       * תור שנוסף נושא הצעה משלו (או שאין לו), ולכן הישנה נמחקת
+       * ממילא. הבעיה היא הודעה ש**אינה** מוסיפה תור: „תודה”, „עזרה”,
+       * „שקט לשעתיים”. בלי המחיקה כאן ההצעה נשארה תלויה, ו„כן”
+       * שנאמר אחריה היה מריץ הצעה שכבר אינה על המסך — בדיוק
+       * ההפתעה שהיא נועדה למנוע (ביקורת Codex).
+       *
+       * המחיקה על מה שנקרא **עכשיו** מתחת לנעילה, ולא על צילום ישן:
+       * סורק ההתראות כותב לאותה עמודה במקביל.
+       */
       const merged = mergeTurns(parseTurns(row?.history), chat.added);
+      const history = chat.added.length > 0 ? merged : withoutOffer(merged);
       const data = {
         // Prisma דורש את הסמן המפורש ל-null בעמודת JSON — לא null גולמי
         ...(chat.keepStoredPending === true
@@ -1627,7 +1684,7 @@ export class WhatsAppAssistantService {
                   ? Prisma.JsonNull
                   : (chat.pending as unknown as Prisma.InputJsonValue),
             }),
-        history: turnsAsJson(merged),
+        history: turnsAsJson(history),
       };
       await tx.whatsAppChat.upsert({
         where: { tenantId_userId: { tenantId, userId } },
@@ -1636,6 +1693,19 @@ export class WhatsAppAssistantService {
       });
     });
   }
+}
+
+/**
+ * אותם תורות, בלי ההצעה על האחרון.
+ *
+ * מחזירה את המערך כמות שהוא כשאין מה למחוק — כדי שהכתיבה השכיחה
+ * ביותר (אין הצעה ממילא) לא תיצור עותק בכל הודעה.
+ */
+function withoutOffer(turns: readonly AgentHistoryTurn[]): AgentHistoryTurn[] {
+  const last = turns.at(-1);
+  if (last?.offer === undefined) return [...turns];
+  const { offer: _dropped, ...rest } = last;
+  return [...turns.slice(0, -1), rest];
 }
 
 /**
