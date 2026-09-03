@@ -688,7 +688,9 @@ export default function PropertiesPage() {
           searchLabel="חיפוש נכס"
           searchHint="כתובת, תיאור, סוג נכס או הערה"
           priceLabel="מחיר"
-          card={{ example: 'למשל: "3 חדרים בבני ברק עד 2.2 מיליון"', flush: true }}
+          card={{ flush: true }}
+          /* „הכל” הוא היעדר סינון — רק עיר שנבחרה פותחת את המגירה */
+          childrenActive={city !== "הכל"}
         >
           <div className="flex flex-wrap items-center gap-2">
             <FilterChips

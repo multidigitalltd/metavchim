@@ -12,7 +12,7 @@ import {
 } from "@metavchim/shared";
 import { apiGet, apiList } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
-import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
+import { LEAD_INTENT_LABELS, LEAD_STATUS_LABELS, leadSourceText } from "@/lib/lead-labels";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { IconChat, IconGlobe, IconLink, IconMic, IconPhone, IconTrash } from "../icons";
@@ -35,6 +35,8 @@ interface LeadRow {
   id: string;
   contact: { name: string; phone: string };
   source: string;
+  /** ‏הטקסט שנכתב תחת מקור „אחר”. חסר בכל מקור אחר. */
+  sourceNote?: string;
   intent: string;
   status: string;
   requiresHuman: boolean;
@@ -429,7 +431,7 @@ export default function LeadsPage() {
                       </div>
                       <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
                         {labelOf(LEAD_INTENT_LABELS, lead.intent) ?? lead.intent} ·{" "}
-                        {labelOf(LEAD_SOURCE_LABELS, lead.source) ?? lead.source}
+                        {leadSourceText(lead.source, lead.sourceNote)}
                       </p>
                       {waiting ? (
                         <p className="text-sm font-extrabold" style={{ color: WAITING_COLOR[waiting.level] }}>
@@ -505,7 +507,7 @@ export default function LeadsPage() {
                       </span>
                       <span className="flex items-center gap-1.5 truncate text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-soft)" }}>
                         <IconGlobe s={14} />
-                        {labelOf(LEAD_SOURCE_LABELS, lead.source) ?? lead.source}
+                        {leadSourceText(lead.source, lead.sourceNote)}
                       </span>
                       <span className="truncate text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-soft)" }}>
                         {labelOf(LEAD_INTENT_LABELS, lead.intent) ?? lead.intent}

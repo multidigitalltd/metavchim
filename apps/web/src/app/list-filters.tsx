@@ -210,6 +210,7 @@ export function ListFilters({
   priceLabel,
   card,
   children,
+  childrenActive = false,
 }: {
   values: ListFilterValues;
   onApply: (next: ListFilterValues) => void;
@@ -217,18 +218,21 @@ export function ListFilters({
   searchHint: string;
   priceLabel: string;
   /**
-   * ‎**צורת הכרטיס — כותרת עם אריח, ודוגמה בשדה.**
+   * ‎**צורת הכרטיס — כותרת עם אריח, ושדה שקוף.**
    *
    * בלי זה הרכיב נשאר טופס חשוף, וזו הצורה שכל שאר הרשימות מציגות.
-   * ‎`example` מחליף את `searchHint` כטקסט הרפאים בשדה, כי במצב הזה
-   * הרמז כבר נאמר בכותרת — ושדה שחוזר על מה שכתוב מעליו מבזבז את
-   * המקום היחיד שבו אפשר להראות **איך** מנסחים חיפוש.
+   *
+   * ‎`example` הוא **אופציונלי, וברירת המחדל היא בלי טקסט רפאים
+   * כלל.** הרמז כבר נאמר בכותרת הכרטיס (`searchHint`), ומשפט דוגמה
+   * ארוך בתוך שדה צר נקטע באמצע — כלומר הוא לא הדגים דבר, רק מילא
+   * את השדה ברעש שנעלם ברגע שמקלידים. שדה ריק קורא נקי, והדוגמה
+   * נשארת אפשרית למסך שבאמת צריך אותה.
    *
    * התווית של השדה נשארת ב-DOM ומוסתרת חזותית: היא מה שקורא מסך
    * מקריא, וכותרת הכרטיס אינה קשורה אליו ב-`htmlFor`.
    */
   card?: {
-    example: string;
+    example?: string;
     /**
      * ‎**בלי המרווח התחתון** — הכרטיס יושב בתוך רשת שמנהלת את
      * המרווחים בעצמה. `mb-[18px]` בתוך תא של רשת מוסיף מרווח
@@ -236,11 +240,17 @@ export function ListFilters({
      */
     flush?: boolean;
   };
-  /** צ'יפים או פקדים שיושבים בתחתית אותו כרטיס. */
+  /** צ'יפים או פקדים שיושבים בתחתית אותו כרטיס, בתוך „עוד סינון”. */
   children?: React.ReactNode;
+  /**
+   * ‎`true` כשהפקדים ב-`children` מחזיקים סינון פעיל — למשל עיר
+   * שנבחרה. המגירה נפתחת עליו, כי סינון שלא רואים הוא רשימה חסרה
+   * בלי הסבר.
+   */
+  childrenActive?: boolean;
 }): React.JSX.Element {
   const [draft, setDraft] = useState(values);
-  const [open, setOpen] = useState(hasActiveFilters(values));
+  const [open, setOpen] = useState(hasActiveFilters(values) || childrenActive);
 
   /*
    * הטיוטה מתעדכנת כשההורה משנה את הערכים.
@@ -334,7 +344,7 @@ export function ListFilters({
           <input
             id="flt-q"
             value={draft.q}
-            placeholder={card?.example ?? searchHint}
+            placeholder={card === undefined ? searchHint : (card.example ?? "")}
             onChange={(event) => setDraft({ ...draft, q: event.target.value })}
             className="w-full rounded-lg border px-3 text-sm"
             style={{ ...inputStyle, minHeight: 38 }}
@@ -382,7 +392,19 @@ export function ListFilters({
         </div>
       ) : null}
 
-      {children === undefined ? null : <div className="mt-3">{children}</div>}
+      {/*
+        ‎**הצ׳יפים חיים בתוך „עוד סינון”, ולא מעל הכל.**
+
+        רשימת הערים גדלה עם המשרד: משרד שעובד בשתים-עשרה ערים קיבל
+        שתי שורות של כפתורים בראש המסך, לפני הנכס הראשון — כלומר
+        המסך נפתח על הסינון במקום על התוכן. הם אותו סוג של בקרה כמו
+        טווח המחיר והחדרים שכבר יושבים שם, ולכן זה המקום שלהם.
+
+        ‎`childrenActive` הוא מה שמונע סינון שקוף: עיר שנבחרה פותחת
+        את המגירה מעצמה, כדי שלא תישאר רשימה מסוננת בלי שום סימן
+        למה.
+      */}
+      {open && children !== undefined ? <div className="mt-3">{children}</div> : null}
 
       {/*
         הצירים מתחת לשדות ולא במקומם: גרירה מהירה למי שרוצה טווח,

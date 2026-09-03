@@ -21,7 +21,7 @@ import {
   type PayoutMode,  labelOf } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError, apiList } from "@/lib/api";
-import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS } from "@/lib/lead-labels";
+import { LEAD_INTENT_LABELS, leadSourceText } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -2345,7 +2345,17 @@ export default function CollaborationPage() {
                   </h4>
                   <span className="mv-net-chip">
                     <IconSend s={14} />{" "}
-                    {labelOf(LEAD_SOURCE_LABELS, lead.source) ?? lead.source}
+                    {/*
+                      ‎**בלוח ההפניות אין פירוט מקור, בכוונה** (ביקורת
+                      Codex, P2). ‏`SharedLead` הוא **פרסום** בין
+                      משרדים: כל שדה בו נבחר להיחשף — עיר, הערה, סיבה
+                      ופירוטה. ‎`sourceNote` הוא רישום פנימי שהסוכן
+                      כתב לעצמו, ולהעביר אותו למשרד אחר בלי שהוא בחר
+                      לפרסם אותו זו הכרעת פרטיות ולא השלמת פיצ׳ר.
+                      לכן כאן מוצג „אחר”, וזו גם התשובה הכנה: הליד
+                      הגיע מערוץ שאינו ברשימה.
+                    */}
+                    {leadSourceText(lead.source)}
                   </span>
                   <span className="mv-net-chip mv-net-chip--money">
                     <IconCoins s={14} /> עמלת הפניה: {lead.priceCredits} קרדיטים

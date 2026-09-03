@@ -4,6 +4,7 @@ import { Suspense, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { safeReturnPath, withQuery } from "@metavchim/shared";
+import { LEAD_SOURCE_LABELS } from "@/lib/lead-labels";
 import { apiPost, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../dictation-field";
@@ -28,6 +29,8 @@ function NewLeadForm() {
   // הפנייה מוזגה לליד פתוח של סוכן אחר — אין לאן לנווט (view_own), רק מיידעים
   const [mergedNotice, setMergedNotice] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  /* המקור נשמר במצב כדי שתיבת „אחר” תדע מתי להיפתח */
+  const [source, setSource] = useState("voice_call");
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -41,6 +44,10 @@ function NewLeadForm() {
         /* ריק לא נשלח — מחרוזת ריקה אינה כתובת, והסכימה מקפידה */
         contactEmail: String(f.get("contactEmail") ?? "").trim() || undefined,
         source: String(f.get("source")),
+        /* ‏הפירוט נשלח רק כשבחרו „אחר” — ראו את התיבה שנפתחת מתחת */
+        ...(String(f.get("source")) === "other" && String(f.get("sourceNote") ?? "").trim() !== ""
+          ? { sourceNote: String(f.get("sourceNote")).trim() }
+          : {}),
         intent: String(f.get("intent")),
         summary: String(f.get("summary") ?? "").trim() || undefined,
       });
@@ -131,13 +138,38 @@ function NewLeadForm() {
           </div>
           <div>
             <label htmlFor="source" className="mb-1 block font-medium">מקור</label>
-            <select id="source" name="source" defaultValue="voice_call" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>
-              <option value="voice_call">שיחה</option>
-              <option value="whatsapp">וואטסאפ</option>
-              <option value="referral">המלצה</option>
-              <option value="web_form">אתר</option>
-              <option value="manual">אחר</option>
+            {/*
+              ‎**הרשימה נגזרת מהסכימה, ולא מוקלדת כאן.**
+
+              ‏עד כה היו כאן חמש אפשרויות מוקלדות ידנית, ובהן „ידני”
+              שהוצג בשם „אחר” — כלומר ערך שקיבל תווית של ערך אחר,
+              ושתי אפשרויות אמיתיות (`landing`, `kanko`) שלא הופיעו
+              כלל. גזירה מ-`LEAD_SOURCE_LABELS` פותרת את שניהם, וגם
+              דואגת שמקור שיתווסף מחר יופיע כאן מעצמו.
+            */}
+            <select
+              id="source"
+              name="source"
+              value={source}
+              onChange={(event) => setSource(event.target.value)}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            >
+              {Object.entries(LEAD_SOURCE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
             </select>
+            {/* „אחר” בלי המשך אינו מידע — התיבה נפתחת רק עליו */}
+            {source === "other" ? (
+              <input
+                name="sourceNote"
+                maxLength={60}
+                placeholder="איפה בדיוק? למשל: דוכן ביריד"
+                aria-label="פירוט המקור"
+                className="mt-2 w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            ) : null}
           </div>
         </div>
 

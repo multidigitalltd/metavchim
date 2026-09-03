@@ -25,6 +25,8 @@ const CreateLeadSchema = z
     /* אותו פער בדיוק כמו בקונה: השירות ידע לשמור, הסכימה לא קיבלה */
     contactEmail: z.string().trim().email().max(254).optional(),
     source: LeadSourceSchema,
+    /* ‏רוחב העמודה (`VarChar(60)`), לא מספר שנבחר כאן */
+    sourceNote: z.string().trim().max(60).optional(),
     intent: LeadIntentSchema,
     summary: z.string().max(2000).optional(),
     requiresHuman: z.boolean().optional(),
@@ -46,7 +48,13 @@ const StatusSchema = z.object({ status: LeadStatusSchema }).strict();
  * ‎`max(20)` הוא בדיוק רוחב העמודה (`VarChar(20)`), ולא מספר שנבחר
  * כאן: ערך ארוך יותר נחתך במסד או מפיל את הכתיבה.
  */
-const SourceSchema = z.object({ source: z.string().trim().min(1).max(20) }).strict();
+const SourceSchema = z
+  .object({
+    source: z.string().trim().min(1).max(20),
+    /* ‏הטקסט של „אחר”. השירות מנקה אותו כשהמקור אינו „אחר”. */
+    sourceNote: z.string().trim().max(60).optional(),
+  })
+  .strict();
 
 /*
  * `default({})` ולא רק שדה אופציונלי: בקשת DELETE בלי גוף כלל מגיעה
@@ -163,7 +171,7 @@ export class LeadsController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Body(new ZodValidationPipe(SourceSchema)) body: z.infer<typeof SourceSchema>,
   ): Promise<{ ok: true }> {
-    await this.leads.updateSource(id, body.source);
+    await this.leads.updateSource(id, body.source, body.sourceNote);
     return { ok: true };
   }
 

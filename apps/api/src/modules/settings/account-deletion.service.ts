@@ -443,6 +443,14 @@ export class AccountDeletionService {
          * המחיקה כאן הן היו שורדות אותה.
          */
         await tx.intakeRequest.deleteMany({ where: { tenantId } });
+        /*
+         * ‏יעדי המנטור והציונים השבועיים. אין להם מפתח זר לשורת
+         * המשרד, ולכן אותו נימוק: בלעדי המחיקה כאן היו נשארים
+         * היעדים האישיים של הסוכנים — ומכשול שנוסח בגוף ראשון הוא
+         * מהדברים האישיים ביותר שאדם כותב במערכת הזו.
+         */
+        await tx.mentorWeeklyScore.deleteMany({ where: { tenantId } });
+        await tx.mentorGoal.deleteMany({ where: { tenantId } });
         // תיק הבלעדיות — פעולות לפני תקופות, ושתיהן לפני הנכסים
         await tx.marketingAction.deleteMany({ where: { tenantId } });
         await tx.propertyExclusivity.deleteMany({ where: { tenantId } });

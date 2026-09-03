@@ -25,13 +25,27 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$disconnect();
   }
 
-  async withTenant<T>(fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+  /**
+   * ‎`options` — אותן אפשרויות של `$transaction`, לקריאה שגדולה
+   * באמת.
+   *
+   * ‏ברירת המחדל (5 שניות) נכונה לרוב המוחלט של הפעולות, ומסך
+   * שחורג ממנה בדרך כלל עושה יותר מדי. יש יוצא דופן אחד אמיתי:
+   * סיכום קריאה-בלבד שסופר טווחים ארוכים בשאילתה אחת אחרי השנייה
+   * (המנטור). הפרמטר מפורש כדי שחריגה כזו תהיה **הצהרה במקום
+   * הקריאה**, ולא העלאה גורפת של הסף לכולם. אותו דגם כמו
+   * ‎`account-deletion`, שכבר מעביר `timeout` ל-`$transaction`.
+   */
+  async withTenant<T>(
+    fn: (tx: TenantTx) => Promise<T>,
+    options?: { timeout?: number; maxWait?: number },
+  ): Promise<T> {
     const { tenantId } = TenantContext.current();
     return this.$transaction(async (tx) => {
       // set_config עם is_local=true — התקף פג בסוף הטרנזקציה, אין זליגה בין בקשות.
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
       return fn(tx);
-    });
+    }, options);
   }
 
   /**

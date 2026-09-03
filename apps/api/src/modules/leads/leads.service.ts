@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
-import { OPEN_LEAD_STATUSES, leadDeletionRejectionReason, type Page } from "@metavchim/shared";
+import {
+  OPEN_LEAD_STATUSES,
+  leadDeletionRejectionReason,
+  leadSourceText,
+  type Page,
+} from "@metavchim/shared";
 import { lockContact, lockLead } from "../../common/locks";
 import { assertLeadAccess, leadIsVisible, leadOwnershipFilter } from "../../common/ownership";
 import { agentNameOf, agentNames } from "../../common/agent-names";
@@ -20,6 +25,8 @@ export interface LeadDto {
    */
   contact: { id: string; name: string; phone: string; email?: string };
   source: string;
+  /** ‏הטקסט שנכתב תחת „אחר”. חסר בכל מקור אחר. */
+  sourceNote?: string;
   intent: string;
   status: string;
   requiresHuman: boolean;
@@ -75,6 +82,8 @@ export class LeadsService {
     /** נשמר על כרטיס איש הקשר — פנייה מיובאת מביאה איתה את הכתובת */
     contactEmail?: string;
     source: string;
+    /** הטקסט של „אחר” — ראו `sourceNote` ב-`LeadDto` */
+    sourceNote?: string;
     intent: string;
     summary?: string;
     requiresHuman?: boolean;
@@ -170,6 +179,8 @@ export class LeadsService {
           tenantId: ctx.tenantId,
           contactId: contact.id,
           source: input.source,
+          /* ההערה שייכת ל„אחר” בלבד — ראו `updateSource` */
+          sourceNote: input.source === "other" ? (input.sourceNote?.trim() ?? null) || null : null,
           intent: input.intent,
           status: "new",
           assignedToUserId: ctx.userId,
@@ -287,7 +298,7 @@ export class LeadsService {
    *
    * שינוי לאותו ערך אינו אירוע ואינו נרשם.
    */
-  async updateSource(id: string, source: string): Promise<void> {
+  async updateSource(id: string, source: string, sourceNote?: string): Promise<void> {
     const ctx = TenantContext.current();
     await this.prisma.withTenant(async (tx) => {
       // הרשאה לפני הכתיבה — כמו בשינוי סטטוס
@@ -304,20 +315,40 @@ export class LeadsService {
       await lockLead(tx, ctx.tenantId, id);
       const lead = await tx.lead.findFirst({
         where: { id, tenantId: ctx.tenantId },
-        select: { source: true },
+        select: { source: true, sourceNote: true },
       });
       if (!lead) throw new NotFoundException("ליד לא נמצא");
       const next = source.trim();
-      if (lead.source === next) return;
+      /*
+       * ‎**ההערה שייכת ל„אחר” בלבד.** ‏מי שמחליף „אחר — דוכן ביריד”
+       * ל„עיתון” מתקן את המקור, וההערה הישנה שנשארת מאחור הופכת
+       * לשקר שקט בשורה. לכן מעבר לכל מקור אחר **מנקה** אותה.
+       */
+      const nextNote = next === "other" ? (sourceNote?.trim() ?? null) || null : null;
+      if (lead.source === next && (lead.sourceNote ?? null) === nextNote) return;
 
-      await tx.lead.update({ where: { id }, data: { source: next } });
+      await tx.lead.update({ where: { id }, data: { source: next, sourceNote: nextNote } });
+      /*
+       * ‎**ההיסטוריה שומרת את הטקסט המוצג, ולא את מפתח המקור**
+       * (ביקורת Codex, P2).
+       *
+       * ‏ליד „אחר” שהפירוט שלו תוקן מ„דוכן ביריד” ל„שלט על הרכב”
+       * הוא **שינוי אמיתי** — התנאי מעליו כבר מכיר בו — אבל שורת
+       * ציר-הזמן נכתבה כ„other” ורשומת הביקורת כ„other ⇒ other”.
+       * כלומר בדיוק התיקונים שהשדה החדש בא לאפשר היו נעלמים
+       * מההיסטוריה, ואי אפשר היה להבחין ביניהם.
+       *
+       * ‎`leadSourceText` היא אותה פונקציה שמציגה את המקור בכל
+       * מסך, ולכן השורה נקראת אותו דבר בציר הזמן ובכרטיס. שורות
+       * ישנות נושאות את המפתח („other”), והיא מתרגמת גם אותן.
+       */
       await tx.interaction.create({
         data: {
           id: ulid(),
           tenantId: ctx.tenantId,
           leadId: id,
           kind: "source_change",
-          content: next,
+          content: leadSourceText(next, nextNote),
           createdBy: ctx.userId,
         },
       });
@@ -325,7 +356,13 @@ export class LeadsService {
         action: "lead.source",
         entityType: "lead",
         entityId: id,
-        metadata: { from: lead.source, to: next },
+        metadata: {
+          from: lead.source,
+          to: next,
+          /* ‏ההערה בנפרד מהמקור: ביקורת מחפשת „מה היה” ולא טקסט מורכב */
+          fromNote: lead.sourceNote,
+          toNote: nextNote,
+        },
       });
     });
   }
@@ -787,6 +824,7 @@ function toLeadDto(
     assignedToUserId: string | null;
     createdAt: Date;
     updatedAt: Date;
+    sourceNote?: string | null;
   },
   contact: { id: string; name: string; phone: string; email?: string },
   agents?: Map<string, string>,
@@ -796,6 +834,7 @@ function toLeadDto(
     id: row.id,
     contact,
     source: row.source,
+    ...(row.sourceNote === null || row.sourceNote === undefined ? {} : { sourceNote: row.sourceNote }),
     intent: row.intent,
     status: row.status,
     requiresHuman: row.requiresHuman,
