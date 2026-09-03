@@ -132,7 +132,7 @@ describe("הד — המתווך ענה מהאפליקציה בטלפון", () =>
   it("ההד נרשם בציר הזמן ומשתיק את הבוט", () => {
     const handler = INBOUND.slice(
       INBOUND.indexOf("private async handleEchoes("),
-      INBOUND.indexOf("private async resolveTenant("),
+      INBOUND.indexOf("private async handleHistory("),
     );
     expect(handler).toContain('provider: "coexistence_echo"');
     expect(handler).toContain("botPausedUntil");
@@ -146,7 +146,7 @@ describe("הד — המתווך ענה מהאפליקציה בטלפון", () =>
   it("ונרשם ככיוון יוצא", () => {
     const handler = INBOUND.slice(
       INBOUND.indexOf("private async handleEchoes("),
-      INBOUND.indexOf("private async resolveTenant("),
+      INBOUND.indexOf("private async handleHistory("),
     );
     expect(handler).toContain('direction: "out"');
   });
