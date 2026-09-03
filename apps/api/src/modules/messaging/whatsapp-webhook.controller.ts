@@ -14,13 +14,35 @@ import type { Request } from "express";
 import { Public } from "../../common/auth.decorators";
 import { loadEnv } from "../../config/env";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
-import { WhatsAppInboundService } from "./whatsapp-inbound.service";
+import { WhatsAppInboundService, type InboundSource } from "./whatsapp-inbound.service";
 
 /**
  * Webhook נכנס מ-WhatsApp Cloud API (docs/05 §1):
  * - GET: אימות המנוי (hub.challenge) מול VERIFY_TOKEN.
  * - POST: אימות חתימת HMAC-SHA256 על גוף הבקשה הגולמי (X-Hub-Signature-256),
  *   ואז ניתוב ההודעות ל-Inbound Service. כשל אימות ⇒ 401, בלי פירוט.
+ *
+ * ## שני נתיבים, כי יש שתי אפליקציות
+ *
+ * קו הסוכן האישי וחיבור המשרדים יושבים באפליקציות Meta נפרדות
+ * (docs/12): חסימה של אחת אינה מפילה את השנייה. שתיהן שולחות לכאן,
+ * ולכן לכל אחת **נתיב משלה, טוקן אימות משלה וסוד חתימה משלה**:
+ *
+ * | | קו הסוכן | אפליקציית החיבור |
+ * |---|---|---|
+ * | נתיב | `/webhooks/whatsapp` | `/webhooks/whatsapp/connect` |
+ * | טוקן | `whatsappVerifyToken` | `whatsappConnectVerifyToken` |
+ * | חתימה | `whatsappAppSecret` | `whatsappConnectAppSecret` |
+ *
+ * ‎**קודם שני הנתיבים היו אחד, ושתי החתימות התקבלו על שניהם.** זה
+ * עבד — הניתוב לתוכן נעשה לפי `phone_number_id` וממילא לא התערבב —
+ * אבל גבול האמון היה משותף: בקשה חתומה בסוד של אפליקציית החיבור
+ * התקבלה גם בשם קו הסוכן. בנוסף אי אפשר היה לכבות אפליקציה אחת,
+ * להגביל אותה, או לקרוא את היומן שלה בנפרד (הכרעת בעל המוצר).
+ *
+ * ‎**התקנה עם אפליקציה אחת אינה נוגעת בכלום:** כשהערכים הייעודיים
+ * ריקים, נתיב החיבור נופל לאלה של קו הסוכן — ולכן גם מי שהצביע על
+ * הנתיב הישן ממשיך לעבוד.
  *
  * ## למה כל דחייה נרשמת ביומן
  *
@@ -48,9 +70,40 @@ export class WhatsAppWebhookController {
     @Query("hub.verify_token") token?: string,
     @Query("hub.challenge") challenge?: string,
   ): Promise<string> {
-    // הגדרות הפלטפורמה (מסך /platform) קודמות; משתנה הסביבה כ-Fallback
+    return this.challenge(await this.agentToken(), mode, token, challenge);
+  }
+
+  /**
+   * אימות המנוי של **אפליקציית החיבור** — טוקן משלה.
+   *
+   * הנפילה לטוקן של קו הסוכן היא בשביל התקנה עם אפליקציה אחת, שבה
+   * שני הנתיבים מובילים לאותו מקום ואין מה להפריד.
+   */
+  @Public()
+  @Get("connect")
+  async verifyConnect(
+    @Query("hub.mode") mode?: string,
+    @Query("hub.verify_token") token?: string,
+    @Query("hub.challenge") challenge?: string,
+  ): Promise<string> {
     const expected =
-      (await this.platformSettings.get("whatsappVerifyToken")) ?? loadEnv().WHATSAPP_VERIFY_TOKEN;
+      (await this.platformSettings.get("whatsappConnectVerifyToken")) ?? (await this.agentToken());
+    return this.challenge(expected, mode, token, challenge);
+  }
+
+  /** הטוקן של קו הסוכן. הגדרות הפלטפורמה קודמות; הסביבה כ-Fallback. */
+  private async agentToken(): Promise<string | undefined> {
+    return (
+      (await this.platformSettings.get("whatsappVerifyToken")) ?? loadEnv().WHATSAPP_VERIFY_TOKEN
+    );
+  }
+
+  private challenge(
+    expected: string | undefined,
+    mode: string | undefined,
+    token: string | undefined,
+    challenge: string | undefined,
+  ): string {
     if (!expected || mode !== "subscribe" || token !== expected || !challenge) {
       this.logger.warn(
         `אימות Webhook נדחה — ${
@@ -69,33 +122,86 @@ export class WhatsAppWebhookController {
     return challenge;
   }
 
+  /**
+   * ‎**הנתיב הישן ממשיך לקבל את שתי החתימות — בכוונה.**
+   *
+   * המדריך הפנה בעבר את שתי האפליקציות לכאן, והתקנה כזו קיימת
+   * בשטח. דחייה פתאומית של הסוד השני הייתה מפילה כל אירוע של
+   * אפליקציית החיבור ב-401 עד שמישהו יעדכן ידנית את הכתובת אצל
+   * Meta — כלומר שקט מוחלט, בלי שדבר בקוד יצעק (ביקורת Codex).
+   *
+   * ‎**הגבול לא אבד בגלל זה**: הוא עבר למקום הנכון. הסוד שהתאים
+   * קובע *בשם מי* הבקשה פועלת, וזה נאכף בעיבוד ולא בניתוב.
+   */
   @Public()
   @Post()
   @HttpCode(200)
   async receive(@Req() req: Request): Promise<{ ok: true }> {
-    /*
-     * ‎**שני סודות אפשריים, כי שתי אפליקציות יכולות לחתום על אותו קו.**
-     *
-     * ‏קו הסוכן האישי וחיבור המשרדים יכולים לשבת באפליקציות נפרדות
-     * ב-Meta — הפרדה לגיטימית ואף רצויה, כי חסימה של אחת אינה מפילה
-     * את השנייה. שתיהן מצביעות על אותה כתובת Webhook, וכל אחת חותמת
-     * ב-App Secret משלה. בדיקה מול סוד יחיד הייתה דוחה ב-401 את כל
-     * מה שמגיע מהאפליקציה השנייה — כלומר „החיבור הצליח ואין הודעות”,
-     * הכשל השקט שהכי קשה לאבחן כאן.
-     *
-     * ‏Set מסלק כפילות כשהוגדר אותו ערך פעמיים או כשיש רק אפליקציה אחת.
-     */
+    return this.accept(req, await this.candidates());
+  }
+
+  /**
+   * הודעות מ**אפליקציית החיבור** — חתומות בסוד שלה בלבד.
+   *
+   * ‎`??` ולא רשימה: כשהסוד הייעודי ריק זו התקנה עם אפליקציה אחת,
+   * והנפילה לסוד של קו הסוכן היא מה שמשאיר אותה עובדת. כשהוא מוגדר,
+   * הוא **היחיד** שמתקבל כאן — וזו כל הנקודה של ההפרדה.
+   */
+  /**
+   * הנתיב של אפליקציית החיבור — הסוד שלה בלבד.
+   *
+   * כשהסוד הייעודי ריק זו התקנה עם אפליקציה אחת, והנפילה לסוד של
+   * קו הסוכן היא מה שמשאיר אותה עובדת (ואז המקור הוא `any`).
+   */
+  @Public()
+  @Post("connect")
+  @HttpCode(200)
+  async receiveConnect(@Req() req: Request): Promise<{ ok: true }> {
+    const all = await this.candidates();
+    const connect = all.filter((c) => c.source === "connect");
+    return this.accept(req, connect.length > 0 ? connect : all);
+  }
+
+  /**
+   * ‎**הסודות המוגדרים, וכל אחד עם מי שהוא מייצג.**
+   *
+   * ‏זה לב ההפרדה: לא „איזה נתיב” אלא **בשם מי חתמו**. הסוד של
+   * אפליקציית החיבור מייצג אך ורק את חיבור המשרדים, ולכן בקשה
+   * שנחתמה בו לא תוכל להפעיל את הסוכן האישי — גם אם היא נשלחה
+   * לנתיב הישן ונושאת את ה-`phone_number_id` של קו הסוכן.
+   *
+   * ‏כשאין סוד נפרד לחיבור, אפליקציה אחת ממלאת את שני התפקידים
+   * והסוד היחיד מייצג את שניהם (`any`).
+   */
+  private async candidates(): Promise<{ secret: string; source: InboundSource }[]> {
     const env = loadEnv();
-    const secrets = [
-      ...new Set(
-        [
-          (await this.platformSettings.get("whatsappAppSecret")) ?? env.WHATSAPP_APP_SECRET,
-          (await this.platformSettings.get("whatsappConnectAppSecret")) ??
-            env.WHATSAPP_CONNECT_APP_SECRET,
-        ].filter((value): value is string => typeof value === "string" && value !== ""),
-      ),
-    ];
-    if (secrets.length === 0) {
+    const agent =
+      (await this.platformSettings.get("whatsappAppSecret")) ?? env.WHATSAPP_APP_SECRET;
+    const connect =
+      (await this.platformSettings.get("whatsappConnectAppSecret")) ??
+      env.WHATSAPP_CONNECT_APP_SECRET;
+    const has = (value: string | undefined): value is string =>
+      typeof value === "string" && value !== "";
+    const list: { secret: string; source: InboundSource }[] = [];
+    if (has(agent)) list.push({ secret: agent, source: has(connect) ? "agent" : "any" });
+    /* אותו ערך בשני השדות = אפליקציה אחת שהוגדרה פעמיים; לא להכפיל */
+    if (has(connect) && connect !== agent) list.push({ secret: connect, source: "connect" });
+    return list;
+  }
+
+
+  /**
+   * ‎**המקור נקבע מהסוד שהתאים, ונמסר לעיבוד.**
+   *
+   * אימות בלבד היה אומר „הבקשה חתומה כדין” — ולא „מותר לה לעשות
+   * את מה שהיא מבקשת”. `handle` מקבל את המקור ואוכף אותו על ענף
+   * הסוכן, שאחרת היה נסמך על `phone_number_id` שבגוף הבקשה.
+   */
+  private async accept(
+    req: Request,
+    candidates: { secret: string; source: InboundSource }[],
+  ): Promise<{ ok: true }> {
+    if (candidates.length === 0) {
       // אינטגרציה לא מוגדרת — לא מקבלים כלום (אין מצב "פתוח בטעות").
       this.logger.warn(
         "הודעת וואטסאפ נדחתה — לא מוגדר App Secret במערכת. הגדירו אותו במסך הפלטפורמה.",
@@ -112,20 +218,25 @@ export class WhatsAppWebhookController {
       throw new UnauthorizedException();
     }
     const received = Buffer.from(signature);
-    const matches = secrets.some((secret) => {
+    /*
+     * ‏`find` ולא `some`: מי שהתאים הוא גם מי שמותר לו — המקור נגזר
+     * מהחתימה עצמה ולא מהנתיב, ולכן אין דרך לבקש הרשאה גבוהה יותר
+     * על ידי שליחה לכתובת אחרת.
+     */
+    const matched = candidates.find(({ secret }) => {
       const expected = Buffer.from(
         `sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`,
       );
       return expected.length === received.length && timingSafeEqual(expected, received);
     });
-    if (!matches) {
+    if (matched === undefined) {
       /*
        * הסיבה הנפוצה ביותר בהקמה, והיא בלתי נראית בלי השורה הזו:
        * ה-App Secret שנשמר אינו זה של האפליקציה ששולחת. אין כאן זליגה
        * — נאמר **מה** נכשל, לא מה הערך שהתקבל או הצפוי.
        */
       this.logger.warn(
-        `הודעת וואטסאפ נדחתה — חתימת HMAC אינה תואמת לאף אחד מ-${secrets.length} הסודות המוגדרים. כמעט תמיד: ה-App Secret במסך הפלטפורמה אינו של האפליקציה ששלחה. אפליקציית חיבור נפרדת דורשת את הסוד שלה בשדה הייעודי.`,
+        `הודעת וואטסאפ נדחתה — חתימת HMAC אינה תואמת לאף אחד מ-${candidates.length} הסודות שמותרים לנתיב ${req.path}. כמעט תמיד: ה-App Secret במסך הפלטפורמה אינו של האפליקציה ששלחה. אפליקציית חיבור נפרדת דורשת את הסוד שלה בשדה הייעודי.`,
       );
       throw new UnauthorizedException();
     }
@@ -135,8 +246,8 @@ export class WhatsAppWebhookController {
       this.logger.warn("הודעת וואטסאפ נדחתה — גוף הבקשה אינו אובייקט");
       throw new BadRequestException();
     }
-    this.logger.log("התקבלה הודעת וואטסאפ מאומתת — מנותבת לעיבוד");
-    await this.inbound.handle(body as Record<string, unknown>);
+    this.logger.log(`התקבלה הודעת וואטסאפ מאומתת (${matched.source}) — מנותבת לעיבוד`);
+    await this.inbound.handle(body as Record<string, unknown>, matched.source);
     return { ok: true };
   }
 }

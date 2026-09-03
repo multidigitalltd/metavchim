@@ -194,6 +194,12 @@ const WebhookSchema = z.object({
   ),
 });
 
+/**
+ * מי חתם על הבקשה — אפליקציית קו הסוכן, אפליקציית החיבור, או
+ * אפליקציה אחת שממלאת את שני התפקידים.
+ */
+export type InboundSource = "agent" | "connect" | "any";
+
 @Injectable()
 export class WhatsAppInboundService {
   private readonly logger = new Logger(WhatsAppInboundService.name);
@@ -208,7 +214,13 @@ export class WhatsAppInboundService {
     private readonly connections: WhatsAppConnectionService,
   ) {}
 
-  async handle(payload: Record<string, unknown>): Promise<void> {
+  /**
+   * ‎`source` = **בשם מי** נחתמה הבקשה, לא לאיזו כתובת היא נשלחה.
+   *
+   * ברירת המחדל `any` היא בשביל קריאה ישירה בבדיקות; מהוובהוק היא
+   * תמיד מגיעה מפורשת, ונגזרת מה-App Secret שהתאים.
+   */
+  async handle(payload: Record<string, unknown>, source: InboundSource = "any"): Promise<void> {
     const parsed = WebhookSchema.safeParse(payload);
     if (!parsed.success) {
       this.logger.warn("Webhook payload לא בפורמט צפוי — נזרק");
@@ -289,9 +301,23 @@ export class WhatsAppInboundService {
          * אחר שקושר את הלחיצה למשרד. זו אינה סמכות — `record`
          * מאמת שהסיור שייך לדייר ושהשולח הוא נמען שלו.
          */
-        const replies = (value.messages ?? []).filter(
-          (m) => m.type === "button" && m.button !== undefined,
-        );
+        /*
+         * ‎**המקור לבדו — בלי להשוות את הקו שבמטען.**
+         *
+         * ‏השומר הקודם בדק `incomingLine === assistantCreds.phoneNumberId`,
+         * וזה היה שגוי מיסודו: `metadata.phone_number_id` מגיע
+         * **מהגוף**, ומי שמחזיק בסוד שולט בו. השמטת השדה או נקיבת
+         * קו של משרד עקפה את ההשוואה והגיעה הישר לטיפול הלחיצות,
+         * שאינו תלוי-קו כלל (ביקורת Codex).
+         *
+         * תזכורות הסיור יוצאות מקו הפלטפורמה, ולכן תשובה עליהן היא
+         * פיצ'ר של אפליקציית הסוכן — נקודה. אפליקציית החיבור לעולם
+         * אינה מקור לגיטימי לזה, בלי קשר למה שכתוב במטען.
+         */
+        const replies =
+          source === "connect"
+            ? []
+            : (value.messages ?? []).filter((m) => m.type === "button" && m.button !== undefined);
         if (replies.length > 0) {
           for (const message of replies) {
             if (!message.button) continue;
@@ -315,7 +341,14 @@ export class WhatsAppInboundService {
             `הודעה לקו ${incomingLine} — אינו קו הסוכן (${assistantCreds.phoneNumberId}); ממשיכים לניתוב לפי משרד`,
           );
         }
+        /*
+         * ‏כאן ההשוואה כן לגיטימית: `assistantCreds.phoneNumberId`
+         * הוא ערך שהמערכת הגדירה, והמטען רק צריך להתאים לו. אבל
+         * ‎`source` נבדק **לפניו** — מטען חתום בסוד של אפליקציית
+         * החיבור לא יפעיל את הסוכן גם אם הוא נוקב בקו הנכון.
+         */
         if (
+          source !== "connect" &&
           assistantCreds !== null &&
           value.metadata?.phone_number_id === assistantCreds.phoneNumberId
         ) {

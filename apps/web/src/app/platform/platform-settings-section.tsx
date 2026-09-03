@@ -143,6 +143,14 @@ interface PlatformSettings {
     webhookUrl: string;
     /** מספר הבוט לתצוגה — גיבוי לשליפה מ-Meta. הערך עצמו. */
     botNumber?: string;
+    /** אפליקציית החיבור — הנתיב שלה, והאם היא מוגדרת ומאיפה. */
+    connect?: {
+      configured: boolean;
+      source: "db" | "env" | "none";
+      /** ‎`WHATSAPP_CONNECT_APP_SECRET` קיים — גם כשערך המסד גובר עליו. */
+      envFallback?: boolean;
+      webhookUrl: string;
+    };
     assistant: {
       configured: boolean;
       source: "db" | "env" | "none";
@@ -392,6 +400,18 @@ export function PlatformSettingsSection({
       const phoneNumberId = String(f.get("whatsappPhoneNumberId") ?? "").trim();
       const appId = String(f.get("whatsappAppId") ?? "").trim();
       const connectAppSecret = String(f.get("whatsappConnectAppSecret") ?? "").trim();
+      const connectVerify = String(f.get("whatsappConnectVerifyToken") ?? "").trim();
+      /*
+       * ‎**שדה סוד ריק פירושו „בלי שינוי", ולכן אין דרך לרוקן אותו.**
+       *
+       * זה נכון לכל הסודות במסך — הם אינם מוצגים, ולכן ריק אינו יכול
+       * להיות „מחק". אבל שני ערכי אפליקציית החיבור הם **עקיפה**
+       * שהמסך מבטיח שאפשר לחזור ממנה („ריק = אותה אפליקציה"), והבטחה
+       * שאין לה כפתור היא הבטחה שבורה (ביקורת Codex). התיבה שולחת
+       * ‎`""` במפורש — שני הערכים יחד, כי „חזרה לאפליקציה אחת" היא
+       * הכרעה אחת ולא שתיים.
+       */
+      const clearConnect = f.get("whatsappConnectClear") !== null;
       const signupConfigId = String(f.get("whatsappSignupConfigId") ?? "").trim();
       const botNumber = String(f.get("whatsappBotNumber") ?? "").trim();
       const prospectReply = String(f.get("whatsappProspectReply") ?? "").trim();
@@ -418,7 +438,12 @@ export function PlatformSettingsSection({
         ...(accessToken !== "" ? { whatsappAccessToken: accessToken } : {}),
         ...(phoneNumberId !== "" ? { whatsappPhoneNumberId: phoneNumberId } : {}),
         ...(appId !== "" ? { whatsappAppId: appId } : {}),
-        ...(connectAppSecret !== "" ? { whatsappConnectAppSecret: connectAppSecret } : {}),
+        ...(clearConnect
+          ? { whatsappConnectAppSecret: "", whatsappConnectVerifyToken: "" }
+          : {
+              ...(connectAppSecret !== "" ? { whatsappConnectAppSecret: connectAppSecret } : {}),
+              ...(connectVerify !== "" ? { whatsappConnectVerifyToken: connectVerify } : {}),
+            }),
         ...(signupConfigId !== "" ? { whatsappSignupConfigId: signupConfigId } : {}),
         // ‎`botNumber` נשלח תמיד, גם ריק: הוא גיבוי שמכוון למחוק אותו
         // ברגע ש-Meta מתחילה לענות, וריק כאן פירושו „חזרו להסתמך על
@@ -1837,6 +1862,61 @@ export function PlatformSettingsSection({
               style={inputStyle}
             />
           </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="whatsappConnectVerifyToken" className="mb-1 block font-medium">
+              Verify Token של אפליקציית החיבור{" "}
+              <span className="font-normal">(ריק = כמו קו הסוכן)</span>
+            </label>
+            <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              אתם ממציאים אותו, והוא נפרד מזה של קו הסוכן — כך שאין צורך לדעת את
+              הישן (הסודות אינם ניתנים לשליפה, בכוונה). הכתובת לרישום ב-Meta היא{" "}
+              <code dir="ltr" style={{ direction: "ltr", unicodeBidi: "isolate" }}>
+                /api/v1/webhooks/whatsapp/connect
+              </code>{" "}
+              — נתיב אחר מזה של קו הסוכן, ולכן שינוי כאן אינו נוגע בו.
+            </p>
+            <input
+              id="whatsappConnectVerifyToken"
+              name="whatsappConnectVerifyToken"
+              type="password"
+              dir="ltr"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          {/*
+            שדה סוד ריק פירושו „בלי שינוי" — ולכן בלי התיבה הזו אי
+            אפשר לחזור מאפליקציה נפרדת לאחת, וההבטחה „ריק = אותה
+            אפליקציה" הייתה נכונה רק בהתקנה חדשה.
+          */}
+          <label className="flex w-full items-start gap-2 text-sm">
+            <input
+              id="whatsappConnectClear"
+              name="whatsappConnectClear"
+              type="checkbox"
+              className="mt-0.5"
+            />
+            <span>
+              לחזור לאפליקציה אחת — מוחק את הסוד ואת ה-Verify Token של אפליקציית
+              החיבור, ושני הנתיבים חוזרים להישען על הערכים של קו הסוכן.
+              {settings.whatsapp.connect?.envFallback === true ? (
+                /*
+                 * ‏המחיקה נוגעת למסד בלבד, והקוד נופל חזרה למשתנה
+                 * הסביבה — כלומר הסוד הנפרד ימשיך לפעול. בלי המשפט
+                 * הזה המסך מבטיח חזרה שלא קורית (ביקורת Codex).
+                 */
+                <b style={{ display: "block", color: "var(--color-danger)" }}>
+                  שימו לב: הסוד מוגדר גם במשתנה סביבה
+                  (<code dir="ltr">WHATSAPP_CONNECT_APP_SECRET</code>). ניקוי כאן
+                  מוחק את הערך מהמסד בלבד, והמערכת תיפול חזרה לסביבה — צריך
+                  להסיר אותו גם שם.
+                </b>
+              ) : null}
+            </span>
+          </label>
           <div className="flex-1" style={{ minWidth: "220px" }}>
             <label htmlFor="whatsappSignupConfigId" className="mb-1 block font-medium">
               Embedded Signup Configuration ID{" "}
