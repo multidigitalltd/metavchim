@@ -5,6 +5,7 @@ import {
   inQuietHours,
   notifyCategory,
   notifyFollowUp,
+  dominantNotifyCategory,
   parseWhatsAppNotifyPrefs,
   sessionWindowOpen,
   shouldNotifyByWhatsApp,
@@ -31,6 +32,45 @@ describe("notifyCategory", () => {
 
   it("סוג שאינו במפה נופל להודעות מערכת ולא נעלם", () => {
     expect(notifyCategory("something_new")).toBe("system");
+  });
+
+  /*
+   * שישה סוגים שנוצרים בפועל נפלו ל-`system`, ולכן קיבלו אייקון
+   * ומשפט סיום כלליים — וגרוע מכך, לא היו ניתנים לכיבוי בקטגוריה
+   * שאליה הם שייכים. הבדיקה הזו היא מה שמונע נפילה חוזרת בשקט.
+   */
+  it("ההצעות, ההתאמות והרשת אינן הודעות מערכת", () => {
+    expect(notifyCategory("offer_opened")).toBe("matches");
+    expect(notifyCategory("offer_interested")).toBe("matches");
+    expect(notifyCategory("matches_found")).toBe("matches");
+    expect(notifyCategory("opportunity_opened")).toBe("matches");
+    expect(notifyCategory("lead_requires_human")).toBe("leads");
+    expect(notifyCategory("whatsapp_bot_escalation")).toBe("leads");
+    expect(notifyCategory("coop_offer_received")).toBe("network");
+    expect(notifyCategory("shared_lead_sold")).toBe("network");
+    expect(notifyCategory("appointment_scheduled")).toBe("tasks");
+  });
+
+  it("מי שכיבה „התאמות” מפסיק לקבל גם את פתיחת ההצעה", () => {
+    const prefs = parseWhatsAppNotifyPrefs({ categories: { matches: false } });
+    expect(shouldNotifyByWhatsApp("offer_opened", prefs)).toBe(false);
+    expect(shouldNotifyByWhatsApp("matches_found", prefs)).toBe(false);
+  });
+});
+
+describe("dominantNotifyCategory", () => {
+  it("הקטגוריה השכיחה היא זו שקובעת", () => {
+    expect(
+      dominantNotifyCategory([
+        item({ type: "call_missed" }),
+        item({ type: "call_missed" }),
+        item({ type: "lead" }),
+      ]),
+    ).toBe("calls");
+  });
+
+  it("תקציר יומי מזוהה — הוא היחיד שנשאר עם „מה דחוף היום?”", () => {
+    expect(dominantNotifyCategory([item({ type: "daily_brief" })])).toBe("digests");
   });
 });
 
@@ -191,6 +231,63 @@ describe("formatNotifyMessage", () => {
       "https://app.example.com",
     );
     expect(text).toContain("https://app.example.com/collaboration/deals/D7");
+  });
+});
+
+describe("formatNotifyMessage — הפרטים שמאחורי הכותרת", () => {
+  const offerDetail = {
+    kind: "offer" as const,
+    ownerUserId: "agent1",
+    person: { name: "דנה לוי", phone: "050-1111111" },
+    property: "4 חדרים · הרצל 12, רמת גן",
+    price: "2,100,000 ₪",
+    openCount: 3,
+    why: null,
+  };
+  const notification = item({
+    id: "n1",
+    type: "offer_opened",
+    title: "הקונה פתח את ההצעה ששלחת",
+    entityType: "offer",
+    entityId: "o1",
+  });
+
+  it("השם והטלפון נכנסים להודעה — בלי להיכנס למערכת", () => {
+    const message = formatNotifyMessage([notification], "https://app.example.com", {
+      viewer: { userId: "agent1", capabilities: ["buyers.view_own"] },
+      byNotificationId: new Map([["n1", offerDetail]]),
+    });
+    expect(message).toContain("דנה לוי");
+    expect(message).toContain("050-1111111");
+    expect(message).toContain("4 חדרים · הרצל 12, רמת גן");
+  });
+
+  it("נמען שאינו רשאי לראות את הקונה מקבל את הכותרת בלבד", () => {
+    const message = formatNotifyMessage([notification], "https://app.example.com", {
+      viewer: { userId: "agent2", capabilities: ["buyers.view_own"] },
+      byNotificationId: new Map([["n1", offerDetail]]),
+    });
+    expect(message).toContain("הקונה פתח את ההצעה ששלחת");
+    expect(message).not.toContain("דנה לוי");
+    expect(message).not.toContain("050-1111111");
+  });
+
+  it("בלי מפת פרטים ההודעה נשארת בדיוק כפי שהייתה", () => {
+    const before = formatNotifyMessage([notification], "https://app.example.com");
+    const after = formatNotifyMessage([notification], "https://app.example.com", {
+      viewer: { userId: "agent1", capabilities: [] },
+      byNotificationId: new Map(),
+    });
+    expect(after).toBe(before);
+  });
+
+  it("הפרטים באים לפני הקישור, לא במקומו", () => {
+    const message = formatNotifyMessage([notification], "https://app.example.com", {
+      viewer: { userId: "agent1", capabilities: ["buyers.view_all"] },
+      byNotificationId: new Map([["n1", offerDetail]]),
+    });
+    expect(message.indexOf("דנה לוי")).toBeLessThan(message.indexOf("👈"));
+    expect(message).toContain("👈 https://app.example.com/offers");
   });
 });
 

@@ -42,6 +42,8 @@ import {
   wantsSpokenReply,
   isConfirmMessage,
   isHelpMessage,
+  parseSnoozeRequest,
+  snoozeReply,
 } from "./assistant-lang";
 import {
   agentWelcomeExamples,
@@ -65,7 +67,6 @@ import {
   choiceVariant,
   CMD_TEXT_MAX,
   confirmButtons,
-  SNOOZE_LABEL,
   SNOOZE_MINUTES,
   WA_AUDIO_SOURCE_MAX_BYTES,
   type AgentReply,
@@ -409,16 +410,28 @@ export class WhatsAppAssistantService {
     /*
      * לחיצה על כפתור מתורגמת למילה שהשיחה כבר יודעת לפרש, כדי שלא
      * יהיה מסלול ביצוע שני שצריך לזכור את אותם כללי אטומיות.
-     * „שקט לשעתיים” הוא היחיד שאינו פקודת שיחה ולכן מטופל כאן.
+     * ההשתקה היא היחידה שאינה פקודת שיחה ולכן מטופלת כאן — עכשיו
+     * משני המקורות: כפתור ישן שעדיין בהיסטוריה של מישהו, ומשפט.
      */
     const button = msg.buttonId === undefined ? null : decodeButtonId(msg.buttonId);
-    if (button?.action === "snooze") {
-      await this.snoozeNotifications(user.tenantId, user.id);
-      await this.sender.sendText(
-        msg.fromWaId,
-        `🔕 ${SNOOZE_LABEL}. לא אפריע עד אז — ואם תצטרכו משהו קודם, פשוט כתבו לי.`,
-        { replyTo: msg.externalId },
-      );
+    /*
+     * ‎**ההשתקה נבדקת לפני „עזרה” ולפני המנוע.**
+     *
+     * ‏„שקט” אינה פעולה בקטלוג, ולכן המנוע היה עונה עליה „לא
+     * הבנתי” — או גרוע מכך, מנחש פעולה. היא גם חייבת לקדום לכל
+     * שאר הפענוח: מי שמבקש שקט מבקש שהמשפט הזה **לא** יפתח שיחה.
+     */
+    const snooze =
+      button?.action === "snooze"
+        ? { minutes: SNOOZE_MINUTES, clamped: false }
+        : msg.type === "text"
+          ? parseSnoozeRequest(msg.text ?? "", new Date())
+          : null;
+    if (snooze !== null) {
+      await this.snoozeNotifications(user.tenantId, user.id, snooze.minutes);
+      await this.sender.sendText(msg.fromWaId, snoozeReply(snooze), {
+        replyTo: msg.externalId,
+      });
       return;
     }
 
@@ -580,8 +593,16 @@ export class WhatsAppAssistantService {
   }
 
   /** השתקה רגעית של העדכונים היזומים — הסורק מדלג עליה. */
-  private async snoozeNotifications(tenantId: string, userId: string): Promise<void> {
-    const until = new Date(Date.now() + SNOOZE_MINUTES * 60 * 1000);
+  /**
+   * ‎`minutes === 0` הוא **ביטול** ההשתקה ולא השתקה באפס דקות:
+   * חותמת בעבר פירושה „אין שקט”, וזה בדיוק מה שהסבב בודק.
+   */
+  private async snoozeNotifications(
+    tenantId: string,
+    userId: string,
+    minutes: number,
+  ): Promise<void> {
+    const until = new Date(Date.now() + minutes * 60 * 1000);
     await this.prisma.withExplicitTenant(tenantId, (tx) =>
       tx.whatsAppChat.upsert({
         where: { tenantId_userId: { tenantId, userId } },
