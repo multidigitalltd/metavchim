@@ -15,6 +15,9 @@ import {
   IconSend,
 } from "../../icons";
 
+/** מצבי קו וואטסאפ ביזנס שבהם הקו כבר מחובר — גם אם עוד לא מושלם. */
+const ACTIVE_LINE_STATUSES = new Set(["connected", "pending_history", "payment_required"]);
+
 /**
  * חנות המודולים — מסך אחד שאומר מה אפשר לחבר ומה כבר מחובר.
  *
@@ -79,7 +82,17 @@ export default function IntegrationsPage() {
        * מספר משרדי בשדה — והציגה „מחובר” למשרד שמעולם לא חיבר דבר.
        */
       apiGet<{ connections: { status: string }[] }>("/whatsapp/connections")
-        .then((res) => setWhatsappConnected(res.connections.some((c) => c.status === "connected")))
+        /*
+         * גם „ההיסטוריה מסתנכרנת” וגם „דרוש אמצעי תשלום” הם קו שכבר
+         * חובר: הראשון הוא המצב שבו כל חיבור חדש נולד, ויכול להימשך
+         * שעות. „זמין לחיבור” על קו כזה מזמין חיבור מיותר שני
+         * (ביקורת Codex). רק „מנותק” ו„החיבור לא הושלם” אינם מחוברים.
+         */
+        .then((res) =>
+          setWhatsappConnected(
+            res.connections.some((c) => ACTIVE_LINE_STATUSES.has(c.status)),
+          ),
+        )
         .catch(() => setWhatsappConnected(null));
     }
     apiGet<{ available: boolean; connected: boolean }>("/calendar/google/status")
