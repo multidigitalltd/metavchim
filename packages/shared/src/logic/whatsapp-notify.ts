@@ -127,6 +127,21 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
    */
   mentor_goal_reached: "digests",
   mentor_feedback: "system",
+
+  /*
+   * ‎**„החיבור של הוואטסאפ שלך פג” — `system` בכוונה, לא `leads`.**
+   *
+   * ‏התוצאה של הכשל היא שלידים מפסיקים להיכנס, ולכן `leads` נראה
+   * המתבקש. אבל מי שכיבה „לידים” כיבה **התראות על לידים**, ולא
+   * הסכים לאבד אותם בשקט: זו בדיוק ההתראה שאסור שתהיה ניתנת
+   * להשתקה, כי בלעדיה אין שום סימן אחר שהקו מת — Meta אינה שולחת
+   * דבר, והמסך ממשיך להראות ✓.
+   *
+   * ‏הרישום כאן מפורש ולא נשען על נפילת ברירת המחדל ל-`system`:
+   * זו בדיוק ההבחנה שהשער `verify:notify` אוכף — סוג שאינו ברשימה
+   * הוא סוג שאיש לא החליט עליו.
+   */
+  whatsapp_token_expired: "system",
 };
 
 export function notifyCategory(type: string): WhatsAppNotifyCategory {
