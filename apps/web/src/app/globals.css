@@ -7830,3 +7830,57 @@ a.mv-bar-row:focus-visible {
   font-size: var(--type-body-sm);
   line-height: 1.55;
 }
+
+/* ------------------------------------------------------------
+   תצוגת „שורות” של הפיד — אותה מודעה, במסת מבט אחת
+   ------------------------------------------------------------ */
+.mv-net-rows > .mv-net-card {
+  padding: 12px 14px;
+  border-radius: 16px;
+}
+.mv-net-rowline {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mv-net-rowline__tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(40 / 16 * 1rem);
+  height: calc(40 / 16 * 1rem);
+  border-radius: 13px;
+  background: var(--d-tile, var(--domain-neutral-tile));
+  color: var(--d-fg, var(--domain-neutral-fg));
+}
+.mv-net-rowline__main {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+/*
+ * המספרים באמצע: המחיר בשורה משלו ומעליו כלום — הוא הדבר שסורקים
+ * לרוחב הרשימה, וכשהוא ישב בין הפרטים אי אפשר היה להשוות בין שורות.
+ */
+.mv-net-rowline__figures {
+  flex: 0 1 auto;
+  min-width: 0;
+  text-align: center;
+}
+.mv-net-rowline__money {
+  display: block;
+  font-size: var(--type-row-title);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.mv-net-rowline__act {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-inline-start: auto;
+}
+/* בשורה הכפתורים בגודלם הטבעי ולא בשתי עמודות שוות */
+.mv-net-rowline__act > .mv-net-act,
+.mv-net-rowline__act > * > .mv-net-act {
+  min-width: 0;
+}

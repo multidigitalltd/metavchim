@@ -84,6 +84,7 @@ import {
   NetDetailsButton,
   NetNoMatch,
   NetOfficeHead,
+  NetRow,
   NetPhotos,
   NetSay,
   splitNetworkChips,
@@ -1189,6 +1190,68 @@ export default function CollaborationPage() {
               best === null ? "mv-domain-neutral" : "mv-domain-violet"
             }${demand.mine ? " mv-net-card--mine" : ""}`}
           >
+            {/*
+              ‏שתי תצוגות לאותה מודעה, ומקור נתונים אחד (`split`):
+              כרטיס למי שקורא, שורה למי שסורק. המתג ביניהן יושב
+              בשורת החיפוש.
+            */}
+            {netView === "rows" ? (
+              <NetRow
+                icon={<IconUser s={19} />}
+                title={title}
+                subtitle={[demand.officeName, place, split.subtitle]
+                  .filter((part) => part !== undefined && part !== "")
+                  .join(" · ")}
+                badge={
+                  demand.mine ? (
+                    <span className="mv-net-badge mv-net-badge--quiet">
+                      <IconStar s={14} /> הביקוש שלך
+                    </span>
+                  ) : (
+                    <NetMatchBadge score={best} label="נכס" domain="mv-domain-violet" />
+                  )
+                }
+                {...(split.money === undefined ? {} : { money: split.money.text })}
+                facts={split.facts}
+                actions={
+                  <>
+                    <NetDetailsButton
+                      title={title}
+                      subtitle={split.subtitle}
+                      {...(split.money === undefined ? {} : { money: split.money.text })}
+                      moneyLabel="תקציב"
+                      details={[
+                        ...demandDetailRows(demand),
+                        ...commissionDetailRows(demand.terms),
+                        ...(demand.creditsCost > 0
+                          ? [{ label: "מקור", value: demand.sourceLabel }]
+                          : []),
+                      ]}
+                      {...(demand.notes === undefined ? {} : { notes: demand.notes })}
+                      notesLabel="הערות חשובות"
+                      id={demand.id}
+                      {...(demand.officeName ? { officeName: demand.officeName } : {})}
+                    />
+                    {demand.mine ? null : (
+                    <FollowButton
+                      demandId={demand.id}
+                      following={demand.following === true}
+                      onChanged={(following) => {
+                        setDemands((current) =>
+                          current === null
+                            ? current
+                            : current.map((row) =>
+                                row.id === demand.id ? { ...row, following } : row,
+                              ),
+                        );
+                      }}
+                    />
+                    )}
+                  </>
+                }
+              />
+            ) : (
+              <>
             <div className="mv-net-top">
               {/*
                 ‏מי פרסם — ראשון, ובעיגול. ההחלטה אם בכלל לקרוא
@@ -1265,7 +1328,14 @@ export default function CollaborationPage() {
             )}
             <NetFacts facts={split.facts} />
             <NetSay label="הערות חשובות" text={demand.notes} />
+              </>
+            )}
 
+            {/*
+              ‏בשורה נשארת רק רצועת ההתאמות — היא הפעולה. „אין
+              התאמה” כבר נאמר בתג שבשורה, והבורר הידני והמזהה
+              ממתינים בתצוגת הכרטיסיות ובפופאפ „כל הפרטים”.
+            */}
             {demand.mine ? null : matches.length > 0 ? (
               /* המערכת מחשבת אילו מהנכסים שלי מתאימים — במקום לבחור
                  מרשימה של עשרות ולבזבז קרדיט על ניחוש */
@@ -1340,7 +1410,7 @@ export default function CollaborationPage() {
                     ))}
                   </ul>
               </NetMatchStrip>
-            ) : (
+            ) : netView === "rows" ? null : (
               <NetNoMatch what={FOLLOW_EMPTY_TITLE} hint={FOLLOW_EMPTY_NOTE} />
             )}
 
@@ -1349,7 +1419,7 @@ export default function CollaborationPage() {
               הסגורה. בתוכה הוא היה מגיע רק אחרי פתיחה שלה, כלומר
               המסלול הידני להצעת נכס נעלם ממי שלא ידע לחפש אותו.
             */}
-            {demand.mine ? null : offerMore}
+            {demand.mine || netView === "rows" ? null : offerMore}
 
             {/*
               ‏תחתית הכרטיס: המזהה בשורה משלו, ומתחתיו שתי גלולות
@@ -1362,6 +1432,7 @@ export default function CollaborationPage() {
               יכול היה להפסיק לעקוב, והמעקב הנסתר המשיך לתפוס מקום
               במכסת ה-40 שלו (ביקורת Codex).
             */}
+            {netView === "rows" ? null : (
             <div className="mv-net-cardfoot">
               <NetMeta id={demand.id} />
               <div className="mv-net-actions">
@@ -1399,6 +1470,7 @@ export default function CollaborationPage() {
                 )}
               </div>
             </div>
+            )}
           </li>
         );
       })}
@@ -2430,6 +2502,63 @@ export default function CollaborationPage() {
                         best === null ? "mv-domain-neutral" : "mv-domain-blue"
                       }${listing.mine ? " mv-net-card--mine" : ""}`}
                     >
+                            {/* אותן שתי תצוגות בדיוק כמו בצד הקונים */}
+                            {netView === "rows" ? (
+                              <NetRow
+                                icon={<IconHome s={19} />}
+                                title={title}
+                                subtitle={[listing.officeName, place, split.subtitle]
+                                  .filter((part) => part !== undefined && part !== "")
+                                  .join(" · ")}
+                                badge={
+                                  listing.mine ? (
+                                    <span className="mv-net-badge mv-net-badge--quiet">
+                                      <IconStar s={14} /> הנכס שלך
+                                    </span>
+                                  ) : (
+                                    <NetMatchBadge score={best} label="קונה" domain="mv-domain-blue" />
+                                  )
+                                }
+                                {...(split.money === undefined ? {} : { money: split.money.text })}
+                                facts={split.facts}
+                                actions={
+                                  <>
+                              <NetDetailsButton
+                                title={title}
+                                subtitle={split.subtitle}
+                                {...(split.money === undefined ? {} : { money: split.money.text })}
+                                moneyLabel={listing.dealType === "rent" ? "שכר דירה" : "מחיר"}
+                                details={[
+                                  ...presentationDetailRows(listing),
+                                  ...commissionDetailRows(listing.terms),
+                                ]}
+                                {...(listing.notes === undefined ? {} : { notes: listing.notes })}
+                                notesLabel="מה מיוחד בנכס"
+                                photos={listing.photos ?? []}
+                                id={listing.id}
+                                {...(listing.officeName ? { officeName: listing.officeName } : {})}
+                              />
+                                    {listing.mine || listing.interestSent ? null : (
+                                      <button
+                                        type="button"
+                                        className="mv-net-act mv-net-act--go"
+                                        aria-expanded={askOpen[listing.id] === true}
+                                        aria-controls={`ask_${listing.id}`}
+                                        onClick={() =>
+                                          setAskOpen((prev) => ({
+                                            ...prev,
+                                            [listing.id]: prev[listing.id] !== true,
+                                          }))
+                                        }
+                                      >
+                                        <IconPlus s={15} /> בקש שיתוף
+                                      </button>
+                                    )}
+                                  </>
+                                }
+                              />
+                            ) : (
+                              <>
                             <div className="mv-net-top">
                               {/* מי פרסם — שם המשרד ולוגו; הבעלים נשאר חסוי */}
                               {listing.officeName ? (
@@ -2484,6 +2613,8 @@ export default function CollaborationPage() {
                             )}
                             <NetFacts facts={split.facts} />
                             <NetSay label="מה מיוחד בנכס" text={listing.notes} />
+                              </>
+                            )}
 
                             {listing.mine ? null : listing.interestSent ? (
                               <div className="mv-net-nomatch" role="note">
@@ -2554,13 +2685,11 @@ export default function CollaborationPage() {
                     ))}
                   </ul>
                               </NetMatchStrip>
-                            ) : (
-                              <>
-                                <NetNoMatch
-                                  what="אין לכם עדיין קונה שמתאים לנכס הזה"
-                                  hint="אפשר לפנות עם כל קונה אחר מהרשימה שלמטה — או לחזור כשייקלט קונה מתאים"
-                                />
-                              </>
+                            ) : netView === "rows" ? null : (
+                              <NetNoMatch
+                                what="אין לכם עדיין קונה שמתאים לנכס הזה"
+                                hint="אפשר לפנות עם כל קונה אחר מהרשימה שלמטה — או לחזור כשייקלט קונה מתאים"
+                              />
                             )}
 
                             {/*
@@ -2574,6 +2703,7 @@ export default function CollaborationPage() {
                             */}
                             {askMore}
 
+                            {netView === "rows" ? null : (
                             <div className="mv-net-cardfoot">
                               <NetMeta id={listing.id} />
                               <div className="mv-net-actions">
@@ -2621,6 +2751,7 @@ export default function CollaborationPage() {
                                 )}
                               </div>
                             </div>
+                            )}
                     </li>
                     );
                   })}

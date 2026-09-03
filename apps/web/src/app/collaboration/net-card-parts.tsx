@@ -151,6 +151,66 @@ export function NetOfficeHead({
 }
 
 /**
+ * ‎**שורה, לא כרטיס — תצוגת „שורות” של הפיד.**
+ *
+ * ‏אותה מודעה בדיוק, באותם נתונים (`splitNetworkChips` נשאר המקור
+ * היחיד שמחליט מה מגיע למסך), אבל במסת מבט אחת: מה זה, כמה, ומה
+ * עושים. מי שסורק ארבעים מודעות אינו קורא הערות ואינו פותח רצועות
+ * — הוא מחפש את השתיים שכדאי לפתוח.
+ *
+ * ‎**מה אין כאן, ובכוונה:** ההערות, התמונות, וההסבר „אין לכם נכס
+ * מתאים”. תג ההתאמה בשורה כבר אומר אותו דבר במילה אחת, והפירוט
+ * ממתין ב„כל הפרטים” ובתצוגת הכרטיסיות — שהמתג אליה נמצא באותה
+ * שורה שבה בוחרים את התצוגה.
+ */
+export function NetRow({
+  icon,
+  title,
+  subtitle,
+  badge,
+  money,
+  facts,
+  actions,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  badge: React.ReactNode;
+  money?: string;
+  facts: NetFact[];
+  actions: React.ReactNode;
+}): React.JSX.Element {
+  const shown = facts.filter((fact) => fact.value.trim() !== "" && fact.value !== "—");
+  return (
+    <div className="mv-net-rowline">
+      <span className="mv-net-rowline__tile" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="mv-net-rowline__main">
+        <span className="mv-net-line__title">
+          {title}
+          {badge}
+        </span>
+        {subtitle === undefined || subtitle === "" ? null : (
+          <span className="mv-net-line__sub">{subtitle}</span>
+        )}
+      </span>
+      <span className="mv-net-rowline__figures">
+        {money === undefined ? null : (
+          <span className="mv-net-rowline__money">{money}</span>
+        )}
+        {shown.length === 0 ? null : (
+          <span className="mv-net-line__sub">
+            {shown.map((fact) => `${fact.label} ${fact.value}`).join(" · ")}
+          </span>
+        )}
+      </span>
+      <span className="mv-net-rowline__act">{actions}</span>
+    </div>
+  );
+}
+
+/**
  * ‏שורת הכותרת — מה זה מימין, ומה מיוחד בו משמאל.
  *
  * ‎**בלי אווטאר.** האווטאר עבר לפס העליון, אל המשרד המפרסם — שם
