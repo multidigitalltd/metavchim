@@ -86,11 +86,12 @@ function targetFor(entityType: string, entityId: string): Target | null {
     case "match":
       return { href: "/matches", needs: ["matches.view"] };
     /*
-     * ‏המנטור אישי ואין עליו יכולת — גם ההישג של סוכן וגם המילה
-     * שהמנהל כתב עליו מובילים לאותו מסך, מסיבות הפוכות.
+     * ‏`mentor_achievement` ‎אינו כאן במכוון: `/mentor` מציג היום
+     * „בקרוב” בלבד, והמסך הבנוי מחכה ב-`mentor-screen.tsx` בלי ניתוב.
+     * הנפילה ל-`null` שולחת את הלוחץ למסך ההתראות, שבו גוף ההתראה
+     * מוצג — במקום לעמוד שאין בו ההישג (ביקורת Codex). ההסבר המלא,
+     * ומה להחזיר כשהמסך ייחשף, יושבים ב-`web-push.ts`.
      */
-    case "mentor_achievement":
-      return { href: "/mentor" };
     /*
      * ‏שתי אלה משרדיות ומגיעות גם לסוכן: „החיבור נפל”, „המספר
      * שהושכר”. בלי `needs` הן היו שולחות אותו למסך הגדרות שיחזיר

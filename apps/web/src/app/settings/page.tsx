@@ -188,6 +188,12 @@ const HASH_TABS: Record<string, string> = {
   automations: "automations",
   whatsapp: "integrations",
   telephony: "integrations",
+  /*
+    המספרים הווירטואליים יושבים בתוך קטע המרכזייה, ולכן העוגן שלהם
+    לא היה כאן — והתראת "המספר שהושכר" נחתה בלשונית הצוות, שבה
+    הכותרת שאליה כיוונה כלל אינה מורכבת (ביקורת Codex).
+  */
+  "virtual-numbers": "integrations",
   "google-calendar": "integrations",
   gmail: "integrations",
   "lead-webhook": "integrations",
@@ -196,6 +202,17 @@ const HASH_TABS: Record<string, string> = {
   data: "data",
   "support-access": "support",
 };
+
+/**
+ * כמה זמן מחכים לעוגן שהלשונית מרכיבה — ובאיזה קצב בודקים.
+ *
+ * ‏שנייה אחת לא הספיקה בפועל: הקטע נכנס ל-DOM סביב 800ms, ואחרי
+ * שהבקשות שלו חוזרות הוא גם זז. ארבע שניות הן תקרה נדיבה שנגמרת
+ * מעצמה — מי שהעוגן שלו נעול במסלול פשוט לא ייגלל, בלי טיימר שממשיך
+ * לרוץ ברקע.
+ */
+const ANCHOR_WAIT_MS = 4000;
+const ANCHOR_POLL_MS = 100;
 
 /** לשוניות ניהול המשרד — הסדר הוא סדר השימוש בפועל. */
 const TABS: [key: string, label: string][] = [
@@ -242,6 +259,14 @@ export default function SettingsPage() {
    * בחנות המודולים ובמסך הלידים, ומאז הפיצול ללשוניות הם היו נוחתים
    * על הלשונית הראשונה — שבה האלמנט שאליו כיוונו כלל אינו מורכב
    * (ביקורת Codex). אחרי בחירת הלשונית גוללים לעוגן עצמו.
+   *
+   * ‎**הגלילה ממתינה לאלמנט, לא לשעון.** חלון קבוע של 120ms חיפש את
+   * העוגן לפני שהיה קיים: תוכן הלשונית מחכה לזהות ואז למסלול ואז
+   * לבקשה של הקטע עצמו, והוא נכנס ל-DOM סביב 800ms. כלומר
+   * ‎`getElementById` החזירה `null`, הגלילה לא קרתה בכלל, והלוחץ
+   * נשאר בראש מסך ארוך אחרי שהלשונית כן התחלפה — כשל שקט, כי
+   * ‎`?.` בולעת בדיוק את המקרה הזה. נמדד בדפדפן על
+   * ‎`/settings#virtual-numbers`, שהעוגן שלו יושב 1212px למטה.
    */
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("tab");
@@ -253,10 +278,43 @@ export default function SettingsPage() {
     const owning = HASH_TABS[anchor];
     if (!owning) return;
     setTab(owning);
-    // הגלילה אחרי שהלשונית הורכבה — לפני כן האלמנט לא קיים
-    window.setTimeout(() => {
-      document.getElementById(anchor)?.scrollIntoView({ block: "start" });
-    }, 120);
+    let lastHeight = -1;
+    const timer = window.setInterval(() => {
+      /*
+       * המשתמש גלל בעצמו בזמן ההמתנה — מכאן זה המסך שלו. גלילה
+       * שמגיעה באיחור למקום אחר גרועה מגלילה שלא קרתה. הבדיקה
+       * אמינה כאן דווקא כי אנחנו עוד לא גללנו: הגלילה שלנו קורית
+       * פעם אחת, בסוף.
+       */
+      if (window.scrollY > 0) {
+        window.clearInterval(timer);
+        return;
+      }
+      const target = document.getElementById(anchor);
+      if (target === null) return;
+      /*
+       * ‎**קיום האלמנט אינו התנאי — גובה שהתייצב הוא.** ‏זו הטעות
+       * השנייה באותו קוד: גם אחרי שהעוגן נכנס ל-DOM המסך עוד
+       * מתמלא, המסמך בגובה מסך אחד, ואין לאן לגלול —
+       * ‎`scrollIntoView` רצה בהצלחה והשאירה את `scrollY` על אפס.
+       * שני מדידות גובה זהות פירושן שהפריסה נחה, ואז גוללים פעם
+       * אחת. גובה ולא מקום האלמנט: סקלר אחד, בלי לגלול שוב ושוב
+       * ולהיאבק במשתמש.
+       */
+      const height = document.documentElement.scrollHeight;
+      if (height !== lastHeight) {
+        lastHeight = height;
+        return;
+      }
+      target.scrollIntoView({ block: "start" });
+      window.clearInterval(timer);
+    }, ANCHOR_POLL_MS);
+    // תקרה: קטע שנעול במסלול או שנכשל בטעינה לא יופיע לעולם
+    const giveUp = window.setTimeout(() => window.clearInterval(timer), ANCHOR_WAIT_MS);
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(giveUp);
+    };
   }, []);
 
   function selectTab(next: string): void {

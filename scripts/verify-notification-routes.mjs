@@ -125,6 +125,13 @@ const FALLBACK_BY_DESIGN = new Set([
   "credit_batch", // מנת קרדיטים שעומדת לפוג — אין מסך למנה בודדת
   "exclusivity", // המזהה הוא של הבלעדיות ולא של הנכס
   "payout_request", // בקשת משיכה — נצפית ברשימת התשלומים
+  /*
+   * ‏ההישג השבועי — נופל בכוונה כל עוד מסך המנטור מוסתר. `/mentor`
+   * מציג „בקרוב”, והמסך הבנוי מחכה ב-`mentor-screen.tsx` בלי ניתוב;
+   * ניתוב ההתראה לשם היה שולח את המנהל לעמוד שאין בו ההישג. ביום
+   * שהמסך ייחשף מוסיפים את הישות לשתי המפות ומוציאים אותה מכאן.
+   */
+  "mentor_achievement",
 ]);
 
 const sources = [join(root, "apps/api/src"), join(root, "apps/workers/src")];
@@ -235,6 +242,98 @@ for (const [entityType, file] of written) {
   errors.push(
     `‏${entityType} נכתבת כהתראה (${file}) ואינה בטבלה — הלחיצה עליה תנחת בדשבורד`,
   );
+}
+
+/* ==================== 3. עוגן בכתובת מגיע לאלמנט שמורכב ==================== */
+
+/**
+ * ‎**כתובת עם `#` — הכשל שהטענה הראשונה כאן לא ראתה.**
+ *
+ * ‏הטענה הראשונה חותכת `?` ו-`#` לפני שהיא בודקת שהמסך קיים, וזה
+ * נכון: `/settings` אכן קיים. אבל `virtual_number` הצביעה על
+ * ‎`/settings#virtual-numbers`, ומסך ההגדרות מפוצל ללשוניות — הוא
+ * קורא את העוגן, מחפש אותו ב-`HASH_TABS`, ואם אינו שם **אינו מחליף
+ * לשונית כלל**. כלומר הכותרת שאליה כיוון העוגן יושבת בלשונית
+ * „חיבורים ומודולים” שלא הורכבה, והלוחץ נשאר על לשונית הצוות
+ * (ביקורת Codex). הכתובת קיימת, השער היה ירוק, והקישור מת.
+ *
+ * שתי הדרישות למטה הן שני החלקים שצריכים להתקיים כדי שעוגן יעבוד:
+ * שיש אלמנט עם המזהה הזה, ושהלשונית שמכילה אותו נבחרת.
+ */
+function webFiles(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...webFiles(full));
+    else if (/\.tsx?$/u.test(entry.name)) out.push(full);
+  }
+  return out;
+}
+const webSources = webFiles(join(root, "apps/web/src")).map((file) => ({
+  file: file.slice(root.length + 1),
+  text: readFileSync(file, "utf8"),
+}));
+
+/** קובץ ה-`page.tsx` שמאחורי נתיב, כדי לקרוא ממנו את `HASH_TABS`. */
+function pageFile(path) {
+  const segments = path.split("/").filter((s) => s !== "");
+  const route = appRoutes.find(
+    (candidate) =>
+      candidate.length === segments.length &&
+      candidate.every((seg, i) => seg === segments[i] || /^\[.+\]$/u.test(seg)),
+  );
+  if (route === undefined) return null;
+  const dir = join(root, "apps/web/src/app", ...route);
+  const page = readdirSync(dir).find((name) => /^page\.[jt]sx?$/u.test(name));
+  return page === undefined ? null : join(dir, page);
+}
+
+/*
+ * שני המקורות יחד: הכתובת של הפוש נבנית מהבנייה, וזו של הפעמון היא
+ * מחרוזת במקור. עוגן שבור באחת מהן שבור לגמרי — ולכן שתיהן נבדקות
+ * באותה טענה, ולא רק זו שבה הכשל נמצא.
+ */
+const anchored = new Map();
+const anchorFound = (url, where) => {
+  const sources = anchored.get(url) ?? new Set();
+  sources.add(where);
+  anchored.set(url, sources);
+};
+for (const entityType of entityTypes) {
+  const url = notificationUrl(note(entityType, "01HQ0000000000000000000001"));
+  if (url.includes("#")) anchorFound(url, `web-push.ts (${entityType})`);
+}
+for (const match of webSrc.matchAll(/href:\s*[`"']([^`"']*#[^`"']+)[`"']/gu)) {
+  anchorFound(match[1], "notification-links.ts");
+}
+
+for (const [url, sources] of anchored) {
+  const where = [...sources].join(", ");
+  const [path, anchor] = url.split("#");
+  const holder = webSources.find(({ text }) => text.includes(`id="${anchor}"`));
+  if (holder === undefined) {
+    errors.push(
+      `‏${url} (${where}) — אין ב-apps/web/src אלמנט עם id="${anchor}", והגלילה לא תמצא לאן`,
+    );
+    continue;
+  }
+  const page = pageFile(path);
+  if (page === null) continue;
+  const pageSrc = readFileSync(page, "utf8");
+  const tabs = /const HASH_TABS[^{]*\{([\s\S]*?)\n\};/u.exec(pageSrc);
+  // מסך שאינו מפוצל ללשוניות מרכיב את הכל תמיד — העוגן עובד כמו שהוא
+  if (tabs === null) continue;
+  const keys = [...tabs[1].matchAll(/^\s{2}"?([a-z][\w-]*)"?:/gmu)].map((m) => m[1]);
+  if (keys.length === 0) {
+    errors.push("‏לא נקרא אף מפתח מ-HASH_TABS — הביטוי שקורא אותה התיישן");
+    continue;
+  }
+  if (!keys.includes(anchor)) {
+    errors.push(
+      `‏${url} (${where}) — ‎"${anchor}" אינו ב-HASH_TABS של ${page.slice(root.length + 1)}, ` +
+        `ולכן הלשונית שמכילה את ${holder.file} לא תיבחר והלוחץ יישאר בלשונית הראשונה`,
+    );
+  }
 }
 
 /* ==================== התוצאה ==================== */
