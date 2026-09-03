@@ -38,6 +38,13 @@ import {
   suggestedReferralPrice,
   type BuyerRequirements,
   type LeadSourcePrice,
+  NETWORK_MATCH_MIN_SCORE,
+  MAX_FOLLOWS_PER_USER,
+  jerusalemMonthStart,
+  demandMatchCopy,
+  demandMatchDedupeKey,
+  DEMAND_MATCH_NOTIFICATION_TYPE,
+  demandLabel,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { lockContact } from "../../common/locks";
@@ -114,14 +121,6 @@ function narrowScores(value: unknown): Record<string, number> {
   }
   return out;
 }
-
-/**
- * הסף שמעליו התאמה ברשת שווה הצגה.
- *
- * זהה לסף בפיד הביקושים בכוונה: "התאמה ברשת" חייבת להיות אותו דבר
- * בכל מסך, אחרת אותו נכס נראה מתאים בכרטיס ולא מתאים ברשימה.
- */
-const NETWORK_MATCH_MIN_SCORE = 70;
 
 /** ביקוש ברשת שהנכס הנוכחי עונה עליו — העמודה השנייה בכרטיס הנכס. */
 export interface NetworkDemandMatchDto {
@@ -329,6 +328,55 @@ export interface SharedDemandDto {
   createdAt: Date;
   /** הנכסים שלי שמתאימים — מחושב במנוע ההתאמות, לא ניחוש */
   myMatches?: DemandMatchDto[];
+  /**
+   * ‎**האם המשתמש הנוכחי עוקב אחרי הביקוש הזה.**
+   *
+   * ‏רלוונטי רק כשאין `myMatches`: ביקוש שיש לו נכס מתאים אינו
+   * צריך מעקב, והפעולה הנכונה שם היא להציע. השדה מגיע גם על ביקוש
+   * שיש לו התאמה, כדי שהמסך לא יצטרך לנחש מה קורה למעקב ישן
+   * שהתאמה נכנסה אליו בינתיים.
+   */
+  following?: boolean;
+}
+
+/**
+ * ‎**המספרים שבראש מסך הרשת.**
+ *
+ * ## מה נספר כאן, ומה **לא** — וזו ההכרעה
+ *
+ * ‏„מתאימים לנכסים שלך” אינו כאן בכוונה. הוא התווית של הקטע
+ * שמתחתיו, ולכן הוא חייב להיות בדיוק מספר הכרטיסים בו — והם
+ * מחושבים מהפיד שכבר הגיע למסך. חישוב שני בשרת היה מנוע התאמות
+ * שני, ומספיק הבדל אחד בסינון כדי שהכותרת תאמר „6” מעל חמישה
+ * כרטיסים.
+ *
+ * ‏מה שכן נספר כאן הוא מה שהמסך **אינו** יכול לדעת: הפיד חסום
+ * במאה שורות, ומשרד שרואה מאה ביקושים אינו יודע אם יש 100 או 340.
+ * ‏„32 ביקושים ברשת” הוא מספר, ולא אורך הרשימה שהוצגה.
+ */
+export interface NetworkSummaryDto {
+  /** ביקושים פעילים של משרדים אחרים. */
+  demands: number;
+  /** נכסים פעילים של משרדים אחרים. */
+  listings: number;
+  /** הפניות פעילות של משרדים אחרים. */
+  referrals: number;
+  /** ‏משרדים שיש להם משהו פעיל ברשת — „שותפים מחוברים אליך”. */
+  offices: number;
+  /** ‏עסקאות משותפות שנסגרו החודש (בשעון ישראל), משני הצדדים. */
+  dealsThisMonth: number;
+  /** הצעות שנשלחו אליי וטרם נענו. */
+  incomingOffers: number;
+  /**
+   * ‏אותו מספר כמו `referrals`, בשם שהדשבורד כבר קורא לו.
+   *
+   * ‏שני שמות ולא שתי ספירות: הדשבורד נבנה סביב „הפניות פתוחות”
+   * ומסך הרשת סביב „הפניות ברשת”, והם אותו דבר. חישוב שני היה
+   * מאפשר להם להיפרד בשקט.
+   */
+  openReferrals: number;
+  /** יתרת הקרדיטים של המשרד. */
+  credits: number;
 }
 
 export interface CoopOfferDto {
@@ -1022,12 +1070,18 @@ export class CollaborationService {
       return new Set(rows.map((row) => `${row.demandId}:${row.propertyId}`));
     });
 
-    const [prices, offices] = await Promise.all([
+    const [prices, offices, followed] = await Promise.all([
       this.pricing.all(),
       officeBadges(
         this.prisma,
         visible.map((row) => row.tenantId),
       ),
+      /*
+       * ‏אחרי מה **המשתמש הזה** עוקב. שאילתה אחת לכל הפיד, כמו
+       * ‎`offered` שמעליה: קריאה לכל כרטיס הייתה מאה שאילתות על
+       * מסך אחד.
+       */
+      this.followedDemandIds(visible.map((row) => row.id)),
     ]);
     return visible.map((row) => {
       const dto = this.toDemandDto(
@@ -1042,8 +1096,209 @@ export class CollaborationService {
           ? { ...match, offered: true }
           : match,
       );
-      return matches.length > 0 ? { ...dto, myMatches: matches } : dto;
+      return {
+        ...dto,
+        ...(matches.length > 0 ? { myMatches: matches } : {}),
+        following: followed.has(row.id),
+      };
     });
+  }
+
+  /* ======================================================================
+   * ‏מעקב אחרי ביקוש
+   * ====================================================================== */
+
+  /** ‏מתוך הביקושים שעל המסך — אחרי אילו המשתמש הזה עוקב. */
+  private async followedDemandIds(demandIds: string[]): Promise<Set<string>> {
+    if (demandIds.length === 0) return new Set();
+    const ctx = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.demandFollow.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          demandId: { in: demandIds },
+        },
+        select: { demandId: true },
+      });
+      return new Set(rows.map((row) => row.demandId));
+    });
+  }
+
+  /**
+   * ‎**התחלת מעקב אחרי ביקוש ברשת.**
+   *
+   * ‏הביקוש נבדק דרך `withNetworkRead` ולא נלקח כנתון מהמסך: מזהה
+   * של ביקוש סגור, או של שורה שאינה ביקוש כלל, היה נכנס לטבלה
+   * ומייצר מעקב שלעולם לא יופעל — כלומר משתמש שממתין להתראה שלא
+   * תגיע.
+   *
+   * ‏מעקב אחרי ביקוש **שלי** נחסם: ההתראה אומרת „נכנס נכס שמתאים
+   * לביקוש הזה”, ועל הביקושים שלי המערכת כבר עושה בדיוק את זה
+   * דרך ההתאמות הפנימיות.
+   */
+  async followDemand(demandId: string): Promise<{ following: true }> {
+    const ctx = TenantContext.current();
+    const demand = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedDemand.findFirst({
+        where: { id: demandId, status: "active" },
+        select: { id: true, tenantId: true },
+      }),
+    );
+    if (demand === null) throw new NotFoundException("הביקוש לא נמצא");
+    if (demand.tenantId === ctx.tenantId) {
+      throw new BadRequestException("זה ביקוש שלכם — ההתאמות אליו כבר מוצגות בכרטיס הקונה");
+    }
+
+    await this.prisma.withTenant(async (tx) => {
+      const existing = await tx.demandFollow.count({
+        where: { tenantId: ctx.tenantId, userId: ctx.userId },
+      });
+      if (existing >= MAX_FOLLOWS_PER_USER) {
+        throw new BadRequestException(
+          `אפשר לעקוב אחרי ${MAX_FOLLOWS_PER_USER} ביקושים. הפסיקו לעקוב אחרי אחד כדי להוסיף חדש.`,
+        );
+      }
+      /*
+       * ‎`createMany` עם `skipDuplicates` ולא בדיקה-ואז-כתיבה:
+       * לחיצה כפולה על כפתור היא שתי בקשות מקבילות, והאילוץ
+       * הייחודי הוא מה שמכריע ביניהן.
+       */
+      await tx.demandFollow.createMany({
+        data: [
+          {
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            userId: ctx.userId,
+            demandId,
+          },
+        ],
+        skipDuplicates: true,
+      });
+    });
+    return { following: true };
+  }
+
+  /** ‏הפסקת מעקב. מזהה שאינו שלי פשוט אינו מוחק דבר. */
+  async unfollowDemand(demandId: string): Promise<{ following: false }> {
+    const ctx = TenantContext.current();
+    await this.prisma.withTenant((tx) =>
+      tx.demandFollow.deleteMany({
+        where: { tenantId: ctx.tenantId, userId: ctx.userId, demandId },
+      }),
+    );
+    return { following: false };
+  }
+
+  /**
+   * ‎**סבב המעקבים של משרד אחד — „נכנס נכס שמתאים לביקוש שעקבת אחריו”.**
+   *
+   * ## למה כאן ולא ב-Worker
+   *
+   * ‏זה נראה כמו עבודה של סורק, ובכל זאת הוא יושב ב-API. ‏`apps/workers`
+   * אינה יכולה לייבא מ-`apps/api`, ולכן סורק שם היה מחייב **עותק שני
+   * של „מה נחשב התאמה”** — אותו סינון, אותו סף, אותו מיפוי שדות.
+   * זה בדיוק הכשל שכבר קרה במנטור, ושדרש שער שלם כדי לשמור עליו:
+   * שני מקורות אמת שנפרדים בשקט, ומשתמש שרואה בכרטיס „92% התאמה”
+   * לצד התראה שלא הגיעה.
+   *
+   * ‏כאן הסבב קורא ל-`matchOwnProperties` **עצמה** — אותה פונקציה
+   * שמציירת את הכרטיס. אין מה שיסטה.
+   *
+   * ## מה הוא עושה, לפי הסדר
+   *
+   * ‎`withExplicitTenant` ולא `withTenant`: הסבב רץ בלי בקשה ובלי
+   * ‎`TenantContext`, והוא מגדיר את הדייר במפורש לכל סיבוב.
+   *
+   * ‎**ניקוי לפני חישוב.** מעקב אחרי ביקוש שנסגר או נמחק אינו יכול
+   * להתממש לעולם, והוא ממשיך להיספר בגבול המעקבים של המשתמש. הוא
+   * נמחק כאן, וזה גם המקום היחיד שרואה את שני הצדדים.
+   *
+   * ‎**התראה אחת לכל (מעקב, נכס).** ‏`skipDuplicates` והאילוץ
+   * הייחודי על `dedupeKey` הם שמכריעים, ולכן שתי ריצות במקביל אינן
+   * צריכות לקרוא זו את זו.
+   */
+  async sweepFollowsForTenant(tenantId: string): Promise<number> {
+    const follows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      tx.demandFollow.findMany({ where: { tenantId }, take: 500 }),
+    );
+    if (follows.length === 0) return 0;
+
+    /* ‏הביקושים עצמם — קריאה חוצת-משרדים, כמו הפיד */
+    const demands = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedDemand.findMany({
+        where: { id: { in: follows.map((f) => f.demandId) }, status: "active" },
+      }),
+    );
+    const byId = new Map(demands.map((row) => [row.id, row]));
+
+    const stale = follows.filter((f) => !byId.has(f.demandId)).map((f) => f.id);
+    if (stale.length > 0) {
+      await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.demandFollow.deleteMany({ where: { tenantId, id: { in: stale } } }),
+      );
+    }
+
+    const live = follows.filter((f) => byId.has(f.demandId));
+    if (live.length === 0) return 0;
+
+    const properties = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      tx.property.findMany({
+        where: { tenantId, deletedAt: null, status: "active" },
+        take: 200,
+      }),
+    );
+    if (properties.length === 0) return 0;
+
+    const rows: {
+      id: string;
+      tenantId: string;
+      userId: string;
+      type: string;
+      dedupeKey: string;
+      title: string;
+      body: string;
+      entityType: string;
+      entityId: string;
+    }[] = [];
+    for (const follow of live) {
+      const demand = byId.get(follow.demandId);
+      if (demand === undefined) continue;
+      for (const match of this.matchOwnProperties(properties, demand)) {
+        const copy = demandMatchCopy({
+          /*
+           * ‎`Decimal` מ-Prisma הופך למספר כאן ולא בפונקציה: החבילה
+           * המשותפת אינה יודעת מה זה `Decimal`, וזה בדיוק הגבול
+           * שמאפשר לאותה פונקציה לשמש גם את הדפדפן.
+           */
+          demandLabel: demandLabel({
+            cities: demand.cities,
+            roomsMin: demand.roomsMin === null ? null : Number(demand.roomsMin),
+            roomsMax: demand.roomsMax === null ? null : Number(demand.roomsMax),
+            dealType: demand.dealType,
+          }),
+          propertyTitle: match.title,
+          score: match.score,
+        });
+        rows.push({
+          id: ulid(),
+          tenantId,
+          userId: follow.userId,
+          type: DEMAND_MATCH_NOTIFICATION_TYPE,
+          dedupeKey: demandMatchDedupeKey(follow.id, match.propertyId),
+          title: copy.title,
+          body: copy.body,
+          entityType: "coop_demand",
+          entityId: demand.id,
+        });
+      }
+    }
+    if (rows.length === 0) return 0;
+
+    const created = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      tx.notification.createMany({ data: rows, skipDuplicates: true }),
+    );
+    return created.count;
   }
 
   /** שלוש ההתאמות הטובות ביותר מבין הנכסים שלי, מעל סף שווה-הצגה. */
@@ -3003,25 +3258,65 @@ export class CollaborationService {
    * ההפניות הפתוחות היה נמוך מהאמת (ביקורת Codex). `count` אינו
    * מוגבל, והוא גם חוסך הורדה של מאתיים שורות שאיש לא מציג.
    */
-  async networkSummary(): Promise<{
-    incomingOffers: number;
-    openReferrals: number;
-    credits: number;
-  }> {
+  async networkSummary(now = new Date()): Promise<NetworkSummaryDto> {
     const tenantId = TenantContext.current().tenantId;
+    /*
+     * ‏„של אחרים” בכל שלוש הטבלאות: הרשת היא מה שיש **לי** מולה.
+     * ההפניות של המשרד עצמו אינן „פתוחות ברשת” עבורו — הוא פרסם
+     * אותן — ואותו נימוק חל על הביקושים ועל הנכסים.
+     */
+    const others = { status: "active", NOT: { tenantId } } as const;
+
     const incomingOffers = await this.prisma.withTenant((tx) =>
       tx.coopOffer.count({ where: { toTenantId: tenantId, status: "sent" } }),
     );
+
+    const network = await this.prisma.withNetworkRead(async (tx) => {
+      const [demands, listings, referrals, byDemand, byListing, byLead] =
+        await Promise.all([
+          tx.sharedDemand.count({ where: others }),
+          tx.sharedListing.count({ where: others }),
+          tx.sharedLead.count({ where: others }),
+          /*
+           * ‏„משרדים ברשת” נספר על שלוש הטבלאות ולא על אחת: משרד
+           * שפרסם נכס בלבד הוא שותף לכל דבר, וספירה על הביקושים
+           * לבדם הייתה מציגה רשת קטנה משהיא באמת.
+           */
+          tx.sharedDemand.groupBy({ by: ["tenantId"], where: others }),
+          tx.sharedListing.groupBy({ by: ["tenantId"], where: others }),
+          tx.sharedLead.groupBy({ by: ["tenantId"], where: others }),
+        ]);
+      const offices = new Set([
+        ...byDemand.map((row) => row.tenantId),
+        ...byListing.map((row) => row.tenantId),
+        ...byLead.map((row) => row.tenantId),
+      ]);
+      return { demands, listings, referrals, offices: offices.size };
+    });
+
     /*
-     * ההפניות של המשרד עצמו אינן "פתוחות ברשת" עבורו — הוא פרסם
-     * אותן. אותו סינון בדיוק כמו בלוח, כדי שהמספר בדשבורד יהיה
-     * מספר השורות שייראו בלחיצה.
+     * ‎`closedAt` ולא שם השלב: „נסגרה” הוא תאריך שנכתב, ושלב הוא
+     * מילה שיכולה להשתנות. „החודש” הוא חודש **בשעון ישראל** — ראו
+     * ‎`jerusalemMonthStart`.
      */
-    const openReferrals = await this.prisma.withNetworkRead((tx) =>
-      tx.sharedLead.count({ where: { status: "active", NOT: { tenantId } } }),
+    const dealsThisMonth = await this.prisma.withTenant((tx) =>
+      tx.coopDeal.count({
+        where: {
+          OR: [{ listingTenantId: tenantId }, { buyerTenantId: tenantId }],
+          closedAt: { gte: jerusalemMonthStart(now) },
+        },
+      }),
     );
+
     const { balance } = await this.balance();
-    return { incomingOffers, openReferrals, credits: balance };
+    return {
+      ...network,
+      incomingOffers,
+      /* ‏אותו מספר בשני שמות: הדשבורד קורא לו „הפניות פתוחות” */
+      openReferrals: network.referrals,
+      dealsThisMonth,
+      credits: balance,
+    };
   }
 
   /**

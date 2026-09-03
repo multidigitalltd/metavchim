@@ -32,6 +32,7 @@ export * from "./logic/notifications.js";
 export * from "./logic/notify-details.js";
 export * from "./logic/israel-time.js";
 export * from "./logic/mentor-goals.js";
+export * from "./logic/demand-follow.js";
 export * from "./logic/mentor-quotes.js";
 export * from "./logic/mentor-feedback.js";
 export * from "./logic/pbx-watch.js";

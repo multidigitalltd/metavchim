@@ -456,6 +456,12 @@ export class AccountDeletionService {
          * מתירה לטרנזקציה של המשרד להגיע אליהן.
          */
         await tx.mentorQuote.deleteMany({ where: { tenantId } });
+        /*
+         * ‏המעקבים אחרי ביקושים ברשת. אין להם מפתח זר — לא לשורת
+         * המשרד ולא לביקוש — ולכן בלי המחיקה כאן היו נשארות שורות
+         * שמצביעות על משרד שכבר אינו קיים.
+         */
+        await tx.demandFollow.deleteMany({ where: { tenantId } });
         await tx.mentorWeeklyScore.deleteMany({ where: { tenantId } });
         await tx.mentorGoal.deleteMany({ where: { tenantId } });
         // תיק הבלעדיות — פעולות לפני תקופות, ושתיהן לפני הנכסים

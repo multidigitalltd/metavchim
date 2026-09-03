@@ -17,6 +17,19 @@ function shekels(agorot: number): string {
  * כך הניסוחים חיים במקום אחד, טהור ובדוק.
  */
 
+/**
+ * ‎**הכותרת והגוף של התראה אחת — הצורה, בלי הנמען ובלי הסוג.**
+ *
+ * ‏זה מה שפונקציית ניסוח מחזירה: `goalReachedCopy`, `feedbackCopy`,
+ * ‎`demandMatchCopy`. הן חיות כל אחת בקובץ התכונה שלה, כי הניסוח
+ * הוא של התכונה — אבל הצורה משותפת, וכשכל אחת הכריזה עליה בעצמה
+ * שתי הצהרות זהות התנגשו בייצוא של החבילה.
+ */
+export interface NotificationCopy {
+  title: string;
+  body: string;
+}
+
 export const NotificationJobSchema = z.object({
   tenantId: IdSchema,
   /** נמען ספציפי — התראה אישית; חסר = התראה משרדית לכל הדייר. */

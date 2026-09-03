@@ -78,6 +78,18 @@ export function jerusalemWallIsoToUtc(wallIso: string): Date {
 }
 
 /**
+ * ‏תחילת החודש הישראלי הנוכחי, כערך UTC לשאילתה.
+ *
+ * ‎„נסגרו החודש” הוא חודש **בשעון ישראל**: תהליך שרץ ב-UTC ומחשב
+ * ‎`setDate(1)` מקבל את ה-1 בחודש ב-UTC, ובשעתיים שבין חצות
+ * המקומית לחצות ה-UTC בראשון לחודש הוא סופר את החודש הקודם.
+ */
+export function jerusalemMonthStart(now: Date): Date {
+  const month = jerusalemWallParts(now).date.slice(0, 7);
+  return jerusalemWallIsoToUtc(`${month}-01T00:00:00.000`);
+}
+
+/**
  * גבולות היום הישראלי הנוכחי, כערכי UTC לשאילתות.
  *
  * `setHours(23,59,59)` על תהליך שרץ ב-UTC מגדיר את סוף היום ה-UTC —
