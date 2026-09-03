@@ -44,10 +44,18 @@ interface Row {
   disconnectReason: string | null;
 }
 
-/** מה שהסבב עשה לשורה — הטענה של רוב הבדיקות כאן. */
-type Update = { where: { id: string }; data: Record<string, unknown> };
+/**
+ * מה שהסבב עשה לשורה — הטענה של רוב הבדיקות כאן. `where` נשמר ולא
+ * רק `data`: ההגנה מפני ניתוק במקביל **היא** תנאי ה-`where`, ובדיקה
+ * שמסתכלת רק על `data` הייתה עוברת גם אחרי הסרתו.
+ */
+type Update = { where: Record<string, unknown>; data: Record<string, unknown> };
 
-function harness(rows: Row[]): {
+function harness(
+  rows: Row[],
+  /** ‏0 = מישהו הקדים אותנו (ניתוק, חיבור מחדש) בין הקריאה לכתיבה */
+  affected = 1,
+): {
   service: WhatsAppConnectionService;
   updates: Update[];
   where: () => Record<string, unknown>;
@@ -60,9 +68,9 @@ function harness(rows: Row[]): {
         captured = args.where;
         return Promise.resolve(rows);
       }),
-      update: vi.fn((args: Update) => {
+      updateMany: vi.fn((args: Update) => {
         updates.push(args);
-        return Promise.resolve({});
+        return Promise.resolve({ count: affected });
       }),
     },
   } as unknown as PrismaService;
@@ -215,6 +223,7 @@ describe("סבב רענון הטוקנים", () => {
   });
 
   it("קו שכבר סומן פג אינו מייצר התראה שנייה", async () => {
+    /* ‏אחרת כל שש שעות הייתה נשלחת אותה התראה על אותה תקלה */
     const { service, updates } = harness([
       row({ accessTokenExpiresAt: days(-1), disconnectReason: "token_expired" }),
     ]);
@@ -230,32 +239,75 @@ describe("סבב רענון הטוקנים", () => {
     expect(updates).toEqual([]);
   });
 
-  it("קו שסומן פג וחזר לחיות מוחזר למחובר", async () => {
+  it("רענון מוצלח אינו מכריז „מחובר” על קו שנשבר מסיבה אחרת", async () => {
     const { service, updates } = harness([
-      row({ accessTokenExpiresAt: days(-1), disconnectReason: "token_expired" }),
-    ]);
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(ok({ access_token: "fresh" }))));
-
-    await service.sweepExpiringTokens(NOW);
-
-    expect(updates[0]?.data.status).toBe("connected");
-    expect(updates[0]?.data.disconnectReason).toBeNull();
-  });
-
-  it("שגיאת רשת אחרת אינה משנה סטטוס של קו עם סיבה אחרת", async () => {
-    const { service, updates } = harness([
-      row({ accessTokenExpiresAt: days(-1), disconnectReason: "webhook_subscribe_failed" }),
+      row({ disconnectReason: "webhook_subscribe_failed" }),
     ]);
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(ok({ access_token: "fresh" }))));
 
     await service.sweepExpiringTokens(NOW);
 
     /*
-     * ‏רענון טוקן אינו פותר כשל הרשמה ל-Webhooks, ולכן אינו רשאי
-     * להכריז „מחובר” על קו שההודעות שלו עדיין אינן מנותבות אלינו.
+     * ‏רענון טוקן אינו פותר כשל הרשמה ל-Webhooks. „מחובר” כאן היה
+     * מסך ירוק על קו שלידים אינם מגיעים אליו (ביקורת Codex).
      */
+    expect(updates[0]?.data.accessTokenEncrypted).toBe("enc:fresh");
     expect(updates[0]?.data.status).toBeUndefined();
     expect(updates[0]?.data.disconnectReason).toBeUndefined();
+  });
+
+  it("תפוגה אינה דורסת סיבת תקלה קיימת ואינה מתריעה עליה", async () => {
+    const { service, updates } = harness([
+      row({ accessTokenExpiresAt: days(-1), disconnectReason: "webhook_subscribe_failed" }),
+    ]);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(fail())));
+
+    const result = await service.sweepExpiringTokens(NOW);
+
+    /*
+     * ‏הקו כבר אדום ומוסבר במסך, והתרופה זהה — חיבור מחדש. החלפת
+     * הסיבה ב-`token_expired` הייתה מוחקת את התקלה האמיתית.
+     */
+    expect(updates).toEqual([]);
+    expect(result.expired).toEqual([]);
+  });
+
+  it("כתיבת הטוקן המרוענן מותנית בשורה מחוברת עם אותו צופן", async () => {
+    const { service, updates } = harness([row()]);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(ok({ access_token: "fresh" }))));
+
+    await service.sweepExpiringTokens(NOW);
+
+    /*
+     * ‏בין הקריאה לכתיבה עוברת קריאת רשת אל Meta, ובה המתווך יכול
+     * לנתק. בלי שני התנאים האלה הכתיבה הייתה מחזירה טוקן חי לשורה
+     * מנותקת — הפרה של מחיקת הסוד בניתוק (ביקורת Codex).
+     */
+    expect(updates[0]?.where).toEqual({
+      id: "c1",
+      disconnectedAt: null,
+      accessTokenEncrypted: "enc:old-token",
+    });
+  });
+
+  it("קו שנותק תוך כדי הרענון אינו נספר כמרוענן", async () => {
+    const { service } = harness([row()], 0);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(ok({ access_token: "fresh" }))));
+
+    const result = await service.sweepExpiringTokens(NOW);
+
+    expect(result.refreshed).toBe(0);
+  });
+
+  it("קו שנותק תוך כדי הסבב אינו מסומן ואינו מתריע", async () => {
+    const { service, updates } = harness([row({ accessTokenExpiresAt: days(-1) })], 0);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(fail())));
+
+    const result = await service.sweepExpiringTokens(NOW);
+
+    /* ‏הסימון נוסה, אבל השורה כבר לא ענתה לתנאי — ואז אין על מה להתריע */
+    expect(updates[0]?.where).toEqual({ id: "c1", disconnectedAt: null, disconnectReason: null });
+    expect(result.expired).toEqual([]);
   });
 
   it("טוקן שאי אפשר לפענח אינו מפיל את הסבב", async () => {

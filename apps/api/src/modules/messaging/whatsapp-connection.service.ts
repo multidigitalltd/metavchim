@@ -38,7 +38,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
  */
 const REFRESH_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
-/** הסיבה הכתובה בשורה — גם הסימן שההתראה כבר נשלחה פעם אחת */
+/** הסיבה שנכתבת בשורה, ושהמסך מסביר בעברית */
 const TOKEN_EXPIRED = "token_expired";
 
 /** קו שהטוקן שלו מת — מה שההתראה צריכה כדי להגיע לסוכן הנכון. */
@@ -411,10 +411,14 @@ export class WhatsAppConnectionService {
    * לניסיונות חוזרים: שיבוש רשת בן יומיים, או שעתיים שבהן Meta
    * מחזירה 500, אינם אמורים לעלות בקו. שבועיים הם 56 סבבים.
    *
-   * ‎**סימון `token_expired` הוא חד-פעמי.** כשלון רענון מסמן את הקו
-   * רק אחרי שהטוקן באמת פג — לא בכישלון הראשון — ורק אם עוד לא
-   * סומן. אחרת כל סבב היה מייצר התראה נוספת על אותה תקלה, והמתווך
-   * היה מכבה התראות במקום לחבר מחדש.
+   * ‎**הסימון חד-פעמי, ואינו דורס תקלה קיימת.** כשלון רענון מסמן
+   * את הקו רק אחרי שהטוקן באמת פג — לא בכישלון הראשון — ורק אם
+   * ‎`disconnectReason` עדיין ריק. שורה שכבר נושאת סיבה היא או קו
+   * שסומן בסבב קודם (והתראה שנייה עליו רק תגרום לכיבוי התראות),
+   * או קו עם תקלה אחרת שאסור למחוק מהמסך.
+   *
+   * ‎**כל כתיבה מותנית בשורה שנקראה, לא ב-`id` בלבד.** בין הקריאה
+   * לכתיבה עוברת קריאת רשת, והמתווך יכול לנתק באמצע.
    */
   async sweepExpiringTokens(now: Date = new Date()): Promise<{
     refreshed: number;
@@ -445,23 +449,27 @@ export class WhatsAppConnectionService {
       const token = stored === null ? null : this.safeDecrypt(stored);
       const issued = token === null ? null : await this.refreshToken(token);
 
-      if (issued !== null) {
-        await this.prisma.whatsAppBusinessConnection.update({
-          where: { id: row.id },
+      if (issued !== null && stored !== null) {
+        /*
+         * ‎**הכתיבה מותנית בשורה שקראנו, ולא רק ב-`id`.**
+         *
+         * ‏בין הקריאה לכתיבה עוברת קריאת רשת אל Meta — שניות שבהן
+         * המתווך יכול ללחוץ „ניתוק”. `disconnect` מוחקת את הטוקן
+         * ומסמנת `disconnectedAt`, ואז כתיבה שמזוהה לפי `id` בלבד
+         * הייתה מחזירה טוקן **חי** לשורה מנותקת: הפרה של ההבטחה
+         * שהסוד נמחק בניתוק, והחזקת אישורים של עסק שכבר לא איתנו
+         * (ביקורת Codex). התנאי על הצופן שקראנו סוגר גם את המקרה
+         * השני — חיבור מחדש שהספיק לכתוב טוקן חדש באמצע.
+         */
+        const { count } = await this.prisma.whatsAppBusinessConnection.updateMany({
+          where: { id: row.id, disconnectedAt: null, accessTokenEncrypted: stored },
           data: {
             accessTokenEncrypted: this.crypto.encrypt(issued.token),
             accessTokenExpiresAt: issued.expiresAt,
-            /*
-             * קו שסומן „פג” וחזר לחיות — מוחזר למחובר. התנאי על
-             * הסיבה מכוון: `error` שנובע מכשל הרשמה ל-Webhooks
-             * הוא תקלה אחרת, ורענון טוקן אינו פותר אותה.
-             */
-            ...(row.disconnectReason === TOKEN_EXPIRED
-              ? { status: "connected", disconnectReason: null }
-              : {}),
           },
         });
-        refreshed += 1;
+        if (count > 0) refreshed += 1;
+        else this.logger.warn(`קו ${row.displayPhone} השתנה תוך כדי רענון — הטוקן החדש נזרק`);
         continue;
       }
 
@@ -470,12 +478,38 @@ export class WhatsAppConnectionService {
        * שוב. רק טוקן שכבר פג הוא קו מת, ורק אז יש למתווך מה לעשות.
        */
       const dead = row.accessTokenExpiresAt !== null && row.accessTokenExpiresAt <= now;
-      if (!dead || row.disconnectReason === TOKEN_EXPIRED) continue;
+      if (!dead) continue;
 
-      await this.prisma.whatsAppBusinessConnection.update({
-        where: { id: row.id },
+      /*
+       * ‎**קו שכבר נושא סיבת תקלה אינו נוגעים בו.**
+       *
+       * ‏שתי סיבות שונות לאותו תנאי. הראשונה: `disconnectReason`
+       * קיים כבר סומן פעם אחת, וסימון חוזר היה שולח את אותה התראה
+       * כל שש שעות עד שהמתווך יכבה התראות. השנייה, ופחות מובנת
+       * מאליה: `webhook_subscribe_failed` הוא קו שההודעות שלו
+       * מעולם לא נותבו אלינו, והחלפת הסיבה ב-`token_expired` הייתה
+       * מוחקת את התקלה **האמיתית** מהמסך (ביקורת Codex). הקו כבר
+       * אדום ומוסבר, והתרופה זהה — חיבור מחדש.
+       *
+       * ‏מאותה סיבה אין כאן ענף „חזר לחיות”: טוקן שפג אינו ניתן
+       * להארכה אצל Meta, כך שהמסלול לא היה מתממש; ואילו התממש,
+       * הוא היה מכריז „מחובר” על קו שאולי נשבר מסיבה אחרת לגמרי.
+       * ההתאוששות מ-`token_expired` היא Embedded Signup מחדש,
+       * ו-`complete` כבר כותבת שם סטטוס נקי.
+       */
+      if (row.disconnectReason !== null) continue;
+
+      /*
+       * ‏אותו מירוץ, ואותו פתרון: הסימון מותנה בכך שהשורה עדיין
+       * מחוברת ועדיין בלי סיבה. `count === 0` אומר שמישהו הקדים —
+       * ניתוק, חיבור מחדש, או סבב מקביל — ואז גם ההתראה מיותרת.
+       */
+      const { count } = await this.prisma.whatsAppBusinessConnection.updateMany({
+        where: { id: row.id, disconnectedAt: null, disconnectReason: null },
         data: { status: "error", disconnectReason: TOKEN_EXPIRED },
       });
+      if (count === 0) continue;
+
       expired.push({
         id: row.id,
         tenantId: row.tenantId,
