@@ -392,6 +392,7 @@ export function PlatformSettingsSection({
       const phoneNumberId = String(f.get("whatsappPhoneNumberId") ?? "").trim();
       const appId = String(f.get("whatsappAppId") ?? "").trim();
       const connectAppSecret = String(f.get("whatsappConnectAppSecret") ?? "").trim();
+      const connectVerify = String(f.get("whatsappConnectVerifyToken") ?? "").trim();
       const signupConfigId = String(f.get("whatsappSignupConfigId") ?? "").trim();
       const botNumber = String(f.get("whatsappBotNumber") ?? "").trim();
       const prospectReply = String(f.get("whatsappProspectReply") ?? "").trim();
@@ -419,6 +420,7 @@ export function PlatformSettingsSection({
         ...(phoneNumberId !== "" ? { whatsappPhoneNumberId: phoneNumberId } : {}),
         ...(appId !== "" ? { whatsappAppId: appId } : {}),
         ...(connectAppSecret !== "" ? { whatsappConnectAppSecret: connectAppSecret } : {}),
+        ...(connectVerify !== "" ? { whatsappConnectVerifyToken: connectVerify } : {}),
         ...(signupConfigId !== "" ? { whatsappSignupConfigId: signupConfigId } : {}),
         // ‎`botNumber` נשלח תמיד, גם ריק: הוא גיבוי שמכוון למחוק אותו
         // ברגע ש-Meta מתחילה לענות, וריק כאן פירושו „חזרו להסתמך על
@@ -1833,6 +1835,31 @@ export function PlatformSettingsSection({
               type="password"
               dir="ltr"
               autoComplete="off"
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="whatsappConnectVerifyToken" className="mb-1 block font-medium">
+              Verify Token של אפליקציית החיבור{" "}
+              <span className="font-normal">(ריק = כמו קו הסוכן)</span>
+            </label>
+            <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              אתם ממציאים אותו, והוא נפרד מזה של קו הסוכן — כך שאין צורך לדעת את
+              הישן (הסודות אינם ניתנים לשליפה, בכוונה). הכתובת לרישום ב-Meta היא{" "}
+              <code dir="ltr" style={{ direction: "ltr", unicodeBidi: "isolate" }}>
+                /api/v1/webhooks/whatsapp/connect
+              </code>{" "}
+              — נתיב אחר מזה של קו הסוכן, ולכן שינוי כאן אינו נוגע בו.
+            </p>
+            <input
+              id="whatsappConnectVerifyToken"
+              name="whatsappConnectVerifyToken"
+              type="password"
+              dir="ltr"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />

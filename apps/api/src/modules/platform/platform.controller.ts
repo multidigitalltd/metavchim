@@ -341,6 +341,9 @@ const UpdateSettingsSchema = z
       .union([z.string().trim().min(16).max(200), z.literal("")])
       .optional(),
     whatsappVerifyToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
+    whatsappConnectVerifyToken: z
+      .union([z.string().trim().min(16).max(200), z.literal("")])
+      .optional(),
     /**
      * חיבור המספר של כל משרד (docs/12) — מזהה האפליקציה ומזהה
      * הקונפיגורציה של Embedded Signup. שניהם מזהים ציבוריים של Meta

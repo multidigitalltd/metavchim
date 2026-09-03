@@ -69,6 +69,17 @@ export type PlatformSettingKey =
    */
   | "whatsappConnectAppSecret"
   /**
+   * ‎**טוקן האימות של אפליקציית החיבור — נתיב משלה.**
+   *
+   * שתי האפליקציות שולחות לאותו שרת, ולכן לכל אחת נתיב Webhook
+   * משלה: `/webhooks/whatsapp` לקו הסוכן, `/webhooks/whatsapp/connect`
+   * לחיבור המשרדים. טוקן משותף היה מחייב לדעת את הישן כדי לרשום את
+   * החדשה — והסודות אינם ניתנים לשליפה מהמסך, בכוונה.
+   *
+   * ריק = אפליקציה אחת לשניהם, ונתיב החיבור נופל ל-`whatsappVerifyToken`.
+   */
+  | "whatsappConnectVerifyToken"
+  /**
    * הסוכן האישי בוואטסאפ — האסימון והמספר שדרכם הוא עונה.
    *
    * ה-Access Token הוא של System User קבוע (לא הטוקן הזמני ממסך
