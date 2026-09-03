@@ -1,7 +1,8 @@
 "use client";
 
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPatch } from "@/lib/api";
 import {
+  A11Y_CHANGE_EVENT,
   A11Y_DEFAULTS,
   applyA11y,
   clearA11y,
@@ -70,7 +71,7 @@ export async function syncA11yFromServer(): Promise<A11yPrefs | null> {
     applyA11y(next);
     if (fromServer) saveA11y(next);
     else clearA11y();
-    window.dispatchEvent(new CustomEvent("mv-a11y-change", { detail: next }));
+    window.dispatchEvent(new CustomEvent(A11Y_CHANGE_EVENT, { detail: next }));
     return next;
   } catch {
     return null; // לא מחובר, או רשת — המטמון המקומי נשאר בתוקף
@@ -95,7 +96,7 @@ export function resetA11ySync(): void {
   if (typeof window === "undefined") return;
   clearA11y();
   applyA11y(A11Y_DEFAULTS);
-  window.dispatchEvent(new CustomEvent("mv-a11y-change", { detail: A11Y_DEFAULTS }));
+  window.dispatchEvent(new CustomEvent(A11Y_CHANGE_EVENT, { detail: A11Y_DEFAULTS }));
 }
 
 /**
@@ -112,4 +113,23 @@ export async function resyncA11yForUser(): Promise<A11yPrefs | null> {
   // דור חדש גם כאן: בקשה שיצאה עבור המשתמש הקודם לא תיושם על זה
   generation += 1;
   return syncA11yFromServer();
+}
+
+/**
+ * שמירה בשרת — מה שהופך את ההעדפה לאישית ולא למכשירית.
+ *
+ * נשלח ולא מומתן: המשתמש כבר רואה את השינוי מהמטמון, וכישלון רשת
+ * לא צריך להחזיר לו את המסך אחורה — הוא ייסנכרן בשינוי הבא.
+ *
+ * ‎**רק `a11y`, ולא כל ה-preferences.** השרת ממזג את המפתח העליון
+ * לתוך מה שכבר שמור (`auth.service.ts`), ולכן אין צורך לשלוח את
+ * שאר ההעדפות — ושליחתן הייתה מסוכנת: עותק ישן של ההעדפות שנשלח
+ * מלשונית אחת היה דורס מתג וואטסאפ שהוחלף בלשונית אחרת.
+ *
+ * במסכים ציבוריים — התחברות, דף ההצעה, דף החתימה — אין משתמש
+ * מחובר, והשרת עונה 401. הכישלון נבלע בכוונה: ההתאמה כבר הוחלה
+ * ונשמרה במכשיר, וזה כל מה שמבקר לא-מחובר יכול לצפות לו.
+ */
+export function persistA11yToServer(next: A11yPrefs): void {
+  apiPatch("/auth/profile", { preferences: { a11y: next } }).catch(() => undefined);
 }
