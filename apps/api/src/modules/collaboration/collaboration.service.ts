@@ -95,6 +95,13 @@ const OFFER_PHOTO_MAX = 12;
  *
  * ‏עכשיו זה גודל עמוד עם סמן: הסבב עובר על הכול, והמספר קובע רק
  * כמה שורות נמצאות בזיכרון בכל רגע.
+ *
+ * ‎**`id: { gt: cursor }` ולא `cursor`/`skip` של Prisma.** ‏`cursor`
+ * מעגן את העמוד הבא על **שורה שחייבת להתקיים**, והסבב מוחק מעקבים
+ * מיושנים באמצע — כלומר עמוד שהמעקב האחרון בו הצביע על ביקוש שנסגר
+ * היה מוחק בדיוק את שורת העוגן, והשאילתה הבאה הייתה חוזרת ריקה. כל
+ * שאר המעקבים היו נדלגים עד הסריקה הבאה (ביקורת Codex), וזה אותו
+ * כשל שהדפדוף בא לתקן. תנאי על המזהה אינו תלוי בקיום השורה.
  */
 const SWEEP_PAGE = 200;
 
@@ -1239,10 +1246,9 @@ export class CollaborationService {
     for (;;) {
       const follows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
         tx.demandFollow.findMany({
-          where: { tenantId },
+          where: { tenantId, ...(cursor === undefined ? {} : { id: { gt: cursor } }) },
           orderBy: { id: "asc" },
           take: SWEEP_PAGE,
-          ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
         }),
       );
       if (follows.length === 0) break;
@@ -1289,10 +1295,14 @@ export class CollaborationService {
     for (;;) {
       const properties = await this.prisma.withExplicitTenant(tenantId, (tx) =>
         tx.property.findMany({
-          where: { tenantId, deletedAt: null, status: "active" },
+          where: {
+            tenantId,
+            deletedAt: null,
+            status: "active",
+            ...(cursor === undefined ? {} : { id: { gt: cursor } }),
+          },
           orderBy: { id: "asc" },
           take: SWEEP_PAGE,
-          ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
         }),
       );
       if (properties.length === 0) break;

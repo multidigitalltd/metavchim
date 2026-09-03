@@ -233,9 +233,16 @@ for (const file of tsFilesIn(join(root, "packages/shared/src"))) {
   }
 }
 
-/** ‏ערך `type:` — מחרוזת מילולית או קבוע מיוצא. `null` כשאינו ידוע. */
+/**
+ * ‏ערך `type:` — מחרוזת מילולית או קבוע מיוצא. `null` כשאינו ידוע.
+ *
+ * ‎**נקודה היא תו חוקי בשם סוג.** ‏`task.due` נכתב ב-`apps/workers`,
+ * ומחלקת התווים הראשונה כאן דחתה אותו — כלומר השער דילג עליו בשקט,
+ * והוא גם לא היה ב-`TYPE_CATEGORY` (ביקורת Codex). שער שמסנן את מה
+ * שהוא אמור לבדוק ירוק תמיד.
+ */
 function typeValue(window) {
-  const literal = /\btype:\s*"([a-z_]+)"/u.exec(window);
+  const literal = /\btype:\s*"([a-z_][a-z_.]*)"/u.exec(window);
   if (literal !== null) return literal[1];
   const named = /\btype:\s*([A-Z][A-Z0-9_]*)\b/u.exec(window);
   return named === null ? null : (stringConstants.get(named[1]) ?? null);
@@ -330,8 +337,9 @@ const categoryBlock = /const TYPE_CATEGORY[^{]*\{([\s\S]*?)\n\};/u.exec(notifySr
 if (categoryBlock === null) {
   errors.push("‏לא נמצאה TYPE_CATEGORY ב-whatsapp-notify.ts — הביטוי שקורא אותה התיישן");
 } else {
+  /* ‏מפתח עם נקודה נכתב במרכאות — `"task.due": "tasks"` */
   const categorised = new Set(
-    [...categoryBlock[1].matchAll(/^\s{2}([a-z_]+):/gmu)].map((m) => m[1]),
+    [...categoryBlock[1].matchAll(/^\s{2}"?([a-z_][a-z_.]*)"?:/gmu)].map((m) => m[1]),
   );
   if (categorised.size === 0) {
     errors.push("‏TYPE_CATEGORY נקראה ריקה — הביטוי שקורא אותה כנראה התיישן");

@@ -30,6 +30,14 @@ describe("notifyCategory", () => {
     expect(notifyCategory("daily_brief")).toBe("digests");
   });
 
+  /*
+   * ‏שם עם נקודה הוא שם חוקי, והוא זה שהתחמק גם מהמפה וגם מהשער
+   * שנועד לשמור עליה — כי שניהם סיננו נקודות (ביקורת Codex).
+   */
+  it("שם עם נקודה נשלט כמו כל שם אחר", () => {
+    expect(notifyCategory("task.due")).toBe("tasks");
+  });
+
   it("סוג שאינו במפה נופל להודעות מערכת ולא נעלם", () => {
     expect(notifyCategory("something_new")).toBe("system");
   });

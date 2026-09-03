@@ -73,6 +73,13 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   offer_followup: "tasks",
   custom_automation: "tasks",
   appointment_scheduled: "tasks",
+  /*
+   * ‏תזכורת ממשימה חוזרת (`apps/workers`). היחיד ששמו נושא נקודה,
+   * ולכן במרכאות — וזה בדיוק מה שהחביא אותו: השער שנוסף כאן סינן
+   * נקודות ולכן דילג עליו, והוא נפל ל-`system` כלומר הגיע גם למי
+   * שכיבה „משימות” (ביקורת Codex).
+   */
+  "task.due": "tasks",
 
   buyer: "matches",
   property: "matches",
