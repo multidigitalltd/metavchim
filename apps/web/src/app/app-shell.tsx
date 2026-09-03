@@ -93,6 +93,8 @@ const SCREEN_TITLES: [prefix: string, title: string][] = [
   ["/tasks", "משימות"],
   ["/guides", "הדרכות"],
   ["/forum", "פורום"],
+  ["/mentor", "המנטור האישי שלך"],
+  ["/media", "רכש מדיה"],
 ];
 
 function screenTitle(pathname: string): string {
@@ -246,6 +248,14 @@ const ICONS = {
     <Icon>
       <path d="M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7z" />
       <path d="M17.5 15.5a2 2 0 0 0-2.8 0l-.7.7-.7-.7a2 2 0 1 0-2.8 2.8l3.5 3.5 3.5-3.5a2 2 0 0 0 0-2.8z" />
+    </Icon>
+  ),
+  /* רכש מדיה — מגה-פון: מסר שיוצא החוצה, לא עוד מסך נתונים */
+  media: (
+    <Icon>
+      <path d="M3 10.5v3a1.5 1.5 0 0 0 1.5 1.5H7l6 4.5V6L7 10.5H4.5A1.5 1.5 0 0 0 3 12z" />
+      <path d="M17 9.5a4 4 0 0 1 0 5" />
+      <path d="M19.5 7a7.5 7.5 0 0 1 0 10" />
     </Icon>
   ),
   platform: (
@@ -650,7 +660,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         {seesReports && hasFeature("analytics")
           ? navLink("/reports", "דוחות", ICONS.reports)
           : null}
-        {navLink("/guides", "הדרכות", ICONS.guides)}
         {/* פורום מקצועי — עמוד "בקרוב" עד ההשקה (בקשת המשתמש) */}
         {navLink(
           "/forum",
@@ -668,6 +677,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           ICONS.mentor,
           <span className="mv-nav-ai">AI</span>,
         )}
+        {/* רכש מדיה — עמוד "בקרוב" עד ההשקה (בקשת המשתמש) */}
+        {navLink(
+          "/media",
+          "רכש מדיה",
+          ICONS.media,
+          <span className="mv-nav-soon">בקרוב</span>,
+        )}
+        {navLink("/guides", "הדרכות", ICONS.guides)}
         {managesOffice ? navLink("/settings", "ניהול משרד", ICONS.office) : null}
         {managesOffice && !setupDone ? navLink("/setup", "הקמה", ICONS.setup) : null}
         {me?.isPlatformAdmin ? navLink("/platform", "פלטפורמה", ICONS.platform) : null}
