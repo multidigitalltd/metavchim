@@ -67,7 +67,14 @@ export function NetworkHeader({
 }): React.JSX.Element {
   return (
     <section className="mv-card mv-card--pad mb-[18px]" aria-labelledby="coop-heading">
-      <div className="mv-card-head">
+      {/*
+        ‏`flex-wrap` ולא רק על המסך הגדול: הכותרת נושאת חמישה
+        פריטים — אריח, שם, גלולת סטטוס ושני כפתורים — ובמסך של
+        טלפון הם 458px בתוך 316. בלי שבירה זה לא „צר” אלא **גלילה
+        אופקית של העמוד כולו**, וזו תמיד תקלה. שתי שורות של פקדים
+        נקראות; עמוד שזז הצידה לא.
+      */}
+      <div className="mv-card-head flex-wrap gap-y-2.5">
         <span className="mv-tile mv-tile--44 mv-domain-violet" aria-hidden="true">
           <IconHandshake s={20} />
         </span>

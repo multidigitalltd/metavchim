@@ -44,6 +44,7 @@ import { formatDate } from "@/lib/format";
 import {
   IconBank,
   IconCheck,
+  IconClock,
   IconDiamond,
   IconDownload,
   IconEye,
@@ -141,6 +142,15 @@ const COOP_TABS: [
 ][] = [
   ["network", "הרשת", IconGlobe],
   ["incoming", "הצעות שקיבלתי", IconMail],
+  /*
+   * ‎**הצד השני של „הצעות שקיבלתי”, ולא היה לו מסך.**
+   *
+   * ‏מתווך ששלח הצעה על ביקוש ברשת לא ראה אותה יותר לעולם: היא
+   * נשלחה, והמסך חזר לפיד. מה הצעתי, למי, באיזו חלוקה, והאם הצד
+   * השני בכלל ענה — כל זה היה קיים ב-`/collaboration/offers` עם
+   * ‎`direction: "outgoing"` ופשוט לא הוצג באף מקום.
+   */
+  ["sent", "הצעות ששלחתי", IconUpload],
   /*
    * הלשונית שסוגרת את הרשת: חיבור שאושר ממשיך כאן ולא בוואטסאפ.
    * היא יושבת אחרי "הצעות שקיבלתי" כי זה הסדר שבו הדברים קורים —
@@ -481,6 +491,45 @@ function referralPayoutLabel(lead: {
 }): string {
   if (lead.payoutMode === "cash") return `${shekels(lead.payoutAgorot ?? 0)} ₪`;
   return `${lead.payoutCredits} קרדיטים`;
+}
+
+/**
+ * ‎**מה קרה להצעה ששלחתי.**
+ *
+ * ‏שלושה מצבים ושלושה צבעים, כי הצבע נקרא לפני המילה: ממתין
+ * (ענבר), אושר (ירוק), נדחה (ניטרלי). „נדחה” בניטרלי ולא באדום —
+ * זו תשובה עסקית ולא תקלה, והסיבה שהצד השני כתב נקראת לצידה.
+ *
+ * ‏הסטטוסים הם אלה שהשרת מחזיר: `"sent"` ממתין, `"interested"`
+ * אושר, וכל השאר נדחה. אותה הבחנה בדיוק כמו בצד הנכנס.
+ */
+function SentOfferStatus({
+  status,
+  declineNote,
+}: {
+  status: string;
+  declineNote?: string;
+}): React.JSX.Element {
+  if (status === "sent") {
+    return (
+      <span className="mv-pill mv-domain-amber flex items-center gap-1.5">
+        <IconClock s={13} /> ממתין לתשובה
+      </span>
+    );
+  }
+  if (status === "interested") {
+    return (
+      <span className="mv-pill mv-domain-green flex items-center gap-1.5">
+        <IconCheck s={13} /> אושר — הסוכנויות מחוברות
+      </span>
+    );
+  }
+  return (
+    <span className="mv-pill mv-domain-neutral flex items-center gap-1.5">
+      <IconX s={13} /> נדחה
+      {declineNote === undefined ? "" : ` — „${declineNote}”`}
+    </span>
+  );
 }
 
 /**
@@ -915,6 +964,10 @@ export default function CollaborationPage() {
   };
 
   const incoming = coopOffers.filter((o) => o.direction === "incoming");
+  /* ‏מה שאני שלחתי — אותה רשימה, הכיוון ההפוך */
+  const outgoing = coopOffers.filter((o) => o.direction === "outgoing");
+  /* ‏המונה סופר את מה שעוד פתוח: הצעה שכבר נענתה אינה מטלה */
+  const awaitingReply = outgoing.filter((o) => o.status === "sent").length;
   /* פניות שטרם נענו — הן שקובעות את המונה על הלשונית */
   const openInterests = interests.filter((i) => i.status === "sent");
   const openReferrals = sharedLeads.filter(
@@ -1308,7 +1361,11 @@ export default function CollaborationPage() {
         <TabFromQuery onTab={setCoopTab} />
       </Suspense>
 
-      <div className="mv-seg mb-[18px]" role="tablist" aria-label="אזורי הרשת">
+      <div
+        className="mv-seg mv-seg--wrap mb-[18px]"
+        role="tablist"
+        aria-label="אזורי הרשת"
+      >
         {COOP_TABS.map(([key, label, Icon]) => {
           /*
            * כפתור "הרשת" פעיל בשתי תת-הלשוניות, ולחיצה עליו כשהוא
@@ -1346,6 +1403,11 @@ export default function CollaborationPage() {
                 <span className="mv-seg-count">
                   {incoming.length + openInterests.length}
                 </span>
+              ) : null}
+              {/* ‏„ששלחתי” סופר רק את מה שעוד ממתין לתשובה — הצעה
+                שנענתה אינה מטלה, והמונה הוא רשימת מטלות */}
+              {key === "sent" && awaitingReply > 0 ? (
+                <span className="mv-seg-count">{awaitingReply}</span>
               ) : null}
             </button>
           );
@@ -1767,6 +1829,113 @@ export default function CollaborationPage() {
         </section>
       ) : null}
 
+      {/*
+        ‎**„הצעות ששלחתי” — המסך שלא היה.**
+
+        ‏אין כאן פעולות: ההחלטה בידי הצד השני, וכפתור „בטל הצעה” הוא
+        מנגנון שאינו קיים בשרת. מה שכן צריך להיות כאן הוא התשובה
+        לשאלה „מה שלחתי ומה קרה איתו” — הנכס, המשרד שקיבל, החלוקה
+        שהצעתי, והסטטוס. עד עכשיו התשובה לא הייתה בשום מקום.
+      */}
+      {coopTab === "sent" ? (
+        <section
+          id="coop-panel-sent"
+          role="tabpanel"
+          aria-labelledby="coop-tab-sent"
+          className="mb-8"
+        >
+          {outgoing.length > 0 ? (
+            <h2 id="sent-heading" className="mb-3 text-lg font-semibold">
+              <IconUpload s={17} /> הצעות ששלחתם על ביקושים ברשת ({outgoing.length})
+            </h2>
+          ) : null}
+          {offersFailed ? (
+            <LoadError message="לא הצלחנו לטעון את ההצעות ששלחתם" onRetry={load} />
+          ) : null}
+          {outgoing.length === 0 && !offersFailed ? (
+            /*
+              ‏מצב ריק שאומר מה לעשות ולא „אין נתונים”: מי שנחת כאן
+              מחפש הצעה ששלח, ואם אין — הצעד הבא הוא הפיד.
+            */
+            <div className="mv-card mv-card--pad text-center">
+              <p className="m-0 text-base font-semibold">עוד לא שלחתם הצעה לרשת</p>
+              <p
+                className="m-0 mt-1 text-sm"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                בלשונית „הרשת” המערכת מסמנת אילו מהנכסים שלכם מתאימים לכל ביקוש —
+                ומשם ההצעה נשלחת בלחיצה אחת.
+              </p>
+              <Button
+                variant="secondary"
+                className="mt-3"
+                onClick={() => setCoopTab("demands")}
+              >
+                לקונים ברשת
+              </Button>
+            </div>
+          ) : (
+            <ul className="mv-net-grid" aria-label="הצעות ששלחתם על ביקושים ברשת">
+              {outgoing.map((offer) => (
+                <li key={offer.id} className="mv-net-card">
+                  <div className="mv-net-top">
+                    <SentOfferStatus
+                      status={offer.status}
+                      {...(offer.declineNote === undefined
+                        ? {}
+                        : { declineNote: offer.declineNote })}
+                    />
+                    <span
+                      className="mv-net-chip"
+                      title="חלוקת העמלה שהצעתם — הצד שלכם"
+                    >
+                      <IconHandshake s={14} /> {describeCommissionSplit(offer.commissionSplit)}
+                    </span>
+                  </div>
+                  {/*
+                    ‏אותו מסלול בדיוק כמו בכרטיסי הפיד: הצילום עובר
+                    דרך `presentationChips` ולא נקרא ישירות מה-DTO.
+                    בלי זה סוג הנכס הופיע כ-`apartment` — הערך שבמסד
+                    ולא התווית — כי הרשימה שממירה אותו יושבת שם.
+                  */}
+                  {(() => {
+                    const split = splitNetworkChips(
+                      presentationChips(offer.presentation),
+                    );
+                    return (
+                      <>
+                        <NetHero
+                          icon={<IconHome s={22} />}
+                          title={offer.presentation.title ?? "הנכס שהצעתם"}
+                          subtitle={split.subtitle}
+                        />
+                        <NetPlace text={split.place} />
+                        {split.money === undefined ? null : (
+                          <NetMoney label="מחיר" value={split.money.text} />
+                        )}
+                      </>
+                    );
+                  })()}
+                  {/*
+                    ‏למי שלחתי — הפרט שבלעדיו הרשימה אינה שימושית. משרד
+                    ששלח חמש הצעות רואה חמישה כרטיסים שנראים דומים, וזה
+                    מה שמבדיל ביניהם.
+                  */}
+                  {offer.officeName ? (
+                    <p
+                      className="m-0 mt-1 text-[length:var(--type-caption-lg)]"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
+                      נשלח אל {offer.officeName}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
       {coopTab === "deals" ? <DealsList /> : null}
 
 
@@ -1784,7 +1953,11 @@ export default function CollaborationPage() {
           aria-labelledby="coop-tab-network"
         >
           <div className="mb-3.5 flex flex-wrap items-center justify-between gap-2">
-            <div className="mv-seg" role="tablist" aria-label="כיווני הרשת">
+            <div
+              className="mv-seg mv-seg--wrap"
+              role="tablist"
+              aria-label="כיווני הרשת"
+            >
               {NETWORK_SUBTABS.map(([key, label, Icon]) => {
                 /*
                   ‏המספר הוא של כל הרשת ולא של מה שנטען: הפיד חסום
