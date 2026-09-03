@@ -73,8 +73,13 @@ export default function IntegrationsPage() {
         .catch(() => setTelephonyConnected(null));
     }
     if (canWhatsapp) {
-      apiGet<{ serverConfigured: boolean; numberConfigured: boolean }>("/settings/whatsapp-status")
-        .then((res) => setWhatsappConnected(res.serverConfigured && res.numberConfigured))
+      /*
+       * „מחובר” = יש לסוכן הזה קו וואטסאפ ביזנס פעיל. הבדיקה הקודמת
+       * (`/settings/whatsapp-status`) ענתה על שאלה אחרת — האם הוקלד
+       * מספר משרדי בשדה — והציגה „מחובר” למשרד שמעולם לא חיבר דבר.
+       */
+      apiGet<{ connections: { status: string }[] }>("/whatsapp/connections")
+        .then((res) => setWhatsappConnected(res.connections.some((c) => c.status === "connected")))
         .catch(() => setWhatsappConnected(null));
     }
     apiGet<{ available: boolean; connected: boolean }>("/calendar/google/status")
@@ -98,7 +103,7 @@ export default function IntegrationsPage() {
       icon: <IconChat s={16} />,
       title: "וואטסאפ עסקי",
       description:
-        "הצעות ועדכוני שיווק נפתחים עם ההודעה מוכנה, ותשובות הלקוח חוזרות ל-Messages Hub.",
+        "חברו את המספר העסקי שלכם: פניות של לקוחות בוואטסאפ נכנסות כלידים עם ציר זמן מלא, ואתם ממשיכים לענות מהטלפון כרגיל.",
       feature: "whatsapp",
       href: "/settings#whatsapp",
       state: !canWhatsapp ? "locked" : whatsappConnected === true ? "connected" : "available",
