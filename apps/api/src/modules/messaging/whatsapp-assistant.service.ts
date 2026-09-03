@@ -16,6 +16,7 @@ import {
   roleLabel,
   decodeButtonId,
   historyRefs,
+  lastOffer,
   AGENT_HISTORY_KEPT,
   AGENT_ID_KEYS,
   type WhatsAppButton,
@@ -1019,6 +1020,28 @@ export class WhatsAppAssistantService {
       return withHeard(await this.propose(chat, text, pending, speaker), heard);
     }
 
+    /*
+     * ‎**„כן” על מה שהסוכן הרגע הציע.**
+     *
+     * הסוכן מסיים תשובה בהצעת המשך („רוצה שנעבור על המשימות?”),
+     * המתווך עונה „כן” — ובלי הענף הזה המילה מגיעה למנוע תלושה
+     * לגמרי, כי ההצעה נוסחה בתשובה ולא נשמרה בשום מקום. מה שחזר
+     * בפועל היה „במה אוכל לעזור?”, כלומר הסוכן שאל את מה שהוא
+     * עצמו הרגע הציע (דיווח מהשטח).
+     *
+     * ‎**המשפט מוזרם כאילו הוקלד**, בדיוק כמו לחיצה על כפתור
+     * ההמשך — אותו מסלול, אותו אישור לפעולה שכותבת. „כן” אינו
+     * עוקף כלום; הוא רק אומר *על מה* מדובר.
+     *
+     * רק כשאין הצעה ממתינה (`pending` נבדק למעלה) ורק על ההצעה
+     * ‎**האחרונה**: „כן” אחרי שיחה שלמה על משהו אחר אינו חוזר
+     * להצעה משבוע שעבר.
+     */
+    const offered = isConfirmMessage(text) ? lastOffer(chat.history) : null;
+    if (offered !== null) {
+      return withHeard(await this.propose(chat, offered, null, speaker), heard);
+    }
+
     return withHeard(await this.propose(chat, text, null, speaker), heard);
   }
 
@@ -1282,6 +1305,13 @@ export class WhatsAppAssistantService {
 
     const lines: string[] = [];
     let steps: { text: string; label: string }[] = [];
+    /**
+     * ‎**המשפט שהסוכן הציע** — מה ש„כן” בתור הבא יפעיל.
+     *
+     * נלכד כאן ולא מנוסח מחדש: זה בדיוק אותו משפט שהכפתור נושא,
+     * ולכן „כן” והלחיצה מריצים את אותו הדבר בדיוק.
+     */
+    let offer: string | undefined;
     const renderSegment = (segment: (typeof segments)[number]): void => {
       switch (segment.kind) {
         case "headline":
@@ -1328,6 +1358,8 @@ export class WhatsAppAssistantService {
          */
         case "steps":
           steps = segment.steps.filter((step) => step.text.length <= CMD_TEXT_MAX);
+          // מה ש„כן” יפעיל בתור הבא — הראשון, שהוא גם הכפתור הראשון
+          if (steps[0] !== undefined) offer = steps[0].text;
           if (steps.length > 0) {
             lines.push(
               steps.length === 1
@@ -1338,6 +1370,7 @@ export class WhatsAppAssistantService {
           break;
         // רשת הביטחון המנוסחת — התוכנית פולטת אותה רק בהיעדר צעדים
         case "suggestion":
+          offer = segment.text;
           lines.push(`👉 אפשר להמשיך: „${segment.text}”`);
           break;
       }
@@ -1446,6 +1479,7 @@ export class WhatsAppAssistantService {
        * שנפתח, הקונה שנוצר — שאינה רשימה ולכן לא הותירה עקבה.
        */
       ...(refs.length === 0 ? {} : { refs }),
+      ...(offer === undefined ? {} : { offer }),
     };
     /*
      * שתי הרשימות: `history` היא מה שנשלח לפרומפט ולכן נחתכת
