@@ -151,10 +151,18 @@ function AccessibilityMenu({
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (first === undefined || last === undefined) return;
-      if (event.shiftKey && document.activeElement === first) {
+      /*
+       * הפאנל עצמו הוא נקודת ההתחלה: הפוקוס יושב עליו מיד עם
+       * הפתיחה, ו-Shift+Tab משם היה יוצא אל הכפתור שמאחורי
+       * הדיאלוג — בדיוק מה ש-`aria-modal` מבטיח שלא יקרה
+       * (ביקורת Codex). Tab ממנו מגיע לפקד הראשון ממילא.
+       */
+      const active = document.activeElement;
+      const atStart = active === first || active === panelRef.current;
+      if (event.shiftKey && atStart) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && active === last) {
         event.preventDefault();
         first.focus();
       }
@@ -276,8 +284,17 @@ function AccessibilityMenu({
             ))}
           </ul>
 
+          {/*
+            ערכת הנושא היא הגדרת **מכשיר**, לא חשבון: היא נשמרת
+            ב-localStorage ואינה נספרת בהתאמות. מי שרוצה כהה בנייד
+            ובהיר במשרד — רוצה בדיוק את זה. ההבדל נאמר במפורש, כדי
+            שאיש לא יצפה שהיא תנדוד למכשיר הבא כמו שאר המתגים.
+          */}
           <div className="mb-4">
             <ThemeToggle />
+            <p className="m-0 mt-1.5 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
+              ערכת הנושא נשמרת במכשיר הזה בלבד.
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
