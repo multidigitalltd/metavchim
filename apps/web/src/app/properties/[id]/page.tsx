@@ -2224,6 +2224,12 @@ export default function PropertyDetailPage({
 
       <TabPanel tab="owner" active={tab}>
         <div className="flex flex-col gap-[18px]">
+          {/*
+            ‏„בעל הנכס” ו„מי גר בנכס” זה לצד זה: שתי תשובות לאותה
+            שאלה — מי מולי בנכס הזה — ומי שקורא אחת מהן קורא גם את
+            השנייה. זו לזו מתחת הן נראו כשני נושאים שאין ביניהם קשר.
+          */}
+          <div className="mv-owner-grid">
           <PropertyOwner
             canErase={can(user, "contacts.delete")}
             propertyId={id}
@@ -2250,6 +2256,7 @@ export default function PropertyDetailPage({
             canErase={can(user, "contacts.delete")}
             onChanged={loadProperty}
           />
+          </div>
 
           {/*
             הכובעים האחרים של בעל הנכס — מוכר שהוא גם קונה פעיל (או
