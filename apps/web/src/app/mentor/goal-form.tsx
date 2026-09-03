@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import {
   GOAL_HORIZON_LABELS,
   GOAL_UNIT_LABELS,
+  GOAL_UNIT_NOTES,
   LEAD_MEASURE_LABELS,
   LEAD_MEASURES,
   type GoalHorizon,
@@ -50,18 +51,16 @@ const UNIT_LABELS: Record<GoalUnit, string> = {
  * ‏„במה נמדד” הציג חמש אפשרויות ברצף, ומי שקרא אותן לא ידע שהן שני
  * דברים שונים: „עסקאות” הוא מה שהוא רוצה שיקרה, ו„שיחות” הוא מה
  * שהוא עושה כדי שזה יקרה. ההפרדה אינה קישוט — היא ההסבר.
+ *
+ * ‏ההסבר עצמו **אינו** לפי משפחה אלא לפי יחידה (`GOAL_UNIT_NOTES`
+ * בחבילה המשותפת). משפט למשפחה הבטיח חישוב לאחור „עד כמה שיחות
+ * ביום” גם ל„בלעדיות”, שעבורן הכרטיס הזה לעולם אינו מוצג — הבטחה
+ * לפלט שלא מגיע. בדיקה משותפת מריצה את `backwardPlan` על כל יחידה
+ * ומוודאת שהמשפט תואם למה שהיא באמת מחזירה.
  */
-const UNIT_GROUPS: { legend: string; note: string; units: GoalUnit[] }[] = [
-  {
-    legend: "תוצאה — מה שאני רוצה שיקרה",
-    note: "נסגר בהחלטה של מישהו אחר, ולפעמים חודשיים אחרי העבודה שהביאה אליו. מכאן אני עושה את החשבון אחורה עד כמה שיחות ביום.",
-    units: ["commission", "deals", "exclusives"],
-  },
-  {
-    legend: "פעילות — מה שאני עושה",
-    note: "בשליטה מלאה שלך, ואפשר להתחייב לזה כבר מחר בבוקר. כאן אין חשבון אחורה — היעד עצמו הוא המספר, ואני רק פורס אותו על השנה.",
-    units: ["leads", "calls"],
-  },
+const UNIT_GROUPS: { legend: string; units: GoalUnit[] }[] = [
+  { legend: "תוצאה — מה שאני רוצה שיקרה", units: ["commission", "deals", "exclusives"] },
+  { legend: "פעילות — מה שאני עושה", units: ["leads", "calls"] },
 ];
 
 /** ‏שקלים במסך, אגורות בשרת — המרה במקום אחד. */
@@ -186,7 +185,7 @@ export function GoalForm({
             className="m-0 mt-1 text-[length:var(--type-caption)]"
             style={{ color: "var(--color-text-muted)" }}
           >
-            {UNIT_GROUPS.find((g) => g.units.includes(unit))?.note}
+            {GOAL_UNIT_NOTES[unit]}
           </p>
         </div>
         <div>

@@ -14,6 +14,7 @@ import {
   GOAL_HORIZONS,
   GOAL_UNIT_KIND,
   GOAL_UNIT_LABELS,
+  GOAL_UNIT_NOTES,
   GOAL_UNITS,
   LEAD_MEASURE_LABELS,
   LEAD_MEASURES,
@@ -623,5 +624,48 @@ describe("יעדי פעילות — לידים ושיחות", () => {
   it("לכל יחידה יש שם, ולכל מדד יש שם", () => {
     for (const unit of GOAL_UNITS) expect(GOAL_UNIT_LABELS[unit]).toBeTruthy();
     for (const measure of LEAD_MEASURES) expect(LEAD_MEASURE_LABELS[measure]).toBeTruthy();
+  });
+});
+
+describe("מה שהטופס מבטיח מול מה שהמנוע מחזיר", () => {
+  /**
+   * ‎**הבדיקה הזו נולדה מהערת ביקורת, והיא נכתבה מול המנוע ולא מול
+   * הטקסט שלי.**
+   *
+   * ‏המשפטים היו לפי משפחה, ולכן „תוצאה” הבטיחה חישוב לאחור „עד כמה
+   * שיחות ביום” גם ל„בלעדיות” — שעבורן התוכנית חוזרת `incomplete`
+   * והכרטיס אינו מוצג. הטופס הבטיח פלט שלעולם אינו מגיע.
+   *
+   * ‏הבדיקה **מריצה** את `backwardPlan` על כל יחידה ושואלת אם יש
+   * שורת „שיחות ביום עבודה”. רק אם יש — מותר למשפט להבטיח אותה.
+   * ציטוט המחרוזות שלי בחזרה היה מאשר את עצמו.
+   */
+  const PROMISES_FUNNEL = /חשבון אחורה עד כמה שיחות ביום/u;
+
+  it("רק יחידה שהתוכנית שלה באמת מגיעה לשיחות ביום מבטיחה זאת", () => {
+    for (const unit of GOAL_UNITS) {
+      const plan = backwardPlan({
+        target: 100,
+        unit,
+        averageCommissionAgorot: 3_000_000,
+        ratios: DEFAULT_RATIOS,
+      });
+      const promises = PROMISES_FUNNEL.test(GOAL_UNIT_NOTES[unit]);
+      if (plan.callsPerWorkday === null) {
+        expect({ unit, promises }).toEqual({ unit, promises: false });
+      }
+    }
+  });
+
+  it("„בלעדיות” אומרת במפורש שלא יוצג חישוב לאחור", () => {
+    const plan = backwardPlan({ target: 20, unit: "exclusives", ratios: DEFAULT_RATIOS });
+    expect(plan.incomplete).toBe(true);
+    expect(GOAL_UNIT_NOTES.exclusives).toMatch(/לא יוצג/u);
+  });
+
+  it("לכל יחידה יש משפט, ואף אחד אינו ריק", () => {
+    for (const unit of GOAL_UNITS) {
+      expect(GOAL_UNIT_NOTES[unit].length).toBeGreaterThan(20);
+    }
   });
 });
