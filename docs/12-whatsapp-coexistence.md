@@ -269,11 +269,11 @@ model WhatsAppConversation {
 - **`Interaction`** — ללא שינוי סכימה. היסטוריה מיובאת **אינה**
   נכתבת לכאן: האילוץ `interaction_exactly_one_parent` מחייב ליד או
   קונה, ולמיובא אין כזה — היא נשמרת כ-`Message` על איש הקשר.
-- **ניתוב הדייר ב-`WhatsAppInboundService`** משתדרג: קודם
-  `phone_number_id` מול `whatsapp_business_connections` (מפתח יציב,
-  באינדקס ייחודי), ורק כ-fallback המנגנון הקיים של
-  `settings.whatsappNumber`. שני המנגנונים חיים זה לצד זה — משרדים
-  שהוגדרו ידנית ממשיכים לעבוד ללא מגע.
+- **ניתוב הדייר ב-`WhatsAppInboundService`**: `phone_number_id` מול
+  `whatsapp_business_connections` (מפתח יציב, באינדקס ייחודי) — בלבד.
+  המנגנון הישן של `settings.whatsappNumber` (מספר משרדי שהוקלד ידנית
+  ונרשם ב-WABA של הפלטפורמה) הוסר: הפלטפורמה אינה מחזיקה קו משותף
+  ללקוחות, והשדה הציג „מחובר” על מספר שמעולם לא חובר.
 
 ---
 
