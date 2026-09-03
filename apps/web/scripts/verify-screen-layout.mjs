@@ -68,6 +68,8 @@ const PROPERTIES = read("../src/app/properties/page.tsx");
 const DISMISS = read("../src/app/dismissed-actions.ts");
 const FILTERS = read("../src/app/list-filters.tsx");
 const MENTOR = read("../src/app/mentor/page.tsx");
+const MENTOR_TREND = read("../src/app/mentor/weekly-trend.tsx");
+const MENTOR_QUOTES = read("../src/app/mentor/quotes-section.tsx");
 
 const problems = [];
 
@@ -466,6 +468,48 @@ if (!/cell\.value === null \? \[\] : \[/u.test(MENTOR)) {
 }
 if (!/plan !== null && plan\.dealsPerYear === null/u.test(MENTOR)) {
   problems.push("מסך המנטור — ההערה על יחסי ההמרה נאמרת גם על יעד פעילות, שלא עבר בהם כלל");
+}
+
+/* ==========================================================================
+ * ‏הגרף השבועי — „לא הבטחתי” אינו „נכשלתי”
+ *
+ * ‏שבוע בלי התחייבות מגיע כ-`null`. לצייר אותו כעמודה בגובה אפס
+ * אומר „ניסית ולא עשית”, ומתווך שנכנס בפעם הראשונה היה רואה
+ * שלושה-עשר כישלונות — ההפך הגמור מהנקודה של המסך הזה.
+ * ========================================================================== */
+
+if (!/value === null \?/u.test(MENTOR_TREND)) {
+  problems.push("הגרף השבועי — שבוע בלי התחייבות אינו מובחן, ויצויר ככישלון");
+}
+if (!/שבוע בלי התחייבות/u.test(MENTOR_TREND)) {
+  problems.push("הגרף השבועי — אין מקרא שמסביר מה הוא הפס הדק");
+}
+if (!/ON_TRACK_THRESHOLD/u.test(MENTOR_TREND)) {
+  problems.push("הגרף השבועי — אין קו סף, ואי אפשר למדוד את העמודות בעין");
+}
+if (!/role="img"[\s\S]{0,400}aria-label=/u.test(MENTOR_TREND)) {
+  problems.push("הגרף השבועי — גובה בלבד, בלי תיאור מילולי למי שאינו רואה אותו");
+}
+
+/* ==========================================================================
+ * ‏משפטי המוטבציה — בתחתית, ועם מקור
+ *
+ * ‏משפט מעורר השראה בראש המסך היה הדבר הראשון שנקרא במקום המספרים,
+ * וציטוט בלי מקור הוא המצאה שהמתווך עלול לחזור עליה מול לקוח.
+ * ========================================================================== */
+
+if (!/id="mentor-quotes"/u.test(MENTOR_QUOTES)) {
+  problems.push("משפטי המוטבציה — אין עוגן, והכפתור למעלה לא יוביל לשום מקום");
+}
+if (!/getElementById\("mentor-quotes"\)[\s\S]{0,300}scrollIntoView/u.test(MENTOR)) {
+  problems.push("מסך המנטור — כפתור „משפטי מוטבציה” אינו גולל אל הקטע");
+}
+if (!/<cite/u.test(MENTOR_QUOTES)) {
+  problems.push("משפטי המוטבציה — הציטוטים מוצגים בלי מקור מסומן");
+}
+/* ‏מיקום ה*רינדור*, לא של ה-import שיושב בראש הקובץ בכל מקרה */
+if (MENTOR.indexOf("<QuotesSection />") < MENTOR.indexOf("trend-heading")) {
+  problems.push("משפטי המוטבציה — עלו מעל המספרים; מקומם בתחתית המסך");
 }
 
 if (problems.length > 0) {

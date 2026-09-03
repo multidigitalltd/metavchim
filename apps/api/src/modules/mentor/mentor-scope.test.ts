@@ -43,24 +43,29 @@ const CALLS_SERVICE = readFileSync(
  * שורות, וביטוי שמסתפק בשורה הראשונה היה „מוצא” את `tenantId`
  * ומפספס בדיוק את החוסר שהוא נועד לתפוס.
  */
-function tenantQueries(): { call: string; body: string }[] {
+function queriesIn(source: string): { call: string; body: string }[] {
   const out: { call: string; body: string }[] = [];
   const re = /tx\.(\w+)\.(count|findMany|findFirst|upsert|deleteMany|update)\(/gu;
-  for (const match of SERVICE.matchAll(re)) {
-    const open = SERVICE.indexOf("{", match.index + match[0].length - 1);
+  for (const match of source.matchAll(re)) {
+    const open = source.indexOf("{", match.index + match[0].length - 1);
     if (open === -1) continue;
     let depth = 0;
     let end = open;
-    for (; end < SERVICE.length; end += 1) {
-      if (SERVICE[end] === "{") depth += 1;
-      else if (SERVICE[end] === "}") {
+    for (; end < source.length; end += 1) {
+      if (source[end] === "{") depth += 1;
+      else if (source[end] === "}") {
         depth -= 1;
         if (depth === 0) break;
       }
     }
-    out.push({ call: `${match[1]}.${match[2]}`, body: SERVICE.slice(open, end + 1) });
+    out.push({ call: `${match[1]}.${match[2]}`, body: source.slice(open, end + 1) });
   }
   return out;
+}
+
+/** כל שאילתה בשירות כולו. */
+function tenantQueries(): { call: string; body: string }[] {
+  return queriesIn(SERVICE);
 }
 
 /**
@@ -127,26 +132,24 @@ describe("המנטור — היקף אישי", () => {
      * חייבת לסנן לפי עמודת בעלות של משתמש. הפונקציה הזו היא היחידה
      * שסופרת „מה הוא עשה”, ולכן הכלל שלה מוחלט.
      */
-    const body = functionBody("private async countMeasures");
-    const inside = [
-      ...body.matchAll(
-        /tx\.(\w+)\.(count|findMany|findFirst)\(\{[\s\S]*?\n {6}\}\)/gu,
-      ),
-    ];
+    const inside = queriesIn(functionBody("private async measureTimes"));
     expect(inside.length).toBeGreaterThan(2);
     const leaky = inside
-      .filter((m) => !/\w+UserId: userId/u.test(m[0]))
-      .map((m) => `${m[1]}.${m[2]}`);
+      .filter((q) => !/\w+UserId: userId/u.test(q.body))
+      .map((q) => q.call);
     expect(leaky).toEqual([]);
   });
 
   it("הבעלות נקראת מהעמודה הנכונה בכל טבלה", () => {
     const byCall = new Map(tenantQueries().map((q) => [q.call, q.body]));
-    expect(byCall.get("appointment.count")).toContain("ownerUserId: userId");
+    const measures = new Map(
+      queriesIn(functionBody("private async measureTimes")).map((q) => [q.call, q.body]),
+    );
+    expect(measures.get("appointment.findMany")).toContain("ownerUserId: userId");
     // ‏פגישה שהתקיימה בלבד — לא `scheduled` שחלפה ולא `no_show`
-    expect(byCall.get("appointment.count")).toContain('status: "completed"');
-    expect(byCall.get("property.count")).toContain("agentUserId: userId");
-    expect(byCall.get("lead.count")).toContain("assignedToUserId: userId");
+    expect(measures.get("appointment.findMany")).toContain('status: "completed"');
+    expect(measures.get("property.findMany")).toContain("agentUserId: userId");
+    expect(measures.get("lead.findMany")).toContain("assignedToUserId: userId");
     /*
      * ‏לשיחה ולהצעה אין בעלים ישיר: השיחה מגיעה דרך הליד שהיא נוגעת
      * בו, וההצעה דרך ההתאמה והקונה. שתיהן נבדקות בשאילתת ההצלבה.
@@ -188,7 +191,7 @@ describe("המנטור — מה נחשב פעולה", () => {
      * שחלפה בלי אישור ו-`no_show` — כלומר פגישה שהלקוח לא הגיע
      * אליה נספרה כפגישה שנעשתה (ביקורת Codex, P2).
      */
-    const appointments = tenantQueries().find((q) => q.call === "appointment.count");
+    const appointments = tenantQueries().find((q) => q.call === "appointment.findMany");
     expect(appointments?.body).toContain('status: "completed"');
     expect(appointments?.body).not.toContain('not: "cancelled"');
   });
@@ -200,7 +203,7 @@ describe("המנטור — מה נחשב פעולה", () => {
   });
 
   it("נכס שנמחק אינו נספר במלאי", () => {
-    const properties = tenantQueries().find((q) => q.call === "property.count");
+    const properties = tenantQueries().find((q) => q.call === "property.findMany");
     expect(properties?.body).toContain("deletedAt: null");
   });
 
@@ -224,8 +227,13 @@ describe("המנטור — מה שנספר כבר קרה", () => {
      * כבר ביום ראשון — והציון היה יכול להגיע ל-100% לפני שהתקיימה
      * ולו פגישה אחת.
      */
-    expect(SERVICE).toContain("countMeasures(tx, scope, thisWeek, now)");
-    expect(SERVICE).not.toMatch(/countMeasures\([^)]*jerusalemDayStart\(thisWeek, 7\)/u);
+    expect(SERVICE).toContain("this.countsIn(cycleTimes, thisWeek)");
+    expect(SERVICE).not.toMatch(/countsIn\(cycleTimes, thisWeek, jerusalemDayStart/u);
+    /*
+     * ‏ובגרף: השבוע הרץ נחתך ב-`now`, וכל שבוע סגור נספר במלואו.
+     * זה אותו כלל בדיוק — „עד עכשיו” — ולכן הוא נבדק באותו מקום.
+     */
+    expect(SERVICE).toContain("const until = current ? now : jerusalemDayStart(weekStart, 7);");
   });
 
   it("שבוע שהסתיים מחושב, ואינו נשלף מארכיון שנכתב בפתיחת מסך", () => {
@@ -236,9 +244,49 @@ describe("המנטור — מה שנספר כבר קרה", () => {
      * שהסתיים מחושב מהמחויבות השמורה ומהפעילות שנספרה — שניהם כבר
      * במסד.
      */
-    expect(SERVICE).toContain("completedWeekScore");
+    expect(SERVICE).toContain("private async weeklyTrend");
     expect(SERVICE).not.toContain("mentorWeeklyScore.upsert");
     expect(SERVICE).not.toContain("mentorWeeklyScore.findMany");
+  });
+
+  it("הגרף והציון נחתכים מאותה שליפה, ולכן אינם יכולים לסתור זה את זה", () => {
+    /*
+     * ‎**שתי שאילתות על אותה שאלה הן שתי אמיתות שממתינות להיפרד.**
+     *
+     * ‏הציון השבועי, ההשוואה למחזור, הרצף והגרף הם כולם חתכים של
+     * אותם שלושה-עשר שבועות. כל עוד כולם נגזרים מ-`cycleTimes`, גרף
+     * שמראה 90% ליד ציון של 40% אינו אפשרי. שאילתה חדשה שתחשב אחד
+     * מהם בנפרד תשבור את זה בשקט, ולכן הכלל נשמר כאן.
+     */
+    expect(SERVICE).toContain("const cycleTimes = await this.measureTimes(");
+    for (const derived of [
+      "const thisCycle = this.countsIn(cycleTimes)",
+      "const actual = this.countsIn(cycleTimes, thisWeek)",
+      "this.countsIn(cycleTimes, jerusalemWeekStart(now, -1), thisWeek)",
+      "await this.weeklyTrend(tx, scope, cycleTimes, now)",
+    ]) {
+      expect(SERVICE).toContain(derived);
+    }
+  });
+
+  it("הרצף נקרא מהשבועות שנסגרו בגרף, ולא מהשבוע שעוד רץ", () => {
+    /*
+     * ‏„פעמיים ברצף” נשען על שבועות שהסתיימו. השבוע הנוכחי מסומן
+     * ‎`current`, וסינון שיאבד את הסימון הזה היה מחזיר את הבאג
+     * המקורי — התראה על שבוע חלש אחד.
+     */
+    expect(SERVICE).toContain("const closed = trend.filter((w) => !w.current);");
+  });
+
+  it("ההתחייבויות של הגרף נשלפות בשאילתה אחת, ולא אחת לשבוע", () => {
+    /*
+     * ‏שלוש-עשרה שליפות בזו אחר זו הן מה שהפיל את הטרנזקציה על
+     * מגבלת חמש השניות בפעם הקודמת. הבדיקה שומרת על השליפה האחת.
+     */
+    const inside = queriesIn(functionBody("private async weeklyTrend"));
+    expect(inside).toHaveLength(1);
+    expect(inside[0]?.call).toBe("mentorGoal.findMany");
+    expect(inside[0]?.body).toContain("...scope");
   });
 
   it("שבוע בלי מחויבות אינו נחשב לשבוע חלש", () => {
@@ -247,7 +295,7 @@ describe("המנטור — מה שנספר כבר קרה", () => {
      * שלא נסגר” על שני שבועות שלא הבטיח בהם דבר (ביקורת Codex, P2).
      */
     expect(SERVICE).toMatch(
-      /if \(Object\.keys\(committed\)\.length === 0\) return null;/u,
+      /if \(Object\.keys\(committed\)\.length === 0\) \{\s*return \{ weekKey: label, percent: null, current \};/u,
     );
   });
 

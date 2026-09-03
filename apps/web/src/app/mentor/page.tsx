@@ -26,6 +26,8 @@ import { useRequireAuth } from "@/lib/use-auth";
 import { IconCheck, IconSparkle, IconTarget, IconBolt, IconPhone } from "../icons";
 import { Notice } from "../notice";
 import { GoalForm } from "./goal-form";
+import { QuotesSection } from "./quotes-section";
+import { WeeklyTrend, type WeekPoint } from "./weekly-trend";
 
 /**
  * ‎**המנטור האישי.**
@@ -85,6 +87,7 @@ interface Overview {
   moments: MentorMoment[];
   weekOverWeek: Comparison[];
   cycleOverCycle: Comparison[];
+  weeklyTrend: WeekPoint[];
   derivedRatios: ConversionRatios | null;
   usingDefaultRatios: boolean;
   unattributedCalls: number;
@@ -223,7 +226,28 @@ export default function MentorPage(): React.JSX.Element | null {
 
   return (
     <div className="mv-page">
-      <h1 className="mb-1 text-2xl font-extrabold">המנטור האישי שלך</h1>
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="m-0 text-2xl font-extrabold">המנטור האישי שלך</h1>
+        {/*
+           ‏הכפתור מוביל אל תחתית המסך ולא פותח משהו: משפט מעורר
+           השראה בראש העמוד היה הדבר הראשון שנקרא, במקום המספרים.
+           מי שמחפש חיזוק יודע לחפש אותו — ובשבילו הכפתור כאן.
+        */}
+        <button
+          type="button"
+          className="mv-btn-plain"
+          onClick={() => {
+            const node = document.getElementById("mentor-quotes");
+            const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            node?.scrollIntoView({
+              behavior: reduced ? "auto" : "smooth",
+              block: "start",
+            });
+          }}
+        >
+          משפטי מוטבציה
+        </button>
+      </div>
       <p
         className="m-0 mb-4 text-[length:var(--type-caption-lg)]"
         style={{ color: "var(--color-text-muted)" }}
@@ -574,6 +598,26 @@ export default function MentorPage(): React.JSX.Element | null {
         </ul>
       </section>
 
+      {/* ================= השרשרת ================= */}
+      <section className="mv-card mv-card--pad mb-[18px]" aria-labelledby="trend-heading">
+        <div className="mv-card-head">
+          <span className="mv-tile mv-tile--44 mv-domain-green" aria-hidden="true">
+            <IconBolt s={20} />
+          </span>
+          <h2 id="trend-heading" className="mv-card-head__title">
+            השרשרת שלך
+          </h2>
+        </div>
+        <p
+          className="m-0 mb-3 text-[length:var(--type-caption-lg)]"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          שלושה-עשר שבועות, וכמה מכל התחייבות באמת נעשה. לא כדי לשפוט —
+          כדי שתראה שזה מצטבר.
+        </p>
+        <WeeklyTrend weeks={data.weeklyTrend} />
+      </section>
+
       {/* ================= איפה היית ================= */}
       <section className="mv-card mv-card--pad" aria-labelledby="progress-heading">
         <div className="mv-card-head">
@@ -595,9 +639,10 @@ export default function MentorPage(): React.JSX.Element | null {
           {data.cycleOverCycle.map((row) => (
             <li
               key={row.measure}
-              className="flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5"
+              className="rounded-xl border px-3 py-2.5"
               style={{ borderColor: "var(--color-input-border)" }}
             >
+              <div className="flex items-center justify-between gap-3">
               <span className="font-bold">{LEAD_MEASURE_LABELS[row.measure]}</span>
               <span className="flex items-baseline gap-2">
                 <span
@@ -631,10 +676,55 @@ export default function MentorPage(): React.JSX.Element | null {
                       : `${row.changePercent > 0 ? "+" : ""}${row.changePercent}% מול ${row.previous}`}
                 </span>
               </span>
+              </div>
+              {/*
+                 ‎**שני פסים על אותו סולם — זה כל מה שההשוואה צריכה.**
+                 המספרים כבר כתובים למעלה; מה שחסר היה לראות את ההפרש
+                 בלי לחשב אותו. הסולם הוא הגדול מבין השניים, ולכן
+                 הפס הארוך הוא תמיד התקופה החזקה — ולא „100%” לשתיהן.
+              */}
+              {row.current === 0 && row.previous === 0 ? null : (
+                <div
+                  className="mt-2 grid gap-1"
+                  aria-hidden="true"
+                >
+                  {(
+                    [
+                      { key: "now", value: row.current, tone: "var(--domain-green-fg)" },
+                      { key: "was", value: row.previous, tone: "var(--color-input-border)" },
+                    ] as const
+                  ).map((bar) => (
+                    <div key={bar.key} className="flex items-center gap-2">
+                      <span
+                        className="text-[length:var(--type-caption)]"
+                        style={{ color: "var(--color-text-muted)", minWidth: "3.2em" }}
+                      >
+                        {bar.key === "now" ? "עכשיו" : "קודם"}
+                      </span>
+                      <span
+                        className="h-2 flex-1 overflow-hidden rounded-full"
+                        style={{ background: "var(--color-field)" }}
+                      >
+                        <span
+                          className="block h-full rounded-full"
+                          style={{
+                            width: `${Math.round(
+                              (bar.value / Math.max(row.current, row.previous, 1)) * 100,
+                            )}%`,
+                            background: bar.tone,
+                          }}
+                        />
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </li>
           ))}
         </ul>
       </section>
+
+      <QuotesSection />
     </div>
   );
 }
