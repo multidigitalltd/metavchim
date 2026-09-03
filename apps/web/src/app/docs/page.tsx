@@ -2,44 +2,48 @@ import type { Metadata } from "next";
 import {
   docsMarkdown,
   DOC_TOPICS,
-  guideMarkdown,
   GUIDES,
+  GUIDE_AREAS,
   type DocTopic,
 } from "@/lib/guide-content";
 import { APP_URL, LEGAL } from "@/lib/legal";
 import { CopyMarkdown } from "../copy-markdown";
-import {
-  Code,
-  DocHeader,
-  DocNav,
-  DocPassages,
-  DocSection,
-  inlineCode,
-} from "./doc-ui";
+import { DocHeader, DocPassages, DocSection, inlineCode } from "./doc-ui";
+import { DocsBrowser, type DocsBrowserItem } from "./docs-browser";
+import { SupportCard } from "./support-card";
 
 /**
- * התיעוד הציבורי של המערכת — **מה שאפשר לקרוא בלי להתחבר.**
+ * התיעוד הציבורי של המערכת — **הבית של ההדרכות, ולא עותק שלהן.**
  *
- * ## למה עמוד ציבורי ולא רק ההדרכות שבמערכת
+ * ## למה זה המקום היחיד
  *
- * ההדרכות ב-`/guides` מצוינות למי שכבר בפנים. שלושה קהלים אינם:
- * מי ששוקל להצטרף ורוצה לדעת מה המערכת עושה לפני שהוא נותן פרטים,
- * מי שמחבר מערכת אחרת ולא בהכרח יש לו חשבון, ומודל שפה שמתבקש
- * "תסביר לי איך עובדת מערכת מתווכים" — וקורא את מה שגלוי.
+ * ההדרכות ישבו במערכת, מאחורי התחברות, והתיעוד הציבורי היה עותק
+ * שני של אותו תוכן. שני עותקים של אותו הסבר נפרדים ביום שמישהו
+ * מתקן אחד מהם — וזה בדיוק מה שקרה כאן פעם עם תוויות המקורות
+ * ועם מונחי ההפניות.
  *
- * שער התחברות על התיעוד הופך את שלושתם לפניות לתמיכה.
+ * עכשיו יש בית אחד, והוא הציבורי. שלושה קהלים אינם מחוברים
+ * ולעולם לא יהיו: מי ששוקל להצטרף ורוצה לדעת מה המערכת עושה לפני
+ * שהוא נותן פרטים, מי שמחבר מערכת אחרת ואין לו חשבון, ומודל שפה
+ * שנשאל „איך עובדת מערכת מתווכים” וקורא את מה שגלוי. שער התחברות
+ * על התיעוד הופך את שלושתם לפניות לתמיכה.
  *
- * ## למה אותו תוכן ולא כתיבה נפרדת
+ * הלשונית „הדרכות” שבמערכת מפנה לכאן, ו-`/guides` מפנה לכאן —
+ * כלומר קישור ישן ממשיך לעבוד ואין מסך שני לתחזק.
  *
- * התוכן מגיע מ-`@/lib/guide-content`, אותו מקור שההדרכות במערכת
- * קוראות. מסמך ציבורי שנכתב בנפרד מתיישן ביום שמישהו מתקן את
- * ההדרכה הפנימית בלבד — והפער הזה נראה כלפי חוץ דווקא.
+ * ## למה אינדקס ולא מגילה
+ *
+ * העמוד הזה היה כל התיעוד ברצף, עם עוגן לכל נושא. הנימוק היה
+ * „מסמך אחד שאפשר לתת למודל”, והוא נכון — ולכן הוא נשאר, בדיוק
+ * במקום שבו הוא שימושי: `/docs/md`. לקורא אנושי מגילה של עשרים
+ * ואחד נושאים היא גלילה, ולמנוע חיפוש היא עמוד אחד שמתחרה בעצמו
+ * על עשרים ואחת שאילתות שונות. גוף כל נושא עבר ל-`/docs/<נושא>`.
  */
 
 export const metadata: Metadata = {
   title: "תיעוד המערכת — מתווכים",
   description:
-    "מה מערכת מתווכים עושה וכיצד: נכסים, קונים, לידים, התאמות, יומן, שיחות, שיתופי פעולה בין משרדים, הסכמים וניהול משרד.",
+    "מה מערכת מתווכים עושה וכיצד: נכסים, קונים, לידים, התאמות, יומן, שיחות, וואטסאפ, שיתופי פעולה בין משרדים, הסכמים וניהול משרד.",
   alternates: { canonical: `${APP_URL}/docs` },
   /*
    * **התיעוד כן נאנדקס** — בניגוד לשאר המערכת.
@@ -57,7 +61,7 @@ export const metadata: Metadata = {
  * סעיפי המסגרת — לפי מזהה, מתוך מקור התוכן המשותף.
  *
  * הם היו כתובים כאן כ-JSX, ולכן „התיעוד המלא” שהעמוד הציע להעתיק
- * לא הכיל אותם. עכשיו העמוד וקובץ ה-Markdown נגזרים משניהם מאותה
+ * לא הכיל אותם. עכשיו העמוד וקובץ ה-Markdown נגזרים שניהם מאותה
  * רשימה, והסדר כאן הוא הסדר שם.
  */
 function topic(id: string): DocTopic {
@@ -66,16 +70,36 @@ function topic(id: string): DocTopic {
   return found;
 }
 
+/**
+ * מפתח החיפוש נבנה **בשרת**, פעם אחת בבנייה.
+ *
+ * הוא כולל את כותרות הצעדים, הסעיפים והשאלות, כי המילה שמחפשים
+ * כמעט תמיד יושבת שם ולא בכותרת הנושא. בנייה בלקוח הייתה מעבירה
+ * את אותה עבודה לכל מכשיר, בכל טעינה.
+ */
+const ITEMS: DocsBrowserItem[] = GUIDES.map((guide) => ({
+  id: guide.id,
+  title: guide.title,
+  summary: guide.summary,
+  area: guide.area,
+  steps: guide.steps.length,
+  hasFaq: (guide.faq ?? []).length > 0,
+  haystack: [
+    guide.title,
+    guide.summary,
+    guide.intro,
+    ...guide.steps.map((step) => step.title),
+    ...(guide.sections ?? []).map((section) => section.title),
+    ...(guide.faq ?? []).map((item) => item.q),
+  ]
+    .join(" ")
+    .toLowerCase(),
+}));
+
 export default function DocsPage() {
   const about = topic("about");
   const integrations = topic("integrations");
   const privacy = topic("privacy");
-  const navItems = [
-    { id: about.id, title: about.title },
-    ...GUIDES.map((guide) => ({ id: guide.id, title: guide.title })),
-    { id: integrations.id, title: integrations.title },
-    { id: privacy.id, title: privacy.title },
-  ];
 
   return (
     /*
@@ -88,25 +112,11 @@ export default function DocsPage() {
       <DocHeader
         current="product"
         title="תיעוד המערכת"
-        lead="כל מה שהמערכת יודעת לעשות, לפי נושא. אותו תוכן שמוצג בהדרכות שבתוך המערכת — כאן פתוח לקריאה בלי חשבון."
-      />
-
-      <DocNav items={navItems} label="נושאי התיעוד" />
-
-      {/*
-        התיעוד כולו כטקסט — למי שמעדיף לתת למודל את כל התמונה
-        ולא נושא אחד. הכפתור הזהה שבסוף כל נושא מכסה את המקרה
-        ההפוך, ושניהם מגישים בדיוק את מה שכתוב בעמוד.
-      */}
-      <CopyMarkdown
-        markdown={docsMarkdown()}
-        href="/docs/md"
-        subject="תיעוד המערכת המלא"
+        lead="כל מה שהמערכת יודעת לעשות, לפי נושא — פתוח לקריאה בלי חשבון. זה גם המקום שאליו מפנה „הדרכות” מתוך המערכת."
       />
 
       <DocSection id={about.id} title={about.title}>
         <DocPassages passages={about.passages} />
-        <Code>{`${APP_URL}`}</Code>
         <p style={{ color: "var(--color-text-muted)" }}>
           המפעילה: {LEGAL.operator}, ח.פ. {LEGAL.companyId}. שאלות בענייני פרטיות
           ומימוש זכות עיון —{" "}
@@ -117,105 +127,44 @@ export default function DocsPage() {
         </p>
       </DocSection>
 
+      <DocsBrowser areas={GUIDE_AREAS} items={ITEMS} />
+
       {/*
-        גוף התיעוד — נושא לכל הדרכה, סעיף לכל שלב.
-        ‎`<ol>`‎ ולא ‎`<ul>`‎: השלבים בכל נושא הם סדר פעולה, וזה מה
-        שקורא מסך אמור להכריז.
+        התיעוד כולו כטקסט — למי שמעדיף לתת למודל את כל התמונה
+        ולא נושא אחד. הכפתור הזהה שבסוף כל נושא מכסה את המקרה
+        ההפוך, ושניהם מגישים בדיוק את מה שכתוב בעמודים.
       */}
-      {GUIDES.map((guide) => (
-        <DocSection key={guide.id} id={guide.id} title={guide.title}>
-          <p className="mb-3">{guide.intro}</p>
-          <ol className="m-0 mb-0 flex list-decimal flex-col gap-3 ps-5">
-            {guide.steps.map((step) => (
-              <li key={step.title}>
-                <b>{step.title}.</b> {step.body}
-              </li>
-            ))}
-          </ol>
-          {/*
-            ההעמקה והשאלות מוצגות כאן ולא רק במערכת.
+      <div className="mt-10">
+        <CopyMarkdown
+          markdown={docsMarkdown()}
+          href="/docs/md"
+          subject="תיעוד המערכת המלא"
+        />
+      </div>
 
-            ‎`guideMarkdown` כבר כוללת אותן, ולכן עמוד שמדלג עליהן
-            הוא בדיוק הפער שהתיעוד הזה כבר נכשל בו פעם: „העתקת
-            התיעוד” מוסרת תוכן שהעמוד עצמו לא הראה, והקורא האנושי
-            והמודל רואים שני מסמכים שונים (ביקורת Codex).
-          */}
-          {(guide.sections ?? []).map((section) => (
-            <div key={section.title} className="mt-4">
-              <h3 className="m-0 mb-1 text-base font-extrabold">{section.title}</h3>
-              <p className="m-0">{section.body}</p>
-              {section.bullets !== undefined ? (
-                <ul className="m-0 mt-1.5 flex list-disc flex-col gap-1 ps-5">
-                  {section.bullets.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              ) : null}
-              {section.note !== undefined ? (
-                <p
-                  className="mt-2 mb-0 rounded-lg border p-3 text-sm"
-                  style={{
-                    borderColor: "var(--color-border)",
-                    background: "var(--color-hover-soft)",
-                  }}
-                >
-                  {section.note}
-                </p>
-              ) : null}
-            </div>
-          ))}
-          {(guide.faq ?? []).length > 0 ? (
-            <div className="mt-4">
-              <h3 className="m-0 mb-1 text-base font-extrabold">שאלות נפוצות</h3>
-              <dl className="m-0">
-                {(guide.faq ?? []).map((item) => (
-                  <div key={item.q} className="mt-2">
-                    <dt className="font-bold">{item.q}</dt>
-                    <dd className="m-0">{item.a}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-          ) : null}
-          {guide.tip ? (
-            <p
-              className="mt-3 mb-0 rounded-lg border p-3 text-sm"
-              style={{
-                borderColor: "var(--color-border)",
-                background: "var(--color-hover-soft)",
-              }}
-            >
-              <b>שימו לב:</b> {guide.tip}
-            </p>
-          ) : null}
-          <CopyMarkdown
-            markdown={guideMarkdown(guide)}
-            href={`/docs/md/${guide.id}`}
-            subject={guide.title}
-          />
+      <div className="mt-10">
+        <DocSection id={integrations.id} title={integrations.title}>
+          <DocPassages passages={integrations.passages} />
         </DocSection>
-      ))}
 
-      <DocSection id={integrations.id} title={integrations.title}>
-        <DocPassages passages={integrations.passages} />
-      </DocSection>
+        <DocSection id={privacy.id} title={privacy.title}>
+          <DocPassages passages={privacy.passages} />
+          <p style={{ color: "var(--color-text-muted)" }}>
+            הנוסח המחייב נמצא ב<a href="/privacy">מדיניות הפרטיות</a> וב
+            <a href="/terms">תנאי השימוש</a>. הצהרת הנגישות זמינה ב
+            <a href="/accessibility">עמוד הנגישות</a>.
+          </p>
+        </DocSection>
+      </div>
 
-      <DocSection id={privacy.id} title={privacy.title}>
-        <DocPassages passages={privacy.passages} />
-        <p style={{ color: "var(--color-text-muted)" }}>
-          הנוסח המחייב נמצא ב<a href="/privacy">מדיניות הפרטיות</a> וב
-          <a href="/terms">תנאי השימוש</a>. הצהרת הנגישות זמינה ב
-          <a href="/accessibility">עמוד הנגישות</a>.
-        </p>
-      </DocSection>
-
-      <p className="mt-10 text-sm" style={{ color: "var(--color-text-muted)" }}>
-        לא מצאתם תשובה? כתבו לנו ל־
-        <code style={inlineCode} dir="ltr">
-          {LEGAL.supportEmail}
-        </code>{" "}
-        ונחזור אליכם.
-      </p>
+      {/*
+        כרטיס התמיכה במקום שורת „לא מצאתם תשובה” שהייתה כאן:
+        אותו מסר, עם כפתור שפותח מייל מנוסח — ואותה כתובת שמופיעה
+        בסוף כל נושא, ולא שתי כתובות שונות באותו מסמך.
+      */}
+      <div className="mt-10">
+        <SupportCard />
+      </div>
     </div>
   );
 }

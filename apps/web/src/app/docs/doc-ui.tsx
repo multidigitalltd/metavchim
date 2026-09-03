@@ -10,7 +10,7 @@
  * ריק, וזה בדיוק הקהל שהעמודים האלה נכתבו בשבילו.
  */
 
-import type { DocPassage } from "@/lib/guide-content";
+import type { DocPassage, Guide } from "@/lib/guide-content";
 import { LogoMark } from "../icons";
 
 /**
@@ -228,5 +228,117 @@ export function DocHeader({
         {lead}
       </p>
     </header>
+  );
+}
+
+/**
+ * צילום מסך בתוך התיעוד — **שרת בלבד, בלי נפילה רכה.**
+ *
+ * הגרסה שישבה במערכת (`GuideImage`) הייתה רכיב לקוח שמסתיר את
+ * עצמו ב-`onError`. כאן זה מזיק פעמיים: התיעוד נקרא גם בידי מנוע
+ * חיפוש ומודל שפה, שאינם מריצים JavaScript ולכן ממילא רואים את
+ * ה-`img`, ו-`use client` על תמונה סטטית הוא חבילת JS שנשלחת בלי
+ * שום דבר לעשות בה. שער הנכסים (`verify:assets`) כבר מוודא שכל
+ * נתיב שנכתב קיים ב-`public`, וזו ההגנה האמיתית.
+ */
+export function DocImage({ src, alt }: { src: string; alt: string }) {
+  return (
+    // img רגיל בכוונה — קבצים סטטיים מ-public, בלי אופטימיזציית Next
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      className="mb-5 w-full rounded-xl border"
+      style={{
+        borderColor: "var(--color-border)",
+        maxHeight: 460,
+        objectFit: "cover",
+        objectPosition: "top",
+      }}
+    />
+  );
+}
+
+/**
+ * גוף המדריך — **מקום אחד שמצייר את כל מה ש-`Guide` מכיל.**
+ *
+ * הוא היה משוכפל: פעם ב-`/guides/[topic]` שבמערכת ופעם בלולאה
+ * שבתוך `/docs`. שכפול של מרכיב תצוגה נשבר בשקט — סעיף חדש שנוסף
+ * למבנה מופיע בעותק אחד ונעלם בשני, וזה בדיוק מה שקרה כאן פעם עם
+ * ‎`sections` (ביקורת Codex). עכשיו יש עותק אחד, ושלושת הפלטים —
+ * עמוד הנושא, האינדקס ו-`guideMarkdown` — נגזרים מאותו מבנה.
+ *
+ * ‎`<ol>` ולא `<ul>` לצעדים: זה סדר פעולה, וזה מה שקורא מסך אמור
+ * להכריז.
+ */
+export function GuideBody({ guide }: { guide: Guide }) {
+  return (
+    <>
+      <p className="mb-4 text-[length:calc(16.5/16*1rem)] leading-relaxed">{guide.intro}</p>
+      {guide.image === undefined ? null : <DocImage src={guide.image} alt={guide.title} />}
+
+      <h2 className="mb-3 text-lg font-extrabold">איך עושים את זה</h2>
+      <ol className="m-0 mb-0 flex list-decimal flex-col gap-3 ps-5">
+        {guide.steps.map((step) => (
+          <li key={step.title}>
+            <b>{step.title}.</b> {step.body}
+          </li>
+        ))}
+      </ol>
+
+      {(guide.sections ?? []).map((section) => (
+        <section key={section.title} className="mt-6">
+          <h2 className="m-0 mb-1.5 text-lg font-extrabold">{section.title}</h2>
+          <p className="m-0">{section.body}</p>
+          {section.bullets === undefined ? null : (
+            <ul className="m-0 mt-2 flex list-disc flex-col gap-1 ps-5">
+              {section.bullets.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          )}
+          {section.note === undefined ? null : <DocCallout>{section.note}</DocCallout>}
+          {section.image === undefined ? null : (
+            <DocImage src={section.image} alt={section.title} />
+          )}
+        </section>
+      ))}
+
+      {(guide.faq ?? []).length === 0 ? null : (
+        <section className="mt-8">
+          <h2 className="m-0 mb-2 text-lg font-extrabold">שאלות נפוצות</h2>
+          <dl className="m-0">
+            {(guide.faq ?? []).map((item) => (
+              <div key={item.q} className="mt-3">
+                <dt className="font-bold">{item.q}</dt>
+                <dd className="m-0 mt-0.5">{item.a}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
+
+      {guide.tip === undefined ? null : (
+        <DocCallout>
+          <b>שימו לב:</b> {guide.tip}
+        </DocCallout>
+      )}
+    </>
+  );
+}
+
+/** הערה בתוך הרצף — מה שחייב להיקרא, ולא עוד פסקה. */
+export function DocCallout({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      className="mt-3 mb-0 rounded-lg border p-3 text-[length:var(--type-body-sm)] leading-relaxed"
+      style={{
+        borderColor: "var(--color-border)",
+        background: "var(--color-hover-soft)",
+      }}
+    >
+      {children}
+    </p>
   );
 }

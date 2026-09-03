@@ -17,7 +17,8 @@
     "verify:shapes": "node scripts/verify-response-shapes.mjs",
     "verify:cards": "node scripts/verify-card-padding.mjs",
     "verify:destructive": "node scripts/verify-destructive-confirm.mjs",
-    "verify:layout": "node scripts/verify-screen-layout.mjs"
+    "verify:layout": "node scripts/verify-screen-layout.mjs",
+    "verify:docs": "node scripts/verify-docs.mjs"
   },
   "dependencies": {
     "@mapbox/mapbox-gl-rtl-text": "^0.4.0",

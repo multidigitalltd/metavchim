@@ -53,6 +53,23 @@ export function parseStoredTurns(history: unknown): AgentHistoryTurn[] {
 }
 
 /**
+ * ‎**ההצעה האחרונה שהסוכן העלה** — או `null` כשאין כזו.
+ *
+ * „כן” הוא מילה תלושה בלי הדבר שהיא מסכימה לו. הפונקציה מחזירה
+ * את המשפט שהוצע בתור האחרון בלבד — **ולא סורקת אחורה**: „כן”
+ * אחרי שיחה שלמה על משהו אחר אינו חוזר להצעה מלפני עשרה תורות,
+ * וזו בדיוק ההפתעה שתגרום למתווך להפסיק לענות „כן”.
+ *
+ * ‎`origin: "assistant"` (התראה שהסוכן יזם) אינו נושא הצעה, ולכן
+ * הוא פשוט לא יתאים — אין צורך לסנן אותו בנפרד.
+ */
+export function lastOffer(history: readonly AgentHistoryTurn[]): string | null {
+  const last = history.at(-1);
+  const offer = last?.offer;
+  return offer === undefined || offer.trim() === "" ? null : offer;
+}
+
+/**
  * מיזוג תורות חדשים אל השמורים — הוספה בסוף ותקרה אחת. ההיסטוריה
  * אינה נערכת אחורה, ולכן החיבור הזה הוא מיזוג נכון ולא ניחוש.
  */

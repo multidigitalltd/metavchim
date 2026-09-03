@@ -1524,6 +1524,18 @@ code {
   padding: 2px 9px;
 }
 /* שני התגים יחד יושבים זה לצד זה בסוף השורה */
+/*
+ * הסימן ↗ על פריט שיוצא מהמערכת — „הדרכות”, שמפנה לתיעוד הציבורי.
+ *
+ * דהוי וקטן: הוא אומר „זה נפתח במקום אחר”, ואינו אמור להתחרות
+ * בתווית עצמה או בתגי „בקרוב” ו-AI שלצידו. `margin-inline-start:
+ * auto` דוחף אותו לקצה השורה, כמו התגים.
+ */
+.mv-nav-external {
+  margin-inline-start: auto;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: var(--type-caption);
+}
 .mv-nav-ai + .mv-nav-soon {
   margin-inline-start: 4px;
 }
