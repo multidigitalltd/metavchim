@@ -144,6 +144,42 @@ function stripComments(text) {
   return text.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/^\s*\/\/.*$/gmu, "");
 }
 
+/* ==================== המפה של הווב ==================== */
+
+/**
+ * ‎**שתי מפות ניתוב, ולכן שני מקומות להתפצל — וזה בדיוק מה שקרה.**
+ *
+ * ‎`ENTITY_ROUTES` בחבילה המשותפת מנתבת את התראת הדחיפה ואת ההודעה
+ * בוואטסאפ. ‏`notification-links.ts` בווב מנתבת את **הפעמון ומסך
+ * ההתראות**. הן נכתבו בנפרד, ובבדיקה הזו נמצא ששש ישויות היו
+ * בראשונה ולא בשנייה — ביניהן `coop_deal`: „הודעה חדשה בחדר עסקה”
+ * הובילה לחדר בוואטסאפ, ובפעמון נחתה ברשימת ההתראות (בקשת
+ * המשתמש). ‏`shared_lead` היה הפוך — בווב ולא במשותפת.
+ *
+ * ‏אי אפשר לאחד אותן: לווב יש `needs` (יכולות) שאין לה מקום בהודעת
+ * וואטסאפ, ולמשותפת יש מזהים שנבנים אחרת. מה שכן אפשר הוא לדרוש
+ * שהן **מכסות את אותן ישויות** — ומי שמוסיף סוג חדש בצד אחד יידע
+ * מיד שהשני מחכה.
+ */
+const webPath = join(root, "apps/web/src/lib/notification-links.ts");
+const webSrc = stripComments(readFileSync(webPath, "utf8"));
+const webTypes = [...webSrc.matchAll(/case "([a-z_]+)":/gu)].map((m) => m[1]);
+if (webTypes.length === 0) {
+  errors.push("‏לא נמצאה אף ישות ב-notification-links.ts — הביטוי שקורא אותה התיישן");
+}
+const onlyShared = entityTypes.filter((t) => !webTypes.includes(t));
+const onlyWeb = webTypes.filter((t) => !entityTypes.includes(t));
+for (const type of onlyShared) {
+  errors.push(
+    `‏${type} מנותבת בהתראת הדחיפה ולא בפעמון — הלחיצה בפעמון תנחת ברשימת ההתראות (notification-links.ts)`,
+  );
+}
+for (const type of onlyWeb) {
+  errors.push(
+    `‏${type} מנותבת בפעמון ולא בהתראת הדחיפה — ההודעה בוואטסאפ תנחת בדשבורד (web-push.ts)`,
+  );
+}
+
 const known = new Set(entityTypes);
 const written = new Map();
 for (const dir of sources) {
@@ -162,6 +198,32 @@ for (const dir of sources) {
       const window = text.slice(match.index, match.index + 900);
       const entity = /entityType:\s*"([a-z_]+)"/u.exec(window);
       if (entity !== null) written.set(entity[1], file.slice(root.length + 1));
+
+      /*
+       * ‎**הצורה שהחלון לבדו לא רואה: `createMany({ data: rows })`.**
+       *
+       * ‏השורות נבנות בלולאה ונכתבות בבת אחת, ולכן `entityType` יושב
+       * מאות שורות **לפני** הקריאה. הסורק דיווח „תקין” על התראה
+       * שנכתבת עם ישות שאין לה מסלול — כלומר בדיוק הכשל שהוא קיים
+       * כדי למנוע, ובצורה שהולכת ונעשית נפוצה ככל שכתיבות מתקבצות.
+       *
+       * ‏הסריקה נשארת צרה: רק דחיפות אל **המשתנה עצמו** שנמסר
+       * ל-`data`, ולא כל `entityType` בקובץ — רישומי הביקורת
+       * ממשיכים להיות מחוץ לתמונה.
+       */
+      const dataVar = /^notification\.create(?:Many)?\(\s*\{\s*data:\s*([A-Za-z_$][\w$]*)\b/u.exec(
+        window,
+      );
+      if (dataVar === null) continue;
+      const pushes = new RegExp(
+        String.raw`\b${dataVar[1]}\.push\(`,
+        "gu",
+      );
+      for (const push of text.matchAll(pushes)) {
+        const block = text.slice(push.index, push.index + 900);
+        const pushed = /entityType:\s*"([a-z_]+)"/u.exec(block);
+        if (pushed !== null) written.set(pushed[1], file.slice(root.length + 1));
+      }
     }
   }
 }
@@ -183,5 +245,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `✓ ${entityTypes.length} ישויות בטבלה נוחתות על מסכים קיימים, ו-${written.size} סוגי התראות מכוסים`,
+  `✓ ${entityTypes.length} ישויות בטבלה נוחתות על מסכים קיימים, ${written.size} סוגי התראות מכוסים, ושתי מפות הניתוב מסכימות`,
 );
