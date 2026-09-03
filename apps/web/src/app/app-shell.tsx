@@ -8,6 +8,7 @@ import { resetA11ySync } from "@/lib/a11y-sync";
 import { clearSessionCache, fetchMe } from "@/lib/session-cache";
 import type { AuthUser } from "@/lib/use-auth";
 import { FeaturesProvider } from "@/lib/use-features";
+import { isPublicPath } from "@/lib/public-paths";
 import { NotificationsBell } from "./notifications-bell";
 import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
@@ -40,36 +41,7 @@ import { OfficeLogoMark } from "./office-logo-mark";
  */
 const AUTH_PREFIXES = ["/login", "/signup", "/forgot-password", "/reset-password", "/change-password"];
 
-const PUBLIC_PREFIXES = [
-  "/login",
-  "/signup",
-  "/offer/",
-  "/sign/",
-  "/p/", // דף נחיתה של נכס — הלקוח לא רואה תפריטי מתווך
-  // טופס „מה אתם מחפשים” שהלקוח ממלא — אותו נימוק בדיוק
-  "/f/",
-  // מסמכים ציבוריים — מקושרים מאתר התדמית ומדף ההצעה, ונקראים גם
-  // ע"י מי שאינו משתמש רשום (לקוח קצה שקיבל הצעה, משרד ששוקל להצטרף)
-  "/accessibility",
-  "/privacy",
-  "/terms",
-  // תיעוד הקליטה — נקרא בידי מי שמחבר מקור, ולעיתים קרובות בכלל
-  // לא בידי משתמש רשום: מפתח של המשרד, או מודל שפה שקורא את העמוד
-  "/docs",
-  "/change-password",
-  "/forgot-password",
-  "/reset-password",
-  /*
-   * ‎**דפי ההסרה מדיוור — מסגרת ריקה, בלי תפריט וبלי „מי אני”.**
-   *
-   * ‎`/offer-optout/` חסר כאן מאז שנולד: הדף עצמו עבד, אבל הוא נעטף
-   * בתפריט המלא של המערכת ושלח `/auth/me` שאין לו סיכוי להצליח —
-   * כלומר לקוח קצה שביקש לצאת מרשימת תפוצה קיבל מסך של אפליקציה
-   * שאינו שייך אליו. אותו נימוק בדיוק כמו ב-`/offer/` שמעליו.
-   */
-  "/offer-optout/",
-  "/nudge-optout/",
-];
+/* הרשימה המשותפת — ראו lib/public-paths.ts; כפתור הנגישות משתמש בה גם. */
 
 /** כותרות המסכים בשורת הכותרת — מיפוי הנתיבים מקובץ העיצוב. */
 const SCREEN_TITLES: [prefix: string, title: string][] = [
@@ -321,7 +293,7 @@ function initials(name: string): string {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const isPublic = PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));
+  const isPublic = isPublicPath(pathname);
   const [me, setMe] = useState<Me | null>(null);
   const [counts, setCounts] = useState<NavSummary | null>(null);
   /*

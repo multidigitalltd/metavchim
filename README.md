@@ -65,7 +65,7 @@ pnpm lint · pnpm typecheck · pnpm test · pnpm build
 ## עקרונות מחייבים (מפורטים ב-docs)
 
 - **אבטחה**: בידוד דיירים תלת-שכבתי (Scope → Policy → RLS), ולידציית Zod בכל קלט, Audit מלא. אין PR שעוקף את זה — [docs/04](docs/04-security-privacy.md).
-- **נגישות**: ת"י 5568 / WCAG 2.2 AA מובנית בכל רכיב, כפתור התאמות נגישות בכל מסך (כולל הציבוריים), נאכפת ב-CI — [docs/06](docs/06-ux-accessibility.md).
+- **נגישות**: ת"י 5568 / WCAG 2.2 AA מובנית בכל רכיב, התאמות אישיות בפרופיל וכפתור נגישות בדפים הציבוריים, נאכפת ב-CI — [docs/06](docs/06-ux-accessibility.md).
 - **ביצועים**: שום עבודה כבדה ב-Request; הכל בתורים. יעדי SLO ב-[docs/07](docs/07-performance.md).
 - **מה שיוצא ללקוח — באישור בן אדם**: המערכת מנסחת הצעה, הסכם או מייל; המתווך שולח.
 - **מקור אמת אחד**: תוכן ההדרכות ב-`apps/web/src/lib/guide-content.ts`, טוקני עיצוב ב-`globals.css`, לוגיקה עסקית ב-`packages/shared`.
