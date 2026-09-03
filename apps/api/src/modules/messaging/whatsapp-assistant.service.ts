@@ -433,6 +433,12 @@ export class WhatsAppAssistantService {
       await this.sender.sendText(msg.fromWaId, snoozeReply(snooze), {
         replyTo: msg.externalId,
       });
+      /*
+       * ‎**גם מסלול שאינו מוסיף תור נשמר** — כדי שההצעה התלויה
+       * תפוג. ראו `withoutOffer`: „שקט לשעתיים” הוא הודעה שטופלה,
+       * ולכן „כן” אחריה כבר אינו על ההצעה שקדמה לה.
+       */
+      await this.saveChat(user.tenantId, user.id, chat);
       return;
     }
 
@@ -446,6 +452,8 @@ export class WhatsAppAssistantService {
         ),
         { replyTo: msg.externalId },
       );
+      // „עזרה” טופלה — ההצעה שקדמה לה פגה (ראו `withoutOffer`)
+      await this.saveChat(user.tenantId, user.id, chat);
       return;
     }
 
@@ -459,6 +467,7 @@ export class WhatsAppAssistantService {
         STALE_PROPOSAL_TEXT,
         { replyTo: msg.externalId },
       );
+      await this.saveChat(user.tenantId, user.id, chat);
       return;
     }
 
@@ -466,6 +475,7 @@ export class WhatsAppAssistantService {
     const spoken = asText === null ? await this.extractText(msg) : { text: asText };
     if ("reply" in spoken && spoken.reply !== undefined) {
       await this.sender.sendText(msg.fromWaId, spoken.reply, { replyTo: msg.externalId });
+      await this.saveChat(user.tenantId, user.id, chat);
       return;
     }
     const text = spoken.text ?? "";
@@ -1650,7 +1660,20 @@ export class WhatsAppAssistantService {
         where: { tenantId_userId: { tenantId, userId } },
         select: { history: true },
       });
+      /*
+       * ‎**ההצעה שורדת עד ההודעה הבאה — ולא רגע אחד יותר.**
+       *
+       * תור שנוסף נושא הצעה משלו (או שאין לו), ולכן הישנה נמחקת
+       * ממילא. הבעיה היא הודעה ש**אינה** מוסיפה תור: „תודה”, „עזרה”,
+       * „שקט לשעתיים”. בלי המחיקה כאן ההצעה נשארה תלויה, ו„כן”
+       * שנאמר אחריה היה מריץ הצעה שכבר אינה על המסך — בדיוק
+       * ההפתעה שהיא נועדה למנוע (ביקורת Codex).
+       *
+       * המחיקה על מה שנקרא **עכשיו** מתחת לנעילה, ולא על צילום ישן:
+       * סורק ההתראות כותב לאותה עמודה במקביל.
+       */
       const merged = mergeTurns(parseTurns(row?.history), chat.added);
+      const history = chat.added.length > 0 ? merged : withoutOffer(merged);
       const data = {
         // Prisma דורש את הסמן המפורש ל-null בעמודת JSON — לא null גולמי
         ...(chat.keepStoredPending === true
@@ -1661,7 +1684,7 @@ export class WhatsAppAssistantService {
                   ? Prisma.JsonNull
                   : (chat.pending as unknown as Prisma.InputJsonValue),
             }),
-        history: turnsAsJson(merged),
+        history: turnsAsJson(history),
       };
       await tx.whatsAppChat.upsert({
         where: { tenantId_userId: { tenantId, userId } },
@@ -1670,6 +1693,19 @@ export class WhatsAppAssistantService {
       });
     });
   }
+}
+
+/**
+ * אותם תורות, בלי ההצעה על האחרון.
+ *
+ * מחזירה את המערך כמות שהוא כשאין מה למחוק — כדי שהכתיבה השכיחה
+ * ביותר (אין הצעה ממילא) לא תיצור עותק בכל הודעה.
+ */
+function withoutOffer(turns: readonly AgentHistoryTurn[]): AgentHistoryTurn[] {
+  const last = turns.at(-1);
+  if (last?.offer === undefined) return [...turns];
+  const { offer: _dropped, ...rest } = last;
+  return [...turns.slice(0, -1), rest];
 }
 
 /**

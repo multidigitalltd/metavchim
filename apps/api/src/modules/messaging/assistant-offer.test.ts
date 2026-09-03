@@ -40,6 +40,33 @@ describe("ההצעה שהסוכן העלה", () => {
   });
 
   /*
+   * ‎**ההצעה פגה בהודעה הבאה שטופלה.**
+   *
+   * „תודה”, „עזרה” ו„שקט לשעתיים” אינם מוסיפים תור להיסטוריה,
+   * ולכן ההצעה שקדמה להם נשארה תלויה — ו„כן” שנאמר אחריהם היה
+   * מריץ הצעה שכבר אינה על המסך (ביקורת Codex). כלל אחד בשמירה,
+   * ולא רשימת מסלולים שצריך לזכור להוסיף אליה.
+   */
+  it("הצעה תלויה נמחקת בהודעה שלא הוסיפה תור", () => {
+    expect(SERVICE).toContain("chat.added.length > 0 ? merged : withoutOffer(merged)");
+    expect(SERVICE).toContain("function withoutOffer(");
+  });
+
+  /*
+   * הכלל חי בשמירה, ולכן מסלול שחוזר בלי לשמור עוקף אותו בשקט.
+   * ארבעת המסלולים המוקדמים — השתקה, עזרה, הצעה שהתיישנה, ותשובה
+   * על מדיה — נשמרים במפורש.
+   */
+  it("המסלולים המוקדמים נשמרים, אחרת הכלל אינו רץ עליהם", () => {
+    const handle = SERVICE.slice(
+      SERVICE.indexOf("const snooze ="),
+      SERVICE.indexOf("const askedAloud = wantsSpokenReply(text);"),
+    );
+    const saves = handle.match(/await this\.saveChat\(user\.tenantId, user\.id, chat\);/gu) ?? [];
+    expect(saves.length, "מסלול מוקדם שאינו נשמר").toBeGreaterThanOrEqual(4);
+  });
+
+  /*
    * המשפט מוזרם למנוע כאילו הוקלד — אותו מסלול של כפתור ההמשך.
    * מסלול ביצוע שני היה עוקף את האישור שפעולה שכותבת דורשת.
    */
