@@ -519,6 +519,24 @@ const LeadSlaJobSchema = z.object({ tenantId: z.string(), leadId: z.string() });
 const LEAD_SLA_TITLE = "לחזור לליד — מחכה יותר מדי זמן בלי מענה";
 
 /**
+ * ‎**כותרת המשימה נושאת את שם הלקוח.**
+ *
+ * ‏„לחזור לליד — מחכה יותר מדי זמן בלי מענה” היא כותרת שמופיעה
+ * ברשימת המשימות, בתקציר הבוקר ובוואטסאפ — ובכל שלושתם היא אומרת
+ * בדיוק אפס. מתווך שקיבל אותה פעמיים באותו בוקר אינו יודע אם אלה
+ * שני לקוחות או אותו אחד. השם הופך אותה למשימה שאפשר לפעול לפיה
+ * בלי לפתוח כלום.
+ *
+ * ‏`sourceKey` הוא שמונע כפילות, לא הכותרת — שינוי הניסוח אינו
+ * מייצר משימות חדשות על לידים שכבר יש להם אחת.
+ */
+function leadSlaTitle(contactName: string | null): string {
+  return contactName === null || contactName === ""
+    ? LEAD_SLA_TITLE
+    : `לחזור ל${contactName} — מחכה יותר מדי זמן בלי מענה`.slice(0, 200);
+}
+
+/**
  * SLA לליד (docs/01 — "כל ליד מקבל מענה"): ליד שנשאר "חדש" בלי מענה
  * ראשון אחרי N שעות. משויך לסוכן — המשימה וההתראה אליו; ליד יתום
  * (וואטסאפ נכנס) — המשימה לבעלים הוותיק וההתראה לכל הבעלים הפעילים.
@@ -536,6 +554,17 @@ async function escalateLeadSla(
     if (!lead) return;
     // טופל: הסטטוס זז או שנרשם מענה ראשון — אין אסקלציה
     if (lead.status !== "new" || lead.firstResponseAt !== null) return;
+
+    /*
+     * השם מפוענח כאן ולא נשלף מהליד: `contacts.name_encrypted` הוא
+     * PII מוצפן, ואותו AES-GCM שמשרת את הגדרות הפלטפורמה משרת גם
+     * אותו. כישלון פענוח נופל לניסוח הגנרי ואינו מבטל את האסקלציה.
+     */
+    const contact = await tx.contact.findFirst({
+      where: { id: lead.contactId, tenantId },
+      select: { nameEncrypted: true },
+    });
+    const contactName = contact === null ? null : decryptSetting(contact.nameEncrypted);
 
     const sourceKey = `lead-sla:${leadId}`;
     const existing = await tx.task.findFirst({
@@ -565,7 +594,7 @@ async function escalateLeadSla(
         id: ulid(),
         tenantId,
         assignedToUserId: assignee,
-        title: LEAD_SLA_TITLE,
+        title: leadSlaTitle(contactName),
         notes:
           'הליד עדיין בסטטוס "חדש" ללא מענה ראשון — לקוח שמחכה עובר למתווך הבא. חזרו אליו עכשיו.',
         dueAt: new Date(),
@@ -581,7 +610,10 @@ async function escalateLeadSla(
           tenantId,
           userId,
           type: "lead_sla",
-          title: "⏳ ליד ממתין למענה",
+          title:
+            contactName === null || contactName === ""
+              ? "⏳ ליד ממתין למענה"
+              : `⏳ ${contactName} ממתין למענה`,
           body: "עבר יותר מדי זמן והליד עדיין ללא טיפול — נוצרה משימה לחזור ללקוח.",
           entityType: "lead",
           entityId: leadId,

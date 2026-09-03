@@ -11,6 +11,7 @@ import {
 import { TenantContext } from "../../common/tenant-context";
 import { leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
 import { PrismaService } from "../../core/prisma.service";
+import { CryptoService } from "../../core/crypto.service";
 import { rowToFields } from "../properties/property.mapper";
 import { loadEnv } from "../../config/env";
 
@@ -31,7 +32,47 @@ const OFFERS_PAGE_SIZE = 100;
  */
 @Injectable()
 export class CoachService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly crypto: CryptoService,
+  ) {}
+
+  /**
+   * ‎**השם והטלפון האמיתיים של הלידים בהמלצות.**
+   *
+   * ‏עד כה נכתב כאן „ליד” ו„לקוח” קבועים, עם הנימוק „ה-UI מקשר
+   * לליד, אין צורך לפענח PII”. זה נכון למסך — ושגוי לחלוטין לסוכן
+   * בוואטסאפ, שם הטקסט **הוא** ההודעה ואין לאן ללחוץ: מתווך קיבל
+   * „ליד ממתין מאתמול” ארבע פעמים, בלי דרך לדעת על מי מדובר.
+   *
+   * שאילתה אחת לכל הלידים יחד, ולא אחת לכל שורה. פענוח שנכשל
+   * מחזיר `undefined` והקורא נופל לניסוח הגנרי — שם שגוי גרוע
+   * מ„ליד”, אבל היעדר שם אינו מצדיק להפיל את ההמלצות כולן.
+   */
+  private async contactsOf(
+    tx: Parameters<Parameters<PrismaService["withTenant"]>[0]>[0],
+    tenantId: string,
+    contactIds: readonly string[],
+  ): Promise<Map<string, { name: string; phone: string | undefined }>> {
+    const known = new Map<string, { name: string; phone: string | undefined }>();
+    const ids = [...new Set(contactIds)];
+    if (ids.length === 0) return known;
+    const rows = await tx.contact.findMany({
+      where: { tenantId, id: { in: ids } },
+      select: { id: true, nameEncrypted: true, phoneEncrypted: true },
+    });
+    for (const row of rows) {
+      try {
+        const name = this.crypto.decrypt(row.nameEncrypted).trim();
+        if (name === "") continue;
+        const phone = this.crypto.decrypt(row.phoneEncrypted).trim();
+        known.set(row.id, { name, phone: phone === "" ? undefined : phone });
+      } catch {
+        // מפתח שהתחלף או שורה פגומה — הניסוח הגנרי, לא קריסה
+      }
+    }
+    return known;
+  }
 
   async recommendations(): Promise<CoachRecommendation[]> {
     const ctx = TenantContext.current();
@@ -169,11 +210,20 @@ export class CoachService {
         where: { tenantId, requiresHuman: true, status: { in: ["new", "in_progress"] }, ...leadScope },
         take: 5,
       });
-      const urgentLeads: CoachSignals["urgentLeads"] = urgent.map((l) => ({
-        leadId: l.id,
-        // אין צורך בשם המלא כאן — ה-UI מקשר לליד; מונע פענוח PII מיותר
-        contactName: "לקוח",
-      }));
+      const urgentContacts = await this.contactsOf(
+        tx,
+        tenantId,
+        urgent.map((l) => l.contactId),
+      );
+      const urgentLeads: CoachSignals["urgentLeads"] = urgent.map((l) => {
+        const contact = urgentContacts.get(l.contactId);
+        return {
+          leadId: l.id,
+          // „לקוח” נשאר רק כשאין שם — לא כברירת מחדל
+          contactName: contact?.name ?? "לקוח",
+          contactPhone: contact?.phone,
+        };
+      });
 
       // סיורים שהסתיימו בלי סיכום — רק למי שרשאי ליומן (הכותרת עשויה
       // להכיל שם לקוח, ביקורת Codex)
@@ -247,7 +297,7 @@ export class CoachService {
         },
         orderBy: { updatedAt: "asc" },
         take: 30,
-        select: { id: true, updatedAt: true },
+        select: { id: true, updatedAt: true, contactId: true },
       });
 
       /*
@@ -275,7 +325,7 @@ export class CoachService {
         }
       }
 
-      const staleLeads: CoachSignals["staleLeads"] = candidates
+      const stale = candidates
         .map((l) => {
           const interaction = lastTouch.get(l.id);
           const touched =
@@ -284,13 +334,21 @@ export class CoachService {
         })
         .filter(({ touched }) => touched < slaCutoff)
         .sort((a, b) => a.touched.getTime() - b.touched.getTime())
-        .slice(0, 5)
-        .map(({ lead, touched }) => ({
+        .slice(0, 5);
+      const staleContacts = await this.contactsOf(
+        tx,
+        tenantId,
+        stale.map(({ lead }) => lead.contactId),
+      );
+      const staleLeads: CoachSignals["staleLeads"] = stale.map(({ lead, touched }) => {
+        const contact = staleContacts.get(lead.contactId);
+        return {
           leadId: lead.id,
-          // כמו בלידים הדחופים: ה-UI מקשר לליד, ואין צורך לפענח PII כאן
-          contactName: "ליד",
+          contactName: contact?.name ?? "ליד",
+          contactPhone: contact?.phone,
           hoursWaiting: (now.getTime() - touched.getTime()) / 3_600_000,
-        }));
+        };
+      });
 
       /* פגישות היום שטרם התקיימו — רק למי שרשאי ליומן, כמו הסיורים. */
       let todayAppointments: CoachSignals["todayAppointments"] = [];

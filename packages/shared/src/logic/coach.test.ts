@@ -22,6 +22,43 @@ const empty: CoachSignals = {
 
 const ID = "01KYJHBB71E85DWX3NDPJ5BYZY";
 
+describe("הטלפון בהמלצה — כדי שאפשר יהיה לפעול בלי לפתוח מסך", () => {
+  /*
+   * ‏„לחזור לדני” בלי מספר הוא עדיין הוראה להיכנס למערכת. במסך זה
+   * מיותר; בוואטסאפ זה ההבדל בין הודעה שאפשר לפעול לפיה לבין
+   * תזכורת. השם והמספר יחד הם מה שהופך את התקציר לשימושי.
+   */
+  it("ליד ממתין נושא שם וטלפון", () => {
+    const rec = buildRecommendations({
+      ...empty,
+      staleLeads: [
+        { leadId: ID, contactName: "משה לוי", contactPhone: "050-1234567", hoursWaiting: 30 },
+      ],
+    })[0]!;
+    expect(rec.title).toContain("משה לוי");
+    expect(rec.title).toContain("מאתמול");
+    expect(rec.body).toContain("050-1234567");
+  });
+
+  it("ליד דחוף נושא שם וטלפון", () => {
+    const rec = buildRecommendations({
+      ...empty,
+      urgentLeads: [{ leadId: ID, contactName: "יעקב כהן", contactPhone: "052-7654321" }],
+    })[0]!;
+    expect(rec.title).toContain("יעקב כהן");
+    expect(rec.body).toContain("052-7654321");
+  });
+
+  it("בלי טלפון הגוף נשאר משפט שלם ולא מסתיים בנקודתיים", () => {
+    const rec = buildRecommendations({
+      ...empty,
+      staleLeads: [{ leadId: ID, contactName: "משה לוי", hoursWaiting: 30 }],
+    })[0]!;
+    expect(rec.body).not.toContain("להתקשר:");
+    expect(rec.body.endsWith(".")).toBe(true);
+  });
+});
+
 describe("buildRecommendations — עוזר המכירות החכם", () => {
   it("אין אותות ⇒ אין המלצות", () => {
     expect(buildRecommendations(empty)).toEqual([]);
