@@ -70,6 +70,8 @@ const FILTERS = read("../src/app/list-filters.tsx");
 const MENTOR = read("../src/app/mentor/page.tsx");
 const MENTOR_TREND = read("../src/app/mentor/weekly-trend.tsx");
 const MENTOR_QUOTES = read("../src/app/mentor/quotes-section.tsx");
+/* ‏חוקי המשפטים בחבילה המשותפת — המקום שממנו הרשימה הקבועה נמחקה */
+const QUOTES_LOGIC = read("../../../packages/shared/src/logic/mentor-quotes.ts");
 const MENTOR_TEAM = read("../src/app/mentor/team-feedback.tsx");
 
 const problems = [];
@@ -506,10 +508,48 @@ if (!/getElementById\("mentor-quotes"\)[\s\S]{0,300}scrollIntoView/u.test(MENTOR
   problems.push("מסך המנטור — כפתור „משפטי מוטבציה” אינו גולל אל הקטע");
 }
 if (!/<cite/u.test(MENTOR_QUOTES)) {
-  problems.push("משפטי המוטבציה — הציטוטים מוצגים בלי מקור מסומן");
+  problems.push("משפטי המוטבציה — הייחוס מוצג בלי סימון");
 }
+
+/*
+ * ‎**אין רשימת משפטים בקוד — וזו כל הנקודה.**
+ *
+ * ‏המשפטים נכתבים בידי הפלטפורמה ובידי כל משרד, ורשימה קבועה
+ * שתחזור לכאן תדחוף את עצמה למסך של כולם בלי שאיש בחר בה. הבדיקה
+ * מחפשת את **הצורה** שרשימה כזו לובשת: שדה טקסט עם מחרוזת עברית
+ * בקובץ החוקים או ברכיב.
+ */
+const HEBREW_LITERAL = /(text|source|author):\s*["'][^"']*[\u0590-\u05FF]/u;
+if (HEBREW_LITERAL.test(QUOTES_LOGIC)) {
+  problems.push("משפטי המוטבציה — חזרה רשימה קבועה לקוד; הם נכתבים בפלטפורמה ובמשרד");
+}
+if (HEBREW_LITERAL.test(MENTOR_QUOTES)) {
+  problems.push("משפטי המוטבציה — משפט קבוע ברכיב במקום מהשרת");
+}
+
+/*
+ * ‎**סליידר, ולא רשימה.** משפט אחד בכל פעם הוא ההבדל בין משהו
+ * שנקרא לבין קיר טקסט שגוללים מעליו. `blockquote` יחיד ברכיב הוא
+ * הצורה של „אחד”; מיפוי של כל הרשימה לציטוטים היה מחזיר את הקיר.
+ */
+if ((MENTOR_QUOTES.match(/<blockquote/gu) ?? []).length !== 1) {
+  problems.push("משפטי המוטבציה — יותר מציטוט אחד על המסך; הסליידר מציג אחד בכל פעם");
+}
+for (const [label, needle] of [
+  ["המשפט הקודם", 'aria-label="המשפט הקודם"'],
+  ["המשפט הבא", 'aria-label="המשפט הבא"'],
+]) {
+  if (!MENTOR_QUOTES.includes(needle)) {
+    problems.push(`משפטי המוטבציה — אין כפתור „${label}” בסליידר`);
+  }
+}
+/* ‏החלפה בלי הכרזה היא טקסט שמשתנה מתחת לקורא המסך בלי שידע */
+if (!/aria-live="polite"/u.test(MENTOR_QUOTES)) {
+  problems.push("משפטי המוטבציה — הסליידר מחליף משפט בלי להכריז עליו");
+}
+
 /* ‏מיקום ה*רינדור*, לא של ה-import שיושב בראש הקובץ בכל מקרה */
-if (MENTOR.indexOf("<QuotesSection />") < MENTOR.indexOf("trend-heading")) {
+if (MENTOR.indexOf("<QuotesSection") < MENTOR.indexOf("trend-heading")) {
   problems.push("משפטי המוטבציה — עלו מעל המספרים; מקומם בתחתית המסך");
 }
 

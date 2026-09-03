@@ -7,6 +7,7 @@ import {
   ForbiddenException,
   Get,
   HttpCode,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -69,6 +70,12 @@ import {
   linkNeedsReverification,
   type PlanDefinition,
   type ServiceVersion,
+  cleanQuoteAuthor,
+  cleanQuoteText,
+  QUOTE_AUTHOR_MAX_LENGTH,
+  QUOTE_LIMIT_PER_SCOPE,
+  QUOTE_MAX_LENGTH,
+  type MentorQuote,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlatformAdmin } from "../../common/auth.decorators";
@@ -638,6 +645,14 @@ const BurnCreditsSchema = z
  * שליחת סוג בנפרד הייתה מאפשרת "הצעה אישית בלי משרד" — צירוף שאין
  * לו משמעות ושהיה נדחה ממילא.
  */
+/** ‏משפט מוטבציה של הפלטפורמה. הגבולות הם אורכי העמודות במסד. */
+const PlatformQuoteSchema = z
+  .object({
+    text: z.string().trim().min(1).max(QUOTE_MAX_LENGTH),
+    author: z.string().trim().max(QUOTE_AUTHOR_MAX_LENGTH).default(""),
+  })
+  .strict();
+
 const CreateOfferSchema = z
   .object({
     tenantId: IdSchema.nullable().optional(),
@@ -2787,6 +2802,79 @@ export class PlatformController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
   ): Promise<{ ok: true }> {
     await this.subscriptionOffers.revoke(id);
+    return { ok: true };
+  }
+
+  /* ====================================================================
+   * ‏משפטי המוטבציה של הפלטפורמה
+   * ==================================================================== */
+
+  /**
+   * ‎**המשפטים שכל המשרדים רואים.**
+   *
+   * ‏שורה ב-`mentor_quotes` בלי משרד מוצגת בסליידר של כל מתווך
+   * במערכת, ולכן היא נכתבת רק מכאן: פוליסת ה-RLS על השורות האלה
+   * היא `FOR SELECT` בלבד לכל טרנזקציית משרד, ו-`withPlatformQuotes`
+   * הוא הדגל היחיד שפותח אותן לכתיבה. הוא גם חסום בשני הכיוונים —
+   * ‏`tenant_id IS NULL` נדרש גם בקריאה — ולכן לשולחן הזה אין גישה
+   * למשפטים שמשרד כתב לעצמו, גם לא בטעות.
+   */
+  @Get("mentor-quotes")
+  async mentorQuotes(): Promise<{ quotes: MentorQuote[] }> {
+    const rows = await this.prisma.withPlatformQuotes((tx) =>
+      tx.mentorQuote.findMany({ orderBy: { createdAt: "asc" } }),
+    );
+    return {
+      quotes: rows.map((r) => ({
+        id: r.id,
+        text: r.text,
+        author: r.author,
+        scope: "platform" as const,
+      })),
+    };
+  }
+
+  @Post("mentor-quotes")
+  @HttpCode(200)
+  async addMentorQuote(
+    @Body(new ZodValidationPipe(PlatformQuoteSchema))
+    body: z.infer<typeof PlatformQuoteSchema>,
+  ): Promise<{ ok: true; quote: MentorQuote }> {
+    const text = cleanQuoteText(body.text);
+    if (text === null) throw new BadRequestException("אין משפט לשמור");
+    const userId = TenantContext.current().userId;
+    const row = await this.prisma.withPlatformQuotes(async (tx) => {
+      const existing = await tx.mentorQuote.count({});
+      if (existing >= QUOTE_LIMIT_PER_SCOPE) {
+        throw new BadRequestException(
+          `הגעת ל-${QUOTE_LIMIT_PER_SCOPE} משפטים. מחק אחד כדי להוסיף חדש.`,
+        );
+      }
+      return tx.mentorQuote.create({
+        data: {
+          id: ulid(),
+          tenantId: null,
+          text,
+          author: cleanQuoteAuthor(body.author),
+          createdBy: userId,
+        },
+      });
+    });
+    return {
+      ok: true,
+      quote: { id: row.id, text: row.text, author: row.author, scope: "platform" },
+    };
+  }
+
+  @Delete("mentor-quotes/:id")
+  @HttpCode(200)
+  async removeMentorQuote(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ ok: true }> {
+    const removed = await this.prisma.withPlatformQuotes((tx) =>
+      tx.mentorQuote.deleteMany({ where: { id } }),
+    );
+    if (removed.count === 0) throw new NotFoundException("המשפט לא נמצא");
     return { ok: true };
   }
 

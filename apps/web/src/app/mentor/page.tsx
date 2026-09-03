@@ -18,6 +18,7 @@ import {
   type LeadMeasure,
   type MentorLine,
   type MentorMoment,
+  type MentorQuote,
   type WeeklyCommitment,
   type WeeklyScore,
 } from "@metavchim/shared";
@@ -92,6 +93,8 @@ interface Overview {
   derivedRatios: ConversionRatios | null;
   usingDefaultRatios: boolean;
   unattributedCalls: number;
+  /** ‏משפטי המוטבציה — של המשרד ושל הפלטפורמה, בסדר התצוגה. */
+  quotes: MentorQuote[];
 }
 
 /**
@@ -732,7 +735,7 @@ export default function MentorPage(): React.JSX.Element | null {
         </ul>
       </section>
 
-      <QuotesSection />
+      <QuotesSection quotes={data.quotes} />
     </div>
   );
 }

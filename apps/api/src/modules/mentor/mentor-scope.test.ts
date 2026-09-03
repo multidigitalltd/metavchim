@@ -47,6 +47,11 @@ const CALLS_SERVICE = readFileSync(
   join(import.meta.dirname, "../calls/calls.service.ts"),
   "utf8",
 );
+/** ‏הסכימה עצמה — המקור שקובע אילו טבלאות מנטור הן אישיות. */
+const SCHEMA = readFileSync(
+  join(import.meta.dirname, "../../../prisma/schema.prisma"),
+  "utf8",
+);
 
 /**
  * ‎**כל קריאת `tx.<model>.<op>` בשירות, עם גוף ה-`where` שלה.**
@@ -57,7 +62,13 @@ const CALLS_SERVICE = readFileSync(
  */
 function queriesIn(source: string): { call: string; body: string }[] {
   const out: { call: string; body: string }[] = [];
-  const re = /tx\.(\w+)\.(count|findMany|findFirst|upsert|deleteMany|update)\(/gu;
+  /*
+   * ‎`create` ו-`createMany` ברשימה, ולא רק הקריאות. כתיבה בלי
+   * ‎`tenantId` אינה „מחזירה אפס שורות בשקט” — היא **כותבת** שורה
+   * למשרד שגוי, וזה גרוע יותר מקריאה שדולפת.
+   */
+  const re =
+    /tx\.(\w+)\.(count|findMany|findFirst|upsert|deleteMany|update|create|createMany)\(/gu;
   for (const match of source.matchAll(re)) {
     const open = source.indexOf("{", match.index + match[0].length - 1);
     if (open === -1) continue;
@@ -117,25 +128,78 @@ describe("המנטור — היקף אישי", () => {
     expect(missing).toEqual([]);
   });
 
-  it("כל שאילתה על טבלאות המנטור מסננת גם לפי המשתמש", () => {
+  /**
+   * ‎**מי חייבת `userId` — נגזר מהסכימה, ולא מרשימה שאני זוכר.**
+   *
+   * ‏הנוסח הקודם אמר „כל טבלה ששמה מתחיל ב-mentor”, וזה החזיק כל
+   * עוד כל טבלאות המנטור היו אישיות. משפטי המוטבציה שבורים את
+   * ההנחה: `mentor_quotes` היא של המשרד ואין בה `user_id` כלל —
+   * ולפי הכלל ההוא היא הייתה מכשילה את השער בלי שדבר דלף.
+   *
+   * ‏התיקון אינו חריג נוסף ברשימה אלא שאלה אחרת: **למודל יש עמודת
+   * ‎`userId`?** אם כן, כל שאילתה עליו חייבת לסנן לפיה. הרשימה
+   * נקראת מ-`schema.prisma`, ולכן טבלת מנטור אישית שתיווצר מחר
+   * תיכנס לשמירה מעצמה — וגם היום שבו יתווסף `userId` ל-
+   * ‎`mentor_quotes` יעיר את השער במקום לעבור בשתיקה.
+   */
+  const personalMentorModels = (): Set<string> => {
+    const found = new Set<string>();
+    for (const block of SCHEMA.matchAll(/model\s+(Mentor\w+)\s*\{([\s\S]*?)\n\}/gu)) {
+      if (/^\s*userId\s/mu.test(block[2]!)) {
+        found.add(block[1]!.charAt(0).toLowerCase() + block[1]!.slice(1));
+      }
+    }
+    return found;
+  };
+
+  it("הסכימה עצמה יודעת אילו טבלאות מנטור הן אישיות", () => {
+    /* ‏המשוכה מפני „ירוק על אפס”: גזירה שהחזירה קבוצה ריקה מבטלת
+       את הבדיקה שמתחתיה בלי לומר מילה. */
+    const personal = personalMentorModels();
+    expect(personal.has("mentorGoal")).toBe(true);
+    expect(personal.has("mentorWeeklyScore")).toBe(true);
+    /* ‏ומה שאינו אישי — משפט מוטבציה הוא של המשרד, לא של אדם */
+    expect(personal.has("mentorQuote")).toBe(false);
+  });
+
+  it("כל שאילתה על טבלת מנטור אישית מסננת גם לפי המשתמש", () => {
     /*
-     * ‎`mentorGoal` ו-`mentorWeeklyScore` הן היחידות ששמורות פר-אדם.
-     * שאר הטבלאות (שיחות, פגישות) מסוננות לפי העמודה שלהן, ולכן הן
-     * נבדקות בבדיקה הבאה ולא כאן.
-     *
      * ‎**`mentorAchievement` היא היוצא מן הכלל היחיד, והוא מכוון.**
      * ‏„סוכן סגר את היעד השבועי” *נועד* להיראות בידי ההנהלה — זו כל
      * מטרת הטבלה, והיא מה שמאפשר למנהל להגיב. הגבול נשמר במקום אחר
      * ונבדק בנפרד: היעד עצמו, המכשול ותוכנית ה„אם-אז” נשארים פרטיים.
      */
-    const mentorTables = tenantQueries().filter(
-      (q) => q.call.startsWith("mentor") && !q.call.startsWith("mentorAchievement"),
+    const personal = personalMentorModels();
+    const guarded = tenantQueries().filter(
+      (q) =>
+        personal.has(q.call.split(".")[0]!) && !q.call.startsWith("mentorAchievement"),
     );
-    expect(mentorTables.length).toBeGreaterThan(2);
-    const leaky = mentorTables
+    expect(guarded.length).toBeGreaterThan(2);
+    const leaky = guarded
       .filter((q) => !q.body.includes("userId") && !q.body.includes("...scope"))
       .map((q) => q.call);
     expect(leaky).toEqual([]);
+  });
+
+  /**
+   * ‎**משפט מוטבציה אינו של אדם — אבל הוא כן של מישהו.**
+   *
+   * ‏הוא נופל מהכלל שמעליו בכוונה, ולכן צריך כלל משלו: משרד אינו
+   * יכול לכתוב משפט שמוצג בכל המערכת. הכתיבה מהצד של המשרד תמיד
+   * נושאת `tenantId: ctx.tenantId`, ולעולם לא `tenantId: null` —
+   * שורה כזו היא של הפלטפורמה, ונכתבת רק דרך שולחן הפלטפורמה.
+   */
+  it("המשרד אינו כותב משפט של הפלטפורמה", () => {
+    const quotes = tenantQueries().filter((q) => q.call.startsWith("mentorQuote"));
+    expect(quotes.length).toBeGreaterThan(2);
+    for (const q of quotes) {
+      expect(q.body, `${q.call} בלי משרד`).toContain("tenantId");
+    }
+    const writes = quotes.filter((q) => /create|deleteMany|update/u.test(q.call));
+    expect(writes.length).toBeGreaterThan(1);
+    for (const q of writes) {
+      expect(q.body, `${q.call} כותב שורת פלטפורמה`).not.toMatch(/tenantId:\s*null/u);
+    }
   });
 
   it("כל שאילתה בספירת המדדים משויכת לאדם — כולל זו שתיכתב מחר", () => {
@@ -448,9 +512,26 @@ describe("המנטור — הגבול מול העולם", () => {
      * הדלת האחורית שהבדיקה הזו נועדה למנוע.
      */
     const gated = [...CONTROLLER.matchAll(/@RequireCapability\("([^"]+)"\)/gu)].map(
-      (m) => m[1],
+      (m) => m[1]!,
     );
-    expect([...new Set(gated)]).toEqual(["analytics.view"]);
+    /*
+     * ‎**הכלל שמכליל, לפני הרשימה הסגורה.** מה שאסור אינו „יכולת
+     * שאינה משתיים שאני זוכר” אלא **יכולת ששייכת למנטור**: זו
+     * הצורה שבה „ליווי” היה נהפך ל„פיקוח”, והיא תיראה כך גם בשם
+     * שטרם הומצא.
+     */
+    expect(gated.filter((c) => /mentor|goal/iu.test(c))).toEqual([]);
+    /*
+     * ‏ואחריו הרשימה הסגורה, כי „מי בכלל שומר כאן” היא שאלה שראוי
+     * שתיענה במפורש:
+     *
+     * ‎`analytics.view` — מסך ההישגים בלבד: „מי סגר את היעד”, ולא
+     * היעד עצמו.
+     *
+     * ‎`settings.manage` — משפטי המוטבציה. הם רשימה **משותפת לכל
+     * המשרד**, כלומר הגדרת משרד, ולא מידע על אדם.
+     */
+    expect([...new Set(gated)].sort()).toEqual(["analytics.view", "settings.manage"]);
     expect(CONTROLLER).toMatch(/@AnyAuthenticated\(\)/u);
 
     /* ‏נתיבי היעד עצמם נשארים אישיים ובלי יכולת */
@@ -459,6 +540,18 @@ describe("המנטור — הגבול מול העולם", () => {
       expect(at).toBeGreaterThan(-1);
       /* ‏הדקורטור שמעל הנתיב — בחלון שלפניו */
       expect(CONTROLLER.slice(Math.max(0, at - 120), at)).toContain("@AnyAuthenticated()");
+    }
+
+    /*
+     * ‏והכיוון ההפוך, שבלעדיו החצי הראשון חסר משמעות: כתיבת
+     * המשפטים **חייבת** להיות מוגנת. הרשימה משותפת לכל המשרד, וסוכן
+     * שיכול לכתוב בה כותב על המסך של כל הצוות.
+     */
+    for (const route of ['@Get("quotes")', '@Post("quotes")', '@Delete("quotes/:id")']) {
+      const at = CONTROLLER.indexOf(route);
+      expect(at, route).toBeGreaterThan(-1);
+      const above = CONTROLLER.slice(Math.max(0, at - 120), at);
+      expect(above, `${route} פתוח לכל סוכן`).toContain('@RequireCapability("settings.manage")');
     }
   });
 
