@@ -27,6 +27,24 @@ import { loadEnv } from "../../config/env";
 const OFFERS_PAGE_SIZE = 100;
 
 /**
+ * ‎**גבול לשם ולטלפון שנכנסים להמלצה.**
+ *
+ * ‏`contacts.name_encrypted` היא עמודה בלי גבול, ומה שנכנס אליה
+ * מסנכרון וואטסאפ אינו מאומת באורך. כאן ההמלצה אינה נשמרת למסד
+ * ולכן אין עמודה שתתפוצץ — אבל שורה בתקציר הבוקר שהיא שם באורך
+ * 300 תווים בולעת את שאר ההמלצות בהודעת וואטסאפ אחת.
+ */
+const CONTACT_NAME_MAX = 60;
+const CONTACT_PHONE_MAX = 30;
+
+/** ריק או רווחים = אין ערך, ולא מחרוזת ריקה שתודבק לניסוח. */
+function clamp(value: string, max: number): string | undefined {
+  const clean = value.trim();
+  if (clean === "") return undefined;
+  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+}
+
+/**
  * אוסף את האותות מהדאטה של הדייר (מכבד בעלות — סוכן רואה המלצות על
  * הישויות שלו) ומזין את מנוע הכללים הטהור מ-shared.
  */
@@ -63,10 +81,12 @@ export class CoachService {
     });
     for (const row of rows) {
       try {
-        const name = this.crypto.decrypt(row.nameEncrypted).trim();
-        if (name === "") continue;
-        const phone = this.crypto.decrypt(row.phoneEncrypted).trim();
-        known.set(row.id, { name, phone: phone === "" ? undefined : phone });
+        const name = clamp(this.crypto.decrypt(row.nameEncrypted), CONTACT_NAME_MAX);
+        if (name === undefined) continue;
+        known.set(row.id, {
+          name,
+          phone: clamp(this.crypto.decrypt(row.phoneEncrypted), CONTACT_PHONE_MAX),
+        });
       } catch {
         // מפתח שהתחלף או שורה פגומה — הניסוח הגנרי, לא קריסה
       }

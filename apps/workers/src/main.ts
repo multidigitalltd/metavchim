@@ -533,7 +533,30 @@ const LEAD_SLA_TITLE = "לחזור לליד — מחכה יותר מדי זמן 
 function leadSlaTitle(contactName: string | null): string {
   return contactName === null || contactName === ""
     ? LEAD_SLA_TITLE
-    : `לחזור ל${contactName} — מחכה יותר מדי זמן בלי מענה`.slice(0, 200);
+    : `לחזור ל${contactName} — מחכה יותר מדי זמן בלי מענה`;
+}
+
+/**
+ * ‎**גבול לשם לפני שהוא נכנס לכותרת** — ולא חיתוך של הכותרת אחריה.
+ *
+ * ‏`contacts.name_encrypted` הוא עמודה בלי גבול, ומה שנכנס אליה
+ * מסנכרון וואטסאפ (`full_name`) אינו מאומת באורך. שם באורך 300
+ * תווים היה מפוצץ את `notifications.title` שהיא `VARCHAR(200)`,
+ * ו-`create` שנכשל **מגלגל אחורה את כל הטרנזקציה** — כלומר גם
+ * משימת האסקלציה. הליד עם השם הארוך היה היחיד שלא מקבל טיפול,
+ * וזה כישלון שקט לגמרי (ביקורת Codex).
+ *
+ * החיתוך על השם ולא על המשפט, ובכוונה: חיתוך של הכותרת המוגמרת
+ * היה משאיר „לחזור לדני — מחכה יותר מדי ז…”, כלומר בולע דווקא את
+ * הסיבה. שישים תווים מכסים כל שם אמיתי, ומה שמעבר להם אינו שם.
+ */
+const CONTACT_NAME_MAX = 60;
+
+function displayName(name: string | null): string | null {
+  if (name === null) return null;
+  const clean = name.trim();
+  if (clean === "") return null;
+  return clean.length > CONTACT_NAME_MAX ? `${clean.slice(0, CONTACT_NAME_MAX - 1)}…` : clean;
 }
 
 /**
@@ -564,7 +587,9 @@ async function escalateLeadSla(
       where: { id: lead.contactId, tenantId },
       select: { nameEncrypted: true },
     });
-    const contactName = contact === null ? null : decryptSetting(contact.nameEncrypted);
+    const contactName = displayName(
+      contact === null ? null : decryptSetting(contact.nameEncrypted),
+    );
 
     const sourceKey = `lead-sla:${leadId}`;
     const existing = await tx.task.findFirst({
@@ -611,9 +636,7 @@ async function escalateLeadSla(
           userId,
           type: "lead_sla",
           title:
-            contactName === null || contactName === ""
-              ? "⏳ ליד ממתין למענה"
-              : `⏳ ${contactName} ממתין למענה`,
+            contactName === null ? "⏳ ליד ממתין למענה" : `⏳ ${contactName} ממתין למענה`,
           body: "עבר יותר מדי זמן והליד עדיין ללא טיפול — נוצרה משימה לחזור ללקוח.",
           entityType: "lead",
           entityId: leadId,

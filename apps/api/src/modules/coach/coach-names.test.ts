@@ -73,6 +73,32 @@ describe("השם בהמלצות המאמן", () => {
     expect(WORKERS).toContain("`לחזור ל${contactName} — מחכה יותר מדי זמן בלי מענה`");
   });
 
+  /*
+   * ‎`contacts.name_encrypted` היא עמודה בלי גבול, ומה שמגיע אליה
+   * מסנכרון וואטסאפ אינו מאומת באורך. שם באורך 300 תווים היה
+   * מפוצץ את `notifications.title` (`VARCHAR(200)`), וכישלון
+   * ה-`create` מגלגל אחורה את **כל** הטרנזקציה — כלומר גם את
+   * משימת האסקלציה. הליד עם השם הארוך היה היחיד שלא מקבל טיפול,
+   * ובשקט מוחלט (ביקורת Codex).
+   */
+  it("השם נחתך לפני שהוא נכנס לכותרת, ולא הכותרת אחריו", () => {
+    expect(WORKERS).toContain("function displayName(");
+    /*
+     * ‏**הקריאה ולא ההגדרה.** `toContain("displayName(")` לבדו עובר
+     * גם כשהפונקציה מוגדרת ואינה נקראת — כלומר בדיוק על הבאג.
+     */
+    expect(WORKERS, "השם עובר דרך החיתוך").toContain("const contactName = displayName(");
+    expect(WORKERS).toContain("CONTACT_NAME_MAX");
+    expect(COACH).toContain("clamp(this.crypto.decrypt(row.nameEncrypted), CONTACT_NAME_MAX)");
+    /*
+     * חיתוך הכותרת המוגמרת היה משאיר „לחזור לדני — מחכה יותר מדי
+     * ז…”, כלומר בולע דווקא את הסיבה. הגבול על השם.
+     */
+    expect(WORKERS, "חיתוך הכותרת במקום השם").not.toContain(
+      "מחכה יותר מדי זמן בלי מענה`.slice(",
+    );
+  });
+
   it("גם ההתראה עצמה נוקבת בשם", () => {
     const fn = WORKERS.slice(
       WORKERS.indexOf("async function escalateLeadSla("),
