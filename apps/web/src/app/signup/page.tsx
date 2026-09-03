@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { featureLabel, FREE_PRICE_LABEL, normalizeSignupCode } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError, apiList } from "@/lib/api";
+import { activeA11yCount, loadA11y } from "@/lib/a11y-prefs";
+import { persistA11yToServer, resyncA11yForUser } from "@/lib/a11y-sync";
 import { clearSessionCache } from "@/lib/session-cache";
 import { AuthShell } from "../auth-shell";
 import { Notice } from "../notice";
@@ -193,6 +195,19 @@ export default function SignupPage(): React.JSX.Element {
        * כבר נפתח הייתה מובילה לניסיון הרשמה שני עם אותו אימייל.
        */
       clearSessionCache();
+      /*
+       * התאמות נגישות שנבחרו כדי להשלים את ההרשמה — נשמרות לחשבון
+       * החדש, ולא נעלמות ברענון הבא.
+       *
+       * מסך ההרשמה ציבורי, והכפתור הצף שם שומר במכשיר בלבד. החשבון
+       * שנוצר הרגע ריק, ובלי השמירה הסנכרון הבא היה קורא „אין
+       * העדפות” ומאפס — בדיוק את מי שהגדיל טקסט כדי להירשם (ביקורת
+       * Codex). ממתינים לשמירה לפני הסנכרון, אחרת הקריאה עלולה
+       * להקדים אותה ולהחזיר את החשבון הריק.
+       */
+      const chosen = loadA11y();
+      if (activeA11yCount(chosen) > 0) await persistA11yToServer(chosen);
+      void resyncA11yForUser();
       router.replace("/setup");
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "האימות נכשל — נסו שוב");

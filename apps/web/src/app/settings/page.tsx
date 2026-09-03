@@ -18,7 +18,6 @@ import { BuyerStatusesSection } from "./buyer-statuses-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
 import { PlanSection } from "./plan-section";
 import { WhatsAppBusinessSection } from "./whatsapp-business-section";
-import { WhatsAppStatusSection } from "./whatsapp-status-section";
 import { WhatsAppSeatPanel } from "./whatsapp-seat-panel";
 import { LockedFeature } from "./locked-feature";
 import { TelephonySection } from "./telephony-section";
@@ -1094,9 +1093,10 @@ export default function SettingsPage() {
                       htmlFor="whatsappNumber"
                       className="mb-1 block text-sm font-semibold"
                     >
-                      מספר וואטסאפ עסקי{" "}
+                      מספר וואטסאפ משרדי{" "}
                       <span className="font-normal">
-                        (לניתוב הודעות נכנסות)
+                        (רק לקו משותף שהוגדר על ידינו — המספר האישי של כל סוכן
+                        מתחבר בלשונית „חיבורים ומודולים”)
                       </span>
                     </label>
                     <input
@@ -1274,7 +1274,6 @@ export default function SettingsPage() {
               {user?.role === "owner" ? (
                 <div id="whatsapp" className="flex flex-col gap-4">
                   <WhatsAppBusinessSection />
-                  <WhatsAppStatusSection />
                 </div>
               ) : null}
               <div id="telephony">

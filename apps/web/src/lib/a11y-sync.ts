@@ -1,9 +1,11 @@
 "use client";
 
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPatch } from "@/lib/api";
 import {
+  A11Y_CHANGE_EVENT,
   A11Y_DEFAULTS,
   applyA11y,
+  clampFontScale,
   clearA11y,
   saveA11y,
   type A11yPrefs,
@@ -36,6 +38,18 @@ let synced = false;
  */
 let generation = 0;
 
+/**
+ * מונה עריכות מקומיות — עולה בכל שינוי שהמשתמש עושה בעצמו.
+ *
+ * הכפתור הצף זמין מהשנייה הראשונה, גם כשהבקשה ל-`/auth/profile`
+ * עדיין באוויר על חיבור איטי. בלי המונה, תשובת השרת — תמונת מצב
+ * **מלפני** השינוי — הייתה מוחלת ללא תנאי ומחזירה את המסך ואת
+ * המטמון אחורה, רגע אחרי שהמשתמש ראה את ההתאמה נכנסת לתוקף
+ * (ביקורת Codex). השינוי המקומי כבר נשלח לשרת, ולכן הוא החדש
+ * משניהם: תשובה שיצאה לפניו נזרקת.
+ */
+let localEdits = 0;
+
 export interface ProfilePrefsResponse {
   preferences?: { a11y?: Partial<A11yPrefs> };
 }
@@ -50,6 +64,7 @@ export async function syncA11yFromServer(): Promise<A11yPrefs | null> {
   if (synced) return null;
   synced = true;
   const mine = generation;
+  const editsBefore = localEdits;
   try {
     const res = await apiGet<ProfilePrefsResponse>("/auth/profile");
     /*
@@ -57,6 +72,11 @@ export async function syncA11yFromServer(): Promise<A11yPrefs | null> {
      * שייכת למי שכבר יצא, והחלתה הייתה מבטלת את הניקוי.
      */
     if (mine !== generation) return null;
+    /*
+     * המשתמש כבר שינה משהו בזמן ההמתנה — מה שעל המסך חדש יותר
+     * ממה שהשרת זוכר מלפני רגע, וכבר בדרכו אליו.
+     */
+    if (editsBefore !== localEdits) return null;
     const fromServer = res.preferences?.a11y;
     /*
      * שרת בלי העדפות = איפוס, לא "השאר מה שיש".
@@ -66,11 +86,19 @@ export async function syncA11yFromServer(): Promise<A11yPrefs | null> {
      * — ללא הגבלת זמן (ביקורת Codex). החזרה המפורשת לברירות המחדל
      * מנקה גם את המטמון.
      */
-    const next = fromServer ? { ...A11Y_DEFAULTS, ...fromServer } : A11Y_DEFAULTS;
+    /*
+     * הסקלה מקוצצת גם כאן ולא רק ב-CSS: מי ששמר 90% לפני שנקבעה
+     * הרצפה מקבל מהשרת את הערך הישן. `applyA11y` כבר מציג 100%,
+     * אבל האובייקט שנשמר ומשודר היה נושא 90% — והפאנל היה מציג
+     * „90%” שלחיצת A+ ראשונה עליו רק מיישרת עם מה שכבר על המסך
+     * (ביקורת Codex).
+     */
+    const merged = fromServer ? { ...A11Y_DEFAULTS, ...fromServer } : A11Y_DEFAULTS;
+    const next = { ...merged, fontScale: clampFontScale(merged.fontScale) };
     applyA11y(next);
     if (fromServer) saveA11y(next);
     else clearA11y();
-    window.dispatchEvent(new CustomEvent("mv-a11y-change", { detail: next }));
+    window.dispatchEvent(new CustomEvent(A11Y_CHANGE_EVENT, { detail: next }));
     return next;
   } catch {
     return null; // לא מחובר, או רשת — המטמון המקומי נשאר בתוקף
@@ -95,7 +123,7 @@ export function resetA11ySync(): void {
   if (typeof window === "undefined") return;
   clearA11y();
   applyA11y(A11Y_DEFAULTS);
-  window.dispatchEvent(new CustomEvent("mv-a11y-change", { detail: A11Y_DEFAULTS }));
+  window.dispatchEvent(new CustomEvent(A11Y_CHANGE_EVENT, { detail: A11Y_DEFAULTS }));
 }
 
 /**
@@ -112,4 +140,26 @@ export async function resyncA11yForUser(): Promise<A11yPrefs | null> {
   // דור חדש גם כאן: בקשה שיצאה עבור המשתמש הקודם לא תיושם על זה
   generation += 1;
   return syncA11yFromServer();
+}
+
+/**
+ * שמירה בשרת — מה שהופך את ההעדפה לאישית ולא למכשירית.
+ *
+ * נשלח ולא מומתן: המשתמש כבר רואה את השינוי מהמטמון, וכישלון רשת
+ * לא צריך להחזיר לו את המסך אחורה — הוא ייסנכרן בשינוי הבא.
+ *
+ * ‎**רק `a11y`, ולא כל ה-preferences.** השרת ממזג את המפתח העליון
+ * לתוך מה שכבר שמור (`auth.service.ts`), ולכן אין צורך לשלוח את
+ * שאר ההעדפות — ושליחתן הייתה מסוכנת: עותק ישן של ההעדפות שנשלח
+ * מלשונית אחת היה דורס מתג וואטסאפ שהוחלף בלשונית אחרת.
+ *
+ * במסכים ציבוריים — התחברות, דף ההצעה, דף החתימה — אין משתמש
+ * מחובר, והשרת עונה 401. הכישלון נבלע בכוונה: ההתאמה כבר הוחלה
+ * ונשמרה במכשיר, וזה כל מה שמבקר לא-מחובר יכול לצפות לו.
+ */
+export function persistA11yToServer(next: A11yPrefs): Promise<void> {
+  localEdits += 1;
+  return apiPatch("/auth/profile", { preferences: { a11y: next } })
+    .then(() => undefined)
+    .catch(() => undefined);
 }
