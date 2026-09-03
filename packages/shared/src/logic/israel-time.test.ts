@@ -3,6 +3,7 @@ import {
   formatJerusalemTime,
   jerusalemDayRange,
   jerusalemDayStart,
+  jerusalemMonthStart,
   jerusalemOffsetMs,
   jerusalemWallIsoToUtc,
   jerusalemWallParts,
@@ -360,5 +361,31 @@ describe("datetime-local בשעון ישראל", () => {
       ok: false,
       reason: "nonexistent",
     });
+  });
+});
+
+describe("תחילת החודש הישראלי", () => {
+  /**
+   * ‎**„נסגרו החודש” הוא חודש בשעון ישראל.** בשעתיים שבין חצות
+   * המקומית לחצות ה-UTC בראשון לחודש, חישוב ב-UTC סופר את החודש
+   * הקודם — וזה בדיוק המקרה שבו מונה „נסגרו החודש” קופץ אחורה.
+   */
+  it("ה-1 בחודש בשעון ישראל, ולא ב-UTC", () => {
+    /* ‏1 בספטמבר 2026, 00:30 בישראל = 31 באוגוסט 21:30 ב-UTC */
+    const justAfterMidnight = new Date("2026-08-31T21:30:00.000Z");
+    const start = jerusalemMonthStart(justAfterMidnight);
+    expect(jerusalemWallParts(start).date).toBe("2026-09-01");
+    expect(jerusalemWallParts(start).time).toBe("00:00");
+  });
+
+  it("אמצע החודש מחזיר את תחילתו", () => {
+    const start = jerusalemMonthStart(new Date("2026-09-17T12:00:00.000Z"));
+    expect(jerusalemWallParts(start).date).toBe("2026-09-01");
+  });
+
+  /* ‏חורף — היסט אחר, ואותה תשובה */
+  it("עובד גם בשעון חורף", () => {
+    const start = jerusalemMonthStart(new Date("2026-01-20T12:00:00.000Z"));
+    expect(jerusalemWallParts(start).date).toBe("2026-01-01");
   });
 });

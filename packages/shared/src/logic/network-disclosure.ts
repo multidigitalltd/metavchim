@@ -332,6 +332,12 @@ export const BUYER_DISCLOSURE: NetworkDisclosure = {
     "canManage",
     "originBuyerId",
     "myMatches",
+    /*
+     * ‏האם **הצופה** עוקב אחרי הביקוש הזה. מצב שלו, לא שלכם — שורה
+     * ‏ב-`demand_follows` של המשרד שלו, שאתם אינכם רואים ואינכם
+     * ‏יודעים על קיומה.
+     */
+    "following",
     /* מאיפה הביקוש הגיע לפיד, ומה יעלה לענות עליו — לא מידע שלכם */
     "source",
     "sourceLabel",

@@ -22,6 +22,7 @@ import {
   type PropertyFields,
   type ReachSummary,
   networkSafeTitle,
+  NETWORK_MATCH_MIN_SCORE,
 } from "@metavchim/shared";
 import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -1480,9 +1481,6 @@ export class ListingsService {
     });
   }
 }
-
-/** אותו סף כמו בכיוון השני — ראו `REACH_MIN_SCORE`. */
-const NETWORK_MATCH_MIN_SCORE = 70;
 
 /**
  * ביקוש → דרישות, לצורך ניקוד הנכסים שלי מולו.

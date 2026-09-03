@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import type { NetworkChip, NetworkDetailRow } from "@metavchim/shared";
 import { mediaSrc } from "@/lib/api";
 import {
+  IconChevronDown,
   IconClock,
   IconDoor,
   IconCamera,
@@ -11,6 +12,7 @@ import {
   IconPin,
   IconRuler,
   IconStairs,
+  IconTarget,
   IconUsers,
   IconX,
 } from "../icons";
@@ -353,6 +355,100 @@ export function NetDetailsButton({
 }
 
 /**
+ * ‎**רצועת ההתאמות — קטע מתקפל, לא פסקה ירוקה.**
+ *
+ * ‏הרשימה הזו היא הפעולה של הכרטיס: הנכסים שלי שמתאימים לביקוש
+ * הזה, וליד כל אחד „הצע נכס זה”. בתור פסקה ירוקה עם רשימה פתוחה
+ * מתחתיה היא נראתה כמו עוד שדה בכרטיס, ובכרטיס עם ארבע התאמות היא
+ * דחפה את שאר המודעה אל מחוץ למסך.
+ *
+ * ‏רצועה סגורה בעצמה, בצבע הדומיין הסגול — אותו צבע שאריח „מחכים
+ * לפעולה” בכרטיס הפתיחה נושא, כי זה אותו דבר בדיוק. המספר על
+ * הרצועה אומר כמה יש בלי לפתוח, והשברון אומר שאפשר לסגור.
+ *
+ * ‎**פתוחה כברירת מחדל.** הכפתור שבתוכה הוא הפעולה שהמסך קיים
+ * בשבילה, ורצועה סגורה הייתה מסתירה אותה מאחורי לחיצה נוספת בכל
+ * כרטיס. מי שרוצה לסרוק סוגר.
+ *
+ * ‎`<details>` נייטיב: המקלדת, קורא המסך וכפתור „חפש בעמוד” של
+ * הדפדפן מקבלים קטע מתקפל אמיתי בלי state ובלי ARIA ידני.
+ */
+export function NetMatchStrip({
+  count,
+  title,
+  children,
+}: {
+  count: number;
+  title: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <details className="mv-net-strip mv-domain-violet" open>
+      <summary className="mv-net-strip-head">
+        <IconTarget s={16} />
+        <span className="mv-net-strip-title">{title}</span>
+        <span className="mv-net-strip-count">{count}</span>
+        <span className="mv-net-strip-chevron" aria-hidden="true">
+          <IconChevronDown s={16} />
+        </span>
+      </summary>
+      <div className="mv-net-strip-body">{children}</div>
+    </details>
+  );
+}
+
+/**
+ * ‎**„התאמה 92%” בראש הכרטיס — התשובה לפני הקריאה.**
+ *
+ * ‏ההתאמות ישבו רק בתוך הכרטיס, מתחת לפרטים. כלומר כדי לדעת אם
+ * מודעה רלוונטית לי בכלל צריך היה לקרוא אותה עד הסוף — ובלוח של
+ * עשרות מודעות זה בדיוק מה שאיש אינו עושה. הכרטיס נראה זהה בין אם
+ * יש לי נכס מושלם עבורו ובין אם אין לי דבר.
+ *
+ * ‏המספר הוא ה**גבוה** מבין ההתאמות ולא ממוצע ולא ספירה: הוא עונה
+ * על „כמה קרוב הכי טוב שיש לי”, וזו השאלה שמחליטה אם לפתוח.
+ *
+ * ‎`null` = אין התאמה, וזה מצב אמיתי שצריך להיקרא ולא להיעלם —
+ * הכרטיס עדיין רלוונטי, ומתחתיו כפתור המעקב.
+ */
+export function NetMatchBadge({
+  score,
+  label,
+}: {
+  /** האחוז הגבוה מבין ההתאמות, או `null` כשאין. */
+  score: number | null;
+  /** מה מתאים — „נכס שלך” / „קונה שלך”. לקורא המסך בלבד. */
+  label: string;
+}): React.JSX.Element {
+  const matched = score !== null;
+  return (
+    <span
+      className={`mv-pill flex items-center gap-1.5 ${
+        matched ? "mv-domain-violet" : "mv-domain-neutral"
+      }`}
+      title={matched ? `${label} מתאים בציון ${score}` : `אין ${label} מתאים במאגר שלך`}
+    >
+      <IconTarget s={13} />
+      {matched ? `התאמה ${score}%` : "אין התאמה"}
+    </span>
+  );
+}
+
+/**
+ * ‏האחוז הגבוה מבין ההתאמות, או `null` כשאין.
+ *
+ * פונקציה ולא ביטוי בשני מקומות: שני סוגי הכרטיסים מחשבים את אותו
+ * מספר, ו-`Math.max` על מערך ריק מחזיר `-Infinity` — כלומר „התאמה
+ * ‎-Infinity%” בכל כרטיס בלי התאמות, אם מישהו יכתוב את זה שוב בקצרה.
+ */
+export function bestMatchScore(
+  matches: readonly { score: number }[] | undefined,
+): number | null {
+  if (matches === undefined || matches.length === 0) return null;
+  return matches.reduce((top, match) => (match.score > top ? match.score : top), 0);
+}
+
+/**
  * ההודעה כשאין התאמה מהצד שלנו — **בולטת, לא שורת לוואי.**
  *
  * הנוסח הקודם היה טקסט אפור קטן שנבלע בכרטיס; המשתמש ביקש שההודעה
@@ -362,21 +458,31 @@ export function NetDetailsButton({
 export function NetNoMatch({
   what,
   hint,
+  action,
 }: {
   what: string;
   hint: string;
+  /**
+   * ‎**מה אפשר לעשות בכל זאת.**
+   *
+   * ‏בלי זה הקטע הוא מבוי סתום: „אין לכם נכס מתאים”, סוף. מתווך
+   * קרא, הבין שאין לו מה להציע, וזה נגמר שם — גם כשהנכס שהיה
+   * מתאים בדיוק נכנס למאגר שלו שבוע אחר כך.
+   */
+  action?: React.ReactNode;
 }): React.JSX.Element {
   return (
     <div className="mv-net-nomatch" role="note">
       <span className="mv-net-nomatch-icon" aria-hidden="true">
         <IconUsers s={17} />
       </span>
-      <span className="min-w-0">
+      <span className="min-w-0 flex-1">
         <b className="block text-[length:var(--type-caption-lg)]">{what}</b>
         <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-soft)" }}>
           {hint}
         </span>
       </span>
+      {action === undefined ? null : <span className="shrink-0">{action}</span>}
     </div>
   );
 }

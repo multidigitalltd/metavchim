@@ -28,6 +28,8 @@
  * „המנהל שלך ראה שהגעת ליעד ולא אמר דבר”. אין הודעה — אין נזק.
  */
 
+import type { NotificationCopy } from "./notifications.js";
+
 /** ‏האורך המרבי של פידבק. אותו גבול כמו „מה עצר אותך” ביעד. */
 export const FEEDBACK_MAX_LENGTH = 400;
 
@@ -58,11 +60,6 @@ export interface GoalReachedInput {
   percent: number;
   /** ‏מה שהוא התחייב לו ומה שעשה, לפי פעולה. */
   lines: { label: string; committed: number; actual: number }[];
-}
-
-export interface NotificationCopy {
-  title: string;
-  body: string;
 }
 
 /**
