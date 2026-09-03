@@ -63,7 +63,7 @@ import {
   IconX,
 } from "../icons";
 import { CollaborationGuide, ReferralRulesPanel } from "./guide";
-import { PrivacyBanner } from "./privacy-banner";
+import { NetworkHeader, type NetworkSummary } from "./network-header";
 import { ReachBanner } from "./reach-banner";
 import { DealsList } from "./deals-list";
 import { NetChips } from "./net-chips";
@@ -505,6 +505,7 @@ export default function CollaborationPage() {
   const [netFilters, setNetFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [demands, setDemands] = useState<DemandRow[] | null>(null);
+  const [netSummary, setNetSummary] = useState<NetworkSummary | null>(null);
   const [sharedLeads, setSharedLeads] = useState<SharedLeadRow[]>([]);
   const [buyingLead, setBuyingLead] = useState<string | null>(null);
   const [boughtLeadId, setBoughtLeadId] = useState<string | null>(null);
@@ -597,6 +598,15 @@ export default function CollaborationPage() {
 
   const load = useCallback(() => {
     setLoadFailed(false);
+    /*
+     * ‏המספרים שבראש המסך — ספירות במסד ולא אורך רשימה. הפיד חסום
+     * במאה שורות, ומשרד שרואה מאה ביקושים אינו יודע אם יש 100 או
+     * 340. כישלון כאן אינו מסתיר את המסך: האריחים מציגים „…”
+     * והרשימות ממשיכות כרגיל.
+     */
+    apiGet<NetworkSummary>("/collaboration/summary")
+      .then(setNetSummary)
+      .catch(() => setNetSummary(null));
     setOffersFailed(false);
     setLeadsFailed(false);
     setListingsFailed(false);
@@ -804,6 +814,25 @@ export default function CollaborationPage() {
     }
   }
 
+  /*
+   * ‎**„מתאימים לנכסים שלך” — נספר מהפיד, ולא מהשרת.**
+   *
+   * ‏הוא התווית של הקטע שמתחתיו, ולכן חייב להיות בדיוק מספר
+   * הכרטיסים בו. ספירה שנייה בשרת הייתה מנוע התאמות שני, ומספיק
+   * הבדל אחד בסינון כדי שהכותרת תאמר „6” מעל חמישה כרטיסים.
+   *
+   * ‎`null` כל עוד הפיד לא נטען — „עוד לא יודעים” אינו אפס.
+   */
+  const matchedDemands =
+    demands === null
+      ? null
+      : demands.filter((d) => !d.mine && (d.myMatches?.length ?? 0) > 0);
+  const unmatchedDemands =
+    demands === null
+      ? null
+      : demands.filter((d) => !d.mine && (d.myMatches?.length ?? 0) === 0);
+  const actionableCount = matchedDemands === null ? null : matchedDemands.length;
+
   const incoming = coopOffers.filter((o) => o.direction === "incoming");
   /* פניות שטרם נענו — הן שקובעות את המונה על הלשונית */
   const openInterests = interests.filter((i) => i.status === "sent");
@@ -816,29 +845,18 @@ export default function CollaborationPage() {
 
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="m-0 flex items-center gap-2 text-2xl font-bold">
-          <IconHandshake s={22} /> שיתופי פעולה
-        </h1>
-        {/* הפרסום עצמו נעשה מכרטיס הקונה — הביקוש נגזר מדרישות
-            אמיתיות ולא מטופס ריק. אבל מי שנוחת כאן צריך לדעת שזה
-            קיים ואיפה, אחרת המסך נראה כמו רשימה לצפייה בלבד. */}
-        <Link
-          href="/buyers"
-          className="mv-btn-action"
-          style={{ textDecoration: "none" }}
-        >
-          + פרסם ביקוש
-        </Link>
-      </div>
-
       {/*
-        החיסיון הוא השורה הראשונה של האזור, ולא פאנל מתקפל בתוך
-        לשונית אחת. "הם ייקחו לי את הלקוח" הוא החשש שעוצר מתווכים
-        מלשתף, והתשובה לו הייתה מוסתרת מאחורי לחיצה — כלומר מי שהיסס
-        פשוט לא לחץ. הבאנר יושב מעל הלשוניות כי הכלל חל על שלושתן.
+        כרטיס הפתיחה — הכותרת, המספרים והחיסיון באובייקט אחד.
+
+        קודם ישבו כאן שלושה בלוקים נפרדים: כותרת עם כפתור, באנר
+        חיסיון, ואחריהם הלשוניות. מי שנחת במסך לא ידע אם הרשת עובדת
+        בשבילו — לא היה בו ולו מספר אחד. „32 ביקושים ברשת” ו„12
+        משרדים מחוברים” הם התשובה לשאלה שנשאלת בשנייה הראשונה.
+
+        ‎`actionable` נגזר מהפיד ולא מהשרת, וזו הכרעה: הוא התווית של
+        הקטע שמתחתיו וחייב להיות בדיוק מספר הכרטיסים בו.
       */}
-      <PrivacyBanner />
+      <NetworkHeader summary={netSummary} actionable={actionableCount} />
 
       {/*
         ומיד אחריו — מה **שלכם** אינו נמצא שם.
