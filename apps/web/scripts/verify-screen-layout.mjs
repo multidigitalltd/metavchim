@@ -67,7 +67,13 @@ const CSS = read("../src/app/globals.css");
 const PROPERTIES = read("../src/app/properties/page.tsx");
 const DISMISS = read("../src/app/dismissed-actions.ts");
 const FILTERS = read("../src/app/list-filters.tsx");
-const MENTOR = read("../src/app/mentor/page.tsx");
+/*
+ * ‎**המסך, ולא הנתיב.** ‏`/mentor` מציג „בקרוב” עד ההשקה (בקשת
+ * המשתמש), והמסך הבנוי יושב ב-`mentor-screen.tsx` וממשיך להיבדק
+ * כרגיל. שער שקורא את הנתיב היה נעשה ירוק-לשווא ברגע שהמסך הוסתר —
+ * כלומר מפסיק לשמור על מה שנבנה בדיוק כשאיש אינו מסתכל עליו.
+ */
+const MENTOR = read("../src/app/mentor/mentor-screen.tsx");
 const MENTOR_TREND = read("../src/app/mentor/weekly-trend.tsx");
 const MENTOR_QUOTES = read("../src/app/mentor/quotes-section.tsx");
 /* ‏חוקי המשפטים בחבילה המשותפת — המקום שממנו הרשימה הקבועה נמחקה */
