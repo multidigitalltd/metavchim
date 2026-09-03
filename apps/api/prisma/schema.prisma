@@ -3107,3 +3107,39 @@ model MentorWeeklyScore {
   @@index([tenantId, userId, weekKey])
   @@map("mentor_weekly_scores")
 }
+
+/// ‎**שבוע שסוכן סגר בו את היעד — והמקום שבו המנהל מגיב על כך.**
+///
+/// ‏שורה נכתבת פעם אחת לכל (משרד, סוכן, שבוע), והאילוץ הייחודי הוא
+/// שמכריע: הסורק הרץ כל יום אינו צריך לקרוא לפני שהוא כותב, ושתי
+/// ריצות במקביל אינן יכולות לייצר שתי חגיגות.
+///
+/// ‎**הפידבק יושב כאן ולא בטבלת הודעות** כי הוא תשובה ל*הישג מסוים*.
+/// מנהל שכתב „עבודה יפה” בלי ההקשר הזה כתב הודעה; מנהל שכתב אותה על
+/// השבוע הזה נתן משוב, וההבדל הוא מה שהופך אותו לשימושי חודש אחרי.
+model MentorAchievement {
+  id               String    @id @db.Char(26)
+  tenantId         String    @map("tenant_id") @db.Char(26)
+  /// הסוכן שסגר את היעד
+  userId           String    @map("user_id") @db.Char(26)
+  /// יום ראשון של אותו שבוע, `YYYY-MM-DD` בשעון ישראל
+  weekKey          String    @map("week_key") @db.VarChar(10)
+  /// אחוז הביצוע ברגע שההישג נרשם — 100 ומעלה
+  percent          Int
+  /// מה שהתחייב לו ומה שעשה, כפי שנקרא באותו רגע. תצלום ולא חישוב:
+  /// המספרים האלה הם מה שהמנהל ראה, וחישוב מחדש חודש אחרי היה
+  /// משנה את מה שנאמר עליו.
+  snapshot         Json      @default("{}")
+  reachedAt        DateTime  @map("reached_at")
+  /// מה שהמנהל כתב. ריק כל עוד לא הגיב — ושתיקה אינה נשלחת לסוכן.
+  feedbackText     String?   @map("feedback_text") @db.VarChar(400)
+  feedbackByUserId String?   @map("feedback_by_user_id") @db.Char(26)
+  feedbackAt       DateTime? @map("feedback_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  /// הישג אחד לכל סוכן לכל שבוע — האילוץ הוא ההגנה מפני חגיגה כפולה
+  @@unique([tenantId, userId, weekKey])
+  /// „מי סגר השבוע ועוד לא קיבל מילה” — השאילתה של מסך המנהל
+  @@index([tenantId, feedbackAt, reachedAt])
+  @@map("mentor_achievements")
+}

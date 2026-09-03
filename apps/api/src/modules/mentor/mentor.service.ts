@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   backwardPlan,
@@ -14,6 +14,10 @@ import {
   mentorMoments,
   splitToHorizon,
   weeklyScore,
+  parseWeeklyCommitment,
+  cleanFeedback,
+  feedbackCopy,
+  FEEDBACK_NOTIFICATION_TYPE,
   weekKey,
   type BackwardPlan,
   type ConversionRatios,
@@ -116,6 +120,49 @@ export interface MentorOverviewDto {
   unattributedCalls: number;
 }
 
+/**
+ * ‎**שבוע שסוכן סגר בו את היעד, כפי שהמנהל רואה אותו.**
+ *
+ * ‏המספרים הם `snapshot` — מה שנקרא ברגע ההישג. חישוב מחדש בעת
+ * הצפייה היה משנה את מה שהמנהל מגיב עליו: שיחה שנמחקה חודש אחרי
+ * הייתה הופכת „42 מתוך 40” ל„41 מתוך 40”, ואת השבח לשגיאה.
+ */
+export interface AchievementDto {
+  id: string;
+  userId: string;
+  userName: string;
+  weekKey: string;
+  percent: number;
+  reachedAt: Date;
+  lines: { label: string; committed: number; actual: number }[];
+  feedback: { text: string; byName: string; at: Date } | null;
+}
+
+/**
+ * ‎**קריאת התצלום מ-JSON.**
+ *
+ * ‏העמודה היא `Json`, כלומר כל דבר יכול לשבת בה — כולל שורה שנכתבה
+ * בגרסה קודמת של הסורק. פענוח סלחני מחזיר רק שורות שלמות, ומסך
+ * שמציג „undefined מתוך undefined” גרוע ממסך שמציג פחות.
+ */
+function toSnapshotLines(
+  value: unknown,
+): { label: string; committed: number; actual: number }[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row) => {
+    if (row === null || typeof row !== "object") return [];
+    const r = row as Record<string, unknown>;
+    if (
+      typeof r["label"] !== "string" ||
+      typeof r["committed"] !== "number" ||
+      typeof r["actual"] !== "number"
+    ) {
+      return [];
+    }
+    return [{ label: r["label"], committed: r["committed"], actual: r["actual"] }];
+  });
+}
+
 /** ‏נקודה אחת בגרף השבועי. */
 export interface WeekPoint {
   /** ‏יום ראשון של אותו שבוע, `YYYY-MM-DD` בשעון ישראל. */
@@ -147,16 +194,6 @@ export interface SaveGoalInput {
 const MIN_WEEKS_FOR_RATIOS = 13;
 
 /** ‏המרה בטוחה של JSON מהמסד למחויבות שבועית. */
-function toCommitment(value: unknown): WeeklyCommitment {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return {};
-  const raw = value as Record<string, unknown>;
-  const out: WeeklyCommitment = {};
-  for (const measure of LEAD_MEASURES) {
-    const n = raw[measure];
-    if (typeof n === "number" && Number.isFinite(n) && n > 0) out[measure] = Math.floor(n);
-  }
-  return out;
-}
 
 /** ‏המרה בטוחה של JSON מהמסד ליחסי המרה. חסר ⇒ ברירת המחדל. */
 function toRatios(value: unknown): ConversionRatios {
@@ -259,7 +296,7 @@ export class MentorService {
             ? {}
             : { averageCommissionAgorot: Number(row.averageCommissionAgorot) }),
           ratios: toRatios(row.ratios),
-          commitment: toCommitment(row.commitment),
+          commitment: parseWeeklyCommitment(row.commitment),
           ...(row.obstacle === null ? {} : { obstacle: row.obstacle }),
           ...(row.ifThenPlan === null ? {} : { ifThenPlan: row.ifThenPlan }),
           periodStart: period.start,
@@ -510,6 +547,137 @@ export class MentorService {
     });
   }
 
+
+  /* ======================================================================
+   * ‏מי סגר את השבוע — והתגובה של המנהל
+   * ====================================================================== */
+
+  /**
+   * ‎**הסוכנים שסגרו את היעד לאחרונה, למסך המנהל.**
+   *
+   * ‏מוצגים גם אלה שכבר קיבלו מילה וגם אלה שלא, ומי שלא — ראשון.
+   * מסך שמציג רק את הממתינים היה מוחק את ההיסטוריה בכל פעם שהמנהל
+   * מגיב, ואז אי אפשר לראות מי נשאר בלי תגובה שבועיים ברצף.
+   *
+   * ‏הגישה נשמרת ב-`analytics.view` בבקר. אין כאן סינון לפי סוכן:
+   * ההישג הזה **נועד** להיראות בידי ההנהלה, וזה בדיוק ההבדל בינו
+   * לבין היעד עצמו — שהוא פרטי.
+   */
+  async achievements(limit = 20): Promise<AchievementDto[]> {
+    const ctx = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.mentorAchievement.findMany({
+        where: { tenantId: ctx.tenantId },
+        orderBy: [{ feedbackAt: { sort: "asc", nulls: "first" } }, { reachedAt: "desc" }],
+        take: limit,
+      });
+      if (rows.length === 0) return [];
+
+      /* ‏שמות בשליפה אחת — הסוכן והמגיב גם יחד */
+      const ids = [
+        ...new Set(
+          rows.flatMap((r) => [r.userId, r.feedbackByUserId].filter((v): v is string => v !== null)),
+        ),
+      ];
+      const users = await tx.user.findMany({
+        where: { tenantId: ctx.tenantId, id: { in: ids } },
+        select: { id: true, name: true },
+      });
+      const nameOf = new Map(users.map((u) => [u.id, u.name]));
+
+      return rows.map((row) => ({
+        id: row.id,
+        userId: row.userId,
+        userName: nameOf.get(row.userId) ?? "סוכן",
+        weekKey: row.weekKey,
+        percent: row.percent,
+        reachedAt: row.reachedAt,
+        lines: toSnapshotLines(row.snapshot),
+        feedback:
+          row.feedbackText === null || row.feedbackAt === null
+            ? null
+            : {
+                text: row.feedbackText,
+                byName: nameOf.get(row.feedbackByUserId ?? "") ?? "המנהל",
+                at: row.feedbackAt,
+              },
+      }));
+    });
+  }
+
+  /**
+   * ‎**המנהל כותב, והסוכן מקבל התראה.**
+   *
+   * ‏הכתיבה וההתראה באותה טרנזקציה: פידבק שנשמר בלי שההתראה נכתבה
+   * הוא פידבק שהסוכן לעולם לא יראה, וזה גרוע מלא לכתוב אותו.
+   *
+   * ‎**כתיבה חוזרת מעדכנת ואינה שולחת שוב.** מנהל שתיקן ניסוח אינו
+   * מתכוון להתריע פעמיים, והמפתח הייחודי על ההתראה מכריע גם אם כן.
+   */
+  async sendFeedback(achievementId: string, text: string): Promise<void> {
+    const ctx = TenantContext.current();
+    const clean = cleanFeedback(text);
+    if (clean === null) throw new BadRequestException("אין מה לשלוח — הטקסט ריק");
+
+    await this.prisma.withTenant(async (tx) => {
+      const row = await tx.mentorAchievement.findFirst({
+        where: { tenantId: ctx.tenantId, id: achievementId },
+        select: { id: true, userId: true, weekKey: true, feedbackAt: true },
+      });
+      if (row === null) throw new NotFoundException("ההישג לא נמצא");
+
+      const manager = await tx.user.findFirst({
+        where: { tenantId: ctx.tenantId, id: ctx.userId },
+        select: { name: true },
+      });
+      const managerName = manager?.name ?? "המנהל";
+
+      /*
+       * ‎`updateMany` עם `tenantId` ולא `update` לפי מפתח ראשי.
+       * ה-RLS היה מגן ממילא, אבל שער ההיקף דורש שכל שאילתה תסנן
+       * לפי משרד — והכלל הזה שווה יותר מהקיצור: הוא מה שמוודא
+       * שהשאילתה הבאה, שתיכתב מחוץ להקשר הזה, לא תסמוך על RLS לבדו.
+       */
+      await tx.mentorAchievement.updateMany({
+        where: { tenantId: ctx.tenantId, id: row.id },
+        data: {
+          feedbackText: clean,
+          feedbackByUserId: ctx.userId,
+          feedbackAt: new Date(),
+        },
+      });
+
+      /*
+       * ‏מנהל שמגיב על ההישג של עצמו אינו שולח לעצמו התראה. זה קורה
+       * במשרד קטן שבו הבעלים הוא גם סוכן, וזה המקרה הנפוץ אצלנו.
+       */
+      if (row.userId === ctx.userId) return;
+
+      const copy = feedbackCopy(managerName, clean);
+      await tx.notification.createMany({
+        data: [
+          {
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            userId: row.userId,
+            type: FEEDBACK_NOTIFICATION_TYPE,
+            /*
+             * ‏מפתח לכל תיקון ולא לכל הישג: מנהל שכתב שוב אחרי שבוע
+             * מתכוון שהסוכן יראה. מה שנמנע הוא לחיצה כפולה על אותו
+             * טקסט, ולכן המפתח נושא את התוכן.
+             */
+            dedupeKey: `mentor_feedback:${row.id}:${clean.length}:${clean.slice(0, 24)}`,
+            title: copy.title,
+            body: copy.body,
+            entityType: "mentor_achievement",
+            entityId: row.id,
+          },
+        ],
+        skipDuplicates: true,
+      });
+    });
+  }
+
   /* ======================================================================
    * ‏הספירה עצמה
    * ====================================================================== */
@@ -647,7 +815,7 @@ export class MentorService {
     return weeks.map((weekStart) => {
       const label = jerusalemDayLabel(weekStart);
       const current = weekStart.getTime() === thisWeek.getTime();
-      const committed = toCommitment(byWeek.get(label) ?? null);
+      const committed = parseWeeklyCommitment(byWeek.get(label) ?? null);
       if (Object.keys(committed).length === 0) {
         return { weekKey: label, percent: null, current };
       }

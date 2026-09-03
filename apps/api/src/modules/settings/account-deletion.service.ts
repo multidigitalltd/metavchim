@@ -449,6 +449,7 @@ export class AccountDeletionService {
          * היעדים האישיים של הסוכנים — ומכשול שנוסח בגוף ראשון הוא
          * מהדברים האישיים ביותר שאדם כותב במערכת הזו.
          */
+        await tx.mentorAchievement.deleteMany({ where: { tenantId } });
         await tx.mentorWeeklyScore.deleteMany({ where: { tenantId } });
         await tx.mentorGoal.deleteMany({ where: { tenantId } });
         // תיק הבלעדיות — פעולות לפני תקופות, ושתיהן לפני הנכסים

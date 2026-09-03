@@ -27,6 +27,7 @@ import { IconCheck, IconSparkle, IconTarget, IconBolt, IconPhone } from "../icon
 import { Notice } from "../notice";
 import { GoalForm } from "./goal-form";
 import { QuotesSection } from "./quotes-section";
+import { TeamFeedback } from "./team-feedback";
 import { WeeklyTrend, type WeekPoint } from "./weekly-trend";
 
 /**
@@ -597,6 +598,13 @@ export default function MentorPage(): React.JSX.Element | null {
           })}
         </ul>
       </section>
+
+      {/*
+         ‏הצוות יושב מעל הגרף האישי ומתחת לשבוע שלו: מנהל שנכנס
+         מחפש קודם את עצמו, ומיד אחר כך את מי שמחכה למילה ממנו.
+         הקטע כולו נעלם אצל מי שאינו מנהל — הוא מחזיר רשימה ריקה.
+      */}
+      <TeamFeedback />
 
       {/* ================= השרשרת ================= */}
       <section className="mv-card mv-card--pad mb-[18px]" aria-labelledby="trend-heading">

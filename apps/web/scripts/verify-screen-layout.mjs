@@ -70,6 +70,7 @@ const FILTERS = read("../src/app/list-filters.tsx");
 const MENTOR = read("../src/app/mentor/page.tsx");
 const MENTOR_TREND = read("../src/app/mentor/weekly-trend.tsx");
 const MENTOR_QUOTES = read("../src/app/mentor/quotes-section.tsx");
+const MENTOR_TEAM = read("../src/app/mentor/team-feedback.tsx");
 
 const problems = [];
 
@@ -510,6 +511,30 @@ if (!/<cite/u.test(MENTOR_QUOTES)) {
 /* ‏מיקום ה*רינדור*, לא של ה-import שיושב בראש הקובץ בכל מקרה */
 if (MENTOR.indexOf("<QuotesSection />") < MENTOR.indexOf("trend-heading")) {
   problems.push("משפטי המוטבציה — עלו מעל המספרים; מקומם בתחתית המסך");
+}
+
+/* ==========================================================================
+ * ‏פידבק המנהל — מה שנחשף, ומה שאסור להיחשף
+ *
+ * ‏המנהל אמור לדעת שסוכן עמד במה שהתחייב לו. הוא **אינו** אמור
+ * לקרוא „מה בדרך כלל עוצר אותך” — זה הדבר הפרטי ביותר שמתווך כותב
+ * כאן, והוא נכתב מתוך הנחה שאיש אחר לא יקרא אותו. דליפה שלו הופכת
+ * את המנטור לכלי דיווח, ואז איש לא יכתוב בו דבר אמיתי שוב.
+ *
+ * ‏השרת כבר אינו מחזיר את השדות האלה, והשער כאן שומר על הצד השני:
+ * שהמסך לא יתחיל לבקש אותם.
+ * ========================================================================== */
+
+for (const secret of ["obstacle", "ifThenPlan"]) {
+  if (MENTOR_TEAM.includes(secret)) {
+    problems.push(`פידבק המנהל — המסך נוגע ב-${secret}, שהוא פרטי לסוכן`);
+  }
+}
+if (!/FEEDBACK_SUGGESTIONS/u.test(MENTOR_TEAM)) {
+  problems.push("פידבק המנהל — אין משפטים מוכנים; מנהל שצריך לחבר טקסט לא יכתוב");
+}
+if (!/rows\.length === 0\) return null/u.test(MENTOR_TEAM)) {
+  problems.push("פידבק המנהל — הקטע מוצג גם לסוכן שאין לו צוות, ומראה כרטיס ריק");
 }
 
 if (problems.length > 0) {

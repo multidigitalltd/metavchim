@@ -370,6 +370,28 @@ export function splitToHorizon(yearlyTarget: number, horizon: GoalHorizon): numb
 export type WeeklyCommitment = Partial<Record<LeadMeasure, number>>;
 export type WeeklyActual = Partial<Record<LeadMeasure, number>>;
 
+/**
+ * ‎**קריאת התחייבות מ-JSON — במקום אחד לשני התהליכים.**
+ *
+ * ‏ה-API קורא אותה כדי להציג את הציון, והסורק היומי קורא אותה כדי
+ * להחליט אם הסוכן סגר את השבוע. שני מפענחים נפרדים לאותו JSON הם
+ * שתי דעות על מה נחשב התחייבות — ומספיק שאחד מהם יקבל אפס או ערך
+ * שלילי כדי שהמנהל יקבל חגיגה על שבוע שהסוכן רואה כלא-סגור.
+ *
+ * ‏רק מספר חיובי הוא התחייבות: אפס פירושו „לא התחייבתי לזה”, ולא
+ * „התחייבתי לכלום”.
+ */
+export function parseWeeklyCommitment(value: unknown): WeeklyCommitment {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return {};
+  const raw = value as Record<string, unknown>;
+  const out: WeeklyCommitment = {};
+  for (const measure of LEAD_MEASURES) {
+    const n = raw[measure];
+    if (typeof n === "number" && Number.isFinite(n) && n > 0) out[measure] = Math.floor(n);
+  }
+  return out;
+}
+
 export interface WeeklyScore {
   /** אחוז ביצוע 0..100, ממוצע על הפעולות שהתחייב להן. */
   percent: number;

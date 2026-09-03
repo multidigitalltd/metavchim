@@ -31,6 +31,18 @@ const CONTROLLER = readFileSync(
   "utf8",
 );
 /** המקור השני לערכי הכיוון — מה שנכתב למסד בפועל. */
+/**
+ * ‎**הסורק היומי — עותק שני של „מה נחשב”, ולכן הוא נשמר כאן.**
+ *
+ * ‎`apps/workers` אינה יכולה לייבא מ-`apps/api`, ולכן ספירת הפעולות
+ * חוזרת שם. זהו הסיכון האמיתי של התכונה: סוכן שרואה במסך „40 שיחות”
+ * ומנהל שמקבל הודעה על 12 הם שני מקורות אמת, ואז אי אפשר להאמין
+ * לאף אחד מהם.
+ */
+const WORKER = readFileSync(
+  join(import.meta.dirname, "../../../../workers/src/main.ts"),
+  "utf8",
+);
 const CALLS_SERVICE = readFileSync(
   join(import.meta.dirname, "../calls/calls.service.ts"),
   "utf8",
@@ -110,8 +122,15 @@ describe("המנטור — היקף אישי", () => {
      * ‎`mentorGoal` ו-`mentorWeeklyScore` הן היחידות ששמורות פר-אדם.
      * שאר הטבלאות (שיחות, פגישות) מסוננות לפי העמודה שלהן, ולכן הן
      * נבדקות בבדיקה הבאה ולא כאן.
+     *
+     * ‎**`mentorAchievement` היא היוצא מן הכלל היחיד, והוא מכוון.**
+     * ‏„סוכן סגר את היעד השבועי” *נועד* להיראות בידי ההנהלה — זו כל
+     * מטרת הטבלה, והיא מה שמאפשר למנהל להגיב. הגבול נשמר במקום אחר
+     * ונבדק בנפרד: היעד עצמו, המכשול ותוכנית ה„אם-אז” נשארים פרטיים.
      */
-    const mentorTables = tenantQueries().filter((q) => q.call.startsWith("mentor"));
+    const mentorTables = tenantQueries().filter(
+      (q) => q.call.startsWith("mentor") && !q.call.startsWith("mentorAchievement"),
+    );
     expect(mentorTables.length).toBeGreaterThan(2);
     const leaky = mentorTables
       .filter((q) => !q.body.includes("userId") && !q.body.includes("...scope"))
@@ -156,6 +175,84 @@ describe("המנטור — היקף אישי", () => {
      */
     expect(byCall.get("lead.findMany")).toContain("assignedToUserId: scope.userId");
     expect(byCall.get("buyer.findMany")).toContain("ownerUserId: scope.userId");
+  });
+});
+
+describe("הסורק היומי סופר בדיוק כמו המסך", () => {
+  /**
+   * ‎**הפרדיקטים נגזרים מ-`mentor.service.ts`, ולא נכתבים כאן.**
+   *
+   * ‏אילו היו כתובים כאן, הבדיקה הייתה מאשרת את מה שאני זוכר —
+   * וכבר עשיתי בדיוק את הטעות הזו פעם אחת בשער הזה עצמו. הדרך
+   * היחידה שהיא שווה משהו היא אם היא קוראת את הפרדיקט מהצד שהמסך
+   * משתמש בו, ומחפשת אותו בצד השני.
+   */
+  const DECISIVE = [
+    /direction: "outbound"/u,
+    /status: "completed"/u,
+    /deletedAt: null/u,
+    /assignedToUserId: userId/u,
+    /ownerUserId: userId/u,
+    /agentUserId: userId/u,
+  ];
+
+  it("כל פרדיקט מכריע שמופיע בספירת ה-API מופיע גם בסורק", () => {
+    const apiBody = functionBody("private async measureTimes");
+    const workerBody = (() => {
+      const at = WORKER.indexOf("async function mentorWeekActual(");
+      expect(at).toBeGreaterThan(-1);
+      return WORKER.slice(at, WORKER.indexOf("\n}\n", at));
+    })();
+
+    const inApi = DECISIVE.filter((re) => re.test(apiBody) || re.test(SERVICE));
+    expect(inApi.length).toBe(DECISIVE.length);
+
+    const missing = inApi.filter((re) => !re.test(workerBody)).map((re) => re.source);
+    expect(missing).toEqual([]);
+  });
+
+  it("הסורק משייך שיחות ספק דרך הליד, כמו ה-API", () => {
+    const at = WORKER.indexOf("async function mentorWeekActual(");
+    const body = WORKER.slice(at, WORKER.indexOf("\n}\n", at));
+    /* ‏אותה נפילה בדיוק: יוצר קודם, ובהיעדרו הליד שהשיחה נוגעת בו */
+    expect(body).toContain("r.createdBy === null && r.leadId !== null");
+    expect(body).toContain("assignedToUserId: userId");
+  });
+
+  it("הסורק והמסך קוראים התחייבות באותו מפענח", () => {
+    /*
+     * ‏שני מפענחים לאותו JSON הם שתי דעות על מה נחשב התחייבות, ודי
+     * שאחד יקבל אפס כדי שהמנהל יקבל חגיגה על שבוע שהסוכן רואה
+     * כלא-סגור.
+     */
+    expect(SERVICE).toContain("parseWeeklyCommitment(");
+    expect(WORKER).toContain("parseWeeklyCommitment(");
+    expect(WORKER).not.toMatch(/function\s+\w*[Cc]ommitment\s*\(/u);
+  });
+
+  it("החגיגה נכתבת פעם אחת — האילוץ מכריע, ולא בדיקה לפני כתיבה", () => {
+    const at = WORKER.indexOf("async function processMentorGoalSweep(");
+    expect(at).toBeGreaterThan(-1);
+    const body = WORKER.slice(at, WORKER.indexOf("\n}\n", at));
+    /*
+     * ‏**שתי הכתיבות**, ולא אחת: ההישג עצמו וההתראות למנהלים. הנוסח
+     * הקודם הסתפק ב-`toContain`, וזה עבר גם כשההגנה הוסרה מההישג
+     * ונשארה על ההתראות — כלומר הבדיקה מצאה את המחרוזת השנייה
+     * ואישרה את הראשונה. נתפס במוטציה.
+     */
+    const guards = [...body.matchAll(/skipDuplicates: true/gu)];
+    expect(guards.length).toBeGreaterThanOrEqual(2);
+    expect(body).not.toContain("skipDuplicates: false");
+    expect(body).toContain("created.count === 0");
+    /* ‏רק מי שבאמת עמד ביעד */
+    expect(body).toContain("score.percent < 100");
+  });
+
+  it("מי מקבל את ההודעה נגזר מיכולת, ולא מרשימת תפקידים כתובה ביד", () => {
+    const at = WORKER.indexOf("async function processMentorGoalSweep(");
+    const body = WORKER.slice(at, WORKER.indexOf("\n}\n", at));
+    expect(body).toContain("rolesWithCapability");
+    expect(body).not.toMatch(/\["owner",\s*"admin"\]/u);
   });
 });
 
@@ -344,8 +441,50 @@ describe("המנטור — הגבול מול העולם", () => {
      * עצמה מופיעה בתיעוד שמסביר למה אין כאן יכולת, ובדיקת מחרוזת
      * הייתה בודקת את ההערה.
      */
-    expect(CONTROLLER).not.toMatch(/@RequireCapability\(/u);
+    /*
+     * ‏היכולת היחידה שמותרת כאן היא `analytics.view`, והיא שומרת על
+     * מסך ההישגים בלבד — „מי סגר את היעד” — ולא על היעד עצמו.
+     * ‎`mentor.view_all` או כל יכולת שנושאת „mentor” הייתה בדיוק
+     * הדלת האחורית שהבדיקה הזו נועדה למנוע.
+     */
+    const gated = [...CONTROLLER.matchAll(/@RequireCapability\("([^"]+)"\)/gu)].map(
+      (m) => m[1],
+    );
+    expect([...new Set(gated)]).toEqual(["analytics.view"]);
     expect(CONTROLLER).toMatch(/@AnyAuthenticated\(\)/u);
+
+    /* ‏נתיבי היעד עצמם נשארים אישיים ובלי יכולת */
+    for (const route of ['@Get("overview")', '@Put("goals/:horizon")', '@Delete("goals/:horizon")']) {
+      const at = CONTROLLER.indexOf(route);
+      expect(at).toBeGreaterThan(-1);
+      /* ‏הדקורטור שמעל הנתיב — בחלון שלפניו */
+      expect(CONTROLLER.slice(Math.max(0, at - 120), at)).toContain("@AnyAuthenticated()");
+    }
+  });
+
+  it("ההישג נחשף להנהלה — והיעד, המכשול ותוכנית ה„אם-אז” אינם", () => {
+    /*
+     * ‎**זה הגבול שמחזיק את כל התכונה.**
+     *
+     * ‏מנהל אמור לדעת שסוכן סגר את השבוע, כדי להגיד על כך מילה. הוא
+     * **אינו** אמור לקרוא „מה בדרך כלל עוצר אותך” — זה הדבר הפרטי
+     * ביותר שמתווך כותב במערכת הזו, והוא נכתב מתוך הנחה שאיש אחר
+     * לא יקרא אותו. דליפה שלו הייתה הופכת את המנטור לכלי דיווח,
+     * ואז איש לא יכתוב שם דבר אמיתי שוב.
+     */
+    const dto = SERVICE.slice(
+      SERVICE.indexOf("export interface AchievementDto {"),
+      SERVICE.indexOf("}", SERVICE.indexOf("export interface AchievementDto {")),
+    );
+    expect(dto.length).toBeGreaterThan(50);
+    for (const secret of ["obstacle", "ifThenPlan", "target", "unit"]) {
+      expect(dto).not.toContain(secret);
+    }
+
+    /* ‏והשאילתה עצמה נוגעת רק בטבלת ההישגים ובשמות */
+    const body = functionBody("async achievements(");
+    const models = [...new Set(queriesIn(body).map((q) => q.call.split(".")[0]))];
+    expect(models.sort()).toEqual(["mentorAchievement", "user"]);
   });
 
   it("קביעה חוזרת מעדכנת ואינה מוסיפה יעד שני", () => {
