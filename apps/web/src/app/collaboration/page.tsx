@@ -524,8 +524,9 @@ function DemandSection({
             {subtitle}
           </p>
         </div>
+        {/* ‏„1 ביקושים” אינו עברית — יחיד מקבל את הצורה שלו */}
         <span className={`mv-pill mv-domain-${domain}`}>
-          {count} ביקושים
+          {count === 1 ? "ביקוש אחד" : `${count} ביקושים`}
         </span>
       </div>
       {children}
