@@ -27,39 +27,15 @@ const CONTROLLER = readFileSync(
   new URL("./whatsapp-webhook.controller.ts", import.meta.url),
   "utf8",
 );
+const INBOUND = readFileSync(
+  new URL("./whatsapp-inbound.service.ts", import.meta.url),
+  "utf8",
+);
 
-describe("שני נתיבי Webhook", () => {
-  it("לאפליקציית החיבור נתיב משלה — GET ו-POST", () => {
+describe("שני נתיבי Webhook, וגבול שנאכף בעיבוד", () => {
+  it("לאפליקציית החיבור נתיב וטוקן משלה", () => {
     expect(CONTROLLER).toContain('@Get("connect")');
     expect(CONTROLLER).toContain('@Post("connect")');
-  });
-
-  it("כל נתיב מקבל סוד אחד, ולא רשימה של שניהם", () => {
-    /*
-     * ‏הצורה הישנה: מערך משני הסודות שנבנה פעם אחת ומשמש את שניהם.
-     * ‏`accept` מקבל **סוד יחיד**, והמערך שבתוכו הוא רק כדי לשמור על
-     * צורת ההשוואה הקיימת.
-     */
-    expect(CONTROLLER).toContain(
-      "private async accept(req: Request, secret: string | undefined)",
-    );
-    expect(CONTROLLER, "שני הסודות שוב על אותו נתיב").not.toContain(
-      'this.platformSettings.get("whatsappAppSecret")) ?? env.WHATSAPP_APP_SECRET,\n          (await this.platformSettings.get("whatsappConnectAppSecret"))',
-    );
-  });
-
-  it("נתיב הסוכן אינו מקבל את הסוד של אפליקציית החיבור", () => {
-    const agent = CONTROLLER.slice(
-      CONTROLLER.indexOf("async receive(@Req() req: Request)"),
-      CONTROLLER.indexOf("async receiveConnect("),
-    );
-    expect(agent.length).toBeGreaterThan(20);
-    expect(agent, "הסוד של אפליקציית החיבור על נתיב הסוכן").not.toContain(
-      "whatsappConnectAppSecret",
-    );
-  });
-
-  it("לכל נתיב טוקן אימות משלו", () => {
     expect(CONTROLLER).toContain('this.platformSettings.get("whatsappConnectVerifyToken")');
     const agent = CONTROLLER.slice(
       CONTROLLER.indexOf("async verify("),
@@ -70,27 +46,73 @@ describe("שני נתיבי Webhook", () => {
   });
 
   /*
-   * ‎**התקנה עם אפליקציה אחת אינה נשברת.** כשהערכים הייעודיים ריקים
-   * נתיב החיבור נופל לאלה של קו הסוכן — אחרת השינוי הזה היה מפיל כל
-   * התקנה שלא הגדירה אותם, וזו בדיוק אינה ההכרעה.
+   * ‎**הנתיב הישן ממשיך לקבל את שתי החתימות.** המדריך הפנה לשם את
+   * שתי האפליקציות, והתקנה כזו קיימת בשטח: דחייה פתאומית של הסוד
+   * השני הייתה מפילה כל אירוע ב-401 עד שמישהו יעדכן ידנית אצל Meta
+   * — שקט מוחלט, בלי שדבר בקוד יצעק (ביקורת Codex).
    */
-  it("ריק בערכים הייעודיים נופל לקו הסוכן", () => {
-    const connect = CONTROLLER.slice(
+  it("הנתיב הישן אינו שובר התקנה שהפנתה אליו את שתי האפליקציות", () => {
+    const receive = CONTROLLER.slice(
+      CONTROLLER.indexOf("async receive(@Req() req: Request)"),
       CONTROLLER.indexOf("async receiveConnect("),
-      CONTROLLER.indexOf("private async agentSecret("),
     );
-    expect(connect).toContain("await this.agentSecret()");
-    const verify = CONTROLLER.slice(
-      CONTROLLER.indexOf("async verifyConnect("),
-      CONTROLLER.indexOf("private async agentToken("),
-    );
-    expect(verify).toContain("await this.agentToken()");
+    expect(receive).toContain("await this.candidates()");
   });
 
   /*
-   * המפתח נשמר בהצפנה כמו כל סוד, ולכן הוא חייב להיות ברשימת
-   * המפתחות המוכרים — אחרת השמירה נופלת בזמן ריצה ולא בקומפילציה.
+   * ‎**וזה מה שמחליף את ההפרדה שהנתיב לבדו לא נתן.**
+   *
+   * אימות אומר „חתום כדין”. בלי המקור, סוד של אפליקציית החיבור
+   * שדלף היה מספיק כדי לשלוח גוף עם ה-`phone_number_id` של קו
+   * הסוכן ולהריץ את הסוכן האישי בשמו של המתווך.
    */
+  it("המקור נגזר מהסוד שהתאים, ולא מהנתיב", () => {
+    expect(CONTROLLER, "some מאבד את מי שהתאים").toContain("const matched = candidates.find(");
+    expect(CONTROLLER).toContain("matched.source");
+    expect(CONTROLLER).toContain("this.inbound.handle(body as Record<string, unknown>, matched.source)");
+    /* הסוד של החיבור מייצג את החיבור בלבד — לעולם לא `any` */
+    expect(CONTROLLER).toContain('list.push({ secret: connect, source: "connect" })');
+    /* וכשאין סוד נפרד, אפליקציה אחת ממלאת את שני התפקידים */
+    expect(CONTROLLER).toContain('source: has(connect) ? "agent" : "any"');
+  });
+
+  it("ענף הסוכן חסום למקור של אפליקציית החיבור", () => {
+    expect(INBOUND).toContain('source: InboundSource = "any"');
+    expect(INBOUND).toContain('if (source === "connect" &&');
+    const guard = INBOUND.slice(
+      INBOUND.indexOf('if (source === "connect" &&'),
+      INBOUND.indexOf("this.assistant.handle("),
+    );
+    expect(guard.length).toBeGreaterThan(50);
+    expect(guard, "השומר חייב לעצור ולא רק לרשום ביומן").toContain("continue;");
+  });
+
+  /*
+   * ‏קליטת הלידים אינה מוגבלת למקור, ובכוונה: משרד שהזין את המספר
+   * שלו ידנית (מסלול הגיבוי) מגיע דרך אפליקציית הסוכן, וחסימה שם
+   * הייתה שוברת אותו בלי שאיש יבחין.
+   */
+  it("קליטת הלידים נשארת פתוחה לשני המקורות", () => {
+    const after = INBOUND.slice(INBOUND.indexOf("this.assistant.handle("));
+    expect(after, "מסלול הגיבוי הידני נחסם").not.toContain('source === "agent"');
+  });
+
+  /*
+   * שדה סוד ריק פירושו „בלי שינוי", ולכן עקיפה שאין לה כפתור ניקוי
+   * היא עקיפה חד-כיוונית — והמסך מבטיח את ההפך („ריק = אותה
+   * אפליקציה"). התיבה שולחת `""` לשני הערכים יחד.
+   */
+  it("אפשר לחזור מאפליקציה נפרדת לאחת", () => {
+    const platform = readFileSync(
+      new URL("../../../../web/src/app/platform/platform-settings-section.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(platform).toContain('f.get("whatsappConnectClear") !== null');
+    expect(platform).toContain(
+      '{ whatsappConnectAppSecret: "", whatsappConnectVerifyToken: "" }',
+    );
+  });
+
   it("הטוקן החדש מוכר גם בשירות ההגדרות וגם בסכמת השמירה", () => {
     const service = readFileSync(
       new URL("../../core/platform-settings.service.ts", import.meta.url),

@@ -194,6 +194,12 @@ const WebhookSchema = z.object({
   ),
 });
 
+/**
+ * מי חתם על הבקשה — אפליקציית קו הסוכן, אפליקציית החיבור, או
+ * אפליקציה אחת שממלאת את שני התפקידים.
+ */
+export type InboundSource = "agent" | "connect" | "any";
+
 @Injectable()
 export class WhatsAppInboundService {
   private readonly logger = new Logger(WhatsAppInboundService.name);
@@ -208,7 +214,13 @@ export class WhatsAppInboundService {
     private readonly connections: WhatsAppConnectionService,
   ) {}
 
-  async handle(payload: Record<string, unknown>): Promise<void> {
+  /**
+   * ‎`source` = **בשם מי** נחתמה הבקשה, לא לאיזו כתובת היא נשלחה.
+   *
+   * ברירת המחדל `any` היא בשביל קריאה ישירה בבדיקות; מהוובהוק היא
+   * תמיד מגיעה מפורשת, ונגזרת מה-App Secret שהתאים.
+   */
+  async handle(payload: Record<string, unknown>, source: InboundSource = "any"): Promise<void> {
     const parsed = WebhookSchema.safeParse(payload);
     if (!parsed.success) {
       this.logger.warn("Webhook payload לא בפורמט צפוי — נזרק");
@@ -314,6 +326,26 @@ export class WhatsAppInboundService {
           this.logger.log(
             `הודעה לקו ${incomingLine} — אינו קו הסוכן (${assistantCreds.phoneNumberId}); ממשיכים לניתוב לפי משרד`,
           );
+        }
+        /*
+         * ‎**רק אפליקציית הסוכן מפעילה את הסוכן.**
+         *
+         * הענף הזה נסמך על `phone_number_id` שבגוף הבקשה, והגוף
+         * חתום — אך חתום **בסוד כלשהו שהמערכת מכירה**. בלי התנאי
+         * הזה, סוד של אפליקציית החיבור שדלף היה מספיק כדי להריץ
+         * את הסוכן האישי בשמו של המתווך: לשלוח הודעות, לפתוח
+         * משימות, לגעת בנתונים. אימות אומר „חתום כדין”; זה אומר
+         * „ומותר לו לעשות את זה” (ביקורת Codex).
+         *
+         * ‏קליטת הלידים **אינה** מוגבלת כך במכוון: משרד שהזין את
+         * המספר שלו ידנית (מסלול הגיבוי) מגיע דרך אפליקציית הסוכן,
+         * וחסימה שם הייתה שוברת אותו.
+         */
+        if (source === "connect" && value.metadata?.phone_number_id === assistantCreds?.phoneNumberId) {
+          this.logger.warn(
+            "הודעה לקו הסוכן הגיעה חתומה בסוד של אפליקציית החיבור — לא מופעל הסוכן",
+          );
+          continue;
         }
         if (
           assistantCreds !== null &&

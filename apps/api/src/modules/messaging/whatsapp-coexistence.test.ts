@@ -34,10 +34,23 @@ const WEBHOOK = read("./whatsapp-webhook.controller.ts");
  * כשגיאת אימות של Meta שאינה מרמזת על הסיבה.
  */
 describe("אפליקציית חיבור נפרדת", () => {
+  /*
+   * ‎`find` ולא `some`, ובכוונה: הערבות כאן זהה — הנתיב הישן ממשיך
+   * לנסות את שני הסודות ולכן התקנה שהפנתה אליו את שתי האפליקציות
+   * אינה נשברת — אבל מי שהתאים נשמר, כי הוא זה שקובע **בשם מי**
+   * הבקשה פועלת. `some` היה מאבד את המידע הזה, וזה מה שאִפשר לסוד
+   * של אפליקציית החיבור להפעיל את הסוכן האישי (ביקורת Codex).
+   */
   it("אימות החתימה מנסה את שני הסודות ולא אחד", () => {
     expect(WEBHOOK).toContain('this.platformSettings.get("whatsappConnectAppSecret")');
-    // ‏`some` על רשימת סודות — לא השוואה יחידה שנועלת אפליקציה אחת
-    expect(WEBHOOK).toMatch(/secrets\.some\(/u);
+    expect(WEBHOOK).toContain('this.platformSettings.get("whatsappAppSecret")');
+    expect(WEBHOOK).toMatch(/candidates\.find\(/u);
+    // הנתיב הישן מקבל את הרשימה המלאה, ולא סוד יחיד
+    const receive = WEBHOOK.slice(
+      WEBHOOK.indexOf("async receive(@Req() req: Request)"),
+      WEBHOOK.indexOf("async receiveConnect("),
+    );
+    expect(receive).toContain("await this.candidates()");
   });
 
   it("הסוד לנפילה חוזרת הוא של אפליקציה אחת, כך שהתקנה קיימת אינה נשברת", () => {
