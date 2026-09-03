@@ -1801,6 +1801,11 @@ export class PlatformController {
         /** האם `WHATSAPP_CONNECT_APP_SECRET` קיים — גם כשהמסד גובר. */
         envFallback: boolean;
         webhookUrl: string;
+        secretSet: boolean;
+        verifyTokenSet: boolean;
+        /** מזהים ציבוריים — הערך עצמו, כי המסך מציג אותם לעריכה. */
+        appId: string;
+        signupConfigId: string;
       };
       /** הצד היוצא — הסוכן האישי עונה רק כשהוא מוגדר */
       assistant: {
@@ -1962,7 +1967,19 @@ export class PlatformController {
      * אחת" בזמן שהסוד הנפרד ממשיך לפעול (ביקורת Codex).
      */
     const waConnectEnv = env.WHATSAPP_CONNECT_APP_SECRET !== undefined;
+    const waConnectSecret = has("whatsappConnectAppSecret") || waConnectEnv;
+    const waConnectVerify = has("whatsappConnectVerifyToken");
     const waConnectDb = has("whatsappConnectAppSecret") || has("whatsappConnectVerifyToken");
+    /*
+     * ‎**שני המזהים חוזרים כערך ולא כ„מוגדר".**
+     *
+     * הם ציבוריים מעצם טיבם — נשלחים לדפדפן של המתווך כדי לפתוח את
+     * הפופאפ — ולכן אין סיבה להסתיר אותם. וזה גם מה שהופך את המסך
+     * לשמיש: בלי הערך המוצג, מי שהזין אותם ולחץ „שמור" ראה שדה ריק
+     * ולא יכול היה לדעת אם נשמרו (דיווח מהשטח).
+     */
+    const waAppId = (await this.platformSettings.get("whatsappAppId")) ?? "";
+    const waSignupConfigId = (await this.platformSettings.get("whatsappSignupConfigId")) ?? "";
     const waOutDb = has("whatsappAccessToken") && has("whatsappPhoneNumberId");
     const whatsappBotNumber = (await this.platformSettings.get("whatsappBotNumber")) ?? "";
     const waOutEnv =
@@ -2068,6 +2085,12 @@ export class PlatformController {
            */
           envFallback: waConnectEnv,
           webhookUrl: `${env.WEB_ORIGIN}/api/v1/webhooks/whatsapp/connect`,
+          /* „מוגדר" לכל סוד בנפרד — אחרת המסך אינו יכול לומר מה נשמר */
+          secretSet: waConnectSecret,
+          verifyTokenSet: waConnectVerify,
+          /* ערכים, לא „מוגדר": מזהים ציבוריים שמוצגים חזרה לעריכה */
+          appId: waAppId,
+          signupConfigId: waSignupConfigId,
         },
         assistant: {
           configured: waOutDb || waOutEnv,

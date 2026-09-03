@@ -118,17 +118,42 @@ describe("שני נתיבי Webhook, וגבול שנאכף בעיבוד", () => 
   });
 
   /*
-   * שדה סוד ריק פירושו „בלי שינוי", ולכן עקיפה שאין לה כפתור ניקוי
-   * היא עקיפה חד-כיוונית — והמסך מבטיח את ההפך („ריק = אותה
-   * אפליקציה"). התיבה שולחת `""` לשני הערכים יחד.
+   * ‎**המסך חייב לומר מה נשמר.**
+   *
+   * שני המזהים ציבוריים, ולכן חוזרים כערך ומוצגים לעריכה; שני
+   * הסודות חוזרים כ„מוגדר" ומוצגים כנקודות. בלי זה מי שהזין ושמר
+   * ראה ארבעה שדות ריקים והסיק שהשמירה נכשלה (דיווח מהשטח).
    */
-  it("אפשר לחזור מאפליקציה נפרדת לאחת", () => {
+  it("מצב אפליקציית החיבור חוזר למסך", () => {
+    const controller = readFileSync(
+      new URL("../platform/platform.controller.ts", import.meta.url),
+      "utf8",
+    );
+    for (const field of ["appId:", "signupConfigId:", "secretSet:", "verifyTokenSet:"]) {
+      expect(controller, `${field} אינו חוזר בתשובת ההגדרות`).toContain(field);
+    }
     const platform = readFileSync(
       new URL("../../../../web/src/app/platform/platform-settings-section.tsx", import.meta.url),
       "utf8",
     );
-    expect(platform).toContain('f.get("whatsappConnectClear") !== null');
+    expect(platform).toContain("defaultValue={settings.whatsapp.connect?.appId ?? \"\"}");
     expect(platform).toContain(
+      "defaultValue={settings.whatsapp.connect?.signupConfigId ?? \"\"}",
+    );
+  });
+
+  /*
+   * התיבה ישבה בתוך `label` שעוטף פסקה ארוכה: סימון בטעות תוך כדי
+   * בחירת טקסט היה מוחק את שני הסודות בשמירה הבאה, בשקט. הוסרה
+   * לבקשת בעל המוצר, וריק חזר להיות „בלי שינוי" כמו כל סוד במסך.
+   */
+  it("אין תיבה שמוחקת סודות בשמירה", () => {
+    const platform = readFileSync(
+      new URL("../../../../web/src/app/platform/platform-settings-section.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(platform).not.toContain("whatsappConnectClear");
+    expect(platform, "שליחת ריק מוחקת סוד").not.toContain(
       '{ whatsappConnectAppSecret: "", whatsappConnectVerifyToken: "" }',
     );
   });
