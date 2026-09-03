@@ -91,7 +91,6 @@ const SCREEN_TITLES: [prefix: string, title: string][] = [
   ["/search", "חיפוש"],
   ["/profile", "הפרופיל שלי"],
   ["/tasks", "משימות"],
-  ["/guides", "הדרכות"],
   ["/forum", "פורום"],
   ["/mentor", "המנטור האישי שלך"],
   ["/media", "רכש מדיה"],
@@ -566,6 +565,33 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   };
 
+  /**
+   * פריט שמוביל אל מחוץ למערכת — נפתח בלשונית חדשה.
+   *
+   * ‎`rel="noopener"` אינו קישוט: בלעדיו העמוד שנפתח מקבל
+   * ‎`window.opener` אל האפליקציה. `noreferrer` איתו, כי מה
+   * שנפתח אינו צריך לדעת מאיזה מסך במערכת יצאו.
+   *
+   * הסימן ליד התווית מוסתר מקורא מסך — השם הנגיש כבר אומר
+   * „נפתח בלשונית חדשה”, ואייקון שמוכרז אחריו חוזר על עצמו.
+   */
+  const navExternal = (href: string, label: string, icon: ReactNode): ReactNode => (
+    <a
+      key={href}
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mv-sidebar-link"
+      aria-label={`${label} — נפתח בלשונית חדשה`}
+    >
+      {icon}
+      <span className="mv-sidebar-label">{label}</span>
+      <span aria-hidden="true" className="mv-nav-external">
+        ↗
+      </span>
+    </a>
+  );
+
   const count = (n: number | undefined): ReactNode =>
     n !== undefined && n > 0 ? <span className="mv-nav-count">{n}</span> : null;
 
@@ -684,7 +710,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           ICONS.media,
           <span className="mv-nav-soon">בקרוב</span>,
         )}
-        {navLink("/guides", "הדרכות", ICONS.guides)}
+        {/*
+          „הדרכות” מפנה לתיעוד הציבורי ואינו מסך במערכת.
+
+          התוכן אחד, והבית שלו הוא `/docs` — פתוח לקריאה בלי חשבון,
+          ולכן גם מי ששוקל להצטרף ומודל שפה שנשאל עליו מגיעים אליו.
+          לשונית חדשה ולא ניווט במקום: מתווך שלוחץ „הדרכות” באמצע
+          עבודה לא אמור לאבד את המסך שהוא עמד בו, ו-`/docs` הוא
+          עמוד ציבורי בלי סרגל צד — כלומר בלי דרך חזרה.
+        */}
+        {navExternal("/docs", "הדרכות", ICONS.guides)}
         {managesOffice ? navLink("/settings", "ניהול משרד", ICONS.office) : null}
         {managesOffice && !setupDone ? navLink("/setup", "הקמה", ICONS.setup) : null}
         {me?.isPlatformAdmin ? navLink("/platform", "פלטפורמה", ICONS.platform) : null}
