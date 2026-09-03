@@ -37,7 +37,11 @@ export interface PushPayload {
  * סיכום, לא אירוע — פוש עליהם הוא בדיוק סוג הרעש שגורם למשתמש
  * לכבות את ההרשאה, ואז גם ההתראות שכן דחופות לא מגיעות.
  */
-const NO_PUSH_TYPES = new Set(["daily_brief", "weekly_summary"]);
+const NO_PUSH_TYPES = new Set([
+  "daily_brief",
+  "weekly_summary",
+  "mentor_weekly",
+]);
 
 export function shouldPush(notification: PushableNotification): boolean {
   return !NO_PUSH_TYPES.has(notification.type);
@@ -61,6 +65,7 @@ const ENTITY_ROUTES: Record<string, (id?: string) => string> = {
   match: (id) => (id ? `/matches/${id}` : "/matches"),
   coop_offer: (id) => (id ? `/collaboration/${id}` : "/collaboration"),
   call: (id) => (id ? `/calls?call=${id}` : "/calls"),
+  mentor: () => "/mentor",
 };
 
 /**

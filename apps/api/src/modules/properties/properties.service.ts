@@ -34,6 +34,7 @@ function propertyTypesFor(term: string): string[] {
 import { lockContact, lockProperty, type ContactLock } from "../../common/locks";
 import { isOrphanContact, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
+import { recordMentorWin } from "../../common/mentor-wins";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -761,6 +762,26 @@ export class PropertiesService {
       // (ביקורת Codex, PR #1). החלטות ידניות (offered/dismissed) נשמרות כהיסטוריה.
       if (status !== undefined && !["draft", "active"].includes(status)) {
         await this.retireMatches(tx, id);
+        /*
+         * עסקה — נמכר או הושכר — נחגגת **כאן**, ברגע שסומנה, אצל מי
+         * שסימן: לנכס אין שדה „סוכן”, ומי שמסמן „נמכר” הוא מי שסגר.
+         * אידמפוטנטי — נכס שחוזר ל„פעיל” ונמכר שוב אינו נחגג פעמיים.
+         */
+        if (["sold", "rented"].includes(status) && existing.status !== status) {
+          const actor = TenantContext.current().userId;
+          if (actor !== "") {
+            await recordMentorWin(tx, {
+              tenantId,
+              userId: actor,
+              kind: "deal_closed",
+              entityType: "property",
+              entityId: id,
+              title:
+                (marketingTitle ?? existing.marketingTitle) ??
+                ([existing.street, existing.city].filter(Boolean).join(", ") || "נכס"),
+            });
+          }
+        }
         // מעבר אמיתי החוצה משיווק — סגירת מעגל מול קונים מעוניינים:
         // Worker יוצר משימות "הצע חלופה" לסוכנים (docs/01 — שום עסקה
         // לא נופלת בין הכיסאות)

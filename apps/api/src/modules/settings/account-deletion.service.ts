@@ -429,6 +429,11 @@ export class AccountDeletionService {
          * של משרד שנמחק — בדיוק ההפך מ„שום פרט לא נשמר אחריה”.
          */
         await tx.featureSignup.deleteMany({ where: { tenantId } });
+        // המנטור האישי — יעדים, סיכומים ושיחה של כל סוכן במשרד
+        await tx.mentorMessage.deleteMany({ where: { tenantId } });
+        await tx.mentorWin.deleteMany({ where: { tenantId } });
+        await tx.mentorReview.deleteMany({ where: { tenantId } });
+        await tx.mentorGoal.deleteMany({ where: { tenantId } });
         await tx.propertyTwin.deleteMany({ where: { tenantId } });
         /*
          * בקשות טופס הלקוח — כולל `answers`, שהוא מה שהלקוח כתב על

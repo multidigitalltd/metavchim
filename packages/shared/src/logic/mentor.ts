@@ -621,6 +621,99 @@ export function mentorWeeklyReview(
   return { mood, headline, paragraphs, askNextWeek, reflection };
 }
 
+/**
+ * הסדר שבו הצלחות נאמרות, וכמה מהן: עסקה קודם לבלעדיות, ושתיהן
+ * לפני „מעוניין”. שש לכל היותר — משפט עם עשר הצלחות אינו חגיגה
+ * אלא רשימה, ומי שסגר עשר יודע.
+ */
+const WIN_ORDER: Record<MentorWinKind, number> = {
+  deal_closed: 0,
+  coop_deal: 1,
+  exclusivity_signed: 2,
+  offer_interested: 3,
+};
+const MAX_WINS_TOLD = 6;
+
+export function selectWins(wins: readonly MentorWin[]): MentorWin[] {
+  return [...wins]
+    .sort((a, b) => WIN_ORDER[a.kind] - WIN_ORDER[b.kind])
+    .slice(0, MAX_WINS_TOLD);
+}
+
+/**
+ * החגיגה המיידית — ההתראה שיוצאת **באותו יום**, לא במוצאי שבת.
+ * חיזוק קרוב לאירוע חזק מחיזוק בסוף השבוע (docs/13 §2).
+ */
+export function mentorCelebration(win: MentorWin): {
+  title: string;
+  body: string;
+} {
+  switch (win.kind) {
+    case "deal_closed":
+      return {
+        title: "🎉 סגרתם עסקה",
+        body: `${win.title} — נסגר. כל הכבוד. זה מה שכל השבוע היה בשבילו, והמנטור רושם.`,
+      };
+    case "exclusivity_signed":
+      return {
+        title: "🎉 בלעדיות נחתמה",
+        body: `${win.title} — הבלעדיות חתומה. נכס שסומכים עליכם בו הוא הבסיס לעסקה הבאה.`,
+      };
+    case "coop_deal":
+      return {
+        title: "🎉 עסקת שיתוף פעולה נסגרה",
+        body: `${win.title} — נסגר יחד עם משרד אחר. עסקה שלא הייתה קורית לבד.`,
+      };
+    case "offer_interested":
+      return {
+        title: "👍 קונה אמר „מעוניין”",
+        body: `${win.title} — הקונה הגיב שהוא מעוניין. זה הרגע לקבוע סיור.`,
+      };
+  }
+}
+
+/**
+ * מה שנשמר עם הסיכום — הכול נאמר, וגם מה שצריך כדי להציג אותו
+ * במסך ולחשב את הרצף בשבוע הבא, בלי לחשב מחדש נתונים שכבר השתנו.
+ */
+export interface MentorReviewBody {
+  paragraphs: string[];
+  askNextWeek: string | null;
+  reflection: string | null;
+  allGoalsMet: boolean;
+  wins: MentorWin[];
+  activity: MentorActivity;
+  goals: {
+    metric: MentorGoalMetric;
+    period: MentorGoalPeriod;
+    target: number;
+    actual: number;
+    pace: MentorPace;
+  }[];
+}
+
+export function mentorReviewBody(
+  signals: MentorWeekSignals,
+  review: MentorReview,
+): MentorReviewBody {
+  return {
+    paragraphs: review.paragraphs,
+    askNextWeek: review.askNextWeek,
+    reflection: review.reflection,
+    allGoalsMet:
+      signals.goals.length > 0 && signals.goals.every((g) => g.pace === "done"),
+    wins: signals.wins,
+    activity: signals.activity,
+    goals: signals.goals.map((g) => ({
+      metric: g.metric,
+      period: g.period,
+      target: g.target,
+      actual: g.actual,
+      pace: g.pace,
+    })),
+  };
+}
+
 /** כותרת ההתראה בפעמון ובוואטסאפ — לפי הטון, אייקון אחד לכל טון. */
 export function mentorReviewTitle(review: MentorReview): string {
   const icon =

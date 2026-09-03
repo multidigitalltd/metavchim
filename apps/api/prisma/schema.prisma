@@ -148,6 +148,10 @@ model User {
   agentEvents         AgentEvent[]
   whatsappLinks       WhatsAppLink[]
   nudgeOptOut         ActivationNudgeOptOut?
+  mentorGoals         MentorGoal[]
+  mentorReviews       MentorReview[]
+  mentorMessages      MentorMessage[]
+  mentorWins          MentorWin[]
 
   @@index([tenantId, isActive])
   @@map("users")
@@ -579,6 +583,89 @@ model FeatureSignup {
   @@unique([tenantId, userId, feature])
   @@index([tenantId, feature])
   @@map("feature_signups")
+}
+
+/// המנטור האישי — יעד שהמתווך קבע לעצמו (docs/13). `endedAt` ולא מחיקה:
+/// הסיכומים שכבר נאמרו מצטטים אותו.
+model MentorGoal {
+  id        String    @id @db.Char(26)
+  tenantId  String    @map("tenant_id") @db.Char(26)
+  userId    String    @map("user_id") @db.Char(26)
+  /// MENTOR_GOAL_METRICS — הרשימה הסגורה ב-shared
+  metric    String    @db.VarChar(30)
+  /// week | month
+  period    String    @db.VarChar(10)
+  target    Int
+  /// ה„למה” של המתווך — מצוטט כשקשה
+  why       String?   @db.VarChar(200)
+  /// כוונת יישום: „כש… אז…”
+  intention String?   @db.VarChar(200)
+  createdAt DateTime  @default(now()) @map("created_at")
+  /// NULL = פעיל
+  endedAt   DateTime? @map("ended_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, endedAt])
+  @@map("mentor_goals")
+}
+
+/// הסיכום השבועי של המנטור — נשמר כפי שנאמר, אחד לשבוע למשתמש.
+model MentorReview {
+  id               String    @id @db.Char(26)
+  tenantId         String    @map("tenant_id") @db.Char(26)
+  userId           String    @map("user_id") @db.Char(26)
+  /// ראשון 00:00 שעון ישראל, כ-UTC
+  weekStart        DateTime  @map("week_start")
+  /// celebrate | steady | encourage
+  mood             String    @db.VarChar(20)
+  headline         String    @db.VarChar(200)
+  /// הפסקאות, הבקשה והשאלה — ראו MentorReviewBody ב-shared
+  body             Json
+  reflectionAnswer String?   @map("reflection_answer") @db.VarChar(1000)
+  answeredAt       DateTime? @map("answered_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId, weekStart])
+  @@map("mentor_reviews")
+}
+
+/// הצלחה שנאמרת בשמה — נרשמת ברגע האירוע, עם מי שעשה אותה.
+model MentorWin {
+  id         String   @id @db.Char(26)
+  tenantId   String   @map("tenant_id") @db.Char(26)
+  userId     String   @map("user_id") @db.Char(26)
+  /// deal_closed | exclusivity_signed | offer_interested | coop_deal
+  kind       String   @db.VarChar(30)
+  entityType String   @map("entity_type") @db.VarChar(40)
+  entityId   String   @map("entity_id") @db.Char(26)
+  /// כותרת הנכס — בלי שם הלקוח
+  title      String   @db.VarChar(200)
+  happenedAt DateTime @default(now()) @map("happened_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, kind, entityId])
+  @@index([tenantId, userId, happenedAt])
+  @@map("mentor_wins")
+}
+
+/// תור בשיחה עם המנטור — של המשתמש בלבד.
+model MentorMessage {
+  id        String   @id @db.Char(26)
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  userId    String   @map("user_id") @db.Char(26)
+  /// user | mentor
+  role      String   @db.VarChar(10)
+  text      String   @db.VarChar(4000)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, createdAt])
+  @@map("mentor_messages")
 }
 
 model PropertyMedia {

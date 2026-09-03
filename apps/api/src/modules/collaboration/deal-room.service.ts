@@ -22,6 +22,7 @@ import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
 import { collabRecipient, sendCollabMail } from "./collab-mail";
 import { officeBadges } from "./office-names";
+import { recordMentorWin } from "../../common/mentor-wins";
 
 /**
  * חדר העסקה — סביבת העבודה המשותפת של שני משרדים.
@@ -788,6 +789,17 @@ export class DealRoomService {
         throw new ConflictException(
           "המשרד השותף עדכן את שלב העסקה באותו רגע — רעננו את המסך",
         );
+      // חוזה שנחתם — הצלחה של המנטור למי שסגר, במשרד שלו
+      if (stage === "signed" && ctx.userId !== "") {
+        await recordMentorWin(tx, {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          kind: "coop_deal",
+          entityType: "mentor",
+          entityId: id,
+          title: "עסקת שיתוף פעולה",
+        });
+      }
       await tx.coopDealMessage.create({
         data: {
           id: ulid(),

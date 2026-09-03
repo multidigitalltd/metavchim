@@ -72,6 +72,11 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   match_weights_calibrated: "matches",
 
   coop_deal: "network",
+
+  // המנטור האישי — הסיכום השבועי הוא סיכום; החגיגה היא אירוע, אבל
+  // על עצמי ולא על לקוח, ולכן באותה קטגוריה שהמשתמש בוחר בה
+  mentor_weekly: "digests",
+  mentor_win: "digests",
   coop_offer: "network",
   coop_offer_declined: "network",
   payout_decision: "network",

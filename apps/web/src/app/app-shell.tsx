@@ -64,6 +64,7 @@ const SCREEN_TITLES: [prefix: string, title: string][] = [
   ["/profile", "הפרופיל שלי"],
   ["/tasks", "משימות"],
   ["/guides", "הדרכות"],
+  ["/mentor", "המנטור האישי"],
   ["/forum", "פורום"],
 ];
 
@@ -629,7 +630,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span className="mv-nav-soon">בקרוב</span>,
         )}
         {/*
-          המנטור האישי — עמוד "בקרוב" עד ההשקה (בקשת המשתמש).
+          המנטור האישי — יעדים, סיכום שבועי ושיחה (docs/13).
           התג AI מסמן שזה פיצ'ר של בינה מלאכותית ולא עוד מסך נתונים.
         */}
         {navLink(
