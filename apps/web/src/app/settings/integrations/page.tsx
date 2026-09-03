@@ -78,8 +78,8 @@ export default function IntegrationsPage() {
     if (canWhatsapp) {
       /*
        * „מחובר” = יש לסוכן הזה קו וואטסאפ ביזנס פעיל. הבדיקה הקודמת
-       * (`/settings/whatsapp-status`) ענתה על שאלה אחרת — האם הוקלד
-       * מספר משרדי בשדה — והציגה „מחובר” למשרד שמעולם לא חיבר דבר.
+       * ענתה על שאלה אחרת — האם הוקלד מספר משרדי בשדה — והציגה
+       * „מחובר” למשרד שמעולם לא חיבר דבר. השדה והנתיב שלו הוסרו.
        */
       apiGet<{ connections: { status: string }[] }>("/whatsapp/connections")
         /*

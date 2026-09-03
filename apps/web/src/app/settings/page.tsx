@@ -160,7 +160,6 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
  */
 interface TenantSettings {
   name: string;
-  whatsappNumber?: string;
   plan: string;
   licenseNumber?: string;
   officeAddress?: string;
@@ -359,13 +358,11 @@ export default function SettingsPage() {
   async function saveTenant(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const f = new FormData(event.currentTarget);
-    const whatsapp = String(f.get("whatsappNumber") ?? "").replace(/\D/gu, "");
     try {
       // כל שדה נשלח תמיד, גם ריק: השרת מפרש "" כמחיקה, ובלי זה אי אפשר
       // היה לנקות שדה שמולא בטעות — הערך הריק פשוט לא נשלח ונשאר כשהיה
       await apiPatch("/settings/tenant", {
         name: String(f.get("name")).trim(),
-        whatsappNumber: whatsapp,
         licenseNumber: String(f.get("licenseNumber") ?? "").trim(),
         officeAddress: String(f.get("officeAddress") ?? "").trim(),
         officePhone: String(f.get("officePhone") ?? "").trim(),
@@ -1084,27 +1081,6 @@ export default function SettingsPage() {
                       defaultValue={tenant.name}
                       required
                       minLength={2}
-                      className="w-full rounded-lg border px-3 py-2.5"
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div className="mb-3.5">
-                    <label
-                      htmlFor="whatsappNumber"
-                      className="mb-1 block text-sm font-semibold"
-                    >
-                      מספר וואטסאפ משרדי{" "}
-                      <span className="font-normal">
-                        (רק לקו משותף שהוגדר על ידינו — המספר האישי של כל סוכן
-                        מתחבר בלשונית „חיבורים ומודולים”)
-                      </span>
-                    </label>
-                    <input
-                      id="whatsappNumber"
-                      name="whatsappNumber"
-                      dir="ltr"
-                      placeholder="972501234567"
-                      defaultValue={tenant.whatsappNumber ?? ""}
                       className="w-full rounded-lg border px-3 py-2.5"
                       style={inputStyle}
                     />

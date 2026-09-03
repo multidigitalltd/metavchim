@@ -385,20 +385,20 @@ export class WhatsAppInboundService {
         if (!value.messages?.length) continue;
 
         /*
-         * ‎**הניתוב לפי `phone_number_id` קודם למספר המוצג.**
+         * ‎**הניתוב לפי `phone_number_id` בלבד.**
          *
-         * המזהה הוא מפתח יציב של Meta ויושב על אינדקס ייחודי; המספר
-         * המוצג חוזר בפורמטים שונים ומושווה כספרות אחרי ניקוי. משרד
-         * שחיבר את הקו שלו דרך Embedded Signup מזוהה מיד, ומשרד
-         * שהוגדר ידנית לפני כן ממשיך לעבוד דרך ה-Fallback — שני
-         * המנגנונים חיים זה לצד זה, בלי מיגרציה של נתונים.
+         * המזהה הוא מפתח יציב של Meta ויושב על אינדקס ייחודי, וקו
+         * מגיע למשרד רק בדרך אחת — הסוכן חיבר אותו דרך Embedded
+         * Signup. המסלול הישן, שבו משרד הקליד מספר בהגדרות והפלטפורמה
+         * רשמה אותו ב-WABA שלה, הוסר: קו משותף של הפלטפורמה אינו
+         * מוצר שמציעים ללקוחות (החלטת בעל המוצר), והשדה שהזמין אותו
+         * הציג „מחובר” על מספר שמעולם לא חובר.
          */
         const businessNumber = value.metadata?.display_phone_number;
         const connection = value.metadata?.phone_number_id
           ? await this.connections.byPhoneNumberId(value.metadata.phone_number_id)
           : null;
-        const tenantId =
-          connection?.tenantId ?? (businessNumber ? await this.resolveTenant(businessNumber) : null);
+        const tenantId = connection?.tenantId ?? null;
         if (!tenantId) {
           this.logger.warn(
             `הודעה לקו ${incomingLine} (${businessNumber ?? "ללא מספר מוצג"}) — אינו מחובר לאף משרד; נזרקת`,
@@ -427,8 +427,6 @@ export class WhatsAppInboundService {
            *
            * תשובה שלמה היא קריאת LLM של שניות; Meta שאינה מקבלת
            * 200 בזמן שולחת את ההודעה שוב, כלומר תשובה כפולה ללקוח.
-           * במסלול הישן (מספר שהוקלד ידנית) אין `connection` ולכן
-           * גם אין קו לענות ממנו — הקליטה עובדת, הבוט פשוט לא רץ.
            */
           if (ingested && connection) {
             const line = connection;
@@ -793,15 +791,6 @@ export class WhatsAppInboundService {
         this.logger.warn(`סנכרון איש קשר נכשל: ${String(error)}`);
       }
     }
-  }
-
-  private async resolveTenant(businessNumber: string): Promise<string | null> {
-    const digits = businessNumber.replace(/\D/gu, "");
-    const tenant = await this.prisma.tenant.findFirst({
-      where: { settings: { path: ["whatsappNumber"], equals: digits } },
-      select: { id: true },
-    });
-    return tenant?.id ?? null;
   }
 
   private async ingestMessage(
