@@ -11,6 +11,7 @@ import {
 import { Button } from "@metavchim/ui";
 import { ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
 import { IconChat, IconChevronLeft, IconChevronRight, IconPlus, IconTrash } from "../icons";
+import { LoadError } from "../load-error";
 import { Notice } from "../notice";
 
 /**
@@ -263,7 +264,21 @@ function QuotesEditor({
   office: MentorQuote[];
   onChange: (quotes: MentorQuote[]) => void;
 }): React.JSX.Element | null {
-  const [allowed, setAllowed] = useState<boolean | null>(null);
+  /**
+   * ‎**„אין לך הרשאה” אינו „לא הצלחנו לטעון”, וההבדל אינו סגנוני.**
+   *
+   * ‏הנוסח הראשון סימן כל כישלון כ„אין הרשאה”, ולכן תקלת רשת חולפת
+   * או 500 של רגע היו מסתירים את העורך **לכל אורך חיי הדף**, בלי
+   * שגיאה ובלי כפתור — מנהל שרצה להוסיף משפט היה צריך לרענן, ולא
+   * היה לו שום רמז לכך (ביקורת Codex).
+   *
+   * ‎`403` הוא התשובה שאומרת „הקטע הזה לא שלך”, וזו היחידה
+   * שמסתירה בשקט. כל השאר היא תקלה, והיא נאמרת עם כפתור ניסיון
+   * חוזר.
+   */
+  const [access, setAccess] = useState<"loading" | "denied" | "ok" | "failed">(
+    "loading",
+  );
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [author, setAuthor] = useState("");
@@ -273,19 +288,41 @@ function QuotesEditor({
   const report = useRef(onChange);
   report.current = onChange;
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const rows = await apiGet<MentorQuote[]>("/mentor/quotes");
-        setAllowed(true);
-        report.current(rows);
-      } catch {
-        setAllowed(false);
-      }
-    })();
+  const load = useCallback(async (): Promise<void> => {
+    setAccess("loading");
+    try {
+      const rows = await apiGet<MentorQuote[]>("/mentor/quotes");
+      setAccess("ok");
+      report.current(rows);
+    } catch (caught) {
+      /*
+       * ‏סוכן רגיל מקבל כאן 403, וזה תקין לגמרי — הקטע פשוט אינו
+       * שלו. כל קוד אחר הוא תקלה, ותקלה נאמרת.
+       */
+      setAccess(caught instanceof ApiError && caught.status === 403 ? "denied" : "failed");
+    }
   }, []);
 
-  if (allowed !== true) return null;
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (access === "loading" || access === "denied") return null;
+  if (access === "failed") {
+    return (
+      <div
+        className="mt-4 border-t pt-3"
+        style={{ borderColor: "var(--color-input-border)" }}
+      >
+        <LoadError
+          message="לא הצלחנו לטעון את ניהול המשפטים"
+          onRetry={() => {
+            void load();
+          }}
+        />
+      </div>
+    );
+  }
 
   const add = async (): Promise<void> => {
     setBusy(true);

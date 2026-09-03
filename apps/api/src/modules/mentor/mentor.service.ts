@@ -35,6 +35,7 @@ import {
   type WeeklyCommitment,
   type WeeklyScore,
 } from "@metavchim/shared";
+import { lockMentorQuotes } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
 
@@ -762,6 +763,12 @@ export class MentorService {
     const clean = cleanQuoteText(text);
     if (clean === null) throw new BadRequestException("אין משפט לשמור");
     return this.prisma.withTenant(async (tx) => {
+      /*
+       * ‏הנעילה לפני הספירה, ולא אחריה: בלעדיה שתי בקשות מקבילות
+       * על מאגר בן 59 רואות שתיהן 59 וכותבות שתיהן. אין דרך
+       * להצהיר „לכל היותר N שורות” כאילוץ במסד (ביקורת Codex).
+       */
+      await lockMentorQuotes(tx, ctx.tenantId);
       const existing = await tx.mentorQuote.count({
         where: { tenantId: ctx.tenantId },
       });

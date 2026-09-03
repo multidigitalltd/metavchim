@@ -80,6 +80,7 @@ import {
 import { loadEnv } from "../../config/env";
 import { PlatformAdmin } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
+import { lockMentorQuotes } from "../../common/locks";
 import { whatsappSeatQuotaWhere } from "../../core/whatsapp-seat-quota";
 import { CryptoService } from "../../core/crypto.service";
 import { TenantContext } from "../../common/tenant-context";
@@ -2844,6 +2845,8 @@ export class PlatformController {
     if (text === null) throw new BadRequestException("אין משפט לשמור");
     const userId = TenantContext.current().userId;
     const row = await this.prisma.withPlatformQuotes(async (tx) => {
+      /* ‏אותה הסדרה כמו בצד המשרד — ראו `lockMentorQuotes` */
+      await lockMentorQuotes(tx, "platform");
       const existing = await tx.mentorQuote.count({});
       if (existing >= QUOTE_LIMIT_PER_SCOPE) {
         throw new BadRequestException(

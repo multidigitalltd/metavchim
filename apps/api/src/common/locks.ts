@@ -139,6 +139,22 @@ export async function lockIntakeRequest(
  * הדייר נכלל במפתח: `provider_call_id` ייחודי אצל הספק, לא אצלנו,
  * ושני משרדים באותה מרכזייה יכולים לקבל אותו מזהה.
  */
+/**
+ * ‎**נעילת מאגר משפטי המוטבציה של היקף אחד.**
+ *
+ * ‏הגבול („עד 60 משפטים”) נאכף בספירה ואז כתיבה, ושתי בקשות
+ * מקבילות על מאגר בן 59 ראו שתיהן 59 וכתבו שתיהן — 61 (ביקורת
+ * Codex). אין דרך להצהיר „לכל היותר N שורות” כאילוץ במסד, ולכן
+ * הסדרה: הנעילה מסדרת את שתי הבקשות זו אחר זו, והשנייה סופרת 60
+ * ונדחית.
+ *
+ * ‎`scope` הוא מזהה המשרד, או `"platform"` למשפטים המשותפים —
+ * שני מאגרים שאינם חוסמים זה את זה.
+ */
+export async function lockMentorQuotes(tx: TenantTx, scope: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`mentor_quotes:${scope}`}, 0))`;
+}
+
 export async function lockProviderCall(
   tx: TenantTx,
   tenantId: string,
