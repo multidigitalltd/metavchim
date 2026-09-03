@@ -84,6 +84,28 @@ import { readCustomFeatures, rowToFields } from "../properties/property.mapper";
 const OFFER_PHOTO_MAX = 12;
 
 /**
+ * ‎**גודל עמוד בסבב המעקבים — לא תקרה.**
+ *
+ * ‏קודם עמדו כאן `take: 500` על המעקבים ו-`take: 200` על הנכסים,
+ * בלי סדר ובלי סמן. שניהם היו **תקרות שקטות**: משרד עם 13 סוכנים
+ * במלוא מכסת ה-40 חוצה 500 מעקבים, וב-Pro מותרים 300 נכסים
+ * (ובמסלולים הגבוהים אין תקרה) — וכל ריצה שעתית הייתה חוזרת בדיוק
+ * על אותו חלון, כלומר מעקב או נכס שמחוץ לו לא היו מפעילים התראה
+ * לעולם (ביקורת Codex). מעקב הוא בדיוק ההבטחה ההפוכה.
+ *
+ * ‏עכשיו זה גודל עמוד עם סמן: הסבב עובר על הכול, והמספר קובע רק
+ * כמה שורות נמצאות בזיכרון בכל רגע.
+ *
+ * ‎**`id: { gt: cursor }` ולא `cursor`/`skip` של Prisma.** ‏`cursor`
+ * מעגן את העמוד הבא על **שורה שחייבת להתקיים**, והסבב מוחק מעקבים
+ * מיושנים באמצע — כלומר עמוד שהמעקב האחרון בו הצביע על ביקוש שנסגר
+ * היה מוחק בדיוק את שורת העוגן, והשאילתה הבאה הייתה חוזרת ריקה. כל
+ * שאר המעקבים היו נדלגים עד הסריקה הבאה (ביקורת Codex), וזה אותו
+ * כשל שהדפדוף בא לתקן. תנאי על המזהה אינו תלוי בקיום השורה.
+ */
+const SWEEP_PAGE = 200;
+
+/**
  * תפוגת הקרדיטים כפי שהמשרד רואה אותה.
  *
  * `months: 0` = התפוגה כבויה בפלטפורמה, ואין מה להציג. שדות המנה
@@ -1219,11 +1241,37 @@ export class CollaborationService {
    * צריכות לקרוא זו את זו.
    */
   async sweepFollowsForTenant(tenantId: string): Promise<number> {
-    const follows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
-      tx.demandFollow.findMany({ where: { tenantId }, take: 500 }),
-    );
-    if (follows.length === 0) return 0;
+    let created = 0;
+    let cursor: string | undefined;
+    for (;;) {
+      const follows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.demandFollow.findMany({
+          where: { tenantId, ...(cursor === undefined ? {} : { id: { gt: cursor } }) },
+          orderBy: { id: "asc" },
+          take: SWEEP_PAGE,
+        }),
+      );
+      if (follows.length === 0) break;
+      cursor = follows[follows.length - 1]!.id;
+      created += await this.sweepFollowPage(tenantId, follows);
+      if (follows.length < SWEEP_PAGE) break;
+    }
+    return created;
+  }
 
+  /**
+   * ‏עמוד אחד של מעקבים מול **כל** הנכסים הפעילים של המשרד.
+   *
+   * ‏הנכסים נסרקים גם הם בעמודים ולא ב-`take` יחיד: משרד ב-Pro רשאי
+   * ל-300 נכסים, וב-Agency ו-Enterprise אין תקרה בכלל. חלון קבוע
+   * פירושו שנכס שנכנס אחרי החלון לא יפעיל התראה **לעולם**, כי כל
+   * ריצה שעתית חוזרת בדיוק על אותו חלון (ביקורת Codex, P1) —
+   * ומעקב הוא בדיוק ההבטחה ההפוכה.
+   */
+  private async sweepFollowPage(
+    tenantId: string,
+    follows: { id: string; userId: string; demandId: string }[],
+  ): Promise<number> {
     /* ‏הביקושים עצמם — קריאה חוצת-משרדים, כמו הפיד */
     const demands = await this.prisma.withNetworkRead((tx) =>
       tx.sharedDemand.findMany({
@@ -1242,14 +1290,42 @@ export class CollaborationService {
     const live = follows.filter((f) => byId.has(f.demandId));
     if (live.length === 0) return 0;
 
-    const properties = await this.prisma.withExplicitTenant(tenantId, (tx) =>
-      tx.property.findMany({
-        where: { tenantId, deletedAt: null, status: "active" },
-        take: 200,
-      }),
-    );
-    if (properties.length === 0) return 0;
+    let created = 0;
+    let cursor: string | undefined;
+    for (;;) {
+      const properties = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.property.findMany({
+          where: {
+            tenantId,
+            deletedAt: null,
+            status: "active",
+            ...(cursor === undefined ? {} : { id: { gt: cursor } }),
+          },
+          orderBy: { id: "asc" },
+          take: SWEEP_PAGE,
+        }),
+      );
+      if (properties.length === 0) break;
+      cursor = properties[properties.length - 1]!.id;
+      created += await this.notifyMatches(tenantId, live, byId, properties);
+      if (properties.length < SWEEP_PAGE) break;
+    }
+    return created;
+  }
 
+  /**
+   * ‏ההתראות על עמוד נכסים אחד.
+   *
+   * ‏הכתיבה לכל עמוד ולא בסוף: `dedupeKey` הוא שמונע כפילות, ולכן
+   * אין סיבה לצבור הכול בזיכרון לפני שכותבים.
+   */
+  private async notifyMatches(
+    tenantId: string,
+    live: { id: string; userId: string; demandId: string }[],
+    /* ‏השורה כפי שהיא נשלפה — עם `id`, שההתראה נושאת כישות היעד */
+    byId: Map<string, Parameters<CollaborationService["demandToRequirements"]>[0] & { id: string }>,
+    properties: PropertyRow[],
+  ): Promise<number> {
     const rows: {
       id: string;
       tenantId: string;
@@ -1295,10 +1371,10 @@ export class CollaborationService {
     }
     if (rows.length === 0) return 0;
 
-    const created = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+    const written = await this.prisma.withExplicitTenant(tenantId, (tx) =>
       tx.notification.createMany({ data: rows, skipDuplicates: true }),
     );
-    return created.count;
+    return written.count;
   }
 
   /** שלוש ההתאמות הטובות ביותר מבין הנכסים שלי, מעל סף שווה-הצגה. */
