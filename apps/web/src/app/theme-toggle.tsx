@@ -17,6 +17,16 @@ export type ThemeChoice = "light" | "dark" | "auto";
 const THEME_STORAGE_KEY = "mv-theme";
 
 /**
+ * אירוע שמסנכרן בין שני בוררים באותו עמוד.
+ *
+ * הבורר מופיע גם בפאנל הנגישות הצף וגם בעמוד הפרופיל, ובעמוד
+ * הפרופיל שניהם יכולים להיות פתוחים יחד. בלי האירוע כל אחד קרא
+ * את ה-localStorage פעם אחת בטעינה, ובחירה באחד השאירה את השני
+ * מסומן על הערך הישן (ביקורת Codex).
+ */
+const THEME_CHANGE_EVENT = "mv-theme-change";
+
+/**
  * רץ ב-<head> לפני הצביעה הראשונה. חייב להישאר קטן וללא תלויות —
  * הוא מוטמע כטקסט. עטוף ב-try כי localStorage חסום בגלישה פרטית
  * בחלק מהדפדפנים, ואסור שדף שלם ייפול בגללו.
@@ -47,6 +57,14 @@ export function ThemeToggle() {
       stored = null;
     }
     setChoice(stored === "light" || stored === "dark" ? stored : "auto");
+
+    // בורר שני באותו עמוד בחר — הבורר הזה מתיישר איתו
+    function onChange(event: Event): void {
+      const detail = (event as CustomEvent<ThemeChoice>).detail;
+      if (detail === "light" || detail === "dark" || detail === "auto") setChoice(detail);
+    }
+    window.addEventListener(THEME_CHANGE_EVENT, onChange);
+    return () => window.removeEventListener(THEME_CHANGE_EVENT, onChange);
   }, []);
 
   function select(value: ThemeChoice): void {
@@ -58,6 +76,7 @@ export function ThemeToggle() {
     } catch {
       // גלישה פרטית — הבחירה תקפה לעמוד הנוכחי בלבד
     }
+    window.dispatchEvent(new CustomEvent(THEME_CHANGE_EVENT, { detail: value }));
   }
 
   if (choice === null) return null;

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { GUIDES, GUIDE_AREAS } from "@/lib/guide-content";
+import { DOC_TOPICS, GUIDES, GUIDE_AREAS } from "@/lib/guide-content";
 import { useRequireAuth } from "@/lib/use-auth";
 import { SupportCard } from "./support-card";
 
@@ -69,7 +69,8 @@ export default function GuidesPage() {
     <div className="mx-auto max-w-4xl pb-12">
       <h1 className="mb-1 text-2xl font-bold">הדרכות</h1>
       <p className="mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
-        מדריך צעד-אחר-צעד לכל מה שהמערכת יודעת לעשות — {GUIDES.length} נושאים.
+        {GUIDES.length} מדריכים קצרים, צעד אחרי צעד — לפי מתי צריך אותם: מהיום הראשון ועד
+        ניהול המשרד. כל מדריך נפתח בעמוד משלו, עם כתובת שאפשר לשלוח לעמית.
       </p>
 
       <SupportCard />
@@ -144,6 +145,14 @@ export default function GuidesPage() {
       </div>
 
       {/*
+        מילון המונחים — מקופל, בתחתית. הוא אותו מילון שב-`/docs`,
+        מאותו מקור: מי שנתקל ב„מועד השליש” או ב„מקור קליטה” באמצע
+        מדריך לא צריך לצאת מהמערכת כדי לברר מה זה. `details` ולא
+        עמוד נפרד — הוא עזר לקריאה, לא נושא בפני עצמו.
+      */}
+      {needle === "" ? <Glossary /> : null}
+
+      {/*
         הקישור לתיעוד המלא נשאר: מי שרוצה להדביק את הכול לכלי בינה
         מלאכותית צריך מסמך אחד, וזו בדיוק הסיבה שעמוד אחד ארוך היה
         פתרון טוב לקהל הזה — ופתרון גרוע לקורא אנושי.
@@ -155,5 +164,34 @@ export default function GuidesPage() {
         </Link>
       </p>
     </div>
+  );
+}
+
+function Glossary() {
+  const glossary = DOC_TOPICS.find((topic) => topic.id === "glossary");
+  if (glossary === undefined) return null;
+  const terms = glossary.passages.filter(
+    (passage): passage is Extract<typeof passage, { kind: "text" }> =>
+      passage.kind === "text" && passage.lead !== undefined,
+  );
+  return (
+    <details
+      className="mt-10 rounded-xl border px-4 py-3"
+      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+    >
+      <summary className="cursor-pointer font-extrabold">
+        מילון מונחים — {terms.length} מילים שחוזרות בכל המסכים
+      </summary>
+      <dl className="m-0 mt-3 grid gap-x-6 gap-y-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
+        {terms.map((term) => (
+          <div key={term.lead}>
+            <dt className="font-bold">{term.lead}</dt>
+            <dd className="m-0 text-sm" style={{ color: "var(--color-text-soft)", lineHeight: 1.7 }}>
+              {term.body}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </details>
   );
 }

@@ -69,11 +69,13 @@ function topic(id: string): DocTopic {
 export default function DocsPage() {
   const about = topic("about");
   const integrations = topic("integrations");
+  const glossary = topic("glossary");
   const privacy = topic("privacy");
   const navItems = [
     { id: about.id, title: about.title },
     ...GUIDES.map((guide) => ({ id: guide.id, title: guide.title })),
     { id: integrations.id, title: integrations.title },
+    { id: glossary.id, title: glossary.title },
     { id: privacy.id, title: privacy.title },
   ];
 
@@ -198,6 +200,15 @@ export default function DocsPage() {
 
       <DocSection id={integrations.id} title={integrations.title}>
         <DocPassages passages={integrations.passages} />
+      </DocSection>
+
+      {/*
+        המילון אחרי ההדרכות ולא לפניהן: מי שקורא מדריך פוגש את המונח
+        בהקשר, ומי שנתקל במילה זרה קופץ לכאן מהניווט. מילון בראש
+        המסמך הוא הדף שכולם מדלגים עליו.
+      */}
+      <DocSection id={glossary.id} title={glossary.title}>
+        <DocPassages passages={glossary.passages} />
       </DocSection>
 
       <DocSection id={privacy.id} title={privacy.title}>

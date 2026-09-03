@@ -366,6 +366,16 @@ export const IconMoon = ({ s }: IconProps) => (
   </svg>
 );
 
+/** סמל הנגישות המקובל — דמות בעיגול, כמו על כפתורי הנגישות בכל אתר בישראל. */
+export const IconAccessibility = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <circle cx="12" cy="12" r="9.5" />
+    <circle cx="12" cy="7.6" r="1.25" fill="currentColor" stroke="none" />
+    <path d="M7.2 10.4c3.2.75 6.4.75 9.6 0" />
+    <path d="M10.4 10.9v3.1l-1.5 4.2M13.6 10.9v3.1l1.5 4.2M10.4 14h3.2" />
+  </svg>
+);
+
 export const IconMonitor = ({ s }: IconProps) => (
   <svg {...svgProps(s)}>
     <rect x="3" y="4.5" width="18" height="12.5" rx="2" />

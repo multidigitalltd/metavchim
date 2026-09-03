@@ -15,20 +15,20 @@ interface ProfileDto {
   preferences: Record<string, unknown>;
 }
 import {
+  A11Y_CHANGE_EVENT,
   A11Y_DEFAULTS,
   A11Y_MAX_SCALE,
   A11Y_MIN_SCALE,
   A11Y_TOGGLES,
-  applyA11y,
   clampFontScale,
-  clearA11y,
+  commitA11y,
   loadA11y,
-  saveA11y,
+  resetA11y,
   type A11yPrefs,
 } from "@/lib/a11y-prefs";
 import { disablePush, enablePush, readPushState, type PushState } from "@/lib/push";
 import { useRequireAuth } from "@/lib/use-auth";
-import { resetA11ySync } from "@/lib/a11y-sync";
+import { persistA11yToServer, resetA11ySync } from "@/lib/a11y-sync";
 import { clearSessionCache } from "@/lib/session-cache";
 import { ThemeToggle } from "../theme-toggle";
 import { PlanSection } from "../settings/plan-section";
@@ -44,8 +44,11 @@ import { WhatsAppNotifySection } from "./whatsapp-notify-section";
  * בשני כפתורים ליד השדה. הגדרה מרוחקת שמשפיעה על מסך אחר היא בדיוק
  * מה שגורם למשתמש לחשוב שהמערכת מתעלמת ממנו.
  *
- * ההעדפות נשמרות במכשיר (localStorage) ולא בשרת: הן תלויות מסך ועכבר,
- * וסוכן שעובד גם מהנייד וגם מהמשרד ירצה הגדרות שונות בכל אחד.
+ * העדפות הנגישות נשמרות **בחשבון** (עם מטמון במכשיר), ולכן הן
+ * מלוות את המשתמש לכל מכשיר. זה המקום היחיד שלהן בתוך המערכת;
+ * במסכים הציבוריים (הצעה, חתימה, התחברות) אותם מתגים מוצגים
+ * מכפתור נגישות צף. שני המקומות כותבים דרך `commitA11y` ומאזינים
+ * לאותו אירוע.
  */
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
@@ -77,36 +80,34 @@ export default function ProfilePage() {
         setPrefs({ ...merged, fontScale: clampFontScale(merged.fontScale) });
       })
       .catch(() => undefined);
+
+    /*
+     * כפתור הנגישות הצף כותב את אותן העדפות. מי שמשנה שם בזמן
+     * שהפרופיל פתוח צריך לראות את המתג כאן מתחלף — ולא מצב ישן
+     * שנדרס בלחיצה הבאה.
+     */
+    function onChange(event: Event): void {
+      const detail = (event as CustomEvent<A11yPrefs>).detail;
+      if (detail) setPrefs(detail);
+    }
+    window.addEventListener(A11Y_CHANGE_EVENT, onChange);
+    return () => window.removeEventListener(A11Y_CHANGE_EVENT, onChange);
   }, []);
 
-  /**
-   * שמירה בשרת היא מה שהופך את ההעדפה לאישית ולא למכשירית.
-   *
-   * היא נשלחת ולא מומתנת: המשתמש כבר רואה את השינוי מהמטמון, וכישלון
-   * רשת לא צריך להחזיר לו את המסך אחורה — הוא ייסנכרן בשינוי הבא.
+  /*
+   * שינוי: מוחל, נשמר במכשיר, משודר לכל המסך — ונשלח לשרת. השמירה
+   * בשרת היא מה שהופך את ההעדפה לאישית ולא למכשירית.
    */
-  function persist(next: A11yPrefs): void {
-    apiPatch("/auth/profile", { preferences: { ...(profile?.preferences ?? {}), a11y: next } }).catch(
-      () => undefined,
-    );
-  }
-
   function update(patch: Partial<A11yPrefs>): void {
-    const next = { ...prefs, ...patch };
+    const next = commitA11y({ ...prefs, ...patch });
     setPrefs(next);
-    applyA11y(next);
-    saveA11y(next);
-    persist(next);
-    // הרכיב שמרנדר את קו הקריאה יושב ב-layout ולא כאן
-    window.dispatchEvent(new CustomEvent("mv-a11y-change", { detail: next }));
+    persistA11yToServer(next);
   }
 
   function resetPrefs(): void {
-    setPrefs(A11Y_DEFAULTS);
-    applyA11y(A11Y_DEFAULTS);
-    clearA11y();
-    persist(A11Y_DEFAULTS);
-    window.dispatchEvent(new CustomEvent("mv-a11y-change", { detail: A11Y_DEFAULTS }));
+    const next = resetA11y();
+    setPrefs(next);
+    persistA11yToServer(next);
   }
 
   async function saveDetails(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -332,7 +333,7 @@ export default function ProfilePage() {
             נגישות
           </h2>
           <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-            ההתאמות חלות מיד ונשמרות למכשיר הזה.
+            ההתאמות חלות מיד ונשמרות בחשבון שלכם — הן מלוות אתכם לכל מכשיר.
           </p>
 
           <div className="mb-4">
@@ -349,8 +350,13 @@ export default function ProfilePage() {
                 <span aria-hidden="true">A−</span>
                 <span className="mv-visually-hidden">הקטן טקסט</span>
               </button>
-              <button type="button" className="mv-btn-plain" onClick={() => update({ fontScale: 100 })}>
-                איפוס
+              <button
+                type="button"
+                className="mv-btn-plain"
+                disabled={prefs.fontScale === 100}
+                onClick={() => update({ fontScale: 100 })}
+              >
+                רגיל
               </button>
               <button
                 type="button"
@@ -370,7 +376,7 @@ export default function ProfilePage() {
                 <button
                   type="button"
                   aria-pressed={Boolean(prefs[toggle.key])}
-                  onClick={() => update({ [toggle.key]: !prefs[toggle.key] } as Partial<A11yPrefs>)}
+                  onClick={() => update({ [toggle.key]: !prefs[toggle.key] })}
                   className="mv-a11y-toggle"
                 >
                   <span className="text-start">
