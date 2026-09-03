@@ -3143,3 +3143,26 @@ model MentorAchievement {
   @@index([tenantId, feedbackAt, reachedAt])
   @@map("mentor_achievements")
 }
+
+/// ‏משפטי המוטבציה שהמנטור מציג. `tenantId = null` הוא משפט של
+/// הפלטפורמה, שמוצג בכל המשרדים; שורה עם משרד מוצגת רק בו.
+///
+/// ‏העמודה נילית ולא שתי טבלאות: המסך מציג את שתי הקבוצות באותו
+/// סליידר וממיין ביניהן, ופיצול היה מכריח כל קורא לאחד אותן מחדש.
+model MentorQuote {
+  id        String   @id @db.Char(26)
+  /// null = משפט של הפלטפורמה, גלוי לכל המשרדים
+  tenantId  String?  @map("tenant_id") @db.Char(26)
+  /// אותו גבול כמו QUOTE_MAX_LENGTH בחבילה המשותפת
+  text      String   @db.VarChar(240)
+  /// „מי אמר”. ריק הוא תשובה — מנהל שחיבר משפט לצוות שלו אינו חייב
+  /// לייחס אותו לאיש, ו„לא ידוע” מתחתיו הוא המצאה קטנה
+  author    String   @default("") @db.VarChar(80)
+  createdBy String?  @map("created_by") @db.Char(26)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  /// „המשפטים של המשרד הזה, בסדר שנכתבו” — השאילתה של המסך
+  @@index([tenantId, createdAt])
+  @@map("mentor_quotes")
+}

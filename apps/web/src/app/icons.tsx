@@ -280,6 +280,20 @@ export const IconChat = ({ s }: IconProps) => (
   </svg>
 );
 
+/* ‏שברון לניווט בין פריטים. שני כיוונים ולא אחד מסובב: מסך RTL
+   מציב „הבא” בצד אחר, והכיוון נקבע בשימוש ולא באייקון. */
+export const IconChevronRight = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M9 5l7 7-7 7" />
+  </svg>
+);
+
+export const IconChevronLeft = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M15 5l-7 7 7 7" />
+  </svg>
+);
+
 export const IconCoins = ({ s }: IconProps) => (
   <svg {...svgProps(s)}>
     <ellipse cx="12" cy="6.5" rx="7" ry="3" />

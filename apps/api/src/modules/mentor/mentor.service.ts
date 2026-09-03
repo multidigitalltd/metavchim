@@ -18,6 +18,10 @@ import {
   cleanFeedback,
   feedbackCopy,
   FEEDBACK_NOTIFICATION_TYPE,
+  cleanQuoteAuthor,
+  cleanQuoteText,
+  orderQuotes,
+  QUOTE_LIMIT_PER_SCOPE,
   weekKey,
   type BackwardPlan,
   type ConversionRatios,
@@ -25,11 +29,13 @@ import {
   type GoalUnit,
   type LeadMeasure,
   type MentorMoment,
+  type MentorQuote,
   type PeriodComparison,
   type WeeklyActual,
   type WeeklyCommitment,
   type WeeklyScore,
 } from "@metavchim/shared";
+import { lockMentorQuotes } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
 
@@ -118,6 +124,15 @@ export interface MentorOverviewDto {
    * ארבעים פעם ולתת לו להסיק שהוא לא עבד.
    */
   unattributedCalls: number;
+  /**
+   * ‎**משפטי המוטבציה שהסליידר מציג — של המשרד ושל הפלטפורמה יחד.**
+   *
+   * ‏הם מגיעים בקריאה הזו ולא בקריאה משלהם כי הם חלק מהמסך ולא
+   * מסך בפני עצמו, ובקשה שנייה הייתה מוסיפה הבהוב על שלוש שורות
+   * טקסט. רשימה ריקה היא מצב לגיטימי — משרד חדש במערכת שאיש עוד
+   * לא כתב בה דבר, והמסך אומר זאת במקום להציג שקופית ריקה.
+   */
+  quotes: MentorQuote[];
 }
 
 /**
@@ -211,6 +226,27 @@ function toRatios(value: unknown): ConversionRatios {
     callToAppointment: pick("callToAppointment"),
     appointmentToOffer: pick("appointmentToOffer"),
     offerToDeal: pick("offerToDeal"),
+  };
+}
+
+/**
+ * ‏שורת משפט מהמסד ⇒ מה שהמסך מקבל.
+ *
+ * ‎`tenantId` ריק הוא ההיקף עצמו, ולא „חסר”: שורה כזו נכתבה בידי
+ * הפלטפורמה והיא מוצגת בכל המשרדים. ההמרה כאן היא המקום היחיד
+ * שמכריע את זה, כדי ששני קוראים לא יפרשו את `null` אחרת.
+ */
+function toQuote(row: {
+  id: string;
+  tenantId: string | null;
+  text: string;
+  author: string;
+}): MentorQuote {
+  return {
+    id: row.id,
+    text: row.text,
+    author: row.author,
+    scope: row.tenantId === null ? "platform" : "office",
   };
 }
 
@@ -440,6 +476,20 @@ export class MentorService {
         previousPercents,
       });
 
+      /*
+       * ‎**משפטי המוטבציה — שני ההיקפים בשאילתה אחת.**
+       *
+       * ‎`tenantId: null` הוא משפט של הפלטפורמה, ופוליסת ה-RLS
+       * מתירה לקרוא אותו מכל משרד (`FOR SELECT` בלבד — משרד אינו
+       * יכול לכתוב שורה כזו). שאילתה שנייה למשפטי הפלטפורמה הייתה
+       * אותה תשובה בדיוק, בעוד הלוך-ושוב.
+       */
+      const quoteRows = await tx.mentorQuote.findMany({
+        where: { OR: [{ tenantId: ctx.tenantId }, { tenantId: null }] },
+        orderBy: { createdAt: "asc" },
+      });
+      const quotes = orderQuotes(quoteRows.map(toQuote));
+
       /* ---- „איפה היית” ---- */
       const previousWeek = this.countsIn(cycleTimes, jerusalemWeekStart(now, -1), thisWeek);
       /* ‏המחזור שלפני הקודם הוא מחוץ לחלון, ולכן הוא השליפה השנייה והאחרונה */
@@ -479,6 +529,7 @@ export class MentorService {
         derivedRatios,
         usingDefaultRatios: derivedRatios === null,
         unattributedCalls,
+        quotes,
       };
     }, { timeout: 20_000 });
   }
@@ -675,6 +726,85 @@ export class MentorService {
         ],
         skipDuplicates: true,
       });
+    });
+  }
+
+  /* ======================================================================
+   * ‏משפטי המוטבציה של המשרד
+   * ====================================================================== */
+
+  /**
+   * ‎**מה שהמשרד כתב — בלי משפטי הפלטפורמה.**
+   *
+   * ‏מסך העריכה מציג רק את מה שאפשר למחוק שם. משפט של הפלטפורמה
+   * שהיה מופיע ברשימה עם „מחק” לידו הוא כפתור שנכשל — הפוליסה
+   * חוסמת אותו, והמשתמש היה רואה שגיאה במקום להבין שזה לא שלו.
+   */
+  async officeQuotes(): Promise<MentorQuote[]> {
+    const ctx = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.mentorQuote.findMany({
+        where: { tenantId: ctx.tenantId },
+        orderBy: { createdAt: "asc" },
+      });
+      return rows.map(toQuote);
+    });
+  }
+
+  /**
+   * ‏הוספת משפט של המשרד.
+   *
+   * ‏הגבול נבדק כאן ולא רק ב-UI: סליידר עם מאתיים משפטים אינו
+   * סליידר אלא ארכיון, ומשרד שהגיע לגבול צריך למחוק את מה שכבר לא
+   * מדבר אליו.
+   */
+  async addOfficeQuote(text: string, author: string): Promise<MentorQuote> {
+    const ctx = TenantContext.current();
+    const clean = cleanQuoteText(text);
+    if (clean === null) throw new BadRequestException("אין משפט לשמור");
+    return this.prisma.withTenant(async (tx) => {
+      /*
+       * ‏הנעילה לפני הספירה, ולא אחריה: בלעדיה שתי בקשות מקבילות
+       * על מאגר בן 59 רואות שתיהן 59 וכותבות שתיהן. אין דרך
+       * להצהיר „לכל היותר N שורות” כאילוץ במסד (ביקורת Codex).
+       */
+      await lockMentorQuotes(tx, ctx.tenantId);
+      const existing = await tx.mentorQuote.count({
+        where: { tenantId: ctx.tenantId },
+      });
+      if (existing >= QUOTE_LIMIT_PER_SCOPE) {
+        throw new BadRequestException(
+          `הגעתם ל-${QUOTE_LIMIT_PER_SCOPE} משפטים. מחקו אחד כדי להוסיף חדש.`,
+        );
+      }
+      const row = await tx.mentorQuote.create({
+        data: {
+          id: ulid(),
+          tenantId: ctx.tenantId,
+          text: clean,
+          author: cleanQuoteAuthor(author),
+          createdBy: ctx.userId,
+        },
+      });
+      return toQuote(row);
+    });
+  }
+
+  /**
+   * ‏מחיקת משפט של המשרד.
+   *
+   * ‎`deleteMany` עם המשרד ב-`where` ולא `delete` לפי מזהה: מזהה
+   * שאינו של המשרד הזה פשוט לא ימחק דבר, והתשובה היא 404 ולא
+   * חריגה מהמסד. הפוליסה ממילא חוסמת, אבל הכתיבה כאן אומרת את זה
+   * במפורש ולא נשענת עליה לבדה.
+   */
+  async deleteOfficeQuote(id: string): Promise<void> {
+    const ctx = TenantContext.current();
+    await this.prisma.withTenant(async (tx) => {
+      const removed = await tx.mentorQuote.deleteMany({
+        where: { id, tenantId: ctx.tenantId },
+      });
+      if (removed.count === 0) throw new NotFoundException("המשפט לא נמצא");
     });
   }
 

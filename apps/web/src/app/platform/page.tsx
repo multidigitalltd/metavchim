@@ -24,6 +24,7 @@ import { AgentUsageSection } from "./agent-usage-section";
 import { PlatformSettingsSection } from "./platform-settings-section";
 import { SupportQueueSection } from "./support-queue-section";
 import { LegalDocsSection } from "./legal-docs-section";
+import { MentorQuotesSection } from "./mentor-quotes-section";
 import { IntegrationDeskSection } from "./integration-desk-section";
 import { InvoicesSection } from "./invoices-section";
 import { TelephonyWebhooksSection } from "./telephony-webhooks-section";
@@ -731,6 +732,11 @@ export default function PlatformPage() {
         */}
         <AgentUsageSection />
         <LegalDocsSection />
+        {/*
+          ליד המסמכים המשפטיים ולא ליד ההגדרות: שניהם **תוכן** שהפלטפורמה
+          כותבת ומוצג בכל המשרדים, ולא מתג שמשנה התנהגות.
+        */}
+        <MentorQuotesSection />
       </TabPanel>
 
       <TabPanel tab="agencies" active={tab}>

@@ -450,6 +450,12 @@ export class AccountDeletionService {
          * מהדברים האישיים ביותר שאדם כותב במערכת הזו.
          */
         await tx.mentorAchievement.deleteMany({ where: { tenantId } });
+        /*
+         * ‏משפטי המוטבציה שהמשרד כתב לעצמו. שורות הפלטפורמה
+         * ‎(`tenant_id` ריק) אינן נוגעות לכאן, והפוליסה ממילא אינה
+         * מתירה לטרנזקציה של המשרד להגיע אליהן.
+         */
+        await tx.mentorQuote.deleteMany({ where: { tenantId } });
         await tx.mentorWeeklyScore.deleteMany({ where: { tenantId } });
         await tx.mentorGoal.deleteMany({ where: { tenantId } });
         // תיק הבלעדיות — פעולות לפני תקופות, ושתיהן לפני הנכסים

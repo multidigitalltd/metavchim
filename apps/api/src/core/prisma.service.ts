@@ -119,6 +119,27 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   /**
+   * ‎**משפטי המוטבציה של הפלטפורמה — ורק הם.**
+   *
+   * ‏שורה ב-`mentor_quotes` עם `tenant_id` ריק מוצגת בכל המשרדים,
+   * ולכן היא אינה יכולה להיכתב מתוך הקשר דייר: פוליסת הקריאה על
+   * השורות האלה היא `FOR SELECT` בלבד, בדיוק כדי שמשרד לא יוכל
+   * לכתוב משפט שכל המערכת רואה.
+   *
+   * ‏הדגל כאן הוא הדרך היחידה לכתוב אותן, והוא מוגבל בשני הכיוונים:
+   * ‏`USING` **וגם** `WITH CHECK` דורשים `tenant_id IS NULL`, ולכן
+   * לשולחן הזה אין גישה לשורות של משרדים — גם לא למחיקה בטעות. זה
+   * ההבדל מ-`withSupportDesk` ו-`withPayoutDesk`, שם הדגל פותח את
+   * הטבלה כולה. כל קורא חסום מאחורי PlatformAdminGuard.
+   */
+  async withPlatformQuotes<T>(fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.platform_quotes', 'on', true)`;
+      return fn(tx);
+    });
+  }
+
+  /**
    * גישה ציבורית לפי טוקן הצעה (דף ההצעה ללקוח קצה): פוליסת RLS ייעודית
    * חושפת אך ורק את שורת ההצעה שהטוקן שלה הוצג — בלי הקשר דייר,
    * בלי גישה לשום טבלה אחרת.

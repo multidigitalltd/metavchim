@@ -5,6 +5,9 @@ import {
   GOAL_HORIZONS,
   GOAL_UNITS,
   LEAD_MEASURES,
+  QUOTE_AUTHOR_MAX_LENGTH,
+  QUOTE_MAX_LENGTH,
+  type MentorQuote,
 } from "@metavchim/shared";
 import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -32,6 +35,15 @@ const CommitmentSchema = z
       LEAD_MEASURES.map((m) => [m, z.number().int().min(0).max(1000).optional()]),
     ) as Record<(typeof LEAD_MEASURES)[number], z.ZodOptional<z.ZodNumber>>,
   )
+  .strict();
+
+/** ‏משפט מוטבציה של המשרד. הגבולות הם אורכי העמודות במסד. */
+const QuoteSchema = z
+  .object({
+    text: z.string().trim().min(1).max(QUOTE_MAX_LENGTH),
+    /* ‏„מי אמר” ריק הוא תשובה — מנהל שחיבר משפט אינו חייב לייחסו */
+    author: z.string().trim().max(QUOTE_AUTHOR_MAX_LENGTH).default(""),
+  })
   .strict();
 
 /** ‏הפידבק שהמנהל כותב. הגבול הוא אורך העמודה במסד. */
@@ -105,6 +117,42 @@ export class MentorController {
     @Body(new ZodValidationPipe(FeedbackSchema)) body: z.infer<typeof FeedbackSchema>,
   ): Promise<{ ok: true }> {
     await this.mentor.sendFeedback(id, body.text);
+    return { ok: true };
+  }
+
+  /* ====================================================================
+   * ‏משפטי המוטבציה של המשרד
+   * ==================================================================== */
+
+  /**
+   * ‎**‏`settings.manage` ולא `@AnyAuthenticated`, וזו הפעם היחידה
+   * שיכולת מגינה על משהו שאינו של אדם אחר.**
+   *
+   * ‏משפטי המוטבציה הם רשימה **משותפת לכל המשרד**: מה שסוכן אחד
+   * יכתוב בה יופיע בפני כל הצוות. זה הגדרת משרד, ולכן אותה יכולת
+   * ששומרת על שאר ההגדרות. היעד עצמו נשאר בדיוק כפי שהיה — אישי
+   * ובלי יכולת.
+   */
+  @RequireCapability("settings.manage")
+  @Get("quotes")
+  async quotes(): Promise<MentorQuote[]> {
+    return this.mentor.officeQuotes();
+  }
+
+  @RequireCapability("settings.manage")
+  @Post("quotes")
+  @HttpCode(200)
+  async addQuote(
+    @Body(new ZodValidationPipe(QuoteSchema)) body: z.infer<typeof QuoteSchema>,
+  ): Promise<{ ok: true; quote: MentorQuote }> {
+    return { ok: true, quote: await this.mentor.addOfficeQuote(body.text, body.author) };
+  }
+
+  @RequireCapability("settings.manage")
+  @Delete("quotes/:id")
+  @HttpCode(200)
+  async removeQuote(@Param("id") id: string): Promise<{ ok: true }> {
+    await this.mentor.deleteOfficeQuote(id);
     return { ok: true };
   }
 
