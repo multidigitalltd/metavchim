@@ -471,3 +471,59 @@ describe("MentorReviewService.generateForUser — המחויבות מהשבוע 
     expect(body.paragraphs.join(" ")).not.toContain("התחייבתם");
   });
 });
+
+describe("MentorReviewService.generateForUser — הזיכרון הארוך", () => {
+  const offersGoal = {
+    id: "01GOALAAAAAAAAAAAAAAAAAAAA",
+    metric: "offers_sent",
+    period: "week",
+    target: 5,
+    why: null,
+    intention: null,
+    createdAt: new Date("2026-08-01"),
+    endedAt: null,
+  };
+  const behindBody = {
+    goals: [
+      {
+        metric: "offers_sent",
+        period: "week",
+        target: 5,
+        actual: 1,
+        pace: "behind",
+      },
+    ],
+    ask: { metric: "offers_sent", period: "week", target: 5 },
+  };
+
+  it("פיגור שחוזר בפעם הרביעית — הסיכום מזכיר מה המתווך אמר בפעמים הקודמות", async () => {
+    const { tx, created } = fakeTx({
+      offers: 1,
+      goals: [offersGoal],
+      previousReviews: [
+        {
+          weekStart: new Date("2026-08-29T21:00:00.000Z"),
+          body: behindBody,
+          reflectionAnswer: "לא היה זמן",
+        },
+        {
+          weekStart: new Date("2026-08-22T21:00:00.000Z"),
+          body: behindBody,
+          reflectionAnswer: "לא היו התאמות",
+        },
+        { weekStart: new Date("2026-08-15T21:00:00.000Z"), body: behindBody },
+      ] as never,
+    });
+    await service().generateForUser(
+      tx,
+      TENANT,
+      USER,
+      new Date("2026-01-01"),
+      WEEK,
+    );
+    const body = created[0]?.["body"] as { paragraphs: string[] };
+    expect(body.paragraphs.join(" ")).toContain(
+      "מאחור ב-3 מתוך 3 השבועות האחרונים. בפעמים הקודמות אמרתם: „לא היה זמן”, „לא היו התאמות”",
+    );
+  });
+});

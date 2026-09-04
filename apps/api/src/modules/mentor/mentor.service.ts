@@ -13,7 +13,9 @@ import {
   jerusalemWeekStart,
   MENTOR_REPLY_JSON_SCHEMA,
   mentorFallbackReply,
+  mentorPatterns,
   mentorPeriodRange,
+  PATTERN_LOOKBACK,
   obstaclePlanSuggestions,
   selectWins,
   suggestProcessGoals,
@@ -25,6 +27,8 @@ import {
   type MentorGoalPeriod,
   type MentorGoalProgress,
   type MentorMood,
+  type MentorPastReview,
+  type MentorPattern,
   type MentorReviewBody,
   type MentorWin,
   type ProcessGoalSuggestion,
@@ -96,6 +100,8 @@ export interface MentorOverview {
   streakWeeks: number;
   /** האם השיחה החופשית פעילה (מודל מוגדר) */
   chatAvailable: boolean;
+  /** מה המנטור זוכר — דפוסים מהסיכומים של החודשיים האחרונים */
+  patterns: MentorPattern[];
 }
 
 export interface MentorTurnDto {
@@ -178,6 +184,10 @@ export class MentorService {
         orderBy: { weekStart: "desc" },
       });
       const streakWeeks = await this.streak(tx, tenantId, userId);
+      const patterns = mentorPatterns(
+        await this.pastReviews(tx, tenantId, userId),
+        now,
+      );
       return {
         weekStart: week.start,
         weekEnd: week.end,
@@ -188,6 +198,7 @@ export class MentorService {
         latestReview: latest === null ? null : MentorService.reviewDto(latest),
         streakWeeks,
         chatAvailable,
+        patterns,
       };
     });
   }
@@ -524,6 +535,10 @@ export class MentorService {
           },
         });
         const dto = latest === null ? null : MentorService.reviewDto(latest);
+        const patterns = mentorPatterns(
+          await this.pastReviews(tx, tenantId, userId),
+          now,
+        );
         return {
           firstName: (user?.name ?? "").trim().split(/\s+/u)[0] ?? "",
           nowText: MentorService.nowText(now),
@@ -543,6 +558,7 @@ export class MentorService {
                   reflectionAnswer: dto.reflectionAnswer,
                 },
           history,
+          patterns,
           question: text,
           overCap: sentToday > CHAT_DAILY_CAP,
         };
@@ -604,6 +620,49 @@ export class MentorService {
       expected = jerusalemWeekStart(expected, -1);
     }
     return streak;
+  }
+
+  /** הסיכומים האחרונים כקלט לזיכרון — מהחדש לישן. */
+  private async pastReviews(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+  ): Promise<MentorPastReview[]> {
+    const rows = await tx.mentorReview.findMany({
+      where: { tenantId, userId },
+      orderBy: { weekStart: "desc" },
+      take: PATTERN_LOOKBACK,
+      select: {
+        weekStart: true,
+        body: true,
+        reflectionAnswer: true,
+        plan: true,
+        commitment: true,
+      },
+    });
+    return rows.map(MentorService.toPastReview);
+  }
+
+  static toPastReview(row: {
+    weekStart: Date;
+    body: unknown;
+    reflectionAnswer: string | null;
+    plan?: string | null;
+    commitment?: string | null;
+  }): MentorPastReview {
+    const body = (row.body ?? {}) as Partial<MentorReviewBody>;
+    return {
+      weekStart: row.weekStart,
+      goals: Array.isArray(body.goals) ? body.goals : [],
+      askMetric: body.ask?.metric ?? null,
+      reflectionAnswer: row.reflectionAnswer,
+      plan: row.plan ?? null,
+      commitment:
+        row.commitment === "accepted" || row.commitment === "declined"
+          ? row.commitment
+          : null,
+      commitmentKept: body.commitmentKept ?? null,
+    };
   }
 
   static nowText(now: Date): string {

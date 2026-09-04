@@ -13,8 +13,10 @@ import {
   type MentorGoalMetric,
   type MentorGoalPeriod,
   type MentorGoalProgress,
+  mentorPatternLine,
   type MentorMood,
   type MentorPace,
+  type MentorPattern,
   mentorQuantity,
   type MentorWin,
   type ProcessGoalSuggestion,
@@ -93,6 +95,7 @@ interface Overview {
   latestReview: ReviewDto | null;
   streakWeeks: number;
   chatAvailable: boolean;
+  patterns: MentorPattern[];
 }
 
 interface Turn {
@@ -228,6 +231,33 @@ export default function MentorPage() {
         <>
           <WeekSection overview={overview} />
           <GoalsSection overview={overview} onChanged={load} />
+          {overview.patterns.length > 0 ? (
+            <section className="mt-8" aria-labelledby="mentor-memory-heading">
+              <div className="mv-card-head mb-3">
+                <h2
+                  id="mentor-memory-heading"
+                  className="mv-card-head__title m-0"
+                >
+                  מה המנטור זוכר
+                </h2>
+              </div>
+              <ul className="m-0 flex list-none flex-col gap-2 p-0">
+                {overview.patterns.map((p, i) => (
+                  <li
+                    key={i}
+                    className="mv-card mv-card--pad"
+                    style={
+                      p.kind === "recurring_behind"
+                        ? { borderColor: "var(--color-warning)" }
+                        : undefined
+                    }
+                  >
+                    {mentorPatternLine(p)}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
           <ReviewSection
             latest={overview.latestReview}
             reviews={reviews}
