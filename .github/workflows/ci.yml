@@ -284,9 +284,12 @@ jobs:
 
   # בניית תמונות הפרודקשן ודחיפה ל-GHCR — רק על מיזוג ל-main.
   # כפתור "עדכן גרסה" במסך ההגדרות מושך את :latest מכאן (docs/10).
+  # ‎`audit` ב-`needs`: הסריקה יצאה מ-`verify` למשימה משלה, והשער על
+  # הפרסום חייב לצאת איתה — אחרת פגיעות high/critical הייתה מפילה
+  # את `audit` בזמן ש-`docker` דוחף תמונות פגיעות ל-GHCR (ביקורת Codex).
   docker:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [verify, cross-tenant, iac]
+    needs: [verify, cross-tenant, iac, audit]
     runs-on: ubuntu-latest
     permissions:
       contents: read
