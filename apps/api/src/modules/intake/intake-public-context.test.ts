@@ -6,10 +6,21 @@ import type { BuyersService } from "../buyers/buyers.service";
 import type { ContactsService } from "../contacts/contacts.service";
 import type { PrismaService, TenantTx } from "../../core/prisma.service";
 import type { PropertiesService } from "../properties/properties.service";
+import type { EmailService } from "../../core/email.service";
 import type { TenantLogoService } from "../../core/tenant-logo.service";
 
 /** שני התלויים שהמסלול הציבורי אינו נוגע בהם — פרט לבדיקת הלוגו. */
 const noProperties = undefined as unknown as PropertiesService;
+/*
+  ‏השליחה באימייל היא מסלול **פנימי** — סוכן שלוחץ בכרטיס. שום דבר
+  בקובץ הזה אינו מגיע אליה, ולכן `send` שזורק הוא הביטוי הנכון: אם
+  מסלול ציבורי יתחיל בכל זאת לשלוח מייל, הבדיקה תיפול במקום לעבור.
+*/
+const noEmail = {
+  send: () => {
+    throw new Error("המסלול הציבורי אינו שולח מייל");
+  },
+} as unknown as EmailService;
 const logoOf = (has: boolean): TenantLogoService =>
   ({ has: async () => has }) as unknown as TenantLogoService;
 
@@ -180,6 +191,7 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       { update: vi.fn() } as unknown as BuyersService,
       noProperties,
       logoOf(true),
+      noEmail,
     );
 
     // אין `TenantContext.run` כאן בכוונה — זה בדיוק מצב הבקשה הציבורית
@@ -220,6 +232,7 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       { update: vi.fn() } as unknown as BuyersService,
       noProperties,
       logoOf(false),
+      noEmail,
     );
 
     await expect(service.submit(TOKEN, { dealType: "sale" })).resolves.toEqual({
@@ -259,6 +272,7 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       { update } as unknown as BuyersService,
       noProperties,
       logoOf(false),
+      noEmail,
     );
 
     await expect(service.submit(TOKEN, { dealType: "sale" })).rejects.toThrow(
@@ -284,6 +298,7 @@ describe("המיזוג רץ מתחת לנעילת הכרטיס", () => {
       buyers,
       noProperties,
       logoOf(false),
+      noEmail,
     );
   }
 
@@ -367,6 +382,7 @@ describe("ליד שטרם הומר — שליחה חוזרת שמשנה תשוב
       { update: vi.fn(notified) } as unknown as BuyersService,
       noProperties,
       logoOf(false),
+      noEmail,
     );
   }
 

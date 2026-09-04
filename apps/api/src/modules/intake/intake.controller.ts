@@ -27,8 +27,10 @@ import { Public, RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   IntakeService,
+  type IntakeListDto,
   type IntakePublicView,
   type IntakeRequestDto,
+  type IntakeSentDto,
 } from "./intake.service";
 
 /**
@@ -49,6 +51,16 @@ import {
  */
 
 const TokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
+
+/**
+ * ‏באיזה ערוץ לשלוח.
+ *
+ * ‎`enum` בעל ערך אחד ולא נתיב בלי גוף: וואטסאפ נשלח היום מהדפדפן
+ * (‏`waUrl`, פתיחת השיחה עם הנוסח מוכן) ולא מהשרת, ושליחה מהשרת
+ * דורשת תבנית מאושרת ב-Meta. כשהיא תתווסף היא ערך נוסף כאן ולא
+ * נתיב חדש — והשדה מחייב את המסך לומר מה הוא מבקש.
+ */
+const SendSchema = z.object({ channel: z.enum(["email"]) }).strict();
 
 /**
  * מה שהלקוח שולח.
@@ -158,7 +170,7 @@ export class IntakeController {
   @RequireCapability("leads.view_own")
   listForLead(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-  ): Promise<IntakeRequestDto[]> {
+  ): Promise<IntakeListDto> {
     return this.intake.listFor("lead", id);
   }
 
@@ -171,11 +183,28 @@ export class IntakeController {
     return this.intake.ensure("lead", id);
   }
 
+  /**
+   * ‏שליחת הקישור ללקוח.
+   *
+   * ‎`leads.edit` ולא `leads.view_own`: זו הודעה שיוצאת מהמערכת אל
+   * לקוח בשם המשרד, וזו אותה יכולת שהיצירה דורשת. מי שרשאי רק
+   * להסתכל בכרטיס אינו רשאי לכתוב ללקוח שבו.
+   */
+  @Post("leads/:id/intake/send")
+  @RequireCapability("leads.edit")
+  @HttpCode(200)
+  sendForLead(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(SendSchema)) body: z.infer<typeof SendSchema>,
+  ): Promise<IntakeSentDto> {
+    return this.intake.sendInvite("lead", id, body.channel);
+  }
+
   @Get("buyers/:id/intake")
   @RequireCapability("buyers.view_own")
   listForBuyer(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-  ): Promise<IntakeRequestDto[]> {
+  ): Promise<IntakeListDto> {
     return this.intake.listFor("buyer", id);
   }
 
@@ -186,6 +215,16 @@ export class IntakeController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
   ): Promise<IntakeRequestDto> {
     return this.intake.ensure("buyer", id);
+  }
+
+  @Post("buyers/:id/intake/send")
+  @RequireCapability("buyers.edit")
+  @HttpCode(200)
+  sendForBuyer(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(SendSchema)) body: z.infer<typeof SendSchema>,
+  ): Promise<IntakeSentDto> {
+    return this.intake.sendInvite("buyer", id, body.channel);
   }
 
   /**

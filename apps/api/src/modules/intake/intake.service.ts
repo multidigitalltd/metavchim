@@ -15,6 +15,7 @@ import {
   describeIntakeChanges,
   intakeExpiryFrom,
   intakeInactiveReason,
+  intakeInviteEmail,
   intakeInviteMessage,
   intakeOpenRejectionReason,
   intakeSellerRejectionReason,
@@ -39,6 +40,7 @@ import { lockContact, lockIntakeRequest } from "../../common/locks";
 import { leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
+import { EmailService } from "../../core/email.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { BuyersService } from "../buyers/buyers.service";
 import { ContactsService } from "../contacts/contacts.service";
@@ -128,6 +130,34 @@ export interface IntakeRequestDto {
 }
 
 /**
+ * ‏הרשימה **ומי יקבל אותה** — ולא מערך שורות בלבד.
+ *
+ * ## ‏למה הנמען יושב כאן ולא על השורה
+ *
+ * ‏המסך צריך לדעת אם ללקוח יש אימייל **לפני** שהוא שולח, כדי לומר
+ * „אין מייל ללקוח” במקום להציע כפתור שייכשל. על השורה זה היה חוזר
+ * זהה בכל בקשה של אותו כרטיס — ובכרטיס שעדיין לא נשלחה בו אף
+ * בקשה, כלומר בדיוק במצב הנפוץ, לא היה מגיע כלל.
+ *
+ * ## ‏למה הכתובת עצמה ולא `hasEmail`
+ *
+ * ‏חלון האישור אומר לאן זה הולך. „אתם בטוחים?” בלי הכתובת מבקש
+ * אישור על מה שלא הוצג, וסוכן שלחץ אינו יכול לדעת שהכתובת
+ * שבכרטיס שגויה. הסוכן רשאי לראות את איש הקשר של הכרטיס ממילא.
+ */
+export interface IntakeListDto {
+  recipient: { name: string; email: string | null };
+  rows: IntakeRequestDto[];
+}
+
+/** ‏מה שהשליחה מדווחת בחזרה — ‏`to` הוא לאן זה באמת יצא. */
+export interface IntakeSentDto {
+  channel: "email";
+  to: string;
+  url: string;
+}
+
+/**
  * המיזוג נדחה בסכימה — ולכן הטרנזקציה של הכרטיס מתבטלת.
  *
  * מחלקה ולא דגל, כי הסימון צריך לצאת מתוך פונקציה שרצה בתוך
@@ -191,6 +221,7 @@ export class IntakeService {
     private readonly buyers: BuyersService,
     private readonly properties: PropertiesService,
     private readonly logo: TenantLogoService,
+    private readonly email: EmailService,
   ) {}
 
   /** הלוגו של המשרד — נגזר מהשורה שהטוקן פתח, לטופס הציבורי. */
@@ -356,23 +387,111 @@ export class IntakeService {
   async listFor(
     subject: IntakeSubject,
     subjectId: string,
-  ): Promise<IntakeRequestDto[]> {
+  ): Promise<IntakeListDto> {
     const ctx = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
-      await this.contactOf(tx, subject, subjectId);
+      const contactId = await this.contactOf(tx, subject, subjectId);
       const rows = await tx.intakeRequest.findMany({
         where: { tenantId: ctx.tenantId, subject, subjectId },
         orderBy: { createdAt: "desc" },
         take: 20,
       });
-      if (rows.length === 0) return [];
+      /*
+       * ‏איש הקשר נקרא מהכרטיס ולא מהשורה הראשונה: כרטיס שעדיין לא
+       * נשלחה ממנו אף בקשה הוא בדיוק המצב שבו המסך צריך לדעת אם יש
+       * אימייל — ושורה ראשונה אין לו.
+       */
+      const contact = await this.contacts.getById(tx, contactId);
+      const recipient = {
+        name: contact?.name ?? "",
+        email: contact?.email ?? null,
+      };
+      if (rows.length === 0) return { recipient, rows: [] };
       const ctxDto = await this.dtoContext(
         tx,
         ctx.tenantId,
         rows[0]!.contactId,
       );
-      return rows.map((row) => toDto(row, ctxDto));
+      return { recipient, rows: rows.map((row) => toDto(row, ctxDto)) };
     });
+  }
+
+  /**
+   * ‎**שליחת הקישור ללקוח באימייל — הערוץ שלא היה.**
+   *
+   * ## ‏מה היה
+   *
+   * ‏הכרטיס ידע ליצור קישור ולפתוח את וואטסאפ עם הנוסח מוכן, ולהעתיק
+   * את הכתובת. ללקוח בלי וואטסאפ — או למי שמעדיף מייל — לא הייתה
+   * דרך: המתווך היה אמור להעתיק את הקישור ולהדביק אותו במייל משלו,
+   * ומי שלא עשה זאת השאיר את הלקוח בלי טופס (בקשת המשתמש).
+   *
+   * ## ‏למה זה זורק ולא מחזיר „נכשל”
+   *
+   * ‏אדם לחץ כפתור ומחכה לתשובה. „✓ נשלח” על מייל שלא יצא הוא בדיוק
+   * מה שגורם לו לא לבדוק שוב — ולכן `required: true` בשליחה, וכל
+   * חסם נאמר במפורש: אין אימייל בכרטיס, או הספק דחה.
+   *
+   * ## ‏למה `ensure` ולא יצירה חדשה
+   *
+   * ‏אותו נימוק של הכפתור עצמו: שני קישורים פעילים לאותו כרטיס הם
+   * שני טפסים, ו„מי מהם קובע” אין לו תשובה טובה. מי ששולח במייל
+   * אחרי שכבר שלח בוואטסאפ שולח את **אותו** קישור.
+   */
+  async sendInvite(
+    subject: IntakeSubject,
+    subjectId: string,
+    channel: "email",
+  ): Promise<IntakeSentDto> {
+    const ctx = TenantContext.current();
+    const link = await this.ensure(subject, subjectId);
+
+    const details = await this.prisma.withTenant(async (tx) => {
+      const contactId = await this.contactOf(tx, subject, subjectId);
+      const [contact, officeName] = await Promise.all([
+        this.contacts.getById(tx, contactId),
+        this.officeName(tx, ctx.tenantId),
+      ]);
+      return { contact, officeName };
+    });
+
+    const to = details.contact?.email;
+    if (to === undefined || to === "") {
+      throw new BadRequestException(
+        "אין מייל ללקוח — אפשר להוסיף אותו בכרטיס ולשלוח שוב",
+      );
+    }
+
+    const mail = intakeInviteEmail({
+      officeName: details.officeName,
+      ...(details.contact?.name === undefined || details.contact.name === ""
+        ? {}
+        : { clientName: details.contact.name }),
+      url: link.url,
+    });
+    await this.email.send(
+      to,
+      mail.subject,
+      {
+        heading: mail.heading,
+        ...(mail.greeting === undefined ? {} : { greeting: mail.greeting }),
+        paragraphs: mail.paragraphs,
+        button: mail.button,
+        footnote: mail.footnote,
+      },
+      { required: true, tenantId: ctx.tenantId },
+    );
+
+    await this.prisma.withTenant((tx) =>
+      this.audit.record(tx, {
+        action: "intake.sent",
+        entityType: subject,
+        entityId: subjectId,
+        metadata: { channel, requestId: link.id },
+      }),
+    );
+
+    return { channel, to, url: link.url };
   }
 
   /**
