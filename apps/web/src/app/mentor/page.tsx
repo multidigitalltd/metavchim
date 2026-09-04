@@ -3,18 +3,19 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  MENTOR_GOAL_TARGET_MAX,
-  MENTOR_METRICS,
-  MentorGoalInputSchema,
   formatJerusalemDate,
-  mentorGoalLabel,
-  mentorQuantity,
+  MENTOR_GOAL_TARGET_MAX,
+  MENTOR_INTENTION_MAX,
+  MENTOR_METRICS,
   type MentorActivity,
+  MentorGoalInputSchema,
+  mentorGoalLabel,
   type MentorGoalMetric,
   type MentorGoalPeriod,
   type MentorGoalProgress,
   type MentorMood,
   type MentorPace,
+  mentorQuantity,
   type MentorWin,
   type ProcessGoalSuggestion,
 } from "@metavchim/shared";
@@ -733,7 +734,7 @@ function GoalForm({
           <input
             id="mentor-goal-intention"
             className="mv-control w-full"
-            maxLength={200}
+            maxLength={MENTOR_INTENTION_MAX}
             value={intention}
             placeholder="למשל: כל בוקר ב-11:00 שולח הצעות"
             onChange={(e) => setIntention(e.target.value)}
@@ -1093,7 +1094,7 @@ function ObstaclePlan({
       <input
         id={`plan-${review.id}`}
         className="mv-control w-full"
-        maxLength={300}
+        maxLength={MENTOR_INTENTION_MAX}
         value={plan}
         placeholder="למשל: כשלא נשאר זמן — אז ההצעות ראשונות בבוקר"
         onChange={(e) => setPlan(e.target.value)}

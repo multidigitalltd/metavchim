@@ -11,9 +11,10 @@ import { z } from "zod";
 import {
   IdSchema,
   MENTOR_GOAL_TARGET_MAX,
+  MENTOR_INTENTION_MAX,
+  type MentorGoalInput,
   MentorGoalInputSchema,
   MentorGoalPeriodSchema,
-  type MentorGoalInput,
   type ProcessGoalSuggestion,
 } from "@metavchim/shared";
 import { AnyAuthenticated } from "../../common/auth.decorators";
@@ -41,7 +42,11 @@ const CommitmentSchema = z
   })
   .strict();
 const PlanSchema = z
-  .object({ plan: z.string().trim().min(3).max(300) })
+  /*
+   * 200 ולא 300: התוכנית נכנסת ל-`MentorGoal.intention` (VARCHAR(200)),
+   * וקלט שה-API מקבל וה-DB דוחה הוא שגיאה שנראית כתקלה (ביקורת Codex).
+   */
+  .object({ plan: z.string().trim().min(3).max(MENTOR_INTENTION_MAX) })
   .strict();
 const ReflectionSchema = z
   .object({ answer: z.string().trim().min(1).max(1000) })

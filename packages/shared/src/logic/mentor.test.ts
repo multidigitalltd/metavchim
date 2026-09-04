@@ -14,7 +14,10 @@ import {
   obstaclePlanSuggestions,
   suggestProcessGoals,
 } from "./mentor.js";
-import { MentorGoalInputSchema } from "../schemas/mentor.js";
+import {
+  MENTOR_INTENTION_MAX,
+  MentorGoalInputSchema,
+} from "../schemas/mentor.js";
 
 // ראשון 2026-09-06 00:00 שעון ישראל (UTC+3 בקיץ)
 const WEEK_START = new Date("2026-09-05T21:00:00.000Z");
@@ -792,7 +795,7 @@ describe("obstaclePlanSuggestions — החצי השני של WOOP", () => {
       expect(plans).toHaveLength(3);
       for (const plan of plans) {
         expect(plan).toMatch(/^כש.*— אז /u);
-        expect(plan.length).toBeLessThanOrEqual(300);
+        expect(plan.length).toBeLessThanOrEqual(MENTOR_INTENTION_MAX);
       }
     }
   });
