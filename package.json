@@ -18,7 +18,9 @@
     "verify:backup": "node scripts/verify-backup-chain.mjs",
     "verify:notify": "node scripts/verify-notification-routes.mjs",
     "verify:stt": "node scripts/verify-stt-prompt.mjs",
-    "verify:caps": "node scripts/verify-effective-capabilities.mjs"
+    "verify:caps": "node scripts/verify-effective-capabilities.mjs",
+  "audit:deps": "node scripts/audit-dependencies.mjs",
+  "test:audit-gate": "node scripts/audit-dependencies.test.mjs"
   },
   "pnpm": {
     "overrides": {
