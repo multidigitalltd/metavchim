@@ -332,26 +332,24 @@ export function EntityTasks({
 
   return (
     <section
-      className="mb-6 rounded-xl border p-4"
-      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+      className="mv-card mv-card--pad"
       aria-labelledby={`tasks-${entityId}`}
     >
       {/*
         אריח מגוון ומונה בגלולה — אותה שפה שבה נספרות כל שאר הקבוצות
         במערכת, במקום מספר בסוגריים בתוך הכותרת.
       */}
-      <h2
-        id={`tasks-${entityId}`}
-        className="mb-3 flex items-center gap-2 text-lg font-semibold"
-      >
-        <span className="mv-tile mv-domain-green" aria-hidden="true">
-          <IconCheck s={17} />
+      <div className="mv-card-head">
+        <span className="mv-tile mv-tile--44 mv-domain-green" aria-hidden="true">
+          <IconCheck s={20} />
         </span>
-        משימות
+        <h2 id={`tasks-${entityId}`} className="mv-card-head__title">
+          משימות
+        </h2>
         {list.kind === "ready" && open.length > 0 ? (
-          <span className="mv-chip">{open.length}</span>
+          <span className="mv-pill mv-domain-green">{open.length} פתוחות</span>
         ) : null}
-      </h2>
+      </div>
 
       {error ? (
         <Notice tone="danger">{error}</Notice>

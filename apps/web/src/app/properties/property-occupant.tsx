@@ -13,6 +13,7 @@ import {
 import { apiPatch, ApiError } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { ContactPeople } from "../contact-people";
+import { IconHome, IconPlus } from "../icons";
 import { Notice } from "../notice";
 
 /**
@@ -178,9 +179,12 @@ export function PropertyOccupant({
   }
 
   return (
-    <section className="mv-list-card px-5 py-[17px]" aria-labelledby="occupant-heading">
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="occupant-heading" className="m-0" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
+    <section className="mv-card mv-card--pad" aria-labelledby="occupant-heading">
+      <div className="mv-card-head">
+        <span className="mv-tile mv-tile--44 mv-domain-blue" aria-hidden="true">
+          <IconHome s={20} />
+        </span>
+        <h2 id="occupant-heading" className="mv-card-head__title">
           מי גר בנכס
         </h2>
         {occupant ? (
@@ -188,12 +192,21 @@ export function PropertyOccupant({
             href={waMeUrl(occupant.phone)}
             target="_blank"
             rel="noopener noreferrer"
-            className="mv-btn-plain"
+            className="mv-net-act ms-auto"
+            style={{ textDecoration: "none" }}
           >
             וואטסאפ
           </a>
         ) : null}
       </div>
+
+      <p
+        className="m-0 mb-3 text-[length:var(--type-body-sm)]"
+        style={{ color: "var(--color-text-muted)" }}
+      >
+        הבעלים גר בנכס, או שאין דייר. אם הדירה מושכרת — הוסיפו את השוכר כדי
+        שתיאום ביקור לא יעבור דרך פתק.
+      </p>
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
 
@@ -205,45 +218,34 @@ export function PropertyOccupant({
         לא סימן בו דבר אינו נכס שהבעלים גר בו.
       */}
       <div className="mb-3" role="group" aria-label="מי גר בנכס">
-        <div className="flex flex-wrap gap-2">
+        {/*
+          ‎**שורות בחירה ולא כפתורים בשורה.**
+
+          שלושת המצבים אינם שלוש פעולות אלא תשובה אחת לשאלה אחת,
+          ולכן הם נראים כמו בחירה: עיגול, כותרת, ומה שנגזר ממנה.
+          העיגול הוא מה שאומר „אחד מהם”, ולא רק צבע רקע.
+        */}
+        <div className="mv-choices">
           {OCCUPANCY_STATES.map((state) => {
             const active = occupancy === state;
             return (
               <button
                 key={state}
                 type="button"
-                className="rounded-xl border px-3 py-2 text-start"
+                className="mv-choice"
                 aria-pressed={active}
                 disabled={!canEdit || busy}
                 onClick={() => void chooseOccupancy(state)}
-                style={{
-                  /*
-                    ‎`--color-input-border` ולא `--color-border`: אלה
-                    פקדים ולא כרטיסים. המסגרת הדקורטיבית עומדת על
-                    ‎1.65:1 בלבד, מתחת לסף WCAG 1.4.11 לגבול פקד —
-                    נתפס בשער הניגודיות, ולא בעין.
-                  */
-                  borderColor: active ? "var(--color-primary)" : "var(--color-input-border)",
-                  background: active ? "var(--color-primary-soft)" : "var(--color-bg)",
-                  cursor: canEdit && !busy ? "pointer" : "default",
-                }}
               >
-                <span
-                  className="block text-[length:var(--type-body-sm)]"
-                  style={{ fontWeight: 800, color: active ? "var(--color-primary)" : "var(--color-text)" }}
-                >
-                  {OCCUPANCY_LABEL[state]}
+                <span className="mv-choice__text">
+                  <span className="mv-choice__title">{OCCUPANCY_LABEL[state]}</span>
+                  {/*
+                    מה שנגזר מהמצב, ולא הגדרתו. „אין דייר” הוא עובדה;
+                    „אפשר להראות בכל שעה” הוא מה שהמתווך עושה איתה.
+                  */}
+                  <span className="mv-choice__note">{OCCUPANCY_MEANING[state]}</span>
                 </span>
-                {/*
-                  מה שנגזר מהמצב, ולא הגדרתו. „אין דייר” הוא עובדה;
-                  „אפשר להראות בכל שעה” הוא מה שהמתווך עושה איתה.
-                */}
-                <span
-                  className="block text-[length:var(--type-caption)]"
-                  style={{ color: "var(--color-text-muted)" }}
-                >
-                  {OCCUPANCY_MEANING[state]}
-                </span>
+                <span className="mv-choice__mark" aria-hidden="true" />
               </button>
             );
           })}
@@ -450,13 +452,18 @@ export function PropertyOccupant({
             על שתי עובדות שאיש לא בדק, על סמך היעדר רשומה. עכשיו
             המצב נבחר למעלה, וכאן נשארת רק הפעולה.
           */}
-          <p className="m-0 mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-            אם הנכס מושכר, הוסיפו את השוכר לתיאום ביקורים.
-          </p>
           {canEdit ? (
-            <button type="button" className="mv-btn-plain" onClick={() => setAdding(true)}>
-              הוסף שוכר
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="button" className="mv-net-act" onClick={() => setAdding(true)}>
+                <IconPlus s={15} /> הוסף שוכר
+              </button>
+              <span
+                className="text-[length:var(--type-caption)]"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                אפשר להוסיף גם אחר כך
+              </span>
+            </div>
           ) : null}
         </>
       )}

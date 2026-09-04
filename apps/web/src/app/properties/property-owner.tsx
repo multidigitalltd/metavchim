@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { apiPatch, ApiError } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { ContactPeople } from "../contact-people";
-import { IconChat } from "../icons";
+import { IconChat, IconLock, IconPlus, IconUser } from "../icons";
 import { Notice } from "../notice";
 
 /**
@@ -83,37 +83,29 @@ export function PropertyOwner({
   }
 
   return (
-    <section className="mv-list-card mb-[18px] px-5 py-[17px]" aria-labelledby="owner-heading">
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="owner-heading" className="m-0" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
+    <section className="mv-card mv-card--pad" aria-labelledby="owner-heading">
+      {/*
+        ‏אריח, שם, ומצב — אותה כותרת של כל כרטיס במערכת. „חסר” הוא
+        המצב האמיתי של נכס בלי בעלים, והוא נאמר בגלולה ולא במשפט,
+        כי זו השורה שנסרקת ראשונה.
+      */}
+      <div className="mv-card-head">
+        <span className="mv-tile mv-tile--44 mv-domain-peach" aria-hidden="true">
+          <IconUser s={20} />
+        </span>
+        <h2 id="owner-heading" className="mv-card-head__title">
           בעל הנכס
         </h2>
-        {owner ? (
-          <span className="flex flex-wrap gap-2">
-            {canSendUpdate ? (
-              <button type="button" className="mv-btn-plain" onClick={onSendUpdate}>
-                <IconChat s={15} /> שלח עדכון שיווק
-              </button>
-            ) : null}
-            <a
-              href={waMeUrl(owner.phone)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mv-btn-plain"
-            >
-              וואטסאפ
-            </a>
-          </span>
-        ) : null}
+        {owner ? null : (
+          <span className="mv-pill mv-domain-amber ms-auto">חסר</span>
+        )}
       </div>
 
-      {error ? (
-        <Notice tone="danger">{error}</Notice>
-      ) : null}
+      {error ? <Notice tone="danger">{error}</Notice> : null}
 
       {owner ? (
         <>
-          <p className="m-0 text-sm">
+          <p className="m-0 text-[length:var(--type-body-sm)]">
             <strong>{owner.name}</strong>
             {" · "}
             <a href={`tel:${owner.phone}`} className="underline" dir="ltr">
@@ -133,11 +125,27 @@ export function PropertyOwner({
             (בן/בת זוג, בעלים שותף, בן שמטפל בהורים).
           */}
           <ContactPeople contactId={owner.id} canEdit={canEditPeople} canErase={canErase} />
+          <div className="mt-3 flex flex-wrap gap-2">
+            {canSendUpdate ? (
+              <button type="button" className="mv-net-act" onClick={onSendUpdate}>
+                <IconChat s={15} /> שלח עדכון שיווק
+              </button>
+            ) : null}
+            <a
+              href={waMeUrl(owner.phone)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mv-net-act"
+              style={{ textDecoration: "none" }}
+            >
+              <IconChat s={15} /> וואטסאפ
+            </a>
+          </div>
         </>
       ) : adding ? (
         <form onSubmit={(e) => void save(e)} className="max-w-sm">
           <div className="mb-3">
-            <label htmlFor="ownerName" className="mb-1 block text-sm font-semibold">
+            <label htmlFor="ownerName" className="mb-1 block text-[length:var(--type-body-sm)] font-semibold">
               שם בעל הנכס
             </label>
             <input
@@ -151,7 +159,7 @@ export function PropertyOwner({
             />
           </div>
           <div className="mb-3">
-            <label htmlFor="ownerPhone" className="mb-1 block text-sm font-semibold">
+            <label htmlFor="ownerPhone" className="mb-1 block text-[length:var(--type-body-sm)] font-semibold">
               טלפון
             </label>
             <input
@@ -166,26 +174,62 @@ export function PropertyOwner({
             />
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="submit" className="mv-btn-action" disabled={busy}>
+            <button type="submit" className="mv-net-act mv-net-act--go" disabled={busy}>
               {busy ? "שומר…" : "שמור"}
             </button>
-            <button type="button" className="mv-btn-plain" onClick={() => setAdding(false)}>
+            <button type="button" className="mv-net-act" onClick={() => setAdding(false)}>
               ביטול
             </button>
           </div>
-          <p className="m-0 mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-            אם המספר כבר קיים במערכת, הנכס יקושר לאותו אדם ולא ייווצר כרטיס כפול.
+          <p
+            className="m-0 mt-2 text-[length:var(--type-caption)]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            אם המספר כבר קיים במערכת, הנכס יקושר לאותו אדם ולא ייווצר כרטיס כפול —
+            כך מוסיפים בעלים שכבר רשום אצלכם.
           </p>
         </form>
       ) : (
         <>
-          <p className="m-0 mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          <p
+            className="m-0 text-[length:var(--type-body-sm)]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
             טרם הוזן בעל נכס. בלעדיו אי אפשר לשלוח עדכון שיווק ולא להחתים על בלעדיות.
           </p>
+
+          {/*
+            ‎**מה נחסם — רשימה, לא משפט.**
+
+            „בלעדיו אי אפשר…” נקרא כאזהרה כללית; שלוש שורות עם מנעול
+            אומרות בדיוק אילו שלוש פעולות במסך הזה לא יעבדו, וזה מה
+            שהופך את „הוסף בעל נכס” להחלטה ולא להצעה.
+          */}
+          <div className="mv-blocked" role="note">
+            <span className="mv-blocked__label">מה נחסם בלי בעל נכס</span>
+            <ul className="mv-blocked__list">
+              <li>
+                <IconLock s={15} /> שליחת עדכון שיווק לבעל הנכס
+              </li>
+              <li>
+                <IconLock s={15} /> החתמה על הסכם בלעדיות
+              </li>
+              <li>
+                <IconLock s={15} /> שליחת דוח פעילות
+              </li>
+            </ul>
+          </div>
+
           {canEdit ? (
-            <button type="button" className="mv-btn-plain" onClick={() => setAdding(true)}>
-              הוסף בעל נכס
-            </button>
+            <div className="mt-3 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                className="mv-net-act mv-net-act--go"
+                onClick={() => setAdding(true)}
+              >
+                <IconPlus s={15} /> הוסף בעל נכס
+              </button>
+            </div>
           ) : null}
         </>
       )}
