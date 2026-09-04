@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import {
   buildMentorPrompt,
   mentorFallbackReply,
@@ -92,4 +92,19 @@ describe("mentorFallbackReply — כשאין מודל", () => {
       mentorFallbackReply({ ...base, goals: [], lastReview: null }),
     ).toContain("קבעו יעד אחד");
   });
+});
+
+test("התוכנית שנולדה מהרפלקציה נכנסת לפרומפט", () => {
+  const prompt = buildMentorPrompt({
+    ...base,
+    lastReview: {
+      ...base.lastReview!,
+      reflectionAnswer: "לא היה זמן",
+      plan: "כשלא נשאר זמן — אז ההצעות ראשונות בבוקר",
+    },
+  });
+  expect(prompt).toContain("תשובת המתווך: „לא היה זמן”");
+  expect(prompt).toContain(
+    "התוכנית שהמתווך קבע למקרה שזה יקרה שוב: „כשלא נשאר זמן — אז ההצעות ראשונות בבוקר”",
+  );
 });

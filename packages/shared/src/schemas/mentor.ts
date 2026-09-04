@@ -16,6 +16,12 @@ import { IdSchema } from "./common.js";
  * הגבול העליון (`MENTOR_GOAL_TARGET_MAX`) הוא אותו קבוע שהצעות
  * המנטור נחתכות בו — הצעה שהמסך מציע חייבת להיות יעד שהסכמה מקבלת.
  */
+/**
+ * אורך כוונת היישום — אותו מספר בעמודה (`VARCHAR(200)`), ב-API ובמסך.
+ * התוכנית שנולדת מהרפלקציה נכנסת לכאן, ולכן גם היא מוגבלת בו.
+ */
+export const MENTOR_INTENTION_MAX = 200;
+
 export const MentorGoalMetricSchema = z.enum(MENTOR_GOAL_METRICS);
 export const MentorGoalPeriodSchema = z.enum(MENTOR_GOAL_PERIODS);
 
@@ -32,7 +38,7 @@ export const MentorGoalInputSchema = z.object({
    * כוונת יישום — „כל יום ב-11:00 שולח הצעות”. „כש… אז…” מכפיל
    * את סיכוי הביצוע מול יעד ערום (docs/13 §2).
    */
-  intention: z.string().trim().max(200).optional(),
+  intention: z.string().trim().max(MENTOR_INTENTION_MAX).optional(),
 });
 export type MentorGoalInput = z.infer<typeof MentorGoalInputSchema>;
 

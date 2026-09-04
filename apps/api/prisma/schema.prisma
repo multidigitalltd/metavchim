@@ -628,6 +628,9 @@ model MentorReview {
   commitment       String?   @db.VarChar(10)
   committedAt      DateTime? @map("committed_at")
   commitmentNote   String?   @map("commitment_note") @db.VarChar(300)
+  /// התוכנית „אם… אז…” שנולדה מהרפלקציה; נכנסת ליעד ככוונת יישום
+  plan             String?   @db.VarChar(300)
+  plannedAt        DateTime? @map("planned_at")
   createdAt        DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

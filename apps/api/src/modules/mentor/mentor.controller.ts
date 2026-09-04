@@ -11,9 +11,10 @@ import { z } from "zod";
 import {
   IdSchema,
   MENTOR_GOAL_TARGET_MAX,
+  MENTOR_INTENTION_MAX,
+  type MentorGoalInput,
   MentorGoalInputSchema,
   MentorGoalPeriodSchema,
-  type MentorGoalInput,
   type ProcessGoalSuggestion,
 } from "@metavchim/shared";
 import { AnyAuthenticated } from "../../common/auth.decorators";
@@ -39,6 +40,13 @@ const CommitmentSchema = z
     decision: z.enum(["accepted", "declined"]),
     note: z.string().trim().max(300).optional(),
   })
+  .strict();
+const PlanSchema = z
+  /*
+   * 200 ולא 300: התוכנית נכנסת ל-`MentorGoal.intention` (VARCHAR(200)),
+   * וקלט שה-API מקבל וה-DB דוחה הוא שגיאה שנראית כתקלה (ביקורת Codex).
+   */
+  .object({ plan: z.string().trim().min(3).max(MENTOR_INTENTION_MAX) })
   .strict();
 const ReflectionSchema = z
   .object({ answer: z.string().trim().min(1).max(1000) })
@@ -115,6 +123,15 @@ export class MentorController {
     body: z.infer<typeof CommitmentSchema>,
   ): Promise<MentorReviewDto> {
     return this.mentor.commit(id, body.decision, body.note);
+  }
+
+  @Post("reviews/:id/plan")
+  @AnyAuthenticated()
+  plan(
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(PlanSchema)) body: z.infer<typeof PlanSchema>,
+  ): Promise<MentorReviewDto> {
+    return this.mentor.setPlan(id, body.plan);
   }
 
   @Get("messages")

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MENTOR_GOAL_METRICS,
   type MentorActivity,
   type MentorGoalProgress,
   mentorGoalLabel,
@@ -10,9 +11,13 @@ import {
   MENTOR_GOAL_TARGET_MAX,
   mentorReviewTitle,
   mentorWeeklyReview,
+  obstaclePlanSuggestions,
   suggestProcessGoals,
 } from "./mentor.js";
-import { MentorGoalInputSchema } from "../schemas/mentor.js";
+import {
+  MENTOR_INTENTION_MAX,
+  MentorGoalInputSchema,
+} from "../schemas/mentor.js";
 
 // ראשון 2026-09-06 00:00 שעון ישראל (UTC+3 בקיץ)
 const WEEK_START = new Date("2026-09-05T21:00:00.000Z");
@@ -780,5 +785,18 @@ describe("mentorWeeklyReview — מחויבות: מה שאמרתם שתעשו ה
       "התחייבתם ל5 הצעות בשבוע. הפעם לא יצא, וההתחייבות עדיין שלכם.",
     );
     expect(review?.paragraphs.join(" ")).not.toMatch(/מעט|רק|חבל|אכזב/);
+  });
+});
+
+describe("obstaclePlanSuggestions — החצי השני של WOOP", () => {
+  it("לכל מדד שלוש הצעות בצורת „כש… אז…”, קצרות מגבול התוכנית", () => {
+    for (const metric of MENTOR_GOAL_METRICS) {
+      const plans = obstaclePlanSuggestions(metric);
+      expect(plans).toHaveLength(3);
+      for (const plan of plans) {
+        expect(plan).toMatch(/^כש.*— אז /u);
+        expect(plan.length).toBeLessThanOrEqual(MENTOR_INTENTION_MAX);
+      }
+    }
   });
 });

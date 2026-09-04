@@ -3,18 +3,19 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  MENTOR_GOAL_TARGET_MAX,
-  MENTOR_METRICS,
-  MentorGoalInputSchema,
   formatJerusalemDate,
-  mentorGoalLabel,
-  mentorQuantity,
+  MENTOR_GOAL_TARGET_MAX,
+  MENTOR_INTENTION_MAX,
+  MENTOR_METRICS,
   type MentorActivity,
+  MentorGoalInputSchema,
+  mentorGoalLabel,
   type MentorGoalMetric,
   type MentorGoalPeriod,
   type MentorGoalProgress,
   type MentorMood,
   type MentorPace,
+  mentorQuantity,
   type MentorWin,
   type ProcessGoalSuggestion,
 } from "@metavchim/shared";
@@ -73,6 +74,8 @@ interface ReviewDto {
   commitment: "accepted" | "declined" | null;
   committedAt: string | null;
   commitmentNote: string | null;
+  plan: string | null;
+  planSuggestions: string[];
   reflection: string | null;
   reflectionAnswer: string | null;
   allGoalsMet: boolean;
@@ -731,7 +734,7 @@ function GoalForm({
           <input
             id="mentor-goal-intention"
             className="mv-control w-full"
-            maxLength={200}
+            maxLength={MENTOR_INTENTION_MAX}
             value={intention}
             placeholder="למשל: כל בוקר ב-11:00 שולח הצעות"
             onChange={(e) => setIntention(e.target.value)}
@@ -965,9 +968,16 @@ function ReviewCard({
         >
           <p className="m-0 font-bold">{review.reflection}</p>
           {review.reflectionAnswer !== null ? (
-            <p className="m-0 mt-2" style={{ whiteSpace: "pre-line" }}>
-              עניתם: „{review.reflectionAnswer}”
-            </p>
+            <>
+              <p className="m-0 mt-2" style={{ whiteSpace: "pre-line" }}>
+                עניתם: „{review.reflectionAnswer}”
+              </p>
+              <ObstaclePlan
+                review={review}
+                onSaved={onAnswered}
+                compact={compact}
+              />
+            </>
           ) : compact ? (
             <p
               className="m-0 mt-2"
@@ -1007,6 +1017,104 @@ function ReviewCard({
         </div>
       ) : null}
     </article>
+  );
+}
+
+/**
+ * מהמכשול לתוכנית — החצי השני של WOOP. אחרי „מה עצר?” המנטור שואל
+ * „ואם זה יקרה שוב?”, מציע שלוש תוכניות „כש… אז…” לפי המדד, והמתווך
+ * כותב את שלו. התוכנית נכנסת ליעד ככוונת יישום, ולכן הדחיפה של
+ * אמצע השבוע והבקשה לשבוע הבא יזכירו אותה.
+ */
+function ObstaclePlan({
+  review,
+  onSaved,
+  compact,
+}: {
+  review: ReviewDto;
+  onSaved: () => void;
+  compact: boolean;
+}) {
+  const [plan, setPlan] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(): Promise<void> {
+    if (plan.trim().length < 3) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPost(`/mentor/reviews/${encodeURIComponent(review.id)}/plan`, {
+        plan: plan.trim(),
+      });
+      setPlan("");
+      onSaved();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "שמירת התוכנית נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (review.plan !== null) {
+    return (
+      <p
+        className="m-0 mt-2 font-bold"
+        style={{ color: "var(--color-primary)" }}
+      >
+        ואם זה יקרה שוב: „{review.plan}” — נכנס ליעד.
+      </p>
+    );
+  }
+  if (compact) return null;
+
+  return (
+    <div className="mt-3">
+      <label
+        htmlFor={`plan-${review.id}`}
+        className="mb-1 block text-sm font-medium"
+      >
+        ואם זה יקרה שוב? כתבו תוכנית בצורת „כש… אז…” — היא תיכנס ליעד.
+      </label>
+      {review.planSuggestions.length > 0 ? (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {review.planSuggestions.map((s) => (
+            <button
+              key={s}
+              type="button"
+              className="mv-example-chip"
+              disabled={busy}
+              onClick={() => setPlan(s)}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <input
+        id={`plan-${review.id}`}
+        className="mv-control w-full"
+        maxLength={MENTOR_INTENTION_MAX}
+        value={plan}
+        placeholder="למשל: כשלא נשאר זמן — אז ההצעות ראשונות בבוקר"
+        onChange={(e) => setPlan(e.target.value)}
+      />
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          className="mv-control-go"
+          disabled={busy || plan.trim().length < 3}
+          onClick={() => void save()}
+        >
+          {busy ? "שומר…" : "לשמור את התוכנית ליעד"}
+        </button>
+      </div>
+      {error ? (
+        <div className="mt-2">
+          <Notice tone="danger">{error}</Notice>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
