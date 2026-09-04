@@ -783,7 +783,10 @@ export function mentorWeeklyReview(
 ): MentorReview | null {
   const { wins, goals, activity, previousActivity } = signals;
   const noActivity = isEmptyActivity(activity);
-  if (wins.length === 0 && goals.length === 0 && noActivity) return null;
+  // שיחה שלא חזרת אליה היא דבר לומר גם בשבוע שאין בו כלום אחר
+  const somethingWaits = (signals.insights?.missedUnreturned ?? 0) > 0;
+  if (wins.length === 0 && goals.length === 0 && noActivity && !somethingWaits)
+    return null;
 
   const allGoalsMet = goals.length > 0 && goals.every((g) => g.pace === "done");
   const anyBehind = goals.some((g) => g.pace === "behind");

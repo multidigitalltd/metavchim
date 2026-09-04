@@ -115,15 +115,17 @@
 | `new_buyers`          | `buyers.created_at`                                                                                             | `owner_user_id`                                                                                                                    |
 | `new_properties`      | `audit_log` — `property.create` בתקופה                                                                          | `user_id` ביומן הביקורת                                                                                                            |
 | `calls_made`          | `calls.direction = outbound` לפי `occurred_at`                                                                  | `created_by` (רישום ידני), או `leads.assigned_to_user_id` דרך `lead_id` (שיחת מרכזייה); שיחת מרכזייה יוצאת בלי ליד אינה נספרת לאיש |
-| `calls_answered`      | `calls.direction = inbound` ו-`outcome` שאינו `missed/no_answer/voicemail`                                      | כנ"ל, ובנוסף: שיחת מרכזייה בלי ליד מלקוח קיים שייכת למי שהליד של אותו לקוח אצלו                                                    |
+| `calls_answered`      | `calls.direction = inbound` ו-`outcome` שאינו `missed/no_answer/voicemail`                                      | כנ"ל, ובנוסף: שיחת מרכזייה בלי ליד מלקוח קיים שייכת למי שהליד **האחרון** של אותו לקוח אצלו — ליד אחד, מתווך אחד                    |
 | `leads_answered_fast` | `leads.first_response_at` בתקופה, ו-`first_response_at − created_at ≤ 60 דקות` (`MENTOR_FAST_RESPONSE_MINUTES`) | `assigned_to_user_id`                                                                                                              |
 | `followups_done`      | `tasks.completed_at` בתקופה, בלי משימות האוטומציה (`source_key LIKE 'lead-%'`)                                  | `assigned_to_user_id`                                                                                                              |
 | `owner_updates_sent`  | `audit_log` — `property.owner_update` בתקופה                                                                    | `user_id` ביומן הביקורת                                                                                                            |
 
-**המענה הראשון של ליד** (`leads.first_response_at`) נחתם גם ברישום
-שיחה עם הליד (`CallsService.create`, לפי `occurred_at`) וגם בשליחת
-וואטסאפ ללקוח — לא רק בשינוי סטטוס. מתווך שהתקשר תוך חמש דקות ושינה
-סטטוס בערב נמדד כמי שענה תוך חמש דקות.
+**המענה הראשון של ליד** (`leads.first_response_at`) נחתם גם בשיחה
+**שנענתה** עם הליד — רישום ידני (`CallsService.create`, לפי
+`occurred_at`) או שיחת מרכזייה שפתחה את הליד — לא רק בשינוי סטטוס.
+מתווך שהתקשר תוך חמש דקות ושינה סטטוס בערב נמדד כמי שענה תוך חמש
+דקות. מה שאינו ראיה אינו חותם: „אין מענה” ותא קולי אינם שיחה, וקישור
+wa.me רק מכין הודעה — את הלחיצה על „שלח” איננו רואים.
 
 ### 5.1.1 תובנות (`MentorInsights`) — לא יעד, אבל נאמרות
 

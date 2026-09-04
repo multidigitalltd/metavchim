@@ -149,11 +149,14 @@ export class CallsService {
       });
 
       /*
-       * שיחה עם הליד היא מענה. עד עכשיו `first_response_at` נחתם רק
-       * בשינוי סטטוס, ולכן מתווך שהתקשר תוך חמש דקות ושינה סטטוס בערב
-       * נמדד כ„ענה בערב”. השיחה קובעת — ורק כשעדיין לא נחתם.
+       * שיחה **שנענתה** עם הליד היא מענה. עד עכשיו `first_response_at`
+       * נחתם רק בשינוי סטטוס, ולכן מתווך שהתקשר תוך חמש דקות ושינה
+       * סטטוס בערב נמדד כ„ענה בערב”. השיחה קובעת — ורק כשעדיין לא
+       * נחתם, ורק כשדיברו: „אין מענה”, „לא נענתה” ו„תא קולי” אינם
+       * שיחה, וחתימה עליהם הייתה משתיקה גם את תזכורת ה-SLA של ליד
+       * שאיש עוד לא דיבר איתו (ביקורת Codex).
        */
-      if (input.leadId !== undefined) {
+      if (input.leadId !== undefined && input.outcome === "answered") {
         await tx.lead.updateMany({
           where: { id: input.leadId, tenantId, firstResponseAt: null },
           data: { firstResponseAt: input.occurredAt },

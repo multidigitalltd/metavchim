@@ -255,6 +255,22 @@ describe("mentorWeeklyReview — מה המנטור אומר במוצאי שבת"
     ).toBeNull();
   });
 
+  it("שבוע ריק שבו רק שיחה שלא חזרת אליה ⇒ יש מה לומר, והמנטור אומר את זה", () => {
+    const review = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [],
+      activity: quiet,
+      goals: [],
+      insights: {
+        responseMedianMinutes: null,
+        previousResponseMedianMinutes: null,
+        missedUnreturned: 1,
+      },
+    });
+    expect(review).not.toBeNull();
+    expect(review?.paragraphs.join(" ")).toContain("לא נענתה ולא חזרת אליה");
+  });
+
   it("שבוע ריק עם יעד ⇒ עידוד, לא נזיפה — והיעד מוזכר כמה שהמתווך ביקש מעצמו", () => {
     const review = mentorWeeklyReview({
       weekStart: WEEK_START,

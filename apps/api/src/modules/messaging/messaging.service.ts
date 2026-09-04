@@ -59,17 +59,12 @@ export class MessagingService {
         createdBy: TenantContext.current().userId,
       },
     });
-    // הודעה ללקוח היא מענה — חותמת את המענה הראשון של הליד אם עדיין אין
-    if (input.card.kind === "lead") {
-      await tx.lead.updateMany({
-        where: {
-          id: input.card.id,
-          tenantId: TenantContext.current().tenantId,
-          firstResponseAt: null,
-        },
-        data: { firstResponseAt: new Date() },
-      });
-    }
+    /*
+     * ‎**לא** חותם את `first_response_at` של הליד. הקישור רק מכין את
+     * ההודעה — השליחה היא לחיצה על „שלח” בוואטסאפ, שאיננו רואים.
+     * מענה ראשון נרשם רק על ראיה: שיחה שנענתה או שינוי סטטוס
+     * (ביקורת Codex).
+     */
   }
 
   async recordOutbound(

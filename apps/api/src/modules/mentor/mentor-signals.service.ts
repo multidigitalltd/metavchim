@@ -128,9 +128,10 @@ export class MentorSignalsService {
        * שיחות — של מי? שיחה שנרשמה ידנית נושאת `created_by`; שיחה
        * מהמרכזייה אינה נושאת משתמש, ומשויכת דרך הליד שלה
        * (`leads.assigned_to_user_id`). שיחה נכנסת מלקוח קיים בלי ליד
-       * על השיחה עצמה שייכת למי שהליד של אותו לקוח אצלו — כך
-       * שלקוח שהתקשר שוב נספר למתווך שמטפל בו. שיחה יוצאת מהמרכזייה
-       * בלי ליד משויך אינה נספרת לאיש — עדיף חסר מניחוש.
+       * על השיחה עצמה שייכת למי שהליד **האחרון** של אותו לקוח אצלו
+       * — ליד אחד, ולא כל מי שאי פעם טיפל בו, אחרת שיחה אחת נספרת
+       * לשני מתווכים (ביקורת Codex). שיחה יוצאת מהמרכזייה בלי ליד
+       * משויך אינה נספרת לאיש — עדיף חסר מניחוש.
        */
       tx.$queryRaw<{ n: bigint }[]>`
         SELECT COUNT(c.id) AS n
@@ -152,11 +153,12 @@ export class MentorSignalsService {
           AND (
             c.created_by = ${userId}
             OR l.assigned_to_user_id = ${userId}
-            OR (c.lead_id IS NULL AND c.contact_id IS NOT NULL AND EXISTS (
-              SELECT 1 FROM leads cl
+            OR (c.lead_id IS NULL AND c.contact_id IS NOT NULL AND ${userId} = (
+              SELECT cl.assigned_to_user_id FROM leads cl
               WHERE cl.tenant_id = c.tenant_id
                 AND cl.contact_id = c.contact_id
-                AND cl.assigned_to_user_id = ${userId}
+              ORDER BY cl.created_at DESC
+              LIMIT 1
             ))
           )`,
       // ליד שנענה „מהר” — מרגע היצירה עד המענה הראשון, בדקות
@@ -241,11 +243,12 @@ export class MentorSignalsService {
           AND (
             c.created_by = ${userId}
             OR l.assigned_to_user_id = ${userId}
-            OR (c.lead_id IS NULL AND c.contact_id IS NOT NULL AND EXISTS (
-              SELECT 1 FROM leads cl
+            OR (c.lead_id IS NULL AND c.contact_id IS NOT NULL AND ${userId} = (
+              SELECT cl.assigned_to_user_id FROM leads cl
               WHERE cl.tenant_id = c.tenant_id
                 AND cl.contact_id = c.contact_id
-                AND cl.assigned_to_user_id = ${userId}
+              ORDER BY cl.created_at DESC
+              LIMIT 1
             ))
           )
           AND (c.contact_id IS NOT NULL OR c.phone_hash IS NOT NULL)
