@@ -11,7 +11,9 @@ import {
   jerusalemWallParts,
   jerusalemWeekStart,
   mentorMidweekNudge,
+  mentorPatterns,
   mentorPeriodRange,
+  PATTERN_LOOKBACK,
   mentorReviewBody,
   mentorReviewTitle,
   mentorWeeklyReview,
@@ -23,6 +25,7 @@ import { notifyOnce } from "../../common/notify-once";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { MentorSignalsService } from "./mentor-signals.service";
+import { MentorService } from "./mentor.service";
 
 /** כל חצי שעה — הסיכום נכתב פעם בשבוע, והסבב רק מחפש שבוע שהגיע זמנו. */
 const TICK_MS = 30 * 60 * 1000;
@@ -383,7 +386,22 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
           }
         : undefined;
 
+    const past = await tx.mentorReview.findMany({
+      where: { tenantId, userId, weekStart: { lt: weekStart } },
+      orderBy: { weekStart: "desc" },
+      take: PATTERN_LOOKBACK,
+      select: {
+        weekStart: true,
+        body: true,
+        reflectionAnswer: true,
+        plan: true,
+        commitment: true,
+      },
+    });
+    const patterns = mentorPatterns(past.map(MentorService.toPastReview));
+
     const signals: MentorWeekSignals = {
+      patterns,
       weekStart,
       wins,
       activity,

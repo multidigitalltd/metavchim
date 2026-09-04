@@ -1,8 +1,10 @@
 import {
   MENTOR_METRICS,
   mentorGoalLabel,
+  mentorPatternLine,
   mentorQuantity,
   type MentorGoalProgress,
+  type MentorPattern,
   type MentorReview,
 } from "./mentor.js";
 
@@ -36,6 +38,8 @@ export interface MentorChatContext {
         plan?: string | null;
       })
     | null;
+  /** דפוסים מהסיכומים הקודמים — הזיכרון הארוך */
+  patterns?: MentorPattern[];
   /** מהישן לחדש */
   history: { role: "user" | "mentor"; text: string }[];
   question: string;
@@ -123,6 +127,11 @@ export function buildMentorPrompt(ctx: MentorChatContext): string {
         );
       }
     }
+  }
+  if (ctx.patterns !== undefined && ctx.patterns.length > 0) {
+    lines.push("", "מה שהמנטור זוכר מהחודשיים האחרונים (דפוסים מהסיכומים):");
+    for (const pattern of ctx.patterns)
+      lines.push(`- ${mentorPatternLine(pattern)}`);
   }
   if (ctx.history.length > 0) {
     lines.push("", "השיחה עד כה:");

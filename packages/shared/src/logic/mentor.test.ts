@@ -3,9 +3,12 @@ import {
   MENTOR_GOAL_METRICS,
   type MentorActivity,
   type MentorGoalProgress,
+  type MentorPastReview,
   mentorGoalLabel,
   mentorGoalProgress,
   mentorMidweekNudge,
+  mentorPatternLine,
+  mentorPatterns,
   mentorPeriodRange,
   mentorQuantity,
   MENTOR_GOAL_TARGET_MAX,
@@ -798,5 +801,151 @@ describe("obstaclePlanSuggestions — החצי השני של WOOP", () => {
         expect(plan.length).toBeLessThanOrEqual(MENTOR_INTENTION_MAX);
       }
     }
+  });
+});
+
+function past(
+  weeksAgo: number,
+  goals: MentorPastReview["goals"],
+  extra: Partial<MentorPastReview> = {},
+): MentorPastReview {
+  return {
+    weekStart: new Date(WEEK_START.getTime() - weeksAgo * 7 * 24 * 3600 * 1000),
+    goals,
+    askMetric: null,
+    reflectionAnswer: null,
+    plan: null,
+    commitment: null,
+    commitmentKept: null,
+    ...extra,
+  };
+}
+const behindOffers = {
+  metric: "offers_sent" as const,
+  period: "week" as const,
+  target: 5,
+  actual: 2,
+  pace: "behind" as const,
+};
+const doneOffers = {
+  metric: "offers_sent" as const,
+  period: "week" as const,
+  target: 5,
+  actual: 5,
+  pace: "done" as const,
+};
+
+describe("mentorPatterns — הזיכרון הארוך של המנטור", () => {
+  it("פחות משלוש פעמים מאחור אינו דפוס", () => {
+    expect(
+      mentorPatterns([
+        past(1, [behindOffers]),
+        past(2, [behindOffers]),
+        past(3, [doneOffers]),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("שלוש פעמים מאחור בשמונה שבועות — דפוס, עם מה שהמתווך אמר ומה שקבע", () => {
+    const patterns = mentorPatterns([
+      past(1, [behindOffers], {
+        askMetric: "offers_sent",
+        reflectionAnswer: "לא היה זמן",
+        plan: "כשלא נשאר זמן — אז ההצעות ראשונות",
+      }),
+      past(2, [doneOffers]),
+      past(3, [behindOffers], {
+        askMetric: "offers_sent",
+        reflectionAnswer: "לא היו התאמות",
+      }),
+      past(4, [behindOffers]),
+    ]);
+    expect(patterns).toEqual([
+      {
+        kind: "recurring_behind",
+        metric: "offers_sent",
+        weeksBehind: 3,
+        weeksWithGoal: 4,
+        answers: ["לא היה זמן", "לא היו התאמות"],
+        plans: ["כשלא נשאר זמן — אז ההצעות ראשונות"],
+      },
+    ]);
+    expect(mentorPatternLine(patterns[0]!)).toBe(
+      "הצעות שנשלחו: מאחור ב-3 מתוך 4 השבועות האחרונים. בפעמים הקודמות אמרתם: „לא היה זמן”, „לא היו התאמות”. והתוכנית שקבעתם אז: „כשלא נשאר זמן — אז ההצעות ראשונות”.",
+    );
+  });
+
+  it("שני שבועות בקצב אחרי פיגור חוזר — מפנה, לא דפוס", () => {
+    const patterns = mentorPatterns([
+      past(1, [doneOffers]),
+      past(2, [doneOffers]),
+      past(3, [behindOffers]),
+      past(4, [behindOffers]),
+    ]);
+    expect(patterns).toEqual([
+      {
+        kind: "turned_around",
+        metric: "offers_sent",
+        weeksBehind: 2,
+        weeksSince: 2,
+      },
+    ]);
+    expect(mentorPatternLine(patterns[0]!)).toContain(
+      "זה מפנה, ואתם עשיתם אותו",
+    );
+  });
+
+  it("רק שמונת הסיכומים האחרונים נספרים", () => {
+    const old = [9, 10, 11].map((w) => past(w, [behindOffers]));
+    expect(mentorPatterns([past(1, [doneOffers]), ...old])).toEqual([]);
+  });
+
+  it("רשומת המחויבויות — מתוך שתיים לפחות שנשפטו", () => {
+    const patterns = mentorPatterns([
+      past(1, [doneOffers], { commitmentKept: true }),
+      past(2, [doneOffers], { commitmentKept: false }),
+      past(3, [doneOffers], { commitmentKept: true }),
+    ]);
+    expect(patterns).toContainEqual({
+      kind: "commitment_record",
+      accepted: 3,
+      kept: 2,
+    });
+    expect(
+      mentorPatternLine({ kind: "commitment_record", accepted: 3, kept: 2 }),
+    ).toBe("מחויבויות: עמדתם ב-2 מתוך 3 שהתחייבתם אליהן בחודשיים האחרונים.");
+  });
+});
+
+describe("mentorWeeklyReview — הזיכרון בסיכום: משפט אחד, ורק כשרלוונטי השבוע", () => {
+  const recurring = {
+    kind: "recurring_behind" as const,
+    metric: "offers_sent" as const,
+    weeksBehind: 3,
+    weeksWithGoal: 5,
+    answers: ["לא היה זמן"],
+    plans: [],
+  };
+  it("מדד שמאחור גם השבוע — הדפוס נאמר עם המילים של המתווך", () => {
+    const review = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [],
+      activity: { ...quiet, offers_sent: 2 },
+      goals: [goal({ pace: "behind", actual: 2, ratio: 0.4, remaining: 3 })],
+      patterns: [recurring],
+    });
+    expect(review?.paragraphs.join(" ")).toContain(
+      "מאחור ב-3 מתוך 5 השבועות האחרונים. בפעמים הקודמות אמרתם: „לא היה זמן”",
+    );
+  });
+  it("השבוע בקצב — הדפוס הישן לא נאמר", () => {
+    const review = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [],
+      activity: { ...quiet, offers_sent: 5 },
+      goals: [goal({ pace: "done" })],
+      patterns: [recurring],
+    });
+    expect(review?.paragraphs.join(" ")).not.toContain("השבועות האחרונים");
   });
 });

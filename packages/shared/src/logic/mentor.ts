@@ -446,6 +446,8 @@ export interface MentorWeekSignals {
     target: number;
     kept: boolean;
   };
+  /** דפוסים מהסיכומים הקודמים — `mentorPatterns` */
+  patterns?: MentorPattern[];
 }
 
 /** היעד שהבקשה לשבוע הבא מדברת עליו — מה שאפשר להתחייב אליו. */
@@ -617,6 +619,24 @@ export function mentorWeeklyReview(
   }
   if (wins.length > 0) paragraphs.push(winsSentence(wins));
   if (goals.length > 0) paragraphs.push(goals.map(goalSentence).join(" "));
+  /*
+   * הזיכרון: דפוס חוזר נאמר רק כשהוא **רלוונטי השבוע** — מדד שמאחור
+   * גם עכשיו, או מפנה שנמשך. משפט אחד, לא רשימה: מנטור מזכיר דבר
+   * אחד שראה, ולא קורא את כל התיק.
+   */
+  const patterns = signals.patterns ?? [];
+  const relevant =
+    patterns.find(
+      (p) =>
+        p.kind === "recurring_behind" &&
+        goals.some((g) => g.metric === p.metric && g.pace === "behind"),
+    ) ??
+    patterns.find(
+      (p) =>
+        p.kind === "turned_around" &&
+        goals.some((g) => g.metric === p.metric && g.pace !== "behind"),
+    );
+  if (relevant !== undefined) paragraphs.push(mentorPatternLine(relevant));
   const trend = trendSentence(activity, previousActivity);
   if (trend !== null) paragraphs.push(trend);
 
@@ -742,6 +762,8 @@ export interface MentorReviewBody {
   ask: MentorAsk | null;
   reflection: string | null;
   allGoalsMet: boolean;
+  /** האם המחויבות מהסיכום הקודם התקיימה — `null` כשלא הייתה */
+  commitmentKept: boolean | null;
   wins: MentorWin[];
   activity: MentorActivity;
   goals: {
@@ -764,6 +786,7 @@ export function mentorReviewBody(
     reflection: review.reflection,
     allGoalsMet:
       signals.goals.length > 0 && signals.goals.every((g) => g.pace === "done"),
+    commitmentKept: signals.previousCommitment?.kept ?? null,
     wins: signals.wins,
     activity: signals.activity,
     goals: signals.goals.map((g) => ({
@@ -885,6 +908,182 @@ export function obstaclePlanSuggestions(
   metric: MentorGoalMetric,
 ): readonly string[] {
   return OBSTACLE_PLANS[metric];
+}
+
+/* ------------------------------------------------------------------ */
+/* זיכרון ארוך — דפוסים חוזרים מהסיכומים הקודמים                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * מה שנשמר מסיכום קודם ומשמש לזיהוי דפוסים. תת-קבוצה של
+ * ‎`MentorReviewBody` + מה שהמתווך ענה — בלי הטקסטים של המנטור עצמו.
+ */
+export interface MentorPastReview {
+  weekStart: Date;
+  goals: {
+    metric: MentorGoalMetric;
+    period: MentorGoalPeriod;
+    target: number;
+    actual: number;
+    pace: MentorPace;
+  }[];
+  /** המדד שהשאלה הייתה עליו */
+  askMetric: MentorGoalMetric | null;
+  reflectionAnswer: string | null;
+  plan: string | null;
+  commitment: "accepted" | "declined" | null;
+  /** האם המחויבות מהסיכום שלפניו התקיימה — כפי שנרשם בסיכום הזה */
+  commitmentKept: boolean | null;
+}
+
+export type MentorPattern =
+  | {
+      kind: "recurring_behind";
+      metric: MentorGoalMetric;
+      /** בכמה מהסיכומים האחרונים המדד היה מאחור */
+      weeksBehind: number;
+      /** מתוך כמה סיכומים שהיה בהם יעד על המדד */
+      weeksWithGoal: number;
+      /** מה המתווך ענה על „מה עצר” בפעמים ההן — מהחדש לישן, עד שלוש */
+      answers: string[];
+      /** התוכניות שנקבעו אז */
+      plans: string[];
+    }
+  | {
+      kind: "turned_around";
+      metric: MentorGoalMetric;
+      /** כמה שבועות מאחור לפני המפנה */
+      weeksBehind: number;
+      /** כמה שבועות רצופים בקצב או הושג מאז */
+      weeksSince: number;
+    }
+  | { kind: "commitment_record"; accepted: number; kept: number };
+
+/** כמה שבועות אחורה נחשבים „הזיכרון” — כחודשיים. */
+export const PATTERN_LOOKBACK = 8;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const RECURRING_MIN = 3;
+
+/**
+ * דפוסים חוזרים — מה שמנטור אמיתי זוכר ואומר: „זו הפעם השלישית
+ * בחודשיים שההצעות נתקעות, ובפעמים הקודמות אמרת ש…”.
+ *
+ * דטרמיניסטי, מהסיכומים שנשמרו: בלי ניתוח טקסט, בלי מודל. מדד
+ * שהיה מאחור בשלושה מתוך שמונת הסיכומים האחרונים הוא דפוס; מדד
+ * שהיה מאחור פעמיים ומאז בקצב הוא מפנה — ומפנה נאמר, כי התקדמות
+ * שאיש לא רואה נשחקת. ‎`reviews` — מהחדש לישן.
+ */
+export function mentorPatterns(
+  reviews: readonly MentorPastReview[],
+): MentorPattern[] {
+  // חלון של שבועות מהסיכום החדש ביותר, לא ספירת רשומות: סיכום מלפני
+  // חצי שנה אינו „החודשיים האחרונים” גם אם בינתיים היה שקט
+  const newest = reviews[0];
+  const recent =
+    newest === undefined
+      ? []
+      : reviews.filter(
+          (r) =>
+            newest.weekStart.getTime() - r.weekStart.getTime() <
+            PATTERN_LOOKBACK * WEEK_MS,
+        );
+  const patterns: MentorPattern[] = [];
+
+  for (const info of MENTOR_METRICS) {
+    const metric = info.code;
+    const rows = recent
+      .map((r) => ({ r, g: r.goals.find((g) => g.metric === metric) }))
+      .filter(
+        (x): x is { r: MentorPastReview; g: NonNullable<typeof x.g> } =>
+          x.g !== undefined,
+      );
+    if (rows.length === 0) continue;
+    const behindRows = rows.filter((x) => x.g.pace === "behind");
+
+    // מפנה: השבועות האחרונים בסדר, ולפניהם פיגור חוזר
+    let since = 0;
+    for (const x of rows) {
+      if (x.g.pace === "behind") break;
+      since += 1;
+    }
+    const before = rows
+      .slice(since)
+      .filter((x) => x.g.pace === "behind").length;
+    if (since >= 2 && before >= 2) {
+      patterns.push({
+        kind: "turned_around",
+        metric,
+        weeksBehind: before,
+        weeksSince: since,
+      });
+      continue;
+    }
+
+    if (behindRows.length >= RECURRING_MIN) {
+      const answers = behindRows
+        .filter(
+          (x) => x.r.askMetric === metric && x.r.reflectionAnswer !== null,
+        )
+        .map((x) => x.r.reflectionAnswer as string)
+        .slice(0, 3);
+      const plans = behindRows
+        .filter((x) => x.r.askMetric === metric && x.r.plan !== null)
+        .map((x) => x.r.plan as string)
+        .slice(0, 3);
+      patterns.push({
+        kind: "recurring_behind",
+        metric,
+        weeksBehind: behindRows.length,
+        weeksWithGoal: rows.length,
+        answers,
+        plans,
+      });
+    }
+  }
+
+  const judged = recent.filter((r) => r.commitmentKept !== null);
+  const accepted = judged.length;
+  if (accepted >= 2) {
+    patterns.push({
+      kind: "commitment_record",
+      accepted,
+      kept: judged.filter((r) => r.commitmentKept === true).length,
+    });
+  }
+  return patterns;
+}
+
+/**
+ * הדפוס כמשפט — למסך, לסיכום ולפרומפט. עובדה עם מספרים, ואז מה
+ * שהמתווך עצמו אמר: הזיכרון של המנטור הוא המילים של המתווך, לא
+ * פרשנות עליהן.
+ */
+export function mentorPatternLine(pattern: MentorPattern): string {
+  switch (pattern.kind) {
+    case "recurring_behind": {
+      const label =
+        MENTOR_METRICS.find((m) => m.code === pattern.metric)?.label ??
+        pattern.metric;
+      const head = `${label}: מאחור ב-${pattern.weeksBehind} מתוך ${pattern.weeksWithGoal} השבועות האחרונים.`;
+      const said =
+        pattern.answers.length === 0
+          ? ""
+          : ` בפעמים הקודמות אמרתם: ${pattern.answers.map((a) => `„${a}”`).join(", ")}.`;
+      const planned =
+        pattern.plans.length === 0
+          ? ""
+          : ` והתוכנית שקבעתם אז: „${pattern.plans[0]}”.`;
+      return `${head}${said}${planned}`;
+    }
+    case "turned_around": {
+      const label =
+        MENTOR_METRICS.find((m) => m.code === pattern.metric)?.label ??
+        pattern.metric;
+      return `${label}: אחרי ${pattern.weeksBehind} שבועות מאחור — ${pattern.weeksSince} שבועות רצופים בקצב. זה מפנה, ואתם עשיתם אותו.`;
+    }
+    case "commitment_record":
+      return `מחויבויות: עמדתם ב-${pattern.kept} מתוך ${pattern.accepted} שהתחייבתם אליהן בחודשיים האחרונים.`;
+  }
 }
 
 /** כותרת ההתראה בפעמון ובוואטסאפ — לפי הטון, אייקון אחד לכל טון. */

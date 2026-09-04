@@ -108,3 +108,23 @@ test("התוכנית שנולדה מהרפלקציה נכנסת לפרומפט",
     "התוכנית שהמתווך קבע למקרה שזה יקרה שוב: „כשלא נשאר זמן — אז ההצעות ראשונות בבוקר”",
   );
 });
+
+test("הדפוסים נכנסים לפרומפט כזיכרון — במילים של המתווך", () => {
+  const prompt = buildMentorPrompt({
+    ...base,
+    patterns: [
+      {
+        kind: "recurring_behind",
+        metric: "offers_sent",
+        weeksBehind: 3,
+        weeksWithGoal: 5,
+        answers: ["לא היה זמן"],
+        plans: [],
+      },
+    ],
+  });
+  expect(prompt).toContain("מה שהמנטור זוכר מהחודשיים האחרונים");
+  expect(prompt).toContain(
+    "הצעות שנשלחו: מאחור ב-3 מתוך 5 השבועות האחרונים. בפעמים הקודמות אמרתם: „לא היה זמן”.",
+  );
+});
