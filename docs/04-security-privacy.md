@@ -114,6 +114,9 @@
 ## 9. תהליך אבטחה שוטף
 
 - סריקת תלויות (Dependabot/`pnpm audit`) — שבועי + חסימת CVE קריטי ב-CI.
+  ‏הסריקה ב-CI נכשלת על **ממצא** ולא על הרשת: כששרת ה-audit של npm אינו
+  מגיב היא יוצאת באזהרה, ו-`.github/workflows/audit.yml` סורק כל בוקר
+  במצב חמור (`--require-report`) כדי שחלון כזה לא יבלע פגיעות בשקט.
 - SAST (TypeScript strict + ESLint security rules + Semgrep) בכל PR.
 - בדיקת חדירות חיצונית לפני עליית Production ואחת לשנה.
 - תוכנית תגובה לאירוע: Runbook כתוב, איש קשר, תרגול חצי-שנתי.
