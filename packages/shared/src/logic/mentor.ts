@@ -597,11 +597,11 @@ export function mentorWeeklyReview(
   else mood = "steady";
 
   const paragraphs: string[] = [];
-  if (wins.length > 0) paragraphs.push(winsSentence(wins));
   /*
-   * המחויבות מהשבוע שעבר נאמרת **לפני** היעדים: זה מה שהמתווך אמר
-   * שיעשה, וזה הדבר הראשון שמנטור בודק. עמידה — בשמה; אי-עמידה —
-   * עובדה, ובלי לקחת את ההתחייבות בחזרה (ייחוס לתהליך, לא ליכולת).
+   * המחויבות מהשבוע שעבר נאמרת **ראשונה** — לפני ההצלחות ולפני
+   * היעדים: זה מה שהמתווך אמר שיעשה, וזה הדבר הראשון שמנטור בודק.
+   * עמידה — בשמה; אי-עמידה — עובדה, ובלי לקחת את ההתחייבות בחזרה
+   * (ייחוס לתהליך, לא ליכולת).
    */
   if (commitment !== undefined) {
     const label = mentorGoalLabel(
@@ -615,6 +615,7 @@ export function mentorWeeklyReview(
         : `התחייבתם ל${label}. הפעם לא יצא, וההתחייבות עדיין שלכם.`,
     );
   }
+  if (wins.length > 0) paragraphs.push(winsSentence(wins));
   if (goals.length > 0) paragraphs.push(goals.map(goalSentence).join(" "));
   const trend = trendSentence(activity, previousActivity);
   if (trend !== null) paragraphs.push(trend);
@@ -643,7 +644,19 @@ export function mentorWeeklyReview(
   let reflection: string | null = null;
   if (goals.length > 0) {
     const behind = goals.find((g) => g.pace === "behind");
-    const focus = behind ?? goals[0];
+    /*
+     * הבקשה היא **לשבוע הבא**, ולכן על יעד שבועי בלבד. יעד חודשי הוא
+     * מצטבר: מי שכבר השיג אותו ב-1 בחודש „עומד” בו בכל שבוע בלי
+     * לעשות דבר, ומי שמאחור בו אינו יכול לסגור אותו בשבוע. כשיש רק
+     * יעדים חודשיים — הבקשה היא להוסיף יעד תהליך שבועי לצידם.
+     */
+    const weekly = goals.filter((g) => g.period === "week");
+    const focus =
+      weekly.find((g) => g.pace === "behind") ?? weekly[0] ?? undefined;
+    if (focus === undefined) {
+      askNextWeek =
+        "יש יעד חודשי בלי יעד תהליך שבועי לצידו. לשבוע הבא: להוסיף אחד — זה מה שמזיז את החודש.";
+    }
     if (focus !== undefined) {
       ask = {
         metric: focus.metric,

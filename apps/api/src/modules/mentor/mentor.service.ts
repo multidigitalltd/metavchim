@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -349,6 +350,20 @@ export class MentorService {
       const body = (row.body ?? {}) as Partial<MentorReviewBody>;
       if (!body.ask)
         throw new BadRequestException("בסיכום הזה אין בקשה להתחייב אליה");
+      /*
+       * הסיכום הבא כבר בדק את המחויבות הזו ורשם „עמדתם” או „לא יצא”
+       * — שינוי עכשיו היה משאיר שני סיכומים שסותרים זה את זה. לשונית
+       * ישנה או קריאה ישירה ל-API נדחות; המסך מציג את הכפתור רק על
+       * הסיכום האחרון.
+       */
+      const later = await tx.mentorReview.findFirst({
+        where: { tenantId, userId, weekStart: { gt: row.weekStart } },
+        select: { id: true },
+      });
+      if (later !== null)
+        throw new ConflictException(
+          "הסיכום הבא כבר בדק את המחויבות הזו — אי אפשר לשנות אותה עכשיו",
+        );
       const updated = await tx.mentorReview.update({
         where: { id },
         data: {

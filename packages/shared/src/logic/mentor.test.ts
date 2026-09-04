@@ -670,7 +670,35 @@ describe("mentorWeeklyReview — מחויבות: מה שאמרתם שתעשו ה
     ).toBeNull();
   });
 
-  it("עמידה במחויבות — נאמרת ראשונה, בשמה, והטון חוגג גם בלי עסקה", () => {
+  it("עמידה במחויבות — נאמרת ראשונה גם כשיש עסקה, בשמה, והטון חוגג", () => {
+    const review = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [{ kind: "deal_closed", title: "דירה ברחוב הרצל 12" }],
+      activity: { ...quiet, offers_sent: 5 },
+      goals: [
+        goal({ pace: "done", actual: 5 }),
+        goal({
+          metric: "viewings_held",
+          target: 3,
+          pace: "behind",
+          actual: 1,
+          ratio: 1 / 3,
+          remaining: 2,
+        }),
+      ],
+      previousCommitment: {
+        metric: "offers_sent",
+        period: "week",
+        target: 5,
+        kept: true,
+      },
+    });
+    expect(review?.mood).toBe("celebrate");
+    expect(review?.paragraphs[0]).toBe("התחייבתם ל5 הצעות בשבוע — ועמדתם בזה.");
+    expect(review?.paragraphs[1]).toContain("הרצל 12");
+  });
+
+  it("בלי עסקה — הכותרת היא העמידה במחויבות", () => {
     const review = mentorWeeklyReview({
       weekStart: WEEK_START,
       wins: [],
@@ -695,7 +723,43 @@ describe("mentorWeeklyReview — מחויבות: מה שאמרתם שתעשו ה
     });
     expect(review?.mood).toBe("celebrate");
     expect(review?.headline).toBe("עמדתם במה שהתחייבתם");
-    expect(review?.paragraphs[0]).toBe("התחייבתם ל5 הצעות בשבוע — ועמדתם בזה.");
+  });
+
+  it("הבקשה לשבוע הבא היא על יעד שבועי בלבד — יעד חודשי מאחור אינו בקשה", () => {
+    const monthly = goal({
+      metric: "deals_closed",
+      period: "month",
+      target: 2,
+      pace: "behind",
+      actual: 0,
+      ratio: 0,
+      remaining: 2,
+    });
+    const withWeekly = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [],
+      activity: quiet,
+      goals: [
+        monthly,
+        goal({ pace: "on_track", actual: 3, ratio: 0.6, remaining: 2 }),
+      ],
+    });
+    expect(withWeekly?.ask).toEqual({
+      metric: "offers_sent",
+      period: "week",
+      target: 5,
+    });
+    expect(withWeekly?.askNextWeek).toContain("5 הצעות בשבוע");
+
+    const monthlyOnly = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [],
+      activity: quiet,
+      goals: [monthly],
+    });
+    expect(monthlyOnly?.ask).toBeNull();
+    expect(monthlyOnly?.askNextWeek).toContain("יעד תהליך שבועי");
+    expect(monthlyOnly?.reflection).not.toBeNull();
   });
 
   it("אי-עמידה — עובדה, וההתחייבות נשארת של המתווך; בלי נזיפה", () => {

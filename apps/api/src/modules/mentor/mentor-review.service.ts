@@ -327,15 +327,20 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       userId,
       week,
     );
-    const goals = (
-      await this.signals.progress(tx, tenantId, userId, goalRows, {
+    const goalsWithRows = await this.signals.progress(
+      tx,
+      tenantId,
+      userId,
+      goalRows,
+      {
         at: weekEnd,
         week,
         weekActivity: activity,
         // שבת — היום האחרון של השבוע, ולכן החודש שהשבוע באמת שייך לו
         monthAnchor: jerusalemDayStart(weekEnd, -1),
-      })
-    ).map((g) => g.progress);
+      },
+    );
+    const goals = goalsWithRows.map((g) => g.progress);
     const wins = selectWins(
       await this.signals.wins(tx, tenantId, userId, week),
     );
@@ -348,8 +353,10 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
 
     /*
      * המחויבות מהסיכום הקודם — נבדקת מול היעד **של השבוע הזה** על
-     * אותו מדד ותקופה. יעד שהופסק בינתיים אינו נבדק: אי אפשר לעמוד
-     * במה שכבר לא קיים, ואי אפשר גם להיכשל בו.
+     * אותו מדד ותקופה, ורק אם הוא **עדיין פעיל**. יעד שהופסק בינתיים
+     * (גם באמצע השבוע — `goalsActiveIn` עדיין מחזיר אותו לסיכום)
+     * אינו נבדק: אי אפשר לעמוד במה שכבר לא קיים, ואי אפשר גם להיכשל
+     * בו.
      */
     const previousReview = await tx.mentorReview.findFirst({
       where: { tenantId, userId, weekStart: prevStart },
@@ -359,11 +366,12 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       (previousReview?.body as Partial<MentorReviewBody> | null)?.ask ?? null;
     const committedGoal =
       previousReview?.commitment === "accepted" && previousAsk
-        ? goals.find(
+        ? goalsWithRows.find(
             (g) =>
-              g.metric === previousAsk.metric &&
-              g.period === previousAsk.period,
-          )
+              g.endedAt === null &&
+              g.progress.metric === previousAsk.metric &&
+              g.progress.period === previousAsk.period,
+          )?.progress
         : undefined;
     const previousCommitment =
       previousAsk && committedGoal !== undefined

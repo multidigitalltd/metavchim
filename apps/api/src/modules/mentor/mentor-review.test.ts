@@ -425,6 +425,29 @@ describe("MentorReviewService.generateForUser — המחויבות מהשבוע 
     );
   });
 
+  it("היעד שהתחייבו אליו הופסק במהלך השבוע — לא נבדק, לא לחיוב ולא לשלילה", async () => {
+    const { tx, created } = fakeTx({
+      offers: 5,
+      goals: [{ ...offersGoal, endedAt: new Date("2026-09-01T10:00:00.000Z") }],
+      previousReviews: [
+        {
+          weekStart: prevWeek,
+          body: { ask: { metric: "offers_sent", period: "week", target: 5 } },
+          commitment: "accepted",
+        },
+      ],
+    });
+    await service().generateForUser(
+      tx,
+      TENANT,
+      USER,
+      new Date("2026-01-01"),
+      WEEK,
+    );
+    const body = created[0]?.["body"] as { paragraphs: string[] };
+    expect(body.paragraphs.join(" ")).not.toContain("התחייבתם");
+  });
+
   it("לא התחייב (או סירב) — אין פסקת מחויבות", async () => {
     const { tx, created } = fakeTx({
       offers: 2,
