@@ -7,5 +7,7 @@ import { MentorService } from "./mentor.service";
 @Module({
   controllers: [MentorController],
   providers: [MentorService, MentorSignalsService, MentorReviewService],
+  // הסוכן בשיחה (מסך ווואטסאפ) מדבר עם אותו מנטור — לא מסלול שני
+  exports: [MentorService],
 })
 export class MentorModule {}

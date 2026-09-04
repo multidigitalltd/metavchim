@@ -61,6 +61,7 @@ import {
   parseStoredTurns,
   formatNotifyMessage,
   inQuietHours,
+  notifyQuickReplies,
   type AgentHistoryTurn,
   fitsInteractive,
   normalizePhoneForWhatsapp,
@@ -2839,10 +2840,8 @@ async function processWhatsAppNotifySweep(): Promise<void> {
         if (fitsInteractive(message)) {
           ok = await sendWhatsApp(
             config,
-            replyButtonsPayload(recipient.phone, message, [
-              { action: "cmd", arg: "urgent", title: "📋 מה דחוף היום?" },
-              { action: "snooze", arg: "120", title: "🔕 שקט לשעתיים" },
-            ]),
+            // המנטור מקבל כפתורים משלו („מתחייב”, „לענות למנטור”); השאר — ברירת המחדל
+            replyButtonsPayload(recipient.phone, message, notifyQuickReplies(items)),
           );
         } else {
           ok = true;

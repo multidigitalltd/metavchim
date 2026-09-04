@@ -40,10 +40,18 @@ import {
   MARKETING_ACTION_LABEL,
 } from "../logic/exclusivity.js";
 import { SUPPORT_KINDS, SUPPORT_KIND_LABEL } from "../logic/support.js";
-import { DISMISS_REASONS, DISMISS_REASON_LABEL } from "../logic/match-feedback.js";
+import {
+  DISMISS_REASONS,
+  DISMISS_REASON_LABEL,
+} from "../logic/match-feedback.js";
 import type { Capability } from "../rbac.js";
 import type { PlanFeature } from "../logic/plans.js";
 import type { AgentFieldSpec } from "./field-spec.js";
+import {
+  MENTOR_GOAL_PERIODS,
+  MENTOR_GOAL_TARGET_MAX,
+  MENTOR_METRICS,
+} from "../logic/mentor.js";
 
 export const AGENT_ACTION_IDS = [
   "search",
@@ -117,6 +125,11 @@ export const AGENT_ACTION_IDS = [
   "open_support_ticket",
   "show_support_tickets",
   "set_preference",
+  "mentor_status",
+  "mentor_ask",
+  "mentor_goal",
+  "mentor_commit",
+  "mentor_reflect",
 ] as const;
 
 export type AgentActionId = (typeof AGENT_ACTION_IDS)[number];
@@ -216,7 +229,12 @@ const FEATURE_KEYS = Object.keys(FEATURE_LABELS);
 // שדות משותפים — כל אחד מוצהר פעם אחת ומופנה אליו מכל פעולה
 // ---------------------------------------------------------------------------
 
-const F_NAME: AgentFieldSpec = { key: "name", label: "שם", type: "string", maxLength: 120 };
+const F_NAME: AgentFieldSpec = {
+  key: "name",
+  label: "שם",
+  type: "string",
+  maxLength: 120,
+};
 
 /**
  * הטלפון מגיע כפי שנאמר ומנורמל בשרת: מודל שמתבקש לפרמט מספרים
@@ -532,7 +550,11 @@ const F_PROPERTIES_ORDER: AgentFieldSpec = {
   type: "enum",
   hint: "רק כשנאמר „תמיד” — העדפת קבע, לא בקשה חד-פעמית",
   values: ["newest", "price_asc", "price_desc"],
-  valueLabels: { newest: "החדשים קודם", price_asc: "מהזול ליקר", price_desc: "מהיקר לזול" },
+  valueLabels: {
+    newest: "החדשים קודם",
+    price_asc: "מהזול ליקר",
+    price_desc: "מהיקר לזול",
+  },
 };
 
 const F_MATURITY: AgentFieldSpec = {
@@ -596,7 +618,13 @@ const BUYER_REQUIREMENT_FIELDS: readonly AgentFieldSpec[] = [
   },
   F_ROOMS_MIN,
   F_ROOMS_MAX,
-  { key: "areaSqmMin", label: 'שטח מינימלי (מ"ר)', type: "integer", min: 10, max: 2000 },
+  {
+    key: "areaSqmMin",
+    label: 'שטח מינימלי (מ"ר)',
+    type: "integer",
+    min: 10,
+    max: 2000,
+  },
   F_MUST_FEATURES,
   F_NICE_FEATURES,
   /*
@@ -640,7 +668,14 @@ const PROPERTY_FIELDS: readonly AgentFieldSpec[] = [
     valueLabels: PROPERTY_TYPE_LABELS,
   },
   F_DEAL_TYPE,
-  { key: "rooms", label: "חדרים", type: "number", min: 1, max: 20, multipleOf: 0.5 },
+  {
+    key: "rooms",
+    label: "חדרים",
+    type: "number",
+    min: 1,
+    max: 20,
+    multipleOf: 0.5,
+  },
   { key: "areaSqm", label: 'שטח (מ"ר)', type: "integer", min: 10, max: 2000 },
   {
     key: "floor",
@@ -722,10 +757,16 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     id: "search",
     title: "חיפוש",
     when: "חיפוש אדם, נכס או כרטיס מסוים לפי שם או כתובת — לא שאלה עם קריטריונים.",
-    examples: ["חפש את שרה לוי", "איפה הכרטיס של יוסי", "תראה לי את הדירה בהרב שך 12"],
+    examples: [
+      "חפש את שרה לוי",
+      "איפה הכרטיס של יוסי",
+      "תראה לי את הדירה בהרב שך 12",
+    ],
     capability: "properties.view",
     risk: "read",
-    fields: [{ key: "query", label: "מה לחפש", type: "string", maxLength: 200 }],
+    fields: [
+      { key: "query", label: "מה לחפש", type: "string", maxLength: 200 },
+    ],
   },
   {
     id: "find_buyers",
@@ -764,8 +805,20 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       F_CITIES,
       F_PROPERTY_TYPES,
       F_DEAL_TYPE,
-      { key: "priceMinShekels", label: "מחיר מ־", type: "integer", min: 1, max: 1_000_000_000 },
-      { key: "priceMaxShekels", label: "מחיר עד", type: "integer", min: 1, max: 1_000_000_000 },
+      {
+        key: "priceMinShekels",
+        label: "מחיר מ־",
+        type: "integer",
+        min: 1,
+        max: 1_000_000_000,
+      },
+      {
+        key: "priceMaxShekels",
+        label: "מחיר עד",
+        type: "integer",
+        min: 1,
+        max: 1_000_000_000,
+      },
       F_ROOMS_MIN,
       F_ROOMS_MAX,
       F_MUST_FEATURES,
@@ -886,7 +939,11 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     id: "show_calls",
     title: "שיחות אחרונות",
     when: "שאלה על שיחות טלפון שהתקבלו או בוצעו.",
-    examples: ["מי התקשר אליי היום", "תראה לי את השיחות האחרונות", "אילו שיחות פספסתי"],
+    examples: [
+      "מי התקשר אליי היום",
+      "תראה לי את השיחות האחרונות",
+      "אילו שיחות פספסתי",
+    ],
     /*
      * שיחה תלויה בלקוח, ולקוח יכול להיות ליד או קונה — בדיוק כמו
      * ב-`show_card` וב-`play_recording`, ובדיוק כמו נתיבי ה-REST של
@@ -992,7 +1049,11 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     id: "show_deals",
     title: "עסקאות שת״פ",
     when: "שאלה על עסקאות משותפות עם משרדים אחרים — חדרי העסקה ברשת.",
-    examples: ["מה קורה עם העסקאות המשותפות", "תראה לי את חדרי העסקה שלי", "אילו שת״פים פתוחים יש לי"],
+    examples: [
+      "מה קורה עם העסקאות המשותפות",
+      "תראה לי את חדרי העסקה שלי",
+      "אילו שת״פים פתוחים יש לי",
+    ],
     capability: "collaboration.offer",
     risk: "read",
     fields: [],
@@ -1104,7 +1165,11 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     id: "show_payout_balance",
     title: "יתרת תשלומים",
     when: "שאלה על כסף שמגיע למשרד מהפניות ברשת — כמה נצבר ומה הסף למשיכה. הבקשה למשיכה עצמה נעשית במסך.",
-    examples: ["כמה כסף מגיע לי מהפניות", "מה יתרת התשלומים שלי", "כמה צברתי מהרשת"],
+    examples: [
+      "כמה כסף מגיע לי מהפניות",
+      "מה יתרת התשלומים שלי",
+      "כמה צברתי מהרשת",
+    ],
     capability: "billing.manage",
     risk: "read",
     fields: [],
@@ -1113,7 +1178,11 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     id: "show_referral_board",
     title: "לידים ברשת",
     when: "שאלה על לידים שמשרדים אחרים פרסמו להפניה ברשת. קליטת ליד עצמה כרוכה בתשלום ונעשית במסך.",
-    examples: ["אילו לידים יש ברשת", "מה יש בלוח ההפניות", "יש לידים למכירה ברשת?"],
+    examples: [
+      "אילו לידים יש ברשת",
+      "מה יש בלוח ההפניות",
+      "יש לידים למכירה ברשת?",
+    ],
     capability: "collaboration.offer",
     risk: "read",
     fields: [],
@@ -1122,7 +1191,11 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     id: "show_reach",
     title: "מה שווה לפרסם ברשת",
     when: "שאלה מה מהמאגר שלי מתאים למשהו שכבר ברשת ועדיין לא פורסם בה.",
-    examples: ["מה שווה לי לפרסם ברשת", "מה אני מפספס ברשת", "יש לי משהו שמתאים לרשת?"],
+    examples: [
+      "מה שווה לי לפרסם ברשת",
+      "מה אני מפספס ברשת",
+      "יש לי משהו שמתאים לרשת?",
+    ],
     capability: "collaboration.offer",
     risk: "read",
     fields: [],
@@ -1131,7 +1204,11 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     id: "show_credits",
     title: "יתרת קרדיטים",
     when: "שאלה על קרדיטים של המשרד ברשת השיתופים — כמה נשארו, מתי פגים.",
-    examples: ["כמה קרדיטים נשארו לנו?", "מה יתרת הקרדיטים", "מתי הקרדיטים שלי פגים"],
+    examples: [
+      "כמה קרדיטים נשארו לנו?",
+      "מה יתרת הקרדיטים",
+      "מתי הקרדיטים שלי פגים",
+    ],
     capability: "collaboration.offer",
     risk: "read",
     fields: [],
@@ -1183,7 +1260,11 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     title: "מה כדאי עכשיו",
     feature: "ai_coach",
     when: "בקשת הכוונה — „מה כדאי לי לעשות היום”, „ממה להתחיל”. ההמלצות של המאמן, לפי דחיפות.",
-    examples: ["מה כדאי לי לעשות היום?", "ממה להתחיל את הבוקר", "מה הכי דחוף עכשיו"],
+    examples: [
+      "מה כדאי לי לעשות היום?",
+      "ממה להתחיל את הבוקר",
+      "מה הכי דחוף עכשיו",
+    ],
     capability: "matches.view",
     risk: "read",
     fields: [],
@@ -1302,7 +1383,11 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     id: "complete_task",
     title: "סגירת משימה",
     when: "סימון משימה קיימת כבוצעה.",
-    examples: ["סגור את המשימה להתקשר לדוד", "סיימתי את המשימה של החוזה", "תסמן שהתקשרתי למשפחת כהן"],
+    examples: [
+      "סגור את המשימה להתקשר לדוד",
+      "סיימתי את המשימה של החוזה",
+      "תסמן שהתקשרתי למשפחת כהן",
+    ],
     capability: "calendar.manage",
     risk: "update",
     fields: [F_TASK_PHRASE],
@@ -1388,7 +1473,14 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
         min: 0,
         max: 23,
       },
-      { key: "minute", label: "דקות", type: "integer", hint: "0 כשלא נאמר", min: 0, max: 59 },
+      {
+        key: "minute",
+        label: "דקות",
+        type: "integer",
+        hint: "0 כשלא נאמר",
+        min: 0,
+        max: 59,
+      },
     ],
   },
   {
@@ -1424,10 +1516,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
     capability: "leads.edit",
     risk: "update",
-    fields: [
-      F_LEAD_PHRASE,
-      F_LEAD_STATUS,
-    ],
+    fields: [F_LEAD_PHRASE, F_LEAD_STATUS],
   },
   {
     /*
@@ -1446,7 +1535,12 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capability: "buyers.edit",
     risk: "create",
     // בלי F_AGENT_NOTES: קלט ההמרה אינו נושא הערות, ושדה שנופל בשקט הוא שדה מת
-    fields: [F_LEAD_PHRASE, ...BUYER_REQUIREMENT_FIELDS, F_MATURITY, F_FINANCING],
+    fields: [
+      F_LEAD_PHRASE,
+      ...BUYER_REQUIREMENT_FIELDS,
+      F_MATURITY,
+      F_FINANCING,
+    ],
   },
   {
     /*
@@ -1522,7 +1616,12 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
     capability: "calendar.manage",
     risk: "update",
-    fields: [F_BUYER_PHRASE, F_PROPERTY_PHRASE, F_APPOINTMENT_STATUS, F_VIEWING_OUTCOME],
+    fields: [
+      F_BUYER_PHRASE,
+      F_PROPERTY_PHRASE,
+      F_APPOINTMENT_STATUS,
+      F_VIEWING_OUTCOME,
+    ],
   },
   {
     id: "update_buyer",
@@ -1535,7 +1634,11 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
     capability: "buyers.edit",
     risk: "update",
-    fields: [F_BUYER_PHRASE, ...BUYER_REQUIREMENT_FIELDS, ...BUYER_PROFILE_FIELDS],
+    fields: [
+      F_BUYER_PHRASE,
+      ...BUYER_REQUIREMENT_FIELDS,
+      ...BUYER_PROFILE_FIELDS,
+    ],
   },
   {
     /*
@@ -1568,7 +1671,12 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
         label: "סוג המספר",
         type: "enum",
         values: ["mobile", "home", "work", "other"],
-        valueLabels: { mobile: "נייד", home: "בית", work: "עבודה", other: "אחר" },
+        valueLabels: {
+          mobile: "נייד",
+          home: "בית",
+          work: "עבודה",
+          other: "אחר",
+        },
       },
     ],
   },
@@ -1785,7 +1893,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
         key: "exclusivityMonths",
         label: "לכמה חודשים",
         type: "integer",
-        hint: '„לשלושה חודשים” ⇒ 3. בדירה עד 6, במקרקעין אחרים עד 12',
+        hint: "„לשלושה חודשים” ⇒ 3. בדירה עד 6, במקרקעין אחרים עד 12",
         min: 1,
         max: 12,
       },
@@ -1839,7 +1947,11 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     id: "show_agreements",
     title: "מי לא חתם",
     when: "שאלה על הסכמים והזמנות בכתב שנשלחו ולא נחתמו — מי ממתין, מי פתח ולא חתם, למי פג הקישור.",
-    examples: ["מי לא חתם", "אילו הזמנות בכתב ממתינות", "מי פתח את ההסכם ולא חתם"],
+    examples: [
+      "מי לא חתם",
+      "אילו הזמנות בכתב ממתינות",
+      "מי פתח את ההסכם ולא חתם",
+    ],
     capability: "offers.send",
     risk: "read",
     fields: [],
@@ -1887,7 +1999,13 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
         key: "offerFilter",
         label: "אילו הצעות",
         type: "enum",
-        values: ["opened_no_reply", "interested", "declined", "failed", "waiting"],
+        values: [
+          "opened_no_reply",
+          "interested",
+          "declined",
+          "failed",
+          "waiting",
+        ],
         valueLabels: {
           opened_no_reply: "נפתחו ולא נענו",
           interested: "הקונה סימן מעוניין",
@@ -1981,7 +2099,11 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     id: "mark_notifications_read",
     title: "סימון התראות כנקראו",
     when: "ניקוי סימון ההתראות שלא נקראו. לשאלה מה חדש יש „מה חדש”.",
-    examples: ["סמן את כל ההתראות כנקראו", "תנקה לי את ההתראות", "קראתי הכול, תסמן"],
+    examples: [
+      "סמן את כל ההתראות כנקראו",
+      "תנקה לי את ההתראות",
+      "קראתי הכול, תסמן",
+    ],
     capability: "leads.view_own",
     capabilityAlts: ["buyers.view_own", "properties.view", "calendar.manage"],
     risk: "update",
@@ -1991,7 +2113,11 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     id: "show_emails",
     title: "תיבת המייל",
     when: "שאלה על מיילים שנכנסו מלקוחות — מי כתב, מה עוד לא נקרא.",
-    examples: ["מה קיבלתי במייל", "יש מיילים חדשים מלקוחות?", "מי כתב לי ולא עניתי"],
+    examples: [
+      "מה קיבלתי במייל",
+      "יש מיילים חדשים מלקוחות?",
+      "מי כתב לי ולא עניתי",
+    ],
     // אותו שער כמו נתיבי תיבת הדואר עצמם
     capability: "buyers.view_own",
     risk: "read",
@@ -2048,10 +2174,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
     capability: "tasks.assign",
     risk: "update",
-    fields: [
-      F_TASK_PHRASE,
-      F_ASSIGNEE_PHRASE,
-    ],
+    fields: [F_TASK_PHRASE, F_ASSIGNEE_PHRASE],
   },
   /*
    * מייל מהתיבה הפנימית — אותו נתיב בדיוק כמו תשובה מהמסך: יוצא
@@ -2216,6 +2339,148 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     capability: "properties.view",
     risk: "update",
     fields: [F_PROPERTIES_ORDER, F_VOICE_REPLIES],
+  },
+  /*
+   * ‎**המנטור האישי — אותו מנטור של המסך, מתוך השיחה.**
+   *
+   * חמש פעולות ולא אחת: „מה המצב” ו„שאלה” הן קריאה ורצות מיד;
+   * יעד, מחויבות ותשובה לרפלקציה כותבות ולכן נעצרות על „אשר” כמו
+   * כל פעולה כותבת. כולן על **המתווך עצמו** — אין כאן שאילתה על
+   * עמית — ולכן היכולת הבסיסית ביותר, והזכאות היא של הסוכן החכם.
+   */
+  {
+    id: "mentor_status",
+    title: "המנטור — מצב היעדים",
+    feature: "ai_coach",
+    when: "‎„איך השבוע שלי”, „מה המצב ביעדים” — היעדים שהמתווך קבע לעצמו, הקצב מולם, וההצלחות של השבוע. לא „מה כדאי לעשות” (זה show_recommendations).",
+    examples: [
+      "מה המצב ביעדים שלי?",
+      "איך השבוע שלי מול היעד?",
+      "כמה הצעות שלחתי השבוע מול היעד",
+    ],
+    capability: "properties.view",
+    risk: "read",
+    fields: [],
+  },
+  {
+    id: "mentor_ask",
+    title: "שאלה למנטור",
+    feature: "ai_coach",
+    when: "‎שאלה או בקשת עצה **למנטור** — „מה כדאי לי לשפר”, „למה אני לא סוגר”, „תעזור לי לבחור יעד”. השאלה כלשונה נכנסת ל-question.",
+    examples: [
+      "תשאל את המנטור מה כדאי לי לשפר",
+      "מנטור, למה ההצעות שלי לא מתקדמות?",
+      "תעזור לי לבחור יעד לשבוע הבא",
+    ],
+    capability: "properties.view",
+    risk: "read",
+    fields: [
+      {
+        key: "question",
+        label: "השאלה",
+        type: "string",
+        hint: "השאלה או הבקשה כלשונה, בלי מילות הפנייה למנטור",
+        maxLength: 500,
+      },
+    ],
+  },
+  {
+    id: "mentor_goal",
+    title: "יעד חדש למנטור",
+    feature: "ai_coach",
+    when: "‎קביעת יעד אישי — „תקבע לי יעד של 5 הצעות בשבוע”, „היעד שלי החודש: עסקה אחת”. המדד מהרשימה, המספר, ותקופה (שבוע כברירת מחדל). ה„למה” אם נאמר.",
+    examples: [
+      "תקבע לי יעד של 5 הצעות בשבוע",
+      "היעד שלי החודש: עסקה אחת",
+      "אני רוצה יעד של 3 סיורים בשבוע, בשביל הדירה של הילדים",
+    ],
+    capability: "properties.view",
+    risk: "create",
+    fields: [
+      {
+        key: "metric",
+        label: "המדד",
+        type: "enum",
+        values: MENTOR_METRICS.map((m) => m.code),
+        valueLabels: Object.fromEntries(
+          MENTOR_METRICS.map((m) => [m.code, m.label]),
+        ),
+      },
+      {
+        key: "target",
+        label: "היעד",
+        type: "integer",
+        hint: "כמה — מספר שלם",
+        min: 1,
+        max: MENTOR_GOAL_TARGET_MAX,
+      },
+      {
+        key: "period",
+        label: "תקופה",
+        type: "enum",
+        hint: "שבוע אם לא נאמר אחרת",
+        values: MENTOR_GOAL_PERIODS,
+        valueLabels: { week: "בשבוע", month: "בחודש" },
+      },
+      {
+        key: "why",
+        label: "בשביל מה",
+        type: "string",
+        hint: "ה„למה” של המתווך, רק אם נאמר",
+        maxLength: 200,
+      },
+    ],
+  },
+  {
+    id: "mentor_commit",
+    title: "מחויבות לשבוע הבא",
+    feature: "ai_coach",
+    when: "‎תשובה לבקשת המנטור לשבוע הבא — „מתחייב”, „אני בפנים”, או „לא השבוע”. decision=accepted למחויבות, declined לדחייה. הערה אם נאמרה.",
+    examples: [
+      "מתחייב לשבוע הבא",
+      "אני מתחייב, יאללה",
+      "לא השבוע — יש מילואים",
+    ],
+    capability: "properties.view",
+    risk: "update",
+    fields: [
+      {
+        key: "decision",
+        label: "ההחלטה",
+        type: "enum",
+        values: ["accepted", "declined"],
+        valueLabels: { accepted: "מתחייב", declined: "לא השבוע" },
+      },
+      {
+        key: "commitmentNote",
+        label: "הערה",
+        type: "string",
+        hint: "מילה על ההחלטה, אם נאמרה",
+        maxLength: 300,
+      },
+    ],
+  },
+  {
+    id: "mentor_reflect",
+    title: "תשובה למנטור",
+    feature: "ai_coach",
+    when: "‎תשובה לשאלת הרפלקציה של המנטור („מה עצר?”) — „לענות למנטור: לא היה זמן”, „מה שעצר אותי השבוע זה…”. התשובה כלשונה ב-answer.",
+    examples: [
+      "לענות למנטור: לא היה זמן להצעות",
+      "מה שעצר אותי השבוע — לא היו התאמות טובות",
+      "תגיד למנטור שהשבוע היו מילואים",
+    ],
+    capability: "properties.view",
+    risk: "update",
+    fields: [
+      {
+        key: "answer",
+        label: "התשובה",
+        type: "string",
+        hint: "מה עצר — במילים של המתווך",
+        maxLength: 1000,
+      },
+    ],
   },
 ];
 

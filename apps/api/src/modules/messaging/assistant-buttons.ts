@@ -12,6 +12,7 @@
 
 import {
   buttonTitle,
+  MENTOR_QUICK_COMMANDS,
   WA_MAX_REPLY_BUTTONS,
   type WhatsAppButton,
   type WhatsAppListRow,
@@ -77,6 +78,8 @@ export const SNOOZE_MINUTES = 120;
 const BUTTON_COMMANDS: Record<string, string> = {
   urgent: "מה הכי דחוף לי היום?",
   today: "מה יש לי היום?",
+  // כפתורי המנטור על ההתראות — אותו מקור כמו הוורקר שמצמיד אותם
+  ...MENTOR_QUICK_COMMANDS,
 };
 
 /**

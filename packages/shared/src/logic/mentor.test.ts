@@ -5,6 +5,8 @@ import {
   type MentorGoalProgress,
   type MentorPastReview,
   mentorGoalLabel,
+  mentorGoalStatusLine,
+  mentorStatusMessage,
   mentorGoalProgress,
   mentorMidweekNudge,
   mentorPatternLine,
@@ -979,5 +981,50 @@ describe("mentorWeeklyReview — הזיכרון בסיכום: משפט אחד, �
       patterns: [recurring],
     });
     expect(review?.paragraphs.join(" ")).not.toContain("השבועות האחרונים");
+  });
+});
+
+describe("mentorStatusMessage — „מה המצב ביעדים שלי?” בוואטסאפ", () => {
+  it("שורה לכל יעד עם הקצב, ההצלחות בשמן, והסיכום האחרון", () => {
+    const status = mentorStatusMessage({
+      goals: [
+        goal({ pace: "on_track", actual: 3, ratio: 0.6, remaining: 2 }),
+        goal({
+          metric: "viewings_held",
+          target: 2,
+          pace: "done",
+          actual: 2,
+          ratio: 1,
+          remaining: 0,
+        }),
+      ],
+      wins: [{ kind: "deal_closed", title: "דירת 4 חדרים בהרצל 12" }],
+      latestHeadline: "שבוע עם תוצאה",
+    });
+    expect(status.message).toBe("1 מתוך 2 יעדים הושגו עד עכשיו.");
+    expect(status.lines[0]).toBe("• 3 מתוך 5 הצעות בשבוע — בקצב");
+    expect(status.lines[1]).toBe("• 2 מתוך 2 סיורים בשבוע — הושג");
+    expect(status.lines[2]).toContain("דירת 4 חדרים בהרצל 12");
+    expect(status.lines[3]).toBe("🧭 הסיכום האחרון: שבוע עם תוצאה");
+    expect(status.lines.join(" ")).not.toMatch(/מעט|רק|חבל/);
+  });
+
+  it("בלי יעדים — הזמנה לקבוע אחד; כולם הושגו — חגיגה", () => {
+    expect(
+      mentorStatusMessage({ goals: [], wins: [], latestHeadline: null })
+        .message,
+    ).toContain("תקבע לי יעד");
+    expect(
+      mentorStatusMessage({
+        goals: [goal({ pace: "done", actual: 5, ratio: 1, remaining: 0 })],
+        wins: [],
+        latestHeadline: null,
+      }).message,
+    ).toBe("היעד הושג — כל הכבוד.");
+    expect(
+      mentorGoalStatusLine(
+        goal({ pace: "behind", actual: 1, ratio: 0.2, remaining: 4 }),
+      ),
+    ).toBe("1 מתוך 5 הצעות בשבוע — מאחור");
   });
 });

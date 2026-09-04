@@ -180,6 +180,47 @@ export function mentorGoalLabel(
   return `${mentorQuantity(metric, target)} ${PERIOD_LABEL[period]}`;
 }
 
+export const MENTOR_PACE_LABEL: Record<MentorPace, string> = {
+  done: "הושג",
+  ahead: "מעל הקצב",
+  on_track: "בקצב",
+  behind: "מאחור",
+};
+
+/** „3 מתוך 5 הצעות בשבוע — בקצב” — שורת יעד לוואטסאפ ולסוכן. */
+export function mentorGoalStatusLine(p: MentorGoalProgress): string {
+  return `${p.actual} מתוך ${mentorGoalLabel(p.metric, p.target, p.period)} — ${MENTOR_PACE_LABEL[p.pace]}`;
+}
+
+/**
+ * מצב היעדים בהודעה אחת — ל„מה המצב ביעדים שלי?” מהשיחה.
+ *
+ * אותם כללי טון של הסיכום (§4): עובדות ומספרים, בלי שיפוט, השוואה
+ * רק ליעד של המתווך עצמו. בלי יעדים — הזמנה לקבוע אחד, לא נזיפה.
+ */
+export function mentorStatusMessage(input: {
+  goals: readonly MentorGoalProgress[];
+  wins: readonly MentorWin[];
+  latestHeadline: string | null;
+}): { message: string; lines: string[] } {
+  const lines: string[] = [];
+  for (const goal of input.goals) lines.push(`• ${mentorGoalStatusLine(goal)}`);
+  for (const win of input.wins)
+    lines.push(`🎉 ${mentorCelebration(win).title}: ${win.title}`);
+  if (input.latestHeadline !== null)
+    lines.push(`🧭 הסיכום האחרון: ${input.latestHeadline}`);
+  const done = input.goals.filter((g) => g.pace === "done").length;
+  const message =
+    input.goals.length === 0
+      ? "עדיין אין יעדים — כתבו לי „תקבע לי יעד של 5 הצעות בשבוע” ונתחיל."
+      : done === input.goals.length
+        ? input.goals.length === 1
+          ? "היעד הושג — כל הכבוד."
+          : `כל ${input.goals.length} היעדים הושגו — כל הכבוד.`
+        : `${done} מתוך ${input.goals.length} יעדים הושגו עד עכשיו.`;
+  return { message, lines };
+}
+
 /**
  * גבולות התקופה הנוכחית בשעון ישראל, כערכי UTC לשאילתות.
  *

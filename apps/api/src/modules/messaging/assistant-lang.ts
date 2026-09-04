@@ -50,7 +50,7 @@ const HELP_PHRASES = new Set([
 
 
 /** ניקוי לפני השוואה: סימני פיסוק וגרשיים שוואטסאפ ומקלדות מוסיפים. */
-function normalizeShort(text: string): string {
+export function normalizeShort(text: string): string {
   return text
     .trim()
     .replace(/[.,!?״"'׳*]+/gu, "")

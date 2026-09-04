@@ -279,6 +279,18 @@ export class MentorService {
     });
   }
 
+  /** הסיכום האחרון בלבד — לשיחה („מתחייב”, „לענות למנטור”) בלי כל הסקירה. */
+  async latestReview(): Promise<MentorReviewDto | null> {
+    const { tenantId, userId } = TenantContext.current();
+    const row = await this.prisma.withTenant((tx) =>
+      tx.mentorReview.findFirst({
+        where: { tenantId, userId },
+        orderBy: { weekStart: "desc" },
+      }),
+    );
+    return row === null ? null : MentorService.reviewDto(row);
+  }
+
   /* ---------------- יעדים ---------------- */
 
   async createGoal(

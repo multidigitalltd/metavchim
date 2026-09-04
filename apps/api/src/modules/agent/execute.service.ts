@@ -38,6 +38,10 @@ import {
   type BuyerRequirements,
   type CallbackCandidate,
   type PropertyFields,
+  MentorGoalInputSchema,
+  mentorGoalLabel,
+  mentorGoalStatusLine,
+  mentorStatusMessage,
 } from "@metavchim/shared";
 import { isCardAccessible,
   assertContactAccess,
@@ -81,6 +85,7 @@ import { TelephonyService } from "../telephony/telephony.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { DealRoomService } from "../collaboration/deal-room.service";
 import { LeadsService } from "../leads/leads.service";
+import { MentorService } from "../mentor/mentor.service";
 import { MATCH_LIST_LIMIT, MatchingService } from "../matching/matching.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { OffersService } from "../offers/offers.service";
@@ -300,6 +305,7 @@ export class AgentExecuteService {
     private readonly plans: PlanCatalogService,
     private readonly landing: LandingService,
     private readonly payouts: PayoutsService,
+    private readonly mentor: MentorService,
   ) {}
 
   async execute(
@@ -546,6 +552,16 @@ export class AgentExecuteService {
         return this.setPreference(params);
       case "dismiss_match":
         return this.dismissMatch(params);
+      case "mentor_status":
+        return this.mentorStatus();
+      case "mentor_ask":
+        return this.mentorAsk(params);
+      case "mentor_goal":
+        return this.mentorGoal(params);
+      case "mentor_commit":
+        return this.mentorCommit(params);
+      case "mentor_reflect":
+        return this.mentorReflect(params);
       case "assign_task":
         return this.assignTask(params);
       default:
@@ -3168,6 +3184,97 @@ export class AgentExecuteService {
     const entryDate = date(params["entryDate"]);
     if (entryDate) fields["entryDate"] = entryDate;
     return fields as PropertyFields;
+  }
+
+  /* ---------------- המנטור האישי ---------------- */
+
+  /**
+   * ‎**המנטור מתוך השיחה — אותו שירות של המסך.**
+   *
+   * הכול על המתווך עצמו (`TenantContext.userId`), ולכן אין כאן
+   * שאילתה על עמית. הזכאות (`ai_coach`) נאכפת בשער של `execute`
+   * כמו לכל פעולה; הנוסח — מהפונקציות הטהורות ב-shared, כדי שאותו
+   * טון (עובדה, בלי שיפוט, השוואה רק לעצמו) יישמר גם כאן.
+   */
+  private async mentorStatus(): Promise<ExecuteResult> {
+    const overview = await this.mentor.overview();
+    const status = mentorStatusMessage({
+      goals: overview.goals.map((g) => g.progress),
+      wins: overview.wins,
+      latestHeadline: overview.latestReview?.headline ?? null,
+    });
+    const ask = overview.latestReview?.askNextWeek;
+    const pendingAsk =
+      ask !== undefined && ask !== null && overview.latestReview?.commitment === null
+        ? [`🧭 ${ask}`, "לענות — „מתחייב לשבוע הבא” או „לא השבוע”."]
+        : [];
+    return { href: "/mentor", message: status.message, data: [...status.lines, ...pendingAsk] };
+  }
+
+  private async mentorAsk(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const question = str(params["question"]);
+    if (question === undefined) throw new BadRequestException("מה לשאול את המנטור?");
+    const { turn } = await this.mentor.ask(question);
+    return { href: "/mentor", message: turn.text };
+  }
+
+  private async mentorGoal(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const parsed = MentorGoalInputSchema.safeParse({
+      metric: str(params["metric"]),
+      period: str(params["period"]) ?? "week",
+      target: params["target"],
+      ...(str(params["why"]) === undefined ? {} : { why: str(params["why"]) }),
+    });
+    if (!parsed.success) {
+      throw new BadRequestException("לא זיהיתי את היעד — אמרו מדד ומספר, למשל „5 הצעות בשבוע”");
+    }
+    const goal = await this.mentor.createGoal(parsed.data);
+    const label = mentorGoalLabel(parsed.data.metric, parsed.data.target, parsed.data.period);
+    return {
+      href: "/mentor",
+      message: `היעד נקבע: ${label}. ${mentorGoalStatusLine(goal.progress)}.`,
+      suggestion: "מה המצב ביעדים שלי?",
+    };
+  }
+
+  private async mentorCommit(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const decision = str(params["decision"]);
+    if (decision !== "accepted" && decision !== "declined") {
+      throw new BadRequestException("מתחייבים, או לא השבוע?");
+    }
+    const latest = await this.mentor.latestReview();
+    if (latest === null || latest.ask === null) {
+      throw new BadRequestException(
+        "אין עכשיו בקשה של המנטור להתחייב אליה — היא מגיעה עם הסיכום השבועי",
+      );
+    }
+    await this.mentor.commit(latest.id, decision, str(params["commitmentNote"]));
+    const label = mentorGoalLabel(latest.ask.metric, latest.ask.target, latest.ask.period);
+    return {
+      href: "/mentor",
+      message:
+        decision === "accepted"
+          ? `נרשם: התחייבתם ל${label}. במוצאי שבת נבדוק יחד.`
+          : `נרשם: לא השבוע. ${label} נשאר היעד שלכם, בלי מחויבות לשבוע הזה.`,
+    };
+  }
+
+  private async mentorReflect(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const answer = str(params["answer"]);
+    if (answer === undefined) throw new BadRequestException("מה לענות למנטור?");
+    const latest = await this.mentor.latestReview();
+    if (latest === null || latest.reflection === null) {
+      throw new BadRequestException("המנטור לא שאל שאלה השבוע — אין על מה לענות");
+    }
+    const review = await this.mentor.answerReflection(latest.id, answer);
+    const plans = review.planSuggestions.slice(0, 3);
+    const first = plans[0];
+    return {
+      href: "/mentor",
+      message: "התשובה נשמרה. ואם זה יקרה שוב — מה התוכנית?",
+      ...(plans.length === 0 ? {} : { data: plans.map((plan) => `• ${plan}`) }),
+      ...(first === undefined ? {} : { suggestion: `התוכנית שלי: ${first}` }),
+    };
   }
 }
 
