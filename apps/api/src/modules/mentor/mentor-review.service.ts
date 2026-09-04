@@ -398,7 +398,11 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
         commitment: true,
       },
     });
-    const patterns = mentorPatterns(past.map(MentorService.toPastReview));
+    // „היום” של הסיכום הוא סוף השבוע שמסכמים — גם בסבב השלמה מאוחר
+    const patterns = mentorPatterns(
+      past.map(MentorService.toPastReview),
+      weekEnd,
+    );
 
     const signals: MentorWeekSignals = {
       patterns,

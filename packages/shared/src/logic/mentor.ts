@@ -975,18 +975,19 @@ const RECURRING_MIN = 3;
  */
 export function mentorPatterns(
   reviews: readonly MentorPastReview[],
+  asOf: Date,
 ): MentorPattern[] {
-  // חלון של שבועות מהסיכום החדש ביותר, לא ספירת רשומות: סיכום מלפני
-  // חצי שנה אינו „החודשיים האחרונים” גם אם בינתיים היה שקט
-  const newest = reviews[0];
-  const recent =
-    newest === undefined
-      ? []
-      : reviews.filter(
-          (r) =>
-            newest.weekStart.getTime() - r.weekStart.getTime() <
-            PATTERN_LOOKBACK * WEEK_MS,
-        );
+  /*
+   * חלון של שבועות **מהיום** (`asOf`), לא מהסיכום החדש ביותר ולא
+   * ספירת רשומות: מתווך שלא היו לו סיכומים חצי שנה אינו שומע על
+   * „החודשיים האחרונים” דברים מלפני חצי שנה (ביקורת Codex).
+   */
+  const recent = reviews
+    .filter((r) => {
+      const age = asOf.getTime() - r.weekStart.getTime();
+      return age >= 0 && age < PATTERN_LOOKBACK * WEEK_MS;
+    })
+    .sort((a, b) => b.weekStart.getTime() - a.weekStart.getTime());
   const patterns: MentorPattern[] = [];
 
   for (const info of MENTOR_METRICS) {
@@ -1000,11 +1001,18 @@ export function mentorPatterns(
     if (rows.length === 0) continue;
     const behindRows = rows.filter((x) => x.g.pace === "behind");
 
-    // מפנה: השבועות האחרונים בסדר, ולפניהם פיגור חוזר
+    /*
+     * מפנה: שבועות **רצופים** בסדר עד השבוע האחרון שיש עליו סיכום,
+     * ולפניהם פיגור חוזר. הרציפות נבדקת לפי `weekStart`: שבוע בלי
+     * סיכום או בלי יעד על המדד שובר את הרצף — שני שבועות טובים עם
+     * חור ביניהם אינם „שבועיים רצופים” (ביקורת Codex).
+     */
     let since = 0;
+    let expected = recent[0]?.weekStart.getTime();
     for (const x of rows) {
-      if (x.g.pace === "behind") break;
+      if (x.r.weekStart.getTime() !== expected || x.g.pace === "behind") break;
       since += 1;
+      expected -= WEEK_MS;
     }
     const before = rows
       .slice(since)

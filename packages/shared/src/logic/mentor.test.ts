@@ -835,10 +835,13 @@ const doneOffers = {
   pace: "done" as const,
 };
 
+const patternsNow = (reviews: MentorPastReview[]) =>
+  mentorPatterns(reviews, WEEK_START);
+
 describe("mentorPatterns — הזיכרון הארוך של המנטור", () => {
   it("פחות משלוש פעמים מאחור אינו דפוס", () => {
     expect(
-      mentorPatterns([
+      patternsNow([
         past(1, [behindOffers]),
         past(2, [behindOffers]),
         past(3, [doneOffers]),
@@ -847,7 +850,7 @@ describe("mentorPatterns — הזיכרון הארוך של המנטור", () =>
   });
 
   it("שלוש פעמים מאחור בשמונה שבועות — דפוס, עם מה שהמתווך אמר ומה שקבע", () => {
-    const patterns = mentorPatterns([
+    const patterns = patternsNow([
       past(1, [behindOffers], {
         askMetric: "offers_sent",
         reflectionAnswer: "לא היה זמן",
@@ -876,7 +879,7 @@ describe("mentorPatterns — הזיכרון הארוך של המנטור", () =>
   });
 
   it("שני שבועות בקצב אחרי פיגור חוזר — מפנה, לא דפוס", () => {
-    const patterns = mentorPatterns([
+    const patterns = patternsNow([
       past(1, [doneOffers]),
       past(2, [doneOffers]),
       past(3, [behindOffers]),
@@ -895,13 +898,42 @@ describe("mentorPatterns — הזיכרון הארוך של המנטור", () =>
     );
   });
 
-  it("רק שמונת הסיכומים האחרונים נספרים", () => {
+  it("רק שמונת השבועות האחרונים נספרים — מהיום, לא מהסיכום החדש ביותר", () => {
     const old = [9, 10, 11].map((w) => past(w, [behindOffers]));
-    expect(mentorPatterns([past(1, [doneOffers]), ...old])).toEqual([]);
+    expect(patternsNow([past(1, [doneOffers]), ...old])).toEqual([]);
+    // אשכול ישן של פיגורים אינו „החודשיים האחרונים” חצי שנה אחרי
+    const cluster = [1, 2, 3].map((w) => past(w, [behindOffers]));
+    expect(patternsNow(cluster)).toHaveLength(1);
+    const halfYearLater = new Date(
+      WEEK_START.getTime() + 26 * 7 * 24 * 3600 * 1000,
+    );
+    expect(mentorPatterns(cluster, halfYearLater)).toEqual([]);
+  });
+
+  it("מפנה דורש שבועות רצופים — חור בסיכומים או ביעד שובר את הרצף", () => {
+    // שבוע 2 חסר: שני שבועות טובים עם חור ביניהם אינם „שבועיים רצופים”
+    expect(
+      patternsNow([
+        past(1, [doneOffers]),
+        past(3, [doneOffers]),
+        past(4, [behindOffers]),
+        past(5, [behindOffers]),
+      ]),
+    ).toEqual([]);
+    // בשבוע האחרון אין יעד על המדד — הרצף לא נמשך עד היום
+    expect(
+      patternsNow([
+        past(1, []),
+        past(2, [doneOffers]),
+        past(3, [doneOffers]),
+        past(4, [behindOffers]),
+        past(5, [behindOffers]),
+      ]),
+    ).toEqual([]);
   });
 
   it("רשומת המחויבויות — מתוך שתיים לפחות שנשפטו", () => {
-    const patterns = mentorPatterns([
+    const patterns = patternsNow([
       past(1, [doneOffers], { commitmentKept: true }),
       past(2, [doneOffers], { commitmentKept: false }),
       past(3, [doneOffers], { commitmentKept: true }),

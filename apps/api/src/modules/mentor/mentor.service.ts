@@ -186,6 +186,7 @@ export class MentorService {
       const streakWeeks = await this.streak(tx, tenantId, userId);
       const patterns = mentorPatterns(
         await this.pastReviews(tx, tenantId, userId),
+        now,
       );
       return {
         weekStart: week.start,
@@ -536,6 +537,7 @@ export class MentorService {
         const dto = latest === null ? null : MentorService.reviewDto(latest);
         const patterns = mentorPatterns(
           await this.pastReviews(tx, tenantId, userId),
+          now,
         );
         return {
           firstName: (user?.name ?? "").trim().split(/\s+/u)[0] ?? "",
