@@ -159,8 +159,37 @@ jobs:
       - name: IaC template matches env example
         run: pnpm verify:iac
 
+  # סריקת התלויות — משימה נפרדת, ובכוונה.
+  #
+  # ‎`pnpm audit` שואל את נקודת ה-audit של רישום npm, והיא נתקעת מדי
+  # פעם (שורש הרישום עונה, ה-audit תולה ונכשל ב-`ERR_SOCKET_TIMEOUT`).
+  # כשהיא ישבה בסוף `verify`, תקלה כזאת צבעה באדום שבע דקות של lint,
+  # typecheck, בדיקות, בנייה ושמונה שערים שעברו — שלוש פעמים על אותו
+  # קומיט, בלי שום קשר לקוד — והרצה חוזרת עלתה שוב שבע דקות.
+  #
+  # כאן היא עומדת לבד: אינה מתקינה דבר (`pnpm audit` קורא את
+  # ‎`pnpm-lock.yaml` בלבד), רצה במקביל ל-`verify`, וכשהרישום לא עונה
+  # רק היא אדומה — ואפשר להריץ אותה מחדש בחצי דקה. הסקריפט מנסה שוב
+  # בהמתנה גדלה, ומבחין בין „יש פגיעות” ל„הרישום לא ענה” — כדי שמי
+  # שקורא את הכישלון יידע אם לחפש CVE או להריץ שוב. הסף נשאר high.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # השער של השער — הסיווג „נקי / פגיע / לא ענה” נבדק בלי רשת
+      - name: Audit script self-test
+        run: pnpm test:audit-script
+
       - name: Audit dependencies (fail on high)
-        run: pnpm audit --audit-level high
+        run: pnpm verify:audit
 
   # ה-Playbook שמקים את השרת — נטען ומתפרש.
   #
