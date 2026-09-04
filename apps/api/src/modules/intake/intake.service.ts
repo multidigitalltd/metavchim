@@ -40,11 +40,12 @@ import { lockContact, lockIntakeRequest } from "../../common/locks";
 import { leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
-import { EmailService } from "../../core/email.service";
+import { EmailRejectedError, EmailService } from "../../core/email.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { BuyersService } from "../buyers/buyers.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { EmailInboxService } from "../email-inbox/email-inbox.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import { TenantLogoService } from "../../core/tenant-logo.service";
 import { PropertiesService } from "../properties/properties.service";
@@ -187,7 +188,21 @@ export interface IntakeSentDto {
  */
 export type ChannelResult =
   | { ok: true; to: string }
-  | { ok: false; reason: string; waUrl?: string | null };
+  | {
+      ok: false;
+      reason: string;
+      waUrl?: string | null;
+      /**
+       * ‎**לא ידוע אם יצא — ולא „לא יצא”.**
+       *
+       * ‏הספק לא ענה, או ענה 5xx אחרי שכבר קלט את ההודעה. שני
+       * המצבים נראים זהים מבחוץ, ולכן `EmailService` זורק בשניהם.
+       * אבל „נכשל, נסו שוב” על מצב כזה מזמין שליחה שנייה של אותו
+       * מייל ללקוח, ואין כאן מפתח ייחודיות שימנע כפילות (ביקורת
+       * Codex). לכן זה נאמר במפורש, והמסך אינו מציע לנסות שוב.
+       */
+      ambiguous?: boolean;
+    };
 
 /** ‏הערוצים שאפשר לבקש. */
 export type IntakeChannel = "email" | "whatsapp";
@@ -259,6 +274,7 @@ export class IntakeService {
     private readonly email: EmailService,
     private readonly whatsapp: WhatsAppSendService,
     private readonly plans: PlanCatalogService,
+    private readonly emailInbox: EmailInboxService,
   ) {}
 
   /**
@@ -497,6 +513,17 @@ export class IntakeService {
     subject: IntakeSubject,
     subjectId: string,
     channels: readonly IntakeChannel[],
+    /**
+     * ‎**הכתובת שהמסך הציג באישור.**
+     *
+     * ‏חלון האישור אומר „המייל יישלח אל X”, והשליחה קוראת את הכרטיס
+     * מחדש. אם מישהו שינה את הכתובת בין השניים — הסוכן עצמו בלשונית
+     * אחרת, או עמית — ההודעה הייתה יוצאת אל Y אחרי שאושר X. חלון
+     * אישור שאינו מחייב אינו אישור (ביקורת Codex).
+     *
+     * ‏רשות: קוראים ישנים ומסלולים פנימיים אינם חייבים לאשר.
+     */
+    expectedEmail?: string,
   ): Promise<IntakeSentDto> {
     const ctx = TenantContext.current();
     const link = await this.ensure(subject, subjectId);
@@ -511,7 +538,7 @@ export class IntakeService {
     });
 
     const email = channels.includes("email")
-      ? await this.sendInviteEmail(ctx.tenantId, details, link.url)
+      ? await this.sendInviteEmail(ctx.tenantId, details, link.url, expectedEmail)
       : null;
     const whatsapp = channels.includes("whatsapp")
       ? await this.sendInviteWhatsApp(ctx.tenantId, details, link)
@@ -552,13 +579,28 @@ export class IntakeService {
    */
   private async sendInviteEmail(
     tenantId: string,
-    details: { contact: { name: string; email?: string } | null; officeName: string },
+    details: {
+      contact: { id: string; name: string; email?: string } | null;
+      officeName: string;
+    },
     url: string,
+    expectedEmail?: string,
   ): Promise<ChannelResult> {
     const to = details.contact?.email;
     if (to === undefined || to === "") {
       return { ok: false, reason: "אין מייל ללקוח — אפשר להוסיף אותו בכרטיס ולשלוח שוב" };
     }
+    /*
+      ‏הכתובת השתנתה מאז שהמסך הציג אותה. לא שולחים: הסוכן אישר
+      שליחה אל כתובת אחת, וההודעה אינה יוצאת אל כתובת שלא ראה.
+    */
+    if (expectedEmail !== undefined && expectedEmail !== to) {
+      return {
+        ok: false,
+        reason: `כתובת המייל בכרטיס השתנתה ל-${to} — פתחו שוב ואשרו`,
+      };
+    }
+
     const mail = intakeInviteEmail({
       officeName: details.officeName,
       ...(details.contact?.name === undefined || details.contact.name === ""
@@ -566,6 +608,22 @@ export class IntakeService {
         : { clientName: details.contact.name }),
       url,
     });
+    /*
+      ‎**כתובת התשובה — כי המייל מבטיח אחת.**
+
+      ‏הערת השוליים אומרת „אפשר להשיב למייל הזה”. בלי `replyTo`
+      התשובה הולכת אל כתובת ה-From, שיכולה להיות השולח של הפלטפורמה
+      ואינה תיבה שמישהו קורא — כלומר הבטחה שאי אפשר לקיים (ביקורת
+      Codex). זו אותה כתובת ייחודית לאיש קשר שהצעות והסכמים כבר
+      משתמשים בה, והיא מחזירה את התשובה אל תוך התיבה של הכרטיס.
+
+      ‏`null` = הצד הנכנס אינו מוגדר במשרד הזה. אז אין מה להבטיח,
+      וההודעה יוצאת בלי `replyTo` — כמו כל מייל אחר שם.
+    */
+    const replyTo =
+      details.contact === null
+        ? null
+        : await this.emailInbox.replyAddressFor(tenantId, details.contact.id);
     try {
       await this.email.send(
         to,
@@ -577,12 +635,27 @@ export class IntakeService {
           button: mail.button,
           footnote: mail.footnote,
         },
-        { required: true, tenantId },
+        {
+          required: true,
+          tenantId,
+          ...(replyTo === null ? {} : { replyTo }),
+        },
       );
     } catch (error: unknown) {
+      /*
+        ‏`EmailRejectedError` = הספק ענה ודחה, כלומר ההודעה **בוודאות**
+        לא יצאה ואפשר לנסות שוב בבטחה. כל השאר — 5xx, פסק זמן, נפילת
+        רשת — עמום: ייתכן שהיא נקלטה והתשובה אבדה. „נסו שוב” שם שולח
+        ללקוח מייל שני.
+      */
+      if (error instanceof EmailRejectedError) {
+        return { ok: false, reason: error.message };
+      }
       return {
         ok: false,
-        reason: error instanceof Error ? error.message : "שליחת האימייל נכשלה",
+        ambiguous: true,
+        reason:
+          "לא התקבל אישור מספק הדואר — ייתכן שהמייל בכל זאת יצא. כדאי לוודא מול הלקוח לפני שליחה חוזרת",
       };
     }
     return { ok: true, to };

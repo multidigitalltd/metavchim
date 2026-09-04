@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { EmailRejectedError } from "../../core/email.service";
 import { TenantContext } from "../../common/tenant-context";
 import { IntakeService } from "./intake.service";
 import type { AuditService } from "../../core/audit.service";
@@ -6,6 +7,7 @@ import type { BuyersService } from "../buyers/buyers.service";
 import type { ContactsService } from "../contacts/contacts.service";
 import type { EmailService } from "../../core/email.service";
 import type { PlanCatalogService } from "../../core/plan-catalog.service";
+import type { EmailInboxService } from "../email-inbox/email-inbox.service";
 import type { PrismaService, TenantTx } from "../../core/prisma.service";
 import type { PropertiesService } from "../properties/properties.service";
 import type { TenantLogoService } from "../../core/tenant-logo.service";
@@ -83,6 +85,7 @@ function harness(options: {
   emailThrows?: Error;
   waResult?: "sent" | "no_connection" | "rejected";
   hasPlan?: boolean;
+  replyTo?: string | null;
 }): Harness {
   const send = vi.fn(async () => {
     if (options.emailThrows !== undefined) throw options.emailThrows;
@@ -113,6 +116,11 @@ function harness(options: {
     {
       tenantHasFeature: async () => options.hasPlan ?? true,
     } as unknown as PlanCatalogService,
+    {
+      /* ‏`null` מפורש = אין תיבה נכנסת. `??` היה בולע אותו והופך לברירת מחדל. */
+      replyAddressFor: async () =>
+        options.replyTo === undefined ? "reply+abc@inbox.test" : options.replyTo,
+    } as unknown as EmailInboxService,
   );
   return { service, send, wa, audit };
 }
@@ -181,6 +189,81 @@ describe("sendInvite", () => {
      */
     expect(options.required).toBe(true);
     expect(options.tenantId).toBe(TENANT);
+    /*
+     * ‏המייל מבטיח „אפשר להשיב למייל הזה”. בלי `replyTo` התשובה
+     * הולכת אל כתובת ה-From, שיכולה להיות השולח של הפלטפורמה ואינה
+     * תיבה שמישהו קורא — הבטחה שאי אפשר לקיים.
+     */
+    expect(options.replyTo).toBe("reply+abc@inbox.test");
+  });
+
+  it("אין תיבה נכנסת במשרד — נשלח בלי כתובת תשובה, ולא נופל", async () => {
+    const h = harness({ email: "dana@example.com", replyTo: null });
+    const result = await run(() => h.service.sendInvite("lead", LEAD, ["email"]));
+
+    expect(result.email?.ok).toBe(true);
+    const options = (h.send.mock.calls[0] as unknown as unknown[])[3] as {
+      replyTo?: string;
+    };
+    expect(options.replyTo).toBeUndefined();
+  });
+
+  it("דחייה ודאית של הספק אינה מסומנת כעמומה", async () => {
+    /*
+     * ‏„לא יצא בוודאות” מזמין ניסיון חוזר בבטחה, ולכן הוא **חייב**
+     * להיבדל מ„לא ידוע”: סימון שגוי כאן היה מרתיע מניסיון חוזר תקין.
+     */
+    const h = harness({
+      email: "dana@example.com",
+      emailThrows: new EmailRejectedError("ספק האימייל דחה את הכתובת של המשרד"),
+    });
+    const result = await run(() => h.service.sendInvite("lead", LEAD, ["email"]));
+
+    expect(result.email?.ok).toBe(false);
+    expect(result.email).not.toHaveProperty("ambiguous", true);
+    expect((result.email as { reason: string }).reason).toContain("דחה את הכתובת");
+  });
+
+  it("הספק לא ענה — התוצאה עמומה, ולא „נכשל, נסו שוב”", async () => {
+    /*
+     * ‏5xx או פסק זמן יכולים לקרות **אחרי** שההודעה נקלטה. אין כאן
+     * מפתח ייחודיות, ולכן „נסו שוב” היה שולח ללקוח מייל שני
+     * (ביקורת Codex).
+     */
+    const h = harness({
+      email: "dana@example.com",
+      emailThrows: new Error("socket hang up"),
+    });
+    const result = await run(() => h.service.sendInvite("lead", LEAD, ["email"]));
+
+    expect(result.email).toMatchObject({ ok: false, ambiguous: true });
+    /* ‏ולא נרשם ביומן כמשהו שיצא */
+    expect(h.audit).not.toHaveBeenCalled();
+  });
+
+  it("הכתובת בכרטיס השתנתה מאז האישור — לא נשלח אליה", async () => {
+    /*
+     * ‏חלון האישור אמר „יישלח אל X”. אם בינתיים הכרטיס נושא Y,
+     * שליחה אל Y היא שליחה אל כתובת שהסוכן לא ראה ולא אישר.
+     */
+    const h = harness({ email: "new@example.com" });
+    const result = await run(() =>
+      h.service.sendInvite("lead", LEAD, ["email"], "old@example.com"),
+    );
+
+    expect(result.email?.ok).toBe(false);
+    expect((result.email as { reason: string }).reason).toContain("new@example.com");
+    expect(h.send).not.toHaveBeenCalled();
+  });
+
+  it("הכתובת תואמת את מה שאושר — נשלח", async () => {
+    const h = harness({ email: "dana@example.com" });
+    const result = await run(() =>
+      h.service.sendInvite("lead", LEAD, ["email"], "dana@example.com"),
+    );
+
+    expect(result.email).toEqual({ ok: true, to: "dana@example.com" });
+    expect(h.send).toHaveBeenCalledTimes(1);
   });
 
   it("הספק דחה — מדווח ככישלון ולא כהצלחה", async () => {

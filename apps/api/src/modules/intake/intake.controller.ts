@@ -62,7 +62,17 @@ const TokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
  * ‎`.min(1)` — „שלח כלום” אינו בקשה.
  */
 const SendSchema = z
-  .object({ channels: z.array(z.enum(["email", "whatsapp"])).min(1).max(2) })
+  .object({
+    channels: z.array(z.enum(["email", "whatsapp"])).min(1).max(2),
+    /**
+     * ‏הכתובת שהמסך הציג בחלון האישור.
+     *
+     * ‏רשות ולא חובה: מסלולים פנימיים אינם מציגים חלון ואין להם מה
+     * לאשר. כשהיא נשלחת, השרת אינו שולח אל כתובת אחרת — ראו
+     * ‎`sendInvite`.
+     */
+    expectedEmail: z.string().trim().max(254).optional(),
+  })
   .strict();
 
 /**
@@ -200,7 +210,7 @@ export class IntakeController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Body(new ZodValidationPipe(SendSchema)) body: z.infer<typeof SendSchema>,
   ): Promise<IntakeSentDto> {
-    return this.intake.sendInvite("lead", id, body.channels);
+    return this.intake.sendInvite("lead", id, body.channels, body.expectedEmail);
   }
 
   @Get("buyers/:id/intake")
@@ -227,7 +237,7 @@ export class IntakeController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Body(new ZodValidationPipe(SendSchema)) body: z.infer<typeof SendSchema>,
   ): Promise<IntakeSentDto> {
-    return this.intake.sendInvite("buyer", id, body.channels);
+    return this.intake.sendInvite("buyer", id, body.channels, body.expectedEmail);
   }
 
   /**

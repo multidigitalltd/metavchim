@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { BuyersModule } from "../buyers/buyers.module";
 import { ContactsModule } from "../contacts/contacts.module";
+import { EmailInboxModule } from "../email-inbox/email-inbox.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { PropertiesModule } from "../properties/properties.module";
 import { IntakeController } from "./intake.controller";
@@ -16,6 +17,9 @@ import { IntakeService } from "./intake.service";
  * ולא בכתיבה ישירה, כדי שהעמודות החמות, ההתאמות והביקוש ברשת
  * יתעדכנו כמו בכל עריכה אחרת. ראו `applyToBuyer`.
  *
+ * `EmailInboxModule` — כתובת התשובה של איש הקשר. המייל מבטיח „אפשר
+ * להשיב”, ובלי הכתובת הזו התשובה נוחתת ב-From שאיש אינו קורא.
+ *
  * `MessagingModule` — שליחת הקישור בוואטסאפ מהחיבור של המשרד.
  * הוא מודול **עלה** בלי `imports` משלו, ולכן הייבוא הזה אינו יוצר
  * מעגל; ‏`WhatsAppModule` (הוובהוק והסוכן) הוא זה שתלוי ב-
@@ -27,7 +31,7 @@ import { IntakeService } from "./intake.service";
  * בכל נכס אחר. ראו `createFromIntake`.
  */
 @Module({
-  imports: [BuyersModule, ContactsModule, MessagingModule, PropertiesModule],
+  imports: [BuyersModule, ContactsModule, EmailInboxModule, MessagingModule, PropertiesModule],
   controllers: [IntakeController],
   providers: [IntakeService],
   exports: [IntakeService],

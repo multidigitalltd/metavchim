@@ -80,7 +80,7 @@ interface Recipient {
 /** ‏תוצאה של ערוץ אחד — ראו `ChannelResult` בשרת. */
 type ChannelResult =
   | { ok: true; to: string }
-  | { ok: false; reason: string; waUrl?: string | null };
+  | { ok: false; reason: string; waUrl?: string | null; ambiguous?: boolean };
 
 interface SentResult {
   url: string;
@@ -176,14 +176,27 @@ export function IntakePanel({
   /* ‏מה שהמערכת תשלח בעצמה — ולכן מה שדורש אישור */
   const systemSends = viaEmail || (viaWa && waMode === "office");
 
-  /** ‏פותח את החלון במצב נקי — בלי הודעה או שגיאה מהפעם הקודמת. */
-  function openPicker(): void {
+  /**
+   * ‏פותח את החלון במצב נקי — ועם נמען **טרי**.
+   *
+   * ‏הרענון אינו קישוט: עריכת האימייל בכרטיס מעדכנת את מצב העמוד,
+   * ולא את הצילום הפרטי של הרכיב הזה. בלעדיו מי שהוסיף כתובת עכשיו
+   * היה מוצא את האפשרות מושבתת עד רענון עמוד, ומי שהחליף כתובת היה
+   * רואה בחלון האישור את הישנה בזמן שהשרת שולח לחדשה (ביקורת Codex).
+   *
+   * ‏הרענון מונע את הפער; `expectedEmail` בשליחה סוגר את מה שנשאר —
+   * שינוי שקרה **בין** הפתיחה ללחיצה, מלשונית אחרת או מעמית.
+   */
+  async function openPicker(): Promise<void> {
     setViaWa(true);
     setViaEmail(false);
     setConfirmEmail(false);
     setError(null);
     setSent(null);
     setFallbackWa(null);
+    setBusy(true);
+    await load();
+    setBusy(false);
     setPicking(true);
   }
 
@@ -203,6 +216,8 @@ export function IntakePanel({
     setFallbackWa(null);
     const done: string[] = [];
     const failed: string[] = [];
+    /* ‏„לא ידוע אם יצא” — לא הצלחה, ובמפורש לא הזמנה לנסות שוב */
+    const unclear: string[] = [];
     try {
       const row = await apiPost<IntakeRow>(`/${base}/${entityId}/intake`, {});
 
@@ -227,10 +242,18 @@ export function IntakePanel({
       if (channels.length > 0) {
         const result = await apiPost<SentResult>(
           `/${base}/${entityId}/intake/send`,
-          { channels },
+          {
+            channels,
+            /*
+              ‏הכתובת שהוצגה באישור נוסעת עם הבקשה: השרת לא ישלח אל
+              כתובת שהסוכן לא ראה, גם אם היא השתנתה בינתיים.
+            */
+            ...(viaEmail && clientEmail !== null ? { expectedEmail: clientEmail } : {}),
+          },
         );
         if (result.email !== null) {
           if (result.email.ok) done.push(`המייל נשלח אל ${result.email.to}`);
+          else if (result.email.ambiguous === true) unclear.push(result.email.reason);
           else failed.push(`אימייל — ${result.email.reason}`);
         }
         if (result.whatsapp !== null) {
@@ -247,16 +270,21 @@ export function IntakePanel({
 
       await load();
       /*
-        ‏הכול נכשל — החלון נשאר פתוח עם הסיבה. „✓ נשלח” על שום דבר
-        שיצא הוא בדיוק מה שגורם לא לבדוק שוב.
+        ‏הכול נכשל **בוודאות** — החלון נשאר פתוח עם הסיבה, כי ניסיון
+        חוזר כאן בטוח. „✓ נשלח” על שום דבר שיצא הוא בדיוק מה שגורם
+        לא לבדוק שוב.
+
+        ‏תוצאה עמומה אינה כזאת: היא **סוגרת** את החלון בכוונה, כי
+        להשאיר כפתור „שליחה” דרוך על מייל שאולי כבר יצא זו הזמנה
+        לשלוח אותו פעמיים (ביקורת Codex).
       */
-      if (done.length === 0) {
+      if (done.length === 0 && unclear.length === 0) {
         setError(failed.join(" · "));
         setConfirmEmail(false);
         return;
       }
-      setSent([...done, ...failed].join(" · "));
-      setPartial(failed.length > 0);
+      setSent([...done, ...unclear, ...failed].join(" · "));
+      setPartial(failed.length > 0 || unclear.length > 0);
       setPicking(false);
       setConfirmEmail(false);
     } catch (err: unknown) {
@@ -334,7 +362,7 @@ export function IntakePanel({
                 type="button"
                 className="mv-btn-action"
                 disabled={busy}
-                onClick={openPicker}
+                onClick={() => void openPicker()}
               >
                 <IconSend s={16} />{" "}
                 {active === undefined ? "בקשו מהלקוח למלא" : "שליחה שוב"}

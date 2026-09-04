@@ -8,6 +8,7 @@ import type { PrismaService, TenantTx } from "../../core/prisma.service";
 import type { PropertiesService } from "../properties/properties.service";
 import type { EmailService } from "../../core/email.service";
 import type { PlanCatalogService } from "../../core/plan-catalog.service";
+import type { EmailInboxService } from "../email-inbox/email-inbox.service";
 import type { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import type { TenantLogoService } from "../../core/tenant-logo.service";
 
@@ -40,6 +41,11 @@ const noPlans = {
     throw new Error("המסלול הציבורי אינו בודק מסלול");
   },
 } as unknown as PlanCatalogService;
+const noInbox = {
+  replyAddressFor: () => {
+    throw new Error("המסלול הציבורי אינו מנפיק כתובת תשובה");
+  },
+} as unknown as EmailInboxService;
 const logoOf = (has: boolean): TenantLogoService =>
   ({ has: async () => has }) as unknown as TenantLogoService;
 
@@ -213,6 +219,7 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       noEmail,
       noWhatsApp,
       noPlans,
+      noInbox,
     );
 
     // אין `TenantContext.run` כאן בכוונה — זה בדיוק מצב הבקשה הציבורית
@@ -256,6 +263,7 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       noEmail,
       noWhatsApp,
       noPlans,
+      noInbox,
     );
 
     await expect(service.submit(TOKEN, { dealType: "sale" })).resolves.toEqual({
@@ -298,6 +306,7 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       noEmail,
       noWhatsApp,
       noPlans,
+      noInbox,
     );
 
     await expect(service.submit(TOKEN, { dealType: "sale" })).rejects.toThrow(
@@ -326,6 +335,7 @@ describe("המיזוג רץ מתחת לנעילת הכרטיס", () => {
       noEmail,
       noWhatsApp,
       noPlans,
+      noInbox,
     );
   }
 
@@ -412,6 +422,7 @@ describe("ליד שטרם הומר — שליחה חוזרת שמשנה תשוב
       noEmail,
       noWhatsApp,
       noPlans,
+      noInbox,
     );
   }
 
