@@ -28,6 +28,7 @@ import {
   useFeaturesFailed,
   useFeaturesReady,
 } from "@/lib/use-features";
+import { Celebration, type CelebrationEvent } from "../celebration";
 import { ConfirmDialog } from "../confirm-dialog";
 import {
   IconCheck,
@@ -132,6 +133,21 @@ const EXAMPLE_QUESTIONS = [
   "תעזור לי לבחור יעד לשבוע הבא",
 ];
 
+/** מה יש לחגוג — יעדים שהושגו והצלחות השבוע, במפתחות יציבים לתקופה. */
+function celebrationEvents(overview: Overview): CelebrationEvent[] {
+  const goals = overview.goals
+    .filter((g) => g.progress.pace === "done")
+    .map((g) => ({
+      key: `goal:${g.id}:${g.period === "week" ? overview.weekStart : overview.weekStart.slice(0, 7)}`,
+      label: `היעד הושג: ${mentorGoalLabel(g.metric, g.target, g.period)}`,
+    }));
+  const wins = overview.wins.map((w, i) => ({
+    key: `win:${overview.weekStart}:${w.kind}:${w.title}:${i}`,
+    label: winLabel(w),
+  }));
+  return [...goals, ...wins];
+}
+
 function metricLabel(metric: MentorGoalMetric): string {
   return MENTOR_METRICS.find((m) => m.code === metric)?.label ?? metric;
 }
@@ -229,6 +245,12 @@ export default function MentorPage() {
         </p>
       ) : (
         <>
+          <div className="mt-6">
+            <Celebration
+              events={celebrationEvents(overview)}
+              title="🎉 כל הכבוד — הושג"
+            />
+          </div>
           <WeekSection overview={overview} />
           <GoalsSection overview={overview} onChanged={load} />
           {overview.patterns.length > 0 ? (

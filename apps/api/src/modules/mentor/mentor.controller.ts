@@ -24,6 +24,7 @@ import {
   MentorService,
   type MentorGoalDto,
   type MentorOverview,
+  type MentorPulse,
   type MentorReviewDto,
   type MentorTurnDto,
 } from "./mentor.service";
@@ -74,6 +75,12 @@ export class MentorController {
   @AnyAuthenticated()
   overview(): Promise<MentorOverview> {
     return this.mentor.overview();
+  }
+
+  @Get("pulse")
+  @AnyAuthenticated()
+  pulse(): Promise<MentorPulse> {
+    return this.mentor.pulse();
   }
 
   @Post("goals")

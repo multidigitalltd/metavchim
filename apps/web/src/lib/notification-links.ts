@@ -50,6 +50,9 @@ function targetFor(entityType: string, entityId: string): Target | null {
       return { href: "/collaboration?tab=incoming" };
     case "shared_lead":
       return { href: "/collaboration" }; // "נקלטה" מוצג בלשונית ההפניות
+    // המנטור — סיכום, דחיפה או חגיגה: המסך שלו, בלי מזהה ובלי יכולת
+    case "mentor":
+      return { href: "/mentor" };
     /*
      * שיחה נבחרת בתוך הרשימה ואין לה נתיב משלה, ולכן פרמטר ולא
      * קטע נתיב. בלי זה ההתראה על סיום תמלול הייתה נוחתת על רשימת
