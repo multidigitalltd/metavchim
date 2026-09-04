@@ -3,7 +3,10 @@ import {
   DEFAULT_WHATSAPP_NOTIFY_PREFS,
   formatNotifyMessage,
   inQuietHours,
+  MENTOR_QUICK_COMMANDS,
+  NOTIFY_DEFAULT_BUTTONS,
   notifyCategory,
+  notifyQuickReplies,
   parseWhatsAppNotifyPrefs,
   sessionWindowOpen,
   shouldNotifyByWhatsApp,
@@ -35,7 +38,9 @@ describe("notifyCategory", () => {
 
 describe("parseWhatsAppNotifyPrefs", () => {
   it("ברירת המחדל היא הכול פעיל — מי ששילם על הסוכן רוצה שיעדכן", () => {
-    expect(parseWhatsAppNotifyPrefs(undefined)).toEqual(DEFAULT_WHATSAPP_NOTIFY_PREFS);
+    expect(parseWhatsAppNotifyPrefs(undefined)).toEqual(
+      DEFAULT_WHATSAPP_NOTIFY_PREFS,
+    );
     expect(parseWhatsAppNotifyPrefs({}).enabled).toBe(true);
   });
 
@@ -108,7 +113,11 @@ describe("shouldNotifyByWhatsApp", () => {
 });
 
 describe("inQuietHours", () => {
-  const prefs = { ...DEFAULT_WHATSAPP_NOTIFY_PREFS, quietFromHour: 22, quietToHour: 7 };
+  const prefs = {
+    ...DEFAULT_WHATSAPP_NOTIFY_PREFS,
+    quietFromHour: 22,
+    quietToHour: 7,
+  };
 
   it("טווח שעובר חצות תופס את שני צדדיו", () => {
     expect(inQuietHours(23, prefs)).toBe(true);
@@ -137,7 +146,14 @@ describe("inQuietHours", () => {
 describe("formatNotifyMessage", () => {
   it("התראה אחת עם קישור לכרטיס", () => {
     const text = formatNotifyMessage(
-      [item({ title: "משה לוי מתקשר", type: "incoming_call", entityType: "lead", entityId: "L1" })],
+      [
+        item({
+          title: "משה לוי מתקשר",
+          type: "incoming_call",
+          entityType: "lead",
+          entityId: "L1",
+        }),
+      ],
       "https://app.example.com",
     );
     expect(text).toContain("*עדכון חדש*");
@@ -156,7 +172,9 @@ describe("formatNotifyMessage", () => {
   });
 
   it("חותך לרשימה סבירה ואומר כמה נשארו", () => {
-    const many = Array.from({ length: 10 }, (_, i) => item({ title: `פריט ${i}` }));
+    const many = Array.from({ length: 10 }, (_, i) =>
+      item({ title: `פריט ${i}` }),
+    );
     const text = formatNotifyMessage(many, "https://x");
     expect(text).toContain("ועוד 4 עדכונים");
     expect(text).not.toContain("פריט 7");
@@ -184,16 +202,17 @@ describe("sessionWindowOpen", () => {
   });
 
   it("הודעה מלפני יומיים — סגור", () => {
-    expect(sessionWindowOpen(new Date("2026-08-21T12:00:00Z"), now)).toBe(false);
+    expect(sessionWindowOpen(new Date("2026-08-21T12:00:00Z"), now)).toBe(
+      false,
+    );
   });
 });
 
 describe("templateParams", () => {
   it("התראה אחת — כותרת וגוף שלה", () => {
-    expect(templateParams([item({ title: "התמלול מוכן", body: "סיכום קצר" })])).toEqual([
-      "התמלול מוכן",
-      "סיכום קצר",
-    ]);
+    expect(
+      templateParams([item({ title: "התמלול מוכן", body: "סיכום קצר" })]),
+    ).toEqual(["התמלול מוכן", "סיכום קצר"]);
   });
 
   it("כמה התראות — מונה ורשימת כותרות", () => {
@@ -208,7 +227,57 @@ describe("templateParams", () => {
   });
 
   it("משטח שורות חדשות — תבנית של Meta דוחה אותן", () => {
-    const [, detail] = templateParams([item({ title: "כותרת", body: "שורה\nשנייה" })]);
+    const [, detail] = templateParams([
+      item({ title: "כותרת", body: "שורה\nשנייה" }),
+    ]);
     expect(detail).toBe("שורה שנייה");
+  });
+});
+
+describe("notifyQuickReplies — המנטור מקבל כפתורים משלו", () => {
+  it("סיכום שבועי: מתחייב, לענות למנטור, היעדים שלי — כולם פקודות שהשיחה מבינה", () => {
+    const buttons = notifyQuickReplies([
+      item({ type: "mentor_weekly", title: "הסיכום" }),
+    ]);
+    expect(buttons.map((b) => b.action)).toEqual(["cmd", "cmd", "cmd"]);
+    for (const button of buttons) {
+      expect(button.arg).toBeDefined();
+      expect(MENTOR_QUICK_COMMANDS).toHaveProperty(button.arg as string);
+    }
+    expect(buttons[0]?.arg).toBe("mentor_commit");
+  });
+
+  it("דחיפה וחגיגה: היעדים שלי לפני ברירת המחדל", () => {
+    for (const type of ["mentor_nudge", "mentor_win"]) {
+      const buttons = notifyQuickReplies([item({ type })]);
+      expect(buttons[0]?.arg).toBe("mentor_status");
+      expect(buttons.slice(1)).toEqual(NOTIFY_DEFAULT_BUTTONS);
+    }
+  });
+
+  it("אגד מעורב — ליד עם סיכום — נשאר עם ברירת המחדל", () => {
+    expect(
+      notifyQuickReplies([
+        item({ type: "mentor_weekly" }),
+        item({ type: "lead" }),
+      ]),
+    ).toEqual(NOTIFY_DEFAULT_BUTTONS);
+    expect(notifyQuickReplies([])).toEqual(NOTIFY_DEFAULT_BUTTONS);
+  });
+
+  it("משפט הפעולה של הסיכום השבועי מזמין מחויבות, לא „מה דחוף היום”", () => {
+    const text = formatNotifyMessage(
+      [
+        item({
+          type: "mentor_weekly",
+          title: "שבוע עם תוצאה",
+          entityType: "mentor",
+        }),
+      ],
+      "https://app.example.com",
+    );
+    expect(text).toContain("🧭 *שבוע עם תוצאה*");
+    expect(text).toContain("מתחייב");
+    expect(text).not.toContain("מה הכי דחוף היום");
   });
 });

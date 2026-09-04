@@ -23,6 +23,8 @@ import {
   type AgentHistoryTurn,
   type AgentProposal,
   type Capability,
+  MENTOR_INTENTION_MAX,
+  MENTOR_QUICK_COMMANDS,
 } from "@metavchim/shared";
 import { TenantContext, type RequestContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
@@ -73,6 +75,16 @@ import {
 import { formatCard } from "./assistant-card";
 import { formatCallbacks } from "./assistant-callbacks";
 import { summarizeData } from "./assistant-results";
+import {
+  isMentorReflectRequest,
+  isSkipMessage,
+  MENTOR_PLAN_MIN,
+  mentorPlanPrompt,
+  mentorPlanSaved,
+  mentorPlanSkipped,
+  mentorReflectionPrompt,
+} from "./assistant-mentor";
+import { MentorService } from "../mentor/mentor.service";
 import { prospectReplyText } from "./prospect-reply";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 import { WhatsAppLinkService } from "./whatsapp-link.service";
@@ -99,6 +111,8 @@ import { WhatsAppLinkService } from "./whatsapp-link.service";
  */
 
 const FEATURE_ID = "voice_intake";
+/** הזכאות של המנטור — אותו מפתח כמו `feature` בפעולות `mentor_*` בקטלוג. */
+const MENTOR_FEATURE = "ai_coach";
 /**
  * כמה תורות נשמרים לזיכרון השיחה.
  *
@@ -172,7 +186,7 @@ interface PendingState {
    * זו הבחירה היחידה כאן שאינה על **רשומה** אלא על **כוונה**, ולכן
    * היא אינה נצרכת אטומית: לחיצה חוזרת רק מפרשת מחדש, לא מבצעת.
    */
-  awaiting: "confirm" | "choice" | "suggest";
+  awaiting: "confirm" | "choice" | "suggest" | "mentor_reflection" | "mentor_plan";
   /**
    * חותם ההצעה — נכנס למזהי הכפתורים שלה.
    *
@@ -192,6 +206,12 @@ interface PendingState {
    * הסידורי הוא מה שנוסע, בדיוק כמו בבחירת רשומה.
    */
   suggestions?: string[];
+  /**
+   * הרפלקציה של המנטור — ההודעה הבאה היא התשובה („mentor_reflection”),
+   * ואחריה התוכנית („mentor_plan”, עם ההצעות לפי הסדר שהוצג).
+   * ‎`proposal` כאן הוא תווית בלבד: אין מה לבצע דרך המנוע.
+   */
+  mentor?: { reviewId: string; plans?: string[] };
 }
 
 interface ChatState {
@@ -258,6 +278,7 @@ export class WhatsAppAssistantService {
     private readonly links: WhatsAppLinkService,
     private readonly gemini: GeminiService,
     private readonly agentPrefs: AgentPrefsService,
+    private readonly mentor: MentorService,
   ) {}
 
   /**
@@ -574,6 +595,126 @@ export class WhatsAppAssistantService {
    * תפסה — החותם לא תאם — מה שבשורה חדש ממה שבזיכרון, ואסור
    * לכתוב עליו את הריקון המקומי.
    */
+  /* ---------------- המנטור: רפלקציה ותוכנית ---------------- */
+
+  /** תווית להצעה הממתינה — אין כאן פעולה למנוע, רק מצב שיחה. */
+  private static mentorPlaceholder(title: string): AgentProposal {
+    return {
+      actionId: "mentor_reflect",
+      title,
+      risk: "update",
+      summary: title,
+      fields: [],
+      missing: [],
+      warnings: [],
+      degraded: [],
+      fallback: false,
+    };
+  }
+
+  private async mentorReflectStart(user: IdentifiedUser, chat: ChatState): Promise<AgentReply> {
+    /*
+     * הזכאות נאכפת כאן כמו ב-`execute` לפעולות הקטלוג: המסלול הזה
+     * קורא ל-`MentorService` ישירות, ומשרד שאיבד את `ai_coach` אינו
+     * אמור לקרוא או לכתוב רפלקציה דרך הוואטסאפ (ביקורת Codex).
+     */
+    if (!(await this.plans.tenantHasFeature(user.tenantId, MENTOR_FEATURE))) {
+      const text = "המנטור האישי אינו כלול במסלול של המשרד — אפשר לשדרג במסך החיוב.";
+      return { text, speak: text };
+    }
+    const latest = await this.mentor.latestReview();
+    if (latest === null || latest.reflection === null) {
+      const text =
+        "המנטור לא שאל שאלה השבוע — השאלה מגיעה עם הסיכום השבועי כשיעד נשאר מאחור. אפשר לשאול אותו כל דבר: „מנטור, מה כדאי לי לשפר?”";
+      return { text, speak: text };
+    }
+    if (chat.pending !== null) {
+      const took = await this.takePending(user.tenantId, user.id, chat.pending.token);
+      this.consumed(chat, took);
+    }
+    const token = ulid();
+    chat.pending = {
+      transcript: MENTOR_QUICK_COMMANDS.mentor_reflect,
+      proposal: WhatsAppAssistantService.mentorPlaceholder("תשובה למנטור"),
+      awaiting: "mentor_reflection",
+      extraParams: {},
+      token,
+      mentor: { reviewId: latest.id },
+    };
+    chat.keepStoredPending = false;
+    return mentorReflectionPrompt(latest.reflection);
+  }
+
+  /**
+   * ההודעה שאחרי „לענות למנטור” היא התשובה; זו שאחרי „ואם זה יקרה
+   * שוב?” היא התוכנית. שתיהן נצרכות אטומית עם החותם — כמו „אשר”.
+   */
+  private async mentorFollowUp(
+    user: IdentifiedUser,
+    chat: ChatState,
+    pending: PendingState,
+    text: string,
+  ): Promise<AgentReply> {
+    const reviewId = pending.mentor?.reviewId;
+    const took = await this.takePending(user.tenantId, user.id, pending.token);
+    this.consumed(chat, took);
+    if (!took || reviewId === undefined) {
+      return { text: STALE_PROPOSAL_TEXT, speak: STALE_PROPOSAL_TEXT };
+    }
+    if (pending.awaiting === "mentor_reflection") {
+      const answer = text.trim();
+      if (answer.length < MENTOR_PLAN_MIN) {
+        const retry = "לא קלטתי תשובה — כתבו לי במילים שלכם מה עצר, או „בטל”.";
+        // ההצעה נצרכה; מחזירים אותה כדי שההודעה הבאה עדיין תיחשב תשובה
+        chat.pending = { ...pending, token: ulid() };
+        chat.keepStoredPending = false;
+        return { text: retry, speak: retry };
+      }
+      let plans: string[];
+      try {
+        const review = await this.mentor.answerReflection(reviewId, answer);
+        plans = review.planSuggestions.slice(0, 3);
+      } catch (error) {
+        // הצריכה כבר קרתה — מחזירים את המצב עם חותם חדש, שהניסיון הבא ייחשב תשובה
+        chat.pending = { ...pending, token: ulid() };
+        chat.keepStoredPending = false;
+        const failure = `התשובה לא נשמרה: ${errorMessage(error)}. אפשר לשלוח אותה שוב.`;
+        return { text: `⚠️ ${failure}`, speak: failure };
+      }
+      const token = ulid();
+      chat.pending = {
+        transcript: answer,
+        proposal: WhatsAppAssistantService.mentorPlaceholder("תוכנית ליעד"),
+        awaiting: "mentor_plan",
+        extraParams: {},
+        token,
+        mentor: { reviewId, plans },
+      };
+      chat.keepStoredPending = false;
+      return mentorPlanPrompt(answer, plans, token);
+    }
+    // mentor_plan
+    if (isSkipMessage(text)) return mentorPlanSkipped();
+    const plans = pending.mentor?.plans ?? [];
+    const picked = choiceIndex(text, plans.length);
+    const plan = (picked === null ? text.trim() : plans[picked]!).slice(0, MENTOR_INTENTION_MAX);
+    if (plan.length < MENTOR_PLAN_MIN) {
+      const retry = "תוכנית קצרה מדי — „כש… אז…” במילים שלכם, מספר מההצעות, או „דלג”.";
+      chat.pending = { ...pending, token: ulid() };
+      chat.keepStoredPending = false;
+      return { text: retry, speak: retry };
+    }
+    try {
+      await this.mentor.setPlan(reviewId, plan);
+    } catch (error) {
+      chat.pending = { ...pending, token: ulid() };
+      chat.keepStoredPending = false;
+      const failure = `התוכנית לא נשמרה: ${errorMessage(error)}. אפשר לשלוח אותה שוב, או „דלג”.`;
+      return { text: `⚠️ ${failure}`, speak: failure };
+    }
+    return mentorPlanSaved(plan);
+  }
+
   private consumed(chat: ChatState, took: PendingState | null): void {
     chat.pending = null;
     if (took === null) chat.keepStoredPending = true;
@@ -886,6 +1027,15 @@ export class WhatsAppAssistantService {
     // מי מדבר — נכנס לפרומפט כדי שהתשובה תהיה שלו ולא כללית
     const speaker = { name: firstName(user.name), roleLabel: roleLabel(user.role) };
 
+    /*
+     * „לענות למנטור” — כלשונו (כפתור ההתראה או הקלדה): פותח את
+     * הרפלקציה במקום להישלח למנוע ההבנה, שאין לו פעולה ל„מה עצר”.
+     * הצעה שממתינה נצרכת — המתווך עבר לדבר עם המנטור.
+     */
+    if (isMentorReflectRequest(text)) {
+      return withHeard(await this.mentorReflectStart(user, chat), heard);
+    }
+
     const pending = chat.pending;
     if (pending) {
       if (isCancelMessage(text)) {
@@ -893,6 +1043,9 @@ export class WhatsAppAssistantService {
         this.consumed(chat, took);
         const answer = took ? "בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול.";
         return { text: took ? `❌ ${answer}` : answer, speak: answer };
+      }
+      if (pending.awaiting === "mentor_reflection" || pending.awaiting === "mentor_plan") {
+        return withHeard(await this.mentorFollowUp(user, chat, pending, text), heard);
       }
       /*
        * ‎**„אולי התכוונת” — בחירת כוונה, לא בחירת רשומה.**

@@ -69,6 +69,8 @@ export type VoiceAction =
   | "show_card"
   | "play_recording"
   | "agent_report"
+  | "mentor_status"
+  | "mentor_ask"
   | "unknown";
 
 export interface VoiceCommand {
@@ -81,7 +83,11 @@ export interface VoiceCommand {
   query?: string;
 }
 
-const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" }[] = [
+const RULES: {
+  action: VoiceAction;
+  pattern: RegExp;
+  confidence: "high" | "low";
+}[] = [
   /*
    * --- "תזכיר לי" ראשון, מעל הכול ---
    * המילים שאחריו מתארות את *תוכן* התזכורת, לא פקודה לביצוע עכשיו:
@@ -91,31 +97,88 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
   { action: "add_task", pattern: /תזכיר(?:י)?\s+לי/u, confidence: "high" },
 
   // --- שליחת הצעה (לפני שאר הכללים: "שלח" חד-משמעי) ---
-  { action: "send_offer", pattern: /(?:שלח|תשלח|שלחי)\s+(?:את\s+)?(?:ה?נכס|ה?דירה|ה?הצעה|הצעה)/u, confidence: "high" },
-  { action: "send_offer", pattern: /(?:שלח|תשלח)\s+ל[א-ת]/u, confidence: "low" },
+  {
+    action: "send_offer",
+    pattern: /(?:שלח|תשלח|שלחי)\s+(?:את\s+)?(?:ה?נכס|ה?דירה|ה?הצעה|הצעה)/u,
+    confidence: "high",
+  },
+  {
+    action: "send_offer",
+    pattern: /(?:שלח|תשלח)\s+ל[א-ת]/u,
+    confidence: "low",
+  },
 
   // --- פגישה/סיור, בניסוח עם פועל ---
-  { action: "schedule_appointment", pattern: /(?:קבע(?:י)?|תקבע(?:י)?|לקבוע)\s+(?:לי\s+)?(?:פגישה|סיור|ביקור)/u, confidence: "high" },
-  { action: "schedule_appointment", pattern: /(?:תזמן|תתאם|לתאם|תיאום)\s+(?:פגישה|סיור|ביקור)/u, confidence: "high" },
+  {
+    action: "schedule_appointment",
+    pattern: /(?:קבע(?:י)?|תקבע(?:י)?|לקבוע)\s+(?:לי\s+)?(?:פגישה|סיור|ביקור)/u,
+    confidence: "high",
+  },
+  {
+    action: "schedule_appointment",
+    pattern: /(?:תזמן|תתאם|לתאם|תיאום)\s+(?:פגישה|סיור|ביקור)/u,
+    confidence: "high",
+  },
 
   // --- נכס ---
-  { action: "add_property", pattern: /(?:הוסף|תוסיף|רשום|תרשום|קלוט)\s+(?:לי\s+)?(?:נכס|דירה|בית)/u, confidence: "high" },
-  { action: "add_property", pattern: /נכס\s+חדש|דירה\s+חדשה\s+ל(?:מכירה|השכרה)/u, confidence: "high" },
-  { action: "add_property", pattern: /(?:קיבלתי|יש לי)\s+(?:נכס|דירה)\s+(?:חדש|חדשה|ל)/u, confidence: "low" },
+  {
+    action: "add_property",
+    pattern: /(?:הוסף|תוסיף|רשום|תרשום|קלוט)\s+(?:לי\s+)?(?:נכס|דירה|בית)/u,
+    confidence: "high",
+  },
+  {
+    action: "add_property",
+    pattern: /נכס\s+חדש|דירה\s+חדשה\s+ל(?:מכירה|השכרה)/u,
+    confidence: "high",
+  },
+  {
+    action: "add_property",
+    pattern: /(?:קיבלתי|יש לי)\s+(?:נכס|דירה)\s+(?:חדש|חדשה|ל)/u,
+    confidence: "low",
+  },
 
   // --- קונה ---
-  { action: "add_buyer", pattern: /(?:הוסף|תוסיף|רשום|תרשום)\s+(?:לי\s+)?(?:קונה|לקוח\s+קונה)/u, confidence: "high" },
-  { action: "add_buyer", pattern: /קונה\s+חדש|לקוח\s+חדש\s+ש?מחפש/u, confidence: "high" },
-  { action: "add_buyer", pattern: /מחפש\s+(?:דירה|נכס|בית)|מחפשת\s+(?:דירה|נכס)/u, confidence: "low" },
+  {
+    action: "add_buyer",
+    pattern: /(?:הוסף|תוסיף|רשום|תרשום)\s+(?:לי\s+)?(?:קונה|לקוח\s+קונה)/u,
+    confidence: "high",
+  },
+  {
+    action: "add_buyer",
+    pattern: /קונה\s+חדש|לקוח\s+חדש\s+ש?מחפש/u,
+    confidence: "high",
+  },
+  {
+    action: "add_buyer",
+    pattern: /מחפש\s+(?:דירה|נכס|בית)|מחפשת\s+(?:דירה|נכס)/u,
+    confidence: "low",
+  },
 
   // --- ליד ---
-  { action: "add_lead", pattern: /(?:הוסף|תוסיף|רשום|תרשום)\s+(?:לי\s+)?ליד/u, confidence: "high" },
+  {
+    action: "add_lead",
+    pattern: /(?:הוסף|תוסיף|רשום|תרשום)\s+(?:לי\s+)?ליד/u,
+    confidence: "high",
+  },
   { action: "add_lead", pattern: /ליד\s+חדש/u, confidence: "high" },
-  { action: "add_lead", pattern: /(?:התקשר|התקשרה|פנה|פנתה|דיברתי עם)\s/u, confidence: "low" },
+  {
+    action: "add_lead",
+    pattern: /(?:התקשר|התקשרה|פנה|פנתה|דיברתי עם)\s/u,
+    confidence: "low",
+  },
 
   // --- תזכורת/משימה בניסוחים נוספים ("תזכיר לי" כבר נתפס למעלה) ---
-  { action: "add_task", pattern: /(?:הוסף|תוסיף|רשום|תרשום|צור|תצור)\s+(?:לי\s+)?(?:משימה|תזכורת|פולו[־\s-]?אפ)/u, confidence: "high" },
-  { action: "add_task", pattern: /(?:משימה|תזכורת)\s+(?:חדשה|ל[א-ת])/u, confidence: "low" },
+  {
+    action: "add_task",
+    pattern:
+      /(?:הוסף|תוסיף|רשום|תרשום|צור|תצור)\s+(?:לי\s+)?(?:משימה|תזכורת|פולו[־\s-]?אפ)/u,
+    confidence: "high",
+  },
+  {
+    action: "add_task",
+    pattern: /(?:משימה|תזכורת)\s+(?:חדשה|ל[א-ת])/u,
+    confidence: "low",
+  },
 
   /*
    * --- שאלה על המאגר — לפני "חיפוש" בכוונה ---
@@ -125,16 +188,37 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
    * החיפוש כדי ש"תחפש מי מחפש 4 חדרים" יקבל את התשובה הנכונה —
    * ו"חפש את משה כהן" נשאר חיפוש כי אין בו "מי".
    */
-  { action: "query_buyers", pattern: /מי\s+(?:מחפש|רוצה|צריך|מעוניין)/u, confidence: "high" },
-  { action: "query_buyers", pattern: /(?:איזה|אילו)\s+קונים/u, confidence: "high" },
+  {
+    action: "query_buyers",
+    pattern: /מי\s+(?:מחפש|רוצה|צריך|מעוניין)/u,
+    confidence: "high",
+  },
+  {
+    action: "query_buyers",
+    pattern: /(?:איזה|אילו)\s+קונים/u,
+    confidence: "high",
+  },
   /*
    * "תחפש קונים ארבע חדרים" — פועל חיפוש + **קונים ברבים** הוא שאלה
    * על המאגר, לא חיפוש שמות: התשובה הנכונה היא רשימת קונים לפי
    * הקריטריונים. ביחיד ("חפש את הקונה משה") זה נשאר חיפוש רגיל.
    */
-  { action: "query_buyers", pattern: /(?:חפש|תחפש|מצא|תמצא|הצג|תציג|תביא|תראה)\s+(?:לי\s+)?(?:את\s+)?ה?קונים/u, confidence: "high" },
-  { action: "query_buyers", pattern: /קונים\s+(?:שמחפשים|מתאימים|עם|עד\s|ל[א-ת0-9]|ב[א-ת])/u, confidence: "low" },
-  { action: "query_buyers", pattern: /יש\s+(?:לי\s+|לנו\s+)?קונ(?:ה|ים)\s+ל/u, confidence: "low" },
+  {
+    action: "query_buyers",
+    pattern:
+      /(?:חפש|תחפש|מצא|תמצא|הצג|תציג|תביא|תראה)\s+(?:לי\s+)?(?:את\s+)?ה?קונים/u,
+    confidence: "high",
+  },
+  {
+    action: "query_buyers",
+    pattern: /קונים\s+(?:שמחפשים|מתאימים|עם|עד\s|ל[א-ת0-9]|ב[א-ת])/u,
+    confidence: "low",
+  },
+  {
+    action: "query_buyers",
+    pattern: /יש\s+(?:לי\s+|לנו\s+)?קונ(?:ה|ים)\s+ל/u,
+    confidence: "low",
+  },
   /*
    * "מה יש לי" עם המילה קונים — לפני הכלל המקביל על הנכסים, שהוא
    * הקריאה הטבעית של אותו ניסוח בלי המילה הזו.
@@ -144,7 +228,12 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
    * לעברית פשוט לא תתאים לעולם (ביקורת Codex). הגבולות כאן
    * מפורשים: רווח לפני, ורווח/סוף/פיסוק אחרי.
    */
-  { action: "query_buyers", pattern: /(?:מה|כמה)\s+(?:יש|נשארו|נשאר)\s+(?:לי|לנו)[^?]*\sה?קונים(?:[\s?,.!]|$)/u, confidence: "high" },
+  {
+    action: "query_buyers",
+    pattern:
+      /(?:מה|כמה)\s+(?:יש|נשארו|נשאר)\s+(?:לי|לנו)[^?]*\sה?קונים(?:[\s?,.!]|$)/u,
+    confidence: "high",
+  },
 
   /*
    * --- שאלות קריאה על שאר המערכת — יומן, משימות, שיחות, דוח ---
@@ -153,10 +242,28 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
    * הנכסים (`לי` ואחריו `ב`+אות), ורק הסדר כאן מציל אותו. בתוך
    * אותה רמת ביטחון — הכלל הראשון שמתאים מנצח.
    */
-  { action: "show_schedule", pattern: /ביומן|ה?יומן\s+שלי|(?:מה|אילו|איזה)\s+ה?פגישות|ה?פגישות\s+(?:שלי|היום|מחר)/u, confidence: "high" },
-  { action: "show_schedule", pattern: /מה\s+יש\s+(?:לי|לנו)\s+(?:היום|מחר|מחרתיים|השבוע)/u, confidence: "high" },
-  { action: "complete_task", pattern: /(?:סמן|תסמן|סגור|תסגור)\s+(?:את\s+)?ה?משימה|סיימתי\s+(?:את\s+)?ה?משימה/u, confidence: "high" },
-  { action: "show_tasks", pattern: /(?:מה|אילו|איזה)\s+ה?משימות|ה?משימות\s+(?:שלי|פתוחות|להיום)/u, confidence: "high" },
+  {
+    action: "show_schedule",
+    pattern:
+      /ביומן|ה?יומן\s+שלי|(?:מה|אילו|איזה)\s+ה?פגישות|ה?פגישות\s+(?:שלי|היום|מחר)/u,
+    confidence: "high",
+  },
+  {
+    action: "show_schedule",
+    pattern: /מה\s+יש\s+(?:לי|לנו)\s+(?:היום|מחר|מחרתיים|השבוע)/u,
+    confidence: "high",
+  },
+  {
+    action: "complete_task",
+    pattern:
+      /(?:סמן|תסמן|סגור|תסגור)\s+(?:את\s+)?ה?משימה|סיימתי\s+(?:את\s+)?ה?משימה/u,
+    confidence: "high",
+  },
+  {
+    action: "show_tasks",
+    pattern: /(?:מה|אילו|איזה)\s+ה?משימות|ה?משימות\s+(?:שלי|פתוחות|להיום)/u,
+    confidence: "high",
+  },
   /*
    * „למי לחזור” **לפני** „מי התקשר”, וזה הסדר שמכריע.
    *
@@ -182,9 +289,24 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
       /למי\s+(?:אני\s+)?(?:צריך\s+|צריכה\s+)?לחזור|מי\s+(?:מחכה|מחכים|ממתין|ממתינה|ממתינים)\s+(?:לי|לחזרה)|מי\s+התקשר\s+ולא\s+(?:חזרתי|נענה)|טלפונים?\s+ש?צריך\s+לחזור|רשימת\s+ה?חזרות/u,
     confidence: "high",
   },
-  { action: "show_calls", pattern: /מי\s+התקשר|שיחות\s+אחרונות|ה?שיחות\s+(?:שלי|האחרונות)|יומן\s+ה?שיחות/u, confidence: "high" },
-  { action: "show_deals", pattern: /ה?עסקאות\s+(?:ה?משותפות|בשת["״]?פ)|חדרי?\s+ה?עסקה|שיתופי\s+ה?פעולה\s+(?:שלי|הפעילים)/u, confidence: "high" },
-  { action: "office_report", pattern: /דו["״]?ח\s+ה?משרד|כמה\s+לידים\s+(?:נכנסו|הגיעו)|נתוני\s+ה?משרד|סיכום\s+ה?(?:שבוע|חודש)/u, confidence: "high" },
+  {
+    action: "show_calls",
+    pattern:
+      /מי\s+התקשר|שיחות\s+אחרונות|ה?שיחות\s+(?:שלי|האחרונות)|יומן\s+ה?שיחות/u,
+    confidence: "high",
+  },
+  {
+    action: "show_deals",
+    pattern:
+      /ה?עסקאות\s+(?:ה?משותפות|בשת["״]?פ)|חדרי?\s+ה?עסקה|שיתופי\s+ה?פעולה\s+(?:שלי|הפעילים)/u,
+    confidence: "high",
+  },
+  {
+    action: "office_report",
+    pattern:
+      /דו["״]?ח\s+ה?משרד|כמה\s+לידים\s+(?:נכנסו|הגיעו)|נתוני\s+ה?משרד|סיכום\s+ה?(?:שבוע|חודש)/u,
+    confidence: "high",
+  },
 
   /*
    * --- „תראה לי” על שאר המערכת ---
@@ -195,16 +317,70 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
    * הנכסים (`לי` ואחריו `ב`+אות), ו„איפה הכרטיס של יוסי” מתאים
    * לתבנית החיפוש. בתוך אותה רמת ביטחון הכלל הראשון מנצח.
    */
-  { action: "agent_report", pattern: /דו["״]?ח\s+(?:ה?סוכן|שלי)|ה?ביצועים\s+שלי|סיכום\s+ה?פעילות\s+שלי/u, confidence: "high" },
-  { action: "show_matches", pattern: /ה?התאמות\s+(?:שלי|חדשות|ה?אחרונות)|(?:מה|אילו|איזה)\s+ה?התאמות/u, confidence: "high" },
-  { action: "show_leads", pattern: /ה?לידים\s+(?:שלי|חדשים|ה?אחרונים)|(?:אילו|איזה)\s+ה?לידים/u, confidence: "high" },
-  { action: "show_offers", pattern: /ה?הצעות\s+(?:שלי|ה?ממתינות|ה?אחרונות)|(?:אילו|איזה)\s+ה?הצעות|מצב\s+ה?הצעות/u, confidence: "high" },
-  { action: "show_demands", pattern: /ה?ביקושים|ה?דרישות\s+ש?ברשת/u, confidence: "high" },
-  { action: "show_notifications", pattern: /ה?התראות|ה?עדכונים\s+שלי|מה\s+חדש\s+ב?ה?מערכת/u, confidence: "high" },
-  { action: "show_emails", pattern: /ה?מיילים|ה?דוא["״]?ל|ה?הודעות\s+ש?ב?מייל/u, confidence: "high" },
-  { action: "show_credits", pattern: /כמה\s+קרדיטים|ה?קרדיטים\s+שלי|יתרת\s+ה?קרדיטים/u, confidence: "high" },
-  { action: "show_payout_balance", pattern: /כמה\s+מגיע\s+לי|יתרת\s+ה?תשלום|ה?יתרה\s+ל?משיכה/u, confidence: "high" },
-  { action: "show_referral_board", pattern: /לוח\s+ה?הפניות|ה?הפניות\s+שלי|דירוג\s+ה?הפניות/u, confidence: "high" },
+  {
+    action: "agent_report",
+    pattern:
+      /דו["״]?ח\s+(?:ה?סוכן|שלי)|ה?ביצועים\s+שלי|סיכום\s+ה?פעילות\s+שלי/u,
+    confidence: "high",
+  },
+  /*
+   * המנטור האישי — שתי פעולות קריאה. „מנטור” במשפט הוא שאלה למנטור
+   * (גם „מנטור, מה המצב” — הוא יודע לענות על המצב); היעדים בלי
+   * המילה „מנטור” הם מצב היעדים. שתיהן לפני ההצעות וההתאמות, כי
+   * „הצעות מול היעד” אינה רשימת ההצעות.
+   */
+  { action: "mentor_ask", pattern: /ה?מנטור/u, confidence: "high" },
+  {
+    action: "mentor_status",
+    pattern: /ה?יעדים?\s+שלי|ה?מצב\s+ב?ה?יעדים|מול\s+ה?יעד/u,
+    confidence: "high",
+  },
+  {
+    action: "show_matches",
+    pattern: /ה?התאמות\s+(?:שלי|חדשות|ה?אחרונות)|(?:מה|אילו|איזה)\s+ה?התאמות/u,
+    confidence: "high",
+  },
+  {
+    action: "show_leads",
+    pattern: /ה?לידים\s+(?:שלי|חדשים|ה?אחרונים)|(?:אילו|איזה)\s+ה?לידים/u,
+    confidence: "high",
+  },
+  {
+    action: "show_offers",
+    pattern:
+      /ה?הצעות\s+(?:שלי|ה?ממתינות|ה?אחרונות)|(?:אילו|איזה)\s+ה?הצעות|מצב\s+ה?הצעות/u,
+    confidence: "high",
+  },
+  {
+    action: "show_demands",
+    pattern: /ה?ביקושים|ה?דרישות\s+ש?ברשת/u,
+    confidence: "high",
+  },
+  {
+    action: "show_notifications",
+    pattern: /ה?התראות|ה?עדכונים\s+שלי|מה\s+חדש\s+ב?ה?מערכת/u,
+    confidence: "high",
+  },
+  {
+    action: "show_emails",
+    pattern: /ה?מיילים|ה?דוא["״]?ל|ה?הודעות\s+ש?ב?מייל/u,
+    confidence: "high",
+  },
+  {
+    action: "show_credits",
+    pattern: /כמה\s+קרדיטים|ה?קרדיטים\s+שלי|יתרת\s+ה?קרדיטים/u,
+    confidence: "high",
+  },
+  {
+    action: "show_payout_balance",
+    pattern: /כמה\s+מגיע\s+לי|יתרת\s+ה?תשלום|ה?יתרה\s+ל?משיכה/u,
+    confidence: "high",
+  },
+  {
+    action: "show_referral_board",
+    pattern: /לוח\s+ה?הפניות|ה?הפניות\s+שלי|דירוג\s+ה?הפניות/u,
+    confidence: "high",
+  },
   /*
    * ‎**„מה שווה לפרסם”, ולא „כמה צפו”.**
    *
@@ -215,18 +391,50 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
    * אחרת לגמרי (ביקורת Codex). ניסוח שאין לו פעולה עדיף שיישאר
    * „לא הבנתי” עם ההסבר.
    */
-  { action: "show_reach", pattern: /מה\s+(?:שווה|כדאי)\s+לפרסם|ה?חשיפה\s+ברשת/u, confidence: "high" },
-  { action: "show_recommendations", pattern: /ה?המלצות|מה\s+כדאי\s+לי\s+לעשות|מה\s+מומלץ/u, confidence: "high" },
-  { action: "show_exclusivity", pattern: /ה?בלעדיות|ה?בלעדיויות/u, confidence: "high" },
-  { action: "show_agreements", pattern: /ה?הסכמים|ה?חוזים/u, confidence: "high" },
-  { action: "show_retained_documents", pattern: /ה?מסמכים\s+(?:ש?שמורים|שלי)|ה?ארכיון/u, confidence: "high" },
+  {
+    action: "show_reach",
+    pattern: /מה\s+(?:שווה|כדאי)\s+לפרסם|ה?חשיפה\s+ברשת/u,
+    confidence: "high",
+  },
+  {
+    action: "show_recommendations",
+    pattern: /ה?המלצות|מה\s+כדאי\s+לי\s+לעשות|מה\s+מומלץ/u,
+    confidence: "high",
+  },
+  {
+    action: "show_exclusivity",
+    pattern: /ה?בלעדיות|ה?בלעדיויות/u,
+    confidence: "high",
+  },
+  {
+    action: "show_agreements",
+    pattern: /ה?הסכמים|ה?חוזים/u,
+    confidence: "high",
+  },
+  {
+    action: "show_retained_documents",
+    pattern: /ה?מסמכים\s+(?:ש?שמורים|שלי)|ה?ארכיון/u,
+    confidence: "high",
+  },
   /*
    * הרשת קודמת לנכסים: „מה יש לי ברשת” הוא שאלה על הרשת ולא על
    * המאגר, ותבנית הנכסים הייתה בולעת אותה.
    */
-  { action: "show_network_listings", pattern: /מה\s+יש\s+(?:לי\s+)?ברשת|ה?נכסים\s+ש?ברשת|ה?רשת\s+ה?שיתופית/u, confidence: "high" },
-  { action: "show_network_inbox", pattern: /ה?תיבה\s+ש?ברשת|ה?פניות\s+ש?ברשת|מי\s+פנה\s+אלי\s+ברשת/u, confidence: "high" },
-  { action: "show_support_tickets", pattern: /ה?פניות\s+ל?ה?תמיכה|ה?קריאות\s+ש?ה?שירות/u, confidence: "high" },
+  {
+    action: "show_network_listings",
+    pattern: /מה\s+יש\s+(?:לי\s+)?ברשת|ה?נכסים\s+ש?ברשת|ה?רשת\s+ה?שיתופית/u,
+    confidence: "high",
+  },
+  {
+    action: "show_network_inbox",
+    pattern: /ה?תיבה\s+ש?ברשת|ה?פניות\s+ש?ברשת|מי\s+פנה\s+אלי\s+ברשת/u,
+    confidence: "high",
+  },
+  {
+    action: "show_support_tickets",
+    pattern: /ה?פניות\s+ל?ה?תמיכה|ה?קריאות\s+ש?ה?שירות/u,
+    confidence: "high",
+  },
   /*
    * ‎**שם חובה בשתי התבניות.**
    *
@@ -235,13 +443,36 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
    * מנותב לפעולה ואז נתקע על „לא נאמר על מי מדובר”, כלומר קיר
    * מנומס במקום ההסבר על התקלה (ביקורת Codex).
    */
-  { action: "play_recording", pattern: /(?:תשמיע|להשמיע|השמע)\s+(?:לי\s+)?(?:את\s+)?ה?הקלטה\s+של\s+[א-ת]|ה?הקלטה\s+של\s+[א-ת]/u, confidence: "high" },
+  {
+    action: "play_recording",
+    pattern:
+      /(?:תשמיע|להשמיע|השמע)\s+(?:לי\s+)?(?:את\s+)?ה?הקלטה\s+של\s+[א-ת]|ה?הקלטה\s+של\s+[א-ת]/u,
+    confidence: "high",
+  },
 
   // --- עדכונים ממוקדים: הערה, סטטוס ליד, שיתוף ברשת ---
-  { action: "add_note", pattern: /(?:הוסף|תוסיף|רשום|תרשום|כתוב|תכתוב)\s+(?:לי\s+)?הערה/u, confidence: "high" },
-  { action: "update_lead_status", pattern: /(?:עדכן|תעדכן|שנה|תשנה|העבר|תעביר)\s+(?:את\s+)?(?:ה?סטטוס|ה?שלב|ה?ליד)/u, confidence: "high" },
-  { action: "share_property", pattern: /(?:שתף|תשתף|פרסם|תפרסם|העלה|תעלה)\s+(?:את\s+)?ה?(?:נכס|דירה)/u, confidence: "high" },
-  { action: "share_buyer", pattern: /(?:שתף|תשתף|פרסם|תפרסם|העלה|תעלה)\s+(?:את\s+)?ה?(?:קונה|ביקוש|דרישה)/u, confidence: "high" },
+  {
+    action: "add_note",
+    pattern: /(?:הוסף|תוסיף|רשום|תרשום|כתוב|תכתוב)\s+(?:לי\s+)?הערה/u,
+    confidence: "high",
+  },
+  {
+    action: "update_lead_status",
+    pattern:
+      /(?:עדכן|תעדכן|שנה|תשנה|העבר|תעביר)\s+(?:את\s+)?(?:ה?סטטוס|ה?שלב|ה?ליד)/u,
+    confidence: "high",
+  },
+  {
+    action: "share_property",
+    pattern: /(?:שתף|תשתף|פרסם|תפרסם|העלה|תעלה)\s+(?:את\s+)?ה?(?:נכס|דירה)/u,
+    confidence: "high",
+  },
+  {
+    action: "share_buyer",
+    pattern:
+      /(?:שתף|תשתף|פרסם|תפרסם|העלה|תעלה)\s+(?:את\s+)?ה?(?:קונה|ביקוש|דרישה)/u,
+    confidence: "high",
+  },
 
   /*
    * --- שאלה על מאגר הנכסים ---
@@ -252,15 +483,33 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
    * החוקים הכיר שאלות על קונים בלבד, כלומר חצי מהשאלה הבסיסית
    * ביותר שמתווך שואל את המאגר שלו (דיווח המשתמש).
    */
-  { action: "query_properties", pattern: /(?:איזה|אילו|כמה)\s+(?:נכסים|דירות|בתים)/u, confidence: "high" },
-  { action: "query_properties", pattern: /(?:חפש|תחפש|מצא|תמצא|הצג|תציג|תביא|תראה)\s+(?:לי\s+)?(?:את\s+)?ה?(?:נכסים|דירות)/u, confidence: "high" },
+  {
+    action: "query_properties",
+    pattern: /(?:איזה|אילו|כמה)\s+(?:נכסים|דירות|בתים)/u,
+    confidence: "high",
+  },
+  {
+    action: "query_properties",
+    pattern:
+      /(?:חפש|תחפש|מצא|תמצא|הצג|תציג|תביא|תראה)\s+(?:לי\s+)?(?:את\s+)?ה?(?:נכסים|דירות)/u,
+    confidence: "high",
+  },
   /*
    * "מה יש לי ב..." — הניסוח הנפוץ ביותר לשאלת מלאי, ובלי פועל
    * אחד. הדרישה ל-`ב`/`עד`/מספר אחריו מפרידה אותו מ"מה יש לי
    * היום ביומן", שהיא שאלה אחרת לגמרי.
    */
-  { action: "query_properties", pattern: /(?:מה|כמה)\s+(?:יש|נשאר|נשארו)\s+(?:לי|לנו)\s+(?:ב[א-ת]|עד\s|מ-?\d|\d)/u, confidence: "high" },
-  { action: "query_properties", pattern: /(?:נכסים|דירות)\s+(?:ב[א-ת]|עד\s|מ-?\d|להשכרה|למכירה)/u, confidence: "low" },
+  {
+    action: "query_properties",
+    pattern:
+      /(?:מה|כמה)\s+(?:יש|נשאר|נשארו)\s+(?:לי|לנו)\s+(?:ב[א-ת]|עד\s|מ-?\d|\d)/u,
+    confidence: "high",
+  },
+  {
+    action: "query_properties",
+    pattern: /(?:נכסים|דירות)\s+(?:ב[א-ת]|עד\s|מ-?\d|להשכרה|למכירה)/u,
+    confidence: "low",
+  },
 
   /*
    * „איפה הכרטיס של יוסי” הוא בקשה לכרטיס, לא חיפוש חופשי —
@@ -269,7 +518,11 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
   { action: "show_card", pattern: /ה?כרטיס\s+של\s+[א-ת]/u, confidence: "high" },
 
   // --- חיפוש ---
-  { action: "search", pattern: /(?:חפש|תחפש|מצא|תמצא|איפה)\s+/u, confidence: "high" },
+  {
+    action: "search",
+    pattern: /(?:חפש|תחפש|מצא|תמצא|איפה)\s+/u,
+    confidence: "high",
+  },
 
   /*
    * --- פגישה בלי מילת פועל ---
@@ -286,11 +539,28 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
    * משה" היה קובע פגישה במקום להוסיף נכס (ביקורת Codex). כאן, כל
    * פועל מפורש כבר קיבל את הזדמנותו.
    */
-  { action: "schedule_appointment", pattern: /(?:פגישה|סיור|ביקור)\s+עם\s+[א-ת]/u, confidence: "high" },
-  { action: "schedule_appointment", pattern: /(?:נפגש|להיפגש|אפגוש|תפגוש)\s+(?:עם\s+)?[א-ת]/u, confidence: "high" },
-  { action: "schedule_appointment", pattern: /(?:פגישה|סיור)\s+(?:מחר|היום|מחרתיים|ביום|בשעה|ב-)/u, confidence: "low" },
+  {
+    action: "schedule_appointment",
+    pattern: /(?:פגישה|סיור|ביקור)\s+עם\s+[א-ת]/u,
+    confidence: "high",
+  },
+  {
+    action: "schedule_appointment",
+    pattern: /(?:נפגש|להיפגש|אפגוש|תפגוש)\s+(?:עם\s+)?[א-ת]/u,
+    confidence: "high",
+  },
+  {
+    action: "schedule_appointment",
+    pattern: /(?:פגישה|סיור)\s+(?:מחר|היום|מחרתיים|ביום|בשעה|ב-)/u,
+    confidence: "low",
+  },
   // "אני מראה לו את הדירה מחר" — סיור לכל דבר, בלי אף מילת פקודה
-  { action: "schedule_appointment", pattern: /(?:להראות|מראה)\s+(?:לו|לה|להם)?\s*(?:את\s+)?(?:ה?דירה|ה?נכס|ה?בית)/u, confidence: "low" },
+  {
+    action: "schedule_appointment",
+    pattern:
+      /(?:להראות|מראה)\s+(?:לו|לה|להם)?\s*(?:את\s+)?(?:ה?דירה|ה?נכס|ה?בית)/u,
+    confidence: "low",
+  },
 ];
 
 /** מסירה את מילות הפקודה כדי שהחילוץ יקבל רק את התוכן. */
@@ -322,8 +592,26 @@ export function routeVoiceCommand(transcript: string): VoiceCommand {
 }
 
 /** התוכן ללא מילות הפקודה — מוזן למנועי החילוץ. */
+/**
+ * השאלה למנטור בלי מילות הפנייה — „מנטור, מה כדאי לי לשפר?” ⟵ „מה
+ * כדאי לי לשפר?”. לרצפה הדטרמיניסטית, שאין לה מודל שיחלץ את
+ * `question`; משפט שכולו פנייה נשלח כלשונו, ולא ריק.
+ */
+export function mentorQuestionFromTranscript(transcript: string): string {
+  const stripped = transcript
+    .trim()
+    .replace(/^(?:תשאלי?\s+את\s+ה?מנטור|ה?מנטור)[\s,:\-–—]*/u, "")
+    .replace(/[\s,:\-–—]*(?:את\s+)?ה?מנטור\s*[?؟]?$/u, "")
+    .trim();
+  return stripped === "" ? transcript.trim() : stripped;
+}
+
 export function stripCommandPrefix(transcript: string): string {
-  return transcript.replace(/\s+/gu, " ").trim().replace(COMMAND_PREFIX, "").trim();
+  return transcript
+    .replace(/\s+/gu, " ")
+    .trim()
+    .replace(COMMAND_PREFIX, "")
+    .trim();
 }
 
 /**
@@ -337,7 +625,10 @@ export function taskTitleFromTranscript(transcript: string): string {
   const text = transcript.replace(/\s+/gu, " ").trim();
   const stripped = text
     .replace(/^.*?תזכיר(?:י)?\s+לי\s*/u, "")
-    .replace(/^(?:הוסף|תוסיף|רשום|תרשום|צור|תצור)\s+(?:לי\s+)?(?:משימה|תזכורת|פולו[־\s-]?אפ)\s*(?:של)?\s*/u, "")
+    .replace(
+      /^(?:הוסף|תוסיף|רשום|תרשום|צור|תצור)\s+(?:לי\s+)?(?:משימה|תזכורת|פולו[־\s-]?אפ)\s*(?:של)?\s*/u,
+      "",
+    )
     .trim();
   return stripped === "" ? text : stripped;
 }
