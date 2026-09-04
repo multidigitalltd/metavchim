@@ -314,6 +314,25 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
+  /*
+   * מה שנשתל — נמחק. לפני כן נשארו שורות של שני הדיירים המדומים
+   * בטבלאות בלי cascade מהדייר (audit_log, matches), וב-CI זה שקוף
+   * כי המסד חד-פעמי — אבל על מסד פיתוח משותף זה הצטבר. אותו מצב
+   * בדיוק כמו בשתילה: FK כבויים, RLS כבוי, כי הבעלים מנקה.
+   */
+  if (owner !== undefined) {
+    for (const table of seeded) {
+      await owner
+        .$transaction(async (tx) => {
+          await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`);
+          await tx.$executeRawUnsafe(`SET LOCAL row_security = off`);
+          await tx.$executeRawUnsafe(
+            `DELETE FROM "${table}" WHERE tenant_id IN ('${TENANT_A}', '${TENANT_B}')`,
+          );
+        })
+        .catch(() => undefined);
+    }
+  }
   await owner?.$disconnect();
   await app?.$disconnect();
 });

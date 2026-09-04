@@ -829,7 +829,23 @@ export default function BuyerDetailPage({
                       .join(" · ")}
                   </div>
                 </>
-              ) : null}
+              ) : (
+                /*
+                 * ריק כאן אינו „כל הסוגים”: המנוע מסמן התאמה בלי סוג
+                 * נכס כ„אין מספיק פרטים” ואינו מציע דבר — בניגוד לרשימת
+                 * ערים ריקה, שכן פירושה „בלי מגבלה”. הטופס דורש סוג,
+                 * אבל קונה שנקלט בייבוא או דרך ה-API מגיע בלעדיו, ואז
+                 * המסך הראה „אין התאמות” בלי להגיד למה.
+                 */
+                <div className="mb-3.5">
+                  <Notice tone="warning">
+                    לא נבחר סוג נכס — בלי סוג נכס מנוע ההתאמות לא מציע דבר לקונה הזה.{" "}
+                    <Link href={`/buyers/${buyer.id}/edit`} className="underline">
+                      להשלים בדרישות
+                    </Link>
+                  </Notice>
+                </div>
+              )}
 
               {buyer.requirements.roomsMin !== undefined ||
               buyer.requirements.roomsMax !== undefined ? (

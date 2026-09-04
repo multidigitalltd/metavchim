@@ -594,7 +594,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           וכל משרד הוא דייר בה, והחלפת המותג הראשי הייתה מבלבלת
           בדיוק את מי שעובר בין שני משרדים. נעלם בשקט למי שלא העלה.
         */}
-        <OfficeLogoMark />
+        <OfficeLogoMark present={me?.tenantHasLogo === true} />
         <div className="mv-sidebar-sub">{me?.tenantName ?? " "}</div>
       </div>
 

@@ -14,6 +14,8 @@ export interface AuthUser {
   mustChangePassword: boolean;
   /** שם המשרד — מגיע עם ה-Session, מוצג בפרופיל ובסרגל הצד */
   tenantName?: string;
+  /** האם למשרד יש לוגו — הסרגל מבקש את הקובץ רק אם כן */
+  tenantHasLogo?: boolean;
   isPlatformAdmin?: boolean;
   /**
    * היכולות בפועל של המשתמש — מה שהשרת יאשר, כולל חריגים אישיים.
