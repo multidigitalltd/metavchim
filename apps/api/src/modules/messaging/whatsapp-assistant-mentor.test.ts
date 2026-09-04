@@ -16,7 +16,11 @@ const TENANT = "01TENANTAAAAAAAAAAAAAAAAAA";
 const USER = "01USERAAAAAAAAAAAAAAAAAAAA";
 const REVIEW = "01REVIEWAAAAAAAAAAAAAAAAAA";
 
-function harness(opts: { reflection: string | null }) {
+function harness(opts: {
+  reflection: string | null;
+  hasCoach?: boolean;
+  failAnswer?: boolean;
+}) {
   const calls: { answered?: string; plan?: string } = {};
   const chat = {
     pending: null as unknown,
@@ -50,6 +54,7 @@ function harness(opts: { reflection: string | null }) {
       ],
     }),
     answerReflection: async (_id: string, answer: string) => {
+      if (opts.failAnswer) throw new Error("המסד לא ענה");
       calls.answered = answer;
       return {
         planSuggestions: [
@@ -65,10 +70,13 @@ function harness(opts: { reflection: string | null }) {
     },
   } as unknown as MentorService;
   const stub = {} as never;
+  const plans = {
+    tenantHasFeature: async () => opts.hasCoach ?? true,
+  } as never;
   const svc = new WhatsAppAssistantService(
     prisma,
     stub,
-    stub,
+    plans,
     stub,
     stub,
     stub,
@@ -169,5 +177,28 @@ describe("המנטור בוואטסאפ — „לענות למנטור” ⟵ ת
     expect(cancelled.text).toContain("בוטל");
     expect(pending()).toBeNull();
     expect(calls.answered).toBeUndefined();
+  });
+
+  it("משרד בלי ai_coach — הסבר, בלי מצב ממתין ובלי קריאה למנטור", async () => {
+    const { say, pending } = harness({
+      reflection: "מה עצר?",
+      hasCoach: false,
+    });
+    const reply = await say("לענות למנטור");
+    expect(reply.text).toContain("אינו כלול במסלול");
+    expect(pending()).toBeNull();
+  });
+
+  it("כשהשמירה נכשלת — המצב הממתין חוזר עם חותם חדש, וההודעה הבאה עדיין תשובה", async () => {
+    const { say, pending } = harness({
+      reflection: "מה עצר?",
+      failAnswer: true,
+    });
+    await say("לענות למנטור");
+    const before = pending()?.token;
+    const reply = await say("לא היה זמן");
+    expect(reply.text).toContain("לא נשמרה");
+    expect(pending()?.awaiting).toBe("mentor_reflection");
+    expect(pending()?.token).not.toBe(before);
   });
 });

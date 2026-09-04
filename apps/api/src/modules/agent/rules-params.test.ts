@@ -77,3 +77,14 @@ describe("מה שהרצפה מחלצת", () => {
     expect(params("show_tasks", "מה המשימות שלי להיום")).toEqual({});
   });
 });
+
+describe("מה שהרצפה מחלצת — המנטור", () => {
+  it("שאלה למנטור: ‎`question` הוא המשפט בלי מילות הפנייה", () => {
+    expect(params("mentor_ask", "מנטור, מה כדאי לי לשפר?")).toEqual({
+      question: "מה כדאי לי לשפר?",
+    });
+    expect(params("mentor_ask", "תשאל את המנטור למה ההצעות נתקעות")).toEqual({
+      question: "למה ההצעות נתקעות",
+    });
+  });
+});

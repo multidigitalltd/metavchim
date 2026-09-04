@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractPersonFromTranscript } from "./extract-person.js";
 import {
+  mentorQuestionFromTranscript,
   routeVoiceCommand,
   stripCommandPrefix,
   taskTitleFromTranscript,
@@ -466,5 +467,21 @@ describe("המנטור האישי ברצפה הדטרמיניסטית", () => {
     );
     // „ההצעות שלי” נשאר רשימת ההצעות — לא היעד
     expect(routeVoiceCommand("מה ההצעות שלי").action).toBe("show_offers");
+  });
+});
+
+describe("mentorQuestionFromTranscript — השאלה בלי מילות הפנייה", () => {
+  it("מוריד „מנטור,” ו„תשאל את המנטור” ומשאיר את השאלה", () => {
+    expect(mentorQuestionFromTranscript("מנטור, מה כדאי לי לשפר?")).toBe(
+      "מה כדאי לי לשפר?",
+    );
+    expect(mentorQuestionFromTranscript("תשאל את המנטור למה אני לא סוגר")).toBe(
+      "למה אני לא סוגר",
+    );
+    expect(mentorQuestionFromTranscript("מה המנטור אומר על הקצב שלי")).toBe(
+      "מה המנטור אומר על הקצב שלי",
+    );
+    // רק פנייה — נשלח כלשונו, לא ריק
+    expect(mentorQuestionFromTranscript("מנטור")).toBe("מנטור");
   });
 });

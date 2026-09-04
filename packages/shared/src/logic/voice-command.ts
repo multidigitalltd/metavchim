@@ -592,6 +592,20 @@ export function routeVoiceCommand(transcript: string): VoiceCommand {
 }
 
 /** התוכן ללא מילות הפקודה — מוזן למנועי החילוץ. */
+/**
+ * השאלה למנטור בלי מילות הפנייה — „מנטור, מה כדאי לי לשפר?” ⟵ „מה
+ * כדאי לי לשפר?”. לרצפה הדטרמיניסטית, שאין לה מודל שיחלץ את
+ * `question`; משפט שכולו פנייה נשלח כלשונו, ולא ריק.
+ */
+export function mentorQuestionFromTranscript(transcript: string): string {
+  const stripped = transcript
+    .trim()
+    .replace(/^(?:תשאלי?\s+את\s+ה?מנטור|ה?מנטור)[\s,:\-–—]*/u, "")
+    .replace(/[\s,:\-–—]*(?:את\s+)?ה?מנטור\s*[?؟]?$/u, "")
+    .trim();
+  return stripped === "" ? transcript.trim() : stripped;
+}
+
 export function stripCommandPrefix(transcript: string): string {
   return transcript
     .replace(/\s+/gu, " ")

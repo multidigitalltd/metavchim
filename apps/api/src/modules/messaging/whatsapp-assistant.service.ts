@@ -111,6 +111,8 @@ import { WhatsAppLinkService } from "./whatsapp-link.service";
  */
 
 const FEATURE_ID = "voice_intake";
+/** הזכאות של המנטור — אותו מפתח כמו `feature` בפעולות `mentor_*` בקטלוג. */
+const MENTOR_FEATURE = "ai_coach";
 /**
  * כמה תורות נשמרים לזיכרון השיחה.
  *
@@ -611,6 +613,15 @@ export class WhatsAppAssistantService {
   }
 
   private async mentorReflectStart(user: IdentifiedUser, chat: ChatState): Promise<AgentReply> {
+    /*
+     * הזכאות נאכפת כאן כמו ב-`execute` לפעולות הקטלוג: המסלול הזה
+     * קורא ל-`MentorService` ישירות, ומשרד שאיבד את `ai_coach` אינו
+     * אמור לקרוא או לכתוב רפלקציה דרך הוואטסאפ (ביקורת Codex).
+     */
+    if (!(await this.plans.tenantHasFeature(user.tenantId, MENTOR_FEATURE))) {
+      const text = "המנטור האישי אינו כלול במסלול של המשרד — אפשר לשדרג במסך החיוב.";
+      return { text, speak: text };
+    }
     const latest = await this.mentor.latestReview();
     if (latest === null || latest.reflection === null) {
       const text =
@@ -659,8 +670,17 @@ export class WhatsAppAssistantService {
         chat.keepStoredPending = false;
         return { text: retry, speak: retry };
       }
-      const review = await this.mentor.answerReflection(reviewId, answer);
-      const plans = review.planSuggestions.slice(0, 3);
+      let plans: string[];
+      try {
+        const review = await this.mentor.answerReflection(reviewId, answer);
+        plans = review.planSuggestions.slice(0, 3);
+      } catch (error) {
+        // הצריכה כבר קרתה — מחזירים את המצב עם חותם חדש, שהניסיון הבא ייחשב תשובה
+        chat.pending = { ...pending, token: ulid() };
+        chat.keepStoredPending = false;
+        const failure = `התשובה לא נשמרה: ${errorMessage(error)}. אפשר לשלוח אותה שוב.`;
+        return { text: `⚠️ ${failure}`, speak: failure };
+      }
       const token = ulid();
       chat.pending = {
         transcript: answer,
@@ -687,7 +707,9 @@ export class WhatsAppAssistantService {
     try {
       await this.mentor.setPlan(reviewId, plan);
     } catch (error) {
-      const failure = `התוכנית לא נשמרה: ${errorMessage(error)}`;
+      chat.pending = { ...pending, token: ulid() };
+      chat.keepStoredPending = false;
+      const failure = `התוכנית לא נשמרה: ${errorMessage(error)}. אפשר לשלוח אותה שוב, או „דלג”.`;
       return { text: `⚠️ ${failure}`, speak: failure };
     }
     return mentorPlanSaved(plan);
