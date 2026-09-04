@@ -191,12 +191,21 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
           user: { isActive: true },
         },
         distinct: ["userId"],
-        select: { userId: true },
+        select: { userId: true, user: { select: { name: true } } },
       });
       let sent = 0;
-      for (const { userId } of withGoals) {
+      for (const { userId, user } of withGoals) {
         if (nudged.has(userId)) continue;
-        if (await this.nudgeForUser(tx, tenantId, userId, weekStart, now))
+        if (
+          await this.nudgeForUser(
+            tx,
+            tenantId,
+            userId,
+            weekStart,
+            now,
+            firstNameOf(user.name),
+          )
+        )
           sent += 1;
       }
       return sent;
@@ -210,6 +219,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     userId: string,
     weekStart: Date,
     now: Date,
+    firstName = "",
   ): Promise<boolean> {
     const week = mentorPeriodRange("week", now);
     const activity = await this.signals.activity(
@@ -246,7 +256,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
         monthAnchor: now,
       })
     ).map((g) => g.progress);
-    const nudge = mentorMidweekNudge(goals, now);
+    const nudge = mentorMidweekNudge(goals, now, firstName);
     if (nudge === null) return false;
     return notifyOnce(tx, {
       tenantId,
@@ -266,7 +276,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`mentor-weekly:${tenantId}:${weekStart.toISOString()}`}))`;
       const users = await tx.user.findMany({
         where: { tenantId, isActive: true },
-        select: { id: true, createdAt: true },
+        select: { id: true, createdAt: true, name: true },
       });
       const done = new Set(
         (
@@ -286,6 +296,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             user.id,
             user.createdAt,
             weekStart,
+            firstNameOf(user.name),
           )
         )
           written += 1;
@@ -301,6 +312,8 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     userId: string,
     userCreatedAt: Date,
     weekStart: Date,
+    /** השם הפרטי — לפתיח אישי. ריק = בלי פתיח */
+    firstName = "",
   ): Promise<boolean> {
     const weekEnd = jerusalemWeekStart(weekStart, 1);
     const prevStart = jerusalemWeekStart(weekStart, -1);
@@ -406,6 +419,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
 
     const signals: MentorWeekSignals = {
       patterns,
+      ...(firstName === "" ? {} : { firstName }),
       weekStart,
       wins,
       activity,
@@ -429,7 +443,11 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
         body: body as object,
       },
     });
-    const text = [...review.paragraphs, review.askNextWeek ?? ""]
+    const text = [
+      review.greeting ?? "",
+      ...review.paragraphs,
+      review.askNextWeek ?? "",
+    ]
       .filter((p) => p !== "")
       .join(" ");
     await notifyOnce(tx, {
@@ -470,4 +488,9 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     }
     return streak;
   }
+}
+
+/** השם הפרטי מתוך השם המלא — לפנייה אישית; ריק כשאין שם. */
+function firstNameOf(name: string | null | undefined): string {
+  return (name ?? "").trim().split(/\s+/u)[0] ?? "";
 }

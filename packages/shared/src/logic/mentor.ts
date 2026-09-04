@@ -212,12 +212,12 @@ export function mentorStatusMessage(input: {
   const done = input.goals.filter((g) => g.pace === "done").length;
   const message =
     input.goals.length === 0
-      ? "עדיין אין יעדים — כתבו לי „תקבע לי יעד של 5 הצעות בשבוע” ונתחיל."
+      ? "עדיין אין לך יעדים — אפשר לכתוב לי „תקבע לי יעד של 5 הצעות בשבוע” ונתחיל ביחד."
       : done === input.goals.length
         ? input.goals.length === 1
-          ? "היעד הושג — כל הכבוד."
-          : `כל ${input.goals.length} היעדים הושגו — כל הכבוד.`
-        : `${done} מתוך ${input.goals.length} יעדים הושגו עד עכשיו.`;
+          ? "היעד שלך הושג — כל הכבוד לך!"
+          : `כל ${input.goals.length} היעדים שלך הושגו — כל הכבוד לך!`
+        : `${done} מתוך ${input.goals.length} היעדים שלך הושגו עד עכשיו — ממשיכים.`;
   return { message, lines };
 }
 
@@ -434,10 +434,10 @@ export function suggestProcessGoals(
     const metric = MENTOR_FUNNEL[i]!;
     const next = MENTOR_FUNNEL[i + 1]!;
     let ratio = DEFAULT_FUNNEL_RATIOS[metric];
-    let source = "לפי ממוצע מקובל, עד שתהיה היסטוריה משלכם";
+    let source = "לפי ממוצע מקובל, עד שתהיה לך היסטוריה משלך";
     if (enoughHistory && history[metric] > 0 && history[next] > 0) {
       ratio = Math.max(1, history[metric] / history[next]);
-      source = `לפי ${historyWeeks} השבועות האחרונים שלכם`;
+      source = `לפי ${historyWeeks} השבועות האחרונים שלך`;
     }
     // לא מעל מה שהסכמה מקבלת — הצעה שאי אפשר ללחוץ עליה „קבע” אינה הצעה
     const target = Math.min(
@@ -498,6 +498,8 @@ export interface MentorWeekSignals {
   };
   /** דפוסים מהסיכומים הקודמים — `mentorPatterns` */
   patterns?: MentorPattern[];
+  /** השם הפרטי — לפנייה אישית. חסר = בלי פתיח בשם */
+  firstName?: string;
 }
 
 /** היעד שהבקשה לשבוע הבא מדברת עליו — מה שאפשר להתחייב אליו. */
@@ -519,6 +521,8 @@ export type MentorMood = "celebrate" | "steady" | "encourage";
 export interface MentorReview {
   mood: MentorMood;
   headline: string;
+  /** פתיח אישי בשם — „היי דנה, הנה השבוע שלך.” — `null` בלי שם */
+  greeting: string | null;
   /** פסקאות הגוף, בסדר: הצלחות ⟵ יעדים ⟵ תנועה מול שבוע שעבר */
   paragraphs: string[];
   /** מה המנטור מבקש לשבוע הבא — `null` כשאין יעדים */
@@ -532,20 +536,36 @@ export interface MentorReview {
   reflection: string | null;
 }
 
+/*
+ * ==================== הקול של המנטור ====================
+ *
+ * ‎**אישי וידידותי, בגוף שני יחיד** (הנחיית בעל המוצר). המנטור מדבר
+ * אל המתווך, לא על המתווך: „סגרת”, „היעד שלך”, „אני איתך” — ולא
+ * „סגרתם” של טופס. כדי לא לטעות במין: פעלים בעבר בגוף שני (שכתיבם
+ * זהה לזכר ולנקבה — סגרת, כתבת, עמדת), וצורות „שלך” / „לך”; לא
+ * „אתה/את” ולא פועל בהווה או בעתיד בגוף שני. הפתיח בשם הפרטי כשיש.
+ */
+
+/** „היי דנה, ” — הפתיח בשם, או ריק. */
+export function mentorGreeting(firstName: string | undefined): string {
+  const name = (firstName ?? "").trim();
+  return name === "" ? "" : `${name}, `;
+}
+
 const WIN_PHRASE: Record<MentorWinKind, (title: string) => string> = {
-  deal_closed: (t) => `סגרתם את ${t}`,
-  exclusivity_signed: (t) => `חתמתם בלעדיות על ${t}`,
+  deal_closed: (t) => `סגרת את ${t}`,
+  exclusivity_signed: (t) => `חתמת בלעדיות על ${t}`,
   offer_interested: (t) => `קונה אמר „מעוניין” על ${t}`,
-  coop_deal: (t) => `עסקת שיתוף פעולה על ${t}`,
+  coop_deal: (t) => `סגרת עסקת שיתוף פעולה על ${t}`,
 };
 
-/** „סגרתם את X, וחתמתם בלעדיות על Y” — כל הצלחה בשמה. */
+/** „סגרת את X, וחתמת בלעדיות על Y” — כל הצלחה בשמה. */
 function winsSentence(wins: MentorWin[]): string {
   const phrases = wins.map((w) => WIN_PHRASE[w.kind](w.title));
   if (phrases.length === 1)
-    return `${phrases[0]}. כל הכבוד — זה מה שהשבוע היה בשבילו.`;
+    return `${phrases[0]}. כל הכבוד לך — זה מה שכל השבוע היה בשבילו.`;
   const last = phrases[phrases.length - 1];
-  return `${phrases.slice(0, -1).join(", ")}, ו${last}. שבוע כזה לא קורה במקרה.`;
+  return `${phrases.slice(0, -1).join(", ")}, ו${last}. שבוע כזה לא קורה במקרה — זה שלך.`;
 }
 
 function goalSentence(goal: MentorGoalProgress): string {
@@ -553,26 +573,26 @@ function goalSentence(goal: MentorGoalProgress): string {
   const achieved = mentorQuantity(goal.metric, goal.actual);
   switch (goal.pace) {
     case "done":
-      return `היעד של ${label} — הושג: ${achieved}.`;
+      return `היעד של ${label} — הושג: ${achieved}. יפה!`;
     case "ahead":
-      return `${label}: כבר ${achieved}, מעל הקצב.`;
+      return `${label}: כבר ${achieved}, מעל הקצב — ממש יפה.`;
     case "on_track":
-      return `${label}: ${achieved} עד עכשיו, בקצב.`;
+      return `${label}: ${achieved} עד עכשיו, בקצב. ממשיכים ככה.`;
     case "behind": {
       // „עוד יש זמן” רק כשבאמת יש — הסיכום השבועי נאמר אחרי שהשבוע נגמר (ביקורת Codex)
       const periodOver = goal.elapsed >= 1;
       const base =
         goal.actual === 0
           ? periodOver
-            ? `${label}: לא יצא הפעם. זה היעד שביקשתם מעצמכם, והוא מתחיל מחדש.`
-            : `${label}: עדיין לא התחיל. זה היעד שביקשתם מעצמכם, ועוד יש זמן.`
+            ? `${label}: לא יצא הפעם. זה היעד שביקשת מעצמך, והוא מתחיל מחדש — ואני איתך.`
+            : `${label}: עדיין לא התחיל. זה היעד שביקשת מעצמך, ועוד יש זמן.`
           : periodOver
-            ? `${label}: ${achieved}. חסרו ${mentorQuantity(goal.metric, goal.remaining)} ליעד שקבעתם.`
-            : `${label}: ${achieved} עד עכשיו. עוד ${mentorQuantity(goal.metric, goal.remaining)} ליעד שקבעתם.`;
+            ? `${label}: ${achieved}. חסרו ${mentorQuantity(goal.metric, goal.remaining)} ליעד שקבעת לעצמך.`
+            : `${label}: ${achieved} עד עכשיו. עוד ${mentorQuantity(goal.metric, goal.remaining)} ליעד שקבעת לעצמך.`;
       // ה„למה” של המתווך — עוגן, לא נזיפה. רק כשקשה, ורק אם כתב אחד.
       return goal.why === undefined || goal.why.trim() === ""
         ? base
-        : `${base} כתבתם שזה בשביל: ${goal.why.trim()}.`;
+        : `${base} כתבת שזה בשביל: ${goal.why.trim()}.`;
     }
   }
 }
@@ -663,8 +683,8 @@ export function mentorWeeklyReview(
     );
     paragraphs.push(
       commitment.kept
-        ? `התחייבתם ל${label} — ועמדתם בזה.`
-        : `התחייבתם ל${label}. הפעם לא יצא, וההתחייבות עדיין שלכם.`,
+        ? `התחייבת ל${label} — ועמדת בזה. זה בדיוק מה שאני אוהב לראות.`
+        : `התחייבת ל${label}. הפעם לא יצא, וההתחייבות עדיין שלך — נמשיך ביחד.`,
     );
   }
   if (wins.length > 0) paragraphs.push(winsSentence(wins));
@@ -695,19 +715,30 @@ export function mentorWeeklyReview(
   if (mood === "celebrate") {
     headline =
       allGoalsMet && streak >= 2
-        ? `${streak} שבועות רצופים שכל היעדים מושגים`
+        ? `${streak} שבועות רצופים שכל היעדים שלך מושגים`
         : allGoalsMet
-          ? "כל היעדים של השבוע הושגו"
+          ? "כל היעדים של השבוע הושגו — כל הכבוד לך"
           : wins.length === 0 && commitment?.kept === true
-            ? "עמדתם במה שהתחייבתם"
-            : "שבוע עם תוצאה";
+            ? "עמדת במה שהתחייבת"
+            : "שבוע עם תוצאה — שלך";
   } else if (mood === "encourage") {
     headline = noActivity
-      ? "שבוע שקט. השבוע הבא מתחיל מחדש"
-      : "לא הגעתם ליעד השבוע — והוא עדיין שלכם";
+      ? "שבוע שקט. השבוע הבא מתחיל מחדש, ואני איתך"
+      : "לא הגעת ליעד השבוע — והוא עדיין שלך";
   } else {
-    headline = "שבוע של עבודה, בקצב";
+    headline = "שבוע של עבודה, בקצב שלך";
   }
+
+  // הפתיח בשם — אישי, וקצר: המנטור פונה אליו, לא כותב עליו
+  const name = (signals.firstName ?? "").trim();
+  const greeting =
+    name === ""
+      ? null
+      : mood === "celebrate"
+        ? `היי ${name}, איזה שבוע היה לך.`
+        : mood === "encourage"
+          ? `היי ${name}, הנה השבוע שלך — נעבור עליו ביחד.`
+          : `היי ${name}, הנה השבוע שלך.`;
 
   let askNextWeek: string | null = null;
   let ask: MentorAsk | null = null;
@@ -725,7 +756,7 @@ export function mentorWeeklyReview(
       weekly.find((g) => g.pace === "behind") ?? weekly[0] ?? undefined;
     if (focus === undefined) {
       askNextWeek =
-        "יש יעד חודשי בלי יעד תהליך שבועי לצידו. לשבוע הבא: להוסיף אחד — זה מה שמזיז את החודש.";
+        "יש לך יעד חודשי בלי יעד תהליך שבועי לצידו. לשבוע הבא: להוסיף אחד — זה מה שמזיז את החודש.";
     }
     if (focus !== undefined) {
       ask = {
@@ -734,21 +765,22 @@ export function mentorWeeklyReview(
         target: focus.target,
       };
       if (allGoalsMet) {
-        askNextWeek = "אותם יעדים לשבוע הבא? אפשר גם להעלות אחד מהם.";
+        askNextWeek =
+          "אותם יעדים לשבוע הבא? אפשר גם להעלות אחד מהם — ההחלטה שלך.";
       } else {
         const label = mentorGoalLabel(focus.metric, focus.target, focus.period);
         // כוונת היישום של המתווך עצמו — התוכנית שכבר כתב, לא תוכנית חדשה
         const intention =
           focus.intention === undefined || focus.intention.trim() === ""
             ? ""
-            : ` התוכנית שכתבתם: „${focus.intention.trim()}”.`;
-        askNextWeek = `לשבוע הבא: ${label}. זה מה שביקשתם מעצמכם, ואני מזכיר.${intention}`;
+            : ` התוכנית שכתבת: „${focus.intention.trim()}”.`;
+        askNextWeek = `לשבוע הבא: ${label}. זה מה שביקשת מעצמך, ואני כאן להזכיר.${intention}`;
       }
     }
     if (behind !== undefined) reflection = REFLECTION[behind.metric];
   }
 
-  return { mood, headline, paragraphs, askNextWeek, ask, reflection };
+  return { mood, headline, greeting, paragraphs, askNextWeek, ask, reflection };
 }
 
 /**
@@ -774,30 +806,34 @@ export function selectWins(wins: readonly MentorWin[]): MentorWin[] {
  * החגיגה המיידית — ההתראה שיוצאת **באותו יום**, לא במוצאי שבת.
  * חיזוק קרוב לאירוע חזק מחיזוק בסוף השבוע (docs/13 §2).
  */
-export function mentorCelebration(win: MentorWin): {
+export function mentorCelebration(
+  win: MentorWin,
+  firstName?: string,
+): {
   title: string;
   body: string;
 } {
+  const hi = mentorGreeting(firstName);
   switch (win.kind) {
     case "deal_closed":
       return {
-        title: "🎉 סגרתם עסקה",
-        body: `${win.title} — נסגר. כל הכבוד. זה מה שכל השבוע היה בשבילו, והמנטור רושם.`,
+        title: "🎉 סגרת עסקה!",
+        body: `${hi}${win.title} — נסגר. כל הכבוד לך! זה מה שכל השבוע היה בשבילו, ואני רושם.`,
       };
     case "exclusivity_signed":
       return {
-        title: "🎉 בלעדיות נחתמה",
-        body: `${win.title} — הבלעדיות חתומה. נכס שסומכים עליכם בו הוא הבסיס לעסקה הבאה.`,
+        title: "🎉 חתמת בלעדיות!",
+        body: `${hi}${win.title} — הבלעדיות חתומה. נכס שסומכים עליך בו הוא הבסיס לעסקה הבאה.`,
       };
     case "coop_deal":
       return {
-        title: "🎉 עסקת שיתוף פעולה נסגרה",
-        body: `${win.title} — נסגר יחד עם משרד אחר. עסקה שלא הייתה קורית לבד.`,
+        title: "🎉 סגרת עסקת שיתוף פעולה!",
+        body: `${hi}${win.title} — נסגר יחד עם משרד אחר. עסקה שלא הייתה קורית לבד — יפה.`,
       };
     case "offer_interested":
       return {
         title: "👍 קונה אמר „מעוניין”",
-        body: `${win.title} — הקונה הגיב שהוא מעוניין. זה הרגע לקבוע סיור.`,
+        body: `${hi}${win.title} — הקונה הגיב שהוא מעוניין. זה הרגע לקבוע סיור.`,
       };
   }
 }
@@ -807,6 +843,8 @@ export function mentorCelebration(win: MentorWin): {
  * במסך ולחשב את הרצף בשבוע הבא, בלי לחשב מחדש נתונים שכבר השתנו.
  */
 export interface MentorReviewBody {
+  /** הפתיח בשם — חסר בגופים שנשמרו לפני שהמנטור דיבר בגוף שני */
+  greeting?: string | null;
   paragraphs: string[];
   askNextWeek: string | null;
   ask: MentorAsk | null;
@@ -830,6 +868,7 @@ export function mentorReviewBody(
   review: MentorReview,
 ): MentorReviewBody {
   return {
+    greeting: review.greeting,
     paragraphs: review.paragraphs,
     askNextWeek: review.askNextWeek,
     ask: review.ask,
@@ -864,6 +903,7 @@ export function mentorReviewBody(
 export function mentorMidweekNudge(
   goals: readonly MentorGoalProgress[],
   now: Date,
+  firstName?: string,
 ): { title: string; body: string; metric: MentorGoalMetric } | null {
   const behind = goals.filter(
     (g) => g.period === "week" && g.pace === "behind",
@@ -878,15 +918,16 @@ export function mentorMidweekNudge(
   const left = workdaysLeftLabel(now);
   const parts = [
     focus.actual === 0
-      ? `${label}: עדיין לא התחיל, ${left}.`
-      : `${label}: ${mentorQuantity(focus.metric, focus.actual)} עד עכשיו, עוד ${mentorQuantity(focus.metric, focus.remaining)} ליעד — ${left}.`,
+      ? `${mentorGreeting(firstName)}${label}: עדיין לא התחיל, ${left}.`
+      : `${mentorGreeting(firstName)}${label}: ${mentorQuantity(focus.metric, focus.actual)} עד עכשיו, עוד ${mentorQuantity(focus.metric, focus.remaining)} ליעד — ${left}.`,
   ];
   if (focus.intention !== undefined && focus.intention.trim() !== "") {
-    parts.push(`התוכנית שכתבתם: „${focus.intention.trim()}”.`);
+    parts.push(`התוכנית שכתבת: „${focus.intention.trim()}”.`);
   }
   if (focus.why !== undefined && focus.why.trim() !== "") {
-    parts.push(`בשביל: ${focus.why.trim()}.`);
+    parts.push(`זה בשביל: ${focus.why.trim()}.`);
   }
+  parts.push("עוד אפשר להגיע לזה — ואני איתך.");
   return {
     title: `🧭 אמצע השבוע — ${label}`,
     body: parts.join(" "),
@@ -1080,12 +1121,14 @@ export function mentorPatterns(
     if (behindRows.length >= RECURRING_MIN) {
       const answers = behindRows
         .filter(
-          (x) => x.r.askMetric === metric && x.r.reflectionAnswer !== null,
+          (x) =>
+            x.r.askMetric === metric &&
+            typeof x.r.reflectionAnswer === "string",
         )
         .map((x) => x.r.reflectionAnswer as string)
         .slice(0, 3);
       const plans = behindRows
-        .filter((x) => x.r.askMetric === metric && x.r.plan !== null)
+        .filter((x) => x.r.askMetric === metric && typeof x.r.plan === "string")
         .map((x) => x.r.plan as string)
         .slice(0, 3);
       patterns.push({
@@ -1126,21 +1169,21 @@ export function mentorPatternLine(pattern: MentorPattern): string {
       const said =
         pattern.answers.length === 0
           ? ""
-          : ` בפעמים הקודמות אמרתם: ${pattern.answers.map((a) => `„${a}”`).join(", ")}.`;
+          : ` בפעמים הקודמות אמרת: ${pattern.answers.map((a) => `„${a}”`).join(", ")}.`;
       const planned =
         pattern.plans.length === 0
           ? ""
-          : ` והתוכנית שקבעתם אז: „${pattern.plans[0]}”.`;
+          : ` והתוכנית שקבעת אז: „${pattern.plans[0]}”.`;
       return `${head}${said}${planned}`;
     }
     case "turned_around": {
       const label =
         MENTOR_METRICS.find((m) => m.code === pattern.metric)?.label ??
         pattern.metric;
-      return `${label}: אחרי ${pattern.weeksBehind} שבועות מאחור — ${pattern.weeksSince} שבועות רצופים בקצב. זה מפנה, ואתם עשיתם אותו.`;
+      return `${label}: אחרי ${pattern.weeksBehind} שבועות מאחור — ${pattern.weeksSince} שבועות רצופים בקצב. זה מפנה — ועשית אותו בעצמך.`;
     }
     case "commitment_record":
-      return `מחויבויות: עמדתם ב-${pattern.kept} מתוך ${pattern.accepted} שהתחייבתם אליהן בחודשיים האחרונים.`;
+      return `מחויבויות: עמדת ב-${pattern.kept} מתוך ${pattern.accepted} שהתחייבת אליהן בחודשיים האחרונים.`;
   }
 }
 

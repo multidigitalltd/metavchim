@@ -45,9 +45,9 @@ export const MENTOR_PLAN_MIN = 3;
 export function mentorReflectionPrompt(question: string): AgentReply {
   const body = `🧭 ${question}`;
   return {
-    text: `${body}\n\nכתבו לי מה עצר — במילים שלכם. ההודעה הבאה נשמרת כתשובה. „בטל” אם לא עכשיו.`,
+    text: `${body}\n\nמה עצר? במילים שלך — ההודעה הבאה נשמרת כתשובה. „בטל” אם לא עכשיו.`,
     buttonBody: body,
-    speak: `${question} כתבו לי מה עצר, במילים שלכם.`,
+    speak: `${question} מה עצר, במילים שלך.`,
   };
 }
 
@@ -57,7 +57,7 @@ export function mentorPlanPrompt(
   plans: readonly string[],
   token: string,
 ): AgentReply {
-  const head = `נשמר: „${answer}”.\n\nואם זה יקרה שוב — מה התוכנית? „כש… אז…” במילים שלכם, או אחת מאלה:`;
+  const head = `תודה, נשמר: „${answer}”.\n\nואם זה יקרה שוב — מה התוכנית שלך? „כש… אז…” במילים שלך, או אחת מאלה:`;
   const listed = plans.map((plan, i) => `${i + 1}. ${plan}`);
   const rows: WhatsAppListRow[] = plans.map((plan, i) => ({
     action: "pick",
@@ -66,22 +66,22 @@ export function mentorPlanPrompt(
     title: `תוכנית ${i + 1}`,
     description: plan,
   }));
-  const tail = "אפשר לענות במספר, לכתוב תוכנית משלכם, או „דלג”.";
+  const tail = "אפשר לענות במספר, לכתוב תוכנית משלך, או „דלג”.";
   return {
     text: [head, ...listed, "", tail].join("\n"),
     buttonBody: [head, ...listed].join("\n"),
     ...(rows.length === 0 ? {} : choiceVariant(rows)),
     speak:
-      "נשמר. ואם זה יקרה שוב, מה התוכנית? אפשר לבחור אחת מההצעות או לכתוב משלכם.",
+      "נשמר. ואם זה יקרה שוב, מה התוכנית שלך? אפשר לבחור אחת מההצעות או לכתוב משלך.",
   };
 }
 
 export function mentorPlanSaved(plan: string): AgentReply {
-  const text = `✅ התוכנית נכנסה ליעד: „${plan}”. הדחיפה של אמצע השבוע תזכיר אותה.`;
+  const text = `✅ התוכנית נכנסה ליעד שלך: „${plan}”. באמצע השבוע אזכיר לך אותה.`;
   return { text, speak: "התוכנית נכנסה ליעד." };
 }
 
 export function mentorPlanSkipped(): AgentReply {
-  const text = "בסדר — בלי תוכנית הפעם. התשובה נשמרה, והמנטור יזכור אותה.";
+  const text = "בסדר — בלי תוכנית הפעם. התשובה נשמרה, ואני זוכר אותה.";
   return { text, speak: text };
 }

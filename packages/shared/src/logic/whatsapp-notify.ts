@@ -346,11 +346,11 @@ export function notifyQuickReplies(
 /** משפט הפעולה כשכל הפריטים הם של המנטור — לפי הסוג, לא הקטגוריה. */
 const MENTOR_CALL_TO_ACTION: Record<string, string> = {
   mentor_weekly:
-    "💪 לחצו „מתחייב” לשבוע הבא — או כתבו לי מה עצר השבוע, ואעביר למנטור.",
+    "💪 לחיצה על „מתחייב” לשבוע הבא — או לכתוב לי מה עצר השבוע, ואעביר למנטור.",
   mentor_nudge:
-    "🎯 כתבו לי „מה המצב ביעדים שלי?” ואראה לכם איפה אתם מול השבוע.",
+    "🎯 אפשר לכתוב לי „מה המצב ביעדים שלי?” ואראה לך איפה זה עומד מול השבוע.",
   mentor_win:
-    "🎉 כל הכבוד. כתבו לי „מה המצב ביעדים שלי?” לראות איך זה מזיז את השבוע.",
+    "🎉 כל הכבוד לך! אפשר לכתוב לי „מה המצב ביעדים שלי?” לראות איך זה מזיז את השבוע.",
 };
 
 function callToAction(shown: readonly NotifyItem[]): string {
@@ -406,9 +406,11 @@ export function formatNotifyMessage(
   ];
 
   for (const item of shown) {
-    const icon =
-      TYPE_ICON[item.type] ?? CATEGORY_ICON[notifyCategory(item.type)];
-    lines.push(`${icon} *${item.title}*`);
+    // כותרת שכבר פותחת בסמל (החגיגה, הסיכום, הדחיפה) לא מקבלת סמל שני
+    const icon = /^[^\p{L}\p{N}]/u.test(item.title)
+      ? ""
+      : `${TYPE_ICON[item.type] ?? CATEGORY_ICON[notifyCategory(item.type)]} `;
+    lines.push(`${icon}*${item.title}*`);
     if (item.body !== null && item.body !== "") lines.push(item.body);
     const url = notificationUrl(item);
     // "/" הוא הדשבורד — קישור כללי אינו מוסיף דבר להתראה

@@ -281,3 +281,25 @@ describe("notifyQuickReplies — המנטור מקבל כפתורים משלו",
     expect(text).not.toContain("מה הכי דחוף היום");
   });
 });
+
+describe("formatNotifyMessage — כותרת שכבר פותחת בסמל", () => {
+  it("לא מקבלת סמל שני: „🎉 סגרת עסקה!” נשאר עם סמל אחד", () => {
+    const text = formatNotifyMessage(
+      [
+        item({
+          type: "mentor_win",
+          title: "🎉 סגרת עסקה!",
+          entityType: "mentor",
+        }),
+      ],
+      "https://app.example.com",
+    );
+    expect(text).toContain("*🎉 סגרת עסקה!*");
+    expect(text).not.toContain("🎉 *🎉");
+    const plain = formatNotifyMessage(
+      [item({ title: "ליד חדש" })],
+      "https://app.example.com",
+    );
+    expect(plain).toContain("🔥 *ליד חדש*");
+  });
+});

@@ -20,6 +20,8 @@ function fakeTx(alreadyRecorded: boolean) {
         return alreadyRecorded ? 0 : 1;
       return 1;
     },
+    // השם הפרטי — החגיגה פונה אליו בשמו
+    user: { findFirst: async () => ({ name: "דנה כהן" }) },
   };
   return { tx: tx as unknown as TenantTx, statements };
 }
@@ -40,7 +42,8 @@ describe("recordMentorWin — הצלחה נרשמת פעם אחת, וההתרא�
     expect(statements[0]).toContain("INSERT INTO mentor_wins");
     expect(statements[1]).toContain("INSERT INTO notifications");
     expect(statements[1]).toContain("mentor_win");
-    expect(statements[1]).toContain("סגרתם עסקה");
+    expect(statements[1]).toContain("סגרת עסקה");
+    expect(statements[1]).toContain("דנה, ");
     expect(statements[1]).toContain(`mentor_win:deal_closed:${PROPERTY}`);
   });
 
