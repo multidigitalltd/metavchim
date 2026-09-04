@@ -14,6 +14,7 @@ import {
   MENTOR_REPLY_JSON_SCHEMA,
   mentorFallbackReply,
   mentorPeriodRange,
+  obstaclePlanSuggestions,
   selectWins,
   suggestProcessGoals,
   formatJerusalemDate,
@@ -71,6 +72,10 @@ export interface MentorReviewDto {
   commitment: MentorCommitment | null;
   committedAt: Date | null;
   commitmentNote: string | null;
+  /** התוכנית „אם… אז…” שנולדה מהרפלקציה — נכנסה ליעד ככוונת יישום */
+  plan: string | null;
+  /** הצעות ל„כש… אז…” לפי המדד של השאלה — ריק כשאין שאלה */
+  planSuggestions: readonly string[];
   allGoalsMet: boolean;
   wins: MentorWin[];
   createdAt: Date;
@@ -382,6 +387,53 @@ export class MentorService {
     });
   }
 
+  /**
+   * התוכנית „אם… אז…” — החצי השני של WOOP. נשמרת על הסיכום, ונכנסת
+   * ליעד הפעיל של אותו מדד ותקופה ככוונת יישום: כך הדחיפה של אמצע
+   * השבוע והבקשה לשבוע הבא מצטטות את התוכנית שנולדה מהמכשול, ולא
+   * את הישנה. יעד שאינו פעיל — התוכנית נשמרת על הסיכום בלבד.
+   */
+  async setPlan(
+    id: string,
+    plan: string,
+    now: Date = new Date(),
+  ): Promise<MentorReviewDto> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const row = await tx.mentorReview.findFirst({
+        where: { id, tenantId, userId },
+      });
+      if (row === null) throw new NotFoundException("הסיכום לא נמצא");
+      const body = (row.body ?? {}) as Partial<MentorReviewBody>;
+      if (!body.reflection)
+        throw new BadRequestException(
+          "בסיכום הזה לא הייתה שאלה, ולכן אין ממה לבנות תוכנית",
+        );
+      const updated = await tx.mentorReview.update({
+        where: { id },
+        data: { plan, plannedAt: now },
+      });
+      if (body.ask) {
+        await tx.mentorGoal.updateMany({
+          where: {
+            tenantId,
+            userId,
+            metric: body.ask.metric,
+            period: body.ask.period,
+            endedAt: null,
+          },
+          data: { intention: plan },
+        });
+      }
+      await this.audit.record(tx, {
+        action: "mentor_review.plan",
+        entityType: "mentor_review",
+        entityId: id,
+      });
+      return MentorService.reviewDto(updated);
+    });
+  }
+
   /* ---------------- שיחה ---------------- */
 
   async turns(limit = 40): Promise<{ turns: MentorTurnDto[] }> {
@@ -485,6 +537,7 @@ export class MentorService {
                   paragraphs: dto.paragraphs,
                   askNextWeek: dto.askNextWeek,
                   ask: dto.ask,
+                  plan: dto.plan,
                   reflection: dto.reflection,
                   weekLabel: `שבוע ${formatJerusalemDate(dto.weekStart)}`,
                   reflectionAnswer: dto.reflectionAnswer,
@@ -584,9 +637,11 @@ export class MentorService {
     commitment?: string | null;
     committedAt?: Date | null;
     commitmentNote?: string | null;
+    plan?: string | null;
     createdAt: Date;
   }): MentorReviewDto {
     const body = (row.body ?? {}) as Partial<MentorReviewBody>;
+    const askMetric = body.ask?.metric;
     return {
       id: row.id,
       weekStart: row.weekStart,
@@ -601,6 +656,11 @@ export class MentorService {
           : null,
       committedAt: row.committedAt ?? null,
       commitmentNote: row.commitmentNote ?? null,
+      plan: row.plan ?? null,
+      planSuggestions:
+        body.reflection && askMetric !== undefined
+          ? obstaclePlanSuggestions(askMetric)
+          : [],
       reflection: body.reflection ?? null,
       reflectionAnswer: row.reflectionAnswer,
       allGoalsMet: body.allGoalsMet === true,

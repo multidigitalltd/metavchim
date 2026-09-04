@@ -30,7 +30,11 @@ export interface MentorChatContext {
   nowText: string;
   goals: MentorGoalProgress[];
   lastReview:
-    | (MentorReview & { weekLabel: string; reflectionAnswer: string | null })
+    | (MentorReview & {
+        weekLabel: string;
+        reflectionAnswer: string | null;
+        plan?: string | null;
+      })
     | null;
   /** מהישן לחדש */
   history: { role: "user" | "mentor"; text: string }[];
@@ -113,6 +117,11 @@ export function buildMentorPrompt(ctx: MentorChatContext): string {
           ? "המתווך טרם ענה."
           : `תשובת המתווך: „${ctx.lastReview.reflectionAnswer}”`,
       );
+      if (ctx.lastReview.plan) {
+        lines.push(
+          `התוכנית שהמתווך קבע למקרה שזה יקרה שוב: „${ctx.lastReview.plan}”`,
+        );
+      }
     }
   }
   if (ctx.history.length > 0) {

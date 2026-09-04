@@ -40,6 +40,9 @@ const CommitmentSchema = z
     note: z.string().trim().max(300).optional(),
   })
   .strict();
+const PlanSchema = z
+  .object({ plan: z.string().trim().min(3).max(300) })
+  .strict();
 const ReflectionSchema = z
   .object({ answer: z.string().trim().min(1).max(1000) })
   .strict();
@@ -115,6 +118,15 @@ export class MentorController {
     body: z.infer<typeof CommitmentSchema>,
   ): Promise<MentorReviewDto> {
     return this.mentor.commit(id, body.decision, body.note);
+  }
+
+  @Post("reviews/:id/plan")
+  @AnyAuthenticated()
+  plan(
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(PlanSchema)) body: z.infer<typeof PlanSchema>,
+  ): Promise<MentorReviewDto> {
+    return this.mentor.setPlan(id, body.plan);
   }
 
   @Get("messages")
