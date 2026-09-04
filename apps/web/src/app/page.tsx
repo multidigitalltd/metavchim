@@ -114,18 +114,22 @@ interface TaskRowDto {
 /** הדופק של המנטור — מה שיש לחגוג השבוע (GET /mentor/pulse). */
 interface MentorPulse {
   weekStart: string;
-  goalsDone: { id: string; label: string; period: "week" | "month" }[];
-  wins: { kind: "deal_closed" | "exclusivity_signed" | "offer_interested" | "coop_deal"; title: string }[];
+  goalsDone: { id: string; label: string; period: "week" | "month"; periodStart: string }[];
+  wins: {
+    id?: string;
+    kind: "deal_closed" | "exclusivity_signed" | "offer_interested" | "coop_deal";
+    title: string;
+  }[];
 }
 
 /** אותם אירועים כמו במסך המנטור — ובאותם מפתחות, כדי שחגיגה שיצאה שם לא תחזור כאן. */
 function celebrationEvents(pulse: MentorPulse): CelebrationEvent[] {
   const goals = pulse.goalsDone.map((g) => ({
-    key: `goal:${g.id}:${g.period === "week" ? pulse.weekStart : pulse.weekStart.slice(0, 7)}`,
+    key: `goal:${g.id}:${g.periodStart}`,
     label: `היעד הושג: ${g.label}`,
   }));
   const wins = pulse.wins.map((w, i) => ({
-    key: `win:${pulse.weekStart}:${w.kind}:${w.title}:${i}`,
+    key: `win:${w.id ?? `${pulse.weekStart}:${w.kind}:${w.title}:${i}`}`,
     label: winLabel(w),
   }));
   return [...goals, ...wins];

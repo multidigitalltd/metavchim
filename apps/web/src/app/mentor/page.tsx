@@ -138,11 +138,13 @@ function celebrationEvents(overview: Overview): CelebrationEvent[] {
   const goals = overview.goals
     .filter((g) => g.progress.pace === "done")
     .map((g) => ({
-      key: `goal:${g.id}:${g.period === "week" ? overview.weekStart : overview.weekStart.slice(0, 7)}`,
+      // תחילת התקופה שנמדדה — לא השבוע: יעד חודשי שהושג בשבוע שחוצה חודש הוא אירוע חדש
+      key: `goal:${g.id}:${g.progress.periodStart}`,
       label: `היעד הושג: ${mentorGoalLabel(g.metric, g.target, g.period)}`,
     }));
+  // מזהה השורה ולא המיקום ברשימה — הסדר משתנה כשמצטרפת הצלחה חזקה יותר
   const wins = overview.wins.map((w, i) => ({
-    key: `win:${overview.weekStart}:${w.kind}:${w.title}:${i}`,
+    key: `win:${w.id ?? `${overview.weekStart}:${w.kind}:${w.title}:${i}`}`,
     label: winLabel(w),
   }));
   return [...goals, ...wins];

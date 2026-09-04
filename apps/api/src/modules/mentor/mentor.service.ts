@@ -111,7 +111,13 @@ export interface MentorOverview {
  */
 export interface MentorPulse {
   weekStart: Date;
-  goalsDone: { id: string; label: string; period: MentorGoalPeriod }[];
+  goalsDone: {
+    id: string;
+    label: string;
+    period: MentorGoalPeriod;
+    /** תחילת התקופה שהושגה — הזהות של החגיגה */
+    periodStart: Date;
+  }[];
   wins: MentorWin[];
 }
 
@@ -266,6 +272,7 @@ export class MentorService {
               g.progress.period,
             ),
             period: g.progress.period,
+            periodStart: g.progress.periodStart,
           })),
         wins,
       };

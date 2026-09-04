@@ -20,6 +20,9 @@ interface Target {
   needs?: readonly Capability[];
 }
 
+/** ישויות שהיעד שלהן אינו תלוי במזהה — מספיק סוג הישות. */
+const ENTITY_ONLY: ReadonlySet<string> = new Set(["mentor"]);
+
 function targetFor(entityType: string, entityId: string): Target | null {
   switch (entityType) {
     case "property":
@@ -87,8 +90,14 @@ export function notificationHref(
   entityId: string | undefined,
   can: (capability: Capability) => boolean,
 ): string | null {
-  if (!entityType || !entityId) return null;
-  const target = targetFor(entityType, entityId);
+  if (!entityType) return null;
+  /*
+   * יש ישויות שהן מסך ולא רשומה — המנטור: הסיכום השבועי והדחיפה
+   * נוצרים בלי מזהה, והמסך הוא היעד. דרישת מזהה כאן השאירה אותן
+   * בלי קישור בפעמון ובמסך ההתראות (ביקורת Codex).
+   */
+  if (!entityId && !ENTITY_ONLY.has(entityType)) return null;
+  const target = targetFor(entityType, entityId ?? "");
   if (target === null) return null;
   if (target.needs === undefined) return target.href;
   return target.needs.some(can) ? target.href : null;
