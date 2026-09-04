@@ -58,7 +58,11 @@ function fakeTx(counts: {
     endedAt: Date | null;
   }[];
   wins?: { kind: string; title: string }[];
-  previousReviews?: { weekStart: Date; body: unknown }[];
+  previousReviews?: {
+    weekStart: Date;
+    body: unknown;
+    commitment?: string | null;
+  }[];
 }) {
   const created: Record<string, unknown>[] = [];
   const notifications: unknown[] = [];
@@ -87,6 +91,10 @@ function fakeTx(counts: {
     },
     mentorReview: {
       findMany: async () => counts.previousReviews ?? [],
+      findFirst: async (args: { where: { weekStart?: Date } }) =>
+        (counts.previousReviews ?? []).find(
+          (r) => r.weekStart.getTime() === args.where.weekStart?.getTime(),
+        ) ?? null,
       create: async (args: { data: Record<string, unknown> }) => {
         created.push(args.data);
         return args.data;
@@ -350,5 +358,116 @@ describe("MentorReviewService.nudgeForUser — יעד שהוחלף השבוע א
       await service().nudgeForUser(tx, TENANT, USER, WEEK, wednesday),
     ).toBe(false);
     expect(notifications).toEqual([]);
+  });
+});
+
+describe("MentorReviewService.generateForUser — המחויבות מהשבוע שעבר", () => {
+  const prevWeek = new Date("2026-08-29T21:00:00.000Z");
+  const offersGoal = {
+    id: "01GOALAAAAAAAAAAAAAAAAAAAA",
+    metric: "offers_sent",
+    period: "week",
+    target: 5,
+    why: null,
+    intention: null,
+    createdAt: new Date("2026-08-01"),
+    endedAt: null,
+  };
+
+  it("התחייב ועמד — הפסקה הראשונה אומרת זאת בשמה", async () => {
+    const { tx, created } = fakeTx({
+      offers: 5,
+      goals: [offersGoal],
+      previousReviews: [
+        {
+          weekStart: prevWeek,
+          body: {
+            allGoalsMet: false,
+            ask: { metric: "offers_sent", period: "week", target: 5 },
+          },
+          commitment: "accepted",
+        },
+      ],
+    });
+    await service().generateForUser(
+      tx,
+      TENANT,
+      USER,
+      new Date("2026-01-01"),
+      WEEK,
+    );
+    const body = created[0]?.["body"] as { paragraphs: string[] };
+    expect(body.paragraphs[0]).toBe("התחייבתם ל5 הצעות בשבוע — ועמדתם בזה.");
+  });
+
+  it("התחייב ולא עמד — עובדה, וההתחייבות נשארת", async () => {
+    const { tx, created } = fakeTx({
+      offers: 2,
+      goals: [offersGoal],
+      previousReviews: [
+        {
+          weekStart: prevWeek,
+          body: { ask: { metric: "offers_sent", period: "week", target: 5 } },
+          commitment: "accepted",
+        },
+      ],
+    });
+    await service().generateForUser(
+      tx,
+      TENANT,
+      USER,
+      new Date("2026-01-01"),
+      WEEK,
+    );
+    const body = created[0]?.["body"] as { paragraphs: string[] };
+    expect(body.paragraphs[0]).toContain(
+      "התחייבתם ל5 הצעות בשבוע. הפעם לא יצא",
+    );
+  });
+
+  it("היעד שהתחייבו אליו הופסק במהלך השבוע — לא נבדק, לא לחיוב ולא לשלילה", async () => {
+    const { tx, created } = fakeTx({
+      offers: 5,
+      goals: [{ ...offersGoal, endedAt: new Date("2026-09-01T10:00:00.000Z") }],
+      previousReviews: [
+        {
+          weekStart: prevWeek,
+          body: { ask: { metric: "offers_sent", period: "week", target: 5 } },
+          commitment: "accepted",
+        },
+      ],
+    });
+    await service().generateForUser(
+      tx,
+      TENANT,
+      USER,
+      new Date("2026-01-01"),
+      WEEK,
+    );
+    const body = created[0]?.["body"] as { paragraphs: string[] };
+    expect(body.paragraphs.join(" ")).not.toContain("התחייבתם");
+  });
+
+  it("לא התחייב (או סירב) — אין פסקת מחויבות", async () => {
+    const { tx, created } = fakeTx({
+      offers: 2,
+      goals: [offersGoal],
+      previousReviews: [
+        {
+          weekStart: prevWeek,
+          body: { ask: { metric: "offers_sent", period: "week", target: 5 } },
+          commitment: "declined",
+        },
+      ],
+    });
+    await service().generateForUser(
+      tx,
+      TENANT,
+      USER,
+      new Date("2026-01-01"),
+      WEEK,
+    );
+    const body = created[0]?.["body"] as { paragraphs: string[] };
+    expect(body.paragraphs.join(" ")).not.toContain("התחייבתם");
   });
 });

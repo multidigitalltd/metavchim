@@ -29,6 +29,7 @@ const base: MentorChatContext = {
     headline: "לא הגעתם ליעד השבוע — והוא עדיין שלכם",
     paragraphs: ["5 הצעות בשבוע: 2 הצעות. חסרו 3 הצעות ליעד שקבעתם."],
     askNextWeek: "לשבוע הבא: 5 הצעות בשבוע.",
+    ask: { metric: "offers_sent", period: "week", target: 5 },
     reflection: "מה עצר את ההצעות השבוע?",
     weekLabel: "שבוע שעבר",
     reflectionAnswer: null,

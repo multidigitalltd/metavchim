@@ -436,6 +436,23 @@ export interface MentorWeekSignals {
   goals: MentorGoalProgress[];
   /** כמה שבועות רצופים כל היעדים הושגו (כולל זה) */
   streakWeeks?: number;
+  /**
+   * מה שהמתווך התחייב אליו בסיכום הקודם, ואם עמד בזה — נבדק מול
+   * היעדים של השבוע הזה. חסר = לא הייתה מחויבות (או שלא ענה).
+   */
+  previousCommitment?: {
+    metric: MentorGoalMetric;
+    period: MentorGoalPeriod;
+    target: number;
+    kept: boolean;
+  };
+}
+
+/** היעד שהבקשה לשבוע הבא מדברת עליו — מה שאפשר להתחייב אליו. */
+export interface MentorAsk {
+  metric: MentorGoalMetric;
+  period: MentorGoalPeriod;
+  target: number;
 }
 
 /**
@@ -454,6 +471,8 @@ export interface MentorReview {
   paragraphs: string[];
   /** מה המנטור מבקש לשבוע הבא — `null` כשאין יעדים */
   askNextWeek: string | null;
+  /** היעד שהבקשה מדברת עליו — כדי שאפשר יהיה להתחייב, ולבדוק בשבוע הבא */
+  ask: MentorAsk | null;
   /**
    * שאלת רפלקציה אחת, על היעד שבפיגור — `null` כשאין פיגור.
    * המאמן שואל ומקשיב; התשובה נשמרת ליד היעד (docs/13 §2).
@@ -569,13 +588,33 @@ export function mentorWeeklyReview(
 
   const allGoalsMet = goals.length > 0 && goals.every((g) => g.pace === "done");
   const anyBehind = goals.some((g) => g.pace === "behind");
+  const commitment = signals.previousCommitment;
 
   let mood: MentorMood;
-  if (wins.length > 0 || allGoalsMet) mood = "celebrate";
+  if (wins.length > 0 || allGoalsMet || commitment?.kept === true)
+    mood = "celebrate";
   else if (anyBehind || (goals.length > 0 && noActivity)) mood = "encourage";
   else mood = "steady";
 
   const paragraphs: string[] = [];
+  /*
+   * המחויבות מהשבוע שעבר נאמרת **ראשונה** — לפני ההצלחות ולפני
+   * היעדים: זה מה שהמתווך אמר שיעשה, וזה הדבר הראשון שמנטור בודק.
+   * עמידה — בשמה; אי-עמידה — עובדה, ובלי לקחת את ההתחייבות בחזרה
+   * (ייחוס לתהליך, לא ליכולת).
+   */
+  if (commitment !== undefined) {
+    const label = mentorGoalLabel(
+      commitment.metric,
+      commitment.target,
+      commitment.period,
+    );
+    paragraphs.push(
+      commitment.kept
+        ? `התחייבתם ל${label} — ועמדתם בזה.`
+        : `התחייבתם ל${label}. הפעם לא יצא, וההתחייבות עדיין שלכם.`,
+    );
+  }
   if (wins.length > 0) paragraphs.push(winsSentence(wins));
   if (goals.length > 0) paragraphs.push(goals.map(goalSentence).join(" "));
   const trend = trendSentence(activity, previousActivity);
@@ -589,7 +628,9 @@ export function mentorWeeklyReview(
         ? `${streak} שבועות רצופים שכל היעדים מושגים`
         : allGoalsMet
           ? "כל היעדים של השבוע הושגו"
-          : "שבוע עם תוצאה";
+          : wins.length === 0 && commitment?.kept === true
+            ? "עמדתם במה שהתחייבתם"
+            : "שבוע עם תוצאה";
   } else if (mood === "encourage") {
     headline = noActivity
       ? "שבוע שקט. השבוע הבא מתחיל מחדש"
@@ -599,11 +640,29 @@ export function mentorWeeklyReview(
   }
 
   let askNextWeek: string | null = null;
+  let ask: MentorAsk | null = null;
   let reflection: string | null = null;
   if (goals.length > 0) {
     const behind = goals.find((g) => g.pace === "behind");
-    const focus = behind ?? goals[0];
+    /*
+     * הבקשה היא **לשבוע הבא**, ולכן על יעד שבועי בלבד. יעד חודשי הוא
+     * מצטבר: מי שכבר השיג אותו ב-1 בחודש „עומד” בו בכל שבוע בלי
+     * לעשות דבר, ומי שמאחור בו אינו יכול לסגור אותו בשבוע. כשיש רק
+     * יעדים חודשיים — הבקשה היא להוסיף יעד תהליך שבועי לצידם.
+     */
+    const weekly = goals.filter((g) => g.period === "week");
+    const focus =
+      weekly.find((g) => g.pace === "behind") ?? weekly[0] ?? undefined;
+    if (focus === undefined) {
+      askNextWeek =
+        "יש יעד חודשי בלי יעד תהליך שבועי לצידו. לשבוע הבא: להוסיף אחד — זה מה שמזיז את החודש.";
+    }
     if (focus !== undefined) {
+      ask = {
+        metric: focus.metric,
+        period: focus.period,
+        target: focus.target,
+      };
       if (allGoalsMet) {
         askNextWeek = "אותם יעדים לשבוע הבא? אפשר גם להעלות אחד מהם.";
       } else {
@@ -619,7 +678,7 @@ export function mentorWeeklyReview(
     if (behind !== undefined) reflection = REFLECTION[behind.metric];
   }
 
-  return { mood, headline, paragraphs, askNextWeek, reflection };
+  return { mood, headline, paragraphs, askNextWeek, ask, reflection };
 }
 
 /**
@@ -680,6 +739,7 @@ export function mentorCelebration(win: MentorWin): {
 export interface MentorReviewBody {
   paragraphs: string[];
   askNextWeek: string | null;
+  ask: MentorAsk | null;
   reflection: string | null;
   allGoalsMet: boolean;
   wins: MentorWin[];
@@ -700,6 +760,7 @@ export function mentorReviewBody(
   return {
     paragraphs: review.paragraphs,
     askNextWeek: review.askNextWeek,
+    ask: review.ask,
     reflection: review.reflection,
     allGoalsMet:
       signals.goals.length > 0 && signals.goals.every((g) => g.pace === "done"),

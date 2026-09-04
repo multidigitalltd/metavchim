@@ -1,4 +1,6 @@
 import {
+  BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -16,6 +18,7 @@ import {
   suggestProcessGoals,
   formatJerusalemDate,
   type MentorActivity,
+  type MentorAsk,
   type MentorChatContext,
   type MentorGoalInput,
   type MentorGoalPeriod,
@@ -62,10 +65,18 @@ export interface MentorReviewDto {
   askNextWeek: string | null;
   reflection: string | null;
   reflectionAnswer: string | null;
+  /** היעד שהבקשה לשבוע הבא מדברת עליו */
+  ask: MentorAsk | null;
+  /** accepted | declined | null (טרם ענה) */
+  commitment: MentorCommitment | null;
+  committedAt: Date | null;
+  commitmentNote: string | null;
   allGoalsMet: boolean;
   wins: MentorWin[];
   createdAt: Date;
 }
+
+export type MentorCommitment = "accepted" | "declined";
 
 export interface MentorOverview {
   weekStart: Date;
@@ -319,6 +330,58 @@ export class MentorService {
     });
   }
 
+  /**
+   * המחויבות לבקשה של המנטור — „מתחייב” או „לא השבוע”, עם מילה אם
+   * רוצים. אפשר לשנות את הדעת עד הסיכום הבא: המחויבות היא של
+   * המתווך, לא של הטופס.
+   */
+  async commit(
+    id: string,
+    decision: MentorCommitment,
+    note: string | undefined,
+    now: Date = new Date(),
+  ): Promise<MentorReviewDto> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const row = await tx.mentorReview.findFirst({
+        where: { id, tenantId, userId },
+      });
+      if (row === null) throw new NotFoundException("הסיכום לא נמצא");
+      const body = (row.body ?? {}) as Partial<MentorReviewBody>;
+      if (!body.ask)
+        throw new BadRequestException("בסיכום הזה אין בקשה להתחייב אליה");
+      /*
+       * הסיכום הבא כבר בדק את המחויבות הזו ורשם „עמדתם” או „לא יצא”
+       * — שינוי עכשיו היה משאיר שני סיכומים שסותרים זה את זה. לשונית
+       * ישנה או קריאה ישירה ל-API נדחות; המסך מציג את הכפתור רק על
+       * הסיכום האחרון.
+       */
+      const later = await tx.mentorReview.findFirst({
+        where: { tenantId, userId, weekStart: { gt: row.weekStart } },
+        select: { id: true },
+      });
+      if (later !== null)
+        throw new ConflictException(
+          "הסיכום הבא כבר בדק את המחויבות הזו — אי אפשר לשנות אותה עכשיו",
+        );
+      const updated = await tx.mentorReview.update({
+        where: { id },
+        data: {
+          commitment: decision,
+          committedAt: now,
+          commitmentNote: note === undefined || note === "" ? null : note,
+        },
+      });
+      await this.audit.record(tx, {
+        action: "mentor_review.commit",
+        entityType: "mentor_review",
+        entityId: id,
+        metadata: { decision },
+      });
+      return MentorService.reviewDto(updated);
+    });
+  }
+
   /* ---------------- שיחה ---------------- */
 
   async turns(limit = 40): Promise<{ turns: MentorTurnDto[] }> {
@@ -421,6 +484,7 @@ export class MentorService {
                   headline: dto.headline,
                   paragraphs: dto.paragraphs,
                   askNextWeek: dto.askNextWeek,
+                  ask: dto.ask,
                   reflection: dto.reflection,
                   weekLabel: `שבוע ${formatJerusalemDate(dto.weekStart)}`,
                   reflectionAnswer: dto.reflectionAnswer,
@@ -517,6 +581,9 @@ export class MentorService {
     headline: string;
     body: unknown;
     reflectionAnswer: string | null;
+    commitment?: string | null;
+    committedAt?: Date | null;
+    commitmentNote?: string | null;
     createdAt: Date;
   }): MentorReviewDto {
     const body = (row.body ?? {}) as Partial<MentorReviewBody>;
@@ -527,6 +594,13 @@ export class MentorService {
       headline: row.headline,
       paragraphs: Array.isArray(body.paragraphs) ? body.paragraphs : [],
       askNextWeek: body.askNextWeek ?? null,
+      ask: body.ask ?? null,
+      commitment:
+        row.commitment === "accepted" || row.commitment === "declined"
+          ? row.commitment
+          : null,
+      committedAt: row.committedAt ?? null,
+      commitmentNote: row.commitmentNote ?? null,
       reflection: body.reflection ?? null,
       reflectionAnswer: row.reflectionAnswer,
       allGoalsMet: body.allGoalsMet === true,

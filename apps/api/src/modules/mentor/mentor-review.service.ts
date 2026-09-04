@@ -327,15 +327,20 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       userId,
       week,
     );
-    const goals = (
-      await this.signals.progress(tx, tenantId, userId, goalRows, {
+    const goalsWithRows = await this.signals.progress(
+      tx,
+      tenantId,
+      userId,
+      goalRows,
+      {
         at: weekEnd,
         week,
         weekActivity: activity,
         // שבת — היום האחרון של השבוע, ולכן החודש שהשבוע באמת שייך לו
         monthAnchor: jerusalemDayStart(weekEnd, -1),
-      })
-    ).map((g) => g.progress);
+      },
+    );
+    const goals = goalsWithRows.map((g) => g.progress);
     const wins = selectWins(
       await this.signals.wins(tx, tenantId, userId, week),
     );
@@ -346,6 +351,38 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       ? 1 + (await this.previousStreak(tx, tenantId, userId, weekStart))
       : 0;
 
+    /*
+     * המחויבות מהסיכום הקודם — נבדקת מול היעד **של השבוע הזה** על
+     * אותו מדד ותקופה, ורק אם הוא **עדיין פעיל**. יעד שהופסק בינתיים
+     * (גם באמצע השבוע — `goalsActiveIn` עדיין מחזיר אותו לסיכום)
+     * אינו נבדק: אי אפשר לעמוד במה שכבר לא קיים, ואי אפשר גם להיכשל
+     * בו.
+     */
+    const previousReview = await tx.mentorReview.findFirst({
+      where: { tenantId, userId, weekStart: prevStart },
+      select: { commitment: true, body: true },
+    });
+    const previousAsk =
+      (previousReview?.body as Partial<MentorReviewBody> | null)?.ask ?? null;
+    const committedGoal =
+      previousReview?.commitment === "accepted" && previousAsk
+        ? goalsWithRows.find(
+            (g) =>
+              g.endedAt === null &&
+              g.progress.metric === previousAsk.metric &&
+              g.progress.period === previousAsk.period,
+          )?.progress
+        : undefined;
+    const previousCommitment =
+      previousAsk && committedGoal !== undefined
+        ? {
+            metric: previousAsk.metric,
+            period: previousAsk.period,
+            target: previousAsk.target,
+            kept: committedGoal.actual >= previousAsk.target,
+          }
+        : undefined;
+
     const signals: MentorWeekSignals = {
       weekStart,
       wins,
@@ -353,6 +390,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       ...(previousActivity === undefined ? {} : { previousActivity }),
       goals,
       streakWeeks,
+      ...(previousCommitment === undefined ? {} : { previousCommitment }),
     };
     const review = mentorWeeklyReview(signals);
     if (review === null) return false;

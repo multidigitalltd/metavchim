@@ -624,6 +624,10 @@ model MentorReview {
   body             Json
   reflectionAnswer String?   @map("reflection_answer") @db.VarChar(1000)
   answeredAt       DateTime? @map("answered_at")
+  /// accepted | declined — התשובה לבקשה לשבוע הבא; NULL = טרם ענה
+  commitment       String?   @db.VarChar(10)
+  committedAt      DateTime? @map("committed_at")
+  commitmentNote   String?   @map("commitment_note") @db.VarChar(300)
   createdAt        DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
