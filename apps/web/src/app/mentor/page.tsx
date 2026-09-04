@@ -67,6 +67,7 @@ interface ReviewDto {
   weekStart: string;
   mood: MentorMood;
   headline: string;
+  greeting: string | null;
   paragraphs: string[];
   askNextWeek: string | null;
   ask: {
@@ -998,6 +999,9 @@ function ReviewCard({
         <span aria-hidden="true">{MOOD_ICON[review.mood]} </span>
         {review.headline}
       </h3>
+      {review.greeting ? (
+        <p className="m-0 mt-2 leading-relaxed font-bold">{review.greeting}</p>
+      ) : null}
       {review.paragraphs.map((p, i) => (
         <p key={i} className="m-0 mt-2 leading-relaxed">
           {p}

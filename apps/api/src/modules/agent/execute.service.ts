@@ -3232,7 +3232,7 @@ export class AgentExecuteService {
     const label = mentorGoalLabel(parsed.data.metric, parsed.data.target, parsed.data.period);
     return {
       href: "/mentor",
-      message: `היעד נקבע: ${label}. ${mentorGoalStatusLine(goal.progress)}.`,
+      message: `היעד שלך נקבע: ${label}. ${mentorGoalStatusLine(goal.progress)}. יאללה, ביחד.`,
       suggestion: "מה המצב ביעדים שלי?",
     };
   }
@@ -3254,8 +3254,8 @@ export class AgentExecuteService {
       href: "/mentor",
       message:
         decision === "accepted"
-          ? `נרשם: התחייבתם ל${label}. במוצאי שבת נבדוק יחד.`
-          : `נרשם: לא השבוע. ${label} נשאר היעד שלכם, בלי מחויבות לשבוע הזה.`,
+          ? `נרשם: התחייבת ל${label}. במוצאי שבת נבדוק ביחד — אני איתך.`
+          : `נרשם: לא השבוע. ${label} נשאר היעד שלך, בלי מחויבות לשבוע הזה.`,
     };
   }
 
@@ -3271,7 +3271,7 @@ export class AgentExecuteService {
     const first = plans[0];
     return {
       href: "/mentor",
-      message: "התשובה נשמרה. ואם זה יקרה שוב — מה התוכנית?",
+      message: "תודה, התשובה נשמרה. ואם זה יקרה שוב — מה התוכנית שלך?",
       ...(plans.length === 0 ? {} : { data: plans.map((plan) => `• ${plan}`) }),
       ...(first === undefined ? {} : { suggestion: `התוכנית שלי: ${first}` }),
     };

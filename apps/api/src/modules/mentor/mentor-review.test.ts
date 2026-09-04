@@ -163,7 +163,7 @@ describe("MentorReviewService.generateForUser — הסיכום כפי שנשמר
     };
     expect(body.allGoalsMet).toBe(true);
     expect(body.goals[0]?.pace).toBe("done");
-    expect(body.paragraphs[0]).toContain("סגרתם את הרצל 12, רעננה");
+    expect(body.paragraphs[0]).toContain("סגרת את הרצל 12, רעננה");
     expect(notifications).toHaveLength(1);
   });
 
@@ -193,7 +193,9 @@ describe("MentorReviewService.generateForUser — הסיכום כפי שנשמר
       new Date("2026-01-01"),
       WEEK,
     );
-    expect(created[0]?.["headline"]).toBe("כל היעדים של השבוע הושגו");
+    expect(created[0]?.["headline"]).toBe(
+      "כל היעדים של השבוע הושגו — כל הכבוד לך",
+    );
   });
 
   it("רצף של שלושה שבועות עוקבים נאמר בכותרת", async () => {
@@ -234,7 +236,9 @@ describe("MentorReviewService.generateForUser — הסיכום כפי שנשמר
       new Date("2026-01-01"),
       WEEK,
     );
-    expect(created[0]?.["headline"]).toBe("3 שבועות רצופים שכל היעדים מושגים");
+    expect(created[0]?.["headline"]).toBe(
+      "3 שבועות רצופים שכל היעדים שלך מושגים",
+    );
   });
 
   it("מתווך שהצטרף השבוע אינו מקבל השוואה לשבוע שעבר", async () => {
@@ -397,7 +401,7 @@ describe("MentorReviewService.generateForUser — המחויבות מהשבוע 
       WEEK,
     );
     const body = created[0]?.["body"] as { paragraphs: string[] };
-    expect(body.paragraphs[0]).toBe("התחייבתם ל5 הצעות בשבוע — ועמדתם בזה.");
+    expect(body.paragraphs[0]).toContain("התחייבת ל5 הצעות בשבוע — ועמדת בזה");
   });
 
   it("התחייב ולא עמד — עובדה, וההתחייבות נשארת", async () => {
@@ -420,9 +424,7 @@ describe("MentorReviewService.generateForUser — המחויבות מהשבוע 
       WEEK,
     );
     const body = created[0]?.["body"] as { paragraphs: string[] };
-    expect(body.paragraphs[0]).toContain(
-      "התחייבתם ל5 הצעות בשבוע. הפעם לא יצא",
-    );
+    expect(body.paragraphs[0]).toContain("התחייבת ל5 הצעות בשבוע. הפעם לא יצא");
   });
 
   it("היעד שהתחייבו אליו הופסק במהלך השבוע — לא נבדק, לא לחיוב ולא לשלילה", async () => {
@@ -445,7 +447,7 @@ describe("MentorReviewService.generateForUser — המחויבות מהשבוע 
       WEEK,
     );
     const body = created[0]?.["body"] as { paragraphs: string[] };
-    expect(body.paragraphs.join(" ")).not.toContain("התחייבתם");
+    expect(body.paragraphs.join(" ")).not.toContain("התחייבת");
   });
 
   it("לא התחייב (או סירב) — אין פסקת מחויבות", async () => {
@@ -468,7 +470,7 @@ describe("MentorReviewService.generateForUser — המחויבות מהשבוע 
       WEEK,
     );
     const body = created[0]?.["body"] as { paragraphs: string[] };
-    expect(body.paragraphs.join(" ")).not.toContain("התחייבתם");
+    expect(body.paragraphs.join(" ")).not.toContain("התחייבת");
   });
 });
 
@@ -523,7 +525,7 @@ describe("MentorReviewService.generateForUser — הזיכרון הארוך", ()
     );
     const body = created[0]?.["body"] as { paragraphs: string[] };
     expect(body.paragraphs.join(" ")).toContain(
-      "מאחור ב-3 מתוך 3 השבועות האחרונים. בפעמים הקודמות אמרתם: „לא היה זמן”, „לא היו התאמות”",
+      "מאחור ב-3 מתוך 3 השבועות האחרונים. בפעמים הקודמות אמרת: „לא היה זמן”, „לא היו התאמות”",
     );
   });
 });

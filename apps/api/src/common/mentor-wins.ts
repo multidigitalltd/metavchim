@@ -34,7 +34,13 @@ export async function recordMentorWin(
     ON CONFLICT (tenant_id, kind, entity_id) DO NOTHING`;
   if (inserted === 0) return false;
 
-  const message = mentorCelebration({ kind: win.kind, title });
+  // השם הפרטי — החגיגה פונה אליו בשמו („דנה, סגרת עסקה!”)
+  const user = await tx.user.findFirst({
+    where: { id: win.userId, tenantId: win.tenantId },
+    select: { name: true },
+  });
+  const firstName = (user?.name ?? "").trim().split(/\s+/u)[0] ?? "";
+  const message = mentorCelebration({ kind: win.kind, title }, firstName);
   await notifyOnce(tx, {
     tenantId: win.tenantId,
     dedupeKey: `mentor_win:${win.kind}:${win.entityId}`,

@@ -67,6 +67,8 @@ export interface MentorReviewDto {
   weekStart: Date;
   mood: MentorMood;
   headline: string;
+  /** הפתיח בשם — `null` בסיכומים ישנים */
+  greeting: string | null;
   paragraphs: string[];
   askNextWeek: string | null;
   reflection: string | null;
@@ -637,6 +639,7 @@ export class MentorService {
               : {
                   mood: dto.mood,
                   headline: dto.headline,
+                  greeting: dto.greeting,
                   paragraphs: dto.paragraphs,
                   askNextWeek: dto.askNextWeek,
                   ask: dto.ask,
@@ -794,6 +797,7 @@ export class MentorService {
       weekStart: row.weekStart,
       mood: row.mood as MentorMood,
       headline: row.headline,
+      greeting: body.greeting ?? null,
       paragraphs: Array.isArray(body.paragraphs) ? body.paragraphs : [],
       askNextWeek: body.askNextWeek ?? null,
       ask: body.ask ?? null,

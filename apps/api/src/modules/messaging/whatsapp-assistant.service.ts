@@ -625,7 +625,7 @@ export class WhatsAppAssistantService {
     const latest = await this.mentor.latestReview();
     if (latest === null || latest.reflection === null) {
       const text =
-        "המנטור לא שאל שאלה השבוע — השאלה מגיעה עם הסיכום השבועי כשיעד נשאר מאחור. אפשר לשאול אותו כל דבר: „מנטור, מה כדאי לי לשפר?”";
+        "המנטור לא שאל אותך שאלה השבוע — השאלה מגיעה עם הסיכום השבועי כשיעד נשאר מאחור. אפשר לשאול אותו כל דבר: „מנטור, מה כדאי לי לשפר?”";
       return { text, speak: text };
     }
     if (chat.pending !== null) {
@@ -664,7 +664,7 @@ export class WhatsAppAssistantService {
     if (pending.awaiting === "mentor_reflection") {
       const answer = text.trim();
       if (answer.length < MENTOR_PLAN_MIN) {
-        const retry = "לא קלטתי תשובה — כתבו לי במילים שלכם מה עצר, או „בטל”.";
+        const retry = "לא קלטתי תשובה — במילים שלך, מה עצר? או „בטל”.";
         // ההצעה נצרכה; מחזירים אותה כדי שההודעה הבאה עדיין תיחשב תשובה
         chat.pending = { ...pending, token: ulid() };
         chat.keepStoredPending = false;
@@ -699,7 +699,7 @@ export class WhatsAppAssistantService {
     const picked = choiceIndex(text, plans.length);
     const plan = (picked === null ? text.trim() : plans[picked]!).slice(0, MENTOR_INTENTION_MAX);
     if (plan.length < MENTOR_PLAN_MIN) {
-      const retry = "תוכנית קצרה מדי — „כש… אז…” במילים שלכם, מספר מההצעות, או „דלג”.";
+      const retry = "תוכנית קצרה מדי — „כש… אז…” במילים שלך, מספר מההצעות, או „דלג”.";
       chat.pending = { ...pending, token: ulid() };
       chat.keepStoredPending = false;
       return { text: retry, speak: retry };

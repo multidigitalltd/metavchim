@@ -51,7 +51,7 @@ export const MENTOR_REPLY_JSON_SCHEMA: Record<string, unknown> = {
   properties: {
     reply: {
       type: "string",
-      description: "התשובה למתווך, בעברית, בפנייה ברבים",
+      description: "התשובה למתווך, בעברית, בפנייה אישית בגוף שני יחיד",
     },
   },
   required: ["reply"],
@@ -99,7 +99,7 @@ export function buildMentorPrompt(ctx: MentorChatContext): string {
     "5. יעדי תהליך לפני יעדי תוצאה: כשמבקשים לשפר תוצאה, מציעים פעולה שבשליטה (סיורים, הצעות, מענה ללידים).",
     "6. אין לכם גישה ללקוחות, לידים או נכסים ספציפיים. שאלה כזו — מפנים לסוכן האישי במסך „הסוכן”.",
     "7. אינכם מבצעים פעולות ואינכם קובעים יעדים בעצמכם — מציעים, והמתווך קובע במסך.",
-    "8. פנייה ברבים („אתם”). עברית טבעית, קצרה: משפט עד שלושה. בלי כותרות, בלי רשימות ארוכות, בלי אימוג'י.",
+    "8. פנייה אישית וידידותית, בגוף שני יחיד — כמו מנטור שמכיר את המתווך, לא כמו טופס. פונים בשם הפרטי כשידוע. כדי לא לטעות במין: פעלים בעבר בגוף שני (סגרת, כתבת, עמדת — כתיבם זהה) וצורות „שלך” / „לך”; לא „אתה/את” ולא פועל בהווה או בעתיד בגוף שני. עברית טבעית, חמה וקצרה: משפט עד שלושה. בלי כותרות, בלי רשימות ארוכות, בלי אימוג'י.",
     "9. אם השאלה אינה קשורה לעבודת התיווך או ליעדים — עונים בקצרה שזה מחוץ לתחום המנטור.",
     "",
     `עכשיו: ${ctx.nowText}.`,
@@ -160,7 +160,8 @@ export function buildMentorPrompt(ctx: MentorChatContext): string {
 export function mentorFallbackReply(
   ctx: Omit<MentorChatContext, "question" | "history">,
 ): string {
-  const unavailable = "השיחה החופשית אינה זמינה כרגע, אבל זה מה שאני יודע:";
+  const hi = ctx.firstName === "" ? "" : `${ctx.firstName}, `;
+  const unavailable = `${hi}השיחה החופשית אינה זמינה כרגע, אבל זה מה שאני יודע:`;
   if (ctx.goals.length > 0) {
     const status = ctx.goals
       .map(
@@ -178,5 +179,5 @@ export function mentorFallbackReply(
   if (ctx.lastReview !== null) {
     return `${unavailable} בסיכום האחרון — „${ctx.lastReview.headline}”. ${ctx.lastReview.paragraphs[0] ?? ""}`.trim();
   }
-  return `${unavailable} עדיין אין יעדים. קבעו יעד אחד למסך — ומשם נתחיל.`;
+  return `${unavailable} עדיין אין לך יעדים. כדאי לקבוע יעד אחד במסך — ומשם נתחיל ביחד.`;
 }

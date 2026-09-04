@@ -1,20 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
   MENTOR_GOAL_METRICS,
+  MENTOR_GOAL_TARGET_MAX,
   type MentorActivity,
-  type MentorGoalProgress,
-  type MentorPastReview,
+  mentorCelebration,
   mentorGoalLabel,
-  mentorGoalStatusLine,
-  mentorStatusMessage,
   mentorGoalProgress,
+  type MentorGoalProgress,
+  mentorGoalStatusLine,
   mentorMidweekNudge,
+  type MentorPastReview,
   mentorPatternLine,
   mentorPatterns,
   mentorPeriodRange,
   mentorQuantity,
-  MENTOR_GOAL_TARGET_MAX,
   mentorReviewTitle,
+  mentorStatusMessage,
   mentorWeeklyReview,
   obstaclePlanSuggestions,
   suggestProcessGoals,
@@ -253,7 +254,7 @@ describe("mentorWeeklyReview — מה המנטור אומר במוצאי שבת"
     });
     expect(review?.mood).toBe("encourage");
     expect(review?.headline).toContain("שבוע שקט");
-    expect(review?.paragraphs[0]).toContain("ביקשתם מעצמכם");
+    expect(review?.paragraphs[0]).toContain("ביקשת מעצמך");
     expect(review?.askNextWeek).toContain("5 הצעות בשבוע");
     // בלי מילת שיפוט
     expect(review?.paragraphs.join(" ")).not.toMatch(/מעט|רק|חבל/);
@@ -267,9 +268,9 @@ describe("mentorWeeklyReview — מה המנטור אומר במוצאי שבת"
       goals: [goal({ pace: "behind", actual: 2, ratio: 0.4, remaining: 3 })],
     });
     expect(review?.mood).toBe("celebrate");
-    expect(review?.paragraphs[0]).toContain("סגרתם את הרצל 12, רעננה");
+    expect(review?.paragraphs[0]).toContain("סגרת את הרצל 12, רעננה");
     expect(review?.paragraphs[0]).toContain("כל הכבוד");
-    expect(review?.paragraphs[1]).toContain("חסרו 3 הצעות ליעד שקבעתם");
+    expect(review?.paragraphs[1]).toContain("חסרו 3 הצעות ליעד שקבעת לעצמך");
     expect(mentorReviewTitle(review!)).toMatch(/^🎉 /);
   });
 
@@ -284,7 +285,7 @@ describe("mentorWeeklyReview — מה המנטור אומר במוצאי שבת"
       goals: [],
     });
     expect(review?.paragraphs[0]).toBe(
-      "סגרתם את הרצל 12, וחתמתם בלעדיות על ויצמן 3. שבוע כזה לא קורה במקרה.",
+      "סגרת את הרצל 12, וחתמת בלעדיות על ויצמן 3. שבוע כזה לא קורה במקרה — זה שלך.",
     );
   });
 
@@ -297,7 +298,7 @@ describe("mentorWeeklyReview — מה המנטור אומר במוצאי שבת"
       streakWeeks: 3,
     });
     expect(review?.mood).toBe("celebrate");
-    expect(review?.headline).toBe("3 שבועות רצופים שכל היעדים מושגים");
+    expect(review?.headline).toBe("3 שבועות רצופים שכל היעדים שלך מושגים");
     expect(review?.askNextWeek).toContain("להעלות");
   });
 
@@ -330,7 +331,7 @@ describe("mentorWeeklyReview — מה המנטור אומר במוצאי שבת"
       goals: [],
     });
     expect(review?.paragraphs).toEqual([]);
-    expect(review?.headline).toBe("שבוע של עבודה, בקצב");
+    expect(review?.headline).toBe("שבוע של עבודה, בקצב שלך");
   });
 
   it("הבקשה לשבוע הבא מתמקדת ביעד שבפיגור, לא בראשון ברשימה", () => {
@@ -369,7 +370,7 @@ describe("suggestProcessGoals — מתוצאה לתהליך, לפי המשפך �
     ]);
     expect(plan.every((p) => p.period === "week")).toBe(true);
     expect(plan[3]?.reason).toBe(
-      "כל 5 סיורים ⟵ עסקה אחת — לפי ממוצע מקובל, עד שתהיה היסטוריה משלכם",
+      "כל 5 סיורים ⟵ עסקה אחת — לפי ממוצע מקובל, עד שתהיה לך היסטוריה משלך",
     );
   });
 
@@ -429,7 +430,7 @@ describe("suggestProcessGoals — מתוצאה לתהליך, לפי המשפך �
       ["viewings_held", 3],
     ]);
     expect(plan[3]?.reason).toBe(
-      "כל 3 סיורים ⟵ עסקה אחת — לפי 13 השבועות האחרונים שלכם",
+      "כל 3 סיורים ⟵ עסקה אחת — לפי 13 השבועות האחרונים שלך",
     );
   });
 
@@ -469,9 +470,7 @@ describe("mentorWeeklyReview — שיטת המאמן: „למה”, כוונת �
       activity: { ...quiet, offers_sent: 2 },
       goals: [behind],
     });
-    expect(review?.paragraphs[0]).toContain(
-      "כתבתם שזה בשביל: הדירה של הילדים.",
-    );
+    expect(review?.paragraphs[0]).toContain("כתבת שזה בשביל: הדירה של הילדים.");
 
     const done = mentorWeeklyReview({
       weekStart: WEEK_START,
@@ -479,7 +478,7 @@ describe("mentorWeeklyReview — שיטת המאמן: „למה”, כוונת �
       activity: { ...quiet, offers_sent: 5 },
       goals: [goal({ pace: "done", why: "הדירה של הילדים" })],
     });
-    expect(done?.paragraphs[0]).not.toContain("כתבתם");
+    expect(done?.paragraphs[0]).not.toContain("כתבת");
   });
 
   it("כוונת היישום של המתווך חוזרת בבקשה לשבוע הבא — התוכנית שלו, לא תוכנית חדשה", () => {
@@ -498,7 +497,7 @@ describe("mentorWeeklyReview — שיטת המאמן: „למה”, כוונת �
       ],
     });
     expect(review?.askNextWeek).toContain(
-      "התוכנית שכתבתם: „כל בוקר ב-11:00 שולח הצעות”.",
+      "התוכנית שכתבת: „כל בוקר ב-11:00 שולח הצעות”.",
     );
   });
 
@@ -619,7 +618,7 @@ describe("mentorMidweekNudge — רביעי, לא מוצאי שבת", () => {
     expect(nudge?.title).toBe("🧭 אמצע השבוע — 4 סיורים בשבוע");
     expect(nudge?.body).toContain("עדיין לא התחיל, ונשאר יום עבודה אחד");
     expect(nudge?.body).toContain(
-      "התוכנית שכתבתם: „כל יום ב-16:00 מתקשר לקבוע סיור”",
+      "התוכנית שכתבת: „כל יום ב-16:00 מתקשר לקבוע סיור”",
     );
     expect(nudge?.body).toContain("בשביל: הדירה של הילדים");
     expect(nudge?.body).not.toMatch(/מעט|רק|חבל/);
@@ -651,7 +650,7 @@ describe("mentorMidweekNudge — רביעי, לא מוצאי שבת", () => {
     expect(
       mentorMidweekNudge(behind, new Date("2026-09-11T06:00:00.000Z"))?.body,
     ).toContain("והשבוע כמעט נגמר");
-    expect(mentorMidweekNudge(behind, wednesday)?.body).toBe(
+    expect(mentorMidweekNudge(behind, wednesday)?.body).toContain(
       "5 הצעות בשבוע: הצעה אחת עד עכשיו, עוד 4 הצעות ליעד — ונשאר יום עבודה אחד.",
     );
   });
@@ -704,7 +703,9 @@ describe("mentorWeeklyReview — מחויבות: מה שאמרתם שתעשו ה
       },
     });
     expect(review?.mood).toBe("celebrate");
-    expect(review?.paragraphs[0]).toBe("התחייבתם ל5 הצעות בשבוע — ועמדתם בזה.");
+    expect(review?.paragraphs[0]).toContain(
+      "התחייבת ל5 הצעות בשבוע — ועמדת בזה",
+    );
     expect(review?.paragraphs[1]).toContain("הרצל 12");
   });
 
@@ -732,7 +733,7 @@ describe("mentorWeeklyReview — מחויבות: מה שאמרתם שתעשו ה
       },
     });
     expect(review?.mood).toBe("celebrate");
-    expect(review?.headline).toBe("עמדתם במה שהתחייבתם");
+    expect(review?.headline).toBe("עמדת במה שהתחייבת");
   });
 
   it("הבקשה לשבוע הבא היא על יעד שבועי בלבד — יעד חודשי מאחור אינו בקשה", () => {
@@ -787,7 +788,7 @@ describe("mentorWeeklyReview — מחויבות: מה שאמרתם שתעשו ה
     });
     expect(review?.mood).toBe("encourage");
     expect(review?.paragraphs[0]).toBe(
-      "התחייבתם ל5 הצעות בשבוע. הפעם לא יצא, וההתחייבות עדיין שלכם.",
+      "התחייבת ל5 הצעות בשבוע. הפעם לא יצא, וההתחייבות עדיין שלך — נמשיך ביחד.",
     );
     expect(review?.paragraphs.join(" ")).not.toMatch(/מעט|רק|חבל|אכזב/);
   });
@@ -876,7 +877,7 @@ describe("mentorPatterns — הזיכרון הארוך של המנטור", () =>
       },
     ]);
     expect(mentorPatternLine(patterns[0]!)).toBe(
-      "הצעות שנשלחו: מאחור ב-3 מתוך 4 השבועות האחרונים. בפעמים הקודמות אמרתם: „לא היה זמן”, „לא היו התאמות”. והתוכנית שקבעתם אז: „כשלא נשאר זמן — אז ההצעות ראשונות”.",
+      "הצעות שנשלחו: מאחור ב-3 מתוך 4 השבועות האחרונים. בפעמים הקודמות אמרת: „לא היה זמן”, „לא היו התאמות”. והתוכנית שקבעת אז: „כשלא נשאר זמן — אז ההצעות ראשונות”.",
     );
   });
 
@@ -896,7 +897,7 @@ describe("mentorPatterns — הזיכרון הארוך של המנטור", () =>
       },
     ]);
     expect(mentorPatternLine(patterns[0]!)).toContain(
-      "זה מפנה, ואתם עשיתם אותו",
+      "זה מפנה — ועשית אותו בעצמך",
     );
   });
 
@@ -947,7 +948,7 @@ describe("mentorPatterns — הזיכרון הארוך של המנטור", () =>
     });
     expect(
       mentorPatternLine({ kind: "commitment_record", accepted: 3, kept: 2 }),
-    ).toBe("מחויבויות: עמדתם ב-2 מתוך 3 שהתחייבתם אליהן בחודשיים האחרונים.");
+    ).toBe("מחויבויות: עמדת ב-2 מתוך 3 שהתחייבת אליהן בחודשיים האחרונים.");
   });
 });
 
@@ -969,7 +970,7 @@ describe("mentorWeeklyReview — הזיכרון בסיכום: משפט אחד, �
       patterns: [recurring],
     });
     expect(review?.paragraphs.join(" ")).toContain(
-      "מאחור ב-3 מתוך 5 השבועות האחרונים. בפעמים הקודמות אמרתם: „לא היה זמן”",
+      "מאחור ב-3 מתוך 5 השבועות האחרונים. בפעמים הקודמות אמרת: „לא היה זמן”",
     );
   });
   it("השבוע בקצב — הדפוס הישן לא נאמר", () => {
@@ -1001,7 +1002,9 @@ describe("mentorStatusMessage — „מה המצב ביעדים שלי?” בו�
       wins: [{ kind: "deal_closed", title: "דירת 4 חדרים בהרצל 12" }],
       latestHeadline: "שבוע עם תוצאה",
     });
-    expect(status.message).toBe("1 מתוך 2 יעדים הושגו עד עכשיו.");
+    expect(status.message).toBe(
+      "1 מתוך 2 היעדים שלך הושגו עד עכשיו — ממשיכים.",
+    );
     expect(status.lines[0]).toBe("• 3 מתוך 5 הצעות בשבוע — בקצב");
     expect(status.lines[1]).toBe("• 2 מתוך 2 סיורים בשבוע — הושג");
     expect(status.lines[2]).toContain("דירת 4 חדרים בהרצל 12");
@@ -1020,11 +1023,108 @@ describe("mentorStatusMessage — „מה המצב ביעדים שלי?” בו�
         wins: [],
         latestHeadline: null,
       }).message,
-    ).toBe("היעד הושג — כל הכבוד.");
+    ).toBe("היעד שלך הושג — כל הכבוד לך!");
     expect(
       mentorGoalStatusLine(
         goal({ pace: "behind", actual: 1, ratio: 0.2, remaining: 4 }),
       ),
     ).toBe("1 מתוך 5 הצעות בשבוע — מאחור");
+  });
+});
+
+describe("הקול של המנטור — אישי, בגוף שני יחיד, בשם", () => {
+  const PLURAL = /אתם|שלכם|לכם|כתבו|לחצו|קבעו|תם[.,!?:]|תם$/u;
+
+  it("עם שם פרטי — פתיח אישי; בלי שם — אין פתיח", () => {
+    const named = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [{ kind: "deal_closed", title: "הרצל 12" }],
+      activity: { ...quiet, deals_closed: 1 },
+      goals: [goal({ pace: "on_track", actual: 3, ratio: 0.6, remaining: 2 })],
+      firstName: "דנה",
+    });
+    expect(named?.greeting).toBe("היי דנה, איזה שבוע היה לך.");
+    const anonymous = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [],
+      activity: { ...quiet, offers_sent: 1 },
+      goals: [goal({ pace: "behind", actual: 1, ratio: 0.2, remaining: 4 })],
+    });
+    expect(anonymous?.greeting).toBeNull();
+    expect(anonymous?.headline).toBe("לא הגעת ליעד השבוע — והוא עדיין שלך");
+  });
+
+  it("שום ניסוח של המנטור אינו ברבים — סיכום, חגיגה, דחיפה, זיכרון ומצב", () => {
+    const review = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [{ kind: "exclusivity_signed", title: "הרצל 12" }],
+      activity: { ...quiet, offers_sent: 2 },
+      previousActivity: { ...quiet, offers_sent: 4 },
+      goals: [
+        goal({
+          pace: "behind",
+          actual: 2,
+          ratio: 0.4,
+          remaining: 3,
+          why: "הדירה",
+          intention: "בבוקר",
+        }),
+        goal({
+          metric: "viewings_held",
+          target: 2,
+          pace: "done",
+          actual: 2,
+          ratio: 1,
+          remaining: 0,
+        }),
+      ],
+      previousCommitment: {
+        metric: "offers_sent",
+        period: "week",
+        target: 5,
+        kept: false,
+      },
+      patterns: [
+        {
+          kind: "recurring_behind",
+          metric: "offers_sent",
+          weeksBehind: 3,
+          weeksWithGoal: 5,
+          answers: ["לא היה זמן"],
+          plans: ["בבוקר"],
+        },
+      ],
+      firstName: "דנה",
+    });
+    const texts = [
+      review?.greeting ?? "",
+      review?.headline ?? "",
+      ...(review?.paragraphs ?? []),
+      review?.askNextWeek ?? "",
+      mentorCelebration({ kind: "deal_closed", title: "הרצל 12" }, "דנה").body,
+      mentorMidweekNudge(
+        [
+          goal({
+            pace: "behind",
+            actual: 1,
+            ratio: 0.2,
+            remaining: 4,
+            expected: 3,
+            elapsed: 0.6,
+            why: "הדירה",
+            intention: "בבוקר",
+          }),
+        ],
+        new Date("2026-09-09T10:00:00.000Z"),
+        "דנה",
+      )?.body ?? "",
+      mentorPatternLine({ kind: "commitment_record", accepted: 3, kept: 2 }),
+      mentorStatusMessage({ goals: [], wins: [], latestHeadline: null })
+        .message,
+    ];
+    for (const text of texts) expect(text, text).not.toMatch(PLURAL);
+    expect(
+      mentorCelebration({ kind: "deal_closed", title: "הרצל 12" }, "דנה").body,
+    ).toMatch(/^דנה, /u);
   });
 });

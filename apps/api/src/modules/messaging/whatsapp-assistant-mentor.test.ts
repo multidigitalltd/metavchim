@@ -125,7 +125,7 @@ describe("המנטור בוואטסאפ — „לענות למנטור” ⟵ ת
   it("בלי שאלה השבוע — הסבר, ולא מצב ממתין", async () => {
     const { say, pending } = harness({ reflection: null });
     const reply = await say("לענות למנטור");
-    expect(reply.text).toContain("לא שאל שאלה השבוע");
+    expect(reply.text).toContain("לא שאל אותך שאלה השבוע");
     expect(pending()).toBeNull();
   });
 
