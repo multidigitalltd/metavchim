@@ -1038,27 +1038,32 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           {lead.status !== "converted" && canEditPeople ? (
             <button
               type="button"
-              className="mv-btn-action"
+              className="mv-net-act mv-net-act--solid"
               onClick={() => selectTab("next")}
             >
               <IconHandshake s={15} /> המשך טיפול
             </button>
           ) : null}
+          {/*
+            ‏וואטסאפ בירוק רך ולא לבן כמו השאר: זה הערוץ שמתווך פותח
+            בו בפועל, ובשורה של שישה כפתורים זהים הוא היה מספר שלוש
+            מבין שישה.
+          */}
           <a
             href={waMeUrl(lead.contact.phone)}
             target="_blank"
             rel="noreferrer"
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            className="mv-net-act mv-net-act--go"
+            style={{ textDecoration: "none" }}
           >
-            <IconChat s={14} /> וואטסאפ
+            <IconChat s={15} /> וואטסאפ
           </a>
           <a
             href={`tel:${lead.contact.phone}`}
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            className="mv-net-act"
+            style={{ textDecoration: "none" }}
           >
-            <IconPhone s={14} /> חייג
+            <IconPhone s={15} /> חייג
           </a>
           <ClickToDial
             contactId={lead.contact.id}
@@ -1068,18 +1073,18 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           {lead.contact.email ? (
             <a
               href={`mailto:${lead.contact.email}`}
-              className="mv-btn-plain"
-              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+              className="mv-net-act"
+              style={{ textDecoration: "none" }}
             >
-              <IconMail s={14} /> אימייל
+              <IconMail s={15} /> אימייל
             </a>
           ) : null}
           <Link
             href={`/calendar/new?leadId=${lead.id}`}
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            className="mv-net-act"
+            style={{ textDecoration: "none" }}
           >
-            <IconCalendar s={14} /> קבע פגישה
+            <IconCalendar s={15} /> קבע פגישה
           </Link>
         </div>
 
@@ -1089,9 +1094,14 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         הדבר שהכי קשה לראות. עכשיו היא בתוך כרטיס הזהות עצמו,
         מתחת לפעולות: אי אפשר להתחיל לטפל בליד בלי לעבור דרכה.
       */}
+      {/*
+        ‏גוון אזהרה ולא שגיאה: „דורש טיפול אנושי” אינו כשל אלא מצב
+        שממתין למישהו. אדום שמור למה שנשבר, וכשהוא נשרף על כל ליד
+        חוזר הוא מפסיק להיקרא במקום שבו הוא באמת נחוץ.
+      */}
       {lead.requiresHuman ? (
         <div className="mt-4">
-          <Notice tone="danger">
+          <Notice tone="warning">
             ● דורש טיפול אנושי
             {lead.requiresHumanReason ? `: ${lead.requiresHumanReason}` : ""}
           </Notice>
