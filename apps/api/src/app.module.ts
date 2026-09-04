@@ -24,6 +24,7 @@ import { MapsModule } from "./modules/maps/maps.module";
 import { ContactsModule } from "./modules/contacts/contacts.module";
 import { ExportModule } from "./modules/export/export.module";
 import { FeatureSignupsModule } from "./modules/feature-signups/feature-signups.module";
+import { MentorModule } from "./modules/mentor/mentor.module";
 import { HealthModule } from "./modules/health/health.module";
 import { IntakeModule } from "./modules/intake/intake.module";
 import { ImportModule } from "./modules/import/import.module";
@@ -98,6 +99,7 @@ import { AgentModule } from "./modules/agent/agent.module";
     TasksModule,
     ExportModule,
     FeatureSignupsModule,
+    MentorModule,
     IntakeModule,
   ],
   providers: [

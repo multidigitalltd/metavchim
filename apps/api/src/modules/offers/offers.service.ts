@@ -1,4 +1,5 @@
 import { ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
+import { recordMentorWin } from "../../common/mentor-wins";
 import type { Property } from "@prisma/client";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
@@ -491,6 +492,23 @@ export class OffersService {
               payload: { offerId: offer.id, tenantId: offer.tenantId },
             },
           });
+          // הצלחה של המנטור — לבעל הקונה, כמו שיוך ההצעה בדוח הסוכנים
+          const match = await tx.match.findUnique({ where: { id: offer.matchId }, select: { buyerId: true } });
+          const buyer =
+            match === null
+              ? null
+              : await tx.buyer.findUnique({ where: { id: match.buyerId }, select: { ownerUserId: true } });
+          if (buyer?.ownerUserId) {
+            const presentation = offer.presentation as { title?: string };
+            await recordMentorWin(tx, {
+              tenantId: offer.tenantId,
+              userId: buyer.ownerUserId,
+              kind: "offer_interested",
+              entityType: "offer",
+              entityId: offer.id,
+              title: presentation.title ?? "נכס",
+            });
+          }
         }
       }
     });

@@ -22,6 +22,7 @@ import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { EmailInboxService } from "../email-inbox/email-inbox.service";
 import { MessagingService } from "../messaging/messaging.service";
+import { recordMentorWin } from "../../common/mentor-wins";
 
 /**
  * הסכמים לחתימה דיגיטלית.
@@ -652,6 +653,27 @@ export class AgreementsService {
         },
       });
       if (updated.count === 0) throw new BadRequestException("ההסכם כבר טופל");
+
+      // בלעדיות שנחתמה — הצלחה של מי שהוציא את ההסכם (docs/13 §2)
+      if (row.kind === "exclusivity" && row.createdBy !== null) {
+        const property =
+          row.propertyId === null
+            ? null
+            : await tx.property.findFirst({
+                where: { id: row.propertyId, tenantId: row.tenantId },
+                select: { marketingTitle: true, street: true, city: true },
+              });
+        await recordMentorWin(tx, {
+          tenantId: row.tenantId,
+          userId: row.createdBy,
+          kind: "exclusivity_signed",
+          entityType: row.propertyId === null ? "mentor" : "property",
+          entityId: row.propertyId ?? row.id,
+          title:
+            property?.marketingTitle ??
+            ([property?.street, property?.city].filter(Boolean).join(", ") || "הסכם בלעדיות"),
+        });
+      }
 
       return { signedAt };
     });
