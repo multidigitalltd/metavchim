@@ -34,6 +34,12 @@ const SuggestionsQuerySchema = z
   })
   .strict();
 
+const CommitmentSchema = z
+  .object({
+    decision: z.enum(["accepted", "declined"]),
+    note: z.string().trim().max(300).optional(),
+  })
+  .strict();
 const ReflectionSchema = z
   .object({ answer: z.string().trim().min(1).max(1000) })
   .strict();
@@ -99,6 +105,16 @@ export class MentorController {
     body: z.infer<typeof ReflectionSchema>,
   ): Promise<MentorReviewDto> {
     return this.mentor.answerReflection(id, body.answer);
+  }
+
+  @Post("reviews/:id/commitment")
+  @AnyAuthenticated()
+  commitment(
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(CommitmentSchema))
+    body: z.infer<typeof CommitmentSchema>,
+  ): Promise<MentorReviewDto> {
+    return this.mentor.commit(id, body.decision, body.note);
   }
 
   @Get("messages")

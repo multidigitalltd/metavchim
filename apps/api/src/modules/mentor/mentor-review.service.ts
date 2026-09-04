@@ -346,6 +346,35 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       ? 1 + (await this.previousStreak(tx, tenantId, userId, weekStart))
       : 0;
 
+    /*
+     * המחויבות מהסיכום הקודם — נבדקת מול היעד **של השבוע הזה** על
+     * אותו מדד ותקופה. יעד שהופסק בינתיים אינו נבדק: אי אפשר לעמוד
+     * במה שכבר לא קיים, ואי אפשר גם להיכשל בו.
+     */
+    const previousReview = await tx.mentorReview.findFirst({
+      where: { tenantId, userId, weekStart: prevStart },
+      select: { commitment: true, body: true },
+    });
+    const previousAsk =
+      (previousReview?.body as Partial<MentorReviewBody> | null)?.ask ?? null;
+    const committedGoal =
+      previousReview?.commitment === "accepted" && previousAsk
+        ? goals.find(
+            (g) =>
+              g.metric === previousAsk.metric &&
+              g.period === previousAsk.period,
+          )
+        : undefined;
+    const previousCommitment =
+      previousAsk && committedGoal !== undefined
+        ? {
+            metric: previousAsk.metric,
+            period: previousAsk.period,
+            target: previousAsk.target,
+            kept: committedGoal.actual >= previousAsk.target,
+          }
+        : undefined;
+
     const signals: MentorWeekSignals = {
       weekStart,
       wins,
@@ -353,6 +382,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       ...(previousActivity === undefined ? {} : { previousActivity }),
       goals,
       streakWeeks,
+      ...(previousCommitment === undefined ? {} : { previousCommitment }),
     };
     const review = mentorWeeklyReview(signals);
     if (review === null) return false;

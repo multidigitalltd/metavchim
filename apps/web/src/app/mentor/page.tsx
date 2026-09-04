@@ -65,6 +65,14 @@ interface ReviewDto {
   headline: string;
   paragraphs: string[];
   askNextWeek: string | null;
+  ask: {
+    metric: MentorGoalMetric;
+    period: MentorGoalPeriod;
+    target: number;
+  } | null;
+  commitment: "accepted" | "declined" | null;
+  committedAt: string | null;
+  commitmentNote: string | null;
   reflection: string | null;
   reflectionAnswer: string | null;
   allGoalsMet: boolean;
@@ -946,6 +954,9 @@ function ReviewCard({
           {review.askNextWeek}
         </p>
       ) : null}
+      {review.ask ? (
+        <Commitment review={review} onChanged={onAnswered} compact={compact} />
+      ) : null}
 
       {review.reflection ? (
         <div
@@ -996,6 +1007,117 @@ function ReviewCard({
         </div>
       ) : null}
     </article>
+  );
+}
+
+/**
+ * המחויבות — „מתחייב” או „לא השבוע”. מנטורים חיים על התשובה הזאת:
+ * בקשה שנאמרה ונעלמה אינה עסקה בין שניים. אפשר לשנות את הדעת עד
+ * הסיכום הבא, ולכן הכפתורים נשארים גם אחרי הבחירה.
+ */
+function Commitment({
+  review,
+  onChanged,
+  compact,
+}: {
+  review: ReviewDto;
+  onChanged: () => void;
+  compact: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+
+  async function decide(decision: "accepted" | "declined"): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPost(
+        `/mentor/reviews/${encodeURIComponent(review.id)}/commitment`,
+        {
+          decision,
+          ...(note.trim() === "" ? {} : { note: note.trim() }),
+        },
+      );
+      setNote("");
+      onChanged();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "שמירת ההתחייבות נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (compact || review.commitment !== null) {
+    return (
+      <p
+        className="m-0 mt-2 text-[length:var(--type-body-sm)] font-bold"
+        style={{
+          color:
+            review.commitment === "accepted"
+              ? "var(--color-success)"
+              : "var(--color-text-muted)",
+        }}
+      >
+        {review.commitment === "accepted"
+          ? "התחייבתם ✔"
+          : review.commitment === "declined"
+            ? "לא השבוע"
+            : "לא ענו"}
+        {review.commitmentNote ? ` — „${review.commitmentNote}”` : ""}
+        {!compact ? (
+          <button
+            type="button"
+            className="mv-btn-plain mx-2"
+            disabled={busy}
+            onClick={() =>
+              void decide(
+                review.commitment === "accepted" ? "declined" : "accepted",
+              )
+            }
+          >
+            לשנות
+          </button>
+        ) : null}
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="mv-btn-action"
+          disabled={busy}
+          onClick={() => void decide("accepted")}
+        >
+          מתחייב 💪
+        </button>
+        <button
+          type="button"
+          className="mv-btn-plain"
+          disabled={busy}
+          onClick={() => void decide("declined")}
+        >
+          לא השבוע
+        </button>
+        <input
+          className="mv-control"
+          style={{ flex: "1 1 200px" }}
+          maxLength={300}
+          value={note}
+          placeholder="מילה, אם רוצים (למשל: רק 4 השבוע, יש מילואים)"
+          aria-label="הערה להתחייבות"
+          onChange={(e) => setNote(e.target.value)}
+        />
+      </div>
+      {error ? (
+        <div className="mt-2">
+          <Notice tone="danger">{error}</Notice>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

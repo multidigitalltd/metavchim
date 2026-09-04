@@ -646,3 +646,75 @@ describe("mentorMidweekNudge — רביעי, לא מוצאי שבת", () => {
     );
   });
 });
+
+describe("mentorWeeklyReview — מחויבות: מה שאמרתם שתעשו הוא הדבר הראשון שבודקים", () => {
+  it("הבקשה נושאת את היעד שאפשר להתחייב אליו", () => {
+    const review = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [],
+      activity: { ...quiet, offers_sent: 2 },
+      goals: [goal({ pace: "behind", actual: 2, ratio: 0.4, remaining: 3 })],
+    });
+    expect(review?.ask).toEqual({
+      metric: "offers_sent",
+      period: "week",
+      target: 5,
+    });
+    expect(
+      mentorWeeklyReview({
+        weekStart: WEEK_START,
+        wins: [],
+        activity: { ...quiet, offers_sent: 1 },
+        goals: [],
+      })?.ask,
+    ).toBeNull();
+  });
+
+  it("עמידה במחויבות — נאמרת ראשונה, בשמה, והטון חוגג גם בלי עסקה", () => {
+    const review = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [],
+      activity: { ...quiet, offers_sent: 5 },
+      goals: [
+        goal({ pace: "done", actual: 5 }),
+        goal({
+          metric: "viewings_held",
+          target: 3,
+          pace: "behind",
+          actual: 1,
+          ratio: 1 / 3,
+          remaining: 2,
+        }),
+      ],
+      previousCommitment: {
+        metric: "offers_sent",
+        period: "week",
+        target: 5,
+        kept: true,
+      },
+    });
+    expect(review?.mood).toBe("celebrate");
+    expect(review?.headline).toBe("עמדתם במה שהתחייבתם");
+    expect(review?.paragraphs[0]).toBe("התחייבתם ל5 הצעות בשבוע — ועמדתם בזה.");
+  });
+
+  it("אי-עמידה — עובדה, וההתחייבות נשארת של המתווך; בלי נזיפה", () => {
+    const review = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [],
+      activity: { ...quiet, offers_sent: 2 },
+      goals: [goal({ pace: "behind", actual: 2, ratio: 0.4, remaining: 3 })],
+      previousCommitment: {
+        metric: "offers_sent",
+        period: "week",
+        target: 5,
+        kept: false,
+      },
+    });
+    expect(review?.mood).toBe("encourage");
+    expect(review?.paragraphs[0]).toBe(
+      "התחייבתם ל5 הצעות בשבוע. הפעם לא יצא, וההתחייבות עדיין שלכם.",
+    );
+    expect(review?.paragraphs.join(" ")).not.toMatch(/מעט|רק|חבל|אכזב/);
+  });
+});
