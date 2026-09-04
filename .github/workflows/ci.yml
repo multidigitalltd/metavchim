@@ -206,7 +206,14 @@ jobs:
       - name: Action permissions come from effective capabilities
         run: pnpm verify:caps
 
+      # ‏שירות ה-audit של npm איטי לעיתים (בקשה ריקה ענתה אחרי 42
+      # שניות), וברירת המחדל של pnpm — 60 שניות ושני ניסיונות חוזרים —
+      # הפילה ריצה ירוקה ב-ERR_SOCKET_TIMEOUT בלי שום שינוי בתלויות.
+      # תקרה ארוכה וניסיון נוסף: כשל אמיתי עדיין נכשל, איטיות לא.
       - name: Audit dependencies (fail on high)
+        env:
+          npm_config_fetch_timeout: "300000"
+          npm_config_fetch_retries: "4"
         run: pnpm audit --audit-level high
 
   # ה-Playbook שמקים את השרת — נטען ומתפרש.
