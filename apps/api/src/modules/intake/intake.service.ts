@@ -15,6 +15,7 @@ import {
   describeIntakeChanges,
   intakeExpiryFrom,
   intakeInactiveReason,
+  intakeInviteEmail,
   intakeInviteMessage,
   intakeOpenRejectionReason,
   intakeSellerRejectionReason,
@@ -39,9 +40,13 @@ import { lockContact, lockIntakeRequest } from "../../common/locks";
 import { leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
+import { EmailRejectedError, EmailService } from "../../core/email.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { BuyersService } from "../buyers/buyers.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { EmailInboxService } from "../email-inbox/email-inbox.service";
+import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import { TenantLogoService } from "../../core/tenant-logo.service";
 import { PropertiesService } from "../properties/properties.service";
 
@@ -128,6 +133,81 @@ export interface IntakeRequestDto {
 }
 
 /**
+ * ‏הרשימה **ומי יקבל אותה** — ולא מערך שורות בלבד.
+ *
+ * ## ‏למה הנמען יושב כאן ולא על השורה
+ *
+ * ‏המסך צריך לדעת אם ללקוח יש אימייל **לפני** שהוא שולח, כדי לומר
+ * „אין מייל ללקוח” במקום להציע כפתור שייכשל. על השורה זה היה חוזר
+ * זהה בכל בקשה של אותו כרטיס — ובכרטיס שעדיין לא נשלחה בו אף
+ * בקשה, כלומר בדיוק במצב הנפוץ, לא היה מגיע כלל.
+ *
+ * ## ‏למה הכתובת עצמה ולא `hasEmail`
+ *
+ * ‏חלון האישור אומר לאן זה הולך. „אתם בטוחים?” בלי הכתובת מבקש
+ * אישור על מה שלא הוצג, וסוכן שלחץ אינו יכול לדעת שהכתובת
+ * שבכרטיס שגויה. הסוכן רשאי לראות את איש הקשר של הכרטיס ממילא.
+ */
+export interface IntakeListDto {
+  recipient: {
+    name: string;
+    email: string | null;
+    /**
+     * ‎**איך וואטסאפ יישלח, לא רק אם.**
+     *
+     * ‏`office` — למשרד יש חיבור וואטסאפ ביזנס פעיל, וההודעה תצא
+     * ממנו כמו כל הודעה אחרת של המשרד. `manual` — אין חיבור (או
+     * שהמסלול אינו כולל אותו), ולכן וואטסאפ **נפתח** עם הנוסח מוכן
+     * והסוכן לוחץ „שלח”.
+     *
+     * ‏המסך צריך לדעת מראש כי שתי ההבטחות שונות, וגם כי פתיחת חלון
+     * חייבת לקרות מיד אחרי לחיצה — אחרי שתי המתנות הדפדפן חוסם.
+     */
+    whatsapp: "office" | "manual";
+  };
+  rows: IntakeRequestDto[];
+}
+
+/**
+ * ‏מה שהשליחה מדווחת בחזרה — **תוצאה לכל ערוץ בנפרד.**
+ *
+ * ‏לא חריגה אחת לשניהם: מייל שנכשל אינו מבטל וואטסאפ שיצא, ושתיקה
+ * על ערוץ שנכשל היא בדיוק ה„✓ נשלח” שאסור. ערוץ שלא התבקש הוא
+ * `null` — „לא ניסינו” אינו „הצליח” ואינו „נכשל”.
+ */
+export interface IntakeSentDto {
+  url: string;
+  email: ChannelResult | null;
+  whatsapp: ChannelResult | null;
+}
+
+/**
+ * ‏`waUrl` מוחזר רק בכישלון וואטסאפ, ובכוונה: זו הדרך החוצה. חלון
+ * 24 השעות של Meta נסגר, ההודעה נדחתה — והסוכן עדיין יכול לשלוח
+ * אותה בעצמו בלחיצה על קישור, במקום לקבל „נכשל” ולא כלום.
+ */
+export type ChannelResult =
+  | { ok: true; to: string }
+  | {
+      ok: false;
+      reason: string;
+      waUrl?: string | null;
+      /**
+       * ‎**לא ידוע אם יצא — ולא „לא יצא”.**
+       *
+       * ‏הספק לא ענה, או ענה 5xx אחרי שכבר קלט את ההודעה. שני
+       * המצבים נראים זהים מבחוץ, ולכן `EmailService` זורק בשניהם.
+       * אבל „נכשל, נסו שוב” על מצב כזה מזמין שליחה שנייה של אותו
+       * מייל ללקוח, ואין כאן מפתח ייחודיות שימנע כפילות (ביקורת
+       * Codex). לכן זה נאמר במפורש, והמסך אינו מציע לנסות שוב.
+       */
+      ambiguous?: boolean;
+    };
+
+/** ‏הערוצים שאפשר לבקש. */
+export type IntakeChannel = "email" | "whatsapp";
+
+/**
  * המיזוג נדחה בסכימה — ולכן הטרנזקציה של הכרטיס מתבטלת.
  *
  * מחלקה ולא דגל, כי הסימון צריך לצאת מתוך פונקציה שרצה בתוך
@@ -191,7 +271,26 @@ export class IntakeService {
     private readonly buyers: BuyersService,
     private readonly properties: PropertiesService,
     private readonly logo: TenantLogoService,
+    private readonly email: EmailService,
+    private readonly whatsapp: WhatsAppSendService,
+    private readonly plans: PlanCatalogService,
+    private readonly emailInbox: EmailInboxService,
   ) {}
+
+  /**
+   * ‏האם ההודעה תצא מהמשרד או תיפתח בדפדפן.
+   *
+   * ‏שני התנאים ולא אחד: חיבור פעיל **וגם** מסלול שכולל וואטסאפ.
+   * מסך שאומר „יישלח מהמשרד” על משרד שירד ממסלול מבטיח מה שהשליחה
+   * תדחה מיד אחר כך.
+   */
+  private async officeSendsWhatsApp(tenantId: string): Promise<boolean> {
+    const [connected, allowed] = await Promise.all([
+      this.whatsapp.hasTenantConnection(tenantId),
+      this.plans.tenantHasFeature(tenantId, "whatsapp"),
+    ]);
+    return connected && allowed;
+  }
 
   /** הלוגו של המשרד — נגזר מהשורה שהטוקן פתח, לטופס הציבורי. */
   async publicLogo(
@@ -356,23 +455,264 @@ export class IntakeService {
   async listFor(
     subject: IntakeSubject,
     subjectId: string,
-  ): Promise<IntakeRequestDto[]> {
+  ): Promise<IntakeListDto> {
     const ctx = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
-      await this.contactOf(tx, subject, subjectId);
+      const contactId = await this.contactOf(tx, subject, subjectId);
       const rows = await tx.intakeRequest.findMany({
         where: { tenantId: ctx.tenantId, subject, subjectId },
         orderBy: { createdAt: "desc" },
         take: 20,
       });
-      if (rows.length === 0) return [];
+      /*
+       * ‏איש הקשר נקרא מהכרטיס ולא מהשורה הראשונה: כרטיס שעדיין לא
+       * נשלחה ממנו אף בקשה הוא בדיוק המצב שבו המסך צריך לדעת אם יש
+       * אימייל — ושורה ראשונה אין לו.
+       */
+      const contact = await this.contacts.getById(tx, contactId);
+      const recipient = {
+        name: contact?.name ?? "",
+        email: contact?.email ?? null,
+        whatsapp: (await this.officeSendsWhatsApp(ctx.tenantId))
+          ? ("office" as const)
+          : ("manual" as const),
+      };
+      if (rows.length === 0) return { recipient, rows: [] };
       const ctxDto = await this.dtoContext(
         tx,
         ctx.tenantId,
         rows[0]!.contactId,
       );
-      return rows.map((row) => toDto(row, ctxDto));
+      return { recipient, rows: rows.map((row) => toDto(row, ctxDto)) };
     });
+  }
+
+  /**
+   * ‎**שליחת הקישור ללקוח באימייל — הערוץ שלא היה.**
+   *
+   * ## ‏מה היה
+   *
+   * ‏הכרטיס ידע ליצור קישור ולפתוח את וואטסאפ עם הנוסח מוכן, ולהעתיק
+   * את הכתובת. ללקוח בלי וואטסאפ — או למי שמעדיף מייל — לא הייתה
+   * דרך: המתווך היה אמור להעתיק את הקישור ולהדביק אותו במייל משלו,
+   * ומי שלא עשה זאת השאיר את הלקוח בלי טופס (בקשת המשתמש).
+   *
+   * ## ‏למה זה זורק ולא מחזיר „נכשל”
+   *
+   * ‏אדם לחץ כפתור ומחכה לתשובה. „✓ נשלח” על מייל שלא יצא הוא בדיוק
+   * מה שגורם לו לא לבדוק שוב — ולכן `required: true` בשליחה, וכל
+   * חסם נאמר במפורש: אין אימייל בכרטיס, או הספק דחה.
+   *
+   * ## ‏למה `ensure` ולא יצירה חדשה
+   *
+   * ‏אותו נימוק של הכפתור עצמו: שני קישורים פעילים לאותו כרטיס הם
+   * שני טפסים, ו„מי מהם קובע” אין לו תשובה טובה. מי ששולח במייל
+   * אחרי שכבר שלח בוואטסאפ שולח את **אותו** קישור.
+   */
+  async sendInvite(
+    subject: IntakeSubject,
+    subjectId: string,
+    channels: readonly IntakeChannel[],
+    /**
+     * ‎**הכתובת שהמסך הציג באישור.**
+     *
+     * ‏חלון האישור אומר „המייל יישלח אל X”, והשליחה קוראת את הכרטיס
+     * מחדש. אם מישהו שינה את הכתובת בין השניים — הסוכן עצמו בלשונית
+     * אחרת, או עמית — ההודעה הייתה יוצאת אל Y אחרי שאושר X. חלון
+     * אישור שאינו מחייב אינו אישור (ביקורת Codex).
+     *
+     * ‏רשות: קוראים ישנים ומסלולים פנימיים אינם חייבים לאשר.
+     */
+    expectedEmail?: string,
+  ): Promise<IntakeSentDto> {
+    const ctx = TenantContext.current();
+    const link = await this.ensure(subject, subjectId);
+
+    const details = await this.prisma.withTenant(async (tx) => {
+      const contactId = await this.contactOf(tx, subject, subjectId);
+      const [contact, officeName] = await Promise.all([
+        this.contacts.getById(tx, contactId),
+        this.officeName(tx, ctx.tenantId),
+      ]);
+      return { contact, officeName };
+    });
+
+    const email = channels.includes("email")
+      ? await this.sendInviteEmail(ctx.tenantId, details, link.url, expectedEmail)
+      : null;
+    const whatsapp = channels.includes("whatsapp")
+      ? await this.sendInviteWhatsApp(ctx.tenantId, details, link)
+      : null;
+
+    /*
+      ‏היומן רושם **מה יצא**, לא מה התבקש. „ניסינו לשלוח” אינו אירוע
+      שכדאי לתעד; „יצא ללקוח בשם המשרד” כן, וזו גם השורה שמישהו יחפש
+      כשהלקוח יטען שלא קיבל דבר.
+    */
+    const delivered = [
+      ...(email?.ok === true ? ["email"] : []),
+      ...(whatsapp?.ok === true ? ["whatsapp"] : []),
+    ];
+    if (delivered.length > 0) {
+      await this.prisma.withTenant((tx) =>
+        this.audit.record(tx, {
+          action: "intake.sent",
+          entityType: subject,
+          entityId: subjectId,
+          metadata: { channels: delivered, requestId: link.id },
+        }),
+      );
+    }
+
+    return { url: link.url, email, whatsapp };
+  }
+
+  /**
+   * ‏האימייל.
+   *
+   * ‎`required: true` — כישלון אצל הספק חוזר אל הסוכן ואינו נרשם
+   * ביומן בלבד. „✓ נשלח” על מייל שלא יצא הוא בדיוק מה שגורם לו לא
+   * לבדוק שוב.
+   *
+   * ‏החריגה נתפסת כאן והופכת ל-`ChannelResult` ולא עולה מעלה: מייל
+   * שנכשל אינו סיבה לבטל וואטסאפ שכבר יצא.
+   */
+  private async sendInviteEmail(
+    tenantId: string,
+    details: {
+      contact: { id: string; name: string; email?: string } | null;
+      officeName: string;
+    },
+    url: string,
+    expectedEmail?: string,
+  ): Promise<ChannelResult> {
+    const to = details.contact?.email;
+    if (to === undefined || to === "") {
+      return { ok: false, reason: "אין מייל ללקוח — אפשר להוסיף אותו בכרטיס ולשלוח שוב" };
+    }
+    /*
+      ‏הכתובת השתנתה מאז שהמסך הציג אותה. לא שולחים: הסוכן אישר
+      שליחה אל כתובת אחת, וההודעה אינה יוצאת אל כתובת שלא ראה.
+    */
+    if (expectedEmail !== undefined && expectedEmail !== to) {
+      return {
+        ok: false,
+        reason: `כתובת המייל בכרטיס השתנתה ל-${to} — פתחו שוב ואשרו`,
+      };
+    }
+
+    const mail = intakeInviteEmail({
+      officeName: details.officeName,
+      ...(details.contact?.name === undefined || details.contact.name === ""
+        ? {}
+        : { clientName: details.contact.name }),
+      url,
+    });
+    /*
+      ‎**כתובת התשובה — כי המייל מבטיח אחת.**
+
+      ‏הערת השוליים אומרת „אפשר להשיב למייל הזה”. בלי `replyTo`
+      התשובה הולכת אל כתובת ה-From, שיכולה להיות השולח של הפלטפורמה
+      ואינה תיבה שמישהו קורא — כלומר הבטחה שאי אפשר לקיים (ביקורת
+      Codex). זו אותה כתובת ייחודית לאיש קשר שהצעות והסכמים כבר
+      משתמשים בה, והיא מחזירה את התשובה אל תוך התיבה של הכרטיס.
+
+      ‏`null` = הצד הנכנס אינו מוגדר במשרד הזה. אז אין מה להבטיח,
+      וההודעה יוצאת בלי `replyTo` — כמו כל מייל אחר שם.
+    */
+    const replyTo =
+      details.contact === null
+        ? null
+        : await this.emailInbox.replyAddressFor(tenantId, details.contact.id);
+    try {
+      await this.email.send(
+        to,
+        mail.subject,
+        {
+          heading: mail.heading,
+          ...(mail.greeting === undefined ? {} : { greeting: mail.greeting }),
+          paragraphs: mail.paragraphs,
+          button: mail.button,
+          footnote: mail.footnote,
+        },
+        {
+          required: true,
+          tenantId,
+          ...(replyTo === null ? {} : { replyTo }),
+        },
+      );
+    } catch (error: unknown) {
+      /*
+        ‏`EmailRejectedError` = הספק ענה ודחה, כלומר ההודעה **בוודאות**
+        לא יצאה ואפשר לנסות שוב בבטחה. כל השאר — 5xx, פסק זמן, נפילת
+        רשת — עמום: ייתכן שהיא נקלטה והתשובה אבדה. „נסו שוב” שם שולח
+        ללקוח מייל שני.
+      */
+      if (error instanceof EmailRejectedError) {
+        return { ok: false, reason: error.message };
+      }
+      return {
+        ok: false,
+        ambiguous: true,
+        reason:
+          "לא התקבל אישור מספק הדואר — ייתכן שהמייל בכל זאת יצא. כדאי לוודא מול הלקוח לפני שליחה חוזרת",
+      };
+    }
+    return { ok: true, to };
+  }
+
+  /**
+   * ‎**וואטסאפ מהחיבור של המשרד.**
+   *
+   * ‏עד כה הקישור נשלח בוואטסאפ רק בכך שהדפדפן **פתח** את השיחה עם
+   * הנוסח מוכן, והסוכן לחץ „שלח”. משרד שחיבר וואטסאפ ביזנס יכול
+   * לשלוח את זה בעצמו, בדיוק כמו כל הודעה אחרת שלו (בקשת המשתמש).
+   *
+   * ## ‏מה קורה כשזה לא עובד — ולמה זה לא „נכשל”
+   *
+   * ‏שלושה חסמים אמיתיים: המסלול אינו כולל וואטסאפ, אין חיבור פעיל,
+   * או שחלון 24 השעות של Meta סגור (הלקוח לא כתב למשרד לאחרונה,
+   * וטקסט חופשי אליו נדחה). בכל אחד מהם **הדרך הישנה עדיין עובדת**,
+   * ולכן התשובה נושאת את `waUrl`: הסוכן לוחץ, וואטסאפ נפתח עם
+   * ההודעה, והלקוח מקבל. „נכשל” בלי הדרך החוצה היה מוריד תכונה
+   * שקיימת היום.
+   */
+  private async sendInviteWhatsApp(
+    tenantId: string,
+    details: { contact: { phone: string } | null; officeName: string },
+    link: IntakeRequestDto,
+  ): Promise<ChannelResult> {
+    const phone = details.contact?.phone;
+    if (phone === undefined || phone === "") {
+      return { ok: false, reason: "אין טלפון בכרטיס הלקוח", waUrl: null };
+    }
+    /*
+      ‏הזכאות נבדקת כאן ולא בדקורטור: אותו נתיב משרת גם אימייל,
+      ו-`@RequireFeature("whatsapp")` עליו היה חוסם גם אותו. בלי
+      הבדיקה, משרד שירד ממסלול והשאיר חיבור פעיל היה ממשיך לשלוח
+      דרך הנתיב הזה בזמן ששאר נתיבי הוואטסאפ חסומים בפניו.
+    */
+    if (!(await this.plans.tenantHasFeature(tenantId, "whatsapp"))) {
+      return {
+        ok: false,
+        reason: "שליחה מהוואטסאפ של המשרד אינה כלולה במסלול",
+        waUrl: link.waUrl,
+      };
+    }
+    const result = await this.whatsapp.sendAsTenant(
+      tenantId,
+      phone,
+      intakeInviteMessage({ officeName: details.officeName, url: link.url }),
+    );
+    if (result === "sent") return { ok: true, to: phone };
+    return {
+      ok: false,
+      reason:
+        result === "no_connection"
+          ? "הוואטסאפ של המשרד אינו מחובר"
+          : "ההודעה נדחתה — הודעה חופשית מותרת רק בתוך 24 שעות מפנייה של הלקוח",
+      waUrl: link.waUrl,
+    };
   }
 
   /**

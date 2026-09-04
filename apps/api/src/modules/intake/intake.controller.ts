@@ -27,8 +27,10 @@ import { Public, RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   IntakeService,
+  type IntakeListDto,
   type IntakePublicView,
   type IntakeRequestDto,
+  type IntakeSentDto,
 } from "./intake.service";
 
 /**
@@ -49,6 +51,29 @@ import {
  */
 
 const TokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
+
+/**
+ * ‏באילו ערוצים לשלוח.
+ *
+ * ‏מערך ולא ערך יחיד, ולכן קריאה אחת ולא שתיים: המסך מאפשר לסמן את
+ * שניהם, ושתי קריאות היו יוצרות את הקישור פעמיים ורושמות שתי שורות
+ * יומן על פעולה אחת.
+ *
+ * ‎`.min(1)` — „שלח כלום” אינו בקשה.
+ */
+const SendSchema = z
+  .object({
+    channels: z.array(z.enum(["email", "whatsapp"])).min(1).max(2),
+    /**
+     * ‏הכתובת שהמסך הציג בחלון האישור.
+     *
+     * ‏רשות ולא חובה: מסלולים פנימיים אינם מציגים חלון ואין להם מה
+     * לאשר. כשהיא נשלחת, השרת אינו שולח אל כתובת אחרת — ראו
+     * ‎`sendInvite`.
+     */
+    expectedEmail: z.string().trim().max(254).optional(),
+  })
+  .strict();
 
 /**
  * מה שהלקוח שולח.
@@ -158,7 +183,7 @@ export class IntakeController {
   @RequireCapability("leads.view_own")
   listForLead(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-  ): Promise<IntakeRequestDto[]> {
+  ): Promise<IntakeListDto> {
     return this.intake.listFor("lead", id);
   }
 
@@ -171,11 +196,28 @@ export class IntakeController {
     return this.intake.ensure("lead", id);
   }
 
+  /**
+   * ‏שליחת הקישור ללקוח.
+   *
+   * ‎`leads.edit` ולא `leads.view_own`: זו הודעה שיוצאת מהמערכת אל
+   * לקוח בשם המשרד, וזו אותה יכולת שהיצירה דורשת. מי שרשאי רק
+   * להסתכל בכרטיס אינו רשאי לכתוב ללקוח שבו.
+   */
+  @Post("leads/:id/intake/send")
+  @RequireCapability("leads.edit")
+  @HttpCode(200)
+  sendForLead(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(SendSchema)) body: z.infer<typeof SendSchema>,
+  ): Promise<IntakeSentDto> {
+    return this.intake.sendInvite("lead", id, body.channels, body.expectedEmail);
+  }
+
   @Get("buyers/:id/intake")
   @RequireCapability("buyers.view_own")
   listForBuyer(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-  ): Promise<IntakeRequestDto[]> {
+  ): Promise<IntakeListDto> {
     return this.intake.listFor("buyer", id);
   }
 
@@ -186,6 +228,16 @@ export class IntakeController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
   ): Promise<IntakeRequestDto> {
     return this.intake.ensure("buyer", id);
+  }
+
+  @Post("buyers/:id/intake/send")
+  @RequireCapability("buyers.edit")
+  @HttpCode(200)
+  sendForBuyer(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(SendSchema)) body: z.infer<typeof SendSchema>,
+  ): Promise<IntakeSentDto> {
+    return this.intake.sendInvite("buyer", id, body.channels, body.expectedEmail);
   }
 
   /**

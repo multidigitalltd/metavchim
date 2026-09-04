@@ -7759,7 +7759,16 @@ a.mv-bar-row:focus-visible {
 .mv-choice:disabled {
   cursor: default;
 }
-.mv-choice:hover:not(:disabled) {
+/*
+  ‏‎`:not([aria-pressed="true"])` אינו קישוט — הוא תיקון.
+
+  ‏‎`.mv-choice:hover:not(:disabled)` הוא (0,3,0) ו-
+  ‎`.mv-choice[aria-pressed="true"]` הוא (0,2,0), כלומר הריחוף
+  **גובר** על הבחירה: שורה שנבחרה חוזרת להיראות לא-נבחרה ברגע
+  שהעכבר עליה. נתפס בבדפדפן — הרקע היה `--color-surface-sunken`
+  ולא הירוק — ולא בקריאה.
+*/
+.mv-choice:hover:not(:disabled):not([aria-pressed="true"]) {
   border-color: var(--color-border-hover);
   background: var(--color-surface-sunken);
 }
@@ -7784,6 +7793,24 @@ a.mv-bar-row:focus-visible {
   border-radius: 50%;
   border: 2px solid var(--color-input-border);
   background: var(--color-surface);
+}
+/*
+  ‏סימון **מרובה** ולא בחירה אחת מתוך רשימה.
+
+  ‏העיגול של `.mv-choice` אומר „אחד מהם”; ריבוע אומר „אפשר את
+  שניהם”, וזו בדיוק ההבחנה שהמשתמש עושה בלי לקרוא. שאר המחלקה
+  זהה, ולכן זה וריאנט של צורת הסימון ולא רכיב שני.
+*/
+.mv-choice--check .mv-choice__mark {
+  border-radius: 6px;
+}
+.mv-choice:disabled {
+  /* ‏רקע שקוע ולא שקיפות: שקיפות שוברת את יחס הניגודיות של הטקסט */
+  background: var(--color-field);
+}
+.mv-choice:disabled .mv-choice__title,
+.mv-choice:disabled .mv-choice__note {
+  color: var(--color-text-muted);
 }
 .mv-choice[aria-pressed="true"] {
   border-color: var(--color-primary);

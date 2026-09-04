@@ -84,6 +84,33 @@ export class WhatsAppSendService {
    * ‎`false` אחד: הראשונה אומרת „חברו וואטסאפ” והשנייה „חלון 24
    * השעות סגור” — עצות הפוכות למי שלחץ.
    */
+  /**
+   * ‏האם למשרד יש חיבור וואטסאפ פעיל.
+   *
+   * ‏קיים כדי שמסך יוכל לומר מראש **איך** הוא ישלח, במקום לגלות את
+   * זה אחרי הלחיצה: „ייפתח וואטסאפ” ו„יישלח מהמשרד” הן שתי הבטחות
+   * שונות, ומסך שמבטיח את הלא-נכונה מבלבל דווקא את מי שכן קרא.
+   *
+   * ‏אותה שאילתה בדיוק של `sendAsTenant` — אותו תנאי, אותו סדר —
+   * כדי ששתיהן לא יוכלו לסטות: בדיקה שאומרת „מחובר” על מה ששליחה
+   * דוחה גרועה מהיעדר בדיקה.
+   */
+  async hasTenantConnection(tenantId: string): Promise<boolean> {
+    const row = await this.prisma.whatsAppBusinessConnection.findFirst({
+      where: { tenantId, disconnectedAt: null },
+      orderBy: { connectedAt: "asc" },
+      select: { accessTokenEncrypted: true },
+    });
+    if (!row?.accessTokenEncrypted) return false;
+    /* ‏טוקן שנכתב במפתח קודם — מבחינת השולח אין חיבור, וגם כאן */
+    try {
+      this.crypto.decrypt(row.accessTokenEncrypted);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async sendAsTenant(
     tenantId: string,
     to: string,
