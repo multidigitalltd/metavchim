@@ -10,6 +10,8 @@ import {
   jerusalemWallIsoToUtc,
   jerusalemWallParts,
   jerusalemWeekStart,
+  mentorMidweekNudge,
+  mentorPeriodRange,
   mentorReviewBody,
   mentorReviewTitle,
   mentorWeeklyReview,
@@ -91,6 +93,20 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     return due;
   }
 
+  /**
+   * חלון הדחיפה של אמצע השבוע: רביעי 12:00 עד שישי 12:00 שעון ישראל.
+   * מחזיר את תחילת השבוע כשהחלון פתוח, ‎`null` אחרת. לא לפני רביעי —
+   * אין עוד מה לומר; לא אחרי שישי בצהריים — אין עוד מה לעשות.
+   */
+  static nudgeWindow(now: Date): Date | null {
+    const thisWeek = jerusalemWeekStart(now);
+    const wednesday = jerusalemWallParts(jerusalemDayStart(thisWeek, 3)).date;
+    const friday = jerusalemWallParts(jerusalemDayStart(thisWeek, 5)).date;
+    const opens = jerusalemWallIsoToUtc(`${wednesday}T12:00:00.000`);
+    const closes = jerusalemWallIsoToUtc(`${friday}T12:00:00.000`);
+    return now >= opens && now < closes ? thisWeek : null;
+  }
+
   async tick(now: Date = new Date()): Promise<number> {
     if (this.running) return 0;
     this.running = true;
@@ -106,7 +122,8 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
 
   private async sweep(now: Date): Promise<number> {
     const weeks = MentorReviewService.dueWeeks(now);
-    if (weeks.length === 0) return 0;
+    const nudgeWeek = MentorReviewService.nudgeWindow(now);
+    if (weeks.length === 0 && nudgeWeek === null) return 0;
     const tenants = await this.prisma.tenant.findMany({
       where: { status: { in: ["active", "trial"] } },
       select: { id: true },
@@ -124,8 +141,120 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
           );
         }
       }
+      if (nudgeWeek !== null) {
+        try {
+          written += await this.nudgeForTenant(tenant.id, nudgeWeek, now);
+        } catch (error: unknown) {
+          this.logger.warn(
+            `דחיפת אמצע השבוע נכשלה למשרד ${tenant.id}: ${String(error)}`,
+          );
+        }
+      }
     }
     return written;
+  }
+
+  /**
+   * דחיפת אמצע השבוע לכל משתמש פעיל עם יעד שבועי בפיגור — פעם אחת
+   * לשבוע. הסבב רץ כל חצי שעה, ולכן מי שכבר קיבל מסונן לפני שסופרים:
+   * הספירה זולה, אבל לא בחינם.
+   */
+  async nudgeForTenant(
+    tenantId: string,
+    weekStart: Date,
+    now: Date,
+  ): Promise<number> {
+    return this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`mentor-nudge:${tenantId}:${weekStart.toISOString()}`}))`;
+      const nudged = new Set(
+        (
+          await tx.notification.findMany({
+            where: {
+              tenantId,
+              type: "mentor_nudge",
+              createdAt: { gte: weekStart },
+            },
+            select: { userId: true },
+          })
+        ).map((n) => n.userId),
+      );
+      // רק משתמשים פעילים עם יעד שבועי פעיל — משתמש שהושבת שומר על
+      // מינויי הפוש שלו, והדחיפה הייתה ממשיכה להגיע (ביקורת Codex)
+      const withGoals = await tx.mentorGoal.findMany({
+        where: {
+          tenantId,
+          period: "week",
+          endedAt: null,
+          user: { isActive: true },
+        },
+        distinct: ["userId"],
+        select: { userId: true },
+      });
+      let sent = 0;
+      for (const { userId } of withGoals) {
+        if (nudged.has(userId)) continue;
+        if (await this.nudgeForUser(tx, tenantId, userId, weekStart, now))
+          sent += 1;
+      }
+      return sent;
+    });
+  }
+
+  /** ‎`true` = נשלחה דחיפה; ‎`false` = הכול בקצב, או שאין יעדים. */
+  async nudgeForUser(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    weekStart: Date,
+    now: Date,
+  ): Promise<boolean> {
+    const week = mentorPeriodRange("week", now);
+    const activity = await this.signals.activity(
+      tx,
+      tenantId,
+      userId,
+      week,
+      now,
+    );
+    /*
+     * רק יעדים **פעילים** — לא כמו בסיכום, שסופר גם יעד שהופסק
+     * במהלך השבוע. יעד שהוחלף ביום שני היה יכול להיבחר כ„הרחוק ביותר
+     * מהקצב” ולהזכיר מספר שכבר אינו היעד (ביקורת Codex).
+     */
+    const goalRows = await tx.mentorGoal.findMany({
+      where: { tenantId, userId, endedAt: null },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        metric: true,
+        period: true,
+        target: true,
+        why: true,
+        intention: true,
+        createdAt: true,
+        endedAt: true,
+      },
+    });
+    const goals = (
+      await this.signals.progress(tx, tenantId, userId, goalRows, {
+        at: now,
+        week,
+        weekActivity: activity,
+        monthAnchor: now,
+      })
+    ).map((g) => g.progress);
+    const nudge = mentorMidweekNudge(goals, now);
+    if (nudge === null) return false;
+    return notifyOnce(tx, {
+      tenantId,
+      dedupeKey: `mentor_nudge:${userId}:${weekStart.toISOString()}`,
+      userId,
+      type: "mentor_nudge",
+      title: nudge.title,
+      body: nudge.body.slice(0, 500),
+      entityType: "mentor",
+      entityId: null,
+    });
   }
 
   /** סיכומים לכל משתמש פעיל במשרד שאין לו עדיין סיכום לשבוע. */
