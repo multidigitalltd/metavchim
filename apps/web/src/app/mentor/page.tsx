@@ -13,10 +13,12 @@ import {
   type MentorGoalMetric,
   type MentorGoalPeriod,
   type MentorGoalProgress,
-  mentorPatternLine,
+  type MentorInsights,
+  mentorInsightSentences,
   type MentorMood,
   type MentorPace,
   type MentorPattern,
+  mentorPatternLine,
   mentorQuantity,
   type MentorWin,
   type ProcessGoalSuggestion,
@@ -92,6 +94,7 @@ interface Overview {
   weekEnd: string;
   activity: MentorActivity;
   previousActivity: MentorActivity | null;
+  insights: MentorInsights;
   wins: MentorWin[];
   goals: GoalDto[];
   latestReview: ReviewDto | null;
@@ -346,6 +349,7 @@ function MentorHero({ streakWeeks }: { streakWeeks: number }) {
 
 function WeekSection({ overview }: { overview: Overview }) {
   const { activity, previousActivity, wins } = overview;
+  const insightLines = mentorInsightSentences(overview.insights);
   return (
     <section className="mt-6" aria-labelledby="mentor-week-heading">
       <div className="mv-card-head mb-3">
@@ -394,6 +398,21 @@ function WeekSection({ overview }: { overview: Overview }) {
           );
         })}
       </ul>
+
+      {/* מהירות המענה ושיחות שמחכות — עובדות, מול השבוע שעבר של המתווך עצמו */}
+      {insightLines.length > 0 ? (
+        <ul
+          className="mv-card mv-card--pad m-0 mt-3 list-none p-0"
+          aria-label="מהירות המענה ושיחות שמחכות"
+        >
+          {insightLines.map((line) => (
+            <li key={line} className="mt-1 leading-relaxed first:mt-0">
+              <span aria-hidden="true">⏱ </span>
+              {line}
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       {wins.length > 0 ? (
         <div

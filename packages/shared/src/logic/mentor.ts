@@ -76,6 +76,11 @@ export const MENTOR_GOAL_METRICS = [
   "leads_answered",
   "new_buyers",
   "new_properties",
+  "calls_made",
+  "calls_answered",
+  "leads_answered_fast",
+  "followups_done",
+  "owner_updates_sent",
 ] as const;
 export type MentorGoalMetric = (typeof MENTOR_GOAL_METRICS)[number];
 
@@ -150,7 +155,52 @@ export const MENTOR_METRICS: readonly MentorMetricInfo[] = [
     one: "נכס אחד",
     many: "נכסים",
   },
+  /*
+   * שיחות ומהירות מענה — מה שמנטור מכירות באמת מסתכל עליו לפני
+   * העסקאות: כמה יצאת אל הלקוחות, כמה ענית כשהם התקשרו, וכמה מהר
+   * ענית לליד חדש. כולם תהליך — בשליטה מלאה של המתווך.
+   */
+  {
+    code: "calls_made",
+    kind: "process",
+    label: "שיחות יוצאות",
+    one: "שיחה יוצאת אחת",
+    many: "שיחות יוצאות",
+  },
+  {
+    code: "calls_answered",
+    kind: "process",
+    label: "שיחות נכנסות שנענו",
+    one: "שיחה נכנסת אחת",
+    many: "שיחות נכנסות",
+  },
+  {
+    code: "leads_answered_fast",
+    kind: "process",
+    label: "לידים שנענו תוך שעה",
+    one: "ליד אחד תוך שעה",
+    many: "לידים תוך שעה",
+  },
+  {
+    code: "followups_done",
+    kind: "process",
+    label: "מעקבים שהושלמו",
+    one: "מעקב אחד",
+    many: "מעקבים",
+  },
+  {
+    code: "owner_updates_sent",
+    kind: "process",
+    label: "עדכונים למוכרים",
+    one: "עדכון אחד למוכר",
+    many: "עדכונים למוכרים",
+  },
 ];
+
+/** „מהר” = תוך שעה מרגע שהליד נוצר. שעתיים הן ה-SLA; שעה היא מנטור. */
+export const MENTOR_FAST_RESPONSE_MINUTES = 60;
+/** שיחה נכנסת שלא נענתה נחשבת „לא חזרת אליה” אם לא יצאה שיחה תוך יממה. */
+export const MENTOR_MISSED_RETURN_HOURS = 24;
 
 const METRIC_BY_CODE = new Map(MENTOR_METRICS.map((m) => [m.code, m]));
 
@@ -202,9 +252,12 @@ export function mentorStatusMessage(input: {
   goals: readonly MentorGoalProgress[];
   wins: readonly MentorWin[];
   latestHeadline: string | null;
+  insights?: MentorInsights;
 }): { message: string; lines: string[] } {
   const lines: string[] = [];
   for (const goal of input.goals) lines.push(`• ${mentorGoalStatusLine(goal)}`);
+  for (const sentence of mentorInsightSentences(input.insights))
+    lines.push(`⏱ ${sentence}`);
   for (const win of input.wins)
     lines.push(`🎉 ${mentorCelebration(win).title}: ${win.title}`);
   if (input.latestHeadline !== null)
@@ -379,6 +432,12 @@ export const DEFAULT_FUNNEL_RATIOS: Readonly<Record<MentorGoalMetric, number>> =
     viewings_held: 5,
     deals_closed: 1,
     new_properties: 1,
+    // אינם חלק במשפך של ההצעות — יעדי תהליך עצמאיים
+    calls_made: 1,
+    calls_answered: 1,
+    leads_answered_fast: 1,
+    followups_done: 1,
+    owner_updates_sent: 1,
   };
 
 /** כמה מהיסטוריה נחשב „מספיק כדי לסמוך עליה” — פחות מזה, ברירת המחדל. */
@@ -500,6 +559,64 @@ export interface MentorWeekSignals {
   patterns?: MentorPattern[];
   /** השם הפרטי — לפנייה אישית. חסר = בלי פתיח בשם */
   firstName?: string;
+  /** תובנות שאינן מונה — מהירות מענה ושיחות שלא חזרת אליהן */
+  insights?: MentorInsights;
+}
+
+/**
+ * מה שמנטור רואה מעבר למונים: **כמה מהר** ענית לליד חדש, ולמי לא
+ * חזרת. אינן יעד (אי אפשר „לקבוע 12 דקות”) אבל נאמרות בסיכום,
+ * במסך ובשיחה — עובדה, ומול השבוע הקודם של המתווך עצמו.
+ */
+export interface MentorInsights {
+  /** חציון דקות מרגע שהליד נוצר עד המענה הראשון — `null` בלי לידים שנענו */
+  responseMedianMinutes: number | null;
+  /** אותו חציון בשבוע הקודם — להשוואה לעצמו בלבד */
+  previousResponseMedianMinutes: number | null;
+  /** שיחות נכנסות שלא נענו ולא יצאה אליהן שיחה חוזרת תוך יממה */
+  missedUnreturned: number;
+}
+
+/** דקות ⟵ „12 דקות” / „שעה ו-20 דקות” / „3 שעות” */
+export function mentorMinutesLabel(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  if (m < 60) return m === 1 ? "דקה אחת" : `${m} דקות`;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  const hours = h === 1 ? "שעה" : h === 2 ? "שעתיים" : `${h} שעות`;
+  return rest === 0 ? hours : `${hours} ו-${rest} דקות`;
+}
+
+/**
+ * התובנות כמשפטים — עובדות, ובלי שיפוט: זמן המענה מול השבוע שעבר,
+ * ושיחות שמחכות לחזרה. ריק כשאין מה לומר.
+ */
+export function mentorInsightSentences(
+  insights: MentorInsights | undefined,
+): string[] {
+  if (insights === undefined) return [];
+  const out: string[] = [];
+  const now = insights.responseMedianMinutes;
+  const before = insights.previousResponseMedianMinutes;
+  if (now !== null) {
+    const base = `זמן המענה שלך ללידים חדשים השבוע: ${mentorMinutesLabel(now)} (חציון)`;
+    if (before === null || Math.round(before) === Math.round(now))
+      out.push(`${base}.`);
+    else if (now < before)
+      out.push(
+        `${base} — מהר יותר משבוע שעבר (${mentorMinutesLabel(before)}). זה מורגש אצל הלקוח.`,
+      );
+    else out.push(`${base}, מול ${mentorMinutesLabel(before)} בשבוע שעבר.`);
+  }
+  if (insights.missedUnreturned > 0) {
+    const n = insights.missedUnreturned;
+    out.push(
+      n === 1
+        ? "שיחה נכנסת אחת לא נענתה ולא חזרת אליה — שווה טלפון קצר מחר בבוקר."
+        : `${n} שיחות נכנסות לא נענו ולא חזרת אליהן — שווה טלפון קצר לכל אחת מחר בבוקר.`,
+    );
+  }
+  return out;
 }
 
 /** היעד שהבקשה לשבוע הבא מדברת עליו — מה שאפשר להתחייב אליו. */
@@ -611,6 +728,16 @@ const REFLECTION: Record<MentorGoalMetric, string> = {
   new_buyers: "מאיפה הגיעו הקונים שכן נכנסו החודש — ומה אפשר להגביר שם?",
   new_properties:
     "מה עצר קליטת נכסים — לא היו פניות מוכרים, או שלא היה זמן לצאת אליהם?",
+  calls_made:
+    "מה עצר את השיחות היוצאות — לא היה למי להתקשר, או שהיום נגמר לפני שהגעת לטלפונים?",
+  calls_answered:
+    "מה קרה עם השיחות הנכנסות שלא נענו — הגיעו בזמן סיורים, או שהטלפון לא היה זמין?",
+  leads_answered_fast:
+    "מה עיכב את המענה ללידים החדשים — הגיעו כשלא יכולת לענות, או שחיכו לרגע פנוי שלא הגיע?",
+  followups_done:
+    "מה עצר את המעקבים — הצטברו יותר מדי, או שלא היה ברור מה הצעד הבא בכל אחד?",
+  owner_updates_sent:
+    "מה עצר את העדכונים למוכרים — לא היה מה לדווח, או שהדיווח נדחה כשלא היו חדשות טובות?",
 };
 
 /**
@@ -689,6 +816,8 @@ export function mentorWeeklyReview(
   }
   if (wins.length > 0) paragraphs.push(winsSentence(wins));
   if (goals.length > 0) paragraphs.push(goals.map(goalSentence).join(" "));
+  // מהירות המענה ושיחות שמחכות — עובדות, אחרי היעדים ולפני הזיכרון
+  paragraphs.push(...mentorInsightSentences(signals.insights));
   /*
    * הזיכרון: דפוס חוזר נאמר רק כשהוא **רלוונטי השבוע** — מדד שמאחור
    * גם עכשיו, או מפנה שנמשך. משפט אחד, לא רשימה: מנטור מזכיר דבר
@@ -854,6 +983,8 @@ export interface MentorReviewBody {
   commitmentKept: boolean | null;
   wins: MentorWin[];
   activity: MentorActivity;
+  /** התובנות כפי שנמדדו — חסר בגופים ישנים */
+  insights?: MentorInsights;
   goals: {
     metric: MentorGoalMetric;
     period: MentorGoalPeriod;
@@ -878,6 +1009,7 @@ export function mentorReviewBody(
     commitmentKept: signals.previousCommitment?.kept ?? null,
     wins: signals.wins,
     activity: signals.activity,
+    ...(signals.insights === undefined ? {} : { insights: signals.insights }),
     goals: signals.goals.map((g) => ({
       metric: g.metric,
       period: g.period,
@@ -992,6 +1124,31 @@ const OBSTACLE_PLANS: Record<MentorGoalMetric, readonly string[]> = {
     "כשעסקה נתקעת על מחיר — אז מביא לשני הצדדים שלוש עסקאות דומות מהחודש",
     "כשקונה מתלבט — אז קובע סיור שני עם בן משפחה או יועץ",
     "כשהמשא ומתן מתארך — אז מגדיר מועד יעד לחתימה ואומר אותו לשני הצדדים",
+  ],
+  calls_made: [
+    "כשאין למי להתקשר — אז פותח את רשימת הקונים שלא דיברתי איתם שבועיים ומתקשר לשלושה",
+    "כשהיום נגמר לפני הטלפונים — אז חוסם 10:00–11:00 לשיחות בלבד, לפני הכול",
+    "כשאני דוחה שיחה קשה — אז מתקשר אליה ראשונה, כשעוד יש אנרגיה",
+  ],
+  calls_answered: [
+    "כשאני בסיור — אז מעביר את הנייד לעוזר או שולח „אחזור אליך בעוד שעה” אוטומטית",
+    "כששיחה לא נענתה — אז חוזר אליה עד סוף היום, לא למחרת",
+    "כשמתקשרים ממספר לא מוכר — אז עונה, כי זה כנראה לקוח מהמודעה",
+  ],
+  leads_answered_fast: [
+    "כשליד נכנס כשאני עסוק — אז שולח הודעה קצרה תוך דקה וקובע מתי מתקשר",
+    "כשמצטברים לידים — אז עונה לכולם בשתי שורות קודם, ומתקשר לפי סדר",
+    "כשאני בפגישה — אז הליד מקבל תשובה מוכנה, ואני מתקשר מיד אחריה",
+  ],
+  followups_done: [
+    "כשמצטברים מעקבים — אז מתחיל את היום בשלושה הישנים ביותר",
+    "כשלא ברור מה הצעד הבא — אז כותב אותו במשימה עצמה ברגע שנוצרת",
+    "כשמעקב מתעכב — אז שולח הודעה קצרה במקום לחכות לזמן לשיחה",
+  ],
+  owner_updates_sent: [
+    "כשאין חדשות טובות — אז שולח למוכר מה נעשה השבוע, לא רק מה נסגר",
+    "כשעבר שבוע בלי עדכון — אז שולח שתי שורות ביום קבוע, למשל חמישי",
+    "כשמוכר לא מרוצה — אז מתקשר לפני שהוא מתקשר",
   ],
 };
 

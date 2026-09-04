@@ -1,11 +1,14 @@
 import { Injectable } from "@nestjs/common";
 import {
+  MENTOR_FAST_RESPONSE_MINUTES,
   MENTOR_GOAL_METRICS,
-  mentorGoalProgress,
-  mentorPeriodRange,
+  MENTOR_MISSED_RETURN_HOURS,
   type MentorActivity,
   type MentorGoalPeriod,
   type MentorGoalProgress,
+  mentorGoalProgress,
+  type MentorInsights,
+  mentorPeriodRange,
   type MentorWin,
   type MentorWinKind,
 } from "@metavchim/shared";
@@ -56,17 +59,28 @@ export class MentorSignalsService {
     const { start, end } = range;
     // סיור „התקיים” רק אם מועדו כבר עבר — סיור של מחר אינו פעילות
     const viewingsUntil = now < end ? now : end;
-    const [deals, offers, viewings, leads, buyers, properties] =
-      await Promise.all([
-        tx.mentorWin.count({
-          where: {
-            tenantId,
-            userId,
-            kind: "deal_closed",
-            happenedAt: { gte: start, lt: end },
-          },
-        }),
-        tx.$queryRaw<{ n: bigint }[]>`
+    const [
+      deals,
+      offers,
+      viewings,
+      leads,
+      buyers,
+      properties,
+      callsMade,
+      callsAnswered,
+      leadsFast,
+      followups,
+      ownerUpdates,
+    ] = await Promise.all([
+      tx.mentorWin.count({
+        where: {
+          tenantId,
+          userId,
+          kind: "deal_closed",
+          happenedAt: { gte: start, lt: end },
+        },
+      }),
+      tx.$queryRaw<{ n: bigint }[]>`
         SELECT COUNT(o.id) AS n
         FROM offers o
         JOIN matches m ON m.id = o.match_id
@@ -74,43 +88,102 @@ export class MentorSignalsService {
         WHERE o.tenant_id = ${tenantId}
           AND b.owner_user_id = ${userId}
           AND o.created_at >= ${start} AND o.created_at < ${end}`,
-        tx.appointment.count({
-          where: {
-            tenantId,
-            kind: "viewing",
-            status: { notIn: ["cancelled", "no_show"] },
-            startsAt: { gte: start, lt: viewingsUntil },
-            // יומן של מי — ובלי בעלים, מי שהקליד (כמו בדו"ח הבוקר)
-            OR: [
-              { ownerUserId: userId },
-              { ownerUserId: null, createdBy: userId },
-            ],
-          },
-        }),
-        tx.lead.count({
-          where: {
-            tenantId,
-            assignedToUserId: userId,
-            firstResponseAt: { gte: start, lt: end },
-          },
-        }),
-        tx.buyer.count({
-          where: {
-            tenantId,
-            ownerUserId: userId,
-            deletedAt: null,
-            createdAt: { gte: start, lt: end },
-          },
-        }),
-        tx.auditLog.count({
-          where: {
-            tenantId,
-            userId,
-            action: "property.create",
-            createdAt: { gte: start, lt: end },
-          },
-        }),
-      ]);
+      tx.appointment.count({
+        where: {
+          tenantId,
+          kind: "viewing",
+          status: { notIn: ["cancelled", "no_show"] },
+          startsAt: { gte: start, lt: viewingsUntil },
+          // יומן של מי — ובלי בעלים, מי שהקליד (כמו בדו"ח הבוקר)
+          OR: [
+            { ownerUserId: userId },
+            { ownerUserId: null, createdBy: userId },
+          ],
+        },
+      }),
+      tx.lead.count({
+        where: {
+          tenantId,
+          assignedToUserId: userId,
+          firstResponseAt: { gte: start, lt: end },
+        },
+      }),
+      tx.buyer.count({
+        where: {
+          tenantId,
+          ownerUserId: userId,
+          deletedAt: null,
+          createdAt: { gte: start, lt: end },
+        },
+      }),
+      tx.auditLog.count({
+        where: {
+          tenantId,
+          userId,
+          action: "property.create",
+          createdAt: { gte: start, lt: end },
+        },
+      }),
+      /*
+       * שיחות — של מי? שיחה שנרשמה ידנית נושאת `created_by`; שיחה
+       * מהמרכזייה אינה נושאת משתמש, ומשויכת דרך הליד שלה
+       * (`leads.assigned_to_user_id`). שיחה נכנסת מלקוח קיים בלי ליד
+       * על השיחה עצמה שייכת למי שהליד של אותו לקוח אצלו — כך
+       * שלקוח שהתקשר שוב נספר למתווך שמטפל בו. שיחה יוצאת מהמרכזייה
+       * בלי ליד משויך אינה נספרת לאיש — עדיף חסר מניחוש.
+       */
+      tx.$queryRaw<{ n: bigint }[]>`
+        SELECT COUNT(c.id) AS n
+        FROM calls c
+        LEFT JOIN leads l ON l.id = c.lead_id
+        WHERE c.tenant_id = ${tenantId}
+          AND c.direction = 'outbound'
+          AND c.occurred_at >= ${start} AND c.occurred_at < ${end}
+          AND (c.created_by = ${userId} OR l.assigned_to_user_id = ${userId})`,
+      // נכנסת שנענתה: כל מה שאינו „לא נענתה” — גם `unknown` נספר, כמו בדוח הנכס
+      tx.$queryRaw<{ n: bigint }[]>`
+        SELECT COUNT(c.id) AS n
+        FROM calls c
+        LEFT JOIN leads l ON l.id = c.lead_id
+        WHERE c.tenant_id = ${tenantId}
+          AND c.direction = 'inbound'
+          AND c.outcome NOT IN ('missed', 'no_answer', 'voicemail')
+          AND c.occurred_at >= ${start} AND c.occurred_at < ${end}
+          AND (
+            c.created_by = ${userId}
+            OR l.assigned_to_user_id = ${userId}
+            OR (c.lead_id IS NULL AND c.contact_id IS NOT NULL AND EXISTS (
+              SELECT 1 FROM leads cl
+              WHERE cl.tenant_id = c.tenant_id
+                AND cl.contact_id = c.contact_id
+                AND cl.assigned_to_user_id = ${userId}
+            ))
+          )`,
+      // ליד שנענה „מהר” — מרגע היצירה עד המענה הראשון, בדקות
+      tx.$queryRaw<{ n: bigint }[]>`
+        SELECT COUNT(id) AS n
+        FROM leads
+        WHERE tenant_id = ${tenantId}
+          AND assigned_to_user_id = ${userId}
+          AND first_response_at >= ${start} AND first_response_at < ${end}
+          AND first_response_at - created_at <= ${MENTOR_FAST_RESPONSE_MINUTES} * INTERVAL '1 minute'`,
+      // מעקבים שהמתווך בחר — משימות האוטומציה (lead-sla / lead-stale) נסגרות לבד ואינן נספרות
+      tx.$queryRaw<{ n: bigint }[]>`
+        SELECT COUNT(id) AS n
+        FROM tasks
+        WHERE tenant_id = ${tenantId}
+          AND assigned_to_user_id = ${userId}
+          AND completed_at >= ${start} AND completed_at < ${end}
+          AND (source_key IS NULL OR source_key NOT LIKE 'lead-%')`,
+      tx.auditLog.count({
+        where: {
+          tenantId,
+          userId,
+          action: "property.owner_update",
+          createdAt: { gte: start, lt: end },
+        },
+      }),
+    ]);
     return {
       deals_closed: deals,
       offers_sent: Number(offers[0]?.n ?? 0),
@@ -118,6 +191,84 @@ export class MentorSignalsService {
       leads_answered: leads,
       new_buyers: buyers,
       new_properties: properties,
+      calls_made: Number(callsMade[0]?.n ?? 0),
+      calls_answered: Number(callsAnswered[0]?.n ?? 0),
+      leads_answered_fast: Number(leadsFast[0]?.n ?? 0),
+      followups_done: Number(followups[0]?.n ?? 0),
+      owner_updates_sent: Number(ownerUpdates ?? 0),
+    };
+  }
+
+  /**
+   * התובנות שאינן מונה: חציון זמן המענה ללידים חדשים (השבוע ובשבוע
+   * שלפניו — השוואה לעצמו בלבד), ושיחות נכנסות שלא נענו ולא יצאה
+   * אליהן שיחה חוזרת תוך יממה. חציון ולא ממוצע: ליד אחד שנענה אחרי
+   * יומיים לא צריך למחוק שבוע של מענה תוך עשר דקות.
+   */
+  async insights(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    week: DateRange,
+    previousWeek: DateRange | null,
+  ): Promise<MentorInsights> {
+    const median = async (range: DateRange): Promise<number | null> => {
+      const rows = await tx.$queryRaw<{ median: number | null }[]>`
+        SELECT percentile_cont(0.5) WITHIN GROUP (
+          ORDER BY EXTRACT(EPOCH FROM (first_response_at - created_at)) / 60
+        )::float AS median
+        FROM leads
+        WHERE tenant_id = ${tenantId}
+          AND assigned_to_user_id = ${userId}
+          AND first_response_at >= ${range.start} AND first_response_at < ${range.end}
+          AND first_response_at >= created_at`;
+      const value = rows[0]?.median;
+      return typeof value === "number" && Number.isFinite(value)
+        ? Math.round(value)
+        : null;
+    };
+    const [current, previous, missed] = await Promise.all([
+      median(week),
+      previousWeek === null ? Promise.resolve(null) : median(previousWeek),
+      tx.$queryRaw<{ n: bigint }[]>`
+        SELECT COUNT(c.id) AS n
+        FROM calls c
+        LEFT JOIN leads l ON l.id = c.lead_id
+        WHERE c.tenant_id = ${tenantId}
+          AND c.direction = 'inbound'
+          AND c.outcome IN ('missed', 'no_answer', 'voicemail')
+          AND c.occurred_at >= ${week.start} AND c.occurred_at < ${week.end}
+          AND (
+            c.created_by = ${userId}
+            OR l.assigned_to_user_id = ${userId}
+            OR (c.lead_id IS NULL AND c.contact_id IS NOT NULL AND EXISTS (
+              SELECT 1 FROM leads cl
+              WHERE cl.tenant_id = c.tenant_id
+                AND cl.contact_id = c.contact_id
+                AND cl.assigned_to_user_id = ${userId}
+            ))
+          )
+          AND (c.contact_id IS NOT NULL OR c.phone_hash IS NOT NULL)
+          AND NOT EXISTS (
+            SELECT 1 FROM calls r
+            WHERE r.tenant_id = c.tenant_id
+              AND r.direction = 'outbound'
+              AND r.occurred_at > c.occurred_at
+              AND r.occurred_at < c.occurred_at + ${MENTOR_MISSED_RETURN_HOURS} * INTERVAL '1 hour'
+              AND (
+                (c.contact_id IS NOT NULL AND r.contact_id = c.contact_id)
+                OR (c.phone_hash IS NOT NULL AND r.phone_hash = c.phone_hash)
+                OR (c.contact_id IS NOT NULL AND r.lead_id IS NOT NULL AND EXISTS (
+                  SELECT 1 FROM leads rl
+                  WHERE rl.id = r.lead_id AND rl.contact_id = c.contact_id
+                ))
+              )
+          )`,
+    ]);
+    return {
+      responseMedianMinutes: current,
+      previousResponseMedianMinutes: previous,
+      missedUnreturned: Number(missed[0]?.n ?? 0),
     };
   }
 

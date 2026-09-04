@@ -148,6 +148,18 @@ export class CallsService {
         },
       });
 
+      /*
+       * שיחה עם הליד היא מענה. עד עכשיו `first_response_at` נחתם רק
+       * בשינוי סטטוס, ולכן מתווך שהתקשר תוך חמש דקות ושינה סטטוס בערב
+       * נמדד כ„ענה בערב”. השיחה קובעת — ורק כשעדיין לא נחתם.
+       */
+      if (input.leadId !== undefined) {
+        await tx.lead.updateMany({
+          where: { id: input.leadId, tenantId, firstResponseAt: null },
+          data: { firstResponseAt: input.occurredAt },
+        });
+      }
+
       await this.audit.record(tx, {
         action: "call.log",
         entityType: "call",

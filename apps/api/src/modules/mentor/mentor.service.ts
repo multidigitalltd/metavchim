@@ -9,30 +9,31 @@ import { ulid } from "ulid";
 import { z } from "zod";
 import {
   buildMentorPrompt,
+  formatJerusalemDate,
   jerusalemDayRange,
   jerusalemWeekStart,
   MENTOR_REPLY_JSON_SCHEMA,
-  mentorFallbackReply,
-  mentorGoalLabel,
-  mentorPatterns,
-  mentorPeriodRange,
-  PATTERN_LOOKBACK,
-  obstaclePlanSuggestions,
-  selectWins,
-  suggestProcessGoals,
-  formatJerusalemDate,
   type MentorActivity,
   type MentorAsk,
   type MentorChatContext,
+  mentorFallbackReply,
   type MentorGoalInput,
+  mentorGoalLabel,
   type MentorGoalPeriod,
   type MentorGoalProgress,
+  type MentorInsights,
   type MentorMood,
   type MentorPastReview,
   type MentorPattern,
+  mentorPatterns,
+  mentorPeriodRange,
   type MentorReviewBody,
   type MentorWin,
+  obstaclePlanSuggestions,
+  PATTERN_LOOKBACK,
   type ProcessGoalSuggestion,
+  selectWins,
+  suggestProcessGoals,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -103,6 +104,8 @@ export interface MentorOverview {
   streakWeeks: number;
   /** האם השיחה החופשית פעילה (מודל מוגדר) */
   chatAvailable: boolean;
+  /** מהירות המענה ושיחות שמחכות לחזרה — השבוע מול השבוע שעבר */
+  insights: MentorInsights;
   /** מה המנטור זוכר — דפוסים מהסיכומים של החודשיים האחרונים */
   patterns: MentorPattern[];
 }
@@ -195,6 +198,15 @@ export class MentorService {
         goalRows,
         { at: now, week, weekActivity: activity, monthAnchor: now },
       );
+      const insights = await this.signals.insights(
+        tx,
+        tenantId,
+        userId,
+        week,
+        previousActivity === null
+          ? null
+          : { start: jerusalemWeekStart(now, -1), end: week.start },
+      );
       const wins = selectWins(
         await this.signals.wins(tx, tenantId, userId, week),
       );
@@ -212,6 +224,7 @@ export class MentorService {
         weekEnd: week.end,
         activity,
         previousActivity,
+        insights,
         wins,
         goals: goals.map(MentorService.goalDto),
         latestReview: latest === null ? null : MentorService.reviewDto(latest),
@@ -629,7 +642,15 @@ export class MentorService {
           await this.pastReviews(tx, tenantId, userId),
           now,
         );
+        const insights = await this.signals.insights(
+          tx,
+          tenantId,
+          userId,
+          week,
+          { start: jerusalemWeekStart(now, -1), end: week.start },
+        );
         return {
+          insights,
           firstName: (user?.name ?? "").trim().split(/\s+/u)[0] ?? "",
           nowText: MentorService.nowText(now),
           goals,

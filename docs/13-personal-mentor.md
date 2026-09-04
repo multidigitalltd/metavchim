@@ -106,14 +106,35 @@
 מדד קיים רק אם יש שאילתה שסופרת אותו מהנתונים הקיימים. המונים חיים
 ב-`MentorSignalsService` — מקור אחד למסך, לסיכום ולהצעות.
 
-| מדד              | מאיפה נספר                                                            | שיוך למתווך                                            |
-| ---------------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
-| `deals_closed`   | `mentor_wins` מסוג `deal_closed` — נרשם ברגע שנכס סומן „נמכר”/„הושכר” | מי שסימן (לנכס אין שדה „סוכן”)                         |
-| `offers_sent`    | `offers.created_at` בתקופה                                            | דרך `buyer.owner_user_id` — אותו שיוך של דוח הסוכנים   |
-| `viewings_held`  | `appointments.kind = viewing` שמועדם עבר, לא בוטלו ולא „לא הגיע”      | `owner_user_id`, ובלעדיו `created_by` (כמו דו"ח הבוקר) |
-| `leads_answered` | `leads.first_response_at` בתקופה                                      | `assigned_to_user_id`                                  |
-| `new_buyers`     | `buyers.created_at`                                                   | `owner_user_id`                                        |
-| `new_properties` | `audit_log` — `property.create` בתקופה                                | `user_id` ביומן הביקורת                                |
+| מדד                   | מאיפה נספר                                                                                                      | שיוך למתווך                                                                                                                        |
+| --------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `deals_closed`        | `mentor_wins` מסוג `deal_closed` — נרשם ברגע שנכס סומן „נמכר”/„הושכר”                                           | מי שסימן (לנכס אין שדה „סוכן”)                                                                                                     |
+| `offers_sent`         | `offers.created_at` בתקופה                                                                                      | דרך `buyer.owner_user_id` — אותו שיוך של דוח הסוכנים                                                                               |
+| `viewings_held`       | `appointments.kind = viewing` שמועדם עבר, לא בוטלו ולא „לא הגיע”                                                | `owner_user_id`, ובלעדיו `created_by` (כמו דו"ח הבוקר)                                                                             |
+| `leads_answered`      | `leads.first_response_at` בתקופה                                                                                | `assigned_to_user_id`                                                                                                              |
+| `new_buyers`          | `buyers.created_at`                                                                                             | `owner_user_id`                                                                                                                    |
+| `new_properties`      | `audit_log` — `property.create` בתקופה                                                                          | `user_id` ביומן הביקורת                                                                                                            |
+| `calls_made`          | `calls.direction = outbound` לפי `occurred_at`                                                                  | `created_by` (רישום ידני), או `leads.assigned_to_user_id` דרך `lead_id` (שיחת מרכזייה); שיחת מרכזייה יוצאת בלי ליד אינה נספרת לאיש |
+| `calls_answered`      | `calls.direction = inbound` ו-`outcome` שאינו `missed/no_answer/voicemail`                                      | כנ"ל, ובנוסף: שיחת מרכזייה בלי ליד מלקוח קיים שייכת למי שהליד של אותו לקוח אצלו                                                    |
+| `leads_answered_fast` | `leads.first_response_at` בתקופה, ו-`first_response_at − created_at ≤ 60 דקות` (`MENTOR_FAST_RESPONSE_MINUTES`) | `assigned_to_user_id`                                                                                                              |
+| `followups_done`      | `tasks.completed_at` בתקופה, בלי משימות האוטומציה (`source_key LIKE 'lead-%'`)                                  | `assigned_to_user_id`                                                                                                              |
+| `owner_updates_sent`  | `audit_log` — `property.owner_update` בתקופה                                                                    | `user_id` ביומן הביקורת                                                                                                            |
+
+**המענה הראשון של ליד** (`leads.first_response_at`) נחתם גם ברישום
+שיחה עם הליד (`CallsService.create`, לפי `occurred_at`) וגם בשליחת
+וואטסאפ ללקוח — לא רק בשינוי סטטוס. מתווך שהתקשר תוך חמש דקות ושינה
+סטטוס בערב נמדד כמי שענה תוך חמש דקות.
+
+### 5.1.1 תובנות (`MentorInsights`) — לא יעד, אבל נאמרות
+
+| תובנה                                           | מאיפה                                                                                                                                                                       |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| חציון זמן המענה ללידים חדשים, השבוע ובשבוע שעבר | `percentile_cont(0.5)` על `first_response_at − created_at` של הלידים המשויכים; חציון ולא ממוצע — ליד אחד שנענה אחרי יומיים לא מוחק שבוע של עשר דקות                         |
+| שיחות נכנסות שלא נענו ולא חזרת אליהן            | שיחה נכנסת `missed/no_answer/voicemail` (שיוך כמו `calls_answered`) בלי שיחה יוצאת לאותו איש קשר — ישירות, דרך הליד, או אותו מספר — תוך יממה (`MENTOR_MISSED_RETURN_HOURS`) |
+
+`mentorInsightSentences` מנסח אותן — עובדה, מול השבוע הקודם של המתווך
+עצמו — בסיכום השבועי (אחרי היעדים), במסך, בפרומפט השיחה וב„מה המצב
+ביעדים שלי?” בוואטסאפ. נשמרות בגוף הסיכום (`MentorReviewBody.insights`).
 
 ### 5.2 טבלאות ✅ (`20260903210000_mentor`)
 
@@ -216,7 +237,7 @@ apps/web/src/lib/guide-content.ts          ✅ מדריך `mentor`
 מה שנשאר ⬜, ובכוונה מחוץ להיקף הזה:
 
 - פיצ'ר מסחרי נפרד `ai_mentor` בקטלוג המסלולים — החלטה מוצרית.
-- הרחבת המדדים (למשל שיחות שבוצעו) — מדד נכנס רק עם שאילתה שסופרת אותו.
+- הרחבת המדדים מעבר לאחד-עשר הקיימים — מדד נכנס רק עם שאילתה שסופרת אותו.
 
 ## 9. וואטסאפ — דו-כיווני ✅
 

@@ -59,6 +59,17 @@ export class MessagingService {
         createdBy: TenantContext.current().userId,
       },
     });
+    // הודעה ללקוח היא מענה — חותמת את המענה הראשון של הליד אם עדיין אין
+    if (input.card.kind === "lead") {
+      await tx.lead.updateMany({
+        where: {
+          id: input.card.id,
+          tenantId: TenantContext.current().tenantId,
+          firstResponseAt: null,
+        },
+        data: { firstResponseAt: new Date() },
+      });
+    }
   }
 
   async recordOutbound(

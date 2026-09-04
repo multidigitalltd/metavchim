@@ -1,6 +1,8 @@
 import {
   MENTOR_METRICS,
   mentorGoalLabel,
+  mentorInsightSentences,
+  type MentorInsights,
   mentorPatternLine,
   mentorQuantity,
   type MentorGoalProgress,
@@ -38,6 +40,8 @@ export interface MentorChatContext {
         plan?: string | null;
       })
     | null;
+  /** מהירות המענה ושיחות שלא חזרת אליהן — השבוע */
+  insights?: MentorInsights;
   /** דפוסים מהסיכומים הקודמים — הזיכרון הארוך */
   patterns?: MentorPattern[];
   /** מהישן לחדש */
@@ -107,6 +111,7 @@ export function buildMentorPrompt(ctx: MentorChatContext): string {
     "",
     "היעדים והמצב:",
     goalsBlock(ctx.goals),
+    ...mentorInsightSentences(ctx.insights),
   );
   if (ctx.lastReview !== null) {
     lines.push(

@@ -1,19 +1,24 @@
 import { describe, expect, it } from "vitest";
 import {
+  MENTOR_FUNNEL,
   MENTOR_GOAL_METRICS,
   MENTOR_GOAL_TARGET_MAX,
+  MENTOR_METRICS,
   type MentorActivity,
   mentorCelebration,
   mentorGoalLabel,
-  mentorGoalProgress,
   type MentorGoalProgress,
+  mentorGoalProgress,
   mentorGoalStatusLine,
+  mentorInsightSentences,
   mentorMidweekNudge,
+  mentorMinutesLabel,
   type MentorPastReview,
   mentorPatternLine,
   mentorPatterns,
   mentorPeriodRange,
   mentorQuantity,
+  mentorReviewBody,
   mentorReviewTitle,
   mentorStatusMessage,
   mentorWeeklyReview,
@@ -36,6 +41,11 @@ const quiet: MentorActivity = {
   leads_answered: 0,
   new_buyers: 0,
   new_properties: 0,
+  calls_made: 0,
+  calls_answered: 0,
+  leads_answered_fast: 0,
+  followups_done: 0,
+  owner_updates_sent: 0,
 };
 
 function goal(
@@ -1126,5 +1136,112 @@ describe("הקול של המנטור — אישי, בגוף שני יחיד, ב�
     expect(
       mentorCelebration({ kind: "deal_closed", title: "הרצל 12" }, "דנה").body,
     ).toMatch(/^דנה, /u);
+  });
+});
+
+describe("שיחות ומהירות מענה — המדדים והתובנות", () => {
+  it("חמשת המדדים החדשים הם תהליך, עם יחידה ורבים, ואינם במשפך ההצעות", () => {
+    for (const code of [
+      "calls_made",
+      "calls_answered",
+      "leads_answered_fast",
+      "followups_done",
+      "owner_updates_sent",
+    ] as const) {
+      const info = MENTOR_METRICS.find((m) => m.code === code);
+      expect(info?.kind).toBe("process");
+      expect(mentorQuantity(code, 1)).toBe(info?.one);
+      expect(mentorQuantity(code, 3)).toBe(`3 ${info?.many}`);
+      expect(MENTOR_FUNNEL).not.toContain(code);
+    }
+    expect(mentorGoalLabel("calls_made", 20, "week")).toBe(
+      "20 שיחות יוצאות בשבוע",
+    );
+  });
+
+  it("תובנות: זמן מענה מול שבוע שעבר, ושיחות שמחכות — עובדות, בגוף שני", () => {
+    expect(mentorMinutesLabel(12)).toBe("12 דקות");
+    expect(mentorMinutesLabel(80)).toBe("שעה ו-20 דקות");
+    expect(mentorMinutesLabel(180)).toBe("3 שעות");
+    const faster = mentorInsightSentences({
+      responseMedianMinutes: 12,
+      previousResponseMedianMinutes: 25,
+      missedUnreturned: 2,
+    });
+    expect(faster[0]).toContain("12 דקות");
+    expect(faster[0]).toContain("מהר יותר משבוע שעבר (25 דקות)");
+    expect(faster[1]).toBe(
+      "2 שיחות נכנסות לא נענו ולא חזרת אליהן — שווה טלפון קצר לכל אחת מחר בבוקר.",
+    );
+    const slower = mentorInsightSentences({
+      responseMedianMinutes: 90,
+      previousResponseMedianMinutes: 30,
+      missedUnreturned: 0,
+    });
+    expect(slower).toHaveLength(1);
+    expect(slower[0]).toContain(
+      "שעה ו-30 דקות (חציון), מול 30 דקות בשבוע שעבר",
+    );
+    expect(slower[0]).not.toMatch(/מעט|רק|חבל|אכזב/);
+    expect(mentorInsightSentences(undefined)).toEqual([]);
+    expect(
+      mentorInsightSentences({
+        responseMedianMinutes: null,
+        previousResponseMedianMinutes: null,
+        missedUnreturned: 0,
+      }),
+    ).toEqual([]);
+  });
+
+  it("התובנות נכנסות לסיכום אחרי היעדים ונשמרות בגוף", () => {
+    const signals = {
+      weekStart: WEEK_START,
+      wins: [],
+      activity: { ...quiet, offers_sent: 3 },
+      goals: [goal({ pace: "on_track", actual: 3, ratio: 0.6, remaining: 2 })],
+      insights: {
+        responseMedianMinutes: 15,
+        previousResponseMedianMinutes: null,
+        missedUnreturned: 1,
+      },
+    };
+    const review = mentorWeeklyReview(signals);
+    expect(review?.paragraphs[1]).toContain(
+      "זמן המענה שלך ללידים חדשים השבוע: 15 דקות",
+    );
+    expect(review?.paragraphs[2]).toContain("שיחה נכנסת אחת לא נענתה");
+    expect(mentorReviewBody(signals, review!).insights?.missedUnreturned).toBe(
+      1,
+    );
+  });
+
+  it("לכל מדד חדש יש שאלת רפלקציה ושלוש תוכניות „כש… אז…”", () => {
+    for (const code of [
+      "calls_made",
+      "calls_answered",
+      "leads_answered_fast",
+      "followups_done",
+      "owner_updates_sent",
+    ] as const) {
+      const review = mentorWeeklyReview({
+        weekStart: WEEK_START,
+        wins: [],
+        activity: quiet,
+        goals: [
+          goal({
+            metric: code,
+            target: 10,
+            pace: "behind",
+            actual: 2,
+            ratio: 0.2,
+            remaining: 8,
+          }),
+        ],
+      });
+      expect(review?.reflection).toContain("מה");
+      const plans = obstaclePlanSuggestions(code);
+      expect(plans).toHaveLength(3);
+      for (const plan of plans) expect(plan).toMatch(/^כש.*— אז /u);
+    }
   });
 });
