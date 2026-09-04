@@ -551,53 +551,63 @@ describe("mentorWeeklyReview — שיטת המאמן: „למה”, כוונת �
 });
 
 describe("mentorMidweekNudge — רביעי, לא מוצאי שבת", () => {
+  // רביעי 09/09 13:00 ישראל
+  const wednesday = new Date("2026-09-09T10:00:00.000Z");
+
   it("אין יעד שבועי בפיגור ⇒ שקט, גם כשיעד חודשי מאחור", () => {
     expect(
-      mentorMidweekNudge([
-        goal({ pace: "on_track", actual: 3, ratio: 0.6, remaining: 2 }),
-      ]),
+      mentorMidweekNudge(
+        [goal({ pace: "on_track", actual: 3, ratio: 0.6, remaining: 2 })],
+        wednesday,
+      ),
     ).toBeNull();
     expect(
-      mentorMidweekNudge([
-        goal({
-          period: "month",
-          target: 3,
-          metric: "deals_closed",
-          pace: "behind",
-          actual: 0,
-          ratio: 0,
-          remaining: 3,
-        }),
-      ]),
+      mentorMidweekNudge(
+        [
+          goal({
+            period: "month",
+            target: 3,
+            metric: "deals_closed",
+            pace: "behind",
+            actual: 0,
+            ratio: 0,
+            remaining: 3,
+          }),
+        ],
+        wednesday,
+      ),
     ).toBeNull();
   });
 
   it("יעד אחד בלבד — זה שהכי רחוק מהקצב — עם התוכנית וה„למה” של המתווך", () => {
-    const nudge = mentorMidweekNudge([
-      goal({
-        pace: "behind",
-        actual: 3,
-        ratio: 0.6,
-        remaining: 2,
-        expected: 4,
-        elapsed: 0.5,
-      }),
-      goal({
-        metric: "viewings_held",
-        target: 4,
-        pace: "behind",
-        actual: 0,
-        ratio: 0,
-        remaining: 4,
-        expected: 2,
-        elapsed: 0.5,
-        intention: "כל יום ב-16:00 מתקשר לקבוע סיור",
-        why: "הדירה של הילדים",
-      }),
-    ]);
+    const nudge = mentorMidweekNudge(
+      [
+        goal({
+          pace: "behind",
+          actual: 3,
+          ratio: 0.6,
+          remaining: 2,
+          expected: 4,
+          elapsed: 0.5,
+        }),
+        goal({
+          metric: "viewings_held",
+          target: 4,
+          pace: "behind",
+          actual: 0,
+          ratio: 0,
+          remaining: 4,
+          expected: 2,
+          elapsed: 0.5,
+          intention: "כל יום ב-16:00 מתקשר לקבוע סיור",
+          why: "הדירה של הילדים",
+        }),
+      ],
+      wednesday,
+    );
     expect(nudge?.metric).toBe("viewings_held");
     expect(nudge?.title).toBe("🧭 אמצע השבוע — 4 סיורים בשבוע");
-    expect(nudge?.body).toContain("עדיין לא התחיל, ונשארו שלושה ימי עבודה");
+    expect(nudge?.body).toContain("עדיין לא התחיל, ונשאר יום עבודה אחד");
     expect(nudge?.body).toContain(
       "התוכנית שכתבתם: „כל יום ב-16:00 מתקשר לקבוע סיור”",
     );
@@ -605,8 +615,8 @@ describe("mentorMidweekNudge — רביעי, לא מוצאי שבת", () => {
     expect(nudge?.body).not.toMatch(/מעט|רק|חבל/);
   });
 
-  it("עם התקדמות חלקית — כמה יש וכמה חסר, בלי שיפוט", () => {
-    const nudge = mentorMidweekNudge([
+  it("הימים שנשארו נגזרים מרגע השליחה — לא „שלושה” קבוע", () => {
+    const behind = [
       goal({
         pace: "behind",
         actual: 1,
@@ -615,9 +625,24 @@ describe("mentorMidweekNudge — רביעי, לא מוצאי שבת", () => {
         expected: 3,
         elapsed: 0.6,
       }),
-    ]);
-    expect(nudge?.body).toBe(
-      "5 הצעות בשבוע: הצעה אחת עד עכשיו, עוד 4 הצעות ליעד — ונשארו שלושה ימי עבודה.",
+    ];
+    // רביעי 09:00 ישראל — היום נספר, ועוד חמישי
+    expect(
+      mentorMidweekNudge(behind, new Date("2026-09-09T06:00:00.000Z"))?.body,
+    ).toContain("ונשארו יומיים");
+    // חמישי 10:00 — יום אחד
+    expect(
+      mentorMidweekNudge(behind, new Date("2026-09-10T07:00:00.000Z"))?.body,
+    ).toContain("ונשאר יום עבודה אחד");
+    // חמישי אחר הצהריים ושישי — השבוע כמעט נגמר
+    expect(
+      mentorMidweekNudge(behind, new Date("2026-09-10T13:00:00.000Z"))?.body,
+    ).toContain("והשבוע כמעט נגמר");
+    expect(
+      mentorMidweekNudge(behind, new Date("2026-09-11T06:00:00.000Z"))?.body,
+    ).toContain("והשבוע כמעט נגמר");
+    expect(mentorMidweekNudge(behind, wednesday)?.body).toBe(
+      "5 הצעות בשבוע: הצעה אחת עד עכשיו, עוד 4 הצעות ליעד — ונשאר יום עבודה אחד.",
     );
   });
 });

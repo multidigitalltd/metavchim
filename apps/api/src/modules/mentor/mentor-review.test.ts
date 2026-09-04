@@ -79,7 +79,12 @@ function fakeTx(counts: {
     lead: { count: async () => counts.leads ?? 0 },
     buyer: { count: async () => counts.buyers ?? 0 },
     auditLog: { count: async () => counts.properties ?? 0 },
-    mentorGoal: { findMany: async () => counts.goals ?? [] },
+    mentorGoal: {
+      findMany: async (args?: { where?: { endedAt?: unknown } }) =>
+        (counts.goals ?? []).filter(
+          (g) => args?.where?.endedAt !== null || g.endedAt === null,
+        ),
+    },
     mentorReview: {
       findMany: async () => counts.previousReviews ?? [],
       create: async (args: { data: Record<string, unknown> }) => {
@@ -309,5 +314,41 @@ describe("MentorReviewService.nudgeForUser — דחיפה רק כשמאחור", 
     expect(notifications).toHaveLength(1);
     const sql = String(notifications[0]);
     expect(sql).toContain("INSERT INTO notifications");
+  });
+});
+
+describe("MentorReviewService.nudgeForUser — יעד שהוחלף השבוע אינו נבחר", () => {
+  const wednesday = new Date("2026-09-09T10:00:00.000Z");
+  it("היעד הישן (שהופסק ביום שני) אינו נספר — רק היעד הפעיל", async () => {
+    const { tx, notifications } = fakeTx({
+      offers: 5,
+      goals: [
+        {
+          id: "01GOALOLDAAAAAAAAAAAAAAAAA",
+          metric: "offers_sent",
+          period: "week",
+          target: 40,
+          why: null,
+          intention: null,
+          createdAt: new Date("2026-08-01"),
+          endedAt: new Date("2026-09-07T08:00:00.000Z"),
+        },
+        {
+          id: "01GOALNEWAAAAAAAAAAAAAAAAA",
+          metric: "offers_sent",
+          period: "week",
+          target: 6,
+          why: null,
+          intention: null,
+          createdAt: new Date("2026-09-07T08:00:00.000Z"),
+          endedAt: null,
+        },
+      ],
+    });
+    // 5 מתוך 6 ביום רביעי — בקצב; 5 מתוך 40 היה „מאחור” ומזכיר יעד שכבר אינו קיים
+    expect(
+      await service().nudgeForUser(tx, TENANT, USER, WEEK, wednesday),
+    ).toBe(false);
+    expect(notifications).toEqual([]);
   });
 });

@@ -178,9 +178,15 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
           })
         ).map((n) => n.userId),
       );
-      // רק מי שיש לו יעד שבועי פעיל — מי שאין לו, אין מה לדחוף
+      // רק משתמשים פעילים עם יעד שבועי פעיל — משתמש שהושבת שומר על
+      // מינויי הפוש שלו, והדחיפה הייתה ממשיכה להגיע (ביקורת Codex)
       const withGoals = await tx.mentorGoal.findMany({
-        where: { tenantId, period: "week", endedAt: null },
+        where: {
+          tenantId,
+          period: "week",
+          endedAt: null,
+          user: { isActive: true },
+        },
         distinct: ["userId"],
         select: { userId: true },
       });
@@ -210,12 +216,25 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       week,
       now,
     );
-    const goalRows = await this.signals.goalsActiveIn(
-      tx,
-      tenantId,
-      userId,
-      week,
-    );
+    /*
+     * רק יעדים **פעילים** — לא כמו בסיכום, שסופר גם יעד שהופסק
+     * במהלך השבוע. יעד שהוחלף ביום שני היה יכול להיבחר כ„הרחוק ביותר
+     * מהקצב” ולהזכיר מספר שכבר אינו היעד (ביקורת Codex).
+     */
+    const goalRows = await tx.mentorGoal.findMany({
+      where: { tenantId, userId, endedAt: null },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        metric: true,
+        period: true,
+        target: true,
+        why: true,
+        intention: true,
+        createdAt: true,
+        endedAt: true,
+      },
+    });
     const goals = (
       await this.signals.progress(tx, tenantId, userId, goalRows, {
         at: now,
@@ -224,7 +243,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
         monthAnchor: now,
       })
     ).map((g) => g.progress);
-    const nudge = mentorMidweekNudge(goals);
+    const nudge = mentorMidweekNudge(goals, now);
     if (nudge === null) return false;
     return notifyOnce(tx, {
       tenantId,

@@ -1,6 +1,7 @@
 import {
   jerusalemWallIsoToUtc,
   jerusalemWallParts,
+  jerusalemWeekday,
   jerusalemWeekStart,
 } from "./israel-time.js";
 
@@ -728,6 +729,7 @@ export function mentorReviewBody(
  */
 export function mentorMidweekNudge(
   goals: readonly MentorGoalProgress[],
+  now: Date,
 ): { title: string; body: string; metric: MentorGoalMetric } | null {
   const behind = goals.filter(
     (g) => g.period === "week" && g.pace === "behind",
@@ -739,10 +741,11 @@ export function mentorMidweekNudge(
       (b.expected - b.actual) / b.target - (a.expected - a.actual) / a.target,
   )[0]!;
   const label = mentorGoalLabel(focus.metric, focus.target, focus.period);
+  const left = workdaysLeftLabel(now);
   const parts = [
     focus.actual === 0
-      ? `${label}: עדיין לא התחיל, ונשארו שלושה ימי עבודה.`
-      : `${label}: ${mentorQuantity(focus.metric, focus.actual)} עד עכשיו, עוד ${mentorQuantity(focus.metric, focus.remaining)} ליעד — ונשארו שלושה ימי עבודה.`,
+      ? `${label}: עדיין לא התחיל, ${left}.`
+      : `${label}: ${mentorQuantity(focus.metric, focus.actual)} עד עכשיו, עוד ${mentorQuantity(focus.metric, focus.remaining)} ליעד — ${left}.`,
   ];
   if (focus.intention !== undefined && focus.intention.trim() !== "") {
     parts.push(`התוכנית שכתבתם: „${focus.intention.trim()}”.`);
@@ -755,6 +758,25 @@ export function mentorMidweekNudge(
     body: parts.join(" "),
     metric: focus.metric,
   };
+}
+
+/**
+ * כמה ימי עבודה נשארו בשבוע הישראלי, לפי רגע השליחה — לא „שלושה”
+ * קבוע: הדחיפה יכולה לצאת גם בחמישי (אחרי השבתה, או למי שנפל מהקצב
+ * רק אז), ותאריך יעד שגוי גרוע מאין תאריך. ראשון עד חמישי הם ימי
+ * עבודה; שישי נספר כחצי; היום עצמו נספר כשעדיין לפני הצהריים.
+ */
+function workdaysLeftLabel(now: Date): string {
+  const weekday = jerusalemWeekday(now);
+  const beforeNoon = Number(jerusalemWallParts(now).time.slice(0, 2)) < 12;
+  // ימי עבודה מלאים אחרי היום: ראשון(0)…חמישי(4)
+  const fullDaysAfterToday = Math.max(0, 4 - weekday);
+  const days = fullDaysAfterToday + (weekday <= 4 && beforeNoon ? 1 : 0);
+  if (weekday === 5 || (weekday === 4 && !beforeNoon))
+    return "והשבוע כמעט נגמר";
+  if (days >= 3) return `ונשארו ${days} ימי עבודה`;
+  if (days === 2) return "ונשארו יומיים";
+  return "ונשאר יום עבודה אחד";
 }
 
 /** כותרת ההתראה בפעמון ובוואטסאפ — לפי הטון, אייקון אחד לכל טון. */
