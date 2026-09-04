@@ -7884,3 +7884,61 @@ a.mv-bar-row:focus-visible {
 .mv-net-rowline__act > * > .mv-net-act {
   min-width: 0;
 }
+
+/*
+ * ‏שדה מועד עם תווית — „מועד 📅”, ולא `mm/dd/yyyy` חשוף.
+ *
+ * ‎`datetime-local` ריק מציג בעברית „mm/dd/yyyy, --:--” בסדר הפוך,
+ * ואינו אומר למה הוא שם. התווית והאייקון עונים על זה, והשדה עצמו
+ * נשאר נייטיב — בורר התאריך של הדפדפן טוב מכל אחד שנכתוב.
+ */
+.mv-datefield {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  cursor: pointer;
+}
+.mv-datefield > svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+.mv-datefield__label {
+  font-size: var(--type-caption-lg);
+  font-weight: 700;
+}
+.mv-datefield > input {
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--type-caption);
+  padding: 0;
+}
+.mv-datefield:focus-within {
+  border-color: var(--color-primary);
+}
+
+/*
+ * גלולת פעולה ראשית — מילוי מלא.
+ *
+ * ‎`--go` הוא ירוק רך לפעולה מוזמנת; זו הפעולה שהמסך קיים בשבילה,
+ * והיא היחידה בשורה שמקבלת מילוי מלא. שתיהן באותה משפחה כדי ששורת
+ * פעולות תקרא כשורה אחת ולא כשלוש מערכות כפתורים.
+ */
+.mv-net-act--solid {
+  border-color: var(--color-action);
+  background: var(--color-action);
+  color: var(--color-on-action);
+  font-weight: 800;
+}
+.mv-net-act--solid:hover:not(:disabled) {
+  border-color: var(--color-action-hover, var(--color-action));
+  background: var(--color-action-hover, var(--color-action));
+}
+.mv-net-act--solid > svg {
+  opacity: 1;
+}

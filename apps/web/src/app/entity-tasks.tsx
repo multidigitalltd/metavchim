@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "@metavchim/ui";
 import { api, apiGet, apiPost, ApiError, apiList } from "@/lib/api";
-import { IconCheck, IconClock, IconUser } from "./icons";
+import { IconCalendar, IconCheck, IconClock, IconPlus, IconUser } from "./icons";
 import { LoadError } from "./load-error";
 import { Notice } from "./notice";
 import {
@@ -93,6 +92,16 @@ export function EntityTasks({
    */
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [title, setTitle] = useState("");
+  /*
+    ‎**„מועד” הוא כפתור עד שנוגעים בו.**
+
+    ‏`datetime-local` ריק מצייר „mm/dd/yyyy, --:--” — מחרוזת באנגלית
+    ובסדר הפוך לעברית, שתופסת שליש משורת המשימה ואינה אומרת למה היא
+    שם. רוב המשימות נכתבות עם צ'יפ מועד או בלי מועד כלל, ולכן השדה
+    המלא נפתח רק למי שביקש אותו.
+  */
+  const [dueOpen, setDueOpen] = useState(false);
+  const dueRef = useRef<HTMLInputElement>(null);
   /**
    * ‎**המועד ומקורו כמצב אחד — ולא שני משתנים שצריך לזכור לעדכן יחד.**
    *
@@ -227,6 +236,8 @@ export function EntityTasks({
       });
       setTitle("");
       setDue({ value: "", source: null });
+      /* השורה חוזרת לצורתה הנקייה — „מועד” ככפתור, לא שדה ריק */
+      setDueOpen(false);
       await load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הוספת המשימה נכשלה");
@@ -421,6 +432,37 @@ export function EntityTasks({
         </ul>
       )}
 
+      {/*
+        ‎**„מועד מהיר” — SPEC-4c §6.**
+
+        שדה `datetime-local` הוא ארבע פעולות, ומתווך שמקליד משימה בין
+        שתי שיחות לא יעשה אותן — כלומר המשימה נשמרת בלי מועד, ומשימה
+        בלי מועד אינה מזכירה לאיש דבר.
+
+        המועדים מחושבים ב-`@metavchim/shared` ולא כאן: „מחר בבוקר”
+        הוא 09:00 בשעון **ישראל**, ו„מחר” הוא היום הישראלי הבא — שאינו
+        „עוד 24 שעות” בליל מעבר שעון. מועד שכבר חלף אינו מוצע.
+      */}
+      {quickDue.length > 0 ? (
+        <div
+          className="mb-2.5 flex flex-wrap items-center gap-1.5"
+          role="group"
+          aria-label="מועד מהיר"
+        >
+          {quickDue.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              className="mv-chip"
+              aria-pressed={dueAt === option.value}
+              onClick={() => chooseQuickDue(option.key)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       <form onSubmit={onCreate} className="flex flex-wrap items-end gap-2">
         {/*
           ‎**התוויות נסתרות ולא הוסרו.**
@@ -438,62 +480,68 @@ export function EntityTasks({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             maxLength={200}
-            placeholder="למשל: לחזור אליו מחר בבוקר"
-            className="w-full rounded-lg border px-3 py-2.5"
-            style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
-          />
-        </div>
-        <div>
-          <label htmlFor={`nd-${entityId}`} className="mv-visually-hidden">
-            מועד
-          </label>
-          <input
-            id={`nd-${entityId}`}
-            type="datetime-local"
-            value={dueAt}
-            onChange={(e) => {
-              /* הקלדה ידנית — המועד אינו של הצ'יפ עוד */
-              setDue({ value: e.target.value, source: null });
+            placeholder="משימה חדשה — למשל: לחזור אליו מחר בבוקר"
+            className="w-full rounded-xl border px-3.5"
+            style={{
+              borderColor: "var(--color-input-border)",
+              background: "var(--color-field)",
+              minHeight: 42,
             }}
-            className="rounded-lg border px-3 py-2.5"
-            style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
           />
         </div>
-        <Button type="submit" disabled={busy || title.trim() === ""}>
-          הוסף
-        </Button>
-      </form>
+        {/*
+          ‎**„מועד” כתוב, ולא שדה תאריך חשוף.**
 
-      {/*
-        ‎**„מועד מהיר” — SPEC-4c §6.**
-
-        שדה `datetime-local` הוא ארבע פעולות, ומתווך שמקליד משימה בין
-        שתי שיחות לא יעשה אותן — כלומר המשימה נשמרת בלי מועד, ומשימה
-        בלי מועד אינה מזכירה לאיש דבר.
-
-        המועדים מחושבים ב-`@metavchim/shared` ולא כאן: „מחר בבוקר”
-        הוא 09:00 בשעון **ישראל**, ו„מחר” הוא היום הישראלי הבא — שאינו
-        „עוד 24 שעות” בליל מעבר שעון. מועד שכבר חלף אינו מוצע.
-      */}
-      {quickDue.length > 0 ? (
-        <div
-          className="mt-2 flex flex-wrap items-center gap-1.5"
-          role="group"
-          aria-label="מועד מהיר"
+          ‎`datetime-local` ריק מציג „mm/dd/yyyy, --:--” — מחרוזת
+          שאינה אומרת למה היא כאן, ובעברית היא גם בסדר הפוך. התווית
+          לצד האייקון אומרת מה השדה, והשדה עצמו נשאר נייטיב: בורר
+          התאריך של הדפדפן טוב מכל אחד שנכתוב.
+        */}
+        {dueAt === "" && !dueOpen ? (
+          <button
+            type="button"
+            className="mv-net-act"
+            onClick={() => {
+              setDueOpen(true);
+              /*
+                ‏פריים אחד — השדה נכנס ל-DOM רק ברינדור הבא, ופתיחת
+                הבורר על אלמנט שטרם קיים אינה עושה דבר. `showPicker`
+                אינו קיים בכל דפדפן, ולכן פוקוס כנפילה אחורה.
+              */
+              requestAnimationFrame(() => {
+                const field = dueRef.current;
+                if (field === null) return;
+                if (typeof field.showPicker === "function") field.showPicker();
+                else field.focus();
+              });
+            }}
+          >
+            <IconCalendar s={15} /> מועד
+          </button>
+        ) : (
+          <label className="mv-datefield" htmlFor={`nd-${entityId}`}>
+            <IconCalendar s={15} />
+            <span className="mv-visually-hidden">מועד</span>
+            <input
+              id={`nd-${entityId}`}
+              ref={dueRef}
+              type="datetime-local"
+              value={dueAt}
+              onChange={(e) => {
+                /* הקלדה ידנית — המועד אינו של הצ'יפ עוד */
+                setDue({ value: e.target.value, source: null });
+              }}
+            />
+          </label>
+        )}
+        <button
+          type="submit"
+          className="mv-net-act mv-net-act--go"
+          disabled={busy || title.trim() === ""}
         >
-          {quickDue.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              className="mv-chip"
-              aria-pressed={dueAt === option.value}
-              onClick={() => chooseQuickDue(option.key)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
+          <IconPlus s={15} /> הוסף
+        </button>
+      </form>
 
       {/*
         ‎**„משימות מוצעות לנכס הזה” — SPEC-4c §6.**
