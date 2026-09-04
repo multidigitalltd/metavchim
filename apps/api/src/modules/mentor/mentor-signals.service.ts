@@ -134,9 +134,14 @@ export class MentorSignalsService {
         happenedAt: { gte: range.start, lt: range.end },
       },
       orderBy: { happenedAt: "asc" },
-      select: { kind: true, title: true },
+      select: { id: true, kind: true, title: true },
     });
-    return rows.map((r) => ({ kind: r.kind as MentorWinKind, title: r.title }));
+    // המזהה — זהות יציבה לחגיגה במסך; המיקום ברשימה משתנה כשמצטרפת הצלחה
+    return rows.map((r) => ({
+      id: r.id,
+      kind: r.kind as MentorWinKind,
+      title: r.title,
+    }));
   }
 
   /** היעדים שהיו פעילים בטווח — כולל יעד שהופסק אחרי תחילתו. */

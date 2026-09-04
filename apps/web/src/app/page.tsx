@@ -27,6 +27,7 @@ import { LoadError } from "./load-error";
 import { SetupBanner } from "./setup-banner";
 import { SystemUpdate } from "./system-update";
 import { NowStamp } from "./now-stamp";
+import { Celebration, type CelebrationEvent } from "./celebration";
 import {
   IconBell,
   IconBolt,
@@ -108,6 +109,43 @@ interface TaskRowDto {
   priority: string;
   createdAt?: string;
   entityLabel?: string;
+}
+
+/** הדופק של המנטור — מה שיש לחגוג השבוע (GET /mentor/pulse). */
+interface MentorPulse {
+  weekStart: string;
+  goalsDone: { id: string; label: string; period: "week" | "month"; periodStart: string }[];
+  wins: {
+    id?: string;
+    kind: "deal_closed" | "exclusivity_signed" | "offer_interested" | "coop_deal";
+    title: string;
+  }[];
+}
+
+/** אותם אירועים כמו במסך המנטור — ובאותם מפתחות, כדי שחגיגה שיצאה שם לא תחזור כאן. */
+function celebrationEvents(pulse: MentorPulse): CelebrationEvent[] {
+  const goals = pulse.goalsDone.map((g) => ({
+    key: `goal:${g.id}:${g.periodStart}`,
+    label: `היעד הושג: ${g.label}`,
+  }));
+  const wins = pulse.wins.map((w, i) => ({
+    key: `win:${w.id ?? `${pulse.weekStart}:${w.kind}:${w.title}:${i}`}`,
+    label: winLabel(w),
+  }));
+  return [...goals, ...wins];
+}
+
+function winLabel(win: MentorPulse["wins"][number]): string {
+  switch (win.kind) {
+    case "deal_closed":
+      return `סגרתם את ${win.title}`;
+    case "exclusivity_signed":
+      return `חתמתם בלעדיות על ${win.title}`;
+    case "offer_interested":
+      return `קונה אמר „מעוניין” על ${win.title}`;
+    case "coop_deal":
+      return `עסקת שיתוף פעולה — ${win.title}`;
+  }
 }
 
 /**
@@ -288,6 +326,14 @@ export default function DashboardPage() {
   const featuresReady = useFeaturesReady();
   const featuresFailed = useFeaturesFailed();
   const hasCoach = useFeature("ai_coach");
+  /*
+   * ‎**הדופק של המנטור — לחגוג גם בדשבורד.** יעד שהושג לא מחכה
+   * שייכנסו למסך המנטור; הקונפטי יוצא במקום שבו נמצאים. אותם
+   * מפתחות כמו במסך המנטור, ולכן החגיגה יוצאת פעם אחת בלבד —
+   * במסך הראשון שנפתח. שקט מוחלט בכישלון: הדופק הוא קישוט לכרטיס,
+   * לא מקור אמת, ואין מה להציג „נסו שוב” עליו.
+   */
+  const [mentorPulse, setMentorPulse] = useState<MentorPulse | null>(null);
   /*
    * „עכשיו” אחד לכל המסך, **ומתקדם מעצמו**. קודם הוא חושב בזמן
    * הרינדור, ולכן קפא: מסך שנשאר פתוח המשיך להציג פגישת 09:00
@@ -526,6 +572,21 @@ export default function DashboardPage() {
      */
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canSeeOffers, canSeeProperties, canSeeBuyers, canSeeLeads, canSeeCalendar, dayKey]);
+
+  useEffect(() => {
+    if (!featuresReady || !hasCoach) return;
+    let cancelled = false;
+    apiGet<MentorPulse>("/mentor/pulse")
+      .then((pulse) => {
+        if (!cancelled) setMentorPulse(pulse);
+      })
+      .catch(() => {
+        /* 403 = אין מנטור במסלול; כל כישלון אחר — פשוט אין חגיגה */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [featuresReady, hasCoach]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -1105,6 +1166,18 @@ export default function DashboardPage() {
         ) : null}
       </div>
 
+      {/*
+        ‎**החגיגה — מיד אחרי הברכה.** יעד שהושג או עסקה שנסגרה נאמרים
+        בשמם במקום שרואים בלי לגלול; הכרטיס הכהה בתחתית מחזיק את
+        הרשימה גם אחרי ה„תודה”. הקונפטי יוצא פעם אחת לאירוע (הזיכרון
+        בדפדפן משותף עם מסך המנטור).
+      */}
+      {mentorPulse ? (
+        <div className="mb-6">
+          <Celebration events={celebrationEvents(mentorPulse)} title="🎉 כל הכבוד — הושג" />
+        </div>
+      ) : null}
+
       <DuplicateContacts />
 
       {/*
@@ -1667,6 +1740,16 @@ export default function DashboardPage() {
                 מודד את השבוע מול היעדים שביקשתם מעצמכם, חוגג כל עסקה בשמה, ועונה
                 על „מה כדאי לי לשפר?” — רק מולכם, אף פעם לא מול עמיתים.
               </p>
+              {mentorPulse && (mentorPulse.goalsDone.length > 0 || mentorPulse.wins.length > 0) ? (
+                <ul className="mv-dark-card__body m-0 list-none p-0">
+                  {mentorPulse.goalsDone.map((g) => (
+                    <li key={`g-${g.id}`}>🎯 היעד הושג: {g.label}</li>
+                  ))}
+                  {mentorPulse.wins.map((w, i) => (
+                    <li key={`w-${i}`}>🎉 {winLabel(w)}</li>
+                  ))}
+                </ul>
+              ) : null}
               <Link href="/mentor" className="mv-button mv-dark-card__action no-underline">
                 לדבר עם המנטור
               </Link>

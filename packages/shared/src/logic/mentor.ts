@@ -243,6 +243,12 @@ export interface MentorGoalProgress {
   pace: MentorPace;
   /** מה עוד נשאר — 0 כשהיעד הושג */
   remaining: number;
+  /**
+   * תחילת התקופה שנמדדה — הזהות של „הושג” לחגיגה: יעד חודשי שהושג
+   * באוגוסט ושוב בספטמבר הוא שני אירועים, גם כששני הימים באותו
+   * שבוע קלנדרי.
+   */
+  periodStart: Date;
 }
 
 /**
@@ -297,6 +303,7 @@ export function mentorGoalProgress(
     expected,
     pace,
     remaining: Math.max(0, target - actual),
+    periodStart: input.periodStart,
   };
 }
 
@@ -417,6 +424,8 @@ export type MentorWinKind =
   "deal_closed" | "exclusivity_signed" | "offer_interested" | "coop_deal";
 
 export interface MentorWin {
+  /** מזהה השורה ב-`mentor_wins` — חסר בגופי סיכומים ישנים */
+  id?: string;
   kind: MentorWinKind;
   /** מה בדיוק — כותרת הנכס, בלי PII של הלקוח */
   title: string;

@@ -13,6 +13,7 @@ import {
   jerusalemWeekStart,
   MENTOR_REPLY_JSON_SCHEMA,
   mentorFallbackReply,
+  mentorGoalLabel,
   mentorPatterns,
   mentorPeriodRange,
   PATTERN_LOOKBACK,
@@ -102,6 +103,22 @@ export interface MentorOverview {
   chatAvailable: boolean;
   /** מה המנטור זוכר — דפוסים מהסיכומים של החודשיים האחרונים */
   patterns: MentorPattern[];
+}
+
+/**
+ * הדופק — מה שיש לחגוג השבוע, ותו לא. לכרטיס בדשבורד, שאינו צריך
+ * את כל הסקירה כדי לומר „יעד הושג השבוע”.
+ */
+export interface MentorPulse {
+  weekStart: Date;
+  goalsDone: {
+    id: string;
+    label: string;
+    period: MentorGoalPeriod;
+    /** תחילת התקופה שהושגה — הזהות של החגיגה */
+    periodStart: Date;
+  }[];
+  wins: MentorWin[];
 }
 
 export interface MentorTurnDto {
@@ -199,6 +216,65 @@ export class MentorService {
         streakWeeks,
         chatAvailable,
         patterns,
+      };
+    });
+  }
+
+  async pulse(now: Date = new Date()): Promise<MentorPulse> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const week = mentorPeriodRange("week", now);
+      const activity = await this.signals.activity(
+        tx,
+        tenantId,
+        userId,
+        week,
+        now,
+      );
+      const goalRows = await tx.mentorGoal.findMany({
+        where: { tenantId, userId, endedAt: null },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          metric: true,
+          period: true,
+          target: true,
+          why: true,
+          intention: true,
+          createdAt: true,
+          endedAt: true,
+        },
+      });
+      const goals = await this.signals.progress(
+        tx,
+        tenantId,
+        userId,
+        goalRows,
+        {
+          at: now,
+          week,
+          weekActivity: activity,
+          monthAnchor: now,
+        },
+      );
+      const wins = selectWins(
+        await this.signals.wins(tx, tenantId, userId, week),
+      );
+      return {
+        weekStart: week.start,
+        goalsDone: goals
+          .filter((g) => g.progress.pace === "done")
+          .map((g) => ({
+            id: g.id,
+            label: mentorGoalLabel(
+              g.progress.metric,
+              g.progress.target,
+              g.progress.period,
+            ),
+            period: g.progress.period,
+            periodStart: g.progress.periodStart,
+          })),
+        wins,
       };
     });
   }
