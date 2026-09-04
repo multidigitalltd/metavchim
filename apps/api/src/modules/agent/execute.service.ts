@@ -3202,6 +3202,7 @@ export class AgentExecuteService {
       goals: overview.goals.map((g) => g.progress),
       wins: overview.wins,
       latestHeadline: overview.latestReview?.headline ?? null,
+      insights: overview.insights,
     });
     const ask = overview.latestReview?.askNextWeek;
     const pendingAsk =

@@ -47,6 +47,11 @@ function fakeTx(counts: {
   leads?: number;
   buyers?: number;
   properties?: number;
+  calls?: number;
+  fastLeads?: number;
+  followups?: number;
+  medianMinutes?: number | null;
+  missedUnreturned?: number;
   goals?: {
     id: string;
     metric: string;
@@ -74,7 +79,20 @@ function fakeTx(counts: {
       }
       return 0;
     },
-    $queryRaw: async () => [{ n: BigInt(counts.offers ?? 0) }],
+    // שאילתות גולמיות לפי הטבלה שהן סופרות — הצעות, שיחות, לידים מהירים, מעקבים, חציון
+    $queryRaw: async (strings: TemplateStringsArray) => {
+      const sql = strings.join("?");
+      if (sql.includes("percentile_cont"))
+        return [{ median: counts.medianMinutes ?? null }];
+      if (sql.includes("FROM calls") && sql.includes("NOT EXISTS"))
+        return [{ n: BigInt(counts.missedUnreturned ?? 0) }];
+      if (sql.includes("FROM calls")) return [{ n: BigInt(counts.calls ?? 0) }];
+      if (sql.includes("FROM leads"))
+        return [{ n: BigInt(counts.fastLeads ?? 0) }];
+      if (sql.includes("FROM tasks"))
+        return [{ n: BigInt(counts.followups ?? 0) }];
+      return [{ n: BigInt(counts.offers ?? 0) }];
+    },
     mentorWin: {
       count: async () => counts.deals ?? 0,
       findMany: async () => counts.wins ?? [],
@@ -82,7 +100,10 @@ function fakeTx(counts: {
     appointment: { count: async () => counts.viewings ?? 0 },
     lead: { count: async () => counts.leads ?? 0 },
     buyer: { count: async () => counts.buyers ?? 0 },
-    auditLog: { count: async () => counts.properties ?? 0 },
+    auditLog: {
+      count: async (args: { where: { action?: string } }) =>
+        args.where.action === "property.create" ? (counts.properties ?? 0) : 0,
+    },
     mentorGoal: {
       findMany: async (args?: { where?: { endedAt?: unknown } }) =>
         (counts.goals ?? []).filter(
@@ -527,5 +548,51 @@ describe("MentorReviewService.generateForUser — הזיכרון הארוך", ()
     expect(body.paragraphs.join(" ")).toContain(
       "מאחור ב-3 מתוך 3 השבועות האחרונים. בפעמים הקודמות אמרת: „לא היה זמן”, „לא היו התאמות”",
     );
+  });
+});
+
+describe("MentorReviewService.generateForUser — מהירות מענה ושיחות שמחכות", () => {
+  it("החציון והשיחות שלא חזרת אליהן נכנסים לסיכום ולגוף", async () => {
+    const { tx, created } = fakeTx({
+      offers: 3,
+      medianMinutes: 14,
+      missedUnreturned: 2,
+      goals: [
+        {
+          id: "01GOALAAAAAAAAAAAAAAAAAAAA",
+          metric: "offers_sent",
+          period: "week",
+          target: 5,
+          why: null,
+          intention: null,
+          createdAt: new Date("2026-08-01"),
+          endedAt: null,
+        },
+      ],
+    });
+    await service().generateForUser(
+      tx,
+      TENANT,
+      USER,
+      new Date("2026-01-01"),
+      WEEK,
+    );
+    const body = created[0]?.["body"] as {
+      paragraphs: string[];
+      insights?: {
+        responseMedianMinutes: number | null;
+        missedUnreturned: number;
+      };
+    };
+    expect(body.paragraphs.join(" ")).toContain(
+      "זמן המענה שלך ללידים חדשים השבוע: 14 דקות",
+    );
+    expect(body.paragraphs.join(" ")).toContain(
+      "2 שיחות נכנסות לא נענו ולא חזרת אליהן",
+    );
+    expect(body.insights).toMatchObject({
+      responseMedianMinutes: 14,
+      missedUnreturned: 2,
+    });
   });
 });

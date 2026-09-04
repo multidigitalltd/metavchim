@@ -337,6 +337,15 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             weekStart,
           )
         : undefined;
+    const insights = await this.signals.insights(
+      tx,
+      tenantId,
+      userId,
+      week,
+      previousActivity === undefined
+        ? null
+        : { start: prevStart, end: weekStart },
+    );
     const goalRows = await this.signals.goalsActiveIn(
       tx,
       tenantId,
@@ -420,6 +429,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     const signals: MentorWeekSignals = {
       patterns,
       ...(firstName === "" ? {} : { firstName }),
+      insights,
       weekStart,
       wins,
       activity,
