@@ -96,6 +96,7 @@ const NOTIFY_MEMORY: Record<string, string> = {
   coop_deal: "עדכנתי אותך על עסקה משותפת",
   mentor_win: "חגגתי איתך הצלחה",
   mentor_weekly: "שלחתי לך את הסיכום השבועי של המנטור",
+  mentor_nudge: "הזכרתי לך את היעד באמצע השבוע",
 };
 
 /**

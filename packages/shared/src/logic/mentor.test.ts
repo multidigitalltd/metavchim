@@ -4,6 +4,7 @@ import {
   type MentorGoalProgress,
   mentorGoalLabel,
   mentorGoalProgress,
+  mentorMidweekNudge,
   mentorPeriodRange,
   mentorQuantity,
   MENTOR_GOAL_TARGET_MAX,
@@ -546,5 +547,77 @@ describe("mentorWeeklyReview — שיטת המאמן: „למה”, כוונת �
       goals: [goal({ pace: "on_track", actual: 3, ratio: 0.6, remaining: 2 })],
     });
     expect(fine?.reflection).toBeNull();
+  });
+});
+
+describe("mentorMidweekNudge — רביעי, לא מוצאי שבת", () => {
+  it("אין יעד שבועי בפיגור ⇒ שקט, גם כשיעד חודשי מאחור", () => {
+    expect(
+      mentorMidweekNudge([
+        goal({ pace: "on_track", actual: 3, ratio: 0.6, remaining: 2 }),
+      ]),
+    ).toBeNull();
+    expect(
+      mentorMidweekNudge([
+        goal({
+          period: "month",
+          target: 3,
+          metric: "deals_closed",
+          pace: "behind",
+          actual: 0,
+          ratio: 0,
+          remaining: 3,
+        }),
+      ]),
+    ).toBeNull();
+  });
+
+  it("יעד אחד בלבד — זה שהכי רחוק מהקצב — עם התוכנית וה„למה” של המתווך", () => {
+    const nudge = mentorMidweekNudge([
+      goal({
+        pace: "behind",
+        actual: 3,
+        ratio: 0.6,
+        remaining: 2,
+        expected: 4,
+        elapsed: 0.5,
+      }),
+      goal({
+        metric: "viewings_held",
+        target: 4,
+        pace: "behind",
+        actual: 0,
+        ratio: 0,
+        remaining: 4,
+        expected: 2,
+        elapsed: 0.5,
+        intention: "כל יום ב-16:00 מתקשר לקבוע סיור",
+        why: "הדירה של הילדים",
+      }),
+    ]);
+    expect(nudge?.metric).toBe("viewings_held");
+    expect(nudge?.title).toBe("🧭 אמצע השבוע — 4 סיורים בשבוע");
+    expect(nudge?.body).toContain("עדיין לא התחיל, ונשארו שלושה ימי עבודה");
+    expect(nudge?.body).toContain(
+      "התוכנית שכתבתם: „כל יום ב-16:00 מתקשר לקבוע סיור”",
+    );
+    expect(nudge?.body).toContain("בשביל: הדירה של הילדים");
+    expect(nudge?.body).not.toMatch(/מעט|רק|חבל/);
+  });
+
+  it("עם התקדמות חלקית — כמה יש וכמה חסר, בלי שיפוט", () => {
+    const nudge = mentorMidweekNudge([
+      goal({
+        pace: "behind",
+        actual: 1,
+        ratio: 0.2,
+        remaining: 4,
+        expected: 3,
+        elapsed: 0.6,
+      }),
+    ]);
+    expect(nudge?.body).toBe(
+      "5 הצעות בשבוע: הצעה אחת עד עכשיו, עוד 4 הצעות ליעד — ונשארו שלושה ימי עבודה.",
+    );
   });
 });

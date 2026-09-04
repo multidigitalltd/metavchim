@@ -714,6 +714,49 @@ export function mentorReviewBody(
   };
 }
 
+/**
+ * דחיפת אמצע השבוע — מה שמנטור אומר ביום רביעי, לא במוצאי שבת.
+ *
+ * מנטור אמיתי אינו מחכה לסוף השבוע כדי לומר שהקצב נפל; הוא מתערב
+ * כשעוד אפשר לשנות משהו. הכלל כאן צר בכוונה: רק יעד **שבועי**
+ * שכבר **מאחור** מקבל דחיפה, ורק אחד — זה שהכי רחוק מהקצב. יעד
+ * חודשי מקבל את זה בסיכום השבועי; „בקצב” ו„מעל הקצב” לא מקבלים
+ * כלום, כי דחיפה שמגיעה גם כשהכול בסדר היא רעש.
+ *
+ * הניסוח: עובדה (כמה יש, כמה חסר), התוכנית שהמתווך כתב, וה„למה”
+ * שלו — עוגן, לא נזיפה. ‎`null` = אין מה לומר.
+ */
+export function mentorMidweekNudge(
+  goals: readonly MentorGoalProgress[],
+): { title: string; body: string; metric: MentorGoalMetric } | null {
+  const behind = goals.filter(
+    (g) => g.period === "week" && g.pace === "behind",
+  );
+  if (behind.length === 0) return null;
+  // הכי רחוק מהקצב — הפער היחסי בין הצפוי למה שיש
+  const focus = [...behind].sort(
+    (a, b) =>
+      (b.expected - b.actual) / b.target - (a.expected - a.actual) / a.target,
+  )[0]!;
+  const label = mentorGoalLabel(focus.metric, focus.target, focus.period);
+  const parts = [
+    focus.actual === 0
+      ? `${label}: עדיין לא התחיל, ונשארו שלושה ימי עבודה.`
+      : `${label}: ${mentorQuantity(focus.metric, focus.actual)} עד עכשיו, עוד ${mentorQuantity(focus.metric, focus.remaining)} ליעד — ונשארו שלושה ימי עבודה.`,
+  ];
+  if (focus.intention !== undefined && focus.intention.trim() !== "") {
+    parts.push(`התוכנית שכתבתם: „${focus.intention.trim()}”.`);
+  }
+  if (focus.why !== undefined && focus.why.trim() !== "") {
+    parts.push(`בשביל: ${focus.why.trim()}.`);
+  }
+  return {
+    title: `🧭 אמצע השבוע — ${label}`,
+    body: parts.join(" "),
+    metric: focus.metric,
+  };
+}
+
 /** כותרת ההתראה בפעמון ובוואטסאפ — לפי הטון, אייקון אחד לכל טון. */
 export function mentorReviewTitle(review: MentorReview): string {
   const icon =
