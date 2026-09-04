@@ -25,24 +25,36 @@ import { Notice } from "./notice";
  * ופותחת את וואטסאפ עם הנוסח מוכן במגע אחד — והעתקת הקישור נשארת
  * כאפשרות למי שרוצה לשלוח בדרך אחרת.
  *
- * ## ‏שני ערוצים, ושניהם אינם אותו דבר
+ * ## ‏שני ערוצים, ושלושה מצבים
  *
- * ‏עד כה היה ערוץ אחד: וואטסאפ. ללקוח בלי וואטסאפ — או למי שמעדיף
- * מייל — לא הייתה דרך, והמתווך היה אמור להעתיק את הקישור ולהדביק
- * אותו במייל משלו (בקשת המשתמש).
+ * ‏עד כה היה ערוץ אחד: וואטסאפ, ורק בכך שהדפדפן **פתח** את השיחה עם
+ * הנוסח מוכן. ללקוח בלי וואטסאפ — או למי שמעדיף מייל — לא הייתה
+ * דרך, והמתווך היה אמור להעתיק את הקישור ולהדביק אותו במייל משלו
+ * (בקשת המשתמש).
  *
- * ‎**הם עובדים אחרת, והמסך אומר זאת.** וואטסאפ **נפתח** בדפדפן עם
- * הנוסח מוכן, והמתווך לוחץ „שלח” — כך זה עובד היום, וזה מה שעובד
- * תמיד. אימייל **נשלח** מהשרת בפועל, ולכן ורק לכן הוא עובר דרך
- * „אתם בטוחים?”: פעולה שיוצאת אל לקוח אמיתי ברגע הלחיצה, ואי
- * אפשר לקחת אותה בחזרה.
+ * | מה סומן | מה קורה |
+ * | --- | --- |
+ * | וואטסאפ, והמשרד מחובר | ההודעה **יוצאת מהוואטסאפ של המשרד** |
+ * | וואטסאפ, בלי חיבור | וואטסאפ **נפתח** עם הנוסח מוכן — כמו היום |
+ * | אימייל | **נשלח** מהמערכת |
  *
- * ## ‏למה וואטסאפ נפתח **לפני** ששולחים את המייל
+ * ‎**„אתם בטוחים?” נשאל על מה שהמערכת שולחת בעצמה**, ולא על ערוץ
+ * מסוים: הודעה שיוצאת ללקוח ברגע הלחיצה אי אפשר לקחת בחזרה, ואילו
+ * חלון שנפתח עדיין מחכה שהמתווך ילחץ „שלח” — שם אין מה לאשר, ושאלה
+ * מיותרת מלמדת ללחוץ „כן” בלי לקרוא.
  *
- * ‎`window.open` שנקרא אחרי `await` נחסם בדפדפנים כחלון קופץ. שתי
- * המתנות ברצף היו הופכות את הסיכוי לחסימה לוודאות, ולכן הפתיחה
- * יושבת מיד אחרי יצירת הקישור — בדיוק במקום שבו היא הייתה קודם.
- * ואם היא בכל זאת נחסמה, זה נאמר: הקישור מוצג למטה להעתקה.
+ * ## ‏למה מצב הוואטסאפ נקרא מראש ולא מתגלה אחרי הלחיצה
+ *
+ * ‏שתי סיבות. הראשונה: „ייפתח וואטסאפ” ו„יישלח מהמשרד” הן שתי הבטחות
+ * שונות, ומסך שמבטיח את הלא-נכונה מבלבל דווקא את מי שקרא. השנייה:
+ * ‎`window.open` שנקרא אחרי `await` נחסם כחלון קופץ, ולכן במצב
+ * ה„נפתח” הפתיחה חייבת לקרות מיד אחרי יצירת הקישור — בדיוק במקום
+ * שבו הייתה קודם, ולא אחרי סבב שליחה נוסף.
+ *
+ * ‏וכששליחה מהמשרד לא עברה — אין חיבור, המסלול אינו כולל, או שחלון
+ * 24 השעות של Meta סגור — התשובה נושאת את `waUrl`, והמסך מציע אותו
+ * כקישור. הדרך הישנה עדיין עובדת, וכישלון בלי דרך חוצה היה מוריד
+ * תכונה שקיימת היום.
  */
 
 interface IntakeRow {
@@ -61,11 +73,46 @@ interface IntakeRow {
 interface Recipient {
   name: string;
   email: string | null;
+  /** `office` = נשלח מהמשרד · `manual` = וואטסאפ נפתח עם ההודעה */
+  whatsapp: "office" | "manual";
+}
+
+/** ‏תוצאה של ערוץ אחד — ראו `ChannelResult` בשרת. */
+type ChannelResult =
+  | { ok: true; to: string }
+  | { ok: false; reason: string; waUrl?: string | null };
+
+interface SentResult {
+  url: string;
+  email: ChannelResult | null;
+  whatsapp: ChannelResult | null;
 }
 
 interface IntakeList {
   recipient: Recipient;
   rows: IntakeRow[];
+}
+
+/**
+ * ‎**הדרך החוצה כששליחה מהמשרד לא עברה.**
+ *
+ * ‏קישור ולא `window.open`: הפתיחה כאן קורית אחרי סבב שליחה, כלומר
+ * אחרי `await`, ודפדפנים חוסמים חלון כזה. לחיצה של המתווך על קישור
+ * אף פעם אינה נחסמת.
+ *
+ * ‏מוצג גם בהצלחה חלקית וגם בכישלון מלא. „נכשל” בלי הדרך החוצה היה
+ * מוריד תכונה שקיימת היום — פתיחת וואטסאפ עם הנוסח מוכן עובדת תמיד.
+ */
+function WaWayOut({ url }: { url: string | null }) {
+  if (url === null) return null;
+  return (
+    <>
+      {" · "}
+      <a href={url} target="_blank" rel="noopener noreferrer">
+        פתחו את וואטסאפ עם ההודעה
+      </a>
+    </>
+  );
 }
 
 const STATUS_COLOR: Record<IntakeStatus, string> = {
@@ -97,6 +144,10 @@ export function IntakePanel({
   const [viaEmail, setViaEmail] = useState(false);
   const [confirmEmail, setConfirmEmail] = useState(false);
   const [sent, setSent] = useState<string | null>(null);
+  /* ‏חלק מהערוצים נכשלו — „נשלח” נכון, אבל לא בטון של הצלחה מלאה */
+  const [partial, setPartial] = useState(false);
+  /* ‏הדרך החוצה כששליחה מהמשרד לא עברה — קישור, לא חלון שנפתח */
+  const [fallbackWa, setFallbackWa] = useState<string | null>(null);
   const clipboard = useCopy();
 
   const load = useCallback(async () => {
@@ -116,6 +167,14 @@ export function IntakePanel({
   }, [load]);
 
   const clientEmail = recipient?.email ?? null;
+  /*
+    ‏עד שהרשימה נטענת אין ידיעה, ו„נשלח מהמשרד” על משרד שאינו מחובר
+    הוא הבטחה שתישבר. `manual` הוא ברירת המחדל הבטוחה: היא מבטיחה
+    פחות ועובדת תמיד.
+  */
+  const waMode = recipient?.whatsapp ?? "manual";
+  /* ‏מה שהמערכת תשלח בעצמה — ולכן מה שדורש אישור */
+  const systemSends = viaEmail || (viaWa && waMode === "office");
 
   /** ‏פותח את החלון במצב נקי — בלי הודעה או שגיאה מהפעם הקודמת. */
   function openPicker(): void {
@@ -124,50 +183,80 @@ export function IntakePanel({
     setConfirmEmail(false);
     setError(null);
     setSent(null);
+    setFallbackWa(null);
     setPicking(true);
   }
 
   /**
    * ‏השליחה בפועל.
    *
-   * ‏הסדר אינו מקרי: יצירת הקישור, מיד אחריה פתיחת וואטסאפ, ורק אז
-   * המייל. ‏`window.open` אחרי שתי המתנות נחסם כמעט תמיד — ראו
-   * ההסבר בראש הקובץ.
+   * ‏הסדר אינו מקרי: יצירת הקישור, מיד אחריה פתיחת וואטסאפ במצב
+   * „נפתח”, ורק אז סבב השליחה. ‏`window.open` אחרי שתי המתנות נחסם
+   * כמעט תמיד — ראו ההסבר בראש הקובץ.
    *
-   * ‏המייל **אינו** נבלע: אם הוא נכשל, זו שגיאה על המסך ולא „נשלח”.
-   * הקישור כבר נוצר, וזה בסדר — ‏`ensure` מחזירה את אותו קישור
-   * בניסיון הבא ולא יוצרת שני טפסים.
+   * ‏קריאת שליחה **אחת** לשני הערוצים: היא מחזירה תוצאה לכל אחד
+   * בנפרד, ולכן כישלון באחד אינו מוחק את השני ואינו מוצג כהצלחה.
    */
   async function send(): Promise<void> {
     setBusy(true);
     setError(null);
-    const notes: string[] = [];
+    setFallbackWa(null);
+    const done: string[] = [];
+    const failed: string[] = [];
     try {
       const row = await apiPost<IntakeRow>(`/${base}/${entityId}/intake`, {});
 
-      if (viaWa) {
+      if (viaWa && waMode === "manual") {
         if (row.waUrl === null) {
-          notes.push("אין טלפון בכרטיס — וואטסאפ לא נפתח");
+          failed.push("אין טלפון בכרטיס — וואטסאפ לא נפתח");
         } else {
           const win = window.open(row.waUrl, "_blank", "noopener,noreferrer");
-          notes.push(
-            win === null
-              ? "הדפדפן חסם את פתיחת וואטסאפ — אפשר להעתיק את הקישור למטה"
-              : "וואטסאפ נפתח עם ההודעה מוכנה",
-          );
+          if (win === null) {
+            failed.push("הדפדפן חסם את פתיחת וואטסאפ");
+            setFallbackWa(row.waUrl);
+          } else {
+            done.push("וואטסאפ נפתח עם ההודעה מוכנה");
+          }
         }
       }
 
-      if (viaEmail) {
-        const result = await apiPost<{ channel: string; to: string; url: string }>(
+      const channels = [
+        ...(viaEmail ? ["email"] : []),
+        ...(viaWa && waMode === "office" ? ["whatsapp"] : []),
+      ];
+      if (channels.length > 0) {
+        const result = await apiPost<SentResult>(
           `/${base}/${entityId}/intake/send`,
-          { channel: "email" },
+          { channels },
         );
-        notes.push(`המייל נשלח אל ${result.to}`);
+        if (result.email !== null) {
+          if (result.email.ok) done.push(`המייל נשלח אל ${result.email.to}`);
+          else failed.push(`אימייל — ${result.email.reason}`);
+        }
+        if (result.whatsapp !== null) {
+          if (result.whatsapp.ok) {
+            done.push(`וואטסאפ נשלח מהמשרד אל ${result.whatsapp.to}`);
+          } else {
+            failed.push(`וואטסאפ — ${result.whatsapp.reason}`);
+            /* ‏הדרך החוצה: לא פותחים חלון אחרי await, מציעים קישור */
+            const out = result.whatsapp.waUrl;
+            if (out !== null && out !== undefined) setFallbackWa(out);
+          }
+        }
       }
 
       await load();
-      setSent(notes.join(" · "));
+      /*
+        ‏הכול נכשל — החלון נשאר פתוח עם הסיבה. „✓ נשלח” על שום דבר
+        שיצא הוא בדיוק מה שגורם לא לבדוק שוב.
+      */
+      if (done.length === 0) {
+        setError(failed.join(" · "));
+        setConfirmEmail(false);
+        return;
+      }
+      setSent([...done, ...failed].join(" · "));
+      setPartial(failed.length > 0);
       setPicking(false);
       setConfirmEmail(false);
     } catch (err: unknown) {
@@ -223,8 +312,9 @@ export function IntakePanel({
       ) : null}
 
       {sent !== null ? (
-        <Notice tone="success" onClose={() => setSent(null)}>
+        <Notice tone={partial ? "warning" : "success"} onClose={() => setSent(null)}>
           {sent}
+          <WaWayOut url={fallbackWa} />
         </Notice>
       ) : null}
 
@@ -351,15 +441,15 @@ export function IntakePanel({
       */}
       <ConfirmDialog
         open={picking}
-        title={confirmEmail ? "אישור שליחה במייל" : "שליחת הטופס ללקוח"}
+        title={confirmEmail ? "אישור שליחה ללקוח" : "שליחת הטופס ללקוח"}
         confirmLabel={
-          confirmEmail ? "כן, לשלוח" : viaEmail ? "המשך" : "שליחה"
+          confirmEmail ? "כן, לשלוח" : systemSends ? "המשך" : "שליחה"
         }
         cancelLabel={confirmEmail ? "חזרה" : "ביטול"}
         busy={busy}
         confirmDisabled={!viaWa && !viaEmail}
         onConfirm={
-          confirmEmail || !viaEmail
+          confirmEmail || !systemSends
             ? () => void send()
             : () => setConfirmEmail(true)
         }
@@ -374,16 +464,24 @@ export function IntakePanel({
       >
         {confirmEmail ? (
           <>
-            <p className="m-0">
-              המייל יישלח עכשיו אל{" "}
-              <span dir="ltr" className="font-bold">
-                {clientEmail}
-              </span>
-              , בשם המשרד. אי אפשר לבטל מייל שיצא.
-            </p>
-            {viaWa ? (
+            <p className="m-0">בשם המשרד, עכשיו:</p>
+            <ul className="m-0 list-disc space-y-1 ps-5">
+              {viaEmail ? (
+                <li>
+                  מייל אל{" "}
+                  <span dir="ltr" className="font-bold">
+                    {clientEmail}
+                  </span>
+                </li>
+              ) : null}
+              {viaWa && waMode === "office" ? (
+                <li>וואטסאפ מהמספר של המשרד</li>
+              ) : null}
+            </ul>
+            <p className="m-0 mt-1">הודעה שיצאה אי אפשר לבטל.</p>
+            {viaWa && waMode === "manual" ? (
               <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
-                וגם וואטסאפ ייפתח עם ההודעה מוכנה.
+                וגם וואטסאפ ייפתח עם ההודעה מוכנה — שם אתם לוחצים „שלח”.
               </p>
             ) : null}
           </>
@@ -405,7 +503,9 @@ export function IntakePanel({
                     <IconChat s={14} /> וואטסאפ
                   </span>
                   <span className="mv-choice__note">
-                    וואטסאפ ייפתח עם ההודעה מוכנה, ואתם לוחצים „שלח”.
+                    {waMode === "office"
+                      ? "נשלח מהוואטסאפ ביזנס של המשרד."
+                      : "וואטסאפ ייפתח עם ההודעה מוכנה, ואתם לוחצים „שלח”."}
                   </span>
                 </span>
               </button>
@@ -441,7 +541,12 @@ export function IntakePanel({
             </div>
           </>
         )}
-        {error !== null ? <Notice tone="danger">{error}</Notice> : null}
+        {error !== null ? (
+          <Notice tone="danger">
+            {error}
+            <WaWayOut url={fallbackWa} />
+          </Notice>
+        ) : null}
       </ConfirmDialog>
 
       <ConfirmDialog

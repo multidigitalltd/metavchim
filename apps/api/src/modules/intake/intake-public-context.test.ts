@@ -7,6 +7,8 @@ import type { ContactsService } from "../contacts/contacts.service";
 import type { PrismaService, TenantTx } from "../../core/prisma.service";
 import type { PropertiesService } from "../properties/properties.service";
 import type { EmailService } from "../../core/email.service";
+import type { PlanCatalogService } from "../../core/plan-catalog.service";
+import type { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import type { TenantLogoService } from "../../core/tenant-logo.service";
 
 /** שני התלויים שהמסלול הציבורי אינו נוגע בהם — פרט לבדיקת הלוגו. */
@@ -21,6 +23,23 @@ const noEmail = {
     throw new Error("המסלול הציבורי אינו שולח מייל");
   },
 } as unknown as EmailService;
+/*
+  ‏אותו נימוק לוואטסאפ ולמסלול: הצד הציבורי אינו שולח דבר ואינו
+  שואל על מסלול. שירות שזורק הופך „נגענו בזה בטעות” לנפילה.
+*/
+const noWhatsApp = {
+  sendAsTenant: () => {
+    throw new Error("המסלול הציבורי אינו שולח וואטסאפ");
+  },
+  hasTenantConnection: () => {
+    throw new Error("המסלול הציבורי אינו בודק חיבור וואטסאפ");
+  },
+} as unknown as WhatsAppSendService;
+const noPlans = {
+  tenantHasFeature: () => {
+    throw new Error("המסלול הציבורי אינו בודק מסלול");
+  },
+} as unknown as PlanCatalogService;
 const logoOf = (has: boolean): TenantLogoService =>
   ({ has: async () => has }) as unknown as TenantLogoService;
 
@@ -192,6 +211,8 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       noProperties,
       logoOf(true),
       noEmail,
+      noWhatsApp,
+      noPlans,
     );
 
     // אין `TenantContext.run` כאן בכוונה — זה בדיוק מצב הבקשה הציבורית
@@ -233,6 +254,8 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       noProperties,
       logoOf(false),
       noEmail,
+      noWhatsApp,
+      noPlans,
     );
 
     await expect(service.submit(TOKEN, { dealType: "sale" })).resolves.toEqual({
@@ -273,6 +296,8 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       noProperties,
       logoOf(false),
       noEmail,
+      noWhatsApp,
+      noPlans,
     );
 
     await expect(service.submit(TOKEN, { dealType: "sale" })).rejects.toThrow(
@@ -299,6 +324,8 @@ describe("המיזוג רץ מתחת לנעילת הכרטיס", () => {
       noProperties,
       logoOf(false),
       noEmail,
+      noWhatsApp,
+      noPlans,
     );
   }
 
@@ -383,6 +410,8 @@ describe("ליד שטרם הומר — שליחה חוזרת שמשנה תשוב
       noProperties,
       logoOf(false),
       noEmail,
+      noWhatsApp,
+      noPlans,
     );
   }
 

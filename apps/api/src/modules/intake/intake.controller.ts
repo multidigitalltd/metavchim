@@ -53,14 +53,17 @@ import {
 const TokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
 
 /**
- * ‏באיזה ערוץ לשלוח.
+ * ‏באילו ערוצים לשלוח.
  *
- * ‎`enum` בעל ערך אחד ולא נתיב בלי גוף: וואטסאפ נשלח היום מהדפדפן
- * (‏`waUrl`, פתיחת השיחה עם הנוסח מוכן) ולא מהשרת, ושליחה מהשרת
- * דורשת תבנית מאושרת ב-Meta. כשהיא תתווסף היא ערך נוסף כאן ולא
- * נתיב חדש — והשדה מחייב את המסך לומר מה הוא מבקש.
+ * ‏מערך ולא ערך יחיד, ולכן קריאה אחת ולא שתיים: המסך מאפשר לסמן את
+ * שניהם, ושתי קריאות היו יוצרות את הקישור פעמיים ורושמות שתי שורות
+ * יומן על פעולה אחת.
+ *
+ * ‎`.min(1)` — „שלח כלום” אינו בקשה.
  */
-const SendSchema = z.object({ channel: z.enum(["email"]) }).strict();
+const SendSchema = z
+  .object({ channels: z.array(z.enum(["email", "whatsapp"])).min(1).max(2) })
+  .strict();
 
 /**
  * מה שהלקוח שולח.
@@ -197,7 +200,7 @@ export class IntakeController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Body(new ZodValidationPipe(SendSchema)) body: z.infer<typeof SendSchema>,
   ): Promise<IntakeSentDto> {
-    return this.intake.sendInvite("lead", id, body.channel);
+    return this.intake.sendInvite("lead", id, body.channels);
   }
 
   @Get("buyers/:id/intake")
@@ -224,7 +227,7 @@ export class IntakeController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Body(new ZodValidationPipe(SendSchema)) body: z.infer<typeof SendSchema>,
   ): Promise<IntakeSentDto> {
-    return this.intake.sendInvite("buyer", id, body.channel);
+    return this.intake.sendInvite("buyer", id, body.channels);
   }
 
   /**
