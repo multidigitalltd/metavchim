@@ -17,6 +17,7 @@ import {
 } from "@/lib/a11y-prefs";
 import { persistA11yToServer, syncA11yFromServer } from "@/lib/a11y-sync";
 import { isPublicPath } from "@/lib/public-paths";
+import { SESSION_READY_EVENT, cachedUser } from "@/lib/session-cache";
 import { IconAccessibility, IconX } from "./icons";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -64,11 +65,25 @@ export function AccessibilityRuntime() {
     commitA11y(cached);
     setPrefs(cached);
 
-    // הרכיב הזה מורכב בכל מסך, ולכן זו הנקודה הנכונה למשוך את
-    // ההעדפות של המשתמש — לא עמוד הפרופיל, שאליו כמעט לא נכנסים
-    void syncA11yFromServer().then((next) => {
-      if (next) setPrefs(next);
-    });
+    /*
+     * הרכיב הזה מורכב בכל מסך, ולכן זו הנקודה הנכונה למשוך את
+     * ההעדפות של המשתמש — לא עמוד הפרופיל, שאליו כמעט לא נכנסים.
+     *
+     * אבל רק כשיש משתמש. העוגייה היא `HttpOnly` ואי אפשר לדעת מכאן
+     * אם המבקר מחובר, ולכן הבקשה יצאה תמיד — וכל מסך ציבורי (כניסה,
+     * תיעוד, דף הצעה) ייצר 401 בקונסול שהסתיר שגיאות אמיתיות. עכשיו:
+     * session במטמון ⇐ מסנכרנים מיד; אחרת ממתינים לאירוע ש-`/auth/me`
+     * משדר. במסך ציבורי האירוע לא מגיע והמטמון המקומי נשאר בתוקף —
+     * וזה כל מה שמבקר לא-מחובר יכול לצפות לו. הכניסה עצמה קוראת
+     * ל-`resyncA11yForUser` במפורש.
+     */
+    const startSync = (): void => {
+      void syncA11yFromServer().then((next) => {
+        if (next) setPrefs(next);
+      });
+    };
+    if (cachedUser() !== null) startSync();
+    else window.addEventListener(SESSION_READY_EVENT, startSync, { once: true });
 
     // הפרופיל והפאנל משדרים כל שינוי — כך המצב אחיד בלי רענון
     function onChange(event: Event): void {
@@ -76,7 +91,10 @@ export function AccessibilityRuntime() {
       if (detail) setPrefs(detail);
     }
     window.addEventListener(A11Y_CHANGE_EVENT, onChange);
-    return () => window.removeEventListener(A11Y_CHANGE_EVENT, onChange);
+    return () => {
+      window.removeEventListener(A11Y_CHANGE_EVENT, onChange);
+      window.removeEventListener(SESSION_READY_EVENT, startSync);
+    };
   }, []);
 
   /*

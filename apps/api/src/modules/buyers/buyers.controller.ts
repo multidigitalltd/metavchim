@@ -33,7 +33,14 @@ const CreateBuyerSchema = z
      * המפתח כאן, טופס ששולח כתובת מקבל 400 ולא „נשמר בלי המייל”.
      */
     contactEmail: z.string().trim().email().max(254).optional(),
-    requirements: BuyerRequirementsSchema,
+    /*
+     * ‎`.strict()` גם על האובייקט הפנימי: `.strict()` של החיצוני
+     * אינו יורד לתוכו, ומפתח שגוי (`minRooms` במקום `roomsMin`)
+     * נבלע בשקט — הבקשה החזירה 201 בלי השדה. לטופס זה לא קרה;
+     * לצרכן API או לייבוא — כן. הקריאה מהמסד (`parse` בשירות)
+     * נשארת סלחנית, כי שם אין מי שיתקן.
+     */
+    requirements: BuyerRequirementsSchema.strict(),
     financing: FinancingStatusSchema.optional(),
     maturity: BuyerMaturitySchema.optional(),
     /*
@@ -49,7 +56,7 @@ const CreateBuyerSchema = z
 
 const UpdateBuyerSchema = z
   .object({
-    requirements: BuyerRequirementsSchema.optional(),
+    requirements: BuyerRequirementsSchema.strict().optional(),
     financing: FinancingStatusSchema.optional(),
     maturity: BuyerMaturitySchema.optional(),
     /** `""` או `null` = הסרת הסטטוס; מזהה = בחירה בו. */

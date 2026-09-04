@@ -369,6 +369,8 @@ export default function BuyersPage() {
 
   return (
     <>
+      {/* הכותרת הסמנטית — הסרגל העליון מציג `<p>` בכוונה (app-shell) */}
+      <h1 className="sr-only">קונים · שוכרים</h1>
       {/* מקרא הבשלות + פעולות — כמו בעיצוב */}
       <div className="mb-[18px] flex flex-wrap items-center gap-3">
         <div className="text-sm" style={{ color: "var(--color-text-muted)" }}>

@@ -72,7 +72,8 @@ const NoteSchema = z.object({ content: z.string().min(1).max(2000) }).strict();
 
 const ConvertSchema = z
   .object({
-    requirements: BuyerRequirementsSchema,
+    // ‎strict גם בפנים — ראו CreateBuyerSchema
+    requirements: BuyerRequirementsSchema.strict(),
     financing: FinancingStatusSchema.optional(),
     maturity: BuyerMaturitySchema.optional(),
   })

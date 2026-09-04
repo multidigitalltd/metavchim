@@ -485,6 +485,8 @@ export default function SettingsPage() {
 
   return (
     <>
+      {/* הכותרת הסמנטית — הסרגל העליון מציג `<p>` בכוונה (app-shell) */}
+      <h1 className="sr-only">ניהול משרד</h1>
       {message ? (
         <Notice tone="success">{message}</Notice>
       ) : null}

@@ -283,6 +283,8 @@ function MatchesView() {
 
   return (
     <>
+      {/* הכותרת הסמנטית — הסרגל העליון מציג `<p>` בכוונה (app-shell) */}
+      <h1 className="sr-only">התאמות</h1>
       <div className="mb-4 flex flex-wrap items-center gap-3.5">
         <div className="mv-seg" role="group" aria-label="כיוון ההתאמות">
           <button
