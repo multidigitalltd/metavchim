@@ -124,6 +124,6 @@ import { AgentModule } from "./modules/agent/agent.module";
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     // בלם ההצפה קודם — מקור חסום לא מגיע לפענוח session (שאילתת DB)
-    consumer.apply(FloodMiddleware, SessionMiddleware).forRoutes("*");
+    consumer.apply(FloodMiddleware, SessionMiddleware).forRoutes("{*splat}");
   }
 }
