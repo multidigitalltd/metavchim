@@ -87,7 +87,7 @@ export class MentorSignalsService {
         JOIN buyers b ON b.id = m.buyer_id
         WHERE o.tenant_id = ${tenantId}
           AND b.owner_user_id = ${userId}
-          AND o.created_at >= ${start} AND o.created_at < ${end}`,
+          AND o.sent_at >= ${start} AND o.sent_at < ${end}`,
       tx.appointment.count({
         where: {
           tenantId,
@@ -143,20 +143,28 @@ export class MentorSignalsService {
         WHERE c.tenant_id = ${tenantId}
           AND c.direction = 'outbound'
           AND c.occurred_at >= ${start} AND c.occurred_at < ${end}
-          AND (c.created_by = ${userId} OR lc.assigned_to_user_id = ${userId})`,
-      // נכנסת שנענתה: כל מה שאינו „לא נענתה” — גם `unknown` נספר, כמו בדוח הנכס
+          AND (
+            c.created_by = ${userId}
+            OR (c.created_by IS NULL AND lc.assigned_to_user_id = ${userId})
+          )`,
+      /*
+       * נכנסת שנענתה: `answered` בלבד. `unknown` הוא ניתוק בלי ראיה
+       * שמישהו ענה — מרכזייה שאינה מדווחת משך או אירוע מענה — ולספור
+       * אותו כמענה היה מנפח יעד של „שיחות נכנסות שנענו” בדיוק במשרד
+       * שאין לו את הראיה (ביקורת Codex).
+       */
       tx.$queryRaw<{ n: bigint }[]>`
         SELECT COUNT(c.id) AS n
         FROM calls c
         LEFT JOIN leads lc ON lc.id = c.lead_id
         WHERE c.tenant_id = ${tenantId}
           AND c.direction = 'inbound'
-          AND c.outcome NOT IN ('missed', 'no_answer', 'voicemail')
+          AND c.outcome = 'answered'
           AND c.occurred_at >= ${start} AND c.occurred_at < ${end}
           AND (
             c.created_by = ${userId}
-            OR lc.assigned_to_user_id = ${userId}
-            OR (c.lead_id IS NULL AND c.contact_id IS NOT NULL AND ${userId} = (
+            OR (c.created_by IS NULL AND lc.assigned_to_user_id = ${userId})
+            OR (c.created_by IS NULL AND c.lead_id IS NULL AND c.contact_id IS NOT NULL AND ${userId} = (
               SELECT cl.assigned_to_user_id FROM leads cl
               WHERE cl.tenant_id = c.tenant_id
                 AND cl.contact_id = c.contact_id
@@ -171,6 +179,7 @@ export class MentorSignalsService {
         WHERE tenant_id = ${tenantId}
           AND assigned_to_user_id = ${userId}
           AND first_response_at >= ${start} AND first_response_at < ${end}
+          AND first_response_at >= created_at
           AND first_response_at - created_at <= ${MENTOR_FAST_RESPONSE_MINUTES} * INTERVAL '1 minute'`,
       // מעקבים שהמתווך בחר — משימות האוטומציה (lead-sla / lead-stale) נסגרות לבד ואינן נספרות
       tx.$queryRaw<{ n: bigint }[]>`
@@ -245,8 +254,8 @@ export class MentorSignalsService {
           AND c.occurred_at >= ${week.start} AND c.occurred_at < ${week.end}
           AND (
             c.created_by = ${userId}
-            OR lc.assigned_to_user_id = ${userId}
-            OR (c.lead_id IS NULL AND c.contact_id IS NOT NULL AND ${userId} = (
+            OR (c.created_by IS NULL AND lc.assigned_to_user_id = ${userId})
+            OR (c.created_by IS NULL AND c.lead_id IS NULL AND c.contact_id IS NOT NULL AND ${userId} = (
               SELECT cl.assigned_to_user_id FROM leads cl
               WHERE cl.tenant_id = c.tenant_id
                 AND cl.contact_id = c.contact_id

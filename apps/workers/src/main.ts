@@ -3021,6 +3021,21 @@ async function loadNotifyDetails(
               },
             });
 
+      /*
+       * הסיכום השבועי של המנטור — לא כרטיס אלא מה שיש בו: בקשה
+       * לשבוע הבא ושאלה, שמהן נגזרים הכפתורים. הגוף נשמר כ-JSON
+       * (`MentorReviewBody`), ומספיק לדעת אם השדות קיימים.
+       */
+      const reviewIds = idsOf(withEntity, "mentor");
+      const reviews =
+        reviewIds.length === 0
+          ? []
+          : await tx.mentorReview.findMany({
+              where: { tenantId, id: { in: reviewIds } },
+              select: { id: true, userId: true, body: true },
+            });
+      const reviewById = new Map(reviews.map((review) => [review.id, review]));
+
       /* ---------- סבב ב': הכרטיסים עצמם ---------- */
 
       const propertyIds = new Set(idsOf(withEntity, "property"));
@@ -3300,6 +3315,21 @@ async function loadNotifyDetails(
             const person = personOf(contactById.get(id));
             if (person === null) break;
             details.set(item.id, { kind: "contact", ownerUserId: null, person });
+            break;
+          }
+          case "mentor": {
+            const review = reviewById.get(id);
+            if (review === undefined) break;
+            const body =
+              typeof review.body === "object" && review.body !== null
+                ? (review.body as { ask?: unknown; reflection?: unknown })
+                : {};
+            details.set(item.id, {
+              kind: "mentor_review",
+              ownerUserId: review.userId,
+              ask: body.ask !== null && body.ask !== undefined,
+              reflection: typeof body.reflection === "string" && body.reflection !== "",
+            });
             break;
           }
           default:
@@ -3590,7 +3620,10 @@ async function processWhatsAppNotifySweep(): Promise<void> {
            * „היעדים שלי” (docs/14 §9). הגזירה למטה מדברת על לידים
            * ושיחות, ומתחת לסיכום שבועי היא כפתור זר.
            */
-          const mentor = notifyQuickReplies(items);
+          const mentor = notifyQuickReplies(items, {
+            viewer: { userId: recipient.userId, capabilities: recipient.capabilities },
+            byNotificationId: notifyDetails,
+          });
           const buttons: WhatsAppButton[] = [];
           if (mentor !== null) {
             buttons.push(...mentor);

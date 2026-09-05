@@ -402,15 +402,38 @@ const MENTOR_STATUS_BUTTON: WhatsAppButton = {
  */
 export function notifyQuickReplies(
   items: readonly NotifyItem[],
+  details?: NotifyDetailsLookup,
 ): WhatsAppButton[] | null {
   const types = new Set(items.map((item) => item.type));
   const mentorOnly =
     items.length > 0 && [...types].every((type) => type.startsWith("mentor_"));
   if (!mentorOnly) return null;
-  if (types.has("mentor_weekly")) {
+  const weekly = items.find((item) => item.type === "mentor_weekly");
+  if (weekly !== undefined) {
+    /*
+     * רק מה שיש בסיכום: „מתחייב” כשיש בקשה לשבוע הבא, „לענות למנטור”
+     * כשיש שאלה. בלי פרטים (ההעשרה נכשלה) — „היעדים שלי” בלבד: כפתור
+     * שמוביל ל„אין בקשה” גרוע מכפתור שחסר, והטקסט ממילא אומר מה אפשר
+     * לכתוב.
+     */
+    const detail =
+      weekly.id === undefined
+        ? undefined
+        : details?.byNotificationId.get(weekly.id);
+    const review = detail?.kind === "mentor_review" ? detail : undefined;
     return [
-      { action: "cmd", arg: "mentor_commit", title: "💪 מתחייב" },
-      { action: "cmd", arg: "mentor_reflect", title: "✍️ לענות למנטור" },
+      ...(review?.ask
+        ? [{ action: "cmd", arg: "mentor_commit", title: "💪 מתחייב" } as const]
+        : []),
+      ...(review?.reflection
+        ? [
+            {
+              action: "cmd",
+              arg: "mentor_reflect",
+              title: "✍️ לענות למנטור",
+            } as const,
+          ]
+        : []),
       MENTOR_STATUS_BUTTON,
     ];
   }

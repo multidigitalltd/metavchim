@@ -106,19 +106,19 @@
 מדד קיים רק אם יש שאילתה שסופרת אותו מהנתונים הקיימים. המונים חיים
 ב-`MentorSignalsService` — מקור אחד למסך, לסיכום ולהצעות.
 
-| מדד                   | מאיפה נספר                                                                                                      | שיוך למתווך                                                                                                                        |
-| --------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `deals_closed`        | `mentor_wins` מסוג `deal_closed` — נרשם ברגע שנכס סומן „נמכר”/„הושכר”                                           | מי שסימן (לנכס אין שדה „סוכן”)                                                                                                     |
-| `offers_sent`         | `offers.created_at` בתקופה                                                                                      | דרך `buyer.owner_user_id` — אותו שיוך של דוח הסוכנים                                                                               |
-| `viewings_held`       | `appointments.kind = viewing` שמועדם עבר, לא בוטלו ולא „לא הגיע”                                                | `owner_user_id`, ובלעדיו `created_by` (כמו דו"ח הבוקר)                                                                             |
-| `leads_answered`      | `leads.first_response_at` בתקופה                                                                                | `assigned_to_user_id`                                                                                                              |
-| `new_buyers`          | `buyers.created_at`                                                                                             | `owner_user_id`                                                                                                                    |
-| `new_properties`      | `audit_log` — `property.create` בתקופה                                                                          | `user_id` ביומן הביקורת                                                                                                            |
-| `calls_made`          | `calls.direction = outbound` לפי `occurred_at`                                                                  | `created_by` (רישום ידני), או `leads.assigned_to_user_id` דרך `lead_id` (שיחת מרכזייה); שיחת מרכזייה יוצאת בלי ליד אינה נספרת לאיש |
-| `calls_answered`      | `calls.direction = inbound` ו-`outcome` שאינו `missed/no_answer/voicemail`                                      | כנ"ל, ובנוסף: שיחת מרכזייה בלי ליד מלקוח קיים שייכת למי שהליד **האחרון** של אותו לקוח אצלו — ליד אחד, מתווך אחד                    |
-| `leads_answered_fast` | `leads.first_response_at` בתקופה, ו-`first_response_at − created_at ≤ 60 דקות` (`MENTOR_FAST_RESPONSE_MINUTES`) | `assigned_to_user_id`                                                                                                              |
-| `followups_done`      | `tasks.completed_at` בתקופה, בלי משימות האוטומציה (`source_key LIKE 'lead-%'`)                                  | `assigned_to_user_id`                                                                                                              |
-| `owner_updates_sent`  | `audit_log` — `property.owner_update` בתקופה                                                                    | `user_id` ביומן הביקורת                                                                                                            |
+| מדד                   | מאיפה נספר                                                                                                      | שיוך למתווך                                                                                                                                      |
+| --------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `deals_closed`        | `mentor_wins` מסוג `deal_closed` — נרשם ברגע שנכס סומן „נמכר”/„הושכר”                                           | מי שסימן (לנכס אין שדה „סוכן”)                                                                                                                   |
+| `offers_sent`         | `offers.sent_at` בתקופה — הצעה שנוצרה ולא נשלחה (`sent_at` ריק) אינה נספרת                                      | דרך `buyer.owner_user_id` — אותו שיוך של דוח הסוכנים                                                                                             |
+| `viewings_held`       | `appointments.kind = viewing` שמועדם עבר, לא בוטלו ולא „לא הגיע”                                                | `owner_user_id`, ובלעדיו `created_by` (כמו דו"ח הבוקר)                                                                                           |
+| `leads_answered`      | `leads.first_response_at` בתקופה                                                                                | `assigned_to_user_id`                                                                                                                            |
+| `new_buyers`          | `buyers.created_at`                                                                                             | `owner_user_id`                                                                                                                                  |
+| `new_properties`      | `audit_log` — `property.create` בתקופה                                                                          | `user_id` ביומן הביקורת                                                                                                                          |
+| `calls_made`          | `calls.direction = outbound` לפי `occurred_at`                                                                  | `created_by` (רישום ידני — ורק לו), ובלעדיו `leads.assigned_to_user_id` דרך `lead_id` (שיחת מרכזייה); שיחת מרכזייה יוצאת בלי ליד אינה נספרת לאיש |
+| `calls_answered`      | `calls.direction = inbound` ו-`outcome = answered` בלבד (`unknown` — ניתוק בלי ראיה למענה — אינו נספר)          | כנ"ל, ובנוסף: שיחת מרכזייה בלי ליד מלקוח קיים שייכת למי שהליד **האחרון** של אותו לקוח אצלו — ליד אחד, מתווך אחד                                  |
+| `leads_answered_fast` | `leads.first_response_at` בתקופה, ו-`first_response_at − created_at ≤ 60 דקות` (`MENTOR_FAST_RESPONSE_MINUTES`) | `assigned_to_user_id`                                                                                                                            |
+| `followups_done`      | `tasks.completed_at` בתקופה, בלי משימות האוטומציה (`source_key LIKE 'lead-%'`)                                  | `assigned_to_user_id`                                                                                                                            |
+| `owner_updates_sent`  | `audit_log` — `property.owner_update` בתקופה                                                                    | `user_id` ביומן הביקורת                                                                                                                          |
 
 **המענה הראשון של ליד** (`leads.first_response_at`) נחתם גם בשיחה
 **שנענתה** עם הליד — רישום ידני (`CallsService.create`, לפי
@@ -257,11 +257,11 @@ apps/web/src/lib/guide-content.ts          ✅ מדריך `mentor`
 של המנטור, הכפתורים שלו; אגד שמערבב ליד עם סיכום מקבל את ברירת
 המחדל („מה דחוף היום?” / „שקט לשעתיים”).
 
-| התראה           | כפתורים                                           |
-| --------------- | ------------------------------------------------- |
-| `mentor_weekly` | 💪 מתחייב · ✍️ לענות למנטור · 🎯 היעדים שלי       |
-| `mentor_nudge`  | 🎯 היעדים שלי · 📋 מה דחוף היום? · 🔕 שקט לשעתיים |
-| `mentor_win`    | 🎯 היעדים שלי · 📋 מה דחוף היום? · 🔕 שקט לשעתיים |
+| התראה           | כפתורים                                                                                          |
+| --------------- | ------------------------------------------------------------------------------------------------ |
+| `mentor_weekly` | 🎯 היעדים שלי, ולפי מה שיש בסיכום: 💪 מתחייב (כשיש בקשה לשבוע הבא) · ✍️ לענות למנטור (כשיש שאלה) |
+| `mentor_nudge`  | 🎯 היעדים שלי · 📋 מה דחוף היום? · 🔕 שקט לשעתיים                                                |
+| `mentor_win`    | 🎯 היעדים שלי · 📋 מה דחוף היום? · 🔕 שקט לשעתיים                                                |
 
 הכפתורים הם `cmd` — **פקודות שהשיחה מבינה** (`MENTOR_QUICK_COMMANDS`:
 „מתחייב לשבוע הבא”, „לענות למנטור”, „מה המצב ביעדים שלי?”). מקור

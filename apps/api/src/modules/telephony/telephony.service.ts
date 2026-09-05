@@ -1068,11 +1068,15 @@ export class TelephonyService {
          * עצמה: דיברו איתו. בלי זה הליד נשאר „לא נענה” במדדי המנטור
          * ובתזכורת ה-SLA, אף שהשיחה היא הראיה הכי חזקה שיש למענה.
          * אותו כלל של `CallsService.create` (ביקורת Codex).
+         *
+         * החותמת היא **עכשיו** ולא שעת השיחה: הליד נוצר בטרנזקציה הזו,
+         * והשיחה התחילה לפניו — חותמת לפי `occurredAt` הייתה מענה
+         * שלילי. ליד שנפתח משיחה שנענתה נענה ברגע שנפתח.
          */
         if (leadId !== null && outcome === "answered") {
           await tx.lead.updateMany({
             where: { id: leadId, tenantId, firstResponseAt: null },
-            data: { firstResponseAt: occurredAt },
+            data: { firstResponseAt: new Date() },
           });
         }
 

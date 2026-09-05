@@ -480,16 +480,46 @@ describe("notifyFollowUp", () => {
 });
 
 describe("notifyQuickReplies — המנטור מקבל כפתורים משלו", () => {
-  it("סיכום שבועי: מתחייב, לענות למנטור, היעדים שלי — כולם פקודות שהשיחה מבינה", () => {
-    const buttons = notifyQuickReplies([
-      item({ type: "mentor_weekly", title: "הסיכום" }),
-    ]);
+  const VIEWER = { userId: "u1", capabilities: [] as string[] };
+  const weeklyWith = (ask: boolean, reflection: boolean) =>
+    notifyQuickReplies([item({ type: "mentor_weekly", title: "הסיכום", id: "n1" })], {
+      viewer: VIEWER,
+      byNotificationId: new Map([
+        ["n1", { kind: "mentor_review" as const, ownerUserId: "u1", ask, reflection }],
+      ]),
+    });
+
+  it("סיכום שבועי עם בקשה ושאלה: מתחייב, לענות למנטור, היעדים שלי — כולם פקודות שהשיחה מבינה", () => {
+    const buttons = weeklyWith(true, true);
     expect(buttons?.map((b) => b.action)).toEqual(["cmd", "cmd", "cmd"]);
     for (const button of buttons ?? []) {
       expect(button.arg).toBeDefined();
       expect(MENTOR_QUICK_COMMANDS).toHaveProperty(button.arg as string);
     }
     expect(buttons?.[0]?.arg).toBe("mentor_commit");
+  });
+
+  /*
+   * ‎**רק מה שיש בסיכום.** סיכום בלי בקשה לשבוע הבא (יעד חודשי בלבד,
+   * או שבוע שכל היעדים בו הושגו) אינו מציע „מתחייב”; סיכום בלי שאלה
+   * אינו מציע „לענות למנטור”. כפתור שמוביל ל„אין בקשה” הוא הבטחה
+   * שנשברת.
+   */
+  it("סיכום בלי בקשה או בלי שאלה — הכפתור המתאים חסר, „היעדים שלי” נשאר", () => {
+    expect(weeklyWith(false, true)?.map((b) => b.arg)).toEqual([
+      "mentor_reflect",
+      "mentor_status",
+    ]);
+    expect(weeklyWith(true, false)?.map((b) => b.arg)).toEqual([
+      "mentor_commit",
+      "mentor_status",
+    ]);
+    expect(weeklyWith(false, false)?.map((b) => b.arg)).toEqual(["mentor_status"]);
+  });
+
+  it("בלי פרטים (ההעשרה נכשלה) — „היעדים שלי” בלבד, לא כפתורים שאולי אין להם כיסוי", () => {
+    const buttons = notifyQuickReplies([item({ type: "mentor_weekly", title: "הסיכום" })]);
+    expect(buttons?.map((b) => b.arg)).toEqual(["mentor_status"]);
   });
 
   it("דחיפה וחגיגה: „היעדים שלי” בלבד — בלי כפתור זר מתחת למנטור", () => {

@@ -442,9 +442,10 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     if (review === null) return false;
 
     const body = mentorReviewBody(signals, review);
+    const reviewId = ulid();
     await tx.mentorReview.create({
       data: {
-        id: ulid(),
+        id: reviewId,
         tenantId,
         userId,
         weekStart,
@@ -468,7 +469,12 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       title: mentorReviewTitle(review),
       body: text.slice(0, 500),
       entityType: "mentor",
-      entityId: null,
+      /*
+       * מזהה הסיכום — כדי שהעובד ידע אילו כפתורים יש לו לתת: „מתחייב”
+       * רק כשיש בקשה לשבוע הבא, „לענות למנטור” רק כשיש שאלה. כפתור
+       * שמוביל ל„אין בקשה” הוא הבטחה שנשברת (ביקורת Codex).
+       */
+      entityId: reviewId,
     });
     return true;
   }
