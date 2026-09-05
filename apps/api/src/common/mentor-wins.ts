@@ -25,13 +25,27 @@ export async function recordMentorWin(
     entityId: string;
     /** כותרת הנכס — בלי שם הלקוח */
     title: string;
+    /**
+     * תחילת התקופה („2026-09-06”) להצלחה שחוזרת — יעד שבועי מושג שבוע
+     * אחרי שבוע ואותה שורת יעד היא חגיגה חדשה בכל שבוע. ריק (ברירת
+     * המחדל) לאירועים החד-פעמיים: עסקה נסגרת פעם אחת.
+     */
+    periodKey?: string;
+    /**
+     * הישות שההתראה מצביעה עליה, כשהיא שונה מזו שנרשמת ב-`mentor_wins`.
+     * יעד שהושג נרשם על `mentor_goal` (זה מה שהושג), אבל ההתראה חייבת
+     * לנחות במסך המנטור — ומפות הניתוב מכירות `mentor`, לא `mentor_goal`
+     * (ביקורת Codex).
+     */
+    notifyEntityType?: string;
   },
 ): Promise<boolean> {
   const title = win.title.trim().slice(0, 200) || "נכס";
+  const periodKey = win.periodKey ?? "";
   const inserted = await tx.$executeRaw`
-    INSERT INTO mentor_wins (id, tenant_id, user_id, kind, entity_type, entity_id, title)
-    VALUES (${ulid()}, ${win.tenantId}, ${win.userId}, ${win.kind}, ${win.entityType}, ${win.entityId}, ${title})
-    ON CONFLICT (tenant_id, kind, entity_id) DO NOTHING`;
+    INSERT INTO mentor_wins (id, tenant_id, user_id, kind, entity_type, entity_id, title, period_key)
+    VALUES (${ulid()}, ${win.tenantId}, ${win.userId}, ${win.kind}, ${win.entityType}, ${win.entityId}, ${title}, ${periodKey})
+    ON CONFLICT (tenant_id, kind, entity_id, period_key) DO NOTHING`;
   if (inserted === 0) return false;
 
   // השם הפרטי — החגיגה פונה אליו בשמו („דנה, סגרת עסקה!”)
@@ -43,12 +57,12 @@ export async function recordMentorWin(
   const message = mentorCelebration({ kind: win.kind, title }, firstName);
   await notifyOnce(tx, {
     tenantId: win.tenantId,
-    dedupeKey: `mentor_win:${win.kind}:${win.entityId}`,
+    dedupeKey: `mentor_win:${win.kind}:${win.entityId}${periodKey === "" ? "" : `:${periodKey}`}`,
     userId: win.userId,
     type: "mentor_win",
     title: message.title,
     body: message.body.slice(0, 500),
-    entityType: win.entityType,
+    entityType: win.notifyEntityType ?? win.entityType,
     entityId: win.entityId,
   });
   return true;

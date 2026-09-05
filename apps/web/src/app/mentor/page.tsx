@@ -9,6 +9,7 @@ import {
   MENTOR_METRICS,
   type MentorActivity,
   MentorGoalInputSchema,
+  jerusalemDayLabel,
   mentorGoalLabel,
   type MentorGoalMetric,
   type MentorGoalPeriod,
@@ -180,18 +181,31 @@ const EXAMPLE_QUESTIONS = [
 
 /** מה יש לחגוג — יעדים שהושגו והצלחות השבוע, במפתחות יציבים לתקופה. */
 function celebrationEvents(overview: Overview): CelebrationEvent[] {
-  const goals = overview.goals
-    .filter((g) => g.progress.pace === "done")
-    .map((g) => ({
-      // תחילת התקופה שנמדדה — לא השבוע: יעד חודשי שהושג בשבוע שחוצה חודש הוא אירוע חדש
-      key: `goal:${g.id}:${g.progress.periodStart}`,
-      label: `היעד הושג: ${mentorGoalLabel(g.metric, g.target, g.period)}`,
-    }));
-  // מזהה השורה ולא המיקום ברשימה — הסדר משתנה כשמצטרפת הצלחה חזקה יותר
-  const wins = overview.wins.map((w, i) => ({
-    key: `win:${w.id ?? `${overview.weekStart}:${w.kind}:${w.title}:${i}`}`,
-    label: winLabel(w),
+  const done = overview.goals.filter((g) => g.progress.pace === "done");
+  const goals = done.map((g) => ({
+    // תחילת התקופה שנמדדה — לא השבוע: יעד חודשי שהושג בשבוע שחוצה חודש הוא אירוע חדש
+    key: `goal:${g.id}:${g.progress.periodStart}`,
+    label: `היעד הושג: ${mentorGoalLabel(g.metric, g.target, g.period)}`,
   }));
+  // יעד שכבר נחגג מהיעדים למעלה — ההצלחה שנרשמה עליו אינה אירוע שני.
+  // רק אותו יעד באותה תקופה: יעד שהופסק אחרי שהושג, או תקופה שהתחלפה,
+  // נשארים בהצלחות — אחרת החגיגה נעלמת (ביקורת Codex)
+  const celebrated = new Set(
+    done.map(
+      (g) => `${g.id}:${jerusalemDayLabel(new Date(g.progress.periodStart))}`,
+    ),
+  );
+  // מזהה השורה ולא המיקום ברשימה — הסדר משתנה כשמצטרפת הצלחה חזקה יותר
+  const wins = overview.wins
+    .filter(
+      (w) =>
+        w.kind !== "goal_reached" ||
+        !celebrated.has(`${w.goalId}:${w.periodKey}`),
+    )
+    .map((w, i) => ({
+      key: `win:${w.id ?? `${overview.weekStart}:${w.kind}:${w.title}:${i}`}`,
+      label: winLabel(w),
+    }));
   return [...goals, ...wins];
 }
 
@@ -497,6 +511,8 @@ function winLabel(win: MentorWin): string {
       return `קונה אמר „מעוניין” על ${win.title}`;
     case "coop_deal":
       return `עסקת שיתוף פעולה — ${win.title}`;
+    case "goal_reached":
+      return `היעד הושג: ${win.title}`;
   }
 }
 

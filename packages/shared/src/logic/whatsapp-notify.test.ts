@@ -522,8 +522,8 @@ describe("notifyQuickReplies — המנטור מקבל כפתורים משלו",
     expect(buttons?.map((b) => b.arg)).toEqual(["mentor_status"]);
   });
 
-  it("דחיפה וחגיגה: „היעדים שלי” בלבד — בלי כפתור זר מתחת למנטור", () => {
-    for (const type of ["mentor_nudge", "mentor_win"]) {
+  it("דחיפה, חגיגה ובוקר: „היעדים שלי” בלבד — בלי כפתור זר מתחת למנטור", () => {
+    for (const type of ["mentor_nudge", "mentor_win", "mentor_daily"]) {
       const buttons = notifyQuickReplies([item({ type })]);
       expect(buttons?.map((b) => b.arg)).toEqual(["mentor_status"]);
     }

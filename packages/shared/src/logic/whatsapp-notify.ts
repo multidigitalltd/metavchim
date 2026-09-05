@@ -102,6 +102,7 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   mentor_weekly: "digests",
   mentor_win: "digests",
   mentor_nudge: "digests",
+  mentor_daily: "digests",
   coop_offer: "network",
   coop_offer_received: "network",
   coop_offer_declined: "network",
@@ -343,6 +344,7 @@ const TYPE_ICON: Record<string, string> = {
   mentor_weekly: "🧭",
   mentor_win: "🎉",
   mentor_nudge: "🎯",
+  mentor_daily: "🌅",
 };
 
 /**
@@ -448,6 +450,8 @@ const MENTOR_CALL_TO_ACTION: Record<string, string> = {
     "🎯 אפשר לכתוב לי „מה המצב ביעדים שלי?” ואראה לך איפה זה עומד מול השבוע.",
   mentor_win:
     "🎉 כל הכבוד לך! אפשר לכתוב לי „מה המצב ביעדים שלי?” לראות איך זה מזיז את השבוע.",
+  mentor_daily:
+    "🎯 אפשר לכתוב לי „מה המצב ביעדים שלי?” — ואם משהו מפריע, „מנטור, מה כדאי לי לשפר?”.",
 };
 
 function callToAction(shown: readonly NotifyItem[]): string {

@@ -8,6 +8,7 @@ import {
   isTaskUrgent,
   jerusalemDayRange,
   JERUSALEM_TZ,
+  jerusalemDayLabel,
   readinessFieldLabel,
   recommendationCapabilities,
   recommendationHref,
@@ -118,9 +119,24 @@ interface MentorPulse {
   goalsDone: { id: string; label: string; period: "week" | "month"; periodStart: string }[];
   wins: {
     id?: string;
-    kind: "deal_closed" | "exclusivity_signed" | "offer_interested" | "coop_deal";
+    kind: "deal_closed" | "exclusivity_signed" | "offer_interested" | "coop_deal" | "goal_reached";
     title: string;
+    goalId?: string;
+    periodKey?: string;
   }[];
+}
+
+/**
+ * ההצלחות שמוצגות: יעד שכבר ברשימת היעדים שהושגו (אותו יעד, אותה
+ * תקופה) אינו מוצג פעמיים; יעד שהופסק אחרי שהושג נשאר כהצלחה.
+ */
+function pulseWins(pulse: MentorPulse): MentorPulse["wins"] {
+  const celebrated = new Set(
+    pulse.goalsDone.map((g) => `${g.id}:${jerusalemDayLabel(new Date(g.periodStart))}`),
+  );
+  return pulse.wins.filter(
+    (w) => w.kind !== "goal_reached" || !celebrated.has(`${w.goalId}:${w.periodKey}`),
+  );
 }
 
 /** אותם אירועים כמו במסך המנטור — ובאותם מפתחות, כדי שחגיגה שיצאה שם לא תחזור כאן. */
@@ -129,7 +145,8 @@ function celebrationEvents(pulse: MentorPulse): CelebrationEvent[] {
     key: `goal:${g.id}:${g.periodStart}`,
     label: `היעד הושג: ${g.label}`,
   }));
-  const wins = pulse.wins.map((w, i) => ({
+  const wins = pulseWins(pulse)
+    .map((w, i) => ({
     key: `win:${w.id ?? `${pulse.weekStart}:${w.kind}:${w.title}:${i}`}`,
     label: winLabel(w),
   }));
@@ -146,6 +163,8 @@ function winLabel(win: MentorPulse["wins"][number]): string {
       return `קונה אמר „מעוניין” על ${win.title}`;
     case "coop_deal":
       return `עסקת שיתוף פעולה — ${win.title}`;
+    case "goal_reached":
+      return `היעד הושג: ${win.title}`;
   }
 }
 
@@ -1801,7 +1820,7 @@ export default function DashboardPage() {
                   {mentorPulse.goalsDone.map((g) => (
                     <li key={`g-${g.id}`}>🎯 היעד הושג: {g.label}</li>
                   ))}
-                  {mentorPulse.wins.map((w, i) => (
+                  {pulseWins(mentorPulse).map((w, i) => (
                     <li key={`w-${i}`}>🎉 {winLabel(w)}</li>
                   ))}
                 </ul>
