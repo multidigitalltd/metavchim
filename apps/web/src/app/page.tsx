@@ -118,7 +118,7 @@ interface MentorPulse {
   goalsDone: { id: string; label: string; period: "week" | "month"; periodStart: string }[];
   wins: {
     id?: string;
-    kind: "deal_closed" | "exclusivity_signed" | "offer_interested" | "coop_deal";
+    kind: "deal_closed" | "exclusivity_signed" | "offer_interested" | "coop_deal" | "goal_reached";
     title: string;
   }[];
 }
@@ -129,7 +129,10 @@ function celebrationEvents(pulse: MentorPulse): CelebrationEvent[] {
     key: `goal:${g.id}:${g.periodStart}`,
     label: `היעד הושג: ${g.label}`,
   }));
-  const wins = pulse.wins.map((w, i) => ({
+  // יעד שהושג כבר ברשימת היעדים — ההצלחה שנרשמה עליו אינה אירוע שני
+  const wins = pulse.wins
+    .filter((w) => w.kind !== "goal_reached")
+    .map((w, i) => ({
     key: `win:${w.id ?? `${pulse.weekStart}:${w.kind}:${w.title}:${i}`}`,
     label: winLabel(w),
   }));
@@ -146,6 +149,8 @@ function winLabel(win: MentorPulse["wins"][number]): string {
       return `קונה אמר „מעוניין” על ${win.title}`;
     case "coop_deal":
       return `עסקת שיתוף פעולה — ${win.title}`;
+    case "goal_reached":
+      return `היעד הושג: ${win.title}`;
   }
 }
 
@@ -1801,9 +1806,11 @@ export default function DashboardPage() {
                   {mentorPulse.goalsDone.map((g) => (
                     <li key={`g-${g.id}`}>🎯 היעד הושג: {g.label}</li>
                   ))}
-                  {mentorPulse.wins.map((w, i) => (
-                    <li key={`w-${i}`}>🎉 {winLabel(w)}</li>
-                  ))}
+                  {mentorPulse.wins
+                    .filter((w) => w.kind !== "goal_reached")
+                    .map((w, i) => (
+                      <li key={`w-${i}`}>🎉 {winLabel(w)}</li>
+                    ))}
                 </ul>
               ) : null}
               <Link href="/mentor" className="mv-button mv-dark-card__action no-underline">

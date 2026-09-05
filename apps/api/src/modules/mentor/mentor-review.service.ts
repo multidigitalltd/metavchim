@@ -10,6 +10,9 @@ import {
   jerusalemWallIsoToUtc,
   jerusalemWallParts,
   jerusalemWeekStart,
+  jerusalemWeekday,
+  mentorDailyPlan,
+  mentorGoalLabel,
   mentorMidweekNudge,
   mentorPatterns,
   mentorPeriodRange,
@@ -18,16 +21,26 @@ import {
   mentorReviewTitle,
   mentorWeeklyReview,
   selectWins,
+  type MentorGoalMetric,
+  type MentorGoalPeriod,
   type MentorReviewBody,
   type MentorWeekSignals,
 } from "@metavchim/shared";
+import { recordMentorWin } from "../../common/mentor-wins";
 import { notifyOnce } from "../../common/notify-once";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
-import { MentorSignalsService } from "./mentor-signals.service";
+import {
+  MentorSignalsService,
+  type MentorGoalRow,
+} from "./mentor-signals.service";
 import { MentorService } from "./mentor.service";
 
-/** כל חצי שעה — הסיכום נכתב פעם בשבוע, והסבב רק מחפש שבוע שהגיע זמנו. */
+/**
+ * כל חצי שעה. הסיכום נכתב פעם בשבוע והבוקר פעם ביום, אבל יעד שהושג
+ * נחגג באותו סבב — חצי שעה היא המרחק המרבי בין ההצעה החמישית לבין
+ * „השגת את היעד”.
+ */
 const TICK_MS = 30 * 60 * 1000;
 const FIRST_TICK_DELAY_MS = 90 * 1000;
 /** כמה סיכומים אחורה נקראים לחישוב הרצף. */
@@ -110,6 +123,30 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     return now >= opens && now < closes ? thisWeek : null;
   }
 
+  /**
+   * חלון הבוקר: ראשון–שישי, 08:00 עד 11:00 שעון ישראל. מחזיר את תאריך
+   * היום („2026-09-06”) כשהחלון פתוח — המפתח של „פעם ביום” — ו-`null`
+   * אחרת. לא לפני 08:00 כדי שלא להעיר, ולא אחרי 11:00: תוכנית ליום
+   * שמגיעה בצהריים היא תוכנית לאתמול. שבת — אין בוקר.
+   */
+  static dailyWindow(now: Date): string | null {
+    if (jerusalemWeekday(now) === 6) return null;
+    const { date } = jerusalemWallParts(now);
+    const opens = jerusalemWallIsoToUtc(`${date}T08:00:00.000`);
+    const closes = jerusalemWallIsoToUtc(`${date}T11:00:00.000`);
+    return now >= opens && now < closes ? date : null;
+  }
+
+  /**
+   * השעות שבהן חגיגה על יעד נשלחת: 07:00 עד 22:00 שעון ישראל. יעד
+   * שהושג בלילה נחגג בסבב הראשון של הבוקר — חגיגה בוואטסאפ ב-23:30
+   * אינה חגיגה.
+   */
+  static awake(now: Date): boolean {
+    const hour = Number(jerusalemWallParts(now).time.slice(0, 2));
+    return hour >= 7 && hour < 22;
+  }
+
   async tick(now: Date = new Date()): Promise<number> {
     if (this.running) return 0;
     this.running = true;
@@ -126,7 +163,10 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
   private async sweep(now: Date): Promise<number> {
     const weeks = MentorReviewService.dueWeeks(now);
     const nudgeWeek = MentorReviewService.nudgeWindow(now);
-    if (weeks.length === 0 && nudgeWeek === null) return 0;
+    const day = MentorReviewService.dailyWindow(now);
+    const awake = MentorReviewService.awake(now);
+    if (weeks.length === 0 && nudgeWeek === null && day === null && !awake)
+      return 0;
     const tenants = await this.prisma.tenant.findMany({
       where: { status: { in: ["active", "trial"] } },
       select: { id: true },
@@ -134,6 +174,25 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     let written = 0;
     for (const tenant of tenants) {
       if (!(await this.plans.tenantHasFeature(tenant.id, "ai_coach"))) continue;
+      // קודם החגיגה — כדי שהבוקר של אותו סבב כבר יגיד „כבר הושג”
+      if (awake) {
+        try {
+          written += await this.celebrateGoalsForTenant(tenant.id, now);
+        } catch (error: unknown) {
+          this.logger.warn(
+            `חגיגת יעדים נכשלה למשרד ${tenant.id}: ${String(error)}`,
+          );
+        }
+      }
+      if (day !== null) {
+        try {
+          written += await this.dailyForTenant(tenant.id, day, now);
+        } catch (error: unknown) {
+          this.logger.warn(
+            `הבוקר של המנטור נכשל למשרד ${tenant.id}: ${String(error)}`,
+          );
+        }
+      }
       for (const weekStart of weeks) {
         try {
           written += await this.generateForTenant(tenant.id, weekStart);
@@ -155,6 +214,240 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       }
     }
     return written;
+  }
+
+  /**
+   * חגיגת יעד שהושג — באותו יום, לא במוצאי שבת (docs/14 §2: חיזוק
+   * קרוב לאירוע). כל סבב: לכל משתמש פעיל עם יעד פעיל, מודדים את
+   * התקופה הנוכחית וכל יעד שב-`done` נרשם כהצלחה `goal_reached` עם
+   * מפתח התקופה — `recordMentorWin` הוא שמבטיח פעם אחת לתקופה ושולח
+   * את ההתראה. יעד שכבר נחגג בתקופה הזו מסונן **לפני** שסופרים, כדי
+   * שהסבב לא ימדוד 48 פעמים ביום את מה שכבר נאמר.
+   */
+  async celebrateGoalsForTenant(tenantId: string, now: Date): Promise<number> {
+    return this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`mentor-goals:${tenantId}`}))`;
+      const goals = await tx.mentorGoal.findMany({
+        where: { tenantId, endedAt: null, user: { isActive: true } },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          userId: true,
+          metric: true,
+          period: true,
+          target: true,
+          why: true,
+          intention: true,
+          createdAt: true,
+          endedAt: true,
+        },
+      });
+      if (goals.length === 0) return 0;
+      const week = mentorPeriodRange("week", now);
+      const periodKey: Record<MentorGoalPeriod, string> = {
+        week: jerusalemWallParts(week.start).date,
+        month: jerusalemWallParts(mentorPeriodRange("month", now).start).date,
+      };
+      const celebrated = new Set(
+        (
+          await tx.mentorWin.findMany({
+            where: {
+              tenantId,
+              kind: "goal_reached",
+              entityId: { in: goals.map((g) => g.id) },
+              periodKey: { in: [periodKey.week, periodKey.month] },
+            },
+            select: { entityId: true, periodKey: true },
+          })
+        ).map((w) => `${w.entityId}:${w.periodKey}`),
+      );
+      const pending = goals.filter(
+        (g) =>
+          !celebrated.has(`${g.id}:${periodKey[g.period as MentorGoalPeriod]}`),
+      );
+      const byUser = new Map<string, typeof pending>();
+      for (const goal of pending) {
+        byUser.set(goal.userId, [...(byUser.get(goal.userId) ?? []), goal]);
+      }
+      let sent = 0;
+      for (const [userId, userGoals] of byUser) {
+        sent += await this.celebrateGoalsForUser(
+          tx,
+          tenantId,
+          userId,
+          userGoals,
+          now,
+        );
+      }
+      return sent;
+    });
+  }
+
+  /** כמה יעדים של המשתמש הושגו ונחגגו עכשיו (רק מבין `goals`). */
+  async celebrateGoalsForUser(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    goals: MentorGoalRow[],
+    now: Date,
+  ): Promise<number> {
+    const week = mentorPeriodRange("week", now);
+    const activity = await this.signals.activity(
+      tx,
+      tenantId,
+      userId,
+      week,
+      now,
+    );
+    const progress = await this.signals.progress(tx, tenantId, userId, goals, {
+      at: now,
+      week,
+      weekActivity: activity,
+      monthAnchor: now,
+    });
+    let sent = 0;
+    for (const goal of progress) {
+      if (goal.progress.pace !== "done") continue;
+      const inserted = await recordMentorWin(tx, {
+        tenantId,
+        userId,
+        kind: "goal_reached",
+        entityType: "mentor_goal",
+        entityId: goal.id,
+        title: mentorGoalLabel(
+          goal.metric as MentorGoalMetric,
+          goal.target,
+          goal.period as MentorGoalPeriod,
+        ),
+        periodKey: jerusalemWallParts(goal.progress.periodStart).date,
+      });
+      if (inserted) sent += 1;
+    }
+    return sent;
+  }
+
+  /**
+   * הבוקר של המנטור — לכל משתמש פעיל, פעם ביום, בחלון 08:00–11:00
+   * (docs/14 §3). מי שכבר קיבל היום מסונן לפני שסופרים; מי שאין לו
+   * מה לשמוע (`mentorDailyPlan` מחזיר `null`) לא מקבל „בוקר טוב” ריק.
+   */
+  async dailyForTenant(
+    tenantId: string,
+    day: string,
+    now: Date,
+  ): Promise<number> {
+    return this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`mentor-daily:${tenantId}:${day}`}))`;
+      const greeted = new Set(
+        (
+          await tx.notification.findMany({
+            where: {
+              tenantId,
+              type: "mentor_daily",
+              createdAt: { gte: jerusalemDayStart(now) },
+            },
+            select: { userId: true },
+          })
+        ).map((n) => n.userId),
+      );
+      const users = await tx.user.findMany({
+        where: { tenantId, isActive: true },
+        select: { id: true, name: true },
+      });
+      let sent = 0;
+      for (const user of users) {
+        if (greeted.has(user.id)) continue;
+        if (
+          await this.dailyForUser(
+            tx,
+            tenantId,
+            user.id,
+            day,
+            now,
+            firstNameOf(user.name),
+          )
+        )
+          sent += 1;
+      }
+      return sent;
+    });
+  }
+
+  /** ‎`true` = נשלחה תוכנית ליום; ‎`false` = אין מה לומר היום. */
+  async dailyForUser(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    day: string,
+    now: Date,
+    firstName = "",
+  ): Promise<boolean> {
+    const week = mentorPeriodRange("week", now);
+    const activity = await this.signals.activity(
+      tx,
+      tenantId,
+      userId,
+      week,
+      now,
+    );
+    const goalRows = await tx.mentorGoal.findMany({
+      where: { tenantId, userId, endedAt: null },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        metric: true,
+        period: true,
+        target: true,
+        why: true,
+        intention: true,
+        createdAt: true,
+        endedAt: true,
+      },
+    });
+    const goals = (
+      await this.signals.progress(tx, tenantId, userId, goalRows, {
+        at: now,
+        week,
+        weekActivity: activity,
+        monthAnchor: now,
+      })
+    ).map((g) => g.progress);
+    const insights = await this.signals.insights(
+      tx,
+      tenantId,
+      userId,
+      week,
+      null,
+    );
+    // „אתמול” — יום הלוח הישראלי הקודם; בראשון אתמול היה שבת, ואין מה לשבח
+    const yesterday =
+      jerusalemWeekday(now) === 0
+        ? null
+        : await this.signals.activity(
+            tx,
+            tenantId,
+            userId,
+            { start: jerusalemDayStart(now, -1), end: jerusalemDayStart(now) },
+            now,
+          );
+    const plan = mentorDailyPlan({
+      goals,
+      insights,
+      yesterday,
+      now,
+      ...(firstName === "" ? {} : { firstName }),
+    });
+    if (plan === null) return false;
+    return notifyOnce(tx, {
+      tenantId,
+      dedupeKey: `mentor_daily:${userId}:${day}`,
+      userId,
+      type: "mentor_daily",
+      title: plan.title,
+      body: plan.body.slice(0, 500),
+      entityType: "mentor",
+      entityId: null,
+    });
   }
 
   /**

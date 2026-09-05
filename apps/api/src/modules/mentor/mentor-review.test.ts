@@ -71,13 +71,29 @@ function fakeTx(counts: {
 }) {
   const created: Record<string, unknown>[] = [];
   const notifications: unknown[] = [];
+  /** הערכים של כל התראה שנכתבה — סוג, כותרת, גוף, מפתח — לפי סדר ההצבה */
+  const notified: unknown[][] = [];
+  /** הערכים של כל הצלחה שנרשמה ב-`mentor_wins` */
+  const winsInserted: unknown[][] = [];
   const tx = {
-    $executeRaw: async (strings: TemplateStringsArray) => {
-      if (strings.join("").includes("INSERT INTO notifications")) {
-        notifications.push(strings.join("?"));
+    $executeRaw: async (
+      strings: TemplateStringsArray,
+      ...values: unknown[]
+    ) => {
+      const sql = strings.join("?");
+      if (sql.includes("INSERT INTO notifications")) {
+        notifications.push(sql);
+        notified.push(values);
+        return 1;
+      }
+      if (sql.includes("INSERT INTO mentor_wins")) {
+        winsInserted.push(values);
         return 1;
       }
       return 0;
+    },
+    user: {
+      findFirst: async () => ({ name: "דנה כהן" }),
     },
     // שאילתות גולמיות לפי הטבלה שהן סופרות — הצעות, שיחות, לידים מהירים, מעקבים, חציון
     $queryRaw: async (strings: TemplateStringsArray) => {
@@ -122,7 +138,13 @@ function fakeTx(counts: {
       },
     },
   };
-  return { tx: tx as unknown as TenantTx, created, notifications };
+  return {
+    tx: tx as unknown as TenantTx,
+    created,
+    notifications,
+    notified,
+    winsInserted,
+  };
 }
 
 function service(): MentorReviewService {
@@ -594,5 +616,147 @@ describe("MentorReviewService.generateForUser — מהירות מענה ושיח
       responseMedianMinutes: 14,
       missedUnreturned: 2,
     });
+  });
+});
+
+describe("MentorReviewService.dailyWindow / awake — מתי הבוקר, ומתי חוגגים", () => {
+  it("ראשון–שישי 08:00–11:00 שעון ישראל — תאריך היום; מחוץ לחלון ובשבת — null", () => {
+    // שני 07/09: 08:00 ישראל = 05:00Z (קיץ)
+    expect(
+      MentorReviewService.dailyWindow(new Date("2026-09-07T05:00:00.000Z")),
+    ).toBe("2026-09-07");
+    expect(
+      MentorReviewService.dailyWindow(new Date("2026-09-07T04:59:00.000Z")),
+    ).toBeNull();
+    expect(
+      MentorReviewService.dailyWindow(new Date("2026-09-07T08:00:00.000Z")),
+    ).toBeNull();
+    // שישי — כן; שבת 09:00 — לא
+    expect(
+      MentorReviewService.dailyWindow(new Date("2026-09-11T06:00:00.000Z")),
+    ).toBe("2026-09-11");
+    expect(
+      MentorReviewService.dailyWindow(new Date("2026-09-12T06:00:00.000Z")),
+    ).toBeNull();
+  });
+
+  it("חגיגה רק בין 07:00 ל-22:00 שעון ישראל", () => {
+    expect(
+      MentorReviewService.awake(new Date("2026-09-07T04:00:00.000Z")),
+    ).toBe(true);
+    expect(
+      MentorReviewService.awake(new Date("2026-09-07T03:59:00.000Z")),
+    ).toBe(false);
+    expect(
+      MentorReviewService.awake(new Date("2026-09-07T19:00:00.000Z")),
+    ).toBe(false);
+  });
+});
+
+describe("MentorReviewService.dailyForUser — הבוקר של המנטור", () => {
+  // שני 07/09 09:00 ישראל
+  const monday = new Date("2026-09-07T06:00:00.000Z");
+  const weekGoal = {
+    id: "01GOALAAAAAAAAAAAAAAAAAAAA",
+    metric: "offers_sent",
+    period: "week",
+    target: 5,
+    why: null,
+    intention: null,
+    createdAt: new Date("2026-08-01"),
+    endedAt: null,
+  };
+
+  it("עם יעד — התראת mentor_daily אחת, במפתח של היום, בשם, עם אתמול ומה היום שווה", async () => {
+    const { tx, notified } = fakeTx({ offers: 2, calls: 4, goals: [weekGoal] });
+    expect(
+      await service().dailyForUser(
+        tx,
+        TENANT,
+        USER,
+        "2026-09-07",
+        monday,
+        "דנה",
+      ),
+    ).toBe(true);
+    expect(notified).toHaveLength(1);
+    const values = notified[0]!;
+    expect(values).toContain("mentor_daily");
+    expect(values).toContain("🌅 היום שלך");
+    expect(values).toContain(`mentor_daily:${USER}:2026-09-07`);
+    const body = String(values.find((v) => String(v).startsWith("בוקר טוב")));
+    expect(body).toContain("בוקר טוב דנה.");
+    expect(body).toContain("אתמול:");
+    expect(body).toContain("5 הצעות בשבוע: 2 הצעות עד עכשיו.");
+  });
+
+  it("בלי יעד ביום שני, בלי שיחה שמחכה ובלי מאמץ אתמול — שקט", async () => {
+    const { tx, notified } = fakeTx({});
+    expect(
+      await service().dailyForUser(tx, TENANT, USER, "2026-09-07", monday),
+    ).toBe(false);
+    expect(notified).toEqual([]);
+  });
+});
+
+describe("MentorReviewService.celebrateGoalsForUser — היעד הושג, היום", () => {
+  const wednesday = new Date("2026-09-09T10:00:00.000Z");
+  const weekGoal = {
+    id: "01GOALAAAAAAAAAAAAAAAAAAAA",
+    metric: "offers_sent",
+    period: "week",
+    target: 5,
+    why: null,
+    intention: null,
+    createdAt: new Date("2026-08-01"),
+    endedAt: null,
+  };
+
+  it("5 מתוך 5 ⇒ הצלחה goal_reached עם מפתח השבוע, וחגיגה בשם עם אותו מפתח", async () => {
+    const { tx, winsInserted, notified } = fakeTx({
+      offers: 5,
+      goals: [weekGoal],
+    });
+    expect(
+      await service().celebrateGoalsForUser(
+        tx,
+        TENANT,
+        USER,
+        [weekGoal],
+        wednesday,
+      ),
+    ).toBe(1);
+    expect(winsInserted).toHaveLength(1);
+    expect(winsInserted[0]).toContain("goal_reached");
+    expect(winsInserted[0]).toContain(weekGoal.id);
+    expect(winsInserted[0]).toContain("5 הצעות בשבוע");
+    // תחילת השבוע הישראלי — 2026-09-06
+    expect(winsInserted[0]).toContain("2026-09-06");
+    expect(notified).toHaveLength(1);
+    expect(notified[0]).toContain("mentor_win");
+    expect(notified[0]).toContain("🎯 היעד הושג!");
+    expect(notified[0]).toContain(
+      `mentor_win:goal_reached:${weekGoal.id}:2026-09-06`,
+    );
+    const body = String(notified[0]!.find((v) => String(v).startsWith("דנה")));
+    expect(body).toMatch(/^דנה, 5 הצעות בשבוע — הושג\./u);
+  });
+
+  it("3 מתוך 5 ⇒ כלום", async () => {
+    const { tx, winsInserted, notified } = fakeTx({
+      offers: 3,
+      goals: [weekGoal],
+    });
+    expect(
+      await service().celebrateGoalsForUser(
+        tx,
+        TENANT,
+        USER,
+        [weekGoal],
+        wednesday,
+      ),
+    ).toBe(0);
+    expect(winsInserted).toEqual([]);
+    expect(notified).toEqual([]);
   });
 });

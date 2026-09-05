@@ -519,9 +519,20 @@ export function suggestProcessGoals(
 /* הסיכום השבועי                                                       */
 /* ------------------------------------------------------------------ */
 
-/** הצלחה שנאמרת בשמה — לא מונה, אלא אירוע. */
+/**
+ * הצלחה שנאמרת בשמה — לא מונה, אלא אירוע.
+ *
+ * ‎`goal_reached` — יעד שהמתווך ביקש מעצמו והושג, באותו יום: החיזוק
+ * הקרוב לאירוע (docs/14 §2). ה„כותרת” היא תווית היעד („5 הצעות
+ * בשבוע”), והזהות היא היעד **והתקופה**: יעד שבועי שהושג שבוע אחרי
+ * שבוע הוא שתי חגיגות.
+ */
 export type MentorWinKind =
-  "deal_closed" | "exclusivity_signed" | "offer_interested" | "coop_deal";
+  | "deal_closed"
+  | "exclusivity_signed"
+  | "offer_interested"
+  | "coop_deal"
+  | "goal_reached";
 
 export interface MentorWin {
   /** מזהה השורה ב-`mentor_wins` — חסר בגופי סיכומים ישנים */
@@ -674,6 +685,7 @@ const WIN_PHRASE: Record<MentorWinKind, (title: string) => string> = {
   exclusivity_signed: (t) => `חתמת בלעדיות על ${t}`,
   offer_interested: (t) => `קונה אמר „מעוניין” על ${t}`,
   coop_deal: (t) => `סגרת עסקת שיתוף פעולה על ${t}`,
+  goal_reached: (t) => `השגת את היעד: ${t}`,
 };
 
 /** „סגרת את X, וחתמת בלעדיות על Y” — כל הצלחה בשמה. */
@@ -819,7 +831,9 @@ export function mentorWeeklyReview(
         : `התחייבת ל${label}. הפעם לא יצא, וההתחייבות עדיין שלך — נמשיך ביחד.`,
     );
   }
-  if (wins.length > 0) paragraphs.push(winsSentence(wins));
+  // יעד שהושג נאמר במשפט היעדים („הושג”) — לא פעמיים
+  const told = wins.filter((w) => w.kind !== "goal_reached");
+  if (told.length > 0) paragraphs.push(winsSentence(told));
   if (goals.length > 0) paragraphs.push(goals.map(goalSentence).join(" "));
   // מהירות המענה ושיחות שמחכות — עובדות, אחרי היעדים ולפני הזיכרון
   paragraphs.push(...mentorInsightSentences(signals.insights));
@@ -926,7 +940,8 @@ const WIN_ORDER: Record<MentorWinKind, number> = {
   deal_closed: 0,
   coop_deal: 1,
   exclusivity_signed: 2,
-  offer_interested: 3,
+  goal_reached: 3,
+  offer_interested: 4,
 };
 const MAX_WINS_TOLD = 6;
 
@@ -968,6 +983,11 @@ export function mentorCelebration(
       return {
         title: "👍 קונה אמר „מעוניין”",
         body: `${hi}${win.title} — הקונה הגיב שהוא מעוניין. זה הרגע לקבוע סיור.`,
+      };
+    case "goal_reached":
+      return {
+        title: "🎯 היעד הושג!",
+        body: `${hi}${win.title} — הושג. ביקשת את זה מעצמך, ועשית. זה לא מזל, זו עבודה — ואני רושם.`,
       };
   }
 }
@@ -1069,6 +1089,125 @@ export function mentorMidweekNudge(
     title: `🧭 אמצע השבוע — ${label}`,
     body: parts.join(" "),
     metric: focus.metric,
+  };
+}
+
+/**
+ * הבוקר של המנטור — מה שמאמן אומר בתחילת יום עבודה (docs/14 §3).
+ *
+ * מנטור שמדבר פעמיים בשבוע הוא דוח; מנטור שפותח את היום איתך הוא
+ * ליווי. ההודעה קצרה ובנויה מארבעה דברים, וכל אחד מהם נאמר רק כשיש
+ * לו על מה:
+ *
+ * 1. **אתמול** — המאמץ בשמו („4 שיחות יוצאות ו-2 הצעות”). ייחוס
+ *    לתהליך, לא לתוצאה; בראשון אין „אתמול” (שבת).
+ * 2. **היעדים השבועיים** — עד שניים, המאחור קודם: כמה יש, ומה
+ *    היום שווה כדי להישאר בקצב (השארית מחולקת בימי העבודה שנותרו,
+ *    כולל היום). מספר שאפשר לעשות היום, לא „חסרות 12”.
+ * 3. **שיחה שמחכה** — נכנסת שלא נענתה ולא חזרת אליה.
+ * 4. **בלי יעד** — ביום ראשון בלבד, הזמנה לקבוע אחד. בשאר הימים
+ *    מי שאין לו יעד, אין לו שיחה שמחכה ולא עשה כלום אתמול לא מקבל
+ *    כלום: בוקר טוב בלי תוכן הוא רעש.
+ *
+ * ‎`null` = אין מה לומר. שבת — תמיד `null`.
+ */
+export interface MentorDailyInput {
+  goals: readonly MentorGoalProgress[];
+  insights?: MentorInsights;
+  /** הפעילות של אתמול — לשבח את המאמץ, לא רק את התוצאה */
+  yesterday?: MentorActivity | null;
+  now: Date;
+  firstName?: string;
+}
+
+const PACE_RANK: Record<MentorPace, number> = {
+  behind: 0,
+  on_track: 1,
+  ahead: 2,
+  done: 3,
+};
+
+/** „4 שיחות יוצאות ו-2 הצעות” — ו׳ החיבור מקבלת מקף לפני ספרה. */
+function andJoin(parts: readonly string[]): string {
+  if (parts.length <= 1) return parts[0] ?? "";
+  const last = parts[parts.length - 1]!;
+  return `${parts.slice(0, -1).join(", ")} ו${/^\d/u.test(last) ? "-" : ""}${last}`;
+}
+
+/** ימי עבודה שנותרו כולל היום — ראשון 5.5 … חמישי 1.5, שישי 0.5. */
+function workdaysLeftIncludingToday(weekday: number): number {
+  if (weekday === 5) return 0.5;
+  return Math.max(0, 4 - weekday) + 1 + 0.5;
+}
+
+export function mentorDailyPlan(
+  input: MentorDailyInput,
+): { title: string; body: string } | null {
+  const weekday = jerusalemWeekday(input.now);
+  if (weekday === 6) return null;
+  const name = (input.firstName ?? "").trim();
+  const lines: string[] = [];
+
+  const yesterday = input.yesterday ?? null;
+  if (weekday >= 1 && yesterday !== null) {
+    const effort = MENTOR_METRICS.filter(
+      (m) => m.kind === "process" && yesterday[m.code] > 0,
+    )
+      .sort((a, b) => yesterday[b.code] - yesterday[a.code])
+      .slice(0, 2)
+      .map((m) => mentorQuantity(m.code, yesterday[m.code]));
+    if (effort.length > 0) {
+      lines.push(
+        `אתמול: ${andJoin(effort)}. ${effort.length > 1 ? "יום מלא." : "יפה."}`,
+      );
+    }
+  }
+
+  const weekly = [...input.goals]
+    .filter((g) => g.period === "week")
+    .sort((a, b) => PACE_RANK[a.pace] - PACE_RANK[b.pace])
+    .slice(0, 2);
+  const daysLeft = workdaysLeftIncludingToday(weekday);
+  let anyBehind = false;
+  for (const goal of weekly) {
+    const label = mentorGoalLabel(goal.metric, goal.target, goal.period);
+    if (goal.pace === "done") {
+      lines.push(`${label} — כבר הושג. 🎯`);
+      continue;
+    }
+    if (goal.pace === "behind") anyBehind = true;
+    const today = mentorQuantity(
+      goal.metric,
+      Math.max(1, Math.ceil(goal.remaining / daysLeft)),
+    );
+    lines.push(
+      goal.actual === 0
+        ? `${label}: עוד לא התחיל. ${today} היום — התחלה טובה.`
+        : `${label}: ${mentorQuantity(goal.metric, goal.actual)} עד עכשיו. ${today} היום ${goal.pace === "behind" ? "כדי לחזור לקצב" : "כדי להישאר בקצב"}.`,
+    );
+  }
+
+  const missed = input.insights?.missedUnreturned ?? 0;
+  if (missed === 1) {
+    lines.push("שיחה נכנסת אחת מחכה לטלפון חוזר — שווה להתחיל ממנה.");
+  } else if (missed > 1) {
+    lines.push(`${missed} שיחות נכנסות מחכות לטלפון חוזר — שווה להתחיל מהן.`);
+  }
+
+  if (input.goals.length === 0 && weekday === 0) {
+    lines.push(
+      "השבוע עוד בלי יעד. יעד אחד קטן — למשל 5 הצעות — נותן לשבוע כיוון. אפשר לכתוב לי „תקבע לי יעד של 5 הצעות בשבוע”.",
+    );
+  }
+
+  if (lines.length === 0) return null;
+  const greeting = `בוקר טוב${name === "" ? "" : ` ${name}`}.`;
+  const closer = anyBehind
+    ? "עוד אפשר להגיע לזה — ואני איתך."
+    : "יום טוב — ואני כאן.";
+  return {
+    title: "🌅 היום שלך",
+    body: [greeting, ...lines, closer].join(" "),
   };
 }
 

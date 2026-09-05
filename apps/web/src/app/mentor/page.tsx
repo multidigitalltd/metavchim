@@ -187,11 +187,14 @@ function celebrationEvents(overview: Overview): CelebrationEvent[] {
       key: `goal:${g.id}:${g.progress.periodStart}`,
       label: `היעד הושג: ${mentorGoalLabel(g.metric, g.target, g.period)}`,
     }));
-  // מזהה השורה ולא המיקום ברשימה — הסדר משתנה כשמצטרפת הצלחה חזקה יותר
-  const wins = overview.wins.map((w, i) => ({
-    key: `win:${w.id ?? `${overview.weekStart}:${w.kind}:${w.title}:${i}`}`,
-    label: winLabel(w),
-  }));
+  // מזהה השורה ולא המיקום ברשימה — הסדר משתנה כשמצטרפת הצלחה חזקה יותר.
+  // יעד שהושג כבר נחגג מהיעדים למעלה — ההצלחה שנרשמה עליו אינה אירוע שני
+  const wins = overview.wins
+    .filter((w) => w.kind !== "goal_reached")
+    .map((w, i) => ({
+      key: `win:${w.id ?? `${overview.weekStart}:${w.kind}:${w.title}:${i}`}`,
+      label: winLabel(w),
+    }));
   return [...goals, ...wins];
 }
 
@@ -497,6 +500,8 @@ function winLabel(win: MentorWin): string {
       return `קונה אמר „מעוניין” על ${win.title}`;
     case "coop_deal":
       return `עסקת שיתוף פעולה — ${win.title}`;
+    case "goal_reached":
+      return `היעד הושג: ${win.title}`;
   }
 }
 

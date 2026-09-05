@@ -662,17 +662,19 @@ model MentorWin {
   id         String   @id @db.Char(26)
   tenantId   String   @map("tenant_id") @db.Char(26)
   userId     String   @map("user_id") @db.Char(26)
-  /// deal_closed | exclusivity_signed | offer_interested | coop_deal
+  /// deal_closed | exclusivity_signed | offer_interested | coop_deal | goal_reached
   kind       String   @db.VarChar(30)
   entityType String   @map("entity_type") @db.VarChar(40)
   entityId   String   @map("entity_id") @db.Char(26)
-  /// כותרת הנכס — בלי שם הלקוח
+  /// התקופה שבה היעד הושג („2026-09-06”) — יעד שבועי הוא חגיגה לכל שבוע; ריק לאירוע חד-פעמי
+  periodKey  String   @default("") @map("period_key") @db.VarChar(10)
+  /// כותרת הנכס — בלי שם הלקוח; ליעד — תווית היעד
   title      String   @db.VarChar(200)
   happenedAt DateTime @default(now()) @map("happened_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([tenantId, kind, entityId])
+  @@unique([tenantId, kind, entityId, periodKey])
   @@index([tenantId, userId, happenedAt])
   @@map("mentor_wins")
 }
