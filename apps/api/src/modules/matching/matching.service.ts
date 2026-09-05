@@ -143,6 +143,39 @@ function officeMatchesOf(tenantId: string, query: { minScore: number; propertyId
 }
 
 /**
+ * ‎**נכס שאפשר להציע — התנאי של הקריאה, לא רק של הכתיבה.**
+ *
+ * ## ‏מה היה
+ *
+ * ‏הכלל „נכס שנמכר אינו מוצע” נאכף **רק בכתיבה**: `retireMatches`
+ * מוריד את ההתאמות ברגע שהסטטוס משתנה, ושני מסלולי החישוב מדלגים
+ * על נכס שאינו לשיווק. הקריאה סיננה `deletedAt` בלבד, כלומר היא
+ * הניחה שהניקוי אכן רץ.
+ *
+ * ‏הנחה כזו נכונה עד לפעם הראשונה שהיא אינה: שורה שנוצרה בגרסה
+ * שקדמה לניקוי, טרנזקציה שנקטעה, או מסלול שנוסף ושכח לקרוא לו.
+ * ‏**ואין מי שיתקן אותה בדיעבד** — הסבב היומי עובר על נכסים
+ * לשיווק בלבד, ולכן נכס שנמכר אינו נבדק שוב לעולם. שורה כזו
+ * מופיעה במסך לתמיד.
+ *
+ * ‏זה הסינון שהופך את „לא אמורים להופיע” לנכון בלי תלות בהיסטוריה:
+ * גם אם השורה קיימת, היא אינה נקראת.
+ *
+ * ## ‏למה `deletedAt` **וגם** הסטטוס באותו מקום
+ *
+ * ‏שניהם עונים לאותה שאלה — „האם מותר להציע את הנכס הזה עכשיו” —
+ * ושני תנאים בשני מקומות נפרדים היו מסכימים ביום שנכתבו בלבד.
+ */
+function matchablePropertyOf(tenantId: string, propertyIds: readonly string[]) {
+  return {
+    tenantId,
+    id: { in: [...new Set(propertyIds)] },
+    deletedAt: null,
+    status: { in: [...MATCHABLE_PROPERTY_STATUSES] },
+  };
+}
+
+/**
  * ‎**מה שהשורה בכרטיס הנכס מספרת על הקונה.**
  *
  * הציון לבדו אומר „מתאים” ולא אומר **למה שווה להתקשר עכשיו**:
@@ -199,19 +232,17 @@ export class MatchingService {
       if (rows.length === 0) return [];
 
       /*
-       * `deletedAt: null` כאן **וגם** סינון השורות למטה.
+       * ‏הסינון כאן **וגם** השמטת השורות למטה.
        *
        * ל-matches אין קשר מוצהר ל-properties, ולכן אי אפשר לסנן נכס
-       * מחוק בשאילתה עצמה. סינון רק כאן היה משאיר את השורה במסך עם
-       * הכתובת "נכס" — התאמה לנכס שנמחק, שנראית כמו תקלת תצוגה. מה
-       * שנכון הוא להוציא את השורה.
+       * מחוק או נכס שנמכר בשאילתה של ההתאמות עצמה. סינון רק כאן היה
+       * משאיר את השורה במסך עם הכתובת "נכס" — התאמה לנכס שאינו
+       * מוצג, שנראית כמו תקלת תצוגה. מה שנכון הוא להוציא את השורה.
+       *
+       * ‏ראו `matchablePropertyOf`: מחוק **וגם** יצא משיווק.
        */
       const properties = await tx.property.findMany({
-        where: {
-          tenantId,
-          id: { in: [...new Set(rows.map((r) => r.propertyId))] },
-          deletedAt: null,
-        },
+        where: matchablePropertyOf(tenantId, rows.map((r) => r.propertyId)),
         select: {
           id: true, street: true, neighborhood: true, city: true,
           marketingTitle: true, priceAgorot: true,
@@ -692,9 +723,25 @@ export class MatchingService {
    * פשוט נגזר מהבקשה (ביקורת Codex).
    */
   async countAll(query: { minScore: number; propertyId?: string }): Promise<number> {
-    return this.prisma.withTenant(async (tx) =>
-      tx.match.count({ where: officeMatchesOf(TenantContext.current().tenantId, query) }),
-    );
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      /*
+        ‏הספירה חייבת להתיישר עם הרשימה, ולכן היא מחריגה את אותם
+        נכסים בדיוק. „12 התאמות” מעל רשימה של שמונה הוא מונה ששולח
+        לחפש ארבע שאינן קיימות.
+
+        ‏`notIn` על היוצאים מהכלל ולא `in` על המותרים: מספר הנכסים
+        שיצאו משיווק קטן ממספר הנכסים במשרד, ובמשרד חדש הוא אפס —
+        ואז אין תנאי כלל.
+      */
+      const retired = await this.retiredPropertyIds(tx, tenantId);
+      return tx.match.count({
+        where: {
+          ...officeMatchesOf(tenantId, query),
+          ...(retired.length === 0 ? {} : { propertyId: { notIn: retired } }),
+        },
+      });
+    });
   }
 
   /**
@@ -707,9 +754,12 @@ export class MatchingService {
    * לו לקוח.
    */
   async countForProperty(propertyId: string): Promise<number> {
-    return this.prisma.withTenant(async (tx) =>
-      tx.match.count({ where: openMatchesOf(TenantContext.current().tenantId, { propertyId }) }),
-    );
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      // ‏אותו תנאי של `listForProperty`, אחרת המונה סופר מה שהיא לא מציגה
+      if (!(await this.isMatchable(tx, tenantId, propertyId))) return 0;
+      return tx.match.count({ where: openMatchesOf(tenantId, { propertyId }) });
+    });
   }
 
   /** אותו דבר לקונה — ובאותה בדיקת גישה כמו הרשימה שלו. */
@@ -717,8 +767,55 @@ export class MatchingService {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
       await assertBuyerAccess(tx, tenantId, buyerId);
-      return tx.match.count({ where: openMatchesOf(tenantId, { buyerId }) });
+      const retired = await this.retiredPropertyIds(tx, tenantId);
+      return tx.match.count({
+        where: {
+          ...openMatchesOf(tenantId, { buyerId }),
+          ...(retired.length === 0 ? {} : { propertyId: { notIn: retired } }),
+        },
+      });
     });
+  }
+
+  /**
+   * ‏האם מותר להציע את הנכס הזה עכשיו.
+   *
+   * ‏שאילתה אחת שעונה על שני התנאים של `matchablePropertyOf` — מחוק,
+   * ויצא משיווק — כדי שהתשובה לנכס יחיד לא תיכתב בנפרד מהתשובה
+   * לרשימה.
+   */
+  private async isMatchable(
+    tx: TenantTx,
+    tenantId: string,
+    propertyId: string,
+  ): Promise<boolean> {
+    const row = await tx.property.findFirst({
+      where: matchablePropertyOf(tenantId, [propertyId]),
+      select: { id: true },
+    });
+    return row !== null;
+  }
+
+  /**
+   * ‎**הנכסים שאין להציע — לספירות.**
+   *
+   * ‏הרשימות מסננות בזיכרון על השורות שהן שלפו; לספירה אין שורות,
+   * ולכן היא צריכה את הצד השני של אותו תנאי. הרשימה כאן היא ההשלמה
+   * המדויקת של `matchablePropertyOf`, ושתיהן נגזרות מאותו
+   * ‎`MATCHABLE_PROPERTY_STATUSES` — ולכן אינן יכולות לסטות.
+   */
+  private async retiredPropertyIds(tx: TenantTx, tenantId: string): Promise<string[]> {
+    const rows = await tx.property.findMany({
+      where: {
+        tenantId,
+        OR: [
+          { deletedAt: { not: null } },
+          { status: { notIn: [...MATCHABLE_PROPERTY_STATUSES] } },
+        ],
+      },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
   }
 
   async listForProperty(
@@ -733,6 +830,12 @@ export class MatchingService {
   > {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
+      /*
+        ‏נכס שיצא משיווק אינו מציג „קונים מוצעים”: הרשימה הזו היא
+        הזמנה לפעולה — להתקשר, להציע, לקבוע סיור — ונכס שנמכר אינו
+        מזמין אף אחת מהן.
+      */
+      if (!(await this.isMatchable(tx, tenantId, propertyId))) return [];
       const rows = await tx.match.findMany({
         where: openMatchesOf(tenantId, { propertyId }),
         orderBy: { score: "desc" },
@@ -827,12 +930,8 @@ export class MatchingService {
 
       // שם הנכס לכל התאמה — לכרטיס הקונה (קובץ העיצוב); שאילתה אחת לעמוד
       const properties = await tx.property.findMany({
-        // נכס מחוק אינו התאמה — הסינון כאן, וההשמטה בשורות למטה
-        where: {
-          tenantId,
-          id: { in: [...new Set(rows.map((r) => r.propertyId))] },
-          deletedAt: null,
-        },
+        // נכס מחוק או שיצא משיווק אינו התאמה — ראו `matchablePropertyOf`
+        where: matchablePropertyOf(tenantId, rows.map((r) => r.propertyId)),
         select: {
           id: true, street: true, neighborhood: true, city: true,
           marketingTitle: true, priceAgorot: true,

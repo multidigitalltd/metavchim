@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
@@ -444,16 +445,26 @@ export class MatchRefreshService implements OnModuleInit, OnModuleDestroy {
    *
    * `recomputeForProperty` מנקה נכס שהוא נוגע בו, והסבב עובר רק על
    * נכסים משווקים — כלומר נכס שיצא מהשיווק אינו נסרק בשום מקום,
-   * וההתאמות שלו נשארות לנצח. עד היום זה הוסתר במסך: `listAll`
-   * מסנן אותן בזיכרון, מושך שורות עודפות כדי לפצות, והמונה בכרטיס
-   * הנכס עדיין סופר אותן.
+   * וההתאמות שלו נשארות לנצח.
+   *
+   * ‎**ההערה כאן טענה שהמסך מסתיר אותן בינתיים, וזה לא היה נכון.**
+   * ‏`listAll` סינן `deletedAt` בלבד ומעולם לא את הסטטוס, וכך גם
+   * שאר הקריאות. כלומר שורה שברחה מהניקוי הזה — מגרסה שקדמה לו,
+   * מטרנזקציה שנקטעה — הופיעה במסך. הקריאה מסננת עכשיו בעצמה (ראו
+   * ‎`matchablePropertyOf`), והמחיקה כאן היא מה שמונע מהשורות
+   * להצטבר.
    *
    * שאילתה אחת ולא שליפת מזהים: לרשומת ההתאמה אין קשר מוצהר לנכס
    * בסכמה, ומשרד עם אלפי נכסים שנמכרו היה מייצר `IN (...)` ענק.
    * RLS חלה — `withExplicitTenant` מציב את `app.tenant_id`.
    *
+   * ‎**רשימת הסטטוסים באה מ-`MATCHABLE_PROPERTY_STATUSES`** ולא
+   * כתובה כאן: היא הייתה עותק שני שמסכים עם הראשון עד היום שבו
+   * אחד מהם משתנה.
+   *
    * **`status = 'suggested'` בלבד**: התאמה שהמתווך הציע או דחה היא
    * החלטה שלו ותיעוד של מה שקרה, ולא הצעה פתוחה שהמנוע רשאי למחוק.
+   * ‏היא אינה נמחקת — והיא גם אינה מוצגת, כי הקריאה מסננת אותה.
    */
   private async dropOrphanMatches(tenantId: string): Promise<number> {
     return this.prisma.withExplicitTenant(tenantId, (tx) =>
@@ -466,7 +477,7 @@ export class MatchRefreshService implements OnModuleInit, OnModuleDestroy {
             WHERE p.id = m.property_id
               AND p.tenant_id = m.tenant_id
               AND p.deleted_at IS NULL
-              AND p.status IN ('draft', 'active')
+              AND p.status IN (${Prisma.join([...MATCHABLE_PROPERTY_STATUSES])})
           )
       `,
     );
