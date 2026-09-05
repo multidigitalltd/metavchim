@@ -1185,7 +1185,7 @@ export default function DashboardPage() {
         למעלה מדי היא הייתה קודמת למה שדחוף; למטה מדי איש לא היה
         רואה אותה.
       */}
-      <SystemUpdate />
+      <SystemUpdate mentor={hasCoach} />
 
       {/*
         הסוכן הקולי בראש המסך ולא בתחתיתו: הוא נקודת הכניסה לפעולה,
