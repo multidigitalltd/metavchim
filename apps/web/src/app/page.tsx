@@ -1737,8 +1737,7 @@ export default function DashboardPage() {
                 </h2>
               </div>
               <p className="mv-dark-card__body m-0">
-                מודד את השבוע מול היעדים שביקשתם מעצמכם, חוגג כל עסקה בשמה, ועונה
-                על „מה כדאי לי לשפר?” — רק מולכם, אף פעם לא מול עמיתים.
+                השבוע שלך מול היעדים שלך — רק מולך, אף פעם לא מול אחרים.
               </p>
               {mentorPulse && (mentorPulse.goalsDone.length > 0 || mentorPulse.wins.length > 0) ? (
                 <ul className="mv-dark-card__body m-0 list-none p-0">

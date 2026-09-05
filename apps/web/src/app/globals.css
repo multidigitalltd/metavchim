@@ -6035,6 +6035,34 @@ a.mv-bar-row:focus-visible {
   font-size: var(--type-caption);
   color: var(--color-text-muted);
 }
+/*
+ * אריח שמציג ולא מקשר — המנטור (docs/13).
+ *
+ * אותו אריח בדיוק כמו מוני הדשבורד, בלי שני דברים שמבטיחים לחיצה:
+ * סמן היד וההרמה בריחוף. אריח שקופץ תחת העכבר ואינו מוביל לשום
+ * מקום הוא הבטחה שנשברת. ו„קומפקטי” — כי במסך המנטור יש אחד-עשר
+ * מדדים, ואריח בגובה 150 לכל אחד היה הופך את השבוע לקיר.
+ */
+.mv-kpi--static {
+  cursor: default;
+}
+.mv-kpi--static:hover {
+  transform: none;
+  box-shadow: var(--shadow-card);
+}
+.mv-kpi--compact {
+  min-height: 112px;
+  padding: 14px 16px;
+}
+.mv-kpi--compact .mv-tile {
+  width: 32px;
+  height: 32px;
+  border-radius: 11px;
+}
+.mv-kpi--compact .mv-tile svg {
+  width: 16px;
+  height: 16px;
+}
 
 /*
  * שורת רשימה (§13) — „the workhorse”, ושתי צורות לה.
