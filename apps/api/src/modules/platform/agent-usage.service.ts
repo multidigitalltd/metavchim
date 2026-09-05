@@ -35,6 +35,12 @@ export interface AgentUsageTotals {
    */
   blockedCount: number;
   whatsappCount: number;
+  /**
+   * שיחות עם המנטור האישי — קריאות מודל שאינן פקודות. האסימונים
+   * שלהן כבר בסכומים למטה (הסכימה אינה מסננת לפי סוג); המונה נפרד
+   * כדי שאפשר יהיה לומר כמה מהחשבון הוא המנטור.
+   */
+  mentorCount: number;
   promptTokens: number;
   outputTokens: number;
   /** אסימוני "חשיבה" — מחויבים כפלט; אמורים להיות נמוכים מאז ההגבלה */
@@ -63,6 +69,7 @@ interface TotalsRow {
   rules_count: number;
   blocked_count: number;
   whatsapp_count: number;
+  mentor_count: number;
   prompt_tokens: bigint;
   output_tokens: bigint;
   thought_tokens: bigint;
@@ -80,6 +87,7 @@ const EMPTY: AgentUsageTotals = {
   rulesCount: 0,
   blockedCount: 0,
   whatsappCount: 0,
+  mentorCount: 0,
   promptTokens: 0,
   outputTokens: 0,
   thoughtTokens: 0,
@@ -116,6 +124,7 @@ export class AgentUsageService {
                                  AND source = 'blocked')::int            AS blocked_count,
               COUNT(*) FILTER (WHERE kind = 'interpret'
                                  AND channel = 'whatsapp')::int          AS whatsapp_count,
+              COUNT(*) FILTER (WHERE kind = 'mentor')::int               AS mentor_count,
               COALESCE(SUM((usage->>'promptTokens')::bigint), 0)::bigint AS prompt_tokens,
               COALESCE(SUM((usage->>'outputTokens')::bigint), 0)::bigint AS output_tokens,
               COALESCE(SUM((usage->>'thoughtTokens')::bigint), 0)::bigint AS thought_tokens,
@@ -144,7 +153,11 @@ export class AgentUsageService {
 
       const mapped = totals === undefined ? EMPTY : mapTotals(totals);
       // משרד ששקט כל התקופה לא תופס שורה בטבלה
-      if (mapped.interpretCount > 0 || mapped.executeCount > 0) {
+      if (
+        mapped.interpretCount > 0 ||
+        mapped.executeCount > 0 ||
+        mapped.mentorCount > 0
+      ) {
         perTenant.push({ tenantId: tenant.id, tenantName: tenant.name, ...mapped });
       }
       for (const row of tenantDays) {
@@ -162,6 +175,7 @@ export class AgentUsageService {
         rulesCount: acc.rulesCount + row.rulesCount,
         blockedCount: acc.blockedCount + row.blockedCount,
         whatsappCount: acc.whatsappCount + row.whatsappCount,
+        mentorCount: acc.mentorCount + row.mentorCount,
         promptTokens: acc.promptTokens + row.promptTokens,
         outputTokens: acc.outputTokens + row.outputTokens,
         thoughtTokens: acc.thoughtTokens + row.thoughtTokens,
@@ -285,6 +299,7 @@ function mapTotals(row: TotalsRow): AgentUsageTotals {
     rulesCount: row.rules_count,
     blockedCount: row.blocked_count,
     whatsappCount: row.whatsapp_count,
+    mentorCount: row.mentor_count,
     promptTokens: Number(row.prompt_tokens),
     outputTokens: Number(row.output_tokens),
     thoughtTokens: Number(row.thought_tokens),

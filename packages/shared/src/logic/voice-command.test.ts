@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractPersonFromTranscript } from "./extract-person.js";
 import {
+  mentorQuestionFromTranscript,
   routeVoiceCommand,
   stripCommandPrefix,
   taskTitleFromTranscript,
@@ -8,7 +9,9 @@ import {
 
 describe("routeVoiceCommand", () => {
   it("מזהה הוספת נכס בניסוח מפורש", () => {
-    expect(routeVoiceCommand("תוסיף נכס דירת 3 חדרים בבני ברק").action).toBe("add_property");
+    expect(routeVoiceCommand("תוסיף נכס דירת 3 חדרים בבני ברק").action).toBe(
+      "add_property",
+    );
   });
 
   it("מזהה הוספת קונה", () => {
@@ -35,7 +38,9 @@ describe("routeVoiceCommand", () => {
 
   it("כלל מפורש גובר על ניחוש לפי הקשר", () => {
     // "מחפש דירה" הוא רמז לקונה, אבל "תוסיף נכס" מפורש
-    expect(routeVoiceCommand("תוסיף נכס ללקוח שמחפש דירה").action).toBe("add_property");
+    expect(routeVoiceCommand("תוסיף נכס ללקוח שמחפש דירה").action).toBe(
+      "add_property",
+    );
   });
 
   /*
@@ -45,10 +50,11 @@ describe("routeVoiceCommand", () => {
    * מילים אחרי ל'".
    */
   it("מזהה שליחת הצעה", () => {
-    expect(routeVoiceCommand("שלח את הנכס בהרב שך למשה כהן").action).toBe("send_offer");
+    expect(routeVoiceCommand("שלח את הנכס בהרב שך למשה כהן").action).toBe(
+      "send_offer",
+    );
     expect(routeVoiceCommand("תשלח הצעה לשרה לוי").action).toBe("send_offer");
   });
-
 
   it("מזהה קביעת פגישה בלי מילת פועל", () => {
     /*
@@ -62,8 +68,12 @@ describe("routeVoiceCommand", () => {
   });
 
   it("מזהה 'נפגש עם' ו'להיפגש עם'", () => {
-    expect(routeVoiceCommand("נפגש עם דנה מחר בארבע").action).toBe("schedule_appointment");
-    expect(routeVoiceCommand("להיפגש עם משה כהן ביום שלישי").action).toBe("schedule_appointment");
+    expect(routeVoiceCommand("נפגש עם דנה מחר בארבע").action).toBe(
+      "schedule_appointment",
+    );
+    expect(routeVoiceCommand("להיפגש עם משה כהן ביום שלישי").action).toBe(
+      "schedule_appointment",
+    );
   });
 
   it("'אני מראה לו את הדירה מחר' הוא סיור", () => {
@@ -73,8 +83,12 @@ describe("routeVoiceCommand", () => {
   });
 
   it("'תקבע' ו'לקבוע' עובדים כמו 'קבע'", () => {
-    expect(routeVoiceCommand("תקבע פגישה מחר").action).toBe("schedule_appointment");
-    expect(routeVoiceCommand("לקבוע סיור ביום חמישי").action).toBe("schedule_appointment");
+    expect(routeVoiceCommand("תקבע פגישה מחר").action).toBe(
+      "schedule_appointment",
+    );
+    expect(routeVoiceCommand("לקבוע סיור ביום חמישי").action).toBe(
+      "schedule_appointment",
+    );
   });
 
   it("טקסט שאינו פקודה מסווג כלא ידוע", () => {
@@ -82,7 +96,9 @@ describe("routeVoiceCommand", () => {
   });
 
   it("מסיר מילות פקודה לפני החילוץ", () => {
-    expect(stripCommandPrefix("תוסיף קונה משה כהן 050-1234567")).toBe("משה כהן 050-1234567");
+    expect(stripCommandPrefix("תוסיף קונה משה כהן 050-1234567")).toBe(
+      "משה כהן 050-1234567",
+    );
     expect(stripCommandPrefix("קבע פגישה מחר בעשר")).toBe("מחר בעשר");
   });
 });
@@ -97,11 +113,15 @@ describe("סדר הכללים — פועל מפורש מנצח ניסוח בלי
   });
 
   it("'תוסיף נכס מהביקור עם משה' מוסיף נכס", () => {
-    expect(routeVoiceCommand("תוסיף נכס מהביקור עם משה").action).toBe("add_property");
+    expect(routeVoiceCommand("תוסיף נכס מהביקור עם משה").action).toBe(
+      "add_property",
+    );
   });
 
   it("'תשלח הצעה לפני הפגישה עם משה' היא שליחת הצעה", () => {
-    expect(routeVoiceCommand("תשלח הצעה לפני הפגישה עם משה").action).toBe("send_offer");
+    expect(routeVoiceCommand("תשלח הצעה לפני הפגישה עם משה").action).toBe(
+      "send_offer",
+    );
   });
 
   it("ובלי פועל מפורש — עדיין פגישה", () => {
@@ -113,8 +133,12 @@ describe("סדר הכללים — פועל מפורש מנצח ניסוח בלי
 
 describe("תזכורות בקול", () => {
   it("'תזכיר לי' — תזכורת, בכל ניסוח", () => {
-    expect(routeVoiceCommand("תזכיר לי מחר להתקשר לדוד").action).toBe("add_task");
-    expect(routeVoiceCommand("תוסיף משימה לבדוק את החוזה").action).toBe("add_task");
+    expect(routeVoiceCommand("תזכיר לי מחר להתקשר לדוד").action).toBe(
+      "add_task",
+    );
+    expect(routeVoiceCommand("תוסיף משימה לבדוק את החוזה").action).toBe(
+      "add_task",
+    );
   });
 
   it("'תזכיר לי' גובר על פעולות אחרות — התוכן הוא התזכורת, לא פקודה", () => {
@@ -122,15 +146,21 @@ describe("תזכורות בקול", () => {
      * "תזכיר לי לקבוע פגישה עם משה" הוא תזכורת לקבוע — לא קביעה
      * עכשיו, ו"תזכיר לי לשלוח את ההצעה" בטח שלא שולח שום דבר ללקוח.
      */
-    expect(routeVoiceCommand("תזכיר לי לקבוע פגישה עם משה").action).toBe("add_task");
-    expect(routeVoiceCommand("תזכיר לי לשלוח את ההצעה למשה כהן").action).toBe("add_task");
+    expect(routeVoiceCommand("תזכיר לי לקבוע פגישה עם משה").action).toBe(
+      "add_task",
+    );
+    expect(routeVoiceCommand("תזכיר לי לשלוח את ההצעה למשה כהן").action).toBe(
+      "add_task",
+    );
   });
 
   it("כותרת התזכורת — בלי מילות הפקודה", () => {
     expect(taskTitleFromTranscript("תזכיר לי מחר בעשר להתקשר לדוד")).toBe(
       "מחר בעשר להתקשר לדוד",
     );
-    expect(taskTitleFromTranscript("תוסיף משימה לבדוק את החוזה")).toBe("לבדוק את החוזה");
+    expect(taskTitleFromTranscript("תוסיף משימה לבדוק את החוזה")).toBe(
+      "לבדוק את החוזה",
+    );
   });
 });
 
@@ -141,13 +171,21 @@ describe("שאלות על המאגר", () => {
      * קריטריונים. בלי הכלל הזה המשפט היה נופל ל-add_buyer (בגלל
      * "מחפש דירה") או לחיפוש שמות שלא מוצא כלום.
      */
-    expect(routeVoiceCommand("מי מחפש 4 חדרים בגבעתיים?").action).toBe("query_buyers");
-    expect(routeVoiceCommand("מי מעוניין בדירה ברמת גן").action).toBe("query_buyers");
-    expect(routeVoiceCommand("אילו קונים יש לי עד 2 מיליון").action).toBe("query_buyers");
+    expect(routeVoiceCommand("מי מחפש 4 חדרים בגבעתיים?").action).toBe(
+      "query_buyers",
+    );
+    expect(routeVoiceCommand("מי מעוניין בדירה ברמת גן").action).toBe(
+      "query_buyers",
+    );
+    expect(routeVoiceCommand("אילו קונים יש לי עד 2 מיליון").action).toBe(
+      "query_buyers",
+    );
   });
 
   it("'תחפש מי מחפש' — עדיין שאילתת קונים; 'חפש את משה' נשאר חיפוש", () => {
-    expect(routeVoiceCommand("תחפש מי מחפש 4 חדרים בגבעתיים").action).toBe("query_buyers");
+    expect(routeVoiceCommand("תחפש מי מחפש 4 חדרים בגבעתיים").action).toBe(
+      "query_buyers",
+    );
     expect(routeVoiceCommand("חפש את משה כהן").action).toBe("search");
   });
 
@@ -156,15 +194,21 @@ describe("שאלות על המאגר", () => {
      * "תחפש קונים ארבע חדרים" נפל לחיפוש טקסט בשמות — שלא מוצא
      * כלום. קונים **ברבים** אחרי פועל חיפוש הוא תמיד שאלה על המאגר.
      */
-    expect(routeVoiceCommand("תחפש קונים ארבע חדרים").action).toBe("query_buyers");
-    expect(routeVoiceCommand("מצא לי קונים לדירה בגבעתיים").action).toBe("query_buyers");
-    expect(routeVoiceCommand("תראה לי את הקונים עד 2 מיליון").action).toBe("query_buyers");
+    expect(routeVoiceCommand("תחפש קונים ארבע חדרים").action).toBe(
+      "query_buyers",
+    );
+    expect(routeVoiceCommand("מצא לי קונים לדירה בגבעתיים").action).toBe(
+      "query_buyers",
+    );
+    expect(routeVoiceCommand("תראה לי את הקונים עד 2 מיליון").action).toBe(
+      "query_buyers",
+    );
   });
 
   it("'מחפש דירה' בלי 'מי' — עדיין הוספת קונה", () => {
-    expect(routeVoiceCommand("דיברתי עם יוסי שמחפש דירה בבני ברק").action).not.toBe(
-      "query_buyers",
-    );
+    expect(
+      routeVoiceCommand("דיברתי עם יוסי שמחפש דירה בבני ברק").action,
+    ).not.toBe("query_buyers");
   });
 });
 
@@ -235,7 +279,9 @@ describe("שאלות קריאה על כל המערכת", () => {
   it("היומן גובר על שאלת הנכסים — „מה יש לי ביומן”", () => {
     expect(routeVoiceCommand("מה יש לי ביומן").action).toBe("show_schedule");
     expect(routeVoiceCommand("מה יש לי היום").action).toBe("show_schedule");
-    expect(routeVoiceCommand("מה הפגישות שלי מחר").action).toBe("show_schedule");
+    expect(routeVoiceCommand("מה הפגישות שלי מחר").action).toBe(
+      "show_schedule",
+    );
   });
 
   it("„מה יש לי ברמת גן” נשאר שאלת נכסים", () => {
@@ -257,7 +303,9 @@ describe("שאלות קריאה על כל המערכת", () => {
       "complete_task",
     );
     // "תזכיר לי" נשאר תזכורת — לא נחטף על ידי כללי המשימות
-    expect(routeVoiceCommand("תזכיר לי מחר להתקשר לדוד").action).toBe("add_task");
+    expect(routeVoiceCommand("תזכיר לי מחר להתקשר לדוד").action).toBe(
+      "add_task",
+    );
   });
 
   /*
@@ -282,14 +330,20 @@ describe("שאלות קריאה על כל המערכת", () => {
    * הכללים הוא מה שמכריע, ולכן הוא נבדק ולא מונח.
    */
   it("„מי התקשר ולא חזרתי” הוא חזרה, לא יומן שיחות", () => {
-    expect(routeVoiceCommand("מי התקשר ולא חזרתי אליו").action).toBe("show_callbacks");
+    expect(routeVoiceCommand("מי התקשר ולא חזרתי אליו").action).toBe(
+      "show_callbacks",
+    );
     expect(routeVoiceCommand("מי התקשר אליי היום").action).toBe("show_calls");
   });
 
-  it("שיחות, דוח ועסקאות שת\"פ", () => {
+  it('שיחות, דוח ועסקאות שת"פ', () => {
     expect(routeVoiceCommand("מי התקשר אליי היום").action).toBe("show_calls");
-    expect(routeVoiceCommand("כמה לידים נכנסו החודש").action).toBe("office_report");
-    expect(routeVoiceCommand("מה קורה עם העסקאות המשותפות").action).toBe("show_deals");
+    expect(routeVoiceCommand("כמה לידים נכנסו החודש").action).toBe(
+      "office_report",
+    );
+    expect(routeVoiceCommand("מה קורה עם העסקאות המשותפות").action).toBe(
+      "show_deals",
+    );
   });
 
   it("הערה, סטטוס ליד ושיתוף ברשת", () => {
@@ -314,7 +368,9 @@ describe("שאלות קריאה על כל המערכת", () => {
     expect(routeVoiceCommand("שלח את הדירה בהרב שך למשה כהן").action).toBe(
       "send_offer",
     );
-    expect(routeVoiceCommand("תוסיף משימה לבדוק את החוזה").action).toBe("add_task");
+    expect(routeVoiceCommand("תוסיף משימה לבדוק את החוזה").action).toBe(
+      "add_task",
+    );
   });
 });
 
@@ -389,6 +445,43 @@ describe("שאלות „תראה לי” — ומה שכבר עבד", () => {
     ["מה יש לי ברשת בחיפה", ["חיפה"]],
     ["הביקושים בתל אביב", ["תל אביב"]],
   ] as [string, string[]][])("„%s” ⟵ ערים: %j", (text, cities) => {
-    expect(extractPersonFromTranscript(text).person.cities ?? []).toEqual(cities);
+    expect(extractPersonFromTranscript(text).person.cities ?? []).toEqual(
+      cities,
+    );
+  });
+});
+
+describe("המנטור האישי ברצפה הדטרמיניסטית", () => {
+  it("„מה המצב ביעדים שלי” הוא מצב היעדים; משפט עם „מנטור” הוא שאלה למנטור", () => {
+    expect(routeVoiceCommand("מה המצב ביעדים שלי?").action).toBe(
+      "mentor_status",
+    );
+    expect(routeVoiceCommand("איך אני מול היעד השבוע").action).toBe(
+      "mentor_status",
+    );
+    expect(routeVoiceCommand("תשאל את המנטור מה כדאי לי לשפר").action).toBe(
+      "mentor_ask",
+    );
+    expect(routeVoiceCommand("מנטור, מה המצב ביעדים?").action).toBe(
+      "mentor_ask",
+    );
+    // „ההצעות שלי” נשאר רשימת ההצעות — לא היעד
+    expect(routeVoiceCommand("מה ההצעות שלי").action).toBe("show_offers");
+  });
+});
+
+describe("mentorQuestionFromTranscript — השאלה בלי מילות הפנייה", () => {
+  it("מוריד „מנטור,” ו„תשאל את המנטור” ומשאיר את השאלה", () => {
+    expect(mentorQuestionFromTranscript("מנטור, מה כדאי לי לשפר?")).toBe(
+      "מה כדאי לי לשפר?",
+    );
+    expect(mentorQuestionFromTranscript("תשאל את המנטור למה אני לא סוגר")).toBe(
+      "למה אני לא סוגר",
+    );
+    expect(mentorQuestionFromTranscript("מה המנטור אומר על הקצב שלי")).toBe(
+      "מה המנטור אומר על הקצב שלי",
+    );
+    // רק פנייה — נשלח כלשונו, לא ריק
+    expect(mentorQuestionFromTranscript("מנטור")).toBe("מנטור");
   });
 });

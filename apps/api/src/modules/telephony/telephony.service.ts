@@ -984,6 +984,8 @@ export class TelephonyService {
           leadId = opened.leadId;
         }
 
+        const outcome = callOutcomeOf(event, scratch.answerObserved);
+        const occurredAt = event.startedAt ?? new Date();
         await tx.call.create({
           data: {
             id: ulid(),
@@ -1027,7 +1029,7 @@ export class TelephonyService {
              * ולא את מועד השיחה — שיחה שקרתה ב-8:46:16 נרשמה ב-8:46:59,
              * ובניסיון חוזר שעה אחר כך בשעה אחרת לגמרי.
              */
-            occurredAt: event.startedAt ?? new Date(),
+            occurredAt,
             // שיחה שלא נענתה נשארת בלי משך. עיגול כלפי מעלה היה מציג
             // "דקה אחת" על שיחה שהסיכום שלה אומר שלא נענתה כלל.
             durationMinutes:
@@ -1053,13 +1055,26 @@ export class TelephonyService {
              * אותה עובדה בדיוק קובעת גם אם נפתח ליד; שני ביטויים
              * נפרדים של „דיבר” נוטים להסכים ביום שנכתבו ולא אחריו.
              */
-            outcome: callOutcomeOf(event, scratch.answerObserved),
+            outcome,
             summary: describeCall(event),
             // מצביע בלבד בשלב הזה; העובד מושך את האודיו וממיר אותו
             // ל-`recordingKey` שלנו. ראו `RecordingFetchService`.
             providerRecordingPath: event.providerRecordingPath ?? null,
           },
         });
+
+        /*
+         * ליד שנפתח משיחה **שנענתה** — המענה הראשון שלו הוא השיחה
+         * עצמה: דיברו איתו. בלי זה הליד נשאר „לא נענה” במדדי המנטור
+         * ובתזכורת ה-SLA, אף שהשיחה היא הראיה הכי חזקה שיש למענה.
+         * אותו כלל של `CallsService.create` (ביקורת Codex).
+         */
+        if (leadId !== null && outcome === "answered") {
+          await tx.lead.updateMany({
+            where: { id: leadId, tenantId, firstResponseAt: null },
+            data: { firstResponseAt: occurredAt },
+          });
+        }
 
         /*
          * הצילום מילא את תפקידו ונמחק באותה טרנזקציה שכתבה את השורה.

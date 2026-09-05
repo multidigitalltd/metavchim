@@ -180,7 +180,7 @@ export function DocHeader({
 }: {
   title: string;
   lead: string;
-  current: "product" | "api" | "telephony";
+  current: "product" | "api" | "telephony" | "whatsapp";
 }) {
   const chip = (isCurrent: boolean) => ({
     className: `mv-chip no-underline${isCurrent ? " font-extrabold" : ""}`,
@@ -202,6 +202,9 @@ export function DocHeader({
         </a>
         <a href="/docs/telephony" {...chip(current === "telephony")}>
           חיבור שיחות ומרכזייה
+        </a>
+        <a href="/docs/whatsapp" {...chip(current === "whatsapp")}>
+          חיבור וואטסאפ עסקי
         </a>
       </nav>
       <h1 className="mb-2 text-2xl font-bold">{title}</h1>
