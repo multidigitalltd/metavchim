@@ -102,11 +102,50 @@ describe("כל קריאה מסננת", () => {
   it.each([
     ["countAll", "מסך ההתאמות"],
     ["countForBuyer", "כרטיס הקונה"],
-  ])("%s (%s) מחריגה נכסים שיצאו משיווק", (name) => {
+  ])("%s (%s) סופרת דרך התנאי", (name) => {
     const body = methodOf(SERVICE, name);
     expect(body).not.toBe("");
-    expect(body).toContain("retiredPropertyIds");
-    expect(body).toContain("notIn");
+    expect(body).toContain("countMatchable");
+  });
+});
+
+describe("הספירה המשותפת", () => {
+  const count = methodOf(SERVICE, "countMatchable");
+
+  it("נמצאה", () => {
+    expect(count).not.toBe("");
+  });
+
+  /*
+   * ‎**בלי שליפת מזהים.** הגרסה הראשונה שלי שלפה את כל הנכסים
+   * שיצאו משיווק והחריגה אותם ב-`notIn`, בנימוק שהם הצד הקטן —
+   * ומשרד שפועל שנים מכר יותר נכסים משיש לו פעילים, ולכן הרשימה
+   * גדלה בלי חסם. `dropOrphanMatches` כבר הזהיר מזה.
+   */
+  it("מסננת ב-NOT EXISTS ולא ברשימת מזהים", () => {
+    expect(count).toContain("EXISTS");
+    expect(count).not.toContain("notIn");
+    expect(count).not.toContain("retiredPropertyIds");
+  });
+
+  it("רשימת הסטטוסים נגזרת מהרשימה המשותפת", () => {
+    expect(count).toContain("MATCHABLE_PROPERTY_STATUSES");
+    expect(count).not.toMatch(/'draft',\s*'active'/u);
+  });
+
+  /*
+   * ‏ה-SQL הוא עותק שני של תנאי ההתאמה, וזה המחיר של הימנעות
+   * מרשימת המזהים. הבדיקה כאן היא מה שמונע מהעותקים לסטות.
+   */
+  it("תנאי ההתאמה ב-SQL תואם את זה של הרשימות", () => {
+    const predicate = /function openMatchesOf\([\s\S]*?\n\}/u.exec(SERVICE)?.[0] ?? "";
+    expect(predicate).toContain('status: { not: "dismissed" }');
+    expect(count).toContain("m.status <> 'dismissed'");
+  });
+
+  it("מוגבלת לדייר — גם ב-SQL וגם דרך RLS", () => {
+    expect(count).toContain("m.tenant_id = ${tenantId}");
+    expect(count).toContain("p.tenant_id = m.tenant_id");
   });
 });
 

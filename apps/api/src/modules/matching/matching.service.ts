@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { Injectable } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
@@ -729,18 +730,15 @@ export class MatchingService {
         ‏הספירה חייבת להתיישר עם הרשימה, ולכן היא מחריגה את אותם
         נכסים בדיוק. „12 התאמות” מעל רשימה של שמונה הוא מונה ששולח
         לחפש ארבע שאינן קיימות.
-
-        ‏`notIn` על היוצאים מהכלל ולא `in` על המותרים: מספר הנכסים
-        שיצאו משיווק קטן ממספר הנכסים במשרד, ובמשרד חדש הוא אפס —
-        ואז אין תנאי כלל.
       */
-      const retired = await this.retiredPropertyIds(tx, tenantId);
-      return tx.match.count({
-        where: {
-          ...officeMatchesOf(tenantId, query),
-          ...(retired.length === 0 ? {} : { propertyId: { notIn: retired } }),
-        },
-      });
+      return this.countMatchable(
+        tx,
+        tenantId,
+        Prisma.sql`
+          AND m.score >= ${query.minScore}
+          ${query.propertyId ? Prisma.sql`AND m.property_id = ${query.propertyId}` : Prisma.empty}
+        `,
+      );
     });
   }
 
@@ -767,14 +765,46 @@ export class MatchingService {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
       await assertBuyerAccess(tx, tenantId, buyerId);
-      const retired = await this.retiredPropertyIds(tx, tenantId);
-      return tx.match.count({
-        where: {
-          ...openMatchesOf(tenantId, { buyerId }),
-          ...(retired.length === 0 ? {} : { propertyId: { notIn: retired } }),
-        },
-      });
+      return this.countMatchable(tx, tenantId, Prisma.sql`AND m.buyer_id = ${buyerId}`);
     });
+  }
+
+  /**
+   * ‎**ספירה שמתיישרת עם הרשימה — בלי לשלוף מזהים.**
+   *
+   * ‏הגרסה הראשונה שלי שלפה את כל הנכסים שיצאו משיווק והחריגה אותם
+   * ב-`notIn`, בנימוק שהם הצד הקטן. **הנימוק שגוי**: משרד שפועל
+   * שנים מכר יותר נכסים משיש לו פעילים, ולכן הרשימה גדלה בלי חסם
+   * ומופיעה בכל טעינה של מסך ההתאמות. ‏`dropOrphanMatches` כבר מזהיר
+   * מזה במפורש, ופותר באותו `NOT EXISTS` שכאן.
+   *
+   * ‎**המחיר: תנאי ההתאמה נכתב פעמיים** — פעם ב-`officeMatchesOf`
+   * לרשימה, ופעם כאן ב-SQL. זה בדיוק מה שהתגובות בקובץ מזהירות
+   * ממנו, ולכן הבדיקה המבנית משווה את השניים: `status <> 'dismissed'`
+   * כאן חייב להתאים ל-`status: { not: "dismissed" }` שם.
+   *
+   * ‏רשימת הסטטוסים נגזרת מ-`MATCHABLE_PROPERTY_STATUSES` ואינה
+   * כתובה כאן, כדי שהיא לא תוכל לסטות מהרשימה.
+   */
+  private async countMatchable(
+    tx: TenantTx,
+    tenantId: string,
+    extra: Prisma.Sql,
+  ): Promise<number> {
+    const rows = await tx.$queryRaw<{ count: bigint }[]>`
+      SELECT count(*) AS count FROM matches m
+      WHERE m.tenant_id = ${tenantId}
+        AND m.status <> 'dismissed'
+        ${extra}
+        AND EXISTS (
+          SELECT 1 FROM properties p
+          WHERE p.id = m.property_id
+            AND p.tenant_id = m.tenant_id
+            AND p.deleted_at IS NULL
+            AND p.status IN (${Prisma.join([...MATCHABLE_PROPERTY_STATUSES])})
+        )
+    `;
+    return Number(rows[0]?.count ?? 0);
   }
 
   /**
@@ -796,27 +826,6 @@ export class MatchingService {
     return row !== null;
   }
 
-  /**
-   * ‎**הנכסים שאין להציע — לספירות.**
-   *
-   * ‏הרשימות מסננות בזיכרון על השורות שהן שלפו; לספירה אין שורות,
-   * ולכן היא צריכה את הצד השני של אותו תנאי. הרשימה כאן היא ההשלמה
-   * המדויקת של `matchablePropertyOf`, ושתיהן נגזרות מאותו
-   * ‎`MATCHABLE_PROPERTY_STATUSES` — ולכן אינן יכולות לסטות.
-   */
-  private async retiredPropertyIds(tx: TenantTx, tenantId: string): Promise<string[]> {
-    const rows = await tx.property.findMany({
-      where: {
-        tenantId,
-        OR: [
-          { deletedAt: { not: null } },
-          { status: { notIn: [...MATCHABLE_PROPERTY_STATUSES] } },
-        ],
-      },
-      select: { id: true },
-    });
-    return rows.map((row) => row.id);
-  }
 
   async listForProperty(
     propertyId: string,
