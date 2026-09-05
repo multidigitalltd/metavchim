@@ -343,8 +343,9 @@ describe("mentorWeeklyReview — מה המנטור אומר במוצאי שבת"
     });
     expect(review?.mood).toBe("steady");
     const trend = review?.paragraphs[0] ?? "";
-    expect(trend).toContain("הצעות שנשלחו 2 ⟵ 4");
-    expect(trend).toContain("סיורים שהתקיימו 3 ⟵ 2");
+    expect(trend).toBe(
+      "מול שבוע שעבר: יותר הצעות שנשלחו (2 ⟵ 4), פחות סיורים שהתקיימו (3 ⟵ 2).",
+    );
     expect(trend).not.toContain("קונים חדשים");
     expect(review?.askNextWeek).toBeNull();
   });

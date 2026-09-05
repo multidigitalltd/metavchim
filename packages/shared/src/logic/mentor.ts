@@ -745,6 +745,10 @@ const REFLECTION: Record<MentorGoalMetric, string> = {
  *
  * מדד שלא זז לא נאמר: „הצעות: 3 (שבוע שעבר 3)” הוא רעש. ומי שאין
  * לו שבוע קודם (מתווך חדש) אינו מקבל השוואה כלל — אין מול מה.
+ *
+ * משפט אחד ולא שתי רשימות: „יותר הצעות (2 ⟵ 4), פחות סיורים
+ * (3 ⟵ 2)” נקרא כמו מנטור שמדבר; „עלייה: … · … פחות: … · …” נקרא
+ * כמו דוח. העלייה קודם — זה מה שמנטור אומר ראשון.
  */
 function trendSentence(
   activity: MentorActivity,
@@ -757,14 +761,12 @@ function trendSentence(
     const now = activity[info.code];
     const before = previous[info.code];
     if (now === before || (now === 0 && before === 0)) continue;
-    const text = `${info.label} ${before} ⟵ ${now}`;
-    (now > before ? ups : downs).push(text);
+    const change = `${info.label} (${before} ⟵ ${now})`;
+    if (now > before) ups.push(`יותר ${change}`);
+    else downs.push(`פחות ${change}`);
   }
   if (ups.length === 0 && downs.length === 0) return null;
-  const parts: string[] = [];
-  if (ups.length > 0) parts.push(`עלייה מול שבוע שעבר: ${ups.join(" · ")}.`);
-  if (downs.length > 0) parts.push(`פחות משבוע שעבר: ${downs.join(" · ")}.`);
-  return parts.join(" ");
+  return `מול שבוע שעבר: ${[...ups, ...downs].join(", ")}.`;
 }
 
 function isEmptyActivity(activity: MentorActivity): boolean {
