@@ -31,6 +31,13 @@ export async function recordMentorWin(
      * המחדל) לאירועים החד-פעמיים: עסקה נסגרת פעם אחת.
      */
     periodKey?: string;
+    /**
+     * הישות שההתראה מצביעה עליה, כשהיא שונה מזו שנרשמת ב-`mentor_wins`.
+     * יעד שהושג נרשם על `mentor_goal` (זה מה שהושג), אבל ההתראה חייבת
+     * לנחות במסך המנטור — ומפות הניתוב מכירות `mentor`, לא `mentor_goal`
+     * (ביקורת Codex).
+     */
+    notifyEntityType?: string;
   },
 ): Promise<boolean> {
   const title = win.title.trim().slice(0, 200) || "נכס";
@@ -55,7 +62,7 @@ export async function recordMentorWin(
     type: "mentor_win",
     title: message.title,
     body: message.body.slice(0, 500),
-    entityType: win.entityType,
+    entityType: win.notifyEntityType ?? win.entityType,
     entityId: win.entityId,
   });
   return true;

@@ -540,6 +540,13 @@ export interface MentorWin {
   kind: MentorWinKind;
   /** מה בדיוק — כותרת הנכס, בלי PII של הלקוח */
   title: string;
+  /**
+   * ל-`goal_reached` בלבד: היעד והתקופה („2026-09-06”) שהושגו — כדי
+   * שהמסך יזהה שהיעד שהוא כבר חוגג מהיעדים והצלחה זו הם אותו אירוע,
+   * ויחגוג רק פעם אחת. יעד שהופסק אחרי שהושג נשאר בהצלחות בלבד.
+   */
+  goalId?: string;
+  periodKey?: string;
 }
 
 /** פעילות השבוע — המונים שה-API סופר, לפי אותם מדדים של היעדים. */
@@ -935,20 +942,26 @@ export function mentorWeeklyReview(
  * הסדר שבו הצלחות נאמרות, וכמה מהן: עסקה קודם לבלעדיות, ושתיהן
  * לפני „מעוניין”. שש לכל היותר — משפט עם עשר הצלחות אינו חגיגה
  * אלא רשימה, ומי שסגר עשר יודע.
+ *
+ * יעד שהושג (`goal_reached`) אינו נכנס לשש: הסיכום אינו אומר אותו
+ * במשפט ההצלחות (היעד נאמר מהיעדים), ולו נספר היה דוחק החוצה את
+ * „מעוניין” האמיתי (ביקורת Codex). הוא מצורף אחרי השש, כולו.
  */
 const WIN_ORDER: Record<MentorWinKind, number> = {
   deal_closed: 0,
   coop_deal: 1,
   exclusivity_signed: 2,
-  goal_reached: 3,
-  offer_interested: 4,
+  offer_interested: 3,
+  goal_reached: 4,
 };
 const MAX_WINS_TOLD = 6;
 
 export function selectWins(wins: readonly MentorWin[]): MentorWin[] {
-  return [...wins]
+  const told = wins
+    .filter((w) => w.kind !== "goal_reached")
     .sort((a, b) => WIN_ORDER[a.kind] - WIN_ORDER[b.kind])
     .slice(0, MAX_WINS_TOLD);
+  return [...told, ...wins.filter((w) => w.kind === "goal_reached")];
 }
 
 /**

@@ -738,6 +738,9 @@ describe("MentorReviewService.celebrateGoalsForUser — היעד הושג, הי�
     expect(notified[0]).toContain(
       `mentor_win:goal_reached:${weekGoal.id}:2026-09-06`,
     );
+    // ההתראה נוחתת במסך המנטור — `mentor` הוא הישות שמפות הניתוב מכירות
+    expect(notified[0]).toContain("mentor");
+    expect(notified[0]).not.toContain("mentor_goal");
     const body = String(notified[0]!.find((v) => String(v).startsWith("דנה")));
     expect(body).toMatch(/^דנה, 5 הצעות בשבוע — הושג\./u);
   });

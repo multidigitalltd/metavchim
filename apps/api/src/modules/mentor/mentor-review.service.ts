@@ -320,6 +320,8 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
           goal.period as MentorGoalPeriod,
         ),
         periodKey: jerusalemWallParts(goal.progress.periodStart).date,
+        // ההתראה נוחתת במסך המנטור — שם היעד שהושג
+        notifyEntityType: "mentor",
       });
       if (inserted) sent += 1;
     }

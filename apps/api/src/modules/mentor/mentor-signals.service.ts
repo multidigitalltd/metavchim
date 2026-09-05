@@ -300,13 +300,23 @@ export class MentorSignalsService {
         happenedAt: { gte: range.start, lt: range.end },
       },
       orderBy: { happenedAt: "asc" },
-      select: { id: true, kind: true, title: true },
+      select: {
+        id: true,
+        kind: true,
+        title: true,
+        entityId: true,
+        periodKey: true,
+      },
     });
-    // המזהה — זהות יציבה לחגיגה במסך; המיקום ברשימה משתנה כשמצטרפת הצלחה
+    // המזהה — זהות יציבה לחגיגה במסך; המיקום ברשימה משתנה כשמצטרפת הצלחה.
+    // ליעד שהושג גם היעד והתקופה — כדי שהמסך לא יחגוג אותו פעמיים
     return rows.map((r) => ({
       id: r.id,
       kind: r.kind as MentorWinKind,
       title: r.title,
+      ...(r.kind === "goal_reached"
+        ? { goalId: r.entityId, periodKey: r.periodKey }
+        : {}),
     }));
   }
 

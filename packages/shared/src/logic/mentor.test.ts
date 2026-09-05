@@ -23,6 +23,7 @@ import {
   mentorReviewTitle,
   mentorStatusMessage,
   mentorWeeklyReview,
+  selectWins,
   obstaclePlanSuggestions,
   suggestProcessGoals,
 } from "./mentor.js";
@@ -1383,6 +1384,22 @@ describe("יעד שהושג — חגיגה באותו יום, לא שוב במו
     );
     expect(message.title).toBe("🎯 היעד הושג!");
     expect(message.body).toMatch(/^דנה, 5 הצעות בשבוע — הושג\./u);
+  });
+
+  it("selectWins: יעדים שהושגו אינם דוחקים החוצה הצלחה אמיתית — מחוץ לשש, ואחרי", () => {
+    const goals = Array.from({ length: 6 }, (_, i) => ({
+      kind: "goal_reached" as const,
+      title: `יעד ${i + 1}`,
+      goalId: `g${i}`,
+      periodKey: "2026-09-06",
+    }));
+    const picked = selectWins([
+      ...goals,
+      { kind: "offer_interested", title: "הרצל 12" },
+    ]);
+    expect(picked[0]).toEqual({ kind: "offer_interested", title: "הרצל 12" });
+    expect(picked).toHaveLength(7);
+    expect(picked.slice(1).every((w) => w.kind === "goal_reached")).toBe(true);
   });
 
   it("הסיכום השבועי אינו חוזר על „השגת את היעד” — היעד שהושג כבר נאמר מהיעדים", () => {
