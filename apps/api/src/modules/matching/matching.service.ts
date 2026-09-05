@@ -133,14 +133,52 @@ function openMatchesOf(tenantId: string, key: { propertyId: string } | { buyerId
   return { tenantId, ...key, status: { not: "dismissed" } };
 }
 
-/** אותו דבר לרשימה המשרדית — הסף והנכס משתנים לפי הבקשה. */
-function officeMatchesOf(tenantId: string, query: { minScore: number; propertyId?: string }) {
-  return {
-    tenantId,
-    status: { not: "dismissed" },
-    score: { gte: query.minScore },
-    ...(query.propertyId ? { propertyId: query.propertyId } : {}),
-  };
+/**
+ * ‎**התנאי המשותף — בשפת ה-SQL, כדי שה-`LIMIT` יחול אחריו.**
+ *
+ * ## ‏למה לא לסנן בזיכרון
+ *
+ * ‏הרשימות שלפו `limit + LIVE_HEADROOM` שורות וסיננו אחר כך. המרווח
+ * הזה (20) תועד במפורש כ„רשת ביטחון” לצד **מחוק** — מקרה נדיר. נכס
+ * שנמכר אינו נדיר, ולכן ברגע שהוא עבר דרך אותה רשת היא הפכה
+ * לחסם: קונה ש-21 ההתאמות החזקות שלו הן לנכסים שנמכרו היה מקבל
+ * רשימה **ריקה**, בזמן שיש לו התאמות תקינות שורה מתחת (ביקורת
+ * Codex, P1).
+ *
+ * ‏המסננת עברה למסד, ולכן ה-`LIMIT` סופר שורות שכבר עברו אותה. אין
+ * מרווח ואין תלות בו.
+ *
+ * ## ‏גם הקונה, ולא רק הנכס
+ *
+ * ‏הסינון של קונה מחוק היה בזיכרון מאותה סיבה ובאותו מרווח. הוא
+ * נכנס לאותו תנאי: התאמה היא בין שני צדדים, ושניהם חייבים להתקיים.
+ *
+ * ## ‏המחיר
+ *
+ * ‏התנאי חי עכשיו ב-SQL וגם ב-`openMatchesOf` שנשאר לכרטיס הנכס.
+ * הבדיקה המבנית משווה ביניהם, כי עותק שני מסכים עם הראשון עד היום
+ * שבו אחד מהם משתנה.
+ */
+function matchableMatchesFrom(tenantId: string, extra: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`
+    FROM matches m
+    WHERE m.tenant_id = ${tenantId}
+      AND m.status <> 'dismissed'
+      ${extra}
+      AND EXISTS (
+        SELECT 1 FROM properties p
+        WHERE p.id = m.property_id
+          AND p.tenant_id = m.tenant_id
+          AND p.deleted_at IS NULL
+          AND p.status IN (${Prisma.join([...MATCHABLE_PROPERTY_STATUSES])})
+      )
+      AND EXISTS (
+        SELECT 1 FROM buyers b
+        WHERE b.id = m.buyer_id
+          AND b.tenant_id = m.tenant_id
+          AND b.deleted_at IS NULL
+      )
+  `;
 }
 
 /**
@@ -217,19 +255,19 @@ export class MatchingService {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       /*
-       * מרווח מעל המבוקש, כי הסינון של צד מחוק קורה בזיכרון.
-       *
-       * `take` שווה בדיוק ל-limit היה נותן פחות מהמבוקש כשהשורות
-       * העליונות מסוננות — ועם limit=1 אפילו רשימה ריקה בזמן שיש
-       * התאמה תקינה שורה מתחת (ביקורת Codex). המקור מתוקן ממילא
-       * (התאמה לנכס מחוק מסומנת dismissed), ולכן המרווח הוא רשת
-       * ביטחון לשורות ישנות ולא הפתרון עצמו.
+       * ‏הסינון קורה **במסד**, ולכן ה-`LIMIT` כבר סופר שורות תקינות
+       * בלבד. הגרסה הקודמת שלפה מרווח וסיננה בזיכרון — ראו
+       * ‎`matchableMatchesFrom` למה זה נשבר.
        */
-      const rows = await tx.match.findMany({
-        where: officeMatchesOf(tenantId, query),
-        orderBy: { score: "desc" },
-        take: query.limit + LIVE_HEADROOM,
-      });
+      const rows = await this.matchableRows(
+        tx,
+        tenantId,
+        Prisma.sql`
+          AND m.score >= ${query.minScore}
+          ${query.propertyId ? Prisma.sql`AND m.property_id = ${query.propertyId}` : Prisma.empty}
+        `,
+        query.limit,
+      );
       if (rows.length === 0) return [];
 
       /*
@@ -286,13 +324,21 @@ export class MatchingService {
         if (name !== undefined) buyerNameById.set(buyer.id, name);
       }
 
-      return rows
-        // התאמה שצידה האחד נמחק אינה התאמה
-        .filter((row) => propertyById.has(row.propertyId) && liveBuyerIds.has(row.buyerId))
-        .slice(0, query.limit)
-        .map((row) => {
-          const property = propertyById.get(row.propertyId)!;
-          return {
+      /*
+       * ‎**אין כאן `slice`** — ה-SQL כבר החזיר בדיוק `limit` שורות
+       * שעברו את התנאי, וזה מה שמתקן את הקיצור.
+       *
+       * ‏השורה שאין לה נכס **מדולגת ולא נדחפת ב-`!`**: שאילתת הנכס
+       * מחילה את אותו תנאי בעצמה, ולכן חוסר כאן פירושו ששני
+       * הניסוחים סטו זה מזה. במצב כזה עדיף להשמיט שורה אחת מאשר
+       * להפיל את המסך — ובכיוון הבטוח, שהרי הכלל הוא שנכס שיצא
+       * משיווק לא ייראה.
+       */
+      return rows.flatMap((row) => {
+        const property = propertyById.get(row.propertyId);
+        if (property === undefined) return [];
+        return [
+          {
             ...toMatchDto(row),
             property: {
               address: [property.street, property.neighborhood, property.city]
@@ -303,8 +349,9 @@ export class MatchingService {
                 property.priceAgorot === null ? undefined : Number(property.priceAgorot),
             },
             buyerName: buyerNameById.get(row.buyerId) ?? null,
-          };
-        });
+          },
+        ];
+      });
     });
   }
 
@@ -778,10 +825,10 @@ export class MatchingService {
    * ומופיעה בכל טעינה של מסך ההתאמות. ‏`dropOrphanMatches` כבר מזהיר
    * מזה במפורש, ופותר באותו `NOT EXISTS` שכאן.
    *
-   * ‎**המחיר: תנאי ההתאמה נכתב פעמיים** — פעם ב-`officeMatchesOf`
-   * לרשימה, ופעם כאן ב-SQL. זה בדיוק מה שהתגובות בקובץ מזהירות
-   * ממנו, ולכן הבדיקה המבנית משווה את השניים: `status <> 'dismissed'`
-   * כאן חייב להתאים ל-`status: { not: "dismissed" }` שם.
+   * ‎**התנאי חי גם ב-`openMatchesOf`**, שנשאר לכרטיס הנכס. זה בדיוק
+   * מה שהתגובות בקובץ מזהירות ממנו, ולכן הבדיקה המבנית משווה את
+   * השניים: `status <> 'dismissed'` כאן חייב להתאים
+   * ל-`status: { not: "dismissed" }` שם.
    *
    * ‏רשימת הסטטוסים נגזרת מ-`MATCHABLE_PROPERTY_STATUSES` ואינה
    * כתובה כאן, כדי שהיא לא תוכל לסטות מהרשימה.
@@ -792,19 +839,37 @@ export class MatchingService {
     extra: Prisma.Sql,
   ): Promise<number> {
     const rows = await tx.$queryRaw<{ count: bigint }[]>`
-      SELECT count(*) AS count FROM matches m
-      WHERE m.tenant_id = ${tenantId}
-        AND m.status <> 'dismissed'
-        ${extra}
-        AND EXISTS (
-          SELECT 1 FROM properties p
-          WHERE p.id = m.property_id
-            AND p.tenant_id = m.tenant_id
-            AND p.deleted_at IS NULL
-            AND p.status IN (${Prisma.join([...MATCHABLE_PROPERTY_STATUSES])})
-        )
+      SELECT count(*) AS count ${matchableMatchesFrom(tenantId, extra)}
     `;
     return Number(rows[0]?.count ?? 0);
+  }
+
+  /**
+   * ‎**השורות עצמן — מסוננות ומוגבלות במסד.**
+   *
+   * ‏שני שלבים ולא אחד: ה-SQL בוחר את המזהים לפי הניקוד ומחיל את
+   * ה-`LIMIT` על מה שכבר עבר את התנאי, ו-Prisma שולפת את השורות
+   * עצמן. כך הטיפוסים נשארים של Prisma (‏`breakdown` הוא JSON,
+   * ‎`computedAt` הוא `Date`) ולא רשומה שהורכבה ביד מ-`$queryRaw`.
+   *
+   * ‏המיון חוזר גם ב-`findMany`: `IN (...)` אינו משמר סדר.
+   */
+  private async matchableRows(
+    tx: TenantTx,
+    tenantId: string,
+    extra: Prisma.Sql,
+    limit: number,
+  ): Promise<Awaited<ReturnType<TenantTx["match"]["findMany"]>>> {
+    const picked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT m.id ${matchableMatchesFrom(tenantId, extra)}
+      ORDER BY m.score DESC
+      LIMIT ${limit}
+    `;
+    if (picked.length === 0) return [];
+    return tx.match.findMany({
+      where: { tenantId, id: { in: picked.map((row) => row.id) } },
+      orderBy: { score: "desc" },
+    });
   }
 
   /**
@@ -931,11 +996,12 @@ export class MatchingService {
       // ההתאמות של קונה הן מידע על הקונה — מי שאינו רשאי לראות את
       // הכרטיס אינו רשאי לראות לאילו נכסים הוא מותאם
       await assertBuyerAccess(tx, tenantId, buyerId);
-      const rows = await tx.match.findMany({
-        where: openMatchesOf(tenantId, { buyerId }),
-        orderBy: { score: "desc" },
-        take: limit + LIVE_HEADROOM,
-      });
+      const rows = await this.matchableRows(
+        tx,
+        tenantId,
+        Prisma.sql`AND m.buyer_id = ${buyerId}`,
+        limit,
+      );
 
       // שם הנכס לכל התאמה — לכרטיס הקונה (קובץ העיצוב); שאילתה אחת לעמוד
       const properties = await tx.property.findMany({
@@ -948,12 +1014,12 @@ export class MatchingService {
       });
       const propertyById = new Map(properties.map((p) => [p.id, p]));
 
-      return rows
-        .filter((row) => propertyById.has(row.propertyId))
-        .slice(0, limit)
-        .map((row) => {
-          const property = propertyById.get(row.propertyId)!;
-          return {
+      /* ‏ה-SQL כבר סינן והגביל; הדילוג הוא אותו דילוג של `listAll` */
+      return rows.flatMap((row) => {
+        const property = propertyById.get(row.propertyId);
+        if (property === undefined) return [];
+        return [
+          {
             ...toMatchDto(row),
             property: {
               address: [property.street, property.neighborhood, property.city]
@@ -963,8 +1029,9 @@ export class MatchingService {
               priceAgorot:
                 property.priceAgorot === null ? undefined : Number(property.priceAgorot),
             },
-          };
-        });
+          },
+        ];
+      });
     });
   }
 

@@ -65,15 +65,37 @@ describe("התנאי עצמו", () => {
 
 describe("כל קריאה מסננת", () => {
   /*
-   * ‏הרשימות שולפות את הנכס ממילא (כתובת, מחיר), ולכן הן מסננות
-   * באותה שאילתה. שינוי שיחזיר אותן ל-`deletedAt` לבדו יפיל כאן.
+   * ‎**הסינון במסד, לא בזיכרון — וזה לא ניסוח.**
+   *
+   * ‏הרשימות שלפו `limit + LIVE_HEADROOM` וסיננו אחר כך. המרווח (20)
+   * תועד כ„רשת ביטחון” לצד מחוק — מקרה נדיר. נכס שנמכר אינו נדיר,
+   * ולכן קונה ש-21 ההתאמות החזקות שלו הן לנכסים שנמכרו היה מקבל
+   * רשימה **ריקה** בזמן שיש לו התאמות תקינות שורה מתחת (ביקורת
+   * Codex, P1). ה-`LIMIT` חייב לחול **אחרי** התנאי.
    */
   it.each([
     ["listAll", "מסך ההתאמות"],
     ["listForBuyer", "כרטיס הקונה"],
-  ])("%s (%s) שולפת נכסים דרך התנאי", (name) => {
+  ])("%s (%s) שולפת שורות שכבר עברו את התנאי", (name) => {
     const body = methodOf(SERVICE, name);
     expect(body).not.toBe("");
+    expect(body).toContain("matchableRows");
+  });
+
+  it.each([
+    ["listAll", "מסך ההתאמות"],
+    ["listForBuyer", "כרטיס הקונה"],
+  ])("%s (%s) אינה נשענת על מרווח שורות", (name) => {
+    const body = methodOf(SERVICE, name);
+    expect(body).not.toContain("LIVE_HEADROOM");
+  });
+
+  /* ‏הנכס עדיין נשלף לכתובת ולמחיר, ודרך אותו תנאי */
+  it.each([
+    ["listAll", "מסך ההתאמות"],
+    ["listForBuyer", "כרטיס הקונה"],
+  ])("%s (%s) שולפת את הנכס דרך התנאי", (name) => {
+    const body = methodOf(SERVICE, name);
     expect(body).toContain("matchablePropertyOf");
   });
 
@@ -122,30 +144,78 @@ describe("הספירה המשותפת", () => {
    * ומשרד שפועל שנים מכר יותר נכסים משיש לו פעילים, ולכן הרשימה
    * גדלה בלי חסם. `dropOrphanMatches` כבר הזהיר מזה.
    */
-  it("מסננת ב-NOT EXISTS ולא ברשימת מזהים", () => {
-    expect(count).toContain("EXISTS");
+  it("אינה שולפת רשימת מזהים", () => {
     expect(count).not.toContain("notIn");
     expect(count).not.toContain("retiredPropertyIds");
   });
 
-  it("רשימת הסטטוסים נגזרת מהרשימה המשותפת", () => {
-    expect(count).toContain("MATCHABLE_PROPERTY_STATUSES");
-    expect(count).not.toMatch(/'draft',\s*'active'/u);
+  /*
+   * ‎**אותו תנאי בדיוק כמו הרשימה, כי זה אותו קוד.**
+   *
+   * ‏המונה קיים כדי לומר „יש עוד”. אילו הוא היה כותב את התנאי
+   * בעצמו, „12 התאמות” היה מופיע מעל רשימה של שמונה ביום שאחד
+   * משני העותקים משתנה — והמתווך היה מחפש ארבע שאינן קיימות.
+   */
+  it("סופרת דרך התנאי המשותף ולא דרך עותק שלו", () => {
+    expect(count).toContain("matchableMatchesFrom");
+    expect(count).not.toContain("FROM matches m");
+  });
+});
+
+describe("התנאי המשותף ב-SQL", () => {
+  const from = /function matchableMatchesFrom\([\s\S]*?\n\}/u.exec(SERVICE)?.[0] ?? "";
+  const rows = methodOf(SERVICE, "matchableRows");
+
+  it("נמצאו", () => {
+    expect(from).not.toBe("");
+    expect(rows).not.toBe("");
+  });
+
+  /* ‏התאמה היא בין שני צדדים, ושניהם חייבים להתקיים */
+  it("דורש שהנכס **וגם** הקונה חיים", () => {
+    expect(from).toContain("FROM properties p");
+    expect(from).toContain("FROM buyers b");
+    expect(from).toContain("p.deleted_at IS NULL");
+    expect(from).toContain("b.deleted_at IS NULL");
   });
 
   /*
-   * ‏ה-SQL הוא עותק שני של תנאי ההתאמה, וזה המחיר של הימנעות
-   * מרשימת המזהים. הבדיקה כאן היא מה שמונע מהעותקים לסטות.
+   * ‎**זו הטענה של ביקורת ה-P1.** `LIMIT` שחל לפני התנאי מחזיר
+   * רשימה קצרה או ריקה כשהשורות העליונות מסוננות.
    */
-  it("תנאי ההתאמה ב-SQL תואם את זה של הרשימות", () => {
-    const predicate = /function openMatchesOf\([\s\S]*?\n\}/u.exec(SERVICE)?.[0] ?? "";
-    expect(predicate).toContain('status: { not: "dismissed" }');
-    expect(count).toContain("m.status <> 'dismissed'");
+  it("ה-LIMIT חל אחרי התנאי", () => {
+    const where = rows.indexOf("matchableMatchesFrom");
+    const limit = rows.indexOf("LIMIT");
+    expect(where).toBeGreaterThan(-1);
+    expect(limit).toBeGreaterThan(where);
   });
 
-  it("מוגבלת לדייר — גם ב-SQL וגם דרך RLS", () => {
-    expect(count).toContain("m.tenant_id = ${tenantId}");
-    expect(count).toContain("p.tenant_id = m.tenant_id");
+  it("המיון חוזר גם ב-findMany — `IN (...)` אינו משמר סדר", () => {
+    expect(rows).toContain("ORDER BY m.score DESC");
+    expect(rows).toContain('orderBy: { score: "desc" }');
+  });
+
+  it("רשימת הסטטוסים נגזרת מהרשימה המשותפת", () => {
+    expect(from).toContain("MATCHABLE_PROPERTY_STATUSES");
+    expect(from).not.toMatch(/'draft',\s*'active'/u);
+  });
+
+  /*
+   * ‏התנאי חי גם ב-SQL וגם ב-`openMatchesOf` שנשאר לכרטיס הנכס.
+   * זה המחיר של הימנעות מרשימת המזהים, והבדיקה כאן היא מה שמונע
+   * משני העותקים לסטות.
+   */
+  it("„נדחתה” מסונן בשני הניסוחים", () => {
+    const open = /function openMatchesOf\([\s\S]*?\n\}/u.exec(SERVICE)?.[0] ?? "";
+    expect(open).toContain('status: { not: "dismissed" }');
+    expect(from).toContain("m.status <> 'dismissed'");
+  });
+
+  /* ‏ה-RLS הוא השכבה השנייה, לא הראשונה — השאילתה מגדירה דייר בעצמה */
+  it("מוגבל לדייר — גם ב-SQL וגם דרך RLS", () => {
+    expect(from).toContain("m.tenant_id = ${tenantId}");
+    expect(from).toContain("p.tenant_id = m.tenant_id");
+    expect(from).toContain("b.tenant_id = m.tenant_id");
   });
 });
 
