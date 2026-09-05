@@ -33,11 +33,23 @@ import {
 import { Celebration, type CelebrationEvent } from "../celebration";
 import { ConfirmDialog } from "../confirm-dialog";
 import {
-  IconCheck,
+  IconBolt,
+  IconCalendar,
   IconChat,
+  IconCheck,
+  IconClock,
   IconFlame,
+  IconHandshake,
+  IconHeadphones,
+  IconHome,
+  IconKey,
+  IconMail,
+  IconPhone,
+  IconSend,
   IconSparkle,
+  IconStar,
   IconTarget,
+  IconUsers,
 } from "../icons";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
@@ -46,9 +58,17 @@ import { Notice } from "../notice";
  * המנטור האישי (docs/13) — המסך שמאחורי ההבטחה שהייתה כאן כ„בקרוב”.
  *
  * ארבעה חלקים, בסדר שבו מנטור מדבר: מה קרה השבוע (המונים והצלחות),
- * מול מה שביקשתם מעצמכם (היעדים והקצב), מה אמרתי לכם במוצאי שבת
- * (הסיכום והשאלה), ומה תרצו לשאול (השיחה). כל טקסט שהמנטור אומר
- * מגיע מהשרת — הניסוח חי בחבילה המשותפת, לא כאן.
+ * מול מה שביקשת מעצמך (היעדים והקצב), מה אמרתי במוצאי שבת (הסיכום
+ * והשאלה), ומה תרצה לשאול (השיחה). כל טקסט שהמנטור אומר מגיע
+ * מהשרת — הניסוח חי בחבילה המשותפת, לא כאן.
+ *
+ * ## למה המסך שקט
+ *
+ * המסך הזה מדבר בשם המנטור, ומנטור לא מסביר את עצמו: הוא אומר את
+ * מה שיש ושותק. לכן אין כאן פסקאות הסבר — הכותרת אומרת מה החלק,
+ * המספרים אומרים מה קרה, וכל מה שדורש הסבר יושב במדריך. אותה
+ * שפה עיצובית כמו הדשבורד: אריחי KPI צבועים לפי תחום, אריח אייקון
+ * לכל כותרת, ואפס שעובר לניטרלי מהנתון.
  */
 
 /* ---------- צורות התשובה, כפי שה-API מחזיר (תאריכים כמחרוזות) ---------- */
@@ -131,6 +151,27 @@ const MOOD_ICON: Record<MentorMood, string> = {
   encourage: "💪",
 };
 
+/**
+ * אריח לכל מדד — אייקון ותחום צבע, כמו מוני הדשבורד. אפס עובר
+ * לניטרלי מהנתון (הכלל של §12), ולכן התחום כאן הוא של ערך חיובי.
+ */
+const METRIC_TILE: Record<
+  MentorGoalMetric,
+  { domain: string; icon: React.ReactNode }
+> = {
+  deals_closed: { domain: "green", icon: <IconHandshake s={16} /> },
+  offers_sent: { domain: "blue", icon: <IconSend s={16} /> },
+  viewings_held: { domain: "amber", icon: <IconKey s={16} /> },
+  leads_answered: { domain: "peach", icon: <IconBolt s={16} /> },
+  new_buyers: { domain: "violet", icon: <IconUsers s={16} /> },
+  new_properties: { domain: "green", icon: <IconHome s={16} /> },
+  calls_made: { domain: "blue", icon: <IconPhone s={16} /> },
+  calls_answered: { domain: "blue", icon: <IconHeadphones s={16} /> },
+  leads_answered_fast: { domain: "peach", icon: <IconClock s={16} /> },
+  followups_done: { domain: "amber", icon: <IconCheck s={16} /> },
+  owner_updates_sent: { domain: "violet", icon: <IconMail s={16} /> },
+};
+
 const EXAMPLE_QUESTIONS = [
   "איך היה השבוע שלי?",
   "מה כדאי לי לשפר קודם?",
@@ -163,7 +204,8 @@ function weekLabel(iso: string): string {
 }
 
 export default function MentorPage() {
-  const { loading } = useRequireAuth();
+  const { user, loading } = useRequireAuth();
+  const firstName = user?.name.split(" ")[0] ?? "";
   const hasCoach = useFeature("ai_coach");
   const featuresReady = useFeaturesReady();
   const featuresFailed = useFeaturesFailed();
@@ -219,11 +261,10 @@ export default function MentorPage() {
           aria-labelledby="mentor-plan-heading"
         >
           <h2 id="mentor-plan-heading" className="mv-card-head__title m-0">
-            המנטור כלול במסלול עם המאמן החכם
+            המנטור נפתח יחד עם המאמן החכם
           </h2>
           <p className="mv-card-sub m-0">
-            המנטור האישי הוא הרחבה של המאמן החכם, ונפתח יחד איתו. מנהל המשרד
-            יכול לשדרג את המסלול במסך המנוי.
+            מנהל המשרד יכול לשדרג את המסלול במסך המנוי.
           </p>
           <Link
             href="/settings/billing"
@@ -238,7 +279,7 @@ export default function MentorPage() {
 
   return (
     // div ולא main — העטיפה של AppShell היא ה-main landmark היחיד
-    <div className="mx-auto max-w-3xl py-6">
+    <div className="mx-auto max-w-4xl py-6">
       <MentorHero streakWeeks={overview?.streakWeeks ?? 0} />
 
       {overviewFailed ? (
@@ -247,7 +288,7 @@ export default function MentorPage() {
         </div>
       ) : overview === null ? (
         <p aria-live="polite" className="mt-4">
-          טוען את השבוע שלכם…
+          טוען את השבוע שלך…
         </p>
       ) : (
         <>
@@ -261,7 +302,10 @@ export default function MentorPage() {
           <GoalsSection overview={overview} onChanged={load} />
           {overview.patterns.length > 0 ? (
             <section className="mt-8" aria-labelledby="mentor-memory-heading">
-              <div className="mv-card-head mb-3">
+              <div className="mv-card-head mv-domain-violet mb-3">
+                <span className="mv-tile" aria-hidden="true">
+                  <IconStar s={19} />
+                </span>
                 <h2
                   id="mentor-memory-heading"
                   className="mv-card-head__title m-0"
@@ -293,7 +337,10 @@ export default function MentorPage() {
             onRetry={load}
             onAnswered={load}
           />
-          <ChatSection available={overview.chatAvailable} />
+          <ChatSection
+            available={overview.chatAvailable}
+            firstName={firstName}
+          />
         </>
       )}
     </div>
@@ -324,8 +371,7 @@ function MentorHero({ streakWeeks }: { streakWeeks: number }) {
           </span>
         </h1>
         <p className="m-0 mt-1" style={{ color: "var(--color-text-muted)" }}>
-          מודד את השבוע מול מה שביקשתם מעצמכם, חוגג כל הצלחה בשמה, ומזכיר את
-          היעד כשקשה. אף פעם לא מול עמיתים — רק מולכם.
+          מודד רק מולך — וחוגג כל הצלחה שלך.
         </p>
         {streakWeeks >= 2 ? (
           <p
@@ -352,66 +398,72 @@ function WeekSection({ overview }: { overview: Overview }) {
   const insightLines = mentorInsightSentences(overview.insights);
   return (
     <section className="mt-6" aria-labelledby="mentor-week-heading">
-      <div className="mv-card-head mb-3">
+      <div className="mv-card-head mv-domain-neutral mb-3">
+        <span className="mv-tile" aria-hidden="true">
+          <IconCalendar s={19} />
+        </span>
         <h2 id="mentor-week-heading" className="mv-card-head__title m-0">
-          השבוע — {weekLabel(overview.weekStart)}
+          השבוע
         </h2>
+        <span
+          className="ms-auto text-[length:var(--type-caption-lg)] font-bold"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          {weekLabel(overview.weekStart)}
+        </span>
       </div>
-      <ul className="m-0 grid list-none grid-cols-2 gap-3 p-0 sm:grid-cols-3">
+
+      {/*
+        אריחי ה-KPI של הדשבורד (§12), בגרסה שקטה: מציגים ולא מקשרים,
+        ונמוכים יותר כי יש אחד-עשר. אפס עובר לניטרלי מהנתון — „אין
+        עסקאות” לא אמור להיראות כמו התרעה.
+      */}
+      <dl className="m-0 grid grid-cols-2 items-stretch gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {MENTOR_METRICS.map((metric) => {
           const now = activity[metric.code];
           const before =
             previousActivity === null ? null : previousActivity[metric.code];
+          const tile = METRIC_TILE[metric.code];
           return (
-            <li
+            <div
               key={metric.code}
-              className="mv-card mv-card--pad flex flex-col"
-              style={{ minHeight: 110 }}
+              className={`mv-kpi mv-kpi--static mv-kpi--compact ${
+                now === 0 ? "mv-domain-neutral" : `mv-domain-${tile.domain}`
+              }`}
             >
-              <span
-                className="text-[length:var(--type-body-sm)] font-bold"
-                style={{ color: "var(--color-text-muted)" }}
-              >
-                {metric.label}
-              </span>
-              <span
-                className="mt-auto text-[length:var(--type-kpi)] font-black leading-none"
-                style={{
-                  color:
-                    metric.kind === "outcome"
-                      ? "var(--color-primary)"
-                      : "var(--color-text)",
-                }}
-              >
-                {now}
-              </span>
+              <dt className="mv-kpi__head">
+                <span className="mv-kpi__label">{metric.label}</span>
+                <span className="mv-tile" aria-hidden="true">
+                  {tile.icon}
+                </span>
+              </dt>
+              <dd className="mv-kpi__value mv-ltr m-0">{now}</dd>
               {/* השוואה רק לעצמו, ורק כשיש שבוע קודם — ולא כשהמספרים זהים */}
               {before !== null && before !== now ? (
-                <span
-                  className="mt-1 text-[length:var(--type-caption)]"
-                  style={{ color: "var(--color-text-muted)" }}
-                >
-                  שבוע שעבר: {before}
-                </span>
+                <dd className="mv-kpi__note m-0">שבוע שעבר: {before}</dd>
               ) : null}
-            </li>
+            </div>
           );
         })}
-      </ul>
+      </dl>
 
       {/* מהירות המענה ושיחות שמחכות — עובדות, מול השבוע שעבר של המתווך עצמו */}
       {insightLines.length > 0 ? (
-        <ul
-          className="mv-card mv-card--pad m-0 mt-3 list-none p-0"
-          aria-label="מהירות המענה ושיחות שמחכות"
-        >
-          {insightLines.map((line) => (
-            <li key={line} className="mt-1 leading-relaxed first:mt-0">
-              <span aria-hidden="true">⏱ </span>
-              {line}
-            </li>
-          ))}
-        </ul>
+        <div className="mv-card mv-card--pad mt-3 flex items-start gap-3">
+          <span className="mv-tile mv-domain-amber" aria-hidden="true">
+            <IconClock s={19} />
+          </span>
+          <ul
+            className="m-0 min-w-0 flex-1 list-none p-0"
+            aria-label="מהירות המענה ושיחות שמחכות"
+          >
+            {insightLines.map((line) => (
+              <li key={line} className="mt-1 leading-relaxed first:mt-0">
+                {line}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       {wins.length > 0 ? (
@@ -420,7 +472,7 @@ function WeekSection({ overview }: { overview: Overview }) {
           style={{ background: "var(--color-success-soft)" }}
         >
           <h3 className="m-0 text-[length:var(--type-row-title)] font-extrabold">
-            🎉 הצלחות השבוע
+            🎉 ההצלחות שלך השבוע
           </h3>
           <ul className="m-0 mt-2 list-none p-0">
             {wins.map((win, i) => (
@@ -438,9 +490,9 @@ function WeekSection({ overview }: { overview: Overview }) {
 function winLabel(win: MentorWin): string {
   switch (win.kind) {
     case "deal_closed":
-      return `סגרתם את ${win.title}`;
+      return `סגרת את ${win.title}`;
     case "exclusivity_signed":
-      return `חתמתם בלעדיות על ${win.title}`;
+      return `חתמת בלעדיות על ${win.title}`;
     case "offer_interested":
       return `קונה אמר „מעוניין” על ${win.title}`;
     case "coop_deal":
@@ -462,6 +514,12 @@ function GoalsSection({
   const [ending, setEnding] = useState<GoalDto | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /*
+   * הטופס מקופל כשיש יעדים: המסך אומר קודם איפה עומדים, ו„יעד חדש”
+   * הוא כפתור בכותרת. בלי יעדים הטופס פתוח — זה הצעד הראשון.
+   */
+  const [formOpen, setFormOpen] = useState<boolean | null>(null);
+  const showForm = formOpen ?? overview.goals.length === 0;
 
   async function endGoal(): Promise<void> {
     if (ending === null) return;
@@ -485,14 +543,22 @@ function GoalsSection({
           <IconTarget s={19} />
         </span>
         <h2 id="mentor-goals-heading" className="mv-card-head__title m-0">
-          היעדים שביקשתם מעצמכם
+          היעדים שלך
         </h2>
+        {!showForm ? (
+          <button
+            type="button"
+            className="mv-btn-soft ms-auto"
+            onClick={() => setFormOpen(true)}
+          >
+            + יעד חדש
+          </button>
+        ) : null}
       </div>
 
       {overview.goals.length === 0 ? (
         <p className="m-0 mb-3" style={{ color: "var(--color-text-muted)" }}>
-          עדיין אין יעדים. יעד אחד ברור — „5 הצעות בשבוע” — שווה יותר משלושה
-          כלליים.
+          עוד אין יעד. אחד ברור — „5 הצעות בשבוע” — שווה יותר משלושה.
         </p>
       ) : (
         <ul className="m-0 flex list-none flex-col gap-2 p-0">
@@ -542,14 +608,25 @@ function GoalsSection({
                 className="mv-btn-plain mv-row__action"
                 onClick={() => setEnding(goal)}
               >
-                לסיים יעד
+                לסיים
               </button>
             </li>
           ))}
         </ul>
       )}
 
-      <GoalForm existing={overview.goals} onCreated={onChanged} />
+      {showForm ? (
+        <GoalForm
+          existing={overview.goals}
+          onCreated={() => {
+            setFormOpen(false);
+            onChanged();
+          }}
+          onClose={
+            overview.goals.length === 0 ? null : () => setFormOpen(false)
+          }
+        />
+      ) : null}
 
       <ConfirmDialog
         open={ending !== null}
@@ -565,7 +642,7 @@ function GoalsSection({
           {ending === null
             ? ""
             : mentorGoalLabel(ending.metric, ending.target, ending.period)}{" "}
-          — היעד ייסגר וייעלם מהמסך. הסיכומים שכבר נאמרו עליו נשארים.
+          — ייסגר וייעלם מהמסך. הסיכומים נשארים.
         </p>
         {error ? <Notice tone="danger">{error}</Notice> : null}
       </ConfirmDialog>
@@ -576,9 +653,12 @@ function GoalsSection({
 function GoalForm({
   existing,
   onCreated,
+  onClose,
 }: {
   existing: GoalDto[];
   onCreated: () => void;
+  /** ריק כשאין יעדים — אז אין לאן לסגור */
+  onClose: (() => void) | null;
 }) {
   const [metric, setMetric] = useState<MentorGoalMetric>("offers_sent");
   const [period, setPeriod] = useState<MentorGoalPeriod>("week");
@@ -608,7 +688,7 @@ function GoalForm({
     });
     if (!parsed.success) {
       setError(
-        `יעד בין 1 ל-${MENTOR_GOAL_TARGET_MAX}, ו„למה” ותוכנית עד 200 תווים`,
+        `יעד בין 1 ל-${MENTOR_GOAL_TARGET_MAX}, ו„בשביל מה” ותוכנית עד 200 תווים`,
       );
       return null;
     }
@@ -690,16 +770,23 @@ function GoalForm({
       aria-labelledby="mentor-goal-form-heading"
       aria-describedby={error ? "mentor-goal-error" : undefined}
     >
-      <h3
-        id="mentor-goal-form-heading"
-        className="m-0 text-[length:var(--type-row-title)] font-extrabold"
-      >
-        יעד חדש
-      </h3>
-      <p className="mv-card-sub m-0">
-        היעד שלכם, לא של המשרד. „למה” הוא העוגן שהמנטור יזכיר כשקשה; „התוכנית”
-        היא „כש… אז…” — למשל „כל בוקר ב-11:00 שולח הצעות”.
-      </p>
+      <div className="flex items-center gap-3">
+        <h3
+          id="mentor-goal-form-heading"
+          className="m-0 text-[length:var(--type-row-title)] font-extrabold"
+        >
+          יעד חדש
+        </h3>
+        {onClose !== null ? (
+          <button
+            type="button"
+            className="mv-btn-plain ms-auto"
+            onClick={onClose}
+          >
+            לסגור
+          </button>
+        ) : null}
+      </div>
 
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <div>
@@ -787,7 +874,7 @@ function GoalForm({
             htmlFor="mentor-goal-why"
             className="mb-1 block text-sm font-medium"
           >
-            בשביל מה (רשות)
+            בשביל מה
           </label>
           <input
             id="mentor-goal-why"
@@ -803,14 +890,14 @@ function GoalForm({
             htmlFor="mentor-goal-intention"
             className="mb-1 block text-sm font-medium"
           >
-            התוכנית — „כש… אז…” (רשות)
+            התוכנית
           </label>
           <input
             id="mentor-goal-intention"
             className="mv-control w-full"
             maxLength={MENTOR_INTENTION_MAX}
             value={intention}
-            placeholder="למשל: כל בוקר ב-11:00 שולח הצעות"
+            placeholder="כש… אז… — למשל: כל בוקר ב-11:00 ההצעות יוצאות"
             onChange={(e) => setIntention(e.target.value)}
           />
         </div>
@@ -821,14 +908,13 @@ function GoalForm({
           className="m-0 mt-3 text-[length:var(--type-body-sm)]"
           style={{ color: "var(--color-text-muted)" }}
         >
-          יש כבר יעד על {metricLabel(metric)}{" "}
-          {period === "week" ? "בשבוע" : "בחודש"} (
+          מחליף את היעד הקיים:{" "}
           {mentorGoalLabel(
             replacing.metric,
             replacing.target,
             replacing.period,
           )}
-          ). יעד חדש מחליף אותו.
+          .
         </p>
       ) : null}
 
@@ -847,7 +933,7 @@ function GoalForm({
             disabled={suggesting || target.trim() === ""}
             onClick={() => void suggest()}
           >
-            {suggesting ? "מחשב…" : "מה צריך לעשות בשבוע כדי להגיע לזה?"}
+            {suggesting ? "מחשב…" : "מה צריך לזה בשבוע?"}
           </button>
         ) : null}
       </div>
@@ -865,16 +951,10 @@ function GoalForm({
           style={{ borderColor: "var(--color-row-border)" }}
         >
           <h4 className="m-0 text-[length:var(--type-row-title)] font-extrabold">
-            יעדי תהליך לשבוע — לפי משפך ההמרה שלכם
+            מה צריך בשבוע כדי להגיע לזה
           </h4>
-          <p
-            className="m-0 mt-1 text-[length:var(--type-body-sm)]"
-            style={{ color: "var(--color-text-muted)" }}
-          >
-            תוצאה אינה בשליטה; מה שלפניה במשפך — כן. אלה המספרים שבשליטתכם.
-          </p>
           {suggestions.length === 0 ? (
-            <p className="m-0 mt-2">כל יעדי התהליך כבר נקבעו.</p>
+            <p className="m-0 mt-2">כל יעדי התהליך כבר אצלך.</p>
           ) : (
             <ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0">
               {suggestions.map((s) => (
@@ -935,8 +1015,7 @@ function ReviewSection({
 
       {latest === null ? (
         <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
-          הסיכום הראשון מגיע במוצאי שבת — לפעמון ולוואטסאפ, וגם לכאן. עם יעד אחד
-          לפחות תמיד יש מה לומר.
+          הסיכום הראשון מגיע במוצאי שבת — לכאן, לפעמון ולוואטסאפ.
         </p>
       ) : (
         <ReviewCard review={latest} onAnswered={onAnswered} />
@@ -1047,7 +1126,7 @@ function ReviewCard({
           {review.reflectionAnswer !== null ? (
             <>
               <p className="m-0 mt-2" style={{ whiteSpace: "pre-line" }}>
-                עניתם: „{review.reflectionAnswer}”
+                ענית: „{review.reflectionAnswer}”
               </p>
               <ObstaclePlan
                 review={review}
@@ -1060,15 +1139,15 @@ function ReviewCard({
               className="m-0 mt-2"
               style={{ color: "var(--color-text-muted)" }}
             >
-              לא ענו.
+              בלי תשובה.
             </p>
           ) : (
             <div className="mt-2">
               <label
                 htmlFor={`reflection-${review.id}`}
-                className="mb-1 block text-sm font-medium"
+                className="mv-visually-hidden"
               >
-                מה עצר, לדעתכם? המנטור מקשיב, ומביא את זה לשיחה.
+                התשובה שלך למנטור
               </label>
               <textarea
                 id={`reflection-${review.id}`}
@@ -1076,6 +1155,7 @@ function ReviewCard({
                 rows={2}
                 maxLength={1000}
                 value={answer}
+                placeholder="כמה מילים — המנטור מקשיב"
                 onChange={(e) => setAnswer(e.target.value)}
               />
               <div className="mt-2 flex items-center gap-2">
@@ -1085,7 +1165,7 @@ function ReviewCard({
                   disabled={busy || answer.trim() === ""}
                   onClick={() => void send()}
                 >
-                  {busy ? "שומר…" : "לשמור תשובה"}
+                  {busy ? "שומר…" : "לשלוח"}
                 </button>
               </div>
               {error ? <Notice tone="danger">{error}</Notice> : null}
@@ -1147,11 +1227,8 @@ function ObstaclePlan({
 
   return (
     <div className="mt-3">
-      <label
-        htmlFor={`plan-${review.id}`}
-        className="mb-1 block text-sm font-medium"
-      >
-        ואם זה יקרה שוב? כתבו תוכנית בצורת „כש… אז…” — היא תיכנס ליעד.
+      <label htmlFor={`plan-${review.id}`} className="mb-1 block font-bold">
+        ואם זה יקרה שוב?
       </label>
       {review.planSuggestions.length > 0 ? (
         <div className="mb-2 flex flex-wrap gap-2">
@@ -1173,7 +1250,7 @@ function ObstaclePlan({
         className="mv-control w-full"
         maxLength={MENTOR_INTENTION_MAX}
         value={plan}
-        placeholder="למשל: כשלא נשאר זמן — אז ההצעות ראשונות בבוקר"
+        placeholder="כש… אז… — במילים שלך"
         onChange={(e) => setPlan(e.target.value)}
       />
       <div className="mt-2 flex items-center gap-2">
@@ -1183,7 +1260,7 @@ function ObstaclePlan({
           disabled={busy || plan.trim().length < 3}
           onClick={() => void save()}
         >
-          {busy ? "שומר…" : "לשמור את התוכנית ליעד"}
+          {busy ? "שומר…" : "לשמור ליעד"}
         </button>
       </div>
       {error ? (
@@ -1245,10 +1322,10 @@ function Commitment({
         }}
       >
         {review.commitment === "accepted"
-          ? "התחייבתם ✔"
+          ? "התחייבת ✔"
           : review.commitment === "declined"
             ? "לא השבוע"
-            : "לא ענו"}
+            : "בלי תשובה"}
         {review.commitmentNote ? ` — „${review.commitmentNote}”` : ""}
         {!compact ? (
           <button
@@ -1292,7 +1369,7 @@ function Commitment({
           style={{ flex: "1 1 200px" }}
           maxLength={300}
           value={note}
-          placeholder="מילה, אם רוצים (למשל: רק 4 השבוע, יש מילואים)"
+          placeholder="מילה, אם בא לך"
           aria-label="הערה להתחייבות"
           onChange={(e) => setNote(e.target.value)}
         />
@@ -1310,7 +1387,13 @@ function Commitment({
 /* השיחה                                                                  */
 /* ====================================================================== */
 
-function ChatSection({ available }: { available: boolean }) {
+function ChatSection({
+  available,
+  firstName,
+}: {
+  available: boolean;
+  firstName: string;
+}) {
   const [turns, setTurns] = useState<Turn[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [text, setText] = useState("");
@@ -1360,7 +1443,7 @@ function ChatSection({ available }: { available: boolean }) {
       setError(
         err instanceof ApiError
           ? err.message
-          : "המנטור לא הצליח לענות — נסו שוב",
+          : "המנטור לא הצליח לענות — כדאי לנסות שוב",
       );
     } finally {
       setBusy(false);
@@ -1377,16 +1460,6 @@ function ChatSection({ available }: { available: boolean }) {
           לדבר עם המנטור
         </h2>
       </div>
-      <p
-        className="m-0 mb-3 text-[length:var(--type-body-sm)]"
-        style={{ color: "var(--color-text-muted)" }}
-      >
-        על השבוע, על היעדים ועל מה לשפר. שאלות על לקוח או נכס ספציפי —{" "}
-        <Link href="/voice">לסוכן האישי</Link>.
-        {available
-          ? ""
-          : " השיחה החופשית אינה מוגדרת כרגע; המנטור עונה מהיעדים ומהסיכום."}
-      </p>
 
       <div className="mv-card mv-card--pad">
         {loadFailed ? (
@@ -1400,7 +1473,7 @@ function ChatSection({ available }: { available: boolean }) {
             {turns.length === 0 ? (
               <div className="mv-chat-bubble mv-chat-agent">
                 <span>
-                  שלום. אני מודד רק מולכם — לא מול אף אחד אחר. על מה נדבר?
+                  היי{firstName === "" ? "" : ` ${firstName}`} 👋 על מה נדבר?
                 </span>
               </div>
             ) : null}
@@ -1445,11 +1518,8 @@ function ChatSection({ available }: { available: boolean }) {
         ) : null}
 
         <div className="mt-4">
-          <label
-            htmlFor="mentor-chat-input"
-            className="mb-1 block text-sm font-medium"
-          >
-            מה תרצו לשאול?
+          <label htmlFor="mentor-chat-input" className="mv-visually-hidden">
+            שאלה למנטור
           </label>
           <textarea
             id="mentor-chat-input"
@@ -1457,7 +1527,7 @@ function ChatSection({ available }: { available: boolean }) {
             rows={2}
             maxLength={1000}
             value={text}
-            placeholder="למשל: „מה כדאי לי לשפר קודם?” · Enter שולח, Shift+Enter יורד שורה"
+            placeholder="שאלה למנטור… Enter שולח"
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (
@@ -1487,6 +1557,17 @@ function ChatSection({ available }: { available: boolean }) {
           ) : null}
         </div>
       </div>
+
+      {/* שורה אחת מתחת לכרטיס, ולא פסקה מעליו: הגבול של המנטור, והחריג */}
+      <p
+        className="m-0 mt-2 text-[length:var(--type-caption-lg)]"
+        style={{ color: "var(--color-text-muted)" }}
+      >
+        על לקוח או נכס ספציפי — <Link href="/voice">הסוכן האישי</Link>.
+        {available
+          ? ""
+          : " השיחה החופשית לא מוגדרת כרגע, והמנטור עונה מהיעדים ומהסיכום."}
+      </p>
     </section>
   );
 }
