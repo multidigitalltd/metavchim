@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TenantContext } from "../../common/tenant-context";
 import type { AuditService } from "../../core/audit.service";
+import type { AgentEventsService } from "../agent/agent-events.service";
 import type { GeminiService } from "../../core/gemini.service";
 import type { PrismaService } from "../../core/prisma.service";
 import { MentorSignalsService } from "./mentor-signals.service";
@@ -51,11 +52,15 @@ function harness(opts: { laterReviewExists: boolean }) {
   const gemini = {
     isConfigured: async () => false,
   } as unknown as GeminiService;
+  const events = {
+    record: async () => undefined,
+  } as unknown as AgentEventsService;
   const svc = new MentorService(
     prisma,
     audit,
     gemini,
     new MentorSignalsService(),
+    events,
   );
   const run = <T>(fn: () => Promise<T>) =>
     TenantContext.run(

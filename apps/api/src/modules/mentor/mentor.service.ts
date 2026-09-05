@@ -36,6 +36,7 @@ import {
   suggestProcessGoals,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
+import { AgentEventsService } from "../agent/agent-events.service";
 import { AuditService } from "../../core/audit.service";
 import { GeminiService } from "../../core/gemini.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -149,6 +150,7 @@ export class MentorService {
     private readonly audit: AuditService,
     private readonly gemini: GeminiService,
     private readonly signals: MentorSignalsService,
+    private readonly events: AgentEventsService,
   ) {}
 
   async overview(now: Date = new Date()): Promise<MentorOverview> {
@@ -569,6 +571,8 @@ export class MentorService {
   async ask(
     text: string,
     now: Date = new Date(),
+    /** מאיפה השאלה הגיעה — ליומן האסימונים של הפלטפורמה בלבד */
+    channel: "web" | "whatsapp" = "web",
   ): Promise<{ turn: MentorTurnDto; source: "model" | "fallback" }> {
     const ctx = TenantContext.current();
     const { tenantId, userId } = ctx;
@@ -689,6 +693,22 @@ export class MentorService {
       );
       const parsed = ReplySchema.safeParse(detailed.value);
       if (parsed.success) reply = parsed.data.reply;
+      /*
+       * הקריאה למודל נרשמת ביומן הסוכן — גם כשהתשובה לא עברה את
+       * הסכמה: האסימונים נצרכו מהמפתח של הפלטפורמה, ודוח השימוש
+       * צריך להראות אותם. ללא קריאה (בלי מפתח, מעל המכסה) אין מה
+       * לרשום — לא שולם דבר.
+       */
+      await this.events.record({
+        channel,
+        kind: "mentor",
+        transcript: text,
+        payload: { replied: parsed.success },
+        source: "llm",
+        model: detailed.model,
+        latencyMs: detailed.latencyMs,
+        ...(detailed.usage === undefined ? {} : { usage: detailed.usage }),
+      });
     }
     const source: "model" | "fallback" = reply === null ? "fallback" : "model";
     const answer = reply ?? mentorFallbackReply(context);

@@ -355,7 +355,7 @@ export class AgentExecuteService {
     const resolution = await this.resolver.resolveForExecution(actionId, params);
     if (!resolution.ok) throw new BadRequestException(resolution.message);
 
-    const result = await this.dispatch(actionId, params);
+    const result = await this.dispatch(actionId, params, channel);
     const final = await this.withInsight(actionId, transcript, result);
     /*
      * ‎**הצעד הנגזר גובר על זה שנוסח.**
@@ -410,6 +410,8 @@ export class AgentExecuteService {
   private async dispatch(
     actionId: string,
     params: Record<string, unknown>,
+    /** מאיפה הפקודה הגיעה — למנטור בלבד, ליומן האסימונים */
+    channel: "web" | "whatsapp",
   ): Promise<ExecuteResult> {
     switch (actionId) {
       case "search":
@@ -555,7 +557,7 @@ export class AgentExecuteService {
       case "mentor_status":
         return this.mentorStatus();
       case "mentor_ask":
-        return this.mentorAsk(params);
+        return this.mentorAsk(params, channel);
       case "mentor_goal":
         return this.mentorGoal(params);
       case "mentor_commit":
@@ -3212,10 +3214,13 @@ export class AgentExecuteService {
     return { href: "/mentor", message: status.message, data: [...status.lines, ...pendingAsk] };
   }
 
-  private async mentorAsk(params: Record<string, unknown>): Promise<ExecuteResult> {
+  private async mentorAsk(
+    params: Record<string, unknown>,
+    channel: "web" | "whatsapp",
+  ): Promise<ExecuteResult> {
     const question = str(params["question"]);
     if (question === undefined) throw new BadRequestException("מה לשאול את המנטור?");
-    const { turn } = await this.mentor.ask(question);
+    const { turn } = await this.mentor.ask(question, new Date(), channel);
     return { href: "/mentor", message: turn.text };
   }
 
