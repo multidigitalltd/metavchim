@@ -38,7 +38,13 @@ import { AGENT_ACTIONS } from "./actions";
 const GROUPS: { label: string; ids: readonly string[] }[] = [
   {
     label: "לשאול על המאגר",
-    ids: ["find_buyers", "find_properties", "search", "show_matches", "show_card"],
+    ids: [
+      "find_buyers",
+      "find_properties",
+      "search",
+      "show_matches",
+      "show_card",
+    ],
   },
   {
     label: "היום שלי",
@@ -124,11 +130,26 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "show_reach",
     ],
   },
-  { label: "עזרה", ids: ["open_support_ticket", "show_support_tickets", "set_preference"] },
+  {
+    label: "המנטור האישי",
+    ids: [
+      "mentor_status",
+      "mentor_ask",
+      "mentor_goal",
+      "mentor_commit",
+      "mentor_reflect",
+    ],
+  },
+  {
+    label: "עזרה",
+    ids: ["open_support_ticket", "show_support_tickets", "set_preference"],
+  },
 ];
 
 /** מיוצאת לבדיקת הכיסוי בלבד — התפריט עצמו נבנה מ-`agentHelpGroups`. */
-export const AGENT_HELP_GROUP_IDS: readonly string[] = GROUPS.flatMap((group) => group.ids);
+export const AGENT_HELP_GROUP_IDS: readonly string[] = GROUPS.flatMap(
+  (group) => group.ids,
+);
 
 /**
  * קבוצה אחת בתפריט, אחרי סינון למה שלמשתמש הזה מותר.
@@ -148,7 +169,9 @@ export interface AgentHelpGroup {
  * תוכן. קבוצה ריקה אינה מוצגת: כותרת בלי פעולות היא הבטחה למשהו
  * שאינו קיים אצלו.
  */
-export function agentHelpGroups(allowedIds: readonly string[]): AgentHelpGroup[] {
+export function agentHelpGroups(
+  allowedIds: readonly string[],
+): AgentHelpGroup[] {
   const allowed = new Set(allowedIds);
   const groups: AgentHelpGroup[] = [];
   for (const group of GROUPS) {
@@ -193,7 +216,10 @@ const WELCOME_PREFERRED: readonly string[] = [
  * רשימת העדפה, והמסך בחר שש לפי רשימה משלו — שתי רשימות שנטו זו
  * מזו בשקט, ואף אחת מהן לא הייתה קשורה לקטלוג.
  */
-export function agentWelcomeExamples(allowedIds: readonly string[], count: number): string[] {
+export function agentWelcomeExamples(
+  allowedIds: readonly string[],
+  count: number,
+): string[] {
   const allowed = new Set(allowedIds);
   const byPreference = [
     ...WELCOME_PREFERRED.filter((id) => allowed.has(id)),
@@ -202,7 +228,8 @@ export function agentWelcomeExamples(allowedIds: readonly string[], count: numbe
   ];
   return byPreference
     .flatMap((id) => {
-      const example = AGENT_ACTIONS.find((action) => action.id === id)?.examples[0];
+      const example = AGENT_ACTIONS.find((action) => action.id === id)
+        ?.examples[0];
       return example === undefined ? [] : [example];
     })
     .slice(0, count);

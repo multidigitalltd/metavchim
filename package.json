@@ -8,6 +8,8 @@
   },
   "scripts": {
     "verify:iac": "node scripts/verify-iac.mjs",
+    "verify:audit": "node scripts/verify-audit.mjs",
+    "test:audit-script": "node --test scripts/verify-audit.test.mjs",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",

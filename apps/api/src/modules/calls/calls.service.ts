@@ -137,13 +137,15 @@ export class CallsService {
        * (ביקורת Codex). הצילום נלקח פעם אחת ואינו משתנה איתו.
        */
       let propertyId: string | null = null;
+      let leadCreatedAt: Date | null = null;
       if (input.leadId !== undefined) {
         const lead = await tx.lead.findFirst({
           where: { id: input.leadId, tenantId },
-          select: { contactId: true, propertyId: true },
+          select: { contactId: true, propertyId: true, createdAt: true },
         });
         contactId = contactId ?? lead?.contactId;
         propertyId = lead?.propertyId ?? null;
+        leadCreatedAt = lead?.createdAt ?? null;
       }
 
       const row = await tx.call.create({
@@ -165,6 +167,30 @@ export class CallsService {
           createdBy: userId,
         },
       });
+
+      /*
+       * שיחה **שנענתה** עם הליד היא מענה. עד עכשיו `first_response_at`
+       * נחתם רק בשינוי סטטוס, ולכן מתווך שהתקשר תוך חמש דקות ושינה
+       * סטטוס בערב נמדד כ„ענה בערב”. השיחה קובעת — ורק כשעדיין לא
+       * נחתם, ורק כשדיברו: „אין מענה”, „לא נענתה” ו„תא קולי” אינם
+       * שיחה, וחתימה עליהם הייתה משתיקה גם את תזכורת ה-SLA של ליד
+       * שאיש עוד לא דיבר איתו (ביקורת Codex).
+       *
+       * ורק שיחה **אחרי** שהליד נוצר: הטופס מאפשר לערוך את שעת
+       * השיחה, ושיחה שתוארכה לפני הליד הייתה נותנת זמן מענה שלילי —
+       * „ענה תוך שעה” בחינם, ונעילה של המענה האמיתי שיבוא אחריה.
+       */
+      if (
+        input.leadId !== undefined &&
+        input.outcome === "answered" &&
+        leadCreatedAt !== null &&
+        input.occurredAt >= leadCreatedAt
+      ) {
+        await tx.lead.updateMany({
+          where: { id: input.leadId, tenantId, firstResponseAt: null },
+          data: { firstResponseAt: input.occurredAt },
+        });
+      }
 
       await this.audit.record(tx, {
         action: "call.log",

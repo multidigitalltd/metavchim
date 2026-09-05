@@ -16,7 +16,7 @@
 Pipeline לכל PR (חוסם מיזוג):
 1. Lint + Static Analysis (TypeScript strict, ESLint + כללי אבטחה, dependency-cruiser לגבולות מודולים)
 2. בדיקות: Unit (פר-מודול) → Feature → **סוויטת Cross-Tenant** → Architecture tests (גבולות מודולים)
-3. סריקת אבטחה: תלויות (pnpm audit), סודות, SAST (Semgrep)
+3. סריקת אבטחה: תלויות (`pnpm audit` דרך `scripts/verify-audit.mjs` — משימת CI נפרדת שמנסה שוב כשרישום npm לא עונה, ומבחינה בין „יש פגיעות” ל„הרישום לא ענה”), סודות, SAST (Semgrep)
 4. נגישות: axe-core על מסכי מפתח; Lighthouse CI (תקציבי ביצועים)
 5. Build + מיגרציות על DB נקי
 

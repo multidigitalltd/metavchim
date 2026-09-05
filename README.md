@@ -14,6 +14,7 @@ SaaS רב-דיירים (Multi-Tenant) למשרדי תיווך: לידים מכל
 | **וואטסאפ ביזנס — חיבור המספר של הסוכן** | `/docs/whatsapp-business` בסביבה רצה; התכנון והמצב מול Meta ב-[docs/12](docs/12-whatsapp-coexistence.md) |
 | **התכנון המלא** — ארכיטקטורה, נתונים, אבטחה, אינטגרציות, נגישות, ביצועים, תפעול, פריסה | [docs/README.md](docs/README.md) |
 | **איך כותבים תיעוד והדרכות** | [docs/13](docs/13-docs-and-guides.md) |
+| **המנטור האישי** — יעדים, סיכום שבועי, שיחה, וואטסאפ | [docs/14](docs/14-personal-mentor.md) |
 
 ## מבנה הריפו (Monorepo)
 

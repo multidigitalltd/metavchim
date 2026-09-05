@@ -122,6 +122,18 @@ export interface ContactDetail extends DetailBase {
   person: NotifyPerson;
 }
 
+/**
+ * הסיכום השבועי של המנטור — לא שורות פירוט אלא **אילו כפתורים יש
+ * לו**: „מתחייב” רק כשיש בקשה לשבוע הבא, „לענות למנטור” רק כשיש
+ * שאלה. כפתור שמוביל ל„אין בקשה” הוא הבטחה שנשברת (ביקורת Codex).
+ * הבעלים הוא המתווך שהסיכום שלו; אין לו קוראים אחרים.
+ */
+export interface MentorReviewDetail extends DetailBase {
+  kind: "mentor_review";
+  ask: boolean;
+  reflection: boolean;
+}
+
 export type NotifyDetail =
   | LeadDetail
   | BuyerDetail
@@ -129,7 +141,8 @@ export type NotifyDetail =
   | OfferDetail
   | TaskDetail
   | AppointmentDetail
-  | ContactDetail;
+  | ContactDetail
+  | MentorReviewDetail;
 
 /* ==================== שער ההרשאה ==================== */
 
@@ -203,6 +216,9 @@ export function canSeeNotifyDetail(detail: NotifyDetail, viewer: DetailViewer): 
        * דרך לדעת אם הכרטיס הזה שלו, ולכן ברירת המחדל היא לא.
        */
       return has("leads.view_all") || has("buyers.view_all");
+    case "mentor_review":
+      // הסיכום הוא של המתווך בלבד — מנהל אינו קורא אותו (docs/14 §1)
+      return detail.ownerUserId === viewer.userId;
   }
 }
 
@@ -341,5 +357,8 @@ export function notifyDetailLines(detail: NotifyDetail, viewer: DetailViewer): s
     }
     case "contact":
       return [personLine(detail.person)];
+    case "mentor_review":
+      // הסיכום עצמו כבר בגוף ההודעה; הפרט הזה נושא רק את הכפתורים
+      return [];
   }
 }
