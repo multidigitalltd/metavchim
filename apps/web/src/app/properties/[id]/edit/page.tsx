@@ -166,7 +166,18 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
       city: str("city"),
       neighborhood: str("neighborhood"),
       street: str("street"),
-      houseNumber: str("houseNumber"),
+      /*
+       * ‎**מספר בית — `null` ולא `undefined` כשהוא רוקן.**
+       *
+       * ‏`str` מתרגם ריק ל-`undefined`, ו-`undefined` נמחק מה-Patch
+       * ‏למטה — כלומר מספר שנמחק במסך פשוט לא נשלח, והערך הישן
+       * ‏נשאר. זה בדיוק הדיווח: כתובת שגויה שאי אפשר לתקן מהמסך
+       * ‏שנועד לתיקונה.
+       *
+       * ‏הרחוב והעיר נשארים כשהיו במכוון: כתובת בלי עיר אינה כתובת,
+       * ‏ורחוב מחליפים ולא מרוקנים. „בית בלי מספר” הוא מצב אמיתי.
+       */
+      houseNumber: str("houseNumber") ?? null,
       propertyType: str("propertyType"),
       dealType: str("dealType"),
       rooms: num("rooms"),
