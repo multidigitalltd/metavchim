@@ -46,12 +46,18 @@ function sourceFiles(dir: string): { name: string; code: string }[] {
  * ‏הפטור שהיה משתמע מהצורה חל על כל קובץ; עכשיו הוא **רשימה
  * ‏מפורשת** של הנתיבים שאינם מסיימים ניסיון, כל אחד עם נימוק.
  */
-const ALLOWED_WITHOUT_CONCLUSION: readonly { statement: string; why: string }[] = [
+const ALLOWED_WITHOUT_CONCLUSION: readonly {
+  file: string;
+  statement: string;
+  why: string;
+}[] = [
   {
+    file: "modules/platform/platform.controller.ts",
     statement: "data.trialEndsAt = body.trialEndsAt ? new Date(body.trialEndsAt) : null;",
     why: "‏`billing-override`: איפוס התאריך לבדו הוא המצב הזמני שאין להסיק ממנו — היעדר הרישום כאן הוא ההחלטה",
   },
   {
+    file: "modules/signup/signup.service.ts",
     statement: "trialEndsAt,",
     why: "‏הרשמה: משרד חדש, אין ניסיון קודם שאפשר לסיים — התאריך נכתב ולא נמחק",
   },
@@ -162,7 +168,9 @@ describe("שער: מחיקת תאריך ניסיון רושמת את הסיבה"
     const silent = sites.filter(
       (site) =>
         !site.window.includes("trialConcludedAt") &&
-        !ALLOWED_WITHOUT_CONCLUSION.some((entry) => site.statement.includes(entry.statement)),
+        !ALLOWED_WITHOUT_CONCLUSION.some(
+          (entry) => entry.file === site.file && site.statement === entry.statement,
+        ),
     );
     expect(
       silent.map((site) => `${site.file}:${site.line}`),
@@ -178,8 +186,9 @@ describe("שער: מחיקת תאריך ניסיון רושמת את הסיבה"
   it("רשימת החריגים נשארת קצרה ומנומקת", () => {
     expect(ALLOWED_WITHOUT_CONCLUSION.length).toBeLessThanOrEqual(3);
     for (const entry of ALLOWED_WITHOUT_CONCLUSION) {
-      expect(entry.why, `${entry.statement} ללא נימוק`).not.toBe("");
+      expect(entry.why, `${entry.file}:${entry.statement} ללא נימוק`).not.toBe("");
       expect(entry.statement).not.toBe("");
+      expect(entry.file).toMatch(/\.ts$/u);
     }
   });
 });

@@ -614,6 +614,23 @@ export class FunnelEnrollmentService {
   ): Promise<boolean> {
     return this.prisma.withFunnelAdmin(async (tx) => {
       /*
+       * ‎**נעילה, ולא רק קריאה — כי „קרא ואז כתוב” אינו אטומי.**
+       *
+       * ‏ב-`READ COMMITTED` התנאי על שורת הדייר קורא את הגרסה
+       * ‏**המאושרת האחרונה**: טרנזקציה של המסך שהחזיר ניסיון יכולה
+       * ‏להיות פתוחה ולא מאושרת, השאילתה כאן תראה את הערכים הישנים
+       * ‏ותסגור — ובמקביל הפתיחה-מחדש שלה תראה רישום שעדיין פתוח
+       * ‏ולא תעשה דבר. שתיהן מאשרות, והתוצאה היא ניסיון חי לצד רישום
+       * ‏סגור. טרנזקציה משותפת לבדה אינה יוצרת שום נעילה משותפת עם
+       * ‏המסלול הזה (ביקורת Codex). אותו דבר בדיוק לגבי הכרטיס.
+       *
+       * ‎**והסדר אינו שרירותי: מנוי, ואז דייר.** זה הסדר שמסלולי
+       * ‏התשלום נועלים בו (`activateWithin`, `switchToFreePlan` —
+       * ‏מנוי ואז דייר), ונעילה בסדר הפוך היא מתכון ל-deadlock.
+       */
+      await tx.$queryRaw`SELECT id FROM subscriptions WHERE tenant_id = ${snapshot.tenantId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM tenants WHERE id = ${snapshot.tenantId} FOR UPDATE`;
+      /*
        * ‎**גם הכרטיס — ולא רק העוגן.**
        *
        * ‏`closePage` קורא את המנוי יחד עם הדייר, ותשלום על מספר או

@@ -879,6 +879,71 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
   });
 
   /*
+   * ‎**והמרוץ האמיתי: שתי טרנזקציות בו-זמנית.**
+   *
+   * ‏הבדיקות שלמעלה מזיזות את העוגן ואז קוראות ל-`close` — כלומר
+   * ‏הן בודקות את **התנאי**, לא את הנעילה. ב-`READ COMMITTED`
+   * ‏השאילתה קוראת את הגרסה המאושרת האחרונה, ולכן טרנזקציה פתוחה
+   * ‏ולא מאושרת הייתה בלתי נראית לה והסגירה הייתה חלה על תמונה
+   * ‏מיושנת (ביקורת Codex). כאן הטרנזקציה השנייה באמת פתוחה בזמן
+   * ‏שהסגירה רצה.
+   */
+  it("סגירה ממתינה לטרנזקציה שמחזירה ניסיון, ואז אינה חלה", async () => {
+    const now = new Date();
+    await service.sweep(now, { dailyQuota: 5 });
+    const id = (
+      await direct.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id FROM funnel_enrollments WHERE tenant_id = $1 LIMIT 1`,
+        OLD_TENANT,
+      )
+    )[0]!.id;
+    const concluded = new Date();
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET status = 'active', trial_ends_at = NULL,
+                          trial_concluded_at = $2 WHERE id = $1`,
+      OLD_TENANT,
+      concluded,
+    );
+
+    let closed: boolean | undefined;
+    await direct.$transaction(async (tx) => {
+      // ‏המסך מחזיר ניסיון ונועל את שורת הדייר — ועדיין לא אישר
+      await tx.$executeRawUnsafe(
+        `UPDATE tenants SET status = 'trial', trial_ends_at = $2,
+                            trial_concluded_at = NULL WHERE id = $1`,
+        OLD_TENANT,
+        new Date(now.getTime() + 10 * DAY),
+      );
+      /*
+       * ‏הסגירה יוצאת לדרך **בזמן** שהטרנזקציה פתוחה. בלי הנעילה
+       * ‏היא הייתה קוראת את הערכים הישנים, מוצאת התאמה, וסוגרת.
+       * ‏עם הנעילה היא ממתינה כאן עד ה-COMMIT שלמטה.
+       */
+      const racing = service
+        .close(id, "completed", now, {
+          tenantId: OLD_TENANT,
+          trialEndsAt: null,
+          trialConcludedAt: concluded,
+          hasCard: false,
+        })
+        .then((result) => {
+          closed = result;
+        });
+      // ‏שהות קצרה כדי שהסגירה תגיע לנעילה לפני שאנחנו מאשרים
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(closed, "הסגירה לא המתינה לנעילה").toBeUndefined();
+      // ‏ה-COMMIT קורה כשהקולבק מסתיים; הסגירה משתחררת אחריו
+      void racing;
+    });
+
+    // ‏עכשיו היא רצה על הערכים החדשים ואינה חלה
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(closed, "נסגר למרות שהניסיון הוחזר").toBe(false);
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedAt).toBeNull();
+  });
+
+  /*
    * ‎**וכל אחת משתי העמודות לבדה עוצרת את הסגירה.**
    *
    * ‏במסלולי האפליקציה השתיים זזות יחד — המסך שמחזיר ניסיון כותב
