@@ -74,6 +74,12 @@ function fakeTx(counts: {
   officeUsers?: { id: string; preferences: unknown }[];
   /** מדידות מגופי הסיכומים של המשרד */
   officeOutcomes?: { user_id: string; outcomes: unknown }[];
+  /** סיורים והצעות של הקונים — ל„עסקה הקרובה ביותר” (§7.6) */
+  dealViewings?: Record<string, unknown>[];
+  dealOffers?: Record<string, unknown>[];
+  /** קונים עם סיור/פגישה עתידיים, וקונים עם משימה פתוחה */
+  dealNextSteps?: { buyer_id: string }[];
+  dealOpenTasks?: { buyer_id: string }[];
 }) {
   /** הסיכומים החודשיים שנכתבו */
   const monthlyCreated: Record<string, unknown>[] = [];
@@ -115,6 +121,13 @@ function fakeTx(counts: {
       if (sql.includes("SELECT id, preferences"))
         return counts.officeUsers ?? [];
       if (sql.includes("'ideaOutcomes'")) return counts.officeOutcomes ?? [];
+      if (sql.includes("a.kind = 'viewing'")) return counts.dealViewings ?? [];
+      if (sql.includes("SELECT m.buyer_id, o.status"))
+        return counts.dealOffers ?? [];
+      if (sql.includes("a.status = 'scheduled'"))
+        return counts.dealNextSteps ?? [];
+      if (sql.includes("t.entity_type = 'buyer'"))
+        return counts.dealOpenTasks ?? [];
       if (sql.includes("FROM offers") && counts.offersByStart !== undefined)
         return [{ n: BigInt(counts.offersByStart(values[2] as Date)) }];
       if (sql.includes("percentile_cont"))
@@ -134,7 +147,19 @@ function fakeTx(counts: {
     },
     appointment: { count: async () => counts.viewings ?? 0 },
     lead: { count: async () => counts.leads ?? 0 },
-    buyer: { count: async () => counts.buyers ?? 0 },
+    buyer: {
+      count: async () => counts.buyers ?? 0,
+      findMany: async (args: { where: { id: { in: string[] } } }) =>
+        args.where.id.in.map((id) => ({
+          id,
+          maturity: "hot",
+          contactId: `contact-${id}`,
+        })),
+    },
+    contact: {
+      findMany: async (args: { where: { id: { in: string[] } } }) =>
+        args.where.id.in.map((id) => ({ id, nameEncrypted: `enc:${id}` })),
+    },
     auditLog: {
       count: async (args: { where: { action?: string } }) =>
         args.where.action === "property.create" ? (counts.properties ?? 0) : 0,
@@ -890,6 +915,99 @@ describe("MentorReviewService.dailyForUser — 30 הימים הראשונים", 
       ),
     ).toBe(false);
     expect(scanned).toBe(0);
+  });
+});
+
+describe("MentorReviewService.dailyForUser — העסקה הקרובה ביותר ביום שני", () => {
+  const BUYER = "01BUYERAAAAAAAAAAAAAAAAAAA";
+  const viewing = (at: string) => ({
+    buyer_id: BUYER,
+    property_id: "01PROPAAAAAAAAAAAAAAAAAAAA",
+    starts_at: new Date(at),
+    street: "הרצל",
+    house_number: "12",
+    city: "תל אביב",
+  });
+  const crypto = {
+    decrypt: (v: string) => v.replace(/^enc:contact-/u, "דנה לוי "),
+  } as never;
+
+  it("קונה שראה נכס פעמיים ולא הציע — בבוקר של יום שני, בשמו, עם השאלה; בשלישי לא", async () => {
+    const monday = new Date("2026-09-07T06:00:00.000Z");
+    const { tx, notified } = fakeTx({
+      offers: 1,
+      dealViewings: [
+        viewing("2026-09-03T15:00:00.000Z"),
+        viewing("2026-08-28T15:00:00.000Z"),
+      ],
+    });
+    const signals = new MentorSignalsService(crypto);
+    const deal = await signals.closestDeal(tx, TENANT, USER, monday);
+    expect(deal?.name).toContain("דנה לוי");
+    expect(deal?.reason).toBe(
+      "שני סיורים בהרצל 12, תל אביב ב-30 הימים האחרונים, ובלי הצעה על השולחן",
+    );
+    const svc = new MentorReviewService(
+      {} as unknown as PrismaService,
+      {} as unknown as PlanCatalogService,
+      signals,
+    );
+    expect(
+      await svc.dailyForUser(tx, TENANT, USER, "2026-09-07", monday, "דנה"),
+    ).toBe(true);
+    expect(String(notified[0]![5])).toContain("העסקה הקרובה ביותר: דנה לוי");
+    expect(String(notified[0]![5])).toContain("מה עוצר? מחיר, מימון");
+    // בלי מפענח — „קונה”, והעסקה עדיין נאמרת
+    expect(
+      (await new MentorSignalsService().closestDeal(tx, TENANT, USER, monday))
+        ?.name,
+    ).toBe("קונה");
+    // סיור אחד בלבד — אין מועמד
+    const thin = fakeTx({
+      dealViewings: [viewing("2026-09-03T15:00:00.000Z")],
+    });
+    expect(await signals.closestDeal(thin.tx, TENANT, USER, monday)).toBeNull();
+  });
+
+  it("קונה שכבר נקבע לו צעד הבא — סיור עתידי או משימה פתוחה — אינו תקוע ואינו נבחר", async () => {
+    const monday = new Date("2026-09-07T06:00:00.000Z");
+    const twice = [
+      viewing("2026-09-03T15:00:00.000Z"),
+      viewing("2026-08-28T15:00:00.000Z"),
+    ];
+    const signals = new MentorSignalsService(crypto);
+    const scheduled = fakeTx({
+      dealViewings: twice,
+      dealNextSteps: [{ buyer_id: BUYER }],
+    });
+    expect(
+      await signals.closestDeal(scheduled.tx, TENANT, USER, monday),
+    ).toBeNull();
+    const tasked = fakeTx({
+      dealViewings: twice,
+      dealOpenTasks: [{ buyer_id: BUYER }],
+    });
+    expect(
+      await signals.closestDeal(tasked.tx, TENANT, USER, monday),
+    ).toBeNull();
+    // סיור אחד עם נכס ואחד בלי — לא „אותו נכס פעמיים”; הכתובת היא של האחרון
+    const mixed = fakeTx({
+      dealViewings: [
+        viewing("2026-09-03T15:00:00.000Z"),
+        {
+          ...viewing("2026-08-28T15:00:00.000Z"),
+          property_id: null,
+          street: null,
+          house_number: null,
+          city: null,
+        },
+      ],
+    });
+    const deal = await signals.closestDeal(mixed.tx, TENANT, USER, monday);
+    expect(deal?.reason).toBe(
+      "שני סיורים (האחרון בהרצל 12, תל אביב) ב-30 הימים האחרונים, ובלי הצעה על השולחן",
+    );
+    expect(deal?.question).toContain("סייר ולא הציע");
   });
 });
 

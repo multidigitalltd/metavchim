@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Optional } from "@nestjs/common";
 import {
   ideaByKey,
   officePlaybook,
@@ -7,6 +7,10 @@ import {
   type MentorIdeaOutcome,
   type MentorOfficePlaybook,
   type OfficeEvidenceEntry,
+  CLOSEST_DEAL_WINDOW_DAYS,
+  closestDeal,
+  type DealCandidate,
+  type MentorClosestDeal,
   MENTOR_FAST_RESPONSE_MINUTES,
   MENTOR_GOAL_METRICS,
   MENTOR_MISSED_RETURN_HOURS,
@@ -20,6 +24,7 @@ import {
   type MentorWinKind,
   jerusalemWeekStart,
 } from "@metavchim/shared";
+import { CryptoService } from "../../core/crypto.service";
 import type { TenantTx } from "../../core/prisma.service";
 
 export interface DateRange {
@@ -62,6 +67,171 @@ export const OFFICE_PLAYBOOK_WEEKS = 26;
  */
 @Injectable()
 export class MentorSignalsService {
+  /*
+   * ההצפנה — לשם הקונה של „העסקה הקרובה ביותר” בלבד (§7.6). אופציונלית
+   * כדי שהבדיקות יבנו את השירות בלי DI; בלי מפענח השם הוא „קונה”.
+   */
+  constructor(@Optional() private readonly crypto?: CryptoService) {}
+
+  /**
+   * העסקה הקרובה ביותר (docs/14 §7.6) — הקונים של המתווך עצמו עם
+   * הסיורים שהתקיימו וההצעות של 30 הימים האחרונים; הבחירה והניסוח
+   * ב-`closestDeal` (טהור). שתי שאילתות ושליפת שמות — רק למי שעומד
+   * בסף; קונה שנמחק אינו מועמד.
+   */
+  async closestDeal(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    now: Date,
+  ): Promise<MentorClosestDeal | null> {
+    const since = new Date(
+      now.getTime() - CLOSEST_DEAL_WINDOW_DAYS * 86_400_000,
+    );
+    const [viewings, offers, nextSteps, openTasks] = await Promise.all([
+      tx.$queryRaw<
+        {
+          buyer_id: string;
+          property_id: string | null;
+          starts_at: Date;
+          street: string | null;
+          house_number: string | null;
+          city: string | null;
+        }[]
+      >`
+        SELECT a.buyer_id, a.property_id, a.starts_at, p.street, p.house_number, p.city
+        FROM appointments a
+        JOIN buyers b ON b.id = a.buyer_id
+        LEFT JOIN properties p ON p.id = a.property_id
+        WHERE a.tenant_id = ${tenantId}
+          AND b.tenant_id = ${tenantId}
+          AND b.owner_user_id = ${userId}
+          AND b.deleted_at IS NULL
+          AND a.kind = 'viewing'
+          AND a.status NOT IN ('cancelled', 'no_show')
+          AND a.starts_at >= ${since} AND a.starts_at < ${now}
+        ORDER BY a.starts_at DESC`,
+      tx.$queryRaw<{ buyer_id: string; status: string }[]>`
+        SELECT m.buyer_id, o.status
+        FROM offers o
+        JOIN matches m ON m.id = o.match_id
+        JOIN buyers b ON b.id = m.buyer_id
+        WHERE o.tenant_id = ${tenantId}
+          AND b.owner_user_id = ${userId}
+          AND b.deleted_at IS NULL
+          AND o.sent_at >= ${since} AND o.sent_at < ${now}`,
+      // צעד הבא שכבר נקבע — סיור, פגישה או שיחה עתידיים: הקונה אינו תקוע
+      tx.$queryRaw<{ buyer_id: string }[]>`
+        SELECT DISTINCT a.buyer_id
+        FROM appointments a
+        JOIN buyers b ON b.id = a.buyer_id
+        WHERE a.tenant_id = ${tenantId}
+          AND b.tenant_id = ${tenantId}
+          AND b.owner_user_id = ${userId}
+          AND b.deleted_at IS NULL
+          AND a.status = 'scheduled'
+          AND a.starts_at >= ${now}`,
+      // או משימה פתוחה על הקונה — גם בלי מועד: מישהו כבר החליט מה הצעד
+      tx.$queryRaw<{ buyer_id: string }[]>`
+        SELECT DISTINCT t.entity_id AS buyer_id
+        FROM tasks t
+        JOIN buyers b ON b.id = t.entity_id
+        WHERE t.tenant_id = ${tenantId}
+          AND b.tenant_id = ${tenantId}
+          AND b.owner_user_id = ${userId}
+          AND b.deleted_at IS NULL
+          AND t.entity_type = 'buyer'
+          AND t.status = 'open'`,
+    ]);
+    const byBuyer = new Map<string, DealCandidate>();
+    const seed = (id: string): DealCandidate => {
+      const existing = byBuyer.get(id);
+      if (existing !== undefined) return existing;
+      const fresh: DealCandidate = {
+        buyerId: id,
+        name: "קונה",
+        viewings: 0,
+        distinctProperties: 0,
+        unknownProperties: 0,
+        lastViewingAt: null,
+        lastProperty: null,
+        interestedOffers: 0,
+        pendingOffers: 0,
+        maturity: "interested",
+        hasNextStep: false,
+      };
+      byBuyer.set(id, fresh);
+      return fresh;
+    };
+    const properties = new Map<string, Set<string>>();
+    for (const row of Array.isArray(viewings) ? viewings : []) {
+      if (typeof row.buyer_id !== "string") continue;
+      const c = seed(row.buyer_id);
+      c.viewings += 1;
+      const set = properties.get(row.buyer_id) ?? new Set<string>();
+      if (row.property_id !== null) set.add(row.property_id);
+      else c.unknownProperties += 1;
+      properties.set(row.buyer_id, set);
+      c.distinctProperties = set.size;
+      // השורות ממוינות מהחדש לישן — הראשון לכל קונה הוא הסיור האחרון
+      if (c.lastViewingAt === null) {
+        c.lastViewingAt = row.starts_at;
+        const address = [
+          [row.street, row.house_number].filter(Boolean).join(" "),
+          row.city,
+        ]
+          .filter((part) => part !== null && part !== undefined && part !== "")
+          .join(", ");
+        c.lastProperty = address === "" ? null : address;
+      }
+    }
+    for (const row of Array.isArray(offers) ? offers : []) {
+      if (typeof row.buyer_id !== "string") continue;
+      const c = seed(row.buyer_id);
+      if (row.status === "interested") c.interestedOffers += 1;
+      else if (["sent", "delivered", "opened"].includes(row.status))
+        c.pendingOffers += 1;
+    }
+    for (const row of [
+      ...(Array.isArray(nextSteps) ? nextSteps : []),
+      ...(Array.isArray(openTasks) ? openTasks : []),
+    ]) {
+      const c =
+        typeof row.buyer_id === "string"
+          ? byBuyer.get(row.buyer_id)
+          : undefined;
+      if (c !== undefined) c.hasNextStep = true;
+    }
+    if (byBuyer.size === 0) return null;
+    const rows = await tx.buyer.findMany({
+      where: { tenantId, id: { in: [...byBuyer.keys()] }, deletedAt: null },
+      select: { id: true, maturity: true, contactId: true },
+    });
+    // לקונה אין קשר Prisma לאיש הקשר — השמות נשלפים בנפרד, רק למועמדים
+    const contacts = new Map(
+      (
+        await tx.contact.findMany({
+          where: { tenantId, id: { in: rows.map((r) => r.contactId) } },
+          select: { id: true, nameEncrypted: true },
+        })
+      ).map((c) => [c.id, c.nameEncrypted]),
+    );
+    for (const row of rows) {
+      const c = byBuyer.get(row.id);
+      if (c === undefined) continue;
+      c.maturity = row.maturity;
+      const encrypted = contacts.get(row.contactId);
+      if (encrypted === undefined) continue;
+      try {
+        const name = this.crypto?.decrypt(encrypted).trim();
+        if (name !== undefined && name !== "") c.name = name;
+      } catch {
+        // שם שלא נפתח — נשאר „קונה”; העסקה חשובה מהשם
+      }
+    }
+    return closestDeal([...byBuyer.values()], now);
+  }
+
   async activity(
     tx: TenantTx,
     tenantId: string,
