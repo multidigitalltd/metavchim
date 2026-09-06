@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  inboundNotificationOwner,
+  contactOwnerCandidates,
   notifiableContactOwner,
   officeRestrictsContactVisibility,
 } from "../../common/ownership";
@@ -48,8 +48,12 @@ type FakeUser = { id: string; role: string; isActive?: boolean; overrides?: Over
  * ‏מחזיר **את כל** החריגים: מי שמסנן אותם הוא הקוד, וזה בדיוק מה
  * ‏שנבדק.
  */
-function txWith(users: FakeUser[]) {
+function txWith(users: FakeUser[], blockedModules: string[] = []) {
   return {
+    tenant: {
+      findUnique: async (args: { where: { id: string } }) =>
+        args.where.id === TENANT ? { blockedModules } : null,
+    },
     user: {
       findMany: async (args: {
         where: { tenantId?: string; isActive?: boolean; id?: { in: string[] } };
@@ -194,6 +198,45 @@ describe("האם המשרד הפעיל הפרדה", () => {
    * ‏„לא מצאנו למי זה מגיע” אינו „מותר לכולם”. אין כאן למי לשלוח
    * ‏ממילא, ולכן הכיוון השמרני אינו עולה דבר.
    */
+  /*
+   * ‎**חסימת מודול של הפלטפורמה — השכבה שדילגתי עליה.**
+   *
+   * ‏„היכולות בפועל” הן שלוש שכבות: תפקיד, חריגי המנהל, וחסימת
+   * ‏המודולים. חישבתי שתיים. משרד של בעלים בלבד שמודול הנכסים חסום
+   * ‏לו נקרא „כולם רואים הכול”, והשם המפוענח של בעל נכס יצא בהתראה
+   * ‏משרדית (ביקורת Codex, P1).
+   */
+  it("מודול שהפלטפורמה חסמה יוצר הפרדה — גם במשרד של בעלים בלבד", async () => {
+    expect(
+      await officeRestrictsContactVisibility(
+        txWith([OWNER], ["properties"]) as never,
+        TENANT,
+      ),
+    ).toBe(true);
+  });
+
+  it("וכל אחד משלושת המודולים לבדו מספיק", async () => {
+    for (const key of ["properties", "buyers", "leads"]) {
+      expect(
+        await officeRestrictsContactVisibility(txWith([OWNER], [key]) as never, TENANT),
+        `מודול ${key}`,
+      ).toBe(true);
+    }
+  });
+
+  /*
+   * ‏והצד השני: מודול שאינו נוגע בלקוחות אינו יוצר הפרדה, אחרת כל
+   * ‏חסימה שהיא הייתה מורידה את השם.
+   */
+  it("חסימת מודול שאינו של לקוחות אינה יוצרת הפרדה", async () => {
+    expect(
+      await officeRestrictsContactVisibility(
+        txWith([OWNER], ["collaboration"]) as never,
+        TENANT,
+      ),
+    ).toBe(false);
+  });
+
   it("משרד בלי משתמשים פעילים נחשב מוגבל", async () => {
     expect(await officeRestrictsContactVisibility(txWith([]) as never, TENANT)).toBe(true);
   });
@@ -209,6 +252,8 @@ describe("האם המשרד הפעיל הפרדה", () => {
  */
 describe("הבעלים שמקבל את ההתראה האישית", () => {
   const OWNER_OF_CARD = "01USERAGENTAAAAAAAAAAAAAAA";
+  /** ‏סוכן שני, כשר — הוא מי שאמור לרשת את התור כשהראשון נפסל. */
+  const OTHER: FakeUser = { id: "01USERAGENTBBBBBBBBBBBBBBB", role: "agent" };
 
   function deny(capability: string): FakeUser {
     return {
@@ -271,6 +316,20 @@ describe("הבעלים שמקבל את ההתראה האישית", () => {
   });
 
   /** ‏מי שאינו פעיל אינו נמען, גם כשהשיוך על השורה נשאר. */
+  /*
+   * ‏ואותה שכבה חלה גם על הנמען: סוכן במשרד שמודול הקונים חסום בו
+   * ‏אינו מגיע לכרטיס, ולכן אינו נמען — גם בלי שום חריג אישי.
+   */
+  it("מודול שהפלטפורמה חסמה פוסל גם את הנמען", async () => {
+    expect(
+      await notifiableContactOwner(txWith([AGENT], ["buyers"]) as never, TENANT, {
+        buyer: { ownerUserId: OWNER_OF_CARD },
+        lead: null,
+        property: null,
+      }),
+    ).toBeNull();
+  });
+
   it("סוכן מושבת אינו מקבל התראה אישית", async () => {
     const gone: FakeUser = { ...AGENT, isActive: false };
     expect(
@@ -279,6 +338,59 @@ describe("הבעלים שמקבל את ההתראה האישית", () => {
         lead: null,
         property: null,
       }),
+    ).toBeNull();
+  });
+
+  /*
+   * ‎**מועמד שנפסל מוריש את התור לבא אחריו.**
+   *
+   * ‏„הראשון” היה נכון כשהשאלה הייתה „מי משויך”. מרגע שהיא „מי
+   * ‏משויך ורשאי”, סוכן קונה חסום היה בולע גם את הליד של סוכן כשר:
+   * ‏האחד נפסל, השני מעולם לא נשקל (ביקורת Codex).
+   */
+  it("סוכן קונה חסום — הליד של סוכן כשר מקבל את ההתראה", async () => {
+    expect(
+      await notifiableContactOwner(
+        txWith([deny("buyers.view_own"), OTHER]) as never,
+        TENANT,
+        {
+          buyer: { ownerUserId: OWNER_OF_CARD },
+          lead: { assignedToUserId: OTHER.id },
+          property: null,
+        },
+      ),
+    ).toBe(OTHER.id);
+  });
+
+  it("גם סוכן שאינו פעיל מוריש את התור", async () => {
+    const gone: FakeUser = { ...AGENT, isActive: false };
+    expect(
+      await notifiableContactOwner(txWith([gone, OTHER]) as never, TENANT, {
+        buyer: { ownerUserId: OWNER_OF_CARD },
+        lead: null,
+        property: { agentUserId: OTHER.id },
+      }),
+    ).toBe(OTHER.id);
+  });
+
+  /*
+   * ‏והגבול: כשכל המועמדים נפסלים אין נמען, ולא „הראשון בכל זאת”.
+   */
+  it("כל המועמדים נפסלו — אין נמען", async () => {
+    const blockedOther: FakeUser = {
+      ...OTHER,
+      overrides: [{ capability: "leads.view_own", effect: "deny", expiresAt: null }],
+    };
+    expect(
+      await notifiableContactOwner(
+        txWith([deny("buyers.view_own"), blockedOther]) as never,
+        TENANT,
+        {
+          buyer: { ownerUserId: OWNER_OF_CARD },
+          lead: { assignedToUserId: OTHER.id },
+          property: null,
+        },
+      ),
     ).toBeNull();
   });
 
@@ -294,38 +406,46 @@ describe("הבעלים שמקבל את ההתראה האישית", () => {
 });
 
 /**
- * ‏הכלל הטהור שמאחורי הזיהוי — הסדר, ו**דרך איזה מקור** נמצא
- * ‏הבעלים. המקור אינו תיעוד: הוא קובע איזו יכולת נבדקת אחריו.
+ * ‏הכלל הטהור שמאחורי הזיהוי — **כל** המועמדים לפי הסדר, ו„דרך
+ * ‏איזה מקור”. המקור אינו תיעוד: הוא קובע איזו יכולת נבדקת. והרשימה
+ * ‏אינה נוחות: היא מה שמאפשר למועמד שנפסל להוריש את התור.
  */
 describe("סדר הבעלות והמקור שממנו הוא נגזר", () => {
   it("בעל הנכס, כשהלקוח אינו קונה ואינו ליד", () => {
     expect(
-      inboundNotificationOwner({
+      contactOwnerCandidates({
         buyer: null,
         lead: null,
         property: { agentUserId: "01PROPAGENT" },
       }),
-    ).toEqual({ userId: "01PROPAGENT", source: "properties" });
+    ).toEqual([{ userId: "01PROPAGENT", source: "properties" }]);
   });
 
-  it("כרטיס קונה קודם לליד, וכל אחד נושא את המקור שלו", () => {
+  it("שלושת המקורות מוחזרים לפי הסדר, כל אחד עם המקור שלו", () => {
     expect(
-      inboundNotificationOwner({
+      contactOwnerCandidates({
         buyer: { ownerUserId: "01BUYEROWNER" },
         lead: { assignedToUserId: "01LEADOWNER" },
-        property: null,
+        property: { agentUserId: "01PROPAGENT" },
       }),
-    ).toEqual({ userId: "01BUYEROWNER", source: "buyers" });
+    ).toEqual([
+      { userId: "01BUYEROWNER", source: "buyers" },
+      { userId: "01LEADOWNER", source: "leads" },
+      { userId: "01PROPAGENT", source: "properties" },
+    ]);
+  });
+
+  it("כרטיס בלי בעלים נשמט מהרשימה ואינו עוצר אותה", () => {
     expect(
-      inboundNotificationOwner({
+      contactOwnerCandidates({
         buyer: { ownerUserId: null },
         lead: { assignedToUserId: "01LEADOWNER" },
         property: null,
       }),
-    ).toEqual({ userId: "01LEADOWNER", source: "leads" });
+    ).toEqual([{ userId: "01LEADOWNER", source: "leads" }]);
   });
 
-  it("בלי בעלים — null", () => {
-    expect(inboundNotificationOwner({ buyer: null, lead: null, property: null })).toBeNull();
+  it("בלי בעלים — רשימה ריקה", () => {
+    expect(contactOwnerCandidates({ buyer: null, lead: null, property: null })).toEqual([]);
   });
 });

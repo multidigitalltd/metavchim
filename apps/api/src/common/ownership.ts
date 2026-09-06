@@ -1,6 +1,6 @@
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { resolveCapabilities, type Capability } from "@metavchim/shared";
+import { applyBlockedModules, resolveCapabilities, type Capability } from "@metavchim/shared";
 import type { TenantTx } from "../core/prisma.service";
 import { TenantContext } from "./tenant-context";
 
@@ -375,18 +375,32 @@ export interface ContactOwner {
   source: ContactOwnerSource;
 }
 
-export function inboundNotificationOwner(sources: {
+export interface ContactOwnerSources {
   buyer: { ownerUserId: string | null } | null;
   lead: { assignedToUserId: string | null } | null;
   property: { agentUserId: string | null } | null;
-}): ContactOwner | null {
+}
+
+/**
+ * ‎**כל המועמדים לפי הסדר — ולא רק הראשון.**
+ *
+ * ‏„הראשון” היה נכון כשהשאלה הייתה „מי משויך”. מרגע שהשאלה היא „מי
+ * ‏משויך **ורשאי**”, מועמד שנפסל חייב להוריש את התור לבא אחריו:
+ * ‏לקוח שכרטיס הקונה שלו שייך לסוכן חסום ושהליד שלו שייך לסוכן
+ * ‏כשר היה מאבד את שניהם — האחד נפסל, השני מעולם לא נבדק (ביקורת
+ * ‏Codex). רשימה ולא ערך יחיד, כדי שהפסילה תוכל ליפול הלאה.
+ */
+export function contactOwnerCandidates(sources: ContactOwnerSources): ContactOwner[] {
+  const ordered: ContactOwner[] = [];
   const buyer = sources.buyer?.ownerUserId;
-  if (buyer !== null && buyer !== undefined) return { userId: buyer, source: "buyers" };
+  if (buyer !== null && buyer !== undefined) ordered.push({ userId: buyer, source: "buyers" });
   const lead = sources.lead?.assignedToUserId;
-  if (lead !== null && lead !== undefined) return { userId: lead, source: "leads" };
+  if (lead !== null && lead !== undefined) ordered.push({ userId: lead, source: "leads" });
   const agent = sources.property?.agentUserId;
-  if (agent !== null && agent !== undefined) return { userId: agent, source: "properties" };
-  return null;
+  if (agent !== null && agent !== undefined) {
+    ordered.push({ userId: agent, source: "properties" });
+  }
+  return ordered;
 }
 
 /**
@@ -407,23 +421,6 @@ export function inboundNotificationOwner(sources: {
  * ‏מכולם, כולל מהמנהל שכן רשאי לראותו. מה שנשלל הוא התוכן, לא
  * ‏הידיעה שהגיע דבר מה — והכותרת אומרת מפורשות לאן ללכת.
  */
-/**
- * ‎**האם עוד מחפשים בעלים — כלומר טרם נמצא אחד.**
- *
- * ‏`inboundNotificationOwner` תמיד ידע ליפול הלאה בין המקורות, אבל
- * ‏השאילתות שמזינות אותו נעצרו על **קיום** הכרטיס הקודם ולא על
- * ‏בעלותו: לקוח עם כרטיס קונה חסר-`ownerUserId` וגם עם ליד משויך
- * ‏קיבל `null`, והסוכן של הליד איבד את ההתראה האישית ואת התמצית
- * ‏(ביקורת Codex).
- *
- * ‏מיוצא וטהור כדי שהכלל ייבדק בהתנהגות ולא בקריאת מקור — ובעיקר
- * ‏כדי ש„עד שיימצא בעלים” ייכתב פעם אחת ולא יתפרש מחדש בכל שאילתה.
- */
-export function stillLookingForOwner(
-  ...found: (string | null | undefined)[]
-): boolean {
-  return found.every((owner) => owner === null || owner === undefined);
-}
 
 /**
  * ‎**היכולות בפועל של כל משתמשי המשרד — תפקיד ועליו החריגים שבתוקף.**
@@ -439,6 +436,22 @@ async function officeCapabilities(
   userIds?: readonly string[],
 ): Promise<Map<string, Set<Capability>>> {
   const now = new Date();
+  /*
+   * ‎**וגם חסימת המודולים של הפלטפורמה — השכבה השלישית.**
+   *
+   * ‏„היכולות בפועל” הן תפקיד, ועליו חריגי המנהל, ועליהם חסימת
+   * ‏המודולים. דילגתי על השלישית, ולכן משרד של בעלים בלבד שמודול
+   * ‏הנכסים חסום לו נקרא כ„כולם רואים הכול” — והשם המפוענח של בעל
+   * ‏נכס יצא בהתראה משרדית (ביקורת Codex, P1).
+   *
+   * ‏הסדר זהה לזה שבכניסה למערכת ואינו מקרי: חריג `deny` של מנהל
+   * ‏המשרד נמחק בלחיצה שלו, וחסימה שהנחסם יכול להסיר אינה חסימה.
+   */
+  const tenant = await tx.tenant.findUnique({
+    where: { id: tenantId },
+    select: { blockedModules: true },
+  });
+  const blocked = tenant?.blockedModules ?? [];
   const users = await tx.user.findMany({
     where: {
       tenantId,
@@ -456,14 +469,17 @@ async function officeCapabilities(
   return new Map(
     users.map((user) => [
       user.id,
-      resolveCapabilities(
-        user.role,
-        user.capabilityOverrides.map((o) => ({
-          capability: o.capability as Capability,
-          effect: o.effect as "grant" | "deny",
-          expiresAt: o.expiresAt,
-        })),
-        now,
+      applyBlockedModules(
+        resolveCapabilities(
+          user.role,
+          user.capabilityOverrides.map((o) => ({
+            capability: o.capability as Capability,
+            effect: o.effect as "grant" | "deny",
+            expiresAt: o.expiresAt,
+          })),
+          now,
+        ),
+        blocked,
       ),
     ]),
   );
@@ -523,18 +539,25 @@ export async function officeRestrictsContactVisibility(
 export async function notifiableContactOwner(
   tx: TenantTx,
   tenantId: string,
-  sources: {
-    buyer: { ownerUserId: string | null } | null;
-    lead: { assignedToUserId: string | null } | null;
-    property: { agentUserId: string | null } | null;
-  },
+  sources: ContactOwnerSources,
 ): Promise<string | null> {
-  const owner = inboundNotificationOwner(sources);
-  if (owner === null) return null;
-  const caps = (await officeCapabilities(tx, tenantId, [owner.userId])).get(owner.userId);
-  // ‏משתמש שאינו פעיל אינו מוחזר מהשליפה — ומי שאינו פעיל אינו נמען
-  if (caps === undefined) return null;
-  return contactSourcesOf(caps)[owner.source] ? owner.userId : null;
+  const candidates = contactOwnerCandidates(sources);
+  if (candidates.length === 0) return null;
+  /*
+   * ‏שאילתה אחת לכל המועמדים ולא אחת לכל מועמד: הם לכל היותר
+   * ‏שלושה, ושלוש שאילתות על כל שיחה נכנסת הן מחיר שאין סיבה לשלם.
+   */
+  const caps = await officeCapabilities(
+    tx,
+    tenantId,
+    candidates.map((candidate) => candidate.userId),
+  );
+  for (const candidate of candidates) {
+    // ‏משתמש שאינו פעיל אינו מוחזר מהשליפה — ומי שאינו פעיל אינו נמען
+    const set = caps.get(candidate.userId);
+    if (set !== undefined && contactSourcesOf(set)[candidate.source]) return candidate.userId;
+  }
+  return null;
 }
 
 export function assertSeesAllContacts(): void {

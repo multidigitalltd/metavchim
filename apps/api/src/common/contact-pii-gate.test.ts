@@ -326,7 +326,7 @@ describe("שער: מי נוגע בפרטי לקוח", () => {
   /*
    * ‎**הזיהוי בלי השער אינו מותר לאיש מלבד השער עצמו.**
    *
-   * ‏`inboundNotificationOwner` נוקב בשם הסוכן שהלקוח משויך אליו,
+   * ‏`contactOwnerCandidates` נוקב בשמות הסוכנים שהלקוח משויך אליהם,
    * ‏ו-`notifiableContactOwner` הוא זה שמוודא שאותו סוכן באמת רשאי
    * ‏לראותו. שני מקומות כותבים התראה עם תוכן אחרי הזיהוי הזה, וכל
    * ‏מקום שלישי שיקרא לגרסה הגולמית יחזיר בדיוק את הדליפה שנסגרה
@@ -339,7 +339,7 @@ describe("שער: מי נוגע בפרטי לקוח", () => {
     const callers = files.filter(
       (file) =>
         file.name !== "common/ownership.ts" &&
-        /\binboundNotificationOwner\s*\(/u.test(file.code),
+        /\bcontactOwnerCandidates\s*\(/u.test(file.code),
     );
     expect(callers.map((f) => f.name), "השתמשו בזיהוי בלי שער הרשאות").toEqual([]);
   });

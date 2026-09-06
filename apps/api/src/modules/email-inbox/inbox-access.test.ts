@@ -5,8 +5,7 @@ import { NotFoundException } from "@nestjs/common";
 import type { Capability } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import {
-  inboundNotificationOwner,
-  stillLookingForOwner,
+  contactOwnerCandidates,
 } from "../../common/ownership";
 import { EmailInboxService, inboundNotificationContent } from "./email-inbox.service";
 
@@ -206,126 +205,87 @@ describe("תיבת הדואר — הפרדה בין סוכנים", () => {
  * ‏קונה ולא ליד, ולכן נפל בדיוק לשם (ביקורת Codex, P1).
  */
 describe("בעלות ההתראה על מייל נכנס", () => {
-  it("כרטיס קונה קודם לכול", () => {
+  it("שלושת המקורות לפי הסדר, כל אחד עם המקור שלו", () => {
     expect(
-      inboundNotificationOwner({
+      contactOwnerCandidates({
         buyer: { ownerUserId: "01BUYERAGENT" },
         lead: { assignedToUserId: "01LEADAGENT" },
         property: { agentUserId: "01PROPAGENT" },
       }),
-    ).toEqual({ userId: "01BUYERAGENT", source: "buyers" });
-  });
-
-  it("ואחריו הליד", () => {
-    expect(
-      inboundNotificationOwner({
-        buyer: null,
-        lead: { assignedToUserId: "01LEADAGENT" },
-        property: { agentUserId: "01PROPAGENT" },
-      }),
-    ).toEqual({ userId: "01LEADAGENT", source: "leads" });
+    ).toEqual([
+      { userId: "01BUYERAGENT", source: "buyers" },
+      { userId: "01LEADAGENT", source: "leads" },
+      { userId: "01PROPAGENT", source: "properties" },
+    ]);
   });
 
   /*
-   * ‎**כרטיס בלי בעלים אינו עוצר את הסדר.**
+   * ‎**כרטיס בלי בעלים נשמט ואינו עוצר.**
    *
-   * ‏הפונקציה תמיד ידעה ליפול הלאה (`??`), אבל השאילתות שמזינות
-   * ‏אותה נעצרו על **קיום** הכרטיס הקודם ולא על בעלותו: לקוח עם
-   * ‏כרטיס קונה חסר-בעלים וגם עם ליד משויך קיבל `null`, והסוכן של
-   * ‏הליד איבד את ההתראה האישית (ביקורת Codex).
+   * ‏הפונקציה תמיד ידעה ליפול הלאה, אבל השאילתות שמזינות אותה
+   * ‏נעצרו על **קיום** הכרטיס הקודם ולא על בעלותו. התיקון ההוא
+   * ‏שרד סבב אחד ונשבר שוב מסיבה עמוקה יותר — מועמד שנפסל בהרשאה
+   * ‏חייב גם הוא להוריש את התור — ולכן אין יותר קיצור בכלל.
    */
-  it("„עוד מחפשים” — כרטיס בלי בעלים אינו עוצר את החיפוש", () => {
-    // ‏זה התנאי שהשאילתות נשענות עליו, וזה מה שהיה שגוי בהן
-    expect(stillLookingForOwner(null)).toBe(true);
-    expect(stillLookingForOwner(undefined)).toBe(true);
-    expect(stillLookingForOwner(null, null)).toBe(true);
-    expect(stillLookingForOwner("01AGENT")).toBe(false);
-    expect(stillLookingForOwner(null, "01AGENT")).toBe(false);
-  });
-
-  it("קונה בלי בעלים אינו חוסם את הליד", () => {
+  it("כרטיס בלי בעלים אינו עוצר את החיפוש", () => {
     expect(
-      inboundNotificationOwner({
+      contactOwnerCandidates({
         buyer: { ownerUserId: null },
         lead: { assignedToUserId: "01LEADAGENT" },
         property: null,
       }),
-    ).toEqual({ userId: "01LEADAGENT", source: "leads" });
-  });
-
-  it("קונה וליד בלי בעלים — הנכס מכריע", () => {
-    expect(
-      inboundNotificationOwner({
-        buyer: { ownerUserId: null },
-        lead: { assignedToUserId: null },
-        property: { agentUserId: "01PROPAGENT" },
-      }),
-    ).toEqual({ userId: "01PROPAGENT", source: "properties" });
+    ).toEqual([{ userId: "01LEADAGENT", source: "leads" }]);
   });
 
   /** ‏זה המקרה שנפל: לקוח שהוא **רק** בעל נכס. */
-  it("בעל נכס בלבד מקבל את סוכן הנכס — ולא null", () => {
+  it("בעל נכס בלבד מקבל את סוכן הנכס — ולא רשימה ריקה", () => {
     expect(
-      inboundNotificationOwner({
+      contactOwnerCandidates({
         buyer: null,
         lead: null,
         property: { agentUserId: "01PROPAGENT" },
       }),
-    ).toEqual({ userId: "01PROPAGENT", source: "properties" });
+    ).toEqual([{ userId: "01PROPAGENT", source: "properties" }]);
   });
 
   /*
-   * ‏הגבול: כשבאמת אין בעלים, `null` הוא התשובה הנכונה. התראה
+   * ‏הגבול: כשבאמת אין בעלים, רשימה ריקה היא התשובה הנכונה. התראה
    * ‏שאיש אינו רואה גרועה מהתראה משרדית — ומה שנשלל ממנה הוא
    * ‏התוכן, לא הקיום. את זה בודק ה-`describe` הבא.
    */
-  it("בלי אף מקור — null, ובכוונה", () => {
-    expect(inboundNotificationOwner({ buyer: null, lead: null, property: null })).toBeNull();
-    expect(
-      inboundNotificationOwner({
-        buyer: null,
-        lead: null,
-        property: { agentUserId: null },
-      }),
-    ).toBeNull();
+  it("בלי אף מקור — רשימה ריקה, ובכוונה", () => {
+    expect(contactOwnerCandidates({ buyer: null, lead: null, property: null })).toEqual([]);
   });
 });
 
 /**
- * ‎**וההתראה המשרדית — בלי תמצית.**
+ * ‎**ושתי השאילתות אינן מותנות עוד — בדיקה מבנית, ואומר זאת.**
  *
- * ‏`inboundNotificationOwner` מזהה בעלים כשיש; כאן נקבע מה קורה
- * ‏כשאין. נכס בלי סוכן משויך הוא המקרה שנשאר פתוח אחרי התיקון
- * ‏הקודם: הבעלים `null`, ההתראה מוצגת לכל המשרד, והתמצית של גוף
- * ‏המייל נסעה איתה — בזמן ש-`visibleContactIds` מסתיר את אותה
- * ‏שיחה מכל מי שאין לו `properties.view_all` (ביקורת Codex, P1).
+ * ‏הקיצור („אל תשאל על הליד אם לכרטיס הקונה יש בעלים”) היה נכון
+ * ‏כשהשאלה הייתה „מי משויך”. מרגע שהיא „מי משויך **ורשאי**”, אין
+ * ‏תנאי שמבטא אותו נכון: הפסילה נודעת רק אחרי שכל המועמדים ידועים,
+ * ‏והקיצור מנע מהמועמד הבא להיטען בכלל (ביקורת Codex).
+ *
+ * ‏`processInbound` נוגע באחסון, בשליחה וביצירת אנשי קשר, ומכשיר
+ * ‏מלא עבורו היה בודק הכול חוץ מהשורה הזו. לכן סריקת מקור, על
+ * ‏מגבלותיה: היא מוודאת שהתנאי לא יחזור.
  */
-/**
- * ‎**ושתי השאילתות אכן שואלות את הכלל הזה — בדיקה מבנית, ואומר זאת.**
- *
- * ‏`stillLookingForOwner` נבדק בהתנהגות למעלה, אבל מה שנשבר במקור
- * ‏היה **השימוש** בו: התנאי בשאילתות היה על קיום הכרטיס הקודם ולא
- * ‏על בעלותו. `processInbound` נוגע באחסון, בשליחה וביצירת אנשי
- * ‏קשר, ומכשיר מלא עבורו היה בודק הכול חוץ מהשורה הזו.
- *
- * ‏לכן זו סריקת מקור ולא בדיקת התנהגות, על מגבלותיה: היא מוודאת
- * ‏שהשאילתות מותנות בכלל המשותף ולא בתנאי מקומי, ואינה יכולה
- * ‏לוודא שהכלל הופעל על הארגומנטים הנכונים.
- */
-describe("שאילתות הבעלים מותנות בכלל המשותף", () => {
+describe("שאילתות הבעלים אינן מותנות זו בזו", () => {
   const source = readFileSync(
     join(import.meta.dirname, "email-inbox.service.ts"),
     "utf8",
   ).replace(/\/\*[\s\S]*?\*\//gu, "");
 
-  it("חיפוש הליד מותנה ב-`stillLookingForOwner`", () => {
-    expect(source).toContain("const lead = stillLookingForOwner(buyer?.ownerUserId)");
+  it("חיפוש הליד נעשה תמיד", () => {
+    expect(source).toContain("const lead = await tx.lead.findFirst({");
   });
 
-  it("וחיפוש הנכס — בשני המקורות שלפניו", () => {
-    expect(source).toContain(
-      "const property = stillLookingForOwner(buyer?.ownerUserId, lead?.assignedToUserId)",
-    );
+  it("וגם חיפוש הנכס", () => {
+    expect(source).toContain("const property = await tx.property.findFirst({");
+  });
+
+  it("ואין קיצור שמדלג על מקור לפי מקור שלפניו", () => {
+    expect(source).not.toContain("stillLookingForOwner");
   });
 });
 
@@ -361,12 +321,12 @@ describe("תוכן ההתראה על מייל נכנס", () => {
    * ‏לנכסים בלבד, ונשבר על הדרך הבאה פנימה.
    */
   it("הכלל תלוי בבעלים בלבד — לא במקור שממנו הוא נגזר", () => {
-    const owner = inboundNotificationOwner({
+    const owner = contactOwnerCandidates({
       buyer: { ownerUserId: null },
       lead: null,
       property: null,
-    });
-    expect(inboundNotificationContent(owner, SNIPPET).body).toBeNull();
+    })[0];
+    expect(inboundNotificationContent(owner?.userId ?? null, SNIPPET).body).toBeNull();
   });
 
   /*
@@ -374,11 +334,11 @@ describe("תוכן ההתראה על מייל נכנס", () => {
    * ‏בעלים אינו „חסר בעלים” — יש למי לשלוח, ולכן יש גם תמצית.
    */
   it("כשנמצא בעלים דרך מקור אחר — התמצית חוזרת", () => {
-    const owner = inboundNotificationOwner({
+    const owner = contactOwnerCandidates({
       buyer: { ownerUserId: null },
       lead: { assignedToUserId: "01LEADAGENT" },
       property: null,
-    });
-    expect(inboundNotificationContent(owner, SNIPPET).body).toBe(SNIPPET);
+    })[0];
+    expect(inboundNotificationContent(owner?.userId ?? null, SNIPPET).body).toBe(SNIPPET);
   });
 });

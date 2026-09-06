@@ -17,7 +17,6 @@ import {
 import {
   assertContactAccess,
   notifiableContactOwner,
-  stillLookingForOwner,
   visibleContactIds,
 } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -294,24 +293,23 @@ export class EmailInboxService {
         select: { id: true, ownerUserId: true },
       });
       /*
-       * ‎**„יש קונה” אינו „יש בעלים”.**
+       * ‎**שלושת המקורות תמיד — הדילוג עצמו היה הבאג, פעמיים.**
        *
-       * ‏הדילוג היה מותנה בקיום הכרטיס הקודם, ולא בכך שיש לו בעלים.
-       * ‏לקוח עם כרטיס קונה בלי `ownerUserId` וגם עם ליד משויך קיבל
-       * ‏אפוא `null` — הסדר נעצר על הכרטיס הריק, והסוכן שהליד שלו
-       * ‏איבד את ההתראה האישית ואת התמצית (ביקורת Codex).
+       * ‏בפעם הראשונה הוא היה מותנה בקיום הכרטיס הקודם ולא בבעלותו,
+       * ‏ולקוח עם כרטיס קונה חסר-בעלים וליד משויך קיבל `null`. תיקנתי
+       * ‏את התנאי, והוא נשבר שוב מסיבה עמוקה יותר: מרגע שהשאלה היא
+       * ‏„מי משויך **ורשאי**”, מועמד שנפסל חייב להוריש את התור —
+       * ‏והדילוג מנע מהבא אחריו להיטען בכלל (ביקורת Codex).
        *
-       * ‏התנאי הוא עכשיו על **הבעלים** ולא על הכרטיס, וזהו בדיוק
-       * ‏הסדר ש-`inboundNotificationOwner` מתאר: קונה, אחריו ליד,
-       * ‏אחריו נכס — כל אחד מהם עד שנמצא בעלים.
+       * ‏אין תנאי שמבטא זאת נכון, כי הפסילה נודעת רק אחרי שכל
+       * ‏המועמדים ידועים. לכן שלושתם נטענים, ו-`notifiableContactOwner`
+       * ‏בוחר את הראשון הכשר.
        */
-      const lead = stillLookingForOwner(buyer?.ownerUserId)
-        ? await tx.lead.findFirst({
-            where: { tenantId, contactId },
-            orderBy: { createdAt: "desc" },
-            select: { id: true, assignedToUserId: true },
-          })
-        : null;
+      const lead = await tx.lead.findFirst({
+        where: { tenantId, contactId },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, assignedToUserId: true },
+      });
       /*
        * ‎**ובעל נכס הוא גם בעלים — אחרת ההתראה עוקפת את כל ההפרדה.**
        *
@@ -321,27 +319,22 @@ export class EmailInboxService {
        * ‏לכל המשרד, כולל תמצית גוף המייל. כלומר בדיוק ההודעה
        * ‏שהסתרנו מהתיבה הייתה מוצגת בפיד (ביקורת Codex, P1).
        *
-       * ‏שאילתה שלישית ולא צירוף: היא נשאלת רק כשאין עדיין בעלים
-       * ‏מקונה ומליד, שהוא המקרה הנדיר.
-       *
        * ‎`agentUserId: { not: null }` הוא **העדפה, לא סינון**: ללקוח
        * ‏שיש לו גם נכס משויך וגם נכס שאינו משויך, הבעלים הוא הסוכן
        * ‏של המשויך. כשכל נכסיו אינם משויכים אין בעלים בכלל — ואת
        * ‏המקרה הזה סוגר `inboundNotificationContent`, בשלילת התוכן
        * ‏ולא בהוצאת שורה מהשאילתה.
        */
-      const property = stillLookingForOwner(buyer?.ownerUserId, lead?.assignedToUserId)
-        ? await tx.property.findFirst({
-            where: {
-              tenantId,
-              deletedAt: null,
-              OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
-              agentUserId: { not: null },
-            },
-            orderBy: { createdAt: "desc" },
-            select: { agentUserId: true },
-          })
-        : null;
+      const property = await tx.property.findFirst({
+        where: {
+          tenantId,
+          deletedAt: null,
+          OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
+          agentUserId: { not: null },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { agentUserId: true },
+      });
       /*
        * ‎**שיוך אינו הרשאה.** סוכן שמנהל המשרד חסם ממנו את מודול
        * ‏הקונים נשאר רשום על השורה, ולכן היה מקבל התראה אישית עם

@@ -47,7 +47,6 @@ import {
   assertContactAccess,
   notifiableContactOwner,
   officeRestrictsContactVisibility,
-  stillLookingForOwner,
 } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -1285,25 +1284,32 @@ export class TelephonyService {
       orderBy: { createdAt: "desc" },
       select: { ownerUserId: true },
     });
-    const lead = stillLookingForOwner(buyer?.ownerUserId)
-      ? await tx.lead.findFirst({
-          where: { tenantId, contactId },
-          orderBy: { createdAt: "desc" },
-          select: { assignedToUserId: true },
-        })
-      : null;
-    const property = stillLookingForOwner(buyer?.ownerUserId, lead?.assignedToUserId)
-      ? await tx.property.findFirst({
-          where: {
-            tenantId,
-            deletedAt: null,
-            OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
-            agentUserId: { not: null },
-          },
-          orderBy: { createdAt: "desc" },
-          select: { agentUserId: true },
-        })
-      : null;
+    /*
+     * ‎**שלושת המקורות תמיד, ובלי קיצור על „כבר נמצא בעלים”.**
+     *
+     * ‏הקיצור היה נכון כשהשאלה הייתה „מי משויך”. מרגע שהיא „מי
+     * ‏משויך **ורשאי**”, מקור שנפסל חייב להוריש את התור לבא אחריו —
+     * ‏והקיצור מנע מהבא אחריו להישאל בכלל: הליד של סוכן כשר מעולם
+     * ‏לא נטען, כי לכרטיס הקונה היה בעלים (חסום) (ביקורת Codex).
+     *
+     * ‏שתי שאילתות נוספות על מפתח מאונדקס, בשיחה נכנסת. זה המחיר
+     * ‏של תשובה נכונה, והוא זול מהקיצור.
+     */
+    const lead = await tx.lead.findFirst({
+      where: { tenantId, contactId },
+      orderBy: { createdAt: "desc" },
+      select: { assignedToUserId: true },
+    });
+    const property = await tx.property.findFirst({
+      where: {
+        tenantId,
+        deletedAt: null,
+        OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
+        agentUserId: { not: null },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { agentUserId: true },
+    });
     return notifiableContactOwner(tx, tenantId, { buyer, lead, property });
   }
 
