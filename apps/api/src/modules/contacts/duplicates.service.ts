@@ -184,10 +184,13 @@ export class DuplicatesService {
 
     return this.prisma.withTenant(async (tx) => {
       const [survivor, duplicate] = await Promise.all([
-        tx.contact.findFirst({ where: { id: survivorId, tenantId }, select: { id: true } }),
+        tx.contact.findFirst({
+          where: { id: survivorId, tenantId },
+          select: { id: true, sharedTabu: true },
+        }),
         tx.contact.findFirst({
           where: { id: duplicateId, tenantId },
-          select: { id: true, phoneEncrypted: true, phoneHash: true },
+          select: { id: true, phoneEncrypted: true, phoneHash: true, sharedTabu: true },
         }),
       ]);
       if (!survivor || !duplicate) throw new NotFoundException("כרטיס לא נמצא");
@@ -265,6 +268,28 @@ export class DuplicatesService {
           }
         }
         await tx.contactLink.delete({ where: { id: link.id } });
+      }
+
+      /*
+       * ‎**עובדה, ולא שורה מקושרת** (ביקורת Codex, P1).
+       *
+       * ‏המיזוג מעביר שורות שמצביעות על הכפיל — קונים, לידים,
+       * ‏נכסים, הודעות — ואז מוחק אותו. „טאבו משותף” אינו שורה
+       * ‏כזו: הוא **דגל על הכרטיס עצמו**, ולכן הוא נמחק יחד עם
+       * ‏הכפיל בלי שאיש שם לב.
+       *
+       * ‏והנזק דחוי: הכרטיס הממוזג נראה תקין, ורק בהמרה לנכס
+       * ‏מאוחר יותר האזהרה המשפטית פשוט לא מופיעה — בלי שום סימן
+       * ‏למה.
+       *
+       * ‎`||` ולא השמה: מיזוג אינו מקום להוריד סימון. מי מבין
+       * ‏השניים שסומן — הסימון נשאר.
+       */
+      if (duplicate.sharedTabu && !survivor.sharedTabu) {
+        await tx.contact.update({
+          where: { id: survivorId },
+          data: { sharedTabu: true },
+        });
       }
 
       await tx.contact.delete({ where: { id: duplicateId } });

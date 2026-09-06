@@ -174,6 +174,20 @@ describe("partnerPairs — מי נכנס", () => {
 });
 
 describe("partnerPairs — הדירוג והחלוקה", () => {
+  /*
+   * ‎**צמד מושלם מוצג כמושלם** (ביקורת Codex, P2).
+   *
+   * ‏מחיקת התקציב הותירה את הכיסוי נמדד מול משקל הליבה המלא,
+   * ‏שהתקציב הוא רבע ממנו — ולכן התקרה הייתה `0.5/0.75` = 67%,
+   * ‏לנצח. הרשימה הייתה מדורגת נכון ומוצגת שקר.
+   */
+  it("צמד שמתאים בכל הקריטריונים מקבל 100 ולא 67", () => {
+    const pairs = partnerPairs(PROPERTY, twoHalves());
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]!.score).toBe(100);
+    for (const partner of pairs[0]!.partners) expect(partner.score).toBe(100);
+  });
+
   it("החוליה החלשה קובעת את ציון הצמד", () => {
     /* ‏B מתאים פחות: חדרים בקצה הטווח מורידים את ציונו */
     const pairs = partnerPairs(PROPERTY, [

@@ -101,7 +101,21 @@ export function sharedTabuWhere(value: boolean | undefined): Prisma.PropertyWher
   if (value) {
     return { OR: [{ sharedTabu: true }, { propertyType: SHARED_TABU_PROPERTY_TYPE }] };
   }
-  return { sharedTabu: false, propertyType: { not: SHARED_TABU_PROPERTY_TYPE } };
+  /*
+   * ‎**`<> 'shared_tabu'` אינו נכון ל-`NULL`** (ביקורת Codex, P1).
+   *
+   * ‏ב-SQL כל השוואה ל-`NULL` היא `UNKNOWN`, ולכן `property_type
+   * ‏<> 'shared_tabu'` **מוציא** נכס בלי סוג — וטיוטות, שהן הרוב
+   * ‏של הנכסים בלי סוג, היו נעלמות מ„רישום נפרד” אף ש-
+   * ‏`isSharedTabuProperty` מסווג אותן בדיוק כך.
+   *
+   * ‏זו הסיבה שהטבלה המשותפת בבדיקה נושאת גם שורת `null`: בלעדיה
+   * ‏שתי הצורות מסכימות על כל מה שנבדק, ונפרדות בדיוק על מה שלא.
+   */
+  return {
+    sharedTabu: false,
+    OR: [{ propertyType: null }, { propertyType: { not: SHARED_TABU_PROPERTY_TYPE } }],
+  };
 }
 
 @Injectable()

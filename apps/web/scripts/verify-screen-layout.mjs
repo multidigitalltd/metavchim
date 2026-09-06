@@ -321,15 +321,23 @@ const draftsHandler = PROPERTIES.indexOf("onShowDrafts={() => {");
 if (draftsHandler === -1) {
   problems.push("‎`onShowDrafts` לא נמצא בעמוד הנכסים");
 } else {
-  const body = PROPERTIES.slice(draftsHandler, draftsHandler + 1400);
+  const body = PROPERTIES.slice(draftsHandler, draftsHandler + 2400);
   for (const [needle, what] of [
     ['setCity("הכל")', "עיר"],
     ['setType("")', "סוג נכס"],
-    ['setSharedTabu("")', "רישום"],
   ]) {
     if (!body.includes(needle)) {
       problems.push(`אריח „טיוטה להשלמה” אינו מנקה את סינון ה${what} — המונה סופר על הכול והרשימה תישאר מסוננת`);
     }
+  }
+  /*
+   * ‏ודווקא סינון הרישום **אינו** מתנקה: הוא רץ בשרת, ולכן המונה
+   * ‏עצמו כבר מסונן בו. ניקויו היה פותח רשימה גדולה מהמספר שנלחץ.
+   */
+  if (body.includes('setSharedTabu("")')) {
+    problems.push(
+      "אריח „טיוטה להשלמה” מנקה את סינון הרישום — המונה נספר תחתיו, והיעד יהיה גדול ממנו",
+    );
   }
   /* ‏והגלילה מחכה לרשימה, כי ניקוי סינון השרת מחזיר אותה ל„טוען” */
   if (!body.includes("setScrollToList(true)")) {
