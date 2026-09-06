@@ -105,6 +105,38 @@ export function leadIsVisible(assignedToUserId: string | null): boolean {
 }
 
 /**
+ * ‎**אותו כלל בדיוק, בצורת SQL — לשורה שנושאת `lead_id`.**
+ *
+ * ‏זו אינה הרחבה של `leadIsVisible` אלא התרגום שלו: שלושת הענפים
+ * ‏כאן הם שלושת הענפים שם, בסדר הזה. שיחה בלי `lead_id` אינה
+ * ‏נוגעת לכלל הזה כלל, ולכן היא עוברת.
+ *
+ * ‏`lead_id` שמצביע לשורה שאינה קיימת **אינו** חוסם — מחיקת ליד
+ * ‏מאפסת את העמודה (`LeadsService.remove`), ולכן שורה כזו היא
+ * ‏שריד ולא ליד של מישהו. חסימה כאן הייתה מעלימה תיעוד ישן בלי
+ * ‏שאיש יגן עליו, וזה בדיוק ההפך ממה שהכלל מבקש.
+ */
+export function visibleLeadCondition(alias: OrphanAlias): Prisma.Sql {
+  const ctx = TenantContext.current();
+  if (ctx.capabilities.has("leads.view_all")) return Prisma.sql`TRUE`;
+  const t = Prisma.raw(alias);
+  if (!ctx.capabilities.has("leads.view_own")) {
+    return Prisma.sql`
+      (${t}.lead_id IS NULL
+       OR NOT EXISTS (SELECT 1 FROM leads l
+                       WHERE l.tenant_id = ${t}.tenant_id
+                         AND l.id = ${t}.lead_id))`;
+  }
+  return Prisma.sql`
+    (${t}.lead_id IS NULL
+     OR NOT EXISTS (SELECT 1 FROM leads l
+                     WHERE l.tenant_id = ${t}.tenant_id
+                       AND l.id = ${t}.lead_id
+                       AND l.assigned_to_user_id IS NOT NULL
+                       AND l.assigned_to_user_id <> ${ctx.userId}))`;
+}
+
+/**
  * שערי גישה לישות בודדת **לפני פעולה עליה**.
  *
  * למה הם קיימים: `ownershipFilter` הוחל בעקביות על נתיבי הקריאה
@@ -971,6 +1003,17 @@ export async function assertPropertyOwnerAction(
 ): Promise<void> {
   await assertContactAccess(tx, tenantId, property.ownerContactId);
   const ctx = TenantContext.current();
+  /*
+   * ‎**חסימת המודול נבדקת כאן ישירות, ולא נסמכת על שער הלקוח.**
+   *
+   * ‏שער הלקוח הוא איחוד: אם הבעלים הוא גם הקונה שלי הוא עובר דרך
+   * ‏הקונה — גם כשמודול הנכסים חסום אצלי לגמרי — ואז ענף „הנכס
+   * ‏שלי” מאשר, כי הנכס באמת משויך אליי. כלומר בדיוק ההצרנה שהשער
+   * ‏הזה נבנה למנוע, בתוך השער עצמו (ביקורת Codex, P1).
+   */
+  if (!ctx.capabilities.has("properties.view")) {
+    throw new ForbiddenException("מודול הנכסים חסום עבורך — פנייה לבעלי נכסים נעשית דרך מנהל המשרד");
+  }
   if (ctx.capabilities.has("properties.view_all")) return;
   if (property.agentUserId === ctx.userId) return;
   throw new ForbiddenException(
@@ -985,8 +1028,20 @@ export function visibleCallsCondition(
   visible: string[] | null,
 ): Prisma.Sql {
   if (visible === null) return Prisma.sql`c.tenant_id = ${tenantId}`;
+  /*
+   * ‎**הליד חוסם, והלקוח פותח — ולכן `AND` ולא ענף נוסף ב-`OR`.**
+   *
+   * ‏הרשימה בנויה מאיחוד מקורות, ואיחוד אינו יכול לחסום: אותו אדם
+   * ‏יכול להיות הקונה שלי וגם הליד של עמית, ואז שיחה שהעמית ניהל
+   * ‏על **הליד שלו** נכנסה דרך כרטיס הקונה שלי. תנאי הליד יושב
+   * ‏מחוץ לאיחוד מפני שהוא מצמצם אותו, לא מרחיב (ביקורת Codex, P1).
+   *
+   * ‏ואותו תנאי בדיוק נבדק ב-`assertCallAccess`, דרך `leadIsVisible`
+   * ‏— שני ביטויים של כלל אחד, ולא שני כללים.
+   */
   return Prisma.sql`
     c.tenant_id = ${tenantId}
+    AND ${visibleLeadCondition("c")}
     AND (
          c.contact_id = ANY(${visible}::char(26)[])
       OR (c.created_by = ${userId} AND c.contact_id IS NULL)

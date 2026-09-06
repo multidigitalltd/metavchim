@@ -5,6 +5,7 @@ import {
   assertContactAccess,
   isOrphanContact,
   leadOwnershipFilter,
+  leadIsVisible,
   seesAllContacts,
   visibleCallsCondition,
   visibleContactIds,
@@ -427,12 +428,38 @@ export class CallsService {
     const { tenantId, userId } = TenantContext.current();
     const row = await tx.call.findFirst({
       where: { id, tenantId },
-      select: { contactId: true, createdBy: true },
+      select: { contactId: true, createdBy: true, leadId: true },
     });
     if (!row) throw new NotFoundException("שיחה לא נמצאה");
 
     // אותו ניסוח בדיוק כמו ברשימה — לא עותק שלו
     if (seesAllContacts()) return;
+
+    /*
+     * ‎**שיחה שמשויכת לליד נשפטת לפי הליד, ולא לפי הלקוח.**
+     *
+     * ‏שער הלקוח הוא **איחוד** מקורות. אותו אדם יכול להיות הקונה
+     * ‏שלי וגם הליד של עמית, ואז שיחה שהעמית ניהל על **הליד שלו**
+     * ‏עברה דרך כרטיס הקונה שלי. והשער הזה אינו רק לצפייה: `remove`,
+     * ‏`attachRecording` ושני הניסיונות החוזרים נשענים עליו, כלומר
+     * ‏אפשר היה **למחוק את תיעוד השיחה של עמית** (ביקורת Codex, P1).
+     *
+     * ‏ליד לא-משויך הוא הערימה המשותפת ונשאר גלוי — `leadIsVisible`
+     * ‏הוא אותו כלל של רשימת הלידים, ולא עותק שלו.
+     */
+    /*
+     * ‎ ולא `!== null`: שדה שלא נשלף כלל הוא `undefined`,
+     * ‏והשוואה ל-`null` לבדה הייתה שולחת אותנו לחפש ליד בלי מזהה.
+     */
+    if (typeof row.leadId === "string") {
+      const lead = await tx.lead.findFirst({
+        where: { id: row.leadId, tenantId },
+        select: { assignedToUserId: true },
+      });
+      if (lead !== null && !leadIsVisible(lead.assignedToUserId)) {
+        throw new NotFoundException("שיחה לא נמצאה");
+      }
+    }
     /*
      * „אני רשמתי” — רק על שיחה בלי בעלים, כמו ברשימה. שיחה בלי
      * איש קשר, או עם לקוח שאינו כרטיס של איש.

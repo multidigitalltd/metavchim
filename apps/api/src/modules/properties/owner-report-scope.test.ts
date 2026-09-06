@@ -143,15 +143,21 @@ describe("הנכס שלי, אבל המודול חסום", () => {
   /** ‏בלי `properties.view`: המודול חסום, ואין דרך אחרת ללקוח. */
   const NO_MODULE: Capability[] = ["buyers.view_own", "leads.view_own"];
 
-  it("שליחה נדחית גם על הנכס שלי", async () => {
+  /*
+   * ‏ה-`alsoMyBuyer` כאן אינו קישוט: בלעדיו שער הלקוח נופל ממילא,
+   * ‏והבדיקה מאשרת דחייה שהייתה קורית גם בלי השער הנבדק. עם כרטיס
+   * ‏קונה שלי הלקוח **עובר** את האיחוד, וענף „הנכס שלי” היה מאשר —
+   * ‏ולכן זה המקרה היחיד שבו בדיקת המודול היא ההבדל.
+   */
+  it("שליחה נדחית גם על הנכס שלי, גם כשהלקוח הוא הקונה שלי", async () => {
     await expect(
       asUser(ME, NO_MODULE, () =>
-        serviceFor(ME, []).sendToOwner("01PROP", {}, {
+        serviceFor(ME, [], true).sendToOwner("01PROP", {}, {
           channel: "whatsapp",
           periodLabel: "החודש",
         }),
       ),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/מודול הנכסים חסום/u);
   });
 });
 
