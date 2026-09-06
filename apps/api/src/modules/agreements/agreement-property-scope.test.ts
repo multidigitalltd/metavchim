@@ -219,6 +219,53 @@ describe("הסכם על הנכס של עמית — הלקוח לבדו אינו 
     );
     expect(rows.map((row) => row.id)).toEqual([OTHERS.id, OFFICE.id]);
   });
+
+  /*
+   * ‎**ובלעדיות בלי נכס — עקיפה, לא שדה חסר** (ביקורת Codex, P1,
+   * ‏סבב שני).
+   *
+   * ‏`assertPropertyRecordScope` נסוג לשער הלקוח כשאין `propertyId`,
+   * ‏וזה נכון להזמנה בכתב. בבלעדיות זה פותח דלת: אותו סוכן, אותו
+   * ‏לקוח משותף, בלי מזהה נכס — ואת הנכס של העמית הוא מתאר בטקסט
+   * ‏חופשי דרך `values`, שנפרס לתוך המסמך.
+   */
+  it("בלעדיות בלי מזהה נכס נדחית — גם עם תיאור נכס בטקסט חופשי", async () => {
+    const service = agreementsService([]);
+    await expect(
+      asUser(SCOPED, () =>
+        service.create(txFor([]) as never, {
+          kind: "exclusivity",
+          contactId: SHARED,
+          values: {
+            תיאור_הנכס: "דירת 4 חדרים ברעננה, אחוזה 12",
+            מחיר_משוער: "2,400,000 ₪",
+            תקופת_בלעדיות: "6 חודשים",
+          },
+        }),
+      ),
+    ).rejects.toThrow(/נכס מסוים/u);
+  });
+
+  /*
+   * ‏והצד השני, שבלעדיו „דחה הכול” היה עובר: הזמנה בכתב **היא**
+   * ‏התקשרות עם אדם, ובלי נכס היא תקינה לגמרי.
+   */
+  it("והזמנה בכתב בלי נכס עוברת את השער", async () => {
+    const service = agreementsService([]);
+    /*
+     * ‏„עוברת את השער” ולא „מצליחה”: `create` ממשיכה משם לתבנית
+     * ‏ולכתיבה, שהפיקסצ׳ר כאן אינו מדמה. מה שנבדק הוא שהיא אינה
+     * ‏נעצרת **בשער החדש** — בדיקה שדורשת הצלחה מלאה הייתה מודדת
+     * ‏את הפיקסצ׳ר.
+     */
+    const error = await asUser(DEFAULT, () =>
+      service
+        .create(txFor([]) as never, { kind: "brokerage", contactId: SHARED })
+        .then(() => null)
+        .catch((err: unknown) => (err instanceof Error ? err.message : String(err))),
+    );
+    expect(error ?? "").not.toMatch(/נכס מסוים/u);
+  });
 });
 
 /**

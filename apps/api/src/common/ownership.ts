@@ -560,11 +560,11 @@ export async function officeRestrictsContactVisibility(
  * ‏מי שאינו רשאי, ואז `null` — שכבר פירושו „התראה משרדית בלי
  * ‏תוכן” אצל שני הקוראים — הוא התשובה הבטוחה מאליה.
  */
-export async function notifiableContactOwner(
+export async function notifiableContactOwnerSource(
   tx: TenantTx,
   tenantId: string,
   sources: ContactOwnerSources,
-): Promise<string | null> {
+): Promise<ContactOwner | null> {
   const candidates = contactOwnerCandidates(sources);
   if (candidates.length === 0) return null;
   /*
@@ -579,9 +579,25 @@ export async function notifiableContactOwner(
   for (const candidate of candidates) {
     // ‏משתמש שאינו פעיל אינו מוחזר מהשליפה — ומי שאינו פעיל אינו נמען
     const set = caps.get(candidate.userId);
-    if (set !== undefined && contactSourcesOf(set)[candidate.source]) return candidate.userId;
+    if (set !== undefined && contactSourcesOf(set)[candidate.source]) return candidate;
   }
   return null;
+}
+
+/**
+ * ‎**ורק המזהה — לקורא שאינו מקשר לשום כרטיס.**
+ *
+ * ‏היטל של `notifiableContactOwnerSource`, לא ניסוח שני שלו. מי
+ * ‏שכותב **קישור** להתראה חייב לדעת **דרך איזה מקור** נבחר הנמען,
+ * ‏אחרת הוא מקשר לכרטיס שהנמען אינו רשאי לפתוח — ראו את הפונקציה
+ * ‏שמעל.
+ */
+export async function notifiableContactOwner(
+  tx: TenantTx,
+  tenantId: string,
+  sources: ContactOwnerSources,
+): Promise<string | null> {
+  return (await notifiableContactOwnerSource(tx, tenantId, sources))?.userId ?? null;
 }
 
 export function assertSeesAllContacts(): void {
@@ -1083,16 +1099,60 @@ export async function actionablePropertyIds(
   tenantId: string,
   ids: readonly string[],
 ): Promise<Set<string> | null> {
-  const ctx = TenantContext.current();
-  if (ctx.capabilities.has("properties.view_all") && ctx.capabilities.has("properties.view")) {
-    return null;
-  }
-  if (!ctx.capabilities.has("properties.view") || ids.length === 0) return new Set();
+  const reach = propertyReach();
+  if (reach === "all") return null;
+  if (reach === "none" || ids.length === 0) return new Set();
   const rows = await tx.property.findMany({
-    where: { id: { in: [...ids] }, tenantId, agentUserId: ctx.userId },
+    where: { id: { in: [...ids] }, tenantId, agentUserId: TenantContext.current().userId },
     select: { id: true },
   });
   return new Set(rows.map((row) => row.id));
+}
+
+/**
+ * ‎**עד היכן מגיעה הרשות שלי בנכסים** — שלוש תשובות, מקום אחד.
+ *
+ * ‏קיים כי לאותה שאלה יש שתי צורות: סינון של רשימה שכבר בידי
+ * ‏(`actionablePropertyIds`), ותנאי `where` שרץ **לפני** התקרה
+ * ‏(`actionablePropertyWhere`). שתי הצורות נחוצות, שני **כללים**
+ * ‏לא — ולכן ההכרעה עצמה יושבת כאן, והן נבדקות זו מול זו.
+ */
+type PropertyReach = "all" | "own" | "none";
+
+function propertyReach(): PropertyReach {
+  const ctx = TenantContext.current();
+  if (!ctx.capabilities.has("properties.view")) return "none";
+  return ctx.capabilities.has("properties.view_all") ? "all" : "own";
+}
+
+/**
+ * ‎**אותו כלל, כתנאי שאילתה — כדי שהוא ירוץ לפני `take`**
+ * ‏(ביקורת Codex, P2).
+ *
+ * ‏`actionablePropertyIds` מסנן רשימה **שכבר נשלפה**, ולכן כשהוא
+ * ‏בא אחרי `take: 200` הוא מסנן את המאתיים ולא את המאגר: מאתיים
+ * ‏הסכמים חדשים על נכסים של עמיתים מילאו את החלון, נמחקו כאן,
+ * ‏והתור חזר ריק בזמן שהסכמים ישנים יותר **שלי** המתינו מחוצה לו.
+ *
+ * ‏שורה בלי נכס עוברת תמיד: הבעלות עליה נגזרת מהלקוח, וזה כבר
+ * ‏נבדק בשלב `visibleContactIds`.
+ *
+ * ‏מחיר: בענף „שלי” נשלפת רשימת מזהי הנכסים שלי לתוך `in`. זה
+ * ‏רץ רק למי שאין לו `properties.view_all` — כלומר על תת-קבוצה של
+ * ‏המשרד, על עמודה מאונדקסת.
+ */
+export async function actionablePropertyWhere(
+  tx: TenantTx,
+  tenantId: string,
+): Promise<Prisma.AgreementWhereInput> {
+  const reach = propertyReach();
+  if (reach === "all") return {};
+  if (reach === "none") return { propertyId: null };
+  const mine = await tx.property.findMany({
+    where: { tenantId, agentUserId: TenantContext.current().userId },
+    select: { id: true },
+  });
+  return { OR: [{ propertyId: null }, { propertyId: { in: mine.map((row) => row.id) } }] };
 }
 
 export function visibleCallsCondition(

@@ -5,6 +5,7 @@ import { publicNotification } from "./telephony.service";
 import {
   contactOwnerCandidates,
   notifiableContactOwner,
+  notifiableContactOwnerSource,
   officeRestrictsContactVisibility,
 } from "../../common/ownership";
 
@@ -629,5 +630,104 @@ describe("‏שני הענפים עוברים דרך אותה פונקציה", (
       expect(block).toMatch(/entityType:/u);
       expect(block).not.toContain("publicNotification(");
     }
+  });
+});
+
+/**
+ * ‎**והקישור הוא של המקור שדרכו נבחר הנמען** (ביקורת Codex).
+ *
+ * ‏`notifiableContactOwner` כבר מדלגת על בעלים שאינו רשאי ועוברת
+ * ‏למקור הבא — אבל מי שכותב את **הקישור** לא ידע דרך איזה מקור
+ * ‏נבחר הנמען, וגזר אותו מ„יש כרטיס קונה”. התוצאה: סוכן הליד קיבל
+ * ‏התראה אישית שמקשרת לכרטיס הקונה של עמיתו, כרטיס שאינו יכול
+ * ‏לפתוח, בזמן שהליד שלו — שאותו כן — לא היה היעד.
+ *
+ * ‏`notifiableContactOwnerSource` מחזירה את המועמד השלם, ו-
+ * ‏`notifiableContactOwner` היא היטל שלה. שתי צורות, החלטה אחת.
+ */
+describe("המקור שדרכו נבחר הנמען חוזר איתו", () => {
+  const OWNER_OF_CARD = "01USERAGENTAAAAAAAAAAAAAAA";
+  const OTHER: FakeUser = { id: "01USERAGENTBBBBBBBBBBBBBBB", role: "agent" };
+
+  function deny(capability: string): FakeUser {
+    return { ...AGENT, overrides: [{ capability, effect: "deny", expiresAt: null }] };
+  }
+
+  it("סוכן הקונה נבחר — והמקור הוא הקונים", async () => {
+    expect(
+      await notifiableContactOwnerSource(txWith([AGENT]) as never, TENANT, {
+        buyer: { ownerUserId: OWNER_OF_CARD },
+        lead: { assignedToUserId: OTHER.id },
+        property: null,
+      }),
+    ).toEqual({ userId: OWNER_OF_CARD, source: "buyers" });
+  });
+
+  /*
+   * ‎**זה המקרה שהממצא תיאר.** יש כרטיס קונה, ולכן הקישור נגזר
+   * ‏ממנו — אבל הנמען בפועל הוא סוכן הליד, שאינו רשאי לפתוח אותו.
+   */
+  it("סוכן קונה חסום — הנמען הוא סוכן הליד, והמקור הוא הלידים", async () => {
+    expect(
+      await notifiableContactOwnerSource(
+        txWith([deny("buyers.view_own"), OTHER]) as never,
+        TENANT,
+        {
+          buyer: { ownerUserId: OWNER_OF_CARD },
+          lead: { assignedToUserId: OTHER.id },
+          property: null,
+        },
+      ),
+    ).toEqual({ userId: OTHER.id, source: "leads" });
+  });
+
+  it("ובלי נמען — אין מקור", async () => {
+    expect(
+      await notifiableContactOwnerSource(txWith([AGENT]) as never, TENANT, {
+        buyer: null,
+        lead: null,
+        property: null,
+      }),
+    ).toBeNull();
+  });
+
+  /* ‏וההיטל מסכים עם הצורה המלאה, אחרת אלה שני כללים */
+  it("‏`notifiableContactOwner` הוא היטל ולא ניסוח שני", async () => {
+    const sources = {
+      buyer: { ownerUserId: OWNER_OF_CARD },
+      lead: { assignedToUserId: OTHER.id },
+      property: null,
+    };
+    for (const users of [[AGENT, OTHER], [deny("buyers.view_own"), OTHER], [deny("buyers.view_own"), deny("leads.view_own")]]) {
+      const full = await notifiableContactOwnerSource(txWith(users) as never, TENANT, sources);
+      const projected = await notifiableContactOwner(txWith(users) as never, TENANT, sources);
+      expect(projected).toBe(full?.userId ?? null);
+    }
+  });
+});
+
+/**
+ * ‏ובתיבת הדואר: הקישור נגזר מהמקור, והשורה המשרדית — שאין לה
+ * ‏בעלים ולכן גם אין לה תוכן — אינה נושאת מצביע כלל. זו אותה
+ * ‏דליפה שתוקנה בהתראות המרכזייה, בקובץ אחר.
+ */
+describe("‏מצביע ההתראה בתיבת הדואר", () => {
+  const INBOX = readFileSync(
+    join(__dirname, "..", "email-inbox", "email-inbox.service.ts"),
+    "utf8",
+  );
+
+  it("‏המצביע נגזר מהמקור שנבחר, ולא מ„יש כרטיס”", () => {
+    const at = INBOX.indexOf('type: "email_reply"');
+    expect(at, "התראת התשובה במייל נעלמה").toBeGreaterThan(0);
+    const block = INBOX.slice(at, at + 1600);
+    expect(block).toContain('owner?.source === "buyers"');
+    expect(block).toContain('owner?.source === "leads"');
+  });
+
+  it("‏ובלי בעלים — אין מצביע, כמו שאין תוכן", () => {
+    /* ‏`owner?.source` על `null` הוא `undefined`, ולכן שני הענפים נופלים */
+    expect(INBOX).toContain("const ownerUserId = owner?.userId ?? null;");
+    expect(INBOX).not.toContain('? { entityType: "buyer", entityId: buyer.id }\n            : lead !== null');
   });
 });

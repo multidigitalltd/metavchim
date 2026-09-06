@@ -7,9 +7,10 @@ import {
 } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
-import { AGREEMENT_KIND_LABELS, jerusalemDayStart, pendingAgreementRank, pendingAgreementState, REQUIRED_PLACEHOLDERS, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, type PendingAgreementState, whatsappLink } from "@metavchim/shared";
+import { AGREEMENT_KIND_LABELS, agreementRequiresProperty, jerusalemDayStart, pendingAgreementRank, pendingAgreementState, REQUIRED_PLACEHOLDERS, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, type PendingAgreementState, whatsappLink } from "@metavchim/shared";
 import {
   actionablePropertyIds,
+  actionablePropertyWhere,
   assertPropertyRecordScope,
   contactGateFor,
   orphanContactCondition,
@@ -269,6 +270,30 @@ export class AgreementsService {
      * ‏שקונה דרכי ומוכר דרך עמית פתח דרכי הסכם בלעדיות על הנכס של
      * ‏העמית (ביקורת Codex, P1).
      */
+    /*
+     * ‎**וסוג שהוא „על נכס” חייב נכס — אחרת השער נסוג מעצמו**
+     * ‏(ביקורת Codex, P1, סבב שני).
+     *
+     * ‏`assertPropertyRecordScope` בודק את הנכס **כשיש** נכס, ובלי
+     * ‏`propertyId` הוא חוזר מיד אחרי שער הלקוח. להזמנה בכתב זה
+     * ‏נכון — היא התקשרות עם אדם. לבלעדיות זה לא: היא נִתנת על חלקה
+     * ‏מסוימת, ולכן השמטת המזהה אינה שדה חסר אלא **עקיפה**.
+     *
+     * ‏מה שהיה אפשרי: סוכן שרואה לקוח דרך כרטיס קונה משלו הפיק
+     * ‏עליו הסכם בלעדיות בלי `propertyId`, ותיאר את הנכס של העמית
+     * ‏בטקסט חופשי — `תיאור_הנכס`, `מחיר_משוער` ו-`תקופת_בלעדיות`
+     * ‏נפרסים מ-`input.values` לתוך המסמך, והתוצאה היא מסמך
+     * ‏בלעדיות לחתימה על נכס שאינו שלו.
+     *
+     * ‏כאן ולא בסכמת הבקר: לשירות שני קוראים (הבקר, ושער ההצעות),
+     * ‏ורק אחד מהם עובר בסכמה.
+     */
+    if (agreementRequiresProperty(input.kind) && (input.propertyId ?? null) === null) {
+      throw new BadRequestException(
+        `${AGREEMENT_KIND_LABELS[input.kind]} נִתן על נכס מסוים — בחרו את הנכס`,
+      );
+    }
+
     await assertPropertyRecordScope(
       tx,
       tenantId,
@@ -910,12 +935,25 @@ export class AgreementsService {
     const visible = await visibleContactIds(tx, tenantId);
     if (visible !== null && visible.length === 0) return [];
 
+    /*
+     * ‎**היקף הנכס בשאילתה, לפני התקרה** (ביקורת Codex, P2).
+     *
+     * ‏הסינון היה כאן למטה, אחרי `take: 200`, ולכן הוא סינן את
+     * ‏המאתיים ולא את המאגר: מאתיים הסכמים חדשים על נכסים של עמיתים
+     * ‏מילאו את החלון, נמחקו, והתור חזר ריק בזמן שהסכמים ישנים יותר
+     * ‏**שלי** המתינו מחוצה לו. אותו כלל בדיוק —
+     * ‏`actionablePropertyWhere` הוא התאום של `actionablePropertyIds`,
+     * ‏והשניים נבדקים זה מול זה.
+     */
+    const propertyScope = await actionablePropertyWhere(tx, tenantId);
+
     const rows = await tx.agreement.findMany({
       where: {
         tenantId,
         // הסכם מנותק (הלקוח נמחק) הוא ארכיון חתום, לא ממתין
         contactId: visible === null ? { not: null } : { in: visible },
         status: { in: ["pending", "viewed", "declined"] },
+        ...propertyScope,
       },
       orderBy: { createdAt: "desc" },
       select: {
@@ -934,19 +972,11 @@ export class AgreementsService {
     if (rows.length === 0) return [];
 
     /*
-     * ‎**ואותו סינון כמו ב-`listForContact`.** התור הזה נושא גם הוא
-     * ‏`publicToken` לכל שורה, ולכן הסכם על נכס של עמית היה מגיע
-     * ‏לתור שלי עם קישור החתימה שלו (ביקורת Codex, P1).
+     * ‏הסינון עצמו כבר רץ בשאילתה למעלה. התור נושא `publicToken`
+     * ‏לכל שורה, ולכן הסכם על נכס של עמית היה מגיע לתור שלי עם
+     * ‏קישור החתימה שלו (ביקורת Codex, P1).
      */
-    const allowed = await actionablePropertyIds(
-      tx,
-      tenantId,
-      rows.map((row) => row.propertyId).filter((id): id is string => id !== null),
-    );
-    const scoped =
-      allowed === null
-        ? rows
-        : rows.filter((row) => row.propertyId === null || allowed.has(row.propertyId));
+    const scoped = rows;
     if (scoped.length === 0) return [];
 
     // שאילתה אחת לכל השמות, לא אחת לשורה

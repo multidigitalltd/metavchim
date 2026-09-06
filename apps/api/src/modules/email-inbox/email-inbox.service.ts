@@ -16,7 +16,7 @@ import {
 } from "@metavchim/shared";
 import {
   assertContactAccess,
-  notifiableContactOwner,
+  notifiableContactOwnerSource,
   visibleContactIds,
 } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -342,7 +342,8 @@ export class EmailInboxService {
        * ‏Codex, P1). הבדיקה יושבת בזיהוי עצמו, ולכן `null` כאן
        * ‏פירושו כרגיל — התראה משרדית בלי תוכן.
        */
-      const ownerUserId = await notifiableContactOwner(tx, tenantId, { buyer, lead, property });
+      const owner = await notifiableContactOwnerSource(tx, tenantId, { buyer, lead, property });
+      const ownerUserId = owner?.userId ?? null;
       const snippet =
         body === ""
           ? `📎 ${incoming.length} קבצים מצורפים`
@@ -372,9 +373,27 @@ export class EmailInboxService {
           type: "email_reply",
           title: content.title,
           body: content.body,
-          ...(buyer !== null
+          /*
+           * ‎**הקישור הוא של המקור שדרכו נבחר הנמען** (ביקורת Codex).
+           *
+           * ‏קודם הוא נגזר מ„יש כרטיס קונה”, בלי קשר לשאלה מי מקבל
+           * ‏את ההתראה. `notifiableContactOwnerSource` כבר מדלגת על
+           * ‏בעלים שאינו רשאי ועוברת למקור הבא — כלומר סוכן הליד
+           * ‏קיבל התראה שמקשרת לכרטיס הקונה של עמיתו, כרטיס שאינו
+           * ‏יכול לפתוח, בזמן שהליד שלו — שאותו כן — אינו היעד.
+           *
+           * ‏ומקור „נכס” אינו מקשר לשום כרטיס כאן: הוא נבחר דרך
+           * ‏הנכס, וההתראה הזו היא על תשובה במייל.
+           *
+           * ‎**ובלי בעלים — בלי קישור בכלל.** זו שורה משרדית
+           * ‏(`userId: null`), ו-`inboundNotificationContent` כבר
+           * ‏מוריד ממנה את התוכן. מצביע שנשאר הוא בדיוק אותה דליפה
+           * ‏שתוקנה בהתראות המרכזייה: העובד מפענח ממנו שם וטלפון
+           * ‏פר-נמען, תחת יכולת אחרת מזו שהסתירה את התוכן.
+           */
+          ...(owner?.source === "buyers" && buyer !== null
             ? { entityType: "buyer", entityId: buyer.id }
-            : lead !== null
+            : owner?.source === "leads" && lead !== null
               ? { entityType: "lead", entityId: lead.id }
               : {}),
         },
