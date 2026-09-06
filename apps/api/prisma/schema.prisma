@@ -98,6 +98,7 @@ model Tenant {
 
   users                       User[]
   properties                  Property[]
+  funnelEnrollments           FunnelEnrollment[]
   whatsappLinks               WhatsAppLink[]
   whatsappBusinessConnections WhatsAppBusinessConnection[]
 
@@ -3362,6 +3363,9 @@ model FunnelEnrollment {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   messages FunnelMessage[]
+  /// היחס קיים כדי שאפשר יהיה לשאול "משרד בלי רישום" **בשאילתה**
+  /// ולא בסינון אחרי שליפה — ראו `FunnelEnrollmentService.enrollDue`.
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   /// **רישום חי אחד לכל מסלול — ולא אחד לתמיד.**
   ///

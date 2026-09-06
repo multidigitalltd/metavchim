@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   FUNNEL_DEFAULT_DAILY_ENTRIES,
+  FUNNEL_FRESH_SIGNUP_HOURS,
   funnelEntryPlan,
   funnelExitReason,
   hasValidCard,
@@ -60,10 +61,12 @@ export class FunnelEnrollmentService {
    */
   async sweep(
     now: Date,
-    dailyQuota = FUNNEL_DEFAULT_DAILY_ENTRIES,
+    options: { dailyQuota?: number; pageSize?: number } = {},
   ): Promise<{ enrolled: number; closed: number }> {
-    const enrolled = await this.enrollDue(now, dailyQuota);
-    const closed = await this.closeFinished(now);
+    const dailyQuota = options.dailyQuota ?? FUNNEL_DEFAULT_DAILY_ENTRIES;
+    const pageSize = options.pageSize ?? PAGE;
+    const enrolled = await this.enrollDue(now, dailyQuota, pageSize);
+    const closed = await this.closeFinished(now, pageSize);
     if (enrolled > 0 || closed > 0) {
       this.logger.log(`מסלול ההמרה: ${enrolled} נכנסו, ${closed} נסגרו`);
     }
@@ -73,38 +76,60 @@ export class FunnelEnrollmentService {
   /**
    * ‎**הכנסה למשפך ההמרה.**
    *
-   * ‏מועמד = משרד בניסיון שאין לו רישום חי במסלול הזה **ומעולם לא
-   * היה לו אחד**. השני אינו מיותר: משרד שסיים את המשפך (או שילם
-   * ויצא) אינו אמור להיכנס שוב בסבב הבא ולקבל את „יום 0” מחדש.
+   * ‏מועמד = משרד בניסיון שאין לו רישום במסלול הזה **ומעולם לא היה
+   * לו אחד**. השני אינו מיותר: משרד שסיים את המשפך (או שילם ויצא)
+   * אינו אמור להיכנס שוב בסבב הבא ולקבל את „יום 0” מחדש.
+   *
+   * ## ‎**ההוצאה נעשית בשאילתה, ולא אחרי השליפה**
+   *
+   * ‏הגרסה הראשונה שלפה 200 משרדים ואז סיננה מהם את מי שכבר רשום.
+   * ‏ברגע ש-200 הוותיקים ביותר נכנסו, כל סבב שלף שוב בדיוק אותם,
+   * הסינון ריקן את הרשימה, והפונקציה חזרה עם 0 — **והמשפך הפסיק
+   * לקלוט לנצח**, כולל הרשמות טריות שאמורות לעקוף כל מכסה
+   * (ביקורת Codex, P1). `take` הוא גודל דף, לא תקרת עבודה.
+   *
+   * ## ‏שתי שאילתות ולא אחת
+   *
+   * ‏הכלל אומר „טריים מיד, ותיקים לפי מכסה”, והמיון שמשרת את אחד
+   * מהם פוגע בשני: מיון מהישן לחדש דוחק הרשמה טרייה אל מעבר לדף.
+   * ‏לכן כל קבוצה נשלפת בסדר שלה, והכלל המשותף מרכיב אותן.
    */
-  private async enrollDue(now: Date, dailyQuota: number): Promise<number> {
-    const candidates = await this.prisma.tenant.findMany({
-      where: {
-        status: "trial",
-        /*
-         * ‏משרד ללא תפוגת ניסיון הוקם ידנית — הוא אינו במסלול
-         * מכירה, ואינו אמור לקבל „נשארו יומיים” על תקופה שאין לה סוף.
-         */
-        trialEndsAt: { not: null },
-      },
-      select: { id: true, createdAt: true },
-      orderBy: { createdAt: "asc" },
-      take: PAGE,
+  private async enrollDue(now: Date, dailyQuota: number, pageSize: number): Promise<number> {
+    /*
+     * ‏משרד ללא תפוגת ניסיון הוקם ידנית — הוא אינו במסלול מכירה,
+     * ואינו אמור לקבל „נשארו יומיים” על תקופה שאין לה סוף.
+     *
+     * ‎`funnelEnrollments: { none: … }` הוא מה שהופך את זה לנכון בכל
+     * גודל קטלוג. הוא מחייב את השאילתה לרוץ בתוך `withFunnelAdmin`:
+     * ‏`funnel_enrollments` תחת RLS, ובלי הדגל הצירוף לא היה רואה
+     * אף שורה — כלומר **כולם** היו נראים כמי שטרם נרשמו.
+     */
+    const eligible = {
+      status: "trial",
+      trialEndsAt: { not: null },
+      funnelEnrollments: { none: { track: "conversion" } },
+    } as const;
+    const freshFrom = new Date(now.getTime() - FUNNEL_FRESH_SIGNUP_HOURS * 60 * 60 * 1000);
+
+    const candidates = await this.prisma.withFunnelAdmin(async (tx) => {
+      const fresh = await tx.tenant.findMany({
+        where: { ...eligible, createdAt: { gte: freshFrom } },
+        select: { id: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+        take: pageSize,
+      });
+      const backlog = await tx.tenant.findMany({
+        where: { ...eligible, createdAt: { lt: freshFrom } },
+        select: { id: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+        take: Math.max(dailyQuota, 0),
+      });
+      return [...fresh, ...backlog];
     });
     if (candidates.length === 0) return 0;
 
-    const already = await this.prisma.withFunnelAdmin((tx) =>
-      tx.funnelEnrollment.findMany({
-        where: { tenantId: { in: candidates.map((t) => t.id) }, track: "conversion" },
-        select: { tenantId: true },
-      }),
-    );
-    const seen = new Set(already.map((row) => row.tenantId));
-    const fresh = candidates.filter((tenant) => !seen.has(tenant.id));
-    if (fresh.length === 0) return 0;
-
     let enrolled = 0;
-    for (const tenant of funnelEntryPlan(fresh, dailyQuota, now)) {
+    for (const tenant of funnelEntryPlan(candidates, dailyQuota, now)) {
       /*
        * ‎**`startedAt` הוא `now`, ולא `tenant.createdAt`.**
        *
@@ -148,18 +173,43 @@ export class FunnelEnrollmentService {
    * — טעות אחת בתנאי השליחה הייתה שולחת לו „נשארו יומיים” אחרי
    * שכבר שילם.
    */
-  private async closeFinished(now: Date): Promise<number> {
-    const live = await this.prisma.withFunnelAdmin((tx) =>
-      tx.funnelEnrollment.findMany({
-        where: { endedAt: null },
-        select: { id: true, tenantId: true, track: true, startedAt: true },
-        orderBy: { startedAt: "asc" },
-        take: PAGE,
-      }),
-    );
-    if (live.length === 0) return 0;
-
+  private async closeFinished(now: Date, pageSize: number): Promise<number> {
     const stages = await this.stages.all();
+    let closed = 0;
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await this.prisma.withFunnelAdmin((tx) =>
+        tx.funnelEnrollment.findMany({
+          where: { endedAt: null },
+          select: { id: true, tenantId: true, track: true, startedAt: true },
+          /*
+           * ‎**סמן, ולא `take` שמתחזה לתקרת עבודה.**
+           *
+           * ‏מיון לפי `startedAt` עם `take: 200` קרא בכל סבב בדיוק
+           * את אותם 200 הרישומים הישנים. כל עוד הם פתוחים — וכולם
+           * פתוחים, כי כל השלבים נזרעו כבויים — אף רישום מאוחר לא
+           * נבדק, ומשרד שהזין כרטיס לא היה נסגר לעולם (ביקורת
+           * Codex). המיון לפי `id` כי עליו יושב הסמן.
+           */
+          orderBy: { id: "asc" },
+          take: pageSize,
+          ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
+        }),
+      );
+      if (page.length === 0) break;
+      cursor = page[page.length - 1]?.id;
+      closed += await this.closePage(page, stages, now);
+      if (page.length < pageSize) break;
+    }
+    return closed;
+  }
+
+  /** ‏סגירת מה שסיים בתוך דף אחד. */
+  private async closePage(
+    live: { id: string; tenantId: string; track: string; startedAt: Date }[],
+    stages: Awaited<ReturnType<FunnelStageService["all"]>>,
+    now: Date,
+  ): Promise<number> {
     const tenantIds = [...new Set(live.map((row) => row.tenantId))];
     const [tenants, subscriptions, sentRows] = await Promise.all([
       this.prisma.tenant.findMany({

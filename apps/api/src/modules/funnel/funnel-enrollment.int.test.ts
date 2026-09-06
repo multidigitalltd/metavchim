@@ -26,6 +26,7 @@ import { FunnelStageService } from "./funnel-stage.service";
  */
 
 const OLD_TENANT = "01M1FNNLTEST0LDTENANT00001";
+const THIRD_TENANT = "01M1FNNLTESTZZZLASTBYID001";
 const NEW_TENANT = "01M1FNNLTESTNEWTENANT00001";
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -56,9 +57,10 @@ async function enrollments(): Promise<
     { tenant_id: string; started_at: Date; ended_at: Date | null; ended_reason: string | null }[]
   >(
     `SELECT tenant_id, started_at, ended_at, ended_reason FROM funnel_enrollments
-      WHERE tenant_id IN ($1, $2) ORDER BY tenant_id`,
+      WHERE tenant_id IN ($1, $2, $3) ORDER BY tenant_id`,
     OLD_TENANT,
     NEW_TENANT,
+    THIRD_TENANT,
   );
   return rows.map((r) => ({
     tenantId: r.tenant_id,
@@ -87,35 +89,41 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await direct.$executeRawUnsafe(
-    `DELETE FROM funnel_enrollments WHERE tenant_id IN ($1, $2)`,
+    `DELETE FROM funnel_enrollments WHERE tenant_id IN ($1, $2, $3)`,
     OLD_TENANT,
     NEW_TENANT,
+    THIRD_TENANT,
   );
   await direct.$executeRawUnsafe(
-    `DELETE FROM subscriptions WHERE tenant_id IN ($1, $2)`,
+    `DELETE FROM subscriptions WHERE tenant_id IN ($1, $2, $3)`,
     OLD_TENANT,
     NEW_TENANT,
+    THIRD_TENANT,
   );
   await seedTenant(OLD_TENANT, "משרד ותיק", 30);
   await seedTenant(NEW_TENANT, "משרד טרי", 0);
+  await seedTenant(THIRD_TENANT, "משרד אחרון לפי מזהה", 20);
 });
 
 afterAll(async () => {
   if (direct !== undefined) {
     await direct.$executeRawUnsafe(
-      `DELETE FROM funnel_enrollments WHERE tenant_id IN ($1, $2)`,
+      `DELETE FROM funnel_enrollments WHERE tenant_id IN ($1, $2, $3)`,
       OLD_TENANT,
       NEW_TENANT,
+      THIRD_TENANT,
     );
     await direct.$executeRawUnsafe(
-      `DELETE FROM subscriptions WHERE tenant_id IN ($1, $2)`,
+      `DELETE FROM subscriptions WHERE tenant_id IN ($1, $2, $3)`,
       OLD_TENANT,
       NEW_TENANT,
+      THIRD_TENANT,
     );
     await direct.$executeRawUnsafe(
-      `DELETE FROM tenants WHERE id IN ($1, $2)`,
+      `DELETE FROM tenants WHERE id IN ($1, $2, $3)`,
       OLD_TENANT,
       NEW_TENANT,
+      THIRD_TENANT,
     );
     await direct.$disconnect();
   }
@@ -142,7 +150,7 @@ describe("כניסה למשפך — מול מסד אמיתי", () => {
   });
 
   it("הרשמה טרייה נכנסת מיד גם כשהמכסה אפסה על הוותיקים", async () => {
-    await service.sweep(new Date(), 0);
+    await service.sweep(new Date(), { dailyQuota: 0 });
     const rows = await enrollments();
     expect(rows.map((r) => r.tenantId)).toEqual([NEW_TENANT]);
   });
@@ -150,11 +158,11 @@ describe("כניסה למשפך — מול מסד אמיתי", () => {
   it("סבב שני אינו פותח רישום נוסף ואינו מאפס את יום 0", async () => {
     await service.sweep(new Date());
     const first = await enrollments();
-    expect(first).toHaveLength(2);
+    expect(first).toHaveLength(3);
 
     await service.sweep(new Date(Date.now() + 60_000));
     const second = await enrollments();
-    expect(second).toHaveLength(2);
+    expect(second).toHaveLength(3);
     expect(second.map((r) => r.startedAt.getTime())).toEqual(
       first.map((r) => r.startedAt.getTime()),
     );
@@ -194,6 +202,46 @@ describe("כניסה למשפך — מול מסד אמיתי", () => {
     const now = new Date();
     await Promise.all([service.sweep(now), service.sweep(now), service.sweep(now)]);
     const rows = await enrollments();
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
+  });
+
+  /**
+   * ‎**הסריקה עוברת על כל הרישומים, ולא על הדף הראשון.**
+   *
+   * ‏`THIRD_TENANT` נבחר כך שהמזהה שלו **אחרון** — הוא בדף השלישי
+   * ‏כש-`pageSize` הוא 1. בגרסה הקודמת (`take` בלי סמן) הסריקה קראה
+   * ‏בכל סבב את אותה שורה ראשונה, ולכן משרד עם כרטיס תקף שיושב
+   * ‏מאחוריה **לא היה נסגר לעולם** (ביקורת Codex).
+   */
+  it("משרד שנמצא מעבר לדף הראשון עדיין נסגר", async () => {
+    await service.sweep(new Date());
+    const nextYear = new Date().getUTCFullYear() + 2;
+    await direct.$executeRawUnsafe(
+      `INSERT INTO subscriptions (id, tenant_id, plan_code, billing_cycle, status, card_token_encrypted, card_month, card_year, created_at, updated_at)
+       VALUES ($1, $2, 'basic', 'monthly', 'trial', 'tok', 12, $3, now(), now())`,
+      "01M1FNNLTESTSUBSCR1PT10N03",
+      THIRD_TENANT,
+      nextYear,
+    );
+
+    await service.sweep(new Date(), { pageSize: 1 });
+    const rows = await enrollments();
+    expect(rows.find((r) => r.tenantId === THIRD_TENANT)?.endedReason).toBe("paid");
+  });
+
+  /**
+   * ‎**הקליטה נמשכת מעבר למי שכבר רשום.**
+   *
+   * ‏בגרסה הקודמת הסינון היה **אחרי** השליפה: ברגע שדף שלם התמלא
+   * ‏במי שכבר נרשם, הרשימה התרוקנה והפונקציה חזרה עם 0 — והמשפך
+   * ‏הפסיק לקלוט לנצח (ביקורת Codex, P1).
+   */
+  it("מכסה של אחד ביום קולטת משרד נוסף בכל סבב", async () => {
+    await service.sweep(new Date(), { dailyQuota: 1 });
+    // ‏הטרי עוקף מכסה, ולכן בסבב הראשון נכנסים שניים: הטרי + ותיק אחד
+    expect(await enrollments()).toHaveLength(2);
+
+    await service.sweep(new Date(), { dailyQuota: 1 });
+    expect(await enrollments()).toHaveLength(3);
   });
 });
