@@ -1575,8 +1575,9 @@ function PersonaSection({
         >
           סגנון ליווי
         </p>
+        {/* שורת בחירה של המערכת — עיגול, כותרת והערה: קומפקטית, לא כרטיס */}
         <div
-          className="flex flex-col gap-2"
+          className="mv-choices"
           role="group"
           aria-labelledby="mentor-style-label"
         >
@@ -1587,16 +1588,16 @@ function PersonaSection({
                 key={info.code}
                 type="button"
                 aria-pressed={selected}
-                className="mv-choice w-full flex-col items-start gap-0.5 text-start"
+                className="mv-choice"
                 onClick={() => setStyle(info.code)}
               >
-                <span className="block font-extrabold">{info.label}</span>
-                <span className="mv-card-sub block">{info.blurb}</span>
-                <span
-                  className="block text-[length:var(--type-caption-lg)]"
-                  style={{ color: "var(--color-text-muted)" }}
-                >
-                  „{info.sample}”
+                <span className="mv-choice__mark" aria-hidden="true" />
+                <span className="mv-choice__text">
+                  <span className="mv-choice__title">
+                    {info.label}
+                    <span className="mx-1.5 font-medium">— {info.blurb}</span>
+                  </span>
+                  <span className="mv-choice__note">„{info.sample}”</span>
                 </span>
               </button>
             );
