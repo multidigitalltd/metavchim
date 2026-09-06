@@ -9,6 +9,7 @@ import { clearSessionCache, fetchMe } from "@/lib/session-cache";
 import type { AuthUser } from "@/lib/use-auth";
 import { FeaturesProvider } from "@/lib/use-features";
 import { isPublicPath } from "@/lib/public-paths";
+import { IconChevronDown } from "./icons";
 import { NotificationsBell } from "./notifications-bell";
 import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
@@ -261,6 +262,16 @@ const ICONS = {
  *
  * נתיב שאינו כאן (דשבורד, הדרכות, פרופיל) אינו שייך לאף מודול.
  */
+/**
+ * ‏אילו נתיבים שייכים לתת-התפריט של כל קבוצה.
+ *
+ * ‏משמש להכרעה אחת: האם לפתוח את הקבוצה מאליה כשהמשתמש כבר נמצא
+ * ‏בתוכה. מופרד מ-`NAV_MODULE` כי זו שאלה על **מיקום**, לא על הרשאה.
+ */
+const NAV_GROUP_PATHS: Record<string, readonly string[]> = {
+  properties: ["/properties/recruitment"],
+};
+
 const NAV_MODULE: Record<string, readonly string[]> = {
   "/properties": ["properties"],
   "/properties/recruitment": ["properties"],
@@ -316,6 +327,15 @@ export function AppShell({ children }: { children: ReactNode }) {
    */
   const [featuresFailed, setFeaturesFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  /*
+   * ‎**קבוצה פתוחה בתפריט — `null` = טרם נגעו בה.**
+   *
+   * ‏שלוש מצבים ולא שניים, בכוונה: כל עוד המשתמש לא לחץ על החץ,
+   * ‏הפתיחה **נגזרת מהמסך שבו הוא נמצא** — מי שנכנס ל„נכסים לגיוס”
+   * ‏מקישור חיצוני היה רואה תפריט סגור בלי שום רמז לאן הגיע. אחרי
+   * ‏לחיצה, הבחירה שלו גוברת.
+   */
+  const [navGroupOpen, setNavGroupOpen] = useState<Record<string, boolean>>({});
   const drawerRef = useRef<HTMLElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -575,6 +595,63 @@ export function AppShell({ children }: { children: ReactNode }) {
   };
 
   /**
+   * ‎**קבוצה: פריט אב, חץ, ותת-פריטים שנפתחים.**
+   *
+   * ## ‏למה החץ הוא כפתור נפרד ולא חלק מהקישור
+   *
+   * ‏כפתור בתוך עוגן אינו HTML תקין, ובעיקר: לחיצה על „נכסים”
+   * ‏חייבת להמשיך **לנווט** לנכסים. אילו כל השורה הייתה מתג, הפריט
+   * ‏הראשי היה מאבד את תפקידו — ומי שרוצה להגיע לנכסים היה נאלץ
+   * ‏לפתוח תפריט ואז ללחוץ שוב.
+   *
+   * ## ‏קבוצה בלי תת-פריטים גלויים אינה מקבלת חץ
+   *
+   * ‏תת-הפריטים יורדים מהסרגל כשהמודול שלהם חסום. חץ שנשאר במקומו
+   * ‏היה נפתח אל ריק — הבטחה שהמסך אינו מקיים.
+   */
+  const navGroup = (
+    id: string,
+    label: string,
+    main: ReactNode,
+    subs: readonly ReactNode[],
+  ): ReactNode => {
+    if (main === null) return null;
+    const shown = subs.filter((sub) => sub !== null);
+    if (shown.length === 0) return main;
+
+    const onSubPath = (NAV_GROUP_PATHS[id] ?? []).some((sub) => pathname.startsWith(sub));
+    const open = navGroupOpen[id] ?? onSubPath;
+    const listId = `nav-group-${id}`;
+
+    return (
+      <div key={id} className="mv-sidebar-group">
+        <div className="mv-sidebar-group-row">
+          {main}
+          <button
+            type="button"
+            className="mv-sidebar-toggle"
+            aria-expanded={open}
+            aria-controls={listId}
+            aria-label={`${open ? "סגירת" : "פתיחת"} תת-התפריט של ${label}`}
+            onClick={() => setNavGroupOpen((prev) => ({ ...prev, [id]: !open }))}
+          >
+            <span className={`mv-sidebar-chev${open ? " is-open" : ""}`} aria-hidden="true">
+              <IconChevronDown s={14} />
+            </span>
+          </button>
+        </div>
+        {/*
+          ‎`hidden` ולא הסרה מה-DOM: `aria-controls` חייב להצביע על
+          אלמנט שקיים, ואחרת קורא מסך שומע על תפריט שאי אפשר למצוא.
+        */}
+        <div id={listId} hidden={!open}>
+          {shown}
+        </div>
+      </div>
+    );
+  };
+
+  /**
    * פריט שמוביל אל מחוץ למערכת — נפתח בלשונית חדשה.
    *
    * ‎`rel="noopener"` אינו קישוט: בלעדיו העמוד שנפתח מקבל
@@ -637,10 +714,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <nav aria-label="ניווט ראשי" className="mv-sidebar-nav">
         {navLink("/", "דשבורד", ICONS.dashboard)}
-        {navLink("/properties", "נכסים", ICONS.properties, count(counts?.properties), [
-          "/properties/recruitment",
-        ])}
-        {navSubLink("/properties/recruitment", "נכסים לגיוס")}
+        {navGroup(
+          "properties",
+          "נכסים",
+          navLink("/properties", "נכסים", ICONS.properties, count(counts?.properties), [
+            "/properties/recruitment",
+          ]),
+          [navSubLink("/properties/recruitment", "נכסים לגיוס")],
+        )}
         {navLink("/buyers", "קונים · שוכרים", ICONS.buyers, count(counts?.buyers))}
         {navLink(
           "/leads",

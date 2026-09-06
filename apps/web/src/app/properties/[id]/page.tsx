@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import {
   describeEntry,
+  formatPropertyAddress,
   labelOf,
   propertyEvaluableCriteria,
   PropertyStatusSchema,
@@ -86,6 +87,7 @@ interface PropertyDetail {
   city?: string;
   neighborhood?: string;
   street?: string;
+  houseNumber?: string;
   latitude?: number;
   longitude?: number;
   /** בארכיון — רק אז מוצגת מחיקה לצמיתות. */
@@ -798,9 +800,7 @@ export default function PropertyDetailPage({
   }
   if (!property) return <p aria-live="polite">טוען…</p>;
 
-  const address = [property.street, property.neighborhood, property.city]
-    .filter(Boolean)
-    .join(", ");
+  const address = formatPropertyAddress(property);
   const features = [
     property.hasElevator && "מעלית",
     property.hasParking && "חניה",

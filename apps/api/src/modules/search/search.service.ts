@@ -56,6 +56,7 @@ export interface SearchResults {
     id: string;
     city: string | null;
     street: string | null;
+    houseNumber: string | null;
     neighborhood: string | null;
     marketingTitle: string | null;
     status: string;
@@ -187,8 +188,8 @@ export class SearchService {
                 ...ownershipFilter("properties.view_all", "agentUserId"),
               },
               select: {
-                id: true, city: true, street: true, neighborhood: true,
-                marketingTitle: true, status: true,
+                id: true, city: true, street: true, houseNumber: true,
+                neighborhood: true, marketingTitle: true, status: true,
               },
               take: GROUP_PROBE,
             })
@@ -321,8 +322,8 @@ export class SearchService {
                 })),
               },
               select: {
-                id: true, city: true, street: true, neighborhood: true,
-                marketingTitle: true, status: true,
+                id: true, city: true, street: true, houseNumber: true,
+                neighborhood: true, marketingTitle: true, status: true,
               },
               orderBy: { updatedAt: "desc" },
               take: GROUP_PROBE,

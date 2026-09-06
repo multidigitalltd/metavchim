@@ -17,15 +17,27 @@ import {
   MentorGoalPeriodSchema,
   MentorIdeaFeedbackSchema,
   type MentorIdeaFeedbackInput,
+  PRACTICE_SCENARIOS,
+  PRACTICE_TEXT_MAX,
   type ProcessGoalSuggestion,
   type MentorGoalProposal,
 } from "@metavchim/shared";
-import { AnyAuthenticated } from "../../common/auth.decorators";
+import {
+  AnyAuthenticated,
+  RequireCapability,
+} from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
+  MentorPracticeService,
+  type MentorPracticeDto,
+  type MentorPracticeOverview,
+} from "./mentor-practice.service";
+import {
   MentorService,
   type MentorGoalDto,
+  type MentorMonthlyDto,
+  type MentorOfficeDto,
   type MentorOverview,
   type MentorPulse,
   type MentorReviewDto,
@@ -58,6 +70,12 @@ const ReflectionSchema = z
 const AskSchema = z
   .object({ text: z.string().trim().min(2).max(1000) })
   .strict();
+const PracticeStartSchema = z
+  .object({ scenario: z.enum(PRACTICE_SCENARIOS) })
+  .strict();
+const PracticeReplySchema = z
+  .object({ text: z.string().trim().min(1).max(PRACTICE_TEXT_MAX) })
+  .strict();
 const IdParam = new ZodValidationPipe(IdSchema);
 
 /**
@@ -72,7 +90,10 @@ const IdParam = new ZodValidationPipe(IdSchema);
 @RequireFeature("ai_coach")
 @Controller("mentor")
 export class MentorController {
-  constructor(private readonly mentor: MentorService) {}
+  constructor(
+    private readonly mentor: MentorService,
+    private readonly practice: MentorPracticeService,
+  ) {}
 
   @Get("overview")
   @AnyAuthenticated()
@@ -113,6 +134,23 @@ export class MentorController {
   @AnyAuthenticated()
   reviews(): Promise<MentorReviewDto[]> {
     return this.mentor.reviews();
+  }
+
+  /**
+   * מה עובד אצלנו — למי שרואה ניתוחים של המשרד (docs/14 §7.4). ספירות
+   * בלבד: הרעיונות שהוכיחו את עצמם, בלי שמות.
+   */
+  @Get("office")
+  @RequireCapability("analytics.view")
+  office(): Promise<MentorOfficeDto> {
+    return this.mentor.office();
+  }
+
+  /** הסיכומים החודשיים — מה עבד ומה לא (docs/14 §3) */
+  @Get("monthly")
+  @AnyAuthenticated()
+  monthly(): Promise<MentorMonthlyDto[]> {
+    return this.mentor.monthly();
   }
 
   @Post("reviews/:id/reflection")
@@ -158,6 +196,44 @@ export class MentorController {
     body: MentorIdeaFeedbackInput,
   ): Promise<{ ok: true; text: string }> {
     return this.mentor.ideaFeedback(body);
+  }
+
+  /* ---------------- תרגול שיחה (docs/14 §7.3) ---------------- */
+
+  @Get("practice")
+  @AnyAuthenticated()
+  practiceOverview(): Promise<MentorPracticeOverview> {
+    return this.practice.overview();
+  }
+
+  @Post("practice")
+  @AnyAuthenticated()
+  practiceStart(
+    @Body(new ZodValidationPipe(PracticeStartSchema))
+    body: z.infer<typeof PracticeStartSchema>,
+  ): Promise<MentorPracticeDto> {
+    return this.practice.start(body.scenario);
+  }
+
+  @Post("practice/:id/reply")
+  @AnyAuthenticated()
+  practiceReply(
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(PracticeReplySchema))
+    body: z.infer<typeof PracticeReplySchema>,
+  ): Promise<{
+    turn: { role: "agent" | "counterpart"; text: string };
+    closing: boolean;
+    source: "model" | "fallback";
+    agentTurns: number;
+  }> {
+    return this.practice.reply(id, body.text);
+  }
+
+  @Post("practice/:id/finish")
+  @AnyAuthenticated()
+  practiceFinish(@Param("id", IdParam) id: string): Promise<MentorPracticeDto> {
+    return this.practice.finish(id);
   }
 
   @Post("messages")

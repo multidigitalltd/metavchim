@@ -143,17 +143,19 @@ model User {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  tenant              Tenant                       @relation(fields: [tenantId], references: [id])
-  sessions            Session[]
-  capabilityOverrides UserCapability[]
-  agentEvents         AgentEvent[]
-  whatsappLinks       WhatsAppLink[]
-  whatsappConnections WhatsAppBusinessConnection[]
-  nudgeOptOut         ActivationNudgeOptOut?
-  mentorGoals         MentorGoal[]
-  mentorReviews       MentorReview[]
-  mentorMessages      MentorMessage[]
-  mentorWins          MentorWin[]
+  tenant               Tenant                       @relation(fields: [tenantId], references: [id])
+  sessions             Session[]
+  capabilityOverrides  UserCapability[]
+  agentEvents          AgentEvent[]
+  whatsappLinks        WhatsAppLink[]
+  whatsappConnections  WhatsAppBusinessConnection[]
+  nudgeOptOut          ActivationNudgeOptOut?
+  mentorGoals          MentorGoal[]
+  mentorReviews        MentorReview[]
+  mentorMonthlyReviews MentorMonthlyReview[]
+  mentorPractices      MentorPractice[]
+  mentorMessages       MentorMessage[]
+  mentorWins           MentorWin[]
 
   @@index([tenantId, isActive])
   @@map("users")
@@ -717,6 +719,49 @@ model MentorReview {
 
   @@unique([tenantId, userId, weekStart])
   @@map("mentor_reviews")
+}
+
+/// הסיכום החודשי של המנטור — מה עבד ומה לא; טבלה משלו כדי שלא ייכנס לרצף ולדפוסים של השבועי.
+model MentorMonthlyReview {
+  id         String   @id @db.Char(26)
+  tenantId   String   @map("tenant_id") @db.Char(26)
+  userId     String   @map("user_id") @db.Char(26)
+  /// ה-1 בחודש 00:00 שעון ישראל, כ-UTC
+  monthStart DateTime @map("month_start")
+  headline   String   @db.VarChar(200)
+  /// הפסקאות, המיקוד והמספרים — ראו MentorMonthlyBody ב-shared
+  body       Json
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId, monthStart])
+  @@map("mentor_monthly_reviews")
+}
+
+/// תרגול שיחה — התרחיש, התורים והמשוב (docs/14 §7.3); לא בזיכרון השיחה עם המנטור.
+model MentorPractice {
+  id         String    @id @db.Char(26)
+  tenantId   String    @map("tenant_id") @db.Char(26)
+  userId     String    @map("user_id") @db.Char(26)
+  /// מתוך PRACTICE_SCENARIOS
+  scenario   String    @db.VarChar(40)
+  /// PracticeTurn[] — המתווך והדמות, לפי הסדר
+  turns      Json      @default("[]")
+  /// כמה תורים של המתווך — למכסה היומית ולתקרה של תרגול
+  agentTurns Int       @default(0) @map("agent_turns") @db.SmallInt
+  /// הדמות סיימה את השיחה — אין עוד תורים, רק משוב
+  closed     Boolean   @default(false)
+  /// MentorPracticeFeedback — ריק עד שביקשו משוב
+  feedback   Json?
+  score      Int?      @db.SmallInt
+  createdAt  DateTime  @default(now()) @map("created_at")
+  endedAt    DateTime? @map("ended_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, createdAt])
+  @@map("mentor_practices")
 }
 
 /// הצלחה שנאמרת בשמה — נרשמת ברגע האירוע, עם מי שעשה אותה.

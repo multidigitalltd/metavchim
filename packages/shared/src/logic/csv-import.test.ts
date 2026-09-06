@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseCsvLine, parsePropertiesCsv, parseShekelsToAgorot } from "./csv-import.js";
+import {
+  parseCsvLine,
+  parsePropertiesCsv,
+  parseRecruitmentCsv,
+  parseShekelsToAgorot,
+} from "./csv-import.js";
 
 describe("parseShekelsToAgorot", () => {
   it("שומר על נקודה עשרונית ומפריד אלפים", () => {
@@ -145,5 +150,91 @@ describe("parsePropertiesCsv — טלפון בעל הנכס", () => {
     const csv = ["עיר,טלפון בעלים", "חולון,אין"].join("\n");
     const { rows } = parsePropertiesCsv(csv);
     expect(rows[0]?.ownerPhone).toBe("אין");
+  });
+});
+
+describe("ייבוא נכסים לגיוס", () => {
+  it("מפרק את העמודות של הגיוס, כולל מקור וקישור", () => {
+    const csv = [
+      "עיר,רחוב,חדרים,מחיר,מקור,קישור למודעה,שלב,בעל הנכס,הערות",
+      'רעננה,אחוזה,4,2650000,יד2,https://www.yad2.co.il/item/1,קיבל שיחה,ישראל ישראלי,"אמר שיחזור"',
+    ].join("\n");
+    const { rows, unmappedHeaders } = parseRecruitmentCsv(csv);
+    expect(unmappedHeaders).toEqual([]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({
+      city: "רעננה",
+      street: "אחוזה",
+      rooms: 4,
+      // ‏אגורות, לא שקלים — אחרת 2,650,000 היה מופיע ככרטיס של 26,500
+      priceAgorot: 265_000_000,
+      source: "yad2",
+      sourceUrl: "https://www.yad2.co.il/item/1",
+      status: "called",
+      ownerName: "ישראל ישראלי",
+      notes: "אמר שיחזור",
+    });
+  });
+
+  /**
+   * ‏סכימת הגיוס בשרת היא `.strict()`. עמודה שאינה שייכת חייבת
+   * ‏להופיע כ„לא זוהתה” במסך — אחרת המתווך רואה „זוהתה”, השרת
+   * ‏זורק את הערך, והוא מגלה רק מהכרטיס שמשהו חסר.
+   */
+  it("עמודה שאינה של גיוס מדווחת כלא-מזוהה ואינה נקלטת", () => {
+    const csv = ["עיר,כותרת שיווקית,מעלית", "חיפה,דירה מרווחת,כן"].join("\n");
+    const { rows, unmappedHeaders } = parseRecruitmentCsv(csv);
+    expect(unmappedHeaders).toEqual(["כותרת שיווקית", "מעלית"]);
+    expect(rows[0]).toEqual({ city: "חיפה" });
+  });
+
+  it("מקבל גם את הקוד עצמו, לא רק את התווית העברית", () => {
+    const csv = ["עיר,מקור,שלב", "לוד,madlan,recruited"].join("\n");
+    const { rows } = parseRecruitmentCsv(csv);
+    expect(rows[0]?.source).toBe("madlan");
+    expect(rows[0]?.status).toBe("recruited");
+  });
+
+  it("ערך מקור או שלב שאינו מוכר מושמט ואינו מפיל את השורה", () => {
+    const csv = ["עיר,מקור,שלב", "אילת,מקור מומצא,שלב מומצא"].join("\n");
+    const { rows } = parseRecruitmentCsv(csv);
+    expect(rows[0]).toEqual({ city: "אילת" });
+  });
+
+  it("מיפוי ידני גובר על הזיהוי האוטומטי", () => {
+    const csv = ["עמודה משונה", "נתניה"].join("\n");
+    const { rows } = parseRecruitmentCsv(csv, { "עמודה משונה": "city" });
+    expect(rows[0]?.city).toBe("נתניה");
+  });
+
+  it("קובץ בלי שורות נתונים מחזיר ריק", () => {
+    expect(parseRecruitmentCsv("עיר,רחוב").rows).toEqual([]);
+    expect(parseRecruitmentCsv("").rows).toEqual([]);
+  });
+});
+
+
+describe("ייבוא גיוס — מספרים שנקראים נכון", () => {
+  /*
+   * ‏אותו תו, שני תפקידים: במחיר הוא מפריד אלפים, בחדרים הוא
+   * ‏הנקודה העשרונית. ניקוי גורף הפך „3,5” ל-35, והסכימה חוסמת
+   * ‏חדרים מעל 20 — כלומר השורה כולה נדחתה.
+   */
+  it("‏„3,5” חדרים הוא שלוש וחצי, ו„2,650,000” הוא מחיר מלא", () => {
+    const { rows } = parseRecruitmentCsv(
+      ['עיר,חדרים,מחיר', '"רעננה","3,5","2,650,000"'].join("\n"),
+    );
+    expect(rows[0]?.rooms).toBe(3.5);
+    expect(rows[0]?.priceAgorot).toBe(265_000_000);
+  });
+
+  it("נקודה עשרונית עובדת גם היא", () => {
+    const { rows } = parseRecruitmentCsv(["עיר,חדרים", "רעננה,3.5"].join("\n"));
+    expect(rows[0]?.rooms).toBe(3.5);
+  });
+
+  it("‏„קומת קרקע” היא קומה 0 ולא ערך שנזרק", () => {
+    const { rows } = parseRecruitmentCsv(["עיר,קומה", "רעננה,קומת קרקע"].join("\n"));
+    expect(rows[0]?.floor).toBe(0);
   });
 });

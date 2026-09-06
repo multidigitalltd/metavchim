@@ -16,6 +16,15 @@ import {
   type MentorReview,
 } from "./mentor.js";
 import { mentorAdviceBlock, type MentorAdvice } from "./mentor-advice.js";
+import { closestDealLine, type MentorClosestDeal } from "./mentor-deal.js";
+import {
+  officePlaybookBlock,
+  type MentorOfficePlaybook,
+} from "./mentor-office.js";
+import {
+  onboardingPromptLines,
+  type MentorOnboarding,
+} from "./mentor-onboarding.js";
 import {
   DEFAULT_MENTOR_PERSONA,
   mentorNameLine,
@@ -68,6 +77,18 @@ export interface MentorChatContext {
   advice?: MentorAdvice[];
   /** השם והסגנון שהמתווך בחר — הטון של התשובה (docs/14 §4.1) */
   persona?: MentorPersona;
+  /** 30 הימים הראשונים — איפה המתווך החדש בתוכנית (§7.5); חסר = ותיק */
+  onboarding?: MentorOnboarding | null;
+  /** העסקה הקרובה ביותר (§7.6) — הקונה היחיד שמותר לדבר עליו בשמו */
+  closestDeal?: MentorClosestDeal | null;
+  /** התרגול האחרון — מה לנסות בשיחה האמיתית (§7.3); חסר = לא תרגל */
+  lastPractice?: {
+    scenarioLabel: string;
+    score: number;
+    tryNext: string;
+  } | null;
+  /** מה הוכיח את עצמו במשרד — ידע משותף, ספירות בלבד (§7.4) */
+  office?: MentorOfficePlaybook;
   /** מהישן לחדש */
   history: { role: "user" | "mentor"; text: string }[];
   question: string;
@@ -305,6 +326,22 @@ export function buildMentorPrompt(ctx: MentorChatContext): string {
       ),
     );
   }
+  const onboardingLines = onboardingPromptLines(ctx.onboarding);
+  if (onboardingLines.length > 0) lines.push("", ...onboardingLines);
+  if (ctx.closestDeal) {
+    lines.push(
+      "",
+      `${closestDealLine(ctx.closestDeal)} ${ctx.closestDeal.step} — הקונה הזה נבחר על ידי הקוד מהנתונים של המתווך עצמו, ולכן, בניגוד לכלל 6, מותר לדבר עליו בשמו: מה לשאול אותו ואיך להזיז את העסקה. פרטים אחרים עליו אין לכם.`,
+    );
+  }
+  if (ctx.lastPractice) {
+    lines.push(
+      "",
+      `התרגול האחרון של המתווך (${ctx.lastPractice.scenarioLabel}, ציון ${ctx.lastPractice.score} מתוך 5). מה שהמנטור אמר לנסות בשיחה האמיתית: ${ctx.lastPractice.tryNext} — כשרלוונטי, אפשר לשאול אם ניסה.`,
+    );
+  }
+  const officeLines = officePlaybookBlock(ctx.office);
+  if (officeLines.length > 0) lines.push("", ...officeLines);
   if (ctx.patterns !== undefined && ctx.patterns.length > 0) {
     lines.push("", "מה שהמנטור זוכר מהחודשיים האחרונים (דפוסים מהסיכומים):");
     for (const pattern of ctx.patterns)

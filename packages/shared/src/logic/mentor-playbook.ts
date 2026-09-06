@@ -180,15 +180,47 @@ export function ideaByKey(
 export interface MentorIdeaFeedback {
   liked: readonly string[];
   dismissed: readonly string[];
+  /**
+   * יומן הסימונים, עם תאריך — כדי למדוד אחר כך אם המספר באמת זז
+   * (`mentorIdeaOutcome`). „עזר לי” ב-3.9 על רעיון להצעות: כמה הצעות
+   * היו בשבוע שאחרי, מול השבוע שלפני. הרשימות למעלה הן „מה”; זה „מתי”.
+   */
+  marks: readonly MentorIdeaMark[];
+}
+
+export interface MentorIdeaMark {
+  key: string;
+  verdict: "helped" | "dismissed";
+  /** יום הלוח הישראלי של הסימון — „2026-09-03” */
+  date: string;
 }
 
 export const EMPTY_IDEA_FEEDBACK: Readonly<MentorIdeaFeedback> = {
   liked: [],
   dismissed: [],
+  marks: [],
 };
 
 /** כמה מפתחות נשמרים לכל רשימה — הישנים נושרים; מאתיים הם שנים של בקרים. */
 export const IDEA_FEEDBACK_MAX = 200;
+/** כמה סימונים מתוארכים נשמרים — שישים הם חודשיים של בקרים, די למדידה ולסיכום חודשי. */
+export const IDEA_MARKS_MAX = 60;
+
+const MARK_DATE = /^(\d{4})-(\d{2})-(\d{2})$/u;
+
+/**
+ * יום לוח אמיתי — לא רק צורה: „2026-99-99” עובר את הביטוי, ובשעון
+ * ישראל הוא זורק. ה-preferences הם קלט של המשתמש (ביקורת Codex), וסימון
+ * פגום אחד היה מפיל את הסבב השבועי של כל המשרד.
+ */
+function isCalendarDay(label: string): boolean {
+  const match = MARK_DATE.exec(label);
+  if (match === null) return false;
+  const at = new Date(
+    Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])),
+  );
+  return !Number.isNaN(at.getTime()) && at.toISOString().slice(0, 10) === label;
+}
 
 /** מה-preferences של המשתמש — סלחני: ערך פגום הוא רשימה ריקה. */
 export function resolveIdeaFeedback(preferences: unknown): MentorIdeaFeedback {
@@ -211,7 +243,26 @@ export function resolveIdeaFeedback(preferences: unknown): MentorIdeaFeedback {
           .slice(-IDEA_FEEDBACK_MAX)
       : [];
   };
-  return { liked: list("liked"), dismissed: list("dismissed") };
+  const rawMarks =
+    typeof ideas === "object" && ideas !== null
+      ? (ideas as { marks?: unknown }).marks
+      : undefined;
+  const marks: MentorIdeaMark[] = Array.isArray(rawMarks)
+    ? rawMarks
+        .flatMap((m: unknown): MentorIdeaMark[] => {
+          if (typeof m !== "object" || m === null) return [];
+          const { key, verdict, date } = m as Record<string, unknown>;
+          return typeof key === "string" &&
+            IDEA_KEY.test(key) &&
+            (verdict === "helped" || verdict === "dismissed") &&
+            typeof date === "string" &&
+            isCalendarDay(date)
+            ? [{ key, verdict, date }]
+            : [];
+        })
+        .slice(-IDEA_MARKS_MAX)
+    : [];
+  return { liked: list("liked"), dismissed: list("dismissed"), marks };
 }
 
 /**
@@ -233,6 +284,16 @@ export function ideaKeyInText(text: string | null | undefined): string | null {
 export interface PlaybookIdea {
   key: string;
   text: string;
+  /** נבחר כי הוכיח את עצמו במשרד (§7.4) — נאמר למתווך */
+  proven?: true;
+}
+
+/**
+ * הרעיונות המוכחים במשרד — לפי המדד, מהחזק לחלש (§7.4). מוגדר כאן
+ * כדי שספר המשחק לא ייבא את `mentor-office.ts` (שמייבא אותו).
+ */
+export interface OfficeProvenLookup {
+  proven: readonly { key: string; metric: MentorGoalMetric }[];
 }
 
 /**
@@ -247,24 +308,40 @@ export function playbookIdeaPick(
   metric: MentorGoalMetric,
   seed: number,
   feedback: MentorIdeaFeedback = EMPTY_IDEA_FEEDBACK,
+  office?: OfficeProvenLookup,
 ): PlaybookIdea {
-  const all = MENTOR_PLAYBOOK[metric].ideas.map((text, index) => ({
-    key: ideaKey(metric, index),
-    text,
-  }));
   const dismissed = new Set(feedback.dismissed);
-  const open = all.filter((idea) => !dismissed.has(idea.key));
-  const pool = open.length > 0 ? open : all;
-  const index = ((Math.floor(seed) % pool.length) + pool.length) % pool.length;
-  return pool[index]!;
+  /*
+   * רעיון שהוכיח את עצמו במשרד — ראשון (§7.4): שניים מכל שלושה ימים
+   * מהמוכחים, והשלישי מהרשימה הרגילה, כדי שמתווך חדש יתחיל ממה
+   * שעובד כאן ועדיין יראה גם רעיונות אחרים. מה שהוא עצמו דחה — לא.
+   */
+  const proven = (office?.proven ?? [])
+    .filter((e) => e.metric === metric && !dismissed.has(e.key))
+    .map((e) => e.key);
+  if (proven.length > 0 && seed % 3 !== 2) {
+    const key = proven[Math.abs(seed) % proven.length]!;
+    return { key, text: ideaByKey(key)?.text ?? "", proven: true };
+  }
+  const ideas = MENTOR_PLAYBOOK[metric].ideas;
+  const open = ideas
+    .map((text, index) => ({ key: ideaKey(metric, index), text }))
+    .filter((idea) => !dismissed.has(idea.key));
+  // כשהכול נדחה — הרשימה המלאה: שתיקה גרועה מרעיון שכבר נאמר
+  const pool =
+    open.length > 0
+      ? open
+      : ideas.map((text, index) => ({ key: ideaKey(metric, index), text }));
+  return pool[Math.abs(seed) % pool.length]!;
 }
 
 export function playbookIdea(
   metric: MentorGoalMetric,
   seed: number,
   feedback?: MentorIdeaFeedback,
+  office?: OfficeProvenLookup,
 ): string {
-  return playbookIdeaPick(metric, seed, feedback).text;
+  return playbookIdeaPick(metric, seed, feedback, office).text;
 }
 
 /**
