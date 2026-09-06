@@ -520,16 +520,35 @@ describe("תפוגת שלב מול שעות השליחה", () => {
     ).toBeNull();
   });
 
-  /*
-   * ‏הגבול השני: ההארכה היא **עד ההזדמנות הראשונה**, לא ויתור על
-   * ‏תקרת הפיגור. שלב שכבר היה לו חלון שלם ולא יצא — פג כרגיל.
+  /**
+   * ‎**הגבול השני: ההארכה היא עד ההזדמנות הראשונה, לא ויתור על
+   * תקרת הפיגור.**
+   *
+   * ‏שעון המשפך נבחר כאן במכוון: תקרת הפיגור שלו שבוע, ולכן היא
+   * ‏זו שקובעת בכל מקרה שאינו סוף שבוע. מוטציה שתחזיר תמיד את סוף
+   * ‏החלון — כלומר תוותר על התקרה — נופלת כאן.
    */
-  it("תקרת הפיגור ממשיכה למחוק שלב שכבר הייתה לו הזדמנות", () => {
+  it("תקרת הפיגור היא שקובעת כשהיא המאוחרת", () => {
+    const day3 = stage({ key: "day3", clock: "funnel", offsetDays: 3 });
+    const started = new Date("2026-09-14T07:00:00.000Z"); // שני 10:00 בירושלים
+    const due = funnelStageDueAt(day3, anchors({ funnelStartedAt: started }))!;
+    const expires = funnelStageExpiresAt(day3, anchors({ funnelStartedAt: started }));
+    expect(expires!.getTime()).toBe(due.getTime() + FUNNEL_MAX_LAG_DAYS.funnel * DAY);
+  });
+
+  /*
+   * ‏ובשעון הגבייה, שתקרתו יום אחד, ההזדמנות היא לרוב המאוחרת —
+   * ‏וזה בדיוק מה שהתיקון נועד לעשות.
+   */
+  it("בשעון הגבייה החלון הוא לרוב המאוחר, והתפוגה נדחית אליו", () => {
     const failed = stage({ key: "pay_failed", track: "dunning", clock: "payment", offsetDays: 0 });
-    // ‏שני בבוקר בירושלים — יום עבודה רגיל
     const mondayMorning = new Date("2026-09-14T07:00:00.000Z");
     const expires = funnelStageExpiresAt(failed, anchors({ paymentFailedAt: mondayMorning }));
-    expect(expires!.getTime()).toBe(mondayMorning.getTime() + FUNNEL_MAX_LAG_DAYS.payment * DAY);
+    expect(expires!.getTime()).toBeGreaterThan(
+      mondayMorning.getTime() + FUNNEL_MAX_LAG_DAYS.payment * DAY,
+    );
+    // ‏שלישי 18:00 בירושלים — סוף החלון השלם הראשון
+    expect(expires!.toISOString()).toBe("2026-09-15T15:00:00.000Z");
   });
 
   it("חלון השליחה הבא מדלג על שבת", () => {
@@ -538,10 +557,36 @@ describe("תפוגת שלב מול שעות השליחה", () => {
     expect(end.toISOString()).toBe("2026-09-13T15:00:00.000Z");
   });
 
-  it("ביום עבודה לפני שש — החלון הוא של אותו יום", () => {
-    const thursdayMorning = new Date("2026-09-10T07:00:00.000Z"); // 10:00 בירושלים
-    expect(firstFunnelSendingWindowEnd(thursdayMorning).toISOString()).toBe(
+  it("‏מועד שקודם לפתיחת החלון — החלון הוא של אותו יום", () => {
+    const thursdayEarly = new Date("2026-09-10T05:00:00.000Z"); // 08:00 בירושלים
+    expect(firstFunnelSendingWindowEnd(thursdayEarly).toISOString()).toBe(
       "2026-09-10T15:00:00.000Z",
     );
+  });
+
+  /**
+   * ‎**שארית של חלון אינה הזדמנות.**
+   *
+   * ‏הסורק רץ בראש כל שעה. חיוב שנכשל בשישי ב-17:01 לא ייסרק לפני
+   * ‏18:00, ואז כבר מחוץ לשעות — כלומר אף סריקה לא עברה בו. הכלל
+   * ‏דורש חלון ש**נפתח** אחרי המועד, ולכן אינו תלוי בקצב הסורק.
+   */
+  it("שארית של חלון אינה נחשבת הזדמנות", () => {
+    const fridayLate = new Date("2026-09-11T14:01:00.000Z"); // 17:01 בירושלים
+    // ‏לא שישי 18:00 — ראשון 18:00
+    expect(firstFunnelSendingWindowEnd(fridayLate).toISOString()).toBe("2026-09-13T15:00:00.000Z");
+
+    const failed = stage({ key: "pay_failed", track: "dunning", clock: "payment", offsetDays: 0 });
+    const sunday = new Date("2026-09-13T06:30:00.000Z"); // 09:30 בירושלים
+    expect(
+      dueFunnelStages({
+        stages: [failed],
+        anchors: anchors({ paymentFailedAt: fridayLate }),
+        facts: facts({ chargeFailing: true }),
+        sent: [],
+        lastSentAt: null,
+        now: sunday,
+      }).map((s) => s.key),
+    ).toEqual(["pay_failed"]);
   });
 });

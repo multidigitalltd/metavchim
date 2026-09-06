@@ -405,10 +405,25 @@ export function isFunnelSendingHour(parts: { weekday: string; hour: number }): b
 }
 
 /**
- * ‎**סוף חלון השליחה הראשון שנפתח מ-`after` והלאה.**
+ * ‎**סוף חלון השליחה השלם הראשון שנפתח מ-`after` והלאה.**
  *
- * ‏כלומר: הרגע האחרון שבו עוד אפשר לשלוח בהזדמנות הקרובה. שבת
- * ‏מדולגת, ויום שכבר עברה בו השעה שש נחשב חלוף.
+ * ## ‏„שלם” — ולא „מה שנשאר מהחלון הנוכחי”
+ *
+ * ‏הגרסה הראשונה ספרה כל חלון שסופו עוד לפנינו, ולכן חיוב שנכשל
+ * ‏בשישי ב-17:01 „קיבל הזדמנות” של 59 דקות. הסורק רץ **בראש כל
+ * ‏שעה**, והריצה הבאה — 18:00 — כבר מחוץ לשעות השליחה. כלומר לא
+ * ‏עברה בה ולו סריקה אחת, השלב פג בשבת ב-17:01, וההודעה הראשונה
+ * ‏שוב הייתה `pay_reminder` (ביקורת Codex).
+ *
+ * ## ‏ולמה הכלל אינו „חלון שיש בו סריקה”
+ *
+ * ‏זו הייתה הצמדה של הלוגיקה הטהורה לקצב הסורק — מספר שנקבע בשלב
+ * ‏ב׳ וחי במקום אחר. שינוי הקצב היה משנה בשקט את התפוגה, ושני
+ * ‏עותקים של אותו מספר סוטים זה מזה.
+ *
+ * ‏במקום זה נדרש שהחלון **ייפתח** אחרי המועד. זה גס יותר לטובת
+ * ‏הצד הבטוח — תפוגה מאוחרת אינה שולחת דבר, היא רק אינה מוחקת
+ * ‏מוקדם — ואינו תלוי בקצב כלל.
  *
  * ‏עשרה ימים הם תקרת בטיחות ולא כלל: רצף של יותר מיומיים סגורים
  * ‏אינו קיים בלוח, והתקרה קיימת רק כדי שטעות עתידית בכלל השעות לא
@@ -419,10 +434,10 @@ export function firstFunnelSendingWindowEnd(after: Date): Date {
   for (let day = 0; day <= 10; day += 1) {
     const at = jerusalemDayStart(after, day);
     if (jerusalemWeekday(at) === SATURDAY) continue;
-    const end = jerusalemWallIsoToUtc(
-      `${jerusalemWallParts(at).date}T${String(SENDING_END_HOUR).padStart(2, "0")}:00`,
-    );
-    if (end.getTime() > after.getTime()) return end;
+    const date = jerusalemWallParts(at).date;
+    const hour = (h: number): Date =>
+      jerusalemWallIsoToUtc(`${date}T${String(h).padStart(2, "0")}:00`);
+    if (hour(SENDING_START_HOUR).getTime() >= after.getTime()) return hour(SENDING_END_HOUR);
   }
   return after;
 }
