@@ -68,12 +68,88 @@ export class FunnelEnrollmentService {
   ): Promise<{ enrolled: number; closed: number }> {
     const dailyQuota = options.dailyQuota ?? FUNNEL_DEFAULT_DAILY_ENTRIES;
     const pageSize = options.pageSize ?? PAGE;
+    /*
+     * ‎**קודם פתיחה מחדש, ואז כניסה** — כי השתיים מתחרות על אותם
+     * ‏משרדים: `enrollDue` מוציא מי שכבר היה לו רישום, ולכן משרד
+     * ‏שמגיע לו רישום שנפתח מחדש לא היה מקבל דבר אם הכניסה רצה
+     * ‏ראשונה. הסגירה נשארת אחרונה: היא זו שמכריעה על מה שקיים.
+     */
+    const reopened = await this.reopenLapsed(now, pageSize);
     const enrolled = await this.enrollDue(now, dailyQuota, pageSize);
     const closed = await this.closeFinished(now, pageSize);
-    if (enrolled > 0 || closed > 0) {
-      this.logger.log(`מסלול ההמרה: ${enrolled} נכנסו, ${closed} נסגרו`);
+    if (enrolled > 0 || closed > 0 || reopened > 0) {
+      this.logger.log(
+        `מסלול ההמרה: ${enrolled} נכנסו, ${closed} נסגרו${reopened > 0 ? `, ${reopened} נפתחו מחדש` : ""}`,
+      );
     }
     return { enrolled, closed };
+  }
+
+  /**
+   * ‎**רישום שנסגר כ„שילם” וכרטיסו נעלם מאוחר יותר** (ביקורת Codex, P2).
+   *
+   * ‏`reopenForRestoredTrial` נקרא ברגע שמנהל מחזיר ניסיון, והוא
+   * ‏שואל אז „יש כרטיס תקף?”. תשובה חיובית **באותו רגע** משאירה
+   * ‏את הרישום סגור — וזה נכון, כי הסבב הבא היה סוגר אותו שוב.
+   *
+   * ‏אבל הכרטיס יכול להיעלם **אחר כך**: הוא פג, או ש-
+   * ‏`BillingService.cancel` מנקה אותו. אז אין מי שישאל שוב:
+   * ‏הפתיחה-מחדש היא אירוע חד-פעמי, ו-`enrollDue` מוציא לתמיד כל
+   * ‏מי שהיה לו רישום. התוצאה היא ניסיון חי בלי שום שלב שיישלח
+   * ‏בו — אותה מלכודת קבועה של הממצא הקודם, רק בתזמון אחר.
+   *
+   * ‏לכן השאלה חוזרת בכל סבב, ולא רק ברגע ההחזרה. הכלל עצמו אינו
+   * ‏משוכפל: `reopenRows` הוא שמכריע, על הכרטיס, בדיוק כמו קודם.
+   */
+  private async reopenLapsed(now: Date, pageSize: number): Promise<number> {
+    let reopened = 0;
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await this.prisma.withFunnelAdmin(async (tx) => {
+        const rows = await tx.funnelEnrollment.findMany({
+          where: { track: "conversion", endedReason: "paid", endedAt: { not: null } },
+          select: { id: true, tenantId: true },
+          orderBy: { id: "asc" },
+          take: pageSize,
+          ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
+        });
+        if (rows.length === 0) return { rows, opened: 0 };
+        /*
+         * ‏רק משרד שהניסיון שלו חי — פתיחה מחדש למי שהניסיון שלו
+         * ‏נגמר היא רישום שאין בו מה לשלוח.
+         */
+        const live = await tx.tenant.findMany({
+          where: {
+            id: { in: rows.map((row) => row.tenantId) },
+            status: "trial",
+            trialEndsAt: { not: null },
+          },
+          select: { id: true },
+        });
+        /*
+         * ‎**והכרטיס נבדק ב-`reopenRows` — ולא כאן.**
+         *
+         * ‏הניסוח הראשון סינן כאן ב-`withoutValidCard` **וגם** שם,
+         * ‏ומוטציה שהסירה את הסינון כאן שרדה: הכלל הפנימי החזיק.
+         * ‏כלומר זה לא היה „הגנה בעומק” אלא עותק שני של אותו כלל,
+         * ‏שמחר יכול להסכים פחות. השאלה נשאלת פעם אחת, במקום שבו
+         * ‏מתקבלת ההחלטה.
+         *
+         * ‏מה שכן נשאר כאן הוא הסינון ש-`reopenRows` **אינו** עושה:
+         * ‏שהניסיון חי. פתיחה מחדש למשרד שיצא מהניסיון היא רישום
+         * ‏שאין בו מה לשלוח.
+         */
+        let opened = 0;
+        for (const tenant of live) {
+          if (await this.reopenRows(tx, tenant.id, now)) opened += 1;
+        }
+        return { rows, opened };
+      });
+      if (page.rows.length === 0) break;
+      cursor = page.rows[page.rows.length - 1]!.id;
+      reopened += page.opened;
+    }
+    return reopened;
   }
 
   /**
@@ -372,7 +448,7 @@ export class FunnelEnrollmentService {
    */
   private async openProspect(tenantId: string, now: Date, tx?: TenantTx): Promise<boolean> {
     const attempt = async (t: TenantTx): Promise<boolean> => {
-      await lockTenantSubscription(t, tenantId);
+      await this.lockBilling(t, tenantId);
       const tenant = await t.tenant.findFirst({
         where: { id: tenantId },
         select: { status: true, trialEndsAt: true },
@@ -404,6 +480,35 @@ export class FunnelEnrollmentService {
       return this.open(tenantId, "conversion", now, t);
     };
     return tx === undefined ? this.prisma.withFunnelAdmin(attempt) : attempt(tx);
+  }
+
+  /**
+   * ‎**סולם הנעילות של מצב החיוב — ניסוח אחד לכל מי שנשען עליו.**
+   *
+   * ‏שלוש שורות, וכל אחת מהן מכסה חור שהשתיים האחרות אינן:
+   *
+   * ‎**נעילת הייעוץ** מכסה את המקרה ששורת המנוי **אינה קיימת**.
+   * ‏משרד שנרשם בעצמו מקבל דייר ומשתמש בלבד, ושורת המנוי נוצרת
+   * ‏במגע הראשון עם החיוב; `FOR UPDATE` על שורה שאינה קיימת נועל
+   * ‏אפס שורות, בשקט.
+   *
+   * ‎**`FOR UPDATE` על השורות עצמן** מכסה את כל שאר הכותבים —
+   * ‏`activateWithin`, קריאות התשלום על מספר ועל מקום וואטסאפ —
+   * ‏שאינם נוגעים בנעילת הייעוץ כלל. נעילה שרק **אנחנו** לוקחים
+   * ‏אינה מסדרת אותנו מולם; נעילת שורה נלקחת בכל `UPDATE` בין אם
+   * ‏הכותב יודע עליה ובין אם לא (ביקורת Codex, P2).
+   *
+   * ‎**והסדר — מנוי, ואז דייר.** זה הסדר שמסלולי התשלום נועלים בו,
+   * ‏והוא הרונג שכתוב ב-`common/locks.ts`. הפוך = deadlock.
+   *
+   * ‏הפונקציה קיימת מפני שהסולם הזה נדרש בשני מקומות — הסגירה
+   * ‏והכניסה — ושני ניסוחים שלו הם שני סולמות שביום מן הימים
+   * ‏אינם זהים.
+   */
+  private async lockBilling(tx: TenantTx, tenantId: string): Promise<void> {
+    await lockTenantSubscription(tx, tenantId);
+    await tx.$queryRaw`SELECT id FROM subscriptions WHERE tenant_id = ${tenantId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM tenants WHERE id = ${tenantId} FOR UPDATE`;
   }
 
   async open(tenantId: string, track: FunnelTrack, now: Date, tx?: TenantTx): Promise<boolean> {
@@ -766,18 +871,7 @@ export class FunnelEnrollmentService {
        * ‏התשלום נועלים בו (`activateWithin`, `switchToFreePlan` —
        * ‏מנוי ואז דייר), ונעילה בסדר הפוך היא מתכון ל-deadlock.
        */
-      /*
-       * ‎**ולפני שתיהן — נעילת ייעוץ, כי השורה עשויה לא להתקיים.**
-       *
-       * ‏משרד שנרשם בעצמו מקבל דייר ומשתמש בלבד; שורת המנוי נוצרת
-       * ‏במגע הראשון עם החיוב. `FOR UPDATE` על שורה שאינה קיימת
-       * ‏נועל אפס שורות — ואז קריאה חוזרת של תשלום יכולה ליצור
-       * ‏אותה עם כרטיס בדיוק אחרי שקראנו „אין כרטיס”, ושתי
-       * ‏הטרנזקציות מאשרות (ביקורת Codex, P2).
-       */
-      await lockTenantSubscription(tx, snapshot.tenantId);
-      await tx.$queryRaw`SELECT id FROM subscriptions WHERE tenant_id = ${snapshot.tenantId} FOR UPDATE`;
-      await tx.$queryRaw`SELECT id FROM tenants WHERE id = ${snapshot.tenantId} FOR UPDATE`;
+      await this.lockBilling(tx, snapshot.tenantId);
       /*
        * ‎**גם הכרטיס — ולא רק העוגן.**
        *

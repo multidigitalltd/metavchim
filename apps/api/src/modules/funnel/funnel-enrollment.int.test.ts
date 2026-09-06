@@ -1310,6 +1310,41 @@ describe("כניסה למשפך — הזכאות נבדקת ליד הכתיבה"
    * ‏תשלום שמאושר באותו רגע אינו נראה לה. אותה צורה בדיוק כמו
    * ‏בדיקת הנעילה של הסגירה.
    */
+  /*
+   * ‎**ונעילת שורה, ולא רק נעילת הייעוץ** (ביקורת Codex, P2).
+   *
+   * ‏נעילת הייעוץ מכסה את המקרה ששורת המנוי אינה קיימת, אבל היא
+   * ‏נלקחת רק על ידי מי שיודע עליה — ומסלולי התשלום (`activateWithin`,
+   * ‏רכישת מספר או מקום וואטסאפ) אינם. נעילת שורה נלקחת בכל
+   * ‏`UPDATE`, בין אם הכותב יודע עליה ובין אם לא, ולכן היא זו
+   * ‏שמסדרת אותנו מולם.
+   *
+   * ‏הבדיקה מחזיקה את **השורה** מחיבור שני, בלי נעילת הייעוץ כלל.
+   */
+  it("הכניסה ממתינה גם לנעילת שורת המנוי עצמה", async () => {
+    await direct.$executeRawUnsafe(
+      `INSERT INTO subscriptions (id, tenant_id, plan_code, billing_cycle, status, created_at, updated_at)
+       VALUES ($1, $2, 'basic', 'monthly', 'trial', now(), now())`,
+      "01M1FNNLTESTR0WL0CKSUB0001",
+      NEW_TENANT,
+    );
+    let enrolled: number | undefined;
+    let racing: Promise<void> | undefined;
+    await direct.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT id FROM subscriptions WHERE tenant_id = $1 FOR UPDATE`,
+        NEW_TENANT,
+      );
+      racing = service.sweep(new Date(), { dailyQuota: 0 }).then((result) => {
+        enrolled = result.enrolled;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(enrolled, "הכניסה לא המתינה לנעילת השורה").toBeUndefined();
+    });
+    await racing;
+    expect(enrolled, "לא נכנסה גם אחרי שהנעילה שוחררה").toBeGreaterThan(0);
+  });
+
   it("הכניסה ממתינה לנעילת המנוי של אותו משרד", async () => {
     expect(await enrollments()).toHaveLength(0);
 
@@ -1463,5 +1498,66 @@ describe("פתיחה מחדש — גם אחרי „שילם”, כשהכרטיס
   it("‏„ביקש להפסיק” אינו נפתח גם בלי כרטיס", async () => {
     await closedAs("opted_out");
     expect(await service.reopenForRestoredTrial(OLD_TENANT)).toBe(false);
+  });
+
+  /*
+   * ‎**והשאלה חוזרת בכל סבב, ולא רק ברגע ההחזרה** (ביקורת Codex, P2).
+   *
+   * ‏פתיחה-מחדש היא אירוע חד-פעמי, ו-`enrollDue` מוציא לתמיד מי
+   * ‏שהיה לו רישום. כרטיס שפג **אחרי** ההחזרה השאיר לכן ניסיון
+   * ‏חי בלי שום שלב שיישלח בו — אותה מלכודת קבועה, בתזמון אחר.
+   */
+  it("כרטיס שפג אחרי ההחזרה — הסבב פותח את הרישום", async () => {
+    await closedAs("paid");
+    await direct.$executeRawUnsafe(
+      `INSERT INTO subscriptions (id, tenant_id, plan_code, billing_cycle, status, card_token_encrypted, card_month, card_year, created_at, updated_at)
+       VALUES ($1, $2, 'basic', 'monthly', 'trial', 'tok', 12, $3, now(), now())`,
+      "01M1FNNLTESTLAPSEDCARD0001",
+      OLD_TENANT,
+      FUTURE_YEAR,
+    );
+    /* ‏ברגע ההחזרה יש כרטיס — ולכן הרישום נשאר סגור, וזה נכון */
+    expect(await service.reopenForRestoredTrial(OLD_TENANT)).toBe(false);
+
+    /* ‏ואז הכרטיס פג */
+    await direct.$executeRawUnsafe(
+      `UPDATE subscriptions SET card_year = 2020 WHERE tenant_id = $1`,
+      OLD_TENANT,
+    );
+    await service.sweep(new Date(), { dailyQuota: 0 });
+
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedAt, "הרישום לא נפתח מחדש אחרי שהכרטיס פג").toBeNull();
+    expect(row?.endedReason).toBeNull();
+  });
+
+  /*
+   * ‏הסינון היחיד שהסבב עושה בעצמו: שהניסיון חי. בלעדיו משרד
+   * ‏שיצא מהניסיון — ואפילו משלם — היה מקבל רישום מכירה פתוח
+   * ‏ברגע שהכרטיס שלו מנוקה.
+   */
+  it("משרד שכבר אינו בניסיון אינו נפתח מחדש, גם בלי כרטיס", async () => {
+    await closedAs("paid");
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET status = 'active' WHERE id = $1`,
+      OLD_TENANT,
+    );
+    await service.sweep(new Date(), { dailyQuota: 0 });
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedReason).toBe("paid");
+  });
+
+  it("ועם כרטיס תקף הסבב אינו פותח", async () => {
+    await closedAs("paid");
+    await direct.$executeRawUnsafe(
+      `INSERT INTO subscriptions (id, tenant_id, plan_code, billing_cycle, status, card_token_encrypted, card_month, card_year, created_at, updated_at)
+       VALUES ($1, $2, 'basic', 'monthly', 'trial', 'tok', 12, $3, now(), now())`,
+      "01M1FNNLTESTVAL1DCARD00001",
+      OLD_TENANT,
+      FUTURE_YEAR,
+    );
+    await service.sweep(new Date(), { dailyQuota: 0 });
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedReason).toBe("paid");
   });
 });

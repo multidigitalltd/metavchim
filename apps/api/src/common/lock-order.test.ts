@@ -44,25 +44,43 @@ function sourceFiles(dir: string, prefix = ""): { name: string; code: string }[]
   });
 }
 
+/** ‏גוף מאוזן-סוגריים שמתחיל ב-`{` שבמיקום הנתון. */
+function balancedBody(code: string, start: number): string {
+  let depth = 0;
+  for (let end = start; end < code.length; end += 1) {
+    if (code[end] === "{") depth += 1;
+    else if (code[end] === "}") {
+      depth -= 1;
+      if (depth === 0) return code.slice(start, end);
+    }
+  }
+  return code.slice(start);
+}
+
 /**
- * ‏גופי הקולבקים שמקבלים `tx` — כלומר טרנזקציה אחת כל אחד.
- * ‏הגבול נמצא בספירת סוגריים מסולסלים, ולכן הוא עמיד לקינון.
+ * ‎**גופים שנועלים — קולבק של טרנזקציה, ו**גם** מתודה שמקבלת `tx`.**
+ *
+ * ‏הסריקה הראשונה הכירה רק קולבקים (`(tx) => {`), וזה הספיק כל עוד
+ * ‏הסולם היה כתוב בתוכם. ברגע שחילצתי אותו למתודה עזר —
+ * ‏`lockBilling(tx, tenantId)` — הוא **יצא משדה הראייה של השער**:
+ * ‏מוטציה שהפכה את הסדר בתוכה עברה בשקט.
+ *
+ * ‏זה הכשל הקלאסי של שער טקסטואלי, והוא כבר תועד בקובץ הזה בצורה
+ * ‏אחרת („עיצוב הקוד יכול לעוור אותו”). הפעם זה היה **ריפקטור
+ * ‏נכון** שעיוור אותו — חילוץ לכלל אחד במקום שניים — ולכן התיקון
+ * ‏אינו לוותר על החילוץ אלא להרחיב את מה שנסרק: כל גוף שמקבל
+ * ‏`tx`, בין אם הוא קולבק ובין אם הוא מתודה.
  */
 function transactionBodies(code: string): string[] {
   const out: string[] = [];
-  const opener = /\(\s*(?:async\s*)?\(\s*tx\b[^)]*\)\s*=>\s*\{/gu;
-  for (const match of code.matchAll(opener)) {
-    const start = (match.index ?? 0) + match[0].length - 1;
-    let depth = 0;
-    let end = start;
-    for (; end < code.length; end += 1) {
-      if (code[end] === "{") depth += 1;
-      else if (code[end] === "}") {
-        depth -= 1;
-        if (depth === 0) break;
-      }
-    }
-    out.push(code.slice(start, end));
+  const callback = /\(\s*(?:async\s*)?\(\s*tx\b[^)]*\)\s*=>\s*\{/gu;
+  for (const match of code.matchAll(callback)) {
+    out.push(balancedBody(code, (match.index ?? 0) + match[0].length - 1));
+  }
+  /* ‏מתודה או פונקציה שהפרמטר הראשון שלה הוא `tx` */
+  const method = /\b(?:async\s+)?[A-Za-z_$][\w$]*\s*\(\s*tx\s*:[^)]*\)\s*:[^{;]*\{/gu;
+  for (const match of code.matchAll(method)) {
+    out.push(balancedBody(code, (match.index ?? 0) + match[0].length - 1));
   }
   return out;
 }
