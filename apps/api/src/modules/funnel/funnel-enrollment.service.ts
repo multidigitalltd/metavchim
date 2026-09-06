@@ -154,7 +154,7 @@ export class FunnelEnrollmentService {
       if (enrolled === before) break;
     }
 
-    return enrolled + (await this.enrollBacklog(now, dailyQuota, freshFrom, eligible));
+    return enrolled + (await this.enrollBacklog(now, dailyQuota, pageSize, freshFrom, eligible));
   }
 
   /**
@@ -184,6 +184,7 @@ export class FunnelEnrollmentService {
   private async enrollBacklog(
     now: Date,
     dailyQuota: number,
+    pageSize: number,
     freshFrom: Date,
     eligible: Record<string, unknown>,
   ): Promise<number> {
@@ -197,14 +198,48 @@ export class FunnelEnrollmentService {
       const remaining = dailyQuota - (await this.backlogEnrolledToday(tx, now));
       if (remaining <= 0) return 0;
 
-      const backlog = await tx.tenant.findMany({
-        where: { ...eligible, createdAt: { lt: freshFrom } },
-        select: { id: true },
-        orderBy: { createdAt: "asc" },
-        take: remaining,
-      });
-      for (const tenant of backlog) await this.open(tenant.id, "conversion", now, tx);
-      return backlog.length;
+      /*
+       * ‎**מי שכבר יש לו כרטיס תקף אינו צורך מקום במכסה.**
+       *
+       * ‏`status: "trial"` אינו אומר „לא שילם”: משרד בניסיון ששכר
+       * ‏מספר שילם, והכרטיס נשמר בלי שהסטטוס השתנה. הוא היה נכנס,
+       * ‏תופס מקום, ו-`closeFinished` היה סוגר אותו כ-`paid` באותו
+       * ‏סבב עצמו. אם `dailyQuota` הוותיקים כולם כאלה — אף מועמד
+       * ‏אמיתי לא נכנס באותו יום, והפריסה נתקעת (ביקורת Codex).
+       *
+       * ‏הסינון אינו יכול לעבור לשאילתה: „כרטיס תקף” כולל תפוגה
+       * ‏שנשענת על שתי עמודות מספריות, ו„יש טוקן כרטיס” אינו אותו
+       * ‏דבר — משרד עם כרטיס **שפג** הוא בדיוק מועמד שצריך להיכנס.
+       * ‏לכן דפדוף עם סמן עד שהמכסה מתמלאת, ולא `take` שמתחזה
+       * ‏לתקרת עבודה: זו הייתה הטעות בשלוש הביקורות הראשונות.
+       */
+      let enrolled = 0;
+      let cursor: string | undefined;
+      while (enrolled < remaining) {
+        const page = await tx.tenant.findMany({
+          where: { ...eligible, createdAt: { lt: freshFrom } },
+          select: { id: true },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          take: pageSize,
+          ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
+        });
+        if (page.length === 0) break;
+        cursor = page[page.length - 1]!.id;
+
+        const cards = await tx.subscription.findMany({
+          where: { tenantId: { in: page.map((t) => t.id) } },
+          select: { tenantId: true, cardTokenEncrypted: true, cardMonth: true, cardYear: true },
+        });
+        const cardById = new Map(cards.map((c) => [c.tenantId, c]));
+
+        for (const tenant of page) {
+          if (hasValidCard(cardById.get(tenant.id) ?? null, now)) continue;
+          await this.open(tenant.id, "conversion", now, tx);
+          enrolled += 1;
+          if (enrolled >= remaining) break;
+        }
+      }
+      return enrolled;
     });
   }
 

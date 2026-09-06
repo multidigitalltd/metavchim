@@ -3374,6 +3374,11 @@ model FunnelEnrollment {
   /// במיגרציה; Prisma אינו יודע לבטא אותו.
   @@index([tenantId, track])
   @@index([track, startedAt])
+  /// **המשרד של הרישום, כמפתח שאפשר להצביע עליו.**
+  ///
+  /// `id` ייחודי ממילא, ולכן זה אינו מגביל דבר. תפקידו היחיד הוא
+  /// לאפשר ל-`FunnelMessage` להצביע על **הצמד** — ראו שם.
+  @@unique([id, tenantId])
   @@map("funnel_enrollments")
 }
 
@@ -3423,7 +3428,15 @@ model FunnelMessage {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  enrollment FunnelEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  /// **הקשר הוא לצמד `(enrollmentId, tenantId)`, ולא ל-`id` לבדו.**
+  ///
+  /// שני מפתחות זרים נפרדים מקבלים כל צירוף ביניהם: הודעה עם הרישום
+  /// של משרד א׳ ועם `tenantId` של משרד ב׳ עוברת את שניהם. פוליסת
+  /// ה-RLS מסננת לפי `tenantId` בלבד, ולכן משרד ב׳ היה קורא נמען,
+  /// יעד ונתוני מסירה של משרד א׳ (ביקורת Codex, P1). האכיפה במסד
+  /// ולא בקוד, כי „הקוד תמיד כותב את שניהם נכון” הוא ההנחה שנשברת
+  /// בכתיבה השנייה.
+  enrollment FunnelEnrollment @relation(fields: [enrollmentId, tenantId], references: [id, tenantId], onDelete: Cascade)
 
   /// "פעם אחת" נאכף כאן ולא בקוד — הלקח של ההמרה בנכסים לגיוס.
   @@unique([enrollmentId, stageKey, userId, channel])

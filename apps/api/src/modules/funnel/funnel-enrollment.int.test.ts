@@ -89,6 +89,12 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await direct.$executeRawUnsafe(
+    `DELETE FROM funnel_messages WHERE tenant_id IN ($1, $2, $3)`,
+    OLD_TENANT,
+    NEW_TENANT,
+    THIRD_TENANT,
+  );
+  await direct.$executeRawUnsafe(
     `DELETE FROM funnel_enrollments WHERE tenant_id IN ($1, $2, $3)`,
     OLD_TENANT,
     NEW_TENANT,
@@ -276,6 +282,42 @@ describe("כניסה למשפך — מול מסד אמיתי", () => {
   });
 
   /**
+   * ‎**משרד שכבר יש לו כרטיס תקף אינו צורך מקום במכסה.**
+   *
+   * ‏`status: "trial"` אינו „לא שילם”: משרד בניסיון ששכר מספר שילם,
+   * ‏והכרטיס נשמר בלי שהסטטוס השתנה. הוא היה נכנס, תופס את המקום
+   * ‏היחיד של היום, ו-`closeFinished` היה סוגר אותו כ-`paid` באותו
+   * ‏סבב — כלומר אף מועמד אמיתי לא נכנס באותו יום (ביקורת Codex).
+   *
+   * ‏הוותיק הוא בעל הכרטיס והוא גם הראשון בתור לפי `createdAt`,
+   * ‏ולכן בלי התיקון הוא זה שהיה תופס את המכסה.
+   *
+   * ‎**`pageSize: 1` אינו קישוט.** בדף גדול המועמד האמיתי יושב
+   * ‏באותו דף כמו בעל הכרטיס, ואז גם מימוש שגוי — כזה שסופר את
+   * ‏המדולג כאילו נכנס — עדיין מגיע אליו במקרה. דף של אחד מפריד
+   * ‏בין „דילגתי” ל„דילגתי ובזבזתי את המקום”: רק אם הדילוג **אינו**
+   * ‏נספר, הלולאה ממשיכה לדף הבא ומגיעה למועמד.
+   */
+  it("בעל כרטיס תקף מדולג, והמקום עובר למועמד אמיתי", async () => {
+    const nextYear = new Date().getUTCFullYear() + 2;
+    await direct.$executeRawUnsafe(
+      `INSERT INTO subscriptions (id, tenant_id, plan_code, billing_cycle, status, card_token_encrypted, card_month, card_year, created_at, updated_at)
+       VALUES ($1, $2, 'basic', 'monthly', 'trial', 'tok', 12, $3, now(), now())`,
+      "01M1FNNLTESTSUBSCR1PT10N03",
+      OLD_TENANT,
+      nextYear,
+    );
+
+    await service.sweep(new Date(), { dailyQuota: 1, pageSize: 1 });
+
+    const ids = (await enrollments()).map((r) => r.tenantId);
+    // ‏הטרי עוקף מכסה תמיד; המקום היחיד בפיגור הלך למועמד האמיתי
+    expect(ids).toContain(NEW_TENANT);
+    expect(ids).toContain(THIRD_TENANT);
+    expect(ids).not.toContain(OLD_TENANT);
+  });
+
+  /**
    * ‎**המכסה מוגנת נגד עותק שני של ה-API — נעילה אמיתית, לא ספירה.**
    *
    * ‏„ספור ואז קח” בשתי טרנזקציות נותן לשני עותקים להוציא כל אחד
@@ -360,5 +402,74 @@ describe("כניסה למשפך — מול מסד אמיתי", () => {
     // ‏ועכשיו: המקום שהוא צרך נשאר תפוס עד סוף היום
     await service.sweep(new Date(today.getTime() + 120_000), { dailyQuota: 1 });
     expect(await enrollments()).toHaveLength(2);
+  });
+});
+
+
+/**
+ * ‎**הודעה אינה יכולה לשאת רישום של משרד אחד ומזהה משרד של אחר.**
+ *
+ * ‏שני מפתחות זרים נפרדים קיבלו כל צירוף ביניהם, ופוליסת ה-RLS על
+ * ‏`funnel_messages` מסננת לפי `tenant_id` בלבד — כלומר משרד ב׳ היה
+ * ‏קורא נמען, יעד ונתוני מסירה של משרד א׳ (ביקורת Codex, P1).
+ *
+ * ‏הבדיקה רצה **דרך הבעלים**, שעוקף RLS, בכוונה: היא שואלת על
+ * ‏האילוץ במסד ולא על הפוליסה. אילוץ שאפשר לעקוף בכתיבה ישירה אינו
+ * ‏אילוץ.
+ */
+describe("שלמות בין הודעה לרישום", () => {
+  it("‏‎INSERT עם רישום של משרד אחר נדחה במסד", async () => {
+    await service.sweep(new Date(), { dailyQuota: 5 });
+    const rows = await enrollments();
+    const mine = rows.find((r) => r.tenantId === OLD_TENANT);
+    expect(mine, "לא נפתח רישום לוותיק").toBeDefined();
+
+    const enrollmentId = (
+      await direct.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id FROM funnel_enrollments WHERE tenant_id = $1 LIMIT 1`,
+        OLD_TENANT,
+      )
+    )[0]!.id;
+
+    await expect(
+      direct.$executeRawUnsafe(
+        `INSERT INTO funnel_messages
+           (id, tenant_id, enrollment_id, track, stage_key, user_id, destination, channel, token, updated_at)
+         VALUES ($1, $2, $3, 'conversion', 'day0', $4, 'a@b.com', 'email', $5, now())`,
+        "01M1FNNLTESTCROSSTENANT01",
+        // ‏מזהה משרד **אחר** מזה שהרישום שייך לו
+        NEW_TENANT,
+        enrollmentId,
+        "01M1FNNLTESTUSER0000000001",
+        "cross-tenant-token-1",
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("‏‎INSERT עם אותו משרד מתקבל — האילוץ אינו חוסם שימוש תקין", async () => {
+    await service.sweep(new Date(), { dailyQuota: 5 });
+    const enrollmentId = (
+      await direct.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id FROM funnel_enrollments WHERE tenant_id = $1 LIMIT 1`,
+        OLD_TENANT,
+      )
+    )[0]!.id;
+
+    await direct.$executeRawUnsafe(
+      `INSERT INTO funnel_messages
+         (id, tenant_id, enrollment_id, track, stage_key, user_id, destination, channel, token, updated_at)
+       VALUES ($1, $2, $3, 'conversion', 'day0', $4, 'a@b.com', 'email', $5, now())`,
+      "01M1FNNLTESTSAMETENANT01A",
+      OLD_TENANT,
+      enrollmentId,
+      "01M1FNNLTESTUSER0000000001",
+      "same-tenant-token-1",
+    );
+
+    const count = await direct.$queryRawUnsafe<{ n: bigint }[]>(
+      `SELECT count(*)::bigint AS n FROM funnel_messages WHERE id = $1`,
+      "01M1FNNLTESTSAMETENANT01A",
+    );
+    expect(Number(count[0]!.n)).toBe(1);
   });
 });

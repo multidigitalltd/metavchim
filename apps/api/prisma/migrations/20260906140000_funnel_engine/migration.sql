@@ -80,6 +80,15 @@ CREATE UNIQUE INDEX "funnel_enrollments_tenant_id_track_live_key"
 CREATE INDEX "funnel_enrollments_track_started_at_idx"
   ON "funnel_enrollments"("track", "started_at");
 
+-- ‎**המשרד של הרישום — כמפתח שאפשר להצביע עליו.**
+--
+-- ‏‎`id` הוא כבר ייחודי, ולכן האילוץ הזה אינו מוסיף שום הגבלה על
+-- ‏הנתונים. תפקידו היחיד הוא לאפשר ל-`funnel_messages` להצביע על
+-- ‏**הצמד** ‎`(id, tenant_id)`, וכך לא תיתכן הודעה שמשויכת לרישום
+-- ‏של משרד אחד ונושאת את מזהה המשרד של אחר.
+ALTER TABLE "funnel_enrollments"
+  ADD CONSTRAINT "funnel_enrollments_id_tenant_id_key" UNIQUE ("id", "tenant_id");
+
 -- ────────────────────────────  מה נשלח  ────────────────────────────
 --
 -- ‏שורה לכל נמען ולכל ערוץ — לא לכל הודעה. „נשלח למשרד” אינו מדיד:
@@ -122,8 +131,22 @@ CREATE TABLE "funnel_messages" (
     CONSTRAINT "funnel_messages_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "funnel_messages_tenant_id_fkey" FOREIGN KEY ("tenant_id")
       REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "funnel_messages_enrollment_id_fkey" FOREIGN KEY ("enrollment_id")
-      REFERENCES "funnel_enrollments"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    -- ‎**המפתח הוא הצמד, ולא כל עמודה לחוד.**
+    --
+    -- ‏שני מפתחות זרים נפרדים — `tenant_id` אל `tenants`,
+    -- ‏`enrollment_id` אל `funnel_enrollments` — מקבלים כל צירוף
+    -- ‏ביניהם: שורה עם הרישום של משרד א׳ ועם `tenant_id` של משרד ב׳
+    -- ‏עוברת את שניהם. פוליסת ה-RLS מסננת לפי `tenant_id` בלבד,
+    -- ‏ולכן משרד ב׳ היה קורא נמען, יעד ונתוני מסירה של משרד א׳
+    -- ‏(ביקורת Codex, P1).
+    --
+    -- ‏האכיפה כאן ולא בקוד: „הקוד תמיד כותב את שניהם נכון” הוא
+    -- ‏בדיוק סוג ההנחה שנשברת בכתיבה השנייה, ובטבלה שכל תפקיד
+    -- ‏ה-RLS עליה הוא בידוד בין משרדים.
+    CONSTRAINT "funnel_messages_enrollment_id_fkey"
+      FOREIGN KEY ("enrollment_id", "tenant_id")
+      REFERENCES "funnel_enrollments"("id", "tenant_id")
+      ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- ‎**„פעם אחת” נאכף במסד, לא בקוד.**
