@@ -602,62 +602,33 @@ describe("מתי המסלול נגמר", () => {
 });
 
 describe("מתי הניסיון נגמר ומתי הוא רק חסר", () => {
-  const LIVE = new Date("2026-10-01T09:00:00.000Z");
+  const WHEN = new Date("2026-10-01T09:00:00.000Z");
 
   /*
-   * ‏שלוש הדרכים שמוחקות את התאריך בכוונה — מעבר עצמי לחינמי,
-   * ‏העברה לחינמי ממסך הפלטפורמה, והענקת תקופה ידנית. שתי
-   * ‏הראשונות מוציאות מסטטוס „ניסיון”, השלישית משאירה אותו.
+   * ‎**הסיבה נקראת, לא מנוחשת.**
+   *
+   * ‏הגרסה הקודמת הסיקה „נגמר” מ-`status` ומ-`paidUntil`, וזה נשבר
+   * ‏במקום שבו ניחוש נשבר: „פתח ללא תפוגה” מוחק את התאריך ומשאיר
+   * ‏את הסטטוס „ניסיון”, כלומר מצב שאינו ניתן להבחנה מאיפוס זמני
+   * ‏(ביקורת Codex). מי שמסיים את הניסיון רושם זאת, ולכן כאן
+   * ‏נשארות שתי עמודות בלבד.
    */
-  it("מעבר למסלול חינמי מסיים את הניסיון", () => {
-    expect(
-      trialAnchorConcluded({ trialEndsAt: null, status: "active", paidUntil: null }),
-    ).toBe(true);
+  it("סיום שנרשם — נגמר", () => {
+    expect(trialAnchorConcluded({ trialEndsAt: null, trialConcludedAt: WHEN })).toBe(true);
   });
 
-  it("הענקת תקופה ידנית מסיימת אותו גם בסטטוס ניסיון", () => {
-    expect(
-      trialAnchorConcluded({ trialEndsAt: null, status: "trial", paidUntil: LIVE }),
-    ).toBe(true);
-  });
-
-  /*
-   * ‏וזה מה שנשאר מוגן: `PATCH billing-override` שמאפס את התאריך
-   * ‏לבדו. המשרד עדיין בניסיון, והתאריך יכול לחזור מאותו מסך.
-   */
-  it("איפוס התאריך לבדו הוא ערך חסר, לא ניסיון שנגמר", () => {
-    expect(
-      trialAnchorConcluded({ trialEndsAt: null, status: "trial", paidUntil: null }),
-    ).toBe(false);
+  it("תאריך שאופס בלי סיבה רשומה — רק חסר", () => {
+    expect(trialAnchorConcluded({ trialEndsAt: null, trialConcludedAt: null })).toBe(false);
   });
 
   /*
-   * ‏תאריך שקיים לעולם אינו „נגמר”, גם בסטטוס שאינו ניסיון: יש לו
-   * ‏מועד, והמועד הוא שמכריע. בלי הבדיקה הזו משרד מושהה שתאריכו
-   * ‏בתוקף היה נספר כמי שסיים.
+   * ‏תאריך שקיים לעולם אינו „נגמר”, גם כשרשום סיום ישן: יש לו
+   * ‏מועד, והמועד הוא שמכריע. זה גם מה שמכסה את המשרד שהוחזר
+   * ‏לניסיון לפני שהסיום נוקה.
    */
-  it("תאריך שקיים אינו „נגמר” בשום סטטוס", () => {
-    expect(
-      trialAnchorConcluded({ trialEndsAt: LIVE, status: "suspended", paidUntil: null }),
-    ).toBe(false);
-    expect(
-      trialAnchorConcluded({ trialEndsAt: LIVE, status: "trial", paidUntil: LIVE }),
-    ).toBe(false);
-  });
-
-  /*
-   * ‏הענקה שפגה עדיין סיימה את הניסיון: השאלה אינה „האם ההענקה
-   * ‏בתוקף” אלא „האם הייתה הענקה שמחקה את התאריך”, ועובדה זו אינה
-   * ‏מתבטלת כשההענקה פוקעת.
-   */
-  it("הענקה שפגה עדיין סיימה את הניסיון", () => {
-    expect(
-      trialAnchorConcluded({
-        trialEndsAt: null,
-        status: "trial",
-        paidUntil: new Date("2020-01-01T00:00:00.000Z"),
-      }),
-    ).toBe(true);
+  it("תאריך שקיים גובר על סיום שנרשם", () => {
+    expect(trialAnchorConcluded({ trialEndsAt: WHEN, trialConcludedAt: WHEN })).toBe(false);
+    expect(trialAnchorConcluded({ trialEndsAt: WHEN, trialConcludedAt: null })).toBe(false);
   });
 });
 

@@ -43,7 +43,7 @@ async function seedTenant(id: string, name: string, ageDays: number): Promise<vo
      VALUES ($1, $2, 'basic', 'trial', $3, $4, now())
      ON CONFLICT (id) DO UPDATE
        SET status = 'trial', trial_ends_at = EXCLUDED.trial_ends_at, created_at = EXCLUDED.created_at,
-           plan = 'basic', paid_until = NULL`,
+           plan = 'basic', paid_until = NULL, trial_concluded_at = NULL`,
     id,
     name,
     trialEndsAt,
@@ -674,7 +674,7 @@ describe("ניסיון שנגמר סוגר, ניסיון שנעלם אינו ס�
     // ‏בדיוק מה ש-`switchToFreePlan` כותב: פעיל, בלי ניסיון, בלי כרטיס
     await direct.$executeRawUnsafe(
       `UPDATE tenants SET status = 'active', plan = 'free', trial_ends_at = NULL,
-                          paid_until = NULL WHERE id = $1`,
+                          paid_until = NULL, trial_concluded_at = now() WHERE id = $1`,
       OLD_TENANT,
     );
     expect(await reasonAfterSweep(later)).toBe("completed");
@@ -683,7 +683,8 @@ describe("ניסיון שנגמר סוגר, ניסיון שנעלם אינו ס�
   it("הענקת תקופה ידנית מסיימת אותו גם כשהסטטוס נשאר „ניסיון”", async () => {
     const later = await enrolledThenLater();
     await direct.$executeRawUnsafe(
-      `UPDATE tenants SET trial_ends_at = NULL, paid_until = $2 WHERE id = $1`,
+      `UPDATE tenants SET trial_ends_at = NULL, paid_until = $2, trial_concluded_at = now()
+        WHERE id = $1`,
       OLD_TENANT,
       new Date(later.getTime() + 30 * DAY),
     );
@@ -696,6 +697,24 @@ describe("ניסיון שנגמר סוגר, ניסיון שנעלם אינו ס�
    * ‏אבל מ-`billing-override` בלבד: המשרד עדיין בניסיון, התאריך
    * ‏יכול לחזור מאותו מסך, והרישום נשאר פתוח.
    */
+  /*
+   * ‎**„פתח ללא תפוגה” — המקרה שהניחוש לא יכול היה לראות.**
+   *
+   * ‏הכפתור שולח `paidUntil: null`, והשרת מוחק גם את תאריך הניסיון
+   * ‏ומשאיר את הסטטוס „ניסיון”. כלומר שלוש העמודות זהות לאיפוס
+   * ‏הזמני, וכל הסקה מהן הייתה חייבת לטעות באחד משני הכיוונים
+   * ‏(ביקורת Codex). הסיבה הרשומה מכריעה.
+   */
+  it("„פתח ללא תפוגה” מסיים את הניסיון — למרות שהסטטוס נשאר „ניסיון”", async () => {
+    const later = await enrolledThenLater();
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET trial_ends_at = NULL, paid_until = NULL,
+                          trial_concluded_at = now() WHERE id = $1`,
+      OLD_TENANT,
+    );
+    expect(await reasonAfterSweep(later)).toBe("completed");
+  });
+
   it("איפוס התאריך לבדו — הרישום נשאר פתוח", async () => {
     const later = await enrolledThenLater();
     await direct.$executeRawUnsafe(
@@ -716,12 +735,129 @@ describe("ניסיון שנגמר סוגר, ניסיון שנעלם אינו ס�
     await service.sweep(now, { dailyQuota: 5 });
     await direct.$executeRawUnsafe(
       `UPDATE tenants SET status = 'active', plan = 'free', trial_ends_at = NULL,
-                          paid_until = NULL WHERE id = $1`,
+                          paid_until = NULL, trial_concluded_at = now() WHERE id = $1`,
       OLD_TENANT,
     );
     await service.sweep(new Date(now.getTime() + DAY), { dailyQuota: 5 });
     const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
     expect(row?.endedAt, "נסגר לפני שכל שלבי המשפך פגו").toBeNull();
+  });
+});
+
+/**
+ * ‎**ניסיון שהוחזר פותח מחדש את הרישום שנסגר.**
+ *
+ * ‏`enrollDue` מוציא מהמועמדות כל מי שאי פעם היה לו רישום, ולכן
+ * ‏משרד שנסגר כ„מוצה” וקיבל אחר כך ניסיון חדש לא היה מקבל דבר —
+ * ‏גם כשיש לו שוב תפוגה אמיתית להזהיר מפניה (ביקורת Codex).
+ */
+describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", () => {
+  const AFTER = 60 * 24 * 60 * 60 * 1000;
+
+  async function closeAsCompleted(): Promise<void> {
+    const now = new Date();
+    await service.sweep(now, { dailyQuota: 5 });
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET status = 'active', plan = 'free', trial_ends_at = NULL,
+                          paid_until = NULL, trial_concluded_at = now() WHERE id = $1`,
+      OLD_TENANT,
+    );
+    await service.sweep(new Date(now.getTime() + AFTER), { dailyQuota: 5 });
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedReason, "ההכנה נכשלה — הרישום לא נסגר").toBe("completed");
+  }
+
+  it("נפתח מחדש, ובלי לאפס את יום 0", async () => {
+    await closeAsCompleted();
+    const before = (await enrollments()).find((r) => r.tenantId === OLD_TENANT)!;
+
+    expect(await service.reopenForRestoredTrial(OLD_TENANT)).toBe(true);
+
+    const after = (await enrollments()).find((r) => r.tenantId === OLD_TENANT)!;
+    expect(after.endedAt).toBeNull();
+    expect(after.endedReason).toBeNull();
+    /*
+     * ‎**וזה העיקר.** המשרד כבר קיבל את תוכן ההפעלה; מה שחסר לו הוא
+     * ‏שלבי הניסיון. `startedAt` שהיה מתאפס היה מגיש לו את „הוסיפו
+     * ‏נכס ראשון” בפעם השנייה.
+     */
+    expect(after.startedAt.getTime()).toBe(before.startedAt.getTime());
+  });
+
+  it("רישום פתוח אינו נפתח שוב ואינו נכפל", async () => {
+    await service.sweep(new Date(), { dailyQuota: 5 });
+    expect(await service.reopenForRestoredTrial(OLD_TENANT)).toBe(false);
+    const rows = (await enrollments()).filter((r) => r.tenantId === OLD_TENANT);
+    expect(rows.length).toBe(1);
+  });
+
+  /*
+   * ‎`opted_out` הוא בקשה מפורשת להפסיק, ופתיחה מחדש הייתה מבטלת
+   * ‏אותה. זו ההבחנה שבלעדיה „לפתוח כל מה שנסגר” היה עובר.
+   */
+  it("מי שביקש להפסיק אינו נפתח מחדש", async () => {
+    await closeAsCompleted();
+    await direct.$executeRawUnsafe(
+      `UPDATE funnel_enrollments SET ended_reason = 'opted_out' WHERE tenant_id = $1`,
+      OLD_TENANT,
+    );
+    expect(await service.reopenForRestoredTrial(OLD_TENANT)).toBe(false);
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedAt).not.toBeNull();
+  });
+
+  /*
+   * ‎**האינדקס החלקי מתיר רישום סגור לצד רישום פתוח, ולכן המצב הזה
+   * ‏קיים במסד גם אם הקוד אינו יוצר אותו.**
+   *
+   * ‏פתיחה מחדש בלי הבדיקה הייתה מייצרת שני רישומים פתוחים —
+   * ‏הפרה של האינדקס, כלומר 500 על פעולת ניהול תמימה. השורה
+   * ‏נשתלת ישירות כי זו בדיוק הנקודה: השער קיים בשביל מצב שהקוד
+   * ‏מבטיח שלא ייווצר, וההבטחה אינה מה שנאכף במסד.
+   */
+  it("רישום פתוח לצד רישום סגור — לא נפתח שני", async () => {
+    await closeAsCompleted();
+    await direct.$executeRawUnsafe(
+      `INSERT INTO funnel_enrollments (id, tenant_id, track, started_at, updated_at)
+       VALUES ($1, $2, 'conversion', now(), now())`,
+      "01M1FNNLTESTSECONDOPEN0001",
+      OLD_TENANT,
+    );
+    try {
+      expect(await service.reopenForRestoredTrial(OLD_TENANT)).toBe(false);
+      const rows = (await enrollments()).filter(
+        (r) => r.tenantId === OLD_TENANT && r.endedAt === null,
+      );
+      expect(rows.length, "נוצר רישום פתוח שני").toBe(1);
+    } finally {
+      await direct.$executeRawUnsafe(
+        `DELETE FROM funnel_enrollments WHERE id = $1`,
+        "01M1FNNLTESTSECONDOPEN0001",
+      );
+    }
+  });
+
+  it("משרד שמעולם לא נרשם — אין מה לפתוח", async () => {
+    expect(await service.reopenForRestoredTrial(OLD_TENANT)).toBe(false);
+  });
+
+  /*
+   * ‏ואחרי הפתיחה, הסבב אינו סוגר אותו מיד: התאריך החדש מחזיר את
+   * ‏שלבי הניסיון לתוקף, וזו כל מטרת הפתיחה.
+   */
+  it("אחרי החזרת התאריך הסבב אינו סוגר אותו שוב", async () => {
+    await closeAsCompleted();
+    await service.reopenForRestoredTrial(OLD_TENANT);
+    const restored = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET status = 'trial', trial_ends_at = $2, trial_concluded_at = NULL
+        WHERE id = $1`,
+      OLD_TENANT,
+      restored,
+    );
+    await service.sweep(new Date(), { dailyQuota: 5 });
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedAt, "נסגר למרות שהניסיון חזר").toBeNull();
   });
 });
 

@@ -384,11 +384,12 @@ export class FunnelEnrollmentService {
       this.prisma.tenant.findMany({
         where: { id: { in: tenantIds } },
         /*
-         * ‎`status` ו-`paidUntil` אינם קישוט: `trialEndsAt` ריק
-         * ‏נקרא אחרת לגמרי כשהניסיון **נגמר** מכשהערך **חסר**, ושתי
-         * ‏העמודות האלה הן מה שמבדיל ביניהם (`trialAnchorConcluded`).
+         * ‎`trialConcludedAt` אינו קישוט: `trialEndsAt` ריק נקרא
+         * ‏אחרת לגמרי כשהניסיון **נגמר** מכשהערך **חסר**, והעמודה
+         * ‏הזו היא מה שמבדיל ביניהם (`trialAnchorConcluded`) — סיבה
+         * ‏שנרשמה, ולא ניחוש משאר השורה.
          */
-        select: { id: true, trialEndsAt: true, status: true, paidUntil: true },
+        select: { id: true, trialEndsAt: true, trialConcludedAt: true },
       }),
       this.prisma.subscription.findMany({
         where: { tenantId: { in: tenantIds } },
@@ -489,6 +490,62 @@ export class FunnelEnrollmentService {
       if (await this.close(row.id, reason, now)) closed += 1;
     }
     return closed;
+  }
+
+  /**
+   * ‎**ניסיון שהוחזר פותח מחדש את הרישום שנסגר — ולא פותח חדש.**
+   *
+   * ## ‏הבעיה
+   *
+   * ‏משרד שעבר למסלול חינמי סוגר את רישומו כ„מוצה” אחרי ששלבי שעון
+   * ‏המשפך פגו. מנהל פלטפורמה יכול להחזיר אותו לניסיון אמיתי
+   * ‏(`PATCH billing-override` עם תאריך), ואז יש לו שוב תפוגה
+   * ‏שאפשר להזהיר מפניה — אבל `enrollDue` מוציא מהמועמדות כל מי
+   * ‏שאי פעם היה לו רישום, ולכן הוא לא היה מקבל דבר (ביקורת Codex).
+   *
+   * ## ‎**ולמה פתיחה מחדש ולא כניסה חדשה**
+   *
+   * ‏`startedAt` נשאר כשהיה, וזה בדיוק הרצוי: המשרד **כבר קיבל**
+   * ‏את תוכן ההפעלה של ימים 0–17, ושלביו פגו מזמן. מה שחסר לו הוא
+   * ‏שלבי הניסיון, והם מחושבים מהתאריך החדש. כניסה חדשה הייתה
+   * ‏מגישה לו את „הוסיפו נכס ראשון” בפעם השנייה.
+   *
+   * ## ‏רק „מוצה”
+   *
+   * ‏`opted_out` הוא בקשה מפורשת להפסיק, ופתיחה מחדש הייתה מבטלת
+   * ‏אותה. `paid` ייסגר שוב מיד בסבב הבא ממילא. רק רישום שנסגר כי
+   * ‏„לא נשאר מה לשלוח” נפתח כשיש שוב מה.
+   *
+   * ‏האינדקס החלקי מתיר רישום חי אחד למסלול, ולכן קיים רישום פתוח
+   * ‏עוצר — אין מה לפתוח, ויש כבר אחד שעובד.
+   */
+  async reopenForRestoredTrial(tenantId: string): Promise<boolean> {
+    return this.prisma.withFunnelAdmin(async (tx) => {
+      const open = await tx.funnelEnrollment.findFirst({
+        where: { tenantId, track: "conversion", endedAt: null },
+        select: { id: true },
+      });
+      if (open !== null) return false;
+      const closed = await tx.funnelEnrollment.findFirst({
+        where: { tenantId, track: "conversion", endedReason: "completed" },
+        orderBy: { endedAt: "desc" },
+        select: { id: true },
+      });
+      if (closed === null) return false;
+      /*
+       * ‎`endedAt: { not: null }` ב-`where` ולא רק במזהה: בין
+       * ‏השליפה לכתיבה סבב אחר יכול לפתוח רישום, ואז שתי שורות
+       * ‏פתוחות מפרות את האינדקס החלקי.
+       */
+      const updated = await tx.funnelEnrollment.updateMany({
+        where: { id: closed.id, endedAt: { not: null } },
+        data: { endedAt: null, endedReason: null },
+      });
+      if (updated.count > 0) {
+        this.logger.log(`רישום ${closed.id} נפתח מחדש — הניסיון של המשרד הוחזר`);
+      }
+      return updated.count > 0;
+    });
   }
 
   /**

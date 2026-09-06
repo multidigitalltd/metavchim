@@ -33,6 +33,8 @@ model Tenant {
   /// סוף תקופת הניסיון. null = אין תפוגה — משרד שהוקם ידנית או ששילם.
   /// עמודה ולא שדה ב-settings: היא נבדקת בכל אימות Session.
   trialEndsAt                DateTime?        @map("trial_ends_at")
+  /// מתי הניסיון נגמר בכוונה. NULL = לא נגמר, כולל תאריך שאופס זמנית ויכול לחזור.
+  trialConcludedAt           DateTime?        @map("trial_concluded_at")
   /// עד מתי שולם. null = אין תפוגה (משרד שהוקם ידנית).
   ///
   /// יושבת כאן ולא רק ב-subscriptions **בכוונה**: זהו שער ההרשאה,
