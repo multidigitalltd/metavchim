@@ -99,6 +99,7 @@ model Tenant {
   users                       User[]
   properties                  Property[]
   funnelEnrollments           FunnelEnrollment[]
+  funnelMessages              FunnelMessage[]
   whatsappLinks               WhatsAppLink[]
   whatsappBusinessConnections WhatsAppBusinessConnection[]
 
@@ -3436,7 +3437,20 @@ model FunnelMessage {
   /// יעד ונתוני מסירה של משרד א׳ (ביקורת Codex, P1). האכיפה במסד
   /// ולא בקוד, כי „הקוד תמיד כותב את שניהם נכון” הוא ההנחה שנשברת
   /// בכתיבה השנייה.
-  enrollment FunnelEnrollment @relation(fields: [enrollmentId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  enrollment FunnelEnrollment @relation(fields: [enrollmentId, tenantId], references: [id, tenantId], onDelete: Cascade, map: "funnel_messages_enrollment_id_fkey")
+
+  /// **גם המפתח הישיר אל המשרד — מוצהר, ולא רק במיגרציה.**
+  ///
+  /// המיגרציה יוצרת `funnel_messages_tenant_id_fkey`, והמודל הכיר רק
+  /// בקשר המורכב. `prisma migrate diff` היה רואה מפתח שאין לו מקור
+  /// בסכימה, ומיגרציה עתידית שנוצרת אוטומטית הייתה **מוחקת** אותו
+  /// (ביקורת Codex). שקט כזה מסוכן במיוחד כאן: מחיקת משרד נשענת עליו,
+  /// ושער כיסוי המחיקה גוזר מהמיגרציות מי נופל ב-CASCADE.
+  ///
+  /// עודף מבחינת מחיקה בלבד — הרישום ממילא מפיל את ההודעות — ולכן
+  /// ההכרעה היא להצהיר ולא להסיר: `cascadingFromTenants` קורא את
+  /// המפתח הזה, והסרתו הייתה דורשת `deleteMany` שאינו עושה דבר.
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   /// "פעם אחת" נאכף כאן ולא בקוד — הלקח של ההמרה בנכסים לגיוס.
   @@unique([enrollmentId, stageKey, userId, channel])
