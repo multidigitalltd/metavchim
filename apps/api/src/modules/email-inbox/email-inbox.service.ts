@@ -16,7 +16,7 @@ import {
 } from "@metavchim/shared";
 import {
   assertContactAccess,
-  inboundNotificationOwner,
+  notifiableContactOwner,
   stillLookingForOwner,
   visibleContactIds,
 } from "../../common/ownership";
@@ -342,7 +342,14 @@ export class EmailInboxService {
             select: { agentUserId: true },
           })
         : null;
-      const ownerUserId = inboundNotificationOwner({ buyer, lead, property });
+      /*
+       * ‎**שיוך אינו הרשאה.** סוכן שמנהל המשרד חסם ממנו את מודול
+       * ‏הקונים נשאר רשום על השורה, ולכן היה מקבל התראה אישית עם
+       * ‏תמצית המייל על לקוח שאינו יכול לפתוח בשום מסך (ביקורת
+       * ‏Codex, P1). הבדיקה יושבת בזיהוי עצמו, ולכן `null` כאן
+       * ‏פירושו כרגיל — התראה משרדית בלי תוכן.
+       */
+      const ownerUserId = await notifiableContactOwner(tx, tenantId, { buyer, lead, property });
       const snippet =
         body === ""
           ? `📎 ${incoming.length} קבצים מצורפים`

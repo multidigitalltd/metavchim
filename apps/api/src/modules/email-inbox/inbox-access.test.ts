@@ -213,7 +213,7 @@ describe("בעלות ההתראה על מייל נכנס", () => {
         lead: { assignedToUserId: "01LEADAGENT" },
         property: { agentUserId: "01PROPAGENT" },
       }),
-    ).toBe("01BUYERAGENT");
+    ).toEqual({ userId: "01BUYERAGENT", source: "buyers" });
   });
 
   it("ואחריו הליד", () => {
@@ -223,7 +223,7 @@ describe("בעלות ההתראה על מייל נכנס", () => {
         lead: { assignedToUserId: "01LEADAGENT" },
         property: { agentUserId: "01PROPAGENT" },
       }),
-    ).toBe("01LEADAGENT");
+    ).toEqual({ userId: "01LEADAGENT", source: "leads" });
   });
 
   /*
@@ -250,7 +250,7 @@ describe("בעלות ההתראה על מייל נכנס", () => {
         lead: { assignedToUserId: "01LEADAGENT" },
         property: null,
       }),
-    ).toBe("01LEADAGENT");
+    ).toEqual({ userId: "01LEADAGENT", source: "leads" });
   });
 
   it("קונה וליד בלי בעלים — הנכס מכריע", () => {
@@ -260,7 +260,7 @@ describe("בעלות ההתראה על מייל נכנס", () => {
         lead: { assignedToUserId: null },
         property: { agentUserId: "01PROPAGENT" },
       }),
-    ).toBe("01PROPAGENT");
+    ).toEqual({ userId: "01PROPAGENT", source: "properties" });
   });
 
   /** ‏זה המקרה שנפל: לקוח שהוא **רק** בעל נכס. */
@@ -271,7 +271,7 @@ describe("בעלות ההתראה על מייל נכנס", () => {
         lead: null,
         property: { agentUserId: "01PROPAGENT" },
       }),
-    ).toBe("01PROPAGENT");
+    ).toEqual({ userId: "01PROPAGENT", source: "properties" });
   });
 
   /*

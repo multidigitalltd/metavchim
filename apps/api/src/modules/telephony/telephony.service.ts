@@ -45,7 +45,7 @@ import { lockContactPhone, lockProviderCall } from "../../common/locks";
 import { notifyOnce } from "../../common/notify-once";
 import {
   assertContactAccess,
-  inboundNotificationOwner,
+  notifiableContactOwner,
   officeRestrictsContactVisibility,
   stillLookingForOwner,
 } from "../../common/ownership";
@@ -885,10 +885,16 @@ export class TelephonyService {
          * ‏שמו של בעל נכס של עמית, ובהתראת „לא נענתה” גם את המספר
          * ‏(ביקורת Codex, P1).
          *
-         * ‏במשרד שלא הפעיל הפרדה — הרוב המוחלט — שום דבר לא משתנה.
-         * ‏במשרד שכן, ההתראה המשרדית נראית כמו שיחה ממספר לא מוכר
-         * ‏(המספר עצמו מוצג ממילא, אחרת אי אפשר לענות), ומי שהלקוח
-         * ‏שייך לו מקבל התראה **אישית** עם השם.
+         * ‏„אין הפרדה” פירושו שכל מי שיראה את ההתראה רשאי לראות כל
+         * ‏לקוח — ולא „איש לא כיוון חסימה”. ההבדל אינו תיאורטי: תפקיד
+         * ‏`agent` מקבל `buyers.view_own` בלבד, ולכן משרד ברירת-מחדל
+         * ‏עם סוכנים **כן** מפריד, בלי שאיש נגע בדבר (ביקורת Codex,
+         * ‏P1). השאלה על החריגים בלבד החזירה שם „מותר לכולם”.
+         *
+         * ‏במשרד שבו כולם רואים הכול — משרד של בעלים ומנהלים — שום
+         * ‏דבר לא משתנה. במשרד שמפריד, ההתראה המשרדית נראית כמו שיחה
+         * ‏ממספר לא מוכר (המספר עצמו מוצג ממילא, אחרת אי אפשר לענות),
+         * ‏ומי שהלקוח שייך לו מקבל התראה **אישית** עם השם.
          */
         const restricted = await officeRestrictsContactVisibility(tx, tenantId);
         const contactName = restricted ? null : decryptedName;
@@ -1258,12 +1264,16 @@ export class TelephonyService {
   /**
    * ‏מי הסוכן שהלקוח הזה שייך לו — קונה, ליד, ואז נכס.
    *
-   * ‎`inboundNotificationOwner` הוא אותו כלל בדיוק שהתיבה משתמשת
-   * ‏בו, ולכן הוא יושב ב-`ownership.ts` ולא בשירות: שני עותקים של
-   * ‏„למי שייך הלקוח” כבר נפרדו כאן פעם אחת.
+   * ‎`notifiableContactOwner` הוא אותו כלל בדיוק שהתיבה משתמשת בו,
+   * ‏ולכן הוא יושב ב-`ownership.ts` ולא בשירות: שני עותקים של „למי
+   * ‏שייך הלקוח” כבר נפרדו כאן פעם אחת.
    *
-   * ‏נשאל רק כשהמשרד הפעיל הפרדה — אחרת ההתראה המשרדית נושאת את
-   * ‏השם ממילא ואין למי לשלוח בנפרד.
+   * ‏והוא גם מוודא שהנמען **רשאי** לראות את הלקוח: שיוך על השורה
+   * ‏אינו הרשאה, וסוכן שהמודול חסום אצלו היה מקבל התראה אישית עם
+   * ‏השם והטלפון על לקוח שאינו יכול לפתוח (ביקורת Codex, P1).
+   *
+   * ‏נשאל רק כשיש במשרד הפרדה — אחרת ההתראה המשרדית נושאת את השם
+   * ‏ממילא ואין למי לשלוח בנפרד.
    */
   private async contactOwner(
     tx: TenantTx,
@@ -1294,7 +1304,7 @@ export class TelephonyService {
           select: { agentUserId: true },
         })
       : null;
-    return inboundNotificationOwner({ buyer, lead, property });
+    return notifiableContactOwner(tx, tenantId, { buyer, lead, property });
   }
 
   private async offerIntakeAfterMissedCall(

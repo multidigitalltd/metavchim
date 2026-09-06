@@ -1,6 +1,6 @@
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import type { Capability } from "@metavchim/shared";
+import { resolveCapabilities, type Capability } from "@metavchim/shared";
 import type { TenantTx } from "../core/prisma.service";
 import { TenantContext } from "./tenant-context";
 
@@ -257,13 +257,20 @@ export async function assertMatchAccess(
  *
  * לכן המקור עצמו נבדק, לא רק הבעלות: מודול חסום אינו תורם לקוחות.
  */
-function contactSources(): { buyers: boolean; leads: boolean; properties: boolean } {
-  const caps = TenantContext.current().capabilities;
+export function contactSourcesOf(caps: ReadonlySet<Capability>): {
+  buyers: boolean;
+  leads: boolean;
+  properties: boolean;
+} {
   return {
     buyers: caps.has("buyers.view_own") || caps.has("buyers.view_all"),
     leads: caps.has("leads.view_own") || caps.has("leads.view_all"),
     properties: caps.has("properties.view"),
   };
+}
+
+function contactSources(): { buyers: boolean; leads: boolean; properties: boolean } {
+  return contactSourcesOf(TenantContext.current().capabilities);
 }
 
 /**
@@ -278,12 +285,11 @@ function contactSources(): { buyers: boolean; leads: boolean; properties: boolea
  * מהם והשאיר את השלישי מאחור (ביקורת Codex), וכך נפתחה הקלטה של
  * בעל נכס למי שמודול הנכסים חסום אצלו. ניסוח אחד, שלושה קוראים.
  */
-export function seesAllContacts(): boolean {
-  const caps = TenantContext.current().capabilities;
+export function seesAllContactsWith(caps: ReadonlySet<Capability>): boolean {
   return (
     caps.has("buyers.view_all") &&
     caps.has("leads.view_all") &&
-    contactSources().properties &&
+    contactSourcesOf(caps).properties &&
     /*
      * ‎**גם `properties.view_all`, ולא רק „המודול פתוח”.**
      *
@@ -294,6 +300,10 @@ export function seesAllContacts(): boolean {
      */
     caps.has("properties.view_all")
   );
+}
+
+export function seesAllContacts(): boolean {
+  return seesAllContactsWith(TenantContext.current().capabilities);
 }
 
 /**
@@ -350,17 +360,33 @@ export function seesAllContacts(): boolean {
  * ‏נוחות: לקוח שהוא רק בעל נכס נפל בעבר ל-`null`, והתמצית של גוף
  * ‏המייל הוצגה לכולם (ביקורת Codex, P1).
  */
+export type ContactOwnerSource = "buyers" | "leads" | "properties";
+
+export interface ContactOwner {
+  userId: string;
+  /**
+   * ‎**דרך איזה מקור הוא נמצא — וזו אינה עובדה לתיעוד.**
+   *
+   * ‏„רשאי לראות את הלקוח” אינה שאלה אחת: מי שנמצא דרך כרטיס קונה
+   * ‏זקוק ליכולת הקונים, מי שנמצא דרך ליד ליכולת הלידים, ומי שנמצא
+   * ‏כסוכן הנכס למודול הנכסים. בלי המקור אי אפשר לשאול את השאלה
+   * ‏הנכונה, ו„יש לו משהו” הוא בדיוק הקיצור שכבר נשבר כאן פעם.
+   */
+  source: ContactOwnerSource;
+}
+
 export function inboundNotificationOwner(sources: {
   buyer: { ownerUserId: string | null } | null;
   lead: { assignedToUserId: string | null } | null;
   property: { agentUserId: string | null } | null;
-}): string | null {
-  return (
-    sources.buyer?.ownerUserId ??
-    sources.lead?.assignedToUserId ??
-    sources.property?.agentUserId ??
-    null
-  );
+}): ContactOwner | null {
+  const buyer = sources.buyer?.ownerUserId;
+  if (buyer !== null && buyer !== undefined) return { userId: buyer, source: "buyers" };
+  const lead = sources.lead?.assignedToUserId;
+  if (lead !== null && lead !== undefined) return { userId: lead, source: "leads" };
+  const agent = sources.property?.agentUserId;
+  if (agent !== null && agent !== undefined) return { userId: agent, source: "properties" };
+  return null;
 }
 
 /**
@@ -399,21 +425,116 @@ export function stillLookingForOwner(
   return found.every((owner) => owner === null || owner === undefined);
 }
 
+/**
+ * ‎**היכולות בפועל של כל משתמשי המשרד — תפקיד ועליו החריגים שבתוקף.**
+ *
+ * ‏שאילתה אחת עם החריגים בצירוף, ולא שאילתה למשתמש: המשרד נשאל
+ * ‏כאן על **כולו**, ולולאת שאילתות הייתה הופכת שאלה אחת לעשרות.
+ * ‏התפוגה מסוננת בקוד ולא ב-SQL — `resolveCapabilities` היא
+ * ‏שמכריעה, וזו אותה הכרעה שהכניסה למערכת עושה.
+ */
+async function officeCapabilities(
+  tx: TenantTx,
+  tenantId: string,
+  userIds?: readonly string[],
+): Promise<Map<string, Set<Capability>>> {
+  const now = new Date();
+  const users = await tx.user.findMany({
+    where: {
+      tenantId,
+      isActive: true,
+      ...(userIds === undefined ? {} : { id: { in: [...userIds] } }),
+    },
+    select: {
+      id: true,
+      role: true,
+      capabilityOverrides: {
+        select: { capability: true, effect: true, expiresAt: true },
+      },
+    },
+  });
+  return new Map(
+    users.map((user) => [
+      user.id,
+      resolveCapabilities(
+        user.role,
+        user.capabilityOverrides.map((o) => ({
+          capability: o.capability as Capability,
+          effect: o.effect as "grant" | "deny",
+          expiresAt: o.expiresAt,
+        })),
+        now,
+      ),
+    ]),
+  );
+}
+
+/**
+ * ‎**האם יש במשרד הזה הפרדה בין סוכנים — לפי היכולות, לא לפי חריגים.**
+ *
+ * ## ‏מה היה שגוי
+ *
+ * ‏השאלה נשאלה כ„האם קיימת שורת חסימה”, וזו שאלה על **הכוונון**
+ * ‏ולא על המצב. ההפרדה קיימת במשרד ברירת-מחדל בלי שאיש כיוון דבר:
+ * ‏`agent`, `assistant` ו-`viewer` מקבלים `buyers.view_own`
+ * ‏ו-`leads.view_own` בלבד, ולכן סוכן אחד אינו יכול להגיע לקונה של
+ * ‏עמיתו דרך `visibleContactIds`. התשובה „אין הפרדה” הייתה מציגה
+ * ‏את שמו המפוענח של אותו לקוח בהתראה משרדית — בדיוק מה שהתיבה
+ * ‏מסתירה (ביקורת Codex, P1).
+ *
+ * ## ‏השאלה הנכונה
+ *
+ * ‏„האם **כל** מי שיקבל את ההתראה המשרדית רשאי לראות כל לקוח”,
+ * ‏והיא נשאלת באותו ניסוח שהשער הבודד משתמש בו — `seesAllContactsWith`
+ * ‏— ולא בעותק שני שאפשר לעדכן אחד מהם ולשכוח את השני.
+ *
+ * ‏משרד בלי משתמשים פעילים נחשב מוגבל: „לא מצאנו למי זה מגיע” אינו
+ * ‏„מותר לכולם”, וממילא אין למי לשלוח.
+ */
 export async function officeRestrictsContactVisibility(
   tx: TenantTx,
   tenantId: string,
 ): Promise<boolean> {
-  const now = new Date();
-  const restriction = await tx.userCapability.findFirst({
-    where: {
-      tenantId,
-      effect: "deny",
-      capability: { in: ["properties.view_all", "buyers.view_all", "leads.view_all"] },
-      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-    },
-    select: { id: true },
-  });
-  return restriction !== null;
+  const caps = await officeCapabilities(tx, tenantId);
+  if (caps.size === 0) return true;
+  return [...caps.values()].some((set) => !seesAllContactsWith(set));
+}
+
+/**
+ * ‎**מי מקבל התראה אישית על הלקוח — ורק אם הוא באמת רשאי לראותו.**
+ *
+ * ## ‏למה השיוך לבדו אינו הרשאה
+ *
+ * ‏„הקונה משויך לסוכן” ו„הסוכן רשאי לראות את הקונה” נראו כאן כאותו
+ * ‏דבר. הם אינם: מנהל המשרד יכול לחסום `buyers.view_own` מסוכן
+ * ‏מסוים, ואז אותו סוכן אינו מגיע לכרטיס בשום מסך — אבל השיוך על
+ * ‏השורה נשאר, וההתראה האישית הייתה נכתבת אליו עם השם המפוענח,
+ * ‏הטלפון והקישור (ביקורת Codex, P1). חסימה שאינה חלה על ההתראות
+ * ‏אינה חסימה.
+ *
+ * ## ‏למה הבדיקה כאן ולא אצל הקוראים
+ *
+ * ‏שני מקומות מזהים בעלים כזה — התיבה והמרכזייה — ושניהם כותבים
+ * ‏אחריו התראה עם תוכן. בדיקה אצל כל אחד מהם היא שני עותקים,
+ * ‏והעותק שיישכח הוא הדליפה. כאן הזיהוי **עצמו** מסרב לנקוב בשם
+ * ‏מי שאינו רשאי, ואז `null` — שכבר פירושו „התראה משרדית בלי
+ * ‏תוכן” אצל שני הקוראים — הוא התשובה הבטוחה מאליה.
+ */
+export async function notifiableContactOwner(
+  tx: TenantTx,
+  tenantId: string,
+  sources: {
+    buyer: { ownerUserId: string | null } | null;
+    lead: { assignedToUserId: string | null } | null;
+    property: { agentUserId: string | null } | null;
+  },
+): Promise<string | null> {
+  const owner = inboundNotificationOwner(sources);
+  if (owner === null) return null;
+  const caps = (await officeCapabilities(tx, tenantId, [owner.userId])).get(owner.userId);
+  // ‏משתמש שאינו פעיל אינו מוחזר מהשליפה — ומי שאינו פעיל אינו נמען
+  if (caps === undefined) return null;
+  return contactSourcesOf(caps)[owner.source] ? owner.userId : null;
 }
 
 export function assertSeesAllContacts(): void {
