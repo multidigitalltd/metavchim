@@ -4,6 +4,7 @@ import {
   jerusalemWeekday,
   jerusalemWeekStart,
 } from "./israel-time.js";
+import { playbookIdea } from "./mentor-playbook.js";
 
 /**
  * המנטור האישי — ליבת הליווי (docs/14).
@@ -769,7 +770,7 @@ const REFLECTION: Record<MentorGoalMetric, string> = {
  * (3 ⟵ 2)” נקרא כמו מנטור שמדבר; „עלייה: … · … פחות: … · …” נקרא
  * כמו דוח. העלייה קודם — זה מה שמנטור אומר ראשון.
  */
-function trendSentence(
+export function mentorTrendSentence(
   activity: MentorActivity,
   previous: MentorActivity | undefined,
 ): string | null {
@@ -862,8 +863,19 @@ export function mentorWeeklyReview(
         goals.some((g) => g.metric === p.metric && g.pace !== "behind"),
     );
   if (relevant !== undefined) paragraphs.push(mentorPatternLine(relevant));
-  const trend = trendSentence(activity, previousActivity);
+  const trend = mentorTrendSentence(activity, previousActivity);
   if (trend !== null) paragraphs.push(trend);
+  /*
+   * טיפ אחד לשבוע הבא — על היעד שמאחור, מספר המשחק. מנטור שאומר
+   * „לא הגעת” בלי „הנה מה שהייתי מנסה” הוא דוח; אחד לשבוע, מתחלף
+   * לפי השבוע, כדי שלא יחזור על עצמו.
+   */
+  const behindGoal = goals.find((g) => g.pace === "behind");
+  if (behindGoal !== undefined) {
+    paragraphs.push(
+      `טיפ לשבוע הבא: ${playbookIdea(behindGoal.metric, Math.floor(signals.weekStart.getTime() / 604_800_000))}`,
+    );
+  }
 
   const streak = signals.streakWeeks ?? 0;
   let headline: string;
@@ -1129,6 +1141,8 @@ export interface MentorDailyInput {
   insights?: MentorInsights;
   /** הפעילות של אתמול — לשבח את המאמץ, לא רק את התוצאה */
   yesterday?: MentorActivity | null;
+  /** רעיון להיום — מספר המשחק (`mentorDailyIdea`); נאמר רק כשיש עוד מה לומר */
+  idea?: string;
   now: Date;
   firstName?: string;
 }
@@ -1214,6 +1228,9 @@ export function mentorDailyPlan(
   }
 
   if (lines.length === 0) return null;
+  // רעיון רק כשיש בוקר — „בוקר טוב, רעיון” בלי יעד ובלי אתמול הוא פרסומת
+  const idea = (input.idea ?? "").trim();
+  if (idea !== "") lines.push(`רעיון להיום: ${idea}`);
   const greeting = `בוקר טוב${name === "" ? "" : ` ${name}`}.`;
   const closer = anyBehind
     ? "עוד אפשר להגיע לזה — ואני איתך."

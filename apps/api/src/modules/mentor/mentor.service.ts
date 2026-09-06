@@ -12,10 +12,15 @@ import {
   formatJerusalemDate,
   jerusalemDayRange,
   jerusalemWeekStart,
+  jerusalemDayStart,
+  jerusalemWallParts,
+  jerusalemWallIsoToUtc,
   MENTOR_REPLY_JSON_SCHEMA,
   type MentorActivity,
   type MentorAsk,
+  type MentorAdvice,
   type MentorChatContext,
+  mentorAdvice,
   mentorFallbackReply,
   type MentorGoalInput,
   mentorGoalLabel,
@@ -46,7 +51,6 @@ import {
 } from "./mentor-signals.service";
 
 /** כמה שבועות אחורה נספרים לצורך משפך ההמרה של המתווך. */
-const HISTORY_WEEKS = 13;
 /** כמה תורים אחרונים המודל רואה. */
 const CHAT_HISTORY_TURNS = 12;
 /** הודעות למודל ביום — מכסה, לא מגבלת מוצר: מעליה המנטור עונה מהיעדים. */
@@ -109,6 +113,8 @@ export interface MentorOverview {
   insights: MentorInsights;
   /** מה המנטור זוכר — דפוסים מהסיכומים של החודשיים האחרונים */
   patterns: MentorPattern[];
+  /** מה המנטור מציע עכשיו — עד שלוש עצות מהמספרים (docs/14 §7.1) */
+  advice: MentorAdvice[];
 }
 
 /**
@@ -221,6 +227,20 @@ export class MentorService {
         await this.pastReviews(tx, tenantId, userId),
         now,
       );
+      const funnel = await this.signals.funnelHistory(
+        tx,
+        tenantId,
+        userId,
+        now,
+      );
+      const advice = mentorAdvice({
+        goals: goals.map((g) => g.progress),
+        activity,
+        previousActivity,
+        insights,
+        funnel,
+        now,
+      });
       return {
         weekStart: week.start,
         weekEnd: week.end,
@@ -233,6 +253,7 @@ export class MentorService {
         streakWeeks,
         chatAvailable,
         patterns,
+        advice,
       };
     });
   }
@@ -401,18 +422,16 @@ export class MentorService {
   ): Promise<ProcessGoalSuggestion[]> {
     const { tenantId, userId } = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
-      const start = jerusalemWeekStart(now, -HISTORY_WEEKS);
-      const history = await this.signals.activity(
+      const funnel = await this.signals.funnelHistory(
         tx,
         tenantId,
         userId,
-        { start, end: now },
         now,
       );
       return suggestProcessGoals({
         outcome: { target, period },
-        history,
-        historyWeeks: HISTORY_WEEKS,
+        history: funnel.history,
+        historyWeeks: funnel.weeks,
       });
     });
   }
@@ -585,7 +604,7 @@ export class MentorService {
         });
         const user = await tx.user.findFirst({
           where: { id: userId, tenantId },
-          select: { name: true },
+          select: { name: true, createdAt: true },
         });
         const week = mentorPeriodRange("week", now);
         const activity = await this.signals.activity(
@@ -595,6 +614,25 @@ export class MentorService {
           week,
           now,
         );
+        /*
+         * מול שבוע שעבר — **אותו חלק של השבוע**: שאלה ביום שני משווה
+         * ראשון–שני של השבוע לראשון–שני של שבוע שעבר, לא לשבוע שלם.
+         * אחרת כל מדד היה „פחות” ביום שני, והמודל היה מייעץ על ירידה
+         * שאינה קיימת (ביקורת Codex). אותה שעת קיר, שבוע אחורה.
+         */
+        const sameMomentLastWeek = jerusalemWallIsoToUtc(
+          `${jerusalemWallParts(jerusalemDayStart(now, -7)).date}T${jerusalemWallParts(now).time}:00.000`,
+        );
+        const previousActivity =
+          user !== null && user.createdAt < week.start
+            ? await this.signals.activity(
+                tx,
+                tenantId,
+                userId,
+                { start: jerusalemWeekStart(now, -1), end: sameMomentLastWeek },
+                sameMomentLastWeek,
+              )
+            : null;
         const goalRows = await tx.mentorGoal.findMany({
           where: { tenantId, userId, endedAt: null },
           orderBy: { createdAt: "asc" },
@@ -653,8 +691,27 @@ export class MentorService {
           week,
           { start: jerusalemWeekStart(now, -1), end: week.start },
         );
+        // מה שהמנטור צריך כדי לייעץ — המשפך והניתוח (docs/14 §7.1)
+        const funnel = await this.signals.funnelHistory(
+          tx,
+          tenantId,
+          userId,
+          now,
+        );
+        const advice = mentorAdvice({
+          goals,
+          activity,
+          previousActivity,
+          insights,
+          funnel,
+          now,
+        });
         return {
           insights,
+          activity,
+          previousActivity,
+          funnel,
+          advice,
           firstName: (user?.name ?? "").trim().split(/\s+/u)[0] ?? "",
           nowText: MentorService.nowText(now),
           goals,

@@ -2,6 +2,7 @@ import {
   MENTOR_METRICS,
   mentorGoalLabel,
   mentorInsightSentences,
+  type MentorActivity,
   type MentorInsights,
   mentorPatternLine,
   mentorQuantity,
@@ -9,6 +10,7 @@ import {
   type MentorPattern,
   type MentorReview,
 } from "./mentor.js";
+import { mentorAdviceBlock, type MentorAdvice } from "./mentor-advice.js";
 
 /**
  * השיחה עם המנטור — הפרומפט, הסכמה, והתשובה כשאין מודל (docs/14 §7).
@@ -44,6 +46,15 @@ export interface MentorChatContext {
   insights?: MentorInsights;
   /** דפוסים מהסיכומים הקודמים — הזיכרון הארוך */
   patterns?: MentorPattern[];
+  /**
+   * מה שהמנטור צריך כדי לייעץ (docs/14 §7.1): הפעילות השבוע ומול שבוע
+   * שעבר, המשפך של המתווך, והניתוח שכבר נעשה בקוד (`mentorAdvice`).
+   * חסר = השיחה עונה מהיעדים ומהסיכום בלבד.
+   */
+  activity?: MentorActivity;
+  previousActivity?: MentorActivity | null;
+  funnel?: { history: MentorActivity; weeks: number } | null;
+  advice?: MentorAdvice[];
   /** מהישן לחדש */
   history: { role: "user" | "mentor"; text: string }[];
   question: string;
@@ -105,6 +116,8 @@ export function buildMentorPrompt(ctx: MentorChatContext): string {
     "7. אינכם מבצעים פעולות ואינכם קובעים יעדים בעצמכם — מציעים, והמתווך קובע במסך.",
     "8. פנייה אישית וידידותית, בגוף שני יחיד — כמו מנטור שמכיר את המתווך, לא כמו טופס. פונים בשם הפרטי כשידוע. כדי לא לטעות במין: פעלים בעבר בגוף שני (סגרת, כתבת, עמדת — כתיבם זהה) וצורות „שלך” / „לך”; לא „אתה/את” ולא פועל בהווה או בעתיד בגוף שני. עברית טבעית, חמה וקצרה: משפט עד שלושה. בלי כותרות, בלי רשימות ארוכות, בלי אימוג'י.",
     "9. אם השאלה אינה קשורה לעבודת התיווך או ליעדים — עונים בקצרה שזה מחוץ לתחום המנטור.",
+    "10. כשמבקשים עצה, רעיון, טיפ, „מה לשפר” או „מה לעשות” — נותנים רעיון אחד או שניים קונקרטיים לביצוע היום או השבוע, מתוך הניתוח ורעיונות ספר המשחק שלמטה, מותאמים למספרים של המתווך ובמילים של המנטור (לא ציטוט). אומרים גם למה דווקא זה, במשפט. עד ארבעה משפטים. רעיון שכבר ניתן בשיחה — לא לחזור עליו, לתת אחר.",
+    "11. כששואלים על המשפך או על המרה — עונים מהמספרים של המתווך עצמו מול המקובל, ומצביעים על שלב אחד לשפר.",
     "",
     `עכשיו: ${ctx.nowText}.`,
     ctx.firstName === "" ? "" : `שם המתווך/ת: ${ctx.firstName}.`,
@@ -132,6 +145,22 @@ export function buildMentorPrompt(ctx: MentorChatContext): string {
         );
       }
     }
+  }
+  if (ctx.activity !== undefined) {
+    lines.push(
+      "",
+      ...mentorAdviceBlock(
+        {
+          goals: ctx.goals,
+          activity: ctx.activity,
+          previousActivity: ctx.previousActivity ?? null,
+          ...(ctx.insights === undefined ? {} : { insights: ctx.insights }),
+          funnel: ctx.funnel ?? null,
+          now: new Date(),
+        },
+        ctx.advice ?? [],
+      ),
+    );
   }
   if (ctx.patterns !== undefined && ctx.patterns.length > 0) {
     lines.push("", "מה שהמנטור זוכר מהחודשיים האחרונים (דפוסים מהסיכומים):");
@@ -167,6 +196,9 @@ export function mentorFallbackReply(
 ): string {
   const hi = ctx.firstName === "" ? "" : `${ctx.firstName}, `;
   const unavailable = `${hi}השיחה החופשית אינה זמינה כרגע, אבל זה מה שאני יודע:`;
+  // העצה הראשונה — גם בלי מודל המנטור אומר מה הכי שווה לעשות, ולמה
+  const first = ctx.advice?.[0];
+  const tip = first === undefined ? "" : ` ${first.title}. ${first.body}`;
   if (ctx.goals.length > 0) {
     const status = ctx.goals
       .map(
@@ -179,8 +211,9 @@ export function mentorFallbackReply(
       behind === undefined
         ? ""
         : ` המיקוד עכשיו: ${MENTOR_METRICS.find((m) => m.code === behind.metric)?.label ?? behind.metric}.`;
-    return `${unavailable} ${status}.${focus}`;
+    return `${unavailable} ${status}.${focus}${tip}`;
   }
+  if (first !== undefined) return `${unavailable}${tip}`;
   if (ctx.lastReview !== null) {
     return `${unavailable} בסיכום האחרון — „${ctx.lastReview.headline}”. ${ctx.lastReview.paragraphs[0] ?? ""}`.trim();
   }

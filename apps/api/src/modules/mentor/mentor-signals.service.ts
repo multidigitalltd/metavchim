@@ -11,6 +11,7 @@ import {
   mentorPeriodRange,
   type MentorWin,
   type MentorWinKind,
+  jerusalemWeekStart,
 } from "@metavchim/shared";
 import type { TenantTx } from "../../core/prisma.service";
 
@@ -32,6 +33,9 @@ export interface MentorGoalRow {
 }
 
 export type GoalWithProgress = MentorGoalRow & { progress: MentorGoalProgress };
+
+/** כמה שבועות אחורה נמדד המשפך של המתווך — רבעון. */
+export const MENTOR_HISTORY_WEEKS = 13;
 
 /**
  * המונים של המנטור — ספירה של **המשתמש** בטווח (docs/14 §5.1).
@@ -285,6 +289,29 @@ export class MentorSignalsService {
       previousResponseMedianMinutes: previous,
       missedUnreturned: Number(missed[0]?.n ?? 0),
     };
+  }
+
+  /**
+   * המשפך של המתווך — הפעילות המצטברת ב-13 השבועות האחרונים, לחישוב
+   * יחסי ההמרה שלו עצמו (הצעות לסיור, סיורים לעסקה). חלון אחד לכל
+   * הקוראים: ההצעות ליעדי תהליך, העצה של המנטור והשיחה — כדי ש„היחס
+   * שלך” יהיה אותו מספר בכל מקום.
+   */
+  async funnelHistory(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    now: Date,
+  ): Promise<{ history: MentorActivity; weeks: number }> {
+    const start = jerusalemWeekStart(now, -MENTOR_HISTORY_WEEKS);
+    const history = await this.activity(
+      tx,
+      tenantId,
+      userId,
+      { start, end: now },
+      now,
+    );
+    return { history, weeks: MENTOR_HISTORY_WEEKS };
   }
 
   async wins(

@@ -128,3 +128,64 @@ test("הדפוסים נכנסים לפרומפט כזיכרון — במילים
     "הצעות שנשלחו: מאחור ב-3 מתוך 5 השבועות האחרונים. בפעמים הקודמות אמרת: „לא היה זמן”.",
   );
 });
+
+describe("השיחה מייעצת — הניתוח והמשפך בפרומפט, והעצה גם בלי מודל", () => {
+  const quiet = {
+    deals_closed: 0,
+    offers_sent: 0,
+    viewings_held: 0,
+    leads_answered: 0,
+    new_buyers: 0,
+    new_properties: 0,
+    calls_made: 0,
+    calls_answered: 0,
+    leads_answered_fast: 0,
+    followups_done: 0,
+    owner_updates_sent: 0,
+  };
+  const advised: MentorChatContext = {
+    ...base,
+    activity: { ...quiet, offers_sent: 2 },
+    previousActivity: { ...quiet, offers_sent: 5 },
+    funnel: {
+      history: { ...quiet, new_buyers: 6, offers_sent: 18, viewings_held: 3 },
+      weeks: 13,
+    },
+    advice: [
+      {
+        kind: "behind_goal",
+        metric: "offers_sent",
+        title: "5 הצעות בשבוע: 2 הצעות עד עכשיו — מאחור",
+        body: "לקבוע שעה קבועה להצעות.",
+        question: "איך להגיע ל5 הצעות בשבוע?",
+      },
+    ],
+  };
+
+  it("הפרומפט: כללי העצה, הפעילות, המגמה, המשפך מול המקובל והניתוח", () => {
+    const prompt = buildMentorPrompt(advised);
+    expect(prompt).toContain("10. כשמבקשים עצה, רעיון, טיפ");
+    expect(prompt).toContain("11. כששואלים על המשפך");
+    expect(prompt).toContain("השבוע עד עכשיו: 2 הצעות.");
+    expect(prompt).toContain("מול שבוע שעבר: פחות הצעות שנשלחו (5 ⟵ 2).");
+    expect(prompt).toContain("הצעה ⟵ סיור: כל 6 (מקובל: כל 3)");
+    expect(prompt).toContain(
+      "- 5 הצעות בשבוע: 2 הצעות עד עכשיו — מאחור. לקבוע שעה קבועה להצעות.",
+    );
+    expect(prompt).toContain("רעיונות מספר המשחק");
+  });
+
+  it("בלי פעילות בהקשר (קורא ישן) — הפרומפט כמו קודם, בלי ניתוח", () => {
+    expect(buildMentorPrompt(base)).not.toContain("השבוע עד עכשיו");
+  });
+
+  it("בלי מודל — העצה הראשונה מצטרפת למצב היעדים, וגם בלי יעדים", () => {
+    const withGoals = mentorFallbackReply(advised);
+    expect(withGoals).toContain("5 הצעות בשבוע — 2 הצעות, מאחור.");
+    expect(withGoals).toMatch(/מאחור\. לקבוע שעה קבועה להצעות\.$/u);
+    const noGoals = mentorFallbackReply({ ...advised, goals: [] });
+    expect(noGoals).toContain("אינה זמינה כרגע");
+    expect(noGoals).toContain("לקבוע שעה קבועה להצעות.");
+    expect(noGoals).not.toContain("עדיין אין לך יעדים");
+  });
+});
