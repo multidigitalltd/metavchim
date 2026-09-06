@@ -1,6 +1,6 @@
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { applyBlockedModules, resolveCapabilities, type Capability } from "@metavchim/shared";
+import { effectiveCapabilities, type Capability } from "@metavchim/shared";
 import type { TenantTx } from "../core/prisma.service";
 import { TenantContext } from "./tenant-context";
 
@@ -501,17 +501,9 @@ async function officeCapabilities(
   return new Map(
     users.map((user) => [
       user.id,
-      applyBlockedModules(
-        resolveCapabilities(
-          user.role,
-          user.capabilityOverrides.map((o) => ({
-            capability: o.capability as Capability,
-            effect: o.effect as "grant" | "deny",
-            expiresAt: o.expiresAt,
-          })),
-          now,
-        ),
-        blocked,
+      effectiveCapabilities(
+        { role: user.role, overrides: user.capabilityOverrides, blockedModules: blocked },
+        now,
       ),
     ]),
   );

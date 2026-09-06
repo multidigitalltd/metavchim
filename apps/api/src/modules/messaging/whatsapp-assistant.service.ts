@@ -11,9 +11,8 @@ import {
   agentTurnRefs,
   type AgentHistoryRef,
   agentResultText,
-  applyBlockedModules,
+  effectiveCapabilities,
   normalizeIsraeliPhone,
-  resolveCapabilities,
   roleLabel,
   decodeButtonId,
   historyRefs,
@@ -960,7 +959,15 @@ export class WhatsAppAssistantService {
     return user as IdentifiedUser | null;
   }
 
-  /** היכולות נבנות בדיוק כמו ב-resolveSession — חריגים ואז חסימות. */
+  /**
+   * ‎**העוזר רץ כמשתמש שהפעיל אותו — לא כישות משלו.**
+   *
+   * ‏זו כל ההפרדה: אין לעוזר תפקיד, אין לו קבוצת יכולות משלו, ואין
+   * ‏לו מסלול נתונים משלו. הקבוצה הזו היא בדיוק זו שהכניסה למערכת
+   * ‏בונה, דרך אותה פונקציה — ולכן סוכן שאינו רואה נתון במסך אינו
+   * ‏רואה אותו גם דרך העוזר. „נבנות בדיוק כמו ב-resolveSession”
+   * ‏הייתה הערה, וכעת זו אותה שורה.
+   */
   private async buildContext(user: IdentifiedUser): Promise<RequestContext> {
     const overrides = await this.prisma.withExplicitTenant(user.tenantId, (tx) =>
       tx.userCapability.findMany({
@@ -968,17 +975,9 @@ export class WhatsAppAssistantService {
         select: { capability: true, effect: true, expiresAt: true },
       }),
     );
-    const capabilities = applyBlockedModules(
-      resolveCapabilities(
-        user.role,
-        overrides.map((o) => ({
-          capability: o.capability as Capability,
-          effect: o.effect === "grant" ? ("grant" as const) : ("deny" as const),
-          expiresAt: o.expiresAt,
-        })),
-        new Date(),
-      ),
-      user.tenant.blockedModules,
+    const capabilities = effectiveCapabilities(
+      { role: user.role, overrides, blockedModules: user.tenant.blockedModules },
+      new Date(),
     );
     return { tenantId: user.tenantId, userId: user.id, capabilities, billingOnly: false };
   }

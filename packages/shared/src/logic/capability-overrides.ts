@@ -16,6 +16,18 @@ import { CAPABILITIES, ROLE_CAPABILITIES, type Capability } from "../rbac.js";
 
 export type OverrideEffect = "grant" | "deny";
 
+/**
+ * ‏שורת חריג כפי שהיא יושבת במסד — לפני ההמרה לטיפוס.
+ *
+ * ‏קיימת כדי ש-`effectiveCapabilities` תקבל את השורה כמות שהיא:
+ * ‏המרה ידנית אצל כל קורא היא בדיוק העותק שנפרד.
+ */
+export type StoredCapabilityOverride = {
+  capability: string;
+  effect: string;
+  expiresAt: Date | null;
+};
+
 export type CapabilityOverride = {
   capability: Capability;
   effect: OverrideEffect;
@@ -238,6 +250,55 @@ export function applyBlockedModules(
     }
   }
   return result;
+}
+
+/**
+ * ‎**שלוש השכבות, במקום אחד — התפקיד, החריגים, וחסימות המשרד.**
+ *
+ * ## ‏למה זה חייב להיות פונקציה אחת
+ *
+ * ‏הצירוף הזה נכתב בחמישה מקומות: כניסה למערכת, העוזר שבוואטסאפ,
+ * ‏שער ההתראות, סבב ההתראות של העובד, ומסך ההרשאות. חמישה עותקים
+ * ‏של „מי רשאי למה” הם חמש הזדמנויות שהם ייפרדו — ואחד מהם כבר
+ * ‏נפרד: מסך ההרשאות הציג `resolveCapabilities` **בלי** חסימות
+ * ‏המודולים, כלומר אמר למנהל שלסוכן יש יכולת שהפלטפורמה חסמה. מסך
+ * ‏שמשקר על ההרשאות הוא בדיוק המסך שאסור לו לשקר.
+ *
+ * ‏ומעבר לכך: העוזר ה-AI רץ **כמשתמש שהפעיל אותו**, והקבוצה הזו
+ * ‏היא כל מה שמפריד בינו לבין הנתונים של סוכן אחר. עותק שנפרד שם
+ * ‏פירושו עוזר שרואה יותר מהאדם ששאל אותו.
+ *
+ * ## ‏הסדר, ולמה הוא כזה
+ *
+ * ‏חסימת המודול מוחלת **אחרי** חריגי המנהל, ולא כחריג נוסף: חריג
+ * ‏`deny` ברמת המשתמש נמחק בלחיצה של מנהל המשרד, וחסימה שהנחסם
+ * ‏יכול להסיר אינה חסימה. הכיוון חד־צדדי — היא מורידה יכולות
+ * ‏ולעולם לא מוסיפה.
+ *
+ * ‎`overrides` מתקבל בצורתו במסד (`string`), כי ההמרה ידנית בכל
+ * ‏קורא הייתה העותק השישי.
+ */
+export function effectiveCapabilities(
+  user: {
+    role: string;
+    overrides: readonly StoredCapabilityOverride[];
+    blockedModules: readonly string[];
+  },
+  now: Date,
+): Set<Capability> {
+  return applyBlockedModules(
+    resolveCapabilities(
+      user.role,
+      user.overrides.map((row) => ({
+        capability: row.capability as Capability,
+        /* ‏כל ערך שאינו `grant` שולל — ולא מוסיף בטעות */
+        effect: row.effect === "grant" ? "grant" : "deny",
+        expiresAt: row.expiresAt,
+      })),
+      now,
+    ),
+    user.blockedModules,
+  );
 }
 
 /* ==================== מי רשאי לשנות למי ==================== */

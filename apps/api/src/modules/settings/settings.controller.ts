@@ -38,7 +38,7 @@ import {
   isOverrideActive,
   limitState,
   overrideRejectionReason,
-  resolveCapabilities,
+  effectiveCapabilities,
   type Capability,
   type LimitState,
   DEFAULT_MATCH_WEIGHTS,
@@ -1295,7 +1295,14 @@ export class SettingsController {
     const tenantId = TenantContext.current().tenantId;
     const target = await this.prisma.user.findFirst({
       where: { id, tenantId },
-      select: { id: true, name: true, role: true },
+      /*
+       * ‎**וגם חסימות המודולים של המשרד.** בלעדיהן המסך הציג
+       * ‏„היכולות בפועל” שאינן בפועל: יכולת שהפלטפורמה חסמה למשרד
+       * ‏המשיכה להופיע כפעילה, ומנהל שקורא את המסך הזה כדי להחליט
+       * ‏מה לסוכן מותר קיבל תשובה שגויה — במסך שכל תפקידו לענות
+       * ‏עליה נכון.
+       */
+      select: { id: true, name: true, role: true, tenant: { select: { blockedModules: true } } },
     });
     if (!target) throw new BadRequestException("משתמש לא נמצא");
 
@@ -1325,7 +1332,16 @@ export class SettingsController {
       // בעל המשרד מוגן בשרת; המסך מקבל את הדגל כדי להסביר למה
       protected:
         target.role === "owner" || target.id === TenantContext.current().userId,
-      effective: [...resolveCapabilities(target.role, overrides, now)],
+      effective: [
+        ...effectiveCapabilities(
+          {
+            role: target.role,
+            overrides: rows,
+            blockedModules: target.tenant.blockedModules,
+          },
+          now,
+        ),
+      ],
       overrides: rows.map((row, index) => ({
         capability: row.capability,
         effect: row.effect,

@@ -73,8 +73,7 @@ import {
   type NotifyPerson,
   AGENT_ACTIONS,
   mayUseAction,
-  applyBlockedModules,
-  resolveCapabilities,
+  effectiveCapabilities,
   type Capability,
   type CapabilityOverride,
   inQuietHours,
@@ -3525,9 +3524,13 @@ async function processWhatsAppNotifySweep(): Promise<void> {
        * להציע, ואילו פרטים מותר לצרף להודעה. שני חישובים נפרדים
        * היו יכולים להיפרד — כפתור שמציע מה שההודעה מסתירה.
        */
-      const capabilities = applyBlockedModules(
-        resolveCapabilities(user.role, overridesOf.get(user.id) ?? [], now),
-        tenant.blockedModules,
+      const capabilities = effectiveCapabilities(
+        {
+          role: user.role,
+          overrides: overridesOf.get(user.id) ?? [],
+          blockedModules: tenant.blockedModules,
+        },
+        now,
       );
       recipients.set(user.id, {
         userId: user.id,

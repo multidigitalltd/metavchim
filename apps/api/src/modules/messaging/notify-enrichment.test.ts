@@ -56,7 +56,7 @@ describe("העשרת ההתראות בעובד", () => {
 
   it("היכולות של הכפתור והיכולות של הפרטים הן אותן יכולות", () => {
     const build = WORKERS.slice(
-      WORKERS.indexOf("const capabilities = applyBlockedModules("),
+      WORKERS.indexOf("const capabilities = effectiveCapabilities("),
       WORKERS.indexOf("if (recipients.size === 0) continue;"),
     );
     expect(build).toContain("allowedActionIds: allowedActionsFor(capabilities)");
