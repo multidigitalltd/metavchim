@@ -52,6 +52,23 @@ describe("partnerPairs — שדה המשחק", () => {
     expect(pairs[0]!.partners.map((p) => p.buyerId).sort()).toEqual(["A", "B"]);
   });
 
+  it("נכס שנרשם בסוג הוותיק „טאבו משותף” כן מייצר שותפויות", () => {
+    /*
+     * ‏בלי הגזירה מהסוג, דווקא הנכסים הוותיקים — אלה שהתכונה
+     * ‏נבנתה בשבילם — לא היו מקבלים אותה.
+     *
+     * ‏הקונים מבקשים את הסוג הזה, כי נכס שנרשם כך אינו מכריז על
+     * ‏צורת המבנה שלו; מי שביקש „דירה” נשאר מחוץ להתאמה, וזו
+     * ‏התנהגות קיימת שלא נגעתי בה.
+     */
+    const byType = { ...PROPERTY, sharedTabu: false, propertyType: "shared_tabu" as const };
+    const wanting = twoHalves().map((c) => ({
+      ...c,
+      requirements: { ...c.requirements, propertyTypes: ["shared_tabu" as const] },
+    }));
+    expect(partnerPairs(byType, wanting)).toHaveLength(1);
+  });
+
   it("נכס שאינו בטאבו משותף אינו מייצר שותפויות", () => {
     expect(partnerPairs({ ...PROPERTY, sharedTabu: false }, twoHalves())).toEqual([]);
     expect(partnerPairs({ ...PROPERTY, sharedTabu: undefined }, twoHalves())).toEqual([]);

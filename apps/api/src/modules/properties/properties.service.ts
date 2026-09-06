@@ -15,6 +15,7 @@ import {
   limitState,
   type Page,
   type PropertyFields,
+  SHARED_TABU_PROPERTY_TYPE,
 } from "@metavchim/shared";
 import {
   PROPERTY_TYPE_LABELS_HE,
@@ -49,6 +50,7 @@ import { GeocodingService } from "../../core/geocoding.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import type { Prisma } from "@prisma/client";
 import { ContactErasureService } from "../contacts/contact-erasure.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { ListingsService } from "../collaboration/listings.service";
@@ -76,6 +78,30 @@ import {
 function creatorUserId(): string | null {
   const { userId } = TenantContext.current();
   return userId === "" ? null : userId;
+}
+
+/**
+ * ‎**הצורה ה-SQL של `isSharedTabuProperty` — והיחידה.**
+ *
+ * ‏העובדה „הנכס רשום בטאבו משותף” יושבת בשני מקומות: הדגל, והערך
+ * ‏הוותיק `shared_tabu` ב-`property_type`. ב-TypeScript יש לזה
+ * ‏תשובה אחת (`isSharedTabuProperty`), וכאן נדרשת הצורה השנייה
+ * ‏והאחרונה — כי שאילתה אינה יכולה לקרוא לפונקציה.
+ *
+ * ‏שתיהן נבדקות זו מול זו על אותה טבלת מקרים ב-
+ * ‎`shared-tabu-sources.test.ts`, כדי שהן לא יוכלו להיפרד: סינון
+ * ‏שקורא רק את הדגל היה מפספס בדיוק את הנכסים שנרשמו בסוג הישן,
+ * ‏והם הרוב הקיים.
+ *
+ * ‏האינדקס החלקי במיגרציה 20260906210000 נבנה על **אותו** תנאי
+ * ‏בדיוק, ולכן הוא משרת את הסינון הזה.
+ */
+export function sharedTabuWhere(value: boolean | undefined): Prisma.PropertyWhereInput {
+  if (value === undefined) return {};
+  if (value) {
+    return { OR: [{ sharedTabu: true }, { propertyType: SHARED_TABU_PROPERTY_TYPE }] };
+  }
+  return { sharedTabu: false, propertyType: { not: SHARED_TABU_PROPERTY_TYPE } };
 }
 
 @Injectable()
@@ -329,7 +355,7 @@ export class PropertiesService {
 
       const contact = await tx.contact.findFirst({
         where: { id: lead.contactId, tenantId: ctx.tenantId },
-        select: { nameEncrypted: true, phoneEncrypted: true },
+        select: { nameEncrypted: true, phoneEncrypted: true, sharedTabu: true },
       });
       if (!contact) throw new NotFoundException("איש הקשר של הליד לא נמצא");
       return {
@@ -337,6 +363,20 @@ export class PropertiesService {
           name: this.crypto.decrypt(contact.nameEncrypted),
           phone: this.crypto.decrypt(contact.phoneEncrypted),
         },
+        /*
+         * ‎**הסימון על הלקוח עובר לנכס — זה כל תפקידו** (ביקורת Codex, P1).
+         *
+         * ‏`contacts.shared_tabu` קיים בדיוק בשביל המצב שבו הנכס עוד
+         * ‏אינו במערכת: מוכר שהתקשר ואמר בשיחה הראשונה שהחלקה שלו
+         * ‏משותפת. הרגע שבו הנכס **כן** נכנס למערכת הוא ההמרה הזו,
+         * ‏וטופס ההמרה אינו שולח את הדגל — כלומר הנתון שנרשם כדי
+         * ‏לשרוד עד כאן היה נמחק בדיוק כאן.
+         *
+         * ‏הוא **מדליק ולא מכבה**: מתווך שביטל את הסימון בטופס
+         * ‏ההמרה אמר משהו מפורש, ואילו לקוח בלי סימון אינו אומר דבר
+         * ‏על הנכס. לכן `||` ולא השמה.
+         */
+        contactSharedTabu: contact.sharedTabu,
         prior: {
           status: lead.status,
           requiresHuman: lead.requiresHuman,
@@ -349,7 +389,10 @@ export class PropertiesService {
     let propertyId: string;
     try {
       // persist בלבד — לא create: ההתאמות מופרדות ל-best-effort למטה
-      propertyId = await this.persist({ fields, owner: claim.owner });
+      propertyId = await this.persist({
+        fields: claim.contactSharedTabu ? { ...fields, sharedTabu: true } : fields,
+        owner: claim.owner,
+      });
     } catch (error) {
       // השמירה נכשלה — הליד חוzר בדיוק למצבו, לא למצב גנרי
       await this.prisma
@@ -1067,7 +1110,7 @@ export class PropertiesService {
             ? { city: { in: query.cities } }
             : {}),
           ...(query.dealType ? { dealType: query.dealType } : {}),
-          ...(query.sharedTabu === undefined ? {} : { sharedTabu: query.sharedTabu }),
+          ...sharedTabuWhere(query.sharedTabu),
           ...(price.min !== undefined || price.max !== undefined
             ? {
                 priceAgorot: {

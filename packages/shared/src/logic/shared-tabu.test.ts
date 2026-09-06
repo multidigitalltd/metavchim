@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
+  isSharedTabuProperty,
+  SHARED_TABU_PROPERTY_TYPE,
   SHARED_TABU_ACCEPTED_NOTE,
   SHARED_TABU_REFUSED_NOTE,
   SHARED_TABU_UNKNOWN_NOTE,
@@ -108,5 +110,68 @@ describe("השער בתוך scoreMatch", () => {
     expect(accepted.score).toBe(unknown.score);
     expect(accepted.coverage).toBe(unknown.coverage);
     expect(accepted.breakdown.length).toBe(unknown.breakdown.length);
+  });
+});
+
+/**
+ * ‎**שני מקורות לעובדה אחת — ושתי הדליפות ההפוכות שלהם** (ביקורת Codex, P1).
+ *
+ * ‏`shared_tabu` יושב ב-`PropertyTypeSchema` מלפני הדגל, ומחלץ
+ * ‏ההקלטה וייבוא ה-CSV עדיין מייצרים אותו.
+ */
+describe("‏הסוג הוותיק והדגל — שאלה אחת", () => {
+  it("נכס שנרשם בסוג הוותיק נחשב לרשום בטאבו משותף", () => {
+    expect(isSharedTabuProperty({ propertyType: SHARED_TABU_PROPERTY_TYPE })).toBe(true);
+  });
+
+  it("והמנוע פוסל מולו קונה שסירב — גם בלי הדגל", () => {
+    const result = scoreMatch(
+      { ...PROPERTY, sharedTabu: false, propertyType: SHARED_TABU_PROPERTY_TYPE },
+      { ...BUYER, propertyTypes: [SHARED_TABU_PROPERTY_TYPE], sharedTabu: "refuses" },
+    );
+    expect(result.excluded).toBe(true);
+    expect(result.explanation).toBe(SHARED_TABU_REFUSED_NOTE);
+  });
+
+  /*
+   * ‏הכיוון השני, וזה שהיה שבור: דירה שסומן עליה הדגל **נפסלה**
+   * ‏מקונה שביקש את הסוג הוותיק, כי „דירה” אינו ברשימת הסוגים שלו.
+   */
+  it("קונה שביקש את הסוג הוותיק מקבל דירה שסומן עליה הדגל", () => {
+    const result = scoreMatch(
+      { ...PROPERTY, propertyType: "apartment", sharedTabu: true },
+      { ...BUYER, propertyTypes: [SHARED_TABU_PROPERTY_TYPE], sharedTabu: "accepts" },
+    );
+    expect(result.excluded).toBe(false);
+    expect(result.score).toBeGreaterThan(0);
+  });
+
+  it("ופנטהאוז בטאבו משותף עונה על אותה בקשה", () => {
+    const result = scoreMatch(
+      { ...PROPERTY, propertyType: "penthouse", sharedTabu: true },
+      { ...BUYER, propertyTypes: [SHARED_TABU_PROPERTY_TYPE], sharedTabu: "accepts" },
+    );
+    expect(result.excluded).toBe(false);
+  });
+
+  /*
+   * ‏אבל הכיוון ההפוך נשאר פסילה: נכס שנרשם בסוג הוותיק מול קונה
+   * ‏שביקש „דירה” — סוגו של הנכס פשוט אינו ידוע, ולנחש „דירה” היה
+   * ‏להמציא עובדה.
+   */
+  it("נכס בסוג הוותיק אינו נחשב אוטומטית „דירה”", () => {
+    const result = scoreMatch(
+      { ...PROPERTY, propertyType: SHARED_TABU_PROPERTY_TYPE },
+      { ...BUYER, propertyTypes: ["apartment"], sharedTabu: "accepts" },
+    );
+    expect(result.excluded).toBe(true);
+  });
+
+  it("והדגל אינו הופך נכס רגיל למבוקש על ידי מי שלא ביקש אותו", () => {
+    const result = scoreMatch(
+      { ...PROPERTY, propertyType: "penthouse", sharedTabu: true },
+      { ...BUYER, propertyTypes: ["apartment"], sharedTabu: "accepts" },
+    );
+    expect(result.excluded).toBe(true);
   });
 });

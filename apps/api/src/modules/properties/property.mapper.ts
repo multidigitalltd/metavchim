@@ -1,6 +1,8 @@
 import type { Prisma, Property as PropertyRow } from "@prisma/client";
 import {
+  isSharedTabuProperty,
   normalizeCustomFeatures,
+  SHARED_TABU_PROPERTY_TYPE,
   type CustomFeature,
   type OccupancyState,
   type PropertyFields,
@@ -37,8 +39,19 @@ export function rowToFields(row: PropertyRow): PropertyFields {
     hasBalcony: row.hasBalcony ?? undefined,
     hasSafeRoom: row.hasSafeRoom ?? undefined,
     hasStorage: row.hasStorage ?? undefined,
-    /* ‏`false` הוא ערך ולא היעדר — הסימון של המתווך, כפי שהוא */
-    sharedTabu: row.sharedTabu,
+    /*
+     * ‏`false` הוא ערך ולא היעדר — הסימון של המתווך, כפי שהוא.
+     *
+     * ‏ומעליו הגזירה מהסוג: `shared_tabu` הוא ערך ותיק ב-
+     * ‎`PropertyTypeSchema`, ושורות שנרשמו כך (מחלץ ההקלטה, ייבוא
+     * ‏CSV, וכל מה שקדם לעמודה) נושאות את העובדה שם. קריאה של
+     * ‏העמודה בלבד הייתה מחזירה `false` דווקא לנכסים שהתכונה
+     * ‏נבנתה בשבילם.
+     */
+    sharedTabu: isSharedTabuProperty({
+      sharedTabu: row.sharedTabu,
+      propertyType: row.propertyType,
+    }),
     condition: (row.condition as PropertyFields["condition"]) ?? undefined,
     priceAgorot: row.priceAgorot === null ? undefined : Number(row.priceAgorot),
     priceFlexible: row.priceFlexible ?? undefined,
@@ -139,8 +152,27 @@ export function fieldsToColumns(fields: Partial<PropertyFields>): Prisma.Propert
   if ("hasBalcony" in fields) out.hasBalcony = fields.hasBalcony ?? null;
   if ("hasSafeRoom" in fields) out.hasSafeRoom = fields.hasSafeRoom ?? null;
   if ("hasStorage" in fields) out.hasStorage = fields.hasStorage ?? null;
-  /* ‏העמודה `NOT NULL`, ולכן „לא נשלח” נופל ל-`false` ולא ל-`null` */
-  if ("sharedTabu" in fields) out.sharedTabu = fields.sharedTabu ?? false;
+  /*
+   * ‏העמודה `NOT NULL`, ולכן „לא נשלח” נופל ל-`false` ולא ל-`null`.
+   *
+   * ‏והיא נכתבת גם כשרק **הסוג** נשלח: מחלץ ההקלטה וייבוא ה-CSV
+   * ‏מייצרים `propertyType: "shared_tabu"` ולא נוגעים בדגל, ובלי
+   * ‏הענף הזה הם היו כותבים שורה שהעמודה שלה סותרת את הסוג שלה
+   * ‏— והסינון המאונדקס היה מפספס אותם.
+   */
+  if ("sharedTabu" in fields) {
+    out.sharedTabu = isSharedTabuProperty(fields);
+  } else if (fields.propertyType === SHARED_TABU_PROPERTY_TYPE) {
+    /*
+     * ‎**הסוג מדליק, ולעולם לא מכבה.**
+     *
+     * ‏`PATCH` שנוגע רק בסוג אינו אומר דבר על הדגל, ולכן גזירה
+     * ‏סימטרית כאן הייתה **מוחקת** סימון מפורש של המתווך ברגע
+     * ‏שמישהו שינה „דירה” ל„פנטהאוז” — נתון שנמחק בלי שאיש ביקש.
+     * ‏הדגל נשלט רק על ידי מי ששולח אותו.
+     */
+    out.sharedTabu = true;
+  }
   if ("condition" in fields) out.condition = fields.condition ?? null;
   if ("priceAgorot" in fields)
     out.priceAgorot = fields.priceAgorot === undefined ? null : BigInt(fields.priceAgorot);

@@ -313,6 +313,29 @@ if (!PROPERTIES.includes('setStatus("draft")')) {
 if (!PROPERTIES.includes('getElementById("properties-list")')) {
   problems.push("„הצגת הטיוטות” מסנן בלי לגלול — המסך שהשתנה נשאר מחוץ לתצוגה");
 }
+/*
+ * ‏האריח סופר על כל מה שנטען, ולכן הוא מנקה גם את שאר הסינון.
+ * ‏בלי זה „3 טיוטות” עם עיר מסומנת גולל לרשימה ריקה.
+ */
+const draftsHandler = PROPERTIES.indexOf("onShowDrafts={() => {");
+if (draftsHandler === -1) {
+  problems.push("‎`onShowDrafts` לא נמצא בעמוד הנכסים");
+} else {
+  const body = PROPERTIES.slice(draftsHandler, draftsHandler + 1400);
+  for (const [needle, what] of [
+    ['setCity("הכל")', "עיר"],
+    ['setType("")', "סוג נכס"],
+    ['setSharedTabu("")', "רישום"],
+  ]) {
+    if (!body.includes(needle)) {
+      problems.push(`אריח „טיוטה להשלמה” אינו מנקה את סינון ה${what} — המונה סופר על הכול והרשימה תישאר מסוננת`);
+    }
+  }
+  /* ‏והגלילה מחכה לרשימה, כי ניקוי סינון השרת מחזיר אותה ל„טוען” */
+  if (!body.includes("setScrollToList(true)")) {
+    problems.push("הגלילה של „טיוטה להשלמה” אינה ממתינה לרשימה — היא תרוץ על עוגן שאינו קיים");
+  }
+}
 
 /*
  * ‎**המונים והחיפוש באותו מכל דו-טורי**, ובאותה חלוקה כמו בדשבורד.

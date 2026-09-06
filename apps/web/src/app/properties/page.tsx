@@ -441,6 +441,8 @@ export default function PropertiesPage() {
    * ‏משותף” למשרד שיש לו כמה, וזו תשובה גרועה משתיקה.
    */
   const [sharedTabu, setSharedTabu] = useState("");
+  /** ‏„גלול לרשימה ברגע שהיא שוב על המסך” — ראו `onShowDrafts`. */
+  const [scrollToList, setScrollToList] = useState(false);
   const [filters, setFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
   /*
    * הנכסים שסומנו להעלאה מרוכזת לרשת — Set של מזהים, מאותה סיבה
@@ -470,6 +472,14 @@ export default function PropertiesPage() {
       })
       .catch(() => setError("טעינת הנכסים נכשלה"));
   }, [authLoading, filters, sharedTabu]);
+
+  useEffect(() => {
+    if (!scrollToList || items === null) return;
+    document
+      .getElementById("properties-list")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setScrollToList(false);
+  }, [scrollToList, items]);
 
   /* צ'יפי הערים נבנים מהנתונים עצמם — הערים שבאמת יש בהן נכסים */
   const cities = useMemo(() => {
@@ -800,10 +810,31 @@ export default function PropertiesPage() {
               ‏אינו רואה, ונראה כאילו לא קרה דבר.
             */
             onShowDrafts={() => {
+              /*
+               * ‎**האריח סופר על כל הרשימה, ולכן הוא גם מנקה את כל
+               * הסינון** (ביקורת Codex).
+               *
+               * ‏המונה נגזר מ-`items` — כל מה שנטען — בעוד שהעיר,
+               * ‏הסוג והרישום מצמצמים את `visible`. עם „ירושלים”
+               * ‏מסומנת וטיוטות שכולן בתל אביב, האריח הבטיח „3
+               * ‏טיוטות” וגלל לרשימה ריקה: המספר שהמתווך לחץ עליו
+               * ‏ומה שקיבל לא היו אותו דבר.
+               *
+               * ‏הניקוי הוא התשובה הנכונה ולא צמצום המונה: האריח
+               * ‏אומר „מה מחכה לך”, וזו שאלה על כל המאגר. „מה מחכה
+               * ‏לך בירושלים” הוא מסך אחר.
+               */
+              setCity("הכל");
+              setType("");
+              setSharedTabu("");
               setStatus("draft");
-              document
-                .getElementById("properties-list")
-                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              /*
+               * ‏הגלילה מחכה לרשימה ואינה רצה מיד: ניקוי סינון
+               * ‏הרישום הוא סינון **שרת**, ולכן הוא מחזיר את
+               * ‏הרשימה ל„טוען” — ובאותו רגע עוגן הגלילה אינו
+               * ‏קיים והפעולה הייתה מתבצעת על `null` בשקט.
+               */
+              setScrollToList(true);
             }}
           />
         )}

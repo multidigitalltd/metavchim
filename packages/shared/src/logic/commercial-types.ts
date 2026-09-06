@@ -1,4 +1,5 @@
 import { PropertyTypeSchema, type PropertyType } from "../schemas/property.js";
+import { SHARED_TABU_PROPERTY_TYPE } from "./shared-tabu.js";
 
 /**
  * ‎**משפחת הנכסים המסחריים — ולמה היא צריכה כלל התאמה משלה.**
@@ -60,8 +61,22 @@ export function isCommercialType(type: string): boolean {
 export function propertyTypeMatches(
   wanted: readonly string[],
   actual: string,
+  /**
+   * ‎**האם הנכס רשום בטאבו משותף — עובדה שאינה בסוג.**
+   *
+   * ‏`shared_tabu` יושב ברשימת הסוגים מלפני הדגל, ולכן קונה שביקש
+   * ‏אותו ביקש **רישום** ולא צורת מבנה. פנטהאוז בטאבו משותף עונה
+   * ‏על הבקשה שלו בדיוק, אף שסוגו „פנטהאוז” — ובלי השורה הזו הוא
+   * ‏היה נפסל מולו, בעוד שדירה שנרשמה בסוג הישן כן הייתה עוברת.
+   *
+   * ‏זה הכיוון האחד. הכיוון ההפוך — נכס שנרשם בסוג `shared_tabu`
+   * ‏מול קונה שביקש „דירה” — נשאר פסילה כפי שהיה: סוגו של הנכס
+   * ‏הזה פשוט אינו ידוע, ולנחש „דירה” היה להמציא עובדה.
+   */
+  sharedTabu = false,
 ): boolean {
   if (wanted.includes(actual)) return true;
+  if (sharedTabu && wanted.includes(SHARED_TABU_PROPERTY_TYPE)) return true;
   /*
    * ‎**„מסחרי” משני הצדדים.** הקונה ביקש „מסחרי” והנכס הוא חנות,
    * או שהקונה ביקש חנות והנכס נרשם „מסחרי” בלי דיוק — שניהם

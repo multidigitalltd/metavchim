@@ -13,7 +13,7 @@ import {
 import { bestLocationMatch } from "./location-text.js";
 import { bestAreaMatch, describeDistance } from "./proximity.js";
 import { CUSTOM_FEATURE_PREFIX, customFeatureMap, isCustomFeature } from "./custom-features.js";
-import { sharedTabuFit } from "./shared-tabu.js";
+import { isSharedTabuProperty, sharedTabuFit } from "./shared-tabu.js";
 
 export interface MatchResult {
   /** 0–100 */
@@ -319,7 +319,8 @@ export function scoreMatch(
    * הפולטים סוכמים משקלים על `parts` — רכיב במשקל אפס היה נספר
    * בכיסוי ובנרמול ומזיז ציונים בלי שאיש ביקש.
    */
-  const tabu = sharedTabuFit(property.sharedTabu === true, buyer.sharedTabu);
+  const propertyIsSharedTabu = isSharedTabuProperty(property);
+  const tabu = sharedTabuFit(propertyIsSharedTabu, buyer.sharedTabu);
   if (tabu.excluded) excluded = true;
 
   /*
@@ -499,7 +500,11 @@ export function scoreMatch(
      * כי סוג שאינו ברשימה מוציא את ההתאמה לגמרי. ראו
      * ‎`commercial-types.ts`.
      */
-    const ok = propertyTypeMatches(buyer.propertyTypes, property.propertyType);
+    const ok = propertyTypeMatches(
+      buyer.propertyTypes,
+      property.propertyType,
+      propertyIsSharedTabu,
+    );
     parts.push({
       criterion: "property_type",
       weight: weights.property_type,

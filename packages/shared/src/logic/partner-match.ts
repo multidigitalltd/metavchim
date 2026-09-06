@@ -7,7 +7,7 @@ import {
   type MatchWeights,
 } from "./matching.js";
 import { formatIsraeliNumber } from "./israel-time.js";
-import { sharedTabuFit } from "./shared-tabu.js";
+import { isSharedTabuProperty, sharedTabuFit } from "./shared-tabu.js";
 
 /**
  * ‎**שידוך שותפים — שני קונים על נכס אחד.**
@@ -138,7 +138,7 @@ export function partnerPairs(
    * ‎**רק מכירה.** שותפות כאן היא בעלות משותפת ברישום; שני שוכרים
    * באותה דירה הם שותפים לדירה ולא לנכס, ואין להם מה לחלק בטאבו.
    */
-  if (property.sharedTabu !== true || property.dealType !== "sale" || price === undefined) {
+  if (!isSharedTabuProperty(property) || property.dealType !== "sale" || price === undefined) {
     return [];
   }
   const now = options.now ?? new Date();
