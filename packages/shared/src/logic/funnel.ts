@@ -106,6 +106,40 @@ export function isFunnelClockAnchored(track: FunnelTrack, clock: FunnelClock): b
   return FUNNEL_TRACK_CLOCKS[track].includes(clock);
 }
 
+/**
+ * ‎**גבול ההיסט — שנה לכל כיוון.**
+ *
+ * ## ‏למה בכלל צריך גבול
+ *
+ * ‏`offset_days` הוא `INTEGER` במסד, ולכן `2147483647` הוא ערך
+ * ‏חוקי לגמרי מבחינתו. `funnelStageDueAt` מחשב
+ * ‏`anchor + offset × DAY_MS`, וזה חורג מטווח ה-`Date` של
+ * ‏JavaScript — התוצאה היא `Invalid Date`. משם היא נכנסת לחישוב
+ * ‏התפוגה ולעזרי שעון ירושלים, שם היא **זורקת** — כלומר שורת
+ * ‏תצורה אחת מפילה את כל סבב הרישום, לכל המשרדים (ביקורת Codex,
+ * ‏P2).
+ *
+ * ‏וזה בדיוק מה שהמנגנון הזה נבנה למנוע: שלב פגום אמור להיות
+ * ‏**חסם מיצוי** שנרשם ב-`catalog().invalid` — לא קריסה.
+ *
+ * ## ‏ולמה שנה, ולמה שלילי מותר
+ *
+ * ‏שלילי הוא חלק מהמודל: `trial_heads_up` יושב על `-2`, כלומר
+ * ‏יומיים **לפני** תפוגת הניסיון. הגבול הוא לכן סימטרי.
+ *
+ * ‏שנה היא מרווח נדיב פי עשרים מההיסט הגדול בקטלוג (17), ורחוקה
+ * ‏בסדרי גודל מהמקום שבו `Date` נשבר. גבול צמוד יותר היה פוסל
+ * ‏תצורה לגיטימית של משרד; גבול רחב יותר לא היה קונה דבר.
+ */
+export const FUNNEL_OFFSET_DAYS_MAX = 365;
+
+/** ‏האם ההיסט בטווח שאפשר לחשב ממנו תאריך. */
+export function isFunnelOffsetInRange(offsetDays: number): boolean {
+  return (
+    Number.isInteger(offsetDays) && Math.abs(offsetDays) <= FUNNEL_OFFSET_DAYS_MAX
+  );
+}
+
 export const FUNNEL_CLOCK_LABELS: Record<FunnelClock, string> = {
   funnel: "מיום הכניסה למסלול",
   trial: "ביחס לתפוגת הניסיון",

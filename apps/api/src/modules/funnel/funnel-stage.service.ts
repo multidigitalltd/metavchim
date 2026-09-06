@@ -4,7 +4,9 @@ import {
   FUNNEL_CHANNELS,
   FUNNEL_CLOCKS,
   FUNNEL_TRACKS,
+  FUNNEL_OFFSET_DAYS_MAX,
   isFunnelClockAnchored,
+  isFunnelOffsetInRange,
   type FunnelAudience,
   type FunnelChannel,
   type FunnelClock,
@@ -132,6 +134,21 @@ export class FunnelStageService {
     if (!isFunnelClockAnchored(row.track, row.clock)) {
       this.logger.warn(
         `שלב ${row.key}: שעון ${row.clock} אינו מעוגן במסלול ${row.track} — השלב הושמט`,
+      );
+      return null;
+    }
+    /*
+     * ‎**וגם ההיסט — ערך חוקי במסד אינו בהכרח תאריך שאפשר לחשב.**
+     *
+     * ‏`offset_days` הוא `INTEGER`, ולכן `2147483647` עובר את המסד.
+     * ‏`funnelStageDueAt` מוסיף אותו לעוגן ומקבל `Invalid Date`,
+     * ‏וזה נכנס לחישוב התפוגה ולעזרי שעון ירושלים ו**זורק** —
+     * ‏כלומר שורת תצורה אחת מפילה את כל הסבב, לכל המשרדים. שלב
+     * ‏פגום אמור להיות חסם מיצוי שנרשם, לא קריסה (ביקורת Codex, P2).
+     */
+    if (!isFunnelOffsetInRange(row.offsetDays)) {
+      this.logger.warn(
+        `שלב ${row.key}: היסט ${row.offsetDays} מחוץ לטווח (±${FUNNEL_OFFSET_DAYS_MAX}) — השלב הושמט`,
       );
       return null;
     }

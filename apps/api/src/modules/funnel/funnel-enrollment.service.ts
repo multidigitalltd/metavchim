@@ -13,6 +13,7 @@ import {
   type FunnelFacts,
   type FunnelTrack,
 } from "@metavchim/shared";
+import { lockTenantSubscription } from "../../common/locks";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { FunnelStageService } from "./funnel-stage.service";
 
@@ -121,28 +122,43 @@ export class FunnelEnrollmentService {
      * ‏מתמשך הם היו מזדקנים אל תוך הפיגור שמוגבל במכסה — כלומר
      * ‏מאבדים בדיוק את המעקף שנועד להם (ביקורת Codex).
      *
-     * ‏הלולאה נעצרת מאליה: משרד שנרשם יוצא מ-`none` ולכן אינו חוזר
-     * ‏בדף הבא. הבלימה על „דף בלי קליטה” היא נגד לולאה אינסופית אם
-     * ‏שורה אינה ניתנת לתפיסה (מרוץ מול עותק אחר).
+     * ‎**ההתקדמות היא „יצא מהשאילתה”, ולכן גם המדולג חייב לצאת.**
      *
-     * ‏המיון `asc` אינו משפיע על התוצאה כל עוד הלולאה רצה עד הסוף —
-     * ‏כולם נכנסים ממילא. הוא נשאר כהגנה על **המסלול היחיד שבו כן
-     * ‏יש חיתוך**: אם הבלימה נתפסת, מי שקרוב לצאת מחלון הטריות הוא
-     * ‏שכבר נכנס. `desc` היה מרעיב דווקא אותו.
+     * ‏משרד שנרשם יוצא מ-`none` ואינו חוזר בדף הבא — זה מה שמסיים
+     * ‏את הלולאה. אבל משרד שדולג בגלל כרטיס תקף **לא** נרשם, ולכן
+     * ‏הוא חוזר שוב ושוב: בלי `notIn` דף שכולו מדולגים היה מוחזר
+     * ‏לנצח. לכן הם נאספים ומוצאים מהשאילתה במפורש.
+     *
+     * ‎**וסמן אינו הפתרון כאן**, ניסיתי: `cursor` דורש שורה שעדיין
+     * ‏בקבוצת התוצאה, ושורה שנרשמה בדיוק יצאה ממנה — הדף הבא היה
+     * ‏חוזר ריק, והטריים שמאחוריו לא היו נכנסים כלל. הבדיקה של
+     * ‏„שלוש הרשמות טריות בדף של אחד” תפסה את זה מיד.
+     *
+     * ‏המיון `asc` נשאר כהגנה על המסלול היחיד שבו יש חיתוך: מי
+     * ‏שקרוב לצאת מחלון הטריות נכנס ראשון.
      */
     let enrolled = 0;
+    /* ‏מי שדולג בגלל כרטיס תקף — הוא לא נרשם, ולכן חוזר בדף הבא */
+    const skipped: string[] = [];
     for (;;) {
-      const page = await this.prisma.withFunnelAdmin((tx) =>
-        tx.tenant.findMany({
-          where: { ...eligible, createdAt: { gte: freshFrom } },
+      const page = await this.prisma.withFunnelAdmin(async (tx) => {
+        const rows = await tx.tenant.findMany({
+          where: {
+            ...eligible,
+            createdAt: { gte: freshFrom },
+            ...(skipped.length === 0 ? {} : { id: { notIn: [...skipped] } }),
+          },
           select: { id: true },
           orderBy: { createdAt: "asc" },
           take: pageSize,
-        }),
-      );
-      if (page.length === 0) break;
-      const before = enrolled;
-      for (const tenant of page) {
+        });
+        return { rows, prospects: await this.withoutValidCard(tx, rows, now) };
+      });
+      if (page.rows.length === 0) break;
+      for (const tenant of page.rows) {
+        if (!page.prospects.some((prospect) => prospect.id === tenant.id)) skipped.push(tenant.id);
+      }
+      for (const tenant of page.prospects) {
         /*
          * ‎**`startedAt` הוא `now`, ולא `tenant.createdAt`.**
          *
@@ -152,10 +168,41 @@ export class FunnelEnrollmentService {
          */
         if (await this.open(tenant.id, "conversion", now)) enrolled += 1;
       }
-      if (enrolled === before) break;
     }
 
     return enrolled + (await this.enrollBacklog(now, dailyQuota, pageSize, freshFrom, eligible));
+  }
+
+  /**
+   * ‎**מי מהדף הוא באמת מועמד להמרה — כלומר בלי כרטיס תקף.**
+   *
+   * ‏`status: "trial"` אינו אומר „לא שילם”: משרד בניסיון ששכר מספר
+   * ‏או מקום וואטסאפ שילם, והכרטיס נשמר בלי שהסטטוס השתנה. משרד
+   * ‏כזה שנרשם למשפך נסגר כ-`paid` באותו סבב עצמו — כלומר נספר
+   * ‏כנכנס וכמשלם על התחלה שקרתה **אחרי** ההמרה, ומזהם את שני
+   * ‏המדדים.
+   *
+   * ‎**שני המסלולים, ולא רק הפיגור.** הכלל ישב בפיגור בלבד, ולכן
+   * ‏משרד טרי עם כרטיס נכנס בכל זאת — אותה תקלה, בצד שלא נבדק
+   * ‏(ביקורת Codex, P2). ניסוח אחד לשניהם.
+   *
+   * ‎**ולמה זה לא עובר לשאילתה:** „כרטיס תקף” כולל תפוגה שנשענת על
+   * ‏שתי עמודות מספריות, ו„יש טוקן כרטיס” אינו אותו דבר — משרד עם
+   * ‏כרטיס **שפג** הוא בדיוק מועמד שצריך להיכנס. תנאי בשאילתה היה
+   * ‏מוציא דווקא אותו.
+   */
+  private async withoutValidCard(
+    tx: TenantTx,
+    page: readonly { id: string }[],
+    now: Date,
+  ): Promise<{ id: string }[]> {
+    if (page.length === 0) return [];
+    const cards = await tx.subscription.findMany({
+      where: { tenantId: { in: page.map((tenant) => tenant.id) } },
+      select: { tenantId: true, cardTokenEncrypted: true, cardMonth: true, cardYear: true },
+    });
+    const cardById = new Map(cards.map((card) => [card.tenantId, card]));
+    return page.filter((tenant) => !hasValidCard(cardById.get(tenant.id) ?? null, now));
   }
 
   /**
@@ -227,14 +274,7 @@ export class FunnelEnrollmentService {
         if (page.length === 0) break;
         cursor = page[page.length - 1]!.id;
 
-        const cards = await tx.subscription.findMany({
-          where: { tenantId: { in: page.map((t) => t.id) } },
-          select: { tenantId: true, cardTokenEncrypted: true, cardMonth: true, cardYear: true },
-        });
-        const cardById = new Map(cards.map((c) => [c.tenantId, c]));
-
-        for (const tenant of page) {
-          if (hasValidCard(cardById.get(tenant.id) ?? null, now)) continue;
+        for (const tenant of await this.withoutValidCard(tx, page, now)) {
           await this.open(tenant.id, "conversion", now, tx);
           enrolled += 1;
           if (enrolled >= remaining) break;
@@ -628,6 +668,16 @@ export class FunnelEnrollmentService {
        * ‏התשלום נועלים בו (`activateWithin`, `switchToFreePlan` —
        * ‏מנוי ואז דייר), ונעילה בסדר הפוך היא מתכון ל-deadlock.
        */
+      /*
+       * ‎**ולפני שתיהן — נעילת ייעוץ, כי השורה עשויה לא להתקיים.**
+       *
+       * ‏משרד שנרשם בעצמו מקבל דייר ומשתמש בלבד; שורת המנוי נוצרת
+       * ‏במגע הראשון עם החיוב. `FOR UPDATE` על שורה שאינה קיימת
+       * ‏נועל אפס שורות — ואז קריאה חוזרת של תשלום יכולה ליצור
+       * ‏אותה עם כרטיס בדיוק אחרי שקראנו „אין כרטיס”, ושתי
+       * ‏הטרנזקציות מאשרות (ביקורת Codex, P2).
+       */
+      await lockTenantSubscription(tx, snapshot.tenantId);
       await tx.$queryRaw`SELECT id FROM subscriptions WHERE tenant_id = ${snapshot.tenantId} FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM tenants WHERE id = ${snapshot.tenantId} FOR UPDATE`;
       /*

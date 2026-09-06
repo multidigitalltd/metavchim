@@ -7,6 +7,7 @@ import {
   FUNNEL_FRESH_SIGNUP_HOURS,
   FUNNEL_MAX_LAG_DAYS,
   FUNNEL_MIN_GAP_HOURS,
+  FUNNEL_OFFSET_DAYS_MAX,
   FUNNEL_TRACKS,
   dueFunnelStages,
   firstFunnelSendingWindowEnd,
@@ -15,6 +16,7 @@ import {
   funnelStageExpiresAt,
   funnelAnchorConcluded,
   isFunnelClockAnchored,
+  isFunnelOffsetInRange,
   isFunnelSendingHour,
   isServiceTrack,
   matchesAllAudiences,
@@ -930,5 +932,38 @@ describe("הפעלה הדרגתית של שלבים", () => {
         anchors: anchorsFor(),
       }),
     ).toBe("completed");
+  });
+});
+
+/**
+ * ‎**גבול ההיסט — הדבר היחיד שעומד בין שורת תצורה לבין סבב שקורס.**
+ *
+ * ‏`offset_days` הוא `INTEGER` במסד, ולכן `2147483647` הוא ערך חוקי
+ * ‏לחלוטין מבחינתו. הבדיקה השנייה כאן היא הנימוק לראשונה: היא
+ * ‏מריצה את החישוב האמיתי ומראה שהוא **זורק** — לא מחזיר `null`,
+ * ‏לא מחזיר תאריך רחוק. שלב פגום אמור להיות חסם מיצוי שנרשם,
+ * ‏ולכן הפסילה חייבת לקרות לפני החישוב (ביקורת Codex, P2).
+ */
+describe("היסט השלב — טווח שאפשר לחשב ממנו תאריך", () => {
+  it("הטווח סימטרי, ושלילי הוא חלק מהמודל", () => {
+    for (const value of [0, -2, 17, FUNNEL_OFFSET_DAYS_MAX, -FUNNEL_OFFSET_DAYS_MAX]) {
+      expect(isFunnelOffsetInRange(value), `${value}`).toBe(true);
+    }
+    for (const value of [2147483647, -2147483648, FUNNEL_OFFSET_DAYS_MAX + 1, -366, 1.5, NaN]) {
+      expect(isFunnelOffsetInRange(value), `${value}`).toBe(false);
+    }
+  });
+
+  it("ובלי הפסילה החישוב זורק — זו הסיבה שהיא קיימת", () => {
+    const anchors = {
+      funnelStartedAt: new Date("2026-09-07T06:00:00.000Z"),
+      trialEndsAt: null,
+      paymentFailedAt: null,
+      trialConcludedAt: null,
+    };
+    const broken = stage({ key: "broken", clock: "funnel", offsetDays: 2147483647 });
+    /* ‏העוגן קיים, ולכן זה אינו מסלול ה-`null` אלא תאריך פסול */
+    expect(funnelStageDueAt(broken, anchors)?.getTime()).toBeNaN();
+    expect(() => funnelStageExpiresAt(broken, anchors)).toThrow();
   });
 });

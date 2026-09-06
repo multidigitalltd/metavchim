@@ -131,6 +131,35 @@ describe("FunnelStageService — שורה שאינה תקפה", () => {
     expect(defs.map((d) => d.key)).toEqual(["a", "c"]);
   });
 
+  /*
+   * ‎**היסט חוקי במסד אינו בהכרח תאריך שאפשר לחשב.**
+   *
+   * ‏`offset_days` הוא `INTEGER`, ולכן `2147483647` עובר את המסד
+   * ‏בלי הערה. הוספתו לעוגן חורגת מטווח ה-`Date` של JavaScript,
+   * ‏ומשם `Invalid Date` נכנס לחישוב התפוגה ולעזרי שעון ירושלים
+   * ‏ו**זורק** — שורת תצורה אחת מפילה את הסבב לכל המשרדים
+   * ‏(ביקורת Codex, P2).
+   */
+  it("היסט מחוץ לטווח פוסל את השלב, ואינו מפיל את הסבב", async () => {
+    for (const offsetDays of [2147483647, -2147483648, 366, -366]) {
+      const defs = await serviceFor([row({ offsetDays })]).forTrack("conversion");
+      expect(defs, `היסט ${offsetDays}`).toEqual([]);
+    }
+  });
+
+  /* ‏והצד השני: שלילי הוא חלק מהמודל — „יומיים לפני התפוגה”. */
+  it("והיסט שבטווח עובר, כולל שלילי", async () => {
+    for (const offsetDays of [0, -2, 17, 365, -365]) {
+      const defs = await serviceFor([row({ offsetDays })]).forTrack("conversion");
+      expect(defs, `היסט ${offsetDays}`).toHaveLength(1);
+    }
+  });
+
+  it("והוא נספר כהגדרה פסולה, ולא נעלם בשקט", async () => {
+    const { invalid } = await serviceFor([row({ offsetDays: 2147483647 })]).catalog();
+    expect(invalid).toContain("welcome");
+  });
+
   it("תנאי קהל לא מוכר פוסל את השלב", async () => {
     const defs = await serviceFor([row({ audience: ["always", "owns_a_yacht"] })]).forTrack(
       "conversion",

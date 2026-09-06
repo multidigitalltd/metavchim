@@ -237,6 +237,61 @@ describe("כניסה למשפך — מול מסד אמיתי", () => {
   });
 
   /**
+   * ‎**כרטיס תקף פוסל גם בצד הטרי, לא רק בפיגור.**
+   *
+   * ‏`status: "trial"` אינו „לא שילם”: משרד שנרשם היום ומיד שכר
+   * ‏מספר שילם, והכרטיס נשמר בלי שהסטטוס זז. הכלל ישב בפיגור
+   * ‏בלבד, ולכן משרד כזה נכנס — ונסגר כ-`paid` באותו סבב עצמו,
+   * ‏כלומר התחלה שנרשמה **אחרי** ההמרה בשני המדדים (ביקורת
+   * ‏Codex, P2).
+   */
+  it("משרד טרי עם כרטיס תקף אינו נרשם כלל", async () => {
+    const nextYear = new Date().getUTCFullYear() + 2;
+    await direct.$executeRawUnsafe(
+      `INSERT INTO subscriptions (id, tenant_id, plan_code, billing_cycle, status, card_token_encrypted, card_month, card_year, created_at, updated_at)
+       VALUES ($1, $2, 'basic', 'monthly', 'trial', 'tok', 12, $3, now(), now())`,
+      "01M1FNNLTESTSUBSCR1PT10N04",
+      NEW_TENANT,
+      nextYear,
+    );
+
+    await service.sweep(new Date());
+    const rows = await enrollments();
+    expect(rows.find((r) => r.tenantId === NEW_TENANT)).toBeUndefined();
+    // ‏והצד השני: מי שאין לו כרטיס נכנס כרגיל
+    expect(rows.find((r) => r.tenantId === OLD_TENANT)?.endedAt).toBeNull();
+  });
+
+  /**
+   * ‎**והדילוג אינו מרעיב את מי שמאחוריו.**
+   *
+   * ‏זו הסיבה שהלולאה הטרייה עברה לסמן: היא נעצרה על „דף בלי
+   * ‏קליטה”, ומשרד שדולג **חוזר** בדף הבא (הוא לא נרשם). דף שכולו
+   * ‏מדולגים היה נראה בדיוק כמו סוף הרשימה — כלומר כל הטריים
+   * ‏שמאחוריו לא היו נכנסים לעולם.
+   *
+   * ‏`pageSize: 1` הוא מה שמפריד: המשרד עם הכרטיס הוא הדף הראשון,
+   * ‏והמשרד השני נמצא רק אם הסמן התקדם בלעדיו.
+   */
+  it("ודף שכולו מדולגים אינו עוצר את הטריים שאחריו", async () => {
+    /* ‏שני המשרדים טריים; המזהה של השני ממיין אחריו */
+    await seedTenant(THIRD_TENANT, "משרד טרי שני", 0);
+    const nextYear = new Date().getUTCFullYear() + 2;
+    await direct.$executeRawUnsafe(
+      `INSERT INTO subscriptions (id, tenant_id, plan_code, billing_cycle, status, card_token_encrypted, card_month, card_year, created_at, updated_at)
+       VALUES ($1, $2, 'basic', 'monthly', 'trial', 'tok', 12, $3, now(), now())`,
+      "01M1FNNLTESTSUBSCR1PT10N05",
+      NEW_TENANT,
+      nextYear,
+    );
+
+    await service.sweep(new Date(), { pageSize: 1 });
+    const rows = await enrollments();
+    expect(rows.find((r) => r.tenantId === NEW_TENANT)).toBeUndefined();
+    expect(rows.find((r) => r.tenantId === THIRD_TENANT)?.endedAt).toBeNull();
+  });
+
+  /**
    * ‎**כל הטריים נכנסים בסבב אחד, גם כשהם יותר מדף.**
    *
    * ‏שלושתם טריים ו-`pageSize` הוא 1. בגרסה הקודמת (`take` בלי
@@ -941,6 +996,71 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
     expect(closed, "נסגר למרות שהניסיון הוחזר").toBe(false);
     const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
     expect(row?.endedAt).toBeNull();
+  });
+
+  /**
+   * ‎**ושורת מנוי שאינה קיימת — `FOR UPDATE` עליה נועל אפס שורות.**
+   *
+   * ‏משרד שנרשם בעצמו מקבל דייר ומשתמש בלבד; שורת המנוי נוצרת רק
+   * ‏במגע הראשון עם החיוב. עד אז הנעילה על „המנוי של המשרד” אינה
+   * ‏נועלת דבר — **בשקט** — וקריאה חוזרת של תשלום יכולה ליצור את
+   * ‏השורה עם כרטיס בדיוק אחרי שהסגירה קראה „אין כרטיס”. שתי
+   * ‏הטרנזקציות מאשרות, והרישום נסגר כ„מוצה” על משרד ששילם
+   * ‏(ביקורת Codex, P2).
+   *
+   * ‏הבדיקה מחזיקה את נעילת הייעוץ מחיבור שני — בדיוק מה שיוצר
+   * ‏המנוי לוקח — ומראה שהסגירה **ממתינה** לה. בלי הנעילה בקוד
+   * ‏היא הייתה עוברת מיד; זו העדות שהיא נלקחת.
+   */
+  it("סגירה ממתינה גם כשאין עדיין שורת מנוי", async () => {
+    const now = new Date();
+    await service.sweep(now, { dailyQuota: 5 });
+    const id = (
+      await direct.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id FROM funnel_enrollments WHERE tenant_id = $1 LIMIT 1`,
+        OLD_TENANT,
+      )
+    )[0]!.id;
+    /* ‏אין שורת מנוי — זה בדיוק המצב שנבדק */
+    expect(
+      await direct.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id FROM subscriptions WHERE tenant_id = $1`,
+        OLD_TENANT,
+      ),
+    ).toHaveLength(0);
+
+    /* ‏העוגן נקרא מהשורה עצמה — סגירה שאינה חלה אינה מוכיחה דבר */
+    const anchor = (
+      await direct.$queryRawUnsafe<{ trial_ends_at: Date | null; trial_concluded_at: Date | null }[]>(
+        `SELECT trial_ends_at, trial_concluded_at FROM tenants WHERE id = $1`,
+        OLD_TENANT,
+      )
+    )[0]!;
+
+    let closed: boolean | undefined;
+    let racing: Promise<void> | undefined;
+    await direct.$transaction(async (tx) => {
+      // ‏יוצר המנוי לוקח את נעילת הייעוץ ועדיין לא אישר
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+        `subscription:${OLD_TENANT}`,
+      );
+      racing = service
+        .close(id, "completed", now, {
+          tenantId: OLD_TENANT,
+          trialEndsAt: anchor.trial_ends_at,
+          trialConcludedAt: anchor.trial_concluded_at,
+          hasCard: false,
+        })
+        .then((result) => {
+          closed = result;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(closed, "הסגירה לא המתינה לנעילה שאין מאחוריה שורה").toBeUndefined();
+    });
+
+    await racing;
+    expect(closed, "לא נסגרה גם אחרי שהנעילה שוחררה").toBe(true);
   });
 
   /*
