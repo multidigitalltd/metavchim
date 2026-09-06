@@ -5,11 +5,10 @@ import { NotFoundException } from "@nestjs/common";
 import type { Capability } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import {
-  EmailInboxService,
-  inboundNotificationContent,
   inboundNotificationOwner,
   stillLookingForOwner,
-} from "./email-inbox.service";
+} from "../../common/ownership";
+import { EmailInboxService, inboundNotificationContent } from "./email-inbox.service";
 
 /**
  * ‎**סוכן אינו רואה — ובעיקר אינו כותב — בהתכתבות של עמיתו.**

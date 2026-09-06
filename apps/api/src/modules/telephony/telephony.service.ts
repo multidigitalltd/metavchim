@@ -43,13 +43,18 @@ import {
 } from "@metavchim/shared";
 import { lockContactPhone, lockProviderCall } from "../../common/locks";
 import { notifyOnce } from "../../common/notify-once";
-import { assertContactAccess } from "../../common/ownership";
+import {
+  assertContactAccess,
+  inboundNotificationOwner,
+  officeRestrictsContactVisibility,
+  stillLookingForOwner,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { IntakeService } from "../intake/intake.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
@@ -870,7 +875,27 @@ export class TelephonyService {
               select: { contact: { select: { id: true, nameEncrypted: true } } },
             });
         const contact = primary ?? secondary?.contact ?? null;
-        const contactName = contact ? this.crypto.decrypt(contact.nameEncrypted) : null;
+        const decryptedName = contact ? this.crypto.decrypt(contact.nameEncrypted) : null;
+        /*
+         * ‎**זהות בהתראה משרדית — רק כשאין במשרד הפרדה בכלל.**
+         *
+         * ‏ההתראה נכתבת ל-`userId: null` בכוונה (ראו הנימוק אצל
+         * ‏`action.notify`), ולכן היא PII שיושב בטקסט חופשי בלי שער
+         * ‏לפי לקוח: סוכן שנחסם מבעלי הנכסים של המשרד קיבל דרכה את
+         * ‏שמו של בעל נכס של עמית, ובהתראת „לא נענתה” גם את המספר
+         * ‏(ביקורת Codex, P1).
+         *
+         * ‏במשרד שלא הפעיל הפרדה — הרוב המוחלט — שום דבר לא משתנה.
+         * ‏במשרד שכן, ההתראה המשרדית נראית כמו שיחה ממספר לא מוכר
+         * ‏(המספר עצמו מוצג ממילא, אחרת אי אפשר לענות), ומי שהלקוח
+         * ‏שייך לו מקבל התראה **אישית** עם השם.
+         */
+        const restricted = await officeRestrictsContactVisibility(tx, tenantId);
+        const contactName = restricted ? null : decryptedName;
+        const contactOwnerUserId =
+          contact === null || !restricted
+            ? null
+            : await this.contactOwner(tx, tenantId, contact.id);
 
         /*
          * שתי הגנות שונות מפני אותו אירוע שמגיע פעמיים, כי הן מגינות
@@ -953,9 +978,22 @@ export class TelephonyService {
             type: "incoming_call",
             title: incomingCallTitle(contactName, event.peerPhone),
             body: contact ? null : "מספר שאינו מוכר במערכת",
-            entityType: contact ? "contact" : null,
-            entityId: contact?.id ?? null,
+            // ‏בלי שם אין גם מצביע: הכרטיס עצמו הוא הזהות
+            entityType: contactName !== null ? "contact" : null,
+            entityId: contactName !== null ? (contact?.id ?? null) : null,
           });
+          if (contactOwnerUserId !== null) {
+            await notifyOnce(tx, {
+              tenantId,
+              dedupeKey: `incoming_call_owner:${event.providerCallId}`,
+              userId: contactOwnerUserId,
+              type: "incoming_call",
+              title: incomingCallTitle(decryptedName, event.peerPhone),
+              body: null,
+              entityType: "contact",
+              entityId: contact?.id ?? null,
+            });
+          }
           return;
         }
 
@@ -1162,6 +1200,22 @@ export class TelephonyService {
             entityType: leadId ? "lead" : callContactId ? "contact" : null,
             entityId: leadId ?? callContactId,
           });
+          /*
+           * ‏ובמשרד שהפעיל הפרדה — ההתראה המשרדית ירדה לשם ולמספר
+           * ‏של „לא מוכר”, ומי שהלקוח שלו מקבל אותה במלואה.
+           */
+          if (contactOwnerUserId !== null) {
+            await notifyOnce(tx, {
+              tenantId,
+              dedupeKey: `call_missed_owner:${event.providerCallId}`,
+              userId: contactOwnerUserId,
+              type: "call_missed",
+              title: missedCallTitle(decryptedName, event.peerPhone),
+              body: pending ?? (leadId ? "נפתח ליד חדש מהשיחה" : null),
+              entityType: leadId ? "lead" : callContactId ? "contact" : null,
+              entityId: leadId ?? callContactId,
+            });
+          }
         }
       });
     } catch (error) {
@@ -1201,6 +1255,48 @@ export class TelephonyService {
    * כל השרשרת עטופה: תקלה כאן לא תפיל את קליטת האירוע, שאם תיכשל
    * תגרור שליחה חוזרת מהמרכזייה ורישום כפול של השיחה.
    */
+  /**
+   * ‏מי הסוכן שהלקוח הזה שייך לו — קונה, ליד, ואז נכס.
+   *
+   * ‎`inboundNotificationOwner` הוא אותו כלל בדיוק שהתיבה משתמשת
+   * ‏בו, ולכן הוא יושב ב-`ownership.ts` ולא בשירות: שני עותקים של
+   * ‏„למי שייך הלקוח” כבר נפרדו כאן פעם אחת.
+   *
+   * ‏נשאל רק כשהמשרד הפעיל הפרדה — אחרת ההתראה המשרדית נושאת את
+   * ‏השם ממילא ואין למי לשלוח בנפרד.
+   */
+  private async contactOwner(
+    tx: TenantTx,
+    tenantId: string,
+    contactId: string,
+  ): Promise<string | null> {
+    const buyer = await tx.buyer.findFirst({
+      where: { tenantId, contactId, deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      select: { ownerUserId: true },
+    });
+    const lead = stillLookingForOwner(buyer?.ownerUserId)
+      ? await tx.lead.findFirst({
+          where: { tenantId, contactId },
+          orderBy: { createdAt: "desc" },
+          select: { assignedToUserId: true },
+        })
+      : null;
+    const property = stillLookingForOwner(buyer?.ownerUserId, lead?.assignedToUserId)
+      ? await tx.property.findFirst({
+          where: {
+            tenantId,
+            deletedAt: null,
+            OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
+            agentUserId: { not: null },
+          },
+          orderBy: { createdAt: "desc" },
+          select: { agentUserId: true },
+        })
+      : null;
+    return inboundNotificationOwner({ buyer, lead, property });
+  }
+
   private async offerIntakeAfterMissedCall(
     tx: Parameters<Parameters<PrismaService["withExplicitTenant"]>[1]>[0],
     tenantId: string,

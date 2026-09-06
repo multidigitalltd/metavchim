@@ -14,7 +14,12 @@ import {
   whatsappTemplateParams,
   type InboundEmailPayload,
 } from "@metavchim/shared";
-import { assertContactAccess, visibleContactIds } from "../../common/ownership";
+import {
+  assertContactAccess,
+  inboundNotificationOwner,
+  stillLookingForOwner,
+  visibleContactIds,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
@@ -100,70 +105,6 @@ export interface InboxMessageDto {
  * וטוקן לא-מוכר נבלע בשקט (200 — הספק לא ינסה שוב לנצח). התיבה
  * היא תיבת דואר: מציגים מה שהגיע, לא סומכים עליו.
  */
-/**
- * ‎**מי הבעלים של ההתראה על מייל נכנס — שלושת המקורות, לפי סדר.**
- *
- * ‏מיוצא וטהור כדי שיהיה **ניתן לבדיקה**: `processInbound` נוגע
- * ‏באחסון, בשליחה ובאנשי הקשר, ובדיקה שלו כולו הייתה מכשיר גדול
- * ‏שבודק הכול חוץ מהכלל.
- *
- * ‏הסדר אינו שרירותי: כרטיס קונה הוא הקשר ההדוק ביותר, ליד אחריו,
- * ‏ובעלות על נכס אחרונה — היא הרחבה של אותו לקוח ולא זהות נפרדת.
- *
- * ‎`null` פירושו „אין בעלים”, ו-`NotificationsService.visible()`
- * ‏מציג התראה כזו **לכל המשרד**. לכן השורה הזו היא גבול פרטיות ולא
- * ‏נוחות: לקוח שהוא רק בעל נכס נפל בעבר ל-`null`, והתמצית של גוף
- * ‏המייל הוצגה לכולם (ביקורת Codex, P1).
- */
-export function inboundNotificationOwner(sources: {
-  buyer: { ownerUserId: string | null } | null;
-  lead: { assignedToUserId: string | null } | null;
-  property: { agentUserId: string | null } | null;
-}): string | null {
-  return (
-    sources.buyer?.ownerUserId ??
-    sources.lead?.assignedToUserId ??
-    sources.property?.agentUserId ??
-    null
-  );
-}
-
-/**
- * ‎**התראה שאין לה בעלים מגיעה לכל המשרד — ולכן אסור שתישא תוכן.**
- *
- * ‏התיקון הקודם נתן בעלים לבעל נכס, ועצר שם. נשאר מקרה שהוא
- * ‏**בדיוק אותה דליפה**: נכס בלי סוכן משויך (`agentUserId = null`),
- * ‏קונה בלי `ownerUserId`, ליד בלי `assignedToUserId`. בכל אלה
- * ‏הבעלים הוא `null`, ההתראה משרדית — ותמצית גוף המייל מוצגת לכל
- * ‏המשרד, בזמן שהשיחה עצמה מוסתרת בתיבה (ביקורת Codex, P1).
- *
- * ‏הכלל נגזר מהתנאי ואינו רשימת מקרים: **`userId` ריק פירושו „לא
- * ‏הצלחנו לזהות מי זכאי”**, וזו בדיוק הסיבה שאסור לצרף תוכן. הוא
- * ‏מכסה גם את המקרה שאיש לא מנה — לקוח בלי קונה, בלי ליד ובלי נכס
- * ‏כלל, שאינו נראה בתיבה לאיש.
- *
- * ‎**וההתראה נשארת.** מחיקתה הייתה מסתירה מייל של נכס לא-משויך
- * ‏מכולם, כולל מהמנהל שכן רשאי לראותו. מה שנשלל הוא התוכן, לא
- * ‏הידיעה שהגיע דבר מה — והכותרת אומרת מפורשות לאן ללכת.
- */
-/**
- * ‎**האם עוד מחפשים בעלים — כלומר טרם נמצא אחד.**
- *
- * ‏`inboundNotificationOwner` תמיד ידע ליפול הלאה בין המקורות, אבל
- * ‏השאילתות שמזינות אותו נעצרו על **קיום** הכרטיס הקודם ולא על
- * ‏בעלותו: לקוח עם כרטיס קונה חסר-`ownerUserId` וגם עם ליד משויך
- * ‏קיבל `null`, והסוכן של הליד איבד את ההתראה האישית ואת התמצית
- * ‏(ביקורת Codex).
- *
- * ‏מיוצא וטהור כדי שהכלל ייבדק בהתנהגות ולא בקריאת מקור — ובעיקר
- * ‏כדי ש„עד שיימצא בעלים” ייכתב פעם אחת ולא יתפרש מחדש בכל שאילתה.
- */
-export function stillLookingForOwner(
-  ...found: (string | null | undefined)[]
-): boolean {
-  return found.every((owner) => owner === null || owner === undefined);
-}
-
 export function inboundNotificationContent(
   ownerUserId: string | null,
   snippet: string,
