@@ -299,7 +299,15 @@ describe("שידוך שותפים — אדם אחד אינו שותפות", () =
     expect(pairs).toEqual([]);
   });
 
-  it("אבל כל אחד מהם עדיין מצטרף לאדם אחר", async () => {
+  /*
+   * ‎**והוא מצטרף אליהם פעם אחת** (ביקורת Codex, P2, סבב מאוחר).
+   *
+   * ‏הניסוח הקודם ציפה לשתי שורות, אחת לכל כרטיס. אבל ההצעה כאן
+   * ‏היא „חבר בין שני **האנשים** האלה”, ושתי שורות על אותם שני
+   * ‏אנשים הן אותה הצעה פעמיים. וזה גם מה שהפך את תקרת המועמדים
+   * ‏לבאג: כרטיסים כפולים נספרו אל תוכה לפני שהפסילה רצה.
+   */
+  it("אבל הוא מצטרף אליהם פעם אחת", async () => {
     const mixed: BuyerRow[] = [
       { id: "01CARD_A", contactId: "01SAME", ownerUserId: "01ME", requirements: REQUIREMENTS },
       { id: "01CARD_B", contactId: "01SAME", ownerUserId: "01ME", requirements: REQUIREMENTS },
@@ -309,10 +317,8 @@ describe("שידוך שותפים — אדם אחד אינו שותפות", () =
     const pairs = await asUser(["matches.view", "buyers.view_own"], () =>
       service.partnersForProperty("01PROP"),
     );
-    expect(pairs).toHaveLength(2);
-    for (const pair of pairs) {
-      expect(pair.partners.map((p) => p.buyerId)).toContain("01OTHER_P");
-    }
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]!.partners.map((p) => p.buyerId)).toContain("01OTHER_P");
   });
 });
 

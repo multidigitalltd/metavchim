@@ -406,9 +406,13 @@ export class PropertiesService {
     try {
       // persist בלבד — לא create: ההתאמות מופרדות ל-best-effort למטה
       propertyId = await this.persist({
-        fields: claim.contactSharedTabu ? { ...fields, sharedTabu: true } : fields,
+        fields,
         owner: claim.owner,
-        /* ‏נמסר ונצרך יחד — ראו `consumesSharedTabuOf` */
+        /*
+         * ‎**הסמן נמסר, וההכרעה נעשית בצריכה שלו** — הקריאה כאן
+         * ‏היא רק „יש טעם לנסות”, ולא „הדגל יידלק”. ראו
+         * ‏`consumesSharedTabuOf`.
+         */
         ...(claim.contactSharedTabu ? { consumesSharedTabuOf: claim.contactId } : {}),
       });
     } catch (error) {
@@ -593,6 +597,28 @@ export class PropertiesService {
       // זו שסופרת, ולכן שתי בקשות מקבילות לא יכולות לעבור יחד
       await this.assertCanAddProperty(tx, tenantId);
       /*
+       * ‎**הצריכה היא שמכריעה, ולא קריאה מוקדמת** (ביקורת Codex, P2).
+       *
+       * ‏ההחלטה לרשת את הסמן התקבלה קודם, בטרנזקציית התביעה של
+       * ‏הליד, ורק הכיבוי היה כאן. שתי המרות של אותו מוכר במקביל
+       * ‏קראו שתיהן `true`, שתיהן יצרו נכס בטאבו משותף, והכיבוי
+       * ‏השני פשוט לא נגע באיש — כלומר סמן אחד עבר לשני נכסים.
+       *
+       * ‎`updateMany` על `sharedTabu: true` נועל את השורה; השנייה
+       * ‏ממתינה, מוצאת את הדגל כבוי, ומקבלת `count === 0`. הספירה
+       * ‏**היא** התשובה, ולכן היא נקראת ולא מושלכת — ומכאן שהדגל
+       * ‏נכתב לנכס שצרך בפועל, אחד ויחיד.
+       */
+      const consumed =
+        input.consumesSharedTabuOf === undefined
+          ? false
+          : (
+              await tx.contact.updateMany({
+                where: { id: input.consumesSharedTabuOf, tenantId, sharedTabu: true },
+                data: { sharedTabu: false },
+              })
+            ).count > 0;
+      /*
        * ‎**באותה טרנזקציה שכותבת.** בדיקה לפניה הייתה חלון שבו הסוכן
        * הוסר מהמשרד בין הבדיקה לכתיבה — נדיר, אבל זה בדיוק סוג
        * החלון שהקוד הזה סוגר בכל מקום אחר.
@@ -631,16 +657,9 @@ export class PropertiesService {
            */
           agentUserId: input.agentUserId ?? creatorUserId(),
           readinessScore: readiness.score,
-          ...(fieldsToColumns(fields) as object),
+          ...(fieldsToColumns(consumed ? { ...fields, sharedTabu: true } : fields) as object),
         },
       });
-      /* ‏הסמן נצרך כאן — אותה טרנזקציה, ראו `consumesSharedTabuOf` */
-      if (input.consumesSharedTabuOf !== undefined) {
-        await tx.contact.updateMany({
-          where: { id: input.consumesSharedTabuOf, tenantId, sharedTabu: true },
-          data: { sharedTabu: false },
-        });
-      }
       await this.audit.record(tx, {
         action: "property.create",
         entityType: "property",
@@ -875,7 +894,8 @@ export class PropertiesService {
       await tx.property.update({
         where: { id },
         data: {
-          ...(fieldsToColumns(fieldPatch) as object),
+          /* ‏הסוג השמור נמסר כדי שכיבוי מפורש יפרוש גם אותו — ראו שם */
+          ...(fieldsToColumns(fieldPatch, existing) as object),
           /*
            * הריקון **אחרי** ה-Patch: שדה שנמצא בשניהם התכוון להיות
            * ריק, ולא לקבל את הערך שהובא לפניו.

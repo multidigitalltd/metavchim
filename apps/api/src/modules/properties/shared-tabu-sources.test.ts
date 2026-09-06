@@ -117,6 +117,43 @@ describe("‏הכתיבה — הסוג מדליק ולעולם לא מכבה", (
     expect(out.propertyType).toBe("penthouse");
   });
 
+  /*
+   * ‎**וגם כש-ה-Patch אינו נושא את הסוג כלל** (ביקורת Codex, P2).
+   *
+   * ‏זה הצד שהתיקון הראשון פספס: הוא עבד רק בגלל שטופס העריכה
+   * ‏שולח את השדות כולם. ‎`PATCH /properties/:id` עם `{ sharedTabu:
+   * ‏false }` לבדו — בקשה תקפה לגמרי — כתב `false` והשאיר את הסוג,
+   * ‏ואז `rowToFields` גזר `true` בחזרה. דרך ה-API לא הייתה שום
+   * ‏דרך לכבות את הסיווג.
+   */
+  it("כיבוי בלי סוג ב-Patch פורש את הסוג השמור", () => {
+    const out = fieldsToColumns(
+      { sharedTabu: false },
+      { propertyType: SHARED_TABU_PROPERTY_TYPE },
+    );
+    expect(out.sharedTabu).toBe(false);
+    expect(out.propertyType, "הסוג השמור נשאר וסותר את הכיבוי").toBeNull();
+  });
+
+  /* ‏והגבול מהצד הזה: סוג שמור רגיל אינו נמחק */
+  it("כיבוי בלי סוג ב-Patch על שורה רגילה אינו נוגע בסוג", () => {
+    const out = fieldsToColumns({ sharedTabu: false }, { propertyType: "penthouse" });
+    expect(out.sharedTabu).toBe(false);
+    expect("propertyType" in out, "סוג שלא נגעו בו נכתב מחדש").toBe(false);
+  });
+
+  /*
+   * ‏ומה שנשלח גובר על מה ששמור: מי ששינה את הסוג באותה בקשה אמר
+   * ‏משהו מפורש, וההחלטה היא על **המצב שאחרי**.
+   */
+  it("סוג שנשלח גובר על השמור", () => {
+    const out = fieldsToColumns(
+      { sharedTabu: false, propertyType: "apartment" },
+      { propertyType: SHARED_TABU_PROPERTY_TYPE },
+    );
+    expect(out.propertyType).toBe("apartment");
+  });
+
   /* ‏והדלקה מפורשת לצד הסוג הישן אינה מוחקת אותו */
   it("הדלקה מפורשת משאירה את הסוג כפי שהוא", () => {
     const out = fieldsToColumns({
@@ -284,5 +321,33 @@ describe("‏עמודת העמדה של הקונה מסכימה עם הגזיר�
     expect(sql).toContain("shared_tabu_stance IS NULL");
     expect(sql).toContain("'accepts'");
     expect(sql).toContain("'[\"shared_tabu\"]'::jsonb");
+  });
+});
+
+/**
+ * ‎**ומי שקורא לה בעדכון חייב למסור את השורה השמורה.**
+ *
+ * ‏הבדיקות למעלה מוכיחות שהכלל **יודע** להסתכל על הסוג השמור.
+ * ‏מוטציה שהסירה את הארגומנט השני ממסלול העדכון עברה בהן בשקט —
+ * ‏כלומר הן מדדו את הפונקציה ולא את החיווט, וזו בדיוק הצורה שבה
+ * ‏התיקון הזה יכול להיעלם בלי שאיש יראה.
+ */
+describe("‏מסלול העדכון מוסר ל-`fieldsToColumns` את השורה השמורה", () => {
+  const SERVICE = readFileSync(join(__dirname, "properties.service.ts"), "utf8");
+
+  it("‏יש מה לבדוק — שני מסלולי כתיבה", () => {
+    expect(SERVICE.split("fieldsToColumns(").length - 1).toBe(2);
+  });
+
+  it("‏העדכון מוסר את `existing`", () => {
+    expect(SERVICE).toContain("fieldsToColumns(fieldPatch, existing)");
+  });
+
+  /*
+   * ‏והיצירה **אינה** מוסרת דבר, ובכוונה: אין שורה שמורה, ומסירת
+   * ‏משהו שם הייתה ממציאה מצב קודם לנכס שנולד עכשיו.
+   */
+  it("‏והיצירה אינה", () => {
+    expect(SERVICE).toMatch(/fieldsToColumns\(\s*consumed \? \{ \.\.\.fields, sharedTabu: true \} : fields\s*\)/u);
   });
 });

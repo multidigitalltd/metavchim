@@ -4,6 +4,7 @@ import { useEffect, useState, use, type FormEvent } from "react";
 import { NeighborhoodInput } from "../../../neighborhood-input";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { buyerSharedTabuStance } from "@metavchim/shared";
 import type { FloorPreference, SharedTabuStance } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
@@ -315,8 +316,22 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
               {...(req.floorPreference === undefined ? {} : { initial: req.floorPreference })}
               disabled={submitting}
             />
+            {/*
+              ‎**העמדה שנגזרת, ולא השדה הגולמי** (ביקורת Codex, P2).
+
+              ‏קונה מדור קודם — `propertyTypes: ["shared_tabu"]` בלי
+              ‏שדה מפורש — נחשב „מוכן” בסינון, בהתאמות ובשידוך
+              ‏השותפים, והמסך הזה אמר עליו „טרם נשאל”. המתווך היה
+              ‏רואה שאלה פתוחה על לקוח שהמערכת כבר מתייחסת אליו
+              ‏כמי שענה, ושמירת עריכה אחרת הייתה משמרת את הפער.
+
+              ‏אותה פונקציה בדיוק שכל שאר המסלולים קוראים לה.
+            */}
             <SharedTabuField
-              {...(req.sharedTabu === undefined ? {} : { initial: req.sharedTabu })}
+              {...(() => {
+                const stance = buyerSharedTabuStance(req);
+                return stance === undefined ? {} : { initial: stance };
+              })()}
               disabled={submitting}
             />
             {/*

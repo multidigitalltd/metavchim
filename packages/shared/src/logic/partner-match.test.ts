@@ -114,16 +114,50 @@ describe("partnerPairs — מי נכנס", () => {
     expect(pairs).toEqual([]);
   });
 
-  it("אבל כל אחד מהם מצטרף לאדם שלישי", () => {
+  /*
+   * ‎**והוא מצטרף אליהם פעם אחת, ולא פעמיים** (ביקורת Codex, P2).
+   *
+   * ‏הניסוח הקודם ציפה לשתי שורות — כרטיס א׳ עם ג׳, וכרטיס ב׳ עם
+   * ‏ג׳. אבל ההצעה כאן היא „חבר בין שני **האנשים** האלה”, ושתי
+   * ‏שורות על אותם שני אנשים הן אותה הצעה פעמיים.
+   *
+   * ‏וזה גם מה שהפך את התקרה לבאג: כרטיסים כפולים נספרו אל תוך
+   * ‏60 המקומות לפני שהפסילה רצה, ולכן לקוח אחד יכול היה למלא
+   * ‏אותם לבדו ולהסתיר שותפויות אמיתיות של לקוחות אחרים.
+   */
+  it("אבל הוא מצטרף אליהם פעם אחת — הצעה בין אנשים", () => {
     const pairs = partnerPairs(PROPERTY, [
-      { buyerId: "A", requirements: buyer(100_000_000), partnerKey: "person-1" },
+      { buyerId: "A", requirements: buyer(90_000_000), partnerKey: "person-1" },
       { buyerId: "B", requirements: buyer(100_000_000), partnerKey: "person-1" },
       { buyerId: "C", requirements: buyer(100_000_000), partnerKey: "person-2" },
     ]);
-    expect(pairs).toHaveLength(2);
-    for (const pair of pairs) {
-      expect(pair.partners.map((p) => p.buyerId)).toContain("C");
-    }
+    expect(pairs).toHaveLength(1);
+    /*
+     * ‏והכרטיס שנבחר הוא השימושי לשותפות: `combined >= price` הוא
+     * ‏מה שמכריע אם צמד נוצר בכלל, ולכן התקציב הגדול. עם כרטיס א׳
+     * ‏(90 מיליון) הצמד לא היה מגיע ל-2 מיליון כלל.
+     */
+    expect(pairs[0]!.partners.map((p) => p.buyerId).sort()).toEqual(["B", "C"]);
+  });
+
+  /*
+   * ‏והבאג עצמו: לקוח אחד עם יותר כרטיסים מהתקרה אינו מסתיר את
+   * ‏השותפות של הלקוח שאחריו ברשימה.
+   */
+  it("לקוח אחד עם המון כרטיסים אינו ממלא את התקרה", () => {
+    const many: PartnerCandidate[] = Array.from({ length: 80 }, (_, index) => ({
+      buyerId: `dup-${String(index).padStart(2, "0")}`,
+      requirements: buyer(100_000_000),
+      partnerKey: "person-1",
+    }));
+    const pairs = partnerPairs(PROPERTY, [
+      ...many,
+      { buyerId: "C", requirements: buyer(100_000_000), partnerKey: "person-2" },
+    ]);
+    expect(pairs).toHaveLength(1);
+    const ids = pairs[0]!.partners.map((p) => p.buyerId);
+    expect(ids).toContain("C");
+    expect(ids.some((id) => id.startsWith("dup-"))).toBe(true);
   });
 
   it("בלי מפתח זהות כל כרטיס עומד בפני עצמו", () => {

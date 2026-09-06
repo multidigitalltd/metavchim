@@ -193,8 +193,34 @@ export function partnerPairs(
   const weights = options.weights ?? DEFAULT_MATCH_WEIGHTS;
   const band = budgetBandAgorot(price, "sale");
 
-  const scored: ScoredCandidate[] = [];
+  /**
+   * ‎**התקרה סופרת אנשים, לא כרטיסים** (ביקורת Codex, P2).
+   *
+   * ‏לולאת הצמדים פוסלת שני כרטיסים של אותו אדם, אבל התקרה נספרה
+   * ‏לפני הפסילה — ולכן לקוח אחד עם מספיק כרטיסים פעילים מילא את
+   * ‏60 המקומות בעצמו, כל צירוף נפסל, והתשובה הייתה „אין
+   * ‏שותפויות” בזמן שהיו כאלה אצל לקוחות מאוחרים יותר ברשימה.
+   *
+   * ‏מפה לפי זהות: כרטיס נוסף של מי שכבר בפנים אינו תופס מקום,
+   * ‏והוא מחליף את הקודם רק אם הוא **שימושי יותר לשותפות** —
+   * ‏כלומר תקציב גדול יותר, כי `combined >= price` הוא מה שמכריע
+   * ‏אם צמד נוצר בכלל. בתקציב שווה מנצח הציון (הציון של צמד הוא
+   * ‏החלש מבין השניים, ולכן גבוה יותר לעולם אינו גרוע יותר),
+   * ‏ובשוויון גמור המזהה — אחרת אותם נתונים בסדר אחר היו מחזירים
+   * ‏רשימה אחרת.
+   */
+  const byIdentity = new Map<string, ScoredCandidate>();
+  const better = (next: ScoredCandidate, prev: ScoredCandidate): boolean => {
+    if (next.budgetMaxAgorot !== prev.budgetMaxAgorot) {
+      return next.budgetMaxAgorot > prev.budgetMaxAgorot;
+    }
+    if (next.score !== prev.score) return next.score > prev.score;
+    return next.buyerId < prev.buyerId;
+  };
   for (const candidate of candidates) {
+    const identity = candidate.partnerKey ?? candidate.buyerId;
+    /* ‏התקרה נספרת בזהויות, ולכן כרטיס כפול אינו תופס בה מקום */
+    if (byIdentity.size >= PARTNER_CANDIDATE_MAX) break;
     const req = candidate.requirements;
     const budget = req.budgetMaxAgorot;
     /*
@@ -232,14 +258,16 @@ export function partnerPairs(
       now,
     );
     if (fit.excluded || fit.insufficientData) continue;
-    scored.push({
+    const entry: ScoredCandidate = {
       buyerId: candidate.buyerId,
-      partnerKey: candidate.partnerKey ?? candidate.buyerId,
+      partnerKey: identity,
       budgetMaxAgorot: budget,
       score: fit.score,
-    });
-    if (scored.length >= PARTNER_CANDIDATE_MAX) break;
+    };
+    const held = byIdentity.get(identity);
+    if (held === undefined || better(entry, held)) byIdentity.set(identity, entry);
   }
+  const scored: ScoredCandidate[] = [...byIdentity.values()];
 
   const pairs: PartnerPair[] = [];
   for (let i = 0; i < scored.length; i += 1) {

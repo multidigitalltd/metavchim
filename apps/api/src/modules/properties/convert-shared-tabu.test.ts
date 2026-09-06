@@ -98,16 +98,28 @@ function asUser<T>(fn: () => T): T {
 }
 
 describe("המרת ליד לנכס — הדגל של הלקוח עובר", () => {
-  it("לקוח שסומן „טאבו משותף” יוצר נכס שנושא את הסימון", async () => {
-    const { service, persisted } = serviceWith(true);
+  /*
+   * ‎**ההמרה מוסרת את הסמן; הצריכה שלו היא שמכריעה** (ביקורת
+   * ‏Codex, P2, סבב שלישי).
+   *
+   * ‏קודם ההחלטה התקבלה כאן, מקריאה שקרתה בטרנזקציית התביעה של
+   * ‏הליד, ורק הכיבוי היה בפנים. שתי המרות מקבילות של אותו מוכר
+   * ‏קראו שתיהן `true` ושתיהן סימנו — הסמן היחיד עבר לשני נכסים.
+   * ‏מה שנבדק כאן הוא לכן **המסירה**, ומה שמכריע נבדק למטה.
+   */
+  it("לקוח שסומן „טאבו משותף” מוסר את הסמן לכתיבה", async () => {
+    const { service, persistInput } = serviceWith(true);
     await asUser(() => service.convertFromLead("01LEAD", FIELDS));
-    expect(persisted()?.sharedTabu).toBe(true);
+    expect(persistInput()?.consumesSharedTabuOf).toBe("01CONTACT");
+    /* ‏ולא מכריע במקומה: הדגל אינו נכתב מראש */
+    expect(persistInput()?.fields.sharedTabu).toBeUndefined();
   });
 
   it("לקוח בלי סימון אינו ממציא סימון על הנכס", async () => {
-    const { service, persisted } = serviceWith(false);
+    const { service, persisted, persistInput } = serviceWith(false);
     await asUser(() => service.convertFromLead("01LEAD", FIELDS));
     expect(persisted()?.sharedTabu).toBeUndefined();
+    expect(persistInput()?.consumesSharedTabuOf).toBeUndefined();
   });
 
   /*
@@ -141,7 +153,6 @@ describe("הסמן על הלקוח נגמר בהעברה", () => {
   it("ההמרה מוסרת את הסימון ואת צריכתו יחד", async () => {
     const { service, persistInput } = serviceWith(true);
     await asUser(() => service.convertFromLead("01LEAD", FIELDS));
-    expect(persistInput()?.fields.sharedTabu).toBe(true);
     expect(persistInput()?.consumesSharedTabuOf).toBe("01CONTACT");
   });
 
@@ -180,14 +191,31 @@ describe("‏צריכת הסמן יושבת בתוך הטרנזקציה שכות
     expect(SOURCE).not.toContain("spendContactSharedTabu");
   });
 
-  it("‏והכיבוי בין `tx.property.create` לסוף אותה טרנזקציה", () => {
-    const create = SOURCE.indexOf("await tx.property.create({");
+  /*
+   * ‎**ועכשיו לפני היצירה, לא אחריה** (ביקורת Codex, P2, סבב שלישי).
+   *
+   * ‏כל עוד ההחלטה התקבלה מראש, סדר הכיבוי לא שינה דבר. ברגע
+   * ‏שהצריכה **מכריעה**, היא חייבת לקרות לפני שהשורה נכתבת —
+   * ‏ו-`count` שלה חייב להיקרא ולא להישפך.
+   */
+  it("‏הצריכה קודמת ליצירת הנכס, באותה טרנזקציה", () => {
+    const open = SOURCE.indexOf("await this.assertCanAddProperty(tx, tenantId);");
+    expect(open, "פתיחת הטרנזקציה נעלמה").toBeGreaterThan(0);
+    const consume = SOURCE.indexOf("consumesSharedTabuOf,", open);
+    const create = SOURCE.indexOf("await tx.property.create({", open);
     expect(create, "יצירת הנכס נעלמה").toBeGreaterThan(0);
-    const consume = SOURCE.indexOf("consumesSharedTabuOf,", create);
-    expect(consume, "הכיבוי אינו אחרי יצירת הנכס").toBeGreaterThan(create);
-    /* ‏ובאותו בלוק: עד סוף ה-`withTenant` שנפתח לפני היצירה */
-    const blockEnd = SOURCE.indexOf("\n    });\n\n    return id;", create);
-    expect(blockEnd, "סוף הטרנזקציה לא נמצא").toBeGreaterThan(0);
-    expect(consume, "הכיבוי נפל מחוץ לטרנזקציה").toBeLessThan(blockEnd);
+    expect(consume, "הצריכה אינה בטרנזקציה").toBeGreaterThan(open);
+    expect(consume, "הצריכה אינה לפני היצירה").toBeLessThan(create);
+  });
+
+  it("‏והספירה שלה היא שמכריעה על הדגל", () => {
+    const open = SOURCE.indexOf("await this.assertCanAddProperty(tx, tenantId);");
+    const create = SOURCE.indexOf("await tx.property.create({", open);
+    const block = SOURCE.slice(open, create);
+    /* ‏„כמה שורות שונו” — ולא קריאה מוקדמת שנשמרה במשתנה */
+    expect(block, "הספירה אינה נקראת").toMatch(/\)\s*\.count\s*>\s*0/u);
+    expect(block).toContain("const consumed =");
+    /* ‏והדגל נכתב ממנה */
+    expect(SOURCE).toContain("consumed ? { ...fields, sharedTabu: true } : fields");
   });
 });

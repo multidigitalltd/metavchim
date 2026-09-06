@@ -135,7 +135,23 @@ export interface PropertyDto extends PropertyFields {
   updatedAt: Date;
 }
 
-export function fieldsToColumns(fields: Partial<PropertyFields>): Prisma.PropertyUpdateInput {
+/**
+ * ‎**הסוג השמור, כשה-Patch אינו נושא אותו** (ביקורת Codex, P2).
+ *
+ * ‏פרישת הייצוג הישן נבדקה על מה שנשלח בלבד, ולכן היא עבדה רק
+ * ‏בגלל שטופס העריכה שולח את השדות כולם. `PATCH /properties/:id`
+ * ‏עם `{ "sharedTabu": false }` לבדו — בקשה תקפה לחלוטין לפי
+ * ‏`UpdatePropertySchema` — כתב `false` לעמודה והשאיר את הסוג
+ * ‏הישן על כנו, ואז `rowToFields` גזר `true` בחזרה. כלומר דרך
+ * ‏ה-API לא הייתה שום דרך לכבות את הסיווג.
+ *
+ * ‏הכלל אינו „מה נשלח” אלא „מה יהיה בשורה”: הסוג שאחרי העדכון הוא
+ * ‏מה שנשלח אם נשלח, ואחרת מה ששמור.
+ */
+export function fieldsToColumns(
+  fields: Partial<PropertyFields>,
+  current?: { propertyType?: string | null },
+): Prisma.PropertyUpdateInput {
   const out: Prisma.PropertyUpdateInput = {};
   if ("city" in fields) out.city = fields.city ?? null;
   if ("neighborhood" in fields) out.neighborhood = fields.neighborhood ?? null;
@@ -175,8 +191,9 @@ export function fieldsToColumns(fields: Partial<PropertyFields>): Prisma.Propert
      * ‏אין בכך אובדן מידע — `shared_tabu` מעולם לא תיאר צורת מבנה,
      * ‏וזה בדיוק הנימוק שבגללו הוא הוסב לדגל מלכתחילה.
      */
-    const retiring =
-      fields.sharedTabu === false && fields.propertyType === SHARED_TABU_PROPERTY_TYPE;
+    const effectiveType =
+      "propertyType" in fields ? fields.propertyType : (current?.propertyType ?? undefined);
+    const retiring = fields.sharedTabu === false && effectiveType === SHARED_TABU_PROPERTY_TYPE;
     out.sharedTabu = retiring ? false : isSharedTabuProperty(fields);
     if (retiring) out.propertyType = null;
   } else if (fields.propertyType === SHARED_TABU_PROPERTY_TYPE) {
