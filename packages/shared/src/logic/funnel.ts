@@ -572,7 +572,26 @@ export function funnelExitReason(input: {
   const stillPossible = live.filter((stage) => {
     if (already.has(stage.key)) return false;
     const expiresAt = funnelStageExpiresAt(stage, input.anchors);
-    if (expiresAt === null) return false;
+    /*
+     * ‎**„אי אפשר לחשב” אינו „אי אפשר לעולם” — וכאן זה הכלל, לא חריג.**
+     *
+     * ‏`null` מגיע ממקום אחד בלבד: אין עוגן. אחרי ש-`FUNNEL_TRACK_CLOCKS`
+     * ‏פוסל צירוף שאינו מעוגן **בהגדרה**, כל `null` שנשאר הוא **ערך
+     * ‏שחסר בפועל** — למשל `trialEndsAt` שמנהל פלטפורמה איפס אחרי
+     * ‏שהרישום כבר נפתח (`setBillingOverride` מתיר זאת במפורש).
+     *
+     * ‏קריאתו כ„בלתי אפשרי” סגרה את הרישום לצמיתות, ואם התאריך
+     * ‏הוחזר אחר כך — מאותו מסך עצמו — המשרד כבר לא היה מקבל את
+     * ‏שלבי הניסיון (ביקורת Codex).
+     *
+     * ‎**וזה בטוח דווקא בזכות הטבלה.** בלעדיה כל שלב עם שעון שאינו
+     * ‏של המסלול היה חוסם סגירה לנצח; איתה, המסלול מצהיר אילו
+     * ‏עוגנים אמורים להיות שם, ולכן עוגן חסר הוא **חריגה** ולא מצב
+     * ‏רגיל. חוסר הסימטריה מכריע כמו קודם: רישום פתוח אינו עולה
+     * ‏דבר — `dueFunnelStages` ממילא אינו שולח בלי מועד — ורישום
+     * ‏שנסגר בטעות אבד.
+     */
+    if (expiresAt === null) return true;
     return input.now.getTime() <= expiresAt.getTime();
   });
   if (live.length > 0 && stillPossible.length === 0) {

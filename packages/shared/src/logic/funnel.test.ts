@@ -427,7 +427,22 @@ describe("מתי המסלול נגמר", () => {
     expect(afterWindow).toBe("completed");
   });
 
-  it("שלב ששעונו אינו רץ אינו מחזיק את המסלול פתוח", () => {
+  /*
+   * ‎**הבדיקה הזו קבעה בדיוק את הבאג — והפוכה עכשיו.**
+   *
+   * ‏היא טענה ש„שלב ששעונו אינו רץ אינו מחזיק את המסלול פתוח”,
+   * ‏כלומר שעוגן חסר פירושו „בלתי אפשרי”. אבל `trialEndsAt` ריק
+   * ‏במסלול המרה אינו „השעון הזה לא שייך לכאן” — הוא **ערך שנעלם**:
+   * ‏`enrollDue` מחייב אותו בכניסה, ומנהל פלטפורמה יכול לאפס אותו
+   * ‏אחר כך (`setBillingOverride` מתיר `null` במפורש). סגירה על סמך
+   * ‏זה היא לצמיתות, ואם התאריך הוחזר — מאותו מסך — המשרד כבר לא
+   * ‏יקבל את שלבי הניסיון (ביקורת Codex).
+   *
+   * ‏מה שהפך את ההיפוך לבטוח הוא `FUNNEL_TRACK_CLOCKS`: הצירוף
+   * ‏שאינו מעוגן **בהגדרה** נפסל מוקדם, ולכן כל `null` שמגיע לכאן
+   * ‏הוא חריגה בנתונים ולא מצב רגיל.
+   */
+  it("עוגן שחסר מחזיק את המסלול פתוח — הוא „לא ידוע”, לא „בלתי אפשרי”", () => {
     const trialOnly = [stage({ key: "t", clock: "trial", offsetDays: -2 })];
     expect(
       funnelExitReason({
@@ -438,7 +453,43 @@ describe("מתי המסלול נגמר", () => {
         anchors: anchors({ funnelStartedAt: T0, trialEndsAt: null }),
         now: T0,
       }),
+    ).toBeNull();
+  });
+
+  /*
+   * ‏והצד השני, שבלעדיו „אף פעם לא סוגרים” היה עובר: אותו שלב
+   * ‏בדיוק, עם עוגן קיים שחלונו חלף, כן סוגר.
+   */
+  it("ואותו שלב עם עוגן שחלונו חלף — נסגר", () => {
+    const trialOnly = [stage({ key: "t", clock: "trial", offsetDays: -2 })];
+    expect(
+      funnelExitReason({
+        track: "conversion",
+        facts: facts(),
+        stages: trialOnly,
+        sent: [],
+        anchors: anchors({ funnelStartedAt: T0, trialEndsAt: T0 }),
+        now: new Date(T0.getTime() + 40 * DAY),
+      }),
     ).toBe("completed");
+  });
+
+  /*
+   * ‏ושהעוגן החסר אינו מונע יציאה מסיבה אחרת — משרד ששילם יוצא,
+   * ‏אחרת היינו שולחים „נשארו יומיים” למי שכבר שילם.
+   */
+  it("עוגן חסר אינו מונע יציאה על תשלום", () => {
+    const trialOnly = [stage({ key: "t", clock: "trial", offsetDays: -2 })];
+    expect(
+      funnelExitReason({
+        track: "conversion",
+        facts: facts({ hasValidCard: true }),
+        stages: trialOnly,
+        sent: [],
+        anchors: anchors({ funnelStartedAt: T0, trialEndsAt: null }),
+        now: T0,
+      }),
+    ).toBe("paid");
   });
 
   it("שלב כבוי אינו נספר, ומסלול בלי שלבים פעילים אינו „מוצה”", () => {
