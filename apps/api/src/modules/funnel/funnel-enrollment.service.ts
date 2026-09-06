@@ -5,7 +5,7 @@ import {
   FUNNEL_FRESH_SIGNUP_HOURS,
   funnelExitReason,
   hasValidCard,
-  trialAnchorConcluded,
+  trialAnchorOf,
   jerusalemDayStart,
   jerusalemWallParts,
   type FunnelAnchors,
@@ -731,8 +731,8 @@ export class FunnelEnrollmentService {
       };
       const anchors: FunnelAnchors = {
         funnelStartedAt: row.startedAt,
-        trialEndsAt: tenant.trialEndsAt,
-        trialConcluded: trialAnchorConcluded(tenant),
+        /* ‏התאריך והמסקנה מאותה שורה ומאותו כלל — ראו `trialAnchorOf` */
+        ...trialAnchorOf(tenant),
         paymentFailedAt: track === "dunning" ? row.startedAt : null,
       };
       const reason = funnelExitReason({

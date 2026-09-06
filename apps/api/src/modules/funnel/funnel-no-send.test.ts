@@ -266,3 +266,88 @@ describe("שער: הניסיון החי נמצא בשאילתת הפיגור", (
     expect(SCAN).not.toMatch(/trialEndsAt/u);
   });
 });
+
+/**
+ * ‎**שער: אינדקס שמוצהר בסכמה — נוצר במיגרציה** (ביקורת Codex, P2).
+ *
+ * ## ‏למה זה נעלם
+ *
+ * ‏`@@index([tenantId, track])` הוצהר על `FunnelEnrollment` מהיום
+ * ‏הראשון, והמיגרציה יצרה **רק** את הייחודי החלקי
+ * ‏`(tenant_id, track) WHERE ended_at IS NULL`. שתי השורות נראות
+ * ‏זהות בקריאה, ולכן קל להניח שאחת ממלאת את מקום השנייה — והיא
+ * ‏אינה: `reopenLapsed` שולף בדיוק את המשלים, `ended_at IS NOT
+ * ‏NULL`. כלומר החצי-חיבור שנועד לחסום את העבודה נשאר בלי דרך
+ * ‏גישה, והסריקה חזרה לגדול עם היסטוריית המשלמים.
+ *
+ * ‏זה לא נראה בשום בדיקה: הסכמה תקפה, `prisma validate` עובר,
+ * ‏והשאילתה מחזירה תוצאות נכונות — רק לאט, ורק בייצור.
+ */
+describe("שער: אינדקסי המשפך קיימים במיגרציות", () => {
+  const SCHEMA = readFileSync(
+    join(__dirname, "..", "..", "..", "prisma", "schema.prisma"),
+    "utf8",
+  );
+  const MIGRATIONS = join(__dirname, "..", "..", "..", "prisma", "migrations");
+  const SQL = readdirSync(MIGRATIONS)
+    .filter((name) => !name.startsWith("."))
+    .map((name) => {
+      try {
+        return readFileSync(join(MIGRATIONS, name, "migration.sql"), "utf8");
+      } catch {
+        return "";
+      }
+    })
+    .join("\n");
+
+  /**
+   * ‏camelCase ⟵ snake_case, כמו שכל הסכמה הזו ממפה; ו-`(sort: Desc)`
+   * ‏יורד — כיוון אינו חלק מזהות העמודה.
+   */
+  const column = (field: string): string =>
+    (field.split("(")[0] ?? "").trim().replace(/[A-Z]/gu, (ch) => `_${ch.toLowerCase()}`);
+
+  /** ‏ההצהרות של מודל אחד: `@@index([a, b])` ⟵ ["a_b"]. */
+  function declaredIndexes(model: string): string[][] {
+    const start = SCHEMA.indexOf(`model ${model} {`);
+    expect(start, `המודל ${model} נעלם`).toBeGreaterThan(0);
+    const body = SCHEMA.slice(start, SCHEMA.indexOf("\n}", start));
+    return [...body.matchAll(/@@index\(\[([^\]]+)\]\)/gu)].map((m) =>
+      (m[1] ?? "").split(",").map((f) => column(f.trim())),
+    );
+  }
+
+  const MODELS: { model: string; table: string }[] = [
+    { model: "FunnelEnrollment", table: "funnel_enrollments" },
+    { model: "FunnelMessage", table: "funnel_messages" },
+  ];
+
+  /* ‏פיקוח: בלי הצהרות אין מה לבדוק, והשער היה ירוק על כלום. */
+  it("‏יש מה לבדוק — יש הצהרות אינדקס", () => {
+    const total = MODELS.reduce(
+      (sum, { model }) => sum + declaredIndexes(model).length,
+      0,
+    );
+    expect(total).toBeGreaterThanOrEqual(3);
+  });
+
+  for (const { model, table } of MODELS) {
+    it(`‏${model}: כל אינדקס מוצהר נוצר`, () => {
+      for (const cols of declaredIndexes(model)) {
+        /*
+         * ‏חיפוש על **העמודות**, לא על השם: מיגרציה רשאית לתת שם
+         * ‏משלה. ומחוץ לשורת `WHERE`, כי אינדקס חלקי אינו משרת את
+         * ‏מי ששולף את המשלים — זה בדיוק הבלבול שיצר את הבאג.
+         */
+        const list = cols
+          .map((c) => `"${c}"(?:\\s+(?:ASC|DESC))?`)
+          .join(",\\s*");
+        const pattern = new RegExp(
+          `CREATE\\s+INDEX[^;]*ON\\s+"${table}"\\s*\\(\\s*${list}\\s*\\)\\s*;`,
+          "iu",
+        );
+        expect(pattern.test(SQL), `${table}(${cols.join(", ")}) לא נוצר במיגרציה`).toBe(true);
+      }
+    });
+  }
+});

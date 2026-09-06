@@ -309,12 +309,48 @@ export interface FunnelAnchors {
  * ‏ניסיון חדש. השאלה כאן חדלה להיות ניחוש והפכה לקריאה.
  */
 export function trialAnchorConcluded(tenant: {
+  status: string;
   trialEndsAt: Date | null;
   trialConcludedAt: Date | null;
 }): boolean {
+  /*
+   * ‎**משרד שאינו בניסיון — הניסיון שלו נגמר, ותאריך שנשאר אינו
+   * ‏משנה זאת** (ביקורת Codex, P2).
+   *
+   * ‏השאלה נשאלה על התאריך בלבד, ולכן משרד שעבר ל-`active` או
+   * ‏ל-`suspended` בזמן שהתאריך העתידי נשאר בשורה נקרא כמי
+   * ‏שהניסיון שלו עוד רץ: שלבי „נשארו יומיים” נותרו „עדיין
+   * ‏אפשריים”, הרישום נשאר פתוח, וברגע שהשליחה נדלקת הם יוצאים —
+   * ‏אל משרד **משלם**. וניקוי התאריך אחר כך היה משאיר אותו פתוח
+   * ‏לתמיד, כי `trialConcludedAt` לא נכתב במעבר הסטטוס.
+   *
+   * ‏זו אותה אחדות של `isTrialActive`: „בניסיון” הוא סטטוס **וגם**
+   * ‏תאריך, ולכן גם „יצא מהניסיון” נקרא מהסטטוס. הדרך חזרה קיימת
+   * ‏ומוגדרת — `reopenForRestoredTrial`, שדורש בדיוק את שני
+   * ‏החצאים האלה.
+   */
+  if (tenant.status !== "trial") return true;
   // ‏תאריך שקיים אינו „נגמר”: הוא פשוט מועד, שעבר או שלא
   if (tenant.trialEndsAt !== null) return false;
   return tenant.trialConcludedAt !== null;
+}
+
+/**
+ * ‎**עוגן הניסיון כולו — התאריך והמסקנה יחד.**
+ *
+ * ‏השניים נגזרים מאותה שורה ומאותו כלל, ושני קוראים שיגזרו אותם
+ * ‏בנפרד הם בדיוק הפרידה שכבר קרתה כאן: תאריך עתידי לצד „לא
+ * ‏נגמר” על משרד שאינו בניסיון.
+ */
+export function trialAnchorOf(tenant: {
+  status: string;
+  trialEndsAt: Date | null;
+  trialConcludedAt: Date | null;
+}): { trialEndsAt: Date | null; trialConcluded: boolean } {
+  return {
+    trialEndsAt: tenant.status === "trial" ? tenant.trialEndsAt : null,
+    trialConcluded: trialAnchorConcluded(tenant),
+  };
 }
 
 /**

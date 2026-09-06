@@ -23,6 +23,7 @@ import {
   matchesAudience,
   nextFunnelStage,
   trialAnchorConcluded,
+  trialAnchorOf,
   type FunnelAnchors,
   type FunnelFacts,
   type FunnelStageDef,
@@ -615,12 +616,22 @@ describe("מתי הניסיון נגמר ומתי הוא רק חסר", () => {
    * ‏(ביקורת Codex). מי שמסיים את הניסיון רושם זאת, ולכן כאן
    * ‏נשארות שתי עמודות בלבד.
    */
+  /** ‏שורת דייר שהיא **בניסיון** — שם השאלה על התאריך מתחילה. */
+  const onTrial = (over: { trialEndsAt: Date | null; trialConcludedAt: Date | null }) => ({
+    status: "trial",
+    ...over,
+  });
+
   it("סיום שנרשם — נגמר", () => {
-    expect(trialAnchorConcluded({ trialEndsAt: null, trialConcludedAt: WHEN })).toBe(true);
+    expect(trialAnchorConcluded(onTrial({ trialEndsAt: null, trialConcludedAt: WHEN }))).toBe(
+      true,
+    );
   });
 
   it("תאריך שאופס בלי סיבה רשומה — רק חסר", () => {
-    expect(trialAnchorConcluded({ trialEndsAt: null, trialConcludedAt: null })).toBe(false);
+    expect(trialAnchorConcluded(onTrial({ trialEndsAt: null, trialConcludedAt: null }))).toBe(
+      false,
+    );
   });
 
   /*
@@ -629,8 +640,110 @@ describe("מתי הניסיון נגמר ומתי הוא רק חסר", () => {
    * ‏לניסיון לפני שהסיום נוקה.
    */
   it("תאריך שקיים גובר על סיום שנרשם", () => {
-    expect(trialAnchorConcluded({ trialEndsAt: WHEN, trialConcludedAt: WHEN })).toBe(false);
-    expect(trialAnchorConcluded({ trialEndsAt: WHEN, trialConcludedAt: null })).toBe(false);
+    expect(trialAnchorConcluded(onTrial({ trialEndsAt: WHEN, trialConcludedAt: WHEN }))).toBe(
+      false,
+    );
+    expect(trialAnchorConcluded(onTrial({ trialEndsAt: WHEN, trialConcludedAt: null }))).toBe(
+      false,
+    );
+  });
+
+  /*
+   * ‎**אבל כל זה נאמר על משרד שהוא בניסיון** (ביקורת Codex, P2).
+   *
+   * ‏משרד שעבר ל-`active` או ל-`suspended` והתאריך העתידי נשאר
+   * ‏בשורה נקרא כמי שהניסיון שלו עוד רץ: שלבי „נשארו יומיים”
+   * ‏נותרו „עדיין אפשריים”, והרישום נשאר פתוח כדי לשלוח אותם —
+   * ‏אל משרד משלם.
+   */
+  it("משרד שאינו בניסיון — נגמר, גם עם תאריך עתידי", () => {
+    for (const status of ["active", "suspended"]) {
+      expect(
+        trialAnchorConcluded({ status, trialEndsAt: WHEN, trialConcludedAt: null }),
+        status,
+      ).toBe(true);
+    }
+  });
+
+  /*
+   * ‏ו-`trialAnchorOf` גוזר את שניהם יחד, כי שני קוראים שיגזרו
+   * ‏אותם בנפרד הם בדיוק הפרידה הזו.
+   */
+  it("‏העוגן מוריד גם את התאריך עצמו", () => {
+    expect(trialAnchorOf({ status: "active", trialEndsAt: WHEN, trialConcludedAt: null })).toEqual(
+      { trialEndsAt: null, trialConcluded: true },
+    );
+  });
+
+  it("‏ובניסיון — משאיר אותו כפי שהוא", () => {
+    expect(trialAnchorOf({ status: "trial", trialEndsAt: WHEN, trialConcludedAt: null })).toEqual(
+      { trialEndsAt: WHEN, trialConcluded: false },
+    );
+  });
+});
+
+/**
+ * ‎**והתוצאה שבגללה זה משנה: שלב ניסיון אינו „עדיין אפשרי” למי
+ * ‏שאינו בניסיון.**
+ *
+ * ‏זו הטענה שהממצא תיאר — לא צורת העוגן אלא מה `funnelExitReason`
+ * ‏עושה איתה. בלי זה הרישום נשאר פתוח, וברגע שהשליחה נדלקת
+ * ‏„נשארו יומיים” יוצא אל משרד משלם.
+ */
+describe("‏שלב על שעון הניסיון, כשהמשרד כבר לא בניסיון", () => {
+  const NOW = new Date("2026-10-01T09:00:00.000Z");
+  const FUTURE = new Date("2026-10-10T09:00:00.000Z");
+  const stages: FunnelStageDef[] = [
+    {
+      key: "trial_ending",
+      track: "conversion",
+      clock: "trial",
+      offsetDays: -2,
+      audience: "no_card",
+      channels: ["email"],
+      enabled: true,
+    },
+  ];
+  const base = {
+    track: "conversion" as const,
+    facts: {
+      hasProperties: false,
+      hasData: false,
+      nextStepPending: false,
+      featureUnused: false,
+      hasValidCard: false,
+      trialActive: false,
+      chargeFailing: false,
+    },
+    stages,
+    definitionsIncomplete: false,
+    sent: [],
+    now: NOW,
+  };
+
+  it("‏המשרד יצא מהניסיון — הרישום נסגר ולא נשאר לשלוח", () => {
+    const reason = funnelExitReason({
+      ...base,
+      anchors: {
+        funnelStartedAt: new Date("2026-09-01T09:00:00.000Z"),
+        ...trialAnchorOf({ status: "active", trialEndsAt: FUTURE, trialConcludedAt: null }),
+        paymentFailedAt: null,
+      },
+    });
+    expect(reason).not.toBeNull();
+  });
+
+  /* ‏ובניסיון חי — נשאר פתוח, אחרת „סגור תמיד” היה עובר */
+  it("‏ובניסיון חי — נשאר פתוח", () => {
+    const reason = funnelExitReason({
+      ...base,
+      anchors: {
+        funnelStartedAt: new Date("2026-09-01T09:00:00.000Z"),
+        ...trialAnchorOf({ status: "trial", trialEndsAt: FUTURE, trialConcludedAt: null }),
+        paymentFailedAt: null,
+      },
+    });
+    expect(reason).toBeNull();
   });
 });
 
