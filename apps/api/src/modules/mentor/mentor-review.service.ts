@@ -23,6 +23,10 @@ import {
   mentorMonthlyReview,
   shiftDayLabel,
   mentorDailyIdeaPick,
+  mentorOnboarding,
+  ONBOARDING_DAYS,
+  onboardingDay,
+  onboardingMorningLine,
   mentorDailyPlan,
   mentorGoalLabel,
   mentorMidweekNudge,
@@ -416,7 +420,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       );
       const users = await tx.user.findMany({
         where: { tenantId, isActive: true },
-        select: { id: true, name: true, preferences: true },
+        select: { id: true, name: true, preferences: true, createdAt: true },
       });
       // מה עובד במשרד — העדויות פעם אחת למשרד; לכל מתווך הספר בלי העדות שלו (§7.4)
       const evidence = await this.signals.officeEvidence(tx, tenantId, now);
@@ -434,6 +438,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             resolveMentorPersona(user.preferences),
             resolveIdeaFeedback(user.preferences),
             officePlaybookFor(evidence, user.id),
+            user.createdAt,
           )
         )
           sent += 1;
@@ -456,6 +461,8 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     persona: MentorPersona = DEFAULT_MENTOR_PERSONA,
     feedback: MentorIdeaFeedback = EMPTY_IDEA_FEEDBACK,
     office?: MentorOfficePlaybook,
+    /** מועד ההצטרפות — ל-30 הימים הראשונים (§7.5); חסר = ותיק */
+    userCreatedAt?: Date,
   ): Promise<boolean> {
     if (!mentorCadence(persona.style).morning) return false;
     const week = mentorPeriodRange("week", now);
@@ -508,6 +515,23 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
           );
     // רעיון אחד מספר המשחק, על מדד המיקוד — מתחלף כל יום, בלי מה שנדחה
     const idea = mentorDailyIdeaPick(goals, now, feedback, office);
+    // 30 הימים הראשונים — המיקוד של השבוע, ובוקר שלא נשאר ריק (§7.5)
+    // ותיק — בלי לסרוק את היסטוריית התרגולים שלו בכל בוקר
+    const onboarding =
+      userCreatedAt === undefined ||
+      onboardingDay(userCreatedAt, now) > ONBOARDING_DAYS
+        ? null
+        : mentorOnboarding({
+            userCreatedAt,
+            now,
+            goals,
+            practices: (
+              await MentorPracticeService.stats(tx, tenantId, userId, {
+                start: userCreatedAt,
+                end: now,
+              })
+            ).count,
+          });
     const plan = mentorDailyPlan({
       goals,
       insights,
@@ -517,6 +541,13 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       now,
       persona,
       ...(firstName === "" ? {} : { firstName }),
+      onboarding:
+        onboarding === null
+          ? null
+          : {
+              morningLine: onboardingMorningLine(onboarding),
+              stepBody: onboarding.step.body,
+            },
     });
     if (plan === null) return false;
     const sent = await notifyOnce(tx, {

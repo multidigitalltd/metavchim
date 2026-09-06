@@ -812,6 +812,87 @@ describe("MentorReviewService.dailyForTenant — ספר המשחק של המשר
   });
 });
 
+describe("MentorReviewService.dailyForUser — 30 הימים הראשונים", () => {
+  it("מתווך חדש בלי יעד ביום חול — הבוקר אומר את הצעד במקום לשתוק; ביום הראשון — המיקוד של השבוע", async () => {
+    const { tx, notified } = fakeTx({});
+    // הצטרף אתמול; היום רביעי 9.9 — בלי התוכנית היה שקט
+    const joined = new Date("2026-09-08T10:00:00.000Z");
+    const wednesday = new Date("2026-09-09T06:00:00.000Z");
+    expect(
+      await service().dailyForUser(
+        tx,
+        TENANT,
+        USER,
+        "2026-09-09",
+        wednesday,
+        "דנה",
+      ),
+    ).toBe(false);
+    expect(
+      await service().dailyForUser(
+        tx,
+        TENANT,
+        USER,
+        "2026-09-09",
+        wednesday,
+        "דנה",
+        undefined,
+        undefined,
+        undefined,
+        joined,
+      ),
+    ).toBe(true);
+    expect(String(notified[0]![5])).toContain("3 הצעות השבוע.");
+    // ביום ההצטרפות עצמו — הפתיח של התוכנית
+    const { tx: tx2, notified: notified2 } = fakeTx({});
+    await service().dailyForUser(
+      tx2,
+      TENANT,
+      USER,
+      "2026-09-08",
+      new Date("2026-09-08T06:00:00.000Z"),
+      "דנה",
+      undefined,
+      undefined,
+      undefined,
+      joined,
+    );
+    expect(String(notified2[0]![5])).toContain(
+      "היום הראשון שלנו ביחד. השבוע — להכיר:",
+    );
+  });
+
+  it("ותיק — היסטוריית התרגולים שלו אינה נסרקת בבוקר, והבוקר בלי יעד שותק", async () => {
+    const { tx } = fakeTx({});
+    let scanned = 0;
+    (
+      tx as { mentorPractice: { findMany: () => Promise<never[]> } }
+    ).mentorPractice = {
+      findMany: async () => {
+        scanned += 1;
+        return [];
+      },
+    };
+    // הצטרף לפני 40 יום — מחוץ ל-30 הימים הראשונים
+    const joined = new Date("2026-07-31T10:00:00.000Z");
+    expect(
+      await service().dailyForUser(
+        tx,
+        TENANT,
+        USER,
+        "2026-09-09",
+        new Date("2026-09-09T06:00:00.000Z"),
+        "דנה",
+        undefined,
+        undefined,
+        undefined,
+        joined,
+      ),
+    ).toBe(false);
+    expect(scanned).toBe(0);
+  });
+});
+
 describe("MentorReviewService.dueMonths / monthlyForUser — הסיכום החודשי", () => {
   it("ראשון 10:00 ישראל אחרי השבוע של היום האחרון בחודש, ולמשך שבוע — החודש הקודם", () => {
     // ספטמבר 2026 נגמר ברביעי 30.9; השבוע שלו נגמר בשבת 3.10 ⟵ ראשון 4.10 10:00 = 07:00Z

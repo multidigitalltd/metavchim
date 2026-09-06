@@ -35,6 +35,8 @@ import {
   PRACTICE_SCENARIO_INFO,
   PRACTICE_TEXT_MAX,
   practiceScoreLabel,
+  ONBOARDING_DAYS,
+  type MentorOnboarding,
   type MentorPracticeFeedback,
   type PracticeScenario,
   type PracticeTurn,
@@ -157,6 +159,8 @@ interface Overview {
   patterns: MentorPattern[];
   advice: MentorAdvice[];
   persona: MentorPersona;
+  /** 30 הימים הראשונים — `null` למי שכבר עבר אותם (docs/14 §7.5) */
+  onboarding: MentorOnboarding | null;
 }
 
 interface Turn {
@@ -377,6 +381,13 @@ export default function MentorPage() {
               title="🎉 כל הכבוד — הושג"
             />
           </div>
+          {overview.onboarding !== null ? (
+            <OnboardingSection
+              onboarding={overview.onboarding}
+              onGoalSet={load}
+              onAsk={setAskMentor}
+            />
+          ) : null}
           <WeekSection overview={overview} />
           <AdviceSection
             advice={overview.advice}
@@ -629,6 +640,129 @@ function AdviceSection({
           <Notice tone="danger">{error}</Notice>
         </div>
       ) : null}
+    </section>
+  );
+}
+
+/* ====================================================================== */
+/* 30 הימים הראשונים — הליווי של מתווך חדש (docs/14 §7.5)                */
+/* ====================================================================== */
+
+function OnboardingSection({
+  onboarding,
+  onGoalSet,
+  onAsk,
+}: {
+  onboarding: MentorOnboarding;
+  onGoalSet: () => void;
+  onAsk: (question: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { step } = onboarding;
+
+  async function act(): Promise<void> {
+    setError(null);
+    if (step.kind === "goal" && step.goal !== undefined) {
+      if (busy) return;
+      setBusy(true);
+      try {
+        await apiPost("/mentor/goals", step.goal);
+        onGoalSet();
+      } catch (err: unknown) {
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : "היעד לא נקבע — כדאי לנסות שוב",
+        );
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    if (step.kind === "chat" && step.question !== undefined) {
+      onAsk(step.question);
+      return;
+    }
+    if (step.kind === "practice") {
+      document
+        .getElementById("mentor-practice-heading")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
+  const weeks = [
+    { n: 1, title: "להכיר" },
+    { n: 2, title: "להוסיף" },
+    { n: 3, title: "להתייצב" },
+    { n: 4, title: "לסכם" },
+  ];
+  return (
+    <section className="mt-6" aria-labelledby="mentor-onboarding-heading">
+      <div className="mv-card-head mv-domain-peach mb-3">
+        <span className="mv-tile" aria-hidden="true">
+          <IconFlame s={19} />
+        </span>
+        <h2 id="mentor-onboarding-heading" className="mv-card-head__title m-0">
+          30 הימים הראשונים
+        </h2>
+      </div>
+      <div className="mv-card mv-card--pad">
+        <p className="mv-card-sub m-0">
+          יום {onboarding.day} מתוך {ONBOARDING_DAYS} · השבוע —{" "}
+          {onboarding.weekTitle}
+        </p>
+        <ol
+          className="m-0 mt-2 flex list-none flex-wrap gap-2 p-0"
+          aria-label="ארבעת השבועות"
+        >
+          {weeks.map((w) => (
+            <li
+              key={w.n}
+              className="mv-chip"
+              aria-current={w.n === onboarding.week ? "step" : undefined}
+              style={
+                w.n < onboarding.week
+                  ? { color: "var(--color-text-muted)" }
+                  : w.n === onboarding.week
+                    ? { fontWeight: 700 }
+                    : undefined
+              }
+            >
+              {w.n < onboarding.week ? "✓ " : ""}
+              {w.n}. {w.title}
+            </li>
+          ))}
+        </ol>
+        <p className="m-0 mt-3">{onboarding.weekFocus}</p>
+        <div
+          className="mt-3 rounded-xl p-4"
+          style={{ background: "var(--color-surface-sunken)" }}
+        >
+          <p className="m-0 font-bold">{step.title}</p>
+          <p className="m-0 mt-1">{step.body}</p>
+          {step.kind !== "keep" ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className={
+                  step.kind === "goal" ? "mv-control-go" : "mv-btn-soft"
+                }
+                disabled={busy}
+                onClick={() => void act()}
+              >
+                {step.kind === "goal" ? "🎯 " : ""}
+                {busy ? "קובע…" : step.cta}
+              </button>
+            </div>
+          ) : null}
+          {error !== null ? (
+            <div className="mt-2">
+              <Notice tone="danger">{error}</Notice>
+            </div>
+          ) : null}
+        </div>
+      </div>
     </section>
   );
 }
