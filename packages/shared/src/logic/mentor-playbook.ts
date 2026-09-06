@@ -214,6 +214,22 @@ export function resolveIdeaFeedback(preferences: unknown): MentorIdeaFeedback {
   return { liked: list("liked"), dismissed: list("dismissed") };
 }
 
+/**
+ * המפתח של הרעיון שמופיע בטקסט — הודעת הבוקר נושאת את הרעיון במילים,
+ * לא כמזהה, וכפתורי המשוב צריכים לדעת על מה. `null` כשאין בטקסט רעיון
+ * מספר המשחק (בוקר בלי רעיון).
+ */
+export function ideaKeyInText(text: string | null | undefined): string | null {
+  if (text === null || text === undefined || text === "") return null;
+  for (const metric of Object.keys(MENTOR_PLAYBOOK) as MentorGoalMetric[]) {
+    const index = MENTOR_PLAYBOOK[metric].ideas.findIndex((idea) =>
+      text.includes(idea),
+    );
+    if (index >= 0) return ideaKey(metric, index);
+  }
+  return null;
+}
+
 export interface PlaybookIdea {
   key: string;
   text: string;

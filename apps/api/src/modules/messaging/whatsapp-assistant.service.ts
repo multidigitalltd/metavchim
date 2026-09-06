@@ -1075,7 +1075,10 @@ export class WhatsAppAssistantService {
         const denied = "המנטור האישי אינו כלול במסלול של המשרד — אפשר לשדרג במסך החיוב.";
         return withHeard({ text: denied, speak: denied }, heard);
       }
-      const reply = await this.mentor.ideaFeedbackFromChat(verdict);
+      const reply = await this.mentor.ideaFeedbackFromChat(
+        verdict.verdict,
+        verdict.ideaKey,
+      );
       return withHeard({ text: reply, speak: reply }, heard);
     }
 

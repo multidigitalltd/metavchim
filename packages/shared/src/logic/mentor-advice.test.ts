@@ -13,12 +13,14 @@ import {
   funnelReadings,
   ideaByKey,
   ideaKey,
+  ideaKeyInText,
   playbookIdea,
   playbookIdeaPick,
   resolveIdeaFeedback,
 } from "./mentor-playbook.js";
 import {
   MENTOR_METRICS,
+  mentorWeeklyReview,
   type MentorActivity,
   type MentorGoalProgress,
 } from "./mentor.js";
@@ -399,5 +401,26 @@ describe("רעיונות עם משוב — המנטור לומד מה עובד (
     expect(text).toContain(MENTOR_PLAYBOOK.offers_sent.ideas[1]);
     expect(text).toContain("לא להציע שוב, גם לא בניסוח אחר");
     expect(text).toContain(ideaByKey(plain[0]!.ideaKey!)!.text);
+  });
+});
+
+describe("הטיפ לשבוע הבא מדלג על מה שנדחה", () => {
+  it("רעיון שסומן „לא בשבילי” אינו חוזר בסיכום השבועי", () => {
+    const signals = {
+      weekStart: new Date("2026-09-05T21:00:00.000Z"),
+      wins: [],
+      activity: { ...quiet, offers_sent: 2 },
+      goals: [goal({ pace: "behind", actual: 2, ratio: 0.4, remaining: 3 })],
+    };
+    const plain = mentorWeeklyReview(signals)?.paragraphs.at(-1) ?? "";
+    const plainKey = ideaKeyInText(plain);
+    expect(plainKey).toMatch(/^offers_sent:\d$/u);
+    const learned =
+      mentorWeeklyReview({
+        ...signals,
+        feedback: { liked: [], dismissed: [plainKey!] },
+      })?.paragraphs.at(-1) ?? "";
+    expect(learned).toMatch(/^טיפ לשבוע הבא: /u);
+    expect(ideaKeyInText(learned)).not.toBe(plainKey);
   });
 });

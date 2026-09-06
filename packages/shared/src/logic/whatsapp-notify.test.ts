@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MENTOR_PLAYBOOK } from "./mentor-playbook.js";
 import {
   DEFAULT_WHATSAPP_NOTIFY_PREFS,
   formatNotifyMessage,
@@ -583,14 +584,45 @@ describe("notifyQuickReplies — המנטור מקבל כפתורים משלו",
     }
   });
 
-  it("הבוקר: משוב על הרעיון — „עזר לי” / „לא בשבילי” — ואז „היעדים שלי”; שלושה בדיוק", () => {
-    const buttons = notifyQuickReplies([item({ type: "mentor_daily" })]);
+  it("הבוקר: משוב על הרעיון — קשור לרעיון שהוצג — ואז „היעדים שלי”; שלושה בדיוק", () => {
+    const idea = MENTOR_PLAYBOOK.offers_sent.ideas[2]!;
+    const daily = item({
+      type: "mentor_daily",
+      body: `בוקר טוב דנה. 5 הצעות בשבוע: 2 הצעות עד עכשיו. רעיון להיום: ${idea} יום טוב — ואני כאן.`,
+    });
+    const buttons = notifyQuickReplies([daily]);
     expect(buttons?.map((b) => b.arg)).toEqual([
-      "mentor_idea_helped",
-      "mentor_idea_skip",
+      "הרעיון עזר לי [offers_sent:2]",
+      "הרעיון לא בשבילי [offers_sent:2]",
       "mentor_status",
     ]);
     expect(buttons).toHaveLength(3);
+    // בוקר בלי רעיון — „היעדים שלי” בלבד
+    expect(
+      notifyQuickReplies([
+        item({ type: "mentor_daily", body: "בוקר טוב." }),
+      ])?.map((b) => b.arg),
+    ).toEqual(["mentor_status"]);
+  });
+
+  it("הבוקר באגד מעורב — ליד יחד עם הרעיון: המשוב נשאר, ו„מה דחוף היום?” שלישי", () => {
+    const idea = MENTOR_PLAYBOOK.viewings_held.ideas[0]!;
+    const buttons = notifyQuickReplies([
+      item({ type: "lead" }),
+      item({ type: "mentor_daily", body: `רעיון להיום: ${idea}` }),
+    ]);
+    expect(buttons?.map((b) => b.arg)).toEqual([
+      "הרעיון עזר לי [viewings_held:0]",
+      "הרעיון לא בשבילי [viewings_held:0]",
+      "urgent",
+    ]);
+    // בוקר בלי רעיון באגד מעורב — הודעה רגילה
+    expect(
+      notifyQuickReplies([
+        item({ type: "lead" }),
+        item({ type: "mentor_daily", body: "בוקר טוב." }),
+      ]),
+    ).toBeNull();
   });
 
   /*

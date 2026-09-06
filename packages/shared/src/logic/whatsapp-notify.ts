@@ -15,6 +15,7 @@
  * בלי מסד ובלי Meta. טעות כאן שקטה: התראה שלא נשלחה אינה מתלוננת.
  */
 
+import { ideaKeyInText } from "./mentor-playbook.js";
 import { agentAction, type AgentActionId } from "../agent/actions.js";
 import {
   canSeeNotifyDetail,
@@ -410,6 +411,49 @@ const MENTOR_STATUS_BUTTON: WhatsAppButton = {
  * (`notifyFollowUp`), וזו הכרעה של הקורא — לא ברירת מחדל שנצמדת
  * לכל הודעה.
  */
+/**
+ * פקודת המשוב עם הרעיון בתוכה — „הרעיון עזר לי [offers_sent:2]”. הכפתור
+ * קשור לרעיון **שהוצג**, לא ל„האחרון”: לחיצה על כפתור של אתמול אחרי
+ * שהבוקר של היום כבר יצא נותנת משוב על הרעיון של אתמול (ביקורת Codex).
+ * הסוכן מפענח את הסוגריים; בלעדיהם — הרעיון האחרון של היום.
+ */
+export function mentorIdeaCommand(
+  verdict: "helped" | "dismissed",
+  ideaKey: string,
+): string {
+  const base =
+    verdict === "helped"
+      ? MENTOR_QUICK_COMMANDS.mentor_idea_helped
+      : MENTOR_QUICK_COMMANDS.mentor_idea_skip;
+  return `${base} [${ideaKey}]`;
+}
+
+/** „מה דחוף היום?” — הכפתור השלישי כשהבוקר מגיע יחד עם התראות רגילות. */
+const URGENT_BUTTON: WhatsAppButton = {
+  action: "cmd",
+  arg: "urgent",
+  title: "📋 מה דחוף היום?",
+};
+
+/** כפתורי המשוב על רעיון הבוקר — רק כשההודעה באמת נושאת רעיון. */
+function ideaFeedbackButtons(items: readonly NotifyItem[]): WhatsAppButton[] {
+  const daily = items.find((item) => item.type === "mentor_daily");
+  const key = daily === undefined ? null : ideaKeyInText(daily.body);
+  if (key === null) return [];
+  return [
+    {
+      action: "cmd",
+      arg: mentorIdeaCommand("helped", key),
+      title: "👍 עזר לי",
+    },
+    {
+      action: "cmd",
+      arg: mentorIdeaCommand("dismissed", key),
+      title: "👎 לא בשבילי",
+    },
+  ];
+}
+
 export function notifyQuickReplies(
   items: readonly NotifyItem[],
   details?: NotifyDetailsLookup,
@@ -417,7 +461,15 @@ export function notifyQuickReplies(
   const types = new Set(items.map((item) => item.type));
   const mentorOnly =
     items.length > 0 && [...types].every((type) => type.startsWith("mentor_"));
-  if (!mentorOnly) return null;
+  /*
+   * הבוקר באגד מעורב — ליד, משימה ושיחה יחד עם הרעיון: המשוב על הרעיון
+   * הוא הליווי, ולכן הכפתורים שלו נשארים גם כאן, עם „מה דחוף היום?” של
+   * ההודעה הרגילה כשלישי (ביקורת Codex). בלי רעיון — הודעה רגילה.
+   */
+  if (!mentorOnly) {
+    const feedback = ideaFeedbackButtons(items);
+    return feedback.length === 0 ? null : [...feedback, URGENT_BUTTON];
+  }
   const weekly = items.find((item) => item.type === "mentor_weekly");
   if (weekly !== undefined) {
     /*
@@ -453,11 +505,7 @@ export function notifyQuickReplies(
    * שנדחה אינו חוזר (docs/14 §7.2). שלושה כפתורים — התקרה של וואטסאפ.
    */
   if (types.has("mentor_daily")) {
-    return [
-      { action: "cmd", arg: "mentor_idea_helped", title: "👍 עזר לי" },
-      { action: "cmd", arg: "mentor_idea_skip", title: "👎 לא בשבילי" },
-      MENTOR_STATUS_BUTTON,
-    ];
+    return [...ideaFeedbackButtons(items), MENTOR_STATUS_BUTTON];
   }
   return [MENTOR_STATUS_BUTTON];
 }

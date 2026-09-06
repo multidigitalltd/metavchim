@@ -28,15 +28,27 @@ export function isMentorReflectRequest(text: string): boolean {
  * „הרעיון עזר לי” / „הרעיון לא בשבילי” — כלשונם, כמו שכפתורי הבוקר
  * שולחים: משוב על רעיון הבוקר (docs/14 §7.2), לא שאלה למנוע ההבנה.
  */
-export function mentorIdeaVerdict(text: string): "helped" | "dismissed" | null {
-  const t = normalizeShort(text);
-  if (t === normalizeShort(MENTOR_QUICK_COMMANDS.mentor_idea_helped))
-    return "helped";
-  if (t === normalizeShort(MENTOR_QUICK_COMMANDS.mentor_idea_skip))
-    return "dismissed";
-  return null;
+export interface MentorIdeaVerdict {
+  verdict: "helped" | "dismissed";
+  /** הרעיון שהכפתור הוצג עליו — „[offers_sent:2]”; חסר בהקלדה חופשית */
+  ideaKey?: string;
 }
 
+const IDEA_PAYLOAD = /^(.*?)\s*\[([a-z_]+:\d{1,2})\]\s*$/u;
+
+export function mentorIdeaVerdict(text: string): MentorIdeaVerdict | null {
+  const payload = IDEA_PAYLOAD.exec(text.trim());
+  const command = payload === null ? text : payload[1]!;
+  const t = normalizeShort(command);
+  const verdict =
+    t === normalizeShort(MENTOR_QUICK_COMMANDS.mentor_idea_helped)
+      ? "helped"
+      : t === normalizeShort(MENTOR_QUICK_COMMANDS.mentor_idea_skip)
+        ? "dismissed"
+        : null;
+  if (verdict === null) return null;
+  return payload === null ? { verdict } : { verdict, ideaKey: payload[2]! };
+}
 const SKIP_WORDS = new Set([
   "דלג",
   "לדלג",

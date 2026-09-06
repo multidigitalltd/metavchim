@@ -639,6 +639,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             weekStart,
             firstNameOf(user.name),
             resolveMentorPersona(user.preferences),
+            resolveIdeaFeedback(user.preferences),
           )
         )
           written += 1;
@@ -657,6 +658,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     /** השם הפרטי — לפתיח אישי. ריק = בלי פתיח */
     firstName = "",
     persona: MentorPersona = DEFAULT_MENTOR_PERSONA,
+    feedback: MentorIdeaFeedback = EMPTY_IDEA_FEEDBACK,
   ): Promise<boolean> {
     const weekEnd = jerusalemWeekStart(weekStart, 1);
     const prevStart = jerusalemWeekStart(weekStart, -1);
@@ -772,6 +774,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     const signals: MentorWeekSignals = {
       patterns,
       persona,
+      feedback,
       ...(firstName === "" ? {} : { firstName }),
       insights,
       weekStart,

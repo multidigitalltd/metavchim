@@ -892,9 +892,17 @@ export class MentorService {
    */
   async ideaFeedbackFromChat(
     verdict: "helped" | "dismissed",
+    /** הרעיון שהכפתור הוצג עליו — כשיש, המשוב עליו ולא על „האחרון” */
+    ideaKey?: string,
     now: Date = new Date(),
   ): Promise<string> {
     const { tenantId, userId } = TenantContext.current();
+    if (ideaKey !== undefined) {
+      const shown = ideaByKey(ideaKey);
+      if (shown === null) return "לא זיהיתי על איזה רעיון — אפשר לענות מהמסך.";
+      const result = await this.ideaFeedback({ ideaKey, verdict });
+      return `${result.text} („${shown.text.slice(0, 80)}${shown.text.length > 80 ? "…" : ""}”)`;
+    }
     const user = await this.prisma.withTenant((tx) =>
       tx.user.findFirst({
         where: { id: userId, tenantId },
