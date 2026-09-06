@@ -89,6 +89,41 @@ describe("שורת גיוס אינה מגיעה למסלולי הנכס", () => 
   });
 });
 
+/**
+ * ‎**הייבוא — הנתיב הקל ביותר לשבור בו את ההפרדה.**
+ *
+ * ‏„זה בסך הכול נכסים, נשתמש באותו מסלול” הוא בדיוק השינוי שנראה
+ * ‏כמו ניקוי כפילות ומכניס מודעות שהמשרד אינו מייצג להתאמות,
+ * ‏לרשת שיתופי הפעולה ולהצעות. הבדיקה מעוגנת ב**גוף המתודה** ולא
+ * ‏בקובץ: `import.controller.ts` מייבא גם נכסים, גם קונים וגם
+ * ‏לידים, ולכן סריקה על הקובץ כולו הייתה חסרת משמעות.
+ */
+describe("ייבוא לגיוס כותב לגיוס בלבד", () => {
+  const IMPORT = readFileSync(join(MODULES, "import", "import.controller.ts"), "utf8");
+
+  /** ‏גוף `importRecruitment` — מהחתימה ועד הסוגר של המתודה. */
+  const body = (): string => {
+    const start = IMPORT.indexOf("async importRecruitment(");
+    expect(start, "המתודה importRecruitment לא נמצאה").toBeGreaterThan(-1);
+    const rest = IMPORT.slice(start);
+    const end = rest.indexOf("\n  }\n");
+    expect(end, "לא נמצא סוף המתודה").toBeGreaterThan(-1);
+    return rest.slice(0, end);
+  };
+
+  it("קורא ליצירה בטבלת הגיוס", () => {
+    expect(body()).toMatch(/this\.recruitment\.create\(/u);
+  });
+
+  it("אינו נוגע בשירות הנכסים", () => {
+    expect(body()).not.toMatch(/this\.properties\./u);
+  });
+
+  it("מאמת מול אותה סכימה שהטופס שולח", () => {
+    expect(body()).toContain("RecruitmentBodySchema");
+  });
+});
+
 describe("ההמרה — פעם אחת בלבד", () => {
   const convert = /async convert\([\s\S]*?\n {2}\}\n/u.exec(SERVICE)?.[0] ?? "";
 

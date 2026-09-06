@@ -1514,6 +1514,61 @@ code {
   font-size: 14px;
   min-height: 34px;
 }
+/*
+ * ‏קבוצה בתפריט: פריט האב והחץ באותה שורה.
+ *
+ * ‏החץ הוא כפתור נפרד ולא חלק מהקישור — לחיצה על „נכסים” חייבת
+ * ‏להמשיך לנווט לנכסים, וכפתור בתוך עוגן גם אינו HTML תקין.
+ */
+.mv-sidebar-group-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.mv-sidebar-group-row > .mv-sidebar-link {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.mv-sidebar-toggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  /* ‏יעד מגע 32px — קטן מהפריט עצמו, וגדול מכדי להחטיא */
+  inline-size: 32px;
+  block-size: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.mv-sidebar-toggle:hover {
+  background: var(--color-surface-2, rgba(0, 0, 0, 0.05));
+  color: var(--color-text);
+}
+.mv-sidebar-toggle:focus-visible {
+  outline: 2px solid var(--color-action);
+  outline-offset: 2px;
+}
+/*
+ * ‏החץ מצביע למטה כשפתוח, ולכיוון תחילת השורה כשסגור. בעברית זו
+ * ‏שמאלה, ולכן סיבוב חיובי: „v” שמסובב 90° מצביע שמאלה.
+ */
+.mv-sidebar-chev {
+  display: grid;
+  place-items: center;
+  transform: rotate(90deg);
+  transition: transform 140ms ease;
+}
+.mv-sidebar-chev.is-open {
+  transform: rotate(0deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mv-sidebar-chev {
+    transition: none;
+  }
+}
+
 /* ‏פריט משנה פעיל מקבל את אותו טיפול, בלי הפס — הפס שייך לקטגוריה */
 .mv-sidebar-link--sub[aria-current="page"]::after {
   content: none;

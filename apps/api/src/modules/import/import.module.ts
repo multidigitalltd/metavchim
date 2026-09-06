@@ -2,10 +2,11 @@ import { Module } from "@nestjs/common";
 import { BuyersModule } from "../buyers/buyers.module";
 import { LeadsModule } from "../leads/leads.module";
 import { PropertiesModule } from "../properties/properties.module";
+import { RecruitmentModule } from "../recruitment/recruitment.module";
 import { ImportController } from "./import.controller";
 
 @Module({
-  imports: [PropertiesModule, BuyersModule, LeadsModule],
+  imports: [PropertiesModule, BuyersModule, LeadsModule, RecruitmentModule],
   controllers: [ImportController],
 })
 export class ImportModule {}
