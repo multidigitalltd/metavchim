@@ -494,6 +494,15 @@ export function funnelExitReason(input: {
   facts: FunnelFacts;
   /** ‏כל שלבי המסלול שהוגדרו — כדי לדעת מתי הרצף מוצה. */
   stages: readonly FunnelStageDef[];
+  /**
+   * ‎**קיימת שורת שלב שלא הצלחנו לקרוא.**
+   *
+   * ‏שלב עם שעון, תנאי קהל או ערוץ שאינם מוכרים נזרק לפני שהוא
+   * ‏מגיע לכאן, ולכן הוא נעדר מ-`stages` — ואז „לא נשאר שלב שיכול
+   * ‏לצאת” נכון פורמלית ושקרי למעשה: הוא נכון רק על מה שהצלחנו
+   * ‏לקרוא (ביקורת Codex, P1).
+   */
+  definitionsIncomplete?: boolean;
   sent: readonly string[];
   anchors: FunnelAnchors;
   now: Date;
@@ -538,6 +547,22 @@ export function funnelExitReason(input: {
     if (expiresAt === null) return false;
     return input.now.getTime() <= expiresAt.getTime();
   });
-  if (live.length > 0 && stillPossible.length === 0) return "completed";
+  if (live.length > 0 && stillPossible.length === 0) {
+    /*
+     * ‎**„מוצה” היא הכרזה בלתי הפיכה, ולכן היא דורשת הגדרה שלמה.**
+     *
+     * ‏`enrollDue` מוציא מהמועמדות כל מי שכבר היה לו רישום במסלול,
+     * ‏ולכן סגירה אינה החלטה על היום אלא **לתמיד**. שורת שלב
+     * ‏שנזרקה — שעון לא מוכר, תנאי קהל לא מוכר, אפס ערוצים — היא
+     * ‏בדיוק המקרה שבו „לא נשאר מה לשלוח” נכון על מה שקראנו וייתכן
+     * ‏שאינו נכון על מה שנכתב.
+     *
+     * ‏חוסר הסימטריה מכריע: רישום שנשאר פתוח אינו עולה דבר — שלב
+     * ‏פסול אינו נשלח ממילא — ואילו רישום שנסגר בטעות אבד. לכן
+     * ‏העדפנו להשאיר פתוח עד שהשורה תתוקן.
+     */
+    if (input.definitionsIncomplete === true) return null;
+    return "completed";
+  }
   return null;
 }

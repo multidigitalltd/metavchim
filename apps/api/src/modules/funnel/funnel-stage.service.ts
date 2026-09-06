@@ -29,6 +29,12 @@ import { PrismaService } from "../../core/prisma.service";
  * יוצאת בלי שאיש ביקש: תנאי `has_data` שלא זוהה והושמט הופך שלב
  * מכוון-קהל לשלב שיוצא לכולם. ההשמטה נרשמת ביומן כאזהרה, כי
  * שלב שנעלם מהמסלול הוא דבר שצריך לגלות.
+ *
+ * ‎**אבל „נזרק” אינו „לא היה”.** שלב פסול נעלם גם מחישוב המיצוי,
+ * ‏ולכן אחרי שהשלבים התקפים פגו הרישום נסגר כ„מוצה” — ותיקון
+ * ‏השורה מאוחר יותר לא מחזיר את הקוהורט (ביקורת Codex, P1). לכן
+ * ‎`catalog` מחזיר גם את מפתחות הפסולים, ו-`funnelExitReason`
+ * ‏אינו מכריז „מוצה” כל עוד קיימת הגדרה שלא הצלחנו לקרוא.
  */
 @Injectable()
 export class FunnelStageService {
@@ -58,14 +64,28 @@ export class FunnelStageService {
    * ‏ומזהיר, והיא נזרקת **בקול**. הטבלה היא הגדרת פלטפורמה בסדר
    * גודל של עשרות שורות, ולכן זו גם קריאה אחת במקום שתיים.
    */
-  async all(): Promise<FunnelStageDef[]> {
+  async catalog(): Promise<{ stages: FunnelStageDef[]; invalid: string[] }> {
     const rows = await this.prisma.funnelStage.findMany({
       orderBy: [{ sortOrder: "asc" }, { key: "asc" }],
     });
-    return rows.flatMap((row) => {
+    const stages: FunnelStageDef[] = [];
+    const invalid: string[] = [];
+    for (const row of rows) {
       const def = this.toDef(row);
-      return def === null ? [] : [def];
-    });
+      if (def === null) invalid.push(row.key);
+      else stages.push(def);
+    }
+    return { stages, invalid };
+  }
+
+  /**
+   * ‏השלבים התקפים בלבד.
+   *
+   * ‏מי שמחשב **מיצוי** צריך גם את הפסולים — ראו `catalog`, ואת
+   * ההסבר על „הגדרה חסרה” ב-`funnelExitReason`.
+   */
+  async all(): Promise<FunnelStageDef[]> {
+    return (await this.catalog()).stages;
   }
 
   /** ‏שלבי מסלול אחד, לפי סדר התצוגה. */

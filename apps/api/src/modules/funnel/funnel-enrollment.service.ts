@@ -328,7 +328,20 @@ export class FunnelEnrollmentService {
    * שכבר שילם.
    */
   private async closeFinished(now: Date, pageSize: number): Promise<number> {
-    const stages = await this.stages.all();
+    /*
+     * ‎**גם הפסולים, ולא רק התקפים.**
+     *
+     * ‏שורת שלב שלא הצלחנו לקרוא נעדרת מ-`stages`, ואז „לא נשאר
+     * ‏שלב שיכול לצאת” נכון על מה שקראנו בלבד. סגירה היא בלתי
+     * ‏הפיכה — `enrollDue` מוציא מהמועמדות כל מי שכבר היה לו רישום
+     * ‏— ולכן אין סוגרים כל עוד ההגדרה חסרה (ביקורת Codex, P1).
+     */
+    const { stages, invalid } = await this.stages.catalog();
+    if (invalid.length > 0) {
+      this.logger.warn(
+        `הגדרות שלבים פסולות (${invalid.join(", ")}) — רישומים לא ייסגרו כ„מוצו” עד שיתוקנו`,
+      );
+    }
     let closed = 0;
     let cursor: string | undefined;
     for (;;) {
@@ -352,7 +365,7 @@ export class FunnelEnrollmentService {
       );
       if (page.length === 0) break;
       cursor = page[page.length - 1]?.id;
-      closed += await this.closePage(page, stages, now);
+      closed += await this.closePage(page, stages, invalid.length > 0, now);
       if (page.length < pageSize) break;
     }
     return closed;
@@ -362,6 +375,7 @@ export class FunnelEnrollmentService {
   private async closePage(
     live: { id: string; tenantId: string; track: string; startedAt: Date }[],
     stages: Awaited<ReturnType<FunnelStageService["all"]>>,
+    definitionsIncomplete: boolean,
     now: Date,
   ): Promise<number> {
     const tenantIds = [...new Set(live.map((row) => row.tenantId))];
@@ -375,8 +389,24 @@ export class FunnelEnrollmentService {
         select: { tenantId: true, cardTokenEncrypted: true, cardMonth: true, cardYear: true },
       }),
       this.prisma.withFunnelAdmin((tx) =>
+        /*
+         * ‎**„נשלח” הוא `sent`, ולא „יש שורה”.**
+         *
+         * ‏ברירת המחדל של העמודה היא `queued`, ויש גם `failed`.
+         * ‏שורה כזו נספרה כשלב שיצא, ולכן ניסיון אחרון שנכשל היה
+         * ‏סוגר את הרישום כ„מוצה” בלי שההודעה נשלחה — וניסיון חוזר
+         * ‏לא היה מגיע אליו לעולם (ביקורת Codex).
+         *
+         * ‎`sentAt` **וגם** `status`: השדות נכתבים יחד, ובדיקה של
+         * ‏אחד מהם בלבד הופכת כל אי-התאמה ביניהם לסגירה שגויה
+         * ‏בכיוון אחד.
+         */
         tx.funnelMessage.findMany({
-          where: { enrollmentId: { in: live.map((row) => row.id) } },
+          where: {
+            enrollmentId: { in: live.map((row) => row.id) },
+            status: "sent",
+            sentAt: { not: null },
+          },
           select: { enrollmentId: true, stageKey: true },
         }),
       ),
@@ -422,6 +452,7 @@ export class FunnelEnrollmentService {
         track,
         facts,
         stages,
+        definitionsIncomplete,
         sent: sentByEnrollment.get(row.id) ?? [],
         anchors,
         now,

@@ -167,6 +167,33 @@ describe("FunnelStageService — שורה שאינה תקפה", () => {
     );
   });
 
+  /*
+   * ‎**„נזרק” אינו „לא היה”, ולכן המפתחות חוזרים.**
+   *
+   * ‏שלב פסול נעדר מ-`stages`, ואז חישוב המיצוי נעשה על תמונה
+   * ‏חלקית וסוגר את הרישום לתמיד. `catalog` מחזיר גם את מי שנפל,
+   * ‏כדי שמי שסוגר יידע שאסור לו (ביקורת Codex, P1).
+   */
+  it("`catalog` מחזיר את מפתחות הפסולים, ולא רק את התקפים", async () => {
+    const result = await serviceFor([
+      row({ key: "ok" }),
+      row({ key: "bad_clock", clock: "lunar" }),
+      row({ key: "bad_audience", audience: ["owns_a_yacht"] }),
+      row({ key: "no_channels", channels: [] }),
+      row({ key: "bad_track", track: "conversionn" }),
+    ]).catalog();
+
+    expect(result.stages.map((d) => d.key)).toEqual(["ok"]);
+    expect(result.invalid.sort()).toEqual(
+      ["bad_audience", "bad_clock", "bad_track", "no_channels"].sort(),
+    );
+  });
+
+  it("קטלוג תקין לגמרי — אין פסולים", async () => {
+    const result = await serviceFor([row({ key: "ok" })]).catalog();
+    expect(result.invalid).toEqual([]);
+  });
+
   it("`all` מחזיר את שני המסלולים, בלי הפסולים", async () => {
     const defs = await serviceFor([
       row({ key: "a" }),

@@ -645,4 +645,64 @@ describe("הפעלה הדרגתית של שלבים", () => {
       }),
     ).toBe("completed");
   });
+
+  /*
+   * ‎**והגבול השני: הגדרה שלא הצלחנו לקרוא.**
+   *
+   * ‏שלב עם שעון, תנאי קהל או ערוץ לא מוכר נזרק לפני שהוא מגיע
+   * ‏לכאן, ולכן „לא נשאר שלב שיכול לצאת” נכון על מה שקראנו וייתכן
+   * ‏שאינו נכון על מה שנכתב. סגירה בלתי הפיכה על סמך תמונה חלקית
+   * ‏היא בדיוק אותה תקלה של השלב הכבוי, במסווה אחר (ביקורת Codex).
+   */
+  it("הגדרה חסרה מחזיקה את הרישום פתוח — גם כשכל התקפים מוצו", () => {
+    const stages = [stage({ key: "day0", clock: "funnel", offsetDays: 0, enabled: true })];
+    expect(
+      funnelExitReason({
+        track: "conversion",
+        facts: facts({ hasValidCard: false }),
+        stages,
+        definitionsIncomplete: true,
+        sent: ["day0"],
+        now: new Date(started.getTime() + 40 * DAY),
+        anchors: anchorsFor(),
+      }),
+    ).toBeNull();
+  });
+
+  /*
+   * ‏אבל היא אינה מבטלת יציאה מסיבה אחרת: משרד ששילם יצא מהמסלול
+   * ‏גם אם שורת שלב פסולה. שער שמחזיק את **כולם** היה שולח „נשארו
+   * ‏יומיים” למי שכבר שילם.
+   */
+  it("הגדרה חסרה אינה מונעת יציאה על תשלום", () => {
+    expect(
+      funnelExitReason({
+        track: "conversion",
+        facts: facts({ hasValidCard: true }),
+        stages: [stage({ key: "day0", clock: "funnel", offsetDays: 0, enabled: true })],
+        definitionsIncomplete: true,
+        sent: [],
+        now: new Date(started.getTime() + 1 * DAY),
+        anchors: anchorsFor(),
+      }),
+    ).toBe("paid");
+  });
+
+  /*
+   * ‏וברירת המחדל היא „ההגדרה שלמה”: השדה אופציונלי, ולכן כל קורא
+   * ‏קיים שלא עודכן ממשיך להתנהג כשהתנהג.
+   */
+  it("בלי השדה — התנהגות ללא שינוי", () => {
+    const stages = [stage({ key: "day0", clock: "funnel", offsetDays: 0, enabled: true })];
+    expect(
+      funnelExitReason({
+        track: "conversion",
+        facts: facts({ hasValidCard: false }),
+        stages,
+        sent: ["day0"],
+        now: new Date(started.getTime() + 40 * DAY),
+        anchors: anchorsFor(),
+      }),
+    ).toBe("completed");
+  });
 });

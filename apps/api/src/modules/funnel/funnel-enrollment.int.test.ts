@@ -417,6 +417,226 @@ describe("כניסה למשפך — מול מסד אמיתי", () => {
  * ‏האילוץ במסד ולא על הפוליסה. אילוץ שאפשר לעקוף בכתיבה ישירה אינו
  * ‏אילוץ.
  */
+/**
+ * ‎**„נשלח” הוא מצב, לא קיום שורה.**
+ *
+ * ‏עמודת `status` ב-`funnel_messages` נולדת `queued`, ויכולה להיות
+ * ‏`failed`. הספירה של „אילו שלבים כבר יצאו” לא הסתכלה עליה בכלל,
+ * ‏ולכן **ניסיון שנכשל** נחשב כשלב שיצא: הרישום היה נסגר כ„מוצה”
+ * ‏על סמך הודעה שמעולם לא הגיעה, ו-`enrollDue` מוציא מהמועמדות כל
+ * ‏מי שכבר היה לו רישום — כלומר ניסיון חוזר לא היה מגיע אליו
+ * ‏לעולם (ביקורת Codex).
+ *
+ * ‏הבדיקה מריצה את שני המצבים על **אותו רגע ואותן שורות**, וזה מה
+ * ‏שמבודד את התנאי: ההבדל היחיד בין „נשאר פתוח” ל„נסגר” הוא ערך
+ * ‏העמודה.
+ */
+describe("רק הודעה שנשלחה נחשבת לשלב שיצא", () => {
+  /** ‏עשרת שלבי מסלול ההמרה, כפי שנזרעו במיגרציה. */
+  const CONVERSION_STAGES = [
+    "d0_first_action",
+    "d1_empty_screen",
+    "d3_one_feature",
+    "d5_intro_call",
+    "d8_what_we_did",
+    "d11_before_money",
+    "d17_data_waiting",
+    "trial_heads_up",
+    "trial_closing",
+    "trial_last_call",
+  ];
+
+  async function seedMessages(enrollmentId: string, status: string): Promise<void> {
+    for (const [index, key] of CONVERSION_STAGES.entries()) {
+      await direct.$executeRawUnsafe(
+        `INSERT INTO funnel_messages
+           (id, tenant_id, enrollment_id, track, stage_key, user_id, destination, channel,
+            token, status, sent_at, updated_at)
+         VALUES ($1, $2, $3, 'conversion', $4, $5, 'a@b.com', 'email', $6, $7,
+                 CASE WHEN $7 = 'sent' THEN now() ELSE NULL END, now())`,
+        `01M1FNNLTESTMSG${String(index).padStart(11, "0")}`,
+        OLD_TENANT,
+        enrollmentId,
+        key,
+        "01M1FNNLTESTUSER0000000001",
+        `sent-status-token-${index}`,
+        status,
+      );
+    }
+  }
+
+  async function enrollmentIdOf(tenantId: string): Promise<string> {
+    const rows = await direct.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT id FROM funnel_enrollments WHERE tenant_id = $1 LIMIT 1`,
+      tenantId,
+    );
+    return rows[0]!.id;
+  }
+
+  it("שורות `queued` אינן סוגרות את הרישום", async () => {
+    const now = new Date();
+    await service.sweep(now, { dailyQuota: 5 });
+    await seedMessages(await enrollmentIdOf(OLD_TENANT), "queued");
+
+    await service.sweep(now, { dailyQuota: 5 });
+    const old = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(old?.endedAt, "ניסיון שלא נשלח נספר כשלב שיצא").toBeNull();
+  });
+
+  /*
+   * ‏החצי השני, ובלעדיו „אף פעם לא סוגרים” היה עובר את הבדיקה
+   * ‏הראשונה: אותן שורות בדיוק, במצב `sent`, כן סוגרות.
+   */
+  it("אותן שורות במצב `sent` כן סוגרות אותו", async () => {
+    const now = new Date();
+    await service.sweep(now, { dailyQuota: 5 });
+    await seedMessages(await enrollmentIdOf(OLD_TENANT), "sent");
+
+    await service.sweep(now, { dailyQuota: 5 });
+    const old = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(old?.endedReason).toBe("completed");
+  });
+
+  /*
+   * ‎**`status` ו-`sentAt` נבדקים שניהם, וזו אינה כפילות.**
+   *
+   * ‏השדות נכתבים יחד, ולכן שורה שנושאת `sent` בלי חותמת זמן היא
+   * ‏שורה שמשהו בה השתבש — כתיבה חלקית, מיגרציה, תיקון ידני. בדיקה
+   * ‏של אחד מהם בלבד הופכת כל אי-התאמה כזו לסגירה בלתי הפיכה, וזה
+   * ‏הכיוון שאסור לטעות בו.
+   */
+  it("שורה שנושאת `sent` בלי חותמת זמן אינה נספרת", async () => {
+    const now = new Date();
+    await service.sweep(now, { dailyQuota: 5 });
+    const enrollmentId = await enrollmentIdOf(OLD_TENANT);
+    await seedMessages(enrollmentId, "sent");
+    await direct.$executeRawUnsafe(
+      `UPDATE funnel_messages SET sent_at = NULL WHERE enrollment_id = $1`,
+      enrollmentId,
+    );
+
+    await service.sweep(now, { dailyQuota: 5 });
+    const old = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(old?.endedAt).toBeNull();
+  });
+});
+
+/**
+ * ‎**הגדרה שלא הצלחנו לקרוא עוצרת סגירה — מקצה לקצה.**
+ *
+ * ‏שורת שלב עם שעון לא מוכר נזרקת ב-`FunnelStageService`, ולכן היא
+ * ‏נעדרת מרשימת השלבים שמגיעה ל-`funnelExitReason` — ואז „לא נשאר
+ * ‏שלב שיכול לצאת” נכון על מה שקראנו בלבד. סגירה היא בלתי הפיכה,
+ * ‏ולכן אין סוגרים על תמונה חלקית (ביקורת Codex, P1).
+ *
+ * ‏הבדיקה כאן ולא ביחידה כי היא מודדת את **החיבור**: שהשירות אכן
+ * ‏מדווח על הפסולה, ושהסבב אכן מעביר את הדיווח הלאה.
+ */
+describe("שורת שלב פסולה עוצרת סגירה", () => {
+  const BAD_STAGE_ID = "01M1FNNLTESTBADSTAGE000001";
+
+  async function withBadStage(run: () => Promise<void>): Promise<void> {
+    await direct.$executeRawUnsafe(
+      `INSERT INTO funnel_stages
+         (id, track, key, title, clock, offset_days, audience, channels, sort_order, updated_at)
+       VALUES ($1, 'conversion', 'zz_bad_clock', 'שעון שאינו קיים', 'lunar', 99,
+               '{always}', '{email}', 999, now())`,
+      BAD_STAGE_ID,
+    );
+    try {
+      await run();
+    } finally {
+      await direct.$executeRawUnsafe(`DELETE FROM funnel_stages WHERE id = $1`, BAD_STAGE_ID);
+    }
+  }
+
+  it("כל השלבים התקפים נשלחו — והרישום נשאר פתוח", async () => {
+    await withBadStage(async () => {
+      const now = new Date();
+      await service.sweep(now, { dailyQuota: 5 });
+      const enrollmentId = (
+        await direct.$queryRawUnsafe<{ id: string }[]>(
+          `SELECT id FROM funnel_enrollments WHERE tenant_id = $1 LIMIT 1`,
+          OLD_TENANT,
+        )
+      )[0]!.id;
+      for (const [index, key] of [
+        "d0_first_action",
+        "d1_empty_screen",
+        "d3_one_feature",
+        "d5_intro_call",
+        "d8_what_we_did",
+        "d11_before_money",
+        "d17_data_waiting",
+        "trial_heads_up",
+        "trial_closing",
+        "trial_last_call",
+      ].entries()) {
+        await direct.$executeRawUnsafe(
+          `INSERT INTO funnel_messages
+             (id, tenant_id, enrollment_id, track, stage_key, user_id, destination, channel,
+              token, status, sent_at, updated_at)
+           VALUES ($1, $2, $3, 'conversion', $4, $5, 'a@b.com', 'email', $6, 'sent', now(), now())`,
+          `01M1FNNLTESTBAD${String(index).padStart(11, "0")}`,
+          OLD_TENANT,
+          enrollmentId,
+          key,
+          "01M1FNNLTESTUSER0000000001",
+          `bad-stage-token-${index}`,
+        );
+      }
+
+      await service.sweep(now, { dailyQuota: 5 });
+      const old = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+      expect(old?.endedAt, "נסגר למרות שורת שלב שלא נקראה").toBeNull();
+    });
+  });
+
+  /*
+   * ‏והצד השני: ברגע שהשורה הפסולה נעלמת, אותו מצב בדיוק כן נסגר.
+   * ‏בלי זה „אף פעם לא סוגרים” היה עובר את הבדיקה שמעל.
+   */
+  it("בלי השורה הפסולה — אותו מצב נסגר כ„מוצה”", async () => {
+    const now = new Date();
+    await service.sweep(now, { dailyQuota: 5 });
+    const enrollmentId = (
+      await direct.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id FROM funnel_enrollments WHERE tenant_id = $1 LIMIT 1`,
+        OLD_TENANT,
+      )
+    )[0]!.id;
+    for (const [index, key] of [
+      "d0_first_action",
+      "d1_empty_screen",
+      "d3_one_feature",
+      "d5_intro_call",
+      "d8_what_we_did",
+      "d11_before_money",
+      "d17_data_waiting",
+      "trial_heads_up",
+      "trial_closing",
+      "trial_last_call",
+    ].entries()) {
+      await direct.$executeRawUnsafe(
+        `INSERT INTO funnel_messages
+           (id, tenant_id, enrollment_id, track, stage_key, user_id, destination, channel,
+            token, status, sent_at, updated_at)
+         VALUES ($1, $2, $3, 'conversion', $4, $5, 'a@b.com', 'email', $6, 'sent', now(), now())`,
+        `01M1FNNLTESTGOOD${String(index).padStart(10, "0")}`,
+        OLD_TENANT,
+        enrollmentId,
+        key,
+        "01M1FNNLTESTUSER0000000001",
+        `good-stage-token-${index}`,
+      );
+    }
+
+    await service.sweep(now, { dailyQuota: 5 });
+    const old = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(old?.endedReason).toBe("completed");
+  });
+});
+
 describe("שלמות בין הודעה לרישום", () => {
   it("‏‎INSERT עם רישום של משרד אחר נדחה במסד", async () => {
     await service.sweep(new Date(), { dailyQuota: 5 });
