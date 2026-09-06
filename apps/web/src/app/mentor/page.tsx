@@ -174,6 +174,8 @@ interface PracticeDto {
   counterpartName: string;
   turns: PracticeTurn[];
   agentTurns: number;
+  /** הדמות סיימה — אין עוד תורים, רק משוב */
+  closed: boolean;
   feedback: MentorPracticeFeedback | null;
   createdAt: string;
   endedAt: string | null;
@@ -1712,7 +1714,6 @@ function PracticeSection({ mentorName }: { mentorName: string }) {
   );
   const [text, setText] = useState("");
   const [busy, setBusy] = useState<"start" | "reply" | "finish" | null>(null);
-  const [closing, setClosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -1744,7 +1745,6 @@ function PracticeSection({ mentorName }: { mentorName: string }) {
     if (busy !== null) return;
     setBusy("start");
     setError(null);
-    setClosing(false);
     try {
       const res = await apiPost<PracticeDto>("/mentor/practice", { scenario });
       setActive(res);
@@ -1773,6 +1773,7 @@ function PracticeSection({ mentorName }: { mentorName: string }) {
         closing: boolean;
         agentTurns: number;
       }>(`/mentor/practice/${active.id}/reply`, { text: trimmed });
+      // הסגירה נשמרת בשרת — כך גם אחרי רענון אין עוד תורים, רק משוב
       setActive((prev) =>
         prev === null
           ? prev
@@ -1780,9 +1781,9 @@ function PracticeSection({ mentorName }: { mentorName: string }) {
               ...prev,
               turns: [...prev.turns, res.turn],
               agentTurns: res.agentTurns,
+              closed: res.closing,
             },
       );
-      setClosing(res.closing || res.agentTurns >= PRACTICE_MAX_AGENT_TURNS);
     } catch (err: unknown) {
       setError(
         err instanceof ApiError
@@ -1820,8 +1821,11 @@ function PracticeSection({ mentorName }: { mentorName: string }) {
   }
 
   const latest = recent?.[0];
+  const closing = active?.closed === true;
   const canReply =
-    active !== null && active.agentTurns < PRACTICE_MAX_AGENT_TURNS;
+    active !== null &&
+    !active.closed &&
+    active.agentTurns < PRACTICE_MAX_AGENT_TURNS;
 
   return (
     <section className="mt-8" aria-labelledby="mentor-practice-heading">

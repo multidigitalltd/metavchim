@@ -878,12 +878,15 @@ export function mentorWeeklyReview(
   const somethingWaits = (signals.insights?.missedUnreturned ?? 0) > 0;
   // וכך גם רעיון שסומן „עזר לי” ונמדד — הבטחנו לומר אם המספר זז
   const somethingMeasured = (signals.ideaOutcomes?.length ?? 0) > 0;
+  // תרגול הוא מאמץ — שבוע שבו רק תרגלו עדיין מקבל סיכום (§7.3)
+  const somethingPracticed = (signals.practice?.count ?? 0) > 0;
   if (
     wins.length === 0 &&
     goals.length === 0 &&
     noActivity &&
     !somethingWaits &&
-    !somethingMeasured
+    !somethingMeasured &&
+    !somethingPracticed
   )
     return null;
 

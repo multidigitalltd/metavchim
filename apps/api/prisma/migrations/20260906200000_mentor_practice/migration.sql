@@ -14,6 +14,8 @@ CREATE TABLE "mentor_practices" (
   "turns"       JSONB         NOT NULL DEFAULT '[]'::jsonb,
   -- כמה תורים של המתווך — למכסה היומית ולתקרה של תרגול
   "agent_turns" SMALLINT      NOT NULL DEFAULT 0,
+  -- הדמות סיימה את השיחה (השתכנעה או ויתרה) — אין עוד תורים, רק משוב
+  "closed"      BOOLEAN       NOT NULL DEFAULT false,
   -- MentorPracticeFeedback — NULL עד שביקשו משוב
   "feedback"    JSONB,
   "score"       SMALLINT,

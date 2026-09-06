@@ -18,6 +18,7 @@ interface Row {
   agentTurns: number;
   feedback: unknown;
   score: number | null;
+  closed: boolean;
   createdAt: Date;
   endedAt: Date | null;
 }
@@ -34,12 +35,15 @@ function harness(opts: {
   let call = 0;
   const tx = {
     mentorPractice: {
-      findFirst: async (args: { where: Record<string, unknown> }) =>
-        rows.find(
+      // כמו בסיס אמיתי: הקורא מקבל צילום, לא הפניה לשורה החיה
+      findFirst: async (args: { where: Record<string, unknown> }) => {
+        const row = rows.find(
           (r) =>
             (args.where["id"] === undefined || r.id === args.where["id"]) &&
             (!("endedAt" in args.where) || r.endedAt === args.where["endedAt"]),
-        ) ?? null,
+        );
+        return row === undefined ? null : { ...row };
+      },
       findMany: async (args: { where: Record<string, unknown> }) =>
         rows.filter((r) =>
           "endedAt" in args.where && args.where["endedAt"] !== null
@@ -53,13 +57,36 @@ function harness(opts: {
           ...args.data,
           feedback: null,
           score: null,
+          closed: false,
           createdAt: new Date("2026-09-08T08:00:00.000Z"),
           endedAt: null,
         };
         rows.push(row);
         return row;
       },
-      updateMany: async () => ({ count: 0 }),
+      // כתיבה מותנית כמו ב-Postgres: רק שורה שעונה לכל התנאים מתעדכנת
+      updateMany: async (args: {
+        where: {
+          id?: string;
+          agentTurns?: number;
+          closed?: boolean;
+          endedAt?: null;
+        };
+        data: Partial<Row>;
+      }) => {
+        const hits = rows.filter(
+          (r) =>
+            (args.where.id === undefined || r.id === args.where.id) &&
+            (args.where.agentTurns === undefined ||
+              r.agentTurns === args.where.agentTurns) &&
+            (args.where.closed === undefined ||
+              r.closed === args.where.closed) &&
+            (!("endedAt" in args.where) || r.endedAt === null),
+        );
+        for (const r of hits) Object.assign(r, args.data);
+        return { count: hits.length };
+      },
+      count: async () => rows.filter((r) => r.feedback !== null).length,
       update: async (args: { where: { id: string }; data: Partial<Row> }) => {
         const row = rows.find((r) => r.id === args.where.id)!;
         Object.assign(row, args.data);
@@ -143,6 +170,40 @@ describe("MentorPracticeService — בלי מודל", () => {
     ).rejects.toThrow("התרגול נגמר");
   });
 
+  it("הסגירה נשמרת: אחרי שהדמות סיימה אין עוד תורים גם אחרי רענון — רק משוב", async () => {
+    const h = harness({ configured: false });
+    const started = await h.run(() => h.svc.start("lead_cold"));
+    for (const line of ["איזה אזור?", "תקציב?", "אשלח שניים-שלושה"])
+      await h.run(() => h.svc.reply(started.id, line));
+    expect(h.rows[0]?.closed).toBe(true);
+    expect((await h.run(() => h.svc.overview())).active?.closed).toBe(true);
+    await expect(h.run(() => h.svc.reply(started.id, "עוד"))).rejects.toThrow(
+      "הגיע לסופו",
+    );
+    const done = await h.run(() => h.svc.finish(started.id));
+    expect(done.feedback).not.toBeNull();
+  });
+
+  it("שתי לשוניות שעונות יחד — השנייה מקבלת 409 ולא דורסת את הראשונה", async () => {
+    const h = harness({ configured: false });
+    const started = await h.run(() => h.svc.start("seller_price"));
+    const results = await Promise.allSettled([
+      h.run(() => h.svc.reply(started.id, "מה השתנה בדירה?")),
+      h.run(() => h.svc.reply(started.id, "הנה עסקאות דומות")),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([
+      "fulfilled",
+      "rejected",
+    ]);
+    const rejected = results.find(
+      (r) => r.status === "rejected",
+    ) as PromiseRejectedResult;
+    expect(String(rejected.reason)).toContain("כבר נענה");
+    // בשורה: תור אחד של המתווך ותשובה אחת של הדמות — לא ארבעה
+    expect(h.rows[0]?.agentTurns).toBe(1);
+    expect((h.rows[0]?.turns as unknown[]).length).toBe(3);
+  });
+
   it("משוב בלי תור של המתווך — נדחה; תרחיש זר — נדחה", async () => {
     const h = harness({ configured: false });
     const started = await h.run(() => h.svc.start("lead_cold"));
@@ -196,13 +257,16 @@ describe("MentorPracticeService — עם מודל", () => {
     });
   });
 
-  it("מעל המכסה היומית — הדמות עונה מהתשובות הקבועות בלי לקרוא למודל", async () => {
+  it("מעל המכסה היומית — הדמות עונה מהתשובות הקבועות והמשוב מהרשימה, בלי לקרוא למודל", async () => {
     const h = harness({ configured: true, usedToday: 40, values: [] });
     const started = await h.run(() => h.svc.start("commission"));
     const r = await h.run(() =>
       h.svc.reply(started.id, "מה כלול בעמלה — משא ומתן."),
     );
     expect(r.source).toBe("fallback");
+    // גם המשוב הוא קריאה למודל — באותו תקציב (ביקורת Codex)
+    const done = await h.run(() => h.svc.finish(started.id));
+    expect(done.feedback?.source).toBe("checklist");
     expect(h.recorded).toEqual([]);
   });
 

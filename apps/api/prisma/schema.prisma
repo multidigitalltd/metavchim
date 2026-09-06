@@ -746,6 +746,8 @@ model MentorPractice {
   turns      Json      @default("[]")
   /// כמה תורים של המתווך — למכסה היומית ולתקרה של תרגול
   agentTurns Int       @default(0) @map("agent_turns") @db.SmallInt
+  /// הדמות סיימה את השיחה — אין עוד תורים, רק משוב
+  closed     Boolean   @default(false)
   /// MentorPracticeFeedback — ריק עד שביקשו משוב
   feedback   Json?
   score      Int?      @db.SmallInt

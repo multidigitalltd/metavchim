@@ -211,6 +211,17 @@ describe("התרגול בסיכום השבועי ובשיחה", () => {
     expect(review?.paragraphs).toContain(
       "תרגלת השבוע 3 שיחות עם המנטור. הציון האחרון: 5 מתוך 5. תרגול הוא מה שהופך ידע להרגל.",
     );
+    // שבוע שבו רק תרגלו — עדיין מקבל סיכום (ביקורת Codex)
+    const onlyPractice = mentorWeeklyReview({
+      weekStart: new Date("2026-09-05T21:00:00.000Z"),
+      wins: [],
+      activity: { ...quiet, offers_sent: 0 },
+      goals: [],
+      practice: { count: 1, lastScore: 3 },
+    });
+    expect(onlyPractice?.paragraphs).toEqual([
+      "תרגלת השבוע שיחה אחת עם המנטור. הציון האחרון: 3 מתוך 5. תרגול הוא מה שהופך ידע להרגל.",
+    ]);
   });
 
   it("הפרומפט של השיחה יודע מה המנטור אמר לנסות", async () => {

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -52,6 +53,8 @@ export interface MentorPracticeDto {
   counterpartName: string;
   turns: PracticeTurn[];
   agentTurns: number;
+  /** הדמות סיימה — אין עוד תורים, רק משוב */
+  closed: boolean;
   feedback: MentorPracticeFeedback | null;
   createdAt: Date;
   endedAt: Date | null;
@@ -79,6 +82,7 @@ interface PracticeRow {
   scenario: string;
   turns: unknown;
   agentTurns: number;
+  closed: boolean;
   feedback: unknown;
   createdAt: Date;
   endedAt: Date | null;
@@ -166,19 +170,10 @@ export class MentorPracticeService {
     const { row, scenario, turns, overCap } = await this.prisma.withTenant(
       async (tx) => {
         const row = await this.openRow(tx, tenantId, userId, id);
-        if (row.agentTurns >= PRACTICE_MAX_AGENT_TURNS)
+        if (row.closed || row.agentTurns >= PRACTICE_MAX_AGENT_TURNS)
           throw new BadRequestException("התרגול הגיע לסופו — עכשיו המשוב.");
         const scenario = practiceScenario(row.scenario);
         if (scenario === null) throw new NotFoundException("תרחיש לא מוכר");
-        const today = jerusalemDayRange(now);
-        const used = await tx.mentorPractice.aggregate({
-          where: {
-            tenantId,
-            userId,
-            createdAt: { gte: today.start, lt: today.end },
-          },
-          _sum: { agentTurns: true },
-        });
         const turns: PracticeTurn[] = [
           ...MentorPracticeService.turnsOf(row.turns),
           { role: "agent", text },
@@ -187,7 +182,7 @@ export class MentorPracticeService {
           row,
           scenario,
           turns,
-          overCap: (used._sum.agentTurns ?? 0) >= PRACTICE_DAILY_CAP,
+          overCap: await this.overCap(tx, tenantId, userId, now),
         };
       },
     );
@@ -220,12 +215,33 @@ export class MentorPracticeService {
     };
     const closing =
       reply?.closing ?? agentTurns >= Math.min(3, PRACTICE_MAX_AGENT_TURNS);
-    await this.prisma.withTenant((tx) =>
-      tx.mentorPractice.update({
-        where: { id: row.id },
-        data: { turns: [...turns, turn] as object[], agentTurns },
+    /*
+     * כתיבה מותנית: רק אם מספר התורים לא זז מאז שקראנו והתרגול עוד
+     * פתוח. שתי לשוניות שעונות יחד — השנייה מקבלת 409 ולא דורסת את
+     * התור של הראשונה בשקט (ביקורת Codex). הסגירה נשמרת: אחרי רענון
+     * אין עוד תורים, רק משוב.
+     */
+    const written = await this.prisma.withTenant((tx) =>
+      tx.mentorPractice.updateMany({
+        where: {
+          id: row.id,
+          tenantId,
+          userId,
+          agentTurns: row.agentTurns,
+          closed: false,
+          endedAt: null,
+        },
+        data: {
+          turns: [...turns, turn] as object[],
+          agentTurns,
+          closed: closing,
+        },
       }),
     );
+    if (written.count === 0)
+      throw new ConflictException(
+        "התור הזה כבר נענה ממכשיר אחר — לרענן ולהמשיך משם.",
+      );
     return { turn, closing, source, agentTurns };
   }
 
@@ -234,8 +250,8 @@ export class MentorPracticeService {
     const ctx = TenantContext.current();
     if (ctx.billingOnly) throw new ForbiddenException("החשבון במצב חיוב בלבד");
     const { tenantId, userId } = ctx;
-    const { row, scenario, turns, persona } = await this.prisma.withTenant(
-      async (tx) => {
+    const { row, scenario, turns, persona, overCap } =
+      await this.prisma.withTenant(async (tx) => {
         const row = await tx.mentorPractice.findFirst({
           where: { id, tenantId, userId },
         });
@@ -255,14 +271,15 @@ export class MentorPracticeService {
           scenario,
           turns: MentorPracticeService.turnsOf(row.turns),
           persona: resolveMentorPersona(user?.preferences),
+          // המשוב הוא קריאה למודל כמו תור — באותו תקציב יומי (ביקורת Codex)
+          overCap: await this.overCap(tx, tenantId, userId, now),
         };
-      },
-    );
+      });
     if (row.feedback !== null && row.endedAt !== null)
       return MentorPracticeService.dto(row);
     const checklist = practiceChecklist(scenario, turns);
     let feedback: MentorPracticeFeedback | null = null;
-    if (await this.gemini.isConfigured()) {
+    if (!overCap && (await this.gemini.isConfigured())) {
       const detailed = await this.gemini.generateStructuredDetailed(
         buildPracticeFeedbackPrompt(scenario, turns, checklist, persona),
         PRACTICE_FEEDBACK_JSON_SCHEMA,
@@ -338,6 +355,38 @@ export class MentorPracticeService {
     };
   }
 
+  /**
+   * התקציב היומי — תורים של המתווך ומשובים שנוצרו היום, יחד: כל אחד
+   * מהם הוא קריאה למודל מהמפתח של הפלטפורמה.
+   */
+  private async overCap(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    now: Date,
+  ): Promise<boolean> {
+    const today = jerusalemDayRange(now);
+    const [turns, feedbacks] = await Promise.all([
+      tx.mentorPractice.aggregate({
+        where: {
+          tenantId,
+          userId,
+          createdAt: { gte: today.start, lt: today.end },
+        },
+        _sum: { agentTurns: true },
+      }),
+      tx.mentorPractice.count({
+        where: {
+          tenantId,
+          userId,
+          endedAt: { gte: today.start, lt: today.end },
+          feedback: { not: undefined },
+        },
+      }),
+    ]);
+    return (turns._sum.agentTurns ?? 0) + feedbacks >= PRACTICE_DAILY_CAP;
+  }
+
   private async openRow(
     tx: TenantTx,
     tenantId: string,
@@ -375,6 +424,7 @@ export class MentorPracticeService {
       counterpartName: scenario?.counterpart.name ?? "",
       turns: MentorPracticeService.turnsOf(row.turns),
       agentTurns: row.agentTurns,
+      closed: row.closed,
       feedback:
         row.feedback === null || typeof row.feedback !== "object"
           ? null
