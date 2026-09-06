@@ -572,11 +572,7 @@ function GoalsSection({
         ) : null}
       </div>
 
-      {overview.goals.length === 0 ? (
-        <p className="m-0 mb-3" style={{ color: "var(--color-text-muted)" }}>
-          עוד אין יעד. אחד ברור — „5 הצעות בשבוע” — שווה יותר משלושה.
-        </p>
-      ) : (
+      {overview.goals.length === 0 ? null : (
         <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {overview.goals.map((goal) => (
             <li key={goal.id} className="mv-row mv-row--nested items-start">
@@ -1574,16 +1570,15 @@ function ChatSection({
         </div>
       </div>
 
-      {/* שורה אחת מתחת לכרטיס, ולא פסקה מעליו: הגבול של המנטור, והחריג */}
-      <p
-        className="m-0 mt-2 text-[length:var(--type-caption-lg)]"
-        style={{ color: "var(--color-text-muted)" }}
-      >
-        על לקוח או נכס ספציפי — <Link href="/voice">הסוכן האישי</Link>.
-        {available
-          ? ""
-          : " השיחה החופשית לא מוגדרת כרגע, והמנטור עונה מהיעדים ומהסיכום."}
-      </p>
+      {/* שורה אחת מתחת לכרטיס, רק כשיש מה לומר: השיחה החופשית אינה מוגדרת */}
+      {available ? null : (
+        <p
+          className="m-0 mt-2 text-[length:var(--type-caption-lg)]"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          השיחה החופשית לא מוגדרת כרגע, והמנטור עונה מהיעדים ומהסיכום.
+        </p>
+      )}
     </section>
   );
 }
