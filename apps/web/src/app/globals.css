@@ -3499,12 +3499,19 @@ a.mv-bar-row:focus-visible {
  * ה-inline הופכת אותה נכון ב-RTL: ההודעות שלי בצד אחד, של הסוכן
  * בצד השני, כמו בכל צ'אט.
  */
+/*
+ * בועת שיחה — טקסט שקוראים, לא תווית. גוף מלא (15.5px) ומשקל 500,
+ * בצבע הטקסט המלא: במשקל 400 על רקע לבן פסקה של המנטור נראתה
+ * דקה וקשה לקריאה (בקשת המשתמש). אותו כלל למנטור ולסוכן.
+ */
 .mv-chat-bubble {
   max-width: 88%;
   border-radius: 16px;
-  padding: 10px 14px;
-  font-size: var(--type-body-sm);
-  line-height: 1.55;
+  padding: 11px 15px;
+  font-size: var(--type-body);
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--color-text);
   overflow-wrap: anywhere;
 }
 .mv-chat-user {
