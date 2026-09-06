@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { IconX } from "./icons";
+import { useUserDismissed } from "@/lib/dismissed-panels";
 import { useDismissedToday } from "./notice";
 import { openSupport } from "./support-button";
 
@@ -15,11 +16,13 @@ import { openSupport } from "./support-button";
  * שימוש באותו רכיב לשני הדברים היה גורם להודעת „נשמר בהצלחה”
  * להיראות כמו קמפיין.
  *
- * ## למה איקס ולא היעלמות אוטומטית
+ * ## שתי סגירות — ליום, ולתמיד
  *
- * מי שקרא וסגר אמר „הבנתי”. הסגירה שווה ליום (`useDismissedToday`)
- * ולא לצמיתות: הכרזה על יכולת מרכזית ראויה להזדמנות שנייה למי
- * שסגר בטעות בדרך לפגישה, אבל לא להיות מטרד קבוע.
+ * האיקס סוגר ליום (`useDismissedToday`): הכרזה על יכולת מרכזית
+ * ראויה להזדמנות שנייה למי שסגר בטעות בדרך לפגישה. „לא להציג יותר”
+ * נשמר **למשתמש** בשרת (`useUserDismissed`, כמו פאנלי העזרה) ולכן
+ * מסתיר בכל המכשירים — עד ההכרזה הבאה: המפתח הוא של ההכרזה, וכרטיס
+ * חדש מתחיל מאפס (בקשת המשתמש).
  *
  * ## הכרזה אחת, החדשה
  *
@@ -48,7 +51,8 @@ export function SystemUpdate({
 
 function MentorLaunch(): React.JSX.Element | null {
   const [dismissed, dismiss] = useDismissedToday("mentor-launch");
-  if (dismissed) return null;
+  const forever = useUserDismissed("announce-mentor-launch");
+  if (dismissed || forever.hidden) return null;
 
   return (
     <section className="mv-announce" aria-labelledby="announce-mentor-title">
@@ -73,9 +77,21 @@ function MentorLaunch(): React.JSX.Element | null {
           יעד לשבוע, סיכום במוצאי שבת, ושיחה על מה לשפר — רק מולך, אף פעם לא מול
           אחרים. גם בוואטסאפ.
         </p>
-        <Link href="/mentor" className="mv-announce-cta inline-flex no-underline">
-          לפגוש את המנטור
-        </Link>
+        <div className="mv-announce-actions">
+          <Link
+            href="/mentor"
+            className="mv-announce-cta inline-flex no-underline"
+          >
+            לפגוש את המנטור
+          </Link>
+          <button
+            type="button"
+            className="mv-announce-dismiss"
+            onClick={forever.never}
+          >
+            לא להציג יותר
+          </button>
+        </div>
       </div>
 
       {/*
@@ -103,7 +119,8 @@ function MentorLaunch(): React.JSX.Element | null {
 
 function WhatsAppLaunch(): React.JSX.Element | null {
   const [dismissed, dismiss] = useDismissedToday("wa-agent-launch");
-  if (dismissed) return null;
+  const forever = useUserDismissed("announce-wa-agent-launch");
+  if (dismissed || forever.hidden) return null;
 
   return (
     <section className="mv-announce" aria-labelledby="announce-wa-title">
@@ -125,16 +142,27 @@ function WhatsAppLaunch(): React.JSX.Element | null {
           הסוכן הקולי עובד עכשיו גם בוואטסאפ
         </h2>
         <p className="mv-announce-text">
-          אפשר לנהל את כל המערכת מהוואטסאפ — הסוכן מקבל הקלטות, מבין מה ביקשתם ומבצע
-          בשבילכם. בלי להיכנס לדשבורד.
+          אפשר לנהל את כל המערכת מהוואטסאפ — הסוכן מקבל הקלטות, מבין מה ביקשתם
+          ומבצע בשבילכם. בלי להיכנס לדשבורד.
         </p>
-        <button
-          type="button"
-          className="mv-announce-cta"
-          onClick={() => openSupport({ kind: "question", text: WA_REQUEST_TEXT })}
-        >
-          להצטרפות לשירות
-        </button>
+        <div className="mv-announce-actions">
+          <button
+            type="button"
+            className="mv-announce-cta"
+            onClick={() =>
+              openSupport({ kind: "question", text: WA_REQUEST_TEXT })
+            }
+          >
+            להצטרפות לשירות
+          </button>
+          <button
+            type="button"
+            className="mv-announce-dismiss"
+            onClick={forever.never}
+          >
+            לא להציג יותר
+          </button>
+        </div>
       </div>
 
       {/*

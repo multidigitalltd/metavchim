@@ -5828,6 +5828,31 @@ a.mv-bar-row:focus-visible {
   background: var(--color-primary-hover);
 }
 /*
+ * שורת הפעולות: הקריאה לפעולה ולידה „לא להציג יותר” — כפתור טקסט,
+ * לא כפתור שני. שני כפתורים מלאים היו שוקלים אותו דבר, והבחירה
+ * המרכזית היא לפגוש את היכולת, לא להיפטר מההודעה.
+ */
+.mv-announce-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+}
+.mv-announce-dismiss {
+  background: transparent;
+  border: none;
+  padding: 6px 0;
+  font-size: var(--type-caption-lg);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.mv-announce-dismiss:hover {
+  color: var(--color-text);
+}
+/*
  * האיקס בפינה הפותחת של השורה — היכן שהעין מסיימת לקרוא ב-RTL.
  * `inset-inline-end` ולא `left`: המסך הוא RTL, והמיקום חייב להתהפך
  * יחד איתו.
