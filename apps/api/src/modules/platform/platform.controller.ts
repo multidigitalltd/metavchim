@@ -895,21 +895,33 @@ export class PlatformController {
        */
       if (all.length <= 1) throw new BadRequestException("זהו המסלול היחיד — אי אפשר למחוק אותו");
 
-      const moved = await tx.tenant.updateMany({
-        where: { plan: code },
-        data: { plan: body.moveTo },
-      });
       /*
-       * המנוי ולא רק המשרד. `subscriptions.plan_code` הוא מה
-       * ש-RenewalService מתמחר לפיו, והוא מדלג על מסלול שאינו מוכר —
-       * כלומר לקוח משלם היה מפסיק להתחדש בשקט בזמן שהמשרד שלו נראה
-       * תקין לגמרי (ביקורת Codex).
+       * ‎**המנוי לפני המשרד, וזה סדר הנעילות ולא סדר קריאה.**
+       *
+       * ‏`UPDATE` נועל את השורות שהוא נוגע בהן, ולכן שתי השורות כאן
+       * ‏הן נעילה על `subscriptions` ואז על `tenants`. הסדר ההפוך —
+       * ‏שהיה כאן — סוגר מעגל מול כל מסלול שנועל מנוי ואז דייר:
+       * ‏`switchToFreePlan` ב-`BillingService`, ו-`close` של המשפך.
+       * ‏מחיקת מסלול שמתנגשת עם סבב המשפך על משרד באותו מסלול הייתה
+       * ‏מפילה אחת מהשתיים ב-deadlock (ביקורת Codex, P2).
+       *
+       * ‏„שורת המשרד אחרונה” הוא הכלל הכתוב ב-`common/locks.ts`,
+       * ‏והמסלול הזה היה החריג היחיד לו.
+       *
+       * ‏המנוי אינו רק מראה של המשרד: `subscriptions.plan_code` הוא
+       * ‏מה ש-RenewalService מתמחר לפיו, והוא מדלג על מסלול שאינו
+       * ‏מוכר — כלומר לקוח משלם היה מפסיק להתחדש בשקט בזמן שהמשרד
+       * ‏שלו נראה תקין לגמרי (ביקורת Codex).
        */
       await tx.subscription.updateMany({
         where: { planCode: code },
         data: { planCode: body.moveTo },
       });
       await tx.coupon.updateMany({ where: { planCode: code }, data: { planCode: body.moveTo } });
+      const moved = await tx.tenant.updateMany({
+        where: { plan: code },
+        data: { plan: body.moveTo },
+      });
       /*
        * ההנחה שכבר הובטחה למשרד בהרשמה מוצמדת לקוד המסלול שהיה.
        * בלי העברה היא הייתה מפסיקה לחול — כלומר הבטחה שנשברה בגלל

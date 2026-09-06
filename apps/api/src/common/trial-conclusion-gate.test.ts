@@ -102,7 +102,20 @@ function writeSites(): { file: string; line: number; statement: string; window: 
     const code = codeOnly(file.code);
     const lineOf = (offset: number): number => code.slice(0, offset).split("\n").length;
 
-    for (const match of code.matchAll(/\btenant\.(?:update|create)\s*\(/gu)) {
+    /*
+     * ‎**כל צורות הכתיבה, ולא רק `update` ו-`create`.**
+     *
+     * ‏`updateMany` ו-`upsert` הם צורות רגילות לגמרי במאגר הזה —
+     * ‏`tx.tenant.updateMany` כבר יושב ב-`platform.controller.ts` —
+     * ‏והם היו בלתי נראים לשער: `update|create` דורש `(` צמוד,
+     * ‏ולכן `updateMany(` לא נתפס, ומטריצת ההשמה תופסת רק
+     * ‏`x.trialEndsAt =` ולא שדה בתוך אובייקט. מסלול המוני שהיה
+     * ‏מנקה תאריך ניסיון בלי לרשום את הסיבה היה עובר בשקט (ביקורת
+     * ‏Codex, P2).
+     */
+    for (const match of code.matchAll(
+      /\btenant\.(?:update|updateMany|upsert|create|createMany)\s*\(/gu,
+    )) {
       const region = balancedFrom(code, (match.index ?? 0) + match[0].length - 1);
       /*
        * ‎`[,:]` ולא `:` בלבד: קיצור אובייקט (`trialEndsAt,`) הוא
