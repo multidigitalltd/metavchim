@@ -53,6 +53,7 @@ import { DocumentsPanel } from "../../documents-panel";
 import { EntityTasks, type TaskListResponse } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { OwnerActivity } from "./owner-activity";
+import { PartnerSuggestions } from "./partner-suggestions";
 import { PropertyOccupant, type OccupantContact } from "../property-occupant";
 import { LocationPicker } from "../location-picker-lazy";
 import { ExclusivityPanel } from "../exclusivity-panel";
@@ -1397,6 +1398,14 @@ export default function PropertyDetailPage({
               בקשה שנפלה נראית בדיוק כמו „אין התאמות”, וזו בדיוק
               התקלה ששער `verify:lists` קיים כדי למנוע.
             */}
+            {/*
+              ‏השותפויות יושבות **מעל** ההתאמות ולא בתוכן: הן עונות
+              ‏על שאלה אחרת (מי יחד, ולא מי לבד), והרשימות זרות זו
+              ‏לזו. המקטע כולו אינו קיים לנכס שאינו בטאבו משותף.
+            */}
+            {property.sharedTabu === true ? (
+              <PartnerSuggestions propertyId={property.id} />
+            ) : null}
             {matchesFailed || (matches !== null && matches.length > 0) ? (
               <section className="mv-card mv-card--pad" aria-labelledby="match-summary-heading">
                 <div className="mv-card-head">

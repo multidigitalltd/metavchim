@@ -1035,6 +1035,14 @@ export class PropertiesService {
     maxPrice?: number;
     minRooms?: number;
     maxRooms?: number;
+    /**
+     * ‏רק נכסים בטאבו משותף (`true`) או רק שאינם (`false`).
+     *
+     * ‏העמודה `NOT NULL`, ולכן `false` הוא ערך אמיתי ולא „הכול”:
+     * ‏מסנן „לא משותף” הוא שאלה לגיטימית של מתווך שמחפש נכס למי
+     * ‏שסירב. `undefined` בלבד אינו מוסיף תנאי.
+     */
+    sharedTabu?: boolean;
     cursor?: string;
     /**
      * סדר התוצאות — „תמיד תציג מהזול ליקר” של הסוכן. עמוד ראשון
@@ -1059,6 +1067,7 @@ export class PropertiesService {
             ? { city: { in: query.cities } }
             : {}),
           ...(query.dealType ? { dealType: query.dealType } : {}),
+          ...(query.sharedTabu === undefined ? {} : { sharedTabu: query.sharedTabu }),
           ...(price.min !== undefined || price.max !== undefined
             ? {
                 priceAgorot: {

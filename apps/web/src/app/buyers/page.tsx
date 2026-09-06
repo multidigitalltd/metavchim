@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { bulkContactErasureDisclosure, labelOf } from "@metavchim/shared";
+import {
+  bulkContactErasureDisclosure,
+  labelOf,
+  SHARED_TABU_STANCE_LABELS,
+} from "@metavchim/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
@@ -118,6 +122,13 @@ export default function BuyersPage() {
   const [officeStatus, setOfficeStatus] = useState("");
   const { statuses: officeStatuses } = useOfficeStatuses();
   const [offersFilter, setOffersFilter] = useState("");
+  /*
+   * ‏עמדת הטאבו — בשרת, כמו הבשלות וסטטוס המשרד.
+   *
+   * ‏„מי אישר טאבו משותף” היא השאלה שפותחת עסקה על נכס במושאע, וגם
+   * ‏זו שבונה שותפות; היא צריכה לענות על כל המאגר ולא על מה שנטען.
+   */
+  const [sharedTabu, setSharedTabu] = useState("");
   /** קונה (sale) או שוכר (rent) — הלשונית היא "קונים · שוכרים" */
   const [dealType, setDealType] = useState("");
   /**
@@ -163,7 +174,8 @@ export default function BuyersPage() {
     setItems(null);
     const scope =
       (maturity === "" ? "" : `&maturity=${encodeURIComponent(maturity)}`) +
-      (officeStatus === "" ? "" : `&officeStatus=${encodeURIComponent(officeStatus)}`);
+      (officeStatus === "" ? "" : `&officeStatus=${encodeURIComponent(officeStatus)}`) +
+      (sharedTabu === "" ? "" : `&sharedTabu=${encodeURIComponent(sharedTabu)}`);
     apiGet<{ items: BuyerRow[] }>(
       `/buyers?limit=100${scope}${filtersToQuery({ ...filters, q: "" })}`,
     )
@@ -175,7 +187,7 @@ export default function BuyersPage() {
         ),
       )
       .catch(() => setError("טעינת הקונים נכשלה"));
-  }, [authLoading, filters, maturity, officeStatus]);
+  }, [authLoading, filters, maturity, officeStatus, sharedTabu]);
 
   function toggle(id: string): void {
     setSelected((was) => {
@@ -446,6 +458,7 @@ export default function BuyersPage() {
               setFilters(EMPTY_FILTERS);
               setMaturity("");
               setOffersFilter("");
+              setSharedTabu("");
               setDealType("");
             }}
           >
@@ -489,6 +502,21 @@ export default function BuyersPage() {
                 ["some", "קיבלו הצעות"],
               ]}
             />
+            {/*
+              ‏„טרם נשאל” אינו אפשרות בסינון בכוונה: הוא אינו עמדה
+              ‏אלא היעדרה, ומי שמחפש אותו מחפש בעצם „את מי עוד לא
+              ‏שאלתי” — שאלה אחרת, שמקומה במונה השלמות של הכרטיס.
+            */}
+            <FilterSelect
+              label="סינון לפי טאבו משותף"
+              value={sharedTabu}
+              onChange={setSharedTabu}
+              allLabel="כל העמדות"
+              options={[
+                ["accepts", SHARED_TABU_STANCE_LABELS.accepts],
+                ["refuses", SHARED_TABU_STANCE_LABELS.refuses],
+              ]}
+            />
           </FilterBar>
 
           {visible.length === 0 ? (
@@ -503,6 +531,7 @@ export default function BuyersPage() {
                   setFilters(EMPTY_FILTERS);
                   setMaturity("");
                   setOffersFilter("");
+                  setSharedTabu("");
                   setDealType("");
                 }}
               >

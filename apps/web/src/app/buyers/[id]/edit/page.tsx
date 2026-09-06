@@ -4,7 +4,7 @@ import { useEffect, useState, use, type FormEvent } from "react";
 import { NeighborhoodInput } from "../../../neighborhood-input";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { FloorPreference } from "@metavchim/shared";
+import type { FloorPreference, SharedTabuStance } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
 import { DictateFor } from "../../../dictation-field";
@@ -15,6 +15,7 @@ import { useRequireAuth } from "@/lib/use-auth";
 import { EntryTimingField } from "../../../properties/entry-timing-field";
 import { FeatureRequirements } from "../../feature-requirements";
 import { FloorPreferenceField, readFloorPreference } from "../../floor-preference-field";
+import { SharedTabuField, readSharedTabuStance } from "../../shared-tabu-field";
 import { PropertyTypesField, readPropertyTypes } from "../../property-types-field";
 import { SearchAreas } from "../../search-areas";
 import type { SearchArea } from "@metavchim/shared";
@@ -54,6 +55,7 @@ interface BuyerRequirements {
   roomsMax?: number;
   areaSqmMin?: number;
   floorPreference?: FloorPreference;
+  sharedTabu?: SharedTabuStance;
   features: Record<string, "must" | "nice">;
   searchAreas?: SearchArea[];
   entryType?: string;
@@ -161,6 +163,8 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
           areaSqmMin: num("areaSqmMin"),
           /* „לא משנה” = חסר, ולכן השדה יורד מהדרישות ואינו נשמר ריק */
           floorPreference: readFloorPreference(f.get("floorPreference")),
+          /* ריק = טרם נשאל — היעדר, ולא סירוב שאיש לא אמר */
+          sharedTabu: readSharedTabuStance(f.get("sharedTabu")),
           /*
              ריק = "לא נבחר", ונשלח כ-undefined כדי שהשדה יוסר מהדרישות
              במקום להישמר כמחרוזת ריקה שאף בדיקה לא מזהה.
@@ -309,6 +313,10 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
             </div>
             <FloorPreferenceField
               {...(req.floorPreference === undefined ? {} : { initial: req.floorPreference })}
+              disabled={submitting}
+            />
+            <SharedTabuField
+              {...(req.sharedTabu === undefined ? {} : { initial: req.sharedTabu })}
               disabled={submitting}
             />
             {/*

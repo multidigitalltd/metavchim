@@ -916,6 +916,20 @@ model Buyer {
   /// יוכל לצרף אותו למועמדים בלי לפתוח את ה-JSON בכל שורה.
   /// אינדקס חלקי במיגרציה 20260815200000.
   hasSearchAreas     Boolean   @default(false) @map("has_search_areas")
+  /// עמדת הקונה כלפי רישום בטאבו משותף: `accepts` · `refuses`.
+  ///
+  /// `null` = **טרם נשאל**, וזה המצב של כל הכרטיסים שקדמו לשדה.
+  /// קריאה שלו כסירוב הייתה מסתירה נכסים בטאבו משותף מכל הקונים
+  /// הקיימים ברגע אחד; קריאה כהסכמה הייתה ממציאה הסכמה משפטית
+  /// בשם הלקוח. לכן הוא נשאר ידוע-כלא-ידוע, ומוצג ככזה.
+  ///
+  /// **נגזר מ-`requirements`** ונכתב יחד איתו, כמו `hasSearchAreas`
+  /// — כדי שהסינון והמנוע לא יפתחו JSON בכל שורה.
+  ///
+  /// האינדקס עליו **חלקי** (רק שורות שנשאלו) ולכן מוגדר במיגרציה
+  /// 20260906200000 בלבד — Prisma אינו יודע לתאר אינדקס חלקי,
+  /// והכרזה כאן הייתה מייצרת סחיפה מול המסד.
+  sharedTabuStance   String?   @map("shared_tabu_stance") @db.VarChar(10)
   financing          String    @default("unknown") @db.VarChar(20)
   maturity           String    @default("interested") @db.VarChar(20)
   maturityOverridden Boolean   @default(false) @map("maturity_overridden")

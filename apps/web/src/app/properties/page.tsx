@@ -118,6 +118,24 @@ function statusDomain(status: string): string {
  */
 const GRID = "2.1fr 0.85fr 1fr 1.25fr 1fr 0.95fr 0.9fr";
 
+/**
+ * ‏שני הערכים, ושניהם שאלה אמיתית: „הראה לי רק מושאע” (משקיע,
+ * ‏או קונה שמחפש מחיר) ו„הראה לי רק רישום נפרד” (מי שסירב, או מי
+ * ‏שהמימון שלו לא יאפשר). „הכל” הוא היעדר הפרמטר ולא ערך שלישי.
+ */
+const SHARED_TABU_FILTER_OPTIONS: [string, string][] = [
+  ["true", "טאבו משותף"],
+  ["false", "רישום נפרד"],
+];
+
+/*
+ * ‏מחרוזות מפורשות ולא `Boolean(value)`: השרת דוחה כל דבר שאינו
+ * ‏"true"/"false", ומחרוזת ריקה פשוט אינה מוסיפה פרמטר.
+ */
+function sharedTabuQuery(value: string): string {
+  return value === "" ? "" : `&sharedTabu=${value}`;
+}
+
 const SORTS: [string, string][] = [
   ["newest", "חדשים קודם"],
   ["price_desc", "מחיר גבוה→נמוך"],
@@ -415,6 +433,14 @@ export default function PropertiesPage() {
   const [status, setStatus] = useState("");
   const [type, setType] = useState("");
   const [sort, setSort] = useState("newest");
+  /*
+   * ‎**„טאבו משותף” מסונן בשרת, ולא כצ׳יפ על מה שנטען.**
+   *
+   * ‏זו כל הנקודה שלו: נכסים במושאע הם מיעוט, ולכן דווקא הם נופלים
+   * ‏מחוץ למאה הראשונות. צ׳יפ מקומי היה מציג „אין נכסים בטאבו
+   * ‏משותף” למשרד שיש לו כמה, וזו תשובה גרועה משתיקה.
+   */
+  const [sharedTabu, setSharedTabu] = useState("");
   const [filters, setFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
   /*
    * הנכסים שסומנו להעלאה מרוכזת לרשת — Set של מזהים, מאותה סיבה
@@ -436,14 +462,14 @@ export default function PropertiesPage() {
     if (authLoading) return;
     setItems(null);
     apiGet<{ items: PropertyRow[]; nextCursor?: string | null }>(
-      `/properties?limit=100${filtersToQuery(filters)}`,
+      `/properties?limit=100${filtersToQuery(filters)}${sharedTabuQuery(sharedTabu)}`,
     )
       .then((res) => {
         setItems(apiList(res.items, "items"));
         setTruncated(res.nextCursor !== undefined && res.nextCursor !== null);
       })
       .catch(() => setError("טעינת הנכסים נכשלה"));
-  }, [authLoading, filters]);
+  }, [authLoading, filters, sharedTabu]);
 
   /* צ'יפי הערים נבנים מהנתונים עצמם — הערים שבאמת יש בהן נכסים */
   const cities = useMemo(() => {
@@ -609,7 +635,7 @@ export default function PropertiesPage() {
     setItems(null);
     try {
       const fresh = await apiGet<{ items: PropertyRow[]; nextCursor?: string | null }>(
-        `/properties?limit=100${filtersToQuery(filters)}`,
+        `/properties?limit=100${filtersToQuery(filters)}${sharedTabuQuery(sharedTabu)}`,
       );
       setItems(apiList(fresh.items, "items"));
       setTruncated(fresh.nextCursor !== undefined && fresh.nextCursor !== null);
@@ -625,6 +651,7 @@ export default function PropertiesPage() {
     city !== "הכל" ||
     status !== "" ||
     type !== "" ||
+    sharedTabu !== "" ||
     sort !== "newest";
 
   return (
@@ -888,6 +915,13 @@ export default function PropertiesPage() {
                   allLabel="כל הסוגים"
                   options={Object.entries(PROPERTY_TYPE_LABELS)}
                 />
+                <FilterSelect
+                  label="סינון לפי רישום"
+                  value={sharedTabu}
+                  onChange={setSharedTabu}
+                  allLabel="כל סוגי הרישום"
+                  options={SHARED_TABU_FILTER_OPTIONS}
+                />
                 <SortSelect value={sort} onChange={setSort} options={SORTS} />
                 {/*
                   ‎**ניקוי הסינון נשאר**, אף שאינו בצילום: בלעדיו
@@ -903,6 +937,7 @@ export default function PropertiesPage() {
                       setCity("הכל");
                       setStatus("");
                       setType("");
+                      setSharedTabu("");
                       setSort("newest");
                     }}
                   >

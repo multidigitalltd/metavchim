@@ -439,6 +439,42 @@ if (!/childrenActive=\{city !== "הכל"\}/u.test(PROPERTIES)) {
   problems.push("עמוד הנכסים אינו מדווח על עיר שנבחרה (`childrenActive`)");
 }
 
+/* ==========================================================================
+ * ‎**טאבו משותף — הסינון בשרת, והשותפויות על הכרטיס.**
+ *
+ * ‏שתי הכרעות שנשברות בשקט אם מישהו „מפשט” אותן:
+ *
+ * ‏א. הסינון חייב לרוץ **בשרת**. נכסים במושאע הם מיעוט, ולכן דווקא
+ * ‏הם נופלים מחוץ למאה הראשונות שנטענות; צ׳יפ שמסנן את מה שכבר
+ * ‏בזיכרון היה מציג „אין” למשרד שיש לו כמה. הפרמטר ותלות ה-`useEffect`
+ * ‏נבדקים בנפרד: בלי התלות המסנן מוצג ואינו טוען מחדש.
+ *
+ * ‏ב. מקטע השותפויות מותנה ב-`sharedTabu` של הנכס. בלי התנאי כל
+ * ‏כרטיס נכס היה שולח בקשה שתחזור ריקה, ומציג „אין שותפויות” על
+ * ‏נכס שלא יכולות להיות לו.
+ * ========================================================================== */
+
+if (!/&sharedTabu=\$\{value\}/u.test(PROPERTIES)) {
+  problems.push("סינון „טאבו משותף” בעמוד הנכסים אינו נשלח לשרת — הוא מסנן רק את מה שנטען");
+}
+if (!/\}, \[authLoading, filters, sharedTabu\]\);/u.test(PROPERTIES)) {
+  problems.push("‎`sharedTabu` אינו בתלויות הטעינה בעמוד הנכסים — הסינון נבחר ואינו טוען מחדש");
+}
+if (!/options=\{SHARED_TABU_FILTER_OPTIONS\}/u.test(PROPERTIES)) {
+  problems.push("בורר „סינון לפי רישום” נעלם מעמוד הנכסים");
+}
+
+const PROPERTY_CARD = read("../src/app/properties/[id]/page.tsx");
+if (
+  !/\{property\.sharedTabu === true \? \(\s*<PartnerSuggestions propertyId=\{property\.id\} \/>/u.test(
+    PROPERTY_CARD,
+  )
+) {
+  problems.push(
+    "מקטע „שותפויות אפשריות” אינו מותנה ב-`property.sharedTabu` — הוא ייטען גם לנכס שאין לו שותפויות",
+  );
+}
+
 if (problems.length > 0) {
   console.error("✗ הכרעות פריסה שנשברו:\n");
   for (const problem of problems) console.error(`  ${problem}`);
@@ -448,6 +484,7 @@ if (problems.length > 0) {
   console.error("    • „הבנתי” — מסתיר עד מחר, ולא לתמיד.");
   console.error("    • חיפוש נכס — שדה בלי טקסט רפאים, וצ׳יפי ערים בתוך „עוד סינון”.");
   console.error("    • המנטור   — אומר כשהספירה חלקית, ולא מציג אותה כמלאה.");
+  console.error("    • טאבו משותף — הסינון בשרת, והשותפויות רק לנכס שהוא כזה.");
   console.error("  §24 של חבילת העיצוב מתארת סדר אחר לדשבורד, והיא מתוקנת");
   console.error("  ב-docs/design-handoff/DESIGN-SYSTEM-4-layout-and-rules.md.");
   process.exit(1);

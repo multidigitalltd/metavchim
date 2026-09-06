@@ -13,6 +13,7 @@ import {
 import { bestLocationMatch } from "./location-text.js";
 import { bestAreaMatch, describeDistance } from "./proximity.js";
 import { CUSTOM_FEATURE_PREFIX, customFeatureMap, isCustomFeature } from "./custom-features.js";
+import { sharedTabuFit } from "./shared-tabu.js";
 
 export interface MatchResult {
   /** 0–100 */
@@ -304,6 +305,22 @@ export function scoreMatch(
 ): MatchResult {
   const parts: ScoreComponent[] = [];
   let excluded = false;
+
+  /*
+   * --- טאבו משותף — שער, לפני כל קריטריון ---
+   *
+   * ‎**לא קריטריון משוקלל, ובכוונה.** משקל אומר „כמה זה מבדיל בין
+   * מועמדים”, וכאן השאלה אינה מבדילה אלא חוסמת: קונה שסימן שאינו
+   * מוכן למושאע לא יקנה מושאע מושלם. קריטריון נוסף היה גם דורש
+   * משקל במסך ההגדרות, כלומר היה מאפשר למשרד לכייל אותו לאפס —
+   * ולהחזיר בדיוק את ההצעה שהקונה סירב לה.
+   *
+   * ההערה נשמרת בנפרד ולא כ-`ScoreComponent` בלי משקל, כי כל
+   * הפולטים סוכמים משקלים על `parts` — רכיב במשקל אפס היה נספר
+   * בכיסוי ובנרמול ומזיז ציונים בלי שאיש ביקש.
+   */
+  const tabu = sharedTabuFit(property.sharedTabu === true, buyer.sharedTabu);
+  if (tabu.excluded) excluded = true;
 
   /*
    * --- מיקום (0.25) ---
@@ -759,7 +776,7 @@ export function scoreMatch(
     score: excluded ? 0 : score,
     coverage,
     breakdown: parts,
-    explanation: buildExplanation(parts, excluded, coverage),
+    explanation: buildExplanation(parts, excluded, coverage, tabu.note),
     excluded,
     insufficientData: false,
   };
@@ -874,13 +891,31 @@ function buildExplanation(
   parts: ScoreComponent[],
   excluded: boolean,
   coverage: number,
+  /**
+   * ‏הערת שער — נולדת מחוץ ל-`parts` ולכן לא הייתה נמצאת בחיפוש
+   * החוסם. בלעדיה פסילה על טאבו משותף הייתה מוצגת כ„לא מתאים
+   * לדרישות הקונה”, כלומר כמסקנה בלי סיבה, על שדה שהסוכן יכול
+   * לברר בשיחה אחת.
+   */
+  gateNote?: string,
 ): string {
   const notes = parts.filter((p) => p.note).map((p) => p.note as string);
   if (excluded) {
+    /*
+     * ‏השער קודם לחוסם המשוקלל כששניהם קיימים. עיר שגויה היא
+     * אי-התאמה שהמתווך רואה בעצמו ברשימה; „הלקוח סירב לרישום
+     * משותף” הוא נתון שאין שום דרך אחרת לדעת ממנו.
+     */
+    if (gateNote !== undefined) return gateNote;
     const blocker = parts.find((p) => p.score === 0 && p.note);
     return blocker?.note ?? "לא מתאים לדרישות הקונה";
   }
-  const body = notes.length > 0 ? notes.join(". ") + "." : "התאמה מלאה לדרישות שהוגדרו.";
+  /*
+   * ‏הערת השער נכנסת ראשונה גם כשאין פסילה: „לא נשאל אם הקונה
+   * מוכן” הוא מה שצריך לקרות לפני הסיור, לא אחרי רשימת ההתאמות.
+   */
+  const all = gateNote === undefined ? notes : [gateNote, ...notes];
+  const body = all.length > 0 ? all.join(". ") + "." : "התאמה מלאה לדרישות שהוגדרו.";
   if (coverage >= 1) return body;
   /*
    * ‎**הסיבה לציון מופיעה לצד הציון.** בלי המשפט הזה „67%” נראה

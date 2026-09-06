@@ -16,6 +16,7 @@ import {
   FinancingStatusSchema,
   IdSchema,
   PhoneInputSchema,
+  SharedTabuStanceSchema,
   type Page,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
@@ -83,6 +84,8 @@ const ListQuerySchema = z
     maxPrice: z.coerce.number().min(0).optional(),
     minRooms: z.coerce.number().min(0).max(30).optional(),
     maxRooms: z.coerce.number().min(0).max(30).optional(),
+    /** מי אישר טאבו משותף ומי סירב — „טרם נשאל” אינו אף אחד מהם */
+    sharedTabu: SharedTabuStanceSchema.optional(),
     cursor: z.string().max(30).optional(),
     limit: z.coerce.number().int().min(1).max(100).default(50),
   })

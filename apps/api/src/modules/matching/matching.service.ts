@@ -20,6 +20,10 @@ import {
   SCORE_NOTE_MAX,
   ScoreComponentSchema,
   type ScoreComponent,
+  PARTNER_CANDIDATE_MAX,
+  PARTNER_PAIR_LIMIT,
+  partnerPairs,
+  type PartnerCandidate,
 } from "@metavchim/shared";
 import { assertBuyerAccess, assertMatchAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -65,6 +69,22 @@ export interface EnrichedMatchDto extends MatchDto {
 const LIVE_HEADROOM = 20;
 
 /** מה שהזיז את החישוב, כשזו פעולה מסחרית של הסוכן. ראו events.ts. */
+/** ‏צמד שותפים לנכס — שני אנשים בשמם, כי זו ההצעה. */
+export interface PartnerPairDto {
+  score: number;
+  explanation: string;
+  combinedBudgetAgorot: number;
+  /** ‏העודף מעל המחיר. אפס = כיסוי מדויק. */
+  headroomAgorot: number;
+  partners: {
+    buyerId: string;
+    buyerName: string;
+    budgetMaxAgorot: number;
+    shareAgorot: number;
+    score: number;
+  }[];
+}
+
 export interface MatchTrigger {
   kind: "price_drop" | "budget_raise";
   fromAgorot: number;
@@ -983,6 +1003,127 @@ export class MatchingService {
           buyerName: nameById.get(row.buyerId) ?? null,
           buyerMaturity: maturityById.get(row.buyerId) ?? null,
           buyerFacts: factsById.get(row.buyerId) ?? null,
+        }));
+    });
+  }
+
+  /**
+   * ‎**שידוך שותפים לנכס בטאבו משותף.**
+   *
+   * ‏שתי הרשימות — ההתאמות הרגילות והשותפויות — הן שתי שאלות
+   * ‏שונות על אותו נכס, ולכן גם שתי מדיניות ראייה שונות:
+   *
+   * ‏ברשימת ההתאמות קונה שאיני רשאי לראות **נשאר בשורה** בלי שם
+   * ‏(„קונה של סוכן אחר”): המנהל צריך לדעת שיש עוד ביקוש, והמספר
+   * ‏עצמו אינו מזהה איש.
+   *
+   * ‏בשותפויות זה בלתי אפשרי. ההצעה כאן היא **„חבר בין שני האנשים
+   * ‏האלה”**, ואי אפשר לחבר בין אנשים בעילום שם; שורה כזו הייתה גם
+   * ‏מספרת לסוכן שלקוח של עמיתו מחפש בדיוק את מה שהוא מחפש, בטווח
+   * ‏מחירים ובעיר — כלומר בדיוק הדליפה הפנים-משרדית שהופרדה כאן.
+   * ‏לכן הסינון לפי בעלות נעשה **בשאילתה**: מי שאיני רשאי לראות
+   * ‏אינו נכנס לשידוך בכלל, לא כשורה ולא כמועמד.
+   *
+   * ‏מנהל עם `buyers.view_all` מקבל את כל המשרד, וזה בדיוק תפקידו:
+   * ‏הוא היחיד שיכול לראות שני לקוחות של שני סוכנים שונים ולהציע
+   * ‏להם עסקה משותפת.
+   */
+  async partnersForProperty(
+    propertyId: string,
+    limit: number = PARTNER_PAIR_LIMIT,
+  ): Promise<PartnerPairDto[]> {
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      const property = await tx.property.findFirst({
+        where: { id: propertyId, tenantId, deletedAt: null },
+      });
+      if (property === null) return [];
+      /*
+       * ‎**הגבול כאן הוא על האנשים ולא על הנכס** — ובכוונה.
+       *
+       * ‏רשימת הנכסים היא משרדית: כל סוכן רואה את כל הכתובות, וזו
+       * ‏החלטה קיימת. מה שאינו משרדי הם ה**לקוחות**, ולכן הסינון
+       * ‏היחיד שיש כאן הוא `ownershipFilter` על הקונים למטה. שער
+       * ‏נוסף על הנכס היה חוסם סוכן מלראות שידוך על נכס שהוא כן
+       * ‏רשאי לראות, ולא היה מונע שום דליפה שהסינון ההוא אינו מונע.
+       */
+      /* ‏נכס שיצא משיווק אינו מזמין פעולה, וזו רשימת פעולות */
+      if (!(await this.isMatchable(tx, tenantId, propertyId))) return [];
+
+      const fields = rowToFields(property);
+      const price = fields.priceAgorot;
+      if (fields.sharedTabu !== true || fields.dealType !== "sale" || price === undefined) {
+        return [];
+      }
+
+      /*
+       * ‏הסינון הגס נגזר **מאותה רצועה** שהמנוע משתמש בה, ולכן הוא
+       * ‏רחב בדיוק כמוהו: „אינו מגיע לבד” פירושו `budget < price − band`,
+       * ‏שהוא בדיוק השלילה של `price <= budget + band`. שני ליטרלים
+       * ‏היו נפרדים ביום שהרצועה משתנה.
+       */
+      const band = budgetBandAgorot(price, "sale");
+      const rows = await tx.buyer.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          dealType: "sale",
+          sharedTabuStance: "accepts",
+          budgetMaxAgorot: { lt: BigInt(price - band) },
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
+        /*
+         * ‏התקציב הגבוה ראשון: החיתוך בתקרת המועמדים הוא לפי סדר
+         * ‏הקלט (ראו `PARTNER_CANDIDATE_MAX`), ומי שקרוב יותר למחיר
+         * ‏משלים צמד עם יותר שותפים אפשריים.
+         */
+        orderBy: [{ budgetMaxAgorot: "desc" }, { id: "asc" }],
+        take: PARTNER_CANDIDATE_MAX,
+        select: { id: true, contactId: true, requirements: true },
+      });
+
+      const candidates: PartnerCandidate[] = [];
+      const contactIdByBuyer = new Map<string, string>();
+      for (const row of rows) {
+        /*
+         * ‏כרטיס שה-JSON שלו פגום מדולג ואינו מפיל את הרשימה. אותו
+         * ‏לקח כמו בשלב משפך פגום: תצורה שבורה בשורה אחת אינה
+         * ‏אמורה למחוק תשובה לכל השאר.
+         */
+        const parsed = BuyerRequirementsSchema.safeParse(row.requirements);
+        if (!parsed.success) continue;
+        candidates.push({ buyerId: row.id, requirements: parsed.data });
+        contactIdByBuyer.set(row.id, row.contactId);
+      }
+
+      const pairs = partnerPairs(fields, candidates, { limit });
+      if (pairs.length === 0) return [];
+
+      const contactsById = await this.contacts.getByIds(tx, [...contactIdByBuyer.values()]);
+      const nameByBuyer = new Map<string, string>();
+      for (const [buyerId, contactId] of contactIdByBuyer) {
+        const name = contactsById.get(contactId)?.name;
+        if (name !== undefined) nameByBuyer.set(buyerId, name);
+      }
+
+      return pairs
+        /*
+         * ‏צמד שאחד מחבריו איבד את שמו (מחיקת לקוח לפי בקשתו) אינו
+         * ‏מוצג: „חבר בין X לבין ” אינו הצעה.
+         */
+        .filter((pair) => pair.partners.every((p) => nameByBuyer.has(p.buyerId)))
+        .map((pair) => ({
+          score: pair.score,
+          explanation: pair.explanation,
+          combinedBudgetAgorot: pair.combinedBudgetAgorot,
+          headroomAgorot: pair.headroomAgorot,
+          partners: pair.partners.map((p) => ({
+            buyerId: p.buyerId,
+            buyerName: nameByBuyer.get(p.buyerId)!,
+            budgetMaxAgorot: p.budgetMaxAgorot,
+            shareAgorot: p.shareAgorot,
+            score: p.score,
+          })),
         }));
     });
   }

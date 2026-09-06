@@ -10,6 +10,7 @@ import { FormSection } from "../../form-section";
 import { FeatureRequirements } from "../feature-requirements";
 import { SearchAreas } from "../search-areas";
 import { FloorPreferenceField, readFloorPreference } from "../floor-preference-field";
+import { SharedTabuField, readSharedTabuStance } from "../shared-tabu-field";
 import { PropertyTypesField, readPropertyTypes } from "../property-types-field";
 import { PriceField } from "../../price-field";
 import { EntryTimingField } from "../../properties/entry-timing-field";
@@ -103,6 +104,8 @@ export default function NewBuyerPage() {
           roomsMax: num("roomsMax"),
           /* „לא משנה” = חסר, ולא אובייקט ריק שמנוע ההתאמות יקרא כדרישה */
           floorPreference: readFloorPreference(f.get("floorPreference")),
+          /* ריק = טרם נשאל, ולכן השדה יורד מהדרישות ואינו נשמר כסירוב */
+          sharedTabu: readSharedTabuStance(f.get("sharedTabu")),
           /* ריק = "לא נבחר" — מוסר מהדרישות ולא נשמר כמחרוזת ריקה */
           entryType: String(f.get("entryType") ?? "") || undefined,
           entryBy: String(f.get("entryBy") ?? "")
@@ -242,6 +245,7 @@ export default function NewBuyerPage() {
               </div>
             </div>
             <FloorPreferenceField disabled={submitting} />
+            <SharedTabuField disabled={submitting} />
             {/*
               מועד הכניסה כבר ברגע הקליטה. הוא היה קיים רק במסך העריכה,
               כלומר נשאל אחרי שהשיחה עם הלקוח נגמרה — ובפועל כמעט אף
