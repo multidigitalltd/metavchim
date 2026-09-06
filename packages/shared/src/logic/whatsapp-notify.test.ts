@@ -86,7 +86,9 @@ describe("dominantNotifyCategory", () => {
   });
 
   it("תקציר יומי מזוהה — הוא היחיד שנשאר עם „מה דחוף היום?”", () => {
-    expect(dominantNotifyCategory([item({ type: "daily_brief" })])).toBe("digests");
+    expect(dominantNotifyCategory([item({ type: "daily_brief" })])).toBe(
+      "digests",
+    );
   });
 });
 
@@ -284,39 +286,58 @@ describe("formatNotifyMessage — הפרטים שמאחורי הכותרת", () 
   });
 
   it("השם והטלפון נכנסים להודעה — בלי להיכנס למערכת", () => {
-    const message = formatNotifyMessage([notification], "https://app.example.com", {
-      viewer: { userId: "agent1", capabilities: ["buyers.view_own"] },
-      byNotificationId: new Map([["n1", offerDetail]]),
-    });
+    const message = formatNotifyMessage(
+      [notification],
+      "https://app.example.com",
+      {
+        viewer: { userId: "agent1", capabilities: ["buyers.view_own"] },
+        byNotificationId: new Map([["n1", offerDetail]]),
+      },
+    );
     expect(message).toContain("דנה לוי");
     expect(message).toContain("050-1111111");
     expect(message).toContain("4 חדרים · הרצל 12, רמת גן");
   });
 
   it("נמען שאינו רשאי לראות את הקונה מקבל את הכותרת בלבד", () => {
-    const message = formatNotifyMessage([notification], "https://app.example.com", {
-      viewer: { userId: "agent2", capabilities: ["buyers.view_own"] },
-      byNotificationId: new Map([["n1", offerDetail]]),
-    });
+    const message = formatNotifyMessage(
+      [notification],
+      "https://app.example.com",
+      {
+        viewer: { userId: "agent2", capabilities: ["buyers.view_own"] },
+        byNotificationId: new Map([["n1", offerDetail]]),
+      },
+    );
     expect(message).toContain("הקונה פתח את ההצעה ששלחת");
     expect(message).not.toContain("דנה לוי");
     expect(message).not.toContain("050-1111111");
   });
 
   it("בלי מפת פרטים ההודעה נשארת בדיוק כפי שהייתה", () => {
-    const before = formatNotifyMessage([notification], "https://app.example.com");
-    const after = formatNotifyMessage([notification], "https://app.example.com", {
-      viewer: { userId: "agent1", capabilities: [] },
-      byNotificationId: new Map(),
-    });
+    const before = formatNotifyMessage(
+      [notification],
+      "https://app.example.com",
+    );
+    const after = formatNotifyMessage(
+      [notification],
+      "https://app.example.com",
+      {
+        viewer: { userId: "agent1", capabilities: [] },
+        byNotificationId: new Map(),
+      },
+    );
     expect(after).toBe(before);
   });
 
   it("הפרטים באים לפני הקישור, לא במקומו", () => {
-    const message = formatNotifyMessage([notification], "https://app.example.com", {
-      viewer: { userId: "agent1", capabilities: ["buyers.view_all"] },
-      byNotificationId: new Map([["n1", offerDetail]]),
-    });
+    const message = formatNotifyMessage(
+      [notification],
+      "https://app.example.com",
+      {
+        viewer: { userId: "agent1", capabilities: ["buyers.view_all"] },
+        byNotificationId: new Map([["n1", offerDetail]]),
+      },
+    );
     expect(message.indexOf("דנה לוי")).toBeLessThan(message.indexOf("👈"));
     expect(message).toContain("👈 https://app.example.com/offers");
   });
@@ -420,7 +441,9 @@ describe("notifyFollowUp", () => {
    */
   it("פעולה שאינה מותרת אינה נהפכת לכפתור", () => {
     expect(notifyFollowUp([item({ type: "call_missed" })], [])).toBeNull();
-    expect(notifyFollowUp([item({ type: "call_missed" })], ["show_leads"])).toBeNull();
+    expect(
+      notifyFollowUp([item({ type: "call_missed" })], ["show_leads"]),
+    ).toBeNull();
   });
 
   it("אגד ריק אינו מייצר כפתור", () => {
@@ -435,8 +458,14 @@ describe("notifyFollowUp", () => {
    * זו בדיוק הטעות שנעשתה בקורא הראשון, והבדיקה הזו מקבעת אותה.
    */
   it("רשימת יכולות אינה רשימת פעולות — והיא אינה פותחת כפתור", () => {
-    const capabilities = ["leads.view_own", "leads.view_all", "collaboration.offer"];
-    expect(notifyFollowUp([item({ type: "call_missed" })], capabilities)).toBeNull();
+    const capabilities = [
+      "leads.view_own",
+      "leads.view_all",
+      "collaboration.offer",
+    ];
+    expect(
+      notifyFollowUp([item({ type: "call_missed" })], capabilities),
+    ).toBeNull();
   });
 
   /*
@@ -448,8 +477,12 @@ describe("notifyFollowUp", () => {
     const { AGENT_ACTIONS, mayUseAction } = await import("../agent/actions.js");
     const { ROLE_CAPABILITIES } = await import("../rbac.js");
     const capabilities = new Set(ROLE_CAPABILITIES["owner"] ?? []);
-    const ids = AGENT_ACTIONS.filter((a) => mayUseAction(a, capabilities)).map((a) => a.id);
-    expect(notifyFollowUp([item({ type: "call_missed" })], ids)?.label).toContain("למי לחזור");
+    const ids = AGENT_ACTIONS.filter((a) => mayUseAction(a, capabilities)).map(
+      (a) => a.id,
+    );
+    expect(
+      notifyFollowUp([item({ type: "call_missed" })], ids)?.label,
+    ).toContain("למי לחזור");
   });
 
   /*
@@ -470,7 +503,13 @@ describe("notifyFollowUp", () => {
    */
   it("שום כיתוב אינו נחתך על ידי Meta", async () => {
     const { buttonTitle } = await import("./whatsapp-buttons.js");
-    const types = ["call_missed", "lead", "task_reminder", "matches_refreshed", "coop_offer"];
+    const types = [
+      "call_missed",
+      "lead",
+      "task_reminder",
+      "matches_refreshed",
+      "coop_offer",
+    ];
     for (const type of types) {
       const step = notifyFollowUp([item({ type })], ALL);
       expect(step, type).not.toBeNull();
@@ -482,12 +521,23 @@ describe("notifyFollowUp", () => {
 describe("notifyQuickReplies — המנטור מקבל כפתורים משלו", () => {
   const VIEWER = { userId: "u1", capabilities: [] as string[] };
   const weeklyWith = (ask: boolean, reflection: boolean) =>
-    notifyQuickReplies([item({ type: "mentor_weekly", title: "הסיכום", id: "n1" })], {
-      viewer: VIEWER,
-      byNotificationId: new Map([
-        ["n1", { kind: "mentor_review" as const, ownerUserId: "u1", ask, reflection }],
-      ]),
-    });
+    notifyQuickReplies(
+      [item({ type: "mentor_weekly", title: "הסיכום", id: "n1" })],
+      {
+        viewer: VIEWER,
+        byNotificationId: new Map([
+          [
+            "n1",
+            {
+              kind: "mentor_review" as const,
+              ownerUserId: "u1",
+              ask,
+              reflection,
+            },
+          ],
+        ]),
+      },
+    );
 
   it("סיכום שבועי עם בקשה ושאלה: מתחייב, לענות למנטור, היעדים שלי — כולם פקודות שהשיחה מבינה", () => {
     const buttons = weeklyWith(true, true);
@@ -514,19 +564,33 @@ describe("notifyQuickReplies — המנטור מקבל כפתורים משלו",
       "mentor_commit",
       "mentor_status",
     ]);
-    expect(weeklyWith(false, false)?.map((b) => b.arg)).toEqual(["mentor_status"]);
+    expect(weeklyWith(false, false)?.map((b) => b.arg)).toEqual([
+      "mentor_status",
+    ]);
   });
 
   it("בלי פרטים (ההעשרה נכשלה) — „היעדים שלי” בלבד, לא כפתורים שאולי אין להם כיסוי", () => {
-    const buttons = notifyQuickReplies([item({ type: "mentor_weekly", title: "הסיכום" })]);
+    const buttons = notifyQuickReplies([
+      item({ type: "mentor_weekly", title: "הסיכום" }),
+    ]);
     expect(buttons?.map((b) => b.arg)).toEqual(["mentor_status"]);
   });
 
-  it("דחיפה, חגיגה ובוקר: „היעדים שלי” בלבד — בלי כפתור זר מתחת למנטור", () => {
-    for (const type of ["mentor_nudge", "mentor_win", "mentor_daily"]) {
+  it("דחיפה וחגיגה: „היעדים שלי” בלבד — בלי כפתור זר מתחת למנטור", () => {
+    for (const type of ["mentor_nudge", "mentor_win"]) {
       const buttons = notifyQuickReplies([item({ type })]);
       expect(buttons?.map((b) => b.arg)).toEqual(["mentor_status"]);
     }
+  });
+
+  it("הבוקר: משוב על הרעיון — „עזר לי” / „לא בשבילי” — ואז „היעדים שלי”; שלושה בדיוק", () => {
+    const buttons = notifyQuickReplies([item({ type: "mentor_daily" })]);
+    expect(buttons?.map((b) => b.arg)).toEqual([
+      "mentor_idea_helped",
+      "mentor_idea_skip",
+      "mentor_status",
+    ]);
+    expect(buttons).toHaveLength(3);
   });
 
   /*

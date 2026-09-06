@@ -144,15 +144,111 @@ export const MENTOR_PLAYBOOK: Readonly<
 };
 
 /**
+ * מפתח הרעיון — „offers_sent:2”: המדד והמיקום ברשימה. יציב כל עוד
+ * הרשימה אינה משתנה בסדרה; רעיון שנמחק מהאמצע מזיז את המפתחות
+ * שאחריו, ולכן מוסיפים רעיונות **בסוף** בלבד.
+ */
+export function ideaKey(metric: MentorGoalMetric, index: number): string {
+  return `${metric}:${index}`;
+}
+
+const IDEA_KEY = /^([a-z_]+):(\d{1,2})$/u;
+
+/** הרעיון שמאחורי מפתח — `null` למפתח שאינו מצביע על רעיון קיים. */
+export function ideaByKey(
+  key: string,
+): { metric: MentorGoalMetric; index: number; text: string } | null {
+  const match = IDEA_KEY.exec(key);
+  if (match === null) return null;
+  const metric = match[1] as MentorGoalMetric;
+  const entry = (MENTOR_PLAYBOOK as Record<string, MentorPlaybookEntry>)[
+    metric
+  ];
+  if (entry === undefined) return null;
+  const index = Number(match[2]);
+  const text = entry.ideas[index];
+  return text === undefined ? null : { metric, index, text };
+}
+
+/**
+ * מה המתווך אמר על רעיונות — הזיכרון של המנטור לגבי מה עובד אצלו
+ * (docs/14 §7.2). נשמר ב-`preferences.mentor.ideas` של המשתמש.
+ *
+ * - `dismissed` — „לא בשבילי”: לא מוצע שוב.
+ * - `liked` — „עזר לי”: נאמר למודל בשיחה כדי שיבנה על מה שעובד.
+ */
+export interface MentorIdeaFeedback {
+  liked: readonly string[];
+  dismissed: readonly string[];
+}
+
+export const EMPTY_IDEA_FEEDBACK: Readonly<MentorIdeaFeedback> = {
+  liked: [],
+  dismissed: [],
+};
+
+/** כמה מפתחות נשמרים לכל רשימה — הישנים נושרים; מאתיים הם שנים של בקרים. */
+export const IDEA_FEEDBACK_MAX = 200;
+
+/** מה-preferences של המשתמש — סלחני: ערך פגום הוא רשימה ריקה. */
+export function resolveIdeaFeedback(preferences: unknown): MentorIdeaFeedback {
+  const mentor =
+    typeof preferences === "object" && preferences !== null
+      ? (preferences as { mentor?: unknown }).mentor
+      : undefined;
+  const ideas =
+    typeof mentor === "object" && mentor !== null
+      ? (mentor as { ideas?: unknown }).ideas
+      : undefined;
+  const list = (name: "liked" | "dismissed"): string[] => {
+    const raw =
+      typeof ideas === "object" && ideas !== null
+        ? (ideas as Record<string, unknown>)[name]
+        : undefined;
+    return Array.isArray(raw)
+      ? raw
+          .filter((k): k is string => typeof k === "string" && IDEA_KEY.test(k))
+          .slice(-IDEA_FEEDBACK_MAX)
+      : [];
+  };
+  return { liked: list("liked"), dismissed: list("dismissed") };
+}
+
+export interface PlaybookIdea {
+  key: string;
+  text: string;
+}
+
+/**
  * רעיון להיום — מסתובב לפי היום, כדי שהבוקר של המנטור לא יגיד את אותו
  * משפט כל יום. ה„זרע” הוא מספר היום (למשל יום בשנה): מי שמקבל שני
  * רעיונות באותו יום מקבל אותו רעיון — עקביות עדיפה על אקראיות.
+ *
+ * רעיון שהמתווך סימן „לא בשבילי” אינו מוצע שוב; כשסימן כך את כולם —
+ * חוזרים לרשימה המלאה, כי שתיקה גרועה מרעיון שכבר נאמר.
  */
-export function playbookIdea(metric: MentorGoalMetric, seed: number): string {
-  const ideas = MENTOR_PLAYBOOK[metric].ideas;
-  const index =
-    ((Math.floor(seed) % ideas.length) + ideas.length) % ideas.length;
-  return ideas[index]!;
+export function playbookIdeaPick(
+  metric: MentorGoalMetric,
+  seed: number,
+  feedback: MentorIdeaFeedback = EMPTY_IDEA_FEEDBACK,
+): PlaybookIdea {
+  const all = MENTOR_PLAYBOOK[metric].ideas.map((text, index) => ({
+    key: ideaKey(metric, index),
+    text,
+  }));
+  const dismissed = new Set(feedback.dismissed);
+  const open = all.filter((idea) => !dismissed.has(idea.key));
+  const pool = open.length > 0 ? open : all;
+  const index = ((Math.floor(seed) % pool.length) + pool.length) % pool.length;
+  return pool[index]!;
+}
+
+export function playbookIdea(
+  metric: MentorGoalMetric,
+  seed: number,
+  feedback?: MentorIdeaFeedback,
+): string {
+  return playbookIdeaPick(metric, seed, feedback).text;
 }
 
 /**

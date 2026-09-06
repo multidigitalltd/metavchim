@@ -13,7 +13,8 @@ import {
   jerusalemWeekday,
   DEFAULT_MENTOR_PERSONA,
   mentorCadence,
-  mentorDailyIdea,
+  EMPTY_IDEA_FEEDBACK,
+  mentorDailyIdeaPick,
   mentorDailyPlan,
   mentorGoalLabel,
   mentorMidweekNudge,
@@ -23,10 +24,12 @@ import {
   mentorReviewBody,
   mentorReviewTitle,
   mentorWeeklyReview,
+  resolveIdeaFeedback,
   resolveMentorPersona,
   selectWins,
   type MentorGoalMetric,
   type MentorGoalPeriod,
+  type MentorIdeaFeedback,
   type MentorPersona,
   type MentorReviewBody,
   type MentorWeekSignals,
@@ -373,6 +376,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             now,
             firstNameOf(user.name),
             resolveMentorPersona(user.preferences),
+            resolveIdeaFeedback(user.preferences),
           )
         )
           sent += 1;
@@ -393,6 +397,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     now: Date,
     firstName = "",
     persona: MentorPersona = DEFAULT_MENTOR_PERSONA,
+    feedback: MentorIdeaFeedback = EMPTY_IDEA_FEEDBACK,
   ): Promise<boolean> {
     if (!mentorCadence(persona.style).morning) return false;
     const week = mentorPeriodRange("week", now);
@@ -443,18 +448,19 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             { start: jerusalemDayStart(now, -1), end: jerusalemDayStart(now) },
             now,
           );
+    // רעיון אחד מספר המשחק, על מדד המיקוד — מתחלף כל יום, בלי מה שנדחה
+    const idea = mentorDailyIdeaPick(goals, now, feedback);
     const plan = mentorDailyPlan({
       goals,
       insights,
       yesterday,
-      // רעיון אחד מספר המשחק, על מדד המיקוד — מתחלף כל יום
-      idea: mentorDailyIdea(goals, now),
+      idea: idea.text,
       now,
       persona,
       ...(firstName === "" ? {} : { firstName }),
     });
     if (plan === null) return false;
-    return notifyOnce(tx, {
+    const sent = await notifyOnce(tx, {
       tenantId,
       dedupeKey: `mentor_daily:${userId}:${day}`,
       userId,
@@ -464,6 +470,27 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       entityType: "mentor",
       entityId: null,
     });
+    if (sent && plan.body.includes(idea.text)) {
+      /*
+       * הרעיון שנשלח נשמר על המשתמש — כדי ש„עזר לי” / „לא בשבילי”
+       * מוואטסאפ ידעו על מה (docs/14 §7.2). מיזוג אטומי של מפתח אחד,
+       * לא דריסה של כל ההעדפות.
+       */
+      // ‎`jsonb_set` אינו יוצר את `mentor` כשאין — בונים אותו במפורש
+      await tx.$executeRaw`
+        UPDATE users
+        SET preferences = jsonb_set(
+          COALESCE(preferences, '{}'::jsonb),
+          '{mentor}',
+          COALESCE(preferences -> 'mentor', '{}'::jsonb) || jsonb_build_object(
+            'lastIdea',
+            ${JSON.stringify({ key: idea.key, text: idea.text, date: day })}::jsonb
+          ),
+          true
+        )
+        WHERE id = ${userId} AND tenant_id = ${tenantId}`;
+    }
+    return sent;
   }
 
   /**

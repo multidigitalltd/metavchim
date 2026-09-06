@@ -24,6 +24,19 @@ export function isMentorReflectRequest(text: string): boolean {
   );
 }
 
+/**
+ * „הרעיון עזר לי” / „הרעיון לא בשבילי” — כלשונם, כמו שכפתורי הבוקר
+ * שולחים: משוב על רעיון הבוקר (docs/14 §7.2), לא שאלה למנוע ההבנה.
+ */
+export function mentorIdeaVerdict(text: string): "helped" | "dismissed" | null {
+  const t = normalizeShort(text);
+  if (t === normalizeShort(MENTOR_QUICK_COMMANDS.mentor_idea_helped))
+    return "helped";
+  if (t === normalizeShort(MENTOR_QUICK_COMMANDS.mentor_idea_skip))
+    return "dismissed";
+  return null;
+}
+
 const SKIP_WORDS = new Set([
   "דלג",
   "לדלג",

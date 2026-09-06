@@ -79,6 +79,7 @@ import { formatCallbacks } from "./assistant-callbacks";
 import { summarizeData } from "./assistant-results";
 import {
   isMentorReflectRequest,
+  mentorIdeaVerdict,
   isSkipMessage,
   MENTOR_PLAN_MIN,
   mentorPlanPrompt,
@@ -1066,6 +1067,16 @@ export class WhatsAppAssistantService {
      */
     if (isMentorReflectRequest(text)) {
       return withHeard(await this.mentorReflectStart(user, chat), heard);
+    }
+    // „הרעיון עזר לי” / „לא בשבילי” — משוב על רעיון הבוקר, אותה זכאות
+    const verdict = mentorIdeaVerdict(text);
+    if (verdict !== null) {
+      if (!(await this.plans.tenantHasFeature(user.tenantId, MENTOR_FEATURE))) {
+        const denied = "המנטור האישי אינו כלול במסלול של המשרד — אפשר לשדרג במסך החיוב.";
+        return withHeard({ text: denied, speak: denied }, heard);
+      }
+      const reply = await this.mentor.ideaFeedbackFromChat(verdict);
+      return withHeard({ text: reply, speak: reply }, heard);
     }
 
     const pending = chat.pending;

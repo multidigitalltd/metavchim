@@ -65,3 +65,15 @@ export const MentorPersonaSchema = z
   })
   .strict();
 export type MentorPersonaInput = z.infer<typeof MentorPersonaSchema>;
+
+/**
+ * משוב על רעיון (docs/14 §7.2): המפתח הוא „offers_sent:2” — מדד ומיקום
+ * ברשימת ספר המשחק — ומאומת בשרת מול הרשימה עצמה.
+ */
+export const MentorIdeaFeedbackSchema = z
+  .object({
+    ideaKey: z.string().regex(/^[a-z_]+:\d{1,2}$/u),
+    verdict: z.enum(["helped", "dismissed"]),
+  })
+  .strict();
+export type MentorIdeaFeedbackInput = z.infer<typeof MentorIdeaFeedbackSchema>;

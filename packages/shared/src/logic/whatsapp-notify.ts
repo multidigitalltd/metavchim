@@ -16,7 +16,12 @@
  */
 
 import { agentAction, type AgentActionId } from "../agent/actions.js";
-import { canSeeNotifyDetail, notifyDetailLines, type DetailViewer, type NotifyDetail } from "./notify-details.js";
+import {
+  canSeeNotifyDetail,
+  notifyDetailLines,
+  type DetailViewer,
+  type NotifyDetail,
+} from "./notify-details.js";
 import { notificationUrl, type PushableNotification } from "./web-push.js";
 import type { WhatsAppButton } from "./whatsapp-buttons.js";
 
@@ -384,6 +389,9 @@ export const MENTOR_QUICK_COMMANDS = {
   mentor_status: "מה המצב ביעדים שלי?",
   mentor_commit: "מתחייב לשבוע הבא",
   mentor_reflect: "לענות למנטור",
+  // משוב על רעיון הבוקר — המנטור לומד מה עובד אצל המתווך (docs/14 §7.2)
+  mentor_idea_helped: "הרעיון עזר לי",
+  mentor_idea_skip: "הרעיון לא בשבילי",
 } as const;
 export type MentorQuickCommand = keyof typeof MENTOR_QUICK_COMMANDS;
 
@@ -436,6 +444,18 @@ export function notifyQuickReplies(
             } as const,
           ]
         : []),
+      MENTOR_STATUS_BUTTON,
+    ];
+  }
+  /*
+   * הבוקר נושא רעיון — ושני כפתורי משוב: „עזר לי” ו„לא בשבילי”. זה
+   * מה שהופך רעיון לליווי: המנטור לומד מה עובד אצל המתווך הזה, ורעיון
+   * שנדחה אינו חוזר (docs/14 §7.2). שלושה כפתורים — התקרה של וואטסאפ.
+   */
+  if (types.has("mentor_daily")) {
+    return [
+      { action: "cmd", arg: "mentor_idea_helped", title: "👍 עזר לי" },
+      { action: "cmd", arg: "mentor_idea_skip", title: "👎 לא בשבילי" },
       MENTOR_STATUS_BUTTON,
     ];
   }
@@ -649,7 +669,10 @@ export function notifyFollowUp(
   if (entry === null || !allowed.includes(entry.id)) return null;
   const example = agentAction(entry.id)?.examples[0];
   if (example === undefined) return null;
-  return { label: `${CATEGORY_ICON[category]} ${entry.caption}`, text: example };
+  return {
+    label: `${CATEGORY_ICON[category]} ${entry.caption}`,
+    text: example,
+  };
 }
 
 /* ==================== חלון 24 השעות של Meta ==================== */

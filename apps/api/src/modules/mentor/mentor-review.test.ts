@@ -75,6 +75,8 @@ function fakeTx(counts: {
   const notified: unknown[][] = [];
   /** הערכים של כל הצלחה שנרשמה ב-`mentor_wins` */
   const winsInserted: unknown[][] = [];
+  /** רעיון הבוקר שנשמר על המשתמש — למשוב מוואטסאפ */
+  const lastIdeas: unknown[][] = [];
   const tx = {
     $executeRaw: async (
       strings: TemplateStringsArray,
@@ -88,6 +90,10 @@ function fakeTx(counts: {
       }
       if (sql.includes("INSERT INTO mentor_wins")) {
         winsInserted.push(values);
+        return 1;
+      }
+      if (sql.includes("lastIdea")) {
+        lastIdeas.push(values);
         return 1;
       }
       return 0;
@@ -144,6 +150,7 @@ function fakeTx(counts: {
     notifications,
     notified,
     winsInserted,
+    lastIdeas,
   };
 }
 
@@ -668,7 +675,11 @@ describe("MentorReviewService.dailyForUser — הבוקר של המנטור", ()
   };
 
   it("עם יעד — התראת mentor_daily אחת, במפתח של היום, בשם, עם אתמול ומה היום שווה", async () => {
-    const { tx, notified } = fakeTx({ offers: 2, calls: 4, goals: [weekGoal] });
+    const { tx, notified, lastIdeas } = fakeTx({
+      offers: 2,
+      calls: 4,
+      goals: [weekGoal],
+    });
     expect(
       await service().dailyForUser(
         tx,
@@ -690,6 +701,14 @@ describe("MentorReviewService.dailyForUser — הבוקר של המנטור", ()
     expect(body).toContain("5 הצעות בשבוע: 2 הצעות עד עכשיו.");
     // רעיון מספר המשחק — על מדד המיקוד (הצעות)
     expect(body).toContain("רעיון להיום: ");
+    // הרעיון שנשלח נשמר על המשתמש — למשוב מוואטסאפ (docs/14 §7.2)
+    expect(lastIdeas).toHaveLength(1);
+    const saved = JSON.parse(
+      String(lastIdeas[0]!.find((v) => String(v).startsWith("{"))),
+    );
+    expect(saved.date).toBe("2026-09-07");
+    expect(saved.key).toMatch(/^offers_sent:\d$/u);
+    expect(body).toContain(saved.text);
   });
 
   it("סגנון רגוע — בלי הודעת בוקר, גם עם יעד", async () => {
