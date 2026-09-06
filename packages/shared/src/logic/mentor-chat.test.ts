@@ -1,7 +1,9 @@
 import { describe, expect, it, test } from "vitest";
 import {
+  MENTOR_REPLY_JSON_SCHEMA,
   buildMentorPrompt,
   mentorFallbackReply,
+  parseGoalRequest,
   type MentorChatContext,
 } from "./mentor-chat.js";
 import type { MentorGoalProgress } from "./mentor.js";
@@ -187,5 +189,65 @@ describe("השיחה מייעצת — הניתוח והמשפך בפרומפט, 
     expect(noGoals).toContain("אינה זמינה כרגע");
     expect(noGoals).toContain("לקבוע שעה קבועה להצעות.");
     expect(noGoals).not.toContain("עדיין אין לך יעדים");
+  });
+});
+
+describe("יעד מהשיחה — המודל מציע, המתווך לוחץ, הקוד כותב", () => {
+  it("הסכמה מקבלת proposedGoal רשות, והפרומפט אומר מתי למלא אותו ומה הקודים", () => {
+    const props = MENTOR_REPLY_JSON_SCHEMA.properties as Record<
+      string,
+      unknown
+    >;
+    expect(props.proposedGoal).toBeDefined();
+    expect(MENTOR_REPLY_JSON_SCHEMA.required).toEqual(["reply"]);
+    const prompt = buildMentorPrompt(base);
+    expect(prompt).toContain("ממלאים proposedGoal");
+    expect(prompt).toContain("offers_sent = הצעות שנשלחו");
+    expect(prompt).toContain(
+      "יעד שהמתווך רק שוקל או שואל עליו — בלי proposedGoal",
+    );
+  });
+
+  it("parseGoalRequest: בקשה מפורשת עם מספר ומדד — יעד; שבוע כברירת מחדל", () => {
+    expect(parseGoalRequest("תקבע לי יעד של 5 הצעות בשבוע")).toEqual({
+      metric: "offers_sent",
+      target: 5,
+      period: "week",
+    });
+    expect(parseGoalRequest("רוצה יעד: 3 סיורים")).toEqual({
+      metric: "viewings_held",
+      target: 3,
+      period: "week",
+    });
+    expect(parseGoalRequest("היעד שלי החודש: עסקה אחת")).toEqual({
+      metric: "deals_closed",
+      target: 1,
+      period: "month",
+    });
+    expect(parseGoalRequest("תקבע לי יעד של עסקה בחודש")).toEqual({
+      metric: "deals_closed",
+      target: 1,
+      period: "month",
+    });
+    expect(parseGoalRequest("להגדיר יעד של עשר שיחות יוצאות בשבוע")).toEqual({
+      metric: "calls_made",
+      target: 10,
+      period: "week",
+    });
+    // הספציפי קודם — שיחות נכנסות אינן שיחות יוצאות; „תוך שעה” אינו לידים
+    expect(parseGoalRequest("תקבע יעד 8 שיחות נכנסות בשבוע")?.metric).toBe(
+      "calls_answered",
+    );
+    expect(parseGoalRequest("יעד: 4 לידים תוך שעה בשבוע")?.metric).toBe(
+      "leads_answered_fast",
+    );
+  });
+
+  it("parseGoalRequest: שאלה על יעדים, בלי מספר, בלי מדד, או מעל הגבול — null", () => {
+    expect(parseGoalRequest("כמה הצעות שלחתי השבוע?")).toBeNull();
+    expect(parseGoalRequest("מה המצב ביעדים שלי?")).toBeNull();
+    expect(parseGoalRequest("תקבע לי יעד")).toBeNull();
+    expect(parseGoalRequest("תקבע לי יעד של 5 בשבוע")).toBeNull();
+    expect(parseGoalRequest("תקבע לי יעד של 999 הצעות בשבוע")).toBeNull();
   });
 });

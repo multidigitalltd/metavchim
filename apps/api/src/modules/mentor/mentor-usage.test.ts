@@ -185,3 +185,63 @@ describe("השיחה — מול שבוע שעבר, אותו חלק של השבו
     expect(previous?.at.toISOString()).toBe("2026-08-31T07:00:00.000Z");
   });
 });
+
+describe("יעד מהשיחה — proposedGoal עובר מהמודל, ונפרס גם בלי מודל", () => {
+  it("המודל החזיר proposedGoal תקין — עובר למסך; לא תקין — נופל, והתשובה נשארת", async () => {
+    const ok = harness({
+      configured: true,
+      value: {
+        reply: "5 הצעות בשבוע — מוכן לקביעה.",
+        proposedGoal: { metric: "offers_sent", target: 5, period: "week" },
+      },
+    });
+    const res = await ok.run(() => ok.svc.ask("תקבע לי יעד של 5 הצעות בשבוע"));
+    expect(res.source).toBe("model");
+    expect(res.proposedGoal).toEqual({
+      metric: "offers_sent",
+      target: 5,
+      period: "week",
+    });
+
+    const bad = harness({
+      configured: true,
+      value: {
+        reply: "יופי.",
+        proposedGoal: { metric: "nope", target: 5, period: "week" },
+      },
+    });
+    const res2 = await bad.run(() => bad.svc.ask("איך היה השבוע?"));
+    // הסכמה נכשלה — אין תשובה מהמודל, אין הצעה, והגיבוי עונה
+    expect(res2.source).toBe("fallback");
+    expect(res2.proposedGoal).toBeUndefined();
+  });
+
+  it("בלי מודל — בקשה מפורשת ליעד מקבלת כפתור, והתשובה אומרת שהיעד מוכן", async () => {
+    const h = harness({ configured: false, value: null });
+    const res = await h.run(() => h.svc.ask("תקבע לי יעד של 3 סיורים בשבוע"));
+    expect(res.source).toBe("fallback");
+    expect(res.proposedGoal).toEqual({
+      metric: "viewings_held",
+      target: 3,
+      period: "week",
+    });
+    expect(res.turn.text).toContain("3 סיורים בשבוע — מוכן.");
+    // שאלה רגילה — בלי הצעה
+    const plain = await h.run(() => h.svc.ask("מה כדאי לי לשפר?"));
+    expect(plain.proposedGoal).toBeUndefined();
+  });
+
+  it("המודל ענה בלי proposedGoal על בקשה מפורשת — הפענוח משלים", async () => {
+    const h = harness({
+      configured: true,
+      value: { reply: "בשמחה, קובעים במסך." },
+    });
+    const res = await h.run(() => h.svc.ask("רוצה יעד של 4 סיורים בשבוע"));
+    expect(res.source).toBe("model");
+    expect(res.proposedGoal).toEqual({
+      metric: "viewings_held",
+      target: 4,
+      period: "week",
+    });
+  });
+});
