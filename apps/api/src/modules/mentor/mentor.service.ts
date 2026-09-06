@@ -42,6 +42,12 @@ import {
   type MentorPattern,
   mentorPatterns,
   mentorPeriodRange,
+  MENTOR_METRICS,
+  officeEvidenceLabel,
+  mentorOnboarding,
+  onboardingDay,
+  ONBOARDING_DAYS,
+  type MentorOnboarding,
   type MentorMonthlyBody,
   type MentorReviewBody,
   type MentorWin,
@@ -53,6 +59,7 @@ import {
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AgentEventsService } from "../agent/agent-events.service";
+import { MentorPracticeService } from "./mentor-practice.service";
 import { AuditService } from "../../core/audit.service";
 import { GeminiService } from "../../core/gemini.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -128,6 +135,26 @@ export interface MentorOverview {
   advice: MentorAdvice[];
   /** השם והסגנון שהמתווך בחר (docs/14 §4.1) */
   persona: MentorPersona;
+  /** 30 הימים הראשונים — `null` למי שכבר עבר אותם (docs/14 §7.5) */
+  onboarding: MentorOnboarding | null;
+}
+
+/** מה עובד אצלנו — למנהל, ספירות בלבד (docs/14 §7.4). */
+export interface MentorOfficeDto {
+  /** כמה מתווכים תרמו עדות כלשהי */
+  agents: number;
+  proven: {
+    key: string;
+    metric: MentorGoalMetric;
+    metricLabel: string;
+    text: string;
+    helped: number;
+    dismissed: number;
+    up: number;
+    measured: number;
+    /** „עזר ל-3 · המספר עלה אצל 2” */
+    evidence: string;
+  }[];
 }
 
 /** הסיכום החודשי כפי שהמסך מקבל אותו. */
@@ -273,6 +300,8 @@ export class MentorService {
         insights,
         funnel,
         feedback: resolveIdeaFeedback(user?.preferences),
+        office: await this.signals.officePlaybookFor(tx, tenantId, userId, now),
+        closestDeal: await this.signals.closestDeal(tx, tenantId, userId, now),
         now,
       });
       return {
@@ -289,7 +318,38 @@ export class MentorService {
         patterns,
         advice,
         persona: resolveMentorPersona(user?.preferences),
+        onboarding: await this.onboardingOf(
+          tx,
+          tenantId,
+          userId,
+          user?.createdAt,
+          goals.map((g) => g.progress),
+          now,
+        ),
       };
+    });
+  }
+
+  /** 30 הימים הראשונים (docs/14 §7.5) — היום, השבוע והצעד; `null` לוותיק. */
+  private async onboardingOf(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    userCreatedAt: Date | undefined,
+    goals: MentorGoalProgress[],
+    now: Date,
+  ): Promise<MentorOnboarding | null> {
+    if (userCreatedAt === undefined) return null;
+    if (onboardingDay(userCreatedAt, now) > ONBOARDING_DAYS) return null;
+    const practices = await MentorPracticeService.stats(tx, tenantId, userId, {
+      start: userCreatedAt,
+      end: now,
+    });
+    return mentorOnboarding({
+      userCreatedAt,
+      now,
+      goals,
+      practices: practices.count,
     });
   }
 
@@ -350,6 +410,32 @@ export class MentorService {
         wins,
       };
     });
+  }
+
+  /**
+   * מה עובד אצלנו — למנהל (docs/14 §7.4): הרעיונות שהוכיחו את עצמם
+   * במשרד, עם ספירות בלבד. אין כאן שמות ואין דרך לגזור אותם.
+   */
+  async office(now: Date = new Date()): Promise<MentorOfficeDto> {
+    const { tenantId } = TenantContext.current();
+    const office = await this.prisma.withTenant((tx) =>
+      this.signals.officePlaybook(tx, tenantId, now),
+    );
+    return {
+      agents: office.agents,
+      proven: office.proven.map((e) => ({
+        key: e.key,
+        metric: e.metric,
+        metricLabel:
+          MENTOR_METRICS.find((m) => m.code === e.metric)?.label ?? e.metric,
+        text: e.text,
+        helped: e.helped,
+        dismissed: e.dismissed,
+        up: e.up,
+        measured: e.measured,
+        evidence: officeEvidenceLabel(e),
+      })),
+    };
   }
 
   /** הסיכומים החודשיים — מהחדש לישן (docs/14 §3). */
@@ -762,6 +848,20 @@ export class MentorService {
           userId,
           now,
         );
+        // מה עובד במשרד — ידע משותף לעצות ולפרומפט (§7.4)
+        const office = await this.signals.officePlaybookFor(
+          tx,
+          tenantId,
+          userId,
+          now,
+        );
+        // העסקה הקרובה ביותר — העצה הראשונה, והחריג לכלל 6 בפרומפט (§7.6)
+        const closest = await this.signals.closestDeal(
+          tx,
+          tenantId,
+          userId,
+          now,
+        );
         const advice = mentorAdvice({
           goals,
           activity,
@@ -769,14 +869,44 @@ export class MentorService {
           insights,
           funnel,
           feedback: resolveIdeaFeedback(user?.preferences),
+          office,
+          closestDeal: closest,
           now,
         });
+        // התרגול האחרון בחודש האחרון — מה המנטור אמר לנסות (§7.3)
+        const practice = await MentorPracticeService.stats(
+          tx,
+          tenantId,
+          userId,
+          {
+            start: jerusalemDayStart(now, -30),
+            end: now,
+          },
+        );
         return {
           insights,
           activity,
           previousActivity,
           funnel,
           advice,
+          onboarding: await this.onboardingOf(
+            tx,
+            tenantId,
+            userId,
+            user?.createdAt,
+            goals,
+            now,
+          ),
+          closestDeal: closest,
+          lastPractice:
+            practice.last === null
+              ? null
+              : {
+                  scenarioLabel: practice.last.scenarioLabel,
+                  score: practice.last.score,
+                  tryNext: practice.last.tryNext,
+                },
+          office,
           persona: resolveMentorPersona(user?.preferences),
           firstName: (user?.name ?? "").trim().split(/\s+/u)[0] ?? "",
           nowText: MentorService.nowText(now),

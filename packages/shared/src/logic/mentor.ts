@@ -4,7 +4,11 @@ import {
   jerusalemWeekday,
   jerusalemWeekStart,
 } from "./israel-time.js";
-import { playbookIdea, type MentorIdeaFeedback } from "./mentor-playbook.js";
+import {
+  playbookIdeaPick,
+  type MentorIdeaFeedback,
+  type OfficeProvenLookup,
+} from "./mentor-playbook.js";
 import type { MentorIdeaOutcome } from "./mentor-outcome.js";
 import {
   DEFAULT_MENTOR_PERSONA,
@@ -594,6 +598,10 @@ export interface MentorWeekSignals {
   feedback?: MentorIdeaFeedback;
   /** רעיונות שסומנו „עזר לי” לפני שבוע — והאם המספר שלהם זז (§7.2) */
   ideaOutcomes?: MentorIdeaOutcome[];
+  /** תרגולי שיחה שנגמרו השבוע, והציון האחרון (§7.3) */
+  practice?: { count: number; lastScore: number | null };
+  /** מה הוכיח את עצמו במשרד — הטיפ לשבוע הבא מעדיף אותו (§7.4) */
+  office?: OfficeProvenLookup;
 }
 
 /**
@@ -835,6 +843,27 @@ export function mentorIdeaOutcomeSentence(outcome: MentorIdeaOutcome): string {
   return `${lead} ${after} בשבוע שאחריו, מול ${before} בשבוע שלפני. שבוע אחד הוא מעט — נמשיך לעקוב.`;
 }
 
+/**
+ * תרגלת השבוע — משפט אחד בסיכום (§7.3). תרגול הוא מאמץ, ומאמץ נאמר
+ * בשמו; הציון האחרון כעובדה, בלי „רק”.
+ */
+export function mentorPracticeSentence(
+  practice: { count: number; lastScore: number | null } | undefined,
+): string | null {
+  if (practice === undefined || practice.count === 0) return null;
+  const times =
+    practice.count === 1
+      ? "שיחה אחת"
+      : practice.count === 2
+        ? "שתי שיחות"
+        : `${practice.count} שיחות`;
+  const score =
+    practice.lastScore === null
+      ? ""
+      : ` הציון האחרון: ${practice.lastScore} מתוך 5.`;
+  return `תרגלת השבוע ${times} עם המנטור.${score} תרגול הוא מה שהופך ידע להרגל.`;
+}
+
 function isEmptyActivity(activity: MentorActivity): boolean {
   return MENTOR_METRICS.every((m) => activity[m.code] === 0);
 }
@@ -855,12 +884,15 @@ export function mentorWeeklyReview(
   const somethingWaits = (signals.insights?.missedUnreturned ?? 0) > 0;
   // וכך גם רעיון שסומן „עזר לי” ונמדד — הבטחנו לומר אם המספר זז
   const somethingMeasured = (signals.ideaOutcomes?.length ?? 0) > 0;
+  // תרגול הוא מאמץ — שבוע שבו רק תרגלו עדיין מקבל סיכום (§7.3)
+  const somethingPracticed = (signals.practice?.count ?? 0) > 0;
   if (
     wins.length === 0 &&
     goals.length === 0 &&
     noActivity &&
     !somethingWaits &&
-    !somethingMeasured
+    !somethingMeasured &&
+    !somethingPracticed
   )
     return null;
 
@@ -905,6 +937,9 @@ export function mentorWeeklyReview(
    */
   for (const outcome of (signals.ideaOutcomes ?? []).slice(-2))
     paragraphs.push(mentorIdeaOutcomeSentence(outcome));
+  // תרגול הוא מאמץ שנאמר בשמו — כמו הצלחה, לפני הזיכרון
+  const practice = mentorPracticeSentence(signals.practice);
+  if (practice !== null) paragraphs.push(practice);
   /*
    * הזיכרון: דפוס חוזר נאמר רק כשהוא **רלוונטי השבוע** — מדד שמאחור
    * גם עכשיו, או מפנה שנמשך. משפט אחד, לא רשימה: מנטור מזכיר דבר
@@ -932,8 +967,16 @@ export function mentorWeeklyReview(
    */
   const behindGoal = goals.find((g) => g.pace === "behind");
   if (behindGoal !== undefined) {
+    const tip = playbookIdeaPick(
+      behindGoal.metric,
+      Math.floor(signals.weekStart.getTime() / 604_800_000),
+      signals.feedback,
+      signals.office,
+    );
     paragraphs.push(
-      `טיפ לשבוע הבא: ${playbookIdea(behindGoal.metric, Math.floor(signals.weekStart.getTime() / 604_800_000), signals.feedback)}`,
+      tip.proven
+        ? `טיפ לשבוע הבא — עבד אצל אחרים במשרד: ${tip.text}`
+        : `טיפ לשבוע הבא: ${tip.text}`,
     );
   }
 
@@ -1206,6 +1249,12 @@ export interface MentorDailyInput {
   yesterday?: MentorActivity | null;
   /** רעיון להיום — מספר המשחק (`mentorDailyIdea`); נאמר רק כשיש עוד מה לומר */
   idea?: string;
+  /** הרעיון הוכיח את עצמו אצל אחרים במשרד (§7.4) — נאמר */
+  ideaProven?: boolean;
+  /** 30 הימים הראשונים (§7.5) — שורה בתחילת שבוע, ובוקר שלא נשאר ריק */
+  onboarding?: { morningLine: string | null; stepBody: string } | null;
+  /** העסקה הקרובה ביותר (§7.6) — נאמרת ביום שני, פעם בשבוע */
+  closestDeal?: string | null;
   now: Date;
   firstName?: string;
   /** השם והסגנון שהמתווך בחר — הפתיח והסיום, לא התוכן */
@@ -1279,6 +1328,9 @@ export function mentorDailyPlan(
     );
   }
 
+  // פעם בשבוע, ביום שני: קונה אחד ומכשול אחד (§7.6) — שיפוט, לא תזכורת
+  if (weekday === 1 && input.closestDeal) lines.push(input.closestDeal);
+
   const missed = input.insights?.missedUnreturned ?? 0;
   if (missed === 1) {
     lines.push("שיחה נכנסת אחת מחכה לטלפון חוזר — שווה להתחיל ממנה.");
@@ -1286,16 +1338,32 @@ export function mentorDailyPlan(
     lines.push(`${missed} שיחות נכנסות מחכות לטלפון חוזר — שווה להתחיל מהן.`);
   }
 
-  if (input.goals.length === 0 && weekday === 0) {
+  if (input.goals.length === 0 && weekday === 0 && !input.onboarding) {
     lines.push(
       "השבוע עוד בלי יעד. יעד אחד קטן — למשל 5 הצעות — נותן לשבוע כיוון. אפשר לכתוב לי „תקבע לי יעד של 5 הצעות בשבוע”.",
     );
   }
 
+  /*
+   * 30 הימים הראשונים (§7.5): בתחילת שבוע — המיקוד של השבוע ראשון;
+   * ובוקר שהיה נשאר ריק אומר את הצעד. מתווך חדש לא מקבל שתיקה
+   * בשבועות שבהם הוא מחליט אם המערכת שווה.
+   */
+  if (input.onboarding) {
+    if (input.onboarding.morningLine !== null)
+      lines.unshift(input.onboarding.morningLine);
+    if (lines.length === 0) lines.push(input.onboarding.stepBody);
+  }
+
   if (lines.length === 0) return null;
   // רעיון רק כשיש בוקר — „בוקר טוב, רעיון” בלי יעד ובלי אתמול הוא פרסומת
   const idea = (input.idea ?? "").trim();
-  if (idea !== "") lines.push(`רעיון להיום: ${idea}`);
+  if (idea !== "")
+    lines.push(
+      input.ideaProven === true
+        ? `רעיון להיום — עבד אצל אחרים במשרד: ${idea}`
+        : `רעיון להיום: ${idea}`,
+    );
   const persona = input.persona ?? DEFAULT_MENTOR_PERSONA;
   const greeting = mentorSalutation("בוקר טוב", name, persona);
   const closer = mentorCloser(persona.style, anyBehind);

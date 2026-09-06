@@ -16,9 +16,10 @@ import {
   type MentorPersona,
 } from "./mentor-persona.js";
 import {
-  playbookIdea,
+  playbookIdeaPick,
   type MentorIdeaFeedback,
   type MentorIdeaMark,
+  type OfficeProvenLookup,
 } from "./mentor-playbook.js";
 
 /**
@@ -62,6 +63,8 @@ export interface MentorMonthSignals {
    */
   ideaOutcomes: MentorIdeaOutcome[];
   feedback?: MentorIdeaFeedback;
+  /** מה הוכיח את עצמו במשרד — הטיפ למיקוד מעדיף אותו (§7.4) */
+  office?: OfficeProvenLookup;
   firstName?: string;
   persona?: MentorPersona;
 }
@@ -321,8 +324,14 @@ export function mentorMonthlyReview(
     const seed =
       signals.monthStart.getUTCFullYear() * 12 +
       signals.monthStart.getUTCMonth();
+    const tip = playbookIdeaPick(
+      lagging.metric,
+      seed,
+      signals.feedback,
+      signals.office,
+    );
     paragraphs.push(
-      `המיקוד לחודש הבא: ${metricPlural(lagging.metric)}. היעד היה מאחור ב-${lagging.behind} מתוך ${weeksWord(lagging.weeks)}. טיפ: ${playbookIdea(lagging.metric, seed, signals.feedback)}`,
+      `המיקוד לחודש הבא: ${metricPlural(lagging.metric)}. היעד היה מאחור ב-${lagging.behind} מתוך ${weeksWord(lagging.weeks)}. טיפ${tip.proven ? " (עבד אצל אחרים במשרד)" : ""}: ${tip.text}`,
     );
   } else if (weekly.length > 0) {
     paragraphs.push(
