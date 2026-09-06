@@ -11,6 +11,7 @@ import {
   MentorGoalInputSchema,
   jerusalemDayLabel,
   mentorGoalLabel,
+  type MentorAdvice,
   type MentorGoalMetric,
   type MentorGoalPeriod,
   type MentorGoalProgress,
@@ -122,6 +123,7 @@ interface Overview {
   streakWeeks: number;
   chatAvailable: boolean;
   patterns: MentorPattern[];
+  advice: MentorAdvice[];
 }
 
 interface Turn {
@@ -174,8 +176,9 @@ const METRIC_TILE: Record<
 };
 
 const EXAMPLE_QUESTIONS = [
-  "איך היה השבוע שלי?",
+  "תן לי רעיון להיום",
   "מה כדאי לי לשפר קודם?",
+  "איפה המשפך שלי מאבד הכי הרבה?",
   "תעזור לי לבחור יעד לשבוע הבא",
 ];
 
@@ -225,6 +228,8 @@ export default function MentorPage() {
   const featuresFailed = useFeaturesFailed();
 
   const [overview, setOverview] = useState<Overview | null>(null);
+  // שאלה שנפתחה מכרטיס העצות — נשלחת לשיחה ברגע שהיא מוכנה
+  const [askMentor, setAskMentor] = useState<string | null>(null);
   const [overviewFailed, setOverviewFailed] = useState(false);
   const [notInPlan, setNotInPlan] = useState(false);
   const [reviews, setReviews] = useState<ReviewDto[] | null>(null);
@@ -313,6 +318,7 @@ export default function MentorPage() {
             />
           </div>
           <WeekSection overview={overview} />
+          <AdviceSection advice={overview.advice} onAsk={setAskMentor} />
           <GoalsSection overview={overview} onChanged={load} />
           {overview.patterns.length > 0 ? (
             <section className="mt-8" aria-labelledby="mentor-memory-heading">
@@ -354,6 +360,8 @@ export default function MentorPage() {
           <ChatSection
             available={overview.chatAvailable}
             firstName={firstName}
+            pending={askMentor}
+            onConsumed={() => setAskMentor(null)}
           />
         </>
       )}
@@ -406,6 +414,63 @@ function MentorHero({ streakWeeks }: { streakWeeks: number }) {
 /* ====================================================================== */
 /* השבוע                                                                  */
 /* ====================================================================== */
+
+/**
+ * מה המנטור מציע עכשיו — עד שלוש עצות מהמספרים (docs/14 §7.1): שיחה
+ * שמחכה, יעד מאחור, צוואר בקבוק במשפך, זמן מענה, או רעיון להיום.
+ * כל עצה נפתחת לשיחה בלחיצה — השאלה כבר מנוסחת, המתווך רק לוחץ.
+ */
+function AdviceSection({
+  advice,
+  onAsk,
+}: {
+  advice: MentorAdvice[];
+  onAsk: (question: string) => void;
+}) {
+  if (advice.length === 0) return null;
+  return (
+    <section className="mt-8" aria-labelledby="mentor-advice-heading">
+      <div className="mv-card-head mv-domain-amber mb-3">
+        <span className="mv-tile" aria-hidden="true">
+          <IconBolt s={19} />
+        </span>
+        <h2 id="mentor-advice-heading" className="mv-card-head__title m-0">
+          מה המנטור מציע עכשיו
+        </h2>
+      </div>
+      <ul className="m-0 flex list-none flex-col gap-2 p-0">
+        {advice.map((item) => (
+          <li
+            key={`${item.kind}-${item.metric}`}
+            className="mv-row mv-row--nested items-start"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="mv-row__title">{item.title}</div>
+              <p
+                className="mv-row__meta m-0 mt-1"
+                style={{ whiteSpace: "normal" }}
+              >
+                {item.body}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="mv-btn-soft shrink-0"
+              onClick={() => {
+                onAsk(item.question);
+                document
+                  .getElementById("mentor-chat-heading")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+            >
+              לשאול את המנטור
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 function WeekSection({ overview }: { overview: Overview }) {
   const { activity, previousActivity, wins } = overview;
@@ -1402,9 +1467,14 @@ function Commitment({
 function ChatSection({
   available,
   firstName,
+  pending,
+  onConsumed,
 }: {
   available: boolean;
   firstName: string;
+  /** שאלה שנפתחה מכרטיס העצות — נשלחת ברגע שהשיחה פנויה */
+  pending: string | null;
+  onConsumed: () => void;
 }) {
   const [turns, setTurns] = useState<Turn[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -1429,6 +1499,14 @@ function ChatSection({
       endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
   }, [turns?.length, busy]);
+
+  // השאלה מכרטיס העצות — פעם אחת, כשהשיחה טעונה ופנויה
+  const sendRef = useRef<(q: string) => Promise<void>>(async () => {});
+  useEffect(() => {
+    if (pending === null || turns === null || busy) return;
+    onConsumed();
+    void sendRef.current(pending);
+  }, [pending, turns, busy, onConsumed]);
 
   async function send(question: string): Promise<void> {
     const trimmed = question.trim();
@@ -1461,6 +1539,7 @@ function ChatSection({
       setBusy(false);
     }
   }
+  sendRef.current = send;
 
   return (
     <section className="mt-8" aria-labelledby="mentor-chat-heading">

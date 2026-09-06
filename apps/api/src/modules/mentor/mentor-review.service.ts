@@ -11,6 +11,7 @@ import {
   jerusalemWallParts,
   jerusalemWeekStart,
   jerusalemWeekday,
+  mentorDailyIdea,
   mentorDailyPlan,
   mentorGoalLabel,
   mentorMidweekNudge,
@@ -436,6 +437,8 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       goals,
       insights,
       yesterday,
+      // רעיון אחד מספר המשחק, על מדד המיקוד — מתחלף כל יום
+      idea: mentorDailyIdea(goals, now),
       now,
       ...(firstName === "" ? {} : { firstName }),
     });

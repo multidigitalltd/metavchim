@@ -37,6 +37,8 @@ export * from "./logic/pbx-watch.js";
 export * from "./logic/coach.js";
 export * from "./logic/mentor.js";
 export * from "./logic/mentor-chat.js";
+export * from "./logic/mentor-playbook.js";
+export * from "./logic/mentor-advice.js";
 export * from "./logic/support.js";
 export * from "./logic/support-inbox.js";
 export * from "./logic/csv-import.js";

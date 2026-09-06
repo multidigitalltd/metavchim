@@ -688,6 +688,8 @@ describe("MentorReviewService.dailyForUser — הבוקר של המנטור", ()
     expect(body).toContain("בוקר טוב דנה.");
     expect(body).toContain("אתמול:");
     expect(body).toContain("5 הצעות בשבוע: 2 הצעות עד עכשיו.");
+    // רעיון מספר המשחק — על מדד המיקוד (הצעות)
+    expect(body).toContain("רעיון להיום: ");
   });
 
   it("בלי יעד ביום שני, בלי שיחה שמחכה ובלי מאמץ אתמול — שקט", async () => {

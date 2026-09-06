@@ -31,6 +31,7 @@ import {
   MENTOR_INTENTION_MAX,
   MentorGoalInputSchema,
 } from "../schemas/mentor.js";
+import { MENTOR_PLAYBOOK } from "./mentor-playbook.js";
 
 // ראשון 2026-09-06 00:00 שעון ישראל (UTC+3 בקיץ)
 const WEEK_START = new Date("2026-09-05T21:00:00.000Z");
@@ -1416,5 +1417,48 @@ describe("יעד שהושג — חגיגה באותו יום, לא שוב במו
     const text = review?.paragraphs.join(" ") ?? "";
     expect(text).toContain("הרצל 12");
     expect(text).not.toContain("השגת את היעד");
+  });
+});
+
+describe("עצה בבוקר ובסיכום — ספר המשחק בלי מודל", () => {
+  it("הבוקר: „רעיון להיום” רק כשיש עוד מה לומר", () => {
+    const monday = new Date("2026-09-07T06:00:00.000Z");
+    const withGoal = mentorDailyPlan({
+      goals: [goal({ pace: "behind", actual: 1, remaining: 4 })],
+      idea: "לקבוע שעה קבועה להצעות.",
+      now: monday,
+    });
+    expect(withGoal?.body).toContain("רעיון להיום: לקבוע שעה קבועה להצעות.");
+    expect(withGoal?.body.indexOf("רעיון להיום")).toBeGreaterThan(
+      withGoal?.body.indexOf("5 הצעות בשבוע") ?? 0,
+    );
+    expect(
+      mentorDailyPlan({
+        goals: [],
+        idea: "לקבוע שעה קבועה להצעות.",
+        now: monday,
+      }),
+    ).toBeNull();
+  });
+
+  it("הסיכום: „טיפ לשבוע הבא” על היעד שמאחור, אחרון — ובלי פיגור אין טיפ", () => {
+    const behind = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [],
+      activity: { ...quiet, offers_sent: 2 },
+      goals: [goal({ pace: "behind", actual: 2, ratio: 0.4, remaining: 3 })],
+    });
+    const last = behind?.paragraphs.at(-1) ?? "";
+    expect(last).toMatch(/^טיפ לשבוע הבא: /u);
+    expect(MENTOR_PLAYBOOK.offers_sent.ideas).toContain(
+      last.replace("טיפ לשבוע הבא: ", ""),
+    );
+    const fine = mentorWeeklyReview({
+      weekStart: WEEK_START,
+      wins: [],
+      activity: { ...quiet, offers_sent: 5 },
+      goals: [goal({ pace: "done" })],
+    });
+    expect(fine?.paragraphs.join(" ")).not.toContain("טיפ לשבוע הבא");
   });
 });
