@@ -102,16 +102,72 @@ describe("ההמרה — פעם אחת בלבד", () => {
    */
   it("תופסת את השורה בעדכון מותנה לפני שהיא יוצרת", () => {
     expect(convert).toContain("updateMany");
-    expect(convert).toContain("convertedAt: null");
     const claim = convert.indexOf("updateMany");
     const create = convert.indexOf("this.properties.create");
     expect(create).toBeGreaterThan(-1);
     expect(claim).toBeLessThan(create);
   });
 
-  it("משחררת את התפיסה כשהיצירה נכשלת", () => {
+  /*
+   * ‎**המזהה נקבע לפני התפיסה ונרשם יחד איתה.**
+   *
+   * ‏אחרת יש חלון שבו קיים נכס שאין אליו הפניה: יצירה שנכשלת אחרי
+   * ההתמדה שחררה את התפיסה, וניסיון חוזר יצר נכס שני בזמן שהראשון
+   * נשאר יתום — ומזההו מעולם לא נרשם, ולכן גם האינדקס הייחודי לא
+   * יכול היה לתפוס אותו (ביקורת Codex, P1).
+   */
+  it("המזהה נקבע לפני התפיסה ונרשם בתוכה", () => {
+    const assigned = convert.indexOf("const propertyId = ulid()");
+    const claim = convert.indexOf("updateMany");
+    expect(assigned).toBeGreaterThan(-1);
+    expect(assigned).toBeLessThan(claim);
+    // ‏שני השדות באותו עדכון — לא „תפוס עכשיו, רשום אחר כך”
+    expect(convert).toMatch(/data: \{ convertedAt: new Date\(\), convertedPropertyId: propertyId \}/u);
+    /*
+     * ‏בתוך קריאת היצירה דווקא: `id: propertyId` מופיע גם בבדיקת
+     * הקיום שבשחרור, ולכן חיפוש על כל הפונקציה עבר גם כשהמזהה
+     * הוסר מהיצירה — כלומר Prisma הייתה מגרילה מזהה אחר, וההפניה
+     * שנרשמה בתפיסה מצביעה על נכס שאינו קיים.
+     */
+    const createCall =
+      /this\.properties\.create\(\{[\s\S]*?\n {6}\}\);/u.exec(convert)?.[0] ?? "";
+    expect(createCall).not.toBe("");
+    expect(createCall).toContain("id: propertyId");
+  });
+
+  /*
+   * ‏בין הקריאה לתפיסה השורה יכולה להימחק או לצאת מ„גויס”. תפיסה
+   * שבודקת רק „טרם הומר” הייתה יוצרת נכס מצילום מיושן.
+   */
+  it("התפיסה בודקת מחדש את מצב השורה ולא רק שטרם הומרה", () => {
+    const claimWhere = /updateMany\(\{[\s\S]*?where: \{[\s\S]*?\}/u.exec(convert)?.[0] ?? "";
+    expect(claimWhere).toContain("deletedAt: null");
+    expect(claimWhere).toContain('status: "recruited"');
+    expect(claimWhere).toContain("convertedAt: null");
+  });
+
+  /*
+   * ‎**שחרור עיוור הוא מה שיצר את היתום.** היצירה יכולה לזרוק אחרי
+   * שהשורה כבר נשמרה — הפרסום לרשת מתבצע בסופה.
+   */
+  it("משחררת רק כשהנכס באמת אינו קיים", () => {
     expect(convert).toContain("catch");
-    expect(convert).toMatch(/convertedAt: null/u);
+    const release = convert.slice(convert.indexOf("} catch (error: unknown) {"));
+    expect(release).toContain("tx.property.findFirst");
+    expect(release).toContain("if (!exists)");
+    const lookup = release.indexOf("tx.property.findFirst");
+    const clear = release.indexOf("convertedPropertyId: null");
+    expect(clear).toBeGreaterThan(lookup);
+  });
+
+  /*
+   * ‏מי שהפסיד את המרוץ קורא את המזהה במקום לנחש כמה לחכות לו.
+   * פענוח הכתובת לבדו יכול לקחת שש שניות, וסקירה קצרה מזה החזירה
+   * שגיאה על פעולה שהצליחה (ביקורת Codex).
+   */
+  it("המפסיד קורא את המזהה ואינו סוקר אחריו", () => {
+    expect(convert).toContain("again?.convertedPropertyId");
+    expect(convert).not.toMatch(/attempt < \d+/u);
   });
 
   /* ‏לחיצה שנייה מקבלת את הנכס, לא שגיאה */

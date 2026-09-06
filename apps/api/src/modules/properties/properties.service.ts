@@ -195,6 +195,13 @@ export class PropertiesService {
     owner?: { name: string; phone: string };
     /** מי גר בנכס כשזה אינו הבעלים — לתיאום ביקור. */
     occupant?: { name: string; phone: string };
+    /**
+     * ‎**מזהה שנקבע מראש** — `persist` כבר תמך בו (`createFromIntake`),
+     * והחשיפה כאן היא מה שמאפשרת לקורא לרשום את המזהה **לפני**
+     * היצירה. בלי זה, יצירה שנכשלה אחרי ההתמדה משאירה נכס שאיש
+     * אינו יודע עליו, וניסיון חוזר יוצר שני.
+     */
+    id?: string;
   }): Promise<PropertyDto> {
     const id = await this.persist(input);
     /*

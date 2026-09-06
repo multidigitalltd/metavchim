@@ -39,17 +39,23 @@ export interface TargetValues {
   notes?: string;
 }
 
-/** מחרוזת ריקה אינה „אפס” — שדה שלא מולא אינו נשלח כלל. */
-function num(form: FormData, name: string): number | undefined {
+/**
+ * ‎**שדה ריק נשלח כ-`null`, ולא מושמט.**
+ *
+ * ‏השמטה פירושה „אל תיגע”, והשרת השאיר את הערך הישן — כלומר מי
+ * שמחק עיר גילה שהיא חזרה (ביקורת Codex). הטופס מציג את המצב
+ * המלא, ולכן מה שריק בו הוא מה שאמור להיות ריק במסד.
+ */
+function num(form: FormData, name: string): number | null {
   const raw = String(form.get(name) ?? "").trim();
-  if (raw === "") return undefined;
+  if (raw === "") return null;
   const value = Number(raw);
-  return Number.isFinite(value) ? value : undefined;
+  return Number.isFinite(value) ? value : null;
 }
 
-function str(form: FormData, name: string): string | undefined {
+function str(form: FormData, name: string): string | null {
   const raw = String(form.get(name) ?? "").trim();
-  return raw === "" ? undefined : raw;
+  return raw === "" ? null : raw;
 }
 
 /**
@@ -75,7 +81,7 @@ export function TargetForm({ initial }: { initial?: TargetValues }) {
      * ‏אותה בדיקה שהשרת מריץ — כאן היא רק כדי לומר את זה מיד, ליד
      * השדה, במקום לשלוח בקשה שתחזור בשגיאה. השרת הוא האוכף.
      */
-    if (sourceUrl !== undefined && !isValidSourceUrl(sourceUrl)) {
+    if (sourceUrl !== null && !isValidSourceUrl(sourceUrl)) {
       setUrlError("הקישור חייב להתחיל ב-http:// או https://");
       return;
     }
@@ -83,35 +89,26 @@ export function TargetForm({ initial }: { initial?: TargetValues }) {
     setError(null);
     setSaving(true);
 
+    const price = num(form, "price");
     const body = {
-      ...(str(form, "status") === undefined ? {} : { status: str(form, "status") }),
-      ...(str(form, "source") === undefined ? {} : { source: str(form, "source") }),
-      sourceUrl: sourceUrl ?? "",
-      ...(str(form, "city") === undefined ? {} : { city: str(form, "city") }),
-      ...(str(form, "neighborhood") === undefined
-        ? {}
-        : { neighborhood: str(form, "neighborhood") }),
-      ...(str(form, "street") === undefined ? {} : { street: str(form, "street") }),
-      ...(str(form, "houseNumber") === undefined
-        ? {}
-        : { houseNumber: str(form, "houseNumber") }),
-      ...(str(form, "propertyType") === undefined
-        ? {}
-        : { propertyType: str(form, "propertyType") }),
-      ...(str(form, "dealType") === undefined ? {} : { dealType: str(form, "dealType") }),
-      ...(num(form, "rooms") === undefined ? {} : { rooms: num(form, "rooms") }),
-      ...(num(form, "areaSqm") === undefined ? {} : { areaSqm: num(form, "areaSqm") }),
-      ...(num(form, "floor") === undefined ? {} : { floor: num(form, "floor") }),
-      ...(num(form, "totalFloors") === undefined
-        ? {}
-        : { totalFloors: num(form, "totalFloors") }),
+      status: str(form, "status") ?? "new",
+      source: str(form, "source") ?? "other",
+      sourceUrl,
+      city: str(form, "city"),
+      neighborhood: str(form, "neighborhood"),
+      street: str(form, "street"),
+      houseNumber: str(form, "houseNumber"),
+      propertyType: str(form, "propertyType"),
+      dealType: str(form, "dealType"),
+      rooms: num(form, "rooms"),
+      areaSqm: num(form, "areaSqm"),
+      floor: num(form, "floor"),
+      totalFloors: num(form, "totalFloors"),
       /* ‏המחיר מוזן בשקלים ונשמר באגורות — כמו בכל שאר המערכת */
-      ...(num(form, "price") === undefined
-        ? {}
-        : { priceAgorot: Math.round((num(form, "price") as number) * 100) }),
-      ...(str(form, "ownerName") === undefined ? {} : { ownerName: str(form, "ownerName") }),
-      ...(str(form, "ownerPhone") === undefined ? {} : { ownerPhone: str(form, "ownerPhone") }),
-      ...(str(form, "notes") === undefined ? {} : { notes: str(form, "notes") }),
+      priceAgorot: price === null ? null : Math.round(price * 100),
+      ownerName: str(form, "ownerName"),
+      ownerPhone: str(form, "ownerPhone"),
+      notes: str(form, "notes"),
     };
 
     try {

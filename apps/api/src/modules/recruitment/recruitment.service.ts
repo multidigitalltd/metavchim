@@ -37,25 +37,31 @@ export interface RecruitmentTargetDto {
   updatedAt: Date;
 }
 
+/**
+ * ‎`undefined` = „אל תיגע בשדה”, `null` = „נקה אותו”.
+ *
+ * ‏שתי המשמעויות נחוצות: בלי `null` אי אפשר היה למחוק ערך שהוזן,
+ * ובלי `undefined` כל עדכון חלקי היה מוחק את מה שלא נשלח.
+ */
 export interface RecruitmentInput {
   status?: string;
   source?: string;
-  sourceUrl?: string;
-  city?: string;
-  neighborhood?: string;
-  street?: string;
-  houseNumber?: string;
-  propertyType?: string;
-  dealType?: string;
-  rooms?: number;
-  areaSqm?: number;
-  floor?: number;
-  totalFloors?: number;
-  priceAgorot?: number;
-  ownerName?: string;
-  ownerPhone?: string;
-  notes?: string;
-  agentUserId?: string;
+  sourceUrl?: string | null;
+  city?: string | null;
+  neighborhood?: string | null;
+  street?: string | null;
+  houseNumber?: string | null;
+  propertyType?: string | null;
+  dealType?: string | null;
+  rooms?: number | null;
+  areaSqm?: number | null;
+  floor?: number | null;
+  totalFloors?: number | null;
+  priceAgorot?: number | null;
+  ownerName?: string | null;
+  ownerPhone?: string | null;
+  notes?: string | null;
+  agentUserId?: string | null;
 }
 
 /** שדה אופציונלי נכנס ל-DTO רק כשיש בו ערך — `exactOptionalPropertyTypes`. */
@@ -245,7 +251,6 @@ export class RecruitmentService {
       tx.recruitmentTarget.findFirst({ where: { id, tenantId, deletedAt: null } }),
     );
     if (!target) throw new NotFoundException("נכס לגיוס לא נמצא");
-
     if (target.convertedPropertyId !== null) {
       return { propertyId: target.convertedPropertyId };
     }
@@ -253,44 +258,68 @@ export class RecruitmentService {
       throw new ConflictException('רק נכס בשלב „גויס” ניתן להמרה לנכס של המשרד');
     }
 
-    // ‏התפיסה — מותנית ואטומית. אפס שורות = מישהו הקדים.
+    /*
+     * ‎**המזהה נקבע לפני התפיסה ונרשם יחד איתה.**
+     *
+     * ‏הגרסה הראשונה תפסה, יצרה, ואז רשמה את המזהה — ובין השניים
+     * היה חלון: יצירה שנכשלה **אחרי** שהנכס כבר נשמר (הפרסום לרשת
+     * מתבצע בסוף היצירה ויכול לזרוק) שחררה את התפיסה, וניסיון חוזר
+     * יצר נכס שני. הראשון נשאר יתום — ואיש לא ידע עליו, כי מזההו
+     * מעולם לא נרשם, ולכן גם האינדקס הייחודי לא יכול היה לתפוס אותו
+     * (ביקורת Codex, P1).
+     *
+     * ‏עכשיו המזהה ידוע מראש ונרשם בתפיסה עצמה. אין רגע שבו קיים
+     * נכס שאין אליו הפניה.
+     */
+    const propertyId = ulid();
+
+    /*
+     * ‎**התפיסה בודקת מחדש את המצב, ולא רק את `convertedAt`.**
+     *
+     * ‏בין הקריאה למעלה לעדכון כאן מישהו יכול היה למחוק את השורה או
+     * להזיז אותה מ„גויס”. תפיסה שבודקת רק „טרם הומר” הייתה יוצרת נכס
+     * מצילום מיושן, ועוקפת בשקט את הכלל שהשירות עצמו אוכף (ביקורת
+     * Codex). התנאים כאן הם בדיוק אלה שנבדקו למעלה.
+     */
     const claimed = await this.prisma.withTenant((tx) =>
       tx.recruitmentTarget.updateMany({
-        where: { id, tenantId, convertedAt: null },
-        data: { convertedAt: new Date() },
+        where: {
+          id,
+          tenantId,
+          deletedAt: null,
+          status: "recruited",
+          convertedAt: null,
+          convertedPropertyId: null,
+        },
+        data: { convertedAt: new Date(), convertedPropertyId: propertyId },
       }),
     );
+
     if (claimed.count === 0) {
       /*
-       * ‎**מישהו הקדים — ועכשיו צריך לחכות לו.**
-       *
-       * ‏בין התפיסה לכתיבת `convertedPropertyId` יש חלון של יצירת
-       * הנכס. בקשה שנייה שנופלת בדיוק בתוכו רואה „נתפס” אבל עדיין
-       * בלי מזהה — ואם היא תחזיר שגיאה כאן, לחיצה כפולה תראה
-       * **אדום על פעולה שהצליחה**. אומת חי: חמש המרות במקביל יצרו
-       * נכס אחד, וארבע מהן קיבלו שגיאה.
-       *
-       * ‏המתנה קצרה וחסומה סוגרת את החלון בלי לפתוח מרוץ חדש. אם
-       * גם אחריה אין מזהה, הנוסח אומר „מתבצעת” ולא „נכשלה” — כי
-       * זה מה שקורה.
+       * ‏מישהו הקדים, או שהמצב השתנה תחתינו. המזהה כבר רשום אצל
+       * המנצח, ולכן **אין צורך לנחש כמה לחכות לו** — קוראים אותו.
+       * הגרסה הקודמת סקרה שש פעמים ברבע שנייה, ופענוח הכתובת לבדו
+       * יכול לקחת שש שניות: מי שהפסיד קיבל שגיאה על פעולה שהצליחה
+       * (ביקורת Codex).
        */
-      for (let attempt = 0; attempt < 6; attempt += 1) {
-        const again = await this.prisma.withTenant((tx) =>
-          tx.recruitmentTarget.findFirst({
-            where: { id, tenantId },
-            select: { convertedPropertyId: true },
-          }),
-        );
-        if (again?.convertedPropertyId) return { propertyId: again.convertedPropertyId };
-        await new Promise((resolve) => setTimeout(resolve, 250));
+      const again = await this.prisma.withTenant((tx) =>
+        tx.recruitmentTarget.findFirst({
+          where: { id, tenantId },
+          select: { convertedPropertyId: true },
+        }),
+      );
+      if (again?.convertedPropertyId) {
+        await this.awaitProperty(tenantId, again.convertedPropertyId);
+        return { propertyId: again.convertedPropertyId };
       }
-      throw new ConflictException("ההמרה מתבצעת כרגע — רעננו בעוד רגע");
+      throw new ConflictException("הנכס לגיוס השתנה — רעננו ונסו שוב");
     }
 
     try {
-      const fields = this.fieldsOf(target);
-      const property = await this.properties.create({
-        fields,
+      await this.properties.create({
+        id: propertyId,
+        fields: this.fieldsOf(target),
         /*
          * ‏נכס שגויס הוא נכס פעיל, לא טיוטה: הבעלים חתם, והמתווך
          * רוצה להתחיל לשווק אותו באותו רגע.
@@ -302,24 +331,52 @@ export class RecruitmentService {
           : {}),
         ...(target.notes === null ? {} : { internalNotes: target.notes }),
       });
-      await this.prisma.withTenant((tx) =>
-        tx.recruitmentTarget.update({
-          where: { id },
-          data: { convertedPropertyId: property.id },
-        }),
-      );
-      return { propertyId: property.id };
+      return { propertyId };
     } catch (error: unknown) {
-      /* ‏היצירה נכשלה — השורה חוזרת לתור, אחרת הכפתור נעלם לתמיד */
-      await this.prisma
+      /*
+       * ‎**משחררים רק אם הנכס באמת אינו קיים.**
+       *
+       * ‏שחרור עיוור הוא מה שיצר את היתום: היצירה יכולה לזרוק אחרי
+       * שהשורה כבר נשמרה. אם היא קיימת — ההפניה נכונה ונשארת, וניסיון
+       * חוזר יקבל אותה מהבדיקה שבראש. אם אינה — השורה חוזרת לתור.
+       */
+      const exists = await this.prisma
         .withTenant((tx) =>
-          tx.recruitmentTarget.updateMany({
-            where: { id, tenantId, convertedPropertyId: null },
-            data: { convertedAt: null },
-          }),
+          tx.property.findFirst({ where: { id: propertyId, tenantId }, select: { id: true } }),
         )
-        .catch(() => undefined);
+        .catch(() => null);
+      if (!exists) {
+        await this.prisma
+          .withTenant((tx) =>
+            tx.recruitmentTarget.updateMany({
+              where: { id, tenantId, convertedPropertyId: propertyId },
+              data: { convertedAt: null, convertedPropertyId: null },
+            }),
+          )
+          .catch(() => undefined);
+      }
       throw error;
+    }
+  }
+
+  /**
+   * ‏המתנה לנכס שמישהו אחר יוצר ברגע זה.
+   *
+   * ‏התקציב נגזר מהאיטי שביצירה — פענוח הכתובת מול ספק חיצוני, שפסק
+   * הזמן שלו שש שניות — ולא ממספר שנבחר באוויר. חוזרים בלי שגיאה גם
+   * כשהוא לא הופיע: המזהה נכון והשורה תיווצר, והמסך שמנווט אליו
+   * יטען אותו ברגע שיהיה.
+   */
+  private async awaitProperty(tenantId: string, propertyId: string): Promise<void> {
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const row = await this.prisma
+        .withTenant((tx) =>
+          tx.property.findFirst({ where: { id: propertyId, tenantId }, select: { id: true } }),
+        )
+        .catch(() => null);
+      if (row || Date.now() >= deadline) return;
+      await new Promise((resolve) => setTimeout(resolve, 300));
     }
   }
 
@@ -366,8 +423,8 @@ export class RecruitmentService {
    * ‏הוא מרונדר כ-`href`, ומסך הוא בקשה — לא אכיפה. `javascript:`
    * שנשמר כאן היה מריץ קוד אצל כל מי שלוחץ עליו במשרד.
    */
-  private assertSourceUrl(url: string | undefined): void {
-    if (url === undefined || url === "") return;
+  private assertSourceUrl(url: string | null | undefined): void {
+    if (url === undefined || url === null || url === "") return;
     if (!isValidSourceUrl(url)) {
       throw new ConflictException("קישור למודעה חייב להתחיל ב-http:// או https://");
     }
@@ -381,6 +438,7 @@ export class RecruitmentService {
       ...set("status", input.status),
       ...set("source", input.source),
       ...set("sourceUrl", input.sourceUrl === "" ? null : input.sourceUrl),
+
       ...set("city", input.city),
       ...set("neighborhood", input.neighborhood),
       ...set("street", input.street),

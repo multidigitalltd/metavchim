@@ -3,8 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import {
+  recruitmentSourceLabel,
+  recruitmentStatusLabel,
+} from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
-import { useRequireAuth } from "@/lib/use-auth";
+import { formatPrice } from "@/lib/format";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { TargetForm, type TargetValues } from "../target-form";
 
 export default function EditRecruitmentTargetPage() {
@@ -22,6 +27,7 @@ export default function EditRecruitmentTargetPage() {
   }, [id]);
 
   if (authLoading || !user) return null;
+  const mayEdit = can(user, "properties.edit");
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6">
@@ -30,16 +36,63 @@ export default function EditRecruitmentTargetPage() {
           נכסים לגיוס
         </Link>
       </nav>
-      <h1 className="mb-5 text-2xl font-bold">עריכת נכס לגיוס</h1>
+      <h1 className="mb-5 text-2xl font-bold">{mayEdit ? "עריכת נכס לגיוס" : "נכס לגיוס"}</h1>
       {missing ? (
         <p role="alert" className="mv-card p-5">
           הנכס לגיוס לא נמצא — ייתכן שנמחק.
         </p>
       ) : target === null ? (
         <p className="text-sm text-[var(--color-text-muted)]">טוען…</p>
-      ) : (
+      ) : mayEdit ? (
         <TargetForm initial={target} />
+      ) : (
+        /*
+         * ‏מי שרשאי לצפות ולא לערוך הגיע לכאן דרך הקישור ברשימה, וקיבל
+         * טופס מלא ופעיל ששמירתו נדחית ב-403 עם „השמירה נכשלה”. מסך
+         * שמזמין פעולה אסורה ואז מאשים את המשתמש (ביקורת Codex).
+         */
+        <ReadOnlyTarget target={target} />
       )}
+    </div>
+  );
+}
+
+/** תצוגה בלבד — לצופה שאינו רשאי לערוך. */
+function ReadOnlyTarget({ target }: { target: TargetValues }) {
+  const rows: [string, string][] = [
+    ["שלב בגיוס", recruitmentStatusLabel(target.status ?? "new")],
+    ["מקור", recruitmentSourceLabel(target.source ?? "other")],
+    ["כתובת", [target.street, target.houseNumber, target.city].filter(Boolean).join(" ") || "—"],
+    ["שכונה", target.neighborhood ?? "—"],
+    ["חדרים", target.rooms === undefined ? "—" : String(target.rooms)],
+    ["שטח במ״ר", target.areaSqm === undefined ? "—" : String(target.areaSqm)],
+    ["מחיר מבוקש", target.priceAgorot === undefined ? "—" : formatPrice(target.priceAgorot)],
+    ["בעל הנכס", target.ownerName ?? "—"],
+    ["מה נאמר בשיחה", target.notes ?? "—"],
+  ];
+  return (
+    <div className="mv-card space-y-4 p-5">
+      <p className="text-sm text-[var(--color-text-muted)]">
+        לצפייה בלבד — אין לכם הרשאת עריכה לנכסים.
+      </p>
+      <dl className="grid gap-3 sm:grid-cols-2">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <dt className="text-sm text-[var(--color-text-muted)]">{label}</dt>
+            <dd className="font-medium">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {target.sourceUrl ? (
+        <a
+          href={target.sourceUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block underline underline-offset-2"
+        >
+          למודעה המקורית
+        </a>
+      ) : null}
     </div>
   );
 }

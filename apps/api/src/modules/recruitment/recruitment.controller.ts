@@ -33,7 +33,29 @@ const RecruitmentFieldsSchema = PropertyFieldsSchema.pick({
   priceAgorot: true,
 });
 
-const RecruitmentBodySchema = RecruitmentFieldsSchema.extend({
+/**
+ * ‎**`null` פירושו „נקה את השדה”, ו-`undefined` פירושו „אל תיגע”.**
+ *
+ * ‏בלי ההבחנה הזאת אי אפשר היה למחוק ערך שהוזן: הטופס השמיט שדה
+ * ריק, השרת ראה „לא נשלח” והשאיר את הישן, ומי שמחק עיר גילה שהיא
+ * חזרה (ביקורת Codex). `PropertyFieldsSchema` דורש `min(1)` על
+ * מחרוזות, ולכן הריקון עובר כ-`null` מפורש ולא כמחרוזת ריקה.
+ */
+const clearable = <T extends z.ZodTypeAny>(schema: T) => schema.nullable().optional();
+
+const RecruitmentBodySchema = RecruitmentFieldsSchema.partial().extend({
+  city: clearable(RecruitmentFieldsSchema.shape.city.unwrap()),
+  neighborhood: clearable(RecruitmentFieldsSchema.shape.neighborhood.unwrap()),
+  street: clearable(RecruitmentFieldsSchema.shape.street.unwrap()),
+  houseNumber: clearable(RecruitmentFieldsSchema.shape.houseNumber.unwrap()),
+  propertyType: clearable(RecruitmentFieldsSchema.shape.propertyType.unwrap()),
+  dealType: clearable(RecruitmentFieldsSchema.shape.dealType.unwrap()),
+  rooms: clearable(RecruitmentFieldsSchema.shape.rooms.unwrap()),
+  areaSqm: clearable(RecruitmentFieldsSchema.shape.areaSqm.unwrap()),
+  floor: clearable(RecruitmentFieldsSchema.shape.floor.unwrap()),
+  totalFloors: clearable(RecruitmentFieldsSchema.shape.totalFloors.unwrap()),
+  priceAgorot: clearable(RecruitmentFieldsSchema.shape.priceAgorot.unwrap()),
+}).extend({
   status: z.enum(RECRUITMENT_STATUSES).optional(),
   source: z.enum(RECRUITMENT_SOURCES).optional(),
   /*
@@ -42,9 +64,9 @@ const RecruitmentBodySchema = RecruitmentFieldsSchema.extend({
    * שירוץ גם כשייכתב מסלול כתיבה נוסף שיעקוף את הסכימה הזאת.
    */
   sourceUrl: z.union([z.string().url().max(2000), z.literal("")]).optional(),
-  ownerName: z.string().min(2).max(120).optional(),
-  ownerPhone: PhoneInputSchema.optional(),
-  notes: z.string().max(4000).optional(),
+  ownerName: clearable(z.string().min(2).max(120)),
+  ownerPhone: clearable(PhoneInputSchema),
+  notes: clearable(z.string().max(4000)),
   agentUserId: z.union([IdSchema, z.literal("")]).optional(),
 }).strict();
 
