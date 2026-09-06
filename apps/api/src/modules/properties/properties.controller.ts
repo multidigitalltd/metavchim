@@ -78,7 +78,12 @@ export const CreatePropertySchema = PropertyFieldsSchema.extend({
   status: z.enum(["draft", "active"]).optional(),
 }).strict();
 
-const UpdatePropertySchema = CreatePropertySchema.partial()
+/*
+ * ‎**מיוצאת מאותה סיבה כמו סכימת היצירה.** היא `.strict()`, ולכן
+ * ‏שדה שטופס העריכה שולח ואינו מוצהר בה חוסם את השמירה כולה. רק
+ * ‏בדיקה שמריצה עליה את הגוף שהמסך באמת בונה תופסת את זה.
+ */
+export const UpdatePropertySchema = CreatePropertySchema.partial()
   .extend({
     status: PropertyStatusSchema.optional(),
     /*
@@ -89,6 +94,19 @@ const UpdatePropertySchema = CreatePropertySchema.partial()
      * דרך להסיר דייר אחרי שהוא עזב — והמספר שלו היה נשאר בכרטיס.
      */
     occupantCleared: z.literal(true).optional(),
+    /*
+     * ‎**מספר בית — `null` מרוקן, בניגוד לרחוב ולעיר.**
+     *
+     * ‏שדה שלא נשלח פירושו „בלי שינוי” בכל הטופס הזה, ולכן מספר
+     * ‏שנמחק במסך פשוט לא נשלח והערך הישן שרד — כתובת שגויה שאין
+     * ‏דרך לתקן מהמסך שנועד לתיקונה (דיווח המשתמש).
+     *
+     * ‏ורק הוא: רחוב ועיר אינם מקבלים `null` כאן במכוון. כתובת בלי
+     * ‏עיר אינה כתובת, ומי שרוצה לשנות רחוב מחליף אותו ולא מרוקן
+     * ‏אותו — בעוד „הבית בלי מספר” הוא מצב אמיתי בשטח (מגרש, בית
+     * ‏פרטי בלי מספור, נכס שהמספר שלו הוזן בטעות).
+     */
+    houseNumber: z.string().max(10).nullable().optional(),
     /*
      * ‎**מי גר בנכס — בעדכון בלבד, ובמכוון.**
      *
@@ -295,9 +313,19 @@ export class PropertiesController {
     @Body(new ZodValidationPipe(UpdatePropertySchema))
     body: z.infer<typeof UpdatePropertySchema>,
   ): Promise<PropertyDto> {
-    const { ownerName, ownerPhone, occupantName, occupantPhone, ...rest } = body;
+    const { ownerName, ownerPhone, occupantName, occupantPhone, houseNumber, ...rest } = body;
     return this.properties.update(id, {
       ...rest,
+      /*
+       * ‎`null` = „רוקן”, ולכן הוא נוסע ב-`clearFields` ולא בשדה
+       * ‏עצמו: `PropertyFieldsSchema` אינו מקבל `null`, וההפרדה הזו
+       * ‏היא בדיוק מה שמונע ריקון בכל נתיב אחר שאיש לא ביקש.
+       */
+      ...(houseNumber === null
+        ? { clearFields: ["houseNumber"] as const }
+        : houseNumber !== undefined
+          ? { houseNumber }
+          : {}),
       ...(ownerName !== undefined && ownerPhone !== undefined
         ? { owner: { name: ownerName, phone: ownerPhone } }
         : {}),

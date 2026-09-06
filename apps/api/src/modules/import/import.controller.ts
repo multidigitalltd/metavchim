@@ -3,7 +3,9 @@ import { z } from "zod";
 import {
   BuyerMaturitySchema,
   FinancingStatusSchema,
+  isValidSourceUrl,
   MoneyAgorotSchema,
+  PhoneInputSchema,
   PhoneSchema,
   PropertyFieldsSchema,
   PropertyTypeSchema,
@@ -14,6 +16,8 @@ import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { BuyersService } from "../buyers/buyers.service";
 import { LeadsService } from "../leads/leads.service";
 import { PropertiesService } from "../properties/properties.service";
+import { RecruitmentBodySchema } from "../recruitment/recruitment.controller";
+import { RecruitmentService } from "../recruitment/recruitment.service";
 
 /**
  * ייבוא נכסים בכמות (docs/08 §6 — Onboarding): הפרונט מפרק CSV/אקסל
@@ -159,6 +163,50 @@ const ImportLeadRowSchema = z
   })
   .strict();
 
+/**
+ * ‎**טלפון או קישור פסולים מורידים את עצמם — לא את השורה.**
+ *
+ * ‏שורת גיוס היא בראש ובראשונה **כתובת ומודעה**. הטלפון של הבעלים
+ * ‏לרוב עוד לא ידוע, והקישור נכתב ביד. סכימת הגיוס דוחה ערך שאינו
+ * ‏מספר ישראלי או אינו כתובת אינטרנט, ולכן קובץ שהודבק מיד2 עם
+ * ‏„050-123-4567 (נייד)” בעמודה היה מאבד את המודעה כולה — בגלל
+ * ‏השדה הפחות חשוב בשורה.
+ *
+ * ‏זו אותה הכרעה שכבר נעשתה בייבוא הנכסים ומאותו נימוק: ייבוא הוא
+ * ‏קליטת מה שיש. השדה יורד, השורה נכנסת, והאזהרה אומרת למתווך
+ * ‏בדיוק מה להשלים בכרטיס.
+ */
+function withoutUnusableExtras(rawRow: Record<string, unknown>): {
+  row: Record<string, unknown>;
+  dropped: string[];
+} {
+  const row = { ...rawRow };
+  const dropped: string[] = [];
+
+  const phone = row["ownerPhone"];
+  if (typeof phone === "string" && phone.trim() !== "" && !PhoneInputSchema.safeParse(phone).success) {
+    delete row["ownerPhone"];
+    dropped.push("טלפון בעל הנכס אינו מספר ישראלי תקין — הנכס לגיוס נקלט בלי הטלפון");
+  }
+
+  /*
+   * ‎`isValidSourceUrl` ולא `z.string().url()`.
+   *
+   * ‏הבדיקה הגנרית מקבלת `ftp://`, `mailto:` ו-`javascript:` —
+   * ‏מחרוזות שהן כתובת תקינה ואינן מודעה. הן היו עוברות כאן,
+   * ‏ו-`RecruitmentService.assertSourceUrl` היה דוחה אותן בהמשך
+   * ‏ומפיל את **כל השורה** — בדיוק מה שהקטע הזה נכתב כדי למנוע
+   * ‏(ביקורת Codex). שתי הבדיקות חייבות להיות אותה בדיקה.
+   */
+  const url = row["sourceUrl"];
+  if (typeof url === "string" && url.trim() !== "" && !isValidSourceUrl(url)) {
+    delete row["sourceUrl"];
+    dropped.push("הקישור למודעה אינו כתובת אינטרנט תקינה — הנכס לגיוס נקלט בלי הקישור");
+  }
+
+  return { row, dropped };
+}
+
 @RequireFeature("data_io")
 @Controller("import")
 export class ImportController {
@@ -166,6 +214,7 @@ export class ImportController {
     private readonly properties: PropertiesService,
     private readonly buyers: BuyersService,
     private readonly leads: LeadsService,
+    private readonly recruitment: RecruitmentService,
   ) {}
 
   @Post("properties")
@@ -222,6 +271,71 @@ export class ImportController {
             : {}),
         });
         created += 1;
+      } catch (error) {
+        failed.push({
+          row: index + 1,
+          error: error instanceof Error ? error.message : "שגיאה לא צפויה",
+        });
+      }
+    }
+
+    return { created, failed, warnings };
+  }
+
+  /**
+   * ‎**ייבוא נכסים לגיוס — ולא נכסים.**
+   *
+   * ## ‏ההבחנה שכל התכונה נשענת עליה
+   *
+   * ‏שורה שנקלטת כאן היא מודעה שהמשרד **רודף אחריה** ואינו מייצג.
+   * ‏היא נכתבת ל-`recruitment_targets` ולעולם לא ל-`properties`, ולכן
+   * ‏היא אינה מגיעה להתאמות, לרשת שיתופי הפעולה, להצעות או לדפי
+   * ‏הנחיתה. הצעת נכס שהמשרד אינו מייצג היא הבטחה בלי כיסוי מול
+   * ‏הקונה, וחשיפה מול בעלים שלא חתם.
+   *
+   * ‏ייבוא הוא בדיוק המקום שבו קל לטעות בזה: „זה בסך הכול נכסים,
+   * ‏נשתמש באותו מסלול”. שער מבני
+   * ‏(`recruitment-separation.test.ts`) אוכף שהנתיב הזה קורא
+   * ‏ל-`recruitment` ואינו נוגע ב-`properties` בכלל.
+   *
+   * ## ‏אותה סכימה של הטופס, ולא עותק שלה
+   *
+   * ‎`RecruitmentBodySchema` היא מה שהמסך שולח. עותק נפרד לייבוא
+   * ‏היה סוטה ממנה — קובץ היה נקלט עם שדה שהטופס דוחה, או להפך.
+   */
+  @Post("recruitment")
+  @RequireCapability("properties.create")
+  async importRecruitment(
+    @Body(new ZodValidationPipe(ImportEnvelopeSchema)) body: z.infer<typeof ImportEnvelopeSchema>,
+  ): Promise<ImportResult> {
+    const failed: ImportResult["failed"] = [];
+    const warnings: ImportResult["warnings"] = [];
+    let created = 0;
+
+    for (const [index, rawRow] of body.rows.entries()) {
+      const { row, dropped } = withoutUnusableExtras(rawRow);
+
+      const parsed = RecruitmentBodySchema.safeParse(row);
+      if (!parsed.success) {
+        failed.push({
+          row: index + 1,
+          error: parsed.error.issues.map((i) => i.message).join("; ") || "שורה לא תקינה",
+        });
+        continue;
+      }
+      try {
+        await this.recruitment.create(parsed.data);
+        created += 1;
+        /*
+         * ‎**האזהרה נרשמת רק אחרי שהשורה נכנסה.**
+         *
+         * ‏המסך מציג `warnings` כ„נקלטו, ויש מה לומר עליהן”. שורה
+         * ‏שנפלה אחרי שהאזהרה כבר נרשמה הופיעה **גם ב-`failed` וגם
+         * ‏ב-`warnings`** — כלומר אמרה למתווך שהיא בפנים ואין מה
+         * ‏לעשות, בזמן שהיא בחוץ וצריך לתקן ולשלוח שוב (ביקורת
+         * ‏Codex).
+         */
+        for (const warning of dropped) warnings.push({ row: index + 1, warning });
       } catch (error) {
         failed.push({
           row: index + 1,

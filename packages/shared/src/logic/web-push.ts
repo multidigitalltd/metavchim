@@ -43,6 +43,8 @@ const NO_PUSH_TYPES = new Set([
   "mentor_weekly",
   // הבוקר של המנטור — כמו התקציר היומי: לפעמון ולוואטסאפ, לא לפוש ב-08:00
   "mentor_daily",
+  // הסיכום החודשי — סיכום, לפעמון ולוואטסאפ
+  "mentor_monthly",
 ]);
 
 export function shouldPush(notification: PushableNotification): boolean {

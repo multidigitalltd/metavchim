@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   parseSearchQuery,
+  propertyAddressOr,
   type ParsedSearchQuery,
   type PropertyStatus,
   labelOf,
@@ -21,6 +22,7 @@ interface SearchResults {
     id: string;
     city: string | null;
     street: string | null;
+    houseNumber: string | null;
     neighborhood: string | null;
     marketingTitle: string | null;
     /* סטטוס נכס — הטיפוס מהחבילה; שאר ה„status” כאן הם תחומים אחרים */
@@ -406,9 +408,7 @@ function SearchResultsView() {
                       style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
                     >
                       <span className="font-semibold">
-                        {[p.street, p.neighborhood, p.city].filter(Boolean).join(", ") ||
-                          p.marketingTitle ||
-                          "נכס ללא כתובת"}
+                        {propertyAddressOr(p, p.marketingTitle ?? "נכס ללא כתובת")}
                       </span>{" "}
                       <span style={{ color: "var(--color-text-muted)" }}>
                         — {STATUS_LABELS[p.status] ?? p.status}

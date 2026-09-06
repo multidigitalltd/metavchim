@@ -4,7 +4,7 @@ import { useEffect, useState, use, type FormEvent } from "react";
 import { NeighborhoodInput } from "../../../neighborhood-input";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { CustomFeature } from "@metavchim/shared";
+import { formatPropertyAddress, type CustomFeature } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
 import { PriceField } from "../../../price-field";
@@ -32,6 +32,7 @@ interface PropertyDetail {
   city?: string;
   neighborhood?: string;
   street?: string;
+  houseNumber?: string;
   propertyType?: string;
   dealType?: string;
   rooms?: number;
@@ -165,6 +166,18 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
       city: str("city"),
       neighborhood: str("neighborhood"),
       street: str("street"),
+      /*
+       * ‎**מספר בית — `null` ולא `undefined` כשהוא רוקן.**
+       *
+       * ‏`str` מתרגם ריק ל-`undefined`, ו-`undefined` נמחק מה-Patch
+       * ‏למטה — כלומר מספר שנמחק במסך פשוט לא נשלח, והערך הישן
+       * ‏נשאר. זה בדיוק הדיווח: כתובת שגויה שאי אפשר לתקן מהמסך
+       * ‏שנועד לתיקונה.
+       *
+       * ‏הרחוב והעיר נשארים כשהיו במכוון: כתובת בלי עיר אינה כתובת,
+       * ‏ורחוב מחליפים ולא מרוקנים. „בית בלי מספר” הוא מצב אמיתי.
+       */
+      houseNumber: str("houseNumber") ?? null,
       propertyType: str("propertyType"),
       dealType: str("dealType"),
       rooms: num("rooms"),
@@ -209,7 +222,7 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
   }
   if (!property) return <p aria-live="polite">טוען…</p>;
 
-  const address = [property.street, property.neighborhood, property.city].filter(Boolean).join(", ");
+  const address = formatPropertyAddress(property);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -256,9 +269,33 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
                 style={inputStyle}
               />
             </div>
-            <div>
-              <label htmlFor="street" className="mb-1 block font-medium">רחוב</label>
-              <input id="street" name="street" defaultValue={property.street ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+            {/*
+              רחוב ומספר בשדה אחד ויזואלית ובשני שדות בפועל: זו הצורה
+              שבה כתובת נכתבת, והחלוקה 2:1 נותנת למספר את הרוחב שהוא
+              באמת צריך.
+
+              המספר **היה חסר כאן לגמרי** — הוא נאסף בטופס נכס חדש,
+              בטופס המוכר ובייבוא אקסל, ואז לא הוצג ולא ניתן היה
+              לתקנו (דיווח המשתמש). נכס שיובא עם כתובת שגויה לא היה
+              ניתן לתיקון מהמסך שנועד בדיוק לזה.
+            */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2">
+                <label htmlFor="street" className="mb-1 block font-medium">רחוב</label>
+                <input id="street" name="street" defaultValue={property.street ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              </div>
+              <div>
+                <label htmlFor="houseNumber" className="mb-1 block font-medium">מספר</label>
+                <input
+                  id="houseNumber"
+                  name="houseNumber"
+                  inputMode="numeric"
+                  maxLength={10}
+                  defaultValue={property.houseNumber ?? ""}
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+              </div>
             </div>
           </div>
         </fieldset>

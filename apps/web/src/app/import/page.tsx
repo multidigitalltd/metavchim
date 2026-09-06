@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import {
@@ -9,9 +9,14 @@ import {
   parseBuyersCsv,
   parseLeadsCsv,
   parsePropertiesCsv,
+  parseRecruitmentCsv,
   PROPERTY_TARGET_LABELS,
+  RECRUITMENT_TARGET_LABELS,
+  recruitmentSourceLabel,
+  recruitmentStatusLabel,
   type ParsedBuyerRow,
   type ParsedLeadRow,
+  type ParsedRecruitmentRow,
   type ParsedRow,
 } from "@metavchim/shared";
 import { ApiError, apiPost } from "@/lib/api";
@@ -41,13 +46,18 @@ interface ImportResult {
  */
 const MAX_ROWS = 250;
 
-type Mode = "properties" | "buyers" | "leads";
+type Mode = "properties" | "recruitment" | "buyers" | "leads";
 
 const SAMPLES: Record<Mode, string> = {
   properties: [
     "עיר,שכונה,רחוב,חדרים,שטח,קומה,מחיר,סוג,כותרת",
     "בני ברק,פרדס כץ,רבי עקיבא,4,95,3,2650000,דירה,דירה מרווחת במיקום מרכזי",
     "ירושלים,רמות,הרב שך,3.5,88,0,3200000,דירת גן,דירת גן עם כניסה פרטית",
+  ].join("\n"),
+  recruitment: [
+    "עיר,רחוב,חדרים,מחיר,מקור,קישור למודעה,שלב,בעל הנכס,טלפון בעלים",
+    "רעננה,אחוזה,4,2650000,יד2,https://www.yad2.co.il/item/123,קיבל שיחה,ישראל ישראלי,050-1234567",
+    "כפר סבא,ויצמן,3,2100000,שלט,,חדש,,",
   ].join("\n"),
   buyers: [
     "שם,טלפון,ערים,סוג עסקה,תקציב,חדרים,בשלות,מימון",
@@ -63,6 +73,7 @@ const SAMPLES: Record<Mode, string> = {
 
 const MODE_LABELS: Record<Mode, string> = {
   properties: "נכסים",
+  recruitment: "נכסים לגיוס",
   buyers: "קונים",
   leads: "לידים",
 };
@@ -77,6 +88,7 @@ const LEAD_INTENT_LABELS: Record<string, string> = {
 
 const MODE_BACK: Record<Mode, string> = {
   properties: "/properties",
+  recruitment: "/properties/recruitment",
   buyers: "/buyers",
   leads: "/leads",
 };
@@ -84,6 +96,7 @@ const MODE_BACK: Record<Mode, string> = {
 /** שדות היעד למיפוי ידני — לכל מסלול הרשימה שלו. */
 const TARGET_LABELS: Record<Mode, Record<string, string>> = {
   properties: PROPERTY_TARGET_LABELS,
+  recruitment: RECRUITMENT_TARGET_LABELS,
   buyers: BUYER_TARGET_LABELS,
   leads: LEAD_TARGET_LABELS,
 };
@@ -96,6 +109,10 @@ const TEMPLATE_CSV: Record<Mode, string> = {
   properties: [
     "עיר,שכונה,רחוב,מספר בית,חדרים,שטח,קומה,מתוך קומות,מחיר,סוג עסקה,סוג,מצב,מעלית,חניה,מרפסת,ממד,מחסן,בעל הנכס,טלפון בעלים,סטטוס,כותרת,תיאור,הערות",
     'בני ברק,פרדס כץ,רבי עקיבא,10,3.5,80,2,6,1750000,מכירה,דירה,משופץ,כן,כן,לא,כן,לא,ישראל ישראלי,050-1234567,פעיל,"דירה משופצת ומוארת","קרובה לכל דבר","המפתח אצל השכן"',
+  ].join("\n"),
+  recruitment: [
+    "עיר,שכונה,רחוב,מספר בית,חדרים,שטח,קומה,מתוך קומות,מחיר,סוג עסקה,סוג,מקור,קישור למודעה,שלב,בעל הנכס,טלפון בעלים,הערות",
+    'רעננה,קרית שרת,אחוזה,10,4,95,3,6,2650000,מכירה,דירה,יד2,https://www.yad2.co.il/item/123,קיבל שיחה,ישראל ישראלי,050-1234567,"אמר שיחזור תשובה"',
   ].join("\n"),
   buyers: [
     // "סטטוס" אינו בתבנית בכוונה: הוא כינוי נרדף ל"בשלות" במפרק,
@@ -112,6 +129,32 @@ const TEMPLATE_CSV: Record<Mode, string> = {
 export default function ImportPage() {
   const { loading: authLoading } = useRequireAuth();
   const [mode, setMode] = useState<Mode>("properties");
+
+  /*
+   * ‎**המסלול מגיע מהכתובת — `/import?mode=recruitment`.**
+   *
+   * ‏לא רק נוחות. כפתור „ייבוא מאקסל” שיושב בנכסים לגיוס ומוביל
+   * ‏למסך שנפתח על „נכסים” מזמין בדיוק את הטעות שהתכונה כולה
+   * ‏נבנתה למנוע: קובץ של מודעות שהמשרד **אינו מייצג** נקלט
+   * ‏כנכסים שלו, ומשם הוא בהתאמות וברשת שיתופי הפעולה.
+   *
+   * ‎`useEffect` ולא קריאה בזמן האתחול: השרת אינו רואה את מחרוזת
+   * ‏השאילתה, וערך התחלתי שנקרא מ-`window` היה יוצר אי-התאמה
+   * ‏בהידרציה.
+   */
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("mode");
+    /*
+     * ‎`Object.hasOwn` ולא `in`: האופרטור סורק גם את שרשרת
+     * ‏האב-טיפוס, ולכן `?mode=constructor`, `?mode=toString`
+     * ‏ו-`?mode=__proto__` היו עוברים את הבדיקה. `MODE_LABELS[mode]`
+     * ‏היה מחזיר פונקציה במקום מחרוזת, והמסך היה נשבר על כתובת
+     * ‏שאפשר לשלוח למישהו בקישור (ביקורת Codex).
+     */
+    if (requested !== null && Object.hasOwn(MODE_LABELS, requested)) {
+      setMode(requested as Mode);
+    }
+  }, []);
   const [csv, setCsv] = useState("");
   /** מיפוי ידני: כותרת מהקובץ ⟵ שדה יעד. גובר על הזיהוי האוטומטי. */
   const [overrides, setOverrides] = useState<Record<string, string>>({});
@@ -122,6 +165,7 @@ export default function ImportPage() {
   const parsed = useMemo(() => {
     const empty = {
       propertyRows: [] as ParsedRow[],
+      recruitmentRows: [] as ParsedRecruitmentRow[],
       buyerRows: [] as ParsedBuyerRow[],
       leadRows: [] as ParsedLeadRow[],
       unmappedHeaders: [] as string[],
@@ -131,6 +175,10 @@ export default function ImportPage() {
       if (mode === "properties") {
         const { rows, unmappedHeaders } = parsePropertiesCsv(csv, overrides);
         return { ...empty, propertyRows: rows, unmappedHeaders };
+      }
+      if (mode === "recruitment") {
+        const { rows, unmappedHeaders } = parseRecruitmentCsv(csv, overrides);
+        return { ...empty, recruitmentRows: rows, unmappedHeaders };
       }
       if (mode === "buyers") {
         const { rows, unmappedHeaders } = parseBuyersCsv(csv, overrides);
@@ -146,9 +194,11 @@ export default function ImportPage() {
   const rowCount =
     mode === "properties"
       ? parsed.propertyRows.length
-      : mode === "buyers"
-        ? parsed.buyerRows.length
-        : parsed.leadRows.length;
+      : mode === "recruitment"
+        ? parsed.recruitmentRows.length
+        : mode === "buyers"
+          ? parsed.buyerRows.length
+          : parsed.leadRows.length;
 
   /**
    * העמודות שמוצגות באזור המיפוי הידני: מה שלא זוהה + מה שכבר מופה
@@ -221,9 +271,11 @@ export default function ImportPage() {
               ...(r.ownerPhone === undefined ? {} : { ownerPhone: r.ownerPhone }),
               ...(r.status === undefined ? {} : { status: r.status }),
             }))
-          : mode === "buyers"
-            ? parsed.buyerRows
-            : parsed.leadRows;
+          : mode === "recruitment"
+            ? parsed.recruitmentRows
+            : mode === "buyers"
+              ? parsed.buyerRows
+              : parsed.leadRows;
 
       /*
        * האצוות נחתכות לפי **בייטים**, לא לפי מספר שורות.
@@ -318,9 +370,11 @@ export default function ImportPage() {
       <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
         {mode === "properties"
           ? "העלו קובץ אקסל או CSV כדי לייבא נכסים קיימים בבת אחת. כותרות בעברית ובאנגלית ממופות אוטומטית — כתובת, חדרים, מחיר, סוג עסקה, מאפיינים, בעל הנכס ועוד. עמודה שלא זוהתה אפשר למפות ידנית."
-          : mode === "buyers"
-            ? "העלו קובץ אקסל או CSV של לקוחות מחפשים. כותרות: שם, טלפון, אימייל, ערים, שכונות, סוג נכס, סוג עסקה, תקציב, חדרים, בשלות, מימון, הערות. טלפונים מנורמלים אוטומטית."
-            : "העלו קובץ אקסל או CSV של פניות — מדף פייסבוק, מדוח קמפיין או מהמערכת הקודמת. לקוח שכבר קיים במערכת לא ייפתח פעמיים: הפנייה תצורף לליד הפתוח שלו."}{" "}
+          : mode === "recruitment"
+            ? "העלו קובץ אקסל או CSV של מודעות שאתם רוצים לגייס לייצוג. כותרות: עיר, רחוב, חדרים, מחיר, מקור, קישור למודעה, שלב בגיוס, בעל הנכס וטלפון. ‏נכס לגיוס אינו נכס של המשרד — הוא לא מופיע בהתאמות ולא ברשת שיתופי הפעולה עד שתלחצו „המר לנכס שלי”."
+            : mode === "buyers"
+              ? "העלו קובץ אקסל או CSV של לקוחות מחפשים. כותרות: שם, טלפון, אימייל, ערים, שכונות, סוג נכס, סוג עסקה, תקציב, חדרים, בשלות, מימון, הערות. טלפונים מנורמלים אוטומטית."
+              : "העלו קובץ אקסל או CSV של פניות — מדף פייסבוק, מדוח קמפיין או מהמערכת הקודמת. לקוח שכבר קיים במערכת לא ייפתח פעמיים: הפנייה תצורף לליד הפתוח שלו."}{" "}
         קבצים גדולים נשלחים אוטומטית באצוות של {MAX_ROWS}.
       </p>
 
@@ -345,7 +399,7 @@ export default function ImportPage() {
             });
             const a = document.createElement("a");
             a.href = URL.createObjectURL(blob);
-            a.download = mode === "properties" ? "תבנית-נכסים.csv" : "תבנית-לקוחות.csv";
+            a.download = `תבנית-${MODE_LABELS[mode]}.csv`;
             a.click();
             URL.revokeObjectURL(a.href);
           }}
@@ -475,6 +529,40 @@ export default function ImportPage() {
                       </td>
                       <td className="p-2">{r.fields.rooms ?? "—"}</td>
                       <td className="p-2">{formatPrice(r.fields.priceAgorot)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : mode === "recruitment" ? (
+              <table className="w-full text-start">
+                <caption className="mv-visually-hidden">
+                  תצוגה מקדימה של הנכסים לגיוס שיובאו
+                </caption>
+                <thead style={{ background: "var(--color-surface)" }}>
+                  <tr>
+                    <th scope="col" className="p-2 text-start">#</th>
+                    <th scope="col" className="p-2 text-start">עיר</th>
+                    <th scope="col" className="p-2 text-start">רחוב</th>
+                    <th scope="col" className="p-2 text-start">חדרים</th>
+                    <th scope="col" className="p-2 text-start">מחיר</th>
+                    <th scope="col" className="p-2 text-start">מקור</th>
+                    <th scope="col" className="p-2 text-start">שלב</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsed.recruitmentRows.slice(0, 20).map((r, i) => (
+                    <tr key={i} className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                      <td className="p-2">{i + 1}</td>
+                      <td className="p-2">{r.city ?? "—"}</td>
+                      <td className="p-2">{r.street ?? "—"}</td>
+                      <td className="p-2">{r.rooms ?? "—"}</td>
+                      <td className="p-2">{formatPrice(r.priceAgorot)}</td>
+                      <td className="p-2">
+                        {r.source === undefined ? "—" : recruitmentSourceLabel(r.source)}
+                      </td>
+                      <td className="p-2">
+                        {r.status === undefined ? "חדש" : recruitmentStatusLabel(r.status)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

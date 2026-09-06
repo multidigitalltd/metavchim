@@ -22,11 +22,18 @@ import {
   MentorGoalInputSchema,
   type MentorChatContext,
   type MentorGoalProposal,
+  type MentorPersona,
   mentorAdvice,
   mentorFallbackReply,
   parseGoalRequest,
+  resolveIdeaFeedback,
+  resolveMentorPersona,
+  ideaByKey,
+  IDEA_MARKS_MAX,
+  jerusalemDayLabel,
   type MentorGoalInput,
   mentorGoalLabel,
+  type MentorGoalMetric,
   type MentorGoalPeriod,
   type MentorGoalProgress,
   type MentorInsights,
@@ -35,6 +42,13 @@ import {
   type MentorPattern,
   mentorPatterns,
   mentorPeriodRange,
+  MENTOR_METRICS,
+  officeEvidenceLabel,
+  mentorOnboarding,
+  onboardingDay,
+  ONBOARDING_DAYS,
+  type MentorOnboarding,
+  type MentorMonthlyBody,
   type MentorReviewBody,
   type MentorWin,
   obstaclePlanSuggestions,
@@ -45,6 +59,7 @@ import {
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AgentEventsService } from "../agent/agent-events.service";
+import { MentorPracticeService } from "./mentor-practice.service";
 import { AuditService } from "../../core/audit.service";
 import { GeminiService } from "../../core/gemini.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -118,6 +133,40 @@ export interface MentorOverview {
   patterns: MentorPattern[];
   /** מה המנטור מציע עכשיו — עד שלוש עצות מהמספרים (docs/14 §7.1) */
   advice: MentorAdvice[];
+  /** השם והסגנון שהמתווך בחר (docs/14 §4.1) */
+  persona: MentorPersona;
+  /** 30 הימים הראשונים — `null` למי שכבר עבר אותם (docs/14 §7.5) */
+  onboarding: MentorOnboarding | null;
+}
+
+/** מה עובד אצלנו — למנהל, ספירות בלבד (docs/14 §7.4). */
+export interface MentorOfficeDto {
+  /** כמה מתווכים תרמו עדות כלשהי */
+  agents: number;
+  proven: {
+    key: string;
+    metric: MentorGoalMetric;
+    metricLabel: string;
+    text: string;
+    helped: number;
+    dismissed: number;
+    up: number;
+    measured: number;
+    /** „עזר ל-3 · המספר עלה אצל 2” */
+    evidence: string;
+  }[];
+}
+
+/** הסיכום החודשי כפי שהמסך מקבל אותו. */
+export interface MentorMonthlyDto {
+  id: string;
+  monthStart: Date;
+  headline: string;
+  greeting: string | null;
+  paragraphs: string[];
+  /** המדד למיקוד בחודש הבא — `null` כשאין */
+  focus: MentorGoalMetric | null;
+  createdAt: Date;
 }
 
 /**
@@ -177,7 +226,7 @@ export class MentorService {
       const week = mentorPeriodRange("week", now);
       const user = await tx.user.findFirst({
         where: { id: userId, tenantId },
-        select: { createdAt: true },
+        select: { createdAt: true, preferences: true },
       });
       const activity = await this.signals.activity(
         tx,
@@ -250,6 +299,9 @@ export class MentorService {
         previousActivity,
         insights,
         funnel,
+        feedback: resolveIdeaFeedback(user?.preferences),
+        office: await this.signals.officePlaybookFor(tx, tenantId, userId, now),
+        closestDeal: await this.signals.closestDeal(tx, tenantId, userId, now),
         now,
       });
       return {
@@ -265,7 +317,39 @@ export class MentorService {
         chatAvailable,
         patterns,
         advice,
+        persona: resolveMentorPersona(user?.preferences),
+        onboarding: await this.onboardingOf(
+          tx,
+          tenantId,
+          userId,
+          user?.createdAt,
+          goals.map((g) => g.progress),
+          now,
+        ),
       };
+    });
+  }
+
+  /** 30 הימים הראשונים (docs/14 §7.5) — היום, השבוע והצעד; `null` לוותיק. */
+  private async onboardingOf(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    userCreatedAt: Date | undefined,
+    goals: MentorGoalProgress[],
+    now: Date,
+  ): Promise<MentorOnboarding | null> {
+    if (userCreatedAt === undefined) return null;
+    if (onboardingDay(userCreatedAt, now) > ONBOARDING_DAYS) return null;
+    const practices = await MentorPracticeService.stats(tx, tenantId, userId, {
+      start: userCreatedAt,
+      end: now,
+    });
+    return mentorOnboarding({
+      userCreatedAt,
+      now,
+      goals,
+      practices: practices.count,
     });
   }
 
@@ -324,6 +408,56 @@ export class MentorService {
             periodStart: g.progress.periodStart,
           })),
         wins,
+      };
+    });
+  }
+
+  /**
+   * מה עובד אצלנו — למנהל (docs/14 §7.4): הרעיונות שהוכיחו את עצמם
+   * במשרד, עם ספירות בלבד. אין כאן שמות ואין דרך לגזור אותם.
+   */
+  async office(now: Date = new Date()): Promise<MentorOfficeDto> {
+    const { tenantId } = TenantContext.current();
+    const office = await this.prisma.withTenant((tx) =>
+      this.signals.officePlaybook(tx, tenantId, now),
+    );
+    return {
+      agents: office.agents,
+      proven: office.proven.map((e) => ({
+        key: e.key,
+        metric: e.metric,
+        metricLabel:
+          MENTOR_METRICS.find((m) => m.code === e.metric)?.label ?? e.metric,
+        text: e.text,
+        helped: e.helped,
+        dismissed: e.dismissed,
+        up: e.up,
+        measured: e.measured,
+        evidence: officeEvidenceLabel(e),
+      })),
+    };
+  }
+
+  /** הסיכומים החודשיים — מהחדש לישן (docs/14 §3). */
+  async monthly(limit = 6): Promise<MentorMonthlyDto[]> {
+    const { tenantId, userId } = TenantContext.current();
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.mentorMonthlyReview.findMany({
+        where: { tenantId, userId },
+        orderBy: { monthStart: "desc" },
+        take: limit,
+      }),
+    );
+    return rows.map((row) => {
+      const body = (row.body ?? {}) as Partial<MentorMonthlyBody>;
+      return {
+        id: row.id,
+        monthStart: row.monthStart,
+        headline: row.headline,
+        greeting: body.greeting ?? null,
+        paragraphs: Array.isArray(body.paragraphs) ? body.paragraphs : [],
+        focus: body.focus ?? null,
+        createdAt: row.createdAt,
       };
     });
   }
@@ -620,7 +754,7 @@ export class MentorService {
         });
         const user = await tx.user.findFirst({
           where: { id: userId, tenantId },
-          select: { name: true, createdAt: true },
+          select: { name: true, createdAt: true, preferences: true },
         });
         const week = mentorPeriodRange("week", now);
         const activity = await this.signals.activity(
@@ -714,20 +848,66 @@ export class MentorService {
           userId,
           now,
         );
+        // מה עובד במשרד — ידע משותף לעצות ולפרומפט (§7.4)
+        const office = await this.signals.officePlaybookFor(
+          tx,
+          tenantId,
+          userId,
+          now,
+        );
+        // העסקה הקרובה ביותר — העצה הראשונה, והחריג לכלל 6 בפרומפט (§7.6)
+        const closest = await this.signals.closestDeal(
+          tx,
+          tenantId,
+          userId,
+          now,
+        );
         const advice = mentorAdvice({
           goals,
           activity,
           previousActivity,
           insights,
           funnel,
+          feedback: resolveIdeaFeedback(user?.preferences),
+          office,
+          closestDeal: closest,
           now,
         });
+        // התרגול האחרון בחודש האחרון — מה המנטור אמר לנסות (§7.3)
+        const practice = await MentorPracticeService.stats(
+          tx,
+          tenantId,
+          userId,
+          {
+            start: jerusalemDayStart(now, -30),
+            end: now,
+          },
+        );
         return {
           insights,
           activity,
           previousActivity,
           funnel,
           advice,
+          onboarding: await this.onboardingOf(
+            tx,
+            tenantId,
+            userId,
+            user?.createdAt,
+            goals,
+            now,
+          ),
+          closestDeal: closest,
+          lastPractice:
+            practice.last === null
+              ? null
+              : {
+                  scenarioLabel: practice.last.scenarioLabel,
+                  score: practice.last.score,
+                  tryNext: practice.last.tryNext,
+                },
+          office,
+          persona: resolveMentorPersona(user?.preferences),
           firstName: (user?.name ?? "").trim().split(/\s+/u)[0] ?? "",
           nowText: MentorService.nowText(now),
           goals,
@@ -816,6 +996,123 @@ export class MentorService {
       source,
       ...(proposedGoal === undefined ? {} : { proposedGoal }),
     };
+  }
+
+  /* ---------------- משוב על רעיונות ---------------- */
+
+  /**
+   * „עזר לי” / „לא בשבילי” על רעיון (docs/14 §7.2) — הזיכרון של המנטור
+   * לגבי מה עובד אצל המתווך הזה. נשמר ב-`preferences.mentor.ideas`
+   * של המשתמש במיזוג אטומי ב-SQL (כמו פאנלי העזרה): שני מכשירים או
+   * לשונית נגישות פתוחה אינם דורסים זה את זה. המפתח מאומת מול ספר
+   * המשחק — מפתח שאינו רעיון נדחה.
+   */
+  async ideaFeedback(
+    input: {
+      ideaKey: string;
+      verdict: "helped" | "dismissed";
+    },
+    now: Date = new Date(),
+  ): Promise<{ ok: true; text: string }> {
+    const { tenantId, userId } = TenantContext.current();
+    const idea = ideaByKey(input.ideaKey);
+    if (idea === null) throw new BadRequestException("רעיון לא מוכר");
+    const list = input.verdict === "helped" ? "liked" : "dismissed";
+    const other = input.verdict === "helped" ? "dismissed" : "liked";
+    // הסימון עם תאריך — כדי למדוד בעוד שבוע אם המספר זז (`ideaMarksDue`)
+    const mark = JSON.stringify([
+      {
+        key: input.ideaKey,
+        verdict: input.verdict,
+        date: jerusalemDayLabel(now),
+      },
+    ]);
+    await this.prisma.withTenant(
+      (tx) =>
+        /*
+         * מוסיפים לרשימה האחת ומסירים מהשנייה — משוב אחרון קובע. הרשימה
+         * נחתכת למאתיים האחרונים בקריאה (`resolveIdeaFeedback`), ולכן
+         * הכתיבה רק מוסיפה.
+         */
+        /*
+         * ‎`jsonb_set` אינו יוצר צמתי ביניים: למשתמש בלי `mentor.ideas` הוא
+         * מחזיר את הקלט בשקט. לכן בונים את `mentor` ⟵ `ideas` במפורש.
+         */
+        tx.$executeRaw`
+        UPDATE users
+        SET preferences = jsonb_set(
+          COALESCE(preferences, '{}'::jsonb),
+          '{mentor}',
+          COALESCE(preferences -> 'mentor', '{}'::jsonb) || jsonb_build_object(
+            'ideas',
+            COALESCE(preferences -> 'mentor' -> 'ideas', '{}'::jsonb) || jsonb_build_object(
+              ${list}::text,
+              (COALESCE(preferences -> 'mentor' -> 'ideas' -> ${list}::text, '[]'::jsonb) - ${input.ideaKey}::text)
+                || to_jsonb(${input.ideaKey}::text),
+              ${other}::text,
+              COALESCE(preferences -> 'mentor' -> 'ideas' -> ${other}::text, '[]'::jsonb) - ${input.ideaKey}::text,
+              'marks',
+              COALESCE((
+                SELECT jsonb_agg(m.e ORDER BY m.i)
+                FROM jsonb_array_elements(
+                  CASE
+                    WHEN jsonb_typeof(preferences -> 'mentor' -> 'ideas' -> 'marks') = 'array'
+                    THEN preferences -> 'mentor' -> 'ideas' -> 'marks'
+                    ELSE '[]'::jsonb
+                  END || ${mark}::jsonb
+                ) WITH ORDINALITY AS m(e, i)
+                WHERE m.i > (
+                  CASE
+                    WHEN jsonb_typeof(preferences -> 'mentor' -> 'ideas' -> 'marks') = 'array'
+                    THEN jsonb_array_length(preferences -> 'mentor' -> 'ideas' -> 'marks')
+                    ELSE 0
+                  END
+                ) + 1 - ${IDEA_MARKS_MAX}::int
+              ), '[]'::jsonb)
+            )
+          ),
+          true
+        )
+        WHERE id = ${userId} AND tenant_id = ${tenantId}`,
+    );
+    return {
+      ok: true,
+      text:
+        input.verdict === "helped"
+          ? "רשמתי — עוד מהסוג הזה. בעוד שבוע אגיד לך אם המספר זז."
+          : "רשמתי — הרעיון הזה לא יחזור. מחר יבוא אחר.",
+    };
+  }
+
+  /**
+   * המשוב מוואטסאפ — על רעיון הבוקר של היום, שנשמר בשליחה
+   * (`preferences.mentor.lastIdea`). בלי רעיון מהיום אין על מה לענות.
+   */
+  async ideaFeedbackFromChat(
+    verdict: "helped" | "dismissed",
+    /** הרעיון שהכפתור הוצג עליו — כשיש, המשוב עליו ולא על „האחרון” */
+    ideaKey?: string,
+    now: Date = new Date(),
+  ): Promise<string> {
+    const { tenantId, userId } = TenantContext.current();
+    if (ideaKey !== undefined) {
+      const shown = ideaByKey(ideaKey);
+      if (shown === null) return "לא זיהיתי על איזה רעיון — אפשר לענות מהמסך.";
+      const result = await this.ideaFeedback({ ideaKey, verdict });
+      return `${result.text} („${shown.text.slice(0, 80)}${shown.text.length > 80 ? "…" : ""}”)`;
+    }
+    const user = await this.prisma.withTenant((tx) =>
+      tx.user.findFirst({
+        where: { id: userId, tenantId },
+        select: { preferences: true },
+      }),
+    );
+    const last = lastIdeaOf(user?.preferences);
+    if (last === null || last.date !== jerusalemDayLabel(now)) {
+      return "אין רעיון מהבוקר של היום לתת עליו משוב — מחר בבוקר יגיע אחד, ואז הכפתורים כאן.";
+    }
+    const result = await this.ideaFeedback({ ideaKey: last.key, verdict });
+    return `${result.text} („${last.text.slice(0, 80)}${last.text.length > 80 ? "…" : ""}”)`;
   }
 
   /* ---------------- עזרים ---------------- */
@@ -965,4 +1262,25 @@ export class MentorService {
       createdAt: row.createdAt,
     };
   }
+}
+
+/** רעיון הבוקר האחרון שנשלח — נשמר בשליחה כדי שהמשוב מוואטסאפ ידע על מה. */
+function lastIdeaOf(
+  preferences: unknown,
+): { key: string; text: string; date: string } | null {
+  const mentor =
+    typeof preferences === "object" && preferences !== null
+      ? (preferences as { mentor?: unknown }).mentor
+      : undefined;
+  const last =
+    typeof mentor === "object" && mentor !== null
+      ? (mentor as { lastIdea?: unknown }).lastIdea
+      : undefined;
+  if (typeof last !== "object" || last === null) return null;
+  const { key, text, date } = last as Record<string, unknown>;
+  return typeof key === "string" &&
+    typeof text === "string" &&
+    typeof date === "string"
+    ? { key, text, date }
+    : null;
 }
