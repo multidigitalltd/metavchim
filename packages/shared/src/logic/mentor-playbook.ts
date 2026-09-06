@@ -206,7 +206,21 @@ export const IDEA_FEEDBACK_MAX = 200;
 /** כמה סימונים מתוארכים נשמרים — שישים הם חודשיים של בקרים, די למדידה ולסיכום חודשי. */
 export const IDEA_MARKS_MAX = 60;
 
-const MARK_DATE = /^\d{4}-\d{2}-\d{2}$/u;
+const MARK_DATE = /^(\d{4})-(\d{2})-(\d{2})$/u;
+
+/**
+ * יום לוח אמיתי — לא רק צורה: „2026-99-99” עובר את הביטוי, ובשעון
+ * ישראל הוא זורק. ה-preferences הם קלט של המשתמש (ביקורת Codex), וסימון
+ * פגום אחד היה מפיל את הסבב השבועי של כל המשרד.
+ */
+function isCalendarDay(label: string): boolean {
+  const match = MARK_DATE.exec(label);
+  if (match === null) return false;
+  const at = new Date(
+    Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])),
+  );
+  return !Number.isNaN(at.getTime()) && at.toISOString().slice(0, 10) === label;
+}
 
 /** מה-preferences של המשתמש — סלחני: ערך פגום הוא רשימה ריקה. */
 export function resolveIdeaFeedback(preferences: unknown): MentorIdeaFeedback {
@@ -242,7 +256,7 @@ export function resolveIdeaFeedback(preferences: unknown): MentorIdeaFeedback {
             IDEA_KEY.test(key) &&
             (verdict === "helped" || verdict === "dismissed") &&
             typeof date === "string" &&
-            MARK_DATE.test(date)
+            isCalendarDay(date)
             ? [{ key, verdict, date }]
             : [];
         })

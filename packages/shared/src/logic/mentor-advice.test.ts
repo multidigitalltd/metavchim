@@ -365,6 +365,9 @@ describe("רעיונות עם משוב — המנטור לומד מה עובד (
               { key: "offers_sent:1", verdict: "meh", date: "2026-09-03" },
               { key: "nope", verdict: "helped", date: "2026-09-03" },
               { key: "offers_sent:2", verdict: "dismissed", date: "3.9" },
+              // צורה נכונה, יום שאינו קיים — היה מפיל את הסבב (ביקורת Codex)
+              { key: "offers_sent:2", verdict: "helped", date: "2026-99-99" },
+              { key: "offers_sent:2", verdict: "helped", date: "2026-02-30" },
               "bad",
             ],
           },

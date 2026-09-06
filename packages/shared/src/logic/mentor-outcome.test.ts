@@ -53,14 +53,13 @@ describe("האם הרעיון עבד — חלונות המדידה", () => {
       { key: "offers_sent:0", verdict: "helped" as const, date: "2026-09-01" },
       // סומן שבת 5.9 — נסגר 12.9, עדיין בתוך השבוע
       { key: "calls_made:1", verdict: "helped" as const, date: "2026-09-05" },
-      // סומן ראשון 6.9 — החלון הוא השבוע עצמו, ונסגר 13.9 00:00 = סופו; נמדד השבוע
+      // סומן ראשון 6.9 — החלון נסגר 13.9 00:00, אחרי שהסיכום של השבוע
+      // כבר נכתב (מוצאי שבת 20:00); נמדד בשבוע הבא, כשהחלון סגור כולו
       {
         key: "viewings_held:0",
         verdict: "helped" as const,
         date: "2026-09-06",
       },
-      // סומן שני 7.9 — נסגר 14.9, כבר בשבוע הבא
-      { key: "new_buyers:0", verdict: "helped" as const, date: "2026-09-07" },
       // „לא בשבילי” אינו נמדד
       {
         key: "leads_answered:0",
@@ -83,13 +82,12 @@ describe("האם הרעיון עבד — חלונות המדידה", () => {
     expect(thisWeek.map((m) => m.key)).toEqual([
       "offers_sent:0",
       "calls_made:1",
-      "viewings_held:0",
     ]);
     const nextWeek = ideaMarksDue(marks, {
       start: NEXT_WEEK,
       end: new Date("2026-09-19T21:00:00.000Z"),
     });
-    expect(nextWeek.map((m) => m.key)).toEqual(["new_buyers:0"]);
+    expect(nextWeek.map((m) => m.key)).toEqual(["viewings_held:0"]);
   });
 
   it("ההשוואה על המדד של הרעיון בלבד; מפתח זר — null", () => {
@@ -153,6 +151,16 @@ describe("האם הרעיון עבד — המשפט בסיכום", () => {
     expect(mentorIdeaOutcomeSentence(outcome(3, 1))).toContain(
       "הצעה אחת בשבוע שאחריו, מול 3 הצעות בשבוע שלפני. שבוע אחד הוא מעט",
     );
+  });
+
+  it("מדידה היא סיבה לסיכום גם בשבוע ריק — הבטחנו לומר אם המספר זז", () => {
+    const empty = { weekStart: WEEK, wins: [], activity: quiet, goals: [] };
+    expect(mentorWeeklyReview(empty)).toBeNull();
+    const review = mentorWeeklyReview({
+      ...empty,
+      ideaOutcomes: [outcome(2, 0)],
+    });
+    expect(review?.paragraphs[0]).toContain("הרעיון שסימנת „עזר לי”");
   });
 
   it("בסיכום השבועי — אחרי היעדים, שניים לכל היותר, ונשמר בגוף לסיכום החודשי", () => {
