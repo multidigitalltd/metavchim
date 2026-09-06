@@ -118,6 +118,25 @@ export class FunnelEnrollmentService {
             track: "conversion",
             endedReason: "paid",
             endedAt: { not: null },
+            /*
+             * ‎**הניסיון החי נמצא בשאילתה, ולא בסינון אחריה**
+             * ‏(ביקורת Codex, P2).
+             *
+             * ‏הניסוח הקודם דפדף על **כל** רישום ששולם אי פעם ורק
+             * ‏אז שאל על הדיירים של הדף. רישום סגור אינו מפסיק
+             * ‏להתאים לתנאי הזה לעולם, ולכן העבודה של כל סבב גדלה
+             * ‏עם ההיסטוריה של המשלמים — לנצח — גם כשאיש מהם אינו
+             * ‏מועמד לפתיחה מחדש, ועם שאילתת דיירים נוספת לכל דף.
+             *
+             * ‏בתוך השאילתה זה נהיה חצי-חיבור: המתכנן נוהג מתוך
+             * ‏קבוצת הניסיונות החיים (`@@index([trialEndsAt])`)
+             * ‏אל `@@index([tenantId, track])`, כלומר העבודה חסומה
+             * ‏במספר המועמדים האמיתי.
+             *
+             * ‏אין כאן כלל שני: `trialActiveWhere` הוא בדיוק התאום
+             * ‏של `isTrialActive` ש-`reopenRows` מכריע בו.
+             */
+            tenant: trialActiveWhere(now),
             ...afterId(after),
           },
           select: { id: true, tenantId: true },
@@ -126,29 +145,17 @@ export class FunnelEnrollmentService {
         });
         if (rows.length === 0) return { rows, opened: 0 };
         /*
-         * ‏רק משרד שהניסיון שלו חי — פתיחה מחדש למי שהניסיון שלו
-         * ‏נגמר היא רישום שאין בו מה לשלוח.
-         */
-        const live = await tx.tenant.findMany({
-          where: { id: { in: rows.map((row) => row.tenantId) }, ...trialActiveWhere(now) },
-          select: { id: true },
-        });
-        /*
-         * ‎**והכרטיס נבדק ב-`reopenRows` — ולא כאן.**
+         * ‎**והכרטיס והניסיון נבדקים ב-`reopenRows` — ולא כאן.**
          *
          * ‏הניסוח הראשון סינן כאן ב-`withoutValidCard` **וגם** שם,
          * ‏ומוטציה שהסירה את הסינון כאן שרדה: הכלל הפנימי החזיק.
          * ‏כלומר זה לא היה „הגנה בעומק” אלא עותק שני של אותו כלל,
          * ‏שמחר יכול להסכים פחות. השאלה נשאלת פעם אחת, במקום שבו
          * ‏מתקבלת ההחלטה.
-         *
-         * ‏מה שכן נשאר כאן הוא הסינון ש-`reopenRows` **אינו** עושה:
-         * ‏שהניסיון חי. פתיחה מחדש למשרד שיצא מהניסיון היא רישום
-         * ‏שאין בו מה לשלוח.
          */
         let opened = 0;
-        for (const tenant of live) {
-          if (await this.reopenRows(tx, tenant.id, now)) opened += 1;
+        for (const row of rows) {
+          if (await this.reopenRows(tx, row.tenantId, now)) opened += 1;
         }
         return { rows, opened };
         },
@@ -481,9 +488,7 @@ export class FunnelEnrollmentService {
         select: { status: true, trialEndsAt: true },
       });
       /* ‏אותו כלל בדיוק כמו `trialActiveWhere` — ראו שם */
-      if (tenant === null || tenant.status !== "trial" || !isTrialActive(tenant.trialEndsAt, now)) {
-        return false;
-      }
+      if (tenant === null || !isTrialActive(tenant, now)) return false;
       const card = await t.subscription.findFirst({
         where: { tenantId },
         select: { cardTokenEncrypted: true, cardMonth: true, cardYear: true },
@@ -642,7 +647,7 @@ export class FunnelEnrollmentService {
          * ‏הזו היא מה שמבדיל ביניהם (`trialAnchorConcluded`) — סיבה
          * ‏שנרשמה, ולא ניחוש משאר השורה.
          */
-        select: { id: true, trialEndsAt: true, trialConcludedAt: true },
+        select: { id: true, status: true, trialEndsAt: true, trialConcludedAt: true },
       }),
       this.prisma.subscription.findMany({
         where: { tenantId: { in: tenantIds } },
@@ -721,7 +726,7 @@ export class FunnelEnrollmentService {
         nextStepPending: false,
         featureUnused: false,
         hasValidCard: card,
-        trialActive: isTrialActive(tenant.trialEndsAt, now),
+        trialActive: isTrialActive(tenant, now),
         chargeFailing: track === "dunning",
       };
       const anchors: FunnelAnchors = {
@@ -817,6 +822,25 @@ export class FunnelEnrollmentService {
 
   private async reopenRows(tx: TenantTx, tenantId: string, now: Date): Promise<boolean> {
     return (async () => {
+      /*
+       * ‎**וגם „הניסיון חי” — כאן, ולא אצל הקורא** (ביקורת Codex, P2).
+       *
+       * ‏שני קוראים, ורק אחד שאל: `reopenLapsed` סינן ניסיונות
+       * ‏חיים, ו-`reopenWithin` — המסלול של מסך העקיפה — לא שאל
+       * ‏כלל. כלומר מנהל פלטפורמה שהזין תאריך ניסיון עתידי למשרד
+       * ‏**פעיל או מושהה** פתח לו רישום המרה, שאיש לא התכוון אליו
+       * ‏ושאין לו מה לשלוח; והתאריך שנוקה אחר כך היה משאיר אותו
+       * ‏פתוח לתמיד.
+       *
+       * ‏הבדיקה כאן היא הבדיקה **שאחרי** הכתיבה: `reopenWithin` רץ
+       * ‏באותה טרנזקציה שבה `tenant.update` כבר קרה, ולכן השורה
+       * ‏שנקראת היא המצב הסופי — בדיוק מה שההכרעה צריכה.
+       */
+      const tenant = await tx.tenant.findFirst({
+        where: { id: tenantId },
+        select: { status: true, trialEndsAt: true },
+      });
+      if (tenant === null || !isTrialActive(tenant, now)) return false;
       const open = await tx.funnelEnrollment.findFirst({
         where: { tenantId, track: "conversion", endedAt: null },
         select: { id: true },
@@ -941,9 +965,25 @@ export class FunnelEnrollmentService {
   }
 }
 
-/** ‏הניסיון עדיין בתוקף. משרד בלי תפוגה אינו „בניסיון פעיל”. */
-function isTrialActive(trialEndsAt: Date | null, now: Date): boolean {
-  return trialEndsAt !== null && trialEndsAt.getTime() > now.getTime();
+/**
+ * ‎**„הניסיון חי” — שורת הדייר, ולא התאריך לבדו** (ביקורת Codex, P2).
+ *
+ * ‏החתימה הקודמת קיבלה `trialEndsAt` בלבד, ולכן כל קורא היה חייב
+ * ‏לזכור לצרף `status === "trial"` בעצמו. שניים זכרו ואחד שכח:
+ * ‏`closePage` חישב `trialActive` מהתאריך בלבד, ולכן משרד ששילם
+ * ‏בזמן שהיה מסומן `trial` — ושומר את התאריך המקורי גם אחריו —
+ * ‏נספר כמי שהניסיון שלו עוד רץ, והרישום שלו נשאר פתוח.
+ *
+ * ‏שער שאפשר לבטא חצי ממנו יבוטא חצי. השורה עצמה נכנסת פנימה,
+ * ‏והכלל שלם בכל קורא. ‎`trialActiveWhere` הוא התאום שלו בשפת
+ * ‏השאילתה, ושניהם נבדקים זה מול זה.
+ */
+export function isTrialActive(
+  tenant: { status: string; trialEndsAt: Date | null },
+  now: Date,
+): boolean {
+  if (tenant.status !== "trial") return false;
+  return tenant.trialEndsAt !== null && tenant.trialEndsAt.getTime() > now.getTime();
 }
 
 /**
@@ -1015,7 +1055,7 @@ function afterSignup(cursor: SignupCursor | null): {
  * ‏שתי צורות נחוצות (שאילתה אינה יכולה לקרוא לפונקציה), שני כללים
  * ‏לא. מכאן והלאה הן זהות — ונבדקות זו מול זו.
  */
-function trialActiveWhere(now: Date): { status: "trial"; trialEndsAt: { gt: Date } } {
+export function trialActiveWhere(now: Date): { status: "trial"; trialEndsAt: { gt: Date } } {
   return { status: "trial", trialEndsAt: { gt: now } };
 }
 

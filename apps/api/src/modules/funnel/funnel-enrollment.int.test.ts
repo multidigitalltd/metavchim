@@ -857,8 +857,30 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
     expect(row?.endedReason, "ההכנה נכשלה — הרישום לא נסגר").toBe("completed");
   }
 
+  /**
+   * ‎**„ניסיון שהוחזר” הוא סטטוס **וגם** תאריך** (ביקורת Codex, P2).
+   *
+   * ‏שתי בדיקות כאן קראו ל-`reopenForRestoredTrial` על משרד שהוא
+   * ‏`active` בלי תפוגה — כלומר ניסיון שלא הוחזר כלל — וציפו
+   * ‏שייפתח. הן היו ירוקות בדיוק על הבאג: הפתיחה לא שאלה על
+   * ‏הניסיון, ומסך העקיפה יכול היה לפתוח רישום למשרד פעיל.
+   *
+   * ‏המצב שהבדיקה מתארת נבנה עכשיו במלואו, וכמו במסלול האמיתי —
+   * ‏שורת הדייר מתעדכנת **לפני** הפתיחה, באותה טרנזקציה שבה
+   * ‏`reopenWithin` רץ אצל הבקר.
+   */
+  async function restoreTrial(): Promise<void> {
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET status = 'trial', trial_ends_at = $2, trial_concluded_at = NULL
+        WHERE id = $1`,
+      OLD_TENANT,
+      new Date(Date.now() + 10 * DAY),
+    );
+  }
+
   it("נפתח מחדש, ובלי לאפס את יום 0", async () => {
     await closeAsCompleted();
+    await restoreTrial();
     const before = (await enrollments()).find((r) => r.tenantId === OLD_TENANT)!;
 
     expect(await service.reopenForRestoredTrial(OLD_TENANT)).toBe(true);
@@ -887,6 +909,8 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
    */
   it("מי שביקש להפסיק אינו נפתח מחדש", async () => {
     await closeAsCompleted();
+    /* ‏הניסיון מוחזר, אחרת „לא נפתח” היה נכון מסיבה אחרת לגמרי */
+    await restoreTrial();
     await direct.$executeRawUnsafe(
       `UPDATE funnel_enrollments SET ended_reason = 'opted_out' WHERE tenant_id = $1`,
       OLD_TENANT,
@@ -907,6 +931,7 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
    */
   it("רישום פתוח לצד רישום סגור — לא נפתח שני", async () => {
     await closeAsCompleted();
+    await restoreTrial();
     await direct.$executeRawUnsafe(
       `INSERT INTO funnel_enrollments (id, tenant_id, track, started_at, updated_at)
        VALUES ($1, $2, 'conversion', now(), now())`,
@@ -1243,19 +1268,78 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
   });
 
   /*
+   * ‎**תאריך עתידי למשרד פעיל אינו „ניסיון שהוחזר”** (ביקורת Codex,
+   * ‏P2).
+   *
+   * ‏מסך העקיפה מזין תאריך בלבד ואינו נוגע בסטטוס. בלי השאלה הזו
+   * ‏נפתח רישום המרה למשרד **משלם**, שאיש לא התכוון אליו ושאין לו
+   * ‏מה לשלוח — וניקוי התאריך אחר כך היה משאיר אותו פתוח לתמיד.
+   */
+  it("תאריך עתידי למשרד פעיל — אינו נפתח", async () => {
+    await closeAsCompleted();
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET status = 'active', trial_ends_at = $2 WHERE id = $1`,
+      OLD_TENANT,
+      new Date(Date.now() + 10 * DAY),
+    );
+    expect(await service.reopenForRestoredTrial(OLD_TENANT)).toBe(false);
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedAt, "נפתח למשרד שאינו בניסיון").not.toBeNull();
+  });
+
+  /*
+   * ‏ואותו משרד בדיוק, כשהסטטוס **כן** חזר לניסיון — נפתח. בלי
+   * ‏הצד הזה „לעולם אל תפתח” היה עובר.
+   */
+  it("ואותו משרד כשהסטטוס חזר לניסיון — נפתח", async () => {
+    await closeAsCompleted();
+    await restoreTrial();
+    expect(await service.reopenForRestoredTrial(OLD_TENANT)).toBe(true);
+  });
+
+  /*
+   * ‎**וגם הסבב אינו פותח אותו** — הסינון עבר לתוך שאילתת הרישומים
+   * ‏(ביקורת Codex, P2), ולכן זו הדרך לראות שהוא באמת שם: רישום
+   * ‏שנסגר כ„שילם”, למשרד עם תאריך עתידי ובלי סטטוס ניסיון, אינו
+   * ‏חוזר מהשאילתה כלל.
+   */
+  it("והסבב אינו פותח רישום ששולם למשרד שאינו בניסיון", async () => {
+    await closeAsCompleted();
+    await direct.$executeRawUnsafe(
+      `UPDATE funnel_enrollments SET ended_reason = 'paid' WHERE tenant_id = $1`,
+      OLD_TENANT,
+    );
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET status = 'active', trial_ends_at = $2 WHERE id = $1`,
+      OLD_TENANT,
+      new Date(Date.now() + 10 * DAY),
+    );
+    await service.sweep(new Date(), { dailyQuota: 5, pageSize: 1 });
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedAt, "הסבב פתח רישום למשרד שאינו בניסיון").not.toBeNull();
+  });
+
+  /* ‏והצד השני: אותו רישום „שילם”, כשהמשרד באמת בניסיון — נפתח. */
+  it("ופותח אותו כשהמשרד בניסיון חי", async () => {
+    await closeAsCompleted();
+    await direct.$executeRawUnsafe(
+      `UPDATE funnel_enrollments SET ended_reason = 'paid' WHERE tenant_id = $1`,
+      OLD_TENANT,
+    );
+    await restoreTrial();
+    await service.sweep(new Date(), { dailyQuota: 5, pageSize: 1 });
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedAt, "הסבב לא פתח רישום למשרד בניסיון חי").toBeNull();
+  });
+
+  /*
    * ‏ואחרי הפתיחה, הסבב אינו סוגר אותו מיד: התאריך החדש מחזיר את
    * ‏שלבי הניסיון לתוקף, וזו כל מטרת הפתיחה.
    */
   it("אחרי החזרת התאריך הסבב אינו סוגר אותו שוב", async () => {
     await closeAsCompleted();
-    await service.reopenForRestoredTrial(OLD_TENANT);
-    const restored = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
-    await direct.$executeRawUnsafe(
-      `UPDATE tenants SET status = 'trial', trial_ends_at = $2, trial_concluded_at = NULL
-        WHERE id = $1`,
-      OLD_TENANT,
-      restored,
-    );
+    await restoreTrial();
+    expect(await service.reopenForRestoredTrial(OLD_TENANT), "לא נפתח מחדש").toBe(true);
     await service.sweep(new Date(), { dailyQuota: 5 });
     const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
     expect(row?.endedAt, "נסגר למרות שהניסיון חזר").toBeNull();

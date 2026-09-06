@@ -222,3 +222,47 @@ describe("שער: אין `cursor` של Prisma בדפדוף המשפך", () => {
     expect(CODE).toContain("afterSignup(");
   });
 });
+
+/**
+ * ‎**שער: סריקת הפיגור חסומה בשאילתה, ולא בסינון אחריה** (ביקורת
+ * ‏Codex, P2).
+ *
+ * ## ‏למה שער דווקא כאן
+ *
+ * ‏`reopenRows` הוא שמכריע — מוטציה שמסירה ממנו את בדיקת הניסיון
+ * ‏מפילה בדיקת אינטגרציה. הסינון בשאילתה, לעומת זאת, אינו משנה
+ * ‏**תוצאה** אלא **כמות עבודה**: בלעדיו הסבב מדפדף על כל רישום
+ * ‏ששולם אי פעם, לנצח, ורק אז מגלה שאיש מהם אינו מועמד. מוטציה
+ * ‏שמסירה אותו עוברת בשקט בכל בדיקה התנהגותית — ובצדק, כי אין לה
+ * ‏השפעה התנהגותית.
+ *
+ * ‏מדידת תוכנית ריצה בטבלאות של בדיקה חסרת ערך (הַמְּתַכְנֵן סורק
+ * ‏סדרתית בכל מקרה), ולכן הטענה נשמרת בצורה שאפשר באמת לבדוק:
+ * ‏התנאי נמצא בשאילתה.
+ */
+describe("שער: הניסיון החי נמצא בשאילתת הפיגור", () => {
+  const CODE = codeOnly(readFileSync(join(__dirname, "funnel-enrollment.service.ts"), "utf8"));
+  const SCAN = CODE.slice(
+    CODE.indexOf('endedReason: "paid"'),
+    CODE.indexOf("take: pageSize", CODE.indexOf('endedReason: "paid"')),
+  );
+
+  /* ‏פיקוח: בלעדיו כל השער היה ירוק על מחרוזת ריקה. */
+  it("‏יש מה לבדוק — סריקת הפיגור נמצאה", () => {
+    expect(SCAN.length).toBeGreaterThan(0);
+    expect(SCAN).toContain("afterId(after)");
+  });
+
+  it("‏והיא מסננת משרדים בניסיון חי", () => {
+    expect(SCAN).toMatch(/tenant:\s*trialActiveWhere\(now\)/u);
+  });
+
+  /*
+   * ‏ושהתנאי אינו עותק שני של הכלל: הוא נכתב דרך אותה פונקציה
+   * ‏שהתאום שלה, `isTrialActive`, מכריע ב-`reopenRows`.
+   */
+  it("‏דרך התאום, ולא בניסוח משלה", () => {
+    expect(SCAN).not.toMatch(/status:\s*"trial"/u);
+    expect(SCAN).not.toMatch(/trialEndsAt/u);
+  });
+});
