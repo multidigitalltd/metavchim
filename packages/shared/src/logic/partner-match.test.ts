@@ -105,6 +105,32 @@ describe("partnerPairs — מי נכנס", () => {
     expect(pairs).toEqual([]);
   });
 
+  it("שני כרטיסים של אותו אדם אינם צמד", () => {
+    /* ‏מפתח זהות זהה — מיזוג כרטיסים, או שתי דרישות של אותו לקוח */
+    const pairs = partnerPairs(PROPERTY, [
+      { buyerId: "A", requirements: buyer(100_000_000), partnerKey: "person-1" },
+      { buyerId: "B", requirements: buyer(100_000_000), partnerKey: "person-1" },
+    ]);
+    expect(pairs).toEqual([]);
+  });
+
+  it("אבל כל אחד מהם מצטרף לאדם שלישי", () => {
+    const pairs = partnerPairs(PROPERTY, [
+      { buyerId: "A", requirements: buyer(100_000_000), partnerKey: "person-1" },
+      { buyerId: "B", requirements: buyer(100_000_000), partnerKey: "person-1" },
+      { buyerId: "C", requirements: buyer(100_000_000), partnerKey: "person-2" },
+    ]);
+    expect(pairs).toHaveLength(2);
+    for (const pair of pairs) {
+      expect(pair.partners.map((p) => p.buyerId)).toContain("C");
+    }
+  });
+
+  it("בלי מפתח זהות כל כרטיס עומד בפני עצמו", () => {
+    /* ‏ברירת המחדל הבטוחה למי שאין לו מידע כזה — המזהה עצמו */
+    expect(partnerPairs(PROPERTY, twoHalves())).toHaveLength(1);
+  });
+
   it("קונה בלי תקציב מוצהר אינו מועמד — „לא ידוע” אינו אפס", () => {
     const pairs = partnerPairs(PROPERTY, [
       { buyerId: "A", requirements: buyer(undefined) },

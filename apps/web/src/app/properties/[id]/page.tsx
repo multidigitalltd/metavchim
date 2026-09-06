@@ -1403,7 +1403,8 @@ export default function PropertyDetailPage({
               ‏על שאלה אחרת (מי יחד, ולא מי לבד), והרשימות זרות זו
               ‏לזו. המקטע כולו אינו קיים לנכס שאינו בטאבו משותף.
             */}
-            {property.sharedTabu === true ? (
+            {property.sharedTabu === true &&
+            (can(user, "buyers.view_own") || can(user, "buyers.view_all")) ? (
               <PartnerSuggestions propertyId={property.id} />
             ) : null}
             {matchesFailed || (matches !== null && matches.length > 0) ? (

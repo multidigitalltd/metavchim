@@ -489,12 +489,12 @@ if (!/options=\{SHARED_TABU_FILTER_OPTIONS\}/u.test(PROPERTIES)) {
 
 const PROPERTY_CARD = read("../src/app/properties/[id]/page.tsx");
 if (
-  !/\{property\.sharedTabu === true \? \(\s*<PartnerSuggestions propertyId=\{property\.id\} \/>/u.test(
+  !/\{property\.sharedTabu === true &&\s*\(can\(user, "buyers\.view_own"\) \|\| can\(user, "buyers\.view_all"\)\) \? \(\s*<PartnerSuggestions propertyId=\{property\.id\} \/>/u.test(
     PROPERTY_CARD,
   )
 ) {
   problems.push(
-    "מקטע „שותפויות אפשריות” אינו מותנה ב-`property.sharedTabu` — הוא ייטען גם לנכס שאין לו שותפויות",
+    "מקטע „שותפויות אפשריות” אינו מותנה ב-`property.sharedTabu` וביכולת לראות קונים — הוא ייטען לנכס שאין לו שותפויות, או יבקש שמות ממי שאינו רשאי",
   );
 }
 

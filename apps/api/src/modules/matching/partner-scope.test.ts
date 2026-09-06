@@ -94,7 +94,11 @@ function conditionHolds(value: unknown, condition: unknown): boolean {
   return value === condition;
 }
 
-function serviceFor(buyers: BuyerRow[], property = PROPERTY_ROW): MatchingService {
+function serviceFor(
+  buyers: BuyerRow[],
+  property = PROPERTY_ROW,
+  durable: string[] = [],
+): MatchingService {
   const tx = {
     property: {
       /*
@@ -116,8 +120,15 @@ function serviceFor(buyers: BuyerRow[], property = PROPERTY_ROW): MatchingServic
     buyer: {
       findMany: async ({ where }: { where: Record<string, unknown> }) => {
         const owner = where["ownerUserId"];
-        return buyers.filter((b) => owner === undefined || b.ownerUserId === owner);
+        const excluded = (where["id"] as { notIn?: string[] } | undefined)?.notIn ?? [];
+        return buyers.filter(
+          (b) =>
+            (owner === undefined || b.ownerUserId === owner) && !excluded.includes(b.id),
+        );
       },
+    },
+    match: {
+      findMany: async () => durable.map((buyerId) => ({ buyerId })),
     },
   };
   const prisma = { withTenant: async (fn: (t: unknown) => unknown) => fn(tx) };
@@ -233,5 +244,106 @@ describe("שידוך שותפים — הסינון בשאילתה", () => {
   it("‏רצועת התקציב נגזרת מהמנוע ולא נכתבת כמספר", () => {
     expect(method).toContain('budgetBandAgorot(price, "sale")');
     expect(method).toContain("budgetMaxAgorot: { lt: BigInt(price - band) }");
+  });
+});
+
+describe("שידוך שותפים — שער מודול הקונים", () => {
+  /*
+   * ‎**`ownershipFilter` הוא צמצום ולא שער** (ביקורת Codex, P1).
+   *
+   * ‏בלי `view_all` הוא מחזיר „הקונים שלי”, וזה נראה בטוח — אבל
+   * ‏למי שהמודול חסום אצלו לגמרי הוא עדיין מחזיר את הקונים שלו,
+   * ‏על שם, תקציב וציון. הנתיב דורש `matches.view` בלבד.
+   */
+  it("מי שאין לו יכולת לראות קונים כלל נדחה — ולא מקבל רשימה ריקה", async () => {
+    const service = serviceFor(BUYERS);
+    await expect(
+      asUser(["matches.view"], () => service.partnersForProperty("01PROP")),
+    ).rejects.toThrow(/מודול הקונים חסום/u);
+  });
+
+  it("‏`view_own` לבדה מספיקה", async () => {
+    const service = serviceFor(BUYERS);
+    await expect(
+      asUser(["matches.view", "buyers.view_own"], () => service.partnersForProperty("01PROP")),
+    ).resolves.toHaveLength(1);
+  });
+
+  it("וגם `view_all` לבדה", async () => {
+    const service = serviceFor(BUYERS);
+    await expect(
+      asUser(["matches.view", "buyers.view_all"], () => service.partnersForProperty("01PROP")),
+    ).resolves.toHaveLength(3);
+  });
+});
+
+describe("שידוך שותפים — אדם אחד אינו שותפות", () => {
+  /*
+   * ‎**שני כרטיסים על אותו איש קשר אינם שני אנשים** (ביקורת Codex, P1).
+   * ‏שארית מיזוג, או שתי דרישות של אותו אדם — צמד כזה מכפיל את כוח
+   * ‏הקנייה של אדם אחד, ונשמע מצוין עד השיחה הראשונה.
+   */
+  it("שני כרטיסים של אותו לקוח אינם מצטרפים לצמד", async () => {
+    const sameContact: BuyerRow[] = [
+      { id: "01CARD_A", contactId: "01SAME", ownerUserId: "01ME", requirements: REQUIREMENTS },
+      { id: "01CARD_B", contactId: "01SAME", ownerUserId: "01ME", requirements: REQUIREMENTS },
+    ];
+    const service = serviceFor(sameContact);
+    const pairs = await asUser(["matches.view", "buyers.view_own"], () =>
+      service.partnersForProperty("01PROP"),
+    );
+    expect(pairs).toEqual([]);
+  });
+
+  it("אבל כל אחד מהם עדיין מצטרף לאדם אחר", async () => {
+    const mixed: BuyerRow[] = [
+      { id: "01CARD_A", contactId: "01SAME", ownerUserId: "01ME", requirements: REQUIREMENTS },
+      { id: "01CARD_B", contactId: "01SAME", ownerUserId: "01ME", requirements: REQUIREMENTS },
+      { id: "01OTHER_P", contactId: "01ELSE", ownerUserId: "01ME", requirements: REQUIREMENTS },
+    ];
+    const service = serviceFor(mixed);
+    const pairs = await asUser(["matches.view", "buyers.view_own"], () =>
+      service.partnersForProperty("01PROP"),
+    );
+    expect(pairs).toHaveLength(2);
+    for (const pair of pairs) {
+      expect(pair.partners.map((p) => p.buyerId)).toContain("01OTHER_P");
+    }
+  });
+});
+
+describe("שידוך שותפים — זרות מהרשימה הרגילה", () => {
+  /*
+   * ‎**התאמה שכבר הוצעה אינה נמחקת** (ביקורת Codex, P1).
+   * ‏`upsertMatch` מוחק `suggested` בלבד, ולכן קונה שהתקציב שלו ירד
+   * ‏נשאר עם שורת `offered` חיה — ובלי החרגה כאן היה מופיע גם כאן
+   * ‏וגם שם, בשתי המלצות סותרות.
+   */
+  it("קונה עם התאמה שמורה על הנכס אינו מוצע כשותף", async () => {
+    const service = serviceFor(BUYERS, PROPERTY_ROW, ["01MINE_A"]);
+    const pairs = await asUser(["matches.view", "buyers.view_own"], () =>
+      service.partnersForProperty("01PROP"),
+    );
+    expect(pairs).toEqual([]);
+  });
+});
+
+describe("‏מה שנשלף לפני התקרה", () => {
+  const source = readFileSync(join(__dirname, "matching.service.ts"), "utf8");
+  const method = source.slice(source.indexOf("async partnersForProperty("));
+  const where = method.slice(method.indexOf("tx.buyer.findMany"), method.indexOf("orderBy"));
+
+  it("‏ההתאמות השמורות מוחרגות בשאילתה, לא אחריה", () => {
+    expect(method).toContain('status: { notIn: ["suggested", "dismissed"] }');
+    expect(where).toContain("id: { notIn: durable.map((row) => row.buyerId) }");
+  });
+
+  it("‏והסינון הגס לפי עיר קודם לתקרה", () => {
+    /* ‏אחרת שישים קונים מעיר אחרת ממלאים אותה ומסתירים צמד תקין */
+    expect(where).toContain("cities: { hasSome: cityVariants }");
+    expect(where).toContain("cities: { isEmpty: true }");
+    expect(where).toContain("hasSearchAreas: true");
+    expect(where.indexOf("cities: { hasSome")).toBeLessThan(where.length);
+    expect(method.indexOf("cityVariants")).toBeLessThan(method.indexOf("take: PARTNER_CANDIDATE_MAX"));
   });
 });

@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   BUDGET_BAND_AGOROT,
@@ -1055,6 +1055,25 @@ export class MatchingService {
       if (fields.sharedTabu !== true || fields.dealType !== "sale" || price === undefined) {
         return [];
       }
+      /*
+       * ‎**שער הכניסה למודול הקונים — במפורש** (ביקורת Codex, P1).
+       *
+       * ‏`ownershipFilter` הוא **צמצום** ולא שער: בלי `view_all` הוא
+       * ‏מחזיר `{ ownerUserId: <אני> }`, שנראה בטוח — אבל מי שהמודול
+       * ‏חסום אצלו לגמרי עדיין מקבל את הקונים **שלו**, על שם, תקציב
+       * ‏וציון. הקובץ `common/ownership.ts` מזהיר על כך במפורש:
+       * ‏„`view_own` הוא הסף”. הנתיב דורש `matches.view` בלבד, ולכן
+       * ‏הסף חייב להיאמר כאן.
+       *
+       * ‏זריקה ולא רשימה ריקה: „אין שותפויות” על מודול חסום הוא
+       * ‏בדיוק השקר שמזמין את המתווך לחפש למה אין — והמסך שמעליו
+       * ‏מסתיר את המקטע כשאין הרשאה, כך שהזריקה נשארת לקוראים
+       * ‏ישירים של ה-API.
+       */
+      const capabilities = TenantContext.current().capabilities;
+      if (!capabilities.has("buyers.view_own") && !capabilities.has("buyers.view_all")) {
+        throw new ForbiddenException("שידוך שותפים — מודול הקונים חסום עבורך, פנו למנהל המשרד");
+      }
 
       /*
        * ‏הסינון הגס נגזר **מאותה רצועה** שהמנוע משתמש בה, ולכן הוא
@@ -1063,6 +1082,38 @@ export class MatchingService {
        * ‏היו נפרדים ביום שהרצועה משתנה.
        */
       const band = budgetBandAgorot(price, "sale");
+
+      /*
+       * ‎**זרות משתי הרשימות דורשת גם את השורות השמורות** (ביקורת Codex, P1).
+       *
+       * ‏„אינו מגיע לבד” מחושב מהתקציב **הנוכחי**, אבל התאמה שכבר
+       * ‏הוצעה אינה נמחקת: `upsertMatch` מוחק `suggested` בלבד, כדי
+       * ‏לא לאבד עבודה של הסוכן. קונה שהתקציב שלו ירד — או נכס
+       * ‏שהמחיר שלו עלה — נשאר עם שורת `offered` חיה, וגם היה נכנס
+       * ‏לשידוך. אותו אדם, שתי המלצות סותרות על אותו מסך.
+       *
+       * ‏השורה השמורה גוברת: היא מייצגת פעולה שהסוכן כבר עשה.
+       */
+      const durable = await tx.match.findMany({
+        where: { tenantId, propertyId, status: { notIn: ["suggested", "dismissed"] } },
+        select: { buyerId: true },
+      });
+
+      /*
+       * ‎**הסינון הגס לפני התקרה, ולא אחריה** (ביקורת Codex, P2).
+       *
+       * ‏התקרה חתכה לפי תקציב בלבד, ולכן שישים קונים עשירים מעיר
+       * ‏אחרת יכלו למלא אותה, ליפול כולם ב-`partnerPairs`, ולהסתיר
+       * ‏צמד תקין של קונים זולים יותר — „אין שותפויות” על משרד שיש
+       * ‏לו. התנאי כאן הוא **אותו** סינון גס שהמנוע משתמש בו בכיוון
+       * ‏השני (`recomputeForProperty`), ולכן הוא רחב לפחות כמוהו:
+       * ‏רשימת ערים ריקה היא „בלי מגבלת אזור”, ומי שסימן אזורים על
+       * ‏המפה נכנס תמיד — הרדיוס שלו עשוי לכלול את הנכס גם כשהעיר
+       * ‏שונה, וההכרעה המדויקת נעשית במנוע.
+       */
+      const cityVariants =
+        property.city === null ? null : locationNameVariants(property.city);
+
       const rows = await tx.buyer.findMany({
         where: {
           tenantId,
@@ -1070,6 +1121,18 @@ export class MatchingService {
           dealType: "sale",
           sharedTabuStance: "accepts",
           budgetMaxAgorot: { lt: BigInt(price - band) },
+          ...(durable.length === 0
+            ? {}
+            : { id: { notIn: durable.map((row) => row.buyerId) } }),
+          ...(cityVariants === null
+            ? {}
+            : {
+                OR: [
+                  { cities: { hasSome: cityVariants } },
+                  { cities: { isEmpty: true } },
+                  { hasSearchAreas: true },
+                ],
+              }),
           ...ownershipFilter("buyers.view_all", "ownerUserId"),
         },
         /*
@@ -1092,7 +1155,12 @@ export class MatchingService {
          */
         const parsed = BuyerRequirementsSchema.safeParse(row.requirements);
         if (!parsed.success) continue;
-        candidates.push({ buyerId: row.id, requirements: parsed.data });
+        /* ‏מפתח הזהות הוא איש הקשר — שני כרטיסים שלו אינם שני אנשים */
+        candidates.push({
+          buyerId: row.id,
+          requirements: parsed.data,
+          partnerKey: row.contactId,
+        });
         contactIdByBuyer.set(row.id, row.contactId);
       }
 

@@ -44,6 +44,21 @@ import { isSharedTabuProperty, sharedTabuFit } from "./shared-tabu.js";
 export interface PartnerCandidate {
   buyerId: string;
   requirements: BuyerRequirements;
+  /**
+   * ‎**מי האדם שמאחורי הכרטיס — כדי שלא נשדך אותו לעצמו** (ביקורת Codex, P1).
+   *
+   * ‏למערכת מותר שיהיו שני כרטיסי קונה על אותו איש קשר: שתי
+   * ‏דרישות שונות של אותו אדם („דירה להשקעה” ו„דירה למגורים”),
+   * ‏או שארית של מיזוג כרטיסים. שני כרטיסים כאלה **אינם שני
+   * ‏אנשים**, ושותפות ביניהם היא הכפלה של כוח הקנייה של אדם אחד
+   * ‏— הצעה שנראית מצוינת על המסך ומתפוגגת בשיחה הראשונה.
+   *
+   * ‏המפתח אינו „מזהה איש הקשר” בשמו, כי המנוע אינו יודע דבר על
+   * ‏אנשי קשר ואינו אמור לדעת: הוא מקבל **מפתח זהות** מהשרת, ומי
+   * ‏שקורא לו מחליט מה מגדיר „אותו אדם”. חסר = הכרטיס עומד בפני
+   * ‏עצמו, וזו ברירת המחדל הבטוחה למי שאין לו מידע כזה.
+   */
+  partnerKey?: string;
 }
 
 /** חלקו של שותף אחד בעסקה. */
@@ -117,6 +132,7 @@ export function splitShares(
 
 interface ScoredCandidate {
   buyerId: string;
+  partnerKey: string;
   budgetMaxAgorot: number;
   score: number;
 }
@@ -175,7 +191,12 @@ export function partnerPairs(
       now,
     );
     if (fit.excluded || fit.insufficientData) continue;
-    scored.push({ buyerId: candidate.buyerId, budgetMaxAgorot: budget, score: fit.score });
+    scored.push({
+      buyerId: candidate.buyerId,
+      partnerKey: candidate.partnerKey ?? candidate.buyerId,
+      budgetMaxAgorot: budget,
+      score: fit.score,
+    });
     if (scored.length >= PARTNER_CANDIDATE_MAX) break;
   }
 
@@ -184,6 +205,8 @@ export function partnerPairs(
     for (let j = i + 1; j < scored.length; j += 1) {
       const a = scored[i]!;
       const b = scored[j]!;
+      /* ‏שני כרטיסים של אותו אדם אינם שותפות — ראו `partnerKey` */
+      if (a.partnerKey === b.partnerKey) continue;
       const combined = a.budgetMaxAgorot + b.budgetMaxAgorot;
       /*
        * ‎**כיסוי מלא, בלי רצועת גמישות.** הרצועה קיימת כדי לתאר
