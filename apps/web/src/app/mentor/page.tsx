@@ -23,6 +23,7 @@ import {
   type MentorGoalProgress,
   type MentorInsights,
   mentorInsightSentences,
+  mentorMonthLabel,
   type MentorMood,
   type MentorPace,
   type MentorPattern,
@@ -97,6 +98,17 @@ interface GoalDto {
   intention: string | null;
   createdAt: string;
   progress: MentorGoalProgress;
+}
+
+/** הסיכום החודשי כפי שה-API מחזיר אותו (`MentorMonthlyDto`) */
+interface MonthlyDto {
+  id: string;
+  monthStart: string;
+  headline: string;
+  greeting: string | null;
+  paragraphs: string[];
+  focus: MentorGoalMetric | null;
+  createdAt: string;
 }
 
 interface ReviewDto {
@@ -248,6 +260,8 @@ export default function MentorPage() {
   const [notInPlan, setNotInPlan] = useState(false);
   const [reviews, setReviews] = useState<ReviewDto[] | null>(null);
   const [reviewsFailed, setReviewsFailed] = useState(false);
+  const [monthly, setMonthly] = useState<MonthlyDto[] | null>(null);
+  const [monthlyFailed, setMonthlyFailed] = useState(false);
 
   const load = useCallback(() => {
     setOverviewFailed(false);
@@ -270,6 +284,13 @@ export default function MentorPage() {
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 403) return;
         setReviewsFailed(true);
+      });
+    setMonthlyFailed(false);
+    apiGet<MonthlyDto[]>("/mentor/monthly")
+      .then(setMonthly)
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 403) return;
+        setMonthlyFailed(true);
       });
   }, []);
 
@@ -377,6 +398,11 @@ export default function MentorPage() {
             reviewsFailed={reviewsFailed}
             onRetry={load}
             onAnswered={load}
+          />
+          <MonthlySection
+            monthly={monthly}
+            monthlyFailed={monthlyFailed}
+            onRetry={load}
           />
           <ChatSection
             available={overview.chatAvailable}
@@ -1229,6 +1255,83 @@ function ReviewSection({
         </details>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * הסיכום החודשי — מה עבד ומה לא (docs/14 §3): המספרים מול החודש
+ * שעבר, כמה שבועות היעד הושג, אילו רעיונות באמת הזיזו מספר, ומיקוד
+ * אחד לחודש הבא. נכתב ב-1 בחודש; עד אז — מה יגיע.
+ */
+function MonthlySection({
+  monthly,
+  monthlyFailed,
+  onRetry,
+}: {
+  monthly: MonthlyDto[] | null;
+  monthlyFailed: boolean;
+  onRetry: () => void;
+}) {
+  const [latest, ...older] = monthly ?? [];
+  return (
+    <section className="mt-8" aria-labelledby="mentor-monthly-heading">
+      <div className="mv-card-head mv-domain-green mb-3">
+        <span className="mv-tile" aria-hidden="true">
+          <IconCalendar s={19} />
+        </span>
+        <h2 id="mentor-monthly-heading" className="mv-card-head__title m-0">
+          הסיכום החודשי
+        </h2>
+      </div>
+      {monthlyFailed ? (
+        <LoadError
+          message="לא הצלחנו לטעון את הסיכום החודשי"
+          onRetry={onRetry}
+        />
+      ) : monthly === null ? (
+        <p aria-live="polite" className="m-0">
+          טוען…
+        </p>
+      ) : latest === undefined ? (
+        <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
+          הסיכום החודשי הראשון מגיע ביום ראשון אחרי סוף החודש — מה עבד, מה לא,
+          ואיזה רעיון באמת הזיז מספר.
+        </p>
+      ) : (
+        <>
+          <MonthlyCard review={latest} />
+          {older.length > 0 ? (
+            <details className="mt-3">
+              <summary className="cursor-pointer font-bold">
+                חודשים קודמים ({older.length})
+              </summary>
+              <div className="mt-3 flex flex-col gap-3">
+                {older.map((r) => (
+                  <MonthlyCard key={r.id} review={r} />
+                ))}
+              </div>
+            </details>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+function MonthlyCard({ review }: { review: MonthlyDto }) {
+  return (
+    <article className="mv-card mv-card--pad">
+      <p className="mv-card-sub m-0">
+        {mentorMonthLabel(new Date(review.monthStart))}
+      </p>
+      <h3 className="m-0 mt-1 text-lg font-bold">{review.headline}</h3>
+      {review.greeting ? <p className="m-0 mt-2">{review.greeting}</p> : null}
+      {review.paragraphs.map((p, i) => (
+        <p key={i} className="m-0 mt-2">
+          {p}
+        </p>
+      ))}
+    </article>
   );
 }
 

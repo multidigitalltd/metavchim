@@ -26,6 +26,7 @@ import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   MentorService,
   type MentorGoalDto,
+  type MentorMonthlyDto,
   type MentorOverview,
   type MentorPulse,
   type MentorReviewDto,
@@ -113,6 +114,13 @@ export class MentorController {
   @AnyAuthenticated()
   reviews(): Promise<MentorReviewDto[]> {
     return this.mentor.reviews();
+  }
+
+  /** הסיכומים החודשיים — מה עבד ומה לא (docs/14 §3) */
+  @Get("monthly")
+  @AnyAuthenticated()
+  monthly(): Promise<MentorMonthlyDto[]> {
+    return this.mentor.monthly();
   }
 
   @Post("reviews/:id/reflection")

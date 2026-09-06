@@ -7,6 +7,7 @@ import {
 import { ulid } from "ulid";
 import {
   jerusalemDayStart,
+  jerusalemMonthStart,
   jerusalemWallIsoToUtc,
   jerusalemWallParts,
   jerusalemWeekStart,
@@ -17,6 +18,9 @@ import {
   ideaMarksDue,
   ideaOutcomeWindows,
   mentorIdeaOutcome,
+  mentorMonthlyBody,
+  mentorMonthlyReview,
+  shiftDayLabel,
   mentorDailyIdeaPick,
   mentorDailyPlan,
   mentorGoalLabel,
@@ -34,6 +38,8 @@ import {
   type MentorGoalPeriod,
   type MentorIdeaFeedback,
   type MentorIdeaOutcome,
+  type MentorMonthSignals,
+  type MentorMonthWeek,
   type MentorPersona,
   type MentorReviewBody,
   type MentorWeekSignals,
@@ -122,6 +128,30 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * החודש שהגיע זמנו לסכם — הקודם, מיום ראשון 10:00 שעון ישראל **אחרי
+   * השבוע שהיום האחרון שלו נופל בו**, ולמשך שבוע (השלמה למי שהשרת
+   * היה למטה). לא ב-1 בחודש: השבוע האחרון של החודש מסוכם רק במוצאי
+   * שבת, וסיכום חודשי שנכתב לפניו היה מפספס את היעדים של אותו שבוע
+   * לתמיד (ביקורת Codex). חודש שנגמר בשבת — הסיכום למחרת בבוקר.
+   */
+  static dueMonths(now: Date): Date[] {
+    const thisMonth = jerusalemMonthStart(now);
+    const label = jerusalemWallParts(thisMonth).date;
+    // היום שלפני ה-1 שייך לחודש הקודם — ומשם ל-1 שלו ולשבוע שלו
+    const lastDayLabel = shiftDayLabel(label, -1);
+    const previous = jerusalemWallIsoToUtc(
+      `${lastDayLabel.slice(0, 7)}-01T00:00:00.000`,
+    );
+    const lastDay = jerusalemWallIsoToUtc(`${lastDayLabel}T12:00:00.000`);
+    const sunday = jerusalemWallParts(jerusalemWeekStart(lastDay, 1)).date;
+    const opens = jerusalemWallIsoToUtc(`${sunday}T10:00:00.000`);
+    const closes = jerusalemWallIsoToUtc(
+      `${shiftDayLabel(sunday, 7)}T00:00:00.000`,
+    );
+    return now >= opens && now < closes ? [previous] : [];
+  }
+
+  /**
    * חלון הדחיפה של אמצע השבוע: רביעי 12:00 עד שישי 12:00 שעון ישראל.
    * מחזיר את תחילת השבוע כשהחלון פתוח, ‎`null` אחרת. לא לפני רביעי —
    * אין עוד מה לומר; לא אחרי שישי בצהריים — אין עוד מה לעשות.
@@ -174,10 +204,17 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
 
   private async sweep(now: Date): Promise<number> {
     const weeks = MentorReviewService.dueWeeks(now);
+    const months = MentorReviewService.dueMonths(now);
     const nudgeWeek = MentorReviewService.nudgeWindow(now);
     const day = MentorReviewService.dailyWindow(now);
     const awake = MentorReviewService.awake(now);
-    if (weeks.length === 0 && nudgeWeek === null && day === null && !awake)
+    if (
+      weeks.length === 0 &&
+      months.length === 0 &&
+      nudgeWeek === null &&
+      day === null &&
+      !awake
+    )
       return 0;
     const tenants = await this.prisma.tenant.findMany({
       where: { status: { in: ["active", "trial"] } },
@@ -212,6 +249,16 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
           // משרד אחד שנכשל אינו עוצר את השאר — זו סריקה, לא עסקה
           this.logger.warn(
             `סיכום המנטור נכשל למשרד ${tenant.id}: ${String(error)}`,
+          );
+        }
+      }
+      // אחרי השבועי — הסיכום של השבוע האחרון בחודש כבר כתוב כשהחודשי קורא אותו
+      for (const monthStart of months) {
+        try {
+          written += await this.monthlyForTenant(tenant.id, monthStart);
+        } catch (error: unknown) {
+          this.logger.warn(
+            `הסיכום החודשי של המנטור נכשל למשרד ${tenant.id}: ${String(error)}`,
           );
         }
       }
@@ -841,6 +888,156 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
        * רק כשיש בקשה לשבוע הבא, „לענות למנטור” רק כשיש שאלה. כפתור
        * שמוביל ל„אין בקשה” הוא הבטחה שנשברת (ביקורת Codex).
        */
+      entityId: reviewId,
+    });
+    return true;
+  }
+
+  /** סיכום חודשי לכל משתמש פעיל במשרד שאין לו עדיין סיכום לחודש. */
+  async monthlyForTenant(tenantId: string, monthStart: Date): Promise<number> {
+    return this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`mentor-monthly:${tenantId}:${monthStart.toISOString()}`}))`;
+      const users = await tx.user.findMany({
+        where: { tenantId, isActive: true },
+        select: { id: true, createdAt: true, name: true, preferences: true },
+      });
+      const done = new Set(
+        (
+          await tx.mentorMonthlyReview.findMany({
+            where: { tenantId, monthStart },
+            select: { userId: true },
+          })
+        ).map((r) => r.userId),
+      );
+      let written = 0;
+      for (const user of users) {
+        if (done.has(user.id)) continue;
+        if (
+          await this.monthlyForUser(
+            tx,
+            tenantId,
+            user.id,
+            user.createdAt,
+            monthStart,
+            firstNameOf(user.name),
+            resolveMentorPersona(user.preferences),
+            resolveIdeaFeedback(user.preferences),
+          )
+        )
+          written += 1;
+      }
+      return written;
+    });
+  }
+
+  /**
+   * הסיכום החודשי של משתמש אחד (docs/14 §3) — מהמונים של החודש,
+   * מהסיכומים השבועיים שכבר נאמרו (היעדים כפי שנמדדו, ומה נמדד על
+   * „עזר לי”) ומהסימונים של החודש. ‎`true` = נכתב; ‎`false` = חודש
+   * בלי מה לומר.
+   */
+  async monthlyForUser(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    userCreatedAt: Date,
+    monthStart: Date,
+    firstName = "",
+    persona: MentorPersona = DEFAULT_MENTOR_PERSONA,
+    feedback: MentorIdeaFeedback = EMPTY_IDEA_FEEDBACK,
+  ): Promise<boolean> {
+    const month = mentorPeriodRange("month", monthStart);
+    // רגע לפני ה-1 שייך לחודש שלפניו
+    const previous = mentorPeriodRange(
+      "month",
+      new Date(monthStart.getTime() - 1),
+    );
+    const activity = await this.signals.activity(
+      tx,
+      tenantId,
+      userId,
+      month,
+      month.end,
+    );
+    const previousActivity =
+      userCreatedAt < monthStart
+        ? await this.signals.activity(
+            tx,
+            tenantId,
+            userId,
+            previous,
+            monthStart,
+          )
+        : undefined;
+    const wins = await this.signals.wins(tx, tenantId, userId, month);
+    /*
+     * הסיכומים השבועיים: השבוע שייך לחודש שהוא מתחיל בו (היעדים), אבל
+     * המדידה של „עזר לי” נרשמת שבוע אחרי הסימון — סימון מסוף החודש
+     * יושב בסיכום של החודש הבא. לכן קוראים גם שני שבועות מעבר לסוף
+     * החודש, ומשייכים כל מדידה לפי **יום הסימון** (ביקורת Codex).
+     */
+    const reviews = await tx.mentorReview.findMany({
+      where: {
+        tenantId,
+        userId,
+        weekStart: { gte: month.start, lt: jerusalemWeekStart(month.end, 2) },
+      },
+      orderBy: { weekStart: "asc" },
+      select: { weekStart: true, body: true },
+    });
+    const startLabel = jerusalemWallParts(month.start).date;
+    const endLabel = jerusalemWallParts(month.end).date;
+    const inMonth = (date: string): boolean =>
+      date >= startLabel && date < endLabel;
+    const weeks: MentorMonthWeek[] = [];
+    const ideaOutcomes: MentorIdeaOutcome[] = [];
+    for (const row of reviews) {
+      const body = (row.body ?? {}) as Partial<MentorReviewBody>;
+      if (row.weekStart < month.end)
+        weeks.push({
+          weekStart: row.weekStart,
+          goals: Array.isArray(body.goals) ? body.goals : [],
+        });
+      for (const outcome of body.ideaOutcomes ?? [])
+        if (inMonth(outcome.date)) ideaOutcomes.push(outcome);
+    }
+    const marks = feedback.marks.filter((m) => inMonth(m.date));
+    const signals: MentorMonthSignals = {
+      monthStart,
+      activity,
+      ...(previousActivity === undefined ? {} : { previousActivity }),
+      wins,
+      weeks,
+      marks,
+      ideaOutcomes,
+      feedback,
+      persona,
+      ...(firstName === "" ? {} : { firstName }),
+    };
+    const review = mentorMonthlyReview(signals);
+    if (review === null) return false;
+    const reviewId = ulid();
+    await tx.mentorMonthlyReview.create({
+      data: {
+        id: reviewId,
+        tenantId,
+        userId,
+        monthStart,
+        headline: review.headline,
+        body: mentorMonthlyBody(signals, review) as object,
+      },
+    });
+    const text = [review.greeting ?? "", ...review.paragraphs]
+      .filter((p) => p !== "")
+      .join(" ");
+    await notifyOnce(tx, {
+      tenantId,
+      dedupeKey: `mentor_monthly:${userId}:${monthStart.toISOString()}`,
+      userId,
+      type: "mentor_monthly",
+      title: review.headline,
+      body: text.slice(0, 500),
+      entityType: "mentor",
       entityId: reviewId,
     });
     return true;

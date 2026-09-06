@@ -71,6 +71,8 @@ function fakeTx(counts: {
   /** הצעות לפי תחילת הטווח שנשאל — למדידת „האם הרעיון עבד” */
   offersByStart?: (start: Date) => number;
 }) {
+  /** הסיכומים החודשיים שנכתבו */
+  const monthlyCreated: Record<string, unknown>[] = [];
   const created: Record<string, unknown>[] = [];
   const notifications: unknown[] = [];
   /** הערכים של כל התראה שנכתבה — סוג, כותרת, גוף, מפתח — לפי סדר ההצבה */
@@ -136,8 +138,28 @@ function fakeTx(counts: {
           (g) => args?.where?.endedAt !== null || g.endedAt === null,
         ),
     },
+    mentorMonthlyReview: {
+      findMany: async () => [],
+      create: async (args: { data: Record<string, unknown> }) => {
+        monthlyCreated.push(args.data);
+        return args.data;
+      },
+    },
     mentorReview: {
-      findMany: async () => counts.previousReviews ?? [],
+      findMany: async (args?: {
+        where?: { weekStart?: { gte?: Date; lt?: Date } | { lt?: Date } };
+      }) => {
+        const range = args?.where?.weekStart;
+        const rows = counts.previousReviews ?? [];
+        // החודשי שואל טווח; השבועי — „לפני”
+        if (range !== undefined && "gte" in range && range.gte !== undefined)
+          return rows.filter(
+            (r) =>
+              r.weekStart >= range.gte! &&
+              (range.lt === undefined || r.weekStart < range.lt),
+          );
+        return rows;
+      },
       findFirst: async (args: { where: { weekStart?: Date } }) =>
         (counts.previousReviews ?? []).find(
           (r) => r.weekStart.getTime() === args.where.weekStart?.getTime(),
@@ -155,6 +177,7 @@ function fakeTx(counts: {
     notified,
     winsInserted,
     lastIdeas,
+    monthlyCreated,
   };
 }
 
@@ -679,6 +702,206 @@ describe("MentorReviewService.generateForUser — האם הרעיון עבד", (
         change: "up",
       }),
     ]);
+  });
+});
+
+describe("MentorReviewService.dueMonths / monthlyForUser — הסיכום החודשי", () => {
+  it("ראשון 10:00 ישראל אחרי השבוע של היום האחרון בחודש, ולמשך שבוע — החודש הקודם", () => {
+    // ספטמבר 2026 נגמר ברביעי 30.9; השבוע שלו נגמר בשבת 3.10 ⟵ ראשון 4.10 10:00 = 07:00Z
+    expect(
+      MentorReviewService.dueMonths(new Date("2026-10-01T07:00:00.000Z")),
+    ).toEqual([]);
+    expect(
+      MentorReviewService.dueMonths(new Date("2026-10-04T06:59:00.000Z")),
+    ).toEqual([]);
+    expect(
+      MentorReviewService.dueMonths(new Date("2026-10-04T07:00:00.000Z")).map(
+        (d) => d.toISOString(),
+      ),
+    ).toEqual(["2026-08-31T21:00:00.000Z"]);
+    // שבת 10.10 בערב — עדיין מושלם; ראשון 11.10 00:00 ישראל — כבר לא
+    expect(
+      MentorReviewService.dueMonths(new Date("2026-10-10T18:00:00.000Z")),
+    ).toHaveLength(1);
+    expect(
+      MentorReviewService.dueMonths(new Date("2026-10-10T21:00:00.000Z")),
+    ).toEqual([]);
+    // אוקטובר 2026 נגמר בשבת 31.10 — הסיכום למחרת, ראשון 1.11 10:00 (חורף, 08:00Z)
+    expect(
+      MentorReviewService.dueMonths(new Date("2026-11-01T08:00:00.000Z")).map(
+        (d) => d.toISOString(),
+      ),
+    ).toEqual(["2026-09-30T21:00:00.000Z"]);
+    // דצמבר 2026 נגמר בחמישי 31.12 ⟵ ראשון 3.1.2027
+    expect(
+      MentorReviewService.dueMonths(new Date("2027-01-03T10:00:00.000Z")).map(
+        (d) => d.toISOString(),
+      ),
+    ).toEqual(["2026-11-30T22:00:00.000Z"]);
+  });
+
+  it("מהמונים של החודש, מהסיכומים השבועיים של החודש ומהסימונים — שורה והתראת mentor_monthly", async () => {
+    const september = new Date("2026-08-31T21:00:00.000Z");
+    const { tx, monthlyCreated, notified } = fakeTx({
+      // ספטמבר 18 הצעות, אוגוסט 12
+      offersByStart: (start) =>
+        start.toISOString() === september.toISOString() ? 18 : 12,
+      wins: [{ kind: "deal_closed", title: "דירה בהרצל" }],
+      previousReviews: [
+        {
+          weekStart: new Date("2026-08-22T21:00:00.000Z"), // אוגוסט — לא נספר
+          body: {
+            goals: [
+              {
+                metric: "offers_sent",
+                period: "week",
+                target: 5,
+                actual: 1,
+                pace: "behind",
+              },
+            ],
+          },
+        },
+        {
+          weekStart: new Date("2026-09-05T21:00:00.000Z"),
+          body: {
+            goals: [
+              {
+                metric: "offers_sent",
+                period: "week",
+                target: 5,
+                actual: 6,
+                pace: "done",
+              },
+            ],
+            ideaOutcomes: [
+              {
+                key: "offers_sent:0",
+                metric: "offers_sent",
+                text: "לקבוע שעה קבועה להצעות — למשל 11:00.",
+                date: "2026-09-01",
+                before: 2,
+                after: 6,
+                change: "up",
+              },
+            ],
+          },
+        },
+        {
+          weekStart: new Date("2026-09-12T21:00:00.000Z"),
+          body: {
+            goals: [
+              {
+                metric: "offers_sent",
+                period: "week",
+                target: 5,
+                actual: 2,
+                pace: "behind",
+              },
+            ],
+          },
+        },
+        {
+          // השבוע הראשון של אוקטובר — היעדים שלו לא נספרים לספטמבר,
+          // אבל המדידה של סימון מ-30.9 שנרשמה בו כן; סימון מאוקטובר לא
+          weekStart: new Date("2026-10-03T21:00:00.000Z"),
+          body: {
+            goals: [
+              {
+                metric: "offers_sent",
+                period: "week",
+                target: 5,
+                actual: 9,
+                pace: "done",
+              },
+            ],
+            ideaOutcomes: [
+              {
+                key: "offers_sent:1",
+                metric: "offers_sent",
+                text: "לכל קונה פעיל לשלוח 2–3 נכסים.",
+                date: "2026-09-30",
+                before: 3,
+                after: 3,
+                change: "flat",
+              },
+              {
+                key: "calls_made:1",
+                metric: "calls_made",
+                text: "רשימת השיחות של מחר.",
+                date: "2026-10-02",
+                before: 1,
+                after: 8,
+                change: "up",
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const written = await service().monthlyForUser(
+      tx,
+      TENANT,
+      USER,
+      new Date("2026-01-01"),
+      september,
+      "דנה",
+      undefined,
+      {
+        liked: ["offers_sent:0"],
+        dismissed: [],
+        marks: [
+          { key: "offers_sent:0", verdict: "helped", date: "2026-09-01" },
+          { key: "offers_sent:1", verdict: "helped", date: "2026-09-30" },
+          // סומן בסוף החודש וטרם נמדד
+          { key: "viewings_held:0", verdict: "helped", date: "2026-09-29" },
+          // אוגוסט — לא נספר החודש
+          { key: "calls_made:0", verdict: "helped", date: "2026-08-30" },
+        ],
+      },
+    );
+    expect(written).toBe(true);
+    const row = monthlyCreated[0]!;
+    expect(row["monthStart"]).toEqual(september);
+    expect(row["headline"]).toBe("ספטמבר: עסקה אחת — חודש שלך");
+    const body = row["body"] as { paragraphs: string[]; focus: string | null };
+    const text = body.paragraphs.join("\n");
+    expect(text).toContain("מול אוגוסט: יותר הצעות שנשלחו (12 ⟵ 18)");
+    expect(text).toContain("„5 הצעות בשבוע” — הושג ב-1 מתוך שני שבועות.");
+    expect(text).toContain("סימנת 3 רעיונות החודש: 3 עזרו.");
+    expect(text).toContain(
+      "הרעיון שהזיז הכי הרבה: „לקבוע שעה קבועה להצעות” — הצעות 2 ⟵ 6",
+    );
+    // המדידה מאוקטובר על סימון מ-30.9 — של ספטמבר; של סימון מאוקטובר — לא
+    expect(text).toContain("רעיון אחד שסימנת „עזר לי” לא הזיז את המספר");
+    expect(text).not.toContain("רשימת השיחות");
+    expect(text).toContain("רעיון אחד מסוף החודש עוד נמדד");
+    // היעדים של השבוע שמתחיל באוקטובר אינם נספרים לספטמבר
+    expect(text).toContain("הושג ב-1 מתוך שני שבועות");
+    expect(text).toContain(
+      "המיקוד לחודש הבא: הצעות. היעד היה מאחור ב-1 מתוך שני שבועות.",
+    );
+    expect(body.focus).toBe("offers_sent");
+    const values = notified[0]!;
+    expect(values).toContain("mentor_monthly");
+    expect(values).toContain(
+      `mentor_monthly:${USER}:${september.toISOString()}`,
+    );
+  });
+
+  it("חודש בלי כלום — לא נכתב ולא נשלח", async () => {
+    const { tx, monthlyCreated, notified } = fakeTx({});
+    expect(
+      await service().monthlyForUser(
+        tx,
+        TENANT,
+        USER,
+        new Date("2026-01-01"),
+        new Date("2026-08-31T21:00:00.000Z"),
+      ),
+    ).toBe(false);
+    expect(monthlyCreated).toEqual([]);
+    expect(notified).toEqual([]);
   });
 });
 

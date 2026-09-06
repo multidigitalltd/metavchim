@@ -33,6 +33,7 @@ import {
   jerusalemDayLabel,
   type MentorGoalInput,
   mentorGoalLabel,
+  type MentorGoalMetric,
   type MentorGoalPeriod,
   type MentorGoalProgress,
   type MentorInsights,
@@ -41,6 +42,7 @@ import {
   type MentorPattern,
   mentorPatterns,
   mentorPeriodRange,
+  type MentorMonthlyBody,
   type MentorReviewBody,
   type MentorWin,
   obstaclePlanSuggestions,
@@ -126,6 +128,18 @@ export interface MentorOverview {
   advice: MentorAdvice[];
   /** השם והסגנון שהמתווך בחר (docs/14 §4.1) */
   persona: MentorPersona;
+}
+
+/** הסיכום החודשי כפי שהמסך מקבל אותו. */
+export interface MentorMonthlyDto {
+  id: string;
+  monthStart: Date;
+  headline: string;
+  greeting: string | null;
+  paragraphs: string[];
+  /** המדד למיקוד בחודש הבא — `null` כשאין */
+  focus: MentorGoalMetric | null;
+  createdAt: Date;
 }
 
 /**
@@ -334,6 +348,30 @@ export class MentorService {
             periodStart: g.progress.periodStart,
           })),
         wins,
+      };
+    });
+  }
+
+  /** הסיכומים החודשיים — מהחדש לישן (docs/14 §3). */
+  async monthly(limit = 6): Promise<MentorMonthlyDto[]> {
+    const { tenantId, userId } = TenantContext.current();
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.mentorMonthlyReview.findMany({
+        where: { tenantId, userId },
+        orderBy: { monthStart: "desc" },
+        take: limit,
+      }),
+    );
+    return rows.map((row) => {
+      const body = (row.body ?? {}) as Partial<MentorMonthlyBody>;
+      return {
+        id: row.id,
+        monthStart: row.monthStart,
+        headline: row.headline,
+        greeting: body.greeting ?? null,
+        paragraphs: Array.isArray(body.paragraphs) ? body.paragraphs : [],
+        focus: body.focus ?? null,
+        createdAt: row.createdAt,
       };
     });
   }
