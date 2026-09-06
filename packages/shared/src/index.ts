@@ -45,6 +45,7 @@ export * from "./logic/mentor-outcome.js";
 export * from "./logic/mentor-monthly.js";
 export * from "./logic/mentor-practice.js";
 export * from "./logic/mentor-office.js";
+export * from "./logic/mentor-onboarding.js";
 export * from "./logic/support.js";
 export * from "./logic/support-inbox.js";
 export * from "./logic/csv-import.js";

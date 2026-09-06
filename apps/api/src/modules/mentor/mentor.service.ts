@@ -44,6 +44,10 @@ import {
   mentorPeriodRange,
   MENTOR_METRICS,
   officeEvidenceLabel,
+  mentorOnboarding,
+  onboardingDay,
+  ONBOARDING_DAYS,
+  type MentorOnboarding,
   type MentorMonthlyBody,
   type MentorReviewBody,
   type MentorWin,
@@ -131,6 +135,8 @@ export interface MentorOverview {
   advice: MentorAdvice[];
   /** השם והסגנון שהמתווך בחר (docs/14 §4.1) */
   persona: MentorPersona;
+  /** 30 הימים הראשונים — `null` למי שכבר עבר אותם (docs/14 §7.5) */
+  onboarding: MentorOnboarding | null;
 }
 
 /** מה עובד אצלנו — למנהל, ספירות בלבד (docs/14 §7.4). */
@@ -311,7 +317,38 @@ export class MentorService {
         patterns,
         advice,
         persona: resolveMentorPersona(user?.preferences),
+        onboarding: await this.onboardingOf(
+          tx,
+          tenantId,
+          userId,
+          user?.createdAt,
+          goals.map((g) => g.progress),
+          now,
+        ),
       };
+    });
+  }
+
+  /** 30 הימים הראשונים (docs/14 §7.5) — היום, השבוע והצעד; `null` לוותיק. */
+  private async onboardingOf(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    userCreatedAt: Date | undefined,
+    goals: MentorGoalProgress[],
+    now: Date,
+  ): Promise<MentorOnboarding | null> {
+    if (userCreatedAt === undefined) return null;
+    if (onboardingDay(userCreatedAt, now) > ONBOARDING_DAYS) return null;
+    const practices = await MentorPracticeService.stats(tx, tenantId, userId, {
+      start: userCreatedAt,
+      end: now,
+    });
+    return mentorOnboarding({
+      userCreatedAt,
+      now,
+      goals,
+      practices: practices.count,
     });
   }
 
@@ -843,6 +880,14 @@ export class MentorService {
           previousActivity,
           funnel,
           advice,
+          onboarding: await this.onboardingOf(
+            tx,
+            tenantId,
+            userId,
+            user?.createdAt,
+            goals,
+            now,
+          ),
           lastPractice:
             practice.last === null
               ? null

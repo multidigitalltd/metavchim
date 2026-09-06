@@ -1251,6 +1251,8 @@ export interface MentorDailyInput {
   idea?: string;
   /** הרעיון הוכיח את עצמו אצל אחרים במשרד (§7.4) — נאמר */
   ideaProven?: boolean;
+  /** 30 הימים הראשונים (§7.5) — שורה בתחילת שבוע, ובוקר שלא נשאר ריק */
+  onboarding?: { morningLine: string | null; stepBody: string } | null;
   now: Date;
   firstName?: string;
   /** השם והסגנון שהמתווך בחר — הפתיח והסיום, לא התוכן */
@@ -1331,10 +1333,21 @@ export function mentorDailyPlan(
     lines.push(`${missed} שיחות נכנסות מחכות לטלפון חוזר — שווה להתחיל מהן.`);
   }
 
-  if (input.goals.length === 0 && weekday === 0) {
+  if (input.goals.length === 0 && weekday === 0 && !input.onboarding) {
     lines.push(
       "השבוע עוד בלי יעד. יעד אחד קטן — למשל 5 הצעות — נותן לשבוע כיוון. אפשר לכתוב לי „תקבע לי יעד של 5 הצעות בשבוע”.",
     );
+  }
+
+  /*
+   * 30 הימים הראשונים (§7.5): בתחילת שבוע — המיקוד של השבוע ראשון;
+   * ובוקר שהיה נשאר ריק אומר את הצעד. מתווך חדש לא מקבל שתיקה
+   * בשבועות שבהם הוא מחליט אם המערכת שווה.
+   */
+  if (input.onboarding) {
+    if (input.onboarding.morningLine !== null)
+      lines.unshift(input.onboarding.morningLine);
+    if (lines.length === 0) lines.push(input.onboarding.stepBody);
   }
 
   if (lines.length === 0) return null;

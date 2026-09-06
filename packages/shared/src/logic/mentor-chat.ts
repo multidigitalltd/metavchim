@@ -21,6 +21,10 @@ import {
   type MentorOfficePlaybook,
 } from "./mentor-office.js";
 import {
+  onboardingPromptLines,
+  type MentorOnboarding,
+} from "./mentor-onboarding.js";
+import {
   DEFAULT_MENTOR_PERSONA,
   mentorNameLine,
   mentorStyleGuidance,
@@ -72,6 +76,8 @@ export interface MentorChatContext {
   advice?: MentorAdvice[];
   /** השם והסגנון שהמתווך בחר — הטון של התשובה (docs/14 §4.1) */
   persona?: MentorPersona;
+  /** 30 הימים הראשונים — איפה המתווך החדש בתוכנית (§7.5); חסר = ותיק */
+  onboarding?: MentorOnboarding | null;
   /** התרגול האחרון — מה לנסות בשיחה האמיתית (§7.3); חסר = לא תרגל */
   lastPractice?: {
     scenarioLabel: string;
@@ -317,6 +323,8 @@ export function buildMentorPrompt(ctx: MentorChatContext): string {
       ),
     );
   }
+  const onboardingLines = onboardingPromptLines(ctx.onboarding);
+  if (onboardingLines.length > 0) lines.push("", ...onboardingLines);
   if (ctx.lastPractice) {
     lines.push(
       "",
