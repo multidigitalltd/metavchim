@@ -2057,24 +2057,27 @@ function PracticeFeedbackCard({
         </ul>
       ) : null}
       <p className="m-0 mt-3 font-bold">{fb.tryNext}</p>
-      <ul className="m-0 mt-3 flex list-none flex-wrap gap-2 p-0">
-        {fb.checklist.map((c) => (
-          <li
-            key={c.key}
-            className="mv-chip"
-            style={
-              c.met
-                ? undefined
-                : {
-                    color: "var(--color-text-muted)",
-                    textDecoration: "line-through",
-                  }
-            }
-          >
-            {c.label}
-          </li>
-        ))}
-      </ul>
+      {/* הרשימה כשבבים — רק כשהמודל דיבר; בלי מודל היא כבר ה-✓/✗ שלמעלה */}
+      {fb.source === "model" ? (
+        <ul className="m-0 mt-3 flex list-none flex-wrap gap-2 p-0">
+          {fb.checklist.map((c) => (
+            <li
+              key={c.key}
+              className="mv-chip"
+              style={
+                c.met
+                  ? undefined
+                  : {
+                      color: "var(--color-text-muted)",
+                      textDecoration: "line-through",
+                    }
+              }
+            >
+              {c.label}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </article>
   );
 }
