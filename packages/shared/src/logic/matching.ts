@@ -13,7 +13,7 @@ import {
 import { bestLocationMatch } from "./location-text.js";
 import { bestAreaMatch, describeDistance } from "./proximity.js";
 import { CUSTOM_FEATURE_PREFIX, customFeatureMap, isCustomFeature } from "./custom-features.js";
-import { isSharedTabuProperty, sharedTabuFit } from "./shared-tabu.js";
+import { buyerSharedTabuStance, isSharedTabuProperty, sharedTabuFit } from "./shared-tabu.js";
 
 export interface MatchResult {
   /** 0–100 */
@@ -320,7 +320,11 @@ export function scoreMatch(
    * בכיסוי ובנרמול ומזיז ציונים בלי שאיש ביקש.
    */
   const propertyIsSharedTabu = isSharedTabuProperty(property);
-  const tabu = sharedTabuFit(propertyIsSharedTabu, buyer.sharedTabu);
+  /*
+   * ‏העמדה נגזרת ולא נקראת ישירות: קונה שביקש את סוג הנכס הישן
+   * ‏אמר „מקבל”, גם אם השדה החדש ריק. ראו `buyerSharedTabuStance`.
+   */
+  const tabu = sharedTabuFit(propertyIsSharedTabu, buyerSharedTabuStance(buyer));
   if (tabu.excluded) excluded = true;
 
   /*

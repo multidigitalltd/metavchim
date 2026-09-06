@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, beforeAll } from "vitest";
 import { TenantContext } from "../../common/tenant-context";
 import { PropertiesService } from "./properties.service";
@@ -25,12 +27,17 @@ beforeAll(() => {
  * ‏בדל אחד לכל התלויות, ולא אינדקסים בבנאי: תלות שתיווסף באמצע
  * ‏הייתה מפילה את הבדיקה על משהו שאין לו קשר למה שהיא בודקת.
  */
+interface PersistInput {
+  fields: Partial<PropertyFields>;
+  consumesSharedTabuOf?: string;
+}
+
 function serviceWith(contactSharedTabu: boolean): {
   service: PropertiesService;
   persisted: () => Partial<PropertyFields> | null;
-  contactWrites: () => { where: Record<string, unknown>; data: Record<string, unknown> }[];
+  persistInput: () => PersistInput | null;
 } {
-  let seen: Partial<PropertyFields> | null = null;
+  let seen: PersistInput | null = null;
   const lead = {
     id: "01LEAD",
     contactId: "01CONTACT",
@@ -38,7 +45,6 @@ function serviceWith(contactSharedTabu: boolean): {
     requiresHuman: false,
     firstResponseAt: null,
   };
-  const contactWrites: { where: Record<string, unknown>; data: Record<string, unknown> }[] = [];
   const tx = {
     lead: {
       findFirst: async () => lead,
@@ -54,13 +60,6 @@ function serviceWith(contactSharedTabu: boolean): {
         phoneEncrypted: "p",
         sharedTabu: contactSharedTabu,
       }),
-      updateMany: async (args: {
-        where: Record<string, unknown>;
-        data: Record<string, unknown>;
-      }) => {
-        contactWrites.push(args);
-        return { count: 1 };
-      },
     },
   };
   const stub = {
@@ -73,17 +72,17 @@ function serviceWith(contactSharedTabu: boolean): {
     ...(deps as unknown as ConstructorParameters<typeof PropertiesService>),
   );
   const patched = service as unknown as {
-    persist: (input: { fields: Partial<PropertyFields> }) => Promise<string>;
+    persist: (input: PersistInput) => Promise<string>;
     autoPublishToNetwork: (id: string) => Promise<void>;
     getById: (id: string) => Promise<unknown>;
   };
-  patched.persist = async ({ fields }) => {
-    seen = fields;
+  patched.persist = async (input) => {
+    seen = input;
     return "01PROP";
   };
   patched.autoPublishToNetwork = async () => undefined;
   patched.getById = async () => ({ id: "01PROP" });
-  return { service, persisted: () => seen, contactWrites: () => contactWrites };
+  return { service, persisted: () => seen?.fields ?? null, persistInput: () => seen };
 }
 
 function asUser<T>(fn: () => T): T {
@@ -139,40 +138,56 @@ describe("המרת ליד לנכס — הדגל של הלקוח עובר", () =>
  * ‏שותפים — שקט לגמרי על המסך.
  */
 describe("הסמן על הלקוח נגמר בהעברה", () => {
-  it("אחרי המרה שנשאה את הסימון — הוא כבוי על הלקוח", async () => {
-    const { service, contactWrites } = serviceWith(true);
+  it("ההמרה מוסרת את הסימון ואת צריכתו יחד", async () => {
+    const { service, persistInput } = serviceWith(true);
     await asUser(() => service.convertFromLead("01LEAD", FIELDS));
-    expect(contactWrites()).toHaveLength(1);
-    expect(contactWrites()[0]?.where).toMatchObject({
-      id: "01CONTACT",
-      tenantId: "01TENANT",
-      /* ‏רק אם הוא עדיין דלוק — כתיבה על מצב שכבר השתנה אינה מכבה */
-      sharedTabu: true,
-    });
-    expect(contactWrites()[0]?.data).toEqual({ sharedTabu: false });
+    expect(persistInput()?.fields.sharedTabu).toBe(true);
+    expect(persistInput()?.consumesSharedTabuOf).toBe("01CONTACT");
   });
 
   /*
    * ‏זה המקרה שהממצא תיאר: הנכס השני של אותו מוכר. הדגל כבוי, ולכן
-   * ‏ההמרה אינה ממציאה עליו דבר.
+   * ‏ההמרה אינה ממציאה עליו דבר ואין מה לצרוך.
    */
   it("ולכן ההמרה הבאה של אותו מוכר אינה מסמנת את הנכס", async () => {
-    const { service, persisted, contactWrites } = serviceWith(false);
+    const { service, persisted, persistInput } = serviceWith(false);
     await asUser(() => service.convertFromLead("01LEAD", FIELDS));
     expect(persisted()?.sharedTabu).toBeUndefined();
-    expect(contactWrites()).toEqual([]);
+    expect(persistInput()?.consumesSharedTabuOf).toBeUndefined();
+  });
+});
+
+/**
+ * ‎**„באותה טרנזקציה” נבדק על הקוד, לא מוצהר** (ביקורת Codex, P2).
+ *
+ * ‏הבדיקות למעלה מחליפות את `persist` בבדל, ולכן הן מוכיחות
+ * ‏ש**נמסר** לו הסמן — ולא שהוא כותב אותו יחד עם הנכס. הטענה
+ * ‏השנייה היא כל התיקון: כיבוי בטרנזקציה נפרדת שכשלונה נבלע
+ * ‏מחזיר את ההורשה, רק נדיר ולכן שקט.
+ *
+ * ‏פיקסצ׳ר לטרנזקציה האמיתית היה מדמה מכסות, גיאוקוד, אודיט
+ * ‏ו-outbox — כלומר בודק בעיקר את עצמו. לכן הטענה נבדקת על המקור:
+ * ‏הכיבוי יושב **בתוך** ה-`withTenant` שיוצר את הנכס.
+ */
+describe("‏צריכת הסמן יושבת בתוך הטרנזקציה שכותבת את הנכס", () => {
+  const SOURCE = readFileSync(
+    join(__dirname, "properties.service.ts"),
+    "utf8",
+  );
+
+  it("‏אין כיבוי מחוץ ל-`persist`", () => {
+    /* ‏העותק הישן היה מתודה נפרדת שרצה אחרי `persist` */
+    expect(SOURCE).not.toContain("spendContactSharedTabu");
   });
 
-  /*
-   * ‎**ולא כשהשמירה נכשלה.** הכיבוי אחרי ההעברה ולא לפניה: אחרת
-   * ‏ההמרה שנפלה הייתה מוחקת עובדה משפטית שמעולם לא נרשמה.
-   */
-  it("שמירה שנכשלה אינה מכבה את הסימון", async () => {
-    const { service, contactWrites } = serviceWith(true);
-    (service as unknown as { persist: () => Promise<string> }).persist = () => {
-      throw new Error("מכסת נכסים");
-    };
-    await expect(asUser(() => service.convertFromLead("01LEAD", FIELDS))).rejects.toThrow();
-    expect(contactWrites()).toEqual([]);
+  it("‏והכיבוי בין `tx.property.create` לסוף אותה טרנזקציה", () => {
+    const create = SOURCE.indexOf("await tx.property.create({");
+    expect(create, "יצירת הנכס נעלמה").toBeGreaterThan(0);
+    const consume = SOURCE.indexOf("consumesSharedTabuOf,", create);
+    expect(consume, "הכיבוי אינו אחרי יצירת הנכס").toBeGreaterThan(create);
+    /* ‏ובאותו בלוק: עד סוף ה-`withTenant` שנפתח לפני היצירה */
+    const blockEnd = SOURCE.indexOf("\n    });\n\n    return id;", create);
+    expect(blockEnd, "סוף הטרנזקציה לא נמצא").toBeGreaterThan(0);
+    expect(consume, "הכיבוי נפל מחוץ לטרנזקציה").toBeLessThan(blockEnd);
   });
 });

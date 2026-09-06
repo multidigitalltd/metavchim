@@ -12,6 +12,38 @@ import type { SharedTabuStance } from "../schemas/buyer.js";
  * ‏להציע לקונה בדיוק את מה שהוא סירב לו במפורש. פסילה אינה ניתנת
  * ‏לכיול, וזה העניין.
  */
+/**
+ * ‎**עמדת הקונה — מהשדה המפורש, ואחרת מהדרישה הישנה** (ביקורת
+ * ‏Codex, P1).
+ *
+ * ## ‏אותה טעות בדיוק, בצד השני של השידוך
+ *
+ * ‏בצד הנכס כבר קבעתי שהדגל הוא הבית והסוג הוא קלט לגיטימי שנכתב
+ * ‏לתוכו (`isSharedTabuProperty`). בצד הקונה הוספתי עמודה חדשה
+ * ‏ולא עשיתי את אותו דבר: קונה שביקש `propertyTypes: ["shared_tabu"]`
+ * ‏— והם קיימים מאז לפני ה-PR הזה — נשאר עם עמדה `NULL`, כלומר
+ * ‏„טרם נשאל”, ונפל מחוץ לשידוך השותפים.
+ *
+ * ‏זה בדיוק ההפך מהכוונה: אלה **הקונים היחידים שכבר אמרו** שהם
+ * ‏מוכנים לטאבו משותף, והם היו האחרונים לקבל את הפיצ׳ר. וזה חוזר
+ * ‏גם בטופס החדש — מי שבוחר את סוג הנכס ומשאיר „טרם נשאל”.
+ *
+ * ## ‏למה `refuses` גובר, ו„טרם נשאל” אינו
+ *
+ * ‏סירוב מפורש הוא אמירה של הלקוח; „טרם נשאל” הוא היעדר אמירה,
+ * ‏והדרישה הישנה **היא** האמירה שבאה במקומה. לכן `undefined` פונה
+ * ‏לדרישה, וכל ערך מפורש עומד בפני עצמו.
+ */
+export function buyerSharedTabuStance(requirements: {
+  sharedTabu?: SharedTabuStance | undefined;
+  propertyTypes?: readonly string[] | undefined;
+}): SharedTabuStance | undefined {
+  if (requirements.sharedTabu !== undefined) return requirements.sharedTabu;
+  return requirements.propertyTypes?.includes(SHARED_TABU_PROPERTY_TYPE) === true
+    ? "accepts"
+    : undefined;
+}
+
 export interface SharedTabuFit {
   /** ‏הנכס לא יוצג לקונה הזה בכלל */
   excluded: boolean;

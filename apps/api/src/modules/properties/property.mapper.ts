@@ -161,7 +161,24 @@ export function fieldsToColumns(fields: Partial<PropertyFields>): Prisma.Propert
    * ‏— והסינון המאונדקס היה מפספס אותם.
    */
   if ("sharedTabu" in fields) {
-    out.sharedTabu = isSharedTabuProperty(fields);
+    /*
+     * ‎**וכיבוי מפורש פורש גם את הסוג הישן** (ביקורת Codex, P2).
+     *
+     * ‏`isSharedTabuProperty` מסתכל על שניהם, ולכן טופס העריכה —
+     * ‏ששולח את הסוג שלא נגעו בו יחד עם `sharedTabu: false` —
+     * ‏קיבל `true` בחזרה. התיבה חזרה מסומנת אחרי כל שמירה, ולא
+     * ‏הייתה שום דרך לכבות את הדגל מלבד לדעת לשנות בורר סוג שאין
+     * ‏לו קשר גלוי לתיבה.
+     *
+     * ‏„לא בטאבו משותף” על שורה שהסוג שלה הוא הייצוג הישן פירושו
+     * ‏שהייצוג הישן שגוי, ולכן הוא **נפרש**: הסוג חוזר ל„לא ידוע”.
+     * ‏אין בכך אובדן מידע — `shared_tabu` מעולם לא תיאר צורת מבנה,
+     * ‏וזה בדיוק הנימוק שבגללו הוא הוסב לדגל מלכתחילה.
+     */
+    const retiring =
+      fields.sharedTabu === false && fields.propertyType === SHARED_TABU_PROPERTY_TYPE;
+    out.sharedTabu = retiring ? false : isSharedTabuProperty(fields);
+    if (retiring) out.propertyType = null;
   } else if (fields.propertyType === SHARED_TABU_PROPERTY_TYPE) {
     /*
      * ‎**הסוג מדליק, ולעולם לא מכבה.**

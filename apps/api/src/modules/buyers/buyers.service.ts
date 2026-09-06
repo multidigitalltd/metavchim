@@ -8,6 +8,7 @@ import {
 import { ulid } from "ulid";
 import {
   applyIntakeAnswers,
+  buyerSharedTabuStance,
   BuyerRequirementsSchema,
   DEFAULT_COMMISSION_SPLIT,
   mergeIntakeSeed,
@@ -90,7 +91,16 @@ export function requirementColumns(
     roomsMin: requirements.roomsMin ?? null,
     roomsMax: requirements.roomsMax ?? null,
     /* ‏חסר = טרם נשאל, וזה ערך — ראו schema.prisma */
-    sharedTabuStance: requirements.sharedTabu ?? null,
+    /*
+     * ‎**העמודה היא ההתממשות של הכלל, לא מקור שני** (ביקורת Codex, P1).
+     *
+     * ‏קודם נכתב `requirements.sharedTabu ?? null`, ולכן קונה שביקש
+     * ‏את סוג הנכס הישן — האמירה היחידה שהייתה קיימת לפני השדה
+     * ‏החדש — נשמר כ„טרם נשאל” ונפל מחוץ לשידוך השותפים. הגזירה
+     * ‏יושבת ב-`buyerSharedTabuStance`, וכאן היא רק **נכתבת**, כדי
+     * ‏שהשאילתה תוכל לשאול עמודה אחת פשוטה.
+     */
+    sharedTabuStance: buyerSharedTabuStance(requirements) ?? null,
     requirements: requirements as object,
   };
 }

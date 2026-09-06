@@ -7,7 +7,7 @@ import {
   type MatchWeights,
 } from "./matching.js";
 import { formatIsraeliNumber } from "./israel-time.js";
-import { isSharedTabuProperty, sharedTabuFit } from "./shared-tabu.js";
+import { buyerSharedTabuStance, isSharedTabuProperty, sharedTabuFit } from "./shared-tabu.js";
 
 /**
  * ‎**שידוך שותפים — שני קונים על נכס אחד.**
@@ -204,7 +204,7 @@ export function partnerPairs(
      */
     if (budget === undefined) continue;
     if (req.dealType !== "sale") continue;
-    if (!sharedTabuFit(true, req.sharedTabu).partnerable) continue;
+    if (!sharedTabuFit(true, buyerSharedTabuStance(req)).partnerable) continue;
     /* מי שמגיע לבד — ולו בתוך רצועת הגמישות — כבר ברשימה הרגילה */
     if (price <= budget + band) continue;
     /*

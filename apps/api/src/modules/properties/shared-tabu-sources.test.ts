@@ -1,9 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { isSharedTabuProperty, SHARED_TABU_PROPERTY_TYPE } from "@metavchim/shared";
+import {
+  buyerSharedTabuStance,
+  BuyerRequirementsSchema,
+  isSharedTabuProperty,
+  SHARED_TABU_PROPERTY_TYPE,
+  type BuyerRequirements,
+} from "@metavchim/shared";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fieldsToColumns, rowToFields } from "./property.mapper";
 import { sharedTabuWhere } from "./properties.service";
+import { requirementColumns } from "../buyers/buyers.service";
+
+/** ‏דרישות ריקות תקינות — הבסיס לכל מקרה בטבלה. */
+const EMPTY_REQUIREMENTS: BuyerRequirements = BuyerRequirementsSchema.parse({ dealType: "sale" });
 
 /**
  * ‎**עובדה אחת, שני מקורות — ושתי דליפות הפוכות** (ביקורת Codex, P1).
@@ -77,6 +87,44 @@ describe("‏הכתיבה — הסוג מדליק ולעולם לא מכבה", (
 
   it("ומה שלא נשלח כלל אינו נכתב", () => {
     expect("sharedTabu" in fieldsToColumns({ city: "רעננה" })).toBe(false);
+  });
+
+  /*
+   * ‎**וכיבוי מפורש על שורה מהדור הישן פורש גם את הסוג** (ביקורת
+   * ‏Codex, P2).
+   *
+   * ‏זה הענף שהאיחוד יצר: טופס העריכה שולח את הסוג שלא נגעו בו יחד
+   * ‏עם התיבה שכובתה, ו-`isSharedTabuProperty` — שמסתכל על שניהם —
+   * ‏החזיר `true`. התיבה חזרה מסומנת אחרי כל שמירה, ולא הייתה שום
+   * ‏דרך לכבות מלבד לדעת לשנות בורר סוג שאין לו קשר גלוי לתיבה.
+   */
+  it("כיבוי מפורש על סוג „טאבו משותף” מכבה, ומנקה את הסוג הישן", () => {
+    const out = fieldsToColumns({
+      sharedTabu: false,
+      propertyType: SHARED_TABU_PROPERTY_TYPE,
+    });
+    expect(out.sharedTabu).toBe(false);
+    expect(out.propertyType, "הסוג הישן נשאר וסותר את הכיבוי").toBeNull();
+  });
+
+  /*
+   * ‏והגבול: כיבוי על סוג רגיל אינו נוגע בסוג. בלי זה „מנקה תמיד”
+   * ‏היה עובר, ומחיקת סוג הנכס בכל הסרת סימון היא אובדן נתון.
+   */
+  it("כיבוי על סוג רגיל אינו מוחק את הסוג", () => {
+    const out = fieldsToColumns({ sharedTabu: false, propertyType: "penthouse" });
+    expect(out.sharedTabu).toBe(false);
+    expect(out.propertyType).toBe("penthouse");
+  });
+
+  /* ‏והדלקה מפורשת לצד הסוג הישן אינה מוחקת אותו */
+  it("הדלקה מפורשת משאירה את הסוג כפי שהוא", () => {
+    const out = fieldsToColumns({
+      sharedTabu: true,
+      propertyType: SHARED_TABU_PROPERTY_TYPE,
+    });
+    expect(out.sharedTabu).toBe(true);
+    expect(out.propertyType).toBe(SHARED_TABU_PROPERTY_TYPE);
   });
 });
 
@@ -173,5 +221,68 @@ describe("מיזוג כפילויות משמר את „טאבו משותף”", 
     expect(SOURCE.indexOf("if (duplicate.sharedTabu")).toBeLessThan(
       SOURCE.indexOf("tx.contact.delete({ where: { id: duplicateId } })"),
     );
+  });
+});
+
+/**
+ * ‎**וגם בצד הקונה: העמודה היא ההתממשות של הכלל, לא מקור שני**
+ * ‏(ביקורת Codex, P1).
+ *
+ * ‏`shared_tabu_stance` קיים כדי שהשאילתה תוכל לשאול עמודה אחת
+ * ‏במקום לפרש JSON, אבל **מה** נכתב בה חייב להיות בדיוק מה
+ * ‏ש-`buyerSharedTabuStance` אומר. הגרסה הראשונה כתבה
+ * ‏`requirements.sharedTabu ?? null`, ולכן קונה מדור קודם — כזה
+ * ‏שהאמירה היחידה שלו היא סוג הנכס הישן — נשמר כ„טרם נשאל”.
+ */
+describe("‏עמודת העמדה של הקונה מסכימה עם הגזירה", () => {
+  const CASES: { label: string; requirements: Partial<BuyerRequirements> }[] = [
+    { label: "דרישה ישנה בלבד", requirements: { propertyTypes: ["shared_tabu"] } },
+    { label: "עמדה מפורשת „מקבל”", requirements: { sharedTabu: "accepts" } },
+    {
+      label: "סירוב לצד הדרישה הישנה",
+      requirements: { sharedTabu: "refuses", propertyTypes: ["shared_tabu"] },
+    },
+    { label: "לא נאמר דבר", requirements: { propertyTypes: ["apartment"] } },
+  ];
+
+  for (const { label, requirements } of CASES) {
+    it(label, () => {
+      const full = { ...EMPTY_REQUIREMENTS, ...requirements } as BuyerRequirements;
+      expect(requirementColumns(full).sharedTabuStance).toBe(
+        buyerSharedTabuStance(full) ?? null,
+      );
+    });
+  }
+
+  /*
+   * ‏בלי זה הטבלה יכולה להיות ירוקה על „תמיד null”: מקרה אחד לפחות
+   * ‏חייב לכתוב ערך, ואחד לפחות לא.
+   */
+  it("יש בטבלה גם „מקבל” וגם „טרם נשאל”", () => {
+    const written = CASES.map(
+      ({ requirements }) =>
+        requirementColumns({ ...EMPTY_REQUIREMENTS, ...requirements } as BuyerRequirements)
+          .sharedTabuStance,
+    );
+    expect(written).toContain("accepts");
+    expect(written).toContain(null);
+  });
+
+  /*
+   * ‎**וההגירה אומרת את אותו דבר לשורות שכבר קיימות.** היא ממלאת
+   * ‏רק `NULL`, ורק כשהדרישה הישנה נוכחת — בדיוק שני התנאים של
+   * ‏הגזירה. שער טקסטואלי, כי SQL אינו נקרא מכאן.
+   */
+  it("ההגירה ממלאת רק „טרם נשאל” עם הדרישה הישנה", () => {
+    const sql = readFileSync(
+      join(
+        __dirname,
+        "../../../prisma/migrations/20260906220000_buyer_stance_from_legacy_type/migration.sql",
+      ),
+      "utf8",
+    );
+    expect(sql).toContain("shared_tabu_stance IS NULL");
+    expect(sql).toContain("'accepts'");
+    expect(sql).toContain("'[\"shared_tabu\"]'::jsonb");
   });
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  buyerSharedTabuStance,
   isSharedTabuProperty,
   SHARED_TABU_PROPERTY_TYPE,
   SHARED_TABU_ACCEPTED_NOTE,
@@ -173,5 +174,48 @@ describe("‏הסוג הוותיק והדגל — שאלה אחת", () => {
       { ...BUYER, propertyTypes: ["apartment"], sharedTabu: "accepts" },
     );
     expect(result.excluded).toBe(true);
+  });
+});
+
+/**
+ * ‎**עמדת הקונה — אותה אחדות בדיוק כמו בצד הנכס** (ביקורת Codex, P1).
+ *
+ * ‏בצד הנכס הדגל הוא הבית והסוג הישן הוא קלט לתוכו. בצד הקונה
+ * ‏העמודה החדשה נוספה בלי לעשות את אותו דבר, ולכן קונה שביקש
+ * ‏`propertyTypes: ["shared_tabu"]` — האמירה **היחידה** שהייתה
+ * ‏קיימת לפני השדה החדש — נשאר „טרם נשאל” ונפל מחוץ לשידוך.
+ */
+describe("buyerSharedTabuStance — העמדה נגזרת גם מהדרישה הישנה", () => {
+  it("דרישה ישנה בלי עמדה מפורשת — מקבל", () => {
+    expect(buyerSharedTabuStance({ propertyTypes: ["shared_tabu"] })).toBe("accepts");
+  });
+
+  it("בלי דרישה ובלי עמדה — טרם נשאל", () => {
+    expect(buyerSharedTabuStance({ propertyTypes: ["apartment"] })).toBeUndefined();
+    expect(buyerSharedTabuStance({})).toBeUndefined();
+  });
+
+  /*
+   * ‎**וסירוב מפורש גובר.** זו אמירה של הלקוח; הדרישה הישנה היא
+   * ‏מה שבא במקום אמירה, ולא מעליה. בלי זה קונה שאמר „לא” היה
+   * ‏מקבל הצעות שותפות כי כרטיסו נושא גם את הסוג הישן.
+   */
+  it("סירוב מפורש גובר על הדרישה הישנה", () => {
+    expect(
+      buyerSharedTabuStance({ sharedTabu: "refuses", propertyTypes: ["shared_tabu"] }),
+    ).toBe("refuses");
+  });
+
+  it("וגם „מקבל” מפורש נשאר כפי שהוא", () => {
+    expect(buyerSharedTabuStance({ sharedTabu: "accepts", propertyTypes: ["apartment"] })).toBe(
+      "accepts",
+    );
+  });
+
+  /* ‏והחיבור לשער עצמו: קונה מדור קודם נכנס לשידוך */
+  it("קונה מדור קודם עובר את שער השידוך", () => {
+    const stance = buyerSharedTabuStance({ propertyTypes: ["shared_tabu"] });
+    expect(sharedTabuFit(true, stance).partnerable).toBe(true);
+    expect(sharedTabuFit(true, stance).excluded).toBe(false);
   });
 });
