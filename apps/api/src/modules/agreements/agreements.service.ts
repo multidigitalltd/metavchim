@@ -9,7 +9,8 @@ import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { AGREEMENT_KIND_LABELS, jerusalemDayStart, pendingAgreementRank, pendingAgreementState, REQUIRED_PLACEHOLDERS, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, type PendingAgreementState, whatsappLink } from "@metavchim/shared";
 import {
-  assertContactAccess,
+  actionablePropertyIds,
+  assertPropertyRecordScope,
   contactGateFor,
   orphanContactCondition,
   visibleContactIds,
@@ -263,7 +264,17 @@ export class AgreementsService {
      * חתימה נושא־טוקן ללקוח שאינו שלו. הענף של "הסכם ממתין קיים"
      * החזיר את הקישור מיד, בלי שום בדיקה (ביקורת Codex).
      */
-    await assertContactAccess(tx, tenantId, input.contactId);
+    /*
+     * ‎**והנכס, כשההסכם נושא נכס.** שער הלקוח הוא איחוד, ולכן לקוח
+     * ‏שקונה דרכי ומוכר דרך עמית פתח דרכי הסכם בלעדיות על הנכס של
+     * ‏העמית (ביקורת Codex, P1).
+     */
+    await assertPropertyRecordScope(
+      tx,
+      tenantId,
+      { contactId: input.contactId, propertyId: input.propertyId ?? null },
+      "הפקת הסכם על נכס",
+    );
 
     /*
      * שחרור הסכמים שפג תוקפם, לפני הכל.
@@ -405,7 +416,13 @@ export class AgreementsService {
     if (row.contactId === null) {
       throw new BadRequestException("ההסכם אינו משויך ללקוח — הלקוח נמחק מהמערכת");
     }
-    await assertContactAccess(tx, tenantId, row.contactId);
+    /* ‏הלקוח וגם הנכס — התשובה נושאת את קישור החתימה עצמו */
+    await assertPropertyRecordScope(
+      tx,
+      tenantId,
+      { contactId: row.contactId, propertyId: row.propertyId },
+      "שליחת הסכם על נכס",
+    );
     if (row.status === "signed") throw new BadRequestException("ההסכם כבר נחתם");
     if (row.status === "declined") throw new BadRequestException("הלקוח דחה את ההסכם");
     if (row.tokenExpires < new Date()) {
@@ -775,7 +792,16 @@ export class AgreementsService {
       throw new NotFoundException("ההסכם אינו בארכיון המשרד");
     }
     if (gate.mode === "contact") {
-      await assertContactAccess(tx, tenantId, gate.contactId);
+      /*
+       * ‏המסמך נושא את שם החותם, מספר הזהות, החתימה ו-IP. כשהוא
+       * ‏מוצמד לנכס, הנכס הוא חלק מהשאלה מי רשאי לפתוח אותו.
+       */
+      await assertPropertyRecordScope(
+        tx,
+        tenantId,
+        { contactId: gate.contactId, propertyId: row.propertyId },
+        "מסמך הסכם על נכס",
+      );
     } else if (!TenantContext.current().capabilities.has("settings.manage")) {
       throw new ForbiddenException("ההסכם שמור בארכיון המשרד — נדרשת הרשאת ניהול");
     }
@@ -907,14 +933,30 @@ export class AgreementsService {
     });
     if (rows.length === 0) return [];
 
+    /*
+     * ‎**ואותו סינון כמו ב-`listForContact`.** התור הזה נושא גם הוא
+     * ‏`publicToken` לכל שורה, ולכן הסכם על נכס של עמית היה מגיע
+     * ‏לתור שלי עם קישור החתימה שלו (ביקורת Codex, P1).
+     */
+    const allowed = await actionablePropertyIds(
+      tx,
+      tenantId,
+      rows.map((row) => row.propertyId).filter((id): id is string => id !== null),
+    );
+    const scoped =
+      allowed === null
+        ? rows
+        : rows.filter((row) => row.propertyId === null || allowed.has(row.propertyId));
+    if (scoped.length === 0) return [];
+
     // שאילתה אחת לכל השמות, לא אחת לשורה
     const contacts = await this.contacts.getByIds(
       tx,
-      rows.map((row) => row.contactId!),
+      scoped.map((row) => row.contactId!),
     );
 
     const out: PendingAgreementRow[] = [];
-    for (const row of rows) {
+    for (const row of scoped) {
       const contactId = row.contactId!;
       const name = contacts.get(contactId)?.name;
       /*
@@ -970,11 +1012,30 @@ export class AgreementsService {
     );
   }
 
+  /**
+   * ‎**הרשימה מסננת את מה שהשער חוסם — אחרת היא עוקפת אותו.**
+   *
+   * ‏כל שורה כאן נושאת `url` נושא־טוקן: מי שרואה אותה יכול לחתום
+   * ‏בשם הלקוח. הסכם שמוצמד לנכס של עמית נחסם ב-`deliver`
+   * ‏וב-`document`, ולכן הצגתו כאן הייתה מוסרת בדיוק את מה שהם
+   * ‏מגנים עליו (ביקורת Codex, P1).
+   */
   async listForContact(tx: TenantTx, contactId: string): Promise<AgreementSummary[]> {
-    const rows = await tx.agreement.findMany({
-      where: { tenantId: TenantContext.current().tenantId, contactId },
+    const tenantId = TenantContext.current().tenantId;
+    const all = await tx.agreement.findMany({
+      where: { tenantId, contactId },
       orderBy: { createdAt: "desc" },
     });
+    /* ‏שאילתה אחת לכל הנכסים שברשימה, ולא אחת לשורה */
+    const allowed = await actionablePropertyIds(
+      tx,
+      tenantId,
+      all.map((row) => row.propertyId).filter((id): id is string => id !== null),
+    );
+    const rows =
+      allowed === null
+        ? all
+        : all.filter((row) => row.propertyId === null || allowed.has(row.propertyId));
     // שאילתה אחת לכל הרשימה ולא אחת לשורה — כולן על אותו איש קשר
     const contact = rows.length > 0 ? await this.contacts.getById(tx, contactId) : null;
     const canEmail = Boolean(contact?.email);

@@ -1002,23 +1002,105 @@ export async function assertPropertyOwnerAction(
   property: { agentUserId: string | null; ownerContactId: string },
 ): Promise<void> {
   await assertContactAccess(tx, tenantId, property.ownerContactId);
+  assertPropertyScope(property.agentUserId, "פנייה לבעל הנכס");
+}
+
+/**
+ * ‎**„הנכס הזה שלי?” — החצי השני, בלי הלקוח.**
+ *
+ * ‏מופרד מ-`assertPropertyOwnerAction` כי לא כל פעולה על נכס היא
+ * ‏פנייה לבעליו: הסכם בלעדיות וסריקה חתומה נושאים מזהה נכס בלי
+ * ‏שהם „הודעה למישהו”. ניסוח מקומי שני היה בדיוק העותק שנפרד.
+ *
+ * ‎**חסימת המודול נבדקת כאן ישירות, ולא נסמכת על שער הלקוח.** שער
+ * ‏הלקוח הוא איחוד: אם בעל הנכס הוא גם הקונה שלי הוא עובר דרך
+ * ‏הקונה — גם כשמודול הנכסים חסום אצלי לגמרי — ואז ענף „הנכס שלי”
+ * ‏מאשר, כי הנכס באמת משויך אליי. כלומר בדיוק ההצרנה שהשער נבנה
+ * ‏למנוע, בתוך השער עצמו (ביקורת Codex, P1).
+ *
+ * ‏אין ענף ל„נכס בלי סוכן משויך”, ובכוונה: נכס כזה אינו של אף אחד,
+ * ‏ומי שאמור לפעול עליו הוא מי שיכול לשייך אותו — כלומר מנהל, שיש
+ * ‏לו `view_all` ממילא.
+ *
+ * ‎`subject` הוא צירוף שם — „פנייה לבעל הנכס”, „הסכם על נכס” —
+ * ‏ולא משפט, כדי שההודעה תישאר נכונה דקדוקית בכל קורא.
+ */
+export function assertPropertyScope(agentUserId: string | null, subject: string): void {
   const ctx = TenantContext.current();
-  /*
-   * ‎**חסימת המודול נבדקת כאן ישירות, ולא נסמכת על שער הלקוח.**
-   *
-   * ‏שער הלקוח הוא איחוד: אם הבעלים הוא גם הקונה שלי הוא עובר דרך
-   * ‏הקונה — גם כשמודול הנכסים חסום אצלי לגמרי — ואז ענף „הנכס
-   * ‏שלי” מאשר, כי הנכס באמת משויך אליי. כלומר בדיוק ההצרנה שהשער
-   * ‏הזה נבנה למנוע, בתוך השער עצמו (ביקורת Codex, P1).
-   */
   if (!ctx.capabilities.has("properties.view")) {
-    throw new ForbiddenException("מודול הנכסים חסום עבורך — פנייה לבעלי נכסים נעשית דרך מנהל המשרד");
+    throw new ForbiddenException(`${subject} — מודול הנכסים חסום עבורך, פנו למנהל המשרד`);
   }
   if (ctx.capabilities.has("properties.view_all")) return;
-  if (property.agentUserId === ctx.userId) return;
+  if (agentUserId === ctx.userId) return;
   throw new ForbiddenException(
-    "הנכס הזה משויך לסוכן אחר — פנייה לבעליו נעשית דרכו או דרך מנהל המשרד",
+    `${subject} — הנכס הזה משויך לסוכן אחר, פנו אליו או למנהל המשרד`,
   );
+}
+
+/**
+ * ‎**רשומה שנושאת מזהה נכס — הלקוח *וגם* הנכס.**
+ *
+ * ## ‏מה היה שגוי
+ *
+ * ‏הסכם וסריקה חתומה נושאים `contactId` **ו**-`propertyId`, ושניהם
+ * ‏אושרו ב-`assertContactAccess` בלבד. אבל השער הזה הוא איחוד
+ * ‏מקורות: לקוח שקונה דרכי ומוכר דרך עמית נפתח דרך כרטיס הקונה
+ * ‏שלי — ומשם יכולתי להפיק הסכם **בלעדיות על הנכס של העמית**,
+ * ‏לשלוח אותו לחתימה, ולראות את הטוקן החתימה ואת פרטי החותם של
+ * ‏הסכם קיים שלו (ביקורת Codex, P1).
+ *
+ * ## ‏הכלל
+ *
+ * ‏רשומה בלי `propertyId` היא ברמת המשרד ונשארת על שער הלקוח בלבד.
+ * ‏רשומה **עם** `propertyId` דורשת גם את הנכס — בלי הבחנה לפי סוג
+ * ‏ההסכם או לפי מי הבעלים הרשום: הבחנה כזו הייתה הופכת את השער
+ * ‏לשאלה על התוכן, ובדיוק זה הכשל שחוזר כאן שוב ושוב.
+ *
+ * ‎**ברירת המחדל אינה משתנה.** לכל תפקיד קיים יש `properties.view_all`,
+ * ‏ולכן השער חוסם רק מי שמנהל המשרד הגביל במפורש — ואצלו זו בדיוק
+ * ‏הכוונה: הוא עובד על הנכסים שלו.
+ *
+ * ‏נכס שנמחק מתחת לרשומה אינו חוסם: אין מה לשייך, ושער הלקוח הוא
+ * ‏מה שנשאר. זו אותה הכרעה כמו בשריד `lead_id` ב-`assertCallAccess`.
+ */
+export async function assertPropertyRecordScope(
+  tx: TenantTx,
+  tenantId: string,
+  record: { contactId: string; propertyId: string | null },
+  subject: string,
+): Promise<void> {
+  await assertContactAccess(tx, tenantId, record.contactId);
+  if (record.propertyId === null) return;
+  const property = await tx.property.findFirst({
+    where: { id: record.propertyId, tenantId },
+    select: { agentUserId: true },
+  });
+  if (property === null) return;
+  assertPropertyScope(property.agentUserId, subject);
+}
+
+/**
+ * ‎**אותה שאלה לרשימה: אילו מהנכסים האלה מותרים לי לפעולה.**
+ *
+ * ‎`null` = אין הגבלה, כמו ב-`visibleContactIds`. רשימה שמסננת
+ * ‏בעצמה הייתה העותק שנפרד מהשער — ולכן שתיהן נגזרות מאותן שתי
+ * ‏יכולות, כאן ושם.
+ */
+export async function actionablePropertyIds(
+  tx: TenantTx,
+  tenantId: string,
+  ids: readonly string[],
+): Promise<Set<string> | null> {
+  const ctx = TenantContext.current();
+  if (ctx.capabilities.has("properties.view_all") && ctx.capabilities.has("properties.view")) {
+    return null;
+  }
+  if (!ctx.capabilities.has("properties.view") || ids.length === 0) return new Set();
+  const rows = await tx.property.findMany({
+    where: { id: { in: [...ids] }, tenantId, agentUserId: ctx.userId },
+    select: { id: true },
+  });
+  return new Set(rows.map((row) => row.id));
 }
 
 export function visibleCallsCondition(

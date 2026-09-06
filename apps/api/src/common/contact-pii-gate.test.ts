@@ -97,7 +97,24 @@ const PERSON_GATES = [
  * ‏שער **ברמת הישות**: הלקוח מגיע דרך כרטיס קונה או ליד שכבר
  * ‏סוננו בבעלות, ולכן הזכאות לאדם נגזרת מהזכאות לכרטיס.
  */
-const ENTITY_GATES = [/ownershipFilter/u, /leadOwnershipFilter/u];
+/**
+ * ‎**שער ברמת הישות: „הכרטיס הזה שלי?”, לא „האדם הזה מותר לי?”.**
+ *
+ * ‏שני אלה אינם דרגות של אותה שאלה. שער האדם
+ * ‏(`assertContactAccess`) הוא **איחוד** מקורות — כרטיס קונה שלי,
+ * ‏ליד שלי, או נכס שאני רשאי לראות — ולכן אדם אחד עובר אותו דרך
+ * ‏מקור אחד ומקבל גישה לרשומות של מקור אחר.
+ *
+ * ‏שערי הנכס נספרים כאן ולא ברשימת האדם: `assertPropertyRecordScope`
+ * ‏שואל על הנכס שברשומה, ו-`actionablePropertyIds` הוא אותו כלל
+ * ‏לרשימה. שניהם מסננים **ישות**, ולכן זה מקומם.
+ */
+const ENTITY_GATES = [
+  /ownershipFilter/u,
+  /leadOwnershipFilter/u,
+  /assertPropertyRecordScope/u,
+  /actionablePropertyIds/u,
+];
 
 type Classification = "person" | "entity" | "write" | "system" | "office" | "resolver";
 
@@ -296,10 +313,23 @@ describe("שער: מי נוגע בפרטי לקוח", () => {
     expect(broken, `הוצהרו \`person\` ואין בהם שער: ${broken.join(", ")}`).toEqual([]);
   });
 
-  it("מי שהוצהר `entity` באמת מסנן בעלות", () => {
+  /*
+   * ‎**וסיווג `entity` נבדק מול שער ישות, לא מול שער אדם.**
+   *
+   * ‏הטענה כאן קיבלה גם את `PERSON_GATES`, ולכן קובץ שמסנן ישות
+   * ‏רק בשם — והלכה למעשה נשען על שער האדם — עבר. וזה לא היה
+   * ‏תיאורטי: `agreements.service.ts` היה בדיוק החיובי־כוזב הזה,
+   * ‏ורשומות שנושאות מזהה נכס אושרו אצלו באיחוד הלקוח בלבד
+   * ‏(ביקורת Codex, P2). שני הסיווגים היו הופכים לבלתי־נבדלים —
+   * ‏כלומר בדיוק ההחלפה שהמצאי הזה נבנה לגלות.
+   *
+   * ‏קובץ שהסינון שלו מקומי מצהיר עליו ב-`gate`, וההצהרה נשארת
+   * ‏ניתנת לאימות: הסרת הסמל מהקוד מפילה כאן.
+   */
+  it("מי שהוצהר `entity` באמת מסנן בעלות — בשער ישות", () => {
     const broken = touching
       .filter((f) => CLASSIFIED[f.name]?.as === "entity")
-      .filter((f) => !hasAny(f.code, gatesFor(f.name, [...ENTITY_GATES, ...PERSON_GATES])))
+      .filter((f) => !hasAny(f.code, gatesFor(f.name, ENTITY_GATES)))
       .map((f) => f.name);
     expect(broken, `הוצהרו \`entity\` ואין בהם סינון: ${broken.join(", ")}`).toEqual([]);
   });
