@@ -3,7 +3,7 @@
  *
  * המנטור עובד במדדים; מתווך סוגר עסקאות עם אנשים. פעם בשבוע המנטור
  * מסתכל על הקונים של המתווך עצמו ומצביע על אחד: מי שראה נכס פעמיים
- * ולא הציע, או אמר „מעוניין” ולא נקבע צעד הבא — ושואל מה חסר לו.
+ * ולא הציע, או אמר „מעוניין” — ואין לו צעד הבא קבוע — ושואל מה חסר לו.
  * **שיפוט, לא תזכורת**: המערכת כבר מזכירה סיור בלי מעקב; כאן השאלה
  * היא „מה עוצר את העסקה”, והצעד הוא לשאול, לא להציע עוד נכס.
  *
@@ -23,8 +23,13 @@ export interface DealCandidate {
   name: string;
   /** סיורים שהתקיימו ב-30 הימים האחרונים */
   viewings: number;
-  /** על כמה נכסים שונים */
+  /** על כמה נכסים שונים — מבין הסיורים שנרשם בהם נכס */
   distinctProperties: number;
+  /**
+   * סיורים שנרשמו בלי נכס. עליהם אי אפשר לומר „אותו נכס” או „כמה
+   * נכסים” — וכשיש כאלה, הניסוח נשאר על מה שידוע: סייר ולא הציע.
+   */
+  unknownProperties: number;
   lastViewingAt: Date | null;
   /** הנכס של הסיור האחרון — „הרצל 12, תל אביב” */
   lastProperty: string | null;
@@ -34,6 +39,12 @@ export interface DealCandidate {
   pendingOffers: number;
   /** very_hot | hot | interested | not_ripe */
   maturity: string;
+  /**
+   * כבר נקבע צעד הבא — סיור, פגישה או שיחה עתידיים, או משימה פתוחה על
+   * הקונה. קונה כזה אינו תקוע, ולכן אינו „העסקה הקרובה ביותר”: השאלה
+   * „מה הצעד שעוד לא נקבע” הייתה שקר.
+   */
+  hasNextStep: boolean;
 }
 
 export interface MentorClosestDeal {
@@ -73,7 +84,9 @@ export function closestDeal(
   now: Date,
 ): MentorClosestDeal | null {
   const eligible = candidates.filter(
-    (c) => c.viewings >= CLOSEST_DEAL_MIN_VIEWINGS || c.interestedOffers > 0,
+    (c) =>
+      !c.hasNextStep &&
+      (c.viewings >= CLOSEST_DEAL_MIN_VIEWINGS || c.interestedOffers > 0),
   );
   if (eligible.length === 0) return null;
   const best = [...eligible].sort(
@@ -83,10 +96,12 @@ export function closestDeal(
       a.buyerId.localeCompare(b.buyerId),
   )[0]!;
 
+  // „אותו נכס” / „כמה נכסים” נאמרים רק כשכל הסיורים נרשמו עם נכס
+  const known = best.unknownProperties === 0;
   const where =
     best.lastProperty === null || best.lastProperty === ""
       ? ""
-      : best.distinctProperties === 1
+      : known && best.distinctProperties === 1
         ? ` ב${best.lastProperty}`
         : ` (האחרון ב${best.lastProperty})`;
   const parts: string[] = [];
@@ -106,12 +121,12 @@ export function closestDeal(
   const question =
     best.interestedOffers > 0
       ? "אמר שמעוניין — מה הצעד הבא שעוד לא נקבע, ומי עוד צריך להגיד כן?"
-      : best.distinctProperties === 1
+      : known && best.distinctProperties === 1
         ? "ראה את אותו נכס פעמיים ולא הציע — מה עוצר? מחיר, מימון, או מישהו שמחליט איתו?"
-        : best.distinctProperties === 0
-          ? // סיורים בלי נכס רשום — לא ידוע אם אותו נכס או כמה; לא ממציאים
-            "סייר ולא הציע — מה עוצר? מחיר, מימון, או מישהו שמחליט איתו?"
-          : "ראה כמה נכסים ולא הציע על אף אחד — מה באמת מחפש, ומה חסר במה שראה?";
+        : known && best.distinctProperties > 1
+          ? "ראה כמה נכסים ולא הציע על אף אחד — מה באמת מחפש, ומה חסר במה שראה?"
+          : // סיור בלי נכס רשום — לא ידוע אם אותו נכס או כמה; לא ממציאים
+            "סייר ולא הציע — מה עוצר? מחיר, מימון, או מישהו שמחליט איתו?";
   const step =
     "טלפון אחד היום — לשאול, לא להציע עוד נכס. ואז לקבוע צעד: סיור עם מי שמחליט, יועץ משכנתאות, או הצעה בכתב.";
   return {

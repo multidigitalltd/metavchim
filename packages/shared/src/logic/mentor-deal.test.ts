@@ -29,11 +29,13 @@ const candidate = (over: Partial<DealCandidate>): DealCandidate => ({
   name: "דנה לוי",
   viewings: 0,
   distinctProperties: 0,
+  unknownProperties: 0,
   lastViewingAt: null,
   lastProperty: null,
   interestedOffers: 0,
   pendingOffers: 0,
   maturity: "interested",
+  hasNextStep: false,
   ...over,
 });
 
@@ -47,6 +49,28 @@ describe("העסקה הקרובה ביותר — קונה אחד, מכשול א�
     expect(closestDeal([candidate({ interestedOffers: 1 })], NOW)?.name).toBe(
       "דנה לוי",
     );
+  });
+
+  it("מי שכבר יש לו צעד הבא — סיור עתידי או משימה פתוחה — אינו תקוע, ואינו מועמד", () => {
+    expect(
+      closestDeal([candidate({ viewings: 2, hasNextStep: true })], NOW),
+    ).toBeNull();
+    expect(
+      closestDeal([candidate({ interestedOffers: 1, hasNextStep: true })], NOW),
+    ).toBeNull();
+    // החזק מבין השניים כבר בטיפול — נבחר השני
+    const busy = candidate({
+      buyerId: "01BUYERAAAAAAAAAAAAAAAAAAA",
+      name: "עסוק",
+      viewings: 4,
+      hasNextStep: true,
+    });
+    const stuck = candidate({
+      buyerId: "01BUYERBBBBBBBBBBBBBBBBBBB",
+      name: "תקוע",
+      viewings: 2,
+    });
+    expect(closestDeal([busy, stuck], NOW)?.name).toBe("תקוע");
   });
 
   it("הציון: סיור 2, „מעוניין” 3, הצעה פתוחה 1, חם מאוד 3; שלושה שבועות בלי סיור מורידים", () => {
@@ -120,7 +144,14 @@ describe("העסקה הקרובה ביותר — קונה אחד, מכשול א�
     expect(many.question).toContain("ראה כמה נכסים ולא הציע");
     // סיורים בלי נכס רשום — לא „כמה נכסים” ולא „אותו נכס”
     const unknown = closestDeal(
-      [candidate({ viewings: 2, distinctProperties: 0, lastProperty: null })],
+      [
+        candidate({
+          viewings: 2,
+          distinctProperties: 0,
+          unknownProperties: 2,
+          lastProperty: null,
+        }),
+      ],
       NOW,
     )!;
     expect(unknown.reason).toBe(
@@ -129,6 +160,22 @@ describe("העסקה הקרובה ביותר — קונה אחד, מכשול א�
     expect(unknown.question).toBe(
       "סייר ולא הציע — מה עוצר? מחיר, מימון, או מישהו שמחליט איתו?",
     );
+    // נכס אחד ידוע ואחד לא — לא „אותו נכס פעמיים”; הכתובת היא של האחרון
+    const mixed = closestDeal(
+      [
+        candidate({
+          viewings: 2,
+          distinctProperties: 1,
+          unknownProperties: 1,
+          lastProperty: "הרצל 12",
+        }),
+      ],
+      NOW,
+    )!;
+    expect(mixed.reason).toBe(
+      "שני סיורים (האחרון בהרצל 12) ב-30 הימים האחרונים, ובלי הצעה על השולחן",
+    );
+    expect(mixed.question).toBe(unknown.question);
     const interested = closestDeal(
       [candidate({ viewings: 1, interestedOffers: 1, pendingOffers: 0 })],
       NOW,

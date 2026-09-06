@@ -77,6 +77,9 @@ function fakeTx(counts: {
   /** סיורים והצעות של הקונים — ל„עסקה הקרובה ביותר” (§7.6) */
   dealViewings?: Record<string, unknown>[];
   dealOffers?: Record<string, unknown>[];
+  /** קונים עם סיור/פגישה עתידיים, וקונים עם משימה פתוחה */
+  dealNextSteps?: { buyer_id: string }[];
+  dealOpenTasks?: { buyer_id: string }[];
 }) {
   /** הסיכומים החודשיים שנכתבו */
   const monthlyCreated: Record<string, unknown>[] = [];
@@ -121,6 +124,10 @@ function fakeTx(counts: {
       if (sql.includes("a.kind = 'viewing'")) return counts.dealViewings ?? [];
       if (sql.includes("SELECT m.buyer_id, o.status"))
         return counts.dealOffers ?? [];
+      if (sql.includes("a.status = 'scheduled'"))
+        return counts.dealNextSteps ?? [];
+      if (sql.includes("t.entity_type = 'buyer'"))
+        return counts.dealOpenTasks ?? [];
       if (sql.includes("FROM offers") && counts.offersByStart !== undefined)
         return [{ n: BigInt(counts.offersByStart(values[2] as Date)) }];
       if (sql.includes("percentile_cont"))
@@ -960,6 +967,47 @@ describe("MentorReviewService.dailyForUser — העסקה הקרובה ביות�
       dealViewings: [viewing("2026-09-03T15:00:00.000Z")],
     });
     expect(await signals.closestDeal(thin.tx, TENANT, USER, monday)).toBeNull();
+  });
+
+  it("קונה שכבר נקבע לו צעד הבא — סיור עתידי או משימה פתוחה — אינו תקוע ואינו נבחר", async () => {
+    const monday = new Date("2026-09-07T06:00:00.000Z");
+    const twice = [
+      viewing("2026-09-03T15:00:00.000Z"),
+      viewing("2026-08-28T15:00:00.000Z"),
+    ];
+    const signals = new MentorSignalsService(crypto);
+    const scheduled = fakeTx({
+      dealViewings: twice,
+      dealNextSteps: [{ buyer_id: BUYER }],
+    });
+    expect(
+      await signals.closestDeal(scheduled.tx, TENANT, USER, monday),
+    ).toBeNull();
+    const tasked = fakeTx({
+      dealViewings: twice,
+      dealOpenTasks: [{ buyer_id: BUYER }],
+    });
+    expect(
+      await signals.closestDeal(tasked.tx, TENANT, USER, monday),
+    ).toBeNull();
+    // סיור אחד עם נכס ואחד בלי — לא „אותו נכס פעמיים”; הכתובת היא של האחרון
+    const mixed = fakeTx({
+      dealViewings: [
+        viewing("2026-09-03T15:00:00.000Z"),
+        {
+          ...viewing("2026-08-28T15:00:00.000Z"),
+          property_id: null,
+          street: null,
+          house_number: null,
+          city: null,
+        },
+      ],
+    });
+    const deal = await signals.closestDeal(mixed.tx, TENANT, USER, monday);
+    expect(deal?.reason).toBe(
+      "שני סיורים (האחרון בהרצל 12, תל אביב) ב-30 הימים האחרונים, ובלי הצעה על השולחן",
+    );
+    expect(deal?.question).toContain("סייר ולא הציע");
   });
 });
 

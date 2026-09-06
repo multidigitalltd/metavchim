@@ -88,7 +88,7 @@ export class MentorSignalsService {
     const since = new Date(
       now.getTime() - CLOSEST_DEAL_WINDOW_DAYS * 86_400_000,
     );
-    const [viewings, offers] = await Promise.all([
+    const [viewings, offers, nextSteps, openTasks] = await Promise.all([
       tx.$queryRaw<
         {
           buyer_id: string;
@@ -120,6 +120,28 @@ export class MentorSignalsService {
           AND b.owner_user_id = ${userId}
           AND b.deleted_at IS NULL
           AND o.sent_at >= ${since} AND o.sent_at < ${now}`,
+      // צעד הבא שכבר נקבע — סיור, פגישה או שיחה עתידיים: הקונה אינו תקוע
+      tx.$queryRaw<{ buyer_id: string }[]>`
+        SELECT DISTINCT a.buyer_id
+        FROM appointments a
+        JOIN buyers b ON b.id = a.buyer_id
+        WHERE a.tenant_id = ${tenantId}
+          AND b.tenant_id = ${tenantId}
+          AND b.owner_user_id = ${userId}
+          AND b.deleted_at IS NULL
+          AND a.status = 'scheduled'
+          AND a.starts_at >= ${now}`,
+      // או משימה פתוחה על הקונה — גם בלי מועד: מישהו כבר החליט מה הצעד
+      tx.$queryRaw<{ buyer_id: string }[]>`
+        SELECT DISTINCT t.entity_id AS buyer_id
+        FROM tasks t
+        JOIN buyers b ON b.id = t.entity_id
+        WHERE t.tenant_id = ${tenantId}
+          AND b.tenant_id = ${tenantId}
+          AND b.owner_user_id = ${userId}
+          AND b.deleted_at IS NULL
+          AND t.entity_type = 'buyer'
+          AND t.status = 'open'`,
     ]);
     const byBuyer = new Map<string, DealCandidate>();
     const seed = (id: string): DealCandidate => {
@@ -130,11 +152,13 @@ export class MentorSignalsService {
         name: "קונה",
         viewings: 0,
         distinctProperties: 0,
+        unknownProperties: 0,
         lastViewingAt: null,
         lastProperty: null,
         interestedOffers: 0,
         pendingOffers: 0,
         maturity: "interested",
+        hasNextStep: false,
       };
       byBuyer.set(id, fresh);
       return fresh;
@@ -146,6 +170,7 @@ export class MentorSignalsService {
       c.viewings += 1;
       const set = properties.get(row.buyer_id) ?? new Set<string>();
       if (row.property_id !== null) set.add(row.property_id);
+      else c.unknownProperties += 1;
       properties.set(row.buyer_id, set);
       c.distinctProperties = set.size;
       // השורות ממוינות מהחדש לישן — הראשון לכל קונה הוא הסיור האחרון
@@ -166,6 +191,16 @@ export class MentorSignalsService {
       if (row.status === "interested") c.interestedOffers += 1;
       else if (["sent", "delivered", "opened"].includes(row.status))
         c.pendingOffers += 1;
+    }
+    for (const row of [
+      ...(Array.isArray(nextSteps) ? nextSteps : []),
+      ...(Array.isArray(openTasks) ? openTasks : []),
+    ]) {
+      const c =
+        typeof row.buyer_id === "string"
+          ? byBuyer.get(row.buyer_id)
+          : undefined;
+      if (c !== undefined) c.hasNextStep = true;
     }
     if (byBuyer.size === 0) return null;
     const rows = await tx.buyer.findMany({
