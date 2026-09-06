@@ -17,6 +17,7 @@ import {
 import {
   assertContactAccess,
   notifiableContactOwnerSource,
+  type ContactOwnerSource,
   ownershipFilter,
   visibleContactIds,
 } from "../../common/ownership";
@@ -112,6 +113,29 @@ export function inboundNotificationContent(
   return ownerUserId === null
     ? { title: "📧 התקבלה תשובה במייל — ללא סוכן משויך", body: null }
     : { title: "📧 לקוח ענה במייל", body: snippet };
+}
+
+/**
+ * ‎**ציר הזמן נתלה על המקור שנבחר, לא על „יש קונה”** (ביקורת
+ * ‏Codex, P2).
+ *
+ * ‏`notifiableContactOwnerSource` כבר מכריע בין הכרטיסים —
+ * ‏כשהקונה חסום והליד פתוח, הוא בוחר את הליד. התלייה העדיפה קונה
+ * ‏בכל מקרה, ולכן הסוכן שקיבל את ההתראה פתח את **הליד שלו** ולא
+ * ‏מצא בו שום שורה, בזמן שהתמצית המלאה נרשמה על כרטיס קונה שהוא
+ * ‏אינו יכול לפתוח: גם הפניה למקום ריק, וגם רישום במקום הלא נכון.
+ *
+ * ‏אותה הכרעה שהקישור נשען עליה, ולכן היא נשאלת ולא משוחזרת.
+ * ‎`null` — אין בעלים או שהמקור הוא נכס, ואז אין למי לתלות; זו
+ * ‏כבר ההתראה המשרדית בלי תוכן.
+ */
+export function inboundInteractionParent(
+  source: ContactOwnerSource | null,
+  rows: { buyerId: string | null; leadId: string | null },
+): { buyerId: string } | { leadId: string } | null {
+  if (source === "buyers" && rows.buyerId !== null) return { buyerId: rows.buyerId };
+  if (source === "leads" && rows.leadId !== null) return { leadId: rows.leadId };
+  return null;
 }
 
 @Injectable()
@@ -351,12 +375,16 @@ export class EmailInboxService {
           : body.length > 120
             ? `${body.slice(0, 120)}…`
             : body;
-      if (buyer !== null || lead !== null) {
+      const parent = inboundInteractionParent(owner?.source ?? null, {
+        buyerId: buyer?.id ?? null,
+        leadId: lead?.id ?? null,
+      });
+      if (parent !== null) {
         await tx.interaction.create({
           data: {
             id: ulid(),
             tenantId,
-            ...(buyer !== null ? { buyerId: buyer.id } : { leadId: lead?.id }),
+            ...parent,
             kind: "system",
             direction: "in",
             content: `📧 תשובה במייל: ${snippet}`,

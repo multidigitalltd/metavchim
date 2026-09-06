@@ -7,7 +7,11 @@ import { TenantContext } from "../../common/tenant-context";
 import {
   contactOwnerCandidates,
 } from "../../common/ownership";
-import { EmailInboxService, inboundNotificationContent } from "./email-inbox.service";
+import {
+  EmailInboxService,
+  inboundInteractionParent,
+  inboundNotificationContent,
+} from "./email-inbox.service";
 
 /**
  * ‎**סוכן אינו רואה — ובעיקר אינו כותב — בהתכתבות של עמיתו.**
@@ -389,5 +393,42 @@ describe("‏הקישור לכרטיס הקונה הוא כרטיס שאפשר �
       serviceFor({ ownedContactIds: [] }).listThreads(),
     );
     expect(threads.every((t) => t.buyerId !== undefined)).toBe(true);
+  });
+});
+
+/**
+ * ‎**ציר הזמן והקישור מצביעים לאותו מקום** (ביקורת Codex, P2).
+ *
+ * ‏שני הצדדים נגזרים מ-`notifiableContactOwnerSource`, ולכן שאלה
+ * ‏אחת: לאן ההתראה מפנה, ולאן התמצית נרשמת. כשהם נפרדים, הסוכן
+ * ‏פותח את הליד שלו ולא מוצא דבר — והתמצית יושבת על כרטיס קונה
+ * ‏שהוא אינו יכול לפתוח.
+ */
+describe("‏ההתראה וציר הזמן — אותו מקור", () => {
+  const ROWS = { buyerId: "01BUYER", leadId: "01LEAD" };
+
+  it("נבחר הקונה — נתלה על הקונה", () => {
+    expect(inboundInteractionParent("buyers", ROWS)).toEqual({ buyerId: "01BUYER" });
+  });
+
+  /*
+   * ‏זה המקרה שהממצא תיאר: יש כרטיס קונה, אבל הבחירה נפלה על הליד
+   * ‏(הקונה חסום). הניסוח הקודם היה תולה על הקונה בכל מקרה.
+   */
+  it("נבחר הליד — נתלה על הליד, גם כשקיים כרטיס קונה", () => {
+    expect(inboundInteractionParent("leads", ROWS)).toEqual({ leadId: "01LEAD" });
+  });
+
+  it("נבחר סוכן הנכס — אין למי לתלות", () => {
+    expect(inboundInteractionParent("properties", ROWS)).toBeNull();
+  });
+
+  it("אין בעלים — אין למי לתלות", () => {
+    expect(inboundInteractionParent(null, ROWS)).toBeNull();
+  });
+
+  /* ‏והשורה חייבת להתקיים: מקור בלי שורה אינו הורה */
+  it("מקור בלי שורה — אין למי לתלות", () => {
+    expect(inboundInteractionParent("buyers", { buyerId: null, leadId: "01LEAD" })).toBeNull();
   });
 });

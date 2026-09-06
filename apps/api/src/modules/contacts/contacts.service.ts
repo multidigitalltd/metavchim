@@ -54,6 +54,50 @@ export class ContactsService {
     return secondary ? { id: secondary.contactId } : null;
   }
 
+  /**
+   * ‎**מיחזור כרטיס קיים דורש היתר — מספר מוקלד אינו מפתח**
+   * ‏(ביקורת Codex, P1 ×2).
+   *
+   * ‏`findOrCreateByPhone` מחפש משרד-רחב, ולכן כל נתיב שמקבל טלפון
+   * ‏מהמשתמש ומצרף את התוצאה לרשומה שלו הוא מפתח לכרטיס מוסתר:
+   * ‏הצירוף עצמו הוא שגורם ל-`canSeeContact` להצליח בקריאות
+   * ‏הבאות, ומשם השם, הטלפון והאימייל חוזרים מפוענחים.
+   *
+   * ‏זה נמצא קודם ב„הוספת אדם קשור” ותוקן שם; אותו חור בדיוק היה
+   * ‏גם בבעל הנכס ובדייר — ולכן הכלל יושב עכשיו במקום אחד, ולא
+   * ‏בעותק שלישי.
+   *
+   * ‎`alsoAllowed` הוא מקור ההיתר **השני**: אדם שכבר מקושר לרשומה
+   * ‏הזו. בלעדיו עדכון של מקושר קיים היה נדחה, כי אדם מקושר אינו
+   * ‏קונה, ליד או בעל נכס.
+   *
+   * ‏הנעילה נלקחת לפני הבדיקה ומוחזקת עד סוף הטרנזקציה, ולכן
+   * ‏`findOrCreateByPhone` שרץ מיד אחריה רואה בדיוק את מה שנבדק.
+   */
+  async findOrCreateByPhoneScoped(
+    tx: TenantTx,
+    input: { name: string; phone: string },
+    options: {
+      subject: string;
+      alsoAllowed?: (priorId: string) => boolean | Promise<boolean>;
+    },
+  ): Promise<ContactDto> {
+    const tenantId = TenantContext.current().tenantId;
+    await lockContactPhone(tx, tenantId, this.crypto.phoneHash(input.phone));
+    const prior = await this.findByAnyPhone(tx, input.phone);
+    if (prior !== null) {
+      const allowed =
+        (options.alsoAllowed ? await options.alsoAllowed(prior.id) : false) ||
+        (await canSeeContact(tx, tenantId, prior.id));
+      if (!allowed) {
+        throw new ForbiddenException(
+          `${options.subject} — המספר הזה משויך ללקוח שאינו נגיש לך, פנו למנהל המשרד`,
+        );
+      }
+    }
+    return this.findOrCreateByPhone(tx, input);
+  }
+
   async findOrCreateByPhone(
     tx: TenantTx,
     input: { name: string; phone: string },
@@ -509,39 +553,21 @@ export class ContactsService {
     input: { name: string; phone: string; role: ContactRole; email?: string },
   ): Promise<{ ok: boolean; reason?: "self" }> {
     const tenantId = TenantContext.current().tenantId;
-    /*
-     * ‎**מספר שכבר שייך למישהו אינו „אדם חדש”** (ביקורת Codex, P1).
-     *
-     * ‏הנתיב נשמר בשער על כרטיס ה**אב** בלבד, ו-`findOrCreateByPhone`
-     * ‏מחפש משרד-רחב. כלומר סוכן שהקליד את הטלפון של הלקוח של עמית
-     * ‏מיחזר את הכרטיס המוסתר שלו: `setEmail` דרס לו את הכתובת,
-     * ‏והקישור שנוצר פתח את `peopleFor` — שמפענח שם, טלפון ואימייל.
-     * ‏הזנת מספר, ושלושה שדות מוצפנים חזרו.
-     *
-     * ‏הנעילה נלקחת **לפני** הבדיקה ומוחזקת עד סוף הטרנזקציה, ולכן
-     * ‏`findOrCreateByPhone` שרץ מיד אחריה רואה בדיוק את מה שנבדק:
-     * ‏אף אחד אינו יכול ליצור את המספר הזה בין השתיים.
-     */
-    await lockContactPhone(tx, tenantId, this.crypto.phoneHash(input.phone));
-    const prior = await this.findByAnyPhone(tx, input.phone);
-    if (prior !== null && prior.id !== contactId) {
-      /*
-       * ‏שני מקורות היתר, ולא אחד: לקוח שמותר לי בזכות עצמו, **או**
-       * ‏אדם שכבר מקושר לכרטיס הזה. בלי השני, עדכון תפקיד של מקושר
-       * ‏קיים — „הוספתי אותה כשותפה ואני רוצה בת זוג” — היה נדחה,
-       * ‏כי אדם מקושר אינו קונה, ליד או בעל נכס.
-       */
-      const linked = await tx.contactLink.findFirst({
-        where: { tenantId, contactId, relatedContactId: prior.id },
-        select: { id: true },
-      });
-      if (linked === null && !(await canSeeContact(tx, tenantId, prior.id))) {
-        throw new ForbiddenException(
-          "המספר הזה משויך ללקוח שאינו נגיש לך — פנו למנהל המשרד",
-        );
-      }
-    }
-    const person = await this.findOrCreateByPhone(tx, { name: input.name, phone: input.phone });
+    /* ‏מספר שכבר שייך למישהו אינו „אדם חדש” — ראו `findOrCreateByPhoneScoped` */
+    const person = await this.findOrCreateByPhoneScoped(
+      tx,
+      { name: input.name, phone: input.phone },
+      {
+        subject: "הוספת אדם קשור",
+        /* ‏הכרטיס עצמו, ואדם שכבר מקושר אליו */
+        alsoAllowed: async (priorId) =>
+          priorId === contactId ||
+          (await tx.contactLink.findFirst({
+            where: { tenantId, contactId, relatedContactId: priorId },
+            select: { id: true },
+          })) !== null,
+      },
+    );
     if (person.id === contactId) return { ok: false, reason: "self" };
 
     // האימייל נכתב רק כשנמסר: קישור חוזר של אדם קיים בלי שדה אימייל

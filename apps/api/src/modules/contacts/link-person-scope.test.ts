@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Capability } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
@@ -162,5 +164,98 @@ describe("הוספת אדם קשור — מספר שכבר שייך למישהו
       built.service.linkPerson(txOf(built), PARENT, PERSON),
     );
     expect(result.ok).toBe(true);
+  });
+});
+
+/**
+ * ‎**והכלל עצמו, ישירות — כי יש לו שלושה קוראים** (ביקורת Codex,
+ * ‏P1, סבב שני).
+ *
+ * ‏אותו חור בדיוק היה גם בבעל הנכס ובדייר: `findOrCreateByPhone`
+ * ‏מחפש משרד-רחב, והצירוף לרשומה שלי הוא שגורם ל-`canSeeContact`
+ * ‏להצליח בקריאות הבאות. תיקנתי אותו ב„אדם קשור” בלבד, ולכן הוא
+ * ‏יושב עכשיו במקום אחד ונבדק שם.
+ */
+describe("‏מיחזור כרטיס קיים — הכלל המשותף", () => {
+  const PERSON_INPUT = { name: "בעל הנכס", phone: "+972501234567" };
+
+  it("כרטיס מוסתר — נדחה, והנושא בהודעה", async () => {
+    const built = serviceFor({ existing: true });
+    await expect(
+      asUser(AGENT, () =>
+        built.service.findOrCreateByPhoneScoped(txOf(built), PERSON_INPUT, {
+          subject: "בעל הנכס",
+        }),
+      ),
+    ).rejects.toThrow(/בעל הנכס — המספר הזה משויך ללקוח שאינו נגיש לך/u);
+  });
+
+  it("מספר חדש — נוצר בלי לשאול", async () => {
+    const built = serviceFor({ existing: false });
+    const person = await asUser(AGENT, () =>
+      built.service.findOrCreateByPhoneScoped(txOf(built), PERSON_INPUT, { subject: "בעל הנכס" }),
+    );
+    expect(person.id).toBeDefined();
+  });
+
+  it("כרטיס שנגיש לי — מוחזר", async () => {
+    const built = serviceFor({ existing: true, buyerOwnerUserId: ME });
+    const person = await asUser(AGENT, () =>
+      built.service.findOrCreateByPhoneScoped(txOf(built), PERSON_INPUT, { subject: "בעל הנכס" }),
+    );
+    expect(person.id).toBe(HIDDEN);
+  });
+
+  /*
+   * ‏מקור ההיתר השני, שהנכס משתמש בו: „הוא כבר על הרשומה הזו”.
+   * ‏בלעדיו עריכה שאינה נוגעת בבעלים הייתה נדחית על הבעלים עצמו.
+   */
+  it("מקור היתר שני — מי שכבר מצורף כאן", async () => {
+    const built = serviceFor({ existing: true });
+    const person = await asUser(AGENT, () =>
+      built.service.findOrCreateByPhoneScoped(txOf(built), PERSON_INPUT, {
+        subject: "בעל הנכס",
+        alsoAllowed: (priorId) => priorId === HIDDEN,
+      }),
+    );
+    expect(person.id).toBe(HIDDEN);
+  });
+});
+
+/**
+ * ‎**ושלושת הקוראים באמת קוראים לו.**
+ *
+ * ‏הכלל נכון בפני עצמו, והשאלה הנפרדת היא החיווט: מסלול שחוזר
+ * ‏ל-`findOrCreateByPhone` הישיר פותח מחדש בדיוק את החור. פיקסצ׳ר
+ * ‏מלא למסלול הנכס היה מחקה מכסות, גיאוקוד ואודיט — כלומר בודק
+ * ‏בעיקר את עצמו — ולכן החיווט נבדק על המקור.
+ */
+describe("‏שער: מסלולי הנכס עוברים דרך הכלל", () => {
+  const SOURCE = readFileSync(
+    join(__dirname, "..", "properties", "properties.service.ts"),
+    "utf8",
+  );
+
+  it("‏יש מה לבדוק — שלוש הפתירות של טלפון", () => {
+    const scoped = SOURCE.match(/findOrCreateByPhoneScoped\(/gu) ?? [];
+    expect(scoped.length).toBeGreaterThanOrEqual(3);
+  });
+
+  /*
+   * ‏הקריאה הישירה מותרת במסלול אחד בלבד — טופס הקליטה הציבורי,
+   * ‏שרץ בהקשר משרד בלי משתמש. היא מסומנת ב-`typedBy`.
+   */
+  it("‏והקריאה הישירה נשארת רק לענף המשרדי", () => {
+    const direct = SOURCE.match(/this\.contacts\.findOrCreateByPhone\(/gu) ?? [];
+    expect(direct.length, "פתירה ישירה מחוץ לענף המשרדי").toBe(1);
+    expect(SOURCE).toContain('input.typedBy === "office"');
+  });
+
+  it("‏ולכל קורא של `persist` יש הכרעה מפורשת", () => {
+    const calls = SOURCE.match(/this\.persist\(/gu) ?? [];
+    /* ‏אתרי קריאה בלבד — ההצהרה בחתימה היא `"agent" | "office"` */
+    const decided = SOURCE.match(/typedBy: "(?:agent|office)"(?! \|)/gu) ?? [];
+    expect(calls.length).toBeGreaterThanOrEqual(4);
+    expect(decided.length, "קורא בלי הכרעה").toBe(calls.length);
   });
 });

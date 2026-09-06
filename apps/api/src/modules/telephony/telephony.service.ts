@@ -136,19 +136,43 @@ interface NotificationAudience {
  */
 export function publicNotification(
   redacted: boolean,
-  row: { leadId: string | null; contactId: string | null; body: string | null },
+  row: {
+    /*
+     * ‎**והכותרת בתוך אותה הכרעה** (ביקורת Codex, P1).
+     *
+     * ‏המצביע והגוף ירדו, והכותרת נשארה בחוץ — ושתי בוניות הכותרת
+     * ‏משבצות לתוכה את **המספר הגולמי**. כלומר השם הוסתר והטלפון
+     * ‏של אותו לקוח בדיוק המשיך לצאת לכל המשרד, ומשם גם למנסח
+     * ‏הוואטסאפ. „מוסתר — הכול יורד יחד” נכתב כאן במפורש, והכותרת
+     * ‏פשוט לא הייתה חלק מה„הכול”.
+     *
+     * ‏עכשיו היא כן: הקורא מוסר את חומרי הגלם, וההכרעה מרכיבה.
+     */
+    kind: "incoming" | "missed";
+    contactName: string | null;
+    peerPhone: string;
+    leadId: string | null;
+    contactId: string | null;
+    body: string | null;
+  },
 ): {
+  title: string;
   entityType: "lead" | "contact" | null;
   entityId: string | null;
   body: string | null;
 } {
-  if (redacted) return { entityType: null, entityId: null, body: null };
-  const body = row.body;
-  if (row.leadId !== null) return { entityType: "lead", entityId: row.leadId, body };
-  if (row.contactId !== null) {
-    return { entityType: "contact", entityId: row.contactId, body };
+  const build = row.kind === "incoming" ? incomingCallTitle : missedCallTitle;
+  /* ‏מוסתר: לא שם, **ולא מספר** — וממילא לא מצביע ולא גוף */
+  if (redacted) {
+    return { title: build(null, null), entityType: null, entityId: null, body: null };
   }
-  return { entityType: null, entityId: null, body };
+  const title = build(row.contactName, row.peerPhone);
+  const body = row.body;
+  if (row.leadId !== null) return { title, entityType: "lead", entityId: row.leadId, body };
+  if (row.contactId !== null) {
+    return { title, entityType: "contact", entityId: row.contactId, body };
+  }
+  return { title, entityType: null, entityId: null, body };
 }
 
 @Injectable()
@@ -1082,9 +1106,11 @@ export class TelephonyService {
             dedupeKey: `incoming_call:${event.providerCallId}`,
             userId: null,
             type: "incoming_call",
-            title: incomingCallTitle(contactName, event.peerPhone),
-            /* ‏לקוח שהוסתר — המצביע והגוף יורדים. ראו `publicNotification`. */
+            /* ‏לקוח שהוסתר — הכותרת, המצביע והגוף יורדים יחד. ראו `publicNotification`. */
             ...publicNotification(redacted, {
+              kind: "incoming",
+              contactName,
+              peerPhone: event.peerPhone,
               leadId: null,
               contactId: contact?.id ?? null,
               body: contact ? null : "מספר שאינו מוכר במערכת",
@@ -1302,7 +1328,6 @@ export class TelephonyService {
             // כמו התראת הצלצול: אין מיפוי אמין משלוחה למשתמש
             userId: null,
             type: "call_missed",
-            title: missedCallTitle(contactName, event.peerPhone),
             /*
              * נוסח ההזמנה נכנס לגוף ההתראה כשלא נשלח אוטומטית ואין
              * למי לשייך משימה. התראה שאומרת „לא נשלח” בלי לצרף את
@@ -1320,6 +1345,9 @@ export class TelephonyService {
              * ‏`publicNotification`.
              */
             ...publicNotification(redacted, {
+              kind: "missed",
+              contactName,
+              peerPhone: event.peerPhone,
               leadId,
               contactId: callContactId,
               body: pending ?? (leadId ? "נפתח ליד חדש מהשיחה" : null),

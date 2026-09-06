@@ -85,6 +85,12 @@ function serviceFor(
   };
   const contacts = {
     findOrCreateByPhone: async () => ({ id: "01NEWCONTACT0000000000001" }),
+    /*
+     * ‏שער מיחזור הכרטיס נבדק במקום שבו הוא יושב
+     * ‏(`link-person-scope.test.ts`), ולא כאן: הנושא כאן הוא היקף
+     * ‏הנכס, ופיקסצ׳ר שמחקה גם את השני היה בודק בעיקר את עצמו.
+     */
+    findOrCreateByPhoneScoped: async () => ({ id: "01NEWCONTACT0000000000001" }),
     getById: async () => ({
       id: OWNER_CONTACT,
       name: "בעל הנכס",

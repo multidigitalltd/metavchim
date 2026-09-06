@@ -210,7 +210,7 @@ export class PropertiesService {
      */
     id?: string;
   }): Promise<PropertyDto> {
-    const id = await this.persist(input);
+    const id = await this.persist({ ...input, typedBy: "agent" });
     /*
      * ההתאמות מחושבות **ברקע** — היצירה חוזרת מיד.
      *
@@ -356,7 +356,7 @@ export class PropertiesService {
     let propertyId: string;
     try {
       // persist בלבד — לא create: ההתאמות מופרדות ל-best-effort למטה
-      propertyId = await this.persist({ fields, owner: claim.owner });
+      propertyId = await this.persist({ fields, owner: claim.owner, typedBy: "agent" });
     } catch (error) {
       // השמירה נכשלה — הליד חוzר בדיוק למצבו, לא למצב גנרי
       await this.prisma
@@ -420,7 +420,8 @@ export class PropertiesService {
      */
     id: string;
   }): Promise<string> {
-    const id = await this.persist(input);
+    /* ‏טופס ציבורי בהקשר משרד — אין מי שהקליד, ראו `typedBy` */
+    const id = await this.persist({ ...input, typedBy: "office" });
     try {
       await this.matching.recomputeForProperty(id);
     } catch {
@@ -443,7 +444,7 @@ export class PropertiesService {
   }): Promise<string> {
     // גם בייבוא: קובץ של אלף נכסים לא אמור לעקוף מכסה שהוספה ידנית
     // נחסמת בה. הבדיקה עצמה בתוך persist, באותה טרנזקציה של הכתיבה.
-    const id = await this.persist(input);
+    const id = await this.persist({ ...input, typedBy: "agent" });
     try {
       await this.matching.recomputeForProperty(id);
     } catch {
@@ -495,6 +496,19 @@ export class PropertiesService {
     occupant?: { name: string; phone: string };
     /** מזהה שנקבע מראש — ראו `createFromIntake`. ריק ⇒ נוצר כאן. */
     id?: string;
+    /**
+     * ‎**מי הקליד את המספר** (ביקורת Codex, P1).
+     *
+     * ‎`"agent"` — משתמש אנושי, ולכן מיחזור כרטיס קיים דורש שהוא
+     * ‏נגיש לו: אחרת הקלדת הטלפון של הלקוח של עמית מצרפת אותו לנכס
+     * ‏שלי, והצירוף הזה בעצמו פותח את `canSeeContact` על אותו אדם.
+     *
+     * ‎`"office"` — טופס קליטה ציבורי שרץ בהקשר משרד בלי משתמש
+     * ‏(`userId: ""`), ואין מולו מי לשאול.
+     *
+     * ‏בלי ברירת מחדל, בכוונה: קורא חדש חייב להכריע.
+     */
+    typedBy: "agent" | "office";
   }): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const id = input.id ?? ulid();
@@ -534,11 +548,17 @@ export class PropertiesService {
       if (input.agentUserId !== undefined && input.agentUserId !== "") {
         await assertAgentInOffice(tx, tenantId, input.agentUserId);
       }
-      const ownerContact = input.owner
-        ? await this.contacts.findOrCreateByPhone(tx, input.owner)
-        : null;
+      /* ‏מיחזור כרטיס קיים — ראו `typedBy` ו-`findOrCreateByPhoneScoped` */
+      const resolve = async (
+        person: { name: string; phone: string },
+        subject: string,
+      ): Promise<{ id: string }> =>
+        input.typedBy === "office"
+          ? await this.contacts.findOrCreateByPhone(tx, person)
+          : await this.contacts.findOrCreateByPhoneScoped(tx, person, { subject });
+      const ownerContact = input.owner ? await resolve(input.owner, "בעל הנכס") : null;
       const occupantContact = input.occupant
-        ? await this.contacts.findOrCreateByPhone(tx, input.occupant)
+        ? await resolve(input.occupant, "הדייר בנכס")
         : null;
       await tx.property.create({
         data: {
@@ -683,11 +703,37 @@ export class PropertiesService {
        * בשניהם.** נכס שאינו קיים מפיל את הטרנזקציה מיד אחרי כן,
        * וכרטיס שנוצר כאן מתגלגל אחורה איתה.
        */
+      /*
+       * ‎**מי כבר על הנכס הזה — נקרא כאן, לפני נעילת השורה.**
+       *
+       * ‏הסדר שלמעלה מחייב זאת: הכרטיסים נפתרים לפני הנכס, ולכן
+       * ‏`existing` עוד לא קיים. הקריאה הזו משמשת **להיתר בלבד** —
+       * ‏„האדם הזה כבר מצורף כאן, ולכן צירופו אינו חושף דבר חדש” —
+       * ‏ולכן קריאה לא-נעולה מספיקה לה: כל מה שהיא יכולה להחמיץ הוא
+       * ‏שינוי מקביל, ואת ההכרעה על **הכתיבה** לוקחים השערים שמתחת
+       * ‏לנעילה בהמשך.
+       */
+      const attached =
+        owner || occupant
+          ? await tx.property.findFirst({
+              where: { id, tenantId: TenantContext.current().tenantId, deletedAt: null },
+              select: { ownerContactId: true, occupantContactId: true },
+            })
+          : null;
+      const alreadyHere = (priorId: string): boolean =>
+        priorId === attached?.ownerContactId || priorId === attached?.occupantContactId;
       const ownerContact = owner
-        ? await this.contacts.findOrCreateByPhone(tx, owner)
+        ? await this.contacts.findOrCreateByPhoneScoped(tx, owner, {
+            subject: "בעל הנכס",
+            /* ‏מי שכבר על הנכס הזה — אין בצירוף שלו שום חשיפה חדשה */
+            alsoAllowed: alreadyHere,
+          })
         : null;
       const occupantContact = occupant
-        ? await this.contacts.findOrCreateByPhone(tx, occupant)
+        ? await this.contacts.findOrCreateByPhoneScoped(tx, occupant, {
+            subject: "הדייר בנכס",
+            alsoAllowed: alreadyHere,
+          })
         : null;
 
       /*

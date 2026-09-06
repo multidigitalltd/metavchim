@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { missedCallTitle } from "@metavchim/shared";
 import { publicNotification } from "./telephony.service";
 import {
   contactOwnerCandidates,
@@ -472,10 +473,25 @@ describe("publicNotification — השורה המשרדית", () => {
   const WITH_TOKEN =
     "לא נשלח אוטומטית (אין תבנית מאושרת). שלחו ללקוח:\nhttps://app.example/f/AbCd_1234";
 
+  /*
+   * ‎**חומרי הגלם של הכותרת** (ביקורת Codex, P1).
+   *
+   * ‏הכותרת נבנית עכשיו בתוך ההכרעה, כי המספר הגולמי היה משובץ
+   * ‏לתוכה גם כשהלקוח הוסתר — כלומר השם ירד והטלפון של אותו אדם
+   * ‏בדיוק המשיך לצאת לכל המשרד.
+   */
+  const CALL = {
+    kind: "missed" as const,
+    contactName: "דנה כהן",
+    peerPhone: "+972501234567",
+  };
+  const NAMED_MISSED = missedCallTitle(CALL.contactName, CALL.peerPhone);
+  const PUBLIC_MISSED = missedCallTitle(null, null);
+
   it("לקוח שהוסתר — אין מצביע, גם כשיש ליד", () => {
     expect(
-      publicNotification(true, { leadId: "01LEAD", contactId: "01CONTACT", body: null }),
-    ).toEqual({ entityType: null, entityId: null, body: null });
+      publicNotification(true, { ...CALL, leadId: "01LEAD", contactId: "01CONTACT", body: null }),
+    ).toEqual({ title: PUBLIC_MISSED, entityType: null, entityId: null, body: null });
   });
 
   /*
@@ -484,8 +500,8 @@ describe("publicNotification — השורה המשרדית", () => {
    */
   it("וגם כשיש רק ליד", () => {
     expect(
-      publicNotification(true, { leadId: "01LEAD", contactId: null, body: null }),
-    ).toEqual({ entityType: null, entityId: null, body: null });
+      publicNotification(true, { ...CALL, leadId: "01LEAD", contactId: null, body: null }),
+    ).toEqual({ title: PUBLIC_MISSED, entityType: null, entityId: null, body: null });
   });
 
   /*
@@ -499,6 +515,7 @@ describe("publicNotification — השורה המשרדית", () => {
    */
   it("לקוח שהוסתר — גם הגוף יורד, ואיתו קישור הטופס", () => {
     const row = publicNotification(true, {
+      ...CALL,
       leadId: null,
       contactId: "01CONTACT",
       body: WITH_TOKEN,
@@ -510,17 +527,18 @@ describe("publicNotification — השורה המשרדית", () => {
   it("לקוח גלוי — הליד קודם ללקוח, והגוף נשאר", () => {
     expect(
       publicNotification(false, {
+        ...CALL,
         leadId: "01LEAD",
         contactId: "01CONTACT",
         body: WITH_TOKEN,
       }),
-    ).toEqual({ entityType: "lead", entityId: "01LEAD", body: WITH_TOKEN });
+    ).toEqual({ title: NAMED_MISSED, entityType: "lead", entityId: "01LEAD", body: WITH_TOKEN });
   });
 
   it("בלי ליד — הלקוח", () => {
     expect(
-      publicNotification(false, { leadId: null, contactId: "01CONTACT", body: null }),
-    ).toEqual({ entityType: "contact", entityId: "01CONTACT", body: null });
+      publicNotification(false, { ...CALL, leadId: null, contactId: "01CONTACT", body: null }),
+    ).toEqual({ title: NAMED_MISSED, entityType: "contact", entityId: "01CONTACT", body: null });
   });
 
   /*
@@ -531,11 +549,17 @@ describe("publicNotification — השורה המשרדית", () => {
   it("בלי לקוח ובלי ליד — אין מצביע, והגוף נשאר", () => {
     expect(
       publicNotification(false, {
+        ...CALL,
         leadId: null,
         contactId: null,
         body: "מספר שאינו מוכר במערכת",
       }),
-    ).toEqual({ entityType: null, entityId: null, body: "מספר שאינו מוכר במערכת" });
+    ).toEqual({
+      title: NAMED_MISSED,
+      entityType: null,
+      entityId: null,
+      body: "מספר שאינו מוכר במערכת",
+    });
   });
 });
 
