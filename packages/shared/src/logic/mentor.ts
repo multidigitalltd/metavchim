@@ -787,6 +787,8 @@ const REFLECTION: Record<MentorGoalMetric, string> = {
 export function mentorTrendSentence(
   activity: MentorActivity,
   previous: MentorActivity | undefined,
+  /** מול מה — „שבוע שעבר” בסיכום השבועי, שם החודש בחודשי */
+  against = "שבוע שעבר",
 ): string | null {
   if (previous === undefined) return null;
   const ups: string[] = [];
@@ -800,7 +802,7 @@ export function mentorTrendSentence(
     else downs.push(`פחות ${change}`);
   }
   if (ups.length === 0 && downs.length === 0) return null;
-  return `מול שבוע שעבר: ${[...ups, ...downs].join(", ")}.`;
+  return `מול ${against}: ${[...ups, ...downs].join(", ")}.`;
 }
 
 /** „2026-09-03” ⟵ „3.9” — תאריך קצר כמו שאומרים אותו. */

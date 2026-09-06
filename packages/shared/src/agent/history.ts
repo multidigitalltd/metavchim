@@ -117,6 +117,7 @@ const NOTIFY_MEMORY: Record<string, string> = {
   mentor_weekly: "שלחתי לך את הסיכום השבועי של המנטור",
   mentor_nudge: "הזכרתי לך את היעד באמצע השבוע",
   mentor_daily: "שלחתי לך את התוכנית של המנטור להיום",
+  mentor_monthly: "שלחתי לך את הסיכום החודשי של המנטור",
 };
 
 /**
