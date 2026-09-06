@@ -14,24 +14,29 @@ const USER = "01USERAAAAAAAAAAAAAAAAAAAA";
  * בסיס ריק שעונה לכל מה שהשיחה שואלת: אין יעדים, אין סיכומים, אין
  * פעילות. מה שנבדק כאן הוא הרישום ביומן — לא התוכן.
  */
-function emptyTx(): unknown {
-  const model = new Proxy(
-    {},
-    {
-      get: (_target, method: string) => {
-        if (method === "count") return async () => 0;
-        if (method === "findMany") return async () => [];
-        if (method === "findFirst") return async () => null;
-        if (method === "create")
-          return async (args: { data: Record<string, unknown> }) => ({
-            createdAt: new Date(),
-            ...args.data,
-          });
-        if (method === "updateMany") return async () => ({ count: 0 });
-        return async () => null;
+function emptyTx(opts: { userCreatedAt?: Date } = {}): unknown {
+  const modelFor = (name: string) =>
+    new Proxy(
+      {},
+      {
+        get: (_target, method: string) => {
+          if (method === "count") return async () => 0;
+          if (method === "findMany") return async () => [];
+          if (method === "findFirst")
+            return async () =>
+              name === "user" && opts.userCreatedAt !== undefined
+                ? { name: "דנה כהן", createdAt: opts.userCreatedAt }
+                : null;
+          if (method === "create")
+            return async (args: { data: Record<string, unknown> }) => ({
+              createdAt: new Date(),
+              ...args.data,
+            });
+          if (method === "updateMany") return async () => ({ count: 0 });
+          return async () => null;
+        },
       },
-    },
-  );
+    );
   return new Proxy(
     {},
     {
@@ -43,16 +48,24 @@ function emptyTx(): unknown {
             return [{ n: 0n }];
           };
         if (name === "$executeRaw") return async () => 0;
-        return model;
+        return modelFor(name);
       },
     },
   );
 }
 
-function harness(opts: { configured: boolean; value: unknown }) {
+function harness(opts: {
+  configured: boolean;
+  value: unknown;
+  userCreatedAt?: Date;
+}) {
   const recorded: Record<string, unknown>[] = [];
   let calls = 0;
-  const tx = emptyTx();
+  const tx = emptyTx(
+    opts.userCreatedAt === undefined
+      ? {}
+      : { userCreatedAt: opts.userCreatedAt },
+  );
   const prisma = {
     withTenant: async (fn: (t: unknown) => Promise<unknown>) => fn(tx),
   } as unknown as PrismaService;
@@ -79,13 +92,8 @@ function harness(opts: { configured: boolean; value: unknown }) {
       recorded.push(event);
     },
   } as unknown as AgentEventsService;
-  const svc = new MentorService(
-    prisma,
-    audit,
-    gemini,
-    new MentorSignalsService(),
-    events,
-  );
+  const signals = new MentorSignalsService();
+  const svc = new MentorService(prisma, audit, gemini, signals, events);
   const run = <T>(fn: () => Promise<T>) =>
     TenantContext.run(
       {
@@ -97,7 +105,7 @@ function harness(opts: { configured: boolean; value: unknown }) {
       },
       fn,
     );
-  return { svc, run, recorded, modelCalls: () => calls };
+  return { svc, run, recorded, signals, modelCalls: () => calls };
 }
 
 describe("השיחה עם המנטור — האסימונים נרשמים ביומן הסוכן", () => {
@@ -138,5 +146,42 @@ describe("השיחה עם המנטור — האסימונים נרשמים בי�
     expect(res.source).toBe("fallback");
     expect(h.modelCalls()).toBe(0);
     expect(h.recorded).toHaveLength(0);
+  });
+});
+
+describe("השיחה — מול שבוע שעבר, אותו חלק של השבוע", () => {
+  it("שאלה ביום שני 10:00 משווה לראשון–שני 10:00 של שבוע שעבר, לא לשבוע שלם", async () => {
+    const h = harness({
+      configured: false,
+      value: null,
+      userCreatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const ranges: { start: Date; end: Date; at: Date }[] = [];
+    h.signals.activity = async (_tx, _tenant, _user, range, at) => {
+      ranges.push({ ...range, at });
+      return {
+        deals_closed: 0,
+        offers_sent: 0,
+        viewings_held: 0,
+        leads_answered: 0,
+        new_buyers: 0,
+        new_properties: 0,
+        calls_made: 0,
+        calls_answered: 0,
+        leads_answered_fast: 0,
+        followups_done: 0,
+        owner_updates_sent: 0,
+      };
+    };
+    // שני 07/09 10:00 ישראל
+    await h.run(() =>
+      h.svc.ask("מה כדאי לי לשפר?", new Date("2026-09-07T07:00:00.000Z")),
+    );
+    // שבוע שעבר מתחיל בראשון 30/08 00:00 ישראל — ונגמר בשני 31/08 10:00, לא בראשון 06/09
+    const previous = ranges.find(
+      (r) => r.start.toISOString() === "2026-08-29T21:00:00.000Z",
+    );
+    expect(previous?.end.toISOString()).toBe("2026-08-31T07:00:00.000Z");
+    expect(previous?.at.toISOString()).toBe("2026-08-31T07:00:00.000Z");
   });
 });

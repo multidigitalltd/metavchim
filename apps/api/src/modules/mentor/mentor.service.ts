@@ -12,6 +12,9 @@ import {
   formatJerusalemDate,
   jerusalemDayRange,
   jerusalemWeekStart,
+  jerusalemDayStart,
+  jerusalemWallParts,
+  jerusalemWallIsoToUtc,
   MENTOR_REPLY_JSON_SCHEMA,
   type MentorActivity,
   type MentorAsk,
@@ -611,15 +614,23 @@ export class MentorService {
           week,
           now,
         );
-        // מול שבוע שעבר — רק למי שהיה כאן בשבוע שעבר
+        /*
+         * מול שבוע שעבר — **אותו חלק של השבוע**: שאלה ביום שני משווה
+         * ראשון–שני של השבוע לראשון–שני של שבוע שעבר, לא לשבוע שלם.
+         * אחרת כל מדד היה „פחות” ביום שני, והמודל היה מייעץ על ירידה
+         * שאינה קיימת (ביקורת Codex). אותה שעת קיר, שבוע אחורה.
+         */
+        const sameMomentLastWeek = jerusalemWallIsoToUtc(
+          `${jerusalemWallParts(jerusalemDayStart(now, -7)).date}T${jerusalemWallParts(now).time}:00.000`,
+        );
         const previousActivity =
           user !== null && user.createdAt < week.start
             ? await this.signals.activity(
                 tx,
                 tenantId,
                 userId,
-                { start: jerusalemWeekStart(now, -1), end: week.start },
-                week.start,
+                { start: jerusalemWeekStart(now, -1), end: sameMomentLastWeek },
+                sameMomentLastWeek,
               )
             : null;
         const goalRows = await tx.mentorGoal.findMany({
