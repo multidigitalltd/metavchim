@@ -43,7 +43,7 @@ const RecruitmentFieldsSchema = PropertyFieldsSchema.pick({
  */
 const clearable = <T extends z.ZodTypeAny>(schema: T) => schema.nullable().optional();
 
-const RecruitmentBodySchema = RecruitmentFieldsSchema.partial().extend({
+export const RecruitmentBodySchema = RecruitmentFieldsSchema.partial().extend({
   city: clearable(RecruitmentFieldsSchema.shape.city.unwrap()),
   neighborhood: clearable(RecruitmentFieldsSchema.shape.neighborhood.unwrap()),
   street: clearable(RecruitmentFieldsSchema.shape.street.unwrap()),
@@ -63,7 +63,13 @@ const RecruitmentBodySchema = RecruitmentFieldsSchema.partial().extend({
    * שאינו כתובת בכלל, והשירות אוכף את הסכמות המותרות — והוא זה
    * שירוץ גם כשייכתב מסלול כתיבה נוסף שיעקוף את הסכימה הזאת.
    */
-  sourceUrl: z.union([z.string().url().max(2000), z.literal("")]).optional(),
+  /*
+   * ‏גם `null` — כמו כל שדה שניתן לניקוי. הטופס שולח את מצבו המלא,
+   * ולכן קישור ריק מגיע כ-`null`; סכימה שקיבלה רק מחרוזת או `""`
+   * דחתה **יצירת נכס לגיוס בלי קישור**, שהוא המקרה השכיח
+   * (ביקורת Codex, P1 — רגרסיה שנוצרה בתיקון של ניקוי השדות).
+   */
+  sourceUrl: z.union([z.string().url().max(2000), z.literal("")]).nullable().optional(),
   ownerName: clearable(z.string().min(2).max(120)),
   ownerPhone: clearable(PhoneInputSchema),
   notes: clearable(z.string().max(4000)),

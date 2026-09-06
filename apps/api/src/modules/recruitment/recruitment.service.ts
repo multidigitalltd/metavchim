@@ -252,6 +252,12 @@ export class RecruitmentService {
     );
     if (!target) throw new NotFoundException("נכס לגיוס לא נמצא");
     if (target.convertedPropertyId !== null) {
+      /*
+       * ‏מזהה רשום אינו „נכס קיים”: הוא נכתב בתפיסה, והיצירה עשויה
+       * עדיין לרוץ. החזרה מיידית שלחה את המסך ל-`/properties/:id`
+       * שעדיין מחזיר „לא נמצא”, והדף אינו מנסה שוב (ביקורת Codex).
+       */
+      await this.requireProperty(tenantId, target.convertedPropertyId);
       return { propertyId: target.convertedPropertyId };
     }
     if (!canConvertToProperty(target.status)) {
@@ -310,26 +316,39 @@ export class RecruitmentService {
         }),
       );
       if (again?.convertedPropertyId) {
-        await this.awaitProperty(tenantId, again.convertedPropertyId);
+        await this.requireProperty(tenantId, again.convertedPropertyId);
         return { propertyId: again.convertedPropertyId };
       }
       throw new ConflictException("הנכס לגיוס השתנה — רעננו ונסו שוב");
     }
 
+    /*
+     * ‎**הנכס נבנה מהשורה שנתפסה, לא מהצילום שנקרא לפניה.**
+     *
+     * ‏עריכה שנכנסה בין הקריאה לתפיסה (כתובת, מחיר, בעלים) הייתה
+     * נשמרת בשורת הגיוס אך **לא** בנכס שנוצר ממנה — הנכס היה נושא
+     * את הערכים הישנים לתמיד (ביקורת Codex). התפיסה היא נקודת
+     * הסדרה, ולכן הקריאה שאחריה היא המצב הקובע.
+     */
+    const claimedRow =
+      (await this.prisma.withTenant((tx) =>
+        tx.recruitmentTarget.findFirst({ where: { id, tenantId } }),
+      )) ?? target;
+
     try {
       await this.properties.create({
         id: propertyId,
-        fields: this.fieldsOf(target),
+        fields: this.fieldsOf(claimedRow),
         /*
          * ‏נכס שגויס הוא נכס פעיל, לא טיוטה: הבעלים חתם, והמתווך
          * רוצה להתחיל לשווק אותו באותו רגע.
          */
         status: "active",
-        ...(target.agentUserId === null ? {} : { agentUserId: target.agentUserId }),
-        ...(target.ownerName !== null && target.ownerPhone !== null
-          ? { owner: { name: target.ownerName, phone: target.ownerPhone } }
+        ...(claimedRow.agentUserId === null ? {} : { agentUserId: claimedRow.agentUserId }),
+        ...(claimedRow.ownerName !== null && claimedRow.ownerPhone !== null
+          ? { owner: { name: claimedRow.ownerName, phone: claimedRow.ownerPhone } }
           : {}),
-        ...(target.notes === null ? {} : { internalNotes: target.notes }),
+        ...(claimedRow.notes === null ? {} : { internalNotes: claimedRow.notes }),
       });
       return { propertyId };
     } catch (error: unknown) {
@@ -360,22 +379,32 @@ export class RecruitmentService {
   }
 
   /**
-   * ‏המתנה לנכס שמישהו אחר יוצר ברגע זה.
+   * ‎**המתנה לנכס שמישהו אחר יוצר — ושגיאה כשהוא לא הגיע.**
    *
-   * ‏התקציב נגזר מהאיטי שביצירה — פענוח הכתובת מול ספק חיצוני, שפסק
-   * הזמן שלו שש שניות — ולא ממספר שנבחר באוויר. חוזרים בלי שגיאה גם
-   * כשהוא לא הופיע: המזהה נכון והשורה תיווצר, והמסך שמנווט אליו
-   * יטען אותו ברגע שיהיה.
+   * ‏הגרסה הקודמת חזרה בהצלחה גם כשהשורה לא הופיעה, ו„עדיף להחזיר
+   * מזהה” היה רציונליזציה: היצירה יכולה לחרוג מהתקציב, ויכולה גם
+   * להיכשל ולשחרר את התפיסה **אחרי** שהמפסיד כבר קרא את המזהה
+   * הזמני. בשני המקרים המסך ניווט למזהה שלא יהיה קיים לעולם
+   * (ביקורת Codex).
+   *
+   * ‏עכשיו זו שגיאה מפורשת: „עדיין רצה, נסו שוב”. תוצאה לא ידועה
+   * אינה הצלחה.
+   *
+   * ‏התקציב נגזר מהאיטי שביצירה — פענוח הכתובת מול ספק חיצוני,
+   * שפסק הזמן שלו שש שניות — ולא ממספר שנבחר באוויר.
    */
-  private async awaitProperty(tenantId: string, propertyId: string): Promise<void> {
-    const deadline = Date.now() + 10_000;
+  private async requireProperty(tenantId: string, propertyId: string): Promise<void> {
+    const deadline = Date.now() + 12_000;
     for (;;) {
       const row = await this.prisma
         .withTenant((tx) =>
           tx.property.findFirst({ where: { id: propertyId, tenantId }, select: { id: true } }),
         )
         .catch(() => null);
-      if (row || Date.now() >= deadline) return;
+      if (row) return;
+      if (Date.now() >= deadline) {
+        throw new ConflictException("ההמרה עדיין רצה — רעננו בעוד רגע");
+      }
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
   }

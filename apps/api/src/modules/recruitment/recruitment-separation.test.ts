@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { RECRUITMENT_STATUSES, canConvertToProperty } from "@metavchim/shared";
+import { RecruitmentBodySchema } from "./recruitment.controller";
 
 /**
  * ‎**נכס לגיוס אינו נכס — וההפרדה מבנית, לא משמעתית.**
@@ -170,6 +171,51 @@ describe("ההמרה — פעם אחת בלבד", () => {
     expect(convert).not.toMatch(/attempt < \d+/u);
   });
 
+  /*
+   * ‎**מזהה רשום אינו „נכס קיים”.** הוא נכתב בתפיסה, והיצירה עשויה
+   * עדיין לרוץ — החזרה מיידית שלחה את המסך לכרטיס שמחזיר „לא נמצא”
+   * ואינו מנסה שוב (ביקורת Codex).
+   */
+  it("כל מסלול שמחזיר מזהה קיים מוודא קודם שהנכס באמת שם", () => {
+    const returns = [...convert.matchAll(/return \{ propertyId: [^}]+\};/gu)].map((m) => m[0]);
+    expect(returns.length).toBeGreaterThanOrEqual(2);
+    // ‏כל החזרה של מזהה **שכבר היה רשום** קודמת לה המתנה מאמתת
+    const guarded = convert.split("this.requireProperty");
+    expect(guarded.length).toBeGreaterThanOrEqual(3);
+  });
+
+  /*
+   * ‎**תוצאה לא ידועה אינה הצלחה.** ההמתנה חזרה בהצלחה גם כשהשורה
+   * לא הופיעה, והמסך ניווט למזהה שלא יהיה קיים לעולם.
+   */
+  it("ההמתנה נכשלת כשהנכס לא הופיע", () => {
+    const wait = /private async requireProperty\([\s\S]*?\n {2}\}\n/u.exec(SERVICE)?.[0] ?? "";
+    expect(wait).not.toBe("");
+    expect(wait).toContain("throw new ConflictException");
+    expect(wait).not.toMatch(/if \(row \|\| Date\.now\(\) >= deadline\) return;/u);
+  });
+
+  /*
+   * ‏עריכה שנכנסה בין הקריאה לתפיסה נשמרה בשורה אך לא בנכס שנוצר
+   * ממנה — הנכס נשא את הערכים הישנים לתמיד.
+   */
+  it("הנכס נבנה מהשורה שנתפסה ולא מהצילום שלפניה", () => {
+    /*
+     * ‏על **הקריאה מחדש** ולא על שם המשתנה: `const claimedRow = target`
+     * משאיר את השם ומחזיר בדיוק את הבאג, ובדיקה על השם בלבד עברה.
+     */
+    expect(convert).toMatch(
+      /const claimedRow =[\s\S]*?tx\.recruitmentTarget\.findFirst/u,
+    );
+    const claimRead = convert.indexOf("const claimedRow");
+    const claim = convert.indexOf("updateMany");
+    expect(claimRead).toBeGreaterThan(claim);
+    const createCall =
+      /this\.properties\.create\(\{[\s\S]*?\n {6}\}\);/u.exec(convert)?.[0] ?? "";
+    expect(createCall).toContain("this.fieldsOf(claimedRow)");
+    expect(createCall).not.toMatch(/\btarget\./u);
+  });
+
   /* ‏לחיצה שנייה מקבלת את הנכס, לא שגיאה */
   it("מחזירה את הנכס הקיים במקום להיכשל", () => {
     expect(convert).toContain("propertyId: target.convertedPropertyId");
@@ -229,5 +275,42 @@ describe("שלבי הגיוס נגזרים מהרשימה המשותפת", () =>
 
   it("„גויס” קיים ברשימה — כל השאר תלוי בו", () => {
     expect(RECRUITMENT_STATUSES).toContain("recruited");
+  });
+});
+
+describe("סכימת הגוף — מה שהטופס באמת שולח", () => {
+  /*
+   * ‎**בדיקה מתפעלת ולא גרפ.** הטופס שולח את מצבו המלא, ולכן שדה
+   * ריק מגיע כ-`null`. סכימה שקיבלה רק מחרוזת או `""` דחתה **יצירה
+   * בלי קישור למודעה** — המקרה השכיח — וזו הייתה רגרסיה שנוצרה
+   * בתיקון של ניקוי השדות (ביקורת Codex, P1). הבדיקות שלי אז עברו
+   * דרך `curl` בלי השדה בכלל, כלומר `undefined`, ולא דרך מה שהמסך
+   * שולח.
+   */
+  it("מקבלת בדיוק את מה שהטופס שולח כשהכול ריק", () => {
+    const result = RecruitmentBodySchema.safeParse({
+      status: "new",
+      source: "yad2",
+      sourceUrl: null,
+      city: null,
+      neighborhood: null,
+      street: null,
+      houseNumber: null,
+      propertyType: null,
+      dealType: null,
+      rooms: null,
+      areaSqm: null,
+      floor: null,
+      totalFloors: null,
+      priceAgorot: null,
+      ownerName: null,
+      ownerPhone: null,
+      notes: null,
+    });
+    expect(result.success, JSON.stringify(result.error?.issues ?? [])).toBe(true);
+  });
+
+  it("עדיין דוחה קישור שאינו כתובת", () => {
+    expect(RecruitmentBodySchema.safeParse({ sourceUrl: "not a url" }).success).toBe(false);
   });
 });
