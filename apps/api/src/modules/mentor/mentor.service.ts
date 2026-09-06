@@ -26,7 +26,10 @@ import {
   mentorAdvice,
   mentorFallbackReply,
   parseGoalRequest,
+  resolveIdeaFeedback,
   resolveMentorPersona,
+  ideaByKey,
+  jerusalemDayLabel,
   type MentorGoalInput,
   mentorGoalLabel,
   type MentorGoalPeriod,
@@ -254,6 +257,7 @@ export class MentorService {
         previousActivity,
         insights,
         funnel,
+        feedback: resolveIdeaFeedback(user?.preferences),
         now,
       });
       return {
@@ -725,6 +729,7 @@ export class MentorService {
           previousActivity,
           insights,
           funnel,
+          feedback: resolveIdeaFeedback(user?.preferences),
           now,
         });
         return {
@@ -822,6 +827,94 @@ export class MentorService {
       source,
       ...(proposedGoal === undefined ? {} : { proposedGoal }),
     };
+  }
+
+  /* ---------------- משוב על רעיונות ---------------- */
+
+  /**
+   * „עזר לי” / „לא בשבילי” על רעיון (docs/14 §7.2) — הזיכרון של המנטור
+   * לגבי מה עובד אצל המתווך הזה. נשמר ב-`preferences.mentor.ideas`
+   * של המשתמש במיזוג אטומי ב-SQL (כמו פאנלי העזרה): שני מכשירים או
+   * לשונית נגישות פתוחה אינם דורסים זה את זה. המפתח מאומת מול ספר
+   * המשחק — מפתח שאינו רעיון נדחה.
+   */
+  async ideaFeedback(input: {
+    ideaKey: string;
+    verdict: "helped" | "dismissed";
+  }): Promise<{ ok: true; text: string }> {
+    const { tenantId, userId } = TenantContext.current();
+    const idea = ideaByKey(input.ideaKey);
+    if (idea === null) throw new BadRequestException("רעיון לא מוכר");
+    const list = input.verdict === "helped" ? "liked" : "dismissed";
+    const other = input.verdict === "helped" ? "dismissed" : "liked";
+    await this.prisma.withTenant(
+      (tx) =>
+        /*
+         * מוסיפים לרשימה האחת ומסירים מהשנייה — משוב אחרון קובע. הרשימה
+         * נחתכת למאתיים האחרונים בקריאה (`resolveIdeaFeedback`), ולכן
+         * הכתיבה רק מוסיפה.
+         */
+        /*
+         * ‎`jsonb_set` אינו יוצר צמתי ביניים: למשתמש בלי `mentor.ideas` הוא
+         * מחזיר את הקלט בשקט. לכן בונים את `mentor` ⟵ `ideas` במפורש.
+         */
+        tx.$executeRaw`
+        UPDATE users
+        SET preferences = jsonb_set(
+          COALESCE(preferences, '{}'::jsonb),
+          '{mentor}',
+          COALESCE(preferences -> 'mentor', '{}'::jsonb) || jsonb_build_object(
+            'ideas',
+            COALESCE(preferences -> 'mentor' -> 'ideas', '{}'::jsonb) || jsonb_build_object(
+              ${list}::text,
+              (COALESCE(preferences -> 'mentor' -> 'ideas' -> ${list}::text, '[]'::jsonb) - ${input.ideaKey}::text)
+                || to_jsonb(${input.ideaKey}::text),
+              ${other}::text,
+              COALESCE(preferences -> 'mentor' -> 'ideas' -> ${other}::text, '[]'::jsonb) - ${input.ideaKey}::text
+            )
+          ),
+          true
+        )
+        WHERE id = ${userId} AND tenant_id = ${tenantId}`,
+    );
+    return {
+      ok: true,
+      text:
+        input.verdict === "helped"
+          ? "רשמתי — עוד מהסוג הזה."
+          : "רשמתי — הרעיון הזה לא יחזור. מחר יבוא אחר.",
+    };
+  }
+
+  /**
+   * המשוב מוואטסאפ — על רעיון הבוקר של היום, שנשמר בשליחה
+   * (`preferences.mentor.lastIdea`). בלי רעיון מהיום אין על מה לענות.
+   */
+  async ideaFeedbackFromChat(
+    verdict: "helped" | "dismissed",
+    /** הרעיון שהכפתור הוצג עליו — כשיש, המשוב עליו ולא על „האחרון” */
+    ideaKey?: string,
+    now: Date = new Date(),
+  ): Promise<string> {
+    const { tenantId, userId } = TenantContext.current();
+    if (ideaKey !== undefined) {
+      const shown = ideaByKey(ideaKey);
+      if (shown === null) return "לא זיהיתי על איזה רעיון — אפשר לענות מהמסך.";
+      const result = await this.ideaFeedback({ ideaKey, verdict });
+      return `${result.text} („${shown.text.slice(0, 80)}${shown.text.length > 80 ? "…" : ""}”)`;
+    }
+    const user = await this.prisma.withTenant((tx) =>
+      tx.user.findFirst({
+        where: { id: userId, tenantId },
+        select: { preferences: true },
+      }),
+    );
+    const last = lastIdeaOf(user?.preferences);
+    if (last === null || last.date !== jerusalemDayLabel(now)) {
+      return "אין רעיון מהבוקר של היום לתת עליו משוב — מחר בבוקר יגיע אחד, ואז הכפתורים כאן.";
+    }
+    const result = await this.ideaFeedback({ ideaKey: last.key, verdict });
+    return `${result.text} („${last.text.slice(0, 80)}${last.text.length > 80 ? "…" : ""}”)`;
   }
 
   /* ---------------- עזרים ---------------- */
@@ -971,4 +1064,25 @@ export class MentorService {
       createdAt: row.createdAt,
     };
   }
+}
+
+/** רעיון הבוקר האחרון שנשלח — נשמר בשליחה כדי שהמשוב מוואטסאפ ידע על מה. */
+function lastIdeaOf(
+  preferences: unknown,
+): { key: string; text: string; date: string } | null {
+  const mentor =
+    typeof preferences === "object" && preferences !== null
+      ? (preferences as { mentor?: unknown }).mentor
+      : undefined;
+  const last =
+    typeof mentor === "object" && mentor !== null
+      ? (mentor as { lastIdea?: unknown }).lastIdea
+      : undefined;
+  if (typeof last !== "object" || last === null) return null;
+  const { key, text, date } = last as Record<string, unknown>;
+  return typeof key === "string" &&
+    typeof text === "string" &&
+    typeof date === "string"
+    ? { key, text, date }
+    : null;
 }

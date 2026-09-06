@@ -4,7 +4,7 @@ import {
   jerusalemWeekday,
   jerusalemWeekStart,
 } from "./israel-time.js";
-import { playbookIdea } from "./mentor-playbook.js";
+import { playbookIdea, type MentorIdeaFeedback } from "./mentor-playbook.js";
 import {
   DEFAULT_MENTOR_PERSONA,
   mentorCloser,
@@ -589,6 +589,8 @@ export interface MentorWeekSignals {
   insights?: MentorInsights;
   /** השם והסגנון שהמתווך בחר — משנים את הפתיח, לא את הכללים */
   persona?: MentorPersona;
+  /** מה המתווך אמר על רעיונות — הטיפ לשבוע הבא מדלג על מה שנדחה (§7.2) */
+  feedback?: MentorIdeaFeedback;
 }
 
 /**
@@ -882,7 +884,7 @@ export function mentorWeeklyReview(
   const behindGoal = goals.find((g) => g.pace === "behind");
   if (behindGoal !== undefined) {
     paragraphs.push(
-      `טיפ לשבוע הבא: ${playbookIdea(behindGoal.metric, Math.floor(signals.weekStart.getTime() / 604_800_000))}`,
+      `טיפ לשבוע הבא: ${playbookIdea(behindGoal.metric, Math.floor(signals.weekStart.getTime() / 604_800_000), signals.feedback)}`,
     );
   }
 

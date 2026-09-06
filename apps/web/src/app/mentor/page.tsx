@@ -335,7 +335,11 @@ export default function MentorPage() {
             />
           </div>
           <WeekSection overview={overview} />
-          <AdviceSection advice={overview.advice} onAsk={setAskMentor} />
+          <AdviceSection
+            advice={overview.advice}
+            onAsk={setAskMentor}
+            onFeedback={load}
+          />
           <GoalsSection overview={overview} onChanged={load} />
           {overview.patterns.length > 0 ? (
             <section className="mt-8" aria-labelledby="mentor-memory-heading">
@@ -451,10 +455,43 @@ function MentorHero({
 function AdviceSection({
   advice,
   onAsk,
+  onFeedback,
 }: {
   advice: MentorAdvice[];
   onAsk: (question: string) => void;
+  /** „לא בשבילי” החליף רעיון — המסך טוען מחדש */
+  onFeedback: () => void;
 }) {
+  // משוב שנרשם — לפי מפתח הרעיון, כדי שהכפתור יגיד „נרשם” ולא יחזור
+  const [noted, setNoted] = useState<Record<string, "helped" | "dismissed">>(
+    {},
+  );
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function feedback(
+    ideaKey: string,
+    verdict: "helped" | "dismissed",
+  ): Promise<void> {
+    if (busyKey !== null) return;
+    setBusyKey(ideaKey);
+    setError(null);
+    try {
+      await apiPost("/mentor/ideas/feedback", { ideaKey, verdict });
+      setNoted((prev) => ({ ...prev, [ideaKey]: verdict }));
+      // רעיון שנדחה מתחלף — הסקירה נטענת מחדש עם הזיכרון החדש
+      if (verdict === "dismissed") onFeedback();
+    } catch (err: unknown) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "המשוב לא נשמר — כדאי לנסות שוב",
+      );
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   if (advice.length === 0) return null;
   return (
     <section className="mt-8" aria-labelledby="mentor-advice-heading">
@@ -480,6 +517,42 @@ function AdviceSection({
               >
                 {item.body}
               </p>
+              {item.ideaKey !== undefined ? (
+                /*
+                 * המשוב הוא הליווי: „עזר לי” — עוד מהסוג הזה; „לא בשבילי” —
+                 * הרעיון לא חוזר, ומחליף אותו אחר (docs/14 §7.2).
+                 */
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {noted[item.ideaKey] === undefined ? (
+                    <>
+                      <button
+                        type="button"
+                        className="mv-btn-plain"
+                        disabled={busyKey !== null}
+                        onClick={() => void feedback(item.ideaKey!, "helped")}
+                      >
+                        👍 עזר לי
+                      </button>
+                      <button
+                        type="button"
+                        className="mv-btn-plain"
+                        disabled={busyKey !== null}
+                        onClick={() =>
+                          void feedback(item.ideaKey!, "dismissed")
+                        }
+                      >
+                        👎 לא בשבילי
+                      </button>
+                    </>
+                  ) : (
+                    <span className="mv-card-sub" aria-live="polite">
+                      {noted[item.ideaKey] === "helped"
+                        ? "נרשם — עוד מהסוג הזה."
+                        : "נרשם — הרעיון הזה לא יחזור."}
+                    </span>
+                  )}
+                </div>
+              ) : null}
             </div>
             <button
               type="button"
@@ -496,6 +569,11 @@ function AdviceSection({
           </li>
         ))}
       </ul>
+      {error !== null ? (
+        <div className="mt-2">
+          <Notice tone="danger">{error}</Notice>
+        </div>
+      ) : null}
     </section>
   );
 }

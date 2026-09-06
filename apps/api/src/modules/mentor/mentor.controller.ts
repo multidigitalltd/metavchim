@@ -15,6 +15,8 @@ import {
   type MentorGoalInput,
   MentorGoalInputSchema,
   MentorGoalPeriodSchema,
+  MentorIdeaFeedbackSchema,
+  type MentorIdeaFeedbackInput,
   type ProcessGoalSuggestion,
   type MentorGoalProposal,
 } from "@metavchim/shared";
@@ -146,6 +148,16 @@ export class MentorController {
   @AnyAuthenticated()
   messages(): Promise<{ turns: MentorTurnDto[] }> {
     return this.mentor.turns();
+  }
+
+  /** משוב על רעיון — „עזר לי” / „לא בשבילי” (docs/14 §7.2) */
+  @Post("ideas/feedback")
+  @AnyAuthenticated()
+  ideaFeedback(
+    @Body(new ZodValidationPipe(MentorIdeaFeedbackSchema))
+    body: MentorIdeaFeedbackInput,
+  ): Promise<{ ok: true; text: string }> {
+    return this.mentor.ideaFeedback(body);
   }
 
   @Post("messages")

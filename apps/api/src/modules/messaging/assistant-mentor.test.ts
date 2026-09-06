@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isMentorReflectRequest,
   isSkipMessage,
+  mentorIdeaVerdict,
   mentorPlanPrompt,
   mentorReflectionPrompt,
 } from "./assistant-mentor";
@@ -43,5 +44,21 @@ describe("המנטור בשיחה — הרפלקציה והתוכנית", () => 
     const reply = mentorPlanPrompt("לא היה זמן", [], "T");
     expect(reply.buttons).toBeUndefined();
     expect(reply.list).toBeUndefined();
+  });
+});
+
+describe("mentorIdeaVerdict — משוב על רעיון הבוקר, כלשונו", () => {
+  it("„הרעיון עזר לי” / „הרעיון לא בשבילי” — ואחרת null", () => {
+    expect(mentorIdeaVerdict("הרעיון עזר לי")).toEqual({ verdict: "helped" });
+    expect(mentorIdeaVerdict("  הרעיון לא בשבילי ")).toEqual({
+      verdict: "dismissed",
+    });
+    // הכפתור נושא את הרעיון שהוצג — המשוב עליו, לא על „האחרון”
+    expect(mentorIdeaVerdict("הרעיון לא בשבילי [offers_sent:2]")).toEqual({
+      verdict: "dismissed",
+      ideaKey: "offers_sent:2",
+    });
+    expect(mentorIdeaVerdict("מה המצב ביעדים שלי?")).toBeNull();
+    expect(mentorIdeaVerdict("משהו אחר [offers_sent:2]")).toBeNull();
   });
 });

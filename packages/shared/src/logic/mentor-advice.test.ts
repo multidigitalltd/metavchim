@@ -11,10 +11,16 @@ import {
   MENTOR_PLAYBOOK,
   funnelBottleneck,
   funnelReadings,
+  ideaByKey,
+  ideaKey,
+  ideaKeyInText,
   playbookIdea,
+  playbookIdeaPick,
+  resolveIdeaFeedback,
 } from "./mentor-playbook.js";
 import {
   MENTOR_METRICS,
+  mentorWeeklyReview,
   type MentorActivity,
   type MentorGoalProgress,
 } from "./mentor.js";
@@ -320,5 +326,101 @@ describe("mentorAdviceBlock — מה המודל מקבל כדי לייעץ", () 
     expect(text).toContain(
       `הצעות שנשלחו — ${MENTOR_PLAYBOOK.offers_sent.diagnosis}`,
     );
+  });
+});
+
+describe("רעיונות עם משוב — המנטור לומד מה עובד (docs/14 §7.2)", () => {
+  it("מפתח „מדד:מיקום” — ומפתח שאינו רעיון הוא null", () => {
+    expect(ideaKey("offers_sent", 2)).toBe("offers_sent:2");
+    expect(ideaByKey("offers_sent:2")).toEqual({
+      metric: "offers_sent",
+      index: 2,
+      text: MENTOR_PLAYBOOK.offers_sent.ideas[2],
+    });
+    expect(ideaByKey("offers_sent:99")).toBeNull();
+    expect(ideaByKey("nope:0")).toBeNull();
+    expect(ideaByKey("offers_sent")).toBeNull();
+  });
+
+  it("resolveIdeaFeedback — מה-preferences, סלחני, מפתחות תקינים בלבד", () => {
+    expect(resolveIdeaFeedback(undefined)).toEqual({
+      liked: [],
+      dismissed: [],
+    });
+    expect(
+      resolveIdeaFeedback({
+        mentor: {
+          ideas: { liked: ["offers_sent:1", 7, "bad"], dismissed: "x" },
+        },
+      }),
+    ).toEqual({ liked: ["offers_sent:1"], dismissed: [] });
+  });
+
+  it("רעיון שנדחה אינו חוזר; כשכולם נדחו — הרשימה המלאה", () => {
+    const ideas = MENTOR_PLAYBOOK.offers_sent.ideas;
+    const dismissed = [ideaKey("offers_sent", 0)];
+    for (let seed = 0; seed < ideas.length * 2; seed++) {
+      const pick = playbookIdeaPick("offers_sent", seed, {
+        liked: [],
+        dismissed,
+      });
+      expect(pick.key).not.toBe("offers_sent:0");
+      expect(ideaByKey(pick.key)?.text).toBe(pick.text);
+    }
+    const all = ideas.map((_, i) => ideaKey("offers_sent", i));
+    expect(ideas).toContain(
+      playbookIdeaPick("offers_sent", 3, { liked: [], dismissed: all }).text,
+    );
+    // בלי משוב — כמו קודם
+    expect(playbookIdea("offers_sent", 1)).toBe(ideas[1]);
+  });
+
+  it("העצות נושאות את מפתח הרעיון, ומדלגות על מה שנדחה; הפרומפט אומר מה עזר ומה לא", () => {
+    const goals = [
+      goal({ pace: "behind", actual: 1, ratio: 0.2, remaining: 4 }),
+    ];
+    const plain = mentorAdvice({ goals, activity: quiet, now: monday });
+    expect(plain[0]?.ideaKey).toMatch(/^offers_sent:\d$/u);
+    const feedback = {
+      liked: ["offers_sent:1"],
+      dismissed: [plain[0]!.ideaKey!],
+    };
+    const learned = mentorAdvice({
+      goals,
+      activity: quiet,
+      feedback,
+      now: monday,
+    });
+    expect(learned[0]?.ideaKey).not.toBe(plain[0]?.ideaKey);
+    expect(mentorDailyIdea(goals, monday, feedback)).toBe(learned[0]?.body);
+    const text = mentorAdviceBlock(
+      { goals, activity: quiet, feedback, now: monday },
+      learned,
+    ).join("\n");
+    expect(text).toContain("רעיונות שהמתווך סימן שעזרו לו");
+    expect(text).toContain(MENTOR_PLAYBOOK.offers_sent.ideas[1]);
+    expect(text).toContain("לא להציע שוב, גם לא בניסוח אחר");
+    expect(text).toContain(ideaByKey(plain[0]!.ideaKey!)!.text);
+  });
+});
+
+describe("הטיפ לשבוע הבא מדלג על מה שנדחה", () => {
+  it("רעיון שסומן „לא בשבילי” אינו חוזר בסיכום השבועי", () => {
+    const signals = {
+      weekStart: new Date("2026-09-05T21:00:00.000Z"),
+      wins: [],
+      activity: { ...quiet, offers_sent: 2 },
+      goals: [goal({ pace: "behind", actual: 2, ratio: 0.4, remaining: 3 })],
+    };
+    const plain = mentorWeeklyReview(signals)?.paragraphs.at(-1) ?? "";
+    const plainKey = ideaKeyInText(plain);
+    expect(plainKey).toMatch(/^offers_sent:\d$/u);
+    const learned =
+      mentorWeeklyReview({
+        ...signals,
+        feedback: { liked: [], dismissed: [plainKey!] },
+      })?.paragraphs.at(-1) ?? "";
+    expect(learned).toMatch(/^טיפ לשבוע הבא: /u);
+    expect(ideaKeyInText(learned)).not.toBe(plainKey);
   });
 });
