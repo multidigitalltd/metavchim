@@ -41,10 +41,24 @@ function row(over: Partial<Row> = {}): Row {
   };
 }
 
-function serviceFor(rows: Row[]): FunnelStageService {
+/**
+ * ‏הפיקסצ׳ר רושם את ה-`where` שהקוד בנה.
+ *
+ * ‏זו כל התוחלת של הבדיקה על המסלול הלא מוכר: `where: { track }`
+ * ‏היה חותך את השורה הפסולה **במסד**, כלומר בשכבה שאין לה מושג על
+ * ‏ולידציה. פיקסצ׳ר שמחזיר תמיד את כל השורות היה מסתיר בדיוק את
+ * ‏ההבדל שנבדק.
+ */
+function serviceFor(rows: Row[], seenWhere: unknown[] = []): FunnelStageService {
   const prisma = {
     funnelStage: {
-      findMany: async () => rows,
+      findMany: async (args: { where?: unknown } = {}) => {
+        seenWhere.push(args.where);
+        const where = args.where as { track?: string } | undefined;
+        return where?.track === undefined
+          ? rows
+          : rows.filter((row) => row.track === where.track);
+      },
     },
   } as unknown as PrismaService;
   return new FunnelStageService(prisma);
@@ -127,5 +141,38 @@ describe("FunnelStageService — שורה שאינה תקפה", () => {
   it("שעון לא מוכר פוסל את השלב", async () => {
     const defs = await serviceFor([row({ clock: "lunar" })]).forTrack("conversion");
     expect(defs).toEqual([]);
+  });
+
+  /*
+   * ‎**מסלול לא מוכר — והשקט שהיה גרוע מהשלב החסר.**
+   *
+   * ‏הקריאה סוננה במסד לפי המסלול, ולכן שורה עם מסלול שגוי נחתכה
+   * ‏לפני שהגיעה לוולידציה: האזהרה על „מסלול לא מוכר” הייתה קוד
+   * ‏מת, השלב נעלם מהשליחה **וגם ממיצוי המסלול**, והרישום נסגר
+   * ‏כ„מוצה” אחרי ששאר השלבים פגו. תיקון המסלול מאוחר יותר לא היה
+   * ‏מחזיר את הקוהורט (ביקורת Codex).
+   */
+  it("מסלול לא מוכר מגיע לוולידציה ומזהיר — ולא נחתך בשקט במסד", async () => {
+    const seenWhere: unknown[] = [];
+    const defs = await serviceFor(
+      [row({ key: "typo", track: "conversionn" }), row({ key: "real" })],
+      seenWhere,
+    ).forTrack("conversion");
+
+    expect(defs.map((d) => d.key)).toEqual(["real"]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("מסלול לא מוכר"));
+    // ‏והראיה שזה לא במקרה: השאילתה עצמה אינה מסננת מסלול
+    expect(seenWhere.every((where) => (where as { track?: string })?.track === undefined)).toBe(
+      true,
+    );
+  });
+
+  it("`all` מחזיר את שני המסלולים, בלי הפסולים", async () => {
+    const defs = await serviceFor([
+      row({ key: "a" }),
+      row({ key: "b", track: "dunning", clock: "payment" }),
+      row({ key: "typo", track: "conversionn" }),
+    ]).all();
+    expect(defs.map((d) => d.key)).toEqual(["a", "b"]);
   });
 });

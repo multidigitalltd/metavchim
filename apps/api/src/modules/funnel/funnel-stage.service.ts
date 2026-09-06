@@ -37,14 +37,29 @@ export class FunnelStageService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * ‏כל השלבים של מסלול, לפי סדר התצוגה.
+   * ‎**כל השלבים — נקראים פעם אחת, ומסוננים בזיכרון.**
    *
    * ‎`funnel_stages` אינה תחת RLS — היא הגדרה של הפלטפורמה ואין בה
    * ‎`tenant_id` — ולכן היא נקראת מהלקוח הגלובלי כמו `platform_settings`.
+   *
+   * ## ‏למה בלי `where: { track }`
+   *
+   * ‏הקריאה סוננה במסד לפי המסלול, ו-`all()` קראה לה פעם לכל מסלול
+   * ‏**מוכר**. כלומר שורה עם מסלול שגוי — הקלדה, ערך מדור קודם —
+   * ‏נחתכה במסד ולא הגיעה ל-`toDef` לעולם, והאזהרה שכתובה שם על
+   * ‏„מסלול לא מוכר” הייתה **קוד מת** (ביקורת Codex).
+   *
+   * ‏והשקט הוא הנזק: השלב נעלם גם מהשליחה וגם מחישוב המיצוי, ולכן
+   * ‏אחרי שהשלבים שנשארו פגו הרישום נסגר כ„מוצה” — ותיקון המסלול
+   * ‏מאוחר יותר לא יחזיר את הקוהורט. זו בדיוק התקלה ששלב כבוי היה
+   * ‏גורם עד לתיקון הקודם, רק בלי שום סימן שקרתה.
+   *
+   * ‏שאילתה אחת בלי תנאי מחזירה את השורה הפסולה, `toDef` מזהה אותה
+   * ‏ומזהיר, והיא נזרקת **בקול**. הטבלה היא הגדרת פלטפורמה בסדר
+   * גודל של עשרות שורות, ולכן זו גם קריאה אחת במקום שתיים.
    */
-  async forTrack(track: FunnelTrack): Promise<FunnelStageDef[]> {
+  async all(): Promise<FunnelStageDef[]> {
     const rows = await this.prisma.funnelStage.findMany({
-      where: { track },
       orderBy: [{ sortOrder: "asc" }, { key: "asc" }],
     });
     return rows.flatMap((row) => {
@@ -53,10 +68,9 @@ export class FunnelStageService {
     });
   }
 
-  /** ‏כל השלבים, משני המסלולים. */
-  async all(): Promise<FunnelStageDef[]> {
-    const byTrack = await Promise.all(FUNNEL_TRACKS.map((track) => this.forTrack(track)));
-    return byTrack.flat();
+  /** ‏שלבי מסלול אחד, לפי סדר התצוגה. */
+  async forTrack(track: FunnelTrack): Promise<FunnelStageDef[]> {
+    return (await this.all()).filter((stage) => stage.track === track);
   }
 
   /**
