@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   isContactRole,
@@ -8,6 +8,7 @@ import {
   type ContactRole,
 } from "@metavchim/shared";
 import { lockContact, lockContactPhone } from "../../common/locks";
+import { canSeeContact } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { CryptoService } from "../../core/crypto.service";
 import type { TenantTx } from "../../core/prisma.service";
@@ -508,6 +509,38 @@ export class ContactsService {
     input: { name: string; phone: string; role: ContactRole; email?: string },
   ): Promise<{ ok: boolean; reason?: "self" }> {
     const tenantId = TenantContext.current().tenantId;
+    /*
+     * ‎**מספר שכבר שייך למישהו אינו „אדם חדש”** (ביקורת Codex, P1).
+     *
+     * ‏הנתיב נשמר בשער על כרטיס ה**אב** בלבד, ו-`findOrCreateByPhone`
+     * ‏מחפש משרד-רחב. כלומר סוכן שהקליד את הטלפון של הלקוח של עמית
+     * ‏מיחזר את הכרטיס המוסתר שלו: `setEmail` דרס לו את הכתובת,
+     * ‏והקישור שנוצר פתח את `peopleFor` — שמפענח שם, טלפון ואימייל.
+     * ‏הזנת מספר, ושלושה שדות מוצפנים חזרו.
+     *
+     * ‏הנעילה נלקחת **לפני** הבדיקה ומוחזקת עד סוף הטרנזקציה, ולכן
+     * ‏`findOrCreateByPhone` שרץ מיד אחריה רואה בדיוק את מה שנבדק:
+     * ‏אף אחד אינו יכול ליצור את המספר הזה בין השתיים.
+     */
+    await lockContactPhone(tx, tenantId, this.crypto.phoneHash(input.phone));
+    const prior = await this.findByAnyPhone(tx, input.phone);
+    if (prior !== null && prior.id !== contactId) {
+      /*
+       * ‏שני מקורות היתר, ולא אחד: לקוח שמותר לי בזכות עצמו, **או**
+       * ‏אדם שכבר מקושר לכרטיס הזה. בלי השני, עדכון תפקיד של מקושר
+       * ‏קיים — „הוספתי אותה כשותפה ואני רוצה בת זוג” — היה נדחה,
+       * ‏כי אדם מקושר אינו קונה, ליד או בעל נכס.
+       */
+      const linked = await tx.contactLink.findFirst({
+        where: { tenantId, contactId, relatedContactId: prior.id },
+        select: { id: true },
+      });
+      if (linked === null && !(await canSeeContact(tx, tenantId, prior.id))) {
+        throw new ForbiddenException(
+          "המספר הזה משויך ללקוח שאינו נגיש לך — פנו למנהל המשרד",
+        );
+      }
+    }
     const person = await this.findOrCreateByPhone(tx, { name: input.name, phone: input.phone });
     if (person.id === contactId) return { ok: false, reason: "self" };
 

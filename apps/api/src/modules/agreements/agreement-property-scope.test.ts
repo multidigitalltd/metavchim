@@ -1,6 +1,9 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Capability } from "@metavchim/shared";
-import { assertPropertyRecordScope } from "../../common/ownership";
+import {
+  assertPropertyRecordScope,
+  type PropertyScopeWhere,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AgreementsService } from "./agreements.service";
 import { SignedDocumentsService } from "./signed-documents.service";
@@ -272,6 +275,21 @@ describe("הסכם על הנכס של עמית — הלקוח לבדו אינו 
  * ‎**ואותו כלל על הסריקות.** מסמך חתום שהוצמד לנכס נושא את שם
  * ‏החותם ואת הקובץ עצמו; הרשימה שלו נושאת גם כפתור מחיקה.
  */
+/**
+ * ‏האם שורה עוברת את תנאי היקף-הנכס שנבנה. אותה צורה בדיוק
+ * ‏שמתוארת ב-`PropertyScopeWhere`, ובלי ידע על התוכן.
+ */
+function inScope(where: PropertyScopeWhere, propertyId: string | null): boolean {
+  const clause = (value: PropertyScopeWhere["propertyId"]): boolean => {
+    if (value === undefined) return true;
+    if (value === null) return propertyId === null;
+    if (typeof value === "string") return propertyId === value;
+    return propertyId !== null && value.in.includes(propertyId);
+  };
+  if (where.OR !== undefined) return where.OR.some((branch) => clause(branch.propertyId));
+  return clause(where.propertyId);
+}
+
 describe("סריקה שהוצמדה לנכס של עמית", () => {
   interface DocRow {
     id: string;
@@ -316,7 +334,17 @@ describe("סריקה שהוצמדה לנכס של עמית", () => {
     const tx = {
       ...txFor([]),
       signedDocument: {
-        findMany: async () => rows,
+        /*
+         * ‎**הפיקסצ׳ר מכבד את התנאי, אחרת הוא בודק כלום.**
+         *
+         * ‏הניסוח הקודם החזיר את כל השורות והסתמך על סינון שרץ
+         * ‏אחרי השליפה. ברגע שהסינון עבר **לתוך** השאילתה — כדי
+         * ‏שהתקרה לא תתמלא בשורות של עמיתים ותחזיר לשונית ריקה
+         * ‏(ביקורת Codex, P2) — פיקסצ׳ר שמתעלם מ-`where` היה מדווח
+         * ‏„לא מסונן” כהצלחה.
+         */
+        findMany: async ({ where }: { where: { AND?: PropertyScopeWhere[] } }) =>
+          rows.filter((row) => inScope(where.AND?.[0] ?? {}, row.propertyId)),
         findFirst: async ({ where }: { where: { id: string } }) =>
           rows.find((row) => row.id === where.id) ?? null,
         count: async () => 0,

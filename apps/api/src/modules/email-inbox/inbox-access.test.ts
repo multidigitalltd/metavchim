@@ -29,6 +29,13 @@ import { EmailInboxService, inboundNotificationContent } from "./email-inbox.ser
 interface Fixtures {
   /** ‏הלקוחות שהמשתמש הזה בעליהם. ריק = שום דבר אינו שלו. */
   ownedContactIds: readonly string[];
+  /**
+   * ‏לקוחות שנגישים לי דרך **ליד שלי** — ולא דרך כרטיס קונה.
+   *
+   * ‏זה המצב שהממצא תיאר: שער הלקוח הוא איחוד, ולכן שיחה יכולה
+   * ‏להיפתח דרך הליד שלי בזמן שלאותו לקוח יש כרטיס קונה של עמית.
+   */
+  leadContactIds?: readonly string[];
 }
 
 function serviceFor(fx: Fixtures): EmailInboxService {
@@ -65,7 +72,11 @@ function serviceFor(fx: Fixtures): EmailInboxService {
           (contactId) => ({ id: `buyer-${contactId}`, contactId }),
         ),
     },
-    lead: { findFirst: async () => null, findMany: async () => [] },
+    lead: {
+      findFirst: async () => null,
+      findMany: async () =>
+        (fx.leadContactIds ?? []).map((contactId) => ({ id: `lead-${contactId}`, contactId })),
+    },
     // ‏שום נכס אינו קושר את הלקוח הזה — „שלי” כאן הוא קונה בלבד
     property: { findFirst: async () => null, findMany: async () => [] },
     contactLink: { findFirst: async () => null },
@@ -340,5 +351,43 @@ describe("תוכן ההתראה על מייל נכנס", () => {
       property: null,
     })[0];
     expect(inboundNotificationContent(owner?.userId ?? null, SNIPPET).body).toBe(SNIPPET);
+  });
+});
+
+/**
+ * ‎**והקישור לכרטיס הקונה — גם הוא** (ביקורת Codex, P2).
+ *
+ * ‏שיחה שנפתחה דרך הליד שלי יכולה להיות עם לקוח שיש לו **גם**
+ * ‏כרטיס קונה של עמית. שליפת הכרטיסים הייתה משרדית, ולכן המסך צייר
+ * ‏קישור אל `/buyers/:id` שאינו נפתח: גילוי קיומו של הכרטיס, ו-404
+ * ‏למי שלוחץ.
+ */
+describe("‏הקישור לכרטיס הקונה הוא כרטיס שאפשר לפתוח", () => {
+  it("שיחה שנפתחה דרך הליד שלי — בלי קישור לכרטיס של עמית", async () => {
+    const threads = await asAgent(AGENT, () =>
+      serviceFor({ ownedContactIds: [], leadContactIds: ["01THEIRS"] }).listThreads(),
+    );
+    expect(threads.map((t) => t.contactId), "השיחה עצמה אמורה להיראות").toEqual([
+      "01THEIRS",
+    ]);
+    expect(threads[0]?.buyerId, "קישור לכרטיס שאינו נפתח").toBeUndefined();
+  });
+
+  /*
+   * ‏והצד השני, שבלעדיו „אף פעם אין קישור” היה עובר: כרטיס שלי
+   * ‏מקושר כרגיל.
+   */
+  it("וכרטיס שלי כן מקושר", async () => {
+    const threads = await asAgent(AGENT, () =>
+      serviceFor({ ownedContactIds: ["01MINE"] }).listThreads(),
+    );
+    expect(threads[0]?.buyerId).toBe("buyer-01MINE");
+  });
+
+  it("ומנהל משרד מקבל את הקישור בכל מקרה", async () => {
+    const threads = await asAgent(MANAGER, () =>
+      serviceFor({ ownedContactIds: [] }).listThreads(),
+    );
+    expect(threads.every((t) => t.buyerId !== undefined)).toBe(true);
   });
 });

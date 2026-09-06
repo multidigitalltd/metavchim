@@ -1033,13 +1033,31 @@ export async function assertPropertyOwnerAction(
  * ‎`subject` הוא צירוף שם — „פנייה לבעל הנכס”, „הסכם על נכס” —
  * ‏ולא משפט, כדי שההודעה תישאר נכונה דקדוקית בכל קורא.
  */
+/**
+ * ‎**„הנכס הזה בהיקף שלי” — ההכרעה עצמה, בלי זריקה.**
+ *
+ * ‏קיימת כי יש מקום אחד שבו התשובה אינה חסימה אלא **השמטה**:
+ * ‏המקדימון של דוח פעילות הנכס, שמחליט אם להציג את שם הבעלים ואת
+ * ‏הערוצים הזמינים. הוא כתב את התנאי בעצמו — וכתב אותו רחב יותר:
+ * ‏נכס בלי סוכן משויך נחשב אצלו „שלי”, בזמן ש-`assertPropertyScope`
+ * ‏דוחה אותו. המסך הדליק כפתורים שכל לחיצה עליהם נכשלה, ועצם
+ * ‏הכישלון גילה שיש בעלים שאפשר לפנות אליו (ביקורת Codex, P2).
+ *
+ * ‏הכרעה אחת, שני קוראים: זה שמשמיט וזה שזורק.
+ */
+export function inPropertyScope(agentUserId: string | null): boolean {
+  const ctx = TenantContext.current();
+  if (!ctx.capabilities.has("properties.view")) return false;
+  if (ctx.capabilities.has("properties.view_all")) return true;
+  return agentUserId === ctx.userId;
+}
+
 export function assertPropertyScope(agentUserId: string | null, subject: string): void {
   const ctx = TenantContext.current();
   if (!ctx.capabilities.has("properties.view")) {
     throw new ForbiddenException(`${subject} — מודול הנכסים חסום עבורך, פנו למנהל המשרד`);
   }
-  if (ctx.capabilities.has("properties.view_all")) return;
-  if (agentUserId === ctx.userId) return;
+  if (inPropertyScope(agentUserId)) return;
   throw new ForbiddenException(
     `${subject} — הנכס הזה משויך לסוכן אחר, פנו אליו או למנהל המשרד`,
   );
@@ -1141,10 +1159,22 @@ function propertyReach(): PropertyReach {
  * ‏רץ רק למי שאין לו `properties.view_all` — כלומר על תת-קבוצה של
  * ‏המשרד, על עמודה מאונדקסת.
  */
+/**
+ * ‏צורת התנאי, ולא `Prisma.AgreementWhereInput`.
+ *
+ * ‏אותה שאלה נשאלת על יותר מטבלה אחת — הסכמים וסריקות חתומות —
+ * ‏וטיפוס של טבלה אחת אינו ניתן לשימוש בשנייה. הצורה עצמה זהה
+ * ‏בשתיהן, ולכן היא זו שמתוארת.
+ */
+export interface PropertyScopeWhere {
+  propertyId?: string | null | { in: string[] };
+  OR?: { propertyId: string | null | { in: string[] } }[];
+}
+
 export async function actionablePropertyWhere(
   tx: TenantTx,
   tenantId: string,
-): Promise<Prisma.AgreementWhereInput> {
+): Promise<PropertyScopeWhere> {
   const reach = propertyReach();
   if (reach === "all") return {};
   if (reach === "none") return { propertyId: null };

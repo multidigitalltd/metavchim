@@ -17,6 +17,7 @@ import {
 import {
   assertContactAccess,
   notifiableContactOwnerSource,
+  ownershipFilter,
   visibleContactIds,
 } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -611,8 +612,25 @@ export class EmailInboxService {
       );
       const [names, buyers] = await Promise.all([
         this.contacts.getByIds(tx, contactIds),
+        /*
+         * ‎**וגם הקישור לכרטיס הקונה** (ביקורת Codex, P2).
+         *
+         * ‏שער הלקוח הוא איחוד, ולכן שיחה שנפתחה דרך הליד או הנכס
+         * ‏שלי יכולה להיות עם לקוח שיש לו **גם** כרטיס קונה של
+         * ‏עמית. השליפה כאן הייתה משרדית, ולכן המסך צייר קישור אל
+         * ‏`/buyers/:id` שאינו נפתח — כלומר גילה את קיומו של הכרטיס
+         * ‏והוביל ל-404.
+         *
+         * ‏זה אותו סינון בעלות של כל שאר מודול הקונים; מה שהיה חסר
+         * ‏כאן הוא הקריאה לו.
+         */
         tx.buyer.findMany({
-          where: { tenantId, contactId: { in: contactIds }, deletedAt: null },
+          where: {
+            tenantId,
+            contactId: { in: contactIds },
+            deletedAt: null,
+            ...ownershipFilter("buyers.view_all", "ownerUserId"),
+          },
           select: { id: true, contactId: true },
         }),
       ]);

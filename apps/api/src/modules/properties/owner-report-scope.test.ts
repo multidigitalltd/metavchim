@@ -25,7 +25,7 @@ const DEFAULT: Capability[] = [...SCOPED, "properties.view_all"];
 
 /** ‏המסד המדומה מכבד את ה-`where`: בלי `view_all` נוסף `agentUserId`. */
 function serviceFor(
-  propertyAgentUserId: string,
+  propertyAgentUserId: string | null,
   sent: string[],
   /** ‏האם ללקוח יש **גם** כרטיס קונה של המשתמש הנוכחי. */
   alsoMyBuyer = false,
@@ -212,5 +212,54 @@ describe("דוח פעילות לבעל הנכס — מי רואה ומי שול�
       }),
     );
     expect(sent).toEqual(["+972501234567"]);
+  });
+});
+
+/**
+ * ‎**„בלי סוכן משויך” אינו „שלי”** (ביקורת Codex, P2).
+ *
+ * ‏המקדימון של הדוח כתב את תנאי ההיקף בעצמו, וכתב אותו רחב יותר:
+ * ‏נכס לא-משויך נחשב אצלו „שלי”, בזמן ש-`assertPropertyScope`
+ * ‏במסלול השליחה דוחה אותו. כלומר המסך הציג את שם הבעלים והדליק
+ * ‏כפתורי פנייה — וכל לחיצה נכשלה. גם הכישלון מגלה: „לנכס הזה יש
+ * ‏בעלים שאפשר לפנות אליו”.
+ *
+ * ‏הכלל יושב עכשיו ב-`inPropertyScope`, ושני הקוראים — זה שמשמיט
+ * ‏וזה שזורק — נשענים עליו.
+ */
+describe("נכס בלי סוכן משויך", () => {
+  it("אין שם ואין ערוצים — גם כשהלקוח הוא הקונה שלי", async () => {
+    const report = await asUser(ME, SCOPED, () =>
+      serviceFor(null, [], true).report("01PROP", {}),
+    );
+    expect(report.owner.name).toBeUndefined();
+    expect(report.owner.whatsapp).toBe(false);
+    expect(report.owner.email).toBe(false);
+  });
+
+  /*
+   * ‏וזה מה שהופך את הראשון לנכון ולא סתם לשקט: שני השערים אומרים
+   * ‏את אותו דבר על אותו נכס.
+   */
+  it("והשליחה על אותו נכס נדחית", async () => {
+    const sent: string[] = [];
+    await expect(
+      asUser(ME, SCOPED, () =>
+        serviceFor(null, sent, true).sendToOwner("01PROP", {}, {
+          channel: "whatsapp",
+          periodLabel: "החודש",
+        }),
+      ),
+    ).rejects.toThrow();
+    expect(sent).toEqual([]);
+  });
+
+  /* ‏ולמנהל המשרד — אותו נכס בדיוק מוצג ונשלח */
+  it("ברירת המחדל רואה אותו כרגיל", async () => {
+    const report = await asUser(ME, DEFAULT, () =>
+      serviceFor(null, []).report("01PROP", {}),
+    );
+    expect(report.owner.name).toBeDefined();
+    expect(report.owner.whatsapp).toBe(true);
   });
 });

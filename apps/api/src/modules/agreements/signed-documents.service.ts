@@ -14,7 +14,7 @@ import {
 } from "@metavchim/shared";
 import { lockContact, lockProperty } from "../../common/locks";
 import {
-  actionablePropertyIds,
+  actionablePropertyWhere,
   assertContactAccess,
   assertPropertyRecordScope,
   contactGateFor,
@@ -377,10 +377,25 @@ export class SignedDocumentsService {
     const tenantId = TenantContext.current().tenantId;
     const { rows, labels } = await this.prisma.withTenant(async (tx) => {
       await assertContactAccess(tx, tenantId, contactId);
+      /*
+       * ‎**היקף הנכס נכנס לשאילתה — לפני `take`** (ביקורת Codex, P2).
+       *
+       * ‏הסינון רץ קודם על מה שכבר נשלף, ולכן `take` היה יכול
+       * ‏להתמלא כולו בשורות של עמיתים: הלשונית חזרה **ריקה** בזמן
+       * ‏שלאותו לקוח יש מסמכים ישנים יותר שכן מותרים לי. תקרה היא
+       * ‏גודל דף, לא תקרת עבודה — אותו לקח בדיוק של סבב המשפך.
+       */
+      const scope = await actionablePropertyWhere(tx, tenantId);
       const found = await tx.signedDocument.findMany({
         where: {
           tenantId,
           contactId,
+          /*
+           * ‎`AND` ולא פיזור: שני התנאים מייצרים `OR`, ופיזור היה
+           * ‏משאיר את האחרון בלבד — כלומר היקף הנכס היה נעלם בשקט
+           * ‏בדיוק כשמסננים לפי נכס.
+           */
+          AND: [scope],
           /*
            * ‎**השורות חסרות-הנכס מסויגות לפי הסוג, ולא נלקחות כמובן
            * מאליו.**
@@ -407,19 +422,13 @@ export class SignedDocumentsService {
         take: MAX_DOCUMENTS_PER_CONTACT,
       });
       /*
-       * ‎**וסינון לפי הנכס, כמו בשער הבודד.** שער הלקוח הוא איחוד,
-       * ‏ולכן סריקה של הסכם על הנכס של עמית הופיעה בכרטיס הקונה
-       * ‏שלי — עם כפתור הורדה וכפתור מחיקה (ביקורת Codex, P1).
+       * ‏הסינון כבר בשאילתה — `actionablePropertyWhere` למעלה, שהוא
+       * ‏התאום של `actionablePropertyIds` (`property-reach-twins`).
+       * ‏שער הלקוח הוא איחוד, ולכן בלעדיו סריקה של הסכם על הנכס של
+       * ‏עמית הופיעה בכרטיס הקונה שלי — עם כפתור הורדה וכפתור
+       * ‏מחיקה (ביקורת Codex, P1).
        */
-      const allowed = await actionablePropertyIds(
-        tx,
-        tenantId,
-        found.map((row) => row.propertyId).filter((id): id is string => id !== null),
-      );
-      const rows =
-        allowed === null
-          ? found
-          : found.filter((row) => row.propertyId === null || allowed.has(row.propertyId));
+      const rows = found;
       return { rows, labels: await loadPropertyLabels(tx, tenantId, rows) };
     });
     return rows.map((row) => this.toDto(row, { labels }));

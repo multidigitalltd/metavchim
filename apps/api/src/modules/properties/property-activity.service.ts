@@ -9,7 +9,11 @@ import {
   type OwnerActivityKind,
   type OwnerActivityResult,
 } from "@metavchim/shared";
-import { assertPropertyOwnerAction, canSeeContact } from "../../common/ownership";
+import {
+  assertPropertyOwnerAction,
+  canSeeContact,
+  inPropertyScope,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -178,11 +182,19 @@ export class PropertyActivityService {
        * ‏אותה הבחנה גם בתצוגה: „מותר לי האדם” נפתח דרך מקור אחר,
        * ‏אבל השם הזה מוצג **כבעל הנכס הזה**. נכס של עמית — אין שם.
        */
-      const mine =
-        TenantContext.current().capabilities.has("properties.view_all") ||
-        property.agentUserId === null ||
-        property.agentUserId === TenantContext.current().userId;
-      if (!mine) return null;
+      /*
+       * ‎**ו„בלי סוכן משויך” אינו „שלי”** (ביקורת Codex, P2).
+       *
+       * ‏הענף `agentUserId === null` היה נדיב מהשער שבמסלול
+       * ‏השליחה: `assertPropertyScope` דוחה נכס לא-משויך למי שאין
+       * ‏לו `properties.view_all`. כלומר המקדימון הציג את שם
+       * ‏הבעלים ואת הערוצים הזמינים, המסך הדליק כפתורים — וכל
+       * ‏לחיצה נכשלה. גם הכישלון הזה מגלה: „לנכס הזה יש בעלים
+       * ‏שאפשר לפנות אליו”.
+       *
+       * ‏אותו כלל, קריאה אחת. מה שהשליחה תדחה אינו מוצג כזמין.
+       */
+      if (!inPropertyScope(property.agentUserId)) return null;
       if (!(await canSeeContact(tx, tenantId, property.ownerContactId))) return null;
       return tx.contact.findFirst({
         where: { id: property.ownerContactId, tenantId },
