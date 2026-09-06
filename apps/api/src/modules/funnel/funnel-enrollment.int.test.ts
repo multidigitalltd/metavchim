@@ -276,6 +276,60 @@ describe("כניסה למשפך — מול מסד אמיתי", () => {
   });
 
   /**
+   * ‎**המכסה מוגנת נגד עותק שני של ה-API — נעילה אמיתית, לא ספירה.**
+   *
+   * ‏„ספור ואז קח” בשתי טרנזקציות נותן לשני עותקים להוציא כל אחד
+   * ‏מכסה שלמה: א׳ סופר 0, ב׳ רושם את שלו, ואז השאילתה של א׳
+   * ‏מדלגת על אלה ולוקחת את הבאים (ביקורת Codex, P1).
+   *
+   * ‏הבדיקה תופסת את **המנגנון** ולא את התוצאה: חיבור נפרד מחזיק
+   * ‏את אותה נעילה בדיוק, ולכן הסבב חייב לוותר על הפיגור. סימולציה
+   * ‏של מרוץ אמיתי בין שני תהליכים אינה דטרמיניסטית; החזקת הנעילה
+   * ‏היא בדיוק המצב שבו העותק השני נמצא.
+   *
+   * ‏והטריים כן נכנסים — הם מחוץ למכסה ומחוץ לנעילה מלכתחילה.
+   */
+  it("סבב מוותר על הפיגור כשעותק אחר מחזיק את נעילת היום", async () => {
+    const today = new Date();
+    const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem" }).format(today);
+
+    const holder = new PrismaClient({
+      datasources: { db: { url: process.env["DIRECT_DATABASE_URL"]! } },
+    });
+    try {
+      /*
+       * ‏הנעילה חייבת להיות מוחזקת **לאורך** הסבב, ולכן טרנזקציה
+       * ‏פתוחה על חיבור אחר ולא קריאה בודדת: נעילת טרנזקציה משתחררת
+       * ‏ברגע שהיא נסגרת.
+       */
+      let release: (() => void) | undefined;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const holding = holder.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(
+          `SELECT pg_advisory_xact_lock(hashtext($1))`,
+          `funnel-backlog:${day}`,
+        );
+        await held;
+      });
+      // ‏שהות קצרה כדי שהנעילה תיתפס לפני הסבב
+      await new Promise((r) => setTimeout(r, 100));
+
+      await service.sweep(today, { dailyQuota: 5 });
+      // ‏רק הטרי; שני הוותיקים נשארו בחוץ
+      expect((await enrollments()).map((r) => r.tenantId)).toEqual([NEW_TENANT]);
+
+      release!();
+      await holding;
+    } finally {
+      await holder.$disconnect();
+    }
+
+    // ‏אחרי שהנעילה שוחררה, הסבב הבא כן מוציא את המכסה
+    await service.sweep(new Date(today.getTime() + 60_000), { dailyQuota: 5 });
+    expect(await enrollments()).toHaveLength(3);
+  });
+
+  /**
    * ‎**סגירה אינה מפנה מקום במכסה.**
    *
    * ‏משרד שנכנס הבוקר ושילם בצהריים כבר צרך את המקום וקיבל את

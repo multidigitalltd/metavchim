@@ -6,12 +6,13 @@ import {
   funnelExitReason,
   hasValidCard,
   jerusalemDayStart,
+  jerusalemWallParts,
   type FunnelAnchors,
   type FunnelExitReason,
   type FunnelFacts,
   type FunnelTrack,
 } from "@metavchim/shared";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { FunnelStageService } from "./funnel-stage.service";
 
 /** ‏כמה מועמדים נשלפים בכל דף. תקרת שאילתה, לא תקרת טיפול. */
@@ -153,32 +154,58 @@ export class FunnelEnrollmentService {
       if (enrolled === before) break;
     }
 
-    /*
-     * ‎**הפיגור, ורק הוא, כפוף למכסה — והמכסה היא ליום, לא לסבב.**
-     *
-     * ‏זו לא קפדנות על שם משתנה. הסורק בשלב ב׳ ירוץ **כל שעה**, ואז
-     * ‏`take: dailyQuota` בכל סבב פירושו עשרים וארבע מכסות ביום:
-     * ‏הפיגור מתנקז ביממה אחת במקום בשבוע, וגל השליחה שכל הפריסה
-     * ‏נועדה למנוע קורה בדיוק (ביקורת Codex). כל הרצה נוספת — טיימר,
-     * ‏ניסיון חוזר, או עותק שני של ה-API — הוסיפה מכסה שלמה.
-     *
-     * ‏לכן נספר מה שכבר נכנס **היום** ונשלף רק ההפרש.
-     */
-    const remaining = dailyQuota - (await this.backlogEnrolledToday(now));
-    if (remaining > 0) {
-      const backlog = await this.prisma.withFunnelAdmin((tx) =>
-        tx.tenant.findMany({
-          where: { ...eligible, createdAt: { lt: freshFrom } },
-          select: { id: true },
-          orderBy: { createdAt: "asc" },
-          take: remaining,
-        }),
-      );
-      for (const tenant of backlog) {
-        if (await this.open(tenant.id, "conversion", now)) enrolled += 1;
-      }
-    }
-    return enrolled;
+    return enrolled + (await this.enrollBacklog(now, dailyQuota, freshFrom, eligible));
+  }
+
+  /**
+   * ‎**הפיגור, ורק הוא, כפוף למכסה — והמכסה היא ליום, לא לסבב.**
+   *
+   * ‏זו לא קפדנות על שם משתנה. הסורק בשלב ב׳ ירוץ **כל שעה**, ואז
+   * ‏`take: dailyQuota` בכל סבב פירושו עשרים וארבע מכסות ביום:
+   * ‏הפיגור מתנקז ביממה אחת במקום בשבוע, וגל השליחה שכל הפריסה
+   * ‏נועדה למנוע קורה בדיוק (ביקורת Codex). לכן נספר מה שכבר נכנס
+   * ‏**היום** ונשלף רק ההפרש.
+   *
+   * ## ‎**ולמה כל זה בטרנזקציה אחת, מתחת לנעילה**
+   *
+   * ‏„ספור ואז קח” הוא בדיקה-ואז-פעולה. שני עותקים של ה-API שרצים
+   * ‏במקביל: א׳ סופר 0 ומחשב 25 שנותרו, ב׳ מספיק לרשום 25 ולסיים,
+   * ‏ואז השאילתה של א׳ **מדלגת** על אותם 25 (הם כבר רשומים) ורושמת
+   * ‏את ה-25 הבאים. חמישים ביום, כלומר בדיוק גל השליחה שהמכסה
+   * ‏קיימת כדי למנוע (ביקורת Codex, P1). המכסה שנשמרת במסד אינה
+   * ‏מספיקה — צריך שהספירה, השליפה והכתיבה יהיו פעולה אחת.
+   *
+   * ‎`pg_try_advisory_xact_lock` ולא `pg_advisory_xact_lock`: אם
+   * ‏עותק אחר מוציא את המכסה ברגע זה, **הדבר הנכון הוא לא לחכות
+   * לו** אלא לוותר על הפיגור בסבב הזה. המתנה הייתה מחזיקה טרנזקציה
+   * ‏פתוחה עד הפסקת זמן, והתוצאה אחרי ההמתנה זהה בלאו הכי: אפס
+   * ‏שנותרו. המפתח נושא את היום, כי זה בדיוק מה שמחולק.
+   */
+  private async enrollBacklog(
+    now: Date,
+    dailyQuota: number,
+    freshFrom: Date,
+    eligible: Record<string, unknown>,
+  ): Promise<number> {
+    const lockKey = `funnel-backlog:${jerusalemWallParts(now).date}`;
+    return this.prisma.withFunnelAdmin(async (tx) => {
+      const [lock] = await tx.$queryRaw<{ taken: boolean }[]>`
+        SELECT pg_try_advisory_xact_lock(hashtext(${lockKey})) AS taken
+      `;
+      if (lock?.taken !== true) return 0;
+
+      const remaining = dailyQuota - (await this.backlogEnrolledToday(tx, now));
+      if (remaining <= 0) return 0;
+
+      const backlog = await tx.tenant.findMany({
+        where: { ...eligible, createdAt: { lt: freshFrom } },
+        select: { id: true },
+        orderBy: { createdAt: "asc" },
+        take: remaining,
+      });
+      for (const tenant of backlog) await this.open(tenant.id, "conversion", now, tx);
+      return backlog.length;
+    });
   }
 
   /**
@@ -200,17 +227,15 @@ export class FunnelEnrollmentService {
    * ‏היום הוא יום ירושלים, כמו שעות השקט — ולא UTC, שהיה מאפס את
    * ‏המכסה בשתיים בלילה באמצע הערב שלנו.
    */
-  private async backlogEnrolledToday(now: Date): Promise<number> {
+  private async backlogEnrolledToday(tx: TenantTx, now: Date): Promise<number> {
     const dayStart = jerusalemDayStart(now);
-    const today = await this.prisma.withFunnelAdmin((tx) =>
-      tx.funnelEnrollment.findMany({
-        where: { track: "conversion", startedAt: { gte: dayStart } },
-        select: { tenantId: true, startedAt: true },
-      }),
-    );
+    const today = await tx.funnelEnrollment.findMany({
+      where: { track: "conversion", startedAt: { gte: dayStart } },
+      select: { tenantId: true, startedAt: true },
+    });
     if (today.length === 0) return 0;
 
-    const tenants = await this.prisma.tenant.findMany({
+    const tenants = await tx.tenant.findMany({
       where: { id: { in: today.map((row) => row.tenantId) } },
       select: { id: true, createdAt: true },
     });
@@ -231,13 +256,27 @@ export class FunnelEnrollmentService {
    * עותקים של הסורק שרצים באותו רגע ייצרו אחד. התפיסה בקוד הייתה
    * ‏„קרא ואז כתוב” — בדיוק המרוץ שההמרה בנכסים לגיוס לימדה עליו.
    */
-  async open(tenantId: string, track: FunnelTrack, now: Date): Promise<boolean> {
+  async open(tenantId: string, track: FunnelTrack, now: Date, tx?: TenantTx): Promise<boolean> {
+    const write = (t: TenantTx): Promise<unknown> =>
+      t.funnelEnrollment.create({
+        data: { id: ulid(), tenantId, track, startedAt: now },
+      });
+
+    /*
+     * ‎**בתוך טרנזקציה של הקורא — התנגשות **חייבת** להתפוצץ.**
+     *
+     * ‏ב-PostgreSQL הפרת ייחודיות פוסלת את כל הטרנזקציה. בליעה כאן
+     * ‏הייתה מחזירה `false` ומשאירה את הקורא ממשיך לכתוב לתוך
+     * ‏טרנזקציה מתה — כלומר „נרשמו 24” על אפס שורות. הזריקה מגלגלת
+     * ‏את הסבב כולו, והסבב הבא חוזר עליו.
+     */
+    if (tx !== undefined) {
+      await write(tx);
+      return true;
+    }
+
     try {
-      await this.prisma.withFunnelAdmin((tx) =>
-        tx.funnelEnrollment.create({
-          data: { id: ulid(), tenantId, track, startedAt: now },
-        }),
-      );
+      await this.prisma.withFunnelAdmin(write);
       return true;
     } catch (error: unknown) {
       if (isUniqueViolation(error)) return false;

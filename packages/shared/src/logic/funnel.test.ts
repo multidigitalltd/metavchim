@@ -9,8 +9,10 @@ import {
   FUNNEL_MIN_GAP_HOURS,
   FUNNEL_TRACKS,
   dueFunnelStages,
+  firstFunnelSendingWindowEnd,
   funnelExitReason,
   funnelStageDueAt,
+  funnelStageExpiresAt,
   isFunnelSendingHour,
   isServiceTrack,
   matchesAllAudiences,
@@ -462,5 +464,84 @@ describe("מתי המסלול נגמר", () => {
         now: T0,
       }),
     ).toBeNull();
+  });
+});
+
+
+/*
+ * ‏שישי אחר הצהריים בירושלים. UTC+3 בקיץ, ולכן 15:30Z הוא 18:30
+ * ‏שעון ישראל — אחרי סגירת חלון השליחה של שישי.
+ */
+const FRIDAY_EVENING = new Date("2026-09-11T15:30:00.000Z");
+
+describe("תפוגת שלב מול שעות השליחה", () => {
+  /**
+   * ‎**הבאג שנתפס בסקירה: תזכורת על הודעה שלא נשלחה.**
+   *
+   * ‏חיוב שנכשל בערב שישי. תקרת הפיגור של שעון הגבייה היא יום אחד,
+   * ‏ולכן `pay_failed` היה פג בשבת בערב — לפני שנפתח החלון הבא,
+   * ‏ראשון בתשע. ההודעה הראשונה שהמשרד היה מקבל היא `pay_reminder`.
+   */
+  it("‏„החיוב לא עבר” שורד את השבת ויוצא בראשון", () => {
+    const failed = stage({ key: "pay_failed", track: "dunning", clock: "payment", offsetDays: 0 });
+    const expires = funnelStageExpiresAt(failed, anchors({ paymentFailedAt: FRIDAY_EVENING }));
+
+    // ‏התפוגה הנאיבית — שישי בערב ועוד יום — נופלת בשבת
+    const naive = FRIDAY_EVENING.getTime() + FUNNEL_MAX_LAG_DAYS.payment * DAY;
+    expect(expires!.getTime()).toBeGreaterThan(naive);
+
+    // ‏ראשון בבוקר: השלב עדיין חי
+    const sunday = new Date("2026-09-13T06:30:00.000Z"); // 09:30 בירושלים
+    expect(
+      dueFunnelStages({
+        stages: [failed],
+        anchors: anchors({ paymentFailedAt: FRIDAY_EVENING }),
+        facts: facts({ chargeFailing: true }),
+        sent: [],
+        lastSentAt: null,
+        now: sunday,
+      }).map((s) => s.key),
+    ).toEqual(["pay_failed"]);
+  });
+
+  it("‏המסלול אינו נחשב „מוצה” כל עוד לא הייתה הזדמנות לשלוח", () => {
+    const failed = stage({ key: "pay_failed", track: "dunning", clock: "payment", offsetDays: 0 });
+    // ‏שבת בצהריים — אחרי התפוגה הנאיבית, לפני החלון הראשון
+    const saturday = new Date("2026-09-12T16:00:00.000Z");
+    expect(
+      funnelExitReason({
+        track: "dunning",
+        facts: facts({ chargeFailing: true }),
+        stages: [failed],
+        sent: [],
+        anchors: anchors({ paymentFailedAt: FRIDAY_EVENING }),
+        now: saturday,
+      }),
+    ).toBeNull();
+  });
+
+  /*
+   * ‏הגבול השני: ההארכה היא **עד ההזדמנות הראשונה**, לא ויתור על
+   * ‏תקרת הפיגור. שלב שכבר היה לו חלון שלם ולא יצא — פג כרגיל.
+   */
+  it("תקרת הפיגור ממשיכה למחוק שלב שכבר הייתה לו הזדמנות", () => {
+    const failed = stage({ key: "pay_failed", track: "dunning", clock: "payment", offsetDays: 0 });
+    // ‏שני בבוקר בירושלים — יום עבודה רגיל
+    const mondayMorning = new Date("2026-09-14T07:00:00.000Z");
+    const expires = funnelStageExpiresAt(failed, anchors({ paymentFailedAt: mondayMorning }));
+    expect(expires!.getTime()).toBe(mondayMorning.getTime() + FUNNEL_MAX_LAG_DAYS.payment * DAY);
+  });
+
+  it("חלון השליחה הבא מדלג על שבת", () => {
+    const end = firstFunnelSendingWindowEnd(FRIDAY_EVENING);
+    // ‏ראשון 18:00 בירושלים = 15:00Z בקיץ
+    expect(end.toISOString()).toBe("2026-09-13T15:00:00.000Z");
+  });
+
+  it("ביום עבודה לפני שש — החלון הוא של אותו יום", () => {
+    const thursdayMorning = new Date("2026-09-10T07:00:00.000Z"); // 10:00 בירושלים
+    expect(firstFunnelSendingWindowEnd(thursdayMorning).toISOString()).toBe(
+      "2026-09-10T15:00:00.000Z",
+    );
   });
 });

@@ -29,6 +29,13 @@
  * כל כללי העיתוי בלי מסד, בלי שעון אמיתי, ובלי לשלוח דבר.
  */
 
+import {
+  jerusalemDayStart,
+  jerusalemWallIsoToUtc,
+  jerusalemWallParts,
+  jerusalemWeekday,
+} from "./israel-time.js";
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -222,6 +229,19 @@ export function funnelStageDueAt(stage: FunnelStageDef, anchors: FunnelAnchors):
 }
 
 /**
+ * ‎**שעות השליחה — תשע עד שש, ולא בשבת.**
+ *
+ * ‏שני מספרים ולא ארבעה: `isFunnelSendingHour` שואלת „מותר עכשיו”,
+ * ‏ו-`firstFunnelSendingWindowEnd` שואלת „מתי ההזדמנות הבאה
+ * נסגרת”. שתיהן חייבות לדבר על אותו חלון — שתי הגדרות היו נותנות
+ * ‏תפוגה שאינה מתאימה לחלון שבו באמת שולחים.
+ */
+const SENDING_START_HOUR = 9;
+const SENDING_END_HOUR = 18;
+/** ‏0 ראשון … 6 שבת, כמו `jerusalemWeekday`. */
+const SATURDAY = 6;
+
+/**
  * ‎**תקרת פיגור לכל שעון בנפרד — ולא מספר אחד לכולם.**
  *
  * ‏זה נראה כמו כוונון והוא למעשה כלל נכונות. תוכן ההפעלה („הוסיפו
@@ -248,6 +268,43 @@ export const FUNNEL_MAX_LAG_DAYS: Record<FunnelClock, number> = {
  * קיים בשבילו.
  */
 export const FUNNEL_MIN_GAP_HOURS = 20;
+
+/**
+ * ‎**מתי השלב חדל להיות רלוונטי — ולעולם לא לפני שהייתה לו הזדמנות
+ * אחת לצאת.**
+ *
+ * ## ‏למה זה לא פשוט „מועד + תקרת פיגור”
+ *
+ * ‏כך זה היה, וזה היה שגוי דווקא במסלול שהכי חשוב בו לדייק. חיוב
+ * ‏שנכשל בשש וחצי בערב יום שישי: `pay_failed` מגיע מיד, תקרת
+ * ‏הפיגור שלו יום אחד, ולכן הוא **פג בשבת בערב** — לפני שנפתח
+ * ‏חלון השליחה הבא, ראשון בתשע. המשרד היה מקבל כהודעה ראשונה את
+ * ‏`pay_reminder`: תזכורת על הודעה שמעולם לא נשלחה (ביקורת Codex).
+ *
+ * ‏ההערה שלי מעל `isFunnelSendingHour` אף טענה שעיכוב של שבת „נשאר
+ * ‏בתוך החלון”. זה נכון על חלון החסד בן שלושת הימים, ולא על תקרת
+ * ‏הפיגור של השלב — כלומר הקוד סתר את ההסבר שלו עצמו.
+ *
+ * ## ‏הכלל
+ *
+ * ‏התפוגה היא המאוחר מבין השניים: המועד ועוד תקרת הפיגור, או סוף
+ * ‏חלון השליחה הראשון שנפתח אחרי המועד. תקרת הפיגור ממשיכה לעשות
+ * ‏את עבודתה — „נשארו יומיים” לא ייצא שלושה ימים באיחור — ובלי
+ * ‏שהיא תמחק שלב שלא ניתן היה לשלוח אותו כלל.
+ *
+ * ‏מקום אחד לחישוב: הוא נדרש גם ל„מה יוצא עכשיו” וגם ל„המסלול
+ * ‏מוצה”, ושתי נוסחאות מקבילות היו נפרדות בעריכה הראשונה.
+ */
+export function funnelStageExpiresAt(
+  stage: FunnelStageDef,
+  anchors: FunnelAnchors,
+): Date | null {
+  const dueAt = funnelStageDueAt(stage, anchors);
+  if (dueAt === null) return null;
+  const lagged = new Date(dueAt.getTime() + FUNNEL_MAX_LAG_DAYS[stage.clock] * DAY_MS);
+  const firstChance = firstFunnelSendingWindowEnd(dueAt);
+  return lagged.getTime() >= firstChance.getTime() ? lagged : firstChance;
+}
 
 /* ────────────────────────────  ההחלטה  ──────────────────────────── */
 
@@ -280,7 +337,9 @@ export function dueFunnelStages(input: FunnelDueInput): FunnelStageDef[] {
     if (dueAt === null) continue;
     const dueMs = dueAt.getTime();
     if (nowMs < dueMs) continue;
-    if (nowMs > dueMs + FUNNEL_MAX_LAG_DAYS[stage.clock] * DAY_MS) continue;
+    const expiresAt = funnelStageExpiresAt(stage, input.anchors);
+    if (expiresAt === null) continue;
+    if (nowMs > expiresAt.getTime()) continue;
     if (!matchesAllAudiences(stage.audience, input.facts)) continue;
     ready.push({ stage, dueMs });
   }
@@ -331,13 +390,41 @@ export function nextFunnelStage(input: FunnelDueInput): FunnelStageDef | null {
  * ההיכרות, וכאן הוא נכתב פעם אחת שכולם יקראו ממנו: דיוור שנוחת
  * בשלוש לפנות בוקר נקרא כספאם גם כשהתוכן מדויק.
  *
- * ‏גם מסלול הגבייה כפוף לו. חלון החסד הוא שלושה ימים, ועיכוב של
- * שבת אחת נשאר בתוכו — בעוד שהודעה על כסף שנוחתת בליל שבת עולה
+ * ‏גם מסלול הגבייה כפוף לו: הודעה על כסף שנוחתת בליל שבת עולה
  * יותר ממה שהיא מקדמת.
+ *
+ * ‏**וזה בדיוק מה שמחייב את `funnelStageExpiresAt`.** קודם כתוב
+ * ‏כאן שעיכוב של שבת „נשאר בתוך חלון החסד” — נכון על שלושת הימים
+ * ‏של הגבייה, ולא על תקרת הפיגור של השלב עצמו, שהיא יום אחד.
+ * ‏ההודעה המיידית על כישלון חיוב בערב שישי פגה לפני שהחלון הבא
+ * ‏נפתח בכלל.
  */
 export function isFunnelSendingHour(parts: { weekday: string; hour: number }): boolean {
   if (parts.weekday === "Saturday") return false;
-  return parts.hour >= 9 && parts.hour < 18;
+  return parts.hour >= SENDING_START_HOUR && parts.hour < SENDING_END_HOUR;
+}
+
+/**
+ * ‎**סוף חלון השליחה הראשון שנפתח מ-`after` והלאה.**
+ *
+ * ‏כלומר: הרגע האחרון שבו עוד אפשר לשלוח בהזדמנות הקרובה. שבת
+ * ‏מדולגת, ויום שכבר עברה בו השעה שש נחשב חלוף.
+ *
+ * ‏עשרה ימים הם תקרת בטיחות ולא כלל: רצף של יותר מיומיים סגורים
+ * ‏אינו קיים בלוח, והתקרה קיימת רק כדי שטעות עתידית בכלל השעות לא
+ * ‏תיצור לולאה אינסופית. אם היא נגמרת — מוחזר `after` עצמו, כלומר
+ * ‏„אין הזדמנות”, וההתנהגות חוזרת לתקרת הפיגור בלבד.
+ */
+export function firstFunnelSendingWindowEnd(after: Date): Date {
+  for (let day = 0; day <= 10; day += 1) {
+    const at = jerusalemDayStart(after, day);
+    if (jerusalemWeekday(at) === SATURDAY) continue;
+    const end = jerusalemWallIsoToUtc(
+      `${jerusalemWallParts(at).date}T${String(SENDING_END_HOUR).padStart(2, "0")}:00`,
+    );
+    if (end.getTime() > after.getTime()) return end;
+  }
+  return after;
 }
 
 /* ────────────────────────────  כניסה מדורגת  ──────────────────────────── */
@@ -416,10 +503,9 @@ export function funnelExitReason(input: {
    */
   const stillPossible = live.filter((stage) => {
     if (already.has(stage.key)) return false;
-    const dueAt = funnelStageDueAt(stage, input.anchors);
-    if (dueAt === null) return false;
-    const expiresMs = dueAt.getTime() + FUNNEL_MAX_LAG_DAYS[stage.clock] * DAY_MS;
-    return input.now.getTime() <= expiresMs;
+    const expiresAt = funnelStageExpiresAt(stage, input.anchors);
+    if (expiresAt === null) return false;
+    return input.now.getTime() <= expiresAt.getTime();
   });
   if (live.length > 0 && stillPossible.length === 0) return "completed";
   return null;

@@ -137,9 +137,41 @@ describe("מנוע המסלולים — שלב א׳ אינו שולח", () => {
      * ‏להחלטה. שער שמסתמך על סדר השורות בקובץ נשבר בכל עריכה, ובלי
      * ‏מזל היה **עובר** על הערך הלא נכון.
      */
+    /*
+     * ‎**ואתר יצירה אחד בלבד.**
+     *
+     * ‏הבדיקה בוחנת את ההתאמה הראשונה. אתר יצירה שני — למשל אחד
+     * ‏שנוסף בתוך טרנזקציה — היה **מחוץ לשער**, ובו אפשר לכתוב
+     * ‏`startedAt: tenant.createdAt` בלי שאיש ישים לב. לכן שתי
+     * ‏הדרכים לכתוב רישום עוברות דרך `open`, וזה נאכף כאן.
+     */
+    const creates = code.match(/funnelEnrollment\.create\(/gu) ?? [];
+    expect(creates).toHaveLength(1);
+
     const create = /funnelEnrollment\.create\(\{[\s\S]*?\}\)/u.exec(code);
     expect(create).not.toBeNull();
     expect(create![0]).toMatch(/startedAt:\s*now\b/u);
     expect(code).not.toMatch(/startedAt:\s*\w*\.?createdAt/u);
+  });
+
+  /**
+   * ‎**המכסה היומית נספרת ונשלפת בפעולה אחת, מתחת לנעילה.**
+   *
+   * ‏„ספור ואז קח” בשתי טרנזקציות נפרדות נותן לשני עותקים של
+   * ‏ה-API להוציא כל אחד מכסה שלמה באותו יום (ביקורת Codex, P1).
+   * ‏מה שמגן על זה אינו הספירה עצמה אלא **הגבול של הטרנזקציה**,
+   * ‏והוא בדיוק הדבר שעריכה עתידית תפרק בלי כוונה — „נוציא את
+   * ‏הספירה החוצה, כך יותר קריא”.
+   */
+  it("המכסה היומית מוצאת מתחת לנעילה, בטרנזקציה אחת", () => {
+    const code = codeOnly(readFileSync(join(DIR, "funnel-enrollment.service.ts"), "utf8"));
+    const body = /private async enrollBacklog\([\s\S]*?\n {2}\}\n/u.exec(code)?.[0] ?? "";
+    expect(body, "enrollBacklog לא נמצאה").not.toBe("");
+
+    expect(body).toMatch(/pg_try_advisory_xact_lock/u);
+    // ‏הספירה על אותה טרנזקציה, ולא על חיבור נפרד
+    expect(body).toMatch(/backlogEnrolledToday\(tx\b/u);
+    // ‏שום יציאה מהטרנזקציה בתוך הקטע הנעול
+    expect(body).not.toMatch(/this\.prisma\.(?!withFunnelAdmin)/u);
   });
 });
