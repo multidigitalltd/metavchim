@@ -128,9 +128,18 @@ describe("מנוע המסלולים — שלב א׳ אינו שולח", () => {
    * שתחליף אותה נראית תמימה לגמרי בקוד, ולכן היא נבדקת.
    */
   it("הכניסה למשפך מתחילה מהרגע, ולא מתאריך ההרשמה", () => {
-    const text = readFileSync(join(DIR, "funnel-enrollment.service.ts"), "utf8");
-    const openCall = /startedAt:\s*(\w+)/u.exec(text);
-    expect(openCall?.[1]).toBe("now");
-    expect(text).not.toMatch(/startedAt:\s*\w*\.?createdAt/u);
+    const code = codeOnly(readFileSync(join(DIR, "funnel-enrollment.service.ts"), "utf8"));
+    /*
+     * ‎**מעוגן ביצירה עצמה, ולא ב-`startedAt` הראשון בקובץ.**
+     *
+     * ‏הגרסה הקודמת חיפשה את ההתאמה הראשונה, ותפסה `startedAt: true`
+     * ‏בתוך `select` של שאילתה אחרת — כלומר בדקה שורה שאינה קשורה
+     * ‏להחלטה. שער שמסתמך על סדר השורות בקובץ נשבר בכל עריכה, ובלי
+     * ‏מזל היה **עובר** על הערך הלא נכון.
+     */
+    const create = /funnelEnrollment\.create\(\{[\s\S]*?\}\)/u.exec(code);
+    expect(create).not.toBeNull();
+    expect(create![0]).toMatch(/startedAt:\s*now\b/u);
+    expect(code).not.toMatch(/startedAt:\s*\w*\.?createdAt/u);
   });
 });

@@ -253,12 +253,58 @@ describe("כניסה למשפך — מול מסד אמיתי", () => {
    * ‏במי שכבר נרשם, הרשימה התרוקנה והפונקציה חזרה עם 0 — והמשפך
    * ‏הפסיק לקלוט לנצח (ביקורת Codex, P1).
    */
-  it("מכסה של אחד ביום קולטת משרד נוסף בכל סבב", async () => {
-    await service.sweep(new Date(), { dailyQuota: 1 });
+  it("מכסה של אחד ביום נשמרת גם על פני כמה סבבים באותו יום", async () => {
+    const today = new Date();
+    await service.sweep(today, { dailyQuota: 1 });
     // ‏הטרי עוקף מכסה, ולכן בסבב הראשון נכנסים שניים: הטרי + ותיק אחד
     expect(await enrollments()).toHaveLength(2);
 
-    await service.sweep(new Date(), { dailyQuota: 1 });
+    /*
+     * ‎**סבב שני באותו יום אינו מוסיף מכסה.**
+     *
+     * ‏הגרסה הקודמת של הבדיקה הזאת ציפתה כאן ל-3 — כלומר **קיבעה
+     * ‏את הבאג**: `take: dailyQuota` בכל סבב, וסורק שעתי בשלב ב׳
+     * ‏היה מנקז את כל הפיגור ביממה במקום בשבוע (ביקורת Codex).
+     */
+    await service.sweep(new Date(today.getTime() + 60_000), { dailyQuota: 1 });
+    expect(await enrollments()).toHaveLength(2);
+
+    // ‏למחרת המכסה מתאפסת, והבא בתור נכנס
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+    await service.sweep(tomorrow, { dailyQuota: 1 });
     expect(await enrollments()).toHaveLength(3);
+  });
+
+  /**
+   * ‎**סגירה אינה מפנה מקום במכסה.**
+   *
+   * ‏משרד שנכנס הבוקר ושילם בצהריים כבר צרך את המקום וקיבל את
+   * ‏ההודעה הראשונה. אילו הספירה הייתה מסננת רישומים שנסגרו, יום
+   * ‏עם המרות מהירות היה מכניס פי כמה — ההפך הגמור מהפריסה.
+   *
+   * ‏שלושה סבבים ולא שניים, כי הכניסה קודמת לסגירה בתוך אותו סבב:
+   * ‏רק בסבב השלישי הרישום הסגור כבר קיים בזמן הספירה.
+   */
+  it("רישום שנסגר באותו יום אינו מחזיר מקום למכסה", async () => {
+    const today = new Date();
+    await service.sweep(today, { dailyQuota: 1 });
+    expect(await enrollments()).toHaveLength(2);
+
+    const nextYear = new Date().getUTCFullYear() + 2;
+    await direct.$executeRawUnsafe(
+      `INSERT INTO subscriptions (id, tenant_id, plan_code, billing_cycle, status, card_token_encrypted, card_month, card_year, created_at, updated_at)
+       VALUES ($1, $2, 'basic', 'monthly', 'trial', 'tok', 12, $3, now(), now())`,
+      "01M1FNNLTESTSUBSCR1PT10N02",
+      OLD_TENANT,
+      nextYear,
+    );
+
+    // ‏הסבב הזה סוגר את הוותיק שנכנס
+    await service.sweep(new Date(today.getTime() + 60_000), { dailyQuota: 1 });
+    expect((await enrollments()).find((r) => r.tenantId === OLD_TENANT)?.endedReason).toBe("paid");
+
+    // ‏ועכשיו: המקום שהוא צרך נשאר תפוס עד סוף היום
+    await service.sweep(new Date(today.getTime() + 120_000), { dailyQuota: 1 });
+    expect(await enrollments()).toHaveLength(2);
   });
 });

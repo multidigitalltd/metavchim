@@ -5,6 +5,7 @@ import {
   FUNNEL_FRESH_SIGNUP_HOURS,
   funnelExitReason,
   hasValidCard,
+  jerusalemDayStart,
   type FunnelAnchors,
   type FunnelExitReason,
   type FunnelFacts,
@@ -153,16 +154,24 @@ export class FunnelEnrollmentService {
     }
 
     /*
-     * ‏הפיגור, ורק הוא, כפוף למכסה — זה כל תפקידה: לפרוס את הקבוצה
-     * שהצטברה על פני כשבוע, ולא לחנוק את הקצב הרגיל.
+     * ‎**הפיגור, ורק הוא, כפוף למכסה — והמכסה היא ליום, לא לסבב.**
+     *
+     * ‏זו לא קפדנות על שם משתנה. הסורק בשלב ב׳ ירוץ **כל שעה**, ואז
+     * ‏`take: dailyQuota` בכל סבב פירושו עשרים וארבע מכסות ביום:
+     * ‏הפיגור מתנקז ביממה אחת במקום בשבוע, וגל השליחה שכל הפריסה
+     * ‏נועדה למנוע קורה בדיוק (ביקורת Codex). כל הרצה נוספת — טיימר,
+     * ‏ניסיון חוזר, או עותק שני של ה-API — הוסיפה מכסה שלמה.
+     *
+     * ‏לכן נספר מה שכבר נכנס **היום** ונשלף רק ההפרש.
      */
-    if (dailyQuota > 0) {
+    const remaining = dailyQuota - (await this.backlogEnrolledToday(now));
+    if (remaining > 0) {
       const backlog = await this.prisma.withFunnelAdmin((tx) =>
         tx.tenant.findMany({
           where: { ...eligible, createdAt: { lt: freshFrom } },
           select: { id: true },
           orderBy: { createdAt: "asc" },
-          take: dailyQuota,
+          take: remaining,
         }),
       );
       for (const tenant of backlog) {
@@ -170,6 +179,48 @@ export class FunnelEnrollmentService {
       }
     }
     return enrolled;
+  }
+
+  /**
+   * ‎**כמה משרדי פיגור כבר נכנסו היום.**
+   *
+   * ## ‏למה זה נגזר ולא נשמר בעמודה
+   *
+   * ‏„נכנס מהפיגור” אינו מצב חדש — הוא **יחס בין שני תאריכים
+   * ‏שכבר קיימים**: המשרד נחשב פיגור אם ברגע הכניסה הוא כבר לא היה
+   * ‏טרי, כלומר `createdAt < startedAt − חלון הטריות`. עמודה נוספת
+   * ‏הייתה עותק שני של אותה עובדה, ועותק שני יכול לסטות.
+   *
+   * ## ‏למה גם מי שכבר יצא נספר
+   *
+   * ‏אין סינון על `endedAt`: משרד שנכנס הבוקר ושילם בצהריים **צרך
+   * ‏את המקום** וקיבל את ההודעה הראשונה. אילו סגירה הייתה מפנה מקום,
+   * ‏יום עם המרות מהירות היה מכניס פי כמה — בדיוק ההפך מהכוונה.
+   *
+   * ‏היום הוא יום ירושלים, כמו שעות השקט — ולא UTC, שהיה מאפס את
+   * ‏המכסה בשתיים בלילה באמצע הערב שלנו.
+   */
+  private async backlogEnrolledToday(now: Date): Promise<number> {
+    const dayStart = jerusalemDayStart(now);
+    const today = await this.prisma.withFunnelAdmin((tx) =>
+      tx.funnelEnrollment.findMany({
+        where: { track: "conversion", startedAt: { gte: dayStart } },
+        select: { tenantId: true, startedAt: true },
+      }),
+    );
+    if (today.length === 0) return 0;
+
+    const tenants = await this.prisma.tenant.findMany({
+      where: { id: { in: today.map((row) => row.tenantId) } },
+      select: { id: true, createdAt: true },
+    });
+    const createdById = new Map(tenants.map((tenant) => [tenant.id, tenant.createdAt]));
+    const freshMs = FUNNEL_FRESH_SIGNUP_HOURS * 60 * 60 * 1000;
+    return today.filter((row) => {
+      const createdAt = createdById.get(row.tenantId);
+      if (createdAt === undefined) return false;
+      return createdAt.getTime() < row.startedAt.getTime() - freshMs;
+    }).length;
   }
 
   /**
