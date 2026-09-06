@@ -241,6 +241,23 @@ describe("יעד מהשיחה — המודל מציע, המתווך לוחץ, ה
     expect(parseGoalRequest("יעד: 4 לידים תוך שעה בשבוע")?.metric).toBe(
       "leads_answered_fast",
     );
+    // בלי המילה „יעד” — כשיש תקופה מפורשת זו בקשה (ביקורת Codex)
+    expect(parseGoalRequest("רוצה 3 סיורים בשבוע")).toEqual({
+      metric: "viewings_held",
+      target: 3,
+      period: "week",
+    });
+  });
+
+  it("parseGoalRequest: מילים שלמות ותקופות — שאלה על יעד קיים, משאלה בלי תקופה, ותקופה לא נתמכת אינן בקשה", () => {
+    // „שקבעתי” אינו „קבע”, ושאלה אינה בקשה
+    expect(parseGoalRequest("כמה השגתי מהיעד שקבעתי של 5 הצעות?")).toBeNull();
+    expect(parseGoalRequest("מה היעד שקבעתי — 5 הצעות בשבוע")).toBeNull();
+    // בלי „יעד” ובלי תקופה — לא מנחשים
+    expect(parseGoalRequest("רוצה 3 סיורים")).toBeNull();
+    // „ביום” אינו הופך לשבוע בשקט
+    expect(parseGoalRequest("תקבע לי יעד של 5 הצעות ביום")).toBeNull();
+    expect(parseGoalRequest("תקבע לי יעד של 50 הצעות בשנה")).toBeNull();
   });
 
   it("parseGoalRequest: שאלה על יעדים, בלי מספר, בלי מדד, או מעל הגבול — null", () => {

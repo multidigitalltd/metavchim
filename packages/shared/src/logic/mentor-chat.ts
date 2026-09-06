@@ -146,9 +146,25 @@ const HEBREW_NUMBERS: Readonly<Record<string, number>> = {
   שלושים: 30,
 };
 
-/** „תקבע לי יעד”, „רוצה יעד”, „היעד שלי” — בקשה, לא שאלה על יעדים. */
-const GOAL_REQUEST =
-  /(תקבע|לקבוע|קבע|רוצה|היעד שלי|יעד חדש|תגדיר|להגדיר|^יעד[:\s])/u;
+/**
+ * „תקבע לי יעד”, „רוצה יעד”, „היעד שלי” — בקשה, לא שאלה על יעדים.
+ *
+ * מילים שלמות, עם גבול משלנו: ‎`\b` של JS מכיר אותיות לטיניות בלבד,
+ * ו„קבע” כתת-מחרוזת היה תופס „שקבעתי” — ושאלה על יעד קיים („כמה
+ * השגתי מהיעד שקבעתי?”) הייתה מקבלת כפתור שמחליף אותו (ביקורת Codex).
+ */
+const WORD_START = "(^|[\\s,:;.!?„”\"'(-])";
+const WORD_END = "(?=$|[\\s,:;.!?„”\"')-])";
+const GOAL_REQUEST = new RegExp(
+  `${WORD_START}(תקבע|לקבוע|קבע|תגדיר|להגדיר|רוצה|היעד שלי|יעד חדש)${WORD_END}|^יעד[:\\s]`,
+  "u",
+);
+/** שאלה — „כמה”, „מה”, „איך”, או סימן שאלה — אינה בקשה לקבוע. */
+const QUESTION = /\?|^(כמה|מה|איך|למה|האם|מתי)(\s|$)/u;
+const WEEK_WORDS = /(בשבוע|לשבוע|שבועי|שבועית|כל שבוע)/u;
+const MONTH_WORDS = /(בחודש|לחודש|חודשי|חודשית|כל חודש|החודש)/u;
+/** תקופה שאינה נתמכת — „ביום”, „בשנה” — נדחית, לא הופכת לשבוע בשקט. */
+const OTHER_PERIOD = /(ביום|יומי|יומית|כל יום|בשנה|שנתי|לשנה|ברבעון|רבעוני)/u;
 
 /**
  * „תקבע לי יעד של 5 הצעות בשבוע” ⟵ `{ offers_sent, 5, week }`.
@@ -160,7 +176,14 @@ const GOAL_REQUEST =
  */
 export function parseGoalRequest(text: string): MentorGoalProposal | null {
   const t = text.trim();
-  if (!GOAL_REQUEST.test(t) || !/יעד/u.test(t)) return null;
+  if (QUESTION.test(t) || !GOAL_REQUEST.test(t)) return null;
+  /*
+   * בלי המילה „יעד” — רק כשיש תקופה מפורשת: „רוצה 3 סיורים בשבוע” הוא
+   * יעד (וכך גם הפרומפט אומר למודל); „רוצה 3 סיורים” לבד הוא משאלה.
+   */
+  const explicitPeriod = WEEK_WORDS.test(t) || MONTH_WORDS.test(t);
+  if (!/יעד/u.test(t) && !explicitPeriod) return null;
+  if (OTHER_PERIOD.test(t) && !explicitPeriod) return null;
   const found = METRIC_WORDS.find((m) => m.pattern.test(t));
   if (found === undefined) return null;
   const digits = /(\d{1,3})/u.exec(t);
@@ -176,7 +199,8 @@ export function parseGoalRequest(text: string): MentorGoalProposal | null {
       target = 1;
   }
   if (target < 1 || target > MENTOR_GOAL_TARGET_MAX) return null;
-  const period: MentorGoalPeriod = /חודש/u.test(t) ? "month" : "week";
+  // תקופה חסרה = שבוע; חודש כשנאמר; אחרת כבר נדחה למעלה
+  const period: MentorGoalPeriod = MONTH_WORDS.test(t) ? "month" : "week";
   return { metric: found.metric, target, period };
 }
 
