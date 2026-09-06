@@ -1827,3 +1827,90 @@ describe("ניסיון שתאריכו עבר אינו „ניסיון חי”", 
     expect(await enrollmentsOf([LAPSED])).toHaveLength(1);
   });
 });
+
+/**
+ * ‎**הדפדוף על הרישומים — אותה תקלה, בכיוון ההפוך** (ביקורת Codex,
+ * ‏P2, סבב רביעי).
+ *
+ * ‏בסבבי המשרדים העוגן נעלם כשהמשרד **נרשם**. כאן הוא נעלם כשהרישום
+ * ‏**נסגר** (`endedAt` נכתב) או **נפתח מחדש** (`endedAt` מנוקה) —
+ * ‏ובשני המקרים זו העבודה שהצליחה שמוציאה אותו מהתוצאה.
+ *
+ * ‏שתי הבדיקות רצות עם `pageSize: 1`, שהוא המקרה שהממצא תיאר בגדול:
+ * ‏דף שסופו שורה שתיעלם.
+ */
+describe("דפדוף הרישומים אינו מאבד את מקומו", () => {
+  const OFFICES = [
+    "01M1FNNLPAGEAAAAAAAAAAAA01",
+    "01M1FNNLPAGEBBBBBBBBBBBB02",
+    "01M1FNNLPAGECCCCCCCCCCCC03",
+  ];
+
+  async function forgetPaging(): Promise<void> {
+    await direct.$executeRawUnsafe(
+      `DELETE FROM funnel_messages WHERE tenant_id = ANY($1)`,
+      OFFICES,
+    );
+    await direct.$executeRawUnsafe(
+      `DELETE FROM funnel_enrollments WHERE tenant_id = ANY($1)`,
+      OFFICES,
+    );
+    await direct.$executeRawUnsafe(`DELETE FROM subscriptions WHERE tenant_id = ANY($1)`, OFFICES);
+    await direct.$executeRawUnsafe(`DELETE FROM tenants WHERE id = ANY($1)`, OFFICES);
+  }
+
+  beforeEach(async () => {
+    await forgetPaging();
+    for (const [index, id] of OFFICES.entries()) {
+      await seedTenant(id, `דפדוף ${index}`, 5);
+    }
+  });
+
+  afterAll(forgetPaging);
+
+  /*
+   * ‎**סגירה.** שלושה משרדים שיצאו מהניסיון, שלושה רישומים פתוחים,
+   * ‏דף של אחד. עם `cursor` של Prisma השורה הראשונה נסגרת, יוצאת
+   * ‏מ-`endedAt: null`, והדף הבא חוזר ריק — כלומר רישום אחד לסבב.
+   */
+  it("סגירה: שלושה רישומים נסגרים בדף של אחד", async () => {
+    for (const [index, id] of OFFICES.entries()) {
+      await direct.$executeRawUnsafe(
+        `INSERT INTO funnel_enrollments (id, tenant_id, track, started_at, created_at, updated_at)
+         VALUES ($1, $2, 'conversion', now() - interval '5 days', now(), now())`,
+        `01M1FNNLPAGEENROLL00000${index}0`,
+        id,
+      );
+      /* ‏יצא מהניסיון — ולכן הרישום אמור להיסגר */
+      await direct.$executeRawUnsafe(
+        `UPDATE tenants SET status = 'active', plan = 'free', trial_ends_at = NULL,
+           trial_concluded_at = now() WHERE id = $1`,
+        id,
+      );
+    }
+    /* ‏אחרי כל שלבי שעון המשפך — אחרת אין מה לסגור */
+    const later = new Date(Date.now() + 60 * DAY);
+    await service.sweep(later, { dailyQuota: 0, pageSize: 1 });
+    const rows = await enrollmentsOf(OFFICES);
+    expect(rows.filter((row) => row.endedAt !== null)).toHaveLength(3);
+  });
+
+  /*
+   * ‎**פתיחה מחדש.** שלושה רישומים „שילם”, שלושה ניסיונות חיים בלי
+   * ‏כרטיס, דף של אחד. אותו מנגנון: הראשון נפתח, מאבד את
+   * ‏`endedReason: "paid"`, והעוגן נעלם.
+   */
+  it("פתיחה מחדש: שלושה רישומים נפתחים בדף של אחד", async () => {
+    for (const [index, id] of OFFICES.entries()) {
+      await direct.$executeRawUnsafe(
+        `INSERT INTO funnel_enrollments (id, tenant_id, track, started_at, ended_at, ended_reason, created_at, updated_at)
+         VALUES ($1, $2, 'conversion', now() - interval '5 days', now() - interval '1 day', 'paid', now(), now())`,
+        `01M1FNNLPAGEREOPEN00000${index}0`,
+        id,
+      );
+    }
+    await service.sweep(new Date(), { dailyQuota: 0, pageSize: 1 });
+    const rows = await enrollmentsOf(OFFICES);
+    expect(rows.filter((row) => row.endedAt === null)).toHaveLength(3);
+  });
+});

@@ -103,15 +103,26 @@ export class FunnelEnrollmentService {
    */
   private async reopenLapsed(now: Date, pageSize: number): Promise<number> {
     let reopened = 0;
-    let cursor: string | undefined;
+    /*
+     * ‏סמן מפתח ולא `cursor` של Prisma: `reopenRows` מנקה את
+     * ‏`endedAt` של השורה שנפתחה, ולכן העוגן יוצא מהתוצאה בדיוק
+     * ‏כשהעבודה הצליחה. ראו `afterId`.
+     */
+    let cursor: string | null = null;
     for (;;) {
-      const page = await this.prisma.withFunnelAdmin(async (tx) => {
+      const after: string | null = cursor;
+      const page = await this.prisma.withFunnelAdmin(
+        async (tx): Promise<{ rows: { id: string; tenantId: string }[]; opened: number }> => {
         const rows = await tx.funnelEnrollment.findMany({
-          where: { track: "conversion", endedReason: "paid", endedAt: { not: null } },
+          where: {
+            track: "conversion",
+            endedReason: "paid",
+            endedAt: { not: null },
+            ...afterId(after),
+          },
           select: { id: true, tenantId: true },
           orderBy: { id: "asc" },
           take: pageSize,
-          ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
         });
         if (rows.length === 0) return { rows, opened: 0 };
         /*
@@ -140,7 +151,8 @@ export class FunnelEnrollmentService {
           if (await this.reopenRows(tx, tenant.id, now)) opened += 1;
         }
         return { rows, opened };
-      });
+        },
+      );
       if (page.rows.length === 0) break;
       cursor = page.rows[page.rows.length - 1]!.id;
       reopened += page.opened;
@@ -579,11 +591,18 @@ export class FunnelEnrollmentService {
       );
     }
     let closed = 0;
-    let cursor: string | undefined;
+    /*
+     * ‏וכאן אותו דבר בכיוון ההפוך: סגירה כותבת `endedAt`, ולכן
+     * ‏השורה האחרונה בדף יוצאת מ-`endedAt: null` ברגע שנסגרה.
+     * ‏ראו `afterId`.
+     */
+    let cursor: string | null = null;
     for (;;) {
-      const page = await this.prisma.withFunnelAdmin((tx) =>
+      const after: string | null = cursor;
+      const page: { id: string; tenantId: string; track: string; startedAt: Date }[] =
+        await this.prisma.withFunnelAdmin((tx) =>
         tx.funnelEnrollment.findMany({
-          where: { endedAt: null },
+          where: { endedAt: null, ...afterId(after) },
           select: { id: true, tenantId: true, track: true, startedAt: true },
           /*
            * ‎**סמן, ולא `take` שמתחזה לתקרת עבודה.**
@@ -596,11 +615,10 @@ export class FunnelEnrollmentService {
            */
           orderBy: { id: "asc" },
           take: pageSize,
-          ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
         }),
       );
       if (page.length === 0) break;
-      cursor = page[page.length - 1]?.id;
+      cursor = page[page.length - 1]?.id ?? null;
       closed += await this.closePage(page, stages, invalid.length > 0, now);
       if (page.length < pageSize) break;
     }
@@ -946,6 +964,27 @@ function isTrialActive(trialEndsAt: Date | null, now: Date): boolean {
 interface SignupCursor {
   createdAt: Date;
   id: string;
+}
+
+/**
+ * ‎**סמן מפתח על `id` בלבד — לרישומים** (ביקורת Codex, P2, סבב
+ * ‏רביעי).
+ *
+ * ‏זו אותה תקלה בדיוק, בפעם השלישית והרביעית באותו קובץ:
+ * ‏`reopenLapsed` פותח את השורה האחרונה בדף ומנקה לה את `endedAt`,
+ * ‏ו-`closeFinished` סוגר אותה וכותב `endedAt`. בשני המקרים שורת
+ * ‏העוגן יוצאת מהתוצאה **בגלל שהעבודה הצליחה**, ו-`cursor` של
+ * ‏Prisma דורש שהיא תישאר. הדף הבא חוזר ריק, והסבב מטפל ברישום
+ * ‏אחד בכל סבב במקום בכולם.
+ *
+ * ‏שתי צורות ולא אחת: הרישומים ממוינים לפי `id` בלבד (הסדר אינו
+ * ‏נושא משמעות, רק הכיסוי), והמשרדים לפי `(createdAt, id)` כי שם
+ * ‏„הוותיק קודם” הוא כן החלטה. מה שמשותף הוא הכלל, וזו הסיבה
+ * ‏שהשער למטה אוסר `cursor` בקובץ הזה בכלל: תיקון שלישי היה
+ * ‏מזמין רביעי.
+ */
+function afterId(cursor: string | null): { id?: { gt: string } } {
+  return cursor === null ? {} : { id: { gt: cursor } };
 }
 
 function afterSignup(cursor: SignupCursor | null): {

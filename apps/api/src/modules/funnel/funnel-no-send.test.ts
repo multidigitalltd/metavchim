@@ -114,10 +114,15 @@ describe("מנוע המסלולים — שלב א׳ אינו שולח", () => {
    * ‏בלי סמן, `take` הופך לתקרת עבודה: אותם רישומים ישנים נקראים
    * ‏בכל סבב, וכל עוד הם פתוחים אף רישום מאוחר אינו נבדק — משרד
    * ‏שהזין כרטיס לא נסגר לעולם.
+   *
+   * ‏הבדיקה עוגנה ב-`cursor` של Prisma, וזה הפך למלכודת: היא
+   * ‏**דרשה** בדיוק את המנגנון שנשבר כאן (העוגן יוצא מהתוצאה ברגע
+   * ‏שהשורה נסגרת). היום היא שואלת מה שהתכוונה לשאול מלכתחילה —
+   * ‏שיש דפדוף שמתקדם — והשער למטה אוסר את המנגנון השבור.
    */
   it("סגירת הרישומים משתמשת בסמן", () => {
     const code = codeOnly(readFileSync(join(DIR, "funnel-enrollment.service.ts"), "utf8"));
-    expect(code).toMatch(/cursor:\s*\{\s*id:\s*cursor\s*\}/u);
+    expect(code).toMatch(/where:\s*\{\s*endedAt:\s*null,\s*\.\.\.afterId\(after\)\s*\}/u);
   });
 
   /**
@@ -173,5 +178,47 @@ describe("מנוע המסלולים — שלב א׳ אינו שולח", () => {
     expect(body).toMatch(/backlogEnrolledToday\(tx\b/u);
     // ‏שום יציאה מהטרנזקציה בתוך הקטע הנעול
     expect(body).not.toMatch(/this\.prisma\.(?!withFunnelAdmin)/u);
+  });
+});
+
+/**
+ * ‎**שער: הדפדוף בקובץ המשפך אינו נשען על `cursor` של Prisma**
+ * ‏(ביקורת Codex, P2 — ארבע פעמים).
+ *
+ * ## ‏למה שער ולא תיקון רביעי
+ *
+ * ‏אותה תקלה נמצאה כאן ארבע פעמים: בסבב הטרי, בסבב הפיגור, בפתיחה
+ * ‏מחדש ובסגירה. בכל אחת מהן העבודה שהצליחה היא זו שמוציאה את שורת
+ * ‏העוגן מהתוצאה — משרד שנרשם יוצא מ-`funnelEnrollments: { none }`,
+ * ‏רישום שנפתח מאבד את `endedAt`, רישום שנסגר מקבל אחד — ו-`cursor`
+ * ‏של Prisma דורש ששורת העוגן תישאר. הדף הבא חוזר ריק, והסבב מטפל
+ * ‏באחד במקום בכולם.
+ *
+ * ‏שלושה תיקונים נקודתיים הזמינו רביעי. הכלל הוא שבקובץ הזה
+ * ‏**כל** דפדוף הוא סמן מפתח, ולכן `cursor` אסור בו.
+ */
+describe("שער: אין `cursor` של Prisma בדפדוף המשפך", () => {
+  const SOURCE = readFileSync(
+    join(__dirname, "funnel-enrollment.service.ts"),
+    "utf8",
+  );
+
+  /** ‏הקוד בלי הערות — הערה שמזכירה `cursor` אינה משתמשת בו. */
+  const CODE = SOURCE.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/^[ \t]*\/\/.*$/gmu, "");
+
+  it("‏יש מה לבדוק — הקובץ מדפדף", () => {
+    expect(CODE).toContain("take: pageSize");
+    expect(CODE.split("take: pageSize").length - 1).toBeGreaterThanOrEqual(4);
+  });
+
+  it("‏ואף דף אינו נלקח עם `cursor:`", () => {
+    expect(CODE, "‏`cursor` של Prisma חזר — ראו `afterId` ו-`afterSignup`").not.toMatch(
+      /cursor:\s*\{/u,
+    );
+  });
+
+  it("‏ושני הסמנים בשימוש", () => {
+    expect(CODE).toContain("afterId(");
+    expect(CODE).toContain("afterSignup(");
   });
 });
