@@ -37,6 +37,8 @@ export function rowToFields(row: PropertyRow): PropertyFields {
     hasBalcony: row.hasBalcony ?? undefined,
     hasSafeRoom: row.hasSafeRoom ?? undefined,
     hasStorage: row.hasStorage ?? undefined,
+    /* ‏`false` הוא ערך ולא היעדר — הסימון של המתווך, כפי שהוא */
+    sharedTabu: row.sharedTabu,
     condition: (row.condition as PropertyFields["condition"]) ?? undefined,
     priceAgorot: row.priceAgorot === null ? undefined : Number(row.priceAgorot),
     priceFlexible: row.priceFlexible ?? undefined,
@@ -137,6 +139,8 @@ export function fieldsToColumns(fields: Partial<PropertyFields>): Prisma.Propert
   if ("hasBalcony" in fields) out.hasBalcony = fields.hasBalcony ?? null;
   if ("hasSafeRoom" in fields) out.hasSafeRoom = fields.hasSafeRoom ?? null;
   if ("hasStorage" in fields) out.hasStorage = fields.hasStorage ?? null;
+  /* ‏העמודה `NOT NULL`, ולכן „לא נשלח” נופל ל-`false` ולא ל-`null` */
+  if ("sharedTabu" in fields) out.sharedTabu = fields.sharedTabu ?? false;
   if ("condition" in fields) out.condition = fields.condition ?? null;
   if ("priceAgorot" in fields)
     out.priceAgorot = fields.priceAgorot === undefined ? null : BigInt(fields.priceAgorot);

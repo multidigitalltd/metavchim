@@ -172,13 +172,49 @@ function StatTile({
   label,
   value,
   note,
+  /**
+   * ‎**אריח שיש לו יעד הופך לכפתור — ואריח שאין לו נשאר `div`.**
+   *
+   * ‏„טיוטה להשלמה” אומר למתווך שיש עבודה, ואז השאיר אותו לחפש
+   * ‏אותה בעצמו: לגלול לטבלה, לפתוח „סינון לפי סטטוס”, ולבחור
+   * ‏„טיוטה”. שלוש פעולות כדי להגיע למה שהאריח בדיוק ספר לו
+   * ‏(דיווח המשתמש).
+   *
+   * ‏`button` ולא `div` עם `onClick`: מקלדת, `Enter`, וקורא מסך —
+   * ‏שלושתם מגיעים מהאלמנט הנכון ולא מ-`role` שמודבק עליו.
+   */
+  onClick,
+  actionLabel,
 }: {
   domain: string;
   icon: ReactNode;
   label: string;
   value: number;
   note: string;
+  onClick?: () => void;
+  actionLabel?: string;
 }) {
+  if (onClick !== undefined) {
+    return (
+      <button
+        type="button"
+        className={`mv-stat-tile mv-stat-tile--sm ${domain} cursor-pointer text-right`}
+        onClick={onClick}
+        aria-label={actionLabel ?? label}
+      >
+        <span className="mv-card-head">
+          <span className="mv-tile" aria-hidden="true">
+            {icon}
+          </span>
+          <span className="mv-card-head__title">{label}</span>
+        </span>
+        <span className="mv-stat-tile__foot m-0 flex">
+          <span className="mv-stat-tile__value mv-ltr">{value}</span>
+          <span className="mv-stat-tile__note">{note}</span>
+        </span>
+      </button>
+    );
+  }
   return (
     <div className={`mv-stat-tile mv-stat-tile--sm ${domain}`}>
       <div className="mv-card-head">
@@ -215,9 +251,12 @@ function StatTile({
 function PropertyStats({
   items,
   truncated,
+  onShowDrafts,
 }: {
   items: PropertyRow[];
   truncated: boolean;
+  /** ‏„קחו אותי לטיוטות” — מסנן את הטבלה שמתחת, בלחיצה אחת. */
+  onShowDrafts: () => void;
 }) {
   const active = items.filter((p) => p.status === "active");
   const ready = active.filter((p) => p.missingFields.length === 0).length;
@@ -295,12 +334,16 @@ function PropertyStats({
         icon={<IconDoc s={20} />}
         label="טיוטה להשלמה"
         value={drafts.length}
+        /* ‏אריח ריק אינו כפתור — אין לאן לקחת */
+        {...(drafts.length === 0
+          ? {}
+          : { onClick: onShowDrafts, actionLabel: `הצגת ${drafts.length} הטיוטות ברשימה` })}
         note={
           drafts.length === 0
             ? "אין טיוטות פתוחות"
             : drafts.length === 1
               ? addressOf(drafts[0]!)
-              : "פתחו את הרשימה כדי להשלים"
+              : "לחצו כדי להציג אותן ברשימה"
         }
       />
       {/*
@@ -720,7 +763,23 @@ export default function PropertiesPage() {
           פירושו „עוד לא ידוע”, ואז אין כרטיסים בכלל: אריח שמראה „0”
           על טעינה שטרם הסתיימה הוא בדיוק אותו שקר של רשימה ריקה.
         */}
-        {items === null ? null : <PropertyStats items={items} truncated={truncated} />}
+        {items === null ? null : (
+          <PropertyStats
+            items={items}
+            truncated={truncated}
+            /*
+              ‎**הסינון וגם הגלילה.** האריחים יושבים לצד החיפוש,
+              ‏והרשימה מתחתיהם: סינון בלי גלילה משנה מסך שהמתווך
+              ‏אינו רואה, ונראה כאילו לא קרה דבר.
+            */
+            onShowDrafts={() => {
+              setStatus("draft");
+              document
+                .getElementById("properties-list")
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+          />
+        )}
       </div>
 
       {error ? (
@@ -778,8 +837,11 @@ export default function PropertiesPage() {
             הפקדים ישבו עד כה בסרגל נפרד מעל הרשימה, וסרגל הבחירה
             הופיע ונעלם בין שניהם — כלומר הרשימה „קפצה” בכל בחירה.
             בצילום הכל בכרטיס אחד, והפעולות בתחתיתו קבועות.
+
+            ‎`id` כדי שאריח „טיוטה להשלמה” יוכל לגלול לכאן: סינון
+            ‏שמשנה מסך שהמתווך אינו רואה נראה כאילו לא קרה דבר.
           */}
-          <div className="mv-card mv-card--pad">
+          <div id="properties-list" className="mv-card mv-card--pad">
             <div className="mv-card-head flex-wrap">
               <span className="mv-tile mv-tile--44 mv-domain-blue" aria-hidden="true">
                 <IconHome s={20} />

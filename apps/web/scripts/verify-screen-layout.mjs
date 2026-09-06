@@ -267,7 +267,12 @@ const bulkBar = onlyIn(PROPERTIES, "נבחרו {selectedVisible.length} נכסי
 /* ראש הטבלה — השורה הראשונה שהמתווך רואה מתחת לסרגל */
 const listBody = onlyIn(PROPERTIES, "{visible.length === 0 ? (", "גוף הרשימה", "עמוד הנכסים");
 /* הכרטיס עצמו — הסרגל חייב להישאר בתוכו ולא לצוף מעליו */
-const listCard = onlyIn(PROPERTIES, '<div className="mv-card mv-card--pad">', "כרטיס הרשימה", "עמוד הנכסים");
+/*
+ * ‏‎`id="properties-list"` הוא גם העוגן שאריח „טיוטה להשלמה” גולל
+ * ‏אליו, ולכן הוא חלק מהזהות של הכרטיס ולא קישוט: הסרתו שוברת את
+ * ‏המעבר מהאריח לרשימה.
+ */
+const listCard = onlyIn(PROPERTIES, '<div id="properties-list" className="mv-card mv-card--pad">', "כרטיס הרשימה", "עמוד הנכסים");
 
 if (bulkBar !== null && listBody !== null && listCard !== null) {
   if (bulkBar > listBody) {
@@ -288,9 +293,31 @@ if (bulkBar !== null && listBody !== null && listCard !== null) {
 }
 
 /*
+ * ‎**„טיוטה להשלמה” לוקח לטיוטות, ולא רק סופר אותן.**
+ *
+ * ‏האריח אמר למתווך שיש עבודה והשאיר אותו לחפש אותה: לגלול לטבלה,
+ * ‏לפתוח „סינון לפי סטטוס”, ולבחור „טיוטה”. שלוש פעולות כדי להגיע
+ * ‏למה שהאריח בדיוק ספר לו (דיווח המשתמש). המעבר נשען על שלושה
+ * ‏חלקים — הכפתור, הסינון, והגלילה — ושלושתם נבדקים, כי הסרת אחד
+ * ‏מהם משאירה מעבר שנראה קיים ואינו עובד.
+ */
+const draftsTile = PROPERTIES.indexOf('label="טיוטה להשלמה"');
+if (draftsTile === -1) {
+  problems.push("אריח „טיוטה להשלמה” לא נמצא בעמוד הנכסים");
+} else if (!PROPERTIES.slice(draftsTile, draftsTile + 700).includes("onClick: onShowDrafts")) {
+  problems.push("אריח „טיוטה להשלמה” אינו לוקח לרשימה — המתווך נשאר לחפש את הטיוטות בעצמו");
+}
+if (!PROPERTIES.includes('setStatus("draft")')) {
+  problems.push("„הצגת הטיוטות” אינו מסנן את הרשימה לטיוטות");
+}
+if (!PROPERTIES.includes('getElementById("properties-list")')) {
+  problems.push("„הצגת הטיוטות” מסנן בלי לגלול — המסך שהשתנה נשאר מחוץ לתצוגה");
+}
+
+/*
  * ‎**המונים והחיפוש באותו מכל דו-טורי**, ובאותה חלוקה כמו בדשבורד.
  */
-const statsCall = onlyIn(PROPERTIES, "<PropertyStats items={items}", "רכיב המונים", "עמוד הנכסים");
+const statsCall = onlyIn(PROPERTIES, "<PropertyStats", "רכיב המונים", "עמוד הנכסים");
 const filtersCall = onlyIn(PROPERTIES, "<ListFilters", "כרטיס החיפוש", "עמוד הנכסים");
 if (statsCall !== null && filtersCall !== null) {
   if (filtersCall > statsCall) {

@@ -111,6 +111,7 @@ interface PropertyDetail {
   hasElevator?: boolean;
   hasParking?: boolean;
   hasBalcony?: boolean;
+  sharedTabu?: boolean;
   hasSafeRoom?: boolean;
   priceAgorot?: number;
   entryDate?: string;
@@ -847,6 +848,16 @@ export default function PropertyDetailPage({
       label: "מאפיינים",
       value: features.length > 0 ? features.join(", ") : null,
     },
+    /*
+      ‎**„טאבו משותף” שורה משלו, ולא עוד מאפיין ברשימה.**
+
+      ‏מעלית ומחסן הם נוחות; רישום בטאבו משותף (מושאע) הוא עובדה
+      ‏משפטית שמשנה את כל אופן העסקה. הוא מוצג רק כשהוא מסומן — שורה
+      ‏„לא” על נכס רגיל היא רעש בכרטיס שכבר צפוף (בקשת בעל המוצר).
+    */
+    ...(property.sharedTabu === true
+      ? [{ label: "רישום", value: "טאבו משותף (מושאע)" }]
+      : []),
   ];
 
   /*

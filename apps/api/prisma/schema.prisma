@@ -304,6 +304,14 @@ model Contact {
   /// חתימת האימייל (HMAC) — התאמת שולח נכנס מ-Gmail לכרטיס קיים.
   emailHash      String?   @map("email_hash") @db.Char(64)
   optedOutAt     DateTime? @map("opted_out_at")
+  /**
+   * ‎**רישום בטאבו משותף (מושאע) — על הלקוח, כשהנכס עוד לא נכנס.**
+   *
+   * ‏מוכר שהתקשר ואמר „זה בטאבו משותף” אמר עובדה משפטית שמשנה את
+   * ‏כל העסקה, והיא צריכה מקום **לפני** שיש כרטיס נכס. הסימון על
+   * ‏הנכס עצמו יושב ב-`properties.shared_tabu`.
+   */
+  sharedTabu     Boolean   @default(false) @map("shared_tabu")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
@@ -439,6 +447,18 @@ model Property {
   hasBalcony           Boolean?  @map("has_balcony")
   hasSafeRoom          Boolean?  @map("has_safe_room")
   hasStorage           Boolean?  @map("has_storage")
+  /**
+   * ‎**רישום בטאבו משותף (מושאע)** — עובדה משפטית, לא מאפיין נוחות.
+   *
+   * ‏אין חלקה נפרדת, נדרשת הסכמת שותפים, והמימון מסובך. לכן היא
+   * ‏אינה יושבת ב-`customFeatures` לצד „מעלית” ו„מחסן”: אלה
+   * ‏מאפיינים שהמשרד מגדיר לעצמו, וזה נתון שמשנה את העסקה.
+   *
+   * ‎`false` ולא `NULL`: „לא סומן” אינו „לא ידוע” — הסימון הוא של
+   * ‏המתווך, ושורה שלא סומנה היא שורה שלא סומנה. מצב שלישי „טרם
+   * ‏נבדק” הוא מצב שאיש אינו מתחזק.
+   */
+  sharedTabu           Boolean   @default(false) @map("shared_tabu")
   condition            String?   @db.VarChar(20)
   priceAgorot          BigInt?   @map("price_agorot")
   priceFlexible        Boolean?  @map("price_flexible")

@@ -18,6 +18,14 @@ export interface ContactDto {
   phone: string;
   /** אופציונלי: כרטיס שנוצר משיחה נכנסת או מטופס לא תמיד כולל אימייל */
   email?: string;
+  /**
+   * ‎**רישום בטאבו משותף (מושאע)** — עובדה משפטית שמשנה את העסקה.
+   *
+   * ‏חובה ולא אופציונלי, ובכוונה: העמודה `NOT NULL DEFAULT false`,
+   * ‏ולכן „לא סומן” הוא ערך ולא היעדר. שדה רשות היה מזמין את
+   * ‏המסכים לקרוא `undefined` כ„לא ידוע” ולהמציא מצב שלישי.
+   */
+  sharedTabu: boolean;
 }
 
 /**
@@ -83,7 +91,7 @@ export class ContactsService {
     const existing = found
       ? await tx.contact.findFirst({
           where: { id: found.id, tenantId },
-          select: { id: true, nameEncrypted: true, phoneEncrypted: true },
+          select: { id: true, nameEncrypted: true, phoneEncrypted: true, sharedTabu: true },
         })
       : null;
     if (existing) {
@@ -91,6 +99,7 @@ export class ContactsService {
         id: existing.id,
         name: this.crypto.decrypt(existing.nameEncrypted),
         phone: this.crypto.decrypt(existing.phoneEncrypted),
+        sharedTabu: existing.sharedTabu,
       };
     }
 
@@ -107,19 +116,27 @@ export class ContactsService {
         nameHash: this.crypto.nameHash(normalizeNameForMatch(input.name)),
       },
     });
-    return { id, name: input.name, phone: input.phone };
+    /* ‏כרטיס חדש אינו מסומן — הסימון הוא פעולה של המתווך */
+    return { id, name: input.name, phone: input.phone, sharedTabu: false };
   }
 
   async getById(tx: TenantTx, id: string): Promise<ContactDto | null> {
     const row = await tx.contact.findFirst({
       where: { id, tenantId: TenantContext.current().tenantId },
-      select: { id: true, nameEncrypted: true, phoneEncrypted: true, emailEncrypted: true },
+      select: {
+        id: true,
+        nameEncrypted: true,
+        phoneEncrypted: true,
+        emailEncrypted: true,
+        sharedTabu: true,
+      },
     });
     if (!row) return null;
     return {
       id: row.id,
       name: this.crypto.decrypt(row.nameEncrypted),
       phone: this.crypto.decrypt(row.phoneEncrypted),
+      sharedTabu: row.sharedTabu,
       // האימייל אופציונלי — כרטיס שנוצר משיחה או מטופס לא תמיד כולל אותו
       ...(row.emailEncrypted ? { email: this.crypto.decrypt(row.emailEncrypted) } : {}),
     };
@@ -142,7 +159,13 @@ export class ContactsService {
 
     const rows = await tx.contact.findMany({
       where: { id: { in: unique }, tenantId: TenantContext.current().tenantId },
-      select: { id: true, nameEncrypted: true, phoneEncrypted: true, emailEncrypted: true },
+      select: {
+        id: true,
+        nameEncrypted: true,
+        phoneEncrypted: true,
+        emailEncrypted: true,
+        sharedTabu: true,
+      },
     });
     const byId = new Map<string, ContactDto>();
     for (const row of rows) {
@@ -150,6 +173,7 @@ export class ContactsService {
         id: row.id,
         name: this.crypto.decrypt(row.nameEncrypted),
         phone: this.crypto.decrypt(row.phoneEncrypted),
+        sharedTabu: row.sharedTabu,
         ...(row.emailEncrypted ? { email: this.crypto.decrypt(row.emailEncrypted) } : {}),
       });
     }
@@ -274,6 +298,26 @@ export class ContactsService {
         ? { id: contactId, tenantId, optedOutAt: { not: null } }
         : { id: contactId, tenantId, optedOutAt: null },
       data: { optedOutAt: consent ? null : new Date() },
+    });
+    return result.count === 1;
+  }
+
+  /**
+   * ‎**„טאבו משותף” על הלקוח** (בקשת בעל המוצר).
+   *
+   * ‏רישום בטאבו משותף (מושאע) הוא עובדה משפטית שמשנה את כל אופן
+   * ‏העסקה: אין חלקה נפרדת, נדרשת הסכמת שותפים, והמימון מסובך.
+   * ‏על הלקוח ולא רק על הנכס, כי לרוב הוא נאמר בשיחה הראשונה —
+   * ‏לפני שיש בכלל כרטיס נכס לרשום עליו.
+   *
+   * ‏הכתיבה מותנית במצב הנוכחי, כמו בהסכמת השיווק: כך היא
+   * ‏אידמפוטנטית, ולחיצה חוזרת אינה מייצרת רשומת ביקורת שנייה.
+   */
+  async setSharedTabu(tx: TenantTx, contactId: string, sharedTabu: boolean): Promise<boolean> {
+    const tenantId = TenantContext.current().tenantId;
+    const result = await tx.contact.updateMany({
+      where: { id: contactId, tenantId, sharedTabu: !sharedTabu },
+      data: { sharedTabu },
     });
     return result.count === 1;
   }
