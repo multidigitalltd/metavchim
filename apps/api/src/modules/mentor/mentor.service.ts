@@ -301,6 +301,7 @@ export class MentorService {
         funnel,
         feedback: resolveIdeaFeedback(user?.preferences),
         office: await this.signals.officePlaybookFor(tx, tenantId, userId, now),
+        closestDeal: await this.signals.closestDeal(tx, tenantId, userId, now),
         now,
       });
       return {
@@ -854,6 +855,13 @@ export class MentorService {
           userId,
           now,
         );
+        // העסקה הקרובה ביותר — העצה הראשונה, והחריג לכלל 6 בפרומפט (§7.6)
+        const closest = await this.signals.closestDeal(
+          tx,
+          tenantId,
+          userId,
+          now,
+        );
         const advice = mentorAdvice({
           goals,
           activity,
@@ -862,6 +870,7 @@ export class MentorService {
           funnel,
           feedback: resolveIdeaFeedback(user?.preferences),
           office,
+          closestDeal: closest,
           now,
         });
         // התרגול האחרון בחודש האחרון — מה המנטור אמר לנסות (§7.3)
@@ -888,6 +897,7 @@ export class MentorService {
             goals,
             now,
           ),
+          closestDeal: closest,
           lastPractice:
             practice.last === null
               ? null

@@ -583,6 +583,14 @@ function AdviceSection({
                   עבד אצל אחרים במשרד
                 </span>
               ) : null}
+              {item.link !== undefined ? (
+                <Link
+                  href={item.link.href}
+                  className="mv-link mt-1 inline-block"
+                >
+                  {item.link.label}
+                </Link>
+              ) : null}
               {item.ideaKey !== undefined ? (
                 /*
                  * המשוב הוא הליווי: „עזר לי” — עוד מהסוג הזה; „לא בשבילי” —

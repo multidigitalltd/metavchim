@@ -1,4 +1,5 @@
 import { jerusalemDayLabel } from "./israel-time.js";
+import type { MentorClosestDeal } from "./mentor-deal.js";
 import {
   MENTOR_METRICS,
   mentorGoalLabel,
@@ -43,7 +44,12 @@ import {
  */
 
 export type MentorAdviceKind =
-  "missed_calls" | "behind_goal" | "bottleneck" | "response_time" | "idea";
+  | "closest_deal"
+  | "missed_calls"
+  | "behind_goal"
+  | "bottleneck"
+  | "response_time"
+  | "idea";
 
 export interface MentorAdvice {
   kind: MentorAdviceKind;
@@ -58,6 +64,8 @@ export interface MentorAdvice {
   ideaKey?: string;
   /** הרעיון הוכיח את עצמו אצל אחרים במשרד (§7.4) — המסך אומר זאת */
   proven?: true;
+  /** קישור לכרטיס — העסקה הקרובה ביותר מובילה לקונה (§7.6) */
+  link?: { href: string; label: string };
 }
 
 export interface MentorAdviceInput {
@@ -71,6 +79,8 @@ export interface MentorAdviceInput {
   feedback?: MentorIdeaFeedback;
   /** מה הוכיח את עצמו במשרד — מוצע ראשון (§7.4) */
   office?: OfficeProvenLookup;
+  /** הקונה הכי קרוב לסגירה — העצה הראשונה (§7.6); חסר/`null` = אין */
+  closestDeal?: MentorClosestDeal | null;
   now: Date;
 }
 
@@ -143,6 +153,22 @@ export function mentorAdvice(input: MentorAdviceInput): MentorAdvice[] {
     taken.add(item.metric);
     advice.push(item);
   };
+
+  /*
+   * העסקה הקרובה ביותר — ראשונה (§7.6): קונה אחד, מכשול אחד. זה מה
+   * שמנטור מכירות מסתכל עליו לפני המדדים, כי שם הכסף.
+   */
+  const deal = input.closestDeal ?? null;
+  if (deal !== null) {
+    push({
+      kind: "closest_deal",
+      metric: "deals_closed",
+      title: `העסקה הקרובה ביותר: ${deal.name}`,
+      body: `${deal.reason}. ${deal.question} ${deal.step}`,
+      question: `מה חסר ל${deal.name} כדי להחליט?`,
+      link: { href: `/buyers/${deal.buyerId}`, label: "לכרטיס הקונה" },
+    });
+  }
 
   const missed = input.insights?.missedUnreturned ?? 0;
   if (missed > 0) {

@@ -1253,6 +1253,8 @@ export interface MentorDailyInput {
   ideaProven?: boolean;
   /** 30 הימים הראשונים (§7.5) — שורה בתחילת שבוע, ובוקר שלא נשאר ריק */
   onboarding?: { morningLine: string | null; stepBody: string } | null;
+  /** העסקה הקרובה ביותר (§7.6) — נאמרת ביום שני, פעם בשבוע */
+  closestDeal?: string | null;
   now: Date;
   firstName?: string;
   /** השם והסגנון שהמתווך בחר — הפתיח והסיום, לא התוכן */
@@ -1325,6 +1327,9 @@ export function mentorDailyPlan(
         : `${label}: ${mentorQuantity(goal.metric, goal.actual)} עד עכשיו. ${today} היום ${goal.pace === "behind" ? "כדי לחזור לקצב" : "כדי להישאר בקצב"}.`,
     );
   }
+
+  // פעם בשבוע, ביום שני: קונה אחד ומכשול אחד (§7.6) — שיפוט, לא תזכורת
+  if (weekday === 1 && input.closestDeal) lines.push(input.closestDeal);
 
   const missed = input.insights?.missedUnreturned ?? 0;
   if (missed === 1) {

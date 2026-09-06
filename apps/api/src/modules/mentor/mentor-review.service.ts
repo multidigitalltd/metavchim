@@ -22,6 +22,7 @@ import {
   mentorMonthlyBody,
   mentorMonthlyReview,
   shiftDayLabel,
+  closestDealLine,
   mentorDailyIdeaPick,
   mentorOnboarding,
   ONBOARDING_DAYS,
@@ -532,12 +533,18 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
               })
             ).count,
           });
+    // יום שני: העסקה הקרובה ביותר — פעם בשבוע, קונה אחד ומכשול אחד (§7.6)
+    const closest =
+      jerusalemWeekday(now) === 1
+        ? await this.signals.closestDeal(tx, tenantId, userId, now)
+        : null;
     const plan = mentorDailyPlan({
       goals,
       insights,
       yesterday,
       idea: idea.text,
       ideaProven: idea.proven === true,
+      closestDeal: closest === null ? null : closestDealLine(closest),
       now,
       persona,
       ...(firstName === "" ? {} : { firstName }),
