@@ -39,7 +39,7 @@ import {
   assertCanAssignAgents,
 } from "../../common/agent-names";
 import { lockContact, lockProperty, type ContactLock } from "../../common/locks";
-import { isOrphanContact, leadOwnershipFilter } from "../../common/ownership";
+import { canSeeContact, isOrphanContact, leadOwnershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { recordMentorWin } from "../../common/mentor-wins";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
@@ -959,12 +959,28 @@ export class PropertiesService {
         hasDescription: Boolean(row.marketingDescription),
         hasOwner: Boolean(row.ownerContactId),
       });
-      const ownerContact = row.ownerContactId
-        ? await this.contacts.getById(tx, row.ownerContactId)
-        : null;
-      const occupantContact = row.occupantContactId
-        ? await this.contacts.getById(tx, row.occupantContactId)
-        : null;
+      /*
+       * ‎**פרטי הבעלים יורדים כשהנכס אינו של הסוכן — ולא הכרטיס.**
+       *
+       * ‏רשימת הנכסים משרדית בכוונה, ולכן כל סוכן מחזיק את המזהה.
+       * ‏בלי הבדיקה כאן, מנהל שחוסם `properties.view_all` היה מסתיר
+       * ‏את הבעלים מהדואר, מהשיחות ומהחיפוש — ומשאיר את השם, הטלפון
+       * ‏והמייל שלו זמינים בלחיצה אחת על הנכס עצמו (ביקורת Codex).
+       * ‏הגנה שיש לה מעקף בן צעד אחד אינה הגנה.
+       *
+       * ‏השמטה ולא 404: הנכס **כן** מותר לו — הכתובת, המחיר והמצב.
+       * ‏מה שאינו מותר הוא האדם.
+       */
+      const mayContact = async (contactId: string | null): Promise<boolean> =>
+        contactId !== null && (await canSeeContact(tx, TenantContext.current().tenantId, contactId));
+      const ownerContact =
+        row.ownerContactId !== null && (await mayContact(row.ownerContactId))
+          ? await this.contacts.getById(tx, row.ownerContactId)
+          : null;
+      const occupantContact =
+        row.occupantContactId !== null && (await mayContact(row.occupantContactId))
+          ? await this.contacts.getById(tx, row.occupantContactId)
+          : null;
       const agents = await agentNames(tx, TenantContext.current().tenantId, [row.agentUserId]);
       const agentName = agentNameOf(agents, row.agentUserId);
       return {

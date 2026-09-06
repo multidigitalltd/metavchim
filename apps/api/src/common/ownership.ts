@@ -563,11 +563,22 @@ export async function visibleContactIds(
   ];
 }
 
-export async function assertContactAccess(
+/**
+ * ‎**האם הלקוח הזה מותר לי — בלי לזרוק.**
+ *
+ * ‏אותו כלל בדיוק של `assertContactAccess`, ובאמת אותו קוד: הפונקציה
+ * ‏ההיא קוראת לזו. שני מימושים היו נפרדים בעריכה הראשונה, וזו טבלת
+ * ‏ההרשאות האחרונה שבה מותר שזה יקרה.
+ *
+ * ‏קיימת כי יש מקום אחד שבו „אסור” אינו 404 אלא **השמטה**: כרטיס
+ * ‏הנכס. הנכס עצמו גלוי לכל המשרד בכוונה, ולכן חסימת הכרטיס כולו
+ * ‏הייתה שינוי אחר לגמרי — מה שצריך לרדת ממנו הוא פרטי הבעלים.
+ */
+export async function canSeeContact(
   tx: TenantTx,
   tenantId: string,
   contactId: string,
-): Promise<void> {
+): Promise<boolean> {
   // אותם מקורות בדיוק כמו ב-`visibleContactIds` — הן חייבות להסכים
   const sources = contactSources();
   const [buyer, lead, property] = await Promise.all([
@@ -601,7 +612,17 @@ export async function assertContactAccess(
         })
       : null,
   ]);
-  if (!buyer && !lead && !property) throw new NotFoundException("איש קשר לא נמצא");
+  return Boolean(buyer || lead || property);
+}
+
+export async function assertContactAccess(
+  tx: TenantTx,
+  tenantId: string,
+  contactId: string,
+): Promise<void> {
+  if (!(await canSeeContact(tx, tenantId, contactId))) {
+    throw new NotFoundException("איש קשר לא נמצא");
+  }
 }
 
 /**

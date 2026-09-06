@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { NotFoundException } from "@nestjs/common";
 import type { Capability } from "@metavchim/shared";
-import { assertContactAccess, seesAllContacts, visibleContactIds } from "./ownership";
+import {
+  assertContactAccess,
+  canSeeContact,
+  seesAllContacts,
+  visibleContactIds,
+} from "./ownership";
 import { TenantContext } from "./tenant-context";
 
 /**
@@ -128,6 +133,34 @@ describe("בעל נכס — מי רואה אותו", () => {
     expect(asUser(almost, "01ME", () => seesAllContacts())).toBe(false);
     expect(
       asUser([...almost, "properties.view_all"], "01ME", () => seesAllContacts()),
+    ).toBe(true);
+  });
+
+  /**
+   * ‎**המעקף שנמצא בסקירה: הכרטיס עצמו.**
+   *
+   * ‏רשימת הנכסים משרדית בכוונה, ולכן לכל סוכן יש את המזהה. הסתרת
+   * ‏הבעלים מהדואר ומהשיחות בלי לגעת ב-`GET /properties/:id` השאירה
+   * ‏את השם, הטלפון והמייל במרחק לחיצה אחת — כלומר הגנה עם מעקף בן
+   * ‏צעד אחד (ביקורת Codex, P1). `canSeeContact` הוא מה שכרטיס הנכס
+   * ‏שואל, והוא אותו קוד בדיוק של השער — לא מימוש שני.
+   */
+  it("‏‎canSeeContact הוא אותו כלל של השער, בשני הכיוונים", async () => {
+    expect(
+      await asUser(SCOPED, "01ME", () =>
+        canSeeContact(txFor(OTHERS) as never, "01TENANT", "01OWNER"),
+      ),
+    ).toBe(false);
+    expect(
+      await asUser(SCOPED, "01ME", () =>
+        canSeeContact(txFor(MINE) as never, "01TENANT", "01OWNER"),
+      ),
+    ).toBe(true);
+    // ‏וברירת המחדל אינה משנה דבר
+    expect(
+      await asUser(DEFAULT, "01ME", () =>
+        canSeeContact(txFor(OTHERS) as never, "01TENANT", "01OWNER"),
+      ),
     ).toBe(true);
   });
 });

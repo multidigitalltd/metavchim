@@ -100,6 +100,34 @@ export interface InboxMessageDto {
  * וטוקן לא-מוכר נבלע בשקט (200 — הספק לא ינסה שוב לנצח). התיבה
  * היא תיבת דואר: מציגים מה שהגיע, לא סומכים עליו.
  */
+/**
+ * ‎**מי הבעלים של ההתראה על מייל נכנס — שלושת המקורות, לפי סדר.**
+ *
+ * ‏מיוצא וטהור כדי שיהיה **ניתן לבדיקה**: `processInbound` נוגע
+ * ‏באחסון, בשליחה ובאנשי הקשר, ובדיקה שלו כולו הייתה מכשיר גדול
+ * ‏שבודק הכול חוץ מהכלל.
+ *
+ * ‏הסדר אינו שרירותי: כרטיס קונה הוא הקשר ההדוק ביותר, ליד אחריו,
+ * ‏ובעלות על נכס אחרונה — היא הרחבה של אותו לקוח ולא זהות נפרדת.
+ *
+ * ‎`null` פירושו „אין בעלים”, ו-`NotificationsService.visible()`
+ * ‏מציג התראה כזו **לכל המשרד**. לכן השורה הזו היא גבול פרטיות ולא
+ * ‏נוחות: לקוח שהוא רק בעל נכס נפל בעבר ל-`null`, והתמצית של גוף
+ * ‏המייל הוצגה לכולם (ביקורת Codex, P1).
+ */
+export function inboundNotificationOwner(sources: {
+  buyer: { ownerUserId: string | null } | null;
+  lead: { assignedToUserId: string | null } | null;
+  property: { agentUserId: string | null } | null;
+}): string | null {
+  return (
+    sources.buyer?.ownerUserId ??
+    sources.lead?.assignedToUserId ??
+    sources.property?.agentUserId ??
+    null
+  );
+}
+
 @Injectable()
 export class EmailInboxService {
   private readonly logger = new Logger(EmailInboxService.name);
@@ -287,6 +315,32 @@ export class EmailInboxService {
               select: { id: true, assignedToUserId: true },
             })
           : null;
+      /*
+       * ‎**ובעל נכס הוא גם בעלים — אחרת ההתראה עוקפת את כל ההפרדה.**
+       *
+       * ‏הבעלות נגזרה מקונה או מליד בלבד. לקוח שהוא **רק** בעל נכס
+       * ‏אינו אף אחד מהם, ולכן ההתראה נכתבה עם `userId: null` —
+       * ‏ו-`NotificationsService.visible()` מציג התראה חסרת בעלים
+       * ‏לכל המשרד, כולל תמצית גוף המייל. כלומר בדיוק ההודעה
+       * ‏שהסתרנו מהתיבה הייתה מוצגת בפיד (ביקורת Codex, P1).
+       *
+       * ‏שאילתה שלישית ולא צירוף: היא נשאלת רק כשאין קונה ואין ליד,
+       * ‏שהוא המקרה הנדיר.
+       */
+      const property =
+        buyer === null && lead === null
+          ? await tx.property.findFirst({
+              where: {
+                tenantId,
+                deletedAt: null,
+                OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
+                agentUserId: { not: null },
+              },
+              orderBy: { createdAt: "desc" },
+              select: { agentUserId: true },
+            })
+          : null;
+      const ownerUserId = inboundNotificationOwner({ buyer, lead, property });
       const snippet =
         body === ""
           ? `📎 ${incoming.length} קבצים מצורפים`
@@ -311,7 +365,7 @@ export class EmailInboxService {
           id: ulid(),
           tenantId,
           // הסוכן האחראי; אין כזה — כל המשרד רואה
-          userId: buyer?.ownerUserId ?? lead?.assignedToUserId ?? null,
+          userId: ownerUserId,
           type: "email_reply",
           title: "📧 לקוח ענה במייל",
           body: snippet,
@@ -325,7 +379,7 @@ export class EmailInboxService {
       return {
         messageId: id,
         fresh: true,
-        notifyUserId: buyer?.ownerUserId ?? lead?.assignedToUserId ?? null,
+        notifyUserId: ownerUserId,
         customerName: contact.name,
       };
     });

@@ -1891,7 +1891,19 @@ const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
    * ממי שהמודול חסום אצלו (`seesAllContacts`). בלי היכולת השלישית
    * כאן הסייג היה נעלם דווקא כשחלק מההיסטוריה אכן הוסתר.
    */
-  show_calls: ["buyers.view_all", "leads.view_all", "properties.view"],
+  show_calls: [
+    "buyers.view_all",
+    "leads.view_all",
+    "properties.view",
+    /*
+     * ‏הרביעית נוספה עם ההפרדה לפי סוכן על הנכסים. ההערה שמעל כבר
+     * ‏אמרה למה השלישית כאן — „הסייג היה נעלם דווקא כשחלק
+     * ‏מההיסטוריה אכן הוסתר” — וזה חל מילה במילה גם עליה: סוכן שאין
+     * ‏לו את כל הנכסים מקבל יומן שיחות מסונן, ובלי השורה הזו ההודעה
+     * ‏הייתה מציגה אותו כמשרדי (ביקורת Codex).
+     */
+    "properties.view_all",
+  ],
   /*
    * „למי לחזור” שואבת משלושה מקורות — שיחות, לידים ומשימות —
    * ולכן דורשת את איחוד היכולות שלהם.
@@ -1909,6 +1921,8 @@ const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
     "buyers.view_all",
     "leads.view_all",
     "properties.view",
+    // ‏מאותו נימוק בדיוק כמו ב-`show_calls`: „למי לחזור” שואב משיחות
+    "properties.view_all",
     "tasks.view_all",
     "calendar.manage",
   ],

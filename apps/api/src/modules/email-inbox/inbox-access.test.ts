@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { NotFoundException } from "@nestjs/common";
 import type { Capability } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
-import { EmailInboxService } from "./email-inbox.service";
+import { EmailInboxService, inboundNotificationOwner } from "./email-inbox.service";
 
 /**
  * ‎**סוכן אינו רואה — ובעיקר אינו כותב — בהתכתבות של עמיתו.**
@@ -61,6 +61,7 @@ function serviceFor(fx: Fixtures): EmailInboxService {
         ),
     },
     lead: { findFirst: async () => null, findMany: async () => [] },
+    // ‏שום נכס אינו קושר את הלקוח הזה — „שלי” כאן הוא קונה בלבד
     property: { findFirst: async () => null, findMany: async () => [] },
     contactLink: { findFirst: async () => null },
     emailMessage: {
@@ -186,5 +187,62 @@ describe("תיבת הדואר — הפרדה בין סוכנים", () => {
     await expect(
       asAgent(MANAGER, () => serviceFor({ ownedContactIds: [] }).thread("01THEIRS")),
     ).resolves.toBeDefined();
+  });
+});
+
+
+/**
+ * ‎**ההתראה על מייל נכנס — הדרך השנייה החוצה.**
+ *
+ * ‏הסתרת השיחה מהתיבה אינה שווה דבר אם ההתראה עליה מוצגת לכולם.
+ * ‏`NotificationsService.visible()` מציג התראה **חסרת בעלים** לכל
+ * ‏המשרד, כולל תמצית מגוף המייל — ולקוח שהוא רק בעל נכס לא היה
+ * ‏קונה ולא ליד, ולכן נפל בדיוק לשם (ביקורת Codex, P1).
+ */
+describe("בעלות ההתראה על מייל נכנס", () => {
+  it("כרטיס קונה קודם לכול", () => {
+    expect(
+      inboundNotificationOwner({
+        buyer: { ownerUserId: "01BUYERAGENT" },
+        lead: { assignedToUserId: "01LEADAGENT" },
+        property: { agentUserId: "01PROPAGENT" },
+      }),
+    ).toBe("01BUYERAGENT");
+  });
+
+  it("ואחריו הליד", () => {
+    expect(
+      inboundNotificationOwner({
+        buyer: null,
+        lead: { assignedToUserId: "01LEADAGENT" },
+        property: { agentUserId: "01PROPAGENT" },
+      }),
+    ).toBe("01LEADAGENT");
+  });
+
+  /** ‏זה המקרה שנפל: לקוח שהוא **רק** בעל נכס. */
+  it("בעל נכס בלבד מקבל את סוכן הנכס — ולא null", () => {
+    expect(
+      inboundNotificationOwner({
+        buyer: null,
+        lead: null,
+        property: { agentUserId: "01PROPAGENT" },
+      }),
+    ).toBe("01PROPAGENT");
+  });
+
+  /*
+   * ‏הגבול: כשבאמת אין בעלים, `null` הוא התשובה הנכונה — התראה
+   * ‏שאיש אינו רואה גרועה מהתראה משרדית.
+   */
+  it("בלי אף מקור — null, ובכוונה", () => {
+    expect(inboundNotificationOwner({ buyer: null, lead: null, property: null })).toBeNull();
+    expect(
+      inboundNotificationOwner({
+        buyer: null,
+        lead: null,
+        property: { agentUserId: null },
+      }),
+    ).toBeNull();
   });
 });
