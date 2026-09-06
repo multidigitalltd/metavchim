@@ -68,6 +68,12 @@ export interface MentorChatContext {
   advice?: MentorAdvice[];
   /** השם והסגנון שהמתווך בחר — הטון של התשובה (docs/14 §4.1) */
   persona?: MentorPersona;
+  /** התרגול האחרון — מה לנסות בשיחה האמיתית (§7.3); חסר = לא תרגל */
+  lastPractice?: {
+    scenarioLabel: string;
+    score: number;
+    tryNext: string;
+  } | null;
   /** מהישן לחדש */
   history: { role: "user" | "mentor"; text: string }[];
   question: string;
@@ -303,6 +309,12 @@ export function buildMentorPrompt(ctx: MentorChatContext): string {
         },
         ctx.advice ?? [],
       ),
+    );
+  }
+  if (ctx.lastPractice) {
+    lines.push(
+      "",
+      `התרגול האחרון של המתווך (${ctx.lastPractice.scenarioLabel}, ציון ${ctx.lastPractice.score} מתוך 5). מה שהמנטור אמר לנסות בשיחה האמיתית: ${ctx.lastPractice.tryNext} — כשרלוונטי, אפשר לשאול אם ניסה.`,
     );
   }
   if (ctx.patterns !== undefined && ctx.patterns.length > 0) {

@@ -138,6 +138,7 @@ function fakeTx(counts: {
           (g) => args?.where?.endedAt !== null || g.endedAt === null,
         ),
     },
+    mentorPractice: { findMany: async () => [] },
     mentorMonthlyReview: {
       findMany: async () => [],
       create: async (args: { data: Record<string, unknown> }) => {

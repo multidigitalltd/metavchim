@@ -52,6 +52,7 @@ import {
   MentorSignalsService,
   type MentorGoalRow,
 } from "./mentor-signals.service";
+import { MentorPracticeService } from "./mentor-practice.service";
 import { MentorService } from "./mentor.service";
 
 /**
@@ -837,11 +838,22 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       if (outcome !== null) ideaOutcomes.push(outcome);
     }
 
+    // תרגולי השיחה של השבוע — מאמץ שנאמר בשמו (§7.3)
+    const practiceStats = await MentorPracticeService.stats(
+      tx,
+      tenantId,
+      userId,
+      week,
+    );
     const signals: MentorWeekSignals = {
       patterns,
       persona,
       feedback,
       ideaOutcomes,
+      practice: {
+        count: practiceStats.count,
+        lastScore: practiceStats.last?.score ?? null,
+      },
       ...(firstName === "" ? {} : { firstName }),
       insights,
       weekStart,

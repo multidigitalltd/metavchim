@@ -441,6 +441,7 @@ export class AccountDeletionService {
         await tx.mentorWin.deleteMany({ where: { tenantId } });
         await tx.mentorReview.deleteMany({ where: { tenantId } });
         await tx.mentorMonthlyReview.deleteMany({ where: { tenantId } });
+        await tx.mentorPractice.deleteMany({ where: { tenantId } });
         await tx.mentorGoal.deleteMany({ where: { tenantId } });
         /*
          * הטבלאות של המנטור הקודם (#377–#385) — נשמרו עם הנתונים ואינן

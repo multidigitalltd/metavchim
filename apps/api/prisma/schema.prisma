@@ -153,6 +153,7 @@ model User {
   mentorGoals          MentorGoal[]
   mentorReviews        MentorReview[]
   mentorMonthlyReviews MentorMonthlyReview[]
+  mentorPractices      MentorPractice[]
   mentorMessages       MentorMessage[]
   mentorWins           MentorWin[]
 
@@ -732,6 +733,29 @@ model MentorMonthlyReview {
 
   @@unique([tenantId, userId, monthStart])
   @@map("mentor_monthly_reviews")
+}
+
+/// תרגול שיחה — התרחיש, התורים והמשוב (docs/14 §7.3); לא בזיכרון השיחה עם המנטור.
+model MentorPractice {
+  id         String    @id @db.Char(26)
+  tenantId   String    @map("tenant_id") @db.Char(26)
+  userId     String    @map("user_id") @db.Char(26)
+  /// מתוך PRACTICE_SCENARIOS
+  scenario   String    @db.VarChar(40)
+  /// PracticeTurn[] — המתווך והדמות, לפי הסדר
+  turns      Json      @default("[]")
+  /// כמה תורים של המתווך — למכסה היומית ולתקרה של תרגול
+  agentTurns Int       @default(0) @map("agent_turns") @db.SmallInt
+  /// MentorPracticeFeedback — ריק עד שביקשו משוב
+  feedback   Json?
+  score      Int?      @db.SmallInt
+  createdAt  DateTime  @default(now()) @map("created_at")
+  endedAt    DateTime? @map("ended_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, createdAt])
+  @@map("mentor_practices")
 }
 
 /// הצלחה שנאמרת בשמה — נרשמת ברגע האירוע, עם מי שעשה אותה.
