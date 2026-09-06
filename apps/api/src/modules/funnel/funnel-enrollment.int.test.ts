@@ -871,7 +871,9 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
       new Date(now.getTime() + 10 * DAY),
     );
 
-    expect(await service.close(id, "completed", now, stale)).toBe(false);
+    expect(await service.close(id, "completed", now, { ...stale, tenantId: OLD_TENANT, hasCard: false })).toBe(
+      false,
+    );
     const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
     expect(row?.endedAt, "נסגר על סמך תמונה מיושנת").toBeNull();
   });
@@ -904,8 +906,10 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
     // ‏הסיום זהה לתמונה; רק התאריך זז
     expect(
       await service.close(id, "completed", now, {
+        tenantId: OLD_TENANT,
         trialEndsAt: null,
         trialConcludedAt: concluded,
+        hasCard: false,
       }),
     ).toBe(false);
   });
@@ -926,10 +930,60 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
     // ‏התאריך זהה לתמונה (ריק); רק הסיום זז
     expect(
       await service.close(id, "completed", now, {
+        tenantId: OLD_TENANT,
         trialEndsAt: null,
         trialConcludedAt: new Date(),
+        hasCard: false,
       }),
     ).toBe(false);
+  });
+
+  /*
+   * ‎**וגם הכרטיס — לא רק העוגן.**
+   *
+   * ‏תשלום על מספר או על מקום וואטסאפ שומר כרטיס בשורת המנוי בלבד.
+   * ‏שורת הדייר אינה זזה, ולכן תנאי העוגן עובר והרישום היה נסגר
+   * ‏כ„מוצה” במקום כ„שילם” — סיבה שגויה על סגירה בלתי הפיכה
+   * ‏(ביקורת Codex).
+   */
+  it("כרטיס שנוסף בין הקריאה לכתיבה עוצר את הסגירה", async () => {
+    const now = new Date();
+    await service.sweep(now, { dailyQuota: 5 });
+    const id = (
+      await direct.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id FROM funnel_enrollments WHERE tenant_id = $1 LIMIT 1`,
+        OLD_TENANT,
+      )
+    )[0]!.id;
+    /*
+     * ‎**העוגן חייב להתאים לתמונה** — אחרת תנאי העוגן דוחה ממילא
+     * ‏והבדיקה אינה נוגעת בכרטיס כלל. זה בדיוק מה שקרה בגרסה
+     * ‏הראשונה שלה: מוטציה שהסירה את בדיקת הכרטיס שרדה אותה.
+     */
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET trial_ends_at = NULL, trial_concluded_at = NULL WHERE id = $1`,
+      OLD_TENANT,
+    );
+    await direct.$executeRawUnsafe(
+      `INSERT INTO subscriptions (id, tenant_id, plan_code, billing_cycle, status,
+                                  card_token_encrypted, card_month, card_year, created_at, updated_at)
+       VALUES ($1, $2, 'basic', 'monthly', 'active', 'tok', 12, 2099, now(), now())
+       ON CONFLICT (tenant_id) DO UPDATE
+         SET card_token_encrypted = 'tok', card_month = 12, card_year = 2099`,
+      "01M1FNNLTESTCARDRACE000001",
+      OLD_TENANT,
+    );
+    // ‏התמונה נקראה לפני התשלום: „אין כרטיס”
+    expect(
+      await service.close(id, "completed", now, {
+        tenantId: OLD_TENANT,
+        trialEndsAt: null,
+        trialConcludedAt: null,
+        hasCard: false,
+      }),
+    ).toBe(false);
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedAt, "נסגר כ„מוצה” אחרי שנכנס כרטיס").toBeNull();
   });
 
   /*
@@ -954,8 +1008,10 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
     );
     expect(
       await service.close(id, "completed", now, {
+        tenantId: OLD_TENANT,
         trialEndsAt: null,
         trialConcludedAt: concluded,
+        hasCard: false,
       }),
     ).toBe(true);
     const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);

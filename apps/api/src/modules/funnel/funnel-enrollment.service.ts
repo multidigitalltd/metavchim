@@ -492,8 +492,10 @@ export class FunnelEnrollmentService {
        * ‏בינתיים — ניסיון שהוחזר — הכתיבה אינה חלה, וזה הנכון.
        */
       const closedNow = await this.close(row.id, reason, now, {
+        tenantId: row.tenantId,
         trialEndsAt: tenant.trialEndsAt,
         trialConcludedAt: tenant.trialConcludedAt,
+        hasCard: card,
       });
       if (closedNow) closed += 1;
     }
@@ -528,7 +530,28 @@ export class FunnelEnrollmentService {
    * ‏עוצר — אין מה לפתוח, ויש כבר אחד שעובד.
    */
   async reopenForRestoredTrial(tenantId: string): Promise<boolean> {
-    return this.prisma.withFunnelAdmin(async (tx) => {
+    return this.prisma.withFunnelAdmin((tx) => this.reopenWithin(tx, tenantId));
+  }
+
+  /**
+   * ‎**אותה פתיחה, בתוך טרנזקציה שכבר פתוחה.**
+   *
+   * ‏המסך שמחזיר ניסיון כותב את הדייר ואז פותח את הרישום. בשתי
+   * ‏פעולות נפרדות, תקלה ביניהן משאירה ניסיון חי לצד רישום סגור —
+   * ‏ומצב כזה **קבוע**: `closeFinished` סורק רק רישומים פתוחים,
+   * ‏ו-`enrollDue` מוציא מי שהיה לו רישום (ביקורת Codex). לכן
+   * ‏שתיהן באותה טרנזקציה.
+   *
+   * ‎`set_config` עם `true` הוא מקומי-לטרנזקציה, ולכן הדגל נדלק
+   * ‏כאן בדיוק כמו ב-`withFunnelAdmin` ונכבה עם ה-COMMIT.
+   */
+  async reopenWithin(tx: TenantTx, tenantId: string): Promise<boolean> {
+    await tx.$executeRaw`SELECT set_config('app.funnel_admin', 'on', true)`;
+    return this.reopenRows(tx, tenantId);
+  }
+
+  private async reopenRows(tx: TenantTx, tenantId: string): Promise<boolean> {
+    return (async () => {
       const open = await tx.funnelEnrollment.findFirst({
         where: { tenantId, track: "conversion", endedAt: null },
         select: { id: true },
@@ -553,7 +576,7 @@ export class FunnelEnrollmentService {
         this.logger.log(`רישום ${closed.id} נפתח מחדש — הניסיון של המשרד הוחזר`);
       }
       return updated.count > 0;
-    });
+    })();
   }
 
   /**
@@ -581,22 +604,47 @@ export class FunnelEnrollmentService {
      * ‏המצב החדש. זה זול מנעילה, ואינו מחזיק טרנזקציה פתוחה על פני
      * ‏דף שלם של רישומים.
      */
-    trialAnchor: { trialEndsAt: Date | null; trialConcludedAt: Date | null },
+    snapshot: {
+      tenantId: string;
+      trialEndsAt: Date | null;
+      trialConcludedAt: Date | null;
+      /** ‏האם היה כרטיס תקף ברגע ההחלטה. */
+      hasCard: boolean;
+    },
   ): Promise<boolean> {
-    const updated = await this.prisma.withFunnelAdmin((tx) =>
-      tx.funnelEnrollment.updateMany({
+    return this.prisma.withFunnelAdmin(async (tx) => {
+      /*
+       * ‎**גם הכרטיס — ולא רק העוגן.**
+       *
+       * ‏`closePage` קורא את המנוי יחד עם הדייר, ותשלום על מספר או
+       * ‏על מקום וואטסאפ יכול לשמור כרטיס בין הקריאה לכתיבה. שורת
+       * ‏המנוי משתנה, שורת הדייר לא — ולכן תנאי העוגן לבדו עובר,
+       * ‏והרישום נסגר כ„מוצה” במקום כ„שילם”. סגירה היא בלתי הפיכה,
+       * ‏והמסך והמדדים נשארים עם סיבה שגויה (ביקורת Codex).
+       *
+       * ‏הבדיקה בתוך הטרנזקציה ולא ב-`where`: אין יחס Prisma בין
+       * ‏הדייר למנוי, ו„כרטיס תקף” נשען על שתי עמודות מספריות
+       * ‏שאילוץ שוויון אינו יכול לבטא. שינוי — לכל כיוון — משאיר
+       * ‏את ההכרעה לסבב הבא.
+       */
+      const subscription = await tx.subscription.findUnique({
+        where: { tenantId: snapshot.tenantId },
+        select: { cardTokenEncrypted: true, cardMonth: true, cardYear: true },
+      });
+      if (hasValidCard(subscription, now) !== snapshot.hasCard) return false;
+      const updated = await tx.funnelEnrollment.updateMany({
         where: {
           id,
           endedAt: null,
           tenant: {
-            trialEndsAt: trialAnchor.trialEndsAt,
-            trialConcludedAt: trialAnchor.trialConcludedAt,
+            trialEndsAt: snapshot.trialEndsAt,
+            trialConcludedAt: snapshot.trialConcludedAt,
           },
         },
         data: { endedAt: now, endedReason: reason },
-      }),
-    );
-    return updated.count > 0;
+      });
+      return updated.count > 0;
+    });
   }
 }
 

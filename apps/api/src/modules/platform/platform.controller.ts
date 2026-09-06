@@ -1702,14 +1702,21 @@ export class PlatformController {
     }
     if (Object.keys(data).length === 0) return { ok: true };
 
-    await this.prisma.tenant.update({ where: { id }, data });
     /*
-     * ‏ומי שכבר נסגר כ„מוצה” נפתח מחדש: יש לו שוב תפוגה שאפשר
-     * ‏להזהיר מפניה, ו-`enrollDue` לעולם לא היה מכניס אותו שוב.
+     * ‎**הכתיבה והפתיחה-מחדש באותה טרנזקציה.**
+     *
+     * ‏רישום שנסגר כ„מוצה” נפתח כשהניסיון חוזר — יש לו שוב תפוגה
+     * ‏שאפשר להזהיר מפניה, ו-`enrollDue` לעולם לא היה מכניס אותו
+     * ‏שוב. בשתי פעולות נפרדות, תקלה ביניהן מותירה ניסיון חי לצד
+     * ‏רישום סגור, וזה מצב **קבוע**: הסורק אינו רואה רישומים סגורים
+     * ‏והכניסה אינה מקבלת מי שכבר היה לו רישום (ביקורת Codex).
      */
-    if (data.trialEndsAt !== null && data.trialEndsAt !== undefined) {
-      await this.funnel.reopenForRestoredTrial(id);
-    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tenant.update({ where: { id }, data });
+      if (data.trialEndsAt !== null && data.trialEndsAt !== undefined) {
+        await this.funnel.reopenWithin(tx, id);
+      }
+    });
     await this.prisma.withExplicitTenant(id, (tx) =>
       tx.auditLog.create({
         data: {

@@ -36,50 +36,97 @@ function sourceFiles(dir: string): { name: string; code: string }[] {
   });
 }
 
+
 /**
- * ‎**הערות מוחלפות בשורות ריקות, ולא נמחקות.**
+ * ‎**כל כתיבה של תאריך הניסיון — בשתי הצורות שהקוד משתמש בהן.**
  *
- * ‏החלון אמור למדוד מרחק ב**קוד**: הקובץ הזה נושא הסברים בני עשר
- * ‏שורות בין שדה לשדה, וחלון על הטקסט הגולמי היה מכריז „לא נרשם”
- * ‏על כתיבה שרושמת יפה מאוד. שמירת מספר השורות משאירה את המיקום
- * ‏בדיווח נכון.
+ * ‏הגרסה הראשונה חיפשה `trialEndsAt: null` בלבד, ולכן כותב חדש
+ * ‏שמשתמש בהשמה (`data.trialEndsAt = …`) היה עובר בשקט — וזו אינה
+ * ‏צורה תאורטית: `billing-override` כתוב בדיוק כך (ביקורת Codex).
+ * ‏הפטור שהיה משתמע מהצורה חל על כל קובץ; עכשיו הוא **רשימה
+ * ‏מפורשת** של הנתיבים שאינם מסיימים ניסיון, כל אחד עם נימוק.
  */
+const ALLOWED_WITHOUT_CONCLUSION: readonly { statement: string; why: string }[] = [
+  {
+    statement: "data.trialEndsAt = body.trialEndsAt ? new Date(body.trialEndsAt) : null;",
+    why: "‏`billing-override`: איפוס התאריך לבדו הוא המצב הזמני שאין להסיק ממנו — היעדר הרישום כאן הוא ההחלטה",
+  },
+  {
+    statement: "trialEndsAt,",
+    why: "‏הרשמה: משרד חדש, אין ניסיון קודם שאפשר לסיים — התאריך נכתב ולא נמחק",
+  },
+];
+
 function codeOnly(text: string): string {
   return text
     .replace(/\/\*[\s\S]*?\*\//gu, (block) => "\n".repeat((block.match(/\n/gu) ?? []).length))
     .replace(/(^|[^:])\/\/.*$/gmu, "$1");
 }
 
-/** ‏כל כתיבה מפורשת של „אין תאריך ניסיון”, עם ההקשר שסביבה. */
-function clearingSites(): { file: string; line: number; window: string }[] {
-  const sites: { file: string; line: number; window: string }[] = [];
+/**
+ * ‎**כתיבה לשורת הדייר — ולא כל אזכור של השדה.**
+ *
+ * ‏חיפוש טקסטואלי על השם לבדו סופר גם `select`, גם `where`, גם
+ * ‏טיפוסים וגם DTO של תשובה — עשרים אזכורים שאינם כותבים דבר,
+ * ‏ושער שמתריע עליהם מפסיק להיקרא. לכן הסריקה מוצאת קודם את
+ * ‏**קריאת הכתיבה** (`tenant.update(` / `tenant.create(`), חותכת
+ * ‏את הארגומנט שלה לפי סוגריים מאוזנים, ובודקת רק בתוכו.
+ *
+ * ‎**ובנוסף צורת ההשמה**, שהיא הבלתי-נראית משתיהן: `data.trialEndsAt = …`
+ * ‏נבנה מחוץ לקריאה ומועבר אליה, ולכן אינו נמצא באזור שלה כלל.
+ * ‏זו הצורה ש-`billing-override` משתמש בה, וזה בדיוק החור שהשער
+ * ‏הקודם השאיר (ביקורת Codex).
+ */
+function balancedFrom(text: string, open: number): string {
+  let depth = 0;
+  for (let index = open; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "(") depth += 1;
+    else if (char === ")") {
+      depth -= 1;
+      if (depth === 0) return text.slice(open, index + 1);
+    }
+  }
+  return text.slice(open);
+}
+
+function writeSites(): { file: string; line: number; statement: string; window: string }[] {
+  const sites: { file: string; line: number; statement: string; window: string }[] = [];
   for (const file of sourceFiles(API_SRC)) {
-    /*
-     * ‎**שורות קוד בלבד, ועם מספר השורה המקורי.**
-     *
-     * ‏הסרת ההערות משאירה שורות ריקות במקומן, וחלון שסופר שורות
-     * ‏גולמיות היה מתמלא בהן ומחמיץ את השדה שנמצא שבע שורות למטה.
-     * ‏הספירה היא על מה שנכתב, והמספר נשמר כדי שהדיווח יצביע על
-     * ‏המקום הנכון בקובץ.
-     */
-    const code = codeOnly(file.code)
-      .split("\n")
-      .map((text, index) => ({ line: index + 1, text }))
-      .filter((row) => row.text.trim() !== "");
-    for (const [index, row] of code.entries()) {
-      if (!/\btrialEndsAt:\s*null\b/u.test(row.text)) continue;
+    const code = codeOnly(file.code);
+    const lineOf = (offset: number): number => code.slice(0, offset).split("\n").length;
+
+    for (const match of code.matchAll(/\btenant\.(?:update|create)\s*\(/gu)) {
+      const region = balancedFrom(code, (match.index ?? 0) + match[0].length - 1);
       /*
-       * ‏חלון ולא השורה עצמה: הסיבה נרשמת בשדה שכן באותו אובייקט,
-       * ‏ולא בהכרח בשורה שאחריה. ארבע שורות קוד לכל צד מכסות
-       * ‏אובייקט אחד בלי לבלוע את שכנו.
+       * ‎`[,:]` ולא `:` בלבד: קיצור אובייקט (`trialEndsAt,`) הוא
+       * ‏כתיבה לכל דבר, וזו הצורה שההרשמה משתמשת בה.
        */
+      const written = region.match(/^[^\n]*\btrialEndsAt\s*[,:][^\n]*$/mu);
+      if (written === null) continue;
       sites.push({
         file: file.name,
-        line: row.line,
-        window: code
-          .slice(Math.max(0, index - 4), index + 5)
-          .map((entry) => entry.text)
-          .join("\n"),
+        line: lineOf(match.index ?? 0),
+        statement: written[0].trim(),
+        window: region,
+      });
+    }
+
+    for (const match of code.matchAll(/^[^\n]*\.trialEndsAt\s*=[^\n]*$/gmu)) {
+      const at = match.index ?? 0;
+      const lines = code.split("\n");
+      const index = lineOf(at) - 1;
+      sites.push({
+        file: file.name,
+        line: index + 1,
+        statement: (lines[index] ?? "").trim(),
+        /*
+         * ‎**חלון צמוד, ולא נדיב.** בצורת ההשמה הרישום נכתב בשורה
+         * ‏שאחריה — וחלון רחב היה נתפס על `trialConcludedAt` של
+         * ‏**כתיבה אחרת** באותו אזור. אימתתי: עם חלון של שמונה
+         * ‏שורות, השתלת השמה חדשה ליד הקיימת עברה בשקט.
+         */
+        window: lines.slice(index, index + 3).join("\n"),
       });
     }
   }
@@ -87,25 +134,52 @@ function clearingSites(): { file: string; line: number; window: string }[] {
 }
 
 describe("שער: מחיקת תאריך ניסיון רושמת את הסיבה", () => {
-  const sites = clearingSites();
+  const sites = writeSites();
 
   /*
    * ‏בלי זה השער ירוק על כלום: ביטוי שנשבר או תיקיה שזזה היו
-   * ‏הופכים אותו לבדיקה שעוברת תמיד. שני המוחקים המוכרים רשומים
+   * ‏הופכים אותו לבדיקה שעוברת תמיד. שני הכותבים המוכרים רשומים
    * ‏בשמם — לא כרשימה שנייה לתחזק, אלא כדי שנפילת הסריקה תיראה.
    */
-  it("יש מה לבדוק", () => {
-    expect(sites.length).toBeGreaterThanOrEqual(3);
+  it("יש מה לבדוק, ובשתי הצורות", () => {
+    expect(sites.length).toBeGreaterThanOrEqual(4);
     const files = new Set(sites.map((site) => site.file));
     expect(files).toContain("modules/billing/billing.service.ts");
     expect(files).toContain("modules/platform/platform.controller.ts");
+    // ‏ושצורת ההשמה אכן נתפסת, ולא רק צורת האובייקט
+    expect(sites.some((site) => /\.trialEndsAt\s*=/u.test(site.window))).toBe(true);
   });
 
-  it("כל מחיקה רושמת `trialConcludedAt` באותה כתיבה", () => {
-    const silent = sites.filter((site) => !site.window.includes("trialConcludedAt"));
+  it("כל כתיבה רושמת `trialConcludedAt` — או מופיעה ברשימת החריגים", () => {
+    /*
+     * ‎**החריג נקשר למשפט, לא לקובץ.**
+     *
+     * ‏פטור ברמת הקובץ היה מכסה גם כותב **חדש** באותו קובץ — כלומר
+     * ‏בדיוק את הבאג הבא, בקובץ שכבר יש בו חריג לגיטימי אחד. אימתתי
+     * ‏זאת: עם פטור לפי קובץ, השתלת השמה חדשה ב-`platform.controller`
+     * ‏עברה בשקט.
+     */
+    const silent = sites.filter(
+      (site) =>
+        !site.window.includes("trialConcludedAt") &&
+        !ALLOWED_WITHOUT_CONCLUSION.some((entry) => site.statement.includes(entry.statement)),
+    );
     expect(
       silent.map((site) => `${site.file}:${site.line}`),
-      "מחקו את תאריך הניסיון בלי לרשום שהוא נגמר",
+      "כתבו את תאריך הניסיון בלי לרשום אם הוא נגמר",
     ).toEqual([]);
+  });
+
+  /*
+   * ‏החריגים הם היחידים שהשער אינו מאמת, ולכן הם היחידים שצריך
+   * ‏לקרוא בעין. שמירתם מעטים ומנומקים היא מה שהופך את הקריאה הזו
+   * ‏לאפשרית — ורשימה שמתארכת בשקט היא בדיוק הכישלון.
+   */
+  it("רשימת החריגים נשארת קצרה ומנומקת", () => {
+    expect(ALLOWED_WITHOUT_CONCLUSION.length).toBeLessThanOrEqual(3);
+    for (const entry of ALLOWED_WITHOUT_CONCLUSION) {
+      expect(entry.why, `${entry.statement} ללא נימוק`).not.toBe("");
+      expect(entry.statement).not.toBe("");
+    }
   });
 });
