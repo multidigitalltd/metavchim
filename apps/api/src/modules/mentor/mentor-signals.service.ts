@@ -1,8 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import {
-  EMPTY_OFFICE_PLAYBOOK,
   ideaByKey,
   officePlaybook,
+  officePlaybookFor,
   resolveIdeaFeedback,
   type MentorIdeaOutcome,
   type MentorOfficePlaybook,
@@ -334,6 +334,31 @@ export class MentorSignalsService {
     tenantId: string,
     now: Date,
   ): Promise<MentorOfficePlaybook> {
+    return officePlaybook(await this.officeEvidence(tx, tenantId, now));
+  }
+
+  /** הספר כפי שמתווך אחד רואה אותו — בלי העדות שלו (§7.4). */
+  async officePlaybookFor(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    now: Date,
+  ): Promise<MentorOfficePlaybook> {
+    return officePlaybookFor(
+      await this.officeEvidence(tx, tenantId, now),
+      userId,
+    );
+  }
+
+  /**
+   * העדויות של המתווכים הפעילים — עם מזהה, כדי שאפשר יהיה להוציא
+   * את המתווך עצמו מהספר שמוצג לו. המזהה אינו יוצא מכאן לפלט.
+   */
+  async officeEvidence(
+    tx: TenantTx,
+    tenantId: string,
+    now: Date,
+  ): Promise<OfficeEvidenceEntry[]> {
     const since = jerusalemWeekStart(now, -OFFICE_PLAYBOOK_WEEKS);
     const [users, reviews] = await Promise.all([
       tx.$queryRaw<{ id: string; preferences: unknown }[]>`
@@ -347,8 +372,7 @@ export class MentorSignalsService {
           AND week_start >= ${since}
           AND body ? 'ideaOutcomes'`,
     ]);
-    if (!Array.isArray(users) || users.length === 0)
-      return { ...EMPTY_OFFICE_PLAYBOOK };
+    if (!Array.isArray(users) || users.length === 0) return [];
     const outcomesByUser = new Map<string, MentorIdeaOutcome[]>();
     for (const row of Array.isArray(reviews) ? reviews : []) {
       if (typeof row.user_id !== "string" || !Array.isArray(row.outcomes))
@@ -376,13 +400,13 @@ export class MentorSignalsService {
       }
       outcomesByUser.set(row.user_id, list);
     }
-    const entries: OfficeEvidenceEntry[] = users
+    return users
       .filter((u) => typeof u.id === "string")
       .map((u) => ({
+        id: u.id,
         feedback: resolveIdeaFeedback(u.preferences),
         outcomes: outcomesByUser.get(u.id) ?? [],
       }));
-    return officePlaybook(entries);
   }
 
   async wins(

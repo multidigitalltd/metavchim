@@ -14,6 +14,7 @@ import {
   jerusalemWeekday,
   DEFAULT_MENTOR_PERSONA,
   mentorCadence,
+  officePlaybookFor,
   EMPTY_IDEA_FEEDBACK,
   ideaMarksDue,
   ideaOutcomeWindows,
@@ -417,8 +418,8 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
         where: { tenantId, isActive: true },
         select: { id: true, name: true, preferences: true },
       });
-      // מה עובד במשרד — פעם אחת למשרד, לכל הבקרים (§7.4)
-      const office = await this.signals.officePlaybook(tx, tenantId, now);
+      // מה עובד במשרד — העדויות פעם אחת למשרד; לכל מתווך הספר בלי העדות שלו (§7.4)
+      const evidence = await this.signals.officeEvidence(tx, tenantId, now);
       let sent = 0;
       for (const user of users) {
         if (greeted.has(user.id)) continue;
@@ -432,7 +433,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             firstNameOf(user.name),
             resolveMentorPersona(user.preferences),
             resolveIdeaFeedback(user.preferences),
-            office,
+            officePlaybookFor(evidence, user.id),
           )
         )
           sent += 1;
@@ -685,7 +686,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
           })
         ).map((r) => r.userId),
       );
-      const office = await this.signals.officePlaybook(
+      const evidence = await this.signals.officeEvidence(
         tx,
         tenantId,
         jerusalemWeekStart(weekStart, 1),
@@ -703,7 +704,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             firstNameOf(user.name),
             resolveMentorPersona(user.preferences),
             resolveIdeaFeedback(user.preferences),
-            office,
+            officePlaybookFor(evidence, user.id),
           )
         )
           written += 1;
@@ -935,7 +936,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
           })
         ).map((r) => r.userId),
       );
-      const office = await this.signals.officePlaybook(
+      const evidence = await this.signals.officeEvidence(
         tx,
         tenantId,
         mentorPeriodRange("month", monthStart).end,
@@ -953,7 +954,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             firstNameOf(user.name),
             resolveMentorPersona(user.preferences),
             resolveIdeaFeedback(user.preferences),
-            office,
+            officePlaybookFor(evidence, user.id),
           )
         )
           written += 1;

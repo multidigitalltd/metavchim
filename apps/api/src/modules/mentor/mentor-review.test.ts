@@ -757,11 +757,9 @@ describe("MentorReviewService.dailyForTenant — ספר המשחק של המשר
     const morning = [7, 8, 9]
       .map((d) => new Date(`2026-09-0${d}T06:00:00.000Z`))
       .find((at) => mentorDaySeed(at) % 3 !== 2)!;
-    const office = await new MentorSignalsService().officePlaybook(
-      tx,
-      TENANT,
-      morning,
-    );
+    const signals = new MentorSignalsService();
+    // הספר של המתווך — בלי העדות שלו; כאן העדות היא של האחר
+    const office = await signals.officePlaybookFor(tx, TENANT, USER, morning);
     expect(office.agents).toBe(1);
     expect(office.proven.map((e) => e.key)).toEqual(["offers_sent:4"]);
     const sent = await service().dailyForUser(
@@ -779,6 +777,38 @@ describe("MentorReviewService.dailyForTenant — ספר המשחק של המשר
     const body = String(notified[0]![5]);
     expect(body).toContain("רעיון להיום — עבד אצל אחרים במשרד: ");
     expect(body).toContain("כמעט מתאים");
+    // מי שהעדות היחידה היא שלו — אין „אחרים”: הבוקר רגיל
+    const solo = fakeTx({
+      offers: 1,
+      goals: [goal],
+      officeUsers: [
+        {
+          id: USER,
+          preferences: {
+            mentor: { ideas: { liked: ["offers_sent:4"], dismissed: [] } },
+          },
+        },
+      ],
+    });
+    const mine = await signals.officePlaybookFor(
+      solo.tx,
+      TENANT,
+      USER,
+      morning,
+    );
+    expect(mine.proven).toEqual([]);
+    await service().dailyForUser(
+      solo.tx,
+      TENANT,
+      USER,
+      "2026-09-07",
+      morning,
+      "דנה",
+      undefined,
+      undefined,
+      mine,
+    );
+    expect(String(solo.notified[0]![5])).not.toContain("עבד אצל אחרים");
   });
 });
 

@@ -7,6 +7,7 @@ import {
   officeEvidenceLabel,
   officePlaybook,
   officePlaybookBlock,
+  officePlaybookFor,
   officeProvenKeys,
   type OfficeEvidenceEntry,
 } from "./mentor-office.js";
@@ -94,6 +95,34 @@ describe("ספר המשחק שלומד מהמשרד — ספירות, בלי ש�
     ]);
     expect(officeProvenKeys(undefined, "offers_sent")).toEqual([]);
     expect(officePlaybook([])).toEqual(EMPTY_OFFICE_PLAYBOOK);
+  });
+
+  it("מתווך נספר פעם אחת לכל רעיון גם במדידות; והספר שמוצג למתווך הוא בלי העדות שלו", () => {
+    // אותו מתווך, אותו רעיון, שלוש מדידות — „המספר עלה אצל אחד”, לא שלושה
+    const repeated = officePlaybook([
+      entry([], [], [up, up, { ...up, change: "flat" }]),
+    ]);
+    expect(repeated.proven[0]).toMatchObject({
+      key: "offers_sent:0",
+      up: 1,
+      measured: 1,
+      score: 2,
+    });
+    // משרד של אחד — אין „אחרים”, ואין ספר; למנהל — יש
+    const entries = [{ id: "me", ...entry(["offers_sent:0"], [], [up]) }];
+    expect(officePlaybookFor(entries, "me")).toEqual(EMPTY_OFFICE_PLAYBOOK);
+    expect(officePlaybook(entries).proven).toHaveLength(1);
+    // שניים — כל אחד רואה את השני
+    const two = [
+      { id: "a", ...entry(["offers_sent:0"]) },
+      { id: "b", ...entry(["calls_made:0"]) },
+    ];
+    expect(officePlaybookFor(two, "a").proven.map((e) => e.key)).toEqual([
+      "calls_made:0",
+    ]);
+    expect(officePlaybookFor(two, "b").proven.map((e) => e.key)).toEqual([
+      "offers_sent:0",
+    ]);
   });
 
   it("הבחירה: מוכח ראשון בשניים מכל שלושה ימים; מה שהמתווך עצמו דחה — לא", () => {

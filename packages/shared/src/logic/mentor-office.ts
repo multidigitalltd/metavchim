@@ -52,8 +52,12 @@ export const EMPTY_OFFICE_PLAYBOOK: Readonly<MentorOfficePlaybook> = {
   agents: 0,
 };
 
-/** עדות של מתווך אחד — בלי זהות. */
+/**
+ * עדות של מתווך אחד. ‎`id` הוא רק כדי להוציא את המתווך עצמו מהספר
+ * שמוצג **לו** (`officePlaybookFor`) — הוא אינו נכנס לפלט לעולם.
+ */
 export interface OfficeEvidenceEntry {
+  id?: string;
   feedback: MentorIdeaFeedback;
   outcomes: readonly MentorIdeaOutcome[];
 }
@@ -99,11 +103,22 @@ export function officePlaybook(
       const e = evidence(key);
       if (e !== null) e.dismissed += 1;
     }
-    for (const outcome of entry.outcomes) {
-      const e = evidence(outcome.key);
+    /*
+     * מתווך נספר פעם אחת לכל רעיון גם במדידות: מי שסימן „עזר לי” על
+     * אותו רעיון בשלושה בקרים נמדד שלוש פעמים, אבל „המספר עלה אצל 2”
+     * חייב להיות שני מתווכים (ביקורת Codex). עלה אצלו אם עלה פעם אחת.
+     */
+    const byIdea = new Map<string, boolean>();
+    for (const outcome of entry.outcomes)
+      byIdea.set(
+        outcome.key,
+        (byIdea.get(outcome.key) ?? false) || outcome.change === "up",
+      );
+    for (const [key, up] of byIdea) {
+      const e = evidence(key);
       if (e === null) continue;
       e.measured += 1;
-      if (outcome.change === "up") e.up += 1;
+      if (up) e.up += 1;
     }
   }
   for (const e of byKey.values()) e.score = 2 * e.up + e.helped - e.dismissed;
@@ -111,6 +126,18 @@ export function officePlaybook(
     .filter((e) => e.score > 0)
     .sort((a, b) => b.score - a.score || a.key.localeCompare(b.key));
   return { proven, agents };
+}
+
+/**
+ * הספר כפי שמתווך אחד רואה אותו — **בלי העדות שלו**: „עבד אצל אחרים
+ * במשרד” חייב להיות אחרים. במשרד של אחד אין „אחרים”, ואין ספר
+ * (ביקורת Codex). למנהל — `officePlaybook` על כולם.
+ */
+export function officePlaybookFor(
+  entries: readonly OfficeEvidenceEntry[],
+  userId: string,
+): MentorOfficePlaybook {
+  return officePlaybook(entries.filter((e) => e.id !== userId));
 }
 
 /** המפתחות המוכחים של מדד — לפי הסדר. */

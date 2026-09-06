@@ -294,7 +294,7 @@ export class MentorService {
         insights,
         funnel,
         feedback: resolveIdeaFeedback(user?.preferences),
-        office: await this.signals.officePlaybook(tx, tenantId, now),
+        office: await this.signals.officePlaybookFor(tx, tenantId, userId, now),
         now,
       });
       return {
@@ -811,7 +811,12 @@ export class MentorService {
           now,
         );
         // מה עובד במשרד — ידע משותף לעצות ולפרומפט (§7.4)
-        const office = await this.signals.officePlaybook(tx, tenantId, now);
+        const office = await this.signals.officePlaybookFor(
+          tx,
+          tenantId,
+          userId,
+          now,
+        );
         const advice = mentorAdvice({
           goals,
           activity,
