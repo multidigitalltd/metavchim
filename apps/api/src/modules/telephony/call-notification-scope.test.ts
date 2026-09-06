@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { publicEntity } from "./telephony.service";
+import { publicNotification } from "./telephony.service";
 import {
   contactOwnerCandidates,
   notifiableContactOwner,
@@ -466,12 +466,15 @@ describe("סדר הבעלות והמקור שממנו הוא נגזר", () => {
  * ‏ניסוחים של אותו כלל הם שני כללים שביום מן הימים אינם מסכימים,
  * ‏וכאן הם כבר לא הסכימו.
  */
-describe("publicEntity — מצביע ההתראה המשרדית", () => {
+describe("publicNotification — השורה המשרדית", () => {
+  /** ‏נוסח שנושא אסימון — בדיוק מה שחזר מ„הצע טופס”. */
+  const WITH_TOKEN =
+    "לא נשלח אוטומטית (אין תבנית מאושרת). שלחו ללקוח:\nhttps://app.example/f/AbCd_1234";
+
   it("לקוח שהוסתר — אין מצביע, גם כשיש ליד", () => {
-    expect(publicEntity(true, "01LEAD", "01CONTACT")).toEqual({
-      entityType: null,
-      entityId: null,
-    });
+    expect(
+      publicNotification(true, { leadId: "01LEAD", contactId: "01CONTACT", body: null }),
+    ).toEqual({ entityType: null, entityId: null, body: null });
   });
 
   /*
@@ -479,30 +482,59 @@ describe("publicEntity — מצביע ההתראה המשרדית", () => {
    * ‏שלישית. „הורדנו את של הלקוח” אינה תשובה.
    */
   it("וגם כשיש רק ליד", () => {
-    expect(publicEntity(true, "01LEAD", null)).toEqual({ entityType: null, entityId: null });
+    expect(
+      publicNotification(true, { leadId: "01LEAD", contactId: null, body: null }),
+    ).toEqual({ entityType: null, entityId: null, body: null });
   });
 
-  it("לקוח גלוי — הליד קודם ללקוח", () => {
-    expect(publicEntity(false, "01LEAD", "01CONTACT")).toEqual({
-      entityType: "lead",
-      entityId: "01LEAD",
+  /*
+   * ‎**והשדה השלישי — הגוף.**
+   *
+   * ‏זו הדליפה שהמצביע לבדו לא סגר: נוסח ההזמנה נושא כתובת
+   * ‏`‎/f/:token` חיה, ו-`NotificationsService.visible()` מחזירה
+   * ‏`body` לכל מי שהשורה נראית לו בלי שער פר-נמען. האסימון פותח
+   * ‏את הטופס, חושף את שם הפנייה, ומאפשר לכתוב לכרטיס הקונה של
+   * ‏אותו לקוח מוסתר (ביקורת Codex, P1).
+   */
+  it("לקוח שהוסתר — גם הגוף יורד, ואיתו קישור הטופס", () => {
+    const row = publicNotification(true, {
+      leadId: null,
+      contactId: "01CONTACT",
+      body: WITH_TOKEN,
     });
+    expect(row.body).toBeNull();
+    expect(JSON.stringify(row)).not.toContain("/f/");
+  });
+
+  it("לקוח גלוי — הליד קודם ללקוח, והגוף נשאר", () => {
+    expect(
+      publicNotification(false, {
+        leadId: "01LEAD",
+        contactId: "01CONTACT",
+        body: WITH_TOKEN,
+      }),
+    ).toEqual({ entityType: "lead", entityId: "01LEAD", body: WITH_TOKEN });
   });
 
   it("בלי ליד — הלקוח", () => {
-    expect(publicEntity(false, null, "01CONTACT")).toEqual({
-      entityType: "contact",
-      entityId: "01CONTACT",
-    });
+    expect(
+      publicNotification(false, { leadId: null, contactId: "01CONTACT", body: null }),
+    ).toEqual({ entityType: "contact", entityId: "01CONTACT", body: null });
   });
 
   /*
    * ‎**מספר שאינו מוכר אינו „מוסתר”.** זו ההבחנה שדורשת דגל נפרד
    * ‏ולא `name === null`: ליד שנפתח משיחה ממספר לא מוכר חייב
-   * ‏להישאר מקושר, גם במשרד שמפריד.
+   * ‏להישאר מקושר, גם במשרד שמפריד — וגם הגוף שלו נשאר.
    */
-  it("בלי לקוח ובלי ליד — אין מצביע", () => {
-    expect(publicEntity(false, null, null)).toEqual({ entityType: null, entityId: null });
+  it("בלי לקוח ובלי ליד — אין מצביע, והגוף נשאר", () => {
+    expect(
+      publicNotification(false, {
+        leadId: null,
+        contactId: null,
+        body: "מספר שאינו מוכר במערכת",
+      }),
+    ).toEqual({ entityType: null, entityId: null, body: "מספר שאינו מוכר במערכת" });
   });
 });
 
@@ -511,11 +543,47 @@ describe("‏שני הענפים עוברים דרך אותה פונקציה", (
 
   it("‏אין מצביע שנבנה ביד בהתראה המשרדית", () => {
     /*
-     * ‏שתי הקריאות ל-`publicEntity` הן שתי ההתראות המשרדיות
+     * ‏שתי הקריאות ל-`publicNotification` הן שתי ההתראות המשרדיות
      * ‏(צלצול, לא-נענתה). כתיבה ידנית רביעית של `entityType` באחת
      * ‏מהן היא בדיוק החזרה של הבאג.
      */
-    expect(source.split("...publicEntity(").length - 1).toBe(2);
+    expect(source.split("...publicNotification(").length - 1).toBe(2);
+  });
+
+  /*
+   * ‎**וגם אין `body` שנכתב ביד לצד הפריסה** — זה היה הבאג עצמו.
+   *
+   * ‏המצביע עבר דרך הפונקציה, והגוף נשאר שורה מעליה: `body: pending
+   * ‏?? …` עם קישור הטופס בתוכו. שער שסופר רק את הקריאות היה ירוק
+   * ‏על הדליפה הזו. לכן הוא נשאל כאן על **הבלוק**: בשתי ההתראות
+   * ‏המשרדיות אין מפתח `body` מחוץ לאובייקט שנמסר לפונקציה.
+   */
+  it("‏ואין גוף שנכתב ביד בהתראה המשרדית", () => {
+    for (const key of ["incoming_call:", "call_missed:"]) {
+      const at = source.indexOf(`dedupeKey: \`${key}`);
+      expect(at, `לא נמצאה ההתראה המשרדית ${key}`).toBeGreaterThan(0);
+      const block = source.slice(at, source.indexOf("});", at));
+      const spread = block.indexOf("...publicNotification(");
+      expect(spread, `${key} אינה עוברת דרך הפונקציה`).toBeGreaterThan(0);
+      /* ‏מה שלפני הפריסה הוא מה שנכתב ביד — שם `body` אסור */
+      expect(block.slice(0, spread), `${key} כותבת גוף ביד`).not.toMatch(/\bbody:/u);
+    }
+  });
+
+  /*
+   * ‎**והתיקון לא הידק יותר מדי — הצד השני של אותו שער.**
+   *
+   * ‏מוטציה שהעבירה `body: null` לפונקציה במקום את `pending` שרדה:
+   * ‏בדיקות היחידה מוכיחות שהפונקציה **שומרת** גוף כשאין הסתרה,
+   * ‏אבל לא שאתר הקריאה עדיין מוסר לה אותו. במשרד שאינו מפריד זו
+   * ‏כל תוחלת האוטומציה — „לא נשלח, שלחו ללקוח את זה” בלי הנוסח
+   * ‏עצמו מחזיר בדיוק את החיפוש שהיא נועדה לחסוך.
+   */
+  it("‏והנוסח שמיועד ללקוח עדיין נמסר לשורה המשרדית", () => {
+    const at = source.indexOf("dedupeKey: `call_missed:");
+    const block = source.slice(at, source.indexOf("});", at));
+    const spread = block.indexOf("...publicNotification(");
+    expect(block.slice(spread), "הנוסח אינו נמסר לשורה המשרדית").toContain("pending");
   });
 
   /*
@@ -559,7 +627,7 @@ describe("‏שני הענפים עוברים דרך אותה פונקציה", (
       expect(at, `לא נמצאה ההתראה האישית ${key}`).toBeGreaterThan(0);
       const block = source.slice(at, at + 400);
       expect(block).toMatch(/entityType:/u);
-      expect(block).not.toContain("publicEntity(");
+      expect(block).not.toContain("publicNotification(");
     }
   });
 });

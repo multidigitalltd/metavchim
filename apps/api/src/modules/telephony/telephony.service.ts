@@ -96,7 +96,8 @@ interface NotificationAudience {
 }
 
 /**
- * ‎**מצביע הישות בהתראה המשרדית — כלל אחד לשני הענפים** (ביקורת Codex, P1).
+ * ‎**השורה המשרדית — כלל אחד לזהות, למצביע ולמפתח שמוביל אליהם**
+ * ‏(ביקורת Codex, P1).
  *
  * ‏ההתראה המשרדית נכתבת ל-`userId: null`, והעובד מעשיר אותה
  * ‏פר-נמען: `entityType: "contact"` הופך לשם ולטלפון מפוענחים, ו-
@@ -115,16 +116,39 @@ interface NotificationAudience {
  * ‏גם מצביע הליד יורד, ולא רק זה של הלקוח: הליד מוביל לאותו אדם
  * ‏בדיוק, תחת הרשאה שלישית. מספר שאינו מוכר אינו „מוסתר”, ולכן
  * ‏ליד שנפתח ממנו נשאר מקושר.
+ *
+ * ## ‏ולמה גם הגוף, ולא רק המצביע
+ *
+ * ‏זו אותה דליפה בפעם השלישית, בשדה שלישי. „הצע טופס אחרי שיחה
+ * ‏שלא נענתה” מחזיר, כשאין תבנית מאושרת או כשהשליחה נכשלה, את
+ * ‏**נוסח ההודעה עצמו** — ובתוכו כתובת `‎/f/:token` חיה. הנוסח נכתב
+ * ‏ל-`body` של השורה המשרדית, ו-`NotificationsService.visible()`
+ * ‏מחזירה `body` כמות שהוא לכל מי שהשורה נראית לו, בלי שום שער
+ * ‏פר-נמען. כלומר האסימון — שפותח את הטופס, חושף את שם הפנייה של
+ * ‏הלקוח, ומאפשר לכתוב לכרטיס הקונה שלו — הגיע לכל המשרד דווקא
+ * ‏כשהלקוח מוסתר ממנו (ביקורת Codex, P1).
+ *
+ * ‏הכלל אינו „לסנן את הקישור מהטקסט”: זה היה מחייב לסווג חמישה
+ * ‏נוסחים שונים, ולתחזק את הסיווג הזה ליד כל `return` חדש. הכלל
+ * ‏הוא זה שכבר כתוב ב-`notifiableContactOwner`: **בעלים `null`
+ * ‏פירושו „התראה משרדית בלי תוכן”.** מוסתר — הכול יורד יחד, והשורה
+ * ‏האישית של הבעלים היא זו שנושאת את הנוסח המלא.
  */
-export function publicEntity(
+export function publicNotification(
   redacted: boolean,
-  leadId: string | null,
-  contactId: string | null,
-): { entityType: "lead" | "contact" | null; entityId: string | null } {
-  if (redacted) return { entityType: null, entityId: null };
-  if (leadId !== null) return { entityType: "lead", entityId: leadId };
-  if (contactId !== null) return { entityType: "contact", entityId: contactId };
-  return { entityType: null, entityId: null };
+  row: { leadId: string | null; contactId: string | null; body: string | null },
+): {
+  entityType: "lead" | "contact" | null;
+  entityId: string | null;
+  body: string | null;
+} {
+  if (redacted) return { entityType: null, entityId: null, body: null };
+  const body = row.body;
+  if (row.leadId !== null) return { entityType: "lead", entityId: row.leadId, body };
+  if (row.contactId !== null) {
+    return { entityType: "contact", entityId: row.contactId, body };
+  }
+  return { entityType: null, entityId: null, body };
 }
 
 @Injectable()
@@ -1059,9 +1083,12 @@ export class TelephonyService {
             userId: null,
             type: "incoming_call",
             title: incomingCallTitle(contactName, event.peerPhone),
-            body: contact ? null : "מספר שאינו מוכר במערכת",
-            /* ‏לקוח שהוסתר — גם המצביע יורד. ראו `publicEntity`. */
-            ...publicEntity(redacted, null, contact?.id ?? null),
+            /* ‏לקוח שהוסתר — המצביע והגוף יורדים. ראו `publicNotification`. */
+            ...publicNotification(redacted, {
+              leadId: null,
+              contactId: contact?.id ?? null,
+              body: contact ? null : "מספר שאינו מוכר במערכת",
+            }),
           });
           if (contactOwnerUserId !== null) {
             await notifyOnce(tx, {
@@ -1281,14 +1308,22 @@ export class TelephonyService {
              * למי לשייך משימה. התראה שאומרת „לא נשלח” בלי לצרף את
              * מה שצריך לשלוח מחייבת חיפוש, וזו בדיוק העבודה
              * שהאוטומציה נועדה לחסוך.
+             *
+             * ‏אלא כשהלקוח הוסתר: הנוסח הזה נושא את כתובת הטופס על
+             * ‏האסימון שלה, וגוף ההתראה המשרדית נקרא בלי שער
+             * ‏פר-נמען. אז הכול יורד — והנוסח המלא נשאר בשורה
+             * ‏האישית של הבעלים, שמופיעה מיד למטה.
              */
-            body: pending ?? (leadId ? "נפתח ליד חדש מהשיחה" : null),
             /*
              * ‏זה היה החור: השם הוסתר והמצביע נשאר, והעובד מפענח
              * ‏ממנו שם וטלפון תחת הרשאה **אחרת** לגמרי. ראו
-             * ‏`publicEntity`.
+             * ‏`publicNotification`.
              */
-            ...publicEntity(redacted, leadId, callContactId),
+            ...publicNotification(redacted, {
+              leadId,
+              contactId: callContactId,
+              body: pending ?? (leadId ? "נפתח ליד חדש מהשיחה" : null),
+            }),
           });
           /*
            * ‏ובמשרד שהפעיל הפרדה — ההתראה המשרדית ירדה לשם ולמספר
