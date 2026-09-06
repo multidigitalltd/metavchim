@@ -128,6 +128,10 @@ interface PropertyDetail {
   readinessScore: number;
   missingFields: string[];
   ownerContact?: OwnerContact;
+  /** ‏יש בעלים, והוא אינו מוצג למשתמש הזה. **לא** „אין בעלים”. */
+  ownerRedacted?: boolean;
+  /** ‏יש דייר, והוא אינו מוצג למשתמש הזה. */
+  occupantRedacted?: boolean;
   /** מי גר בנכס כשזה אינו הבעלים — דירה שמושכרת בזמן שהיא מוצעת. */
   occupantContact?: OccupantContact;
   /**
@@ -2234,6 +2238,7 @@ export default function PropertyDetailPage({
             canErase={can(user, "contacts.delete")}
             propertyId={id}
             owner={property.ownerContact}
+            redacted={property.ownerRedacted === true}
             canEdit={canEditOwner}
             canEditPeople={canEditOwnerPeople}
             onChanged={loadProperty}
@@ -2248,6 +2253,7 @@ export default function PropertyDetailPage({
           <PropertyOccupant
             propertyId={id}
             occupant={property.occupantContact}
+            redacted={property.occupantRedacted === true}
             occupancy={property.occupancy}
             leaseEndsAt={property.leaseEndsAt}
             noticePeriodDays={property.noticePeriodDays}

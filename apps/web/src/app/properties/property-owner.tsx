@@ -30,6 +30,7 @@ export interface OwnerContact {
 export function PropertyOwner({
   propertyId,
   owner,
+  redacted = false,
   canEdit,
   canEditPeople,
   canErase,
@@ -39,6 +40,14 @@ export function PropertyOwner({
 }: {
   propertyId: string;
   owner?: OwnerContact;
+  /**
+   * ‎**לנכס יש בעלים, והוא פשוט אינו מוצג לך.**
+   *
+   * ‏בלי ההבחנה הזו הכרטיס אמר „חסר” והציע להוסיף — על אדם קיים
+   * ‏שהסוכן אינו רשאי לראות. השרת דוחה את ההחלפה ממילא, אבל מסך
+   * ‏שמזמין פעולה אסורה ואז נכשל הוא באג בפני עצמו.
+   */
+  redacted?: boolean;
   /** שיוך בעלים לנכס — `PATCH /properties/:id`, כלומר `properties.edit`. */
   canEdit: boolean;
   /**
@@ -96,7 +105,11 @@ export function PropertyOwner({
         <h2 id="owner-heading" className="mv-card-head__title">
           בעל הנכס
         </h2>
-        {owner ? null : (
+        {owner ? null : redacted ? (
+          <span className="mv-pill mv-domain-slate ms-auto">
+            <IconLock s={14} /> מוסתר
+          </span>
+        ) : (
           <span className="mv-pill mv-domain-amber ms-auto">חסר</span>
         )}
       </div>
@@ -189,6 +202,21 @@ export function PropertyOwner({
             כך מוסיפים בעלים שכבר רשום אצלכם.
           </p>
         </form>
+      ) : redacted ? (
+        /*
+          ‎**לנכס יש בעלים — הוא פשוט אינו שלך.**
+
+          זה אינו מצב ריק ואסור שייראה כך: „הוסף בעל נכס” כאן היה
+          מציע להחליף אדם קיים שהסוכן אינו רואה. השרת דוחה, אבל מסך
+          שמזמין פעולה אסורה הוא באג בפני עצמו.
+        */
+        <p
+          className="m-0 text-[length:var(--type-body-sm)]"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          לנכס הזה יש בעל נכס רשום, והוא אינו מוצג לך. אם אתה צריך את הפרטים — פנה
+          למנהל המשרד.
+        </p>
       ) : (
         <>
           <p

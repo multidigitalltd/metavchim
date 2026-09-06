@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -711,6 +712,37 @@ export class PropertiesService {
       if (!existing) throw new NotFoundException("נכס לא נמצא");
 
       /*
+       * ‎**מי שאינו רואה את בעל הנכס אינו יכול להחליף אותו.**
+       *
+       * ‏ההשמטה מהתשובה יצרה בעצמה את הנתיב הזה: הסוכן רואה „חסר”,
+       * ‏המסך מציע להוסיף, והעריכה דרסה את הכרטיס של העמית בלי שום
+       * ‏בדיקה. כלומר ההגנה על **הקריאה** פתחה אובדן נתונים
+       * ‏ב**כתיבה**, דרך הממשק הרגיל ובלי שאיש התכוון (ביקורת
+       * ‏Codex, P1).
+       *
+       * ‏השער הוא על ההחלפה ולא על העריכה: הסוכן ממשיך לערוך את
+       * ‏הנכס — כתובת, מחיר, מצב — ולהוסיף בעלים לנכס שאין לו. מה
+       * ‏שנחסם הוא לגעת באדם שהוא אינו רשאי לראות.
+       *
+       * ‎`occupantCleared` נכלל: מחיקת דייר מוסתר היא אותה פגיעה
+       * ‏בדיוק, ובלי הזכר הזה השער היה נכון לחצי מהפעולות.
+       */
+      const displacing: { current: string | null; changing: boolean }[] = [
+        { current: existing.ownerContactId, changing: ownerContact !== null },
+        {
+          current: existing.occupantContactId,
+          changing: occupantContact !== null || occupantCleared === true,
+        },
+      ];
+      for (const field of displacing) {
+        if (!field.changing || field.current === null) continue;
+        if (await canSeeContact(tx, TenantContext.current().tenantId, field.current)) continue;
+        throw new ForbiddenException(
+          "הלקוח המשויך לנכס הזה אינו נגיש לך — פנה למנהל המשרד כדי להחליף אותו",
+        );
+      }
+
+      /*
        * ‎**מתחת לנעילה, ולא לפניה.** ראו `expectStatus` בחתימה: זו
        * כל הנקודה — סטטוס שנקרא לפני הנעילה יכול היה להשתנות בדיוק
        * בין הקריאה לכתיבה.
@@ -978,14 +1010,24 @@ export class PropertiesService {
        */
       const mayContact = async (contactId: string | null): Promise<boolean> =>
         contactId !== null && (await canSeeContact(tx, TenantContext.current().tenantId, contactId));
-      const ownerContact =
-        row.ownerContactId !== null && (await mayContact(row.ownerContactId))
-          ? await this.contacts.getById(tx, row.ownerContactId)
-          : null;
-      const occupantContact =
-        row.occupantContactId !== null && (await mayContact(row.occupantContactId))
-          ? await this.contacts.getById(tx, row.occupantContactId)
-          : null;
+      const ownerVisible = await mayContact(row.ownerContactId);
+      const occupantVisible = await mayContact(row.occupantContactId);
+      const ownerContact = ownerVisible
+        ? await this.contacts.getById(tx, row.ownerContactId!)
+        : null;
+      const occupantContact = occupantVisible
+        ? await this.contacts.getById(tx, row.occupantContactId!)
+        : null;
+      /*
+       * ‎**„מוסתר” אינו „חסר”, והמסך חייב להבדיל.**
+       *
+       * ‏בלי הדגל הזה כרטיס הנכס הציג „חסר” ופתח טופס הוספה על בעלים
+       * ‏קיים שהסוכן פשוט אינו רשאי לראות — כלומר ההשמטה עצמה הזמינה
+       * ‏דריסה (ביקורת Codex, P1). השרת דוחה את הדריסה בכל מקרה;
+       * ‏הדגל הוא כדי שהמסך לא יציע אותה מלכתחילה.
+       */
+      const ownerRedacted = row.ownerContactId !== null && !ownerVisible;
+      const occupantRedacted = row.occupantContactId !== null && !occupantVisible;
       const agents = await agentNames(tx, TenantContext.current().tenantId, [row.agentUserId]);
       const agentName = agentNameOf(agents, row.agentUserId);
       return {
@@ -1007,6 +1049,8 @@ export class PropertiesService {
          */
         readinessScore: readiness.score,
         missingFields: readiness.missingFields,
+        ...(ownerRedacted ? { ownerRedacted: true } : {}),
+        ...(occupantRedacted ? { occupantRedacted: true } : {}),
         ...(ownerContact
           ? {
               ownerContact: {

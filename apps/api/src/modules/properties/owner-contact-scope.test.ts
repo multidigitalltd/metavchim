@@ -18,7 +18,10 @@ import { PropertiesService } from "./properties.service";
 
 const OWNER_CONTACT = "01OWNERCONTACT00000000001";
 
-function serviceFor(propertyAgentUserId: string | null): PropertiesService {
+function serviceFor(
+  propertyAgentUserId: string | null,
+  overrides: { ownerContactId?: string | null; occupantContactId?: string | null } = {},
+): PropertiesService {
   const tx = {
     property: {
       findFirst: async (args: { where: { agentUserId?: string } }) => {
@@ -34,8 +37,9 @@ function serviceFor(propertyAgentUserId: string | null): PropertiesService {
           street: "אחוזה",
           propertyType: "apartment",
           dealType: "sale",
-          ownerContactId: OWNER_CONTACT,
-          occupantContactId: null,
+          ownerContactId:
+            overrides.ownerContactId === undefined ? OWNER_CONTACT : overrides.ownerContactId,
+          occupantContactId: overrides.occupantContactId ?? null,
           agentUserId: propertyAgentUserId,
           marketingTitle: null,
           marketingDescription: null,
@@ -54,6 +58,13 @@ function serviceFor(propertyAgentUserId: string | null): PropertiesService {
     lead: { findFirst: async () => null, findMany: async () => [] },
     contactLink: { findFirst: async () => null },
     user: { findMany: async () => [] },
+    /*
+     * ‏מה שמסלול העריכה נוגע בו לפני שער הגישה: הנעילה הייעודית
+     * ‏שהוא לוקח על שורת הנכס. אין כאן חיקוי של העריכה כולה — היא
+     * ‏נבדקת במקומות אחרים; רק מה שנדרש כדי להגיע לשורה שנבדקת.
+     */
+    $queryRaw: async () => [],
+    $executeRaw: async () => 0,
     // ‏מה ש-`prepareOwnerUpdate` שואל אחרי שהוא מצא את הבעלים
     match: { findMany: async () => [] },
     offer: { findMany: async () => [] },
@@ -62,6 +73,7 @@ function serviceFor(propertyAgentUserId: string | null): PropertiesService {
     withTenant: async <T>(fn: (t: typeof tx) => Promise<T>): Promise<T> => fn(tx),
   };
   const contacts = {
+    findOrCreateByPhone: async () => ({ id: "01NEWCONTACT0000000000001" }),
     getById: async () => ({
       id: OWNER_CONTACT,
       name: "בעל הנכס",
@@ -126,6 +138,118 @@ describe("כרטיס נכס — פרטי הבעלים", () => {
   it("הנכס שלי — הבעלים מוצג כרגיל", async () => {
     const dto = await asUser(SCOPED, () => serviceFor("01ME").getById("01PROP"));
     expect(dto.ownerContact?.phone).toBe("+972501234567");
+  });
+
+  /*
+   * ‎**„מוסתר” אינו „חסר”, וההבדל אינו ניסוח.**
+   *
+   * ‏השמטה לבדה גרמה למסך להציג „חסר” ולפתוח טופס הוספה על בעלים
+   * ‏קיים — כלומר ההגנה על הקריאה הזמינה דריסה בכתיבה (ביקורת
+   * ‏Codex, P1). הדגל הוא מה שמאפשר למסך לומר „יש, ולא לך”.
+   */
+  it("הכרטיס אומר „מוסתר” ולא שותק", async () => {
+    const dto = await asUser(SCOPED, () => serviceFor("01OTHER").getById("01PROP"));
+    expect(dto.ownerContact).toBeUndefined();
+    expect(dto.ownerRedacted).toBe(true);
+  });
+
+  /*
+   * ‏והצד השני, שבלעדיו „תמיד מוסתר” היה עובר: נכס שבאמת אין לו
+   * ‏בעלים אינו „מוסתר”, והמסך **כן** צריך להציע להוסיף.
+   */
+  it("נכס בלי בעלים כלל אינו „מוסתר”", async () => {
+    const dto = await asUser(SCOPED, () =>
+      serviceFor("01OTHER", { ownerContactId: null }).getById("01PROP"),
+    );
+    expect(dto.ownerContact).toBeUndefined();
+    expect(dto.ownerRedacted).toBeUndefined();
+  });
+
+  it("ובברירת המחדל — לא מוסתר ולא חסר", async () => {
+    const dto = await asUser(DEFAULT, () => serviceFor("01OTHER").getById("01PROP"));
+    expect(dto.ownerRedacted).toBeUndefined();
+  });
+});
+
+/**
+ * ‎**ההשמטה יצרה בעצמה נתיב לאובדן נתונים.**
+ *
+ * ‏הסוכן רואה „חסר”, המסך מציע להוסיף, והעריכה דרסה את כרטיס
+ * ‏הבעלים של העמית בלי שום בדיקה — דרך הממשק הרגיל ובלי שאיש
+ * ‏התכוון (ביקורת Codex, P1). המסך כבר אינו מציע; השרת דוחה בכל
+ * ‏מקרה, כי מסך אינו הרשאה.
+ */
+describe("החלפת בעלים שאינו מוצג", () => {
+  const NEW_OWNER = { name: "בעלים חדש", phone: "0501112222" };
+  const BLOCKED = /אינו נגיש/u;
+
+  /**
+   * ‎**„לא נחסם” ולא „הצליח”, ואומר זאת.**
+   *
+   * ‏מסלול העריכה המלא נוגע בנעילה, במדיה, בהתאמות ובאירועים —
+   * ‏פיקסצ׳ר שלם עבורו היה בודק הכול חוץ מהשורה שנבדקת כאן. לכן
+   * ‏הטענה החיובית היא בדיוק ההפך של השלילית: **שער הגישה לא
+   * ‏עצר**. מה שקורה אחריו נבדק במקומות אחרים.
+   */
+  async function notBlocked(run: () => Promise<unknown>): Promise<void> {
+    try {
+      await run();
+    } catch (error) {
+      expect(String((error as Error).message)).not.toMatch(BLOCKED);
+    }
+  }
+
+  it("נכס של סוכן אחר — ההחלפה נדחית", async () => {
+    await expect(
+      asUser(SCOPED, () =>
+        serviceFor("01OTHER").update("01PROP", { owner: NEW_OWNER } as never),
+      ),
+    ).rejects.toThrow(BLOCKED);
+  });
+
+  it("הנכס שלי — השער אינו עוצר", async () => {
+    await notBlocked(() =>
+      asUser(SCOPED, () => serviceFor("01ME").update("01PROP", { owner: NEW_OWNER } as never)),
+    );
+  });
+
+  /*
+   * ‏נכס בלי בעלים אינו „החלפה”: אין את מי לדרוס, וזו בדיוק
+   * ‏ההוספה שהמסך אמור להציע.
+   */
+  it("נכס בלי בעלים — השער אינו עוצר", async () => {
+    await notBlocked(() =>
+      asUser(SCOPED, () =>
+        serviceFor("01OTHER", { ownerContactId: null }).update("01PROP", {
+          owner: NEW_OWNER,
+        } as never),
+      ),
+    );
+  });
+
+  /*
+   * ‏ועריכה שאינה נוגעת באדם — מחיר, כתובת — עוברת גם על נכס של
+   * ‏עמית. השער הוא על ההחלפה, לא על העריכה.
+   */
+  it("עריכה שאינה נוגעת בבעלים — השער אינו עוצר", async () => {
+    await notBlocked(() =>
+      asUser(SCOPED, () => serviceFor("01OTHER").update("01PROP", { city: "חיפה" } as never)),
+    );
+  });
+
+  /*
+   * ‎**ומחיקת דייר מוסתר היא אותה פגיעה.** בלי הזכר הזה השער היה
+   * ‏נכון לחצי מהפעולות: החלפה נחסמת, מחיקה עוברת.
+   */
+  it("ניקוי דייר שאינו מוצג — נדחה", async () => {
+    await expect(
+      asUser(SCOPED, () =>
+        serviceFor("01OTHER", { occupantContactId: "01OCCUPANT0000000000000001" }).update(
+          "01PROP",
+          { occupantCleared: true } as never,
+        ),
+      ),
+    ).rejects.toThrow(/אינו נגיש/u);
   });
 });
 

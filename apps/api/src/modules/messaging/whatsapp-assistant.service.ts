@@ -12,6 +12,7 @@ import {
   type AgentHistoryRef,
   agentResultText,
   applyBlockedModules,
+  normalizeIsraeliPhone,
   resolveCapabilities,
   roleLabel,
   decodeButtonId,
@@ -1515,7 +1516,15 @@ export class WhatsAppAssistantService {
            * בגבעתיים” בלי הסייג נשמע כמו עובדה על המשרד, בזמן
            * שהתשובה מסוננת לבעלות.
            */
-          const scope = scopeNote(state.proposal.actionId);
+          /*
+           * ‏האם זה חיפוש לפי טלפון — אותה בדיקה שמנתבת את החיפוש
+           * ‏עצמו, ולא ניחוש שני שיכול לסטות ממנה.
+           */
+          const searchTerm = state.proposal.fields.find((field) => field.key === "query");
+          const byPhone =
+            typeof searchTerm?.value === "string" &&
+            normalizeIsraeliPhone(searchTerm.value) !== undefined;
+          const scope = scopeNote(state.proposal.actionId, byPhone);
           if (scope !== "") lines.push(scope);
           break;
         }
@@ -1934,7 +1943,7 @@ const SEARCH_SCOPED_GROUPS: readonly { capability: Capability; label: string }[]
   { capability: "leads.view_all", label: "לידים" },
 ];
 
-function scopeNote(actionId: string): string {
+function scopeNote(actionId: string, byPhone = false): string {
   const capabilities = TenantContext.current().capabilities;
 
   /*
@@ -1942,14 +1951,38 @@ function scopeNote(actionId: string): string {
    * הנכסים הם של המשרד ומוצגים במלואם. סייג גורף היה אומר על תוצאת
    * נכסים מלאה שהיא חלקית (ביקורת Codex) — ולכן הוא מונה בשם את
    * הקבוצות המצומצמות, ומזכיר את הנכסים רק למי שרואה אותם.
+   *
+   * ‎**„נכסים — מכל המשרד” חדל להיות נכון תמיד.** חיפוש לפי טלפון
+   * ‏מגיע ללקוח, ולקוח שהוא בעל נכס של עמית מוסתר ממי שאין לו
+   * ‏`properties.view_all` — כלומר התוצאה מצומצמת דווקא במסלול
+   * ‏שהמשפט הבטיח עליו „הכול”. ובמשרד שבו לסוכן יש `view_all` על
+   * ‏קונים ולידים, `restricted` ריק והסייג לא הופיע כלל: אפס
+   * ‏תוצאות נקרא כעובדה על המשרד (ביקורת Codex).
+   *
+   * ‏הסייג על בעלי הנכסים מוצג **רק בחיפוש לפי טלפון**, לפי אותה
+   * ‏בדיקה עצמה שמנתבת את החיפוש (`normalizeIsraeliPhone`). חיפוש
+   * ‏לפי כתובת אינו מסונן כך, וסייג עליו היה מהסוג שנפסל כאן קודם:
+   * ‏נכון על ההרשאה, שקרי על התוצאה.
    */
   if (actionId === "search") {
     const restricted = SEARCH_SCOPED_GROUPS.filter(
       (group) => !capabilities.has(group.capability),
     ).map((group) => group.label);
-    if (restricted.length === 0) return "";
-    const properties = capabilities.has("properties.view") ? "; נכסים — מכל המשרד" : "";
-    return `_(${restricted.join(" ו")} — מהרשומות שמשויכות אליך בלבד${properties})_`;
+    const ownersHidden =
+      byPhone && capabilities.has("properties.view") && !capabilities.has("properties.view_all");
+    if (restricted.length === 0 && !ownersHidden) return "";
+    const parts: string[] = [];
+    if (restricted.length > 0) {
+      parts.push(`${restricted.join(" ו")} — מהרשומות שמשויכות אליך בלבד`);
+    }
+    if (capabilities.has("properties.view")) {
+      parts.push(
+        ownersHidden
+          ? "נכסים — מכל המשרד, אך בעלי נכסים שאינם שלך אינם מופיעים בחיפוש לפי טלפון"
+          : "נכסים — מכל המשרד",
+      );
+    }
+    return `_(${parts.join("; ")})_`;
   }
 
   const required = SCOPE_CAPABILITIES[actionId];

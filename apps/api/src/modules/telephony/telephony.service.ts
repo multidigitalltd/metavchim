@@ -895,12 +895,32 @@ export class TelephonyService {
          * ‏ממספר לא מוכר (המספר עצמו מוצג ממילא, אחרת אי אפשר לענות),
          * ‏ומי שהלקוח שייך לו מקבל התראה **אישית** עם השם.
          */
-        const restricted = await officeRestrictsContactVisibility(tx, tenantId);
-        const contactName = restricted ? null : decryptedName;
-        const contactOwnerUserId =
-          contact === null || !restricted
-            ? null
-            : await this.contactOwner(tx, tenantId, contact.id);
+        /*
+         * ‎**נפתר רק כשיש התראה — ונפתר פעם אחת.**
+         *
+         * ‏שיחה אחת מייצרת כמה אירועים, ורובם אינם מתריעים כלל:
+         * ‏`Answer` חוזר מיד למטה. חישוב היכולות המשרדיות ושלוש
+         * ‏שאילתות הבעלות על **כל** אירוע היו עבודת הרשאה על אירועים
+         * ‏שאינם שולחים דבר (ביקורת Codex). הפונקציה נקראת בענפי
+         * ‏הצלצול והשיחה שלא נענתה בלבד, ושומרת את תשובתה.
+         */
+        let audience: { name: string | null; ownerUserId: string | null } | undefined;
+        const notificationAudience = async (): Promise<{
+          name: string | null;
+          ownerUserId: string | null;
+        }> => {
+          if (audience === undefined) {
+            const restricted = await officeRestrictsContactVisibility(tx, tenantId);
+            audience = {
+              name: restricted ? null : decryptedName,
+              ownerUserId:
+                contact === null || !restricted
+                  ? null
+                  : await this.contactOwner(tx, tenantId, contact.id),
+            };
+          }
+          return audience;
+        };
 
         /*
          * שתי הגנות שונות מפני אותו אירוע שמגיע פעמיים, כי הן מגינות
@@ -976,6 +996,8 @@ export class TelephonyService {
            * לנו מיפוי אמין ממנה למשתמש. עדיף שכולם יראו מי מתקשר מאשר
            * שההתראה תגיע לאדם הלא נכון.
            */
+          const { name: contactName, ownerUserId: contactOwnerUserId } =
+            await notificationAudience();
           await notifyOnce(tx, {
             tenantId,
             dedupeKey: `incoming_call:${event.providerCallId}`,
@@ -1182,6 +1204,8 @@ export class TelephonyService {
             });
           }
 
+          const { name: contactName, ownerUserId: contactOwnerUserId } =
+            await notificationAudience();
           await notifyOnce(tx, {
             tenantId,
             /*
