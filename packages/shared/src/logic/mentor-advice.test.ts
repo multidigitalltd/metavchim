@@ -346,6 +346,7 @@ describe("רעיונות עם משוב — המנטור לומד מה עובד (
     expect(resolveIdeaFeedback(undefined)).toEqual({
       liked: [],
       dismissed: [],
+      marks: [],
     });
     expect(
       resolveIdeaFeedback({
@@ -353,7 +354,28 @@ describe("רעיונות עם משוב — המנטור לומד מה עובד (
           ideas: { liked: ["offers_sent:1", 7, "bad"], dismissed: "x" },
         },
       }),
-    ).toEqual({ liked: ["offers_sent:1"], dismissed: [] });
+    ).toEqual({ liked: ["offers_sent:1"], dismissed: [], marks: [] });
+    // יומן הסימונים — רק רשומות שלמות ותקינות; הישנות נושרות אחרי שישים
+    expect(
+      resolveIdeaFeedback({
+        mentor: {
+          ideas: {
+            marks: [
+              { key: "offers_sent:1", verdict: "helped", date: "2026-09-03" },
+              { key: "offers_sent:1", verdict: "meh", date: "2026-09-03" },
+              { key: "nope", verdict: "helped", date: "2026-09-03" },
+              { key: "offers_sent:2", verdict: "dismissed", date: "3.9" },
+              // צורה נכונה, יום שאינו קיים — היה מפיל את הסבב (ביקורת Codex)
+              { key: "offers_sent:2", verdict: "helped", date: "2026-99-99" },
+              { key: "offers_sent:2", verdict: "helped", date: "2026-02-30" },
+              "bad",
+            ],
+          },
+        },
+      }).marks,
+    ).toEqual([
+      { key: "offers_sent:1", verdict: "helped", date: "2026-09-03" },
+    ]);
   });
 
   it("רעיון שנדחה אינו חוזר; כשכולם נדחו — הרשימה המלאה", () => {
@@ -363,13 +385,18 @@ describe("רעיונות עם משוב — המנטור לומד מה עובד (
       const pick = playbookIdeaPick("offers_sent", seed, {
         liked: [],
         dismissed,
+        marks: [],
       });
       expect(pick.key).not.toBe("offers_sent:0");
       expect(ideaByKey(pick.key)?.text).toBe(pick.text);
     }
     const all = ideas.map((_, i) => ideaKey("offers_sent", i));
     expect(ideas).toContain(
-      playbookIdeaPick("offers_sent", 3, { liked: [], dismissed: all }).text,
+      playbookIdeaPick("offers_sent", 3, {
+        liked: [],
+        dismissed: all,
+        marks: [],
+      }).text,
     );
     // בלי משוב — כמו קודם
     expect(playbookIdea("offers_sent", 1)).toBe(ideas[1]);
@@ -384,6 +411,7 @@ describe("רעיונות עם משוב — המנטור לומד מה עובד (
     const feedback = {
       liked: ["offers_sent:1"],
       dismissed: [plain[0]!.ideaKey!],
+      marks: [],
     };
     const learned = mentorAdvice({
       goals,
@@ -418,7 +446,7 @@ describe("הטיפ לשבוע הבא מדלג על מה שנדחה", () => {
     const learned =
       mentorWeeklyReview({
         ...signals,
-        feedback: { liked: [], dismissed: [plainKey!] },
+        feedback: { liked: [], dismissed: [plainKey!], marks: [] },
       })?.paragraphs.at(-1) ?? "";
     expect(learned).toMatch(/^טיפ לשבוע הבא: /u);
     expect(ideaKeyInText(learned)).not.toBe(plainKey);

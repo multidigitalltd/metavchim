@@ -547,7 +547,7 @@ function AdviceSection({
                   ) : (
                     <span className="mv-card-sub" aria-live="polite">
                       {noted[item.ideaKey] === "helped"
-                        ? "נרשם — עוד מהסוג הזה."
+                        ? "נרשם — עוד מהסוג הזה. בעוד שבוע אבדוק אם המספר זז."
                         : "נרשם — הרעיון הזה לא יחזור."}
                     </span>
                   )}
