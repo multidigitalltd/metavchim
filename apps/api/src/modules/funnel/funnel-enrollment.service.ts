@@ -3,7 +3,6 @@ import { ulid } from "ulid";
 import {
   FUNNEL_DEFAULT_DAILY_ENTRIES,
   FUNNEL_FRESH_SIGNUP_HOURS,
-  funnelEntryPlan,
   funnelExitReason,
   hasValidCard,
   type FunnelAnchors,
@@ -34,8 +33,8 @@ const PAGE = 200;
  *
  * ‏אילו כל המשרדים הקיימים היו מתחילים ביום 0 באותו בוקר, כולם היו
  * מקבלים את ההודעה הראשונה באותו בוקר — וזה בדיוק גל השליחה שמספר
- * וואטסאפ יחיד לא סובל. `funnelEntryPlan` מפזר את הפיגור במנות
- * יומיות, ומכניס הרשמות טריות מיד כדי שהן לא ייתקעו מאחוריו.
+ * וואטסאפ יחיד לא סובל. `enrollDue` מפזר את הפיגור במנות יומיות,
+ * ומכניס הרשמות טריות מיד כדי שהן לא ייתקעו מאחוריו.
  *
  * ## ‎**השירות הזה אינו שולח דבר**
  *
@@ -90,9 +89,10 @@ export class FunnelEnrollmentService {
    *
    * ## ‏שתי שאילתות ולא אחת
    *
-   * ‏הכלל אומר „טריים מיד, ותיקים לפי מכסה”, והמיון שמשרת את אחד
-   * מהם פוגע בשני: מיון מהישן לחדש דוחק הרשמה טרייה אל מעבר לדף.
-   * ‏לכן כל קבוצה נשלפת בסדר שלה, והכלל המשותף מרכיב אותן.
+   * ‏הכלל אומר „טריים מיד, ותיקים לפי מכסה”, ומיון אחד אינו יכול
+   * לשרת את שניהם: הסדר שמשרת „ותיקים ראשונים” דוחק הרשמה טרייה
+   * אל מעבר לדף. לכן כל קבוצה נשלפת בסדר שלה ובתקרה שלה — הטריים
+   * ‏בלי תקרה כלל, והפיגור לפי המכסה.
    */
   private async enrollDue(now: Date, dailyQuota: number, pageSize: number): Promise<number> {
     /*
@@ -111,34 +111,63 @@ export class FunnelEnrollmentService {
     } as const;
     const freshFrom = new Date(now.getTime() - FUNNEL_FRESH_SIGNUP_HOURS * 60 * 60 * 1000);
 
-    const candidates = await this.prisma.withFunnelAdmin(async (tx) => {
-      const fresh = await tx.tenant.findMany({
-        where: { ...eligible, createdAt: { gte: freshFrom } },
-        select: { id: true, createdAt: true },
-        orderBy: { createdAt: "desc" },
-        take: pageSize,
-      });
-      const backlog = await tx.tenant.findMany({
-        where: { ...eligible, createdAt: { lt: freshFrom } },
-        select: { id: true, createdAt: true },
-        orderBy: { createdAt: "asc" },
-        take: Math.max(dailyQuota, 0),
-      });
-      return [...fresh, ...backlog];
-    });
-    if (candidates.length === 0) return 0;
-
+    /*
+     * ‎**הטריים: כולם, בלי תקרה.**
+     *
+     * ‎`take` בלי המשך היה משאיר את מי שמעבר לדף לסבב הבא, ובזרם
+     * ‏מתמשך הם היו מזדקנים אל תוך הפיגור שמוגבל במכסה — כלומר
+     * ‏מאבדים בדיוק את המעקף שנועד להם (ביקורת Codex).
+     *
+     * ‏הלולאה נעצרת מאליה: משרד שנרשם יוצא מ-`none` ולכן אינו חוזר
+     * ‏בדף הבא. הבלימה על „דף בלי קליטה” היא נגד לולאה אינסופית אם
+     * ‏שורה אינה ניתנת לתפיסה (מרוץ מול עותק אחר).
+     *
+     * ‏המיון `asc` אינו משפיע על התוצאה כל עוד הלולאה רצה עד הסוף —
+     * ‏כולם נכנסים ממילא. הוא נשאר כהגנה על **המסלול היחיד שבו כן
+     * ‏יש חיתוך**: אם הבלימה נתפסת, מי שקרוב לצאת מחלון הטריות הוא
+     * ‏שכבר נכנס. `desc` היה מרעיב דווקא אותו.
+     */
     let enrolled = 0;
-    for (const tenant of funnelEntryPlan(candidates, dailyQuota, now)) {
-      /*
-       * ‎**`startedAt` הוא `now`, ולא `tenant.createdAt`.**
-       *
-       * ‏זו ההחלטה עצמה בשורה אחת. `createdAt` היה מחזיר בדיוק את
-       * ‏„הכניסה בנקודה” שנדחתה: משרד בן עשרה ימים היה מתחיל ביום
-       * ‏10 ומפספס את כל תוכן ההפעלה.
-       */
-      const created = await this.open(tenant.id, "conversion", now);
-      if (created) enrolled += 1;
+    for (;;) {
+      const page = await this.prisma.withFunnelAdmin((tx) =>
+        tx.tenant.findMany({
+          where: { ...eligible, createdAt: { gte: freshFrom } },
+          select: { id: true },
+          orderBy: { createdAt: "asc" },
+          take: pageSize,
+        }),
+      );
+      if (page.length === 0) break;
+      const before = enrolled;
+      for (const tenant of page) {
+        /*
+         * ‎**`startedAt` הוא `now`, ולא `tenant.createdAt`.**
+         *
+         * ‏זו ההחלטה עצמה בשורה אחת. `createdAt` היה מחזיר בדיוק את
+         * ‏„הכניסה בנקודה” שנדחתה: משרד בן עשרה ימים היה מתחיל ביום
+         * ‏10 ומפספס את כל תוכן ההפעלה.
+         */
+        if (await this.open(tenant.id, "conversion", now)) enrolled += 1;
+      }
+      if (enrolled === before) break;
+    }
+
+    /*
+     * ‏הפיגור, ורק הוא, כפוף למכסה — זה כל תפקידה: לפרוס את הקבוצה
+     * שהצטברה על פני כשבוע, ולא לחנוק את הקצב הרגיל.
+     */
+    if (dailyQuota > 0) {
+      const backlog = await this.prisma.withFunnelAdmin((tx) =>
+        tx.tenant.findMany({
+          where: { ...eligible, createdAt: { lt: freshFrom } },
+          select: { id: true },
+          orderBy: { createdAt: "asc" },
+          take: dailyQuota,
+        }),
+      );
+      for (const tenant of backlog) {
+        if (await this.open(tenant.id, "conversion", now)) enrolled += 1;
+      }
     }
     return enrolled;
   }

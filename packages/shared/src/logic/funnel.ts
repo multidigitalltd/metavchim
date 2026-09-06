@@ -342,35 +342,6 @@ export function isFunnelSendingHour(parts: { weekday: string; hour: number }): b
 
 /* ────────────────────────────  כניסה מדורגת  ──────────────────────────── */
 
-/**
- * ‎**מי נכנס למסלול היום — ובכמה.**
- *
- * ## ‏הבעיה שזה פותר
- *
- * ‏„כל משרד מתחיל ביום 0 שלו” נשמע כמו החלטה על משרד בודד, אבל
- * ביום ההשקה יש **קבוצה שלמה** שטרם נכנסה. אם כולם מתחילים באותו
- * בוקר, כולם מקבלים את ההודעה הראשונה באותו בוקר — וזה בדיוק גל
- * השליחה שמספר וואטסאפ יחיד לא שורד.
- *
- * ‏„לאט לאט” חייב לחול גם על הקבוצה, לא רק על כל משרד בנפרד.
- *
- * ## ‏הוותיקים ראשונים
- *
- * ‏מי שנרשם מזמן קרוב יותר לתפוגת הניסיון שלו, ולכן יש לו פחות זמן
- * לקבל את התוכן. סדר הפוך היה מבזבז עליו את הימים שנשארו.
- */
-export function funnelEntryBatch<T extends { id: string; createdAt: Date }>(
-  candidates: readonly T[],
-  dailyQuota: number,
-): T[] {
-  if (dailyQuota <= 0) return [];
-  return [...candidates]
-    .sort(
-      (a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id, "en"),
-    )
-    .slice(0, dailyQuota);
-}
-
 /** ‏ברירת המחדל של הכניסה היומית — כשבוע לקטלוג בגודל הנוכחי. */
 export const FUNNEL_DEFAULT_DAILY_ENTRIES = 25;
 
@@ -378,33 +349,17 @@ export const FUNNEL_DEFAULT_DAILY_ENTRIES = 25;
 export const FUNNEL_FRESH_SIGNUP_HOURS = 48;
 
 /**
- * ‎**מי נכנס עכשיו — החדשים מיד, והוותיקים לפי המכסה.**
+ * ‎**„לאט לאט” חל גם על הקבוצה — ולמה זה אינו פונקציה כאן.**
  *
- * ## ‏למה זה לא סתם `funnelEntryBatch`
+ * ‏הכלל הוא „הרשמה טרייה נכנסת מיד; הפיגור נפרס לפי מכסה”, והוא
+ * ‏מיושם בשתי שאילתות ב-`FunnelEnrollmentService`. הגרסה הראשונה
+ * ‏חילקה כאן רשימה שכבר נשלפה, וזה היה **נכון רק עד גודל הדף**:
+ * ‏מיון אחד אינו יכול לשרת גם „ותיקים ראשונים” וגם „טריים תמיד”,
+ * ‏ולכן כל קבוצה חייבת להישלף בסדר שלה ובתקרה שלה.
  *
- * ‏המכסה נועדה **לנקז פיגור**: ביום ההשקה יש קבוצה שלמה שממתינה,
- * והיא נכנסת על פני כשבוע. אבל המכסה מסדרת ותיקים ראשונים — ולכן
- * משרד שנרשם הבוקר היה נדחק לסוף התור, ומקבל את „יום 0” שלו
- * **בעוד שבוע**. זו ההודעה שכל התוכנית נשענת עליה, והיא הייתה
- * מגיעה אחרי שהוא כבר ניסה את המערכת לבד ונטש.
- *
- * ‏שתי המטרות אינן סותרות ברגע שמפרידים ביניהן: הרשמה טרייה אינה
- * פיגור, ולכן היא אינה נספרת במכסה. בקצב הרגיל מדובר בכמה משרדים
- * ביום — לא גל.
+ * ‏מה שנשאר כאן הם שני המספרים שהכלל נשען עליהם, כדי שהם יהיו
+ * ‏מוגדרים במקום אחד ולא בתוך שאילתה.
  */
-export function funnelEntryPlan<T extends { id: string; createdAt: Date }>(
-  candidates: readonly T[],
-  dailyQuota: number,
-  now: Date,
-): T[] {
-  const freshFrom = now.getTime() - FUNNEL_FRESH_SIGNUP_HOURS * HOUR_MS;
-  const fresh: T[] = [];
-  const backlog: T[] = [];
-  for (const candidate of candidates) {
-    (candidate.createdAt.getTime() >= freshFrom ? fresh : backlog).push(candidate);
-  }
-  return [...fresh, ...funnelEntryBatch(backlog, dailyQuota)];
-}
 
 /* ────────────────────────────  עצירה  ──────────────────────────── */
 

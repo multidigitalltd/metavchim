@@ -9,8 +9,6 @@ import {
   FUNNEL_MIN_GAP_HOURS,
   FUNNEL_TRACKS,
   dueFunnelStages,
-  funnelEntryBatch,
-  funnelEntryPlan,
   funnelExitReason,
   funnelStageDueAt,
   isFunnelSendingHour,
@@ -340,57 +338,19 @@ describe("שעות שקט", () => {
 });
 
 describe("כניסה מדורגת", () => {
-  const mk = (id: string, days: number) => ({
-    id,
-    createdAt: new Date(T0.getTime() - days * DAY),
-  });
-
-  it("הוותיקים ראשונים, ולא יותר מהמכסה", () => {
-    const batch = funnelEntryBatch([mk("c", 1), mk("a", 30), mk("b", 10)], 2);
-    expect(batch.map((t) => t.id)).toEqual(["a", "b"]);
-  });
-
-  it("מכסה אפס או שלילית אינה מכניסה איש", () => {
-    expect(funnelEntryBatch([mk("a", 1)], 0)).toEqual([]);
-    expect(funnelEntryBatch([mk("a", 1)], -5)).toEqual([]);
-  });
-
-  it("אינה משנה את המערך שקיבלה", () => {
-    const input = [mk("c", 1), mk("a", 30)];
-    const copy = input.map((t) => t.id);
-    funnelEntryBatch(input, 2);
-    expect(input.map((t) => t.id)).toEqual(copy);
-  });
-
+  /**
+   * ‏הכלל עצמו יושב בשתי השאילתות של `FunnelEnrollmentService` —
+   * ‏מיון אחד אינו יכול לשרת גם „ותיקים ראשונים” וגם „טריים תמיד”.
+   * ‏מה שנבדק כאן הם שני המספרים שהוא נשען עליהם.
+   */
   it("ברירת המחדל היומית סבירה לקטלוג הנוכחי", () => {
     expect(FUNNEL_DEFAULT_DAILY_ENTRIES).toBeGreaterThan(0);
     expect(FUNNEL_DEFAULT_DAILY_ENTRIES).toBeLessThanOrEqual(100);
   });
 
-  /**
-   * ‏המכסה מנקזת פיגור. משרד שנרשם הבוקר אינו פיגור — ואם הוא נספר
-   * בה, „יום 0” שלו מגיע בעוד שבוע, אחרי שכבר ניסה את המערכת לבד.
-   */
-  it("הרשמה טרייה נכנסת מיד ואינה נספרת במכסה", () => {
-    const brandNew = { id: "new", createdAt: new Date(T0.getTime() - 2 * 60 * 60 * 1000) };
-    const old1 = mk("old1", 40);
-    const old2 = mk("old2", 30);
-    const plan = funnelEntryPlan([old1, old2, brandNew], 1, T0);
-    expect(plan.map((t) => t.id)).toEqual(["new", "old1"]);
-  });
-
-  it("מכסה אפס עדיין מכניסה את החדשים", () => {
-    const brandNew = { id: "new", createdAt: T0 };
-    expect(funnelEntryPlan([brandNew, mk("old", 40)], 0, T0).map((t) => t.id)).toEqual(["new"]);
-  });
-
-  it("מי שנרשם לפני יותר מהחלון הטרי הוא פיגור לכל דבר", () => {
-    const stale = {
-      id: "stale",
-      createdAt: new Date(T0.getTime() - (FUNNEL_FRESH_SIGNUP_HOURS + 1) * 60 * 60 * 1000),
-    };
-    expect(funnelEntryPlan([stale], 0, T0)).toEqual([]);
-    expect(funnelEntryPlan([stale], 1, T0).map((t) => t.id)).toEqual(["stale"]);
+  it("חלון הטריות הוא ימים ספורים, לא שבועות", () => {
+    expect(FUNNEL_FRESH_SIGNUP_HOURS).toBeGreaterThanOrEqual(24);
+    expect(FUNNEL_FRESH_SIGNUP_HOURS).toBeLessThanOrEqual(96);
   });
 });
 
