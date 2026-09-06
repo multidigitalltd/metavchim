@@ -17,12 +17,19 @@ import {
   MentorGoalPeriodSchema,
   MentorIdeaFeedbackSchema,
   type MentorIdeaFeedbackInput,
+  PRACTICE_SCENARIOS,
+  PRACTICE_TEXT_MAX,
   type ProcessGoalSuggestion,
   type MentorGoalProposal,
 } from "@metavchim/shared";
 import { AnyAuthenticated } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import {
+  MentorPracticeService,
+  type MentorPracticeDto,
+  type MentorPracticeOverview,
+} from "./mentor-practice.service";
 import {
   MentorService,
   type MentorGoalDto,
@@ -59,6 +66,12 @@ const ReflectionSchema = z
 const AskSchema = z
   .object({ text: z.string().trim().min(2).max(1000) })
   .strict();
+const PracticeStartSchema = z
+  .object({ scenario: z.enum(PRACTICE_SCENARIOS) })
+  .strict();
+const PracticeReplySchema = z
+  .object({ text: z.string().trim().min(1).max(PRACTICE_TEXT_MAX) })
+  .strict();
 const IdParam = new ZodValidationPipe(IdSchema);
 
 /**
@@ -73,7 +86,10 @@ const IdParam = new ZodValidationPipe(IdSchema);
 @RequireFeature("ai_coach")
 @Controller("mentor")
 export class MentorController {
-  constructor(private readonly mentor: MentorService) {}
+  constructor(
+    private readonly mentor: MentorService,
+    private readonly practice: MentorPracticeService,
+  ) {}
 
   @Get("overview")
   @AnyAuthenticated()
@@ -166,6 +182,44 @@ export class MentorController {
     body: MentorIdeaFeedbackInput,
   ): Promise<{ ok: true; text: string }> {
     return this.mentor.ideaFeedback(body);
+  }
+
+  /* ---------------- תרגול שיחה (docs/14 §7.3) ---------------- */
+
+  @Get("practice")
+  @AnyAuthenticated()
+  practiceOverview(): Promise<MentorPracticeOverview> {
+    return this.practice.overview();
+  }
+
+  @Post("practice")
+  @AnyAuthenticated()
+  practiceStart(
+    @Body(new ZodValidationPipe(PracticeStartSchema))
+    body: z.infer<typeof PracticeStartSchema>,
+  ): Promise<MentorPracticeDto> {
+    return this.practice.start(body.scenario);
+  }
+
+  @Post("practice/:id/reply")
+  @AnyAuthenticated()
+  practiceReply(
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(PracticeReplySchema))
+    body: z.infer<typeof PracticeReplySchema>,
+  ): Promise<{
+    turn: { role: "agent" | "counterpart"; text: string };
+    closing: boolean;
+    source: "model" | "fallback";
+    agentTurns: number;
+  }> {
+    return this.practice.reply(id, body.text);
+  }
+
+  @Post("practice/:id/finish")
+  @AnyAuthenticated()
+  practiceFinish(@Param("id", IdParam) id: string): Promise<MentorPracticeDto> {
+    return this.practice.finish(id);
   }
 
   @Post("messages")

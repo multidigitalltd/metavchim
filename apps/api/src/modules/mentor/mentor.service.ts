@@ -53,6 +53,7 @@ import {
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AgentEventsService } from "../agent/agent-events.service";
+import { MentorPracticeService } from "./mentor-practice.service";
 import { AuditService } from "../../core/audit.service";
 import { GeminiService } from "../../core/gemini.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -771,12 +772,30 @@ export class MentorService {
           feedback: resolveIdeaFeedback(user?.preferences),
           now,
         });
+        // התרגול האחרון בחודש האחרון — מה המנטור אמר לנסות (§7.3)
+        const practice = await MentorPracticeService.stats(
+          tx,
+          tenantId,
+          userId,
+          {
+            start: jerusalemDayStart(now, -30),
+            end: now,
+          },
+        );
         return {
           insights,
           activity,
           previousActivity,
           funnel,
           advice,
+          lastPractice:
+            practice.last === null
+              ? null
+              : {
+                  scenarioLabel: practice.last.scenarioLabel,
+                  score: practice.last.score,
+                  tryNext: practice.last.tryNext,
+                },
           persona: resolveMentorPersona(user?.preferences),
           firstName: (user?.name ?? "").trim().split(/\s+/u)[0] ?? "",
           nowText: MentorService.nowText(now),

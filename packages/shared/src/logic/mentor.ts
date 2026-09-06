@@ -594,6 +594,8 @@ export interface MentorWeekSignals {
   feedback?: MentorIdeaFeedback;
   /** רעיונות שסומנו „עזר לי” לפני שבוע — והאם המספר שלהם זז (§7.2) */
   ideaOutcomes?: MentorIdeaOutcome[];
+  /** תרגולי שיחה שנגמרו השבוע, והציון האחרון (§7.3) */
+  practice?: { count: number; lastScore: number | null };
 }
 
 /**
@@ -835,6 +837,27 @@ export function mentorIdeaOutcomeSentence(outcome: MentorIdeaOutcome): string {
   return `${lead} ${after} בשבוע שאחריו, מול ${before} בשבוע שלפני. שבוע אחד הוא מעט — נמשיך לעקוב.`;
 }
 
+/**
+ * תרגלת השבוע — משפט אחד בסיכום (§7.3). תרגול הוא מאמץ, ומאמץ נאמר
+ * בשמו; הציון האחרון כעובדה, בלי „רק”.
+ */
+export function mentorPracticeSentence(
+  practice: { count: number; lastScore: number | null } | undefined,
+): string | null {
+  if (practice === undefined || practice.count === 0) return null;
+  const times =
+    practice.count === 1
+      ? "שיחה אחת"
+      : practice.count === 2
+        ? "שתי שיחות"
+        : `${practice.count} שיחות`;
+  const score =
+    practice.lastScore === null
+      ? ""
+      : ` הציון האחרון: ${practice.lastScore} מתוך 5.`;
+  return `תרגלת השבוע ${times} עם המנטור.${score} תרגול הוא מה שהופך ידע להרגל.`;
+}
+
 function isEmptyActivity(activity: MentorActivity): boolean {
   return MENTOR_METRICS.every((m) => activity[m.code] === 0);
 }
@@ -855,12 +878,15 @@ export function mentorWeeklyReview(
   const somethingWaits = (signals.insights?.missedUnreturned ?? 0) > 0;
   // וכך גם רעיון שסומן „עזר לי” ונמדד — הבטחנו לומר אם המספר זז
   const somethingMeasured = (signals.ideaOutcomes?.length ?? 0) > 0;
+  // תרגול הוא מאמץ — שבוע שבו רק תרגלו עדיין מקבל סיכום (§7.3)
+  const somethingPracticed = (signals.practice?.count ?? 0) > 0;
   if (
     wins.length === 0 &&
     goals.length === 0 &&
     noActivity &&
     !somethingWaits &&
-    !somethingMeasured
+    !somethingMeasured &&
+    !somethingPracticed
   )
     return null;
 
@@ -905,6 +931,9 @@ export function mentorWeeklyReview(
    */
   for (const outcome of (signals.ideaOutcomes ?? []).slice(-2))
     paragraphs.push(mentorIdeaOutcomeSentence(outcome));
+  // תרגול הוא מאמץ שנאמר בשמו — כמו הצלחה, לפני הזיכרון
+  const practice = mentorPracticeSentence(signals.practice);
+  if (practice !== null) paragraphs.push(practice);
   /*
    * הזיכרון: דפוס חוזר נאמר רק כשהוא **רלוונטי השבוע** — מדד שמאחור
    * גם עכשיו, או מפנה שנמשך. משפט אחד, לא רשימה: מנטור מזכיר דבר
