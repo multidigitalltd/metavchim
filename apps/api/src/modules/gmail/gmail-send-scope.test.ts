@@ -124,3 +124,160 @@ describe("שליחת מייל מ-Gmail ללקוח שאינו שלי", () => {
     expect(sent).toEqual(["owner@example.com"]);
   });
 });
+
+/**
+ * ‎**ואיפה התיעוד נוחת — שאלה נפרדת מ„מותר לי הלקוח”** (ביקורת
+ * ‏Codex, P1, סבב שני).
+ *
+ * ‏שער הלקוח הוא **איחוד מקורות**: לקוח שנגיש לי דרך כרטיס הקונה
+ * ‏שלי עובר אותו גם כשיש לו ליד פתוח של עמית. ואז הגוף המלא של
+ * ‏המייל — הכתובת, הנושא והטקסט — נכתב לציר הזמן של הליד ההוא.
+ *
+ * ‏שני נתיבים, ושניהם היו פתוחים: `leadId` שנמסר נבדק מול הלקוח
+ * ‏בלבד, והשמטתו הפילה את הבחירה על `openLeadFor` שסינן לפי דייר
+ * ‏בלבד.
+ */
+describe("‏הליד שהמייל מתועד בו הוא ליד שמותר לי", () => {
+  const MY_LEAD = "01LEADMINEAAAAAAAAAAAAAAAA";
+  const THEIR_LEAD = "01LEADTHEIRSAAAAAAAAAAAAAA";
+
+  /*
+   * ‏הסוכן רואה את הלקוח **דרך כרטיס הקונה שלו** — זה מה שפותח את
+   * ‏שער האיחוד, וזה בדיוק התרחיש שהממצא תיאר. בלי `buyers.view_own`
+   * ‏הלקוח כלל לא נגיש, והבדיקה הייתה נופלת מסיבה אחרת.
+   */
+  const BUYER_AGENT_CAPS: Capability[] = [...AGENT_CAPS, "buyers.view_own"];
+
+  interface LeadRow {
+    id: string;
+    assignedToUserId: string;
+  }
+
+  /** ‏לקוח שנגיש דרך כרטיס הקונה שלי, ויש לו לידים של שני סוכנים. */
+  function prismaWithLeads(leads: LeadRow[], written: string[]): PrismaService {
+    const tx = {
+      property: { findFirst: async () => null },
+      /* ‏זה מה שפותח את שער הלקוח — כרטיס קונה שלי */
+      buyer: { findFirst: async () => ({ id: "01BUYERAAAAAAAAAAAAAAAAAAA" }) },
+      contactLink: { findFirst: async () => null },
+      /*
+       * ‎**הפיקסצ׳ר מכבד את הצורה ש-`leadOwnershipFilter` בונה
+       * ‏בפועל** — `OR` של „משויך אליי” ו„בלי משויך”, ולא שוויון
+       * ‏פשוט. פיקסצ׳ר שמתעלם מ-`OR` היה מחזיר את אותה שורה לכל
+       * ‏שאילתה, כלומר לא בודק דבר.
+       */
+      lead: {
+        findFirst: async (args: {
+          where: {
+            id?: string;
+            OR?: { assignedToUserId: string | null }[];
+            id_in?: { in: string[] };
+          };
+        }) => {
+          const { id, OR } = args.where;
+          const allowed = (row: LeadRow): boolean =>
+            OR === undefined ||
+            OR.some((branch) => branch.assignedToUserId === row.assignedToUserId);
+          return (
+            leads.find((row) => (id === undefined || row.id === id) && allowed(row)) ?? null
+          );
+        },
+      },
+      interaction: {
+        create: async (args: { data: { leadId: string } }) => {
+          written.push(args.data.leadId);
+          return {};
+        },
+      },
+    };
+    return {
+      withExplicitTenant: async <T>(
+        _tenantId: string,
+        fn: (t: typeof tx) => Promise<T>,
+      ): Promise<T> => fn(tx),
+    } as unknown as PrismaService;
+  }
+
+  function serviceWithLeads(leads: LeadRow[], written: string[]): GmailOutboundService {
+    const gmail = { sendMail: async () => undefined } as unknown as GmailService;
+    const contacts = {
+      emailFor: async () => "owner@example.com",
+    } as unknown as ContactsService;
+    return new GmailOutboundService(prismaWithLeads(leads, written), gmail, contacts);
+  }
+
+  function asAgent<T>(caps: Capability[], fn: () => T): T {
+    return TenantContext.run(
+      { tenantId: TENANT, userId: AGENT, capabilities: new Set(caps), billingOnly: false },
+      fn,
+    );
+  }
+
+  /*
+   * ‎**זה המקרה שהממצא תיאר.** הליד היחיד של הלקוח הוא של העמית,
+   * ‏ולכן אין ליד מותר — המייל נשלח ואינו מתועד, בדיוק כמו כשאין
+   * ‏ליד פתוח בכלל.
+   */
+  it("בלי מזהה — ליד של עמית אינו נבחר לתיעוד", async () => {
+    const written: string[] = [];
+    const service = serviceWithLeads([{ id: THEIR_LEAD, assignedToUserId: COLLEAGUE }], written);
+    await asAgent(BUYER_AGENT_CAPS, () =>
+      service.sendToContact(LINK, { contactId: CONTACT, subject: "נושא", body: "גוף" }),
+    );
+    expect(written, "הגוף המלא נכתב לציר הזמן של העמית").toEqual([]);
+  });
+
+  /* ‏והצד השני: הליד שלי כן נבחר, אחרת התיקון מבטל את התיעוד */
+  it("והליד שלי כן נבחר", async () => {
+    const written: string[] = [];
+    const service = serviceWithLeads([{ id: MY_LEAD, assignedToUserId: AGENT }], written);
+    await asAgent(BUYER_AGENT_CAPS, () =>
+      service.sendToContact(LINK, { contactId: CONTACT, subject: "נושא", body: "גוף" }),
+    );
+    expect(written).toEqual([MY_LEAD]);
+  });
+
+  /* ‏ומנהל רואה את כולם — שער שחוסם אותו הוא תקלה */
+  it("המנהל מתעד גם על ליד של סוכן", async () => {
+    const written: string[] = [];
+    const service = serviceWithLeads([{ id: THEIR_LEAD, assignedToUserId: COLLEAGUE }], written);
+    await asAgent(MANAGER_CAPS, () =>
+      service.sendToContact(LINK, { contactId: CONTACT, subject: "נושא", body: "גוף" }),
+    );
+    expect(written).toEqual([THEIR_LEAD]);
+  });
+
+  /*
+   * ‎**והנתיב השני: מזהה שנמסר מהמסך.** „שייך ללקוח” לבדו עבר על
+   * ‏ליד של עמית, כי הלקוח נגיש לי דרך כרטיס אחר.
+   */
+  it("מזהה ליד של עמית שנמסר במפורש — נדחה", async () => {
+    const written: string[] = [];
+    const service = serviceWithLeads([{ id: THEIR_LEAD, assignedToUserId: COLLEAGUE }], written);
+    await expect(
+      asAgent(BUYER_AGENT_CAPS, () =>
+        service.sendToContact(LINK, {
+          contactId: CONTACT,
+          subject: "נושא",
+          body: "גוף",
+          leadId: THEIR_LEAD,
+        }),
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(written).toEqual([]);
+  });
+
+  it("ומזהה הליד שלי עובר", async () => {
+    const written: string[] = [];
+    const service = serviceWithLeads([{ id: MY_LEAD, assignedToUserId: AGENT }], written);
+    await asAgent(BUYER_AGENT_CAPS, () =>
+      service.sendToContact(LINK, {
+        contactId: CONTACT,
+        subject: "נושא",
+        body: "גוף",
+        leadId: MY_LEAD,
+      }),
+    );
+    expect(written).toEqual([MY_LEAD]);
+  });
+});

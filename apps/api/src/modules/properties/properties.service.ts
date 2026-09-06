@@ -42,6 +42,7 @@ import {
 import { lockContact, lockProperty, type ContactLock } from "../../common/locks";
 import {
   assertPropertyOwnerAction,
+  assertPropertyScope,
   canSeeContact,
   isOrphanContact,
   leadOwnershipFilter,
@@ -734,6 +735,23 @@ export class PropertiesService {
           changing: occupantContact !== null || occupantCleared === true,
         },
       ];
+      /*
+       * ‎**והשאלה היא על הנכס, לא על האדם** (ביקורת Codex, P1, סבב
+       * ‏שני).
+       *
+       * ‏`canSeeContact` הוא **איחוד מקורות**, ולכן בעל הנכס של עמית
+       * ‏שהוא גם הקונה שלי עובר אותו — דרך הקונה. השער אישר, המסך
+       * ‏הציג את הקשר כניתן לעריכה (`getById` נשען על אותו איחוד),
+       * ‏והחלפת הבעלים בנכס של העמית התבצעה דרך הממשק הרגיל.
+       *
+       * ‏זו בדיוק המלכודת ש-`assertPropertyScope` נכתב בשבילה, והיא
+       * ‏מתועדת שם במילים האלה. הפעולה כאן היא **כתיבה על הנכס**,
+       * ‏ולכן היא נשאלת על היקף הנכס; שער האדם נשאר אחריה, כי
+       * ‏החלפת בעלים היא גם נגיעה באדם.
+       */
+      if (displacing.some((field) => field.changing && field.current !== null)) {
+        assertPropertyScope(existing.agentUserId, "החלפת הלקוח המשויך לנכס");
+      }
       for (const field of displacing) {
         if (!field.changing || field.current === null) continue;
         if (await canSeeContact(tx, TenantContext.current().tenantId, field.current)) continue;

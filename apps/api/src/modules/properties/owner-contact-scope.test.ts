@@ -20,7 +20,15 @@ const OWNER_CONTACT = "01OWNERCONTACT00000000001";
 
 function serviceFor(
   propertyAgentUserId: string | null,
-  overrides: { ownerContactId?: string | null; occupantContactId?: string | null } = {},
+  overrides: {
+    ownerContactId?: string | null;
+    occupantContactId?: string | null;
+    /*
+     * ‏אותו לקוח מחזיק גם כרטיס קונה שלי — כלומר `canSeeContact`
+     * ‏נפתח דרך מקור שאין לו שום קשר לנכס שנערך.
+     */
+    contactIsMyBuyer?: boolean;
+  } = {},
 ): PropertiesService {
   const tx = {
     property: {
@@ -54,7 +62,10 @@ function serviceFor(
       },
     },
     propertyMedia: { findFirst: async () => null },
-    buyer: { findFirst: async () => null, findMany: async () => [] },
+    buyer: {
+      findFirst: async () => (overrides.contactIsMyBuyer === true ? { id: "01BUYER" } : null),
+      findMany: async () => [],
+    },
     lead: { findFirst: async () => null, findMany: async () => [] },
     contactLink: { findFirst: async () => null },
     user: { findMany: async () => [] },
@@ -181,7 +192,14 @@ describe("כרטיס נכס — פרטי הבעלים", () => {
  */
 describe("החלפת בעלים שאינו מוצג", () => {
   const NEW_OWNER = { name: "בעלים חדש", phone: "0501112222" };
-  const BLOCKED = /אינו נגיש/u;
+  /*
+   * ‏שני שערים, שתי שאלות שונות: „הנכס הזה בהיקף שלי?” ו„מותר לי
+   * ‏לגעת באדם הזה?”. הטענה „ההחלפה נעצרה” היא איחוד שלהן, וכתובה
+   * ‏פעם אחת — כך שאף בדיקה אינה נצמדת בשוגג לנוסח של שער אחד.
+   */
+  const BY_PROPERTY = /משויך לסוכן אחר/u;
+  const BY_CONTACT = /אינו נגיש/u;
+  const BLOCKED = new RegExp(`${BY_PROPERTY.source}|${BY_CONTACT.source}`, "u");
 
   /**
    * ‎**„לא נחסם” ולא „הצליח”, ואומר זאת.**
@@ -249,7 +267,40 @@ describe("החלפת בעלים שאינו מוצג", () => {
           { occupantCleared: true } as never,
         ),
       ),
-    ).rejects.toThrow(/אינו נגיש/u);
+    ).rejects.toThrow(BLOCKED);
+  });
+
+  /*
+   * ‎**והשאלה היא על הנכס, לא על האדם** (ביקורת Codex, P1, סבב
+   * ‏שני).
+   *
+   * ‏`canSeeContact` הוא איחוד מקורות. בעל הנכס של עמית שהוא **גם
+   * ‏הקונה שלי** עובר אותו דרך הקונה, ולכן השער שמעל אישר, `getById`
+   * ‏הציג את הקשר כניתן לעריכה (אותו איחוד), וההחלפה בנכס של העמית
+   * ‏עברה דרך הממשק הרגיל. השער הנוסף שואל על **היקף הנכס**.
+   */
+  it("בעל נכס של עמית שהוא גם הקונה שלי — ההחלפה עדיין נדחית", async () => {
+    await expect(
+      asUser(SCOPED, () =>
+        serviceFor("01OTHER", { contactIsMyBuyer: true }).update("01PROP", {
+          owner: NEW_OWNER,
+        } as never),
+      ),
+    ).rejects.toThrow(BY_PROPERTY);
+  });
+
+  /*
+   * ‏והצד השני, שבלעדיו „חסום הכול” היה עובר: אותו לקוח בדיוק, על
+   * ‏**הנכס שלי** — עובר.
+   */
+  it("ואותו לקוח על הנכס שלי — השער אינו עוצר", async () => {
+    await notBlocked(() =>
+      asUser(SCOPED, () =>
+        serviceFor("01ME", { contactIsMyBuyer: true }).update("01PROP", {
+          owner: NEW_OWNER,
+        } as never),
+      ),
+    );
   });
 });
 

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
-import { assertContactAccess } from "../../common/ownership";
+import { assertContactAccess, leadOwnershipFilter } from "../../common/ownership";
 import { ContactsService } from "../contacts/contacts.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { GmailService, type GmailLinkRow } from "./gmail.service";
@@ -96,11 +96,25 @@ export class GmailOutboundService {
     tenantId: string,
     contactId: string,
   ): Promise<string | null> {
+    /*
+     * ‎**ליד שאני רשאי לו, ולא „ליד של הלקוח”** (ביקורת Codex, P1).
+     *
+     * ‏שער הלקוח הוא איחוד: לקוח שנגיש לי דרך **כרטיס הקונה שלי**
+     * ‏עובר אותו גם כשיש לו ליד פתוח של עמית. השאילתה כאן הייתה על
+     * ‏הדייר בלבד, ולכן הגוף המלא של המייל — הכתובת, הנושא והטקסט —
+     * ‏נכתב לציר הזמן של הליד של העמית.
+     *
+     * ‏השאלה כאן אינה „מי הלקוח” אלא „לאיזה ליד מותר לי לכתוב”,
+     * ‏ולכן היא נשאלת ב-`leadOwnershipFilter`. בלי ליד מותר —
+     * ‏`null`, ואז המייל נשלח ואינו מתועד: זו התוצאה הקיימת כשאין
+     * ‏ליד פתוח בכלל, ולא התנהגות חדשה.
+     */
     const lead = await tx.lead.findFirst({
       where: {
         tenantId,
         contactId,
         status: { in: ["new", "in_progress", "waiting_customer"] },
+        ...leadOwnershipFilter(),
       },
       orderBy: { createdAt: "desc" },
       select: { id: true },
@@ -108,14 +122,24 @@ export class GmailOutboundService {
     return lead?.id ?? null;
   }
 
-  /** אימות שהליד שייך ללקוח — מונע תיעוד תשובה בכרטיס של אדם אחר. */
+  /**
+   * ‏אימות שהליד שייך ללקוח — מונע תיעוד תשובה בכרטיס של אדם אחר.
+   *
+   * ‎**ושהוא ליד שמותר לי** (ביקורת Codex, P1). „שייך ללקוח” לבדו
+   * ‏עבר על ליד של עמית: שער הלקוח הוא איחוד, והלקוח נגיש לי דרך
+   * ‏כרטיס אחר לגמרי. שתי השאלות נחוצות — הליד חייב להיות של הלקוח
+   * ‏שאליו נשלח המייל, **וגם** שלי — ולכן שתיהן באותו `where`.
+   */
   async assertLeadBelongsToContact(
     tenantId: string,
     leadId: string,
     contactId: string,
   ): Promise<void> {
     const lead = await this.prisma.withExplicitTenant(tenantId, (tx) =>
-      tx.lead.findFirst({ where: { id: leadId, tenantId, contactId }, select: { id: true } }),
+      tx.lead.findFirst({
+        where: { id: leadId, tenantId, contactId, ...leadOwnershipFilter() },
+        select: { id: true },
+      }),
     );
     if (!lead) throw new NotFoundException("הליד אינו שייך ללקוח הזה");
   }

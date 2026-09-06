@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Capability } from "@metavchim/shared";
-import { actionablePropertyIds, actionablePropertyWhere } from "./ownership";
+import {
+  actionablePropertyIds,
+  actionablePropertyWhere,
+  assertPropertyScope,
+  ownershipFilter,
+} from "./ownership";
 import { TenantContext } from "./tenant-context";
 
 /**
@@ -117,5 +122,69 @@ describe("‏שתי הצורות של „אילו נכסים מותרים לי�
    */
   it("יש בטבלה מקרה שפוסל", () => {
     expect(CASES.some(({ allows }) => allows[THEIRS.id] === false)).toBe(true);
+  });
+});
+
+/**
+ * ‎**ואותה שאלה בדיוק, בזוג השני: „הנכס הזה בהיקף שלי?”**
+ *
+ * ‏גם לה שתי צורות, ושתיהן נחוצות: `assertPropertyScope` זורקת על
+ * ‏שורה שכבר בידי, ו-`ownershipFilter("properties.view_all",
+ * ‏"agentUserId")` מצמצם שאילתה לפני שהשורה נשלפה — הצורה שדרכה
+ * ‏`canSeeContact` מחליט אם בעל הנכס ירד מהכרטיס.
+ *
+ * ‏השתיים נעשו תלויות זו בזו כשהחלפת הבעלים נשאלה על **היקף
+ * ‏הנכס** ולא רק על האדם (ביקורת Codex, P1): המסך מחליט מה להציג
+ * ‏לפי צורת השאילתה, והשרת מחליט מה לקבל לפי צורת הפונקציה. אם הן
+ * ‏ייפרדו, המסך יציג בעלים לעריכה שהשרת ידחה — או, בכיוון המסוכן,
+ * ‏יסתיר בעלים שהשרת בכל זאת ייתן להחליף.
+ */
+describe("‏שתי הצורות של „הנכס הזה בהיקף שלי” מסכימות", () => {
+  /** ‏האם `ownershipFilter` היה משאיר את השורה בתוצאה. */
+  function inScopeByFilter(agentUserId: string | null): boolean {
+    const filter = ownershipFilter("properties.view_all", "agentUserId");
+    const required = filter["agentUserId"];
+    return required === undefined || required === agentUserId;
+  }
+
+  function inScopeByAssert(agentUserId: string | null): boolean {
+    try {
+      assertPropertyScope(agentUserId, "בדיקה");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /*
+   * ‏נכס בלי סוכן משויך נכלל בכוונה: הוא הצורה שבה `null` ב-SQL
+   * ‏אינו שווה לכלום, וזו בדיוק הפרידה שכבר קרתה פעם בלידים.
+   */
+  const ROWS: { agentUserId: string | null; label: string }[] = [
+    { agentUserId: ME, label: "הנכס שלי" },
+    { agentUserId: OTHER, label: "הנכס של עמית" },
+    { agentUserId: null, label: "נכס בלי סוכן משויך" },
+  ];
+
+  for (const { caps, label } of CASES) {
+    it(label, () => {
+      for (const row of ROWS) {
+        /*
+         * ‏מודול חסום הוא היוצא מן הכלל היחיד, והוא בכוונה: הפונקציה
+         * ‏זורקת „המודול חסום”, ואילו צורת השאילתה אינה נשאלת כלל —
+         * ‏הקורא בודק את היכולת לפני שהוא בונה את התנאי.
+         */
+        const blocked = !caps.includes("properties.view");
+        const byFilter = asUser(caps, () => (blocked ? false : inScopeByFilter(row.agentUserId)));
+        const byAssert = asUser(caps, () => inScopeByAssert(row.agentUserId));
+        expect(byAssert, `${label} — ${row.label}`).toBe(byFilter);
+      }
+    });
+  }
+
+  it("יש בטבלה מקרה שפוסל", () => {
+    expect(
+      CASES.some(({ caps }) => !asUser(caps, () => inScopeByAssert(OTHER))),
+    ).toBe(true);
   });
 });
