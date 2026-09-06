@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Capability } from "@metavchim/shared";
+import {
+  PARTNER_CANDIDATE_MAX,
+  PARTNER_CANDIDATE_SCAN,
+  type Capability,
+} from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { MatchingService } from "./matching.service";
 
@@ -344,6 +348,25 @@ describe("‏מה שנשלף לפני התקרה", () => {
     expect(where).toContain("cities: { isEmpty: true }");
     expect(where).toContain("hasSearchAreas: true");
     expect(where.indexOf("cities: { hasSome")).toBeLessThan(where.length);
-    expect(method.indexOf("cityVariants")).toBeLessThan(method.indexOf("take: PARTNER_CANDIDATE_MAX"));
+    expect(method.indexOf("cityVariants")).toBeLessThan(method.indexOf("take: PARTNER_CANDIDATE_SCAN"));
+  });
+
+  /*
+   * ‎**והשאילתה נסרקת, לא נחתכת בתקרת המועמדים** (ביקורת Codex,
+   * ‏P2, סבב שני).
+   *
+   * ‏הסינון הגס ב-SQL מכסה עמדה, תקציב, סוג עסקה ועיר — אבל לא סוג
+   * ‏נכס, לא חדרים ולא תכונות. כל עוד ה-`take` היה
+   * ‏`PARTNER_CANDIDATE_MAX`, שישים קונים בעיר הנכונה שמחפשים בית
+   * ‏פרטי מילאו אותו, נפלו כולם במנוע, והמסך אמר „אין שותפויות”.
+   *
+   * ‏התקרה על המועמדים **שהתקבלו** נאכפת בתוך `partnerPairs`, ולכן
+   * ‏השאילתה כאן חייבת להביא יותר ממנה — אחרת יש רק חסם אחד, על
+   * ‏שורות שאיש לא בדק.
+   */
+  it("‏התקרה בשאילתה היא סריקה, וגדולה מתקרת המועמדים", () => {
+    expect(method).toContain("take: PARTNER_CANDIDATE_SCAN");
+    expect(method).not.toContain("take: PARTNER_CANDIDATE_MAX");
+    expect(PARTNER_CANDIDATE_SCAN).toBeGreaterThan(PARTNER_CANDIDATE_MAX);
   });
 });

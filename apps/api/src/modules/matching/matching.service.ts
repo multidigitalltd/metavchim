@@ -20,7 +20,7 @@ import {
   SCORE_NOTE_MAX,
   ScoreComponentSchema,
   type ScoreComponent,
-  PARTNER_CANDIDATE_MAX,
+  PARTNER_CANDIDATE_SCAN,
   PARTNER_PAIR_LIMIT,
   partnerPairs,
   type PartnerCandidate,
@@ -1136,12 +1136,21 @@ export class MatchingService {
           ...ownershipFilter("buyers.view_all", "ownerUserId"),
         },
         /*
-         * ‏התקציב הגבוה ראשון: החיתוך בתקרת המועמדים הוא לפי סדר
-         * ‏הקלט (ראו `PARTNER_CANDIDATE_MAX`), ומי שקרוב יותר למחיר
-         * ‏משלים צמד עם יותר שותפים אפשריים.
+         * ‏התקציב הגבוה ראשון: החיתוך הוא לפי סדר הקלט, ומי שקרוב
+         * ‏יותר למחיר משלים צמד עם יותר שותפים אפשריים.
          */
         orderBy: [{ budgetMaxAgorot: "desc" }, { id: "asc" }],
-        take: PARTNER_CANDIDATE_MAX,
+        /*
+         * ‎**סריקה, לא תקרה** (ביקורת Codex, P2, סבב שני).
+         *
+         * ‏כאן היה `PARTNER_CANDIDATE_MAX`, כלומר התקרה נלקחה על
+         * ‏שורות שאיש לא בדק. הסינון הגס למעלה מכסה עמדה, תקציב,
+         * ‏סוג עסקה ועיר — אבל לא סוג נכס, לא חדרים ולא תכונות, ולכן
+         * ‏שישים קונים בעיר הנכונה שמחפשים בית פרטי עדיין יכלו למלא
+         * ‏אותה ולהסתיר צמד תקין. התקרה על **המועמדים שהתקבלו**
+         * ‏נאכפת ממילא בתוך `partnerPairs`. ראו `PARTNER_CANDIDATE_SCAN`.
+         */
+        take: PARTNER_CANDIDATE_SCAN,
         select: { id: true, contactId: true, requirements: true },
       });
 

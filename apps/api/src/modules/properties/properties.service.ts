@@ -391,6 +391,8 @@ export class PropertiesService {
          * ‏על הנכס. לכן `||` ולא השמה.
          */
         contactSharedTabu: contact.sharedTabu,
+        /* ‏למי מכבים אותו אחרי המסירה — ראו `spendContactSharedTabu` */
+        contactId: lead.contactId,
         prior: {
           status: lead.status,
           requiresHuman: lead.requiresHuman,
@@ -428,6 +430,18 @@ export class PropertiesService {
       throw error;
     }
 
+    /*
+     * ‎**והסימון נגמר בהעברה** (ביקורת Codex, P1, סבב שני).
+     *
+     * ‏אחרי ההעברה, ולא לפניה: כישלון בכיבוי משאיר את הדגל דלוק,
+     * ‏וכישלון בשמירה משאיר אותו דלוק גם כן. שני הכיוונים מסתיימים
+     * ‏ב„עוד לא נמסר”, שהוא הכיוון הבטוח — הפוך היה מוחק עובדה
+     * ‏משפטית לפני שנרשמה.
+     */
+    if (claim.contactSharedTabu) {
+      await this.spendContactSharedTabu(claim.contactId);
+    }
+
     // ברקע — כמו ביצירה; הליד כבר הומר והנכס נשמר
     void this.matching.recomputeForProperty(propertyId).catch((error: unknown) => {
       this.logger.warn(`background match recompute failed for property ${propertyId}: ${String(error)}`);
@@ -435,6 +449,51 @@ export class PropertiesService {
     // ליד שהומר הוא נכס חדש לכל דבר — אותה מדיניות רשת כמו בקליטה
     await this.autoPublishToNetwork(propertyId);
     return this.getById(propertyId);
+  }
+
+  /**
+   * ‎**הדגל על הלקוח הוא עובדה **ממתינה**, והיא נגמרת כשהיא נרשמת**
+   * ‏(ביקורת Codex, P1, סבב שני).
+   *
+   * ## ‏מה היה שגוי
+   *
+   * ‏ההמרה העתיקה את הדגל לנכס והשאירה אותו דלוק על הלקוח. מוכר
+   * ‏עם שני נכסים — אחד בטאבו משותף ואחד רגיל — קיבל את שניהם
+   * ‏מסומנים: ההמרה השנייה העתיקה שוב אותה עובדה היסטורית, בלי
+   * ‏שאיש אמר עליה דבר. והנכס הרגיל שסומן בטעות מוציא מעצמו קונים
+   * ‏שמסרבים לטאבו משותף ומייצר לו הצעות שותפים — טעות שקטה
+   * ‏שהמסך אינו מסמן, וטופס ההמרה אינו יכול לתקן כי אין בו שדה.
+   *
+   * ## ‏למה כיבוי ולא שדה בטופס
+   *
+   * ‏ההערה על השדה עצמו אומרת למה הוא יושב על הלקוח: „היא נאמרת
+   * ‏בשיחה הראשונה — **לפני שיש כרטיס נכס לרשום אותה עליו**”. זה
+   * ‏מגדיר אותו כסמן ממתין, לא כתכונה של האדם. סמן ממתין שנמסר
+   * ‏ליעדו נגמר; אחרת הוא ממשיך למסור את עצמו לנצח.
+   *
+   * ‏נכס שני בטאבו משותף מחייב סימון שני, וזה בדיוק הנכון: מישהו
+   * ‏צריך לומר את זה **על הנכס הזה**.
+   *
+   * ## ‏למה זה לא מפיל את ההמרה
+   *
+   * ‏הנכס כבר נשמר והליד כבר הומר. כישלון בכיבוי הוא דגל שנשאר
+   * ‏דלוק — מצב שהמערכת יודעת לחיות איתו (זה בדיוק המצב לפני
+   * ‏ההמרה) — ואילו זריקה כאן הייתה מחזירה שגיאה על המרה שהצליחה.
+   */
+  private async spendContactSharedTabu(contactId: string): Promise<void> {
+    const ctx = TenantContext.current();
+    try {
+      await this.prisma.withTenant((tx) =>
+        tx.contact.updateMany({
+          where: { id: contactId, tenantId: ctx.tenantId, sharedTabu: true },
+          data: { sharedTabu: false },
+        }),
+      );
+    } catch (error: unknown) {
+      this.logger.warn(
+        `כיבוי סימון הטאבו המשותף על ${contactId} נכשל: ${String(error)}`,
+      );
+    }
   }
 
   /**

@@ -421,7 +421,16 @@ export default function BuyersPage() {
         <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען קונים…</p>
-      ) : items.length === 0 && !hasActiveFilters(filters) ? (
+      ) : /*
+         * ‎**„עדיין אין קונים” הוא רק כשאין סינון שמרוקן את `items`**
+         * ‏(ביקורת Codex, P2).
+         *
+         * ‏בשלות, הצעות וסוג עסקה מצמצמים את `visible` בלבד. עמדת
+         * ‏הטאבו המשותף מסננת **בשרת**, ולכן משרד בלי קונה אחד
+         * ‏בעמדה שנבחרה קיבל את מסך הפתיחה — בלי הבורר ובלי „נקה
+         * ‏סינון”, כלומר בלי דרך לחזור חוץ מרענון.
+         */
+      items.length === 0 && !hasActiveFilters(filters) && sharedTabu === "" ? (
         <div
           className="rounded-xl border p-8 text-center"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
@@ -452,7 +461,11 @@ export default function BuyersPage() {
             total={items.length}
             noun="קונים"
             active={
-              hasActiveFilters(filters) || maturity !== "" || offersFilter !== "" || dealType !== ""
+              hasActiveFilters(filters) ||
+              maturity !== "" ||
+              offersFilter !== "" ||
+              dealType !== "" ||
+              sharedTabu !== ""
             }
             onClear={() => {
               setFilters(EMPTY_FILTERS);

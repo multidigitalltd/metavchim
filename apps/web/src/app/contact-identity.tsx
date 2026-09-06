@@ -250,15 +250,30 @@ export function ContactIdentityEdit({
         ‏המספר הנכון”. כפתור שלישי במקום אחר הוא הזדמנות שלישית
         ‏לוותר ולכתוב את זה בהערות.
       */}
-      <label className="flex items-center gap-2 text-[length:var(--type-caption-lg)]">
-        <input
-          type="checkbox"
-          checked={draft.sharedTabu}
-          onChange={(event) =>
-            setDraft((prev) => (prev === null ? prev : { ...prev, sharedTabu: event.target.checked }))
-          }
-        />
-        טאבו משותף
+      {/*
+        ‎**וגם למה הסימון נעלם אחר כך** (ביקורת Codex, P1).
+
+        ‏הוא סמן ממתין: בהמרת הליד לנכס הוא נרשם על כרטיס הנכס
+        ‏ויורד מכאן. בלי לומר זאת, מתווך שרואה את התיבה ריקה
+        ‏מסמן שוב — והסימון החוזר נדבק לנכס הבא של אותו מוכר, גם
+        ‏כשהוא רגיל לגמרי.
+      */}
+      <label className="flex flex-col gap-0.5 text-[length:var(--type-caption-lg)]">
+        <span className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={draft.sharedTabu}
+            onChange={(event) =>
+              setDraft((prev) =>
+                prev === null ? prev : { ...prev, sharedTabu: event.target.checked },
+              )
+            }
+          />
+          טאבו משותף
+        </span>
+        <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+          עובר לכרטיס הנכס כשהליד מומר, ואז יורד מכאן
+        </span>
       </label>
       <button type="submit" className="mv-btn-action" disabled={busy}>
         שמירה

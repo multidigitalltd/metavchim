@@ -28,6 +28,7 @@ beforeAll(() => {
 function serviceWith(contactSharedTabu: boolean): {
   service: PropertiesService;
   persisted: () => Partial<PropertyFields> | null;
+  contactWrites: () => { where: Record<string, unknown>; data: Record<string, unknown> }[];
 } {
   let seen: Partial<PropertyFields> | null = null;
   const lead = {
@@ -37,6 +38,7 @@ function serviceWith(contactSharedTabu: boolean): {
     requiresHuman: false,
     firstResponseAt: null,
   };
+  const contactWrites: { where: Record<string, unknown>; data: Record<string, unknown> }[] = [];
   const tx = {
     lead: {
       findFirst: async () => lead,
@@ -52,6 +54,13 @@ function serviceWith(contactSharedTabu: boolean): {
         phoneEncrypted: "p",
         sharedTabu: contactSharedTabu,
       }),
+      updateMany: async (args: {
+        where: Record<string, unknown>;
+        data: Record<string, unknown>;
+      }) => {
+        contactWrites.push(args);
+        return { count: 1 };
+      },
     },
   };
   const stub = {
@@ -74,7 +83,7 @@ function serviceWith(contactSharedTabu: boolean): {
   };
   patched.autoPublishToNetwork = async () => undefined;
   patched.getById = async () => ({ id: "01PROP" });
-  return { service, persisted: () => seen };
+  return { service, persisted: () => seen, contactWrites: () => contactWrites };
 }
 
 function asUser<T>(fn: () => T): T {
@@ -116,5 +125,54 @@ describe("המרת ליד לנכס — הדגל של הלקוח עובר", () =>
     const { service, persisted } = serviceWith(true);
     await asUser(() => service.convertFromLead("01LEAD", FIELDS));
     expect(persisted()).toMatchObject({ city: "חולון", propertyType: "apartment" });
+  });
+});
+
+/**
+ * ‎**והסמן נגמר כשהוא נמסר** (ביקורת Codex, P1, סבב שני).
+ *
+ * ‏הגרסה הראשונה העתיקה את הדגל והשאירה אותו דלוק. מוכר עם שני
+ * ‏נכסים — אחד בטאבו משותף ואחד רגיל — קיבל את שניהם מסומנים:
+ * ‏ההמרה השנייה העתיקה שוב אותה עובדה היסטורית בלי שאיש אמר עליה
+ * ‏דבר, וטופס ההמרה אינו יכול לתקן כי אין בו שדה. נכס רגיל שסומן
+ * ‏כך מוציא מעצמו קונים שמסרבים לטאבו משותף ומייצר לו הצעות
+ * ‏שותפים — שקט לגמרי על המסך.
+ */
+describe("הסמן על הלקוח נגמר בהעברה", () => {
+  it("אחרי המרה שנשאה את הסימון — הוא כבוי על הלקוח", async () => {
+    const { service, contactWrites } = serviceWith(true);
+    await asUser(() => service.convertFromLead("01LEAD", FIELDS));
+    expect(contactWrites()).toHaveLength(1);
+    expect(contactWrites()[0]?.where).toMatchObject({
+      id: "01CONTACT",
+      tenantId: "01TENANT",
+      /* ‏רק אם הוא עדיין דלוק — כתיבה על מצב שכבר השתנה אינה מכבה */
+      sharedTabu: true,
+    });
+    expect(contactWrites()[0]?.data).toEqual({ sharedTabu: false });
+  });
+
+  /*
+   * ‏זה המקרה שהממצא תיאר: הנכס השני של אותו מוכר. הדגל כבוי, ולכן
+   * ‏ההמרה אינה ממציאה עליו דבר.
+   */
+  it("ולכן ההמרה הבאה של אותו מוכר אינה מסמנת את הנכס", async () => {
+    const { service, persisted, contactWrites } = serviceWith(false);
+    await asUser(() => service.convertFromLead("01LEAD", FIELDS));
+    expect(persisted()?.sharedTabu).toBeUndefined();
+    expect(contactWrites()).toEqual([]);
+  });
+
+  /*
+   * ‎**ולא כשהשמירה נכשלה.** הכיבוי אחרי ההעברה ולא לפניה: אחרת
+   * ‏ההמרה שנפלה הייתה מוחקת עובדה משפטית שמעולם לא נרשמה.
+   */
+  it("שמירה שנכשלה אינה מכבה את הסימון", async () => {
+    const { service, contactWrites } = serviceWith(true);
+    (service as unknown as { persist: () => Promise<string> }).persist = () => {
+      throw new Error("מכסת נכסים");
+    };
+    await expect(asUser(() => service.convertFromLead("01LEAD", FIELDS))).rejects.toThrow();
+    expect(contactWrites()).toEqual([]);
   });
 });

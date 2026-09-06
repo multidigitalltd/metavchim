@@ -856,7 +856,7 @@ export default function PropertiesPage() {
         <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען נכסים…</p>
-      ) : items.length === 0 && !hasActiveFilters(filters) ? (
+      ) : items.length === 0 && !hasActiveFilters(filters) && sharedTabu === "" ? (
         /*
          * **מצב „אין נכסים בכלל” יושב כאן, ולא בתוך הרשימה.**
          *
@@ -868,6 +868,15 @@ export default function PropertiesPage() {
          * הייתה קוד מת: משרד חדש קיבל את הנוסח הישן, והפעולה שהוספתי
          * („קליטה בקול”) לא הופיעה לעולם. הנוסח המשופר עבר לכאן
          * (ביקורת Codex).
+        *
+         * ‎**ו„אין נכסים” הוא לא כל סינון — רק זה שמרוקן את `items`**
+         * ‏(ביקורת Codex, P2).
+         *
+         * ‏עיר, סוג ומיון מצמצמים את `visible` בלבד, ולכן אינם
+         * ‏יכולים להביא לכאן. הרישום כן: הוא מסנן **בשרת**, ומשרד
+         * ‏בלי נכס אחד בטאבו משותף קיבל „עוד לא הוספת נכסים” —
+         * ‏מסך פתיחה שמוחק את בורר הרישום ואת „נקה סינון” יחד איתו,
+         * ‏כלומר מלכודת שיוצאים ממנה רק ברענון הדף.
          */
         <div
           className="rounded-xl border p-8 text-center"
