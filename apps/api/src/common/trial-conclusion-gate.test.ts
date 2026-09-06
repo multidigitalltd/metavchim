@@ -131,7 +131,18 @@ function writeSites(): { file: string; line: number; statement: string; window: 
       });
     }
 
-    for (const match of code.matchAll(/^[^\n]*\.trialEndsAt\s*=[^\n]*$/gmu)) {
+    /*
+     * ‎`=(?!=)` — **השמה, ולא השוואה.**
+     *
+     * ‏`=` לבדו תופס גם את `tenant.trialEndsAt === null`, שהיא
+     * ‏**קריאה**: השער התריע על תנאי שבודק אם הניסיון הסתיים,
+     * ‏כלומר בדיוק על הקוד שהוא קיים כדי לעודד. שער שמתריע על
+     * ‏קריאות מפסיק להיקרא, וזו הדרך שבה הוא מת.
+     *
+     * ‏`!==` ו-`<=` אינם נתפסים ממילא — ה-`\s*` נעצר על התו שלפני
+     * ‏ה-`=` — ולכן רק `==`/`===` נדרשו לשלילה מפורשת.
+     */
+    for (const match of code.matchAll(/^[^\n]*\.trialEndsAt\s*=(?!=)[^\n]*$/gmu)) {
       const at = match.index ?? 0;
       const lines = code.split("\n");
       const index = lineOf(at) - 1;

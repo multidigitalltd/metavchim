@@ -1283,3 +1283,185 @@ describe("שלמות בין הודעה לרישום", () => {
     expect(Number(count[0]!.n)).toBe(1);
   });
 });
+
+/**
+ * ‎**הכניסה עצמה — נעילה, בדיקה חוזרת, ופתיחה מחדש** (ביקורת Codex, P2).
+ *
+ * ‏שלושת הממצאים כאן הם אותה משפחה: **מה שנקרא קודם אינו מה שנכון
+ * ‏עכשיו.** תשלום שמאושר בין הקריאה לכתיבה, כרטיס שנמחק אחרי
+ * ‏שהרישום נסגר, ורשימת מדולגים שגדלה מדף לדף.
+ */
+describe("כניסה למשפך — הזכאות נבדקת ליד הכתיבה", () => {
+  const FUTURE_YEAR = new Date().getUTCFullYear() + 2;
+
+  async function giveCard(tenantId: string, id: string): Promise<void> {
+    await direct.$executeRawUnsafe(
+      `INSERT INTO subscriptions (id, tenant_id, plan_code, billing_cycle, status, card_token_encrypted, card_month, card_year, created_at, updated_at)
+       VALUES ($1, $2, 'basic', 'monthly', 'trial', 'tok', 12, $3, now(), now())
+       ON CONFLICT (tenant_id) DO UPDATE SET card_token_encrypted = 'tok', card_month = 12, card_year = EXCLUDED.card_year`,
+      id,
+      tenantId,
+      FUTURE_YEAR,
+    );
+  }
+
+  /*
+   * ‏הראיה שהכניסה **ממתינה** לנעילה: בלעדיה היא רצה מיד, ואז
+   * ‏תשלום שמאושר באותו רגע אינו נראה לה. אותה צורה בדיוק כמו
+   * ‏בדיקת הנעילה של הסגירה.
+   */
+  it("הכניסה ממתינה לנעילת המנוי של אותו משרד", async () => {
+    expect(await enrollments()).toHaveLength(0);
+
+    let enrolled: number | undefined;
+    let racing: Promise<void> | undefined;
+    await direct.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+        `subscription:${NEW_TENANT}`,
+      );
+      racing = service
+        .sweep(new Date(), { dailyQuota: 0 })
+        .then((result) => {
+          enrolled = result.enrolled;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(enrolled, "הכניסה לא המתינה לנעילה").toBeUndefined();
+    });
+
+    await racing;
+    expect(enrolled, "לא נכנסה גם אחרי שהנעילה שוחררה").toBeGreaterThan(0);
+  });
+
+  /**
+   * ‎**ומה שהנעילה מגנה עליו: הבדיקה החוזרת — במרוץ אמיתי.**
+   *
+   * ‏גרסה ראשונה של הבדיקות האלה שינתה את המצב **לפני** הסבב,
+   * ‏ושתי מוטציות שרדו אותן: סינון הדף (`status: "trial"`,
+   * ‏`withoutValidCard`) תפס את המקרה לפני שהבדיקה החוזרת רצה
+   * ‏בכלל, כלומר הן בדקו את הסינון ולא את מה שנוסף.
+   *
+   * ‏כאן ההמרה קורית **בתוך החלון**: הטרנזקציה מחזיקה את הנעילה,
+   * ‏הסבב כבר קרא את הדף וממתין, ההמרה נכתבת ומאושרת יחד עם
+   * ‏שחרור הנעילה. זה בדיוק התזמון שהממצא מתאר.
+   */
+  async function convertWhileSweepWaits(
+    write: (tx: Parameters<Parameters<typeof direct.$transaction>[0]>[0]) => Promise<unknown>,
+  ): Promise<number> {
+    let enrolled: number | undefined;
+    let racing: Promise<void> | undefined;
+    await direct.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+        `subscription:${NEW_TENANT}`,
+      );
+      racing = service.sweep(new Date(), { dailyQuota: 0 }).then((result) => {
+        enrolled = result.enrolled;
+      });
+      /* ‏הסבב קרא את הדף (המשרד עדיין זכאי) וממתין לנעילה */
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(enrolled, "הסבב לא המתין לנעילה — אין חלון לבדוק בו").toBeUndefined();
+      await write(tx);
+    });
+    await racing;
+    return enrolled ?? -1;
+  }
+
+  it("המרה שמאושרת בחלון — המשרד אינו נרשם (קופון של 100%, בלי כרטיס)", async () => {
+    expect(
+      await convertWhileSweepWaits((tx) =>
+        tx.$executeRawUnsafe(`UPDATE tenants SET status = 'active' WHERE id = $1`, NEW_TENANT),
+      ),
+    ).toBe(0);
+    expect((await enrollments()).some((r) => r.tenantId === NEW_TENANT)).toBe(false);
+  });
+
+  it("וכרטיס שנשמר בחלון — גם הוא עוצר את הכניסה", async () => {
+    expect(
+      await convertWhileSweepWaits((tx) =>
+        tx.$executeRawUnsafe(
+          `INSERT INTO subscriptions (id, tenant_id, plan_code, billing_cycle, status, card_token_encrypted, card_month, card_year, created_at, updated_at)
+           VALUES ($1, $2, 'basic', 'monthly', 'trial', 'tok', 12, $3, now(), now())`,
+          "01M1FNNLTESTRACECARD000001",
+          NEW_TENANT,
+          FUTURE_YEAR,
+        ),
+      ),
+    ).toBe(0);
+    expect((await enrollments()).some((r) => r.tenantId === NEW_TENANT)).toBe(false);
+  });
+
+  /*
+   * ‎**דף שכולו מדולגים אינו עוצר את הסבב ואינו מרעיב את מי
+   * שאחריו.** הסמן מתקדם על מה שנראה, לא על מה שנשאר.
+   */
+  it("דף מלא בבעלי כרטיס אינו מסתיר את המועמד שאחריו", async () => {
+    /*
+     * ‏משרד טרי נוסף, ותיק ממנו ביום — כלומר **קודם** ב-`createdAt
+     * ‏asc` — ועם כרטיס תקף. עם `pageSize: 1` הדף הראשון כולו
+     * ‏מדולג, והמועמד האמיתי יושב בדף השני.
+     *
+     * ‏זו הצורה שהפילה את הגרסה שלפני הסמן: „דף בלי קליטה” נראה
+     * ‏כמו סוף הרשימה. הגרסה עם `notIn` פתרה את זה במחיר רשימה
+     * ‏שגדלה בלי גבול; הסמן מתקדם על מה שנראה.
+     */
+    const blocker = "01M1FNNLTESTBL0CKERFRESH01";
+    await seedTenant(blocker, "משרד טרי עם כרטיס", 1);
+    await giveCard(blocker, "01M1FNNLTESTCARDBL0CKER001");
+    try {
+      await service.sweep(new Date(), { dailyQuota: 0, pageSize: 1 });
+      const rows = await enrollments();
+      expect(rows.some((r) => r.tenantId === blocker)).toBe(false);
+      expect(rows.some((r) => r.tenantId === NEW_TENANT)).toBe(true);
+    } finally {
+      await direct.$executeRawUnsafe(
+        `DELETE FROM funnel_enrollments WHERE tenant_id = $1`,
+        blocker,
+      );
+      await direct.$executeRawUnsafe(`DELETE FROM subscriptions WHERE tenant_id = $1`, blocker);
+      await direct.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1`, blocker);
+    }
+  });
+});
+
+describe("פתיחה מחדש — גם אחרי „שילם”, כשהכרטיס נעלם", () => {
+  const FUTURE_YEAR = new Date().getUTCFullYear() + 2;
+
+  async function closedAs(reason: string): Promise<void> {
+    await direct.$executeRawUnsafe(
+      `INSERT INTO funnel_enrollments (id, tenant_id, track, started_at, ended_at, ended_reason, created_at, updated_at)
+       VALUES ($1, $2, 'conversion', now() - interval '10 days', now() - interval '1 day', $3, now(), now())`,
+      "01M1FNNLTESTREOPENROW00001",
+      OLD_TENANT,
+      reason,
+    );
+  }
+
+  /*
+   * ‏הנימוק המקורי — „`paid` ייסגר שוב מיד” — נכון רק כל עוד
+   * ‏הכרטיס קיים. `switchToFreePlan` מוחק אותו, ואז המשרד נתקע:
+   * ‏ניסיון חי, רישום סגור, ו-`enrollDue` אינו מקבל אותו שוב.
+   */
+  it("רישום שנסגר כ„שילם” נפתח כשאין כרטיס", async () => {
+    await closedAs("paid");
+    expect(await service.reopenForRestoredTrial(OLD_TENANT)).toBe(true);
+  });
+
+  it("ואינו נפתח כשהכרטיס עדיין תקף — הסבב הבא היה סוגר אותו מיד", async () => {
+    await closedAs("paid");
+    await direct.$executeRawUnsafe(
+      `INSERT INTO subscriptions (id, tenant_id, plan_code, billing_cycle, status, card_token_encrypted, card_month, card_year, created_at, updated_at)
+       VALUES ($1, $2, 'basic', 'monthly', 'trial', 'tok', 12, $3, now(), now())`,
+      "01M1FNNLTESTREOPENCARD0001",
+      OLD_TENANT,
+      FUTURE_YEAR,
+    );
+    expect(await service.reopenForRestoredTrial(OLD_TENANT)).toBe(false);
+  });
+
+  /* ‏„ביקש להפסיק” נשאר סגור בכל מצב — זו בקשה מפורשת */
+  it("‏„ביקש להפסיק” אינו נפתח גם בלי כרטיס", async () => {
+    await closedAs("opted_out");
+    expect(await service.reopenForRestoredTrial(OLD_TENANT)).toBe(false);
+  });
+});

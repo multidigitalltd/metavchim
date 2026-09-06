@@ -122,42 +122,61 @@ export class FunnelEnrollmentService {
      * ‏מתמשך הם היו מזדקנים אל תוך הפיגור שמוגבל במכסה — כלומר
      * ‏מאבדים בדיוק את המעקף שנועד להם (ביקורת Codex).
      *
-     * ‎**ההתקדמות היא „יצא מהשאילתה”, ולכן גם המדולג חייב לצאת.**
+     * ‎**ההתקדמות היא „עברנו את השורה”, ולא „היא יצאה מהשאילתה”.**
      *
-     * ‏משרד שנרשם יוצא מ-`none` ואינו חוזר בדף הבא — זה מה שמסיים
-     * ‏את הלולאה. אבל משרד שדולג בגלל כרטיס תקף **לא** נרשם, ולכן
-     * ‏הוא חוזר שוב ושוב: בלי `notIn` דף שכולו מדולגים היה מוחזר
-     * ‏לנצח. לכן הם נאספים ומוצאים מהשאילתה במפורש.
+     * ‏משרד שנרשם יוצא מ-`none`, אבל משרד שדולג בגלל כרטיס תקף
+     * ‏**לא** נרשם וחוזר בדף הבא. הגרסה הקודמת אספה את המדולגים
+     * ‏ל-`notIn`, וזה עבד — עם עלות ריבועית: חלון של 48 שעות יכול
+     * ‏להכיל עשרות אלפי משרדים עם כרטיס, וכל דף שלח מחדש את כל
+     * ‏המצטבר. `S²/pageSize` פרמטרים, עד תקרת הפרמטרים של הדרייבר
+     * ‏או פסק זמן — והסבב הטרי נופל **לפני** שהגיע למי שבאמת
+     * ‏מועמד (ביקורת Codex, P2).
      *
-     * ‎**וסמן אינו הפתרון כאן**, ניסיתי: `cursor` דורש שורה שעדיין
-     * ‏בקבוצת התוצאה, ושורה שנרשמה בדיוק יצאה ממנה — הדף הבא היה
-     * ‏חוזר ריק, והטריים שמאחוריו לא היו נכנסים כלל. הבדיקה של
-     * ‏„שלוש הרשמות טריות בדף של אחד” תפסה את זה מיד.
+     * ‎**סמן מפתח (keyset) על `(createdAt, id)`** פותר את שניהם:
+     * ‏הוא מתקדם על מה שראינו ולא על מה שנשאר, ולכן שורה שנרשמה
+     * ‏ויצאה מהקבוצה אינה מפריעה לו — וזו בדיוק הנקודה שבה
+     * ‏`cursor` של Prisma נכשל כאן קודם: הוא דורש ששורת הסמן
+     * ‏תישאר בתוך התוצאה. הבדיקה „שלוש הרשמות טריות בדף של אחד”
+     * ‏היא שתפסה את זה, והיא עוברת גם עכשיו.
      *
      * ‏המיון `asc` נשאר כהגנה על המסלול היחיד שבו יש חיתוך: מי
-     * ‏שקרוב לצאת מחלון הטריות נכנס ראשון.
+     * ‏שקרוב לצאת מחלון הטריות נכנס ראשון. `id` שובר שוויון, כי
+     * ‏שתי הרשמות באותה מילישנייה היו מדלגות זו על זו.
      */
     let enrolled = 0;
-    /* ‏מי שדולג בגלל כרטיס תקף — הוא לא נרשם, ולכן חוזר בדף הבא */
-    const skipped: string[] = [];
+    /*
+     * ‏הטיפוס מפורש בשני המקומות ולא נגזר: `after` נכתב מתוך
+     * ‏התוצאה של השאילתה שקוראת אותו, וגזירה הייתה מעגלית.
+     */
+    type FreshCursor = { createdAt: Date; id: string };
+    let after: FreshCursor | null = null;
     for (;;) {
-      const page = await this.prisma.withFunnelAdmin(async (tx) => {
+      const cursor: FreshCursor | null = after;
+      const page = await this.prisma.withFunnelAdmin(
+        async (tx): Promise<{ rows: FreshCursor[]; prospects: { id: string }[] }> => {
         const rows = await tx.tenant.findMany({
           where: {
             ...eligible,
             createdAt: { gte: freshFrom },
-            ...(skipped.length === 0 ? {} : { id: { notIn: [...skipped] } }),
+            ...(cursor === null
+              ? {}
+              : {
+                  OR: [
+                    { createdAt: { gt: cursor.createdAt } },
+                    { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+                  ],
+                }),
           },
-          select: { id: true },
-          orderBy: { createdAt: "asc" },
+          select: { id: true, createdAt: true },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
           take: pageSize,
         });
         return { rows, prospects: await this.withoutValidCard(tx, rows, now) };
-      });
+        },
+      );
       if (page.rows.length === 0) break;
-      for (const tenant of page.rows) {
-        if (!page.prospects.some((prospect) => prospect.id === tenant.id)) skipped.push(tenant.id);
-      }
+      const last = page.rows[page.rows.length - 1]!;
+      after = { createdAt: last.createdAt, id: last.id };
       for (const tenant of page.prospects) {
         /*
          * ‎**`startedAt` הוא `now`, ולא `tenant.createdAt`.**
@@ -166,7 +185,7 @@ export class FunnelEnrollmentService {
          * ‏„הכניסה בנקודה” שנדחתה: משרד בן עשרה ימים היה מתחיל ביום
          * ‏10 ומפספס את כל תוכן ההפעלה.
          */
-        if (await this.open(tenant.id, "conversion", now)) enrolled += 1;
+        if (await this.openProspect(tenant.id, now)) enrolled += 1;
       }
     }
 
@@ -275,8 +294,7 @@ export class FunnelEnrollmentService {
         cursor = page[page.length - 1]!.id;
 
         for (const tenant of await this.withoutValidCard(tx, page, now)) {
-          await this.open(tenant.id, "conversion", now, tx);
-          enrolled += 1;
+          if (await this.openProspect(tenant.id, now, tx)) enrolled += 1;
           if (enrolled >= remaining) break;
         }
       }
@@ -332,6 +350,62 @@ export class FunnelEnrollmentService {
    * עותקים של הסורק שרצים באותו רגע ייצרו אחד. התפיסה בקוד הייתה
    * ‏„קרא ואז כתוב” — בדיוק המרוץ שההמרה בנכסים לגיוס לימדה עליו.
    */
+  /**
+   * ‎**כניסה למשפך ההמרה — הזכאות נבדקת מחדש מתחת לנעילה** (ביקורת Codex, P2).
+   *
+   * ‏`withoutValidCard` קורא, והכתיבה קורית אחר כך. במסלול הטרי
+   * ‏הקריאה אפילו **מאשרת** לפני שהכתיבה מתחילה, ובמסלול הפיגור
+   * ‏הן באותה טרנזקציה אך בלי נעילה — וב-READ COMMITTED זה אותו
+   * ‏דבר: תשלום שמאושר בין השניים אינו נראה לקריאה שכבר קרתה.
+   *
+   * ‏התוצאה היא משרד שכבר המיר, שנרשם למשפך המכירה: `started_at`
+   * ‏מאוחר מההמרה שלו, שני המדדים מזוהמים, ובמסלול הפיגור הוא גם
+   * ‏אכל מקום במכסה היומית של מועמד אמיתי. וכשההמרה היא הפעלה בלי
+   * ‏כרטיס — קופון של 100% — הוא נשאר לקוח פעיל בתוך משפך מכירה.
+   *
+   * ‎**„קרא ואז כתוב” אינו אטומי, ולכן הבדיקה חוזרת ליד הכתיבה.**
+   * ‏אותה נעילת ייעוץ ששאר המסלול לוקח (`lockTenantSubscription`)
+   * ‏נלקחת כאן, ומתחתיה נקראים מחדש **הסטטוס** והכרטיס: הסטטוס
+   * ‏תופס כל דרך לצאת מהניסיון, גם כזו שאינה עוברת דרך כרטיס.
+   *
+   * ‏החזרת `false` ולא זריקה: „כבר לא מועמד” אינו כשל של הסבב.
+   */
+  private async openProspect(tenantId: string, now: Date, tx?: TenantTx): Promise<boolean> {
+    const attempt = async (t: TenantTx): Promise<boolean> => {
+      await lockTenantSubscription(t, tenantId);
+      const tenant = await t.tenant.findFirst({
+        where: { id: tenantId },
+        select: { status: true, trialEndsAt: true },
+      });
+      if (tenant === null || tenant.status !== "trial" || tenant.trialEndsAt === null) {
+        return false;
+      }
+      const card = await t.subscription.findFirst({
+        where: { tenantId },
+        select: { cardTokenEncrypted: true, cardMonth: true, cardYear: true },
+      });
+      if (hasValidCard(card, now)) return false;
+      /*
+       * ‎**וגם „כבר היה לו רישום” — מתחת לאותה נעילה.**
+       *
+       * ‏זה אותו תנאי בדיוק שהשאילתה מסננת בו (`funnelEnrollments:
+       * ‏{ none: … }`), והוא נבדק מחדש כאן מאותה סיבה שהכרטיס
+       * ‏נבדק: הקריאה קרתה קודם. בלעדיו שני סבבים במקביל היו
+       * ‏מגיעים שניהם לכתיבה, והשני היה נופל על הפרת ייחודיות —
+       * ‏שבתוך טרנזקציה של קורא **חייבת** להתפוצץ ולגלגל את הסבב
+       * ‏כולו. הנעילה מסדרת אותם, והבדיקה הופכת את השני ל„אין מה
+       * ‏לעשות” במקום לשגיאה. האינדקס הייחודי נשאר הרשת האחרונה.
+       */
+      const existing = await t.funnelEnrollment.findFirst({
+        where: { tenantId, track: "conversion" },
+        select: { id: true },
+      });
+      if (existing !== null) return false;
+      return this.open(tenantId, "conversion", now, t);
+    };
+    return tx === undefined ? this.prisma.withFunnelAdmin(attempt) : attempt(tx);
+  }
+
   async open(tenantId: string, track: FunnelTrack, now: Date, tx?: TenantTx): Promise<boolean> {
     const write = (t: TenantTx): Promise<unknown> =>
       t.funnelEnrollment.create({
@@ -563,14 +637,26 @@ export class FunnelEnrollmentService {
    * ## ‏רק „מוצה”
    *
    * ‏`opted_out` הוא בקשה מפורשת להפסיק, ופתיחה מחדש הייתה מבטלת
-   * ‏אותה. `paid` ייסגר שוב מיד בסבב הבא ממילא. רק רישום שנסגר כי
-   * ‏„לא נשאר מה לשלוח” נפתח כשיש שוב מה.
+   * ‏אותה — הוא נשאר סגור בכל מצב.
+   *
+   * ‎**ו-`paid` — רק כשהכרטיס באמת נעלם** (ביקורת Codex, P2).
+   *
+   * ‏הנימוק המקורי („ייסגר שוב מיד בסבב הבא ממילא”) נכון כל עוד
+   * ‏הכרטיס עומד. אבל `switchToFreePlan` **מוחק** את שדות הכרטיס,
+   * ‏ולכן משרד ששילם, ירד למסלול חינמי, וקיבל ניסיון מחדש — אין
+   * ‏לו כרטיס, הסגירה לא הייתה חוזרת, והוא נתקע: אין פתיחה מחדש,
+   * ‏ו-`enrollDue` מוציא אותו כי כבר היה לו רישום. ניסיון חי בלי
+   * ‏שום שלב שיישלח בו.
+   *
+   * ‏הבדיקה היא על הכרטיס ולא על הסיבה, ולכן היא גם אינה שוברת
+   * ‏את הנימוק: מי שעדיין מחזיק כרטיס תקף באמת ייסגר שוב מיד,
+   * ‏ולכן הוא אינו נפתח.
    *
    * ‏האינדקס החלקי מתיר רישום חי אחד למסלול, ולכן קיים רישום פתוח
    * ‏עוצר — אין מה לפתוח, ויש כבר אחד שעובד.
    */
-  async reopenForRestoredTrial(tenantId: string): Promise<boolean> {
-    return this.prisma.withFunnelAdmin((tx) => this.reopenWithin(tx, tenantId));
+  async reopenForRestoredTrial(tenantId: string, now: Date = new Date()): Promise<boolean> {
+    return this.prisma.withFunnelAdmin((tx) => this.reopenWithin(tx, tenantId, now));
   }
 
   /**
@@ -585,12 +671,12 @@ export class FunnelEnrollmentService {
    * ‎`set_config` עם `true` הוא מקומי-לטרנזקציה, ולכן הדגל נדלק
    * ‏כאן בדיוק כמו ב-`withFunnelAdmin` ונכבה עם ה-COMMIT.
    */
-  async reopenWithin(tx: TenantTx, tenantId: string): Promise<boolean> {
+  async reopenWithin(tx: TenantTx, tenantId: string, now: Date = new Date()): Promise<boolean> {
     await tx.$executeRaw`SELECT set_config('app.funnel_admin', 'on', true)`;
-    return this.reopenRows(tx, tenantId);
+    return this.reopenRows(tx, tenantId, now);
   }
 
-  private async reopenRows(tx: TenantTx, tenantId: string): Promise<boolean> {
+  private async reopenRows(tx: TenantTx, tenantId: string, now: Date): Promise<boolean> {
     return (async () => {
       const open = await tx.funnelEnrollment.findFirst({
         where: { tenantId, track: "conversion", endedAt: null },
@@ -598,11 +684,23 @@ export class FunnelEnrollmentService {
       });
       if (open !== null) return false;
       const closed = await tx.funnelEnrollment.findFirst({
-        where: { tenantId, track: "conversion", endedReason: "completed" },
+        where: { tenantId, track: "conversion", endedReason: { in: ["completed", "paid"] } },
         orderBy: { endedAt: "desc" },
-        select: { id: true },
+        select: { id: true, endedReason: true },
       });
       if (closed === null) return false;
+      /*
+       * ‏רישום שנסגר כ„שילם” נפתח רק אם הכרטיס כבר אינו שם. עם
+       * ‏כרטיס תקף הסבב הבא היה סוגר אותו מיד, וזו פתיחה שכל
+       * ‏תוצאתה היא רעש ביומן.
+       */
+      if (closed.endedReason === "paid") {
+        const card = await tx.subscription.findFirst({
+          where: { tenantId },
+          select: { cardTokenEncrypted: true, cardMonth: true, cardYear: true },
+        });
+        if (hasValidCard(card, now)) return false;
+      }
       /*
        * ‎`endedAt: { not: null }` ב-`where` ולא רק במזהה: בין
        * ‏השליפה לכתיבה סבב אחר יכול לפתוח רישום, ואז שתי שורות
