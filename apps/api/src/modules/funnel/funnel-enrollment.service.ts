@@ -487,7 +487,15 @@ export class FunnelEnrollmentService {
         now,
       });
       if (reason === null) continue;
-      if (await this.close(row.id, reason, now)) closed += 1;
+      /*
+       * ‏הסגירה נכתבת מול אותו עוגן שההחלטה התקבלה עליו. אם הוא זז
+       * ‏בינתיים — ניסיון שהוחזר — הכתיבה אינה חלה, וזה הנכון.
+       */
+      const closedNow = await this.close(row.id, reason, now, {
+        trialEndsAt: tenant.trialEndsAt,
+        trialConcludedAt: tenant.trialConcludedAt,
+      });
+      if (closedNow) closed += 1;
     }
     return closed;
   }
@@ -555,10 +563,36 @@ export class FunnelEnrollmentService {
    * את סיבת הסגירה הראשונה, ו„שילם” היה הופך ל„מיצה את הרצף” בלי
    * שדבר קרה.
    */
-  async close(id: string, reason: FunnelExitReason, now: Date): Promise<boolean> {
+  async close(
+    id: string,
+    reason: FunnelExitReason,
+    now: Date,
+    /**
+     * ‎**מצב עוגן הניסיון שההחלטה התקבלה עליו — ולא קישוט.**
+     *
+     * ‏`closePage` קורא את שורת הדייר, מחליט, ואז כותב. בין השניים
+     * ‏מנהל פלטפורמה יכול להחזיר ניסיון: הפתיחה-מחדש רואה רישום
+     * ‏שעדיין פתוח ואינה עושה דבר, ואז הסבב המיושן סוגר אותו. התוצאה
+     * ‏היא ניסיון חי לצד רישום סגור ש-`enrollDue` לעולם לא יקבל
+     * ‏שוב (ביקורת Codex).
+     *
+     * ‏שני השדות ב-`where` הופכים את הכתיבה לתלוית-גרסה: אם העוגן
+     * ‏השתנה מאז הקריאה, הסגירה פשוט אינה חלה, והסבב הבא יחליט על
+     * ‏המצב החדש. זה זול מנעילה, ואינו מחזיק טרנזקציה פתוחה על פני
+     * ‏דף שלם של רישומים.
+     */
+    trialAnchor: { trialEndsAt: Date | null; trialConcludedAt: Date | null },
+  ): Promise<boolean> {
     const updated = await this.prisma.withFunnelAdmin((tx) =>
       tx.funnelEnrollment.updateMany({
-        where: { id, endedAt: null },
+        where: {
+          id,
+          endedAt: null,
+          tenant: {
+            trialEndsAt: trialAnchor.trialEndsAt,
+            trialConcludedAt: trialAnchor.trialConcludedAt,
+          },
+        },
         data: { endedAt: now, endedReason: reason },
       }),
     );

@@ -837,6 +837,131 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
     }
   });
 
+  /*
+   * ‎**המרוץ: הסבב קרא, המנהל החזיר ניסיון, הסבב כתב.**
+   *
+   * ‏הפתיחה-מחדש רואה רישום שעדיין פתוח ואינה עושה דבר; הסבב
+   * ‏המיושן סוגר אותו על סמך תמונה שכבר אינה נכונה, והתוצאה היא
+   * ‏ניסיון חי לצד רישום סגור ש-`enrollDue` לא יקבל שוב (ביקורת
+   * ‏Codex). `close` מותנה בעוגן שההחלטה התקבלה עליו, ולכן הכתיבה
+   * ‏המיושנת פשוט אינה חלה.
+   */
+  it("סגירה על סמך תמונה מיושנת אינה חלה", async () => {
+    const now = new Date();
+    await service.sweep(now, { dailyQuota: 5 });
+    const id = (
+      await direct.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id FROM funnel_enrollments WHERE tenant_id = $1 LIMIT 1`,
+        OLD_TENANT,
+      )
+    )[0]!.id;
+    // ‏התמונה שהסבב קרא: ניסיון שנגמר
+    const stale = { trialEndsAt: null, trialConcludedAt: new Date() };
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET status = 'active', trial_ends_at = NULL,
+                          trial_concluded_at = $2 WHERE id = $1`,
+      OLD_TENANT,
+      stale.trialConcludedAt,
+    );
+    // ‏ואז המנהל החזיר ניסיון, לפני שהסבב הספיק לכתוב
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET status = 'trial', trial_ends_at = $2,
+                          trial_concluded_at = NULL WHERE id = $1`,
+      OLD_TENANT,
+      new Date(now.getTime() + 10 * DAY),
+    );
+
+    expect(await service.close(id, "completed", now, stale)).toBe(false);
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedAt, "נסגר על סמך תמונה מיושנת").toBeNull();
+  });
+
+  /*
+   * ‎**וכל אחת משתי העמודות לבדה עוצרת את הסגירה.**
+   *
+   * ‏במסלולי האפליקציה השתיים זזות יחד — המסך שמחזיר ניסיון כותב
+   * ‏תאריך **וגם** מנקה את הסיום — ולכן בדיקה שמזיזה את שתיהן
+   * ‏עוברת גם עם חצי מהשער. במסד הן עמודות נפרדות, והשער אמור
+   * ‏לזהות **כל** שינוי בעוגן ולא צירוף אחד. לכן כל עמודה נבדקת
+   * ‏לבדה, בכתיבה ישירה.
+   */
+  it("שינוי בתאריך הניסיון לבדו עוצר את הסגירה", async () => {
+    const now = new Date();
+    await service.sweep(now, { dailyQuota: 5 });
+    const id = (
+      await direct.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id FROM funnel_enrollments WHERE tenant_id = $1 LIMIT 1`,
+        OLD_TENANT,
+      )
+    )[0]!.id;
+    const concluded = new Date();
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET trial_ends_at = $2, trial_concluded_at = $3 WHERE id = $1`,
+      OLD_TENANT,
+      new Date(now.getTime() + 10 * DAY),
+      concluded,
+    );
+    // ‏הסיום זהה לתמונה; רק התאריך זז
+    expect(
+      await service.close(id, "completed", now, {
+        trialEndsAt: null,
+        trialConcludedAt: concluded,
+      }),
+    ).toBe(false);
+  });
+
+  it("שינוי בסיום הניסיון לבדו עוצר את הסגירה", async () => {
+    const now = new Date();
+    await service.sweep(now, { dailyQuota: 5 });
+    const id = (
+      await direct.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id FROM funnel_enrollments WHERE tenant_id = $1 LIMIT 1`,
+        OLD_TENANT,
+      )
+    )[0]!.id;
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET trial_ends_at = NULL, trial_concluded_at = NULL WHERE id = $1`,
+      OLD_TENANT,
+    );
+    // ‏התאריך זהה לתמונה (ריק); רק הסיום זז
+    expect(
+      await service.close(id, "completed", now, {
+        trialEndsAt: null,
+        trialConcludedAt: new Date(),
+      }),
+    ).toBe(false);
+  });
+
+  /*
+   * ‏והצד השני, שבלעדיו „לעולם לא לסגור” היה עובר: אותה קריאה
+   * ‏בדיוק, כשהעוגן לא זז, כן סוגרת.
+   */
+  it("ואותה סגירה כשהעוגן לא זז — חלה", async () => {
+    const now = new Date();
+    await service.sweep(now, { dailyQuota: 5 });
+    const id = (
+      await direct.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id FROM funnel_enrollments WHERE tenant_id = $1 LIMIT 1`,
+        OLD_TENANT,
+      )
+    )[0]!.id;
+    const concluded = new Date();
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET status = 'active', trial_ends_at = NULL,
+                          trial_concluded_at = $2 WHERE id = $1`,
+      OLD_TENANT,
+      concluded,
+    );
+    expect(
+      await service.close(id, "completed", now, {
+        trialEndsAt: null,
+        trialConcludedAt: concluded,
+      }),
+    ).toBe(true);
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedReason).toBe("completed");
+  });
+
   it("משרד שמעולם לא נרשם — אין מה לפתוח", async () => {
     expect(await service.reopenForRestoredTrial(OLD_TENANT)).toBe(false);
   });
