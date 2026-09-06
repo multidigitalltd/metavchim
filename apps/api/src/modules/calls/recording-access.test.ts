@@ -96,23 +96,33 @@ describe("גישה להקלטת שיחה", () => {
   /*
    * מנהל שומע הכול — אחרת הבדיקה מאשרת שער נעול ולא שער נכון.
    *
-   * דרושות **שלוש** היכולות, וזה בדיוק התנאי של `seesAllContacts`:
-   * כל הקונים, כל הלידים, ומודול הנכסים פתוח. צירוף חלקי מוותר על
-   * הסינון עבור מקור שחסום — וזה בדיוק מה שנפתח כשהתנאי הזה היה
-   * כתוב בשלושה עותקים ורק שניים מהם עודכנו (ביקורת Codex).
+   * דרושות **ארבע** היכולות, וזה בדיוק התנאי של `seesAllContacts`:
+   * כל הקונים, כל הלידים, מודול הנכסים פתוח, וכל נכסי המשרד. צירוף
+   * חלקי מוותר על הסינון עבור מקור שחסום — וזה בדיוק מה שנפתח
+   * כשהתנאי הזה היה כתוב בשלושה עותקים ורק שניים מהם עודכנו
+   * (ביקורת Codex).
+   *
+   * ‎**הרביעית, `properties.view_all`, נוספה כשהנכסים קיבלו הפרדה
+   * ‏לפי סוכן.** בלעדיה כאן הקיצור היה מנצח את הסינון החדש: סוכן עם
+   * ‏כל הקונים וכל הלידים אבל בלי כל הנכסים היה מקבל „אין מה לסנן”
+   * ‏ושומע את שיחת בעל הנכס של עמיתו. זו אינה התאמה של בדיקה לקוד
+   * ‏אלא אותה טענה בדיוק על תנאי שגדל.
    */
-  it("מנהל עם שלוש היכולות שומע גם שיחה של סוכן אחר", async () => {
+  it("מנהל עם ארבע היכולות שומע גם שיחה של סוכן אחר", async () => {
     const call: FakeCall = { recordingKey: "k", contactId: null, createdBy: "01OTHER" };
     await expect(
-      asAgent(["leads.view_all", "buyers.view_all", "properties.view"], "01ME", () =>
-        serviceFor(call).recording("01CALL"),
+      asAgent(
+        ["leads.view_all", "buyers.view_all", "properties.view", "properties.view_all"],
+        "01ME",
+        () => serviceFor(call).recording("01CALL"),
       ),
     ).resolves.toBeDefined();
 
-    // צירוף חלקי אינו מספיק — לא אחת, וגם לא שתיים מתוך השלוש
+    // צירוף חלקי אינו מספיק — גם לא שלוש מתוך הארבע
     for (const partial of [
       ["leads.view_all"],
       ["leads.view_all", "buyers.view_all"],
+      ["leads.view_all", "buyers.view_all", "properties.view"],
     ] as const) {
       await expect(
         asAgent([...partial], "01ME", () => serviceFor(call).recording("01CALL")),

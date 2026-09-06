@@ -61,6 +61,7 @@ export type CapabilityModule = {
 
 export const CAPABILITY_LABELS: Record<Capability, string> = {
   "properties.view": "צפייה בנכסים",
+  "properties.view_all": "בעלי הנכסים של כל המשרד",
   "properties.create": "הוספת נכס",
   "properties.edit": "עריכת נכס",
   "properties.delete": "מחיקת נכס",
@@ -95,7 +96,13 @@ export const CAPABILITY_MODULES: readonly CapabilityModule[] = [
     key: "properties",
     label: "נכסים",
     description: "רשימת הנכסים, כרטיס נכס והוספת נכס חדש",
-    capabilities: ["properties.view", "properties.create", "properties.edit", "properties.delete"],
+    capabilities: [
+      "properties.view",
+      "properties.view_all",
+      "properties.create",
+      "properties.edit",
+      "properties.delete",
+    ],
   },
   {
     key: "buyers",

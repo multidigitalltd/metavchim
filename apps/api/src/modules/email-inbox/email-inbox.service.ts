@@ -14,6 +14,7 @@ import {
   whatsappTemplateParams,
   type InboundEmailPayload,
 } from "@metavchim/shared";
+import { assertContactAccess, visibleContactIds } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
@@ -484,13 +485,28 @@ export class EmailInboxService {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       /*
+       * ‎**התיבה מסוננת לפי בעלות — כמו יומן השיחות, ההסכמים והחיפוש.**
+       *
+       * ‏עד כאן הסינון היה על המשרד בלבד, ולכן כל סוכן ראה את
+       * ‏ההתכתבות של כל עמיתיו: לא רק את הרשימה אלא את גוף ההודעות,
+       * ‏את הקבצים — ויכול היה **להשיב בשם המשרד** ללקוח של אחר.
+       * ‏היכולת שנדרשת לנתיב היא `buyers.view_own`, שיש לכל סוכן,
+       * ‏כלומר לא הייתה כאן שום הפרדה.
+       *
+       * ‎`visibleContactIds` הוא אותו כלל בדיוק שכבר קיים בשלושת
+       * ‏המודולים האחרים; מה שהיה חסר כאן הוא הקריאה לו, לא הרעיון.
+       * ‎`null` = רואה את כל לקוחות המשרד, ואז אין מה לסנן.
+       */
+      const visible = await visibleContactIds(tx, tenantId);
+      const scope = visible === null ? {} : { contactId: { in: visible } };
+      /*
        * ‏`distinct` על הלקוח, לא חיתוך של זרם ההודעות: חיתוך גולמי
        * היה מעלים שיחה שההודעה שלה נדחקה מעבר לגבול — כולל שיחה עם
        * לא-נקראו שהתג בסרגל ממשיך לספור, בלי שום דרך לפתוח אותה
        * (ביקורת Codex). כאן הגבול הוא על **שיחות**: 100 האחרונות.
        */
       const lastPerContact = await tx.emailMessage.findMany({
-        where: { tenantId },
+        where: { tenantId, ...scope },
         orderBy: { createdAt: "desc" },
         distinct: ["contactId"],
         take: 100,
@@ -549,6 +565,8 @@ export class EmailInboxService {
   async thread(contactId: string): Promise<{ contactName: string; messages: InboxMessageDto[] }> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
+      // ‏הסתרה מהרשימה בלי שער על הפתיחה אינה הפרדה — היא ניחוש מזהה
+      await assertContactAccess(tx, tenantId, contactId);
       const contact = await this.contacts.getById(tx, contactId);
       if (contact === null) throw new NotFoundException("הלקוח לא נמצא");
       /*
@@ -620,12 +638,35 @@ export class EmailInboxService {
     kind: string;
   }> {
     const tenantId = TenantContext.current().tenantId;
-    const row = await this.prisma.withTenant((tx) =>
-      tx.emailAttachment.findFirst({
+    const row = await this.prisma.withTenant(async (tx) => {
+      const attachment = await tx.emailAttachment.findFirst({
         where: { id: attachmentId, tenantId, uploadedAt: { not: null } },
-        select: { s3Key: true, contentType: true, sizeBytes: true, name: true, kind: true },
-      }),
-    );
+        select: {
+          s3Key: true,
+          contentType: true,
+          sizeBytes: true,
+          name: true,
+          kind: true,
+          messageId: true,
+        },
+      });
+      if (attachment === null) return null;
+      /*
+       * ‎**הקובץ יורש את ההרשאה של השיחה שהוא נשלח בה.**
+       *
+       * ‏זהו הנתיב היחיד שאינו מקבל `contactId` אלא מזהה קובץ, ולכן
+       * ‏הוא זה שהיה נשאר פתוח אחרי שכל השאר נסגרו: מזהה מתוך הודעה
+       * ‏שהמשתמש כן רשאי לראות, ומשם ניחוש. חוזה השכירות של הלקוח
+       * ‏של עמית הוא בדיוק מה שיושב שם.
+       */
+      const message = await tx.emailMessage.findFirst({
+        where: { id: attachment.messageId, tenantId },
+        select: { contactId: true },
+      });
+      if (message === null) return null;
+      await assertContactAccess(tx, tenantId, message.contactId);
+      return attachment;
+    });
     if (row === null) throw new NotFoundException("הקובץ לא נמצא");
     const obj = await this.storage.getObject(row.s3Key);
     return {
@@ -644,12 +685,13 @@ export class EmailInboxService {
   /** סימון השיחה כנקראה — בכניסה אליה, לא בהודעה-הודעה. */
   async markRead(contactId: string): Promise<void> {
     const ctx = TenantContext.current();
-    await this.prisma.withTenant((tx) =>
-      tx.emailMessage.updateMany({
+    await this.prisma.withTenant(async (tx) => {
+      await assertContactAccess(tx, ctx.tenantId, contactId);
+      return tx.emailMessage.updateMany({
         where: { tenantId: ctx.tenantId, contactId, direction: "in", readAt: null },
         data: { readAt: new Date(), readBy: ctx.userId === "" ? null : ctx.userId },
-      }),
-    );
+      });
+    });
   }
 
   /**
@@ -665,6 +707,14 @@ export class EmailInboxService {
   ): Promise<{ state: "sent" | "unknown" }> {
     const ctx = TenantContext.current();
     const tenantId = ctx.tenantId;
+    /*
+     * ‎**השער הזה חשוב יותר מזה שברשימה.**
+     *
+     * ‏קריאה של התכתבות של עמית היא פגיעה בפרטיות; **כתיבה** אליה
+     * ‏היא שליחת מייל בשם המשרד ללקוח של סוכן אחר, שנראה ללקוח כמו
+     * ‏המשך השיחה שלו. לכן הבדיקה כאן, לפני כל שליחה.
+     */
+    await this.prisma.withTenant((tx) => assertContactAccess(tx, tenantId, contactId));
 
     /*
      * הקבצים היוצאים באותה רשימה סגורה כמו הנכנסים, ובתקרת הספק

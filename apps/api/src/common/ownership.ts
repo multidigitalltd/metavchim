@@ -281,7 +281,18 @@ function contactSources(): { buyers: boolean; leads: boolean; properties: boolea
 export function seesAllContacts(): boolean {
   const caps = TenantContext.current().capabilities;
   return (
-    caps.has("buyers.view_all") && caps.has("leads.view_all") && contactSources().properties
+    caps.has("buyers.view_all") &&
+    caps.has("leads.view_all") &&
+    contactSources().properties &&
+    /*
+     * ‎**גם `properties.view_all`, ולא רק „המודול פתוח”.**
+     *
+     * ‏בלי זה הקיצור היה מנצח את הסינון החדש: סוכן עם כל הקונים וכל
+     * ‏הלידים אבל **בלי** כל הנכסים היה מקבל `null` — כלומר „אין מה
+     * ‏לסנן” — ורואה את בעלי הנכסים של כולם. קיצור שמחזיר יותר ממה
+     * ‏שהתנאי המלא מחזיר הוא באג שקט בדיוק בכיוון המסוכן.
+     */
+    caps.has("properties.view_all")
   );
 }
 
@@ -513,6 +524,20 @@ export async function visibleContactIds(
             tenantId,
             deletedAt: null,
             OR: [{ ownerContactId: { not: null } }, { occupantContactId: { not: null } }],
+            /*
+             * ‎**גם הנכסים — לפי החלטת מנהל המשרד.**
+             *
+             * ‏עד כה הענף הזה היה חסר סינון: כל בעל נכס וכל דייר
+             * ‏במשרד נראו לכל מי שמודול הנכסים פתוח אצלו. יש משרדים
+             * ‏שזה נכון להם, ויש משרדים שבהם נכס שייך לסוכן שגייס
+             * ‏אותו — ועמית שמדבר עם הבעלים מאחורי גבו הוא בדיוק מה
+             * ‏שאסור.
+             *
+             * ‏לכן זו אינה הכרעה שלנו אלא של המשרד: `properties.view_all`
+             * ‏ניתנת כברירת מחדל לכל תפקיד שיש לו `properties.view`,
+             * ‏ומנהל שרוצה הפרדה חוסם אותה לסוכן במסך ההרשאות.
+             */
+            ...ownershipFilter("properties.view_all", "agentUserId"),
           },
           select: { ownerContactId: true, occupantContactId: true },
         })
@@ -569,6 +594,8 @@ export async function assertContactAccess(
             tenantId,
             deletedAt: null,
             OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
+            // ‏חייב להסכים עם `visibleContactIds` — ראו ההערה שם
+            ...ownershipFilter("properties.view_all", "agentUserId"),
           },
           select: { id: true },
         })
