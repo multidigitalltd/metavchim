@@ -42,6 +42,8 @@ import {
   type MentorPattern,
   mentorPatterns,
   mentorPeriodRange,
+  MENTOR_METRICS,
+  officeEvidenceLabel,
   type MentorMonthlyBody,
   type MentorReviewBody,
   type MentorWin,
@@ -129,6 +131,24 @@ export interface MentorOverview {
   advice: MentorAdvice[];
   /** השם והסגנון שהמתווך בחר (docs/14 §4.1) */
   persona: MentorPersona;
+}
+
+/** מה עובד אצלנו — למנהל, ספירות בלבד (docs/14 §7.4). */
+export interface MentorOfficeDto {
+  /** כמה מתווכים תרמו עדות כלשהי */
+  agents: number;
+  proven: {
+    key: string;
+    metric: MentorGoalMetric;
+    metricLabel: string;
+    text: string;
+    helped: number;
+    dismissed: number;
+    up: number;
+    measured: number;
+    /** „עזר ל-3 · המספר עלה אצל 2” */
+    evidence: string;
+  }[];
 }
 
 /** הסיכום החודשי כפי שהמסך מקבל אותו. */
@@ -274,6 +294,7 @@ export class MentorService {
         insights,
         funnel,
         feedback: resolveIdeaFeedback(user?.preferences),
+        office: await this.signals.officePlaybookFor(tx, tenantId, userId, now),
         now,
       });
       return {
@@ -351,6 +372,32 @@ export class MentorService {
         wins,
       };
     });
+  }
+
+  /**
+   * מה עובד אצלנו — למנהל (docs/14 §7.4): הרעיונות שהוכיחו את עצמם
+   * במשרד, עם ספירות בלבד. אין כאן שמות ואין דרך לגזור אותם.
+   */
+  async office(now: Date = new Date()): Promise<MentorOfficeDto> {
+    const { tenantId } = TenantContext.current();
+    const office = await this.prisma.withTenant((tx) =>
+      this.signals.officePlaybook(tx, tenantId, now),
+    );
+    return {
+      agents: office.agents,
+      proven: office.proven.map((e) => ({
+        key: e.key,
+        metric: e.metric,
+        metricLabel:
+          MENTOR_METRICS.find((m) => m.code === e.metric)?.label ?? e.metric,
+        text: e.text,
+        helped: e.helped,
+        dismissed: e.dismissed,
+        up: e.up,
+        measured: e.measured,
+        evidence: officeEvidenceLabel(e),
+      })),
+    };
   }
 
   /** הסיכומים החודשיים — מהחדש לישן (docs/14 §3). */
@@ -763,6 +810,13 @@ export class MentorService {
           userId,
           now,
         );
+        // מה עובד במשרד — ידע משותף לעצות ולפרומפט (§7.4)
+        const office = await this.signals.officePlaybookFor(
+          tx,
+          tenantId,
+          userId,
+          now,
+        );
         const advice = mentorAdvice({
           goals,
           activity,
@@ -770,6 +824,7 @@ export class MentorService {
           insights,
           funnel,
           feedback: resolveIdeaFeedback(user?.preferences),
+          office,
           now,
         });
         // התרגול האחרון בחודש האחרון — מה המנטור אמר לנסות (§7.3)
@@ -796,6 +851,7 @@ export class MentorService {
                   score: practice.last.score,
                   tryNext: practice.last.tryNext,
                 },
+          office,
           persona: resolveMentorPersona(user?.preferences),
           firstName: (user?.name ?? "").trim().split(/\s+/u)[0] ?? "",
           nowText: MentorService.nowText(now),

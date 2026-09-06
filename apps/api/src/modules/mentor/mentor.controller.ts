@@ -22,7 +22,10 @@ import {
   type ProcessGoalSuggestion,
   type MentorGoalProposal,
 } from "@metavchim/shared";
-import { AnyAuthenticated } from "../../common/auth.decorators";
+import {
+  AnyAuthenticated,
+  RequireCapability,
+} from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
@@ -34,6 +37,7 @@ import {
   MentorService,
   type MentorGoalDto,
   type MentorMonthlyDto,
+  type MentorOfficeDto,
   type MentorOverview,
   type MentorPulse,
   type MentorReviewDto,
@@ -130,6 +134,16 @@ export class MentorController {
   @AnyAuthenticated()
   reviews(): Promise<MentorReviewDto[]> {
     return this.mentor.reviews();
+  }
+
+  /**
+   * מה עובד אצלנו — למי שרואה ניתוחים של המשרד (docs/14 §7.4). ספירות
+   * בלבד: הרעיונות שהוכיחו את עצמם, בלי שמות.
+   */
+  @Get("office")
+  @RequireCapability("analytics.view")
+  office(): Promise<MentorOfficeDto> {
+    return this.mentor.office();
   }
 
   /** הסיכומים החודשיים — מה עבד ומה לא (docs/14 §3) */

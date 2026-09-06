@@ -1,5 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import {
+  ideaByKey,
+  officePlaybook,
+  officePlaybookFor,
+  resolveIdeaFeedback,
+  type MentorIdeaOutcome,
+  type MentorOfficePlaybook,
+  type OfficeEvidenceEntry,
   MENTOR_FAST_RESPONSE_MINUTES,
   MENTOR_GOAL_METRICS,
   MENTOR_MISSED_RETURN_HOURS,
@@ -36,6 +43,8 @@ export type GoalWithProgress = MentorGoalRow & { progress: MentorGoalProgress };
 
 /** כמה שבועות אחורה נמדד המשפך של המתווך — רבעון. */
 export const MENTOR_HISTORY_WEEKS = 13;
+/** כמה שבועות אחורה נאספות מדידות של רעיונות לספר המשחק של המשרד — חצי שנה. */
+export const OFFICE_PLAYBOOK_WEEKS = 26;
 
 /**
  * המונים של המנטור — ספירה של **המשתמש** בטווח (docs/14 §5.1).
@@ -312,6 +321,92 @@ export class MentorSignalsService {
       now,
     );
     return { history, weeks: MENTOR_HISTORY_WEEKS };
+  }
+
+  /**
+   * ספר המשחק של המשרד (docs/14 §7.4) — כל העדויות של המתווכים
+   * הפעילים, בלי זהות: „עזר לי” / „לא בשבילי” מההעדפות, ומה נמדד
+   * (§7.2) מגופי הסיכומים של חצי השנה האחרונה. שתי שאילתות למשרד,
+   * ולכן הסבב מחשב פעם אחת למשרד ומעביר לכל משתמש.
+   */
+  async officePlaybook(
+    tx: TenantTx,
+    tenantId: string,
+    now: Date,
+  ): Promise<MentorOfficePlaybook> {
+    return officePlaybook(await this.officeEvidence(tx, tenantId, now));
+  }
+
+  /** הספר כפי שמתווך אחד רואה אותו — בלי העדות שלו (§7.4). */
+  async officePlaybookFor(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    now: Date,
+  ): Promise<MentorOfficePlaybook> {
+    return officePlaybookFor(
+      await this.officeEvidence(tx, tenantId, now),
+      userId,
+    );
+  }
+
+  /**
+   * העדויות של המתווכים הפעילים — עם מזהה, כדי שאפשר יהיה להוציא
+   * את המתווך עצמו מהספר שמוצג לו. המזהה אינו יוצא מכאן לפלט.
+   */
+  async officeEvidence(
+    tx: TenantTx,
+    tenantId: string,
+    now: Date,
+  ): Promise<OfficeEvidenceEntry[]> {
+    const since = jerusalemWeekStart(now, -OFFICE_PLAYBOOK_WEEKS);
+    const [users, reviews] = await Promise.all([
+      tx.$queryRaw<{ id: string; preferences: unknown }[]>`
+        SELECT id, preferences
+        FROM users
+        WHERE tenant_id = ${tenantId} AND is_active = true`,
+      tx.$queryRaw<{ user_id: string; outcomes: unknown }[]>`
+        SELECT user_id, body -> 'ideaOutcomes' AS outcomes
+        FROM mentor_reviews
+        WHERE tenant_id = ${tenantId}
+          AND week_start >= ${since}
+          AND body ? 'ideaOutcomes'`,
+    ]);
+    if (!Array.isArray(users) || users.length === 0) return [];
+    const outcomesByUser = new Map<string, MentorIdeaOutcome[]>();
+    for (const row of Array.isArray(reviews) ? reviews : []) {
+      if (typeof row.user_id !== "string" || !Array.isArray(row.outcomes))
+        continue;
+      const list = outcomesByUser.get(row.user_id) ?? [];
+      for (const raw of row.outcomes) {
+        if (typeof raw !== "object" || raw === null) continue;
+        const { key, change, date, before, after } = raw as Record<
+          string,
+          unknown
+        >;
+        if (typeof key !== "string") continue;
+        const idea = ideaByKey(key);
+        if (idea === null) continue;
+        if (change !== "up" && change !== "flat" && change !== "down") continue;
+        list.push({
+          key,
+          metric: idea.metric,
+          text: idea.text,
+          date: typeof date === "string" ? date : "",
+          before: typeof before === "number" ? before : 0,
+          after: typeof after === "number" ? after : 0,
+          change,
+        });
+      }
+      outcomesByUser.set(row.user_id, list);
+    }
+    return users
+      .filter((u) => typeof u.id === "string")
+      .map((u) => ({
+        id: u.id,
+        feedback: resolveIdeaFeedback(u.preferences),
+        outcomes: outcomesByUser.get(u.id) ?? [],
+      }));
   }
 
   async wins(

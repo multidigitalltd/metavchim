@@ -4,7 +4,11 @@ import {
   jerusalemWeekday,
   jerusalemWeekStart,
 } from "./israel-time.js";
-import { playbookIdea, type MentorIdeaFeedback } from "./mentor-playbook.js";
+import {
+  playbookIdeaPick,
+  type MentorIdeaFeedback,
+  type OfficeProvenLookup,
+} from "./mentor-playbook.js";
 import type { MentorIdeaOutcome } from "./mentor-outcome.js";
 import {
   DEFAULT_MENTOR_PERSONA,
@@ -596,6 +600,8 @@ export interface MentorWeekSignals {
   ideaOutcomes?: MentorIdeaOutcome[];
   /** תרגולי שיחה שנגמרו השבוע, והציון האחרון (§7.3) */
   practice?: { count: number; lastScore: number | null };
+  /** מה הוכיח את עצמו במשרד — הטיפ לשבוע הבא מעדיף אותו (§7.4) */
+  office?: OfficeProvenLookup;
 }
 
 /**
@@ -961,8 +967,16 @@ export function mentorWeeklyReview(
    */
   const behindGoal = goals.find((g) => g.pace === "behind");
   if (behindGoal !== undefined) {
+    const tip = playbookIdeaPick(
+      behindGoal.metric,
+      Math.floor(signals.weekStart.getTime() / 604_800_000),
+      signals.feedback,
+      signals.office,
+    );
     paragraphs.push(
-      `טיפ לשבוע הבא: ${playbookIdea(behindGoal.metric, Math.floor(signals.weekStart.getTime() / 604_800_000), signals.feedback)}`,
+      tip.proven
+        ? `טיפ לשבוע הבא — עבד אצל אחרים במשרד: ${tip.text}`
+        : `טיפ לשבוע הבא: ${tip.text}`,
     );
   }
 
@@ -1235,6 +1249,8 @@ export interface MentorDailyInput {
   yesterday?: MentorActivity | null;
   /** רעיון להיום — מספר המשחק (`mentorDailyIdea`); נאמר רק כשיש עוד מה לומר */
   idea?: string;
+  /** הרעיון הוכיח את עצמו אצל אחרים במשרד (§7.4) — נאמר */
+  ideaProven?: boolean;
   now: Date;
   firstName?: string;
   /** השם והסגנון שהמתווך בחר — הפתיח והסיום, לא התוכן */
@@ -1324,7 +1340,12 @@ export function mentorDailyPlan(
   if (lines.length === 0) return null;
   // רעיון רק כשיש בוקר — „בוקר טוב, רעיון” בלי יעד ובלי אתמול הוא פרסומת
   const idea = (input.idea ?? "").trim();
-  if (idea !== "") lines.push(`רעיון להיום: ${idea}`);
+  if (idea !== "")
+    lines.push(
+      input.ideaProven === true
+        ? `רעיון להיום — עבד אצל אחרים במשרד: ${idea}`
+        : `רעיון להיום: ${idea}`,
+    );
   const persona = input.persona ?? DEFAULT_MENTOR_PERSONA;
   const greeting = mentorSalutation("בוקר טוב", name, persona);
   const closer = mentorCloser(persona.style, anyBehind);
