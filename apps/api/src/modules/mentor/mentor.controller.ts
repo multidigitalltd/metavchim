@@ -16,6 +16,7 @@ import {
   MentorGoalInputSchema,
   MentorGoalPeriodSchema,
   type ProcessGoalSuggestion,
+  type MentorGoalProposal,
 } from "@metavchim/shared";
 import { AnyAuthenticated } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
@@ -151,7 +152,11 @@ export class MentorController {
   @AnyAuthenticated()
   ask(
     @Body(new ZodValidationPipe(AskSchema)) body: z.infer<typeof AskSchema>,
-  ): Promise<{ turn: MentorTurnDto; source: "model" | "fallback" }> {
+  ): Promise<{
+    turn: MentorTurnDto;
+    source: "model" | "fallback";
+    proposedGoal?: MentorGoalProposal;
+  }> {
     return this.mentor.ask(body.text);
   }
 }

@@ -19,9 +19,12 @@ import {
   type MentorActivity,
   type MentorAsk,
   type MentorAdvice,
+  MentorGoalInputSchema,
   type MentorChatContext,
+  type MentorGoalProposal,
   mentorAdvice,
   mentorFallbackReply,
+  parseGoalRequest,
   type MentorGoalInput,
   mentorGoalLabel,
   type MentorGoalPeriod,
@@ -140,7 +143,15 @@ export interface MentorTurnDto {
   createdAt: Date;
 }
 
-const ReplySchema = z.object({ reply: z.string().trim().min(1).max(1500) });
+const ReplySchema = z.object({
+  reply: z.string().trim().min(1).max(1500),
+  // המודל מציע, המתווך לוחץ, הקוד כותב — אותה סכמה כמו היעד עצמו
+  proposedGoal: MentorGoalInputSchema.pick({
+    metric: true,
+    period: true,
+    target: true,
+  }).optional(),
+});
 
 /**
  * המנטור האישי — מה שהמסך צריך (docs/14).
@@ -592,7 +603,12 @@ export class MentorService {
     now: Date = new Date(),
     /** מאיפה השאלה הגיעה — ליומן האסימונים של הפלטפורמה בלבד */
     channel: "web" | "whatsapp" = "web",
-  ): Promise<{ turn: MentorTurnDto; source: "model" | "fallback" }> {
+  ): Promise<{
+    turn: MentorTurnDto;
+    source: "model" | "fallback";
+    /** יעד שהמנטור מציע לקבוע — המסך מציג כפתור, המתווך לוחץ (docs/14 §7) */
+    proposedGoal?: MentorGoalProposal;
+  }> {
     const ctx = TenantContext.current();
     const { tenantId, userId } = ctx;
     if (ctx.billingOnly) throw new ForbiddenException("החשבון במצב חיוב בלבד");
@@ -739,6 +755,7 @@ export class MentorService {
     );
 
     let reply: string | null = null;
+    let proposedGoal: MentorGoalProposal | undefined;
     if (!context.overCap && (await this.gemini.isConfigured())) {
       const detailed = await this.gemini.generateStructuredDetailed(
         buildMentorPrompt(context),
@@ -749,7 +766,10 @@ export class MentorService {
         },
       );
       const parsed = ReplySchema.safeParse(detailed.value);
-      if (parsed.success) reply = parsed.data.reply;
+      if (parsed.success) {
+        reply = parsed.data.reply;
+        proposedGoal = parsed.data.proposedGoal;
+      }
       /*
        * הקריאה למודל נרשמת ביומן הסוכן — גם כשהתשובה לא עברה את
        * הסכמה: האסימונים נצרכו מהמפתח של הפלטפורמה, ודוח השימוש
@@ -768,7 +788,17 @@ export class MentorService {
       });
     }
     const source: "model" | "fallback" = reply === null ? "fallback" : "model";
-    const answer = reply ?? mentorFallbackReply(context);
+    /*
+     * בקשה מפורשת ליעד מקבלת כפתור גם בלי מודל, וגם כשהמודל ענה בלי
+     * למלא את ההצעה: הפענוח הדטרמיניסטי הוא הרשת. הכפתור אינו קובע
+     * — הוא מציע; הלחיצה של המתווך היא שכותבת.
+     */
+    proposedGoal ??= parseGoalRequest(text) ?? undefined;
+    const answer =
+      reply ??
+      (proposedGoal === undefined
+        ? mentorFallbackReply(context)
+        : `${mentorGoalLabel(proposedGoal.metric, proposedGoal.target, proposedGoal.period)} — מוכן. לחיצה על הכפתור שמתחת קובעת את היעד, ומשם אני עוקב.`);
 
     const row = await this.prisma.withTenant((tx) =>
       tx.mentorMessage.create({
@@ -781,7 +811,11 @@ export class MentorService {
         },
       }),
     );
-    return { turn: MentorService.turnDto(row), source };
+    return {
+      turn: MentorService.turnDto(row),
+      source,
+      ...(proposedGoal === undefined ? {} : { proposedGoal }),
+    };
   }
 
   /* ---------------- עזרים ---------------- */

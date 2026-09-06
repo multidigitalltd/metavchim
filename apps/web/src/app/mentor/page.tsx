@@ -13,6 +13,7 @@ import {
   mentorGoalLabel,
   type MentorAdvice,
   type MentorGoalMetric,
+  type MentorGoalProposal,
   type MentorGoalPeriod,
   type MentorGoalProgress,
   type MentorInsights,
@@ -362,6 +363,7 @@ export default function MentorPage() {
             firstName={firstName}
             pending={askMentor}
             onConsumed={() => setAskMentor(null)}
+            onGoalSet={load}
           />
         </>
       )}
@@ -1469,14 +1471,27 @@ function ChatSection({
   firstName,
   pending,
   onConsumed,
+  onGoalSet,
 }: {
   available: boolean;
   firstName: string;
   /** שאלה שנפתחה מכרטיס העצות — נשלחת ברגע שהשיחה פנויה */
   pending: string | null;
   onConsumed: () => void;
+  /** יעד נקבע מהשיחה — המסך טוען מחדש את היעדים */
+  onGoalSet: () => void;
 }) {
   const [turns, setTurns] = useState<Turn[] | null>(null);
+  /*
+   * יעד שהמנטור הציע לקבוע — כפתור מתחת לתשובה שלו. המודל מציע,
+   * המתווך לוחץ, הקוד כותב (docs/14 §7). לא נשמר: מי שלא לחץ יכול
+   * לבקש שוב.
+   */
+  const [proposal, setProposal] = useState<{
+    goal: MentorGoalProposal;
+    afterTurnId: string;
+  } | null>(null);
+  const [settingGoal, setSettingGoal] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1521,14 +1536,19 @@ function ChatSection({
     };
     setTurns((prev) => [...(prev ?? []), optimistic]);
     setText("");
+    setProposal(null);
     try {
-      const res = await apiPost<{ turn: Turn; source: "model" | "fallback" }>(
-        "/mentor/messages",
-        {
-          text: trimmed,
-        },
-      );
+      const res = await apiPost<{
+        turn: Turn;
+        source: "model" | "fallback";
+        proposedGoal?: MentorGoalProposal;
+      }>("/mentor/messages", {
+        text: trimmed,
+      });
       setTurns((prev) => [...(prev ?? []), res.turn]);
+      if (res.proposedGoal !== undefined) {
+        setProposal({ goal: res.proposedGoal, afterTurnId: res.turn.id });
+      }
     } catch (err: unknown) {
       setError(
         err instanceof ApiError
@@ -1540,6 +1560,33 @@ function ChatSection({
     }
   }
   sendRef.current = send;
+
+  async function setGoal(goal: MentorGoalProposal): Promise<void> {
+    if (settingGoal) return;
+    setSettingGoal(true);
+    setError(null);
+    const label = mentorGoalLabel(goal.metric, goal.target, goal.period);
+    try {
+      await apiPost("/mentor/goals", goal);
+      setProposal(null);
+      setTurns((prev) => [
+        ...(prev ?? []),
+        {
+          id: `local-goal-${Date.now()}`,
+          role: "mentor",
+          text: `🎯 היעד נקבע: ${label}. מכאן אני עוקב — ובבוקר נדבר על מה היום שווה.`,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      onGoalSet();
+    } catch (err: unknown) {
+      setError(
+        err instanceof ApiError ? err.message : "היעד לא נקבע — כדאי לנסות שוב",
+      );
+    } finally {
+      setSettingGoal(false);
+    }
+  }
 
   return (
     <section className="mt-8" aria-labelledby="mentor-chat-heading">
@@ -1569,11 +1616,37 @@ function ChatSection({
               </div>
             ) : null}
             {turns.map((turn) => (
-              <div
-                key={turn.id}
-                className={`mv-chat-bubble ${turn.role === "user" ? "mv-chat-user" : "mv-chat-agent"}`}
-              >
-                <span style={{ whiteSpace: "pre-line" }}>{turn.text}</span>
+              <div key={turn.id} className="contents">
+                <div
+                  className={`mv-chat-bubble ${turn.role === "user" ? "mv-chat-user" : "mv-chat-agent"}`}
+                >
+                  <span style={{ whiteSpace: "pre-line" }}>{turn.text}</span>
+                </div>
+                {proposal !== null && proposal.afterTurnId === turn.id ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="mv-btn-soft"
+                      disabled={settingGoal}
+                      onClick={() => void setGoal(proposal.goal)}
+                    >
+                      🎯 לקבוע יעד:{" "}
+                      {mentorGoalLabel(
+                        proposal.goal.metric,
+                        proposal.goal.target,
+                        proposal.goal.period,
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className="mv-btn-plain"
+                      disabled={settingGoal}
+                      onClick={() => setProposal(null)}
+                    >
+                      לא עכשיו
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ))}
             {busy ? (
