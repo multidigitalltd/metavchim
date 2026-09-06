@@ -1403,7 +1403,22 @@ export default function PropertyDetailPage({
               ‏על שאלה אחרת (מי יחד, ולא מי לבד), והרשימות זרות זו
               ‏לזו. המקטע כולו אינו קיים לנכס שאינו בטאבו משותף.
             */}
+            {/*
+              ‎**ו„מותר לי קונים” אינו „מותר לי התאמות”** (ביקורת
+              ‏Codex, P2).
+
+              ‏הנתיב `/matches/property/:id/partners` מוגן ב-
+              ‎`@RequireCapability("matches.view")`, והתנאי כאן בדק
+              ‏את מודול הקונים בלבד. משרד שהסיר `matches.view` מסוכן
+              ‏קיבל את המקטע, וכל בקשה חזרה 403 — כלומר „טעינת
+              ‏השותפויות נכשלה” על מקטע שמעולם לא היה אמור להופיע
+              ‏אצלו. השער שמונע „ריק שנראה כמו אפס” הפך כאן לשגיאה
+              ‏שנראית כמו תקלה.
+
+              ‏התנאי מרכיב את מה שהנתיב באמת דורש: שני המודולים.
+            */}
             {property.sharedTabu === true &&
+            can(user, "matches.view") &&
             (can(user, "buyers.view_own") || can(user, "buyers.view_all")) ? (
               <PartnerSuggestions propertyId={property.id} />
             ) : null}

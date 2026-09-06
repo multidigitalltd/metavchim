@@ -1,4 +1,11 @@
 /**
+ * ‎**מסכי הטאבו המשותף מסכימים עם מה שהשרת באמת עושה.**
+ *
+ * ‏שתי טענות, ולשתיהן אותו כשל: המסך מחליט לפי חצי מהכלל, השרת
+ * ‏לפי הכלל כולו, ואף אחד מהם אינו יודע שהם חלוקים.
+ *
+ * ---
+ *
  * ‎**עמדת „טאבו משותף” של קונה נגזרת — בכל מקום, כולל המסך.**
  *
  * ## התקלה שהשער הזה נולד ממנה
@@ -55,5 +62,42 @@ for (const file of FORMS) {
   console.log(`✓ ${file}`);
 }
 
+/**
+ * ‎**והמקטע מוצג רק למי שהנתיב שלו ייענה לו** (ביקורת Codex, P2).
+ *
+ * ‏`/matches/property/:id/partners` מוגן ב-
+ * ‎`@RequireCapability("matches.view")`, והתנאי שמרכיב את המקטע
+ * ‏בדק את מודול הקונים בלבד. משרד שהסיר `matches.view` מסוכן קיבל
+ * ‏את המקטע, וכל בקשה חזרה 403 — כלומר „טעינת השותפויות נכשלה”
+ * ‏על מקטע שמעולם לא היה אמור להופיע אצלו.
+ */
+const PROPERTY_PAGE = join(
+  import.meta.dirname,
+  "..",
+  "src",
+  "app",
+  "properties",
+  "[id]",
+  "page.tsx",
+);
+const page = readFileSync(PROPERTY_PAGE, "utf8");
+const mount = page.indexOf("<PartnerSuggestions");
+if (mount < 0) {
+  console.error(`✗ ${PROPERTY_PAGE}: מקטע השותפויות נעלם — עדכנו את השער`);
+  failed = true;
+} else {
+  /* ‏התנאי שמעל ההרכבה: מהתנאי הפותח ועד תגית הרכיב. */
+  const guardStart = page.lastIndexOf("{property.sharedTabu", 0 + mount);
+  const guard = guardStart < 0 ? "" : page.slice(guardStart, mount);
+  if (!guard.includes('can(user, "matches.view")')) {
+    console.error(
+      `✗ ${PROPERTY_PAGE}: מקטע השותפויות מורכב בלי לבדוק matches.view — הנתיב דורש אותה`,
+    );
+    failed = true;
+  } else {
+    console.log(`✓ ${PROPERTY_PAGE}`);
+  }
+}
+
 if (failed) process.exit(1);
-console.log("עמדת הטאבו המשותף נגזרת בכל טופס קונה.");
+console.log("מסכי הטאבו המשותף מסכימים עם השרת.");

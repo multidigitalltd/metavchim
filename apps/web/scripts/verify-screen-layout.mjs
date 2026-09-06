@@ -549,11 +549,24 @@ if (!/options=\{SHARED_TABU_FILTER_OPTIONS\}/u.test(PROPERTIES)) {
   problems.push("בורר „סינון לפי רישום” נעלם מעמוד הנכסים");
 }
 
+/*
+ * ‏הבדיקה על **אזור התנאי** ולא על ניסוח מדויק: התנאי גדל בסבב
+ * ‏שנוסף לו `matches.view` (ראו `verify:stance`, שם הוא נבדק),
+ * ‏ורגקס שנצמד לצורה המלאה נשבר על תוספת נכונה. מה שנבדק כאן הוא
+ * ‏מה שההכרעה אומרת: שני התנאים קיימים לפני ההרכבה.
+ */
 const PROPERTY_CARD = read("../src/app/properties/[id]/page.tsx");
-if (
-  !/\{property\.sharedTabu === true &&\s*\(can\(user, "buyers\.view_own"\) \|\| can\(user, "buyers\.view_all"\)\) \? \(\s*<PartnerSuggestions propertyId=\{property\.id\} \/>/u.test(
-    PROPERTY_CARD,
-  )
+const MOUNT = PROPERTY_CARD.indexOf("<PartnerSuggestions");
+const GUARD =
+  MOUNT === -1
+    ? ""
+    : PROPERTY_CARD.slice(PROPERTY_CARD.lastIndexOf("{property.sharedTabu", MOUNT), MOUNT);
+if (MOUNT === -1) {
+  problems.push("מקטע „שותפויות אפשריות” נעלם מכרטיס הנכס");
+} else if (
+  !/property\.sharedTabu === true/u.test(GUARD) ||
+  !/can\(user, "buyers\.view_own"\)/u.test(GUARD) ||
+  !/can\(user, "buyers\.view_all"\)/u.test(GUARD)
 ) {
   problems.push(
     "מקטע „שותפויות אפשריות” אינו מותנה ב-`property.sharedTabu` וביכולת לראות קונים — הוא ייטען לנכס שאין לו שותפויות, או יבקש שמות ממי שאינו רשאי",
