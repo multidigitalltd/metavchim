@@ -1,0 +1,177 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { RECRUITMENT_STATUSES, canConvertToProperty } from "@metavchim/shared";
+
+/**
+ * ‎**נכס לגיוס אינו נכס — וההפרדה מבנית, לא משמעתית.**
+ *
+ * ## ‏מה זה מגן עליו
+ *
+ * ‏נכס לגיוס הוא מודעה שהמשרד **אינו מייצג**. אם שורה כזו תדלוף
+ * למנוע ההתאמות, לרשת שיתופי הפעולה או להצעות — קונה יקבל הצעה על
+ * נכס שאיש לא הסמיך את המשרד להציע, ובעל הנכס יגלה שמישהו משווק
+ * את הדירה שלו בלי רשות. זה חמור יותר מהבאג של „נמכר”, שרק הציג
+ * נכס ישן.
+ *
+ * ## ‏למה בדיקה מבנית
+ *
+ * ‏ההגנה האמיתית היא שהנתונים יושבים בטבלה נפרדת: שאילתה על
+ * ‎`properties` אינה יכולה להחזיר שורת `recruitment_targets`.
+ * הבדיקה כאן שומרת על **התנאי** להגנה הזאת — שאף מסלול של נכס לא
+ * יתחיל לקרוא מהטבלה השנייה, ושהמודול לא יזלוג לכיוון ההפוך.
+ *
+ * ‏אין הרנס בדיקות ל-API (Prisma, RLS, הקשר דייר), וההתנהגות אומתה
+ * חי: חמש המרות במקביל יצרו נכס אחד, ושורה בשלב „קיבל שיחה” החזירה
+ * אפס שורות ב-`properties` ואפס התאמות.
+ */
+
+const MODULES = join(import.meta.dirname, "..");
+const SERVICE = readFileSync(join(import.meta.dirname, "recruitment.service.ts"), "utf8");
+const MODULE_FILE = readFileSync(join(import.meta.dirname, "recruitment.module.ts"), "utf8");
+
+/** כל קובצי ה-TS של מודול, בלי בדיקות. */
+function sourcesOf(moduleName: string): { name: string; text: string }[] {
+  const dir = join(MODULES, moduleName);
+  return readdirSync(dir, { recursive: true, encoding: "utf8" })
+    .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
+    .map((name) => ({ name, text: readFileSync(join(dir, name), "utf8") }));
+}
+
+describe("שורת גיוס אינה מגיעה למסלולי הנכס", () => {
+  /*
+   * ‎**הכיוון היחיד המותר.** הגיוס מכיר את הנכסים כדי ליצור אחד
+   * בהמרה; הנכסים אינם יודעים שהגיוס קיים. תלות הפוכה הייתה
+   * הפתח שדרכו שורת גיוס נכנסת לחישוב, לרשת או להצעה.
+   */
+  it.each(["properties", "matching", "collaboration", "offers"])(
+    "מודול %s אינו נוגע ב-recruitmentTarget",
+    (moduleName) => {
+      const files = sourcesOf(moduleName);
+      expect(files.length).toBeGreaterThan(0);
+      for (const file of files) {
+        /*
+         * ‏חסר רישיות בכוונה: `tx.recruitmentTarget` הוא הגישה
+         * דרך Prisma, `RecruitmentTarget` הוא הטיפוס,
+         * ו-`RecruitmentService` הוא הזרקה — שלושתם דליפה.
+         */
+        expect(
+          file.text,
+          `${moduleName}/${file.name} קורא לטבלת הגיוס — ההפרדה נשברה`,
+        ).not.toMatch(/recruitment[_-]?target|recruitmentservice/iu);
+      }
+    },
+  );
+
+  it("גם הסורקים והעבודות ברקע אינם נוגעים בה", () => {
+    for (const moduleName of ["matching", "collaboration"]) {
+      for (const file of sourcesOf(moduleName)) {
+        expect(file.text).not.toContain("RecruitmentService");
+      }
+    }
+  });
+
+  /* ‏התלות היחידה, ובכיוון הזה בלבד */
+  it("מודול הגיוס תלוי בנכסים — ולא להפך", () => {
+    /*
+     * ‏על **מערך ה-`imports`** ולא על הקובץ: שורת ה-`import` בראש
+     * הקובץ מכילה את השם גם כשהמערך רוקן, ובדיקה על הקובץ כולו
+     * הייתה עוברת על מודול שאיבד את התלות ואינו יכול להמיר.
+     */
+    const imports = /imports:\s*\[[\s\S]*?\]/u.exec(MODULE_FILE)?.[0] ?? "";
+    expect(imports).toContain("PropertiesModule");
+    const propsModule = readFileSync(
+      join(MODULES, "properties", "properties.module.ts"),
+      "utf8",
+    );
+    expect(propsModule).not.toContain("Recruitment");
+  });
+});
+
+describe("ההמרה — פעם אחת בלבד", () => {
+  const convert = /async convert\([\s\S]*?\n {2}\}\n/u.exec(SERVICE)?.[0] ?? "";
+
+  it("נמצאה", () => {
+    expect(convert).not.toBe("");
+  });
+
+  /*
+   * ‎**תפיסה מותנית, ולא „קרא ואז צור”.** שתי לחיצות שקוראות שתיהן
+   * ‎`null` יוצרות שני נכסים זהים, ואת השני איש לא מוחק כי איש לא
+   * יודע עליו. אומת חי: חמש המרות במקביל, נכס אחד.
+   */
+  it("תופסת את השורה בעדכון מותנה לפני שהיא יוצרת", () => {
+    expect(convert).toContain("updateMany");
+    expect(convert).toContain("convertedAt: null");
+    const claim = convert.indexOf("updateMany");
+    const create = convert.indexOf("this.properties.create");
+    expect(create).toBeGreaterThan(-1);
+    expect(claim).toBeLessThan(create);
+  });
+
+  it("משחררת את התפיסה כשהיצירה נכשלת", () => {
+    expect(convert).toContain("catch");
+    expect(convert).toMatch(/convertedAt: null/u);
+  });
+
+  /* ‏לחיצה שנייה מקבלת את הנכס, לא שגיאה */
+  it("מחזירה את הנכס הקיים במקום להיכשל", () => {
+    expect(convert).toContain("propertyId: target.convertedPropertyId");
+  });
+
+  it("רק „גויס” ניתן להמרה — ואותו תנאי כמו במסך", () => {
+    expect(convert).toContain("canConvertToProperty");
+    expect(canConvertToProperty("recruited")).toBe(true);
+    expect(canConvertToProperty("called")).toBe(false);
+  });
+
+  /*
+   * ‏הנכס נולד **פעיל**: הבעלים חתם, והמתווך רוצה לשווק אותו מיד.
+   * טיוטה כאן הייתה מסתירה נכס שכבר גויס.
+   */
+  it("הנכס שנוצר פעיל ולא טיוטה", () => {
+    expect(convert).toContain('status: "active"');
+  });
+});
+
+describe("הקישור למודעה", () => {
+  /*
+   * ‎**הבדיקה בשרת ולא רק במסך.** הכתובת מרונדרת כ-`href`, ומסך
+   * הוא בקשה ולא אכיפה: `javascript:` שנשמר היה מריץ קוד אצל כל מי
+   * שלוחץ עליו במשרד. אומת חי — הנתיב החזיר 409.
+   */
+  it("נאכף בשירות", () => {
+    expect(SERVICE).toContain("isValidSourceUrl");
+    expect(SERVICE).toContain("assertSourceUrl");
+  });
+
+  it("כל מסלול כתיבה עובר דרך האכיפה", () => {
+    const create = /async create\([\s\S]*?\n {2}\}\n/u.exec(SERVICE)?.[0] ?? "";
+    const update = /async update\([\s\S]*?\n {2}\}\n/u.exec(SERVICE)?.[0] ?? "";
+    expect(create).toContain("this.assertSourceUrl");
+    expect(update).toContain("this.assertSourceUrl");
+  });
+
+  /* ‏המסך לא יכול לכתוב את מזהה הנכס — הוא נקבע בהמרה בלבד */
+  it("המסך אינו יכול לכתוב את מזהה הנכס שנוצר", () => {
+    const writable = /private writable\([\s\S]*?\n {2}\}\n/u.exec(SERVICE)?.[0] ?? "";
+    expect(writable).not.toBe("");
+    expect(writable).not.toContain("convertedPropertyId");
+    expect(writable).not.toContain("convertedAt");
+  });
+});
+
+describe("שלבי הגיוס נגזרים מהרשימה המשותפת", () => {
+  it("הבקר אינו כותב את הרשימה ביד", () => {
+    const controller = readFileSync(
+      join(import.meta.dirname, "recruitment.controller.ts"),
+      "utf8",
+    );
+    expect(controller).toContain("RECRUITMENT_STATUSES");
+    expect(controller).not.toMatch(/"awaiting_reply"\s*,\s*"meeting_set"/u);
+  });
+
+  it("„גויס” קיים ברשימה — כל השאר תלוי בו", () => {
+    expect(RECRUITMENT_STATUSES).toContain("recruited");
+  });
+});

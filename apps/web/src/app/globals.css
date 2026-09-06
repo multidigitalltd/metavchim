@@ -1502,6 +1502,23 @@ code {
   min-width: 0;
 }
 
+/*
+ * ‏פריט משנה בתפריט — „נכסים לגיוס” תחת „נכסים”.
+ *
+ * ‏ההסטה היא מה שמראה את ההיררכיה, ולכן היא בצד ההתחלה (ימין ב-RTL)
+ * ונמדדת לפי הסמל של פריט האב: 20px סמל ועוד 10px רווח = 30px, כך
+ * שהתווית מתיישרת בדיוק מתחת לתוויות שמעליה ולא „בערך”.
+ */
+.mv-sidebar-link--sub {
+  padding-inline-start: calc(12px + 30px);
+  font-size: 14px;
+  min-height: 34px;
+}
+/* ‏פריט משנה פעיל מקבל את אותו טיפול, בלי הפס — הפס שייך לקטגוריה */
+.mv-sidebar-link--sub[aria-current="page"]::after {
+  content: none;
+}
+
 .mv-sidebar-link:hover {
   background: rgba(255, 255, 255, 0.06);
   color: #fff;

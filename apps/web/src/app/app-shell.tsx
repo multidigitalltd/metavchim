@@ -263,6 +263,7 @@ const ICONS = {
  */
 const NAV_MODULE: Record<string, readonly string[]> = {
   "/properties": ["properties"],
+  "/properties/recruitment": ["properties"],
   "/buyers": ["buyers"],
   "/leads": ["leads"],
   /*
@@ -511,6 +512,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     label: string,
     icon: ReactNode,
     end?: ReactNode,
+    /**
+     * ‏נתיבי משנה שיושבים תחת הפריט הזה בתפריט.
+     *
+     * ‎`aria-current="page"` פירושו „זה העמוד הנוכחי”, ויכול להיות
+     * נכון על פריט אחד בלבד. בלי זה, `startsWith` היה מסמן גם את
+     * „נכסים” וגם את „נכסים לגיוס” — שני פריטים ירוקים, ואף אחד
+     * מהם לא מדויק.
+     */
+    subPaths?: readonly string[],
   ): ReactNode => {
     /*
      * מודול חסום — הפריט יורד מהסרגל, ולא מוצג ומוביל ל-403. פריט
@@ -520,7 +530,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     const modules = NAV_MODULE[href];
     const blocked = counts?.blockedModules ?? [];
     if (modules !== undefined && modules.every((m) => blocked.includes(m))) return null;
-    const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+    const active =
+      href === "/"
+        ? pathname === "/"
+        : pathname.startsWith(href) &&
+          !(subPaths ?? []).some((sub) => pathname.startsWith(sub));
     return (
       <Link
         key={href}
@@ -533,6 +547,29 @@ export function AppShell({ children }: { children: ReactNode }) {
             שאחריה הם `span` גם הם — בורר מיקום היה שביר */}
         <span className="mv-sidebar-label">{label}</span>
         {end}
+      </Link>
+    );
+  };
+
+  /**
+   * ‏פריט משנה — יושב תחת פריט אב ומוסט פנימה.
+   *
+   * ‏אין לו סמל משלו: הסמל שייך לקטגוריה, וחזרה עליו בשורה מתחתיה
+   * הייתה אומרת „עוד נכסים” במקום „סוג אחר של נכסים”. ההסטה היא מה
+   * שמראה את ההיררכיה.
+   */
+  const navSubLink = (href: string, label: string): ReactNode => {
+    const modules = NAV_MODULE[href];
+    const blocked = counts?.blockedModules ?? [];
+    if (modules !== undefined && modules.every((m) => blocked.includes(m))) return null;
+    return (
+      <Link
+        key={href}
+        href={href}
+        className="mv-sidebar-link mv-sidebar-link--sub"
+        aria-current={pathname.startsWith(href) ? "page" : undefined}
+      >
+        <span className="mv-sidebar-label">{label}</span>
       </Link>
     );
   };
@@ -600,7 +637,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <nav aria-label="ניווט ראשי" className="mv-sidebar-nav">
         {navLink("/", "דשבורד", ICONS.dashboard)}
-        {navLink("/properties", "נכסים", ICONS.properties, count(counts?.properties))}
+        {navLink("/properties", "נכסים", ICONS.properties, count(counts?.properties), [
+          "/properties/recruitment",
+        ])}
+        {navSubLink("/properties/recruitment", "נכסים לגיוס")}
         {navLink("/buyers", "קונים · שוכרים", ICONS.buyers, count(counts?.buyers))}
         {navLink(
           "/leads",

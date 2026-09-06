@@ -96,9 +96,9 @@ model Tenant {
   createdAt                  DateTime         @default(now()) @map("created_at")
   updatedAt                  DateTime         @updatedAt @map("updated_at")
 
-  users         User[]
-  properties    Property[]
-  whatsappLinks WhatsAppLink[]
+  users                       User[]
+  properties                  Property[]
+  whatsappLinks               WhatsAppLink[]
   whatsappBusinessConnections WhatsAppBusinessConnection[]
 
   @@index([trialEndsAt])
@@ -143,7 +143,7 @@ model User {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  tenant              Tenant           @relation(fields: [tenantId], references: [id])
+  tenant              Tenant                       @relation(fields: [tenantId], references: [id])
   sessions            Session[]
   capabilityOverrides UserCapability[]
   agentEvents         AgentEvent[]
@@ -359,6 +359,64 @@ model ContactLink {
   @@unique([tenantId, contactId, relatedContactId])
   @@index([tenantId, relatedContactId])
   @@map("contact_links")
+}
+
+/// ‏נכס לגיוס — מודעה שהמתווך רודף אחריה, ולא נכס שהמשרד מייצג.
+///
+/// ‎**טבלה נפרדת ולא סטטוס על `Property`, וזו ההכרעה המרכזית כאן.**
+/// הכלל „לא מציעים נכס כזה” היה נדרש בכל מסלול קריאה — התאמות, רשת
+/// שיתופי הפעולה, הצעות, דפי נחיתה, המונים. בדיוק כך נראה הבאג של
+/// „נמכר”: הכלל נאכף בכתיבה והונח בקריאה, ושורה שברחה נשארה במסך
+/// לתמיד. כאן הדליפה חמורה יותר — הצעת נכס שהמשרד אינו מייצג היא
+/// הבטחה בלי כיסוי מול הקונה, וחשיפה מול בעלים שלא חתם.
+///
+/// שורה בטבלה אחת אינה יכולה לדלוף לשאילתה על טבלה אחרת.
+model RecruitmentTarget {
+  id        String  @id @db.Char(26)
+  tenantId  String  @map("tenant_id") @db.Char(26)
+  /// ראו RECRUITMENT_STATUSES בחבילה המשותפת — גם המסך צריך את התוויות.
+  status    String  @default("new") @db.VarChar(20)
+  /// ראו RECRUITMENT_SOURCES. רשימה סגורה, כדי שהדוח „מאיפה מגיעים
+  /// הגיוסים שלנו” יהיה בר-מענה.
+  source    String  @default("other") @db.VarChar(20)
+  /// הקישור למודעה המקורית — http/https בלבד, נאכף בסכימה.
+  sourceUrl String? @map("source_url") @db.VarChar(2000)
+
+  /// שדות הנכס — אותם שדות של Property, כי זה אותו טופס.
+  city         String?  @db.VarChar(80)
+  neighborhood String?  @db.VarChar(80)
+  street       String?  @db.VarChar(120)
+  houseNumber  String?  @map("house_number") @db.VarChar(10)
+  propertyType String?  @map("property_type") @db.VarChar(30)
+  dealType     String?  @map("deal_type") @db.VarChar(10)
+  rooms        Decimal? @db.Decimal(4, 1)
+  areaSqm      Int?     @map("area_sqm")
+  floor        Int?
+  totalFloors  Int?     @map("total_floors")
+  priceAgorot  BigInt?  @map("price_agorot")
+
+  /// הבעלים שמנסים לגייס — **טקסט ולא Contact**: איש קשר במערכת הוא
+  /// לקוח של המשרד, ומי שטרם חתם אינו כזה. הוא נהיה איש קשר בהמרה.
+  ownerName  String? @map("owner_name") @db.VarChar(120)
+  ownerPhone String? @map("owner_phone") @db.VarChar(20)
+
+  notes       String? @db.VarChar(4000)
+  agentUserId String? @map("agent_user_id") @db.Char(26)
+
+  /// הנכס שנוצר בהמרה. ייחודי בתוך הדייר — המרה כפולה בלתי אפשרית
+  /// ברמת המסד, ולא רק בקוד.
+  convertedPropertyId String?   @map("converted_property_id") @db.Char(26)
+  convertedAt         DateTime? @map("converted_at")
+
+  deletedAt DateTime? @map("deleted_at")
+  createdBy String?   @map("created_by") @db.Char(26)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, convertedPropertyId])
+  @@index([tenantId, updatedAt])
+  @@index([tenantId, status])
+  @@map("recruitment_targets")
 }
 
 model Property {
@@ -1767,12 +1825,10 @@ model WhatsAppBusinessConnection {
   tenantId             String    @map("tenant_id") @db.Char(26)
   /**
    * ‎**הסוכן שחיבר את הקו — הקו הוא שלו, לא של המשרד.**
-   *
    * כל סוכן מחבר את המספר שלו, והלקוחות שכותבים אליו הם הלקוחות
    * שלו. לכן ליד שנוצר מהקו הזה נוחת אצלו (`assignedToUserId`)
    * ולא במאגר אנונימי של המשרד — אחרת סוכן שחיבר את המספר הפרטי
    * שלו היה מזין לידים לעמיתיו בלי לדעת.
-   *
    * ‏`tenantId` נשאר לצד זה: הוא מה שמכריע לאיזה משרד ההודעה שייכת
    * בנתיב הציבורי של הוובהוק, והוא גם מה שמאפשר לבעל משרד לנתק קו
    * של סוכן שעזב.
@@ -1787,7 +1843,6 @@ model WhatsAppBusinessConnection {
   verifiedName         String?   @map("verified_name") @db.VarChar(120)
   /**
    * ה-business token של המתווך — הסוד של החיבור, מוצפן במנוחה.
-   *
    * ‎**Nullable בכוונה**: בניתוק הסוד נמחק מיד והשורה נשארת, כי
    * הסטטוס והסיבה הם מידע שהמשרד צריך לראות. עמודת חובה הייתה כופה
    * בחירה בין החזקת סוד חי אחרי ניתוק לבין מחיקת כל המטא-דאטה.
@@ -1795,7 +1850,6 @@ model WhatsAppBusinessConnection {
   accessTokenEncrypted String?   @map("access_token_encrypted") @db.Text
   /**
    * מתי הטוקן שמעליו פג — מה שהופך תפוגה שקטה לסבב רענון.
-   *
    * ‎`null` = טוקן שאינו פג, ואז אין מה לרענן. ערך = מה ש-Meta
    * החזירה ב-`expires_in` בהמרת ה-`code`. תצורות Embedded Signup
    * מנפיקות היום טוקן קצוב (60 יום), וטוקן שפג מפסיק להביא הודעות
@@ -1806,14 +1860,12 @@ model WhatsAppBusinessConnection {
   accessTokenExpiresAt DateTime? @map("access_token_expires_at")
   /**
    * ‎**הגדרות הבוט של הסוכן** (docs/12 §6.2).
-   *
    * שלד קבוע עם גמישות מבוקרת: מה שנשמר כאן הוא נוסח הפתיחה, שעות
    * הפעילות, שאלות האפיון ומשך ההשתקה — כלומר ה**טעם**. מה שאינו
    * ניתן לעריכה ואינו יושב כאן: הצגה עצמית כבוט, טיפול ב„הסר”,
    * אסקלציה לאדם, ואיסור יזימה. אלה מדיניות של Meta ושל המוצר,
    * ופרומפט חופשי היה מאפשר לסוכן לכתוב בוט שמתחזה לאדם או מבטיח
    * מחירים — והנזק נוחת על דירוג האיכות של **המספר שלו**.
-   *
    * ‏null = ברירות המחדל, שהן גם ההתנהגות ה„קבועה לכולם”.
    */
   botSettings          Json?     @map("bot_settings")
@@ -2315,42 +2367,42 @@ model Coupon {
 }
 
 model Plan {
-  code               String    @id @db.VarChar(20)
-  name               String    @db.VarChar(60)
-  description        String    @default("") @db.VarChar(500)
-  monthlyPriceAgorot Int       @default(0) @map("monthly_price_agorot")
+  code                      String    @id @db.VarChar(20)
+  name                      String    @db.VarChar(60)
+  description               String    @default("") @db.VarChar(500)
+  monthlyPriceAgorot        Int       @default(0) @map("monthly_price_agorot")
   /// null = נמכר חודשי בלבד
-  yearlyPriceAgorot  Int?      @map("yearly_price_agorot")
+  yearlyPriceAgorot         Int?      @map("yearly_price_agorot")
   /// null = ללא הגבלה — ערך תקין ומכוון, לא "לא הוגדר"
-  maxUsers           Int?      @map("max_users")
-  maxProperties      Int?      @map("max_properties")
+  maxUsers                  Int?      @map("max_users")
+  maxProperties             Int?      @map("max_properties")
   /// מכסות פרסום ברשת השיתופים — נפרדות ממכסת השמירה במאגר.
   /// null = ללא הגבלה, וזה מה שכל המסלולים בתשלום מקבלים; המסלול
   /// החינמי מוגבל כאן ולא ב-`maxProperties`.
   /// מכסת האוטומציות — כללים שנבנו + משימות קבועות. null = ללא הגבלה.
-  maxAutomations     Int?      @map("max_automations")
+  maxAutomations            Int?      @map("max_automations")
   /// מחיר חודשי לכל סוכן וואטסאפ נוסף, באגורות. null = לא נמכר
   /// במסלול הזה, והמסך אומר „פנו אלינו” במקום להציג כפתור קנייה.
-  whatsappSeatMonthlyAgorot Int? @map("whatsapp_seat_monthly_agorot")
-  maxNetworkListings Int?      @map("max_network_listings")
-  maxNetworkDemands  Int?      @map("max_network_demands")
-  features           String[]  @default([])
-  trialDays          Int       @default(14) @map("trial_days")
+  whatsappSeatMonthlyAgorot Int?      @map("whatsapp_seat_monthly_agorot")
+  maxNetworkListings        Int?      @map("max_network_listings")
+  maxNetworkDemands         Int?      @map("max_network_demands")
+  features                  String[]  @default([])
+  trialDays                 Int       @default(14) @map("trial_days")
   /// המחיר נסגר בשיחה ואינו מוצג כמספר.
   ///
   /// זה מה שמבדיל בין "חינם" ל"בהתאמה" — שני המצבים נראים זהה
   /// ב-`monthly_price_agorot = 0`, ובלי הדגל מסלול חינמי הוצג
   /// כ"בהתאמה", כלומר הבטיח ללקוח את ההפך ממה שהוא.
-  priceOnRequest     Boolean   @default(false) @map("price_on_request")
-  isPublic           Boolean   @default(true) @map("is_public")
-  sortOrder          Int       @default(0) @map("sort_order")
+  priceOnRequest            Boolean   @default(false) @map("price_on_request")
+  isPublic                  Boolean   @default(true) @map("is_public")
+  sortOrder                 Int       @default(0) @map("sort_order")
   /// מסלול שנמחק. **דגל ולא מחיקת שורה**: קטלוג המסלולים ממזג
   /// ברירות מחדל מובנות עם השורות שנשמרו, ולכן מחיקת שורה של מסלול
   /// מובנה הייתה מחזירה אותו לחיים בהגדרות המקוריות שלו. שורה
   /// פרושה מוסתרת מהקטלוג; יצירה מחדש של אותו קוד מחזירה אותה.
-  retiredAt          DateTime? @map("retired_at")
-  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at")
-  updatedBy          String?   @map("updated_by") @db.Char(26)
+  retiredAt                 DateTime? @map("retired_at")
+  updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at")
+  updatedBy                 String?   @map("updated_by") @db.Char(26)
 
   @@index([sortOrder])
   @@map("plans")
@@ -3097,7 +3149,6 @@ model SupportTicket {
   userEmail     String    @map("user_email") @db.VarChar(254)
   /**
    * הטלפון של מי שפנה — נלקח מהפרופיל ברגע הפתיחה.
-   *
    * תקלה חוסמת נסגרת בשיחה, לא בשרשור מיילים. בלי המספר על הפנייה
    * התמיכה נאלצה לחפש את המשתמש בנפרד, וזה בדיוק החיכוך שגורם
    * להסתפק במייל. ריק = לא היה טלפון בפרופיל.
@@ -3136,39 +3187,39 @@ model SupportTicket {
 
 /**
  * הודעה בתוך פנייה מהכפתור — **השיחה, ולא „התשובה האחרונה”.**
- *
  * ‎`SupportTicket.reply` הוא עמודה בודדת: תשובה שנייה דרסה את
  * הראשונה. הוא נשאר לתאימות ומוזן מההודעה האחרונה, אבל מה שמוצג
  * ומה שנשלח נגזר מכאן.
- *
  * ‎`sendState` הוא מה שהיה חסר בכלל: בלי שורה שאפשר לסמן עליה
  * ‏„נשלח” או „נכשל”, שליחה שנדחתה נעטפה ב-catch ונרשמה כאזהרה —
  * והמסך הציג „נענה” על מייל שלא יצא.
  */
 model SupportTicketMessage {
-  id        String   @id @db.Char(26)
-  ticketId  String   @map("ticket_id") @db.Char(26)
+  id                String   @id @db.Char(26)
+  ticketId          String   @map("ticket_id") @db.Char(26)
   /// נשמר על ההודעה ולא נגזר מהפנייה: פוליסת RLS אינה יכולה להצטרף לטבלה אחרת.
-  tenantId  String   @map("tenant_id") @db.Char(26)
+  tenantId          String   @map("tenant_id") @db.Char(26)
   /// in = מה שהמשרד כתב, out = מה שהתמיכה השיבה
-  direction String   @db.VarChar(3)
-  body      String   @db.VarChar(20000)
+  direction         String   @db.VarChar(3)
+  body              String   @db.VarChar(20000)
   /// pending | sent | failed | unknown. null = הודעה נכנסת, אין מה לשלוח.
-  sendState String?  @map("send_state") @db.VarChar(10)
+  sendState         String?  @map("send_state") @db.VarChar(10)
   /// דה-דופליקציה מול Webhook שנשלח פעמיים — כמו ב-`SupportMessage`.
   /// בלעדיה מסירה חוזרת של תשובת לקוח כפלה את ההודעה על הפנייה.
-  providerMessageId String? @unique @map("provider_message_id") @db.VarChar(200)
-  createdBy String?  @map("created_by") @db.Char(26)
-  createdAt DateTime @default(now()) @map("created_at")
+  providerMessageId String?  @unique @map("provider_message_id") @db.VarChar(200)
+  createdBy         String?  @map("created_by") @db.Char(26)
+  createdAt         DateTime @default(now()) @map("created_at")
 
-  ticket      SupportTicket              @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticket      SupportTicket             @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   attachments SupportTicketAttachment[]
 
   @@index([ticketId, createdAt])
   @@map("support_ticket_messages")
 }
 
-/** צירוף על תשובת התמיכה — אותה מכניקה של `SupportAttachment`. */
+/**
+ * צירוף על תשובת התמיכה — אותה מכניקה של `SupportAttachment`.
+ */
 model SupportTicketAttachment {
   id          String    @id @db.Char(26)
   messageId   String    @map("message_id") @db.Char(26)

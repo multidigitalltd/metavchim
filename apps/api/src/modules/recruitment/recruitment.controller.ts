@@ -1,0 +1,129 @@
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
+import { z } from "zod";
+import {
+  IdSchema,
+  PhoneInputSchema,
+  PropertyFieldsSchema,
+  RECRUITMENT_SOURCES,
+  RECRUITMENT_STATUSES,
+} from "@metavchim/shared";
+import { RequireCapability } from "../../common/auth.decorators";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { RecruitmentService, type RecruitmentTargetDto } from "./recruitment.service";
+
+/**
+ * ‏שדות הנכס שנשמרים על שורת גיוס.
+ *
+ * ‎**תת-קבוצה של `PropertyFieldsSchema` ולא עותק** — הכתובת, הסוג,
+ * החדרים והמחיר נגזרים ממנו, ולכן שינוי טיפוס שם נופל כאן בקומפילציה
+ * במקום להישאר עותק שסטה. מה שאינו נכלל (מאפיינים, מיקום, בלעדיות,
+ * מועד כניסה) אינו ידוע ממודעה — הוא נשאל אחרי הגיוס, בכרטיס הנכס.
+ */
+const RecruitmentFieldsSchema = PropertyFieldsSchema.pick({
+  city: true,
+  neighborhood: true,
+  street: true,
+  houseNumber: true,
+  propertyType: true,
+  dealType: true,
+  rooms: true,
+  areaSqm: true,
+  floor: true,
+  totalFloors: true,
+  priceAgorot: true,
+});
+
+const RecruitmentBodySchema = RecruitmentFieldsSchema.extend({
+  status: z.enum(RECRUITMENT_STATUSES).optional(),
+  source: z.enum(RECRUITMENT_SOURCES).optional(),
+  /*
+   * ‏הכתובת נבדקת גם כאן וגם בשירות. לא כפילות: הסכימה חוסמת קלט
+   * שאינו כתובת בכלל, והשירות אוכף את הסכמות המותרות — והוא זה
+   * שירוץ גם כשייכתב מסלול כתיבה נוסף שיעקוף את הסכימה הזאת.
+   */
+  sourceUrl: z.union([z.string().url().max(2000), z.literal("")]).optional(),
+  ownerName: z.string().min(2).max(120).optional(),
+  ownerPhone: PhoneInputSchema.optional(),
+  notes: z.string().max(4000).optional(),
+  agentUserId: z.union([IdSchema, z.literal("")]).optional(),
+}).strict();
+
+const ListQuerySchema = z
+  .object({ status: z.enum(RECRUITMENT_STATUSES).optional() })
+  .strict();
+
+/**
+ * ‎**נכסים לגיוס.**
+ *
+ * ## ‏למה היכולות של „נכסים” ולא יכולת חדשה
+ *
+ * ‏יכולת חדשה נולדת **כבויה** לכל התפקידים הקיימים: התכונה הייתה
+ * נסתרת מכל משרד עד שמישהו נכנס למסך ההרשאות והדליק אותה, ורוב
+ * המשרדים לא היו מגלים שהיא קיימת.
+ *
+ * ‏והמיפוי גם נכון לגופו: נכס לגיוס הוא נכס-בהמתנה, ומי שרשאי
+ * ליצור נכסים רשאי לרדוף אחריהם. ההמרה דורשת `properties.create`
+ * מאותה סיבה שההמרה מליד דורשת אותה — היא **יוצרת נכס**.
+ */
+@Controller("recruitment")
+export class RecruitmentController {
+  constructor(private readonly recruitment: RecruitmentService) {}
+
+  @Get()
+  @RequireCapability("properties.view")
+  async list(
+    @Query(new ZodValidationPipe(ListQuerySchema)) query: z.infer<typeof ListQuerySchema>,
+  ): Promise<RecruitmentTargetDto[]> {
+    return this.recruitment.list(query.status);
+  }
+
+  @Get(":id")
+  @RequireCapability("properties.view")
+  async getOne(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<RecruitmentTargetDto> {
+    return this.recruitment.getById(id);
+  }
+
+  @Post()
+  @RequireCapability("properties.create")
+  async create(
+    @Body(new ZodValidationPipe(RecruitmentBodySchema))
+    body: z.infer<typeof RecruitmentBodySchema>,
+  ): Promise<RecruitmentTargetDto> {
+    return this.recruitment.create(body);
+  }
+
+  @Patch(":id")
+  @RequireCapability("properties.edit")
+  async update(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(RecruitmentBodySchema.partial()))
+    body: z.infer<typeof RecruitmentBodySchema>,
+  ): Promise<RecruitmentTargetDto> {
+    return this.recruitment.update(id, body);
+  }
+
+  @Delete(":id")
+  @RequireCapability("properties.delete")
+  @HttpCode(204)
+  async remove(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<void> {
+    await this.recruitment.remove(id);
+  }
+
+  /**
+   * „המר לנכס שלי” — הרגע שבו הנכס נעשה של המשרד.
+   *
+   * ‎`properties.create` ולא `edit`: הנתיב **יוצר נכס**, ומי שמורשה
+   * לערוך אך לא ליצור אינו אמור לעקוף את זה דרך המרה. אותו נימוק
+   * בדיוק של ההמרה מליד.
+   */
+  @Post(":id/convert")
+  @RequireCapability("properties.create")
+  @HttpCode(200)
+  async convert(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ propertyId: string }> {
+    return this.recruitment.convert(id);
+  }
+}
