@@ -118,6 +118,17 @@ describe("העסקה הקרובה ביותר — קונה אחד, מכשול א�
       "3 סיורים (האחרון בביאליק 4) ב-30 הימים האחרונים, ובלי הצעה על השולחן",
     );
     expect(many.question).toContain("ראה כמה נכסים ולא הציע");
+    // סיורים בלי נכס רשום — לא „כמה נכסים” ולא „אותו נכס”
+    const unknown = closestDeal(
+      [candidate({ viewings: 2, distinctProperties: 0, lastProperty: null })],
+      NOW,
+    )!;
+    expect(unknown.reason).toBe(
+      "שני סיורים ב-30 הימים האחרונים, ובלי הצעה על השולחן",
+    );
+    expect(unknown.question).toBe(
+      "סייר ולא הציע — מה עוצר? מחיר, מימון, או מישהו שמחליט איתו?",
+    );
     const interested = closestDeal(
       [candidate({ viewings: 1, interestedOffers: 1, pendingOffers: 0 })],
       NOW,
@@ -129,7 +140,13 @@ describe("העסקה הקרובה ביותר — קונה אחד, מכשול א�
     expect(closestDealLine(twice)).toBe(
       `העסקה הקרובה ביותר: דנה לוי — ${twice.reason}. ${twice.question}`,
     );
-    for (const t of [twice.reason, twice.question, twice.step, many.question])
+    for (const t of [
+      twice.reason,
+      twice.question,
+      twice.step,
+      many.question,
+      unknown.question,
+    ])
       expect(t, t).not.toMatch(PLURAL);
   });
 
