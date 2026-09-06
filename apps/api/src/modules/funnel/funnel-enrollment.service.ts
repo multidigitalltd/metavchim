@@ -5,6 +5,7 @@ import {
   FUNNEL_FRESH_SIGNUP_HOURS,
   funnelExitReason,
   hasValidCard,
+  trialAnchorConcluded,
   jerusalemDayStart,
   jerusalemWallParts,
   type FunnelAnchors,
@@ -382,7 +383,12 @@ export class FunnelEnrollmentService {
     const [tenants, subscriptions, sentRows] = await Promise.all([
       this.prisma.tenant.findMany({
         where: { id: { in: tenantIds } },
-        select: { id: true, trialEndsAt: true },
+        /*
+         * ‎`status` ו-`paidUntil` אינם קישוט: `trialEndsAt` ריק
+         * ‏נקרא אחרת לגמרי כשהניסיון **נגמר** מכשהערך **חסר**, ושתי
+         * ‏העמודות האלה הן מה שמבדיל ביניהם (`trialAnchorConcluded`).
+         */
+        select: { id: true, trialEndsAt: true, status: true, paidUntil: true },
       }),
       this.prisma.subscription.findMany({
         where: { tenantId: { in: tenantIds } },
@@ -411,7 +417,14 @@ export class FunnelEnrollmentService {
         }),
       ),
     ]);
-    const trialById = new Map(tenants.map((t) => [t.id, t.trialEndsAt]));
+    /*
+     * ‎**שורת הדייר כולה, ולא שדה לכל מפה.**
+     *
+     * ‏שלוש המפות שהיו כאן חייבו ברירת מחדל לכל אחת בנפרד, ואז
+     * ‏„הדייר לא נמצא” היה שלוש הכרעות שקטות שאפשר לענות עליהן
+     * ‏אחרת. שורה אחת חסרה היא מקרה **אחד**, והוא נענה למטה במפורש.
+     */
+    const tenantById = new Map(tenants.map((t) => [t.id, t]));
     const cardById = new Map(subscriptions.map((s) => [s.tenantId, s]));
     const sentByEnrollment = new Map<string, string[]>();
     for (const row of sentRows) {
@@ -427,6 +440,20 @@ export class FunnelEnrollmentService {
         this.logger.warn(`רישום ${row.id}: מסלול לא מוכר (${track}) — לא נסגר`);
         continue;
       }
+      /*
+       * ‎**דייר שאינו בשליפה — דילוג רועש, ולא ניחוש שקט.**
+       *
+       * ‏השליפות אינן בטרנזקציה אחת, ולכן מחיקה שקרתה ביניהן מגיעה
+       * ‏לכאן כשורה חסרה. כל ברירת מחדל כאן היא המצאה: „אין ניסיון”
+       * ‏היה סוגר את הרישום על סמך כלום, ו„יש ניסיון” היה משאיר אותו
+       * ‏פתוח על סמך כלום. הדילוג משאיר את ההחלטה לסבב הבא, שבו
+       * ‏השורה או תהיה או שהרישום כבר לא יהיה.
+       */
+      const tenant = tenantById.get(row.tenantId);
+      if (tenant === undefined) {
+        this.logger.warn(`רישום ${row.id}: שורת הדייר לא נמצאה — לא נסגר`);
+        continue;
+      }
       const card = hasValidCard(cardById.get(row.tenantId) ?? null, now);
       /*
        * ‎`chargeFailing` נשען על הרישום עצמו ולא על שאילתה נוספת:
@@ -440,12 +467,13 @@ export class FunnelEnrollmentService {
         nextStepPending: false,
         featureUnused: false,
         hasValidCard: card,
-        trialActive: isTrialActive(trialById.get(row.tenantId) ?? null, now),
+        trialActive: isTrialActive(tenant.trialEndsAt, now),
         chargeFailing: track === "dunning",
       };
       const anchors: FunnelAnchors = {
         funnelStartedAt: row.startedAt,
-        trialEndsAt: trialById.get(row.tenantId) ?? null,
+        trialEndsAt: tenant.trialEndsAt,
+        trialConcluded: trialAnchorConcluded(tenant),
         paymentFailedAt: track === "dunning" ? row.startedAt : null,
       };
       const reason = funnelExitReason({

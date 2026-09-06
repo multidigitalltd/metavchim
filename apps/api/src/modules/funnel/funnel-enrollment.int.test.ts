@@ -42,7 +42,8 @@ async function seedTenant(id: string, name: string, ageDays: number): Promise<vo
     `INSERT INTO tenants (id, name, plan, status, trial_ends_at, created_at, updated_at)
      VALUES ($1, $2, 'basic', 'trial', $3, $4, now())
      ON CONFLICT (id) DO UPDATE
-       SET status = 'trial', trial_ends_at = EXCLUDED.trial_ends_at, created_at = EXCLUDED.created_at`,
+       SET status = 'trial', trial_ends_at = EXCLUDED.trial_ends_at, created_at = EXCLUDED.created_at,
+           plan = 'basic', paid_until = NULL`,
     id,
     name,
     trialEndsAt,
@@ -634,6 +635,93 @@ describe("שורת שלב פסולה עוצרת סגירה", () => {
     await service.sweep(now, { dailyQuota: 5 });
     const old = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
     expect(old?.endedReason).toBe("completed");
+  });
+});
+
+/**
+ * ‎**עוגן שנמחק בכוונה מול עוגן שרק חסר.**
+ *
+ * ‏אחרי שהסבב הקודם היפך את הכלל — „עוגן חסר הוא לא-ידוע ולא
+ * ‏בלתי-אפשרי” — נשארה השאלה שביקשתי לבדוק בעצמי: האם יש מצב
+ * ‏**שגרתי** שמייצר `null` קבוע. יש, ושלושה כאלה: מעבר עצמי
+ * ‏למסלול חינמי, העברה לחינמי ממסך הפלטפורמה, והענקת תקופה ידנית.
+ * ‏בכולם `trial_ends_at` נמחק ואין כרטיס — כלומר הרישום היה נשאר
+ * ‏פתוח לנצח וכל סבב היה סורק אותו מחדש (ביקורת Codex).
+ *
+ * ‏הבדיקות כאן הן על ההבחנה עצמה, מול המסד: אותו משרד, אותו רגע,
+ * ‏ושתי דרכים שונות שבהן התאריך נעלם.
+ */
+describe("ניסיון שנגמר סוגר, ניסיון שנעלם אינו סוגר", () => {
+  /** ‏אחרי חלון כל שלבי שעון המשפך (יום 17 ועוד תקרת פיגור של שבוע). */
+  const AFTER_FUNNEL_CLOCK = 60 * DAY;
+
+  /** ‏פותח רישום למשרד הוותיק ומחזיר את הרגע שאחרי כל שלבי המשפך. */
+  async function enrolledThenLater(): Promise<Date> {
+    const now = new Date();
+    await service.sweep(now, { dailyQuota: 5 });
+    const open = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(open?.endedAt, "הרישום לא נפתח").toBeNull();
+    return new Date(now.getTime() + AFTER_FUNNEL_CLOCK);
+  }
+
+  async function reasonAfterSweep(later: Date): Promise<string | null | undefined> {
+    await service.sweep(later, { dailyQuota: 5 });
+    return (await enrollments()).find((r) => r.tenantId === OLD_TENANT)?.endedReason;
+  }
+
+  it("מעבר למסלול חינמי — הרישום נסגר במקום להישאר פתוח לנצח", async () => {
+    const later = await enrolledThenLater();
+    // ‏בדיוק מה ש-`switchToFreePlan` כותב: פעיל, בלי ניסיון, בלי כרטיס
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET status = 'active', plan = 'free', trial_ends_at = NULL,
+                          paid_until = NULL WHERE id = $1`,
+      OLD_TENANT,
+    );
+    expect(await reasonAfterSweep(later)).toBe("completed");
+  });
+
+  it("הענקת תקופה ידנית מסיימת אותו גם כשהסטטוס נשאר „ניסיון”", async () => {
+    const later = await enrolledThenLater();
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET trial_ends_at = NULL, paid_until = $2 WHERE id = $1`,
+      OLD_TENANT,
+      new Date(later.getTime() + 30 * DAY),
+    );
+    expect(await reasonAfterSweep(later)).toBe("completed");
+  });
+
+  /*
+   * ‏והצד השני — בלעדיו כל הבדיקה שמעל הייתה עוברת גם עם „תמיד
+   * ‏לסגור”, כלומר עם הבאג שהסבב הקודם תיקן. אותו תאריך שנמחק,
+   * ‏אבל מ-`billing-override` בלבד: המשרד עדיין בניסיון, התאריך
+   * ‏יכול לחזור מאותו מסך, והרישום נשאר פתוח.
+   */
+  it("איפוס התאריך לבדו — הרישום נשאר פתוח", async () => {
+    const later = await enrolledThenLater();
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET trial_ends_at = NULL WHERE id = $1`,
+      OLD_TENANT,
+    );
+    await service.sweep(later, { dailyQuota: 5 });
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedAt, "נסגר על עוגן שרק חסר").toBeNull();
+  });
+
+  /*
+   * ‏ושהסגירה אינה מקדימה את זמנה: אותו משרד חינמי בדיוק, אבל
+   * ‏בעוד שלבי שעון המשפך בתוקף, נשאר פתוח ויקבל אותם.
+   */
+  it("משרד חינמי אינו נסגר כל עוד שלבי המשפך בתוקף", async () => {
+    const now = new Date();
+    await service.sweep(now, { dailyQuota: 5 });
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET status = 'active', plan = 'free', trial_ends_at = NULL,
+                          paid_until = NULL WHERE id = $1`,
+      OLD_TENANT,
+    );
+    await service.sweep(new Date(now.getTime() + DAY), { dailyQuota: 5 });
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedAt, "נסגר לפני שכל שלבי המשפך פגו").toBeNull();
   });
 });
 

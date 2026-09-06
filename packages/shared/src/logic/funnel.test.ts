@@ -13,12 +13,14 @@ import {
   funnelExitReason,
   funnelStageDueAt,
   funnelStageExpiresAt,
+  funnelAnchorConcluded,
   isFunnelClockAnchored,
   isFunnelSendingHour,
   isServiceTrack,
   matchesAllAudiences,
   matchesAudience,
   nextFunnelStage,
+  trialAnchorConcluded,
   type FunnelAnchors,
   type FunnelFacts,
   type FunnelStageDef,
@@ -56,7 +58,13 @@ function facts(over: Partial<FunnelFacts> = {}): FunnelFacts {
 }
 
 function anchors(over: Partial<FunnelAnchors> = {}): FunnelAnchors {
-  return { funnelStartedAt: null, trialEndsAt: null, paymentFailedAt: null, ...over };
+  return {
+    funnelStartedAt: null,
+    trialEndsAt: null,
+    trialConcluded: false,
+    paymentFailedAt: null,
+    ...over,
+  };
 }
 
 describe("אוצר המילים", () => {
@@ -516,6 +524,140 @@ describe("מתי המסלול נגמר", () => {
         now: T0,
       }),
     ).toBeNull();
+  });
+
+  /*
+   * ‎**הצד השני של ההיפוך מהסבב הקודם — ובלעדיו הוא באג בפני עצמו.**
+   *
+   * ‏„עוגן חסר = עדיין אפשרי” נכון כשהערך יכול לחזור. משרד שעבר
+   * ‏למסלול חינמי מחק את `trialEndsAt` בכוונה ואין לו כרטיס, ולכן
+   * ‏אותו כלל בדיוק היה משאיר את הרישום פתוח **לנצח** וכל סבב היה
+   * ‏סורק אותו מחדש (ביקורת Codex).
+   */
+  it("ניסיון שנגמר סוגר את הרישום — בניגוד לעוגן שרק חסר", () => {
+    const trialOnly = [stage({ key: "t", clock: "trial", offsetDays: -2 })];
+    const open = {
+      track: "conversion" as const,
+      facts: facts(),
+      stages: trialOnly,
+      sent: [],
+      now: T0,
+    };
+    // ‏חסר: פתוח
+    expect(
+      funnelExitReason({ ...open, anchors: anchors({ funnelStartedAt: T0 }) }),
+    ).toBeNull();
+    // ‏נגמר: נסגר
+    expect(
+      funnelExitReason({
+        ...open,
+        anchors: anchors({ funnelStartedAt: T0, trialConcluded: true }),
+      }),
+    ).toBe("completed");
+  });
+
+  /*
+   * ‏„הניסיון נגמר” אינו „המסלול נגמר”: שלב שעונו המשפך עדיין
+   * ‏אמור לצאת למשרד שעבר לחינמי, וסגירה מוקדמת הייתה מוחקת אותו.
+   */
+  it("ניסיון שנגמר אינו סוגר כל עוד שלב של שעון המשפך עוד בתוקף", () => {
+    expect(
+      funnelExitReason({
+        track: "conversion",
+        facts: facts(),
+        stages: [
+          stage({ key: "t", clock: "trial", offsetDays: -2 }),
+          stage({ key: "f", clock: "funnel", offsetDays: 7 }),
+        ],
+        sent: [],
+        anchors: anchors({ funnelStartedAt: T0, trialConcluded: true }),
+        now: T0,
+      }),
+    ).toBeNull();
+  });
+
+  /*
+   * ‏ושהדגל אינו דולף לשעונים אחרים: רק שעון הניסיון יודע להיגמר.
+   * ‏בלי הצמצום הזה, `trialConcluded` היה סוגר גם שלב משפך שעוגנו
+   * ‏חסר — כלומר מבטל את ההגנה של הסבב הקודם בדלת האחורית.
+   */
+  it("הדגל חל על שעון הניסיון בלבד", () => {
+    expect(funnelAnchorConcluded("trial", anchors({ trialConcluded: true }))).toBe(true);
+    expect(funnelAnchorConcluded("funnel", anchors({ trialConcluded: true }))).toBe(false);
+    expect(funnelAnchorConcluded("payment", anchors({ trialConcluded: true }))).toBe(false);
+    expect(funnelAnchorConcluded("trial", anchors({ trialConcluded: false }))).toBe(false);
+
+    // ‏ובהחלטה עצמה: שלב משפך בלי `funnelStartedAt` נשאר „לא ידוע”
+    expect(
+      funnelExitReason({
+        track: "conversion",
+        facts: facts(),
+        stages: [stage({ key: "f", clock: "funnel", offsetDays: 0 })],
+        sent: [],
+        anchors: anchors({ funnelStartedAt: null, trialConcluded: true }),
+        now: T0,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("מתי הניסיון נגמר ומתי הוא רק חסר", () => {
+  const LIVE = new Date("2026-10-01T09:00:00.000Z");
+
+  /*
+   * ‏שלוש הדרכים שמוחקות את התאריך בכוונה — מעבר עצמי לחינמי,
+   * ‏העברה לחינמי ממסך הפלטפורמה, והענקת תקופה ידנית. שתי
+   * ‏הראשונות מוציאות מסטטוס „ניסיון”, השלישית משאירה אותו.
+   */
+  it("מעבר למסלול חינמי מסיים את הניסיון", () => {
+    expect(
+      trialAnchorConcluded({ trialEndsAt: null, status: "active", paidUntil: null }),
+    ).toBe(true);
+  });
+
+  it("הענקת תקופה ידנית מסיימת אותו גם בסטטוס ניסיון", () => {
+    expect(
+      trialAnchorConcluded({ trialEndsAt: null, status: "trial", paidUntil: LIVE }),
+    ).toBe(true);
+  });
+
+  /*
+   * ‏וזה מה שנשאר מוגן: `PATCH billing-override` שמאפס את התאריך
+   * ‏לבדו. המשרד עדיין בניסיון, והתאריך יכול לחזור מאותו מסך.
+   */
+  it("איפוס התאריך לבדו הוא ערך חסר, לא ניסיון שנגמר", () => {
+    expect(
+      trialAnchorConcluded({ trialEndsAt: null, status: "trial", paidUntil: null }),
+    ).toBe(false);
+  });
+
+  /*
+   * ‏תאריך שקיים לעולם אינו „נגמר”, גם בסטטוס שאינו ניסיון: יש לו
+   * ‏מועד, והמועד הוא שמכריע. בלי הבדיקה הזו משרד מושהה שתאריכו
+   * ‏בתוקף היה נספר כמי שסיים.
+   */
+  it("תאריך שקיים אינו „נגמר” בשום סטטוס", () => {
+    expect(
+      trialAnchorConcluded({ trialEndsAt: LIVE, status: "suspended", paidUntil: null }),
+    ).toBe(false);
+    expect(
+      trialAnchorConcluded({ trialEndsAt: LIVE, status: "trial", paidUntil: LIVE }),
+    ).toBe(false);
+  });
+
+  /*
+   * ‏הענקה שפגה עדיין סיימה את הניסיון: השאלה אינה „האם ההענקה
+   * ‏בתוקף” אלא „האם הייתה הענקה שמחקה את התאריך”, ועובדה זו אינה
+   * ‏מתבטלת כשההענקה פוקעת.
+   */
+  it("הענקה שפגה עדיין סיימה את הניסיון", () => {
+    expect(
+      trialAnchorConcluded({
+        trialEndsAt: null,
+        status: "trial",
+        paidUntil: new Date("2020-01-01T00:00:00.000Z"),
+      }),
+    ).toBe(true);
   });
 });
 
