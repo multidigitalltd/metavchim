@@ -20,6 +20,7 @@ import {
   ideaByKey,
   playbookIdeaPick,
   type MentorIdeaFeedback,
+  type OfficeProvenLookup,
   type PlaybookIdea,
 } from "./mentor-playbook.js";
 
@@ -55,6 +56,8 @@ export interface MentorAdvice {
   question: string;
   /** מפתח הרעיון מספר המשחק שבגוף — למשוב „עזר לי” / „לא בשבילי”; חסר כשהגוף אינו רעיון */
   ideaKey?: string;
+  /** הרעיון הוכיח את עצמו אצל אחרים במשרד (§7.4) — המסך אומר זאת */
+  proven?: true;
 }
 
 export interface MentorAdviceInput {
@@ -66,6 +69,8 @@ export interface MentorAdviceInput {
   funnel?: { history: MentorActivity; weeks: number } | null;
   /** מה המתווך אמר על רעיונות — „לא בשבילי” אינו חוזר (docs/14 §7.2) */
   feedback?: MentorIdeaFeedback;
+  /** מה הוכיח את עצמו במשרד — מוצע ראשון (§7.4) */
+  office?: OfficeProvenLookup;
   now: Date;
 }
 
@@ -104,11 +109,13 @@ export function mentorDailyIdeaPick(
   goals: readonly MentorGoalProgress[],
   now: Date,
   feedback: MentorIdeaFeedback = EMPTY_IDEA_FEEDBACK,
+  office?: OfficeProvenLookup,
 ): PlaybookIdea {
   return playbookIdeaPick(
     mentorFocusMetric(goals),
     mentorDaySeed(now),
     feedback,
+    office,
   );
 }
 
@@ -128,7 +135,7 @@ export function mentorAdvice(input: MentorAdviceInput): MentorAdvice[] {
   const seed = mentorDaySeed(input.now);
   const feedback = input.feedback ?? EMPTY_IDEA_FEEDBACK;
   const pick = (metric: MentorGoalMetric): PlaybookIdea =>
-    playbookIdeaPick(metric, seed, feedback);
+    playbookIdeaPick(metric, seed, feedback, input.office);
   const advice: MentorAdvice[] = [];
   const taken = new Set<MentorGoalMetric>();
   const push = (item: MentorAdvice): void => {
@@ -164,6 +171,7 @@ export function mentorAdvice(input: MentorAdviceInput): MentorAdvice[] {
       body: idea.text,
       question: `איך להגיע ל${label}?`,
       ideaKey: idea.key,
+      ...(idea.proven ? { proven: true } : {}),
     });
   }
 
@@ -178,6 +186,7 @@ export function mentorAdvice(input: MentorAdviceInput): MentorAdvice[] {
       body: `${funnelReadingLabel(bottleneck)} ב-${funnel.weeks} השבועות האחרונים. ${idea.text}`,
       question: `איך לשפר את ההמרה ${bottleneck.stage.label}?`,
       ideaKey: idea.key,
+      ...(idea.proven ? { proven: true } : {}),
     });
   }
 
@@ -191,6 +200,7 @@ export function mentorAdvice(input: MentorAdviceInput): MentorAdvice[] {
       body: idea.text,
       question: "איך לענות ללידים חדשים מהר יותר?",
       ideaKey: idea.key,
+      ...(idea.proven ? { proven: true } : {}),
     });
   }
 
@@ -204,6 +214,7 @@ export function mentorAdvice(input: MentorAdviceInput): MentorAdvice[] {
       body: idea.text,
       question: "תן לי עוד רעיון להיום",
       ideaKey: idea.key,
+      ...(idea.proven ? { proven: true } : {}),
     });
   }
   return advice;

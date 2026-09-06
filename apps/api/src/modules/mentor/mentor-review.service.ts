@@ -38,6 +38,7 @@ import {
   type MentorGoalPeriod,
   type MentorIdeaFeedback,
   type MentorIdeaOutcome,
+  type MentorOfficePlaybook,
   type MentorMonthSignals,
   type MentorMonthWeek,
   type MentorPersona,
@@ -416,6 +417,8 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
         where: { tenantId, isActive: true },
         select: { id: true, name: true, preferences: true },
       });
+      // מה עובד במשרד — פעם אחת למשרד, לכל הבקרים (§7.4)
+      const office = await this.signals.officePlaybook(tx, tenantId, now);
       let sent = 0;
       for (const user of users) {
         if (greeted.has(user.id)) continue;
@@ -429,6 +432,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             firstNameOf(user.name),
             resolveMentorPersona(user.preferences),
             resolveIdeaFeedback(user.preferences),
+            office,
           )
         )
           sent += 1;
@@ -450,6 +454,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     firstName = "",
     persona: MentorPersona = DEFAULT_MENTOR_PERSONA,
     feedback: MentorIdeaFeedback = EMPTY_IDEA_FEEDBACK,
+    office?: MentorOfficePlaybook,
   ): Promise<boolean> {
     if (!mentorCadence(persona.style).morning) return false;
     const week = mentorPeriodRange("week", now);
@@ -501,12 +506,13 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             now,
           );
     // רעיון אחד מספר המשחק, על מדד המיקוד — מתחלף כל יום, בלי מה שנדחה
-    const idea = mentorDailyIdeaPick(goals, now, feedback);
+    const idea = mentorDailyIdeaPick(goals, now, feedback, office);
     const plan = mentorDailyPlan({
       goals,
       insights,
       yesterday,
       idea: idea.text,
+      ideaProven: idea.proven === true,
       now,
       persona,
       ...(firstName === "" ? {} : { firstName }),
@@ -679,6 +685,11 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
           })
         ).map((r) => r.userId),
       );
+      const office = await this.signals.officePlaybook(
+        tx,
+        tenantId,
+        jerusalemWeekStart(weekStart, 1),
+      );
       let written = 0;
       for (const user of users) {
         if (done.has(user.id)) continue;
@@ -692,6 +703,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             firstNameOf(user.name),
             resolveMentorPersona(user.preferences),
             resolveIdeaFeedback(user.preferences),
+            office,
           )
         )
           written += 1;
@@ -711,6 +723,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     firstName = "",
     persona: MentorPersona = DEFAULT_MENTOR_PERSONA,
     feedback: MentorIdeaFeedback = EMPTY_IDEA_FEEDBACK,
+    office?: MentorOfficePlaybook,
   ): Promise<boolean> {
     const weekEnd = jerusalemWeekStart(weekStart, 1);
     const prevStart = jerusalemWeekStart(weekStart, -1);
@@ -854,6 +867,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
         count: practiceStats.count,
         lastScore: practiceStats.last?.score ?? null,
       },
+      ...(office === undefined ? {} : { office }),
       ...(firstName === "" ? {} : { firstName }),
       insights,
       weekStart,
@@ -921,6 +935,11 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
           })
         ).map((r) => r.userId),
       );
+      const office = await this.signals.officePlaybook(
+        tx,
+        tenantId,
+        mentorPeriodRange("month", monthStart).end,
+      );
       let written = 0;
       for (const user of users) {
         if (done.has(user.id)) continue;
@@ -934,6 +953,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             firstNameOf(user.name),
             resolveMentorPersona(user.preferences),
             resolveIdeaFeedback(user.preferences),
+            office,
           )
         )
           written += 1;
@@ -957,6 +977,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     firstName = "",
     persona: MentorPersona = DEFAULT_MENTOR_PERSONA,
     feedback: MentorIdeaFeedback = EMPTY_IDEA_FEEDBACK,
+    office?: MentorOfficePlaybook,
   ): Promise<boolean> {
     const month = mentorPeriodRange("month", monthStart);
     // רגע לפני ה-1 שייך לחודש שלפניו
@@ -1023,6 +1044,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       marks,
       ideaOutcomes,
       feedback,
+      ...(office === undefined ? {} : { office }),
       persona,
       ...(firstName === "" ? {} : { firstName }),
     };

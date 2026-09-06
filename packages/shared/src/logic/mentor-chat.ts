@@ -17,6 +17,10 @@ import {
 } from "./mentor.js";
 import { mentorAdviceBlock, type MentorAdvice } from "./mentor-advice.js";
 import {
+  officePlaybookBlock,
+  type MentorOfficePlaybook,
+} from "./mentor-office.js";
+import {
   DEFAULT_MENTOR_PERSONA,
   mentorNameLine,
   mentorStyleGuidance,
@@ -74,6 +78,8 @@ export interface MentorChatContext {
     score: number;
     tryNext: string;
   } | null;
+  /** מה הוכיח את עצמו במשרד — ידע משותף, ספירות בלבד (§7.4) */
+  office?: MentorOfficePlaybook;
   /** מהישן לחדש */
   history: { role: "user" | "mentor"; text: string }[];
   question: string;
@@ -317,6 +323,8 @@ export function buildMentorPrompt(ctx: MentorChatContext): string {
       `התרגול האחרון של המתווך (${ctx.lastPractice.scenarioLabel}, ציון ${ctx.lastPractice.score} מתוך 5). מה שהמנטור אמר לנסות בשיחה האמיתית: ${ctx.lastPractice.tryNext} — כשרלוונטי, אפשר לשאול אם ניסה.`,
     );
   }
+  const officeLines = officePlaybookBlock(ctx.office);
+  if (officeLines.length > 0) lines.push("", ...officeLines);
   if (ctx.patterns !== undefined && ctx.patterns.length > 0) {
     lines.push("", "מה שהמנטור זוכר מהחודשיים האחרונים (דפוסים מהסיכומים):");
     for (const pattern of ctx.patterns)

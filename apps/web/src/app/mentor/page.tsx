@@ -47,7 +47,7 @@ import {
   apiPatch,
   apiPost,
 } from "@/lib/api";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import {
   useFeature,
   useFeaturesFailed,
@@ -435,6 +435,7 @@ export default function MentorPage() {
             onGoalSet={load}
           />
           <PracticeSection mentorName={overview.persona.name} />
+          {can(user, "analytics.view") ? <OfficeSection /> : null}
           <PersonaSection persona={overview.persona} onSaved={load} />
         </>
       )}
@@ -566,6 +567,11 @@ function AdviceSection({
               >
                 {item.body}
               </p>
+              {item.proven ? (
+                <span className="mv-chip mt-1 inline-block">
+                  עבד אצל אחרים במשרד
+                </span>
+              ) : null}
               {item.ideaKey !== undefined ? (
                 /*
                  * המשוב הוא הליווי: „עזר לי” — עוד מהסוג הזה; „לא בשבילי” —
@@ -2083,6 +2089,95 @@ function PracticeFeedbackCard({
         </ul>
       ) : null}
     </article>
+  );
+}
+
+/* ====================================================================== */
+/* מה עובד אצלנו — למנהל, ספירות בלבד (docs/14 §7.4)                      */
+/* ====================================================================== */
+
+interface OfficeDto {
+  agents: number;
+  proven: {
+    key: string;
+    metric: MentorGoalMetric;
+    metricLabel: string;
+    text: string;
+    helped: number;
+    dismissed: number;
+    up: number;
+    measured: number;
+    evidence: string;
+  }[];
+}
+
+function OfficeSection() {
+  const [office, setOffice] = useState<OfficeDto | null>(null);
+  const [failed, setFailed] = useState(false);
+  const load = useCallback(() => {
+    setFailed(false);
+    apiGet<OfficeDto>("/mentor/office")
+      .then((res) =>
+        setOffice({ ...res, proven: apiList(res.proven, "proven") }),
+      )
+      .catch(() => setFailed(true));
+  }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+  return (
+    <section className="mt-8" aria-labelledby="mentor-office-heading">
+      <div className="mv-card-head mv-domain-violet mb-3">
+        <span className="mv-tile" aria-hidden="true">
+          <IconUsers s={19} />
+        </span>
+        <h2 id="mentor-office-heading" className="mv-card-head__title m-0">
+          מה עובד אצלנו
+        </h2>
+      </div>
+      <div className="mv-card mv-card--pad">
+        <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
+          מה המתווכים במשרד סימנו שעזר, ואצל כמה המספר באמת עלה בשבוע שאחרי —
+          ספירות בלבד, בלי שמות. רעיון שהוכיח את עצמו כאן מוצע ראשון לכולם.
+        </p>
+        {failed ? (
+          <div className="mt-3">
+            <LoadError
+              message="לא הצלחנו לטעון את מה שעובד אצלנו"
+              onRetry={load}
+            />
+          </div>
+        ) : office === null ? (
+          <p aria-live="polite" className="m-0 mt-3">
+            טוען…
+          </p>
+        ) : office.proven.length === 0 ? (
+          <p className="m-0 mt-3">
+            עוד אין רעיון שהוכיח את עצמו — הספירה מתחילה מ„עזר לי” הראשון של
+            מישהו במשרד.
+          </p>
+        ) : (
+          <>
+            <p className="mv-card-sub m-0 mt-3">
+              {office.agents === 1
+                ? "מתווך אחד תרם עד עכשיו"
+                : `${office.agents} מתווכים תרמו עד עכשיו`}
+            </p>
+            <ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0">
+              {office.proven.slice(0, 8).map((e) => (
+                <li key={e.key} className="mv-row">
+                  <span className="mv-row__title">
+                    <span className="mv-chip me-2">{e.metricLabel}</span>
+                    {e.text}
+                  </span>
+                  <span className="mv-row__meta">{e.evidence}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 

@@ -284,6 +284,16 @@ export function ideaKeyInText(text: string | null | undefined): string | null {
 export interface PlaybookIdea {
   key: string;
   text: string;
+  /** נבחר כי הוכיח את עצמו במשרד (§7.4) — נאמר למתווך */
+  proven?: true;
+}
+
+/**
+ * הרעיונות המוכחים במשרד — לפי המדד, מהחזק לחלש (§7.4). מוגדר כאן
+ * כדי שספר המשחק לא ייבא את `mentor-office.ts` (שמייבא אותו).
+ */
+export interface OfficeProvenLookup {
+  proven: readonly { key: string; metric: MentorGoalMetric }[];
 }
 
 /**
@@ -298,24 +308,40 @@ export function playbookIdeaPick(
   metric: MentorGoalMetric,
   seed: number,
   feedback: MentorIdeaFeedback = EMPTY_IDEA_FEEDBACK,
+  office?: OfficeProvenLookup,
 ): PlaybookIdea {
-  const all = MENTOR_PLAYBOOK[metric].ideas.map((text, index) => ({
-    key: ideaKey(metric, index),
-    text,
-  }));
   const dismissed = new Set(feedback.dismissed);
-  const open = all.filter((idea) => !dismissed.has(idea.key));
-  const pool = open.length > 0 ? open : all;
-  const index = ((Math.floor(seed) % pool.length) + pool.length) % pool.length;
-  return pool[index]!;
+  /*
+   * רעיון שהוכיח את עצמו במשרד — ראשון (§7.4): שניים מכל שלושה ימים
+   * מהמוכחים, והשלישי מהרשימה הרגילה, כדי שמתווך חדש יתחיל ממה
+   * שעובד כאן ועדיין יראה גם רעיונות אחרים. מה שהוא עצמו דחה — לא.
+   */
+  const proven = (office?.proven ?? [])
+    .filter((e) => e.metric === metric && !dismissed.has(e.key))
+    .map((e) => e.key);
+  if (proven.length > 0 && seed % 3 !== 2) {
+    const key = proven[Math.abs(seed) % proven.length]!;
+    return { key, text: ideaByKey(key)?.text ?? "", proven: true };
+  }
+  const ideas = MENTOR_PLAYBOOK[metric].ideas;
+  const open = ideas
+    .map((text, index) => ({ key: ideaKey(metric, index), text }))
+    .filter((idea) => !dismissed.has(idea.key));
+  // כשהכול נדחה — הרשימה המלאה: שתיקה גרועה מרעיון שכבר נאמר
+  const pool =
+    open.length > 0
+      ? open
+      : ideas.map((text, index) => ({ key: ideaKey(metric, index), text }));
+  return pool[Math.abs(seed) % pool.length]!;
 }
 
 export function playbookIdea(
   metric: MentorGoalMetric,
   seed: number,
   feedback?: MentorIdeaFeedback,
+  office?: OfficeProvenLookup,
 ): string {
-  return playbookIdeaPick(metric, seed, feedback).text;
+  return playbookIdeaPick(metric, seed, feedback, office).text;
 }
 
 /**

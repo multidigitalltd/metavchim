@@ -70,6 +70,10 @@ function fakeTx(counts: {
   }[];
   /** הצעות לפי תחילת הטווח שנשאל — למדידת „האם הרעיון עבד” */
   offersByStart?: (start: Date) => number;
+  /** העדפות של מתווכי המשרד — לספר המשחק של המשרד (§7.4) */
+  officeUsers?: { id: string; preferences: unknown }[];
+  /** מדידות מגופי הסיכומים של המשרד */
+  officeOutcomes?: { user_id: string; outcomes: unknown }[];
 }) {
   /** הסיכומים החודשיים שנכתבו */
   const monthlyCreated: Record<string, unknown>[] = [];
@@ -108,6 +112,9 @@ function fakeTx(counts: {
     // שאילתות גולמיות לפי הטבלה שהן סופרות — הצעות, שיחות, לידים מהירים, מעקבים, חציון
     $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const sql = strings.join("?");
+      if (sql.includes("SELECT id, preferences"))
+        return counts.officeUsers ?? [];
+      if (sql.includes("'ideaOutcomes'")) return counts.officeOutcomes ?? [];
       if (sql.includes("FROM offers") && counts.offersByStart !== undefined)
         return [{ n: BigInt(counts.offersByStart(values[2] as Date)) }];
       if (sql.includes("percentile_cont"))
@@ -703,6 +710,75 @@ describe("MentorReviewService.generateForUser — האם הרעיון עבד", (
         change: "up",
       }),
     ]);
+  });
+});
+
+describe("MentorReviewService.dailyForTenant — ספר המשחק של המשרד", () => {
+  it("רעיון שעבד אצל מתווך אחר במשרד מוצע ראשון בבוקר, ונאמר שעבד אצל אחרים", async () => {
+    const goal = {
+      id: "01GOALAAAAAAAAAAAAAAAAAAAA",
+      metric: "offers_sent",
+      period: "week",
+      target: 5,
+      why: null,
+      intention: null,
+      createdAt: new Date("2026-08-01"),
+      endedAt: null,
+    };
+    const { tx, notified } = fakeTx({
+      offers: 1,
+      goals: [goal],
+      officeUsers: [
+        { id: USER, preferences: {} },
+        {
+          id: "01OTHERAAAAAAAAAAAAAAAAAAA",
+          preferences: {
+            mentor: { ideas: { liked: ["offers_sent:4"], dismissed: [] } },
+          },
+        },
+      ],
+      officeOutcomes: [
+        {
+          user_id: "01OTHERAAAAAAAAAAAAAAAAAAA",
+          outcomes: [
+            {
+              key: "offers_sent:4",
+              change: "up",
+              date: "2026-08-20",
+              before: 1,
+              after: 5,
+            },
+          ],
+        },
+      ],
+    });
+    // בוקר שהזרע שלו אינו 2 מודולו 3 — יום שבו המוכח קודם
+    const { mentorDaySeed } = await import("@metavchim/shared");
+    const morning = [7, 8, 9]
+      .map((d) => new Date(`2026-09-0${d}T06:00:00.000Z`))
+      .find((at) => mentorDaySeed(at) % 3 !== 2)!;
+    const office = await new MentorSignalsService().officePlaybook(
+      tx,
+      TENANT,
+      morning,
+    );
+    expect(office.agents).toBe(1);
+    expect(office.proven.map((e) => e.key)).toEqual(["offers_sent:4"]);
+    const sent = await service().dailyForUser(
+      tx,
+      TENANT,
+      USER,
+      "2026-09-07",
+      morning,
+      "דנה",
+      undefined,
+      undefined,
+      office,
+    );
+    expect(sent).toBe(true);
+    const body = String(notified[0]![5]);
+    expect(body).toContain("רעיון להיום — עבד אצל אחרים במשרד: ");
+    expect(body).toContain("כמעט מתאים");
   });
 });
 
