@@ -128,21 +128,27 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * החודש שהגיע זמנו לסכם — הקודם, מה-1 בחודש 10:00 שעון ישראל ועד
-   * ה-7 (השלמה למי שהשרת היה למטה). ריק מחוץ לחלון. הבוקר של ה-1
-   * ולא מוצאי שבת: החודש נגמר בתאריך, לא בשבוע.
+   * החודש שהגיע זמנו לסכם — הקודם, מיום ראשון 10:00 שעון ישראל **אחרי
+   * השבוע שהיום האחרון שלו נופל בו**, ולמשך שבוע (השלמה למי שהשרת
+   * היה למטה). לא ב-1 בחודש: השבוע האחרון של החודש מסוכם רק במוצאי
+   * שבת, וסיכום חודשי שנכתב לפניו היה מפספס את היעדים של אותו שבוע
+   * לתמיד (ביקורת Codex). חודש שנגמר בשבת — הסיכום למחרת בבוקר.
    */
   static dueMonths(now: Date): Date[] {
     const thisMonth = jerusalemMonthStart(now);
     const label = jerusalemWallParts(thisMonth).date;
-    const opens = jerusalemWallIsoToUtc(`${label.slice(0, 7)}-01T10:00:00.000`);
-    const closes = jerusalemWallIsoToUtc(
-      `${label.slice(0, 7)}-07T00:00:00.000`,
+    // היום שלפני ה-1 שייך לחודש הקודם — ומשם ל-1 שלו ולשבוע שלו
+    const lastDayLabel = shiftDayLabel(label, -1);
+    const previous = jerusalemWallIsoToUtc(
+      `${lastDayLabel.slice(0, 7)}-01T00:00:00.000`,
     );
-    if (now < opens || now >= closes) return [];
-    // היום שלפני ה-1 שייך לחודש הקודם — ומשם ל-1 שלו
-    const previous = shiftDayLabel(label, -1).slice(0, 7);
-    return [jerusalemWallIsoToUtc(`${previous}-01T00:00:00.000`)];
+    const lastDay = jerusalemWallIsoToUtc(`${lastDayLabel}T12:00:00.000`);
+    const sunday = jerusalemWallParts(jerusalemWeekStart(lastDay, 1)).date;
+    const opens = jerusalemWallIsoToUtc(`${sunday}T10:00:00.000`);
+    const closes = jerusalemWallIsoToUtc(
+      `${shiftDayLabel(sunday, 7)}T00:00:00.000`,
+    );
+    return now >= opens && now < closes ? [previous] : [];
   }
 
   /**
@@ -964,31 +970,38 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
           )
         : undefined;
     const wins = await this.signals.wins(tx, tenantId, userId, month);
-    // השבוע שייך לחודש שהוא מתחיל בו
+    /*
+     * הסיכומים השבועיים: השבוע שייך לחודש שהוא מתחיל בו (היעדים), אבל
+     * המדידה של „עזר לי” נרשמת שבוע אחרי הסימון — סימון מסוף החודש
+     * יושב בסיכום של החודש הבא. לכן קוראים גם שני שבועות מעבר לסוף
+     * החודש, ומשייכים כל מדידה לפי **יום הסימון** (ביקורת Codex).
+     */
     const reviews = await tx.mentorReview.findMany({
       where: {
         tenantId,
         userId,
-        weekStart: { gte: month.start, lt: month.end },
+        weekStart: { gte: month.start, lt: jerusalemWeekStart(month.end, 2) },
       },
       orderBy: { weekStart: "asc" },
       select: { weekStart: true, body: true },
     });
-    const weeks: MentorMonthWeek[] = reviews.map((row) => {
-      const body = (row.body ?? {}) as Partial<MentorReviewBody>;
-      return {
-        weekStart: row.weekStart,
-        goals: Array.isArray(body.goals) ? body.goals : [],
-        ...(Array.isArray(body.ideaOutcomes)
-          ? { ideaOutcomes: body.ideaOutcomes }
-          : {}),
-      };
-    });
     const startLabel = jerusalemWallParts(month.start).date;
     const endLabel = jerusalemWallParts(month.end).date;
-    const marks = feedback.marks.filter(
-      (m) => m.date >= startLabel && m.date < endLabel,
-    );
+    const inMonth = (date: string): boolean =>
+      date >= startLabel && date < endLabel;
+    const weeks: MentorMonthWeek[] = [];
+    const ideaOutcomes: MentorIdeaOutcome[] = [];
+    for (const row of reviews) {
+      const body = (row.body ?? {}) as Partial<MentorReviewBody>;
+      if (row.weekStart < month.end)
+        weeks.push({
+          weekStart: row.weekStart,
+          goals: Array.isArray(body.goals) ? body.goals : [],
+        });
+      for (const outcome of body.ideaOutcomes ?? [])
+        if (inMonth(outcome.date)) ideaOutcomes.push(outcome);
+    }
+    const marks = feedback.marks.filter((m) => inMonth(m.date));
     const signals: MentorMonthSignals = {
       monthStart,
       activity,
@@ -996,6 +1009,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       wins,
       weeks,
       marks,
+      ideaOutcomes,
       feedback,
       persona,
       ...(firstName === "" ? {} : { firstName }),

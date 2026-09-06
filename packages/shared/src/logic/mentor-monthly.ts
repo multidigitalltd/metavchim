@@ -42,8 +42,6 @@ export interface MentorMonthWeek {
     actual: number;
     pace: MentorPace;
   }[];
-  /** מה נמדד על „עזר לי” באותו שבוע (§7.2) */
-  ideaOutcomes?: MentorIdeaOutcome[];
 }
 
 export interface MentorMonthSignals {
@@ -57,6 +55,12 @@ export interface MentorMonthSignals {
   weeks: MentorMonthWeek[];
   /** הסימונים של החודש — „עזר לי” / „לא בשבילי” */
   marks: MentorIdeaMark[];
+  /**
+   * מה נמדד על „עזר לי” של החודש (§7.2) — לפי **יום הסימון**, לא לפי
+   * השבוע שהמדידה נרשמה בו: סימון מסוף החודש נמדד בשבוע של החודש
+   * הבא, ועדיין שייך לכאן (ביקורת Codex). מה שטרם נמדד נספר ונאמר.
+   */
+  ideaOutcomes: MentorIdeaOutcome[];
   feedback?: MentorIdeaFeedback;
   firstName?: string;
   persona?: MentorPersona;
@@ -215,10 +219,14 @@ function ideaSentences(
   // אותו רעיון באותו יום — הסימון האחרון קובע
   const last = new Map<string, MentorIdeaMark>();
   for (const mark of marks) last.set(`${mark.key}@${mark.date}`, mark);
-  const helped = [...last.values()].filter(
-    (m) => m.verdict === "helped",
-  ).length;
+  const helpedMarks = [...last.values()].filter((m) => m.verdict === "helped");
+  const helped = helpedMarks.length;
   const dismissed = last.size - helped;
+  // „עזר לי” מסוף החודש שחלונו טרם נסגר כשהסיכום נכתב
+  const measured = new Set(outcomes.map((o) => `${o.key}@${o.date}`));
+  const pending = helpedMarks.filter(
+    (m) => !measured.has(`${m.key}@${m.date}`),
+  ).length;
   if (last.size === 0) {
     out.push(
       "לא סימנת רעיונות החודש. „עזר לי” ו„לא בשבילי” בבוקר הם איך שאני לומד מה עובד אצלך.",
@@ -247,6 +255,12 @@ function ideaSentences(
       unmoved === 1
         ? "רעיון אחד שסימנת „עזר לי” לא הזיז את המספר — התחושה נכונה, המספר עוד לא. שווה לשאול מה חסם."
         : `${unmoved} רעיונות שסימנת „עזר לי” לא הזיזו את המספר — התחושה נכונה, המספר עוד לא. שווה לשאול מה חסם.`,
+    );
+  if (pending > 0)
+    out.push(
+      pending === 1
+        ? "רעיון אחד מסוף החודש עוד נמדד — התשובה בסיכום השבועי הקרוב."
+        : `${pending} רעיונות מסוף החודש עוד נמדדים — התשובות בסיכומים השבועיים הקרובים.`,
     );
   return out;
 }
@@ -277,7 +291,7 @@ export function mentorMonthlyReview(
       ? null
       : mentorMonthLabel(new Date(signals.monthStart.getTime() - 1));
   const tallies = tallyGoals(weeks);
-  const outcomes = weeks.flatMap((w) => w.ideaOutcomes ?? []);
+  const outcomes = signals.ideaOutcomes;
 
   const paragraphs: string[] = [];
   const said = winsSentence(wins);
@@ -352,6 +366,6 @@ export function mentorMonthlyBody(
     ...(signals.previousActivity === undefined
       ? {}
       : { previousActivity: signals.previousActivity }),
-    ideaOutcomes: signals.weeks.flatMap((w) => w.ideaOutcomes ?? []),
+    ideaOutcomes: signals.ideaOutcomes,
   };
 }

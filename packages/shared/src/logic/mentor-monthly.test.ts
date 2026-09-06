@@ -34,12 +34,10 @@ function week(
   weekStart: string,
   pace: "done" | "behind" | "on_track",
   actual: number,
-  extra: Partial<MentorMonthWeek> = {},
 ): MentorMonthWeek {
   return {
     weekStart: new Date(weekStart),
     goals: [{ metric: "offers_sent", period: "week", target: 5, actual, pace }],
-    ...extra,
   };
 }
 
@@ -63,6 +61,7 @@ const base: MentorMonthSignals = {
     { key: "offers_sent:1", verdict: "dismissed", date: "2026-09-02" },
     { key: "calls_made:0", verdict: "helped", date: "2026-09-10" },
   ],
+  ideaOutcomes: [],
   firstName: "דנה",
 };
 
@@ -77,7 +76,8 @@ describe("הסיכום החודשי — מה עבד ומה לא", () => {
     const review = mentorMonthlyReview(base)!;
     expect(review.headline).toBe("ספטמבר: עסקה אחת — חודש שלך");
     expect(review.greeting).toBe("היי דנה. חודש שלם מאחוריך — הנה מה שראיתי.");
-    const [wins, totals, trend, goal, ideas, focus] = review.paragraphs;
+    const [wins, totals, trend, goal, ideas, pending, focus] =
+      review.paragraphs;
     expect(wins).toBe("החודש: עסקה אחת ובלעדיות אחת.");
     expect(totals).toBe("המספרים של ספטמבר: עסקה אחת · 18 הצעות · 9 סיורים.");
     expect(trend).toBe(
@@ -85,6 +85,10 @@ describe("הסיכום החודשי — מה עבד ומה לא", () => {
     );
     expect(goal).toBe("„5 הצעות בשבוע” — הושג ב-2 מתוך 4 שבועות.");
     expect(ideas).toBe("סימנת 3 רעיונות החודש: 2 עזרו, אחד לא בשבילך.");
+    // שני „עזר לי” בלי מדידה עדיין — נאמר, לא נעלם
+    expect(pending).toBe(
+      "2 רעיונות מסוף החודש עוד נמדדים — התשובות בסיכומים השבועיים הקרובים.",
+    );
     expect(focus).toMatch(
       /^המיקוד לחודש הבא: הצעות\. היעד היה מאחור ב-2 מתוך 4 שבועות\. טיפ: /u,
     );
@@ -121,12 +125,16 @@ describe("הסיכום החודשי — מה עבד ומה לא", () => {
     )!;
     const signals: MentorMonthSignals = {
       ...base,
-      weeks: [
-        week("2026-09-05T21:00:00.000Z", "done", 6, { ideaOutcomes: [up] }),
-        week("2026-09-12T21:00:00.000Z", "done", 5, {
-          ideaOutcomes: [small, flat],
-        }),
+      marks: [
+        { key: "offers_sent:0", verdict: "helped", date: "2026-09-01" },
+        { key: "offers_sent:2", verdict: "helped", date: "2026-09-08" },
+        { key: "calls_made:0", verdict: "helped", date: "2026-09-10" },
       ],
+      weeks: [
+        week("2026-09-05T21:00:00.000Z", "done", 6),
+        week("2026-09-12T21:00:00.000Z", "done", 5),
+      ],
+      ideaOutcomes: [up, small, flat],
     };
     const review = mentorMonthlyReview(signals)!;
     const text = review.paragraphs.join("\n");
@@ -140,6 +148,7 @@ describe("הסיכום החודשי — מה עבד ומה לא", () => {
       "„5 הצעות בשבוע” — הושג בכל שני שבועות. כל הכבוד לך.",
     );
     expect(text).toContain("לחודש הבא: אותם יעדים — או אחד גבוה יותר.");
+    expect(text).not.toContain("עוד נמדד");
     expect(mentorMonthlyBody(signals, review).ideaOutcomes).toEqual([
       up,
       small,
@@ -170,6 +179,7 @@ describe("הסיכום החודשי — מה עבד ומה לא", () => {
         },
       ],
       marks: [],
+      ideaOutcomes: [],
     })!;
     expect(review.headline).toBe("ספטמבר: מה עבד ומה עוד לא");
     expect(review.greeting).toBeNull();
@@ -206,6 +216,7 @@ describe("הסיכום החודשי — מה עבד ומה לא", () => {
         wins: [],
         weeks: [],
         marks: [],
+        ideaOutcomes: [],
       }),
     ).toBeNull();
   });

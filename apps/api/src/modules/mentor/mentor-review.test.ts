@@ -706,24 +706,33 @@ describe("MentorReviewService.generateForUser — האם הרעיון עבד", (
 });
 
 describe("MentorReviewService.dueMonths / monthlyForUser — הסיכום החודשי", () => {
-  it("ה-1 בחודש 10:00 ישראל ועד ה-7 — החודש הקודם; לפני ואחרי — כלום", () => {
-    // 1.10 09:59 ישראל = 06:59Z (קיץ)
+  it("ראשון 10:00 ישראל אחרי השבוע של היום האחרון בחודש, ולמשך שבוע — החודש הקודם", () => {
+    // ספטמבר 2026 נגמר ברביעי 30.9; השבוע שלו נגמר בשבת 3.10 ⟵ ראשון 4.10 10:00 = 07:00Z
     expect(
-      MentorReviewService.dueMonths(new Date("2026-10-01T06:59:00.000Z")),
+      MentorReviewService.dueMonths(new Date("2026-10-01T07:00:00.000Z")),
     ).toEqual([]);
     expect(
-      MentorReviewService.dueMonths(new Date("2026-10-01T07:00:00.000Z")).map(
+      MentorReviewService.dueMonths(new Date("2026-10-04T06:59:00.000Z")),
+    ).toEqual([]);
+    expect(
+      MentorReviewService.dueMonths(new Date("2026-10-04T07:00:00.000Z")).map(
         (d) => d.toISOString(),
       ),
     ).toEqual(["2026-08-31T21:00:00.000Z"]);
-    // 6.10 בערב — עדיין מושלם; 7.10 00:00 ישראל — כבר לא
+    // שבת 10.10 בערב — עדיין מושלם; ראשון 11.10 00:00 ישראל — כבר לא
     expect(
-      MentorReviewService.dueMonths(new Date("2026-10-06T18:00:00.000Z")),
+      MentorReviewService.dueMonths(new Date("2026-10-10T18:00:00.000Z")),
     ).toHaveLength(1);
     expect(
-      MentorReviewService.dueMonths(new Date("2026-10-06T21:00:00.000Z")),
+      MentorReviewService.dueMonths(new Date("2026-10-10T21:00:00.000Z")),
     ).toEqual([]);
-    // ינואר — החודש הקודם הוא דצמבר של השנה שעברה
+    // אוקטובר 2026 נגמר בשבת 31.10 — הסיכום למחרת, ראשון 1.11 10:00 (חורף, 08:00Z)
+    expect(
+      MentorReviewService.dueMonths(new Date("2026-11-01T08:00:00.000Z")).map(
+        (d) => d.toISOString(),
+      ),
+    ).toEqual(["2026-09-30T21:00:00.000Z"]);
+    // דצמבר 2026 נגמר בחמישי 31.12 ⟵ ראשון 3.1.2027
     expect(
       MentorReviewService.dueMonths(new Date("2027-01-03T10:00:00.000Z")).map(
         (d) => d.toISOString(),
@@ -792,6 +801,42 @@ describe("MentorReviewService.dueMonths / monthlyForUser — הסיכום החו
             ],
           },
         },
+        {
+          // השבוע הראשון של אוקטובר — היעדים שלו לא נספרים לספטמבר,
+          // אבל המדידה של סימון מ-30.9 שנרשמה בו כן; סימון מאוקטובר לא
+          weekStart: new Date("2026-10-03T21:00:00.000Z"),
+          body: {
+            goals: [
+              {
+                metric: "offers_sent",
+                period: "week",
+                target: 5,
+                actual: 9,
+                pace: "done",
+              },
+            ],
+            ideaOutcomes: [
+              {
+                key: "offers_sent:1",
+                metric: "offers_sent",
+                text: "לכל קונה פעיל לשלוח 2–3 נכסים.",
+                date: "2026-09-30",
+                before: 3,
+                after: 3,
+                change: "flat",
+              },
+              {
+                key: "calls_made:1",
+                metric: "calls_made",
+                text: "רשימת השיחות של מחר.",
+                date: "2026-10-02",
+                before: 1,
+                after: 8,
+                change: "up",
+              },
+            ],
+          },
+        },
       ],
     });
     const written = await service().monthlyForUser(
@@ -807,6 +852,9 @@ describe("MentorReviewService.dueMonths / monthlyForUser — הסיכום החו
         dismissed: [],
         marks: [
           { key: "offers_sent:0", verdict: "helped", date: "2026-09-01" },
+          { key: "offers_sent:1", verdict: "helped", date: "2026-09-30" },
+          // סומן בסוף החודש וטרם נמדד
+          { key: "viewings_held:0", verdict: "helped", date: "2026-09-29" },
           // אוגוסט — לא נספר החודש
           { key: "calls_made:0", verdict: "helped", date: "2026-08-30" },
         ],
@@ -820,10 +868,16 @@ describe("MentorReviewService.dueMonths / monthlyForUser — הסיכום החו
     const text = body.paragraphs.join("\n");
     expect(text).toContain("מול אוגוסט: יותר הצעות שנשלחו (12 ⟵ 18)");
     expect(text).toContain("„5 הצעות בשבוע” — הושג ב-1 מתוך שני שבועות.");
-    expect(text).toContain("סימנת רעיון אחד החודש: אחד עזר.");
+    expect(text).toContain("סימנת 3 רעיונות החודש: 3 עזרו.");
     expect(text).toContain(
       "הרעיון שהזיז הכי הרבה: „לקבוע שעה קבועה להצעות” — הצעות 2 ⟵ 6",
     );
+    // המדידה מאוקטובר על סימון מ-30.9 — של ספטמבר; של סימון מאוקטובר — לא
+    expect(text).toContain("רעיון אחד שסימנת „עזר לי” לא הזיז את המספר");
+    expect(text).not.toContain("רשימת השיחות");
+    expect(text).toContain("רעיון אחד מסוף החודש עוד נמדד");
+    // היעדים של השבוע שמתחיל באוקטובר אינם נספרים לספטמבר
+    expect(text).toContain("הושג ב-1 מתוך שני שבועות");
     expect(text).toContain(
       "המיקוד לחודש הבא: הצעות. היעד היה מאחור ב-1 מתוך שני שבועות.",
     );
