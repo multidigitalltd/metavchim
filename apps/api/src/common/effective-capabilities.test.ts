@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { clearEffect } from "@metavchim/shared";
 import { effectiveCapabilities } from "@metavchim/shared";
 import { SettingsController } from "../modules/settings/settings.controller";
 import { TenantContext } from "./tenant-context";
@@ -210,5 +211,51 @@ describe("מסך ההרשאות מציג את היכולות בפועל", () => 
 
     const open = await asManager(() => controllerFor([]).userCapabilities("01TARGET"));
     expect(open.blockedModules).toEqual([]);
+  });
+});
+
+/**
+ * ‎**„לפי התפקיד” יכול להיות הענקה** (ביקורת Codex, P2).
+ *
+ * ‏הסבב הקודם השבית את „הענק” על מודול שהפלטפורמה חסמה. אבל
+ * ‏הכפתור שלצדו — „לפי התפקיד”, שמסיר חריג — נשאר פעיל, והוא
+ * ‏**גם** יכול להיות הענקה: הסרת **חסימה** על יכולת שהתפקיד מספק
+ * ‏מחזירה אותה. השרת דוחה, המנהל לוחץ ולא מבין.
+ *
+ * ‏זו אינה פינה: חריג `deny` על יכולת של התפקיד הוא בדיוק מה
+ * ‏שמנהל מכוון, וכשהמנוי משתנה תחתיו הוא נשאר שם.
+ *
+ * ‏המסך שואל את `clearEffect` — אותה פונקציה שהשרת מסווג בה —
+ * ‏ולכן שתי ההכרעות אינן יכולות להיפרד.
+ */
+describe("‏המסך יודע אילו הסרות יידחו", () => {
+  const SOURCE = readFileSync(
+    join(import.meta.dirname, "../../../web/src/app/settings/user-permissions.tsx"),
+    "utf8",
+  );
+
+  it("הסרת חסימה על יכולת של התפקיד היא הענקה", () => {
+    expect(clearEffect("agent", "properties.view", "deny")).toBe("grant");
+  });
+
+  /* ‏והסרת הענקה היא צמצום — היא מותרת גם כשהמודול חסום */
+  it("הסרת הענקה היא חסימה, ולכן נשארת פעילה", () => {
+    expect(clearEffect("agent", "billing.manage", "grant")).toBe("deny");
+  });
+
+  it("המסך נשען על `clearEffect` ולא על חישוב משלו", () => {
+    expect(SOURCE).toContain("clearEffect(data.role,");
+    /* ‏ואינו בונה „מה התפקיד נותן” בעצמו לצורך ההכרעה הזו */
+    expect(SOURCE).toContain("const clearIsGrant =");
+  });
+
+  it("והכפתור מושבת בדיוק על המקרה הזה", () => {
+    /*
+     * ‏מהתנאי אל הכפתור ולא להפך: „לפי התפקיד” מופיע גם בטקסט
+     * ‏ההסבר בתחתית המסך, וחיפוש ממנו היה נופל על המופע הראשון.
+     */
+    const at = SOURCE.indexOf("disabled={busy || clearIsGrant}");
+    expect(at, "התנאי אינו על שום כפתור").toBeGreaterThan(0);
+    expect(SOURCE.slice(at, at + 700)).toContain("לפי התפקיד");
   });
 });

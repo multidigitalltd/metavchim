@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { publicEntity } from "./telephony.service";
 import {
   contactOwnerCandidates,
   notifiableContactOwner,
@@ -447,5 +450,116 @@ describe("סדר הבעלות והמקור שממנו הוא נגזר", () => {
 
   it("בלי בעלים — רשימה ריקה", () => {
     expect(contactOwnerCandidates({ buyer: null, lead: null, property: null })).toEqual([]);
+  });
+});
+
+/**
+ * ‎**השם ירד מהכותרת — והמצביע נשאר** (ביקורת Codex, P1).
+ *
+ * ‏ההתראה המשרדית נכתבת ל-`userId: null`, והעובד מעשיר אותה
+ * ‏פר-נמען: `entityType: "contact"` הופך לשם ולטלפון מפוענחים.
+ * ‏ההרשאה לכך נבחנת ב-`canSeeNotifyDetail` מול הרשאות **הקונים
+ * ‏והלידים**, ולא מול הרשאת הנכסים שההסתרה נשענת עליה — ולכן מנהל
+ * ‏סניף שנחסם מבעלי נכסים קיבל את הזהות דרך הדלת השנייה.
+ *
+ * ‏ענף הצלצול כבר עשה את הדבר הנכון וענף „לא נענתה” לא. שני
+ * ‏ניסוחים של אותו כלל הם שני כללים שביום מן הימים אינם מסכימים,
+ * ‏וכאן הם כבר לא הסכימו.
+ */
+describe("publicEntity — מצביע ההתראה המשרדית", () => {
+  it("לקוח שהוסתר — אין מצביע, גם כשיש ליד", () => {
+    expect(publicEntity(true, "01LEAD", "01CONTACT")).toEqual({
+      entityType: null,
+      entityId: null,
+    });
+  });
+
+  /*
+   * ‏גם מצביע הליד יורד: הליד מוביל לאותו אדם בדיוק, תחת הרשאה
+   * ‏שלישית. „הורדנו את של הלקוח” אינה תשובה.
+   */
+  it("וגם כשיש רק ליד", () => {
+    expect(publicEntity(true, "01LEAD", null)).toEqual({ entityType: null, entityId: null });
+  });
+
+  it("לקוח גלוי — הליד קודם ללקוח", () => {
+    expect(publicEntity(false, "01LEAD", "01CONTACT")).toEqual({
+      entityType: "lead",
+      entityId: "01LEAD",
+    });
+  });
+
+  it("בלי ליד — הלקוח", () => {
+    expect(publicEntity(false, null, "01CONTACT")).toEqual({
+      entityType: "contact",
+      entityId: "01CONTACT",
+    });
+  });
+
+  /*
+   * ‎**מספר שאינו מוכר אינו „מוסתר”.** זו ההבחנה שדורשת דגל נפרד
+   * ‏ולא `name === null`: ליד שנפתח משיחה ממספר לא מוכר חייב
+   * ‏להישאר מקושר, גם במשרד שמפריד.
+   */
+  it("בלי לקוח ובלי ליד — אין מצביע", () => {
+    expect(publicEntity(false, null, null)).toEqual({ entityType: null, entityId: null });
+  });
+});
+
+describe("‏שני הענפים עוברים דרך אותה פונקציה", () => {
+  const source = readFileSync(join(__dirname, "telephony.service.ts"), "utf8");
+
+  it("‏אין מצביע שנבנה ביד בהתראה המשרדית", () => {
+    /*
+     * ‏שתי הקריאות ל-`publicEntity` הן שתי ההתראות המשרדיות
+     * ‏(צלצול, לא-נענתה). כתיבה ידנית רביעית של `entityType` באחת
+     * ‏מהן היא בדיוק החזרה של הבאג.
+     */
+    expect(source.split("...publicEntity(").length - 1).toBe(2);
+  });
+
+  /*
+   * ‎**והתיקון לא הידק יותר מדי.** ההתראה האישית נשלחת ל-
+   * ‏`contactOwnerUserId` בלבד — האדם שהלקוח שלו — ולכן היא חייבת
+   * ‏להמשיך לשאת את המצביע. תיקון שהיה מוריד גם אותה היה הופך את
+   * ‏ההפרדה ל„אף אחד לא מקבל כלום”.
+   */
+  /*
+   * ‎**ומאיפה `redacted` מגיע.**
+   *
+   * ‏מוטציה ששמה `redacted: false` קבוע שרדה את בדיקות היחידה
+   * ‏למעלה — הן מקבלות את הדגל כפרמטר ואינן יודעות מי מחשב אותו.
+   * ‏החישוב עצמו יושב בסגור בתוך המטפל באירוע ואי אפשר לקרוא לו,
+   * ‏ולכן הוא נבדק על המקור. זו הגבלה אמיתית, והיא נאמרת כאן:
+   * ‏מה שנבדק הוא ש**שני התנאים** נמצאים בביטוי, לא שהוא רץ.
+   *
+   * ‏שניהם נדרשים, וכל אחד לבדו שגוי: בלי `restricted` כל משרד
+   * ‏מסתיר, ובלי `contact !== null` מספר לא-מוכר נחשב „מוסתר”
+   * ‏והליד שנפתח ממנו מאבד את הקישור.
+   */
+  it("‏„מוסתר” נגזר מההפרדה **וגם** מקיום הלקוח", () => {
+    /*
+     * ‏מהשם ולא מהשדה: `redacted:` מופיע קודם בהצהרת הטיפוס, ו-
+     * ‏`indexOf` היה נופל עליה. העוגן הוא השורה שמעליו בפועל.
+     */
+    const audience = source.indexOf("name: restricted ? null : decryptedName,");
+    expect(audience, "קהל ההתראה נעלם").toBeGreaterThan(0);
+    const at = source.indexOf("redacted:", audience);
+    expect(at, "השדה `redacted` נעלם מקהל ההתראה").toBeGreaterThan(0);
+    const line = source.slice(at, source.indexOf("\n", at));
+    expect(line).toContain("restricted");
+    expect(line).toContain("contact !== null");
+    /* ‏והשם נגזר מאותו `restricted` — שתי שכבות של אותה החלטה */
+    expect(line).not.toContain("true");
+  });
+
+  it("‏ההתראה האישית ממשיכה לשאת מצביע", () => {
+    for (const key of ["incoming_call_owner:", "call_missed_owner:"]) {
+      const at = source.indexOf(key);
+      expect(at, `לא נמצאה ההתראה האישית ${key}`).toBeGreaterThan(0);
+      const block = source.slice(at, at + 400);
+      expect(block).toMatch(/entityType:/u);
+      expect(block).not.toContain("publicEntity(");
+    }
   });
 });

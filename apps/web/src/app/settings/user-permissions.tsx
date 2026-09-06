@@ -5,6 +5,7 @@ import {
   CAPABILITY_LABELS,
   CAPABILITY_MODULES,
   ROLE_CAPABILITIES,
+  clearEffect,
   type Capability,
 } from "@metavchim/shared";
 import { apiGet, apiPut, ApiError } from "@/lib/api";
@@ -283,6 +284,24 @@ export function UserPermissions({
                   {module.capabilities.map((capability) => {
                     const on = effective.has(capability);
                     const override = overrideOf.get(capability);
+                    /*
+                     * ‎**גם „לפי התפקיד” יכול להיות הענקה** (ביקורת Codex).
+                     *
+                     * ‏הסרת חריג היא הענקה או חסימה תלוי במה שהתפקיד
+                     * ‏נותן: הסרת **חסימה** על יכולת שהתפקיד מספק
+                     * ‏מחזירה אותה — וזו הענקה לכל דבר, שהשרת דוחה
+                     * ‏כשהמודול חסום למשרד. הסרת **הענקה** היא צמצום,
+                     * ‏ולכן היא מותרת גם אז ונשארת פעילה.
+                     *
+                     * ‏הכלל נלקח מ-`clearEffect` — אותה פונקציה שהשרת
+                     * ‏מסווג בה. חישוב מקומי היה עותק שני של „מה
+                     * ‏התפקיד נותן”, וזה בדיוק העותק שסוטה.
+                     */
+                    const clearIsGrant =
+                      platformBlocked &&
+                      override !== undefined &&
+                      clearEffect(data.role, capability as Capability, override.effect === "deny" ? "deny" : "grant") ===
+                        "grant";
                     return (
                       <li
                         key={capability}
@@ -322,7 +341,12 @@ export function UserPermissions({
                             <button
                               type="button"
                               className="mv-btn-soft"
-                              disabled={busy}
+                              disabled={busy || clearIsGrant}
+                              title={
+                                clearIsGrant
+                                  ? "המודול סגור למשרד במנוי הנוכחי — הסרת החסימה לא תחזיר את היכולת"
+                                  : undefined
+                              }
                               onClick={() => void apply([capability], "clear")}
                             >
                               לפי התפקיד

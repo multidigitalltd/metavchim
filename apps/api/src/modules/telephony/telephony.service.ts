@@ -83,6 +83,50 @@ const ROUTING_RETENTION_MS = 12 * 60 * 60 * 1000;
  * ההחלטה מה לעשות עם כל אירוע יושבת ב-packages/shared (telephony.ts)
  * ומכוסה בבדיקות; כאן רק הביצוע.
  */
+/**
+ * ‎**קהל ההתראה המשרדית — השם, מי הבעלים, והאם הוסתר.**
+ *
+ * ‏`redacted` הוא שדה משלו ולא נגזר מ-`name === null`, כי שני
+ * ‏מצבים שונים נופלים לשם: לקוח שהוסתר מהמשרד, ומספר שאינו מוכר.
+ */
+interface NotificationAudience {
+  name: string | null;
+  ownerUserId: string | null;
+  redacted: boolean;
+}
+
+/**
+ * ‎**מצביע הישות בהתראה המשרדית — כלל אחד לשני הענפים** (ביקורת Codex, P1).
+ *
+ * ‏ההתראה המשרדית נכתבת ל-`userId: null`, והעובד מעשיר אותה
+ * ‏פר-נמען: `entityType: "contact"` הופך לשם ולטלפון מפוענחים, ו-
+ * ‏`"lead"` לאותו אדם דרך הליד שלו. ההרשאה לכך נבחנת ב-
+ * ‏`canSeeNotifyDetail` מול הרשאות **הקונים והלידים** — ולא מול
+ * ‏הרשאת הנכסים שההסתרה כאן נשענת עליה.
+ *
+ * ‏כלומר מנהל סניף שנחסם מבעלי נכסים קיבל את הזהות דרך המצביע,
+ * ‏אף שהשם עצמו הוסתר מהכותרת. השם ירד, המצביע נשאר, והדליפה
+ * ‏עברה דרך הדלת השנייה.
+ *
+ * ‏ענף הצלצול כבר עשה את הדבר הנכון וענף „לא נענתה” לא, ולכן זו
+ * ‏פונקציה אחת: שני ניסוחים של אותו כלל הם שני כללים שביום מן
+ * ‏הימים אינם מסכימים — וכאן הם כבר לא הסכימו.
+ *
+ * ‏גם מצביע הליד יורד, ולא רק זה של הלקוח: הליד מוביל לאותו אדם
+ * ‏בדיוק, תחת הרשאה שלישית. מספר שאינו מוכר אינו „מוסתר”, ולכן
+ * ‏ליד שנפתח ממנו נשאר מקושר.
+ */
+export function publicEntity(
+  redacted: boolean,
+  leadId: string | null,
+  contactId: string | null,
+): { entityType: "lead" | "contact" | null; entityId: string | null } {
+  if (redacted) return { entityType: null, entityId: null };
+  if (leadId !== null) return { entityType: "lead", entityId: leadId };
+  if (contactId !== null) return { entityType: "contact", entityId: contactId };
+  return { entityType: null, entityId: null };
+}
+
 @Injectable()
 export class TelephonyService {
   private readonly logger = new Logger(TelephonyService.name);
@@ -904,15 +948,23 @@ export class TelephonyService {
          * ‏שאינם שולחים דבר (ביקורת Codex). הפונקציה נקראת בענפי
          * ‏הצלצול והשיחה שלא נענתה בלבד, ושומרת את תשובתה.
          */
-        let audience: { name: string | null; ownerUserId: string | null } | undefined;
-        const notificationAudience = async (): Promise<{
-          name: string | null;
-          ownerUserId: string | null;
-        }> => {
+        let audience: NotificationAudience | undefined;
+        const notificationAudience = async (): Promise<NotificationAudience> => {
           if (audience === undefined) {
             const restricted = await officeRestrictsContactVisibility(tx, tenantId);
             audience = {
               name: restricted ? null : decryptedName,
+              /*
+               * ‎**„הוסתר” אינו „אין שם”** (ביקורת Codex, P1).
+               *
+               * ‏שני מצבים שונים מגיעים כ-`name: null`: לקוח שהוסתר
+               * ‏מהמשרד, ומספר שאינו מוכר בכלל. הראשון דורש שגם
+               * ‏**המצביע** יירד — אחרת העובד מפענח ממנו שם וטלפון —
+               * ‏והשני אינו דורש דבר, ולידים שנפתחים ממנו צריכים
+               * ‏להישאר מקושרים. דגל אחד מבדיל, במקום ששני הענפים
+               * ‏ינחשו מ-`name === null`.
+               */
+              redacted: restricted && contact !== null,
               ownerUserId:
                 contact === null || !restricted
                   ? null
@@ -996,8 +1048,11 @@ export class TelephonyService {
            * לנו מיפוי אמין ממנה למשתמש. עדיף שכולם יראו מי מתקשר מאשר
            * שההתראה תגיע לאדם הלא נכון.
            */
-          const { name: contactName, ownerUserId: contactOwnerUserId } =
-            await notificationAudience();
+          const {
+            name: contactName,
+            ownerUserId: contactOwnerUserId,
+            redacted,
+          } = await notificationAudience();
           await notifyOnce(tx, {
             tenantId,
             dedupeKey: `incoming_call:${event.providerCallId}`,
@@ -1005,9 +1060,8 @@ export class TelephonyService {
             type: "incoming_call",
             title: incomingCallTitle(contactName, event.peerPhone),
             body: contact ? null : "מספר שאינו מוכר במערכת",
-            // ‏בלי שם אין גם מצביע: הכרטיס עצמו הוא הזהות
-            entityType: contactName !== null ? "contact" : null,
-            entityId: contactName !== null ? (contact?.id ?? null) : null,
+            /* ‏לקוח שהוסתר — גם המצביע יורד. ראו `publicEntity`. */
+            ...publicEntity(redacted, null, contact?.id ?? null),
           });
           if (contactOwnerUserId !== null) {
             await notifyOnce(tx, {
@@ -1204,8 +1258,11 @@ export class TelephonyService {
             });
           }
 
-          const { name: contactName, ownerUserId: contactOwnerUserId } =
-            await notificationAudience();
+          const {
+            name: contactName,
+            ownerUserId: contactOwnerUserId,
+            redacted,
+          } = await notificationAudience();
           await notifyOnce(tx, {
             tenantId,
             /*
@@ -1226,8 +1283,12 @@ export class TelephonyService {
              * שהאוטומציה נועדה לחסוך.
              */
             body: pending ?? (leadId ? "נפתח ליד חדש מהשיחה" : null),
-            entityType: leadId ? "lead" : callContactId ? "contact" : null,
-            entityId: leadId ?? callContactId,
+            /*
+             * ‏זה היה החור: השם הוסתר והמצביע נשאר, והעובד מפענח
+             * ‏ממנו שם וטלפון תחת הרשאה **אחרת** לגמרי. ראו
+             * ‏`publicEntity`.
+             */
+            ...publicEntity(redacted, leadId, callContactId),
           });
           /*
            * ‏ובמשרד שהפעיל הפרדה — ההתראה המשרדית ירדה לשם ולמספר
