@@ -590,3 +590,59 @@ describe("תפוגת שלב מול שעות השליחה", () => {
     ).toEqual(["pay_failed"]);
   });
 });
+
+
+/**
+ * ‎**הפעלה הדרגתית לא תשרוף את הקוהורט הקיים.**
+ *
+ * ‏תוכנית ההפעלה היא 14 שלבים שנזרעים כבויים ונדלקים אחד-אחד. אילו
+ * ‏„מוצה” נמדד על השלבים **המופעלים** בלבד, המשרד הראשון שקיבל את
+ * ‏השלב היחיד שהודלק היה נסגר מיד, ו-`enrollDue` מוציא מהמועמדות כל
+ * ‏מי שכבר היה לו רישום — כלומר כל שלב שיודלק אחר כך לא היה מגיע
+ * ‏אליו לעולם. ההדרגתיות עצמה הייתה הבאג.
+ */
+describe("הפעלה הדרגתית של שלבים", () => {
+  const started = new Date("2026-09-07T06:00:00.000Z");
+  const anchorsFor = (): FunnelAnchors => anchors({ funnelStartedAt: started });
+
+  it("שלב כבוי שעוד לא הגיע זמנו מחזיק את הרישום פתוח", () => {
+    const stages = [
+      stage({ key: "day0", clock: "funnel", offsetDays: 0, enabled: true }),
+      // ‏עוד לא הודלק — אבל יודלק, וזמנו עוד לפנינו
+      stage({ key: "day3", clock: "funnel", offsetDays: 3, enabled: false }),
+    ];
+    expect(
+      funnelExitReason({
+        track: "conversion",
+        facts: facts({ hasValidCard: false }),
+        stages,
+        sent: ["day0"],
+        anchors: anchorsFor(),
+        now: new Date(started.getTime() + 1 * DAY),
+      }),
+    ).toBeNull();
+  });
+
+  /*
+   * ‏הגבול: שלב כבוי שחלונו כבר חלף **כן** בלתי אפשרי — הדלקה מחר
+   * ‏לא תשלח מועד שעבר. בלי זה הרישום היה נשאר פתוח לנצח בגלל מתג
+   * ‏שאיש לא הדליק.
+   */
+  it("שלב כבוי שחלונו חלף אינו מחזיק את הרישום", () => {
+    const stages = [
+      stage({ key: "day0", clock: "funnel", offsetDays: 0, enabled: true }),
+      stage({ key: "day3", clock: "funnel", offsetDays: 3, enabled: false }),
+    ];
+    expect(
+      funnelExitReason({
+        track: "conversion",
+        facts: facts({ hasValidCard: false }),
+        stages,
+        sent: ["day0"],
+        // ‏הרבה אחרי שגם `day3` וגם תקרת הפיגור שלו חלפו
+        now: new Date(started.getTime() + 40 * DAY),
+        anchors: anchorsFor(),
+      }),
+    ).toBe("completed");
+  });
+});
