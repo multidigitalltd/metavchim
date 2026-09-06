@@ -8,8 +8,16 @@
 --
 -- ‏`tenant_id` ראשון כמו בשאר האינדקסים כאן — כל שאילתה נושאת אותו,
 -- ‏והוא מה שהופך את האינדקס לשימושי גם בסינון הרגיל.
-CREATE INDEX IF NOT EXISTS "properties_tenant_owner_contact_idx"
+--
+-- ‎**והשמות הם שמות ברירת המחדל של Prisma**, לא שמות שבחרתי.
+-- ‏`@@index` בסכימה נכתב בלי `map`, ולכן Prisma מתארת אינדקסים
+-- ‏בשם `properties_tenant_id_owner_contact_id_idx`. שם אחר כאן
+-- ‏פירושו שהיסטוריית המיגרציות יוצרת אובייקט אחד והסכימה מתארת
+-- ‏אחר — והמיגרציה הבאה שתיווצר תציע למחוק ולבנות מחדש אינדקסים
+-- ‏שעלולים להיות גדולים (ביקורת Codex, P2). זו גם המוסכמה בשאר
+-- ‏הקובץ: `properties_tenant_id_agent_user_id_idx`.
+CREATE INDEX IF NOT EXISTS "properties_tenant_id_owner_contact_id_idx"
   ON "properties" ("tenant_id", "owner_contact_id");
 
-CREATE INDEX IF NOT EXISTS "properties_tenant_occupant_contact_idx"
+CREATE INDEX IF NOT EXISTS "properties_tenant_id_occupant_contact_id_idx"
   ON "properties" ("tenant_id", "occupant_contact_id");

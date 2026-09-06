@@ -192,4 +192,23 @@ describe("מסך ההרשאות מציג את היכולות בפועל", () => 
     const dto = await asManager(() => controllerFor(["properties"]).userCapabilities("01TARGET"));
     expect(dto.effective).not.toContain("properties.view");
   });
+
+  /*
+   * ‎**וגם *למה* היא חסרה, ולא רק שהיא חסרה.**
+   *
+   * ‏שתי שכבות מורידות יכולת מ-`effective`: חריג של מנהל המשרד,
+   * ‏וחסימת מודול של הפלטפורמה. בלי להבחין ביניהן המסך הציע „הענק”
+   * ‏גם על השנייה — כפתור שפועל על שכבת החריגים, שאינה יכולה לפתוח
+   * ‏מה שנחסם מעליה. הבקשה נדחית, והמנהל אינו מבין למה (ביקורת
+   * ‏Codex, P2).
+   */
+  it("והתשובה נושאת את החסימה עצמה, כדי שהמסך ידע להסביר", async () => {
+    const blocked = await asManager(() =>
+      controllerFor(["properties"]).userCapabilities("01TARGET"),
+    );
+    expect(blocked.blockedModules).toEqual(["properties"]);
+
+    const open = await asManager(() => controllerFor([]).userCapabilities("01TARGET"));
+    expect(open.blockedModules).toEqual([]);
+  });
 });

@@ -188,6 +188,19 @@ type UserCapabilitiesDto = {
   role: string;
   protected: boolean;
   effective: string[];
+  /**
+   * ‎**מודולים שהפלטפורמה חסמה למשרד — לא לסוכן הזה.**
+   *
+   * ‏`effective` כבר מנוכה מהם, וזה נכון אבל לא מספיק: המסך אינו
+   * ‏יודע **למה** היכולת חסרה, ולכן הוא הציג „חסום” לצד כפתורי
+   * ‏„חסום” ו„הענק” שפועלים על שכבת החריגים — שכבה שאינה יכולה
+   * ‏לפתוח מודול שנחסם מלמעלה. ההענקה נדחית, והמנהל אינו מבין
+   * ‏למה (ביקורת Codex, P2).
+   *
+   * ‏מפתחות המודולים כפי שהם ב-`CAPABILITY_MODULES`, ולכן המסך
+   * ‏משווה מול אותה רשימה שהוא מרנדר.
+   */
+  blockedModules: string[];
   overrides: {
     capability: string;
     effect: string;
@@ -1332,6 +1345,7 @@ export class SettingsController {
       // בעל המשרד מוגן בשרת; המסך מקבל את הדגל כדי להסביר למה
       protected:
         target.role === "owner" || target.id === TenantContext.current().userId,
+      blockedModules: [...target.tenant.blockedModules],
       effective: [
         ...effectiveCapabilities(
           {

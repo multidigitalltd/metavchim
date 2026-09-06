@@ -25,6 +25,8 @@ interface Payload {
   role: string;
   protected: boolean;
   effective: string[];
+  /** ‏מודולים שהפלטפורמה חסמה למשרד — לא לסוכן הזה. */
+  blockedModules: string[];
   overrides: OverrideRow[];
 }
 
@@ -106,6 +108,16 @@ export function UserPermissions({
   if (!data) return <p className="m-0 px-5 py-3 text-sm">טוען הרשאות…</p>;
 
   const effective = new Set(data.effective);
+  /*
+   * ‎**חסימת פלטפורמה אינה חריג של המנהל, ולכן היא מסך אחר.**
+   *
+   * ‏שתי השכבות מורידות את אותה יכולת מ-`effective`, ולכן המסך
+   * ‏הראה „חסום” בשני המקרים — והציע „הענק” גם על מודול שהפלטפורמה
+   * ‏סגרה למשרד. הכפתור פועל על שכבת החריגים, שאינה יכולה לפתוח
+   * ‏מה שנחסם מעליה: הבקשה נדחית, והמנהל אינו מבין למה (ביקורת
+   * ‏Codex, P2).
+   */
+  const blockedModules = new Set(data.blockedModules);
   const roleCaps = new Set<string>(ROLE_CAPABILITIES[data.role] ?? []);
   const overrideOf = new Map(data.overrides.map((row) => [row.capability, row]));
 
@@ -143,9 +155,11 @@ export function UserPermissions({
             const row = overrideOf.get(c);
             return row?.effect === "deny" && row.active;
           });
+          const platformBlocked = blockedModules.has(module.key);
           // מודול שהתפקיד ממילא לא כולל אינו "חסום" — אין מה להחזיר בו
-          const state =
-            granted.length === 0 && inRole.length === 0
+          const state = platformBlocked
+            ? "חסום במנוי"
+            : granted.length === 0 && inRole.length === 0
               ? "לא בתפקיד"
               : granted.length === 0
                 ? "חסום"
@@ -153,7 +167,7 @@ export function UserPermissions({
                   ? "מלא"
                   : "חלקי";
           const tone =
-            state === "חסום"
+            state === "חסום" || state === "חסום במנוי"
               ? { color: "#8a1c1c", background: "#fde8e8" }
               : state === "מלא"
                 ? { color: "var(--color-success)", background: "var(--color-success-soft)" }
@@ -182,7 +196,26 @@ export function UserPermissions({
                   </span>
                 </div>
 
-                {!data.protected ? (
+                {/*
+                  ‏„פירוט” נשאר גם כשהמודול חסום במנוי — המנהל עדיין
+                  ‏רוצה לדעת מה יש בו. מה שיורד הוא הכפתורים שאינם
+                  ‏יכולים להצליח.
+                */}
+                {platformBlocked ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+                      המודול סגור למשרד במנוי הנוכחי
+                    </span>
+                    <button
+                      type="button"
+                      className="mv-btn-plain"
+                      aria-expanded={expanded === module.key}
+                      onClick={() => setExpanded(expanded === module.key ? null : module.key)}
+                    >
+                      {expanded === module.key ? "סגור פירוט" : "פירוט"}
+                    </button>
+                  </div>
+                ) : !data.protected ? (
                   <div className="flex flex-wrap items-center gap-1.5">
                     {blocked.length > 0 ? (
                       <button
@@ -268,10 +301,17 @@ export function UserPermissions({
                           ) : null}
                         </span>
                         <span className="flex gap-1.5">
+                          {/*
+                            ‏„הענק” על מודול שהפלטפורמה חסמה נדחה בשרת:
+                            ‏שכבת החריגים אינה יכולה לפתוח מה שנחסם
+                            ‏מעליה. כפתור שאי אפשר להצליח בו גרוע
+                            ‏מהיעדרו.
+                          */}
                           <button
                             type="button"
                             className="mv-btn-plain"
-                            disabled={busy}
+                            disabled={busy || platformBlocked}
+                            title={platformBlocked ? "המודול סגור למשרד במנוי הנוכחי" : undefined}
                             onClick={() =>
                               void apply([capability], on ? "deny" : "grant", null)
                             }
