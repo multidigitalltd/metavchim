@@ -374,6 +374,38 @@ export function funnelEntryBatch<T extends { id: string; createdAt: Date }>(
 /** ‏ברירת המחדל של הכניסה היומית — כשבוע לקטלוג בגודל הנוכחי. */
 export const FUNNEL_DEFAULT_DAILY_ENTRIES = 25;
 
+/** ‏מי שנרשם בתוך החלון הזה נחשב „חדש”, לא „פיגור”. */
+export const FUNNEL_FRESH_SIGNUP_HOURS = 48;
+
+/**
+ * ‎**מי נכנס עכשיו — החדשים מיד, והוותיקים לפי המכסה.**
+ *
+ * ## ‏למה זה לא סתם `funnelEntryBatch`
+ *
+ * ‏המכסה נועדה **לנקז פיגור**: ביום ההשקה יש קבוצה שלמה שממתינה,
+ * והיא נכנסת על פני כשבוע. אבל המכסה מסדרת ותיקים ראשונים — ולכן
+ * משרד שנרשם הבוקר היה נדחק לסוף התור, ומקבל את „יום 0” שלו
+ * **בעוד שבוע**. זו ההודעה שכל התוכנית נשענת עליה, והיא הייתה
+ * מגיעה אחרי שהוא כבר ניסה את המערכת לבד ונטש.
+ *
+ * ‏שתי המטרות אינן סותרות ברגע שמפרידים ביניהן: הרשמה טרייה אינה
+ * פיגור, ולכן היא אינה נספרת במכסה. בקצב הרגיל מדובר בכמה משרדים
+ * ביום — לא גל.
+ */
+export function funnelEntryPlan<T extends { id: string; createdAt: Date }>(
+  candidates: readonly T[],
+  dailyQuota: number,
+  now: Date,
+): T[] {
+  const freshFrom = now.getTime() - FUNNEL_FRESH_SIGNUP_HOURS * HOUR_MS;
+  const fresh: T[] = [];
+  const backlog: T[] = [];
+  for (const candidate of candidates) {
+    (candidate.createdAt.getTime() >= freshFrom ? fresh : backlog).push(candidate);
+  }
+  return [...fresh, ...funnelEntryBatch(backlog, dailyQuota)];
+}
+
 /* ────────────────────────────  עצירה  ──────────────────────────── */
 
 /**

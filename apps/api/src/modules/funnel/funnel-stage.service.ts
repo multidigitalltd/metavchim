@@ -1,0 +1,130 @@
+import { Injectable, Logger } from "@nestjs/common";
+import {
+  FUNNEL_AUDIENCES,
+  FUNNEL_CHANNELS,
+  FUNNEL_CLOCKS,
+  FUNNEL_TRACKS,
+  type FunnelAudience,
+  type FunnelChannel,
+  type FunnelClock,
+  type FunnelStageDef,
+  type FunnelTrack,
+} from "@metavchim/shared";
+import { PrismaService } from "../../core/prisma.service";
+
+/**
+ * ‎**קריאת הגדרות השלבים — מהמסד, ולא מקבוע בקוד.**
+ *
+ * ‏זו הנקודה שבה „נערך במסך” מתממש. השורות מגיעות מ-`funnel_stages`,
+ * והן הופכות כאן ל-`FunnelStageDef` — הטיפוס שהמנוע המשותף מכיר.
+ *
+ * ## ‏למה יש כאן ולידציה בכלל
+ *
+ * ‏עמודות `track`, `clock` ו-`audience` הן טקסט במסד, ולא טיפוס
+ * מנייה. שורה שנערכה במסך יכולה לשאת ערך שאינו מוכר — בגלל תקלה,
+ * בגלל עריכה ידנית במסד, או בגלל שדרוג שהסיר תנאי שעדיין רשום
+ * בשורה ישנה.
+ *
+ * ‏**שורה כזו נזרקת ולא „מתוקנת”.** תיקון שקט היה משנה למי ההודעה
+ * יוצאת בלי שאיש ביקש: תנאי `has_data` שלא זוהה והושמט הופך שלב
+ * מכוון-קהל לשלב שיוצא לכולם. ההשמטה נרשמת ביומן כאזהרה, כי
+ * שלב שנעלם מהמסלול הוא דבר שצריך לגלות.
+ */
+@Injectable()
+export class FunnelStageService {
+  private readonly logger = new Logger(FunnelStageService.name);
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * ‏כל השלבים של מסלול, לפי סדר התצוגה.
+   *
+   * ‎`funnel_stages` אינה תחת RLS — היא הגדרה של הפלטפורמה ואין בה
+   * ‎`tenant_id` — ולכן היא נקראת מהלקוח הגלובלי כמו `platform_settings`.
+   */
+  async forTrack(track: FunnelTrack): Promise<FunnelStageDef[]> {
+    const rows = await this.prisma.funnelStage.findMany({
+      where: { track },
+      orderBy: [{ sortOrder: "asc" }, { key: "asc" }],
+    });
+    return rows.flatMap((row) => {
+      const def = this.toDef(row);
+      return def === null ? [] : [def];
+    });
+  }
+
+  /** ‏כל השלבים, משני המסלולים. */
+  async all(): Promise<FunnelStageDef[]> {
+    const byTrack = await Promise.all(FUNNEL_TRACKS.map((track) => this.forTrack(track)));
+    return byTrack.flat();
+  }
+
+  /**
+   * ‏שורה ⟵ הגדרה, או `null` כשהיא אינה תקפה.
+   *
+   * ‏השדות הטקסטואליים נבדקים מול אותן רשימות שהמנוע משתמש בהן —
+   * ‏ולא מול עותק שלהן — כדי שהוספת תנאי חדש ב-shared לא תדרוש
+   * עדכון כאן.
+   */
+  private toDef(row: {
+    key: string;
+    track: string;
+    clock: string;
+    offsetDays: number;
+    audience: string[];
+    channels: string[];
+    enabled: boolean;
+  }): FunnelStageDef | null {
+    if (!isOneOf(FUNNEL_TRACKS, row.track)) {
+      this.logger.warn(`שלב ${row.key}: מסלול לא מוכר (${row.track}) — הושמט`);
+      return null;
+    }
+    if (!isOneOf(FUNNEL_CLOCKS, row.clock)) {
+      this.logger.warn(`שלב ${row.key}: שעון לא מוכר (${row.clock}) — הושמט`);
+      return null;
+    }
+    /*
+     * ‎**תנאי שאינו מוכר פוסל את השלב, ולא מושמט ממנו.**
+     *
+     * ‏השמטה הייתה מרחיבה את הקהל בשקט: שלב שנועד למי שכבר הזין
+     * נתונים היה יוצא לכולם, כולל למשרד ריק שההודעה מצביעה אצלו
+     * על כלום.
+     */
+    const audience: FunnelAudience[] = [];
+    for (const value of row.audience) {
+      if (!isOneOf(FUNNEL_AUDIENCES, value)) {
+        this.logger.warn(`שלב ${row.key}: תנאי לא מוכר (${value}) — השלב הושמט`);
+        return null;
+      }
+      audience.push(value);
+    }
+    /*
+     * ‏ערוץ לא מוכר, לעומת זאת, **כן** מושמט: הוא מצמצם ולא מרחיב,
+     * והתוצאה הגרועה ביותר היא הודעה שיוצאת בערוץ אחד במקום בשניים.
+     * שלב שנפסל כאן היה שקט יותר וגרוע יותר.
+     */
+    const channels: FunnelChannel[] = [];
+    for (const value of row.channels) {
+      if (!isOneOf(FUNNEL_CHANNELS, value)) {
+        this.logger.warn(`שלב ${row.key}: ערוץ לא מוכר (${value}) — הערוץ הושמט`);
+        continue;
+      }
+      channels.push(value);
+    }
+
+    return {
+      key: row.key,
+      track: row.track satisfies FunnelTrack,
+      clock: row.clock satisfies FunnelClock,
+      offsetDays: row.offsetDays,
+      audience,
+      channels,
+      enabled: row.enabled,
+    };
+  }
+}
+
+/** ‏שייכות לרשימה סגורה, בלי לוותר על הטיפוס. */
+function isOneOf<T extends string>(values: readonly T[], value: string): value is T {
+  return (values as readonly string[]).includes(value);
+}
