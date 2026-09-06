@@ -22,9 +22,11 @@ import {
   MentorGoalInputSchema,
   type MentorChatContext,
   type MentorGoalProposal,
+  type MentorPersona,
   mentorAdvice,
   mentorFallbackReply,
   parseGoalRequest,
+  resolveMentorPersona,
   type MentorGoalInput,
   mentorGoalLabel,
   type MentorGoalPeriod,
@@ -118,6 +120,8 @@ export interface MentorOverview {
   patterns: MentorPattern[];
   /** מה המנטור מציע עכשיו — עד שלוש עצות מהמספרים (docs/14 §7.1) */
   advice: MentorAdvice[];
+  /** השם והסגנון שהמתווך בחר (docs/14 §4.1) */
+  persona: MentorPersona;
 }
 
 /**
@@ -177,7 +181,7 @@ export class MentorService {
       const week = mentorPeriodRange("week", now);
       const user = await tx.user.findFirst({
         where: { id: userId, tenantId },
-        select: { createdAt: true },
+        select: { createdAt: true, preferences: true },
       });
       const activity = await this.signals.activity(
         tx,
@@ -265,6 +269,7 @@ export class MentorService {
         chatAvailable,
         patterns,
         advice,
+        persona: resolveMentorPersona(user?.preferences),
       };
     });
   }
@@ -620,7 +625,7 @@ export class MentorService {
         });
         const user = await tx.user.findFirst({
           where: { id: userId, tenantId },
-          select: { name: true, createdAt: true },
+          select: { name: true, createdAt: true, preferences: true },
         });
         const week = mentorPeriodRange("week", now);
         const activity = await this.signals.activity(
@@ -728,6 +733,7 @@ export class MentorService {
           previousActivity,
           funnel,
           advice,
+          persona: resolveMentorPersona(user?.preferences),
           firstName: (user?.name ?? "").trim().split(/\s+/u)[0] ?? "",
           nowText: MentorService.nowText(now),
           goals,

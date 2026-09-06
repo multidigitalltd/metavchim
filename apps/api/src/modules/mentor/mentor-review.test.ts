@@ -692,6 +692,25 @@ describe("MentorReviewService.dailyForUser — הבוקר של המנטור", ()
     expect(body).toContain("רעיון להיום: ");
   });
 
+  it("סגנון רגוע — בלי הודעת בוקר, גם עם יעד", async () => {
+    const { tx, notified } = fakeTx({ offers: 2, calls: 4, goals: [weekGoal] });
+    expect(
+      await service().dailyForUser(
+        tx,
+        TENANT,
+        USER,
+        "2026-09-07",
+        monday,
+        "דנה",
+        {
+          name: "נועה",
+          style: "calm",
+        },
+      ),
+    ).toBe(false);
+    expect(notified).toEqual([]);
+  });
+
   it("בלי יעד ביום שני, בלי שיחה שמחכה ובלי מאמץ אתמול — שקט", async () => {
     const { tx, notified } = fakeTx({});
     expect(

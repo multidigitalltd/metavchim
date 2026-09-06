@@ -5,6 +5,13 @@ import {
   jerusalemWeekStart,
 } from "./israel-time.js";
 import { playbookIdea } from "./mentor-playbook.js";
+import {
+  DEFAULT_MENTOR_PERSONA,
+  mentorCloser,
+  mentorSalutation,
+  mentorWeeklyGreeting,
+  type MentorPersona,
+} from "./mentor-persona.js";
 
 /**
  * המנטור האישי — ליבת הליווי (docs/14).
@@ -580,6 +587,8 @@ export interface MentorWeekSignals {
   firstName?: string;
   /** תובנות שאינן מונה — מהירות מענה ושיחות שלא חזרת אליהן */
   insights?: MentorInsights;
+  /** השם והסגנון שהמתווך בחר — משנים את הפתיח, לא את הכללים */
+  persona?: MentorPersona;
 }
 
 /**
@@ -896,16 +905,13 @@ export function mentorWeeklyReview(
     headline = "שבוע של עבודה, בקצב שלך";
   }
 
-  // הפתיח בשם — אישי, וקצר: המנטור פונה אליו, לא כותב עליו
-  const name = (signals.firstName ?? "").trim();
-  const greeting =
-    name === ""
-      ? null
-      : mood === "celebrate"
-        ? `היי ${name}, איזה שבוע היה לך.`
-        : mood === "encourage"
-          ? `היי ${name}, הנה השבוע שלך — נעבור עליו ביחד.`
-          : `היי ${name}, הנה השבוע שלך.`;
+  // הפתיח בשם — אישי, וקצר: המנטור פונה אליו, לא כותב עליו. הסגנון
+  // (והשם שהמתווך נתן למנטור) משנים את הפתיח בלבד
+  const greeting = mentorWeeklyGreeting(
+    signals.persona ?? DEFAULT_MENTOR_PERSONA,
+    mood,
+    signals.firstName,
+  );
 
   let askNextWeek: string | null = null;
   let ask: MentorAsk | null = null;
@@ -1086,6 +1092,7 @@ export function mentorMidweekNudge(
   goals: readonly MentorGoalProgress[],
   now: Date,
   firstName?: string,
+  persona: MentorPersona = DEFAULT_MENTOR_PERSONA,
 ): { title: string; body: string; metric: MentorGoalMetric } | null {
   const behind = goals.filter(
     (g) => g.period === "week" && g.pace === "behind",
@@ -1109,7 +1116,7 @@ export function mentorMidweekNudge(
   if (focus.why !== undefined && focus.why.trim() !== "") {
     parts.push(`זה בשביל: ${focus.why.trim()}.`);
   }
-  parts.push("עוד אפשר להגיע לזה — ואני איתך.");
+  parts.push(mentorCloser(persona.style, true));
   return {
     title: `🧭 אמצע השבוע — ${label}`,
     body: parts.join(" "),
@@ -1145,6 +1152,8 @@ export interface MentorDailyInput {
   idea?: string;
   now: Date;
   firstName?: string;
+  /** השם והסגנון שהמתווך בחר — הפתיח והסיום, לא התוכן */
+  persona?: MentorPersona;
 }
 
 const PACE_RANK: Record<MentorPace, number> = {
@@ -1231,10 +1240,9 @@ export function mentorDailyPlan(
   // רעיון רק כשיש בוקר — „בוקר טוב, רעיון” בלי יעד ובלי אתמול הוא פרסומת
   const idea = (input.idea ?? "").trim();
   if (idea !== "") lines.push(`רעיון להיום: ${idea}`);
-  const greeting = `בוקר טוב${name === "" ? "" : ` ${name}`}.`;
-  const closer = anyBehind
-    ? "עוד אפשר להגיע לזה — ואני איתך."
-    : "יום טוב — ואני כאן.";
+  const persona = input.persona ?? DEFAULT_MENTOR_PERSONA;
+  const greeting = mentorSalutation("בוקר טוב", name, persona);
+  const closer = mentorCloser(persona.style, anyBehind);
   return {
     title: "🌅 היום שלך",
     body: [greeting, ...lines, closer].join(" "),

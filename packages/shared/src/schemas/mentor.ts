@@ -5,6 +5,7 @@ import {
   MENTOR_GOAL_TARGET_MAX,
 } from "../logic/mentor.js";
 import { IdSchema } from "./common.js";
+import { MENTOR_NAME_MAX, MENTOR_STYLES } from "../logic/mentor-persona.js";
 
 /**
  * יעד של המנטור האישי — מה שהמתווך קובע לעצמו (docs/14 §5).
@@ -52,3 +53,15 @@ export const MentorGoalSchema = MentorGoalInputSchema.extend({
   endedAt: z.date().nullable(),
 });
 export type MentorGoal = z.infer<typeof MentorGoalSchema>;
+
+/**
+ * הפרסונה של המנטור — שם וסגנון (docs/14 §4.1). נשמרת ב-`preferences.mentor`
+ * של המשתמש דרך `PATCH /auth/profile`; המסך שולח את שניהם יחד.
+ */
+export const MentorPersonaSchema = z
+  .object({
+    name: z.string().trim().min(1).max(MENTOR_NAME_MAX),
+    style: z.enum(MENTOR_STYLES),
+  })
+  .strict();
+export type MentorPersonaInput = z.infer<typeof MentorPersonaSchema>;

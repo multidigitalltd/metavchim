@@ -16,6 +16,12 @@ import {
   type MentorReview,
 } from "./mentor.js";
 import { mentorAdviceBlock, type MentorAdvice } from "./mentor-advice.js";
+import {
+  DEFAULT_MENTOR_PERSONA,
+  mentorNameLine,
+  mentorStyleGuidance,
+  type MentorPersona,
+} from "./mentor-persona.js";
 
 /**
  * השיחה עם המנטור — הפרומפט, הסכמה, והתשובה כשאין מודל (docs/14 §7).
@@ -60,6 +66,8 @@ export interface MentorChatContext {
   previousActivity?: MentorActivity | null;
   funnel?: { history: MentorActivity; weeks: number } | null;
   advice?: MentorAdvice[];
+  /** השם והסגנון שהמתווך בחר — הטון של התשובה (docs/14 §4.1) */
+  persona?: MentorPersona;
   /** מהישן לחדש */
   history: { role: "user" | "mentor"; text: string }[];
   question: string;
@@ -251,6 +259,8 @@ export function buildMentorPrompt(ctx: MentorChatContext): string {
     "9. אם השאלה אינה קשורה לעבודת התיווך או ליעדים — עונים בקצרה שזה מחוץ לתחום המנטור.",
     "10. כשמבקשים עצה, רעיון, טיפ, „מה לשפר” או „מה לעשות” — נותנים רעיון אחד או שניים קונקרטיים לביצוע היום או השבוע, מתוך הניתוח ורעיונות ספר המשחק שלמטה, מותאמים למספרים של המתווך ובמילים של המנטור (לא ציטוט). אומרים גם למה דווקא זה, במשפט. עד ארבעה משפטים. רעיון שכבר ניתן בשיחה — לא לחזור עליו, לתת אחר.",
     "11. כששואלים על המשפך או על המרה — עונים מהמספרים של המתווך עצמו מול המקובל, ומצביעים על שלב אחד לשפר.",
+    `12. ${mentorStyleGuidance((ctx.persona ?? DEFAULT_MENTOR_PERSONA).style)} הכללים 1–11 חלים בכל סגנון.`,
+    mentorNameLine(ctx.persona ?? DEFAULT_MENTOR_PERSONA),
     "",
     `עכשיו: ${ctx.nowText}.`,
     ctx.firstName === "" ? "" : `שם המתווך/ת: ${ctx.firstName}.`,
