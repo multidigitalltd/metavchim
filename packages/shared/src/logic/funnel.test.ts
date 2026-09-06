@@ -13,6 +13,7 @@ import {
   funnelExitReason,
   funnelStageDueAt,
   funnelStageExpiresAt,
+  isFunnelClockAnchored,
   isFunnelSendingHour,
   isServiceTrack,
   matchesAllAudiences,
@@ -601,6 +602,67 @@ describe("תפוגת שלב מול שעות השליחה", () => {
  * ‏מי שכבר היה לו רישום — כלומר כל שלב שיודלק אחר כך לא היה מגיע
  * ‏אליו לעולם. ההדרגתיות עצמה הייתה הבאג.
  */
+/**
+ * ‎**צירוף מסלול ושעון — שני ערכים מוכרים שיחד אינם מעוגנים.**
+ *
+ * ‏רישום המרה אינו נפתח מדחיית חיוב, ולכן אין לו `paymentFailedAt`.
+ * ‏שלב שמצרף `conversion` עם `payment` עובר את שתי הבדיקות
+ * ‏הבודדות, ואז `funnelStageDueAt` מחזיר `null` — היעדר מידע
+ * ‏שנקרא כידיעה שלילית (ביקורת Codex, P1).
+ */
+describe("עיגון שעון למסלול", () => {
+  it("מסלול ההמרה מעוגן בשעון המשפך ובשעון הניסיון", () => {
+    expect(isFunnelClockAnchored("conversion", "funnel")).toBe(true);
+    expect(isFunnelClockAnchored("conversion", "trial")).toBe(true);
+  });
+
+  /** ‏זה הצירוף שנפל. */
+  it("שעון התשלום אינו מעוגן במסלול ההמרה", () => {
+    expect(isFunnelClockAnchored("conversion", "payment")).toBe(false);
+  });
+
+  it("ובמסלול הגבייה הוא כן", () => {
+    expect(isFunnelClockAnchored("dunning", "payment")).toBe(true);
+  });
+
+  /*
+   * ‏שעון הניסיון אינו במסלול הגבייה: רישום גבייה נפתח מדחיית
+   * ‏חיוב של משרד משלם, ותפוגת הניסיון שלו כבר מאחוריו וחסרת
+   * ‏משמעות — שלב שנמדד ממנה היה יוצא בתאריך שרירותי.
+   */
+  it("שעון הניסיון אינו במסלול הגבייה", () => {
+    expect(isFunnelClockAnchored("dunning", "trial")).toBe(false);
+  });
+
+  /*
+   * ‎**והראיה שזה אינו סתם טבלה:** כל צירוף שהוכרז מעוגן חייב
+   * ‏להחזיר מועד אמיתי עם עוגנים מלאים, וכל צירוף שאינו — `null`.
+   * ‏טבלה שאינה מסכימה עם `funnelStageDueAt` גרועה מאין טבלה.
+   */
+  it("הטבלה מסכימה עם חישוב המועד בפועל", () => {
+    const filled: FunnelAnchors = {
+      funnelStartedAt: new Date("2026-09-01T06:00:00.000Z"),
+      trialEndsAt: new Date("2026-09-15T06:00:00.000Z"),
+      paymentFailedAt: new Date("2026-09-10T06:00:00.000Z"),
+    };
+    for (const track of FUNNEL_TRACKS) {
+      for (const clock of FUNNEL_CLOCKS) {
+        const anchors: FunnelAnchors = {
+          ...filled,
+          // ‏כמו ש-`closePage` בונה אותם: עוגן התשלום קיים רק בגבייה
+          paymentFailedAt: track === "dunning" ? filled.paymentFailedAt : null,
+          trialEndsAt: track === "conversion" ? filled.trialEndsAt : null,
+        };
+        const due = funnelStageDueAt(stage({ key: "x", clock, offsetDays: 0 }), anchors);
+        expect(
+          due !== null,
+          `${track}/${clock}: הטבלה אומרת ${String(isFunnelClockAnchored(track, clock))}`,
+        ).toBe(isFunnelClockAnchored(track, clock));
+      }
+    }
+  });
+});
+
 describe("הפעלה הדרגתית של שלבים", () => {
   const started = new Date("2026-09-07T06:00:00.000Z");
   const anchorsFor = (): FunnelAnchors => anchors({ funnelStartedAt: started });

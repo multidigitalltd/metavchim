@@ -4,6 +4,7 @@ import {
   FUNNEL_CHANNELS,
   FUNNEL_CLOCKS,
   FUNNEL_TRACKS,
+  isFunnelClockAnchored,
   type FunnelAudience,
   type FunnelChannel,
   type FunnelClock,
@@ -115,6 +116,23 @@ export class FunnelStageService {
     }
     if (!isOneOf(FUNNEL_CLOCKS, row.clock)) {
       this.logger.warn(`שלב ${row.key}: שעון לא מוכר (${row.clock}) — הושמט`);
+      return null;
+    }
+    /*
+     * ‎**ושני ערכים מוכרים אינם בהכרח צירוף מוכר.**
+     *
+     * ‏מסלול המרה עם שעון תשלום עובר את שתי הבדיקות שמעל, ואז אין
+     * ‏לו עוגן: `funnelStageDueAt` מחזיר `null`, וזה נקרא כ„אי אפשר
+     * ‏לעולם” במקום „אין ממה למדוד” — הרישום נסגר כ„מוצה” ותיקון
+     * ‏השורה מאוחר יותר לא יחזיר אותו (ביקורת Codex, P1).
+     *
+     * ‏הכלל יושב ב-shared ליד השעונים עצמם, כי הוא נובע מהעוגנים
+     * ‏ולא מהעדפה — ושם גם עורך השלבים בשלב ב׳ ימצא אותו.
+     */
+    if (!isFunnelClockAnchored(row.track, row.clock)) {
+      this.logger.warn(
+        `שלב ${row.key}: שעון ${row.clock} אינו מעוגן במסלול ${row.track} — השלב הושמט`,
+      );
       return null;
     }
     /*

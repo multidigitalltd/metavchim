@@ -138,6 +138,33 @@ describe("FunnelStageService — שורה שאינה תקפה", () => {
     expect(defs).toEqual([]);
   });
 
+  /*
+   * ‎**שני ערכים מוכרים, צירוף שאינו מעוגן.**
+   *
+   * ‏רישום המרה אינו נפתח מדחיית חיוב, ולכן `paymentFailedAt` שלו
+   * ‏ריק ושלב שנמדד ממנו לא יוכל לצאת לעולם — אבל `funnelExitReason`
+   * ‏קרא את זה כ„אי אפשר” וסגר את הרישום, במקום להבין שאין ממה
+   * ‏למדוד (ביקורת Codex, P1).
+   */
+  it("שעון תשלום במסלול ההמרה מושמט — הוא אינו מעוגן שם", async () => {
+    const defs = await serviceFor([row({ clock: "payment" })]).forTrack("conversion");
+    expect(defs).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("אינו מעוגן במסלול"));
+  });
+
+  it("ובמסלול הגבייה אותו שעון עובר", async () => {
+    const defs = await serviceFor([
+      row({ key: "pay", track: "dunning", clock: "payment" }),
+    ]).forTrack("dunning");
+    expect(defs.map((d) => d.key)).toEqual(["pay"]);
+  });
+
+  it("צירוף לא מעוגן נספר כהגדרה פסולה, ולא נעלם בשקט", async () => {
+    const result = await serviceFor([row({ key: "unanchored", clock: "payment" })]).catalog();
+    expect(result.stages).toEqual([]);
+    expect(result.invalid).toEqual(["unanchored"]);
+  });
+
   it("שעון לא מוכר פוסל את השלב", async () => {
     const defs = await serviceFor([row({ clock: "lunar" })]).forTrack("conversion");
     expect(defs).toEqual([]);

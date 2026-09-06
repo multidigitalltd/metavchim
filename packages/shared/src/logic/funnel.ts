@@ -78,6 +78,34 @@ export function isServiceTrack(track: FunnelTrack): boolean {
 export const FUNNEL_CLOCKS = ["funnel", "trial", "payment"] as const;
 export type FunnelClock = (typeof FUNNEL_CLOCKS)[number];
 
+/**
+ * ‎**איזה שעון מעוגן בכל מסלול — ולמה זו הגדרה ולא נימוס.**
+ *
+ * ‏שלושת השעונים נשענים על שלוש עוגנים: `funnel` על מועד הכניסה,
+ * ‎`trial` על תפוגת הניסיון, ו-`payment` על רגע הדחייה. שני
+ * ‏הראשונים קיימים בכל רישום; ה**שלישי קיים רק במסלול הגבייה**,
+ * ‏כי רישום המרה לא נפתח מדחיית חיוב ואין לו מה למלא שם.
+ *
+ * ‏שלב שמצרף מסלול המרה עם שעון תשלום עובר את שתי הבדיקות
+ * ‏הבודדות — שני הערכים מוכרים — ואז `funnelStageDueAt` מחזיר
+ * ‎`null` כי אין עוגן. `funnelExitReason` קרא `null` כ„אי אפשר
+ * ‏לעולם”, הוציא את השלב מהחשבון, וסגר את הרישום כ„מוצה” (ביקורת
+ * ‏Codex, P1).
+ *
+ * ‏זו אותה טעות שתוקנה בשלב פסול, בלבוש אחר: **היעדר מידע נקרא
+ * ‏כידיעה שלילית.** ההבדל הוא שכאן השורה עצמה תקינה לכל אבריה,
+ * ‏ורק הצירוף אינו — ולכן הכלל חייב להיות מפורש.
+ */
+export const FUNNEL_TRACK_CLOCKS: Record<FunnelTrack, readonly FunnelClock[]> = {
+  conversion: ["funnel", "trial"],
+  dunning: ["funnel", "payment"],
+};
+
+/** ‏האם לצירוף הזה יש בכלל עוגן שאפשר למדוד ממנו. */
+export function isFunnelClockAnchored(track: FunnelTrack, clock: FunnelClock): boolean {
+  return FUNNEL_TRACK_CLOCKS[track].includes(clock);
+}
+
 export const FUNNEL_CLOCK_LABELS: Record<FunnelClock, string> = {
   funnel: "מיום הכניסה למסלול",
   trial: "ביחס לתפוגת הניסיון",
