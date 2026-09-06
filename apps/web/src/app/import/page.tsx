@@ -144,7 +144,16 @@ export default function ImportPage() {
    */
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("mode");
-    if (requested !== null && requested in MODE_LABELS) setMode(requested as Mode);
+    /*
+     * ‎`Object.hasOwn` ולא `in`: האופרטור סורק גם את שרשרת
+     * ‏האב-טיפוס, ולכן `?mode=constructor`, `?mode=toString`
+     * ‏ו-`?mode=__proto__` היו עוברים את הבדיקה. `MODE_LABELS[mode]`
+     * ‏היה מחזיר פונקציה במקום מחרוזת, והמסך היה נשבר על כתובת
+     * ‏שאפשר לשלוח למישהו בקישור (ביקורת Codex).
+     */
+    if (requested !== null && Object.hasOwn(MODE_LABELS, requested)) {
+      setMode(requested as Mode);
+    }
   }, []);
   const [csv, setCsv] = useState("");
   /** מיפוי ידני: כותרת מהקובץ ⟵ שדה יעד. גובר על הזיהוי האוטומטי. */

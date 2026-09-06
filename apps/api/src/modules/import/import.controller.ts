@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   BuyerMaturitySchema,
   FinancingStatusSchema,
+  isValidSourceUrl,
   MoneyAgorotSchema,
   PhoneInputSchema,
   PhoneSchema,
@@ -188,12 +189,17 @@ function withoutUnusableExtras(rawRow: Record<string, unknown>): {
     dropped.push("טלפון בעל הנכס אינו מספר ישראלי תקין — הנכס לגיוס נקלט בלי הטלפון");
   }
 
+  /*
+   * ‎`isValidSourceUrl` ולא `z.string().url()`.
+   *
+   * ‏הבדיקה הגנרית מקבלת `ftp://`, `mailto:` ו-`javascript:` —
+   * ‏מחרוזות שהן כתובת תקינה ואינן מודעה. הן היו עוברות כאן,
+   * ‏ו-`RecruitmentService.assertSourceUrl` היה דוחה אותן בהמשך
+   * ‏ומפיל את **כל השורה** — בדיוק מה שהקטע הזה נכתב כדי למנוע
+   * ‏(ביקורת Codex). שתי הבדיקות חייבות להיות אותה בדיקה.
+   */
   const url = row["sourceUrl"];
-  if (
-    typeof url === "string" &&
-    url.trim() !== "" &&
-    !z.string().url().max(2000).safeParse(url).success
-  ) {
+  if (typeof url === "string" && url.trim() !== "" && !isValidSourceUrl(url)) {
     delete row["sourceUrl"];
     dropped.push("הקישור למודעה אינו כתובת אינטרנט תקינה — הנכס לגיוס נקלט בלי הקישור");
   }
@@ -308,7 +314,6 @@ export class ImportController {
 
     for (const [index, rawRow] of body.rows.entries()) {
       const { row, dropped } = withoutUnusableExtras(rawRow);
-      for (const warning of dropped) warnings.push({ row: index + 1, warning });
 
       const parsed = RecruitmentBodySchema.safeParse(row);
       if (!parsed.success) {
@@ -321,6 +326,16 @@ export class ImportController {
       try {
         await this.recruitment.create(parsed.data);
         created += 1;
+        /*
+         * ‎**האזהרה נרשמת רק אחרי שהשורה נכנסה.**
+         *
+         * ‏המסך מציג `warnings` כ„נקלטו, ויש מה לומר עליהן”. שורה
+         * ‏שנפלה אחרי שהאזהרה כבר נרשמה הופיעה **גם ב-`failed` וגם
+         * ‏ב-`warnings`** — כלומר אמרה למתווך שהיא בפנים ואין מה
+         * ‏לעשות, בזמן שהיא בחוץ וצריך לתקן ולשלוח שוב (ביקורת
+         * ‏Codex).
+         */
+        for (const warning of dropped) warnings.push({ row: index + 1, warning });
       } catch (error) {
         failed.push({
           row: index + 1,

@@ -102,6 +102,43 @@ describe("ייבוא נכסים לגיוס", () => {
     expect(created[0]).not.toHaveProperty("sourceUrl");
   });
 
+  /*
+   * ‏`ftp://` ו-`mailto:` הם כתובת תקינה לפי כל בודק גנרי, ואינם
+   * ‏מודעה. הם עברו כאן ונדחו רק בשירות — שם הדחייה מפילה את השורה
+   * ‏כולה, כלומר בדיוק מה שהקטע הזה נועד למנוע.
+   */
+  it.each(["ftp://example.com/x", "mailto:a@b.com", "javascript:alert(1)"])(
+    "קישור בסכמה שאינה http(s) יורד ואינו מפיל את השורה — %s",
+    async (sourceUrl) => {
+      const { controller, created } = harness();
+
+      const result = await controller.importRecruitment({ rows: [{ ...AD, sourceUrl }] });
+
+      expect(result.created).toBe(1);
+      expect(result.failed).toEqual([]);
+      expect(created[0]).not.toHaveProperty("sourceUrl");
+    },
+  );
+
+  /**
+   * ‎**שורה שנפלה אינה מופיעה גם כ„נקלטה עם אזהרה”.**
+   *
+   * ‏המסך מציג `warnings` כשורות שנכנסו. שורה עם טלפון פסול *וגם*
+   * ‏שדה זר הייתה מופיעה בשתי הרשימות, ואומרת למתווך שהיא בפנים
+   * ‏בזמן שהיא בחוץ.
+   */
+  it("אזהרה על שדה שירד אינה נרשמת לשורה שנפלה", async () => {
+    const { controller } = harness();
+
+    const result = await controller.importRecruitment({
+      rows: [{ ...AD, ownerPhone: "לא ידוע", marketingTitle: "דירה מרווחת" }],
+    });
+
+    expect(result.created).toBe(0);
+    expect(result.failed).toHaveLength(1);
+    expect(result.warnings).toEqual([]);
+  });
+
   it("טלפון תקין נשמר ואינו מייצר אזהרה — גם כשהוא מלוכלך", async () => {
     const { controller, created } = harness();
 

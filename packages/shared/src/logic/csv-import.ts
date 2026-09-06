@@ -646,6 +646,25 @@ export function parseRecruitmentCsv(
       const raw = unsanitizeFormulaCell((cells[col] ?? "").trim());
       if (target === undefined || raw === "") return;
 
+      /*
+       * ‎**„3,5” הוא שלוש וחצי, לא שלושים וחמש.**
+       *
+       * ‏פסיק עשרוני הוא כתיב נפוץ בגיליונות, וניקוי גורף של
+       * ‏פסיקים (שנכון למחיר — „2,650,000”) הפך אותו ל-35. הסכימה
+       * ‏חוסמת חדרים מעל 20, ולכן **השורה כולה** נדחתה על עמודה
+       * ‏שנקראה נכון במפרק הנכסים (ביקורת Codex). שני כללים ולא
+       * ‏אחד, כי מדובר בשני תפקידים של אותו תו.
+       */
+      if (target === "rooms") {
+        const value = Number(raw.replace(",", "."));
+        if (Number.isFinite(value)) row.rooms = value;
+        return;
+      }
+      if (target === "floor" && /קרקע/u.test(raw)) {
+        // ‏„קומת קרקע” — קומה 0, כמו במפרק הנכסים
+        row.floor = 0;
+        return;
+      }
       if (RECRUITMENT_NUMERIC.has(target)) {
         const value = Number(raw.replace(/[,\s₪]/gu, ""));
         if (!Number.isFinite(value)) return;

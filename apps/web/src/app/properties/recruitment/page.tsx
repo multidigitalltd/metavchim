@@ -16,6 +16,7 @@ import {
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
+import { useFeature } from "@/lib/use-features";
 import { IconPlus, IconSheet } from "../../icons";
 import { FilterChips } from "../../list-controls";
 
@@ -52,6 +53,15 @@ export default function RecruitmentPage() {
   /** ‏המזהה שממתין לאישור מחיקה — האישור נפתח בשורה עצמה */
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  /*
+   * ‎**הכפתור נגזר מהחבילה, לא רק מההרשאה.**
+   *
+   * ‏נתיב הייבוא חסום מאחורי `@RequireFeature("data_io")`. בלי
+   * ‏הבדיקה כאן, משרד בלי החבילה היה בוחר קובץ, ממפה עמודות, לוחץ
+   * ‏„ייבא” — ומקבל 403 בסוף (ביקורת Codex). אותה בדיקה בדיוק
+   * ‏קיימת על כפתור הייבוא של הנכסים.
+   */
+  const canImport = useFeature("data_io");
 
   const load = useCallback(async () => {
     const query = filter === "" ? "" : `?status=${filter}`;
@@ -105,13 +115,25 @@ export default function RecruitmentPage() {
     setDeleting(id);
     try {
       await apiDelete(`/recruitment/${id}`);
-      setConfirmingDelete(null);
-      await load();
     } catch {
       setError("המחיקה נכשלה — נסו שוב.");
-    } finally {
       setDeleting(null);
+      return;
     }
+
+    /*
+     * ‎**המחיקה הצליחה — וריענון שנכשל אינו הופך אותה לכישלון.**
+     *
+     * ‏‎`catch` אחד סביב שתי הקריאות אמר „המחיקה נכשלה” גם כשהשורה
+     * ‏כבר נמחקה: המתווך היה רואה אותה עדיין ברשימה, לוחץ שוב, ומקבל
+     * ‏404 — כי השירות מוחק רק שורות עם `deletedAt: null` (ביקורת
+     * ‏Codex). לכן השורה יורדת מהמצב המקומי מיד, והריענון הוא רק
+     * ‏סנכרון של המונים.
+     */
+    setConfirmingDelete(null);
+    setRows((prev) => (prev ?? []).filter((row) => row.id !== id));
+    setDeleting(null);
+    await load().catch(() => undefined);
   }
 
   const open = (rows ?? []).filter((r) => isOpenRecruitment(r.status)).length;
@@ -133,13 +155,15 @@ export default function RecruitmentPage() {
               נכתב לטבלת הגיוס בלבד — נכס שיובא לכאן אינו מגיע
               להתאמות ולא לרשת עד שלוחצים „המר לנכס שלי”.
             */}
-            <Link
-              href="/import?mode=recruitment"
-              className="mv-btn-plain"
-              style={{ minHeight: 38, paddingInline: 14, fontSize: "var(--type-caption)" }}
-            >
-              <IconSheet s={15} /> ייבוא מאקסל
-            </Link>
+            {canImport ? (
+              <Link
+                href="/import?mode=recruitment"
+                className="mv-btn-plain"
+                style={{ minHeight: 38, paddingInline: 14, fontSize: "var(--type-caption)" }}
+              >
+                <IconSheet s={15} /> ייבוא מאקסל
+              </Link>
+            ) : null}
             <Link href="/properties/recruitment/new">
               <Button>
                 <IconPlus />
