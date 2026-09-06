@@ -9,6 +9,7 @@ import {
   type OwnerActivityKind,
   type OwnerActivityResult,
 } from "@metavchim/shared";
+import { assertContactAccess, canSeeContact } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -164,6 +165,16 @@ export class PropertyActivityService {
         select: { ownerContactId: true },
       });
       if (!property?.ownerContactId) return null;
+      /*
+       * ‎**„בלי הפרטים עצמם” כלל **שם** — וזה פרט.**
+       *
+       * ‏הנימוק שלמעלה נכון לטלפון ולאימייל ולא לשם, שיצא מכאן
+       * ‏במלואו לכל מי שהנכס פתוח אצלו — כלומר לכל המשרד (ביקורת
+       * ‏Codex, P1). מי שאינו רשאי לבעלים מקבל את אותה תשובה
+       * ‏שמקבלים על נכס שאין לו בעלים: אין ערוצים, אין שם, והדוח
+       * ‏עצמו — פעילות הנכס — נשאר גלוי כמו הנכס.
+       */
+      if (!(await canSeeContact(tx, tenantId, property.ownerContactId))) return null;
       return tx.contact.findFirst({
         where: { id: property.ownerContactId, tenantId },
         select: { nameEncrypted: true, phoneEncrypted: true, emailEncrypted: true },
@@ -270,6 +281,17 @@ export class PropertyActivityService {
         },
       });
       if (!property) throw new NotFoundException("נכס לא נמצא");
+      /*
+       * ‎**וגם השליחה, לא רק התצוגה.**
+       *
+       * ‏להשמיט את השם מהמסך ולהשאיר את הכפתור עובד הוא שער שנעצר
+       * ‏בדיוק לפני המקום שבו יש נזק: הדוח יוצא בשם המשרד אל בעל
+       * ‏הנכס של עמית, בוואטסאפ או במייל. `assertContactAccess`
+       * ‏ולא השמטה — כאן אין מה להשמיט, יש פעולה לעצור.
+       */
+      if (property.ownerContactId) {
+        await assertContactAccess(tx, tenantId, property.ownerContactId);
+      }
       const tenant = await tx.tenant.findFirst({
         where: { id: tenantId },
         select: { name: true },

@@ -39,7 +39,12 @@ import {
   assertCanAssignAgents,
 } from "../../common/agent-names";
 import { lockContact, lockProperty, type ContactLock } from "../../common/locks";
-import { canSeeContact, isOrphanContact, leadOwnershipFilter } from "../../common/ownership";
+import {
+  assertContactAccess,
+  canSeeContact,
+  isOrphanContact,
+  leadOwnershipFilter,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { recordMentorWin } from "../../common/mentor-wins";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
@@ -1253,6 +1258,20 @@ export class PropertiesService {
           "לנכס לא הוגדר בעל נכס — הוסיפו שם וטלפון בעריכת הנכס",
         );
       }
+      /*
+       * ‎**הסתרת הבעלים בכרטיס אינה שווה דבר אם אפשר לשלוח לו.**
+       *
+       * ‏`getById` על הנכס משמיט את פרטי הבעלים למי שאינו רשאי — ואז
+       * ‏הפעולה הזו החזירה אותם: `waUrl` נושא את **הטלפון** וההודעה
+       * ‏נושאת את **השם**. הנכס גלוי לכל המשרד בכוונה, ולכן המזהה
+       * ‏שלו אינו סוד וכל סוכן יכול היה לקרוא לפעולה (ביקורת Codex,
+       * ‏P1).
+       *
+       * ‏וזו הצורה החמורה, כמו ב-`reply` בתיבה: לא רק חשיפת מספר
+       * ‏אלא **פנייה** — ההודעה מתועדת ב-Messages Hub ויוצאת בשם
+       * ‏המשרד.
+       */
+      await assertContactAccess(tx, tenantId, property.ownerContactId);
       const owner = await this.contacts.getById(tx, property.ownerContactId);
       if (!owner) throw new NotFoundException("איש הקשר של בעל הנכס לא נמצא");
 

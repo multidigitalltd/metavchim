@@ -2088,6 +2088,16 @@ export class AgentExecuteService {
       if (property.ownerContactId === null) {
         throw new BadRequestException("לנכס אין בעלים רשום — אפשר לקשר איש קשר במסך הנכס");
       }
+      /*
+       * ‎**גם דרך העוזר, ומאותה סיבה בדיוק.**
+       *
+       * ‏העוזר מקבל מזהה נכס והנכסים משרדיים, ולכן סוכן שחסום
+       * ‏מבעלי הנכסים של המשרד יכול היה לבקש „שלח הודעה לבעלים של
+       * ‏הנכס ברחוב X” ולקבל קישור שנושא את **הטלפון** ומשפט שנושא
+       * ‏את **השם** (ביקורת Codex, P1). ההודעה גם נרשמת ב-Messages
+       * ‏Hub, כלומר זו פנייה ולא רק צפייה.
+       */
+      await assertContactAccess(tx, tenantId, property.ownerContactId);
       const contact = await this.contacts.getById(tx, property.ownerContactId);
       if (!contact || contact.phone === "") {
         throw new BadRequestException("לבעל הנכס אין מספר טלפון בכרטיס");

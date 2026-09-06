@@ -128,6 +128,33 @@ export function inboundNotificationOwner(sources: {
   );
 }
 
+/**
+ * ‎**התראה שאין לה בעלים מגיעה לכל המשרד — ולכן אסור שתישא תוכן.**
+ *
+ * ‏התיקון הקודם נתן בעלים לבעל נכס, ועצר שם. נשאר מקרה שהוא
+ * ‏**בדיוק אותה דליפה**: נכס בלי סוכן משויך (`agentUserId = null`),
+ * ‏קונה בלי `ownerUserId`, ליד בלי `assignedToUserId`. בכל אלה
+ * ‏הבעלים הוא `null`, ההתראה משרדית — ותמצית גוף המייל מוצגת לכל
+ * ‏המשרד, בזמן שהשיחה עצמה מוסתרת בתיבה (ביקורת Codex, P1).
+ *
+ * ‏הכלל נגזר מהתנאי ואינו רשימת מקרים: **`userId` ריק פירושו „לא
+ * ‏הצלחנו לזהות מי זכאי”**, וזו בדיוק הסיבה שאסור לצרף תוכן. הוא
+ * ‏מכסה גם את המקרה שאיש לא מנה — לקוח בלי קונה, בלי ליד ובלי נכס
+ * ‏כלל, שאינו נראה בתיבה לאיש.
+ *
+ * ‎**וההתראה נשארת.** מחיקתה הייתה מסתירה מייל של נכס לא-משויך
+ * ‏מכולם, כולל מהמנהל שכן רשאי לראותו. מה שנשלל הוא התוכן, לא
+ * ‏הידיעה שהגיע דבר מה — והכותרת אומרת מפורשות לאן ללכת.
+ */
+export function inboundNotificationContent(
+  ownerUserId: string | null,
+  snippet: string,
+): { title: string; body: string | null } {
+  return ownerUserId === null
+    ? { title: "📧 התקבלה תשובה במייל — ללא סוכן משויך", body: null }
+    : { title: "📧 לקוח ענה במייל", body: snippet };
+}
+
 @Injectable()
 export class EmailInboxService {
   private readonly logger = new Logger(EmailInboxService.name);
@@ -326,6 +353,12 @@ export class EmailInboxService {
        *
        * ‏שאילתה שלישית ולא צירוף: היא נשאלת רק כשאין קונה ואין ליד,
        * ‏שהוא המקרה הנדיר.
+       *
+       * ‎`agentUserId: { not: null }` הוא **העדפה, לא סינון**: ללקוח
+       * ‏שיש לו גם נכס משויך וגם נכס שאינו משויך, הבעלים הוא הסוכן
+       * ‏של המשויך. כשכל נכסיו אינם משויכים אין בעלים בכלל — ואת
+       * ‏המקרה הזה סוגר `inboundNotificationContent`, בשלילת התוכן
+       * ‏ולא בהוצאת שורה מהשאילתה.
        */
       const property =
         buyer === null && lead === null
@@ -360,15 +393,16 @@ export class EmailInboxService {
           },
         });
       }
+      const content = inboundNotificationContent(ownerUserId, snippet);
       await tx.notification.create({
         data: {
           id: ulid(),
           tenantId,
-          // הסוכן האחראי; אין כזה — כל המשרד רואה
+          // הסוכן האחראי; אין כזה — כל המשרד רואה, ולכן בלי תוכן
           userId: ownerUserId,
           type: "email_reply",
-          title: "📧 לקוח ענה במייל",
-          body: snippet,
+          title: content.title,
+          body: content.body,
           ...(buyer !== null
             ? { entityType: "buyer", entityId: buyer.id }
             : lead !== null

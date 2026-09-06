@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { NotFoundException } from "@nestjs/common";
 import type { Capability } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
-import { EmailInboxService, inboundNotificationOwner } from "./email-inbox.service";
+import {
+  EmailInboxService,
+  inboundNotificationContent,
+  inboundNotificationOwner,
+} from "./email-inbox.service";
 
 /**
  * ‎**סוכן אינו רואה — ובעיקר אינו כותב — בהתכתבות של עמיתו.**
@@ -232,8 +236,9 @@ describe("בעלות ההתראה על מייל נכנס", () => {
   });
 
   /*
-   * ‏הגבול: כשבאמת אין בעלים, `null` הוא התשובה הנכונה — התראה
-   * ‏שאיש אינו רואה גרועה מהתראה משרדית.
+   * ‏הגבול: כשבאמת אין בעלים, `null` הוא התשובה הנכונה. התראה
+   * ‏שאיש אינו רואה גרועה מהתראה משרדית — ומה שנשלל ממנה הוא
+   * ‏התוכן, לא הקיום. את זה בודק ה-`describe` הבא.
    */
   it("בלי אף מקור — null, ובכוונה", () => {
     expect(inboundNotificationOwner({ buyer: null, lead: null, property: null })).toBeNull();
@@ -244,5 +249,55 @@ describe("בעלות ההתראה על מייל נכנס", () => {
         property: { agentUserId: null },
       }),
     ).toBeNull();
+  });
+});
+
+/**
+ * ‎**וההתראה המשרדית — בלי תמצית.**
+ *
+ * ‏`inboundNotificationOwner` מזהה בעלים כשיש; כאן נקבע מה קורה
+ * ‏כשאין. נכס בלי סוכן משויך הוא המקרה שנשאר פתוח אחרי התיקון
+ * ‏הקודם: הבעלים `null`, ההתראה מוצגת לכל המשרד, והתמצית של גוף
+ * ‏המייל נסעה איתה — בזמן ש-`visibleContactIds` מסתיר את אותה
+ * ‏שיחה מכל מי שאין לו `properties.view_all` (ביקורת Codex, P1).
+ */
+describe("תוכן ההתראה על מייל נכנס", () => {
+  const SNIPPET = "שלום, אני מעוניין להתקדם עם הדירה ברחוב הרצל";
+
+  it("יש בעלים — ההתראה אישית ונושאת את התמצית", () => {
+    expect(inboundNotificationContent("01PROPAGENT", SNIPPET)).toEqual({
+      title: "📧 לקוח ענה במייל",
+      body: SNIPPET,
+    });
+  });
+
+  /** ‏זה המקרה שדלף: נכס בלי סוכן משויך. */
+  it("אין בעלים — ההתראה נשארת, התמצית לא", () => {
+    expect(inboundNotificationContent(null, SNIPPET).body).toBeNull();
+  });
+
+  /*
+   * ‏החצי השני, ובלעדיו „מחקנו את ההתראה” היה עובר את הבדיקה: מייל
+   * ‏של נכס לא-משויך היה נעלם גם מהמנהל שכן רשאי לראותו.
+   */
+  it("אין בעלים — הכותרת עדיין אומרת שהגיע דבר מה, ולאן", () => {
+    const content = inboundNotificationContent(null, SNIPPET);
+    expect(content.title).not.toBe("");
+    expect(content.title).toContain("מייל");
+    expect(content.title).toContain("ללא סוכן משויך");
+  });
+
+  /*
+   * ‏הכלל נגזר מהבעלים ולא ממקור מסוים: קונה בלי `ownerUserId`
+   * ‏מגיע לאותו `null` ומקבל את אותו יחס. אחרת התיקון היה נכון
+   * ‏לנכסים בלבד, ונשבר על הדרך הבאה פנימה.
+   */
+  it("הכלל תלוי בבעלים בלבד — לא במקור שממנו הוא נגזר", () => {
+    const owner = inboundNotificationOwner({
+      buyer: { ownerUserId: null },
+      lead: null,
+      property: null,
+    });
+    expect(inboundNotificationContent(owner, SNIPPET).body).toBeNull();
   });
 });

@@ -54,6 +54,9 @@ function serviceFor(propertyAgentUserId: string | null): PropertiesService {
     lead: { findFirst: async () => null, findMany: async () => [] },
     contactLink: { findFirst: async () => null },
     user: { findMany: async () => [] },
+    // ‏מה ש-`prepareOwnerUpdate` שואל אחרי שהוא מצא את הבעלים
+    match: { findMany: async () => [] },
+    offer: { findMany: async () => [] },
   };
   const prisma = {
     withTenant: async <T>(fn: (t: typeof tx) => Promise<T>): Promise<T> => fn(tx),
@@ -66,13 +69,15 @@ function serviceFor(propertyAgentUserId: string | null): PropertiesService {
       email: "owner@example.com",
     }),
   };
+  const audit = { record: async () => undefined };
+  const messaging = { recordOutbound: async () => undefined };
   return new PropertiesService(
     prisma as never,
-    {} as never,
+    audit as never,
     {} as never,
     {} as never,
     contacts as never,
-    {} as never,
+    messaging as never,
     {} as never,
     {} as never,
     {} as never,
@@ -121,5 +126,39 @@ describe("כרטיס נכס — פרטי הבעלים", () => {
   it("הנכס שלי — הבעלים מוצג כרגיל", async () => {
     const dto = await asUser(SCOPED, () => serviceFor("01ME").getById("01PROP"));
     expect(dto.ownerContact?.phone).toBe("+972501234567");
+  });
+});
+
+/**
+ * ‎**ולא רק לראות — גם לפנות.**
+ *
+ * ‏הכרטיס משמיט את הבעלים, ואז „עדכון שיווק לבעל הנכס” החזיר אותו:
+ * ‎`waUrl` נושא את הטלפון וההודעה נושאת את השם, וכל סוכן יכול
+ * ‏לקרוא לפעולה כי מזהה הנכס משרדי (ביקורת Codex, P1).
+ *
+ * ‏זו הצורה החמורה של הדליפה: ההודעה נרשמת ב-Messages Hub ויוצאת
+ * ‏בשם המשרד, כלומר היא **יוצרת** מגע ולא חושפת מידע. ולכן כאן זה
+ * ‏זורק ולא משמיט — אין מה להשמיט, יש מה לעצור.
+ */
+describe("עדכון שיווק לבעל הנכס", () => {
+  it("נכס של סוכן אחר — הפעולה נדחית", async () => {
+    await expect(
+      asUser(SCOPED, () => serviceFor("01OTHER").prepareOwnerUpdate("01PROP")),
+    ).rejects.toThrow();
+  });
+
+  it("הנכס שלי — הקישור נבנה כרגיל", async () => {
+    const result = await asUser(SCOPED, () =>
+      serviceFor("01ME").prepareOwnerUpdate("01PROP"),
+    );
+    expect(result.waUrl).toContain("972501234567");
+    expect(result.message).toContain("בעל הנכס");
+  });
+
+  it("ברירת המחדל אינה משנה דבר", async () => {
+    const result = await asUser(DEFAULT, () =>
+      serviceFor("01OTHER").prepareOwnerUpdate("01PROP"),
+    );
+    expect(result.waUrl).toContain("972501234567");
   });
 });

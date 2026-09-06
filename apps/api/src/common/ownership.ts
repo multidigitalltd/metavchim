@@ -1,4 +1,4 @@
-import { NotFoundException } from "@nestjs/common";
+import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { Capability } from "@metavchim/shared";
 import type { TenantTx } from "../core/prisma.service";
@@ -294,6 +294,33 @@ export function seesAllContacts(): boolean {
      */
     caps.has("properties.view_all")
   );
+}
+
+/**
+ * ‎**פעולה שאין לה גרסה חלקית — או על כל אנשי המשרד, או בכלל לא.**
+ *
+ * ‏מסך הכפילויות הוא המקרה: הוא סורק את **כל** אנשי הקשר של המשרד,
+ * ‏מפענח שם וטלפון של כל התאמה, ומציע למזג — כלומר לכתוב מחדש
+ * ‏ולמחוק. הוא הוצהר על `buyers.view_all` בלבד, ולכן מי שהמנהל
+ * ‏חסם ממנו את בעלי הנכסים קיבל דרכו בדיוק אותם אנשים (ביקורת
+ * ‏Codex, P1).
+ *
+ * ‎**וסינון לא היה התשובה כאן.** ההערה על הנתיב אומרת את הסיבה
+ * ‏מראש: „הצעת מיזוג על סמך חצי תמונה היא הצעה למחוק כרטיס שהוא
+ * ‏לא רואה”. רשימת כפילויות מסוננת הייתה בדיוק חצי תמונה — אותה
+ * ‏תקלה שהצהרת ה-`view_all` נועדה למנוע, רק שקטה יותר. מה שהשתנה
+ * ‏הוא ש„ראייה רוחבית על הלקוחות” כבר אינה יכולת אחת אלא ארבע.
+ *
+ * ‎403 ולא 404: כאן אין מה להסתיר. הפעולה קיימת, והתשובה הנכונה
+ * ‏למי שאינו רשאי לה היא שהיא אינה פתוחה בפניו — כדי שמנהל שחסם
+ * ‏יכולת יבין למה המסך נעלם, ולא יחפש תקלה.
+ */
+export function assertSeesAllContacts(): void {
+  if (!seesAllContacts()) {
+    throw new ForbiddenException(
+      "הפעולה דורשת ראייה משרדית מלאה על אנשי הקשר — כולל בעלי הנכסים",
+    );
+  }
 }
 
 /**

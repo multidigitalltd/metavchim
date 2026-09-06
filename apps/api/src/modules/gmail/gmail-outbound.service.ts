@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
+import { assertContactAccess } from "../../common/ownership";
 import { ContactsService } from "../contacts/contacts.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { GmailService, type GmailLinkRow } from "./gmail.service";
@@ -31,9 +32,25 @@ export class GmailOutboundService {
   ): Promise<void> {
     const tenantId = link.tenantId;
 
-    const to = await this.prisma.withExplicitTenant(tenantId, (tx) =>
-      this.contacts.emailFor(tx, input.contactId),
-    );
+    /*
+     * ‎**קודם „מותר לי הלקוח הזה”, ורק אחר כך „מה הכתובת שלו”.**
+     *
+     * ‏הכתובת אמנם נשלפת מהכרטיס ולא מהמסך — וזה מה שההערה למעלה
+     * ‏מבטיחה — אבל **מזהה הלקוח כן מגיע מהמסך**, ורשימת הנכסים
+     * ‏משרדית. כלומר סוכן שחסום מבעלי הנכסים של המשרד יכול היה
+     * ‏לשלוח מייל לבעל הנכס של עמיתו: לא לראות אותו, לשלוח אליו
+     * ‏(ביקורת Codex, P1).
+     *
+     * ‏זו הצורה החמורה של הדליפה, כמו ב-`reply` בתיבה: היא אינה
+     * ‏חושפת מידע אלא **יוצרת** מגע — וללקוח זה נראה כפנייה מהמשרד.
+     *
+     * ‎`leadId` אינו מכסה את זה: הוא אופציונלי, והשמטתו דילגה על
+     * ‏האימות היחיד שהיה כאן.
+     */
+    const to = await this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      await assertContactAccess(tx, tenantId, input.contactId);
+      return this.contacts.emailFor(tx, input.contactId);
+    });
     if (to === undefined || to === "") {
       throw new BadRequestException("ללקוח אין כתובת אימייל בכרטיס");
     }
