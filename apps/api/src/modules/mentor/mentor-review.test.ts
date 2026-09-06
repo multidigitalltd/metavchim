@@ -68,6 +68,8 @@ function fakeTx(counts: {
     body: unknown;
     commitment?: string | null;
   }[];
+  /** הצעות לפי תחילת הטווח שנשאל — למדידת „האם הרעיון עבד” */
+  offersByStart?: (start: Date) => number;
 }) {
   const created: Record<string, unknown>[] = [];
   const notifications: unknown[] = [];
@@ -102,8 +104,10 @@ function fakeTx(counts: {
       findFirst: async () => ({ name: "דנה כהן" }),
     },
     // שאילתות גולמיות לפי הטבלה שהן סופרות — הצעות, שיחות, לידים מהירים, מעקבים, חציון
-    $queryRaw: async (strings: TemplateStringsArray) => {
+    $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const sql = strings.join("?");
+      if (sql.includes("FROM offers") && counts.offersByStart !== undefined)
+        return [{ n: BigInt(counts.offersByStart(values[2] as Date)) }];
       if (sql.includes("percentile_cont"))
         return [{ median: counts.medianMinutes ?? null }];
       if (sql.includes("FROM calls") && sql.includes("NOT EXISTS"))
@@ -623,6 +627,58 @@ describe("MentorReviewService.generateForUser — מהירות מענה ושיח
       responseMedianMinutes: 14,
       missedUnreturned: 2,
     });
+  });
+});
+
+describe("MentorReviewService.generateForUser — האם הרעיון עבד", () => {
+  it("„עזר לי” מלפני שבוע נמדד על המדד שלו: השבוע מהסימון מול השבוע שלפניו, ונשמר בגוף", async () => {
+    // סומן שלישי 1.9: „לפני” 25.8–1.9, „אחרי” 1.9–8.9 — נסגר בתוך השבוע 6–13.9
+    const { tx, created } = fakeTx({
+      offersByStart: (start) =>
+        start.toISOString() === "2026-08-31T21:00:00.000Z"
+          ? 6
+          : start.toISOString() === "2026-08-24T21:00:00.000Z"
+            ? 2
+            : 4,
+    });
+    await service().generateForUser(
+      tx,
+      TENANT,
+      USER,
+      new Date("2026-01-01"),
+      WEEK,
+      "דנה",
+      undefined,
+      {
+        liked: ["offers_sent:0"],
+        dismissed: [],
+        marks: [
+          { key: "offers_sent:0", verdict: "helped", date: "2026-09-01" },
+          // סומן השבוע — יימדד בשבוע הבא
+          { key: "calls_made:0", verdict: "helped", date: "2026-09-08" },
+        ],
+      },
+    );
+    const body = created[0]?.["body"] as {
+      paragraphs: string[];
+      ideaOutcomes?: {
+        key: string;
+        before: number;
+        after: number;
+        change: string;
+      }[];
+    };
+    expect(body.paragraphs.join(" ")).toContain(
+      "הרעיון שסימנת „עזר לי” ב-1.9 — „לקבוע שעה קבועה להצעות”: בשבוע שאחריו 6 הצעות, מול 2 הצעות בשבוע שלפני. זה עובד",
+    );
+    expect(body.ideaOutcomes).toEqual([
+      expect.objectContaining({
+        key: "offers_sent:0",
+        before: 2,
+        after: 6,
+        change: "up",
+      }),
+    ]);
   });
 });
 

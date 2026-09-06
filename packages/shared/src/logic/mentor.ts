@@ -5,6 +5,7 @@ import {
   jerusalemWeekStart,
 } from "./israel-time.js";
 import { playbookIdea, type MentorIdeaFeedback } from "./mentor-playbook.js";
+import type { MentorIdeaOutcome } from "./mentor-outcome.js";
 import {
   DEFAULT_MENTOR_PERSONA,
   mentorCloser,
@@ -591,6 +592,8 @@ export interface MentorWeekSignals {
   persona?: MentorPersona;
   /** מה המתווך אמר על רעיונות — הטיפ לשבוע הבא מדלג על מה שנדחה (§7.2) */
   feedback?: MentorIdeaFeedback;
+  /** רעיונות שסומנו „עזר לי” לפני שבוע — והאם המספר שלהם זז (§7.2) */
+  ideaOutcomes?: MentorIdeaOutcome[];
 }
 
 /**
@@ -800,6 +803,36 @@ export function mentorTrendSentence(
   return `מול שבוע שעבר: ${[...ups, ...downs].join(", ")}.`;
 }
 
+/** „2026-09-03” ⟵ „3.9” — תאריך קצר כמו שאומרים אותו. */
+function shortDayLabel(label: string): string {
+  const [, month, day] = label.split("-");
+  return `${Number(day)}.${Number(month)}`;
+}
+
+/** תחילת הרעיון — עד הקו המפריד, הנקודתיים או הנקודה הראשונה. */
+function ideaGist(text: string): string {
+  const cut = text.search(/ — |[:.]/u);
+  const gist = (cut < 0 ? text : text.slice(0, cut)).trim();
+  return gist.length > 60 ? `${gist.slice(0, 59).trimEnd()}…` : gist;
+}
+
+/**
+ * האם הרעיון עבד — המשפט שסוגר את המעגל של „עזר לי” (docs/14 §7.2):
+ * המספר של הרעיון בשבוע מהסימון מול השבוע שלפניו. עלייה נאמרת
+ * כעובדה שמאשרת את הבחירה; אין עלייה — עובדה, וייחוס לתהליך: שבוע
+ * אחד הוא מעט, והרעיון לא נלקח בחזרה.
+ */
+export function mentorIdeaOutcomeSentence(outcome: MentorIdeaOutcome): string {
+  const lead = `הרעיון שסימנת „עזר לי” ב-${shortDayLabel(outcome.date)} — „${ideaGist(outcome.text)}”:`;
+  const after = mentorQuantity(outcome.metric, outcome.after);
+  const before = mentorQuantity(outcome.metric, outcome.before);
+  if (outcome.change === "up")
+    return `${lead} בשבוע שאחריו ${after}, מול ${before} בשבוע שלפני. זה עובד — להמשיך עם זה.`;
+  if (outcome.change === "flat")
+    return `${lead} ${after} בשבוע שאחריו, כמו בשבוע שלפני. הרעיון לבד עוד לא הזיז את המספר — שווה לשאול מה חסם.`;
+  return `${lead} ${after} בשבוע שאחריו, מול ${before} בשבוע שלפני. שבוע אחד הוא מעט — נמשיך לעקוב.`;
+}
+
 function isEmptyActivity(activity: MentorActivity): boolean {
   return MENTOR_METRICS.every((m) => activity[m.code] === 0);
 }
@@ -856,6 +889,12 @@ export function mentorWeeklyReview(
   if (goals.length > 0) paragraphs.push(goals.map(goalSentence).join(" "));
   // מהירות המענה ושיחות שמחכות — עובדות, אחרי היעדים ולפני הזיכרון
   paragraphs.push(...mentorInsightSentences(signals.insights));
+  /*
+   * מה שסומן „עזר לי” לפני שבוע — והמספר שלו. שניים לכל היותר,
+   * האחרונים: הסיכום אומר אם הרעיון עבד, לא מנהל טבלה.
+   */
+  for (const outcome of (signals.ideaOutcomes ?? []).slice(-2))
+    paragraphs.push(mentorIdeaOutcomeSentence(outcome));
   /*
    * הזיכרון: דפוס חוזר נאמר רק כשהוא **רלוונטי השבוע** — מדד שמאחור
    * גם עכשיו, או מפנה שנמשך. משפט אחד, לא רשימה: מנטור מזכיר דבר
@@ -1043,6 +1082,8 @@ export interface MentorReviewBody {
   activity: MentorActivity;
   /** התובנות כפי שנמדדו — חסר בגופים ישנים */
   insights?: MentorInsights;
+  /** מה נמדד על רעיונות שסומנו „עזר לי” — לסיכום החודשי; חסר כשלא נמדד דבר */
+  ideaOutcomes?: MentorIdeaOutcome[];
   goals: {
     metric: MentorGoalMetric;
     period: MentorGoalPeriod;
@@ -1068,6 +1109,9 @@ export function mentorReviewBody(
     wins: signals.wins,
     activity: signals.activity,
     ...(signals.insights === undefined ? {} : { insights: signals.insights }),
+    ...(signals.ideaOutcomes === undefined || signals.ideaOutcomes.length === 0
+      ? {}
+      : { ideaOutcomes: signals.ideaOutcomes }),
     goals: signals.goals.map((g) => ({
       metric: g.metric,
       period: g.period,

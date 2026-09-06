@@ -14,6 +14,9 @@ import {
   DEFAULT_MENTOR_PERSONA,
   mentorCadence,
   EMPTY_IDEA_FEEDBACK,
+  ideaMarksDue,
+  ideaOutcomeWindows,
+  mentorIdeaOutcome,
   mentorDailyIdeaPick,
   mentorDailyPlan,
   mentorGoalLabel,
@@ -30,6 +33,7 @@ import {
   type MentorGoalMetric,
   type MentorGoalPeriod,
   type MentorIdeaFeedback,
+  type MentorIdeaOutcome,
   type MentorPersona,
   type MentorReviewBody,
   type MentorWeekSignals,
@@ -770,11 +774,27 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       past.map(MentorService.toPastReview),
       weekEnd,
     );
+    /*
+     * האם הרעיון עבד: „עזר לי” שסומן לפני שבוע נמדד עכשיו — המדד של
+     * הרעיון בשבוע מהסימון מול השבוע שלפניו (docs/14 §7.2). כל סימון
+     * נמדד פעם אחת, בסיכום של השבוע שבו חלונו נסגר.
+     */
+    const ideaOutcomes: MentorIdeaOutcome[] = [];
+    for (const mark of ideaMarksDue(feedback.marks, week)) {
+      const windows = ideaOutcomeWindows(mark);
+      const [before, after] = await Promise.all([
+        this.signals.activity(tx, tenantId, userId, windows.before, weekEnd),
+        this.signals.activity(tx, tenantId, userId, windows.after, weekEnd),
+      ]);
+      const outcome = mentorIdeaOutcome(mark, before, after);
+      if (outcome !== null) ideaOutcomes.push(outcome);
+    }
 
     const signals: MentorWeekSignals = {
       patterns,
       persona,
       feedback,
+      ideaOutcomes,
       ...(firstName === "" ? {} : { firstName }),
       insights,
       weekStart,

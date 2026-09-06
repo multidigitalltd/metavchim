@@ -180,15 +180,33 @@ export function ideaByKey(
 export interface MentorIdeaFeedback {
   liked: readonly string[];
   dismissed: readonly string[];
+  /**
+   * יומן הסימונים, עם תאריך — כדי למדוד אחר כך אם המספר באמת זז
+   * (`mentorIdeaOutcome`). „עזר לי” ב-3.9 על רעיון להצעות: כמה הצעות
+   * היו בשבוע שאחרי, מול השבוע שלפני. הרשימות למעלה הן „מה”; זה „מתי”.
+   */
+  marks: readonly MentorIdeaMark[];
+}
+
+export interface MentorIdeaMark {
+  key: string;
+  verdict: "helped" | "dismissed";
+  /** יום הלוח הישראלי של הסימון — „2026-09-03” */
+  date: string;
 }
 
 export const EMPTY_IDEA_FEEDBACK: Readonly<MentorIdeaFeedback> = {
   liked: [],
   dismissed: [],
+  marks: [],
 };
 
 /** כמה מפתחות נשמרים לכל רשימה — הישנים נושרים; מאתיים הם שנים של בקרים. */
 export const IDEA_FEEDBACK_MAX = 200;
+/** כמה סימונים מתוארכים נשמרים — שישים הם חודשיים של בקרים, די למדידה ולסיכום חודשי. */
+export const IDEA_MARKS_MAX = 60;
+
+const MARK_DATE = /^\d{4}-\d{2}-\d{2}$/u;
 
 /** מה-preferences של המשתמש — סלחני: ערך פגום הוא רשימה ריקה. */
 export function resolveIdeaFeedback(preferences: unknown): MentorIdeaFeedback {
@@ -211,7 +229,26 @@ export function resolveIdeaFeedback(preferences: unknown): MentorIdeaFeedback {
           .slice(-IDEA_FEEDBACK_MAX)
       : [];
   };
-  return { liked: list("liked"), dismissed: list("dismissed") };
+  const rawMarks =
+    typeof ideas === "object" && ideas !== null
+      ? (ideas as { marks?: unknown }).marks
+      : undefined;
+  const marks: MentorIdeaMark[] = Array.isArray(rawMarks)
+    ? rawMarks
+        .flatMap((m: unknown): MentorIdeaMark[] => {
+          if (typeof m !== "object" || m === null) return [];
+          const { key, verdict, date } = m as Record<string, unknown>;
+          return typeof key === "string" &&
+            IDEA_KEY.test(key) &&
+            (verdict === "helped" || verdict === "dismissed") &&
+            typeof date === "string" &&
+            MARK_DATE.test(date)
+            ? [{ key, verdict, date }]
+            : [];
+        })
+        .slice(-IDEA_MARKS_MAX)
+    : [];
+  return { liked: list("liked"), dismissed: list("dismissed"), marks };
 }
 
 /**

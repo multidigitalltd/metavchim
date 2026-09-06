@@ -29,6 +29,7 @@ import {
   resolveIdeaFeedback,
   resolveMentorPersona,
   ideaByKey,
+  IDEA_MARKS_MAX,
   jerusalemDayLabel,
   type MentorGoalInput,
   mentorGoalLabel,
@@ -838,15 +839,26 @@ export class MentorService {
    * לשונית נגישות פתוחה אינם דורסים זה את זה. המפתח מאומת מול ספר
    * המשחק — מפתח שאינו רעיון נדחה.
    */
-  async ideaFeedback(input: {
-    ideaKey: string;
-    verdict: "helped" | "dismissed";
-  }): Promise<{ ok: true; text: string }> {
+  async ideaFeedback(
+    input: {
+      ideaKey: string;
+      verdict: "helped" | "dismissed";
+    },
+    now: Date = new Date(),
+  ): Promise<{ ok: true; text: string }> {
     const { tenantId, userId } = TenantContext.current();
     const idea = ideaByKey(input.ideaKey);
     if (idea === null) throw new BadRequestException("רעיון לא מוכר");
     const list = input.verdict === "helped" ? "liked" : "dismissed";
     const other = input.verdict === "helped" ? "dismissed" : "liked";
+    // הסימון עם תאריך — כדי למדוד בעוד שבוע אם המספר זז (`ideaMarksDue`)
+    const mark = JSON.stringify([
+      {
+        key: input.ideaKey,
+        verdict: input.verdict,
+        date: jerusalemDayLabel(now),
+      },
+    ]);
     await this.prisma.withTenant(
       (tx) =>
         /*
@@ -870,7 +882,25 @@ export class MentorService {
               (COALESCE(preferences -> 'mentor' -> 'ideas' -> ${list}::text, '[]'::jsonb) - ${input.ideaKey}::text)
                 || to_jsonb(${input.ideaKey}::text),
               ${other}::text,
-              COALESCE(preferences -> 'mentor' -> 'ideas' -> ${other}::text, '[]'::jsonb) - ${input.ideaKey}::text
+              COALESCE(preferences -> 'mentor' -> 'ideas' -> ${other}::text, '[]'::jsonb) - ${input.ideaKey}::text,
+              'marks',
+              COALESCE((
+                SELECT jsonb_agg(m.e ORDER BY m.i)
+                FROM jsonb_array_elements(
+                  CASE
+                    WHEN jsonb_typeof(preferences -> 'mentor' -> 'ideas' -> 'marks') = 'array'
+                    THEN preferences -> 'mentor' -> 'ideas' -> 'marks'
+                    ELSE '[]'::jsonb
+                  END || ${mark}::jsonb
+                ) WITH ORDINALITY AS m(e, i)
+                WHERE m.i > (
+                  CASE
+                    WHEN jsonb_typeof(preferences -> 'mentor' -> 'ideas' -> 'marks') = 'array'
+                    THEN jsonb_array_length(preferences -> 'mentor' -> 'ideas' -> 'marks')
+                    ELSE 0
+                  END
+                ) + 1 - ${IDEA_MARKS_MAX}::int
+              ), '[]'::jsonb)
             )
           ),
           true
@@ -881,7 +911,7 @@ export class MentorService {
       ok: true,
       text:
         input.verdict === "helped"
-          ? "רשמתי — עוד מהסוג הזה."
+          ? "רשמתי — עוד מהסוג הזה. בעוד שבוע אגיד לך אם המספר זז."
           : "רשמתי — הרעיון הזה לא יחזור. מחר יבוא אחר.",
     };
   }
