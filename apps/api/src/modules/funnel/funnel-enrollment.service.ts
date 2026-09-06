@@ -119,11 +119,7 @@ export class FunnelEnrollmentService {
          * ‏נגמר היא רישום שאין בו מה לשלוח.
          */
         const live = await tx.tenant.findMany({
-          where: {
-            id: { in: rows.map((row) => row.tenantId) },
-            status: "trial",
-            trialEndsAt: { not: null },
-          },
+          where: { id: { in: rows.map((row) => row.tenantId) }, ...trialActiveWhere(now) },
           select: { id: true },
         });
         /*
@@ -185,8 +181,7 @@ export class FunnelEnrollmentService {
      * אף שורה — כלומר **כולם** היו נראים כמי שטרם נרשמו.
      */
     const eligible = {
-      status: "trial",
-      trialEndsAt: { not: null },
+      ...trialActiveWhere(now),
       funnelEnrollments: { none: { track: "conversion" } },
     } as const;
     const freshFrom = new Date(now.getTime() - FUNNEL_FRESH_SIGNUP_HOURS * 60 * 60 * 1000);
@@ -224,24 +219,16 @@ export class FunnelEnrollmentService {
      * ‏הטיפוס מפורש בשני המקומות ולא נגזר: `after` נכתב מתוך
      * ‏התוצאה של השאילתה שקוראת אותו, וגזירה הייתה מעגלית.
      */
-    type FreshCursor = { createdAt: Date; id: string };
-    let after: FreshCursor | null = null;
+    let after: SignupCursor | null = null;
     for (;;) {
-      const cursor: FreshCursor | null = after;
+      const cursor: SignupCursor | null = after;
       const page = await this.prisma.withFunnelAdmin(
-        async (tx): Promise<{ rows: FreshCursor[]; prospects: { id: string }[] }> => {
+        async (tx): Promise<{ rows: SignupCursor[]; prospects: { id: string }[] }> => {
         const rows = await tx.tenant.findMany({
           where: {
             ...eligible,
             createdAt: { gte: freshFrom },
-            ...(cursor === null
-              ? {}
-              : {
-                  OR: [
-                    { createdAt: { gt: cursor.createdAt } },
-                    { createdAt: cursor.createdAt, id: { gt: cursor.id } },
-                  ],
-                }),
+            ...afterSignup(cursor),
           },
           select: { id: true, createdAt: true },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -357,20 +344,48 @@ export class FunnelEnrollmentService {
        * ‏לתקרת עבודה: זו הייתה הטעות בשלוש הביקורות הראשונות.
        */
       let enrolled = 0;
-      let cursor: string | undefined;
+      /*
+       * ‎**ואותו סמן מפתח כמו בסבב הטרי** (ביקורת Codex, P2).
+       *
+       * ‏כאן היה `cursor` של Prisma, שדורש ששורת הסמן תישאר בתוצאה
+       * ‏— והמשרד האחרון בדף יוצא ממנה בדיוק כשהוא נרשם. ראו
+       * ‏`afterSignup`.
+       */
+      let after: SignupCursor | null = null;
       while (enrolled < remaining) {
-        const page = await tx.tenant.findMany({
-          where: { ...eligible, createdAt: { lt: freshFrom } },
-          select: { id: true },
+        /* ‏מקומי ומוטפס, אחרת `after` נגזר מ-`page` שנגזר ממנו */
+        const cursor: SignupCursor | null = after;
+        const page: SignupCursor[] = await tx.tenant.findMany({
+          where: { ...eligible, createdAt: { lt: freshFrom }, ...afterSignup(cursor) },
+          select: { id: true, createdAt: true },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
           take: pageSize,
-          ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
         });
         if (page.length === 0) break;
-        cursor = page[page.length - 1]!.id;
+        const last = page[page.length - 1]!;
+        after = { createdAt: last.createdAt, id: last.id };
 
         for (const tenant of await this.withoutValidCard(tx, page, now)) {
-          if (await this.openProspect(tenant.id, now, tx)) enrolled += 1;
+          /*
+           * ‎**טרנזקציה משלו לכל משרד — ולא זו של המכסה**
+           * ‏(ביקורת Codex, P2).
+           *
+           * ‏כאן נמסר `tx` החיצוני, ולכן סולם הנעילות של **כל**
+           * ‏משרד בדף הצטבר בטרנזקציה אחת והוחזק עד סוף האצווה.
+           * ‏`deletePlan` שמעדכן כמה מנויים בבת אחת נוגע בהם בסדר
+           * ‏שלו, ושני מסלולים שמחזיקים שורות ומחכים זה לזה סוגרים
+           * ‏מעגל — Postgres מפיל אחד מהם, ובחצי מהמקרים זה הסבב.
+           *
+           * ‏בטרנזקציה לכל משרד הסבב מחזיק שורות של **אחד** בכל
+           * ‏רגע ואינו ממתין לאף אחד אחר, ולכן מעגל אינו נסגר. זה
+           * ‏גם מה שהסבב הטרי כבר עושה — ההבדל היה מקרי.
+           *
+           * ‏הנעילה המייעצת של היום נשארת על הטרנזקציה החיצונית,
+           * ‏שלא נוגעת בשורות בעצמה, ולכן המכסה עדיין מוגנת מפני
+           * ‏שני סבבים במקביל. ומשרד שנכשל אינו מגלגל אחורה את מי
+           * ‏שכבר נרשם באותו דף — שיפור, לא ויתור.
+           */
+          if (await this.openProspect(tenant.id, now)) enrolled += 1;
           if (enrolled >= remaining) break;
         }
       }
@@ -446,14 +461,15 @@ export class FunnelEnrollmentService {
    *
    * ‏החזרת `false` ולא זריקה: „כבר לא מועמד” אינו כשל של הסבב.
    */
-  private async openProspect(tenantId: string, now: Date, tx?: TenantTx): Promise<boolean> {
+  private async openProspect(tenantId: string, now: Date): Promise<boolean> {
     const attempt = async (t: TenantTx): Promise<boolean> => {
       await this.lockBilling(t, tenantId);
       const tenant = await t.tenant.findFirst({
         where: { id: tenantId },
         select: { status: true, trialEndsAt: true },
       });
-      if (tenant === null || tenant.status !== "trial" || tenant.trialEndsAt === null) {
+      /* ‏אותו כלל בדיוק כמו `trialActiveWhere` — ראו שם */
+      if (tenant === null || tenant.status !== "trial" || !isTrialActive(tenant.trialEndsAt, now)) {
         return false;
       }
       const card = await t.subscription.findFirst({
@@ -479,7 +495,7 @@ export class FunnelEnrollmentService {
       if (existing !== null) return false;
       return this.open(tenantId, "conversion", now, t);
     };
-    return tx === undefined ? this.prisma.withFunnelAdmin(attempt) : attempt(tx);
+    return this.prisma.withFunnelAdmin(attempt);
   }
 
   /**
@@ -910,6 +926,58 @@ export class FunnelEnrollmentService {
 /** ‏הניסיון עדיין בתוקף. משרד בלי תפוגה אינו „בניסיון פעיל”. */
 function isTrialActive(trialEndsAt: Date | null, now: Date): boolean {
   return trialEndsAt !== null && trialEndsAt.getTime() > now.getTime();
+}
+
+/**
+ * ‎**סמן מפתח על `(createdAt, id)` — ניסוח אחד לשני הסבבים**
+ * ‏(ביקורת Codex, P2).
+ *
+ * ‏`cursor` של Prisma דורש **ששורת הסמן תישאר בתוך התוצאה**, וזה
+ * ‏בדיוק מה שלא מתקיים כאן: המשרד האחרון בדף נרשם, ומאותו רגע
+ * ‏`funnelEnrollments: { none: … }` מוציא אותו — כלומר העוגן נעלם
+ * ‏מתחת לסמן. הדף הבא נעצר, והמכסה היומית מתמלאת חלקית: דף
+ * ‏שרובו משרדים עם כרטיס ובסופו מועמד אחד הכניס את המועמד ההוא
+ * ‏ואת איש מלבדו.
+ *
+ * ‏סמן מפתח מתקדם על **מה שראינו** ולא על מה שנשאר, ולכן שורה
+ * ‏שיצאה מהקבוצה אינה מפריעה לו. הסבב הטרי כבר עבר לזה; הפיגור
+ * ‏נשאר מאחור, ולכן הביטוי יושב עכשיו במקום אחד.
+ */
+interface SignupCursor {
+  createdAt: Date;
+  id: string;
+}
+
+function afterSignup(cursor: SignupCursor | null): {
+  OR?: ({ createdAt: { gt: Date } } | { createdAt: Date; id: { gt: string } })[];
+} {
+  if (cursor === null) return {};
+  return {
+    OR: [
+      { createdAt: { gt: cursor.createdAt } },
+      { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+    ],
+  };
+}
+
+/**
+ * ‎**התאום של `isTrialActive` בשפת השאילתה** (ביקורת Codex, P2).
+ *
+ * ‏„הניסיון חי” נוסח בשני מקומות בשתי צורות שונות: כאן
+ * ‏`trialEndsAt !== null && > now`, ובשאילתות `trialEndsAt: { not:
+ * ‏null }` בלבד. הצורה החלשה מכניסה משרד שהתאריך שלו **עבר**.
+ *
+ * ‏זה לא תיאורטי: משרד ששילם בזמן שהיה מסומן `trial` שומר את
+ * ‏`trialEndsAt` המקורי גם אחריו. אם הכרטיס פג מאוחר יותר,
+ * ‏`reopenLapsed` ראה תאריך היסטורי, קרא לו „ניסיון משוחזר”, ופתח
+ * ‏מחדש רישום למשרד שהניסיון שלו נגמר — שאותו הסבב עצמו יסגור
+ * ‏כ„הושלם” ויעוות את מדד ההמרה.
+ *
+ * ‏שתי צורות נחוצות (שאילתה אינה יכולה לקרוא לפונקציה), שני כללים
+ * ‏לא. מכאן והלאה הן זהות — ונבדקות זו מול זו.
+ */
+function trialActiveWhere(now: Date): { status: "trial"; trialEndsAt: { gt: Date } } {
+  return { status: "trial", trialEndsAt: { gt: now } };
 }
 
 /** ‏התנגשות על אינדקס ייחודי — P2002 ב-Prisma. */

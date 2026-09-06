@@ -34,10 +34,24 @@ let direct: PrismaClient;
 let prisma: PrismaService;
 let service: FunnelEnrollmentService;
 
-/** ‏משרד בניסיון עם ותק נתון. */
+/**
+ * ‎**משרד בניסיון עם ותק נתון — והניסיון שלו חי.**
+ *
+ * ‏קודם `trialEndsAt` נגזר מ-`createdAt` (‎+14 יום), ולכן „משרד
+ * ‏ותיק בן 30 יום” היה משרד שהניסיון שלו נגמר לפני שבועיים. זה
+ * ‏ערבב שני דברים שהבדיקות מפרידות ביניהם: `createdAt` קובע טרי
+ * ‏מול פיגור, ו-`trialEndsAt` קובע אם יש בכלל מה לשלוח.
+ *
+ * ‏העירוב לא הפריע כל עוד השאילתה שאלה `trialEndsAt: { not: null }`
+ * ‏— תאריך שעבר עונה על זה. מרגע שהיא שואלת „הניסיון חי” (ראו
+ * ‏`trialActiveWhere`), הפיקסצ׳ר הזה תיאר משרדים שאינם מועמדים
+ * ‏כלל. „ותיק” כאן פירושו נרשם מזמן, לא „הניסיון נגמר”: כל
+ * ‏הבדיקות שמסיימות ניסיון עושות זאת במפורש, ב-`trial_ends_at =
+ * ‏NULL`.
+ */
 async function seedTenant(id: string, name: string, ageDays: number): Promise<void> {
   const createdAt = new Date(Date.now() - ageDays * DAY);
-  const trialEndsAt = new Date(createdAt.getTime() + 14 * DAY);
+  const trialEndsAt = new Date(Date.now() + 7 * DAY);
   await direct.$executeRawUnsafe(
     `INSERT INTO tenants (id, name, plan, status, trial_ends_at, created_at, updated_at)
      VALUES ($1, $2, 'basic', 'trial', $3, $4, now())
@@ -66,6 +80,27 @@ async function enrollments(): Promise<
   return rows.map((r) => ({
     tenantId: r.tenant_id,
     startedAt: r.started_at,
+    endedAt: r.ended_at,
+    endedReason: r.ended_reason,
+  }));
+}
+
+/**
+ * ‏אותה קריאה, לכל מזהה שיימסר: `enrollments()` מקובעת לשלושת
+ * ‏המשרדים הוותיקים של הקובץ, והבדיקות החדשות זורעות משלהן.
+ */
+async function enrollmentsOf(
+  ids: readonly string[],
+): Promise<{ tenantId: string; endedAt: Date | null; endedReason: string | null }[]> {
+  const rows = await direct.$queryRawUnsafe<
+    { tenant_id: string; ended_at: Date | null; ended_reason: string | null }[]
+  >(
+    `SELECT tenant_id, ended_at, ended_reason FROM funnel_enrollments
+      WHERE tenant_id = ANY($1) ORDER BY tenant_id`,
+    [...ids],
+  );
+  return rows.map((r) => ({
+    tenantId: r.tenant_id,
     endedAt: r.ended_at,
     endedReason: r.ended_reason,
   }));
@@ -1559,5 +1594,236 @@ describe("פתיחה מחדש — גם אחרי „שילם”, כשהכרטיס
     await service.sweep(new Date(), { dailyQuota: 0 });
     const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
     expect(row?.endedReason).toBe("paid");
+  });
+});
+
+/**
+ * ‎**סבב שלישי: הדפדוף, הניסיון שנגמר, והנעילות שנצברו** (ביקורת
+ * ‏Codex, P2).
+ *
+ * ‏שלושתם מול מסד אמיתי ולא מוק, כי שלושתם **התנהגות של
+ * ‏PostgreSQL ושל Prisma**: `cursor` שדורש ששורת העוגן תישאר
+ * ‏בתוצאה, `timestamp` שמושווה ל-`now()`, ושורות שננעלות בתוך
+ * ‏טרנזקציה ומשוחררות בסופה.
+ */
+/**
+ * ‎**משרדים שהבדיקות האלה זורעות — ונמחקים אחריהן.**
+ *
+ * ‏המסד משותף לכל הקובץ, והמכסה היומית נספרת על **כל** הרישומים
+ * ‏של היום. משרד שנשאר מאחור צורך מכסה בבדיקות אחרות, ולכן
+ * ‏„המכסה נשמרת” הייתה נכשלת על שיירים ולא על הקוד.
+ */
+const SEEDED_HERE = [
+  "01M1FNNLBACKLOGAAAAAAAAA01",
+  "01M1FNNLBACKLOGBBBBBBBBB02",
+  "01M1FNNLBACKLOGCCCCCCCCC03",
+  "01M1FNNLLAPSEDTRIALAAAAA01",
+];
+
+async function forgetSeeded(): Promise<void> {
+  await direct.$executeRawUnsafe(
+    `DELETE FROM funnel_messages WHERE tenant_id = ANY($1)`,
+    SEEDED_HERE,
+  );
+  await direct.$executeRawUnsafe(
+    `DELETE FROM funnel_enrollments WHERE tenant_id = ANY($1)`,
+    SEEDED_HERE,
+  );
+  await direct.$executeRawUnsafe(
+    `DELETE FROM subscriptions WHERE tenant_id = ANY($1)`,
+    SEEDED_HERE,
+  );
+  await direct.$executeRawUnsafe(`DELETE FROM tenants WHERE id = ANY($1)`, SEEDED_HERE);
+}
+
+describe("הפיגור: דפדוף שאינו מאבד את מקומו", () => {
+  const BACKLOG = [
+    "01M1FNNLBACKLOGAAAAAAAAA01",
+    "01M1FNNLBACKLOGBBBBBBBBB02",
+    "01M1FNNLBACKLOGCCCCCCCCC03",
+  ];
+
+  beforeEach(async () => {
+    await forgetSeeded();
+    for (const [index, id] of BACKLOG.entries()) {
+      /* ‏ותק שונה לכל אחד — הסדר הוא `(created_at, id)` */
+      /*
+       * ‏ותיקים מהמשרדים שהקובץ זורע למעלה, כדי שהם יהיו הראשונים
+       * ‏בסדר `(created_at, id)` — אחרת בדיקת המכסה מודדת אותם.
+       */
+      await seedTenant(id, `פיגור ${index}`, 40 + index);
+    }
+  });
+
+  afterAll(forgetSeeded);
+
+  /*
+   * ‎**זו הבדיקה שהממצא תיאר.** דף של אחד: המשרד היחיד בדף נרשם,
+   * ‏ומאותו רגע `funnelEnrollments: { none: … }` מוציא אותו מהקבוצה.
+   * ‏`cursor` של Prisma עוגן עליו, ולכן הדף הבא חזר ריק והמכסה
+   * ‏נשארה חלקית. סמן מפתח מתקדם על מה שראינו, ולכן שלושתם נכנסים.
+   */
+  it("דף של אחד — שלושת משרדי הפיגור נכנסים, ולא רק הראשון", async () => {
+    /*
+     * ‏`freshFrom` הוא 48 שעות, וכל השלושה ותיקים ממנו — כלומר
+     * ‏כולם בפיגור, וכולם עוברים דרך המכסה והסמן.
+     */
+    await service.sweep(new Date(), { dailyQuota: 10, pageSize: 1 });
+    const enrolled = (await enrollmentsOf(BACKLOG)).map((row) => row.tenantId).sort();
+    expect(enrolled).toEqual([...BACKLOG].sort());
+  });
+
+  /* ‏והמכסה עדיין חוסמת — אחרת „שלושה נכנסו” היה נכון מסיבה אחרת */
+  it("והמכסה עדיין חותכת", async () => {
+    await service.sweep(new Date(), { dailyQuota: 2, pageSize: 1 });
+    const enrolled = await enrollmentsOf(BACKLOG);
+    expect(enrolled).toHaveLength(2);
+  });
+
+  /*
+   * ‎**והנעילות אינן נצברות על פני האצווה.**
+   *
+   * ‏קודם `openProspect` קיבל את הטרנזקציה של המכסה, ולכן סולם
+   * ‏הנעילות של כל משרד בדף הוחזק עד סופה. הבדיקה: אחרי הסבב,
+   * ‏עדכון על שורת המנוי של המשרד הראשון מצליח מיד — כלומר איש
+   * ‏אינו מחזיק אותה.
+   *
+   * ‏בגרסה הישנה השורות שוחררו רק ב-COMMIT של הסבב כולו, ומכאן
+   * ‏מעגל ה-deadlock מול `deletePlan` שמעדכן כמה מנויים בסדר משלו.
+   */
+  /*
+   * ‎**וכל משרד באצווה נרשם בטרנזקציה משלו.**
+   *
+   * ‏מה שנצפה כאן הוא **משך** ההחזקה, ומדידה אחרי הסבב אינה יכולה
+   * ‏לראות אותו: בסופו הכול משוחרר בשתי הגרסאות. מה שכן נראה הוא
+   * ‏התוצאה של טרנזקציה נפרדת — משרד שנכשל אינו מגלגל אחורה את מי
+   * ‏שנרשם לפניו באותו דף.
+   *
+   * ‏הכישלון נוצר אמיתי: שורת המשרד השני ננעלת מחיבור אחר עד
+   * ‏שהסבב יסתיים. בטרנזקציה משותפת הראשון היה ממתין איתו וכולם
+   * ‏היו חוזרים יחד; בטרנזקציה לכל משרד הראשון כבר commit.
+   */
+  it("משרד שנתקע אינו מגלגל אחורה את מי שנרשם לפניו", async () => {
+    /*
+     * ‏הסדר הוא `created_at` עולה — כלומר **הוותיק ביותר ראשון**,
+     * ‏וה-`ageDays` שלנו הוא `40 + index`. לכן האחרון במערך הוא
+     * ‏הראשון בתור, והשני בתור הוא זה שבאמצע.
+     */
+    const [, blocked, firstInLine] = BACKLOG as [string, string, string];
+    await direct.$executeRawUnsafe(
+      `INSERT INTO subscriptions (id, tenant_id, plan_code, billing_cycle, status, created_at, updated_at)
+       VALUES ($1, $2, 'basic', 'monthly', 'trial', now(), now())`,
+      "01M1FNNLBACKLOGSUB00000001",
+      blocked,
+    );
+    let racing: Promise<unknown> | undefined;
+    await direct.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT id FROM subscriptions WHERE tenant_id = $1 FOR UPDATE`,
+        blocked,
+      );
+      racing = service.sweep(new Date(), { dailyQuota: 10, pageSize: 3 });
+      /*
+       * ‏החלון: הסבב עבר את הראשון וממתין על השני. בטרנזקציה
+       * ‏משותפת שום דבר לא היה commit עדיין.
+       */
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      const done = await enrollmentsOf([firstInLine]);
+      expect(done, "הראשון לא נשמר בעוד השני ממתין — טרנזקציה משותפת").toHaveLength(1);
+    });
+    await racing;
+    /* ‏ואחרי השחרור — כולם */
+    expect(await enrollmentsOf(BACKLOG)).toHaveLength(3);
+  });
+});
+
+describe("ניסיון שתאריכו עבר אינו „ניסיון חי”", () => {
+  const LAPSED = "01M1FNNLLAPSEDTRIALAAAAA01";
+
+  /*
+   * ‎**זה המקרה שהממצא תיאר.** משרד ששילם בזמן שהיה `trial` שומר
+   * ‏את `trialEndsAt` המקורי גם אחרי שעבר. `{ not: null }` קרא לו
+   * ‏„ניסיון חי”, ולכן משרד שהניסיון שלו נגמר לפני חודש היה נכנס
+   * ‏למסלול — ואותו סבב היה סוגר אותו כ„הושלם”, כלומר ספירת המרה
+   * ‏מעוותת.
+   */
+  afterAll(forgetSeeded);
+
+  beforeEach(async () => {
+    await forgetSeeded();
+    await seedTenant(LAPSED, "ניסיון שנגמר", 30);
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET trial_ends_at = now() - interval '30 days' WHERE id = $1`,
+      LAPSED,
+    );
+  });
+
+  it("תאריך שעבר — לא נכנס למסלול", async () => {
+    await service.sweep(new Date(), { dailyQuota: 10 });
+    expect(await enrollmentsOf([LAPSED])).toEqual([]);
+  });
+
+  it("ואינו נפתח מחדש כשהכרטיס פג", async () => {
+    await direct.$executeRawUnsafe(
+      `INSERT INTO funnel_enrollments (id, tenant_id, track, started_at, ended_at, ended_reason, created_at, updated_at)
+       VALUES ($1, $2, 'conversion', now() - interval '40 days', now() - interval '35 days', 'paid', now(), now())`,
+      "01M1FNNLLAPSEDENROLL000001",
+      LAPSED,
+    );
+    await service.sweep(new Date(), { dailyQuota: 0 });
+    const row = (await enrollmentsOf([LAPSED]))[0];
+    expect(row?.endedReason, "ניסיון שנגמר נפתח מחדש").toBe("paid");
+  });
+
+  /*
+   * ‎**והבדיקה החוזרת ליד הכתיבה — לא רק הסינון בשאילתה.**
+   *
+   * ‏השאילתה כבר מוציאה ניסיון שתאריכו עבר, ולכן היא לבדה מכסה את
+   * ‏המוטציה שמחלישה **אותה**. את הבדיקה שליד הכתיבה היא אינה
+   * ‏מכסה: מוטציה שהחזירה שם `trialEndsAt === null` שרדה, כי
+   * ‏המועמד לא הגיע לשם מלכתחילה.
+   *
+   * ‏המרוץ האמיתי: הניסיון פג **בין** השאילתה לכתיבה. הבדיקה
+   * ‏מחזיקה את שורת המנוי, מתחילה סבב שממתין עליה, מעדכנת את
+   * ‏`trial_ends_at` לעבר בתוך החלון, ומשחררת. הקריאה כבר קרתה;
+   * ‏רק הבדיקה החוזרת יכולה לעצור את זה.
+   */
+  it("ניסיון שפג בין הקריאה לכתיבה — הבדיקה החוזרת עוצרת", async () => {
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET trial_ends_at = now() + interval '5 days' WHERE id = $1`,
+      LAPSED,
+    );
+    await direct.$executeRawUnsafe(
+      `INSERT INTO subscriptions (id, tenant_id, plan_code, billing_cycle, status, created_at, updated_at)
+       VALUES ($1, $2, 'basic', 'monthly', 'trial', now(), now())`,
+      "01M1FNNLLAPSEDSUB000000001",
+      LAPSED,
+    );
+    let racing: Promise<void> | undefined;
+    await direct.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT id FROM subscriptions WHERE tenant_id = $1 FOR UPDATE`,
+        LAPSED,
+      );
+      racing = service.sweep(new Date(), { dailyQuota: 10 }).then(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      /* ‏החלון: הסבב כבר קרא את המשרד וממתין על השורה */
+      await tx.$executeRawUnsafe(
+        `UPDATE tenants SET trial_ends_at = now() - interval '1 day' WHERE id = $1`,
+        LAPSED,
+      );
+    });
+    await racing;
+    expect(await enrollmentsOf([LAPSED]), "ניסיון שפג בחלון נרשם בכל זאת").toEqual([]);
+  });
+
+  /* ‏והצד השני: תאריך עתידי כן נכנס, אחרת „חסום הכול” היה עובר */
+  it("ותאריך עתידי כן נכנס", async () => {
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET trial_ends_at = now() + interval '5 days' WHERE id = $1`,
+      LAPSED,
+    );
+    await service.sweep(new Date(), { dailyQuota: 10 });
+    expect(await enrollmentsOf([LAPSED])).toHaveLength(1);
   });
 });
