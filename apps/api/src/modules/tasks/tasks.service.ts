@@ -2,6 +2,11 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { ulid } from "ulid";
 import { Prisma } from "@prisma/client";
 import { isTaskUrgent, OPEN_LEAD_STATUSES, type TaskPriority } from "@metavchim/shared";
+import {
+  isCardAccessible,
+  leadOwnershipFilter,
+  ownershipFilter,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { leadPoolOwner } from "../../common/ownership";
 import { AuditService } from "../../core/audit.service";
@@ -176,15 +181,32 @@ export class TasksService {
     const leadIds = byType.get("lead") ?? [];
     const contactByEntity = new Map<string, string>();
     if (buyerIds.length > 0) {
+      /*
+       * ‎**הקישור נשלף לפי בעלות, ולא לפי המזהה בלבד.**
+       *
+       * ‏משימה נושאת `entityType`/`entityId` שהגיעו מהמסך, ולכן היא
+       * ‏יכולה להצביע על כרטיס של סוכן אחר — ואז השם המפוענח של
+       * ‏הלקוח חזר בתשובה (ביקורת Codex, P1). השערים ביצירה
+       * ‏וב-`listForEntity` סוגרים את הדרך קדימה; זה סוגר את מה
+       * ‏שכבר נכתב, ואת מה שנוצר בנתיבי מערכת.
+       *
+       * ‏השמטה ולא שגיאה: המשימה עצמה שייכת למי שהיא מוטלת עליו
+       * ‏ונשארת ברשימה שלו, בלי תווית.
+       */
       const buyers = await tx.buyer.findMany({
-        where: { id: { in: buyerIds }, tenantId },
+        where: {
+          id: { in: buyerIds },
+          tenantId,
+          deletedAt: null,
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
         select: { id: true, contactId: true },
       });
       for (const b of buyers) contactByEntity.set(key("buyer", b.id), b.contactId);
     }
     if (leadIds.length > 0) {
       const leads = await tx.lead.findMany({
-        where: { id: { in: leadIds }, tenantId },
+        where: { id: { in: leadIds }, tenantId, ...leadOwnershipFilter() },
         select: { id: true, contactId: true },
       });
       for (const l of leads) contactByEntity.set(key("lead", l.id), l.contactId);
@@ -300,6 +322,25 @@ export class TasksService {
     return this.writeCreate(input);
   }
 
+  /**
+   * ‏הכרטיס שהמשימה מצביעה עליו — מותר לי, או שאין כזה.
+   *
+   * ‎`isCardAccessible` ולא בדיקה מקומית: שם העמודה שקובעת בעלות
+   * ‏שונה בין קונה (`ownerUserId`) לליד (`assignedToUserId`), והוא
+   * ‏נכתב שם פעם אחת בדיוק כדי שלא ייכתב שוב בכל קורא.
+   */
+  private async assertEntityAccess(
+    tx: TenantTx,
+    entityType: string,
+    entityId: string,
+  ): Promise<void> {
+    if (entityType !== "buyer" && entityType !== "lead") return;
+    const tenantId = TenantContext.current().tenantId;
+    if (!(await isCardAccessible(tx, tenantId, entityType, entityId))) {
+      throw new NotFoundException("הכרטיס לא נמצא");
+    }
+  }
+
   /** גוף היצירה. */
   private async writeCreate(input: {
     title: string;
@@ -315,6 +356,20 @@ export class TasksService {
     const id = ulid();
 
     return this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**קישור שהגיע מהמסך נבדק לפני שהוא נכתב.**
+       *
+       * ‏בלי זה אפשר היה ליצור משימה על עצמי ולקשור אותה לכרטיס של
+       * ‏עמית — והתשובה החזירה מיד את שם הלקוח המפוענח. הכתיבה עצמה
+       * ‏גרועה לא פחות: המשימה נתלית על הכרטיס של אותו עמית ומופיעה
+       * ‏אצלו (ביקורת Codex, P1).
+       *
+       * ‏שני הקוראים לפעולה הזו הם פעולות משתמש — המסך והעוזר —
+       * ‏ולכן השער כאן ולא בבקר.
+       */
+      if (input.entityType !== undefined && input.entityId !== undefined) {
+        await this.assertEntityAccess(tx, input.entityType, input.entityId);
+      }
       if (input.sourceKey !== undefined) {
         const existing = await tx.task.findFirst({
           where: {
@@ -439,6 +494,19 @@ export class TasksService {
   ): Promise<{ tasks: TaskDto[]; openSuggestionFields: string[] }> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**קודם „הכרטיס הזה מותר לי”, ורק אחר כך המשימות שעליו.**
+       *
+       * ‏הנתיב קיבל `entityType`/`entityId` מה-URL וסינן לפי הדייר
+       * ‏בלבד, ולכן סוכן שיודע מזהה של קונה או ליד של עמית קיבל את
+       * ‏המשימות שעליו — ואיתן את שם הלקוח המפוענח (ביקורת Codex,
+       * ‏P1). היכולת הנדרשת בנתיב היא `calendar.manage`, שיש לכל
+       * ‏סוכן, ולכן לא הייתה שם שום הפרדה.
+       *
+       * ‏נכס אינו נבדק כאן: הנכסים משרדיים בכוונה, והתווית שלהם היא
+       * ‏הכתובת ולא אדם.
+       */
+      await this.assertEntityAccess(tx, entityType, entityId);
       /*
        * שתי שאילתות ולא מיון לפי סטטוס.
        *

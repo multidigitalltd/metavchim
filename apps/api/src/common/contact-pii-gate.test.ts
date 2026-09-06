@@ -40,16 +40,47 @@ import { describe, expect, it } from "vitest";
 const API_SRC = join(import.meta.dirname, "..");
 
 /**
- * ‏איך „נגיעה בפרטי לקוח” נראית בקוד: פענוח ישיר של עמודה מוצפנת,
- * ‏או קריאה לאחת מארבע המתודות ב-`ContactsService` שמחזירות ערך
- * מפוענח.
+ * ‎**רשימת המתודות נגזרת מהקוד, ולא נכתבת כאן.**
+ *
+ * ‏הגרסה הראשונה מנתה ארבע מתודות ביד, והחמיצה שתיים שגם הן
+ * ‏מחזירות ערך מפוענח (`peopleFor`, `findOrCreateByPhone`) — כלומר
+ * ‏קובץ שקורא רק להן לא היה נספר כלל, ומה שגרוע יותר: סיווג
+ * ‎`write` היה ממשיך לעבור אחרי שמוסיפים אליו קריאה כזו, כי גם
+ * ‏הוא נשען על אותה רשימה חלקית (ביקורת Codex).
+ *
+ * ‏שער שרשימתו נכתבת ביד הוא שער שמפגר אחרי הקוד — וזו בדיוק
+ * ‏התקלה שהשער הזה קיים כדי למנוע. לכן היא נקראת מ-
+ * ‎`contacts.service.ts`: כל מתודה ציבורית שגופה מפענח נכנסת
+ * אוטומטית, ומתודה חדשה מצטרפת בלי שאיש יזכור.
  */
-const PII_MARKERS = [
-  /nameEncrypted/u,
-  /phoneEncrypted/u,
-  /emailEncrypted/u,
-  /contacts\.(getById|getByIds|emailFor|phonesFor)\s*\(/u,
-];
+function decryptingContactMethods(): string[] {
+  const source = readFileSync(
+    join(API_SRC, "modules", "contacts", "contacts.service.ts"),
+    "utf8",
+  );
+  const starts = [...source.matchAll(/^ {2}async (\w+)\(/gmu)];
+  return starts
+    .filter((match, index) => {
+      const from = match.index ?? 0;
+      const to = starts[index + 1]?.index ?? source.length;
+      return source.slice(from, to).includes(".decrypt(");
+    })
+    .map((match) => match[1]!);
+}
+
+const DECRYPTING_METHODS = decryptingContactMethods();
+
+/** ‏קריאה לאחת מהן על שירות אנשי הקשר — לא משנה איך הוא נקרא אצל הקורא. */
+const CONTACT_READ = new RegExp(
+  `contacts\\.(${DECRYPTING_METHODS.join("|")})\\s*\\(`,
+  "u",
+);
+
+/**
+ * ‏איך „נגיעה בפרטי לקוח” נראית בקוד: פענוח ישיר של עמודה מוצפנת,
+ * ‏או קריאה למתודה ב-`ContactsService` שמחזירה ערך מפוענח.
+ */
+const PII_MARKERS = [/nameEncrypted/u, /phoneEncrypted/u, /emailEncrypted/u, CONTACT_READ];
 
 /**
  * ‏שער **ברמת האדם**: „מותר לי הלקוח הזה”. זה הכלל שכל תשע
@@ -115,11 +146,16 @@ const CLASSIFIED: Record<string, Entry> = {
 
   "modules/offers/offer-email.service.ts": { as: "entity", why: "הצעה לכרטיס" },
   "modules/offers/offers.service.ts": { as: "entity", why: "הצעה לכרטיס" },
+  /*
+   * ‏היה מוצהר עם `gate: /scopeFilter/` — סינון שורות המשימה בלבד.
+   * ‏זה לא הספיק: הקישור `entityType`/`entityId` הגיע מהמסך, ולכן
+   * ‏משימה שלי יכלה להצביע על כרטיס של עמית והשם המפוענח חזר
+   * ‏בתשובה (ביקורת Codex, P1). היום הקובץ מסנן את הכרטיס עצמו
+   * ‏ב-`ownershipFilter`, ולכן ההצהרה נכונה בלי החרגה.
+   */
   "modules/tasks/tasks.service.ts": {
     as: "entity",
-    why: "שם הלקוח של הכרטיס שהמשימה מצביעה עליו",
-    // ‏`scopeFilter` הוא ה-`ownershipFilter` המקומי של המשימות
-    gate: /scopeFilter/u,
+    why: "שם הלקוח של הכרטיס שהמשימה מצביעה עליו — הכרטיס מסונן בבעלות",
   },
 
   /*
@@ -215,6 +251,21 @@ describe("שער: מי נוגע בפרטי לקוח", () => {
     expect(touching.map((f) => f.name)).toContain("modules/contacts/contacts.service.ts");
   });
 
+  /*
+   * ‏הגזירה עצמה היא נקודת הכשל של השער: אם היא תחזיר רשימה ריקה
+   * ‏או חלקית, הכול ימשיך לעבור. שתי המתודות שנשכחו בגרסה הידנית
+   * ‏רשומות כאן בשמן — לא כדי לתחזק רשימה שנייה, אלא כדי שנפילת
+   * ‏הגזירה תיראה כאן ולא תיעלם בשקט.
+   */
+  it("רשימת המתודות המפענחות נגזרת ואינה ריקה", () => {
+    expect(DECRYPTING_METHODS.length).toBeGreaterThanOrEqual(6);
+    expect(DECRYPTING_METHODS).toEqual(
+      expect.arrayContaining(["getById", "getByIds", "emailFor", "phonesFor", "peopleFor", "findOrCreateByPhone"]),
+    );
+    // ‏ומתודה שאינה מפענחת אינה נכנסת — אחרת „הכול מסומן” אינו שער
+    expect(DECRYPTING_METHODS).not.toContain("findByAnyPhone");
+  });
+
   it("כל קובץ שנוגע בפרטי לקוח מסווג", () => {
     const unlisted = touching.map((f) => f.name).filter((name) => !(name in CLASSIFIED));
     expect(
@@ -259,7 +310,7 @@ describe("שער: מי נוגע בפרטי לקוח", () => {
    * ‏פתוחה. לכן המבחן הוא היעדר כל דרך לקרוא.
    */
   it("מי שהוצהר `write` באמת אינו מפענח דבר", () => {
-    const reads = [/contacts\.(getById|getByIds|emailFor|phonesFor)\s*\(/u, /\.decrypt\s*\(/u];
+    const reads = [CONTACT_READ, /\.decrypt\s*\(/u];
     const broken = touching
       .filter((f) => CLASSIFIED[f.name]?.as === "write")
       .filter((f) => hasAny(f.code, reads))
