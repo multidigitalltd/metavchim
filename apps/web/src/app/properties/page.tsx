@@ -4,7 +4,11 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
-import { MATCHABLE_PROPERTY_STATUSES, type PropertyStatus } from "@metavchim/shared";
+import {
+  formatPropertyAddress,
+  MATCHABLE_PROPERTY_STATUSES,
+  type PropertyStatus,
+} from "@metavchim/shared";
 import { API_BASE, apiGet, apiList, apiPost } from "@/lib/api";
 import { formatDate, formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -42,6 +46,7 @@ interface PropertyRow {
   city?: string;
   neighborhood?: string;
   street?: string;
+  houseNumber?: string;
   propertyType?: string;
   rooms?: number;
   priceAgorot?: number;
@@ -60,7 +65,13 @@ interface PropertyRow {
 }
 
 function addressOf(p: PropertyRow): string {
-  return [p.street, p.neighborhood].filter(Boolean).join(", ") || p.city || "ללא כתובת";
+  // ‏רחוב ומספר ושכונה; בלעדיהם העיר לבדה — כמו קודם, רק עם המספר
+  const line = formatPropertyAddress({
+    street: p.street,
+    houseNumber: p.houseNumber,
+    neighborhood: p.neighborhood,
+  });
+  return line || p.city || "ללא כתובת";
 }
 
 /** נכס שנקלט בשבוע האחרון מסומן "חדש" ומקבל רקע ירקרק, כמו בעיצוב. */
