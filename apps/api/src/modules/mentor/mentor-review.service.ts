@@ -11,6 +11,8 @@ import {
   jerusalemWallParts,
   jerusalemWeekStart,
   jerusalemWeekday,
+  DEFAULT_MENTOR_PERSONA,
+  mentorCadence,
   mentorDailyIdea,
   mentorDailyPlan,
   mentorGoalLabel,
@@ -21,9 +23,11 @@ import {
   mentorReviewBody,
   mentorReviewTitle,
   mentorWeeklyReview,
+  resolveMentorPersona,
   selectWins,
   type MentorGoalMetric,
   type MentorGoalPeriod,
+  type MentorPersona,
   type MentorReviewBody,
   type MentorWeekSignals,
 } from "@metavchim/shared";
@@ -355,7 +359,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       );
       const users = await tx.user.findMany({
         where: { tenantId, isActive: true },
-        select: { id: true, name: true },
+        select: { id: true, name: true, preferences: true },
       });
       let sent = 0;
       for (const user of users) {
@@ -368,6 +372,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             day,
             now,
             firstNameOf(user.name),
+            resolveMentorPersona(user.preferences),
           )
         )
           sent += 1;
@@ -376,7 +381,10 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  /** ‎`true` = נשלחה תוכנית ליום; ‎`false` = אין מה לומר היום. */
+  /**
+   * ‎`true` = נשלחה תוכנית ליום; ‎`false` = אין מה לומר היום, או שהמתווך
+   * בחר סגנון רגוע — בלי הודעת בוקר (docs/14 §4.1).
+   */
   async dailyForUser(
     tx: TenantTx,
     tenantId: string,
@@ -384,7 +392,9 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     day: string,
     now: Date,
     firstName = "",
+    persona: MentorPersona = DEFAULT_MENTOR_PERSONA,
   ): Promise<boolean> {
+    if (!mentorCadence(persona.style).morning) return false;
     const week = mentorPeriodRange("week", now);
     const activity = await this.signals.activity(
       tx,
@@ -440,6 +450,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       // רעיון אחד מספר המשחק, על מדד המיקוד — מתחלף כל יום
       idea: mentorDailyIdea(goals, now),
       now,
+      persona,
       ...(firstName === "" ? {} : { firstName }),
     });
     if (plan === null) return false;
@@ -489,7 +500,10 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
           user: { isActive: true },
         },
         distinct: ["userId"],
-        select: { userId: true, user: { select: { name: true } } },
+        select: {
+          userId: true,
+          user: { select: { name: true, preferences: true } },
+        },
       });
       let sent = 0;
       for (const { userId, user } of withGoals) {
@@ -502,6 +516,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             weekStart,
             now,
             firstNameOf(user.name),
+            resolveMentorPersona(user.preferences),
           )
         )
           sent += 1;
@@ -518,6 +533,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     weekStart: Date,
     now: Date,
     firstName = "",
+    persona: MentorPersona = DEFAULT_MENTOR_PERSONA,
   ): Promise<boolean> {
     const week = mentorPeriodRange("week", now);
     const activity = await this.signals.activity(
@@ -554,7 +570,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
         monthAnchor: now,
       })
     ).map((g) => g.progress);
-    const nudge = mentorMidweekNudge(goals, now, firstName);
+    const nudge = mentorMidweekNudge(goals, now, firstName, persona);
     if (nudge === null) return false;
     return notifyOnce(tx, {
       tenantId,
@@ -574,7 +590,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`mentor-weekly:${tenantId}:${weekStart.toISOString()}`}))`;
       const users = await tx.user.findMany({
         where: { tenantId, isActive: true },
-        select: { id: true, createdAt: true, name: true },
+        select: { id: true, createdAt: true, name: true, preferences: true },
       });
       const done = new Set(
         (
@@ -595,6 +611,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
             user.createdAt,
             weekStart,
             firstNameOf(user.name),
+            resolveMentorPersona(user.preferences),
           )
         )
           written += 1;
@@ -612,6 +629,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
     weekStart: Date,
     /** השם הפרטי — לפתיח אישי. ריק = בלי פתיח */
     firstName = "",
+    persona: MentorPersona = DEFAULT_MENTOR_PERSONA,
   ): Promise<boolean> {
     const weekEnd = jerusalemWeekStart(weekStart, 1);
     const prevStart = jerusalemWeekStart(weekStart, -1);
@@ -726,6 +744,7 @@ export class MentorReviewService implements OnModuleInit, OnModuleDestroy {
 
     const signals: MentorWeekSignals = {
       patterns,
+      persona,
       ...(firstName === "" ? {} : { firstName }),
       insights,
       weekStart,

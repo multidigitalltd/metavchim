@@ -11,9 +11,14 @@ import {
   MentorGoalInputSchema,
   jerusalemDayLabel,
   mentorGoalLabel,
+  MENTOR_NAME_MAX,
+  MENTOR_STYLE_INFO,
+  mentorHasName,
   type MentorAdvice,
   type MentorGoalMetric,
   type MentorGoalProposal,
+  type MentorPersona,
+  type MentorStyle,
   type MentorGoalPeriod,
   type MentorGoalProgress,
   type MentorInsights,
@@ -26,7 +31,14 @@ import {
   type MentorWin,
   type ProcessGoalSuggestion,
 } from "@metavchim/shared";
-import { ApiError, apiDelete, apiGet, apiList, apiPost } from "@/lib/api";
+import {
+  ApiError,
+  apiDelete,
+  apiGet,
+  apiList,
+  apiPatch,
+  apiPost,
+} from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
 import {
   useFeature,
@@ -125,6 +137,7 @@ interface Overview {
   chatAvailable: boolean;
   patterns: MentorPattern[];
   advice: MentorAdvice[];
+  persona: MentorPersona;
 }
 
 interface Turn {
@@ -275,7 +288,7 @@ export default function MentorPage() {
   if (notInPlan) {
     return (
       <div className="mx-auto max-w-2xl py-6">
-        <MentorHero streakWeeks={0} />
+        <MentorHero streakWeeks={0} persona={null} />
         <section
           className="mv-card mv-card--pad mt-4"
           aria-labelledby="mentor-plan-heading"
@@ -300,7 +313,10 @@ export default function MentorPage() {
   return (
     // div ולא main — העטיפה של AppShell היא ה-main landmark היחיד
     <div className="mx-auto max-w-4xl py-6">
-      <MentorHero streakWeeks={overview?.streakWeeks ?? 0} />
+      <MentorHero
+        streakWeeks={overview?.streakWeeks ?? 0}
+        persona={overview?.persona ?? null}
+      />
 
       {overviewFailed ? (
         <div className="mt-4">
@@ -361,10 +377,12 @@ export default function MentorPage() {
           <ChatSection
             available={overview.chatAvailable}
             firstName={firstName}
+            mentorName={overview.persona.name}
             pending={askMentor}
             onConsumed={() => setAskMentor(null)}
             onGoalSet={load}
           />
+          <PersonaSection persona={overview.persona} onSaved={load} />
         </>
       )}
     </div>
@@ -375,7 +393,15 @@ export default function MentorPage() {
 /* כותרת                                                                  */
 /* ====================================================================== */
 
-function MentorHero({ streakWeeks }: { streakWeeks: number }) {
+function MentorHero({
+  streakWeeks,
+  persona,
+}: {
+  streakWeeks: number;
+  /** השם שהמתווך נתן — הכותרת; `null` עד שהסקירה נטענת */
+  persona: MentorPersona | null;
+}) {
+  const named = persona !== null && mentorHasName(persona);
   return (
     <header className="mv-hero">
       <span className="mv-hero-icon" aria-hidden="true">
@@ -383,7 +409,7 @@ function MentorHero({ streakWeeks }: { streakWeeks: number }) {
       </span>
       <div className="min-w-0 flex-1">
         <h1 className="m-0 text-2xl font-extrabold">
-          המנטור האישי שלך
+          {named ? persona.name : "המנטור האישי שלך"}
           <span
             className="mx-2 inline-block rounded-full px-2.5 py-0.5 align-middle text-[length:var(--type-body-sm)] font-extrabold"
             style={{
@@ -395,7 +421,7 @@ function MentorHero({ streakWeeks }: { streakWeeks: number }) {
           </span>
         </h1>
         <p className="m-0 mt-1" style={{ color: "var(--color-text-muted)" }}>
-          מודד רק מולך — וחוגג כל הצלחה שלך.
+          {named ? "המנטור האישי שלך — " : ""}מודד רק מולך, וחוגג כל הצלחה שלך.
         </p>
         {streakWeeks >= 2 ? (
           <p
@@ -1466,15 +1492,153 @@ function Commitment({
 /* השיחה                                                                  */
 /* ====================================================================== */
 
+/**
+ * השם והסגנון של המנטור — של המשתמש, נשמרים בפרופיל (`preferences.mentor`)
+ * ונוסעים איתו בין מכשירים (docs/14 §4.1). הבחירה כאן, במסך המנטור;
+ * עמוד הפרופיל מציג אותה ומקשר לכאן.
+ */
+function PersonaSection({
+  persona,
+  onSaved,
+}: {
+  persona: MentorPersona;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(persona.name);
+  const [style, setStyle] = useState<MentorStyle>(persona.style);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setName(persona.name);
+    setStyle(persona.style);
+  }, [persona.name, persona.style]);
+  const dirty = name.trim() !== persona.name || style !== persona.style;
+
+  async function save(): Promise<void> {
+    const trimmed = name.trim();
+    if (trimmed === "" || saving) return;
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await apiPatch("/auth/profile", {
+        preferences: { mentor: { name: trimmed, style } },
+      });
+      setSaved(true);
+      onSaved();
+    } catch (err: unknown) {
+      setError(
+        err instanceof ApiError ? err.message : "לא נשמר — כדאי לנסות שוב",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section
+      id="mentor-persona"
+      className="mt-8"
+      aria-labelledby="mentor-persona-heading"
+    >
+      <div className="mv-card-head mv-domain-violet mb-3">
+        <span className="mv-tile" aria-hidden="true">
+          <IconSparkle s={19} />
+        </span>
+        <h2 id="mentor-persona-heading" className="mv-card-head__title m-0">
+          השם והסגנון של המנטור
+        </h2>
+      </div>
+      <div className="mv-card mv-card--pad">
+        <p className="mv-card-sub m-0">
+          איך לקרוא למנטור, ובאיזה קול הוא מדבר. הבחירה שלך בלבד — נשמרת בפרופיל
+          ונוסעת איתך בין מכשירים.
+        </p>
+        <label
+          htmlFor="mentor-name"
+          className="mt-4 mb-1.5 block text-sm font-semibold"
+        >
+          שם
+        </label>
+        <input
+          id="mentor-name"
+          className="mv-input w-full max-w-xs"
+          value={name}
+          maxLength={MENTOR_NAME_MAX}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="המנטור"
+        />
+        <p
+          id="mentor-style-label"
+          className="mt-4 mb-1.5 text-sm font-semibold"
+        >
+          סגנון ליווי
+        </p>
+        <div
+          className="flex flex-col gap-2"
+          role="group"
+          aria-labelledby="mentor-style-label"
+        >
+          {MENTOR_STYLE_INFO.map((info) => {
+            const selected = info.code === style;
+            return (
+              <button
+                key={info.code}
+                type="button"
+                aria-pressed={selected}
+                className="mv-choice w-full flex-col items-start gap-0.5 text-start"
+                onClick={() => setStyle(info.code)}
+              >
+                <span className="block font-extrabold">{info.label}</span>
+                <span className="mv-card-sub block">{info.blurb}</span>
+                <span
+                  className="block text-[length:var(--type-caption-lg)]"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  „{info.sample}”
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            className="mv-control-go"
+            disabled={saving || !dirty || name.trim() === ""}
+            onClick={() => void save()}
+          >
+            שמירה
+          </button>
+          {saved && !dirty ? (
+            <span className="mv-card-sub" aria-live="polite">
+              נשמר — מהודעה הבאה המנטור מדבר ככה.
+            </span>
+          ) : null}
+        </div>
+        {error !== null ? (
+          <div className="mt-2">
+            <Notice tone="danger">{error}</Notice>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function ChatSection({
   available,
   firstName,
+  mentorName,
   pending,
   onConsumed,
   onGoalSet,
 }: {
   available: boolean;
   firstName: string;
+  /** השם שהמתווך נתן למנטור — כותרת השיחה */
+  mentorName: string;
   /** שאלה שנפתחה מכרטיס העצות — נשלחת ברגע שהשיחה פנויה */
   pending: string | null;
   onConsumed: () => void;
@@ -1595,7 +1759,7 @@ function ChatSection({
           <IconChat s={19} />
         </span>
         <h2 id="mentor-chat-heading" className="mv-card-head__title m-0">
-          לדבר עם המנטור
+          לדבר עם {mentorName}
         </h2>
       </div>
 
