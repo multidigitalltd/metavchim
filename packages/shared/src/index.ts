@@ -110,6 +110,7 @@ export * from "./logic/email-template.js";
 export * from "./logic/collaboration-cost.js";
 export * from "./logic/commission-terms.js";
 export * from "./logic/property-twins.js";
+export * from "./logic/recruitment.js";
 export * from "./logic/intake.js";
 export * from "./logic/intake-seller.js";
 export * from "./logic/lead-referral.js";

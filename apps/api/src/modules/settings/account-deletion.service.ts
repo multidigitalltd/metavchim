@@ -463,6 +463,13 @@ export class AccountDeletionService {
          * שמצביעות על משרד שכבר אינו קיים.
          */
         await tx.demandFollow.deleteMany({ where: { tenantId } });
+        /*
+         * ‏נכסים לגיוס. **לפני `property`** — שורה שגויסה נושאת
+         * ‎`convertedPropertyId`, ומחיקת הנכס לפניה הייתה משאירה
+         * הפניה לנכס שאינו קיים. אין מפתח זר (הטבלה נפרדת בכוונה),
+         * ולכן הסדר כאן הוא מה שמונע את זה.
+         */
+        await tx.recruitmentTarget.deleteMany({ where: { tenantId } });
         // תיק הבלעדיות — פעולות לפני תקופות, ושתיהן לפני הנכסים
         await tx.marketingAction.deleteMany({ where: { tenantId } });
         await tx.propertyExclusivity.deleteMany({ where: { tenantId } });

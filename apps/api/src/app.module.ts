@@ -41,6 +41,7 @@ import { CallsModule } from "./modules/calls/calls.module";
 import { OffersModule } from "./modules/offers/offers.module";
 import { PlatformModule } from "./modules/platform/platform.module";
 import { PropertiesModule } from "./modules/properties/properties.module";
+import { RecruitmentModule } from "./modules/recruitment/recruitment.module";
 import { SearchModule } from "./modules/search/search.module";
 import { LegalModule } from "./modules/legal/legal.module";
 import { SettingsModule } from "./modules/settings/settings.module";
@@ -65,6 +66,7 @@ import { AgentModule } from "./modules/agent/agent.module";
     HealthModule,
     ContactsModule,
     PropertiesModule,
+    RecruitmentModule,
     BuyersModule,
     MatchingModule,
     AgreementsModule,
