@@ -41,6 +41,8 @@ function executorFor(
         }
         return {
           ownerContactId: OWNER_CONTACT,
+          // ‏הפעולה היא על הבעלים **בהקשר הנכס**, ולכן השיוך נדרש
+          agentUserId: propertyAgentUserId,
           marketingTitle: "דירת גן ברעננה",
           street: "אחוזה",
           city: "רעננה",

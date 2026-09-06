@@ -24,7 +24,12 @@ const SCOPED: Capability[] = ["properties.view", "buyers.view_own", "leads.view_
 const DEFAULT: Capability[] = [...SCOPED, "properties.view_all"];
 
 /** ‏המסד המדומה מכבד את ה-`where`: בלי `view_all` נוסף `agentUserId`. */
-function serviceFor(propertyAgentUserId: string, sent: string[]): PropertyActivityService {
+function serviceFor(
+  propertyAgentUserId: string,
+  sent: string[],
+  /** ‏האם ללקוח יש **גם** כרטיס קונה של המשתמש הנוכחי. */
+  alsoMyBuyer = false,
+): PropertyActivityService {
   const tx = {
     property: {
       findFirst: async (args: { where: { agentUserId?: string } }) => {
@@ -34,6 +39,8 @@ function serviceFor(propertyAgentUserId: string, sent: string[]): PropertyActivi
         return {
           id: "01PROP",
           ownerContactId: OWNER_CONTACT,
+          // ‏הפעולה היא על הבעלים **בהקשר הנכס**, ולכן השיוך נדרש
+          agentUserId: propertyAgentUserId,
           marketingTitle: "דירת גן ברעננה",
           street: "אחוזה",
           houseNumber: "5",
@@ -51,8 +58,17 @@ function serviceFor(propertyAgentUserId: string, sent: string[]): PropertyActivi
     tenant: { findFirst: async () => ({ name: "משרד הבדיקה" }) },
     appointment: { findMany: async () => [] },
     call: { findMany: async () => [] },
-    buyer: { findFirst: async () => null },
-    lead: { findFirst: async () => null },
+    /*
+     * ‎`assertContactAccess` הוא **איחוד** מקורות: כרטיס קונה שלי
+     * ‏פותח את הלקוח גם כשהנכס אינו שלי. זה בדיוק התרחיש שנבדק
+     * ‏למטה — לקוח שקונה דרכי ומוכר דרך עמית.
+     */
+    buyer: {
+      findFirst: async () => (alsoMyBuyer ? { id: "01MYBUYER" } : null),
+      findMany: async () => (alsoMyBuyer ? [{ contactId: OWNER_CONTACT }] : []),
+    },
+    lead: { findFirst: async () => null, findMany: async () => [] },
+    contactLink: { findFirst: async () => null, findMany: async () => [] },
   };
   const prisma = {
     withTenant: async <T>(fn: (t: typeof tx) => Promise<T>): Promise<T> => fn(tx),
@@ -88,6 +104,56 @@ function asUser<T>(userId: string, capabilities: Capability[], fn: () => T): T {
     fn,
   );
 }
+
+/**
+ * ‎**„מותר לי האדם” אינו „מותר לי האדם על הנכס הזה”.**
+ *
+ * ‏שער הלקוח הוא איחוד מקורות, ובתרחיש שכיח לגמרי — לקוח שקונה
+ * ‏דרכי ומוכר דרך עמית — הוא נפתח דרך כרטיס הקונה **שלי**. משם
+ * ‏יכולתי לשלוח לו דוח פעילות על הנכס של העמית, כלומר לעקוף את כל
+ * ‏ההפרדה בלי שום חריגה (ביקורת Codex, P1).
+ */
+describe("לקוח שהוא גם הקונה שלי וגם בעל נכס של עמית", () => {
+  it("הדוח על הנכס של העמית עדיין נחסם", async () => {
+    await expect(
+      asUser(ME, SCOPED, () =>
+        serviceFor(OTHER, [], true).sendToOwner("01PROP", "whatsapp"),
+      ),
+    ).rejects.toThrow(/סוכן אחר/u);
+  });
+
+  it("והשם אינו מוצג בדוח של הנכס ההוא", async () => {
+    const report = await asUser(ME, SCOPED, () =>
+      serviceFor(OTHER, [], true).ownerChannels("01PROP"),
+    );
+    expect(report?.name).toBeUndefined();
+  });
+});
+
+/**
+ * ‎**ושני השערים נדרשים, לא אחד מהם.**
+ *
+ * ‏שער הנכס שואל „הנכס שלי?”, ושער הלקוח שואל „מותר לי האדם?”.
+ * ‏נכס **שלי** עובר את הראשון — ואם מודול הנכסים חסום אצלי, אין לי
+ * ‏דרך להגיע לבעליו בכלל. זה המקרה שבו מחיקת השער הראשון אינה
+ * ‏נראית בשום בדיקה אחרת.
+ */
+describe("הנכס שלי, אבל המודול חסום", () => {
+  /* ‏הצד החיובי נבדק למטה ב„שליחה לבעלים של הנכס שלי יוצאת כרגיל”. */
+  /** ‏בלי `properties.view`: המודול חסום, ואין דרך אחרת ללקוח. */
+  const NO_MODULE: Capability[] = ["buyers.view_own", "leads.view_own"];
+
+  it("שליחה נדחית גם על הנכס שלי", async () => {
+    await expect(
+      asUser(ME, NO_MODULE, () =>
+        serviceFor(ME, []).sendToOwner("01PROP", {}, {
+          channel: "whatsapp",
+          periodLabel: "החודש",
+        }),
+      ),
+    ).rejects.toThrow();
+  });
+});
 
 describe("דוח פעילות לבעל הנכס — מי רואה ומי שולח", () => {
   it("נכס של סוכן אחר — אין שם ואין ערוצים", async () => {

@@ -41,7 +41,7 @@ import {
 } from "../../common/agent-names";
 import { lockContact, lockProperty, type ContactLock } from "../../common/locks";
 import {
-  assertContactAccess,
+  assertPropertyOwnerAction,
   canSeeContact,
   isOrphanContact,
   leadOwnershipFilter,
@@ -1315,7 +1315,15 @@ export class PropertiesService {
        * ‏אלא **פנייה** — ההודעה מתועדת ב-Messages Hub ויוצאת בשם
        * ‏המשרד.
        */
-      await assertContactAccess(tx, tenantId, property.ownerContactId);
+      /*
+       * ‎**וגם הנכס עצמו** — לא רק האדם. שער הלקוח הוא איחוד
+       * ‏מקורות, ולקוח שקונה דרכי ומוכר דרך עמית פותח אותו דרך
+       * ‏הקונה שלי; הפנייה כאן היא על הנכס של העמית (ביקורת Codex).
+       */
+      await assertPropertyOwnerAction(tx, tenantId, {
+        agentUserId: property.agentUserId,
+        ownerContactId: property.ownerContactId,
+      });
       const owner = await this.contacts.getById(tx, property.ownerContactId);
       if (!owner) throw new NotFoundException("איש הקשר של בעל הנכס לא נמצא");
 

@@ -935,6 +935,49 @@ export async function assertContactAccess(
  * המצב שבו אין כרטיס לקוח להגן עליו. שיחה של לקוח של סוכן אחר
  * נושאת `contact_id`, ונשארת מוסתרת כמו קודם.
  */
+/**
+ * ‎**פעולה על בעל נכס — שתי שאלות שונות, ושתיהן חייבות להיענות.**
+ *
+ * ## ‏מה היה שגוי
+ *
+ * ‏`assertContactAccess` שואל „האם מותר לי לראות את האדם הזה”,
+ * ‏והתשובה שלו היא **איחוד**: הוא נמצא דרך הקונה שלי, או הליד שלי,
+ * ‏או נכס שאני רשאי לראות. זה נכון לכרטיס הלקוח — אדם שאני מטפל
+ * ‏בו הוא שלי לכל דבר.
+ *
+ * ‏אבל הפעולות כאן אינן על האדם, הן על **האדם בהקשר של הנכס
+ * ‏הזה**: „עדכון שיווק על הנכס”, „דוח פעילות על הנכס”. בתרחיש
+ * ‏שכיח לגמרי — לקוח שקונה דרכי ומוכר דרך עמית — האיחוד נפתח דרך
+ * ‏הקונה שלי, ואז יכולתי לפנות אליו **על הנכס של העמית**. ההפרדה
+ * ‏שכל ה-PR הזה בונה נעקפת בלי שום חריגה (ביקורת Codex, P1).
+ *
+ * ## ‏הכלל
+ *
+ * ‏מותר לראות את האדם **וגם** מותר לי הנכס: `properties.view_all`,
+ * ‏או שאני הסוכן שלו.
+ *
+ * ‏אין כאן ענף ל„נכס בלי סוכן משויך”, ובכוונה: `visibleContactIds`
+ * ‏מסנן את ענף הנכסים ב-`agentUserId` שלי, ולכן בעליו של נכס
+ * ‏לא-משויך אינו נראה למי שאין לו `view_all` ממילא — השער הראשון
+ * ‏כבר דחה. ענף כזה היה קוד מת שנראה כמו החלטה.
+ *
+ * ‏ושני השערים נדרשים: נכס **שלי** עדיין נחסם אם מודול הנכסים
+ * ‏חסום אצלי, וזה מה שהשער הראשון תופס.
+ */
+export async function assertPropertyOwnerAction(
+  tx: TenantTx,
+  tenantId: string,
+  property: { agentUserId: string | null; ownerContactId: string },
+): Promise<void> {
+  await assertContactAccess(tx, tenantId, property.ownerContactId);
+  const ctx = TenantContext.current();
+  if (ctx.capabilities.has("properties.view_all")) return;
+  if (property.agentUserId === ctx.userId) return;
+  throw new ForbiddenException(
+    "הנכס הזה משויך לסוכן אחר — פנייה לבעליו נעשית דרכו או דרך מנהל המשרד",
+  );
+}
+
 export function visibleCallsCondition(
   tenantId: string,
   userId: string,

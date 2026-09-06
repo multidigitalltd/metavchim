@@ -48,6 +48,7 @@ import {
 } from "@metavchim/shared";
 import { isCardAccessible,
   assertContactAccess,
+  assertPropertyOwnerAction,
   seesAllProperties,
 } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -2082,7 +2083,13 @@ export class AgentExecuteService {
     const { name, label, waUrl } = await this.prisma.withTenant(async (tx) => {
       const property = await tx.property.findFirst({
         where: { id: propertyId, tenantId, deletedAt: null },
-        select: { ownerContactId: true, marketingTitle: true, street: true, city: true },
+        select: {
+          ownerContactId: true,
+          agentUserId: true,
+          marketingTitle: true,
+          street: true,
+          city: true,
+        },
       });
       if (!property) throw new BadRequestException("הנכס לא נמצא");
       if (property.ownerContactId === null) {
@@ -2097,7 +2104,15 @@ export class AgentExecuteService {
        * ‏את **השם** (ביקורת Codex, P1). ההודעה גם נרשמת ב-Messages
        * ‏Hub, כלומר זו פנייה ולא רק צפייה.
        */
-      await assertContactAccess(tx, tenantId, property.ownerContactId);
+      /*
+       * ‎**וגם הנכס** — שער הלקוח הוא איחוד מקורות, ולכן לקוח שקונה
+       * ‏דרכי ומוכר דרך עמית פותח אותו; הבקשה כאן היא על הנכס של
+       * ‏העמית (ביקורת Codex).
+       */
+      await assertPropertyOwnerAction(tx, tenantId, {
+        agentUserId: property.agentUserId,
+        ownerContactId: property.ownerContactId,
+      });
       const contact = await this.contacts.getById(tx, property.ownerContactId);
       if (!contact || contact.phone === "") {
         throw new BadRequestException("לבעל הנכס אין מספר טלפון בכרטיס");

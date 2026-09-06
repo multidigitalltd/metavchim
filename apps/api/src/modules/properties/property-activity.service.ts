@@ -9,7 +9,7 @@ import {
   type OwnerActivityKind,
   type OwnerActivityResult,
 } from "@metavchim/shared";
-import { assertContactAccess, canSeeContact } from "../../common/ownership";
+import { assertPropertyOwnerAction, canSeeContact } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -162,7 +162,7 @@ export class PropertyActivityService {
     const owner = await this.prisma.withTenant(async (tx) => {
       const property = await tx.property.findFirst({
         where: { id: propertyId, tenantId, deletedAt: null },
-        select: { ownerContactId: true },
+        select: { ownerContactId: true, agentUserId: true },
       });
       if (!property?.ownerContactId) return null;
       /*
@@ -174,6 +174,15 @@ export class PropertyActivityService {
        * ‏שמקבלים על נכס שאין לו בעלים: אין ערוצים, אין שם, והדוח
        * ‏עצמו — פעילות הנכס — נשאר גלוי כמו הנכס.
        */
+      /*
+       * ‏אותה הבחנה גם בתצוגה: „מותר לי האדם” נפתח דרך מקור אחר,
+       * ‏אבל השם הזה מוצג **כבעל הנכס הזה**. נכס של עמית — אין שם.
+       */
+      const mine =
+        TenantContext.current().capabilities.has("properties.view_all") ||
+        property.agentUserId === null ||
+        property.agentUserId === TenantContext.current().userId;
+      if (!mine) return null;
       if (!(await canSeeContact(tx, tenantId, property.ownerContactId))) return null;
       return tx.contact.findFirst({
         where: { id: property.ownerContactId, tenantId },
@@ -278,6 +287,7 @@ export class PropertyActivityService {
           houseNumber: true,
           city: true,
           ownerContactId: true,
+          agentUserId: true,
         },
       });
       if (!property) throw new NotFoundException("נכס לא נמצא");
@@ -290,7 +300,15 @@ export class PropertyActivityService {
        * ‏ולא השמטה — כאן אין מה להשמיט, יש פעולה לעצור.
        */
       if (property.ownerContactId) {
-        await assertContactAccess(tx, tenantId, property.ownerContactId);
+        /*
+         * ‎**וגם הנכס** — הדוח הוא על הנכס הזה, ולכן „מותר לי האדם”
+         * ‏אינו מספיק: איחוד המקורות נפתח דרך קונה שלי, והפנייה
+         * ‏יוצאת על נכס של עמית (ביקורת Codex).
+         */
+        await assertPropertyOwnerAction(tx, tenantId, {
+          agentUserId: property.agentUserId,
+          ownerContactId: property.ownerContactId,
+        });
       }
       const tenant = await tx.tenant.findFirst({
         where: { id: tenantId },
