@@ -15,5 +15,11 @@ import { RecruitmentService } from "./recruitment.service";
   imports: [PropertiesModule],
   controllers: [RecruitmentController],
   providers: [RecruitmentService],
+  /*
+   * ‏מיוצא כדי שמסלול הייבוא יוכל לקלוט שורות **לטבלת הגיוס**.
+   * ‏זו התלות היחידה מבחוץ, והיא בכיוון הבטוח: מי שמייבא מקבל את
+   * ‏הדרך לכתוב לגיוס, ולא את הדרך לכתוב לנכסים בשמו.
+   */
+  exports: [RecruitmentService],
 })
 export class RecruitmentModule {}
