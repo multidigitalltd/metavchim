@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
  * ‏`/platform`, System User, App Secret), והסיק שהמוצר דורש אותן
  * ממנו. אף אחד מהשניים אינו מדווח — הראשון לא ידע, השני פשוט הלך.
  *
- * זה קרה ב-`/docs/whatsapp`, ולכן הוא הועבר ל-`docs/14`.
+ * זה קרה ב-`/docs/whatsapp`, ולכן הוא הועבר ל-`docs/15`.
  *
  * ## ולמה הבדיקה בודקת גם התנגשות שמות
  *
@@ -72,26 +72,39 @@ describe("התיעוד הציבורי — הקהל", () => {
     "business.facebook.com",
   ];
 
-  it("אין בעמודים הציבוריים הוראות שמיועדות למי שמפעיל את הפלטפורמה", () => {
-    const offenders: string[] = [];
+  /**
+   * ‎**כל מה שמוגש לציבור, ולא רק העמודים הכתובים ביד.**
+   *
+   * ‏רוב התיעוד הציבורי אינו JSX אלא נתונים ב-`guide-content.ts`,
+   * ומהם `/docs/[topic]` בונה עמוד לכל הדרכה. סריקה של התיקיות
+   * הסטטיות בלבד הייתה מדלגת בדיוק על המקור הגדול מבין השניים
+   * (ביקורת Codex) — הדרכה שנוספה לה פסקה על App Secret הייתה
+   * מתפרסמת והבדיקה הייתה ממשיכה לעבור.
+   */
+  const sources = (): { name: string; text: string }[] => {
+    const found = [{ name: "lib/guide-content.ts", text: GUIDE_CONTENT }];
     for (const segment of staticSegments()) {
       for (const file of readdirSync(web(segment))) {
         if (!file.endsWith(".tsx") && !file.endsWith(".ts")) continue;
-        const source = readFileSync(web(`${segment}/${file}`), "utf8");
-        for (const marker of OPERATOR_MARKERS) {
-          if (source.includes(marker)) offenders.push(`${segment}/${file} ← ${marker}`);
-        }
+        found.push({ name: `${segment}/${file}`, text: readFileSync(web(`${segment}/${file}`), "utf8") });
+      }
+    }
+    return found;
+  };
+
+  it("אין בתיעוד הציבורי הוראות שמיועדות למי שמפעיל את הפלטפורמה", () => {
+    /*
+     * ‏„Webhook” אינו ברשימה במכוון: חיבור מרכזייה ומקור קליטה הם
+     * משימות של המשרד עצמו, במסכים שלו. מה שאסור הוא מסך שאין לו
+     * גישה אליו וסודות שאינם שלו.
+     */
+    const offenders: string[] = [];
+    for (const source of sources()) {
+      for (const marker of OPERATOR_MARKERS) {
+        if (source.text.includes(marker)) offenders.push(`${source.name} ← ${marker}`);
       }
     }
     expect(offenders).toEqual([]);
-  });
-
-  it("אין בהדרכות עצמן הפניה למסך שאין למשרד גישה אליו", () => {
-    /*
-     * ‏„Webhook” מותר כאן במפורש: חיבור מרכזייה ואתר הם משימות של
-     * המשרד עצמו, במסכים שלו. מה שאסור הוא `/platform`.
-     */
-    expect(GUIDE_CONTENT).not.toContain("/platform");
   });
 
   /*
