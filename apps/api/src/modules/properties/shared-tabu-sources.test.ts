@@ -335,8 +335,34 @@ describe("‏עמודת העמדה של הקונה מסכימה עם הגזיר�
 describe("‏מסלול העדכון מוסר ל-`fieldsToColumns` את השורה השמורה", () => {
   const SERVICE = readFileSync(join(__dirname, "properties.service.ts"), "utf8");
 
-  it("‏יש מה לבדוק — שני מסלולי כתיבה", () => {
-    expect(SERVICE.split("fieldsToColumns(").length - 1).toBe(2);
+  /**
+   * ‏הארגומנטים של כל קריאה ל-`fieldsToColumns`, מפוצלים בפסיקי
+   * ‏הרמה העליונה בלבד — פסיק בתוך אובייקט אינו מפריד ארגומנטים.
+   */
+  const CALLS = [...SERVICE.matchAll(/fieldsToColumns\(/gu)].map((match) => {
+    const start = match.index + match[0].length;
+    const args: string[] = [];
+    let depth = 1;
+    let from = start;
+    for (let i = start; i < SERVICE.length; i += 1) {
+      const char = SERVICE[i];
+      if (char === "(" || char === "{" || char === "[") depth += 1;
+      else if (char === ")" || char === "}" || char === "]") {
+        depth -= 1;
+        if (depth === 0) {
+          args.push(SERVICE.slice(from, i));
+          break;
+        }
+      } else if (char === "," && depth === 1) {
+        args.push(SERVICE.slice(from, i));
+        from = i + 1;
+      }
+    }
+    return args.map((arg) => arg.trim());
+  });
+
+  it("‏יש מה לבדוק — יש קריאות", () => {
+    expect(CALLS.length).toBeGreaterThan(1);
   });
 
   it("‏העדכון מוסר את `existing`", () => {
@@ -344,29 +370,14 @@ describe("‏מסלול העדכון מוסר ל-`fieldsToColumns` את השור
   });
 
   /*
-   * ‏והיצירה **אינה** מוסרת דבר, ובכוונה: אין שורה שמורה, ומסירת
-   * ‏משהו שם הייתה ממציאה מצב קודם לנכס שנולד עכשיו.
+   * ‏וזה הכלל עצמו, ולא מניין הקריאות: קריאה בלי ארגומנט שני
+   * ‏אומרת „אין שורה שמורה”, ויש בדיוק מקום אחד שבו זה נכון —
+   * ‏היצירה. מסלול כתיבה חדש שישכח את השורה השמורה ייפול כאן,
+   * ‏ומסלול חדש שיזכור אותה לא ישבור את השער סתם.
    */
-  it("‏והיצירה אינה", () => {
-    /*
-     * ‏הטענה היא על **מספר הארגומנטים**, ולא על הביטוי שבפנים:
-     * ‏הניסוח הקודם נעץ את הביטוי המדויק, ולכן הוא נשבר כשהביטוי
-     * ‏השתנה משיקול אחר לגמרי — שער שחוסם את התיקון של עצמו.
-     */
-    const calls = [...SERVICE.matchAll(/fieldsToColumns\(/gu)].map((match) => {
-      const start = match.index + match[0].length;
-      let depth = 1;
-      for (let i = start; i < SERVICE.length; i += 1) {
-        if (SERVICE[i] === "(") depth += 1;
-        else if (SERVICE[i] === ")") {
-          depth -= 1;
-          if (depth === 0) return SERVICE.slice(start, i);
-        }
-      }
-      return "";
-    });
-    const create = calls.filter((args) => !args.includes(", existing"));
-    expect(create.length, "מסלול היצירה נעלם").toBe(1);
-    expect(create[0], "היצירה מוסרת שורה שמורה שאינה קיימת").not.toContain(",");
+  it("‏ורק היצירה קוראת בלי שורה שמורה", () => {
+    const withoutRow = CALLS.filter((args) => args.length === 1);
+    expect(withoutRow.length, "‏מסלול כתיבה קורא בלי השורה השמורה").toBe(1);
+    expect(withoutRow[0]?.[0], "‏היצירה מוסרת שורה שמורה שאינה קיימת").toBe("fields");
   });
 });

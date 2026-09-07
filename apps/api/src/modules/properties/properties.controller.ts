@@ -168,6 +168,19 @@ const ListQuerySchema = z
   .strict();
 
 /**
+ * ‎**המעבר על רישום משותף.**
+ *
+ * ‏חמישים בעמוד: זו רשימת עבודה שעוברים עליה, לא טבלה שסורקים.
+ * ‏המונה המלא חוזר לצדה ואומר כמה נשאר.
+ */
+const SharedTabuReviewQuerySchema = z
+  .object({ limit: z.coerce.number().int().min(1).max(200).default(50) })
+  .strict();
+
+/** ‏התשובה עצמה — משותף או לא, ותו לא. */
+const SharedTabuAnswerSchema = z.object({ sharedTabu: z.boolean() }).strict();
+
+/**
  * טווח הדוח לבעל הנכס. שני הקצוות רשות — בלעדיהם הדוח הוא כל
  * ההיסטוריה של הנכס, וזו ברירת המחדל הנכונה למי שמבקש "מה עשיתם
  * עד היום".
@@ -304,6 +317,24 @@ export class PropertiesController {
    * של הראשון במקום להמציא אותה. בלי זה, החופש להוסיף היה מייצר
    * בדיוק את פיצול המפתחות שהנרמול נלחם בו.
    */
+  /**
+   * ‎**מה שטרם נבדק על רישום משותף — המעבר החד-פעמי.**
+   *
+   * ‏מוכרח לשבת **לפני** `:id`, כמו קטלוג המאפיינים: נתיב סטטי
+   * ‏אחרי פרמטרי נבלע בו ונדחה בוולידציה.
+   *
+   * ‏הרשימה משרדית, כמו רשימת הנכסים עצמה. `remaining` הוא המונה
+   * ‏המלא ולא אורך העמוד — הוא מה שאומר למי שעובר כמה נשאר.
+   */
+  @Get("shared-tabu-review")
+  @RequireCapability("properties.view")
+  async sharedTabuReview(
+    @Query(new ZodValidationPipe(SharedTabuReviewQuerySchema))
+    query: z.infer<typeof SharedTabuReviewQuerySchema>,
+  ): Promise<Awaited<ReturnType<PropertiesService["sharedTabuReview"]>>> {
+    return this.properties.sharedTabuReview(query.limit);
+  }
+
   @Get("feature-catalogue")
   @RequireCapability("properties.view")
   async featureCatalogue(): Promise<
@@ -318,6 +349,24 @@ export class PropertiesController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
   ): Promise<PropertyDto> {
     return this.properties.getById(id);
+  }
+
+  /**
+   * ‎**התשובה על רישום משותף — והדבר היחיד שמסמן „נבדק”.**
+   *
+   * ‏נתיב נפרד מ-`PATCH /properties/:id` בכוונה: טופס העריכה שולח
+   * ‏את מצבו המלא כולל התיבה, ולכן שמירה רגילה הייתה מסמנת
+   * ‏„נבדק” גם כשאיש לא הסתכל על השאלה. הנתיב הזה נקרא רק
+   * ‏כשלוחצים על התשובה עצמה.
+   */
+  @Patch(":id/shared-tabu")
+  @RequireCapability("properties.edit")
+  async confirmSharedTabu(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(SharedTabuAnswerSchema))
+    body: z.infer<typeof SharedTabuAnswerSchema>,
+  ): Promise<{ remaining: number }> {
+    return this.properties.confirmSharedTabu(id, body.sharedTabu);
   }
 
   @Patch(":id")
