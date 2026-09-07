@@ -10,6 +10,7 @@ import {
 import { apiGet } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
+import { EntityTasks } from "../../../entity-tasks";
 import { TargetForm, type TargetValues } from "../target-form";
 
 export default function EditRecruitmentTargetPage() {
@@ -53,6 +54,29 @@ export default function EditRecruitmentTargetPage() {
          */
         <ReadOnlyTarget target={target} />
       )}
+      {/*
+        ‎**פולואפ — משימה עם מועד, ולא מנגנון תזכורות שני.**
+
+        ‏„לחזור לבעלים ביום חמישי ב-17:00” הוא בדיוק משימה: יש לה
+        ‏מועד, היא של סוכן, והיא צריכה להזכיר על עצמה. בניית שדה
+        ‏`followUpAt` על שורת הגיוס הייתה מחייבת סורק תזכורות שני,
+        ‏סנכרון יומן שני ורשימה שנייה — ארבעה מנגנונים מקבילים לאותו
+        ‏דבר. במקום זה השורה הצטרפה לאוצר המילים של המשימות
+        ‏(`TASK_ENTITY_TYPES`), ומקבלת את כולם כמו שהם.
+
+        ‏המועד נבחר ב-`datetime-local`: תאריך ושעה, בשעון ישראל,
+        ‏באותו רכיב שכל שאר המשימות במערכת משתמשות בו.
+
+        ‏מותנה ב-`calendar.manage` — אותה יכולת שנתיבי המשימות
+        ‏דורשים. בלעדיה המקטע היה נטען ומחזיר 403 על פעולה שהמסך
+        ‏הזמין לעשות.
+      */}
+      {target !== null && can(user, "calendar.manage") && typeof id === "string" ? (
+        <section className="mt-6">
+          <h2 className="mb-3 text-lg font-semibold">פולואפ</h2>
+          <EntityTasks entityType="recruitment" entityId={id} />
+        </section>
+      ) : null}
     </div>
   );
 }

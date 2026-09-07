@@ -27,6 +27,15 @@ function targetFor(entityType: string, entityId: string): Target | null {
   switch (entityType) {
     case "property":
       return { href: `/properties/${entityId}`, needs: ["properties.view"] };
+    /*
+     * ‏שורת גיוס אינה נכס — היא יושבת במסך הגיוס. אותה יכולת,
+     * ‏כי מודול הגיוס נשען על `properties.view` (ראו הבקר שלו).
+     */
+    case "recruitment":
+      return {
+        href: `/properties/recruitment/${entityId}`,
+        needs: ["properties.view"],
+      };
     case "lead":
       return { href: `/leads/${entityId}`, needs: ["leads.view_own"] };
     case "appointment":

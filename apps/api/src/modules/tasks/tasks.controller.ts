@@ -1,6 +1,11 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
 import { z } from "zod";
-import { IdSchema, PROPERTY_READINESS_FIELDS, TASK_PRIORITIES } from "@metavchim/shared";
+import {
+  IdSchema,
+  PROPERTY_READINESS_FIELDS,
+  TASK_ENTITY_TYPES,
+  TASK_PRIORITIES,
+} from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { TasksService, type TaskDto } from "./tasks.service";
@@ -15,7 +20,7 @@ const CreateTaskSchema = z
     notes: z.string().max(2000).optional(),
     dueAt: z.coerce.date().optional(),
     priority: z.enum(TASK_PRIORITIES).optional(),
-    entityType: z.enum(["lead", "buyer", "property"]).optional(),
+    entityType: z.enum(TASK_ENTITY_TYPES).optional(),
     entityId: IdSchema.optional(),
     /** ריק = על עצמי. אחר דורש tasks.assign — נאכף בשירות. */
     assignedToUserId: IdSchema.optional(),
@@ -60,7 +65,7 @@ const ListQuerySchema = z
   })
   .strict();
 
-const EntityTypeSchema = z.enum(["lead", "buyer", "property"]);
+const EntityTypeSchema = z.enum(TASK_ENTITY_TYPES);
 
 const IdParam = new ZodValidationPipe(IdSchema);
 

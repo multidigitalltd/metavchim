@@ -173,6 +173,25 @@ export function groupTasksByBucket<T extends SortableTask & { status?: string }>
   }));
 }
 
+/**
+ * ‎**מה שאפשר לתלות עליו משימה — רשימה אחת.**
+ *
+ * ‏אותו אוצר מילים היה כתוב בארבעה מקומות: שתי סכימות בבקר, טיפוס
+ * ‏ה-prop של הרכיב, וה-`switch` שמתחת. סוג ישות חדש נכנס לחלקם
+ * ‏והמסך חסם אותו — או גרוע מזה, נכתב במסד ולא היה לו קישור.
+ *
+ * ‎**„גיוס”** נכנס כאן: פולואפ על נכס שמנסים לגייס הוא משימה עם
+ * ‏מועד, ולא מנגנון תזכורות שני. השורה אינה לקוח (הבעלים הוא טקסט
+ * ‏עד ההמרה), אבל המשימה היא של הסוכן — ולכן היא נשענת על אותה
+ * ‏בעלות, אותו יומן ואותה תזכורת כמו כל משימה אחרת.
+ */
+export const TASK_ENTITY_TYPES = ["lead", "buyer", "property", "recruitment"] as const;
+export type TaskEntityType = (typeof TASK_ENTITY_TYPES)[number];
+
+export function isTaskEntityType(value: string): value is TaskEntityType {
+  return (TASK_ENTITY_TYPES as readonly string[]).includes(value);
+}
+
 export function taskEntityHref(entityType: string, entityId: string): string | null {
   switch (entityType) {
     case "lead":
@@ -181,6 +200,9 @@ export function taskEntityHref(entityType: string, entityId: string): string | n
       return `/buyers/${entityId}`;
     case "property":
       return `/properties/${entityId}`;
+    /* ‏שורת גיוס אינה נכס — היא יושבת במסך שלה, ראו מודול הגיוס */
+    case "recruitment":
+      return `/properties/recruitment/${entityId}`;
     default:
       return null;
   }

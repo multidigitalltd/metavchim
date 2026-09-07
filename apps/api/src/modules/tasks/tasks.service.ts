@@ -433,6 +433,18 @@ export class TasksService {
    * לעשות" בזמן שסוכן אחר כבר קבע איתו פגישה. הגישה לכרטיס עצמו
    * כבר נבדקה במסך שמכיל את הפאנל.
    */
+  /**
+   * ‎**וגם כאן `scopeFilter` — הנתיב שהיה החדש ושכח אותו.**
+   *
+   * ‏ההערה שמעל `scopeFilter` אומרת „השאילתה היא האכיפה, לא בדיקה
+   * ‏שאפשר לשכוח בנתיב חדש”, וזה בדיוק מה שקרה: שלוש השאילתות כאן
+   * ‏סיננו לפי דייר וישות בלבד. היכולת שהנתיב דורש היא
+   * ‎`calendar.manage`, שיש לכל סוכן — כלומר סוכן יכול היה לקרוא
+   * ‏את המשימות של עמיתו על אותו כרטיס: כותרות, הערות ומועדים.
+   *
+   * ‏הצטרפות „גיוס” לאוצר המילים הייתה מרחיבה את זה גם לשורות
+   * ‏הגיוס, ולכן הסינון נסגר כאן ולא בפעם הבאה.
+   */
   async listForEntity(
     entityType: string,
     entityId: string,
@@ -449,12 +461,19 @@ export class TasksService {
        */
       const [open, done, openSuggestions] = await Promise.all([
         tx.task.findMany({
-          where: { tenantId, entityType, entityId, status: "open", deletedAfterSync: false },
+          where: {
+            tenantId,
+            entityType,
+            entityId,
+            status: "open",
+            deletedAfterSync: false,
+            ...this.scopeFilter(),
+          },
           orderBy: { dueAt: { sort: "asc", nulls: "last" } },
           take: 50,
         }),
         tx.task.findMany({
-          where: { tenantId, entityType, entityId, status: "done" },
+          where: { tenantId, entityType, entityId, status: "done", ...this.scopeFilter() },
           /*
            * ‎**לפי מתי הושלמו, ולא לפי מתי נגעו בהן.**
            *
@@ -490,6 +509,7 @@ export class TasksService {
             status: "open",
             deletedAfterSync: false,
             sourceKey: { startsWith: SUGGESTION_PREFIX },
+            ...this.scopeFilter(),
           },
           select: { sourceKey: true },
         }),
