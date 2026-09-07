@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
+import { emailCardHref, emailCardLabel, type EmailCardKind } from "@metavchim/shared";
 import { API_BASE, apiGet, apiList, apiPost } from "@/lib/api";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
@@ -46,6 +47,13 @@ interface Message {
   /** ‏pending | sent | failed — ביוצאות בלבד. */
   sendState?: string;
   createdAt: string;
+  /**
+   * ‏על איזה כרטיס ההודעה — כשזה ידוע ולא ניחוש.
+   *
+   * ‏נעדר ברוב ההודעות, וזה בסדר: השרת מתייג רק שליחה שיצאה
+   * ‏מכרטיס ותשובה עליה.
+   */
+  card?: { kind: EmailCardKind; id: string };
   attachments: Attachment[];
 }
 
@@ -370,6 +378,25 @@ export default function InboxPage() {
                                   </>
                                 );
                               })()}
+                              {/*
+                                ‎**התג צמוד לשורת „מי ומתי”, ולא שורה
+                                משלו.** „הלקוח · אתמול 14:20 · נכס
+                                ברחוב הרצל” נקרא כמשפט אחד, ותג
+                                שמופיע רק בחלק מההודעות לא פותח
+                                שורה ריקה בכל השאר.
+                              */}
+                              {message.card === undefined ? null : (
+                                <>
+                                  {" · "}
+                                  <Link
+                                    href={emailCardHref(message.card)}
+                                    className="underline"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    {emailCardLabel(message.card.kind)}
+                                  </Link>
+                                </>
+                              )}
                             </p>
                             {message.body !== "" ? message.body : null}
                             {message.attachments.length > 0 ? (

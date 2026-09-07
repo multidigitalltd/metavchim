@@ -113,6 +113,7 @@ export * from "./logic/billing.js";
 export * from "./logic/subscription-offer.js";
 export * from "./logic/number-rental.js";
 export * from "./logic/login-return.js";
+export * from "./logic/email-card-tag.js";
 export * from "./logic/email-domain.js";
 export * from "./logic/offer-email.js";
 export * from "./logic/contact-erasure-disclosure.js";

@@ -497,6 +497,15 @@ export class AgreementsService {
         row.contactId,
         /* ‏מי ששלח את ההסכם — תשובת הלקוח עליו חוזרת אליו */
         actingUserId(),
+        /*
+         * ‎**הנכס, כשלהסכם יש אחד.** „יש טעות בסכום” על הסכם
+         * ‏בלעדיות הוא על נכס מסוים, ולקוח עם שני הסכמים פתוחים
+         * ‏אינו נותן לסוכן דרך לדעת על איזה מהם.
+         *
+         * ‏הסכם בלי נכס (ייפוי כוח כללי) — אין מה לתייג, ולא
+         * ‏ממציאים.
+         */
+        row.propertyId === null ? null : { kind: "property", id: row.propertyId },
       );
       await this.email.send(
         contact.email,
