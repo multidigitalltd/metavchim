@@ -3,7 +3,7 @@ import {
   callLeadIds,
   notificationAnchor,
   notificationAnchorIds,
-  notificationContactMap,
+  notificationSubjectMap,
   redactNotification,
   type RedactableNotification,
 } from "@metavchim/shared";
@@ -52,16 +52,26 @@ export async function redactUnauthorizedNotifications<T extends RedactableNotifi
   rows: readonly T[],
 ): Promise<T[]> {
   if (!rows.some((row) => notificationAnchor(row) !== null)) return [...rows];
+  const ctx = TenantContext.current();
   const allowed = await visibleContactIds(tx, tenantId);
-  if (allowed === null) return [...rows];
-  const allowedSet = new Set(allowed);
+  /*
+   * ‎**גם למי שרואה את כל הלקוחות** (ביקורת Codex, P1): הבעלות על
+   * ‏כרטיס מצמצמת, ולא רק שער הלקוח. בפועל מי שמחזיק את כל
+   * ‏הלקוחות מחזיק גם `leads.view_all` ו-`buyers.view_all`, ולכן
+   * ‏הוא עובר — אבל הכלל אינו נשען על הצירוף הזה.
+   */
+  const viewer = {
+    allowed: allowed === null ? null : new Set(allowed),
+    userId: ctx.userId,
+    capabilities: ctx.capabilities,
+  };
   const { leadIds, buyerIds, callIds } = notificationAnchorIds(rows);
   const [buyers, calls] = await Promise.all([
     buyerIds.length === 0
       ? []
       : tx.buyer.findMany({
           where: { tenantId, id: { in: buyerIds } },
-          select: { id: true, contactId: true },
+          select: { id: true, contactId: true, ownerUserId: true },
         }),
     callIds.length === 0
       ? []
@@ -81,8 +91,8 @@ export async function redactUnauthorizedNotifications<T extends RedactableNotifi
       ? []
       : await tx.lead.findMany({
           where: { tenantId, id: { in: allLeadIds } },
-          select: { id: true, contactId: true },
+          select: { id: true, contactId: true, assignedToUserId: true },
         });
-  const contactOf = notificationContactMap(leads, buyers, calls);
-  return rows.map((row) => redactNotification(row, allowedSet, contactOf));
+  const subjects = notificationSubjectMap(leads, buyers, calls);
+  return rows.map((row) => redactNotification(row, viewer, subjects));
 }

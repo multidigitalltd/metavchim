@@ -127,3 +127,43 @@ export function contactIdsFromSources(
     ]),
   ];
 }
+
+/**
+ * ‎**בעלות על כרטיס מצמצמת, ואינה מרחיבה** (ביקורת Codex, P1).
+ *
+ * ‏„מותר לי לראות את האדם” הוא **איחוד מקורות**: מספיק שאני מחזיק
+ * ‏כרטיס קונה אחד עליו. איחוד אינו יכול לחסום — ולכן שורה שמצביעה
+ * ‏על **כרטיס מסוים** של עמית עוברת בו, על אף שהנתיב לכרטיס עצמו
+ * ‏דוחה אותי. `assertCallAccess` כבר עושה את זה נכון: הוא בודק את
+ * ‏בעלות הליד **לפני** שער הלקוח, ולא כענף נוסף בתוכו.
+ *
+ * ‏אלה אותם שני כללים שהשרת אוכף על הנתיבים — `leadOwnershipFilter`
+ * ‏ו-`ownershipFilter("buyers.view_all", "ownerUserId")` — בצורתם
+ * ‏הטהורה, כדי שגם העובד יוכל לשאול אותם.
+ */
+
+/** ‏ליד לא-משויך הוא הערימה המשותפת, ולכן הוא גלוי לכל מי שהמודול פתוח אצלו. */
+export function leadIsVisibleWith(
+  caps: ReadonlySet<Capability>,
+  userId: string,
+  assignedToUserId: string | null,
+): boolean {
+  if (caps.has("leads.view_all")) return true;
+  if (!caps.has("leads.view_own")) return false;
+  return assignedToUserId === null || assignedToUserId === userId;
+}
+
+/**
+ * ‏כרטיס קונה, לעומת זאת, **שייך** למישהו: `ownershipFilter` מייצר
+ * ‏`{ ownerUserId: <אני> }`, ולכן כרטיס בלי בעלים אינו מתאים לאף
+ * ‏סוכן — כאן זה מכוון, ולא הבאג של הלידים.
+ */
+export function buyerCardIsVisibleWith(
+  caps: ReadonlySet<Capability>,
+  userId: string,
+  ownerUserId: string | null,
+): boolean {
+  if (caps.has("buyers.view_all")) return true;
+  if (!caps.has("buyers.view_own")) return false;
+  return ownerUserId === userId;
+}

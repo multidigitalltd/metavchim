@@ -4,6 +4,7 @@ import {
   contactIdsFromSources,
   contactSourcesOf,
   effectiveCapabilities,
+  leadIsVisibleWith,
   seesAllContactsWith,
   visibleContactFilters,
   type Capability,
@@ -106,9 +107,8 @@ export function leadPoolOwner(): string | null {
 /** האם הליד הזה נגיש לי — שלי, של אף אחד, או שאני רואה הכול. */
 export function leadIsVisible(assignedToUserId: string | null): boolean {
   const ctx = TenantContext.current();
-  if (ctx.capabilities.has("leads.view_all")) return true;
-  if (!ctx.capabilities.has("leads.view_own")) return false;
-  return assignedToUserId === null || assignedToUserId === ctx.userId;
+  /* ‏הכלל עצמו בחבילה המשותפת — גם העובד שואל אותו */
+  return leadIsVisibleWith(ctx.capabilities, ctx.userId, assignedToUserId);
 }
 
 /**

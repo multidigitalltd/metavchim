@@ -33,7 +33,18 @@ const MINE = "01CONTACTMINE000000000001";
 /** ‏בעל נכס של עמית — הלקוח שהשלילה נועדה להסתיר. */
 const THEIRS = "01CONTACTTHEIRS0000000001";
 
-const BUYERS = [{ contactId: MINE, ownerUserId: ME }];
+/**
+ * ‎**האדם שנראה דרך שני מקורות** — הוא לב הממצא: כרטיס הקונה שלי
+ * ‏עליו, וליד של עמית על אותו אדם. שער הלקוח הוא איחוד, ולכן הוא
+ * ‏אומר „מותר”; בעלות הליד היא שצריכה לצמצם.
+ */
+const SHARED = "01CONTACTSHARED000000001";
+const BUYERS = [
+  { id: "01BUYERMINE0000000000001", contactId: MINE, ownerUserId: ME },
+  { id: "01BUYERSHARED00000000001", contactId: SHARED, ownerUserId: ME },
+  /* ‏כרטיס של עמית על אותו אדם — קיים, ולכן הצנזור עליו הוא בגלל הבעלות */
+  { id: "01BUYERTHEIRS0000000001", contactId: SHARED, ownerUserId: OTHER },
+];
 /**
  * ‏שיחה שהעובד תמלל: אין לה `createdBy`, ולכן ההתראה עליה נכתבת
  * ‏ברמת המשרד — עם תמצית השיחה בגוף.
@@ -47,10 +58,16 @@ const CALLS: { id: string; contactId: string | null; leadId: string | null }[] =
    * ‏נראית „בלי לקוח”, כלומר מצונזרת גם לסוכן שהיא שלו.
    */
   { id: "01CALLVIALEAD00000000001", contactId: null, leadId: "01LEADMINE0000000000000001" },
+  /*
+   * ‏השיחה של הממצא: היא נושאת `contactId` של אדם שאני **כן** רואה
+   * ‏(דרך כרטיס הקונה שלי), אבל היא שייכת לליד של עמית.
+   */
+  { id: "01CALLCOLLEAGUE000000001", contactId: SHARED, leadId: "01LEADSHARED000000000001" },
 ];
 const LEADS: { id: string; contactId: string; assignedToUserId: string }[] = [
   { id: "01LEADTHEIRS00000000000001", contactId: THEIRS, assignedToUserId: OTHER },
   { id: "01LEADMINE0000000000000001", contactId: MINE, assignedToUserId: ME },
+  { id: "01LEADSHARED000000000001", contactId: SHARED, assignedToUserId: OTHER },
 ];
 
 /*
@@ -61,10 +78,26 @@ const LEADS: { id: string; contactId: string; assignedToUserId: string }[] = [
  */
 const tx = {
   buyer: {
-    findMany: async ({ where }: { where: { ownerUserId?: string } }) =>
-      BUYERS.filter(
-        (row) => where.ownerUserId === undefined || row.ownerUserId === where.ownerUserId,
-      ).map((row) => ({ contactId: row.contactId })),
+    findMany: async ({
+      where,
+      select,
+    }: {
+      where: { ownerUserId?: string; id?: { in: string[] } };
+      select?: { id?: boolean };
+    }) => {
+      const rows = BUYERS.filter(
+        (row) =>
+          (where.ownerUserId === undefined || row.ownerUserId === where.ownerUserId) &&
+          (where.id === undefined || where.id.in.includes(row.id)),
+      );
+      return select?.id === true
+        ? rows.map((row) => ({
+            id: row.id,
+            contactId: row.contactId,
+            ownerUserId: row.ownerUserId,
+          }))
+        : rows.map((row) => ({ contactId: row.contactId }));
+    },
   },
   lead: {
     /*
@@ -96,7 +129,12 @@ const tx = {
         (row) => owns(row.assignedToUserId) && (where.id === undefined || where.id.in.includes(row.id)),
       );
       return select?.id === true
-        ? rows.map((row) => ({ id: row.id, contactId: row.contactId }))
+        ? rows.map((row) => ({
+            id: row.id,
+            contactId: row.contactId,
+            /* ‏הבעלות מצמצמת, ולכן היא חלק מהשליפה ולא קישוט */
+            assignedToUserId: row.assignedToUserId,
+          }))
         : rows.map((row) => ({ contactId: row.contactId }));
     },
   },
@@ -274,6 +312,80 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
   });
 
   /*
+   * ‎**ובעלות הכרטיס מצמצמת — שער הלקוח לבדו אינו מספיק**
+   * ‏(ביקורת Codex, P1).
+   *
+   * ‏הלקוח נראה לי דרך כרטיס הקונה **שלי**, ולכן שער הלקוח — שהוא
+   * ‏איחוד מקורות — אומר „מותר”. אבל השיחה שייכת לליד של עמית,
+   * ‏ו-`assertCallAccess` דוחה אותה במפורש. איחוד אינו יכול לחסום,
+   * ‏ולכן הצמצום חייב לשבת מחוצה לו.
+   */
+  it("תמלול של שיחה על הליד של עמית — גם כשהלקוח נראה לי דרך כרטיס שלי", async () => {
+    const transcribed: RedactableNotification = {
+      userId: null,
+      type: "call_transcribed",
+      title: "📝 השיחה עם מיכל אבן תומללה",
+      body: "מוכנה למכור, מבקשת 2.9 מיליון",
+      entityType: "call",
+      entityId: "01CALLCOLLEAGUE000000001",
+    };
+    const [row] = await asUser(SCOPED, () =>
+      redactUnauthorizedNotifications(tx as never, TENANT, [transcribed]),
+    );
+    expect(row?.body, "תמצית השיחה של העמית נשארה").toBeNull();
+    expect(row?.entityId).toBeNull();
+  });
+
+  /* ‏וכרטיס קונה של עמית — אותו כלל, עוגן אחר */
+  it("מצביע לכרטיס קונה של עמית מצונזר, גם כשהלקוח נראה לי", async () => {
+    const theirCard: RedactableNotification = {
+      userId: null,
+      type: "lead_returned",
+      title: "מיכל אבן חזרה",
+      body: "התעניינה שוב",
+      entityType: "buyer",
+      entityId: "01BUYERTHEIRS0000000001",
+    };
+    const [row] = await asUser(SCOPED, () =>
+      redactUnauthorizedNotifications(tx as never, TENANT, [theirCard]),
+    );
+    expect(row?.entityId, "מצביע לכרטיס של עמית נשאר").toBeNull();
+    expect(row?.body).toBeNull();
+  });
+
+  /* ‏ואותו מצביע לכרטיס **שלי** על אותו אדם — נשאר שלם */
+  it("ומצביע לכרטיס הקונה שלי על אותו אדם נשאר", async () => {
+    const myCard: RedactableNotification = {
+      userId: null,
+      type: "lead_returned",
+      title: "מיכל אבן חזרה",
+      body: "התעניינה שוב",
+      entityType: "buyer",
+      entityId: "01BUYERSHARED00000000001",
+    };
+    const [row] = await asUser(SCOPED, () =>
+      redactUnauthorizedNotifications(tx as never, TENANT, [myCard]),
+    );
+    expect(row).toEqual(myCard);
+  });
+
+  /* ‏ולמנהל שרואה את כל הלידים — אותה שיחה נשארת שלמה */
+  it("ולמי שרואה את כל הלידים היא נשארת", async () => {
+    const transcribed: RedactableNotification = {
+      userId: null,
+      type: "call_transcribed",
+      title: "📝 השיחה עם מיכל אבן תומללה",
+      body: "מוכנה למכור",
+      entityType: "call",
+      entityId: "01CALLCOLLEAGUE000000001",
+    };
+    const [row] = await asUser(DEFAULT, () =>
+      redactUnauthorizedNotifications(tx as never, TENANT, [transcribed]),
+    );
+    expect(row).toEqual(transcribed);
+  });
+
+  /*
    * ‎**כרטיס שנעלם מצונזר גם הוא.** מצביע שאינו מוביל עוד לאדם אינו
    * ‏„בטוח” — הוא בדיוק השורה שאי אפשר לבדוק, והכותרת שלה מלאה.
    */
@@ -409,24 +521,26 @@ describe("‏שער: אין דחיפה בלי צנזורה", () => {
     "utf8",
   );
 
+  /*
+   * ‏הטענה על **מה שנכנס לניסוח**, ולא על שמות המשתנים: הניסוח
+   * ‏הקודם קיבע `redactNotification(row, allowed, anchorContacts)`,
+   * ‏ולכן הוא נשבר ברגע שהשער נעשה מדויק יותר — כלומר חסם את
+   * ‏התיקון שהוא בא להגן עליו.
+   */
   it("‏סבב הוואטסאפ מנסח מתוך שורות מצונזרות", () => {
-    expect(WORKERS).toContain(
-      "const items = queued.map((row) => redactNotification(row, allowed, anchorContacts));",
-    );
+    expect(WORKERS).toMatch(/const items = queued\.map\(\(row\) => redactNotification\(/u);
     const at = WORKERS.indexOf("const message = formatNotifyMessage(items");
     expect(at, "ניסוח ההודעה נעלם").toBeGreaterThan(0);
     /* ‏והצנזורה קודמת לו, ולא אחריו */
-    expect(WORKERS.indexOf("redactNotification(row, allowed, anchorContacts)")).toBeLessThan(at);
+    expect(WORKERS.search(/queued\.map\(\(row\) => redactNotification\(/u)).toBeLessThan(at);
   });
 
   it("‏והדחיפה לדפדפן בונה את המטען מתוך שורה מצונזרת", () => {
-    expect(WORKERS).toContain(
-      "const notification = redactNotification(raw, allowed, pushAnchors);",
-    );
+    expect(WORKERS).toMatch(/const notification = redactNotification\(raw,/u);
     const payload = WORKERS.indexOf("JSON.stringify(pushPayload(notification))");
     expect(payload, "מטען הדחיפה נעלם").toBeGreaterThan(0);
     expect(
-      WORKERS.indexOf("redactNotification(raw, allowed, pushAnchors)"),
+      WORKERS.search(/const notification = redactNotification\(raw,/u),
       "המטען נבנה לפני הצנזורה",
     ).toBeLessThan(payload);
     /* ‏ואין יותר בנייה מהשורה הגולמית */

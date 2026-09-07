@@ -46,8 +46,10 @@ import {
   visibleContactFilters,
   callLeadIds,
   notificationAnchorIds,
-  notificationContactMap,
+  notificationSubjectMap,
   redactNotification,
+  type AnchorSubject,
+  type NotificationViewer,
   type RedactableNotification,
   shouldRetireAfterFailure,
   followUpFromCall,
@@ -2317,19 +2319,20 @@ async function processPushSweep(): Promise<void> {
       tenantRow?.blockedModules ?? [],
       new Date(),
     );
-    const pushAnchors = await notificationAnchorContacts(tenant.id, pending);
+    const pushSubjects = await notificationAnchorSubjects(tenant.id, pending);
 
     for (const [userId, subs] of byUser) {
-      const allowed = await visibleContactIdSet(
-        tenant.id,
+      const caps = pushCaps.get(userId) ?? new Set<Capability>();
+      const viewer: NotificationViewer = {
+        allowed: await visibleContactIdSet(tenant.id, userId, caps),
         userId,
-        pushCaps.get(userId) ?? new Set<Capability>(),
-      );
+        capabilities: caps,
+      };
       for (const raw of pending) {
         if (!shouldPush(raw)) continue;
         // התראה משרדית (userId ריק) הולכת לכל מי שנרשם במשרד
         if (raw.userId && raw.userId !== userId) continue;
-        const notification = redactNotification(raw, allowed, pushAnchors);
+        const notification = redactNotification(raw, viewer, pushSubjects);
         const payload = JSON.stringify(pushPayload(notification));
 
         for (const sub of subs) {
@@ -3467,10 +3470,10 @@ function allowedActionsFor(capabilities: Set<Capability>): readonly string[] {
  */
 
 /** ‏העוגן ⟵ איש הקשר. פעם אחת למשרד: זה אינו תלוי בצופה. */
-async function notificationAnchorContacts(
+async function notificationAnchorSubjects(
   tenantId: string,
   rows: readonly RedactableNotification[],
-): Promise<Map<string, string | null>> {
+): Promise<Map<string, AnchorSubject>> {
   const { leadIds, buyerIds, callIds } = notificationAnchorIds(rows);
   if (leadIds.length + buyerIds.length + callIds.length === 0) return new Map();
   return prisma.$transaction(async (tx) => {
@@ -3480,7 +3483,7 @@ async function notificationAnchorContacts(
         ? []
         : tx.buyer.findMany({
             where: { tenantId, id: { in: buyerIds } },
-            select: { id: true, contactId: true },
+            select: { id: true, contactId: true, ownerUserId: true },
           }),
       callIds.length === 0
         ? []
@@ -3496,9 +3499,9 @@ async function notificationAnchorContacts(
         ? []
         : await tx.lead.findMany({
             where: { tenantId, id: { in: allLeadIds } },
-            select: { id: true, contactId: true },
+            select: { id: true, contactId: true, assignedToUserId: true },
           });
-    return notificationContactMap(leads, buyers, calls);
+    return notificationSubjectMap(leads, buyers, calls);
   });
 }
 
@@ -3652,7 +3655,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
      */
     const capsOf = await capabilitiesByUser(tenant.id, users, tenant.blockedModules, now);
     /* ‏העוגנים פעם אחת למשרד — הם אינם תלויים בנמען */
-    const anchorContacts = await notificationAnchorContacts(tenant.id, pending);
+    const anchorSubjects = await notificationAnchorSubjects(tenant.id, pending);
 
     const recipients = new Map<string, WaRecipient>();
     for (const user of users) {
@@ -3714,12 +3717,13 @@ async function processWhatsAppNotifySweep(): Promise<void> {
        * ‏הכותרת והגוף הגולמיים. שורה משרדית ישנה שהמתינה בהשתקה,
        * ‏בשעות שקט או לחלון סגור יצאה אחרי שהגישה כבר נשללה.
        */
-      const allowed = await visibleContactIdSet(
-        tenant.id,
-        recipient.userId,
-        new Set(recipient.capabilities as Capability[]),
-      );
-      const items = queued.map((row) => redactNotification(row, allowed, anchorContacts));
+      const caps = new Set(recipient.capabilities as Capability[]);
+      const viewer: NotificationViewer = {
+        allowed: await visibleContactIdSet(tenant.id, recipient.userId, caps),
+        userId: recipient.userId,
+        capabilities: caps,
+      };
+      const items = queued.map((row) => redactNotification(row, viewer, anchorSubjects));
 
       /*
        * „שקט לשעתיים”, שעות שקט, וחלון 24 השעות של Meta — שלושתם
