@@ -180,7 +180,16 @@ export function DocHeader({
 }: {
   title: string;
   lead: string;
-  current: "product" | "api" | "telephony" | "whatsapp";
+  /*
+   * ‎**אין כאן „whatsapp”, ובכוונה.**
+   *
+   * ‏מסמך ההקמה מול Meta נכתב למי שמפעיל את הפלטפורמה — תיק עסקי,
+   * ‏System User, App Secret, ומסך `/platform` שאין למשרד גישה אליו.
+   * ‏מקומו בתיעוד הפנימי (`docs/15`), לא בתיעוד שנכתב ללקוחות. הוא
+   * גם החזיק את הכתובת `/docs/whatsapp` ובכך הסתיר את ההדרכה בעלת
+   * אותו מזהה, שכעת חזרה אליה.
+   */
+  current: "product" | "api" | "telephony";
 }) {
   const chip = (isCurrent: boolean) => ({
     className: `mv-chip no-underline${isCurrent ? " font-extrabold" : ""}`,
@@ -202,9 +211,6 @@ export function DocHeader({
         </a>
         <a href="/docs/telephony" {...chip(current === "telephony")}>
           חיבור שיחות ומרכזייה
-        </a>
-        <a href="/docs/whatsapp" {...chip(current === "whatsapp")}>
-          חיבור וואטסאפ עסקי
         </a>
       </nav>
       <h1 className="mb-2 text-2xl font-bold">{title}</h1>
