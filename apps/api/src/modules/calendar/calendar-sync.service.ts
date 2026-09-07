@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ulid } from "ulid";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import {
   GoogleCalendarService,
   type CalendarLink,
@@ -200,30 +200,84 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
        */
       const dueAt = task.dueAt ?? (task.deletedAfterSync ? now : null);
       if (!dueAt) continue;
-      const googleEventId = await this.google.upsertEvent(link, {
-        googleEventId: task.googleEventId,
+      /*
+       * ‏האירוע מתואר פעם אחת: אותם שדות משמשים גם את הדחיפה וגם
+       * ‏את הביטול שאחריה, אם השורה נעלמה בינתיים.
+       */
+      const event = {
         // הקידומת מבדילה ביומן בין משימה לפגישה במבט
         summary: `משימה: ${task.title}`,
         description: task.notes ?? undefined,
         startsAt: dueAt,
         endsAt: new Date(dueAt.getTime() + 30 * 60_000),
-        // משימה שבוצעה — האירוע נמחק מהיומן במקום להישאר תלוי
-        cancelled: task.status !== "open",
+      };
+      const googleEventId = await this.google.upsertEvent(link, {
+        googleEventId: task.googleEventId,
+        ...event,
+        /*
+         * משימה שבוצעה — האירוע נמחק מהיומן במקום להישאר תלוי.
+         *
+         * ‎**ושורה שממתינה לניקוי — תמיד**, ולא רק בזכות הסטטוס:
+         * ‏הענף שמתחת **מוחק** אותה, ולכן אירוע שנוצר לה כאן לא
+         * ‏היה נשאר לו אף מצביע.
+         */
+        cancelled: task.deletedAfterSync || task.status !== "open",
       });
-      await this.prisma.withExplicitTenant(link.tenantId, async (tx) => {
-        // משימה שנמחקה והאירוע שלה נוקה — עכשיו אפשר להסיר את השורה
-        if (task.deletedAfterSync) {
-          await tx.task.delete({ where: { id: task.id } });
-          return;
-        }
-        await tx.task.update({
-          where: { id: task.id },
-          data: { googleEventId, googleSyncedAt: new Date() },
-        });
-      });
+      const kept = await this.persistOrCancel(link, googleEventId, event, async (tx) =>
+        task.deletedAfterSync
+          ? // משימה שנמחקה והאירוע שלה נוקה — עכשיו אפשר להסיר את השורה
+            (await tx.task.deleteMany({ where: { id: task.id, tenantId: link.tenantId } })).count
+          : (
+              await tx.task.updateMany({
+                where: { id: task.id, tenantId: link.tenantId },
+                data: { googleEventId, googleSyncedAt: new Date() },
+              })
+            ).count,
+      );
+      if (!kept) continue;
       count += 1;
     }
     return count;
+  }
+
+  /**
+   * ‎**מזהה שחזר מ-Google חייב למצוא שורה שתחזיק אותו — או שהאירוע
+   * ‏יורד** (ביקורת Codex, P2).
+   *
+   * ## ‏החלון
+   *
+   * ‏הדחיפה קוראת אצווה, פונה ל-Google, ורק אז כותבת את המזהה
+   * ‏חזרה. השיחה עם Google היא רשת: היא לוקחת זמן, ובתוכו מישהו
+   * ‏יכול למחוק את השורה — מחיקת שורת גיוס מנקה את הפולואפים שלה,
+   * ‏מחיקת לקוח מנקה את הפגישות, וכן הלאה.
+   *
+   * ‏מה שקרה אז: `update` על שורה שאיננה **זורק** (`P2025`), האצווה
+   * ‏כולה נופלת — והאירוע שזה עתה נוצר ב-Google נשאר ביומן של
+   * ‏המתווך **לנצח**, כי המזהה שלו לא נשמר בשום מקום ואין דרך
+   * ‏להגיע אליו.
+   *
+   * ## ‏מה נעשה במקום
+   *
+   * ‏הכתיבה היא `updateMany`/`deleteMany` ולכן מדווחת „אפס שורות”
+   * ‏במקום לזרוק, והתשובה הזו היא **מידע**: השורה נמחקה בזמן
+   * ‏הדחיפה. אז האירוע נמחק גם הוא — הוא נוצר בשביל שורה שכבר אין
+   * ‏לה זכות קיום — והסבב ממשיך לשאר האצווה.
+   *
+   * ‏אחת ולשני הכיוונים: משימות ופגישות עושות בדיוק אותו דבר, ושתי
+   * ‏גרסאות של הכלל הזה היו נשארות מסונכרנות בדיוק עד השינוי הבא.
+   */
+  private async persistOrCancel(
+    link: CalendarLink,
+    googleEventId: string | null,
+    event: { summary: string; description?: string; startsAt: Date; endsAt: Date },
+    write: (tx: TenantTx) => Promise<number>,
+  ): Promise<boolean> {
+    const rows = await this.prisma.withExplicitTenant(link.tenantId, write);
+    if (rows > 0) return true;
+    if (googleEventId !== null) {
+      await this.google.upsertEvent(link, { googleEventId, ...event, cancelled: true });
+    }
+    return false;
   }
 
   /**
@@ -442,20 +496,27 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
     let count = 0;
     for (const appointment of pending) {
       const endsAt = appointment.endsAt ?? new Date(appointment.startsAt.getTime() + 60 * 60_000);
-      const googleEventId = await this.google.upsertEvent(link, {
-        googleEventId: appointment.googleEventId,
+      const event = {
         summary: appointment.title ?? "פגישה — מתווכים",
         description: appointment.notes ?? undefined,
         startsAt: appointment.startsAt,
         endsAt,
+      };
+      const googleEventId = await this.google.upsertEvent(link, {
+        googleEventId: appointment.googleEventId,
+        ...event,
         cancelled: appointment.status === "cancelled",
       });
-      await this.prisma.withExplicitTenant(link.tenantId, async (tx) => {
-        await tx.appointment.update({
-          where: { id: appointment.id },
-          data: { googleEventId, googleSyncedAt: new Date() },
-        });
-      });
+      /* ‏אותו כלל של המשימות — ראו `persistOrCancel` */
+      const kept = await this.persistOrCancel(link, googleEventId, event, async (tx) =>
+        (
+          await tx.appointment.updateMany({
+            where: { id: appointment.id, tenantId: link.tenantId },
+            data: { googleEventId, googleSyncedAt: new Date() },
+          })
+        ).count,
+      );
+      if (!kept) continue;
       count += 1;
     }
     return count;
