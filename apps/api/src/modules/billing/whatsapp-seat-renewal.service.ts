@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ulid } from "ulid";
-import { billingAnchorDay, nextPeriodEnd, whatsappSeatIsBillable } from "@metavchim/shared";
+import {
+  dailyEmailIdempotencyKey,
+ billingAnchorDay, nextPeriodEnd, whatsappSeatIsBillable } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { CardcomService } from "../../core/cardcom.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -319,6 +321,11 @@ export class WhatsappSeatRenewalService implements OnModuleInit, OnModuleDestroy
     const payer = await this.payer(tenantId);
     if (payer.email) {
       try {
+        /* ‏פעם ביום למקום הזה. מקום שהוסדר ושב לחוב הוא אירוע חדש */
+        const idempotency = {
+          key: dailyEmailIdempotencyKey("seatpastdue", seatId, new Date()),
+          purpose: "billing",
+        };
         await this.email.send(payer.email, "חיוב המקום הנוסף לסוכן הוואטסאפ נכשל", {
           heading: "החיוב החודשי לא עבר",
           paragraphs: [
@@ -326,7 +333,7 @@ export class WhatsappSeatRenewalService implements OnModuleInit, OnModuleDestroy
             "המקום ממשיך לפעול בינתיים; עדכנו אמצעי תשלום במסך המנוי כדי שהחיוב הבא יעבור.",
           ],
           button: { label: "למסך המנוי", url: `${loadEnv().WEB_ORIGIN}/settings/billing` },
-        });
+        }, { idempotency });
       } catch (error) {
         this.logger.warn(`מייל כישלון חיוב מקום למשרד ${tenantId} נכשל: ${String(error)}`);
       }
@@ -352,6 +359,10 @@ export class WhatsappSeatRenewalService implements OnModuleInit, OnModuleDestroy
     const payer = await this.payer(tenantId);
     if (!payer.email) return;
     try {
+      const idempotency = {
+        key: dailyEmailIdempotencyKey("seatclosed", seatId, now),
+        purpose: "billing",
+      };
       await this.email.send(payer.email, "המקום הנוסף לסוכן הוואטסאפ נסגר", {
         heading: "החיוב לא הוסדר",
         paragraphs: [
@@ -361,7 +372,7 @@ export class WhatsappSeatRenewalService implements OnModuleInit, OnModuleDestroy
             : "אפשר לרכוש מקום מחדש בכל עת.",
         ],
         button: { label: "לניהול הצוות", url: `${loadEnv().WEB_ORIGIN}/settings` },
-      });
+      }, { idempotency });
     } catch (error) {
       this.logger.warn(`מייל סגירת מקום למשרד ${tenantId} נכשל: ${String(error)}`);
     }
@@ -444,6 +455,10 @@ export class WhatsappSeatRenewalService implements OnModuleInit, OnModuleDestroy
     const payer = await this.payer(tenantId);
     if (!payer.email) return;
     try {
+      const idempotency = {
+        key: dailyEmailIdempotencyKey("seatrevoked", tenantId, new Date()),
+        purpose: "billing",
+      };
       await this.email.send(payer.email, "מקום לסוכן הוואטסאפ הסתיים", {
         heading: "ההקצאה עודכנה",
         paragraphs: [
@@ -451,7 +466,7 @@ export class WhatsappSeatRenewalService implements OnModuleInit, OnModuleDestroy
           "אפשר להקצות מחדש את המקומות שנותרו במסך ניהול משרד ← סוכני המשרד, או לרכוש מקום נוסף.",
         ],
         button: { label: "לניהול הצוות", url: `${loadEnv().WEB_ORIGIN}/settings` },
-      });
+      }, { idempotency });
     } catch (error) {
       this.logger.warn(`מייל ביטול הקצאה למשרד ${tenantId} נכשל: ${String(error)}`);
     }

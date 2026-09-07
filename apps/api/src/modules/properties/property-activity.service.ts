@@ -473,6 +473,8 @@ export class PropertyActivityService {
         footnote: mail.footnote,
       },
       {
+        /* ‎`null` — הסוכן לוחץ „שלח לבעל הנכס”, ושליחה שנייה היא בקשה */
+        idempotency: null,
         required: true,
         tenantId: input.tenantId,
         attachments: [

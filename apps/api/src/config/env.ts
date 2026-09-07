@@ -49,6 +49,17 @@ const EnvSchema = z.object({
    */
   WHATSAPP_APP_ID: z.string().regex(/^\d{5,30}$/u).optional(),
   WHATSAPP_SIGNUP_CONFIG_ID: z.string().regex(/^\d{5,30}$/u).optional(),
+  /**
+   * איזו זרימה הפופאפ פותח. ‎`whatsapp_business_app_onboarding` היא
+   * הדו-קיום (ברירת המחדל של המוצר) ודורשת אפליקציה שאושרה
+   * ל-Coexistence אצל Meta; `standard` (או מחרוזת ריקה) מחזיר
+   * Embedded Signup רגיל.
+   * אפליקציה שלא אושרה ומבקשת דו-קיום מקבלת את דיאלוג ההתחברות
+   * הרגיל במקום בחירת מספר — ולכן זו הגדרה ולא קבוע בקוד.
+   */
+  WHATSAPP_SIGNUP_FEATURE_TYPE: z
+    .enum(["", "standard", "whatsapp_business_app_onboarding"])
+    .optional(),
   /** סוד ה-Webhook של Kanko — קליטת ביקושים סגורה עד שהוא מוגדר. */
   KANKO_WEBHOOK_SECRET: z.string().min(16).optional(),
   /** שעות מהפתיחה הראשונה של הצעה ועד משימת פולו-אפ אם הקונה לא הגיב. */

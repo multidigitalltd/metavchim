@@ -641,6 +641,13 @@ export class IntakeService {
           footnote: mail.footnote,
         },
         {
+          /*
+           * ‎`null` — סוכן ששולח את הקישור שוב מבקש שהלקוח יקבל
+           * ‏אותו. מה ש-#411 תיקן הוא **המסך**: כישלון עמום אינו
+           * ‏מזמין ניסיון חוזר אוטומטי, ועכשיו הוא גם נושא סוג
+           * ‏משלו במקום להשתמע מהיעדר `EmailRejectedError`.
+           */
+          idempotency: null,
           required: true,
           tenantId,
           ...(replyTo === null ? {} : { replyTo }),

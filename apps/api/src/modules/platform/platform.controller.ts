@@ -355,6 +355,14 @@ const UpdateSettingsSchema = z
     whatsappSignupConfigId: z
       .union([z.string().trim().regex(/^\d{5,30}$/u), z.literal("")])
       .optional(),
+    /**
+     * ‎**`standard` ולא `""`.** מחרוזת ריקה בנתיב הזה פירושה „מחק את
+     * השורה, חזור למשתנה הסביבה”, ולכן היא לא יכלה לשאת בחירה —
+     * ‏„רגיל” היה נמחק והדו-קיום היה חוזר בשקט (ביקורת Codex).
+     */
+    whatsappSignupFeatureType: z
+      .union([z.literal("whatsapp_business_app_onboarding"), z.literal("standard")])
+      .optional(),
     /** הסוכן האישי — טוקן קבוע של System User, לא הטוקן הזמני ממסך הפיתוח */
     whatsappAccessToken: z.union([z.string().trim().min(20).max(500), z.literal("")]).optional(),
     // מזהה ולא כמות — ספרות בלבד, אפסים מובילים משמעותיים
@@ -1880,6 +1888,8 @@ export class PlatformController {
         /** מזהים ציבוריים — הערך עצמו, כי המסך מציג אותם לעריכה. */
         appId: string;
         signupConfigId: string;
+        /** איזו זרימה הפופאפ פותח — דו-קיום או Embedded Signup רגיל */
+        signupFeatureType: string;
       };
       /** הצד היוצא — הסוכן האישי עונה רק כשהוא מוגדר */
       assistant: {
@@ -2054,6 +2064,19 @@ export class PlatformController {
      */
     const waAppId = (await this.platformSettings.get("whatsappAppId")) ?? "";
     const waSignupConfigId = (await this.platformSettings.get("whatsappSignupConfigId")) ?? "";
+    /*
+     * ריק במסד = ברירת המחדל של הקוד (דו-קיום), ולא „ES רגיל”.
+     * ההבחנה נשמרת כאן כדי שהמסך יציג את מה שיקרה בפועל.
+     */
+    const waSignupFeatureChoice =
+      (await this.platformSettings.get("whatsappSignupFeatureType")) ??
+      env.WHATSAPP_SIGNUP_FEATURE_TYPE ??
+      "whatsapp_business_app_onboarding";
+    /* המסך מציג את שתי האפשרויות בלבד; `""` בסביבה הוא „רגיל” */
+    const waSignupFeatureType =
+      waSignupFeatureChoice === "whatsapp_business_app_onboarding"
+        ? "whatsapp_business_app_onboarding"
+        : "standard";
     const waOutDb = has("whatsappAccessToken") && has("whatsappPhoneNumberId");
     const whatsappBotNumber = (await this.platformSettings.get("whatsappBotNumber")) ?? "";
     const waOutEnv =
@@ -2165,6 +2188,7 @@ export class PlatformController {
           /* ערכים, לא „מוגדר": מזהים ציבוריים שמוצגים חזרה לעריכה */
           appId: waAppId,
           signupConfigId: waSignupConfigId,
+          signupFeatureType: waSignupFeatureType,
         },
         assistant: {
           configured: waOutDb || waOutEnv,

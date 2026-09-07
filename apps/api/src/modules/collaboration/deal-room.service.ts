@@ -7,6 +7,8 @@ import {
 } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  dailyEmailIdempotencyKey,
+
   COOP_DEAL_STAGE_LABELS,
   coopDealMessageRejectionReason,
   coopDealMoveRejectionReason,
@@ -861,6 +863,11 @@ export class DealRoomService {
         officeBadges(this.prisma, [tenantId]),
       ]);
       const closing = isFinalCoopDealStage(stage);
+      /* ‏אותו שלב באותה עסקה, באותו יום — הודעה אחת */
+      const idempotency = {
+        key: dailyEmailIdempotencyKey("dealstage", `${dealId}:${stage}`, new Date()),
+        purpose: "collab",
+      };
       await sendCollabMail(this.email, to, {
         subject: closing
           ? "העסקה המשותפת נסגרה"
@@ -879,7 +886,7 @@ export class DealRoomService {
           label: "לחדר העסקה",
           url: `${loadEnv().WEB_ORIGIN}/collaboration/deals/${dealId}`,
         },
-      });
+      }, idempotency);
     } catch (error: unknown) {
       this.logger.warn(
         `מייל על מעבר שלב (${dealId}) לא נשלח: ${String(error)}`,
@@ -1077,6 +1084,10 @@ export class DealRoomService {
             button: { label: "לחדר העסקה", url },
             footnote:
               "ההודעה נשלחה כי אישרתם חיבור ברשת שיתופי הפעולה של מתווכים.",
+          },
+          {
+            /* ‏פתיחת החדר קורית פעם אחת, והודעה אחת לכל צד */
+            idempotency: { key: `dealopen:${dealId}:${tenantId}`, purpose: "collab" },
           },
         );
       }),

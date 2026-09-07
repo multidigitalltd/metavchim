@@ -57,6 +57,13 @@ export type PlatformSettingKey =
   | "whatsappAppId"
   | "whatsappSignupConfigId"
   /**
+   * איזו זרימה הפופאפ פותח: `whatsapp_business_app_onboarding` =
+   * דו-קיום (דורש אפליקציה מאושרת ל-Coexistence), ריק = Embedded
+   * Signup רגיל. הגדרה ולא קבוע, כי אפליקציה שאינה מאושרת מקבלת
+   * במקום הפופאפ את דיאלוג ההתחברות הרגיל של פייסבוק.
+   */
+  | "whatsappSignupFeatureType"
+  /**
    * ‎**ה-App Secret של אפליקציית החיבור — כשהיא אפליקציה נפרדת.**
    *
    * מותר, ולעיתים עדיף, שקו הסוכן האישי ישב באפליקציה אחת ושחיבור

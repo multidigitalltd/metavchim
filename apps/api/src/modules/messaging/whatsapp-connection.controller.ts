@@ -62,9 +62,16 @@ const CompleteSchema = z.object({
    * לשרת ומומר שם, כי ההמרה דורשת את ה-App Secret.
    */
   code: z.string().min(10).max(1000),
-  /** מזהי ה-WABA והקו שחזרו באותו אירוע. ספרות בלבד. */
-  wabaId: z.string().regex(/^\d{5,30}$/u),
-  phoneNumberId: z.string().regex(/^\d{5,30}$/u),
+  /**
+   * מזהי ה-WABA והקו שחזרו באירוע `message` של הפופאפ — **אופציונליים**.
+   *
+   * האירוע אינו מובטח: מתווך שכבר חיבר בעבר מקבל מ-Meta מסך "להמשיך
+   * עם ההגדרות הקודמות?", והמסלול הזה מדלג על בחירת המספר ולכן אינו
+   * משדר אותם. חוסם `postMessage` בין מקורות עושה את אותו דבר.
+   * בהיעדרם השרת שואל את Meta מי הקו — ומסרב לנחש כשיש יותר מאחד.
+   */
+  wabaId: z.string().regex(/^\d{5,30}$/u).optional(),
+  phoneNumberId: z.string().regex(/^\d{5,30}$/u).optional(),
 });
 
 @Controller("whatsapp/connections")
@@ -86,7 +93,7 @@ export class WhatsAppConnectionController {
   @AnyAuthenticated()
   async list(): Promise<{
     connections: Awaited<ReturnType<WhatsAppConnectionService["list"]>>;
-    signup: { appId: string; configId: string } | null;
+    signup: { appId: string; configId: string; featureType: string } | null;
     /**
      * ‎**האם הבוט כלול במסלול של המשרד.**
      *

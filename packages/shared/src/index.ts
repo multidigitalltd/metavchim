@@ -117,6 +117,7 @@ export * from "./logic/email-domain.js";
 export * from "./logic/offer-email.js";
 export * from "./logic/contact-erasure-disclosure.js";
 export * from "./logic/email-inbound.js";
+export * from "./logic/email-send-attempt.js";
 export * from "./logic/offer-status.js";
 export * from "./logic/email-template.js";
 export * from "./logic/collaboration-cost.js";
