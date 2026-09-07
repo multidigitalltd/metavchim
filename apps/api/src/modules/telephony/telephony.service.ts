@@ -1162,6 +1162,25 @@ export class TelephonyService {
 
         const outcome = callOutcomeOf(event, scratch.answerObserved);
         const occurredAt = event.startedAt ?? new Date();
+        /*
+         * ‎**מי קיבל את השיחה — נשמר, במקום להישאל בדיעבד.**
+         *
+         * ‏השלוחה שענתה קודמת לניתוב שנצפה: שיחה שנותבה לאחד וענה
+         * ‏עליה אחר **הגיעה** לשני, וזו השאלה שהמנהל שואל. הניתוב
+         * ‏הוא הכוונה; השלוחה היא מה שקרה.
+         *
+         * ‏שתי העמודות נכתבות גם כשאין סוכן מוכר: „שלוחה 203” היא
+         * ‏תשובה שימושית בהרבה מכלום, והיא גם מה שיאפשר להשלים את
+         * ‏ההתאמה אחר כך בלי לנחש בדיעבד.
+         */
+        const extension = event.extension?.trim() ?? "";
+        const answeredBy =
+          extension === ""
+            ? null
+            : await tx.user.findFirst({
+                where: { tenantId, sipUsername: extension },
+                select: { id: true },
+              });
         await tx.call.create({
           data: {
             id: ulid(),
@@ -1196,6 +1215,29 @@ export class TelephonyService {
              */
             propertyId:
               event.direction === "outbound" ? null : (virtualNumber?.propertyId ?? null),
+            /*
+             * ‏הצילום של „למי זה הגיע”, מאותו רגע ומאותו מקור כמו
+             * ‏הנכס. שיחה יוצאת נושאת את השלוחה של מי שחייג —
+             * ‏אותה עובדה בדיוק, מהצד השני.
+             *
+             * ‎**שלוחה שדווחה ולא זוהתה אינה נופלת לניתוב** (ביקורת
+             * ‏Codex, P1). הנפילה הקודמת הפכה „איננו יודעים מי זה”
+             * ‏ל„זו רותם”: שיחה שנותבה אליה ונענתה על שלוחה שאינה
+             * ‏מוגדרת נשמרה **על שמה**, וגם הסתירה את השלוחה שכן
+             * ‏נצפתה — כי המסך מעדיף שם על פני שלוחה.
+             *
+             * ‏זו הפרה של הכלל שה-PR הזה עצמו מכריז: מי שענה מנצח.
+             * ‏אם המרכזייה אמרה מי ענה ואיננו יודעים לתרגם — זו
+             * ‏התשובה, והמסך יאמר „שלוחה 203”. הניתוב הוא הנפילה
+             * ‏רק כשלא דווחה שלוחה כלל.
+             */
+            agentUserId:
+              extension === ""
+                ? event.direction === "outbound"
+                  ? null
+                  : (virtualNumber?.assignedToUserId ?? null)
+                : (answeredBy?.id ?? null),
+            agentExtension: extension === "" ? null : extension.slice(0, 20),
             /*
              * שעת השיחה כפי שהמרכזייה דיווחה, ורק בהיעדרה שעת הקליטה.
              *

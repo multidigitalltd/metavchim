@@ -40,6 +40,7 @@ import { DictateFor } from "../dictation-field";
 import { IconClock, IconDoc, IconMic, IconRefresh, IconX } from "../icons";
 import { TelephonyPitch } from "./telephony-pitch";
 import { Notice } from "../notice";
+import { AgentTag } from "../agent-tag";
 
 /**
  * יומן שיחות — תיעוד ידני של שיחות שהמתווך קיים.
@@ -78,6 +79,13 @@ interface CallRow {
   recording?: RecordingStatus;
   /** פירוט טכני מהספק — מגיע רק למי שרשאי לתקן את החיבור. */
   recordingDetail?: string;
+  /**
+   * ‎**לאיזה סוכן השיחה הגיעה.** מגיע רק למי שרואה את שיחות כל
+   * ‏הסוכנים; אצל סוכן רגיל השדה חסר, כי הרשימה שלו ממילא שלו.
+   */
+  agentName?: string;
+  /** ‏השלוחה שענתה, כשאין לה סוכן מוכר. מגיע לאותו קהל בדיוק. */
+  agentExtension?: string;
 }
 
 /* התוויות משותפות עם הכרטיס שהשרת כותב לוואטסאפ — מקור אחד. */
@@ -810,6 +818,26 @@ export default function CallsPage() {
                         {call.direction === "inbound" ? "נכנסת" : "יוצאת"} ·{" "}
                         {timeFmt.format(new Date(call.occurredAt))}
                       </span>
+                      {/*
+                        ‎**מי קיבל את השיחה — למנהל בלבד.**
+
+                        ‏השרת הוא שמכריע: אצל סוכן רגיל השדות אינם
+                        ‏מגיעים כלל, ולכן אין כאן הסתרה בדפדפן.
+                        ‏„שלוחה 203” מוצגת כשאין סוכן מוכר — תשובה
+                        ‏חלקית עדיפה על שורה שותקת.
+                      */}
+                      {call.agentName !== undefined ? (
+                        <span className="mt-[3px] block">
+                          <AgentTag name={call.agentName} showUnassigned={false} />
+                        </span>
+                      ) : call.agentExtension !== undefined ? (
+                        <span
+                          className="block text-[length:var(--type-caption)]"
+                          style={{ color: "var(--color-text-muted)" }}
+                        >
+                          שלוחה {call.agentExtension}
+                        </span>
+                      ) : null}
                     </span>
                     <span className="ms-auto flex-none text-start" style={{ lineHeight: 1.4 }}>
                       <span
