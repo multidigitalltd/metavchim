@@ -587,6 +587,8 @@ export interface PaymentRow {
 
 export interface AgencyRow {
   id: string;
+  /** ‏מספר הלקוח — מה שאפשר להקריא בטלפון ולחפש לפיו ברשימה. */
+  customerNo: number;
   name: string;
   plan: string;
   status: string;
@@ -1080,6 +1082,7 @@ export class PlatformController {
         priceOverrideMonthlyAgorot: true,
         priceOverrideYearlyAgorot: true,
         whatsappAgentSeatsExtra: true,
+        customerNo: true,
         createdAt: true,
         _count: { select: { users: true } },
       },
@@ -1090,6 +1093,7 @@ export class PlatformController {
     );
     return tenants.map((t) => ({
       id: t.id,
+      customerNo: t.customerNo,
       name: t.name,
       plan: t.plan,
       status: t.status,

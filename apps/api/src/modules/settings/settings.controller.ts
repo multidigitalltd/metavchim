@@ -649,6 +649,14 @@ export class SettingsController {
   @Get("tenant")
   @RequireCapability("settings.manage")
   async tenant(): Promise<{
+    /**
+     * ‎**מספר הלקוח של המשרד — מה שהוא מקריא כשהוא פונה לתמיכה.**
+     *
+     * ‏בלעדיו המספר מועיל לנו בלבד: התמיכה מבקשת „מה מספר הלקוח
+     * ‏שלכם”, ולמשרד אין מאיפה לקרוא אותו. לקריאה בלבד — הוא
+     * ‏מחולק מרצף במסד ואינו נערך.
+     */
+    customerNo: number;
     name: string;
     plan: string;
     licenseNumber?: string;
@@ -671,10 +679,18 @@ export class SettingsController {
     const tenantId = TenantContext.current().tenantId;
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { name: true, plan: true, settings: true, whatsappAgentSeatsExtra: true },
+      select: {
+        customerNo: true,
+        name: true,
+        plan: true,
+        settings: true,
+        whatsappAgentSeatsExtra: true,
+      },
     });
     const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
     return {
+      /* ‏‎0 אינו מספר לקוח אפשרי (הרצף מתחיל ב-100000) — „לא נטען” */
+      customerNo: tenant?.customerNo ?? 0,
       name: tenant?.name ?? "",
       plan: tenant?.plan ?? "basic",
       licenseNumber:

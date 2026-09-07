@@ -159,6 +159,8 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
  * במקרקעין, ובלעדיו התבנית מדפיסה מקום ריק.
  */
 interface TenantSettings {
+  /** ‏מספר הלקוח — מה שהמשרד מקריא כשהוא פונה לתמיכה. לקריאה בלבד. */
+  customerNo: number;
   name: string;
   plan: string;
   licenseNumber?: string;
@@ -1070,6 +1072,22 @@ export default function SettingsPage() {
                 <form onSubmit={(e) => void saveTenant(e)} className="max-w-md">
                   {/* הלוגו ראשון: הוא הדבר היחיד בטופס שרואים אותו */}
                   <OfficeLogo />
+                  {/*
+                    ‎**מספר הלקוח — לקריאה, לא לעריכה.** הוא מחולק
+                    מרצף במסד; מה שהמשרד צריך ממנו הוא להקריא אותו
+                    כשהתמיכה שואלת, ולכן הוא מוצג ואינו שדה.
+                  */}
+                  {tenant.customerNo > 0 ? (
+                    <p
+                      className="m-0 mb-3.5 text-[length:var(--type-caption)]"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
+                      מספר לקוח:{" "}
+                      <span dir="ltr" className="font-mono tabular-nums">
+                        {tenant.customerNo}
+                      </span>
+                    </p>
+                  ) : null}
                   <div className="mb-3.5">
                     <label
                       htmlFor="name"
