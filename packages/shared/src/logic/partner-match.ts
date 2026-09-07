@@ -145,6 +145,19 @@ export function pairScore(a: number, b: number): number {
  * ‏העיגול נעשה **כלפי מטה על הקטן**: השארית נופלת על בעל התקציב
  * ‏הגדול. חלוקה שמעגלת כלפי מעלה על הצד החלש מבקשת ממנו אגורות
  * ‏שלא הצהיר עליהן, וזה בדיוק הצד שהמספר קריטי עבורו.
+ *
+ * ‎**החישוב ב-`bigint`, ולא כי „מספרים גדולים”** (ביקורת Codex, P2).
+ *
+ * ‏המכפלה `מחיר × תקציב` היא מכפלת שתי אגורות, ובמחירי דיור רגילים
+ * ‏היא חורגת מטווח השלמים הבטוח של JavaScript: `Number` מעגל אותה
+ * ‏עוד **לפני** ה-`floor`, ולכן החלק של הקטן יורד באגורה והשארית
+ * ‏שנופלת על הגדול עולה על התקציב שהוא הצהיר עליו. `166322027`
+ * ‏ל-`59840431` ול-`106481596` הוא בדיוק זה — שני התקציבים
+ * ‏מסתכמים למחיר במדויק, והחלוקה מבקשת מהשני אגורה אחת יותר.
+ *
+ * ‏ה-`bigint` הוא מה שמקיים את ההבטחה: כשהשניים מכסים את המחיר,
+ * ‏אף אחד מהם אינו חורג ממה שהצהיר. חלוקה שכן חורגת היא בדיוק
+ * ‏השיחה שהמתווך יגלה בסופה שאין לה כיסוי.
  */
 export function splitShares(
   priceAgorot: number,
@@ -153,7 +166,16 @@ export function splitShares(
 ): { lower: number; higher: number } {
   const combined = lowerBudget + higherBudget;
   if (combined <= 0) return { lower: 0, higher: priceAgorot };
-  const lower = Math.min(lowerBudget, Math.floor((priceAgorot * lowerBudget) / combined));
+  /*
+   * ‏אגורה היא יחידה שלמה בכל הסכימה, ו-`trunc` כאן אינו עיגול
+   * ‏אלא הגנה: `BigInt` על ערך שברי זורק, וחריגה בשליפת רשימה
+   * ‏גרועה מחלוקה שנקטעה באגורה.
+   */
+  const proportional = Number(
+    (BigInt(Math.trunc(priceAgorot)) * BigInt(Math.trunc(lowerBudget))) /
+      BigInt(Math.trunc(combined)),
+  );
+  const lower = Math.min(lowerBudget, proportional);
   return { lower, higher: priceAgorot - lower };
 }
 

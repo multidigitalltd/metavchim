@@ -308,15 +308,49 @@ describe("splitShares", () => {
     expect(splitShares(500, 0, 0)).toEqual({ lower: 0, higher: 500 });
   });
 
-  it("החלקים מסתכמים במחיר לכל צירוף", () => {
+  /*
+   * ‎**וגם הגדול אינו חורג — זה החצי שנשבר** (ביקורת Codex, P2).
+   *
+   * ‏הבדיקה הקודמת אימתה `lower <= lo` בלבד, ולכן החריגה יצאה
+   * ‏דווקא מהצד שלא נבדק: `priceAgorot * lowerBudget` היא מכפלת
+   * ‏שתי אגורות, ובמחירי דיור רגילים היא עוברת את טווח השלמים
+   * ‏הבטוח — `Number` מעגל אותה כלפי מטה, הקטן מקבל אגורה פחות,
+   * ‏והשארית שנופלת על הגדול עולה על מה שהצהיר.
+   *
+   * ‏ההבטחה השלמה היא שלוש שורות ולא אחת, וכל שלושתן נבדקות.
+   */
+  it("החלקים מסתכמים במחיר, ואיש מהשניים אינו חורג ממה שהצהיר", () => {
     for (const [price, lo, hi] of [
       [1, 1, 1],
       [999_999, 333_333, 777_777],
       [200_000_000, 70_000_001, 149_999_999],
+      /* ‏הצירוף מהממצא: שני התקציבים מסתכמים למחיר במדויק */
+      [166_322_027, 59_840_431, 106_481_596],
+      /* ‏ומחיר דירה רגיל, שם המכפלה חורגת מהטווח הבטוח */
+      [280_000_000, 130_000_003, 150_000_001],
     ] as const) {
       const split = splitShares(price, lo, hi);
-      expect(split.lower + split.higher).toBe(price);
-      expect(split.lower).toBeLessThanOrEqual(lo);
+      expect(split.lower + split.higher, `סכום — ${price}`).toBe(price);
+      expect(split.lower, `הקטן — ${price}`).toBeLessThanOrEqual(lo);
+      expect(split.higher, `הגדול — ${price}`).toBeLessThanOrEqual(hi);
+    }
+  });
+
+  /*
+   * ‏והשאלה נשאלת על טווח ולא על דוגמאות: כל עוד השניים מכסים את
+   * ‏המחיר, אף אחד מהם אינו חורג. סריקה דטרמיניסטית — לא אקראית —
+   * ‏כדי שכישלון יהיה ניתן לשחזור.
+   */
+  it("ההבטחה מתקיימת על פני טווח מחירים שלם", () => {
+    for (let price = 150_000_000; price <= 400_000_000; price += 7_919_311) {
+      for (const share of [1, 17, 233, 4999]) {
+        const lo = Math.floor(price / 2) - share;
+        const hi = price - lo;
+        const split = splitShares(price, lo, hi);
+        expect(split.lower + split.higher, `${price}/${share}`).toBe(price);
+        expect(split.lower, `הקטן ${price}/${share}`).toBeLessThanOrEqual(lo);
+        expect(split.higher, `הגדול ${price}/${share}`).toBeLessThanOrEqual(hi);
+      }
     }
   });
 });
