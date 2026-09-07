@@ -92,6 +92,7 @@ export function SellerForm({
   const [street, setStreet] = useState(prefill.street ?? "");
   const [houseNumber, setHouseNumber] = useState(prefill.houseNumber ?? "");
   const [propertyType, setPropertyType] = useState(prefill.propertyType ?? "");
+  const [sharedTabu, setSharedTabu] = useState(prefill.sharedTabu ?? false);
   const [rooms, setRooms] = useState(
     prefill.rooms === undefined ? "" : String(prefill.rooms),
   );
@@ -147,6 +148,13 @@ export function SellerForm({
         ...(street.trim() !== "" ? { street: street.trim() } : {}),
         ...(houseNumber.trim() !== "" ? { houseNumber: houseNumber.trim() } : {}),
         ...(propertyType !== "" ? { propertyType } : {}),
+        /*
+         * נשלח תמיד, גם `false` — מאותו נימוק של „המחיר גמיש”:
+         * לתיבת סימון יש מצב ידוע בכל רגע, והשמטתה בשליחה חוזרת
+         * הייתה משאירה „רישום משותף” על הנכס אחרי שהמוכר הסיר
+         * את הסימון.
+         */
+        sharedTabu,
         ...(numOrUndefined(rooms) !== undefined ? { rooms: numOrUndefined(rooms) } : {}),
         ...(numOrUndefined(areaSqm) !== undefined
           ? { areaSqm: numOrUndefined(areaSqm) }
@@ -302,6 +310,30 @@ export function SellerForm({
             </Choice>
           ))}
         </div>
+      </Field>
+
+      {/*
+        ‎**שאלה משלה, ולא צ׳יפ בשורת „מה יש בנכס”.** מעלית ומחסן הם
+        ‏נוחות; רישום בטאבו משותף הוא עובדה משפטית שמשנה את כל אופן
+        ‏העסקה, והמוכר הוא היחיד שיודע אותה. בלעדיה הטיוטה שנוצרת
+        ‏מהטופס נשאה את ברירת המחדל של הטבלה — כלומר **טענה** רישום
+        ‏נפרד — והוצעה לקונים שסירבו למושאע במפורש.
+
+        ‏מנוסחת בשפה של מי שאינו מתווך: „מושאע” בסוגריים משום שזה
+        ‏השם שהמוכר שמע מעורך הדין, ומשפט ההסבר מתחת אומר מה זה
+        ‏בלי מונחים.
+      */}
+      <Field label="איך הנכס רשום?">
+        <Choice active={sharedTabu} onClick={() => setSharedTabu((v) => !v)}>
+          רשום בטאבו משותף (מושאע)
+        </Choice>
+        <p
+          className="m-0 mt-2 text-[length:var(--type-caption-lg)]"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          כלומר אין חלקה נפרדת בטאבו והבעלות משותפת לכמה בעלים. אם אין לכם
+          מושג — אפשר להשאיר ריק ונברר יחד.
+        </p>
       </Field>
 
       <Field label="גודל הנכס">

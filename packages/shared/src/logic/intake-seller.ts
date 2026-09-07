@@ -23,6 +23,7 @@
  */
 
 import { normalizePhone } from "./contact-people.js";
+import { SHARED_TABU_NETWORK_LABEL } from "./shared-tabu.js";
 
 /**
  * לאיזה צד של העסקה הטופס נענה.
@@ -75,6 +76,16 @@ export interface IntakeSellerAnswers {
   street?: string;
   houseNumber?: string;
   propertyType?: string;
+  /**
+   * ‎**רישום בטאבו משותף (מושאע) — עובדה משפטית, לא סוג מבנה.**
+   *
+   * ‏המוכר הוא היחיד שיודע אותה, והטיוטה שנוצרת מהטופס נכנסת
+   * ‏להתאמות מיד. בלי השאלה כאן הטיוטה נשאה את ברירת המחדל של
+   * ‏הטבלה (`false`), כלומר **טענה** רישום נפרד — והוצעה לקונים
+   * ‏שסירבו למושאע במפורש, עד שסוכן היה פותח את הכרטיס ומתקן
+   * ‏(ביקורת Codex, P1).
+   */
+  sharedTabu?: boolean;
   rooms?: number;
   areaSqm?: number;
   floor?: number;
@@ -112,6 +123,7 @@ export const INTAKE_SELLER_FORM_FIELDS = [
   "street",
   "houseNumber",
   "propertyType",
+  "sharedTabu",
   "rooms",
   "areaSqm",
   "floor",
@@ -205,8 +217,9 @@ export function pickSellerPrefill(answers: unknown): IntakeSellerAnswers {
   for (const key of ["rooms", "areaSqm", "floor", "totalFloors", "priceAgorot"] as const) {
     num(key);
   }
-  if (typeof answers["priceFlexible"] === "boolean") {
-    out.priceFlexible = answers["priceFlexible"];
+  for (const key of ["priceFlexible", "sharedTabu"] as const) {
+    const value = answers[key];
+    if (typeof value === "boolean") out[key] = value;
   }
   const entryType = answers["entryType"];
   if (entryType === "immediate" || entryType === "from_date" || entryType === "flexible") {
@@ -262,6 +275,7 @@ export function sellerPropertyFields(
   put("street", text(answers.street));
   put("houseNumber", text(answers.houseNumber));
   put("propertyType", text(answers.propertyType));
+  put("sharedTabu", answers.sharedTabu);
   put("rooms", finite(answers.rooms));
   put("areaSqm", finite(answers.areaSqm));
   put("floor", finite(answers.floor));
@@ -330,6 +344,13 @@ export function sellerSummaryLines(answers: IntakeSellerAnswers): string[] {
     .filter((part) => part !== "")
     .join(", ");
   if (place !== "") out.push(place);
+
+  /*
+   * ‏שורה משלו ולא בין המאפיינים: מעלית ומחסן הם נוחות, ורישום
+   * ‏משותף הוא מה שקובע אם העסקה בכלל אפשרית — והסוכן צריך לראות
+   * ‏אותו לפני שהוא פותח את הכרטיס.
+   */
+  if (answers.sharedTabu === true) out.push(SHARED_TABU_NETWORK_LABEL);
 
   const spec: string[] = [];
   if (answers.rooms !== undefined) spec.push(`${answers.rooms} חדרים`);

@@ -10,6 +10,7 @@ import {
   sellerSummaryLines,
   type IntakeSellerAnswers,
 } from "./intake-seller.js";
+import { SHARED_TABU_NETWORK_LABEL } from "./shared-tabu.js";
 
 const minimal: IntakeSellerAnswers = { dealType: "sale", city: "חיפה" };
 
@@ -118,6 +119,18 @@ describe("התשובות → שדות הנכס", () => {
     expect(sellerPropertyFields({ ...minimal, floor: 0 })["floor"]).toBe(0);
   });
 
+  it("רישום משותף עובר לטיוטה בשני הכיוונים — גם „לא”", () => {
+    /*
+     * ‏„לא” כאן הוא תשובה ולא שתיקה: המוכר ראה את התיבה והשאיר
+     * ‏אותה ריקה. בלי השדה כולו הטיוטה נשאה את ברירת המחדל של
+     * ‏הטבלה, כלומר טענה רישום נפרד בשם מוכר שלא נשאל — והוצעה
+     * ‏לקונים שסירבו למושאע במפורש.
+     */
+    expect(sellerPropertyFields({ ...minimal, sharedTabu: true })["sharedTabu"]).toBe(true);
+    expect(sellerPropertyFields({ ...minimal, sharedTabu: false })["sharedTabu"]).toBe(false);
+    expect("sharedTabu" in sellerPropertyFields(minimal)).toBe(false);
+  });
+
   it("מאפיין שסומן „אין” נשמר כ-false, ומה שלא נשאל נעדר", () => {
     const fields = sellerPropertyFields({
       ...minimal,
@@ -212,6 +225,17 @@ describe("סיכום למשימה", () => {
     expect(lines).toContain("מעלית, ממ״ד");
   });
 
+  it("רישום משותף נאמר רק כשהמוכר סימן אותו", () => {
+    // הסוכן צריך לדעת את זה לפני שהוא פותח את הכרטיס
+    expect(sellerSummaryLines({ ...minimal, sharedTabu: true })).toContain(
+      SHARED_TABU_NETWORK_LABEL,
+    );
+    expect(sellerSummaryLines({ ...minimal, sharedTabu: false })).not.toContain(
+      SHARED_TABU_NETWORK_LABEL,
+    );
+    expect(sellerSummaryLines(minimal)).not.toContain(SHARED_TABU_NETWORK_LABEL);
+  });
+
   it("מה שלא נענה אינו מופיע כ„לא ידוע”", () => {
     expect(sellerSummaryLines(minimal).join("\n")).not.toContain("—");
   });
@@ -265,6 +289,13 @@ describe("ערכי פתיחה לעמוד הציבורי", () => {
     expect(out).toEqual({});
   });
 
+  it("רישום משותף חוזר כערך פתיחה — ובוליאני בלבד", () => {
+    // בלעדיו שליחה חוזרת הייתה מציגה תיבה ריקה ומוחקת את הסימון
+    expect(pickSellerPrefill({ sharedTabu: true }).sharedTabu).toBe(true);
+    expect(pickSellerPrefill({ sharedTabu: false }).sharedTabu).toBe(false);
+    expect(pickSellerPrefill({ sharedTabu: "כן" }).sharedTabu).toBeUndefined();
+  });
+
   it("מאפיינים עוברים רק כבוליאנים, וריק אינו נשלח", () => {
     expect(
       pickSellerPrefill({ features: { hasElevator: true, hasParking: "כן" } }).features,
@@ -316,6 +347,7 @@ describe("רשימת השדות שהטופס מציג", () => {
       street: "הרצל",
       houseNumber: "12",
       propertyType: "apartment",
+      sharedTabu: true,
       rooms: 4,
       areaSqm: 100,
       floor: 2,

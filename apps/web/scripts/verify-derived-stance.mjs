@@ -189,28 +189,58 @@ if (section.length === 0) {
  * ‏לשניים משלושה מסכים.
  */
 /*
- * ‎**וטופס הגיוס הוא הרביעי** (ביקורת Codex, P1).
+ * ‎**וטופס הגיוס הוא הרביעי, וטופס המוכר הוא החמישי** (ביקורת
+ * ‏Codex, P1 ואז P1 שוב).
  *
- * ‏הוא נבנה מאותו בורר סוגים, ולכן ברגע ש-`shared_tabu` ירד ממנו
- * ‏הוא נשאר בלי שום דרך לרשום את העובדה: שורה חדשה לא יכלה לסמן,
- * ‏ועריכה של שורה ותיקה נפלה לאפשרות הראשונה ומחקה את הסימון
- * ‏בשקט. ההמרה יצרה נכס רגיל — והוא הוצע לקונים שסירבו במפורש.
+ * ‏טופס הגיוס נבנה מאותו בורר סוגים, ולכן ברגע ש-`shared_tabu` ירד
+ * ‏ממנו הוא נשאר בלי שום דרך לרשום את העובדה: שורה חדשה לא יכלה
+ * ‏לסמן, ועריכה של שורה ותיקה נפלה לאפשרות הראשונה ומחקה את
+ * ‏הסימון בשקט. ההמרה יצרה נכס רגיל — והוא הוצע לקונים שסירבו
+ * ‏במפורש.
+ *
+ * ‏טופס המוכר הציבורי הוא **הטופס היחיד שאדם שאינו מתווך ממלא**,
+ * ‏ולכן נשכח פעמיים: כאן ובסכימה שמאחוריו. `IntakeService.draftFor`
+ * ‏יוצר ממנו טיוטת נכס שנכנסת להתאמות מיד, וללא השאלה היא נשאה את
+ * ‏ברירת המחדל של הטבלה — כלומר **טענה** רישום נפרד — והוצעה
+ * ‏לקונים שסירבו למושאע במפורש.
  *
  * ‏הרשימה היא כל הטענה: השדה נוסף לשניים משלושה, ואז לשלושה
- * ‏מארבעה. מי שיוסיף טופס חמישי ייפול כאן.
+ * ‏מארבעה, ואז לארבעה מחמישה. מי שיוסיף טופס שישי ייפול כאן.
  */
+
+/**
+ * ‎**שתי צורות, ולא שתי בדיקות מועתקות.**
+ *
+ * ‏הטפסים הפנימיים נשלחים כ-`FormData` (`name=` בשדה, `f.get` בשליחה),
+ * ‏והטופס הציבורי הוא רכיב מבוקר שבונה גוף JSON מ-`useState`. אלה
+ * ‏שתי מכניקות אמיתיות, ולכן שני ביטויים — אבל כל אחד מוגדר **פעם
+ * ‏אחת** כאן, והרשימה למטה רק אומרת לאיזו צורה כל טופס שייך.
+ */
+const FORM_SHAPES = {
+  formData: {
+    asks: /name="sharedTabu"/u,
+    sends: /sharedTabu:\s*(?:f|form)\.get\("sharedTabu"\)/u,
+  },
+  controlled: {
+    asks: /setSharedTabu\(/u,
+    sends: /^\s+sharedTabu,$/mu,
+  },
+};
+
 const PROPERTY_FORMS = [
-  ["app", "properties", "new", "page.tsx"],
-  ["app", "properties", "[id]", "edit", "page.tsx"],
-  ["app", "properties", "recruitment", "target-form.tsx"],
+  { shape: "formData", parts: ["app", "properties", "new", "page.tsx"] },
+  { shape: "formData", parts: ["app", "properties", "[id]", "edit", "page.tsx"] },
+  { shape: "formData", parts: ["app", "properties", "recruitment", "target-form.tsx"] },
+  { shape: "controlled", parts: ["app", "f", "[token]", "seller-form.tsx"] },
 ];
-for (const parts of PROPERTY_FORMS) {
+for (const { shape, parts } of PROPERTY_FORMS) {
   const file = join(import.meta.dirname, "..", "src", ...parts);
   const body = readFileSync(file, "utf8");
-  if (!/name="sharedTabu"/u.test(body)) {
+  const { asks, sends } = FORM_SHAPES[shape];
+  if (!asks.test(body)) {
     console.error(`✗ ${file}: הטופס אינו שואל על רישום משותף`);
     failed = true;
-  } else if (!/sharedTabu:\s*(?:f|form)\.get\("sharedTabu"\)/u.test(body)) {
+  } else if (!sends.test(body)) {
     console.error(`✗ ${file}: התשובה אינה נשלחת לשרת`);
     failed = true;
   } else {

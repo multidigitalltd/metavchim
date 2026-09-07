@@ -60,7 +60,15 @@ export function isCommercialType(type: string): boolean {
  */
 export function propertyTypeMatches(
   wanted: readonly string[],
-  actual: string,
+  /**
+   * ‎**`undefined` = סוג המבנה אינו ידוע**, ולא „לא מתאים”.
+   *
+   * ‏נכס שנרשם כמושאע בלי סוג מבנה קיים בשטח: המוכר יודע איך הוא
+   * ‏רשום ולא בהכרח איך לקרוא לו. השאלה „האם הנכס עונה על מה
+   * ‏שהקונה ביקש” עדיין ניתנת למענה כשהקונה ביקש **רישום** —
+   * ‏ולכן היא נענית, ורק אחר כך נדרש סוג.
+   */
+  actual: string | undefined,
   /**
    * ‎**האם הנכס רשום בטאבו משותף — עובדה שאינה בסוג.**
    *
@@ -75,8 +83,9 @@ export function propertyTypeMatches(
    */
   sharedTabu = false,
 ): boolean {
-  if (wanted.includes(actual)) return true;
   if (sharedTabu && wanted.includes(SHARED_TABU_PROPERTY_TYPE)) return true;
+  if (actual === undefined) return false;
+  if (wanted.includes(actual)) return true;
   /*
    * ‎**„מסחרי” משני הצדדים.** הקונה ביקש „מסחרי” והנכס הוא חנות,
    * או שהקונה ביקש חנות והנכס נרשם „מסחרי” בלי דיוק — שניהם

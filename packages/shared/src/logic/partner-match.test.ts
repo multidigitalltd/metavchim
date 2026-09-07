@@ -54,6 +54,20 @@ describe("partnerPairs — שדה המשחק", () => {
     expect(pairs[0]!.partners.map((p) => p.buyerId).sort()).toEqual(["A", "B"]);
   });
 
+  it("ומושאע בלי סוג מבנה כן מייצר שותפויות לקונה שביקש רישום", () => {
+    /*
+     * ‎`partnerPairs` מסנן על `insufficientData` של `scoreMatch`,
+     * ‏ולכן הדילוג על קריטריון הסוג בנכס חסר-סוג בלע גם את
+     * ‏השותפויות ולא רק את ההתאמה הרגילה (ביקורת Codex, P2).
+     */
+    const { propertyType: _none, ...noType } = PROPERTY;
+    const wanting = twoHalves().map((c) => ({
+      ...c,
+      requirements: { ...c.requirements, propertyTypes: ["shared_tabu" as const] },
+    }));
+    expect(partnerPairs(noType, wanting)).toHaveLength(1);
+  });
+
   it("נכס שנרשם בסוג הוותיק „טאבו משותף” כן מייצר שותפויות", () => {
     /*
      * ‏בלי הגזירה מהסוג, דווקא הנכסים הוותיקים — אלה שהתכונה

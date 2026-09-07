@@ -175,6 +175,48 @@ describe("‏הסוג הוותיק והדגל — שאלה אחת", () => {
     );
     expect(result.excluded).toBe(true);
   });
+
+  /*
+   * ‎**ונכס בלי סוג מבנה כלל** (ביקורת Codex, P2).
+   *
+   * ‏זה קיים בשטח: המוכר יודע איך הנכס רשום ולא בהכרח איך לקרוא
+   * ‏לו, וטיוטה שנוצרה מטופס יכולה לשאת רישום בלי סוג. קודם
+   * ‏הקריטריון `property_type` דולג במקרה הזה **לגמרי**, והוא
+   * ‏קריטריון חובה — כך שקונה ותיק שדרישתו היא הסוג הוותיק נשאר
+   * ‏ב„חסר נתונים”, וגם ההתאמה הרגילה וגם השותפות נבלעו.
+   */
+  it("מושאע בלי סוג מבנה עונה למי שביקש את הרישום", () => {
+    const { propertyType: _none, ...noType } = PROPERTY;
+    const result = scoreMatch(noType, {
+      ...BUYER,
+      propertyTypes: [SHARED_TABU_PROPERTY_TYPE],
+      sharedTabu: "accepts",
+    });
+    expect(result.insufficientData).toBe(false);
+    expect(result.excluded).toBe(false);
+    expect(result.score).toBeGreaterThan(0);
+  });
+
+  /*
+   * ‏והכיוון ההפוך נשאר „לא ידוע” ולא „לא מתאים”: מי שביקש דירה
+   * ‏לא קיבל תשובה על סוג המבנה, ופסילה כאן הייתה אומרת בשמו של
+   * ‏הנכס דבר שאיש לא בדק.
+   */
+  it("ואינו נחשב „דירה” למי שביקש דירה — הוא נשאר חסר נתונים", () => {
+    const { propertyType: _none, ...noType } = PROPERTY;
+    const result = scoreMatch(noType, {
+      ...BUYER,
+      propertyTypes: ["apartment"],
+      sharedTabu: "accepts",
+    });
+    /*
+     * ‏`insufficientData` גורר `excluded` — שניהם מסתירים את
+     * ‏ההתאמה — וההבדל הוא בהסבר: „לא נבדקו” ולא „שונה מהמבוקש”.
+     */
+    expect(result.insufficientData).toBe(true);
+    expect(result.explanation).toContain("אין מספיק פרטים");
+    expect(result.breakdown.some((part) => part.criterion === "property_type")).toBe(false);
+  });
 });
 
 /**

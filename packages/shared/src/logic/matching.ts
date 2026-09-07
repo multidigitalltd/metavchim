@@ -496,19 +496,35 @@ export function scoreMatch(
    * בדיוק כפי שאי אפשר להזיז אותה לעיר אחרת — ולכן ההתנהגות כאן
    * זהה לזו של המיקום ושל החדרים שמעל.
    */
-  if (property.propertyType !== undefined && buyer.propertyTypes.length > 0) {
-    /*
-     * ‎**לא `includes` ישיר.** „מסחרי” הוא „מסחרי שלא נאמר איזה”,
-     * ולכן הוא מתאים לכל ענף בשני הכיוונים — אחרת פיצול המסחרי
-     * לתשעה ענפים היה **פוסל** בשקט כל קונה קיים שסימן „מסחרי”,
-     * כי סוג שאינו ברשימה מוציא את ההתאמה לגמרי. ראו
-     * ‎`commercial-types.ts`.
-     */
-    const ok = propertyTypeMatches(
-      buyer.propertyTypes,
-      property.propertyType,
-      propertyIsSharedTabu,
-    );
+  /*
+   * ‎**לא `includes` ישיר.** „מסחרי” הוא „מסחרי שלא נאמר איזה”,
+   * ולכן הוא מתאים לכל ענף בשני הכיוונים — אחרת פיצול המסחרי
+   * לתשעה ענפים היה **פוסל** בשקט כל קונה קיים שסימן „מסחרי”,
+   * כי סוג שאינו ברשימה מוציא את ההתאמה לגמרי. ראו
+   * ‎`commercial-types.ts`.
+   */
+  const ok = propertyTypeMatches(
+    buyer.propertyTypes,
+    property.propertyType,
+    propertyIsSharedTabu,
+  );
+  /*
+   * ‎**נכס בלי סוג מבנה עדיין עונה לקונה שביקש רישום** (ביקורת
+   * ‏Codex, P2).
+   *
+   * ‏קודם עמד כאן `property.propertyType !== undefined`, וזה דילג
+   * ‏על הקריטריון כולו: נכס שנרשם כמושאע ואין לו סוג מבנה השאיר
+   * ‏קונה ותיק שדרישתו היא `["shared_tabu"]` בלי הקריטריון הנדרש
+   * ‏‎`property_type`, כלומר ב-`insufficientData` — וגם ההתאמה
+   * ‏הרגילה וגם השותפות נבלעו.
+   *
+   * ‏השאלה היחידה היא **האם הנכס עונה על מה שהקונה ביקש**, והיא
+   * ‏מנוסחת פעם אחת בקריאה שמעל: יש סוג — היא נבחנת כרגיל; אין
+   * ‏סוג והרישום הוא מה שנתבקש — היא נענתה. אין סוג ואין רישום
+   * ‏מבוקש — היא נשארת מדולגת בדיוק כמו קודם, כי „לא ידוע” אינו
+   * ‏„לא מתאים”, ו-`MANDATORY_MATCH_CRITERIA` הוא שמכריע.
+   */
+  if (buyer.propertyTypes.length > 0 && (property.propertyType !== undefined || ok)) {
     parts.push({
       criterion: "property_type",
       weight: weights.property_type,

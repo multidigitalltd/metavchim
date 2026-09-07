@@ -6,6 +6,7 @@ import {
   isCommercialType,
   propertyTypeMatches,
 } from "./commercial-types.js";
+import { SHARED_TABU_PROPERTY_TYPE } from "./shared-tabu.js";
 import { PropertyTypeSchema } from "../schemas/property.js";
 
 describe("נכס מסחרי — תשעה ענפים ומטרייה אחת", () => {
@@ -91,5 +92,13 @@ describe("נכס מסחרי — תשעה ענפים ומטרייה אחת", () =
   /* רשימה ריקה = „לא ביקש”. הקורא מחליט אם לבחון; כאן רק הצורה. */
   it("רשימה ריקה אינה מתאימה לדבר — הקורא הוא שמדלג", () => {
     expect(propertyTypeMatches([], "commercial_shop")).toBe(false);
+  });
+
+  it("סוג שאינו ידוע — הרישום המשותף עונה, ושום דבר אחר לא", () => {
+    // נכס שנרשם כמושאע בלי סוג מבנה: „לא ידוע” אינו „לא מתאים”
+    expect(propertyTypeMatches([SHARED_TABU_PROPERTY_TYPE], undefined, true)).toBe(true);
+    expect(propertyTypeMatches(["apartment"], undefined, true)).toBe(false);
+    expect(propertyTypeMatches([SHARED_TABU_PROPERTY_TYPE], undefined, false)).toBe(false);
+    expect(propertyTypeMatches(["commercial"], undefined, true)).toBe(false);
   });
 });

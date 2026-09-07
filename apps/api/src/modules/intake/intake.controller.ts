@@ -86,7 +86,7 @@ const SendSchema = z
  * מגבלה”, בעוד היעדר השדה = „לא נשאלתי”. השניים מובילים לתוצאה
  * שונה במיזוג, ולכן הם שני ערכים ולא אחד.
  */
-const AnswersSchema = z
+export const AnswersSchema = z
   .object({
     /*
      * הזהות — **קישור פתוח בלבד.**
@@ -143,7 +143,7 @@ const AnswersSchema = z
  * וזו הבחנה שיש לה משמעות בדרישות. לנכס אין מגבלות — יש לו עובדות,
  * ועובדה שאינה ידועה פשוט אינה נשלחת.
  */
-const SellerAnswersSchema = z
+export const SellerAnswersSchema = z
   .object({
     fullName: z.string().trim().max(INTAKE_SELLER_NAME_MAX).optional(),
     phone: z.string().trim().max(30).optional(),
@@ -158,6 +158,11 @@ const SellerAnswersSchema = z
      * נראה תקין, וההתאמות ריקות.
      */
     propertyType: PropertyTypeSchema.optional(),
+    /*
+     * ‏רישום בטאבו משותף — עובדה משפטית שרק המוכר יודע, והטיוטה
+     * ‏שנוצרת מהטופס נכנסת להתאמות מיד. ראו `IntakeSellerAnswers`.
+     */
+    sharedTabu: z.boolean().optional(),
     rooms: z.number().min(1).max(20).multipleOf(0.5).optional(),
     areaSqm: z.number().int().min(10).max(2000).optional(),
     floor: z.number().int().min(-2).max(60).optional(),
@@ -350,7 +355,7 @@ export class IntakeController {
  * `IntakeSellerAnswers` ולא `Record<string, unknown>`, כדי ששם שדה
  * שהוקלד לא נכון ייתפס במהדר ולא יעבור בשקט אל מיפוי שדות הנכס.
  */
-function normalizeSellerAnswers(
+export function normalizeSellerAnswers(
   answers: Omit<z.infer<typeof SellerAnswersSchema>, "website">,
 ): IntakeSellerAnswers {
   return {
@@ -367,6 +372,9 @@ function normalizeSellerAnswers(
       : {}),
     ...(answers.propertyType !== undefined
       ? { propertyType: answers.propertyType }
+      : {}),
+    ...(answers.sharedTabu !== undefined
+      ? { sharedTabu: answers.sharedTabu }
       : {}),
     ...(answers.rooms !== undefined ? { rooms: answers.rooms } : {}),
     ...(answers.areaSqm !== undefined ? { areaSqm: answers.areaSqm } : {}),
@@ -402,7 +410,7 @@ function normalizeSellerAnswers(
  * נכון היה עובר בשקט, והמיזוג היה מתעלם ממנו. כאן כל שדה נכתב
  * מפורשות, והמהדר בודק אותו.
  */
-function normalizeAnswers(
+export function normalizeAnswers(
   answers: Omit<z.infer<typeof AnswersSchema>, "website">,
 ): IntakeAnswers {
   return {
