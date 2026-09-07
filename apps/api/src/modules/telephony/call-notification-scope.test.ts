@@ -871,39 +871,44 @@ describe("‏מצביע ההתראה בתיבת הדואר", () => {
   );
 
   /*
-   * ‎**תכונה ולא ניסוח**: הניסוח הקודם קיבע את הביטוי עצמו
-   * ‏(`owner?.source === "buyers"`), ולכן חסם את התיקון שהוא בא
-   * ‏להגן עליו ברגע שהשניים אוחדו לערך אחד. מה שנדרש הוא שהמצביע
-   * ‏ייגזר מ-`parent` — אותו ערך בדיוק שציר הזמן נתלה עליו —
-   * ‏ולא ייבנה מחדש מהבעלים או משורה שנשלפה בנפרד.
+   * ‎**תכונה ולא ניסוח — הפעם באמת.** הניסוח הראשון קיבע את
+   * ‏הביטוי (`owner?.source === "buyers"`) וחסם את התיקון שהוא בא
+   * ‏להגן עליו; הניסוח השני נכתב „על התכונה”, אבל קיבע את
+   * ‎`entityId: parent.buyerId` ואת צורת הפריסה — ולכן חסם גם הוא
+   * ‏את התיקון הבא, שבו העוגן ירד ל-`inboundNotificationAnchor`.
+   *
+   * ‏מה שהשער הזה באמת שומר עליו הוא **שההתראה וציר הזמן אינם
+   * ‏יכולים לחלוק על השאלה „דרך איזה כרטיס נבחר הנמען”**: שניהם
+   * ‏נגזרים מקריאה אחת ל-`inboundInteractionParent`, ולא נבנים
+   * ‏מחדש מהבעלים או משורה שנשלפה בנפרד. זו הטענה, והיא אינה
+   * ‏תלויה בשמו של המשתנה או בצורת הפריסה.
+   *
+   * ‏צורת העוגן עצמה — ושהוא נופל ללקוח כשאין כרטיס — נבדקת
+   * ‏ב-`email-inbox-gates.test.ts`, שם הוא גם נוצר. שני שערים על
+   * ‏אותו ניסוח הם בדיוק הכפילות שהם אמורים למנוע.
    */
-  /*
-   * ‏הגוש עצמו ולא חלון באורך קבוע: הערות מתארכות, וחלון קצוב
-   * ‏מדי היה מדווח „הביטוי איננו” על קוד תקין.
-   */
-  function replyNotificationBlock(): string {
-    const at = INBOX.indexOf('type: "email_reply"');
-    expect(at, "התראת התשובה במייל נעלמה").toBeGreaterThan(0);
-    const end = INBOX.indexOf("\n      });", at);
-    expect(end, "סוף קריאת היצירה לא נמצא").toBeGreaterThan(at);
-    return INBOX.slice(at, end);
-  }
-
-  it("‏המצביע נגזר מאותו `parent` שציר הזמן נתלה עליו", () => {
+  it("‏ציר הזמן וההתראה נגזרים מאותה קריאה אחת", () => {
     expect(INBOX).toContain("const parent = inboundInteractionParent(owner);");
-    const block = replyNotificationBlock();
-    expect(block).toContain("entityId: parent.buyerId");
-    expect(block).toContain("entityId: parent.leadId");
-    /* ‏ואין גזירה שנייה: לא מהבעלים, ולא מכרטיס שנשלף בנפרד */
-    expect(block).not.toMatch(/entityId: (?!parent\.)/u);
+    /* ‏ציר הזמן נתלה על הערך הזה, ולא על גזירה משלו */
+    expect(INBOX).toMatch(/tx\.interaction\.create\(\{[\s\S]{0,200}\.\.\.parent,/u);
+    /* ‏וההכרעה על העוגן שואלת את אותה פונקציה */
+    const anchor = INBOX.slice(
+      INBOX.indexOf("export function inboundNotificationAnchor"),
+      INBOX.indexOf("@Injectable()"),
+    );
+    expect(anchor).toContain("inboundInteractionParent(owner)");
   });
 
   it("‏ובלי בעלים — אין מצביע, כמו שאין תוכן", () => {
-    /*
-     * ‎`inboundInteractionParent` מחזיר `null` בלי בעלים, ולכן
-     * ‏הפריסה כולה נופלת — מצביע ותוכן יורדים מאותו תנאי.
-     */
     expect(INBOX).toContain("const ownerUserId = owner?.userId ?? null;");
-    expect(replyNotificationBlock()).toMatch(/\.\.\.\(parent === null\s*\n?\s*\? \{\}/u);
+    /*
+     * ‏שניהם נופלים מאותו „אין בעלים”: `inboundNotificationContent`
+     * ‏מוריד את התוכן, ו-`inboundNotificationAnchor` מחזיר `{}`.
+     */
+    const anchor = INBOX.slice(
+      INBOX.indexOf("export function inboundNotificationAnchor"),
+      INBOX.indexOf("@Injectable()"),
+    );
+    expect(anchor).toMatch(/if \(owner === null\) return \{\};/u);
   });
 });

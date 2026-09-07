@@ -12,8 +12,14 @@ import {
 import {
   EmailInboxService,
   inboundInteractionParent,
+  inboundNotificationAnchor,
   inboundNotificationContent,
 } from "./email-inbox.service";
+import {
+  redactNotification,
+  type AnchorSubject,
+  type RedactableNotification,
+} from "@metavchim/shared";
 
 /**
  * ‎**סוכן אינו רואה — ובעיקר אינו כותב — בהתכתבות של עמיתו.**
@@ -461,5 +467,117 @@ describe("‏ההתראה וציר הזמן — אותו מקור", () => {
   /* ‏והשורה חייבת להתקיים: מקור בלי כרטיס אינו הורה */
   it("מקור בלי כרטיס — אין למי לתלות", () => {
     expect(inboundInteractionParent(owner("buyers", null))).toBeNull();
+  });
+});
+
+/**
+ * ‎**„אין לאן לקפוץ” אינו „אין את מי לשאול”** (ביקורת Codex, P1).
+ *
+ * ‏השאלה של הניווט והשאלה של ההרשאה נענו כאן בערך אחד, ולכן לקוח
+ * ‏שנראה דרך נכס — שאין לו כרטיס לפתוח — ייצר שורה בלי עוגן.
+ * ‏שורה בלי עוגן פטורה מהצנזורה בקריאה בכל שלושת הערוצים, ולכן
+ * ‏תמצית המייל של הלקוח המשיכה לזרום לסוכן שהנכס כבר אינו שלו.
+ */
+describe("‏עוגן ההרשאה של התראת המייל", () => {
+  const owner = (source: ContactOwnerSource, cardId: string | null): ContactOwner => ({
+    userId: "01OWNER",
+    source,
+    cardId,
+  });
+
+  it("נבחר הקונה — העוגן הוא הכרטיס", () => {
+    expect(inboundNotificationAnchor(owner("buyers", "01BUYER"), "01CONTACT")).toEqual({
+      entityType: "buyer",
+      entityId: "01BUYER",
+    });
+  });
+
+  it("נבחר הליד — העוגן הוא הליד", () => {
+    expect(inboundNotificationAnchor(owner("leads", "01LEAD"), "01CONTACT")).toEqual({
+      entityType: "lead",
+      entityId: "01LEAD",
+    });
+  });
+
+  /* ‏זה הממצא: אין כרטיס, ולכן אין ניווט — אבל יש את מי לשאול */
+  it("נבחר סוכן הנכס — העוגן נופל ללקוח", () => {
+    expect(inboundNotificationAnchor(owner("properties", null), "01CONTACT")).toEqual({
+      entityType: "contact",
+      entityId: "01CONTACT",
+    });
+  });
+
+  /* ‏וכך גם מקור עם כרטיס חסר: „אין כרטיס” אינו „אין הרשאה לבדוק” */
+  it("מקור בלי כרטיס — העוגן נופל ללקוח", () => {
+    expect(inboundNotificationAnchor(owner("buyers", null), "01CONTACT")).toEqual({
+      entityType: "contact",
+      entityId: "01CONTACT",
+    });
+  });
+
+  /*
+   * ‎**ובלי בעלים — עדיין בלי עוגן.** השורה המשרדית כבר יורדת מהתוכן
+   * ‏ב-`inboundNotificationContent`, ומצביע שהיה נשאר בה היה פותח את
+   * ‏ההעשרה של העובד לכל המשרד — הדליפה שנסגרה בהתראות המרכזייה.
+   */
+  it("אין בעלים — אין עוגן, וזו השורה המשרדית בלי תוכן", () => {
+    expect(inboundNotificationAnchor(null, "01CONTACT")).toEqual({});
+    expect(inboundNotificationContent(null, "תמצית").body).toBeNull();
+  });
+});
+
+/**
+ * ‎**ומה שהעוגן קונה בפועל: הצנזורה בקריאה חלה על השורה.**
+ *
+ * ‏זו הבדיקה שסוגרת את הממצא מקצה לקצה — ולא רק את צורת הערך.
+ * ‏בלי העוגן `redactNotification` היה מחזיר את השורה כמות שהיא לכל
+ * ‏נמען, כי שורה בלי עוגן פטורה. עם העוגן היא נשאלת מול אותו איחוד
+ * ‏מקורות שהתיבה עצמה נשענת עליו.
+ */
+describe("‏השורה שנוצרה דרך נכס — נצנזרת כשהגישה נשללה", () => {
+  const CONTACT = "01CONTACT";
+  const row: RedactableNotification = {
+    id: "01NOTIF",
+    type: "email_reply",
+    title: "📧 לקוח ענה במייל",
+    body: "אשמח לקבוע סיור ביום חמישי",
+    ...inboundNotificationAnchor(
+      { userId: "01OWNER", source: "properties", cardId: null },
+      CONTACT,
+    ),
+  } as RedactableNotification;
+  const subjects = new Map<string, AnchorSubject>();
+
+  it("‏הסוכן שהלקוח עדיין ברשימתו — רואה את התמצית", () => {
+    const seen = redactNotification(
+      row,
+      { allowed: new Set([CONTACT]), userId: "01OWNER", capabilities: new Set() },
+      subjects,
+    );
+    expect(seen.body).toBe("אשמח לקבוע סיור ביום חמישי");
+  });
+
+  /*
+   * ‏הנכס עבר לעמית, או `properties.view_all` נשללה: הלקוח יצא
+   * ‏מ-`visibleContactIds`, וזו בדיוק אותה שורה ישנה שנשארה בתיבה.
+   */
+  it("‏הנכס כבר אינו שלו — התמצית יורדת", () => {
+    const seen = redactNotification(
+      row,
+      { allowed: new Set<string>(), userId: "01OWNER", capabilities: new Set() },
+      subjects,
+    );
+    expect(seen.body).toBeNull();
+    expect(seen.title).not.toBe("📧 לקוח ענה במייל");
+    expect(seen.entityId).toBeNull();
+  });
+
+  it("‏מי שרואה את כל הלקוחות — רואה", () => {
+    const seen = redactNotification(
+      row,
+      { allowed: null, userId: "01OTHER", capabilities: new Set() },
+      subjects,
+    );
+    expect(seen.body).toBe("אשמח לקבוע סיור ביום חמישי");
   });
 });
