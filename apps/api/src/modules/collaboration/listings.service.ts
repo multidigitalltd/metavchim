@@ -16,6 +16,9 @@ import {
   commissionTermsRejectionReason,
   headlineCommissionSplit,
   isSharedTabuProperty,
+  sharedTabuFit,
+  buyerSharedTabuStance,
+  SHARED_TABU_REFUSED_NOTE,
   uniformTerms,
   type CommissionTerms,
   scoreMatch,
@@ -1047,6 +1050,26 @@ export class ListingsService {
         throw new BadRequestException("כבר פניתם על הנכס הזה עבור הקונה הזה");
 
       const requirements = BuyerRequirementsSchema.parse(buyer.requirements);
+      /*
+       * ‎**הסירוב נאכף גם בכתיבה, לא רק בהתאמה** (ביקורת Codex, P1).
+       *
+       * ‏`matchOwnBuyers` מכבד את העמדה, ולכן קונה שסימן „מסרב”
+       * ‏אינו מופיע בהתאמות לנכס בטאבו משותף. אבל „להציע קונה
+       * ‏אחר” בעמוד שיתופי הפעולה הוא בורר שמונה את **כל** הקונים,
+       * ‏והנתיב הזה קיבל `buyerId` וכתב פנייה בלי לשאול. המשרד
+       * ‏המפרסם קיבל מועמד שכבר סירב לצורת הרישום הזו — ולא היה לו
+       * ‏איך לדעת, כי כרטיס הפנייה אינו נושא את העמדה.
+       *
+       * ‏אותה פונקציה בדיוק שההתאמה נשענת עליה, ועל אותם שני
+       * ‏קלטים: `listing.sharedTabu` נכתב בפרסום דרך
+       * ‎`isSharedTabuProperty`, והעמדה נגזרת ב-`buyerSharedTabuStance`
+       * ‏— שנופלת גם לסוג המבנה הישן, ולכן קונה מדור קודם נקרא נכון.
+       */
+      if (
+        sharedTabuFit(listing.sharedTabu, buyerSharedTabuStance(requirements)).excluded
+      ) {
+        throw new BadRequestException(SHARED_TABU_REFUSED_NOTE);
+      }
       const featureLevels = Object.entries(requirements.features);
       /* בדיוק אותם שדות שהביקוש חושף — ולא יותר */
       const presentation = {

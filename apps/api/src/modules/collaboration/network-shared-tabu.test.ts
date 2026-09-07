@@ -76,3 +76,101 @@ describe("‏סירוב שאבד בדרך מתיר את מה שהלקוח שלל
     expect(isSharedTabuProperty({ sharedTabu: false, propertyType: "apartment" })).toBe(false);
   });
 });
+
+/**
+ * ‎**והסירוב נאכף גם בכתיבה, ולא רק בהתאמה** (ביקורת Codex, P1 ×2).
+ *
+ * ‏שני המסלולים האוטומטיים מכבדים את העמדה, ולכן קונה שסירב אינו
+ * ‏מופיע בהתאמות ונכס בטאבו משותף אינו מוצע לביקוש שסירב. אבל לצד
+ * ‏כל אחד מהם יש **בורר ידני** שמונה את הכול — „להציע קונה אחר”
+ * ‏ו„בחר נכס להצעה” — ושני נתיבי הכתיבה שמאחוריהם בדקו רק בעלות
+ * ‏ומצב שיווק. הכלל נאכף במסלול אחד ולא במקבילו: אותה תקלה, פעמיים.
+ */
+describe("‏גבול הכתיבה שואל את אותה שאלה", () => {
+  const LISTINGS = readFileSync(join(SRC, "listings.service.ts"), "utf8");
+  const COLLAB = readFileSync(join(SRC, "collaboration.service.ts"), "utf8");
+
+  /** ‏גוף המתודה: מהחתימה ועד המתודה הבאה באותה רמת הזחה. */
+  function body(source: string, signature: string): string {
+    const start = source.indexOf(signature);
+    expect(start, `${signature} לא נמצאה`).toBeGreaterThan(-1);
+    const rest = source.slice(start + signature.length);
+    const next = rest.search(/\n {2}(?:async |private |public |\/\*\*)/u);
+    return next === -1 ? rest : rest.slice(0, next);
+  }
+
+  it("‏פנייה על מודעה נדחית לקונה שסירב", () => {
+    expect(body(LISTINGS, "async expressInterest(")).toContain("sharedTabuFit(");
+  });
+
+  it("‏הצעת נכס נדחית לביקוש שסירב", () => {
+    expect(body(COLLAB, "async offerProperty(")).toContain("sharedTabuFit(");
+  });
+
+  /*
+   * ‎**וזה החצי החשוב יותר בהצעה: לפני החיוב.**
+   *
+   * ‏הצעה לליד ממקור חיצוני עולה קרדיטים. שער שיושב אחרי `coopOfferCost`
+   * ‏היה גובה על פעולה שנדחית — כלומר לא רק מתיר את מה שאסור, אלא
+   * ‏גם מחייב עליו.
+   */
+  it("‏והשער קודם לחיוב, ולא אחריו", () => {
+    const method = body(COLLAB, "async offerProperty(");
+    const gate = method.indexOf("sharedTabuFit(");
+    const charge = method.indexOf("coopOfferCost(");
+    expect(gate).toBeGreaterThan(-1);
+    expect(charge).toBeGreaterThan(-1);
+    expect(gate).toBeLessThan(charge);
+  });
+
+  /*
+   * ‏ובביקוש — דרך `demandToRequirements` ולא דרך העמודה הגולמית.
+   * ‏ביקוש שפורסם לפני העמודה נושא `sharedTabuStance: null`, והעמדה
+   * ‏שלו נגזרת מסוג המבנה הישן; קריאה ישירה הייתה קוראת לו „טרם
+   * ‏נשאל” ומתירה את ההצעה דווקא לוותיקים.
+   */
+  it("‏העמדה נגזרת באותו מסלול שהניקוד ניזון ממנו", () => {
+    expect(body(COLLAB, "async offerProperty(")).toContain(
+      "buyerSharedTabuStance(this.demandToRequirements(demand))",
+    );
+  });
+});
+
+/**
+ * ‎**וההמרה מעמוד השיחות נושאת את הסימון** (ביקורת Codex, P2).
+ *
+ * ‏הטופס מסמן את התיבה מראש לפי הסימון על הלקוח, אבל רק כרטיס
+ * ‏הליד העביר אותו. המרה מעמוד השיחות שלחה `sharedTabu: false`
+ * ‏בשקט — כלומר הנכס נוצר בלי האזהרה המשפטית, ללקוח שסומן.
+ */
+describe("‏הסימון עובר גם במסלול השיחות", () => {
+  const CALLS_DTO = readFileSync(
+    join(SRC, "..", "calls", "calls.service.ts"),
+    "utf8",
+  );
+  const CALLS_PAGE = readFileSync(
+    join(SRC, "..", "..", "..", "..", "web", "src", "app", "calls", "page.tsx"),
+    "utf8",
+  );
+
+  it("‏ה-DTO של השיחה נושא את הסימון", () => {
+    expect(CALLS_DTO).toContain("contactSharedTabu: contact.sharedTabu");
+  });
+
+  /*
+   * ‏שני מסכי ההמרה, ולא אחד: זו בדיוק הצורה של הממצא — שדה
+   * ‏שהגיע לאחד ולא לשני.
+   */
+  it("‏ושני מסכי ההמרה מעבירים אותו", () => {
+    const LEAD_PAGE = readFileSync(
+      join(SRC, "..", "..", "..", "..", "web", "src", "app", "leads", "[id]", "page.tsx"),
+      "utf8",
+    );
+    for (const [name, source] of [
+      ["calls", CALLS_PAGE],
+      ["lead", LEAD_PAGE],
+    ] as const) {
+      expect(source, name).toMatch(/contactSharedTabu=\{/u);
+    }
+  });
+});

@@ -36,6 +36,8 @@ import {
   presentationChips,
   withNetworkSafeTitle,
   isSharedTabuProperty,
+  sharedTabuFit,
+  SHARED_TABU_REFUSED_NOTE,
   type NetworkPresentationFields,
   scoreMatch,
   suggestedReferralPrice,
@@ -1777,6 +1779,36 @@ export class CollaborationService {
         },
       });
       if (!property) throw new NotFoundException("נכס לא נמצא או אינו משווק");
+
+      /*
+       * ‎**הסירוב נאכף גם בהצעה הידנית — ולפני החיוב** (ביקורת
+       * ‏Codex, P1).
+       *
+       * ‏ההתאמה האוטומטית מדלגת על נכס בטאבו משותף כשהביקוש סימן
+       * ‏„מסרב”, אבל „בחר נכס להצעה” בכרטיס הרשת הוא בורר שמונה את
+       * ‏**כל** הנכסים, והנתיב הזה בדק רק שהנכס משווק. ההצעה נוצרה
+       * ‏בניגוד לסירוב מפורש — **וגבתה קרדיטים** על ליד ממקור
+       * ‏חיצוני. ולסוכן המציע אין דרך לראות את הקונפליקט: העמדה
+       * ‏מוסתרת במכוון מ-DTO הביקוש של המשרד המקבל.
+       *
+       * ‏לכן השער כאן, מעל `coopOfferCost` — פעולה שנדחית אינה
+       * ‏פעולה שמשלמים עליה.
+       *
+       * ‏ושתי הגזירות הן אלה שהמנוע משתמש בהן, ובאותו מסלול:
+       * ‎`isSharedTabuProperty` על הנכס, ו-`buyerSharedTabuStance`
+       * ‏על **הדרישות שנגזרות מהביקוש** — `demandToRequirements`,
+       * ‏אותה מתודה שהניקוד ניזון ממנה.
+       *
+       * ‏ולא קריאה ישירה של `demand.sharedTabuStance`: ביקוש
+       * ‏שפורסם לפני העמודה נושא `null`, והעמדה שלו נגזרת מסוג
+       * ‏המבנה הישן. העמודה לבדה הייתה קוראת לו „טרם נשאל”
+       * ‏ומתירה את ההצעה — כלומר בדיוק הביקושים הוותיקים, אלה
+       * ‏שהתכונה נבנתה בשבילם.
+       */
+      const demandStance = buyerSharedTabuStance(this.demandToRequirements(demand));
+      if (sharedTabuFit(isSharedTabuProperty(property), demandStance).excluded) {
+        throw new BadRequestException(SHARED_TABU_REFUSED_NOTE);
+      }
 
       /*
        * הצעה כפולה נחסמת כאן ולא רק במפתח הייחודי שבמסד — בדיוק כמו
