@@ -240,11 +240,27 @@ describe("‏שמירה וריקון", () => {
     expect((calls[0]?.args as { where: Record<string, unknown> }).where).toEqual({});
   });
 
+  /**
+   * ‎**החתך הוא „שעה לפני רגע הקריאה” — ונעוץ משני צדדיו.**
+   *
+   * ‏הניסוח הקודם השווה מול `before` בלבד ודרש `>=`, אבל
+   * ‏`lt = now_בפנים − שעה` ו-`now_בפנים ≥ before`, ולכן
+   * ‏`before − lt ≤ שעה` **תמיד**. כלומר הטענה יכלה להתקיים רק
+   * ‏כשאפס אלפיות שנייה חלפו בין השורות — היא עברה על מכונה
+   * ‏מהירה ונפלה ברגע שהשעון התקדם (`3599999`).
+   *
+   * ‏שני הגבולות יחד אינם יכולים להבהב: `after` נלקח **אחרי**
+   * ‏הקריאה, ולכן `after − lt ≥ שעה` מובטח, ו-`before` נלקח
+   * ‏לפניה, ולכן `before − lt ≤ שעה` מובטח.
+   */
   it("‏ריקון של הישן מוחק רק אותו", async () => {
     const { log, calls } = service();
     const before = Date.now();
     await log.purge(60 * 60 * 1000);
+    const after = Date.now();
     const where = (calls[0]?.args as { where: { receivedAt: { lt: Date } } }).where;
-    expect(before - where.receivedAt.lt.getTime()).toBeGreaterThanOrEqual(60 * 60 * 1000);
+    const cutoff = where.receivedAt.lt.getTime();
+    expect(after - cutoff).toBeGreaterThanOrEqual(60 * 60 * 1000);
+    expect(before - cutoff).toBeLessThanOrEqual(60 * 60 * 1000);
   });
 });

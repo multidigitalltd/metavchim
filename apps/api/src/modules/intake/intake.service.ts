@@ -29,6 +29,7 @@ import {
   PropertyTypeSchema,
   PropertyFieldsSchema,
   type PropertyFields,
+  type EmailCardTag,
   type IntakeAnswers,
   type IntakeSellerAnswers,
   type IntakeSide,
@@ -537,8 +538,20 @@ export class IntakeService {
       return { contact, officeName };
     });
 
+    /*
+     * ‎**הכרטיס שממנו נשלח הקישור — למה זו לא נגזרת של הטופס.**
+     *
+     * ‏הקישור נשלח **לפני** שהלקוח מילא דבר, ולכן הנכס שהטופס יצור
+     * ‏עדיין לא קיים. מה שקיים הוא הכרטיס שהסוכן לחץ בו על הכפתור,
+     * ‏וזה גם מה שהוא יחפש כשהתשובה תחזור.
+     *
+     * ‎`open` הוא הקישור הציבורי הכללי — אין לו כרטיס, ואין מה
+     * ‏לתייג.
+     */
+    const card: EmailCardTag | null =
+      subject === "open" ? null : { kind: subject, id: subjectId };
     const email = channels.includes("email")
-      ? await this.sendInviteEmail(ctx.tenantId, details, link.url, expectedEmail)
+      ? await this.sendInviteEmail(ctx.tenantId, details, link.url, card, expectedEmail)
       : null;
     const whatsapp = channels.includes("whatsapp")
       ? await this.sendInviteWhatsApp(ctx.tenantId, details, link)
@@ -584,6 +597,8 @@ export class IntakeService {
       officeName: string;
     },
     url: string,
+    /** ‏הכרטיס שממנו יצא הקישור — `null` לקישור הציבורי הכללי. */
+    card: EmailCardTag | null,
     expectedEmail?: string,
   ): Promise<ChannelResult> {
     const to = details.contact?.email;
@@ -628,6 +643,7 @@ export class IntakeService {
             details.contact.id,
             /* ‏הסוכן ששלח את הקישור; יצא מהמערכת ולא מאדם — `null` */
             actingUserId(),
+            card,
           );
     try {
       await this.email.send(

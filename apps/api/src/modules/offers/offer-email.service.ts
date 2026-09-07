@@ -913,7 +913,26 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
 
     const offerIds = rows.map((row) => row.offerId);
     // תשובת הלקוח ("אפשר לתאם ביקור?") חוזרת לתיבה הפנימית ולציר
-    const replyTo = await this.emailInbox.replyAddressFor(tenantId, contactId, sentByUserId);
+    /*
+     * ‎**הקונה, ולא הנכס.** במנה אחת יש כמה נכסים, ולכן „נכס” כאן
+     * ‏היה מחייב לבחור אחד מהם — כלומר לנחש. כרטיס הקונה הוא מה
+     * ‏שהמייל באמת עוסק בו, והוא מחזיק את כל ההצעות שבמנה.
+     *
+     * ‎**והוא נקרא מהשורות ולא מפרמטר נוסף.** `buyerId` כבר נוסע
+     * ‏על כל `OutgoingOffer`; פרמטר שני לאותה עובדה הוא מקור שני
+     * ‏שיכול לסתור אותה. שלושת הקוראים מקבצים לפי קונה, אבל
+     * ‏„מקבצים” הוא מוסכמה ולא כלל אכיף — ולכן הוא **נבדק**: מנה
+     * ‏שיש בה יותר מקונה אחד אינה מתויגת כלל. תג שגוי שנראה
+     * ‏סמכותי גרוע מהיעדר תג, וזו כל התכונה הזאת בשורה אחת.
+     */
+    const buyerIds = new Set(rows.map((row) => row.buyerId));
+    const onlyBuyer = buyerIds.size === 1 ? [...buyerIds][0] : undefined;
+    const replyTo = await this.emailInbox.replyAddressFor(
+      tenantId,
+      contactId,
+      sentByUserId,
+      onlyBuyer === undefined ? null : { kind: "buyer", id: onlyBuyer },
+    );
     try {
       await this.email.send(to, subject, content, {
         /*
