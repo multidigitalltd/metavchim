@@ -356,11 +356,12 @@ const UpdateSettingsSchema = z
       .union([z.string().trim().regex(/^\d{5,30}$/u), z.literal("")])
       .optional(),
     /**
-     * ‎`""` הוא ערך אמיתי ולא „בלי שינוי”: הוא בוחר Embedded Signup
-     * רגיל, וזו נקודת המילוט כשהאפליקציה אינה מאושרת ל-Coexistence.
+     * ‎**`standard` ולא `""`.** מחרוזת ריקה בנתיב הזה פירושה „מחק את
+     * השורה, חזור למשתנה הסביבה”, ולכן היא לא יכלה לשאת בחירה —
+     * ‏„רגיל” היה נמחק והדו-קיום היה חוזר בשקט (ביקורת Codex).
      */
     whatsappSignupFeatureType: z
-      .union([z.literal("whatsapp_business_app_onboarding"), z.literal("")])
+      .union([z.literal("whatsapp_business_app_onboarding"), z.literal("standard")])
       .optional(),
     /** הסוכן האישי — טוקן קבוע של System User, לא הטוקן הזמני ממסך הפיתוח */
     whatsappAccessToken: z.union([z.string().trim().min(20).max(500), z.literal("")]).optional(),
@@ -2063,10 +2064,15 @@ export class PlatformController {
      * ריק במסד = ברירת המחדל של הקוד (דו-קיום), ולא „ES רגיל”.
      * ההבחנה נשמרת כאן כדי שהמסך יציג את מה שיקרה בפועל.
      */
-    const waSignupFeatureType =
+    const waSignupFeatureChoice =
       (await this.platformSettings.get("whatsappSignupFeatureType")) ??
       env.WHATSAPP_SIGNUP_FEATURE_TYPE ??
       "whatsapp_business_app_onboarding";
+    /* המסך מציג את שתי האפשרויות בלבד; `""` בסביבה הוא „רגיל” */
+    const waSignupFeatureType =
+      waSignupFeatureChoice === "whatsapp_business_app_onboarding"
+        ? "whatsapp_business_app_onboarding"
+        : "standard";
     const waOutDb = has("whatsappAccessToken") && has("whatsappPhoneNumberId");
     const whatsappBotNumber = (await this.platformSettings.get("whatsappBotNumber")) ?? "";
     const waOutEnv =

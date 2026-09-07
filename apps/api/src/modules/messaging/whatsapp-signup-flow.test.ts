@@ -91,7 +91,7 @@ function graph(over: Graph = {}): { calls: string[] } {
   return { calls };
 }
 
-function build(): {
+function build(featureType: string | null = null): {
   service: WhatsAppConnectionService;
   created: () => Record<string, unknown> | null;
 } {
@@ -128,7 +128,9 @@ function build(): {
             ? "secret-of-the-connect-app"
             : key === "whatsappSignupConfigId"
               ? "444555666"
-              : null,
+              : key === "whatsappSignupFeatureType"
+                ? featureType
+                : null,
       ),
     ),
   } as unknown as PlatformSettingsService;
@@ -229,5 +231,23 @@ describe("הקונפיגורציה שהמסך מקבל", () => {
       configId: "444555666",
       featureType: "whatsapp_business_app_onboarding",
     });
+  });
+
+  /*
+   * ‎**זו כל נקודת המילוט, ולכן היא נבדקת.**
+   *
+   * ‏„רגיל” נשמר כמילה (`standard`) ולא כמחרוזת ריקה, כי ריק בנתיב
+   * ההגדרות פירושו „מחק את השורה” — והבחירה הייתה נעלמת בשמירה,
+   * הנפילה החוזרת הייתה מחזירה את הדו-קיום, והבורר במסך היה נראה
+   * כאילו הוא עובד בזמן שאינו משנה דבר (ביקורת Codex). כלפי Meta
+   * הערך חייב בכל זאת להיות `""`, וזה התרגום שנבדק כאן.
+   */
+  it("‏„רגיל” נשמר כמילה ומתורגם למחרוזת ריקה כלפי Meta", async () => {
+    graph();
+    const { service } = build("standard");
+
+    const config = await service.signupConfig();
+
+    expect(config).toMatchObject({ featureType: "" });
   });
 });

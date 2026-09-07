@@ -35,10 +35,21 @@ const REQUEST_TIMEOUT_MS = 15_000;
 /**
  * זרימת הדו-קיום — המספר שכבר חי באפליקציית WhatsApp Business
  * בטלפון. זו ברירת המחדל של המוצר (docs/12), אך היא פתוחה רק
- * לאפליקציות שאושרו ל-Coexistence ב-Meta. `""` מחזיר את Embedded
- * Signup הרגיל.
+ * לאפליקציות שאושרו ל-Coexistence ב-Meta.
  */
 const COEXISTENCE_FEATURE = "whatsapp_business_app_onboarding";
+
+/**
+ * ‎**„רגיל” נשמר כמילה, ולא כמחרוזת ריקה.**
+ *
+ * ‏כלפי Meta הערך הוא `""` — אבל `PATCH /platform/settings` מתרגם
+ * מחרוזת ריקה ל„מחק את השורה, חזור למשתנה הסביבה”, וזה נכון לכל
+ * שאר ההגדרות שם. שמירת `""` הייתה מוחקת את הבחירה, הנפילה החוזרת
+ * הייתה מחזירה את הדו-קיום, והבורר במסך היה נראה כאילו הוא עובד
+ * בזמן שאינו משנה דבר (ביקורת Codex). לכן סנטינל, והתרגום ל-`""`
+ * נעשה כאן — במקום אחד, בגבול מול Meta.
+ */
+const STANDARD_FEATURE = "standard";
 
 /**
  * מרעננים כשנותרו פחות משבועיים. Meta מנפיקה 60 יום, כלומר הרענון
@@ -163,10 +174,19 @@ export class WhatsAppConnectionService {
       (await this.platformSettings.get("whatsappSignupConfigId")) ??
       env.WHATSAPP_SIGNUP_CONFIG_ID;
     if (!creds || !configId) return null;
-    const featureType =
+    const chosen =
       (await this.platformSettings.get("whatsappSignupFeatureType")) ??
       env.WHATSAPP_SIGNUP_FEATURE_TYPE ??
       COEXISTENCE_FEATURE;
+    /*
+     * ‎**„רגיל” מפורש; כל השאר הוא ברירת המחדל של המוצר.**
+     *
+     * הסנטינל, ומחרוזת ריקה שמשתנה סביבה עדיין מורשה לשאת, הם
+     * Embedded Signup רגיל. ערך שאינו מוכר (שגיאת הקלדה בסביבה)
+     * נופל לדו-קיום ולא למסלול הרגיל, כי המסלול הרגיל **מעביר את
+     * המספר** מהטלפון — וזו אינה תוצאה של הקלדה שגויה.
+     */
+    const featureType = chosen === STANDARD_FEATURE || chosen === "" ? "" : COEXISTENCE_FEATURE;
     return { appId: creds.appId, configId, featureType };
   }
 
@@ -555,7 +575,21 @@ export class WhatsAppConnectionService {
        * ניתוק, חיבור מחדש, או סבב מקביל — ואז גם ההתראה מיותרת.
        */
       const { count } = await this.prisma.whatsAppBusinessConnection.updateMany({
-        where: { id: row.id, disconnectedAt: null, disconnectReason: null },
+        /*
+         * ‎**גם כאן הצופן שקראנו, ולא ה-`id` בלבד** (ביקורת Codex).
+         *
+         * ‏ענף ההצלחה כבר מותנה בו; כאן הוא היה חסר, ובין הקריאה
+         * לכתיבה עוברת אותה קריאת רשת. סבב מקביל ברפליקה שנייה
+         * שהספיק לרענן, או מתווך שחיבר מחדש בזמן שהבקשה באוויר,
+         * היו מקבלים `token_expired` על קו שהטוקן שלו **חי** —
+         * ואיתו התראה שקרית שמובילה לחיבור מחדש מיותר.
+         */
+        where: {
+          id: row.id,
+          disconnectedAt: null,
+          disconnectReason: null,
+          accessTokenEncrypted: stored,
+        },
         data: { status: "error", disconnectReason: TOKEN_EXPIRED },
       });
       if (count === 0) continue;

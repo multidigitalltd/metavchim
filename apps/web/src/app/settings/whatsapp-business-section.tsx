@@ -48,13 +48,20 @@ interface ConnectionsResponse {
 }
 
 /**
- * מה שהסוכן מרוויח. נוסח בלשון תועלת, לא בלשון תכונה.
+ * ‎**שני מסלולים, שני נוסחים — ואי אפשר להשתמש באחד לשני.**
+ *
+ * בדו-קיום המספר ממשיך לחיות באפליקציה שבטלפון; ב-Embedded Signup
+ * הרגיל הוא **עובר** לניהול המערכת ומפסיק לעבוד באפליקציה. זה לא
+ * הבדל בניסוח אלא בעובדות, והמסך הזה הוא מה שהסוכן מסכים על בסיסו
+ * לפני שהוא לוחץ. הצגת נוסח הדו-קיום למי שמריץ את המסלול הרגיל היא
+ * הסכמה שניתנה על סמך מידע שגוי (ביקורת Codex) — ולכן שתי רשימות,
+ * והבחירה ביניהן לפי מה שהשרת אומר שייפתח בפועל.
  *
  * ‎**רק מה שעובד היום.** „ייבוא היסטוריה” הופיע כאן קודם, אבל קליטת
  * שדה ה-`history` טרם נבנתה (docs/12 §8, שלב 2) — והבטחה במסך
  * שאינה מתממשת ביום החיבור היא בדיוק מה שמייצר קריאת תמיכה.
  */
-const BENEFITS = [
+const BENEFITS_COEXISTENCE = [
   "כל פנייה בוואטסאפ נכנסת כליד עם שם, מספר וההודעה המקורית — בלי העתקה ידנית",
   "הליד נוחת אצלך, לא במאגר המשרד — הלקוח כתב למספר שלך",
   "ציר זמן מלא בכרטיס הלקוח, כולל מה שענית ידנית מהטלפון",
@@ -62,14 +69,35 @@ const BENEFITS = [
   "הלקוחות רואים את המספר שלך, לא מספר של המערכת",
 ];
 
+const BENEFITS_STANDARD = [
+  "כל פנייה בוואטסאפ נכנסת כליד עם שם, מספר וההודעה המקורית — בלי העתקה ידנית",
+  "הליד נוחת אצלך, לא במאגר המשרד — הלקוח כתב למספר שלך",
+  "ציר זמן מלא בכרטיס הלקוח, כולל כל מה שנשלח מהמערכת",
+  "הלקוחות רואים את המספר שלך, לא מספר של המערכת",
+];
+
 /** מה שנכבה או אינו נתמך. מוצג לפני הלחיצה, לא אחריה. */
-const LIMITATIONS = [
+const LIMITATIONS_COEXISTENCE = [
   "הודעות נעלמות, „צפייה חד-פעמית” ושיתוף מיקום חי — נכבות בשיחות אישיות",
   "רשימות תפוצה קיימות הופכות לקריאה בלבד; אי אפשר ליצור חדשות",
   "קבוצות, שיחות קול ווידאו, סטטוסים וקטלוג — ממשיכים לעבוד באפליקציה, אך אינם נכנסים למערכת",
   "‏WhatsApp for Windows ושעון חכם אינם נתמכים; מכשירים מקושרים אחרים ינותקו וניתן לקשר אותם מחדש",
   "המספר צריך להיות פעיל באפליקציית WhatsApp Business לפחות שבוע (מומלץ חודש)",
   "סנכרון ההיסטוריה חייב להסתיים תוך 24 שעות מהחיבור, אחרת יש לחבר מחדש",
+];
+
+/**
+ * המסלול הרגיל. השורה הראשונה היא **העיקר**, ולכן היא ראשונה: המספר
+ * עוזב את הטלפון. מתווך שיחבר כאן את המספר שבכיסו יגלה שהוואטסאפ
+ * שלו הפסיק לעבוד — וזה בדיוק מה שהמסך הזה נועד למנוע.
+ */
+const LIMITATIONS_STANDARD = [
+  "המספר עובר לניהול המערכת ומפסיק לעבוד באפליקציית WhatsApp / WhatsApp Business בטלפון",
+  "מספר שכבר פעיל באפליקציה חייב להימחק ממנה לפני החיבור, אחרת Meta תדחה אותו",
+  "כל השיחות מתנהלות מהמערכת בלבד — אין מענה מהטלפון",
+  "היסטוריית השיחות שבאפליקציה אינה עוברת למערכת",
+  "קבוצות, שיחות קול ווידאו, סטטוסים וקטלוג אינם נתמכים בקו כזה",
+  "מומלץ לחבר מספר עסקי ייעודי, ולא את המספר האישי שלכם",
 ];
 
 const STATUS_LABELS: Record<string, { text: string; tone: "ok" | "warn" | "bad" }> = {
@@ -99,6 +127,12 @@ declare global {
   }
 }
 
+/**
+ * ערך ה-`featureType` של זרימת הדו-קיום, כפי שהשרת מחזיר אותו. כאן
+ * הוא משמש להשוואה בלבד — מה שנשלח ל-Meta מגיע מהשרת ולא מכאן.
+ */
+const COEXISTENCE_FEATURE = "whatsapp_business_app_onboarding";
+
 const FB_SDK_URL = "https://connect.facebook.net/en_US/sdk.js";
 const GRAPH_VERSION = "v23.0";
 
@@ -127,7 +161,13 @@ function Bullets({ items, marker }: { items: readonly string[]; marker: string }
  * ואז מגלה חיוב נפרד מ-Meta ופותח קריאה. ההפרדה כאן זולה בהרבה
  * מהשיחה הזו.
  */
-function InfoPanel({ botIncluded }: { botIncluded: boolean }) {
+function InfoPanel({
+  botIncluded,
+  coexistence,
+}: {
+  botIncluded: boolean;
+  coexistence: boolean;
+}) {
   return (
     <div className="flex flex-col gap-3">
       <div
@@ -135,7 +175,7 @@ function InfoPanel({ botIncluded }: { botIncluded: boolean }) {
         style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
       >
         <p className="mb-2 font-medium">מה זה נותן לכם</p>
-        <Bullets items={BENEFITS} marker="✓" />
+        <Bullets items={coexistence ? BENEFITS_COEXISTENCE : BENEFITS_STANDARD} marker="✓" />
       </div>
 
       <div
@@ -144,10 +184,11 @@ function InfoPanel({ botIncluded }: { botIncluded: boolean }) {
       >
         <p className="mb-2 font-medium">מה משתנה או מוגבל</p>
         <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          אלה מגבלות של Meta על מספר שמחובר גם לאפליקציה וגם למערכת — לא בחירה
-          שלנו. הן מתבטלות אם תנתקו.
+          {coexistence
+            ? "אלה מגבלות של Meta על מספר שמחובר גם לאפליקציה וגם למערכת — לא בחירה שלנו. הן מתבטלות אם תנתקו."
+            : "המסלול הזה מעביר את המספר לניהול המערכת. אלה כללים של Meta לקו כזה — לא בחירה שלנו — וניתוק אינו מחזיר את המספר לאפליקציה מאליו."}
         </p>
-        <Bullets items={LIMITATIONS} marker="•" />
+        <Bullets items={coexistence ? LIMITATIONS_COEXISTENCE : LIMITATIONS_STANDARD} marker="•" />
       </div>
 
       <div
@@ -160,7 +201,8 @@ function InfoPanel({ botIncluded }: { botIncluded: boolean }) {
             <dt className="font-medium">חיבור המספר וקליטת פניות — כלול במסלול</dt>
             <dd style={{ color: "var(--color-text-muted)" }}>
               הודעות שנכנסות אליכם אינן עולות דבר, לא לכם ולא לנו. לכן החיבור,
-              הלידים, ציר הזמן וסנכרון ההיסטוריה פתוחים בכל מסלול.
+              הלידים וציר הזמן{coexistence ? " וסנכרון ההיסטוריה" : ""} פתוחים בכל
+              מסלול.
             </dd>
           </div>
           <div>
@@ -205,6 +247,16 @@ export function WhatsAppBusinessSection() {
    * נשמר ב-ref עד שה-callback מגיע.
    */
   const signupAssets = useRef<{ wabaId: string; phoneNumberId: string } | null>(null);
+
+  /*
+   * ‎**המסלול שייפתח בפועל — ומעליו כל הנוסח במסך.**
+   *
+   * ‏מוגדר כאן ולא לפני ה-`return`, כי גם `connect` וגם `disconnect`
+   * מנסחים לפיו את ההודעה שהם מציגים. כשהחיבור טרם הוגדר בפלטפורמה
+   * אין מה לפתוח והכפתור מוסתר ממילא, ולכן ברירת המחדל היא זו של
+   * המוצר — דו-קיום.
+   */
+  const coexistence = (data?.signup?.featureType ?? COEXISTENCE_FEATURE) === COEXISTENCE_FEATURE;
 
   const load = useCallback(() => {
     setFailed(false);
@@ -313,7 +365,11 @@ export function WhatsAppBusinessSection() {
          */
         apiPost<{ connection: Connection }>("/whatsapp/connections", { code, ...(assets ?? {}) })
           .then(() => {
-            setNotice("המספר חובר. סנכרון ההיסטוריה עשוי להימשך עד 24 שעות");
+            setNotice(
+              coexistence
+                ? "המספר חובר. סנכרון ההיסטוריה עשוי להימשך עד 24 שעות"
+                : "המספר חובר. מכאן הפניות נכנסות למערכת",
+            );
             load();
           })
           .catch((err: unknown) => {
@@ -341,7 +397,7 @@ export function WhatsAppBusinessSection() {
         },
       },
     );
-  }, [data, ensureSdk, load]);
+  }, [coexistence, data, ensureSdk, load]);
 
   const disconnect = useCallback(
     (id: string) => {
@@ -350,7 +406,11 @@ export function WhatsAppBusinessSection() {
       setBusy(true);
       apiDelete(`/whatsapp/connections/${id}`)
         .then(() => {
-          setNotice("המספר נותק. הוא ממשיך לעבוד באפליקציה בטלפון כרגיל");
+          setNotice(
+            coexistence
+              ? "המספר נותק. הוא ממשיך לעבוד באפליקציה בטלפון כרגיל"
+              : "המספר נותק ופניות אינן נכנסות יותר. החזרתו לאפליקציה שבטלפון נעשית מול Meta",
+          );
           load();
         })
         .catch((err: unknown) => {
@@ -358,7 +418,7 @@ export function WhatsAppBusinessSection() {
         })
         .finally(() => setBusy(false));
     },
-    [load],
+    [coexistence, load],
   );
 
   if (failed) {
@@ -382,7 +442,10 @@ export function WhatsAppBusinessSection() {
       </h2>
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         חברו את המספר העסקי שלכם, ופניות של לקוחות ייכנסו למערכת כלידים עם ציר
-        זמן מלא — בזמן שאתם ממשיכים לענות מהאפליקציה בטלפון כרגיל.
+        זמן מלא{" "}
+        {coexistence
+          ? "— בזמן שאתם ממשיכים לענות מהאפליקציה בטלפון כרגיל."
+          : "— והמענה עובר להתנהל מהמערכת. קראו למטה מה זה משנה במספר לפני שאתם מחברים."}
       </p>
 
       {error ? (
@@ -451,8 +514,10 @@ export function WhatsAppBusinessSection() {
                 {connection.disconnectReason === "token_expired" ? (
                   <p className="mt-2 text-sm">
                     ההרשאה שנתתם למערכת על המספר הזה פגה, ולידים מהוואטסאפ אינם
-                    נכנסים כרגע. חיבור מחדש למטה מחזיר הכול — השיחות עצמן ממשיכות
-                    לעבוד באפליקציה בטלפון כרגיל.
+                    נכנסים כרגע. חיבור מחדש למטה מחזיר הכול
+                    {coexistence
+                      ? " — השיחות עצמן ממשיכות לעבוד באפליקציה בטלפון כרגיל."
+                      : "; עד אז לא נכנסות פניות מהמספר הזה."}
                   </p>
                 ) : null}
                 <button
@@ -482,7 +547,7 @@ export function WhatsAppBusinessSection() {
         </p>
       ) : (
         <>
-          <InfoPanel botIncluded={data.botIncluded} />
+          <InfoPanel botIncluded={data.botIncluded} coexistence={coexistence} />
           <button
             type="button"
             className="mv-button mv-button--primary mt-3"

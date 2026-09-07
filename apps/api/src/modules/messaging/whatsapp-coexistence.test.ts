@@ -566,4 +566,36 @@ describe("הפרמטרים שהפרונט מוסר לפופאפ", () => {
     expect(SECTION).toContain("...(assets ?? {})");
     expect(CONNECTION).toContain("this.resolveAssets(app, issued.token)");
   });
+
+  /*
+   * ‎**ההסכמה חייבת לתאר את מה שבאמת יקרה למספר.**
+   *
+   * ‏המסך הזה הוא מה שהסוכן קורא לפני שהוא מוסר את המספר שבכיסו.
+   * בדו-קיום המספר ממשיך לעבוד באפליקציה; במסלול הרגיל הוא **עובר**
+   * לניהול המערכת ומפסיק לעבוד שם. נוסח הדו-קיום שמוצג למי שמריץ
+   * את המסלול הרגיל הוא הסכמה שניתנה על סמך מידע שגוי (ביקורת
+   * Codex) — ולכן שתי רשימות, ולכן בדיקה.
+   */
+  it("רשימת „מה משתנה” מותנית במסלול, ואומרת שהמספר עוזב את הטלפון", () => {
+    expect(SECTION).toContain("LIMITATIONS_STANDARD");
+    expect(SECTION).toContain("BENEFITS_STANDARD");
+    expect(SECTION).toContain("coexistence ? LIMITATIONS_COEXISTENCE : LIMITATIONS_STANDARD");
+    const standard = SECTION.slice(
+      SECTION.indexOf("const LIMITATIONS_STANDARD"),
+      SECTION.indexOf("const STATUS_LABELS"),
+    );
+    expect(standard).toContain("מפסיק לעבוד באפליקציית");
+  });
+
+  /*
+   * ‏„רגיל” נשמר כמילה: `""` בנתיב ההגדרות פירושו „מחק את השורה”,
+   * והבחירה הייתה נמחקת בשמירה — הבורר במסך היה נראה עובד בזמן
+   * שהדו-קיום חוזר בשקט (ביקורת Codex).
+   */
+  it("הבחירה ב„רגיל” נשמרת כערך ולא כמחרוזת ריקה", () => {
+    const settings = read("../../../../web/src/app/platform/platform-settings-section.tsx");
+    expect(settings).toContain('<option value="standard">');
+    expect(settings).not.toMatch(/whatsappSignupFeatureType:\s*\n?\s*.*:\s*"",/u);
+    expect(CONNECTION).toContain('const STANDARD_FEATURE = "standard"');
+  });
 });

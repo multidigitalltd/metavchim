@@ -448,13 +448,14 @@ export function PlatformSettingsSection({
         ...(connectVerify !== "" ? { whatsappConnectVerifyToken: connectVerify } : {}),
         ...(signupConfigId !== "" ? { whatsappSignupConfigId: signupConfigId } : {}),
         /*
-         * נשלח תמיד, כולל ריק: כאן `""` הוא בחירה אמיתית („Embedded
-         * Signup רגיל”) ולא „בלי שינוי”. זו כל התכלית של השדה.
+         * נשלח תמיד, ולעולם לא כמחרוזת ריקה: ריק בנתיב הזה פירושו
+         * „מחק את השורה”, ואז הבחירה ב„רגיל” הייתה נעלמת והדו-קיום
+         * חוזר. `standard` הוא הערך שנשמר בפועל.
          */
         whatsappSignupFeatureType:
           signupFeatureType === "whatsapp_business_app_onboarding"
             ? "whatsapp_business_app_onboarding"
-            : "",
+            : "standard",
         // ‎`botNumber` נשלח תמיד, גם ריק: הוא גיבוי שמכוון למחוק אותו
         // ברגע ש-Meta מתחילה לענות, וריק כאן פירושו „חזרו להסתמך על
         // Meta בלבד” ולא „בלי שינוי”
@@ -1911,15 +1912,15 @@ export function PlatformSettingsSection({
                 <select
                   id="whatsappSignupFeatureType"
                   name="whatsappSignupFeatureType"
-                  key={settings.whatsapp.connect?.signupFeatureType ?? ""}
-                  defaultValue={settings.whatsapp.connect?.signupFeatureType ?? ""}
+                  key={settings.whatsapp.connect?.signupFeatureType ?? "standard"}
+                  defaultValue={settings.whatsapp.connect?.signupFeatureType ?? "standard"}
                   className="w-full rounded-lg border px-3 py-2.5"
                   style={inputStyle}
                 >
                   <option value="whatsapp_business_app_onboarding">
                     דו-קיום — מספר שכבר באפליקציית WhatsApp Business
                   </option>
-                  <option value="">רגיל — Embedded Signup ללא דו-קיום</option>
+                  <option value="standard">רגיל — Embedded Signup ללא דו-קיום</option>
                 </select>
               </div>
 
