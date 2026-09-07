@@ -600,7 +600,7 @@ export class EmailService {
 
   /**
    * ‏ניקוי הזיכרון הישן — אחת לכמה כתיבות, בלי סורק ייעודי (הדפוס
-   * ‏של `TelephonyWebhookLogService`). כישלון אינו מפיל שליחה.
+   * ‏של `WebhookLogService`). כישלון אינו מפיל שליחה.
    */
   private async pruneAttempts(): Promise<void> {
     this.attemptWrites += 1;

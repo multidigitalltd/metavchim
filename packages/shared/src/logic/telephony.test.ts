@@ -1057,7 +1057,7 @@ describe("diagnosticFields", () => {
    * מולו. נתיב הקלטה הוא המקרה שהוליד את זה.
    */
   it("שדה טכני נשמר עם הערך", () => {
-    const out = diagnosticFields({ recording: "/rec/2026/08/19/abc.wav", status: "hangup" });
+    const out = diagnosticFields({ recording: "/rec/2026/08/19/abc.wav", status: "hangup" }, "telephony");
     expect(out).toContain("recording=/rec/2026/08/19/abc.wav");
     expect(out).toContain("status=hangup");
   });
@@ -1071,7 +1071,7 @@ describe("diagnosticFields", () => {
       callerid_external: "0501234567",
       callername: "דנה לוי",
       snumber: "0509999999",
-    });
+    }, "telephony");
     expect(out).toContain("callerid_external");
     expect(out).not.toContain("0501234567");
     expect(out).not.toContain("דנה לוי");
@@ -1079,18 +1079,18 @@ describe("diagnosticFields", () => {
   });
 
   it("שדה שאינו ברשימת ההיתר נשמר בשמו בלבד", () => {
-    const out = diagnosticFields({ mystery: "סוד" });
+    const out = diagnosticFields({ mystery: "סוד" }, "telephony");
     expect(out).toContain("mystery");
     expect(out).not.toContain("סוד");
   });
 
   it("שם שדה לא תקני מסומן ואינו נכתב", () => {
-    expect(diagnosticFields({ "0501234567": "x" })).toContain("‹שדה לא תקני›");
-    expect(diagnosticFields({ "0501234567": "x" })).not.toContain("0501234567");
+    expect(diagnosticFields({ "0501234567": "x" }, "telephony")).toContain("‹שדה לא תקני›");
+    expect(diagnosticFields({ "0501234567": "x" }, "telephony")).not.toContain("0501234567");
   });
 
   it("ערך ארוך נחתך ואינו מציף את השורה", () => {
-    const out = diagnosticFields({ recording: "a".repeat(500) });
+    const out = diagnosticFields({ recording: "a".repeat(500) }, "telephony");
     expect(out.length).toBeLessThan(200);
   });
 
@@ -1101,7 +1101,7 @@ describe("diagnosticFields", () => {
    * „direction הגיע” אינו אומר אם הכיוון ידוע או לא.
    */
   it("שדה טכני שהגיע ריק מסומן כריק, ולא כשדה מוסתר", () => {
-    const out = diagnosticFields({ direction: "", extension: "", status: "Hangup" });
+    const out = diagnosticFields({ direction: "", extension: "", status: "Hangup" }, "telephony");
     expect(out).toContain(`direction=${EMPTY_FIELD_MARK}`);
     expect(out).toContain(`extension=${EMPTY_FIELD_MARK}`);
     expect(out).toContain("status=Hangup");
@@ -1115,8 +1115,8 @@ describe("diagnosticFields", () => {
    * „ריק” אינו ערך של לקוח: סימונו אומר שאין מה לחשוף.
    */
   it("שדה מזהה ריק מסומן כריק; עם ערך — השם בלבד", () => {
-    expect(diagnosticFields({ callerid_external: "0501234567" })).toBe("callerid_external");
-    expect(diagnosticFields({ callerid_external: "" })).toBe(
+    expect(diagnosticFields({ callerid_external: "0501234567" }, "telephony")).toBe("callerid_external");
+    expect(diagnosticFields({ callerid_external: "" }, "telephony")).toBe(
       `callerid_external=${EMPTY_FIELD_MARK}`,
     );
   });
@@ -1127,13 +1127,13 @@ describe("diagnosticFields", () => {
    * payload היו סותרות זו את זו בדיוק בשאלה שבגללה קוראים אותו.
    */
   it("שדה שמלא ברווחים בלבד נחשב ריק, כמו בניתוח", () => {
-    const out = diagnosticFields({ direction: "   ", callerid_external: "  " });
+    const out = diagnosticFields({ direction: "   ", callerid_external: "  " }, "telephony");
     expect(out).toContain(`direction=${EMPTY_FIELD_MARK}`);
     expect(out).toContain(`callerid_external=${EMPTY_FIELD_MARK}`);
   });
 
   it("ערך שאינו טקסט או מספר נחשב ריק ולא מודלף", () => {
-    const out = diagnosticFields({ status: { nested: "סוד" }, callername: { x: "דנה" } });
+    const out = diagnosticFields({ status: { nested: "סוד" }, callername: { x: "דנה" } }, "telephony");
     expect(out).toContain(`status=${EMPTY_FIELD_MARK}`);
     expect(out).toContain(`callername=${EMPTY_FIELD_MARK}`);
     expect(out).not.toContain("סוד");
@@ -1154,12 +1154,12 @@ describe("unmappedFields", () => {
       callerid_external: "0501234567",
       A_PARTY: "0509999999",
       queue_name: "מכירות",
-    });
+    }, "telephony");
     expect(out).toEqual(["A_PARTY", "queue_name"]);
   });
 
   it("payload שכולו מוכר מחזיר רשימה ריקה", () => {
-    expect(unmappedFields({ callid: "x", status: "hangup", caller: "0501234567" })).toEqual([]);
+    expect(unmappedFields({ callid: "x", status: "hangup", caller: "0501234567" }, "telephony")).toEqual([]);
   });
 
   /*
@@ -1167,15 +1167,15 @@ describe("unmappedFields", () => {
    * להופיע כ"מפוספס" ולשלוח לתקן משהו שעובד.
    */
   it("שם חלופי שכבר נתמך אינו מדווח כמפוספס", () => {
-    expect(unmappedFields({ uniqueid: "x", billsec: "10", dst: "03111111" })).toEqual([]);
+    expect(unmappedFields({ uniqueid: "x", billsec: "10", dst: "03111111" }, "telephony")).toEqual([]);
   });
 
   it("שדה ריק אינו מידע שהוחמץ", () => {
-    expect(unmappedFields({ extra: "", blank: "   " })).toEqual([]);
+    expect(unmappedFields({ extra: "", blank: "   " }, "telephony")).toEqual([]);
   });
 
   it("שם שדה לא תקני מסומן ואינו נכתב", () => {
-    const out = unmappedFields({ "0501234567": "x" });
+    const out = unmappedFields({ "0501234567": "x" }, "telephony");
     expect(out).toEqual(["‹שדה לא תקני›"]);
   });
 });
@@ -1328,5 +1328,70 @@ describe("isGeneratedCallSummary — מה שהמערכת כתבה מול מה ש
       } as unknown as Parameters<typeof describeCall>[0]);
       expect(isGeneratedCallSummary(text), text).toBe(true);
     }
+  });
+});
+
+/**
+ * ‎**„לא ממופה” נשאל מול הנתיב שהפנייה הגיעה בו.**
+ *
+ * ‏שדות של טופס ליד — שם, טלפון, הודעה — אינם מידע שאנחנו
+ * ‏מפספסים; הם בדיוק מה שנקלט. מול רשימת המרכזייה כולם היו
+ * ‏מסומנים כחסרים, ועמודה שמסמנת את הכול אינה מסמנת דבר.
+ */
+describe("‏unmappedFields לפי מקור", () => {
+  const LEAD = { name: "ישראל", phone: "0501234567", message: "שלום" };
+
+  it("‏שדות הליד אינם „לא ממופים” בנתיב הלידים", () => {
+    expect(unmappedFields(LEAD, "lead")).toEqual([]);
+  });
+
+  it("‏ובנתיב המרכזייה כולם היו נראים כחסרים — וזו הטעות שנמנעה", () => {
+    expect(unmappedFields(LEAD, "telephony").length).toBeGreaterThan(0);
+  });
+
+  /* ‏ומה שבאמת אינו מוכר בטופס — כן מסומן */
+  it("‏שדה שאינו בסכימת הטופס מסומן", () => {
+    expect(unmappedFields({ ...LEAD, surprise: "x" }, "lead")).toEqual(["surprise"]);
+  });
+
+  /* ‏שדה ריק אינו מידע שהוחמץ, בשני הנתיבים */
+  it("‏שדה ריק אינו מסומן", () => {
+    expect(unmappedFields({ ...LEAD, surprise: "  " }, "lead")).toEqual([]);
+  });
+});
+
+/**
+ * ‎**וערך של שדה בטופס ליד אינו נשמר לעולם** (ביקורת Codex, P1).
+ *
+ * ‏`VALUE_SAFE_KEYS` היא רשימה של המרכזייה: `status` ו-`recording`
+ * ‏הם שם טכני שם. בטופס ליד הם שדה חופשי שהשולח בחר — הסכימה
+ * ‏דוחה אותו, אבל שורת היומן כבר נכתבה, וכך ערך שרירותי
+ * ‏מהאינטרנט היה נכתב בטקסט גלוי ליומן פלטפורמה חוצה-דיירים
+ * ‏לתשעים יום.
+ */
+describe("‏diagnosticFields לפי מקור", () => {
+  const HOSTILE = {
+    name: "ישראל",
+    recording: "https://cdn.example/rec?token=SECRET",
+    status: "לקוח VIP חייב 40 אלף",
+  };
+
+  it("‏בליד — שמות בלבד, בלי שום ערך", () => {
+    const out = diagnosticFields(HOSTILE, "lead");
+    expect(out).toContain("recording");
+    expect(out).toContain("status");
+    expect(out).not.toContain("SECRET");
+    expect(out).not.toContain("40 אלף");
+    expect(out).not.toContain("=");
+  });
+
+  /* ‏ובמרכזייה הערך כן נשמר — זו הרשימה שלה, וזה מה שמאבחן שם */
+  it("‏ובמרכזייה הערך הטכני נשמר כמו קודם", () => {
+    expect(diagnosticFields({ status: "hangup" }, "telephony")).toBe("status=hangup");
+  });
+
+  /* ‏והשם עצמו נשמר בשני המקרים — בלעדיו אין מה לאבחן */
+  it("‏השם נשמר בשני המקורות", () => {
+    expect(diagnosticFields({ status: "hangup" }, "lead")).toBe("status");
   });
 });

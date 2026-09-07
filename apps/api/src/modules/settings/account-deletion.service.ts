@@ -566,7 +566,7 @@ export class AccountDeletionService {
        * המספר ולמצוא את אירועי השיחות של לקוח של משרד שנמחק
        * (ביקורת Codex). „מה שנשאר” הוא הזמן, התוצאה והשדות — ולא מי.
        */
-      this.prisma.telephonyWebhookHit.updateMany({
+      this.prisma.webhookHit.updateMany({
         where: { tenantId },
         data: { tenantId: null, peerHash: null, peerSuffix: null },
       }),

@@ -20,6 +20,23 @@ export class WebLeadService {
     private readonly crypto: CryptoService,
   ) {}
 
+  /**
+   * ‎**המשרד שמאחורי המפתח — בלי לקלוט דבר.**
+   *
+   * ‏הקורא הציבורי צריך לדעת אם הכתובת מזוהה **לפני** שהוא שופט
+   * ‏את גוף הבקשה, כדי שגוף פסול אצל מפתח מוכר יירשם עם המשרד
+   * ‏שלו ולא ייעלם מהסינון. `null` = הכתובת אינה מזוהה.
+   *
+   * ‏אין כאן אישור קיום החוצה: הקורא מחזיר אותה שגיאה גנרית בשני
+   * ‏המקרים.
+   */
+  async resolveKey(key: string): Promise<{ tenantId: string; sourceLabel: string } | null> {
+    return this.prisma.leadWebhook.findUnique({
+      where: { key },
+      select: { tenantId: true, sourceLabel: true },
+    });
+  }
+
   async ingest(
     key: string,
     input: {
@@ -31,20 +48,25 @@ export class WebLeadService {
       intent?: string;
       propertyId?: string;
     },
-  ): Promise<void> {
+    /**
+     * ‎**המשרד שנפתר — כדי שיומן הוובהוקים יוכל לשייך את השורה.**
+     *
+     * ‏הקליטה ידעה אותו וזרקה אותו; היומן נכתב אצל הקורא, ובלי
+     * ‏להחזירו כל פנייה שנקלטה בהצלחה הייתה נרשמת בלי משרד —
+     * ‏כלומר נופלת בדיוק מהסינון הראשון שנשאל.
+     */
+  ): Promise<{ tenantId: string }> {
     /*
      * המפתח מזהה גם את המשרד וגם את הערוץ: שם המקור שנבחר בהקמת
      * הוובהוק ("אתר", "פייסבוק"...) נכנס כ-source של הליד.
      */
-    const webhook = await this.prisma.leadWebhook.findUnique({
-      where: { key },
-      select: { tenantId: true, sourceLabel: true },
-    });
+    const webhook = await this.resolveKey(key);
     if (!webhook) {
       // מפתח לא מוכר — אותה שגיאה גנרית; לא מאשרים קיום/אי-קיום מפתחות
       throw new NotFoundException("לא נמצא");
     }
     await this.ingestForTenant(webhook.tenantId, input, webhook.sourceLabel);
+    return { tenantId: webhook.tenantId };
   }
 
   /**

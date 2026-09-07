@@ -5,6 +5,7 @@ import { BillingModule } from "../billing/billing.module";
 import { FunnelModule } from "../funnel/funnel.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { TelephonyModule } from "../telephony/telephony.module";
+import { WebhookLogModule } from "../webhook-log/webhook-log.module";
 import { AccountDeletionService } from "../settings/account-deletion.service";
 import { AgentUsageController } from "./agent-usage.controller";
 import { AgentUsageService } from "./agent-usage.service";
@@ -27,7 +28,7 @@ import { ServiceVersionsService } from "./service-versions.service";
   // MessagingModule — בדיקת חיבור הוואטסאפ של הסוכן האישי מהמסך
   // BillingModule — יצירת הצעות מנוי בלינק (SubscriptionOfferService)
   // FunnelModule — פתיחה מחדש של רישום כשמנהל מחזיר למשרד ניסיון
-  imports: [AuthModule, TelephonyModule, MessagingModule, BillingModule, FunnelModule],
+  imports: [AuthModule, TelephonyModule, MessagingModule, BillingModule, FunnelModule, WebhookLogModule],
   /*
    * שולחן החיבורים בקונטרולר משלו: הגבול שלו הוא שהוא נוגע בטבלת
    * החיבורים בלבד, ומבחן מבני קורא בדיוק את שני הקבצים האלה.

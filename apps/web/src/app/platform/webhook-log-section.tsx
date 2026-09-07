@@ -122,6 +122,66 @@ const ISSUES: Record<string, string> = {
 };
 
 /**
+ * ‎**מה שנקרא אחרת בטופס הלידים.**
+ *
+ * ‏„נקלטה כשיחה” אינו מה שקרה שם, ו„אין מרכזייה במסלול” אינו מצב
+ * ‏שקיים בו כלל. אותה תוצאה, מילים של הנתיב שבו היא קרתה — אחרת
+ * ‏המסך מסביר תקלה אחת במונחים של אחרת.
+ */
+const LEAD_OUTCOMES: Record<string, { label: string; hint: string; ok: boolean }> = {
+  accepted: {
+    label: "נקלט כליד",
+    hint: "המפתח זוהה, הפרטים עברו את הבדיקה, והליד נוצר",
+    ok: true,
+  },
+  unparsed: {
+    label: "נדחתה בבדיקה",
+    hint: "המפתח תקין, אבל גוף הבקשה לא עבר את הבדיקה — ראו את הסיבה",
+    ok: false,
+  },
+  unknown_key: {
+    label: "מפתח לא מוכר",
+    hint: "המפתח שבכתובת אינו שייך לאף משרד, או שאינו בצורה תקינה — יש להעתיק מחדש ממסך ההגדרות",
+    ok: false,
+  },
+  failed: {
+    label: "נפלה אצלנו",
+    hint: "הפרטים היו תקינים והעיבוד נכשל בשרת שלנו. הבקשה הוחזרה בשגיאה",
+    ok: false,
+  },
+};
+
+/** ‏המקורות, בשמות שמי שקורא את היומן מזהה. */
+const SOURCES: Record<string, string> = {
+  telephony: "מרכזייה",
+  lead: "טופס לידים",
+};
+
+function outcomeMeta(
+  source: string,
+  key: string,
+): { label: string; hint: string; ok: boolean } | undefined {
+  return (source === "lead" ? LEAD_OUTCOMES[key] : undefined) ?? OUTCOMES[key];
+}
+
+/**
+ * ‏אותה הבחנה בסיבות: „כך נראית שיחה ממספר חסוי” נכון למרכזייה
+ * ‏ומטעה לחלוטין בטופס, שבו מספר פסול הוא פשוט שדה שמולא לא נכון.
+ */
+const LEAD_ISSUES: Record<string, string> = {
+  no_fields: "הבקשה הגיעה ריקה — כנראה Content-Type שאינו JSON, או גוף שלא נשלח",
+  invalid_phone: "מספר הטלפון בטופס אינו תקין — כך נראה שדה שמולא בפורמט אחר",
+  no_name: "שם הפונה חסר או קצר מדי (שני תווים לפחות)",
+  bad_body:
+    "שדה שאיננו מכירים, או שדה חובה שחסר. הבקשה נדחית במלואה בכוונה — כדי שהטעות תתגלה בבנייה ולא שבועיים אחר כך",
+  honeypot: "השדה website מולא — הבקשה נבלעה כבוט. טופס אמיתי שיש בו שדה בשם הזה יש לשנות",
+};
+
+function issueText(source: string, key: string): string {
+  return (source === "lead" ? LEAD_ISSUES[key] : undefined) ?? ISSUES[key] ?? key;
+}
+
+/**
  * ‎סוג האירוע וכיוונו, בעברית.
  *
  * ‏זה מה שמבדיל „מרכזייה תקינה” מ„מרכזייה ששולחת צלצול ומאבדת את
@@ -188,13 +248,17 @@ interface Hit {
    * ששתי שורות הן אותו מתקשר.
    */
   peerSuffix: string | null;
+  /** ‏`telephony` | `lead` — מאיזה נתיב הגיעה. */
+  source: string;
 }
 
-export function TelephonyWebhooksSection() {
+export function WebhookLogSection() {
   const [hits, setHits] = useState<Hit[] | null>(null);
-  const [summary, setSummary] = useState<{ outcome: string; count: number }[]>([]);
+  const [summary, setSummary] = useState<{ source: string; outcome: string; count: number }[]>([]);
   const [failed, setFailed] = useState(false);
 
+  /** ‏מרכזייה או לידים — ריק = שניהם. */
+  const [source, setSource] = useState("");
   const [outcome, setOutcome] = useState("");
   const [tenantId, setTenantId] = useState("");
   const [hours, setHours] = useState("");
@@ -237,6 +301,7 @@ export function TelephonyWebhooksSection() {
     generation.current += 1;
     const mine = generation.current;
     const params = new URLSearchParams();
+    if (source !== "") params.set("source", source);
     if (outcome !== "") params.set("outcome", outcome);
     if (tenantId !== "") params.set("tenantId", tenantId);
     if (hours !== "") params.set("hours", hours);
@@ -245,7 +310,7 @@ export function TelephonyWebhooksSection() {
     const query = params.toString();
     apiGet<{
       hits: Hit[];
-      summary: { outcome: string; count: number }[];
+      summary: { source: string; outcome: string; count: number }[];
       offices: { id: string; name: string }[];
     }>(`/platform/telephony-webhooks${query === "" ? "" : `?${query}`}`)
       .then((res) => {
@@ -258,11 +323,20 @@ export function TelephonyWebhooksSection() {
         if (mine !== generation.current) return;
         setFailed(true);
       });
-  }, [outcome, tenantId, hours, callId, phone]);
+  }, [source, outcome, tenantId, hours, callId, phone]);
 
   useEffect(load, [load]);
 
-  const total = summary.reduce((sum, row) => sum + row.count, 0);
+  /*
+   * ‎**הסכום עוקב אחרי המקור שנבחר** (ביקורת Codex, P2).
+   *
+   * ‏סכום על שני המקורות מעל פילוח של אחד מהם הוא כותרת שסותרת
+   * ‏את מה שמתחתיה: „101 פניות” ואז שורה אחת של ליד — או גרוע
+   * ‏מכך, מספר גדול בלי שום פילוח כשאין פניות במקור שנבחר.
+   */
+  const total = summary
+    .filter((row) => source === "" || row.source === source)
+    .reduce((sum, row) => sum + row.count, 0);
   const filtered =
     outcome !== "" || tenantId !== "" || hours !== "" || callId !== null || phone !== "";
 
@@ -314,25 +388,44 @@ export function TelephonyWebhooksSection() {
         אלף שורות אינן עונות על זה, וזו השאלה הראשונה שנשאלת.
         קבוע על 24 שעות — סיכום שמשתנה עם הסינון אינו קו ייחוס.
       */}
-      <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+      <div className="mb-3 flex flex-col gap-1 text-sm">
         <span style={{ color: "var(--color-text-muted)" }}>
           {total === 0 ? "לא הגיעה אף פנייה ב-24 השעות האחרונות" : `${total} פניות ב-24 השעות האחרונות:`}
         </span>
-        {OUTCOME_ORDER.map((key) => {
-          const count = summary.find((row) => row.outcome === key)?.count ?? 0;
-          if (count === 0) return null;
-          const meta = OUTCOMES[key];
-          return (
-            <span
-              key={key}
-              className="mv-pill"
-              title={meta?.hint ?? ""}
-              style={{ color: meta?.ok === true ? "var(--color-success)" : "var(--color-danger)" }}
-            >
-              {meta?.label ?? key} · {count}
-            </span>
-          );
-        })}
+        {/*
+          ‏שורה לכל מקור, ולא סיכום אחד: „נקלטה” על שיחה ו„נקלט”
+          ‏על ליד הן שתי עובדות שונות, ומספר שמחבר אותן אינו עונה
+          ‏על אף אחת מהשתיים.
+        */}
+        {Object.keys(SOURCES)
+          .filter((src) => source === "" || source === src)
+          .map((src) => {
+            const rows = summary.filter((row) => row.source === src);
+            const srcTotal = rows.reduce((sum, row) => sum + row.count, 0);
+            if (srcTotal === 0) return null;
+            return (
+              <div key={src} className="flex flex-wrap items-center gap-2">
+                <span style={{ color: "var(--color-text-muted)" }}>{SOURCES[src]}:</span>
+                {OUTCOME_ORDER.map((key) => {
+                  const count = rows.find((row) => row.outcome === key)?.count ?? 0;
+                  if (count === 0) return null;
+                  const meta = outcomeMeta(src, key);
+                  return (
+                    <span
+                      key={key}
+                      className="mv-pill"
+                      title={meta?.hint ?? ""}
+                      style={{
+                        color: meta?.ok === true ? "var(--color-success)" : "var(--color-danger)",
+                      }}
+                    >
+                      {meta?.label ?? key} · {count}
+                    </span>
+                  );
+                })}
+              </div>
+            );
+          })}
       </div>
 
       {/*
@@ -341,6 +434,40 @@ export function TelephonyWebhooksSection() {
         "הראה לי את המשרד הזה" היה מחזיר את מה שבמקרה היה בדף.
       */}
       <div className="mb-3 flex flex-wrap items-end gap-2">
+        {/*
+          ‏המקור ראשון, כי הוא מחליף את משמעות שאר הסינון: „נקלטה”
+          ‏אינה אותה שאלה בשני הנתיבים.
+        */}
+        <label className="flex flex-col gap-1 text-sm">
+          <span style={{ color: "var(--color-text-muted)" }}>מקור</span>
+          <select
+            className="mv-select"
+            value={source}
+            onChange={(e) => {
+              const next = e.target.value;
+              setSource(next);
+              /*
+               * ‎**תוצאה שאינה קיימת במקור החדש מתאפסת** (ביקורת
+               * ‏Codex, P2). היא נעלמת מהרשימה אך נשארת ב-state,
+               * ‏ולכן השאילתה יוצאת עם `outcome=no_feature&source=lead`
+               * ‏ומחזירה טבלה ריקה בלי שום הסבר — בזמן שהבורר
+               * ‏עצמו מציג „כל התוצאות”.
+               */
+              if (next === "lead" && outcome !== "" && !(outcome in LEAD_OUTCOMES)) {
+                setOutcome("");
+              }
+            }}
+            aria-label="סינון לפי מקור"
+          >
+            <option value="">כל המקורות</option>
+            {Object.entries(SOURCES).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <label className="flex flex-col gap-1 text-sm">
           <span style={{ color: "var(--color-text-muted)" }}>תוצאה</span>
           <select
@@ -350,9 +477,16 @@ export function TelephonyWebhooksSection() {
             aria-label="סינון לפי תוצאה"
           >
             <option value="">כל התוצאות</option>
-            {OUTCOME_ORDER.map((key) => (
+            {/*
+              ‏בטופס הלידים אין „אירוע ביניים”, „חיבור מנוטרל” ולא
+              ‏„מסלול בלי מרכזייה” — הצגתן הייתה מציעה סינון שלעולם
+              ‏אינו מחזיר דבר.
+            */}
+            {OUTCOME_ORDER.filter(
+              (key) => source !== "lead" || key in LEAD_OUTCOMES,
+            ).map((key) => (
               <option key={key} value={key}>
-                {OUTCOMES[key]?.label ?? key}
+                {outcomeMeta(source === "" ? "telephony" : source, key)?.label ?? key}
               </option>
             ))}
           </select>
@@ -489,6 +623,7 @@ export function TelephonyWebhooksSection() {
             <thead>
               <tr>
                 <th className="text-start">מתי</th>
+                <th className="text-start">מקור</th>
                 <th className="text-start">תוצאה</th>
                 <th className="text-start">משרד</th>
                 <th className="text-start">שיחה</th>
@@ -500,21 +635,23 @@ export function TelephonyWebhooksSection() {
             </thead>
             <tbody>
               {hits.map((hit) => {
-                const outcomeMeta = OUTCOMES[hit.outcome];
+                const meta = outcomeMeta(hit.source, hit.outcome);
                 return (
                   <tr key={hit.id}>
                     <td dir="ltr" className="whitespace-nowrap">
                       {formatDateTime(hit.receivedAt)}
                     </td>
+                    {/* ‏המקור לפני התוצאה: הוא מה שקובע איך לקרוא אותה */}
+                    <td className="whitespace-nowrap">{SOURCES[hit.source] ?? hit.source}</td>
                     <td>
                       <span
                         className="mv-pill"
-                        title={outcomeMeta?.hint ?? ""}
+                        title={meta?.hint ?? ""}
                         style={{
-                          color: outcomeMeta?.ok === true ? "var(--color-success)" : "var(--color-danger)",
+                          color: meta?.ok === true ? "var(--color-success)" : "var(--color-danger)",
                         }}
                       >
-                        {outcomeMeta?.label ?? hit.outcome}
+                        {meta?.label ?? hit.outcome}
                       </span>
                       {/*
                         הסיבה צמודה לתוצאה ולא בעמודה משלה: „הגיעה
@@ -526,7 +663,7 @@ export function TelephonyWebhooksSection() {
                           className="mt-1 block text-sm"
                           style={{ color: "var(--color-text-muted)" }}
                         >
-                          {ISSUES[hit.issue] ?? hit.issue}
+                          {issueText(hit.source, hit.issue)}
                         </span>
                       )}
                     </td>

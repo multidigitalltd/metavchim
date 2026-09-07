@@ -76,7 +76,7 @@ describe("שדות הוובהוק של 015 שנבלעו עד עכשיו", () => 
   /* שלושת השדות ירדו מרשימת „לא ממופה” — זו הנקודה של כל השינוי */
   it("אינם נחשבים עוד לשדות שלא שויכו", async () => {
     const { unmappedFields } = await import("./telephony.js");
-    expect(unmappedFields(HANGUP)).toEqual([]);
+    expect(unmappedFields(HANGUP, "telephony")).toEqual([]);
   });
 });
 
