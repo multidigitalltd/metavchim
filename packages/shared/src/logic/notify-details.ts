@@ -107,6 +107,23 @@ export interface TaskDetail extends DetailBase {
   title: string;
   dueAt: Date | null;
   about: string | null;
+  /**
+   * ‎**היכולת שנדרשת כדי לראות את `about`** — או `null` כשאין כזו.
+   *
+   * ‏המשימה עצמה נראית למי שהיא שלו (`canSeeNotifyDetail`), אבל
+   * ‏‎`about` אינו המשימה: הוא **שם הישות שהיא תלויה עליה**, ולה
+   * ‏יש הרשאה משלה. שורת גיוס נשענת על `properties.view` — אותה
+   * ‏יכולת שהנתיב שלה דורש, שהתווית במסך המשימות נשענת עליה,
+   * ‏ושהקישור בפעמון נשען עליה. בלי השדה הזה התזכורת בוואטסאפ
+   * ‏הייתה המקום היחיד שאומר את הכתובת למי שנשללה ממנו.
+   *
+   * ‏שדה ולא `switch` על סוג הישות: את הישות מכיר מי שבנה את
+   * ‏הפרט, וכאן כבר אין אותה — יש רק מחרוזת.
+   *
+   * ‎`null` הוא ההצהרה של „אין דרישה נוספת”, ולא השמטה: קונה
+   * ‏וליד רוכבים על נראות המשימה עצמה.
+   */
+  aboutNeeds: string | null;
 }
 
 export interface AppointmentDetail extends DetailBase {
@@ -344,7 +361,12 @@ export function notifyDetailLines(detail: NotifyDetail, viewer: DetailViewer): s
           `🕓 ליום ${formatJerusalemDate(detail.dueAt)} בשעה ${formatJerusalemTime(detail.dueAt)}`,
         );
       }
-      if (detail.about !== null) lines.push(`🔗 ${detail.about}`);
+      if (
+        detail.about !== null &&
+        (detail.aboutNeeds === null || viewer.capabilities.includes(detail.aboutNeeds))
+      ) {
+        lines.push(`🔗 ${detail.about}`);
+      }
       return lines;
     }
     case "appointment": {

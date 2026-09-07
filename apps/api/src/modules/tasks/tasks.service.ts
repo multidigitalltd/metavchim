@@ -1,12 +1,18 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import { Prisma } from "@prisma/client";
-import { isTaskUrgent, OPEN_LEAD_STATUSES, type TaskPriority } from "@metavchim/shared";
+import {
+  isTaskUrgent,
+  OPEN_LEAD_STATUSES,
+  propertyAddressOr,
+  type TaskPriority,
+} from "@metavchim/shared";
 import {
   isCardAccessible,
   leadOwnershipFilter,
   ownershipFilter,
 } from "../../common/ownership";
+import { lockRecruitmentTarget } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
 import { leadPoolOwner } from "../../common/ownership";
 import { AuditService } from "../../core/audit.service";
@@ -28,6 +34,17 @@ import { ContactsService } from "../contacts/contacts.service";
  * ברירת המחדל לא זזה: בלי היכולות האלה המשתמש רואה ומנהל את שלו
  * בלבד, בדיוק כמו קודם.
  */
+
+/**
+ * ‎**מי רשאי לגעת בשורת גיוס — יכולת אחת, ונאמרת פעם אחת.**
+ *
+ * ‏שורות הגיוס משרדיות ואין להן בעלים, ולכן הגבול היחיד הוא
+ * ‏היכולת — אותה שדורש `RecruitmentController`. שני מקומות בקובץ
+ * ‏הזה נשענים עליה: השער שלפני הקישור, והתווית שהמסך מציג. שתי
+ * ‏מחרוזות נפרדות היו יכולות לסטות, וסטייה כזו פירושה מסך שמציג
+ * ‏את מה שהנתיב אוסר.
+ */
+const RECRUITMENT_CAPABILITY = "properties.view";
 
 export interface TaskDto {
   id: string;
@@ -211,21 +228,19 @@ export class TasksService {
      */
     if (
       recruitmentIds.length > 0 &&
-      TenantContext.current().capabilities.has("properties.view")
+      TenantContext.current().capabilities.has(RECRUITMENT_CAPABILITY)
     ) {
       const targets = await tx.recruitmentTarget.findMany({
         where: { id: { in: recruitmentIds }, tenantId, deletedAt: null },
         select: { id: true, street: true, houseNumber: true, neighborhood: true, city: true },
       });
       for (const t of targets) {
-        const address = [
-          [t.street, t.houseNumber].filter(Boolean).join(" "),
-          t.neighborhood,
-          t.city,
-        ]
-          .filter((part) => part !== null && part !== "")
-          .join(", ");
-        labels.set(key("recruitment", t.id), address === "" ? "נכס לגיוס" : address);
+        /*
+         * ‎`propertyAddressOr` ולא נוסחה מקומית: אותה כתובת נבנית
+         * ‏גם בכרטיס הגיוס ובתזכורת בוואטסאפ, ושתי נוסחאות היו
+         * ‏מציגות „הרצל, 5” במקום אחד ו„הרצל 5” באחר.
+         */
+        labels.set(key("recruitment", t.id), propertyAddressOr(t, "נכס לגיוס"));
       }
     }
 
@@ -389,9 +404,52 @@ export class TasksService {
     tx: TenantTx,
     entityType: string,
     entityId: string,
+    /**
+     * ‎**האם הבדיקה נעשית לפני כתיבה** — ואז היא נועלת קודם.
+     *
+     * ‏אין ברירת מחדל בכוונה: קורא שלישי חייב להכריע, ולא לרשת
+     * ‏שקט את ההכרעה של מי שקדם לו.
+     */
+    options: { locking: boolean },
   ): Promise<void> {
-    if (entityType !== "buyer" && entityType !== "lead") return;
     const tenantId = TenantContext.current().tenantId;
+
+    /*
+     * ‎**שורת גיוס — קיימת, חיה, ומותרת לי** (ביקורת Codex, P2).
+     *
+     * ‏„גיוס” נכנס לאוצר המילים של המשימות, והשער הזה לא ידע עליו:
+     * ‏הוא חזר מיד לכל סוג שאינו קונה או ליד, ולכן פולואפ נכתב על
+     * ‏**כל** מזהה שנשלח — כולל שורה ש-`RecruitmentService.remove`
+     * ‏כבר ניקתה. נשארה תזכורת שתצלצל על שורה שאיננה.
+     *
+     * ‏שלושה תנאים, וכל אחד סוגר משהו אחר:
+     *
+     * ‎1. ‏**היכולת.** שורות הגיוס משרדיות ואין להן בעלים, ולכן מה
+     * ‏שמפריד הוא `properties.view` — בדיוק מה שהנתיב שלהן דורש,
+     * ‏ובדיוק מה ש-`entityLabels` כאן כבר נשען עליו.
+     *
+     * ‎2. ‏**הנעילה.** בלעדיה הבדיקה קוראת צילום: המחיקה מספיקה
+     * ‏לרוץ בין הקריאה לכתיבה, ומנקה פולואפ שעדיין לא נוצר. שני
+     * ‏הצדדים לוקחים אותה — ראו `common/locks.ts`.
+     *
+     * ‎3. ‏**החיים.** `deletedAt: null`, אחרי הנעילה ולא לפניה.
+     */
+    if (entityType === "recruitment") {
+      if (!TenantContext.current().capabilities.has(RECRUITMENT_CAPABILITY)) {
+        throw new NotFoundException("נכס לגיוס לא נמצא");
+      }
+      if (options.locking) {
+        await lockRecruitmentTarget(tx, tenantId, entityId);
+      }
+      const target = await tx.recruitmentTarget.findFirst({
+        where: { id: entityId, tenantId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!target) throw new NotFoundException("נכס לגיוס לא נמצא");
+      return;
+    }
+
+    if (entityType !== "buyer" && entityType !== "lead") return;
     if (!(await isCardAccessible(tx, tenantId, entityType, entityId))) {
       throw new NotFoundException("הכרטיס לא נמצא");
     }
@@ -424,7 +482,9 @@ export class TasksService {
        * ‏ולכן השער כאן ולא בבקר.
        */
       if (input.entityType !== undefined && input.entityId !== undefined) {
-        await this.assertEntityAccess(tx, input.entityType, input.entityId);
+        await this.assertEntityAccess(tx, input.entityType, input.entityId, {
+          locking: true,
+        });
       }
       if (input.sourceKey !== undefined) {
         const existing = await tx.task.findFirst({
@@ -588,7 +648,7 @@ export class TasksService {
        * ‏נכס אינו נבדק כאן: הנכסים משרדיים בכוונה, והתווית שלהם היא
        * ‏הכתובת ולא אדם.
        */
-      await this.assertEntityAccess(tx, entityType, entityId);
+      await this.assertEntityAccess(tx, entityType, entityId, { locking: false });
       /*
        * שתי שאילתות ולא מיון לפי סטטוס.
        *

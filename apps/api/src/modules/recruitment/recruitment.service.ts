@@ -5,6 +5,7 @@ import {
   isValidSourceUrl,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
+import { lockRecruitmentTarget } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
 import { PropertiesService } from "../properties/properties.service";
@@ -227,6 +228,16 @@ export class RecruitmentService {
   async remove(id: string): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**הנעילה לפני הכול — לפני השורה ולפני הפולואפים שתלויים בה**
+       * ‏(ביקורת Codex, P2).
+       *
+       * ‏‎`updateMany` נועל בעצמו את השורה, אבל זה אינו הצד שנשבר:
+       * ‏יצירת פולואפ קראה „השורה חיה” בלי לנעול דבר, המחיקה הספיקה
+       * ‏לרוץ ולנקות, והמשימה נכתבה **אחרי** הניקוי. הנעילה כאן היא
+       * ‏חצי הזוג — החצי השני ב-`TasksService`. ראו `common/locks.ts`.
+       */
+      await lockRecruitmentTarget(tx, tenantId, id);
       const { count } = await tx.recruitmentTarget.updateMany({
         where: { id, tenantId, deletedAt: null },
         data: { deletedAt: new Date() },

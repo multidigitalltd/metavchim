@@ -130,9 +130,40 @@ describe("canSeeNotifyDetail — הרשאה, ולא רק ניסוח", () => {
       title: "להתקשר לדני",
       dueAt: null,
       about: null,
+      aboutNeeds: null,
     };
     expect(canSeeNotifyDetail(mine, AGENT)).toBe(true);
     expect(canSeeNotifyDetail({ ...mine, ownerUserId: "agent2" }, AGENT)).toBe(false);
+  });
+
+  /*
+   * ‎**המשימה גלויה, והישות שהיא תלויה עליה — לא בהכרח** (ביקורת
+   * ‏Codex, P2).
+   *
+   * ‏פולואפ על שורת גיוס הוא של הסוכן, ולכן התזכורת שלו. הכתובת
+   * ‏שבתוכה נשענת על `properties.view` — אותה יכולת שהנתיב דורש,
+   * ‏שהתווית במסך המשימות נשענת עליה, ושהקישור בפעמון נשען עליה.
+   * ‏בלי השדה הזה ההודעה בוואטסאפ הייתה המקום היחיד שאומר אותה
+   * ‏למי שנשללה ממנו.
+   */
+  it("‏פולואפ גיוס: הכתובת נאמרת רק למי שרשאי לראות נכסים", () => {
+    const task: NotifyDetail = {
+      kind: "task",
+      ownerUserId: AGENT.userId,
+      title: "לחזור לבעלים",
+      dueAt: null,
+      about: "הרצל 5, הדר, חיפה",
+      aboutNeeds: "properties.view",
+    };
+    const withCap = { ...AGENT, capabilities: [...AGENT.capabilities, "properties.view"] };
+    const withoutCap = {
+      ...AGENT,
+      capabilities: AGENT.capabilities.filter((c) => c !== "properties.view"),
+    };
+    expect(notifyDetailLines(task, withCap).join("\n")).toContain("הרצל 5");
+    expect(notifyDetailLines(task, withoutCap).join("\n")).not.toContain("הרצל 5");
+    /* והמשימה עצמה נשארת — התזכורת שלו, גם בלי הכתובת */
+    expect(notifyDetailLines(task, withoutCap).join("\n")).toContain("לחזור לבעלים");
   });
 });
 

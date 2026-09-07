@@ -105,20 +105,30 @@ describe("‏פולואפ בגיוס — משימה, לא מנגנון שני", 
   });
 
   /*
-   * ‎**והתווית נשענת על אותה יכולת שמסך הגיוס דורש** (ביקורת
-   * ‏Codex, P2). `calendar.manage` ו-`properties.view` נפרדות, ומי
+   * ‎**היכולת שהתווית והשער נשענים עליה — הצהרה אחת** (ביקורת
+   * ‏Codex, P2, ואז שוב).
+   *
+   * ‎`calendar.manage` ו-`properties.view` הן שתי יכולות נפרדות, ומי
    * ‏שנשללה ממנו השנייה בלבד קיבל את כתובת שורת הגיוס ואת הקישור
-   * ‏אליה — בזמן שהבקר דוחה אותו בכניסה.
+   * ‏אליה — בזמן שהבקר דוחה אותו בכניסה. עכשיו יש **שני** קוראים
+   * ‏באותו קובץ: התווית ברשימה, והשער שלפני הקישור.
+   *
+   * ‏הניסוח הקודם של השער הזה חיפש את המחרוזת
+   * ‎`capabilities.has("properties.view")` בחלון שאחרי
+   * ‎`byType.get("recruitment")` — כלומר נצמד ל**ביטוי** ולא לכלל,
+   * ‏ונפל ברגע שהיכולת קיבלה שם. מה שהוא שומר עכשיו הוא הטענה
+   * ‏שאי אפשר לבדוק בהרצה: **מופע אחד בדיוק** של שם היכולת, כלומר
+   * ‏אין קורא שני שיכול לסטות. האכיפה עצמה נבדקת בהתנהגות
+   * ‏(`task-entity-scope.test.ts`), ושם היא נהרגת כשמסירים אותה.
    */
-  it("‏תווית הגיוס מותנית ב-properties.view", () => {
+  it("‏יכולת הגיוס מוצהרת פעם אחת, ואין ביטוי מילולי שני", () => {
     const service = strip(
       read("apps", "api", "src", "modules", "tasks", "tasks.service.ts"),
     );
-    const at = service.indexOf('byType.get("recruitment")');
-    expect(at).toBeGreaterThan(-1);
-    /* ‏חלון התנאי שמיד אחריו — עד פתיחת הגוש */
-    const guard = service.slice(at, service.indexOf("{", service.indexOf("if (", at)));
-    expect(guard).toContain('capabilities.has("properties.view")');
+    expect(service).toMatch(/const RECRUITMENT_CAPABILITY = "properties\.view";/u);
+    expect(service.split('"properties.view"').length - 1).toBe(1);
+    /* ‏ושני הקוראים אכן נשענים על השם */
+    expect(service.split("RECRUITMENT_CAPABILITY").length - 1).toBe(3);
   });
 
   /*
@@ -141,6 +151,58 @@ describe("‏פולואפ בגיוס — משימה, לא מנגנון שני", 
     expect(method).toMatch(/googleEventId: \{ not: null \}[\s\S]{0,160}deletedAfterSync: true/u);
     /* ‏ובלעדיו — מחיקה */
     expect(method).toMatch(/deleteMany[\s\S]{0,120}googleEventId: null/u);
+    /*
+     * ‎**והנעילה לפני שתיהן** (ביקורת Codex, P2).
+     *
+     * ‏זהו סדר, ולא נוכחות: נעילה שנלקחת **אחרי** ניקוי הפולואפים
+     * ‏אינה סוגרת דבר — היצירה כבר הספיקה לרוץ בין הקריאה שלה
+     * ‏לכתיבה. אותו כלל שכתוב בראש `common/locks.ts`: הישות לפני
+     * ‏כל נגזרת שלה.
+     */
+    const lockAt = method.indexOf("lockRecruitmentTarget(");
+    expect(lockAt, "המחיקה אינה נועלת את השורה").toBeGreaterThan(-1);
+    expect(lockAt).toBeLessThan(method.indexOf("tx.task."));
+  });
+
+  /*
+   * ‎**ושני הצדדים לוקחים אותה** — נעילה שצד אחד בלבד לוקח אינה
+   * ‏נועלת. הצד השני הוא היצירה ב-`TasksService`, והוא נבדק
+   * ‏בהתנהגות ב-`task-entity-scope.test.ts`.
+   */
+  it("‏גם יצירת הפולואפ נועלת את אותה שורה", () => {
+    const service = strip(
+      read("apps", "api", "src", "modules", "tasks", "tasks.service.ts"),
+    );
+    expect(service).toContain("lockRecruitmentTarget(tx, tenantId, entityId)");
+  });
+
+  /*
+   * ‎**והתזכורת עצמה אומרת על איזה נכס** (ביקורת Codex, P2).
+   *
+   * ‏העובד אסף רק נכס, קונה וליד, ולכן פולואפ גיוס הפיק
+   * ‏‎`about: null` — „לחזור לבעלים” בלי כתובת, כלומר בדיוק המידע
+   * ‏שבגללו שולחים אותה. הכתובת נבנית מ-`propertyAddressOr` ולא
+   * ‏מנוסחה מקומית, כי אותה כתובת מוצגת גם בכרטיס ובמסך המשימות.
+   */
+  it("‏העובד מעשיר תזכורת גיוס בכתובת, ומגביל אותה ביכולת", () => {
+    const worker = strip(
+      read("apps", "workers", "src", "main.ts"),
+    );
+    /*
+     * ‏על **הביטוי שמרכיב את `about`**, ולא על „המחרוזת מופיעה
+     * ‏איפשהו בקובץ”: הניסוח הראשון חיפש
+     * ‎`task.entityType === "recruitment"` בכל הקובץ, ומצא אותו
+     * ‏בשורת `aboutNeeds` שמתחת — כלומר עבר גם כשהענף עצמו הוסר.
+     */
+    const aboutAt = worker.indexOf("const about =");
+    expect(aboutAt, "ביטוי ה-about לא נמצא").toBeGreaterThan(-1);
+    const about = worker.slice(aboutAt, worker.indexOf(";", aboutAt));
+    expect(about).toContain("recruitmentAddressById");
+    expect(worker).toContain("recruitmentIds.add(");
+    expect(worker).toContain("tx.recruitmentTarget.findMany");
+    expect(worker).toContain("propertyAddressOr(");
+    /* ‏והפרט נושא את היכולת שנדרשת כדי לראות אותו */
+    expect(worker).toMatch(/aboutNeeds:[\s\S]{0,120}"properties\.view"/u);
   });
 
   it("‏המקטע במסך מותנה ביכולת שהנתיב דורש", () => {
