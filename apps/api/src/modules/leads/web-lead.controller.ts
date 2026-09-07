@@ -93,31 +93,46 @@ export class WebLeadController {
   @HttpCode(200)
   async ingest(@Param("key") key: string, @Body() raw: unknown): Promise<{ ok: true }> {
     const payload = raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-    const log = (outcome: "accepted" | "unparsed" | "unknown_key" | "failed", issue?: string) =>
+    const log = (
+      outcome: "unparsed" | "unknown_key" | "failed",
+      /** ‏המשרד — `null` כל עוד המפתח לא נפתר, וזו עובדה ולא חוסר. */
+      tenantId: string | null,
+      issue?: string,
+    ) =>
       this.webhookLog.record({
         source: "lead",
         outcome,
         ...(issue === undefined ? {} : { issue }),
-        tenantId: null,
+        tenantId,
         key,
         method: "POST",
         payload,
       });
 
     /*
-     * ‏מפתח משובש ומפתח שאינו קיים הם אותה תשובה ללקוח — ולא
-     * ‏אותה שורה ביומן? כן, אותה שורה: מבחינת מי שמאבחן, „הכתובת
-     * ‏שאצל הספק אינה מזוהה” היא מסקנה אחת. הקידומת בשורה מראה
-     * ‏**מה** הגיע, וזה מה שמפריד בין השניים בעין.
+     * ‎**המפתח נפתר לפני שהגוף נשפט** (ביקורת Codex, P2).
+     *
+     * ‏הסדר ההפוך יצר שתי שורות שגויות. הראשונה חמורה: גוף שנפסל
+     * ‏אצל **מפתח מוכר** — כלומר בדיוק תקלת ה-Make/n8n שהתכונה
+     * ‏הזו נבנתה בשבילה — נרשם בלי משרד, ולכן נעלם מהסינון הראשון
+     * ‏שנשאל עליו. השנייה: גוף פסול אצל מפתח שאינו קיים נרשם
+     * ‏כ„נדחתה בבדיקה”, בזמן שהבעיה האמיתית היא הכתובת.
+     *
+     * ‏שאילתה אחת נוספת על נתיב ציבורי — אינדקס ייחודי, ומוגבל
+     * ‏ממילא בעשר בקשות לדקה.
      */
-    if (!KeySchema.safeParse(key).success) {
-      await log("unknown_key");
-      throw new BadRequestException("לא נמצא");
+    const webhook = KeySchema.safeParse(key).success
+      ? await this.webLeads.resolveKey(key)
+      : null;
+    if (webhook === null) {
+      /* ‏מפתח משובש ומפתח שאינו קיים — אותה מסקנה: הכתובת אינה מזוהה */
+      await log("unknown_key", null);
+      throw new NotFoundException("לא נמצא");
     }
 
     const parsed = WebLeadSchema.safeParse(raw);
     if (!parsed.success) {
-      await log("unparsed", bodyIssue(parsed.error, payload));
+      await log("unparsed", webhook.tenantId, bodyIssue(parsed.error, payload));
       throw new BadRequestException(parsed.error.issues[0]?.message ?? "בקשה לא תקינה");
     }
     const body = parsed.data;
@@ -130,43 +145,37 @@ export class WebLeadController {
      * ‏הצפה.
      */
     if (body.website?.trim()) {
-      await log("unparsed", "honeypot");
+      await log("unparsed", webhook.tenantId, "honeypot");
       return { ok: true };
     }
 
     try {
-      const { tenantId } = await this.webLeads.ingest(key, {
-        name: body.name,
-        phone: body.phone,
-        message: body.message,
-        pageUrl: body.pageUrl,
-        email: body.email,
-        intent: body.intent,
-        propertyId: body.propertyId,
-      });
-      /*
-       * ‏המשרד ידוע רק אחרי שהמפתח נפתר, ולכן השורה נכתבת כאן ולא
-       * ‏לפני — „הפניות של המשרד הזה” הוא הסינון הראשון שנשאל,
-       * ‏ושורה שנכתבה מוקדם מדי הייתה יוצאת ממנו.
-       *
-       * ‏המספר נחתם ואינו נשמר — ראו `peerPhone` ביומן.
-       */
+      await this.webLeads.ingestForTenant(
+        webhook.tenantId,
+        {
+          name: body.name,
+          phone: body.phone,
+          message: body.message,
+          pageUrl: body.pageUrl,
+          email: body.email,
+          intent: body.intent,
+          propertyId: body.propertyId,
+        },
+        webhook.sourceLabel,
+      );
+      /* ‏המספר נחתם ואינו נשמר — ראו `peerPhone` ביומן */
       await this.webhookLog.record({
         source: "lead",
         outcome: "accepted",
-        tenantId,
+        tenantId: webhook.tenantId,
         key,
         method: "POST",
         payload,
         peerPhone: body.phone,
       });
     } catch (error) {
-      /*
-       * ‏מפתח תקין בצורתו שאינו שייך לאף משרד — הכתובת אצל הספק
-       * ‏ישנה. זו התקלה השכיחה, וזו שעד עכשיו לא הותירה עקבה.
-       */
-      const unknownKey = error instanceof NotFoundException;
-      await log(unknownKey ? "unknown_key" : "failed");
+      /* ‏המפתח כבר נפתר, ולכן כישלון כאן הוא שלנו ולא של הכתובת */
+      await log("failed", webhook.tenantId);
       throw error;
     }
     return { ok: true };

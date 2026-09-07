@@ -327,7 +327,16 @@ export function WebhookLogSection() {
 
   useEffect(load, [load]);
 
-  const total = summary.reduce((sum, row) => sum + row.count, 0);
+  /*
+   * ‎**הסכום עוקב אחרי המקור שנבחר** (ביקורת Codex, P2).
+   *
+   * ‏סכום על שני המקורות מעל פילוח של אחד מהם הוא כותרת שסותרת
+   * ‏את מה שמתחתיה: „101 פניות” ואז שורה אחת של ליד — או גרוע
+   * ‏מכך, מספר גדול בלי שום פילוח כשאין פניות במקור שנבחר.
+   */
+  const total = summary
+    .filter((row) => source === "" || row.source === source)
+    .reduce((sum, row) => sum + row.count, 0);
   const filtered =
     outcome !== "" || tenantId !== "" || hours !== "" || callId !== null || phone !== "";
 
@@ -434,7 +443,20 @@ export function WebhookLogSection() {
           <select
             className="mv-select"
             value={source}
-            onChange={(e) => setSource(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value;
+              setSource(next);
+              /*
+               * ‎**תוצאה שאינה קיימת במקור החדש מתאפסת** (ביקורת
+               * ‏Codex, P2). היא נעלמת מהרשימה אך נשארת ב-state,
+               * ‏ולכן השאילתה יוצאת עם `outcome=no_feature&source=lead`
+               * ‏ומחזירה טבלה ריקה בלי שום הסבר — בזמן שהבורר
+               * ‏עצמו מציג „כל התוצאות”.
+               */
+              if (next === "lead" && outcome !== "" && !(outcome in LEAD_OUTCOMES)) {
+                setOutcome("");
+              }
+            }}
             aria-label="סינון לפי מקור"
           >
             <option value="">כל המקורות</option>

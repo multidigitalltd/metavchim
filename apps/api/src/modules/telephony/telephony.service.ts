@@ -934,7 +934,7 @@ export class TelephonyService {
           where: { id: integration.id, tenantId },
           data: {
             lastEventAt: new Date(),
-            lastEventKeys: diagnosticFields(payload),
+            lastEventKeys: diagnosticFields(payload, "telephony"),
             lastEventOk: event !== null,
             lastEventIssue: issue,
           },

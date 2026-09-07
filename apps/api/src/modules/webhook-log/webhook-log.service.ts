@@ -215,7 +215,7 @@ export class WebhookLogService {
            */
           keyPrefix: keyPrefix(input.key),
           method: input.method,
-          fieldKeys: diagnosticFields(input.payload),
+          fieldKeys: diagnosticFields(input.payload, input.source),
           /*
            * מה שהספק שלח ואיננו צורכים. שמות בלבד — הערך של שדה
            * שלא זיהינו יכול להיות כל דבר, כולל פרט מזהה של לקוח.

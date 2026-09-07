@@ -20,17 +20,30 @@ import { WebLeadController } from "./web-lead.controller";
 const KEY = "abcdefghijklmnopqrstuvwxyz";
 const BODY = { name: "ישראל", phone: "0501234567" };
 
-function controllerWith(ingest: () => Promise<{ tenantId: string }>): {
-  controller: WebLeadController;
-  rows: Record<string, unknown>[];
-} {
+const TENANT = "01TENANTAAAAAAAAAAAAAAAAAA";
+
+/**
+ * ‏שירות מדומה: המפתח נפתר תחילה, ורק אחר כך נקלט הגוף — אותו
+ * ‏סדר שהבקר מקיים.
+ */
+function controllerWith(options: {
+  /** ‎`null` = הכתובת אינה מזוהה. */
+  resolves?: { tenantId: string; sourceLabel: string } | null;
+  ingest?: () => Promise<void>;
+}): { controller: WebLeadController; rows: Record<string, unknown>[] } {
   const rows: Record<string, unknown>[] = [];
   const log = { record: async (input: Record<string, unknown>) => void rows.push(input) };
-  const controller = new WebLeadController({ ingest } as never, log as never);
-  return { controller, rows };
+  const service = {
+    resolveKey: async () =>
+      options.resolves === undefined
+        ? { tenantId: TENANT, sourceLabel: "אתר" }
+        : options.resolves,
+    ingestForTenant: options.ingest ?? (async () => undefined),
+  };
+  return { controller: new WebLeadController(service as never, log as never), rows };
 }
 
-const ok = async () => ({ tenantId: "01TENANTAAAAAAAAAAAAAAAAAA" });
+const ok = {};
 
 describe("‏וובהוק לידים — כל תוצאה נרשמת", () => {
   it("‏פנייה שנקלטה נרשמת עם המשרד שנפתר", async () => {
@@ -71,18 +84,40 @@ describe("‏וובהוק לידים — כל תוצאה נרשמת", () => {
 
   /* ‎**זו התקלה שעד עכשיו נעלמה לגמרי** */
   it("‏מפתח שאינו שייך לאף משרד נרשם, ולא רק נדחה", async () => {
-    const { controller, rows } = controllerWith(async () => {
-      throw new NotFoundException("לא נמצא");
-    });
+    const { controller, rows } = controllerWith({ resolves: null });
     await expect(controller.ingest(KEY, BODY)).rejects.toBeInstanceOf(NotFoundException);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ source: "lead", outcome: "unknown_key" });
+    expect(rows[0]).toMatchObject({ source: "lead", outcome: "unknown_key", tenantId: null });
   });
 
   it("‏ומפתח משובש בצורתו — אותה שורה, והקידומת מראה מה הגיע", async () => {
     const { controller, rows } = controllerWith(ok);
-    await expect(controller.ingest("קצר", BODY)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(controller.ingest("קצר", BODY)).rejects.toBeInstanceOf(NotFoundException);
     expect(rows[0]).toMatchObject({ outcome: "unknown_key", key: "קצר" });
+  });
+
+  /**
+   * ‎**גוף פסול אצל מפתח מוכר נושא את המשרד** (ביקורת Codex, P2).
+   *
+   * ‏זו בדיוק תקלת ה-Make/n8n שהתכונה נבנתה בשבילה, והיא נרשמה
+   * ‏בלי משרד — כלומר נעלמה מהסינון הראשון שנשאל עליה.
+   */
+  it("‏גוף פסול אצל מפתח מוכר נרשם עם המשרד", async () => {
+    const { controller, rows } = controllerWith(ok);
+    await expect(
+      controller.ingest(KEY, { ...BODY, surprise: "x" }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(rows[0]).toMatchObject({ outcome: "unparsed", tenantId: TENANT });
+  });
+
+  /* ‏ואילו גוף פסול אצל מפתח שאינו קיים — הבעיה היא הכתובת */
+  it("‏גוף פסול אצל מפתח לא מוכר נרשם כמפתח לא מוכר", async () => {
+    const { controller, rows } = controllerWith({ resolves: null });
+    await expect(
+      controller.ingest(KEY, { ...BODY, surprise: "x" }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(rows[0]).toMatchObject({ outcome: "unknown_key" });
+    expect(rows[0]?.["issue"]).toBeUndefined();
   });
 
   /*
@@ -126,11 +161,14 @@ describe("‏וובהוק לידים — כל תוצאה נרשמת", () => {
 
   /* ‏כשל אצלנו אינו „מפתח לא מוכר”: התקלה בצד שלנו, והשולח ינסה שוב */
   it("‏כשל בעיבוד נרשם כ„נפלה אצלנו”", async () => {
-    const { controller, rows } = controllerWith(async () => {
-      throw new Error("boom");
+    const { controller, rows } = controllerWith({
+      ingest: async () => {
+        throw new Error("boom");
+      },
     });
     await expect(controller.ingest(KEY, BODY)).rejects.toThrow("boom");
-    expect(rows[0]).toMatchObject({ outcome: "failed" });
+    /* ‏המפתח כבר נפתר, ולכן גם השורה הזו נושאת משרד */
+    expect(rows[0]).toMatchObject({ outcome: "failed", tenantId: TENANT });
   });
 });
 
