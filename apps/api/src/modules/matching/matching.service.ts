@@ -20,6 +20,7 @@ import {
   SCORE_NOTE_MAX,
   ScoreComponentSchema,
   type ScoreComponent,
+  PARTNER_CANDIDATE_ROW_CAP,
   PARTNER_CANDIDATE_SCAN,
   PARTNER_PAIR_LIMIT,
   partnerPairs,
@@ -1141,63 +1142,87 @@ export class MatchingService {
       const cityVariants =
         property.city === null ? null : locationNameVariants(property.city);
 
-      const rows = await tx.buyer.findMany({
-        where: {
-          tenantId,
-          deletedAt: null,
-          dealType: "sale",
-          sharedTabuStance: "accepts",
-          budgetMaxAgorot: { lt: BigInt(price - band) },
-          ...(durableContactIds.length === 0
-            ? {}
-            : { contactId: { notIn: durableContactIds } }),
-          ...(cityVariants === null
-            ? {}
-            : {
-                OR: [
-                  { cities: { hasSome: cityVariants } },
-                  { cities: { isEmpty: true } },
-                  { hasSearchAreas: true },
-                ],
-              }),
-          ...ownershipFilter("buyers.view_all", "ownerUserId"),
-        },
-        /*
-         * ‏התקציב הגבוה ראשון: החיתוך הוא לפי סדר הקלט, ומי שקרוב
-         * ‏יותר למחיר משלים צמד עם יותר שותפים אפשריים.
-         */
-        orderBy: [{ budgetMaxAgorot: "desc" }, { id: "asc" }],
-        /*
-         * ‎**סריקה, לא תקרה** (ביקורת Codex, P2, סבב שני).
-         *
-         * ‏כאן היה `PARTNER_CANDIDATE_MAX`, כלומר התקרה נלקחה על
-         * ‏שורות שאיש לא בדק. הסינון הגס למעלה מכסה עמדה, תקציב,
-         * ‏סוג עסקה ועיר — אבל לא סוג נכס, לא חדרים ולא תכונות, ולכן
-         * ‏שישים קונים בעיר הנכונה שמחפשים בית פרטי עדיין יכלו למלא
-         * ‏אותה ולהסתיר צמד תקין. התקרה על **המועמדים שהתקבלו**
-         * ‏נאכפת ממילא בתוך `partnerPairs`. ראו `PARTNER_CANDIDATE_SCAN`.
-         */
-        take: PARTNER_CANDIDATE_SCAN,
-        select: { id: true, contactId: true, requirements: true },
-      });
+      const scanWhere = {
+        tenantId,
+        deletedAt: null,
+        dealType: "sale",
+        sharedTabuStance: "accepts",
+        budgetMaxAgorot: { lt: BigInt(price - band) },
+        ...(durableContactIds.length === 0
+          ? {}
+          : { contactId: { notIn: durableContactIds } }),
+        ...(cityVariants === null
+          ? {}
+          : {
+              OR: [
+                { cities: { hasSome: cityVariants } },
+                { cities: { isEmpty: true } },
+                { hasSearchAreas: true },
+              ],
+            }),
+        ...ownershipFilter("buyers.view_all", "ownerUserId"),
+      };
 
       const candidates: PartnerCandidate[] = [];
       const contactIdByBuyer = new Map<string, string>();
-      for (const row of rows) {
-        /*
-         * ‏כרטיס שה-JSON שלו פגום מדולג ואינו מפיל את הרשימה. אותו
-         * ‏לקח כמו בשלב משפך פגום: תצורה שבורה בשורה אחת אינה
-         * ‏אמורה למחוק תשובה לכל השאר.
-         */
-        const parsed = BuyerRequirementsSchema.safeParse(row.requirements);
-        if (!parsed.success) continue;
-        /* ‏מפתח הזהות הוא איש הקשר — שני כרטיסים שלו אינם שני אנשים */
-        candidates.push({
-          buyerId: row.id,
-          requirements: parsed.data,
-          partnerKey: row.contactId,
-        });
-        contactIdByBuyer.set(row.id, row.contactId);
+      /*
+       * ‎**הסריקה נעצרת על „מספיק אנשים”, לא על „מספיק שורות”**
+       * ‏(ביקורת Codex, P2, סבב שלישי).
+       *
+       * ‏`take: PARTNER_CANDIDATE_SCAN` סופר כרטיסים, ולכן לקוח אחד
+       * ‏עם 300 כרטיסים כשירים מילא את הסריקה בעצמו והשאילתה חזרה
+       * ‏עם **אדם אחד**. הניכוי לפי `contactId` רץ אחרי השאילתה, וזה
+       * ‏מאוחר מדי. אותו באג בדיוק שתוקן בתוך המנוע — שם
+       * ‏`PARTNER_CANDIDATE_MAX` כבר סופר זהויות — שכבה אחת למטה.
+       *
+       * ‏הדפדוף עוצר על `PARTNER_CANDIDATE_ROW_CAP` שורות, וזה חסם
+       * ‏ולא ביטולו: לקוח עם 1,200 כרטיסים עדיין ימלא אותו. ההבדל
+       * ‏הוא בסדר הגודל, ובכך שהתנאי מודע לאנשים.
+       *
+       * ‎**כל כרטיס שנקרא נשאר מועמד** — הניכוי כאן הוא על תקציב
+       * ‏הסריקה בלבד. שני כרטיסים של אותו אדם מתארים שני חיפושים,
+       * ‏והמנוע כבר בוחר ביניהם את השימושי לשותפות; השמטת השני כאן
+       * ‏הייתה מוחקת התאמה שהוא זה שעונה עליה.
+       */
+      const seenContacts = new Set<string>();
+      let cursor: string | null = null;
+      let scanned = 0;
+      while (seenContacts.size < PARTNER_CANDIDATE_SCAN && scanned < PARTNER_CANDIDATE_ROW_CAP) {
+        const page: { id: string; contactId: string; requirements: unknown }[] =
+          await tx.buyer.findMany({
+            where: scanWhere,
+            /*
+             * ‏התקציב הגבוה ראשון: החיתוך הוא לפי סדר הקלט, ומי
+             * ‏שקרוב יותר למחיר משלים צמד עם יותר שותפים אפשריים.
+             * ‏`id` שובר שוויון, וגם נושא את הסמן.
+             */
+            orderBy: [{ budgetMaxAgorot: "desc" }, { id: "asc" }],
+            take: PARTNER_CANDIDATE_SCAN,
+            ...(cursor === null ? {} : { cursor: { id: cursor }, skip: 1 }),
+            select: { id: true, contactId: true, requirements: true },
+          });
+        if (page.length === 0) break;
+        scanned += page.length;
+        cursor = page[page.length - 1]!.id;
+        for (const row of page) {
+          /*
+           * ‏כרטיס שה-JSON שלו פגום מדולג ואינו מפיל את הרשימה, וגם
+           * ‏אינו „מנצל” את האדם: הכרטיס הבא שלו עדיין ייספר. אותו
+           * ‏לקח כמו בשלב משפך פגום.
+           */
+          const parsed = BuyerRequirementsSchema.safeParse(row.requirements);
+          if (!parsed.success) continue;
+          seenContacts.add(row.contactId);
+          /* ‏מפתח הזהות הוא איש הקשר — שני כרטיסים שלו אינם שני אנשים */
+          candidates.push({
+            buyerId: row.id,
+            requirements: parsed.data,
+            partnerKey: row.contactId,
+          });
+          contactIdByBuyer.set(row.id, row.contactId);
+        }
+        /* ‏דף חלקי = המאגר מוצה, ואין טעם בשאילתה נוספת */
+        if (page.length < PARTNER_CANDIDATE_SCAN) break;
       }
 
       const pairs = partnerPairs(fields, candidates, { limit });

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   PARTNER_CANDIDATE_MAX,
+  PARTNER_CANDIDATE_ROW_CAP,
   PARTNER_CANDIDATE_SCAN,
   type Capability,
 } from "@metavchim/shared";
@@ -76,6 +77,8 @@ interface BuyerRow {
   contactId: string;
   ownerUserId: string | null;
   requirements: unknown;
+  /** ‏העמודה שהשאילתה ממיינת לפיה — לא רק השדה שב-`requirements`. */
+  budgetMaxAgorot?: number;
 }
 
 const BUYERS: BuyerRow[] = [
@@ -128,22 +131,48 @@ function serviceFor(
        * ‏המועמדים עם ההוצאה לפי איש קשר (`contactId: { notIn }`).
        * ‏פיקסצ׳ר שמתעלם מאחת מהן היה ירוק על ההוצאה השבורה.
        */
+      /*
+       * ‎**וגם את הסדר, הסמן והתקרה** (ביקורת Codex, P2, סבב שלישי).
+       *
+       * ‏הסריקה מדפדפת עד שנבחנו מספיק **אנשים**, ופיקסצ׳ר שמתעלם
+       * ‏מ-`take`/`cursor` היה מחזיר את כל הקונים בשאילתה הראשונה —
+       * ‏כלומר עובר בירוק גם על המימוש הישן שהבאג היה בו.
+       */
       findMany: async ({
         where,
+        take,
+        cursor,
+        skip,
       }: {
         where: Record<string, unknown>;
         distinct?: string[];
+        take?: number;
+        cursor?: { id: string };
+        skip?: number;
       }) => {
         const byIds = (where["id"] as { in?: string[] } | undefined)?.in;
         if (byIds !== undefined) return buyers.filter((b) => byIds.includes(b.id));
         const owner = where["ownerUserId"];
         const excludedContacts =
           (where["contactId"] as { notIn?: string[] } | undefined)?.notIn ?? [];
-        return buyers.filter(
-          (b) =>
-            (owner === undefined || b.ownerUserId === owner) &&
-            !excludedContacts.includes(b.contactId),
-        );
+        const matched = buyers
+          .filter(
+            (b) =>
+              (owner === undefined || b.ownerUserId === owner) &&
+              !excludedContacts.includes(b.contactId),
+          )
+          /* ‏אותו סדר של השאילתה: תקציב יורד, ואז מזהה עולה */
+          .sort(
+            (a, b) =>
+              (b.budgetMaxAgorot ?? HALF) - (a.budgetMaxAgorot ?? HALF) ||
+              a.id.localeCompare(b.id),
+          );
+        const start =
+          cursor === undefined
+            ? 0
+            : matched.findIndex((b) => b.id === cursor.id) + (skip ?? 0);
+        const page = matched.slice(start);
+        return take === undefined ? page : page.slice(0, take);
       },
     },
     match: {
@@ -247,13 +276,31 @@ describe("שידוך שותפים — גבול הראייה", () => {
  * ‏מביא את הקונה של העמית אל תוך התהליך — ובתקרת המועמדים הוא היה
  * ‏גם דוחק החוצה קונים שכן מותר לראות.
  */
+/**
+ * ‏התנאי שנכנס לשליפת המועמדים — לפי שמו, `scanWhere`, ולא לפי
+ * ‏„מה יושב בין שני ביטויים”.
+ */
+function scanWhereOf(method: string): string {
+  const at = method.indexOf("const scanWhere = {");
+  expect(at, "‏שליפת המועמדים כבר אינה נשענת על תנאי בשם `scanWhere`").toBeGreaterThan(0);
+  const end = method.indexOf("\n      };", at);
+  expect(end).toBeGreaterThan(at);
+  return method.slice(at, end);
+}
+
 describe("שידוך שותפים — הסינון בשאילתה", () => {
   const source = readFileSync(join(__dirname, "matching.service.ts"), "utf8");
   const method = source.slice(source.indexOf("async partnersForProperty("));
+  const scanWhere = scanWhereOf(method);
 
+  /*
+   * ‎**הפרוסה על התנאי בשמו, ולא על מיקומו.** הניסוח הקודם חתך
+   * ‏מ-`tx.buyer.findMany` עד ה-`orderBy` הראשון — ובאותו מתודה יש
+   * ‏שתי שליפות `buyer`, כך שהפרוסה הצביעה על השליפה של ההתאמות
+   * ‏השמורות ועברה במקרה. שער שעובר במקרה אינו שער.
+   */
   it("‏`ownershipFilter` יושב בתוך ה-`where` של שליפת הקונים", () => {
-    const where = method.slice(method.indexOf("tx.buyer.findMany"), method.indexOf("orderBy"));
-    expect(where).toContain('ownershipFilter("buyers.view_all", "ownerUserId")');
+    expect(scanWhere).toContain('ownershipFilter("buyers.view_all", "ownerUserId")');
   });
 
   it("‏רק מי שאישר מראש נשלף — „טרם נשאל” אינו מועמד גם במסד", () => {
@@ -396,7 +443,7 @@ describe("שידוך שותפים — זרות מהרשימה הרגילה", () 
 describe("‏מה שנשלף לפני התקרה", () => {
   const source = readFileSync(join(__dirname, "matching.service.ts"), "utf8");
   const method = source.slice(source.indexOf("async partnersForProperty("));
-  const where = method.slice(method.indexOf("tx.buyer.findMany"), method.indexOf("orderBy"));
+  const where = scanWhereOf(method);
 
   /*
    * ‏הטענה היא על **מפתח הזהות**, ולא על ביטוי מסוים: הניסוח
@@ -436,5 +483,62 @@ describe("‏מה שנשלף לפני התקרה", () => {
     expect(method).toContain("take: PARTNER_CANDIDATE_SCAN");
     expect(method).not.toContain("take: PARTNER_CANDIDATE_MAX");
     expect(PARTNER_CANDIDATE_SCAN).toBeGreaterThan(PARTNER_CANDIDATE_MAX);
+  });
+});
+
+/**
+ * ‎**והסריקה סופרת אנשים, לא כרטיסים** (ביקורת Codex, P2, סבב שלישי).
+ *
+ * ‏`take` במסד סופר שורות, והניכוי לפי `contactId` רץ אחרי
+ * ‏השאילתה. לקוח אחד עם `PARTNER_CANDIDATE_SCAN` כרטיסים כשירים
+ * ‏ותקציב גבוה מילא את הסריקה בעצמו, ושני לקוחות שכן משלימים זה
+ * ‏את זה נשארו מחוץ לחלון: „אין שותפויות” על משרד שיש לו.
+ *
+ * ‏זה בדיוק הבאג שכבר תוקן **בתוך** המנוע, שם `PARTNER_CANDIDATE_MAX`
+ * ‏סופר זהויות — שכבה אחת למטה, במסד.
+ */
+describe("‏לקוח עם הרבה כרטיסים אינו ממלא את הסריקה", () => {
+  const source = readFileSync(join(__dirname, "matching.service.ts"), "utf8");
+  const method = source.slice(source.indexOf("async partnersForProperty("));
+
+  /** ‏תקציב גבוה יותר — ולכן הכרטיסים שלו ראשונים בסדר. */
+  const HOG_BUDGET = HALF + 1_000_000;
+  const HOG: BuyerRow[] = Array.from({ length: PARTNER_CANDIDATE_SCAN }, (_, i) => ({
+    id: `01HOG${String(i).padStart(4, "0")}`,
+    contactId: "01C_HOG",
+    ownerUserId: "01ME",
+    budgetMaxAgorot: HOG_BUDGET,
+    requirements: { ...REQUIREMENTS, budgetMaxAgorot: HOG_BUDGET },
+  }));
+
+  it("שני לקוחות מאוחרים יותר עדיין נמצאים", async () => {
+    const service = serviceFor([...HOG, ...BUYERS]);
+    const pairs = await asUser(["matches.view", "buyers.view_all"], () =>
+      service.partnersForProperty("01PROP"),
+    );
+    const contactsInPairs = new Set(
+      pairs.flatMap((pair) =>
+        pair.partners.map((p) => (p.buyerId.startsWith("01HOG") ? "01C_HOG" : p.buyerId)),
+      ),
+    );
+    /*
+     * ‏עם `take` על שורות, הדף הראשון הוא כרטיסי הלקוח האחד בלבד —
+     * ‏כל צירוף נפסל על אותה זהות, והתשובה הייתה רשימה ריקה.
+     */
+    expect(pairs.length).toBeGreaterThan(0);
+    expect(contactsInPairs.has("01MINE_A"), "הלקוח שמעבר לדף הראשון נעדר").toBe(true);
+    expect(contactsInPairs.has("01MINE_B")).toBe(true);
+  });
+
+  /*
+   * ‏והצד השני: הדפדוף אינו אינסופי. `PARTNER_CANDIDATE_ROW_CAP`
+   * ‏הוא הגבול העליון על העבודה, והוא כפולה של הסריקה — כלומר
+   * ‏מספר דפים קבוע וקטן.
+   */
+  it("‏חסם השורות קיים, והוא כפולה של הסריקה", () => {
+    expect(PARTNER_CANDIDATE_ROW_CAP).toBeGreaterThan(PARTNER_CANDIDATE_SCAN);
+    expect(PARTNER_CANDIDATE_ROW_CAP % PARTNER_CANDIDATE_SCAN).toBe(0);
+    expect(method).toContain("scanned < PARTNER_CANDIDATE_ROW_CAP");
+    expect(method).toContain("seenContacts.size < PARTNER_CANDIDATE_SCAN");
   });
 });
