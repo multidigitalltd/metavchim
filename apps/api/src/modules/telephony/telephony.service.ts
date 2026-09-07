@@ -1388,6 +1388,8 @@ export class TelephonyService {
         key,
         method,
         payload,
+        /* ‏האירוע שנותח — מה שמחבר את השורה לשיחה שהיא יצרה */
+        ...(event === null ? {} : { event }),
       });
     }
   }
