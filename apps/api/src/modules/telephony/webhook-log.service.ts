@@ -364,6 +364,23 @@ export class TelephonyWebhookLogService {
       .sort((a, b) => b.count - a.count);
   }
 
+  /**
+   * ‎**המשרדים שיש להם שורות ביומן — לרשימת הסינון.**
+   *
+   * ‏נגזר מכל מה ששמור ולא מהעמוד שמוצג: הרשימה נבנתה קודם
+   * ‏מהשורות שחזרו, ולכן משרד ששיחותיו ישנות מהמאתיים האחרונות
+   * ‏כלל לא הופיע בה — ולא הייתה שום דרך אחרת לבחור אותו. כלומר
+   * ‏חיפוש התשעים יום היה חסום בדיוק על החיבורים השקטים, שהם
+   * ‏הסיבה העיקרית להיכנס ליומן מלכתחילה (ביקורת Codex).
+   */
+  async offices(): Promise<string[]> {
+    const rows = await this.prisma.telephonyWebhookHit.groupBy({
+      by: ["tenantId"],
+      where: { tenantId: { not: null } },
+    });
+    return rows.map((row) => row.tenantId).filter((id): id is string => id !== null);
+  }
+
   /** ‏מחיקת מה שמחוץ לחלון, ומה שמעבר לתקרה. */
   private async prune(): Promise<void> {
     await this.prisma.telephonyWebhookHit.deleteMany({

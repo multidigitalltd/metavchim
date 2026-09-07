@@ -558,10 +558,17 @@ export class AccountDeletionService {
        * הגיעה בקשה בכלל”, והוא נשמר גם בלי לדעת של מי. השורות
        * שמעולם לא שויכו למשרד נשארות כפי שהן — הן כל הסיבה שהטבלה
        * אינה תחת RLS מלכתחילה.
+       *
+       * ‎**וחתימות המספר יורדות איתו.** ניתוק ה-`tenantId` לבדו
+       * הפסיק לספיק ברגע שהשורה התחילה לשאת חתימת מספר וארבע
+       * ספרות אחרונות: היא אינה מזוהה עוד עם המשרד, אבל היא עדיין
+       * מזוהה עם **אדם** — ובעל הפלטפורמה יכול היה להקליד את
+       * המספר ולמצוא את אירועי השיחות של לקוח של משרד שנמחק
+       * (ביקורת Codex). „מה שנשאר” הוא הזמן, התוצאה והשדות — ולא מי.
        */
       this.prisma.telephonyWebhookHit.updateMany({
         where: { tenantId },
-        data: { tenantId: null },
+        data: { tenantId: null, peerHash: null, peerSuffix: null },
       }),
       this.prisma.user.deleteMany({ where: { tenantId } }),
       this.prisma.tenant.delete({ where: { id: tenantId } }),

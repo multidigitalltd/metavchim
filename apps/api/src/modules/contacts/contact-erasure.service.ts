@@ -540,6 +540,48 @@ export class ContactErasureService {
     // תקשורת: שיחות (עם התמלול שעליהן) והודעות
     await tx.call.deleteMany({ where: { tenantId, contactId } });
     await tx.message.deleteMany({ where: { tenantId, contactId } });
+    /*
+     * ‎**וגם חתימות המספר ביומן הוובהוקים.**
+     *
+     * ‏השורה עצמה נשארת — ערכה הוא „האם המרכזייה פנתה אלינו בכלל”,
+     * ‏והוא נשמר גם בלי לדעת של מי (אותו נימוק בדיוק שבמחיקת משרד
+     * ‏שלם). מה שיורד הוא מה שמזהה **אדם**: החתימה שלפיה אפשר
+     * ‏לחפש מספר, וארבע הספרות שנקראות בעין.
+     *
+     * ‏בלי זה מחיקה „מלאה” הותירה לבעל הפלטפורמה להקליד את המספר
+     * ‏שנמחק ולראות את אירועי השיחות שלו עוד תשעים יום — כלומר
+     * ‏בדיוק את מה שהבקשה ביקשה למחוק (ביקורת Codex).
+     *
+     * ‎**כל מספריו, לא רק הראשי:** `contact_phones` נושא את אותו
+     * ‏HMAC, וקליטה נכנסת מוצאת את האדם דרך כל אחד מהם. ניקוי
+     * ‏הראשי בלבד היה משאיר את המספר השני נגיש לחיפוש.
+     *
+     * ‎**ומסונן ל-`tenantId` הזה בלבד.** הטבלה אינה תחת RLS, ולכן
+     * ‏שאילתה בלי הסינון הייתה נוגעת גם בשורות של משרד אחר שאותו
+     * ‏מספר התקשר אליו — נתון שאינו של המשרד הזה למחוק. כל שורה
+     * ‏שיש בה חתימה נכתבה **אחרי** שהמשרד נפתר, ולכן הסינון אינו
+     * ‏מחמיץ דבר.
+     */
+    const phoneHashes = [
+      ...(
+        await tx.contact.findMany({
+          where: { id: contactId, tenantId },
+          select: { phoneHash: true },
+        })
+      ).map((row) => row.phoneHash),
+      ...(
+        await tx.contactPhone.findMany({
+          where: { tenantId, contactId },
+          select: { phoneHash: true },
+        })
+      ).map((row) => row.phoneHash),
+    ];
+    if (phoneHashes.length > 0) {
+      await tx.telephonyWebhookHit.updateMany({
+        where: { tenantId, peerHash: { in: phoneHashes } },
+        data: { peerHash: null, peerSuffix: null },
+      });
+    }
     // תיבת המייל: גוף ההודעות, הקבצים המצורפים וכתובת השולח הם מידע
     // על הנמחק — הולכים איתו (הקבצים עצמם דרך storage.cleanup_object),
     // והטוקן יורד כדי שכתובת ה-Reply-To הישנה שבתיבת הלקוח תפסיק לפעול

@@ -53,6 +53,10 @@ function fakePrisma(rows: { receivedAt: Date }[] = []): {
         calls.push({ op: "groupBy", args });
         return Promise.resolve([]);
       },
+      count: (args: Record<string, unknown>) => {
+        calls.push({ op: "count", args });
+        return Promise.resolve(0);
+      },
     },
   } as unknown as PrismaService;
   return { prisma, calls };
@@ -170,6 +174,23 @@ describe("‏חיפוש", () => {
       callId: "call-9",
       receivedAt: { gte: since },
     });
+  });
+});
+
+describe("‏רשימת המשרדים לסינון", () => {
+  /**
+   * ‏נגזרת מכל מה ששמור ולא מהעמוד שמוצג: משרד ששיחותיו ישנות
+   * ‏מהשורות שחזרו לא הופיע ברשימה, ולא הייתה שום דרך אחרת לבחור
+   * ‏אותו — כלומר חיפוש התשעים יום היה חסום דווקא על החיבורים
+   * ‏השקטים, שהם הסיבה להיכנס ליומן.
+   */
+  it("‏אינה מוגבלת לעמוד המוצג — ובלי תקרת שורות", async () => {
+    const { log, calls } = service();
+    await log.offices();
+    const args = calls[0]?.args as { take?: unknown; where: Record<string, unknown> };
+    expect(calls[0]?.op).toBe("groupBy");
+    expect(args.take).toBeUndefined();
+    expect(args.where).toEqual({ tenantId: { not: null } });
   });
 });
 

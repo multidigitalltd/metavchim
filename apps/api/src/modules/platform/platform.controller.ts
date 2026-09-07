@@ -861,9 +861,18 @@ export class PlatformController {
      * ‏השאלה הראשונה — האם יש פניות בכלל, וכמה מהן הפכו לשיחות.
      */
     summary: { outcome: string; count: number }[];
+    /**
+     * ‎**כל המשרדים שיש להם שורות ביומן — לרשימת הסינון.**
+     *
+     * ‏נגזר מכל מה ששמור ולא מהשורות שחזרו: משרד ששיחותיו ישנות
+     * ‏מהעמוד המוצג לא היה מופיע ברשימה, ולא הייתה דרך אחרת
+     * ‏לבחור אותו — כלומר החיפוש היה חסום דווקא על החיבורים
+     * ‏השקטים.
+     */
+    offices: { id: string; name: string }[];
   }> {
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const [hits, summary] = await Promise.all([
+    const [hits, summary, officeIds] = await Promise.all([
       this.telephonyWebhookLog.recent(query.limit, {
         ...(query.outcome === undefined ? {} : { outcome: query.outcome }),
         ...(query.tenantId === undefined ? {} : { tenantId: query.tenantId }),
@@ -874,13 +883,16 @@ export class PlatformController {
           : { since: new Date(Date.now() - query.hours * 60 * 60 * 1000) }),
       }),
       this.telephonyWebhookLog.summary(since24h),
+      this.telephonyWebhookLog.offices(),
     ]);
     /*
      * שם המשרד ולא רק המזהה: בעל הפלטפורמה מסתכל על היומן כדי לענות
      * למישהו ששאל למה השיחות לא מגיעות, ומזהה ULID אינו תשובה.
      * שאילתה אחת לכל המשרדים ולא אחת לשורה.
      */
-    const tenantIds = [...new Set(hits.map((h) => h.tenantId).filter((id) => id !== null))];
+    const tenantIds = [
+      ...new Set([...hits.map((h) => h.tenantId).filter((id) => id !== null), ...officeIds]),
+    ];
     const tenants =
       tenantIds.length > 0
         ? await this.prisma.tenant.findMany({
@@ -895,6 +907,16 @@ export class PlatformController {
         tenantName: hit.tenantId === null ? null : (nameById.get(hit.tenantId) ?? null),
       })),
       summary,
+      /*
+       * משרד שנמחק משאיר שורות ביומן בלי שם — הן מסוננות מהרשימה
+       * ולא מוצגות כמזהה ערום, שאינו בחירה שאפשר לעשות בה משהו.
+       */
+      offices: officeIds
+        .flatMap((id) => {
+          const name = nameById.get(id);
+          return name === undefined ? [] : [{ id, name }];
+        })
+        .sort((a, b) => a.name.localeCompare(b.name, "he")),
     };
   }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiList } from "@/lib/api";
 import { IconPhone } from "../icons";
@@ -218,14 +218,24 @@ export function TelephonyWebhooksSection() {
   const [purgeFailed, setPurgeFailed] = useState(false);
 
   /*
-   * ‏רשימת המשרדים לסינון נצברת מהתשובות ואינה נגזרת מהשורות
-   * ‏המוצגות: אחרת בחירת משרד הייתה מוחקת את כל שאר האפשרויות
-   * ‏מהרשימה, ולא הייתה דרך לחזור מהן בלי לאפס.
+   * רשימת המשרדים מגיעה מהשרת ואינה נגזרת מהשורות שחזרו: משרד
+   * ששיחותיו ישנות מהעמוד המוצג לא היה מופיע בה, ולא הייתה שום
+   * דרך אחרת לבחור אותו — כלומר החיפוש בטווח של תשעים יום היה
+   * חסום בדיוק על החיבורים השקטים, שהם הסיבה להיכנס ליומן.
    */
-  const [offices, setOffices] = useState<Record<string, string>>({});
+  const [offices, setOffices] = useState<{ id: string; name: string }[]>([]);
+
+  /*
+   * מונה בקשות — כל שינוי סינון פותח בקשה חדשה, ותשובה איטית של
+   * סינון ישן שנוחתת אחרי החדשה הייתה דורסת את הטבלה בשורות שאינן
+   * עונות על מה שמוצג בפקדים. תשובה שאינה של הבקשה האחרונה נזרקת.
+   */
+  const generation = useRef(0);
 
   const load = useCallback(() => {
     setFailed(false);
+    generation.current += 1;
+    const mine = generation.current;
     const params = new URLSearchParams();
     if (outcome !== "") params.set("outcome", outcome);
     if (tenantId !== "") params.set("tenantId", tenantId);
@@ -233,28 +243,26 @@ export function TelephonyWebhooksSection() {
     if (callId !== null) params.set("callId", callId);
     if (phone !== "") params.set("phone", phone);
     const query = params.toString();
-    apiGet<{ hits: Hit[]; summary: { outcome: string; count: number }[] }>(
-      `/platform/telephony-webhooks${query === "" ? "" : `?${query}`}`,
-    )
+    apiGet<{
+      hits: Hit[];
+      summary: { outcome: string; count: number }[];
+      offices: { id: string; name: string }[];
+    }>(`/platform/telephony-webhooks${query === "" ? "" : `?${query}`}`)
       .then((res) => {
-        const rows = apiList(res.hits, "hits");
-        setHits(rows);
+        if (mine !== generation.current) return;
+        setHits(apiList(res.hits, "hits"));
         setSummary(apiList(res.summary, "summary"));
-        setOffices((prev) => {
-          const next = { ...prev };
-          for (const row of rows) {
-            if (row.tenantId !== null && row.tenantName !== null) next[row.tenantId] = row.tenantName;
-          }
-          return next;
-        });
+        setOffices(apiList(res.offices, "offices"));
       })
-      .catch(() => setFailed(true));
+      .catch(() => {
+        if (mine !== generation.current) return;
+        setFailed(true);
+      });
   }, [outcome, tenantId, hours, callId, phone]);
 
   useEffect(load, [load]);
 
   const total = summary.reduce((sum, row) => sum + row.count, 0);
-  const officeOptions = Object.entries(offices).sort((a, b) => a[1].localeCompare(b[1], "he"));
   const filtered =
     outcome !== "" || tenantId !== "" || hours !== "" || callId !== null || phone !== "";
 
@@ -359,9 +367,9 @@ export function TelephonyWebhooksSection() {
             aria-label="סינון לפי משרד"
           >
             <option value="">כל המשרדים</option>
-            {officeOptions.map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
+            {offices.map((office) => (
+              <option key={office.id} value={office.id}>
+                {office.name}
               </option>
             ))}
           </select>
