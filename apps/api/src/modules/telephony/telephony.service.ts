@@ -1162,6 +1162,25 @@ export class TelephonyService {
 
         const outcome = callOutcomeOf(event, scratch.answerObserved);
         const occurredAt = event.startedAt ?? new Date();
+        /*
+         * ‎**מי קיבל את השיחה — נשמר, במקום להישאל בדיעבד.**
+         *
+         * ‏השלוחה שענתה קודמת לניתוב שנצפה: שיחה שנותבה לאחד וענה
+         * ‏עליה אחר **הגיעה** לשני, וזו השאלה שהמנהל שואל. הניתוב
+         * ‏הוא הכוונה; השלוחה היא מה שקרה.
+         *
+         * ‏שתי העמודות נכתבות גם כשאין סוכן מוכר: „שלוחה 203” היא
+         * ‏תשובה שימושית בהרבה מכלום, והיא גם מה שיאפשר להשלים את
+         * ‏ההתאמה אחר כך בלי לנחש בדיעבד.
+         */
+        const extension = event.extension?.trim() ?? "";
+        const answeredBy =
+          extension === ""
+            ? null
+            : await tx.user.findFirst({
+                where: { tenantId, sipUsername: extension },
+                select: { id: true },
+              });
         await tx.call.create({
           data: {
             id: ulid(),
@@ -1196,6 +1215,15 @@ export class TelephonyService {
              */
             propertyId:
               event.direction === "outbound" ? null : (virtualNumber?.propertyId ?? null),
+            /*
+             * ‏הצילום של „למי זה הגיע”, מאותו רגע ומאותו מקור כמו
+             * ‏הנכס. שיחה יוצאת נושאת את השלוחה של מי שחייג —
+             * ‏אותה עובדה בדיוק, מהצד השני.
+             */
+            agentUserId:
+              answeredBy?.id ??
+              (event.direction === "outbound" ? null : (virtualNumber?.assignedToUserId ?? null)),
+            agentExtension: extension === "" ? null : extension.slice(0, 20),
             /*
              * שעת השיחה כפי שהמרכזייה דיווחה, ורק בהיעדרה שעת הקליטה.
              *

@@ -3255,11 +3255,23 @@ model Call {
    * pending | running | done | failed | unavailable
    */
   transcriptionStatus        String?   @map("transcription_status") @db.VarChar(20)
+  /// ‏הסוכן שהשיחה **הגיעה אליו** — צילום ברגע השיחה, לא הפניה חיה.
+  ///
+  /// ‏נקבע בסדר הזה: השלוחה שענתה בפועל (מותאמת ל-`sip_username`)
+  /// ‏קודמת לניתוב שנצפה כשהשיחה הגיעה — שיחה שנותבה לאחד וענה
+  /// ‏עליה אחר **הגיעה** לשני.
+  ///
+  /// ‏NULL = לא ידוע. שורות שנכתבו לפני העמודה נשארות כך בכוונה.
+  agentUserId                String?   @map("agent_user_id") @db.Char(26)
+  /// ‏השלוחה שהמרכזייה דיווחה עליה — נשמרת גם בלי סוכן מוכר,
+  /// ‏כי „שלוחה 203” היא תשובה שימושית בהרבה מכלום.
+  agentExtension             String?   @map("agent_extension") @db.VarChar(20)
   createdBy                  String?   @map("created_by") @db.Char(26)
   createdAt                  DateTime  @default(now()) @map("created_at")
   updatedAt                  DateTime  @updatedAt @map("updated_at")
 
   @@index([tenantId, occurredAt(sort: Desc)])
+  @@index([tenantId, agentUserId, occurredAt(sort: Desc)], map: "calls_agent_idx")
   @@index([tenantId, propertyId, occurredAt(sort: Desc)])
   @@index([tenantId, contactId])
   @@index([tenantId, leadId])

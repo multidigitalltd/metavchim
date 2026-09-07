@@ -10,6 +10,7 @@ import {
   visibleCallsCondition,
   visibleContactIds,
 } from "../../common/ownership";
+import { agentNameOf, agentNames } from "../../common/agent-names";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -98,6 +99,23 @@ export interface CallDto {
   recording: RecordingStatus;
   /** פירוט טכני מצונזר של תשובת הספק — רק ל-`settings.manage`. */
   recordingDetail?: string;
+  /**
+   * ‎**לאיזה סוכן השיחה הגיעה — ורק למי שרואה את כל המשרד.**
+   *
+   * ‏חסר פירושו „לא ידוע”, **או** „אינך מי שרואה את זה” — ומבחינת
+   * ‏המסך אלה אותה תשובה: אין מה להציג. סוכן רגיל רואה ממילא רק
+   * ‏את השיחות שלו, ולכן שם הסוכן לידן היה רעש; מנהל שרואה את
+   * ‏כולן צריך את העמודה הזו כדי שהרשימה תהיה קריאה בכלל.
+   */
+  agentName?: string;
+  /**
+   * ‏השלוחה שענתה, כשאין לה סוכן מוכר במערכת.
+   *
+   * ‏מוחזר **רק** בהיעדר `agentName`: „שלוחה 203” היא תשובה
+   * ‏שימושית בהרבה מכלום, אבל לצד שם היא רק רעש. מוצג לאותו קהל
+   * ‏בדיוק.
+   */
+  agentExtension?: string;
   createdAt: Date;
 }
 
@@ -202,7 +220,12 @@ export class CallsService {
         metadata: { direction: input.direction, outcome: input.outcome },
       });
 
-      return this.toDto(tx, row);
+      /*
+       * ‏שיחה שנרשמה **ידנית** אינה נושאת סוכן שקיבל אותה: השאלה
+       * ‏„לאיזו שלוחה זה הגיע” אינה קיימת כאן, ו-`createdBy` הוא
+       * ‏מי שהקליד — לא בהכרח מי שדיבר. מפה ריקה, ולא ניחוש.
+       */
+      return this.toDto(tx, row, undefined, undefined, new Map());
     });
   }
 
@@ -356,8 +379,13 @@ export class CallsService {
               })
             ).map((lead) => [lead.id, lead.status]),
       );
+      const agentNamesById = await agentNames(
+        tx,
+        tenantId,
+        allowed.map((row) => row.agentUserId),
+      );
       return Promise.all(
-        allowed.map((row) => this.toDto(tx, row, contactsById, leadStatusById)),
+        allowed.map((row) => this.toDto(tx, row, contactsById, leadStatusById, agentNamesById)),
       );
     });
   }
@@ -407,7 +435,14 @@ export class CallsService {
         tx,
         rows.map((row) => row.contactId).filter((id): id is string => id !== null),
       );
-      return Promise.all(rows.map((row) => this.toDto(tx, row, contactsById)));
+      const agentNamesById = await agentNames(
+        tx,
+        tenantId,
+        rows.map((row) => row.agentUserId),
+      );
+      return Promise.all(
+        rows.map((row) => this.toDto(tx, row, contactsById, undefined, agentNamesById)),
+      );
     });
   }
 
@@ -721,16 +756,39 @@ export class CallsService {
       providerRecordingAttemptAt?: Date | null;
       providerRecordingError?: string | null;
       providerRecordingDetail?: string | null;
+      agentUserId?: string | null;
+      agentExtension?: string | null;
       createdAt: Date;
     },
     /**
      * אנשי הקשר של העמוד, כשהקורא כבר שלף אותם. חסר ⇒ שליפה בודדת,
      * וזה הנתיב של יצירה או של כרטיס יחיד.
      */
-    contactsById?: Map<string, ContactDto>,
+    contactsById: Map<string, ContactDto> | undefined,
     /** סטטוסי הלידים של העמוד — חסר ⇒ הסטטוס לא מוחזר. */
-    leadStatusById?: Map<string, string>,
+    leadStatusById: Map<string, string> | undefined,
+    /**
+     * ‎**שמות הסוכנים של העמוד — פרמטר חובה, ובכוונה.**
+     *
+     * ‏אופציונלי היה נשכח באחד משלושת אתרי הקריאה, ואז שיחה
+     * ‏שנפתחה מנתיב אחד הייתה מציגה סוכן ומאותו נתיב השני לא —
+     * ‏בלי ששום דבר נשבר. חובה מכריח כל קורא להחליט, והמהדר הוא
+     * ‏זה שאוכף.
+     *
+     * ‏מפה ולא שאילתה כאן: עמוד של מאה שיחות היה מאה שאילתות.
+     */
+    agentNamesById: Map<string, string>,
   ): Promise<CallDto> {
+    /*
+     * ‎**מי רואה את זה — אותו תנאי שקובע מי רואה שיחות של אחרים.**
+     *
+     * ‏לא יכולת חדשה ולא רשימת תפקידים: מי ש-`visibleContactIds`
+     * ‏מחזירה לו `null` הוא בדיוק מי שהרשימה שלו כוללת את שיחות
+     * ‏כל הסוכנים — ולכן הוא היחיד שהעמודה הזו אומרת לו משהו.
+     * ‏תנאי שני היה נפרד ממנו ביום שאחד מהם משתנה.
+     */
+    const seesEveryone = seesAllContacts();
+    const agentName = agentNameOf(agentNamesById, row.agentUserId);
     const contact =
       row.contactId === null
         ? null
@@ -784,6 +842,11 @@ export class CallsService {
       ...(row.transcriptionStatus ? { transcriptionStatus: row.transcriptionStatus } : {}),
       ...(row.transcript ? { transcript: row.transcript } : {}),
       highlights: parseCallHighlights(row.highlights),
+      ...(seesEveryone && agentName !== undefined
+        ? { agentName }
+        : seesEveryone && row.agentExtension !== null && row.agentExtension !== undefined
+          ? { agentExtension: row.agentExtension }
+          : {}),
       createdAt: row.createdAt,
     };
   }
