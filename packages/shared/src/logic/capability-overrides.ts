@@ -253,6 +253,51 @@ export function applyBlockedModules(
 }
 
 /**
+ * ‎**יכולת שמרחיבה — ומה שהיא מרחיבה** (ביקורת Codex, P1).
+ *
+ * ‏`view_all` אינה דרגה שנייה של `view_own`: `view_own` הוא כרטיס
+ * ‏הכניסה למודול והוא שנבדק ב-`@RequireCapability` על נתיב הרשימה,
+ * ‏ו-`view_all` רק מרחיב בתוכו את הסינון. `rbac.ts` אומר את זה
+ * ‏במילים כבר היום.
+ *
+ * ‏מה שלא היה כתוב בקוד הוא מה קורה כשמנהל חוסם את **כרטיס
+ * ‏הכניסה** בלבד: התפקיד ממשיך לתת את `view_all`, הנתיב עצמו נסגר
+ * ‏— אבל כל מי ששואל „האם מודול הקונים פתוח אצלו” ראה `OR` ואמר
+ * ‏„כן”. משם `notifiableContactOwnerSource` שולח התראה מפוענחת,
+ * ‏ושערי הלקוח המשותפים פותחים את אותם אנשים בנתיבים אחרים.
+ *
+ * ‏הטבלה היא הכלל היחיד, והנרמול קורה פעם אחת ב-
+ * ‎`effectiveCapabilities` — כלומר כל אחד מחמשת הקוראים מקבל אותו,
+ * ‏ולא רק השואל שהממצא הצביע עליו.
+ */
+export const CAPABILITY_REQUIRES: Partial<Record<Capability, Capability>> = {
+  "properties.view_all": "properties.view",
+  "buyers.view_all": "buyers.view_own",
+  "leads.view_all": "leads.view_own",
+  /* ‏נתיבי המשימות מוגנים ב-`calendar.manage`, ו-`view_all` מרחיב בתוכם */
+  "tasks.view_all": "calendar.manage",
+};
+
+/**
+ * ‏מסירה יכולת מרחיבה שכרטיס הכניסה שלה נחסם.
+ *
+ * ‏מיוצאת לבדיקה בלבד — הנרמול עצמו קורה ב-`effectiveCapabilities`,
+ * ‏וקורא שיריץ אותה בעצמו הוא בדיוק העותק שייפרד.
+ */
+export function withoutOrphanedCapabilities(
+  capabilities: ReadonlySet<Capability>,
+): Set<Capability> {
+  const result = new Set(capabilities);
+  for (const [wide, entry] of Object.entries(CAPABILITY_REQUIRES) as [
+    Capability,
+    Capability,
+  ][]) {
+    if (result.has(wide) && !result.has(entry)) result.delete(wide);
+  }
+  return result;
+}
+
+/**
  * ‎**שלוש השכבות, במקום אחד — התפקיד, החריגים, וחסימות המשרד.**
  *
  * ## ‏למה זה חייב להיות פונקציה אחת
@@ -286,18 +331,25 @@ export function effectiveCapabilities(
   },
   now: Date,
 ): Set<Capability> {
-  return applyBlockedModules(
-    resolveCapabilities(
-      user.role,
-      user.overrides.map((row) => ({
-        capability: row.capability as Capability,
-        /* ‏כל ערך שאינו `grant` שולל — ולא מוסיף בטעות */
-        effect: row.effect === "grant" ? "grant" : "deny",
-        expiresAt: row.expiresAt,
-      })),
-      now,
+  /*
+   * ‏הנרמול אחרון, ואחרי **שתי** ההחסרות: גם חריג `deny` על כרטיס
+   * ‏הכניסה וגם חסימת מודול יכולים להשאיר `view_all` יתום, ובדיקה
+   * ‏באמצע הייתה רואה רק אחת מהן.
+   */
+  return withoutOrphanedCapabilities(
+    applyBlockedModules(
+      resolveCapabilities(
+        user.role,
+        user.overrides.map((row) => ({
+          capability: row.capability as Capability,
+          /* ‏כל ערך שאינו `grant` שולל — ולא מוסיף בטעות */
+          effect: row.effect === "grant" ? "grant" : "deny",
+          expiresAt: row.expiresAt,
+        })),
+        now,
+      ),
+      user.blockedModules,
     ),
-    user.blockedModules,
   );
 }
 

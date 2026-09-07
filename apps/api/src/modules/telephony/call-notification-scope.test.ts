@@ -270,9 +270,9 @@ describe("הבעלים שמקבל את ההתראה האישית", () => {
   it("סוכן הקונה מקבל את ההתראה", async () => {
     expect(
       await notifiableContactOwner(txWith([AGENT]) as never, TENANT, {
-        buyer: { ownerUserId: OWNER_OF_CARD },
-        lead: null,
-        property: null,
+        buyers: [{ id: "01BUYER", ownerUserId: OWNER_OF_CARD }],
+        leads: [],
+        properties: [],
       }),
     ).toBe(OWNER_OF_CARD);
   });
@@ -280,9 +280,9 @@ describe("הבעלים שמקבל את ההתראה האישית", () => {
   it("סוכן שמודול הקונים חסום אצלו — לא", async () => {
     expect(
       await notifiableContactOwner(txWith([deny("buyers.view_own")]) as never, TENANT, {
-        buyer: { ownerUserId: OWNER_OF_CARD },
-        lead: null,
-        property: null,
+        buyers: [{ id: "01BUYER", ownerUserId: OWNER_OF_CARD }],
+        leads: [],
+        properties: [],
       }),
     ).toBeNull();
   });
@@ -294,9 +294,9 @@ describe("הבעלים שמקבל את ההתראה האישית", () => {
    */
   it("ליד — נבדק מול יכולת הלידים ולא מול הקונים", async () => {
     const sources = {
-      buyer: null,
-      lead: { assignedToUserId: OWNER_OF_CARD },
-      property: null,
+      buyers: [],
+      leads: [{ id: "01LEAD", assignedToUserId: OWNER_OF_CARD }],
+      properties: [],
     };
     expect(
       await notifiableContactOwner(txWith([deny("buyers.view_own")]) as never, TENANT, sources),
@@ -308,9 +308,9 @@ describe("הבעלים שמקבל את ההתראה האישית", () => {
 
   it("סוכן הנכס — נבדק מול מודול הנכסים", async () => {
     const sources = {
-      buyer: null,
-      lead: null,
-      property: { agentUserId: OWNER_OF_CARD },
+      buyers: [],
+      leads: [],
+      properties: [{ agentUserId: OWNER_OF_CARD }],
     };
     expect(
       await notifiableContactOwner(txWith([deny("leads.view_own")]) as never, TENANT, sources),
@@ -328,9 +328,9 @@ describe("הבעלים שמקבל את ההתראה האישית", () => {
   it("מודול שהפלטפורמה חסמה פוסל גם את הנמען", async () => {
     expect(
       await notifiableContactOwner(txWith([AGENT], ["buyers"]) as never, TENANT, {
-        buyer: { ownerUserId: OWNER_OF_CARD },
-        lead: null,
-        property: null,
+        buyers: [{ id: "01BUYER", ownerUserId: OWNER_OF_CARD }],
+        leads: [],
+        properties: [],
       }),
     ).toBeNull();
   });
@@ -339,9 +339,9 @@ describe("הבעלים שמקבל את ההתראה האישית", () => {
     const gone: FakeUser = { ...AGENT, isActive: false };
     expect(
       await notifiableContactOwner(txWith([gone]) as never, TENANT, {
-        buyer: { ownerUserId: OWNER_OF_CARD },
-        lead: null,
-        property: null,
+        buyers: [{ id: "01BUYER", ownerUserId: OWNER_OF_CARD }],
+        leads: [],
+        properties: [],
       }),
     ).toBeNull();
   });
@@ -359,9 +359,9 @@ describe("הבעלים שמקבל את ההתראה האישית", () => {
         txWith([deny("buyers.view_own"), OTHER]) as never,
         TENANT,
         {
-          buyer: { ownerUserId: OWNER_OF_CARD },
-          lead: { assignedToUserId: OTHER.id },
-          property: null,
+          buyers: [{ id: "01BUYER", ownerUserId: OWNER_OF_CARD }],
+          leads: [{ id: "01LEAD", assignedToUserId: OTHER.id }],
+          properties: [],
         },
       ),
     ).toBe(OTHER.id);
@@ -371,9 +371,9 @@ describe("הבעלים שמקבל את ההתראה האישית", () => {
     const gone: FakeUser = { ...AGENT, isActive: false };
     expect(
       await notifiableContactOwner(txWith([gone, OTHER]) as never, TENANT, {
-        buyer: { ownerUserId: OWNER_OF_CARD },
-        lead: null,
-        property: { agentUserId: OTHER.id },
+        buyers: [{ id: "01BUYER", ownerUserId: OWNER_OF_CARD }],
+        leads: [],
+        properties: [{ agentUserId: OTHER.id }],
       }),
     ).toBe(OTHER.id);
   });
@@ -391,9 +391,9 @@ describe("הבעלים שמקבל את ההתראה האישית", () => {
         txWith([deny("buyers.view_own"), blockedOther]) as never,
         TENANT,
         {
-          buyer: { ownerUserId: OWNER_OF_CARD },
-          lead: { assignedToUserId: OTHER.id },
-          property: null,
+          buyers: [{ id: "01BUYER", ownerUserId: OWNER_OF_CARD }],
+          leads: [{ id: "01LEAD", assignedToUserId: OTHER.id }],
+          properties: [],
         },
       ),
     ).toBeNull();
@@ -402,11 +402,53 @@ describe("הבעלים שמקבל את ההתראה האישית", () => {
   it("בלי בעלים — אין למי לשלוח אישית", async () => {
     expect(
       await notifiableContactOwner(txWith([AGENT]) as never, TENANT, {
-        buyer: null,
-        lead: null,
-        property: null,
+        buyers: [],
+        leads: [],
+        properties: [],
       }),
     ).toBeNull();
+  });
+
+  /*
+   * ‎**והפסילה נופלת הלאה גם בתוך המקור** (ביקורת Codex, P2).
+   *
+   * ‏קונה אינו ייחודי ללקוח — `createWithin` מוסיף כרטיס חדש בכל
+   * ‏פעם. „הכרטיס האחרון” הוא מועמד אחד מתוך כמה, וכשבעליו חסום
+   * ‏כרטיס ותיק של סוכן כשר מעולם לא נשאל: ההתראה נפלה למקור אחר
+   * ‏או נשארה משרדית וחסרת תוכן.
+   */
+  it("הבעלים של הכרטיס החדש חסום — ההתראה עוברת לוותיק הכשר", async () => {
+    expect(
+      await notifiableContactOwnerSource(
+        txWith([deny("buyers.view_own"), OTHER]) as never,
+        TENANT,
+        {
+          buyers: [
+            { id: "01NEW", ownerUserId: OWNER_OF_CARD },
+            { id: "01OLD", ownerUserId: OTHER.id },
+          ],
+          leads: [],
+          properties: [],
+        },
+      ),
+    ).toEqual({ userId: OTHER.id, source: "buyers" });
+  });
+
+  /*
+   * ‏והצד השני, שבלעדיו „תמיד לקחת את האחרון ברשימה” היה עובר:
+   * ‏כששניהם כשרים, החדש הוא הנמען.
+   */
+  it("ושניהם כשרים — הכרטיס החדש הוא שקובע", async () => {
+    expect(
+      await notifiableContactOwnerSource(txWith([AGENT, OTHER]) as never, TENANT, {
+        buyers: [
+          { id: "01NEW", ownerUserId: OWNER_OF_CARD },
+          { id: "01OLD", ownerUserId: OTHER.id },
+        ],
+        leads: [],
+        properties: [],
+      }),
+    ).toEqual({ userId: OWNER_OF_CARD, source: "buyers" });
   });
 });
 
@@ -419,9 +461,9 @@ describe("סדר הבעלות והמקור שממנו הוא נגזר", () => {
   it("בעל הנכס, כשהלקוח אינו קונה ואינו ליד", () => {
     expect(
       contactOwnerCandidates({
-        buyer: null,
-        lead: null,
-        property: { agentUserId: "01PROPAGENT" },
+        buyers: [],
+        leads: [],
+        properties: [{ agentUserId: "01PROPAGENT" }],
       }),
     ).toEqual([{ userId: "01PROPAGENT", source: "properties" }]);
   });
@@ -429,9 +471,9 @@ describe("סדר הבעלות והמקור שממנו הוא נגזר", () => {
   it("שלושת המקורות מוחזרים לפי הסדר, כל אחד עם המקור שלו", () => {
     expect(
       contactOwnerCandidates({
-        buyer: { ownerUserId: "01BUYEROWNER" },
-        lead: { assignedToUserId: "01LEADOWNER" },
-        property: { agentUserId: "01PROPAGENT" },
+        buyers: [{ id: "01BUYER", ownerUserId: "01BUYEROWNER" }],
+        leads: [{ id: "01LEAD", assignedToUserId: "01LEADOWNER" }],
+        properties: [{ agentUserId: "01PROPAGENT" }],
       }),
     ).toEqual([
       { userId: "01BUYEROWNER", source: "buyers" },
@@ -443,15 +485,70 @@ describe("סדר הבעלות והמקור שממנו הוא נגזר", () => {
   it("כרטיס בלי בעלים נשמט מהרשימה ואינו עוצר אותה", () => {
     expect(
       contactOwnerCandidates({
-        buyer: { ownerUserId: null },
-        lead: { assignedToUserId: "01LEADOWNER" },
-        property: null,
+        buyers: [{ id: "01BUYER", ownerUserId: null }],
+        leads: [{ id: "01LEAD", assignedToUserId: "01LEADOWNER" }],
+        properties: [],
       }),
     ).toEqual([{ userId: "01LEADOWNER", source: "leads" }]);
   });
 
   it("בלי בעלים — רשימה ריקה", () => {
-    expect(contactOwnerCandidates({ buyer: null, lead: null, property: null })).toEqual([]);
+    expect(contactOwnerCandidates({ buyers: [], leads: [], properties: [] })).toEqual([]);
+  });
+
+  /*
+   * ‎**וגם בתוך המקור** (ביקורת Codex, P2).
+   *
+   * ‏קונה אינו ייחודי ללקוח — `createWithin` מוסיף כרטיס חדש בכל
+   * ‏פעם — ולכן „הכרטיס האחרון” הוא מועמד אחד מתוך כמה. הסבב הקודם
+   * ‏לימד **מקור** שנפסל להוריש את התור; זו אותה הורשה שכבה פנימה,
+   * ‏ובלעדיה כרטיס ותיק של סוכן כשר מעולם לא נשאל.
+   */
+  it("כמה כרטיסי קונה — כולם מועמדים, החדש ראשון", () => {
+    expect(
+      contactOwnerCandidates({
+        buyers: [
+          { id: "01NEW", ownerUserId: "01BLOCKED" },
+          { id: "01OLD", ownerUserId: "01ELIGIBLE" },
+        ],
+        leads: [],
+        properties: [],
+      }),
+    ).toEqual([
+      { userId: "01BLOCKED", source: "buyers" },
+      { userId: "01ELIGIBLE", source: "buyers" },
+    ]);
+  });
+
+  /*
+   * ‏וסדר המקורות נשמר מעליו: כל הקונים לפני הלידים, ולא לסירוגין.
+   * ‏בלי זה „שטח את הכול” היה עובר ומשנה את סדר ההעדפה.
+   */
+  it("סדר המקורות נשמר מעל הסדר שבתוך המקור", () => {
+    expect(
+      contactOwnerCandidates({
+        buyers: [
+          { id: "01B1", ownerUserId: "01B1OWNER" },
+          { id: "01B2", ownerUserId: "01B2OWNER" },
+        ],
+        leads: [{ id: "01L", assignedToUserId: "01LOWNER" }],
+        properties: [],
+      }).map((row) => row.userId),
+    ).toEqual(["01B1OWNER", "01B2OWNER", "01LOWNER"]);
+  });
+
+  /*
+   * ‏ואותו אדם דרך שני מקורות אינו מועמד פעמיים: השאלה נשאלת עליו
+   * ‏פעם אחת, לפי המקור הראשון שבו נמצא.
+   */
+  it("אותו בעלים בשני מקורות — מועמד אחד, המקור הראשון", () => {
+    expect(
+      contactOwnerCandidates({
+        buyers: [{ id: "01B", ownerUserId: "01SAME" }],
+        leads: [{ id: "01L", assignedToUserId: "01SAME" }],
+        properties: [],
+      }),
+    ).toEqual([{ userId: "01SAME", source: "buyers" }]);
   });
 });
 
@@ -680,9 +777,9 @@ describe("המקור שדרכו נבחר הנמען חוזר איתו", () => {
   it("סוכן הקונה נבחר — והמקור הוא הקונים", async () => {
     expect(
       await notifiableContactOwnerSource(txWith([AGENT]) as never, TENANT, {
-        buyer: { ownerUserId: OWNER_OF_CARD },
-        lead: { assignedToUserId: OTHER.id },
-        property: null,
+        buyers: [{ id: "01BUYER", ownerUserId: OWNER_OF_CARD }],
+        leads: [{ id: "01LEAD", assignedToUserId: OTHER.id }],
+        properties: [],
       }),
     ).toEqual({ userId: OWNER_OF_CARD, source: "buyers" });
   });
@@ -697,9 +794,9 @@ describe("המקור שדרכו נבחר הנמען חוזר איתו", () => {
         txWith([deny("buyers.view_own"), OTHER]) as never,
         TENANT,
         {
-          buyer: { ownerUserId: OWNER_OF_CARD },
-          lead: { assignedToUserId: OTHER.id },
-          property: null,
+          buyers: [{ id: "01BUYER", ownerUserId: OWNER_OF_CARD }],
+          leads: [{ id: "01LEAD", assignedToUserId: OTHER.id }],
+          properties: [],
         },
       ),
     ).toEqual({ userId: OTHER.id, source: "leads" });
@@ -708,9 +805,9 @@ describe("המקור שדרכו נבחר הנמען חוזר איתו", () => {
   it("ובלי נמען — אין מקור", async () => {
     expect(
       await notifiableContactOwnerSource(txWith([AGENT]) as never, TENANT, {
-        buyer: null,
-        lead: null,
-        property: null,
+        buyers: [],
+        leads: [],
+        properties: [],
       }),
     ).toBeNull();
   });
@@ -718,9 +815,9 @@ describe("המקור שדרכו נבחר הנמען חוזר איתו", () => {
   /* ‏וההיטל מסכים עם הצורה המלאה, אחרת אלה שני כללים */
   it("‏`notifiableContactOwner` הוא היטל ולא ניסוח שני", async () => {
     const sources = {
-      buyer: { ownerUserId: OWNER_OF_CARD },
-      lead: { assignedToUserId: OTHER.id },
-      property: null,
+      buyers: [{ id: "01BUYER", ownerUserId: OWNER_OF_CARD }],
+      leads: [{ id: "01LEAD", assignedToUserId: OTHER.id }],
+      properties: [],
     };
     for (const users of [[AGENT, OTHER], [deny("buyers.view_own"), OTHER], [deny("buyers.view_own"), deny("leads.view_own")]]) {
       const full = await notifiableContactOwnerSource(txWith(users) as never, TENANT, sources);

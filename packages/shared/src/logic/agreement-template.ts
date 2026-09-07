@@ -57,8 +57,14 @@ export const AGREEMENT_KIND_LABELS: Record<AgreementKind, string> = {
  */
 export const AGREEMENT_KINDS_ON_PROPERTY: readonly AgreementKind[] = ["exclusivity"];
 
-export function agreementRequiresProperty(kind: AgreementKind): boolean {
-  return AGREEMENT_KINDS_ON_PROPERTY.includes(kind);
+export function agreementRequiresProperty(kind: string): boolean {
+  /*
+   * ‎`string` ולא `AgreementKind`: השאלה נשאלת גם על **שורה
+   * ‏שנקראה מהמסד**, ששם `kind` הוא עמודת טקסט. המרה אצל הקורא
+   * ‏הייתה מזמינה `as` שקט על ערך שאינו בקטלוג — וסוג שאינו מוכר
+   * ‏אינו „דורש נכס”, כלומר בדיוק ההיפוך המסוכן.
+   */
+  return (AGREEMENT_KINDS_ON_PROPERTY as readonly string[]).includes(kind);
 }
 
 /**

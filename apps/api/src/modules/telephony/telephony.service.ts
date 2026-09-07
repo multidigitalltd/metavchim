@@ -45,6 +45,7 @@ import { lockContactPhone, lockProviderCall } from "../../common/locks";
 import { notifyOnce } from "../../common/notify-once";
 import {
   assertContactAccess,
+  loadContactOwnerSources,
   notifiableContactOwner,
   officeRestrictsContactVisibility,
 } from "../../common/ownership";
@@ -1427,38 +1428,20 @@ export class TelephonyService {
     tenantId: string,
     contactId: string,
   ): Promise<string | null> {
-    const buyer = await tx.buyer.findFirst({
-      where: { tenantId, contactId, deletedAt: null },
-      orderBy: { createdAt: "desc" },
-      select: { ownerUserId: true },
-    });
     /*
-     * ‎**שלושת המקורות תמיד, ובלי קיצור על „כבר נמצא בעלים”.**
+     * ‎**שלושת המקורות תמיד, וכל השיוכים בכל מקור.**
      *
-     * ‏הקיצור היה נכון כשהשאלה הייתה „מי משויך”. מרגע שהיא „מי
-     * ‏משויך **ורשאי**”, מקור שנפסל חייב להוריש את התור לבא אחריו —
-     * ‏והקיצור מנע מהבא אחריו להישאל בכלל: הליד של סוכן כשר מעולם
-     * ‏לא נטען, כי לכרטיס הקונה היה בעלים (חסום) (ביקורת Codex).
-     *
-     * ‏שתי שאילתות נוספות על מפתח מאונדקס, בשיחה נכנסת. זה המחיר
-     * ‏של תשובה נכונה, והוא זול מהקיצור.
+     * ‏הקיצור על „כבר נמצא בעלים” נשבר פעם אחת: מרגע שהשאלה היא
+     * ‏„מי משויך **ורשאי**”, מקור שנפסל חייב להוריש את התור לבא
+     * ‏אחריו. אותו כשל חזר שכבה פנימה — שורה אחת לכל מקור — ולכן
+     * ‏השליפה עצמה ירדה ל-`loadContactOwnerSources`, שהתיבה קוראת
+     * ‏לה גם היא. שני עותקים של השאלה הזו כבר נפרדו כאן פעם.
      */
-    const lead = await tx.lead.findFirst({
-      where: { tenantId, contactId },
-      orderBy: { createdAt: "desc" },
-      select: { assignedToUserId: true },
-    });
-    const property = await tx.property.findFirst({
-      where: {
-        tenantId,
-        deletedAt: null,
-        OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
-        agentUserId: { not: null },
-      },
-      orderBy: { createdAt: "desc" },
-      select: { agentUserId: true },
-    });
-    return notifiableContactOwner(tx, tenantId, { buyer, lead, property });
+    return notifiableContactOwner(
+      tx,
+      tenantId,
+      await loadContactOwnerSources(tx, tenantId, contactId),
+    );
   }
 
   private async offerIntakeAfterMissedCall(

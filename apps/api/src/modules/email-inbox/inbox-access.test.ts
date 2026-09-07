@@ -223,9 +223,9 @@ describe("בעלות ההתראה על מייל נכנס", () => {
   it("שלושת המקורות לפי הסדר, כל אחד עם המקור שלו", () => {
     expect(
       contactOwnerCandidates({
-        buyer: { ownerUserId: "01BUYERAGENT" },
-        lead: { assignedToUserId: "01LEADAGENT" },
-        property: { agentUserId: "01PROPAGENT" },
+        buyers: [{ id: "01BUYER", ownerUserId: "01BUYERAGENT" }],
+        leads: [{ id: "01LEAD", assignedToUserId: "01LEADAGENT" }],
+        properties: [{ agentUserId: "01PROPAGENT" }],
       }),
     ).toEqual([
       { userId: "01BUYERAGENT", source: "buyers" },
@@ -245,9 +245,9 @@ describe("בעלות ההתראה על מייל נכנס", () => {
   it("כרטיס בלי בעלים אינו עוצר את החיפוש", () => {
     expect(
       contactOwnerCandidates({
-        buyer: { ownerUserId: null },
-        lead: { assignedToUserId: "01LEADAGENT" },
-        property: null,
+        buyers: [{ id: "01BUYER", ownerUserId: null }],
+        leads: [{ id: "01LEAD", assignedToUserId: "01LEADAGENT" }],
+        properties: [],
       }),
     ).toEqual([{ userId: "01LEADAGENT", source: "leads" }]);
   });
@@ -256,9 +256,9 @@ describe("בעלות ההתראה על מייל נכנס", () => {
   it("בעל נכס בלבד מקבל את סוכן הנכס — ולא רשימה ריקה", () => {
     expect(
       contactOwnerCandidates({
-        buyer: null,
-        lead: null,
-        property: { agentUserId: "01PROPAGENT" },
+        buyers: [],
+        leads: [],
+        properties: [{ agentUserId: "01PROPAGENT" }],
       }),
     ).toEqual([{ userId: "01PROPAGENT", source: "properties" }]);
   });
@@ -269,12 +269,12 @@ describe("בעלות ההתראה על מייל נכנס", () => {
    * ‏התוכן, לא הקיום. את זה בודק ה-`describe` הבא.
    */
   it("בלי אף מקור — רשימה ריקה, ובכוונה", () => {
-    expect(contactOwnerCandidates({ buyer: null, lead: null, property: null })).toEqual([]);
+    expect(contactOwnerCandidates({ buyers: [], leads: [], properties: [] })).toEqual([]);
   });
 });
 
 /**
- * ‎**ושתי השאילתות אינן מותנות עוד — בדיקה מבנית, ואומר זאת.**
+ * ‎**והמקורות נטענים כולם — בדיקה מבנית, ואומר זאת.**
  *
  * ‏הקיצור („אל תשאל על הליד אם לכרטיס הקונה יש בעלים”) היה נכון
  * ‏כשהשאלה הייתה „מי משויך”. מרגע שהיא „מי משויך **ורשאי**”, אין
@@ -284,6 +284,12 @@ describe("בעלות ההתראה על מייל נכנס", () => {
  * ‏`processInbound` נוגע באחסון, בשליחה וביצירת אנשי קשר, ומכשיר
  * ‏מלא עבורו היה בודק הכול חוץ מהשורה הזו. לכן סריקת מקור, על
  * ‏מגבלותיה: היא מוודאת שהתנאי לא יחזור.
+ *
+ * ‎**והטענה נוסחה מחדש כתכונה.** הניסוח הקודם נעץ את שתי שורות
+ * ‏השליפה עצמן, ולכן הוא נשבר כשהן ירדו ל-`loadContactOwnerSources`
+ * ‏המשותפת — שער שחוסם את התיקון של עצמו. מה שהוא באמת בודק הוא
+ * ‏שהתיבה אינה שולפת מקור בעצמה ואינה מתנה מקור במקור: היא מוסרת
+ * ‏את השאלה למי שטוען את שלושתם.
  */
 describe("שאילתות הבעלים אינן מותנות זו בזו", () => {
   const source = readFileSync(
@@ -291,12 +297,21 @@ describe("שאילתות הבעלים אינן מותנות זו בזו", () => 
     "utf8",
   ).replace(/\/\*[\s\S]*?\*\//gu, "");
 
-  it("חיפוש הליד נעשה תמיד", () => {
-    expect(source).toContain("const lead = await tx.lead.findFirst({");
+  it("‏המקורות נטענים בשליפה המשותפת", () => {
+    expect(source).toContain("loadContactOwnerSources(tx, tenantId, contactId)");
   });
 
-  it("וגם חיפוש הנכס", () => {
-    expect(source).toContain("const property = await tx.property.findFirst({");
+  /*
+   * ‏ולא מכריעה בעלות בעצמה. הטענה היא על **העמודות**: שליפה
+   * ‏שבוחרת עמודת בעלות היא שליפה שמכריעה מי הנמען, וזו בדיוק
+   * ‏העותק שנפרד מהשיחה הנכנסת — ומשם צמח „שורה אחת לכל מקור”
+   * ‏בשני המקומות. שליפות אחרות (על איזה כרטיס לתלות אינטראקציה,
+   * ‏למשל) בוחרות `id` בלבד ואינן נוגעות בשאלה.
+   */
+  it("‏והתיבה אינה שולפת עמודת בעלות בעצמה", () => {
+    for (const column of ["ownerUserId: true", "assignedToUserId: true", "agentUserId: true"]) {
+      expect(source, `בחירת עמודת בעלות: ${column}`).not.toContain(column);
+    }
   });
 
   it("ואין קיצור שמדלג על מקור לפי מקור שלפניו", () => {
@@ -337,9 +352,9 @@ describe("תוכן ההתראה על מייל נכנס", () => {
    */
   it("הכלל תלוי בבעלים בלבד — לא במקור שממנו הוא נגזר", () => {
     const owner = contactOwnerCandidates({
-      buyer: { ownerUserId: null },
-      lead: null,
-      property: null,
+      buyers: [{ id: "01BUYER", ownerUserId: null }],
+      leads: [],
+      properties: [],
     })[0];
     expect(inboundNotificationContent(owner?.userId ?? null, SNIPPET).body).toBeNull();
   });
@@ -350,9 +365,9 @@ describe("תוכן ההתראה על מייל נכנס", () => {
    */
   it("כשנמצא בעלים דרך מקור אחר — התמצית חוזרת", () => {
     const owner = contactOwnerCandidates({
-      buyer: { ownerUserId: null },
-      lead: { assignedToUserId: "01LEADAGENT" },
-      property: null,
+      buyers: [{ id: "01BUYER", ownerUserId: null }],
+      leads: [{ id: "01LEAD", assignedToUserId: "01LEADAGENT" }],
+      properties: [],
     })[0];
     expect(inboundNotificationContent(owner?.userId ?? null, SNIPPET).body).toBe(SNIPPET);
   });

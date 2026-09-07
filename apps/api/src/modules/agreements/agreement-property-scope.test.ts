@@ -183,12 +183,54 @@ describe("הסכם על הנכס של עמית — הלקוח לבדו אינו 
           assertPropertyRecordScope(
             txFor([]) as never,
             TENANT,
-            { contactId: SHARED, propertyId },
+            { kind: "brokerage", contactId: SHARED, propertyId },
             "בדיקה",
           ),
         ),
       ).resolves.toBeUndefined();
     }
+  });
+
+  /*
+   * ‎**ושורה ישנה של בלעדיות בלי נכס** (ביקורת Codex, P1).
+   *
+   * ‏„בלי `propertyId` ⇒ ברמת המשרד” נכון להזמנה בכתב, ושקרי
+   * ‏לבלעדיות: היצירה כבר דורשת נכס, אבל ה-API הישן לא — ושורות
+   * ‏כאלה יושבות במסד. הן נפלו לענף הזה וחזרו להיות מוגנות בשער
+   * ‏הלקוח בלבד, כלומר קישור החתימה והמסמך החתום של הבלעדיות של
+   * ‏העמית נפתחו דרך כרטיס הקונה שלי.
+   *
+   * ‏אין מאיפה להשלים את הנכס במיגרציה, ולכן שורה כזו נקראת כמו
+   * ‏**נכס לא משויך**: רק `properties.view_all`.
+   */
+  it("בלעדיות ישנה בלי מזהה נכס — נדחית לסוכן מוגבל", async () => {
+    await expect(
+      asUser(SCOPED, () =>
+        assertPropertyRecordScope(
+          txFor([]) as never,
+          TENANT,
+          { kind: "exclusivity", contactId: SHARED, propertyId: null },
+          "בדיקה",
+        ),
+      ),
+    ).rejects.toThrow(/משויך לסוכן אחר|חסום/u);
+  });
+
+  /*
+   * ‏והצד השני, שבלעדיו „לחסום כל שורה בלי נכס” היה עובר ושובר את
+   * ‏ההזמנה בכתב: ברירת המחדל רואה גם אותה.
+   */
+  it("ואותה שורה בדיוק — למי שרואה את כל נכסי המשרד", async () => {
+    await expect(
+      asUser(DEFAULT, () =>
+        assertPropertyRecordScope(
+          txFor([]) as never,
+          TENANT,
+          { kind: "exclusivity", contactId: SHARED, propertyId: null },
+          "בדיקה",
+        ),
+      ),
+    ).resolves.toBeUndefined();
   });
 
   /*
@@ -201,7 +243,7 @@ describe("הסכם על הנכס של עמית — הלקוח לבדו אינו 
         assertPropertyRecordScope(
           txFor([]) as never,
           TENANT,
-          { contactId: SHARED, propertyId: MINE },
+          { kind: "brokerage", contactId: SHARED, propertyId: MINE },
           "בדיקה",
         ),
       ),

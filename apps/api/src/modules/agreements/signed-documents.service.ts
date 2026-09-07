@@ -221,7 +221,7 @@ export class SignedDocumentsService {
       await assertPropertyRecordScope(
         tx,
         tenantId,
-        { contactId: input.contactId, propertyId: input.propertyId ?? null },
+        { kind: input.kind, contactId: input.contactId, propertyId: input.propertyId ?? null },
         "העלאת מסמך על נכס",
       );
       if (input.propertyId !== undefined) {
@@ -268,7 +268,7 @@ export class SignedDocumentsService {
         await assertPropertyRecordScope(
           tx,
           tenantId,
-          { contactId: input.contactId, propertyId: input.propertyId ?? null },
+          { kind: input.kind, contactId: input.contactId, propertyId: input.propertyId ?? null },
           "העלאת מסמך על נכס",
         );
         /*
@@ -607,7 +607,7 @@ export class SignedDocumentsService {
         await assertPropertyRecordScope(
           tx,
           tenantId,
-          { contactId: gate.contactId, propertyId: found.propertyId },
+          { kind: found.kind, contactId: gate.contactId, propertyId: found.propertyId },
           "הורדת מסמך על נכס",
         );
       } else if (opts.retained !== true) {
@@ -747,7 +747,7 @@ export class SignedDocumentsService {
       await assertPropertyRecordScope(
         tx,
         tenantId,
-        { contactId: gate.contactId, propertyId: row.propertyId },
+        { kind: row.kind, contactId: gate.contactId, propertyId: row.propertyId },
         "מחיקת מסמך על נכס",
       );
       await tx.signedDocument.delete({ where: { id } });

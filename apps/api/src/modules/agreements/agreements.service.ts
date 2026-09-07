@@ -297,7 +297,7 @@ export class AgreementsService {
     await assertPropertyRecordScope(
       tx,
       tenantId,
-      { contactId: input.contactId, propertyId: input.propertyId ?? null },
+      { kind: input.kind, contactId: input.contactId, propertyId: input.propertyId ?? null },
       "הפקת הסכם על נכס",
     );
 
@@ -445,7 +445,7 @@ export class AgreementsService {
     await assertPropertyRecordScope(
       tx,
       tenantId,
-      { contactId: row.contactId, propertyId: row.propertyId },
+      { kind: row.kind, contactId: row.contactId, propertyId: row.propertyId },
       "שליחת הסכם על נכס",
     );
     if (row.status === "signed") throw new BadRequestException("ההסכם כבר נחתם");
@@ -824,7 +824,7 @@ export class AgreementsService {
       await assertPropertyRecordScope(
         tx,
         tenantId,
-        { contactId: gate.contactId, propertyId: row.propertyId },
+        { kind: row.kind, contactId: gate.contactId, propertyId: row.propertyId },
         "מסמך הסכם על נכס",
       );
     } else if (!TenantContext.current().capabilities.has("settings.manage")) {

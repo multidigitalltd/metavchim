@@ -6,12 +6,15 @@ import {
   CAPABILITY_MODULES,
   applyBlockedModules,
   blockedModulesRejectionReason,
+  CAPABILITY_REQUIRES,
+  effectiveCapabilities,
   capabilitiesWithoutModule,
   clearEffect,
   moduleLabel,
   describeOverride,
   isOverrideActive,
   overrideRejectionReason,
+  withoutOrphanedCapabilities,
   resolveCapabilities,
   type CapabilityOverride,
 } from "./capability-overrides.js";
@@ -302,5 +305,74 @@ describe("חסימת מודול ברמת המשרד", () => {
     );
     expect(moduleLabel("collaboration")).toBe("שיתוף פעולה בין משרדים");
     expect(moduleLabel("nope")).toBe("nope");
+  });
+});
+
+/**
+ * ‎**יכולת מרחיבה בלי כרטיס הכניסה שלה** (ביקורת Codex, P1).
+ *
+ * ‏`view_all` אינה דרגה שנייה של `view_own`: השנייה היא שנבדקת
+ * ‏ב-`@RequireCapability` על נתיב הרשימה, והראשונה רק מרחיבה בתוכו
+ * ‏את הסינון. מנהל שחוסם את כרטיס הכניסה בלבד השאיר את המרחיבה
+ * ‏יתומה — הנתיב נסגר, אבל כל מי ששאל „האם המודול פתוח אצלו” ראה
+ * ‏`OR` ואמר „כן”, ומשם יצאה התראה מפוענחת.
+ */
+describe("‏יכולת מרחיבה בלי כרטיס הכניסה שלה", () => {
+  const caps = (...list: Capability[]): Set<Capability> => new Set(list);
+
+  it("‏הטבלה מכסה כל `view_all` בקטלוג", () => {
+    const widening = CAPABILITIES.filter((c) => c.endsWith(".view_all"));
+    expect(widening.length).toBeGreaterThanOrEqual(3);
+    for (const capability of widening) {
+      expect(CAPABILITY_REQUIRES[capability], `${capability} בלי כרטיס כניסה`).toBeDefined();
+    }
+  });
+
+  it("‏וכרטיס הכניסה עצמו קיים בקטלוג", () => {
+    for (const entry of Object.values(CAPABILITY_REQUIRES)) {
+      expect(CAPABILITIES).toContain(entry);
+    }
+  });
+
+  for (const [wide, entry] of Object.entries(CAPABILITY_REQUIRES) as [
+    Capability,
+    Capability,
+  ][]) {
+    it(`‏${wide} נופלת בלי ${entry}`, () => {
+      expect(withoutOrphanedCapabilities(caps(wide)).has(wide)).toBe(false);
+    });
+
+    /* ‏והצד השני, שבלעדיו „תמיד להוריד” היה עובר */
+    it(`‏${wide} נשארת עם ${entry}`, () => {
+      expect(withoutOrphanedCapabilities(caps(wide, entry)).has(wide)).toBe(true);
+    });
+  }
+
+  /*
+   * ‏והמסלול המלא, כפי שהוא מגיע מהמסד: חריג `deny` על כרטיס
+   * ‏הכניסה בלבד — בדיוק מה שמסך ההרשאות שולח.
+   */
+  it("‏חסימת כרטיס הכניסה מסירה גם את המרחיבה", () => {
+    const result = effectiveCapabilities(
+      {
+        role: "branch_manager",
+        overrides: [{ capability: "buyers.view_own", effect: "deny", expiresAt: null }],
+        blockedModules: [],
+      },
+      new Date(),
+    );
+    expect(result.has("buyers.view_own")).toBe(false);
+    expect(result.has("buyers.view_all"), "המרחיבה נשארה יתומה").toBe(false);
+    /* ‏ומודול אחר אינו נפגע */
+    expect(result.has("leads.view_all")).toBe(true);
+  });
+
+  it("‏ובלי החריג — שתיהן שם", () => {
+    const result = effectiveCapabilities(
+      { role: "branch_manager", overrides: [], blockedModules: [] },
+      new Date(),
+    );
+    expect(result.has("buyers.view_own")).toBe(true);
+    expect(result.has("buyers.view_all")).toBe(true);
   });
 });

@@ -1,6 +1,10 @@
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { effectiveCapabilities, type Capability } from "@metavchim/shared";
+import {
+  agreementRequiresProperty,
+  effectiveCapabilities,
+  type Capability,
+} from "@metavchim/shared";
 import type { TenantTx } from "../core/prisma.service";
 import { TenantContext } from "./tenant-context";
 
@@ -417,10 +421,77 @@ export interface ContactOwner {
   source: ContactOwnerSource;
 }
 
+/**
+ * ‎**כל השיוכים בכל מקור, החדש ראשון — ולא שורה אחת לכל מקור**
+ * ‏(ביקורת Codex, P2).
+ *
+ * ‏הסבב הקודם לימד **מקור** שנפסל להוריש את התור למקור הבא. אותו
+ * ‏כשל בדיוק חזר שכבה אחת פנימה: קונה אינו ייחודי ללקוח —
+ * ‏`createWithin` מוסיף כרטיס חדש בכל פעם — ולכן „הכרטיס האחרון”
+ * ‏הוא מועמד אחד מתוך כמה. אם בעליו אינו פעיל או שמודול הקונים
+ * ‏חסום אצלו, כרטיס ותיק יותר של סוכן כשר מעולם לא נשאל, וההתראה
+ * ‏נפלה למקור אחר או נשארה משרדית וחסרת תוכן.
+ *
+ * ‏הסדר נשמר — קונים, לידים, נכסים, ובכל מקור החדש ראשון — ומה
+ * ‏שהשתנה הוא שהפסילה יכולה ליפול הלאה **גם בתוך** המקור.
+ */
 export interface ContactOwnerSources {
-  buyer: { ownerUserId: string | null } | null;
-  lead: { assignedToUserId: string | null } | null;
-  property: { agentUserId: string | null } | null;
+  buyers: readonly { id: string; ownerUserId: string | null }[];
+  leads: readonly { id: string; assignedToUserId: string | null }[];
+  properties: readonly { agentUserId: string | null }[];
+}
+
+/**
+ * ‎**שלוש השליפות, פעם אחת — לשני הקוראים.**
+ *
+ * ‏השיחה הנכנסת והתיבה שאלו את אותה שאלה בשני עותקים, ושניהם
+ * ‏שלפו שורה אחת לכל מקור. עותק אחד תוקן פעם, והשני נשאר מאחור —
+ * ‏ולכן השאילתה עצמה יושבת כאן, ליד הכלל שצורך אותה.
+ *
+ * ‎`distinct` על עמוד הבעלות ולא `take` שרירותי: מה שמעניין הוא
+ * ‏רשימת **הבעלים** האפשריים, והיא חסומה ממילא בגודל המשרד. שורה
+ * ‏שנייה של אותו בעלים אינה מועמד נוסף.
+ *
+ * ‏השורה הראשונה בכל מערך היא עדיין החדשה ביותר, ולכן קורא שזקוק
+ * ‏ל„כרטיס הקונה הנוכחי” מקבל אותה מכאן ואינו שולף בעצמו.
+ */
+export async function loadContactOwnerSources(
+  tx: TenantTx,
+  tenantId: string,
+  contactId: string,
+): Promise<ContactOwnerSources> {
+  const [buyers, leads, properties] = await Promise.all([
+    tx.buyer.findMany({
+      where: { tenantId, contactId, deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      distinct: ["ownerUserId"],
+      select: { id: true, ownerUserId: true },
+    }),
+    tx.lead.findMany({
+      where: { tenantId, contactId },
+      orderBy: { createdAt: "desc" },
+      distinct: ["assignedToUserId"],
+      select: { id: true, assignedToUserId: true },
+    }),
+    tx.property.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
+        /*
+         * ‎**העדפה ולא סינון:** ללקוח שיש לו גם נכס משויך וגם נכס
+         * ‏שאינו משויך, הבעלים הוא הסוכן של המשויך. כשכל נכסיו
+         * ‏אינם משויכים אין בעלים — וזה נענה בשלילת התוכן, לא
+         * ‏בהוצאת שורה.
+         */
+        agentUserId: { not: null },
+      },
+      orderBy: { createdAt: "desc" },
+      distinct: ["agentUserId"],
+      select: { agentUserId: true },
+    }),
+  ]);
+  return { buyers, leads, properties };
 }
 
 /**
@@ -434,14 +505,16 @@ export interface ContactOwnerSources {
  */
 export function contactOwnerCandidates(sources: ContactOwnerSources): ContactOwner[] {
   const ordered: ContactOwner[] = [];
-  const buyer = sources.buyer?.ownerUserId;
-  if (buyer !== null && buyer !== undefined) ordered.push({ userId: buyer, source: "buyers" });
-  const lead = sources.lead?.assignedToUserId;
-  if (lead !== null && lead !== undefined) ordered.push({ userId: lead, source: "leads" });
-  const agent = sources.property?.agentUserId;
-  if (agent !== null && agent !== undefined) {
-    ordered.push({ userId: agent, source: "properties" });
-  }
+  const seen = new Set<string>();
+  const push = (userId: string | null, source: ContactOwnerSource): void => {
+    /* ‏אותו אדם דרך שני מקורות — המקור הראשון הוא זה שנשאל עליו */
+    if (userId === null || seen.has(userId)) return;
+    seen.add(userId);
+    ordered.push({ userId, source });
+  };
+  for (const row of sources.buyers) push(row.ownerUserId, "buyers");
+  for (const row of sources.leads) push(row.assignedToUserId, "leads");
+  for (const row of sources.properties) push(row.agentUserId, "properties");
   return ordered;
 }
 
@@ -1098,15 +1171,37 @@ export function assertPropertyScope(agentUserId: string | null, subject: string)
  *
  * ‏נכס שנמחק מתחת לרשומה אינו חוסם: אין מה לשייך, ושער הלקוח הוא
  * ‏מה שנשאר. זו אותה הכרעה כמו בשריד `lead_id` ב-`assertCallAccess`.
+ *
+ * ## ‏ושורה ישנה שחסר בה נכס — ולא הייתה אמורה
+ *
+ * ‎(ביקורת Codex, P1). ‏„בלי `propertyId` ⇒ ברמת המשרד” נכון
+ * ‏להזמנה בכתב, ו**שקרי** לבלעדיות: היצירה כאן כבר דורשת נכס
+ * ‏(`agreementRequiresProperty`), אבל ה-API הישן לא — ושורות
+ * ‏בלעדיות בלי נכס יושבות במסד. הן נפלו בדיוק לענף הזה, כלומר
+ * ‏חזרו להיות מוגנות בשער הלקוח בלבד: מי שרואה את האדם דרך כרטיס
+ * ‏הקונה שלו קיבל את קישור החתימה של הבלעדיות של העמית, פתח את
+ * ‏המסמך החתום ויכול היה לשלוח אותו מחדש.
+ *
+ * ‏אין מאיפה להשלים את הנכס במיגרציה — הוא מעולם לא נשמר. לכן
+ * ‏שורה כזו נקראת כמו **נכס לא משויך**: `assertPropertyScope(null)`,
+ * ‏כלומר רק מי שמחזיק `properties.view_all`. אותה הכרעה בדיוק שכל
+ * ‏שאר הקוד עושה על נכס בלי סוכן, ולא מושג חדש.
+ *
+ * ‏השאלה נשאלת על **הסוג** ולא על „האם יש נכס”, כי זו בדיוק אותה
+ * ‏שאלה שהיצירה שואלת. שני ניסוחים שלה היו נפרדים ביום שיתווסף
+ * ‏סוג שלישי.
  */
 export async function assertPropertyRecordScope(
   tx: TenantTx,
   tenantId: string,
-  record: { contactId: string; propertyId: string | null },
+  record: { kind: string; contactId: string; propertyId: string | null },
   subject: string,
 ): Promise<void> {
   await assertContactAccess(tx, tenantId, record.contactId);
-  if (record.propertyId === null) return;
+  if (record.propertyId === null) {
+    if (agreementRequiresProperty(record.kind)) assertPropertyScope(null, subject);
+    return;
+  }
   const property = await tx.property.findFirst({
     where: { id: record.propertyId, tenantId },
     select: { agentUserId: true },

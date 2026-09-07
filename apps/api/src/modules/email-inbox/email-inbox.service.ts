@@ -16,6 +16,7 @@ import {
 } from "@metavchim/shared";
 import {
   assertContactAccess,
+  loadContactOwnerSources,
   notifiableContactOwnerSource,
   type ContactOwnerSource,
   ownershipFilter,
@@ -312,54 +313,24 @@ export class EmailInboxService {
        * לציר נכנסת תמצית. אינטראקציה חייבת הורה (קונה או ליד) —
        * לקוח בלי שניהם נשאר עם ההודעה בתיבה בלבד.
        */
-      const buyer = await tx.buyer.findFirst({
-        where: { tenantId, contactId, deletedAt: null },
-        orderBy: { createdAt: "desc" },
-        select: { id: true, ownerUserId: true },
-      });
       /*
-       * ‎**שלושת המקורות תמיד — הדילוג עצמו היה הבאג, פעמיים.**
+       * ‎**שלושת המקורות תמיד — הדילוג עצמו היה הבאג, שלוש פעמים.**
        *
-       * ‏בפעם הראשונה הוא היה מותנה בקיום הכרטיס הקודם ולא בבעלותו,
-       * ‏ולקוח עם כרטיס קונה חסר-בעלים וליד משויך קיבל `null`. תיקנתי
-       * ‏את התנאי, והוא נשבר שוב מסיבה עמוקה יותר: מרגע שהשאלה היא
-       * ‏„מי משויך **ורשאי**”, מועמד שנפסל חייב להוריש את התור —
-       * ‏והדילוג מנע מהבא אחריו להיטען בכלל (ביקורת Codex).
+       * ‏בראשונה הוא היה מותנה בקיום הכרטיס הקודם ולא בבעלותו.
+       * ‏בשנייה — מרגע שהשאלה היא „מי משויך **ורשאי**” — מועמד
+       * ‏שנפסל היה חייב להוריש את התור, והדילוג מנע מהבא אחריו
+       * ‏להיטען בכלל. בשלישית התברר שגם „שורה אחת לכל מקור” הוא
+       * ‏אותו דילוג: קונה אינו ייחודי ללקוח, וכרטיס ותיק של סוכן
+       * ‏כשר מעולם לא נשאל (ביקורת Codex).
        *
        * ‏אין תנאי שמבטא זאת נכון, כי הפסילה נודעת רק אחרי שכל
-       * ‏המועמדים ידועים. לכן שלושתם נטענים, ו-`notifiableContactOwner`
-       * ‏בוחר את הראשון הכשר.
+       * ‏המועמדים ידועים — ולכן כולם נטענים, בשליפה **המשותפת**
+       * ‏עם השיחה הנכנסת. השורה הראשונה בכל מערך היא עדיין החדשה
+       * ‏ביותר, וזו הכרטיס שהאינטראקציה נתלית עליו.
        */
-      const lead = await tx.lead.findFirst({
-        where: { tenantId, contactId },
-        orderBy: { createdAt: "desc" },
-        select: { id: true, assignedToUserId: true },
-      });
-      /*
-       * ‎**ובעל נכס הוא גם בעלים — אחרת ההתראה עוקפת את כל ההפרדה.**
-       *
-       * ‏הבעלות נגזרה מקונה או מליד בלבד. לקוח שהוא **רק** בעל נכס
-       * ‏אינו אף אחד מהם, ולכן ההתראה נכתבה עם `userId: null` —
-       * ‏ו-`NotificationsService.visible()` מציג התראה חסרת בעלים
-       * ‏לכל המשרד, כולל תמצית גוף המייל. כלומר בדיוק ההודעה
-       * ‏שהסתרנו מהתיבה הייתה מוצגת בפיד (ביקורת Codex, P1).
-       *
-       * ‎`agentUserId: { not: null }` הוא **העדפה, לא סינון**: ללקוח
-       * ‏שיש לו גם נכס משויך וגם נכס שאינו משויך, הבעלים הוא הסוכן
-       * ‏של המשויך. כשכל נכסיו אינם משויכים אין בעלים בכלל — ואת
-       * ‏המקרה הזה סוגר `inboundNotificationContent`, בשלילת התוכן
-       * ‏ולא בהוצאת שורה מהשאילתה.
-       */
-      const property = await tx.property.findFirst({
-        where: {
-          tenantId,
-          deletedAt: null,
-          OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
-          agentUserId: { not: null },
-        },
-        orderBy: { createdAt: "desc" },
-        select: { agentUserId: true },
-      });
+      const sources = await loadContactOwnerSources(tx, tenantId, contactId);
+      const buyer = sources.buyers[0] ?? null;
+      const lead = sources.leads[0] ?? null;
       /*
        * ‎**שיוך אינו הרשאה.** סוכן שמנהל המשרד חסם ממנו את מודול
        * ‏הקונים נשאר רשום על השורה, ולכן היה מקבל התראה אישית עם
@@ -367,7 +338,7 @@ export class EmailInboxService {
        * ‏Codex, P1). הבדיקה יושבת בזיהוי עצמו, ולכן `null` כאן
        * ‏פירושו כרגיל — התראה משרדית בלי תוכן.
        */
-      const owner = await notifiableContactOwnerSource(tx, tenantId, { buyer, lead, property });
+      const owner = await notifiableContactOwnerSource(tx, tenantId, sources);
       const ownerUserId = owner?.userId ?? null;
       const snippet =
         body === ""
