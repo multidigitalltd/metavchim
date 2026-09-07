@@ -41,9 +41,17 @@ const RAW = readFileSync(join(import.meta.dirname, "offer-email.service.ts"), "u
  */
 const SOURCE = RAW.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/^[ \t]*\/\/.*$/gmu, "");
 
-/** גוף פונקציה פרטית אחת, עד הפונקציה הבאה באותה רמת הזחה. */
+/**
+ * גוף פונקציה אחת, עד הפונקציה הבאה באותה רמת הזחה.
+ *
+ * ‎**פרטית או ציבורית.** הניסוח הראשון חיפש `private async` בלבד,
+ * ‏ולכן `sendOne` — שהיא נקודת הכניסה **הידנית** ולכן בדיוק זו
+ * ‏שצריך לבדוק — לא נמצאה כלל.
+ */
 function body(name: string): string {
-  const start = SOURCE.indexOf(`private async ${name}(`);
+  const start = SOURCE.search(
+    new RegExp(String.raw`\n {2}(?:private )?async ${name}\(`, "u"),
+  );
   expect(start, `${name} לא נמצאה בקובץ`).toBeGreaterThan(-1);
   const rest = SOURCE.slice(start + 1);
   const end = rest.search(/\n {2}(?:private|public|async)/u);
@@ -63,6 +71,42 @@ function propertyWhere(fn: string): string {
   expect(match, `${fn}: אין שאילתת נכסים כלל`).not.toBeNull();
   return match![0];
 }
+
+/**
+ * ‎**מי „שלח” את ההצעה — ולמה זו שאלה של הקורא** (ביקורת Codex, P1).
+ *
+ * ‏`deliver` משרת שלוש זרימות, ובהן `sendOne` — ‎`POST
+ * /offers/:id/email`, כלומר **סוכן שלוחץ „שלח במייל”**. הנחת
+ * ‏‎`null` בתוך העוזר („הסבב אוטומטי”) נכונה לשתיים מהן ושגויה
+ * ‏לשלישית: תשובת הלקוח על הצעה שסוכן ב׳ שלח הייתה חוזרת לפי הסדר
+ * ‏הרגיל — כלומר לסוכן א׳, שכרטיס הקונה שלו על אותו לקוח חדש יותר,
+ * ‏ואיתה שם הלקוח ותמצית ההודעה. בדיוק הדליפה שה-PR הזה סוגר,
+ * ‏פתוחה בנתיב הידני.
+ *
+ * ‏הטענה היא על **מה שכל קורא מוסר**, ולא על החתימה: החתימה כבר
+ * ‏נאכפת בהידור (הפרמטר חובה), ומה שהיא אינה יכולה לאכוף הוא איזה
+ * ‏ערך נבחר.
+ */
+describe("‏השולח בהצעה שיוצאת במייל", () => {
+  it("‏שליחה ידנית נושאת את הסוכן שלחץ", () => {
+    expect(body("sendOne")).toContain("actingUserId()");
+  });
+
+  /* ‏והסבב האוטומטי — אין בו אדם, ולכן הסדר הרגיל הוא הנכון */
+  it("‏הסבב האוטומטי מוסר `null` במפורש", () => {
+    const source = body("offerAndEmail");
+    expect(source).toContain("this.deliver(");
+    expect(source).not.toContain("actingUserId()");
+  });
+
+  /*
+   * ‎`retryPending` רץ בסבב, ולשורה הממתינה אין עמודה שאומרת מי
+   * ‏הנפיק אותה — „לא ידוע” הוא התשובה הכנה.
+   */
+  it("‏והניסיון החוזר גם הוא", () => {
+    expect(body("retryPending")).not.toContain("actingUserId()");
+  });
+});
 
 describe("שער הנכס בהצעות האוטומטיות", () => {
   it("הזכאות הראשונית דורשת נכס פעיל שאינו מחוק", () => {
