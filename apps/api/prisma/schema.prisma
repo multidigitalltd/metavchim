@@ -33,6 +33,8 @@ model Tenant {
   /// סוף תקופת הניסיון. null = אין תפוגה — משרד שהוקם ידנית או ששילם.
   /// עמודה ולא שדה ב-settings: היא נבדקת בכל אימות Session.
   trialEndsAt                DateTime?        @map("trial_ends_at")
+  /// מתי הניסיון נגמר בכוונה. NULL = לא נגמר, כולל תאריך שאופס זמנית ויכול לחזור.
+  trialConcludedAt           DateTime?        @map("trial_concluded_at")
   /// עד מתי שולם. null = אין תפוגה (משרד שהוקם ידנית).
   ///
   /// יושבת כאן ולא רק ב-subscriptions **בכוונה**: זהו שער ההרשאה,
@@ -98,6 +100,8 @@ model Tenant {
 
   users                       User[]
   properties                  Property[]
+  funnelEnrollments           FunnelEnrollment[]
+  funnelMessages              FunnelMessage[]
   whatsappLinks               WhatsAppLink[]
   whatsappBusinessConnections WhatsAppBusinessConnection[]
 
@@ -3331,4 +3335,174 @@ model AutomationRun {
   @@id([ruleId, eventId])
   @@index([createdAt])
   @@map("automation_runs")
+}
+
+/// **הגדרות השלבים — טבלה של הפלטפורמה, לא של דייר.**
+///
+/// זו הדרישה שמכתיבה את הארכיטקטורה: השלבים והנוסחים נערכים במסך
+/// ולא קבועים בקוד. אילו היו בקוד, "תעשה את זה ניתן לעריכה" אחר כך
+/// היה כתיבה מחדש — ולכן זה נכנס בשלב הראשון ולא אחריו.
+///
+/// אין `tenantId` ולכן אין RLS, בדיוק כמו `PlatformSetting`.
+model FunnelStage {
+  id String @id @db.Char(26)
+
+  /// conversion | dunning — ראו `FUNNEL_TRACKS` ב-shared
+  track String @db.VarChar(20)
+
+  /// **מזהה יציב, ולא כותרת.**
+  ///
+  /// הוא מה שנרשם ב-`FunnelMessage.stageKey`, ולכן שינוי שלו מוחק
+  /// את הזיכרון של "מה כבר נשלח" והשלב יוצא שוב לכל מי שכבר קיבל.
+  /// הכותרת היא `title`, והיא זו שניתנת לעריכה חופשית.
+  key   String @db.VarChar(60)
+  title String @db.VarChar(120)
+
+  /// funnel | trial | payment. **התכונה שמונעת הודעות שקריות** —
+  /// ראו התיעוד ב-`logic/funnel.ts`.
+  clock String @db.VarChar(20)
+
+  /// שלילי = לפני העוגן.
+  offsetDays Int @map("offset_days")
+
+  /// כל התנאים חייבים להתקיים; ריק = כולם.
+  audience String[] @default([])
+  channels String[] @default([])
+
+  /// נזרע כבוי. נדלק אחרי שהנוסח אושר.
+  enabled Boolean @default(false)
+
+  emailSubject     String? @map("email_subject") @db.VarChar(200)
+  emailHeading     String? @map("email_heading") @db.VarChar(200)
+  /// פסקאות מופרדות בשורה ריקה — אותו מבנה של `EmailContent`.
+  emailBody        String? @map("email_body")
+  /// שם התבנית ב-WhatsApp Manager. null = טרם אושרה אצל Meta.
+  whatsappTemplate String? @map("whatsapp_template") @db.VarChar(120)
+  whatsappLanguage String  @default("he") @map("whatsapp_language") @db.VarChar(10)
+
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([track, key])
+  @@index([track, sortOrder])
+  @@map("funnel_stages")
+}
+
+/// **מי במסלול — ומאיזה יום 0.**
+///
+/// `startedAt` הוא השדה שמממש את ההחלטה "כל משרד לאט לאט מהיום
+/// שהתחיל המשפך": הוא של המשרד, לא של המערכת, ולא נגזר מתאריך
+/// ההרשמה שלו.
+model FunnelEnrollment {
+  id       String @id @db.Char(26)
+  tenantId String @map("tenant_id") @db.Char(26)
+  track    String @db.VarChar(20)
+
+  startedAt   DateTime  @map("started_at")
+  endedAt     DateTime? @map("ended_at")
+  /// paid | completed | opted_out | resolved — ראו `FUNNEL_EXIT_REASONS`
+  endedReason String?   @map("ended_reason") @db.VarChar(20)
+
+  /// אכיפת המרווח המזערי בין הודעות, בלי לסרוק את היומן בכל סבב.
+  lastSentAt DateTime? @map("last_sent_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  messages FunnelMessage[]
+  /// היחס קיים כדי שאפשר יהיה לשאול "משרד בלי רישום" **בשאילתה**
+  /// ולא בסינון אחרי שליפה — ראו `FunnelEnrollmentService.enrollDue`.
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// **רישום חי אחד לכל מסלול — ולא אחד לתמיד.**
+  ///
+  /// גבייה שנכשלת יכולה לקרות שוב בעוד חצי שנה, ואז זה מסלול חדש
+  /// עם יום 0 חדש. האינדקס החלקי (`WHERE ended_at IS NULL`) יושב
+  /// במיגרציה; Prisma אינו יודע לבטא אותו.
+  @@index([tenantId, track])
+  @@index([track, startedAt])
+  /// **המשרד של הרישום, כמפתח שאפשר להצביע עליו.**
+  ///
+  /// `id` ייחודי ממילא, ולכן זה אינו מגביל דבר. תפקידו היחיד הוא
+  /// לאפשר ל-`FunnelMessage` להצביע על **הצמד** — ראו שם.
+  @@unique([id, tenantId])
+  @@map("funnel_enrollments")
+}
+
+/// **מה נשלח — שורה לכל נמען ולכל ערוץ.**
+///
+/// לא שורה לכל הודעה: למשרד יש שני בעלים, אחד פתח והשני לא, ושורה
+/// אחת לשניהם הייתה מוחקת בדיוק את מה שהמסך אמור להראות.
+model FunnelMessage {
+  id           String @id @db.Char(26)
+  tenantId     String @map("tenant_id") @db.Char(26)
+  enrollmentId String @map("enrollment_id") @db.Char(26)
+  track        String @db.VarChar(20)
+  stageKey     String @map("stage_key") @db.VarChar(60)
+
+  /// **בלי מפתח זר אל `User`, בכוונה** — אותו נימוק של
+  /// `SupportTicket.userId`: מי שהוסר מהמשרד עדיין קיבל את ההודעה,
+  /// והיומן צריך להמשיך לומר את זה.
+  userId String @map("user_id") @db.Char(26)
+
+  /// הכתובת או המספר כפי שהיו ברגע השליחה. משתמש שהחליף מייל אינו
+  /// משנה למפרע לאן ההודעה ההיא הלכה.
+  destination String @db.VarChar(254)
+
+  /// email | whatsapp
+  channel String @db.VarChar(20)
+  /// queued | sent | failed
+  status  String @default("queued") @db.VarChar(20)
+
+  /// **אקראי ולא נגזר מהמזהים.** כתובת מעקב שאפשר לנחש היא כתובת
+  /// שאפשר לזייף בה "נפתח", ואז המדידה מודדת את מי שניחש.
+  token String @db.VarChar(64)
+
+  providerMessageId String? @map("provider_message_id") @db.VarChar(200)
+
+  sentAt      DateTime? @map("sent_at")
+  /// אמיתי בוואטסאפ בלבד; במייל נשאר ריק.
+  deliveredAt DateTime? @map("delivered_at")
+  readAt      DateTime? @map("read_at")
+  /// **הערכה בלבד** — פיקסל שנטען. Apple ו-Gmail טוענים אותו גם
+  /// כשאיש לא פתח, ולכן המסך מסמן אותו ככזה.
+  openedAt    DateTime? @map("opened_at")
+  /// המדד האמיתי.
+  clickedAt   DateTime? @map("clicked_at")
+
+  error String? @db.VarChar(300)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// **הקשר הוא לצמד `(enrollmentId, tenantId)`, ולא ל-`id` לבדו.**
+  ///
+  /// שני מפתחות זרים נפרדים מקבלים כל צירוף ביניהם: הודעה עם הרישום
+  /// של משרד א׳ ועם `tenantId` של משרד ב׳ עוברת את שניהם. פוליסת
+  /// ה-RLS מסננת לפי `tenantId` בלבד, ולכן משרד ב׳ היה קורא נמען,
+  /// יעד ונתוני מסירה של משרד א׳ (ביקורת Codex, P1). האכיפה במסד
+  /// ולא בקוד, כי „הקוד תמיד כותב את שניהם נכון” הוא ההנחה שנשברת
+  /// בכתיבה השנייה.
+  enrollment FunnelEnrollment @relation(fields: [enrollmentId, tenantId], references: [id, tenantId], onDelete: Cascade, map: "funnel_messages_enrollment_id_fkey")
+
+  /// **גם המפתח הישיר אל המשרד — מוצהר, ולא רק במיגרציה.**
+  ///
+  /// המיגרציה יוצרת `funnel_messages_tenant_id_fkey`, והמודל הכיר רק
+  /// בקשר המורכב. `prisma migrate diff` היה רואה מפתח שאין לו מקור
+  /// בסכימה, ומיגרציה עתידית שנוצרת אוטומטית הייתה **מוחקת** אותו
+  /// (ביקורת Codex). שקט כזה מסוכן במיוחד כאן: מחיקת משרד נשענת עליו,
+  /// ושער כיסוי המחיקה גוזר מהמיגרציות מי נופל ב-CASCADE.
+  ///
+  /// עודף מבחינת מחיקה בלבד — הרישום ממילא מפיל את ההודעות — ולכן
+  /// ההכרעה היא להצהיר ולא להסיר: `cascadingFromTenants` קורא את
+  /// המפתח הזה, והסרתו הייתה דורשת `deleteMany` שאינו עושה דבר.
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// "פעם אחת" נאכף כאן ולא בקוד — הלקח של ההמרה בנכסים לגיוס.
+  @@unique([enrollmentId, stageKey, userId, channel])
+  @@unique([token])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([track, createdAt(sort: Desc)])
+  @@map("funnel_messages")
 }
