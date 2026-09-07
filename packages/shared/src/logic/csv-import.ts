@@ -32,6 +32,23 @@ export function parseYesNo(raw: string): boolean | undefined {
   const value = raw.trim().toLowerCase();
   if (["כן", "יש", "true", "1", "v", "x", "✓", "yes", "קיים", "קיימת"].includes(value)) return true;
   if (["לא", "אין", "false", "0", "no", "-", "—"].includes(value)) return false;
+  /*
+   * ‎**„כן, ועוד משהו” הוא עדיין כן.**
+   *
+   * ‏ייצוא אמיתי כותב בעמודת המעלית ‎„כן,שתיים”‎ או „כן,מ. שבת” —
+   * ‏כלומר כן, ואיזו. ההשוואה המדויקת החזירה „לא ידוע”, והשדה
+   * ‏נשאר ריק דווקא בנכסים שיש בהם שתי מעליות.
+   *
+   * ‎**פיצול על המפריד, ולא `\b`** (ביקורת Codex, P1). גבול-מילה
+   * ‏ב-JavaScript נמדד מול ‎`[A-Za-z0-9_]`‎: אות עברית אינה תו-מילה,
+   * ‏ולכן אין גבול בין „ן” לפסיק — התנאי היה `false` תמיד, גם על
+   * ‎„כן” לבדו. כלומר הטיפול במקרה שבשבילו הוא נוסף לא רץ מעולם.
+   *
+   * ‏האסימון הראשון נבדק מול אותן שתי הרשימות שמעל, ולא מול
+   * ‏רשימה שלישית: „כן” הוא „כן” בשתי הצורות.
+   */
+  const first = value.split(/[,;|/]/u)[0]?.trim() ?? "";
+  if (first !== value && first !== "") return parseYesNo(first);
   return undefined;
 }
 
@@ -194,6 +211,23 @@ const HEADER_MAP: Record<string, PropertyColumn> = {
   הערה: "internalNotes",
   "הערות פנימיות": "internalNotes",
   notes: "internalNotes",
+  /*
+   * ‎**הקיצורים של מערכות הנדל"ן הוותיקות** — אותם קיצורים בדיוק
+   * ‏שנוספו למפת הגיוס. שני המסלולים חייבים לקרוא את אותו קובץ
+   * ‏אותו דבר: משרד שמעלה את הייצוא שלו למסך הנכסים ולמסך הגיוס
+   * ‏ומקבל שתי תוצאות שונות אינו יכול לדעת איזו מהן נכונה.
+   */
+  נכס: "propertyType",
+  חדר: "rooms",
+  מס: "houseNumber",
+  קו: "floor",
+  מע: "hasElevator",
+  שם: "ownerName",
+  "שם הבעלים": "ownerName",
+  טלפון1: "ownerPhone",
+  "טלפון 1": "ownerPhone",
+  טלפון: "ownerPhone",
+  נייד: "ownerPhone",
 };
 
 /** תוויות השדות שאפשר למפות אליהם ידנית במסך הייבוא. */
@@ -230,6 +264,12 @@ export const PROPERTY_TYPE_MAP: Record<string, PropertyType> = {
   דירה: "apartment",
   "דירת גן": "garden_apartment",
   פנטהאוז: "penthouse",
+  /*
+   * ‎**„פנטהאוס” בסמ"ך.** שני הכתיבים נפוצים באותה מידה, והמפה
+   * ‏הכירה רק אחד — כלומר בקובץ אמיתי כל הפנטהאוזים נכנסו בלי
+   * ‏סוג, ומי שקרא את התוצאה ראה „דירה” חסרה ולא טעות כתיב.
+   */
+  פנטהאוס: "penthouse",
   דופלקס: "duplex",
   "בית פרטי": "private_house",
   "דו-משפחתי": "two_family",
@@ -254,7 +294,109 @@ export const PROPERTY_TYPE_MAP: Record<string, PropertyType> = {
   "חניה": "commercial_parking",
   "תחנת דלק": "commercial_gas_station",
   אחר: "other",
+  /*
+   * ‎**הכתיב של מערכות הנדל"ן הוותיקות** — ייצוא אמיתי של משרד
+   * ‏(‎1,326‎ שורות) שהגיע מ-webtiv. אלה לא כתיבים חלופיים של מה
+   * ‏שכבר יש כאן: ‎„בית”, „וילה”, „קוטג׳”‎ ו„דו משפחתי” הם סוגים
+   * ‏שהמפה פשוט לא הכירה, ולכן ‎121‎ שורות מהקובץ הזה נכנסו בלי
+   * ‏סוג נכס כלל.
+   */
+  בית: "private_house",
+  וילה: "private_house",
+  קוטג: "private_house", // ‏„קוטג׳” — הגרש מוסר בנרמול
+  "דו משפחתי": "two_family",
+  "יח דיור": "unit",
+  "יח. דיור": "unit",
+  /* ‏„דירת גג” בקיצור — פנטהאוז לכל דבר בשפה של המשרד */
+  "דגג": "penthouse",
+  "ד.גג": "penthouse",
+  "מיני פנט": "penthouse",
+  /*
+   * ‏„מחולקת” היא דירה שכבר חולקה, ו„מתאימה לחלוקה” היא זו
+   * ‏שאפשר לחלק. אותו סוג במאגר — ההבדל הוא בזמן, לא בנכס.
+   */
+  מחולקת: "divisible_apartment",
+  /*
+   * ‎**סוגים אמיתיים שאין להם ערך משלהם — „אחר”, ולא ריק.**
+   *
+   * ‏„אחר” אומר „זה נכס מסוג שאיננו מנהלים”, וריק אומר „לא ידוע
+   * ‏מה זה”. השני שולח את המתווך לפתוח את השורה כדי לגלות שהיא
+   * ‏בסדר גמור. ‎„להשקעה” ו„פרוייקט” אינם כאן בכוונה: הם תיאור
+   * ‏של הזדמנות ולא של נכס, ואין להם תשובה נכונה בעמודה הזאת.
+   */
+  "ד.מרתף": "other",
+  דמרתף: "other",
+  טריפלקס: "other",
+  "זכות לדירה": "other",
+  "קבוצת רכישה": "other",
 };
+
+/**
+ * ‎**סוגי הנכס שמונח עברי מתאים להם — לחיפוש החופשי ברשימות.**
+ *
+ * ‏הסוג נשמר באנגלית והמסך מבטיח חיפוש בעברית, ולכן „דירה” חייב
+ * ‏להפוך ל-`apartment` לפני שהשאילתה יוצאת.
+ *
+ * ‎**מול כל הכתיבים, ולא מול התווית הקנונית בלבד.** רשימת הנכסים
+ * ‏השוותה מול `PROPERTY_TYPE_LABELS_HE`, שהיא היפוך של המפה הזאת
+ * ‏ומחזיקה **כתיב אחד** לכל סוג — ולכן „פנטהאוס” בסמ"ך לא מצא
+ * ‏דבר, בעוד „פנטהאוז” בזי"ן מצא. מי שהקליד את הכתיב השני ראה
+ * ‏רשימה ריקה ולא הבין למה.
+ *
+ * ‏הפונקציה יושבת כאן ולא בשירות כי המפה כאן: היא הייתה כתובה
+ * ‏פעמיים — פעם ברשימת הנכסים ופעם ברשימת הגיוס — וכתיב שנוסף
+ * ‏למפה לא היה מגיע לאף אחת מהן.
+ */
+/**
+ * ‎**סוג נכס מתא בקובץ — כולל תא שיש בו כמה סוגים.**
+ *
+ * ‏מערכות ותיקות שומרות בעמודה אחת גם את הסוג וגם תוספות:
+ * ‎„דירה,יח. דיור”, „פנטהאוס,יח. דיור”, „בית,יח. דיור,דו משפחתי”.
+ * ‏חיפוש של המחרוזת השלמה במפה לא מצא דבר, והשורה נכנסה בלי סוג —
+ * ‏כלומר דווקא הנכסים המעניינים (דירה עם יחידת דיור) איבדו את
+ * ‏הנתון.
+ *
+ * ‎**האסימון הראשון שמזוהה הוא הסוג**, והשאר הן תוספות: „דירה”
+ * ‏קודם ל„יח. דיור” כי כך הן כתובות, וזה גם הסדר הנכון — הנכס
+ * ‏הוא דירה, ויחידת הדיור היא מה שיש בה.
+ *
+ * ‏פונקציה אחת לשני המפרקים: הגיוס חיפש במפה אחרי נרמול והנכסים
+ * ‏בלעדיו, כלומר אותו קובץ נקרא אחרת בשני המסלולים.
+ */
+export function propertyTypesForTerm(term: string): PropertyType[] {
+  /*
+   * ‎**שני הצדדים עוברים את אותו נרמול** (ביקורת Codex, P2).
+   *
+   * ‏מפתחות המפה נכתבים כפי שהם מופיעים בקבצים (‎„קוטג”‎ בלי גרש,
+   * ‏כי הגרש מוסר בנרמול בזמן הייבוא), והמונח מגיע מהמקלדת של
+   * ‏המתווך — עם גרש. השוואה בין השניים כמות שהם החזירה „לא נמצא”
+   * ‏על הכתיב הנכון בדיוק: מי שכתב „קוטג׳” לא מצא את השורה שנכנסה
+   * ‏מ„קוטג׳” בקובץ.
+   *
+   * ‏הנרמול על המונח בלבד ולא גם על המפתחות: המפתחות **כבר**
+   * ‏כתובים בצורה המנורמלת, כי זו הצורה שהייבוא מחפש בה. נרמול
+   * ‏שני היה ענף שאין דרך להפיל אותו, וכזה אינו נשמר.
+   */
+  const needle = normalizeHeader(term);
+  if (needle === "") return [];
+  const found = new Set<PropertyType>();
+  for (const [hebrew, value] of Object.entries(PROPERTY_TYPE_MAP)) {
+    if (hebrew.toLowerCase().includes(needle)) found.add(value);
+  }
+  return [...found];
+}
+
+export function propertyTypeFromCsv(raw: string): PropertyType | undefined {
+  const whole = PROPERTY_TYPE_MAP[normalizeHeader(raw)];
+  if (whole !== undefined) return whole;
+  for (const part of raw.split(/[,/|]/u)) {
+    const token = normalizeHeader(part);
+    if (token === "") continue;
+    const match = PROPERTY_TYPE_MAP[token] ?? PROPERTY_TYPE_MAP[token.replace(/^דירת\s+/u, "")];
+    if (match !== undefined) return match;
+  }
+  return undefined;
+}
 
 export type PropertyStatusValue = "draft" | "active" | "on_hold" | "sold" | "rented" | "archived";
 
@@ -446,7 +588,7 @@ export function parsePropertiesCsv(
       } else if (target === "address") {
         parseAddress(raw, fields);
       } else if (target === "propertyType") {
-        const type = PROPERTY_TYPE_MAP[raw] ?? PROPERTY_TYPE_MAP[raw.replace(/^דירת?\s+/u, "")];
+        const type = propertyTypeFromCsv(raw);
         if (type) fields.propertyType = type;
       } else if (target === "dealType") {
         const deal = DEAL_TYPE_MAP[normalizeHeader(raw)];
@@ -541,6 +683,66 @@ const RECRUITMENT_HEADER_MAP: Record<string, string> = {
   הערות: "notes",
   הערה: "notes",
   notes: "notes",
+  /*
+   * ‎**הכתיב המקוצר של מערכות הנדל"ן הוותיקות.**
+   *
+   * ‏ייצוא אמיתי של משרד (webtiv) מגיע עם כותרות בנות שתי אותיות:
+   * ‎„מס” לבית, „קו” לקומה, „חדר” לחדרים, „נכס” לסוג. מתוך שמונה־
+   * ‏עשרה עמודות בקובץ כזה זוהו שלוש בלבד, וכל השאר — כולל השם
+   * ‏והטלפון של הבעלים, כלומר כל הערך של הקובץ — נזרקו.
+   *
+   * ‏הקיצורים חד-משמעיים בהקשר של גיליון נכסים: „קו” בגיליון
+   * ‏שיש בו „מס” ו„חדר” אינו קו טלפון.
+   */
+  נכס: "propertyType",
+  "סוג הנכס": "propertyType",
+  חדר: "rooms",
+  "מס חדרים": "rooms",
+  מס: "houseNumber",
+  "מס בית": "houseNumber",
+  בית: "houseNumber",
+  קו: "floor",
+  קומת: "floor",
+  שם: "ownerName",
+  "שם הבעלים": "ownerName",
+  מוכר: "ownerName",
+  "שם המוכר": "ownerName",
+  owner: "ownerName",
+  טלפון1: "ownerPhone",
+  "טלפון 1": "ownerPhone",
+  נייד: "ownerPhone",
+  "טלפון נייד": "ownerPhone",
+  phone1: "ownerPhone",
+  "owner phone": "ownerPhone",
+  /*
+   * ‎**„שיוך” הוא שלב, לא מקור.** בייצוא של webtiv הוא נושא
+   * ‏„מאגר / משרד / בטיפול / מתיווך / הסכמה / בלעדי” — כלומר איפה
+   * ‏הנכס עומד מול המשרד. ראו `RECRUITMENT_STATUS_ALIASES`.
+   */
+  שיוך: "status",
+  גודל: "areaSqm",
+  size: "areaSqm",
+  area: "areaSqm",
+};
+
+/**
+ * ‎**שלבי גיוס בשפה של מערכות אחרות.**
+ *
+ * ‏המשרד לא ימיר את הקובץ שלו לאוצר המילים שלנו לפני שיעלה אותו,
+ * ‏ולכן ערך שאיננו מכירים נופל לברירת המחדל („חדש”). זה נכון
+ * ‏ברוב המקרים — „מאגר”, „משרד” ו„מתיווך” אכן אומרים „טרם
+ * ‏נגענו” — אבל שני ערכים אומרים משהו אחר במפורש, ואיבודם הופך
+ * ‏רשימה של גיוסים פעילים לרשימה של „חדש” אחיד.
+ *
+ * ‎„בלעדי” הוא הסוף: קיבלנו את הייצוג. „בטיפול” הוא האמצע.
+ * ‏השאר נשארים „חדש”, וזה גם מה שהם.
+ */
+const RECRUITMENT_STATUS_ALIASES: Record<string, string> = {
+  בלעדי: "recruited",
+  בלעדיות: "recruited",
+  גויס: "recruited",
+  בטיפול: "called",
+  "בטיפולנו": "called",
 };
 
 /**
@@ -564,7 +766,10 @@ function labelsToCodes(labels: Record<string, string>): Record<string, string> {
 }
 
 const RECRUITMENT_SOURCE_MAP = labelsToCodes(RECRUITMENT_SOURCE_LABELS);
-const RECRUITMENT_STATUS_MAP = labelsToCodes(RECRUITMENT_STATUS_LABELS);
+const RECRUITMENT_STATUS_MAP = {
+  ...labelsToCodes(RECRUITMENT_STATUS_LABELS),
+  ...RECRUITMENT_STATUS_ALIASES,
+};
 
 /** ‏תוויות היעד למיפוי ידני במסך הייבוא — לגיוס. */
 export const RECRUITMENT_TARGET_LABELS: Record<string, string> = {
@@ -635,7 +840,17 @@ export function parseRecruitmentCsv(
     if (override !== undefined && override !== "") return override;
     return RECRUITMENT_HEADER_MAP[normalizeHeader(header)];
   });
-  const unmappedHeaders = headers.filter((_h, i) => mapped[i] === undefined);
+  /*
+   * ‎**עמודת קישוט אינה „כותרת שלא זוהתה”.**
+   *
+   * ‏ייצוא של מערכת ותיקה נושא עמודות בלי כותרת בכלל, ועמודה
+   * ‏שכותרתה „*”. אי אפשר למפות אותן ידנית (המפתח הוא הכותרת
+   * ‏עצמה, ושתי כותרות ריקות מתנגשות), ולכן הצגתן ברשימת
+   * ‏„לא זוהו” היא רעש שמסתיר את העמודות שבאמת דורשות החלטה.
+   */
+  const unmappedHeaders = headers.filter(
+    (header, i) => mapped[i] === undefined && normalizeHeader(header) !== "",
+  );
 
   const rows: ParsedRecruitmentRow[] = [];
   for (let i = 1; i < records.length; i += 1) {
@@ -673,7 +888,7 @@ export function parseRecruitmentCsv(
         return;
       }
       if (target === "propertyType") {
-        const type = PROPERTY_TYPE_MAP[normalizeHeader(raw)];
+        const type = propertyTypeFromCsv(raw);
         if (type !== undefined) row.propertyType = type;
         return;
       }
@@ -690,6 +905,27 @@ export function parseRecruitmentCsv(
       if (target === "status") {
         const status = RECRUITMENT_STATUS_MAP[normalizeHeader(raw)];
         if (status !== undefined) row.status = status;
+        return;
+      }
+      /*
+       * ‎**הטלפון מנורמל כאן, כמו במפרק הנכסים.**
+       *
+       * ‏קובץ אמיתי כותב ‎„055-2130705”‎, והערך עבר כמות שהוא: הוא
+       * ‏נשמר עם מקפים, ולכן אותו בעלים שנכנס גם דרך מסך וגם דרך
+       * ‏ייבוא קיבל שתי צורות — וההמרה לנכס, שמחפשת איש קשר לפי
+       * ‏חתימת הטלפון, יצרה כרטיס כפול. אותו נימוק בדיוק שכבר
+       * ‏מנומק במפרק הנכסים; שם הוא נאכף וכאן לא.
+       */
+      if (target === "ownerPhone") {
+        row.ownerPhone = normalizeIsraeliPhone(raw) ?? raw;
+        return;
+      }
+      /*
+       * ‏צירוף ולא דריסה — שתי עמודות הערות בקובץ אינן מאבדות אחת
+       * ‏את השנייה. אותה התנהגות של מפרק הנכסים.
+       */
+      if (target === "notes") {
+        row.notes = row.notes === undefined ? raw : `${row.notes} | ${raw}`;
         return;
       }
       (row as Record<string, unknown>)[target] = raw;
