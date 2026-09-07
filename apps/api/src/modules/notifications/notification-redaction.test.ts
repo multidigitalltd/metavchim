@@ -1,14 +1,16 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { incomingCallTitle, missedCallTitle, type Capability } from "@metavchim/shared";
+import {
+  incomingCallTitle,
+  missedCallTitle,
+  publicNotificationTitle,
+  type Capability,
+  type RedactableNotification,
+} from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { publicNotification } from "../telephony/telephony.service";
-import {
-  publicNotificationTitle,
-  redactUnauthorizedNotifications,
-  type RedactableNotification,
-} from "./notification-visibility";
+import { redactUnauthorizedNotifications } from "./notification-visibility";
 
 /**
  * ‎**התראה משרדית שנכתבה לפני שהגישה צומצמה** (ביקורת Codex, P1).
@@ -32,8 +34,23 @@ const MINE = "01CONTACTMINE000000000001";
 const THEIRS = "01CONTACTTHEIRS0000000001";
 
 const BUYERS = [{ contactId: MINE, ownerUserId: ME }];
+/**
+ * ‏שיחה שהעובד תמלל: אין לה `createdBy`, ולכן ההתראה עליה נכתבת
+ * ‏ברמת המשרד — עם תמצית השיחה בגוף.
+ */
+const CALLS: { id: string; contactId: string | null; leadId: string | null }[] = [
+  { id: "01CALLTHEIRS00000000000001", contactId: null, leadId: "01LEADTHEIRS00000000000001" },
+  { id: "01CALLMINE0000000000000001", contactId: MINE, leadId: null },
+  /*
+   * ‏שיחה ממספר לא מוכר פותחת **ליד**, לא לקוח — ולכן `contactId`
+   * ‏שלה ריק וההיתר נגזר דרך הליד. בלי הנפילה הזו כל שיחה כזו
+   * ‏נראית „בלי לקוח”, כלומר מצונזרת גם לסוכן שהיא שלו.
+   */
+  { id: "01CALLVIALEAD00000000001", contactId: null, leadId: "01LEADMINE0000000000000001" },
+];
 const LEADS: { id: string; contactId: string; assignedToUserId: string }[] = [
   { id: "01LEADTHEIRS00000000000001", contactId: THEIRS, assignedToUserId: OTHER },
+  { id: "01LEADMINE0000000000000001", contactId: MINE, assignedToUserId: ME },
 ];
 
 /*
@@ -85,6 +102,10 @@ const tx = {
   },
   property: { findMany: async () => [] },
   contactLink: { findMany: async () => [] },
+  call: {
+    findMany: async ({ where }: { where: { id: { in: string[] } } }) =>
+      CALLS.filter((row) => where.id.in.includes(row.id)),
+  },
 };
 
 function asUser<T>(capabilities: Capability[], fn: () => T): T {
@@ -146,22 +167,31 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
   });
 
   /*
-   * ‏שורה **אישית** אינה נבדקת: היא הגיעה לנמען שלה, וזה כבר
-   * ‏התנאי. צנזור שלה היה מרוקן את ההתראה של הסוכן על הלקוח שלו.
+   * ‎**וגם שורה אישית — „היה מיועד לך אז” אינו „מותר לך עכשיו”**
+   * ‏(ביקורת Codex, P1).
+   *
+   * ‏הניסוח הראשון פטר שורה אישית: „היא הגיעה לנמען שלה, וזה כבר
+   * ‏התנאי”. אבל הכרטיס עובר בעלות, והמודול נשלל — ואז ההתראה
+   * ‏הישנה נשארה פתוחה עם השם, הטלפון וקישור הטופס נושא־האסימון,
+   * ‏בזמן שכל נתיב אחר לאותו אדם כבר דוחה את הנמען. כל שאר השערים
+   * ‏כאן שואלים בהווה; זה היה היחיד שלא.
    */
-  it("שורה אישית עוברת גם כשהמצביע מחוץ להיקף", async () => {
+  it("גם שורה אישית מצונזרת כשהמצביע כבר מחוץ להיקף", async () => {
     const personal = { ...OFFICE_CALL, userId: ME };
-    /*
-     * ‏השורה המשרדית **חייבת** להיות ברשימה, ולא לבד: בלעדיה אין
-     * ‏עוגן כלל, הפונקציה חוזרת מוקדם, והבדיקה עוברת גם על מימוש
-     * ‏שמצנזר שורות אישיות. זה בדיוק מה שהרצת המוטציות חשפה כאן.
-     */
-    const rows = await asUser(SCOPED, () =>
-      redactUnauthorizedNotifications(tx as never, TENANT, [OFFICE_CALL, personal]),
+    const [row] = await asUser(SCOPED, () =>
+      redactUnauthorizedNotifications(tx as never, TENANT, [personal]),
     );
-    expect(rows[1]).toEqual(personal);
-    /* ‏ובאותה קריאה בדיוק — המשרדית כן מצונזרת */
-    expect(rows[0]?.entityId).toBeNull();
+    expect(row?.title).toBe(missedCallTitle(null, null));
+    expect(row?.entityId).toBeNull();
+  });
+
+  /* ‏והצד השני: שורה אישית על לקוח שכן בהיקף שלי נשארת שלמה */
+  it("ושורה אישית על הלקוח שלי עוברת במלואה", async () => {
+    const personal = { ...OFFICE_MINE, userId: ME };
+    const [row] = await asUser(SCOPED, () =>
+      redactUnauthorizedNotifications(tx as never, TENANT, [personal]),
+    );
+    expect(row).toEqual(personal);
   });
 
   /* ‏ושורה בלי מצביע — אין בה עוגן, וממילא אין בה זהות */
@@ -178,6 +208,69 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
       redactUnauthorizedNotifications(tx as never, TENANT, [system]),
     );
     expect(row).toEqual(system);
+  });
+
+  /*
+   * ‎**והתראת התמלול — מצביע `call`** (ביקורת Codex, P1).
+   *
+   * ‏העובד מתמלל ואין לו `createdBy`, ולכן ההתראה משרדית, והגוף
+   * ‏שלה **הוא** תמצית השיחה. כל עוד `call` לא היה בין העוגנים,
+   * ‏סוכן מוגבל קיבל את התמצית של שיחה עם לקוח שהוסתר ממנו.
+   *
+   * ‏השיחה נפתרת דרך הליד שלה כשאין לה `contactId` — וזה בדיוק
+   * ‏המצב הנפוץ: שיחה ממספר לא מוכר פותחת ליד, לא לקוח.
+   */
+  it("התראת תמלול על שיחה של עמית — התמצית יורדת", async () => {
+    const transcribed: RedactableNotification = {
+      userId: null,
+      type: "call_transcribed",
+      title: "📝 השיחה עם דנה כהן תומללה",
+      body: "הלקוחה מחפשת 4 חדרים ברמת גן, תקציב 2.4 מיליון",
+      entityType: "call",
+      entityId: CALLS[0]!.id,
+    };
+    const [row] = await asUser(SCOPED, () =>
+      redactUnauthorizedNotifications(tx as never, TENANT, [transcribed]),
+    );
+    expect(row?.body, "תמצית השיחה נשארה").toBeNull();
+    expect(row?.entityId).toBeNull();
+    expect(row?.title).not.toContain("דנה");
+  });
+
+  /*
+   * ‏והנפילה לליד היא זו שמחזיקה את המקרה הנפוץ: שיחה ממספר לא
+   * ‏מוכר פותחת ליד ולא לקוח, ובלעדיה גם השיחות של הסוכן עצמו
+   * ‏היו מצונזרות.
+   */
+  it("שיחה בלי לקוח נפתרת דרך הליד שלה — והיא של הסוכן", async () => {
+    const viaLead: RedactableNotification = {
+      userId: null,
+      type: "call_transcribed",
+      title: "📝 השיחה עם יוסי לוי תומללה",
+      body: "מחפש 3 חדרים",
+      entityType: "call",
+      entityId: CALLS[2]!.id,
+    };
+    const [row] = await asUser(SCOPED, () =>
+      redactUnauthorizedNotifications(tx as never, TENANT, [viaLead]),
+    );
+    expect(row).toEqual(viaLead);
+  });
+
+  /* ‏והצד השני: שיחה עם הלקוח שלי נשארת שלמה */
+  it("ותמלול של שיחה עם הלקוח שלי נשאר", async () => {
+    const mine: RedactableNotification = {
+      userId: null,
+      type: "call_transcribed",
+      title: "📝 השיחה עם יוסי לוי תומללה",
+      body: "מחפש 3 חדרים",
+      entityType: "call",
+      entityId: CALLS[1]!.id,
+    };
+    const [row] = await asUser(SCOPED, () =>
+      redactUnauthorizedNotifications(tx as never, TENANT, [mine]),
+    );
+    expect(row).toEqual(mine);
   });
 
   /*
@@ -296,5 +389,57 @@ describe("‏שער: אין דרך שנייה לקרוא התראה", () => {
        */
       expect(file.body.includes("redactUnauthorizedNotifications("), name).toBe(true);
     }
+  });
+});
+
+/**
+ * ‎**ושני ערוצי הדחיפה — הם אינם קוראים, הם שולחים** (ביקורת Codex, P1).
+ *
+ * ‏המסך מצנזר בקריאה, ובעובד יושבים שני סבבים ששולחים את אותן
+ * ‏שורות לטלפון: הוואטסאפ והדחיפה לדפדפן. השתקה, שעות שקט או חלון
+ * ‏סגור רק מאריכים את הפער — ההתראה ממתינה בתור ויוצאת אחרי
+ * ‏שהגישה כבר נשללה.
+ *
+ * ‏הטענה היא על **מה שנשלח**, לא על ניסוח מסוים: מה שנכנס לניסוח
+ * ‏ההודעה ולמטען הדחיפה חייב להיות התוצר של `redactNotification`.
+ */
+describe("‏שער: אין דחיפה בלי צנזורה", () => {
+  const WORKERS = readFileSync(
+    join(import.meta.dirname, "..", "..", "..", "..", "workers", "src", "main.ts"),
+    "utf8",
+  );
+
+  it("‏סבב הוואטסאפ מנסח מתוך שורות מצונזרות", () => {
+    expect(WORKERS).toContain(
+      "const items = queued.map((row) => redactNotification(row, allowed, anchorContacts));",
+    );
+    const at = WORKERS.indexOf("const message = formatNotifyMessage(items");
+    expect(at, "ניסוח ההודעה נעלם").toBeGreaterThan(0);
+    /* ‏והצנזורה קודמת לו, ולא אחריו */
+    expect(WORKERS.indexOf("redactNotification(row, allowed, anchorContacts)")).toBeLessThan(at);
+  });
+
+  it("‏והדחיפה לדפדפן בונה את המטען מתוך שורה מצונזרת", () => {
+    expect(WORKERS).toContain(
+      "const notification = redactNotification(raw, allowed, pushAnchors);",
+    );
+    const payload = WORKERS.indexOf("JSON.stringify(pushPayload(notification))");
+    expect(payload, "מטען הדחיפה נעלם").toBeGreaterThan(0);
+    expect(
+      WORKERS.indexOf("redactNotification(raw, allowed, pushAnchors)"),
+      "המטען נבנה לפני הצנזורה",
+    ).toBeLessThan(payload);
+    /* ‏ואין יותר בנייה מהשורה הגולמית */
+    expect(WORKERS).not.toContain("pushPayload(raw)");
+  });
+
+  /*
+   * ‏ושניהם שואלים **פר-נמען**: קבוצת לקוחות אחת לכל המשרד הייתה
+   * ‏מחזירה את אותה תשובה לסוכן ולמנהל.
+   */
+  it("‏הקבוצה נגזרת לכל נמען בנפרד", () => {
+    const perRecipient = [...WORKERS.matchAll(/visibleContactIdSet\(/gu)];
+    /* ‏הגדרה אחת ושתי קריאות — אחת בכל סבב */
+    expect(perRecipient.length).toBe(3);
   });
 });

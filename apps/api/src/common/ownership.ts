@@ -1,6 +1,13 @@
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { effectiveCapabilities, type Capability } from "@metavchim/shared";
+import {
+  contactIdsFromSources,
+  contactSourcesOf,
+  effectiveCapabilities,
+  seesAllContactsWith,
+  visibleContactFilters,
+  type Capability,
+} from "@metavchim/shared";
 import type { TenantTx } from "../core/prisma.service";
 import { TenantContext } from "./tenant-context";
 
@@ -289,17 +296,15 @@ export async function assertMatchAccess(
  *
  * לכן המקור עצמו נבדק, לא רק הבעלות: מודול חסום אינו תורם לקוחות.
  */
-export function contactSourcesOf(caps: ReadonlySet<Capability>): {
-  buyers: boolean;
-  leads: boolean;
-  properties: boolean;
-} {
-  return {
-    buyers: caps.has("buyers.view_own") || caps.has("buyers.view_all"),
-    leads: caps.has("leads.view_own") || caps.has("leads.view_all"),
-    properties: caps.has("properties.view"),
-  };
-}
+/*
+ * ‎**המדיניות עברה ל-`@metavchim/shared`** (ביקורת Codex, P1).
+ *
+ * ‏אותה שאלה נשאלת גם בסבב ההתראות של העובד, והוא אינו יכול
+ * ‏לייבא מכאן — ולכן „הגבול נאכף בקריאה” נעצר בגבול החבילה,
+ * ‏וההתראה יצאה בוואטסאפ עם מה שהמסך כבר הסתיר. הייצוא נשאר כאן
+ * ‏כדי ששלושים ושבעה הקוראים בשרת לא ישתנו.
+ */
+export { contactSourcesOf, seesAllContactsWith };
 
 function contactSources(): { buyers: boolean; leads: boolean; properties: boolean } {
   return contactSourcesOf(TenantContext.current().capabilities);
@@ -317,23 +322,6 @@ function contactSources(): { buyers: boolean; leads: boolean; properties: boolea
  * מהם והשאיר את השלישי מאחור (ביקורת Codex), וכך נפתחה הקלטה של
  * בעל נכס למי שמודול הנכסים חסום אצלו. ניסוח אחד, שלושה קוראים.
  */
-export function seesAllContactsWith(caps: ReadonlySet<Capability>): boolean {
-  return (
-    caps.has("buyers.view_all") &&
-    caps.has("leads.view_all") &&
-    contactSourcesOf(caps).properties &&
-    /*
-     * ‎**גם `properties.view_all`, ולא רק „המודול פתוח”.**
-     *
-     * ‏בלי זה הקיצור היה מנצח את הסינון החדש: סוכן עם כל הקונים וכל
-     * ‏הלידים אבל **בלי** כל הנכסים היה מקבל `null` — כלומר „אין מה
-     * ‏לסנן” — ורואה את בעלי הנכסים של כולם. קיצור שמחזיר יותר ממה
-     * ‏שהתנאי המלא מחזיר הוא באג שקט בדיוק בכיוון המסוכן.
-     */
-    caps.has("properties.view_all")
-  );
-}
-
 export function seesAllContacts(): boolean {
   return seesAllContactsWith(TenantContext.current().capabilities);
 }
@@ -918,69 +906,29 @@ export async function visibleContactIds(
   tx: TenantTx,
   tenantId: string,
 ): Promise<string[] | null> {
-  const sources = contactSources();
   if (seesAllContacts()) return null;
-
+  const ctx = TenantContext.current();
+  /*
+   * ‏התנאים עצמם מגיעים מהחבילה המשותפת כנתונים, וכל תהליך מריץ
+   * ‏אותם דרך ה-Prisma שלו. כך גם סבב ההתראות של העובד שואל את
+   * ‏אותה שאלה בלי לייבא מכאן — ובלי עותק שני של המדיניות.
+   */
+  const filters = visibleContactFilters(tenantId, ctx.userId, ctx.capabilities);
   const [buyers, leads, properties] = await Promise.all([
-    sources.buyers
-      ? tx.buyer.findMany({
-          where: {
-            tenantId,
-            deletedAt: null,
-            ...ownershipFilter("buyers.view_all", "ownerUserId"),
-          },
-          select: { contactId: true },
-        })
-      : [],
-    sources.leads
-      ? tx.lead.findMany({
-          where: { tenantId, ...leadOwnershipFilter() },
-          select: { contactId: true },
-        })
-      : [],
-    sources.properties
-      ? tx.property.findMany({
-          where: {
-            tenantId,
-            deletedAt: null,
-            OR: [{ ownerContactId: { not: null } }, { occupantContactId: { not: null } }],
-            /*
-             * ‎**גם הנכסים — לפי החלטת מנהל המשרד.**
-             *
-             * ‏עד כה הענף הזה היה חסר סינון: כל בעל נכס וכל דייר
-             * ‏במשרד נראו לכל מי שמודול הנכסים פתוח אצלו. יש משרדים
-             * ‏שזה נכון להם, ויש משרדים שבהם נכס שייך לסוכן שגייס
-             * ‏אותו — ועמית שמדבר עם הבעלים מאחורי גבו הוא בדיוק מה
-             * ‏שאסור.
-             *
-             * ‏לכן זו אינה הכרעה שלנו אלא של המשרד: `properties.view_all`
-             * ‏ניתנת כברירת מחדל לכל תפקיד שיש לו `properties.view`,
-             * ‏ומנהל שרוצה הפרדה חוסם אותה לסוכן במסך ההרשאות.
-             */
-            ...ownershipFilter("properties.view_all", "agentUserId"),
-          },
+    filters.buyers === null
+      ? []
+      : tx.buyer.findMany({ where: filters.buyers, select: { contactId: true } }),
+    filters.leads === null
+      ? []
+      : tx.lead.findMany({ where: filters.leads, select: { contactId: true } }),
+    filters.properties === null
+      ? []
+      : tx.property.findMany({
+          where: filters.properties,
           select: { ownerContactId: true, occupantContactId: true },
-        })
-      : [],
+        }),
   ]);
-
-  return [
-    ...new Set([
-      ...buyers.map((row) => row.contactId),
-      ...leads.map((row) => row.contactId),
-      /*
-       * שני התפקידים, ולכן `flatMap` ולא `map`: לנכס יכולים להיות
-       * בעלים **וגם** דייר, ושניהם אנשים שהמשרד רשאי לראות. סינון
-       * ה-`null` נעשה כאן ולא ב-`!`, כי עכשיו כל שורה יכולה להביא
-       * אפס, אחד או שניים.
-       */
-      ...properties.flatMap((row) =>
-        [row.ownerContactId, row.occupantContactId].filter(
-          (id): id is string => id !== null,
-        ),
-      ),
-    ]),
-  ];
+  return contactIdsFromSources(buyers, leads, properties);
 }
 
 /**

@@ -89,6 +89,8 @@ export * from "./logic/proximity.js";
 export * from "./logic/match-feedback.js";
 export * from "./logic/weight-calibration.js";
 export * from "./logic/capability-overrides.js";
+export * from "./logic/contact-visibility.js";
+export * from "./logic/notification-redaction.js";
 export * from "./logic/coupon.js";
 export * from "./logic/xlsx-import.js";
 export * from "./logic/telephony.js";

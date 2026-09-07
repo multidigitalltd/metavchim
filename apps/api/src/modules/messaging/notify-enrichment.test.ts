@@ -55,10 +55,14 @@ describe("העשרת ההתראות בעובד", () => {
   });
 
   it("היכולות של הכפתור והיכולות של הפרטים הן אותן יכולות", () => {
-    const build = WORKERS.slice(
-      WORKERS.indexOf("const capabilities = effectiveCapabilities("),
-      WORKERS.indexOf("if (recipients.size === 0) continue;"),
-    );
+    /*
+     * ‏הפרוסה על **הערך** ולא על הביטוי שמייצר אותו: החישוב עבר
+     * ‏לשאילתה אחת למשרד (`capabilitiesByUser`), והשער היה נשבר על
+     * ‏שינוי שאינו נוגע לטענה שלו.
+     */
+    const at = WORKERS.indexOf("      const capabilities = ");
+    expect(at, "חישוב היכולות פר-נמען נעלם").toBeGreaterThan(0);
+    const build = WORKERS.slice(at, WORKERS.indexOf("if (recipients.size === 0) continue;"));
     expect(build).toContain("allowedActionIds: allowedActionsFor(capabilities)");
     expect(build).toContain("capabilities: [...capabilities]");
   });

@@ -1,5 +1,12 @@
 import type { Prisma } from "@prisma/client";
-import { incomingCallTitle, missedCallTitle } from "@metavchim/shared";
+import {
+  callLeadIds,
+  notificationAnchor,
+  notificationAnchorIds,
+  notificationContactMap,
+  redactNotification,
+  type RedactableNotification,
+} from "@metavchim/shared";
 import { visibleContactIds } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import type { TenantTx } from "../../core/prisma.service";
@@ -18,20 +25,11 @@ import type { TenantTx } from "../../core/prisma.service";
  *
  * ## ‏ולמה לא די בתנאי
  *
- * ‎**שורה משרדית נכתבה כשהלקוח היה גלוי לכל המשרד** (ביקורת Codex,
- * ‏P1). כשמנהל שולל אחר כך `properties.view_all` מסוכן, הכתיבה
- * ‏מצנזרת מאותו רגע והלאה — והשורות **שכבר במסד** ממשיכות לשאת את
- * ‏שם הלקוח, את הטלפון, את המצביע, ולעיתים גם קישור טופס נושא־אסימון.
- * ‏`visible()` החזירה אותן כמות שהן לכל אנשי המשרד.
- *
- * ‏מיגרציה שמוחקת או משכתבת שורות ברגע השלילה הייתה **ביטוי שני**
- * ‏של אותו כלל: היא הייתה צריכה לרוץ מחדש בכל שינוי הרשאה, בכל
- * ‏העברת בעלות ובכל מחיקת כרטיס — ולפספס באחד מהם. הגבול נאכף
- * ‏בקריאה, שם הוא נשאל ממילא בכל פעם מחדש.
- *
- * ‏שורה משרדית **שנכתבה מצונזרת** אינה נושאת מצביע כלל, ולכן היא
- * ‏עוברת כאן בלי לגעת בה: אין בה למה לעגן את השאלה, ואין בה מה
- * ‏להסתיר.
+ * ‏שורה נכתבת פעם אחת ונקראת לנצח, והכתיבה מצנזרת לפי ההרשאות של
+ * ‏**רגע הכתיבה**. שלילת גישה, העברת בעלות ומחיקת כרטיס קורות
+ * ‏אחריה. הכלל עצמו יושב ב-`@metavchim/shared` כי יש לו שלושה
+ * ‏קוראים, ואחד מהם — סבב הוואטסאפ — רץ בתהליך העובד ואינו יכול
+ * ‏לייבא מכאן.
  */
 
 export function notificationVisibility(): Prisma.NotificationWhereInput {
@@ -40,120 +38,51 @@ export function notificationVisibility(): Prisma.NotificationWhereInput {
 }
 
 /**
- * ‎**הכותרת שנשארת כשאין הרשאה לתוכן.**
+ * ‎**התראה שמצביעה על אדם — רק למי שרשאי לראות אותו.**
  *
- * ‏אותן כותרות בדיוק שהכתיבה מייצרת כשהיא מצנזרת מראש
- * ‏(`publicNotification(true, …)`), ולכן שורה ישנה ושורה חדשה
- * ‏נראות זהות במסך — ובדיקה אוכפת את השוויון הזה, אחרת אלה שני
- * ‏ניסוחים של „איך נראית התראה בלי זהות”.
+ * ‏שורה בלי מצביע אינה נבדקת: אין בה עוגן, וממילא אין בה זהות. מי
+ * ‏שרואה את כל הלקוחות אינו משלם ולו שאילתה אחת — וזו ברירת המחדל
+ * ‏של כל תפקיד קיים, ולכן המסלול אינו נוגע במשרד שלא הפעיל הפרדה.
  *
- * ‎**וסוג שאינו בטבלה מקבל את הנוסח הכללי.** זו ברירת המחדל
- * ‏הזהירה: סוג חדש שיישכח כאן יאבד את הכותרת שלו למי שאינו רשאי,
- * ‏במקום לדלוף.
- */
-const PUBLIC_TITLES: Record<string, string> = {
-  incoming_call: incomingCallTitle(null, null),
-  call_missed: missedCallTitle(null, null),
-};
-
-export function publicNotificationTitle(type: string): string {
-  return PUBLIC_TITLES[type] ?? "התראה חדשה";
-}
-
-/**
- * ‏השדות שהצנזורה נוגעת בהם. כל קורא שולף את כולם — גם זיכרון
- * ‏הסוכן, שמשתמש במצביע בלבד — כדי שתהיה **צורה אחת** שעוברת
- * ‏בשער, ולא שתי דרכים לקרוא התראה.
- */
-export interface RedactableNotification {
-  userId: string | null;
-  type: string;
-  title: string;
-  body: string | null;
-  entityType: string | null;
-  entityId: string | null;
-}
-
-/** ‏המצביעים שמובילים לאדם. „נכס” אינו כאן — הוא אינו כרטיס לקוח. */
-const CONTACT_ANCHORS = new Set(["contact", "lead", "buyer"]);
-
-/**
- * ‎**התראה משרדית שמצביעה על אדם — רק למי שרשאי לראות אותו.**
- *
- * ‏שורה אישית אינה נבדקת: היא הגיעה לנמען שלה, וזה כבר התנאי.
- * ‏שורה משרדית בלי מצביע אינה נבדקת: אין בה עוגן, וממילא אין בה
- * ‏זהות. מה שנבדק הוא בדיוק החתך שדלף.
- *
- * ‏מי שרואה את כל הלקוחות (`visibleContactIds` מחזירה `null`) אינו
- * ‏משלם ולו שאילתה אחת — וזו ברירת המחדל של כל תפקיד קיים, ולכן
- * ‏המסלול הזה אינו נוגע במשרד שלא הפעיל הפרדה.
+ * ‏שאילתה אחת לכל סוג עוגן, ולא אחת לשורה.
  */
 export async function redactUnauthorizedNotifications<T extends RedactableNotification>(
   tx: TenantTx,
   tenantId: string,
   rows: readonly T[],
 ): Promise<T[]> {
-  const anchored = rows.filter(
-    (row) =>
-      row.userId === null &&
-      row.entityId !== null &&
-      row.entityType !== null &&
-      CONTACT_ANCHORS.has(row.entityType),
-  );
-  if (anchored.length === 0) return [...rows];
-
+  if (!rows.some((row) => notificationAnchor(row) !== null)) return [...rows];
   const allowed = await visibleContactIds(tx, tenantId);
   if (allowed === null) return [...rows];
   const allowedSet = new Set(allowed);
-
-  /*
-   * ‏המצביע אינו תמיד מזהה לקוח: „ליד” ו„קונה” הם כרטיסים שמובילים
-   * ‏אליו. שתי שאילתות לכל הרשימה, ולא אחת לשורה.
-   */
-  const idsOf = (kind: string): string[] => [
-    ...new Set(
-      anchored.filter((row) => row.entityType === kind).map((row) => row.entityId as string),
-    ),
-  ];
-  const leadIds = idsOf("lead");
-  const buyerIds = idsOf("buyer");
-  const [leads, buyers] = await Promise.all([
-    leadIds.length === 0
-      ? []
-      : tx.lead.findMany({
-          where: { tenantId, id: { in: leadIds } },
-          select: { id: true, contactId: true },
-        }),
+  const { leadIds, buyerIds, callIds } = notificationAnchorIds(rows);
+  const [buyers, calls] = await Promise.all([
     buyerIds.length === 0
       ? []
       : tx.buyer.findMany({
           where: { tenantId, id: { in: buyerIds } },
           select: { id: true, contactId: true },
         }),
+    callIds.length === 0
+      ? []
+      : tx.call.findMany({
+          where: { tenantId, id: { in: callIds } },
+          select: { id: true, contactId: true, leadId: true },
+        }),
   ]);
-  const contactOf = new Map<string, string | null>();
-  for (const row of leads) contactOf.set(`lead:${row.id}`, row.contactId);
-  for (const row of buyers) contactOf.set(`buyer:${row.id}`, row.contactId);
-
-  return rows.map((row) => {
-    if (row.userId !== null || row.entityId === null || row.entityType === null) return row;
-    if (!CONTACT_ANCHORS.has(row.entityType)) return row;
-    const contactId =
-      row.entityType === "contact"
-        ? row.entityId
-        : (contactOf.get(`${row.entityType}:${row.entityId}`) ?? null);
-    /*
-     * ‎**כרטיס שנעלם מצונזר גם הוא.** שורה שהמצביע שלה אינו מוביל
-     * ‏עוד לאדם אינה „בטוחה” — היא בדיוק השורה שאי אפשר לבדוק,
-     * ‏והכותרת שלה נשארה מלאה.
-     */
-    if (contactId !== null && allowedSet.has(contactId)) return row;
-    return {
-      ...row,
-      title: publicNotificationTitle(row.type),
-      body: null,
-      entityType: null,
-      entityId: null,
-    };
-  });
+  /*
+   * ‏הלידים נשלפים **אחרי** השיחות: שיחה ממספר לא מוכר נפתרת דרך
+   * ‏הליד שלה, וליד כזה אינו עוגן בעצמו. שליפה במקביל הייתה
+   * ‏מחמיצה אותו, וכל שיחה כזו הייתה נראית „בלי לקוח”.
+   */
+  const allLeadIds = [...new Set([...leadIds, ...callLeadIds(calls)])];
+  const leads =
+    allLeadIds.length === 0
+      ? []
+      : await tx.lead.findMany({
+          where: { tenantId, id: { in: allLeadIds } },
+          select: { id: true, contactId: true },
+        });
+  const contactOf = notificationContactMap(leads, buyers, calls);
+  return rows.map((row) => redactNotification(row, allowedSet, contactOf));
 }
