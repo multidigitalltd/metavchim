@@ -638,3 +638,71 @@ describe("‏שער: אין דחיפה בלי צנזורה", () => {
     expect(perRecipient.length).toBe(3);
   });
 });
+
+/**
+ * ‎**כרטיס בארכיון אינו נושא חי — בשני הצדדים** (ביקורת Codex, P2).
+ *
+ * ‏`BuyersService.archive` מסמן `deletedAt` בלבד, וכל קריאה רגילה
+ * ‏של קונה דורשת `deletedAt: null`. שתי השליפות שמרכיבות את נושאי
+ * ‏ההתראות לא דרשו, ולכן כרטיס ארכיוני נפתר כנושא חי: הבעלים
+ * ‏הקודם שעדיין רואה את הלקוח דרך ליד או נכס אחר עבר את האיחוד,
+ * ‏והכותרת, התמצית והקישור המת שרדו במקום להיצנזר.
+ *
+ * ‏שתי שליפות ולא אחת כי העובד אינו יכול לייבא מ-`@metavchim/api`.
+ * ‏זה שכפול מודע, וזה בדיוק סוג השכפול שבו תיקון נוחת בצד אחד.
+ */
+describe("‏נושא ההתראה — רק שורה חיה", () => {
+  /**
+   * ‎**הקריאה בלי ההערות שמעליה.**
+   *
+   * ‏ההערה שמסבירה את התיקון מכילה את המילים `deletedAt: null`
+   * ‏עצמן, ולכן הניסוח הראשון עבר על ההסבר במקום על הקוד — ושתי
+   * ‏המוטציות שרדו. אותו לקח בדיוק שכתוב בראש
+   * ‎`email-inbox-gates.test.ts`.
+   */
+  const strip = (source: string): string =>
+    source.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/^[ \t]*\/\/.*$/gmu, "");
+
+  const files = [
+    [
+      "api",
+      strip(
+        readFileSync(new URL("./notification-visibility.ts", import.meta.url), "utf8"),
+      ),
+    ],
+    [
+      "worker",
+      strip(
+        readFileSync(new URL("../../../../workers/src/main.ts", import.meta.url), "utf8"),
+      ),
+    ],
+  ] as const;
+
+  /**
+   * ‏הקריאה עצמה ולא „איפשהו בקטע”: הניסוח הראשון חיפש
+   * ‎`deletedAt: null` בטווח פתוח אחרי `tx.buyer.findMany`, ולכן
+   * ‏נתפס על `deletedAt` של שאילתה אחרת — ושתי המוטציות שרדו.
+   */
+  function buyerQuery(source: string, from: number): string {
+    const call = source.indexOf("tx.buyer.findMany(", from);
+    expect(call).toBeGreaterThan(-1);
+    const open = source.indexOf("{", call);
+    let depth = 0;
+    for (let i = open; i < source.length; i += 1) {
+      if (source[i] === "{") depth += 1;
+      else if (source[i] === "}") {
+        depth -= 1;
+        if (depth === 0) return source.slice(open, i + 1);
+      }
+    }
+    throw new Error("סוף הקריאה לא נמצא");
+  }
+
+  it("‏שתי השליפות של הקונה דורשות שורה חיה", () => {
+    for (const [name, source] of files) {
+      const at = source.indexOf("notificationAnchorIds(rows)");
+      expect(at, `${name}: הרכבת הנושאים לא נמצאה`).toBeGreaterThan(-1);
+      expect(buyerQuery(source, at), name).toContain("deletedAt: null");
+    }
+  });
+});

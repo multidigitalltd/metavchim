@@ -3483,7 +3483,15 @@ async function notificationAnchorSubjects(
       buyerIds.length === 0
         ? []
         : tx.buyer.findMany({
-            where: { tenantId, id: { in: buyerIds } },
+            /*
+             * ‎**וגם כאן `deletedAt: null`** — התאום של
+             * ‏`notification-visibility.ts`, וההסבר המלא שם.
+             *
+             * ‏העובד אינו יכול לייבא מ-`@metavchim/api`, ולכן שתי
+             * ‏השליפות האלה הן שכפול מודע — וזה בדיוק סוג השכפול
+             * ‏שבו תיקון נוחת בצד אחד בלבד.
+             */
+            where: { tenantId, id: { in: buyerIds }, deletedAt: null },
             select: { id: true, contactId: true, ownerUserId: true },
           }),
       callIds.length === 0

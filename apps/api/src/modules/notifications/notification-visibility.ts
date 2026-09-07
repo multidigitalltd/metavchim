@@ -70,7 +70,19 @@ export async function redactUnauthorizedNotifications<T extends RedactableNotifi
     buyerIds.length === 0
       ? []
       : tx.buyer.findMany({
-          where: { tenantId, id: { in: buyerIds } },
+          /*
+           * ‎**כרטיס שהועבר לארכיון אינו נושא חי** (ביקורת Codex, P2).
+           *
+           * ‏`BuyersService.archive` מסמן `deletedAt` בלבד, וכל קריאה
+           * ‏רגילה של קונה דורשת `deletedAt: null`. השליפה הזו לא, ולכן
+           * ‏הכרטיס הארכיוני נפתר כנושא חי: אם הבעלים הקודם עדיין רואה
+           * ‏את הלקוח דרך ליד או נכס אחר, האיחוד מאשר — והכותרת,
+           * ‏התמצית והקישור המת של הקונה שורדים במקום להיצנזר.
+           *
+           * ‏„לא נמצא” הוא בדיוק המצב ש-`redactNotification` כבר יודע
+           * ‏לטפל בו: עוגן שאינו נפתר מצונזר, ולא מוחזק כשורה בטוחה.
+           */
+          where: { tenantId, id: { in: buyerIds }, deletedAt: null },
           select: { id: true, contactId: true, ownerUserId: true },
         }),
     callIds.length === 0
