@@ -161,23 +161,34 @@ describe("מי קיבל את השיחה", () => {
  * ‏אינה נראית בשום בדיקה התנהגותית בלי מרכזייה אמיתית.
  */
 describe("שער: מי קיבל נקבע לפי מי שענה", () => {
-  it("השלוחה מנצחת את הניתוב בכתיבת שורת השיחה", () => {
+  /**
+   * ‎**שתי עובדות בטענה אחת, כי הן אותה הכרעה.**
+   *
+   * ‎1. ‏מי שענה מנצח את מי שאליו נותב.
+   * ‎2. ‏שלוחה שדווחה ו**לא זוהתה** אינה נופלת לניתוב (ביקורת
+   *    ‏Codex, P1): הנפילה הקודמת הפכה „איננו יודעים מי זה”
+   *    ‏ל„זו רותם”, וגם הסתירה את השלוחה שכן נצפתה — כי `toDto`
+   *    ‏מעדיף שם על פני שלוחה.
+   *
+   * ‏שתיהן נובעות מדבר אחד: **הענף נבחר לפי האם דווחה שלוחה**,
+   * ‏ולא לפי האם ההתאמה הצליחה.
+   *
+   * ‏הניסוח הקודם של השער בדק סדר בשרשרת `??` („הראשון מנצח”).
+   * ‏הוא היה נכון לצורה ההיא בלבד, ונשבר על התיקון הנכון — כלומר
+   * ‏היה מדד לצורת הקוד ולא לכלל. זה מודד את הכלל.
+   */
+  it("מי שענה מנצח, והניתוב הוא הנפילה רק כשלא דווחה שלוחה", () => {
     const source = readFileSync(
       join(__dirname, "..", "telephony", "telephony.service.ts"),
       "utf8",
     );
     const write = source.slice(source.indexOf("agentUserId:"), source.indexOf("agentExtension:"));
-    const answered = write.indexOf("answeredBy");
-    const routed = write.indexOf("assignedToUserId");
-    expect(answered, "‏מי שענה חייב להופיע בביטוי").toBeGreaterThanOrEqual(0);
-    expect(routed, "‏והניתוב הוא הנפילה").toBeGreaterThanOrEqual(0);
-    /*
-     * ‎**סדר ולא נוכחות.** הניסוח הראשון כאן בדק ש-`answeredBy?.id`
-     * ‏מופיע לפני `??` — וזה נכון **גם** בשרשרת ההפוכה, שבה הוא
-     * ‏האופרנד השני. מוטציה שהפכה את הסדר עברה את השער בשקט. בשרשרת
-     * ‏`??` הראשון הוא המנצח, ולכן זו הטענה: מי שענה נשאל **לפני**
-     * ‏מי שאליו נותב.
-     */
-    expect(answered, "‏מי שענה נשאל לפני מי שאליו נותב").toBeLessThan(routed);
+    /* ‏הענף נבחר לפי „האם דווחה שלוחה”, ולא לפי „האם ההתאמה הצליחה” */
+    expect(write, "‏התנאי הוא על השלוחה עצמה").toMatch(/extension === ""/u);
+    const branch = write.indexOf('extension === ""');
+    const routedAt = write.indexOf("assignedToUserId");
+    const answeredAt = write.indexOf("answeredBy");
+    expect(branch, "‏התנאי קודם לשני הענפים").toBeLessThan(routedAt);
+    expect(routedAt, "‏הניתוב בענף „אין שלוחה”").toBeLessThan(answeredAt);
   });
 });
