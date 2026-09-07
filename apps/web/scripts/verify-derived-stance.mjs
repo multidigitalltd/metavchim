@@ -208,5 +208,49 @@ if (urlBuilders !== 1) {
   console.log(`✓ ${BUYERS_LIST}`);
 }
 
+/**
+ * ‎**והסוג הישן אינו מוצע יותר כבחירה** (ביקורת Codex, P1).
+ *
+ * ‎`shared_tabu` אינו סוג מבנה אלא עובדה משפטית, וכל עוד הוא הופיע
+ * ‏בבורר, מתווך שבחר בו והשאיר את התיבה החדשה ריקה שלח
+ * ‏`propertyType: "shared_tabu"` יחד עם `sharedTabu: false` —
+ * ‏ו-`fieldsToColumns` קורא את הצירוף כ„פרישת הייצוג הישן”, כלומר
+ * ‏מוחק את שניהם. הסיווג שנבחר נעלם בשקט.
+ *
+ * ‏בעריכה של שורה שכבר נושאת אותו הוא **חייב** להישאר, אחרת
+ * ‏`defaultValue` לא מתאים לשום אפשרות והבורר נופל לראשונה —
+ * ‏כלומר שמירה סתמית משנה את הסוג. לכן `keep`, ולכן רק שם.
+ */
+const TYPE_OPTIONS = join(import.meta.dirname, "..", "src", "app", "property-type-options.tsx");
+const typeOptions = readFileSync(TYPE_OPTIONS, "utf8");
+if (!/option\.value !== SHARED_TABU_PROPERTY_TYPE \|\| keep === SHARED_TABU_PROPERTY_TYPE/u.test(typeOptions)) {
+  console.error(`✗ ${TYPE_OPTIONS}: הסוג הישן מוצע שוב כבחירה`);
+  failed = true;
+} else {
+  console.log(`✓ ${TYPE_OPTIONS}`);
+}
+
+/** ‏ורק מסך העריכה מוסר `keep` — מסכי היצירה אינם רשאים. */
+const KEEP_USERS = [
+  [["app", "properties", "[id]", "edit", "page.tsx"], true],
+  [["app", "properties", "new", "page.tsx"], false],
+  [["app", "leads", "convert-sections.tsx"], false],
+];
+for (const [parts, expected] of KEEP_USERS) {
+  const file = join(import.meta.dirname, "..", "src", ...parts);
+  const body = readFileSync(file, "utf8");
+  const passes = /<PropertyTypeOptions\s+keep=/u.test(body);
+  if (passes !== expected) {
+    console.error(
+      expected
+        ? `✗ ${file}: הבורר אינו שומר את הערך השמור — שמירה תשנה את הסוג בשקט`
+        : `✗ ${file}: מסך יצירה אינו רשאי להציע את הסוג הישן`,
+    );
+    failed = true;
+  } else {
+    console.log(`✓ ${file}`);
+  }
+}
+
 if (failed) process.exit(1);
 console.log("מסכי הטאבו המשותף מסכימים עם השרת.");

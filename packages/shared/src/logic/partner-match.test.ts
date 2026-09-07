@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  PARTNER_CANDIDATE_MAX,
   PARTNER_PAIR_LIMIT,
   partnerPairs,
   splitShares,
@@ -158,6 +159,58 @@ describe("partnerPairs — מי נכנס", () => {
     const ids = pairs[0]!.partners.map((p) => p.buyerId);
     expect(ids).toContain("C");
     expect(ids.some((id) => id.startsWith("dup-"))).toBe(true);
+  });
+
+  /*
+   * ‎**והתקרה סוגרת את הדלת רק לזהות חדשה** (ביקורת Codex, P2).
+   *
+   * ‏`break` עצר את הלולאה כולה ברגע שהתמלאו שישים הזהויות, ולכן
+   * ‏גם כרטיס נוסף של מי ש**כבר בפנים** לא הגיע להשוואה. ההערה
+   * ‏מעל `byIdentity` מבטיחה במפורש שכרטיס כזה „מחליף את הקודם אם
+   * ‏הוא שימושי יותר לשותפות” — וה-`break` ביטל את החצי הזה.
+   *
+   * ‏שישים לקוחות דלים ממלאים את התקרה; לשניים מהם יש כרטיס שני,
+   * ‏מאוחר יותר ברשימה, שבו התקציב מספיק. עם `break` התשובה הייתה
+   * ‏„אין שותפויות” — על צמד שקיים.
+   */
+  it("כרטיס מאוחר של מי שכבר בתקרה עדיין מחליף את החלש", () => {
+    const fillers: PartnerCandidate[] = Array.from(
+      { length: PARTNER_CANDIDATE_MAX },
+      (_, index) => ({
+        buyerId: `thin-${String(index).padStart(2, "0")}`,
+        /* ‏10 מיליון אגורות — שני כאלה יחד רחוקים מהמחיר */
+        requirements: buyer(10_000_000),
+        partnerKey: `person-${String(index).padStart(2, "0")}`,
+      }),
+    );
+    const pairs = partnerPairs(PROPERTY, [
+      ...fillers,
+      { buyerId: "late-a", requirements: buyer(100_000_000), partnerKey: "person-00" },
+      { buyerId: "late-b", requirements: buyer(100_000_000), partnerKey: "person-01" },
+    ]);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]!.partners.map((p) => p.buyerId).sort()).toEqual(["late-a", "late-b"]);
+  });
+
+  /*
+   * ‏והצד השני, שבלעדיו „בטל את התקרה” היה עובר: זהות **חדשה**
+   * ‏מעבר לתקרה עדיין אינה נכנסת.
+   */
+  it("אבל זהות חדשה מעבר לתקרה אינה נכנסת", () => {
+    const fillers: PartnerCandidate[] = Array.from(
+      { length: PARTNER_CANDIDATE_MAX },
+      (_, index) => ({
+        buyerId: `thin-${String(index).padStart(2, "0")}`,
+        requirements: buyer(10_000_000),
+        partnerKey: `person-${String(index).padStart(2, "0")}`,
+      }),
+    );
+    const pairs = partnerPairs(PROPERTY, [
+      ...fillers,
+      { buyerId: "new-a", requirements: buyer(100_000_000), partnerKey: "person-new-a" },
+      { buyerId: "new-b", requirements: buyer(100_000_000), partnerKey: "person-new-b" },
+    ]);
+    expect(pairs).toEqual([]);
   });
 
   it("בלי מפתח זהות כל כרטיס עומד בפני עצמו", () => {

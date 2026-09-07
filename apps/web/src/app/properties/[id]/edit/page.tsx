@@ -316,7 +316,8 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
               <label htmlFor="propertyType" className="mb-1 block font-medium">סוג נכס</label>
               <select id="propertyType" name="propertyType" defaultValue={property.propertyType ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>
                 <option value="">לא נבחר</option>
-                <PropertyTypeOptions />
+                {/* ‏הערך השמור נשאר בבורר — ראו `keep` */}
+                <PropertyTypeOptions keep={property.propertyType} />
               </select>
             </div>
             <div>

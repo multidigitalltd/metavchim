@@ -260,8 +260,26 @@ export function partnerPairs(
   };
   for (const candidate of candidates) {
     const identity = candidate.partnerKey ?? candidate.buyerId;
-    /* ‏התקרה נספרת בזהויות, ולכן כרטיס כפול אינו תופס בה מקום */
-    if (byIdentity.size >= PARTNER_CANDIDATE_MAX) break;
+    /*
+     * ‎**התקרה נספרת בזהויות — והיא סוגרת את הדלת רק לזהות חדשה**
+     * ‏(ביקורת Codex, P2).
+     *
+     * ‏`break` עצר את הלולאה כולה, ולכן ברגע שהתמלאו שישים הזהויות
+     * ‏גם **כרטיס נוסף של מי שכבר בפנים** לא הגיע ל-`better()`.
+     * ‏הרשימה ממוינת לפי תקציב ואז מזהה, ולכן כרטיס שני באותו
+     * ‏תקציב עם התאמה טובה יותר לנכס מופיע מאוחר יותר — ומעולם
+     * ‏לא החליף את החלש. הציון של אותו אדם נשאר נמוך מהאמת, וצמד
+     * ‏שלו נדחק מעשרת המובילים.
+     *
+     * ‏זו בדיוק הכוונה שכתובה מעל `byIdentity`: „כרטיס נוסף של מי
+     * ‏שכבר בפנים אינו תופס מקום, והוא מחליף את הקודם רק אם הוא
+     * ‏שימושי יותר”. ה-`break` ביטל את החצי השני שלה.
+     *
+     * ‏העלות חסומה ממילא: הקורא מביא לכל היותר
+     * ‏`PARTNER_CANDIDATE_ROW_CAP` שורות, ואחרי התקרה רק כפילויות
+     * ‏של שישים הזהויות מגיעות לניקוד.
+     */
+    if (byIdentity.size >= PARTNER_CANDIDATE_MAX && !byIdentity.has(identity)) continue;
     const req = candidate.requirements;
     const budget = req.budgetMaxAgorot;
     /*
