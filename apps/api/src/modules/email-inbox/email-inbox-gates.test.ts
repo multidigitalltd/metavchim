@@ -426,3 +426,146 @@ describe("‏עוגן ההרשאה של ההתראות בתיבה", () => {
     }
   });
 });
+
+/**
+ * ‎**תג הכרטיס — „ידוע” ולא „סביר”.**
+ *
+ * ‏התכונה הזאת מסוכנת דווקא כשהיא עובדת כמעט תמיד: תג שגוי נראה
+ * ‏בדיוק כמו תג נכון, והסוכן פועל לפיו. לכן הכלל היחיד הוא שהתג
+ * ‏נכתב **רק** משתי עובדות שנשמרו — הכרטיס ששלח, והטוקן שהתשובה
+ * ‏חזרה דרכו — ולעולם לא מחיפוש בדיעבד.
+ *
+ * ‏השערים כאן שומרים על הצד שאין לו בדיקה התנהגותית זולה: שקליטת
+ * ‏הנכנס יורשת מהטוקן, ושאין בקובץ שום מסלול שגוזר כרטיס אחרת.
+ */
+describe("‏תג הכרטיס בתיבה", () => {
+  const INBOUND = method(SERVICE, "async processInbound(");
+
+  it("‏הטוקן נקרא עם עמודות הכרטיס", () => {
+    expect(INBOUND).toContain("cardKind: true");
+    expect(INBOUND).toContain("cardId: true");
+  });
+
+  /* ‏זו כל התכונה: ההודעה שהסוכן קורא היא זו שאין בה רמז */
+  it("‏וההודעה הנכנסת יורשת אותן מהטוקן", () => {
+    expect(INBOUND).toContain("cardKind: mapping.cardKind");
+    expect(INBOUND).toContain("cardId: mapping.cardId");
+  });
+
+  /*
+   * ‎**ואין מסלול שני שממציא כרטיס.** הפיתוי הברור הוא „מצא את
+   * ‏הקונה של הלקוח הזה” — נכון לרוב הלקוחות, ושגוי בדיוק אצל מי
+   * ‏שיש לו שניים. `contactOwner` ו-`inboundInteractionParent` הם
+   * ‏הכרעת **הבעלות** (למי להתריע), לא „על מה ההודעה”, ואסור
+   * ‏שהתג יישאב מהם.
+   */
+  it("‏התג אינו נגזר מהכרעת הבעלות", () => {
+    /*
+     * ‏השורה הנכתבת בלבד, ולא כל שארית המתודה: ההתראה שאחריה כן
+     * ‏נשענת על הכרעת הבעלות — וזה נכון, כי „למי להתריע” היא
+     * ‏באמת שאלה של בעלות. הטענה היא על **מה שנכתב בשורה**.
+     */
+    const at = INBOUND.indexOf("emailMessage.createMany");
+    expect(at, "‏הכתיבה לא נמצאה").toBeGreaterThan(-1);
+    const row = INBOUND.slice(at, INBOUND.indexOf("skipDuplicates", at));
+    expect(row).not.toContain("owner");
+    expect(row).not.toContain("buyerId");
+    /* ‏ומה שכן — הטוקן */
+    expect(row).toContain("mapping.cardKind");
+  });
+
+  /*
+   * ‏ותשובה מהתיבה יוצאת **בלי** כרטיס במפורש. הסוכן משיב לשיחה
+   * ‏ולא מכרטיס, וירושה מהטוקן האחרון הייתה מחזירה את הניחוש
+   * ‏מהדלת האחורית.
+   */
+  it("‏תשובת התיבה נשלחת בלי כרטיס, במפורש", () => {
+    expect(SERVICE).toContain("this.replyAddressFor(tenantId, contactId, actingUserId(), null)");
+  });
+
+  /* ‏והמסך קורא את שתי העמודות דרך העוזר המשותף בלבד */
+  it("‏המיפוי לתשובה עובר דרך `emailCardTag`", () => {
+    expect(SERVICE).toContain("emailCardTag(row.cardKind, row.cardId)");
+  });
+
+  it("‏והמסך מציג את התג כקישור לכרטיס", () => {
+    expect(INBOX_PAGE).toContain("emailCardHref(message.card)");
+    expect(INBOX_PAGE).toContain("emailCardLabel(message.card.kind)");
+  });
+
+  /**
+   * ‎**וכל שלושת סוגי הכרטיס נבדקים בבעלות — לא רק במשרד.**
+   *
+   * ‏זו בדיוק הביקורת שכבר תוקנה כאן על הקישור לכרטיס הקונה
+   * ‏(P2): שער הלקוח הוא איחוד, ולכן שיחה שנפתחה דרך הליד שלי
+   * ‏יכולה להיות עם לקוח שיש עליו גם כרטיס של עמית. תג משרדי היה
+   * ‏מגלה את קיומו ומוביל ל-404 — אותה תקלה, שלוש פעמים.
+   */
+  const THREAD = method(SERVICE, "async thread(");
+
+  /*
+   * ‎**קונה וליד — בעלות; נכס — היכולת** (ביקורת Codex, P2).
+   *
+   * ‏רשימות הקונים והלידים מסוננות בבעלות, ולכן תג משרדי עליהן
+   * ‏היה מגלה כרטיס של עמית. רשימת הנכסים **משרדית בכוונה**,
+   * ‏ו-`getById` מסנן לפי דייר ומחיקה בלבד — ולכן מסנן בעלות
+   * ‏כאן היה מסתיר תג לנכס שהסוכן יכול לפתוח, ובכיוון ההפוך
+   * ‏מציג תג למי שמודול הנכסים כבוי אצלו.
+   */
+  it("‏קונה וליד נשלפים עם מסנן בעלות", () => {
+    expect(THREAD).toContain('ownershipFilter("buyers.view_all", "ownerUserId")');
+    expect(THREAD).toContain("leadOwnershipFilter()");
+  });
+
+  it("‏והנכס נבדק ביכולת, כמו מסך הנכס עצמו", () => {
+    expect(THREAD).toContain('capabilities.has("properties.view")');
+    expect(THREAD).toContain("!canSeeProperties");
+    /* ‏ולא במסנן בעלות, שהיה מחמיר מהמסך */
+    expect(THREAD).not.toContain('ownershipFilter("properties.view_all"');
+  });
+
+  /* ‏ומחוק אינו „נראה”: תג אל כרטיס שנמחק הוא קישור שבור */
+  it("‏והמחוקים יוצאים מהשליפה", () => {
+    const buyers = THREAD.slice(THREAD.indexOf("tx.buyer.findMany"));
+    expect(buyers.slice(0, 300)).toContain("deletedAt: null");
+    const properties = THREAD.slice(THREAD.indexOf("tx.property.findMany"));
+    expect(properties.slice(0, 300)).toContain("deletedAt: null");
+  });
+
+  /*
+   * ‎**והתצוגה מותנית בתוצאה, לא רק בקיום התג.** בלי זה השליפה
+   * ‏רצה ואיש אינו קורא אותה — הצורה הכי שקטה שבה בדיקת הרשאה
+   * ‏מפסיקה להגן.
+   */
+  it("‏והמיפוי מסנן לפי מה שנראה", () => {
+    expect(THREAD).toContain("!visible[card.kind].has(card.id)");
+  });
+
+  /* ‏ובלי תגים אין שאילתה נוספת — התיבה נפתחת באותו מחיר */
+  it("‏שיחה בלי תגים אינה משלמת בשאילתות", () => {
+    expect(THREAD).toContain("buyerIds.length === 0");
+    expect(THREAD).toContain("leadIds.length === 0");
+    expect(THREAD).toContain("propertyIds.length === 0");
+  });
+});
+
+/**
+ * ‎**מנה עם שני קונים אינה מתויגת.**
+ *
+ * ‏שלושת הקוראים של `deliver` מקבצים לפי קונה, ולכן „הקונה של
+ * ‏השורה הראשונה” נכון היום. „נכון היום” אינו כלל: זו מוסכמה בין
+ * ‏שלושה מקומות, ומספיק שאחד ישתנה כדי שהתג יהיה שגוי בשקט.
+ * ‏הבדיקה היא שהקוד **בודק** ולא **מניח**.
+ */
+describe("‏תג הקונה במייל ההצעות", () => {
+  const OFFERS = read("../offers/offer-email.service.ts");
+
+  it("‏הקונה נגזר מכל השורות, לא מהראשונה", () => {
+    expect(OFFERS).toContain("new Set(rows.map((row) => row.buyerId))");
+  });
+
+  it("‏ומנה שאינה מסכימה על קונה אחד יוצאת בלי תג", () => {
+    expect(OFFERS).toContain("buyerIds.size === 1");
+    expect(OFFERS).toContain("onlyBuyer === undefined ? null :");
+  });
+});

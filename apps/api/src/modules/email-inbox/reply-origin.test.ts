@@ -25,6 +25,8 @@ const CONTACT = "01CONTACTAAAAAAAAAAAAAAAAA";
 const AGENT_A = "01AGENTAAAAAAAAAAAAAAAAAAA";
 const AGENT_B = "01AGENTBBBBBBBBBBBBBBBBBBB";
 const BUYER_A = "01BUYERAAAAAAAAAAAAAAAAAAA";
+const BUYER_B = "01BUYERBBBBBBBBBBBBBBBBBBB";
+const PROPERTY_X = "01PROPERTYXXXXXXXXXXXXXXXX";
 
 /** ‏לקוח שיש עליו כרטיס קונה של א׳, ונכס שהסוכן שלו הוא ב׳. */
 const SOURCES: ContactOwnerSources = {
@@ -202,6 +204,8 @@ describe("‏הטוקן נבחר לפי הלקוח **והשולח**", () => {
     tenantId: string;
     contactId: string;
     sentByUserId: string | null;
+    cardKind: string | null;
+    cardId: string | null;
   }
 
   /** ‏טבלת הטוקנים בזיכרון — עם ה-`where` שהקוד באמת בונה. */
@@ -243,27 +247,87 @@ describe("‏הטוקן נבחר לפי הלקוח **והשולח**", () => {
 
   it("‏כל שולח מקבל טוקן משלו על אותו לקוח", async () => {
     const { service, rows } = serviceWithTokens();
-    const forB = await service.replyAddressFor(TENANT, CONTACT, AGENT_B);
-    const forA = await service.replyAddressFor(TENANT, CONTACT, AGENT_A);
+    const forB = await service.replyAddressFor(TENANT, CONTACT, AGENT_B, null);
+    const forA = await service.replyAddressFor(TENANT, CONTACT, AGENT_A, null);
     expect(forB).not.toBe(forA);
     expect(rows.map((row) => row.sentByUserId)).toEqual([AGENT_B, AGENT_A]);
   });
 
   it("‏ואותו שולח מקבל את הטוקן שלו בחזרה", async () => {
     const { service, rows } = serviceWithTokens();
-    const first = await service.replyAddressFor(TENANT, CONTACT, AGENT_B);
-    await service.replyAddressFor(TENANT, CONTACT, AGENT_A);
-    expect(await service.replyAddressFor(TENANT, CONTACT, AGENT_B)).toBe(first);
+    const first = await service.replyAddressFor(TENANT, CONTACT, AGENT_B, null);
+    await service.replyAddressFor(TENANT, CONTACT, AGENT_A, null);
+    expect(await service.replyAddressFor(TENANT, CONTACT, AGENT_B, null)).toBe(first);
     expect(rows).toHaveLength(2);
   });
 
   /* ‏שליחה אוטומטית אין לה סוכן, ולכן גם לה טוקן משלה */
   it("‏ושליחה בלי סוכן אינה יורשת טוקן של אדם", async () => {
     const { service, rows } = serviceWithTokens();
-    await service.replyAddressFor(TENANT, CONTACT, AGENT_B);
-    const auto = await service.replyAddressFor(TENANT, CONTACT, null);
-    expect(auto).not.toBe(await service.replyAddressFor(TENANT, CONTACT, AGENT_B));
+    await service.replyAddressFor(TENANT, CONTACT, AGENT_B, null);
+    const auto = await service.replyAddressFor(TENANT, CONTACT, null, null);
+    expect(auto).not.toBe(await service.replyAddressFor(TENANT, CONTACT, AGENT_B, null));
     expect(rows.filter((row) => row.sentByUserId === null)).toHaveLength(1);
+  });
+
+  /**
+   * ‎**והכרטיס הוא ממד שלישי של אותה זהות** — ומאותו נימוק בדיוק.
+   *
+   * ‏אותו סוכן שולח לאותו לקוח הצעה על כרטיס הקונה, ואחר כך הסכם
+   * ‏על נכס. בלי הכרטיס בחיפוש, השליחה השנייה הייתה מוצאת את
+   * ‏הטוקן של הראשונה — והתשובה על ההסכם הייתה מתויגת „קונה”.
+   */
+  it("‏אותו שולח על שני כרטיסים מקבל שני טוקנים", async () => {
+    const { service, rows } = serviceWithTokens();
+    const onBuyer = await service.replyAddressFor(TENANT, CONTACT, AGENT_B, {
+      kind: "buyer",
+      id: BUYER_A,
+    });
+    const onProperty = await service.replyAddressFor(TENANT, CONTACT, AGENT_B, {
+      kind: "property",
+      id: PROPERTY_X,
+    });
+    expect(onBuyer).not.toBe(onProperty);
+    expect(rows.map((row) => row.cardKind)).toEqual(["buyer", "property"]);
+    expect(rows.map((row) => row.cardId)).toEqual([BUYER_A, PROPERTY_X]);
+  });
+
+  it("‏ואותו כרטיס מקבל את הטוקן שלו בחזרה", async () => {
+    const { service, rows } = serviceWithTokens();
+    const card = { kind: "buyer", id: BUYER_A } as const;
+    const first = await service.replyAddressFor(TENANT, CONTACT, AGENT_B, card);
+    expect(await service.replyAddressFor(TENANT, CONTACT, AGENT_B, card)).toBe(first);
+    expect(rows).toHaveLength(1);
+  });
+
+  /*
+   * ‎**ושליחה בלי כרטיס אינה יורשת טוקן של כרטיס.** אחרת תשובה
+   * ‏מהתיבה (שאין לה כרטיס, בכוונה) הייתה מקבלת את התג של ההצעה
+   * ‏האחרונה — כלומר בדיוק הניחוש שנמנע במסלול הכתיבה.
+   */
+  it("‏שליחה בלי כרטיס אינה יורשת טוקן מתויג", async () => {
+    const { service, rows } = serviceWithTokens();
+    const tagged = await service.replyAddressFor(TENANT, CONTACT, AGENT_B, {
+      kind: "buyer",
+      id: BUYER_A,
+    });
+    const untagged = await service.replyAddressFor(TENANT, CONTACT, AGENT_B, null);
+    expect(untagged).not.toBe(tagged);
+    expect(rows.filter((row) => row.cardKind === null)).toHaveLength(1);
+  });
+
+  /* ‏ושני כרטיסים מאותו סוג הם שני כרטיסים — לא „סוג” בלבד */
+  it("‏שני קונים שונים אינם חולקים טוקן", async () => {
+    const { service } = serviceWithTokens();
+    const one = await service.replyAddressFor(TENANT, CONTACT, AGENT_B, {
+      kind: "buyer",
+      id: BUYER_A,
+    });
+    const two = await service.replyAddressFor(TENANT, CONTACT, AGENT_B, {
+      kind: "buyer",
+      id: BUYER_B,
+    });
+    expect(one).not.toBe(two);
   });
 });
 

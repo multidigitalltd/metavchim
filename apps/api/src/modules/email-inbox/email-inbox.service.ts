@@ -11,13 +11,17 @@ import {
   inboundToken,
   replyAddressFor,
   safeAttachmentName,
+  emailCardTag,
   whatsappTemplateParams,
+  type EmailCardKind,
+  type EmailCardTag,
   type InboundEmailPayload,
 } from "@metavchim/shared";
 import {
   assertContactAccess,
   replyRecipient,
   type ContactOwner,
+  leadOwnershipFilter,
   ownershipFilter,
   visibleContactIds,
 } from "../../common/ownership";
@@ -77,6 +81,14 @@ export interface InboxMessageDto {
   fromEmail?: string;
   readAt: Date | null;
   createdAt: Date;
+  /**
+   * ‎**באיזה כרטיס ההודעה עוסקת — כשזה ידוע.**
+   *
+   * ‏החוט נשאר לפי אדם; זה תג על ההודעה הבודדת, שעונה על „על מה
+   * ‏זה”. נעדר כשלא ידוע — ומייל נכנס שאינו תשובה לשליחה מהמערכת
+   * ‏באמת לא ידוע, ולכן זה המצב הנפוץ ולא חריג.
+   */
+  card?: EmailCardTag;
   attachments: InboxAttachmentDto[];
 }
 
@@ -227,24 +239,42 @@ export class EmailInboxService {
      * ‎`null` — שליחה אוטומטית שאין לה סוכן.
      */
     sentByUserId: string | null,
+    /**
+     * ‎**הכרטיס שבגינו נשלח — פרמטר חובה, ובכוונה.**
+     *
+     * ‏הוא יכול היה להיות רשות עם ברירת מחדל `null`, וזה היה עובד
+     * ‏היום: ארבעת הקוראים הקיימים היו ממשיכים לעבוד, וקורא חמישי
+     * ‏היה יורש „בלי כרטיס” בלי שאיש התכוון. כפרמטר חובה המהדר
+     * ‏מכריח כל קורא להחליט מה הוא **באמת** יודע.
+     *
+     * ‎`null` = אין כרטיס, ואומרים זאת במפורש.
+     */
+    card: EmailCardTag | null,
   ): Promise<string | null> {
     const config = await this.inboundConfig();
     if (config === null) return null;
     /*
      * לכרטיס יכולים להיות כמה טוקנים — מיזוג כפילויות מעביר את
      * הטוקנים של הכפיל לשורד, וכולם ממשיכים לפעול. שליחה חדשה
-     * משתמשת בוותיק **של אותו שולח**; מרוץ בין שתי שליחות מנפיק
-     * שניים, ושניהם תקפים — כפילות כאן זולה מהתנגשות.
+     * משתמשת בוותיק **של אותו שולח ואותו כרטיס**; מרוץ בין שתי
+     * שליחות מנפיק שניים, ושניהם תקפים — כפילות כאן זולה מהתנגשות.
+     *
+     * ‎**הכרטיס בחיפוש ולא רק בכתיבה.** בלעדיו טוקן שהונפק להצעה
+     * ‏היה נמצא ומשמש גם לשליחת ההסכם, והתשובה על ההסכם הייתה
+     * ‏מתויגת כהצעה — כלומר תיוג שגוי שנראה סמכותי, בדיוק מה
+     * ‏שהתכונה הזאת אמורה למנוע.
      */
+    const cardKind = card?.kind ?? null;
+    const cardId = card?.id ?? null;
     const existing = await this.prisma.emailReplyToken.findFirst({
-      where: { tenantId, contactId, sentByUserId },
+      where: { tenantId, contactId, sentByUserId, cardKind, cardId },
       orderBy: { createdAt: "asc" },
       select: { id: true },
     });
     if (existing !== null) return replyAddressFor(config.address, existing.id);
     const id = ulid();
     await this.prisma.emailReplyToken.create({
-      data: { id, tenantId, contactId, sentByUserId },
+      data: { id, tenantId, contactId, sentByUserId, cardKind, cardId },
     });
     return replyAddressFor(config.address, id);
   }
@@ -258,7 +288,13 @@ export class EmailInboxService {
     if (token === null) return;
     const mapping = await this.prisma.emailReplyToken.findUnique({
       where: { id: token },
-      select: { tenantId: true, contactId: true, sentByUserId: true },
+      select: {
+        tenantId: true,
+        contactId: true,
+        sentByUserId: true,
+        cardKind: true,
+        cardId: true,
+      },
     });
     if (mapping === null) {
       this.logger.warn("תשובת אימייל עם טוקן לא מוכר — דולגה");
@@ -333,6 +369,20 @@ export class EmailInboxService {
             body,
             fromEmail: payload.From.slice(0, 320) || null,
             providerMessageId: inboundProviderMessageId(payload),
+            /*
+             * ‎**התג מגיע מהטוקן, ולא מחיפוש כאן.**
+             *
+             * ‏זו הנקודה שבה התיוג מרוויח את קיומו: התשובה הנכנסת
+             * ‏היא ההודעה שהסוכן קורא, והיא זו שאין בה שום רמז
+             * ‏למה היא עונה. הטוקן שהיא הגיעה דרכו הונפק עבור
+             * ‏שליחה מסוימת מכרטיס מסוים — כלומר זו עובדה שנשמרה
+             * ‏מראש ולא ניחוש בדיעבד.
+             *
+             * ‏טוקן ישן (מלפני העמודות) מביא `null`, וההודעה נשארת
+             * ‏בלי תג — נכון, כי באמת לא ידוע.
+             */
+            cardKind: mapping.cardKind,
+            cardId: mapping.cardId,
           },
         ],
         skipDuplicates: true,
@@ -783,6 +833,82 @@ export class EmailInboxService {
         });
         attachmentsByMessage.set(a.messageId, list);
       }
+      /*
+       * ‎**התג שורד רק אם הכרטיס חי ונראה לסוכן הזה** (אותה ביקורת
+       * ‏שכבר תוקנה כאן על הקישור לכרטיס הקונה — P2).
+       *
+       * ‏שער הלקוח הוא איחוד: שיחה שנפתחה דרך הליד שלי יכולה
+       * ‏להיות עם לקוח שיש עליו גם כרטיס קונה של עמית. תג משרדי
+       * ‏היה מצייר קישור אל כרטיס שאינו נפתח — כלומר **מגלה את
+       * ‏קיומו** ומוביל ל-404. אותה בעיה בדיוק, שלוש פעמים.
+       *
+       * ‏וזה מטפל גם בכרטיס שנמחק: תג אל מה שאיננו הוא קישור שבור,
+       * ‏והמודול המשותף כבר אומר שקישור למסך שגיאה גרוע מתא ריק.
+       *
+       * ‏שלוש שאילתות לכל היותר, ורק כשיש תגים — לרוב השיחות אין,
+       * ‏ואז אין כאן שאילתה נוספת כלל.
+       */
+      const tagged = rows.flatMap((row) => {
+        const card = emailCardTag(row.cardKind, row.cardId);
+        return card === null ? [] : [card];
+      });
+      const idsOf = (kind: EmailCardKind): string[] => [
+        ...new Set(tagged.filter((card) => card.kind === kind).map((card) => card.id)),
+      ];
+      /* ‏אותה יכולת שמסך הנכס עצמו נשמר בה */
+      const canSeeProperties = TenantContext.current().capabilities.has("properties.view");
+      const [buyerIds, leadIds, propertyIds] = [
+        idsOf("buyer"),
+        idsOf("lead"),
+        idsOf("property"),
+      ];
+      const [visibleBuyers, visibleLeads, visibleProperties] = await Promise.all([
+        buyerIds.length === 0
+          ? []
+          : tx.buyer.findMany({
+              where: {
+                tenantId,
+                id: { in: buyerIds },
+                deletedAt: null,
+                ...ownershipFilter("buyers.view_all", "ownerUserId"),
+              },
+              select: { id: true },
+            }),
+        leadIds.length === 0
+          ? []
+          : tx.lead.findMany({
+              where: { tenantId, id: { in: leadIds }, ...leadOwnershipFilter() },
+              select: { id: true },
+            }),
+        /*
+         * ‎**הנכס נבדק כמו מסך הנכס עצמו, ולא במסנן בעלות**
+         * ‏(ביקורת Codex, P2).
+         *
+         * ‏רשימת הנכסים **משרדית בכוונה** — כך כתוב ב-`getById`,
+         * ‏שמסנן לפי דייר ומחיקה בלבד ונשמר ביכולת
+         * ‏`properties.view`. מה שיורד לסוכן שאינו מטפל בנכס הוא
+         * ‏**פרטי הבעלים**, לא הכרטיס.
+         *
+         * ‏מסנן בעלות כאן היה מחמיר מהמסך: הוא מסתיר תג לנכס
+         * ‏שהסוכן יכול לפתוח — כלומר גורע קישור שימושי בלי סיבה.
+         * ‏ובכיוון ההפוך, מי שמודול הנכסים כבוי אצלו היה מקבל תג
+         * ‏לנכס שמשויך אליו. שני החצאים של אותה טעות.
+         *
+         * ‏קונה וליד **כן** מסוננים בבעלות, כי הרשימות שלהם כאלה.
+         */
+        propertyIds.length === 0 || !canSeeProperties
+          ? []
+          : tx.property.findMany({
+              where: { tenantId, id: { in: propertyIds }, deletedAt: null },
+              select: { id: true },
+            }),
+      ]);
+      const visible: Record<EmailCardKind, Set<string>> = {
+        buyer: new Set(visibleBuyers.map((row) => row.id)),
+        lead: new Set(visibleLeads.map((row) => row.id)),
+        property: new Set(visibleProperties.map((row) => row.id)),
+      };
+
       return {
         contactName: contact.name,
         messages: rows.map((row) => ({
@@ -794,6 +920,15 @@ export class EmailInboxService {
           ...(row.sendState === null ? {} : { sendState: row.sendState }),
           readAt: row.readAt,
           createdAt: row.createdAt,
+          /*
+           * ‏שתי העמודות נקראות דרך העוזר המשותף, ולכן שורה פגומה
+           * ‏(סוג בלי מזהה, או סוג שאינו מוכר) יוצאת בלי תג ולא
+           * ‏כקישור שבור.
+           */
+          ...(() => {
+            const card = emailCardTag(row.cardKind, row.cardId);
+            return card === null || !visible[card.kind].has(card.id) ? {} : { card };
+          })(),
           attachments: attachmentsByMessage.get(row.id) ?? [],
         })),
       };
@@ -932,8 +1067,15 @@ export class EmailInboxService {
     });
 
     const subject = target.subject.startsWith("Re:") ? target.subject : `Re: ${target.subject}`;
-    /* ‏המשיב הוא השולח — תשובת הלקוח עליה חוזרת אליו, לא לבעל הכרטיס */
-    const replyTo = await this.replyAddressFor(tenantId, contactId, actingUserId());
+    /*
+     * ‏המשיב הוא השולח — תשובת הלקוח עליה חוזרת אליו, לא לבעל הכרטיס.
+     *
+     * ‎**ובלי תג כרטיס.** התשובה נכתבת מתוך התיבה, שמסודרת לפי אדם:
+     * ‏הסוכן משיב לשיחה, לא מכרטיס. הכרטיס האחרון של אותו לקוח היה
+     * ‏ניחוש סביר ולכן מסוכן — לקוח עם קונה ונכס פתוחים היה מקבל
+     * ‏את השגוי.
+     */
+    const replyTo = await this.replyAddressFor(tenantId, contactId, actingUserId(), null);
 
     /*
      * ‎**הרשומה נכתבת לפני השליחה, ומאושרת אחריה.**
