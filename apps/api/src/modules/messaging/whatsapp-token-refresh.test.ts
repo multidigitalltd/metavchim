@@ -305,8 +305,20 @@ describe("סבב רענון הטוקנים", () => {
 
     const result = await service.sweepExpiringTokens(NOW);
 
-    /* ‏הסימון נוסה, אבל השורה כבר לא ענתה לתנאי — ואז אין על מה להתריע */
-    expect(updates[0]?.where).toEqual({ id: "c1", disconnectedAt: null, disconnectReason: null });
+    /*
+     * ‏הסימון נוסה, אבל השורה כבר לא ענתה לתנאי — ואז אין על מה להתריע.
+     *
+     * ‎**הצופן הוא חלק מהתנאי**, ולא רק ה-`id` והמצב: בין הקריאה
+     * לכתיבה עוברת קריאת רשת אל Meta, וסבב מקביל או חיבור מחדש
+     * שהספיקו לכתוב טוקן חדש היו מקבלים כאן `token_expired` על קו
+     * חי — ואיתו התראה שקרית (ביקורת Codex).
+     */
+    expect(updates[0]?.where).toEqual({
+      id: "c1",
+      disconnectedAt: null,
+      disconnectReason: null,
+      accessTokenEncrypted: "enc:old-token",
+    });
     expect(result.expired).toEqual([]);
   });
 

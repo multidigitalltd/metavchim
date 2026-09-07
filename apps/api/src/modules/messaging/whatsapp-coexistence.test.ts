@@ -524,3 +524,78 @@ describe("הבוט על הקו של הסוכן", () => {
     expect(fn.slice(0, 800)).toContain("catch");
   });
 });
+
+/**
+ * ‎**שמות השדות ב-`extras` הם חוזה עם Meta, לא סגנון.**
+ *
+ * ‏זה הפרט היחיד בזרימה שאין לו כשל גלוי: מפתח שאינו מוכר ל-Meta
+ * נבלע בשקט, הפופאפ נפתח, והמתווך מקבל את דיאלוג ההתחברות הרגיל של
+ * פייסבוק („להמשיך בתור…”) במקום בחירת מספר. אין שגיאה בלוג, אין
+ * שגיאה בקונסולה, ואין דרך לאבחן את זה מהקוד — ולכן יש כאן בדיקה.
+ *
+ * כך בדיוק ישב כאן `version: "v3"` במקום `sessionInfoVersion: "3"`.
+ */
+describe("הפרמטרים שהפרונט מוסר לפופאפ", () => {
+  const SECTION = read("../../../../web/src/app/settings/whatsapp-business-section.tsx");
+
+  it("מבקש את גרסת ה-session info בשם שבו Meta מכירה", () => {
+    expect(SECTION).toContain('sessionInfoVersion: "3"');
+    /*
+     * המפתח השגוי שהחליף אותה — אסור שיחזור. עוגן לתחילת שורה, כדי
+     * שההסבר בהערה (שמצטט אותו) לא ייחשב חזרה שלו.
+     */
+    expect(SECTION).not.toMatch(/^\s*version:\s*"v3"/mu);
+  });
+
+  /*
+   * זרימת הדו-קיום פתוחה רק לאפליקציה שאושרה ל-Coexistence אצל
+   * Meta. קיבועה בקוד פירושו שהתקנה שלא אושרה תקועה עד גרסה חדשה,
+   * ובדיוק ברגע שבו אי אפשר לחבר אף מספר.
+   */
+  it("סוג הזרימה מגיע מהשרת ואינו מקובע בפרונט", () => {
+    expect(SECTION).toContain("featureType: data.signup.featureType");
+    expect(CONNECTION).toContain("whatsappSignupFeatureType");
+  });
+
+  /*
+   * ‏`code` בלי מזהים אינו כשל: מסלול „להמשיך עם ההגדרות הקודמות”
+   * מדלג על בחירת המספר ולכן אינו משדר אירוע. חסימה בפרונט הייתה
+   * מחזירה את המתווך למסך שאין ממנו מוצא.
+   */
+  it("קוד בלי מזהים נשלח לשרת ואינו נעצר בדפדפן", () => {
+    expect(SECTION).toContain("...(assets ?? {})");
+    expect(CONNECTION).toContain("this.resolveAssets(app, issued.token)");
+  });
+
+  /*
+   * ‎**ההסכמה חייבת לתאר את מה שבאמת יקרה למספר.**
+   *
+   * ‏המסך הזה הוא מה שהסוכן קורא לפני שהוא מוסר את המספר שבכיסו.
+   * בדו-קיום המספר ממשיך לעבוד באפליקציה; במסלול הרגיל הוא **עובר**
+   * לניהול המערכת ומפסיק לעבוד שם. נוסח הדו-קיום שמוצג למי שמריץ
+   * את המסלול הרגיל הוא הסכמה שניתנה על סמך מידע שגוי (ביקורת
+   * Codex) — ולכן שתי רשימות, ולכן בדיקה.
+   */
+  it("רשימת „מה משתנה” מותנית במסלול, ואומרת שהמספר עוזב את הטלפון", () => {
+    expect(SECTION).toContain("LIMITATIONS_STANDARD");
+    expect(SECTION).toContain("BENEFITS_STANDARD");
+    expect(SECTION).toContain("coexistence ? LIMITATIONS_COEXISTENCE : LIMITATIONS_STANDARD");
+    const standard = SECTION.slice(
+      SECTION.indexOf("const LIMITATIONS_STANDARD"),
+      SECTION.indexOf("const STATUS_LABELS"),
+    );
+    expect(standard).toContain("מפסיק לעבוד באפליקציית");
+  });
+
+  /*
+   * ‏„רגיל” נשמר כמילה: `""` בנתיב ההגדרות פירושו „מחק את השורה”,
+   * והבחירה הייתה נמחקת בשמירה — הבורר במסך היה נראה עובד בזמן
+   * שהדו-קיום חוזר בשקט (ביקורת Codex).
+   */
+  it("הבחירה ב„רגיל” נשמרת כערך ולא כמחרוזת ריקה", () => {
+    const settings = read("../../../../web/src/app/platform/platform-settings-section.tsx");
+    expect(settings).toContain('<option value="standard">');
+    expect(settings).not.toMatch(/whatsappSignupFeatureType:\s*\n?\s*.*:\s*"",/u);
+    expect(CONNECTION).toContain('const STANDARD_FEATURE = "standard"');
+  });
+});

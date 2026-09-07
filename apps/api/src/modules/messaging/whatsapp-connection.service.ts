@@ -33,6 +33,25 @@ const GRAPH_BASE = "https://graph.facebook.com/v23.0";
 const REQUEST_TIMEOUT_MS = 15_000;
 
 /**
+ * זרימת הדו-קיום — המספר שכבר חי באפליקציית WhatsApp Business
+ * בטלפון. זו ברירת המחדל של המוצר (docs/12), אך היא פתוחה רק
+ * לאפליקציות שאושרו ל-Coexistence ב-Meta.
+ */
+const COEXISTENCE_FEATURE = "whatsapp_business_app_onboarding";
+
+/**
+ * ‎**„רגיל” נשמר כמילה, ולא כמחרוזת ריקה.**
+ *
+ * ‏כלפי Meta הערך הוא `""` — אבל `PATCH /platform/settings` מתרגם
+ * מחרוזת ריקה ל„מחק את השורה, חזור למשתנה הסביבה”, וזה נכון לכל
+ * שאר ההגדרות שם. שמירת `""` הייתה מוחקת את הבחירה, הנפילה החוזרת
+ * הייתה מחזירה את הדו-קיום, והבורר במסך היה נראה כאילו הוא עובד
+ * בזמן שאינו משנה דבר (ביקורת Codex). לכן סנטינל, והתרגום ל-`""`
+ * נעשה כאן — במקום אחד, בגבול מול Meta.
+ */
+const STANDARD_FEATURE = "standard";
+
+/**
  * מרעננים כשנותרו פחות משבועיים. Meta מנפיקה 60 יום, כלומר הרענון
  * מתחיל אחרי כ-46 יום ויש לו 56 סבבים לפני שהקו נופל.
  */
@@ -134,14 +153,41 @@ export class WhatsAppConnectionService {
   /**
    * ‎`config_id` של Embedded Signup — מה שהפרונט צריך כדי לפתוח את
    * הפופאפ הנכון. ריק = הכפתור במסך מוסתר עם הסבר, ולא נשבר בלחיצה.
+   *
+   * ‎**`featureType` חוזר מהשרת ולא מקובע בפרונט**, כי הוא בוחר *איזו*
+   * זרימה Meta פותחת: `whatsapp_business_app_onboarding` היא זרימת
+   * הדו-קיום, והיא דורשת שהאפליקציה תהיה מאושרת ל-Coexistence אצל
+   * Meta. אפליקציה שאינה מאושרת מקבלת עליה את דיאלוג ההתחברות הרגיל
+   * ("להמשיך בתור…") במקום בחירת מספר — כשל שנראה למתווך כמו מסך
+   * מקולקל, ולנו כמו "אין שגיאה". ריק = Embedded Signup רגיל, שעובד
+   * בכל אפליקציה עם קונפיגורציית WhatsApp — ולכן זו נקודת המילוט
+   * שאפשר להפעיל מהמסך בלי גרסה חדשה.
    */
-  async signupConfig(): Promise<{ appId: string; configId: string } | null> {
+  async signupConfig(): Promise<{
+    appId: string;
+    configId: string;
+    featureType: string;
+  } | null> {
     const creds = await this.appCredentials();
+    const env = loadEnv();
     const configId =
       (await this.platformSettings.get("whatsappSignupConfigId")) ??
-      loadEnv().WHATSAPP_SIGNUP_CONFIG_ID;
+      env.WHATSAPP_SIGNUP_CONFIG_ID;
     if (!creds || !configId) return null;
-    return { appId: creds.appId, configId };
+    const chosen =
+      (await this.platformSettings.get("whatsappSignupFeatureType")) ??
+      env.WHATSAPP_SIGNUP_FEATURE_TYPE ??
+      COEXISTENCE_FEATURE;
+    /*
+     * ‎**„רגיל” מפורש; כל השאר הוא ברירת המחדל של המוצר.**
+     *
+     * הסנטינל, ומחרוזת ריקה שמשתנה סביבה עדיין מורשה לשאת, הם
+     * Embedded Signup רגיל. ערך שאינו מוכר (שגיאת הקלדה בסביבה)
+     * נופל לדו-קיום ולא למסלול הרגיל, כי המסלול הרגיל **מעביר את
+     * המספר** מהטלפון — וזו אינה תוצאה של הקלדה שגויה.
+     */
+    const featureType = chosen === STANDARD_FEATURE || chosen === "" ? "" : COEXISTENCE_FEATURE;
+    return { appId: creds.appId, configId, featureType };
   }
 
   /**
@@ -181,7 +227,15 @@ export class WhatsAppConnectionService {
   async complete(
     tenantId: string,
     userId: string,
-    input: { code: string; wabaId: string; phoneNumberId: string },
+    /**
+     * ‎**המזהים אופציונליים בכוונה.** הם מגיעים מאירוע `message` של
+     * הפופאפ, וזה ערוץ שאינו מובטח: מתווך שכבר חיבר בעבר מקבל מ-Meta
+     * מסך "להמשיך עם ההגדרות הקודמות?", ומסלול ההמשך מדלג על בחירת
+     * המספר — כלומר `code` מגיע בלי אירוע. חוסם פרסומות או דפדפן
+     * שחוסם `postMessage` בין מקורות עושה את אותו דבר. בלי הנפילה
+     * החוזרת בשרת, כל אלה מסתיימים ב"החיבור לא הושלם" שאין לו מוצא.
+     */
+    input: { code: string; wabaId?: string; phoneNumberId?: string },
   ): Promise<ConnectResult> {
     const app = await this.appCredentials();
     if (!app) {
@@ -200,11 +254,27 @@ export class WhatsAppConnectionService {
     }
 
     /*
+     * מה שהפופאפ מסר גובר תמיד: הוא מתאר את הבחירה שהמתווך *עשה*
+     * עכשיו. רק בהיעדרו שואלים את Meta מה הטוקן הזה פותח.
+     */
+    const assets =
+      input.wabaId !== undefined && input.phoneNumberId !== undefined
+        ? { wabaId: input.wabaId, phoneNumberId: input.phoneNumberId }
+        : await this.resolveAssets(app, issued.token);
+    if (assets === null) {
+      return {
+        ok: false,
+        reason:
+          "לא הצלחנו לזהות איזה מספר חיברתם. התחילו שוב ובחרו „עריכת ההגדרות” בחלון של Meta",
+      };
+    }
+
+    /*
      * פרטי הקו נשלפים לפני השמירה: המספר המוצג והשם המאומת הם מה
      * שהמתווך מזהה במסך. חיבור ששמור בלי מספר מציג "מחובר" בלי לומר
      * *מה* מחובר — וזה בדיוק מה שמייצר פנייה לתמיכה.
      */
-    const line = await this.fetchLine(issued.token, input.phoneNumberId);
+    const line = await this.fetchLine(issued.token, assets.phoneNumberId);
     if (line === null) {
       return { ok: false, reason: "לא הצלחנו לקרוא את פרטי המספר מ-Meta" };
     }
@@ -214,11 +284,11 @@ export class WhatsAppConnectionService {
      * כ„מחובר” בלי שההודעות מנותבות אלינו הוא ההבטחה השקרית היחידה
      * שהמסך הזה יכול לתת.
      */
-    const subscribed = await this.subscribeApp(issued.token, input.wabaId);
+    const subscribed = await this.subscribeApp(issued.token, assets.wabaId);
 
     const now = new Date();
     const existing = await this.prisma.whatsAppBusinessConnection.findFirst({
-      where: { phoneNumberId: input.phoneNumberId, disconnectedAt: null },
+      where: { phoneNumberId: assets.phoneNumberId, disconnectedAt: null },
       select: { id: true, tenantId: true, userId: true },
     });
 
@@ -232,7 +302,7 @@ export class WhatsAppConnectionService {
      */
     if (existing && existing.tenantId === tenantId && existing.userId !== userId) {
       this.logger.warn(
-        `ניסיון לחבר קו ${input.phoneNumberId} שכבר מחובר לסוכן אחר במשרד — נדחה`,
+        `ניסיון לחבר קו ${assets.phoneNumberId} שכבר מחובר לסוכן אחר במשרד — נדחה`,
       );
       return {
         ok: false,
@@ -246,7 +316,7 @@ export class WhatsAppConnectionService {
      */
     if (existing && existing.tenantId !== tenantId) {
       this.logger.warn(
-        `ניסיון לחבר קו ${input.phoneNumberId} שכבר מחובר למשרד אחר — נדחה`,
+        `ניסיון לחבר קו ${assets.phoneNumberId} שכבר מחובר למשרד אחר — נדחה`,
       );
       return {
         ok: false,
@@ -257,8 +327,8 @@ export class WhatsAppConnectionService {
     const data = {
       tenantId,
       userId,
-      wabaId: input.wabaId,
-      phoneNumberId: input.phoneNumberId,
+      wabaId: assets.wabaId,
+      phoneNumberId: assets.phoneNumberId,
       displayPhone: line.displayPhone,
       verifiedName: line.verifiedName,
       accessTokenEncrypted: this.crypto.encrypt(issued.token),
@@ -283,7 +353,7 @@ export class WhatsAppConnectionService {
 
     if (!subscribed) {
       this.logger.error(
-        `החיבור נשמר אך ההרשמה ל-Webhooks של WABA ${input.wabaId} נכשלה — הודעות לא יגיעו`,
+        `החיבור נשמר אך ההרשמה ל-Webhooks של WABA ${assets.wabaId} נכשלה — הודעות לא יגיעו`,
       );
       return {
         ok: false,
@@ -505,7 +575,21 @@ export class WhatsAppConnectionService {
        * ניתוק, חיבור מחדש, או סבב מקביל — ואז גם ההתראה מיותרת.
        */
       const { count } = await this.prisma.whatsAppBusinessConnection.updateMany({
-        where: { id: row.id, disconnectedAt: null, disconnectReason: null },
+        /*
+         * ‎**גם כאן הצופן שקראנו, ולא ה-`id` בלבד** (ביקורת Codex).
+         *
+         * ‏ענף ההצלחה כבר מותנה בו; כאן הוא היה חסר, ובין הקריאה
+         * לכתיבה עוברת אותה קריאת רשת. סבב מקביל ברפליקה שנייה
+         * שהספיק לרענן, או מתווך שחיבר מחדש בזמן שהבקשה באוויר,
+         * היו מקבלים `token_expired` על קו שהטוקן שלו **חי** —
+         * ואיתו התראה שקרית שמובילה לחיבור מחדש מיותר.
+         */
+        where: {
+          id: row.id,
+          disconnectedAt: null,
+          disconnectReason: null,
+          accessTokenEncrypted: stored,
+        },
         data: { status: "error", disconnectReason: TOKEN_EXPIRED },
       });
       if (count === 0) continue;
@@ -633,6 +717,101 @@ export class WhatsAppConnectionService {
     } catch (error) {
       /* מגיע מהוובהוק ולכן אינו זורק — כישלון סימון אינו שווה 500 */
       this.logger.warn(`עדכון מצב היסטוריה לחיבור ${connectionId} נכשל: ${String(error)}`);
+    }
+  }
+
+  /**
+   * ‎**מי ה-WABA ומי הקו — כששואלים את Meta ולא את הפופאפ.**
+   *
+   * ‎`debug_token` מחזיר את ה-`granular_scopes` של הטוקן, ובתוכם
+   * ‎`target_ids`: רשימת חשבונות ה-WhatsApp שהטוקן הזה מורשה לנהל.
+   * משם `/{waba}/phone_numbers` נותן את הקו עצמו.
+   *
+   * ‎**יחיד בלבד, ובכוונה.** יותר מ-WABA אחד או יותר מקו אחד פירושו
+   * שיש כאן בחירה — ובחירה אינה דבר שמנחשים: חיבור הקו הלא-נכון
+   * מנתב לקוחות אמיתיים לסוכן הלא-נכון, בשקט ובלי שאיש ידע. במצב
+   * כזה מוטב להחזיר `null` ולבקש מהמתווך לבחור במפורש.
+   */
+  private async resolveAssets(
+    app: { appId: string; appSecret: string },
+    token: string,
+  ): Promise<{ wabaId: string; phoneNumberId: string } | null> {
+    const wabas = await this.tokenWabas(app, token);
+    if (wabas.length !== 1) {
+      this.logger.warn(
+        `זיהוי אוטומטי של הקו לא התאפשר: הטוקן פותח ${wabas.length} חשבונות WhatsApp`,
+      );
+      return null;
+    }
+    const wabaId = wabas[0]!;
+    const lines = await this.wabaPhoneNumbers(token, wabaId);
+    if (lines.length !== 1) {
+      this.logger.warn(
+        `זיהוי אוטומטי של הקו לא התאפשר: ל-WABA ${wabaId} יש ${lines.length} מספרים`,
+      );
+      return null;
+    }
+    return { wabaId, phoneNumberId: lines[0]! };
+  }
+
+  /** חשבונות ה-WhatsApp שהטוקן מורשה לנהל, לפי Meta עצמה. */
+  private async tokenWabas(
+    app: { appId: string; appSecret: string },
+    token: string,
+  ): Promise<string[]> {
+    try {
+      const url = new URL(`${GRAPH_BASE}/debug_token`);
+      url.searchParams.set("input_token", token);
+      /* טוקן האפליקציה — `app_id|app_secret`. הצורה שבה Meta מזהה אותנו כאן */
+      url.searchParams.set("access_token", `${app.appId}|${app.appSecret}`);
+      const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      if (!res.ok) {
+        this.logger.warn(`בדיקת הטוקן מול Meta נכשלה: HTTP ${res.status}`);
+        return [];
+      }
+      const json = (await res.json()) as {
+        data?: { granular_scopes?: { scope?: string; target_ids?: string[] }[] };
+      };
+      const ids = new Set<string>();
+      for (const entry of json.data?.granular_scopes ?? []) {
+        if (
+          entry.scope !== "whatsapp_business_management" &&
+          entry.scope !== "whatsapp_business_messaging"
+        ) {
+          continue;
+        }
+        for (const id of entry.target_ids ?? []) {
+          if (/^\d{5,30}$/u.test(id)) ids.add(id);
+        }
+      }
+      return [...ids];
+    } catch (error) {
+      this.logger.warn(`בדיקת הטוקן מול Meta נכשלה: ${String(error)}`);
+      return [];
+    }
+  }
+
+  /** הקווים שתחת ה-WABA. ריק = גם כשל וגם "אין" — ושניהם עוצרים. */
+  private async wabaPhoneNumbers(token: string, wabaId: string): Promise<string[]> {
+    try {
+      const res = await fetch(
+        `${GRAPH_BASE}/${encodeURIComponent(wabaId)}/phone_numbers?fields=id`,
+        {
+          headers: { authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        },
+      );
+      if (!res.ok) {
+        this.logger.warn(`שליפת מספרי ה-WABA ${wabaId} נכשלה: HTTP ${res.status}`);
+        return [];
+      }
+      const json = (await res.json()) as { data?: { id?: string }[] };
+      return (json.data ?? [])
+        .map((row) => row.id)
+        .filter((id): id is string => typeof id === "string" && /^\d{5,30}$/u.test(id));
+    } catch (error) {
+      this.logger.warn(`שליפת מספרי ה-WABA ${wabaId} נכשלה: ${String(error)}`);
+      return [];
     }
   }
 
