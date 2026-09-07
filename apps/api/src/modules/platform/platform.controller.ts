@@ -2623,7 +2623,21 @@ export class PlatformController {
   @Post("settings/test-whatsapp-send")
   @HttpCode(200)
   async testWhatsAppSend(
-    @Body(new ZodValidationPipe(z.object({ to: z.string().trim().min(6).max(20) })))
+    @Body(
+      new ZodValidationPipe(
+        z.object({
+          /*
+           * תחביר של מספר בלבד. אורך לבדו קיבל גם „abc0501234567”,
+           * והנרמול שמסיר אותיות היה הופך אותו למספר תקין של מישהו
+           * אחר — כלומר הודעה לאדם זר (ביקורת Codex).
+           */
+          to: z
+            .string()
+            .trim()
+            .regex(/^\+?[\d\s()-]{6,20}$/u, "מספר לא תקין"),
+        }),
+      ),
+    )
     body: { to: string },
   ): Promise<{ ok: boolean; message: string }> {
     return this.whatsappSender.probeSend(body.to);

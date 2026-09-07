@@ -173,4 +173,57 @@ describe("הודעת בדיקה מהמסך", () => {
     expect(result).toMatchObject({ ok: false, message: "מספר לא תקין" });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  /**
+   * ‎**קלט משובש הופך למספר תקין — של מישהו אחר.**
+   *
+   * ‏הנרמול מסיר כל תו שאינו ספרה, ולכן `"050123456 ext 7"` יוצא
+   * ‎`972501234567` — מספר חוקי לחלוטין שאיש לא התכוון אליו, וההודעה
+   * מגיעה לאדם זר. „אינו ריק” לא תפס את זה (ביקורת Codex).
+   */
+  it.each(["050123456 ext 7", "abc0501234567", "0501234567x"])(
+    "קלט משובש (%s) אינו הופך למספר של מישהו אחר",
+    async (input) => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      const { service } = build();
+
+      const result = await service.probeSend(input);
+
+      expect(result).toMatchObject({ ok: false, message: "מספר לא תקין" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it("מספר קצר מכדי להיות אמיתי נעצר", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const { service } = build();
+
+    expect(await service.probeSend("12345")).toMatchObject({ ok: false });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ‎**המספר אינו נכתב ללוג** — `docs/04 §4`: „ללא PII בלוגים
+   * טכניים”. הוא נשמר מוצפן בעמודה ועם `phone_hash` לחיפוש בלי
+   * פענוח; שורת לוג בגלוי מבטלת בדיוק את ההגנה הזו ומשאירה אותו
+   * באגרגטורים הרבה אחרי שהבדיקה נשכחה.
+   */
+  it("המספר אינו נכתב ללוג, גם בהצלחה", async () => {
+    const logged: string[] = [];
+    vi.spyOn(Logger.prototype, "log").mockImplementation((message: unknown) => {
+      logged.push(String(message));
+    });
+    graph(reply(true, { messages: [{ id: "wamid.1" }] }));
+    const { service } = build();
+
+    const result = await service.probeSend("0501234567");
+
+    expect(result.ok).toBe(true);
+    expect(logged.join("\n")).not.toContain("972501234567");
+    expect(logged.join("\n")).not.toContain("0501234567");
+    // ‏ובכל זאת נרשם משהו — „בלי PII” אינו „בלי עקבות”
+    expect(logged.join("\n")).toContain("הודעת בדיקה");
+  });
 });
