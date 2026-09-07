@@ -8,6 +8,7 @@ import {
 import { ulid } from "ulid";
 import {
   applyIntakeAnswers,
+  buyerSharedTabuStance,
   BuyerRequirementsSchema,
   DEFAULT_COMMISSION_SPLIT,
   mergeIntakeSeed,
@@ -19,6 +20,7 @@ import {
   type BuyerRequirements,
   type IntakeAnswers,
   type Page,
+  type SharedTabuStance,
 } from "@metavchim/shared";
 import {
   assertBuyerAccess,
@@ -48,6 +50,65 @@ import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { lockContact, shareTenantRow } from "../../common/locks";
 import { ContactErasureService } from "../contacts/contact-erasure.service";
+
+/**
+ * ‎**העמודות החמות שנגזרות מ-`requirements` — במקום אחד.**
+ *
+ * ‏הדרישות נשמרות כ-JSONB, ולצדן עמודות שהמסד יודע לסנן ולאנדקס
+ * ‏עליהן. הן **נגזרות**, ולכן חייבות להיכתב בכל כתיבה של ה-JSON,
+ * ‏אחרת השורה מספרת שני סיפורים: הסינון הגס במנוע ההתאמות קורא
+ * ‏עמודה, המנוע עצמו קורא את ה-JSON, ומועמד נעלם בלי שאיש רואה
+ * ‏מדוע.
+ *
+ * ‏עד כה הן נכתבו בשלושה מקומות — יצירה מליד, יצירה ישירה ועדכון
+ * ‏— ובשלושה ניסוחים נפרדים. זה עבד כל עוד לא נוספה עמודה נגזרת
+ * ‏חדשה; ברגע שנוספה, „שלושה עותקים” הפך ל„שניים מעודכנים ואחד
+ * ‏לא”, וקונה שנוצר מהמרת ליד היה מאבד את עמדת הטאבו שלו בשקט.
+ * ‏פונקציה אחת אינה יכולה להתעדכן חלקית.
+ */
+export function requirementColumns(
+  requirements: BuyerRequirements,
+): Pick<
+  Prisma.BuyerUncheckedCreateInput,
+  | "cities"
+  | "hasSearchAreas"
+  | "dealType"
+  | "budgetMinAgorot"
+  | "budgetMaxAgorot"
+  | "roomsMin"
+  | "roomsMax"
+  | "sharedTabuStance"
+  | "requirements"
+> {
+  return {
+    cities: requirements.cities,
+    hasSearchAreas: requirements.searchAreas.length > 0,
+    dealType: requirements.dealType,
+    budgetMinAgorot:
+      requirements.budgetMinAgorot === undefined
+        ? null
+        : BigInt(requirements.budgetMinAgorot),
+    // חסר = הלקוח לא מסר תקציב, ולא "תקציב אפס"
+    budgetMaxAgorot:
+      requirements.budgetMaxAgorot === undefined
+        ? null
+        : BigInt(requirements.budgetMaxAgorot),
+    roomsMin: requirements.roomsMin ?? null,
+    roomsMax: requirements.roomsMax ?? null,
+    /* ‏חסר = טרם נשאל, וזה ערך — ראו schema.prisma */
+    /*
+     * ‎**העמודה היא ההתממשות של הכלל, לא מקור שני** (ביקורת Codex, P1).
+     *
+     * ‏קודם נכתב `requirements.sharedTabu ?? null`, ולכן קונה שביקש
+     * ‏את סוג הנכס הישן — האמירה היחידה שהייתה קיימת לפני השדה
+     * ‏החדש — נשמר כ„טרם נשאל” ונפל מחוץ לשידוך השותפים. הגזירה
+     * ‏יושבת ב-`buyerSharedTabuStance`, וכאן היא רק **נכתבת**, כדי
+     * ‏שהשאילתה תוכל לשאול עמודה אחת פשוטה.
+     */
+    sharedTabuStance: buyerSharedTabuStance(requirements) ?? null,
+    requirements: requirements as object,
+  };
+}
 import { ContactsService } from "../contacts/contacts.service";
 import {
   MatchingService,
@@ -292,21 +353,7 @@ export class BuyersService {
           // הקונה שייך לסוכן שמטפל בליד — אדמין שממיר לא גונב בעלות
           // מסוכן שרואה רק view_own (ביקורת Codex, P1)
           ownerUserId: lead.assignedToUserId ?? ctx.userId,
-          cities: requirements.cities,
-          hasSearchAreas: requirements.searchAreas.length > 0,
-          dealType: requirements.dealType,
-          budgetMinAgorot:
-            requirements.budgetMinAgorot === undefined
-              ? null
-              : BigInt(requirements.budgetMinAgorot),
-          // חסר = הלקוח לא מסר תקציב, ולא "תקציב אפס"
-          budgetMaxAgorot:
-            requirements.budgetMaxAgorot === undefined
-              ? null
-              : BigInt(requirements.budgetMaxAgorot),
-          roomsMin: requirements.roomsMin ?? null,
-          roomsMax: requirements.roomsMax ?? null,
-          requirements: requirements as object,
+          ...requirementColumns(requirements),
           financing: input.financing ?? "unknown",
           maturity: input.maturity ?? "interested",
           source: `lead:${lead.source}`,
@@ -486,21 +533,7 @@ export class BuyersService {
            * ונעלם מכל סוכן שרואה „רק שלי”.
            */
           ownerUserId: input.ownerUserId ?? TenantContext.current().userId,
-          cities: input.requirements.cities,
-          hasSearchAreas: input.requirements.searchAreas.length > 0,
-          dealType: input.requirements.dealType,
-          budgetMinAgorot:
-            input.requirements.budgetMinAgorot === undefined
-              ? null
-              : BigInt(input.requirements.budgetMinAgorot),
-          // חסר = הלקוח לא מסר תקציב, ולא "תקציב אפס"
-          budgetMaxAgorot:
-            input.requirements.budgetMaxAgorot === undefined
-              ? null
-              : BigInt(input.requirements.budgetMaxAgorot),
-          roomsMin: input.requirements.roomsMin ?? null,
-          roomsMax: input.requirements.roomsMax ?? null,
-          requirements: input.requirements as object,
+          ...requirementColumns(input.requirements),
           financing: input.financing ?? "unknown",
           maturity,
           officeStatus,
@@ -736,24 +769,7 @@ export class BuyersService {
       await tx.buyer.update({
         where: { id },
         data: {
-          ...(requirements
-            ? {
-                cities: requirements.cities,
-                hasSearchAreas: requirements.searchAreas.length > 0,
-                dealType: requirements.dealType,
-                budgetMinAgorot:
-                  requirements.budgetMinAgorot === undefined
-                    ? null
-                    : BigInt(requirements.budgetMinAgorot),
-                budgetMaxAgorot:
-                  requirements.budgetMaxAgorot === undefined
-                    ? null
-                    : BigInt(requirements.budgetMaxAgorot),
-                roomsMin: requirements.roomsMin ?? null,
-                roomsMax: requirements.roomsMax ?? null,
-                requirements: requirements as object,
-              }
-            : {}),
+          ...(requirements ? requirementColumns(requirements) : {}),
           ...(patch.financing !== undefined
             ? { financing: patch.financing }
             : {}),
@@ -1078,6 +1094,14 @@ export class BuyersService {
      * לפחות ל-X; קונה בלי תקציב מוצהר אינו נכלל, כי איננו יודעים.
      */
     budgetDeclaredOnly?: boolean;
+    /**
+     * ‏עמדת הקונה כלפי טאבו משותף.
+     *
+     * ‏מסנן על העמודה הנגזרת ולא על ה-JSON, ולכן „מי אישר” הוא
+     * ‏שאילתה מאונדקסת. קונה שלא נשאל אינו נכלל באף אחד משני
+     * ‏הערכים — הוא אינו „לא מוכן”, פשוט לא נשאל.
+     */
+    sharedTabu?: SharedTabuStance;
     cursor?: string;
     limit: number;
   }): Promise<Page<BuyerDto>> {
@@ -1092,6 +1116,16 @@ export class BuyersService {
      * האובייקט: המפתח השני מנצח, והראשון נעלם בשקט בלי שום שגיאה.
      */
     const conditions: Prisma.BuyerWhereInput[] = [];
+
+    /*
+     * ‏טאבו משותף — שוויון פשוט על העמודה הנגזרת.
+     *
+     * ‏אין כאן ענף „ריק = הכול” כמו בתקציב: המסנן נשלח רק כשנבחר
+     * ‏ערך, ו-`undefined` פשוט אינו מוסיף תנאי.
+     */
+    if (query.sharedTabu !== undefined) {
+      conditions.push({ sharedTabuStance: query.sharedTabu });
+    }
 
     /*
      * חפיפה, לא הכלה. לקונה יש *טווח* תקציב ולא מחיר אחד, ולכן מי

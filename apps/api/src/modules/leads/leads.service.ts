@@ -28,7 +28,14 @@ export interface LeadDto {
    * השולח, וזו הדרך הטבעית להשיב לו. ליד משיחה נכנסת לא תמיד יודע
    * אותה, ולכן השדה אינו חובה.
    */
-  contact: { id: string; name: string; phone: string; email?: string };
+  contact: {
+    id: string;
+    name: string;
+    phone: string;
+    email?: string;
+    /** ‏רישום בטאבו משותף (מושאע) — עובדה משפטית, לא העדפה. */
+    sharedTabu: boolean;
+  };
   source: string;
   /** ‏הטקסט שנכתב תחת „אחר”. חסר בכל מקור אחר. */
   sourceNote?: string;
@@ -842,7 +849,7 @@ function toLeadDto(
     updatedAt: Date;
     sourceNote?: string | null;
   },
-  contact: { id: string; name: string; phone: string; email?: string },
+  contact: { id: string; name: string; phone: string; email?: string; sharedTabu: boolean },
   agents?: Map<string, string>,
 ): LeadDto {
   const agentName = agentNameOf(agents ?? new Map(), row.assignedToUserId);

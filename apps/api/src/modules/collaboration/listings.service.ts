@@ -15,6 +15,10 @@ import {
   commissionTermsFromRow,
   commissionTermsRejectionReason,
   headlineCommissionSplit,
+  isSharedTabuProperty,
+  sharedTabuFit,
+  buyerSharedTabuStance,
+  SHARED_TABU_REFUSED_NOTE,
   uniformTerms,
   type CommissionTerms,
   scoreMatch,
@@ -99,6 +103,11 @@ export interface SharedListingDto {
   city?: string;
   neighborhood?: string;
   propertyType?: string;
+  /**
+   * ‏מצב הרישום — נוסע עם המודעה, ולכן המשרד המקבל רואה אותו
+   * ‏(ביקורת Codex, P1). ראו `snapshot`.
+   */
+  sharedTabu: boolean;
   dealType?: string;
   rooms?: number;
   areaSqm?: number;
@@ -207,6 +216,18 @@ export class ListingsService {
       city: property.city,
       neighborhood: property.neighborhood,
       propertyType: property.propertyType,
+      /*
+       * ‎**הרישום המשותף נוסע איתו** (ביקורת Codex, P1).
+       *
+       * ‏עד שהתכונה הפכה לדגל היא נשאה את עצמה דרך `propertyType`,
+       * ‏ולכן הגיעה לצד השני. נכס עם סוג רגיל שסומן בתיבה איבד
+       * ‏אותה בפרסום: הוא הומלץ לקונה שסירב למושאע, והמשרד המקבל
+       * ‏לא ראה את מצב הרישום כלל.
+       *
+       * ‎`isSharedTabuProperty` ולא השדה הגולמי — אותה גזירה שכל
+       * ‏שאר המסלולים קוראים לה.
+       */
+      sharedTabu: isSharedTabuProperty(property),
       dealType: property.dealType,
       rooms: property.rooms,
       areaSqm: property.areaSqm,
@@ -685,6 +706,8 @@ export class ListingsService {
       ...(row.city === null ? {} : { city: row.city }),
       ...(row.neighborhood === null ? {} : { neighborhood: row.neighborhood }),
       ...(row.propertyType === null ? {} : { propertyType: row.propertyType }),
+      /* ‏מה שנשמר בפרסום — ראו `snapshot` */
+      sharedTabu: row.sharedTabu,
       ...(row.dealType === null ? {} : { dealType: row.dealType }),
       ...(row.rooms === null ? {} : { rooms: Number(row.rooms) }),
       ...(row.areaSqm === null ? {} : { areaSqm: row.areaSqm }),
@@ -747,6 +770,11 @@ export class ListingsService {
       ...(row.city === null ? {} : { city: row.city }),
       ...(row.neighborhood === null ? {} : { neighborhood: row.neighborhood }),
       ...(row.propertyType === null ? {} : { propertyType: row.propertyType }),
+      /*
+       * ‏וגם בשחזור לניקוד: בלעדיו `scoreMatch` ממליץ על המודעה
+       * ‏לקונה שסירב למושאע, כי הנכס נראה כרגיל. ראו `snapshot`.
+       */
+      sharedTabu: row.sharedTabu,
       ...(row.dealType === null ? {} : { dealType: row.dealType }),
       ...(row.rooms === null ? {} : { rooms: Number(row.rooms) }),
       ...(row.areaSqm === null ? {} : { areaSqm: row.areaSqm }),
@@ -1022,6 +1050,26 @@ export class ListingsService {
         throw new BadRequestException("כבר פניתם על הנכס הזה עבור הקונה הזה");
 
       const requirements = BuyerRequirementsSchema.parse(buyer.requirements);
+      /*
+       * ‎**הסירוב נאכף גם בכתיבה, לא רק בהתאמה** (ביקורת Codex, P1).
+       *
+       * ‏`matchOwnBuyers` מכבד את העמדה, ולכן קונה שסימן „מסרב”
+       * ‏אינו מופיע בהתאמות לנכס בטאבו משותף. אבל „להציע קונה
+       * ‏אחר” בעמוד שיתופי הפעולה הוא בורר שמונה את **כל** הקונים,
+       * ‏והנתיב הזה קיבל `buyerId` וכתב פנייה בלי לשאול. המשרד
+       * ‏המפרסם קיבל מועמד שכבר סירב לצורת הרישום הזו — ולא היה לו
+       * ‏איך לדעת, כי כרטיס הפנייה אינו נושא את העמדה.
+       *
+       * ‏אותה פונקציה בדיוק שההתאמה נשענת עליה, ועל אותם שני
+       * ‏קלטים: `listing.sharedTabu` נכתב בפרסום דרך
+       * ‎`isSharedTabuProperty`, והעמדה נגזרת ב-`buyerSharedTabuStance`
+       * ‏— שנופלת גם לסוג המבנה הישן, ולכן קונה מדור קודם נקרא נכון.
+       */
+      if (
+        sharedTabuFit(listing.sharedTabu, buyerSharedTabuStance(requirements)).excluded
+      ) {
+        throw new BadRequestException(SHARED_TABU_REFUSED_NOTE);
+      }
       const featureLevels = Object.entries(requirements.features);
       /* בדיוק אותם שדות שהביקוש חושף — ולא יותר */
       const presentation = {
@@ -1497,6 +1545,14 @@ function demandToRequirements(
     neighborhoods: demand.neighborhoods,
     dealType: demand.dealType,
     propertyTypes: demand.propertyTypes,
+    /*
+     * ‏העמדה שנשמרה בפרסום, ובעיקר `refuses` (ביקורת Codex, P1):
+     * ‏בלעדיה `sharedTabuFit` קורא „טרם נשאל”, וההתאמה מותרת על
+     * ‏סירוב מפורש. ראו `CollaborationService.demandSnapshot`.
+     */
+    ...(demand.sharedTabuStance === null
+      ? {}
+      : { sharedTabu: demand.sharedTabuStance }),
     ...(demand.areaSqmMin === null ? {} : { areaSqmMin: demand.areaSqmMin }),
     ...(demand.budgetMinAgorot === null
       ? {}

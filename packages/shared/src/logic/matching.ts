@@ -13,6 +13,7 @@ import {
 import { bestLocationMatch } from "./location-text.js";
 import { bestAreaMatch, describeDistance } from "./proximity.js";
 import { CUSTOM_FEATURE_PREFIX, customFeatureMap, isCustomFeature } from "./custom-features.js";
+import { buyerSharedTabuStance, isSharedTabuProperty, sharedTabuFit } from "./shared-tabu.js";
 
 export interface MatchResult {
   /** 0–100 */
@@ -306,6 +307,27 @@ export function scoreMatch(
   let excluded = false;
 
   /*
+   * --- טאבו משותף — שער, לפני כל קריטריון ---
+   *
+   * ‎**לא קריטריון משוקלל, ובכוונה.** משקל אומר „כמה זה מבדיל בין
+   * מועמדים”, וכאן השאלה אינה מבדילה אלא חוסמת: קונה שסימן שאינו
+   * מוכן למושאע לא יקנה מושאע מושלם. קריטריון נוסף היה גם דורש
+   * משקל במסך ההגדרות, כלומר היה מאפשר למשרד לכייל אותו לאפס —
+   * ולהחזיר בדיוק את ההצעה שהקונה סירב לה.
+   *
+   * ההערה נשמרת בנפרד ולא כ-`ScoreComponent` בלי משקל, כי כל
+   * הפולטים סוכמים משקלים על `parts` — רכיב במשקל אפס היה נספר
+   * בכיסוי ובנרמול ומזיז ציונים בלי שאיש ביקש.
+   */
+  const propertyIsSharedTabu = isSharedTabuProperty(property);
+  /*
+   * ‏העמדה נגזרת ולא נקראת ישירות: קונה שביקש את סוג הנכס הישן
+   * ‏אמר „מקבל”, גם אם השדה החדש ריק. ראו `buyerSharedTabuStance`.
+   */
+  const tabu = sharedTabuFit(propertyIsSharedTabu, buyerSharedTabuStance(buyer));
+  if (tabu.excluded) excluded = true;
+
+  /*
    * --- מיקום (0.25) ---
    *
    * **שני מסלולים, ומרחק גובר על טקסט.** כשהקונה סימן אזורי חיפוש
@@ -474,15 +496,35 @@ export function scoreMatch(
    * בדיוק כפי שאי אפשר להזיז אותה לעיר אחרת — ולכן ההתנהגות כאן
    * זהה לזו של המיקום ושל החדרים שמעל.
    */
-  if (property.propertyType !== undefined && buyer.propertyTypes.length > 0) {
-    /*
-     * ‎**לא `includes` ישיר.** „מסחרי” הוא „מסחרי שלא נאמר איזה”,
-     * ולכן הוא מתאים לכל ענף בשני הכיוונים — אחרת פיצול המסחרי
-     * לתשעה ענפים היה **פוסל** בשקט כל קונה קיים שסימן „מסחרי”,
-     * כי סוג שאינו ברשימה מוציא את ההתאמה לגמרי. ראו
-     * ‎`commercial-types.ts`.
-     */
-    const ok = propertyTypeMatches(buyer.propertyTypes, property.propertyType);
+  /*
+   * ‎**לא `includes` ישיר.** „מסחרי” הוא „מסחרי שלא נאמר איזה”,
+   * ולכן הוא מתאים לכל ענף בשני הכיוונים — אחרת פיצול המסחרי
+   * לתשעה ענפים היה **פוסל** בשקט כל קונה קיים שסימן „מסחרי”,
+   * כי סוג שאינו ברשימה מוציא את ההתאמה לגמרי. ראו
+   * ‎`commercial-types.ts`.
+   */
+  const ok = propertyTypeMatches(
+    buyer.propertyTypes,
+    property.propertyType,
+    propertyIsSharedTabu,
+  );
+  /*
+   * ‎**נכס בלי סוג מבנה עדיין עונה לקונה שביקש רישום** (ביקורת
+   * ‏Codex, P2).
+   *
+   * ‏קודם עמד כאן `property.propertyType !== undefined`, וזה דילג
+   * ‏על הקריטריון כולו: נכס שנרשם כמושאע ואין לו סוג מבנה השאיר
+   * ‏קונה ותיק שדרישתו היא `["shared_tabu"]` בלי הקריטריון הנדרש
+   * ‏‎`property_type`, כלומר ב-`insufficientData` — וגם ההתאמה
+   * ‏הרגילה וגם השותפות נבלעו.
+   *
+   * ‏השאלה היחידה היא **האם הנכס עונה על מה שהקונה ביקש**, והיא
+   * ‏מנוסחת פעם אחת בקריאה שמעל: יש סוג — היא נבחנת כרגיל; אין
+   * ‏סוג והרישום הוא מה שנתבקש — היא נענתה. אין סוג ואין רישום
+   * ‏מבוקש — היא נשארת מדולגת בדיוק כמו קודם, כי „לא ידוע” אינו
+   * ‏„לא מתאים”, ו-`MANDATORY_MATCH_CRITERIA` הוא שמכריע.
+   */
+  if (buyer.propertyTypes.length > 0 && (property.propertyType !== undefined || ok)) {
     parts.push({
       criterion: "property_type",
       weight: weights.property_type,
@@ -759,7 +801,7 @@ export function scoreMatch(
     score: excluded ? 0 : score,
     coverage,
     breakdown: parts,
-    explanation: buildExplanation(parts, excluded, coverage),
+    explanation: buildExplanation(parts, excluded, coverage, tabu.note),
     excluded,
     insufficientData: false,
   };
@@ -874,13 +916,31 @@ function buildExplanation(
   parts: ScoreComponent[],
   excluded: boolean,
   coverage: number,
+  /**
+   * ‏הערת שער — נולדת מחוץ ל-`parts` ולכן לא הייתה נמצאת בחיפוש
+   * החוסם. בלעדיה פסילה על טאבו משותף הייתה מוצגת כ„לא מתאים
+   * לדרישות הקונה”, כלומר כמסקנה בלי סיבה, על שדה שהסוכן יכול
+   * לברר בשיחה אחת.
+   */
+  gateNote?: string,
 ): string {
   const notes = parts.filter((p) => p.note).map((p) => p.note as string);
   if (excluded) {
+    /*
+     * ‏השער קודם לחוסם המשוקלל כששניהם קיימים. עיר שגויה היא
+     * אי-התאמה שהמתווך רואה בעצמו ברשימה; „הלקוח סירב לרישום
+     * משותף” הוא נתון שאין שום דרך אחרת לדעת ממנו.
+     */
+    if (gateNote !== undefined) return gateNote;
     const blocker = parts.find((p) => p.score === 0 && p.note);
     return blocker?.note ?? "לא מתאים לדרישות הקונה";
   }
-  const body = notes.length > 0 ? notes.join(". ") + "." : "התאמה מלאה לדרישות שהוגדרו.";
+  /*
+   * ‏הערת השער נכנסת ראשונה גם כשאין פסילה: „לא נשאל אם הקונה
+   * מוכן” הוא מה שצריך לקרות לפני הסיור, לא אחרי רשימת ההתאמות.
+   */
+  const all = gateNote === undefined ? notes : [gateNote, ...notes];
+  const body = all.length > 0 ? all.join(". ") + "." : "התאמה מלאה לדרישות שהוגדרו.";
   if (coverage >= 1) return body;
   /*
    * ‎**הסיבה לציון מופיעה לצד הציון.** בלי המשפט הזה „67%” נראה

@@ -74,7 +74,7 @@ import { Notice } from "../../notice";
 
 interface LeadDetail {
   id: string;
-  contact: { id: string; name: string; phone: string; email?: string };
+  contact: { id: string; name: string; phone: string; email?: string; sharedTabu: boolean };
   source: string;
   /** ‏הטקסט שנכתב תחת מקור „אחר”. חסר בכל מקור אחר. */
   sourceNote?: string;
@@ -810,6 +810,26 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
               {lead.contact.name}
             </h1>
             {/*
+              ‎**„טאבו משותף” ליד השם, ורק כשהוא מסומן.**
+
+              ‏זו עובדה משפטית שמשנה את כל אופן העסקה — אין חלקה
+              ‏נפרדת, נדרשת הסכמת שותפים, והמימון מורכב. מתווך שרואה
+              ‏אותה בראש הכרטיס לא בונה עסקה שאי אפשר לסגור. תגית
+              ‏„לא” על כל שאר הלקוחות הייתה רעש (בקשת בעל המוצר).
+            */}
+            {lead.contact.sharedTabu ? (
+              <span
+                className="mv-pill"
+                style={{
+                  fontSize: "var(--type-caption)",
+                  color: "#8a5a00",
+                  background: "#fdf1dc",
+                }}
+              >
+                טאבו משותף
+              </span>
+            ) : null}
+            {/*
               ‎**תיקון הפרטים ליד הפרטים.**
 
               ליד נקלט לעיתים בלי שם — שיחה שלא נענתה שומרת את מספר
@@ -836,6 +856,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                           id: prev.contact.id,
                           name: next.name,
                           phone: next.phone,
+                          sharedTabu: next.sharedTabu,
                           ...(next.email === undefined ? {} : { email: next.email }),
                         },
                       }
@@ -1288,6 +1309,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                 </p>
                 <ConvertToPropertySection
                   leadId={lead.id}
+                  contactSharedTabu={lead.contact.sharedTabu}
                   autoOpen={convertSide === "property"}
                   {...(convertSide === "property" && convertPrefill !== undefined
                     ? { prefill: convertPrefill }

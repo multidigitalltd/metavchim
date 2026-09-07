@@ -7,6 +7,7 @@ import { Button } from "@metavchim/ui";
 import {
   formatPropertyAddress,
   MATCHABLE_PROPERTY_STATUSES,
+  SHARED_TABU_PROPERTY_TYPE,
   type PropertyStatus,
 } from "@metavchim/shared";
 import { API_BASE, apiGet, apiList, apiPost } from "@/lib/api";
@@ -118,6 +119,24 @@ function statusDomain(status: string): string {
  */
 const GRID = "2.1fr 0.85fr 1fr 1.25fr 1fr 0.95fr 0.9fr";
 
+/**
+ * ‏שני הערכים, ושניהם שאלה אמיתית: „הראה לי רק מושאע” (משקיע,
+ * ‏או קונה שמחפש מחיר) ו„הראה לי רק רישום נפרד” (מי שסירב, או מי
+ * ‏שהמימון שלו לא יאפשר). „הכל” הוא היעדר הפרמטר ולא ערך שלישי.
+ */
+const SHARED_TABU_FILTER_OPTIONS: [string, string][] = [
+  ["true", "טאבו משותף"],
+  ["false", "רישום נפרד"],
+];
+
+/*
+ * ‏מחרוזות מפורשות ולא `Boolean(value)`: השרת דוחה כל דבר שאינו
+ * ‏"true"/"false", ומחרוזת ריקה פשוט אינה מוסיפה פרמטר.
+ */
+function sharedTabuQuery(value: string): string {
+  return value === "" ? "" : `&sharedTabu=${value}`;
+}
+
 const SORTS: [string, string][] = [
   ["newest", "חדשים קודם"],
   ["price_desc", "מחיר גבוה→נמוך"],
@@ -172,13 +191,49 @@ function StatTile({
   label,
   value,
   note,
+  /**
+   * ‎**אריח שיש לו יעד הופך לכפתור — ואריח שאין לו נשאר `div`.**
+   *
+   * ‏„טיוטה להשלמה” אומר למתווך שיש עבודה, ואז השאיר אותו לחפש
+   * ‏אותה בעצמו: לגלול לטבלה, לפתוח „סינון לפי סטטוס”, ולבחור
+   * ‏„טיוטה”. שלוש פעולות כדי להגיע למה שהאריח בדיוק ספר לו
+   * ‏(דיווח המשתמש).
+   *
+   * ‏`button` ולא `div` עם `onClick`: מקלדת, `Enter`, וקורא מסך —
+   * ‏שלושתם מגיעים מהאלמנט הנכון ולא מ-`role` שמודבק עליו.
+   */
+  onClick,
+  actionLabel,
 }: {
   domain: string;
   icon: ReactNode;
   label: string;
   value: number;
   note: string;
+  onClick?: () => void;
+  actionLabel?: string;
 }) {
+  if (onClick !== undefined) {
+    return (
+      <button
+        type="button"
+        className={`mv-stat-tile mv-stat-tile--sm ${domain} cursor-pointer text-right`}
+        onClick={onClick}
+        aria-label={actionLabel ?? label}
+      >
+        <span className="mv-card-head">
+          <span className="mv-tile" aria-hidden="true">
+            {icon}
+          </span>
+          <span className="mv-card-head__title">{label}</span>
+        </span>
+        <span className="mv-stat-tile__foot m-0 flex">
+          <span className="mv-stat-tile__value mv-ltr">{value}</span>
+          <span className="mv-stat-tile__note">{note}</span>
+        </span>
+      </button>
+    );
+  }
   return (
     <div className={`mv-stat-tile mv-stat-tile--sm ${domain}`}>
       <div className="mv-card-head">
@@ -215,9 +270,12 @@ function StatTile({
 function PropertyStats({
   items,
   truncated,
+  onShowDrafts,
 }: {
   items: PropertyRow[];
   truncated: boolean;
+  /** ‏„קחו אותי לטיוטות” — מסנן את הטבלה שמתחת, בלחיצה אחת. */
+  onShowDrafts: () => void;
 }) {
   const active = items.filter((p) => p.status === "active");
   const ready = active.filter((p) => p.missingFields.length === 0).length;
@@ -295,12 +353,16 @@ function PropertyStats({
         icon={<IconDoc s={20} />}
         label="טיוטה להשלמה"
         value={drafts.length}
+        /* ‏אריח ריק אינו כפתור — אין לאן לקחת */
+        {...(drafts.length === 0
+          ? {}
+          : { onClick: onShowDrafts, actionLabel: `הצגת ${drafts.length} הטיוטות ברשימה` })}
         note={
           drafts.length === 0
             ? "אין טיוטות פתוחות"
             : drafts.length === 1
               ? addressOf(drafts[0]!)
-              : "פתחו את הרשימה כדי להשלים"
+              : "לחצו כדי להציג אותן ברשימה"
         }
       />
       {/*
@@ -372,6 +434,16 @@ export default function PropertiesPage() {
   const [status, setStatus] = useState("");
   const [type, setType] = useState("");
   const [sort, setSort] = useState("newest");
+  /*
+   * ‎**„טאבו משותף” מסונן בשרת, ולא כצ׳יפ על מה שנטען.**
+   *
+   * ‏זו כל הנקודה שלו: נכסים במושאע הם מיעוט, ולכן דווקא הם נופלים
+   * ‏מחוץ למאה הראשונות. צ׳יפ מקומי היה מציג „אין נכסים בטאבו
+   * ‏משותף” למשרד שיש לו כמה, וזו תשובה גרועה משתיקה.
+   */
+  const [sharedTabu, setSharedTabu] = useState("");
+  /** ‏„גלול לרשימה ברגע שהיא שוב על המסך” — ראו `onShowDrafts`. */
+  const [scrollToList, setScrollToList] = useState(false);
   const [filters, setFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
   /*
    * הנכסים שסומנו להעלאה מרוכזת לרשת — Set של מזהים, מאותה סיבה
@@ -393,14 +465,22 @@ export default function PropertiesPage() {
     if (authLoading) return;
     setItems(null);
     apiGet<{ items: PropertyRow[]; nextCursor?: string | null }>(
-      `/properties?limit=100${filtersToQuery(filters)}`,
+      `/properties?limit=100${filtersToQuery(filters)}${sharedTabuQuery(sharedTabu)}`,
     )
       .then((res) => {
         setItems(apiList(res.items, "items"));
         setTruncated(res.nextCursor !== undefined && res.nextCursor !== null);
       })
       .catch(() => setError("טעינת הנכסים נכשלה"));
-  }, [authLoading, filters]);
+  }, [authLoading, filters, sharedTabu]);
+
+  useEffect(() => {
+    if (!scrollToList || items === null) return;
+    document
+      .getElementById("properties-list")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setScrollToList(false);
+  }, [scrollToList, items]);
 
   /* צ'יפי הערים נבנים מהנתונים עצמם — הערים שבאמת יש בהן נכסים */
   const cities = useMemo(() => {
@@ -566,7 +646,7 @@ export default function PropertiesPage() {
     setItems(null);
     try {
       const fresh = await apiGet<{ items: PropertyRow[]; nextCursor?: string | null }>(
-        `/properties?limit=100${filtersToQuery(filters)}`,
+        `/properties?limit=100${filtersToQuery(filters)}${sharedTabuQuery(sharedTabu)}`,
       );
       setItems(apiList(fresh.items, "items"));
       setTruncated(fresh.nextCursor !== undefined && fresh.nextCursor !== null);
@@ -582,7 +662,28 @@ export default function PropertiesPage() {
     city !== "הכל" ||
     status !== "" ||
     type !== "" ||
+    sharedTabu !== "" ||
     sort !== "newest";
+
+  /*
+   * ‎**ניקוי אחד לשני הכפתורים** (ביקורת Codex, P2).
+   *
+   * ‏„נקה סינון” שבראש הרשימה ו„ניקוי הסינון” שבמצב הריק היו שני
+   * ‏עותקים של אותה פעולה, ולכן המסנן החדש נוסף לאחד ולא לשני:
+   * ‏מי שסינן לפי רישום בלבד וקיבל רשימה ריקה לחץ על כפתור שמבטיח
+   * ‏לנקות — ודבר לא קרה, כי הוא לא נגע במסנן היחיד שפעל.
+   *
+   * ‏ואותה רשימת שדות בדיוק היא `filtering` מעליה: אם היא אומרת
+   * ‏„יש סינון” על שדה שהניקוי אינו מאפס, הכפתור אינו יכול לכבות.
+   */
+  function clearFilters(): void {
+    setFilters(EMPTY_FILTERS);
+    setCity("הכל");
+    setStatus("");
+    setType("");
+    setSharedTabu("");
+    setSort("newest");
+  }
 
   return (
     <>
@@ -720,14 +821,63 @@ export default function PropertiesPage() {
           פירושו „עוד לא ידוע”, ואז אין כרטיסים בכלל: אריח שמראה „0”
           על טעינה שטרם הסתיימה הוא בדיוק אותו שקר של רשימה ריקה.
         */}
-        {items === null ? null : <PropertyStats items={items} truncated={truncated} />}
+        {items === null ? null : (
+          <PropertyStats
+            items={items}
+            truncated={truncated}
+            /*
+              ‎**הסינון וגם הגלילה.** האריחים יושבים לצד החיפוש,
+              ‏והרשימה מתחתיהם: סינון בלי גלילה משנה מסך שהמתווך
+              ‏אינו רואה, ונראה כאילו לא קרה דבר.
+            */
+            onShowDrafts={() => {
+              /*
+               * ‎**האריח סופר על כל הרשימה, ולכן הוא גם מנקה את כל
+               * הסינון** (ביקורת Codex).
+               *
+               * ‏המונה נגזר מ-`items` — כל מה שנטען — בעוד שהעיר,
+               * ‏הסוג והרישום מצמצמים את `visible`. עם „ירושלים”
+               * ‏מסומנת וטיוטות שכולן בתל אביב, האריח הבטיח „3
+               * ‏טיוטות” וגלל לרשימה ריקה: המספר שהמתווך לחץ עליו
+               * ‏ומה שקיבל לא היו אותו דבר.
+               *
+               * ‏הניקוי הוא התשובה הנכונה ולא צמצום המונה: האריח
+               * ‏אומר „מה מחכה לך”, וזו שאלה על כל המאגר. „מה מחכה
+               * ‏לך בירושלים” הוא מסך אחר.
+               */
+              /*
+               * ‎**המונה והיעד באותו היקף — ולכן דווקא לא כל
+               * הסינון** (ביקורת Codex, P2).
+               *
+               * ‏העיר והסוג מצמצמים את `visible` בלבד, בעוד שהמונה
+               * ‏נגזר מ-`items` — ולכן הם מנותקים ממנו וחייבים
+               * ‏להתנקות. סינון הרישום, לעומת זאת, רץ **בשרת** ולכן
+               * ‏`items` עצמו כבר מסונן בו: ניקויו היה מרחיב את
+               * ‏היעד מעבר למה שנספר. „3 טיוטות” היה פותח שש.
+               *
+               * ‏זה התיקון הקודם, מכויל: לא „נקה הכול” אלא „נקה את
+               * ‏מה שהמונה אינו מכיר”.
+               */
+              setCity("הכל");
+              setType("");
+              setStatus("draft");
+              /*
+               * ‏הגלילה מחכה לרשימה ואינה רצה מיד: ניקוי סינון
+               * ‏הרישום הוא סינון **שרת**, ולכן הוא מחזיר את
+               * ‏הרשימה ל„טוען” — ובאותו רגע עוגן הגלילה אינו
+               * ‏קיים והפעולה הייתה מתבצעת על `null` בשקט.
+               */
+              setScrollToList(true);
+            }}
+          />
+        )}
       </div>
 
       {error ? (
         <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען נכסים…</p>
-      ) : items.length === 0 && !hasActiveFilters(filters) ? (
+      ) : items.length === 0 && !hasActiveFilters(filters) && sharedTabu === "" ? (
         /*
          * **מצב „אין נכסים בכלל” יושב כאן, ולא בתוך הרשימה.**
          *
@@ -739,6 +889,15 @@ export default function PropertiesPage() {
          * הייתה קוד מת: משרד חדש קיבל את הנוסח הישן, והפעולה שהוספתי
          * („קליטה בקול”) לא הופיעה לעולם. הנוסח המשופר עבר לכאן
          * (ביקורת Codex).
+        *
+         * ‎**ו„אין נכסים” הוא לא כל סינון — רק זה שמרוקן את `items`**
+         * ‏(ביקורת Codex, P2).
+         *
+         * ‏עיר, סוג ומיון מצמצמים את `visible` בלבד, ולכן אינם
+         * ‏יכולים להביא לכאן. הרישום כן: הוא מסנן **בשרת**, ומשרד
+         * ‏בלי נכס אחד בטאבו משותף קיבל „עוד לא הוספת נכסים” —
+         * ‏מסך פתיחה שמוחק את בורר הרישום ואת „נקה סינון” יחד איתו,
+         * ‏כלומר מלכודת שיוצאים ממנה רק ברענון הדף.
          */
         <div
           className="rounded-xl border p-8 text-center"
@@ -778,8 +937,11 @@ export default function PropertiesPage() {
             הפקדים ישבו עד כה בסרגל נפרד מעל הרשימה, וסרגל הבחירה
             הופיע ונעלם בין שניהם — כלומר הרשימה „קפצה” בכל בחירה.
             בצילום הכל בכרטיס אחד, והפעולות בתחתיתו קבועות.
+
+            ‎`id` כדי שאריח „טיוטה להשלמה” יוכל לגלול לכאן: סינון
+            ‏שמשנה מסך שהמתווך אינו רואה נראה כאילו לא קרה דבר.
           */}
-          <div className="mv-card mv-card--pad">
+          <div id="properties-list" className="mv-card mv-card--pad">
             <div className="mv-card-head flex-wrap">
               <span className="mv-tile mv-tile--44 mv-domain-blue" aria-hidden="true">
                 <IconHome s={20} />
@@ -819,12 +981,32 @@ export default function PropertiesPage() {
                   allLabel="כל הסטטוסים"
                   options={Object.entries(STATUS_LABELS)}
                 />
+                {/*
+                  ‎**בלי הסוג הוותיק** (ביקורת Codex, P2).
+
+                  ‏`shared_tabu` הוא עובדה משפטית ולא סוג מבנה, ולכן
+                  ‏יש לו עכשיו בורר משלו — „סינון לפי רישום”, שרץ
+                  ‏בשרת. כל עוד הוא נשאר גם כאן היו שתי דרכים לסנן
+                  ‏לפי אותו דבר, ואחת מהן שקרה: הסינון לפי סוג הוא
+                  ‏מקומי (`p.propertyType === type`), ולכן הוא החזיר
+                  ‏רק את השורות הוותיקות והסתיר נכס במושאע שנרשם
+                  ‏כ„דירה” עם הדגל — כלומר בדיוק את הרוב.
+                */}
                 <FilterSelect
                   label="סינון לפי סוג נכס"
                   value={type}
                   onChange={setType}
                   allLabel="כל הסוגים"
-                  options={Object.entries(PROPERTY_TYPE_LABELS)}
+                  options={Object.entries(PROPERTY_TYPE_LABELS).filter(
+                    ([value]) => value !== SHARED_TABU_PROPERTY_TYPE,
+                  )}
+                />
+                <FilterSelect
+                  label="סינון לפי רישום"
+                  value={sharedTabu}
+                  onChange={setSharedTabu}
+                  allLabel="כל סוגי הרישום"
+                  options={SHARED_TABU_FILTER_OPTIONS}
                 />
                 <SortSelect value={sort} onChange={setSort} options={SORTS} />
                 {/*
@@ -836,13 +1018,7 @@ export default function PropertiesPage() {
                   <button
                     type="button"
                     className="mv-filter-clear"
-                    onClick={() => {
-                      setFilters(EMPTY_FILTERS);
-                      setCity("הכל");
-                      setStatus("");
-                      setType("");
-                      setSort("newest");
-                    }}
+                    onClick={clearFilters}
                   >
                     <IconX s={14} /> נקה סינון
                   </button>
@@ -974,12 +1150,7 @@ export default function PropertiesPage() {
               </p>
               <Button
                 variant="secondary"
-                onClick={() => {
-                  setFilters(EMPTY_FILTERS);
-                  setCity("הכל");
-                  setStatus("");
-                  setType("");
-                }}
+                onClick={clearFilters}
               >
                 ניקוי הסינון
               </Button>

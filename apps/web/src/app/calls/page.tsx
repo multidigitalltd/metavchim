@@ -60,6 +60,8 @@ interface CallRow {
    * שלך** — ובשני המקרים אין מה להציע. ראו את ה-DTO בשרת.
    */
   leadStatus?: string;
+  /** ‏הלקוח מסומן „טאבו משותף” — מסמן מראש את התיבה בהמרה לנכס. */
+  contactSharedTabu?: boolean;
   phone?: string;
   occurredAt: string;
   durationMinutes?: number;
@@ -421,6 +423,8 @@ export default function CallsPage() {
         key={`property-${selected.id}`}
         leadId={selected.leadId}
         prefill={prefill}
+        /* ‏הסימון על הלקוח — בלעדיו ההמרה מכאן שולחת `false` בשקט */
+        contactSharedTabu={selected.contactSharedTabu ?? false}
       />
     ) : null;
 

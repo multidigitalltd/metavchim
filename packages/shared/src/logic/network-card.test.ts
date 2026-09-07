@@ -4,8 +4,10 @@ import {
   entryChip,
   networkSafeTitle,
   presentationChips,
+  presentationDetailRows,
   withNetworkSafeTitle,
 } from "./network-card.js";
+import { SHARED_TABU_NETWORK_LABEL } from "./shared-tabu.js";
 
 const base = {
   dealType: "sale",
@@ -116,6 +118,44 @@ describe("entryChip", () => {
   /* תאריך פגום לא מדפיס Invalid Date על מסך של מתווך */
   it("תאריך פגום נופל למצב בלבד", () => {
     expect(entryChip("by_date", "not-a-date")?.text).toBe("מועד כניסה מוגדר");
+  });
+});
+
+/**
+ * ‎**רישום משותף — עובדה משפטית, ולכן היא נאמרת בכרטיס** (ביקורת
+ * ‏Codex, P1).
+ *
+ * ‏הסבב הקודם הביא את השדה עד ה-DTO והמנוע כיבד אותו, אבל שום מסך
+ * ‏לא הציג אותו: סוכן ממשרד אחר ראה מודעה רגילה לגמרי וביקש חיבור
+ * ‏בלי לדעת שאין חלקה נפרדת. „הגיע ל-DTO” אינו „נאמר”.
+ *
+ * ‏הבדיקות כאן על הצילום המשותף, כי שלושת המסכים — מודעה, הצעה
+ * ‏שהתקבלה, הצעה שנשלחה — נגזרים ממנו.
+ */
+describe("‏רישום משותף בכרטיס הרשת", () => {
+  it("‏מסומן — הצ׳יפ מופיע", () => {
+    const texts = presentationChips({ sharedTabu: true }).map((c) => c.text);
+    expect(texts).toContain(SHARED_TABU_NETWORK_LABEL);
+  });
+
+  /* ‏והצד השני, שבלעדיו „תמיד להציג” היה עובר ומפחיד על כל מודעה */
+  it("‏לא מסומן — אין צ׳יפ", () => {
+    const texts = presentationChips({ sharedTabu: false }).map((c) => c.text);
+    expect(texts).not.toContain(SHARED_TABU_NETWORK_LABEL);
+  });
+
+  it("‏לא ידוע — גם אין", () => {
+    const texts = presentationChips({}).map((c) => c.text);
+    expect(texts).not.toContain(SHARED_TABU_NETWORK_LABEL);
+  });
+
+  /* ‏ובפירוט המלא, שם ההיעדר עצמו הוא תשובה */
+  it("‏שורת הפירוט אומרת גם „רישום נפרד”", () => {
+    const rowOf = (fields: Parameters<typeof presentationDetailRows>[0]): string | undefined =>
+      presentationDetailRows(fields).find((r) => r.label === "רישום")?.value;
+    expect(rowOf({ sharedTabu: true })).toBe(SHARED_TABU_NETWORK_LABEL);
+    expect(rowOf({ sharedTabu: false })).toBe("רישום נפרד");
+    expect(rowOf({}), "המציא תשובה על שדה שלא נשלח").toBeUndefined();
   });
 });
 

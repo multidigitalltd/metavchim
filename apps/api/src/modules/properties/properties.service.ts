@@ -16,6 +16,7 @@ import {
   limitState,
   type Page,
   type PropertyFields,
+  SHARED_TABU_PROPERTY_TYPE,
 } from "@metavchim/shared";
 import {
   PROPERTY_TYPE_LABELS_HE,
@@ -57,6 +58,7 @@ import { GeocodingService } from "../../core/geocoding.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import type { Prisma } from "@prisma/client";
 import { ContactErasureService } from "../contacts/contact-erasure.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { ListingsService } from "../collaboration/listings.service";
@@ -84,6 +86,44 @@ import {
 function creatorUserId(): string | null {
   const { userId } = TenantContext.current();
   return userId === "" ? null : userId;
+}
+
+/**
+ * ‎**הצורה ה-SQL של `isSharedTabuProperty` — והיחידה.**
+ *
+ * ‏העובדה „הנכס רשום בטאבו משותף” יושבת בשני מקומות: הדגל, והערך
+ * ‏הוותיק `shared_tabu` ב-`property_type`. ב-TypeScript יש לזה
+ * ‏תשובה אחת (`isSharedTabuProperty`), וכאן נדרשת הצורה השנייה
+ * ‏והאחרונה — כי שאילתה אינה יכולה לקרוא לפונקציה.
+ *
+ * ‏שתיהן נבדקות זו מול זו על אותה טבלת מקרים ב-
+ * ‎`shared-tabu-sources.test.ts`, כדי שהן לא יוכלו להיפרד: סינון
+ * ‏שקורא רק את הדגל היה מפספס בדיוק את הנכסים שנרשמו בסוג הישן,
+ * ‏והם הרוב הקיים.
+ *
+ * ‏האינדקס החלקי במיגרציה 20260906210000 נבנה על **אותו** תנאי
+ * ‏בדיוק, ולכן הוא משרת את הסינון הזה.
+ */
+export function sharedTabuWhere(value: boolean | undefined): Prisma.PropertyWhereInput {
+  if (value === undefined) return {};
+  if (value) {
+    return { OR: [{ sharedTabu: true }, { propertyType: SHARED_TABU_PROPERTY_TYPE }] };
+  }
+  /*
+   * ‎**`<> 'shared_tabu'` אינו נכון ל-`NULL`** (ביקורת Codex, P1).
+   *
+   * ‏ב-SQL כל השוואה ל-`NULL` היא `UNKNOWN`, ולכן `property_type
+   * ‏<> 'shared_tabu'` **מוציא** נכס בלי סוג — וטיוטות, שהן הרוב
+   * ‏של הנכסים בלי סוג, היו נעלמות מ„רישום נפרד” אף ש-
+   * ‏`isSharedTabuProperty` מסווג אותן בדיוק כך.
+   *
+   * ‏זו הסיבה שהטבלה המשותפת בבדיקה נושאת גם שורת `null`: בלעדיה
+   * ‏שתי הצורות מסכימות על כל מה שנבדק, ונפרדות בדיוק על מה שלא.
+   */
+  return {
+    sharedTabu: false,
+    OR: [{ propertyType: null }, { propertyType: { not: SHARED_TABU_PROPERTY_TYPE } }],
+  };
 }
 
 @Injectable()
@@ -898,7 +938,8 @@ export class PropertiesService {
       await tx.property.update({
         where: { id },
         data: {
-          ...(fieldsToColumns(fieldPatch) as object),
+          /* ‏הסוג השמור נמסר כדי שכיבוי מפורש יפרוש גם אותו — ראו שם */
+          ...(fieldsToColumns(fieldPatch, existing) as object),
           /*
            * הריקון **אחרי** ה-Patch: שדה שנמצא בשניהם התכוון להיות
            * ריק, ולא לקבל את הערך שהובא לפניו.
@@ -1183,6 +1224,14 @@ export class PropertiesService {
     maxPrice?: number;
     minRooms?: number;
     maxRooms?: number;
+    /**
+     * ‏רק נכסים בטאבו משותף (`true`) או רק שאינם (`false`).
+     *
+     * ‏העמודה `NOT NULL`, ולכן `false` הוא ערך אמיתי ולא „הכול”:
+     * ‏מסנן „לא משותף” הוא שאלה לגיטימית של מתווך שמחפש נכס למי
+     * ‏שסירב. `undefined` בלבד אינו מוסיף תנאי.
+     */
+    sharedTabu?: boolean;
     cursor?: string;
     /**
      * סדר התוצאות — „תמיד תציג מהזול ליקר” של הסוכן. עמוד ראשון
@@ -1207,6 +1256,7 @@ export class PropertiesService {
             ? { city: { in: query.cities } }
             : {}),
           ...(query.dealType ? { dealType: query.dealType } : {}),
+          ...sharedTabuWhere(query.sharedTabu),
           ...(price.min !== undefined || price.max !== undefined
             ? {
                 priceAgorot: {

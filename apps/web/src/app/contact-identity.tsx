@@ -44,6 +44,14 @@ export interface ContactIdentity {
   name: string;
   phone: string;
   email?: string;
+  /**
+   * ‎**רישום בטאבו משותף (מושאע)** — עובדה משפטית, לא העדפה.
+   *
+   * ‏אין חלקה נפרדת, נדרשת הסכמת שותפים, והמימון מסובך. היא יושבת
+   * ‏על הלקוח כי היא נאמרת בשיחה הראשונה — לפני שיש כרטיס נכס
+   * ‏לרשום אותה עליו (בקשת בעל המוצר).
+   */
+  sharedTabu: boolean;
 }
 
 export function ContactIdentityEdit({
@@ -75,6 +83,7 @@ export function ContactIdentityEdit({
       name: identity.name,
       phone: identity.phone,
       email: identity.email ?? "",
+      sharedTabu: identity.sharedTabu,
     });
   }
 
@@ -84,6 +93,7 @@ export function ContactIdentityEdit({
       name: draft.name.trim(),
       phone: draft.phone.trim(),
       email: (draft.email ?? "").trim(),
+      sharedTabu: draft.sharedTabu,
     };
     if (next.name.length < 2) {
       setError("שם קצר מדי — לפחות שני תווים");
@@ -121,9 +131,14 @@ export function ContactIdentityEdit({
         await apiPatch(`/contacts/${contactId}/email`, { email: next.email });
         saved.email = next.email;
       }
+      if (next.sharedTabu !== identity.sharedTabu) {
+        await apiPatch(`/contacts/${contactId}/shared-tabu`, { sharedTabu: next.sharedTabu });
+        saved.sharedTabu = next.sharedTabu;
+      }
       onSaved({
         name: saved.name,
         phone: saved.phone,
+        sharedTabu: saved.sharedTabu,
         ...(saved.email === undefined || saved.email === "" ? {} : { email: saved.email }),
       });
       setDraft(null);
@@ -136,6 +151,7 @@ export function ContactIdentityEdit({
       onSaved({
         name: saved.name,
         phone: saved.phone,
+        sharedTabu: saved.sharedTabu,
         ...(saved.email === undefined || saved.email === "" ? {} : { email: saved.email }),
       });
     } finally {
@@ -226,6 +242,44 @@ export function ContactIdentityEdit({
           style={{ ...inputStyle, minWidth: 190 }}
         />
       </div>
+      {/*
+        ‎**„טאבו משותף” כאן ולא כפתור נפרד** (בקשת בעל המוצר).
+
+        ‏זו עובדה משפטית על הנכס של הלקוח, והיא נאמרת באותה שיחה
+        ‏שבה מתקנים את השם והמספר — „זה בטאבו משותף, ותרשום לך את
+        ‏המספר הנכון”. כפתור שלישי במקום אחר הוא הזדמנות שלישית
+        ‏לוותר ולכתוב את זה בהערות.
+      */}
+      {/*
+        ‎**והסימון **נשאר** — זו עובדה על האדם** (ביקורת Codex, P2).
+
+        ‏הנוסח כאן הבטיח „ואז יורד מכאן”, כי כך זה אכן עבד: הסימון
+        ‏היה סמן ממתין שנצרך בהמרה. ההמרה כבר אינה צורכת אותו —
+        ‏לאדם אחד יכולים להיות כמה לידים, והסמן נחת אצל מי שהומר
+        ‏ראשון — ולכן העובדה נשארת עליו, וכל המרה מאשרת אותה על
+        ‏הנכס שלה בתיבה שמסומנת מראש.
+
+        ‏טקסט עזרה שמתאר התנהגות שכבר אינה קיימת גרוע מהיעדר טקסט:
+        ‏מתווך שרואה את התיבה עדיין מסומנת אחרי ההמרה מסיק שמשהו
+        ‏נכשל, ומנקה עובדה נכונה.
+      */}
+      <label className="flex flex-col gap-0.5 text-[length:var(--type-caption-lg)]">
+        <span className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={draft.sharedTabu}
+            onChange={(event) =>
+              setDraft((prev) =>
+                prev === null ? prev : { ...prev, sharedTabu: event.target.checked },
+              )
+            }
+          />
+          טאבו משותף
+        </span>
+        <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+          נשאר על הלקוח. בהמרה לנכס התיבה תסומן מראש, ותאשרו לכל נכס בנפרד
+        </span>
+      </label>
       <button type="submit" className="mv-btn-action" disabled={busy}>
         שמירה
       </button>
