@@ -503,10 +503,25 @@ describe("‏תג הכרטיס בתיבה", () => {
    */
   const THREAD = method(SERVICE, "async thread(");
 
-  it("‏כל שלושת הסוגים נשלפים עם מסנן בעלות", () => {
+  /*
+   * ‎**קונה וליד — בעלות; נכס — היכולת** (ביקורת Codex, P2).
+   *
+   * ‏רשימות הקונים והלידים מסוננות בבעלות, ולכן תג משרדי עליהן
+   * ‏היה מגלה כרטיס של עמית. רשימת הנכסים **משרדית בכוונה**,
+   * ‏ו-`getById` מסנן לפי דייר ומחיקה בלבד — ולכן מסנן בעלות
+   * ‏כאן היה מסתיר תג לנכס שהסוכן יכול לפתוח, ובכיוון ההפוך
+   * ‏מציג תג למי שמודול הנכסים כבוי אצלו.
+   */
+  it("‏קונה וליד נשלפים עם מסנן בעלות", () => {
     expect(THREAD).toContain('ownershipFilter("buyers.view_all", "ownerUserId")');
     expect(THREAD).toContain("leadOwnershipFilter()");
-    expect(THREAD).toContain('ownershipFilter("properties.view_all", "agentUserId")');
+  });
+
+  it("‏והנכס נבדק ביכולת, כמו מסך הנכס עצמו", () => {
+    expect(THREAD).toContain('capabilities.has("properties.view")');
+    expect(THREAD).toContain("!canSeeProperties");
+    /* ‏ולא במסנן בעלות, שהיה מחמיר מהמסך */
+    expect(THREAD).not.toContain('ownershipFilter("properties.view_all"');
   });
 
   /* ‏ומחוק אינו „נראה”: תג אל כרטיס שנמחק הוא קישור שבור */

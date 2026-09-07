@@ -855,6 +855,8 @@ export class EmailInboxService {
       const idsOf = (kind: EmailCardKind): string[] => [
         ...new Set(tagged.filter((card) => card.kind === kind).map((card) => card.id)),
       ];
+      /* ‏אותה יכולת שמסך הנכס עצמו נשמר בה */
+      const canSeeProperties = TenantContext.current().capabilities.has("properties.view");
       const [buyerIds, leadIds, propertyIds] = [
         idsOf("buyer"),
         idsOf("lead"),
@@ -878,15 +880,26 @@ export class EmailInboxService {
               where: { tenantId, id: { in: leadIds }, ...leadOwnershipFilter() },
               select: { id: true },
             }),
-        propertyIds.length === 0
+        /*
+         * ‎**הנכס נבדק כמו מסך הנכס עצמו, ולא במסנן בעלות**
+         * ‏(ביקורת Codex, P2).
+         *
+         * ‏רשימת הנכסים **משרדית בכוונה** — כך כתוב ב-`getById`,
+         * ‏שמסנן לפי דייר ומחיקה בלבד ונשמר ביכולת
+         * ‏`properties.view`. מה שיורד לסוכן שאינו מטפל בנכס הוא
+         * ‏**פרטי הבעלים**, לא הכרטיס.
+         *
+         * ‏מסנן בעלות כאן היה מחמיר מהמסך: הוא מסתיר תג לנכס
+         * ‏שהסוכן יכול לפתוח — כלומר גורע קישור שימושי בלי סיבה.
+         * ‏ובכיוון ההפוך, מי שמודול הנכסים כבוי אצלו היה מקבל תג
+         * ‏לנכס שמשויך אליו. שני החצאים של אותה טעות.
+         *
+         * ‏קונה וליד **כן** מסוננים בבעלות, כי הרשימות שלהם כאלה.
+         */
+        propertyIds.length === 0 || !canSeeProperties
           ? []
           : tx.property.findMany({
-              where: {
-                tenantId,
-                id: { in: propertyIds },
-                deletedAt: null,
-                ...ownershipFilter("properties.view_all", "agentUserId"),
-              },
+              where: { tenantId, id: { in: propertyIds }, deletedAt: null },
               select: { id: true },
             }),
       ]);
