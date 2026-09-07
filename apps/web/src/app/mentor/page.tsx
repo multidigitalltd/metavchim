@@ -366,16 +366,6 @@ export default function MentorPage() {
         persona={overview?.persona ?? null}
       />
 
-      {/*
-        ‎**התפריט הפנימי — מה יש בעמוד, בלי לגלול כדי לגלות.**
-
-        ‏העמוד התארך עד שרוב מה שיש בו נמצא מתחת לקפל: מי שנכנס
-        ‏רואה „השבוע” ומניח שזה העמוד. הרכיב מסתיר את עצמו כל עוד
-        ‏אין סעיפים, ולכן הוא אינו מופיע במצב הטעינה ובמצב השגיאה.
-      */}
-      <div className="mt-4">
-        <MentorPageMenu overview={overview} user={user} />
-      </div>
 
       {overviewFailed ? (
         <div className="mt-4">
@@ -387,6 +377,23 @@ export default function MentorPage() {
         </p>
       ) : (
         <>
+          {/*
+            ‎**התפריט הפנימי — מה יש בעמוד, בלי לגלול כדי לגלות.**
+
+            ‏העמוד התארך עד שרוב מה שיש בו נמצא מתחת לקפל: מי שנכנס
+            ‏רואה „השבוע” ומניח שזה העמוד.
+
+            ‎**והוא יושב כאן, בתוך הענף שמרכיב את הסעיפים** (ביקורת
+            ‏Codex, P2). כשהוא ישב מעל שלושת הענפים, טעינה חוזרת
+            ‏שנכשלה (`onChanged`, `onFeedback`) החליפה את כל הסעיפים
+            ‏ב-`LoadError` בלי לשנות את `overview` — ולכן התפריט
+            ‏נשאר מלא בקישורים לעוגנים שאינם קיימים עוד. תלות
+            ‏נוספת הייתה מטליאה את הסימפטום; מיקום שאינו יכול לשרוד
+            ‏את הסעיפים מסלק את המצב.
+          */}
+          <div className="mt-4">
+            <MentorPageMenu overview={overview} user={user} />
+          </div>
           <div className="mt-6">
             <Celebration
               events={celebrationEvents(overview)}
