@@ -99,5 +99,39 @@ if (mount < 0) {
   }
 }
 
+/**
+ * ‎**וההמרה שואלת על הנכס, ולא יורשת מהאדם** (ביקורת Codex, P1).
+ *
+ * ‏`contacts.shared_tabu` הוא עובדה על האדם, ולאדם אחד יכולים
+ * ‏להיות כמה לידים. שלוש גרסאות ניסו להעביר אותה לנכס אוטומטית,
+ * ‏וכולן נחתו אצל מי שהומר ראשון: נכס רגיל עם אזהרה משפטית שאיש
+ * ‏לא אמר עליו, והנכס שבמושאע בלעדיה.
+ *
+ * ‏מה שנשאר הוא שאלה בטופס, מסומנת מראש לפי הסימון על הלקוח.
+ * ‏התיבה היא **כל** התיקון בצד המסך: בלעדיה השרת חוזר לקבל
+ * ‏`sharedTabu` ריק בכל המרה, והנתון שנרשם על הלקוח נמחק בשקט
+ * ‏בדיוק ברגע שהנכס נוצר. ‎`tsc` לא רואה תיבה שנמחקה.
+ */
+const CONVERT = join(import.meta.dirname, "..", "src", "app", "leads", "convert-sections.tsx");
+const convert = readFileSync(CONVERT, "utf8");
+const section = convert.slice(convert.indexOf("export function ConvertToPropertySection("));
+if (section.length === 0) {
+  console.error(`✗ ${CONVERT}: מקטע ההמרה לנכס נעלם — עדכנו את השער`);
+  failed = true;
+} else if (!/name="sharedTabu"/u.test(section)) {
+  console.error(`✗ ${CONVERT}: טופס ההמרה אינו שואל על רישום משותף`);
+  failed = true;
+} else if (!/sharedTabu:\s*f\.get\("sharedTabu"\)/u.test(section)) {
+  console.error(`✗ ${CONVERT}: התשובה אינה נשלחת לשרת`);
+  failed = true;
+} else if (!/defaultChecked=\{contactSharedTabu\}/u.test(section)) {
+  console.error(
+    `✗ ${CONVERT}: התיבה אינה מסומנת מראש מהסימון על הלקוח — הנתון ייעלם בהמרה`,
+  );
+  failed = true;
+} else {
+  console.log(`✓ ${CONVERT}`);
+}
+
 if (failed) process.exit(1);
 console.log("מסכי הטאבו המשותף מסכימים עם השרת.");

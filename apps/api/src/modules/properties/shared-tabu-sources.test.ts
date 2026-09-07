@@ -348,6 +348,25 @@ describe("‏מסלול העדכון מוסר ל-`fieldsToColumns` את השור
    * ‏משהו שם הייתה ממציאה מצב קודם לנכס שנולד עכשיו.
    */
   it("‏והיצירה אינה", () => {
-    expect(SERVICE).toMatch(/fieldsToColumns\(\s*consumed \? \{ \.\.\.fields, sharedTabu: true \} : fields\s*\)/u);
+    /*
+     * ‏הטענה היא על **מספר הארגומנטים**, ולא על הביטוי שבפנים:
+     * ‏הניסוח הקודם נעץ את הביטוי המדויק, ולכן הוא נשבר כשהביטוי
+     * ‏השתנה משיקול אחר לגמרי — שער שחוסם את התיקון של עצמו.
+     */
+    const calls = [...SERVICE.matchAll(/fieldsToColumns\(/gu)].map((match) => {
+      const start = match.index + match[0].length;
+      let depth = 1;
+      for (let i = start; i < SERVICE.length; i += 1) {
+        if (SERVICE[i] === "(") depth += 1;
+        else if (SERVICE[i] === ")") {
+          depth -= 1;
+          if (depth === 0) return SERVICE.slice(start, i);
+        }
+      }
+      return "";
+    });
+    const create = calls.filter((args) => !args.includes(", existing"));
+    expect(create.length, "מסלול היצירה נעלם").toBe(1);
+    expect(create[0], "היצירה מוסרת שורה שמורה שאינה קיימת").not.toContain(",");
   });
 });

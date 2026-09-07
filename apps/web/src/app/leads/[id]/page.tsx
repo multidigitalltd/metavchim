@@ -1309,6 +1309,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                 </p>
                 <ConvertToPropertySection
                   leadId={lead.id}
+                  contactSharedTabu={lead.contact.sharedTabu}
                   autoOpen={convertSide === "property"}
                   {...(convertSide === "property" && convertPrefill !== undefined
                     ? { prefill: convertPrefill }

@@ -369,7 +369,7 @@ export class PropertiesService {
 
       const contact = await tx.contact.findFirst({
         where: { id: lead.contactId, tenantId: ctx.tenantId },
-        select: { nameEncrypted: true, phoneEncrypted: true, sharedTabu: true },
+        select: { nameEncrypted: true, phoneEncrypted: true },
       });
       if (!contact) throw new NotFoundException("איש הקשר של הליד לא נמצא");
       return {
@@ -377,22 +377,6 @@ export class PropertiesService {
           name: this.crypto.decrypt(contact.nameEncrypted),
           phone: this.crypto.decrypt(contact.phoneEncrypted),
         },
-        /*
-         * ‎**הסימון על הלקוח עובר לנכס — זה כל תפקידו** (ביקורת Codex, P1).
-         *
-         * ‏`contacts.shared_tabu` קיים בדיוק בשביל המצב שבו הנכס עוד
-         * ‏אינו במערכת: מוכר שהתקשר ואמר בשיחה הראשונה שהחלקה שלו
-         * ‏משותפת. הרגע שבו הנכס **כן** נכנס למערכת הוא ההמרה הזו,
-         * ‏וטופס ההמרה אינו שולח את הדגל — כלומר הנתון שנרשם כדי
-         * ‏לשרוד עד כאן היה נמחק בדיוק כאן.
-         *
-         * ‏הוא **מדליק ולא מכבה**: מתווך שביטל את הסימון בטופס
-         * ‏ההמרה אמר משהו מפורש, ואילו לקוח בלי סימון אינו אומר דבר
-         * ‏על הנכס. לכן `||` ולא השמה.
-         */
-        contactSharedTabu: contact.sharedTabu,
-        /* ‏למי הסמן שייך — נצרך יחד עם הכתיבה, ראו `consumesSharedTabuOf` */
-        contactId: lead.contactId,
         prior: {
           status: lead.status,
           requiresHuman: lead.requiresHuman,
@@ -405,16 +389,7 @@ export class PropertiesService {
     let propertyId: string;
     try {
       // persist בלבד — לא create: ההתאמות מופרדות ל-best-effort למטה
-      propertyId = await this.persist({
-        fields,
-        owner: claim.owner,
-        /*
-         * ‎**הסמן נמסר, וההכרעה נעשית בצריכה שלו** — הקריאה כאן
-         * ‏היא רק „יש טעם לנסות”, ולא „הדגל יידלק”. ראו
-         * ‏`consumesSharedTabuOf`.
-         */
-        ...(claim.contactSharedTabu ? { consumesSharedTabuOf: claim.contactId } : {}),
-      });
+      propertyId = await this.persist({ fields, owner: claim.owner });
     } catch (error) {
       // השמירה נכשלה — הליד חוzר בדיוק למצבו, לא למצב גנרי
       await this.prisma
@@ -553,18 +528,6 @@ export class PropertiesService {
     occupant?: { name: string; phone: string };
     /** מזהה שנקבע מראש — ראו `createFromIntake`. ריק ⇒ נוצר כאן. */
     id?: string;
-    /**
-     * ‎**איש קשר שסמן „טאבו משותף” הממתין שלו נצרך בכתיבה הזו**
-     * ‏(ביקורת Codex, P2).
-     *
-     * ‏מסירת הסמן וכיבויו הן פעולה **אחת** — „העובדה נרשמה על
-     * ‏כרטיס” — ולכן הן חייבות להיות בטרנזקציה אחת. הגרסה הקודמת
-     * ‏כיבתה אחרי `persist`, בטרנזקציה נפרדת שכשלונה נבלע: הנכס
-     * ‏נשמר, הדגל נשאר דלוק, וההמרה הבאה של אותו מוכר ירשה אותו
-     * ‏שוב — בדיוק הבאג שהכיבוי בא לסגור, רק נדיר יותר ולכן שקט
-     * ‏יותר.
-     */
-    consumesSharedTabuOf?: string;
   }): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const id = input.id ?? ulid();
@@ -596,28 +559,6 @@ export class PropertiesService {
       // המכסה נבדקת כאן ולא לפני הקריאה: אותה טרנזקציה שכותבת היא
       // זו שסופרת, ולכן שתי בקשות מקבילות לא יכולות לעבור יחד
       await this.assertCanAddProperty(tx, tenantId);
-      /*
-       * ‎**הצריכה היא שמכריעה, ולא קריאה מוקדמת** (ביקורת Codex, P2).
-       *
-       * ‏ההחלטה לרשת את הסמן התקבלה קודם, בטרנזקציית התביעה של
-       * ‏הליד, ורק הכיבוי היה כאן. שתי המרות של אותו מוכר במקביל
-       * ‏קראו שתיהן `true`, שתיהן יצרו נכס בטאבו משותף, והכיבוי
-       * ‏השני פשוט לא נגע באיש — כלומר סמן אחד עבר לשני נכסים.
-       *
-       * ‎`updateMany` על `sharedTabu: true` נועל את השורה; השנייה
-       * ‏ממתינה, מוצאת את הדגל כבוי, ומקבלת `count === 0`. הספירה
-       * ‏**היא** התשובה, ולכן היא נקראת ולא מושלכת — ומכאן שהדגל
-       * ‏נכתב לנכס שצרך בפועל, אחד ויחיד.
-       */
-      const consumed =
-        input.consumesSharedTabuOf === undefined
-          ? false
-          : (
-              await tx.contact.updateMany({
-                where: { id: input.consumesSharedTabuOf, tenantId, sharedTabu: true },
-                data: { sharedTabu: false },
-              })
-            ).count > 0;
       /*
        * ‎**באותה טרנזקציה שכותבת.** בדיקה לפניה הייתה חלון שבו הסוכן
        * הוסר מהמשרד בין הבדיקה לכתיבה — נדיר, אבל זה בדיוק סוג
@@ -657,7 +598,7 @@ export class PropertiesService {
            */
           agentUserId: input.agentUserId ?? creatorUserId(),
           readinessScore: readiness.score,
-          ...(fieldsToColumns(consumed ? { ...fields, sharedTabu: true } : fields) as object),
+          ...(fieldsToColumns(fields) as object),
         },
       });
       await this.audit.record(tx, {
