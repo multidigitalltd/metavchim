@@ -462,3 +462,127 @@ describe("partnershipApplies", () => {
     expect(partnershipApplies({ sharedTabu: true, dealType: "sale", priceAgorot: 1 })).toBe(true);
   });
 });
+
+/**
+ * ‎**„תקציב גדול יותר” אינו „שימושי יותר”** (ביקורת Codex, P2).
+ *
+ * ‏הנציג היחיד לכל זהות נבחר לפי תקציב. זה נכון להיתכנות ושגוי
+ * ‏לדירוג: הרשימה ממוינת לפי ציון ואז לפי הידוק, ובשניהם כרטיס
+ * ‏זול יותר יכול לנצח. במקומו נשמרת חזית פארטו לכל אדם.
+ */
+describe("‏חזית הכרטיסים לכל לקוח", () => {
+  /** ‏שכונה על הנכס — היא מוסיפה קריטריון, ואיתו מדרגות ציון. */
+  const HOOD: PropertyFields = { ...PROPERTY, neighborhood: "נאות שושנים" };
+  /** ‏דרישה שאינה מתקיימת בנכס — כל אחת גורעת מהציון. */
+  const FEAT: Partial<BuyerRequirements> = { features: { parking: true } };
+  const ROOMS: Partial<BuyerRequirements> = { roomsMin: 4.5, roomsMax: 5.5 };
+  const OTHER_HOOD: Partial<BuyerRequirements> = { neighborhoods: ["קרית שרת"] };
+
+  /*
+   * ‏זה הממצא עצמו: לאותו לקוח כרטיס של מיליון בהתאמה מלאה
+   * ‏וכרטיס של מיליון-ומאה ב-94%, ולצדו קונה של מיליון. הנציג
+   * ‏לפי תקציב יצר צמד של 94% עם עודף של 100 אלף, בזמן שצמד של
+   * ‏100% בכיסוי מדויק היה קיים בנתונים ומעולם לא הוצע.
+   */
+  it("‏כרטיס זול יותר עם התאמה טובה יותר מנצח", () => {
+    const pairs = partnerPairs(PROPERTY, [
+      { buyerId: "A1", partnerKey: "אדם", requirements: buyer(100_000_000) },
+      { buyerId: "A2", partnerKey: "אדם", requirements: buyer(110_000_000, FEAT) },
+      { buyerId: "Z", requirements: buyer(100_000_000) },
+    ]);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]!.score).toBe(100);
+    expect(pairs[0]!.headroomAgorot).toBe(0);
+    expect(pairs[0]!.partners.map((p) => p.buyerId).sort()).toEqual(["A1", "Z"]);
+  });
+
+  /*
+   * ‎**והכרטיס היקר נשאר** — הוא הנציג שנבחר עד היום, ולכן שום
+   * ‏צמד שהתקבל קודם אינו נעלם. כאן רק הוא מגיע: 60 + 60 אינם
+   * ‏שני מיליון, ו-140 + 60 כן.
+   */
+  it("‏הכרטיס היקר נשאר, וצמד שרק הוא מגיע אליו נמצא", () => {
+    const pairs = partnerPairs(PROPERTY, [
+      { buyerId: "A1", partnerKey: "אדם", requirements: buyer(60_000_000) },
+      { buyerId: "A2", partnerKey: "אדם", requirements: buyer(140_000_000, FEAT) },
+      { buyerId: "Z", requirements: buyer(60_000_000) },
+    ]);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]!.partners.map((p) => p.buyerId).sort()).toEqual(["A2", "Z"]);
+  });
+
+  /*
+   * ‎**וכרטיס נשלט בשני הצירים נזרק — והמבחן הוא התקרה.**
+   *
+   * ‏כרטיס גרוע גם בתקציב וגם בציון אינו יכול לייצר צמד טוב יותר
+   * ‏מזה ששולט בו, ולכן שמירתו אינה משנה את **התשובה** — סינון
+   * ‏הנשלטים הוא חסם עלות. הוא כן משנה **מי נשאר כשהתקרה חותכת**:
+   * ‏שלושה נשלטים זולים תופסים את שלושת המקומות הזולים, ודוחקים
+   * ‏החוצה בדיוק את הכרטיס שמייצר את הצמד המושלם.
+   *
+   * ‏הניסוח הראשון של הבדיקה הזו טען „והתשובה אינה משתנה”, ולכן
+   * ‏עבר גם כשהסינון הוסר — מוטציה ששרדה, ובדיקה שעברה מהסיבה
+   * ‏הלא נכונה.
+   */
+  it("‏כרטיס נשלט בשני הצירים אינו תופס מקום מתחת לתקרה", () => {
+    const cards: PartnerCandidate[] = [
+      { buyerId: "A1", partnerKey: "אדם", requirements: buyer(60_000_000) },
+      { buyerId: "A2", partnerKey: "אדם", requirements: buyer(50_000_000, FEAT) },
+      { buyerId: "A3", partnerKey: "אדם", requirements: buyer(40_000_000, OTHER_HOOD) },
+      { buyerId: "A4", partnerKey: "אדם", requirements: buyer(30_000_000, ROOMS) },
+      { buyerId: "A5", partnerKey: "אדם", requirements: buyer(140_000_000, { ...OTHER_HOOD, ...FEAT }) },
+      { buyerId: "Z", requirements: buyer(140_000_000) },
+    ];
+    /*
+     * ‎**ובשני סדרי ההגעה.** לסינון שני צדדים — כרטיס נשלט אינו
+     * ‏נכנס, וכרטיס ששולט מפנה את מי שכבר בפנים — וכל אחד מהם
+     * ‏פעיל בסדר אחר בלבד. בדיקה בסדר אחד עוברת גם כשהצד השני
+     * ‏הוסר, וזו בדיוק מוטציה ששרדה כאן.
+     */
+    for (const order of [cards, [...cards].reverse()]) {
+      const pairs = partnerPairs(HOOD, order);
+      expect(pairs).toHaveLength(1);
+      expect(pairs[0]!.score).toBe(100);
+      expect(pairs[0]!.headroomAgorot).toBe(0);
+      expect(pairs[0]!.partners.map((p) => p.buyerId).sort()).toEqual(["A1", "Z"]);
+    }
+  });
+
+  /*
+   * ‎**וזוג אנשים מופיע פעם אחת.** זו התוצאה הישירה של שמירת
+   * ‏החזית: לאותם שניים יש עכשיו כמה צירופי כרטיסים חוקיים,
+   * ‏ובלי איחוד הם היו ממלאים את הרשימה בעצמם ודוחקים זוגות
+   * ‏אחרים.
+   */
+  it("‏זוג לקוחות תופס מקום אחד, גם בכמה צירופי כרטיסים", () => {
+    const pairs = partnerPairs(PROPERTY, [
+      { buyerId: "A1", partnerKey: "אדם", requirements: buyer(100_000_000) },
+      { buyerId: "A2", partnerKey: "אדם", requirements: buyer(120_000_000, FEAT) },
+      { buyerId: "B1", partnerKey: "רעות", requirements: buyer(100_000_000) },
+      { buyerId: "B2", partnerKey: "רעות", requirements: buyer(130_000_000, ROOMS) },
+    ]);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]!.score).toBe(100);
+    expect(pairs[0]!.headroomAgorot).toBe(0);
+  });
+
+  /*
+   * ‎**התקרה לכרטיסים היא חסם עלות, וזה מה שהיא מוותרת עליו.**
+   *
+   * ‏חמישה כרטיסים על החזית, והתקרה ארבעה: נשמרים שלושת הזולים
+   * ‏(הציונים הגבוהים) והיקר ביותר. כאן רק היקר מגיע ל-2 מיליון
+   * ‏עם שותף של 60 — כלומר הקצה שנשמר הוא זה שנדרש.
+   */
+  it("‏מעל התקרה — הקצוות נשמרים, והאמצע נופל", () => {
+    const cards: PartnerCandidate[] = [
+      { buyerId: "A1", partnerKey: "אדם", requirements: buyer(60_000_000) },
+      { buyerId: "A2", partnerKey: "אדם", requirements: buyer(70_000_000, FEAT) },
+      { buyerId: "A3", partnerKey: "אדם", requirements: buyer(80_000_000, OTHER_HOOD) },
+      { buyerId: "A4", partnerKey: "אדם", requirements: buyer(90_000_000, ROOMS) },
+      { buyerId: "A5", partnerKey: "אדם", requirements: buyer(140_000_000, { ...OTHER_HOOD, ...FEAT }) },
+    ];
+    const pairs = partnerPairs(HOOD, [...cards, { buyerId: "Z", requirements: buyer(60_000_000) }]);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]!.partners.map((p) => p.buyerId).sort()).toEqual(["A5", "Z"]);
+  });
+});

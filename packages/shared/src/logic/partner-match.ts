@@ -144,6 +144,16 @@ export const PARTNER_CANDIDATE_SCAN = 300;
 export const PARTNER_CANDIDATE_ROW_CAP = PARTNER_CANDIDATE_SCAN * 4;
 
 /** ‏כמה צמדים מוחזרים. רשימה ארוכה של שותפויות אינה נקראת. */
+/**
+ * ‎**כמה כרטיסים לאדם אחד נשמרים לשלב הצמדים.**
+ *
+ * ‏החזית עצמה יכולה להיות ארוכה — לקוח עם הרבה כרטיסים פעילים —
+ * ‏ולולאת הצמדים ריבועית במספר הכרטיסים, לא במספר האנשים. ארבעה
+ * ‏לאדם משאירים אותה באותו סדר גודל שהייתה בו (`60 × 4` כרטיסים),
+ * ‏ושומרים את שני הקצוות שיש להם משמעות: הציון הגבוה וההישג.
+ */
+export const PARTNER_CARDS_PER_IDENTITY = 4;
+
 export const PARTNER_PAIR_LIMIT = 10;
 
 /**
@@ -286,13 +296,45 @@ export function partnerPairs(
    * ‏ובשוויון גמור המזהה — אחרת אותם נתונים בסדר אחר היו מחזירים
    * ‏רשימה אחרת.
    */
-  const byIdentity = new Map<string, ScoredCandidate>();
-  const better = (next: ScoredCandidate, prev: ScoredCandidate): boolean => {
-    if (next.budgetMaxAgorot !== prev.budgetMaxAgorot) {
-      return next.budgetMaxAgorot > prev.budgetMaxAgorot;
-    }
-    if (next.score !== prev.score) return next.score > prev.score;
-    return next.buyerId < prev.buyerId;
+  const byIdentity = new Map<string, ScoredCandidate[]>();
+  /**
+   * ‎**„תקציב גדול יותר” אינו „שימושי יותר”** (ביקורת Codex, P2).
+   *
+   * ‏הניסוח הקודם החזיק נציג אחד לכל זהות ובחר אותו לפי תקציב.
+   * ‏זה נכון ל**היתכנות** — `combined >= price` הוא מה שמכריע אם
+   * ‏צמד נוצר בכלל — ושגוי ל**דירוג**: הרשימה ממוינת לפי ציון ואז
+   * ‏לפי הידוק, ובשניהם כרטיס זול יותר יכול לנצח.
+   *
+   * ‏נכס ב-2 מיליון, ללקוח שני כרטיסים — מיליון בהתאמה מלאה,
+   * ‏ומיליון ומאה בהתאמה של 94% — ולצדו קונה של מיליון. הנציג
+   * ‏שנבחר לפי תקציב יצר צמד של 94% עם עודף של 100 אלף, בזמן
+   * ‏שהצמד של 100% בכיסוי מדויק היה קיים בנתונים ומעולם לא הוצע.
+   *
+   * ‏לכן נשמרת **חזית פארטו** לכל זהות: כרטיס נזרק רק אם כרטיס
+   * ‏אחר של אותו אדם טוב ממנו **בשני הצירים** — גם תקציב וגם
+   * ‏ציון. בשוויון גמור המזהה מכריע, אחרת אותם נתונים בסדר אחר
+   * ‏היו מחזירים רשימה אחרת.
+   */
+  const dominates = (a: ScoredCandidate, b: ScoredCandidate): boolean =>
+    a.budgetMaxAgorot >= b.budgetMaxAgorot &&
+    a.score >= b.score &&
+    (a.budgetMaxAgorot > b.budgetMaxAgorot || a.score > b.score || a.buyerId < b.buyerId);
+
+  /**
+   * ‎**והחזית חסומה, כדי שלולאת הצמדים תישאר ריבועית בקטן.**
+   *
+   * ‏חזית ממוינת לפי תקציב עולה היא ממוינת לפי ציון יורד — זו
+   * ‏הגדרתה. שני הקצוות הם מה שכרטיס יכול לתרום: הקצה הזול הוא
+   * ‏הציון הגבוה, והקצה היקר הוא ההישג — **והוא בדיוק הנציג
+   * ‏שנבחר עד היום**, ולכן שום צמד שהתקבל קודם אינו נעלם.
+   * ‏נקודות הביניים משפיעות רק על ההידוק, שהוא מפתח המיון האחרון.
+   */
+  const trim = (cards: ScoredCandidate[]): ScoredCandidate[] => {
+    if (cards.length <= PARTNER_CARDS_PER_IDENTITY) return cards;
+    const byBudget = [...cards].sort(
+      (x, y) => x.budgetMaxAgorot - y.budgetMaxAgorot || x.buyerId.localeCompare(y.buyerId),
+    );
+    return [...byBudget.slice(0, PARTNER_CARDS_PER_IDENTITY - 1), byBudget[byBudget.length - 1]!];
   };
   for (const candidate of candidates) {
     const identity = candidate.partnerKey ?? candidate.buyerId;
@@ -359,12 +401,21 @@ export function partnerPairs(
       budgetMaxAgorot: budget,
       score: fit.score,
     };
-    const held = byIdentity.get(identity);
-    if (held === undefined || better(entry, held)) byIdentity.set(identity, entry);
+    const held = byIdentity.get(identity) ?? [];
+    if (held.some((card) => dominates(card, entry))) continue;
+    byIdentity.set(identity, trim([...held.filter((card) => !dominates(entry, card)), entry]));
   }
-  const scored: ScoredCandidate[] = [...byIdentity.values()];
+  const scored: ScoredCandidate[] = [...byIdentity.values()].flat();
 
-  const pairs: PartnerPair[] = [];
+  /*
+   * ‎**זוג אנשים מופיע פעם אחת, גם כשיש לו כמה צירופי כרטיסים.**
+   *
+   * ‏זו התוצאה הישירה של שמירת החזית: לאותם שני לקוחות יכולים
+   * ‏להיות עכשיו כמה צמדים חוקיים, והרשימה — עשרה מקומות — הייתה
+   * ‏מתמלאת באותו זוג שוב ושוב, ודוחקת זוגות אחרים. הצמדים נבנים
+   * ‏מכל הצירופים, ואחרי המיון נשמר הטוב שבהם לכל זוג זהויות.
+   */
+  const keyed: { pair: PartnerPair; identities: string }[] = [];
   for (let i = 0; i < scored.length; i += 1) {
     for (let j = i + 1; j < scored.length; j += 1) {
       const a = scored[i]!;
@@ -396,7 +447,7 @@ export function partnerPairs(
               : [b, a];
       const split = splitShares(price, lower.budgetMaxAgorot, higher.budgetMaxAgorot);
       const score = pairScore(a.score, b.score);
-      pairs.push({
+      const pair: PartnerPair = {
         partners: [
           {
             buyerId: lower.buyerId,
@@ -415,7 +466,12 @@ export function partnerPairs(
         headroomAgorot: combined - price,
         score,
         explanation: explainPair(score, combined - price),
-      });
+      };
+      const identities =
+        a.partnerKey < b.partnerKey
+          ? `${a.partnerKey}\u0000${b.partnerKey}`
+          : `${b.partnerKey}\u0000${a.partnerKey}`;
+      keyed.push({ pair, identities });
     }
   }
 
@@ -425,13 +481,21 @@ export function partnerPairs(
    * משני הצדדים. המזהים סוגרים את הסדר כדי שאותם נתונים יחזירו
    * תמיד אותה רשימה.
    */
-  pairs.sort(
+  keyed.sort(
     (x, y) =>
-      y.score - x.score ||
-      x.headroomAgorot - y.headroomAgorot ||
-      x.partners[0].buyerId.localeCompare(y.partners[0].buyerId) ||
-      x.partners[1].buyerId.localeCompare(y.partners[1].buyerId),
+      y.pair.score - x.pair.score ||
+      x.pair.headroomAgorot - y.pair.headroomAgorot ||
+      x.pair.partners[0].buyerId.localeCompare(y.pair.partners[0].buyerId) ||
+      x.pair.partners[1].buyerId.localeCompare(y.pair.partners[1].buyerId),
   );
+  /* ‏הראשון לכל זוג זהויות הוא הטוב שלו — הרשימה כבר ממוינת */
+  const seen = new Set<string>();
+  const pairs: PartnerPair[] = [];
+  for (const entry of keyed) {
+    if (seen.has(entry.identities)) continue;
+    seen.add(entry.identities);
+    pairs.push(entry.pair);
+  }
   return pairs.slice(0, options.limit ?? PARTNER_PAIR_LIMIT);
 }
 
