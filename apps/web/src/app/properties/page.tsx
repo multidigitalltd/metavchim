@@ -25,6 +25,7 @@ import {
   IconX,
 } from "../icons";
 import { ExclusivityWatch } from "./exclusivity-watch";
+import { SharedTabuPending } from "./shared-tabu-pending";
 import { CapNote, FilterChips, FilterSelect, SortSelect } from "../list-controls";
 import {
   EMPTY_FILTERS,
@@ -690,6 +691,13 @@ export default function PropertiesPage() {
       {/* לפני הסינון והרשימה: בלעדיות שנגמרת היא נכס שעובר למתחרה,
           וזו הידיעה היחידה במסך הזה שיש לה תאריך תפוגה */}
       <ExclusivityWatch />
+
+      {/*
+        ‏רישום משותף שלא נבדק — נכס שרשום במשותף ולא סומן ככזה מוצע
+        גם לקונים שסימנו שאינם מוכנים לכך. השורה מופיעה רק כשיש מה
+        לבדוק, ונעלמת בעצמה כשהמעבר נגמר.
+      */}
+      <SharedTabuPending />
 
       {/*
         ‎**כותרת המסך, ומה שאפשר לעשות בו — שורה אחת.**

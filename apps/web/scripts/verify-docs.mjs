@@ -94,6 +94,38 @@ need(
 );
 need(docTopic.includes("/docs#area-${area.key}"), "פירור הלחם אינו מקשר לאזור");
 
+/* ------------------------------------------------------------------
+   5. שדה שהמודל מצהיר עליו — מישהו באמת מרנדר
+   ------------------------------------------------------------------
+
+   ‏שדה חדש ב-`GuideSection` נכתב, מולא בתוכן, עובר קומפילציה ונשמר
+   במקור — ופשוט אינו מוצג. אין שגיאה, אין אזהרה, והתוכן קיים; רק
+   הקורא אינו רואה אותו. זה קרה עם `emphasis`: הוא נוסף לטיפוס
+   ולייצוא ה-Markdown, ו-`GuideBody` לא ידע עליו — כלומר ההדגשה
+   הייתה קיימת בכל מקום חוץ מהעמוד שבשבילו היא נכתבה (ביקורת Codex).
+
+   ‏`image` מוחרג מהייצוא בכוונה: ה-Markdown נכתב להדבקה למודל שפה,
+   ותמונה אינה תורמת לו. החרגה מוצהרת היא החלטה; היעדר בדיקה הוא
+   השמטה. */
+const content = read("src/lib/guide-content.ts");
+const docUi = read("src/app/docs/doc-ui.tsx");
+const sectionShape = content.slice(
+  content.indexOf("export interface GuideSection"),
+  content.indexOf("export interface Guide {"),
+);
+const fields = [...sectionShape.matchAll(/^ {2}(\w+)\??:/gmu)].map((m) => m[1]);
+need(fields.includes("emphasis"), "שדות הסעיף לא נקראו מהמקור — הבדיקה אינה בודקת דבר");
+
+const markdownOnlyExempt = new Set(["image"]);
+for (const field of fields) {
+  need(docUi.includes(`section.${field}`), `‏\`${field}\` מוצהר בסעיף ואינו מרונדר ב-GuideBody`);
+  if (markdownOnlyExempt.has(field)) continue;
+  need(
+    content.includes(`section.${field}`),
+    `‏\`${field}\` מוצהר בסעיף ואינו נכנס לייצוא ה-Markdown`,
+  );
+}
+
 /* ------------------------------------------------------------------ */
 if (problems.length > 0) {
   console.error("שער התיעוד נכשל:\n" + problems.map((p) => `  · ${p}`).join("\n"));
