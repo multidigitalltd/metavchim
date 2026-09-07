@@ -19,20 +19,12 @@ import {
   SHARED_TABU_PROPERTY_TYPE,
 } from "@metavchim/shared";
 import {
-  PROPERTY_TYPE_LABELS_HE,
   freeTextTerms,
   normalizeRange,
   priceRangeAgorot,
+  propertyTypesForTerm,
   whatsappLink,
 } from "@metavchim/shared";
-
-/** סוגי נכס שהתווית העברית שלהם מכילה את המונח שהוקלד. */
-function propertyTypesFor(term: string): string[] {
-  const needle = term.toLowerCase();
-  return Object.entries(PROPERTY_TYPE_LABELS_HE)
-    .filter(([, label]) => label.toLowerCase().includes(needle))
-    .map(([value]) => value);
-}
 import {
   agentHandover,
   agentNameOf,
@@ -1292,8 +1284,8 @@ export class PropertiesService {
                      * מוצא דירה אלא במקרה, אם המילה הופיעה בשדה טקסט
                      * אחר (ביקורת Codex).
                      */
-                    ...(propertyTypesFor(term).length > 0
-                      ? [{ propertyType: { in: propertyTypesFor(term) } }]
+                    ...(propertyTypesForTerm(term).length > 0
+                      ? [{ propertyType: { in: propertyTypesForTerm(term) } }]
                       : []),
                     {
                       street: { contains: term, mode: "insensitive" as const },

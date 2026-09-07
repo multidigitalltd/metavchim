@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import {
+  RECRUITMENT_SOURCES,
   RECRUITMENT_STATUSES,
   type RecruitmentStatus,
   canConvertToProperty,
@@ -19,6 +20,13 @@ import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { IconPlus, IconSheet } from "../../icons";
 import { FilterChips } from "../../list-controls";
+import {
+  EMPTY_FILTERS,
+  ListFilters,
+  filtersToQuery,
+  hasActiveFilters,
+  type ListFilterValues,
+} from "../../list-filters";
 
 interface TargetRow {
   id: string;
@@ -31,11 +39,18 @@ interface TargetRow {
   propertyType?: string;
   rooms?: number;
   priceAgorot?: number;
+  areaSqm?: number;
   ownerName?: string;
   ownerPhone?: string;
   notes?: string;
   convertedPropertyId?: string;
 }
+
+/**
+ * ‎**התקרה של הרשימה.** השרת מחזיר עד כאן, וייבוא אחד יכול להביא
+ * ‏יותר. רשימה שנחתכת בלי לומר זאת נראית כמו רשימה שלמה.
+ */
+const PAGE_CAP = 500;
 
 function addressOf(row: TargetRow): string {
   const line = [row.street, row.houseNumber].filter(Boolean).join(" ");
@@ -53,6 +68,23 @@ export default function RecruitmentPage() {
   /** ‏המזהה שממתין לאישור מחיקה — האישור נפתח בשורה עצמה */
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+
+  /* ‏חיפוש חופשי + טווחי מחיר וחדרים — אותו רכיב של הנכסים והקונים */
+  const [filters, setFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
+  /*
+   * ‏עיר, מקור וגודל יושבים לצדם ולא בתוכם: הרכיב המשותף מחזיק את
+   * ‏שלושת הסינונים שכל רשימה צריכה, ואלה שלושה שרק כאן יש להם
+   * ‏משמעות. אותו מבנה בדיוק כמו „עיר” ו„סוג” ברשימת הנכסים.
+   */
+  const [city, setCity] = useState("");
+  const [source, setSource] = useState("");
+  const [minArea, setMinArea] = useState("");
+  const [maxArea, setMaxArea] = useState("");
+
+  /* ‏הבחירה למחיקה מרוכזת — קבוצה של מזהים, כמו ברשימת הנכסים */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkNote, setBulkNote] = useState<string | null>(null);
   /*
    * ‎**הכפתור נגזר מהחבילה, לא רק מההרשאה.**
    *
@@ -63,11 +95,26 @@ export default function RecruitmentPage() {
    */
   const canImport = useFeature("data_io");
 
+  /*
+   * ‎**הסינון רץ בשרת, לא במסך.**
+   *
+   * ‏הרשימה חסומה ב-500 שורות, וייבוא אחד יכול להביא יותר. סינון
+   * ‏מקומי היה מסנן רק את מה שכבר נשלף — כלומר „הראה לי את רמת גן”
+   * ‏היה מחזיר את מה שבמקרה נכנס לחמש מאות האחרונות.
+   */
   const load = useCallback(async () => {
-    const query = filter === "" ? "" : `?status=${filter}`;
+    const params = new URLSearchParams();
+    if (filter !== "") params.set("status", filter);
+    if (source !== "") params.set("source", source);
+    if (city !== "") params.set("city", city);
+    if (minArea !== "") params.set("minArea", minArea);
+    if (maxArea !== "") params.set("maxArea", maxArea);
+    /* ‏`filtersToQuery` מחזיר מחרוזת שמתחילה ב-`&` — או ריקה */
+    const parts = [params.toString(), filtersToQuery(filters).slice(1)].filter((p) => p !== "");
+    const query = parts.length === 0 ? "" : `?${parts.join("&")}`;
     const data = await apiGet<TargetRow[]>(`/recruitment${query}`);
     setRows(Array.isArray(data) ? data : []);
-  }, [filter]);
+  }, [filter, source, city, minArea, maxArea, filters]);
 
   useEffect(() => {
     void load().catch(() => setRows([]));
@@ -77,6 +124,12 @@ export default function RecruitmentPage() {
   const mayEdit = can(user, "properties.edit");
   const mayCreate = can(user, "properties.create");
   const mayDelete = can(user, "properties.delete");
+  /*
+   * ‏תיבות הסימון קיימות בשביל המחיקה המרוכזת בלבד, ולכן הן
+   * ‏מותנות באותה הרשאה. סוכן שאינו רשאי למחוק אינו רואה עמודה
+   * ‏שכל מה שאפשר לעשות בה חסום לו.
+   */
+  const maySelect = mayDelete;
 
   async function changeStatus(id: string, status: string) {
     setError(null);
@@ -136,7 +189,79 @@ export default function RecruitmentPage() {
     await load().catch(() => undefined);
   }
 
+  /**
+   * ‎**מחיקה מרוכזת — הצורה שבה מנקים ייבוא שגוי.**
+   *
+   * ‏קובץ של אלף שורות שהתברר כלא נכון נוקה עד עכשיו שורה-שורה,
+   * ‏עם אישור לכל אחת. הפעולה זהה למחיקה הבודדת בכל השאר: רכה,
+   * ‏והשורה נעלמת מכל שאילתה.
+   */
+  async function removeSelected(): Promise<void> {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    if (
+      !window.confirm(
+        `למחוק ${ids.length} נכסים לגיוס? הם יורדו מהרשימה, וההיסטוריה נשמרת.`,
+      )
+    ) {
+      return;
+    }
+
+    setBulkBusy(true);
+    setBulkNote(null);
+    setError(null);
+    let result: { removed: number; skipped: number };
+    try {
+      result = await apiPost<{ removed: number; skipped: number }>(
+        "/recruitment/bulk-delete",
+        { ids },
+      );
+    } catch {
+      setError("המחיקה נכשלה — נסו שוב.");
+      setBulkBusy(false);
+      return;
+    }
+
+    /*
+     * ‎**הריענון בנפרד מהמחיקה, ולא באותו `try`.**
+     *
+     * ‏כישלון של הריענון היה מדווח „המחיקה נכשלה” על מחיקה שהצליחה,
+     * ‏ומזמין את המתווך למחוק שוב. אותו לקח בדיוק של המחיקה הבודדת.
+     */
+    setBulkNote(
+      result.skipped === 0
+        ? `${result.removed} נמחקו`
+        : `${result.removed} נמחקו, ${result.skipped} דולגו — כנראה כבר נמחקו`,
+    );
+    setSelected(new Set());
+    await load().catch(() => setError("הרשימה לא רועננה — רעננו את העמוד"));
+    setBulkBusy(false);
+  }
+
+  function toggle(id: string): void {
+    setSelected((was) => {
+      const next = new Set(was);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   const open = (rows ?? []).filter((r) => isOpenRecruitment(r.status)).length;
+  /*
+   * ‎**„הכול נבחר” נמדד מול מה שמוצג.** הסינון רץ בשרת, ולכן
+   * ‏„הכול” פירושו „כל מה שהסינון החזיר” — וזה גם מה שהמחיקה
+   * ‏תיגע בו.
+   */
+  const allSelected = (rows ?? []).length > 0 && (rows ?? []).every((r) => selected.has(r.id));
+  const filtering =
+    hasActiveFilters(filters) ||
+    filter !== "" ||
+    city !== "" ||
+    source !== "" ||
+    minArea !== "" ||
+    maxArea !== "";
+  const capped = (rows ?? []).length >= PAGE_CAP;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
@@ -194,20 +319,150 @@ export default function RecruitmentPage() {
         />
       </div>
 
+      {/*
+        ‏אותו סרגל סינון של הנכסים והקונים — חיפוש חופשי, טווח מחיר
+        וטווח חדרים — ובתוכו הסינונים שרק לגיוס יש: עיר, מקור וגודל.
+        רשימת גיוס גדלה מהר יותר מרשימת הנכסים, ועד עכשיו אפשר היה
+        לסנן בה לפי שלב בלבד.
+      */}
+      <ListFilters
+        values={filters}
+        onApply={setFilters}
+        searchLabel="חיפוש"
+        searchHint="כתובת, שכונה, עיר, סוג נכס או הערה"
+        priceLabel="מחיר מבוקש"
+        card={{ example: "לחי 20 בני ברק" }}
+        childrenActive={city !== "" || source !== "" || minArea !== "" || maxArea !== ""}
+      >
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-semibold">עיר</span>
+            <input
+              className="rounded-lg border px-3"
+              style={{
+                borderColor: "var(--color-input-border)",
+                background: "var(--color-surface)",
+                color: "var(--color-text)",
+                minHeight: 38,
+              }}
+              placeholder="כל הערים"
+              value={city}
+              onChange={(event) => setCity(event.target.value)}
+            />
+          </label>
+
+          {/*
+            ‏„גודל” — שטח במ"ר. אין לו מקום בסרגל המשותף כי לקונה
+            אין שטח יחיד אלא דרישת מינימום, ושדה אחד שמשמעותו שונה
+            בשני מסכים הוא בדיוק מה שמייצר סינון ששיקר באחד מהם.
+          */}
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-semibold">גודל מ־ (מ״ר)</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              className="w-28 rounded-lg border px-3"
+              style={{
+                borderColor: "var(--color-input-border)",
+                background: "var(--color-surface)",
+                color: "var(--color-text)",
+                minHeight: 38,
+              }}
+              value={minArea}
+              onChange={(event) => setMinArea(event.target.value)}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-semibold">עד (מ״ר)</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              className="w-28 rounded-lg border px-3"
+              style={{
+                borderColor: "var(--color-input-border)",
+                background: "var(--color-surface)",
+                color: "var(--color-text)",
+                minHeight: 38,
+              }}
+              value={maxArea}
+              onChange={(event) => setMaxArea(event.target.value)}
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-semibold">מקור</span>
+            <select
+              className="mv-select"
+              value={source}
+              onChange={(event) => setSource(event.target.value)}
+            >
+              <option value="">כל המקורות</option>
+              {RECRUITMENT_SOURCES.map((value) => (
+                <option key={value} value={value}>
+                  {recruitmentSourceLabel(value)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </ListFilters>
+
       {error ? (
         <p role="alert" className="mb-4 rounded-md bg-[var(--color-danger-soft)] p-3 text-sm">
           {error}
         </p>
       ) : null}
 
+      {bulkNote ? (
+        <p className="mb-4 rounded-md bg-[var(--color-success-soft)] p-3 text-sm">{bulkNote}</p>
+      ) : null}
+
+      {/*
+        ‏שורת הבחירה מופיעה רק כשיש בחירה — סרגל קבוע שאומר „נבחרו 0”
+        גוזל שורה מהטבלה בלי לומר דבר.
+      */}
+      {maySelect && selected.size > 0 ? (
+        <div
+          className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border p-3"
+          style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+        >
+          <span className="text-sm font-semibold">נבחרו {selected.size}</span>
+          <Button variant="secondary" onClick={() => setSelected(new Set())}>
+            ביטול הבחירה
+          </Button>
+          <button
+            type="button"
+            className="mv-btn-plain"
+            style={{ color: "var(--color-danger)", borderColor: "var(--color-danger)" }}
+            disabled={bulkBusy}
+            onClick={() => void removeSelected()}
+          >
+            {bulkBusy ? "מוחק…" : "מחיקת הנבחרים"}
+          </button>
+        </div>
+      ) : null}
+
       {rows === null ? (
         <p className="text-sm text-[var(--color-text-muted)]">טוען…</p>
       ) : rows.length === 0 ? (
         <div className="mv-card p-6 text-center">
-          <p className="font-semibold">אין כאן נכסים לגיוס</p>
-          <p className="mt-1 text-sm text-[var(--color-text-muted)]">
-            ראיתם מודעה ביד2 או שלט על מרפסת? הוסיפו אותה כאן, ותנהלו את הפנייה עד החתימה.
-          </p>
+          {filtering ? (
+            <>
+              <p className="font-semibold">אין נכסים שעונים על הסינון</p>
+              <p className="mt-1 text-sm text-[var(--color-text-muted)]">
+                נסו לרחיב את הטווח, או לנקות את הסינון.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="font-semibold">אין כאן נכסים לגיוס</p>
+              <p className="mt-1 text-sm text-[var(--color-text-muted)]">
+                ראיתם מודעה ביד2 או שלט על מרפסת? הוסיפו אותה כאן, ותנהלו את הפנייה עד החתימה.
+              </p>
+            </>
+          )}
         </div>
       ) : (
         /*
@@ -219,6 +474,20 @@ export default function RecruitmentPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-right text-sm text-[var(--color-text-muted)]">
+                  {maySelect ? (
+                    <th className="p-3">
+                      <input
+                        type="checkbox"
+                        aria-label="בחירת כל השורות המוצגות"
+                        checked={allSelected}
+                        onChange={() =>
+                          setSelected(
+                            allSelected ? new Set() : new Set((rows ?? []).map((row) => row.id)),
+                          )
+                        }
+                      />
+                    </th>
+                  ) : null}
                   <th className="p-3">כתובת</th>
                   <th className="p-3">פרטים</th>
                   <th className="p-3">מקור</th>
@@ -232,6 +501,16 @@ export default function RecruitmentPage() {
                   const host = row.sourceUrl ? sourceUrlHost(row.sourceUrl) : null;
                   return (
                     <tr key={row.id} className="border-t border-[var(--color-border)]">
+                      {maySelect ? (
+                        <td className="p-3">
+                          <input
+                            type="checkbox"
+                            aria-label={`בחירת ${addressOf(row)}`}
+                            checked={selected.has(row.id)}
+                            onChange={() => toggle(row.id)}
+                          />
+                        </td>
+                      ) : null}
                       <td className="p-3">
                         <Link
                           href={`/properties/recruitment/${row.id}`}
@@ -248,6 +527,7 @@ export default function RecruitmentPage() {
                               ]
                             : null,
                           row.rooms ? `${row.rooms} חד׳` : null,
+                          row.areaSqm ? `${row.areaSqm} מ״ר` : null,
                           row.priceAgorot ? formatPrice(row.priceAgorot) : null,
                         ]
                           .filter(Boolean)
@@ -385,6 +665,17 @@ export default function RecruitmentPage() {
           </div>
         </div>
       )}
+
+      {/*
+        ‏רשימה שנחתכת בלי לומר זאת נראית כמו רשימה שלמה — וייבוא
+        אחד יכול להביא יותר מהתקרה. הסינון רץ בשרת, ולכן צמצומו הוא
+        גם התשובה: מה שמסונן נכנס בשלמותו.
+      */}
+      {capped ? (
+        <p className="mt-3 text-sm text-[var(--color-text-muted)]">
+          מוצגים {PAGE_CAP} הנכסים שעודכנו לאחרונה. צמצמו את הסינון כדי לראות את השאר.
+        </p>
+      ) : null}
     </div>
   );
 }

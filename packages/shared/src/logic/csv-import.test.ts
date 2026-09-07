@@ -4,6 +4,7 @@ import {
   parsePropertiesCsv,
   parseRecruitmentCsv,
   parseShekelsToAgorot,
+  propertyTypeFromCsv,
 } from "./csv-import.js";
 
 describe("parseShekelsToAgorot", () => {
@@ -236,5 +237,114 @@ describe("ייבוא גיוס — מספרים שנקראים נכון", () => {
   it("‏„קומת קרקע” היא קומה 0 ולא ערך שנזרק", () => {
     const { rows } = parseRecruitmentCsv(["עיר,קומה", "רעננה,קומת קרקע"].join("\n"));
     expect(rows[0]?.floor).toBe(0);
+  });
+});
+
+/**
+ * ‎**המבנה של מערכת נדל"ן ותיקה — הקובץ שהלקוחות באמת מעלים.**
+ *
+ * ‏הכותרות כאן הן בדיוק אלה של ייצוא webtiv אמיתי (‎1,326‎ שורות):
+ * ‏קיצורים בני שתי אותיות, עמודת קישוט בלי כותרת, ועמודה ששמה
+ * ‎„*”‎. מתוך שמונה-עשרה עמודות זוהו שלוש — מחיר, עיר ורחוב —
+ * ‏וכל השאר, כולל השם והטלפון של הבעלים, נזרק בשקט.
+ *
+ * ‏הערכים כאן מומצאים בכוונה: מבנה של קובץ לקוח הוא מה שנבדק,
+ * ‏ולא הנתונים שבו.
+ */
+const WEBTIV_HEADER =
+  "נקה מסומנים,שיוך,*,,סדורי,שם,טלפון1,נכס,חדר,מחיר,עיר,אז,רחוב,מס,קו,מע,פתיחה,עדכון";
+
+function webtiv(...rows: string[]): string {
+  return [WEBTIV_HEADER, ...rows].join("\n");
+}
+
+describe("ייבוא גיוס — המבנה של ייצוא webtiv", () => {
+  it("קורא את כל העמודות שיש להן מקום, מקיצורים בני שתי אותיות", () => {
+    const { rows } = parseRecruitmentCsv(
+      webtiv(
+        ',מאגר,*,עם תמונה במודעה,2790335,ישראלה,055-0000001,פנטהאוס,5,"3,500,000",בני ברק,10,הרצל,18,4,כן,7/9/2026,7/9/2026',
+      ),
+    );
+    expect(rows[0]).toEqual({
+      ownerName: "ישראלה",
+      ownerPhone: "+972550000001",
+      propertyType: "penthouse",
+      rooms: 5,
+      priceAgorot: 350_000_000,
+      city: "בני ברק",
+      street: "הרצל",
+      houseNumber: "18",
+      floor: 4,
+    });
+  });
+
+  /*
+   * ‏עמודה בלי כותרת ועמודה ששמה „*” אינן ניתנות למיפוי ידני —
+   * המפתח הוא הכותרת עצמה, ושתי כותרות ריקות מתנגשות. הצגתן
+   * כ„לא זוהתה” היא רעש שמסתיר את מה שבאמת דורש החלטה.
+   */
+  it("אינו מדווח על עמודות קישוט כאילו הן כותרות שלא זוהו", () => {
+    const { unmappedHeaders } = parseRecruitmentCsv(webtiv(",,,,,,,,,,,,,,,,,"));
+    expect(unmappedHeaders).toEqual(["נקה מסומנים", "סדורי", "אז", "מע", "פתיחה", "עדכון"]);
+  });
+
+  /*
+   * ‎**„שיוך” הוא שלב.** בלי התרגום, רשימה שיש בה גיוסים פעילים
+   * ובלעדיות נכנסה כולה כ„חדש” — כלומר הייבוא איבד בדיוק את
+   * ההבחנה שבגללה מנהלים רשימת גיוס.
+   */
+  it("מתרגם את „שיוך” לשלב בגיוס, ומשאיר את השאר בברירת המחדל", () => {
+    const { rows } = parseRecruitmentCsv(
+      webtiv(
+        ",בלעדי,*,,1,א,050-0000001,דירה,3,,תל אביב,,הרצל,1,1,,1/1/2026,1/1/2026",
+        ",בטיפול,*,,2,ב,050-0000002,דירה,3,,תל אביב,,הרצל,2,1,,1/1/2026,1/1/2026",
+        ",מאגר,*,,3,ג,050-0000003,דירה,3,,תל אביב,,הרצל,3,1,,1/1/2026,1/1/2026",
+      ),
+    );
+    expect(rows.map((row) => row.status)).toEqual(["recruited", "called", undefined]);
+  });
+
+  /* ‏שורה שיש בה רק מספר סידורי ותאריכים אינה שורה */
+  it("מדלג על שורה שאין בה שום שדה שנקלט", () => {
+    const { rows } = parseRecruitmentCsv(webtiv(",משרד,*,אין מודעה,18099,,,,,,,,,,,,1/7/2025,2/7/2025"));
+    expect(rows).toEqual([]);
+  });
+});
+
+describe("סוג נכס מתא בקובץ", () => {
+  /*
+   * ‎**התא נושא כמה סוגים.** „דירה,יח. דיור” הוא דירה שיש בה
+   * יחידת דיור — והחיפוש של המחרוזת השלמה לא מצא דבר, כלומר
+   * דווקא הנכסים המעניינים נכנסו בלי סוג.
+   */
+  it("לוקח את הסוג הראשון שמזוהה בתא רב-ערכי", () => {
+    expect(propertyTypeFromCsv("דירה,יח. דיור")).toBe("apartment");
+    expect(propertyTypeFromCsv("פנטהאוס,יח. דיור")).toBe("penthouse");
+    expect(propertyTypeFromCsv("בית,יח. דיור,דו משפחתי")).toBe("private_house");
+    expect(propertyTypeFromCsv("דירת גן,יח. דיור,ד.מרתף")).toBe("garden_apartment");
+  });
+
+  /* ‏„פנטהאוס” בסמ"ך — כתיב נפוץ בדיוק כמו „פנטהאוז” */
+  it("מכיר את שני כתיבי הפנטהאוס", () => {
+    expect(propertyTypeFromCsv("פנטהאוס")).toBe("penthouse");
+    expect(propertyTypeFromCsv("פנטהאוז")).toBe("penthouse");
+  });
+
+  it("מכיר את הסוגים שמערכות ותיקות כותבות", () => {
+    expect(propertyTypeFromCsv("בית")).toBe("private_house");
+    expect(propertyTypeFromCsv("וילה")).toBe("private_house");
+    expect(propertyTypeFromCsv("קוטג׳")).toBe("private_house");
+    expect(propertyTypeFromCsv("דו משפחתי")).toBe("two_family");
+    expect(propertyTypeFromCsv("יח. דיור")).toBe("unit");
+    expect(propertyTypeFromCsv("ד.גג")).toBe("penthouse");
+  });
+
+  /*
+   * ‎„להשקעה” אינו סוג נכס אלא תיאור הזדמנות. ריק הוא התשובה
+   * הנכונה — „אחר” היה מצהיר שיודעים מה זה.
+   */
+  it("אינו ממציא סוג למה שאינו סוג", () => {
+    expect(propertyTypeFromCsv("להשקעה")).toBeUndefined();
+    expect(propertyTypeFromCsv("")).toBeUndefined();
   });
 });

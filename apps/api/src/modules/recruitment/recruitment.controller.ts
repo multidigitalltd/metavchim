@@ -82,8 +82,39 @@ export const RecruitmentBodySchema = RecruitmentFieldsSchema.partial().extend({
   agentUserId: z.union([IdSchema, z.literal("")]).optional(),
 }).strict();
 
+/**
+ * ‎**הסינון של רשימת הגיוס — אותו אוצר מילים של רשימת הנכסים.**
+ *
+ * ‏רשימת גיוס גדלה מהר יותר מרשימת הנכסים (כל מודעה שנראתה נכנסת
+ * ‏אליה), ועד עכשיו אפשר היה לסנן בה לפי שלב בלבד. המחירים
+ * ‏בשקלים וההמרה לאגורות בשרת, בדיוק כמו שם.
+ */
 const ListQuerySchema = z
-  .object({ status: z.enum(RECRUITMENT_STATUSES).optional() })
+  .object({
+    status: z.enum(RECRUITMENT_STATUSES).optional(),
+    source: z.enum(RECRUITMENT_SOURCES).optional(),
+    city: z.string().max(80).optional(),
+    /** ‏חיפוש חופשי — כתובת, שכונה, עיר, סוג נכס והערות. */
+    q: z.string().max(120).optional(),
+    /** ‏בשקלים; ההמרה לאגורות בשרת */
+    minPrice: z.coerce.number().min(0).optional(),
+    maxPrice: z.coerce.number().min(0).optional(),
+    minRooms: z.coerce.number().min(0).max(30).optional(),
+    maxRooms: z.coerce.number().min(0).max(30).optional(),
+    /** ‎„גודל” — שטח במ"ר. */
+    minArea: z.coerce.number().min(0).max(100_000).optional(),
+    maxArea: z.coerce.number().min(0).max(100_000).optional(),
+  })
+  .strict();
+
+/**
+ * ‎**מחיקה מרוכזת.**
+ *
+ * ‏התקרה זהה לזו של הנכסים: ייבוא שגוי הוא המקרה שהפעולה נבנתה
+ * ‏בשבילו, והוא מגיע במאות. בקשה גדולה מזה היא סקריפט, לא מסך.
+ */
+const BulkDeleteSchema = z
+  .object({ ids: z.array(IdSchema).min(1).max(500) })
   .strict();
 
 /**
@@ -108,7 +139,27 @@ export class RecruitmentController {
   async list(
     @Query(new ZodValidationPipe(ListQuerySchema)) query: z.infer<typeof ListQuerySchema>,
   ): Promise<RecruitmentTargetDto[]> {
-    return this.recruitment.list(query.status);
+    return this.recruitment.list(query);
+  }
+
+  /**
+   * ‎**מחיקה מרוכזת — הצורה שבה מנקים ייבוא שגוי.**
+   *
+   * ‎`POST` ולא `DELETE`: הרשימה נשלחת בגוף, וגוף ב-`DELETE` אינו
+   * ‏מובטח בכל שרת מתווך. אותו נימוק ואותה צורה של
+   * ‎`/properties/bulk-delete`.
+   *
+   * ‏מחיקה רכה בלבד — אין כאן „לצמיתות”. שורת גיוס אינה נושאת
+   * ‏קבצים ואינה מקושרת לאיש קשר, ולכן הפער שהמחיקה הקשה של
+   * ‏הנכסים קיימת בשבילו אינו קיים כאן.
+   */
+  @Post("bulk-delete")
+  @RequireCapability("properties.delete")
+  @HttpCode(200)
+  async bulkDelete(
+    @Body(new ZodValidationPipe(BulkDeleteSchema)) body: z.infer<typeof BulkDeleteSchema>,
+  ): Promise<{ removed: number; skipped: number }> {
+    return this.recruitment.removeMany(body.ids);
   }
 
   @Get(":id")

@@ -2,8 +2,12 @@ import { ConflictException, Injectable, NotFoundException } from "@nestjs/common
 import {
   type PropertyFields,
   canConvertToProperty,
+  freeTextTerms,
   isSharedTabuProperty,
   isValidSourceUrl,
+  normalizeRange,
+  priceRangeAgorot,
+  propertyTypesForTerm,
   SHARED_TABU_PROPERTY_TYPE,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
@@ -11,6 +15,41 @@ import { lockRecruitmentTarget } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
 import { PropertiesService } from "../properties/properties.service";
+
+/**
+ * ‎**הסינון של הרשימה — אותה אוצר מילים של רשימת הנכסים.**
+ *
+ * ‏המחירים בשקלים והמרתם לאגורות בשרת, כמו בנכסים: המסך מדבר
+ * ‏בשקלים, והמסד שומר אגורות. שדה חסר = בלי הגבלה.
+ */
+export interface RecruitmentListQuery {
+  status?: string | undefined;
+  source?: string | undefined;
+  city?: string | undefined;
+  /** ‏חיפוש חופשי — כתובת, שכונה, עיר, סוג נכס והערות. */
+  q?: string | undefined;
+  minPrice?: number | undefined;
+  maxPrice?: number | undefined;
+  minRooms?: number | undefined;
+  maxRooms?: number | undefined;
+  /** ‎„גודל” — שטח במ"ר. */
+  minArea?: number | undefined;
+  maxArea?: number | undefined;
+}
+
+/** ‏תנאי טווח על עמודה מספרית — ריק כששני הקצוות ריקים. */
+function rangeWhere(
+  field: string,
+  range: { min?: number; max?: number },
+): Record<string, unknown> {
+  if (range.min === undefined && range.max === undefined) return {};
+  return {
+    [field]: {
+      ...(range.min === undefined ? {} : { gte: range.min }),
+      ...(range.max === undefined ? {} : { lte: range.max }),
+    },
+  };
+}
 
 /** שורה ברשימת „נכסים לגיוס”. */
 export interface RecruitmentTargetDto {
@@ -155,20 +194,105 @@ export class RecruitmentService {
     private readonly properties: PropertiesService,
   ) {}
 
-  async list(status?: string): Promise<RecruitmentTargetDto[]> {
+  /**
+   * ‎**הרשימה, עם אותם סינונים שיש לנכסים.**
+   *
+   * ## ‏למה זה לא היה שמיש בלעדיהם
+   *
+   * ‏רשימת גיוס גדלה מהר יותר מרשימת הנכסים — כל מודעה שנראתה
+   * ‏נכנסת אליה — ועד עכשיו אפשר היה לסנן לפי שלב בלבד. „מה יש
+   * ‏לי ברמת גן עד שני מיליון” נענה בגלילה של חמש מאות שורות.
+   *
+   * ## ‏אותם עוזרים בדיוק של הנכסים
+   *
+   * ‎`priceRangeAgorot`, `normalizeRange` ו-`freeTextTerms` הם
+   * ‏אותן פונקציות ששאילתת הנכסים קוראת. שני ניסוחים של „טווח
+   * ‏מחירים” היו נפרדים ביום שבו אחד מהם מתוקן — והמשתמש היה
+   * ‏רואה שני מסכים שמסננים אחרת על אותה שאלה.
+   */
+  async list(query: RecruitmentListQuery = {}): Promise<RecruitmentTargetDto[]> {
     const tenantId = TenantContext.current().tenantId;
+    const price = priceRangeAgorot(query.minPrice, query.maxPrice);
+    const rooms = normalizeRange(query.minRooms, query.maxRooms);
+    const area = normalizeRange(query.minArea, query.maxArea);
+    const terms = freeTextTerms(query.q);
+
     return this.prisma.withTenant(async (tx) => {
       const rows = await tx.recruitmentTarget.findMany({
         where: {
           tenantId,
           deletedAt: null,
-          ...(status === undefined || status === "" ? {} : { status }),
+          ...(query.status === undefined || query.status === "" ? {} : { status: query.status }),
+          ...(query.source === undefined || query.source === "" ? {} : { source: query.source }),
+          ...(query.city === undefined || query.city === "" ? {} : { city: query.city }),
+          ...rangeWhere("priceAgorot", price),
+          ...rangeWhere("rooms", rooms),
+          ...rangeWhere("areaSqm", area),
+          /*
+           * ‏כל מונח חייב להתאים, וכל אחד יכול להתאים בשדה אחר —
+           * ‏„פנטהאוס רמת גן” מוצא נכס שסוגו פנטהאוס ועירו רמת גן.
+           * ‏אותו כלל בדיוק של רשימת הנכסים.
+           *
+           * ‎**שם הבעלים והטלפון שלו אינם בין השדות, בכוונה.**
+           * ‏חיפוש לפי שם בעלים הופך את הרשימה לכלי לאיתור אנשים
+           * ‏ולא נכסים, והשאלה שנשאלה כאן היא „איפה הנכס”. מי
+           * ‏שמחפש אדם עושה זאת בחיפוש הכללי, שכפוף להיקף הראייה
+           * ‏של הסוכן.
+           */
+          ...(terms.length > 0
+            ? {
+                AND: terms.map((term) => ({
+                  OR: [
+                    ...(propertyTypesForTerm(term).length > 0
+                      ? [{ propertyType: { in: propertyTypesForTerm(term) } }]
+                      : []),
+                    { street: { contains: term, mode: "insensitive" as const } },
+                    { neighborhood: { contains: term, mode: "insensitive" as const } },
+                    { city: { contains: term, mode: "insensitive" as const } },
+                    { notes: { contains: term, mode: "insensitive" as const } },
+                  ],
+                })),
+              }
+            : {}),
         },
         orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
         take: 500,
       });
       return rows.map((row) => toDto(row as unknown as Row));
     });
+  }
+
+  /**
+   * ‎**מחיקה מרוכזת — הצורה שבה מנקים ייבוא שגוי.**
+   *
+   * ‏ייבוא של אלף שורות שהתברר כלא נכון נוקה עד עכשיו שורה-שורה,
+   * ‏עם אישור לכל אחת. זו אותה פעולה שקיימת ברשימת הנכסים, ומאותה
+   * ‏סיבה בדיוק.
+   *
+   * ‎**רכה, כמו המחיקה הבודדת**: „טעיתי” הוא רוב המקרים, ומחיקה
+   * ‏שאי אפשר לבטל הופכת טעות אחת לאובדן.
+   *
+   * ‏מחזיר כמה ירדו וכמה דולגו — שורה שכבר נמחקה או שאינה של
+   * ‏המשרד אינה שגיאה, אבל מסך שאומר „נמחקו 40” על 12 הוא שקר.
+   */
+  async removeMany(ids: readonly string[]): Promise<{ removed: number; skipped: number }> {
+    let removed = 0;
+    /*
+     * ‏אחת-אחת ולא `updateMany` על כל המזהים: כל מחיקה נועלת את
+     * ‏השורה ומנקה את הפולואפים שתלויים בה, וזו בדיוק העבודה
+     * ‏ש-`remove` כבר עושה נכון. שכפול השאילתות כאן היה מייצר
+     * ‏מסלול שני שישכח את הניקוי ביום שבו `remove` ישתנה.
+     */
+    for (const id of ids) {
+      try {
+        await this.remove(id);
+        removed += 1;
+      } catch (error) {
+        if (error instanceof NotFoundException) continue;
+        throw error;
+      }
+    }
+    return { removed, skipped: ids.length - removed };
   }
 
   async getById(id: string): Promise<RecruitmentTargetDto> {
