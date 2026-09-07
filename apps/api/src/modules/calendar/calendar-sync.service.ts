@@ -23,6 +23,9 @@ import {
 const TICK_MS = 15 * 60 * 1000;
 /** כמה חיבורים לסנכרן בסבב. תקרה, לא יעד. */
 const BATCH = 20;
+/** ‏ניסיונות הביטול המפצה — ראו `cancelOrphan`. */
+const ORPHAN_CANCEL_ATTEMPTS = 3;
+const ORPHAN_CANCEL_BACKOFF_MS = 200;
 /** עד כמה אחורה מסתכלים במשיכה מלאה. פגישות שעברו אינן מעניינות. */
 const WINDOW_BACK_DAYS = 7;
 /** כמה פגישות לדחוף בסבב לכל משתמש. */
@@ -286,6 +289,50 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
    * ‏אחת ולשני הכיוונים: משימות ופגישות עושות בדיוק אותו דבר, ושתי
    * ‏גרסאות של הכלל הזה היו נשארות מסונכרנות בדיוק עד השינוי הבא.
    */
+  /**
+   * ‎**הביטול המפצה מנסה שוב — כי אין סבב הבא** (ביקורת Codex, P2).
+   *
+   * ‏בכל מסלול אחר תקלה חולפת מול Google נגמרת מאליה: השורה נשארת
+   * ‏עם `googleSyncedAt: null` והסבב הבא בוחר אותה שוב. כאן השורה
+   * ‏נמחקה תחתינו, ולכן **אין מה לבחור** — המזהה שביד הוא הדבר
+   * ‏היחיד שמצביע על האירוע, והוא נעלם עם המשתנה. רישום ביומן
+   * ‏אינו מסלול ניסיון חוזר; הוא רק מאפשר לאדם לנקות ידנית.
+   *
+   * ‏שלושה ניסיונות עם המתנה קצרה ביניהם, וזה מה שהם מכסים
+   * ‏**ולא יותר**: הפרעה רגעית — 5xx בודד, ניתוק, חלון של rate
+   * ‏limit. הם אינם מכסים תקלה מתמשכת ואינם מכסים 401/403, שלא
+   * ‏יתוקנו בהמתנה. במקרים האלה נשאר הרישום ביומן, וזה מה שיש.
+   *
+   * ‏ההמתנה קצרה בכוונה: הלולאה הזו יושבת בתוך סבב שמשרת עוד
+   * ‏שורות של אותו משתמש, והשהיה ארוכה כאן היא עיכוב שלהן.
+   */
+  private async cancelOrphan(
+    link: CalendarLink,
+    googleEventId: string,
+    event: { summary: string; description?: string; startsAt: Date; endsAt: Date },
+  ): Promise<void> {
+    let last: unknown;
+    for (let attempt = 1; attempt <= ORPHAN_CANCEL_ATTEMPTS; attempt += 1) {
+      try {
+        await this.google.upsertEvent(link, { googleEventId, ...event, cancelled: true });
+        return;
+      } catch (error: unknown) {
+        last = error;
+        if (attempt < ORPHAN_CANCEL_ATTEMPTS) {
+          await new Promise((resolve) => setTimeout(resolve, ORPHAN_CANCEL_BACKOFF_MS * attempt));
+        }
+      }
+    }
+    /*
+     * ‏המזהה נרשם לפני שהוא אובד — אחרי שכל הניסיונות מוצו, כדי
+     * ‏שהשורה ביומן תתאר אירוע שבאמת נשאר ולא ניסיון שהצליח בשני.
+     */
+    this.logger.error(
+      `אירוע יתום ביומן ${link.calendarId} של ${link.userId}: ${googleEventId} — ${String(last).slice(0, 200)}`,
+    );
+    throw last;
+  }
+
   private async persistOrCancel(
     link: CalendarLink,
     googleEventId: string | null,
@@ -307,14 +354,7 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
        * ‏למחוק את האירוע ידנית. השגיאה ממשיכה למעלה ונרשמת
        * ‏ב-`lastError` של החיבור — כישלון כאן אינו „הצליח”.
        */
-      try {
-        await this.google.upsertEvent(link, { googleEventId, ...event, cancelled: true });
-      } catch (error: unknown) {
-        this.logger.error(
-          `אירוע יתום ביומן ${link.calendarId} של ${link.userId}: ${googleEventId} — ${String(error).slice(0, 200)}`,
-        );
-        throw error;
-      }
+      await this.cancelOrphan(link, googleEventId, event);
     }
     return false;
   }

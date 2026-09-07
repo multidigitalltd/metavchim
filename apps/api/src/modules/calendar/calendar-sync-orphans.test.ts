@@ -47,8 +47,11 @@ function serviceFor(input: {
    * ‏שמחיקת שורת גיוס משאירה על פולואפ שכבר מסונכרן.
    */
   meanwhile?: "gone" | "marked";
-  /** ‏ביטול מפצה שנכשל מול Google — הכישלון חייב להישמע. */
-  cancelFails?: boolean;
+  /**
+   * ‏כמה פעמים הביטול המפצה נכשל מול Google לפני שהוא מצליח.
+   * ‎`Infinity` — נכשל תמיד.
+   */
+  cancelFailures?: number;
 }): CalendarSyncService {
   const tx = {
     task: {
@@ -78,7 +81,8 @@ function serviceFor(input: {
   const google = {
     upsertEvent: async (_link: CalendarLink, event: UpsertArgs) => {
       input.calls.push({ googleEventId: event.googleEventId, cancelled: event.cancelled });
-      if (event.cancelled && input.cancelFails === true) {
+      if (event.cancelled && (input.cancelFailures ?? 0) > 0) {
+        input.cancelFailures = (input.cancelFailures ?? 0) - 1;
         throw new Error("Google החזיר שגיאה");
       }
       /* ‏יצירה מחזירה מזהה חדש; ביטול מחזיר `null`, כמו האמיתי */
@@ -184,11 +188,34 @@ describe("‏דחיפה ליומן — אירוע לא נשאר בלי שורה"
     const calls: UpsertArgs[] = [];
     await expect(
       push(
-        serviceFor({ tasks: [openTask], rowsAffected: 0, cancelFails: true, calls }),
+        serviceFor({
+          tasks: [openTask],
+          rowsAffected: 0,
+          cancelFailures: Number.POSITIVE_INFINITY,
+          calls,
+        }),
         "pushTasks",
       ),
     ).rejects.toThrow();
-    expect(calls).toHaveLength(2);
+    /* ‏הדחיפה עצמה, ואז שלושת ניסיונות הביטול */
+    expect(calls.filter((call) => call.cancelled)).toHaveLength(3);
+  });
+
+  /*
+   * ‎**וכשלון חולף נגמר מאליו** (ביקורת Codex, P2).
+   *
+   * ‏במסלול הזה אין סבב הבא — השורה נמחקה, ולכן אין מה לבחור שוב.
+   * ‏רישום ביומן אינו מסלול ניסיון חוזר, ולכן הניסיון החוזר יושב
+   * ‏כאן: 5xx בודד או ניתוק רגעי אינם משאירים אירוע יתום.
+   */
+  it("‏ביטול מפצה שנכשל פעם אחת מצליח בניסיון הבא", async () => {
+    const calls: UpsertArgs[] = [];
+    const pushed = await push(
+      serviceFor({ tasks: [openTask], rowsAffected: 0, cancelFailures: 1, calls }),
+      "pushTasks",
+    );
+    expect(pushed).toBe(0);
+    expect(calls.filter((call) => call.cancelled)).toHaveLength(2);
   });
 
   /*
