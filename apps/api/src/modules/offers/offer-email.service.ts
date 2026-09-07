@@ -17,7 +17,7 @@ import {
   type OfferEmailItem,
 } from "@metavchim/shared";
 import { ownershipFilter } from "../../common/ownership";
-import { TenantContext } from "../../common/tenant-context";
+import { actingUserId, TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { EmailRejectedError, EmailService } from "../../core/email.service";
@@ -723,6 +723,8 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
       first.buyerName,
       first.contactId,
       created,
+      /* ‏הסבב אוטומטי ואין לו סוכן ששלח — הסדר הרגיל הוא הנכון */
+      null,
     );
     // דחייה ודאית — ההצעות קיימות כ-`email_failed`, אבל מייל לא יצא
     return outcome === "sent" ? created.length : 0;
@@ -825,6 +827,13 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
       ready.buyerName,
       ready.contactId,
       [ready.row],
+      /*
+       * ‎**סוכן לחץ „שלח במייל”, ולכן התשובה חוזרת אליו** (ביקורת
+       * ‏Codex, P1). בלי זה, הצעה שסוכן ב׳ שלח על כרטיס הקונה שלו
+       * ‏הייתה מחזירה את תשובת הלקוח — ואת שמו ואת תמצית ההודעה —
+       * ‏לסוכן א׳, שכרטיסו על אותו לקוח חדש יותר.
+       */
+      actingUserId(),
     );
     /*
      * דחייה ודאית של הספק — ההצעה סומנה `email_failed` ב-`deliver`,
@@ -847,6 +856,20 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     buyerName: string,
     contactId: string,
     unordered: OutgoingOffer[],
+    /**
+     * ‎**מי שלח — וזו שאלה של הקורא, לא של העוזר הזה** (ביקורת Codex, P1).
+     *
+     * ‏הנחתי כאן `null` בנימוק „הסבב אוטומטי”. זה נכון לשני קוראים
+     * ‏מתוך שלושה: `sendOne` הוא ‎`POST /offers/:id/email`, כלומר
+     * ‏סוכן שלוחץ „שלח במייל”. סוכן ב׳ ששלח הצעה על כרטיס הקונה
+     * ‏שלו ללקוח שיש עליו גם כרטיס חדש יותר של סוכן א׳ — והתשובה,
+     * ‏ואיתה שם הלקוח ותמצית ההודעה, הייתה נוחתת אצל א׳ לפי הסדר
+     * ‏הרגיל. בדיוק הדליפה שה-PR הזה סוגר, פתוחה בנתיב הידני.
+     *
+     * ‏העוזר משרת שלושה זרימות ורק הקורא יודע מה הזהות של שלו,
+     * ‏ולכן זה פרמטר — וחובה, כדי שקורא רביעי לא ישכח.
+     */
+    sentByUserId: string | null,
   ): Promise<"sent" | "unsent"> {
     /*
      * ‎**המנה מסודרת כאן, פעם אחת** (ביקורת Codex, P2).
@@ -890,7 +913,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
 
     const offerIds = rows.map((row) => row.offerId);
     // תשובת הלקוח ("אפשר לתאם ביקור?") חוזרת לתיבה הפנימית ולציר
-    const replyTo = await this.emailInbox.replyAddressFor(tenantId, contactId);
+    const replyTo = await this.emailInbox.replyAddressFor(tenantId, contactId, sentByUserId);
     try {
       await this.email.send(to, subject, content, {
         /*
@@ -1222,6 +1245,12 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
               buyerId: offer.buyerId,
             };
           }),
+          /*
+           * ‎`null` — הניסיון החוזר רץ בסבב, ולשורה הממתינה אין
+           * ‏עמודה שאומרת מי הנפיק אותה. „לא ידוע” הוא התשובה
+           * ‏הכנה, והסדר הרגיל הוא מה שהיה קורה ממילא.
+           */
+          null,
         );
         if (outcome === "sent") emails += 1;
       } catch (error: unknown) {

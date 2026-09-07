@@ -38,7 +38,7 @@ import {
 import { loadEnv } from "../../config/env";
 import { lockContact, lockIntakeRequest } from "../../common/locks";
 import { leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
-import { TenantContext } from "../../common/tenant-context";
+import { actingUserId, TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { EmailRejectedError, EmailService } from "../../core/email.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
@@ -623,7 +623,12 @@ export class IntakeService {
     const replyTo =
       details.contact === null
         ? null
-        : await this.emailInbox.replyAddressFor(tenantId, details.contact.id);
+        : await this.emailInbox.replyAddressFor(
+            tenantId,
+            details.contact.id,
+            /* ‏הסוכן ששלח את הקישור; יצא מהמערכת ולא מאדם — `null` */
+            actingUserId(),
+          );
     try {
       await this.email.send(
         to,

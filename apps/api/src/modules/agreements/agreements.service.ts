@@ -17,7 +17,7 @@ import {
   orphanContactCondition,
   visibleContactIds,
 } from "../../common/ownership";
-import { TenantContext } from "../../common/tenant-context";
+import { actingUserId, TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { EmailService } from "../../core/email.service";
@@ -492,7 +492,12 @@ export class AgreementsService {
        * לתיבה הפנימית ולציר — ולא לתיבת no-reply שאיש לא קורא.
        * null כשהתיבה לא הוגדרה — המייל יוצא כרגיל בלעדיה.
        */
-      const replyTo = await this.emailInbox.replyAddressFor(tenantId, row.contactId);
+      const replyTo = await this.emailInbox.replyAddressFor(
+        tenantId,
+        row.contactId,
+        /* ‏מי ששלח את ההסכם — תשובת הלקוח עליו חוזרת אליו */
+        actingUserId(),
+      );
       await this.email.send(
         contact.email,
         `${kindLabel} לחתימה — ${officeName}`,
