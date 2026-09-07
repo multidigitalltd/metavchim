@@ -20,6 +20,7 @@ import {
   SCORE_NOTE_MAX,
   ScoreComponentSchema,
   type ScoreComponent,
+  partnershipApplies,
   PARTNER_CANDIDATE_ROW_CAP,
   PARTNER_CANDIDATE_SCAN,
   PARTNER_PAIR_LIMIT,
@@ -1048,12 +1049,19 @@ export class MatchingService {
        * ‏נוסף על הנכס היה חוסם סוכן מלראות שידוך על נכס שהוא כן
        * ‏רשאי לראות, ולא היה מונע שום דליפה שהסינון ההוא אינו מונע.
        */
-      /* ‏נכס שיצא משיווק אינו מזמין פעולה, וזו רשימת פעולות */
-      if (!(await this.isMatchable(tx, tenantId, propertyId))) return [];
-
       const fields = rowToFields(property);
       const price = fields.priceAgorot;
-      if (fields.sharedTabu !== true || fields.dealType !== "sale" || price === undefined) {
+      /*
+       * ‎**שאלה אחת, ולא שלוש** (ביקורת Codex, P2).
+       *
+       * ‏„האם שידוך שותפים שייך לנכס הזה” נשאלה כאן, במנוע, ובתנאי
+       * ‏שמרכיב את המקטע במסך — והשלישי לא הסכים עם השניים: נכס
+       * ‏שנמכר, נכס להשכרה או נכס בלי מחיר קיבלו מקטע שאומר „לא
+       * ‏נמצאו שני לקוחות מתאימים”, בזמן שהחישוב מעולם לא רץ.
+       * ‏`partnershipApplies` כולל גם את מצב השיווק, ולכן
+       * ‏`isMatchable` אינו נדרש כאן בנפרד.
+       */
+      if (!partnershipApplies({ ...fields, status: property.status }) || price === undefined) {
         return [];
       }
       /*

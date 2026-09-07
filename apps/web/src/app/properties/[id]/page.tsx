@@ -13,6 +13,7 @@ import {
   describeEntry,
   formatPropertyAddress,
   labelOf,
+  partnershipApplies,
   propertyEvaluableCriteria,
   PropertyStatusSchema,
   type MatchCriterion,
@@ -1417,7 +1418,18 @@ export default function PropertyDetailPage({
 
               ‏התנאי מרכיב את מה שהנתיב באמת דורש: שני המודולים.
             */}
-            {property.sharedTabu === true &&
+            {/*
+              ‎**ו„שידוך שייך לנכס הזה” הוא אותה שאלה שהשרת שואל**
+              ‏(ביקורת Codex, P2).
+
+              ‏התנאי כאן בדק `sharedTabu` בלבד, ולכן נכס שנמכר, נכס
+              ‏להשכרה או נכס בלי מחיר קיבלו את המקטע — והוא אמר „לא
+              ‏נמצאו שני לקוחות מתאימים”, בזמן שהחישוב מעולם לא רץ.
+              ‏„אין תוצאה” ו„לא רלוונטי” הם שני מסרים שונים, ורק
+              ‏אחד מהם נכון. `partnershipApplies` הוא אותה פונקציה
+              ‏שהשירות והמנוע קוראים.
+            */}
+            {partnershipApplies(property) &&
             can(user, "matches.view") &&
             (can(user, "buyers.view_own") || can(user, "buyers.view_all")) ? (
               <PartnerSuggestions propertyId={property.id} />

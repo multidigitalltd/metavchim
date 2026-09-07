@@ -86,16 +86,59 @@ if (mount < 0) {
   console.error(`✗ ${PROPERTY_PAGE}: מקטע השותפויות נעלם — עדכנו את השער`);
   failed = true;
 } else {
-  /* ‏התנאי שמעל ההרכבה: מהתנאי הפותח ועד תגית הרכיב. */
-  const guardStart = page.lastIndexOf("{property.sharedTabu", 0 + mount);
-  const guard = guardStart < 0 ? "" : page.slice(guardStart, mount);
-  if (!guard.includes('can(user, "matches.view")')) {
+  /*
+   * ‏חלון לפני ההרכבה, ולא „מהתנאי הפותח”: הניסוח הקודם חתך מ-
+   * ‎`{property.sharedTabu`, ולכן הוא נשבר ברגע שהתנאי הזה הוחלף
+   * ‏ב-`partnershipApplies` — כלומר חסם את התיקון שהוא בא להגן
+   * ‏עליו. תשיעית בסבב הזה.
+   */
+  const guard = page.slice(Math.max(0, mount - 500), mount);
+  /*
+   * ‎**„שידוך שייך לנכס הזה” — אותה שאלה שהשרת שואל** (ביקורת
+   * ‏Codex, P2). התנאי בדק `sharedTabu` בלבד, ולכן נכס שנמכר, נכס
+   * ‏להשכרה או נכס בלי מחיר קיבלו מקטע שאומר „לא נמצאו שני לקוחות
+   * ‏מתאימים” — בזמן שהחישוב מעולם לא רץ. „אין תוצאה” ו„לא
+   * ‏רלוונטי” הם שני מסרים שונים.
+   */
+  if (!guard.includes("partnershipApplies(property)")) {
+    console.error(
+      `✗ ${PROPERTY_PAGE}: התנאי אינו שואל את partnershipApplies — המסך והשרת ייפרדו`,
+    );
+    failed = true;
+  } else if (guard.includes("property.sharedTabu === true &&")) {
+    console.error(`✗ ${PROPERTY_PAGE}: נותרה בדיקה ידנית של הדגל לצד הפונקציה`);
+    failed = true;
+  } else if (!guard.includes('can(user, "matches.view")')) {
+    /*
+     * ‎`/matches/property/:id/partners` מוגן ב-`matches.view`, ובלי
+     * ‏הבדיקה כאן משרד שהסיר אותה מסוכן קיבל את המקטע וכל בקשה
+     * ‏חזרה 403 — „טעינת השותפויות נכשלה” על מקטע שלא היה אמור
+     * ‏להופיע אצלו כלל.
+     */
     console.error(
       `✗ ${PROPERTY_PAGE}: מקטע השותפויות מורכב בלי לבדוק matches.view — הנתיב דורש אותה`,
     );
     failed = true;
+  } else if (
+    !guard.includes('can(user, "buyers.view_own")') ||
+    !guard.includes('can(user, "buyers.view_all")')
+  ) {
+    /*
+     * ‏שני הענפים, ולא אחד: המקטע מבקש שמות של קונים, ולכן הוא
+     * ‏מותנה במודול הקונים — ומי שרואה את **כל** הקונים רואה גם
+     * ‏את אלה שלו. ענף שיישמט מוציא מהמקטע בדיוק את מי שיש לו
+     * ‏יותר גישה, לא פחות.
+     *
+     * ‏הבדיקה הזו הייתה עד עכשיו גם ב-`verify:layout`, ושם היא
+     * ‏נצמדה ל-`property.sharedTabu === true` — כלומר חסמה את
+     * ‏המעבר ל-`partnershipApplies`. שני שערים ששואלים על אותו
+     * ‏תנאי הם בדיוק הכפילות שהם אמורים למנוע, ולכן התנאי נשאל
+     * ‏כאן בלבד; שם נשארה ההכרעה על **המיקום**.
+     */
+    console.error(`✗ ${PROPERTY_PAGE}: המקטע מורכב בלי שער מודול הקונים`);
+    failed = true;
   } else {
-    console.log(`✓ ${PROPERTY_PAGE}`);
+    console.log(`✓ ${PROPERTY_PAGE} (מקטע השותפויות)`);
   }
 }
 

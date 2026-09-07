@@ -1,4 +1,4 @@
-import type { PropertyFields } from "../schemas/property.js";
+import { MATCHABLE_PROPERTY_STATUSES, type PropertyFields } from "../schemas/property.js";
 import type { BuyerRequirements } from "../schemas/buyer.js";
 import {
   budgetBandAgorot,
@@ -206,6 +206,47 @@ interface ScoredCandidate {
 }
 
 /**
+ * ‎**האם שידוך שותפים בכלל שייך לנכס הזה** (ביקורת Codex, P2).
+ *
+ * ‏זו שאלה שקודמת ל„מי המועמדים”, והיא נשאלה בשלושה מקומות:
+ * ‏במנוע, בשירות, ובתנאי שמרכיב את המקטע במסך. השניים הראשונים
+ * ‏הסכימו והשלישי לא — ולכן נכס שנמכר, נכס להשכרה או נכס בלי מחיר
+ * ‏קיבלו מקטע שאומר „לא נמצאו שני לקוחות מתאימים”, בזמן שהחישוב
+ * ‏מעולם לא רץ. „אין תוצאה” ו„לא רלוונטי” הם שני מסרים שונים,
+ * ‏ורק אחד מהם נכון.
+ *
+ * ‎`status` אופציונלי כי המנוע עצמו אינו מקבל אותו: הוא נשאל על
+ * ‏שדות הנכס ולא על מצבו בשיווק, וזה נבדק בשירות. מי שכן מחזיק
+ * ‏אותו — המסך והשירות — מוסר אותו, ואז הוא נבדק כאן.
+ */
+export function partnershipApplies(property: {
+  sharedTabu?: boolean | null | undefined;
+  propertyType?: string | null | undefined;
+  dealType?: string | null | undefined;
+  priceAgorot?: number | null | undefined;
+  status?: string | null | undefined;
+}): boolean {
+  if (!isSharedTabuProperty({ sharedTabu: property.sharedTabu ?? undefined, propertyType: property.propertyType ?? undefined })) {
+    return false;
+  }
+  /*
+   * ‎**רק מכירה.** שותפות כאן היא בעלות משותפת ברישום; שני שוכרים
+   * ‏באותה דירה הם שותפים לדירה ולא לנכס, ואין להם מה לחלק בטאבו.
+   */
+  if (property.dealType !== "sale") return false;
+  if (property.priceAgorot === undefined || property.priceAgorot === null) return false;
+  /* ‏נכס שיצא משיווק אינו מזמין פעולה, וזו רשימת פעולות */
+  if (
+    property.status !== undefined &&
+    property.status !== null &&
+    !(MATCHABLE_PROPERTY_STATUSES as readonly string[]).includes(property.status)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * ‏צמדי שותפים אפשריים לנכס, מהחזק לחלש.
  *
  * ‏מחזיר רשימה ריקה — ולא שגיאה — לכל נכס שאינו שדה המשחק: נכס
@@ -218,13 +259,8 @@ export function partnerPairs(
   options: { limit?: number; now?: Date; weights?: MatchWeights } = {},
 ): PartnerPair[] {
   const price = property.priceAgorot;
-  /*
-   * ‎**רק מכירה.** שותפות כאן היא בעלות משותפת ברישום; שני שוכרים
-   * באותה דירה הם שותפים לדירה ולא לנכס, ואין להם מה לחלק בטאבו.
-   */
-  if (!isSharedTabuProperty(property) || property.dealType !== "sale" || price === undefined) {
-    return [];
-  }
+  /* ‏השאלה שקודמת ל„מי המועמדים” — ראו `partnershipApplies` */
+  if (!partnershipApplies(property) || price === undefined) return [];
   const now = options.now ?? new Date();
   /*
    * ‎**המשקלים הם ברירת המחדל ולא של המשרד — כמו בשוק השת״פ.**

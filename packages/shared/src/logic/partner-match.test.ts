@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  partnershipApplies,
   PARTNER_CANDIDATE_MAX,
   PARTNER_PAIR_LIMIT,
   partnerPairs,
@@ -405,5 +406,59 @@ describe("splitShares", () => {
         expect(split.higher, `הגדול ${price}/${share}`).toBeLessThanOrEqual(hi);
       }
     }
+  });
+});
+
+/**
+ * ‎**„שייך לנכס הזה” — שאלה אחת לשלושה קוראים** (ביקורת Codex, P2).
+ *
+ * ‏המנוע, השירות והמסך שאלו אותה בנפרד, והשלישי לא הסכים: נכס
+ * ‏שנמכר, נכס להשכרה או נכס בלי מחיר קיבלו מקטע שאומר „לא נמצאו
+ * ‏שני לקוחות מתאימים”, בזמן שהחישוב מעולם לא רץ.
+ */
+describe("partnershipApplies", () => {
+  const BASE = {
+    sharedTabu: true,
+    dealType: "sale",
+    priceAgorot: 200_000_000,
+    status: "active",
+  };
+
+  it("נכס במושאע, למכירה, עם מחיר ובשיווק — שייך", () => {
+    expect(partnershipApplies(BASE)).toBe(true);
+  });
+
+  /* ‏גם הייצוג הישן, כמו בכל שאר המערכת */
+  it("וגם הסוג הישן, בלי הדגל", () => {
+    expect(
+      partnershipApplies({ propertyType: "shared_tabu", dealType: "sale", priceAgorot: 1, status: "draft" }),
+    ).toBe(true);
+  });
+
+  it("נכס שאינו במושאע — אינו שייך", () => {
+    expect(partnershipApplies({ ...BASE, sharedTabu: false })).toBe(false);
+  });
+
+  it("השכרה — אינה שייכת", () => {
+    expect(partnershipApplies({ ...BASE, dealType: "rent" })).toBe(false);
+  });
+
+  it("בלי מחיר — אין מה לחלק", () => {
+    expect(partnershipApplies({ ...BASE, priceAgorot: undefined })).toBe(false);
+  });
+
+  /* ‏נכס שיצא משיווק אינו מזמין פעולה, וזו רשימת פעולות */
+  it("נמכר, הושכר או בארכיון — אינם שייכים", () => {
+    for (const status of ["sold", "rented", "archived", "on_hold"]) {
+      expect(partnershipApplies({ ...BASE, status }), status).toBe(false);
+    }
+  });
+
+  /*
+   * ‎`status` אופציונלי: המנוע נשאל על שדות הנכס ולא על מצבו
+   * ‏בשיווק. מי שאינו מחזיק אותו אינו נחסם בגללו.
+   */
+  it("בלי מצב שיווק — השאלה אינה נשאלת עליו", () => {
+    expect(partnershipApplies({ sharedTabu: true, dealType: "sale", priceAgorot: 1 })).toBe(true);
   });
 });

@@ -550,27 +550,18 @@ if (!/options=\{SHARED_TABU_FILTER_OPTIONS\}/u.test(PROPERTIES)) {
 }
 
 /*
- * ‏הבדיקה על **אזור התנאי** ולא על ניסוח מדויק: התנאי גדל בסבב
- * ‏שנוסף לו `matches.view` (ראו `verify:stance`, שם הוא נבדק),
- * ‏ורגקס שנצמד לצורה המלאה נשבר על תוספת נכונה. מה שנבדק כאן הוא
- * ‏מה שההכרעה אומרת: שני התנאים קיימים לפני ההרכבה.
+ * ‏כאן נבדק **המיקום** בלבד: שהמקטע יושב בכרטיס הנכס. מה שהתנאי
+ * ‏שלפניו *אומר* — `partnershipApplies`, `matches.view` ושני ענפי
+ * ‏מודול הקונים — נבדק ב-`verify:stance`, ושם בלבד.
+ *
+ * ‏עד הסבב הזה שני השערים בדקו את אותו תנאי, וזה נגמר כצפוי:
+ * ‏הבדיקה כאן נצמדה ל-`property.sharedTabu === true`, ולכן היא
+ * ‏חסמה את המעבר ל-`partnershipApplies` — כלומר שער שנכתב כדי
+ * ‏להגן על ההכרעה חסם את תיקונה. כלל אחד, ניסוח אחד, שער אחד.
  */
 const PROPERTY_CARD = read("../src/app/properties/[id]/page.tsx");
-const MOUNT = PROPERTY_CARD.indexOf("<PartnerSuggestions");
-const GUARD =
-  MOUNT === -1
-    ? ""
-    : PROPERTY_CARD.slice(PROPERTY_CARD.lastIndexOf("{property.sharedTabu", MOUNT), MOUNT);
-if (MOUNT === -1) {
+if (!PROPERTY_CARD.includes("<PartnerSuggestions")) {
   problems.push("מקטע „שותפויות אפשריות” נעלם מכרטיס הנכס");
-} else if (
-  !/property\.sharedTabu === true/u.test(GUARD) ||
-  !/can\(user, "buyers\.view_own"\)/u.test(GUARD) ||
-  !/can\(user, "buyers\.view_all"\)/u.test(GUARD)
-) {
-  problems.push(
-    "מקטע „שותפויות אפשריות” אינו מותנה ב-`property.sharedTabu` וביכולת לראות קונים — הוא ייטען לנכס שאין לו שותפויות, או יבקש שמות ממי שאינו רשאי",
-  );
 }
 
 if (problems.length > 0) {
@@ -582,7 +573,7 @@ if (problems.length > 0) {
   console.error("    • „הבנתי” — מסתיר עד מחר, ולא לתמיד.");
   console.error("    • חיפוש נכס — שדה בלי טקסט רפאים, וצ׳יפי ערים בתוך „עוד סינון”.");
   console.error("    • המנטור   — אומר כשהספירה חלקית, ולא מציג אותה כמלאה.");
-  console.error("    • טאבו משותף — הסינון בשרת, והשותפויות רק לנכס שהוא כזה.");
+  console.error("    • טאבו משותף — הסינון בשרת, ומקטע השותפויות בכרטיס הנכס.");
   console.error("  §24 של חבילת העיצוב מתארת סדר אחר לדשבורד, והיא מתוקנת");
   console.error("  ב-docs/design-handoff/DESIGN-SYSTEM-4-layout-and-rules.md.");
   process.exit(1);
