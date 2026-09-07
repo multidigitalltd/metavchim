@@ -16,6 +16,7 @@ import {
   limitState,
   type Page,
   type PropertyFields,
+  isSharedTabuProperty,
   SHARED_TABU_PROPERTY_TYPE,
 } from "@metavchim/shared";
 import {
@@ -443,6 +444,17 @@ export class PropertiesService {
     internalNotes?: string;
     owner: { name: string; phone: string };
     /**
+     * ‎**האם הבעלים נשאל על רישום משותף — פרמטר חובה.**
+     *
+     * ‏הקורא היחיד הוא טופס המוכר, והוא היחיד שיודע: הטופס שואל
+     * ‏את השאלה, והתשובה מגיעה או לא מגיעה. השירות אינו יכול
+     * ‏להסיק זאת מ-`fields` — `sharedTabu: false` נראה זהה בין
+     * ‏„הבעלים ענה שלא” לבין „השדה לא נשלח ונפל לברירת מחדל”.
+     *
+     * ‏חובה ולא רשות, כדי שקורא שני שייכתב מחר ייאלץ להכריע.
+     */
+    sharedTabuAnswered: boolean;
+    /**
      * המזהה **נקבע מראש על ידי הקורא**, ולא נוצר כאן.
      *
      * הטופס שומר אותו על שורת הבקשה **בתוך הטרנזקציה שתופסת את
@@ -453,14 +465,149 @@ export class PropertiesService {
      */
     id: string;
   }): Promise<string> {
+    /*
+     * ‎**הבעלים נשאל — וזו תשובה, לא ברירת מחדל.**
+     *
+     * ‏זו הדרך היחידה שבה נכס נולד כשהוא כבר נבדק: הטופס שאל את
+     * ‏בעל הנכס עצמו. בלי החותמת הוא היה מופיע במסך הסקירה יחד
+     * ‏עם כל השאר, ומי שיפתח אותו יגלה שהשאלה כבר נענתה.
+     *
+     * ‏והיא נוסעת **לתוך** `persist` ולא ככתיבה שנייה אחריה: ראו
+     * ‏`sharedTabuConfirmed` שם.
+     */
     /* ‏טופס ציבורי בהקשר משרד — אין מי שהקליד, ראו `typedBy` */
-    const id = await this.persist({ ...input, typedBy: "office" });
+    const id = await this.persist({
+      ...input,
+      typedBy: "office",
+      sharedTabuConfirmed: input.sharedTabuAnswered,
+    });
     try {
       await this.matching.recomputeForProperty(id);
     } catch {
       // הנכס כבר נשמר; חישוב ההתאמות אינו חלק מהצלחת היצירה.
     }
     return id;
+  }
+
+  /**
+   * ‎**מה שטרם נבדק — המעבר החד-פעמי על המאגר.**
+   *
+   * ## ‏למה זה קיים
+   *
+   * ‏המנוע **פוסל** נכס בטאבו משותף מקונה שסירב. נכס שבאמת רשום
+   * ‏במשותף ולא סומן נקרא `false`, ולכן הוא מוצע דווקא למי שאמר
+   * ‏„לא” — ההבטחה בלי כיסוי שכל התכונה קיימת כדי למנוע.
+   *
+   * ## ‏ולמה לא מצב שלישי בעמודה
+   *
+   * ‏`NULL` בדגל עצמו היה או לא משנה דבר (אם הוא נקרא כ„לא”), או
+   * ‏עוצר את **כל** המאגר הקיים מלהיות מוצע עד שמישהו יעבור עליו
+   * ‏שורה-שורה. שתי התוצאות גרועות. החותמת נפרדת מהדגל, ולכן
+   * ‏ההתאמות אינן משתנות כלל — הרשימה הזו היא עבודה, לא שער.
+   *
+   * ‏ממוין לפי עדכון אחרון: מי שנגעו בו לאחרונה הוא מי שזוכרים
+   * ‏עליו משהו.
+   */
+  async sharedTabuReview(limit: number): Promise<{
+    items: {
+      id: string;
+      city?: string;
+      street?: string;
+      houseNumber?: string;
+      propertyType?: string;
+      priceAgorot?: number;
+      sharedTabu: boolean;
+      updatedAt: Date;
+    }[];
+    remaining: number;
+  }> {
+    const tenantId = TenantContext.current().tenantId;
+    const where = {
+      tenantId,
+      deletedAt: null,
+      sharedTabuConfirmedAt: null,
+    } as const;
+    return this.prisma.withTenant(async (tx) => {
+      const [rows, remaining] = await Promise.all([
+        tx.property.findMany({
+          where,
+          orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+          take: limit,
+          select: {
+            id: true,
+            city: true,
+            street: true,
+            houseNumber: true,
+            propertyType: true,
+            priceAgorot: true,
+            sharedTabu: true,
+            updatedAt: true,
+          },
+        }),
+        tx.property.count({ where }),
+      ]);
+      return {
+        items: rows.map((row) => ({
+          id: row.id,
+          ...(row.city === null ? {} : { city: row.city }),
+          ...(row.street === null ? {} : { street: row.street }),
+          ...(row.houseNumber === null ? {} : { houseNumber: row.houseNumber }),
+          ...(row.propertyType === null ? {} : { propertyType: row.propertyType }),
+          ...(row.priceAgorot === null ? {} : { priceAgorot: Number(row.priceAgorot) }),
+          /*
+           * ‏הערך הנוכחי כפי שהמנוע קורא אותו — הדגל **או** הסוג
+           * ‏הישן. מסך שמציג „לא משותף” על שורה שסוגה הוא הייצוג
+           * ‏הישן היה מזמין תשובה שסותרת את מה שכבר קורה בפועל.
+           */
+          sharedTabu: isSharedTabuProperty({
+            sharedTabu: row.sharedTabu,
+            propertyType: row.propertyType,
+          }),
+          updatedAt: row.updatedAt,
+        })),
+        remaining,
+      };
+    });
+  }
+
+  /**
+   * ‎**התשובה — הדבר היחיד שכותב את החותמת.**
+   *
+   * ‏שמירה רגילה של כרטיס הנכס אינה חותמת, בכוונה: טופס העריכה
+   * ‏שולח את מצבו המלא כולל התיבה, ולכן כל שמירה הייתה מסמנת
+   * ‏„נבדק” גם כשאיש לא הסתכל על השאלה — והרשימה הייתה מתרוקנת
+   * ‏מעצמה בלי שאיש בדק דבר. חותמת שאפשר לקבל בטעות אינה עדות.
+   *
+   * ## ‏ולמה זו קריאה ל-`update` ולא כתיבה משלה
+   *
+   * ‎(ביקורת Codex, שני P1 שהם אותה תקלה.)
+   *
+   * ‏הניסוח הראשון כתב את השורה בעצמו — ולכן **דילג על כל מה
+   * ‏שהעדכון הרגיל עושה אחרי הכתיבה**: חישוב ההתאמות מחדש
+   * ‏וסנכרון המודעות המפורסמות. התוצאה הפוכה בדיוק מהכוונה: נכס
+   * ‏שאושר כ„משותף” המשיך להיות מוצע לקונה שסירב, ולהתפרסם
+   * ‏למשרדים אחרים כלא-משותף, עד שעריכה כלשהי הייתה מרעננת
+   * ‏אותו במקרה.
+   *
+   * ‏זו אותה מחלקה של המחיקה המרוכזת בגיוס נכסים, שעוברת דרך
+   * ‏המחיקה הבודדת מאותו נימוק: **מסלול כתיבה שני שוכח את מה
+   * ‏שהראשון עושה, ביום שהראשון ישתנה.** התיקון אינו להעתיק את
+   * ‏שתי הקריאות לכאן — הוא לא להיות מסלול שני.
+   */
+  async confirmSharedTabu(id: string, sharedTabu: boolean): Promise<{ remaining: number }> {
+    const tenantId = TenantContext.current().tenantId;
+    /*
+     * ‎`update` כבר מוסר את השורה השמורה ל-`fieldsToColumns`, ולכן
+     * ‏„לא משותף” על שורה שסוגה הוא הייצוג הישן פורש גם את הסוג —
+     * ‏בלי שהכלל הזה ייכתב כאן פעם שנייה.
+     */
+    await this.update(id, { sharedTabu, sharedTabuAnswered: true });
+    const remaining = await this.prisma.withTenant((tx) =>
+      tx.property.count({
+        where: { tenantId, deletedAt: null, sharedTabuConfirmedAt: null },
+      }),
+    );
+    return { remaining };
   }
 
   async createForImport(input: {
@@ -542,6 +689,17 @@ export class PropertiesService {
      * ‏בלי ברירת מחדל, בכוונה: קורא חדש חייב להכריע.
      */
     typedBy: "agent" | "office";
+    /**
+     * ‎**החותמת נכתבת כאן, בטרנזקציה של היצירה** (ביקורת Codex, P1).
+     *
+     * ‏היא הייתה עדכון שני אחרי ש-`persist` כבר נסגרה. כשלון בו
+     * ‏הפיל את `createFromIntake`, ו-`draftFor` שחרר את המזהה
+     * ‏השמור כאילו היצירה נכשלה — בזמן שהנכס קיים במאגר. השליחה
+     * ‏הבאה הייתה יוצרת נכס נוסף, והראשון נשאר יתום.
+     *
+     * ‏זו בדיוק התקלה שהמזהה-מראש נועד למנוע, שחזרה מדלת אחורית.
+     */
+    sharedTabuConfirmed?: boolean;
   }): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const id = input.id ?? ulid();
@@ -619,6 +777,10 @@ export class PropertiesService {
            */
           agentUserId: input.agentUserId ?? creatorUserId(),
           readinessScore: readiness.score,
+          /* ‏באותה כתיבה — ראו `sharedTabuConfirmed` בקלט */
+          ...(input.sharedTabuConfirmed === true
+            ? { sharedTabuConfirmedAt: new Date() }
+            : {}),
           ...(fieldsToColumns(fields) as object),
         },
       });
@@ -656,6 +818,18 @@ export class PropertiesService {
       occupant?: { name: string; phone: string };
       /** הדירה התפנתה — מסירים את הדייר במקום להחליף אותו. */
       occupantCleared?: boolean;
+      /**
+       * ‎**„זו תשובה לשאלה”, ולא „זה הערך”.**
+       *
+       * ‏שמירה רגילה של הכרטיס שולחת את תיבת „טאבו משותף” בכל
+       * ‏פעם, ולכן חותמת שנגזרת מהערך הייתה מרוקנת את מסך הסקירה
+       * ‏מעצמה. הדגל הזה נשלח **רק** ממקום שבו מישהו באמת נשאל.
+       *
+       * ‏רשות ולא חובה, ובכיוון הבטוח: מי שלא שולח אותו משאיר את
+       * ‏הנכס בתור לסקירה. הנזק של „לא סומן” הוא בדיקה מיותרת;
+       * ‏הנזק של „סומן בטעות” הוא שאלה שנעלמת בלי שנענתה.
+       */
+      sharedTabuAnswered?: boolean;
       /** ‎`null` = „טרם נשאל”, וזה ערך ולא היעדר. */
       occupancy?: OccupancyState | null;
       leaseEndsAt?: string | null;
@@ -974,6 +1148,10 @@ export class PropertiesService {
            */
           ...(occupancy === "owner" || occupancy === "vacant" || occupantCleared === true
             ? { leaseEndsAt: null, noticePeriodDays: null }
+            : {}),
+          /* ‏חותמת „נשאל ונענה” — ראו `sharedTabuAnswered` בחתימה */
+          ...(patch.sharedTabuAnswered === true
+            ? { sharedTabuConfirmedAt: new Date() }
             : {}),
           readinessScore: readiness.score,
         },
