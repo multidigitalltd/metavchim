@@ -45,6 +45,7 @@ interface PropertyDetail {
   hasSafeRoom?: boolean;
   customFeatures?: CustomFeature[];
   hasStorage?: boolean;
+  sharedTabu?: boolean;
   priceAgorot?: number;
   entryType?: string;
   entryDate?: string;
@@ -194,6 +195,14 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
       hasSafeRoom: triState(f, "hasSafeRoom"),
       hasStorage: triState(f, "hasStorage"),
       /*
+       * ‎**„טאבו משותף” הוא תיבת סימון ולא תלת-מצב** (בקשת בעל
+       * ‏המוצר). חמשת המאפיינים הם „כן / לא / טרם נשאל”, כי הם
+       * ‏נאספים בהדרגה. רישום בטאבו משותף הוא סימון של המתווך:
+       * ‏או שהוא סימן, או שלא. מצב „טרם נבדק” הוא מצב שאיש אינו
+       * ‏מתחזק, והעמודה `NOT NULL` בהתאם.
+       */
+      sharedTabu: f.get("sharedTabu") === "on",
+      /*
        * JSON משדה חבוי אחד — הרשימה גדלה ומשתנה, ולכן אין לה שם
        * שדה קבוע כמו לחמשת הקבועים. השרת מנרמל אותה שוב בשער
        * הכתיבה, ולכן קלט פגום כאן אינו יכול להיכנס למסד.
@@ -307,7 +316,8 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
               <label htmlFor="propertyType" className="mb-1 block font-medium">סוג נכס</label>
               <select id="propertyType" name="propertyType" defaultValue={property.propertyType ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>
                 <option value="">לא נבחר</option>
-                <PropertyTypeOptions />
+                {/* ‏הערך השמור נשאר בבורר — ראו `keep` */}
+                <PropertyTypeOptions keep={property.propertyType} />
               </select>
             </div>
             <div>
@@ -343,6 +353,37 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
             )}
             initialCustom={property.customFeatures ?? []}
           />
+
+          {/*
+            ‎**„טאבו משותף” מתחת למאפיינים, ולא ביניהם** (בקשת בעל
+            ‏המוצר).
+
+            ‏הוא נראה כמו עוד מאפיין ואינו כזה: מעלית ומחסן הם נוחות,
+            ‏ורישום בטאבו משותף (מושאע) הוא עובדה משפטית שמשנה את כל
+            ‏אופן העסקה — אין חלקה נפרדת, נדרשת הסכמת שותפים, והמימון
+            ‏מסובך. לכן הוא שדה משלו, עם משפט שמסביר למה זה חשוב, ולא
+            ‏צ׳יפ שנבלע בשורה.
+          */}
+          <div
+            className="mt-4 rounded-xl border p-3"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+          >
+            <label className="flex items-center gap-2 font-medium">
+              <input
+                type="checkbox"
+                name="sharedTabu"
+                defaultChecked={property.sharedTabu === true}
+              />
+              רשום בטאבו משותף (מושאע)
+            </label>
+            <p
+              className="m-0 mt-1 text-[length:var(--type-caption-lg)]"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              אין חלקה נפרדת — העסקה דורשת הסכמת שותפים, והמימון מורכב יותר.
+              כדאי לדעת את זה בהתחלה ולא בסוף.
+            </p>
+          </div>
         </fieldset>
 
         <fieldset className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>

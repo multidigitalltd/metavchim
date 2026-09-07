@@ -23,6 +23,7 @@
  */
 
 import { normalizePhone } from "./contact-people.js";
+import { SHARED_TABU_NETWORK_LABEL } from "./shared-tabu.js";
 
 /**
  * לאיזה צד של העסקה הטופס נענה.
@@ -75,6 +76,16 @@ export interface IntakeSellerAnswers {
   street?: string;
   houseNumber?: string;
   propertyType?: string;
+  /**
+   * ‎**רישום בטאבו משותף (מושאע) — עובדה משפטית, לא סוג מבנה.**
+   *
+   * ‏המוכר הוא היחיד שיודע אותה, והטיוטה שנוצרת מהטופס נכנסת
+   * ‏להתאמות מיד. בלי השאלה כאן הטיוטה נשאה את ברירת המחדל של
+   * ‏הטבלה (`false`), כלומר **טענה** רישום נפרד — והוצעה לקונים
+   * ‏שסירבו למושאע במפורש, עד שסוכן היה פותח את הכרטיס ומתקן
+   * ‏(ביקורת Codex, P1).
+   */
+  sharedTabu?: boolean;
   rooms?: number;
   areaSqm?: number;
   floor?: number;
@@ -100,6 +111,19 @@ export interface IntakeSellerAnswers {
  * ובמיפוי לשדות הנכס, אך אין לו שדה בטופס — ולכן כל שליחה חוזרת
  * הייתה מוחקת את מספר הקומות שהסוכן הזין בכרטיס, בלי שהלקוח ראה
  * אותו או נגע בו (ביקורת Codex).
+ *
+ * ‎**ו-`sharedTabu` אינו כאן מסיבה שלישית** (ביקורת Codex, P1).
+ *
+ * ‏הרשימה הזו אומרת „שתיקה על השדה הזה **היא** תשובה”, ולרישום
+ * ‏המשותף זה בדיוק ההפך: הטופס מבדיל בין „חלקה נפרדת” לבין „לא
+ * ‏יודע”, ושתיקה שם היא השני. הכללתו כאן הפכה כל שליחה חוזרת
+ * ‏של מוכר שאינו יודע ל**ריקון** — ו-`PropertiesService.update`
+ * ‏מתרגם ריקון ל-`NULL`, על עמודה שהיא `NOT NULL`. העדכון היה
+ * ‏נדחה במסד, והלקוח היה רואה „השליחה נכשלה” אחרי שהתשובות שלו
+ * ‏כבר נתפסו.
+ *
+ * ‏מה שקורה במקומו נכון גם לגופו: תשובה שלא ניתנה אינה משנה את
+ * ‏מה שכבר רשום על הנכס.
  *
  * ‎`city` ו-`dealType` אינם כאן מסיבה אחרת: הם שדות חובה ותמיד
  * נענים, ולכן לעולם אינם מועמדים לריקון.
@@ -205,8 +229,9 @@ export function pickSellerPrefill(answers: unknown): IntakeSellerAnswers {
   for (const key of ["rooms", "areaSqm", "floor", "totalFloors", "priceAgorot"] as const) {
     num(key);
   }
-  if (typeof answers["priceFlexible"] === "boolean") {
-    out.priceFlexible = answers["priceFlexible"];
+  for (const key of ["priceFlexible", "sharedTabu"] as const) {
+    const value = answers[key];
+    if (typeof value === "boolean") out[key] = value;
   }
   const entryType = answers["entryType"];
   if (entryType === "immediate" || entryType === "from_date" || entryType === "flexible") {
@@ -262,6 +287,7 @@ export function sellerPropertyFields(
   put("street", text(answers.street));
   put("houseNumber", text(answers.houseNumber));
   put("propertyType", text(answers.propertyType));
+  put("sharedTabu", answers.sharedTabu);
   put("rooms", finite(answers.rooms));
   put("areaSqm", finite(answers.areaSqm));
   put("floor", finite(answers.floor));
@@ -330,6 +356,23 @@ export function sellerSummaryLines(answers: IntakeSellerAnswers): string[] {
     .filter((part) => part !== "")
     .join(", ");
   if (place !== "") out.push(place);
+
+  /*
+   * ‏שורה משלו ולא בין המאפיינים: מעלית ומחסן הם נוחות, ורישום
+   * ‏משותף הוא מה שקובע אם העסקה בכלל אפשרית — והסוכן צריך לראות
+   * ‏אותו לפני שהוא פותח את הכרטיס.
+   *
+   * ‎**וכאן — ורק כאן — „לא נשאל” כן מופיע** (ביקורת Codex, P1).
+   *
+   * ‏הכלל בשאר השורות הוא ששתיקה אינה מוצגת: „קומה: לא ידוע” אינו
+   * ‏מידע. הרישום שונה משום ש**ברירת המחדל היא טענה**: העמודה
+   * ‏‎`NOT NULL DEFAULT false`, ולכן טיוטה שנוצרה בלי תשובה נכנסת
+   * ‏להתאמות כאילו נאמר עליה „חלקה נפרדת”. הטופס מבטיח למוכר
+   * ‏שאי-ידיעה תיבדק, והשורה הזו היא מה שהופך את ההבטחה למשימה
+   * ‏של אדם.
+   */
+  if (answers.sharedTabu === true) out.push(SHARED_TABU_NETWORK_LABEL);
+  else if (answers.sharedTabu === undefined) out.push("לברר אם הרישום משותף (מושאע)");
 
   const spec: string[] = [];
   if (answers.rooms !== undefined) spec.push(`${answers.rooms} חדרים`);

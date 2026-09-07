@@ -267,7 +267,12 @@ const bulkBar = onlyIn(PROPERTIES, "נבחרו {selectedVisible.length} נכסי
 /* ראש הטבלה — השורה הראשונה שהמתווך רואה מתחת לסרגל */
 const listBody = onlyIn(PROPERTIES, "{visible.length === 0 ? (", "גוף הרשימה", "עמוד הנכסים");
 /* הכרטיס עצמו — הסרגל חייב להישאר בתוכו ולא לצוף מעליו */
-const listCard = onlyIn(PROPERTIES, '<div className="mv-card mv-card--pad">', "כרטיס הרשימה", "עמוד הנכסים");
+/*
+ * ‏‎`id="properties-list"` הוא גם העוגן שאריח „טיוטה להשלמה” גולל
+ * ‏אליו, ולכן הוא חלק מהזהות של הכרטיס ולא קישוט: הסרתו שוברת את
+ * ‏המעבר מהאריח לרשימה.
+ */
+const listCard = onlyIn(PROPERTIES, '<div id="properties-list" className="mv-card mv-card--pad">', "כרטיס הרשימה", "עמוד הנכסים");
 
 if (bulkBar !== null && listBody !== null && listCard !== null) {
   if (bulkBar > listBody) {
@@ -288,9 +293,116 @@ if (bulkBar !== null && listBody !== null && listCard !== null) {
 }
 
 /*
+ * ‎**„טיוטה להשלמה” לוקח לטיוטות, ולא רק סופר אותן.**
+ *
+ * ‏האריח אמר למתווך שיש עבודה והשאיר אותו לחפש אותה: לגלול לטבלה,
+ * ‏לפתוח „סינון לפי סטטוס”, ולבחור „טיוטה”. שלוש פעולות כדי להגיע
+ * ‏למה שהאריח בדיוק ספר לו (דיווח המשתמש). המעבר נשען על שלושה
+ * ‏חלקים — הכפתור, הסינון, והגלילה — ושלושתם נבדקים, כי הסרת אחד
+ * ‏מהם משאירה מעבר שנראה קיים ואינו עובד.
+ */
+const draftsTile = PROPERTIES.indexOf('label="טיוטה להשלמה"');
+if (draftsTile === -1) {
+  problems.push("אריח „טיוטה להשלמה” לא נמצא בעמוד הנכסים");
+} else if (!PROPERTIES.slice(draftsTile, draftsTile + 700).includes("onClick: onShowDrafts")) {
+  problems.push("אריח „טיוטה להשלמה” אינו לוקח לרשימה — המתווך נשאר לחפש את הטיוטות בעצמו");
+}
+if (!PROPERTIES.includes('setStatus("draft")')) {
+  problems.push("„הצגת הטיוטות” אינו מסנן את הרשימה לטיוטות");
+}
+if (!PROPERTIES.includes('getElementById("properties-list")')) {
+  problems.push("„הצגת הטיוטות” מסנן בלי לגלול — המסך שהשתנה נשאר מחוץ לתצוגה");
+}
+/*
+ * ‏האריח סופר על כל מה שנטען, ולכן הוא מנקה גם את שאר הסינון.
+ * ‏בלי זה „3 טיוטות” עם עיר מסומנת גולל לרשימה ריקה.
+ */
+const draftsHandler = PROPERTIES.indexOf("onShowDrafts={() => {");
+if (draftsHandler === -1) {
+  problems.push("‎`onShowDrafts` לא נמצא בעמוד הנכסים");
+} else {
+  const body = PROPERTIES.slice(draftsHandler, draftsHandler + 2400);
+  for (const [needle, what] of [
+    ['setCity("הכל")', "עיר"],
+    ['setType("")', "סוג נכס"],
+  ]) {
+    if (!body.includes(needle)) {
+      problems.push(`אריח „טיוטה להשלמה” אינו מנקה את סינון ה${what} — המונה סופר על הכול והרשימה תישאר מסוננת`);
+    }
+  }
+  /*
+   * ‏ודווקא סינון הרישום **אינו** מתנקה: הוא רץ בשרת, ולכן המונה
+   * ‏עצמו כבר מסונן בו. ניקויו היה פותח רשימה גדולה מהמספר שנלחץ.
+   */
+  if (body.includes('setSharedTabu("")')) {
+    problems.push(
+      "אריח „טיוטה להשלמה” מנקה את סינון הרישום — המונה נספר תחתיו, והיעד יהיה גדול ממנו",
+    );
+  }
+  /* ‏והגלילה מחכה לרשימה, כי ניקוי סינון השרת מחזיר אותה ל„טוען” */
+  if (!body.includes("setScrollToList(true)")) {
+    problems.push("הגלילה של „טיוטה להשלמה” אינה ממתינה לרשימה — היא תרוץ על עוגן שאינו קיים");
+  }
+}
+
+/*
+ * ‎**מסך פתיחה הוא „אין נכסים”, לא „הסינון לא מצא”** (ביקורת Codex, P2).
+ *
+ * ‏מסך הפתיחה קודם לסרגל הסינון, וזה נכון למשרד חדש. אבל הוא
+ * ‏נשען על `hasActiveFilters(filters)` בלבד, ובינתיים נוסף סינון
+ * ‏שני שרץ **בשרת** — הרישום. משרד בלי נכס אחד בטאבו משותף קיבל
+ * ‏„עוד לא הוספת נכסים”, שמוחק את הבורר ואת „נקה סינון” גם יחד:
+ * ‏מלכודת שיוצאים ממנה רק ברענון הדף.
+ *
+ * ‏הבדיקה היא על **כל** סינון שרץ בשרת, כי סינון לקוח אינו יכול
+ * ‏להביא לכאן — הוא מצמצם את `visible` ולא את `items`.
+ */
+for (const [file, source, needle, screen] of [
+  /*
+   * ‏הנוסח **כפי שהוא ב-JSX** (`>…<`) ולא כמחרוזת חופשית: ההערה
+   * ‏שמעל הענף מצטטת אותו, ו-`indexOf` היה נופל עליה — כלומר מודד
+   * ‏את ההערה במקום את הקוד.
+   */
+  ["properties/page.tsx", PROPERTIES, ">עוד לא הוספת נכסים<", "הנכסים"],
+  ["buyers/page.tsx", read("../src/app/buyers/page.tsx"), ">עדיין אין קונים<", "הקונים"],
+]) {
+  const at = source.indexOf(needle);
+  if (at === -1) {
+    problems.push(`מסך הפתיחה של עמוד ${screen} לא נמצא (${file})`);
+    continue;
+  }
+  /*
+   * ‏העוגן הוא `items.length === 0` שלפני הנוסח, ולא חלון באורך
+   * ‏קבוע: הערה ארוכה בין התנאי לנוסח הייתה דוחפת את התנאי מחוץ
+   * ‏לחלון והשער היה נכשל על קוד תקין.
+   */
+  const cond = source.lastIndexOf("items.length === 0", at);
+  const guard = cond === -1 ? "" : source.slice(cond, at);
+  if (!guard.includes('sharedTabu === ""')) {
+    problems.push(
+      `מסך הפתיחה של עמוד ${screen} אינו סופר את סינון הרישום — סינון שלא מצא ייראה כמשרד ריק`,
+    );
+  }
+}
+
+/*
+ * ‏ובסרגל הסינון של הקונים: סינון שרץ ואינו מסומן „פעיל” הוא סינון
+ * ‏בלי כפתור ניקוי.
+ */
+{
+  const BUYERS = read("../src/app/buyers/page.tsx");
+  const bar = BUYERS.indexOf("<FilterBar");
+  if (bar === -1) {
+    problems.push("סרגל הסינון לא נמצא בעמוד הקונים");
+  } else if (!BUYERS.slice(bar, bar + 900).includes('sharedTabu !== ""')) {
+    problems.push("סרגל הסינון של הקונים אינו מכיר בסינון הרישום כפעיל — אין דרך לנקות אותו");
+  }
+}
+
+/*
  * ‎**המונים והחיפוש באותו מכל דו-טורי**, ובאותה חלוקה כמו בדשבורד.
  */
-const statsCall = onlyIn(PROPERTIES, "<PropertyStats items={items}", "רכיב המונים", "עמוד הנכסים");
+const statsCall = onlyIn(PROPERTIES, "<PropertyStats", "רכיב המונים", "עמוד הנכסים");
 const filtersCall = onlyIn(PROPERTIES, "<ListFilters", "כרטיס החיפוש", "עמוד הנכסים");
 if (statsCall !== null && filtersCall !== null) {
   if (filtersCall > statsCall) {
@@ -412,6 +524,60 @@ if (!/childrenActive=\{city !== "הכל"\}/u.test(PROPERTIES)) {
   problems.push("עמוד הנכסים אינו מדווח על עיר שנבחרה (`childrenActive`)");
 }
 
+/* ==========================================================================
+ * ‎**טאבו משותף — הסינון בשרת, והשותפויות על הכרטיס.**
+ *
+ * ‏שתי הכרעות שנשברות בשקט אם מישהו „מפשט” אותן:
+ *
+ * ‏א. הסינון חייב לרוץ **בשרת**. נכסים במושאע הם מיעוט, ולכן דווקא
+ * ‏הם נופלים מחוץ למאה הראשונות שנטענות; צ׳יפ שמסנן את מה שכבר
+ * ‏בזיכרון היה מציג „אין” למשרד שיש לו כמה. הפרמטר ותלות ה-`useEffect`
+ * ‏נבדקים בנפרד: בלי התלות המסנן מוצג ואינו טוען מחדש.
+ *
+ * ‏ב. מקטע השותפויות מותנה ב-`sharedTabu` של הנכס. בלי התנאי כל
+ * ‏כרטיס נכס היה שולח בקשה שתחזור ריקה, ומציג „אין שותפויות” על
+ * ‏נכס שלא יכולות להיות לו.
+ * ========================================================================== */
+
+if (!/&sharedTabu=\$\{value\}/u.test(PROPERTIES)) {
+  problems.push("סינון „טאבו משותף” בעמוד הנכסים אינו נשלח לשרת — הוא מסנן רק את מה שנטען");
+}
+if (!/\}, \[authLoading, filters, sharedTabu\]\);/u.test(PROPERTIES)) {
+  problems.push("‎`sharedTabu` אינו בתלויות הטעינה בעמוד הנכסים — הסינון נבחר ואינו טוען מחדש");
+}
+if (!/options=\{SHARED_TABU_FILTER_OPTIONS\}/u.test(PROPERTIES)) {
+  problems.push("בורר „סינון לפי רישום” נעלם מעמוד הנכסים");
+}
+/*
+ * ‎**ובורר הסוגים אינו מציע את הסוג הוותיק** (ביקורת Codex, P2).
+ *
+ * ‏`shared_tabu` הוא עובדה משפטית ולא סוג מבנה, ויש לו עכשיו בורר
+ * ‏משלו שרץ בשרת. כל עוד הוא נשאר גם ברשימת הסוגים היו שתי דרכים
+ * ‏לסנן לפי אותו דבר — ואחת מהן שקרה: הסינון לפי סוג הוא מקומי
+ * ‏(`p.propertyType === type`), ולכן הוא החזיר את השורות הוותיקות
+ * ‏בלבד והסתיר נכס במושאע שנרשם כ„דירה” עם הדגל, כלומר את הרוב.
+ */
+if (!/value !== SHARED_TABU_PROPERTY_TYPE/u.test(PROPERTIES)) {
+  problems.push(
+    "בורר „סוג נכס” בעמוד הנכסים עדיין מציע את `shared_tabu` — שתי דרכים לסנן, ואחת מהן חלקית",
+  );
+}
+
+/*
+ * ‏כאן נבדק **המיקום** בלבד: שהמקטע יושב בכרטיס הנכס. מה שהתנאי
+ * ‏שלפניו *אומר* — `partnershipApplies`, `matches.view` ושני ענפי
+ * ‏מודול הקונים — נבדק ב-`verify:stance`, ושם בלבד.
+ *
+ * ‏עד הסבב הזה שני השערים בדקו את אותו תנאי, וזה נגמר כצפוי:
+ * ‏הבדיקה כאן נצמדה ל-`property.sharedTabu === true`, ולכן היא
+ * ‏חסמה את המעבר ל-`partnershipApplies` — כלומר שער שנכתב כדי
+ * ‏להגן על ההכרעה חסם את תיקונה. כלל אחד, ניסוח אחד, שער אחד.
+ */
+const PROPERTY_CARD = read("../src/app/properties/[id]/page.tsx");
+if (!PROPERTY_CARD.includes("<PartnerSuggestions")) {
+  problems.push("מקטע „שותפויות אפשריות” נעלם מכרטיס הנכס");
+}
+
 if (problems.length > 0) {
   console.error("✗ הכרעות פריסה שנשברו:\n");
   for (const problem of problems) console.error(`  ${problem}`);
@@ -421,6 +587,7 @@ if (problems.length > 0) {
   console.error("    • „הבנתי” — מסתיר עד מחר, ולא לתמיד.");
   console.error("    • חיפוש נכס — שדה בלי טקסט רפאים, וצ׳יפי ערים בתוך „עוד סינון”.");
   console.error("    • המנטור   — אומר כשהספירה חלקית, ולא מציג אותה כמלאה.");
+  console.error("    • טאבו משותף — הסינון בשרת, ומקטע השותפויות בכרטיס הנכס.");
   console.error("  §24 של חבילת העיצוב מתארת סדר אחר לדשבורד, והיא מתוקנת");
   console.error("  ב-docs/design-handoff/DESIGN-SYSTEM-4-layout-and-rules.md.");
   process.exit(1);

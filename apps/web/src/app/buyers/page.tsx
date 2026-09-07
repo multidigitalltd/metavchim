@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { bulkContactErasureDisclosure, labelOf } from "@metavchim/shared";
+import {
+  bulkContactErasureDisclosure,
+  labelOf,
+  SHARED_TABU_STANCE_LABELS,
+} from "@metavchim/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
@@ -98,6 +102,30 @@ function MaturityPill({ maturity }: { maturity: string }) {
 
 const GRID = "1.6fr 0.9fr 1.1fr 1.4fr 0.9fr 0.9fr";
 
+/**
+ * ‎**כתובת אחת לשליפת הרשימה** (ביקורת Codex, P2).
+ *
+ * ‏השאילתה נבנתה בשני מקומות — הטעינה הראשונית והרענון שאחרי
+ * ‏מחיקה מרובה — ולכן המסנן החדש נוסף לאחת ולא לשנייה: אחרי
+ * ‏מחיקה הרשימה התרעננה **בלי** סינון העמדה, בזמן שהבורר על המסך
+ * ‏עדיין הראה אותה. המסך הציג קונים שסותרים את מה שנבחר בו.
+ *
+ * ‏פונקציה ברמת המודול ולא בתוך הרכיב: כך אין תלות ב-hook, ואין
+ * ‏דרך שנייה לבנות את הכתובת.
+ */
+function buyersListUrl(
+  filters: ListFilterValues,
+  maturity: string,
+  officeStatus: string,
+  sharedTabu: string,
+): string {
+  const scope =
+    (maturity === "" ? "" : `&maturity=${encodeURIComponent(maturity)}`) +
+    (officeStatus === "" ? "" : `&officeStatus=${encodeURIComponent(officeStatus)}`) +
+    (sharedTabu === "" ? "" : `&sharedTabu=${encodeURIComponent(sharedTabu)}`);
+  return `/buyers?limit=100${scope}${filtersToQuery({ ...filters, q: "" })}`;
+}
+
 export default function BuyersPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const canImport = useFeature("data_io");
@@ -118,6 +146,13 @@ export default function BuyersPage() {
   const [officeStatus, setOfficeStatus] = useState("");
   const { statuses: officeStatuses } = useOfficeStatuses();
   const [offersFilter, setOffersFilter] = useState("");
+  /*
+   * ‏עמדת הטאבו — בשרת, כמו הבשלות וסטטוס המשרד.
+   *
+   * ‏„מי אישר טאבו משותף” היא השאלה שפותחת עסקה על נכס במושאע, וגם
+   * ‏זו שבונה שותפות; היא צריכה לענות על כל המאגר ולא על מה שנטען.
+   */
+  const [sharedTabu, setSharedTabu] = useState("");
   /** קונה (sale) או שוכר (rent) — הלשונית היא "קונים · שוכרים" */
   const [dealType, setDealType] = useState("");
   /**
@@ -161,11 +196,8 @@ export default function BuyersPage() {
   useEffect(() => {
     if (authLoading) return;
     setItems(null);
-    const scope =
-      (maturity === "" ? "" : `&maturity=${encodeURIComponent(maturity)}`) +
-      (officeStatus === "" ? "" : `&officeStatus=${encodeURIComponent(officeStatus)}`);
     apiGet<{ items: BuyerRow[] }>(
-      `/buyers?limit=100${scope}${filtersToQuery({ ...filters, q: "" })}`,
+      buyersListUrl(filters, maturity, officeStatus, sharedTabu),
     )
       .then((res) =>
         setItems(
@@ -175,7 +207,7 @@ export default function BuyersPage() {
         ),
       )
       .catch(() => setError("טעינת הקונים נכשלה"));
-  }, [authLoading, filters, maturity, officeStatus]);
+  }, [authLoading, filters, maturity, officeStatus, sharedTabu]);
 
   function toggle(id: string): void {
     setSelected((was) => {
@@ -316,8 +348,9 @@ export default function BuyersPage() {
      */
     setItems(null);
     try {
+      /* ‏אותה כתובת בדיוק שהטעינה הראשונית בנתה — ראו `buyersListUrl` */
       const fresh = await apiGet<{ items: BuyerRow[] }>(
-        `/buyers?limit=100${filtersToQuery({ ...filters, q: "" })}`,
+        buyersListUrl(filters, maturity, officeStatus, sharedTabu),
       );
       setItems(
         [...apiList(fresh.items, "items")].sort(
@@ -409,7 +442,16 @@ export default function BuyersPage() {
         <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען קונים…</p>
-      ) : items.length === 0 && !hasActiveFilters(filters) ? (
+      ) : /*
+         * ‎**„עדיין אין קונים” הוא רק כשאין סינון שמרוקן את `items`**
+         * ‏(ביקורת Codex, P2).
+         *
+         * ‏בשלות, הצעות וסוג עסקה מצמצמים את `visible` בלבד. עמדת
+         * ‏הטאבו המשותף מסננת **בשרת**, ולכן משרד בלי קונה אחד
+         * ‏בעמדה שנבחרה קיבל את מסך הפתיחה — בלי הבורר ובלי „נקה
+         * ‏סינון”, כלומר בלי דרך לחזור חוץ מרענון.
+         */
+      items.length === 0 && !hasActiveFilters(filters) && sharedTabu === "" ? (
         <div
           className="rounded-xl border p-8 text-center"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
@@ -440,12 +482,17 @@ export default function BuyersPage() {
             total={items.length}
             noun="קונים"
             active={
-              hasActiveFilters(filters) || maturity !== "" || offersFilter !== "" || dealType !== ""
+              hasActiveFilters(filters) ||
+              maturity !== "" ||
+              offersFilter !== "" ||
+              dealType !== "" ||
+              sharedTabu !== ""
             }
             onClear={() => {
               setFilters(EMPTY_FILTERS);
               setMaturity("");
               setOffersFilter("");
+              setSharedTabu("");
               setDealType("");
             }}
           >
@@ -489,6 +536,21 @@ export default function BuyersPage() {
                 ["some", "קיבלו הצעות"],
               ]}
             />
+            {/*
+              ‏„טרם נשאל” אינו אפשרות בסינון בכוונה: הוא אינו עמדה
+              ‏אלא היעדרה, ומי שמחפש אותו מחפש בעצם „את מי עוד לא
+              ‏שאלתי” — שאלה אחרת, שמקומה במונה השלמות של הכרטיס.
+            */}
+            <FilterSelect
+              label="סינון לפי טאבו משותף"
+              value={sharedTabu}
+              onChange={setSharedTabu}
+              allLabel="כל העמדות"
+              options={[
+                ["accepts", SHARED_TABU_STANCE_LABELS.accepts],
+                ["refuses", SHARED_TABU_STANCE_LABELS.refuses],
+              ]}
+            />
           </FilterBar>
 
           {visible.length === 0 ? (
@@ -503,6 +565,7 @@ export default function BuyersPage() {
                   setFilters(EMPTY_FILTERS);
                   setMaturity("");
                   setOffersFilter("");
+                  setSharedTabu("");
                   setDealType("");
                 }}
               >

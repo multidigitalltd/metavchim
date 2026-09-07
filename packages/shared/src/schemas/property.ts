@@ -102,6 +102,14 @@ export const PropertyFieldsSchema = z.object({
   hasSafeRoom: z.boolean().optional(),
   hasStorage: z.boolean().optional(),
   /**
+   * ‎**רישום בטאבו משותף (מושאע)** — עובדה משפטית, לא מאפיין נוחות.
+   *
+   * ‏אין חלקה נפרדת, נדרשת הסכמת שותפים, והמימון מסובך. לכן היא
+   * ‏שדה משלה ולא פריט ב-`customFeatures`, שם יושבים המאפיינים
+   * ‏שהמשרד מגדיר לעצמו לצד „מעלית” ו„מחסן”.
+   */
+  sharedTabu: z.boolean().optional(),
+  /**
    * מאפיינים שהמשרד הוסיף בעצמו — ראו `logic/custom-features.ts`.
    *
    * חמשת הקבועים נכונים לרוב הדירות ולא מספיקים לאף שוק אמיתי.

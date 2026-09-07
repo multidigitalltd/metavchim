@@ -48,7 +48,14 @@ describe("נכס מסחרי — תשעת הענפים מגיעים לכל מקו
    */
   it("מנוע ההתאמות עובר דרך propertyTypeMatches", () => {
     const engine = SHARED("logic/matching.ts");
-    expect(engine).toContain("propertyTypeMatches(buyer.propertyTypes, property.propertyType)");
+    /*
+     * ‏העוגן על **הארגומנטים** ולא על שורה אחת: הקריאה קיבלה
+     * ‏ארגומנט שלישי (הדגל של הטאבו המשותף) ונפרסה לכמה שורות,
+     * ‏והבדיקה נשברה על העיצוב בזמן שהטענה עצמה נשארה נכונה.
+     */
+    expect(engine).toMatch(
+      /propertyTypeMatches\(\s*buyer\.propertyTypes,\s*property\.propertyType,/u,
+    );
     expect(engine, "חזר ל-includes ישיר").not.toMatch(
       /buyer\.propertyTypes\.includes\(property\.propertyType\)/u,
     );

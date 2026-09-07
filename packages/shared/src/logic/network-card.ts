@@ -27,6 +27,7 @@ import { labelOf } from "../schemas/labels.js";
 import { PROPERTY_TYPE_LABELS_HE } from "./csv-export.js";
 import { propertyFeatureLabel } from "./matching.js";
 import { describeDistance } from "./proximity.js";
+import { SHARED_TABU_NETWORK_LABEL } from "./shared-tabu.js";
 import { formatIsraeliNumber, formatJerusalemDate } from "./israel-time.js";
 
 /**
@@ -457,6 +458,11 @@ export function presentationDetailRows(
     },
     { label: "מועד כניסה", value: entry?.text },
     {
+      label: "רישום",
+      /* ‏„רגיל” ולא `undefined`: היעדר אזהרה הוא בעצמו תשובה */
+      value: p.sharedTabu === undefined ? undefined : p.sharedTabu ? SHARED_TABU_NETWORK_LABEL : "רישום נפרד",
+    },
+    {
       label: "מאפיינים",
       value:
         p.features !== undefined && p.features.length > 0
@@ -482,6 +488,19 @@ export interface NetworkPresentationFields {
   entryDate?: string | Date | undefined;
   features?: string[] | undefined;
   title?: string | undefined;
+  /**
+   * ‎**רישום משותף — עובדה משפטית, ולכן היא נוסעת ומוצגת** (ביקורת
+   * ‏Codex, P1).
+   *
+   * ‏הצילום נשא אותה מהסבב הקודם והמנוע כיבד אותה, אבל שום מסך לא
+   * ‏הציג אותה: סוכן ממשרד אחר ראה מודעה רגילה לגמרי וביקש חיבור
+   * ‏בלי לדעת שאין חלקה נפרדת. „הגיע ל-DTO” אינו „נאמר”.
+   *
+   * ‏היא יושבת כאן, בצילום המשותף, ולא בכרטיס אחד: שלושת המסכים
+   * ‏(מודעה, הצעה שהתקבלה, הצעה שנשלחה) נגזרים מ-`presentationChips`
+   * ‏ומ-`presentationDetailRows`, ולכן הם מקבלים אותה יחד.
+   */
+  sharedTabu?: boolean | undefined;
 }
 
 const CONDITION_LABELS: Record<string, string> = {
@@ -547,6 +566,18 @@ export function presentationChips(p: NetworkPresentationFields): NetworkChip[] {
   }
   const entry = entryChip(p.entryType, p.entryDate);
   if (entry !== null) chips.push(entry);
+  /*
+   * ‏אחרי המחיר ולפני המאפיינים, ובגוון אזהרה: זו אינה תכונה
+   * ‏נחמדה-שיהיה אלא תנאי שמשנה את העסקה כולה.
+   */
+  if (p.sharedTabu === true) {
+    /*
+     * ‎`bank` הוא הרישום עצמו — טאבו — ו-`hot` הוא הטון שכבר קיים
+     * ‏לתשומת לב. אייקון או טון חדש היו נוגעים ברינדור ובעיצוב בלי
+     * ‏שהממצא דורש זאת.
+     */
+    chips.push({ icon: "bank", text: SHARED_TABU_NETWORK_LABEL, tone: "hot" });
+  }
   for (const feature of p.features ?? []) {
     chips.push({ icon: "check", text: propertyFeatureLabel(feature) });
   }

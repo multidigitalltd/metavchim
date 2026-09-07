@@ -58,6 +58,8 @@ export interface CallDto {
    * ערך שאינו `converted`.
    */
   leadStatus?: string;
+  /** ‏הלקוח מסומן „טאבו משותף” — מסמן מראש את התיבה בהמרה לנכס. */
+  contactSharedTabu?: boolean;
   phone?: string;
   occurredAt: Date;
   durationMinutes?: number;
@@ -743,6 +745,16 @@ export class CallsService {
       ...(row.leadId && leadStatusById?.has(row.leadId)
         ? { leadStatus: leadStatusById.get(row.leadId)! }
         : {}),
+      /*
+       * ‎**הסימון של הלקוח — כדי שההמרה מכאן תדע** (ביקורת Codex, P2).
+       *
+       * ‏טופס „המרה לנכס” מסמן את התיבה מראש לפי הסימון על הלקוח,
+       * ‏אבל רק כרטיס הליד העביר אותו. המרה מעמוד השיחות הרכיבה את
+       * ‏אותו טופס בלי הערך, התיבה נשארה ריקה ונשלח `sharedTabu:
+       * ‏false` — כלומר הנכס נוצר בלי האזהרה המשפטית, לאותו לקוח
+       * ‏שסומן במפורש.
+       */
+      ...(contact ? { contactSharedTabu: contact.sharedTabu } : {}),
       // הטלפון של איש הקשר מנצח — הוא המקור המעודכן
       ...(contact?.phone
         ? { phone: contact.phone }

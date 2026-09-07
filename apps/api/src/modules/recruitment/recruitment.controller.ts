@@ -26,6 +26,12 @@ const RecruitmentFieldsSchema = PropertyFieldsSchema.pick({
   houseNumber: true,
   propertyType: true,
   dealType: true,
+  /*
+   * ‎**התיבה, ולא רק הסוג** (ביקורת Codex, P1). הסוג הוותיק
+   * ‏`shared_tabu` ירד מהבורר, ובלי השדה הזה טופס הגיוס — הרביעי
+   * ‏שמשתמש בו — נשאר בלי שום דרך לרשום את העובדה.
+   */
+  sharedTabu: true,
   rooms: true,
   areaSqm: true,
   floor: true,

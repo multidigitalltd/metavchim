@@ -28,6 +28,8 @@ export interface TargetValues {
   street?: string;
   houseNumber?: string;
   propertyType?: string;
+  /** ‏רשום בטאבו משותף — עובדה משפטית שנוסעת להמרה. */
+  sharedTabu?: boolean;
   dealType?: string;
   rooms?: number;
   areaSqm?: number;
@@ -100,6 +102,11 @@ export function TargetForm({ initial }: { initial?: TargetValues }) {
       houseNumber: str(form, "houseNumber"),
       propertyType: str(form, "propertyType"),
       dealType: str(form, "dealType"),
+      /*
+       * ‎**עובדה משפטית ולא מאפיין** — אותו שם ואותה צורה בדיוק
+       * ‏שלושת הטפסים האחרים שולחים.
+       */
+      sharedTabu: form.get("sharedTabu") === "on",
       rooms: num(form, "rooms"),
       areaSqm: num(form, "areaSqm"),
       floor: num(form, "floor"),
@@ -259,8 +266,43 @@ export function TargetForm({ initial }: { initial?: TargetValues }) {
               style={inputStyle}
             >
               <option value="">לא ידוע</option>
-              <PropertyTypeOptions />
+              {/*
+                ‏`keep` — שורה ותיקה שנרשמה בסוג `shared_tabu` חייבת
+                ‏להמשיך למצוא אותו בבורר, אחרת `defaultValue` אינו
+                ‏מתאים לשום אפשרות, הבורר נופל לראשונה, ושמירה סתמית
+                ‏משנה את הסיווג. את ההסבה עושה התיבה שמתחת.
+              */}
+              <PropertyTypeOptions keep={initial?.propertyType} />
             </select>
+          </div>
+          {/*
+            ‎**הטופס הרביעי** (ביקורת Codex, P1).
+
+            ‏התיבה נוספה לנכס חדש, לעריכת נכס ולהמרת ליד — ולא לכאן.
+            ‏מרגע שהסוג הוותיק ירד מהבורר, שורת גיוס חדשה לא יכלה
+            ‏לרשום את העובדה בכלל, ועריכה של שורה ותיקה מחקה אותה
+            ‏בשקט. ההמרה יצרה נכס רגיל, והוא הוצע לקונים שסירבו
+            ‏במפורש למושאע.
+          */}
+          <div
+            className="rounded-xl border p-3 sm:col-span-2"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+          >
+            <label className="flex items-center gap-2 font-medium">
+              <input
+                type="checkbox"
+                name="sharedTabu"
+                defaultChecked={initial?.sharedTabu ?? false}
+              />
+              רשום בטאבו משותף (מושאע)
+            </label>
+            <p
+              className="m-0 mt-1 text-[length:var(--type-caption-lg)]"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              אין חלקה נפרדת — העסקה דורשת הסכמת שותפים, והמימון מורכב יותר.
+              הסימון נוסע איתו להמרה, ומשפיע על ההתאמות.
+            </p>
           </div>
           <div>
             <label htmlFor="dealType" className="mb-1 block font-medium">

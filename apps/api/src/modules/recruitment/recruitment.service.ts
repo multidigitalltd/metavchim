@@ -2,7 +2,9 @@ import { ConflictException, Injectable, NotFoundException } from "@nestjs/common
 import {
   type PropertyFields,
   canConvertToProperty,
+  isSharedTabuProperty,
   isValidSourceUrl,
+  SHARED_TABU_PROPERTY_TYPE,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
 import { lockRecruitmentTarget } from "../../common/locks";
@@ -22,6 +24,8 @@ export interface RecruitmentTargetDto {
   houseNumber?: string;
   propertyType?: string;
   dealType?: string;
+  /** ‏רישום בטאבו משותף — התיבה בטופס, כמו בשלושת האחרים. */
+  sharedTabu?: boolean;
   rooms?: number;
   areaSqm?: number;
   floor?: number;
@@ -54,6 +58,7 @@ export interface RecruitmentInput {
   houseNumber?: string | null;
   propertyType?: string | null;
   dealType?: string | null;
+  sharedTabu?: boolean;
   rooms?: number | null;
   areaSqm?: number | null;
   floor?: number | null;
@@ -81,6 +86,7 @@ type Row = {
   houseNumber: string | null;
   propertyType: string | null;
   dealType: string | null;
+  sharedTabu: boolean;
   rooms: unknown;
   areaSqm: number | null;
   floor: number | null;
@@ -109,6 +115,8 @@ function toDto(row: Row): RecruitmentTargetDto {
     ...(opt(row.houseNumber) ? { houseNumber: row.houseNumber as string } : {}),
     ...(opt(row.propertyType) ? { propertyType: row.propertyType as string } : {}),
     ...(opt(row.dealType) ? { dealType: row.dealType as string } : {}),
+    /* ‏תמיד, ולא `opt`: העמודה `NOT NULL`, ו„לא סומן” הוא ערך */
+    sharedTabu: row.sharedTabu,
     ...(rooms === undefined ? {} : { rooms }),
     ...(opt(row.areaSqm) ? { areaSqm: row.areaSqm as number } : {}),
     ...(opt(row.floor) ? { floor: row.floor as number } : {}),
@@ -197,12 +205,13 @@ export class RecruitmentService {
     return this.prisma.withTenant(async (tx) => {
       const existing = await tx.recruitmentTarget.findFirst({
         where: { id, tenantId, deletedAt: null },
-        select: { id: true },
+        /* ‏הסוג הנוכחי נדרש להכרעת הרישום — ראו `registrationWrite` */
+        select: { id: true, propertyType: true },
       });
       if (!existing) throw new NotFoundException("נכס לגיוס לא נמצא");
       const row = await tx.recruitmentTarget.update({
         where: { id },
-        data: this.writable(input),
+        data: this.writable(input, existing),
       });
       return toDto(row as unknown as Row);
     });
@@ -476,6 +485,7 @@ export class RecruitmentService {
     houseNumber: string | null;
     propertyType: string | null;
     dealType: string | null;
+    sharedTabu: boolean;
     rooms: unknown;
     areaSqm: number | null;
     floor: number | null;
@@ -492,11 +502,66 @@ export class RecruitmentService {
         ? {}
         : { propertyType: row.propertyType as PropertyFields["propertyType"] }),
       ...(row.dealType === null ? {} : { dealType: row.dealType as PropertyFields["dealType"] }),
+      /*
+       * ‎**ההמרה נושאת את הסימון** (ביקורת Codex, P1). בלעדיו נוצר
+       * ‏נכס רגיל, והוא מוצע לקונים שסירבו במפורש למושאע — בזמן
+       * ‏שהמתווך סימן את השורה בדיוק כדי שזה לא יקרה.
+       *
+       * ‎**ונגזר משני המקורות, ולא נקרא מהעמודה בלבד** (ביקורת
+       * ‏Codex, P2). הכתיבה מנרמלת מעכשיו, אבל שורה שנכתבה לפניה
+       * ‏— ובכלל, כל שורה שהסוג שלה הוא הייצוג הישן — חייבת להגיע
+       * ‏להמרה כ„מושאע”: אחרת הזוג הסותר שיוצא מכאן נקרא בצד השני
+       * ‏כפרישת הייצוג הישן, ושני הנתונים נמחקים.
+       */
+      sharedTabu: isSharedTabuProperty({
+        sharedTabu: row.sharedTabu,
+        propertyType: row.propertyType ?? undefined,
+      }),
       ...(rooms === undefined ? {} : { rooms }),
       ...(row.areaSqm === null ? {} : { areaSqm: row.areaSqm }),
       ...(row.floor === null ? {} : { floor: row.floor }),
       ...(row.totalFloors === null ? {} : { totalFloors: row.totalFloors }),
       ...(row.priceAgorot === null ? {} : { priceAgorot: Number(row.priceAgorot) }),
+    };
+  }
+
+  /**
+   * ‎**הרישום המשותף בכתיבה — הדגל והסוג יחד, ולעולם לא סותרים**
+   * ‏(ביקורת Codex, P2, פעמיים).
+   *
+   * ‏שני כיוונים, וכל אחד נשבר בנפרד:
+   *
+   * ‎1. ‏**הסוג מדליק.** הסכימה מקבלת `propertyType: "shared_tabu"`
+   * ‏בלי הדגל — דרך ה-API ודרך הייבוא — והעמודה נופלת ל-`false`.
+   * ‏השורה נושאת סוג שאומר „מושאע” ודגל שאומר „לא”.
+   *
+   * ‎2. ‏**ו„לא” מפורש פורש את הסוג הישן.** בלי זה מתווך שמוריד את
+   * ‏הסימון בשורה ותיקה רואה אותה נשמרת בלי סימון — והסוג שנשאר
+   * ‏מחזיר את העובדה בהמרה. הוא סימן „לא”, ונוצר נכס „כן”.
+   *
+   * ‎**והסוג לעולם אינו מכבה.** עדכון שנוגע רק בסוג אינו אומר דבר
+   * ‏על הדגל, וגזירה סימטרית הייתה מוחקת סימון מפורש ברגע שמישהו
+   * ‏שינה „דירה” ל„פנטהאוז”.
+   *
+   * ‏זה בדיוק הכלל של `fieldsToColumns` על הנכס, ובאותו סדר — כי
+   * ‏זו אותה עובדה משפטית על אותו טופס.
+   */
+  private registrationWrite(
+    input: RecruitmentInput,
+    current?: { propertyType: string | null },
+  ): { sharedTabu: boolean | undefined; retireLegacyType: boolean } {
+    const effectiveType =
+      input.propertyType === undefined ? (current?.propertyType ?? null) : input.propertyType;
+    const legacy = effectiveType === SHARED_TABU_PROPERTY_TYPE;
+    if (input.sharedTabu === false && legacy) {
+      return { sharedTabu: false, retireLegacyType: true };
+    }
+    if (input.sharedTabu !== undefined) {
+      return { sharedTabu: input.sharedTabu, retireLegacyType: false };
+    }
+    return {
+      sharedTabu: input.propertyType === SHARED_TABU_PROPERTY_TYPE ? true : undefined,
+      retireLegacyType: false,
     };
   }
 
@@ -513,10 +578,20 @@ export class RecruitmentService {
     }
   }
 
-  /** השדות שהמסך רשאי לכתוב — `convertedPropertyId` אינו ביניהם. */
-  private writable(input: RecruitmentInput): Record<string, unknown> {
+  /**
+   * השדות שהמסך רשאי לכתוב — `convertedPropertyId` אינו ביניהם.
+   *
+   * ‎`current` הוא הסוג שכבר רשום על השורה, ונדרש בדיוק לשם אותו
+   * ‏דבר שבגללו `fieldsToColumns` דורש אותו: כדי לדעת מה „הסוג
+   * ‏האפקטיבי” בעדכון חלקי שלא נגע בו.
+   */
+  private writable(
+    input: RecruitmentInput,
+    current?: { propertyType: string | null },
+  ): Record<string, unknown> {
     const set = <T>(key: string, value: T | undefined): Record<string, T> =>
       value === undefined ? {} : ({ [key]: value } as Record<string, T>);
+    const registration = this.registrationWrite(input, current);
     return {
       ...set("status", input.status),
       ...set("source", input.source),
@@ -528,6 +603,23 @@ export class RecruitmentService {
       ...set("houseNumber", input.houseNumber),
       ...set("propertyType", input.propertyType),
       ...set("dealType", input.dealType),
+      /*
+       * ‎**התיבה, והסוג הוותיק שמדליק אותה** (ביקורת Codex, P2).
+       *
+       * ‏הסכימה מקבלת `propertyType: "shared_tabu"` בלי הדגל — דרך
+       * ‏ה-API ודרך `/import/recruitment` — והעמודה נופלת אז
+       * ‏ל-`false`. השורה נושאת סוג שאומר „מושאע” ודגל שאומר „לא”,
+       * ‏וההמרה שולחת את הצירוף הזה ל-`fieldsToColumns`, שקורא אותו
+       * ‏כ„פרישת הייצוג הישן” — ומוחק את שניהם. נוצר נכס בלי סוג
+       * ‏ובלי האזהרה המשפטית, והוא מוצע לקונים שסירבו במפורש.
+       *
+       * ‎**הסוג מדליק ולעולם לא מכבה** — אותו כלל שהנכס נשען עליו
+       * ‏(`property.mapper.ts`): עדכון שנוגע רק בסוג אינו אומר דבר
+       * ‏על הדגל, וגזירה סימטרית כאן הייתה מוחקת סימון מפורש ברגע
+       * ‏שמישהו שינה „דירה” ל„פנטהאוז”.
+       */
+      ...set("sharedTabu", registration.sharedTabu),
+      ...(registration.retireLegacyType ? { propertyType: null } : {}),
       ...set("rooms", input.rooms),
       ...set("areaSqm", input.areaSqm),
       ...set("floor", input.floor),
