@@ -16,13 +16,12 @@ import {
 } from "@metavchim/shared";
 import {
   assertContactAccess,
-  loadContactOwnerSources,
-  notifiableContactOwnerSource,
+  replyRecipient,
   type ContactOwner,
   ownershipFilter,
   visibleContactIds,
 } from "../../common/ownership";
-import { TenantContext } from "../../common/tenant-context";
+import { actingUserId, TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { EmailRejectedError, EmailService } from "../../core/email.service";
@@ -214,23 +213,39 @@ export class EmailInboxService {
    * הטבלה מחוץ ל-RLS (כמו lead_webhooks) — והכתיבה כאן היא בדיוק
    * הסיבה שהמזהים באים תמיד מהשורה שבגינה נשלח המייל, לא מקלט.
    */
-  async replyAddressFor(tenantId: string, contactId: string): Promise<string | null> {
+  async replyAddressFor(
+    tenantId: string,
+    contactId: string,
+    /**
+     * ‎**מי שולח — וזה חלק מזהות הטוקן, לא תיעוד לצדו.**
+     *
+     * ‏השימוש החוזר היה על הלקוח בלבד, ולכן טוקן שסוכן ב׳ הנפיק
+     * ‏שימש גם לשליחה של סוכן א׳ — ואז תשובה על ההודעה של א׳
+     * ‏נשאה את השולח של ב׳. שדה שנכתב בהנפקה ואינו נכנס לחיפוש
+     * ‏מתאר את השליחה הראשונה בלבד.
+     *
+     * ‎`null` — שליחה אוטומטית שאין לה סוכן.
+     */
+    sentByUserId: string | null,
+  ): Promise<string | null> {
     const config = await this.inboundConfig();
     if (config === null) return null;
     /*
      * לכרטיס יכולים להיות כמה טוקנים — מיזוג כפילויות מעביר את
      * הטוקנים של הכפיל לשורד, וכולם ממשיכים לפעול. שליחה חדשה
-     * משתמשת בוותיק שבהם; מרוץ בין שתי שליחות מנפיק שניים, ושניהם
-     * תקפים — כפילות כאן זולה מהתנגשות.
+     * משתמשת בוותיק **של אותו שולח**; מרוץ בין שתי שליחות מנפיק
+     * שניים, ושניהם תקפים — כפילות כאן זולה מהתנגשות.
      */
     const existing = await this.prisma.emailReplyToken.findFirst({
-      where: { tenantId, contactId },
+      where: { tenantId, contactId, sentByUserId },
       orderBy: { createdAt: "asc" },
       select: { id: true },
     });
     if (existing !== null) return replyAddressFor(config.address, existing.id);
     const id = ulid();
-    await this.prisma.emailReplyToken.create({ data: { id, tenantId, contactId } });
+    await this.prisma.emailReplyToken.create({
+      data: { id, tenantId, contactId, sentByUserId },
+    });
     return replyAddressFor(config.address, id);
   }
 
@@ -243,7 +258,7 @@ export class EmailInboxService {
     if (token === null) return;
     const mapping = await this.prisma.emailReplyToken.findUnique({
       where: { id: token },
-      select: { tenantId: true, contactId: true },
+      select: { tenantId: true, contactId: true, sentByUserId: true },
     });
     if (mapping === null) {
       this.logger.warn("תשובת אימייל עם טוקן לא מוכר — דולגה");
@@ -279,7 +294,7 @@ export class EmailInboxService {
     }
     if (body === "" && incoming.length === 0) return; // אין תוכן — אין מה להציג
 
-    const { tenantId, contactId } = mapping;
+    const { tenantId, contactId, sentByUserId } = mapping;
     const stored = await this.prisma.withExplicitTenant(tenantId, async (tx) => {
       // הכרטיס עשוי להימחק אחרי שהטוקן הונפק — תשובה יתומה מדולגת
       // השם דרך ContactsService — מוצפן במסד, ונחוץ להתראה בוואטסאפ
@@ -358,29 +373,15 @@ export class EmailInboxService {
        * לקוח בלי שניהם נשאר עם ההודעה בתיבה בלבד.
        */
       /*
-       * ‎**שלושת המקורות תמיד — הדילוג עצמו היה הבאג, שלוש פעמים.**
+       * ‎**מי הנמען — שאלה אחת, ולא הרכבה כאן** (`replyRecipient`).
        *
-       * ‏בראשונה הוא היה מותנה בקיום הכרטיס הקודם ולא בבעלותו.
-       * ‏בשנייה — מרגע שהשאלה היא „מי משויך **ורשאי**” — מועמד
-       * ‏שנפסל היה חייב להוריש את התור, והדילוג מנע מהבא אחריו
-       * ‏להיטען בכלל. בשלישית התברר שגם „שורה אחת לכל מקור” הוא
-       * ‏אותו דילוג: קונה אינו ייחודי ללקוח, וכרטיס ותיק של סוכן
-       * ‏כשר מעולם לא נשאל (ביקורת Codex).
-       *
-       * ‏אין תנאי שמבטא זאת נכון, כי הפסילה נודעת רק אחרי שכל
-       * ‏המועמדים ידועים — ולכן כולם נטענים, בשליפה **המשותפת**
-       * ‏עם השיחה הנכנסת. השורה הראשונה בכל מערך היא עדיין החדשה
-       * ‏ביותר, וזו הכרטיס שהאינטראקציה נתלית עליו.
+       * ‏שם כתובים שלושת הכללים שנצרפו אליה, כל אחד מביקורת משלו:
+       * ‏שלושת המקורות נטענים תמיד ואין קיצור שמדלג על מקור;
+       * ‏**שיוך אינו הרשאה**, ולכן מי שנפסל מוריש את התור; והשולח
+       * ‏של ההודעה שעליה עונים עולה לראשו. `null` פירושו כרגיל —
+       * ‏התראה משרדית בלי תוכן.
        */
-      const sources = await loadContactOwnerSources(tx, tenantId, contactId);
-      /*
-       * ‎**שיוך אינו הרשאה.** סוכן שמנהל המשרד חסם ממנו את מודול
-       * ‏הקונים נשאר רשום על השורה, ולכן היה מקבל התראה אישית עם
-       * ‏תמצית המייל על לקוח שאינו יכול לפתוח בשום מסך (ביקורת
-       * ‏Codex, P1). הבדיקה יושבת בזיהוי עצמו, ולכן `null` כאן
-       * ‏פירושו כרגיל — התראה משרדית בלי תוכן.
-       */
-      const owner = await notifiableContactOwnerSource(tx, tenantId, sources);
+      const owner = await replyRecipient(tx, tenantId, contactId, sentByUserId);
       const ownerUserId = owner?.userId ?? null;
       const snippet =
         body === ""
@@ -545,7 +546,13 @@ export class EmailInboxService {
 
     // מסירה חוזרת אינה התראה חוזרת — הסוכן כבר קיבל אותה
     if (stored.fresh) {
-      await this.notifyAgentOnWhatsApp(tenantId, contactId, stored.notifyUserId, stored.customerName);
+      await this.notifyAgentOnWhatsApp(
+        tenantId,
+        contactId,
+        stored.notifyUserId,
+        stored.customerName,
+        sentByUserId,
+      );
     }
   }
 
@@ -565,6 +572,8 @@ export class EmailInboxService {
     contactId: string,
     userId: string | null,
     customerName: string,
+    /** ‏השולח של ההודעה שעליה עונים — ראו `replyRecipient`. */
+    sentByUserId: string | null,
   ): Promise<void> {
     // בלי סוכן אחראי אין נמען — ההתראה המשרדית במערכת מכסה את זה
     if (userId === null) return;
@@ -584,14 +593,22 @@ export class EmailInboxService {
      * ‏הדואר אין כזה. „מי רשאי לקבל התראה על הלקוח הזה” נשאל פעם
      * ‏אחת, בשני הזמנים.
      *
+     * ‎**ו„אותה פונקציה” אינה מספיקה — צריך גם אותה שאלה.** ברגע
+     * ‏שהשולח נכנס לתמונה, שם הוא הועדף וכאן לא; שתי הקריאות ענו
+     * ‏תשובות שונות, `stillOwner !== userId` התקיים תמיד — ועל כל
+     * ‏תשובה להודעה של סוכן ב׳, בדיוק המקרה שבגללו נוסף השדה,
+     * ‏ההתראה בוואטסאפ נבלעה בשקט. השאלה המורכבת ירדה כולה
+     * ‏ל-`replyRecipient`, ו-`sentByUserId` שם **חובה**: קורא
+     * ‏שישכח אותו לא יעבור הידור.
+     *
      * ‏השתנה הנמען — שקט, ולא העברה לבעלים החדש: ההתראה במערכת
      * ‏כבר נכתבה על הסוכן הקודם, והיא נצנזרת בקריאה לפי המצב
      * ‏העכשווי. „מי מקבל וואטסאפ במקומו” היא החלטה אחרת.
      */
-    const stillOwner = await this.prisma.withExplicitTenant(tenantId, async (tx) => {
-      const sources = await loadContactOwnerSources(tx, tenantId, contactId);
-      return (await notifiableContactOwnerSource(tx, tenantId, sources))?.userId ?? null;
-    });
+    const stillOwner = await this.prisma.withExplicitTenant(
+      tenantId,
+      async (tx) => (await replyRecipient(tx, tenantId, contactId, sentByUserId))?.userId ?? null,
+    );
     if (stillOwner !== userId) return;
     try {
       const user = await this.prisma.user.findFirst({
@@ -915,7 +932,8 @@ export class EmailInboxService {
     });
 
     const subject = target.subject.startsWith("Re:") ? target.subject : `Re: ${target.subject}`;
-    const replyTo = await this.replyAddressFor(tenantId, contactId);
+    /* ‏המשיב הוא השולח — תשובת הלקוח עליה חוזרת אליו, לא לבעל הכרטיס */
+    const replyTo = await this.replyAddressFor(tenantId, contactId, actingUserId());
 
     /*
      * ‎**הרשומה נכתבת לפני השליחה, ומאושרת אחריה.**

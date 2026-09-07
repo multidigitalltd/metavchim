@@ -1146,6 +1146,16 @@ model EmailReplyToken {
   id        String   @id @db.Char(26)
   tenantId  String   @map("tenant_id") @db.Char(26)
   contactId String   @map("contact_id") @db.Char(26)
+  /// מי שלח את ההודעה שהכתובת הזו מחזירה תשובה עליה.
+  ///
+  /// הטוקן היה מזוהה בלקוח בלבד, ולכן תשובה על הסכם ששלח סוכן ב׳
+  /// נותבה למי שאחראי על **הלקוח** — סוכן א׳, שיש לו כרטיס קונה
+  /// על אותו אדם. `contactOwnerCandidates` מעלה את השולח לראש
+  /// התור, ומשם הוא עובר את אותה בדיקת הרשאה כמו כל מועמד.
+  ///
+  /// `NULL` = שליחה אוטומטית (סבב ההצעות) או טוקן שנוצר לפני
+  /// השדה. אז הסדר הרגיל הוא התשובה הנכונה.
+  sentByUserId String? @map("sent_by_user_id") @db.Char(26)
   createdAt DateTime @default(now()) @map("created_at")
 
   /// אינדקס ולא ייחודיות: מיזוג כרטיסים מעביר טוקנים לשורד, וכתובת

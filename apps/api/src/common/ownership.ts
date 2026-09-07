@@ -498,7 +498,28 @@ export async function loadContactOwnerSources(
  * ‏כשר היה מאבד את שניהם — האחד נפסל, השני מעולם לא נבדק (ביקורת
  * ‏Codex). רשימה ולא ערך יחיד, כדי שהפסילה תוכל ליפול הלאה.
  */
-export function contactOwnerCandidates(sources: ContactOwnerSources): ContactOwner[] {
+export function contactOwnerCandidates(
+  sources: ContactOwnerSources,
+  /**
+   * ‎**הסוכן ששלח את ההודעה שעליה עונים — עולה לראש התור.**
+   *
+   * ‏הסדר הרגיל עונה על „מי אחראי על הלקוח”, וזו השאלה הנכונה
+   * ‏לשיחה נכנסת שאיש לא יזם. תשובה במייל אינה כזו: יש לה **הודעה
+   * ‏קודמת**, ולה יש שולח. סוכן ב׳ שלח הסכם על נכס שלו ללקוח
+   * ‏שגם לסוכן א׳ יש עליו כרטיס קונה — והתשובה נחתה אצל א׳, כי
+   * ‏„קונים” קודם ל„נכסים” בתור.
+   *
+   * ‎**וזו העדפה, לא עקיפה.** המועמדות של השולח נשארת מועמדות:
+   * ‏היא עוברת בדיוק את אותה בדיקת הרשאה של כל השאר, ואם הוא
+   * ‏נפסל — איבד את הכרטיס, נשללה ממנו היכולת — התור ממשיך כרגיל.
+   * ‏השורות שלו עולות **בשמירת הסדר היחסי** ביניהן, כדי שהשאלה
+   * ‏„דרך איזה מקור” תיענה כמו תמיד.
+   *
+   * ‎`undefined` — אין הודעה קודמת (שיחה נכנסת, טוקן ותיק מלפני
+   * ‏השדה), והסדר הרגיל הוא התשובה הנכונה.
+   */
+  preferUserId?: string | null,
+): ContactOwner[] {
   const ordered: ContactOwner[] = [];
   const seen = new Set<string>();
   const push = (
@@ -528,7 +549,11 @@ export function contactOwnerCandidates(sources: ContactOwnerSources): ContactOwn
   for (const row of sources.buyers) push(row.ownerUserId, "buyers", row.id);
   for (const row of sources.leads) push(row.assignedToUserId, "leads", row.id);
   for (const row of sources.properties) push(row.agentUserId, "properties", null);
-  return ordered;
+  if (preferUserId === undefined || preferUserId === null) return ordered;
+  return [
+    ...ordered.filter((candidate) => candidate.userId === preferUserId),
+    ...ordered.filter((candidate) => candidate.userId !== preferUserId),
+  ];
 }
 
 /**
@@ -660,8 +685,10 @@ export async function notifiableContactOwnerSource(
   tx: TenantTx,
   tenantId: string,
   sources: ContactOwnerSources,
+  /** ‏השולח של ההודעה שעליה עונים — ראו `contactOwnerCandidates`. */
+  preferUserId?: string | null,
 ): Promise<ContactOwner | null> {
-  const candidates = contactOwnerCandidates(sources);
+  const candidates = contactOwnerCandidates(sources, preferUserId);
   if (candidates.length === 0) return null;
   /*
    * ‏שאילתה אחת לכל המועמדים ולא אחת לכל מועמד: הם לכל היותר
@@ -678,6 +705,33 @@ export async function notifiableContactOwnerSource(
     if (set !== undefined && contactSourcesOf(set)[candidate.source]) return candidate;
   }
   return null;
+}
+
+/**
+ * ‎**„מי מקבל התראה על התשובה הזו” — שאלה אחת, בשני הזמנים.**
+ *
+ * ‏התיבה שואלת אותה פעמיים על אותה תשובה: בתוך הטרנזקציה, כדי
+ * ‏לכתוב את ההתראה במערכת, ושוב אחרי העלאת הקבצים — כי בין
+ * ‏השניים כרטיס יכול לעבור לעמית או יכולת להישלל, והוואטסאפ יוצא
+ * ‏מהמערכת ואי אפשר לצנזר אותו בדיעבד.
+ *
+ * ‎**ושתי השאלות חייבות להיות אותה שאלה.** ברגע שהשולח נכנס
+ * ‏לתמונה הן נפרדו: הראשונה העדיפה אותו והשנייה לא, ולכן על כל
+ * ‏תשובה להודעה של סוכן ב׳ — בדיוק המקרה שבגללו נוסף השדה —
+ * ‏הבדיקה השנייה ענתה „א׳”, לא הסכימה עם הראשונה, וההתראה
+ * ‏בוואטסאפ נבלעה בשקט.
+ *
+ * ‎`sentByUserId` **חובה** ולא אופציונלי, וזו כל הנקודה: קורא
+ * ‏שלישי לא יוכל לשכוח אותו — המהדר יעצור אותו.
+ */
+export async function replyRecipient(
+  tx: TenantTx,
+  tenantId: string,
+  contactId: string,
+  sentByUserId: string | null,
+): Promise<ContactOwner | null> {
+  const sources = await loadContactOwnerSources(tx, tenantId, contactId);
+  return notifiableContactOwnerSource(tx, tenantId, sources, sentByUserId);
 }
 
 /**

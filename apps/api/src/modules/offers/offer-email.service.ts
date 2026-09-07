@@ -867,7 +867,11 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
 
     const offerIds = rows.map((row) => row.offerId);
     // תשובת הלקוח ("אפשר לתאם ביקור?") חוזרת לתיבה הפנימית ולציר
-    const replyTo = await this.emailInbox.replyAddressFor(tenantId, contactId);
+    /*
+     * ‎`null` — הסבב אוטומטי ואין לו סוכן ששלח. הסדר הרגיל של
+     * ‏המועמדים הוא התשובה הנכונה כאן, וממילא הקונה ראשון בו.
+     */
+    const replyTo = await this.emailInbox.replyAddressFor(tenantId, contactId, null);
     try {
       await this.email.send(to, subject, content, {
         tenantId,
