@@ -14,6 +14,9 @@ import { TASK_ENTITY_TYPES, taskEntityHref, isTaskEntityType } from "@metavchim/
 describe("‏פולואפ בגיוס — משימה, לא מנגנון שני", () => {
   const ROOT = join(import.meta.dirname, "..", "..", "..", "..", "..");
   const read = (...p: string[]): string => readFileSync(join(ROOT, ...p), "utf8");
+  /** ‏בלי הערות — הסבר שמזכיר ביטוי אינו הביטוי עצמו. */
+  const strip = (source: string): string =>
+    source.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/^[ \t]*\/\/.*$/gmu, "");
 
   it("‏„גיוס” הוא סוג ישות חוקי למשימה", () => {
     expect(TASK_ENTITY_TYPES).toContain("recruitment");
@@ -47,30 +50,60 @@ describe("‏פולואפ בגיוס — משימה, לא מנגנון שני", 
   });
 
   /*
-   * ‎**וסוכן אינו רואה את הפולואפ של עמיתו.**
+   * ‎**סוכן אינו רואה את הפולואפ של עמיתו — וההשתקה נשארת משרדית.**
    *
    * ‏`listForEntity` סינן לפי דייר וישות בלבד, והיכולת שהנתיב דורש
    * ‏(`calendar.manage`) יש לכל סוכן — כלומר כל משימה על אותו כרטיס
-   * ‏הייתה קריאה לכולם. `scopeFilter` הוא הביטוי שהמודול כבר
-   * ‏מחזיק, וההערה שמעליו מזהירה בדיוק מהנתיב ששוכח אותו.
+   * ‏הייתה קריאה לכולם. אבל הסינון הוחל גם על שאילתת ההצעות, וזה
+   * ‏היה יותר מדי (ביקורת Codex, P1 — על התיקון הקודם שלי).
+   *
+   * ‏„הצעה” היא על הכרטיס ולא על הסוכן: אם עמית כבר פתח אותה,
+   * ‏העבודה נעשית. סינון לפי בעלות החזיר אותה כזמינה אצל השני,
+   * ‏ושליחתה הגיעה לניכוי הכפילויות — שהחזיר את הכרטיס של העמית,
+   * ‏עם שם המשויך ושם היוצר.
+   *
+   * ‏שתי טענות, ולכן שתי בדיקות: השאילתה השלישית **בלי** סינון,
+   * ‏והניכוי אינו מוסר DTO מחוץ להיקף.
    */
-  it("‏רשימת המשימות של ישות מסוננת בבעלות", () => {
+  it("‏השתקת ההצעות משרדית — ורק שתי שאילתות המשימות מסוננות", () => {
     const service = read("apps", "api", "src", "modules", "tasks", "tasks.service.ts");
     const start = service.indexOf("async listForEntity(");
-    expect(start).toBeGreaterThan(-1);
     const rest = service.slice(start);
     const end = rest.search(/\n {2}(?:async |private |\/\*\*)/u);
     const method = end === -1 ? rest : rest.slice(0, end);
-    /* ‏שלוש השאילתות — הפתוחות, שבוצעו, וההצעות */
     expect(method.split("tx.task.findMany").length - 1).toBe(3);
-    expect(method.split("...this.scopeFilter()").length - 1).toBe(3);
+    /* ‏שתיים, לא שלוש: ההצעות נספרות משרדית */
+    expect(method.split("...this.scopeFilter()").length - 1).toBe(2);
+    expect(method).toContain("sourceKey: { startsWith: SUGGESTION_PREFIX }");
+  });
+
+  it("‏הניכוי אינו מוסר משימה של עמית", () => {
+    const service = strip(
+      read("apps", "api", "src", "modules", "tasks", "tasks.service.ts"),
+    );
+    const at = service.indexOf("sourceKey: input.sourceKey");
+    expect(at, "ניכוי הכפילויות לא נמצא").toBeGreaterThan(-1);
+    const block = service.slice(at, at + 900);
+    expect(block).toContain("this.inScope(existing)");
+    /* ‏והבדיקה נגזרת מאותה הכרעה, ולא מנוסחת לצדה */
+    expect(service).toMatch(/inScope\([\s\S]{0,400}this\.scopeFilter\(\)/u);
   });
 
   /*
-   * ‏ושורת הגיוס נשארת מחוץ לנכסים: המשימה מקשרת למסך הגיוס,
-   * ‏ולא מייצרת נכס ולא נכנסת להתאמות. זו ההכרעה שכל מודול
-   * ‏הגיוס עומד עליה — ראו `recruitment-separation.test.ts`.
+   * ‏ולפולואפ יש תווית — המסך מרכיב את הקישור רק כשיש גם נתיב וגם
+   * ‏תווית, ולכן בלעדיה „לחזור לבעלים” לא אמר על איזה נכס.
    */
+  it("‏לשורת גיוס יש תווית ברשימת המשימות", () => {
+    const service = read("apps", "api", "src", "modules", "tasks", "tasks.service.ts");
+    const start = service.indexOf("private async entityLabels(");
+    const rest = service.slice(start);
+    const end = rest.search(/\n {2}(?:async |private |\/\*\*)/u);
+    const method = end === -1 ? rest : rest.slice(0, end);
+    expect(method).toContain('byType.get("recruitment")');
+    expect(method).toContain("tx.recruitmentTarget.findMany");
+    expect(method).toContain('key("recruitment", t.id)');
+  });
+
   it("‏המקטע במסך מותנה ביכולת שהנתיב דורש", () => {
     const page = read(
       "apps",

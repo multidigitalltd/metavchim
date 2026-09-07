@@ -97,6 +97,20 @@ export class TasksService {
    * בדיוק כמו `ownershipFilter`, ומסיבה זהה: השאילתה היא האכיפה, לא
    * בדיקה שאפשר לשכוח בנתיב חדש.
    */
+  /**
+   * ‎**אותה הכרעה, על שורה שכבר בידיי.**
+   *
+   * ‏נגזר מ-`scopeFilter` ולא מנוסח לצדו: תנאי שני היה מתעדכן
+   * ‏בנפרד, וזה בדיוק ההבדל שאי אפשר לראות בקריאה.
+   */
+  private inScope(task: { assignedToUserId: string }): boolean {
+    const scope = this.scopeFilter();
+    return (
+      scope["assignedToUserId"] === undefined ||
+      scope["assignedToUserId"] === task.assignedToUserId
+    );
+  }
+
   private scopeFilter(): Record<string, string> {
     const ctx = TenantContext.current();
     if (ctx.capabilities.has("tasks.view_all")) return {};
@@ -165,6 +179,33 @@ export class TasksService {
       for (const p of properties) {
         const address = [p.street, p.neighborhood, p.city].filter(Boolean).join(", ");
         labels.set(key("property", p.id), p.marketingTitle ?? address ?? "נכס");
+      }
+    }
+
+    /*
+     * ‎**ושורת גיוס — כתובת, כמו נכס** (ביקורת Codex, P2).
+     *
+     * ‏המסך מרכיב את הקישור רק כשיש **גם** נתיב וגם תווית, ולכן
+     * ‏פולואפ „לחזור לבעלים” הופיע ברשימת המשימות בלי לומר על איזה
+     * ‏נכס הוא ובלי דרך לחזור אליו. הבעלים הוא טקסט ולא איש קשר
+     * ‏(השורה אינה לקוח עד ההמרה), ולכן התווית היא הכתובת — אותה
+     * ‏גזירה בדיוק שהנכס מקבל.
+     */
+    const recruitmentIds = byType.get("recruitment") ?? [];
+    if (recruitmentIds.length > 0) {
+      const targets = await tx.recruitmentTarget.findMany({
+        where: { id: { in: recruitmentIds }, tenantId, deletedAt: null },
+        select: { id: true, street: true, houseNumber: true, neighborhood: true, city: true },
+      });
+      for (const t of targets) {
+        const address = [
+          [t.street, t.houseNumber].filter(Boolean).join(" "),
+          t.neighborhood,
+          t.city,
+        ]
+          .filter((part) => part !== null && part !== "")
+          .join(", ");
+        labels.set(key("recruitment", t.id), address === "" ? "נכס לגיוס" : address);
       }
     }
 
@@ -327,6 +368,20 @@ export class TasksService {
         });
         /* כבר קיימת ופתוחה — מחזירים אותה, ולא יוצרים שנייה */
         if (existing) {
+          /*
+           * ‎**אבל לא את הכרטיס של עמית** (ביקורת Codex, P1).
+           *
+           * ‏הניכוי משרדי — וזה נכון, אחרת נוצרת משימה כפולה על
+           * ‏אותו כרטיס. אבל הוא החזיר את ה-DTO של מי שהמשימה שלו,
+           * ‏עם שם המשויך ושם היוצר, למי שאינו רשאי לראות אותה.
+           *
+           * ‏אותה הכרעה של `scopeFilter`, ולא ניסוח שני שלה: מי
+           * ‏שרואה את לוח המשרד מקבל את הכרטיס, וכל אחד אחר מקבל
+           * ‏משפט — בלי שורה, בלי שמות, ובלי משימה כפולה.
+           */
+          if (!this.inScope(existing)) {
+            throw new BadRequestException("המשימה הזו כבר פתוחה אצל עמית במשרד");
+          }
           const [dto] = await this.toDtos(tx, [existing]);
           return dto as TaskDto;
         }
@@ -509,7 +564,18 @@ export class TasksService {
             status: "open",
             deletedAfterSync: false,
             sourceKey: { startsWith: SUGGESTION_PREFIX },
-            ...this.scopeFilter(),
+            /*
+             * ‎**ההשתקה משרדית בכוונה, ולכן בלי `scopeFilter`**
+             * ‏(ביקורת Codex, P1 — על התיקון הקודם שלי).
+             *
+             * ‏„הצעה” היא על **הכרטיס**, לא על הסוכן: אם עמית כבר
+             * ‏פתח „להשלים מחיר” על הנכס הזה, העבודה נעשית — והצעה
+             * ‏שנייה היא כפילות. סינון לפי בעלות החזיר אותה כזמינה
+             * ‏אצל השני, ושליחתה הגיעה לניכוי הכפילויות ב-`writeCreate`.
+             *
+             * ‏השאילתה בוחרת `sourceKey` בלבד — איזו הצעה תפוסה,
+             * ‏ולא מי תפס אותה — ולכן אין כאן מה להדליף.
+             */
           },
           select: { sourceKey: true },
         }),
