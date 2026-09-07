@@ -59,6 +59,7 @@ export class AgentMemoryService {
         orderBy: { createdAt: "desc" },
         take: MAX_ITEMS,
         select: {
+          id: true,
           userId: true,
           type: true,
           title: true,

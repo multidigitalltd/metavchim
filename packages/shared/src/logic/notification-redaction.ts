@@ -34,6 +34,16 @@ export const NOTIFICATION_CONTACT_ANCHORS = ["contact", "lead", "buyer", "call"]
 export type NotificationAnchorKind = (typeof NOTIFICATION_CONTACT_ANCHORS)[number];
 
 export interface RedactableNotification {
+  /**
+   * ‎**נדרש, כי ההעשרה ממופה לפיו** (ביקורת Codex, P1).
+   *
+   * ‏שורה מצונזרת שומרת על המזהה שלה, ו-`formatNotifyMessage`
+   * ‏שולף לפיו את `notifyDetails` — טבלה שנטענה **לפני** הצנזורה
+   * ‏ושההרשאה שלה נפרדת (`canSeeNotifyDetail` מסתפק ב-
+   * ‎`buyers.view_all` או `leads.view_all`). כלומר השם והטלפון
+   * ‏שהורדו מהכותרת חזרו לתחתית ההודעה.
+   */
+  id: string;
   type: string;
   title: string;
   body: string | null;
@@ -222,4 +232,26 @@ export function redactNotification<T extends RedactableNotification>(
   if (viewer.allowed === null) return row;
   if (subject.contactId !== null && viewer.allowed.has(subject.contactId)) return row;
   return censored;
+}
+
+/**
+ * ‎**הצנזורה על רשימה — ומי מהן צונזרה** (ביקורת Codex, P1).
+ *
+ * ‏הקורא חייב לדעת: שורה מצונזרת שומרת על המזהה שלה, וכל העשרה
+ * ‏שממופה לפי המזהה הזה חייבת לרדת איתה. השאלה „האם צונזרה”
+ * ‏נענית כאן ולא נגזרת שוב אצל הקורא — גזירה שנייה היא בדיוק
+ * ‏העותק שייפרד.
+ */
+export function redactNotifications<T extends RedactableNotification>(
+  rows: readonly T[],
+  viewer: NotificationViewer,
+  subjects: ReadonlyMap<string, AnchorSubject>,
+): { rows: T[]; censoredIds: Set<string> } {
+  const censoredIds = new Set<string>();
+  const out = rows.map((row) => {
+    const safe = redactNotification(row, viewer, subjects);
+    if (safe !== row) censoredIds.add(row.id);
+    return safe;
+  });
+  return { rows: out, censoredIds };
 }

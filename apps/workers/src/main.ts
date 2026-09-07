@@ -48,6 +48,7 @@ import {
   notificationAnchorIds,
   notificationSubjectMap,
   redactNotification,
+  redactNotifications,
   type AnchorSubject,
   type NotificationViewer,
   type RedactableNotification,
@@ -3723,7 +3724,20 @@ async function processWhatsAppNotifySweep(): Promise<void> {
         userId: recipient.userId,
         capabilities: caps,
       };
-      const items = queued.map((row) => redactNotification(row, viewer, anchorSubjects));
+      const { rows: items, censoredIds } = redactNotifications(queued, viewer, anchorSubjects);
+      /*
+       * ‎**וההעשרה יורדת עם השורה שצונזרה** (ביקורת Codex, P1).
+       *
+       * ‏שורה מצונזרת שומרת על המזהה שלה, ו-`formatNotifyMessage`
+       * ‏שולף לפיו את `notifyDetails` — טבלה שנטענה לפני הצנזורה
+       * ‏ושההרשאה שלה נפרדת ורפה יותר (`canSeeNotifyDetail` מסתפק
+       * ‏ב-`buyers.view_all` או `leads.view_all`). השם והטלפון
+       * ‏שהורדו מהכותרת חזרו לתחתית ההודעה.
+       */
+      const details =
+        censoredIds.size === 0
+          ? notifyDetails
+          : new Map([...notifyDetails].filter(([id]) => !censoredIds.has(id)));
 
       /*
        * „שקט לשעתיים”, שעות שקט, וחלון 24 השעות של Meta — שלושתם
@@ -3750,7 +3764,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
          */
         const message = formatNotifyMessage(items, webOrigin, {
           viewer: { userId: recipient.userId, capabilities: recipient.capabilities },
-          byNotificationId: notifyDetails,
+          byNotificationId: details,
         });
         if (fitsInteractive(message)) {
           /*
@@ -3784,7 +3798,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
            */
           const mentor = notifyQuickReplies(items, {
             viewer: { userId: recipient.userId, capabilities: recipient.capabilities },
-            byNotificationId: notifyDetails,
+            byNotificationId: details,
           });
           const buttons: WhatsAppButton[] = [];
           if (mentor !== null) {

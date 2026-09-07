@@ -5,6 +5,7 @@ import {
   incomingCallTitle,
   missedCallTitle,
   publicNotificationTitle,
+  redactNotifications,
   type Capability,
   type RedactableNotification,
 } from "@metavchim/shared";
@@ -159,6 +160,7 @@ const SCOPED: Capability[] = ["properties.view", "buyers.view_own", "leads.view_
 const DEFAULT: Capability[] = [...SCOPED, "properties.view_all", "leads.view_all", "buyers.view_all"];
 
 const OFFICE_CALL: RedactableNotification = {
+  id: "01NOTIFCALL0000000000001",
   userId: null,
   type: "call_missed",
   title: "📵 דנה כהן התקשרה ולא נענתה — +972501234567",
@@ -167,6 +169,7 @@ const OFFICE_CALL: RedactableNotification = {
   entityId: LEADS[0]!.id,
 };
 const OFFICE_MINE: RedactableNotification = {
+  id: "01NOTIFMINE0000000000001",
   userId: null,
   type: "call_missed",
   title: "📵 יוסי לוי התקשר ולא נענה — +972502222222",
@@ -235,6 +238,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
   /* ‏ושורה בלי מצביע — אין בה עוגן, וממילא אין בה זהות */
   it("שורה משרדית בלי מצביע אינה נוגעת", async () => {
     const system: RedactableNotification = {
+      id: "01NOTIFINLINE00000000001",
       userId: null,
       type: "platform_disk_low",
       title: "מקום האחסון מתמלא",
@@ -260,6 +264,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
    */
   it("התראת תמלול על שיחה של עמית — התמצית יורדת", async () => {
     const transcribed: RedactableNotification = {
+      id: "01NOTIFINLINE00000000002",
       userId: null,
       type: "call_transcribed",
       title: "📝 השיחה עם דנה כהן תומללה",
@@ -282,6 +287,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
    */
   it("שיחה בלי לקוח נפתרת דרך הליד שלה — והיא של הסוכן", async () => {
     const viaLead: RedactableNotification = {
+      id: "01NOTIFINLINE00000000003",
       userId: null,
       type: "call_transcribed",
       title: "📝 השיחה עם יוסי לוי תומללה",
@@ -298,6 +304,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
   /* ‏והצד השני: שיחה עם הלקוח שלי נשארת שלמה */
   it("ותמלול של שיחה עם הלקוח שלי נשאר", async () => {
     const mine: RedactableNotification = {
+      id: "01NOTIFINLINE00000000004",
       userId: null,
       type: "call_transcribed",
       title: "📝 השיחה עם יוסי לוי תומללה",
@@ -322,6 +329,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
    */
   it("תמלול של שיחה על הליד של עמית — גם כשהלקוח נראה לי דרך כרטיס שלי", async () => {
     const transcribed: RedactableNotification = {
+      id: "01NOTIFINLINE00000000005",
       userId: null,
       type: "call_transcribed",
       title: "📝 השיחה עם מיכל אבן תומללה",
@@ -339,6 +347,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
   /* ‏וכרטיס קונה של עמית — אותו כלל, עוגן אחר */
   it("מצביע לכרטיס קונה של עמית מצונזר, גם כשהלקוח נראה לי", async () => {
     const theirCard: RedactableNotification = {
+      id: "01NOTIFINLINE00000000006",
       userId: null,
       type: "lead_returned",
       title: "מיכל אבן חזרה",
@@ -356,6 +365,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
   /* ‏ואותו מצביע לכרטיס **שלי** על אותו אדם — נשאר שלם */
   it("ומצביע לכרטיס הקונה שלי על אותו אדם נשאר", async () => {
     const myCard: RedactableNotification = {
+      id: "01NOTIFINLINE00000000007",
       userId: null,
       type: "lead_returned",
       title: "מיכל אבן חזרה",
@@ -372,6 +382,7 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
   /* ‏ולמנהל שרואה את כל הלידים — אותה שיחה נשארת שלמה */
   it("ולמי שרואה את כל הלידים היא נשארת", async () => {
     const transcribed: RedactableNotification = {
+      id: "01NOTIFINLINE00000000008",
       userId: null,
       type: "call_transcribed",
       title: "📝 השיחה עם מיכל אבן תומללה",
@@ -396,6 +407,62 @@ describe("‏התראה משרדית ישנה — הצנזורה בקריאה", 
     );
     expect(row?.title).toBe(missedCallTitle(null, null));
     expect(row?.entityId).toBeNull();
+  });
+});
+
+/**
+ * ‎**ומי צונזרה — השאלה שהקורא חייב לדעת את תשובתה** (ביקורת Codex, P1).
+ *
+ * ‏שורה מצונזרת שומרת על המזהה שלה, וכל העשרה שממופה לפי המזהה
+ * ‏הזה חייבת לרדת איתה. גזירה שנייה של „האם צונזרה” אצל הקורא
+ * ‏הייתה העותק שייפרד, ולכן התשובה חוזרת יחד עם השורות.
+ */
+describe("‏redactNotifications — מי צונזרה", () => {
+  const VIEWER = {
+    allowed: new Set([MINE]),
+    userId: ME,
+    capabilities: new Set<Capability>(SCOPED),
+  };
+  const SUBJECTS = new Map([["lead:01L", { contactId: THEIRS }]]);
+
+  it("מזהה של שורה שצונזרה חוזר, ושל שורה שעברה — לא", () => {
+    const blocked: RedactableNotification = {
+      id: "01NOTIFBLOCKED000000001",
+      userId: null,
+      type: "call_missed",
+      title: "📵 מיכל אבן התקשרה",
+      body: "פרטים",
+      entityType: "lead",
+      entityId: "01L",
+    };
+    const passing: RedactableNotification = {
+      id: "01NOTIFPASSING000000001",
+      userId: null,
+      type: "call_missed",
+      title: "📵 יוסי לוי התקשר",
+      body: "פרטים",
+      entityType: "contact",
+      entityId: MINE,
+    };
+    const { rows, censoredIds } = redactNotifications([blocked, passing], VIEWER, SUBJECTS);
+    expect([...censoredIds]).toEqual([blocked.id]);
+    expect(rows[0]?.body).toBeNull();
+    expect(rows[1]).toEqual(passing);
+  });
+
+  /* ‏ובלי צנזורה כלל — קבוצה ריקה, ולא „כולם” */
+  it("בלי צנזורה הקבוצה ריקה", () => {
+    const passing: RedactableNotification = {
+      id: "01NOTIFOPEN00000000001",
+      userId: null,
+      type: "platform_disk_low",
+      title: "מקום האחסון מתמלא",
+      body: "85%",
+      entityType: null,
+      entityId: null,
+    };
+    const { censoredIds } = redactNotifications([passing], VIEWER, SUBJECTS);
+    expect(censoredIds.size).toBe(0);
   });
 });
 
@@ -528,11 +595,25 @@ describe("‏שער: אין דחיפה בלי צנזורה", () => {
    * ‏התיקון שהוא בא להגן עליו.
    */
   it("‏סבב הוואטסאפ מנסח מתוך שורות מצונזרות", () => {
-    expect(WORKERS).toMatch(/const items = queued\.map\(\(row\) => redactNotification\(/u);
+    expect(WORKERS).toMatch(/const \{ rows: items, censoredIds \} = redactNotifications\(/u);
     const at = WORKERS.indexOf("const message = formatNotifyMessage(items");
     expect(at, "ניסוח ההודעה נעלם").toBeGreaterThan(0);
     /* ‏והצנזורה קודמת לו, ולא אחריו */
-    expect(WORKERS.search(/queued\.map\(\(row\) => redactNotification\(/u)).toBeLessThan(at);
+    expect(WORKERS.search(/= redactNotifications\(queued,/u)).toBeLessThan(at);
+  });
+
+  /*
+   * ‎**וההעשרה יורדת עם השורה** (ביקורת Codex, P1): שורה מצונזרת
+   * ‏שומרת על המזהה שלה, וההעשרה ממופה לפיו — עם הרשאה נפרדת
+   * ‏ורפה יותר. השם והטלפון שהורדו מהכותרת חזרו לתחתית ההודעה.
+   */
+  it("‏וההעשרה של שורה מצונזרת אינה מגיעה לניסוח", () => {
+    expect(WORKERS).toMatch(/censoredIds\.has\(id\)/u);
+    /* ‏ומה שנמסר לניסוח הוא המפה המסוננת, לא המקורית */
+    const at = WORKERS.indexOf("const message = formatNotifyMessage(items");
+    const call = WORKERS.slice(at, WORKERS.indexOf("if (fitsInteractive(message))"));
+    expect(call).toContain("byNotificationId: details");
+    expect(call, "המפה המקורית נמסרה לניסוח").not.toContain("byNotificationId: notifyDetails");
   });
 
   it("‏והדחיפה לדפדפן בונה את המטען מתוך שורה מצונזרת", () => {
