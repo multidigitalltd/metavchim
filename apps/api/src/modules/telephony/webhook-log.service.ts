@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
-import { diagnosticFields, unmappedFields } from "@metavchim/shared";
+import { diagnosticFields, normalizePhone, unmappedFields } from "@metavchim/shared";
+import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
 
 /**
@@ -60,7 +61,15 @@ export type TelephonyWebhookOutcome =
 export class TelephonyWebhookLogService {
   private readonly logger = new Logger(TelephonyWebhookLogService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    /*
+     * ‏אותה חתימה שכל זיהוי נכנס כבר עובד מולה. חיפוש ביומן לפי
+     * ‏מספר חייב לתת בדיוק את אותה תשובה כמו חיפוש איש קשר, ולכן
+     * ‏הוא עובר דרך אותה פונקציה ולא דרך גיבוב משלו.
+     */
+    private readonly crypto: CryptoService,
+  ) {}
 
   /**
    * כמה שורות נשמרות.
@@ -73,10 +82,50 @@ export class TelephonyWebhookLogService {
    * מאתיים מספיקות בשפע: היומן משמש לחיבור ראשוני ולאבחון תקלה,
    * ובשני המקרים מסתכלים על מה שקרה בדקות האחרונות.
    */
-  private static readonly KEEP = 200;
+  /**
+   * ‎**חלון זמן, ולא מאתיים שורות.**
+   *
+   * ‏מאתיים שורות לכל הפלטפורמה הן היסטוריה של דקות על מערכת
+   * ‏פעילה: מי שנכנס לברר למה שיחה לא נקלטה מצא שהשורה כבר נגרסה,
+   * ‏ובדיוק בשביל הרגע הזה היומן קיים. יומן שאי אפשר לחזור אליו
+   * ‏אינו יומן.
+   *
+   * ‏תשעים יום ולא שבועיים: תלונה על שיחה שלא נקלטה מגיעה שבועות
+   * ‏אחרי המקרה — „בחודש שעבר התקשר לקוח ולא חזרנו אליו” — ויומן
+   * ‏שנגמר לפני שהשאלה נשאלת אינו עונה עליה. השורה קטנה
+   * ‏(שמות שדות וחתימות, בלי מטען), ולכן רבעון אינו יקר.
+   */
+  private static readonly KEEP_MS = 90 * 24 * 60 * 60 * 1000;
+
+  /**
+   * ‎**ותקרה, כרשת ביטחון בלבד.**
+   *
+   * ‏ספק שנכנס ללולאה יכול לשלוח עשרות אלפי פניות בשעה. החלון
+   * ‏לבדו היה נותן להן למלא את הדיסק; התקרה עוצרת את זה בלי לקצר
+   * ‏את הזיכרון של יום רגיל.
+   *
+   * ‏מאתיים אלף: פי עשרה מהמספר הקודם, כדי שהתקרה לא תבטל בשקט את
+   * ‏חלון התשעים הימים על פלטפורמה עמוסה. תקרה שנוגסת בחלון היא
+   * ‏בדיוק המצב שבו „שומרים תשעים יום” הופך להבטחה לא נכונה.
+   */
+  private static readonly KEEP_MAX = 200_000;
 
   /** כל כמה כתיבות רץ הגיזום — ראו `record`. */
   private static readonly PRUNE_EVERY = 25;
+
+  /**
+   * ‎**וכל כמה כתיבות נבדקת התקרה — לעיתים רחוקות בהרבה.**
+   *
+   * ‏בדיקת התקרה מדלגת ‎KEEP_MAX‎ שורות באינדקס כדי למצוא את הסף,
+   * ‏ומאז שהתקרה עלתה למאתיים אלף זו סריקה שאין שום סיבה להריץ
+   * ‏באמצע נתיב הקליטה כל עשרים וחמש פניות: היא הייתה מוסיפה
+   * ‏השהיה לתשובה שהמרכזייה ממתינה לה, בשביל רשת ביטחון שנוגעת
+   * ‏למצב חריג בלבד.
+   *
+   * ‏חמש מאות כתיבות של חריגה מעל תקרה של מאתיים אלף הן רבע
+   * ‏אחוז — כלומר התקרה נשמרת באותה מידה בדיוק.
+   */
+  private static readonly CEILING_EVERY = 500;
 
   private writes = 0;
 
@@ -109,6 +158,32 @@ export class TelephonyWebhookLogService {
     key: string;
     method: "GET" | "POST";
     payload: Record<string, unknown>;
+    /**
+     * ‎**האירוע שנותח — מה שהופך שורה ליומן שאפשר לעקוב אחריו.**
+     *
+     * ‏בלעדיו „נקלטה” אמר שהאירוע הפך לשיחה ולא **לאיזו**, ו„סוג
+     * ‏האירוע” — שהוא כל ההבדל בין „מרכזייה ששולחת Calling
+     * ‏ומאבדת את ה-Hangup” לבין מרכזייה תקינה — לא נשמר כלל.
+     *
+     * ‎`undefined` כשהאירוע לא נותח, וזו בדיוק השורה שבה שלושת
+     * ‏השדות ריקים.
+     */
+    event?:
+      | {
+          type: string;
+          direction: string;
+          providerCallId: string;
+          /**
+           * ‎**מספר המתקשר — נכנס, ואינו נשמר.**
+           *
+           * ‏הוא מגיע לכאן כדי שייחתם ותישמר סיומת בת ארבע ספרות,
+           * ‏ולא כדי להיכתב. ראו `peerHash`: „לקוח התקשר ואין
+           * ‏רישום” היא השאלה שבשבילה היומן קיים, והמספר הוא הנתון
+           * ‏היחיד שיש למי ששואל אותה.
+           */
+          peerPhone: string;
+        }
+      | undefined;
   }): Promise<void> {
     try {
       await this.prisma.telephonyWebhookHit.create({
@@ -131,6 +206,22 @@ export class TelephonyWebhookLogService {
            * שלא זיהינו יכול להיות כל דבר, כולל פרט מזהה של לקוח.
            */
           unmapped: unmappedFields(input.payload).join(", ").slice(0, 500) || null,
+          /*
+           * ‏שלושת השדות של האירוע — לא PII: סוג, כיוון, ומזהה
+           * ‏השיחה **אצל הספק**. מספר המתקשר אינו כאן, כמו קודם.
+           */
+          callId: input.event?.providerCallId.slice(0, 120) ?? null,
+          action: input.event?.type ?? null,
+          direction: input.event?.direction ?? null,
+          /*
+           * ‏חתימה וארבע ספרות — ולא המספר. אותה חתימת HMAC שכל
+           * ‏זיהוי נכנס עובד מולה, ולכן חיפוש כאן נותן בדיוק את
+           * ‏אותה תשובה כמו חיפוש איש קשר, בלי שיומן הפלטפורמה
+           * ‏יהפוך למאגר מספרים גלוי של כל המשרדים.
+           */
+          peerHash:
+            input.event === undefined ? null : this.crypto.phoneHash(input.event.peerPhone),
+          peerSuffix: input.event === undefined ? null : input.event.peerPhone.slice(-4),
         },
       });
       /*
@@ -152,7 +243,32 @@ export class TelephonyWebhookLogService {
    * `keyPrefix` מוחזר כפי שנשמר; הוא לא מזהה משרד בעצמו, והוא הדבר
    * היחיד שמאפשר לזהות ספק שמחזיק מפתח ישן.
    */
-  async recent(limit: number): Promise<
+  async recent(
+    limit: number,
+    /**
+     * ‎**סינון — מה שהופך „עשרים האחרונות” למשהו שאפשר לחקור בו.**
+     *
+     * ‏בלי זה כל שאלה („מה קרה אצל המשרד הזה”, „הראה לי רק את מה
+     * ‏שלא נותח”, „מה היה אתמול”) נענתה בגלילה ידנית של רשימה
+     * ‏מעורבת מכל המשרדים. שדה ריק = בלי הגבלה, ולכן ההתנהגות בלי
+     * ‏סינון זהה לקודם.
+     */
+    filter: {
+      outcome?: string | undefined;
+      tenantId?: string | undefined;
+      /** ‏האירועים של שיחה אחת — שלוש שורות, סיפור אחד. */
+      callId?: string | undefined;
+      /**
+       * ‎**„מה קרה כשהמספר הזה התקשר” — החיפוש שאין לו תחליף.**
+       *
+       * ‏מי שבודק תלונה יודע מספר טלפון, לא מזהה שיחה ולא שעה
+       * ‏מדויקת. הערך מנורמל ונחתם כאן באותה חתימה שנשמרה, ולכן
+       * ‏הכתיב שהוקלד (‎050-123-4567‎ / ‎+972501234567‎) אינו משנה.
+       */
+      peerPhone?: string | undefined;
+      since?: Date | undefined;
+    } = {},
+  ): Promise<
     {
       id: string;
       receivedAt: Date;
@@ -163,16 +279,117 @@ export class TelephonyWebhookLogService {
       method: string;
       fieldKeys: string | null;
       unmapped: string | null;
+      callId: string | null;
+      action: string | null;
+      direction: string | null;
+      peerSuffix: string | null;
     }[]
   > {
     return this.prisma.telephonyWebhookHit.findMany({
+      where: {
+        ...(filter.outcome === undefined ? {} : { outcome: filter.outcome }),
+        ...(filter.tenantId === undefined ? {} : { tenantId: filter.tenantId }),
+        ...(filter.callId === undefined ? {} : { callId: filter.callId }),
+        /*
+         * ‏חתימה מול חתימה. אין כאן חיפוש חלקי בכוונה: התאמה
+         * ‏חלקית מחייבת לשמור את המספר עצמו, וזה בדיוק מה שהעמודה
+         * ‏הזו נמנעת ממנו.
+         */
+        ...(filter.peerPhone === undefined
+          ? {}
+          : { peerHash: this.crypto.phoneHash(normalizePhone(filter.peerPhone)) }),
+        ...(filter.since === undefined ? {} : { receivedAt: { gte: filter.since } }),
+      },
+      /*
+       * ‏העמודות במפורש ולא כל השורה: `peerHash` הוא חתימה של PII
+       * ‏ואין לו שום שימוש במסך. שליפה מלאה הייתה מוציאה אותו
+       * ‏לרשת בכל טעינה בלי שאיש ביקש זאת.
+       */
+      select: {
+        id: true,
+        receivedAt: true,
+        outcome: true,
+        issue: true,
+        tenantId: true,
+        keyPrefix: true,
+        method: true,
+        fieldKeys: true,
+        unmapped: true,
+        callId: true,
+        action: true,
+        direction: true,
+        peerSuffix: true,
+      },
       orderBy: { receivedAt: "desc" },
       take: limit,
     });
   }
 
-  /** מחיקת מה שמעבר ל-KEEP האחרונות. */
+  /**
+   * ‎**ריקון יזום — מה שהופך את היומן לכלי עבודה.**
+   *
+   * ‏הגיזום האוטומטי שומר על החסם, אבל אינו עונה על שני הצרכים
+   * ‏שיש למי שיושב מול המסך: „נקה את הרעש לפני שאני עושה שיחת
+   * ‏בדיקה”, ו„הישן כבר לא רלוונטי, אני לא רוצה לגלול דרכו”.
+   * ‏בלי כפתור, שניהם דרשו גישה למסד.
+   *
+   * ‎`olderThanMs === 0` מוחק הכול — וזו דווקא הדרישה השכיחה
+   * ‏(לרוקן, לחייג, ולראות שורה אחת). האישור על כך יושב במסך;
+   * ‏כאן זו פעולה ככל פעולה.
+   */
+  async purge(olderThanMs: number): Promise<number> {
+    const { count } = await this.prisma.telephonyWebhookHit.deleteMany({
+      where:
+        olderThanMs === 0 ? {} : { receivedAt: { lt: new Date(Date.now() - olderThanMs) } },
+    });
+    return count;
+  }
+
+  /**
+   * ‎**כמה הגיעו ומה עלה בגורלן — לפני שמסתכלים בשורות.**
+   *
+   * ‏„קשה לעקוב” מתחיל בכך שאין תמונה: אלף שורות אינן אומרות אם
+   * ‏המצב תקין. שורת סיכום אחת עונה על השאלה הראשונה — האם יש
+   * ‏פניות בכלל, וכמה מהן הפכו לשיחות — ורק אם משהו חריג שם יש
+   * ‏טעם לרדת לשורות.
+   */
+  async summary(since: Date): Promise<{ outcome: string; count: number }[]> {
+    const rows = await this.prisma.telephonyWebhookHit.groupBy({
+      by: ["outcome"],
+      where: { receivedAt: { gte: since } },
+      _count: { _all: true },
+    });
+    return rows
+      .map((row) => ({ outcome: row.outcome, count: row._count._all }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  /**
+   * ‎**המשרדים שיש להם שורות ביומן — לרשימת הסינון.**
+   *
+   * ‏נגזר מכל מה ששמור ולא מהעמוד שמוצג: הרשימה נבנתה קודם
+   * ‏מהשורות שחזרו, ולכן משרד ששיחותיו ישנות מהמאתיים האחרונות
+   * ‏כלל לא הופיע בה — ולא הייתה שום דרך אחרת לבחור אותו. כלומר
+   * ‏חיפוש התשעים יום היה חסום בדיוק על החיבורים השקטים, שהם
+   * ‏הסיבה העיקרית להיכנס ליומן מלכתחילה (ביקורת Codex).
+   */
+  async offices(): Promise<string[]> {
+    const rows = await this.prisma.telephonyWebhookHit.groupBy({
+      by: ["tenantId"],
+      where: { tenantId: { not: null } },
+    });
+    return rows.map((row) => row.tenantId).filter((id): id is string => id !== null);
+  }
+
+  /** ‏מחיקת מה שמחוץ לחלון, ומה שמעבר לתקרה. */
   private async prune(): Promise<void> {
+    await this.prisma.telephonyWebhookHit.deleteMany({
+      where: {
+        receivedAt: { lt: new Date(Date.now() - TelephonyWebhookLogService.KEEP_MS) },
+      },
+    });
+    /* ‏התקרה אינה חלק מהגיזום הרגיל — ראו `CEILING_EVERY` */
+    if (this.writes % TelephonyWebhookLogService.CEILING_EVERY !== 0) return;
     /*
      * מחיקה לפי חותמת זמן ולא לפי `skip`: Prisma אינו תומך ב-skip
      * ב-deleteMany, ושליפת המזהים כדי למחוק לפיהם היא שתי פניות
@@ -180,7 +397,7 @@ export class TelephonyWebhookLogService {
      */
     const cutoff = await this.prisma.telephonyWebhookHit.findMany({
       orderBy: { receivedAt: "desc" },
-      skip: TelephonyWebhookLogService.KEEP - 1,
+      skip: TelephonyWebhookLogService.KEEP_MAX - 1,
       take: 1,
       select: { receivedAt: true },
     });

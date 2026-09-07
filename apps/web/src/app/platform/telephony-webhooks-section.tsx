@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiList } from "@/lib/api";
+import { apiDelete, apiGet, apiList } from "@/lib/api";
 import { IconPhone } from "../icons";
 import { formatDateTime } from "@/lib/format";
 
@@ -25,6 +25,14 @@ import { formatDateTime } from "@/lib/format";
  * הפנייה המעניינת ביותר היא זו שלא הצלחנו לשייך לאף משרד. מסך
  * שמסונן לפי משרד לא יכול להראות אותה מעצם הגדרתו — כלומר היה
  * מחמיץ בדיוק את התקלה השכיחה.
+ *
+ * ## ולמה יש כאן סינון וסיכום
+ *
+ * ‏רשימה של מאתיים שורות מעורבות מכל המשרדים אינה יומן שאפשר
+ * ‏לעקוב אחריו: כל שאלה („מה קרה אצל המשרד הזה”, „הראה רק את מה
+ * ‏שלא נותח”, „מה קרה בשיחה הזאת”) נענתה בגלילה ידנית. שורת
+ * ‏הסיכום עונה על השאלה הראשונה — האם המצב תקין בכלל — והסינון
+ * ‏מאפשר לרדת לשורות רק כשהתשובה שם חריגה.
  */
 
 /** מה קרה לפנייה, בשפה של מי שצריך לפעול. */
@@ -83,6 +91,23 @@ const OUTCOMES: Record<string, { label: string; hint: string; ok: boolean }> = {
 };
 
 /**
+ * ‎סדר התוצאות בשורת הסיכום ובסינון.
+ *
+ * ‏קבוע ולא „לפי כמות”: שורת סיכום שמשנה את סדר הגלולות בכל רענון
+ * ‏מחייבת לקרוא אותה מחדש בכל פעם, וזו בדיוק העלות שהיא באה לחסוך.
+ * ‏שתי התקינות ראשונות, ואחריהן התקלות לפי סדר החומרה לפעולה.
+ */
+const OUTCOME_ORDER = [
+  "accepted",
+  "preliminary",
+  "unparsed",
+  "failed",
+  "unknown_key",
+  "disabled",
+  "no_feature",
+] as const;
+
+/**
  * מה חסר היה באירוע שלא זוהה.
  *
  * `invalid_phone` אינו תקלה: כך נראית שיחה ממספר חסוי, והיא נפוצה.
@@ -95,6 +120,47 @@ const ISSUES: Record<string, string> = {
   no_phone: "לא הגיע מספר מתקשר — השדה חסר או שהספק שלח אותו ריק",
   invalid_phone: "המספר שהגיע אינו מספר תקין — כך נראית שיחה ממספר חסוי",
 };
+
+/**
+ * ‎סוג האירוע וכיוונו, בעברית.
+ *
+ * ‏זה מה שמבדיל „מרכזייה תקינה” מ„מרכזייה ששולחת צלצול ומאבדת את
+ * ‏הניתוק” — ההבחנה שהיומן לא ידע לעשות עד עכשיו, כי סוג האירוע
+ * ‏כלל לא נשמר.
+ */
+const ACTIONS: Record<string, string> = {
+  ringing: "צלצול",
+  answered: "מענה",
+  hangup: "ניתוק",
+};
+
+const DIRECTIONS: Record<string, string> = {
+  inbound: "נכנסת",
+  outbound: "יוצאת",
+};
+
+/** ‏חלונות הזמן לסינון. ריק = כל מה ששמור (תשעים יום). */
+const WINDOWS: { value: string; label: string }[] = [
+  { value: "", label: "כל מה ששמור" },
+  { value: "1", label: "השעה האחרונה" },
+  { value: "24", label: "24 שעות" },
+  { value: "72", label: "3 ימים" },
+  { value: "168", label: "שבוע" },
+  { value: "720", label: "חודש" },
+];
+
+/**
+ * ‎מה מוחקים בריקון.
+ *
+ * ‎„הכול” ראשון ולא אחרון: זו הדרישה השכיחה — לרוקן, לחייג שיחת
+ * ‏בדיקה, ולראות שורה אחת במקום לחפש אותה בתוך רעש. הוא גם היחיד
+ * ‏שמבקש אישור נפרד במלל.
+ */
+const PURGES: { value: string; label: string; confirm: string }[] = [
+  { value: "0", label: "הכול", confirm: "למחוק את **כל** יומן הוובהוקים?" },
+  { value: "168", label: "ישן משבוע", confirm: "למחוק כל פנייה שהגיעה לפני יותר משבוע?" },
+  { value: "720", label: "ישן מחודש", confirm: "למחוק כל פנייה שהגיעה לפני יותר מחודש?" },
+];
 
 interface Hit {
   id: string;
@@ -109,20 +175,115 @@ interface Hit {
   fieldKeys: string | null;
   /** מה שהספק שלח ואיננו צורכים — ראו התא בטבלה. */
   unmapped: string | null;
+  /** מזהה השיחה אצל הספק — מה שמחבר את שלוש השורות של שיחה אחת. */
+  callId: string | null;
+  /** סוג האירוע — `ringing | answered | hangup`. */
+  action: string | null;
+  direction: string | null;
+  /**
+   * ארבע הספרות האחרונות של המתקשר — ולא המספר.
+   *
+   * המספר עצמו אינו נשמר ואינו יוצא מהשרת בשום צורה; החיפוש לפיו
+   * נעשה מול חתימה. הסיומת היא מה שמאפשר לראות ברשימה לא מסוננת
+   * ששתי שורות הן אותו מתקשר.
+   */
+  peerSuffix: string | null;
 }
 
 export function TelephonyWebhooksSection() {
   const [hits, setHits] = useState<Hit[] | null>(null);
+  const [summary, setSummary] = useState<{ outcome: string; count: number }[]>([]);
   const [failed, setFailed] = useState(false);
+
+  const [outcome, setOutcome] = useState("");
+  const [tenantId, setTenantId] = useState("");
+  const [hours, setHours] = useState("");
+  /** ‏השיחה שנבחרה מהטבלה — `null` כשלא סוננה שיחה מסוימת. */
+  const [callId, setCallId] = useState<string | null>(null);
+  /*
+   * ‏שני מצבים למספר, ובכוונה: מה שמוקלד ומה שכבר מסונן. חיפוש
+   * ‏על כל הקשה היה שולח בקשה לכל ספרה ומחזיר תשובות לחצאי מספר;
+   * ‏החיפוש מדויק ממילא, ולכן הוא מופעל בשליחת הטופס.
+   */
+  const [phoneInput, setPhoneInput] = useState("");
+  const [phone, setPhone] = useState("");
+
+  const [purgeHours, setPurgeHours] = useState("168");
+  const [purging, setPurging] = useState(false);
+  /*
+   * שגיאת ריקון נפרדת משגיאת טעינה: "טעינת היומן נכשלה" על לחיצה
+   * על "רוקן" שולחת לחפש את התקלה במקום הלא נכון, וזו בדיוק
+   * ההבחנה שכל המסך הזה קיים בשבילה.
+   */
+  const [purgeFailed, setPurgeFailed] = useState(false);
+
+  /*
+   * רשימת המשרדים מגיעה מהשרת ואינה נגזרת מהשורות שחזרו: משרד
+   * ששיחותיו ישנות מהעמוד המוצג לא היה מופיע בה, ולא הייתה שום
+   * דרך אחרת לבחור אותו — כלומר החיפוש בטווח של תשעים יום היה
+   * חסום בדיוק על החיבורים השקטים, שהם הסיבה להיכנס ליומן.
+   */
+  const [offices, setOffices] = useState<{ id: string; name: string }[]>([]);
+
+  /*
+   * מונה בקשות — כל שינוי סינון פותח בקשה חדשה, ותשובה איטית של
+   * סינון ישן שנוחתת אחרי החדשה הייתה דורסת את הטבלה בשורות שאינן
+   * עונות על מה שמוצג בפקדים. תשובה שאינה של הבקשה האחרונה נזרקת.
+   */
+  const generation = useRef(0);
 
   const load = useCallback(() => {
     setFailed(false);
-    apiGet<{ hits: Hit[] }>("/platform/telephony-webhooks")
-      .then((res) => setHits(apiList(res.hits, "hits")))
-      .catch(() => setFailed(true));
-  }, []);
+    generation.current += 1;
+    const mine = generation.current;
+    const params = new URLSearchParams();
+    if (outcome !== "") params.set("outcome", outcome);
+    if (tenantId !== "") params.set("tenantId", tenantId);
+    if (hours !== "") params.set("hours", hours);
+    if (callId !== null) params.set("callId", callId);
+    if (phone !== "") params.set("phone", phone);
+    const query = params.toString();
+    apiGet<{
+      hits: Hit[];
+      summary: { outcome: string; count: number }[];
+      offices: { id: string; name: string }[];
+    }>(`/platform/telephony-webhooks${query === "" ? "" : `?${query}`}`)
+      .then((res) => {
+        if (mine !== generation.current) return;
+        setHits(apiList(res.hits, "hits"));
+        setSummary(apiList(res.summary, "summary"));
+        setOffices(apiList(res.offices, "offices"));
+      })
+      .catch(() => {
+        if (mine !== generation.current) return;
+        setFailed(true);
+      });
+  }, [outcome, tenantId, hours, callId, phone]);
 
   useEffect(load, [load]);
+
+  const total = summary.reduce((sum, row) => sum + row.count, 0);
+  const filtered =
+    outcome !== "" || tenantId !== "" || hours !== "" || callId !== null || phone !== "";
+
+  /*
+   * הריקון מרענן את הרשימה בעצמו: מסך שממשיך להציג שורות שנמחקו
+   * זה עתה הוא בדיוק המקום שבו מפסיקים להאמין לכפתור.
+   */
+  function purge(): void {
+    const option = PURGES.find((p) => p.value === purgeHours);
+    if (option === undefined || !window.confirm(`${option.confirm}\n\nהפעולה אינה הפיכה.`)) {
+      return;
+    }
+    setPurging(true);
+    setPurgeFailed(false);
+    apiDelete<{ deleted: number }>("/platform/telephony-webhooks", {
+      olderThanHours: Number(option.value),
+    })
+      .then(() => load())
+      .catch(() => setPurgeFailed(true))
+      .finally(() => setPurging(false));
+  }
 
   return (
     <section
@@ -140,12 +301,173 @@ export function TelephonyWebhooksSection() {
       </div>
 
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
-        כל פנייה שהגיעה לכתובת הוובהוק, כולל פניות שנדחו. רשימה ריקה אחרי שהספק הוגדר
-        פירושה שהמרכזייה אינה פונה כלל — כלומר הכתובת אצלה שגויה או שהאירוע לא הופעל.
+        כל פנייה שהגיעה לכתובת הוובהוק, כולל פניות שנדחו, לשבועיים אחורה. רשימה ריקה אחרי
+        שהספק הוגדר פירושה שהמרכזייה אינה פונה כלל — כלומר הכתובת אצלה שגויה או שהאירוע לא
+        הופעל.
         <br />
         עמודת <b>לא ממופה</b> מראה שדות שהספק שולח ואיננו קוראים. שדה שמופיע שם באדום
         ונראה חשוב — שלחו לנו אותו, והוא ייקלט בגרסה הבאה.
       </p>
+
+      {/*
+        התמונה לפני השורות: „יש פניות בכלל, וכמה מהן הפכו לשיחות”.
+        אלף שורות אינן עונות על זה, וזו השאלה הראשונה שנשאלת.
+        קבוע על 24 שעות — סיכום שמשתנה עם הסינון אינו קו ייחוס.
+      */}
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+        <span style={{ color: "var(--color-text-muted)" }}>
+          {total === 0 ? "לא הגיעה אף פנייה ב-24 השעות האחרונות" : `${total} פניות ב-24 השעות האחרונות:`}
+        </span>
+        {OUTCOME_ORDER.map((key) => {
+          const count = summary.find((row) => row.outcome === key)?.count ?? 0;
+          if (count === 0) return null;
+          const meta = OUTCOMES[key];
+          return (
+            <span
+              key={key}
+              className="mv-pill"
+              title={meta?.hint ?? ""}
+              style={{ color: meta?.ok === true ? "var(--color-success)" : "var(--color-danger)" }}
+            >
+              {meta?.label ?? key} · {count}
+            </span>
+          );
+        })}
+      </div>
+
+      {/*
+        הסינון הוא מה שהופך את היומן למשהו שאפשר לחקור בו. הוא רץ
+        בשרת ולא כאן: סינון בדפדפן מסנן רק את מה שכבר נשלף, כלומר
+        "הראה לי את המשרד הזה" היה מחזיר את מה שבמקרה היה בדף.
+      */}
+      <div className="mb-3 flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1 text-sm">
+          <span style={{ color: "var(--color-text-muted)" }}>תוצאה</span>
+          <select
+            className="mv-select"
+            value={outcome}
+            onChange={(e) => setOutcome(e.target.value)}
+            aria-label="סינון לפי תוצאה"
+          >
+            <option value="">כל התוצאות</option>
+            {OUTCOME_ORDER.map((key) => (
+              <option key={key} value={key}>
+                {OUTCOMES[key]?.label ?? key}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          <span style={{ color: "var(--color-text-muted)" }}>משרד</span>
+          <select
+            className="mv-select"
+            value={tenantId}
+            onChange={(e) => setTenantId(e.target.value)}
+            aria-label="סינון לפי משרד"
+          >
+            <option value="">כל המשרדים</option>
+            {offices.map((office) => (
+              <option key={office.id} value={office.id}>
+                {office.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          <span style={{ color: "var(--color-text-muted)" }}>טווח</span>
+          <select
+            className="mv-select"
+            value={hours}
+            onChange={(e) => setHours(e.target.value)}
+            aria-label="סינון לפי טווח זמן"
+          >
+            {WINDOWS.map((w) => (
+              <option key={w.value} value={w.value}>
+                {w.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {/*
+          המספר הוא מה שיש למי שבודק תלונה — לא מזהה שיחה ולא שעה
+          מדויקת. החיפוש מדויק ורץ מול חתימה: המספר עצמו אינו נשמר
+          ואינו יוצא מהשרת, ולכן הכתיב שהוקלד אינו משנה אבל חצי
+          מספר לא יימצא.
+        */}
+        <form
+          className="flex flex-col gap-1 text-sm"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setPhone(phoneInput.trim());
+          }}
+        >
+          <label htmlFor="webhook-phone" style={{ color: "var(--color-text-muted)" }}>
+            מספר מתקשר
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              id="webhook-phone"
+              dir="ltr"
+              inputMode="tel"
+              placeholder="050-1234567"
+              className="rounded-lg border px-3"
+              style={{
+                borderColor: "var(--color-input-border)",
+                background: "var(--color-surface)",
+                color: "var(--color-text)",
+                minHeight: 38,
+              }}
+              value={phoneInput}
+              onChange={(e) => setPhoneInput(e.target.value)}
+            />
+            <Button type="submit" variant="secondary">
+              חפש
+            </Button>
+          </div>
+        </form>
+
+        {filtered ? (
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setOutcome("");
+              setTenantId("");
+              setHours("");
+              setCallId(null);
+              setPhone("");
+              setPhoneInput("");
+            }}
+          >
+            נקה סינון
+          </Button>
+        ) : null}
+      </div>
+
+      {/*
+        שיחה שנבחרה יושבת מחוץ לרשימות הנפתחות: היא נבחרת בלחיצה על
+        תא בטבלה, ובלי שורה שאומרת מה מסונן כרגע היה נראה שהיומן
+        התרוקן.
+      */}
+      {callId === null ? null : (
+        <p className="mb-3 text-sm">
+          מוצגים אירועי שיחה{" "}
+          <span dir="ltr" className="font-mono">
+            {callId}
+          </span>{" "}
+          בלבד.{" "}
+          <button
+            type="button"
+            className="underline"
+            style={{ color: "var(--color-primary)" }}
+            onClick={() => setCallId(null)}
+          >
+            הצג הכול
+          </button>
+        </p>
+      )}
 
       {failed ? (
         <p className="text-sm" style={{ color: "var(--color-danger)" }}>
@@ -157,7 +479,9 @@ export function TelephonyWebhooksSection() {
         </p>
       ) : hits.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-          לא הגיעה אף פנייה. אם מרכזייה אמורה לשלוח — הכתובת אצל הספק אינה מגיעה אלינו.
+          {filtered
+            ? "אין פניות שעונות על הסינון."
+            : "לא הגיעה אף פנייה. אם מרכזייה אמורה לשלוח — הכתובת אצל הספק אינה מגיעה אלינו."}
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -167,15 +491,16 @@ export function TelephonyWebhooksSection() {
                 <th className="text-start">מתי</th>
                 <th className="text-start">תוצאה</th>
                 <th className="text-start">משרד</th>
+                <th className="text-start">שיחה</th>
+                <th className="text-start">מתקשר</th>
                 <th className="text-start">מפתח</th>
-                <th className="text-start">שיטה</th>
                 <th className="text-start">שדות שהגיעו</th>
                 <th className="text-start">לא ממופה</th>
               </tr>
             </thead>
             <tbody>
               {hits.map((hit) => {
-                const outcome = OUTCOMES[hit.outcome];
+                const outcomeMeta = OUTCOMES[hit.outcome];
                 return (
                   <tr key={hit.id}>
                     <td dir="ltr" className="whitespace-nowrap">
@@ -184,12 +509,12 @@ export function TelephonyWebhooksSection() {
                     <td>
                       <span
                         className="mv-pill"
-                        title={outcome?.hint ?? ""}
+                        title={outcomeMeta?.hint ?? ""}
                         style={{
-                          color: outcome?.ok === true ? "var(--color-success)" : "var(--color-danger)",
+                          color: outcomeMeta?.ok === true ? "var(--color-success)" : "var(--color-danger)",
                         }}
                       >
-                        {outcome?.label ?? hit.outcome}
+                        {outcomeMeta?.label ?? hit.outcome}
                       </span>
                       {/*
                         הסיבה צמודה לתוצאה ולא בעמודה משלה: „הגיעה
@@ -207,10 +532,56 @@ export function TelephonyWebhooksSection() {
                     </td>
                     {/* מפתח שלא זוהה אינו שייך לאף משרד — וזו התשובה עצמה */}
                     <td>{hit.tenantName ?? "—"}</td>
+                    {/*
+                      **הסיפור, ולא שורה בודדת.** שיחה אחת מגיעה
+                      בשלוש פניות; בלי מזהה השיחה אי אפשר היה לדעת
+                      אילו שורות הן אותה שיחה, ולכן „הצלצול הגיע
+                      והניתוק לא” — התקלה השכיחה ביותר — לא נראתה
+                      ביומן כלל. לחיצה מסננת לשיחה הזאת בלבד.
+                    */}
+                    <td>
+                      {hit.callId === null ? (
+                        <span style={{ color: "var(--color-text-muted)" }}>—</span>
+                      ) : (
+                        <button
+                          type="button"
+                          dir="ltr"
+                          className="block max-w-[11rem] truncate font-mono underline"
+                          style={{ color: "var(--color-primary)" }}
+                          title={`הצג רק את אירועי השיחה ${hit.callId}`}
+                          onClick={() => setCallId(hit.callId)}
+                        >
+                          {hit.callId}
+                        </button>
+                      )}
+                      {hit.action === null ? null : (
+                        <span className="block text-sm" style={{ color: "var(--color-text-muted)" }}>
+                          {ACTIONS[hit.action] ?? hit.action}
+                          {hit.direction === null
+                            ? ""
+                            : ` · ${DIRECTIONS[hit.direction] ?? hit.direction}`}
+                        </span>
+                      )}
+                    </td>
+                    {/*
+                      ארבע ספרות ולא מספר. די כדי לראות ששתי שורות
+                      הן אותו מתקשר; מי שמחפש מספר שלם עושה זאת
+                      בשדה החיפוש, מול חתימה שאינה יוצאת מהשרת.
+                    */}
+                    <td dir="ltr" className="whitespace-nowrap font-mono">
+                      {hit.peerSuffix === null ? (
+                        <span style={{ color: "var(--color-text-muted)" }}>—</span>
+                      ) : (
+                        `⋯${hit.peerSuffix}`
+                      )}
+                    </td>
+                    {/* השיטה תחת המפתח: שתיהן על הכתובת שהוגדרה אצל הספק */}
                     <td dir="ltr" className="whitespace-nowrap">
                       {hit.keyPrefix}…
+                      <span className="block" style={{ color: "var(--color-text-muted)" }}>
+                        {hit.method}
+                      </span>
                     </td>
-                    <td dir="ltr">{hit.method}</td>
                     {/*
                       שמות השדות, וערכים לשדות הטכניים בלבד. מספרי
                       טלפון ושמות לקוחות נשמרים כשם השדה בלבד ולא
@@ -239,6 +610,39 @@ export function TelephonyWebhooksSection() {
           </table>
         </div>
       )}
+
+      {/*
+        הריקון בתחתית ומופרד: הוא אינו חלק מהקריאה של היומן, והוא
+        אינו הפיך. שתי דרישות אמיתיות עומדות מאחוריו — "נקה לפני
+        שאני עושה שיחת בדיקה", ו"הישן כבר לא רלוונטי" — ובלעדיו
+        שתיהן דרשו גישה ישירה למסד.
+      */}
+      <div
+        className="mt-4 flex flex-wrap items-center gap-2 border-t pt-3 text-sm"
+        style={{ borderColor: "var(--color-border)" }}
+      >
+        <span style={{ color: "var(--color-text-muted)" }}>
+          היומן נשמר תשעים יום ונגזם מעצמו. לריקון יזום:
+        </span>
+        <select
+          className="mv-select"
+          value={purgeHours}
+          onChange={(e) => setPurgeHours(e.target.value)}
+          aria-label="מה למחוק מהיומן"
+        >
+          {PURGES.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <Button variant="secondary" onClick={purge} disabled={purging}>
+          {purging ? "מוחק…" : "רוקן"}
+        </Button>
+        {purgeFailed ? (
+          <span style={{ color: "var(--color-danger)" }}>הריקון נכשל. היומן לא השתנה.</span>
+        ) : null}
+      </div>
     </section>
   );
 }

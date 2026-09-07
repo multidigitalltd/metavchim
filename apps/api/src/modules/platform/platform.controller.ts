@@ -132,6 +132,54 @@ import { TelephonyWebhookLogService } from "../telephony/webhook-log.service";
  * חוסם בדיוק את מה שהמסך נועד לאפשר: מסלול חדש. התקינות נבדקת מול
  * הקטלוג בפועל, שם היא גם רלוונטית.
  */
+/**
+ * ‎**סינון יומן הוובהוקים — שדה חסר פירושו „בלי הגבלה”.**
+ *
+ * ‏קריאה בלי פרמטרים מתנהגת בדיוק כמו קודם (חמישים האחרונות מכל
+ * ‏המשרדים), ולכן אין כאן שינוי התנהגות למי שלא ביקש דבר.
+ */
+const TelephonyWebhookQuerySchema = z
+  .object({
+    /* ‏הרשימה הסגורה של התוצאות — כתיב חופשי לא היה מסנן דבר */
+    outcome: z
+      .enum(["accepted", "preliminary", "unparsed", "unknown_key", "disabled", "no_feature", "failed"])
+      .optional(),
+    tenantId: z.string().length(26).optional(),
+    callId: z.string().max(120).optional(),
+    /**
+     * ‎**מספר המתקשר — החיפוש שאין לו תחליף.**
+     *
+     * ‏מי שבודק „לקוח התקשר ואין רישום” יודע מספר טלפון, לא מזהה
+     * ‏שיחה. הערך מנורמל ונחתם בשירות היומן מול אותה חתימה
+     * ‏שנשמרה, ולכן הכתיב שהוקלד אינו משנה — והמספר עצמו אינו
+     * ‏קיים בטבלה בשום צורה.
+     */
+    phone: z.string().min(3).max(32).optional(),
+    /** ‏„מה היה בשעה האחרונה” / „ביממה” — במקום לגלול לפי תאריך. */
+    hours: z.coerce.number().int().min(1).max(24 * 90).optional(),
+    /*
+     * ‏מאתיים ולא חמישים: מרכזייה שולחת שלושה אירועים לשיחה, ולכן
+     * ‏חמישים שורות הן פחות מעשרים שיחות — פחות משעה על משרד פעיל.
+     */
+    limit: z.coerce.number().int().min(1).max(500).default(200),
+  })
+  .strict();
+
+/**
+ * ‎ריקון היומן — כמה אחורה למחוק.
+ *
+ * ‎`0` = הכול, וזו דווקא הדרישה השכיחה: לרוקן, לחייג שיחת בדיקה,
+ * ‏ולראות שורה אחת במקום לחפש אותה בתוך רעש. האישור על מחיקה
+ * ‏מלאה יושב במסך, ולכן כאן זה ערך ככל ערך.
+ *
+ * ‏החסם העליון הוא חלון השמירה עצמו: „מחק ישן משנה” על יומן
+ * ‏שנשמר תשעים יום אינו מוחק דבר, וכפתור שאינו עושה כלום גרוע
+ * ‏משגיאה.
+ */
+const PurgeWebhookLogSchema = z
+  .object({ olderThanHours: z.coerce.number().int().min(0).max(24 * 90) })
+  .strict();
+
 const PlanCodeSchema = z
   .string()
   .min(2)
@@ -777,8 +825,19 @@ export class PlatformController {
    *
    * המפתח מוחזר בקידומת בת שישה תווים בלבד; ראו `webhook-log.service`.
    */
+  /* ‏ראו את ההערה על `telephonyWebhooks` — שדה חסר פירושו „בלי הגבלה” */
   @Get("telephony-webhooks")
-  async telephonyWebhooks(): Promise<{
+  async telephonyWebhooks(
+    /**
+     * ‎**סינון — מה שהופך רשימה למשהו שאפשר לחקור בו.**
+     *
+     * ‏בלי הפרמטרים האלה כל שאלה נענתה בגלילה ידנית של רשימה
+     * ‏מעורבת מכל המשרדים. שדה שלא נשלח = בלי הגבלה, ולכן קריאה
+     * ‏בלי פרמטרים מתנהגת בדיוק כמו קודם.
+     */
+    @Query(new ZodValidationPipe(TelephonyWebhookQuerySchema))
+    query: z.infer<typeof TelephonyWebhookQuerySchema>,
+  ): Promise<{
     hits: {
       id: string;
       receivedAt: Date;
@@ -792,15 +851,58 @@ export class PlatformController {
       fieldKeys: string | null;
       /** מה שהספק שלח ואיננו צורכים — ראו `unmappedFields`. */
       unmapped: string | null;
+      /** ‏מזהה השיחה אצל הספק — מה שמחבר שורה לשיחה, ושורות זו לזו. */
+      callId: string | null;
+      /** ‏סוג האירוע — `ringing | answered | hangup`. */
+      action: string | null;
+      direction: string | null;
+      /**
+       * ‎ארבע הספרות האחרונות של המתקשר — ולא המספר.
+       *
+       * ‏די כדי לראות ברשימה לא מסוננת ששתי שורות הן אותו מתקשר;
+       * ‏החיפוש המלא נעשה מול חתימה שאינה יוצאת מהשרת.
+       */
+      peerSuffix: string | null;
     }[];
+    /**
+     * ‎**מה קרה ב-24 השעות האחרונות, לפני שמסתכלים בשורות.**
+     *
+     * ‏אלף שורות אינן אומרות אם המצב תקין. שורת סיכום עונה על
+     * ‏השאלה הראשונה — האם יש פניות בכלל, וכמה מהן הפכו לשיחות.
+     */
+    summary: { outcome: string; count: number }[];
+    /**
+     * ‎**כל המשרדים שיש להם שורות ביומן — לרשימת הסינון.**
+     *
+     * ‏נגזר מכל מה ששמור ולא מהשורות שחזרו: משרד ששיחותיו ישנות
+     * ‏מהעמוד המוצג לא היה מופיע ברשימה, ולא הייתה דרך אחרת
+     * ‏לבחור אותו — כלומר החיפוש היה חסום דווקא על החיבורים
+     * ‏השקטים.
+     */
+    offices: { id: string; name: string }[];
   }> {
-    const hits = await this.telephonyWebhookLog.recent(50);
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [hits, summary, officeIds] = await Promise.all([
+      this.telephonyWebhookLog.recent(query.limit, {
+        ...(query.outcome === undefined ? {} : { outcome: query.outcome }),
+        ...(query.tenantId === undefined ? {} : { tenantId: query.tenantId }),
+        ...(query.callId === undefined ? {} : { callId: query.callId }),
+        ...(query.phone === undefined ? {} : { peerPhone: query.phone }),
+        ...(query.hours === undefined
+          ? {}
+          : { since: new Date(Date.now() - query.hours * 60 * 60 * 1000) }),
+      }),
+      this.telephonyWebhookLog.summary(since24h),
+      this.telephonyWebhookLog.offices(),
+    ]);
     /*
      * שם המשרד ולא רק המזהה: בעל הפלטפורמה מסתכל על היומן כדי לענות
      * למישהו ששאל למה השיחות לא מגיעות, ומזהה ULID אינו תשובה.
      * שאילתה אחת לכל המשרדים ולא אחת לשורה.
      */
-    const tenantIds = [...new Set(hits.map((h) => h.tenantId).filter((id) => id !== null))];
+    const tenantIds = [
+      ...new Set([...hits.map((h) => h.tenantId).filter((id) => id !== null), ...officeIds]),
+    ];
     const tenants =
       tenantIds.length > 0
         ? await this.prisma.tenant.findMany({
@@ -814,7 +916,43 @@ export class PlatformController {
         ...hit,
         tenantName: hit.tenantId === null ? null : (nameById.get(hit.tenantId) ?? null),
       })),
+      summary,
+      /*
+       * משרד שנמחק משאיר שורות ביומן בלי שם — הן מסוננות מהרשימה
+       * ולא מוצגות כמזהה ערום, שאינו בחירה שאפשר לעשות בה משהו.
+       */
+      offices: officeIds
+        .flatMap((id) => {
+          const name = nameById.get(id);
+          return name === undefined ? [] : [{ id, name }];
+        })
+        .sort((a, b) => a.name.localeCompare(b.name, "he")),
     };
+  }
+
+  /**
+   * ‎**ריקון היומן.**
+   *
+   * ‏הגיזום האוטומטי שומר על החסם ואינו עונה על מה שצריך מי
+   * ‏שיושב מול המסך: „נקה לפני שאני עושה שיחת בדיקה”, ו„הישן כבר
+   * ‏לא רלוונטי”. בלי הכפתור שניהם דרשו גישה ישירה למסד.
+   *
+   * ‏נרשם ביומן הביקורת של הפלטפורמה: מחיקת ראיות אבחון היא בדיוק
+   * ‏הפעולה שצריכה להשאיר עקבה משלה.
+   */
+  @Delete("telephony-webhooks")
+  @HttpCode(200)
+  async purgeTelephonyWebhooks(
+    @Body(new ZodValidationPipe(PurgeWebhookLogSchema))
+    body: z.infer<typeof PurgeWebhookLogSchema>,
+  ): Promise<{ deleted: number }> {
+    const deleted = await this.telephonyWebhookLog.purge(
+      body.olderThanHours * 60 * 60 * 1000,
+    );
+    this.logger.log(
+      `יומן וובהוקים רוקן בידי ${TenantContext.current().userId}: ${deleted} שורות, ישן מ-${body.olderThanHours} שעות`,
+    );
+    return { deleted };
   }
 
   /**
