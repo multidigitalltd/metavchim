@@ -343,6 +343,18 @@ describe("רשימת השדות שהטופס מציג", () => {
     expect(INTAKE_SELLER_FORM_FIELDS).not.toContain("totalFloors");
   });
 
+  /*
+   * ‎**ולא את הרישום המשותף** (ביקורת Codex, P1).
+   *
+   * ‏הרשימה אומרת „שתיקה היא תשובה”, ושם זה ההפך: הטופס מבדיל
+   * ‏בין „חלקה נפרדת” לבין „לא יודע”. הכללתו כאן הפכה כל שליחה
+   * ‏חוזרת של מוכר שאינו יודע לריקון — כלומר `NULL` על עמודה
+   * ‏‎`NOT NULL`, כלומר עדכון שנדחה במסד אחרי שהתשובות כבר נתפסו.
+   */
+  it("אינה כוללת שדה ששתיקה עליו אינה תשובה", () => {
+    expect(INTAKE_SELLER_FORM_FIELDS).not.toContain("sharedTabu");
+  });
+
   it("אינה כוללת את שדות החובה — הם תמיד נענים", () => {
     expect(INTAKE_SELLER_FORM_FIELDS).not.toContain("city");
     expect(INTAKE_SELLER_FORM_FIELDS).not.toContain("dealType");
@@ -366,7 +378,6 @@ describe("רשימת השדות שהטופס מציג", () => {
       street: "הרצל",
       houseNumber: "12",
       propertyType: "apartment",
-      sharedTabu: true,
       rooms: 4,
       areaSqm: 100,
       floor: 2,

@@ -27,11 +27,16 @@ const service = new RecruitmentService(
 );
 
 const priv = service as unknown as {
-  writable: (input: Record<string, unknown>) => Record<string, unknown>;
+  writable: (
+    input: Record<string, unknown>,
+    current?: { propertyType: string | null },
+  ) => Record<string, unknown>;
   fieldsOf: (row: Record<string, unknown>) => Record<string, unknown>;
 };
-const writable = (input: Record<string, unknown>): Record<string, unknown> =>
-  priv.writable.call(service, input);
+const writable = (
+  input: Record<string, unknown>,
+  current?: { propertyType: string | null },
+): Record<string, unknown> => priv.writable.call(service, input, current);
 const fieldsOf = (row: Record<string, unknown>): Record<string, unknown> =>
   priv.fieldsOf.call(service, {
     city: null,
@@ -64,9 +69,30 @@ describe("כתיבת שורת גיוס — הסוג הוותיק מדליק את
     expect("sharedTabu" in writable({ city: "חיפה" })).toBe(false);
   });
 
-  it("דגל מפורש מכריע — גם „לא” על שורה בסוג הוותיק", () => {
+  /*
+   * ‎**ו„לא” מפורש פורש את הסוג הישן** (ביקורת Codex, P2, שוב).
+   *
+   * ‏בלי זה מתווך שמוריד את הסימון בשורה ותיקה רואה אותה נשמרת
+   * ‏בלי סימון — והסוג שנשאר מחזיר את העובדה בהמרה. הוא סימן „לא”,
+   * ‏ונוצר נכס „כן”.
+   */
+  it("‏„לא” מפורש פורש את הסוג הישן — גם כשהוא נשלח", () => {
     const out = writable({ propertyType: SHARED_TABU_PROPERTY_TYPE, sharedTabu: false });
     expect(out["sharedTabu"]).toBe(false);
+    expect(out["propertyType"]).toBeNull();
+  });
+
+  /* ‏וגם כשהסוג לא נשלח כלל — הוא נקרא מהשורה הקיימת */
+  it("‏„לא” מפורש פורש אותו גם בעדכון חלקי", () => {
+    const out = writable({ sharedTabu: false }, { propertyType: SHARED_TABU_PROPERTY_TYPE });
+    expect(out["sharedTabu"]).toBe(false);
+    expect(out["propertyType"]).toBeNull();
+  });
+
+  it("‏„לא” על שורה רגילה אינו נוגע בסוג", () => {
+    const out = writable({ sharedTabu: false }, { propertyType: "penthouse" });
+    expect(out["sharedTabu"]).toBe(false);
+    expect("propertyType" in out).toBe(false);
   });
 });
 
@@ -79,6 +105,16 @@ describe("ההמרה — הזוג שיוצא ממנה אינו נקרא כפרי
     const columns = fieldsToColumns(fields);
     expect(columns.sharedTabu).toBe(true);
     expect(columns.propertyType).toBe(SHARED_TABU_PROPERTY_TYPE);
+  });
+
+  /*
+   * ‏והצד השני של אותו זוג: אחרי הפרישה השורה אינה סותרת, ולכן
+   * ‏הגזירה בהמרה מחזירה „לא” — מה שהמתווך אמר.
+   */
+  it("שורה שנפרשה מומרת כרגילה, לא כמושאע", () => {
+    const fields = fieldsOf({ propertyType: null, sharedTabu: false });
+    expect(fields["sharedTabu"]).toBe(false);
+    expect(fieldsToColumns(fields).sharedTabu).toBe(false);
   });
 
   it("שורה רגילה עוברת כמות שהיא", () => {
