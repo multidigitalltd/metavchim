@@ -1709,6 +1709,14 @@ export class AgentExecuteService {
       throw new BadRequestException("ליד דורש שם וטלפון");
     }
     const result = await this.leads.create({
+      /*
+       * ‎**הסוכן ה-AI פועל בשם הסוכן, ולכן הוא כפוף לאותו שער.**
+       *
+       * ‏המספר מוכתב לו בשיחה בדיוק כפי שסוכן מקליד אותו במסך, ואם
+       * ‏הוא שייך לכרטיס מוסתר — הצירוף היה פותח אותו. „‎AI” אינו
+       * ‏רמת הרשאה.
+       */
+      typedBy: "agent",
       contactName: name,
       contactPhone: phone,
       // המקור האמיתי: המתווך תיעד שיחה, לא מילא טופס
@@ -1746,6 +1754,8 @@ export class AgentExecuteService {
      */
     const officeStatus = this.spokenOfficeStatus(str(params["officeStatus"]));
     const buyer = await this.buyers.create({
+      /* ‏אותו נימוק כמו ב-`createLead` — הסוכן ה-AI כפוף לאותו שער */
+      typedBy: "agent",
       contactName: name,
       contactPhone: phone,
       source: "voice",

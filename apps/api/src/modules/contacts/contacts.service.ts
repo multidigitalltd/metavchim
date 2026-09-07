@@ -8,7 +8,7 @@ import {
   type ContactRole,
 } from "@metavchim/shared";
 import { lockContact, lockContactPhone } from "../../common/locks";
-import { canSeeContact } from "../../common/ownership";
+import { canSeeContact, type PhoneTypedBy } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { CryptoService } from "../../core/crypto.service";
 import type { TenantTx } from "../../core/prisma.service";
@@ -74,6 +74,41 @@ export class ContactsService {
    * ‏הנעילה נלקחת לפני הבדיקה ומוחזקת עד סוף הטרנזקציה, ולכן
    * ‏`findOrCreateByPhone` שרץ מיד אחריה רואה בדיוק את מה שנבדק.
    */
+  /**
+   * ‎**מי הקליד את המספר — ההכרעה שכל יוצר כרטיס חייב לענות עליה.**
+   *
+   * ‎`agent` — סוכן מחובר הקליד מספר במסך. מספר שכבר שייך למישהו
+   * ‏אינו מפתח אליו, ולכן המסלול עובר דרך `findOrCreateByPhoneScoped`.
+   *
+   * ‎`office` — המספר הגיע מבעליו: טופס קליטה ציבורי, שיחה נכנסת,
+   * ‏או הרשמה. אין שם סוכן שאפשר לבדוק מולו הרשאה, והמיחזור הוא
+   * ‏בדיוק הדבר הנכון — כרטיס שני לאותו אדם הוא הבאג.
+   */
+  async findOrCreateByPhoneTyped(
+    tx: TenantTx,
+    input: { name: string; phone: string },
+    options: {
+      typedBy: PhoneTypedBy;
+      subject: string;
+      alsoAllowed?: (priorId: string) => boolean | Promise<boolean>;
+    },
+  ): Promise<ContactDto> {
+    /*
+     * ‎**ההכרעה הזו יושבת כאן, ובמקום אחד** (ביקורת Codex, P1).
+     *
+     * ‏היא הייתה שלישייה בתוך `PropertiesService.persist`, וכשהיא
+     * ‏נדרשה גם בקונים וגם בלידים היא הייתה נכתבת שם שוב — שלושה
+     * ‏עותקים של „מי מותר לו למחזר”, שאפשר לתקן אחד מהם ולשכוח את
+     * ‏השניים.
+     */
+    return options.typedBy === "office"
+      ? this.findOrCreateByPhone(tx, input)
+      : this.findOrCreateByPhoneScoped(tx, input, {
+          subject: options.subject,
+          ...(options.alsoAllowed ? { alsoAllowed: options.alsoAllowed } : {}),
+        });
+  }
+
   async findOrCreateByPhoneScoped(
     tx: TenantTx,
     input: { name: string; phone: string },

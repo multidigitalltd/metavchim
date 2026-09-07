@@ -91,6 +91,7 @@ function serviceFor(
      * ‏הנכס, ופיקסצ׳ר שמחקה גם את השני היה בודק בעיקר את עצמו.
      */
     findOrCreateByPhoneScoped: async () => ({ id: "01NEWCONTACT0000000000001" }),
+    findOrCreateByPhoneTyped: async () => ({ id: "01NEWCONTACT0000000000001" }),
     getById: async () => ({
       id: OWNER_CONTACT,
       name: "בעל הנכס",
@@ -180,6 +181,50 @@ describe("כרטיס נכס — פרטי הבעלים", () => {
     );
     expect(dto.ownerContact).toBeUndefined();
     expect(dto.ownerRedacted).toBeUndefined();
+  });
+
+  /*
+   * ‎**המקור השני של ההיתר אינו קשור לנכס** (ביקורת Codex, P1).
+   *
+   * ‏`canSeeContact` הוא **איחוד**: אותו אדם הוא גם הקונה שלי, ולכן
+   * ‏הוא עובר — דרך כרטיס הקונה. בלי שאלת הנכס, הכרטיס היה מחזיר
+   * ‏את שמו, הטלפון והמייל שלו **בהקשר של הנכס של העמית**, כלומר
+   * ‏מגלה בדיוק את מה שהחסימה נועדה להסתיר: שהאדם הזה הוא הבעלים
+   * ‏של אותו נכס.
+   *
+   * ‏זו אותה מלכודת שכבר נחסמה בכתיבה (`החלפת בעלים שאינו מוצג`),
+   * ‏והיא נשארה פתוחה בקריאה.
+   */
+  it("בעל נכס של עמית שהוא גם הקונה שלי — עדיין מוסתר", async () => {
+    const dto = await asUser(SCOPED, () =>
+      serviceFor("01OTHER", { contactIsMyBuyer: true }).getById("01PROP"),
+    );
+    expect(dto.ownerContact, "הוצג דרך כרטיס שאינו קשור לנכס").toBeUndefined();
+    expect(dto.ownerRedacted).toBe(true);
+  });
+
+  /*
+   * ‏והצד השני, שבלעדיו „תמיד להסתיר” היה עובר: אותו לקוח בדיוק,
+   * ‏על הנכס **שלי** — מוצג.
+   */
+  it("ואותו לקוח על הנכס שלי — מוצג", async () => {
+    const dto = await asUser(SCOPED, () =>
+      serviceFor("01ME", { contactIsMyBuyer: true }).getById("01PROP"),
+    );
+    expect(dto.ownerContact?.phone).toBe("+972501234567");
+  });
+
+  /* ‏ואותו מבנה על הדייר, שהוא הענף השני של אותה החלטה. */
+  it("דייר בנכס של עמית שהוא גם הקונה שלי — מוסתר", async () => {
+    const dto = await asUser(SCOPED, () =>
+      serviceFor("01OTHER", {
+        ownerContactId: null,
+        occupantContactId: OWNER_CONTACT,
+        contactIsMyBuyer: true,
+      }).getById("01PROP"),
+    );
+    expect(dto.occupantContact).toBeUndefined();
+    expect(dto.occupantRedacted).toBe(true);
   });
 
   it("ובברירת המחדל — לא מוסתר ולא חסר", async () => {

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Capability } from "@metavchim/shared";
@@ -223,38 +223,188 @@ describe("‏מיחזור כרטיס קיים — הכלל המשותף", () => 
 });
 
 /**
- * ‎**ושלושת הקוראים באמת קוראים לו.**
+ * ‎**וההכרעה מי הקליד — הענף עצמו, במקום אחד.**
  *
- * ‏הכלל נכון בפני עצמו, והשאלה הנפרדת היא החיווט: מסלול שחוזר
- * ‏ל-`findOrCreateByPhone` הישיר פותח מחדש בדיוק את החור. פיקסצ׳ר
- * ‏מלא למסלול הנכס היה מחקה מכסות, גיאוקוד ואודיט — כלומר בודק
- * ‏בעיקר את עצמו — ולכן החיווט נבדק על המקור.
+ * ‏שלושת המסלולים (נכס, קונה, ליד) אינם בוחרים בעצמם בין הצורה
+ * ‏השמורה לישירה: הם מוסרים את `typedBy` הלאה, וכאן נחתך הענף.
+ * ‏שלישייה בכל שירות הייתה שלושה עותקים של „מי מותר לו למחזר”,
+ * ‏שאפשר לתקן אחד מהם ולשכוח את השניים.
  */
-describe("‏שער: מסלולי הנכס עוברים דרך הכלל", () => {
-  const SOURCE = readFileSync(
-    join(__dirname, "..", "properties", "properties.service.ts"),
-    "utf8",
-  );
+describe("‏מי הקליד את המספר — הענף", () => {
+  const PERSON = { name: "בעל הנכס", phone: "+972501234567" };
 
-  it("‏יש מה לבדוק — שלוש הפתירות של טלפון", () => {
-    const scoped = SOURCE.match(/findOrCreateByPhoneScoped\(/gu) ?? [];
-    expect(scoped.length).toBeGreaterThanOrEqual(3);
+  it("‏`agent` על כרטיס מוסתר — נדחה", async () => {
+    const built = serviceFor({ existing: true });
+    await expect(
+      asUser(AGENT, () =>
+        built.service.findOrCreateByPhoneTyped(txOf(built), PERSON, {
+          typedBy: "agent",
+          subject: "יצירת קונה",
+        }),
+      ),
+    ).rejects.toThrow(/יצירת קונה — המספר הזה משויך ללקוח שאינו נגיש לך/u);
   });
 
   /*
-   * ‏הקריאה הישירה מותרת במסלול אחד בלבד — טופס הקליטה הציבורי,
-   * ‏שרץ בהקשר משרד בלי משתמש. היא מסומנת ב-`typedBy`.
+   * ‏והצד השני: הטופס הציבורי מקבל את המספר מבעליו, אין שם סוכן
+   * ‏שאפשר לבדוק מולו, ומיחזור הכרטיס הקיים הוא בדיוק הנכון —
+   * ‏כרטיס שני לאותו אדם הוא הבאג. בלי הצד הזה „תמיד לחסום” היה
+   * ‏עובר, והקישור הפתוח היה שובר.
    */
-  it("‏והקריאה הישירה נשארת רק לענף המשרדי", () => {
-    const direct = SOURCE.match(/this\.contacts\.findOrCreateByPhone\(/gu) ?? [];
-    expect(direct.length, "פתירה ישירה מחוץ לענף המשרדי").toBe(1);
-    expect(SOURCE).toContain('input.typedBy === "office"');
+  it("‏`office` על אותו כרטיס בדיוק — מוחזר", async () => {
+    const built = serviceFor({ existing: true });
+    const person = await asUser(AGENT, () =>
+      built.service.findOrCreateByPhoneTyped(txOf(built), PERSON, {
+        typedBy: "office",
+        subject: "טופס קליטה",
+      }),
+    );
+    expect(person.id).toBe(HIDDEN);
   });
 
-  it("‏ולכל קורא של `persist` יש הכרעה מפורשת", () => {
-    const calls = SOURCE.match(/this\.persist\(/gu) ?? [];
-    /* ‏אתרי קריאה בלבד — ההצהרה בחתימה היא `"agent" | "office"` */
-    const decided = SOURCE.match(/typedBy: "(?:agent|office)"(?! \|)/gu) ?? [];
+  it("‏`agent` על מספר חדש — נוצר כרגיל", async () => {
+    const built = serviceFor({ existing: false });
+    const person = await asUser(AGENT, () =>
+      built.service.findOrCreateByPhoneTyped(txOf(built), PERSON, {
+        typedBy: "agent",
+        subject: "יצירת קונה",
+      }),
+    );
+    expect(person.id).toBeDefined();
+  });
+
+  /* ‏ו-`alsoAllowed` ממשיך לעבור דרך הענף — הנכס נשען עליו. */
+  it("‏`agent` עם היתר נוסף — עובר", async () => {
+    const built = serviceFor({ existing: true });
+    const person = await asUser(AGENT, () =>
+      built.service.findOrCreateByPhoneTyped(txOf(built), PERSON, {
+        typedBy: "agent",
+        subject: "בעל הנכס",
+        alsoAllowed: (priorId) => priorId === HIDDEN,
+      }),
+    );
+    expect(person.id).toBe(HIDDEN);
+  });
+});
+
+/**
+ * ‎**ומי שיוצר כרטיס מטלפון באמת עובר דרך הכלל.**
+ *
+ * ‏הכלל נכון בפני עצמו, והשאלה הנפרדת היא החיווט: מסלול שחוזר
+ * ‏ל-`findOrCreateByPhone` הישיר פותח מחדש בדיוק את החור. פיקסצ׳רים
+ * ‏מלאים לשלושת המסלולים היו מחקים מכסות, גיאוקוד, התאמות ואודיט —
+ * ‏כלומר בודקים בעיקר את עצמם — ולכן החיווט נבדק על המקור.
+ *
+ * ‏הסבב הקודם בדק את הנכס בלבד, ו**הקונה והליד נשארו בחוץ**: שניהם
+ * ‏קראו ל-`findOrCreateByPhone` הישיר, ושניהם מצרפים את התוצאה
+ * ‏לרשומה של הסוכן — כלומר אותו מפתח בדיוק לכרטיס מוסתר (ביקורת
+ * ‏Codex, P1). הבדיקה כאן מנוסחת עכשיו על שלושתם.
+ */
+describe("‏שער: כל יצירת כרטיס מטלפון מצהירה מי הקליד", () => {
+  const API_SRC = join(__dirname, "..", "..");
+
+  function sources(): { file: string; text: string }[] {
+    const out: { file: string; text: string }[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith(".ts") && !entry.name.includes(".test.")) {
+          out.push({ file: full.slice(API_SRC.length + 1), text: readFileSync(full, "utf8") });
+        }
+      }
+    };
+    walk(API_SRC);
+    return out;
+  }
+
+  /** ‏חותך את אובייקט הארגומנטים שאחרי `from`. */
+  function objectAfter(text: string, from: number): string {
+    const start = text.indexOf("{", from);
+    if (start === -1) return "";
+    let depth = 0;
+    for (let i = start; i < text.length; i += 1) {
+      if (text[i] === "{") depth += 1;
+      else if (text[i] === "}") {
+        depth -= 1;
+        if (depth === 0) return text.slice(start, i + 1);
+      }
+    }
+    return "";
+  }
+
+  const FILES = sources();
+
+  /**
+   * ‏שערי הכניסה שהחתימה שלהם דורשת `typedBy`. הקומפיילר כבר אוכף
+   * ‏שהשדה **קיים**; מה שנבדק כאן הוא שהוא הוכרע באתר הקריאה ולא
+   * ‏זלג פנימה ממשתנה שהלקוח שולט בו.
+   */
+  const ENTRY = /this\.(?:leads|buyers)\.(?:create|createWithin|createForImport)\(/gu;
+
+  const callSites = FILES.flatMap(({ file, text }) =>
+    [...text.matchAll(ENTRY)].map((m) => ({
+      file,
+      line: text.slice(0, m.index).split("\n").length,
+      args: objectAfter(text, m.index),
+    })),
+  );
+
+  it("‏יש מה לבדוק — שערי הכניסה של קונה וליד", () => {
+    expect(callSites.length).toBeGreaterThanOrEqual(5);
+    expect(
+      callSites.every((site) => site.args.length > 0),
+      "לא נחתך אובייקט ארגומנטים",
+    ).toBe(true);
+  });
+
+  it("‏כל אתר קריאה מכריע במפורש", () => {
+    for (const site of callSites) {
+      expect(
+        /typedBy: "(?:agent|office)"/u.test(site.args),
+        `${site.file}:${site.line} — יצירה בלי הכרעה מי הקליד`,
+      ).toBe(true);
+    }
+  });
+
+  /*
+   * ‏פיקוח: בלעדיו הבדיקה הייתה ירוקה גם אילו כל אתר הצהיר
+   * ‏`office`, כלומר אילו השער היה מנוטרל בכל מקום.
+   */
+  it("‏ושתי ההכרעות באמת מופיעות", () => {
+    const all = callSites.map((site) => site.args).join("\n");
+    expect(all.includes('typedBy: "agent"'), "אף אתר אינו של סוכן").toBe(true);
+    expect(all.includes('typedBy: "office"'), "אף אתר אינו משרדי").toBe(true);
+  });
+
+  /*
+   * ‎**וההכרעה עצמה יושבת במקום אחד.**
+   *
+   * ‏שלושת השירותים שיוצרים כרטיס מטלפון אינם בוחרים בעצמם בין
+   * ‏הצורה השמורה לישירה — הם מוסרים את `typedBy` הלאה. שלישייה
+   * ‏בכל אחד מהם הייתה שלושה עותקים של „מי מותר לו למחזר”.
+   */
+  it("‏והבחירה בין השמור לישיר יושבת רק ב-`ContactsService`", () => {
+    for (const name of [
+      "modules/properties/properties.service.ts",
+      "modules/buyers/buyers.service.ts",
+      "modules/leads/leads.service.ts",
+    ]) {
+      const source = FILES.find((f) => f.file === name);
+      expect(source, name).toBeDefined();
+      const direct = source!.text.match(/this\.contacts\.findOrCreateByPhone\(/gu) ?? [];
+      expect(direct.length, `${name}: פתירה ישירה מחוץ ל-ContactsService`).toBe(0);
+    }
+    const contacts = FILES.find((f) => f.file === "modules/contacts/contacts.service.ts");
+    const branch = contacts!.text.match(/options\.typedBy === "office"/gu) ?? [];
+    expect(branch.length, "ההכרעה אינה יושבת בדיוק פעם אחת").toBe(1);
+  });
+
+  /* ‏ולכל קורא של `persist` בצד הנכס יש הכרעה מפורשת — כמו קודם. */
+  it("‏ולכל קורא של `persist` בצד הנכס יש הכרעה מפורשת", () => {
+    const source = FILES.find((f) => f.file === "modules/properties/properties.service.ts")!.text;
+    const calls = source.match(/this\.persist\(/gu) ?? [];
+    const decided = source.match(/typedBy: "(?:agent|office)"(?! \|)/gu) ?? [];
     expect(calls.length).toBeGreaterThanOrEqual(4);
     expect(decided.length, "קורא בלי הכרעה").toBe(calls.length);
   });

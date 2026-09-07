@@ -392,6 +392,16 @@ export function seesAllContacts(): boolean {
  * ‏נוחות: לקוח שהוא רק בעל נכס נפל בעבר ל-`null`, והתמצית של גוף
  * ‏המייל הוצגה לכולם (ביקורת Codex, P1).
  */
+/**
+ * ‎**מי הקליד את המספר.**
+ *
+ * ‏זו ההכרעה שמפרידה „סוכן שמנסה מספר במסך” מ„אדם שמסר את המספר
+ * ‏שלו”, והיא נשאלת בכל מקום שיוצר כרטיס לקוח מטלפון. הטיפוס יושב
+ * ‏כאן ולא ליד קורא אחד כדי ששלושת המסלולים — נכס, קונה, ליד —
+ * ‏ידברו באותן שתי מילים. ראו `ContactsService.findOrCreateByPhoneTyped`.
+ */
+export type PhoneTypedBy = "agent" | "office";
+
 export type ContactOwnerSource = "buyers" | "leads" | "properties";
 
 export interface ContactOwner {

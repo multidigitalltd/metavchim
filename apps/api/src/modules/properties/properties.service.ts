@@ -44,6 +44,7 @@ import {
   assertPropertyOwnerAction,
   assertPropertyScope,
   canSeeContact,
+  inPropertyScope,
   isOrphanContact,
   leadOwnershipFilter,
 } from "../../common/ownership";
@@ -553,9 +554,10 @@ export class PropertiesService {
         person: { name: string; phone: string },
         subject: string,
       ): Promise<{ id: string }> =>
-        input.typedBy === "office"
-          ? await this.contacts.findOrCreateByPhone(tx, person)
-          : await this.contacts.findOrCreateByPhoneScoped(tx, person, { subject });
+        await this.contacts.findOrCreateByPhoneTyped(tx, person, {
+          typedBy: input.typedBy,
+          subject,
+        });
       const ownerContact = input.owner ? await resolve(input.owner, "בעל הנכס") : null;
       const occupantContact = input.occupant
         ? await resolve(input.occupant, "הדייר בנכס")
@@ -1072,8 +1074,25 @@ export class PropertiesService {
        * ‏השמטה ולא 404: הנכס **כן** מותר לו — הכתובת, המחיר והמצב.
        * ‏מה שאינו מותר הוא האדם.
        */
+      /*
+       * ‎**וההיתר נגזר מהנכס, לא רק מהאדם** (ביקורת Codex, P1).
+       *
+       * ‏`canSeeContact` הוא **איחוד מקורות**: בעל הנכס של עמית
+       * ‏שהוא גם הקונה שלי עובר אותו — דרך כרטיס הקונה, שאין לו
+       * ‏שום קשר לנכס הזה. הכרטיס היה מחזיר את שמו, הטלפון והמייל
+       * ‏שלו **בהקשר של הנכס**, כלומר מגלה גם את הקשר עצמו: „האדם
+       * ‏הזה הוא הבעלים של הנכס ההוא”. וזה בדיוק מה ש-
+       * ‏`properties.view_all` נועד להסתיר.
+       *
+       * ‏זו אותה הבחנה ש-`assertPropertyOwnerAction` ו-
+       * ‏`propertyActivity` כבר אוכפים: שאלת הנכס נשאלת על הנכס.
+       * ‏שתי השאלות ולא אחת — הנכס בהישג ידי, **וגם** האדם נגיש לי.
+       */
+      const inScope = inPropertyScope(row.agentUserId);
       const mayContact = async (contactId: string | null): Promise<boolean> =>
-        contactId !== null && (await canSeeContact(tx, TenantContext.current().tenantId, contactId));
+        inScope &&
+        contactId !== null &&
+        (await canSeeContact(tx, TenantContext.current().tenantId, contactId));
       const ownerVisible = await mayContact(row.ownerContactId);
       const occupantVisible = await mayContact(row.occupantContactId);
       const ownerContact = ownerVisible
