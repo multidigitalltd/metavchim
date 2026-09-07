@@ -545,7 +545,7 @@ export class EmailInboxService {
 
     // מסירה חוזרת אינה התראה חוזרת — הסוכן כבר קיבל אותה
     if (stored.fresh) {
-      await this.notifyAgentOnWhatsApp(tenantId, stored.notifyUserId, stored.customerName);
+      await this.notifyAgentOnWhatsApp(tenantId, contactId, stored.notifyUserId, stored.customerName);
     }
   }
 
@@ -562,11 +562,37 @@ export class EmailInboxService {
    */
   private async notifyAgentOnWhatsApp(
     tenantId: string,
+    contactId: string,
     userId: string | null,
     customerName: string,
   ): Promise<void> {
     // בלי סוכן אחראי אין נמען — ההתראה המשרדית במערכת מכסה את זה
     if (userId === null) return;
+    /*
+     * ‎**והשאלה נשאלת שוב, כאן** (ביקורת Codex, P2).
+     *
+     * ‏הנמען והשם נבחרו בתוך הטרנזקציה, ואחריה מועלים הקבצים —
+     * ‏עשרות מגה-בייט, במכוון מחוץ לטרנזקציה כדי לא להחזיק חיבור
+     * ‏מסד לאורך ההעלאה. השליחה הזו קורית **אחרי** החלון הזה,
+     * ‏והיא בדקה רק שהמשתמש פעיל ומנוי. נכס, ליד או קונה שהועברו
+     * ‏לעמית בזמן ההעלאה — או יכולת שנשללה — והשם של הלקוח יצא
+     * ‏בכל זאת לסוכן הקודם, בערוץ שיוצא מהמערכת ואי אפשר לצנזר
+     * ‏בדיעבד.
+     *
+     * ‏אותה פונקציה בדיוק שבחרה את הנמען מלכתחילה, ולא ניסוח שני
+     * ‏שלה: `canSeeContact` נשען על הקשר הבקשה, ולוובהוק של ספק
+     * ‏הדואר אין כזה. „מי רשאי לקבל התראה על הלקוח הזה” נשאל פעם
+     * ‏אחת, בשני הזמנים.
+     *
+     * ‏השתנה הנמען — שקט, ולא העברה לבעלים החדש: ההתראה במערכת
+     * ‏כבר נכתבה על הסוכן הקודם, והיא נצנזרת בקריאה לפי המצב
+     * ‏העכשווי. „מי מקבל וואטסאפ במקומו” היא החלטה אחרת.
+     */
+    const stillOwner = await this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      const sources = await loadContactOwnerSources(tx, tenantId, contactId);
+      return (await notifiableContactOwnerSource(tx, tenantId, sources))?.userId ?? null;
+    });
+    if (stillOwner !== userId) return;
     try {
       const user = await this.prisma.user.findFirst({
         where: { id: userId, tenantId, isActive: true },

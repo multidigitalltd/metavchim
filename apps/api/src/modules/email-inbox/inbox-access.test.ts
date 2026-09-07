@@ -581,3 +581,97 @@ describe("‏השורה שנוצרה דרך נכס — נצנזרת כשהגיש
     expect(seen.body).toBe("אשמח לקבוע סיור ביום חמישי");
   });
 });
+
+/**
+ * ‎**והשאלה נשאלת שוב אחרי ההעלאה** (ביקורת Codex, P2).
+ *
+ * ‏הנמען והשם נבחרים בתוך הטרנזקציה, ואחריה מועלים הקבצים —
+ * ‏עשרות מגה-בייט, במכוון מחוץ לטרנזקציה. השליחה בוואטסאפ קורית
+ * ‏אחרי החלון הזה ובדקה רק שהמשתמש פעיל ומנוי, ולכן נכס שהועבר
+ * ‏לעמית בזמן ההעלאה השאיר את שם הלקוח יוצא לסוכן הקודם — בערוץ
+ * ‏שיוצא מהמערכת ואי אפשר לצנזר בדיעבד.
+ */
+describe("‏התראת הוואטסאפ אחרי העלאת הקבצים", () => {
+  /**
+   * ‏שירות עם בעלים שנקבע **בזמן השליחה**: זו כל התכונה — הבעלים
+   * ‏אינו נקרא מהצילום שנלקח לפני ההעלאה.
+   */
+  function serviceOwnedBy(ownerNow: string | null): {
+    notify: (userId: string | null) => Promise<void>;
+    sent: string[];
+  } {
+    const sent: string[] = [];
+    const tx = {
+      buyer: {
+        findMany: async () => (ownerNow === null ? [] : [{ id: "01B", ownerUserId: ownerNow }]),
+      },
+      lead: { findMany: async () => [] },
+      property: { findMany: async () => [] },
+      tenant: { findUnique: async () => ({ blockedModules: [] }) },
+      user: {
+        findMany: async (args: { where: { id?: { in: string[] } } }) =>
+          (args.where.id?.in ?? []).map((id) => ({
+            id,
+            role: "agent",
+            capabilityOverrides: [],
+          })),
+      },
+    };
+    const prisma = {
+      withExplicitTenant: async <T>(_t: string, fn: (t: typeof tx) => Promise<T>): Promise<T> =>
+        fn(tx),
+      user: {
+        findFirst: async () => ({ phone: "+972500000000", whatsappAccess: true }),
+      },
+    };
+    const waSend = {
+      sendText: async (_phone: string, text: string) => {
+        sent.push(text);
+        return true;
+      },
+      sendTemplate: async () => undefined,
+    };
+    const service = new EmailInboxService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      waSend as never,
+    );
+    const notify = (userId: string | null): Promise<void> =>
+      (
+        service as unknown as {
+          notifyAgentOnWhatsApp: (
+            tenantId: string,
+            contactId: string,
+            userId: string | null,
+            customerName: string,
+          ) => Promise<void>;
+        }
+      ).notifyAgentOnWhatsApp("01TENANT", "01CONTACT", userId, "דנה לוי");
+    return { notify, sent };
+  }
+
+  it("‏הבעלים לא השתנה — ההתראה יוצאת", async () => {
+    const { notify, sent } = serviceOwnedBy("01ME");
+    await notify("01ME");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain("דנה לוי");
+  });
+
+  /* ‏זה הממצא: הכרטיס עבר לעמית בזמן ההעלאה */
+  it("‏הכרטיס עבר לעמית בזמן ההעלאה — שקט", async () => {
+    const { notify, sent } = serviceOwnedBy("01COLLEAGUE");
+    await notify("01ME");
+    expect(sent).toEqual([]);
+  });
+
+  /* ‏ונשללה הבעלות לגמרי — גם אז שקט, ולא „אין בעלים ולכן הכול” */
+  it("‏אין בעלים כשיר בזמן השליחה — שקט", async () => {
+    const { notify, sent } = serviceOwnedBy(null);
+    await notify("01ME");
+    expect(sent).toEqual([]);
+  });
+});
