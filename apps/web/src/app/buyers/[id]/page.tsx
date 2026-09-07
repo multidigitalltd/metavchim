@@ -42,6 +42,7 @@ import { IntakePanel } from "../../intake-panel";
 import { LoadError } from "../../load-error";
 import { AgentPicker } from "../../agent-picker";
 import { Notice } from "../../notice";
+import { PropertyPitchDialog } from "../../property-pitch-dialog";
 
 /**
  * כרטיס הקונה.
@@ -211,6 +212,7 @@ export default function BuyerDetailPage({
   const [matchesFailed, setMatchesFailed] = useState(false);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
   const [error, setError] = useState<string | null>(null);
+  const [pitchOpen, setPitchOpen] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
   /*
    * מונה המשימות הפתוחות. הוא נטען כאן ולא רק בתוך `EntityTasks`,
@@ -651,8 +653,30 @@ export default function BuyerDetailPage({
           >
             <IconEdit s={14} /> ערוך דרישות
           </Link>
+          {/*
+            ‎**הכיוון ההפוך של „שליחת הצעת נכס”.**
+
+            ‏מכרטיס הנכס בוחרים קונים; כאן בוחרים נכסים. אותה
+            ‏פעולה, אותו חלון, אותו שירות — הצד הקבוע הוא הקונה
+            ‏שכרטיסו פתוח.
+          */}
+          <button
+            type="button"
+            className="mv-btn-plain"
+            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            onClick={() => setPitchOpen(true)}
+          >
+            הצע נכס לקונה
+          </button>
         </div>
       </div>
+
+      <PropertyPitchDialog
+        open={pitchOpen}
+        onClose={() => setPitchOpen(false)}
+        side="properties"
+        fixedIds={[id]}
+      />
 
       {/* ---- לשוניות ---- */}
       <EntityTabs

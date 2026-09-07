@@ -77,6 +77,7 @@ import { LoadError } from "../../load-error";
 import { AgentPicker } from "../../agent-picker";
 import { Notice } from "../../notice";
 import { DeletePropertyDialog } from "../delete-property-dialog";
+import { PropertyPitchDialog } from "../../property-pitch-dialog";
 
 /**
  * כרטיס הנכס לפי קובץ העיצוב: כרטיס כותרת עם מחיר ופעולות (עריכה /
@@ -482,6 +483,7 @@ export default function PropertyDetailPage({
   >({});
   const [landingUrl, setLandingUrl] = useState<string | null>(null);
   const [landingBusy, setLandingBusy] = useState(false);
+  const [pitchOpen, setPitchOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   /*
@@ -1163,8 +1165,32 @@ export default function PropertyDetailPage({
             >
               מצא לי קונים
             </button>
+            {/*
+              ‎**„שליחת הצעת נכס” — ליד „מצא לי קונים”, ולא בתוכו.**
+
+              ‏„מצא לי קונים” עונה על „למי זה מתאים”; זו עונה על
+              ‏„שלח להם”. שתי פעולות סמוכות, כי אחרי שראית את
+              ‏הרשימה זה מה שרצית לעשות איתה — אבל הבחירה כאן היא
+              ‏של הסוכן ולא של מנוע ההתאמות, ולכן היא אינה כפתור
+              ‏בתוך הרשימה ההיא.
+            */}
+            <button
+              type="button"
+              className="mv-btn-soft"
+              style={HEADER_ACTION}
+              onClick={() => setPitchOpen(true)}
+            >
+              שליחת הצעת נכס
+            </button>
           </div>
         </div>
+
+        <PropertyPitchDialog
+          open={pitchOpen}
+          onClose={() => setPitchOpen(false)}
+          side="buyers"
+          fixedIds={[property.id]}
+        />
 
         {/*
           ‎**רצועת המוכנות צמודה לכותרת.**

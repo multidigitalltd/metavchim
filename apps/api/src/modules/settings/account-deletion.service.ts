@@ -292,6 +292,8 @@ export class AccountDeletionService {
 
         await tx.contactLink.deleteMany({ where: { tenantId } });
         await tx.contactPhone.deleteMany({ where: { tenantId } });
+        /* ‏טוקני ההסרה מדיוור — נופלים עם הכרטיס, אבל לא דרך הדייר */
+        await tx.contactOptOutToken.deleteMany({ where: { tenantId } });
         await tx.interaction.deleteMany({ where: { tenantId } });
         await tx.voiceIntake.deleteMany({ where: { tenantId } });
         await tx.match.deleteMany({ where: { tenantId } });

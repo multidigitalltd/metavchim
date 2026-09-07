@@ -168,6 +168,21 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     });
   }
 
+  /**
+   * ‎**הסרה מדיוור לפי טוקן הכרטיס — בלי הקשר דייר.**
+   *
+   * ‏הפוליסה חושפת שורה אחת ב-`contact_optout_tokens`, טבלה שאין
+   * ‏בה דבר מלבד הקישור בין טוקן לכרטיס. הכתיבה עצמה היא על
+   * ‎`contacts`, אחרי שהוצב `app.tenant_id` מתוך אותה שורה —
+   * ‏בדיוק כמו במסלול ההצעה.
+   */
+  async withPublicContactOptOut<T>(token: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.contact_optout_token', ${token}, true)`;
+      return fn(tx);
+    });
+  }
+
   /** גישת הלקוח החותם — הטוקן שבקישור הוא המפתח, בלי הקשר דייר. */
   async withPublicAgreement<T>(token: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
     return this.$transaction(async (tx) => {

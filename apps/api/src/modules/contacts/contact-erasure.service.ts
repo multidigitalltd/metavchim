@@ -591,6 +591,12 @@ export class ContactErasureService {
     await tx.emailMessage.deleteMany({ where: { tenantId, contactId } });
     await tx.emailReplyToken.deleteMany({ where: { tenantId, contactId } });
     /*
+     * ‎**וגם טוקן ההסרה מדיוור** — מאותו נימוק בדיוק כמו הטוקן
+     * ‏שמעליו: קישור שנשלח פעם ומזהה **אדם** אינו שורד אותו.
+     * ‏ההסרה עצמה (`opted_out_at`) אינה תלויה בו ונשארת.
+     */
+    await tx.contactOptOutToken.deleteMany({ where: { tenantId, contactId } });
+    /*
      * הסכם חתום **אינו נמחק בשום מקרה** — הוא ראיה משפטית ובסיס
      * הזכאות לדמי התיווך, ואינו של הלקוח למחוק. הוא מנותק מהכרטיס
      * ועובר לארכיון המשרד; הזהות שבתוכו נשארת, כי מסמך חתום בלי
