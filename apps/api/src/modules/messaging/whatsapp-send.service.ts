@@ -33,6 +33,13 @@ import { toWhatsAppAudio } from "./audio-transcode";
 
 const GRAPH_BASE = "https://graph.facebook.com/v23.0";
 const SEND_TIMEOUT_MS = 15_000;
+
+/**
+ * נוסח הודעת הבדיקה. קבוע ולא נתון מהמסך: מי שמפעיל את הפלטפורמה
+ * מקליד מספר של אדם אמיתי, וטקסט חופשי היה הופך את הכפתור לכלי
+ * שליחה אל כל מספר — משהו אחר לגמרי מבדיקת חיבור.
+ */
+const TEST_MESSAGE = "בדיקת חיבור מהמערכת. אין צורך להשיב.";
 /** הקלטה קולית סבירה שוקלת מאות KB; מעל זה משהו אחר קורה. */
 const MAX_MEDIA_BYTES = 16 * 1024 * 1024;
 
@@ -578,6 +585,76 @@ export class WhatsAppSendService {
    * בדיקת חיבור למסך הפלטפורמה — שואל את Graph על המספר עצמו.
    * מחזיר את השם המאומת והמספר כדי שיהיה ברור *מה* חובר, לא רק שחובר.
    */
+  /**
+   * ‎**שליחת הודעת בדיקה — ומה ש-`probe` אינו יכול להוכיח.**
+   *
+   * ‎`probe` *קורא* את פרטי המספר מ-Meta, וזו בדיקה חלשה יותר משהיא
+   * נראית: טוקן שחסרה לו ההרשאה `whatsapp_business_messaging` עובר
+   * אותה בהצלחה מלאה ונכשל רק בהודעה הראשונה של מתווך אמיתי. גם
+   * מספר שאינו ברשימת הבדיקה במצב Development נראה שם תקין.
+   *
+   * ‎**התשובה נושאת את הסיבה של Meta ולא „נכשל”.** זה כל ההבדל בין
+   * בדיקה שמכוונת לתיקון לבין בדיקה שמותירה את המנהל לנחש; ובראשן
+   * שגיאת חלון 24 השעות, שהיא הכישלון הצפוי ביותר כאן ונראית בלי
+   * הסבר כמו תקלת חיבור.
+   */
+  async probeSend(to: string): Promise<{ ok: boolean; message: string }> {
+    const creds = await this.credentials();
+    if (!creds) {
+      return { ok: false, message: "חסרים Access Token או Phone Number ID" };
+    }
+    const target = normalizePhoneForWhatsapp(to);
+    if (target === "") {
+      return { ok: false, message: "מספר לא תקין" };
+    }
+    try {
+      const res = await fetch(`${GRAPH_BASE}/${creds.phoneNumberId}/messages`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${creds.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: target,
+          type: "text",
+          text: { body: TEST_MESSAGE, preview_url: false },
+        }),
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      });
+      const body = (await res.json().catch(() => null)) as {
+        error?: { message?: string; code?: number };
+      } | null;
+      if (!res.ok) {
+        const detail = body?.error?.message ?? `HTTP ${res.status}`;
+        const code = body?.error?.code;
+        /*
+         * ‎131047 = „re-engagement message”. Meta מתירה טקסט חופשי רק
+         * בתוך 24 שעות מהודעה של הנמען, וזו אינה תקלה אלא כלל — אבל
+         * הנוסח שלה אינו אומר את זה, והמנהל מסיק שהחיבור שבור.
+         */
+        if (code === 131047) {
+          return {
+            ok: false,
+            message:
+              "‏Meta דחתה: מחוץ לחלון 24 השעות. שלחו הודעה מהמספר הזה אל המספר של המערכת, ונסו שוב מיד אחר כך",
+          };
+        }
+        return {
+          ok: false,
+          message:
+            res.status === 401 || code === 190
+              ? `האסימון נדחה על ידי Meta (${detail}) — ודאו שזה טוקן קבוע של System User`
+              : `Meta החזירה שגיאה: ${detail}`,
+        };
+      }
+      this.logger.log(`הודעת בדיקה נשלחה אל ${target}`);
+      return { ok: true, message: `ההודעה נשלחה אל ${target} — בדקו במכשיר` };
+    } catch (error) {
+      return { ok: false, message: `השליחה נכשלה: ${String(error)}` };
+    }
+  }
+
   async probe(): Promise<{ ok: boolean; message: string }> {
     const creds = await this.credentials();
     if (!creds) {
