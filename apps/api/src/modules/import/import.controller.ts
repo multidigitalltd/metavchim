@@ -365,6 +365,8 @@ export class ImportController {
       try {
         const row = parsed.data;
         await this.buyers.createForImport({
+          /* ‏אותו נימוק כמו בייבוא הלידים — קובץ של סוכן הוא הקלדה שלו */
+          typedBy: "agent",
           contactName: row.name,
           contactPhone: row.phone,
           contactEmail: row.email,
@@ -428,6 +430,11 @@ export class ImportController {
       try {
         const row = parsed.data;
         const result = await this.leads.create({
+          /*
+           * ‏קובץ שסוכן מעלה הוא הקלדה שלו, ולא מספר שהתקבל מבעליו:
+           * ‏שורה עם מספר של כרטיס מוסתר תידחה כמו במסך.
+           */
+          typedBy: "agent",
           contactName: row.name,
           contactPhone: row.phone,
           ...(row.email !== undefined ? { contactEmail: row.email } : {}),

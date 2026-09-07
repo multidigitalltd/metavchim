@@ -141,7 +141,8 @@ export class BuyersController {
     @Body(new ZodValidationPipe(CreateBuyerSchema))
     body: z.infer<typeof CreateBuyerSchema>,
   ): Promise<BuyerDto> {
-    return this.buyers.create(body);
+    /* ‏מסך של סוכן מחובר — `typedBy` אינו מגיע מהגוף, וראו `createWithin` */
+    return this.buyers.create({ ...body, typedBy: "agent" });
   }
 
   @Get()

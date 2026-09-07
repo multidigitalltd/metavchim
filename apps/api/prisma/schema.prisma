@@ -534,6 +534,10 @@ model Property {
   @@index([tenantId, city, status])
   /// „הנכסים של סוכן פלוני” — השאילתה שהמסך החדש עושה.
   @@index([tenantId, agentUserId])
+  /// „לאיזה נכס הלקוח הזה קשור” — נשאל בכל שיחה נכנסת, ב-`OR` על
+  /// שתי העמודות; `OR` אינו יכול לנצל אינדקס מורכב, ולכן שניים.
+  @@index([tenantId, ownerContactId])
+  @@index([tenantId, occupantContactId])
   @@map("properties")
 }
 

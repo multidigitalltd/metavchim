@@ -14,7 +14,9 @@ import {
 } from "@metavchim/shared";
 import { lockContact, lockProperty } from "../../common/locks";
 import {
+  actionablePropertyWhere,
   assertContactAccess,
+  assertPropertyRecordScope,
   contactGateFor,
   orphanContactCondition,
 } from "../../common/ownership";
@@ -211,7 +213,21 @@ export class SignedDocumentsService {
     // בדיקה מוקדמת — כישלון זול לפני כתיבה לאחסון
     let label: string | undefined;
     await this.prisma.withTenant(async (tx) => {
-      await assertContactAccess(tx, tenantId, input.contactId);
+      /*
+       * ‎**הלקוח וגם הנכס.** שער הלקוח הוא איחוד, ולכן סריקה של
+       * ‏הסכם על הנכס של עמית נכנסה דרך כרטיס הקונה שלי — ומשם
+       * ‏לרשימת המסמכים שלו (ביקורת Codex, P1).
+       */
+      await assertPropertyRecordScope(
+        tx,
+        tenantId,
+        {
+          requiresProperty: documentUnlocksOffers(input.kind),
+          contactId: input.contactId,
+          propertyId: input.propertyId ?? null,
+        },
+        "העלאת מסמך על נכס",
+      );
       if (input.propertyId !== undefined) {
         const property = await tx.property.findFirst({
           where: { id: input.propertyId, tenantId, deletedAt: null },
@@ -253,7 +269,16 @@ export class SignedDocumentsService {
          * ‎`assertContactAccess` נכשל כראוי.
          */
         await lockContact(tx, input.contactId);
-        await assertContactAccess(tx, tenantId, input.contactId);
+        await assertPropertyRecordScope(
+          tx,
+          tenantId,
+          {
+            requiresProperty: documentUnlocksOffers(input.kind),
+            contactId: input.contactId,
+            propertyId: input.propertyId ?? null,
+          },
+          "העלאת מסמך על נכס",
+        );
         /*
          * ‎**והנכס נבדק מחדש, תחת אותה נעילה שהמחיקה לוקחת.**
          *
@@ -360,10 +385,25 @@ export class SignedDocumentsService {
     const tenantId = TenantContext.current().tenantId;
     const { rows, labels } = await this.prisma.withTenant(async (tx) => {
       await assertContactAccess(tx, tenantId, contactId);
+      /*
+       * ‎**היקף הנכס נכנס לשאילתה — לפני `take`** (ביקורת Codex, P2).
+       *
+       * ‏הסינון רץ קודם על מה שכבר נשלף, ולכן `take` היה יכול
+       * ‏להתמלא כולו בשורות של עמיתים: הלשונית חזרה **ריקה** בזמן
+       * ‏שלאותו לקוח יש מסמכים ישנים יותר שכן מותרים לי. תקרה היא
+       * ‏גודל דף, לא תקרת עבודה — אותו לקח בדיוק של סבב המשפך.
+       */
+      const scope = await actionablePropertyWhere(tx, tenantId, OFFER_DOCUMENT_KINDS);
       const found = await tx.signedDocument.findMany({
         where: {
           tenantId,
           contactId,
+          /*
+           * ‎`AND` ולא פיזור: שני התנאים מייצרים `OR`, ופיזור היה
+           * ‏משאיר את האחרון בלבד — כלומר היקף הנכס היה נעלם בשקט
+           * ‏בדיוק כשמסננים לפי נכס.
+           */
+          AND: [scope],
           /*
            * ‎**השורות חסרות-הנכס מסויגות לפי הסוג, ולא נלקחות כמובן
            * מאליו.**
@@ -389,7 +429,15 @@ export class SignedDocumentsService {
         orderBy: { createdAt: "desc" },
         take: MAX_DOCUMENTS_PER_CONTACT,
       });
-      return { rows: found, labels: await loadPropertyLabels(tx, tenantId, found) };
+      /*
+       * ‏הסינון כבר בשאילתה — `actionablePropertyWhere` למעלה, שהוא
+       * ‏התאום של `actionablePropertyIds` (`property-reach-twins`).
+       * ‏שער הלקוח הוא איחוד, ולכן בלעדיו סריקה של הסכם על הנכס של
+       * ‏עמית הופיעה בכרטיס הקונה שלי — עם כפתור הורדה וכפתור
+       * ‏מחיקה (ביקורת Codex, P1).
+       */
+      const rows = found;
+      return { rows, labels: await loadPropertyLabels(tx, tenantId, rows) };
     });
     return rows.map((row) => this.toDto(row, { labels }));
   }
@@ -537,6 +585,7 @@ export class SignedDocumentsService {
           mimeType: true,
           fileName: true,
           contactId: true,
+          propertyId: true,
           kind: true,
           signedOn: true,
         },
@@ -562,7 +611,17 @@ export class SignedDocumentsService {
         throw new NotFoundException("המסמך אינו בארכיון המשרד");
       }
       if (gate.mode === "contact") {
-        await assertContactAccess(tx, tenantId, gate.contactId);
+        /* ‏הלקוח וגם הנכס — הקובץ עצמו יוצא מכאן */
+        await assertPropertyRecordScope(
+          tx,
+          tenantId,
+          {
+            requiresProperty: documentUnlocksOffers(found.kind),
+            contactId: gate.contactId,
+            propertyId: found.propertyId,
+          },
+          "הורדת מסמך על נכס",
+        );
       } else if (opts.retained !== true) {
         /*
          * שורה של הארכיון — מנותקת, או שכרטיסה איבד את כל עוגני
@@ -682,7 +741,7 @@ export class SignedDocumentsService {
     const s3Key = await this.prisma.withTenant(async (tx) => {
       const row = await tx.signedDocument.findFirst({
         where: { id, tenantId },
-        select: { s3Key: true, contactId: true, kind: true, fileHash: true },
+        select: { s3Key: true, contactId: true, propertyId: true, kind: true, fileHash: true },
       });
       if (!row) throw new NotFoundException("מסמך לא נמצא");
       /*
@@ -696,7 +755,17 @@ export class SignedDocumentsService {
       if (gate.mode === "archive") {
         throw new NotFoundException("המסמך שמור בארכיון המשרד ואינו משויך לכרטיס לקוח");
       }
-      await assertContactAccess(tx, tenantId, gate.contactId);
+      /* ‏מחיקה היא פעולה על הרשומה, ולכן אותו שער בדיוק כמו ההורדה */
+      await assertPropertyRecordScope(
+        tx,
+        tenantId,
+        {
+          requiresProperty: documentUnlocksOffers(row.kind),
+          contactId: gate.contactId,
+          propertyId: row.propertyId,
+        },
+        "מחיקת מסמך על נכס",
+      );
       await tx.signedDocument.delete({ where: { id } });
       await this.audit.record(tx, {
         action: "agreement.document_delete",

@@ -550,9 +550,33 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
     const assignee = appointment.ownerUserId ?? appointment.createdBy;
     if (assignee === null) return false;
 
-    const who = unreachable
-      .map((r) => `${r.name}${r.optedOut ? " (ביקש/ה לא לקבל הודעות)" : ""}`)
-      .join(", ");
+    /*
+     * ‎**התפקיד, ולא השם — כי `notes` הוא טקסט חופשי בלי שער משלו.**
+     *
+     * ‏השם המפוענח של הנמען נכתב כאן לתוך המשימה, והמשימה מוטלת על
+     * ‏מי שקבע את הסיור — שיכול להיות סוכן שנחסם מבעלי הנכסים של
+     * ‏המשרד. משם הוא המשיך לזרום: `toDtos` מחזיר את ההערות כמות
+     * ‏שהן, ו-`CalendarSyncService` מעתיק אותן לתיאור האירוע
+     * ‏ב-Google (ביקורת Codex, P1).
+     *
+     * ‎**וזו הסיבה שהתיקון בכתיבה ולא בקריאה.** סינון בקריאה היה
+     * ‏צריך לחזור על עצמו בכל קורא — לוח המשימות, סנכרון היומן,
+     * ‏ייצוא — ולפספס את הבא. שם שלא נכתב אינו דורש שער בשום מקום.
+     *
+     * ‏המשימה עדיין אומרת את מה שצריך לעשות: מי לא קיבל (בעל
+     * ‏הנכס/הדייר או הקונה), ושכדאי להתקשר. סוכן שרשאי לאותו לקוח
+     * ‏ימצא את שמו בכרטיס; מי שאינו רשאי — לא היה אמור לקבלו כאן.
+     */
+    const who = [
+      ...new Set(
+        unreachable.map(
+          (r) =>
+            `${r.audience === "buyer" ? "הקונה" : "בעל הנכס/הדייר"}${
+              r.optedOut ? " (ביקש/ה לא לקבל הודעות)" : ""
+            }`,
+        ),
+      ),
+    ].join(", ");
 
     const entity =
       appointment.buyerId !== null

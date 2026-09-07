@@ -48,6 +48,7 @@ import {
 } from "@metavchim/shared";
 import { isCardAccessible,
   assertContactAccess,
+  assertPropertyOwnerAction,
   seesAllProperties,
 } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -1708,6 +1709,14 @@ export class AgentExecuteService {
       throw new BadRequestException("ליד דורש שם וטלפון");
     }
     const result = await this.leads.create({
+      /*
+       * ‎**הסוכן ה-AI פועל בשם הסוכן, ולכן הוא כפוף לאותו שער.**
+       *
+       * ‏המספר מוכתב לו בשיחה בדיוק כפי שסוכן מקליד אותו במסך, ואם
+       * ‏הוא שייך לכרטיס מוסתר — הצירוף היה פותח אותו. „‎AI” אינו
+       * ‏רמת הרשאה.
+       */
+      typedBy: "agent",
       contactName: name,
       contactPhone: phone,
       // המקור האמיתי: המתווך תיעד שיחה, לא מילא טופס
@@ -1745,6 +1754,8 @@ export class AgentExecuteService {
      */
     const officeStatus = this.spokenOfficeStatus(str(params["officeStatus"]));
     const buyer = await this.buyers.create({
+      /* ‏אותו נימוק כמו ב-`createLead` — הסוכן ה-AI כפוף לאותו שער */
+      typedBy: "agent",
       contactName: name,
       contactPhone: phone,
       source: "voice",
@@ -2082,12 +2093,36 @@ export class AgentExecuteService {
     const { name, label, waUrl } = await this.prisma.withTenant(async (tx) => {
       const property = await tx.property.findFirst({
         where: { id: propertyId, tenantId, deletedAt: null },
-        select: { ownerContactId: true, marketingTitle: true, street: true, city: true },
+        select: {
+          ownerContactId: true,
+          agentUserId: true,
+          marketingTitle: true,
+          street: true,
+          city: true,
+        },
       });
       if (!property) throw new BadRequestException("הנכס לא נמצא");
       if (property.ownerContactId === null) {
         throw new BadRequestException("לנכס אין בעלים רשום — אפשר לקשר איש קשר במסך הנכס");
       }
+      /*
+       * ‎**גם דרך העוזר, ומאותה סיבה בדיוק.**
+       *
+       * ‏העוזר מקבל מזהה נכס והנכסים משרדיים, ולכן סוכן שחסום
+       * ‏מבעלי הנכסים של המשרד יכול היה לבקש „שלח הודעה לבעלים של
+       * ‏הנכס ברחוב X” ולקבל קישור שנושא את **הטלפון** ומשפט שנושא
+       * ‏את **השם** (ביקורת Codex, P1). ההודעה גם נרשמת ב-Messages
+       * ‏Hub, כלומר זו פנייה ולא רק צפייה.
+       */
+      /*
+       * ‎**וגם הנכס** — שער הלקוח הוא איחוד מקורות, ולכן לקוח שקונה
+       * ‏דרכי ומוכר דרך עמית פותח אותו; הבקשה כאן היא על הנכס של
+       * ‏העמית (ביקורת Codex).
+       */
+      await assertPropertyOwnerAction(tx, tenantId, {
+        agentUserId: property.agentUserId,
+        ownerContactId: property.ownerContactId,
+      });
       const contact = await this.contacts.getById(tx, property.ownerContactId);
       if (!contact || contact.phone === "") {
         throw new BadRequestException("לבעל הנכס אין מספר טלפון בכרטיס");
