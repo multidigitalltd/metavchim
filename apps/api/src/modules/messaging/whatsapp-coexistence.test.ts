@@ -524,3 +524,46 @@ describe("הבוט על הקו של הסוכן", () => {
     expect(fn.slice(0, 800)).toContain("catch");
   });
 });
+
+/**
+ * ‎**שמות השדות ב-`extras` הם חוזה עם Meta, לא סגנון.**
+ *
+ * ‏זה הפרט היחיד בזרימה שאין לו כשל גלוי: מפתח שאינו מוכר ל-Meta
+ * נבלע בשקט, הפופאפ נפתח, והמתווך מקבל את דיאלוג ההתחברות הרגיל של
+ * פייסבוק („להמשיך בתור…”) במקום בחירת מספר. אין שגיאה בלוג, אין
+ * שגיאה בקונסולה, ואין דרך לאבחן את זה מהקוד — ולכן יש כאן בדיקה.
+ *
+ * כך בדיוק ישב כאן `version: "v3"` במקום `sessionInfoVersion: "3"`.
+ */
+describe("הפרמטרים שהפרונט מוסר לפופאפ", () => {
+  const SECTION = read("../../../../web/src/app/settings/whatsapp-business-section.tsx");
+
+  it("מבקש את גרסת ה-session info בשם שבו Meta מכירה", () => {
+    expect(SECTION).toContain('sessionInfoVersion: "3"');
+    /*
+     * המפתח השגוי שהחליף אותה — אסור שיחזור. עוגן לתחילת שורה, כדי
+     * שההסבר בהערה (שמצטט אותו) לא ייחשב חזרה שלו.
+     */
+    expect(SECTION).not.toMatch(/^\s*version:\s*"v3"/mu);
+  });
+
+  /*
+   * זרימת הדו-קיום פתוחה רק לאפליקציה שאושרה ל-Coexistence אצל
+   * Meta. קיבועה בקוד פירושו שהתקנה שלא אושרה תקועה עד גרסה חדשה,
+   * ובדיוק ברגע שבו אי אפשר לחבר אף מספר.
+   */
+  it("סוג הזרימה מגיע מהשרת ואינו מקובע בפרונט", () => {
+    expect(SECTION).toContain("featureType: data.signup.featureType");
+    expect(CONNECTION).toContain("whatsappSignupFeatureType");
+  });
+
+  /*
+   * ‏`code` בלי מזהים אינו כשל: מסלול „להמשיך עם ההגדרות הקודמות”
+   * מדלג על בחירת המספר ולכן אינו משדר אירוע. חסימה בפרונט הייתה
+   * מחזירה את המתווך למסך שאין ממנו מוצא.
+   */
+  it("קוד בלי מזהים נשלח לשרת ואינו נעצר בדפדפן", () => {
+    expect(SECTION).toContain("...(assets ?? {})");
+    expect(CONNECTION).toContain("this.resolveAssets(app, issued.token)");
+  });
+});

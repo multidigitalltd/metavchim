@@ -37,7 +37,13 @@ interface Connection {
 
 interface ConnectionsResponse {
   connections: Connection[];
-  signup: { appId: string; configId: string } | null;
+  /**
+   * ‎`featureType` מגיע מהשרת ולא מקובע כאן: הוא בוחר *איזו* זרימה
+   * Meta פותחת, וזרימת הדו-קיום פתוחה רק לאפליקציה שאושרה
+   * ל-Coexistence. אפליקציה שלא אושרה מקבלת במקומה את דיאלוג
+   * ההתחברות הרגיל ("להמשיך בתור…"), בלי בחירת מספר.
+   */
+  signup: { appId: string; configId: string; featureType: string } | null;
   botIncluded: boolean;
 }
 
@@ -289,21 +295,23 @@ export function WhatsAppBusinessSection() {
       (response) => {
         const code = response.authResponse?.code;
         const assets = signupAssets.current;
-        if (!code || !assets) {
-          /*
-           * אין קוד = המתווך סגר את החלון. אין assets = הוא עבר את
-           * ההתחברות אך לא סיים את בחירת המספר. שתי הודעות שונות
-           * במכוון: הן מובילות לפעולה שונה.
-           */
-          setError(
-            code
-              ? "החיבור לא הושלם — לא נבחר מספר. התחילו שוב וסיימו את כל שלבי החלון"
-              : "החיבור בוטל לפני שהושלם. אפשר לנסות שוב מתי שנוח",
-          );
+        if (!code) {
+          // אין קוד = המתווך סגר את החלון בלי לאשר דבר
+          setError("החיבור בוטל לפני שהושלם. אפשר לנסות שוב מתי שנוח");
           setBusy(false);
           return;
         }
-        apiPost<{ connection: Connection }>("/whatsapp/connections", { code, ...assets })
+        /*
+         * ‎**קוד בלי מזהים אינו כשל.**
+         *
+         * מתווך שכבר חיבר בעבר מקבל מ-Meta את מסך „להמשיך עם ההגדרות
+         * הקודמות?”, ומסלול ההמשך מדלג על בחירת המספר — כלומר קוד
+         * חוזר בלי אירוע `message`. חוסם `postMessage` בין מקורות
+         * עושה את אותו דבר. כאן זה נענה בשקיעה שקטה ובהודעת „לא נבחר
+         * מספר” שאין ממנה מוצא; עכשיו השרת שואל את Meta מי הקו,
+         * ומסרב לנחש רק כשיש באמת יותר מאחד.
+         */
+        apiPost<{ connection: Connection }>("/whatsapp/connections", { code, ...(assets ?? {}) })
           .then(() => {
             setNotice("המספר חובר. סנכרון ההיסטוריה עשוי להימשך עד 24 שעות");
             load();
@@ -317,7 +325,20 @@ export function WhatsAppBusinessSection() {
         config_id: data.signup.configId,
         response_type: "code",
         override_default_response_type: true,
-        extras: { setup: {}, featureType: "whatsapp_business_app_onboarding", version: "v3" },
+        /*
+         * ‎**שמות השדות הם חוזה עם Meta, לא סגנון.**
+         *
+         * ‏`sessionInfoVersion: "3"` הוא מה שמבקש את גרסת ה-session
+         * info שממנה מגיעים `waba_id` ו-`phone_number_id`. כאן ישב
+         * ‎`version: "v3"` — מפתח שאינו קיים אצל Meta, ולכן נבלע
+         * בשקט והזרימה חזרה לגרסה ישנה. `featureType` מהשרת, כי
+         * זרימת הדו-קיום דורשת אפליקציה מאושרת.
+         */
+        extras: {
+          setup: {},
+          featureType: data.signup.featureType,
+          sessionInfoVersion: "3",
+        },
       },
     );
   }, [data, ensureSdk, load]);

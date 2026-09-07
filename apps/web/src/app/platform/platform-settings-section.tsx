@@ -156,6 +156,8 @@ interface PlatformSettings {
       /** מזהים ציבוריים — הערך עצמו, לעריכה. */
       appId?: string;
       signupConfigId?: string;
+      /** איזו זרימה הפופאפ פותח — דו-קיום או Embedded Signup רגיל */
+      signupFeatureType?: string;
     };
     assistant: {
       configured: boolean;
@@ -408,6 +410,7 @@ export function PlatformSettingsSection({
       const connectAppSecret = String(f.get("whatsappConnectAppSecret") ?? "").trim();
       const connectVerify = String(f.get("whatsappConnectVerifyToken") ?? "").trim();
       const signupConfigId = String(f.get("whatsappSignupConfigId") ?? "").trim();
+      const signupFeatureType = String(f.get("whatsappSignupFeatureType") ?? "").trim();
       const botNumber = String(f.get("whatsappBotNumber") ?? "").trim();
       const prospectReply = String(f.get("whatsappProspectReply") ?? "").trim();
       const notifyTemplate = String(f.get("whatsappNotifyTemplate") ?? "").trim();
@@ -444,6 +447,14 @@ export function PlatformSettingsSection({
         ...(connectAppSecret !== "" ? { whatsappConnectAppSecret: connectAppSecret } : {}),
         ...(connectVerify !== "" ? { whatsappConnectVerifyToken: connectVerify } : {}),
         ...(signupConfigId !== "" ? { whatsappSignupConfigId: signupConfigId } : {}),
+        /*
+         * נשלח תמיד, כולל ריק: כאן `""` הוא בחירה אמיתית („Embedded
+         * Signup רגיל”) ולא „בלי שינוי”. זו כל התכלית של השדה.
+         */
+        whatsappSignupFeatureType:
+          signupFeatureType === "whatsapp_business_app_onboarding"
+            ? "whatsapp_business_app_onboarding"
+            : "",
         // ‎`botNumber` נשלח תמיד, גם ריק: הוא גיבוי שמכוון למחוק אותו
         // ברגע ש-Meta מתחילה לענות, וריק כאן פירושו „חזרו להסתמך על
         // Meta בלבד” ולא „בלי שינוי”
@@ -1884,6 +1895,32 @@ export function PlatformSettingsSection({
                   className="w-full rounded-lg border px-3 py-2.5"
                   style={inputStyle}
                 />
+              </div>
+
+              <div className="flex-1" style={{ minWidth: "220px" }}>
+                <label htmlFor="whatsappSignupFeatureType" className="mb-1 block font-medium">
+                  זרימת החיבור
+                </label>
+                <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  „דו-קיום” הוא ברירת המחדל של המוצר — המספר ממשיך לעבוד
+                  באפליקציה בטלפון. Meta פותחת אותה <b>רק</b> לאפליקציה שאושרה
+                  ל-Coexistence; אפליקציה שלא אושרה מקבלת במקום הפופאפ את דיאלוג
+                  ההתחברות הרגיל של פייסבוק („להמשיך בתור…”), בלי בחירת מספר.
+                  אם זה מה שהמתווכים רואים — עברו ל„רגיל”.
+                </p>
+                <select
+                  id="whatsappSignupFeatureType"
+                  name="whatsappSignupFeatureType"
+                  key={settings.whatsapp.connect?.signupFeatureType ?? ""}
+                  defaultValue={settings.whatsapp.connect?.signupFeatureType ?? ""}
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                >
+                  <option value="whatsapp_business_app_onboarding">
+                    דו-קיום — מספר שכבר באפליקציית WhatsApp Business
+                  </option>
+                  <option value="">רגיל — Embedded Signup ללא דו-קיום</option>
+                </select>
               </div>
 
               {/*
