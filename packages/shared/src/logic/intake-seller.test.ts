@@ -233,7 +233,26 @@ describe("סיכום למשימה", () => {
     expect(sellerSummaryLines({ ...minimal, sharedTabu: false })).not.toContain(
       SHARED_TABU_NETWORK_LABEL,
     );
-    expect(sellerSummaryLines(minimal)).not.toContain(SHARED_TABU_NETWORK_LABEL);
+  });
+
+  /*
+   * ‎**„לא נשאל” הופך למשימה, ולא לטענה** (ביקורת Codex, P1).
+   *
+   * ‏העמודה בנכס היא `NOT NULL DEFAULT false`, ולכן טיוטה שנוצרה
+   * ‏בלי תשובה נכנסת להתאמות כאילו נאמר עליה „חלקה נפרדת”. הטופס
+   * ‏מבטיח למוכר שאי-ידיעה תיבדק — והשורה הזו היא מה שהופך את
+   * ‏ההבטחה לדבר שאדם רואה ועושה.
+   */
+  it("מוכר שלא ידע מייצר שורת „לברר”, ולא הכרזה", () => {
+    const lines = sellerSummaryLines(minimal);
+    expect(lines).not.toContain(SHARED_TABU_NETWORK_LABEL);
+    expect(lines.join("\n")).toContain("לברר אם הרישום משותף");
+    /* ‏ומי שכן ענה אינו מקבל את המשימה הזו — בשני הכיוונים */
+    for (const answered of [true, false]) {
+      expect(
+        sellerSummaryLines({ ...minimal, sharedTabu: answered }).join("\n"),
+      ).not.toContain("לברר אם הרישום משותף");
+    }
   });
 
   it("מה שלא נענה אינו מופיע כ„לא ידוע”", () => {

@@ -223,7 +223,7 @@ const FORM_SHAPES = {
   },
   controlled: {
     asks: /setSharedTabu\(/u,
-    sends: /^\s+sharedTabu,$/mu,
+    sends: /\{ sharedTabu \}/u,
   },
 };
 

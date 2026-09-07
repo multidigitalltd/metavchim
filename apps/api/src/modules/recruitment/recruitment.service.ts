@@ -2,7 +2,9 @@ import { ConflictException, Injectable, NotFoundException } from "@nestjs/common
 import {
   type PropertyFields,
   canConvertToProperty,
+  isSharedTabuProperty,
   isValidSourceUrl,
+  SHARED_TABU_PROPERTY_TYPE,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
 import { TenantContext } from "../../common/tenant-context";
@@ -449,8 +451,17 @@ export class RecruitmentService {
        * ‎**ההמרה נושאת את הסימון** (ביקורת Codex, P1). בלעדיו נוצר
        * ‏נכס רגיל, והוא מוצע לקונים שסירבו במפורש למושאע — בזמן
        * ‏שהמתווך סימן את השורה בדיוק כדי שזה לא יקרה.
+       *
+       * ‎**ונגזר משני המקורות, ולא נקרא מהעמודה בלבד** (ביקורת
+       * ‏Codex, P2). הכתיבה מנרמלת מעכשיו, אבל שורה שנכתבה לפניה
+       * ‏— ובכלל, כל שורה שהסוג שלה הוא הייצוג הישן — חייבת להגיע
+       * ‏להמרה כ„מושאע”: אחרת הזוג הסותר שיוצא מכאן נקרא בצד השני
+       * ‏כפרישת הייצוג הישן, ושני הנתונים נמחקים.
        */
-      sharedTabu: row.sharedTabu,
+      sharedTabu: isSharedTabuProperty({
+        sharedTabu: row.sharedTabu,
+        propertyType: row.propertyType ?? undefined,
+      }),
       ...(rooms === undefined ? {} : { rooms }),
       ...(row.areaSqm === null ? {} : { areaSqm: row.areaSqm }),
       ...(row.floor === null ? {} : { floor: row.floor }),
@@ -487,8 +498,26 @@ export class RecruitmentService {
       ...set("houseNumber", input.houseNumber),
       ...set("propertyType", input.propertyType),
       ...set("dealType", input.dealType),
-      /* ‏התיבה — אותה עובדה משפטית שיש לנכס ולאיש הקשר */
-      ...set("sharedTabu", input.sharedTabu),
+      /*
+       * ‎**התיבה, והסוג הוותיק שמדליק אותה** (ביקורת Codex, P2).
+       *
+       * ‏הסכימה מקבלת `propertyType: "shared_tabu"` בלי הדגל — דרך
+       * ‏ה-API ודרך `/import/recruitment` — והעמודה נופלת אז
+       * ‏ל-`false`. השורה נושאת סוג שאומר „מושאע” ודגל שאומר „לא”,
+       * ‏וההמרה שולחת את הצירוף הזה ל-`fieldsToColumns`, שקורא אותו
+       * ‏כ„פרישת הייצוג הישן” — ומוחק את שניהם. נוצר נכס בלי סוג
+       * ‏ובלי האזהרה המשפטית, והוא מוצע לקונים שסירבו במפורש.
+       *
+       * ‎**הסוג מדליק ולעולם לא מכבה** — אותו כלל שהנכס נשען עליו
+       * ‏(`property.mapper.ts`): עדכון שנוגע רק בסוג אינו אומר דבר
+       * ‏על הדגל, וגזירה סימטרית כאן הייתה מוחקת סימון מפורש ברגע
+       * ‏שמישהו שינה „דירה” ל„פנטהאוז”.
+       */
+      ...set(
+        "sharedTabu",
+        input.sharedTabu ??
+          (input.propertyType === SHARED_TABU_PROPERTY_TYPE ? true : undefined),
+      ),
       ...set("rooms", input.rooms),
       ...set("areaSqm", input.areaSqm),
       ...set("floor", input.floor),

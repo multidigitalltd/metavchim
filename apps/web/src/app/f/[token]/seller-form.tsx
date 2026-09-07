@@ -92,7 +92,17 @@ export function SellerForm({
   const [street, setStreet] = useState(prefill.street ?? "");
   const [houseNumber, setHouseNumber] = useState(prefill.houseNumber ?? "");
   const [propertyType, setPropertyType] = useState(prefill.propertyType ?? "");
-  const [sharedTabu, setSharedTabu] = useState(prefill.sharedTabu ?? false);
+  /*
+   * ‎**שלושה מצבים, ולא שניים** (ביקורת Codex, P1, על התיקון הקודם).
+   *
+   * ‏הגרסה הראשונה פתחה ב-`false` ושלחה תמיד — ובאותה נשימה אמרה
+   * ‏למוכר „אם אין לכם מושג אפשר להשאיר ריק”. כלומר: הבטחנו לו
+   * ‏שאי-ידיעה תישאר אי-ידיעה, ורשמנו בשמו „רישום נפרד” על טיוטה
+   * ‏שנכנסת להתאמות מיד.
+   *
+   * ‎`undefined` הוא „לא ענה”, והוא לא נשלח כלל.
+   */
+  const [sharedTabu, setSharedTabu] = useState<boolean | undefined>(prefill.sharedTabu);
   const [rooms, setRooms] = useState(
     prefill.rooms === undefined ? "" : String(prefill.rooms),
   );
@@ -149,12 +159,11 @@ export function SellerForm({
         ...(houseNumber.trim() !== "" ? { houseNumber: houseNumber.trim() } : {}),
         ...(propertyType !== "" ? { propertyType } : {}),
         /*
-         * נשלח תמיד, גם `false` — מאותו נימוק של „המחיר גמיש”:
-         * לתיבת סימון יש מצב ידוע בכל רגע, והשמטתה בשליחה חוזרת
-         * הייתה משאירה „רישום משותף” על הנכס אחרי שהמוכר הסיר
-         * את הסימון.
+         * ‏תשובה שניתנה נשלחת גם כשהיא „לא”: היא תשובה, והשמטתה
+         * ‏בשליחה חוזרת הייתה משאירה „רישום משותף” על הנכס אחרי
+         * ‏שהמוכר תיקן. אי-ידיעה אינה תשובה, ולכן אינה נשלחת.
          */
-        sharedTabu,
+        ...(sharedTabu === undefined ? {} : { sharedTabu }),
         ...(numOrUndefined(rooms) !== undefined ? { rooms: numOrUndefined(rooms) } : {}),
         ...(numOrUndefined(areaSqm) !== undefined
           ? { areaSqm: numOrUndefined(areaSqm) }
@@ -324,15 +333,27 @@ export function SellerForm({
         ‏בלי מונחים.
       */}
       <Field label="איך הנכס רשום?">
-        <Choice active={sharedTabu} onClick={() => setSharedTabu((v) => !v)}>
-          רשום בטאבו משותף (מושאע)
-        </Choice>
+        <div className="flex flex-wrap gap-2">
+          {/* ‏לחיצה שנייה מבטלת — וחוזרת ל„לא יודע”, שהוא מצב לגיטימי */}
+          <Choice
+            active={sharedTabu === true}
+            onClick={() => setSharedTabu((v) => (v === true ? undefined : true))}
+          >
+            טאבו משותף (מושאע)
+          </Choice>
+          <Choice
+            active={sharedTabu === false}
+            onClick={() => setSharedTabu((v) => (v === false ? undefined : false))}
+          >
+            חלקה נפרדת
+          </Choice>
+        </div>
         <p
           className="m-0 mt-2 text-[length:var(--type-caption-lg)]"
           style={{ color: "var(--color-text-muted)" }}
         >
-          כלומר אין חלקה נפרדת בטאבו והבעלות משותפת לכמה בעלים. אם אין לכם
-          מושג — אפשר להשאיר ריק ונברר יחד.
+          „טאבו משותף” פירושו שאין חלקה נפרדת והבעלות משותפת לכמה בעלים. אם אין
+          לכם מושג, אל תבחרו כלום ונברר את זה יחד.
         </p>
       </Field>
 

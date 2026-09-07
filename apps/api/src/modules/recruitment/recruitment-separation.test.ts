@@ -396,8 +396,18 @@ describe("‏הסימון על שורת הגיוס", () => {
     expect(CONTROLLER).toMatch(/sharedTabu: true,/u);
   });
 
-  it("‏והכתיבה שומרת אותו", () => {
-    expect(SERVICE).toContain('...set("sharedTabu", input.sharedTabu)');
+  /*
+   * ‎**והשער הזה נצמד לביטוי, לא לכלל** (ביקורת Codex, P2, הסבב
+   * ‏שאחריו).
+   *
+   * ‏הוא חיפש את המחרוזת `...set("sharedTabu", input.sharedTabu)`,
+   * ‏ולכן נפל ברגע שהערך הפך לנגזרת של שני המקורות — בלי ששום
+   * ‏התנהגות נשברה. מה שהוא שומר עכשיו הוא שהכתיבה **נוגעת**
+   * ‏בעמודה; מה בדיוק היא כותבת נבדק בהתנהגות
+   * ‏(`recruitment-shared-tabu.test.ts`), ושם זה נהרג במוטציה.
+   */
+  it("‏והכתיבה נוגעת בעמודה", () => {
+    expect(SERVICE).toMatch(/set\(\s*"sharedTabu",/u);
   });
 
   /*

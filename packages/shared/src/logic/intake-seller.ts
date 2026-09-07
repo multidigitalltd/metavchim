@@ -349,8 +349,18 @@ export function sellerSummaryLines(answers: IntakeSellerAnswers): string[] {
    * ‏שורה משלו ולא בין המאפיינים: מעלית ומחסן הם נוחות, ורישום
    * ‏משותף הוא מה שקובע אם העסקה בכלל אפשרית — והסוכן צריך לראות
    * ‏אותו לפני שהוא פותח את הכרטיס.
+   *
+   * ‎**וכאן — ורק כאן — „לא נשאל” כן מופיע** (ביקורת Codex, P1).
+   *
+   * ‏הכלל בשאר השורות הוא ששתיקה אינה מוצגת: „קומה: לא ידוע” אינו
+   * ‏מידע. הרישום שונה משום ש**ברירת המחדל היא טענה**: העמודה
+   * ‏‎`NOT NULL DEFAULT false`, ולכן טיוטה שנוצרה בלי תשובה נכנסת
+   * ‏להתאמות כאילו נאמר עליה „חלקה נפרדת”. הטופס מבטיח למוכר
+   * ‏שאי-ידיעה תיבדק, והשורה הזו היא מה שהופך את ההבטחה למשימה
+   * ‏של אדם.
    */
   if (answers.sharedTabu === true) out.push(SHARED_TABU_NETWORK_LABEL);
+  else if (answers.sharedTabu === undefined) out.push("לברר אם הרישום משותף (מושאע)");
 
   const spec: string[] = [];
   if (answers.rooms !== undefined) spec.push(`${answers.rooms} חדרים`);
