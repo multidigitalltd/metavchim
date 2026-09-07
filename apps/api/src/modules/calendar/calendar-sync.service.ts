@@ -229,7 +229,27 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
             (await tx.task.deleteMany({ where: { id: task.id, tenantId: link.tenantId } })).count
           : (
               await tx.task.updateMany({
-                where: { id: task.id, tenantId: link.tenantId },
+                /*
+                 * ‎**גם „סומנה לניקוי” הוא שינוי שקרה תחתינו**
+                 * ‏(ביקורת Codex, P2).
+                 *
+                 * ‏מחיקת שורת גיוס אינה תמיד מוחקת את הפולואפ:
+                 * ‏משימה שכבר מסונכרנת ל-Google נשארת, ומקבלת
+                 * ‏‎`deletedAfterSync: true` עם `googleSyncedAt: null`
+                 * ‏— סימן שממתין לסבב הבא כדי לבטל את האירוע
+                 * ‏ולמחוק את השורה.
+                 *
+                 * ‏כתיבה שמתאימה על המזהה בלבד הייתה חותמת
+                 * ‏‎`googleSyncedAt` על הסימן הזה, והשאילתה שלמעלה
+                 * ‏דורשת `googleSyncedAt: null` — כלומר הסימן לא היה
+                 * ‏נבחר שוב **לעולם**: האירוע נשאר ביומן, והשורה
+                 * ‏נשארת מוסתרת במסד.
+                 *
+                 * ‏התנאי מתאר את המצב שממנו יצאנו, ולכן אפס שורות
+                 * ‏נופל למסלול הביטול — האירוע נמחק, והסימן נשאר
+                 * ‏לסבב הבא שימחק את השורה.
+                 */
+                where: { id: task.id, tenantId: link.tenantId, deletedAfterSync: false },
                 data: { googleEventId, googleSyncedAt: new Date() },
               })
             ).count,
@@ -275,7 +295,26 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
     const rows = await this.prisma.withExplicitTenant(link.tenantId, write);
     if (rows > 0) return true;
     if (googleEventId !== null) {
-      await this.google.upsertEvent(link, { googleEventId, ...event, cancelled: true });
+      /*
+       * ‎**וזו ההזדמנות האחרונה** (ביקורת Codex, P2).
+       *
+       * ‏בכל מסלול אחר כישלון מול Google נגמר בסבב חוזר: השורה
+       * ‏נשארת עם `googleSyncedAt: null` והיא תיבחר שוב. כאן אין
+       * ‏שורה — היא נמחקה תחתינו — ולכן המזהה שביד הוא הדבר היחיד
+       * ‏שמצביע על האירוע, והוא נעלם עם המשתנה.
+       *
+       * ‏לכן הוא נרשם ביומן לפני שהוא אובד: זה מה שמאפשר לאדם
+       * ‏למחוק את האירוע ידנית. השגיאה ממשיכה למעלה ונרשמת
+       * ‏ב-`lastError` של החיבור — כישלון כאן אינו „הצליח”.
+       */
+      try {
+        await this.google.upsertEvent(link, { googleEventId, ...event, cancelled: true });
+      } catch (error: unknown) {
+        this.logger.error(
+          `אירוע יתום ביומן ${link.calendarId} של ${link.userId}: ${googleEventId} — ${String(error).slice(0, 200)}`,
+        );
+        throw error;
+      }
     }
     return false;
   }

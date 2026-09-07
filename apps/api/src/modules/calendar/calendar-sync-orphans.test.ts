@@ -42,11 +42,28 @@ function serviceFor(input: {
   appointments?: Record<string, unknown>[];
   rowsAffected: number;
   calls: UpsertArgs[];
+  /**
+   * ‏מה קרה לשורה בזמן שדיברנו עם Google. `"marked"` הוא המצב
+   * ‏שמחיקת שורת גיוס משאירה על פולואפ שכבר מסונכרן.
+   */
+  meanwhile?: "gone" | "marked";
+  /** ‏ביטול מפצה שנכשל מול Google — הכישלון חייב להישמע. */
+  cancelFails?: boolean;
 }): CalendarSyncService {
   const tx = {
     task: {
       findMany: async () => input.tasks ?? [],
-      updateMany: async () => ({ count: input.rowsAffected }),
+      updateMany: async (args: { where: { deletedAfterSync?: boolean } }) => ({
+        /*
+         * ‏המסד המדומה מכבד את התנאי: שורה שסומנה לניקוי אינה
+         * ‏מתאימה ל-`deletedAfterSync: false`, וכתיבה ששכחה את
+         * ‏התנאי הייתה תופסת אותה בכל זאת.
+         */
+        count:
+          input.meanwhile === "marked" && args.where.deletedAfterSync === false
+            ? 0
+            : input.rowsAffected,
+      }),
       deleteMany: async () => ({ count: input.rowsAffected }),
     },
     appointment: {
@@ -61,6 +78,9 @@ function serviceFor(input: {
   const google = {
     upsertEvent: async (_link: CalendarLink, event: UpsertArgs) => {
       input.calls.push({ googleEventId: event.googleEventId, cancelled: event.cancelled });
+      if (event.cancelled && input.cancelFails === true) {
+        throw new Error("Google החזיר שגיאה");
+      }
       /* ‏יצירה מחזירה מזהה חדש; ביטול מחזיר `null`, כמו האמיתי */
       return event.cancelled ? null : (event.googleEventId ?? "gcal-new");
     },
@@ -124,6 +144,51 @@ describe("‏דחיפה ליומן — אירוע לא נשאר בלי שורה"
       { googleEventId: null, cancelled: false },
       { googleEventId: "gcal-new", cancelled: true },
     ]);
+  });
+
+  /*
+   * ‎**וגם „סומנה לניקוי” הוא שינוי שקרה תחתינו** (ביקורת Codex, P2).
+   *
+   * ‏מחיקת שורת גיוס אינה תמיד מוחקת את הפולואפ: משימה שכבר
+   * ‏מסונכרנת נשארת עם `deletedAfterSync: true` ו-`googleSyncedAt: null`
+   * ‏— סימן שממתין לסבב הבא. כתיבה שמתאימה על המזהה בלבד הייתה
+   * ‏חותמת `googleSyncedAt` על הסימן, והשאילתה דורשת `null` — כלומר
+   * ‏הסימן לא היה נבחר שוב לעולם, והאירוע נשאר ביומן.
+   */
+  it("‏השורה סומנה לניקוי בזמן הדחיפה ⇒ האירוע מבוטל, לא נחתם", async () => {
+    const calls: UpsertArgs[] = [];
+    const pushed = await push(
+      serviceFor({
+        tasks: [{ ...openTask, googleEventId: "gcal-1" }],
+        rowsAffected: 1,
+        meanwhile: "marked",
+        calls,
+      }),
+      "pushTasks",
+    );
+    expect(pushed).toBe(0);
+    expect(calls).toEqual([
+      { googleEventId: "gcal-1", cancelled: false },
+      { googleEventId: "gcal-1", cancelled: true },
+    ]);
+  });
+
+  /*
+   * ‎**וביטול מפצה שנכשל אינו „הצליח”** (ביקורת Codex, P2).
+   *
+   * ‏בכל מסלול אחר כישלון מול Google נגמר בסבב חוזר, כי השורה
+   * ‏נשארת עם `googleSyncedAt: null`. כאן אין שורה, ולכן המזהה
+   * ‏שביד הוא הדבר היחיד שמצביע על האירוע.
+   */
+  it("‏ביטול מפצה שנכשל עולה למעלה ואינו נבלע", async () => {
+    const calls: UpsertArgs[] = [];
+    await expect(
+      push(
+        serviceFor({ tasks: [openTask], rowsAffected: 0, cancelFails: true, calls }),
+        "pushTasks",
+      ),
+    ).rejects.toThrow();
+    expect(calls).toHaveLength(2);
   });
 
   /*
