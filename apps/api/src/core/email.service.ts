@@ -495,8 +495,40 @@ export class EmailService {
       this.logger.log(`הספק מאשר שההודעה יצאה — לא נשלחת שוב (${idempotency.key})`);
       return true;
     }
-    /* ‏הספק אינו מכיר אותה, או שהניסיון הקודם נדחה — שולחים */
-    await this.settle(idempotency, "sending", null);
+    /*
+     * ‎**התפיסה השנייה חייבת להיות מותנית, בדיוק כמו הראשונה**
+     * ‏(ביקורת Codex, P1).
+     *
+     * ‏‎`createMany` עם `skipDuplicates` מסדר את הכניסה **הראשונה**
+     * ‏בלבד. בניסיון החוזר — שורה `rejected`, או `sending` שהתיישנה
+     * ‏שהספק אינו מכיר — שני עובדים קוראים את אותה שורה, שניהם
+     * ‏מגיעים לכאן, ועדכון בלתי-מותנה מצליח אצל שניהם. שניהם
+     * ‏מחזירים „שלח”, והלקוח מקבל את המייל פעמיים: בדיוק מה
+     * ‏שהמנגנון קיים כדי למנוע.
+     *
+     * ‏התנאי הוא **המצב שקראנו ועוד החותמת שלו**, ולא אחד מהם:
+     * ‏מעבר `rejected → sending` נחסם על ידי המצב לבדו, אבל
+     * ‏‎`sending → sending` (שורה שהתיישנה) אינו משנה את המצב, ורק
+     * ‏החותמת מבדילה. שורה שהתיישנה ישנה בהכרח מ-`now` בעשרות
+     * ‏שניות, ולכן אין כאן התנגשות של אותה מילישנייה.
+     *
+     * ‏מי שהפסיד אינו „נכשל”: יש שליחה זהה בדרך ממש עכשיו, וזו
+     * ‏אותה תשובה בדיוק שניתנת ל-`inFlight` שמעל.
+     */
+    const taken = await this.prisma.emailSendAttempt.updateMany({
+      where: {
+        key: idempotency.key,
+        status: previous?.status ?? "sending",
+        updatedAt: previous?.updatedAt ?? now,
+      },
+      data: { status: "sending", providerMessageId: null, updatedAt: now },
+    });
+    if (taken.count === 0) {
+      throw new EmailAmbiguousError(
+        "שליחה זהה כבר בתהליך — המתינו רגע ובדקו שוב",
+        idempotency.key,
+      );
+    }
     return false;
   }
 

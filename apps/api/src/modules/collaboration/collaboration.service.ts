@@ -1997,6 +1997,7 @@ export class CollaborationService {
         fromTenantId: ctx.tenantId,
         presentation: sent.presentation,
         commissionSplit,
+        coopOfferId: id,
       });
     } catch (error: unknown) {
       this.logger.warn(`מייל על הצעת נכס (${id}) לא נשלח: ${String(error)}`);
@@ -2034,6 +2035,19 @@ export class CollaborationService {
     fromTenantId: string;
     presentation: NetworkPresentationFields;
     commissionSplit: number;
+    /**
+     * ‎**ההצעה עצמה היא הזהות** (ביקורת Codex, P2).
+     *
+     * ‏המפתח נגזר קודם מהמשרד המציע ומהביקוש בלבד. משרד שמציע
+     * ‏**שני נכסים שונים** לאותו ביקוש באותו יום — ש-`CoopOffer`
+     * ‏מתיר במפורש, כי הייחודיות שלו היא `(demandId, propertyId)` —
+     * ‏היה מייצר את אותו מפתח פעמיים, והמייל השני, עם נכס אחר
+     * ‏לגמרי, היה נבלע בשקט.
+     *
+     * ‏ומזהה ההצעה אינו זקוק לתאריך: הצעה נוצרת פעם אחת, וניסיון
+     * ‏חוזר עליה הוא בדיוק אותה שליחה.
+     */
+    coopOfferId: string;
   }): Promise<void> {
     if (!(await this.email.isConfigured())) return;
 
@@ -2095,15 +2109,8 @@ export class CollaborationService {
       .map((chip) => chip.text)
       .join(" · ");
 
-    /* ‏הצעה אחת לביקוש אחד ביום — סבב חוזר אינו הצעה שנייה */
-    const idempotency = {
-      key: dailyEmailIdempotencyKey(
-        "demandoffer",
-        `${input.fromTenantId}:${input.demandBuyerId ?? input.demandTenantId}`,
-        new Date(),
-      ),
-      purpose: "collab",
-    };
+    /* ‏ההצעה עצמה היא הזהות — ראו `coopOfferId` בחתימה */
+    const idempotency = { key: `demandoffer:${input.coopOfferId}`, purpose: "collab" };
     await this.email.send(to.email, "הצעת נכס חדשה לביקוש שפרסמתם ברשת", {
       heading: "מחכה לכם הצעת נכס",
       greeting: `שלום ${to.name},`,

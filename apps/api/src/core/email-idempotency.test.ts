@@ -51,6 +51,27 @@ function fakePrisma(): { prisma: unknown; rows: Map<string, Row> } {
         rows.set(args.where.key, { ...row, ...args.data });
         return rows.get(args.where.key);
       },
+      /*
+       * ‎**התנאי נאכף כאן, כמו במסד.** פיקסצ׳ר שמעדכן בלי לבדוק את
+       * ‏ה-`where` היה מדווח „נתפס” לשני העובדים — כלומר מודד את
+       * ‏עצמו במקום את הקוד.
+       */
+      updateMany: async (args: {
+        where: { key: string; status?: string; updatedAt?: Date };
+        data: Partial<Row>;
+      }) => {
+        const row = rows.get(args.where.key);
+        if (
+          row === undefined ||
+          (args.where.status !== undefined && row.status !== args.where.status) ||
+          (args.where.updatedAt !== undefined &&
+            row.updatedAt.getTime() !== args.where.updatedAt.getTime())
+        ) {
+          return { count: 0 };
+        }
+        rows.set(args.where.key, { ...row, ...args.data });
+        return { count: 1 };
+      },
       deleteMany: async () => ({ count: 0 }),
     },
     /* ‏אין דומיין משרד בבדיקות האלה — השליחה מכתובת הפלטפורמה */
@@ -230,6 +251,49 @@ describe("‏זיכרון השליחה", () => {
     });
     await send(service, KEY);
     expect(sent).toBe(1);
+  });
+});
+
+/*
+ * ‎**התפיסה השנייה, ולמה היא חייבת להיות מותנית** (ביקורת Codex, P1).
+ *
+ * ‏`createMany` מסדר את הכניסה הראשונה בלבד. בניסיון החוזר — שורה
+ * ‏שנדחתה, או שליחה שהתיישנה — שני עובדים קוראים את אותה שורה,
+ * ‏ועדכון בלתי-מותנה מצליח אצל שניהם. שניהם שולחים.
+ */
+describe("‏שני עובדים על אותו מפתח", () => {
+  it("‏אחרי דחייה — רק אחד מהם שולח", async () => {
+    const { prisma, rows } = fakePrisma();
+    const service = serviceWith(prisma);
+    const { calls } = stubFetch(422, 200, 200);
+    await expect(send(service, KEY)).rejects.toBeInstanceOf(EmailRejectedError);
+    expect(rows.get(KEY.key)?.status).toBe("rejected");
+
+    const results = await Promise.allSettled([send(service, KEY), send(service, KEY)]);
+    const sent = results.filter((r) => r.status === "fulfilled");
+    const blocked = results.filter((r) => r.status === "rejected");
+    expect(sent).toHaveLength(1);
+    expect(blocked).toHaveLength(1);
+    expect((blocked[0] as PromiseRejectedResult).reason).toBeInstanceOf(EmailAmbiguousError);
+    // ‏הדחייה הראשונה ועוד שליחה אחת — ולא שתיים
+    expect(calls).toHaveLength(2);
+  });
+
+  /* ‏ואותו כלל על שורה שהתיישנה: שם המצב אינו משתנה, והחותמת מבדילה */
+  it("‏על שליחה שהתיישנה — רק אחד מהם שולח", async () => {
+    const { prisma, rows } = fakePrisma();
+    const service = serviceWith(prisma);
+    stubFetch(503);
+    await expect(send(service, KEY)).rejects.toBeInstanceOf(EmailAmbiguousError);
+    // ‏מצב „עמום” שהספק אינו מכיר — שני העובדים יגיעו לתפיסה
+    vi.stubGlobal("fetch", async (url: string) =>
+      url.includes("messages/outbound")
+        ? { ok: true, status: 200, json: async () => ({ TotalCount: 0 }), text: async () => "" }
+        : { ok: true, status: 200, json: async () => ({ MessageID: "m" }), text: async () => "" },
+    );
+    const results = await Promise.allSettled([send(service, KEY), send(service, KEY)]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(rows.get(KEY.key)?.status).toBe("sent");
   });
 });
 
