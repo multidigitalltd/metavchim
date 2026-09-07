@@ -16,6 +16,7 @@ import {
   limitState,
   type Page,
   type PropertyFields,
+  isSharedTabuProperty,
   SHARED_TABU_PROPERTY_TYPE,
 } from "@metavchim/shared";
 import {
@@ -443,6 +444,17 @@ export class PropertiesService {
     internalNotes?: string;
     owner: { name: string; phone: string };
     /**
+     * ‎**האם הבעלים נשאל על רישום משותף — פרמטר חובה.**
+     *
+     * ‏הקורא היחיד הוא טופס המוכר, והוא היחיד שיודע: הטופס שואל
+     * ‏את השאלה, והתשובה מגיעה או לא מגיעה. השירות אינו יכול
+     * ‏להסיק זאת מ-`fields` — `sharedTabu: false` נראה זהה בין
+     * ‏„הבעלים ענה שלא” לבין „השדה לא נשלח ונפל לברירת מחדל”.
+     *
+     * ‏חובה ולא רשות, כדי שקורא שני שייכתב מחר ייאלץ להכריע.
+     */
+    sharedTabuAnswered: boolean;
+    /**
      * המזהה **נקבע מראש על ידי הקורא**, ולא נוצר כאן.
      *
      * הטופס שומר אותו על שורת הבקשה **בתוך הטרנזקציה שתופסת את
@@ -455,12 +467,142 @@ export class PropertiesService {
   }): Promise<string> {
     /* ‏טופס ציבורי בהקשר משרד — אין מי שהקליד, ראו `typedBy` */
     const id = await this.persist({ ...input, typedBy: "office" });
+    /*
+     * ‎**הבעלים נשאל — וזו תשובה, לא ברירת מחדל.**
+     *
+     * ‏זו הדרך היחידה שבה נכס נולד כשהוא כבר נבדק: הטופס שאל את
+     * ‏בעל הנכס עצמו. בלי החותמת הוא היה מופיע במסך הסקירה יחד
+     * ‏עם כל השאר, ומי שיפתח אותו יגלה שהשאלה כבר נענתה.
+     */
+    if (input.sharedTabuAnswered) {
+      await this.prisma.withTenant((tx) =>
+        tx.property.updateMany({
+          where: { id, tenantId: TenantContext.current().tenantId },
+          data: { sharedTabuConfirmedAt: new Date() },
+        }),
+      );
+    }
     try {
       await this.matching.recomputeForProperty(id);
     } catch {
       // הנכס כבר נשמר; חישוב ההתאמות אינו חלק מהצלחת היצירה.
     }
     return id;
+  }
+
+  /**
+   * ‎**מה שטרם נבדק — המעבר החד-פעמי על המאגר.**
+   *
+   * ## ‏למה זה קיים
+   *
+   * ‏המנוע **פוסל** נכס בטאבו משותף מקונה שסירב. נכס שבאמת רשום
+   * ‏במשותף ולא סומן נקרא `false`, ולכן הוא מוצע דווקא למי שאמר
+   * ‏„לא” — ההבטחה בלי כיסוי שכל התכונה קיימת כדי למנוע.
+   *
+   * ## ‏ולמה לא מצב שלישי בעמודה
+   *
+   * ‏`NULL` בדגל עצמו היה או לא משנה דבר (אם הוא נקרא כ„לא”), או
+   * ‏עוצר את **כל** המאגר הקיים מלהיות מוצע עד שמישהו יעבור עליו
+   * ‏שורה-שורה. שתי התוצאות גרועות. החותמת נפרדת מהדגל, ולכן
+   * ‏ההתאמות אינן משתנות כלל — הרשימה הזו היא עבודה, לא שער.
+   *
+   * ‏ממוין לפי עדכון אחרון: מי שנגעו בו לאחרונה הוא מי שזוכרים
+   * ‏עליו משהו.
+   */
+  async sharedTabuReview(limit: number): Promise<{
+    items: {
+      id: string;
+      city?: string;
+      street?: string;
+      houseNumber?: string;
+      propertyType?: string;
+      priceAgorot?: number;
+      sharedTabu: boolean;
+      updatedAt: Date;
+    }[];
+    remaining: number;
+  }> {
+    const tenantId = TenantContext.current().tenantId;
+    const where = {
+      tenantId,
+      deletedAt: null,
+      sharedTabuConfirmedAt: null,
+    } as const;
+    return this.prisma.withTenant(async (tx) => {
+      const [rows, remaining] = await Promise.all([
+        tx.property.findMany({
+          where,
+          orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+          take: limit,
+          select: {
+            id: true,
+            city: true,
+            street: true,
+            houseNumber: true,
+            propertyType: true,
+            priceAgorot: true,
+            sharedTabu: true,
+            updatedAt: true,
+          },
+        }),
+        tx.property.count({ where }),
+      ]);
+      return {
+        items: rows.map((row) => ({
+          id: row.id,
+          ...(row.city === null ? {} : { city: row.city }),
+          ...(row.street === null ? {} : { street: row.street }),
+          ...(row.houseNumber === null ? {} : { houseNumber: row.houseNumber }),
+          ...(row.propertyType === null ? {} : { propertyType: row.propertyType }),
+          ...(row.priceAgorot === null ? {} : { priceAgorot: Number(row.priceAgorot) }),
+          /*
+           * ‏הערך הנוכחי כפי שהמנוע קורא אותו — הדגל **או** הסוג
+           * ‏הישן. מסך שמציג „לא משותף” על שורה שסוגה הוא הייצוג
+           * ‏הישן היה מזמין תשובה שסותרת את מה שכבר קורה בפועל.
+           */
+          sharedTabu: isSharedTabuProperty({
+            sharedTabu: row.sharedTabu,
+            propertyType: row.propertyType,
+          }),
+          updatedAt: row.updatedAt,
+        })),
+        remaining,
+      };
+    });
+  }
+
+  /**
+   * ‎**התשובה — הדבר היחיד שכותב את החותמת.**
+   *
+   * ‏שמירה רגילה של כרטיס הנכס אינה חותמת, בכוונה: טופס העריכה
+   * ‏שולח את מצבו המלא כולל התיבה, ולכן כל שמירה הייתה מסמנת
+   * ‏„נבדק” גם כשאיש לא הסתכל על השאלה — והרשימה הייתה מתרוקנת
+   * ‏מעצמה בלי שאיש בדק דבר. חותמת שאפשר לקבל בטעות אינה עדות.
+   *
+   * ‏הכתיבה עוברת דרך `fieldsToColumns`, ולכן „לא משותף” על שורה
+   * ‏שסוגה הוא הייצוג הישן פורש גם את הסוג — אותו כלל בדיוק של
+   * ‏טופס העריכה, ולא ניסוח שני שיסטה ממנו.
+   */
+  async confirmSharedTabu(id: string, sharedTabu: boolean): Promise<{ remaining: number }> {
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.withTenant(async (tx) => {
+      const current = await tx.property.findFirst({
+        where: { id, tenantId, deletedAt: null },
+        select: { propertyType: true },
+      });
+      if (current === null) throw new NotFoundException("הנכס לא נמצא");
+      await tx.property.update({
+        where: { id },
+        data: {
+          ...fieldsToColumns({ sharedTabu }, current),
+          sharedTabuConfirmedAt: new Date(),
+        },
+      });
+      const remaining = await tx.property.count({
+        where: { tenantId, deletedAt: null, sharedTabuConfirmedAt: null },
+      });
+      return { remaining };
+    });
   }
 
   async createForImport(input: {

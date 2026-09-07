@@ -1314,6 +1314,16 @@ export class IntakeService {
           fields,
           owner: { name: claim.ownerName, phone: claim.ownerPhone },
           internalNotes: sellerSummaryLines(answers).join("\n"),
+          /*
+           * ‎**הבעלים עצמו נשאל — וזה מה שהופך את התשובה לתשובה.**
+           *
+           * ‏הטופס שואל על רישום משותף במפורש, ולכן נכס שנולד ממנו
+           * ‏אינו זקוק למעבר הידני. `answers.sharedTabu` ולא
+           * ‏`fields.sharedTabu`: אחרי הסכימה שניהם בוליאניים,
+           * ‏ו„הבעלים ענה שלא” נראה זהה ל„השדה לא נשלח”. השאלה
+           * ‏היחידה שאפשר לענות עליה כאן היא האם הגיעה תשובה.
+           */
+          sharedTabuAnswered: answers.sharedTabu !== undefined,
         });
         return { propertyId, created: true, note: null };
       } catch (error: unknown) {
