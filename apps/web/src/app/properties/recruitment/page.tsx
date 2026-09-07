@@ -113,7 +113,25 @@ export default function RecruitmentPage() {
     const parts = [params.toString(), filtersToQuery(filters).slice(1)].filter((p) => p !== "");
     const query = parts.length === 0 ? "" : `?${parts.join("&")}`;
     const data = await apiGet<TargetRow[]>(`/recruitment${query}`);
-    setRows(Array.isArray(data) ? data : []);
+    const fresh = Array.isArray(data) ? data : [];
+    setRows(fresh);
+    /*
+     * ‎**הבחירה נגזמת למה שחזר** (ביקורת Codex, P1).
+     *
+     * ‏בחירה שנעשתה לפני שינוי סינון שרדה אותו, ו„מחיקת הנבחרים”
+     * ‏שלחה גם מזהים שכבר אינם בטבלה — כלומר מחיקה של שורות שהמתווך
+     * ‏אינו רואה, ושאישור מספרי („למחוק 40”) אינו יכול לחשוף.
+     * ‏פעולה הרסנית חייבת לגעת רק במה שמוצג.
+     *
+     * ‏אותה קבוצה מוחזרת כשלא נגרע דבר, כדי שהעדכון לא יריץ רינדור
+     * ‏מיותר בכל טעינה.
+     */
+    setSelected((was) => {
+      if (was.size === 0) return was;
+      const visible = new Set(fresh.map((row) => row.id));
+      const kept = [...was].filter((id) => visible.has(id));
+      return kept.length === was.size ? was : new Set(kept);
+    });
   }, [filter, source, city, minArea, maxArea, filters]);
 
   useEffect(() => {
@@ -197,7 +215,15 @@ export default function RecruitmentPage() {
    * ‏והשורה נעלמת מכל שאילתה.
    */
   async function removeSelected(): Promise<void> {
-    const ids = [...selected];
+    /*
+     * ‎**המזהים נגזרים מהשורות המוצגות, ולא מקבוצת הבחירה.**
+     *
+     * ‏הגיזום בטעינה שומר על השתיים מסונכרנות, אבל פעולה הרסנית
+     * ‏לא אמורה להישען על סנכרון: מה שנשלח למחיקה הוא מה שרואים,
+     * ‏מעצם הבנייה. שתי שכבות לאותה הבטחה, כי אישור מספרי
+     * ‏(„למחוק 40”) אינו יכול לחשוף מה נכנס בטעות.
+     */
+    const ids = (rows ?? []).filter((row) => selected.has(row.id)).map((row) => row.id);
     if (ids.length === 0) return;
     if (
       !window.confirm(

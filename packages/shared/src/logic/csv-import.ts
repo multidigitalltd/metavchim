@@ -38,9 +38,17 @@ export function parseYesNo(raw: string): boolean | undefined {
    * ‏ייצוא אמיתי כותב בעמודת המעלית ‎„כן,שתיים”‎ או „כן,מ. שבת” —
    * ‏כלומר כן, ואיזו. ההשוואה המדויקת החזירה „לא ידוע”, והשדה
    * ‏נשאר ריק דווקא בנכסים שיש בהם שתי מעליות.
+   *
+   * ‎**פיצול על המפריד, ולא `\b`** (ביקורת Codex, P1). גבול-מילה
+   * ‏ב-JavaScript נמדד מול ‎`[A-Za-z0-9_]`‎: אות עברית אינה תו-מילה,
+   * ‏ולכן אין גבול בין „ן” לפסיק — התנאי היה `false` תמיד, גם על
+   * ‎„כן” לבדו. כלומר הטיפול במקרה שבשבילו הוא נוסף לא רץ מעולם.
+   *
+   * ‏האסימון הראשון נבדק מול אותן שתי הרשימות שמעל, ולא מול
+   * ‏רשימה שלישית: „כן” הוא „כן” בשתי הצורות.
    */
-  if (/^כן\b/u.test(value)) return true;
-  if (/^לא\b/u.test(value)) return false;
+  const first = value.split(/[,;|/]/u)[0]?.trim() ?? "";
+  if (first !== value && first !== "") return parseYesNo(first);
   return undefined;
 }
 
@@ -356,7 +364,20 @@ export const PROPERTY_TYPE_MAP: Record<string, PropertyType> = {
  * ‏בלעדיו, כלומר אותו קובץ נקרא אחרת בשני המסלולים.
  */
 export function propertyTypesForTerm(term: string): PropertyType[] {
-  const needle = term.trim().toLowerCase();
+  /*
+   * ‎**שני הצדדים עוברים את אותו נרמול** (ביקורת Codex, P2).
+   *
+   * ‏מפתחות המפה נכתבים כפי שהם מופיעים בקבצים (‎„קוטג”‎ בלי גרש,
+   * ‏כי הגרש מוסר בנרמול בזמן הייבוא), והמונח מגיע מהמקלדת של
+   * ‏המתווך — עם גרש. השוואה בין השניים כמות שהם החזירה „לא נמצא”
+   * ‏על הכתיב הנכון בדיוק: מי שכתב „קוטג׳” לא מצא את השורה שנכנסה
+   * ‏מ„קוטג׳” בקובץ.
+   *
+   * ‏הנרמול על המונח בלבד ולא גם על המפתחות: המפתחות **כבר**
+   * ‏כתובים בצורה המנורמלת, כי זו הצורה שהייבוא מחפש בה. נרמול
+   * ‏שני היה ענף שאין דרך להפיל אותו, וכזה אינו נשמר.
+   */
+  const needle = normalizeHeader(term);
   if (needle === "") return [];
   const found = new Set<PropertyType>();
   for (const [hebrew, value] of Object.entries(PROPERTY_TYPE_MAP)) {

@@ -4,7 +4,10 @@ import {
   parsePropertiesCsv,
   parseRecruitmentCsv,
   parseShekelsToAgorot,
+  parseYesNo,
+  PROPERTY_TYPE_MAP,
   propertyTypeFromCsv,
+  propertyTypesForTerm,
 } from "./csv-import.js";
 
 describe("parseShekelsToAgorot", () => {
@@ -346,5 +349,61 @@ describe("סוג נכס מתא בקובץ", () => {
   it("אינו ממציא סוג למה שאינו סוג", () => {
     expect(propertyTypeFromCsv("להשקעה")).toBeUndefined();
     expect(propertyTypeFromCsv("")).toBeUndefined();
+  });
+});
+
+describe("כן/לא — ערך שנושא איתו פירוט", () => {
+  /*
+   * ‎**„כן,שתיים” הוא כן.** ייצוא אמיתי כותב בעמודת המעלית „כן”
+   * ועוד מה — כמה מעליות, ואם יש מעלית שבת. ההשוואה המדויקת
+   * החזירה „לא ידוע”, והשדה נשאר ריק דווקא בנכסים שיש בהם שתי
+   * מעליות.
+   *
+   * ‏גבול-מילה (`\b`) אינו עונה על זה: הוא נמדד מול `[A-Za-z0-9_]`,
+   * ואות עברית אינה תו-מילה — כלומר התנאי היה `false` תמיד, גם
+   * על „כן” לבדו (ביקורת Codex).
+   */
+  it("קורא את האסימון הראשון כשיש אחריו פירוט", () => {
+    expect(parseYesNo("כן,שתיים")).toBe(true);
+    expect(parseYesNo("כן,מ. שבת,שתיים")).toBe(true);
+    expect(parseYesNo("לא, אין")).toBe(false);
+  });
+
+  it("ולא שבר את הצורות הפשוטות", () => {
+    expect(parseYesNo("כן")).toBe(true);
+    expect(parseYesNo("לא")).toBe(false);
+    expect(parseYesNo("")).toBeUndefined();
+    expect(parseYesNo("שתיים")).toBeUndefined();
+  });
+});
+
+describe("חיפוש סוג נכס בעברית", () => {
+  /*
+   * ‎**שני הצדדים באותו נרמול.** מפתחות המפה נכתבים כפי שהם
+   * מופיעים בקבצים („קוטג” בלי גרש, כי הגרש מוסר בנרמול בייבוא),
+   * והמונח מגיע מהמקלדת — עם גרש. בלי נרמול סימטרי, מי שכתב
+   * „קוטג׳” לא מצא את השורה שנכנסה מ„קוטג׳” בקובץ (ביקורת Codex).
+   */
+  it("מוצא גם כשהמונח נושא סימני פיסוק שהנרמול מסיר", () => {
+    expect(propertyTypesForTerm("קוטג׳")).toContain("private_house");
+    expect(propertyTypesForTerm("קוטג")).toContain("private_house");
+    expect(propertyTypesForTerm('פנטהאוס')).toContain("penthouse");
+    expect(propertyTypesForTerm("פנטהאוז")).toContain("penthouse");
+  });
+
+  /*
+   * ‎**מה שאפשר לייבא, אפשר גם לחפש.** הכתיבים שנוספו למפה כדי
+   * שקובץ ייקרא נכון הם גם מה שהמתווך מקליד בשדה החיפוש — ומפתח
+   * שנוסף בצורה שהחיפוש אינו מוצא הוא בדיוק הפער שנפתח כאן.
+   */
+  it("כל סוג שאפשר לייבא — אפשר גם לחפש בכתיב שלו", () => {
+    for (const [hebrew, value] of Object.entries(PROPERTY_TYPE_MAP)) {
+      expect(propertyTypesForTerm(hebrew), hebrew).toContain(value);
+    }
+  });
+
+  it("מונח ריק אינו מחזיר את כל הסוגים", () => {
+    expect(propertyTypesForTerm("")).toEqual([]);
+    expect(propertyTypesForTerm("   ")).toEqual([]);
   });
 });
