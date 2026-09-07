@@ -8,6 +8,8 @@ import { resetA11ySync } from "@/lib/a11y-sync";
 import { clearSessionCache, fetchMe } from "@/lib/session-cache";
 import type { AuthUser } from "@/lib/use-auth";
 import { FeaturesProvider } from "@/lib/use-features";
+import { isPublicPath } from "@/lib/public-paths";
+import { IconChevronDown } from "./icons";
 import { NotificationsBell } from "./notifications-bell";
 import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
@@ -40,36 +42,7 @@ import { OfficeLogoMark } from "./office-logo-mark";
  */
 const AUTH_PREFIXES = ["/login", "/signup", "/forgot-password", "/reset-password", "/change-password"];
 
-const PUBLIC_PREFIXES = [
-  "/login",
-  "/signup",
-  "/offer/",
-  "/sign/",
-  "/p/", // דף נחיתה של נכס — הלקוח לא רואה תפריטי מתווך
-  // טופס „מה אתם מחפשים” שהלקוח ממלא — אותו נימוק בדיוק
-  "/f/",
-  // מסמכים ציבוריים — מקושרים מאתר התדמית ומדף ההצעה, ונקראים גם
-  // ע"י מי שאינו משתמש רשום (לקוח קצה שקיבל הצעה, משרד ששוקל להצטרף)
-  "/accessibility",
-  "/privacy",
-  "/terms",
-  // תיעוד הקליטה — נקרא בידי מי שמחבר מקור, ולעיתים קרובות בכלל
-  // לא בידי משתמש רשום: מפתח של המשרד, או מודל שפה שקורא את העמוד
-  "/docs",
-  "/change-password",
-  "/forgot-password",
-  "/reset-password",
-  /*
-   * ‎**דפי ההסרה מדיוור — מסגרת ריקה, בלי תפריט וبלי „מי אני”.**
-   *
-   * ‎`/offer-optout/` חסר כאן מאז שנולד: הדף עצמו עבד, אבל הוא נעטף
-   * בתפריט המלא של המערכת ושלח `/auth/me` שאין לו סיכוי להצליח —
-   * כלומר לקוח קצה שביקש לצאת מרשימת תפוצה קיבל מסך של אפליקציה
-   * שאינו שייך אליו. אותו נימוק בדיוק כמו ב-`/offer/` שמעליו.
-   */
-  "/offer-optout/",
-  "/nudge-optout/",
-];
+/* הרשימה המשותפת — ראו lib/public-paths.ts; כפתור הנגישות משתמש בה גם. */
 
 /** כותרות המסכים בשורת הכותרת — מיפוי הנתיבים מקובץ העיצוב. */
 const SCREEN_TITLES: [prefix: string, title: string][] = [
@@ -289,8 +262,19 @@ const ICONS = {
  *
  * נתיב שאינו כאן (דשבורד, הדרכות, פרופיל) אינו שייך לאף מודול.
  */
+/**
+ * ‏אילו נתיבים שייכים לתת-התפריט של כל קבוצה.
+ *
+ * ‏משמש להכרעה אחת: האם לפתוח את הקבוצה מאליה כשהמשתמש כבר נמצא
+ * ‏בתוכה. מופרד מ-`NAV_MODULE` כי זו שאלה על **מיקום**, לא על הרשאה.
+ */
+const NAV_GROUP_PATHS: Record<string, readonly string[]> = {
+  properties: ["/properties/recruitment"],
+};
+
 const NAV_MODULE: Record<string, readonly string[]> = {
   "/properties": ["properties"],
+  "/properties/recruitment": ["properties"],
   "/buyers": ["buyers"],
   "/leads": ["leads"],
   /*
@@ -330,7 +314,7 @@ function initials(name: string): string {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const isPublic = PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));
+  const isPublic = isPublicPath(pathname);
   const [me, setMe] = useState<Me | null>(null);
   const [counts, setCounts] = useState<NavSummary | null>(null);
   /*
@@ -343,6 +327,15 @@ export function AppShell({ children }: { children: ReactNode }) {
    */
   const [featuresFailed, setFeaturesFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  /*
+   * ‎**קבוצה פתוחה בתפריט — `null` = טרם נגעו בה.**
+   *
+   * ‏שלוש מצבים ולא שניים, בכוונה: כל עוד המשתמש לא לחץ על החץ,
+   * ‏הפתיחה **נגזרת מהמסך שבו הוא נמצא** — מי שנכנס ל„נכסים לגיוס”
+   * ‏מקישור חיצוני היה רואה תפריט סגור בלי שום רמז לאן הגיע. אחרי
+   * ‏לחיצה, הבחירה שלו גוברת.
+   */
+  const [navGroupOpen, setNavGroupOpen] = useState<Record<string, boolean>>({});
   const drawerRef = useRef<HTMLElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -539,6 +532,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     label: string,
     icon: ReactNode,
     end?: ReactNode,
+    /**
+     * ‏נתיבי משנה שיושבים תחת הפריט הזה בתפריט.
+     *
+     * ‎`aria-current="page"` פירושו „זה העמוד הנוכחי”, ויכול להיות
+     * נכון על פריט אחד בלבד. בלי זה, `startsWith` היה מסמן גם את
+     * „נכסים” וגם את „נכסים לגיוס” — שני פריטים ירוקים, ואף אחד
+     * מהם לא מדויק.
+     */
+    subPaths?: readonly string[],
   ): ReactNode => {
     /*
      * מודול חסום — הפריט יורד מהסרגל, ולא מוצג ומוביל ל-403. פריט
@@ -548,7 +550,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     const modules = NAV_MODULE[href];
     const blocked = counts?.blockedModules ?? [];
     if (modules !== undefined && modules.every((m) => blocked.includes(m))) return null;
-    const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+    const active =
+      href === "/"
+        ? pathname === "/"
+        : pathname.startsWith(href) &&
+          !(subPaths ?? []).some((sub) => pathname.startsWith(sub));
     return (
       <Link
         key={href}
@@ -562,6 +568,86 @@ export function AppShell({ children }: { children: ReactNode }) {
         <span className="mv-sidebar-label">{label}</span>
         {end}
       </Link>
+    );
+  };
+
+  /**
+   * ‏פריט משנה — יושב תחת פריט אב ומוסט פנימה.
+   *
+   * ‏אין לו סמל משלו: הסמל שייך לקטגוריה, וחזרה עליו בשורה מתחתיה
+   * הייתה אומרת „עוד נכסים” במקום „סוג אחר של נכסים”. ההסטה היא מה
+   * שמראה את ההיררכיה.
+   */
+  const navSubLink = (href: string, label: string): ReactNode => {
+    const modules = NAV_MODULE[href];
+    const blocked = counts?.blockedModules ?? [];
+    if (modules !== undefined && modules.every((m) => blocked.includes(m))) return null;
+    return (
+      <Link
+        key={href}
+        href={href}
+        className="mv-sidebar-link mv-sidebar-link--sub"
+        aria-current={pathname.startsWith(href) ? "page" : undefined}
+      >
+        <span className="mv-sidebar-label">{label}</span>
+      </Link>
+    );
+  };
+
+  /**
+   * ‎**קבוצה: פריט אב, חץ, ותת-פריטים שנפתחים.**
+   *
+   * ## ‏למה החץ הוא כפתור נפרד ולא חלק מהקישור
+   *
+   * ‏כפתור בתוך עוגן אינו HTML תקין, ובעיקר: לחיצה על „נכסים”
+   * ‏חייבת להמשיך **לנווט** לנכסים. אילו כל השורה הייתה מתג, הפריט
+   * ‏הראשי היה מאבד את תפקידו — ומי שרוצה להגיע לנכסים היה נאלץ
+   * ‏לפתוח תפריט ואז ללחוץ שוב.
+   *
+   * ## ‏קבוצה בלי תת-פריטים גלויים אינה מקבלת חץ
+   *
+   * ‏תת-הפריטים יורדים מהסרגל כשהמודול שלהם חסום. חץ שנשאר במקומו
+   * ‏היה נפתח אל ריק — הבטחה שהמסך אינו מקיים.
+   */
+  const navGroup = (
+    id: string,
+    label: string,
+    main: ReactNode,
+    subs: readonly ReactNode[],
+  ): ReactNode => {
+    if (main === null) return null;
+    const shown = subs.filter((sub) => sub !== null);
+    if (shown.length === 0) return main;
+
+    const onSubPath = (NAV_GROUP_PATHS[id] ?? []).some((sub) => pathname.startsWith(sub));
+    const open = navGroupOpen[id] ?? onSubPath;
+    const listId = `nav-group-${id}`;
+
+    return (
+      <div key={id} className="mv-sidebar-group">
+        <div className="mv-sidebar-group-row">
+          {main}
+          <button
+            type="button"
+            className="mv-sidebar-toggle"
+            aria-expanded={open}
+            aria-controls={listId}
+            aria-label={`${open ? "סגירת" : "פתיחת"} תת-התפריט של ${label}`}
+            onClick={() => setNavGroupOpen((prev) => ({ ...prev, [id]: !open }))}
+          >
+            <span className={`mv-sidebar-chev${open ? " is-open" : ""}`} aria-hidden="true">
+              <IconChevronDown s={14} />
+            </span>
+          </button>
+        </div>
+        {/*
+          ‎`hidden` ולא הסרה מה-DOM: `aria-controls` חייב להצביע על
+          אלמנט שקיים, ואחרת קורא מסך שומע על תפריט שאי אפשר למצוא.
+        */}
+        <div id={listId} hidden={!open}>
+          {shown}
+        </div>
+      </div>
     );
   };
 
@@ -622,13 +708,20 @@ export function AppShell({ children }: { children: ReactNode }) {
           וכל משרד הוא דייר בה, והחלפת המותג הראשי הייתה מבלבלת
           בדיוק את מי שעובר בין שני משרדים. נעלם בשקט למי שלא העלה.
         */}
-        <OfficeLogoMark />
+        <OfficeLogoMark present={me?.tenantHasLogo === true} />
         <div className="mv-sidebar-sub">{me?.tenantName ?? " "}</div>
       </div>
 
       <nav aria-label="ניווט ראשי" className="mv-sidebar-nav">
         {navLink("/", "דשבורד", ICONS.dashboard)}
-        {navLink("/properties", "נכסים", ICONS.properties, count(counts?.properties))}
+        {navGroup(
+          "properties",
+          "נכסים",
+          navLink("/properties", "נכסים", ICONS.properties, count(counts?.properties), [
+            "/properties/recruitment",
+          ]),
+          [navSubLink("/properties/recruitment", "נכסים לגיוס")],
+        )}
         {navLink("/buyers", "קונים · שוכרים", ICONS.buyers, count(counts?.buyers))}
         {navLink(
           "/leads",

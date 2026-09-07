@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ulid } from "ulid";
-import { BILLING_GRACE_DAYS, RENEWAL_WARN_WITHIN_DAYS, accessUntil, billingAnchorDay, describeCycle, effectiveCyclePriceAgorot, formatJerusalemDate, isBillingCycle, nextPeriodEnd, periodDaysLeft, shekels, type BillingCycle } from "@metavchim/shared";
+import {
+  dailyEmailIdempotencyKey,
+ BILLING_GRACE_DAYS, RENEWAL_WARN_WITHIN_DAYS, accessUntil, billingAnchorDay, describeCycle, effectiveCyclePriceAgorot, formatJerusalemDate, isBillingCycle, nextPeriodEnd, periodDaysLeft, shekels, type BillingCycle } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { CardcomService } from "../../core/cardcom.service";
 import { VatService } from "../../core/vat.service";
@@ -212,6 +214,8 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
      */
     const amount = amountAgorot !== null ? `${shekels(amountAgorot)} ₪ (כולל מע"מ)` : "";
 
+    /* ‏תזכורת אחת ליום למשרד — סריקה שרצה שוב באותו יום אינה הודעה שנייה */
+    const idempotency = { key: dailyEmailIdempotencyKey("renewsoon", tenantId, now), purpose: "renewal" };
     await this.email.send(payer.email, "המנוי מתחדש בקרוב", {
       heading: "תזכורת לפני חידוש",
       paragraphs: [
@@ -223,7 +227,7 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
       ],
       button: { label: "למסך המנוי", url: `${loadEnv().WEB_ORIGIN}/settings/billing` },
       footnote: "אין צורך לעשות דבר אם הכל תקין — ההודעה נשלחת פעם אחת לפני כל חידוש.",
-    });
+    }, { idempotency });
   }
 
   private async renewOne(tenantId: string, now: Date): Promise<boolean> {
@@ -362,6 +366,11 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
   private async notifyFailure(tenantId: string, payer: { email: string }, planName: string): Promise<void> {
     if (!payer.email || !(await this.email.isConfigured())) return;
     try {
+      /* ‏„החיוב נדחה” פעם ביום: ניסיון נוסף מחר הוא מצב חדש, לא כפילות */
+      const idempotency = {
+        key: dailyEmailIdempotencyKey("renewfail", tenantId, new Date()),
+        purpose: "renewal",
+      };
       await this.email.send(payer.email, "חידוש המנוי לא הושלם", {
         heading: "החיוב לא עבר",
         paragraphs: [
@@ -370,7 +379,7 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
         ],
         button: { label: "למסך המנוי", url: `${loadEnv().WEB_ORIGIN}/settings/billing` },
         footnote: "לא בוצע חיוב. אם עדכנתם כבר אמצעי תשלום — אפשר להתעלם מהודעה זו.",
-      });
+      }, { idempotency });
     } catch (error) {
       this.logger.warn(`שליחת הודעה על חידוש שנכשל נכשלה (${tenantId}): ${String(error)}`);
     }

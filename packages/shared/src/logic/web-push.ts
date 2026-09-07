@@ -37,7 +37,15 @@ export interface PushPayload {
  * סיכום, לא אירוע — פוש עליהם הוא בדיוק סוג הרעש שגורם למשתמש
  * לכבות את ההרשאה, ואז גם ההתראות שכן דחופות לא מגיעות.
  */
-const NO_PUSH_TYPES = new Set(["daily_brief", "weekly_summary"]);
+const NO_PUSH_TYPES = new Set([
+  "daily_brief",
+  "weekly_summary",
+  "mentor_weekly",
+  // הבוקר של המנטור — כמו התקציר היומי: לפעמון ולוואטסאפ, לא לפוש ב-08:00
+  "mentor_daily",
+  // הסיכום החודשי — סיכום, לפעמון ולוואטסאפ
+  "mentor_monthly",
+]);
 
 export function shouldPush(notification: PushableNotification): boolean {
   return !NO_PUSH_TYPES.has(notification.type);
@@ -67,6 +75,12 @@ const ENTITY_ROUTES: Record<string, (id?: string) => string> = {
   lead: (id) => (id ? `/leads/${id}` : "/leads"),
   buyer: (id) => (id ? `/buyers/${id}` : "/buyers"),
   property: (id) => (id ? `/properties/${id}` : "/properties"),
+  /*
+   * ‎**שורת גיוס אינה נכס** — היא יושבת במסך הגיוס, ולכן נתיב
+   * ‏משלה. `taskEntityHref` אומר את אותו דבר בפעמון, ו-`verify:notify`
+   * ‏הוא מה שתפס שהוספתי שם ולא כאן.
+   */
+  recruitment: (id) => (id ? `/properties/recruitment/${id}` : "/properties/recruitment"),
   // אין `/offers/<id>` — ההצעות מוצגות ברשימה אחת
   offer: () => "/offers",
   appointment: () => "/calendar",
@@ -136,6 +150,7 @@ const ENTITY_ROUTES: Record<string, (id?: string) => string> = {
    */
   virtual_number: () => "/settings#virtual-numbers",
   call: (id) => (id ? `/calls?call=${id}` : "/calls"),
+  mentor: () => "/mentor",
 };
 
 /**

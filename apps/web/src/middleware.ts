@@ -41,9 +41,19 @@ function buildCsp(nonce: string, dev: boolean): string {
    * דומיין בפרודקשן (Caddy). `'self'` לבדו היה חוסם כל קריאה בפיתוח
    * — ולכן המקור המוצהר נכנס למדיניות מאותו משתנה שהקוד קורא ממנו.
    */
-  const apiOrigin = [safeOrigin(process.env["NEXT_PUBLIC_API_URL"] ?? "")].filter(
-    (o): o is string => o !== null,
-  );
+  /*
+   * ‎**אותה ברירת מחדל כמו ב-`lib/api.ts`, ולא ריק.** הקוד שקורא
+   * ל-API נופל ל-`http://localhost:3001` כשהמשתנה אינו מוגדר —
+   * וכך בדיוק נראה `pnpm dev` מהשורש: Next קורא רק את `.env` של
+   * `apps/web`, לא את זה של ה-Monorepo. עם ברירת מחדל ריקה כאן
+   * המדיניות אמרה `'self'` בלבד, הדפדפן חסם כל קריאה ל-3001 —
+   * וההתחברות נכשלה בשקט (43 חסימות CSP במסך אחד, בבדיקת QA).
+   * בפרודקשן המשתנה מוגדר במפורש כריק (Dockerfile) ולכן `??`
+   * אינו מופעל, וה-API נשאר תחת `'self'`.
+   */
+  const apiOrigin = [
+    safeOrigin(process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:3001"),
+  ].filter((o): o is string => o !== null);
 
   /*
    * אחסון המדיה. תמונות הנכסים נמסרות בקישורים חתומים מנקודת הקצה

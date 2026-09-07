@@ -8,6 +8,7 @@ import {
   isTaskUrgent,
   jerusalemDayRange,
   JERUSALEM_TZ,
+  jerusalemDayLabel,
   readinessFieldLabel,
   recommendationCapabilities,
   recommendationHref,
@@ -28,6 +29,7 @@ import { SetupBanner } from "./setup-banner";
 import { SystemUpdate } from "./system-update";
 import { readDismissed, todayLabel, writeDismissed } from "./dismissed-actions";
 import { NowStamp } from "./now-stamp";
+import { Celebration, type CelebrationEvent } from "./celebration";
 import {
   IconBell,
   IconBolt,
@@ -109,6 +111,61 @@ interface TaskRowDto {
   priority: string;
   createdAt?: string;
   entityLabel?: string;
+}
+
+/** הדופק של המנטור — מה שיש לחגוג השבוע (GET /mentor/pulse). */
+interface MentorPulse {
+  weekStart: string;
+  goalsDone: { id: string; label: string; period: "week" | "month"; periodStart: string }[];
+  wins: {
+    id?: string;
+    kind: "deal_closed" | "exclusivity_signed" | "offer_interested" | "coop_deal" | "goal_reached";
+    title: string;
+    goalId?: string;
+    periodKey?: string;
+  }[];
+}
+
+/**
+ * ההצלחות שמוצגות: יעד שכבר ברשימת היעדים שהושגו (אותו יעד, אותה
+ * תקופה) אינו מוצג פעמיים; יעד שהופסק אחרי שהושג נשאר כהצלחה.
+ */
+function pulseWins(pulse: MentorPulse): MentorPulse["wins"] {
+  const celebrated = new Set(
+    pulse.goalsDone.map((g) => `${g.id}:${jerusalemDayLabel(new Date(g.periodStart))}`),
+  );
+  return pulse.wins.filter(
+    (w) => w.kind !== "goal_reached" || !celebrated.has(`${w.goalId}:${w.periodKey}`),
+  );
+}
+
+/** אותם אירועים כמו במסך המנטור — ובאותם מפתחות, כדי שחגיגה שיצאה שם לא תחזור כאן. */
+function celebrationEvents(pulse: MentorPulse): CelebrationEvent[] {
+  const goals = pulse.goalsDone.map((g) => ({
+    key: `goal:${g.id}:${g.periodStart}`,
+    label: `היעד הושג: ${g.label}`,
+  }));
+  const wins = pulseWins(pulse)
+    .map((w, i) => ({
+    key: `win:${w.id ?? `${pulse.weekStart}:${w.kind}:${w.title}:${i}`}`,
+    label: winLabel(w),
+  }));
+  return [...goals, ...wins];
+}
+
+function winLabel(win: MentorPulse["wins"][number]): string {
+  switch (win.kind) {
+    case "deal_closed":
+      return `סגרתם את ${win.title}`;
+    case "exclusivity_signed":
+      return `חתמתם בלעדיות על ${win.title}`;
+    case "offer_interested":
+      return `קונה אמר „מעוניין” על ${win.title}`;
+    case "coop_deal":
+      return `עסקת שיתוף פעולה — ${win.title}`;
+    case "goal_reached":
+      return `היעד הושג: ${win.title}`;
+  }
 }
 
 /**
@@ -289,6 +346,14 @@ export default function DashboardPage() {
   const featuresReady = useFeaturesReady();
   const featuresFailed = useFeaturesFailed();
   const hasCoach = useFeature("ai_coach");
+  /*
+   * ‎**הדופק של המנטור — לחגוג גם בדשבורד.** יעד שהושג לא מחכה
+   * שייכנסו למסך המנטור; הקונפטי יוצא במקום שבו נמצאים. אותם
+   * מפתחות כמו במסך המנטור, ולכן החגיגה יוצאת פעם אחת בלבד —
+   * במסך הראשון שנפתח. שקט מוחלט בכישלון: הדופק הוא קישוט לכרטיס,
+   * לא מקור אמת, ואין מה להציג „נסו שוב” עליו.
+   */
+  const [mentorPulse, setMentorPulse] = useState<MentorPulse | null>(null);
   /*
    * „עכשיו” אחד לכל המסך, **ומתקדם מעצמו**. קודם הוא חושב בזמן
    * הרינדור, ולכן קפא: מסך שנשאר פתוח המשיך להציג פגישת 09:00
@@ -561,6 +626,21 @@ export default function DashboardPage() {
      */
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canSeeOffers, canSeeProperties, canSeeBuyers, canSeeLeads, canSeeCalendar, dayKey]);
+
+  useEffect(() => {
+    if (!featuresReady || !hasCoach) return;
+    let cancelled = false;
+    apiGet<MentorPulse>("/mentor/pulse")
+      .then((pulse) => {
+        if (!cancelled) setMentorPulse(pulse);
+      })
+      .catch(() => {
+        /* 403 = אין מנטור במסלול; כל כישלון אחר — פשוט אין חגיגה */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [featuresReady, hasCoach]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -1153,6 +1233,18 @@ export default function DashboardPage() {
         ) : null}
       </div>
 
+      {/*
+        ‎**החגיגה — מיד אחרי הברכה.** יעד שהושג או עסקה שנסגרה נאמרים
+        בשמם במקום שרואים בלי לגלול; הכרטיס הכהה בתחתית מחזיק את
+        הרשימה גם אחרי ה„תודה”. הקונפטי יוצא פעם אחת לאירוע (הזיכרון
+        בדפדפן משותף עם מסך המנטור).
+      */}
+      {mentorPulse ? (
+        <div className="mb-6">
+          <Celebration events={celebrationEvents(mentorPulse)} title="🎉 כל הכבוד — הושג" />
+        </div>
+      ) : null}
+
       <DuplicateContacts />
 
       {/*
@@ -1160,7 +1252,13 @@ export default function DashboardPage() {
         למעלה מדי היא הייתה קודמת למה שדחוף; למטה מדי איש לא היה
         רואה אותה.
       */}
-      <SystemUpdate />
+      {/*
+        ‎`hasCoach` אופטימי — `true` עד שרשימת היכולות נטענת, ולתמיד
+        כשהטעינה נכשלה. הכרזה על המנטור למשרד שאולי אין לו אותו היא
+        בדיוק מה שהכרטיס נועד לא לעשות, ולכן רק כשהרשימה כאן
+        (ביקורת Codex). עד אז — ההכרזה הקודמת, שמתאימה לכולם.
+      */}
+      <SystemUpdate mentor={featuresReady && hasCoach} />
 
       {/*
         ‎`align-items: stretch` (ברירת המחדל) ולא `items-start`, ו-372
@@ -1696,13 +1794,13 @@ export default function DashboardPage() {
           {/*
             ‎**כרטיס כהה אחד למסך, והוא האחרון בטור** (§21).
 
-            עד עכשיו הוא היה קידום לקליטה בקול — אבל הסוכן הקולי כבר
-            יושב בראש המסך בפאנל משלו, כלומר הכרטיס הכהה חזר על
-            הזמנה שכבר נאמרה. לפי החבילה הוא המנטור: המקום היחיד
-            שבו אפשר לשאול שאלה פתוחה על המערכת ועל שת"פים, ולא
-            עוד קיצור לפעולה שיש לה כפתור.
+            לפי החבילה הוא המנטור: המקום היחיד שבו מדברים על
+            **המתווך** ולא על הלידים שלו — היעדים שביקש מעצמו, הקצב,
+            והסיכום השבועי. ‎`flex-1` כאן הוא מה שמיישר את תחתית שני
+            הטורים (§24).
 
-            ‎`flex-1` כאן הוא מה שמיישר את תחתית שני הטורים (§24).
+            ‎**מה שכתוב כאן חייב להיות מה שקורה בלחיצה** — ולכן הנוסח
+            עבר להווה ביום שהמסך הפסיק להיות „בקרוב”.
           */}
           {hasCoach ? (
             <section aria-labelledby="mentor-heading" className="mv-dark-card flex-1">
@@ -1713,29 +1811,22 @@ export default function DashboardPage() {
                 <h2 id="mentor-heading" className="mv-dark-card__title m-0">
                   המנטור האישי שלך
                 </h2>
-                <span className="mv-dark-card__soon">בקרוב</span>
               </div>
-              {/*
-                ‎**מה שכתוב כאן חייב להיות מה שקורה בלחיצה.**
-
-                הניסוח מהחבילה הוא „שואל אותי כל שאלה…” וכפתור „לדבר
-                עם המנטור” — והנתיב `/mentor` הוא עמוד „בקרוב” בלי
-                שום ממשק שיחה. כלומר הפעולה שקודמה כאן מובילה לקיר
-                (ביקורת Codex).
-
-                לא הסרתי את הכרטיס: הלשונית קיימת בתפריט בבקשת בעל
-                המוצר, ומתווך שרואה אותה יודע מה מגיע. מה שתוקן הוא
-                ההבטחה — תגית „בקרוב” וכפתור שאומר מה הלחיצה באמת
-                עושה. „Never blame the user for an empty state. State
-                the fact” חל גם על פיצ'ר שטרם הושק.
-              */}
-              {/* הנוסח מהמוקאפ, בזמן עתיד — כי הפיצ'ר מסומן „בקרוב” */}
               <p className="mv-dark-card__body m-0">
-                שואלים אותו כל שאלה על המערכת, על שת&quot;פים או על איך לסגור עסקה
-                מהר יותר.
+                השבוע שלך מול היעדים שלך — רק מולך, אף פעם לא מול אחרים.
               </p>
+              {mentorPulse && (mentorPulse.goalsDone.length > 0 || mentorPulse.wins.length > 0) ? (
+                <ul className="mv-dark-card__body m-0 list-none p-0">
+                  {mentorPulse.goalsDone.map((g) => (
+                    <li key={`g-${g.id}`}>🎯 היעד הושג: {g.label}</li>
+                  ))}
+                  {pulseWins(mentorPulse).map((w, i) => (
+                    <li key={`w-${i}`}>🎉 {winLabel(w)}</li>
+                  ))}
+                </ul>
+              ) : null}
               <Link href="/mentor" className="mv-button mv-dark-card__action no-underline">
-                לראות מה מגיע
+                לדבר עם המנטור
               </Link>
             </section>
           ) : null}

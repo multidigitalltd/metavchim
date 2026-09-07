@@ -1,0 +1,1662 @@
+import {
+  jerusalemWallIsoToUtc,
+  jerusalemWallParts,
+  jerusalemWeekday,
+  jerusalemWeekStart,
+} from "./israel-time.js";
+import {
+  playbookIdeaPick,
+  type MentorIdeaFeedback,
+  type OfficeProvenLookup,
+} from "./mentor-playbook.js";
+import type { MentorIdeaOutcome } from "./mentor-outcome.js";
+import {
+  DEFAULT_MENTOR_PERSONA,
+  mentorCloser,
+  mentorSalutation,
+  mentorWeeklyGreeting,
+  type MentorPersona,
+} from "./mentor-persona.js";
+
+/**
+ * המנטור האישי — ליבת הליווי (docs/14).
+ *
+ * ## מה זה, ומה זה לא
+ *
+ * המאמן החכם (`coach.ts`) עונה על „מה כדאי לעשות **עכשיו**”: ליד
+ * שממתין, הצעה שנפתחה שלוש פעמים. המנטור עונה על שאלה אחרת —
+ * „**איך הולך לי**, מול מה שהבטחתי לעצמי”. הוא זוכר את היעד
+ * שהמתווך קבע, מודד אותו מול מה שקרה בפועל, ואומר את זה כמו שמנטור
+ * אומר: חוגג עסקה במפורש, ומזכיר את היעד כשהשבוע היה חלש — בלי
+ * להאשים.
+ *
+ * ## למה זה בחבילה המשותפת
+ *
+ * כמו `daily-brief.ts`: זה טקסט שמישהו **אומר** למתווך, והוא יוצא
+ * בשלושה ערוצים — מסך המנטור, הפעמון, וואטסאפ. ניסוח בשלושה מקומות
+ * הוא שלושה ניסוחים ביום שמתקנים אחד מהם. ה-API אוסף את המספרים,
+ * הפונקציות כאן הופכות אותם למשפטים, והערוצים מציגים.
+ *
+ * ## על מה זה בנוי (docs/14 §2)
+ *
+ * לא ניסוח נעים אלא שיטת עבודה של מאמנים, כל כלל עם המקור שלו:
+ *
+ * - **יעדי תהליך לפני יעדי תוצאה.** „עסקה בחודש” אינה בשליטת
+ *   המתווך; „6 סיורים בשבוע” כן. המנטור מתרגם תוצאה לתהליך לפי
+ *   משפך ההמרה **של המתווך עצמו** (`suggestProcessGoals`) — מדדים
+ *   מובילים ולא מדדים מאחרים (4DX, Locke & Latham).
+ * - **היעד הוא של המתווך, עם „למה” משלו.** אוטונומיה היא תנאי
+ *   למחויבות (Deci & Ryan). המנהל אינו קובע יעד דרך המנטור, והמנטור
+ *   מצטט את ה„למה” כשקשה — לא נזיפה, עוגן.
+ * - **כוונת יישום.** „כשאסיים את הבוקר — שולח הצעות” מכפילה את
+ *   הסיכוי לביצוע מול יעד ערום (Gollwitzer). היעד נושא `intention`.
+ * - **התקדמות קטנה נראית.** המניע החזק ביותר בעבודה הוא תחושת
+ *   התקדמות (Amabile, progress principle) — ולכן גם שבוע בפיגור
+ *   מקבל את מה שכן זז, ורצף שבועות נאמר בכותרת.
+ * - **שאלה אחת, לא הרצאה.** בשבוע חלש המאמן שואל „מה עצר?” ומקשיב
+ *   (GROW: Reality). שאלת רפלקציה אחת, ממוקדת ביעד שבפיגור.
+ * - **מיקוד אחד לשבוע.** בקשה אחת לשבוע הבא, על היעד שבפיגור.
+ *   שלוש בקשות הן אפס בקשות.
+ *
+ * ## כללי הטון (מחייבים — ראו docs/14 §4)
+ *
+ * 1. **עובדה, לא שיפוט.** „נשלחו 2 הצעות מתוך 5” ולא „שלחת מעט”.
+ * 2. **השוואה רק לעצמו.** מול היעד שקבע ומול השבוע הקודם שלו —
+ *    לעולם לא מול עמיתים. דוח הסוכנים קיים במקום אחר, למנהל.
+ * 3. **כל הצלחה נאמרת בשמה.** עסקה שנסגרה אינה שורה בטבלה.
+ * 4. **שבוע חלש מקבל תזכורת ליעד, לא נזיפה.** היעד הוא של המתווך;
+ *    המנטור מזכיר מה הוא ביקש מעצמו.
+ * 5. **שקט כשאין מה לומר.** אין יעדים ואין פעילות — אין הודעה.
+ *    הודעה שמגיעה גם כשאין כלום מלמדת למחוק בלי לקרוא.
+ *
+ * ‎**פנייה ברבים** („אתם”) כמו בשאר ניסוחי המערכת — ניסוח אחד לכל
+ * מתווך ומתווכת, בלי לנחש.
+ */
+
+/* ------------------------------------------------------------------ */
+/* יעדים                                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * המדדים שאפשר לקבוע עליהם יעד. רשימה סגורה: כל מדד כאן הוא מספר
+ * שה-API יודע לספור מהנתונים הקיימים (docs/14 §5), ולכן יעד עליו
+ * הוא הבטחה שאפשר לקיים.
+ */
+export const MENTOR_GOAL_METRICS = [
+  "deals_closed",
+  "offers_sent",
+  "viewings_held",
+  "leads_answered",
+  "new_buyers",
+  "new_properties",
+  "calls_made",
+  "calls_answered",
+  "leads_answered_fast",
+  "followups_done",
+  "owner_updates_sent",
+] as const;
+export type MentorGoalMetric = (typeof MENTOR_GOAL_METRICS)[number];
+
+export const MENTOR_GOAL_PERIODS = ["week", "month"] as const;
+export type MentorGoalPeriod = (typeof MENTOR_GOAL_PERIODS)[number];
+
+/**
+ * הגבול העליון ליעד — בלם לטעות הקלדה, לא מגבלת מוצר: „500 עסקאות
+ * בשבוע” אינו יעד שמישהו התכוון אליו. קבוע אחד לסכמה ולהצעות
+ * המנטור, כדי שהצעה שהמנטור מציע תמיד תהיה יעד שאפשר לשמור.
+ */
+export const MENTOR_GOAL_TARGET_MAX = 200;
+
+/**
+ * ‎**תוצאה** — מה שהמתווך רוצה ואינו שולט בו במלואו (עסקה). ‎**תהליך** —
+ * מה שבידיו לעשות (סיור, הצעה, מענה לליד). המנטור מציע יעדי תהליך
+ * לכל יעד תוצאה, כי יעד שאינו בשליטה מייאש ולא מניע.
+ */
+export type MentorMetricKind = "outcome" | "process";
+
+export interface MentorMetricInfo {
+  code: MentorGoalMetric;
+  kind: MentorMetricKind;
+  /** שם המדד — לבחירה במסך היעדים */
+  label: string;
+  /** יחידה אחת — „עסקה אחת” */
+  one: string;
+  /** צורת רבים — „עסקאות”; ננקבת עם מספר לפניה */
+  many: string;
+}
+
+export const MENTOR_METRICS: readonly MentorMetricInfo[] = [
+  {
+    code: "deals_closed",
+    kind: "outcome",
+    label: "עסקאות שנסגרו",
+    one: "עסקה אחת",
+    many: "עסקאות",
+  },
+  {
+    code: "offers_sent",
+    kind: "process",
+    label: "הצעות שנשלחו",
+    one: "הצעה אחת",
+    many: "הצעות",
+  },
+  {
+    code: "viewings_held",
+    kind: "process",
+    label: "סיורים שהתקיימו",
+    one: "סיור אחד",
+    many: "סיורים",
+  },
+  {
+    code: "leads_answered",
+    kind: "process",
+    label: "לידים שנענו",
+    one: "ליד אחד",
+    many: "לידים",
+  },
+  {
+    code: "new_buyers",
+    kind: "process",
+    label: "קונים חדשים",
+    one: "קונה אחד",
+    many: "קונים",
+  },
+  {
+    code: "new_properties",
+    kind: "process",
+    label: "נכסים חדשים",
+    one: "נכס אחד",
+    many: "נכסים",
+  },
+  /*
+   * שיחות ומהירות מענה — מה שמנטור מכירות באמת מסתכל עליו לפני
+   * העסקאות: כמה יצאת אל הלקוחות, כמה ענית כשהם התקשרו, וכמה מהר
+   * ענית לליד חדש. כולם תהליך — בשליטה מלאה של המתווך.
+   */
+  {
+    code: "calls_made",
+    kind: "process",
+    label: "שיחות יוצאות",
+    one: "שיחה יוצאת אחת",
+    many: "שיחות יוצאות",
+  },
+  {
+    code: "calls_answered",
+    kind: "process",
+    label: "שיחות נכנסות שנענו",
+    one: "שיחה נכנסת אחת",
+    many: "שיחות נכנסות",
+  },
+  {
+    code: "leads_answered_fast",
+    kind: "process",
+    label: "לידים שנענו תוך שעה",
+    one: "ליד אחד תוך שעה",
+    many: "לידים תוך שעה",
+  },
+  {
+    code: "followups_done",
+    kind: "process",
+    label: "מעקבים שהושלמו",
+    one: "מעקב אחד",
+    many: "מעקבים",
+  },
+  {
+    code: "owner_updates_sent",
+    kind: "process",
+    label: "עדכונים למוכרים",
+    one: "עדכון אחד למוכר",
+    many: "עדכונים למוכרים",
+  },
+];
+
+/** „מהר” = תוך שעה מרגע שהליד נוצר. שעתיים הן ה-SLA; שעה היא מנטור. */
+export const MENTOR_FAST_RESPONSE_MINUTES = 60;
+/** שיחה נכנסת שלא נענתה נחשבת „לא חזרת אליה” אם לא יצאה שיחה תוך יממה. */
+export const MENTOR_MISSED_RETURN_HOURS = 24;
+
+const METRIC_BY_CODE = new Map(MENTOR_METRICS.map((m) => [m.code, m]));
+
+export function isMentorGoalMetric(value: string): value is MentorGoalMetric {
+  return METRIC_BY_CODE.has(value as MentorGoalMetric);
+}
+
+/** „עסקה אחת” / „3 עסקאות” — כמות עם היחידה בעברית טבעית. */
+export function mentorQuantity(metric: MentorGoalMetric, n: number): string {
+  const info = METRIC_BY_CODE.get(metric);
+  if (info === undefined) return String(n);
+  if (n === 1) return info.one;
+  return `${n} ${info.many}`;
+}
+
+const PERIOD_LABEL: Record<MentorGoalPeriod, string> = {
+  week: "בשבוע",
+  month: "בחודש",
+};
+
+/** „5 הצעות בשבוע” — היעד כפי שהמתווך יראה אותו ברשימה. */
+export function mentorGoalLabel(
+  metric: MentorGoalMetric,
+  target: number,
+  period: MentorGoalPeriod,
+): string {
+  return `${mentorQuantity(metric, target)} ${PERIOD_LABEL[period]}`;
+}
+
+export const MENTOR_PACE_LABEL: Record<MentorPace, string> = {
+  done: "הושג",
+  ahead: "מעל הקצב",
+  on_track: "בקצב",
+  behind: "מאחור",
+};
+
+/** „3 מתוך 5 הצעות בשבוע — בקצב” — שורת יעד לוואטסאפ ולסוכן. */
+export function mentorGoalStatusLine(p: MentorGoalProgress): string {
+  return `${p.actual} מתוך ${mentorGoalLabel(p.metric, p.target, p.period)} — ${MENTOR_PACE_LABEL[p.pace]}`;
+}
+
+/**
+ * מצב היעדים בהודעה אחת — ל„מה המצב ביעדים שלי?” מהשיחה.
+ *
+ * אותם כללי טון של הסיכום (§4): עובדות ומספרים, בלי שיפוט, השוואה
+ * רק ליעד של המתווך עצמו. בלי יעדים — הזמנה לקבוע אחד, לא נזיפה.
+ */
+export function mentorStatusMessage(input: {
+  goals: readonly MentorGoalProgress[];
+  wins: readonly MentorWin[];
+  latestHeadline: string | null;
+  insights?: MentorInsights;
+}): { message: string; lines: string[] } {
+  const lines: string[] = [];
+  for (const goal of input.goals) lines.push(`• ${mentorGoalStatusLine(goal)}`);
+  for (const sentence of mentorInsightSentences(input.insights))
+    lines.push(`⏱ ${sentence}`);
+  for (const win of input.wins)
+    lines.push(`🎉 ${mentorCelebration(win).title}: ${win.title}`);
+  if (input.latestHeadline !== null)
+    lines.push(`🧭 הסיכום האחרון: ${input.latestHeadline}`);
+  const done = input.goals.filter((g) => g.pace === "done").length;
+  const message =
+    input.goals.length === 0
+      ? "עדיין אין לך יעדים — אפשר לכתוב לי „תקבע לי יעד של 5 הצעות בשבוע” ונתחיל ביחד."
+      : done === input.goals.length
+        ? input.goals.length === 1
+          ? "היעד שלך הושג — כל הכבוד לך!"
+          : `כל ${input.goals.length} היעדים שלך הושגו — כל הכבוד לך!`
+        : `${done} מתוך ${input.goals.length} היעדים שלך הושגו עד עכשיו — ממשיכים.`;
+  return { message, lines };
+}
+
+/**
+ * גבולות התקופה הנוכחית בשעון ישראל, כערכי UTC לשאילתות.
+ *
+ * שבוע = ראשון 00:00 עד ראשון הבא — אותה פונקציה שהיומן והמאמן
+ * משתמשים בה, כדי ש„השבוע” יהיה אותו שבוע בכל מסך. חודש = הראשון
+ * בחודש 00:00 שעון ישראל; החשבון על תווית התאריך ולא על מילישניות,
+ * מאותה סיבה שב-`jerusalemWeekStart` — יום מעבר שעון אינו 24 שעות.
+ */
+export function mentorPeriodRange(
+  period: MentorGoalPeriod,
+  now: Date,
+): { start: Date; end: Date } {
+  if (period === "week") {
+    return { start: jerusalemWeekStart(now), end: jerusalemWeekStart(now, 1) };
+  }
+  const [year, month] = jerusalemWallParts(now).date.split("-").map(Number) as [
+    number,
+    number,
+  ];
+  const startIso = `${year}-${String(month).padStart(2, "0")}-01T00:00:00.000`;
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const endIso = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01T00:00:00.000`;
+  return {
+    start: jerusalemWallIsoToUtc(startIso),
+    end: jerusalemWallIsoToUtc(endIso),
+  };
+}
+
+/** איפה עומדים מול הקצב — לא רק מול היעד הסופי. */
+export type MentorPace = "done" | "ahead" | "on_track" | "behind";
+
+export interface MentorGoalProgressInput {
+  metric: MentorGoalMetric;
+  period: MentorGoalPeriod;
+  target: number;
+  actual: number;
+  /** ה„למה” של המתווך — מצוטט כשקשה. חסר = היעד בלי עוגן */
+  why?: string;
+  /** כוונת היישום — „כש… אז…”. מוזכרת בבקשה לשבוע הבא */
+  intention?: string;
+  /** גבולות התקופה (מ-`mentorPeriodRange`) */
+  periodStart: Date;
+  periodEnd: Date;
+  now: Date;
+}
+
+export interface MentorGoalProgress {
+  metric: MentorGoalMetric;
+  period: MentorGoalPeriod;
+  target: number;
+  actual: number;
+  why?: string;
+  intention?: string;
+  /** כמה מהיעד הושג — 0 עד 1, ויכול לעבור את 1 */
+  ratio: number;
+  /** כמה מהתקופה חלף — 0 עד 1 */
+  elapsed: number;
+  /** כמה היה צפוי עד עכשיו לו הקצב היה אחיד */
+  expected: number;
+  pace: MentorPace;
+  /** מה עוד נשאר — 0 כשהיעד הושג */
+  remaining: number;
+  /**
+   * תחילת התקופה שנמדדה — הזהות של „הושג” לחגיגה: יעד חודשי שהושג
+   * באוגוסט ושוב בספטמבר הוא שני אירועים, גם כששני הימים באותו
+   * שבוע קלנדרי.
+   */
+  periodStart: Date;
+}
+
+/**
+ * מצב היעד — **מול הקצב**, ולא רק מול המספר הסופי.
+ *
+ * ‎„2 מתוך 5” ביום שני הוא מצוין, ובחמישי הוא פיגור. מדידה מול היעד
+ * הסופי הייתה מציגה „פיגור” בכל בוקר ראשון של כל שבוע, וזה בדיוק
+ * ההודעה שמלמדת להתעלם מהמנטור.
+ *
+ * ‎**הסובלנות אינה סימטרית.** פיגור נספר רק מעבר ליחידה שלמה ועוד
+ * 15% מהיעד: 0 מתוך 5 ביום שני אינו פיגור, ו-0 מתוך 3 בחודש ביום
+ * העשירי אינו פיגור — עסקה אינה מתחלקת, ו„היה צריך להיות ב-1.0”
+ * אינו דבר שאפשר לעשות. הקדמה נספרת מ-15% בלבד, כי אי אפשר להקדים
+ * במקרה — מי ששלח 2 מתוך 5 עד יום שני באמת מקדים.
+ *
+ * וכשהתקופה נגמרה יש רק שתי תשובות: הושג, או לא. „בקצב” בסוף
+ * השבוע עם 4 מתוך 5 הוא משפט שאין לו משמעות.
+ */
+export function mentorGoalProgress(
+  input: MentorGoalProgressInput,
+): MentorGoalProgress {
+  const { metric, period, now, periodStart, periodEnd } = input;
+  const target = Math.max(1, Math.floor(input.target));
+  const actual = Math.max(0, Math.floor(input.actual));
+  const span = periodEnd.getTime() - periodStart.getTime();
+  const elapsed =
+    span <= 0
+      ? 1
+      : Math.min(
+          1,
+          Math.max(0, (now.getTime() - periodStart.getTime()) / span),
+        );
+  const expected = target * elapsed;
+  const slack = target * 0.15;
+
+  let pace: MentorPace;
+  if (actual >= target) pace = "done";
+  else if (elapsed >= 1) pace = "behind";
+  else if (actual >= 1 && actual - expected >= slack) pace = "ahead";
+  else if (expected - actual >= 1 + slack) pace = "behind";
+  else pace = "on_track";
+
+  return {
+    metric,
+    period,
+    target,
+    actual,
+    ...(input.why === undefined ? {} : { why: input.why }),
+    ...(input.intention === undefined ? {} : { intention: input.intention }),
+    ratio: actual / target,
+    elapsed,
+    expected,
+    pace,
+    remaining: Math.max(0, target - actual),
+    periodStart: input.periodStart,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* מתוצאה לתהליך — משפך ההמרה של המתווך עצמו                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * המשפך, מהתחלה לסוף: ליד שנענה ⟵ קונה ⟵ הצעה ⟵ סיור ⟵ עסקה.
+ * כל שלב נספר לפי אותו מדד שאפשר לקבוע עליו יעד, ולכן ההצעה של
+ * המנטור היא יעד שאפשר ללחוץ עליו „קבע”.
+ */
+export const MENTOR_FUNNEL: readonly MentorGoalMetric[] = [
+  "leads_answered",
+  "new_buyers",
+  "offers_sent",
+  "viewings_held",
+  "deals_closed",
+];
+
+/**
+ * יחסי המרה כשאין עדיין היסטוריה — **ברירת מחדל שנאמרת בשמה**,
+ * לא ניחוש בשקט: כל 5 סיורים עסקה, כל 3 הצעות סיור, כל 2 קונים
+ * הצעה, וכל 2 לידים שנענו קונה. שמרני בכוונה: מוטב יעד שמושג
+ * ומועלה, מיעד שמפספסים בשבוע הראשון.
+ */
+export const DEFAULT_FUNNEL_RATIOS: Readonly<Record<MentorGoalMetric, number>> =
+  {
+    leads_answered: 2,
+    new_buyers: 2,
+    offers_sent: 3,
+    viewings_held: 5,
+    deals_closed: 1,
+    new_properties: 1,
+    // אינם חלק במשפך של ההצעות — יעדי תהליך עצמאיים
+    calls_made: 1,
+    calls_answered: 1,
+    leads_answered_fast: 1,
+    followups_done: 1,
+    owner_updates_sent: 1,
+  };
+
+/** כמה מהיסטוריה נחשב „מספיק כדי לסמוך עליה” — פחות מזה, ברירת המחדל. */
+const MIN_HISTORY_DEALS = 2;
+
+export interface ProcessGoalSuggestion {
+  metric: MentorGoalMetric;
+  period: MentorGoalPeriod;
+  target: number;
+  /** „כל 5 סיורים ⟵ עסקה, לפי 90 הימים האחרונים שלכם” */
+  reason: string;
+}
+
+export interface SuggestProcessGoalsInput {
+  /** יעד התוצאה שהמתווך רוצה */
+  outcome: { target: number; period: MentorGoalPeriod };
+  /** הפעילות המצטברת בחלון ההיסטוריה (ה-API סופר, בדרך כלל 90 יום) */
+  history: MentorActivity;
+  /** כמה שבועות מכסה ההיסטוריה */
+  historyWeeks: number;
+}
+
+/**
+ * מיעד תוצאה ליעדי תהליך שבועיים — **לפי היחסים של המתווך עצמו.**
+ *
+ * „עסקה בחודש” נעשה „6 סיורים בשבוע, 15 הצעות, 8 קונים חדשים” —
+ * ומה שבשליטה נמדד כל שבוע. היחס נלקח מההיסטוריה של המתווך כשיש
+ * בה מספיק עסקאות; אחרת מברירת המחדל, וההסבר אומר איזה משניהם.
+ *
+ * ‎**עיגול כלפי מעלה בכל שלב, ואף פעם לא אפס.** יעד תהליך של 0 הוא
+ * הודעה שאין מה לעשות, וזה ההפך ממה שביקשו. מוצע רק מה שלפני
+ * העסקה במשפך; „נכסים חדשים” הוא צד ההיצע ואינו נגזר מעסקה.
+ */
+export function suggestProcessGoals(
+  input: SuggestProcessGoalsInput,
+): ProcessGoalSuggestion[] {
+  const outcomeTarget = Math.max(1, Math.floor(input.outcome.target));
+  const weeksInPeriod = input.outcome.period === "week" ? 1 : 52 / 12;
+  const dealsPerWeek = outcomeTarget / weeksInPeriod;
+
+  const { history, historyWeeks } = input;
+  const enoughHistory =
+    historyWeeks > 0 && history.deals_closed >= MIN_HISTORY_DEALS;
+
+  const suggestions: ProcessGoalSuggestion[] = [];
+  /*
+   * מהעסקה אחורה: כל שלב צריך פי-יחס ממה **שהוצע** לשלב שאחריו —
+   * המספר המעוגל, לא השבר. אחרת „2 סיורים” מקבל „4 הצעות” כשהיחס
+   * אומר 3 לסיור, והיעדים סותרים זה את זה (ביקורת Codex).
+   */
+  let needed = dealsPerWeek;
+  for (let i = MENTOR_FUNNEL.length - 2; i >= 0; i--) {
+    const metric = MENTOR_FUNNEL[i]!;
+    const next = MENTOR_FUNNEL[i + 1]!;
+    let ratio = DEFAULT_FUNNEL_RATIOS[metric];
+    let source = "לפי ממוצע מקובל, עד שתהיה לך היסטוריה משלך";
+    if (enoughHistory && history[metric] > 0 && history[next] > 0) {
+      ratio = Math.max(1, history[metric] / history[next]);
+      source = `לפי ${historyWeeks} השבועות האחרונים שלך`;
+    }
+    // לא מעל מה שהסכמה מקבלת — הצעה שאי אפשר ללחוץ עליה „קבע” אינה הצעה
+    const target = Math.min(
+      MENTOR_GOAL_TARGET_MAX,
+      Math.max(1, Math.ceil(needed * ratio - 1e-9)),
+    );
+    needed = target;
+    const shown = Math.round(ratio * 10) / 10;
+    suggestions.unshift({
+      metric,
+      period: "week",
+      target,
+      reason: `כל ${shown} ${METRIC_BY_CODE.get(metric)?.many ?? metric} ⟵ ${METRIC_BY_CODE.get(next)?.one ?? next} — ${source}`,
+    });
+  }
+  return suggestions;
+}
+
+/* ------------------------------------------------------------------ */
+/* הסיכום השבועי                                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * הצלחה שנאמרת בשמה — לא מונה, אלא אירוע.
+ *
+ * ‎`goal_reached` — יעד שהמתווך ביקש מעצמו והושג, באותו יום: החיזוק
+ * הקרוב לאירוע (docs/14 §2). ה„כותרת” היא תווית היעד („5 הצעות
+ * בשבוע”), והזהות היא היעד **והתקופה**: יעד שבועי שהושג שבוע אחרי
+ * שבוע הוא שתי חגיגות.
+ */
+export type MentorWinKind =
+  | "deal_closed"
+  | "exclusivity_signed"
+  | "offer_interested"
+  | "coop_deal"
+  | "goal_reached";
+
+export interface MentorWin {
+  /** מזהה השורה ב-`mentor_wins` — חסר בגופי סיכומים ישנים */
+  id?: string;
+  kind: MentorWinKind;
+  /** מה בדיוק — כותרת הנכס, בלי PII של הלקוח */
+  title: string;
+  /**
+   * ל-`goal_reached` בלבד: היעד והתקופה („2026-09-06”) שהושגו — כדי
+   * שהמסך יזהה שהיעד שהוא כבר חוגג מהיעדים והצלחה זו הם אותו אירוע,
+   * ויחגוג רק פעם אחת. יעד שהופסק אחרי שהושג נשאר בהצלחות בלבד.
+   */
+  goalId?: string;
+  periodKey?: string;
+}
+
+/** פעילות השבוע — המונים שה-API סופר, לפי אותם מדדים של היעדים. */
+export type MentorActivity = Record<MentorGoalMetric, number>;
+
+export interface MentorWeekSignals {
+  /** תחילת השבוע שמסכמים */
+  weekStart: Date;
+  wins: MentorWin[];
+  activity: MentorActivity;
+  /** השבוע שלפניו — להשוואה למתווך עם עצמו. חסר = אין השוואה */
+  previousActivity?: MentorActivity;
+  /** היעדים הפעילים, כבר מחושבים לסוף השבוע */
+  goals: MentorGoalProgress[];
+  /** כמה שבועות רצופים כל היעדים הושגו (כולל זה) */
+  streakWeeks?: number;
+  /**
+   * מה שהמתווך התחייב אליו בסיכום הקודם, ואם עמד בזה — נבדק מול
+   * היעדים של השבוע הזה. חסר = לא הייתה מחויבות (או שלא ענה).
+   */
+  previousCommitment?: {
+    metric: MentorGoalMetric;
+    period: MentorGoalPeriod;
+    target: number;
+    kept: boolean;
+  };
+  /** דפוסים מהסיכומים הקודמים — `mentorPatterns` */
+  patterns?: MentorPattern[];
+  /** השם הפרטי — לפנייה אישית. חסר = בלי פתיח בשם */
+  firstName?: string;
+  /** תובנות שאינן מונה — מהירות מענה ושיחות שלא חזרת אליהן */
+  insights?: MentorInsights;
+  /** השם והסגנון שהמתווך בחר — משנים את הפתיח, לא את הכללים */
+  persona?: MentorPersona;
+  /** מה המתווך אמר על רעיונות — הטיפ לשבוע הבא מדלג על מה שנדחה (§7.2) */
+  feedback?: MentorIdeaFeedback;
+  /** רעיונות שסומנו „עזר לי” לפני שבוע — והאם המספר שלהם זז (§7.2) */
+  ideaOutcomes?: MentorIdeaOutcome[];
+  /** תרגולי שיחה שנגמרו השבוע, והציון האחרון (§7.3) */
+  practice?: { count: number; lastScore: number | null };
+  /** מה הוכיח את עצמו במשרד — הטיפ לשבוע הבא מעדיף אותו (§7.4) */
+  office?: OfficeProvenLookup;
+}
+
+/**
+ * מה שמנטור רואה מעבר למונים: **כמה מהר** ענית לליד חדש, ולמי לא
+ * חזרת. אינן יעד (אי אפשר „לקבוע 12 דקות”) אבל נאמרות בסיכום,
+ * במסך ובשיחה — עובדה, ומול השבוע הקודם של המתווך עצמו.
+ */
+export interface MentorInsights {
+  /** חציון דקות מרגע שהליד נוצר עד המענה הראשון — `null` בלי לידים שנענו */
+  responseMedianMinutes: number | null;
+  /** אותו חציון בשבוע הקודם — להשוואה לעצמו בלבד */
+  previousResponseMedianMinutes: number | null;
+  /** שיחות נכנסות שלא נענו ולא יצאה אליהן שיחה חוזרת תוך יממה */
+  missedUnreturned: number;
+}
+
+/** דקות ⟵ „12 דקות” / „שעה ו-20 דקות” / „3 שעות” */
+export function mentorMinutesLabel(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  if (m < 60) return m === 1 ? "דקה אחת" : `${m} דקות`;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  const hours = h === 1 ? "שעה" : h === 2 ? "שעתיים" : `${h} שעות`;
+  return rest === 0 ? hours : `${hours} ו-${rest} דקות`;
+}
+
+/**
+ * התובנות כמשפטים — עובדות, ובלי שיפוט: זמן המענה מול השבוע שעבר,
+ * ושיחות שמחכות לחזרה. ריק כשאין מה לומר.
+ */
+export function mentorInsightSentences(
+  insights: MentorInsights | undefined,
+): string[] {
+  if (insights === undefined) return [];
+  const out: string[] = [];
+  const now = insights.responseMedianMinutes;
+  const before = insights.previousResponseMedianMinutes;
+  if (now !== null) {
+    const base = `זמן המענה שלך ללידים חדשים השבוע: ${mentorMinutesLabel(now)} (חציון)`;
+    if (before === null || Math.round(before) === Math.round(now))
+      out.push(`${base}.`);
+    else if (now < before)
+      out.push(
+        `${base} — מהר יותר משבוע שעבר (${mentorMinutesLabel(before)}). זה מורגש אצל הלקוח.`,
+      );
+    else out.push(`${base}, מול ${mentorMinutesLabel(before)} בשבוע שעבר.`);
+  }
+  if (insights.missedUnreturned > 0) {
+    const n = insights.missedUnreturned;
+    out.push(
+      n === 1
+        ? "שיחה נכנסת אחת לא נענתה ולא חזרת אליה — שווה טלפון קצר מחר בבוקר."
+        : `${n} שיחות נכנסות לא נענו ולא חזרת אליהן — שווה טלפון קצר לכל אחת מחר בבוקר.`,
+    );
+  }
+  return out;
+}
+
+/** היעד שהבקשה לשבוע הבא מדברת עליו — מה שאפשר להתחייב אליו. */
+export interface MentorAsk {
+  metric: MentorGoalMetric;
+  period: MentorGoalPeriod;
+  target: number;
+}
+
+/**
+ * הטון של הסיכום — נגזר מהשבוע, ומכתיב כותרת ואייקון בערוץ.
+ *
+ * ‎`celebrate` — הייתה הצלחה או שכל היעדים הושגו.
+ * ‎`steady` — יש התקדמות, אין דרמה.
+ * ‎`encourage` — יש יעדים ולא הגיעו אליהם, או שבוע ריק עם יעדים.
+ */
+export type MentorMood = "celebrate" | "steady" | "encourage";
+
+export interface MentorReview {
+  mood: MentorMood;
+  headline: string;
+  /** פתיח אישי בשם — „היי דנה, הנה השבוע שלך.” — `null` בלי שם */
+  greeting: string | null;
+  /** פסקאות הגוף, בסדר: הצלחות ⟵ יעדים ⟵ תנועה מול שבוע שעבר */
+  paragraphs: string[];
+  /** מה המנטור מבקש לשבוע הבא — `null` כשאין יעדים */
+  askNextWeek: string | null;
+  /** היעד שהבקשה מדברת עליו — כדי שאפשר יהיה להתחייב, ולבדוק בשבוע הבא */
+  ask: MentorAsk | null;
+  /**
+   * שאלת רפלקציה אחת, על היעד שבפיגור — `null` כשאין פיגור.
+   * המאמן שואל ומקשיב; התשובה נשמרת ליד היעד (docs/14 §2).
+   */
+  reflection: string | null;
+}
+
+/*
+ * ==================== הקול של המנטור ====================
+ *
+ * ‎**אישי וידידותי, בגוף שני יחיד** (הנחיית בעל המוצר). המנטור מדבר
+ * אל המתווך, לא על המתווך: „סגרת”, „היעד שלך”, „אני איתך” — ולא
+ * „סגרתם” של טופס. כדי לא לטעות במין: פעלים בעבר בגוף שני (שכתיבם
+ * זהה לזכר ולנקבה — סגרת, כתבת, עמדת), וצורות „שלך” / „לך”; לא
+ * „אתה/את” ולא פועל בהווה או בעתיד בגוף שני. הפתיח בשם הפרטי כשיש.
+ */
+
+/** „היי דנה, ” — הפתיח בשם, או ריק. */
+export function mentorGreeting(firstName: string | undefined): string {
+  const name = (firstName ?? "").trim();
+  return name === "" ? "" : `${name}, `;
+}
+
+const WIN_PHRASE: Record<MentorWinKind, (title: string) => string> = {
+  deal_closed: (t) => `סגרת את ${t}`,
+  exclusivity_signed: (t) => `חתמת בלעדיות על ${t}`,
+  offer_interested: (t) => `קונה אמר „מעוניין” על ${t}`,
+  coop_deal: (t) => `סגרת עסקת שיתוף פעולה על ${t}`,
+  goal_reached: (t) => `השגת את היעד: ${t}`,
+};
+
+/** „סגרת את X, וחתמת בלעדיות על Y” — כל הצלחה בשמה. */
+function winsSentence(wins: MentorWin[]): string {
+  const phrases = wins.map((w) => WIN_PHRASE[w.kind](w.title));
+  if (phrases.length === 1)
+    return `${phrases[0]}. כל הכבוד לך — זה מה שכל השבוע היה בשבילו.`;
+  const last = phrases[phrases.length - 1];
+  return `${phrases.slice(0, -1).join(", ")}, ו${last}. שבוע כזה לא קורה במקרה — זה שלך.`;
+}
+
+function goalSentence(goal: MentorGoalProgress): string {
+  const label = mentorGoalLabel(goal.metric, goal.target, goal.period);
+  const achieved = mentorQuantity(goal.metric, goal.actual);
+  switch (goal.pace) {
+    case "done":
+      return `היעד של ${label} — הושג: ${achieved}. יפה!`;
+    case "ahead":
+      return `${label}: כבר ${achieved}, מעל הקצב — ממש יפה.`;
+    case "on_track":
+      return `${label}: ${achieved} עד עכשיו, בקצב. ממשיכים ככה.`;
+    case "behind": {
+      // „עוד יש זמן” רק כשבאמת יש — הסיכום השבועי נאמר אחרי שהשבוע נגמר (ביקורת Codex)
+      const periodOver = goal.elapsed >= 1;
+      const base =
+        goal.actual === 0
+          ? periodOver
+            ? `${label}: לא יצא הפעם. זה היעד שביקשת מעצמך, והוא מתחיל מחדש — ואני איתך.`
+            : `${label}: עדיין לא התחיל. זה היעד שביקשת מעצמך, ועוד יש זמן.`
+          : periodOver
+            ? `${label}: ${achieved}. חסרו ${mentorQuantity(goal.metric, goal.remaining)} ליעד שקבעת לעצמך.`
+            : `${label}: ${achieved} עד עכשיו. עוד ${mentorQuantity(goal.metric, goal.remaining)} ליעד שקבעת לעצמך.`;
+      // ה„למה” של המתווך — עוגן, לא נזיפה. רק כשקשה, ורק אם כתב אחד.
+      return goal.why === undefined || goal.why.trim() === ""
+        ? base
+        : `${base} כתבת שזה בשביל: ${goal.why.trim()}.`;
+    }
+  }
+}
+
+/**
+ * שאלה אחת על מה שעצר — לפי סוג המדד, כי „מה עצר?” סתמי מקבל
+ * „לא יודע”. השאלה מציעה שתי תשובות אפשריות ומשאירה מקום לשלישית.
+ */
+const REFLECTION: Record<MentorGoalMetric, string> = {
+  deals_closed: "מה הכי קרוב לסגירה עכשיו, ומה חסר לו כדי להיסגר?",
+  offers_sent:
+    "מה עצר את ההצעות השבוע — לא היו התאמות טובות, או לא היה זמן לשלוח?",
+  viewings_held: "מה עצר את הסיורים — קונים שלא הגיעו, או לא נקבעו מספיק?",
+  leads_answered:
+    "מה עצר את המענה ללידים — הגיעו בשעות לא נוחות, או שהיו יותר מדי בבת אחת?",
+  new_buyers: "מאיפה הגיעו הקונים שכן נכנסו החודש — ומה אפשר להגביר שם?",
+  new_properties:
+    "מה עצר קליטת נכסים — לא היו פניות מוכרים, או שלא היה זמן לצאת אליהם?",
+  calls_made:
+    "מה עצר את השיחות היוצאות — לא היה למי להתקשר, או שהיום נגמר לפני שהגעת לטלפונים?",
+  calls_answered:
+    "מה קרה עם השיחות הנכנסות שלא נענו — הגיעו בזמן סיורים, או שהטלפון לא היה זמין?",
+  leads_answered_fast:
+    "מה עיכב את המענה ללידים החדשים — הגיעו כשלא יכולת לענות, או שחיכו לרגע פנוי שלא הגיע?",
+  followups_done:
+    "מה עצר את המעקבים — הצטברו יותר מדי, או שלא היה ברור מה הצעד הבא בכל אחד?",
+  owner_updates_sent:
+    "מה עצר את העדכונים למוכרים — לא היה מה לדווח, או שהדיווח נדחה כשלא היו חדשות טובות?",
+};
+
+/**
+ * תנועה מול השבוע הקודם — **רק מה שהשתנה**, ורק מול עצמו.
+ *
+ * מדד שלא זז לא נאמר: „הצעות: 3 (שבוע שעבר 3)” הוא רעש. ומי שאין
+ * לו שבוע קודם (מתווך חדש) אינו מקבל השוואה כלל — אין מול מה.
+ *
+ * משפט אחד ולא שתי רשימות: „יותר הצעות (2 ⟵ 4), פחות סיורים
+ * (3 ⟵ 2)” נקרא כמו מנטור שמדבר; „עלייה: … · … פחות: … · …” נקרא
+ * כמו דוח. העלייה קודם — זה מה שמנטור אומר ראשון.
+ */
+export function mentorTrendSentence(
+  activity: MentorActivity,
+  previous: MentorActivity | undefined,
+  /** מול מה — „שבוע שעבר” בסיכום השבועי, שם החודש בחודשי */
+  against = "שבוע שעבר",
+): string | null {
+  if (previous === undefined) return null;
+  const ups: string[] = [];
+  const downs: string[] = [];
+  for (const info of MENTOR_METRICS) {
+    const now = activity[info.code];
+    const before = previous[info.code];
+    if (now === before || (now === 0 && before === 0)) continue;
+    const change = `${info.label} (${before} ⟵ ${now})`;
+    if (now > before) ups.push(`יותר ${change}`);
+    else downs.push(`פחות ${change}`);
+  }
+  if (ups.length === 0 && downs.length === 0) return null;
+  return `מול ${against}: ${[...ups, ...downs].join(", ")}.`;
+}
+
+/** „2026-09-03” ⟵ „3.9” — תאריך קצר כמו שאומרים אותו. */
+function shortDayLabel(label: string): string {
+  const [, month, day] = label.split("-");
+  return `${Number(day)}.${Number(month)}`;
+}
+
+/** תחילת הרעיון — עד הקו המפריד, הנקודתיים או הנקודה הראשונה. */
+function ideaGist(text: string): string {
+  const cut = text.search(/ — |[:.]/u);
+  const gist = (cut < 0 ? text : text.slice(0, cut)).trim();
+  return gist.length > 60 ? `${gist.slice(0, 59).trimEnd()}…` : gist;
+}
+
+/**
+ * האם הרעיון עבד — המשפט שסוגר את המעגל של „עזר לי” (docs/14 §7.2):
+ * המספר של הרעיון בשבוע מהסימון מול השבוע שלפניו. עלייה נאמרת
+ * כעובדה שמאשרת את הבחירה; אין עלייה — עובדה, וייחוס לתהליך: שבוע
+ * אחד הוא מעט, והרעיון לא נלקח בחזרה.
+ */
+export function mentorIdeaOutcomeSentence(outcome: MentorIdeaOutcome): string {
+  const lead = `הרעיון שסימנת „עזר לי” ב-${shortDayLabel(outcome.date)} — „${ideaGist(outcome.text)}”:`;
+  const after = mentorQuantity(outcome.metric, outcome.after);
+  const before = mentorQuantity(outcome.metric, outcome.before);
+  if (outcome.change === "up")
+    return `${lead} בשבוע שאחריו ${after}, מול ${before} בשבוע שלפני. זה עובד — להמשיך עם זה.`;
+  if (outcome.change === "flat")
+    return `${lead} ${after} בשבוע שאחריו, כמו בשבוע שלפני. הרעיון לבד עוד לא הזיז את המספר — שווה לשאול מה חסם.`;
+  return `${lead} ${after} בשבוע שאחריו, מול ${before} בשבוע שלפני. שבוע אחד הוא מעט — נמשיך לעקוב.`;
+}
+
+/**
+ * תרגלת השבוע — משפט אחד בסיכום (§7.3). תרגול הוא מאמץ, ומאמץ נאמר
+ * בשמו; הציון האחרון כעובדה, בלי „רק”.
+ */
+export function mentorPracticeSentence(
+  practice: { count: number; lastScore: number | null } | undefined,
+): string | null {
+  if (practice === undefined || practice.count === 0) return null;
+  const times =
+    practice.count === 1
+      ? "שיחה אחת"
+      : practice.count === 2
+        ? "שתי שיחות"
+        : `${practice.count} שיחות`;
+  const score =
+    practice.lastScore === null
+      ? ""
+      : ` הציון האחרון: ${practice.lastScore} מתוך 5.`;
+  return `תרגלת השבוע ${times} עם המנטור.${score} תרגול הוא מה שהופך ידע להרגל.`;
+}
+
+function isEmptyActivity(activity: MentorActivity): boolean {
+  return MENTOR_METRICS.every((m) => activity[m.code] === 0);
+}
+
+/**
+ * הסיכום השבועי — מה שהמנטור אומר במוצאי שבת.
+ *
+ * ‎`null` = אין מה לומר: אין יעדים, אין הצלחות, ואין פעילות. עם
+ * יעדים תמיד יש מה לומר, גם על שבוע ריק — זה בדיוק השבוע שבו מנטור
+ * מדבר.
+ */
+export function mentorWeeklyReview(
+  signals: MentorWeekSignals,
+): MentorReview | null {
+  const { wins, goals, activity, previousActivity } = signals;
+  const noActivity = isEmptyActivity(activity);
+  // שיחה שלא חזרת אליה היא דבר לומר גם בשבוע שאין בו כלום אחר
+  const somethingWaits = (signals.insights?.missedUnreturned ?? 0) > 0;
+  // וכך גם רעיון שסומן „עזר לי” ונמדד — הבטחנו לומר אם המספר זז
+  const somethingMeasured = (signals.ideaOutcomes?.length ?? 0) > 0;
+  // תרגול הוא מאמץ — שבוע שבו רק תרגלו עדיין מקבל סיכום (§7.3)
+  const somethingPracticed = (signals.practice?.count ?? 0) > 0;
+  if (
+    wins.length === 0 &&
+    goals.length === 0 &&
+    noActivity &&
+    !somethingWaits &&
+    !somethingMeasured &&
+    !somethingPracticed
+  )
+    return null;
+
+  const allGoalsMet = goals.length > 0 && goals.every((g) => g.pace === "done");
+  const anyBehind = goals.some((g) => g.pace === "behind");
+  const commitment = signals.previousCommitment;
+
+  let mood: MentorMood;
+  if (wins.length > 0 || allGoalsMet || commitment?.kept === true)
+    mood = "celebrate";
+  else if (anyBehind || (goals.length > 0 && noActivity)) mood = "encourage";
+  else mood = "steady";
+
+  const paragraphs: string[] = [];
+  /*
+   * המחויבות מהשבוע שעבר נאמרת **ראשונה** — לפני ההצלחות ולפני
+   * היעדים: זה מה שהמתווך אמר שיעשה, וזה הדבר הראשון שמנטור בודק.
+   * עמידה — בשמה; אי-עמידה — עובדה, ובלי לקחת את ההתחייבות בחזרה
+   * (ייחוס לתהליך, לא ליכולת).
+   */
+  if (commitment !== undefined) {
+    const label = mentorGoalLabel(
+      commitment.metric,
+      commitment.target,
+      commitment.period,
+    );
+    paragraphs.push(
+      commitment.kept
+        ? `התחייבת ל${label} — ועמדת בזה. זה בדיוק מה שאני אוהב לראות.`
+        : `התחייבת ל${label}. הפעם לא יצא, וההתחייבות עדיין שלך — נמשיך ביחד.`,
+    );
+  }
+  // יעד שהושג נאמר במשפט היעדים („הושג”) — לא פעמיים
+  const told = wins.filter((w) => w.kind !== "goal_reached");
+  if (told.length > 0) paragraphs.push(winsSentence(told));
+  if (goals.length > 0) paragraphs.push(goals.map(goalSentence).join(" "));
+  // מהירות המענה ושיחות שמחכות — עובדות, אחרי היעדים ולפני הזיכרון
+  paragraphs.push(...mentorInsightSentences(signals.insights));
+  /*
+   * מה שסומן „עזר לי” לפני שבוע — והמספר שלו. שניים לכל היותר,
+   * האחרונים: הסיכום אומר אם הרעיון עבד, לא מנהל טבלה.
+   */
+  for (const outcome of (signals.ideaOutcomes ?? []).slice(-2))
+    paragraphs.push(mentorIdeaOutcomeSentence(outcome));
+  // תרגול הוא מאמץ שנאמר בשמו — כמו הצלחה, לפני הזיכרון
+  const practice = mentorPracticeSentence(signals.practice);
+  if (practice !== null) paragraphs.push(practice);
+  /*
+   * הזיכרון: דפוס חוזר נאמר רק כשהוא **רלוונטי השבוע** — מדד שמאחור
+   * גם עכשיו, או מפנה שנמשך. משפט אחד, לא רשימה: מנטור מזכיר דבר
+   * אחד שראה, ולא קורא את כל התיק.
+   */
+  const patterns = signals.patterns ?? [];
+  const relevant =
+    patterns.find(
+      (p) =>
+        p.kind === "recurring_behind" &&
+        goals.some((g) => g.metric === p.metric && g.pace === "behind"),
+    ) ??
+    patterns.find(
+      (p) =>
+        p.kind === "turned_around" &&
+        goals.some((g) => g.metric === p.metric && g.pace !== "behind"),
+    );
+  if (relevant !== undefined) paragraphs.push(mentorPatternLine(relevant));
+  const trend = mentorTrendSentence(activity, previousActivity);
+  if (trend !== null) paragraphs.push(trend);
+  /*
+   * טיפ אחד לשבוע הבא — על היעד שמאחור, מספר המשחק. מנטור שאומר
+   * „לא הגעת” בלי „הנה מה שהייתי מנסה” הוא דוח; אחד לשבוע, מתחלף
+   * לפי השבוע, כדי שלא יחזור על עצמו.
+   */
+  const behindGoal = goals.find((g) => g.pace === "behind");
+  if (behindGoal !== undefined) {
+    const tip = playbookIdeaPick(
+      behindGoal.metric,
+      Math.floor(signals.weekStart.getTime() / 604_800_000),
+      signals.feedback,
+      signals.office,
+    );
+    paragraphs.push(
+      tip.proven
+        ? `טיפ לשבוע הבא — עבד אצל אחרים במשרד: ${tip.text}`
+        : `טיפ לשבוע הבא: ${tip.text}`,
+    );
+  }
+
+  const streak = signals.streakWeeks ?? 0;
+  let headline: string;
+  if (mood === "celebrate") {
+    headline =
+      allGoalsMet && streak >= 2
+        ? `${streak} שבועות רצופים שכל היעדים שלך מושגים`
+        : allGoalsMet
+          ? "כל היעדים של השבוע הושגו — כל הכבוד לך"
+          : wins.length === 0 && commitment?.kept === true
+            ? "עמדת במה שהתחייבת"
+            : "שבוע עם תוצאה — שלך";
+  } else if (mood === "encourage") {
+    headline = noActivity
+      ? "שבוע שקט. השבוע הבא מתחיל מחדש, ואני איתך"
+      : "לא הגעת ליעד השבוע — והוא עדיין שלך";
+  } else {
+    headline = "שבוע של עבודה, בקצב שלך";
+  }
+
+  // הפתיח בשם — אישי, וקצר: המנטור פונה אליו, לא כותב עליו. הסגנון
+  // (והשם שהמתווך נתן למנטור) משנים את הפתיח בלבד
+  const greeting = mentorWeeklyGreeting(
+    signals.persona ?? DEFAULT_MENTOR_PERSONA,
+    mood,
+    signals.firstName,
+  );
+
+  let askNextWeek: string | null = null;
+  let ask: MentorAsk | null = null;
+  let reflection: string | null = null;
+  if (goals.length > 0) {
+    const behind = goals.find((g) => g.pace === "behind");
+    /*
+     * הבקשה היא **לשבוע הבא**, ולכן על יעד שבועי בלבד. יעד חודשי הוא
+     * מצטבר: מי שכבר השיג אותו ב-1 בחודש „עומד” בו בכל שבוע בלי
+     * לעשות דבר, ומי שמאחור בו אינו יכול לסגור אותו בשבוע. כשיש רק
+     * יעדים חודשיים — הבקשה היא להוסיף יעד תהליך שבועי לצידם.
+     */
+    const weekly = goals.filter((g) => g.period === "week");
+    const focus =
+      weekly.find((g) => g.pace === "behind") ?? weekly[0] ?? undefined;
+    if (focus === undefined) {
+      askNextWeek =
+        "יש לך יעד חודשי בלי יעד תהליך שבועי לצידו. לשבוע הבא: להוסיף אחד — זה מה שמזיז את החודש.";
+    }
+    if (focus !== undefined) {
+      ask = {
+        metric: focus.metric,
+        period: focus.period,
+        target: focus.target,
+      };
+      if (allGoalsMet) {
+        askNextWeek =
+          "אותם יעדים לשבוע הבא? אפשר גם להעלות אחד מהם — ההחלטה שלך.";
+      } else {
+        const label = mentorGoalLabel(focus.metric, focus.target, focus.period);
+        // כוונת היישום של המתווך עצמו — התוכנית שכבר כתב, לא תוכנית חדשה
+        const intention =
+          focus.intention === undefined || focus.intention.trim() === ""
+            ? ""
+            : ` התוכנית שכתבת: „${focus.intention.trim()}”.`;
+        askNextWeek = `לשבוע הבא: ${label}. זה מה שביקשת מעצמך, ואני כאן להזכיר.${intention}`;
+      }
+    }
+    if (behind !== undefined) reflection = REFLECTION[behind.metric];
+  }
+
+  return { mood, headline, greeting, paragraphs, askNextWeek, ask, reflection };
+}
+
+/**
+ * הסדר שבו הצלחות נאמרות, וכמה מהן: עסקה קודם לבלעדיות, ושתיהן
+ * לפני „מעוניין”. שש לכל היותר — משפט עם עשר הצלחות אינו חגיגה
+ * אלא רשימה, ומי שסגר עשר יודע.
+ *
+ * יעד שהושג (`goal_reached`) אינו נכנס לשש: הסיכום אינו אומר אותו
+ * במשפט ההצלחות (היעד נאמר מהיעדים), ולו נספר היה דוחק החוצה את
+ * „מעוניין” האמיתי (ביקורת Codex). הוא מצורף אחרי השש, כולו.
+ */
+const WIN_ORDER: Record<MentorWinKind, number> = {
+  deal_closed: 0,
+  coop_deal: 1,
+  exclusivity_signed: 2,
+  offer_interested: 3,
+  goal_reached: 4,
+};
+const MAX_WINS_TOLD = 6;
+
+export function selectWins(wins: readonly MentorWin[]): MentorWin[] {
+  const told = wins
+    .filter((w) => w.kind !== "goal_reached")
+    .sort((a, b) => WIN_ORDER[a.kind] - WIN_ORDER[b.kind])
+    .slice(0, MAX_WINS_TOLD);
+  return [...told, ...wins.filter((w) => w.kind === "goal_reached")];
+}
+
+/**
+ * החגיגה המיידית — ההתראה שיוצאת **באותו יום**, לא במוצאי שבת.
+ * חיזוק קרוב לאירוע חזק מחיזוק בסוף השבוע (docs/14 §2).
+ */
+export function mentorCelebration(
+  win: MentorWin,
+  firstName?: string,
+): {
+  title: string;
+  body: string;
+} {
+  const hi = mentorGreeting(firstName);
+  switch (win.kind) {
+    case "deal_closed":
+      return {
+        title: "🎉 סגרת עסקה!",
+        body: `${hi}${win.title} — נסגר. כל הכבוד לך! זה מה שכל השבוע היה בשבילו, ואני רושם.`,
+      };
+    case "exclusivity_signed":
+      return {
+        title: "🎉 חתמת בלעדיות!",
+        body: `${hi}${win.title} — הבלעדיות חתומה. נכס שסומכים עליך בו הוא הבסיס לעסקה הבאה.`,
+      };
+    case "coop_deal":
+      return {
+        title: "🎉 סגרת עסקת שיתוף פעולה!",
+        body: `${hi}${win.title} — נסגר יחד עם משרד אחר. עסקה שלא הייתה קורית לבד — יפה.`,
+      };
+    case "offer_interested":
+      return {
+        title: "👍 קונה אמר „מעוניין”",
+        body: `${hi}${win.title} — הקונה הגיב שהוא מעוניין. זה הרגע לקבוע סיור.`,
+      };
+    case "goal_reached":
+      return {
+        title: "🎯 היעד הושג!",
+        body: `${hi}${win.title} — הושג. ביקשת את זה מעצמך, ועשית. זה לא מזל, זו עבודה — ואני רושם.`,
+      };
+  }
+}
+
+/**
+ * מה שנשמר עם הסיכום — הכול נאמר, וגם מה שצריך כדי להציג אותו
+ * במסך ולחשב את הרצף בשבוע הבא, בלי לחשב מחדש נתונים שכבר השתנו.
+ */
+export interface MentorReviewBody {
+  /** הפתיח בשם — חסר בגופים שנשמרו לפני שהמנטור דיבר בגוף שני */
+  greeting?: string | null;
+  paragraphs: string[];
+  askNextWeek: string | null;
+  ask: MentorAsk | null;
+  reflection: string | null;
+  allGoalsMet: boolean;
+  /** האם המחויבות מהסיכום הקודם התקיימה — `null` כשלא הייתה */
+  commitmentKept: boolean | null;
+  wins: MentorWin[];
+  activity: MentorActivity;
+  /** התובנות כפי שנמדדו — חסר בגופים ישנים */
+  insights?: MentorInsights;
+  /** מה נמדד על רעיונות שסומנו „עזר לי” — לסיכום החודשי; חסר כשלא נמדד דבר */
+  ideaOutcomes?: MentorIdeaOutcome[];
+  goals: {
+    metric: MentorGoalMetric;
+    period: MentorGoalPeriod;
+    target: number;
+    actual: number;
+    pace: MentorPace;
+  }[];
+}
+
+export function mentorReviewBody(
+  signals: MentorWeekSignals,
+  review: MentorReview,
+): MentorReviewBody {
+  return {
+    greeting: review.greeting,
+    paragraphs: review.paragraphs,
+    askNextWeek: review.askNextWeek,
+    ask: review.ask,
+    reflection: review.reflection,
+    allGoalsMet:
+      signals.goals.length > 0 && signals.goals.every((g) => g.pace === "done"),
+    commitmentKept: signals.previousCommitment?.kept ?? null,
+    wins: signals.wins,
+    activity: signals.activity,
+    ...(signals.insights === undefined ? {} : { insights: signals.insights }),
+    ...(signals.ideaOutcomes === undefined || signals.ideaOutcomes.length === 0
+      ? {}
+      : { ideaOutcomes: signals.ideaOutcomes }),
+    goals: signals.goals.map((g) => ({
+      metric: g.metric,
+      period: g.period,
+      target: g.target,
+      actual: g.actual,
+      pace: g.pace,
+    })),
+  };
+}
+
+/**
+ * דחיפת אמצע השבוע — מה שמנטור אומר ביום רביעי, לא במוצאי שבת.
+ *
+ * מנטור אמיתי אינו מחכה לסוף השבוע כדי לומר שהקצב נפל; הוא מתערב
+ * כשעוד אפשר לשנות משהו. הכלל כאן צר בכוונה: רק יעד **שבועי**
+ * שכבר **מאחור** מקבל דחיפה, ורק אחד — זה שהכי רחוק מהקצב. יעד
+ * חודשי מקבל את זה בסיכום השבועי; „בקצב” ו„מעל הקצב” לא מקבלים
+ * כלום, כי דחיפה שמגיעה גם כשהכול בסדר היא רעש.
+ *
+ * הניסוח: עובדה (כמה יש, כמה חסר), התוכנית שהמתווך כתב, וה„למה”
+ * שלו — עוגן, לא נזיפה. ‎`null` = אין מה לומר.
+ */
+export function mentorMidweekNudge(
+  goals: readonly MentorGoalProgress[],
+  now: Date,
+  firstName?: string,
+  persona: MentorPersona = DEFAULT_MENTOR_PERSONA,
+): { title: string; body: string; metric: MentorGoalMetric } | null {
+  const behind = goals.filter(
+    (g) => g.period === "week" && g.pace === "behind",
+  );
+  if (behind.length === 0) return null;
+  // הכי רחוק מהקצב — הפער היחסי בין הצפוי למה שיש
+  const focus = [...behind].sort(
+    (a, b) =>
+      (b.expected - b.actual) / b.target - (a.expected - a.actual) / a.target,
+  )[0]!;
+  const label = mentorGoalLabel(focus.metric, focus.target, focus.period);
+  const left = workdaysLeftLabel(now);
+  const parts = [
+    focus.actual === 0
+      ? `${mentorGreeting(firstName)}${label}: עדיין לא התחיל, ${left}.`
+      : `${mentorGreeting(firstName)}${label}: ${mentorQuantity(focus.metric, focus.actual)} עד עכשיו, עוד ${mentorQuantity(focus.metric, focus.remaining)} ליעד — ${left}.`,
+  ];
+  if (focus.intention !== undefined && focus.intention.trim() !== "") {
+    parts.push(`התוכנית שכתבת: „${focus.intention.trim()}”.`);
+  }
+  if (focus.why !== undefined && focus.why.trim() !== "") {
+    parts.push(`זה בשביל: ${focus.why.trim()}.`);
+  }
+  parts.push(mentorCloser(persona.style, true));
+  return {
+    title: `🧭 אמצע השבוע — ${label}`,
+    body: parts.join(" "),
+    metric: focus.metric,
+  };
+}
+
+/**
+ * הבוקר של המנטור — מה שמאמן אומר בתחילת יום עבודה (docs/14 §3).
+ *
+ * מנטור שמדבר פעמיים בשבוע הוא דוח; מנטור שפותח את היום איתך הוא
+ * ליווי. ההודעה קצרה ובנויה מארבעה דברים, וכל אחד מהם נאמר רק כשיש
+ * לו על מה:
+ *
+ * 1. **אתמול** — המאמץ בשמו („4 שיחות יוצאות ו-2 הצעות”). ייחוס
+ *    לתהליך, לא לתוצאה; בראשון אין „אתמול” (שבת).
+ * 2. **היעדים השבועיים** — עד שניים, המאחור קודם: כמה יש, ומה
+ *    היום שווה כדי להישאר בקצב (השארית מחולקת בימי העבודה שנותרו,
+ *    כולל היום). מספר שאפשר לעשות היום, לא „חסרות 12”.
+ * 3. **שיחה שמחכה** — נכנסת שלא נענתה ולא חזרת אליה.
+ * 4. **בלי יעד** — ביום ראשון בלבד, הזמנה לקבוע אחד. בשאר הימים
+ *    מי שאין לו יעד, אין לו שיחה שמחכה ולא עשה כלום אתמול לא מקבל
+ *    כלום: בוקר טוב בלי תוכן הוא רעש.
+ *
+ * ‎`null` = אין מה לומר. שבת — תמיד `null`.
+ */
+export interface MentorDailyInput {
+  goals: readonly MentorGoalProgress[];
+  insights?: MentorInsights;
+  /** הפעילות של אתמול — לשבח את המאמץ, לא רק את התוצאה */
+  yesterday?: MentorActivity | null;
+  /** רעיון להיום — מספר המשחק (`mentorDailyIdea`); נאמר רק כשיש עוד מה לומר */
+  idea?: string;
+  /** הרעיון הוכיח את עצמו אצל אחרים במשרד (§7.4) — נאמר */
+  ideaProven?: boolean;
+  /** 30 הימים הראשונים (§7.5) — שורה בתחילת שבוע, ובוקר שלא נשאר ריק */
+  onboarding?: { morningLine: string | null; stepBody: string } | null;
+  /** העסקה הקרובה ביותר (§7.6) — נאמרת ביום שני, פעם בשבוע */
+  closestDeal?: string | null;
+  now: Date;
+  firstName?: string;
+  /** השם והסגנון שהמתווך בחר — הפתיח והסיום, לא התוכן */
+  persona?: MentorPersona;
+}
+
+const PACE_RANK: Record<MentorPace, number> = {
+  behind: 0,
+  on_track: 1,
+  ahead: 2,
+  done: 3,
+};
+
+/** „4 שיחות יוצאות ו-2 הצעות” — ו׳ החיבור מקבלת מקף לפני ספרה. */
+function andJoin(parts: readonly string[]): string {
+  if (parts.length <= 1) return parts[0] ?? "";
+  const last = parts[parts.length - 1]!;
+  return `${parts.slice(0, -1).join(", ")} ו${/^\d/u.test(last) ? "-" : ""}${last}`;
+}
+
+/** ימי עבודה שנותרו כולל היום — ראשון 5.5 … חמישי 1.5, שישי 0.5. */
+function workdaysLeftIncludingToday(weekday: number): number {
+  if (weekday === 5) return 0.5;
+  return Math.max(0, 4 - weekday) + 1 + 0.5;
+}
+
+export function mentorDailyPlan(
+  input: MentorDailyInput,
+): { title: string; body: string } | null {
+  const weekday = jerusalemWeekday(input.now);
+  if (weekday === 6) return null;
+  const name = (input.firstName ?? "").trim();
+  const lines: string[] = [];
+
+  const yesterday = input.yesterday ?? null;
+  if (weekday >= 1 && yesterday !== null) {
+    const effort = MENTOR_METRICS.filter(
+      (m) => m.kind === "process" && yesterday[m.code] > 0,
+    )
+      .sort((a, b) => yesterday[b.code] - yesterday[a.code])
+      .slice(0, 2)
+      .map((m) => mentorQuantity(m.code, yesterday[m.code]));
+    if (effort.length > 0) {
+      lines.push(
+        `אתמול: ${andJoin(effort)}. ${effort.length > 1 ? "יום מלא." : "יפה."}`,
+      );
+    }
+  }
+
+  const weekly = [...input.goals]
+    .filter((g) => g.period === "week")
+    .sort((a, b) => PACE_RANK[a.pace] - PACE_RANK[b.pace])
+    .slice(0, 2);
+  const daysLeft = workdaysLeftIncludingToday(weekday);
+  let anyBehind = false;
+  for (const goal of weekly) {
+    const label = mentorGoalLabel(goal.metric, goal.target, goal.period);
+    if (goal.pace === "done") {
+      lines.push(`${label} — כבר הושג. 🎯`);
+      continue;
+    }
+    if (goal.pace === "behind") anyBehind = true;
+    const today = mentorQuantity(
+      goal.metric,
+      Math.max(1, Math.ceil(goal.remaining / daysLeft)),
+    );
+    lines.push(
+      goal.actual === 0
+        ? `${label}: עוד לא התחיל. ${today} היום — התחלה טובה.`
+        : `${label}: ${mentorQuantity(goal.metric, goal.actual)} עד עכשיו. ${today} היום ${goal.pace === "behind" ? "כדי לחזור לקצב" : "כדי להישאר בקצב"}.`,
+    );
+  }
+
+  // פעם בשבוע, ביום שני: קונה אחד ומכשול אחד (§7.6) — שיפוט, לא תזכורת
+  if (weekday === 1 && input.closestDeal) lines.push(input.closestDeal);
+
+  const missed = input.insights?.missedUnreturned ?? 0;
+  if (missed === 1) {
+    lines.push("שיחה נכנסת אחת מחכה לטלפון חוזר — שווה להתחיל ממנה.");
+  } else if (missed > 1) {
+    lines.push(`${missed} שיחות נכנסות מחכות לטלפון חוזר — שווה להתחיל מהן.`);
+  }
+
+  if (input.goals.length === 0 && weekday === 0 && !input.onboarding) {
+    lines.push(
+      "השבוע עוד בלי יעד. יעד אחד קטן — למשל 5 הצעות — נותן לשבוע כיוון. אפשר לכתוב לי „תקבע לי יעד של 5 הצעות בשבוע”.",
+    );
+  }
+
+  /*
+   * 30 הימים הראשונים (§7.5): בתחילת שבוע — המיקוד של השבוע ראשון;
+   * ובוקר שהיה נשאר ריק אומר את הצעד. מתווך חדש לא מקבל שתיקה
+   * בשבועות שבהם הוא מחליט אם המערכת שווה.
+   */
+  if (input.onboarding) {
+    if (input.onboarding.morningLine !== null)
+      lines.unshift(input.onboarding.morningLine);
+    if (lines.length === 0) lines.push(input.onboarding.stepBody);
+  }
+
+  if (lines.length === 0) return null;
+  // רעיון רק כשיש בוקר — „בוקר טוב, רעיון” בלי יעד ובלי אתמול הוא פרסומת
+  const idea = (input.idea ?? "").trim();
+  if (idea !== "")
+    lines.push(
+      input.ideaProven === true
+        ? `רעיון להיום — עבד אצל אחרים במשרד: ${idea}`
+        : `רעיון להיום: ${idea}`,
+    );
+  const persona = input.persona ?? DEFAULT_MENTOR_PERSONA;
+  const greeting = mentorSalutation("בוקר טוב", name, persona);
+  const closer = mentorCloser(persona.style, anyBehind);
+  return {
+    title: "🌅 היום שלך",
+    body: [greeting, ...lines, closer].join(" "),
+  };
+}
+
+/**
+ * כמה ימי עבודה נשארו בשבוע הישראלי, לפי רגע השליחה — לא „שלושה”
+ * קבוע: הדחיפה יכולה לצאת גם בחמישי (אחרי השבתה, או למי שנפל מהקצב
+ * רק אז), ותאריך יעד שגוי גרוע מאין תאריך. ראשון עד חמישי הם ימי
+ * עבודה; שישי נספר כחצי; היום עצמו נספר כשעדיין לפני הצהריים.
+ */
+function workdaysLeftLabel(now: Date): string {
+  const weekday = jerusalemWeekday(now);
+  const beforeNoon = Number(jerusalemWallParts(now).time.slice(0, 2)) < 12;
+  // ימי עבודה מלאים אחרי היום: ראשון(0)…חמישי(4)
+  const fullDaysAfterToday = Math.max(0, 4 - weekday);
+  const days = fullDaysAfterToday + (weekday <= 4 && beforeNoon ? 1 : 0);
+  if (weekday === 5 || (weekday === 4 && !beforeNoon))
+    return "והשבוע כמעט נגמר";
+  if (days >= 3) return `ונשארו ${days} ימי עבודה`;
+  if (days === 2) return "ונשארו יומיים";
+  return "ונשאר יום עבודה אחד";
+}
+
+/**
+ * הצעות ל„אם… אז…” — החצי השני של WOOP, אחרי שהמתווך ענה „מה עצר”.
+ *
+ * שלוש הצעות לכל מדד, במילים שאפשר ללחוץ עליהן ולתקן. הן נקודת
+ * פתיחה, לא תשובה: התוכנית שנשמרת היא מה שהמתווך כתב, והיא נכנסת
+ * ליעד ככוונת יישום — כדי שהדחיפה של אמצע השבוע והבקשה לשבוע
+ * הבא יזכירו אותה, ולא תוכנית חדשה.
+ */
+const OBSTACLE_PLANS: Record<MentorGoalMetric, readonly string[]> = {
+  offers_sent: [
+    "כשאין התאמות טובות — אז מרחיב את הסינון (תקציב או אזור) ושולח שתיים",
+    "כשלא נשאר זמן — אז ההצעות הן הדבר הראשון בבוקר, לפני הטלפונים",
+    "כשקונה לא עונה על הצעה — אז שולח הודעה קצרה למחרת בבוקר",
+  ],
+  viewings_held: [
+    "כשקונה לא מגיע — אז מאשר איתו בטלפון יום לפני, ומציע מועד חלופי מיד",
+    "כשלא נקבעו מספיק — אז בכל שיחה עם קונה מציע מועד קונקרטי לסיור",
+    "כשהנכס לא זמין — אז מקבע עם הבעלים שני חלונות קבועים בשבוע",
+  ],
+  leads_answered: [
+    "כשליד מגיע בשעה לא נוחה — אז שולח הודעת „אחזור אליך ב-…” תוך דקה",
+    "כשמגיעים כמה לידים בבת אחת — אז עונה לכולם בשתי שורות ומתקשר לפי סדר",
+    "כשאני בסיור — אז הליד מקבל תשובה מוכנה, ואני חוזר אליו מיד אחרי",
+  ],
+  new_buyers: [
+    "כשמישהו מתקשר על נכס שכבר נמכר — אז פותח לו כרטיס קונה עם מה שהוא מחפש",
+    "כשמגיע פנייה מדף נכס — אז שואל שלוש שאלות על התקציב והאזור ורושם",
+    "כשאין פניות חדשות — אז חוזר לשלושה קונים ישנים ושואל מה השתנה",
+  ],
+  new_properties: [
+    "כשאין פניות מוכרים — אז מתקשר לשני בעלי נכסים שכבר עבדתי איתם",
+    "כשאין זמן לצאת לנכס — אז קובע יום קבוע בשבוע לקליטות",
+    "כשמוכר מתלבט — אז שולח לו מה קרה לנכסים דומים שמכרתי",
+  ],
+  deals_closed: [
+    "כשעסקה נתקעת על מחיר — אז מביא לשני הצדדים שלוש עסקאות דומות מהחודש",
+    "כשקונה מתלבט — אז קובע סיור שני עם בן משפחה או יועץ",
+    "כשהמשא ומתן מתארך — אז מגדיר מועד יעד לחתימה ואומר אותו לשני הצדדים",
+  ],
+  calls_made: [
+    "כשאין למי להתקשר — אז פותח את רשימת הקונים שלא דיברתי איתם שבועיים ומתקשר לשלושה",
+    "כשהיום נגמר לפני הטלפונים — אז חוסם 10:00–11:00 לשיחות בלבד, לפני הכול",
+    "כשאני דוחה שיחה קשה — אז מתקשר אליה ראשונה, כשעוד יש אנרגיה",
+  ],
+  calls_answered: [
+    "כשאני בסיור — אז מעביר את הנייד לעוזר או שולח „אחזור אליך בעוד שעה” אוטומטית",
+    "כששיחה לא נענתה — אז חוזר אליה עד סוף היום, לא למחרת",
+    "כשמתקשרים ממספר לא מוכר — אז עונה, כי זה כנראה לקוח מהמודעה",
+  ],
+  leads_answered_fast: [
+    "כשליד נכנס כשאני עסוק — אז שולח הודעה קצרה תוך דקה וקובע מתי מתקשר",
+    "כשמצטברים לידים — אז עונה לכולם בשתי שורות קודם, ומתקשר לפי סדר",
+    "כשאני בפגישה — אז הליד מקבל תשובה מוכנה, ואני מתקשר מיד אחריה",
+  ],
+  followups_done: [
+    "כשמצטברים מעקבים — אז מתחיל את היום בשלושה הישנים ביותר",
+    "כשלא ברור מה הצעד הבא — אז כותב אותו במשימה עצמה ברגע שנוצרת",
+    "כשמעקב מתעכב — אז שולח הודעה קצרה במקום לחכות לזמן לשיחה",
+  ],
+  owner_updates_sent: [
+    "כשאין חדשות טובות — אז שולח למוכר מה נעשה השבוע, לא רק מה נסגר",
+    "כשעבר שבוע בלי עדכון — אז שולח שתי שורות ביום קבוע, למשל חמישי",
+    "כשמוכר לא מרוצה — אז מתקשר לפני שהוא מתקשר",
+  ],
+};
+
+export function obstaclePlanSuggestions(
+  metric: MentorGoalMetric,
+): readonly string[] {
+  return OBSTACLE_PLANS[metric];
+}
+
+/* ------------------------------------------------------------------ */
+/* זיכרון ארוך — דפוסים חוזרים מהסיכומים הקודמים                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * מה שנשמר מסיכום קודם ומשמש לזיהוי דפוסים. תת-קבוצה של
+ * ‎`MentorReviewBody` + מה שהמתווך ענה — בלי הטקסטים של המנטור עצמו.
+ */
+export interface MentorPastReview {
+  weekStart: Date;
+  goals: {
+    metric: MentorGoalMetric;
+    period: MentorGoalPeriod;
+    target: number;
+    actual: number;
+    pace: MentorPace;
+  }[];
+  /** המדד שהשאלה הייתה עליו */
+  askMetric: MentorGoalMetric | null;
+  reflectionAnswer: string | null;
+  plan: string | null;
+  commitment: "accepted" | "declined" | null;
+  /** האם המחויבות מהסיכום שלפניו התקיימה — כפי שנרשם בסיכום הזה */
+  commitmentKept: boolean | null;
+}
+
+export type MentorPattern =
+  | {
+      kind: "recurring_behind";
+      metric: MentorGoalMetric;
+      /** בכמה מהסיכומים האחרונים המדד היה מאחור */
+      weeksBehind: number;
+      /** מתוך כמה סיכומים שהיה בהם יעד על המדד */
+      weeksWithGoal: number;
+      /** מה המתווך ענה על „מה עצר” בפעמים ההן — מהחדש לישן, עד שלוש */
+      answers: string[];
+      /** התוכניות שנקבעו אז */
+      plans: string[];
+    }
+  | {
+      kind: "turned_around";
+      metric: MentorGoalMetric;
+      /** כמה שבועות מאחור לפני המפנה */
+      weeksBehind: number;
+      /** כמה שבועות רצופים בקצב או הושג מאז */
+      weeksSince: number;
+    }
+  | { kind: "commitment_record"; accepted: number; kept: number };
+
+/** כמה שבועות אחורה נחשבים „הזיכרון” — כחודשיים. */
+export const PATTERN_LOOKBACK = 8;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const RECURRING_MIN = 3;
+
+/**
+ * דפוסים חוזרים — מה שמנטור אמיתי זוכר ואומר: „זו הפעם השלישית
+ * בחודשיים שההצעות נתקעות, ובפעמים הקודמות אמרת ש…”.
+ *
+ * דטרמיניסטי, מהסיכומים שנשמרו: בלי ניתוח טקסט, בלי מודל. מדד
+ * שהיה מאחור בשלושה מתוך שמונת הסיכומים האחרונים הוא דפוס; מדד
+ * שהיה מאחור פעמיים ומאז בקצב הוא מפנה — ומפנה נאמר, כי התקדמות
+ * שאיש לא רואה נשחקת. ‎`reviews` — מהחדש לישן.
+ */
+export function mentorPatterns(
+  reviews: readonly MentorPastReview[],
+  asOf: Date,
+): MentorPattern[] {
+  /*
+   * חלון של שבועות **מהיום** (`asOf`), לא מהסיכום החדש ביותר ולא
+   * ספירת רשומות: מתווך שלא היו לו סיכומים חצי שנה אינו שומע על
+   * „החודשיים האחרונים” דברים מלפני חצי שנה (ביקורת Codex).
+   */
+  const recent = reviews
+    .filter((r) => {
+      const age = asOf.getTime() - r.weekStart.getTime();
+      return age >= 0 && age < PATTERN_LOOKBACK * WEEK_MS;
+    })
+    .sort((a, b) => b.weekStart.getTime() - a.weekStart.getTime());
+  const patterns: MentorPattern[] = [];
+
+  for (const info of MENTOR_METRICS) {
+    const metric = info.code;
+    const rows = recent
+      .map((r) => ({ r, g: r.goals.find((g) => g.metric === metric) }))
+      .filter(
+        (x): x is { r: MentorPastReview; g: NonNullable<typeof x.g> } =>
+          x.g !== undefined,
+      );
+    if (rows.length === 0) continue;
+    const behindRows = rows.filter((x) => x.g.pace === "behind");
+
+    /*
+     * מפנה: שבועות **רצופים** בסדר עד השבוע האחרון שיש עליו סיכום,
+     * ולפניהם פיגור חוזר. הרציפות נבדקת לפי `weekStart`: שבוע בלי
+     * סיכום או בלי יעד על המדד שובר את הרצף — שני שבועות טובים עם
+     * חור ביניהם אינם „שבועיים רצופים” (ביקורת Codex).
+     */
+    let since = 0;
+    let expected = recent[0]?.weekStart.getTime();
+    for (const x of rows) {
+      if (x.r.weekStart.getTime() !== expected || x.g.pace === "behind") break;
+      since += 1;
+      expected -= WEEK_MS;
+    }
+    const before = rows
+      .slice(since)
+      .filter((x) => x.g.pace === "behind").length;
+    if (since >= 2 && before >= 2) {
+      patterns.push({
+        kind: "turned_around",
+        metric,
+        weeksBehind: before,
+        weeksSince: since,
+      });
+      continue;
+    }
+
+    if (behindRows.length >= RECURRING_MIN) {
+      const answers = behindRows
+        .filter(
+          (x) =>
+            x.r.askMetric === metric &&
+            typeof x.r.reflectionAnswer === "string",
+        )
+        .map((x) => x.r.reflectionAnswer as string)
+        .slice(0, 3);
+      const plans = behindRows
+        .filter((x) => x.r.askMetric === metric && typeof x.r.plan === "string")
+        .map((x) => x.r.plan as string)
+        .slice(0, 3);
+      patterns.push({
+        kind: "recurring_behind",
+        metric,
+        weeksBehind: behindRows.length,
+        weeksWithGoal: rows.length,
+        answers,
+        plans,
+      });
+    }
+  }
+
+  const judged = recent.filter((r) => r.commitmentKept !== null);
+  const accepted = judged.length;
+  if (accepted >= 2) {
+    patterns.push({
+      kind: "commitment_record",
+      accepted,
+      kept: judged.filter((r) => r.commitmentKept === true).length,
+    });
+  }
+  return patterns;
+}
+
+/**
+ * הדפוס כמשפט — למסך, לסיכום ולפרומפט. עובדה עם מספרים, ואז מה
+ * שהמתווך עצמו אמר: הזיכרון של המנטור הוא המילים של המתווך, לא
+ * פרשנות עליהן.
+ */
+export function mentorPatternLine(pattern: MentorPattern): string {
+  switch (pattern.kind) {
+    case "recurring_behind": {
+      const label =
+        MENTOR_METRICS.find((m) => m.code === pattern.metric)?.label ??
+        pattern.metric;
+      const head = `${label}: מאחור ב-${pattern.weeksBehind} מתוך ${pattern.weeksWithGoal} השבועות האחרונים.`;
+      const said =
+        pattern.answers.length === 0
+          ? ""
+          : ` בפעמים הקודמות אמרת: ${pattern.answers.map((a) => `„${a}”`).join(", ")}.`;
+      const planned =
+        pattern.plans.length === 0
+          ? ""
+          : ` והתוכנית שקבעת אז: „${pattern.plans[0]}”.`;
+      return `${head}${said}${planned}`;
+    }
+    case "turned_around": {
+      const label =
+        MENTOR_METRICS.find((m) => m.code === pattern.metric)?.label ??
+        pattern.metric;
+      return `${label}: אחרי ${pattern.weeksBehind} שבועות מאחור — ${pattern.weeksSince} שבועות רצופים בקצב. זה מפנה — ועשית אותו בעצמך.`;
+    }
+    case "commitment_record":
+      return `מחויבויות: עמדת ב-${pattern.kept} מתוך ${pattern.accepted} שהתחייבת אליהן בחודשיים האחרונים.`;
+  }
+}
+
+/** כותרת ההתראה בפעמון ובוואטסאפ — לפי הטון, אייקון אחד לכל טון. */
+export function mentorReviewTitle(review: MentorReview): string {
+  const icon =
+    review.mood === "celebrate"
+      ? "🎉"
+      : review.mood === "encourage"
+        ? "💪"
+        : "📈";
+  return `${icon} ${review.headline}`;
+}

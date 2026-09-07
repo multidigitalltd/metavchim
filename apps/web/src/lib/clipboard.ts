@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * מהמסכים האלה, ולכן ההודעה הנכונה מפנה להעתקה ידנית — שהיא פעולה
  * שהמשתמש יכול לבצע מיד, בניגוד לניחוש למה הדבקה לא עבדה.
  */
-export async function copyText(text: string): Promise<boolean> {
+async function copyText(text: string): Promise<boolean> {
   try {
     /*
      * `navigator.clipboard` עצמו יכול להיות `undefined` ולא רק

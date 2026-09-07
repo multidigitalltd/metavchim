@@ -72,7 +72,8 @@ const NoteSchema = z.object({ content: z.string().min(1).max(2000) }).strict();
 
 const ConvertSchema = z
   .object({
-    requirements: BuyerRequirementsSchema,
+    // ‎strict גם בפנים — ראו CreateBuyerSchema
+    requirements: BuyerRequirementsSchema.strict(),
     financing: FinancingStatusSchema.optional(),
     maturity: BuyerMaturitySchema.optional(),
   })
@@ -113,7 +114,8 @@ export class LeadsController {
   async create(
     @Body(new ZodValidationPipe(CreateLeadSchema)) body: z.infer<typeof CreateLeadSchema>,
   ): Promise<{ id: string; merged: boolean; visible: boolean }> {
-    return this.leads.create(body);
+    /* ‏מסך של סוכן מחובר — `typedBy` אינו מגיע מהגוף, וראו `create` */
+    return this.leads.create({ ...body, typedBy: "agent" });
   }
 
   @Get()

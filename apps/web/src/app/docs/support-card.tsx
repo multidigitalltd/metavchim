@@ -1,7 +1,7 @@
 import { IconMail } from "../icons";
 
 /** כתובת התמיכה של המערכת — פנייה כללית, לא קשורה לגישת התמיכה לחשבון. */
-export const SUPPORT_EMAIL = "service@metavchim.co.il";
+const SUPPORT_EMAIL = "service@metavchim.co.il";
 
 /**
  * „לא מצאתם תשובה?” — בכל עמוד הדרכה, ולא רק באינדקס.

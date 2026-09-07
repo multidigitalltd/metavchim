@@ -38,7 +38,8 @@ import {
   isOverrideActive,
   limitState,
   overrideRejectionReason,
-  resolveCapabilities,
+  orphanedGrantReason,
+  effectiveCapabilities,
   type Capability,
   type LimitState,
   DEFAULT_MATCH_WEIGHTS,
@@ -137,10 +138,6 @@ const AutomationsSchema = z
 const TenantSettingsSchema = z
   .object({
     name: z.string().min(2).max(120).optional(),
-    /** המספר העסקי לוואטסאפ — ספרות בלבד; "" מנתק את השיוך */
-    whatsappNumber: z
-      .union([z.string().regex(/^\d{9,15}$/u), z.literal("")])
-      .optional(),
     /* פרטי המשרד שנכנסים לנוסחי ההסכמים. מספר רישיון התיווך הוא
        פרט חובה בהזמנה בכתב לפי חוק המתווכים במקרקעין. */
     licenseNumber: z.union([z.string().max(40), z.literal("")]).optional(),
@@ -192,6 +189,19 @@ type UserCapabilitiesDto = {
   role: string;
   protected: boolean;
   effective: string[];
+  /**
+   * ‎**מודולים שהפלטפורמה חסמה למשרד — לא לסוכן הזה.**
+   *
+   * ‏`effective` כבר מנוכה מהם, וזה נכון אבל לא מספיק: המסך אינו
+   * ‏יודע **למה** היכולת חסרה, ולכן הוא הציג „חסום” לצד כפתורי
+   * ‏„חסום” ו„הענק” שפועלים על שכבת החריגים — שכבה שאינה יכולה
+   * ‏לפתוח מודול שנחסם מלמעלה. ההענקה נדחית, והמנהל אינו מבין
+   * ‏למה (ביקורת Codex, P2).
+   *
+   * ‏מפתחות המודולים כפי שהם ב-`CAPABILITY_MODULES`, ולכן המסך
+   * ‏משווה מול אותה רשימה שהוא מרנדר.
+   */
+  blockedModules: string[];
   overrides: {
     capability: string;
     effect: string;
@@ -640,7 +650,6 @@ export class SettingsController {
   @RequireCapability("settings.manage")
   async tenant(): Promise<{
     name: string;
-    whatsappNumber?: string;
     plan: string;
     licenseNumber?: string;
     officeAddress?: string;
@@ -667,10 +676,6 @@ export class SettingsController {
     const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
     return {
       name: tenant?.name ?? "",
-      whatsappNumber:
-        typeof settings["whatsappNumber"] === "string"
-          ? settings["whatsappNumber"]
-          : undefined,
       plan: tenant?.plan ?? "basic",
       licenseNumber:
         typeof settings["licenseNumber"] === "string"
@@ -1045,18 +1050,6 @@ export class SettingsController {
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
 
-    // מספר וואטסאפ ייחודי בין משרדים — אחרת הודעות לקוחות ינותבו למשרד
-    // שגוי (ביקורת Codex, PR #5). אינדקס DB ייחודי משמש כקו הגנה שני.
-    if (body.whatsappNumber) {
-      const taken = await this.prisma.tenant.findFirst({
-        where: {
-          id: { not: tenantId },
-          settings: { path: ["whatsappNumber"], equals: body.whatsappNumber },
-        },
-        select: { id: true },
-      });
-      if (taken) throw new BadRequestException("המספר כבר משויך למשרד אחר");
-    }
 
     /*
      * ‎**הקריאה, השינוי והכתיבה — בטרנזקציה אחת ומתחת לנעילת השורה.**
@@ -1083,7 +1076,7 @@ export class SettingsController {
     /*
      * כל השדות שיושבים ב-settings עוברים באותה לולאה.
      *
-     * קודם רק whatsappNumber נכתב, ושלושת פרטי המשרד נבלעו בשקט: הם
+     * קודם רק מספר הוואטסאפ המשרדי (שכבר אינו קיים) נכתב, ושלושת פרטי המשרד נבלעו בשקט: הם
      * עברו ולידציה, חזרו ב-GET, ומעולם לא נשמרו. משתמש שמילא מספר
      * רישיון, שמר, וראה "נשמר" — קיבל שדה ריק בטעינה הבאה. שמירה
      * שמדווחת הצלחה ולא כותבת גרועה משדה שלא קיים.
@@ -1092,7 +1085,6 @@ export class SettingsController {
      * כדי שהתבניות יראו "חסר" ולא ידפיסו רישיון ריק בהסכם.
      */
     const SETTINGS_FIELDS = [
-      "whatsappNumber",
       "licenseNumber",
       "officeAddress",
       "officePhone",
@@ -1317,7 +1309,14 @@ export class SettingsController {
     const tenantId = TenantContext.current().tenantId;
     const target = await this.prisma.user.findFirst({
       where: { id, tenantId },
-      select: { id: true, name: true, role: true },
+      /*
+       * ‎**וגם חסימות המודולים של המשרד.** בלעדיהן המסך הציג
+       * ‏„היכולות בפועל” שאינן בפועל: יכולת שהפלטפורמה חסמה למשרד
+       * ‏המשיכה להופיע כפעילה, ומנהל שקורא את המסך הזה כדי להחליט
+       * ‏מה לסוכן מותר קיבל תשובה שגויה — במסך שכל תפקידו לענות
+       * ‏עליה נכון.
+       */
+      select: { id: true, name: true, role: true, tenant: { select: { blockedModules: true } } },
     });
     if (!target) throw new BadRequestException("משתמש לא נמצא");
 
@@ -1347,7 +1346,17 @@ export class SettingsController {
       // בעל המשרד מוגן בשרת; המסך מקבל את הדגל כדי להסביר למה
       protected:
         target.role === "owner" || target.id === TenantContext.current().userId,
-      effective: [...resolveCapabilities(target.role, overrides, now)],
+      blockedModules: [...target.tenant.blockedModules],
+      effective: [
+        ...effectiveCapabilities(
+          {
+            role: target.role,
+            overrides: rows,
+            blockedModules: target.tenant.blockedModules,
+          },
+          now,
+        ),
+      ],
       overrides: rows.map((row, index) => ({
         capability: row.capability,
         effect: row.effect,
@@ -1357,6 +1366,53 @@ export class SettingsController {
         active: isOverrideActive(overrides[index]!, now),
       })),
     };
+  }
+
+  /**
+   * ‎**הענקה שלא תשנה דבר נדחית — עם שם החוסם** (ביקורת Codex, P2).
+   *
+   * ‏החישוב הוא על המצב **אחרי** הפעולה, ומאותה `effectiveCapabilities`
+   * ‏שכל שאר המערכת קוראת. בדיקה מול המצב הקודם הייתה דוחה גם
+   * ‏„הענק את כרטיס הכניסה ואת המרחיבה יחד”, שהיא בדיוק הפעולה
+   * ‏שההודעה מבקשת מהמנהל לעשות.
+   */
+  private async assertGrantsTakeEffect(
+    userId: string,
+    role: string,
+    granted: readonly Capability[],
+    body: z.infer<typeof SetCapabilitiesSchema>,
+    expiresAt: Date | null,
+  ): Promise<void> {
+    const ctx = TenantContext.current();
+    const [tenant, existing] = await Promise.all([
+      this.prisma.tenant.findUnique({
+        where: { id: ctx.tenantId },
+        select: { blockedModules: true },
+      }),
+      this.prisma.withTenant((tx) =>
+        tx.userCapability.findMany({
+          where: { userId, tenantId: ctx.tenantId },
+          select: { capability: true, effect: true, expiresAt: true },
+        }),
+      ),
+    ]);
+    const after = new Map(existing.map((row) => [row.capability, row]));
+    for (const capability of body.capabilities) {
+      if (body.effect === "clear") after.delete(capability);
+      else after.set(capability, { capability, effect: body.effect, expiresAt });
+    }
+    const effective = effectiveCapabilities(
+      {
+        role,
+        overrides: [...after.values()],
+        blockedModules: tenant?.blockedModules ?? [],
+      },
+      new Date(),
+    );
+    for (const capability of granted) {
+      const reason = orphanedGrantReason(capability, effective);
+      if (reason !== null) throw new BadRequestException(reason);
+    }
   }
 
   /**
@@ -1409,6 +1465,8 @@ export class SettingsController {
       ),
     );
 
+    /** ‏מה שהפעולה הזו **מדליקה** — ולא רק „מה נשלח”. */
+    const granted: Capability[] = [];
     for (const capability of body.capabilities) {
       const effect =
         body.effect === "clear"
@@ -1427,11 +1485,24 @@ export class SettingsController {
         effect,
       });
       if (reason) throw new BadRequestException(reason);
+      if (effect === "grant") granted.push(capability as Capability);
     }
 
     const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
     if (expiresAt && expiresAt.getTime() <= Date.now()) {
       throw new BadRequestException("מועד סיום החסימה חייב להיות בעתיד");
+    }
+
+    /*
+     * ‎**והפעולה חייבת לעשות את מה שהיא אומרת** (ביקורת Codex, P2).
+     *
+     * ‏יכולת מרחיבה שכרטיס הכניסה שלה חסום יורדת בנרמול, ולכן
+     * ‏„הענק” החזיר „בוצע” והמסך נשאר כבוי. הבדיקה נעשית על המצב
+     * ‏**אחרי** הפעולה — כך ש„הענק את שתיהן יחד” עוברת, וההענקה
+     * ‏היתומה לבדה נדחית עם שם החוסם.
+     */
+    if (granted.length > 0) {
+      await this.assertGrantsTakeEffect(id, target.role, granted, body, expiresAt);
     }
 
     await this.prisma.withTenant(async (tx) => {
@@ -1868,72 +1939,6 @@ export class SettingsController {
   }
 
   /**
-   * סטטוס חיבור הוואטסאפ של המשרד — מה מוגדר, מה חסר, והאם זורמות
-   * הודעות בפועל (ההודעה הנכנסת האחרונה). משמש את מסך ההגדרות כדי
-   * שהמתווך יידע בדיוק איפה החיבור עומד בלי לנחש.
-   */
-  @Get("whatsapp-status")
-  @RequireCapability("settings.manage")
-  async whatsappStatus(): Promise<{
-    serverConfigured: boolean;
-    numberConfigured: boolean;
-    lastInboundAt?: Date;
-  }> {
-    const env = loadEnv();
-    const tenantId = TenantContext.current().tenantId;
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { settings: true },
-    });
-    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
-    const numberConfigured = typeof settings["whatsappNumber"] === "string";
-
-    // ההודעה הנכנסת האחרונה — ההוכחה שהחיבור חי מקצה לקצה
-    const lastInbound = await this.prisma.withTenant((tx) =>
-      tx.interaction.findFirst({
-        // נכנסות בלבד — הצעה שנשלחה בוואטסאפ היא direction:out ולא
-        // מעידה שה-webhook מ-Meta עובד (ביקורת Codex)
-        where: { tenantId, kind: "whatsapp", direction: "in" },
-        orderBy: { createdAt: "desc" },
-        select: { createdAt: true },
-      }),
-    );
-
-    /*
-     * שני המקורות, ובאותו סדר שבו ה-Webhook עצמו קורא אותם.
-     *
-     * הבדיקה כאן הסתכלה על משתני הסביבה בלבד — אבל הדרך המומלצת
-     * להגדיר את המפתחות היא מסך /platform, שכותב אותם למסד. כלומר
-     * בעל הפלטפורמה מגדיר הכול כהלכה, הודעות נכנסות זורמות, וכל
-     * משרד ממשיך לראות "חיבור השרת ל-Meta ✗" לנצח — עם הנחיה לפנות
-     * לתמיכה על תקלה שאינה קיימת.
-     *
-     * `configuredKeys` ולא קריאת הערכים עצמם: למנהל משרד אין עסק
-     * עם סוד של הפלטפורמה, והשאלה כאן היא "האם הוגדר" בלבד.
-     */
-    const dbKeys = await this.platformSettings.configuredKeys();
-    const serverConfigured =
-      (dbKeys.includes("whatsappAppSecret") &&
-        dbKeys.includes("whatsappVerifyToken")) ||
-      (env.WHATSAPP_APP_SECRET !== undefined &&
-        env.WHATSAPP_VERIFY_TOKEN !== undefined);
-
-    return {
-      serverConfigured,
-      numberConfigured,
-      /*
-       * כתובת ה-Webhook **אינה** מוחזרת כאן.
-       *
-       * היא מוגדרת פעם אחת במטא לכל הפלטפורמה, ולמנהל משרד אין אפליקציית
-       * Meta שאפשר להזין אותה בה. הצגתה לו רק שידרה שיש כאן משהו שהוא
-       * צריך לעשות — ובמקביל חשפה פרט תפעולי של הפלטפורמה לכל דייר.
-       * מקומה במסך /platform, שם היא באמת ניתנת לפעולה.
-       */
-      lastInboundAt: lastInbound?.createdAt,
-    };
-  }
-
-  /**
    * הקישור בין המכשיר של המתווך לחשבון שלו.
    *
    * `@AnyAuthenticated` ולא `settings.manage`: זו אינה הגדרת משרד
@@ -2095,7 +2100,15 @@ export class SettingsController {
       typeof settings[key] === "string" &&
       (settings[key] as string).trim() !== "";
 
-    const [activeUsers, properties, buyers, leadWebhooks, emailDomain, emailDomainAvailable] =
+    const [
+      activeUsers,
+      properties,
+      buyers,
+      leadWebhooks,
+      emailDomain,
+      emailDomainAvailable,
+      whatsappLines,
+    ] =
       await Promise.all([
       this.prisma.user.count({ where: { tenantId, isActive: true } }),
       this.prisma.withTenant((tx) =>
@@ -2123,6 +2136,16 @@ export class SettingsController {
        * „הפיצ'ר אינו מופעל” (ביקורת Codex).
        */
       this.emailDomainProvider.isConfigured(),
+      /*
+       * קו וואטסאפ ביזנס שחובר בפועל — ולא שדה שהוקלד. „ההיסטוריה
+       * מסתנכרנת” ו„דרוש אמצעי תשלום” הם קו שכבר חובר; רק „מנותק”
+       * ו„החיבור לא הושלם” אינם.
+       */
+      this.prisma.withTenant((tx) =>
+        tx.whatsAppBusinessConnection.count({
+          where: { tenantId, status: { in: ["connected", "pending_history", "payment_required"] } },
+        }),
+      ),
     ]);
 
     return onboardingSteps({
@@ -2135,7 +2158,7 @@ export class SettingsController {
       properties,
       buyers,
       leadWebhookConfigured: leadWebhooks > 0,
-      whatsappConfigured: filled("whatsappNumber"),
+      whatsappConfigured: whatsappLines > 0,
       emailDomainAvailable,
       emailDomainVerified:
         emailDomain !== null && emailDomainStatus(emailDomain) === "verified",

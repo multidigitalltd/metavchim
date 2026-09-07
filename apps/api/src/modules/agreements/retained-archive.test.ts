@@ -81,18 +81,35 @@ describe("ארכיון המסמכים שנשמרו", () => {
    * נפרדו: תיקון עדכן שניים והשאיר את השלישי, ובעל נכס נחשף למי
    * שמודול הנכסים חסום אצלו.
    */
+  /*
+   * ‎`visibleLeadCondition` שואל שאלה **אחרת** על אותה טבלה — „הליד
+   * ‏הזה שלי?” ולא „יש ליד שמצביע על הלקוח הזה?” — ולכן הוא מוצא
+   * ‏מהספירה במפורש ולא מרוכך בתוכה. בלי ההוצאה הזו הטענה על עותק
+   * ‏שני של **העוגן** הייתה נשברת מעצם קיומו של כלל אחר.
+   */
+  const ANCHORS = OWNERSHIP.replace(
+    method(OWNERSHIP, "export function visibleLeadCondition("),
+    "",
+  );
+
   it("שלושת העוגנים מנוסחים ב-SQL פעם אחת בלבד", () => {
-    expect((OWNERSHIP.match(/NOT EXISTS \(SELECT 1 FROM buyers/gu) ?? []).length).toBe(1);
-    expect((OWNERSHIP.match(/NOT EXISTS \(SELECT 1 FROM leads/gu) ?? []).length).toBe(1);
-    expect((OWNERSHIP.match(/NOT EXISTS \(SELECT 1 FROM properties/gu) ?? []).length).toBe(1);
+    expect((ANCHORS.match(/NOT EXISTS \(SELECT 1 FROM buyers/gu) ?? []).length).toBe(1);
+    expect((ANCHORS.match(/NOT EXISTS \(SELECT 1 FROM leads/gu) ?? []).length).toBe(1);
+    expect((ANCHORS.match(/NOT EXISTS \(SELECT 1 FROM properties/gu) ?? []).length).toBe(1);
     expect(AGREEMENTS).not.toContain("NOT EXISTS");
     expect(DOCUMENTS).not.toContain("NOT EXISTS");
   });
 
   it("ושער השיחות משתמש באותו ניסוח ולא בעותק משלו", () => {
-    expect(method(OWNERSHIP, "export function visibleCallsCondition(")).toContain(
-      'orphanContactCondition("c")',
-    );
+    const body = method(OWNERSHIP, "export function visibleCallsCondition(");
+    expect(body).toContain('orphanContactCondition("c")');
+    /*
+     * ‎**וגם תנאי הליד — אחד, לא שניים.** הרשימה והשער הבודד חייבים
+     * ‏להכריע אותו דבר על אותה שיחה; ניסוח מקומי כאן היה מחזיר שיחה
+     * ‏שאי אפשר לפתוח, או מסתיר שיחה שכן מותרת (ביקורת Codex, P1).
+     */
+    expect(body).toContain('visibleLeadCondition("c")');
+    expect(body).not.toContain("FROM leads");
   });
 
   /*

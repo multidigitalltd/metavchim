@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { API_BASE, ApiError, apiDelete } from "@/lib/api";
+import { cachedUser, clearSessionCache } from "@/lib/session-cache";
 import { IconUpload } from "../icons";
 import { Notice } from "../notice";
 
@@ -25,7 +26,13 @@ import { Notice } from "../notice";
 
 export function OfficeLogo(): React.JSX.Element {
   const [version, setVersion] = useState(0);
-  const [present, setPresent] = useState(true);
+  /*
+   * נקודת הפתיחה מ-/auth/me (`tenantHasLogo`), שכבר נטען עם המסך:
+   * בלי זה המסך ניחש „יש” וביקש את הקובץ כדי לגלות שאין — 404
+   * בקונסול בכל פתיחה של ההגדרות. בלי session במטמון נשארת ההנחה
+   * הישנה, ו-`onError` על התמונה מתקן אותה.
+   */
+  const [present, setPresent] = useState(cachedUser()?.tenantHasLogo ?? true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -56,6 +63,8 @@ export function OfficeLogo(): React.JSX.Element {
       }
       setVersion((v) => v + 1);
       setPresent(true);
+      // הסרגל מציג את הלוגו לפי `tenantHasLogo` מ-/auth/me — שיישאל מחדש
+      clearSessionCache();
       setDone("הלוגו נשמר");
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "ההעלאה נכשלה");
@@ -71,6 +80,7 @@ export function OfficeLogo(): React.JSX.Element {
     try {
       await apiDelete("/settings/tenant/logo");
       setPresent(false);
+      clearSessionCache();
       setDone("הלוגו הוסר");
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "ההסרה נכשלה");

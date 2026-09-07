@@ -27,7 +27,11 @@
  * לכן המפה עצמה יושבת כאן, והרשימה נגזרת ממנה.
  */
 
-import { AGENT_ACTION_IDS, agentAction, type AgentActionId } from "./actions.js";
+import {
+  AGENT_ACTION_IDS,
+  agentAction,
+  type AgentActionId,
+} from "./actions.js";
 import type { VoiceAction } from "../logic/voice-command.js";
 
 /**
@@ -87,6 +91,8 @@ export const RULE_ACTION_MAP: Record<VoiceAction, AgentActionId | null> = {
   show_card: "show_card",
   play_recording: "play_recording",
   agent_report: "agent_report",
+  mentor_status: "mentor_status",
+  mentor_ask: "mentor_ask",
   unknown: null,
 };
 
@@ -96,9 +102,10 @@ export const RULE_ACTION_MAP: Record<VoiceAction, AgentActionId | null> = {
  * הסדר הוא סדר הקטלוג ולא סדר המפה: הקטלוג מסודר לפי מה שמתווך
  * עושה קודם, וזה הסדר שההצעות צריכות להופיע בו.
  */
-export const AGENT_RULE_ACTION_IDS: readonly AgentActionId[] = AGENT_ACTION_IDS.filter(
-  (id): id is AgentActionId => Object.values(RULE_ACTION_MAP).includes(id),
-);
+export const AGENT_RULE_ACTION_IDS: readonly AgentActionId[] =
+  AGENT_ACTION_IDS.filter((id): id is AgentActionId =>
+    Object.values(RULE_ACTION_MAP).includes(id),
+  );
 
 /** משפט המצב — נכון גם כשהספק נפל וגם כשלא הוגדר מפתח כלל. */
 export const AGENT_DEGRADED_REASON =
@@ -120,11 +127,15 @@ export function agentDegradedNotice(
   limit = 3,
 ): string[] {
   const allowed = new Set(allowedIds);
-  const examples = AGENT_RULE_ACTION_IDS.filter((id) => allowed.has(id)).flatMap((id) => {
+  const examples = AGENT_RULE_ACTION_IDS.filter((id) =>
+    allowed.has(id),
+  ).flatMap((id) => {
     const action = agentAction(id);
     const example = action?.examples[0];
     // מובטח בשער הקטלוג — הצרת הטיפוס, ולא מקרה שצפוי לקרות
-    return action === undefined || example === undefined ? [] : [`• ${action.title} — „${example}”`];
+    return action === undefined || example === undefined
+      ? []
+      : [`• ${action.title} — „${example}”`];
   });
 
   /*
@@ -134,5 +145,9 @@ export function agentDegradedNotice(
    * „מה שכן עובד עכשיו:” מעל רשימה ריקה גרוע מכלום.
    */
   if (examples.length === 0) return [AGENT_DEGRADED_REASON];
-  return [AGENT_DEGRADED_REASON, "מה שכן עובד עכשיו:", ...examples.slice(0, limit)];
+  return [
+    AGENT_DEGRADED_REASON,
+    "מה שכן עובד עכשיו:",
+    ...examples.slice(0, limit),
+  ];
 }

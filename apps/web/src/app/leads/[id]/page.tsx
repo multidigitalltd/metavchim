@@ -64,6 +64,7 @@ import {
   IconHome,
   IconInfo,
   IconMail,
+  IconMic,
   IconPhone,
   IconRefresh,
   IconUser,
@@ -73,7 +74,7 @@ import { Notice } from "../../notice";
 
 interface LeadDetail {
   id: string;
-  contact: { id: string; name: string; phone: string; email?: string };
+  contact: { id: string; name: string; phone: string; email?: string; sharedTabu: boolean };
   source: string;
   /** ‏הטקסט שנכתב תחת מקור „אחר”. חסר בכל מקור אחר. */
   sourceNote?: string;
@@ -791,7 +792,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         מקווקוים ותיבת סטטוס שצפה מתחתיה, וזה מה שהפך את המסך
         למבולגן: אין בו היררכיה, ולכן העין לא יודעת איפה להתחיל.
       */}
-      <div className="mv-list-card mb-3 px-6 py-5" style={{ overflow: "visible" }}>
+      <div className="mv-card mv-card--pad mb-3" style={{ overflow: "visible" }}>
       <div className="flex flex-wrap items-center gap-4">
         {/*
           ‎**אריח הליד ולא ראשי תיבות.**
@@ -808,6 +809,26 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             <h1 className="m-0" style={{ fontSize: "calc(21 / 16 * 1rem)", fontWeight: 800 }}>
               {lead.contact.name}
             </h1>
+            {/*
+              ‎**„טאבו משותף” ליד השם, ורק כשהוא מסומן.**
+
+              ‏זו עובדה משפטית שמשנה את כל אופן העסקה — אין חלקה
+              ‏נפרדת, נדרשת הסכמת שותפים, והמימון מורכב. מתווך שרואה
+              ‏אותה בראש הכרטיס לא בונה עסקה שאי אפשר לסגור. תגית
+              ‏„לא” על כל שאר הלקוחות הייתה רעש (בקשת בעל המוצר).
+            */}
+            {lead.contact.sharedTabu ? (
+              <span
+                className="mv-pill"
+                style={{
+                  fontSize: "var(--type-caption)",
+                  color: "#8a5a00",
+                  background: "#fdf1dc",
+                }}
+              >
+                טאבו משותף
+              </span>
+            ) : null}
             {/*
               ‎**תיקון הפרטים ליד הפרטים.**
 
@@ -835,6 +856,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                           id: prev.contact.id,
                           name: next.name,
                           phone: next.phone,
+                          sharedTabu: next.sharedTabu,
                           ...(next.email === undefined ? {} : { email: next.email }),
                         },
                       }
@@ -1037,27 +1059,32 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           {lead.status !== "converted" && canEditPeople ? (
             <button
               type="button"
-              className="mv-btn-action"
+              className="mv-net-act mv-net-act--solid"
               onClick={() => selectTab("next")}
             >
               <IconHandshake s={15} /> המשך טיפול
             </button>
           ) : null}
+          {/*
+            ‏וואטסאפ בירוק רך ולא לבן כמו השאר: זה הערוץ שמתווך פותח
+            בו בפועל, ובשורה של שישה כפתורים זהים הוא היה מספר שלוש
+            מבין שישה.
+          */}
           <a
             href={waMeUrl(lead.contact.phone)}
             target="_blank"
             rel="noreferrer"
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            className="mv-net-act mv-net-act--go"
+            style={{ textDecoration: "none" }}
           >
-            <IconChat s={14} /> וואטסאפ
+            <IconChat s={15} /> וואטסאפ
           </a>
           <a
             href={`tel:${lead.contact.phone}`}
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            className="mv-net-act"
+            style={{ textDecoration: "none" }}
           >
-            <IconPhone s={14} /> חייג
+            <IconPhone s={15} /> חייג
           </a>
           <ClickToDial
             contactId={lead.contact.id}
@@ -1067,18 +1094,18 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           {lead.contact.email ? (
             <a
               href={`mailto:${lead.contact.email}`}
-              className="mv-btn-plain"
-              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+              className="mv-net-act"
+              style={{ textDecoration: "none" }}
             >
-              <IconMail s={14} /> אימייל
+              <IconMail s={15} /> אימייל
             </a>
           ) : null}
           <Link
             href={`/calendar/new?leadId=${lead.id}`}
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            className="mv-net-act"
+            style={{ textDecoration: "none" }}
           >
-            <IconCalendar s={14} /> קבע פגישה
+            <IconCalendar s={15} /> קבע פגישה
           </Link>
         </div>
 
@@ -1088,9 +1115,14 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         הדבר שהכי קשה לראות. עכשיו היא בתוך כרטיס הזהות עצמו,
         מתחת לפעולות: אי אפשר להתחיל לטפל בליד בלי לעבור דרכה.
       */}
+      {/*
+        ‏גוון אזהרה ולא שגיאה: „דורש טיפול אנושי” אינו כשל אלא מצב
+        שממתין למישהו. אדום שמור למה שנשבר, וכשהוא נשרף על כל ליד
+        חוזר הוא מפסיק להיקרא במקום שבו הוא באמת נחוץ.
+      */}
       {lead.requiresHuman ? (
         <div className="mt-4">
-          <Notice tone="danger">
+          <Notice tone="warning">
             ● דורש טיפול אנושי
             {lead.requiresHumanReason ? `: ${lead.requiresHumanReason}` : ""}
           </Notice>
@@ -1142,43 +1174,38 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             {lead.summary ? (
               <section
                 aria-labelledby="lead-summary-heading"
-                className="rounded-xl border px-5 py-[18px]"
-                style={{
-                  borderColor: "var(--color-primary)",
-                  background: "var(--color-primary-soft)",
-                }}
+                className="mv-card mv-card--pad"
               >
-                <h2
-                  id="lead-summary-heading"
-                  className="m-0 mb-1.5"
-                  style={{
-                    fontSize: "var(--type-caption-lg)",
-                    fontWeight: 800,
-                    color: "var(--color-primary)",
-                  }}
-                >
-                  תוכן הפנייה
-                </h2>
-                {/* whitespace-pre-line: שורות ההודעה נשמרות כפי שנשלחו */}
-                <p
-                  className="m-0 whitespace-pre-line"
-                  style={{ fontSize: "var(--type-body)", lineHeight: 1.5 }}
-                >
-                  {lead.summary}
-                </p>
+                <div className="mv-card-head">
+                  <span className="mv-tile mv-tile--44 mv-domain-green" aria-hidden="true">
+                    <IconMic s={20} />
+                  </span>
+                  <h2 id="lead-summary-heading" className="mv-card-head__title">
+                    תוכן הפנייה
+                  </h2>
+                </div>
+                {/*
+                  ‏מה שהלקוח כתב — בתיבה משלו. זה הציטוט היחיד בכרטיס,
+                  והוא מה שמפריד בין דבריו לבין מה שהמערכת מוסיפה עליהם.
+                  ‎`whitespace-pre-line` שומר את שורות ההודעה כפי שנשלחו.
+                */}
+                <blockquote className="mv-quote">
+                  <p className="m-0 whitespace-pre-line">{lead.summary}</p>
+                </blockquote>
               </section>
             ) : (
               <section
-                className="mv-list-card px-5 py-[18px]"
+                className="mv-card mv-card--pad"
                 aria-labelledby="lead-summary-heading"
               >
-                <h2
-                  id="lead-summary-heading"
-                  className="m-0 mb-1.5"
-                  style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
-                >
-                  תוכן הפנייה
-                </h2>
+                <div className="mv-card-head">
+                  <span className="mv-tile mv-tile--44 mv-domain-neutral" aria-hidden="true">
+                    <IconMic s={20} />
+                  </span>
+                  <h2 id="lead-summary-heading" className="mv-card-head__title">
+                    תוכן הפנייה
+                  </h2>
+                </div>
                 {/*
                   מצב ריק שאומר מה לעשות ולא רק שאין כלום: ליד
                   ממרכזייה מגיע בלי טקסט, וההערה בציר הזמן היא
@@ -1282,6 +1309,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                 </p>
                 <ConvertToPropertySection
                   leadId={lead.id}
+                  contactSharedTabu={lead.contact.sharedTabu}
                   autoOpen={convertSide === "property"}
                   {...(convertSide === "property" && convertPrefill !== undefined
                     ? { prefill: convertPrefill }

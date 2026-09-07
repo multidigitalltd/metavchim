@@ -1,5 +1,9 @@
 import type { PropertyFields } from "../schemas/property.js";
 import type { PropertyType } from "../schemas/property.js";
+import {
+  RECRUITMENT_SOURCE_LABELS,
+  RECRUITMENT_STATUS_LABELS,
+} from "./recruitment.js";
 
 /**
  * מיפוי CSV לשדות נכס (docs/08 §6 — Onboarding). מנתח CSV פשוט
@@ -481,5 +485,216 @@ export function parsePropertiesCsv(
     rows.push(row);
   }
 
+  return { rows, unmappedHeaders };
+}
+
+/* ──────────────────────  נכסים לגיוס  ────────────────────── */
+
+/**
+ * ‎**אוצר מילים משלו, ולא תת-קבוצה של הנכסים.**
+ *
+ * ‏קובץ גיוס אינו קובץ נכסים מקוצר: יש בו עמודות שאין בנכס
+ * ‏(מקור, קישור למודעה, שלב בגיוס) ואין בו עמודות שיש בנכס
+ * ‏(כותרת שיווקית, בלעדיות, מעלית). מיפוי שהיה נשען על טבלת
+ * ‏הנכסים היה מקבל עמודה כמו „כותרת שיווקית”, מדווח עליה
+ * ‏כ„זוהתה”, ואז זורק אותה בשקט בשרת — כי סכימת הגיוס היא
+ * ‎`.strict()`. עמודה שאינה נקלטת חייבת להיראות כך במסך.
+ */
+const RECRUITMENT_HEADER_MAP: Record<string, string> = {
+  עיר: "city",
+  city: "city",
+  שכונה: "neighborhood",
+  רחוב: "street",
+  street: "street",
+  "מספר בית": "houseNumber",
+  מספר: "houseNumber",
+  חדרים: "rooms",
+  rooms: "rooms",
+  שטח: "areaSqm",
+  'שטח (מר)': "areaSqm",
+  מר: "areaSqm",
+  קומה: "floor",
+  "מתוך קומות": "totalFloors",
+  מחיר: "priceAgorot",
+  price: "priceAgorot",
+  "סוג עסקה": "dealType",
+  סוג: "propertyType",
+  "סוג נכס": "propertyType",
+  "בעל הנכס": "ownerName",
+  בעלים: "ownerName",
+  "שם בעל הנכס": "ownerName",
+  "טלפון בעלים": "ownerPhone",
+  "טלפון בעל הנכס": "ownerPhone",
+  טלפון: "ownerPhone",
+  phone: "ownerPhone",
+  מקור: "source",
+  "מקור הנכס": "source",
+  source: "source",
+  קישור: "sourceUrl",
+  "קישור למודעה": "sourceUrl",
+  "לינק למודעה": "sourceUrl",
+  url: "sourceUrl",
+  link: "sourceUrl",
+  שלב: "status",
+  סטטוס: "status",
+  status: "status",
+  הערות: "notes",
+  הערה: "notes",
+  notes: "notes",
+};
+
+/**
+ * ‎**התווית העברית ⟵ הקוד — נגזר מהתוויות, ולא עותק שלהן.**
+ *
+ * ‏משרד מייצא רשימה, עורך אותה באקסל, ומייבא בחזרה. הערך בקובץ
+ * ‏הוא מה שהמסך הראה („קיבל שיחה”), ולכן ההיפוך חייב להיות מאותה
+ * ‏טבלה בדיוק — רשימה כתובה ביד הייתה סוטה בשלב הראשון שמישהו
+ * ‏משנה ניסוח.
+ *
+ * ‏גם הקוד עצמו מתקבל (`called`), כי קובץ שנוצר בייצוא טכני או
+ * ‏במערכת אחרת אינו חייב להיות בעברית.
+ */
+function labelsToCodes(labels: Record<string, string>): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const [code, label] of Object.entries(labels)) {
+    map[normalizeHeader(label)] = code;
+    map[normalizeHeader(code)] = code;
+  }
+  return map;
+}
+
+const RECRUITMENT_SOURCE_MAP = labelsToCodes(RECRUITMENT_SOURCE_LABELS);
+const RECRUITMENT_STATUS_MAP = labelsToCodes(RECRUITMENT_STATUS_LABELS);
+
+/** ‏תוויות היעד למיפוי ידני במסך הייבוא — לגיוס. */
+export const RECRUITMENT_TARGET_LABELS: Record<string, string> = {
+  city: "עיר",
+  neighborhood: "שכונה",
+  street: "רחוב",
+  houseNumber: "מספר בית",
+  rooms: "חדרים",
+  areaSqm: 'שטח (מ"ר)',
+  floor: "קומה",
+  totalFloors: "מתוך קומות",
+  priceAgorot: "מחיר",
+  dealType: "סוג עסקה",
+  propertyType: "סוג נכס",
+  ownerName: "בעל הנכס",
+  ownerPhone: "טלפון בעל הנכס",
+  source: "מקור הנכס",
+  sourceUrl: "קישור למודעה",
+  status: "שלב בגיוס",
+  notes: "הערות",
+};
+
+/** ‏שורת גיוס מפורקת — שטוחה, בדיוק כמו שהסכימה בשרת מצפה. */
+export interface ParsedRecruitmentRow {
+  city?: string;
+  neighborhood?: string;
+  street?: string;
+  houseNumber?: string;
+  propertyType?: string;
+  dealType?: string;
+  rooms?: number;
+  areaSqm?: number;
+  floor?: number;
+  totalFloors?: number;
+  priceAgorot?: number;
+  ownerName?: string;
+  ownerPhone?: string;
+  source?: string;
+  sourceUrl?: string;
+  status?: string;
+  notes?: string;
+}
+
+const RECRUITMENT_NUMERIC = new Set([
+  "rooms",
+  "areaSqm",
+  "floor",
+  "totalFloors",
+  "priceAgorot",
+]);
+
+/**
+ * ‏מפרק קובץ גיוס. מחזיר שורות + כותרות שלא זוהו, כמו אחיו.
+ *
+ * ‎**המחיר נשמר כאגורות**, כמו בכל המערכת: מספר בשקלים שנכנס
+ * ‏כמות שהוא היה הופך 1,750,000 ל-17,500 בכרטיס.
+ */
+export function parseRecruitmentCsv(
+  csv: string,
+  overrides: Record<string, string> = {},
+): { rows: ParsedRecruitmentRow[]; unmappedHeaders: string[] } {
+  const records = parseCsvRecords(csv.replace(/^\uFEFF/u, ""));
+  if (records.length < 2) return { rows: [], unmappedHeaders: [] };
+
+  const headers = records[0] ?? [];
+  const mapped = headers.map((header) => {
+    const override = overrides[header.trim()];
+    if (override !== undefined && override !== "") return override;
+    return RECRUITMENT_HEADER_MAP[normalizeHeader(header)];
+  });
+  const unmappedHeaders = headers.filter((_h, i) => mapped[i] === undefined);
+
+  const rows: ParsedRecruitmentRow[] = [];
+  for (let i = 1; i < records.length; i += 1) {
+    const cells = records[i] ?? [];
+    const row: ParsedRecruitmentRow = {};
+    headers.forEach((_header, col) => {
+      const target = mapped[col];
+      const raw = unsanitizeFormulaCell((cells[col] ?? "").trim());
+      if (target === undefined || raw === "") return;
+
+      /*
+       * ‎**„3,5” הוא שלוש וחצי, לא שלושים וחמש.**
+       *
+       * ‏פסיק עשרוני הוא כתיב נפוץ בגיליונות, וניקוי גורף של
+       * ‏פסיקים (שנכון למחיר — „2,650,000”) הפך אותו ל-35. הסכימה
+       * ‏חוסמת חדרים מעל 20, ולכן **השורה כולה** נדחתה על עמודה
+       * ‏שנקראה נכון במפרק הנכסים (ביקורת Codex). שני כללים ולא
+       * ‏אחד, כי מדובר בשני תפקידים של אותו תו.
+       */
+      if (target === "rooms") {
+        const value = Number(raw.replace(",", "."));
+        if (Number.isFinite(value)) row.rooms = value;
+        return;
+      }
+      if (target === "floor" && /קרקע/u.test(raw)) {
+        // ‏„קומת קרקע” — קומה 0, כמו במפרק הנכסים
+        row.floor = 0;
+        return;
+      }
+      if (RECRUITMENT_NUMERIC.has(target)) {
+        const value = Number(raw.replace(/[,\s₪]/gu, ""));
+        if (!Number.isFinite(value)) return;
+        (row as Record<string, unknown>)[target] =
+          target === "priceAgorot" ? Math.round(value * 100) : value;
+        return;
+      }
+      if (target === "propertyType") {
+        const type = PROPERTY_TYPE_MAP[normalizeHeader(raw)];
+        if (type !== undefined) row.propertyType = type;
+        return;
+      }
+      if (target === "dealType") {
+        const deal = DEAL_TYPE_MAP[normalizeHeader(raw)];
+        if (deal !== undefined) row.dealType = deal;
+        return;
+      }
+      if (target === "source") {
+        const source = RECRUITMENT_SOURCE_MAP[normalizeHeader(raw)];
+        if (source !== undefined) row.source = source;
+        return;
+      }
+      if (target === "status") {
+        const status = RECRUITMENT_STATUS_MAP[normalizeHeader(raw)];
+        if (status !== undefined) row.status = status;
+        return;
+      }
+      (row as Record<string, unknown>)[target] = raw;
+    });
+    if (Object.keys(row).length > 0) rows.push(row);
+  }
   return { rows, unmappedHeaders };
 }

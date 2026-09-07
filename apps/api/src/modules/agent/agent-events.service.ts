@@ -40,7 +40,12 @@ export class AgentEventsService {
 
   async record(event: {
     channel: "web" | "whatsapp";
-    kind: "interpret" | "execute";
+    /**
+     * ‎`mentor` — שיחה עם המנטור האישי (docs/14 §7). אותו מפתח Gemini
+     * של הפלטפורמה משלם עליה, ולכן היא נרשמת באותו יומן ונספרת
+     * באותו דוח אסימונים; אינה פקודה, ולכן אינה נספרת כפירוש.
+     */
+    kind: "interpret" | "execute" | "mentor";
     transcript?: string;
     actionId?: string;
     payload: Record<string, unknown>;

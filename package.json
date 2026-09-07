@@ -8,6 +8,8 @@
   },
   "scripts": {
     "verify:iac": "node scripts/verify-iac.mjs",
+    "verify:audit": "node scripts/verify-audit.mjs",
+    "test:audit-script": "node --test scripts/verify-audit.test.mjs",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
@@ -18,7 +20,9 @@
     "verify:backup": "node scripts/verify-backup-chain.mjs",
     "verify:notify": "node scripts/verify-notification-routes.mjs",
     "verify:stt": "node scripts/verify-stt-prompt.mjs",
-    "verify:caps": "node scripts/verify-effective-capabilities.mjs"
+    "verify:caps": "node scripts/verify-effective-capabilities.mjs",
+  "audit:deps": "node scripts/audit-dependencies.mjs",
+  "test:audit-gate": "node scripts/audit-dependencies.test.mjs"
   },
   "pnpm": {
     "overrides": {
@@ -28,7 +32,8 @@
       "js-yaml@<4.3.1": "^4.3.1",
       "sharp@<0.35.0": "^0.35.0",
       "nanoid@<3.3.17": "^3.3.17",
-      "deepmerge-ts@<8.0.0": "^8.0.1"
+      "deepmerge-ts@<8.0.0": "^8.0.1",
+      "qs@<6.16.0": "^6.16.0"
     },
     "onlyBuiltDependencies": [
       "@prisma/client",

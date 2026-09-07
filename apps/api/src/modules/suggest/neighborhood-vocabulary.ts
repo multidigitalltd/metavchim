@@ -28,7 +28,7 @@ import type { NeighborhoodUse } from "@metavchim/shared";
  * הסינון והאיחוד קורים בקוד המשותף כדי שהקיפול יהיה זהה לזה
  * שהלקוח מכיר, אבל אסור שהם יקבלו קלט בלתי חסום.
  */
-export const VOCABULARY_MAX = 400;
+const VOCABULARY_MAX = 400;
 
 /*
  * ‎**שלוש המחלקות הן תרגום מדויק של `neighborhood.ts`** — ולכן הן

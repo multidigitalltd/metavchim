@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { followLabel, FOLLOW_ACTIVE_NOTE } from "@metavchim/shared";
-import { Button } from "@metavchim/ui";
 import { ApiError, apiDelete, apiPost } from "@/lib/api";
 import { IconBell, IconCheck } from "../icons";
 
@@ -62,19 +61,25 @@ export function FollowButton({
 
   return (
     <span className="flex flex-col items-stretch gap-1">
-      <Button
-        variant={following ? "ghost" : "secondary"}
+      {/*
+        ‏גלולת פעולה בתחתית הכרטיס, ולא כפתור מערכת: היא אחת משתיים
+        באותה שורה („כל הפרטים” לצידה), ושתיהן חייבות לקרוא כזוג.
+        המצב הפעיל מסומן במילוי **ובגבול** — מילוי לבדו אינו מספיק
+        לפקד שמצבו נשמר (WCAG 1.4.11).
+      */}
+      <button
+        type="button"
+        className={`mv-net-act${following ? " mv-net-act--on" : ""}`}
+        aria-pressed={following}
         onClick={() => {
           void toggle();
         }}
         disabled={busy}
         title={following ? FOLLOW_ACTIVE_NOTE : undefined}
       >
-        <span className="flex items-center gap-1.5">
-          {following ? <IconCheck s={15} /> : <IconBell s={15} />}
-          {followLabel(following)}
-        </span>
-      </Button>
+        {following ? <IconCheck s={15} /> : <IconBell s={15} />}
+        {followLabel(following)}
+      </button>
       {error === null ? null : (
         <span
           role="alert"

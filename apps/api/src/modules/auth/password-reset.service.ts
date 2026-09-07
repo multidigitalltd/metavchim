@@ -96,7 +96,8 @@ export class PasswordResetService implements OnModuleDestroy {
        * בשקט, השורה למטה הייתה מדווחת „נשלח”, והמשתמש היה נחסם
        * בצינון עשר דקות על מייל שלא יצא (ביקורת Codex).
        */
-      { required: true },
+      // ‏בקשת איפוס חוזרת היא קישור חדש, ולכן שליחה חדשה
+      { idempotency: null, required: true },
     );
     this.logger.log("נשלח קישור איפוס סיסמה");
   }

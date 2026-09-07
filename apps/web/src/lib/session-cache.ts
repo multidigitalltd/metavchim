@@ -38,6 +38,16 @@ import { apiGet } from "./api";
 
 const TTL_MS = 60_000;
 
+/**
+ * נשלח על `window` ברגע ש-`/auth/me` ענה — כלומר יש session מאומת.
+ *
+ * הרכיבים שמורכבים בכל מסך (סנכרון הנגישות) אינם יודעים אם המבקר
+ * מחובר: העוגייה היא `HttpOnly`. עד כה הם פשוט ביקשו, וכל מסך
+ * ציבורי — התחברות, תיעוד, דף הצעה — ייצר 401 בקונסול. האירוע הזה
+ * הוא הסימן: מי שממתין לו מבקש רק אחרי שידוע שיש למי.
+ */
+export const SESSION_READY_EVENT = "mv:session-ready";
+
 let cached: { user: AuthUser; at: number } | null = null;
 let inflight: Promise<AuthUser> | null = null;
 
@@ -58,6 +68,7 @@ export async function fetchMe(): Promise<AuthUser> {
   inflight ??= apiGet<{ user: AuthUser }>("/auth/me")
     .then((res) => {
       cached = { user: res.user, at: Date.now() };
+      window.dispatchEvent(new CustomEvent(SESSION_READY_EVENT));
       return res.user;
     })
     .finally(() => {

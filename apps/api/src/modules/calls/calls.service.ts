@@ -5,6 +5,7 @@ import {
   assertContactAccess,
   isOrphanContact,
   leadOwnershipFilter,
+  leadIsVisible,
   seesAllContacts,
   visibleCallsCondition,
   visibleContactIds,
@@ -57,6 +58,8 @@ export interface CallDto {
    * ערך שאינו `converted`.
    */
   leadStatus?: string;
+  /** ‏הלקוח מסומן „טאבו משותף” — מסמן מראש את התיבה בהמרה לנכס. */
+  contactSharedTabu?: boolean;
   phone?: string;
   occurredAt: Date;
   durationMinutes?: number;
@@ -137,13 +140,15 @@ export class CallsService {
        * (ביקורת Codex). הצילום נלקח פעם אחת ואינו משתנה איתו.
        */
       let propertyId: string | null = null;
+      let leadCreatedAt: Date | null = null;
       if (input.leadId !== undefined) {
         const lead = await tx.lead.findFirst({
           where: { id: input.leadId, tenantId },
-          select: { contactId: true, propertyId: true },
+          select: { contactId: true, propertyId: true, createdAt: true },
         });
         contactId = contactId ?? lead?.contactId;
         propertyId = lead?.propertyId ?? null;
+        leadCreatedAt = lead?.createdAt ?? null;
       }
 
       const row = await tx.call.create({
@@ -165,6 +170,30 @@ export class CallsService {
           createdBy: userId,
         },
       });
+
+      /*
+       * שיחה **שנענתה** עם הליד היא מענה. עד עכשיו `first_response_at`
+       * נחתם רק בשינוי סטטוס, ולכן מתווך שהתקשר תוך חמש דקות ושינה
+       * סטטוס בערב נמדד כ„ענה בערב”. השיחה קובעת — ורק כשעדיין לא
+       * נחתם, ורק כשדיברו: „אין מענה”, „לא נענתה” ו„תא קולי” אינם
+       * שיחה, וחתימה עליהם הייתה משתיקה גם את תזכורת ה-SLA של ליד
+       * שאיש עוד לא דיבר איתו (ביקורת Codex).
+       *
+       * ורק שיחה **אחרי** שהליד נוצר: הטופס מאפשר לערוך את שעת
+       * השיחה, ושיחה שתוארכה לפני הליד הייתה נותנת זמן מענה שלילי —
+       * „ענה תוך שעה” בחינם, ונעילה של המענה האמיתי שיבוא אחריה.
+       */
+      if (
+        input.leadId !== undefined &&
+        input.outcome === "answered" &&
+        leadCreatedAt !== null &&
+        input.occurredAt >= leadCreatedAt
+      ) {
+        await tx.lead.updateMany({
+          where: { id: input.leadId, tenantId, firstResponseAt: null },
+          data: { firstResponseAt: input.occurredAt },
+        });
+      }
 
       await this.audit.record(tx, {
         action: "call.log",
@@ -401,12 +430,38 @@ export class CallsService {
     const { tenantId, userId } = TenantContext.current();
     const row = await tx.call.findFirst({
       where: { id, tenantId },
-      select: { contactId: true, createdBy: true },
+      select: { contactId: true, createdBy: true, leadId: true },
     });
     if (!row) throw new NotFoundException("שיחה לא נמצאה");
 
     // אותו ניסוח בדיוק כמו ברשימה — לא עותק שלו
     if (seesAllContacts()) return;
+
+    /*
+     * ‎**שיחה שמשויכת לליד נשפטת לפי הליד, ולא לפי הלקוח.**
+     *
+     * ‏שער הלקוח הוא **איחוד** מקורות. אותו אדם יכול להיות הקונה
+     * ‏שלי וגם הליד של עמית, ואז שיחה שהעמית ניהל על **הליד שלו**
+     * ‏עברה דרך כרטיס הקונה שלי. והשער הזה אינו רק לצפייה: `remove`,
+     * ‏`attachRecording` ושני הניסיונות החוזרים נשענים עליו, כלומר
+     * ‏אפשר היה **למחוק את תיעוד השיחה של עמית** (ביקורת Codex, P1).
+     *
+     * ‏ליד לא-משויך הוא הערימה המשותפת ונשאר גלוי — `leadIsVisible`
+     * ‏הוא אותו כלל של רשימת הלידים, ולא עותק שלו.
+     */
+    /*
+     * ‎ ולא `!== null`: שדה שלא נשלף כלל הוא `undefined`,
+     * ‏והשוואה ל-`null` לבדה הייתה שולחת אותנו לחפש ליד בלי מזהה.
+     */
+    if (typeof row.leadId === "string") {
+      const lead = await tx.lead.findFirst({
+        where: { id: row.leadId, tenantId },
+        select: { assignedToUserId: true },
+      });
+      if (lead !== null && !leadIsVisible(lead.assignedToUserId)) {
+        throw new NotFoundException("שיחה לא נמצאה");
+      }
+    }
     /*
      * „אני רשמתי” — רק על שיחה בלי בעלים, כמו ברשימה. שיחה בלי
      * איש קשר, או עם לקוח שאינו כרטיס של איש.
@@ -690,6 +745,16 @@ export class CallsService {
       ...(row.leadId && leadStatusById?.has(row.leadId)
         ? { leadStatus: leadStatusById.get(row.leadId)! }
         : {}),
+      /*
+       * ‎**הסימון של הלקוח — כדי שההמרה מכאן תדע** (ביקורת Codex, P2).
+       *
+       * ‏טופס „המרה לנכס” מסמן את התיבה מראש לפי הסימון על הלקוח,
+       * ‏אבל רק כרטיס הליד העביר אותו. המרה מעמוד השיחות הרכיבה את
+       * ‏אותו טופס בלי הערך, התיבה נשארה ריקה ונשלח `sharedTabu:
+       * ‏false` — כלומר הנכס נוצר בלי האזהרה המשפטית, לאותו לקוח
+       * ‏שסומן במפורש.
+       */
+      ...(contact ? { contactSharedTabu: contact.sharedTabu } : {}),
       // הטלפון של איש הקשר מנצח — הוא המקור המעודכן
       ...(contact?.phone
         ? { phone: contact.phone }

@@ -18,7 +18,6 @@ import { BuyerStatusesSection } from "./buyer-statuses-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
 import { PlanSection } from "./plan-section";
 import { WhatsAppBusinessSection } from "./whatsapp-business-section";
-import { WhatsAppStatusSection } from "./whatsapp-status-section";
 import { WhatsAppSeatPanel } from "./whatsapp-seat-panel";
 import { LockedFeature } from "./locked-feature";
 import { TelephonySection } from "./telephony-section";
@@ -161,7 +160,6 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
  */
 interface TenantSettings {
   name: string;
-  whatsappNumber?: string;
   plan: string;
   licenseNumber?: string;
   officeAddress?: string;
@@ -360,13 +358,11 @@ export default function SettingsPage() {
   async function saveTenant(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const f = new FormData(event.currentTarget);
-    const whatsapp = String(f.get("whatsappNumber") ?? "").replace(/\D/gu, "");
     try {
       // כל שדה נשלח תמיד, גם ריק: השרת מפרש "" כמחיקה, ובלי זה אי אפשר
       // היה לנקות שדה שמולא בטעות — הערך הריק פשוט לא נשלח ונשאר כשהיה
       await apiPatch("/settings/tenant", {
         name: String(f.get("name")).trim(),
-        whatsappNumber: whatsapp,
         licenseNumber: String(f.get("licenseNumber") ?? "").trim(),
         officeAddress: String(f.get("officeAddress") ?? "").trim(),
         officePhone: String(f.get("officePhone") ?? "").trim(),
@@ -489,6 +485,8 @@ export default function SettingsPage() {
 
   return (
     <>
+      {/* הכותרת הסמנטית — הסרגל העליון מציג `<p>` בכוונה (app-shell) */}
+      <h1 className="sr-only">ניהול משרד</h1>
       {message ? (
         <Notice tone="success">{message}</Notice>
       ) : null}
@@ -1091,26 +1089,6 @@ export default function SettingsPage() {
                   </div>
                   <div className="mb-3.5">
                     <label
-                      htmlFor="whatsappNumber"
-                      className="mb-1 block text-sm font-semibold"
-                    >
-                      מספר וואטסאפ עסקי{" "}
-                      <span className="font-normal">
-                        (לניתוב הודעות נכנסות)
-                      </span>
-                    </label>
-                    <input
-                      id="whatsappNumber"
-                      name="whatsappNumber"
-                      dir="ltr"
-                      placeholder="972501234567"
-                      defaultValue={tenant.whatsappNumber ?? ""}
-                      className="w-full rounded-lg border px-3 py-2.5"
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div className="mb-3.5">
-                    <label
                       htmlFor="licenseNumber"
                       className="mb-1 block text-sm font-semibold"
                     >
@@ -1274,7 +1252,6 @@ export default function SettingsPage() {
               {user?.role === "owner" ? (
                 <div id="whatsapp" className="flex flex-col gap-4">
                   <WhatsAppBusinessSection />
-                  <WhatsAppStatusSection />
                 </div>
               ) : null}
               <div id="telephony">

@@ -7,7 +7,12 @@ import { formatDateTime } from "@/lib/format";
 import { IconInfo, IconWarning } from "../icons";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
-import { importSentences, type RecordingImportSummary } from "@metavchim/shared";
+import {
+  importSentences,
+  telephonyGaps,
+  telephonyProvider,
+  type RecordingImportSummary,
+} from "@metavchim/shared";
 
 /**
  * חיבור מרכזיית הטלפון של המשרד.
@@ -184,6 +189,30 @@ export function TelephonySection() {
     }
   }
 
+  /**
+   * ‎**הפקת הכתובת לפני שיש פרטי ספק.**
+   *
+   * ‏הקריאה זהה לשמירה רגילה, רק בלי תצורה ובלי סודות: מה שהיא
+   * ‏יוצרת הוא מפתח הוובהוק, וזה כל מה שקליטת השיחות צריכה.
+   *
+   * ‏מוצעת **רק כשאין עדיין חיבור** — שמירה עם תצורה ריקה על שורה
+   * ‏קיימת הייתה מוחקת פרטים שכבר הוזנו.
+   */
+  async function issueWebhook(): Promise<void> {
+    setBusy(true);
+    setMessage(null);
+    setError(null);
+    try {
+      await apiPost("/settings/telephony", { provider: chosen, config: {}, secrets: {} });
+      setMessage("✓ הכתובת מוכנה — העתיקו אותה והדביקו בהגדרות המרכזייה");
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "ההפקה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function disconnect(): Promise<void> {
     if (!window.confirm("לנתק את המרכזייה? הכתובת הנוכחית תפסיק לעבוד מיד.")) return;
     setBusy(true);
@@ -200,6 +229,18 @@ export function TelephonySection() {
 
   if (!providers || !status) return null;
   const provider = providers.find((p) => p.id === chosen);
+  /*
+   * ‏הפערים נגזרים מהכלל המשותף ולא מרשימה שנכתבת כאן: מסך המשרד
+   * ומסך הפלטפורמה חייבים לספר אותו סיפור על אותו חיבור.
+   *
+   * ‏הספק הנשמר ולא הנבחר בטופס: התצוגה מתארת את מה **שקיים**, לא
+   * ‏את מה שהמנהל עומד לבחור.
+   */
+  const savedProvider = status.provider === undefined ? undefined : telephonyProvider(status.provider);
+  const gaps =
+    status.connected && savedProvider !== undefined
+      ? telephonyGaps(savedProvider, status.config, status.secretsSet ?? [])
+      : [];
 
   return (
     <section className="mv-list-card px-5 py-[17px]" aria-labelledby="telephony-heading">
@@ -216,6 +257,38 @@ export function TelephonySection() {
       ) : null}
       {error ? (
         <Notice tone="danger">{error}</Notice>
+      ) : null}
+
+      {/*
+        ‎**הכתובת אינה תלויה בפרטי הספק, ולכן היא זמינה לפני שהם
+        מולאו.** משרד שממתין לפרטי הגישה מ-015 — המצב הרגיל בימים
+        הראשונים — לא יכול היה להוציא את הכתובת, ולכן אף שיחה לא
+        נקלטה בזמן ההמתנה. המפתח שבכתובת מזהה את המשרד ואינו נגזר
+        משום פרט של 015.
+      */}
+      {!status.connected ? (
+        <div
+          className="mb-3 rounded-[13px] border p-3.5"
+          style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+        >
+          <p className="m-0 text-sm font-bold">אפשר להתחיל לקלוט שיחות כבר עכשיו</p>
+          <p
+            className="m-0 mt-1 text-[length:var(--type-caption)]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            כתובת ה-Webhook אינה תלויה בפרטי הספק. הפיקו אותה, הדביקו אותה במרכזייה,
+            והשיחות יתחילו להיכנס — את פרטי 015 אפשר להשלים אחר כך, והם פותחים חיוג
+            בלחיצה, הקלטות וסופטפון.
+          </p>
+          <button
+            type="button"
+            className="mv-btn-action mt-3"
+            disabled={busy}
+            onClick={() => void issueWebhook()}
+          >
+            הפק כתובת Webhook
+          </button>
+        </div>
       ) : null}
 
       {status.connected ? (
@@ -382,6 +455,32 @@ export function TelephonySection() {
               מספר המתקשר, מזהה שיחה, וסטטוס (‎ringing / answered / hangup‎).
             </p>
           )}
+
+          {/*
+            ‎**„מה עוד חסר” — ולא „החיבור אינו תקין”.** קליטת השיחות
+            כבר עובדת; מה שחסר פותח יכולות **נוספות**. אמירה כזו היא
+            מה שמאפשר להתחיל לעבוד ולהשלים אחר כך, במקום להמתין.
+          */}
+          {gaps.length > 0 ? (
+            <div
+              className="mt-2.5 rounded-lg border p-2.5"
+              style={{ borderColor: "var(--color-border)" }}
+            >
+              <p className="m-0 text-[length:var(--type-caption-lg)] font-bold">
+                מה עוד אפשר להוסיף
+              </p>
+              <ul
+                className="m-0 mt-1 pr-5 text-[length:var(--type-caption)]"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                {gaps.map((gap) => (
+                  <li key={gap.capability} className="mb-1">
+                    <b>{gap.label}</b> — חסר: {gap.missing.join(", ")}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           {status.provider === "015" ? <ImportRecordings /> : null}
 

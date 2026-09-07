@@ -16,6 +16,7 @@ import {
   FinancingStatusSchema,
   IdSchema,
   PhoneInputSchema,
+  SharedTabuStanceSchema,
   type Page,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
@@ -33,7 +34,14 @@ const CreateBuyerSchema = z
      * המפתח כאן, טופס ששולח כתובת מקבל 400 ולא „נשמר בלי המייל”.
      */
     contactEmail: z.string().trim().email().max(254).optional(),
-    requirements: BuyerRequirementsSchema,
+    /*
+     * ‎`.strict()` גם על האובייקט הפנימי: `.strict()` של החיצוני
+     * אינו יורד לתוכו, ומפתח שגוי (`minRooms` במקום `roomsMin`)
+     * נבלע בשקט — הבקשה החזירה 201 בלי השדה. לטופס זה לא קרה;
+     * לצרכן API או לייבוא — כן. הקריאה מהמסד (`parse` בשירות)
+     * נשארת סלחנית, כי שם אין מי שיתקן.
+     */
+    requirements: BuyerRequirementsSchema.strict(),
     financing: FinancingStatusSchema.optional(),
     maturity: BuyerMaturitySchema.optional(),
     /*
@@ -49,7 +57,7 @@ const CreateBuyerSchema = z
 
 const UpdateBuyerSchema = z
   .object({
-    requirements: BuyerRequirementsSchema.optional(),
+    requirements: BuyerRequirementsSchema.strict().optional(),
     financing: FinancingStatusSchema.optional(),
     maturity: BuyerMaturitySchema.optional(),
     /** `""` או `null` = הסרת הסטטוס; מזהה = בחירה בו. */
@@ -76,6 +84,8 @@ const ListQuerySchema = z
     maxPrice: z.coerce.number().min(0).optional(),
     minRooms: z.coerce.number().min(0).max(30).optional(),
     maxRooms: z.coerce.number().min(0).max(30).optional(),
+    /** מי אישר טאבו משותף ומי סירב — „טרם נשאל” אינו אף אחד מהם */
+    sharedTabu: SharedTabuStanceSchema.optional(),
     cursor: z.string().max(30).optional(),
     limit: z.coerce.number().int().min(1).max(100).default(50),
   })
@@ -134,7 +144,8 @@ export class BuyersController {
     @Body(new ZodValidationPipe(CreateBuyerSchema))
     body: z.infer<typeof CreateBuyerSchema>,
   ): Promise<BuyerDto> {
-    return this.buyers.create(body);
+    /* ‏מסך של סוכן מחובר — `typedBy` אינו מגיע מהגוף, וראו `createWithin` */
+    return this.buyers.create({ ...body, typedBy: "agent" });
   }
 
   @Get()

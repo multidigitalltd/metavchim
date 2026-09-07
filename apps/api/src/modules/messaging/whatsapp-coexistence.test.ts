@@ -75,26 +75,26 @@ describe("אפליקציית חיבור נפרדת", () => {
 
 describe("ניתוב הודעה נכנסת לקו של משרד", () => {
   /*
-   * ‎`phone_number_id` הוא מפתח יציב על אינדקס ייחודי; המספר המוצג
-   * חוזר מ-Meta בפורמטים שונים. היפוך הסדר היה מחזיר את הניתוב
-   * להשוואת מחרוזות — כלומר לכשל השקט שהחיבור נועד לסלק.
+   * ‎`phone_number_id` הוא מפתח יציב על אינדקס ייחודי, וזו הדרך
+   * היחידה שבה הודעה מגיעה למשרד. המסלול הישן — מספר משרדי שהוקלד
+   * בהגדרות ונרשם ב-WABA של הפלטפורמה — הוסר בכוונה: קו משותף של
+   * הפלטפורמה אינו מוצר שמציעים ללקוחות (החלטת בעל המוצר), והשדה
+   * שהזמין אותו הציג „מחובר” על מספר שמעולם לא חובר.
    */
-  it("החיבור לפי מזהה הקו קודם להשוואת המספר המוצג", () => {
-    const byLine = INBOUND.indexOf("this.connections.byPhoneNumberId(");
-    const byNumber = INBOUND.indexOf("await this.resolveTenant(businessNumber)");
-    expect(byLine).toBeGreaterThan(0);
-    expect(byNumber).toBeGreaterThan(0);
-    expect(byLine).toBeLessThan(byNumber);
+  it("הניתוב הוא לפי מזהה הקו בלבד", () => {
+    expect(INBOUND).toContain("this.connections.byPhoneNumberId(");
+    expect(INBOUND).toMatch(/const tenantId = connection\?\.tenantId \?\? null;/u);
   });
 
   /*
-   * ‎**המסלול הישן חייב לשרוד.** משרדים שהוגדרו לפני החיבור העצמאי
-   * מזוהים לפי מספר שהוקלד בהגדרות, ומחיקת ה-Fallback הייתה מנתקת
-   * אותם ביום הפריסה בלי ששום בדיקה אחרת תרגיש.
+   * ‎**המסלול הישן לא יחזור בשקט.** ניתוב לפי `settings.whatsappNumber`
+   * היה אומר שיש דרך שנייה, ידנית, לחבר מספר — והמסך שמזין אותה כבר
+   * אינו קיים. אם מישהו מחזיר את ה-Fallback, שיחזיר איתו גם את
+   * ההחלטה.
    */
-  it("ומשרד שהוגדר ידנית ממשיך להיות מזוהה", () => {
-    expect(INBOUND).toContain("private async resolveTenant(businessNumber: string)");
-    expect(INBOUND).toMatch(/connection\?\.tenantId \?\?/u);
+  it("ואין ניתוב לפי מספר שהוקלד ידנית", () => {
+    expect(INBOUND).not.toContain("resolveTenant(");
+    expect(INBOUND).not.toContain('"whatsappNumber"');
   });
 
   /*
@@ -132,7 +132,7 @@ describe("הד — המתווך ענה מהאפליקציה בטלפון", () =>
   it("ההד נרשם בציר הזמן ומשתיק את הבוט", () => {
     const handler = INBOUND.slice(
       INBOUND.indexOf("private async handleEchoes("),
-      INBOUND.indexOf("private async resolveTenant("),
+      INBOUND.indexOf("private async handleHistory("),
     );
     expect(handler).toContain('provider: "coexistence_echo"');
     expect(handler).toContain("botPausedUntil");
@@ -146,7 +146,7 @@ describe("הד — המתווך ענה מהאפליקציה בטלפון", () =>
   it("ונרשם ככיוון יוצא", () => {
     const handler = INBOUND.slice(
       INBOUND.indexOf("private async handleEchoes("),
-      INBOUND.indexOf("private async resolveTenant("),
+      INBOUND.indexOf("private async handleHistory("),
     );
     expect(handler).toContain('direction: "out"');
   });

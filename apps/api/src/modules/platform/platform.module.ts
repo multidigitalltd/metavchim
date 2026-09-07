@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { CardcomService } from "../../core/cardcom.service";
 import { AuthModule } from "../auth/auth.module";
 import { BillingModule } from "../billing/billing.module";
+import { FunnelModule } from "../funnel/funnel.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { TelephonyModule } from "../telephony/telephony.module";
 import { AccountDeletionService } from "../settings/account-deletion.service";
@@ -25,7 +26,8 @@ import { ServiceVersionsService } from "./service-versions.service";
   // עם מפתח לא מוכר אינה שייכת לאף משרד, וזו בדיוק הפנייה שמחפשים
   // MessagingModule — בדיקת חיבור הוואטסאפ של הסוכן האישי מהמסך
   // BillingModule — יצירת הצעות מנוי בלינק (SubscriptionOfferService)
-  imports: [AuthModule, TelephonyModule, MessagingModule, BillingModule],
+  // FunnelModule — פתיחה מחדש של רישום כשמנהל מחזיר למשרד ניסיון
+  imports: [AuthModule, TelephonyModule, MessagingModule, BillingModule, FunnelModule],
   /*
    * שולחן החיבורים בקונטרולר משלו: הגבול שלו הוא שהוא נוגע בטבלת
    * החיבורים בלבד, ומבחן מבני קורא בדיוק את שני הקבצים האלה.

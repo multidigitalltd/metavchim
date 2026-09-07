@@ -7,7 +7,6 @@ import {
   ForbiddenException,
   Get,
   HttpCode,
-  NotFoundException,
   Param,
   Patch,
   Post,
@@ -70,17 +69,10 @@ import {
   linkNeedsReverification,
   type PlanDefinition,
   type ServiceVersion,
-  cleanQuoteAuthor,
-  cleanQuoteText,
-  QUOTE_AUTHOR_MAX_LENGTH,
-  QUOTE_LIMIT_PER_SCOPE,
-  QUOTE_MAX_LENGTH,
-  type MentorQuote,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlatformAdmin } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
-import { lockMentorQuotes } from "../../common/locks";
 import { whatsappSeatQuotaWhere } from "../../core/whatsapp-seat-quota";
 import { CryptoService } from "../../core/crypto.service";
 import { TenantContext } from "../../common/tenant-context";
@@ -102,6 +94,7 @@ import {
   type PlatformCreditRow,
   type PlatformCreditsReport,
 } from "./platform-credits.service";
+import { FunnelEnrollmentService } from "../funnel/funnel-enrollment.service";
 import { AccountDeletionService } from "../settings/account-deletion.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
@@ -653,14 +646,6 @@ const BurnCreditsSchema = z
  * שליחת סוג בנפרד הייתה מאפשרת "הצעה אישית בלי משרד" — צירוף שאין
  * לו משמעות ושהיה נדחה ממילא.
  */
-/** ‏משפט מוטבציה של הפלטפורמה. הגבולות הם אורכי העמודות במסד. */
-const PlatformQuoteSchema = z
-  .object({
-    text: z.string().trim().min(1).max(QUOTE_MAX_LENGTH),
-    author: z.string().trim().max(QUOTE_AUTHOR_MAX_LENGTH).default(""),
-  })
-  .strict();
-
 const CreateOfferSchema = z
   .object({
     tenantId: IdSchema.nullable().optional(),
@@ -755,6 +740,11 @@ export class PlatformController {
     private readonly linet: LinetService,
     private readonly invoices: InvoiceService,
     private readonly crypto: CryptoService,
+    /*
+     * ‏רק לפתיחה מחדש של רישום שנסגר כשמחזירים למשרד ניסיון. אין
+     * ‏כאן שליחה — מודול המשפך אינו מחזיק ערוץ יוצא כלל.
+     */
+    private readonly funnel: FunnelEnrollmentService,
   ) {}
 
   /**
@@ -912,21 +902,33 @@ export class PlatformController {
        */
       if (all.length <= 1) throw new BadRequestException("זהו המסלול היחיד — אי אפשר למחוק אותו");
 
-      const moved = await tx.tenant.updateMany({
-        where: { plan: code },
-        data: { plan: body.moveTo },
-      });
       /*
-       * המנוי ולא רק המשרד. `subscriptions.plan_code` הוא מה
-       * ש-RenewalService מתמחר לפיו, והוא מדלג על מסלול שאינו מוכר —
-       * כלומר לקוח משלם היה מפסיק להתחדש בשקט בזמן שהמשרד שלו נראה
-       * תקין לגמרי (ביקורת Codex).
+       * ‎**המנוי לפני המשרד, וזה סדר הנעילות ולא סדר קריאה.**
+       *
+       * ‏`UPDATE` נועל את השורות שהוא נוגע בהן, ולכן שתי השורות כאן
+       * ‏הן נעילה על `subscriptions` ואז על `tenants`. הסדר ההפוך —
+       * ‏שהיה כאן — סוגר מעגל מול כל מסלול שנועל מנוי ואז דייר:
+       * ‏`switchToFreePlan` ב-`BillingService`, ו-`close` של המשפך.
+       * ‏מחיקת מסלול שמתנגשת עם סבב המשפך על משרד באותו מסלול הייתה
+       * ‏מפילה אחת מהשתיים ב-deadlock (ביקורת Codex, P2).
+       *
+       * ‏„שורת המשרד אחרונה” הוא הכלל הכתוב ב-`common/locks.ts`,
+       * ‏והמסלול הזה היה החריג היחיד לו.
+       *
+       * ‏המנוי אינו רק מראה של המשרד: `subscriptions.plan_code` הוא
+       * ‏מה ש-RenewalService מתמחר לפיו, והוא מדלג על מסלול שאינו
+       * ‏מוכר — כלומר לקוח משלם היה מפסיק להתחדש בשקט בזמן שהמשרד
+       * ‏שלו נראה תקין לגמרי (ביקורת Codex).
        */
       await tx.subscription.updateMany({
         where: { planCode: code },
         data: { planCode: body.moveTo },
       });
       await tx.coupon.updateMany({ where: { planCode: code }, data: { planCode: body.moveTo } });
+      const moved = await tx.tenant.updateMany({
+        where: { plan: code },
+        data: { plan: body.moveTo },
+      });
       /*
        * ההנחה שכבר הובטחה למשרד בהרשמה מוצמדת לקוד המסלול שהיה.
        * בלי העברה היא הייתה מפסיקה לחול — כלומר הבטחה שנשברה בגלל
@@ -1231,26 +1233,62 @@ export class PlatformController {
      */
     const toFree = target !== undefined && isFreePlan(target);
     const activateFromTrial = toFree && tenant.status === "trial";
+    const now = new Date();
 
-    await this.prisma.tenant.update({
-      where: { id },
-      data: {
-        ...(body.plan !== undefined ? { plan: body.plan } : {}),
-        ...(toFree ? { trialEndsAt: null, paidUntil: null } : {}),
-        ...(activateFromTrial ? { status: "active" } : {}),
-        ...(body.status !== undefined ? { status: body.status } : {}),
-        ...(body.paidUntil !== undefined
-          ? {
-              paidUntil: body.paidUntil === null ? null : new Date(body.paidUntil),
-              /*
-               * הענקה ידנית מסיימת גם את הניסיון: משרד עם שני
-               * תאריכים פעילים היה נחסם לפי זה שרלוונטי לסטטוס שלו,
-               * ומנהל שהעניק גישה לא היה מבין למה היא לא נכנסה לתוקף.
-               */
-              trialEndsAt: null,
-            }
-          : {}),
-      },
+    /*
+     * ‎**כל כתיבה שנוגעת בחצי מ„ניסיון חי” שואלת על הפתיחה מחדש**
+     * ‏(ביקורת Codex, P2).
+     *
+     * ‏„ניסיון חי” הוא סטטוס **וגם** תאריך, ולכן מנהל יכול להגיע
+     * ‏אליו בשני צעדים: תאריך עתידי דרך מסך העקיפה בזמן שהמשרד
+     * ‏`active`, ואז שינוי הסטטוס כאן. הצעד השני לא קרא למשפך
+     * ‏כלל, והתוצאה **קבועה**: ניסיון חי לצד רישום סגור,
+     * ‏ש-`reopenLapsed` אינו סורק (הוא סורק `paid` בלבד)
+     * ‏ו-`enrollDue` אינו מקבל (היה לו רישום).
+     *
+     * ‏הקריאה אינה מותנית בכלום: `reopenRows` כבר מכריע בעצמו על
+     * ‏השורה שאחרי הכתיבה, ותנאי כאן היה עותק שני שלו.
+     */
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tenant.update({
+        where: { id },
+        data: {
+          ...(body.plan !== undefined ? { plan: body.plan } : {}),
+          /*
+           * ‎**כל מי שמוחק את תאריך הניסיון רושם גם למה.**
+           *
+           * ‏תאריך ריק לבדו הוא דו-משמעי — „נגמר” או „אופס זמנית” —
+           * ‏ומשפך ההמרה מכריע הפוך בין השניים. שני המסלולים כאן
+           * ‏**מסיימים** את הניסיון, ולכן שניהם רושמים זאת.
+           */
+          ...(toFree
+            ? { trialEndsAt: null, trialConcludedAt: now, paidUntil: null }
+            : {}),
+          ...(activateFromTrial ? { status: "active" } : {}),
+          ...(body.status !== undefined ? { status: body.status } : {}),
+          ...(body.paidUntil !== undefined
+            ? {
+                paidUntil: body.paidUntil === null ? null : new Date(body.paidUntil),
+                /*
+                 * הענקה ידנית מסיימת גם את הניסיון: משרד עם שני
+                 * תאריכים פעילים היה נחסם לפי זה שרלוונטי לסטטוס שלו,
+                 * ומנהל שהעניק גישה לא היה מבין למה היא לא נכנסה לתוקף.
+                 *
+                 * ‎**וזה חל גם על „פתח ללא תפוגה”**, ששולח
+                 * ‏`paidUntil: null`: הוא משאיר את הסטטוס „ניסיון” ובלי
+                 * ‏`paid_until`, כלומר מצב שאינו ניתן להבחנה מאיפוס
+                 * ‏זמני — ורישום המשפך היה נשאר פתוח לנצח (ביקורת
+                 * ‏Codex). הסיום נרשם, ולכן אין מה להסיק.
+                 */
+                trialEndsAt: null,
+                trialConcludedAt: now,
+              }
+            : {}),
+        },
+      });
+      if (body.status !== undefined || toFree) {
+        await this.funnel.reopenWithin(tx, id, now);
+      }
     });
     // השהיה — ניתוק מיידי של כל ה-sessions של המשרד
     if (body.status === "suspended") {
@@ -1631,6 +1669,7 @@ export class PlatformController {
 
     const data: {
       trialEndsAt?: Date | null;
+      trialConcludedAt?: Date | null;
       paidUntil?: Date | null;
       priceOverrideMonthlyAgorot?: number | null;
       priceOverrideYearlyAgorot?: number | null;
@@ -1638,7 +1677,21 @@ export class PlatformController {
     } = {};
     // `in` ולא בדיקת ערך: `null` הוא הוראה מפורשת לבטל, ושדה חסר
     // הוא "אל תיגע" — שני מצבים שונים שאסור לאחד
-    if ("trialEndsAt" in body) data.trialEndsAt = body.trialEndsAt ? new Date(body.trialEndsAt) : null;
+    /*
+     * ‎**תאריך ניסיון אמיתי מבטל „הניסיון נגמר”.**
+     *
+     * ‏המסך הזה הוא הדרך היחידה להחזיר משרד לניסיון, ולכן הוא גם
+     * ‏המקום היחיד שבו הסיום שנרשם חדל להיות נכון. בלי האיפוס, משרד
+     * ‏שהוחזר לניסיון היה נושא „נגמר” לצד תאריך חי — סתירה ששלבי
+     * ‏הניסיון שלו משלמים עליה (ביקורת Codex).
+     *
+     * ‎`null` **אינו** מאפס: איפוס התאריך לבדו הוא בדיוק המצב הזמני
+     * ‏שאין להסיק ממנו דבר, ומי שסיים את הניסיון קודם לכן לא חזר בו.
+     */
+    if ("trialEndsAt" in body) {
+      data.trialEndsAt = body.trialEndsAt ? new Date(body.trialEndsAt) : null;
+      if (data.trialEndsAt !== null) data.trialConcludedAt = null;
+    }
     if ("paidUntil" in body) data.paidUntil = body.paidUntil ? new Date(body.paidUntil) : null;
     if ("priceOverrideMonthlyAgorot" in body) {
       data.priceOverrideMonthlyAgorot = body.priceOverrideMonthlyAgorot ?? null;
@@ -1687,7 +1740,24 @@ export class PlatformController {
     }
     if (Object.keys(data).length === 0) return { ok: true };
 
-    await this.prisma.tenant.update({ where: { id }, data });
+    /*
+     * ‎**הכתיבה והפתיחה-מחדש באותה טרנזקציה.**
+     *
+     * ‏רישום שנסגר כ„מוצה” נפתח כשהניסיון חוזר — יש לו שוב תפוגה
+     * ‏שאפשר להזהיר מפניה, ו-`enrollDue` לעולם לא היה מכניס אותו
+     * ‏שוב. בשתי פעולות נפרדות, תקלה ביניהן מותירה ניסיון חי לצד
+     * ‏רישום סגור, וזה מצב **קבוע**: הסורק אינו רואה רישומים סגורים
+     * ‏והכניסה אינה מקבלת מי שכבר היה לו רישום (ביקורת Codex).
+     */
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tenant.update({ where: { id }, data });
+      /*
+       * ‏בלי תנאי: `reopenRows` מכריע בעצמו על השורה שאחרי הכתיבה
+       * ‏(„ניסיון חי” — סטטוס וגם תאריך), ותנאי כאן היה עותק שני
+       * ‏שלו. אותה קריאה בדיוק יושבת גם ב-`PATCH agencies/:id`.
+       */
+      if ("trialEndsAt" in body) await this.funnel.reopenWithin(tx, id);
+    });
     await this.prisma.withExplicitTenant(id, (tx) =>
       tx.auditLog.create({
         data: {
@@ -2850,77 +2920,6 @@ export class PlatformController {
   /* ====================================================================
    * ‏משפטי המוטבציה של הפלטפורמה
    * ==================================================================== */
-
-  /**
-   * ‎**המשפטים שכל המשרדים רואים.**
-   *
-   * ‏שורה ב-`mentor_quotes` בלי משרד מוצגת בסליידר של כל מתווך
-   * במערכת, ולכן היא נכתבת רק מכאן: פוליסת ה-RLS על השורות האלה
-   * היא `FOR SELECT` בלבד לכל טרנזקציית משרד, ו-`withPlatformQuotes`
-   * הוא הדגל היחיד שפותח אותן לכתיבה. הוא גם חסום בשני הכיוונים —
-   * ‏`tenant_id IS NULL` נדרש גם בקריאה — ולכן לשולחן הזה אין גישה
-   * למשפטים שמשרד כתב לעצמו, גם לא בטעות.
-   */
-  @Get("mentor-quotes")
-  async mentorQuotes(): Promise<{ quotes: MentorQuote[] }> {
-    const rows = await this.prisma.withPlatformQuotes((tx) =>
-      tx.mentorQuote.findMany({ orderBy: { createdAt: "asc" } }),
-    );
-    return {
-      quotes: rows.map((r) => ({
-        id: r.id,
-        text: r.text,
-        author: r.author,
-        scope: "platform" as const,
-      })),
-    };
-  }
-
-  @Post("mentor-quotes")
-  @HttpCode(200)
-  async addMentorQuote(
-    @Body(new ZodValidationPipe(PlatformQuoteSchema))
-    body: z.infer<typeof PlatformQuoteSchema>,
-  ): Promise<{ ok: true; quote: MentorQuote }> {
-    const text = cleanQuoteText(body.text);
-    if (text === null) throw new BadRequestException("אין משפט לשמור");
-    const userId = TenantContext.current().userId;
-    const row = await this.prisma.withPlatformQuotes(async (tx) => {
-      /* ‏אותה הסדרה כמו בצד המשרד — ראו `lockMentorQuotes` */
-      await lockMentorQuotes(tx, "platform");
-      const existing = await tx.mentorQuote.count({});
-      if (existing >= QUOTE_LIMIT_PER_SCOPE) {
-        throw new BadRequestException(
-          `הגעת ל-${QUOTE_LIMIT_PER_SCOPE} משפטים. מחק אחד כדי להוסיף חדש.`,
-        );
-      }
-      return tx.mentorQuote.create({
-        data: {
-          id: ulid(),
-          tenantId: null,
-          text,
-          author: cleanQuoteAuthor(body.author),
-          createdBy: userId,
-        },
-      });
-    });
-    return {
-      ok: true,
-      quote: { id: row.id, text: row.text, author: row.author, scope: "platform" },
-    };
-  }
-
-  @Delete("mentor-quotes/:id")
-  @HttpCode(200)
-  async removeMentorQuote(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-  ): Promise<{ ok: true }> {
-    const removed = await this.prisma.withPlatformQuotes((tx) =>
-      tx.mentorQuote.deleteMany({ where: { id } }),
-    );
-    if (removed.count === 0) throw new NotFoundException("המשפט לא נמצא");
-    return { ok: true };
-  }
 
   /**
    * כניסת תמיכה למשרד — **רק דרך חלון שהמשרד פתח בעצמו**.

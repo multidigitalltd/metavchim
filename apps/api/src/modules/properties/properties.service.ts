@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -15,6 +16,7 @@ import {
   limitState,
   type Page,
   type PropertyFields,
+  SHARED_TABU_PROPERTY_TYPE,
 } from "@metavchim/shared";
 import {
   PROPERTY_TYPE_LABELS_HE,
@@ -39,8 +41,16 @@ import {
   assertCanAssignAgents,
 } from "../../common/agent-names";
 import { lockContact, lockProperty, type ContactLock } from "../../common/locks";
-import { isOrphanContact, leadOwnershipFilter } from "../../common/ownership";
+import {
+  assertPropertyOwnerAction,
+  assertPropertyScope,
+  canSeeContact,
+  inPropertyScope,
+  isOrphanContact,
+  leadOwnershipFilter,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
+import { recordMentorWin } from "../../common/mentor-wins";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -48,6 +58,7 @@ import { GeocodingService } from "../../core/geocoding.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import type { Prisma } from "@prisma/client";
 import { ContactErasureService } from "../contacts/contact-erasure.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { ListingsService } from "../collaboration/listings.service";
@@ -75,6 +86,44 @@ import {
 function creatorUserId(): string | null {
   const { userId } = TenantContext.current();
   return userId === "" ? null : userId;
+}
+
+/**
+ * ‎**הצורה ה-SQL של `isSharedTabuProperty` — והיחידה.**
+ *
+ * ‏העובדה „הנכס רשום בטאבו משותף” יושבת בשני מקומות: הדגל, והערך
+ * ‏הוותיק `shared_tabu` ב-`property_type`. ב-TypeScript יש לזה
+ * ‏תשובה אחת (`isSharedTabuProperty`), וכאן נדרשת הצורה השנייה
+ * ‏והאחרונה — כי שאילתה אינה יכולה לקרוא לפונקציה.
+ *
+ * ‏שתיהן נבדקות זו מול זו על אותה טבלת מקרים ב-
+ * ‎`shared-tabu-sources.test.ts`, כדי שהן לא יוכלו להיפרד: סינון
+ * ‏שקורא רק את הדגל היה מפספס בדיוק את הנכסים שנרשמו בסוג הישן,
+ * ‏והם הרוב הקיים.
+ *
+ * ‏האינדקס החלקי במיגרציה 20260906210000 נבנה על **אותו** תנאי
+ * ‏בדיוק, ולכן הוא משרת את הסינון הזה.
+ */
+export function sharedTabuWhere(value: boolean | undefined): Prisma.PropertyWhereInput {
+  if (value === undefined) return {};
+  if (value) {
+    return { OR: [{ sharedTabu: true }, { propertyType: SHARED_TABU_PROPERTY_TYPE }] };
+  }
+  /*
+   * ‎**`<> 'shared_tabu'` אינו נכון ל-`NULL`** (ביקורת Codex, P1).
+   *
+   * ‏ב-SQL כל השוואה ל-`NULL` היא `UNKNOWN`, ולכן `property_type
+   * ‏<> 'shared_tabu'` **מוציא** נכס בלי סוג — וטיוטות, שהן הרוב
+   * ‏של הנכסים בלי סוג, היו נעלמות מ„רישום נפרד” אף ש-
+   * ‏`isSharedTabuProperty` מסווג אותן בדיוק כך.
+   *
+   * ‏זו הסיבה שהטבלה המשותפת בבדיקה נושאת גם שורת `null`: בלעדיה
+   * ‏שתי הצורות מסכימות על כל מה שנבדק, ונפרדות בדיוק על מה שלא.
+   */
+  return {
+    sharedTabu: false,
+    OR: [{ propertyType: null }, { propertyType: { not: SHARED_TABU_PROPERTY_TYPE } }],
+  };
 }
 
 @Injectable()
@@ -194,8 +243,15 @@ export class PropertiesService {
     owner?: { name: string; phone: string };
     /** מי גר בנכס כשזה אינו הבעלים — לתיאום ביקור. */
     occupant?: { name: string; phone: string };
+    /**
+     * ‎**מזהה שנקבע מראש** — `persist` כבר תמך בו (`createFromIntake`),
+     * והחשיפה כאן היא מה שמאפשרת לקורא לרשום את המזהה **לפני**
+     * היצירה. בלי זה, יצירה שנכשלה אחרי ההתמדה משאירה נכס שאיש
+     * אינו יודע עליו, וניסיון חוזר יוצר שני.
+     */
+    id?: string;
   }): Promise<PropertyDto> {
-    const id = await this.persist(input);
+    const id = await this.persist({ ...input, typedBy: "agent" });
     /*
      * ההתאמות מחושבות **ברקע** — היצירה חוזרת מיד.
      *
@@ -341,7 +397,7 @@ export class PropertiesService {
     let propertyId: string;
     try {
       // persist בלבד — לא create: ההתאמות מופרדות ל-best-effort למטה
-      propertyId = await this.persist({ fields, owner: claim.owner });
+      propertyId = await this.persist({ fields, owner: claim.owner, typedBy: "agent" });
     } catch (error) {
       // השמירה נכשלה — הליד חוzר בדיוק למצבו, לא למצב גנרי
       await this.prisma
@@ -405,7 +461,8 @@ export class PropertiesService {
      */
     id: string;
   }): Promise<string> {
-    const id = await this.persist(input);
+    /* ‏טופס ציבורי בהקשר משרד — אין מי שהקליד, ראו `typedBy` */
+    const id = await this.persist({ ...input, typedBy: "office" });
     try {
       await this.matching.recomputeForProperty(id);
     } catch {
@@ -428,7 +485,7 @@ export class PropertiesService {
   }): Promise<string> {
     // גם בייבוא: קובץ של אלף נכסים לא אמור לעקוף מכסה שהוספה ידנית
     // נחסמת בה. הבדיקה עצמה בתוך persist, באותה טרנזקציה של הכתיבה.
-    const id = await this.persist(input);
+    const id = await this.persist({ ...input, typedBy: "agent" });
     try {
       await this.matching.recomputeForProperty(id);
     } catch {
@@ -480,6 +537,19 @@ export class PropertiesService {
     occupant?: { name: string; phone: string };
     /** מזהה שנקבע מראש — ראו `createFromIntake`. ריק ⇒ נוצר כאן. */
     id?: string;
+    /**
+     * ‎**מי הקליד את המספר** (ביקורת Codex, P1).
+     *
+     * ‎`"agent"` — משתמש אנושי, ולכן מיחזור כרטיס קיים דורש שהוא
+     * ‏נגיש לו: אחרת הקלדת הטלפון של הלקוח של עמית מצרפת אותו לנכס
+     * ‏שלי, והצירוף הזה בעצמו פותח את `canSeeContact` על אותו אדם.
+     *
+     * ‎`"office"` — טופס קליטה ציבורי שרץ בהקשר משרד בלי משתמש
+     * ‏(`userId: ""`), ואין מולו מי לשאול.
+     *
+     * ‏בלי ברירת מחדל, בכוונה: קורא חדש חייב להכריע.
+     */
+    typedBy: "agent" | "office";
   }): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const id = input.id ?? ulid();
@@ -519,11 +589,18 @@ export class PropertiesService {
       if (input.agentUserId !== undefined && input.agentUserId !== "") {
         await assertAgentInOffice(tx, tenantId, input.agentUserId);
       }
-      const ownerContact = input.owner
-        ? await this.contacts.findOrCreateByPhone(tx, input.owner)
-        : null;
+      /* ‏מיחזור כרטיס קיים — ראו `typedBy` ו-`findOrCreateByPhoneScoped` */
+      const resolve = async (
+        person: { name: string; phone: string },
+        subject: string,
+      ): Promise<{ id: string }> =>
+        await this.contacts.findOrCreateByPhoneTyped(tx, person, {
+          typedBy: input.typedBy,
+          subject,
+        });
+      const ownerContact = input.owner ? await resolve(input.owner, "בעל הנכס") : null;
       const occupantContact = input.occupant
-        ? await this.contacts.findOrCreateByPhone(tx, input.occupant)
+        ? await resolve(input.occupant, "הדייר בנכס")
         : null;
       await tx.property.create({
         data: {
@@ -668,11 +745,37 @@ export class PropertiesService {
        * בשניהם.** נכס שאינו קיים מפיל את הטרנזקציה מיד אחרי כן,
        * וכרטיס שנוצר כאן מתגלגל אחורה איתה.
        */
+      /*
+       * ‎**מי כבר על הנכס הזה — נקרא כאן, לפני נעילת השורה.**
+       *
+       * ‏הסדר שלמעלה מחייב זאת: הכרטיסים נפתרים לפני הנכס, ולכן
+       * ‏`existing` עוד לא קיים. הקריאה הזו משמשת **להיתר בלבד** —
+       * ‏„האדם הזה כבר מצורף כאן, ולכן צירופו אינו חושף דבר חדש” —
+       * ‏ולכן קריאה לא-נעולה מספיקה לה: כל מה שהיא יכולה להחמיץ הוא
+       * ‏שינוי מקביל, ואת ההכרעה על **הכתיבה** לוקחים השערים שמתחת
+       * ‏לנעילה בהמשך.
+       */
+      const attached =
+        owner || occupant
+          ? await tx.property.findFirst({
+              where: { id, tenantId: TenantContext.current().tenantId, deletedAt: null },
+              select: { ownerContactId: true, occupantContactId: true },
+            })
+          : null;
+      const alreadyHere = (priorId: string): boolean =>
+        priorId === attached?.ownerContactId || priorId === attached?.occupantContactId;
       const ownerContact = owner
-        ? await this.contacts.findOrCreateByPhone(tx, owner)
+        ? await this.contacts.findOrCreateByPhoneScoped(tx, owner, {
+            subject: "בעל הנכס",
+            /* ‏מי שכבר על הנכס הזה — אין בצירוף שלו שום חשיפה חדשה */
+            alsoAllowed: alreadyHere,
+          })
         : null;
       const occupantContact = occupant
-        ? await this.contacts.findOrCreateByPhone(tx, occupant)
+        ? await this.contacts.findOrCreateByPhoneScoped(tx, occupant, {
+            subject: "הדייר בנכס",
+            alsoAllowed: alreadyHere,
+          })
         : null;
 
       /*
@@ -696,6 +799,54 @@ export class PropertiesService {
         },
       });
       if (!existing) throw new NotFoundException("נכס לא נמצא");
+
+      /*
+       * ‎**מי שאינו רואה את בעל הנכס אינו יכול להחליף אותו.**
+       *
+       * ‏ההשמטה מהתשובה יצרה בעצמה את הנתיב הזה: הסוכן רואה „חסר”,
+       * ‏המסך מציע להוסיף, והעריכה דרסה את הכרטיס של העמית בלי שום
+       * ‏בדיקה. כלומר ההגנה על **הקריאה** פתחה אובדן נתונים
+       * ‏ב**כתיבה**, דרך הממשק הרגיל ובלי שאיש התכוון (ביקורת
+       * ‏Codex, P1).
+       *
+       * ‏השער הוא על ההחלפה ולא על העריכה: הסוכן ממשיך לערוך את
+       * ‏הנכס — כתובת, מחיר, מצב — ולהוסיף בעלים לנכס שאין לו. מה
+       * ‏שנחסם הוא לגעת באדם שהוא אינו רשאי לראות.
+       *
+       * ‎`occupantCleared` נכלל: מחיקת דייר מוסתר היא אותה פגיעה
+       * ‏בדיוק, ובלי הזכר הזה השער היה נכון לחצי מהפעולות.
+       */
+      const displacing: { current: string | null; changing: boolean }[] = [
+        { current: existing.ownerContactId, changing: ownerContact !== null },
+        {
+          current: existing.occupantContactId,
+          changing: occupantContact !== null || occupantCleared === true,
+        },
+      ];
+      /*
+       * ‎**והשאלה היא על הנכס, לא על האדם** (ביקורת Codex, P1, סבב
+       * ‏שני).
+       *
+       * ‏`canSeeContact` הוא **איחוד מקורות**, ולכן בעל הנכס של עמית
+       * ‏שהוא גם הקונה שלי עובר אותו — דרך הקונה. השער אישר, המסך
+       * ‏הציג את הקשר כניתן לעריכה (`getById` נשען על אותו איחוד),
+       * ‏והחלפת הבעלים בנכס של העמית התבצעה דרך הממשק הרגיל.
+       *
+       * ‏זו בדיוק המלכודת ש-`assertPropertyScope` נכתב בשבילה, והיא
+       * ‏מתועדת שם במילים האלה. הפעולה כאן היא **כתיבה על הנכס**,
+       * ‏ולכן היא נשאלת על היקף הנכס; שער האדם נשאר אחריה, כי
+       * ‏החלפת בעלים היא גם נגיעה באדם.
+       */
+      if (displacing.some((field) => field.changing && field.current !== null)) {
+        assertPropertyScope(existing.agentUserId, "החלפת הלקוח המשויך לנכס");
+      }
+      for (const field of displacing) {
+        if (!field.changing || field.current === null) continue;
+        if (await canSeeContact(tx, TenantContext.current().tenantId, field.current)) continue;
+        throw new ForbiddenException(
+          "הלקוח המשויך לנכס הזה אינו נגיש לך — פנה למנהל המשרד כדי להחליף אותו",
+        );
+      }
 
       /*
        * ‎**מתחת לנעילה, ולא לפניה.** ראו `expectStatus` בחתימה: זו
@@ -787,7 +938,8 @@ export class PropertiesService {
       await tx.property.update({
         where: { id },
         data: {
-          ...(fieldsToColumns(fieldPatch) as object),
+          /* ‏הסוג השמור נמסר כדי שכיבוי מפורש יפרוש גם אותו — ראו שם */
+          ...(fieldsToColumns(fieldPatch, existing) as object),
           /*
            * הריקון **אחרי** ה-Patch: שדה שנמצא בשניהם התכוון להיות
            * ריק, ולא לקבל את הערך שהובא לפניו.
@@ -838,6 +990,26 @@ export class PropertiesService {
       // (ביקורת Codex, PR #1). החלטות ידניות (offered/dismissed) נשמרות כהיסטוריה.
       if (status !== undefined && !["draft", "active"].includes(status)) {
         await this.retireMatches(tx, id);
+        /*
+         * עסקה — נמכר או הושכר — נחגגת **כאן**, ברגע שסומנה, אצל מי
+         * שסימן: לנכס אין שדה „סוכן”, ומי שמסמן „נמכר” הוא מי שסגר.
+         * אידמפוטנטי — נכס שחוזר ל„פעיל” ונמכר שוב אינו נחגג פעמיים.
+         */
+        if (["sold", "rented"].includes(status) && existing.status !== status) {
+          const actor = TenantContext.current().userId;
+          if (actor !== "") {
+            await recordMentorWin(tx, {
+              tenantId,
+              userId: actor,
+              kind: "deal_closed",
+              entityType: "property",
+              entityId: id,
+              title:
+                (marketingTitle ?? existing.marketingTitle) ??
+                ([existing.street, existing.city].filter(Boolean).join(", ") || "נכס"),
+            });
+          }
+        }
         // מעבר אמיתי החוצה משיווק — סגירת מעגל מול קונים מעוניינים:
         // Worker יוצר משימות "הצע חלופה" לסוכנים (docs/01 — שום עסקה
         // לא נופלת בין הכיסאות)
@@ -931,12 +1103,55 @@ export class PropertiesService {
         hasDescription: Boolean(row.marketingDescription),
         hasOwner: Boolean(row.ownerContactId),
       });
-      const ownerContact = row.ownerContactId
-        ? await this.contacts.getById(tx, row.ownerContactId)
+      /*
+       * ‎**פרטי הבעלים יורדים כשהנכס אינו של הסוכן — ולא הכרטיס.**
+       *
+       * ‏רשימת הנכסים משרדית בכוונה, ולכן כל סוכן מחזיק את המזהה.
+       * ‏בלי הבדיקה כאן, מנהל שחוסם `properties.view_all` היה מסתיר
+       * ‏את הבעלים מהדואר, מהשיחות ומהחיפוש — ומשאיר את השם, הטלפון
+       * ‏והמייל שלו זמינים בלחיצה אחת על הנכס עצמו (ביקורת Codex).
+       * ‏הגנה שיש לה מעקף בן צעד אחד אינה הגנה.
+       *
+       * ‏השמטה ולא 404: הנכס **כן** מותר לו — הכתובת, המחיר והמצב.
+       * ‏מה שאינו מותר הוא האדם.
+       */
+      /*
+       * ‎**וההיתר נגזר מהנכס, לא רק מהאדם** (ביקורת Codex, P1).
+       *
+       * ‏`canSeeContact` הוא **איחוד מקורות**: בעל הנכס של עמית
+       * ‏שהוא גם הקונה שלי עובר אותו — דרך כרטיס הקונה, שאין לו
+       * ‏שום קשר לנכס הזה. הכרטיס היה מחזיר את שמו, הטלפון והמייל
+       * ‏שלו **בהקשר של הנכס**, כלומר מגלה גם את הקשר עצמו: „האדם
+       * ‏הזה הוא הבעלים של הנכס ההוא”. וזה בדיוק מה ש-
+       * ‏`properties.view_all` נועד להסתיר.
+       *
+       * ‏זו אותה הבחנה ש-`assertPropertyOwnerAction` ו-
+       * ‏`propertyActivity` כבר אוכפים: שאלת הנכס נשאלת על הנכס.
+       * ‏שתי השאלות ולא אחת — הנכס בהישג ידי, **וגם** האדם נגיש לי.
+       */
+      const inScope = inPropertyScope(row.agentUserId);
+      const mayContact = async (contactId: string | null): Promise<boolean> =>
+        inScope &&
+        contactId !== null &&
+        (await canSeeContact(tx, TenantContext.current().tenantId, contactId));
+      const ownerVisible = await mayContact(row.ownerContactId);
+      const occupantVisible = await mayContact(row.occupantContactId);
+      const ownerContact = ownerVisible
+        ? await this.contacts.getById(tx, row.ownerContactId!)
         : null;
-      const occupantContact = row.occupantContactId
-        ? await this.contacts.getById(tx, row.occupantContactId)
+      const occupantContact = occupantVisible
+        ? await this.contacts.getById(tx, row.occupantContactId!)
         : null;
+      /*
+       * ‎**„מוסתר” אינו „חסר”, והמסך חייב להבדיל.**
+       *
+       * ‏בלי הדגל הזה כרטיס הנכס הציג „חסר” ופתח טופס הוספה על בעלים
+       * ‏קיים שהסוכן פשוט אינו רשאי לראות — כלומר ההשמטה עצמה הזמינה
+       * ‏דריסה (ביקורת Codex, P1). השרת דוחה את הדריסה בכל מקרה;
+       * ‏הדגל הוא כדי שהמסך לא יציע אותה מלכתחילה.
+       */
+      const ownerRedacted = row.ownerContactId !== null && !ownerVisible;
+      const occupantRedacted = row.occupantContactId !== null && !occupantVisible;
       const agents = await agentNames(tx, TenantContext.current().tenantId, [row.agentUserId]);
       const agentName = agentNameOf(agents, row.agentUserId);
       return {
@@ -958,6 +1173,8 @@ export class PropertiesService {
          */
         readinessScore: readiness.score,
         missingFields: readiness.missingFields,
+        ...(ownerRedacted ? { ownerRedacted: true } : {}),
+        ...(occupantRedacted ? { occupantRedacted: true } : {}),
         ...(ownerContact
           ? {
               ownerContact: {
@@ -1007,6 +1224,14 @@ export class PropertiesService {
     maxPrice?: number;
     minRooms?: number;
     maxRooms?: number;
+    /**
+     * ‏רק נכסים בטאבו משותף (`true`) או רק שאינם (`false`).
+     *
+     * ‏העמודה `NOT NULL`, ולכן `false` הוא ערך אמיתי ולא „הכול”:
+     * ‏מסנן „לא משותף” הוא שאלה לגיטימית של מתווך שמחפש נכס למי
+     * ‏שסירב. `undefined` בלבד אינו מוסיף תנאי.
+     */
+    sharedTabu?: boolean;
     cursor?: string;
     /**
      * סדר התוצאות — „תמיד תציג מהזול ליקר” של הסוכן. עמוד ראשון
@@ -1031,6 +1256,7 @@ export class PropertiesService {
             ? { city: { in: query.cities } }
             : {}),
           ...(query.dealType ? { dealType: query.dealType } : {}),
+          ...sharedTabuWhere(query.sharedTabu),
           ...(price.min !== undefined || price.max !== undefined
             ? {
                 priceAgorot: {
@@ -1209,6 +1435,28 @@ export class PropertiesService {
           "לנכס לא הוגדר בעל נכס — הוסיפו שם וטלפון בעריכת הנכס",
         );
       }
+      /*
+       * ‎**הסתרת הבעלים בכרטיס אינה שווה דבר אם אפשר לשלוח לו.**
+       *
+       * ‏`getById` על הנכס משמיט את פרטי הבעלים למי שאינו רשאי — ואז
+       * ‏הפעולה הזו החזירה אותם: `waUrl` נושא את **הטלפון** וההודעה
+       * ‏נושאת את **השם**. הנכס גלוי לכל המשרד בכוונה, ולכן המזהה
+       * ‏שלו אינו סוד וכל סוכן יכול היה לקרוא לפעולה (ביקורת Codex,
+       * ‏P1).
+       *
+       * ‏וזו הצורה החמורה, כמו ב-`reply` בתיבה: לא רק חשיפת מספר
+       * ‏אלא **פנייה** — ההודעה מתועדת ב-Messages Hub ויוצאת בשם
+       * ‏המשרד.
+       */
+      /*
+       * ‎**וגם הנכס עצמו** — לא רק האדם. שער הלקוח הוא איחוד
+       * ‏מקורות, ולקוח שקונה דרכי ומוכר דרך עמית פותח אותו דרך
+       * ‏הקונה שלי; הפנייה כאן היא על הנכס של העמית (ביקורת Codex).
+       */
+      await assertPropertyOwnerAction(tx, tenantId, {
+        agentUserId: property.agentUserId,
+        ownerContactId: property.ownerContactId,
+      });
       const owner = await this.contacts.getById(tx, property.ownerContactId);
       if (!owner) throw new NotFoundException("איש הקשר של בעל הנכס לא נמצא");
 

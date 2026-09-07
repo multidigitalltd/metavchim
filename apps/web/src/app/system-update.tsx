@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { IconX } from "./icons";
+import { useUserDismissed } from "@/lib/dismissed-panels";
 import { useDismissedToday } from "./notice";
 import { openSupport } from "./support-button";
 
@@ -14,26 +16,111 @@ import { openSupport } from "./support-button";
  * שימוש באותו רכיב לשני הדברים היה גורם להודעת „נשמר בהצלחה”
  * להיראות כמו קמפיין.
  *
- * ## למה איקס ולא היעלמות אוטומטית
+ * ## שתי סגירות — ליום, ולתמיד
  *
- * מי שקרא וסגר אמר „הבנתי”. הסגירה שווה ליום (`useDismissedToday`)
- * ולא לצמיתות: הכרזה על יכולת מרכזית ראויה להזדמנות שנייה למי
- * שסגר בטעות בדרך לפגישה, אבל לא להיות מטרד קבוע.
+ * האיקס סוגר ליום (`useDismissedToday`): הכרזה על יכולת מרכזית
+ * ראויה להזדמנות שנייה למי שסגר בטעות בדרך לפגישה. „לא להציג יותר”
+ * נשמר **למשתמש** בשרת (`useUserDismissed`, כמו פאנלי העזרה) ולכן
+ * מסתיר בכל המכשירים — עד ההכרזה הבאה: המפתח הוא של ההכרזה, וכרטיס
+ * חדש מתחיל מאפס (בקשת המשתמש).
  *
- * ## הכפתור פותח את טופס הפנייה הקיים
+ * ## הכרזה אחת, החדשה
  *
- * ולא טופס משלו. „הצטרפות לשירות” היא פנייה למשרד שלנו, וזה בדיוק
- * מה שכפתור התמיכה כבר עושה — עם איסוף ההקשר, ההכתבה והנתיב
- * שנבדקו. הודעה עם טופס פרטי משלה הייתה מימוש שני שמפגר אחרי
- * הראשון.
+ * הכרטיס הוא „עדכון מערכת” — יחיד. שתי הכרזות זו מעל זו הן קיר,
+ * ובדיוק המסך הזה מתחיל את היום. לכן הכרטיס מציג את ההכרזה
+ * **החדשה ביותר** שמתאימה למשרד, והקודמות נשארות כאן כרשומה של מה
+ * שהוכרז — ומי שסוגר סוגר את הכרטיס ליום, לא עובר להכרזה הישנה.
+ *
+ * ## המנטור — רק למי שיש לו
+ *
+ * המנטור נפתח עם המאמן החכם, ולמשרד שאין לו אותו הכרזה עליו היא
+ * פרסומת ולא עדכון. משרד כזה רואה את ההכרזה הקודמת.
  */
 
 /** נוסח הפנייה שנפתח בטופס — המתווך רק מוסיף מה שירצה ושולח. */
-const REQUEST_TEXT = "אשמח להצטרף לשירות הסוכן בוואטסאפ. נא צרו איתי קשר.";
+const WA_REQUEST_TEXT = "אשמח להצטרף לשירות הסוכן בוואטסאפ. נא צרו איתי קשר.";
 
-export function SystemUpdate(): React.JSX.Element | null {
+export function SystemUpdate({
+  mentor,
+}: {
+  /** למשרד יש את המנטור (המאמן החכם במסלול) — אחרת מציגים את ההכרזה הקודמת */
+  mentor: boolean;
+}): React.JSX.Element | null {
+  return mentor ? <MentorLaunch /> : <WhatsAppLaunch />;
+}
+
+function MentorLaunch(): React.JSX.Element | null {
+  const [dismissed, dismiss] = useDismissedToday("mentor-launch");
+  const forever = useUserDismissed("announce-mentor-launch");
+  if (dismissed || forever.hidden) return null;
+
+  return (
+    <section className="mv-announce" aria-labelledby="announce-mentor-title">
+      <button
+        type="button"
+        className="mv-announce-close"
+        onClick={dismiss}
+        aria-label="סגירת ההודעה"
+      >
+        <IconX s={16} />
+      </button>
+
+      <div className="mv-announce-body">
+        <p className="mv-announce-kicker">
+          <span className="mv-announce-tag">חדש</span>
+          עדכון מערכת
+        </p>
+        <h2 id="announce-mentor-title" className="mv-announce-title">
+          המנטור האישי שלך כאן
+        </h2>
+        <p className="mv-announce-text">
+          יעד לשבוע, סיכום במוצאי שבת, ושיחה על מה לשפר — רק מולך, אף פעם לא מול
+          אחרים. גם בוואטסאפ.
+        </p>
+        <div className="mv-announce-actions">
+          <Link
+            href="/mentor"
+            className="mv-announce-cta inline-flex no-underline"
+          >
+            לפגוש את המנטור
+          </Link>
+          <button
+            type="button"
+            className="mv-announce-dismiss"
+            onClick={forever.never}
+          >
+            לא להציג יותר
+          </button>
+        </div>
+      </div>
+
+      {/*
+        האיור דקורטיבי — `aria-hidden`. אותם טוקנים כמו ההכרזה הקודמת,
+        ולכן מתהפך נכון במצב כהה: מטרה (היעד), ניצוץ (המנטור), ווי (הושג).
+      */}
+      <svg className="mv-announce-art" viewBox="0 0 200 140" aria-hidden="true">
+        <ellipse cx="96" cy="74" rx="86" ry="60" className="mv-announce-blob" />
+        {/* המטרה — היעד שהמתווך ביקש מעצמו */}
+        <circle cx="92" cy="72" r="40" className="mv-announce-bubble" />
+        <circle cx="92" cy="72" r="24" className="mv-announce-bubble" />
+        <circle cx="92" cy="72" r="8" className="mv-announce-badge" />
+        {/* הניצוץ — המנטור */}
+        <g className="mv-announce-wave">
+          <path d="M150 28v18" />
+          <path d="M141 37h18" />
+        </g>
+        {/* הווי — היעד הושג */}
+        <circle cx="150" cy="100" r="19" className="mv-announce-badge" />
+        <path className="mv-announce-tick" d="M142 100l6 6 11-13" />
+      </svg>
+    </section>
+  );
+}
+
+function WhatsAppLaunch(): React.JSX.Element | null {
   const [dismissed, dismiss] = useDismissedToday("wa-agent-launch");
-  if (dismissed) return null;
+  const forever = useUserDismissed("announce-wa-agent-launch");
+  if (dismissed || forever.hidden) return null;
 
   return (
     <section className="mv-announce" aria-labelledby="announce-wa-title">
@@ -55,16 +142,27 @@ export function SystemUpdate(): React.JSX.Element | null {
           הסוכן הקולי עובד עכשיו גם בוואטסאפ
         </h2>
         <p className="mv-announce-text">
-          אפשר לנהל את כל המערכת מהוואטסאפ — הסוכן מקבל הקלטות, מבין מה ביקשתם ומבצע
-          בשבילכם. בלי להיכנס לדשבורד.
+          אפשר לנהל את כל המערכת מהוואטסאפ — הסוכן מקבל הקלטות, מבין מה ביקשתם
+          ומבצע בשבילכם. בלי להיכנס לדשבורד.
         </p>
-        <button
-          type="button"
-          className="mv-announce-cta"
-          onClick={() => openSupport({ kind: "question", text: REQUEST_TEXT })}
-        >
-          להצטרפות לשירות
-        </button>
+        <div className="mv-announce-actions">
+          <button
+            type="button"
+            className="mv-announce-cta"
+            onClick={() =>
+              openSupport({ kind: "question", text: WA_REQUEST_TEXT })
+            }
+          >
+            להצטרפות לשירות
+          </button>
+          <button
+            type="button"
+            className="mv-announce-dismiss"
+            onClick={forever.never}
+          >
+            לא להציג יותר
+          </button>
+        </div>
       </div>
 
       {/*

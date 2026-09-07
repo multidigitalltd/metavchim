@@ -299,6 +299,8 @@ export default function CalendarPage() {
 
   return (
     <>
+      {/* הכותרת הסמנטית — הסרגל העליון מציג `<p>` בכוונה (app-shell) */}
+      <h1 className="sr-only">יומן</h1>
       {/* לשוניות — יומן ומשימות. tablist ולא קישורים: שתי תצוגות של
           אותו מסך, בלי ניווט ובלי טעינה מחדש. */}
       <div className="mv-seg mb-[14px]" role="tablist" aria-label="תצוגת היומן">

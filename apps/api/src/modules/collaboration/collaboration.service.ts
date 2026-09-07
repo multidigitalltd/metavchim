@@ -8,7 +8,11 @@ import {
 import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
+  dailyEmailIdempotencyKey,
+
   BuyerRequirementsSchema,
+  buyerSharedTabuStance,
+  type SharedTabuStance,
   DEFAULT_COMMISSION_SPLIT,
   commissionSplitRejectionReason,
   commissionTermsColumns,
@@ -33,6 +37,9 @@ import {
   referralReasonRejectionReason,
   presentationChips,
   withNetworkSafeTitle,
+  isSharedTabuProperty,
+  sharedTabuFit,
+  SHARED_TABU_REFUSED_NOTE,
   type NetworkPresentationFields,
   scoreMatch,
   suggestedReferralPrice,
@@ -749,6 +756,15 @@ export class CollaborationService {
        * ולחכות לתשובה — בלעדיהם ההצעות נשלחות באוויר משני הכיוונים.
        */
       propertyTypes: requirements.propertyTypes,
+      /*
+       * ‎**והסירוב לרישום משותף נוסע איתו** (ביקורת Codex, P1).
+       *
+       * ‏בלעדיו המשרד המקבל משחזר את הקונה בלי עמדה, `sharedTabuFit`
+       * ‏קורא לזה „טרם נשאל” — וההתאמה מותרת על סירוב **מפורש**.
+       * ‏`buyerSharedTabuStance` ולא השדה הגולמי, כדי שגם קונה מדור
+       * ‏קודם ייסע עם העמדה שהמערכת באמת מפעילה עליו.
+       */
+      sharedTabuStance: buyerSharedTabuStance(requirements) ?? null,
       areaSqmMin: requirements.areaSqmMin ?? null,
       budgetMinAgorot:
         buyer.budgetMinAgorot === null
@@ -1428,6 +1444,7 @@ export class CollaborationService {
     neighborhoods: string[];
     dealType: string;
     propertyTypes: string[];
+    sharedTabuStance: string | null;
     areaSqmMin: number | null;
     budgetMinAgorot: bigint | null;
     budgetMaxAgorot: bigint | null;
@@ -1453,6 +1470,10 @@ export class CollaborationService {
        * הגבול.
        */
       propertyTypes: demand.propertyTypes,
+      /* ‏מה שנשמר בפרסום — ובעיקר `refuses`. ראו `demandSnapshot`. */
+      ...(demand.sharedTabuStance === null
+        ? {}
+        : { sharedTabu: demand.sharedTabuStance as SharedTabuStance }),
       ...(demand.areaSqmMin !== null ? { areaSqmMin: demand.areaSqmMin } : {}),
       /*
        * גם רף התקציב התחתון, ולא רק התקרה. הוא נשמר ומוצג — ובלעדיו
@@ -1762,6 +1783,36 @@ export class CollaborationService {
       if (!property) throw new NotFoundException("נכס לא נמצא או אינו משווק");
 
       /*
+       * ‎**הסירוב נאכף גם בהצעה הידנית — ולפני החיוב** (ביקורת
+       * ‏Codex, P1).
+       *
+       * ‏ההתאמה האוטומטית מדלגת על נכס בטאבו משותף כשהביקוש סימן
+       * ‏„מסרב”, אבל „בחר נכס להצעה” בכרטיס הרשת הוא בורר שמונה את
+       * ‏**כל** הנכסים, והנתיב הזה בדק רק שהנכס משווק. ההצעה נוצרה
+       * ‏בניגוד לסירוב מפורש — **וגבתה קרדיטים** על ליד ממקור
+       * ‏חיצוני. ולסוכן המציע אין דרך לראות את הקונפליקט: העמדה
+       * ‏מוסתרת במכוון מ-DTO הביקוש של המשרד המקבל.
+       *
+       * ‏לכן השער כאן, מעל `coopOfferCost` — פעולה שנדחית אינה
+       * ‏פעולה שמשלמים עליה.
+       *
+       * ‏ושתי הגזירות הן אלה שהמנוע משתמש בהן, ובאותו מסלול:
+       * ‎`isSharedTabuProperty` על הנכס, ו-`buyerSharedTabuStance`
+       * ‏על **הדרישות שנגזרות מהביקוש** — `demandToRequirements`,
+       * ‏אותה מתודה שהניקוד ניזון ממנה.
+       *
+       * ‏ולא קריאה ישירה של `demand.sharedTabuStance`: ביקוש
+       * ‏שפורסם לפני העמודה נושא `null`, והעמדה שלו נגזרת מסוג
+       * ‏המבנה הישן. העמודה לבדה הייתה קוראת לו „טרם נשאל”
+       * ‏ומתירה את ההצעה — כלומר בדיוק הביקושים הוותיקים, אלה
+       * ‏שהתכונה נבנתה בשבילם.
+       */
+      const demandStance = buyerSharedTabuStance(this.demandToRequirements(demand));
+      if (sharedTabuFit(isSharedTabuProperty(property), demandStance).excluded) {
+        throw new BadRequestException(SHARED_TABU_REFUSED_NOTE);
+      }
+
+      /*
        * הצעה כפולה נחסמת כאן ולא רק במפתח הייחודי שבמסד — בדיוק כמו
        * `coopInterest` בצד הנכסים.
        *
@@ -1837,6 +1888,17 @@ export class CollaborationService {
             : Number(property.priceAgorot),
         entryType: property.entryType ?? undefined,
         entryDate: property.entryDate ?? undefined,
+        /*
+         * ‎**וגם בהצעה, ולא רק במודעה** (ביקורת Codex, P1).
+         *
+         * ‏שני המסלולים מציגים את אותו צילום דרך `presentationChips`,
+         * ‏ולכן שדה שנוסע באחד ולא בשני הוא בדיוק „חצי מהתיקון”:
+         * ‏אישור חיבור על הצעה הוא אותו צעד שקשה לחזור ממנו.
+         *
+         * ‏הגזירה ולא השדה הגולמי — נכס שנושא את הסוג הישן הוא
+         * ‏רישום משותף לכל דבר. ראו `isSharedTabuProperty`.
+         */
+        sharedTabu: isSharedTabuProperty(property),
         features,
       };
       /*
@@ -1935,6 +1997,7 @@ export class CollaborationService {
         fromTenantId: ctx.tenantId,
         presentation: sent.presentation,
         commissionSplit,
+        coopOfferId: id,
       });
     } catch (error: unknown) {
       this.logger.warn(`מייל על הצעת נכס (${id}) לא נשלח: ${String(error)}`);
@@ -1972,6 +2035,19 @@ export class CollaborationService {
     fromTenantId: string;
     presentation: NetworkPresentationFields;
     commissionSplit: number;
+    /**
+     * ‎**ההצעה עצמה היא הזהות** (ביקורת Codex, P2).
+     *
+     * ‏המפתח נגזר קודם מהמשרד המציע ומהביקוש בלבד. משרד שמציע
+     * ‏**שני נכסים שונים** לאותו ביקוש באותו יום — ש-`CoopOffer`
+     * ‏מתיר במפורש, כי הייחודיות שלו היא `(demandId, propertyId)` —
+     * ‏היה מייצר את אותו מפתח פעמיים, והמייל השני, עם נכס אחר
+     * ‏לגמרי, היה נבלע בשקט.
+     *
+     * ‏ומזהה ההצעה אינו זקוק לתאריך: הצעה נוצרת פעם אחת, וניסיון
+     * ‏חוזר עליה הוא בדיוק אותה שליחה.
+     */
+    coopOfferId: string;
   }): Promise<void> {
     if (!(await this.email.isConfigured())) return;
 
@@ -2033,6 +2109,8 @@ export class CollaborationService {
       .map((chip) => chip.text)
       .join(" · ");
 
+    /* ‏ההצעה עצמה היא הזהות — ראו `coopOfferId` בחתימה */
+    const idempotency = { key: `demandoffer:${input.coopOfferId}`, purpose: "collab" };
     await this.email.send(to.email, "הצעת נכס חדשה לביקוש שפרסמתם ברשת", {
       heading: "מחכה לכם הצעת נכס",
       greeting: `שלום ${to.name},`,
@@ -2048,7 +2126,7 @@ export class CollaborationService {
       },
       footnote:
         "ההודעה נשלחה כי פרסמתם ביקוש ברשת שיתופי הפעולה. אפשר לסגור את הפרסום במסך בכל רגע.",
-    });
+    }, { idempotency });
   }
 
   /**
@@ -2083,6 +2161,10 @@ export class CollaborationService {
         what: "הנכס שהצעתם ברשת",
         note,
       });
+      const idempotency = {
+        key: dailyEmailIdempotencyKey("offerdeclined", offerId, new Date()),
+        purpose: "collab",
+      };
       await sendCollabMail(this.email, to, {
         subject: "עדכון על הנכס שהצעתם ברשת",
         heading: "ההצעה נסגרה",
@@ -2096,7 +2178,7 @@ export class CollaborationService {
           label: "לרשת שיתופי הפעולה",
           url: `${loadEnv().WEB_ORIGIN}/collaboration?tab=demands`,
         },
-      });
+      }, idempotency);
     } catch (error: unknown) {
       this.logger.warn(
         `מייל על דחיית הצעה (${offerId}) לא נשלח: ${String(error)}`,

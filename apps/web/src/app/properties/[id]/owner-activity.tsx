@@ -11,6 +11,7 @@ import {
 } from "@metavchim/shared";
 import { API_BASE, ApiError, apiGet, apiPost } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
+import { IconSheet } from "../../icons";
 import { Notice } from "../../notice";
 
 /**
@@ -263,25 +264,64 @@ export function OwnerActivity({
   const empty = report !== null && report.entries.length === 0;
 
   return (
-    <section className="mv-list-card px-[22px] py-[18px]">
-      <h2 className="m-0 text-[length:calc(17/16*1rem)] font-bold">דוח פעילות לבעל הנכס</h2>
-      <p className="m-0 mt-[6px] text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
+    <section className="mv-card mv-card--pad">
+      {/* אריח, שם, ובקצה בורר התקופה — אותה כותרת של כל כרטיס במערכת */}
+      <div className="mv-card-head">
+        <span className="mv-tile mv-tile--44 mv-domain-green" aria-hidden="true">
+          <IconSheet s={20} />
+        </span>
+        <h2 className="mv-card-head__title">דוח פעילות לבעל הנכס</h2>
+        <div className="mv-seg ms-auto" role="group" aria-label="תקופת הדוח">
+          {PERIODS.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              aria-pressed={selection.period === option.key}
+              onClick={() => choose(option.key)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p
+        className="m-0 text-[length:var(--type-caption-lg)]"
+        style={{ color: "var(--color-text-muted)" }}
+      >
         ביקורים, פגישות ופניות של מתעניינים בנכס. בלי שמות, בלי מספרי טלפון ובלי תוכן השיחות.
       </p>
 
-      <div className="mt-[14px] flex flex-wrap gap-2">
-        {PERIODS.map((option) => (
-          <button
-            key={option.key}
-            type="button"
-            className="mv-chip"
-            aria-pressed={selection.period === option.key}
-            onClick={() => choose(option.key)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
+      {/*
+        ‎**ארבעה אריחים לפני הטבלה.**
+
+        השאלה שבעל נכס שואל היא „כמה”, והתשובה הייתה משפט אחד באמצע
+        הכרטיס. ארבעת המספרים נסרקים במבט, והטבלה שמתחתיהם היא
+        הפירוט למי שרוצה שורה־שורה. המספרים הם מה שהשרת החזיר —
+        ‎`summary` — ולא ספירה של השורות שהוצגו.
+      */}
+      {report === null ? null : (
+        <dl className="mt-[14px] grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+          {[
+            { label: "מפגשים שהתקיימו", value: report.summary.held },
+            { label: "נקבעו וטרם התקיימו", value: report.summary.upcoming },
+            { label: "פניות מתעניינים", value: report.summary.inquiries },
+            { label: "סה״כ פעולות", value: report.summary.total },
+          ].map((tile) => (
+            <div
+              key={tile.label}
+              /* „אפס לעולם אינו נראה ככישלון” — אריח שערכו אפס עובר לניטרלי */
+              className={`mv-kpi mv-kpi--sm ${
+                tile.value === 0 ? "mv-domain-neutral" : "mv-domain-green"
+              }`}
+            >
+              <dt className="mv-kpi__head">
+                <span className="mv-kpi__label">{tile.label}</span>
+              </dt>
+              <dd className="mv-kpi__value">{tile.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
 
@@ -299,16 +339,6 @@ export function OwnerActivity({
 
       {!loading && report !== null && report.entries.length > 0 ? (
         <>
-          <p className="m-0 mt-[14px] text-[length:var(--type-caption-lg)] font-bold">
-            {[
-              report.summary.held > 0 ? `${report.summary.held} מפגשים התקיימו` : null,
-              report.summary.upcoming > 0 ? `${report.summary.upcoming} נקבעו וטרם התקיימו` : null,
-              report.summary.inquiries > 0 ? `${report.summary.inquiries} פניות` : null,
-            ]
-              .filter((part): part is string => part !== null)
-              .join(" · ")}
-          </p>
-
           <div className="mt-[12px] max-h-[360px] overflow-auto">
             <table className="w-full border-collapse text-[length:var(--type-caption)]">
               <thead>

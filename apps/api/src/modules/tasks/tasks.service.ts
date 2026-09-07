@@ -1,7 +1,18 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import { Prisma } from "@prisma/client";
-import { isTaskUrgent, OPEN_LEAD_STATUSES, type TaskPriority } from "@metavchim/shared";
+import {
+  isTaskUrgent,
+  OPEN_LEAD_STATUSES,
+  propertyAddressOr,
+  type TaskPriority,
+} from "@metavchim/shared";
+import {
+  isCardAccessible,
+  leadOwnershipFilter,
+  ownershipFilter,
+} from "../../common/ownership";
+import { lockRecruitmentTarget } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
 import { leadPoolOwner } from "../../common/ownership";
 import { AuditService } from "../../core/audit.service";
@@ -23,6 +34,17 @@ import { ContactsService } from "../contacts/contacts.service";
  * ברירת המחדל לא זזה: בלי היכולות האלה המשתמש רואה ומנהל את שלו
  * בלבד, בדיוק כמו קודם.
  */
+
+/**
+ * ‎**מי רשאי לגעת בשורת גיוס — יכולת אחת, ונאמרת פעם אחת.**
+ *
+ * ‏שורות הגיוס משרדיות ואין להן בעלים, ולכן הגבול היחיד הוא
+ * ‏היכולת — אותה שדורש `RecruitmentController`. שני מקומות בקובץ
+ * ‏הזה נשענים עליה: השער שלפני הקישור, והתווית שהמסך מציג. שתי
+ * ‏מחרוזות נפרדות היו יכולות לסטות, וסטייה כזו פירושה מסך שמציג
+ * ‏את מה שהנתיב אוסר.
+ */
+const RECRUITMENT_CAPABILITY = "properties.view";
 
 export interface TaskDto {
   id: string;
@@ -97,6 +119,20 @@ export class TasksService {
    * בדיוק כמו `ownershipFilter`, ומסיבה זהה: השאילתה היא האכיפה, לא
    * בדיקה שאפשר לשכוח בנתיב חדש.
    */
+  /**
+   * ‎**אותה הכרעה, על שורה שכבר בידיי.**
+   *
+   * ‏נגזר מ-`scopeFilter` ולא מנוסח לצדו: תנאי שני היה מתעדכן
+   * ‏בנפרד, וזה בדיוק ההבדל שאי אפשר לראות בקריאה.
+   */
+  private inScope(task: { assignedToUserId: string }): boolean {
+    const scope = this.scopeFilter();
+    return (
+      scope["assignedToUserId"] === undefined ||
+      scope["assignedToUserId"] === task.assignedToUserId
+    );
+  }
+
   private scopeFilter(): Record<string, string> {
     const ctx = TenantContext.current();
     if (ctx.capabilities.has("tasks.view_all")) return {};
@@ -169,6 +205,46 @@ export class TasksService {
     }
 
     /*
+     * ‎**ושורת גיוס — כתובת, כמו נכס** (ביקורת Codex, P2).
+     *
+     * ‏המסך מרכיב את הקישור רק כשיש **גם** נתיב וגם תווית, ולכן
+     * ‏פולואפ „לחזור לבעלים” הופיע ברשימת המשימות בלי לומר על איזה
+     * ‏נכס הוא ובלי דרך לחזור אליו. הבעלים הוא טקסט ולא איש קשר
+     * ‏(השורה אינה לקוח עד ההמרה), ולכן התווית היא הכתובת — אותה
+     * ‏גזירה בדיוק שהנכס מקבל.
+     */
+    const recruitmentIds = byType.get("recruitment") ?? [];
+    /*
+     * ‎**והתווית נשענת על אותה יכולת שמסך הגיוס דורש** (ביקורת
+     * ‏Codex, P2).
+     *
+     * ‎`calendar.manage` ו-`properties.view` הן שתי יכולות נפרדות.
+     * ‏מי שנשללה ממנו הראשונה בלבד המשיך לקבל את **כתובת** שורת
+     * ‏הגיוס כתווית, ואת הקישור אליה — בזמן ש-`RecruitmentController`
+     * ‏דוחה אותו בכניסה. כלומר המסך הציג את מה שהנתיב אוסר.
+     *
+     * ‎`notification-links.ts` כבר עושה בדיוק את זה על הקישור
+     * ‏בפעמון; זו אותה הכרעה, על אותה יכולת.
+     */
+    if (
+      recruitmentIds.length > 0 &&
+      TenantContext.current().capabilities.has(RECRUITMENT_CAPABILITY)
+    ) {
+      const targets = await tx.recruitmentTarget.findMany({
+        where: { id: { in: recruitmentIds }, tenantId, deletedAt: null },
+        select: { id: true, street: true, houseNumber: true, neighborhood: true, city: true },
+      });
+      for (const t of targets) {
+        /*
+         * ‎`propertyAddressOr` ולא נוסחה מקומית: אותה כתובת נבנית
+         * ‏גם בכרטיס הגיוס ובתזכורת בוואטסאפ, ושתי נוסחאות היו
+         * ‏מציגות „הרצל, 5” במקום אחד ו„הרצל 5” באחר.
+         */
+        labels.set(key("recruitment", t.id), propertyAddressOr(t, "נכס לגיוס"));
+      }
+    }
+
+    /*
      * קונה וליד מצביעים על איש קשר, ושמו מוצפן — הפענוח עובר דרך
      * `ContactsService.getByIds`, שהוא מנה אחת ולא אחת לשורה.
      */
@@ -176,15 +252,32 @@ export class TasksService {
     const leadIds = byType.get("lead") ?? [];
     const contactByEntity = new Map<string, string>();
     if (buyerIds.length > 0) {
+      /*
+       * ‎**הקישור נשלף לפי בעלות, ולא לפי המזהה בלבד.**
+       *
+       * ‏משימה נושאת `entityType`/`entityId` שהגיעו מהמסך, ולכן היא
+       * ‏יכולה להצביע על כרטיס של סוכן אחר — ואז השם המפוענח של
+       * ‏הלקוח חזר בתשובה (ביקורת Codex, P1). השערים ביצירה
+       * ‏וב-`listForEntity` סוגרים את הדרך קדימה; זה סוגר את מה
+       * ‏שכבר נכתב, ואת מה שנוצר בנתיבי מערכת.
+       *
+       * ‏השמטה ולא שגיאה: המשימה עצמה שייכת למי שהיא מוטלת עליו
+       * ‏ונשארת ברשימה שלו, בלי תווית.
+       */
       const buyers = await tx.buyer.findMany({
-        where: { id: { in: buyerIds }, tenantId },
+        where: {
+          id: { in: buyerIds },
+          tenantId,
+          deletedAt: null,
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
         select: { id: true, contactId: true },
       });
       for (const b of buyers) contactByEntity.set(key("buyer", b.id), b.contactId);
     }
     if (leadIds.length > 0) {
       const leads = await tx.lead.findMany({
-        where: { id: { in: leadIds }, tenantId },
+        where: { id: { in: leadIds }, tenantId, ...leadOwnershipFilter() },
         select: { id: true, contactId: true },
       });
       for (const l of leads) contactByEntity.set(key("lead", l.id), l.contactId);
@@ -300,6 +393,68 @@ export class TasksService {
     return this.writeCreate(input);
   }
 
+  /**
+   * ‏הכרטיס שהמשימה מצביעה עליו — מותר לי, או שאין כזה.
+   *
+   * ‎`isCardAccessible` ולא בדיקה מקומית: שם העמודה שקובעת בעלות
+   * ‏שונה בין קונה (`ownerUserId`) לליד (`assignedToUserId`), והוא
+   * ‏נכתב שם פעם אחת בדיוק כדי שלא ייכתב שוב בכל קורא.
+   */
+  private async assertEntityAccess(
+    tx: TenantTx,
+    entityType: string,
+    entityId: string,
+    /**
+     * ‎**האם הבדיקה נעשית לפני כתיבה** — ואז היא נועלת קודם.
+     *
+     * ‏אין ברירת מחדל בכוונה: קורא שלישי חייב להכריע, ולא לרשת
+     * ‏שקט את ההכרעה של מי שקדם לו.
+     */
+    options: { locking: boolean },
+  ): Promise<void> {
+    const tenantId = TenantContext.current().tenantId;
+
+    /*
+     * ‎**שורת גיוס — קיימת, חיה, ומותרת לי** (ביקורת Codex, P2).
+     *
+     * ‏„גיוס” נכנס לאוצר המילים של המשימות, והשער הזה לא ידע עליו:
+     * ‏הוא חזר מיד לכל סוג שאינו קונה או ליד, ולכן פולואפ נכתב על
+     * ‏**כל** מזהה שנשלח — כולל שורה ש-`RecruitmentService.remove`
+     * ‏כבר ניקתה. נשארה תזכורת שתצלצל על שורה שאיננה.
+     *
+     * ‏שלושה תנאים, וכל אחד סוגר משהו אחר:
+     *
+     * ‎1. ‏**היכולת.** שורות הגיוס משרדיות ואין להן בעלים, ולכן מה
+     * ‏שמפריד הוא `properties.view` — בדיוק מה שהנתיב שלהן דורש,
+     * ‏ובדיוק מה ש-`entityLabels` כאן כבר נשען עליו.
+     *
+     * ‎2. ‏**הנעילה.** בלעדיה הבדיקה קוראת צילום: המחיקה מספיקה
+     * ‏לרוץ בין הקריאה לכתיבה, ומנקה פולואפ שעדיין לא נוצר. שני
+     * ‏הצדדים לוקחים אותה — ראו `common/locks.ts`.
+     *
+     * ‎3. ‏**החיים.** `deletedAt: null`, אחרי הנעילה ולא לפניה.
+     */
+    if (entityType === "recruitment") {
+      if (!TenantContext.current().capabilities.has(RECRUITMENT_CAPABILITY)) {
+        throw new NotFoundException("נכס לגיוס לא נמצא");
+      }
+      if (options.locking) {
+        await lockRecruitmentTarget(tx, tenantId, entityId);
+      }
+      const target = await tx.recruitmentTarget.findFirst({
+        where: { id: entityId, tenantId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!target) throw new NotFoundException("נכס לגיוס לא נמצא");
+      return;
+    }
+
+    if (entityType !== "buyer" && entityType !== "lead") return;
+    if (!(await isCardAccessible(tx, tenantId, entityType, entityId))) {
+      throw new NotFoundException("הכרטיס לא נמצא");
+    }
+  }
+
   /** גוף היצירה. */
   private async writeCreate(input: {
     title: string;
@@ -315,6 +470,22 @@ export class TasksService {
     const id = ulid();
 
     return this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**קישור שהגיע מהמסך נבדק לפני שהוא נכתב.**
+       *
+       * ‏בלי זה אפשר היה ליצור משימה על עצמי ולקשור אותה לכרטיס של
+       * ‏עמית — והתשובה החזירה מיד את שם הלקוח המפוענח. הכתיבה עצמה
+       * ‏גרועה לא פחות: המשימה נתלית על הכרטיס של אותו עמית ומופיעה
+       * ‏אצלו (ביקורת Codex, P1).
+       *
+       * ‏שני הקוראים לפעולה הזו הם פעולות משתמש — המסך והעוזר —
+       * ‏ולכן השער כאן ולא בבקר.
+       */
+      if (input.entityType !== undefined && input.entityId !== undefined) {
+        await this.assertEntityAccess(tx, input.entityType, input.entityId, {
+          locking: true,
+        });
+      }
       if (input.sourceKey !== undefined) {
         const existing = await tx.task.findFirst({
           where: {
@@ -327,6 +498,20 @@ export class TasksService {
         });
         /* כבר קיימת ופתוחה — מחזירים אותה, ולא יוצרים שנייה */
         if (existing) {
+          /*
+           * ‎**אבל לא את הכרטיס של עמית** (ביקורת Codex, P1).
+           *
+           * ‏הניכוי משרדי — וזה נכון, אחרת נוצרת משימה כפולה על
+           * ‏אותו כרטיס. אבל הוא החזיר את ה-DTO של מי שהמשימה שלו,
+           * ‏עם שם המשויך ושם היוצר, למי שאינו רשאי לראות אותה.
+           *
+           * ‏אותה הכרעה של `scopeFilter`, ולא ניסוח שני שלה: מי
+           * ‏שרואה את לוח המשרד מקבל את הכרטיס, וכל אחד אחר מקבל
+           * ‏משפט — בלי שורה, בלי שמות, ובלי משימה כפולה.
+           */
+          if (!this.inScope(existing)) {
+            throw new BadRequestException("המשימה הזו כבר פתוחה אצל עמית במשרד");
+          }
           const [dto] = await this.toDtos(tx, [existing]);
           return dto as TaskDto;
         }
@@ -433,12 +618,37 @@ export class TasksService {
    * לעשות" בזמן שסוכן אחר כבר קבע איתו פגישה. הגישה לכרטיס עצמו
    * כבר נבדקה במסך שמכיל את הפאנל.
    */
+  /**
+   * ‎**וגם כאן `scopeFilter` — הנתיב שהיה החדש ושכח אותו.**
+   *
+   * ‏ההערה שמעל `scopeFilter` אומרת „השאילתה היא האכיפה, לא בדיקה
+   * ‏שאפשר לשכוח בנתיב חדש”, וזה בדיוק מה שקרה: שלוש השאילתות כאן
+   * ‏סיננו לפי דייר וישות בלבד. היכולת שהנתיב דורש היא
+   * ‎`calendar.manage`, שיש לכל סוכן — כלומר סוכן יכול היה לקרוא
+   * ‏את המשימות של עמיתו על אותו כרטיס: כותרות, הערות ומועדים.
+   *
+   * ‏הצטרפות „גיוס” לאוצר המילים הייתה מרחיבה את זה גם לשורות
+   * ‏הגיוס, ולכן הסינון נסגר כאן ולא בפעם הבאה.
+   */
   async listForEntity(
     entityType: string,
     entityId: string,
   ): Promise<{ tasks: TaskDto[]; openSuggestionFields: string[] }> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**קודם „הכרטיס הזה מותר לי”, ורק אחר כך המשימות שעליו.**
+       *
+       * ‏הנתיב קיבל `entityType`/`entityId` מה-URL וסינן לפי הדייר
+       * ‏בלבד, ולכן סוכן שיודע מזהה של קונה או ליד של עמית קיבל את
+       * ‏המשימות שעליו — ואיתן את שם הלקוח המפוענח (ביקורת Codex,
+       * ‏P1). היכולת הנדרשת בנתיב היא `calendar.manage`, שיש לכל
+       * ‏סוכן, ולכן לא הייתה שם שום הפרדה.
+       *
+       * ‏נכס אינו נבדק כאן: הנכסים משרדיים בכוונה, והתווית שלהם היא
+       * ‏הכתובת ולא אדם.
+       */
+      await this.assertEntityAccess(tx, entityType, entityId, { locking: false });
       /*
        * שתי שאילתות ולא מיון לפי סטטוס.
        *
@@ -449,12 +659,19 @@ export class TasksService {
        */
       const [open, done, openSuggestions] = await Promise.all([
         tx.task.findMany({
-          where: { tenantId, entityType, entityId, status: "open", deletedAfterSync: false },
+          where: {
+            tenantId,
+            entityType,
+            entityId,
+            status: "open",
+            deletedAfterSync: false,
+            ...this.scopeFilter(),
+          },
           orderBy: { dueAt: { sort: "asc", nulls: "last" } },
           take: 50,
         }),
         tx.task.findMany({
-          where: { tenantId, entityType, entityId, status: "done" },
+          where: { tenantId, entityType, entityId, status: "done", ...this.scopeFilter() },
           /*
            * ‎**לפי מתי הושלמו, ולא לפי מתי נגעו בהן.**
            *
@@ -490,6 +707,18 @@ export class TasksService {
             status: "open",
             deletedAfterSync: false,
             sourceKey: { startsWith: SUGGESTION_PREFIX },
+            /*
+             * ‎**ההשתקה משרדית בכוונה, ולכן בלי `scopeFilter`**
+             * ‏(ביקורת Codex, P1 — על התיקון הקודם שלי).
+             *
+             * ‏„הצעה” היא על **הכרטיס**, לא על הסוכן: אם עמית כבר
+             * ‏פתח „להשלים מחיר” על הנכס הזה, העבודה נעשית — והצעה
+             * ‏שנייה היא כפילות. סינון לפי בעלות החזיר אותה כזמינה
+             * ‏אצל השני, ושליחתה הגיעה לניכוי הכפילויות ב-`writeCreate`.
+             *
+             * ‏השאילתה בוחרת `sourceKey` בלבד — איזו הצעה תפוסה,
+             * ‏ולא מי תפס אותה — ולכן אין כאן מה להדליף.
+             */
           },
           select: { sourceKey: true },
         }),

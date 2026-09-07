@@ -119,22 +119,25 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   /**
-   * ‎**משפטי המוטבציה של הפלטפורמה — ורק הם.**
+   * מנוע המסלולים — קריאה וכתיבה חוצות-דיירים על `funnel_enrollments`
+   * ו-`funnel_messages` **בלבד**.
    *
-   * ‏שורה ב-`mentor_quotes` עם `tenant_id` ריק מוצגת בכל המשרדים,
-   * ולכן היא אינה יכולה להיכתב מתוך הקשר דייר: פוליסת הקריאה על
-   * השורות האלה היא `FOR SELECT` בלבד, בדיוק כדי שמשרד לא יוכל
-   * לכתוב משפט שכל המערכת רואה.
+   * אותו דפוס כמו `withSupportDesk`, ומאותו נימוק: המנוע שולח לכל
+   * המשרדים, והמסך „מי קיבל ומי פתח” הוא **כל התכלית** של המדידה.
+   * סריקה שרצה משרד-משרד תחת `withExplicitTenant` הייתה מייצרת
+   * שאילתה לכל דייר בכל סבב, ובעיקר לא הייתה יכולה לענות על השאלה
+   * שהמסך שואל — „כמה נשלחו החודש” היא שאלה חוצת-דיירים.
    *
-   * ‏הדגל כאן הוא הדרך היחידה לכתוב אותן, והוא מוגבל בשני הכיוונים:
-   * ‏`USING` **וגם** `WITH CHECK` דורשים `tenant_id IS NULL`, ולכן
-   * לשולחן הזה אין גישה לשורות של משרדים — גם לא למחיקה בטעות. זה
-   * ההבדל מ-`withSupportDesk` ו-`withPayoutDesk`, שם הדגל פותח את
-   * הטבלה כולה. כל קורא חסום מאחורי PlatformAdminGuard.
+   * הגבול נשמר בשלוש שכבות: הפוליסה קיימת רק על שתי הטבלאות האלה,
+   * הדגל נדלק רק כאן, וכל קורא חסום מאחורי PlatformAdminGuard או
+   * רץ כסורק פנימי בלי בקשת משתמש כלל.
+   *
+   * אין לגזור מכאן מזהה דייר ולהמשיך איתו לטבלאות אחרות — לכך יש
+   * `withExplicitTenant`, שממשיכה להיאכף ב-RLS.
    */
-  async withPlatformQuotes<T>(fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+  async withFunnelAdmin<T>(fn: (tx: TenantTx) => Promise<T>): Promise<T> {
     return this.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.platform_quotes', 'on', true)`;
+      await tx.$executeRaw`SELECT set_config('app.funnel_admin', 'on', true)`;
       return fn(tx);
     });
   }

@@ -20,10 +20,22 @@ interface Target {
   needs?: readonly Capability[];
 }
 
+/** ישויות שהיעד שלהן אינו תלוי במזהה — מספיק סוג הישות. */
+const ENTITY_ONLY: ReadonlySet<string> = new Set(["mentor"]);
+
 function targetFor(entityType: string, entityId: string): Target | null {
   switch (entityType) {
     case "property":
       return { href: `/properties/${entityId}`, needs: ["properties.view"] };
+    /*
+     * ‏שורת גיוס אינה נכס — היא יושבת במסך הגיוס. אותה יכולת,
+     * ‏כי מודול הגיוס נשען על `properties.view` (ראו הבקר שלו).
+     */
+    case "recruitment":
+      return {
+        href: `/properties/recruitment/${entityId}`,
+        needs: ["properties.view"],
+      };
     case "lead":
       return { href: `/leads/${entityId}`, needs: ["leads.view_own"] };
     case "appointment":
@@ -50,6 +62,9 @@ function targetFor(entityType: string, entityId: string): Target | null {
       return { href: "/collaboration?tab=incoming" };
     case "shared_lead":
       return { href: "/collaboration" }; // "נקלטה" מוצג בלשונית ההפניות
+    // המנטור — סיכום, דחיפה או חגיגה: המסך שלו, בלי מזהה ובלי יכולת
+    case "mentor":
+      return { href: "/mentor" };
     /*
      * שיחה נבחרת בתוך הרשימה ואין לה נתיב משלה, ולכן פרמטר ולא
      * קטע נתיב. בלי זה ההתראה על סיום תמלול הייתה נוחתת על רשימת
@@ -123,8 +138,14 @@ export function notificationHref(
   entityId: string | undefined,
   can: (capability: Capability) => boolean,
 ): string | null {
-  if (!entityType || !entityId) return null;
-  const target = targetFor(entityType, entityId);
+  if (!entityType) return null;
+  /*
+   * יש ישויות שהן מסך ולא רשומה — המנטור: הסיכום השבועי והדחיפה
+   * נוצרים בלי מזהה, והמסך הוא היעד. דרישת מזהה כאן השאירה אותן
+   * בלי קישור בפעמון ובמסך ההתראות (ביקורת Codex).
+   */
+  if (!entityId && !ENTITY_ONLY.has(entityType)) return null;
+  const target = targetFor(entityType, entityId ?? "");
   if (target === null) return null;
   if (target.needs === undefined) return target.href;
   return target.needs.some(can) ? target.href : null;

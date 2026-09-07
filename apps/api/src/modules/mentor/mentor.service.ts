@@ -1,1079 +1,1286 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { ulid } from "ulid";
 import {
-  backwardPlan,
-  comparePeriods,
-  DEFAULT_RATIOS,
-  GOAL_HORIZONS,
-  goalPeriod,
-  jerusalemDayLabel,
-  jerusalemDayStart,
-  jerusalemWeekday,
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import { ulid } from "ulid";
+import { z } from "zod";
+import {
+  buildMentorPrompt,
+  formatJerusalemDate,
+  jerusalemDayRange,
   jerusalemWeekStart,
-  LEAD_MEASURES,
-  mentorMoments,
-  splitToHorizon,
-  weeklyScore,
-  parseWeeklyCommitment,
-  cleanFeedback,
-  feedbackCopy,
-  FEEDBACK_NOTIFICATION_TYPE,
-  cleanQuoteAuthor,
-  cleanQuoteText,
-  orderQuotes,
-  QUOTE_LIMIT_PER_SCOPE,
-  weekKey,
-  type BackwardPlan,
-  type ConversionRatios,
-  type GoalHorizon,
-  type GoalUnit,
-  type LeadMeasure,
-  type MentorMoment,
-  type MentorQuote,
-  type PeriodComparison,
-  type WeeklyActual,
-  type WeeklyCommitment,
-  type WeeklyScore,
+  jerusalemDayStart,
+  jerusalemWallParts,
+  jerusalemWallIsoToUtc,
+  MENTOR_REPLY_JSON_SCHEMA,
+  type MentorActivity,
+  type MentorAsk,
+  type MentorAdvice,
+  MentorGoalInputSchema,
+  type MentorChatContext,
+  type MentorGoalProposal,
+  type MentorPersona,
+  mentorAdvice,
+  mentorFallbackReply,
+  parseGoalRequest,
+  resolveIdeaFeedback,
+  resolveMentorPersona,
+  ideaByKey,
+  IDEA_MARKS_MAX,
+  jerusalemDayLabel,
+  type MentorGoalInput,
+  mentorGoalLabel,
+  type MentorGoalMetric,
+  type MentorGoalPeriod,
+  type MentorGoalProgress,
+  type MentorInsights,
+  type MentorMood,
+  type MentorPastReview,
+  type MentorPattern,
+  mentorPatterns,
+  mentorPeriodRange,
+  MENTOR_METRICS,
+  officeEvidenceLabel,
+  mentorOnboarding,
+  onboardingDay,
+  ONBOARDING_DAYS,
+  type MentorOnboarding,
+  type MentorMonthlyBody,
+  type MentorReviewBody,
+  type MentorWin,
+  obstaclePlanSuggestions,
+  PATTERN_LOOKBACK,
+  type ProcessGoalSuggestion,
+  selectWins,
+  suggestProcessGoals,
 } from "@metavchim/shared";
-import { lockMentorQuotes } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
-import { PrismaService } from "../../core/prisma.service";
+import { AgentEventsService } from "../agent/agent-events.service";
+import { MentorPracticeService } from "./mentor-practice.service";
+import { AuditService } from "../../core/audit.service";
+import { GeminiService } from "../../core/gemini.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import {
+  MentorSignalsService,
+  type GoalWithProgress,
+} from "./mentor-signals.service";
 
-/**
- * ‎**המנטור האישי — הצד שיודע ומודד.**
- *
- * ## מה השירות הזה עושה, ומה במפורש לא
- *
- * ‏הוא עונה על שתי שאלות: „מה היעד” ו„מה עשיתי בפועל”. הוא **אינו**
- * שולח דבר — ההודעות בוואטסאפ הן הסורק היומי, והוא נשען על אותם
- * חישובים בדיוק. ההפרדה חשובה: מסך שנפתח אינו מייצר הודעה, ולכן
- * מתווך שבודק את הציון שלוש פעמים ביום אינו מקבל שלוש חגיגות.
- *
- * ## הכלל שמנחה כל שאילתה כאן
- *
- * ‎**המתווך לא מדווח כלום.** כל ארבעת המדדים נספרים ממה שכבר במערכת
- * — שיחות מהמרכזייה, פגישות ביומן, הצעות שנשלחו, נכסים שנקלטו.
- * אפליקציית יעדים מבקשת „סמן שעשית”; מנטור כבר יודע. מה שהמתווך
- * מזין הוא רק **היעד**, וזה גם כל מה שהמסך מבקש ממנו.
- *
- * ## אישי, ולא משרדי
- *
- * ‏כל שאילתה כאן מסננת לפי `ctx.userId` בנוסף ל-RLS. יעד הוא הדבר
- * הפרטי ביותר שמתווך כותב במערכת הזו — כולל מה שעצר אותו בשבוע
- * שעבר — ומנהל שרואה את היעד של הסוכן שלו הוא לא מנטור, הוא מפקח.
- */
+/** כמה שבועות אחורה נספרים לצורך משפך ההמרה של המתווך. */
+/** כמה תורים אחרונים המודל רואה. */
+const CHAT_HISTORY_TURNS = 12;
+/** הודעות למודל ביום — מכסה, לא מגבלת מוצר: מעליה המנטור עונה מהיעדים. */
+const CHAT_DAILY_CAP = 40;
+const CHAT_TIMEOUT_MS = 20_000;
 
-/** יעד אחד, כפי שהמסך מקבל אותו. */
 export interface MentorGoalDto {
-  horizon: GoalHorizon;
-  unit: GoalUnit;
-  /** עמלות — באגורות; עסקאות ובלעדיות — ספירה. */
+  id: string;
+  metric: string;
+  period: string;
   target: number;
-  averageCommissionAgorot?: number;
-  ratios: ConversionRatios;
-  commitment: WeeklyCommitment;
-  obstacle?: string;
-  ifThenPlan?: string;
-  periodStart: string;
-  periodEnd: string;
-  achievedAt?: Date;
+  why: string | null;
+  intention: string | null;
+  createdAt: Date;
+  progress: MentorGoalProgress;
 }
 
-/** השוואה של מדד אחד בין שתי תקופות — „איפה היית”. */
-export interface MeasureComparison extends PeriodComparison {
-  measure: LeadMeasure;
+export interface MentorReviewDto {
+  id: string;
+  weekStart: Date;
+  mood: MentorMood;
+  headline: string;
+  /** הפתיח בשם — `null` בסיכומים ישנים */
+  greeting: string | null;
+  paragraphs: string[];
+  askNextWeek: string | null;
+  reflection: string | null;
+  reflectionAnswer: string | null;
+  /** היעד שהבקשה לשבוע הבא מדברת עליו */
+  ask: MentorAsk | null;
+  /** accepted | declined | null (טרם ענה) */
+  commitment: MentorCommitment | null;
+  committedAt: Date | null;
+  commitmentNote: string | null;
+  /** התוכנית „אם… אז…” שנולדה מהרפלקציה — נכנסה ליעד ככוונת יישום */
+  plan: string | null;
+  /** הצעות ל„כש… אז…” לפי המדד של השאלה — ריק כשאין שאלה */
+  planSuggestions: readonly string[];
+  allGoalsMet: boolean;
+  wins: MentorWin[];
+  createdAt: Date;
 }
 
-export interface MentorOverviewDto {
+export type MentorCommitment = "accepted" | "declined";
+
+export interface MentorOverview {
+  weekStart: Date;
+  weekEnd: Date;
+  activity: MentorActivity;
+  /** השבוע הקודם — `null` למתווך שהצטרף השבוע */
+  previousActivity: MentorActivity | null;
+  wins: MentorWin[];
   goals: MentorGoalDto[];
-  /** החישוב לאחור מהיעד השנתי. `null` כשאין יעד שנתי. */
-  plan: BackwardPlan | null;
-  /** ‏היעד השנתי פרוס לכל אחת מהרמות — גם לרמות שטרם נקבעו. */
-  suggested: { horizon: GoalHorizon; target: number }[];
-  week: {
-    weekKey: string;
-    weekday: number;
-    committed: WeeklyCommitment;
-    actual: WeeklyActual;
-    score: WeeklyScore;
-    previousPercent?: number;
-  };
-  moments: MentorMoment[];
-  /** ארבעת המדדים, השבוע מול השבוע שעבר. */
-  weekOverWeek: MeasureComparison[];
-  /** ארבעת המדדים, שלושה-עשר השבועות האחרונים מול אלה שלפניהם. */
-  cycleOverCycle: MeasureComparison[];
-  /**
-   * ‎**שלושה-עשר השבועות, כל אחד עם הציון שלו — הגרף.**
-   *
-   * ‎`percent: null` הוא שבוע שלא הייתה בו התחייבות, והוא נבדל
-   * מאפס בכוונה: עמודה בגובה אפס אומרת „נכשלת”, והיעדר עמודה אומר
-   * „לא הבטחת”.
-   */
-  weeklyTrend: WeekPoint[];
-  /** ‏יחסי ההמרה שנגזרו מההיסטוריה שלו, או `null` כשאין מספיק. */
-  derivedRatios: ConversionRatios | null;
-  /** ‎`true` כשהיחסים בשימוש הם ברירת המחדל הענפית ולא שלו. */
-  usingDefaultRatios: boolean;
-  /**
-   * ‎**שיחות יוצאות מהמרכזייה שאי אפשר לשייך לאף אחד, השבוע.**
-   *
-   * ‏המרכזייה אינה מדווחת איזו שלוחה חייגה, ושיחה שאינה קשורה לליד
-   * נשארת בלי עוגן לאדם. המספר הזה אינו קישוט — הוא מה שמאפשר למסך
-   * לומר „ייתכן שספרתי לך פחות”, במקום להציג 3/40 לסוכן שהתקשר
-   * ארבעים פעם ולתת לו להסיק שהוא לא עבד.
-   */
-  unattributedCalls: number;
-  /**
-   * ‎**משפטי המוטבציה שהסליידר מציג — של המשרד ושל הפלטפורמה יחד.**
-   *
-   * ‏הם מגיעים בקריאה הזו ולא בקריאה משלהם כי הם חלק מהמסך ולא
-   * מסך בפני עצמו, ובקשה שנייה הייתה מוסיפה הבהוב על שלוש שורות
-   * טקסט. רשימה ריקה היא מצב לגיטימי — משרד חדש במערכת שאיש עוד
-   * לא כתב בה דבר, והמסך אומר זאת במקום להציג שקופית ריקה.
-   */
-  quotes: MentorQuote[];
+  latestReview: MentorReviewDto | null;
+  /** כמה שבועות רצופים כל היעדים הושגו — לפי הסיכומים */
+  streakWeeks: number;
+  /** האם השיחה החופשית פעילה (מודל מוגדר) */
+  chatAvailable: boolean;
+  /** מהירות המענה ושיחות שמחכות לחזרה — השבוע מול השבוע שעבר */
+  insights: MentorInsights;
+  /** מה המנטור זוכר — דפוסים מהסיכומים של החודשיים האחרונים */
+  patterns: MentorPattern[];
+  /** מה המנטור מציע עכשיו — עד שלוש עצות מהמספרים (docs/14 §7.1) */
+  advice: MentorAdvice[];
+  /** השם והסגנון שהמתווך בחר (docs/14 §4.1) */
+  persona: MentorPersona;
+  /** 30 הימים הראשונים — `null` למי שכבר עבר אותם (docs/14 §7.5) */
+  onboarding: MentorOnboarding | null;
 }
 
-/**
- * ‎**שבוע שסוכן סגר בו את היעד, כפי שהמנהל רואה אותו.**
- *
- * ‏המספרים הם `snapshot` — מה שנקרא ברגע ההישג. חישוב מחדש בעת
- * הצפייה היה משנה את מה שהמנהל מגיב עליו: שיחה שנמחקה חודש אחרי
- * הייתה הופכת „42 מתוך 40” ל„41 מתוך 40”, ואת השבח לשגיאה.
- */
-export interface AchievementDto {
+/** מה עובד אצלנו — למנהל, ספירות בלבד (docs/14 §7.4). */
+export interface MentorOfficeDto {
+  /** כמה מתווכים תרמו עדות כלשהי */
+  agents: number;
+  proven: {
+    key: string;
+    metric: MentorGoalMetric;
+    metricLabel: string;
+    text: string;
+    helped: number;
+    dismissed: number;
+    up: number;
+    measured: number;
+    /** „עזר ל-3 · המספר עלה אצל 2” */
+    evidence: string;
+  }[];
+}
+
+/** הסיכום החודשי כפי שהמסך מקבל אותו. */
+export interface MentorMonthlyDto {
   id: string;
-  userId: string;
-  userName: string;
-  weekKey: string;
-  percent: number;
-  reachedAt: Date;
-  lines: { label: string; committed: number; actual: number }[];
-  feedback: { text: string; byName: string; at: Date } | null;
+  monthStart: Date;
+  headline: string;
+  greeting: string | null;
+  paragraphs: string[];
+  /** המדד למיקוד בחודש הבא — `null` כשאין */
+  focus: MentorGoalMetric | null;
+  createdAt: Date;
 }
 
 /**
- * ‎**קריאת התצלום מ-JSON.**
- *
- * ‏העמודה היא `Json`, כלומר כל דבר יכול לשבת בה — כולל שורה שנכתבה
- * בגרסה קודמת של הסורק. פענוח סלחני מחזיר רק שורות שלמות, ומסך
- * שמציג „undefined מתוך undefined” גרוע ממסך שמציג פחות.
+ * הדופק — מה שיש לחגוג השבוע, ותו לא. לכרטיס בדשבורד, שאינו צריך
+ * את כל הסקירה כדי לומר „יעד הושג השבוע”.
  */
-function toSnapshotLines(
-  value: unknown,
-): { label: string; committed: number; actual: number }[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((row) => {
-    if (row === null || typeof row !== "object") return [];
-    const r = row as Record<string, unknown>;
-    if (
-      typeof r["label"] !== "string" ||
-      typeof r["committed"] !== "number" ||
-      typeof r["actual"] !== "number"
-    ) {
-      return [];
-    }
-    return [{ label: r["label"], committed: r["committed"], actual: r["actual"] }];
-  });
+export interface MentorPulse {
+  weekStart: Date;
+  goalsDone: {
+    id: string;
+    label: string;
+    period: MentorGoalPeriod;
+    /** תחילת התקופה שהושגה — הזהות של החגיגה */
+    periodStart: Date;
+  }[];
+  wins: MentorWin[];
 }
 
-/** ‏נקודה אחת בגרף השבועי. */
-export interface WeekPoint {
-  /** ‏יום ראשון של אותו שבוע, `YYYY-MM-DD` בשעון ישראל. */
-  weekKey: string;
-  /** ‏אחוז הביצוע, או `null` כששבוע זה לא נשא התחייבות. */
-  percent: number | null;
-  /** ‎`true` לשבוע שעוד רץ — הוא אינו נספר לרצף. */
-  current: boolean;
-}
-
-/** מה שהמסך שולח כשהוא קובע או מעדכן יעד. */
-export interface SaveGoalInput {
-  unit: GoalUnit;
-  target: number;
-  averageCommissionAgorot?: number;
-  commitment?: WeeklyCommitment;
-  obstacle?: string;
-  ifThenPlan?: string;
-}
-
-/*
- * ‎**כמה שבועות היסטוריה נדרשים לפני שמחשבים יחסי המרה משלו.**
- *
- * ‏יחס שנגזר משבועיים הוא רעש: שבוע אחד עם שתי פגישות ואפס עסקאות
- * היה קובע ש-0% מהפגישות נסגרות, והתוכנית שנבנית עליו דורשת אינסוף
- * שיחות. שלושה-עשר שבועות הם מחזור שלם — מספיק כדי שהמספר יאמר
- * משהו, ומעט מספיק כדי שהוא יתאר את המתווך של היום.
- */
-const MIN_WEEKS_FOR_RATIOS = 13;
-
-/** ‏המרה בטוחה של JSON מהמסד למחויבות שבועית. */
-
-/** ‏המרה בטוחה של JSON מהמסד ליחסי המרה. חסר ⇒ ברירת המחדל. */
-function toRatios(value: unknown): ConversionRatios {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return DEFAULT_RATIOS;
-  }
-  const raw = value as Record<string, unknown>;
-  const pick = (key: keyof ConversionRatios): number => {
-    const n = raw[key];
-    return typeof n === "number" && Number.isFinite(n) && n > 0 && n <= 1
-      ? n
-      : DEFAULT_RATIOS[key];
-  };
-  return {
-    callToAppointment: pick("callToAppointment"),
-    appointmentToOffer: pick("appointmentToOffer"),
-    offerToDeal: pick("offerToDeal"),
-  };
-}
-
-/**
- * ‏שורת משפט מהמסד ⇒ מה שהמסך מקבל.
- *
- * ‎`tenantId` ריק הוא ההיקף עצמו, ולא „חסר”: שורה כזו נכתבה בידי
- * הפלטפורמה והיא מוצגת בכל המשרדים. ההמרה כאן היא המקום היחיד
- * שמכריע את זה, כדי ששני קוראים לא יפרשו את `null` אחרת.
- */
-function toQuote(row: {
+export interface MentorTurnDto {
   id: string;
-  tenantId: string | null;
+  role: "user" | "mentor";
   text: string;
-  author: string;
-}): MentorQuote {
-  return {
-    id: row.id,
-    text: row.text,
-    author: row.author,
-    scope: row.tenantId === null ? "platform" : "office",
-  };
+  createdAt: Date;
 }
 
-/** ‏תאריך בשעון ישראל כמחרוזת `YYYY-MM-DD` ⇒ `Date` בחצות שלו. */
-function dayToDate(label: string): Date {
-  return new Date(`${label}T00:00:00.000Z`);
-}
+const ReplySchema = z.object({
+  reply: z.string().trim().min(1).max(1500),
+  // המודל מציע, המתווך לוחץ, הקוד כותב — אותה סכמה כמו היעד עצמו
+  proposedGoal: MentorGoalInputSchema.pick({
+    metric: true,
+    period: true,
+    target: true,
+  }).optional(),
+});
 
 /**
- * ‎**יחסי ההמרה שלו, מהפעילות שנספרה — או `null` כשאין מספיק.**
+ * המנטור האישי — מה שהמסך צריך (docs/14).
  *
- * ‏מתווך שסוגר אחת משש פגישות צריך תוכנית אחרת ממי שסוגר אחת
- * משלוש. `null` ולא ברירת מחדל שקטה: המסך אומר במפורש „ממוצע ענפי,
- * עד שיהיו לך מספרים”, ומספר שהומצא ומוצג כעובדה גרוע ממספר חסר.
- *
- * ‏פונקציה טהורה שמקבלת את הספירה, ולא שיטה שסופרת בעצמה: הטווח
- * שהיא צריכה — שלושה-עשר השבועות האחרונים — כבר נספר עבור ההשוואה
- * „איפה היית”, ושתי ספירות של אותו טווח היו שש שאילתות מיותרות.
+ * הכול של **המשתמש הנוכחי**: כל שאילתה נושאת `userId` מההקשר, ואין
+ * נתיב שבו מנהל קורא את היעדים או הסיכום של סוכן. הוא רואה מספרים
+ * בדוח הסוכנים, לא את הליווי.
  */
-function ratiosFrom(counted: WeeklyActual): ConversionRatios | null {
-    const calls = counted.calls ?? 0;
-    const appointments = counted.appointments ?? 0;
-    const offers = counted.offers ?? 0;
-    /*
-     * ‏שלב שאין בו אף פעולה אינו „יחס אפס”, הוא **חוסר מידע**: יחס
-     * אפס היה מייצר תוכנית שדורשת אינסוף שיחות. אין מספיק ⇒ `null`,
-     * והמסך אומר את זה.
-     */
-    if (calls === 0 || appointments === 0 || offers === 0) return null;
-
-    return {
-      callToAppointment: Math.min(1, appointments / calls),
-      appointmentToOffer: Math.min(1, offers / appointments),
-      /*
-       * ‏עסקאות אינן נספרות אוטומטית בשלב הזה — אין במערכת חותמת
-       * „נסגרה”. לכן דווקא היחס הזה נשאר ברירת המחדל, ואינו מומצא
-       * ממספר שאיננו מודדים.
-       */
-      offerToDeal: DEFAULT_RATIOS.offerToDeal,
-    };
-  }
-
 @Injectable()
 export class MentorService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+    private readonly gemini: GeminiService,
+    private readonly signals: MentorSignalsService,
+    private readonly events: AgentEventsService,
+  ) {}
 
-  /* ======================================================================
-   * ‏קריאה: כל מה שהמסך צריך, בקריאה אחת
-   * ====================================================================== */
-
-  async overview(now = new Date()): Promise<MentorOverviewDto> {
-    const ctx = TenantContext.current();
-    const scope = { tenantId: ctx.tenantId, userId: ctx.userId };
-
-    /*
-     * ‎**סיכום קריאה-בלבד שסופר חמישה טווחים** — השבוע, המחזור,
-     * המחזור הקודם, ובימי ראשון גם שני שבועות שהסתיימו. חמש השניות
-     * שהן ברירת המחדל הפילו אותו, וההצהרה כאן מפורשת ומקומית ולא
-     * העלאה גורפת של הסף לכל המערכת.
-     */
-    return this.prisma.withTenant(async (tx): Promise<MentorOverviewDto> => {
-      const rows = await tx.mentorGoal.findMany({ where: { ...scope } });
-
-      /*
-       * ‏רק היעדים של **התקופה הנוכחית**. שורות של מחזורים שחלפו
-       * נשארות במסד — הן ההיסטוריה שההשוואה „איפה היית” נשענת
-       * עליה — אבל המסך מציג את מה שפתוח עכשיו.
-       */
-      const goals: MentorGoalDto[] = [];
-      for (const horizon of GOAL_HORIZONS) {
-        const period = goalPeriod(horizon, now);
-        const row = rows.find(
-          (r) =>
-            r.horizon === horizon &&
-            r.periodStart.toISOString().slice(0, 10) === period.start,
-        );
-        if (row === undefined) continue;
-        goals.push({
-          horizon,
-          unit: row.unit as GoalUnit,
-          target: Number(row.targetAgorot),
-          ...(row.averageCommissionAgorot === null
-            ? {}
-            : { averageCommissionAgorot: Number(row.averageCommissionAgorot) }),
-          ratios: toRatios(row.ratios),
-          commitment: parseWeeklyCommitment(row.commitment),
-          ...(row.obstacle === null ? {} : { obstacle: row.obstacle }),
-          ...(row.ifThenPlan === null ? {} : { ifThenPlan: row.ifThenPlan }),
-          periodStart: period.start,
-          periodEnd: period.end,
-          ...(row.achievedAt === null ? {} : { achievedAt: row.achievedAt }),
-        });
-      }
-
-      const yearly = goals.find((g) => g.horizon === "year");
-      const weekGoal = goals.find((g) => g.horizon === "week");
-
-      /*
-       * ‎**הספירה של שלושה-עשר השבועות נעשית פעם אחת.**
-       *
-       * ‏אותו טווח בדיוק משרת שני צרכים — ההשוואה „איפה היית”
-       * וגזירת יחסי ההמרה — ושתי קריאות נפרדות אליו הכפילו שש
-       * שאילתות בלי להוסיף מידע. הן גם מה שהפיל את הטרנזקציה על
-       * מגבלת חמש השניות.
-       */
-      const cycleStart = jerusalemWeekStart(now, -(MIN_WEEKS_FOR_RATIOS - 1));
-      /*
-       * ‎**שליפה אחת של זמנים, ולא שש ספירות של טווחים חופפים.**
-       *
-       * ‏השבוע הנוכחי, השבוע שעבר, המחזור, שני השבועות של הרצף
-       * והגרף השבועי — כולם חתכים של אותם שלושה-עשר שבועות. עד כה
-       * כל אחד מהם היה סבב שאילתות משלו, והם גם מה שהפיל את
-       * הטרנזקציה על מגבלת חמש השניות.
-       *
-       * ‏מעבר לביצועים יש כאן הכרעה על נכונות: כשכל החתכים נחתכים
-       * מאותה רשימה, הגרף אינו יכול לומר דבר אחר מהציון. שתי
-       * שאילתות נפרדות על אותה שאלה הן שתי אמיתות שממתינות להיפרד.
-       */
-      const cycleTimes = await this.measureTimes(tx, scope, cycleStart, now);
-      const thisCycle = this.countsIn(cycleTimes);
-
-      /* ---- החישוב לאחור, על היחסים שלו כשיש ---- */
-      const derivedRatios = ratiosFrom(thisCycle);
-      const ratios = derivedRatios ?? yearly?.ratios ?? DEFAULT_RATIOS;
-      const plan =
-        yearly === undefined
-          ? null
-          : backwardPlan({
-              target: yearly.target,
-              unit: yearly.unit,
-              ...(yearly.averageCommissionAgorot === undefined
-                ? {}
-                : { averageCommissionAgorot: yearly.averageCommissionAgorot }),
-              ratios,
-            });
-
-      const suggested =
-        yearly === undefined
-          ? []
-          : GOAL_HORIZONS.filter((h) => h !== "year").map((horizon) => ({
-              horizon,
-              target: splitToHorizon(yearly.target, horizon),
-            }));
-
-      /* ---- הציון של השבוע, ממה שהמערכת ספרה ---- */
-      const thisWeek = jerusalemWeekStart(now);
-      /*
-       * ‎**ביצוע נמדד עד עכשיו, לא עד סוף השבוע** (ביקורת Codex, P2).
-       *
-       * ‏הגבול העליון היה יום ראשון הבא, ולכן פגישה שנקבעה ליום
-       * חמישי נספרה כבר ביום ראשון — והציון היה יכול להגיע ל-100%
-       * לפני שהתקיימה ולו פגישה אחת. „מה עשיתי” אינו „מה מתוכנן”,
-       * וזה בדיוק ההבדל שהופך את הציון למשהו שאפשר להאמין לו.
-       */
-      const actual = this.countsIn(cycleTimes, thisWeek);
-      const committed = weekGoal?.commitment ?? {};
-      const score = weeklyScore(committed, actual);
-
-      /*
-       * ‎**שני השבועות ש*הסתיימו*, ולא אחד** (ביקורת Codex, P2).
-       *
-       * ‏„פעמיים ברצף” נשען על שבועות שנסגרו. השבוע הנוכחי אינו
-       * אחד מהם — ביום ראשון הוא בן יום אחד וממילא מתחת לסף — ולכן
-       * הוא אינו נשלף כאן בכלל: המפתחות הם של השבוע שעבר ושלפניו.
-       */
-      /*
-       * ‎**שני השבועות שהסתיימו — מחושבים, ולא נשלפים מארכיון**
-       * (ביקורת Codex, P2 ×2).
-       *
-       * ‏הגרסה הקודמת כתבה את ציון השבוע לטבלה בכל פתיחת מסך, וזו
-       * הייתה טעות בשורש: „היסטוריה” שנכתבת רק כשמישהו מסתכל היא
-       * היסטוריה של **מתי הוא הסתכל**. מי שפתח ביום שני ב-0%, עשה
-       * את העבודה ולא פתח שוב — נשאר עם 0% בארכיון, והמנטור היה
-       * מודיע לו ביום ראשון על שבוע חלש שלא היה. ומי שלא פתח כלל
-       * פשוט נעדר.
-       *
-       * ‏מה שנדרש כדי לדעת אם שבוע שהסתיים היה חלש נמצא כבר במסד:
-       * המחויבות שמורה על יעד השבוע של אותה תקופה, והפעילות נספרת
-       * מהשיחות והפגישות. לכן הציון **מחושב** — אותו חשבון בדיוק
-       * כמו לשבוע הנוכחי, על טווח סגור.
-       *
-       * ‎`mentor_weekly_scores` נשארת לשלב ב׳: הסורק היומי ישמור בה
-       * „מה נאמר לו אז” לצורך ההודעות. בשלב הזה **אין לה כותב**,
-       * וזה מוצהר ולא נסתר — טבלה ריקה עדיפה על ארכיון שקרי.
-       */
-      /*
-       * ‏שני השבועות נספרים **רק ביום ראשון**, כי „פעמיים ברצף” הוא
-       * הרגע היחיד שנשען עליהם והוא נאמר רק בתחילת שבוע. שאר ימות
-       * השבוע זו עבודה שאיש אינו רואה — ושתים-עשרה שאילתות שהעמיסו
-       * את הטרנזקציה על לא כלום.
-       */
-      /*
-       * ‏שלושה-עשר השבועות שהסתיימו, כל אחד עם הציון שלו — ‎`null`
-       * כשלא הייתה בו התחייבות. זה גם הגרף וגם המקור לרצף, ולכן
-       * אין דרך שהם יאמרו דברים שונים.
-       */
-      const trend = await this.weeklyTrend(tx, scope, cycleTimes, now);
-      const closed = trend.filter((w) => !w.current);
-      const lastWeek = closed[closed.length - 1]?.percent ?? null;
-      const weekBefore = closed[closed.length - 2]?.percent ?? null;
-      /*
-       * ‏סדר, ולא סינון: „פעמיים ברצף” בודק את שני האיברים הראשונים,
-       * ולכן שבוע חסר במקום הראשון חייב לקטוע את הרשימה ולא להידחס
-       * החוצה — אחרת שבוע ישן היה מתחזה לשבוע שעבר.
-       */
-      const previousPercents =
-        lastWeek === null ? [] : weekBefore === null ? [lastWeek] : [lastWeek, weekBefore];
-
-      /*
-       * ‏ברמת המשרד ולא ברמת המשתמש, כי זה בדיוק מה שהן: שיחות
-       * שאיש אינו יכול לטעון לבעלות עליהן. אם יש כאלה, המסך אומר
-       * שהספירה חלקית.
-       */
-      const unattributedCalls = await tx.call.count({
-        where: {
-          tenantId: ctx.tenantId,
-          direction: "outbound",
-          occurredAt: { gte: thisWeek, lt: now },
-          createdBy: null,
-          leadId: null,
-        },
+  async overview(now: Date = new Date()): Promise<MentorOverview> {
+    const { tenantId, userId } = TenantContext.current();
+    const chatAvailable = await this.gemini.isConfigured();
+    return this.prisma.withTenant(async (tx) => {
+      const week = mentorPeriodRange("week", now);
+      const user = await tx.user.findFirst({
+        where: { id: userId, tenantId },
+        select: { createdAt: true, preferences: true },
       });
-
-      const moments = mentorMoments({
-        score,
-        weekday: jerusalemWeekday(now),
-        previousPercents,
-      });
-
-      /*
-       * ‎**משפטי המוטבציה — שני ההיקפים בשאילתה אחת.**
-       *
-       * ‎`tenantId: null` הוא משפט של הפלטפורמה, ופוליסת ה-RLS
-       * מתירה לקרוא אותו מכל משרד (`FOR SELECT` בלבד — משרד אינו
-       * יכול לכתוב שורה כזו). שאילתה שנייה למשפטי הפלטפורמה הייתה
-       * אותה תשובה בדיוק, בעוד הלוך-ושוב.
-       */
-      const quoteRows = await tx.mentorQuote.findMany({
-        where: { OR: [{ tenantId: ctx.tenantId }, { tenantId: null }] },
-        orderBy: { createdAt: "asc" },
-      });
-      const quotes = orderQuotes(quoteRows.map(toQuote));
-
-      /* ---- „איפה היית” ---- */
-      const previousWeek = this.countsIn(cycleTimes, jerusalemWeekStart(now, -1), thisWeek);
-      /* ‏המחזור שלפני הקודם הוא מחוץ לחלון, ולכן הוא השליפה השנייה והאחרונה */
-      const lastCycle = this.countsIn(
-        await this.measureTimes(
-          tx,
-          scope,
-          jerusalemWeekStart(now, -(MIN_WEEKS_FOR_RATIOS * 2 - 1)),
-          cycleStart,
-        ),
+      const activity = await this.signals.activity(
+        tx,
+        tenantId,
+        userId,
+        week,
+        now,
       );
-
-      return {
-        goals,
-        plan,
-        suggested,
-        week: {
-          weekKey: weekKey(now),
-          weekday: jerusalemWeekday(now),
-          committed,
-          actual,
-          score,
-          ...(previousPercents[0] === undefined
-            ? {}
-            : { previousPercent: previousPercents[0] }),
-        },
-        moments,
-        weekOverWeek: LEAD_MEASURES.map((measure) => ({
-          measure,
-          ...comparePeriods(actual[measure] ?? 0, previousWeek[measure] ?? 0),
-        })),
-        cycleOverCycle: LEAD_MEASURES.map((measure) => ({
-          measure,
-          ...comparePeriods(thisCycle[measure] ?? 0, lastCycle[measure] ?? 0),
-        })),
-        weeklyTrend: trend,
-        derivedRatios,
-        usingDefaultRatios: derivedRatios === null,
-        unattributedCalls,
-        quotes,
-      };
-    }, { timeout: 20_000 });
-  }
-
-  /* ======================================================================
-   * ‏כתיבה: יעד לרמה אחת, לתקופה הנוכחית
-   * ====================================================================== */
-
-  async saveGoal(horizon: GoalHorizon, input: SaveGoalInput): Promise<void> {
-    const ctx = TenantContext.current();
-    const period = goalPeriod(horizon, new Date());
-    const scope = { tenantId: ctx.tenantId, userId: ctx.userId };
-
-    await this.prisma.withTenant(async (tx) => {
-      const data = {
-        unit: input.unit,
-        targetAgorot: BigInt(Math.max(0, Math.floor(input.target))),
-        averageCommissionAgorot:
-          input.averageCommissionAgorot === undefined
-            ? null
-            : BigInt(Math.max(0, Math.floor(input.averageCommissionAgorot))),
-        commitment: input.commitment ?? {},
-        obstacle: input.obstacle?.trim() || null,
-        ifThenPlan: input.ifThenPlan?.trim() || null,
-        periodEnd: dayToDate(period.end),
-      };
-      /*
-       * ‎`upsert` על המפתח הייחודי, ולא „קרא ואז כתוב”: קביעה חוזרת
-       * מאותו מסך בשתי לשוניות הייתה מייצרת שתי שורות לאותה תקופה,
-       * ואז „היעד שלי” היה תלוי בסדר הקריאה.
-       */
-      await tx.mentorGoal.upsert({
-        where: {
-          tenantId_userId_horizon_periodStart: {
-            ...scope,
-            horizon,
-            periodStart: dayToDate(period.start),
-          },
-        },
-        update: data,
-        create: {
-          id: ulid(),
-          ...scope,
-          horizon,
-          periodStart: dayToDate(period.start),
-          /* ‏היחסים נגזרים בקריאה; כאן רק נקודת הפתיחה */
-          ratios: { ...DEFAULT_RATIOS },
-          ...data,
-        },
-      });
-    });
-  }
-
-  async deleteGoal(horizon: GoalHorizon): Promise<void> {
-    const ctx = TenantContext.current();
-    const period = goalPeriod(horizon, new Date());
-    await this.prisma.withTenant(async (tx) => {
-      await tx.mentorGoal.deleteMany({
-        where: {
-          tenantId: ctx.tenantId,
-          userId: ctx.userId,
-          horizon,
-          periodStart: dayToDate(period.start),
-        },
-      });
-    });
-  }
-
-
-  /* ======================================================================
-   * ‏מי סגר את השבוע — והתגובה של המנהל
-   * ====================================================================== */
-
-  /**
-   * ‎**הסוכנים שסגרו את היעד לאחרונה, למסך המנהל.**
-   *
-   * ‏מוצגים גם אלה שכבר קיבלו מילה וגם אלה שלא, ומי שלא — ראשון.
-   * מסך שמציג רק את הממתינים היה מוחק את ההיסטוריה בכל פעם שהמנהל
-   * מגיב, ואז אי אפשר לראות מי נשאר בלי תגובה שבועיים ברצף.
-   *
-   * ‏הגישה נשמרת ב-`analytics.view` בבקר. אין כאן סינון לפי סוכן:
-   * ההישג הזה **נועד** להיראות בידי ההנהלה, וזה בדיוק ההבדל בינו
-   * לבין היעד עצמו — שהוא פרטי.
-   */
-  async achievements(limit = 20): Promise<AchievementDto[]> {
-    const ctx = TenantContext.current();
-    return this.prisma.withTenant(async (tx) => {
-      const rows = await tx.mentorAchievement.findMany({
-        where: { tenantId: ctx.tenantId },
-        orderBy: [{ feedbackAt: { sort: "asc", nulls: "first" } }, { reachedAt: "desc" }],
-        take: limit,
-      });
-      if (rows.length === 0) return [];
-
-      /* ‏שמות בשליפה אחת — הסוכן והמגיב גם יחד */
-      const ids = [
-        ...new Set(
-          rows.flatMap((r) => [r.userId, r.feedbackByUserId].filter((v): v is string => v !== null)),
-        ),
-      ];
-      const users = await tx.user.findMany({
-        where: { tenantId: ctx.tenantId, id: { in: ids } },
-        select: { id: true, name: true },
-      });
-      const nameOf = new Map(users.map((u) => [u.id, u.name]));
-
-      return rows.map((row) => ({
-        id: row.id,
-        userId: row.userId,
-        userName: nameOf.get(row.userId) ?? "סוכן",
-        weekKey: row.weekKey,
-        percent: row.percent,
-        reachedAt: row.reachedAt,
-        lines: toSnapshotLines(row.snapshot),
-        feedback:
-          row.feedbackText === null || row.feedbackAt === null
-            ? null
-            : {
-                text: row.feedbackText,
-                byName: nameOf.get(row.feedbackByUserId ?? "") ?? "המנהל",
-                at: row.feedbackAt,
-              },
-      }));
-    });
-  }
-
-  /**
-   * ‎**המנהל כותב, והסוכן מקבל התראה.**
-   *
-   * ‏הכתיבה וההתראה באותה טרנזקציה: פידבק שנשמר בלי שההתראה נכתבה
-   * הוא פידבק שהסוכן לעולם לא יראה, וזה גרוע מלא לכתוב אותו.
-   *
-   * ‎**כתיבה חוזרת מעדכנת ואינה שולחת שוב.** מנהל שתיקן ניסוח אינו
-   * מתכוון להתריע פעמיים, והמפתח הייחודי על ההתראה מכריע גם אם כן.
-   */
-  async sendFeedback(achievementId: string, text: string): Promise<void> {
-    const ctx = TenantContext.current();
-    const clean = cleanFeedback(text);
-    if (clean === null) throw new BadRequestException("אין מה לשלוח — הטקסט ריק");
-
-    await this.prisma.withTenant(async (tx) => {
-      const row = await tx.mentorAchievement.findFirst({
-        where: { tenantId: ctx.tenantId, id: achievementId },
-        select: { id: true, userId: true, weekKey: true, feedbackAt: true },
-      });
-      if (row === null) throw new NotFoundException("ההישג לא נמצא");
-
-      const manager = await tx.user.findFirst({
-        where: { tenantId: ctx.tenantId, id: ctx.userId },
-        select: { name: true },
-      });
-      const managerName = manager?.name ?? "המנהל";
-
-      /*
-       * ‎`updateMany` עם `tenantId` ולא `update` לפי מפתח ראשי.
-       * ה-RLS היה מגן ממילא, אבל שער ההיקף דורש שכל שאילתה תסנן
-       * לפי משרד — והכלל הזה שווה יותר מהקיצור: הוא מה שמוודא
-       * שהשאילתה הבאה, שתיכתב מחוץ להקשר הזה, לא תסמוך על RLS לבדו.
-       */
-      await tx.mentorAchievement.updateMany({
-        where: { tenantId: ctx.tenantId, id: row.id },
-        data: {
-          feedbackText: clean,
-          feedbackByUserId: ctx.userId,
-          feedbackAt: new Date(),
-        },
-      });
-
-      /*
-       * ‏מנהל שמגיב על ההישג של עצמו אינו שולח לעצמו התראה. זה קורה
-       * במשרד קטן שבו הבעלים הוא גם סוכן, וזה המקרה הנפוץ אצלנו.
-       */
-      if (row.userId === ctx.userId) return;
-
-      const copy = feedbackCopy(managerName, clean);
-      await tx.notification.createMany({
-        data: [
-          {
-            id: ulid(),
-            tenantId: ctx.tenantId,
-            userId: row.userId,
-            type: FEEDBACK_NOTIFICATION_TYPE,
-            /*
-             * ‏מפתח לכל תיקון ולא לכל הישג: מנהל שכתב שוב אחרי שבוע
-             * מתכוון שהסוכן יראה. מה שנמנע הוא לחיצה כפולה על אותו
-             * טקסט, ולכן המפתח נושא את התוכן.
-             */
-            dedupeKey: `mentor_feedback:${row.id}:${clean.length}:${clean.slice(0, 24)}`,
-            title: copy.title,
-            body: copy.body,
-            entityType: "mentor_achievement",
-            entityId: row.id,
-          },
-        ],
-        skipDuplicates: true,
-      });
-    });
-  }
-
-  /* ======================================================================
-   * ‏משפטי המוטבציה של המשרד
-   * ====================================================================== */
-
-  /**
-   * ‎**מה שהמשרד כתב — בלי משפטי הפלטפורמה.**
-   *
-   * ‏מסך העריכה מציג רק את מה שאפשר למחוק שם. משפט של הפלטפורמה
-   * שהיה מופיע ברשימה עם „מחק” לידו הוא כפתור שנכשל — הפוליסה
-   * חוסמת אותו, והמשתמש היה רואה שגיאה במקום להבין שזה לא שלו.
-   */
-  async officeQuotes(): Promise<MentorQuote[]> {
-    const ctx = TenantContext.current();
-    return this.prisma.withTenant(async (tx) => {
-      const rows = await tx.mentorQuote.findMany({
-        where: { tenantId: ctx.tenantId },
+      const previousActivity =
+        user !== null && user.createdAt < week.start
+          ? await this.signals.activity(
+              tx,
+              tenantId,
+              userId,
+              { start: jerusalemWeekStart(now, -1), end: week.start },
+              week.start,
+            )
+          : null;
+      const goalRows = await tx.mentorGoal.findMany({
+        where: { tenantId, userId, endedAt: null },
         orderBy: { createdAt: "asc" },
-      });
-      return rows.map(toQuote);
-    });
-  }
-
-  /**
-   * ‏הוספת משפט של המשרד.
-   *
-   * ‏הגבול נבדק כאן ולא רק ב-UI: סליידר עם מאתיים משפטים אינו
-   * סליידר אלא ארכיון, ומשרד שהגיע לגבול צריך למחוק את מה שכבר לא
-   * מדבר אליו.
-   */
-  async addOfficeQuote(text: string, author: string): Promise<MentorQuote> {
-    const ctx = TenantContext.current();
-    const clean = cleanQuoteText(text);
-    if (clean === null) throw new BadRequestException("אין משפט לשמור");
-    return this.prisma.withTenant(async (tx) => {
-      /*
-       * ‏הנעילה לפני הספירה, ולא אחריה: בלעדיה שתי בקשות מקבילות
-       * על מאגר בן 59 רואות שתיהן 59 וכותבות שתיהן. אין דרך
-       * להצהיר „לכל היותר N שורות” כאילוץ במסד (ביקורת Codex).
-       */
-      await lockMentorQuotes(tx, ctx.tenantId);
-      const existing = await tx.mentorQuote.count({
-        where: { tenantId: ctx.tenantId },
-      });
-      if (existing >= QUOTE_LIMIT_PER_SCOPE) {
-        throw new BadRequestException(
-          `הגעתם ל-${QUOTE_LIMIT_PER_SCOPE} משפטים. מחקו אחד כדי להוסיף חדש.`,
-        );
-      }
-      const row = await tx.mentorQuote.create({
-        data: {
-          id: ulid(),
-          tenantId: ctx.tenantId,
-          text: clean,
-          author: cleanQuoteAuthor(author),
-          createdBy: ctx.userId,
+        select: {
+          id: true,
+          metric: true,
+          period: true,
+          target: true,
+          why: true,
+          intention: true,
+          createdAt: true,
+          endedAt: true,
         },
       });
-      return toQuote(row);
-    });
-  }
-
-  /**
-   * ‏מחיקת משפט של המשרד.
-   *
-   * ‎`deleteMany` עם המשרד ב-`where` ולא `delete` לפי מזהה: מזהה
-   * שאינו של המשרד הזה פשוט לא ימחק דבר, והתשובה היא 404 ולא
-   * חריגה מהמסד. הפוליסה ממילא חוסמת, אבל הכתיבה כאן אומרת את זה
-   * במפורש ולא נשענת עליה לבדה.
-   */
-  async deleteOfficeQuote(id: string): Promise<void> {
-    const ctx = TenantContext.current();
-    await this.prisma.withTenant(async (tx) => {
-      const removed = await tx.mentorQuote.deleteMany({
-        where: { id, tenantId: ctx.tenantId },
+      const goals = await this.signals.progress(
+        tx,
+        tenantId,
+        userId,
+        goalRows,
+        { at: now, week, weekActivity: activity, monthAnchor: now },
+      );
+      const insights = await this.signals.insights(
+        tx,
+        tenantId,
+        userId,
+        week,
+        previousActivity === null
+          ? null
+          : { start: jerusalemWeekStart(now, -1), end: week.start },
+      );
+      const wins = selectWins(
+        await this.signals.wins(tx, tenantId, userId, week),
+      );
+      const latest = await tx.mentorReview.findFirst({
+        where: { tenantId, userId },
+        orderBy: { weekStart: "desc" },
       });
-      if (removed.count === 0) throw new NotFoundException("המשפט לא נמצא");
+      const streakWeeks = await this.streak(tx, tenantId, userId);
+      const patterns = mentorPatterns(
+        await this.pastReviews(tx, tenantId, userId),
+        now,
+      );
+      const funnel = await this.signals.funnelHistory(
+        tx,
+        tenantId,
+        userId,
+        now,
+      );
+      const advice = mentorAdvice({
+        goals: goals.map((g) => g.progress),
+        activity,
+        previousActivity,
+        insights,
+        funnel,
+        feedback: resolveIdeaFeedback(user?.preferences),
+        office: await this.signals.officePlaybookFor(tx, tenantId, userId, now),
+        closestDeal: await this.signals.closestDeal(tx, tenantId, userId, now),
+        now,
+      });
+      return {
+        weekStart: week.start,
+        weekEnd: week.end,
+        activity,
+        previousActivity,
+        insights,
+        wins,
+        goals: goals.map(MentorService.goalDto),
+        latestReview: latest === null ? null : MentorService.reviewDto(latest),
+        streakWeeks,
+        chatAvailable,
+        patterns,
+        advice,
+        persona: resolveMentorPersona(user?.preferences),
+        onboarding: await this.onboardingOf(
+          tx,
+          tenantId,
+          userId,
+          user?.createdAt,
+          goals.map((g) => g.progress),
+          now,
+        ),
+      };
     });
   }
 
-  /* ======================================================================
-   * ‏הספירה עצמה
-   * ====================================================================== */
+  /** 30 הימים הראשונים (docs/14 §7.5) — היום, השבוע והצעד; `null` לוותיק. */
+  private async onboardingOf(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    userCreatedAt: Date | undefined,
+    goals: MentorGoalProgress[],
+    now: Date,
+  ): Promise<MentorOnboarding | null> {
+    if (userCreatedAt === undefined) return null;
+    if (onboardingDay(userCreatedAt, now) > ONBOARDING_DAYS) return null;
+    const practices = await MentorPracticeService.stats(tx, tenantId, userId, {
+      start: userCreatedAt,
+      end: now,
+    });
+    return mentorOnboarding({
+      userCreatedAt,
+      now,
+      goals,
+      practices: practices.count,
+    });
+  }
+
+  async pulse(now: Date = new Date()): Promise<MentorPulse> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const week = mentorPeriodRange("week", now);
+      const activity = await this.signals.activity(
+        tx,
+        tenantId,
+        userId,
+        week,
+        now,
+      );
+      const goalRows = await tx.mentorGoal.findMany({
+        where: { tenantId, userId, endedAt: null },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          metric: true,
+          period: true,
+          target: true,
+          why: true,
+          intention: true,
+          createdAt: true,
+          endedAt: true,
+        },
+      });
+      const goals = await this.signals.progress(
+        tx,
+        tenantId,
+        userId,
+        goalRows,
+        {
+          at: now,
+          week,
+          weekActivity: activity,
+          monthAnchor: now,
+        },
+      );
+      const wins = selectWins(
+        await this.signals.wins(tx, tenantId, userId, week),
+      );
+      return {
+        weekStart: week.start,
+        goalsDone: goals
+          .filter((g) => g.progress.pace === "done")
+          .map((g) => ({
+            id: g.id,
+            label: mentorGoalLabel(
+              g.progress.metric,
+              g.progress.target,
+              g.progress.period,
+            ),
+            period: g.progress.period,
+            periodStart: g.progress.periodStart,
+          })),
+        wins,
+      };
+    });
+  }
 
   /**
-   * ‎**ארבעת המדדים בטווח נתון, כפי שהמערכת ספרה אותם.**
-   *
-   * ‏כל בחירה כאן היא הכרעה על מה „נחשב”, ולכן כתובה:
-   *
-   * ‎**שיחות — יוצאות בלבד.** שיחה נכנסת אינה פעולה שהמתווך בחר
-   * לעשות; היא תוצאה של השיווק. ספירה שכוללת אותה הייתה נותנת ציון
-   * גבוה למי שישב וענה, וזה בדיוק ההפך ממדד מוביל.
-   *
-   * ‎**פגישות — של מי שהיומן שלו, ולא של מי שהקליד.** `ownerUserId`
-   * הוא הסוכן שהפגישה שלו; `createdBy` הוא לעתים המזכירה.
-   * ומבוטלות אינן נספרות: פגישה שבוטלה לא קרתה.
-   *
-   * ‎**הצעות — שנשלחו, ולא שנוצרו.** `sentAt` הוא הרגע שבו הלקוח
-   * קיבל משהו. הצעה שנוצרה ולא נשלחה היא טיוטה.
-   *
-   * ‎**נכסים — שנקלטו בטווח ומשויכים אליו.** זה „מדד הבלעדיות”: מה
-   * שהמתווך הכניס למלאי.
+   * מה עובד אצלנו — למנהל (docs/14 §7.4): הרעיונות שהוכיחו את עצמם
+   * במשרד, עם ספירות בלבד. אין כאן שמות ואין דרך לגזור אותם.
    */
-  private async measureTimes(
-    tx: PrismaTx,
-    scope: { tenantId: string; userId: string },
-    from: Date,
-    to: Date,
-  ): Promise<Record<LeadMeasure, Date[]>> {
-    const { tenantId, userId } = scope;
-    const range = { gte: from, lt: to };
-
-    const [appointments, listings, leads] = await Promise.all([
-      /*
-       * ‎**רק פגישות שהתקיימו** (ביקורת Codex, P2). ‏הסינון היה „לא
-       * מבוטלת”, וזה השאיר בפנים גם `scheduled` שחלפה בלי שאיש אישר
-       * אותה וגם `no_show` — כלומר פגישה שהלקוח לא הגיע אליה נספרה
-       * כפגישה שנעשתה. ‎`completed` הוא הסימן שהמערכת עצמה שמה
-       * כשנרשמת תוצאה (`calendar.service`), ואותו סינון בדיוק
-       * שהאנליטיקה משתמשת בו לסיורים שהתקיימו.
-       */
-      tx.appointment.findMany({
-        where: { tenantId, ownerUserId: userId, startsAt: range, status: "completed" },
-        select: { startsAt: true },
-      }),
-      tx.property.findMany({
-        where: { tenantId, agentUserId: userId, deletedAt: null, createdAt: range },
-        select: { createdAt: true },
-      }),
-      /*
-       * ‎**לידים חדשים — שנוצרו בטווח ומוקצים אליו.**
-       *
-       * ‎`assignedToUserId` ולא `createdBy`: ליד שנכנס מטופס אינטרנט
-       * או מהמרכזייה נוצר בידי המערכת, והשאלה היא של מי הוא — כלומר
-       * מי אמור לעבוד עליו. זו גם ההקצאה שהמתווך רואה ברשימת הלידים,
-       * כך שהמספר כאן והמספר שם הם אותו מספר.
-       */
-      tx.lead.findMany({
-        where: { tenantId, assignedToUserId: userId, createdAt: range },
-        select: { createdAt: true },
-      }),
-    ]);
-
+  async office(now: Date = new Date()): Promise<MentorOfficeDto> {
+    const { tenantId } = TenantContext.current();
+    const office = await this.prisma.withTenant((tx) =>
+      this.signals.officePlaybook(tx, tenantId, now),
+    );
     return {
-      calls: await this.outboundCallTimes(tx, scope, range),
-      leads: leads.map((r) => r.createdAt),
-      appointments: appointments.map((r) => r.startsAt),
-      offers: await this.offerSentTimes(tx, scope, range),
-      listings: listings.map((r) => r.createdAt),
+      agents: office.agents,
+      proven: office.proven.map((e) => ({
+        key: e.key,
+        metric: e.metric,
+        metricLabel:
+          MENTOR_METRICS.find((m) => m.code === e.metric)?.label ?? e.metric,
+        text: e.text,
+        helped: e.helped,
+        dismissed: e.dismissed,
+        up: e.up,
+        measured: e.measured,
+        evidence: officeEvidenceLabel(e),
+      })),
     };
   }
 
-  /** ‏אותה מדידה, כשכל מה שנדרש הוא כמה. */
-  private countsIn(times: Record<LeadMeasure, Date[]>, from?: Date, to?: Date): WeeklyActual {
-    const out: WeeklyActual = {};
-    for (const measure of LEAD_MEASURES) {
-      out[measure] = times[measure].filter(
-        (t) => (from === undefined || t >= from) && (to === undefined || t < to),
-      ).length;
-    }
-    return out;
+  /** הסיכומים החודשיים — מהחדש לישן (docs/14 §3). */
+  async monthly(limit = 6): Promise<MentorMonthlyDto[]> {
+    const { tenantId, userId } = TenantContext.current();
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.mentorMonthlyReview.findMany({
+        where: { tenantId, userId },
+        orderBy: { monthStart: "desc" },
+        take: limit,
+      }),
+    );
+    return rows.map((row) => {
+      const body = (row.body ?? {}) as Partial<MentorMonthlyBody>;
+      return {
+        id: row.id,
+        monthStart: row.monthStart,
+        headline: row.headline,
+        greeting: body.greeting ?? null,
+        paragraphs: Array.isArray(body.paragraphs) ? body.paragraphs : [],
+        focus: body.focus ?? null,
+        createdAt: row.createdAt,
+      };
+    });
   }
 
-  /**
-   * ‎**שלושה-עשר השבועות האחרונים, כל אחד עם הציון שלו.**
-   *
-   * ## שתי הכרעות שהגרף הזה נשען עליהן
-   *
-   * ‎**1. ההיסטוריה מחושבת, לא נשלפת מארכיון.** הגרסה הקודמת כתבה
-   * את ציון השבוע לטבלה בכל פתיחת מסך, וזו הייתה טעות בשורש:
-   * „היסטוריה” שנכתבת רק כשמישהו מסתכל היא היסטוריה של **מתי הוא
-   * הסתכל**. מי שפתח ביום שני ב-0%, עשה את העבודה ולא פתח שוב —
-   * היה נשאר עם 0%; ומי שלא פתח כלל פשוט נעדר. כל מה שנדרש כבר
-   * במסד: המחויבות על יעד השבוע, והפעילות שנספרת.
-   *
-   * ‎**2. שבוע בלי התחייבות הוא `null`, לא אפס.** עמודה בגובה אפס
-   * אומרת „נכשלת”; היעדר עמודה אומר „לא הבטחת”. ההבדל הוא כל
-   * ההבדל בין גרף שמלווה לגרף שמאשים, ובלעדיו מתווך חדש היה רואה
-   * שלושה-עשר כישלונות בפעם הראשונה שנכנס.
-   *
-   * ‏השבוע הנוכחי נכלל ומסומן `current`, כי הוא עוד נע — והוא גם
-   * היחיד שאינו נספר לרצף „פעמיים ברצף”.
-   */
-  private async weeklyTrend(
-    tx: PrismaTx,
-    scope: { tenantId: string; userId: string },
-    times: Record<LeadMeasure, Date[]>,
-    now: Date,
-  ): Promise<WeekPoint[]> {
-    const weeks: Date[] = [];
-    for (let back = MIN_WEEKS_FOR_RATIOS - 1; back >= 0; back -= 1) {
-      weeks.push(jerusalemWeekStart(now, -back));
-    }
+  /** הסיכום האחרון בלבד — לשיחה („מתחייב”, „לענות למנטור”) בלי כל הסקירה. */
+  async latestReview(): Promise<MentorReviewDto | null> {
+    const { tenantId, userId } = TenantContext.current();
+    const row = await this.prisma.withTenant((tx) =>
+      tx.mentorReview.findFirst({
+        where: { tenantId, userId },
+        orderBy: { weekStart: "desc" },
+      }),
+    );
+    return row === null ? null : MentorService.reviewDto(row);
+  }
 
-    /*
-     * ‏שאילתה אחת לכל ההתחייבויות בחלון, ולא אחת לשבוע: שלוש-עשרה
-     * שליפות בזו אחר זו הן בדיוק מה שהעמיס את הטרנזקציה קודם.
-     */
-    const rows = await tx.mentorGoal.findMany({
-      where: {
-        ...scope,
-        horizon: "week",
-        periodStart: {
-          gte: dayToDate(jerusalemDayLabel(weeks[0] as Date)),
-          lte: dayToDate(jerusalemDayLabel(weeks[weeks.length - 1] as Date)),
+  /* ---------------- יעדים ---------------- */
+
+  async createGoal(
+    input: MentorGoalInput,
+    now: Date = new Date(),
+  ): Promise<MentorGoalDto> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      /*
+       * יעד אחד לכל מדד ותקופה: „5 הצעות בשבוע” ו„8 הצעות בשבוע” יחד
+       * הם לא שני יעדים אלא סתירה. יעד חדש על אותו מדד מחליף את
+       * הקודם — והקודם נסגר, לא נמחק, כי סיכומים כבר ציטטו אותו.
+       */
+      await tx.mentorGoal.updateMany({
+        where: {
+          tenantId,
+          userId,
+          metric: input.metric,
+          period: input.period,
+          endedAt: null,
         },
-      },
-      select: { periodStart: true, commitment: true },
+        data: { endedAt: now },
+      });
+      const row = await tx.mentorGoal.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          userId,
+          metric: input.metric,
+          period: input.period,
+          target: input.target,
+          why: input.why === undefined || input.why === "" ? null : input.why,
+          intention:
+            input.intention === undefined || input.intention === ""
+              ? null
+              : input.intention,
+        },
+      });
+      await this.audit.record(tx, {
+        action: "mentor_goal.create",
+        entityType: "mentor_goal",
+        entityId: row.id,
+        metadata: {
+          metric: input.metric,
+          period: input.period,
+          target: input.target,
+        },
+      });
+      const week = mentorPeriodRange("week", now);
+      const activity = await this.signals.activity(
+        tx,
+        tenantId,
+        userId,
+        week,
+        now,
+      );
+      const [withProgress] = await this.signals.progress(
+        tx,
+        tenantId,
+        userId,
+        [row],
+        { at: now, week, weekActivity: activity, monthAnchor: now },
+      );
+      if (withProgress === undefined)
+        throw new NotFoundException("היעד לא נמצא");
+      return MentorService.goalDto(withProgress);
     });
-    const byWeek = new Map(
-      rows.map((r) => [r.periodStart.toISOString().slice(0, 10), r.commitment]),
-    );
+  }
 
-    const thisWeek = jerusalemWeekStart(now);
-    return weeks.map((weekStart) => {
-      const label = jerusalemDayLabel(weekStart);
-      const current = weekStart.getTime() === thisWeek.getTime();
-      const committed = parseWeeklyCommitment(byWeek.get(label) ?? null);
-      if (Object.keys(committed).length === 0) {
-        return { weekKey: label, percent: null, current };
+  async endGoal(id: string, now: Date = new Date()): Promise<void> {
+    const { tenantId, userId } = TenantContext.current();
+    await this.prisma.withTenant(async (tx) => {
+      const ended = await tx.mentorGoal.updateMany({
+        where: { id, tenantId, userId, endedAt: null },
+        data: { endedAt: now },
+      });
+      if (ended.count === 0) throw new NotFoundException("היעד לא נמצא");
+      await this.audit.record(tx, {
+        action: "mentor_goal.end",
+        entityType: "mentor_goal",
+        entityId: id,
+      });
+    });
+  }
+
+  /** מיעד תוצאה ליעדי תהליך — לפי המשפך של המתווך ב-13 השבועות האחרונים. */
+  async suggestions(
+    target: number,
+    period: MentorGoalPeriod,
+    now: Date = new Date(),
+  ): Promise<ProcessGoalSuggestion[]> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const funnel = await this.signals.funnelHistory(
+        tx,
+        tenantId,
+        userId,
+        now,
+      );
+      return suggestProcessGoals({
+        outcome: { target, period },
+        history: funnel.history,
+        historyWeeks: funnel.weeks,
+      });
+    });
+  }
+
+  /* ---------------- סיכומים ---------------- */
+
+  async reviews(limit = 12): Promise<MentorReviewDto[]> {
+    const { tenantId, userId } = TenantContext.current();
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.mentorReview.findMany({
+        where: { tenantId, userId },
+        orderBy: { weekStart: "desc" },
+        take: limit,
+      }),
+    );
+    return rows.map(MentorService.reviewDto);
+  }
+
+  async answerReflection(
+    id: string,
+    answer: string,
+    now: Date = new Date(),
+  ): Promise<MentorReviewDto> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const updated = await tx.mentorReview.updateMany({
+        where: { id, tenantId, userId },
+        data: { reflectionAnswer: answer, answeredAt: now },
+      });
+      if (updated.count === 0) throw new NotFoundException("הסיכום לא נמצא");
+      const row = await tx.mentorReview.findFirst({
+        where: { id, tenantId, userId },
+      });
+      if (row === null) throw new NotFoundException("הסיכום לא נמצא");
+      return MentorService.reviewDto(row);
+    });
+  }
+
+  /**
+   * המחויבות לבקשה של המנטור — „מתחייב” או „לא השבוע”, עם מילה אם
+   * רוצים. אפשר לשנות את הדעת עד הסיכום הבא: המחויבות היא של
+   * המתווך, לא של הטופס.
+   */
+  async commit(
+    id: string,
+    decision: MentorCommitment,
+    note: string | undefined,
+    now: Date = new Date(),
+  ): Promise<MentorReviewDto> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const row = await tx.mentorReview.findFirst({
+        where: { id, tenantId, userId },
+      });
+      if (row === null) throw new NotFoundException("הסיכום לא נמצא");
+      const body = (row.body ?? {}) as Partial<MentorReviewBody>;
+      if (!body.ask)
+        throw new BadRequestException("בסיכום הזה אין בקשה להתחייב אליה");
+      /*
+       * הסיכום הבא כבר בדק את המחויבות הזו ורשם „עמדתם” או „לא יצא”
+       * — שינוי עכשיו היה משאיר שני סיכומים שסותרים זה את זה. לשונית
+       * ישנה או קריאה ישירה ל-API נדחות; המסך מציג את הכפתור רק על
+       * הסיכום האחרון.
+       */
+      const later = await tx.mentorReview.findFirst({
+        where: { tenantId, userId, weekStart: { gt: row.weekStart } },
+        select: { id: true },
+      });
+      if (later !== null)
+        throw new ConflictException(
+          "הסיכום הבא כבר בדק את המחויבות הזו — אי אפשר לשנות אותה עכשיו",
+        );
+      const updated = await tx.mentorReview.update({
+        where: { id },
+        data: {
+          commitment: decision,
+          committedAt: now,
+          commitmentNote: note === undefined || note === "" ? null : note,
+        },
+      });
+      await this.audit.record(tx, {
+        action: "mentor_review.commit",
+        entityType: "mentor_review",
+        entityId: id,
+        metadata: { decision },
+      });
+      return MentorService.reviewDto(updated);
+    });
+  }
+
+  /**
+   * התוכנית „אם… אז…” — החצי השני של WOOP. נשמרת על הסיכום, ונכנסת
+   * ליעד הפעיל של אותו מדד ותקופה ככוונת יישום: כך הדחיפה של אמצע
+   * השבוע והבקשה לשבוע הבא מצטטות את התוכנית שנולדה מהמכשול, ולא
+   * את הישנה. יעד שאינו פעיל — התוכנית נשמרת על הסיכום בלבד.
+   */
+  async setPlan(
+    id: string,
+    plan: string,
+    now: Date = new Date(),
+  ): Promise<MentorReviewDto> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const row = await tx.mentorReview.findFirst({
+        where: { id, tenantId, userId },
+      });
+      if (row === null) throw new NotFoundException("הסיכום לא נמצא");
+      const body = (row.body ?? {}) as Partial<MentorReviewBody>;
+      if (!body.reflection)
+        throw new BadRequestException(
+          "בסיכום הזה לא הייתה שאלה, ולכן אין ממה לבנות תוכנית",
+        );
+      const updated = await tx.mentorReview.update({
+        where: { id },
+        data: { plan, plannedAt: now },
+      });
+      if (body.ask) {
+        await tx.mentorGoal.updateMany({
+          where: {
+            tenantId,
+            userId,
+            metric: body.ask.metric,
+            period: body.ask.period,
+            endedAt: null,
+          },
+          data: { intention: plan },
+        });
       }
-      /* ‏שבוע סגור נספר במלואו; השבוע הנוכחי רק עד עכשיו */
-      const until = current ? now : jerusalemDayStart(weekStart, 7);
-      const actual = this.countsIn(times, weekStart, until);
-      return { weekKey: label, percent: weeklyScore(committed, actual).percent, current };
+      await this.audit.record(tx, {
+        action: "mentor_review.plan",
+        entityType: "mentor_review",
+        entityId: id,
+      });
+      return MentorService.reviewDto(updated);
     });
   }
 
-  /**
-   * ‎**שיחות יוצאות שלו — כולל אלה שהמרכזייה רשמה** (ביקורת Codex, P1).
-   *
-   * ## שני באגים שהיו כאן, ושניהם החזירו אפס
-   *
-   * ‎**1. הערך.** ‏הסינון היה `direction: "out"`, והמערכת שומרת
-   * ‎`"inbound"` / `"outbound"` — גם ברישום הידני וגם בקליטה
-   * מהמרכזייה. כלומר המדד המרכזי של המנטור התאים לאפס שורות תמיד,
-   * והמסך היה מציג „0 / 40” לסוכן שהתקשר ארבעים פעם.
-   *
-   * ‎**2. השיוך.** ‏`TelephonyService.ingest` יוצרת שיחות ספק **בלי
-   * ‎`createdBy`** — המרכזייה אינה אומרת איזו שלוחה חייגה. משרד
-   * שעובד עם 015 היה רואה רק שיחות שנרשמו ידנית, כלומר כמעט כלום.
-   *
-   * ## השיוך שנבחר, ומה גבולו
-   *
-   * ‏שיחה יוצאת שקשורה לליד שייכת לסוכן שהליד מוקצה לו. זה אינו
-   * ניחוש: שיחה יוצאת נוצרת מתוך עבודה על ליד, וההקצאה היא מי
-   * מטפל בו. `createdBy` קודם לה כשהוא קיים — רישום ידני יודע
-   * במדויק מי רשם.
-   *
-   * ‎**מה שנשאר בחוץ, ובכוונה:** שיחה יוצאת מהמרכזייה שאינה קשורה
-   * לשום ליד. אין לה שום עוגן לאדם, ולנחש אותה לפי „מי היה מחובר”
-   * היה מייצר ציון על עבודה של מישהו אחר. התיקון האמיתי הוא
-   * ‎`createdBy` בקליטה, וזה שינוי באינטגרציית הטלפוניה.
-   *
-   * ‏הכיוון הוא **משיחות הטווח החוצה**, כמו בהצעות: חסום בגודל
-   * הטווח ולא בגודל היסטוריית הלידים של המשרד.
-   */
-  private async outboundCallTimes(
-    tx: PrismaTx,
-    scope: { tenantId: string; userId: string },
-    range: { gte: Date; lt: Date },
-  ): Promise<Date[]> {
-    const rows = await tx.call.findMany({
-      where: { tenantId: scope.tenantId, direction: "outbound", occurredAt: range },
-      select: { createdBy: true, leadId: true, occurredAt: true },
-    });
-    if (rows.length === 0) return [];
+  /* ---------------- שיחה ---------------- */
 
-    const mine = rows.filter((r) => r.createdBy === scope.userId);
-
-    /* שיחות ספק ללא רושם — משויכות דרך הליד שהן נוגעות בו */
-    const orphanLeadIds = [
-      ...new Set(
-        rows
-          .filter((r) => r.createdBy === null && r.leadId !== null)
-          .map((r) => r.leadId as string),
-      ),
-    ];
-    if (orphanLeadIds.length === 0) return mine.map((r) => r.occurredAt);
-
-    const myLeads = await tx.lead.findMany({
-      where: {
-        tenantId: scope.tenantId,
-        id: { in: orphanLeadIds },
-        assignedToUserId: scope.userId,
-      },
-      select: { id: true },
-    });
-    const myLeadIds = new Set(myLeads.map((l) => l.id));
-    return [
-      ...mine,
-      ...rows.filter(
-        (r) => r.createdBy === null && r.leadId !== null && myLeadIds.has(r.leadId),
-      ),
-    ].map((r) => r.occurredAt);
-  }
-
-  /**
-   * ‎**הצעות ששלח — דרך ההתאמה והקונה, כי להצעה אין בעלים.**
-   *
-   * ‏ל-`offers` אין עמודת משתמש: הבעלות שלה עוברת דרך ההתאמה אל
-   * הקונה. הכיוון כאן הוא **מההצעות של השבוע החוצה** ולא מהקונים
-   * פנימה, וזה ההבדל בין שאילתה חסומה בגודל השבוע לבין שאילתה
-   * שגדלה עם כל קונה שאי פעם היה במשרד.
-   */
-  private async offerSentTimes(
-    tx: PrismaTx,
-    scope: { tenantId: string; userId: string },
-    range: { gte: Date; lt: Date },
-  ): Promise<Date[]> {
-    const sent = await tx.offer.findMany({
-      where: { tenantId: scope.tenantId, sentAt: range },
-      select: { matchId: true, sentAt: true },
-    });
-    if (sent.length === 0) return [];
-
-    const matches = await tx.match.findMany({
-      where: { tenantId: scope.tenantId, id: { in: sent.map((o) => o.matchId) } },
-      select: { id: true, buyerId: true },
-    });
-    if (matches.length === 0) return [];
-
-    const mine = await tx.buyer.findMany({
-      where: {
-        tenantId: scope.tenantId,
-        ownerUserId: scope.userId,
-        id: { in: [...new Set(matches.map((m) => m.buyerId))] },
-      },
-      select: { id: true },
-    });
-    const mineIds = new Set(mine.map((b) => b.id));
-    const myMatchIds = new Set(
-      matches.filter((m) => mineIds.has(m.buyerId)).map((m) => m.id),
+  async turns(limit = 40): Promise<{ turns: MentorTurnDto[] }> {
+    const { tenantId, userId } = TenantContext.current();
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.mentorMessage.findMany({
+        where: { tenantId, userId },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+      }),
     );
-    /*
-     * ‏חוזרים אל ההצעות עצמן ולא סופרים התאמות: `sentAt` יושב על
-     * ההצעה, והוא הזמן שהגרף מציב לפיו. שתי הצעות על אותה התאמה הן
-     * שתי שליחות.
-     */
-    return sent
-      .filter((o) => myMatchIds.has(o.matchId) && o.sentAt !== null)
-      .map((o) => o.sentAt as Date);
+    return { turns: rows.reverse().map(MentorService.turnDto) };
   }
 
+  /**
+   * שאלה למנטור. ה-LLM מציע, הקוד מכריע: התשובה עוברת סכמה, ובלי
+   * מודל — או כשהוא נופל — המנטור עונה מהיעדים ומהסיכום (docs/14 §7).
+   */
+  async ask(
+    text: string,
+    now: Date = new Date(),
+    /** מאיפה השאלה הגיעה — ליומן האסימונים של הפלטפורמה בלבד */
+    channel: "web" | "whatsapp" = "web",
+  ): Promise<{
+    turn: MentorTurnDto;
+    source: "model" | "fallback";
+    /** יעד שהמנטור מציע לקבוע — המסך מציג כפתור, המתווך לוחץ (docs/14 §7) */
+    proposedGoal?: MentorGoalProposal;
+  }> {
+    const ctx = TenantContext.current();
+    const { tenantId, userId } = ctx;
+    if (ctx.billingOnly) throw new ForbiddenException("החשבון במצב חיוב בלבד");
 
+    const context = await this.prisma.withTenant(
+      async (tx): Promise<MentorChatContext & { overCap: boolean }> => {
+        await tx.mentorMessage.create({
+          data: { id: ulid(), tenantId, userId, role: "user", text },
+        });
+        const user = await tx.user.findFirst({
+          where: { id: userId, tenantId },
+          select: { name: true, createdAt: true, preferences: true },
+        });
+        const week = mentorPeriodRange("week", now);
+        const activity = await this.signals.activity(
+          tx,
+          tenantId,
+          userId,
+          week,
+          now,
+        );
+        /*
+         * מול שבוע שעבר — **אותו חלק של השבוע**: שאלה ביום שני משווה
+         * ראשון–שני של השבוע לראשון–שני של שבוע שעבר, לא לשבוע שלם.
+         * אחרת כל מדד היה „פחות” ביום שני, והמודל היה מייעץ על ירידה
+         * שאינה קיימת (ביקורת Codex). אותה שעת קיר, שבוע אחורה.
+         */
+        const sameMomentLastWeek = jerusalemWallIsoToUtc(
+          `${jerusalemWallParts(jerusalemDayStart(now, -7)).date}T${jerusalemWallParts(now).time}:00.000`,
+        );
+        const previousActivity =
+          user !== null && user.createdAt < week.start
+            ? await this.signals.activity(
+                tx,
+                tenantId,
+                userId,
+                { start: jerusalemWeekStart(now, -1), end: sameMomentLastWeek },
+                sameMomentLastWeek,
+              )
+            : null;
+        const goalRows = await tx.mentorGoal.findMany({
+          where: { tenantId, userId, endedAt: null },
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            metric: true,
+            period: true,
+            target: true,
+            why: true,
+            intention: true,
+            createdAt: true,
+            endedAt: true,
+          },
+        });
+        const goals = (
+          await this.signals.progress(tx, tenantId, userId, goalRows, {
+            at: now,
+            week,
+            weekActivity: activity,
+            monthAnchor: now,
+          })
+        ).map((g) => g.progress);
+        const latest = await tx.mentorReview.findFirst({
+          where: { tenantId, userId },
+          orderBy: { weekStart: "desc" },
+        });
+        const history = (
+          await tx.mentorMessage.findMany({
+            where: { tenantId, userId },
+            orderBy: { createdAt: "desc" },
+            take: CHAT_HISTORY_TURNS + 1,
+            select: { role: true, text: true },
+          })
+        )
+          .slice(1) // בלי ההודעה שהרגע נכתבה — היא „השאלה”
+          .reverse()
+          .map((t) => ({ role: t.role as "user" | "mentor", text: t.text }));
+        const today = jerusalemDayRange(now);
+        const sentToday = await tx.mentorMessage.count({
+          where: {
+            tenantId,
+            userId,
+            role: "user",
+            createdAt: { gte: today.start, lt: today.end },
+          },
+        });
+        const dto = latest === null ? null : MentorService.reviewDto(latest);
+        const patterns = mentorPatterns(
+          await this.pastReviews(tx, tenantId, userId),
+          now,
+        );
+        const insights = await this.signals.insights(
+          tx,
+          tenantId,
+          userId,
+          week,
+          { start: jerusalemWeekStart(now, -1), end: week.start },
+        );
+        // מה שהמנטור צריך כדי לייעץ — המשפך והניתוח (docs/14 §7.1)
+        const funnel = await this.signals.funnelHistory(
+          tx,
+          tenantId,
+          userId,
+          now,
+        );
+        // מה עובד במשרד — ידע משותף לעצות ולפרומפט (§7.4)
+        const office = await this.signals.officePlaybookFor(
+          tx,
+          tenantId,
+          userId,
+          now,
+        );
+        // העסקה הקרובה ביותר — העצה הראשונה, והחריג לכלל 6 בפרומפט (§7.6)
+        const closest = await this.signals.closestDeal(
+          tx,
+          tenantId,
+          userId,
+          now,
+        );
+        const advice = mentorAdvice({
+          goals,
+          activity,
+          previousActivity,
+          insights,
+          funnel,
+          feedback: resolveIdeaFeedback(user?.preferences),
+          office,
+          closestDeal: closest,
+          now,
+        });
+        // התרגול האחרון בחודש האחרון — מה המנטור אמר לנסות (§7.3)
+        const practice = await MentorPracticeService.stats(
+          tx,
+          tenantId,
+          userId,
+          {
+            start: jerusalemDayStart(now, -30),
+            end: now,
+          },
+        );
+        return {
+          insights,
+          activity,
+          previousActivity,
+          funnel,
+          advice,
+          onboarding: await this.onboardingOf(
+            tx,
+            tenantId,
+            userId,
+            user?.createdAt,
+            goals,
+            now,
+          ),
+          closestDeal: closest,
+          lastPractice:
+            practice.last === null
+              ? null
+              : {
+                  scenarioLabel: practice.last.scenarioLabel,
+                  score: practice.last.score,
+                  tryNext: practice.last.tryNext,
+                },
+          office,
+          persona: resolveMentorPersona(user?.preferences),
+          firstName: (user?.name ?? "").trim().split(/\s+/u)[0] ?? "",
+          nowText: MentorService.nowText(now),
+          goals,
+          lastReview:
+            dto === null
+              ? null
+              : {
+                  mood: dto.mood,
+                  headline: dto.headline,
+                  greeting: dto.greeting,
+                  paragraphs: dto.paragraphs,
+                  askNextWeek: dto.askNextWeek,
+                  ask: dto.ask,
+                  plan: dto.plan,
+                  reflection: dto.reflection,
+                  weekLabel: `שבוע ${formatJerusalemDate(dto.weekStart)}`,
+                  reflectionAnswer: dto.reflectionAnswer,
+                },
+          history,
+          patterns,
+          question: text,
+          overCap: sentToday > CHAT_DAILY_CAP,
+        };
+      },
+    );
+
+    let reply: string | null = null;
+    let proposedGoal: MentorGoalProposal | undefined;
+    if (!context.overCap && (await this.gemini.isConfigured())) {
+      const detailed = await this.gemini.generateStructuredDetailed(
+        buildMentorPrompt(context),
+        MENTOR_REPLY_JSON_SCHEMA,
+        {
+          maxOutputTokens: 1_024,
+          timeoutMs: CHAT_TIMEOUT_MS,
+        },
+      );
+      const parsed = ReplySchema.safeParse(detailed.value);
+      if (parsed.success) {
+        reply = parsed.data.reply;
+        proposedGoal = parsed.data.proposedGoal;
+      }
+      /*
+       * הקריאה למודל נרשמת ביומן הסוכן — גם כשהתשובה לא עברה את
+       * הסכמה: האסימונים נצרכו מהמפתח של הפלטפורמה, ודוח השימוש
+       * צריך להראות אותם. ללא קריאה (בלי מפתח, מעל המכסה) אין מה
+       * לרשום — לא שולם דבר.
+       */
+      await this.events.record({
+        channel,
+        kind: "mentor",
+        transcript: text,
+        payload: { replied: parsed.success },
+        source: "llm",
+        model: detailed.model,
+        latencyMs: detailed.latencyMs,
+        ...(detailed.usage === undefined ? {} : { usage: detailed.usage }),
+      });
+    }
+    const source: "model" | "fallback" = reply === null ? "fallback" : "model";
+    /*
+     * בקשה מפורשת ליעד מקבלת כפתור גם בלי מודל, וגם כשהמודל ענה בלי
+     * למלא את ההצעה: הפענוח הדטרמיניסטי הוא הרשת. הכפתור אינו קובע
+     * — הוא מציע; הלחיצה של המתווך היא שכותבת.
+     */
+    proposedGoal ??= parseGoalRequest(text) ?? undefined;
+    const answer =
+      reply ??
+      (proposedGoal === undefined
+        ? mentorFallbackReply(context)
+        : `${mentorGoalLabel(proposedGoal.metric, proposedGoal.target, proposedGoal.period)} — מוכן. לחיצה על הכפתור שמתחת קובעת את היעד, ומשם אני עוקב.`);
+
+    const row = await this.prisma.withTenant((tx) =>
+      tx.mentorMessage.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          userId,
+          role: "mentor",
+          text: answer.slice(0, 4000),
+        },
+      }),
+    );
+    return {
+      turn: MentorService.turnDto(row),
+      source,
+      ...(proposedGoal === undefined ? {} : { proposedGoal }),
+    };
+  }
+
+  /* ---------------- משוב על רעיונות ---------------- */
+
+  /**
+   * „עזר לי” / „לא בשבילי” על רעיון (docs/14 §7.2) — הזיכרון של המנטור
+   * לגבי מה עובד אצל המתווך הזה. נשמר ב-`preferences.mentor.ideas`
+   * של המשתמש במיזוג אטומי ב-SQL (כמו פאנלי העזרה): שני מכשירים או
+   * לשונית נגישות פתוחה אינם דורסים זה את זה. המפתח מאומת מול ספר
+   * המשחק — מפתח שאינו רעיון נדחה.
+   */
+  async ideaFeedback(
+    input: {
+      ideaKey: string;
+      verdict: "helped" | "dismissed";
+    },
+    now: Date = new Date(),
+  ): Promise<{ ok: true; text: string }> {
+    const { tenantId, userId } = TenantContext.current();
+    const idea = ideaByKey(input.ideaKey);
+    if (idea === null) throw new BadRequestException("רעיון לא מוכר");
+    const list = input.verdict === "helped" ? "liked" : "dismissed";
+    const other = input.verdict === "helped" ? "dismissed" : "liked";
+    // הסימון עם תאריך — כדי למדוד בעוד שבוע אם המספר זז (`ideaMarksDue`)
+    const mark = JSON.stringify([
+      {
+        key: input.ideaKey,
+        verdict: input.verdict,
+        date: jerusalemDayLabel(now),
+      },
+    ]);
+    await this.prisma.withTenant(
+      (tx) =>
+        /*
+         * מוסיפים לרשימה האחת ומסירים מהשנייה — משוב אחרון קובע. הרשימה
+         * נחתכת למאתיים האחרונים בקריאה (`resolveIdeaFeedback`), ולכן
+         * הכתיבה רק מוסיפה.
+         */
+        /*
+         * ‎`jsonb_set` אינו יוצר צמתי ביניים: למשתמש בלי `mentor.ideas` הוא
+         * מחזיר את הקלט בשקט. לכן בונים את `mentor` ⟵ `ideas` במפורש.
+         */
+        tx.$executeRaw`
+        UPDATE users
+        SET preferences = jsonb_set(
+          COALESCE(preferences, '{}'::jsonb),
+          '{mentor}',
+          COALESCE(preferences -> 'mentor', '{}'::jsonb) || jsonb_build_object(
+            'ideas',
+            COALESCE(preferences -> 'mentor' -> 'ideas', '{}'::jsonb) || jsonb_build_object(
+              ${list}::text,
+              (COALESCE(preferences -> 'mentor' -> 'ideas' -> ${list}::text, '[]'::jsonb) - ${input.ideaKey}::text)
+                || to_jsonb(${input.ideaKey}::text),
+              ${other}::text,
+              COALESCE(preferences -> 'mentor' -> 'ideas' -> ${other}::text, '[]'::jsonb) - ${input.ideaKey}::text,
+              'marks',
+              COALESCE((
+                SELECT jsonb_agg(m.e ORDER BY m.i)
+                FROM jsonb_array_elements(
+                  CASE
+                    WHEN jsonb_typeof(preferences -> 'mentor' -> 'ideas' -> 'marks') = 'array'
+                    THEN preferences -> 'mentor' -> 'ideas' -> 'marks'
+                    ELSE '[]'::jsonb
+                  END || ${mark}::jsonb
+                ) WITH ORDINALITY AS m(e, i)
+                WHERE m.i > (
+                  CASE
+                    WHEN jsonb_typeof(preferences -> 'mentor' -> 'ideas' -> 'marks') = 'array'
+                    THEN jsonb_array_length(preferences -> 'mentor' -> 'ideas' -> 'marks')
+                    ELSE 0
+                  END
+                ) + 1 - ${IDEA_MARKS_MAX}::int
+              ), '[]'::jsonb)
+            )
+          ),
+          true
+        )
+        WHERE id = ${userId} AND tenant_id = ${tenantId}`,
+    );
+    return {
+      ok: true,
+      text:
+        input.verdict === "helped"
+          ? "רשמתי — עוד מהסוג הזה. בעוד שבוע אגיד לך אם המספר זז."
+          : "רשמתי — הרעיון הזה לא יחזור. מחר יבוא אחר.",
+    };
+  }
+
+  /**
+   * המשוב מוואטסאפ — על רעיון הבוקר של היום, שנשמר בשליחה
+   * (`preferences.mentor.lastIdea`). בלי רעיון מהיום אין על מה לענות.
+   */
+  async ideaFeedbackFromChat(
+    verdict: "helped" | "dismissed",
+    /** הרעיון שהכפתור הוצג עליו — כשיש, המשוב עליו ולא על „האחרון” */
+    ideaKey?: string,
+    now: Date = new Date(),
+  ): Promise<string> {
+    const { tenantId, userId } = TenantContext.current();
+    if (ideaKey !== undefined) {
+      const shown = ideaByKey(ideaKey);
+      if (shown === null) return "לא זיהיתי על איזה רעיון — אפשר לענות מהמסך.";
+      const result = await this.ideaFeedback({ ideaKey, verdict });
+      return `${result.text} („${shown.text.slice(0, 80)}${shown.text.length > 80 ? "…" : ""}”)`;
+    }
+    const user = await this.prisma.withTenant((tx) =>
+      tx.user.findFirst({
+        where: { id: userId, tenantId },
+        select: { preferences: true },
+      }),
+    );
+    const last = lastIdeaOf(user?.preferences);
+    if (last === null || last.date !== jerusalemDayLabel(now)) {
+      return "אין רעיון מהבוקר של היום לתת עליו משוב — מחר בבוקר יגיע אחד, ואז הכפתורים כאן.";
+    }
+    const result = await this.ideaFeedback({ ideaKey: last.key, verdict });
+    return `${result.text} („${last.text.slice(0, 80)}${last.text.length > 80 ? "…" : ""}”)`;
+  }
+
+  /* ---------------- עזרים ---------------- */
+
+  private async streak(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+  ): Promise<number> {
+    const rows = await tx.mentorReview.findMany({
+      where: { tenantId, userId },
+      orderBy: { weekStart: "desc" },
+      take: 26,
+      select: { weekStart: true, body: true },
+    });
+    const first = rows[0];
+    if (first === undefined) return 0;
+    let streak = 0;
+    let expected = first.weekStart;
+    for (const row of rows) {
+      if (row.weekStart.getTime() !== expected.getTime()) break;
+      if ((row.body as Partial<MentorReviewBody> | null)?.allGoalsMet !== true)
+        break;
+      streak += 1;
+      expected = jerusalemWeekStart(expected, -1);
+    }
+    return streak;
+  }
+
+  /** הסיכומים האחרונים כקלט לזיכרון — מהחדש לישן. */
+  private async pastReviews(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+  ): Promise<MentorPastReview[]> {
+    const rows = await tx.mentorReview.findMany({
+      where: { tenantId, userId },
+      orderBy: { weekStart: "desc" },
+      take: PATTERN_LOOKBACK,
+      select: {
+        weekStart: true,
+        body: true,
+        reflectionAnswer: true,
+        plan: true,
+        commitment: true,
+      },
+    });
+    return rows.map(MentorService.toPastReview);
+  }
+
+  static toPastReview(row: {
+    weekStart: Date;
+    body: unknown;
+    reflectionAnswer: string | null;
+    plan?: string | null;
+    commitment?: string | null;
+  }): MentorPastReview {
+    const body = (row.body ?? {}) as Partial<MentorReviewBody>;
+    return {
+      weekStart: row.weekStart,
+      goals: Array.isArray(body.goals) ? body.goals : [],
+      askMetric: body.ask?.metric ?? null,
+      reflectionAnswer: row.reflectionAnswer,
+      plan: row.plan ?? null,
+      commitment:
+        row.commitment === "accepted" || row.commitment === "declined"
+          ? row.commitment
+          : null,
+      commitmentKept: body.commitmentKept ?? null,
+    };
+  }
+
+  static nowText(now: Date): string {
+    return new Intl.DateTimeFormat("he-IL", {
+      timeZone: "Asia/Jerusalem",
+      dateStyle: "full",
+      timeStyle: "short",
+    }).format(now);
+  }
+
+  static goalDto(goal: GoalWithProgress): MentorGoalDto {
+    return {
+      id: goal.id,
+      metric: goal.metric,
+      period: goal.period,
+      target: goal.target,
+      why: goal.why,
+      intention: goal.intention,
+      createdAt: goal.createdAt,
+      progress: goal.progress,
+    };
+  }
+
+  static reviewDto(row: {
+    id: string;
+    weekStart: Date;
+    mood: string;
+    headline: string;
+    body: unknown;
+    reflectionAnswer: string | null;
+    commitment?: string | null;
+    committedAt?: Date | null;
+    commitmentNote?: string | null;
+    plan?: string | null;
+    createdAt: Date;
+  }): MentorReviewDto {
+    const body = (row.body ?? {}) as Partial<MentorReviewBody>;
+    const askMetric = body.ask?.metric;
+    return {
+      id: row.id,
+      weekStart: row.weekStart,
+      mood: row.mood as MentorMood,
+      headline: row.headline,
+      greeting: body.greeting ?? null,
+      paragraphs: Array.isArray(body.paragraphs) ? body.paragraphs : [],
+      askNextWeek: body.askNextWeek ?? null,
+      ask: body.ask ?? null,
+      commitment:
+        row.commitment === "accepted" || row.commitment === "declined"
+          ? row.commitment
+          : null,
+      committedAt: row.committedAt ?? null,
+      commitmentNote: row.commitmentNote ?? null,
+      plan: row.plan ?? null,
+      planSuggestions:
+        body.reflection && askMetric !== undefined
+          ? obstaclePlanSuggestions(askMetric)
+          : [],
+      reflection: body.reflection ?? null,
+      reflectionAnswer: row.reflectionAnswer,
+      allGoalsMet: body.allGoalsMet === true,
+      wins: Array.isArray(body.wins) ? body.wins : [],
+      createdAt: row.createdAt,
+    };
+  }
+
+  static turnDto(row: {
+    id: string;
+    role: string;
+    text: string;
+    createdAt: Date;
+  }): MentorTurnDto {
+    return {
+      id: row.id,
+      role: row.role as "user" | "mentor",
+      text: row.text,
+      createdAt: row.createdAt,
+    };
+  }
 }
 
-/** הטרנזקציה כפי ש-`withTenant` מוסרת אותה. */
-type PrismaTx = Parameters<Parameters<PrismaService["withTenant"]>[0]>[0];
+/** רעיון הבוקר האחרון שנשלח — נשמר בשליחה כדי שהמשוב מוואטסאפ ידע על מה. */
+function lastIdeaOf(
+  preferences: unknown,
+): { key: string; text: string; date: string } | null {
+  const mentor =
+    typeof preferences === "object" && preferences !== null
+      ? (preferences as { mentor?: unknown }).mentor
+      : undefined;
+  const last =
+    typeof mentor === "object" && mentor !== null
+      ? (mentor as { lastIdea?: unknown }).lastIdea
+      : undefined;
+  if (typeof last !== "object" || last === null) return null;
+  const { key, text, date } = last as Record<string, unknown>;
+  return typeof key === "string" &&
+    typeof text === "string" &&
+    typeof date === "string"
+    ? { key, text, date }
+    : null;
+}

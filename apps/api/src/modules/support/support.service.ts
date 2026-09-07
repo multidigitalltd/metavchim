@@ -575,6 +575,8 @@ export class SupportService {
         supportReplySubject(context),
         supportReplyEmail({ body: replyBody, context }),
         {
+          /* ‏אותו כלל: הרשומה הממתינה היא הזהות, ולא הנוסח */
+          idempotency: { key: `ticketreply:${messageId}`, purpose: "support" },
           /*
            * ‎`required` — **זה כל השינוי.** בלעדיו דחייה של הספק
            * נבלעת, והמסך מדווח „נענה” על מייל שלא יצא.

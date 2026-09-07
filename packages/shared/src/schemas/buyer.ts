@@ -75,6 +75,23 @@ export const FloorPreferenceSchema = z.union([
 export type FloorPreference = z.infer<typeof FloorPreferenceSchema>;
 
 /** דרישה בודדת של קונה: חובה או עדיפות — ההבחנה מזינה ישירות את מנוע ההתאמות. */
+/**
+ * ‎**עמדת הקונה כלפי רישום בטאבו משותף (מושאע).**
+ *
+ * ‏שלושה מצבים ולא שניים, ו-`undefined` הוא המצב השלישי: **טרם
+ * ‏נשאל.** זו אינה זהירות פורמלית אלא ההבדל בין „הקונה אמר לא”
+ * ‏לבין „איש לא שאל אותו”, ושתי התשובות מובילות לפעולה הפוכה של
+ * ‏המתווך — האחת סוגרת את הנכס והשנייה פותחת שיחה.
+ *
+ * ‏אילו החוסר היה נקרא כסירוב, כל אלפי הקונים שקדמו לשדה היו
+ * ‏מפסיקים לראות נכסים בטאבו משותף באותו רגע, בלי שאיש בחר בכך.
+ * ‏אילו הוא היה נקרא כהסכמה, המערכת הייתה ממציאה הסכמה משפטית
+ * ‏בשם הלקוח. לכן הוא נשאר „לא ידוע”, מוצג ככזה, ואינו מפעיל
+ * ‏שותפויות.
+ */
+export const SharedTabuStanceSchema = z.enum(["accepts", "refuses"]);
+export type SharedTabuStance = z.infer<typeof SharedTabuStanceSchema>;
+
 export const RequirementLevelSchema = z.enum(["must", "nice"]);
 
 export const BuyerRequirementsSchema = z.object({
@@ -160,6 +177,16 @@ export const BuyerRequirementsSchema = z.object({
   /** רלוונטי ל-`by_date` בלבד. */
   entryBy: z.coerce.date().optional(),
   flexibilityNotes: z.string().max(1000).optional(),
+  /**
+   * ‎**האם הקונה מוכן לרכוש נכס הרשום בטאבו משותף.**
+   *
+   * ‏כאן ולא על הכרטיס האישי, ובכוונה: `contacts.shared_tabu` אומר
+   * ‏שאדם **קשור** לרישום משותף — מוכר שהחלקה שלו כזו, שותף קיים —
+   * ‏וזו עובדה על האדם. השאלה כאן היא מה הוא מוכן **לקנות**, וזו
+   * ‏העדפה של הקונה ככל העדפה אחרת. שדה אחד שנושא את שתיהן היה
+   * ‏מציע לבעל חלקה משותפת לקנות מושאע רק משום שהוא מוכר כזה.
+   */
+  sharedTabu: SharedTabuStanceSchema.optional(),
 });
 export type BuyerRequirements = z.infer<typeof BuyerRequirementsSchema>;
 

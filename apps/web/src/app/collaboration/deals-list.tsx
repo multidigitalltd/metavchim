@@ -10,7 +10,7 @@ import {
 } from "@metavchim/shared";
 import { apiGet, mediaSrc } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import { IconHandshake, IconUsers } from "../icons";
+import { IconEye, IconHandshake } from "../icons";
 import { LoadError } from "../load-error";
 
 /**
@@ -75,19 +75,28 @@ export function DealsList() {
       id="coop-panel-deals"
       role="tabpanel"
       aria-labelledby="coop-tab-deals"
-      className="mb-8"
+      className="mv-card mv-card--pad mb-[18px]"
     >
-      <h2 className="mb-1 text-lg font-semibold">
-        <IconHandshake s={17} /> עסקאות משותפות
-      </h2>
-      <p
-        className="mb-4 text-[length:var(--type-body)]"
-        style={{ color: "var(--color-text-muted)" }}
-      >
-        כל חיבור שאושר פותח כאן חדר משותף: פרטי הסוכן שמולכם, כתובת
-        הנכס, שרשור לתיאום ושלבי העסקה. הלקוחות נשארים אצל המשרד
-        שהביא אותם.
-      </p>
+      {/* אותה כותרת כמו בשאר לשוניות הרשת — אריח, שם, מונה, ומשפט בקצה */}
+      <div className="mv-card-head">
+        <span className="mv-tile mv-tile--44 mv-domain-green" aria-hidden="true">
+          <IconHandshake s={20} />
+        </span>
+        <h2 className="mv-card-head__title">עסקאות משותפות</h2>
+        {open.length + closed.length > 0 ? (
+          <span className="mv-pill mv-domain-green">
+            {[
+              open.length > 0 ? `${open.length} בתהליך` : null,
+              closed.length > 0 ? `${closed.length} נסגרו` : null,
+            ]
+              .filter((part): part is string => part !== null)
+              .join(" · ")}
+          </span>
+        ) : null}
+        <p className="mv-card-head__note">
+          כל עסקה שנסגרה בשיתוף, עם חלוקת העמלה שנחתמה
+        </p>
+      </div>
 
       {failed ? (
         <LoadError message="לא הצלחנו לטעון את העסקאות המשותפות" onRetry={load} />
@@ -110,7 +119,7 @@ export function DealsList() {
 
       {closed.length > 0 ? (
         <>
-          <h3 className="mt-6 mb-3 text-base font-semibold">
+          <h3 className="mt-5 mb-3 text-[length:var(--type-row-title)] font-bold">
             עסקאות שנסגרו ({closed.length})
           </h3>
           <ul className="mv-net-grid" aria-label="עסקאות שנסגרו">
@@ -124,49 +133,64 @@ export function DealsList() {
   );
 }
 
+/**
+ * ‏כרטיס עסקה — באותה שפה של כרטיס הרשת.
+ *
+ * ‏מי מולי בראש, מצב העסקה בצד השני, הכותרת, ואז שני אריחי מספרים.
+ * הכרטיס אינו קישור אחד ענק אלא כרטיס עם פעולה בתחתיתו: קישור
+ * שעוטף חמישה אזורים נקרא לקורא מסך כשם אחד ארוך, ואי אפשר לבחור
+ * ממנו טקסט.
+ */
 function DealCard({ deal }: { deal: DealSummary }) {
   return (
-    <li className="mv-net-card">
-      <Link
-        href={`/collaboration/deals/${deal.id}`}
-        className="block p-4 no-underline"
-        style={{ color: "inherit" }}
-      >
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <span
-            className="mv-pill"
-            style={{ color: stageTone(deal.stage) }}
-          >
-            {COOP_DEAL_STAGE_LABELS[deal.stage]}
-          </span>
-          <span className="flex items-center gap-1.5 text-[length:var(--type-body-sm)]">
+    <li className="mv-net-card mv-domain-green">
+      <div className="mv-net-top">
+        <span className="mv-net-office">
+          <span className="mv-net-office__avatar" aria-hidden="true">
             {deal.counterpartLogoUrl === undefined ? (
-              <IconUsers s={15} />
+              deal.counterpartOffice.trim().slice(0, 1)
             ) : (
               /*
                * `img` ולא `next/image`: הלוגו מוזרם דרך ה-API עם
                * העוגייה של המשתמש, ואופטימיזציה בשרת הייתה מנסה
                * למשוך אותו בלי הזדהות.
                */
-              <img
-                src={mediaSrc(deal.counterpartLogoUrl)}
-                alt=""
-                loading="lazy"
-                style={{ height: 20, width: "auto", borderRadius: 4 }}
-              />
+              <img src={mediaSrc(deal.counterpartLogoUrl)} alt="" loading="lazy" />
             )}
-            {deal.counterpartOffice}
           </span>
+          <span className="min-w-0">
+            <span className="mv-net-office__name">{deal.counterpartOffice}</span>
+            <span className="mv-net-office__place">
+              עודכן {formatDate(deal.lastActivityAt)}
+            </span>
+          </span>
+        </span>
+        <span className="mv-pill" style={{ color: stageTone(deal.stage) }}>
+          {COOP_DEAL_STAGE_LABELS[deal.stage]}
+        </span>
+      </div>
+
+      <div className="mv-net-titlerow">
+        <h3 className="mv-net-hero-title">{deal.title}</h3>
+      </div>
+      <p className="mv-net-sub">
+        {coopDealSplitLabel(deal.commissionSplit, deal.mySide)}
+      </p>
+
+      <div className="mv-net-cardfoot">
+        <div className="mv-net-meta">
+          <span className="mv-net-meta-id">#{deal.id.slice(-5)}</span>
         </div>
-        <p className="m-0 mb-1 font-bold">{deal.title}</p>
-        <p
-          className="m-0 text-[length:var(--type-body-sm)]"
-          style={{ color: "var(--color-text-muted)" }}
-        >
-          {coopDealSplitLabel(deal.commissionSplit, deal.mySide)} · עודכן{" "}
-          {formatDate(deal.lastActivityAt)}
-        </p>
-      </Link>
+        <div className="mv-net-actions">
+          <Link
+            href={`/collaboration/deals/${deal.id}`}
+            className="mv-net-act mv-net-act--go"
+            style={{ textDecoration: "none" }}
+          >
+            <IconEye s={15} /> חדר העסקה
+          </Link>
+        </div>
+      </div>
     </li>
   );
 }

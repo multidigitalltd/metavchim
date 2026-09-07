@@ -130,25 +130,6 @@ export function DocSection({
   );
 }
 
-/** ניווט העמוד — צ'יפים שקופצים לסעיפים. */
-export function DocNav({
-  items,
-  label,
-}: {
-  items: { id: string; title: string }[];
-  label: string;
-}) {
-  return (
-    <nav aria-label={label} className="mb-8 flex flex-wrap gap-2">
-      {items.map((item) => (
-        <a key={item.id} href={`#${item.id}`} className="mv-chip no-underline">
-          {item.title}
-        </a>
-      ))}
-    </nav>
-  );
-}
-
 /**
  * הסימן של המערכת מעל התיעוד.
  *
@@ -199,7 +180,7 @@ export function DocHeader({
 }: {
   title: string;
   lead: string;
-  current: "product" | "api" | "telephony";
+  current: "product" | "api" | "telephony" | "whatsapp";
 }) {
   const chip = (isCurrent: boolean) => ({
     className: `mv-chip no-underline${isCurrent ? " font-extrabold" : ""}`,
@@ -222,6 +203,9 @@ export function DocHeader({
         <a href="/docs/telephony" {...chip(current === "telephony")}>
           חיבור שיחות ומרכזייה
         </a>
+        <a href="/docs/whatsapp" {...chip(current === "whatsapp")}>
+          חיבור וואטסאפ עסקי
+        </a>
       </nav>
       <h1 className="mb-2 text-2xl font-bold">{title}</h1>
       <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -241,7 +225,7 @@ export function DocHeader({
  * שום דבר לעשות בה. שער הנכסים (`verify:assets`) כבר מוודא שכל
  * נתיב שנכתב קיים ב-`public`, וזו ההגנה האמיתית.
  */
-export function DocImage({ src, alt }: { src: string; alt: string }) {
+function DocImage({ src, alt }: { src: string; alt: string }) {
   return (
     // img רגיל בכוונה — קבצים סטטיים מ-public, בלי אופטימיזציית Next
     <img
@@ -329,7 +313,7 @@ export function GuideBody({ guide }: { guide: Guide }) {
 }
 
 /** הערה בתוך הרצף — מה שחייב להיקרא, ולא עוד פסקה. */
-export function DocCallout({ children }: { children: React.ReactNode }) {
+function DocCallout({ children }: { children: React.ReactNode }) {
   return (
     <p
       className="mt-3 mb-0 rounded-lg border p-3 text-[length:var(--type-body-sm)] leading-relaxed"

@@ -1,6 +1,8 @@
 import type { Prisma, Property as PropertyRow } from "@prisma/client";
 import {
+  isSharedTabuProperty,
   normalizeCustomFeatures,
+  SHARED_TABU_PROPERTY_TYPE,
   type CustomFeature,
   type OccupancyState,
   type PropertyFields,
@@ -37,6 +39,19 @@ export function rowToFields(row: PropertyRow): PropertyFields {
     hasBalcony: row.hasBalcony ?? undefined,
     hasSafeRoom: row.hasSafeRoom ?? undefined,
     hasStorage: row.hasStorage ?? undefined,
+    /*
+     * ‏`false` הוא ערך ולא היעדר — הסימון של המתווך, כפי שהוא.
+     *
+     * ‏ומעליו הגזירה מהסוג: `shared_tabu` הוא ערך ותיק ב-
+     * ‎`PropertyTypeSchema`, ושורות שנרשמו כך (מחלץ ההקלטה, ייבוא
+     * ‏CSV, וכל מה שקדם לעמודה) נושאות את העובדה שם. קריאה של
+     * ‏העמודה בלבד הייתה מחזירה `false` דווקא לנכסים שהתכונה
+     * ‏נבנתה בשבילם.
+     */
+    sharedTabu: isSharedTabuProperty({
+      sharedTabu: row.sharedTabu,
+      propertyType: row.propertyType,
+    }),
     condition: (row.condition as PropertyFields["condition"]) ?? undefined,
     priceAgorot: row.priceAgorot === null ? undefined : Number(row.priceAgorot),
     priceFlexible: row.priceFlexible ?? undefined,
@@ -120,7 +135,23 @@ export interface PropertyDto extends PropertyFields {
   updatedAt: Date;
 }
 
-export function fieldsToColumns(fields: Partial<PropertyFields>): Prisma.PropertyUpdateInput {
+/**
+ * ‎**הסוג השמור, כשה-Patch אינו נושא אותו** (ביקורת Codex, P2).
+ *
+ * ‏פרישת הייצוג הישן נבדקה על מה שנשלח בלבד, ולכן היא עבדה רק
+ * ‏בגלל שטופס העריכה שולח את השדות כולם. `PATCH /properties/:id`
+ * ‏עם `{ "sharedTabu": false }` לבדו — בקשה תקפה לחלוטין לפי
+ * ‏`UpdatePropertySchema` — כתב `false` לעמודה והשאיר את הסוג
+ * ‏הישן על כנו, ואז `rowToFields` גזר `true` בחזרה. כלומר דרך
+ * ‏ה-API לא הייתה שום דרך לכבות את הסיווג.
+ *
+ * ‏הכלל אינו „מה נשלח” אלא „מה יהיה בשורה”: הסוג שאחרי העדכון הוא
+ * ‏מה שנשלח אם נשלח, ואחרת מה ששמור.
+ */
+export function fieldsToColumns(
+  fields: Partial<PropertyFields>,
+  current?: { propertyType?: string | null },
+): Prisma.PropertyUpdateInput {
   const out: Prisma.PropertyUpdateInput = {};
   if ("city" in fields) out.city = fields.city ?? null;
   if ("neighborhood" in fields) out.neighborhood = fields.neighborhood ?? null;
@@ -137,6 +168,45 @@ export function fieldsToColumns(fields: Partial<PropertyFields>): Prisma.Propert
   if ("hasBalcony" in fields) out.hasBalcony = fields.hasBalcony ?? null;
   if ("hasSafeRoom" in fields) out.hasSafeRoom = fields.hasSafeRoom ?? null;
   if ("hasStorage" in fields) out.hasStorage = fields.hasStorage ?? null;
+  /*
+   * ‏העמודה `NOT NULL`, ולכן „לא נשלח” נופל ל-`false` ולא ל-`null`.
+   *
+   * ‏והיא נכתבת גם כשרק **הסוג** נשלח: מחלץ ההקלטה וייבוא ה-CSV
+   * ‏מייצרים `propertyType: "shared_tabu"` ולא נוגעים בדגל, ובלי
+   * ‏הענף הזה הם היו כותבים שורה שהעמודה שלה סותרת את הסוג שלה
+   * ‏— והסינון המאונדקס היה מפספס אותם.
+   */
+  if ("sharedTabu" in fields) {
+    /*
+     * ‎**וכיבוי מפורש פורש גם את הסוג הישן** (ביקורת Codex, P2).
+     *
+     * ‏`isSharedTabuProperty` מסתכל על שניהם, ולכן טופס העריכה —
+     * ‏ששולח את הסוג שלא נגעו בו יחד עם `sharedTabu: false` —
+     * ‏קיבל `true` בחזרה. התיבה חזרה מסומנת אחרי כל שמירה, ולא
+     * ‏הייתה שום דרך לכבות את הדגל מלבד לדעת לשנות בורר סוג שאין
+     * ‏לו קשר גלוי לתיבה.
+     *
+     * ‏„לא בטאבו משותף” על שורה שהסוג שלה הוא הייצוג הישן פירושו
+     * ‏שהייצוג הישן שגוי, ולכן הוא **נפרש**: הסוג חוזר ל„לא ידוע”.
+     * ‏אין בכך אובדן מידע — `shared_tabu` מעולם לא תיאר צורת מבנה,
+     * ‏וזה בדיוק הנימוק שבגללו הוא הוסב לדגל מלכתחילה.
+     */
+    const effectiveType =
+      "propertyType" in fields ? fields.propertyType : (current?.propertyType ?? undefined);
+    const retiring = fields.sharedTabu === false && effectiveType === SHARED_TABU_PROPERTY_TYPE;
+    out.sharedTabu = retiring ? false : isSharedTabuProperty(fields);
+    if (retiring) out.propertyType = null;
+  } else if (fields.propertyType === SHARED_TABU_PROPERTY_TYPE) {
+    /*
+     * ‎**הסוג מדליק, ולעולם לא מכבה.**
+     *
+     * ‏`PATCH` שנוגע רק בסוג אינו אומר דבר על הדגל, ולכן גזירה
+     * ‏סימטרית כאן הייתה **מוחקת** סימון מפורש של המתווך ברגע
+     * ‏שמישהו שינה „דירה” ל„פנטהאוז” — נתון שנמחק בלי שאיש ביקש.
+     * ‏הדגל נשלט רק על ידי מי ששולח אותו.
+     */
+    out.sharedTabu = true;
+  }
   if ("condition" in fields) out.condition = fields.condition ?? null;
   if ("priceAgorot" in fields)
     out.priceAgorot = fields.priceAgorot === undefined ? null : BigInt(fields.priceAgorot);

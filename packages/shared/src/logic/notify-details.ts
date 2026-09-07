@@ -107,6 +107,23 @@ export interface TaskDetail extends DetailBase {
   title: string;
   dueAt: Date | null;
   about: string | null;
+  /**
+   * ‎**היכולת שנדרשת כדי לראות את `about`** — או `null` כשאין כזו.
+   *
+   * ‏המשימה עצמה נראית למי שהיא שלו (`canSeeNotifyDetail`), אבל
+   * ‏‎`about` אינו המשימה: הוא **שם הישות שהיא תלויה עליה**, ולה
+   * ‏יש הרשאה משלה. שורת גיוס נשענת על `properties.view` — אותה
+   * ‏יכולת שהנתיב שלה דורש, שהתווית במסך המשימות נשענת עליה,
+   * ‏ושהקישור בפעמון נשען עליה. בלי השדה הזה התזכורת בוואטסאפ
+   * ‏הייתה המקום היחיד שאומר את הכתובת למי שנשללה ממנו.
+   *
+   * ‏שדה ולא `switch` על סוג הישות: את הישות מכיר מי שבנה את
+   * ‏הפרט, וכאן כבר אין אותה — יש רק מחרוזת.
+   *
+   * ‎`null` הוא ההצהרה של „אין דרישה נוספת”, ולא השמטה: קונה
+   * ‏וליד רוכבים על נראות המשימה עצמה.
+   */
+  aboutNeeds: string | null;
 }
 
 export interface AppointmentDetail extends DetailBase {
@@ -122,6 +139,18 @@ export interface ContactDetail extends DetailBase {
   person: NotifyPerson;
 }
 
+/**
+ * הסיכום השבועי של המנטור — לא שורות פירוט אלא **אילו כפתורים יש
+ * לו**: „מתחייב” רק כשיש בקשה לשבוע הבא, „לענות למנטור” רק כשיש
+ * שאלה. כפתור שמוביל ל„אין בקשה” הוא הבטחה שנשברת (ביקורת Codex).
+ * הבעלים הוא המתווך שהסיכום שלו; אין לו קוראים אחרים.
+ */
+export interface MentorReviewDetail extends DetailBase {
+  kind: "mentor_review";
+  ask: boolean;
+  reflection: boolean;
+}
+
 export type NotifyDetail =
   | LeadDetail
   | BuyerDetail
@@ -129,7 +158,8 @@ export type NotifyDetail =
   | OfferDetail
   | TaskDetail
   | AppointmentDetail
-  | ContactDetail;
+  | ContactDetail
+  | MentorReviewDetail;
 
 /* ==================== שער ההרשאה ==================== */
 
@@ -203,6 +233,9 @@ export function canSeeNotifyDetail(detail: NotifyDetail, viewer: DetailViewer): 
        * דרך לדעת אם הכרטיס הזה שלו, ולכן ברירת המחדל היא לא.
        */
       return has("leads.view_all") || has("buyers.view_all");
+    case "mentor_review":
+      // הסיכום הוא של המתווך בלבד — מנהל אינו קורא אותו (docs/14 §1)
+      return detail.ownerUserId === viewer.userId;
   }
 }
 
@@ -328,7 +361,12 @@ export function notifyDetailLines(detail: NotifyDetail, viewer: DetailViewer): s
           `🕓 ליום ${formatJerusalemDate(detail.dueAt)} בשעה ${formatJerusalemTime(detail.dueAt)}`,
         );
       }
-      if (detail.about !== null) lines.push(`🔗 ${detail.about}`);
+      if (
+        detail.about !== null &&
+        (detail.aboutNeeds === null || viewer.capabilities.includes(detail.aboutNeeds))
+      ) {
+        lines.push(`🔗 ${detail.about}`);
+      }
       return lines;
     }
     case "appointment": {
@@ -341,5 +379,8 @@ export function notifyDetailLines(detail: NotifyDetail, viewer: DetailViewer): s
     }
     case "contact":
       return [personLine(detail.person)];
+    case "mentor_review":
+      // הסיכום עצמו כבר בגוף ההודעה; הפרט הזה נושא רק את הכפתורים
+      return [];
   }
 }

@@ -1,0 +1,501 @@
+import { MATCHABLE_PROPERTY_STATUSES, type PropertyFields } from "../schemas/property.js";
+import type { BuyerRequirements } from "../schemas/buyer.js";
+import {
+  budgetBandAgorot,
+  DEFAULT_MATCH_WEIGHTS,
+  scoreMatch,
+  type MatchWeights,
+} from "./matching.js";
+import { formatIsraeliNumber } from "./israel-time.js";
+import { buyerSharedTabuStance, isSharedTabuProperty, sharedTabuFit } from "./shared-tabu.js";
+
+/**
+ * ‎**שידוך שותפים — שני קונים על נכס אחד.**
+ *
+ * ‏נכס בטאבו משותף כבר רשום כחלקים בלתי מסוימים, ולכן שני קונים
+ * ‏יכולים לקחת בו חלקים בלי לפצל דבר. זו העסקה שמתווך מנוסה בונה
+ * ‏בראש כשהוא רואה שני לקוחות שאינם מגיעים לבד — והמערכת לא ידעה
+ * ‏לראות אותה, כי המנוע שואל תמיד „קונה אחד מול נכס אחד”.
+ *
+ * ## ‏שלושה כללים שמגדירים מה בכלל שותפות
+ *
+ * ‎**א. אף אחד מהשניים אינו מגיע לבד.** אחרת אין מה להציע: מי
+ * ‏שיכול לרכוש לבדו כבר מופיע ברשימת ההתאמות הרגילה, ושליחת שותף
+ * ‏אליו היא רעש. הגבול הוא בדיוק רצועת התקציב של המנוע, ולכן
+ * ‏שתי הרשימות **זרות זו לזו**: כל קונה מופיע באחת מהן ולא בשתיהן.
+ *
+ * ‎**ב. שניהם אישרו מראש טאבו משותף.** „טרם נשאל” אינו נכנס. הצעת
+ * ‏נכס למי שלא נשאל היא שיחה; צירופו לשותפות עם אדם אחר היא ייחוס
+ * ‏החלטה משפטית שמעולם לא קיבל.
+ *
+ * ‎**ג. כל אחד מהם מתאים לנכס בכל **שאר** הקריטריונים.** לא „בערך”
+ * ‏ולא „מספיק קרוב”: אותו מנוע, אותם כללים, כשקריטריון התקציב
+ * ‏מוסר משני הצדדים. זו הנקודה היחידה שבה מותר לוותר על התקציב,
+ * ‏כי הוא בדיוק מה שהשותפות באה לפתור.
+ *
+ * ‎**מדוע לספק את התקציב ולא לחשב תקציב משותף.** תקציב משותף היה
+ * ‏עותק שני של רצועת הגמישות, של הרצפה ושל ההבחנה בין מכירה
+ * ‏לשכירות — כלל אחד בשני ניסוחים, שהיום מסכימים ובעוד שינוי אחד
+ * ‏לא יסכימו. במקום זה המועמד נמדד עם תקציב **שווה למחיר הנכס**:
+ * ‏זו האמת בשידוך — הצמד מכסה את המחיר בהגדרה — והמנוע עונה עליה
+ * ‏בכלים שלו, כולל הכיסוי המלא שהיא מזכה בו.
+ */
+
+/** קונה מועמד לשותפות — הדרישות בלבד; מי הוא, ומה מותר לראות עליו, נשאר בשרת. */
+export interface PartnerCandidate {
+  buyerId: string;
+  requirements: BuyerRequirements;
+  /**
+   * ‎**מי האדם שמאחורי הכרטיס — כדי שלא נשדך אותו לעצמו** (ביקורת Codex, P1).
+   *
+   * ‏למערכת מותר שיהיו שני כרטיסי קונה על אותו איש קשר: שתי
+   * ‏דרישות שונות של אותו אדם („דירה להשקעה” ו„דירה למגורים”),
+   * ‏או שארית של מיזוג כרטיסים. שני כרטיסים כאלה **אינם שני
+   * ‏אנשים**, ושותפות ביניהם היא הכפלה של כוח הקנייה של אדם אחד
+   * ‏— הצעה שנראית מצוינת על המסך ומתפוגגת בשיחה הראשונה.
+   *
+   * ‏המפתח אינו „מזהה איש הקשר” בשמו, כי המנוע אינו יודע דבר על
+   * ‏אנשי קשר ואינו אמור לדעת: הוא מקבל **מפתח זהות** מהשרת, ומי
+   * ‏שקורא לו מחליט מה מגדיר „אותו אדם”. חסר = הכרטיס עומד בפני
+   * ‏עצמו, וזו ברירת המחדל הבטוחה למי שאין לו מידע כזה.
+   */
+  partnerKey?: string;
+}
+
+/** חלקו של שותף אחד בעסקה. */
+export interface PartnerShare {
+  buyerId: string;
+  /** ‏התקציב שהצהיר — הבסיס לחלוקה, ולכן מוצג לצדה */
+  budgetMaxAgorot: number;
+  /** ‏חלקו במחיר. שני החלקים מסתכמים **בדיוק** במחיר. */
+  shareAgorot: number;
+  /** ‏הציון האישי שלו על הנכס, 0–100, בלי קריטריון התקציב */
+  score: number;
+}
+
+export interface PartnerPair {
+  partners: readonly [PartnerShare, PartnerShare];
+  combinedBudgetAgorot: number;
+  /** ‏כמה התקציב המשותף עודף על המחיר. אפס = בדיוק, וזה הצמד ההדוק ביותר. */
+  headroomAgorot: number;
+  /** ‏ציון הצמד, 0–100 — ראו `pairScore` */
+  score: number;
+  explanation: string;
+}
+
+/**
+ * ‏תקרת המועמדים שנשקלים.
+ *
+ * ‏העלות היא קריאה ל-`scoreMatch` לכל מועמד (ליניארי), והצימוד
+ * ‏עצמו הוא אריתמטיקה על צמדים (ריבועי אך זול). 60 מועמדים הם
+ * ‏1,770 צמדים — זניח — ובכל זאת יש תקרה: משרד עם אלפי קונים היה
+ * ‏מריץ אלפי ניקודים בכל פתיחת כרטיס נכס.
+ *
+ * ‏החיתוך הוא **לפי סדר הקלט**, ולכן הוא באחריות הקורא: השרת
+ * ‏שולח את הקונים בסדר שהוא בוחר, והוא זה שיודע מי „הפעילים
+ * ‏ביותר”. מיון כאן היה דורש לנקד את כולם — כלומר בדיוק את העלות
+ * ‏שהתקרה נועדה למנוע.
+ */
+export const PARTNER_CANDIDATE_MAX = 60;
+
+/**
+ * ‎**כמה שורות נסרקות מהמסד — ולא כמה מועמדים מתקבלים**
+ * ‏(ביקורת Codex, P2, סבב שני).
+ *
+ * ‏שני מספרים ולא אחד, כי אלה שתי שאלות. `PARTNER_CANDIDATE_MAX`
+ * ‏חוסם את **הזיווג**, שהוא ריבועי, ולכן הוא נספר על מועמדים
+ * ‏ש`partnerPairs` כבר קיבל — אחרי בדיקת הסוג, החדרים והתכונות.
+ * ‏המספר כאן חוסם את **השאילתה**, וזה החסם היחיד שהיה קיים.
+ *
+ * ‏זו הייתה הטעות: התקרה נלקחה ב-`take`, כלומר על שורות שאיש לא
+ * ‏בדק עדיין. הסינון הגס ב-SQL מכסה עמדה, תקציב, סוג עסקה ועיר —
+ * ‏אבל לא סוג נכס, לא חדרים ולא תכונות. שישים קונים בעיר הנכונה
+ * ‏שמחפשים בית פרטי מילאו את התקרה, נפלו כולם במנוע, והמסך אמר
+ * ‏„אין שותפויות” למשרד שיש לו.
+ *
+ * ‏עכשיו התקרה חותכת **מועמדים שהתקבלו**, כי היא ממילא נאכפת
+ * ‏במנוע (`scored.length >= PARTNER_CANDIDATE_MAX`). הסריקה גדולה
+ * ‏פי חמישה, והמחיר הוא `scoreMatch` על שורות שיידחו — פונקציה
+ * ‏טהורה בלי גישה למסד, בעוד הזיווג הריבועי נשאר חסום ב-60.
+ *
+ * ‏החיתוך לא נעלם: מעל 300 קונים שעברו את הסינון הגס, סדר התקציב
+ * ‏עדיין מכריע מי לא נשקל. זה חסם על קונים **סבירים**, ולא על
+ * ‏קונים אקראיים — וזה ההבדל שהממצא הצביע עליו.
+ */
+export const PARTNER_CANDIDATE_SCAN = 300;
+
+/**
+ * ‎**וכמה שורות מותר לקרוא כדי להגיע ל-300 האנשים האלה**
+ * ‏(ביקורת Codex, P2, סבב שלישי).
+ *
+ * ‏`PARTNER_CANDIDATE_SCAN` הוא מספר **אנשים**, ו-`take` במסד סופר
+ * ‏**שורות**: לקוח אחד עם 300 כרטיסים כשירים מילא את הסריקה בעצמו,
+ * ‏והשאילתה חזרה עם אדם אחד. אותו באג בדיוק שתוקן בתוך המנוע
+ * ‏(`PARTNER_CANDIDATE_MAX` סופר זהויות) — שכבה אחת למטה, במסד.
+ *
+ * ‏הפתרון הוא דפדוף עד שנבחנו מספיק **אנשים**, ולכן צריך גם גבול
+ * ‏עליון לעבודה: ארבעה דפים. משרד שבו ארבע שורות בממוצע לכל אדם
+ * ‏מגיע ל-300 אנשים בדף אחד; המספר הזה הוא מה שקורה כשהוא לא.
+ *
+ * ‎**וזה חסם ולא ביטול החסם**: לקוח עם 1,200 כרטיסים כשירים עדיין
+ * ‏יכול למלא אותו. ההבדל הוא בסדר הגודל שנדרש לכך, ובכך שהחיתוך
+ * ‏מודע לו — הלולאה עוצרת על „מספיק אנשים”, לא על „מספיק שורות”.
+ */
+export const PARTNER_CANDIDATE_ROW_CAP = PARTNER_CANDIDATE_SCAN * 4;
+
+/** ‏כמה צמדים מוחזרים. רשימה ארוכה של שותפויות אינה נקראת. */
+export const PARTNER_PAIR_LIMIT = 10;
+
+/**
+ * ‎**ציון הצמד הוא החלש מבין השניים, ולא הממוצע.**
+ *
+ * ‏ממוצע מאפשר להתאמה מושלמת לגרור אחריה מישהו שהנכס אינו מתאים
+ * ‏לו — והתוצאה על המסך היא „92%” על צמד שאחד מחבריו לא היה נוסע
+ * ‏לראות את הדירה. שותפות דורשת ששניהם ירצו; לכן החוליה החלשה היא
+ * ‏הציון.
+ */
+export function pairScore(a: number, b: number): number {
+  return Math.min(a, b);
+}
+
+/**
+ * ‏חלוקת המחיר בין שני שותפים, יחסית לתקציב שהצהירו.
+ *
+ * ‏העיגול נעשה **כלפי מטה על הקטן**: השארית נופלת על בעל התקציב
+ * ‏הגדול. חלוקה שמעגלת כלפי מעלה על הצד החלש מבקשת ממנו אגורות
+ * ‏שלא הצהיר עליהן, וזה בדיוק הצד שהמספר קריטי עבורו.
+ *
+ * ‎**החישוב ב-`bigint`, ולא כי „מספרים גדולים”** (ביקורת Codex, P2).
+ *
+ * ‏המכפלה `מחיר × תקציב` היא מכפלת שתי אגורות, ובמחירי דיור רגילים
+ * ‏היא חורגת מטווח השלמים הבטוח של JavaScript: `Number` מעגל אותה
+ * ‏עוד **לפני** ה-`floor`, ולכן החלק של הקטן יורד באגורה והשארית
+ * ‏שנופלת על הגדול עולה על התקציב שהוא הצהיר עליו. `166322027`
+ * ‏ל-`59840431` ול-`106481596` הוא בדיוק זה — שני התקציבים
+ * ‏מסתכמים למחיר במדויק, והחלוקה מבקשת מהשני אגורה אחת יותר.
+ *
+ * ‏ה-`bigint` הוא מה שמקיים את ההבטחה: כשהשניים מכסים את המחיר,
+ * ‏אף אחד מהם אינו חורג ממה שהצהיר. חלוקה שכן חורגת היא בדיוק
+ * ‏השיחה שהמתווך יגלה בסופה שאין לה כיסוי.
+ */
+export function splitShares(
+  priceAgorot: number,
+  lowerBudget: number,
+  higherBudget: number,
+): { lower: number; higher: number } {
+  const combined = lowerBudget + higherBudget;
+  if (combined <= 0) return { lower: 0, higher: priceAgorot };
+  /*
+   * ‏אגורה היא יחידה שלמה בכל הסכימה, ו-`trunc` כאן אינו עיגול
+   * ‏אלא הגנה: `BigInt` על ערך שברי זורק, וחריגה בשליפת רשימה
+   * ‏גרועה מחלוקה שנקטעה באגורה.
+   */
+  const proportional = Number(
+    (BigInt(Math.trunc(priceAgorot)) * BigInt(Math.trunc(lowerBudget))) /
+      BigInt(Math.trunc(combined)),
+  );
+  const lower = Math.min(lowerBudget, proportional);
+  return { lower, higher: priceAgorot - lower };
+}
+
+interface ScoredCandidate {
+  buyerId: string;
+  partnerKey: string;
+  budgetMaxAgorot: number;
+  score: number;
+}
+
+/**
+ * ‎**האם שידוך שותפים בכלל שייך לנכס הזה** (ביקורת Codex, P2).
+ *
+ * ‏זו שאלה שקודמת ל„מי המועמדים”, והיא נשאלה בשלושה מקומות:
+ * ‏במנוע, בשירות, ובתנאי שמרכיב את המקטע במסך. השניים הראשונים
+ * ‏הסכימו והשלישי לא — ולכן נכס שנמכר, נכס להשכרה או נכס בלי מחיר
+ * ‏קיבלו מקטע שאומר „לא נמצאו שני לקוחות מתאימים”, בזמן שהחישוב
+ * ‏מעולם לא רץ. „אין תוצאה” ו„לא רלוונטי” הם שני מסרים שונים,
+ * ‏ורק אחד מהם נכון.
+ *
+ * ‎`status` אופציונלי כי המנוע עצמו אינו מקבל אותו: הוא נשאל על
+ * ‏שדות הנכס ולא על מצבו בשיווק, וזה נבדק בשירות. מי שכן מחזיק
+ * ‏אותו — המסך והשירות — מוסר אותו, ואז הוא נבדק כאן.
+ */
+export function partnershipApplies(property: {
+  sharedTabu?: boolean | null | undefined;
+  propertyType?: string | null | undefined;
+  dealType?: string | null | undefined;
+  priceAgorot?: number | null | undefined;
+  status?: string | null | undefined;
+}): boolean {
+  if (!isSharedTabuProperty({ sharedTabu: property.sharedTabu ?? undefined, propertyType: property.propertyType ?? undefined })) {
+    return false;
+  }
+  /*
+   * ‎**רק מכירה.** שותפות כאן היא בעלות משותפת ברישום; שני שוכרים
+   * ‏באותה דירה הם שותפים לדירה ולא לנכס, ואין להם מה לחלק בטאבו.
+   */
+  if (property.dealType !== "sale") return false;
+  if (property.priceAgorot === undefined || property.priceAgorot === null) return false;
+  /* ‏נכס שיצא משיווק אינו מזמין פעולה, וזו רשימת פעולות */
+  if (
+    property.status !== undefined &&
+    property.status !== null &&
+    !(MATCHABLE_PROPERTY_STATUSES as readonly string[]).includes(property.status)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * ‏צמדי שותפים אפשריים לנכס, מהחזק לחלש.
+ *
+ * ‏מחזיר רשימה ריקה — ולא שגיאה — לכל נכס שאינו שדה המשחק: נכס
+ * ‏שאינו רשום במשותף, שאינו למכירה, או בלי מחיר. „אין שותפויות”
+ * ‏היא תשובה תקינה, והמסך שמציג אותה אינו צריך לדעת מדוע.
+ */
+export function partnerPairs(
+  property: PropertyFields,
+  candidates: readonly PartnerCandidate[],
+  options: { limit?: number; now?: Date; weights?: MatchWeights } = {},
+): PartnerPair[] {
+  const price = property.priceAgorot;
+  /* ‏השאלה שקודמת ל„מי המועמדים” — ראו `partnershipApplies` */
+  if (!partnershipApplies(property) || price === undefined) return [];
+  const now = options.now ?? new Date();
+  /*
+   * ‎**המשקלים הם ברירת המחדל ולא של המשרד — כמו בשוק השת״פ.**
+   * הצמד נשען על ציון של שני אנשים, ומשרד שכייל את המשקלים היה
+   * מדרג שותפויות בסולם שאין לו משמעות משותפת.
+   */
+  const weights = options.weights ?? DEFAULT_MATCH_WEIGHTS;
+  const band = budgetBandAgorot(price, "sale");
+
+  /**
+   * ‎**התקרה סופרת אנשים, לא כרטיסים** (ביקורת Codex, P2).
+   *
+   * ‏לולאת הצמדים פוסלת שני כרטיסים של אותו אדם, אבל התקרה נספרה
+   * ‏לפני הפסילה — ולכן לקוח אחד עם מספיק כרטיסים פעילים מילא את
+   * ‏60 המקומות בעצמו, כל צירוף נפסל, והתשובה הייתה „אין
+   * ‏שותפויות” בזמן שהיו כאלה אצל לקוחות מאוחרים יותר ברשימה.
+   *
+   * ‏מפה לפי זהות: כרטיס נוסף של מי שכבר בפנים אינו תופס מקום,
+   * ‏והוא מחליף את הקודם רק אם הוא **שימושי יותר לשותפות** —
+   * ‏כלומר תקציב גדול יותר, כי `combined >= price` הוא מה שמכריע
+   * ‏אם צמד נוצר בכלל. בתקציב שווה מנצח הציון (הציון של צמד הוא
+   * ‏החלש מבין השניים, ולכן גבוה יותר לעולם אינו גרוע יותר),
+   * ‏ובשוויון גמור המזהה — אחרת אותם נתונים בסדר אחר היו מחזירים
+   * ‏רשימה אחרת.
+   */
+  const byIdentity = new Map<string, ScoredCandidate[]>();
+  /**
+   * ‎**„תקציב גדול יותר” אינו „שימושי יותר”** (ביקורת Codex, P2).
+   *
+   * ‏הניסוח הקודם החזיק נציג אחד לכל זהות ובחר אותו לפי תקציב.
+   * ‏זה נכון ל**היתכנות** — `combined >= price` הוא מה שמכריע אם
+   * ‏צמד נוצר בכלל — ושגוי ל**דירוג**: הרשימה ממוינת לפי ציון ואז
+   * ‏לפי הידוק, ובשניהם כרטיס זול יותר יכול לנצח.
+   *
+   * ‏נכס ב-2 מיליון, ללקוח שני כרטיסים — מיליון בהתאמה מלאה,
+   * ‏ומיליון ומאה בהתאמה של 94% — ולצדו קונה של מיליון. הנציג
+   * ‏שנבחר לפי תקציב יצר צמד של 94% עם עודף של 100 אלף, בזמן
+   * ‏שהצמד של 100% בכיסוי מדויק היה קיים בנתונים ומעולם לא הוצע.
+   *
+   * ‏לכן נשמרת **חזית פארטו** לכל זהות: כרטיס נזרק רק אם כרטיס
+   * ‏אחר של אותו אדם טוב ממנו **בשני הצירים** — גם תקציב וגם
+   * ‏ציון. בשוויון גמור המזהה מכריע, אחרת אותם נתונים בסדר אחר
+   * ‏היו מחזירים רשימה אחרת.
+   */
+  const dominates = (a: ScoredCandidate, b: ScoredCandidate): boolean =>
+    a.budgetMaxAgorot >= b.budgetMaxAgorot &&
+    a.score >= b.score &&
+    (a.budgetMaxAgorot > b.budgetMaxAgorot || a.score > b.score || a.buyerId < b.buyerId);
+
+  /*
+   * ‎**והחזית נשמרת שלמה — בלי תקרה לכרטיסים** (ביקורת Codex, P2).
+   *
+   * ‏הניסוח הקודם שמר ארבעה כרטיסים לאדם — שלושת הזולים והיקר —
+   * ‏מתוך הנחה ש„נקודות הביניים משפיעות רק על ההידוק”. ההנחה
+   * ‏שגויה: כרטיס ביניים יכול להיות **הזול ביותר שמגיע** לשותף
+   * ‏מסוים, ולהחזיק ציון גבוה בהרבה מהיקר ביותר. בדוגמה שנבדקה
+   * ‏מול המנוע — חזית 60/100, 70/90, 80/80, 90/70, 140/60 ושותף
+   * ‏של 110 — השמטת 90 החזירה צמד של 77% עם עודף של חצי מיליון
+   * ‏במקום 90% בכיסוי מדויק.
+   *
+   * ‏כל תת-קבוצה בגודל קבוע ניתנת להפרכה באותו אופן, ולכן אין
+   * ‏תקרה — והעלות חסומה בשתי התקרות שכבר קיימות: הקורא מביא
+   * ‎`PARTNER_CANDIDATE_ROW_CAP` שורות לכל היותר, ואחרי
+   * ‎`PARTNER_CANDIDATE_MAX` זהויות רק כפילויות שלהן מגיעות לניקוד.
+   */
+  for (const candidate of candidates) {
+    const identity = candidate.partnerKey ?? candidate.buyerId;
+    /*
+     * ‎**התקרה נספרת בזהויות — והיא סוגרת את הדלת רק לזהות חדשה**
+     * ‏(ביקורת Codex, P2).
+     *
+     * ‏`break` עצר את הלולאה כולה, ולכן ברגע שהתמלאו שישים הזהויות
+     * ‏גם **כרטיס נוסף של מי שכבר בפנים** לא הגיע ל-`better()`.
+     * ‏הרשימה ממוינת לפי תקציב ואז מזהה, ולכן כרטיס שני באותו
+     * ‏תקציב עם התאמה טובה יותר לנכס מופיע מאוחר יותר — ומעולם
+     * ‏לא החליף את החלש. הציון של אותו אדם נשאר נמוך מהאמת, וצמד
+     * ‏שלו נדחק מעשרת המובילים.
+     *
+     * ‏זו בדיוק הכוונה שכתובה מעל `byIdentity`: „כרטיס נוסף של מי
+     * ‏שכבר בפנים אינו תופס מקום, והוא מחליף את הקודם רק אם הוא
+     * ‏שימושי יותר”. ה-`break` ביטל את החצי השני שלה.
+     *
+     * ‏העלות חסומה ממילא: הקורא מביא לכל היותר
+     * ‏`PARTNER_CANDIDATE_ROW_CAP` שורות, ואחרי התקרה רק כפילויות
+     * ‏של שישים הזהויות מגיעות לניקוד.
+     */
+    if (byIdentity.size >= PARTNER_CANDIDATE_MAX && !byIdentity.has(identity)) continue;
+    const req = candidate.requirements;
+    const budget = req.budgetMaxAgorot;
+    /*
+     * ‏בלי תקציב מוצהר אין מה לחבר. „לא ידוע” אינו „אפס”, ולכן
+     * המועמד אינו נפסל אלא פשוט אינו מועמד לשותפות — הוא ממשיך
+     * להופיע בהתאמות הרגילות כמו כל קונה בלי תקציב.
+     */
+    if (budget === undefined) continue;
+    if (req.dealType !== "sale") continue;
+    if (!sharedTabuFit(true, buyerSharedTabuStance(req)).partnerable) continue;
+    /* מי שמגיע לבד — ולו בתוך רצועת הגמישות — כבר ברשימה הרגילה */
+    if (price <= budget + band) continue;
+    /*
+     * ‎**התקציב **נענה** על ידי הצמד — ולכן הוא מסופק, לא נמחק**
+     * ‏(ביקורת Codex, P2).
+     *
+     * ‏מחיקת שני הקצוות הייתה הניסוח הראשון, והיא יצרה ציון שקרי:
+     * ‏`scoreMatch` מודד כיסוי מול **משקל הליבה המלא**, שהתקציב
+     * ‏הוא 0.25 ממנו. קריטריון שנמחק אינו נבחן, ולכן צמד מושלם
+     * ‏בכל השאר קיבל תקרה של `0.5 / 0.75` — 67%, לנצח. הרשימה
+     * ‏הייתה מדורגת נכון ומוצגת שקר.
+     *
+     * ‏והתיקון אינו נרמול ידני אלא **תיאור נכון של המצב**: בשידוך
+     * ‏שותפים המחיר מכוסה בהגדרה — `combined >= price` נאכף למטה —
+     * ‏ולכן התקציב של המועמד לצורך הניקוד הזה **הוא מחיר הנכס**.
+     * ‏הקריטריון נבחן, מקבל „בתקציב”, והכיסוי מלא.
+     *
+     * ‏הרצפה נמחקת: „מתחת לרף שהוגדר” היא הסתייגות על קונה שחיפש
+     * ‏יקר יותר, ואין לה משמעות כשהתקרה היא המחיר עצמו.
+     */
+    const fit = scoreMatch(
+      property,
+      { ...req, budgetMinAgorot: undefined, budgetMaxAgorot: price },
+      weights,
+      now,
+    );
+    if (fit.excluded || fit.insufficientData) continue;
+    const entry: ScoredCandidate = {
+      buyerId: candidate.buyerId,
+      partnerKey: identity,
+      budgetMaxAgorot: budget,
+      score: fit.score,
+    };
+    const held = byIdentity.get(identity) ?? [];
+    if (held.some((card) => dominates(card, entry))) continue;
+    byIdentity.set(identity, [...held.filter((card) => !dominates(entry, card)), entry]);
+  }
+  const scored: ScoredCandidate[] = [...byIdentity.values()].flat();
+
+  /*
+   * ‎**זוג אנשים מופיע פעם אחת, גם כשיש לו כמה צירופי כרטיסים.**
+   *
+   * ‏זו התוצאה הישירה של שמירת החזית: לאותם שני לקוחות יכולים
+   * ‏להיות עכשיו כמה צמדים חוקיים, והרשימה — עשרה מקומות — הייתה
+   * ‏מתמלאת באותו זוג שוב ושוב, ודוחקת זוגות אחרים. הצמדים נבנים
+   * ‏מכל הצירופים, ואחרי המיון נשמר הטוב שבהם לכל זוג זהויות.
+   */
+  const keyed: { pair: PartnerPair; identities: string }[] = [];
+  for (let i = 0; i < scored.length; i += 1) {
+    for (let j = i + 1; j < scored.length; j += 1) {
+      const a = scored[i]!;
+      const b = scored[j]!;
+      /* ‏שני כרטיסים של אותו אדם אינם שותפות — ראו `partnerKey` */
+      if (a.partnerKey === b.partnerKey) continue;
+      const combined = a.budgetMaxAgorot + b.budgetMaxAgorot;
+      /*
+       * ‎**כיסוי מלא, בלי רצועת גמישות.** הרצועה קיימת כדי לתאר
+       * קונה שסימן מספר עגול; שותפות שנשענת עליה היא שותפות
+       * שחסר לה כסף, ומתווך שיצא לשיחה על סמכה יגלה זאת בסופה.
+       */
+      if (combined < price) continue;
+      /*
+       * ‏הקטן ראשון — ובתקציבים שווים, המזהה מכריע.
+       *
+       * ‏בלי שובר השוויון הצמד היה מסודר לפי סדר הקלט, ואותם
+       * ‏שלושה קונים בסדר אחר היו מחזירים רשימה אחרת. „אותם
+       * ‏נתונים, אותה תשובה” אינו ניקיון אלא תנאי לבדיקה: רשימה
+       * ‏שמשתנה עם סדר השאילתה אי אפשר להשוות לכלום.
+       */
+      const [lower, higher] =
+        a.budgetMaxAgorot < b.budgetMaxAgorot
+          ? [a, b]
+          : a.budgetMaxAgorot > b.budgetMaxAgorot
+            ? [b, a]
+            : a.buyerId <= b.buyerId
+              ? [a, b]
+              : [b, a];
+      const split = splitShares(price, lower.budgetMaxAgorot, higher.budgetMaxAgorot);
+      const score = pairScore(a.score, b.score);
+      const pair: PartnerPair = {
+        partners: [
+          {
+            buyerId: lower.buyerId,
+            budgetMaxAgorot: lower.budgetMaxAgorot,
+            shareAgorot: split.lower,
+            score: lower.score,
+          },
+          {
+            buyerId: higher.buyerId,
+            budgetMaxAgorot: higher.budgetMaxAgorot,
+            shareAgorot: split.higher,
+            score: higher.score,
+          },
+        ],
+        combinedBudgetAgorot: combined,
+        headroomAgorot: combined - price,
+        score,
+        explanation: explainPair(score, combined - price),
+      };
+      const identities =
+        a.partnerKey < b.partnerKey
+          ? `${a.partnerKey}\u0000${b.partnerKey}`
+          : `${b.partnerKey}\u0000${a.partnerKey}`;
+      keyed.push({ pair, identities });
+    }
+  }
+
+  /*
+   * ‏מיון: הציון קודם, ואז הצמד ההדוק יותר. שני צמדים באותו ציון
+   * אינם שווים — זה שהתקציב המשותף שלו קרוב למחיר דורש פחות ויתור
+   * משני הצדדים. המזהים סוגרים את הסדר כדי שאותם נתונים יחזירו
+   * תמיד אותה רשימה.
+   */
+  keyed.sort(
+    (x, y) =>
+      y.pair.score - x.pair.score ||
+      x.pair.headroomAgorot - y.pair.headroomAgorot ||
+      x.pair.partners[0].buyerId.localeCompare(y.pair.partners[0].buyerId) ||
+      x.pair.partners[1].buyerId.localeCompare(y.pair.partners[1].buyerId),
+  );
+  /* ‏הראשון לכל זוג זהויות הוא הטוב שלו — הרשימה כבר ממוינת */
+  const seen = new Set<string>();
+  const pairs: PartnerPair[] = [];
+  for (const entry of keyed) {
+    if (seen.has(entry.identities)) continue;
+    seen.add(entry.identities);
+    pairs.push(entry.pair);
+  }
+  return pairs.slice(0, options.limit ?? PARTNER_PAIR_LIMIT);
+}
+
+function explainPair(score: number, headroomAgorot: number): string {
+  const fit =
+    headroomAgorot === 0
+      ? "התקציב המשותף מכסה את המחיר במדויק"
+      : /* ‏דרך `formatIsraeliNumber` — ראו ההסבר שם על שער `verify:timezone` */
+        `התקציב המשותף מכסה את המחיר בעודף של ${formatIsraeliNumber(
+          Math.round(headroomAgorot / 100),
+        )} ₪`;
+  return `${fit}. שניהם אישרו טאבו משותף, ולשניהם הנכס מתאים (${score}% לחלש מביניהם).`;
+}

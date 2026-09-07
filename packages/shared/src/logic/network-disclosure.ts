@@ -133,6 +133,17 @@ export const PROPERTY_DISCLOSURE: NetworkDisclosure = {
     { label: "עיר", columns: ["city"], dtoFields: ["city"] },
     { label: "שכונה", columns: ["neighborhood"], dtoFields: ["neighborhood"] },
     { label: "סוג נכס", columns: ["propertyType"], dtoFields: ["propertyType"] },
+    /*
+     * ‎**מצב הרישום — נחשף, וחייב להיחשף** (ביקורת Codex, P1).
+     *
+     * ‏עד שזה היה סוג נכס (`shared_tabu`) הוא נסע ממילא. מרגע שזה
+     * ‏דגל, נכס עם סוג רגיל איבד אותו בפרסום — והצד השני קיבל
+     * ‏מודעה בלי מצב הרישום, כלומר הציע אותה לקונה שסירב.
+     *
+     * ‏זו עובדה על הנכס ולא על אדם, ולכן היא שייכת למה שהמודעה
+     * ‏אומרת בפירוש.
+     */
+    { label: "רישום משותף (מושאע)", columns: ["sharedTabu"], dtoFields: ["sharedTabu"] },
     { label: "סוג עסקה", columns: ["dealType"], dtoFields: ["dealType"] },
     { label: "חדרים", columns: ["rooms"], dtoFields: ["rooms"] },
     { label: "שטח", columns: ["areaSqm"], dtoFields: ["areaSqm"] },
@@ -302,7 +313,22 @@ export const BUYER_DISCLOSURE: NetworkDisclosure = {
     { label: "שם המשרד שלכם והלוגו", columns: [], dtoFields: ["officeName", "officeLogoUrl"] },
     { label: "מתי פורסם", columns: ["createdAt"], dtoFields: ["createdAt"] },
   ],
-  storedOnly: [],
+  storedOnly: [
+    {
+      label: "עמדה לרישום משותף",
+      /*
+       * ‎**נשמר, אינו מוצג — ובכל זאת מכריע** (ביקורת Codex, P1).
+       *
+       * ‏מה שחייב לנסוע הוא דווקא `refuses`: בלעדיו המשרד המקבל
+       * ‏משחזר את הקונה בלי עמדה, `sharedTabuFit` קורא לזה „טרם
+       * ‏נשאל”, וההתאמה מותרת על סירוב **מפורש**. הכרטיס עצמו אינו
+       * ‏מציג את זה — הוא מציג את התוצאה, כלומר שהנכס לא הוצע.
+       */
+      qualifier: "משמש להתאמה — סירוב פוסל הצעה, ואינו מוצג ככיתוב",
+      columns: ["sharedTabuStance"],
+      dtoFields: [],
+    },
+  ],
   hidden: [
     { label: "שם, טלפון ואימייל", columns: ["contactId"], dtoFields: [] },
     { label: "הערות הסוכן", columns: ["agentNotes"], dtoFields: [] },

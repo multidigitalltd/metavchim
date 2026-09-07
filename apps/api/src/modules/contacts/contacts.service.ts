@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   isContactRole,
@@ -8,6 +8,7 @@ import {
   type ContactRole,
 } from "@metavchim/shared";
 import { lockContact, lockContactPhone } from "../../common/locks";
+import { canSeeContact, type PhoneTypedBy } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { CryptoService } from "../../core/crypto.service";
 import type { TenantTx } from "../../core/prisma.service";
@@ -18,6 +19,14 @@ export interface ContactDto {
   phone: string;
   /** אופציונלי: כרטיס שנוצר משיחה נכנסת או מטופס לא תמיד כולל אימייל */
   email?: string;
+  /**
+   * ‎**רישום בטאבו משותף (מושאע)** — עובדה משפטית שמשנה את העסקה.
+   *
+   * ‏חובה ולא אופציונלי, ובכוונה: העמודה `NOT NULL DEFAULT false`,
+   * ‏ולכן „לא סומן” הוא ערך ולא היעדר. שדה רשות היה מזמין את
+   * ‏המסכים לקרוא `undefined` כ„לא ידוע” ולהמציא מצב שלישי.
+   */
+  sharedTabu: boolean;
 }
 
 /**
@@ -53,6 +62,85 @@ export class ContactsService {
     return secondary ? { id: secondary.contactId } : null;
   }
 
+  /**
+   * ‎**מיחזור כרטיס קיים דורש היתר — מספר מוקלד אינו מפתח**
+   * ‏(ביקורת Codex, P1 ×2).
+   *
+   * ‏`findOrCreateByPhone` מחפש משרד-רחב, ולכן כל נתיב שמקבל טלפון
+   * ‏מהמשתמש ומצרף את התוצאה לרשומה שלו הוא מפתח לכרטיס מוסתר:
+   * ‏הצירוף עצמו הוא שגורם ל-`canSeeContact` להצליח בקריאות
+   * ‏הבאות, ומשם השם, הטלפון והאימייל חוזרים מפוענחים.
+   *
+   * ‏זה נמצא קודם ב„הוספת אדם קשור” ותוקן שם; אותו חור בדיוק היה
+   * ‏גם בבעל הנכס ובדייר — ולכן הכלל יושב עכשיו במקום אחד, ולא
+   * ‏בעותק שלישי.
+   *
+   * ‎`alsoAllowed` הוא מקור ההיתר **השני**: אדם שכבר מקושר לרשומה
+   * ‏הזו. בלעדיו עדכון של מקושר קיים היה נדחה, כי אדם מקושר אינו
+   * ‏קונה, ליד או בעל נכס.
+   *
+   * ‏הנעילה נלקחת לפני הבדיקה ומוחזקת עד סוף הטרנזקציה, ולכן
+   * ‏`findOrCreateByPhone` שרץ מיד אחריה רואה בדיוק את מה שנבדק.
+   */
+  /**
+   * ‎**מי הקליד את המספר — ההכרעה שכל יוצר כרטיס חייב לענות עליה.**
+   *
+   * ‎`agent` — סוכן מחובר הקליד מספר במסך. מספר שכבר שייך למישהו
+   * ‏אינו מפתח אליו, ולכן המסלול עובר דרך `findOrCreateByPhoneScoped`.
+   *
+   * ‎`office` — המספר הגיע מבעליו: טופס קליטה ציבורי, שיחה נכנסת,
+   * ‏או הרשמה. אין שם סוכן שאפשר לבדוק מולו הרשאה, והמיחזור הוא
+   * ‏בדיוק הדבר הנכון — כרטיס שני לאותו אדם הוא הבאג.
+   */
+  async findOrCreateByPhoneTyped(
+    tx: TenantTx,
+    input: { name: string; phone: string },
+    options: {
+      typedBy: PhoneTypedBy;
+      subject: string;
+      alsoAllowed?: (priorId: string) => boolean | Promise<boolean>;
+    },
+  ): Promise<ContactDto> {
+    /*
+     * ‎**ההכרעה הזו יושבת כאן, ובמקום אחד** (ביקורת Codex, P1).
+     *
+     * ‏היא הייתה שלישייה בתוך `PropertiesService.persist`, וכשהיא
+     * ‏נדרשה גם בקונים וגם בלידים היא הייתה נכתבת שם שוב — שלושה
+     * ‏עותקים של „מי מותר לו למחזר”, שאפשר לתקן אחד מהם ולשכוח את
+     * ‏השניים.
+     */
+    return options.typedBy === "office"
+      ? this.findOrCreateByPhone(tx, input)
+      : this.findOrCreateByPhoneScoped(tx, input, {
+          subject: options.subject,
+          ...(options.alsoAllowed ? { alsoAllowed: options.alsoAllowed } : {}),
+        });
+  }
+
+  async findOrCreateByPhoneScoped(
+    tx: TenantTx,
+    input: { name: string; phone: string },
+    options: {
+      subject: string;
+      alsoAllowed?: (priorId: string) => boolean | Promise<boolean>;
+    },
+  ): Promise<ContactDto> {
+    const tenantId = TenantContext.current().tenantId;
+    await lockContactPhone(tx, tenantId, this.crypto.phoneHash(input.phone));
+    const prior = await this.findByAnyPhone(tx, input.phone);
+    if (prior !== null) {
+      const allowed =
+        (options.alsoAllowed ? await options.alsoAllowed(prior.id) : false) ||
+        (await canSeeContact(tx, tenantId, prior.id));
+      if (!allowed) {
+        throw new ForbiddenException(
+          `${options.subject} — המספר הזה משויך ללקוח שאינו נגיש לך, פנו למנהל המשרד`,
+        );
+      }
+    }
+    return this.findOrCreateByPhone(tx, input);
+  }
+
   async findOrCreateByPhone(
     tx: TenantTx,
     input: { name: string; phone: string },
@@ -83,7 +171,7 @@ export class ContactsService {
     const existing = found
       ? await tx.contact.findFirst({
           where: { id: found.id, tenantId },
-          select: { id: true, nameEncrypted: true, phoneEncrypted: true },
+          select: { id: true, nameEncrypted: true, phoneEncrypted: true, sharedTabu: true },
         })
       : null;
     if (existing) {
@@ -91,6 +179,7 @@ export class ContactsService {
         id: existing.id,
         name: this.crypto.decrypt(existing.nameEncrypted),
         phone: this.crypto.decrypt(existing.phoneEncrypted),
+        sharedTabu: existing.sharedTabu,
       };
     }
 
@@ -107,19 +196,27 @@ export class ContactsService {
         nameHash: this.crypto.nameHash(normalizeNameForMatch(input.name)),
       },
     });
-    return { id, name: input.name, phone: input.phone };
+    /* ‏כרטיס חדש אינו מסומן — הסימון הוא פעולה של המתווך */
+    return { id, name: input.name, phone: input.phone, sharedTabu: false };
   }
 
   async getById(tx: TenantTx, id: string): Promise<ContactDto | null> {
     const row = await tx.contact.findFirst({
       where: { id, tenantId: TenantContext.current().tenantId },
-      select: { id: true, nameEncrypted: true, phoneEncrypted: true, emailEncrypted: true },
+      select: {
+        id: true,
+        nameEncrypted: true,
+        phoneEncrypted: true,
+        emailEncrypted: true,
+        sharedTabu: true,
+      },
     });
     if (!row) return null;
     return {
       id: row.id,
       name: this.crypto.decrypt(row.nameEncrypted),
       phone: this.crypto.decrypt(row.phoneEncrypted),
+      sharedTabu: row.sharedTabu,
       // האימייל אופציונלי — כרטיס שנוצר משיחה או מטופס לא תמיד כולל אותו
       ...(row.emailEncrypted ? { email: this.crypto.decrypt(row.emailEncrypted) } : {}),
     };
@@ -142,7 +239,13 @@ export class ContactsService {
 
     const rows = await tx.contact.findMany({
       where: { id: { in: unique }, tenantId: TenantContext.current().tenantId },
-      select: { id: true, nameEncrypted: true, phoneEncrypted: true, emailEncrypted: true },
+      select: {
+        id: true,
+        nameEncrypted: true,
+        phoneEncrypted: true,
+        emailEncrypted: true,
+        sharedTabu: true,
+      },
     });
     const byId = new Map<string, ContactDto>();
     for (const row of rows) {
@@ -150,6 +253,7 @@ export class ContactsService {
         id: row.id,
         name: this.crypto.decrypt(row.nameEncrypted),
         phone: this.crypto.decrypt(row.phoneEncrypted),
+        sharedTabu: row.sharedTabu,
         ...(row.emailEncrypted ? { email: this.crypto.decrypt(row.emailEncrypted) } : {}),
       });
     }
@@ -274,6 +378,26 @@ export class ContactsService {
         ? { id: contactId, tenantId, optedOutAt: { not: null } }
         : { id: contactId, tenantId, optedOutAt: null },
       data: { optedOutAt: consent ? null : new Date() },
+    });
+    return result.count === 1;
+  }
+
+  /**
+   * ‎**„טאבו משותף” על הלקוח** (בקשת בעל המוצר).
+   *
+   * ‏רישום בטאבו משותף (מושאע) הוא עובדה משפטית שמשנה את כל אופן
+   * ‏העסקה: אין חלקה נפרדת, נדרשת הסכמת שותפים, והמימון מסובך.
+   * ‏על הלקוח ולא רק על הנכס, כי לרוב הוא נאמר בשיחה הראשונה —
+   * ‏לפני שיש בכלל כרטיס נכס לרשום עליו.
+   *
+   * ‏הכתיבה מותנית במצב הנוכחי, כמו בהסכמת השיווק: כך היא
+   * ‏אידמפוטנטית, ולחיצה חוזרת אינה מייצרת רשומת ביקורת שנייה.
+   */
+  async setSharedTabu(tx: TenantTx, contactId: string, sharedTabu: boolean): Promise<boolean> {
+    const tenantId = TenantContext.current().tenantId;
+    const result = await tx.contact.updateMany({
+      where: { id: contactId, tenantId, sharedTabu: !sharedTabu },
+      data: { sharedTabu },
     });
     return result.count === 1;
   }
@@ -508,7 +632,21 @@ export class ContactsService {
     input: { name: string; phone: string; role: ContactRole; email?: string },
   ): Promise<{ ok: boolean; reason?: "self" }> {
     const tenantId = TenantContext.current().tenantId;
-    const person = await this.findOrCreateByPhone(tx, { name: input.name, phone: input.phone });
+    /* ‏מספר שכבר שייך למישהו אינו „אדם חדש” — ראו `findOrCreateByPhoneScoped` */
+    const person = await this.findOrCreateByPhoneScoped(
+      tx,
+      { name: input.name, phone: input.phone },
+      {
+        subject: "הוספת אדם קשור",
+        /* ‏הכרטיס עצמו, ואדם שכבר מקושר אליו */
+        alsoAllowed: async (priorId) =>
+          priorId === contactId ||
+          (await tx.contactLink.findFirst({
+            where: { tenantId, contactId, relatedContactId: priorId },
+            select: { id: true },
+          })) !== null,
+      },
+    );
     if (person.id === contactId) return { ok: false, reason: "self" };
 
     // האימייל נכתב רק כשנמסר: קישור חוזר של אדם קיים בלי שדה אימייל

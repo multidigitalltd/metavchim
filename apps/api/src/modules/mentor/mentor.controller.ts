@@ -1,168 +1,250 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+} from "@nestjs/common";
 import { z } from "zod";
 import {
-  FEEDBACK_MAX_LENGTH,
-  GOAL_HORIZONS,
-  GOAL_UNITS,
-  LEAD_MEASURES,
-  QUOTE_AUTHOR_MAX_LENGTH,
-  QUOTE_MAX_LENGTH,
-  type MentorQuote,
+  IdSchema,
+  MENTOR_GOAL_TARGET_MAX,
+  MENTOR_INTENTION_MAX,
+  type MentorGoalInput,
+  MentorGoalInputSchema,
+  MentorGoalPeriodSchema,
+  MentorIdeaFeedbackSchema,
+  type MentorIdeaFeedbackInput,
+  PRACTICE_SCENARIOS,
+  PRACTICE_TEXT_MAX,
+  type ProcessGoalSuggestion,
+  type MentorGoalProposal,
 } from "@metavchim/shared";
-import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
+import {
+  AnyAuthenticated,
+  RequireCapability,
+} from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
+  MentorPracticeService,
+  type MentorPracticeDto,
+  type MentorPracticeOverview,
+} from "./mentor-practice.service";
+import {
   MentorService,
-  type AchievementDto,
-  type MentorOverviewDto,
+  type MentorGoalDto,
+  type MentorMonthlyDto,
+  type MentorOfficeDto,
+  type MentorOverview,
+  type MentorPulse,
+  type MentorReviewDto,
+  type MentorTurnDto,
 } from "./mentor.service";
 
-/**
- * ‎**המנטור האישי.**
- *
- * ‏אין כאן `@RequireCapability`: המנטור הוא של המשתמש, וכל שאילתה
- * בשירות מסננת לפי `ctx.userId`. יכולת נפרדת הייתה יוצרת מצב שבו
- * מנהל משרד „מפעיל את המנטור” לסוכן — וזה הופך ליווי לפיקוח.
- * אותו דגם בדיוק כמו `notifications`.
- */
+const SuggestionsQuerySchema = z
+  .object({
+    target: z.coerce.number().int().min(1).max(MENTOR_GOAL_TARGET_MAX),
+    period: MentorGoalPeriodSchema,
+  })
+  .strict();
 
-const HorizonParam = new ZodValidationPipe(z.enum(GOAL_HORIZONS));
-
-/** המחויבות השבועית — כמה מכל פעולה, לפעולות שהמערכת יודעת לספור. */
 const CommitmentSchema = z
-  .object(
-    Object.fromEntries(
-      LEAD_MEASURES.map((m) => [m, z.number().int().min(0).max(1000).optional()]),
-    ) as Record<(typeof LEAD_MEASURES)[number], z.ZodOptional<z.ZodNumber>>,
-  )
-  .strict();
-
-/** ‏משפט מוטבציה של המשרד. הגבולות הם אורכי העמודות במסד. */
-const QuoteSchema = z
   .object({
-    text: z.string().trim().min(1).max(QUOTE_MAX_LENGTH),
-    /* ‏„מי אמר” ריק הוא תשובה — מנהל שחיבר משפט אינו חייב לייחסו */
-    author: z.string().trim().max(QUOTE_AUTHOR_MAX_LENGTH).default(""),
+    decision: z.enum(["accepted", "declined"]),
+    note: z.string().trim().max(300).optional(),
   })
   .strict();
-
-/** ‏הפידבק שהמנהל כותב. הגבול הוא אורך העמודה במסד. */
-const FeedbackSchema = z
-  .object({ text: z.string().trim().min(1).max(FEEDBACK_MAX_LENGTH) })
+const PlanSchema = z
+  /*
+   * 200 ולא 300: התוכנית נכנסת ל-`MentorGoal.intention` (VARCHAR(200)),
+   * וקלט שה-API מקבל וה-DB דוחה הוא שגיאה שנראית כתקלה (ביקורת Codex).
+   */
+  .object({ plan: z.string().trim().min(3).max(MENTOR_INTENTION_MAX) })
   .strict();
-
-const SaveGoalSchema = z
-  .object({
-    unit: z.enum(GOAL_UNITS),
-    /*
-     * ‏עמלות באגורות: יעד שנתי של מיליוני שקלים הוא מאות מיליוני
-     * אגורות, ולכן הגבול גבוה. `int` כי אגורה היא היחידה הקטנה
-     * ביותר — שבר אגורה אינו קיים.
-     */
-    target: z.number().int().min(1).max(1_000_000_000_000),
-    averageCommissionAgorot: z.number().int().min(1).max(100_000_000).optional(),
-    commitment: CommitmentSchema.optional(),
-    /* אורך העמודות במסד — ולא מספר שנבחר כאן */
-    obstacle: z.string().trim().max(400).optional(),
-    ifThenPlan: z.string().trim().max(400).optional(),
-  })
+const ReflectionSchema = z
+  .object({ answer: z.string().trim().min(1).max(1000) })
   .strict();
+const AskSchema = z
+  .object({ text: z.string().trim().min(2).max(1000) })
+  .strict();
+const PracticeStartSchema = z
+  .object({ scenario: z.enum(PRACTICE_SCENARIOS) })
+  .strict();
+const PracticeReplySchema = z
+  .object({ text: z.string().trim().min(1).max(PRACTICE_TEXT_MAX) })
+  .strict();
+const IdParam = new ZodValidationPipe(IdSchema);
 
+/**
+ * המנטור האישי (docs/14).
+ *
+ * ‎`AnyAuthenticated` ולא יכולת, כמו ברישום לפיצ'רים: אין כאן נתוני
+ * משרד. הכול נקרא ונכתב לפי `tenantId` ו-`userId` מההקשר, ויכולת
+ * הייתה חוסמת דווקא את הסוכן הרגיל — הקהל שהמסך נכתב בשבילו.
+ * הפיצ'ר המסחרי הוא `ai_coach`: המנטור הוא הרחבה של אותו ליווי,
+ * וכך גם הכרטיס בדשבורד מסונן.
+ */
+@RequireFeature("ai_coach")
 @Controller("mentor")
 export class MentorController {
-  constructor(private readonly mentor: MentorService) {}
+  constructor(
+    private readonly mentor: MentorService,
+    private readonly practice: MentorPracticeService,
+  ) {}
 
-  /** כל מה שהמסך צריך, בקריאה אחת. */
-  @AnyAuthenticated()
   @Get("overview")
-  async overview(): Promise<MentorOverviewDto> {
+  @AnyAuthenticated()
+  overview(): Promise<MentorOverview> {
     return this.mentor.overview();
   }
 
-  /**
-   * קביעת יעד לרמה אחת, לתקופה הנוכחית.
-   *
-   * ‎`PUT` ולא `POST`: קביעה חוזרת לאותה רמה ולאותה תקופה מעדכנת,
-   * ואינה מוסיפה יעד שני שאיש אינו יודע איזה מהם קובע.
-   */
+  @Get("pulse")
   @AnyAuthenticated()
-  @Put("goals/:horizon")
-  @HttpCode(200)
-  async saveGoal(
-    @Param("horizon", HorizonParam) horizon: (typeof GOAL_HORIZONS)[number],
-    @Body(new ZodValidationPipe(SaveGoalSchema)) body: z.infer<typeof SaveGoalSchema>,
-  ): Promise<{ ok: true }> {
-    await this.mentor.saveGoal(horizon, body);
-    return { ok: true };
+  pulse(): Promise<MentorPulse> {
+    return this.mentor.pulse();
   }
 
-  /**
-   * ‎**מי סגר את היעד השבועי — מסך ההנהלה.**
-   *
-   * ‏`analytics.view` ולא `AnyAuthenticated`: כאן, בניגוד לשאר הבקר,
-   * המידע הוא **על סוכן אחר**. היעד עצמו נשאר פרטי; מה שנחשף הוא
-   * שסוכן עמד בו — וזה מה שהמנהל אמור לראות כדי להגיב עליו.
-   */
-  @RequireCapability("analytics.view")
-  @Get("achievements")
-  async achievements(): Promise<AchievementDto[]> {
-    return this.mentor.achievements();
-  }
-
-  @RequireCapability("analytics.view")
-  @Post("achievements/:id/feedback")
-  @HttpCode(200)
-  async sendFeedback(
-    @Param("id") id: string,
-    @Body(new ZodValidationPipe(FeedbackSchema)) body: z.infer<typeof FeedbackSchema>,
-  ): Promise<{ ok: true }> {
-    await this.mentor.sendFeedback(id, body.text);
-    return { ok: true };
-  }
-
-  /* ====================================================================
-   * ‏משפטי המוטבציה של המשרד
-   * ==================================================================== */
-
-  /**
-   * ‎**‏`settings.manage` ולא `@AnyAuthenticated`, וזו הפעם היחידה
-   * שיכולת מגינה על משהו שאינו של אדם אחר.**
-   *
-   * ‏משפטי המוטבציה הם רשימה **משותפת לכל המשרד**: מה שסוכן אחד
-   * יכתוב בה יופיע בפני כל הצוות. זה הגדרת משרד, ולכן אותה יכולת
-   * ששומרת על שאר ההגדרות. היעד עצמו נשאר בדיוק כפי שהיה — אישי
-   * ובלי יכולת.
-   */
-  @RequireCapability("settings.manage")
-  @Get("quotes")
-  async quotes(): Promise<MentorQuote[]> {
-    return this.mentor.officeQuotes();
-  }
-
-  @RequireCapability("settings.manage")
-  @Post("quotes")
-  @HttpCode(200)
-  async addQuote(
-    @Body(new ZodValidationPipe(QuoteSchema)) body: z.infer<typeof QuoteSchema>,
-  ): Promise<{ ok: true; quote: MentorQuote }> {
-    return { ok: true, quote: await this.mentor.addOfficeQuote(body.text, body.author) };
-  }
-
-  @RequireCapability("settings.manage")
-  @Delete("quotes/:id")
-  @HttpCode(200)
-  async removeQuote(@Param("id") id: string): Promise<{ ok: true }> {
-    await this.mentor.deleteOfficeQuote(id);
-    return { ok: true };
-  }
-
+  @Post("goals")
   @AnyAuthenticated()
-  @Delete("goals/:horizon")
-  @HttpCode(200)
-  async deleteGoal(
-    @Param("horizon", HorizonParam) horizon: (typeof GOAL_HORIZONS)[number],
-  ): Promise<{ ok: true }> {
-    await this.mentor.deleteGoal(horizon);
-    return { ok: true };
+  createGoal(
+    @Body(new ZodValidationPipe(MentorGoalInputSchema)) body: MentorGoalInput,
+  ): Promise<MentorGoalDto> {
+    return this.mentor.createGoal(body);
+  }
+
+  @Delete("goals/:id")
+  @AnyAuthenticated()
+  endGoal(@Param("id", IdParam) id: string): Promise<void> {
+    return this.mentor.endGoal(id);
+  }
+
+  @Get("suggestions")
+  @AnyAuthenticated()
+  suggestions(
+    @Query(new ZodValidationPipe(SuggestionsQuerySchema))
+    query: z.infer<typeof SuggestionsQuerySchema>,
+  ): Promise<ProcessGoalSuggestion[]> {
+    return this.mentor.suggestions(query.target, query.period);
+  }
+
+  @Get("reviews")
+  @AnyAuthenticated()
+  reviews(): Promise<MentorReviewDto[]> {
+    return this.mentor.reviews();
+  }
+
+  /**
+   * מה עובד אצלנו — למי שרואה ניתוחים של המשרד (docs/14 §7.4). ספירות
+   * בלבד: הרעיונות שהוכיחו את עצמם, בלי שמות.
+   */
+  @Get("office")
+  @RequireCapability("analytics.view")
+  office(): Promise<MentorOfficeDto> {
+    return this.mentor.office();
+  }
+
+  /** הסיכומים החודשיים — מה עבד ומה לא (docs/14 §3) */
+  @Get("monthly")
+  @AnyAuthenticated()
+  monthly(): Promise<MentorMonthlyDto[]> {
+    return this.mentor.monthly();
+  }
+
+  @Post("reviews/:id/reflection")
+  @AnyAuthenticated()
+  reflection(
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(ReflectionSchema))
+    body: z.infer<typeof ReflectionSchema>,
+  ): Promise<MentorReviewDto> {
+    return this.mentor.answerReflection(id, body.answer);
+  }
+
+  @Post("reviews/:id/commitment")
+  @AnyAuthenticated()
+  commitment(
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(CommitmentSchema))
+    body: z.infer<typeof CommitmentSchema>,
+  ): Promise<MentorReviewDto> {
+    return this.mentor.commit(id, body.decision, body.note);
+  }
+
+  @Post("reviews/:id/plan")
+  @AnyAuthenticated()
+  plan(
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(PlanSchema)) body: z.infer<typeof PlanSchema>,
+  ): Promise<MentorReviewDto> {
+    return this.mentor.setPlan(id, body.plan);
+  }
+
+  @Get("messages")
+  @AnyAuthenticated()
+  messages(): Promise<{ turns: MentorTurnDto[] }> {
+    return this.mentor.turns();
+  }
+
+  /** משוב על רעיון — „עזר לי” / „לא בשבילי” (docs/14 §7.2) */
+  @Post("ideas/feedback")
+  @AnyAuthenticated()
+  ideaFeedback(
+    @Body(new ZodValidationPipe(MentorIdeaFeedbackSchema))
+    body: MentorIdeaFeedbackInput,
+  ): Promise<{ ok: true; text: string }> {
+    return this.mentor.ideaFeedback(body);
+  }
+
+  /* ---------------- תרגול שיחה (docs/14 §7.3) ---------------- */
+
+  @Get("practice")
+  @AnyAuthenticated()
+  practiceOverview(): Promise<MentorPracticeOverview> {
+    return this.practice.overview();
+  }
+
+  @Post("practice")
+  @AnyAuthenticated()
+  practiceStart(
+    @Body(new ZodValidationPipe(PracticeStartSchema))
+    body: z.infer<typeof PracticeStartSchema>,
+  ): Promise<MentorPracticeDto> {
+    return this.practice.start(body.scenario);
+  }
+
+  @Post("practice/:id/reply")
+  @AnyAuthenticated()
+  practiceReply(
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(PracticeReplySchema))
+    body: z.infer<typeof PracticeReplySchema>,
+  ): Promise<{
+    turn: { role: "agent" | "counterpart"; text: string };
+    closing: boolean;
+    source: "model" | "fallback";
+    agentTurns: number;
+  }> {
+    return this.practice.reply(id, body.text);
+  }
+
+  @Post("practice/:id/finish")
+  @AnyAuthenticated()
+  practiceFinish(@Param("id", IdParam) id: string): Promise<MentorPracticeDto> {
+    return this.practice.finish(id);
+  }
+
+  @Post("messages")
+  @AnyAuthenticated()
+  ask(
+    @Body(new ZodValidationPipe(AskSchema)) body: z.infer<typeof AskSchema>,
+  ): Promise<{
+    turn: MentorTurnDto;
+    source: "model" | "fallback";
+    proposedGoal?: MentorGoalProposal;
+  }> {
+    return this.mentor.ask(body.text);
   }
 }

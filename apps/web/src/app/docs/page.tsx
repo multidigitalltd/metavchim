@@ -99,6 +99,7 @@ const ITEMS: DocsBrowserItem[] = GUIDES.map((guide) => ({
 export default function DocsPage() {
   const about = topic("about");
   const integrations = topic("integrations");
+  const glossary = topic("glossary");
   const privacy = topic("privacy");
 
   return (
@@ -145,6 +146,15 @@ export default function DocsPage() {
       <div className="mt-10">
         <DocSection id={integrations.id} title={integrations.title}>
           <DocPassages passages={integrations.passages} />
+        </DocSection>
+
+        {/*
+          המילון אחרי ההדרכות ולא לפניהן: מי שקורא נושא פוגש את
+          המונח בהקשר, ומי שנתקל במילה זרה קופץ לכאן. מילון בראש
+          המסמך הוא הדף שכולם מדלגים עליו.
+        */}
+        <DocSection id={glossary.id} title={glossary.title}>
+          <DocPassages passages={glossary.passages} />
         </DocSection>
 
         <DocSection id={privacy.id} title={privacy.title}>

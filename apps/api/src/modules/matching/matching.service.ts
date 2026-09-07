@@ -1,4 +1,5 @@
-import { Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   BUDGET_BAND_AGOROT,
@@ -19,6 +20,12 @@ import {
   SCORE_NOTE_MAX,
   ScoreComponentSchema,
   type ScoreComponent,
+  partnershipApplies,
+  PARTNER_CANDIDATE_ROW_CAP,
+  PARTNER_CANDIDATE_SCAN,
+  PARTNER_PAIR_LIMIT,
+  partnerPairs,
+  type PartnerCandidate,
 } from "@metavchim/shared";
 import { assertBuyerAccess, assertMatchAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -64,6 +71,22 @@ export interface EnrichedMatchDto extends MatchDto {
 const LIVE_HEADROOM = 20;
 
 /** מה שהזיז את החישוב, כשזו פעולה מסחרית של הסוכן. ראו events.ts. */
+/** ‏צמד שותפים לנכס — שני אנשים בשמם, כי זו ההצעה. */
+export interface PartnerPairDto {
+  score: number;
+  explanation: string;
+  combinedBudgetAgorot: number;
+  /** ‏העודף מעל המחיר. אפס = כיסוי מדויק. */
+  headroomAgorot: number;
+  partners: {
+    buyerId: string;
+    buyerName: string;
+    budgetMaxAgorot: number;
+    shareAgorot: number;
+    score: number;
+  }[];
+}
+
 export interface MatchTrigger {
   kind: "price_drop" | "budget_raise";
   fromAgorot: number;
@@ -132,13 +155,84 @@ function openMatchesOf(tenantId: string, key: { propertyId: string } | { buyerId
   return { tenantId, ...key, status: { not: "dismissed" } };
 }
 
-/** אותו דבר לרשימה המשרדית — הסף והנכס משתנים לפי הבקשה. */
-function officeMatchesOf(tenantId: string, query: { minScore: number; propertyId?: string }) {
+/**
+ * ‎**התנאי המשותף — בשפת ה-SQL, כדי שה-`LIMIT` יחול אחריו.**
+ *
+ * ## ‏למה לא לסנן בזיכרון
+ *
+ * ‏הרשימות שלפו `limit + LIVE_HEADROOM` שורות וסיננו אחר כך. המרווח
+ * הזה (20) תועד במפורש כ„רשת ביטחון” לצד **מחוק** — מקרה נדיר. נכס
+ * שנמכר אינו נדיר, ולכן ברגע שהוא עבר דרך אותה רשת היא הפכה
+ * לחסם: קונה ש-21 ההתאמות החזקות שלו הן לנכסים שנמכרו היה מקבל
+ * רשימה **ריקה**, בזמן שיש לו התאמות תקינות שורה מתחת (ביקורת
+ * Codex, P1).
+ *
+ * ‏המסננת עברה למסד, ולכן ה-`LIMIT` סופר שורות שכבר עברו אותה. אין
+ * מרווח ואין תלות בו.
+ *
+ * ## ‏גם הקונה, ולא רק הנכס
+ *
+ * ‏הסינון של קונה מחוק היה בזיכרון מאותה סיבה ובאותו מרווח. הוא
+ * נכנס לאותו תנאי: התאמה היא בין שני צדדים, ושניהם חייבים להתקיים.
+ *
+ * ## ‏המחיר
+ *
+ * ‏התנאי חי עכשיו ב-SQL וגם ב-`openMatchesOf` שנשאר לכרטיס הנכס.
+ * הבדיקה המבנית משווה ביניהם, כי עותק שני מסכים עם הראשון עד היום
+ * שבו אחד מהם משתנה.
+ */
+function matchableMatchesFrom(tenantId: string, extra: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`
+    FROM matches m
+    WHERE m.tenant_id = ${tenantId}
+      AND m.status <> 'dismissed'
+      ${extra}
+      AND EXISTS (
+        SELECT 1 FROM properties p
+        WHERE p.id = m.property_id
+          AND p.tenant_id = m.tenant_id
+          AND p.deleted_at IS NULL
+          AND p.status IN (${Prisma.join([...MATCHABLE_PROPERTY_STATUSES])})
+      )
+      AND EXISTS (
+        SELECT 1 FROM buyers b
+        WHERE b.id = m.buyer_id
+          AND b.tenant_id = m.tenant_id
+          AND b.deleted_at IS NULL
+      )
+  `;
+}
+
+/**
+ * ‎**נכס שאפשר להציע — התנאי של הקריאה, לא רק של הכתיבה.**
+ *
+ * ## ‏מה היה
+ *
+ * ‏הכלל „נכס שנמכר אינו מוצע” נאכף **רק בכתיבה**: `retireMatches`
+ * מוריד את ההתאמות ברגע שהסטטוס משתנה, ושני מסלולי החישוב מדלגים
+ * על נכס שאינו לשיווק. הקריאה סיננה `deletedAt` בלבד, כלומר היא
+ * הניחה שהניקוי אכן רץ.
+ *
+ * ‏הנחה כזו נכונה עד לפעם הראשונה שהיא אינה: שורה שנוצרה בגרסה
+ * שקדמה לניקוי, טרנזקציה שנקטעה, או מסלול שנוסף ושכח לקרוא לו.
+ * ‏**ואין מי שיתקן אותה בדיעבד** — הסבב היומי עובר על נכסים
+ * לשיווק בלבד, ולכן נכס שנמכר אינו נבדק שוב לעולם. שורה כזו
+ * מופיעה במסך לתמיד.
+ *
+ * ‏זה הסינון שהופך את „לא אמורים להופיע” לנכון בלי תלות בהיסטוריה:
+ * גם אם השורה קיימת, היא אינה נקראת.
+ *
+ * ## ‏למה `deletedAt` **וגם** הסטטוס באותו מקום
+ *
+ * ‏שניהם עונים לאותה שאלה — „האם מותר להציע את הנכס הזה עכשיו” —
+ * ושני תנאים בשני מקומות נפרדים היו מסכימים ביום שנכתבו בלבד.
+ */
+function matchablePropertyOf(tenantId: string, propertyIds: readonly string[]) {
   return {
     tenantId,
-    status: { not: "dismissed" },
-    score: { gte: query.minScore },
-    ...(query.propertyId ? { propertyId: query.propertyId } : {}),
+    id: { in: [...new Set(propertyIds)] },
+    deletedAt: null,
+    status: { in: [...MATCHABLE_PROPERTY_STATUSES] },
   };
 }
 
@@ -183,35 +277,33 @@ export class MatchingService {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       /*
-       * מרווח מעל המבוקש, כי הסינון של צד מחוק קורה בזיכרון.
-       *
-       * `take` שווה בדיוק ל-limit היה נותן פחות מהמבוקש כשהשורות
-       * העליונות מסוננות — ועם limit=1 אפילו רשימה ריקה בזמן שיש
-       * התאמה תקינה שורה מתחת (ביקורת Codex). המקור מתוקן ממילא
-       * (התאמה לנכס מחוק מסומנת dismissed), ולכן המרווח הוא רשת
-       * ביטחון לשורות ישנות ולא הפתרון עצמו.
+       * ‏הסינון קורה **במסד**, ולכן ה-`LIMIT` כבר סופר שורות תקינות
+       * בלבד. הגרסה הקודמת שלפה מרווח וסיננה בזיכרון — ראו
+       * ‎`matchableMatchesFrom` למה זה נשבר.
        */
-      const rows = await tx.match.findMany({
-        where: officeMatchesOf(tenantId, query),
-        orderBy: { score: "desc" },
-        take: query.limit + LIVE_HEADROOM,
-      });
+      const rows = await this.matchableRows(
+        tx,
+        tenantId,
+        Prisma.sql`
+          AND m.score >= ${query.minScore}
+          ${query.propertyId ? Prisma.sql`AND m.property_id = ${query.propertyId}` : Prisma.empty}
+        `,
+        query.limit,
+      );
       if (rows.length === 0) return [];
 
       /*
-       * `deletedAt: null` כאן **וגם** סינון השורות למטה.
+       * ‏הסינון כאן **וגם** השמטת השורות למטה.
        *
        * ל-matches אין קשר מוצהר ל-properties, ולכן אי אפשר לסנן נכס
-       * מחוק בשאילתה עצמה. סינון רק כאן היה משאיר את השורה במסך עם
-       * הכתובת "נכס" — התאמה לנכס שנמחק, שנראית כמו תקלת תצוגה. מה
-       * שנכון הוא להוציא את השורה.
+       * מחוק או נכס שנמכר בשאילתה של ההתאמות עצמה. סינון רק כאן היה
+       * משאיר את השורה במסך עם הכתובת "נכס" — התאמה לנכס שאינו
+       * מוצג, שנראית כמו תקלת תצוגה. מה שנכון הוא להוציא את השורה.
+       *
+       * ‏ראו `matchablePropertyOf`: מחוק **וגם** יצא משיווק.
        */
       const properties = await tx.property.findMany({
-        where: {
-          tenantId,
-          id: { in: [...new Set(rows.map((r) => r.propertyId))] },
-          deletedAt: null,
-        },
+        where: matchablePropertyOf(tenantId, rows.map((r) => r.propertyId)),
         select: {
           id: true, street: true, neighborhood: true, city: true,
           marketingTitle: true, priceAgorot: true,
@@ -254,13 +346,21 @@ export class MatchingService {
         if (name !== undefined) buyerNameById.set(buyer.id, name);
       }
 
-      return rows
-        // התאמה שצידה האחד נמחק אינה התאמה
-        .filter((row) => propertyById.has(row.propertyId) && liveBuyerIds.has(row.buyerId))
-        .slice(0, query.limit)
-        .map((row) => {
-          const property = propertyById.get(row.propertyId)!;
-          return {
+      /*
+       * ‎**אין כאן `slice`** — ה-SQL כבר החזיר בדיוק `limit` שורות
+       * שעברו את התנאי, וזה מה שמתקן את הקיצור.
+       *
+       * ‏השורה שאין לה נכס **מדולגת ולא נדחפת ב-`!`**: שאילתת הנכס
+       * מחילה את אותו תנאי בעצמה, ולכן חוסר כאן פירושו ששני
+       * הניסוחים סטו זה מזה. במצב כזה עדיף להשמיט שורה אחת מאשר
+       * להפיל את המסך — ובכיוון הבטוח, שהרי הכלל הוא שנכס שיצא
+       * משיווק לא ייראה.
+       */
+      return rows.flatMap((row) => {
+        const property = propertyById.get(row.propertyId);
+        if (property === undefined) return [];
+        return [
+          {
             ...toMatchDto(row),
             property: {
               address: [property.street, property.neighborhood, property.city]
@@ -271,8 +371,9 @@ export class MatchingService {
                 property.priceAgorot === null ? undefined : Number(property.priceAgorot),
             },
             buyerName: buyerNameById.get(row.buyerId) ?? null,
-          };
-        });
+          },
+        ];
+      });
     });
   }
 
@@ -692,9 +793,22 @@ export class MatchingService {
    * פשוט נגזר מהבקשה (ביקורת Codex).
    */
   async countAll(query: { minScore: number; propertyId?: string }): Promise<number> {
-    return this.prisma.withTenant(async (tx) =>
-      tx.match.count({ where: officeMatchesOf(TenantContext.current().tenantId, query) }),
-    );
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      /*
+        ‏הספירה חייבת להתיישר עם הרשימה, ולכן היא מחריגה את אותם
+        נכסים בדיוק. „12 התאמות” מעל רשימה של שמונה הוא מונה ששולח
+        לחפש ארבע שאינן קיימות.
+      */
+      return this.countMatchable(
+        tx,
+        tenantId,
+        Prisma.sql`
+          AND m.score >= ${query.minScore}
+          ${query.propertyId ? Prisma.sql`AND m.property_id = ${query.propertyId}` : Prisma.empty}
+        `,
+      );
+    });
   }
 
   /**
@@ -707,9 +821,12 @@ export class MatchingService {
    * לו לקוח.
    */
   async countForProperty(propertyId: string): Promise<number> {
-    return this.prisma.withTenant(async (tx) =>
-      tx.match.count({ where: openMatchesOf(TenantContext.current().tenantId, { propertyId }) }),
-    );
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      // ‏אותו תנאי של `listForProperty`, אחרת המונה סופר מה שהיא לא מציגה
+      if (!(await this.isMatchable(tx, tenantId, propertyId))) return 0;
+      return tx.match.count({ where: openMatchesOf(tenantId, { propertyId }) });
+    });
   }
 
   /** אותו דבר לקונה — ובאותה בדיקת גישה כמו הרשימה שלו. */
@@ -717,9 +834,85 @@ export class MatchingService {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
       await assertBuyerAccess(tx, tenantId, buyerId);
-      return tx.match.count({ where: openMatchesOf(tenantId, { buyerId }) });
+      return this.countMatchable(tx, tenantId, Prisma.sql`AND m.buyer_id = ${buyerId}`);
     });
   }
+
+  /**
+   * ‎**ספירה שמתיישרת עם הרשימה — בלי לשלוף מזהים.**
+   *
+   * ‏הגרסה הראשונה שלי שלפה את כל הנכסים שיצאו משיווק והחריגה אותם
+   * ב-`notIn`, בנימוק שהם הצד הקטן. **הנימוק שגוי**: משרד שפועל
+   * שנים מכר יותר נכסים משיש לו פעילים, ולכן הרשימה גדלה בלי חסם
+   * ומופיעה בכל טעינה של מסך ההתאמות. ‏`dropOrphanMatches` כבר מזהיר
+   * מזה במפורש, ופותר באותו `NOT EXISTS` שכאן.
+   *
+   * ‎**התנאי חי גם ב-`openMatchesOf`**, שנשאר לכרטיס הנכס. זה בדיוק
+   * מה שהתגובות בקובץ מזהירות ממנו, ולכן הבדיקה המבנית משווה את
+   * השניים: `status <> 'dismissed'` כאן חייב להתאים
+   * ל-`status: { not: "dismissed" }` שם.
+   *
+   * ‏רשימת הסטטוסים נגזרת מ-`MATCHABLE_PROPERTY_STATUSES` ואינה
+   * כתובה כאן, כדי שהיא לא תוכל לסטות מהרשימה.
+   */
+  private async countMatchable(
+    tx: TenantTx,
+    tenantId: string,
+    extra: Prisma.Sql,
+  ): Promise<number> {
+    const rows = await tx.$queryRaw<{ count: bigint }[]>`
+      SELECT count(*) AS count ${matchableMatchesFrom(tenantId, extra)}
+    `;
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  /**
+   * ‎**השורות עצמן — מסוננות ומוגבלות במסד.**
+   *
+   * ‏שני שלבים ולא אחד: ה-SQL בוחר את המזהים לפי הניקוד ומחיל את
+   * ה-`LIMIT` על מה שכבר עבר את התנאי, ו-Prisma שולפת את השורות
+   * עצמן. כך הטיפוסים נשארים של Prisma (‏`breakdown` הוא JSON,
+   * ‎`computedAt` הוא `Date`) ולא רשומה שהורכבה ביד מ-`$queryRaw`.
+   *
+   * ‏המיון חוזר גם ב-`findMany`: `IN (...)` אינו משמר סדר.
+   */
+  private async matchableRows(
+    tx: TenantTx,
+    tenantId: string,
+    extra: Prisma.Sql,
+    limit: number,
+  ): Promise<Awaited<ReturnType<TenantTx["match"]["findMany"]>>> {
+    const picked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT m.id ${matchableMatchesFrom(tenantId, extra)}
+      ORDER BY m.score DESC
+      LIMIT ${limit}
+    `;
+    if (picked.length === 0) return [];
+    return tx.match.findMany({
+      where: { tenantId, id: { in: picked.map((row) => row.id) } },
+      orderBy: { score: "desc" },
+    });
+  }
+
+  /**
+   * ‏האם מותר להציע את הנכס הזה עכשיו.
+   *
+   * ‏שאילתה אחת שעונה על שני התנאים של `matchablePropertyOf` — מחוק,
+   * ויצא משיווק — כדי שהתשובה לנכס יחיד לא תיכתב בנפרד מהתשובה
+   * לרשימה.
+   */
+  private async isMatchable(
+    tx: TenantTx,
+    tenantId: string,
+    propertyId: string,
+  ): Promise<boolean> {
+    const row = await tx.property.findFirst({
+      where: matchablePropertyOf(tenantId, [propertyId]),
+      select: { id: true },
+    });
+    return row !== null;
+  }
+
 
   async listForProperty(
     propertyId: string,
@@ -733,6 +926,12 @@ export class MatchingService {
   > {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
+      /*
+        ‏נכס שיצא משיווק אינו מציג „קונים מוצעים”: הרשימה הזו היא
+        הזמנה לפעולה — להתקשר, להציע, לקבוע סיור — ונכס שנמכר אינו
+        מזמין אף אחת מהן.
+      */
+      if (!(await this.isMatchable(tx, tenantId, propertyId))) return [];
       const rows = await tx.match.findMany({
         where: openMatchesOf(tenantId, { propertyId }),
         orderBy: { score: "desc" },
@@ -810,6 +1009,262 @@ export class MatchingService {
     });
   }
 
+  /**
+   * ‎**שידוך שותפים לנכס בטאבו משותף.**
+   *
+   * ‏שתי הרשימות — ההתאמות הרגילות והשותפויות — הן שתי שאלות
+   * ‏שונות על אותו נכס, ולכן גם שתי מדיניות ראייה שונות:
+   *
+   * ‏ברשימת ההתאמות קונה שאיני רשאי לראות **נשאר בשורה** בלי שם
+   * ‏(„קונה של סוכן אחר”): המנהל צריך לדעת שיש עוד ביקוש, והמספר
+   * ‏עצמו אינו מזהה איש.
+   *
+   * ‏בשותפויות זה בלתי אפשרי. ההצעה כאן היא **„חבר בין שני האנשים
+   * ‏האלה”**, ואי אפשר לחבר בין אנשים בעילום שם; שורה כזו הייתה גם
+   * ‏מספרת לסוכן שלקוח של עמיתו מחפש בדיוק את מה שהוא מחפש, בטווח
+   * ‏מחירים ובעיר — כלומר בדיוק הדליפה הפנים-משרדית שהופרדה כאן.
+   * ‏לכן הסינון לפי בעלות נעשה **בשאילתה**: מי שאיני רשאי לראות
+   * ‏אינו נכנס לשידוך בכלל, לא כשורה ולא כמועמד.
+   *
+   * ‏מנהל עם `buyers.view_all` מקבל את כל המשרד, וזה בדיוק תפקידו:
+   * ‏הוא היחיד שיכול לראות שני לקוחות של שני סוכנים שונים ולהציע
+   * ‏להם עסקה משותפת.
+   */
+  async partnersForProperty(
+    propertyId: string,
+    limit: number = PARTNER_PAIR_LIMIT,
+  ): Promise<PartnerPairDto[]> {
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      const property = await tx.property.findFirst({
+        where: { id: propertyId, tenantId, deletedAt: null },
+      });
+      if (property === null) return [];
+      /*
+       * ‎**הגבול כאן הוא על האנשים ולא על הנכס** — ובכוונה.
+       *
+       * ‏רשימת הנכסים היא משרדית: כל סוכן רואה את כל הכתובות, וזו
+       * ‏החלטה קיימת. מה שאינו משרדי הם ה**לקוחות**, ולכן הסינון
+       * ‏היחיד שיש כאן הוא `ownershipFilter` על הקונים למטה. שער
+       * ‏נוסף על הנכס היה חוסם סוכן מלראות שידוך על נכס שהוא כן
+       * ‏רשאי לראות, ולא היה מונע שום דליפה שהסינון ההוא אינו מונע.
+       */
+      const fields = rowToFields(property);
+      const price = fields.priceAgorot;
+      /*
+       * ‎**שאלה אחת, ולא שלוש** (ביקורת Codex, P2).
+       *
+       * ‏„האם שידוך שותפים שייך לנכס הזה” נשאלה כאן, במנוע, ובתנאי
+       * ‏שמרכיב את המקטע במסך — והשלישי לא הסכים עם השניים: נכס
+       * ‏שנמכר, נכס להשכרה או נכס בלי מחיר קיבלו מקטע שאומר „לא
+       * ‏נמצאו שני לקוחות מתאימים”, בזמן שהחישוב מעולם לא רץ.
+       * ‏`partnershipApplies` כולל גם את מצב השיווק, ולכן
+       * ‏`isMatchable` אינו נדרש כאן בנפרד.
+       */
+      if (!partnershipApplies({ ...fields, status: property.status }) || price === undefined) {
+        return [];
+      }
+      /*
+       * ‎**שער הכניסה למודול הקונים — במפורש** (ביקורת Codex, P1).
+       *
+       * ‏`ownershipFilter` הוא **צמצום** ולא שער: בלי `view_all` הוא
+       * ‏מחזיר `{ ownerUserId: <אני> }`, שנראה בטוח — אבל מי שהמודול
+       * ‏חסום אצלו לגמרי עדיין מקבל את הקונים **שלו**, על שם, תקציב
+       * ‏וציון. הקובץ `common/ownership.ts` מזהיר על כך במפורש:
+       * ‏„`view_own` הוא הסף”. הנתיב דורש `matches.view` בלבד, ולכן
+       * ‏הסף חייב להיאמר כאן.
+       *
+       * ‏זריקה ולא רשימה ריקה: „אין שותפויות” על מודול חסום הוא
+       * ‏בדיוק השקר שמזמין את המתווך לחפש למה אין — והמסך שמעליו
+       * ‏מסתיר את המקטע כשאין הרשאה, כך שהזריקה נשארת לקוראים
+       * ‏ישירים של ה-API.
+       */
+      const capabilities = TenantContext.current().capabilities;
+      if (!capabilities.has("buyers.view_own") && !capabilities.has("buyers.view_all")) {
+        throw new ForbiddenException("שידוך שותפים — מודול הקונים חסום עבורך, פנו למנהל המשרד");
+      }
+
+      /*
+       * ‏הסינון הגס נגזר **מאותה רצועה** שהמנוע משתמש בה, ולכן הוא
+       * ‏רחב בדיוק כמוהו: „אינו מגיע לבד” פירושו `budget < price − band`,
+       * ‏שהוא בדיוק השלילה של `price <= budget + band`. שני ליטרלים
+       * ‏היו נפרדים ביום שהרצועה משתנה.
+       */
+      const band = budgetBandAgorot(price, "sale");
+
+      /*
+       * ‎**זרות משתי הרשימות דורשת גם את השורות השמורות** (ביקורת Codex, P1).
+       *
+       * ‏„אינו מגיע לבד” מחושב מהתקציב **הנוכחי**, אבל התאמה שכבר
+       * ‏הוצעה אינה נמחקת: `upsertMatch` מוחק `suggested` בלבד, כדי
+       * ‏לא לאבד עבודה של הסוכן. קונה שהתקציב שלו ירד — או נכס
+       * ‏שהמחיר שלו עלה — נשאר עם שורת `offered` חיה, וגם היה נכנס
+       * ‏לשידוך. אותו אדם, שתי המלצות סותרות על אותו מסך.
+       *
+       * ‏השורה השמורה גוברת: היא מייצגת פעולה שהסוכן כבר עשה.
+       *
+       * ‎**והזרות נמדדת באיש הקשר, לא בכרטיס** (ביקורת Codex, P1,
+       * ‏סבב שני). שני התיקונים — „השורה השמורה גוברת” ו„שני כרטיסים
+       * ‏אינם שני אנשים” — נכתבו במפתחות שונים: כאן `buyerId`, ושם
+       * ‏`partnerKey: contactId`. לאותו אדם עם שני כרטיסים, ההוצאה
+       * ‏תפסה אחד מהם והשני נכנס לשידוך — כלומר אותו אדם בשתי
+       * ‏המלצות סותרות על אותו מסך, בדיוק המצב שההוצאה נועדה למנוע.
+       *
+       * ‏מפתח הזהות אחד לשני הצדדים, ולכן ההוצאה נעשית על אנשי
+       * ‏הקשר של הכרטיסים השמורים ולא על מזהיהם.
+       */
+      const durableBuyerIds = (
+        await tx.match.findMany({
+          where: { tenantId, propertyId, status: { notIn: ["suggested", "dismissed"] } },
+          select: { buyerId: true },
+        })
+      ).map((row) => row.buyerId);
+      /*
+       * ‏שאילתה שנייה ולא `include`: אין יחס Prisma מוצהר בין
+       * ‏`Match` ל-`Buyer`, ו-`distinct` מחזיר את מה שבאמת נדרש —
+       * ‏רשימת אנשי קשר, לא רשימת כרטיסים.
+       */
+      const durableContactIds =
+        durableBuyerIds.length === 0
+          ? []
+          : (
+              await tx.buyer.findMany({
+                where: { tenantId, id: { in: durableBuyerIds } },
+                distinct: ["contactId"],
+                select: { contactId: true },
+              })
+            ).map((row) => row.contactId);
+
+      /*
+       * ‎**הסינון הגס לפני התקרה, ולא אחריה** (ביקורת Codex, P2).
+       *
+       * ‏התקרה חתכה לפי תקציב בלבד, ולכן שישים קונים עשירים מעיר
+       * ‏אחרת יכלו למלא אותה, ליפול כולם ב-`partnerPairs`, ולהסתיר
+       * ‏צמד תקין של קונים זולים יותר — „אין שותפויות” על משרד שיש
+       * ‏לו. התנאי כאן הוא **אותו** סינון גס שהמנוע משתמש בו בכיוון
+       * ‏השני (`recomputeForProperty`), ולכן הוא רחב לפחות כמוהו:
+       * ‏רשימת ערים ריקה היא „בלי מגבלת אזור”, ומי שסימן אזורים על
+       * ‏המפה נכנס תמיד — הרדיוס שלו עשוי לכלול את הנכס גם כשהעיר
+       * ‏שונה, וההכרעה המדויקת נעשית במנוע.
+       */
+      const cityVariants =
+        property.city === null ? null : locationNameVariants(property.city);
+
+      const scanWhere = {
+        tenantId,
+        deletedAt: null,
+        dealType: "sale",
+        sharedTabuStance: "accepts",
+        budgetMaxAgorot: { lt: BigInt(price - band) },
+        ...(durableContactIds.length === 0
+          ? {}
+          : { contactId: { notIn: durableContactIds } }),
+        ...(cityVariants === null
+          ? {}
+          : {
+              OR: [
+                { cities: { hasSome: cityVariants } },
+                { cities: { isEmpty: true } },
+                { hasSearchAreas: true },
+              ],
+            }),
+        ...ownershipFilter("buyers.view_all", "ownerUserId"),
+      };
+
+      const candidates: PartnerCandidate[] = [];
+      const contactIdByBuyer = new Map<string, string>();
+      /*
+       * ‎**הסריקה נעצרת על „מספיק אנשים”, לא על „מספיק שורות”**
+       * ‏(ביקורת Codex, P2, סבב שלישי).
+       *
+       * ‏`take: PARTNER_CANDIDATE_SCAN` סופר כרטיסים, ולכן לקוח אחד
+       * ‏עם 300 כרטיסים כשירים מילא את הסריקה בעצמו והשאילתה חזרה
+       * ‏עם **אדם אחד**. הניכוי לפי `contactId` רץ אחרי השאילתה, וזה
+       * ‏מאוחר מדי. אותו באג בדיוק שתוקן בתוך המנוע — שם
+       * ‏`PARTNER_CANDIDATE_MAX` כבר סופר זהויות — שכבה אחת למטה.
+       *
+       * ‏הדפדוף עוצר על `PARTNER_CANDIDATE_ROW_CAP` שורות, וזה חסם
+       * ‏ולא ביטולו: לקוח עם 1,200 כרטיסים עדיין ימלא אותו. ההבדל
+       * ‏הוא בסדר הגודל, ובכך שהתנאי מודע לאנשים.
+       *
+       * ‎**כל כרטיס שנקרא נשאר מועמד** — הניכוי כאן הוא על תקציב
+       * ‏הסריקה בלבד. שני כרטיסים של אותו אדם מתארים שני חיפושים,
+       * ‏והמנוע כבר בוחר ביניהם את השימושי לשותפות; השמטת השני כאן
+       * ‏הייתה מוחקת התאמה שהוא זה שעונה עליה.
+       */
+      const seenContacts = new Set<string>();
+      let cursor: string | null = null;
+      let scanned = 0;
+      while (seenContacts.size < PARTNER_CANDIDATE_SCAN && scanned < PARTNER_CANDIDATE_ROW_CAP) {
+        const page: { id: string; contactId: string; requirements: unknown }[] =
+          await tx.buyer.findMany({
+            where: scanWhere,
+            /*
+             * ‏התקציב הגבוה ראשון: החיתוך הוא לפי סדר הקלט, ומי
+             * ‏שקרוב יותר למחיר משלים צמד עם יותר שותפים אפשריים.
+             * ‏`id` שובר שוויון, וגם נושא את הסמן.
+             */
+            orderBy: [{ budgetMaxAgorot: "desc" }, { id: "asc" }],
+            take: PARTNER_CANDIDATE_SCAN,
+            ...(cursor === null ? {} : { cursor: { id: cursor }, skip: 1 }),
+            select: { id: true, contactId: true, requirements: true },
+          });
+        if (page.length === 0) break;
+        scanned += page.length;
+        cursor = page[page.length - 1]!.id;
+        for (const row of page) {
+          /*
+           * ‏כרטיס שה-JSON שלו פגום מדולג ואינו מפיל את הרשימה, וגם
+           * ‏אינו „מנצל” את האדם: הכרטיס הבא שלו עדיין ייספר. אותו
+           * ‏לקח כמו בשלב משפך פגום.
+           */
+          const parsed = BuyerRequirementsSchema.safeParse(row.requirements);
+          if (!parsed.success) continue;
+          seenContacts.add(row.contactId);
+          /* ‏מפתח הזהות הוא איש הקשר — שני כרטיסים שלו אינם שני אנשים */
+          candidates.push({
+            buyerId: row.id,
+            requirements: parsed.data,
+            partnerKey: row.contactId,
+          });
+          contactIdByBuyer.set(row.id, row.contactId);
+        }
+        /* ‏דף חלקי = המאגר מוצה, ואין טעם בשאילתה נוספת */
+        if (page.length < PARTNER_CANDIDATE_SCAN) break;
+      }
+
+      const pairs = partnerPairs(fields, candidates, { limit });
+      if (pairs.length === 0) return [];
+
+      const contactsById = await this.contacts.getByIds(tx, [...contactIdByBuyer.values()]);
+      const nameByBuyer = new Map<string, string>();
+      for (const [buyerId, contactId] of contactIdByBuyer) {
+        const name = contactsById.get(contactId)?.name;
+        if (name !== undefined) nameByBuyer.set(buyerId, name);
+      }
+
+      return pairs
+        /*
+         * ‏צמד שאחד מחבריו איבד את שמו (מחיקת לקוח לפי בקשתו) אינו
+         * ‏מוצג: „חבר בין X לבין ” אינו הצעה.
+         */
+        .filter((pair) => pair.partners.every((p) => nameByBuyer.has(p.buyerId)))
+        .map((pair) => ({
+          score: pair.score,
+          explanation: pair.explanation,
+          combinedBudgetAgorot: pair.combinedBudgetAgorot,
+          headroomAgorot: pair.headroomAgorot,
+          partners: pair.partners.map((p) => ({
+            buyerId: p.buyerId,
+            buyerName: nameByBuyer.get(p.buyerId)!,
+            budgetMaxAgorot: p.budgetMaxAgorot,
+            shareAgorot: p.shareAgorot,
+            score: p.score,
+          })),
+        }));
+    });
+  }
+
   async listForBuyer(
     buyerId: string,
     limit: number = MATCH_LIST_LIMIT,
@@ -819,20 +1274,17 @@ export class MatchingService {
       // ההתאמות של קונה הן מידע על הקונה — מי שאינו רשאי לראות את
       // הכרטיס אינו רשאי לראות לאילו נכסים הוא מותאם
       await assertBuyerAccess(tx, tenantId, buyerId);
-      const rows = await tx.match.findMany({
-        where: openMatchesOf(tenantId, { buyerId }),
-        orderBy: { score: "desc" },
-        take: limit + LIVE_HEADROOM,
-      });
+      const rows = await this.matchableRows(
+        tx,
+        tenantId,
+        Prisma.sql`AND m.buyer_id = ${buyerId}`,
+        limit,
+      );
 
       // שם הנכס לכל התאמה — לכרטיס הקונה (קובץ העיצוב); שאילתה אחת לעמוד
       const properties = await tx.property.findMany({
-        // נכס מחוק אינו התאמה — הסינון כאן, וההשמטה בשורות למטה
-        where: {
-          tenantId,
-          id: { in: [...new Set(rows.map((r) => r.propertyId))] },
-          deletedAt: null,
-        },
+        // נכס מחוק או שיצא משיווק אינו התאמה — ראו `matchablePropertyOf`
+        where: matchablePropertyOf(tenantId, rows.map((r) => r.propertyId)),
         select: {
           id: true, street: true, neighborhood: true, city: true,
           marketingTitle: true, priceAgorot: true,
@@ -840,12 +1292,12 @@ export class MatchingService {
       });
       const propertyById = new Map(properties.map((p) => [p.id, p]));
 
-      return rows
-        .filter((row) => propertyById.has(row.propertyId))
-        .slice(0, limit)
-        .map((row) => {
-          const property = propertyById.get(row.propertyId)!;
-          return {
+      /* ‏ה-SQL כבר סינן והגביל; הדילוג הוא אותו דילוג של `listAll` */
+      return rows.flatMap((row) => {
+        const property = propertyById.get(row.propertyId);
+        if (property === undefined) return [];
+        return [
+          {
             ...toMatchDto(row),
             property: {
               address: [property.street, property.neighborhood, property.city]
@@ -855,8 +1307,9 @@ export class MatchingService {
               priceAgorot:
                 property.priceAgorot === null ? undefined : Number(property.priceAgorot),
             },
-          };
-        });
+          },
+        ];
+      });
     });
   }
 

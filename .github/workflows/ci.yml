@@ -152,6 +152,14 @@ jobs:
       - name: Layout decisions hold
         run: pnpm --filter @metavchim/web verify:layout
 
+      # ‏עמדת „טאבו משותף” של קונה נגזרת ולא נקראת מהשדה: קונה מדור
+      # ‏קודם מבטא אותה דרך `propertyTypes`. הסינון, ההתאמות והשידוך
+      # ‏עברו לגזירה וטופס העריכה נשאר מאחור — כלומר על אותו קונה
+      # ‏המערכת פעלה כ„מוכן” והמסך אמר „טרם נשאל”. אין ב-web בדיקות
+      # ‏יחידה, והחתימה זהה בשני המקרים, ולכן זה נראה רק כאן.
+      - name: Buyer stance is derived, not read raw
+        run: pnpm --filter @metavchim/web verify:stance
+
       # ההדרכות והתיעוד הם בית אחד, והבית הוא הציבורי. השער מוודא
       # ש-`/guides` נשאר הפניה ולא חוזר להיות מסך שני שמצייר את אותו
       # תוכן — הפיצול הזה כבר ייצר כאן שתי גרסאות שנפרדו זו מזו.
@@ -206,8 +214,29 @@ jobs:
       - name: Action permissions come from effective capabilities
         run: pnpm verify:caps
 
+      # ‏השער של השער: סיווג תוצאת הסריקה נבדק בלי רשת, כי טעות בו
+      # שקטה בשני הכיוונים — ממצא שנקרא ככשל רשת עובר בשקט, וכשל
+      # לא-מוכר שנקרא ככשל רשת פותח את השער לכל דבר.
+      - name: Audit gate self-test
+        run: pnpm test:audit-gate
+
+      # ‏נכשל על **ממצא**, לא על הרשת.
+      #
+      # ‏התקרה הארוכה למטה נוספה אחרי ש-ERR_SOCKET_TIMEOUT הפיל ריצה
+      # ירוקה, והיא עדיין נכונה — אבל היא מטפלת באיטיות ולא בהשבתה.
+      # ב-3 בספטמבר נקודת הקצה `audits/quick` לא הגיבה שעתיים וחצי
+      # וחזרה ליפול למחרת בבוקר: שבע ריצות אדומות על PR-ים שלא נגעו
+      # ב-`package.json` ולא ב-`pnpm-lock.yaml`. אדום שחוזר בלי קשר
+      # לשינוי מלמד להתעלם ממנו, ושער שמתעלמים ממנו אינו שער.
+      #
+      # ‏הסף לא זז — high/critical עדיין מפילים. מה שהשתנה הוא שכשל
+      # רשת מזוהה ככזה ויוצא באזהרה, ו-`audit.yml` סורק כל בוקר במצב
+      # חמור כדי שחלון כזה לא יבלע פגיעות בשקט.
       - name: Audit dependencies (fail on high)
-        run: pnpm audit --audit-level high
+        env:
+          npm_config_fetch_timeout: "300000"
+          npm_config_fetch_retries: "4"
+        run: pnpm audit:deps
 
   # ה-Playbook שמקים את השרת — נטען ומתפרש.
   #

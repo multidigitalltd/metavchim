@@ -15,6 +15,7 @@ import {
   stripCommandPrefix,
   taskTitleFromTranscript,
   type AgentActionDef,
+  mentorQuestionFromTranscript,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { GeminiService, type GeminiUsage } from "../../core/gemini.service";
@@ -439,6 +440,10 @@ export class AgentInterpretService {
     }
     if (actionId === "create_task") {
       return { title: taskTitleFromTranscript(transcript) };
+    }
+    // שאלה למנטור — השאלה כלשונה בלי מילות הפנייה; בלעדיה ההצעה נתקעת
+    if (actionId === "mentor_ask") {
+      return { question: mentorQuestionFromTranscript(transcript) };
     }
     if (actionId === "create_property") {
       const { fields, marketingDescription } = extractPropertyFromTranscript(transcript);

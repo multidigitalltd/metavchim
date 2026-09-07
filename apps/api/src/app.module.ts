@@ -41,6 +41,8 @@ import { CallsModule } from "./modules/calls/calls.module";
 import { OffersModule } from "./modules/offers/offers.module";
 import { PlatformModule } from "./modules/platform/platform.module";
 import { PropertiesModule } from "./modules/properties/properties.module";
+import { FunnelModule } from "./modules/funnel/funnel.module";
+import { RecruitmentModule } from "./modules/recruitment/recruitment.module";
 import { SearchModule } from "./modules/search/search.module";
 import { LegalModule } from "./modules/legal/legal.module";
 import { SettingsModule } from "./modules/settings/settings.module";
@@ -65,6 +67,8 @@ import { AgentModule } from "./modules/agent/agent.module";
     HealthModule,
     ContactsModule,
     PropertiesModule,
+    FunnelModule,
+    RecruitmentModule,
     BuyersModule,
     MatchingModule,
     AgreementsModule,
@@ -124,6 +128,6 @@ import { AgentModule } from "./modules/agent/agent.module";
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     // בלם ההצפה קודם — מקור חסום לא מגיע לפענוח session (שאילתת DB)
-    consumer.apply(FloodMiddleware, SessionMiddleware).forRoutes("*");
+    consumer.apply(FloodMiddleware, SessionMiddleware).forRoutes("{*splat}");
   }
 }

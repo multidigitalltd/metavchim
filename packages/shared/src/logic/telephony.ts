@@ -25,11 +25,39 @@ import { normalizePhone } from "./contact-people.js";
  */
 export type TelephonyProviderId = "generic" | "015";
 
+/**
+ * ‎**מה נשבר בלי השדה הזה — ולמה זו לא רשימה של „חובה”.**
+ *
+ * ‏קליטת שיחות נכנסות אינה מופיעה כאן **בכוונה**: היא אינה תלויה
+ * ‏באף שדה. המרכזייה דוחפת לכתובת, המפתח שבתוכה מזהה את המשרד, וזה
+ * ‏כל מה שנדרש. שדות 015 פותחים דברים **אחרים** — חיוג יוצא,
+ * ‏משיכת הקלטות, סופטפון — וכל אחד מהם ממשיך לא לעבוד עד שימולא,
+ * ‏בלי לעצור את מה שכבר עובד.
+ *
+ * ‎`undefined` = לא חוסם דבר (מזהה מתקשר, קו ברירת מחדל).
+ */
+export type TelephonyCapability = "dialling" | "recordings" | "softphone";
+
+/** ‏מה כל יכולת נותנת, במילים של מנהל המשרד. */
+export const TELEPHONY_CAPABILITY_LABELS: Record<TelephonyCapability, string> = {
+  dialling: "חיוג בלחיצה מהמערכת",
+  recordings: "משיכת הקלטות השיחות",
+  softphone: "מענה ושיחה מתוך הדפדפן",
+};
+
+export interface TelephonyField {
+  key: string;
+  label: string;
+  secret: boolean;
+  /** ‏מה לא יעבוד כל עוד הוא ריק. `undefined` = לא חוסם דבר. */
+  needed?: TelephonyCapability;
+}
+
 export interface TelephonyProvider {
   id: TelephonyProviderId;
   label: string;
   /** מה המשרד צריך להזין כדי לחבר את הספק. */
-  fields: { key: string; label: string; secret: boolean }[];
+  fields: TelephonyField[];
   /**
    * האם **קיים מימוש** של חיוג יוצא לספק הזה — לא האם הספק תומך.
    *
@@ -83,9 +111,9 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
        * כאן מעולם. משרד שלא ימלא אותו יקבל הודעה שאומרת בדיוק מה
        * חסר, ולא שיחה שנכשלת בלי סיבה גלויה.
        */
-      { key: "customer", label: "מספר לקוח ב-015 (customer)", secret: false },
-      { key: "authUsername", label: "שם משתמש ב-015", secret: false },
-      { key: "authPassword", label: "סיסמה ב-015", secret: true },
+      { key: "customer", label: "מספר לקוח ב-015 (customer)", secret: false, needed: "dialling" },
+      { key: "authUsername", label: "שם משתמש ב-015", secret: false, needed: "dialling" },
+      { key: "authPassword", label: "סיסמה ב-015", secret: true, needed: "dialling" },
       /*
        * **קבוצת ההקלטות — של המשרד, ולא של המערכת.**
        *
@@ -102,6 +130,8 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
         key: "recordGroup",
         label: "מספר קבוצת ההקלטות ב-015 (recordgroup)",
         secret: false,
+        /* ‏יש נפילה לאחור לפי הנתיב, ולכן „חלקי” ולא „לא עובד” */
+        needed: "recordings",
       },
       {
         key: "defaultLine",
@@ -114,12 +144,66 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
        * זהים לכולם — מה שמשתנה בין סוכנים הוא קו ה-SIP האישי, והוא
        * יושב על המשתמש.
        */
-      { key: "sipWssUrl", label: "כתובת WSS לסופטפון (wss://…)", secret: false },
-      { key: "sipDomain", label: "דומיין SIP (למשל sip.015.net)", secret: false },
+      { key: "sipWssUrl", label: "כתובת WSS לסופטפון (wss://…)", secret: false, needed: "softphone" },
+      { key: "sipDomain", label: "דומיין SIP (למשל sip.015.net)", secret: false, needed: "softphone" },
     ],
     clickToDial: true,
   },
 ];
+
+/**
+ * ‎**מה כבר עובד, ומה עוד חסר — וזו אינה שאלה של „מחובר”.**
+ *
+ * ‏עד כה כתובת ה-Webhook הוצגה רק אחרי שנשמר חיבור, והטופס של 015
+ * ‏הציג שמונה שדות שנראים חובה. מנהל שממתין לפרטי הגישה מ-015 —
+ * ‏המצב הרגיל בימים הראשונים — לא יכול היה להוציא את הכתובת, ולכן
+ * ‏**אף שיחה לא נקלטה** בזמן שהוא מחכה. הצימוד הזה היה השגיאה:
+ * ‏המפתח שבכתובת מזהה את המשרד, ואינו נגזר משום פרט של 015.
+ *
+ * ‏הפונקציה הזו אומרת בדיוק את זה: קליטת השיחות עובדת מרגע
+ * ‏שהכתובת הודבקה במרכזייה, ולכל יכולת נוספת יש רשימת שדות משלה.
+ * ‏כלל אחד לשני המסכים — של המשרד ושל הפלטפורמה — כדי ששניהם לא
+ * ‏יספרו שני סיפורים על אותו חיבור.
+ *
+ * ‎`filled` הוא „מה שיש לו ערך”: ערכים גלויים מ-`config`, וסודות
+ * ‏לפי **שמות** בלבד (`secretsSet`) — הערך עצמו אינו עוזב את השרת.
+ */
+export interface TelephonyGap {
+  capability: TelephonyCapability;
+  label: string;
+  /** ‏השדות שחסרים ליכולת הזו, בשמות שהמנהל רואה בטופס. */
+  missing: string[];
+}
+
+export function telephonyGaps(
+  provider: TelephonyProvider,
+  config: Readonly<Record<string, unknown>>,
+  secretsSet: readonly string[],
+): TelephonyGap[] {
+  const filled = (field: TelephonyField): boolean =>
+    field.secret
+      ? secretsSet.includes(field.key)
+      : String(config[field.key] ?? "").trim() !== "";
+  const byCapability = new Map<TelephonyCapability, string[]>();
+  for (const field of provider.fields) {
+    if (field.needed === undefined || filled(field)) continue;
+    const list = byCapability.get(field.needed) ?? [];
+    list.push(field.label);
+    byCapability.set(field.needed, list);
+  }
+  /*
+   * ‏הסדר קבוע ונגזר מהרשימה הקבועה ולא מסדר המפה: מסך שמסדר את
+   * ‏אותם פערים אחרת בכל טעינה נראה כאילו משהו השתנה.
+   */
+  const order: TelephonyCapability[] = ["dialling", "recordings", "softphone"];
+  return order
+    .filter((capability) => byCapability.has(capability))
+    .map((capability) => ({
+      capability,
+      label: TELEPHONY_CAPABILITY_LABELS[capability],
+      missing: byCapability.get(capability) ?? [],
+    }));
+}
 
 export function telephonyProvider(id: string): TelephonyProvider | undefined {
   return TELEPHONY_PROVIDERS.find((p) => p.id === id);
@@ -1211,8 +1295,9 @@ export function recordingWorthPulling(outcome: string | null | undefined): boole
 }
 
 /** כותרת ההתראה שהמתווך רואה כשהטלפון מצלצל. */
-export function incomingCallTitle(contactName: string | null, phone: string): string {
-  return contactName ? `📞 ${contactName} מתקשר` : `📞 שיחה נכנסת מ-${phone}`;
+export function incomingCallTitle(contactName: string | null, phone: string | null): string {
+  if (contactName) return `📞 ${contactName} מתקשר`;
+  return phone === null ? "📞 שיחה נכנסת" : `📞 שיחה נכנסת מ-${phone}`;
 }
 
 /**
@@ -1221,11 +1306,15 @@ export function incomingCallTitle(contactName: string | null, phone: string): st
  * המספר מופיע גם כשהלקוח מוכר: מי שקורא את ההתראה בטלפון רוצה לחזור
  * אליו עכשיו, וחיפוש הכרטיס כדי למצוא מספר הוא בדיוק החיכוך שההתראה
  * באה לחסוך.
+ *
+ * ‎**ו-`phone: null` הוא הכותרת הציבורית** (ביקורת Codex, P1).
+ * ‏במשרד שהפעיל הפרדה, השורה המשרדית אינה יודעת מי התקשר — ולכן
+ * ‏גם המספר יורד ממנה, לא רק השם. ראו `publicNotification`.
  */
-export function missedCallTitle(contactName: string | null, phone: string): string {
-  return contactName
-    ? `📵 ${contactName} התקשר ולא נענה — ${phone}`
-    : `📵 שיחה שלא נענתה מ-${phone}`;
+export function missedCallTitle(contactName: string | null, phone: string | null): string {
+  if (contactName && phone !== null) return `📵 ${contactName} התקשר ולא נענה — ${phone}`;
+  if (contactName) return `📵 ${contactName} התקשר ולא נענה`;
+  return phone === null ? "📵 שיחה שלא נענתה" : `📵 שיחה שלא נענתה מ-${phone}`;
 }
 
 /** תיאור השיחה לציר הזמן. */

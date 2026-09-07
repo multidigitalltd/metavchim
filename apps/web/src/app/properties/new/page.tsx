@@ -145,6 +145,11 @@ function NewPropertyForm() {
         hasBalcony: triState(f, "hasBalcony"),
         hasSafeRoom: triState(f, "hasSafeRoom"),
         /*
+         * ‏עובדה משפטית ולא מאפיין, ולכן היא נשלחת כשדה משלה —
+         * ‏אותו שם בדיוק שהעריכה שולחת.
+         */
+        sharedTabu: f.get("sharedTabu") === "on",
+        /*
          * JSON משדה חבוי אחד — הרשימה גדלה ומשתנה, ולכן אין לה שם
          * שדה קבוע כמו לחמשת הקבועים. השרת מנרמל אותה שוב בשער
          * הכתיבה, ולכן קלט פגום כאן אינו יכול להיכנס למסד.
@@ -422,6 +427,35 @@ function NewPropertyForm() {
               ["hasSafeRoom", 'ממ"ד'],
             ]}
           />
+
+          {/*
+            ‎**גם במסלול הקליטה הראשי, ולא רק בעריכה** (ביקורת Codex, P2).
+            ‏הסימון נוסף לעריכה ולהמרה מליד ונשכח כאן — כלומר מתווך
+            ‏שקולט דירה במושאע נאלץ לבחור בין שתי טעויות: לשמור אותה
+            ‏כדירה רגילה בלי העובדה המשפטית, או לבחור בסוג הנכס הישן
+            ‏`shared_tabu` ולאבד את „דירה” — ואז `propertyTypeMatches`
+            ‏פוסל ממנה כל מחפש דירה.
+
+            ‏והוא נראה כמו עוד מאפיין ואינו כזה: מעלית ומחסן הם נוחות,
+            ‏ורישום בטאבו משותף הוא עובדה משפטית שמשנה את כל אופן
+            ‏העסקה. לכן שדה משלו עם משפט הסבר, ולא צ׳יפ שנבלע בשורה.
+          */}
+          <div
+            className="mt-4 rounded-xl border p-3"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+          >
+            <label className="flex items-center gap-2 font-medium">
+              <input type="checkbox" name="sharedTabu" />
+              רשום בטאבו משותף (מושאע)
+            </label>
+            <p
+              className="m-0 mt-1 text-[length:var(--type-caption-lg)]"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              אין חלקה נפרדת — העסקה דורשת הסכמת שותפים, והמימון מורכב יותר.
+              כדאי לדעת את זה בהתחלה ולא בסוף.
+            </p>
+          </div>
         </FormSection>
 
         <FormSection

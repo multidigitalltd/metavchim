@@ -49,7 +49,9 @@ export function conversationLockKey(tenantId: string, userId: string): string {
 
 /** עמודת ה-JSON ⟵ תורות. צורה לא מוכרת = שיחה ריקה, לא קריסה. */
 export function parseStoredTurns(history: unknown): AgentHistoryTurn[] {
-  return Array.isArray(history) ? (history as unknown as AgentHistoryTurn[]) : [];
+  return Array.isArray(history)
+    ? (history as unknown as AgentHistoryTurn[])
+    : [];
 }
 
 /**
@@ -111,6 +113,11 @@ const NOTIFY_MEMORY: Record<string, string> = {
   buyer: "עדכנתי אותך על קונה חדש",
   coop_offer: "עדכנתי אותך על הצעה מהרשת",
   coop_deal: "עדכנתי אותך על עסקה משותפת",
+  mentor_win: "חגגתי איתך הצלחה",
+  mentor_weekly: "שלחתי לך את הסיכום השבועי של המנטור",
+  mentor_nudge: "הזכרתי לך את היעד באמצע השבוע",
+  mentor_daily: "שלחתי לך את התוכנית של המנטור להיום",
+  mentor_monthly: "שלחתי לך את הסיכום החודשי של המנטור",
 };
 
 /**
@@ -148,7 +155,9 @@ const REF_LABEL: Record<string, string> = {
  *
  * מחזירה `null` כשאין באף פריט מה לזכור.
  */
-export function assistantMemoryTurn(items: readonly NotifiedForMemory[]): AgentHistoryTurn | null {
+export function assistantMemoryTurn(
+  items: readonly NotifiedForMemory[],
+): AgentHistoryTurn | null {
   const texts: string[] = [];
   const refs: AgentHistoryRef[] = [];
   const seenRefs = new Set<string>();
@@ -284,18 +293,25 @@ export function numberedForms(
   };
   const takenDisplay = new Set(display);
   const takenMemory = new Set(memory);
-  const numbered: { display: string[]; memory: string[] } = { display: [], memory: [] };
+  const numbered: { display: string[]; memory: string[] } = {
+    display: [],
+    memory: [],
+  };
   display.forEach((shown, i) => {
     const remembered = memory[i] ?? shown;
     const duplicated =
-      (displayCounts.get(shown) ?? 0) > 1 || (memoryCounts.get(remembered) ?? 0) > 1;
+      (displayCounts.get(shown) ?? 0) > 1 ||
+      (memoryCounts.get(remembered) ?? 0) > 1;
     if (!mayNumber(i) || !duplicated) {
       numbered.display.push(shown);
       numbered.memory.push(remembered);
       return;
     }
     let n = 1;
-    while (takenDisplay.has(fit(shown, ` ${n}`)) || takenMemory.has(fit(remembered, ` ${n}`))) {
+    while (
+      takenDisplay.has(fit(shown, ` ${n}`)) ||
+      takenMemory.has(fit(remembered, ` ${n}`))
+    ) {
       n += 1;
     }
     const chosenDisplay = fit(shown, ` ${n}`);
@@ -309,7 +325,9 @@ export function numberedForms(
 }
 
 /** אותו כלל, על רשימת הפניות. */
-function numberDuplicateLabels(refs: readonly AgentHistoryRef[]): AgentHistoryRef[] {
+function numberDuplicateLabels(
+  refs: readonly AgentHistoryRef[],
+): AgentHistoryRef[] {
   const labels = numberedLabels(refs.map((ref) => ref.label));
   return refs.map((ref, i) => ({ ...ref, label: labels[i]! }));
 }
@@ -349,7 +367,9 @@ export function matchHistoryRef(
    */
   const newest = refs.filter(
     (ref, i) =>
-      refs.findIndex((other) => stripBrackets(other.label) === stripBrackets(ref.label)) === i,
+      refs.findIndex(
+        (other) => stripBrackets(other.label) === stripBrackets(ref.label),
+      ) === i,
   );
   const exact = newest.filter((ref) => stripBrackets(ref.label) === needle);
   if (exact.length === 1) return exact[0]!;
@@ -474,11 +494,15 @@ export function agentTurnRefs(
   // תווית שיותר מרשומה אחת נושאת אותה אינה מזהה אף אחת מהן
   const ambiguous = new Set(
     unique
-      .filter((ref, i) => unique.some((other, j) => j !== i && other.label === ref.label))
+      .filter((ref, i) =>
+        unique.some((other, j) => j !== i && other.label === ref.label),
+      )
       .map((ref) => ref.label),
   );
 
-  return unique.filter((ref) => !ambiguous.has(ref.label)).slice(0, AGENT_RESULT_ROWS);
+  return unique
+    .filter((ref) => !ambiguous.has(ref.label))
+    .slice(0, AGENT_RESULT_ROWS);
 }
 
 /**
@@ -487,7 +511,9 @@ export function agentTurnRefs(
  * הסדר מכריע: „אליו” מתייחס לעדכון האחרון, ולא לזה שלפניו. תווית
  * שחוזרת בשני תורות תיפתר לזו של התור המאוחר.
  */
-export function historyRefs(history: readonly AgentHistoryTurn[]): AgentHistoryRef[] {
+export function historyRefs(
+  history: readonly AgentHistoryTurn[],
+): AgentHistoryRef[] {
   const out: AgentHistoryRef[] = [];
   for (let i = history.length - 1; i >= 0; i -= 1) {
     for (const ref of history[i]!.refs ?? []) out.push(ref);

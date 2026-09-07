@@ -17,6 +17,8 @@ function BillingPageContent(): React.JSX.Element {
   const expired = useSearchParams().get("expired") === "1";
   return (
     <main className="mx-auto max-w-3xl pb-12">
+      {/* הכותרת הסמנטית — הסרגל העליון מציג `<p>` בכוונה (app-shell) */}
+      <h1 className="sr-only">מנוי ותשלומים</h1>
       <BillingSection expired={expired} />
     </main>
   );

@@ -6,10 +6,46 @@ import type { BuyersService } from "../buyers/buyers.service";
 import type { ContactsService } from "../contacts/contacts.service";
 import type { PrismaService, TenantTx } from "../../core/prisma.service";
 import type { PropertiesService } from "../properties/properties.service";
+import type { EmailService } from "../../core/email.service";
+import type { PlanCatalogService } from "../../core/plan-catalog.service";
+import type { EmailInboxService } from "../email-inbox/email-inbox.service";
+import type { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import type { TenantLogoService } from "../../core/tenant-logo.service";
 
 /** שני התלויים שהמסלול הציבורי אינו נוגע בהם — פרט לבדיקת הלוגו. */
 const noProperties = undefined as unknown as PropertiesService;
+/*
+  ‏השליחה באימייל היא מסלול **פנימי** — סוכן שלוחץ בכרטיס. שום דבר
+  בקובץ הזה אינו מגיע אליה, ולכן `send` שזורק הוא הביטוי הנכון: אם
+  מסלול ציבורי יתחיל בכל זאת לשלוח מייל, הבדיקה תיפול במקום לעבור.
+*/
+const noEmail = {
+  send: () => {
+    throw new Error("המסלול הציבורי אינו שולח מייל");
+  },
+} as unknown as EmailService;
+/*
+  ‏אותו נימוק לוואטסאפ ולמסלול: הצד הציבורי אינו שולח דבר ואינו
+  שואל על מסלול. שירות שזורק הופך „נגענו בזה בטעות” לנפילה.
+*/
+const noWhatsApp = {
+  sendAsTenant: () => {
+    throw new Error("המסלול הציבורי אינו שולח וואטסאפ");
+  },
+  hasTenantConnection: () => {
+    throw new Error("המסלול הציבורי אינו בודק חיבור וואטסאפ");
+  },
+} as unknown as WhatsAppSendService;
+const noPlans = {
+  tenantHasFeature: () => {
+    throw new Error("המסלול הציבורי אינו בודק מסלול");
+  },
+} as unknown as PlanCatalogService;
+const noInbox = {
+  replyAddressFor: () => {
+    throw new Error("המסלול הציבורי אינו מנפיק כתובת תשובה");
+  },
+} as unknown as EmailInboxService;
 const logoOf = (has: boolean): TenantLogoService =>
   ({ has: async () => has }) as unknown as TenantLogoService;
 
@@ -180,6 +216,10 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       { update: vi.fn() } as unknown as BuyersService,
       noProperties,
       logoOf(true),
+      noEmail,
+      noWhatsApp,
+      noPlans,
+      noInbox,
     );
 
     // אין `TenantContext.run` כאן בכוונה — זה בדיוק מצב הבקשה הציבורית
@@ -220,6 +260,10 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       { update: vi.fn() } as unknown as BuyersService,
       noProperties,
       logoOf(false),
+      noEmail,
+      noWhatsApp,
+      noPlans,
+      noInbox,
     );
 
     await expect(service.submit(TOKEN, { dealType: "sale" })).resolves.toEqual({
@@ -259,6 +303,10 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       { update } as unknown as BuyersService,
       noProperties,
       logoOf(false),
+      noEmail,
+      noWhatsApp,
+      noPlans,
+      noInbox,
     );
 
     await expect(service.submit(TOKEN, { dealType: "sale" })).rejects.toThrow(
@@ -284,6 +332,10 @@ describe("המיזוג רץ מתחת לנעילת הכרטיס", () => {
       buyers,
       noProperties,
       logoOf(false),
+      noEmail,
+      noWhatsApp,
+      noPlans,
+      noInbox,
     );
   }
 
@@ -367,6 +419,10 @@ describe("ליד שטרם הומר — שליחה חוזרת שמשנה תשוב
       { update: vi.fn(notified) } as unknown as BuyersService,
       noProperties,
       logoOf(false),
+      noEmail,
+      noWhatsApp,
+      noPlans,
+      noInbox,
     );
   }
 

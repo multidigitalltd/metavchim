@@ -11,8 +11,8 @@ import {
   agentTurnRefs,
   type AgentHistoryRef,
   agentResultText,
-  applyBlockedModules,
-  resolveCapabilities,
+  effectiveCapabilities,
+  normalizeIsraeliPhone,
   roleLabel,
   decodeButtonId,
   historyRefs,
@@ -24,6 +24,8 @@ import {
   type AgentHistoryTurn,
   type AgentProposal,
   type Capability,
+  MENTOR_INTENTION_MAX,
+  MENTOR_QUICK_COMMANDS,
 } from "@metavchim/shared";
 import { TenantContext, type RequestContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
@@ -75,6 +77,17 @@ import {
 import { formatCard } from "./assistant-card";
 import { formatCallbacks } from "./assistant-callbacks";
 import { summarizeData } from "./assistant-results";
+import {
+  isMentorReflectRequest,
+  mentorIdeaVerdict,
+  isSkipMessage,
+  MENTOR_PLAN_MIN,
+  mentorPlanPrompt,
+  mentorPlanSaved,
+  mentorPlanSkipped,
+  mentorReflectionPrompt,
+} from "./assistant-mentor";
+import { MentorService } from "../mentor/mentor.service";
 import { prospectReplyText } from "./prospect-reply";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 import { WhatsAppLinkService } from "./whatsapp-link.service";
@@ -101,6 +114,8 @@ import { WhatsAppLinkService } from "./whatsapp-link.service";
  */
 
 const FEATURE_ID = "voice_intake";
+/** הזכאות של המנטור — אותו מפתח כמו `feature` בפעולות `mentor_*` בקטלוג. */
+const MENTOR_FEATURE = "ai_coach";
 /**
  * כמה תורות נשמרים לזיכרון השיחה.
  *
@@ -174,7 +189,7 @@ interface PendingState {
    * זו הבחירה היחידה כאן שאינה על **רשומה** אלא על **כוונה**, ולכן
    * היא אינה נצרכת אטומית: לחיצה חוזרת רק מפרשת מחדש, לא מבצעת.
    */
-  awaiting: "confirm" | "choice" | "suggest";
+  awaiting: "confirm" | "choice" | "suggest" | "mentor_reflection" | "mentor_plan";
   /**
    * חותם ההצעה — נכנס למזהי הכפתורים שלה.
    *
@@ -194,6 +209,12 @@ interface PendingState {
    * הסידורי הוא מה שנוסע, בדיוק כמו בבחירת רשומה.
    */
   suggestions?: string[];
+  /**
+   * הרפלקציה של המנטור — ההודעה הבאה היא התשובה („mentor_reflection”),
+   * ואחריה התוכנית („mentor_plan”, עם ההצעות לפי הסדר שהוצג).
+   * ‎`proposal` כאן הוא תווית בלבד: אין מה לבצע דרך המנוע.
+   */
+  mentor?: { reviewId: string; plans?: string[] };
 }
 
 interface ChatState {
@@ -260,6 +281,7 @@ export class WhatsAppAssistantService {
     private readonly links: WhatsAppLinkService,
     private readonly gemini: GeminiService,
     private readonly agentPrefs: AgentPrefsService,
+    private readonly mentor: MentorService,
   ) {}
 
   /**
@@ -598,6 +620,126 @@ export class WhatsAppAssistantService {
    * תפסה — החותם לא תאם — מה שבשורה חדש ממה שבזיכרון, ואסור
    * לכתוב עליו את הריקון המקומי.
    */
+  /* ---------------- המנטור: רפלקציה ותוכנית ---------------- */
+
+  /** תווית להצעה הממתינה — אין כאן פעולה למנוע, רק מצב שיחה. */
+  private static mentorPlaceholder(title: string): AgentProposal {
+    return {
+      actionId: "mentor_reflect",
+      title,
+      risk: "update",
+      summary: title,
+      fields: [],
+      missing: [],
+      warnings: [],
+      degraded: [],
+      fallback: false,
+    };
+  }
+
+  private async mentorReflectStart(user: IdentifiedUser, chat: ChatState): Promise<AgentReply> {
+    /*
+     * הזכאות נאכפת כאן כמו ב-`execute` לפעולות הקטלוג: המסלול הזה
+     * קורא ל-`MentorService` ישירות, ומשרד שאיבד את `ai_coach` אינו
+     * אמור לקרוא או לכתוב רפלקציה דרך הוואטסאפ (ביקורת Codex).
+     */
+    if (!(await this.plans.tenantHasFeature(user.tenantId, MENTOR_FEATURE))) {
+      const text = "המנטור האישי אינו כלול במסלול של המשרד — אפשר לשדרג במסך החיוב.";
+      return { text, speak: text };
+    }
+    const latest = await this.mentor.latestReview();
+    if (latest === null || latest.reflection === null) {
+      const text =
+        "המנטור לא שאל אותך שאלה השבוע — השאלה מגיעה עם הסיכום השבועי כשיעד נשאר מאחור. אפשר לשאול אותו כל דבר: „מנטור, מה כדאי לי לשפר?”";
+      return { text, speak: text };
+    }
+    if (chat.pending !== null) {
+      const took = await this.takePending(user.tenantId, user.id, chat.pending.token);
+      this.consumed(chat, took);
+    }
+    const token = ulid();
+    chat.pending = {
+      transcript: MENTOR_QUICK_COMMANDS.mentor_reflect,
+      proposal: WhatsAppAssistantService.mentorPlaceholder("תשובה למנטור"),
+      awaiting: "mentor_reflection",
+      extraParams: {},
+      token,
+      mentor: { reviewId: latest.id },
+    };
+    chat.keepStoredPending = false;
+    return mentorReflectionPrompt(latest.reflection);
+  }
+
+  /**
+   * ההודעה שאחרי „לענות למנטור” היא התשובה; זו שאחרי „ואם זה יקרה
+   * שוב?” היא התוכנית. שתיהן נצרכות אטומית עם החותם — כמו „אשר”.
+   */
+  private async mentorFollowUp(
+    user: IdentifiedUser,
+    chat: ChatState,
+    pending: PendingState,
+    text: string,
+  ): Promise<AgentReply> {
+    const reviewId = pending.mentor?.reviewId;
+    const took = await this.takePending(user.tenantId, user.id, pending.token);
+    this.consumed(chat, took);
+    if (!took || reviewId === undefined) {
+      return { text: STALE_PROPOSAL_TEXT, speak: STALE_PROPOSAL_TEXT };
+    }
+    if (pending.awaiting === "mentor_reflection") {
+      const answer = text.trim();
+      if (answer.length < MENTOR_PLAN_MIN) {
+        const retry = "לא קלטתי תשובה — במילים שלך, מה עצר? או „בטל”.";
+        // ההצעה נצרכה; מחזירים אותה כדי שההודעה הבאה עדיין תיחשב תשובה
+        chat.pending = { ...pending, token: ulid() };
+        chat.keepStoredPending = false;
+        return { text: retry, speak: retry };
+      }
+      let plans: string[];
+      try {
+        const review = await this.mentor.answerReflection(reviewId, answer);
+        plans = review.planSuggestions.slice(0, 3);
+      } catch (error) {
+        // הצריכה כבר קרתה — מחזירים את המצב עם חותם חדש, שהניסיון הבא ייחשב תשובה
+        chat.pending = { ...pending, token: ulid() };
+        chat.keepStoredPending = false;
+        const failure = `התשובה לא נשמרה: ${errorMessage(error)}. אפשר לשלוח אותה שוב.`;
+        return { text: `⚠️ ${failure}`, speak: failure };
+      }
+      const token = ulid();
+      chat.pending = {
+        transcript: answer,
+        proposal: WhatsAppAssistantService.mentorPlaceholder("תוכנית ליעד"),
+        awaiting: "mentor_plan",
+        extraParams: {},
+        token,
+        mentor: { reviewId, plans },
+      };
+      chat.keepStoredPending = false;
+      return mentorPlanPrompt(answer, plans, token);
+    }
+    // mentor_plan
+    if (isSkipMessage(text)) return mentorPlanSkipped();
+    const plans = pending.mentor?.plans ?? [];
+    const picked = choiceIndex(text, plans.length);
+    const plan = (picked === null ? text.trim() : plans[picked]!).slice(0, MENTOR_INTENTION_MAX);
+    if (plan.length < MENTOR_PLAN_MIN) {
+      const retry = "תוכנית קצרה מדי — „כש… אז…” במילים שלך, מספר מההצעות, או „דלג”.";
+      chat.pending = { ...pending, token: ulid() };
+      chat.keepStoredPending = false;
+      return { text: retry, speak: retry };
+    }
+    try {
+      await this.mentor.setPlan(reviewId, plan);
+    } catch (error) {
+      chat.pending = { ...pending, token: ulid() };
+      chat.keepStoredPending = false;
+      const failure = `התוכנית לא נשמרה: ${errorMessage(error)}. אפשר לשלוח אותה שוב, או „דלג”.`;
+      return { text: `⚠️ ${failure}`, speak: failure };
+    }
+    return mentorPlanSaved(plan);
+  }
+
   private consumed(chat: ChatState, took: PendingState | null): void {
     chat.pending = null;
     if (took === null) chat.keepStoredPending = true;
@@ -817,7 +959,15 @@ export class WhatsAppAssistantService {
     return user as IdentifiedUser | null;
   }
 
-  /** היכולות נבנות בדיוק כמו ב-resolveSession — חריגים ואז חסימות. */
+  /**
+   * ‎**העוזר רץ כמשתמש שהפעיל אותו — לא כישות משלו.**
+   *
+   * ‏זו כל ההפרדה: אין לעוזר תפקיד, אין לו קבוצת יכולות משלו, ואין
+   * ‏לו מסלול נתונים משלו. הקבוצה הזו היא בדיוק זו שהכניסה למערכת
+   * ‏בונה, דרך אותה פונקציה — ולכן סוכן שאינו רואה נתון במסך אינו
+   * ‏רואה אותו גם דרך העוזר. „נבנות בדיוק כמו ב-resolveSession”
+   * ‏הייתה הערה, וכעת זו אותה שורה.
+   */
   private async buildContext(user: IdentifiedUser): Promise<RequestContext> {
     const overrides = await this.prisma.withExplicitTenant(user.tenantId, (tx) =>
       tx.userCapability.findMany({
@@ -825,17 +975,9 @@ export class WhatsAppAssistantService {
         select: { capability: true, effect: true, expiresAt: true },
       }),
     );
-    const capabilities = applyBlockedModules(
-      resolveCapabilities(
-        user.role,
-        overrides.map((o) => ({
-          capability: o.capability as Capability,
-          effect: o.effect === "grant" ? ("grant" as const) : ("deny" as const),
-          expiresAt: o.expiresAt,
-        })),
-        new Date(),
-      ),
-      user.tenant.blockedModules,
+    const capabilities = effectiveCapabilities(
+      { role: user.role, overrides, blockedModules: user.tenant.blockedModules },
+      new Date(),
     );
     return { tenantId: user.tenantId, userId: user.id, capabilities, billingOnly: false };
   }
@@ -918,6 +1060,28 @@ export class WhatsAppAssistantService {
     // מי מדבר — נכנס לפרומפט כדי שהתשובה תהיה שלו ולא כללית
     const speaker = { name: firstName(user.name), roleLabel: roleLabel(user.role) };
 
+    /*
+     * „לענות למנטור” — כלשונו (כפתור ההתראה או הקלדה): פותח את
+     * הרפלקציה במקום להישלח למנוע ההבנה, שאין לו פעולה ל„מה עצר”.
+     * הצעה שממתינה נצרכת — המתווך עבר לדבר עם המנטור.
+     */
+    if (isMentorReflectRequest(text)) {
+      return withHeard(await this.mentorReflectStart(user, chat), heard);
+    }
+    // „הרעיון עזר לי” / „לא בשבילי” — משוב על רעיון הבוקר, אותה זכאות
+    const verdict = mentorIdeaVerdict(text);
+    if (verdict !== null) {
+      if (!(await this.plans.tenantHasFeature(user.tenantId, MENTOR_FEATURE))) {
+        const denied = "המנטור האישי אינו כלול במסלול של המשרד — אפשר לשדרג במסך החיוב.";
+        return withHeard({ text: denied, speak: denied }, heard);
+      }
+      const reply = await this.mentor.ideaFeedbackFromChat(
+        verdict.verdict,
+        verdict.ideaKey,
+      );
+      return withHeard({ text: reply, speak: reply }, heard);
+    }
+
     const pending = chat.pending;
     if (pending) {
       if (isCancelMessage(text)) {
@@ -925,6 +1089,9 @@ export class WhatsAppAssistantService {
         this.consumed(chat, took);
         const answer = took ? "בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול.";
         return { text: took ? `❌ ${answer}` : answer, speak: answer };
+      }
+      if (pending.awaiting === "mentor_reflection" || pending.awaiting === "mentor_plan") {
+        return withHeard(await this.mentorFollowUp(user, chat, pending, text), heard);
       }
       /*
        * ‎**„אולי התכוונת” — בחירת כוונה, לא בחירת רשומה.**
@@ -1348,7 +1515,15 @@ export class WhatsAppAssistantService {
            * בגבעתיים” בלי הסייג נשמע כמו עובדה על המשרד, בזמן
            * שהתשובה מסוננת לבעלות.
            */
-          const scope = scopeNote(state.proposal.actionId);
+          /*
+           * ‏האם זה חיפוש לפי טלפון — אותה בדיקה שמנתבת את החיפוש
+           * ‏עצמו, ולא ניחוש שני שיכול לסטות ממנה.
+           */
+          const searchTerm = state.proposal.fields.find((field) => field.key === "query");
+          const byPhone =
+            typeof searchTerm?.value === "string" &&
+            normalizeIsraeliPhone(searchTerm.value) !== undefined;
+          const scope = scopeNote(state.proposal.actionId, byPhone);
           if (scope !== "") lines.push(scope);
           break;
         }
@@ -1724,7 +1899,19 @@ const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
    * ממי שהמודול חסום אצלו (`seesAllContacts`). בלי היכולת השלישית
    * כאן הסייג היה נעלם דווקא כשחלק מההיסטוריה אכן הוסתר.
    */
-  show_calls: ["buyers.view_all", "leads.view_all", "properties.view"],
+  show_calls: [
+    "buyers.view_all",
+    "leads.view_all",
+    "properties.view",
+    /*
+     * ‏הרביעית נוספה עם ההפרדה לפי סוכן על הנכסים. ההערה שמעל כבר
+     * ‏אמרה למה השלישית כאן — „הסייג היה נעלם דווקא כשחלק
+     * ‏מההיסטוריה אכן הוסתר” — וזה חל מילה במילה גם עליה: סוכן שאין
+     * ‏לו את כל הנכסים מקבל יומן שיחות מסונן, ובלי השורה הזו ההודעה
+     * ‏הייתה מציגה אותו כמשרדי (ביקורת Codex).
+     */
+    "properties.view_all",
+  ],
   /*
    * „למי לחזור” שואבת משלושה מקורות — שיחות, לידים ומשימות —
    * ולכן דורשת את איחוד היכולות שלהם.
@@ -1742,6 +1929,8 @@ const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
     "buyers.view_all",
     "leads.view_all",
     "properties.view",
+    // ‏מאותו נימוק בדיוק כמו ב-`show_calls`: „למי לחזור” שואב משיחות
+    "properties.view_all",
     "tasks.view_all",
     "calendar.manage",
   ],
@@ -1753,7 +1942,7 @@ const SEARCH_SCOPED_GROUPS: readonly { capability: Capability; label: string }[]
   { capability: "leads.view_all", label: "לידים" },
 ];
 
-function scopeNote(actionId: string): string {
+function scopeNote(actionId: string, byPhone = false): string {
   const capabilities = TenantContext.current().capabilities;
 
   /*
@@ -1761,14 +1950,38 @@ function scopeNote(actionId: string): string {
    * הנכסים הם של המשרד ומוצגים במלואם. סייג גורף היה אומר על תוצאת
    * נכסים מלאה שהיא חלקית (ביקורת Codex) — ולכן הוא מונה בשם את
    * הקבוצות המצומצמות, ומזכיר את הנכסים רק למי שרואה אותם.
+   *
+   * ‎**„נכסים — מכל המשרד” חדל להיות נכון תמיד.** חיפוש לפי טלפון
+   * ‏מגיע ללקוח, ולקוח שהוא בעל נכס של עמית מוסתר ממי שאין לו
+   * ‏`properties.view_all` — כלומר התוצאה מצומצמת דווקא במסלול
+   * ‏שהמשפט הבטיח עליו „הכול”. ובמשרד שבו לסוכן יש `view_all` על
+   * ‏קונים ולידים, `restricted` ריק והסייג לא הופיע כלל: אפס
+   * ‏תוצאות נקרא כעובדה על המשרד (ביקורת Codex).
+   *
+   * ‏הסייג על בעלי הנכסים מוצג **רק בחיפוש לפי טלפון**, לפי אותה
+   * ‏בדיקה עצמה שמנתבת את החיפוש (`normalizeIsraeliPhone`). חיפוש
+   * ‏לפי כתובת אינו מסונן כך, וסייג עליו היה מהסוג שנפסל כאן קודם:
+   * ‏נכון על ההרשאה, שקרי על התוצאה.
    */
   if (actionId === "search") {
     const restricted = SEARCH_SCOPED_GROUPS.filter(
       (group) => !capabilities.has(group.capability),
     ).map((group) => group.label);
-    if (restricted.length === 0) return "";
-    const properties = capabilities.has("properties.view") ? "; נכסים — מכל המשרד" : "";
-    return `_(${restricted.join(" ו")} — מהרשומות שמשויכות אליך בלבד${properties})_`;
+    const ownersHidden =
+      byPhone && capabilities.has("properties.view") && !capabilities.has("properties.view_all");
+    if (restricted.length === 0 && !ownersHidden) return "";
+    const parts: string[] = [];
+    if (restricted.length > 0) {
+      parts.push(`${restricted.join(" ו")} — מהרשומות שמשויכות אליך בלבד`);
+    }
+    if (capabilities.has("properties.view")) {
+      parts.push(
+        ownersHidden
+          ? "נכסים — מכל המשרד, אך בעלי נכסים שאינם שלך אינם מופיעים בחיפוש לפי טלפון"
+          : "נכסים — מכל המשרד",
+      );
+    }
+    return `_(${parts.join("; ")})_`;
   }
 
   const required = SCOPE_CAPABILITIES[actionId];

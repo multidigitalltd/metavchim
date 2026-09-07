@@ -70,6 +70,7 @@ const UpdatePhoneSchema = z.object({ phone: PhoneField }).strict();
  * „הצטרפות” בלי „הסרה” היה חסר בדיוק מה שהמשרד צריך כשלקוח מתקשר.
  */
 const MarketingConsentSchema = z.object({ consent: z.boolean() }).strict();
+const SharedTabuSchema = z.object({ sharedTabu: z.boolean() }).strict();
 
 /** אישור מחיקת לקוח: שמו המדויק — הפעולה אינה הפיכה. */
 const EraseContactSchema = z.object({ confirmName: z.string().min(1).max(120) }).strict();
@@ -203,9 +204,16 @@ export class ContactsController {
     return this.duplicates.dismiss(body.key);
   }
 
-  // אין כאן יכולת אחת נדרשת: כל תת-רשימה נשלטת ע"י כלל המודול שלה
-  // (הקונה והלידים בפילטר הבעלות, הנכסים כלל-משרדיים) — לכן ההצהרה
-  // היא "מחובר", וההרשאה בפועל נאכפת בתוך השאילתה עצמה.
+  /*
+   * ‏אין כאן יכולת אחת נדרשת: כל תת-רשימה נשלטת ע"י כלל המודול שלה,
+   * ‏ולכן ההצהרה היא "מחובר" וההרשאה נאכפת בתוך השאילתה.
+   *
+   * ‎**מה שהיה חסר: הלקוח עצמו.** הקיום שלו נבדק לפי `id` ו-`tenantId`
+   * ‏בלבד, וענף הנכסים נשלף בלי סינון בעלות — כי „הנכסים גלויים לכל
+   * ‏המשרד”, שהיה נכון לפני `properties.view_all`. מי שיודע מזהה של
+   * ‏בעל נכס מוסתר יכול היה לאשר שהוא קיים **ולראות איזה נכס בדיוק
+   * ‏שייך לו** (ביקורת Codex).
+   */
   @AnyAuthenticated()
   @Get(":id/related")
   async related(
@@ -213,11 +221,8 @@ export class ContactsController {
   ): Promise<RelatedEntitiesDto> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
-      const contact = await tx.contact.findFirst({
-        where: { id, tenantId },
-        select: { id: true },
-      });
-      if (!contact) throw new NotFoundException("איש קשר לא נמצא");
+      // „לא נמצא” ו„אינו שלי” חייבים להיראות זהים — ההבדל מסגיר קיום
+      await assertContactAccess(tx, tenantId, id);
 
       const [buyers, leads, properties] = await Promise.all([
         tx.buyer.findMany({
@@ -241,9 +246,18 @@ export class ContactsController {
           take: 10,
           select: { id: true, status: true, intent: true, createdAt: true },
         }),
-        // נכסים גלויים לכל המשרד — אין פילטר בעלות במודול הנכסים
+        /*
+         * ‏הנכס עצמו משרדי, אבל **הקישור בינו לבין האדם** הוא מה
+         * ‏שהיכולת מגנה עליו — אותו נימוק בדיוק כמו בחיפוש לפי
+         * ‏טלפון ובכרטיס הנכס.
+         */
         tx.property.findMany({
-          where: { tenantId, ownerContactId: id, deletedAt: null },
+          where: {
+            tenantId,
+            ownerContactId: id,
+            deletedAt: null,
+            ...ownershipFilter("properties.view_all", "agentUserId"),
+          },
           orderBy: { createdAt: "desc" },
           take: 10,
           select: { id: true, marketingTitle: true, city: true, status: true },
@@ -423,6 +437,40 @@ export class ContactsController {
       if (did) {
         await this.audit.record(tx, {
           action: body.consent ? "contact.marketing_resumed" : "contact.marketing_stopped",
+          entityType: "contact",
+          entityId: id,
+        });
+      }
+      return did;
+    });
+    return { ok: true, changed };
+  }
+
+  /**
+   * ‎**„טאבו משותף” על הלקוח** (בקשת בעל המוצר).
+   *
+   * ‏רישום בטאבו משותף (מושאע) הוא עובדה משפטית שמשנה את כל אופן
+   * ‏העסקה, והיא נאמרת לרוב בשיחה הראשונה — לפני שיש כרטיס נכס
+   * ‏לרשום עליה. הסימון המקביל על הנכס עצמו עובר דרך עריכת הנכס.
+   *
+   * ‎`buyers.edit` כמו שאר עריכות הכרטיס: זו עריכת לקוח, לא צפייה.
+   */
+  @RequireCapability("buyers.edit")
+  @Patch(":id/shared-tabu")
+  @HttpCode(200)
+  async setSharedTabu(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(SharedTabuSchema))
+    body: z.infer<typeof SharedTabuSchema>,
+  ): Promise<{ ok: true; changed: boolean }> {
+    const tenantId = TenantContext.current().tenantId;
+    const changed = await this.prisma.withTenant(async (tx) => {
+      await assertContactAccess(tx, tenantId, id);
+      const did = await this.contacts.setSharedTabu(tx, id, body.sharedTabu);
+      /* ‏רק שינוי אמיתי הוא אירוע — קריאה חוזרת אינה סימון נוסף */
+      if (did) {
+        await this.audit.record(tx, {
+          action: body.sharedTabu ? "contact.shared_tabu_set" : "contact.shared_tabu_cleared",
           entityType: "contact",
           entityId: id,
         });

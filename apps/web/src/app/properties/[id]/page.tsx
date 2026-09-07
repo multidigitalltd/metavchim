@@ -11,7 +11,9 @@ import {
 import Link from "next/link";
 import {
   describeEntry,
+  formatPropertyAddress,
   labelOf,
+  partnershipApplies,
   propertyEvaluableCriteria,
   PropertyStatusSchema,
   type MatchCriterion,
@@ -52,6 +54,7 @@ import { DocumentsPanel } from "../../documents-panel";
 import { EntityTasks, type TaskListResponse } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { OwnerActivity } from "./owner-activity";
+import { PartnerSuggestions } from "./partner-suggestions";
 import { PropertyOccupant, type OccupantContact } from "../property-occupant";
 import { LocationPicker } from "../location-picker-lazy";
 import { ExclusivityPanel } from "../exclusivity-panel";
@@ -86,6 +89,7 @@ interface PropertyDetail {
   city?: string;
   neighborhood?: string;
   street?: string;
+  houseNumber?: string;
   latitude?: number;
   longitude?: number;
   /** בארכיון — רק אז מוצגת מחיקה לצמיתות. */
@@ -109,6 +113,7 @@ interface PropertyDetail {
   hasElevator?: boolean;
   hasParking?: boolean;
   hasBalcony?: boolean;
+  sharedTabu?: boolean;
   hasSafeRoom?: boolean;
   priceAgorot?: number;
   entryDate?: string;
@@ -128,6 +133,10 @@ interface PropertyDetail {
   readinessScore: number;
   missingFields: string[];
   ownerContact?: OwnerContact;
+  /** ‏יש בעלים, והוא אינו מוצג למשתמש הזה. **לא** „אין בעלים”. */
+  ownerRedacted?: boolean;
+  /** ‏יש דייר, והוא אינו מוצג למשתמש הזה. */
+  occupantRedacted?: boolean;
   /** מי גר בנכס כשזה אינו הבעלים — דירה שמושכרת בזמן שהיא מוצעת. */
   occupantContact?: OccupantContact;
   /**
@@ -794,9 +803,7 @@ export default function PropertyDetailPage({
   }
   if (!property) return <p aria-live="polite">טוען…</p>;
 
-  const address = [property.street, property.neighborhood, property.city]
-    .filter(Boolean)
-    .join(", ");
+  const address = formatPropertyAddress(property);
   const features = [
     property.hasElevator && "מעלית",
     property.hasParking && "חניה",
@@ -847,6 +854,16 @@ export default function PropertyDetailPage({
       label: "מאפיינים",
       value: features.length > 0 ? features.join(", ") : null,
     },
+    /*
+      ‎**„טאבו משותף” שורה משלו, ולא עוד מאפיין ברשימה.**
+
+      ‏מעלית ומחסן הם נוחות; רישום בטאבו משותף (מושאע) הוא עובדה
+      ‏משפטית שמשנה את כל אופן העסקה. הוא מוצג רק כשהוא מסומן — שורה
+      ‏„לא” על נכס רגיל היא רעש בכרטיס שכבר צפוף (בקשת בעל המוצר).
+    */
+    ...(property.sharedTabu === true
+      ? [{ label: "רישום", value: "טאבו משותף (מושאע)" }]
+      : []),
   ];
 
   /*
@@ -1386,6 +1403,41 @@ export default function PropertyDetailPage({
               בקשה שנפלה נראית בדיוק כמו „אין התאמות”, וזו בדיוק
               התקלה ששער `verify:lists` קיים כדי למנוע.
             */}
+            {/*
+              ‏השותפויות יושבות **מעל** ההתאמות ולא בתוכן: הן עונות
+              ‏על שאלה אחרת (מי יחד, ולא מי לבד), והרשימות זרות זו
+              ‏לזו. המקטע כולו אינו קיים לנכס שאינו בטאבו משותף.
+            */}
+            {/*
+              ‎**ו„מותר לי קונים” אינו „מותר לי התאמות”** (ביקורת
+              ‏Codex, P2).
+
+              ‏הנתיב `/matches/property/:id/partners` מוגן ב-
+              ‎`@RequireCapability("matches.view")`, והתנאי כאן בדק
+              ‏את מודול הקונים בלבד. משרד שהסיר `matches.view` מסוכן
+              ‏קיבל את המקטע, וכל בקשה חזרה 403 — כלומר „טעינת
+              ‏השותפויות נכשלה” על מקטע שמעולם לא היה אמור להופיע
+              ‏אצלו. השער שמונע „ריק שנראה כמו אפס” הפך כאן לשגיאה
+              ‏שנראית כמו תקלה.
+
+              ‏התנאי מרכיב את מה שהנתיב באמת דורש: שני המודולים.
+            */}
+            {/*
+              ‎**ו„שידוך שייך לנכס הזה” הוא אותה שאלה שהשרת שואל**
+              ‏(ביקורת Codex, P2).
+
+              ‏התנאי כאן בדק `sharedTabu` בלבד, ולכן נכס שנמכר, נכס
+              ‏להשכרה או נכס בלי מחיר קיבלו את המקטע — והוא אמר „לא
+              ‏נמצאו שני לקוחות מתאימים”, בזמן שהחישוב מעולם לא רץ.
+              ‏„אין תוצאה” ו„לא רלוונטי” הם שני מסרים שונים, ורק
+              ‏אחד מהם נכון. `partnershipApplies` הוא אותה פונקציה
+              ‏שהשירות והמנוע קוראים.
+            */}
+            {partnershipApplies(property) &&
+            can(user, "matches.view") &&
+            (can(user, "buyers.view_own") || can(user, "buyers.view_all")) ? (
+              <PartnerSuggestions propertyId={property.id} />
+            ) : null}
             {matchesFailed || (matches !== null && matches.length > 0) ? (
               <section className="mv-card mv-card--pad" aria-labelledby="match-summary-heading">
                 <div className="mv-card-head">
@@ -2224,10 +2276,17 @@ export default function PropertyDetailPage({
 
       <TabPanel tab="owner" active={tab}>
         <div className="flex flex-col gap-[18px]">
+          {/*
+            ‏„בעל הנכס” ו„מי גר בנכס” זה לצד זה: שתי תשובות לאותה
+            שאלה — מי מולי בנכס הזה — ומי שקורא אחת מהן קורא גם את
+            השנייה. זו לזו מתחת הן נראו כשני נושאים שאין ביניהם קשר.
+          */}
+          <div className="mv-owner-grid">
           <PropertyOwner
             canErase={can(user, "contacts.delete")}
             propertyId={id}
             owner={property.ownerContact}
+            redacted={property.ownerRedacted === true}
             canEdit={canEditOwner}
             canEditPeople={canEditOwnerPeople}
             onChanged={loadProperty}
@@ -2242,6 +2301,7 @@ export default function PropertyDetailPage({
           <PropertyOccupant
             propertyId={id}
             occupant={property.occupantContact}
+            redacted={property.occupantRedacted === true}
             occupancy={property.occupancy}
             leaseEndsAt={property.leaseEndsAt}
             noticePeriodDays={property.noticePeriodDays}
@@ -2250,6 +2310,7 @@ export default function PropertyDetailPage({
             canErase={can(user, "contacts.delete")}
             onChanged={loadProperty}
           />
+          </div>
 
           {/*
             הכובעים האחרים של בעל הנכס — מוכר שהוא גם קונה פעיל (או

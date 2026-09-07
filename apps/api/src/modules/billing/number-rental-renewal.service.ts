@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ulid } from "ulid";
-import { billingAnchorDay, formatRentalNumber, nextPeriodEnd } from "@metavchim/shared";
+import {
+  dailyEmailIdempotencyKey,
+ billingAnchorDay, formatRentalNumber, nextPeriodEnd } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { CardcomService } from "../../core/cardcom.service";
 import { VatService } from "../../core/vat.service";
@@ -285,6 +287,11 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
     const payer = await this.payer(tenantId);
     if (payer.email) {
       try {
+        /* ‏פעם ביום למספר הזה — ניסיון נוסף מחר הוא מצב חדש */
+        const idempotency = {
+          key: dailyEmailIdempotencyKey("rentalpastdue", rentalId, new Date()),
+          purpose: "billing",
+        };
         await this.email.send(payer.email, "חיוב השכרת המספר הווירטואלי נכשל", {
           heading: "החיוב החודשי לא עבר",
           paragraphs: [
@@ -292,7 +299,7 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
             "המספר ממשיך לפעול בינתיים; עדכנו אמצעי תשלום במסך המנוי כדי שהחיוב הבא יעבור.",
           ],
           button: { label: "למסך המנוי", url: `${loadEnv().WEB_ORIGIN}/settings/billing` },
-        });
+        }, { idempotency });
       } catch (error) {
         this.logger.warn(`מייל כישלון חיוב למשרד ${tenantId} נכשל: ${String(error)}`);
       }

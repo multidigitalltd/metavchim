@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 import { BuyersModule } from "../buyers/buyers.module";
 import { ContactsModule } from "../contacts/contacts.module";
+import { EmailInboxModule } from "../email-inbox/email-inbox.module";
+import { MessagingModule } from "../messaging/messaging.module";
 import { PropertiesModule } from "../properties/properties.module";
 import { IntakeController } from "./intake.controller";
 import { IntakeService } from "./intake.service";
@@ -15,13 +17,21 @@ import { IntakeService } from "./intake.service";
  * ולא בכתיבה ישירה, כדי שהעמודות החמות, ההתאמות והביקוש ברשת
  * יתעדכנו כמו בכל עריכה אחרת. ראו `applyToBuyer`.
  *
+ * `EmailInboxModule` — כתובת התשובה של איש הקשר. המייל מבטיח „אפשר
+ * להשיב”, ובלי הכתובת הזו התשובה נוחתת ב-From שאיש אינו קורא.
+ *
+ * `MessagingModule` — שליחת הקישור בוואטסאפ מהחיבור של המשרד.
+ * הוא מודול **עלה** בלי `imports` משלו, ולכן הייבוא הזה אינו יוצר
+ * מעגל; ‏`WhatsAppModule` (הוובהוק והסוכן) הוא זה שתלוי ב-
+ * ‎`AgentModule`, ואותו איש אינו מייבא חוץ מ-`AppModule`.
+ *
  * `PropertiesModule` — מאותו נימוק בדיוק לצד השני: מי שממלא „יש לי
  * נכס” מייצר **טיוטת נכס**, והיא נכתבת דרך `PropertiesService` כדי
  * שהמכסה, פענוח הכתובת, ציון המוכנות, היומן וההתאמות יעבדו כמו
  * בכל נכס אחר. ראו `createFromIntake`.
  */
 @Module({
-  imports: [BuyersModule, ContactsModule, PropertiesModule],
+  imports: [BuyersModule, ContactsModule, EmailInboxModule, MessagingModule, PropertiesModule],
   controllers: [IntakeController],
   providers: [IntakeService],
   exports: [IntakeService],

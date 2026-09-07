@@ -3,11 +3,9 @@ import * as argon2 from "argon2";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
-  applyBlockedModules,
+  effectiveCapabilities,
   isTrialExpired,
   normalizePhone,
-  resolveCapabilities,
-  type Capability,
 } from "@metavchim/shared";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -43,6 +41,11 @@ export interface AuthenticatedUser {
    * null = אין תפוגה (משרד משלם או שהוקם ידנית).
    */
   trialEndsAt?: string | null;
+  /**
+   * האם למשרד יש לוגו — כדי שהסרגל יבקש את הקובץ רק כשהוא קיים.
+   * בלי זה כל מסך ביקש `logo/raw` וקיבל 404 למשרד שלא העלה.
+   */
+  tenantHasLogo?: boolean;
 }
 
 /**
@@ -650,29 +653,34 @@ export class AuthService {
      * שקיים הקשר דייר, והטבלה תחת FORCE RLS — בלי app.tenant_id
      * התוצאה הייתה אפס שורות בשקט, כלומר כל ההרשאות מתעלמות.
      */
-    const overrides = await this.prisma.withExplicitTenant(session.user.tenantId, (tx) =>
-      tx.userCapability.findMany({
-        where: { userId: session.user.id, tenantId: session.user.tenantId },
-        select: { capability: true, effect: true, expiresAt: true },
-      }),
+    const [overrides, tenantRow] = await this.prisma.withExplicitTenant(
+      session.user.tenantId,
+      (tx) =>
+        Promise.all([
+          tx.userCapability.findMany({
+            where: { userId: session.user.id, tenantId: session.user.tenantId },
+            select: { capability: true, effect: true, expiresAt: true },
+          }),
+          // הלוגו נרשם ב-settings (ראו tenant-logo.service) — אותה שורה,
+          // בלי שאילתה נוספת לכל בקשה: זה רץ רק ב-/auth/me.
+          tx.tenant.findUnique({ where: { id: session.user.tenantId }, select: { settings: true } }),
+        ]),
     );
+    const tenantSettings = (tenantRow?.settings ?? {}) as Record<string, unknown>;
+    const tenantHasLogo = typeof tenantSettings["logoKey"] === "string";
     /*
-     * חסימת מודול של הפלטפורמה מוחלת **אחרי** חריגי המנהל, ולא
-     * כחריג נוסף: חריג deny ברמת המשתמש נמחק בלחיצה של מנהל המשרד,
-     * וחסימה שהנחסם יכול להסיר אינה חסימה. הכיוון חד־צדדי — היא
-     * מורידה יכולות ולעולם לא מוסיפה.
+     * ‏שלוש השכבות — תפקיד, חריגים, חסימות — יושבות ב-shared בפונקציה
+     * ‏אחת, ובכוונה: הצירוף הזה נדרש גם לעוזר שבוואטסאפ, גם לשער
+     * ‏ההתראות, גם לסבב של העובד וגם למסך ההרשאות, ועותק שנפרד
+     * ‏פירושו „מי רשאי למה” שונה בין שניים מהם.
      */
-    const capabilities = applyBlockedModules(
-      resolveCapabilities(
-        session.user.role,
-        overrides.map((o) => ({
-          capability: o.capability as Capability,
-          effect: o.effect === "grant" ? "grant" : "deny",
-          expiresAt: o.expiresAt,
-        })),
-        new Date(),
-      ),
-      session.user.tenant.blockedModules,
+    const capabilities = effectiveCapabilities(
+      {
+        role: session.user.role,
+        overrides,
+        blockedModules: session.user.tenant.blockedModules,
+      },
+      new Date(),
     );
     /*
      * המסלול נקרא מהקטלוג המומטמן ולא מהמסד — הקוד הזה רץ על כל
@@ -699,6 +707,7 @@ export class AuthService {
         role: session.user.role,
         mustChangePassword: session.user.mustChangePassword,
         tenantName: session.user.tenant.name,
+        tenantHasLogo,
         /*
          * במסלול חינמי אין ספירה לאחור. הבאנר במסכים נגזר מהשדה
          * הזה, ולכן משרד חינמי עם תאריך ישן על השורה היה רואה

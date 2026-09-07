@@ -12,6 +12,7 @@ import { ContactsModule } from "../contacts/contacts.module";
 import { IntakeModule } from "../intake/intake.module";
 import { LeadsModule } from "../leads/leads.module";
 import { MatchingModule } from "../matching/matching.module";
+import { MentorModule } from "../mentor/mentor.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { SupportModule } from "../support/support.module";
 import { NotificationsModule } from "../notifications/notifications.module";
@@ -78,6 +79,8 @@ import { AgentResolveService } from "./resolve.service";
     MessagingModule,
     // „תפתח פנייה לתמיכה” — אותו שירות כמו כפתור התמיכה
     SupportModule,
+    // „מה המצב ביעדים שלי” — אותו מנטור של המסך, מתוך השיחה
+    MentorModule,
   ],
   controllers: [AgentController],
   providers: [
@@ -90,6 +93,11 @@ import { AgentResolveService } from "./resolve.service";
     AgentPrefsService,
   ],
   // הסוכן האישי בוואטסאפ מדבר עם אותו מנוע בדיוק — לא מסלול מקביל
-  exports: [AgentInterpretService, AgentResolveService, AgentExecuteService, AgentPrefsService],
+  exports: [
+    AgentInterpretService,
+    AgentResolveService,
+    AgentExecuteService,
+    AgentPrefsService,
+  ],
 })
 export class AgentModule {}

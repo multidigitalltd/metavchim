@@ -69,6 +69,13 @@ const RLS_EXEMPT: Readonly<Record<string, string>> = {
   // נגזר מכתובת השולח **אחרי** שהפנייה כבר נקלטה. שולחן התמיכה
   // עצמו הוא מסך פלטפורמה, מוגן ב-PlatformAdminGuard.
   support_threads: "תיבת התמיכה — פנייה קודמת לזיהוי המשרד, אם בכלל יש כזה",
+  /*
+   * אותה משפחה: זיכרון השליחה משרת גם מיילים שאין להם דייר כלל —
+   * הרשמה, התחברות, התראות פלטפורמה, תמיכה — ופוליסה הייתה חוסמת
+   * דווקא אותם. אין בשורה נמען, נושא או תוכן; `tenant_id` נשמר
+   * כשהוא ידוע, כדי שמחיקת משרד תמחק גם אותו.
+   */
+  email_send_attempts: "זיכרון שליחה — משרת גם מיילים שאין להם דייר, ואין בו PII",
   // הוובהוק מקבל מספר וממנו מגלה את המשתמש ואת המשרד שלו
   whatsapp_links: "הקישור עצמו הוא מה שמזהה את הדייר בערוץ הוואטסאפ",
   /*
@@ -314,6 +321,25 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
+  /*
+   * מה שנשתל — נמחק. לפני כן נשארו שורות של שני הדיירים המדומים
+   * בטבלאות בלי cascade מהדייר (audit_log, matches), וב-CI זה שקוף
+   * כי המסד חד-פעמי — אבל על מסד פיתוח משותף זה הצטבר. אותו מצב
+   * בדיוק כמו בשתילה: FK כבויים, RLS כבוי, כי הבעלים מנקה.
+   */
+  if (owner !== undefined) {
+    for (const table of seeded) {
+      await owner
+        .$transaction(async (tx) => {
+          await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`);
+          await tx.$executeRawUnsafe(`SET LOCAL row_security = off`);
+          await tx.$executeRawUnsafe(
+            `DELETE FROM "${table}" WHERE tenant_id IN ('${TENANT_A}', '${TENANT_B}')`,
+          );
+        })
+        .catch(() => undefined);
+    }
+  }
   await owner?.$disconnect();
   await app?.$disconnect();
 });

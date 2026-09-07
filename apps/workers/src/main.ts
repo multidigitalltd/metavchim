@@ -41,6 +41,17 @@ import {
   pushOutcome,
   pushPayload,
   shouldPush,
+  contactIdsFromSources,
+  seesAllContactsWith,
+  visibleContactFilters,
+  callLeadIds,
+  notificationAnchorIds,
+  notificationSubjectMap,
+  redactNotification,
+  redactNotifications,
+  type AnchorSubject,
+  type NotificationViewer,
+  type RedactableNotification,
   shouldRetireAfterFailure,
   followUpFromCall,
   summarizeCall,
@@ -65,16 +76,6 @@ import {
   formatNotifyMessage,
   notifyFollowUp,
   dominantNotifyCategory,
-  GOAL_REACHED_NOTIFICATION_TYPE,
-  goalReachedCopy,
-  goalReachedDedupeKey,
-  jerusalemDayLabel,
-  jerusalemWeekStart,
-  LEAD_MEASURE_LABELS,
-  rolesWithCapability,
-  parseWeeklyCommitment,
-  weeklyScore,
-  weekKey,
   appointmentKindLabel,
   shekelLabel,
   propertyHeadline,
@@ -83,11 +84,11 @@ import {
   type NotifyPerson,
   AGENT_ACTIONS,
   mayUseAction,
-  applyBlockedModules,
-  resolveCapabilities,
+  effectiveCapabilities,
   type Capability,
   type CapabilityOverride,
   inQuietHours,
+  notifyQuickReplies,
   type AgentHistoryTurn,
   fitsInteractive,
   type WhatsAppButton,
@@ -110,6 +111,7 @@ import {
   DEFAULT_PBX_WATCH,
   pbxSilenceDedupeKey,
   pbxSilenceMessage,
+  propertyAddressOr,
   shouldAlertPbxSilence,
 } from "@metavchim/shared";
 
@@ -2293,37 +2295,72 @@ async function processPushSweep(): Promise<void> {
     const bumpFailure: string[] = [];
     const succeeded: string[] = [];
 
-    for (const notification of pending) {
-      if (!shouldPush(notification)) continue;
-      // התראה משרדית (userId ריק) הולכת לכל מי שנרשם במשרד
-      const targets = notification.userId
-        ? (byUser.get(notification.userId) ?? [])
-        : subscriptions;
-      const payload = JSON.stringify(pushPayload(notification));
+    /*
+     * ‎**והדחיפה לדפדפן היא הערוץ השלישי** (ביקורת Codex, P1, על
+     * ‏סבב הוואטסאפ — ואותו כשל בדיוק כאן).
+     *
+     * ‏הלולאה רצה על ההתראות, ושורה משרדית נדחפה ל**כל** המנויים
+     * ‏במשרד עם הכותרת והגוף הגולמיים. עכשיו היא רצה על הנמענים,
+     * ‏כי הצנזורה היא פר-אדם: אותה שורה נראית אחרת לסוכן שהלקוח
+     * ‏שלו ולסוכן שהוסתר ממנו.
+     *
+     * ‏הניתוב לא השתנה — התראה אישית לנמען שלה, ומשרדית לכולם —
+     * ‏רק סדר הלולאות והצנזורה שביניהן.
+     */
+    const tenantRow = await prisma.tenant.findUnique({
+      where: { id: tenant.id },
+      select: { blockedModules: true },
+    });
+    const pushUsers = await prisma.user.findMany({
+      where: { tenantId: tenant.id, id: { in: [...byUser.keys()] } },
+      select: { id: true, role: true },
+    });
+    const pushCaps = await capabilitiesByUser(
+      tenant.id,
+      pushUsers,
+      tenantRow?.blockedModules ?? [],
+      new Date(),
+    );
+    const pushSubjects = await notificationAnchorSubjects(tenant.id, pending);
 
-      for (const sub of targets) {
-        try {
-          await webpush.sendNotification(
-            {
-              endpoint: sub.endpoint,
-              keys: { p256dh: sub.p256dh, auth: sub.auth },
-            },
-            payload,
-          );
-          succeeded.push(sub.id);
-        } catch (error: unknown) {
-          const status =
-            typeof error === "object" && error !== null && "statusCode" in error
-              ? Number((error as { statusCode: unknown }).statusCode)
-              : 0;
-          const outcome = pushOutcome(status);
-          if (
-            outcome === "retire" ||
-            shouldRetireAfterFailure(sub.failureCount + 1)
-          ) {
-            retire.push(sub.id);
-          } else if (outcome !== "delivered") {
-            bumpFailure.push(sub.id);
+    for (const [userId, subs] of byUser) {
+      const caps = pushCaps.get(userId) ?? new Set<Capability>();
+      const viewer: NotificationViewer = {
+        allowed: await visibleContactIdSet(tenant.id, userId, caps),
+        userId,
+        capabilities: caps,
+      };
+      for (const raw of pending) {
+        if (!shouldPush(raw)) continue;
+        // התראה משרדית (userId ריק) הולכת לכל מי שנרשם במשרד
+        if (raw.userId && raw.userId !== userId) continue;
+        const notification = redactNotification(raw, viewer, pushSubjects);
+        const payload = JSON.stringify(pushPayload(notification));
+
+        for (const sub of subs) {
+          try {
+            await webpush.sendNotification(
+              {
+                endpoint: sub.endpoint,
+                keys: { p256dh: sub.p256dh, auth: sub.auth },
+              },
+              payload,
+            );
+            succeeded.push(sub.id);
+          } catch (error: unknown) {
+            const status =
+              typeof error === "object" && error !== null && "statusCode" in error
+                ? Number((error as { statusCode: unknown }).statusCode)
+                : 0;
+            const outcome = pushOutcome(status);
+            if (
+              outcome === "retire" ||
+              shouldRetireAfterFailure(sub.failureCount + 1)
+            ) {
+              retire.push(sub.id);
+            } else if (outcome !== "delivered") {
+              bumpFailure.push(sub.id);
+            }
           }
         }
       }
@@ -2694,248 +2731,6 @@ async function processPbxSilenceSweep(): Promise<void> {
   }
 }
 
-/* ==========================================================================
- * ‏המנטור — מי סגר את היעד השבועי, והמנהל שלו יודע לומר על כך משהו
- * ========================================================================== */
-
-/**
- * ‎**ספירת הפעולות של סוכן בשבוע — עותק מכוון של מה שה-API סופר.**
- *
- * ‏`apps/workers` אינה יכולה לייבא מ-`apps/api` (היא תלויה ב-`shared`
- * וב-Prisma בלבד), ולכן ההחלטות „מה נחשב” חוזרות כאן: שיחה **יוצאת**
- * בלבד ומשויכת דרך היוצר או דרך הליד, פגישה ש**התקיימה**, הצעה עם
- * ‎`sentAt`, ונכס שלא נמחק.
- *
- * ‎**זהו הסיכון הגדול של הסורק הזה**, ולכן הוא נשמר בשער: בדיקה
- * ב-`apps/api` גוזרת את הפרדיקטים מ-`mentor.service.ts` ודורשת
- * שיופיעו גם כאן. סוכן שיראה במסך „40 שיחות” ומנהל שיקבל הודעה על
- * 12 הם שני מקורות אמת — וזה בדיוק מה שהופך מנטור לבלתי אמין.
- */
-async function mentorWeekActual(
-  tx: Prisma.TransactionClient,
-  tenantId: string,
-  userId: string,
-  from: Date,
-  to: Date,
-): Promise<Record<string, number>> {
-  const range = { gte: from, lt: to };
-
-  const [appointments, listings, leads] = await Promise.all([
-    tx.appointment.count({
-      where: { tenantId, ownerUserId: userId, startsAt: range, status: "completed" },
-    }),
-    tx.property.count({
-      where: { tenantId, agentUserId: userId, deletedAt: null, createdAt: range },
-    }),
-    tx.lead.count({
-      where: { tenantId, assignedToUserId: userId, createdAt: range },
-    }),
-  ]);
-
-  /* שיחות יוצאות — לפי היוצר, ובהיעדרו לפי הליד שהשיחה נוגעת בו */
-  const callRows = await tx.call.findMany({
-    where: { tenantId, direction: "outbound", occurredAt: range },
-    select: { createdBy: true, leadId: true },
-  });
-  let calls = callRows.filter((r) => r.createdBy === userId).length;
-  const orphanLeadIds = [
-    ...new Set(
-      callRows
-        .filter((r) => r.createdBy === null && r.leadId !== null)
-        .map((r) => r.leadId as string),
-    ),
-  ];
-  if (orphanLeadIds.length > 0) {
-    const myLeads = await tx.lead.findMany({
-      where: { tenantId, id: { in: orphanLeadIds }, assignedToUserId: userId },
-      select: { id: true },
-    });
-    const mine = new Set(myLeads.map((l) => l.id));
-    calls += callRows.filter(
-      (r) => r.createdBy === null && r.leadId !== null && mine.has(r.leadId),
-    ).length;
-  }
-
-  /* הצעות — דרך ההתאמה אל הקונה, כי להצעה אין בעלים ישיר */
-  let offers = 0;
-  const sent = await tx.offer.findMany({
-    where: { tenantId, sentAt: range },
-    select: { matchId: true },
-  });
-  if (sent.length > 0) {
-    const matches = await tx.match.findMany({
-      where: { tenantId, id: { in: sent.map((o) => o.matchId) } },
-      select: { id: true, buyerId: true },
-    });
-    if (matches.length > 0) {
-      const mineBuyers = await tx.buyer.findMany({
-        where: {
-          tenantId,
-          ownerUserId: userId,
-          id: { in: [...new Set(matches.map((m) => m.buyerId))] },
-        },
-        select: { id: true },
-      });
-      const ids = new Set(mineBuyers.map((b) => b.id));
-      offers = matches.filter((m) => ids.has(m.buyerId)).length;
-    }
-  }
-
-  return { calls, leads, appointments, offers, listings };
-}
-
-/**
- * ‎**הסורק: מי סגר את היעד השבועי, ומי צריך לדעת על כך.**
- *
- * ## למה סורק, ולא חישוב כשהסוכן פותח את המסך
- *
- * ‏המסך מחשב את הציון בכל פתיחה, והיה מפתה לרשום את ההישג שם. אבל
- * אז „מי סגר את השבוע” היה תלוי במי **הסתכל**: סוכן שעשה את העבודה
- * ולא נכנס למסך לא היה מזוהה כלל, והמנהל שלו לא היה שומע. אותה טעות
- * בדיוק כמו ארכיון שנכתב בקריאה.
- *
- * ## למה כל יום ולא בסוף השבוע
- *
- * ‏שבח שמגיע ביום שבו הדבר קרה עובד; אותו שבח בישיבת צוות שבועיים
- * אחר כך הוא סעיף בפרוטוקול. הסורק רץ אחת ליום, וסוכן שסגר ביום
- * שלישי — המנהל שלו יודע ביום שלישי.
- *
- * ## מדוע אין כאן בדיקת „כבר שלחנו”
- *
- * ‏האילוץ הייחודי על `(tenant, user, week)` הוא שמכריע, והכתיבה היא
- * ‎`createMany` עם `skipDuplicates`. שתי ריצות במקביל אינן צריכות
- * לקרוא זו את זו, וגם ריצה שנפלה באמצע אינה מייצרת חגיגה כפולה.
- */
-async function processMentorGoalSweep(): Promise<void> {
-  const now = new Date();
-  const weekStart = jerusalemWeekStart(now);
-  const key = weekKey(now);
-  const periodStart = new Date(`${jerusalemDayLabel(weekStart)}T00:00:00.000Z`);
-  const managerRoles = rolesWithCapability("analytics.view");
-  const tenants = await prisma.tenant.findMany({ select: { id: true } });
-  let celebrated = 0;
-
-  for (const { id: tenantId } of tenants) {
-    try {
-      const found = await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
-
-        const goals = await tx.mentorGoal.findMany({
-          where: { tenantId, horizon: "week", periodStart },
-          select: { userId: true, commitment: true },
-        });
-        if (goals.length === 0) return 0;
-
-        /*
-         * ‏מי כבר נחגג השבוע — שאילתה אחת, ולא אחת לסוכן. האילוץ
-         * במסד עדיין מגן, וזה רק חוסך את הספירה היקרה.
-         */
-        const done = new Set(
-          (
-            await tx.mentorAchievement.findMany({
-              where: { tenantId, weekKey: key },
-              select: { userId: true },
-            })
-          ).map((a) => a.userId),
-        );
-
-        /*
-         * ‎**מי מקבל את ההודעה — לפי יכולת, לא לפי רשימת תפקידים
-         * כתובה ביד.** תפקיד חדש שיחזיק ב-`analytics.view` יקבל את
-         * ההודעה בלי שאיש יזכור לעדכן כאן רשימה.
-         */
-        const managers = await tx.user.findMany({
-          where: { tenantId, role: { in: managerRoles }, isActive: true },
-          select: { id: true, name: true },
-        });
-        if (managers.length === 0) return 0;
-
-        let written = 0;
-        for (const goal of goals) {
-          if (done.has(goal.userId)) continue;
-          const committed = parseWeeklyCommitment(goal.commitment);
-          if (Object.keys(committed).length === 0) continue;
-
-          const actual = await mentorWeekActual(
-            tx,
-            tenantId,
-            goal.userId,
-            weekStart,
-            now,
-          );
-          const score = weeklyScore(committed, actual);
-          if (score.percent < 100) continue;
-
-          const agent = await tx.user.findFirst({
-            where: { tenantId, id: goal.userId },
-            select: { name: true },
-          });
-          const agentName = agent?.name ?? "הסוכן";
-          const lines = score.lines.map((l) => ({
-            label: LEAD_MEASURE_LABELS[l.measure],
-            committed: l.committed,
-            actual: l.actual,
-          }));
-
-          /*
-           * ‏המזהה נוצר מראש כדי שגם ההתראה תצביע על ההישג עצמו.
-           * ‎`createMany` אינה מחזירה מזהים, ובלי זה ההתראה הייתה
-           * נושאת `entityType: "user"` — סוג כללי שאין לו מסך, ולכן
-           * הלחיצה עליה הייתה נוחתת בדשבורד.
-           */
-          const achievementId = ulid();
-          const created = await tx.mentorAchievement.createMany({
-            data: [
-              {
-                id: achievementId,
-                tenantId,
-                userId: goal.userId,
-                weekKey: key,
-                percent: score.percent,
-                snapshot: lines,
-                reachedAt: now,
-              },
-            ],
-            skipDuplicates: true,
-          });
-          /*
-           * ‏אפס פירושו שריצה אחרת הקדימה — ואז גם ההתראות שלה כבר
-           * נכתבו, ואין מה להוסיף.
-           */
-          if (created.count === 0) continue;
-
-          const copy = goalReachedCopy({ agentName, percent: score.percent, lines });
-          await tx.notification.createMany({
-            data: managers
-              /* ‏מנהל שהוא גם הסוכן אינו מקבל הודעה על עצמו */
-              .filter((m) => m.id !== goal.userId)
-              .map((m) => ({
-                id: ulid(),
-                tenantId,
-                userId: m.id,
-                type: GOAL_REACHED_NOTIFICATION_TYPE,
-                dedupeKey: goalReachedDedupeKey(goal.userId, key, m.id),
-                title: copy.title,
-                body: copy.body,
-                entityType: "mentor_achievement",
-                entityId: achievementId,
-              })),
-            skipDuplicates: true,
-          });
-          written += 1;
-        }
-        return written;
-      });
-      celebrated += found;
-    } catch (error: unknown) {
-      console.error(`[mentor-goal-sweep] ${tenantId}: ${String(error)}`);
-    }
-  }
-  if (celebrated > 0) {
-    console.warn(`[mentor-goal-sweep] ${celebrated} סוכנים סגרו את היעד השבועי`);
-  }
-}
-
 async function processAgentEventsRetention(): Promise<void> {
   const cutoff = new Date(
     Date.now() - AGENT_EVENTS_RETENTION_DAYS * 24 * 60 * 60 * 1000,
@@ -3272,6 +3067,21 @@ async function loadNotifyDetails(
               },
             });
 
+      /*
+       * הסיכום השבועי של המנטור — לא כרטיס אלא מה שיש בו: בקשה
+       * לשבוע הבא ושאלה, שמהן נגזרים הכפתורים. הגוף נשמר כ-JSON
+       * (`MentorReviewBody`), ומספיק לדעת אם השדות קיימים.
+       */
+      const reviewIds = idsOf(withEntity, "mentor");
+      const reviews =
+        reviewIds.length === 0
+          ? []
+          : await tx.mentorReview.findMany({
+              where: { tenantId, id: { in: reviewIds } },
+              select: { id: true, userId: true, body: true },
+            });
+      const reviewById = new Map(reviews.map((review) => [review.id, review]));
+
       /* ---------- סבב ב': הכרטיסים עצמם ---------- */
 
       const propertyIds = new Set(idsOf(withEntity, "property"));
@@ -3288,12 +3098,40 @@ async function loadNotifyDetails(
         addAll(buyerIds, [appointment.buyerId]);
         addAll(leadIds, [appointment.leadId]);
       }
+      /*
+       * ‎**וגם שורות גיוס** (ביקורת Codex, P2).
+       *
+       * ‏„גיוס” נכנס לאוצר המילים של המשימות ולא לכאן, ולכן פולואפ
+       * ‏עליו הפיק `about: null` — תזכורת „לחזור לבעלים” בלי לומר
+       * ‏על איזה נכס, כלומר בדיוק המידע שבגללו שולחים אותה.
+       */
+      const recruitmentIds = new Set<string>();
       for (const task of tasks) {
         if (task.entityId === null) continue;
         if (task.entityType === "property") propertyIds.add(task.entityId);
         if (task.entityType === "buyer") buyerIds.add(task.entityId);
         if (task.entityType === "lead") leadIds.add(task.entityId);
+        if (task.entityType === "recruitment") recruitmentIds.add(task.entityId);
       }
+      const recruitmentTargets =
+        recruitmentIds.size === 0
+          ? []
+          : await tx.recruitmentTarget.findMany({
+              where: { tenantId, id: { in: [...recruitmentIds] }, deletedAt: null },
+              select: {
+                id: true,
+                street: true,
+                houseNumber: true,
+                neighborhood: true,
+                city: true,
+              },
+            });
+      const recruitmentAddressById = new Map(
+        recruitmentTargets.map((target) => [
+          target.id,
+          propertyAddressOr(target, "נכס לגיוס"),
+        ]),
+      );
 
       /*
        * ‎**מי הקונים שנמצאו** — ההתאמות של נכס שקיבל התראת התאמה.
@@ -3519,13 +3357,21 @@ async function loadNotifyDetails(
                   : task.entityType === "lead" && task.entityId !== null
                     ? (personOf(contactById.get(leadById.get(task.entityId)?.contactId ?? ""))
                         ?.name ?? null)
-                    : null;
+                    : task.entityType === "recruitment" && task.entityId !== null
+                      ? (recruitmentAddressById.get(task.entityId) ?? null)
+                      : null;
             details.set(item.id, {
               kind: "task",
               ownerUserId: task.assignedToUserId,
               title: task.title,
               dueAt: task.dueAt,
               about,
+              /*
+               * ‏שורת גיוס נשענת על `properties.view`, כמו הנתיב
+               * ‏שלה וכמו התווית במסך המשימות. השאר רוכבים על
+               * ‏נראות המשימה עצמה — ראו `TaskDetail.aboutNeeds`.
+               */
+              aboutNeeds: task.entityType === "recruitment" ? "properties.view" : null,
             });
             break;
           }
@@ -3551,6 +3397,21 @@ async function loadNotifyDetails(
             const person = personOf(contactById.get(id));
             if (person === null) break;
             details.set(item.id, { kind: "contact", ownerUserId: null, person });
+            break;
+          }
+          case "mentor": {
+            const review = reviewById.get(id);
+            if (review === undefined) break;
+            const body =
+              typeof review.body === "object" && review.body !== null
+                ? (review.body as { ask?: unknown; reflection?: unknown })
+                : {};
+            details.set(item.id, {
+              kind: "mentor_review",
+              ownerUserId: review.userId,
+              ask: body.ask !== null && body.ask !== undefined,
+              reflection: typeof body.reflection === "string" && body.reflection !== "",
+            });
             break;
           }
           default:
@@ -3627,6 +3488,134 @@ interface WaRecipient {
 function allowedActionsFor(capabilities: Set<Capability>): readonly string[] {
   return AGENT_ACTIONS.filter((action) => mayUseAction(action, capabilities)).map(
     (action) => action.id,
+  );
+}
+
+/**
+ * ‎**הצנזורה של ההתראות — גם בערוצי הדחיפה** (ביקורת Codex, P1).
+ *
+ * ‏שורת התראה נכתבת פעם אחת ונקראת לנצח, והכתיבה מצנזרת לפי
+ * ‏ההרשאות של רגע הכתיבה. המסך כבר אוכף את הגבול בקריאה — ושני
+ * ‏הסבבים כאן המשיכו לשלוח את הכותרת והגוף הגולמיים לטלפון: שם
+ * ‏הלקוח, המספר, ולפעמים קישור טופס נושא־אסימון. השתקה, שעות שקט
+ * ‏או חלון סגור רק מאריכים את הפער — ההתראה ממתינה בתור ויוצאת
+ * ‏אחרי שהגישה כבר נשללה.
+ *
+ * ‏הכלל עצמו יושב ב-`@metavchim/shared`, כי לתהליך הזה אין גישה
+ * ‏ל-API. מה שנכתב כאן הוא **השאילתות בלבד**; המדיניות — אילו
+ * ‏מקורות, מי רואה הכול, איך נראית שורה מצונזרת — היא אותה
+ * ‏פונקציה שהשרת קורא.
+ */
+
+/** ‏העוגן ⟵ איש הקשר. פעם אחת למשרד: זה אינו תלוי בצופה. */
+async function notificationAnchorSubjects(
+  tenantId: string,
+  rows: readonly RedactableNotification[],
+): Promise<Map<string, AnchorSubject>> {
+  const { leadIds, buyerIds, callIds } = notificationAnchorIds(rows);
+  if (leadIds.length + buyerIds.length + callIds.length === 0) return new Map();
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+    const [buyers, calls] = await Promise.all([
+      buyerIds.length === 0
+        ? []
+        : tx.buyer.findMany({
+            /*
+             * ‎**וגם כאן `deletedAt: null`** — התאום של
+             * ‏`notification-visibility.ts`, וההסבר המלא שם.
+             *
+             * ‏העובד אינו יכול לייבא מ-`@metavchim/api`, ולכן שתי
+             * ‏השליפות האלה הן שכפול מודע — וזה בדיוק סוג השכפול
+             * ‏שבו תיקון נוחת בצד אחד בלבד.
+             */
+            where: { tenantId, id: { in: buyerIds }, deletedAt: null },
+            select: { id: true, contactId: true, ownerUserId: true },
+          }),
+      callIds.length === 0
+        ? []
+        : tx.call.findMany({
+            where: { tenantId, id: { in: callIds } },
+            select: { id: true, contactId: true, leadId: true },
+          }),
+    ]);
+    /* ‏הלידים אחרי השיחות — שיחה ממספר לא מוכר נפתרת דרך הליד שלה */
+    const allLeadIds = [...new Set([...leadIds, ...callLeadIds(calls)])];
+    const leads =
+      allLeadIds.length === 0
+        ? []
+        : await tx.lead.findMany({
+            where: { tenantId, id: { in: allLeadIds } },
+            select: { id: true, contactId: true, assignedToUserId: true },
+          });
+    return notificationSubjectMap(leads, buyers, calls);
+  });
+}
+
+/**
+ * ‏הלקוחות שהצופה רשאי לראות, או `null` כשאין מה לסנן.
+ *
+ * ‎`null` הוא ברירת המחדל של כל תפקיד קיים, ולכן משרד שלא הפעיל
+ * ‏הפרדה אינו משלם ולו שאילתה אחת.
+ */
+async function visibleContactIdSet(
+  tenantId: string,
+  userId: string,
+  capabilities: ReadonlySet<Capability>,
+): Promise<Set<string> | null> {
+  if (seesAllContactsWith(capabilities)) return null;
+  const filters = visibleContactFilters(tenantId, userId, capabilities);
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+    const [buyers, leads, properties] = await Promise.all([
+      filters.buyers === null
+        ? []
+        : tx.buyer.findMany({ where: filters.buyers, select: { contactId: true } }),
+      filters.leads === null
+        ? []
+        : tx.lead.findMany({ where: filters.leads, select: { contactId: true } }),
+      filters.properties === null
+        ? []
+        : tx.property.findMany({
+            where: filters.properties,
+            select: { ownerContactId: true, occupantContactId: true },
+          }),
+    ]);
+    return new Set(contactIdsFromSources(buyers, leads, properties));
+  });
+}
+
+/** ‏היכולות בפועל לכל משתמש במשרד — שאילתה אחת, לא אחת לנמען. */
+async function capabilitiesByUser(
+  tenantId: string,
+  users: readonly { id: string; role: string }[],
+  blockedModules: readonly string[],
+  now: Date,
+): Promise<Map<string, Set<Capability>>> {
+  const overrides = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+    return tx.userCapability.findMany({
+      where: { tenantId, userId: { in: users.map((u) => u.id) } },
+      select: { userId: true, capability: true, effect: true, expiresAt: true },
+    });
+  });
+  const overridesOf = new Map<string, CapabilityOverride[]>();
+  for (const row of overrides) {
+    const list = overridesOf.get(row.userId) ?? [];
+    list.push({
+      capability: row.capability as Capability,
+      effect: row.effect === "grant" ? "grant" : "deny",
+      expiresAt: row.expiresAt,
+    });
+    overridesOf.set(row.userId, list);
+  }
+  return new Map(
+    users.map((user) => [
+      user.id,
+      effectiveCapabilities(
+        { role: user.role, overrides: overridesOf.get(user.id) ?? [], blockedModules: [...blockedModules] },
+        now,
+      ),
+    ]),
   );
 }
 
@@ -3710,23 +3699,9 @@ async function processWhatsAppNotifySweep(): Promise<void> {
      * בדיוק את מה שהלחיצה תורשה להריץ. שאילתה אחת ולא אחת לכל
      * משתמש: הסבב עובר על כל המשרדים בכל דקה.
      */
-    const overrides = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
-      return tx.userCapability.findMany({
-        where: { tenantId: tenant.id, userId: { in: users.map((u) => u.id) } },
-        select: { userId: true, capability: true, effect: true, expiresAt: true },
-      });
-    });
-    const overridesOf = new Map<string, CapabilityOverride[]>();
-    for (const row of overrides) {
-      const list = overridesOf.get(row.userId) ?? [];
-      list.push({
-        capability: row.capability as Capability,
-        effect: row.effect === "grant" ? "grant" : "deny",
-        expiresAt: row.expiresAt,
-      });
-      overridesOf.set(row.userId, list);
-    }
+    const capsOf = await capabilitiesByUser(tenant.id, users, tenant.blockedModules, now);
+    /* ‏העוגנים פעם אחת למשרד — הם אינם תלויים בנמען */
+    const anchorSubjects = await notificationAnchorSubjects(tenant.id, pending);
 
     const recipients = new Map<string, WaRecipient>();
     for (const user of users) {
@@ -3746,10 +3721,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
        * להציע, ואילו פרטים מותר לצרף להודעה. שני חישובים נפרדים
        * היו יכולים להיפרד — כפתור שמציע מה שההודעה מסתירה.
        */
-      const capabilities = applyBlockedModules(
-        resolveCapabilities(user.role, overridesOf.get(user.id) ?? [], now),
-        tenant.blockedModules,
-      );
+      const capabilities = capsOf.get(user.id) ?? new Set<Capability>();
       recipients.set(user.id, {
         userId: user.id,
         phone,
@@ -3776,13 +3748,41 @@ async function processWhatsAppNotifySweep(): Promise<void> {
     const remembered = new Map<string, AgentHistoryTurn>();
     for (const recipient of recipients.values()) {
       const watermark = recipient.notifiedThrough?.getTime() ?? 0;
-      const items = pending.filter(
+      const queued = pending.filter(
         (notification) =>
           (!notification.userId || notification.userId === recipient.userId) &&
           shouldNotifyByWhatsApp(notification.type, recipient.prefs) &&
           notification.createdAt.getTime() > watermark,
       );
-      if (items.length === 0) continue;
+      if (queued.length === 0) continue;
+      /*
+       * ‎**הצנזורה לפני הניסוח, ולא רק על ההעשרה** (ביקורת Codex, P1).
+       *
+       * ‏עד כה היכולות של הנמען גדרו את `notifyDetails` בלבד,
+       * ‏וההתראה עצמה עברה כמות שהיא ל-`formatNotifyMessage` — עם
+       * ‏הכותרת והגוף הגולמיים. שורה משרדית ישנה שהמתינה בהשתקה,
+       * ‏בשעות שקט או לחלון סגור יצאה אחרי שהגישה כבר נשללה.
+       */
+      const caps = new Set(recipient.capabilities as Capability[]);
+      const viewer: NotificationViewer = {
+        allowed: await visibleContactIdSet(tenant.id, recipient.userId, caps),
+        userId: recipient.userId,
+        capabilities: caps,
+      };
+      const { rows: items, censoredIds } = redactNotifications(queued, viewer, anchorSubjects);
+      /*
+       * ‎**וההעשרה יורדת עם השורה שצונזרה** (ביקורת Codex, P1).
+       *
+       * ‏שורה מצונזרת שומרת על המזהה שלה, ו-`formatNotifyMessage`
+       * ‏שולף לפיו את `notifyDetails` — טבלה שנטענה לפני הצנזורה
+       * ‏ושההרשאה שלה נפרדת ורפה יותר (`canSeeNotifyDetail` מסתפק
+       * ‏ב-`buyers.view_all` או `leads.view_all`). השם והטלפון
+       * ‏שהורדו מהכותרת חזרו לתחתית ההודעה.
+       */
+      const details =
+        censoredIds.size === 0
+          ? notifyDetails
+          : new Map([...notifyDetails].filter(([id]) => !censoredIds.has(id)));
 
       /*
        * „שקט לשעתיים”, שעות שקט, וחלון 24 השעות של Meta — שלושתם
@@ -3809,7 +3809,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
          */
         const message = formatNotifyMessage(items, webOrigin, {
           viewer: { userId: recipient.userId, capabilities: recipient.capabilities },
-          byNotificationId: notifyDetails,
+          byNotificationId: details,
         });
         if (fitsInteractive(message)) {
           /*
@@ -3836,8 +3836,19 @@ async function processWhatsAppNotifySweep(): Promise<void> {
            * בלי כפתורים אינה חוקית ב-Meta.
            */
           const follow = notifyFollowUp(items, recipient.allowedActionIds);
+          /*
+           * ‎**המנטור מקבל כפתורים משלו** — „מתחייב”, „לענות למנטור”,
+           * „היעדים שלי” (docs/14 §9). הגזירה למטה מדברת על לידים
+           * ושיחות, ומתחת לסיכום שבועי היא כפתור זר.
+           */
+          const mentor = notifyQuickReplies(items, {
+            viewer: { userId: recipient.userId, capabilities: recipient.capabilities },
+            byNotificationId: details,
+          });
           const buttons: WhatsAppButton[] = [];
-          if (follow !== null) {
+          if (mentor !== null) {
+            buttons.push(...mentor);
+          } else if (follow !== null) {
             buttons.push({ action: "cmd", arg: follow.text, title: follow.label });
           } else if (dominantNotifyCategory(items) === "digests") {
             buttons.push({ action: "cmd", arg: "urgent", title: "📋 מה דחוף היום?" });
@@ -4025,7 +4036,6 @@ async function processLow(job: Job): Promise<void> {
   if (job.name === "exclusivity-sweep") return processExclusivitySweep();
   if (job.name === "custom-automations") return processCustomAutomations(job);
   if (job.name === "pbx-silence-sweep") return processPbxSilenceSweep();
-  if (job.name === "mentor-goal-sweep") return processMentorGoalSweep();
   if (job.name === "agent-events-retention") return processAgentEventsRetention();
 }
 
@@ -4137,21 +4147,6 @@ void lowQueue
   .catch((error: unknown) => {
     console.error(
       `subscription-expiry scheduler registration failed: ${String(error)}`,
-    );
-  });
-// המנטור — 18:00 שעון ישראל, כל יום. סוכן שסגר את היעד בבוקר יישמע
-// אצל המנהל באותו יום, ולא בישיבת צוות שבועיים אחר כך: שבח שמגיע
-// בזמן עובד, ואותו שבח באיחור הוא סעיף בפרוטוקול. שעה מאוחרת ולא
-// מוקדמת, כדי שיום העבודה כבר יהיה מאחורי רוב הסוכנים.
-void lowQueue
-  .upsertJobScheduler(
-    "mentor-goal-sweep",
-    { pattern: "0 18 * * *", tz: "Asia/Jerusalem" },
-    { name: "mentor-goal-sweep" },
-  )
-  .catch((error: unknown) => {
-    console.error(
-      `mentor-goal-sweep scheduler registration failed: ${String(error)}`,
     );
   });
 // דו"ח בוקר — 07:00 שעון ישראל, כל יום

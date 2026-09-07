@@ -15,9 +15,16 @@
  * בלי מסד ובלי Meta. טעות כאן שקטה: התראה שלא נשלחה אינה מתלוננת.
  */
 
+import { ideaKeyInText } from "./mentor-playbook.js";
 import { agentAction, type AgentActionId } from "../agent/actions.js";
-import { canSeeNotifyDetail, notifyDetailLines, type DetailViewer, type NotifyDetail } from "./notify-details.js";
+import {
+  canSeeNotifyDetail,
+  notifyDetailLines,
+  type DetailViewer,
+  type NotifyDetail,
+} from "./notify-details.js";
 import { notificationUrl, type PushableNotification } from "./web-push.js";
+import type { WhatsAppButton } from "./whatsapp-buttons.js";
 
 /* ==================== קטגוריות ==================== */
 
@@ -28,13 +35,7 @@ import { notificationUrl, type PushableNotification } from "./web-push.js";
  * חושב במונחים של „שיחות” ו„לידים”, וזו גם היחידה שבה הוא מכבה.
  */
 export type WhatsAppNotifyCategory =
-  | "calls"
-  | "leads"
-  | "tasks"
-  | "matches"
-  | "network"
-  | "digests"
-  | "system";
+  "calls" | "leads" | "tasks" | "matches" | "network" | "digests" | "system";
 
 export const NOTIFY_CATEGORY_LABELS: Record<WhatsAppNotifyCategory, string> = {
   calls: "שיחות ותמלולים",
@@ -101,6 +102,14 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   opportunity_opened: "matches",
 
   coop_deal: "network",
+
+  // המנטור האישי — הסיכום השבועי הוא סיכום; החגיגה היא אירוע, אבל
+  // על עצמי ולא על לקוח, ולכן באותה קטגוריה שהמשתמש בוחר בה
+  mentor_weekly: "digests",
+  mentor_win: "digests",
+  mentor_nudge: "digests",
+  mentor_daily: "digests",
+  mentor_monthly: "digests",
   coop_offer: "network",
   coop_offer_received: "network",
   coop_offer_declined: "network",
@@ -191,12 +200,19 @@ function quietSpan(from: number, to: number): number {
 /** המפתח שתחתיו ההעדפות יושבות ב-`users.preferences`. */
 export const WHATSAPP_NOTIFY_PREF_KEY = "whatsappNotify";
 
-function boolAt(source: Record<string, unknown>, key: string): boolean | undefined {
+function boolAt(
+  source: Record<string, unknown>,
+  key: string,
+): boolean | undefined {
   const value = source[key];
   return typeof value === "boolean" ? value : undefined;
 }
 
-function hourAt(source: Record<string, unknown>, key: string, fallback: number): number {
+function hourAt(
+  source: Record<string, unknown>,
+  key: string,
+  fallback: number,
+): number {
   const value = source[key];
   if (typeof value !== "number" || !Number.isInteger(value)) return fallback;
   return value >= 0 && value <= 23 ? value : fallback;
@@ -209,15 +225,20 @@ function hourAt(source: Record<string, unknown>, key: string, fallback: number):
  * ברירת המחדל היא הדבר הבטוח. שדה פגום אינו מפיל את הסורק כולו.
  */
 export function parseWhatsAppNotifyPrefs(raw: unknown): WhatsAppNotifyPrefs {
-  if (typeof raw !== "object" || raw === null) return DEFAULT_WHATSAPP_NOTIFY_PREFS;
-  const source = (raw as Record<string, unknown>)[WHATSAPP_NOTIFY_PREF_KEY] ?? raw;
-  if (typeof source !== "object" || source === null) return DEFAULT_WHATSAPP_NOTIFY_PREFS;
+  if (typeof raw !== "object" || raw === null)
+    return DEFAULT_WHATSAPP_NOTIFY_PREFS;
+  const source =
+    (raw as Record<string, unknown>)[WHATSAPP_NOTIFY_PREF_KEY] ?? raw;
+  if (typeof source !== "object" || source === null)
+    return DEFAULT_WHATSAPP_NOTIFY_PREFS;
   const record = source as Record<string, unknown>;
 
   const categories: Partial<Record<WhatsAppNotifyCategory, boolean>> = {};
   const rawCategories = record["categories"];
   if (typeof rawCategories === "object" && rawCategories !== null) {
-    for (const [key, value] of Object.entries(rawCategories as Record<string, unknown>)) {
+    for (const [key, value] of Object.entries(
+      rawCategories as Record<string, unknown>,
+    )) {
       if (key in NOTIFY_CATEGORY_LABELS && typeof value === "boolean") {
         categories[key as WhatsAppNotifyCategory] = value;
       }
@@ -229,19 +250,31 @@ export function parseWhatsAppNotifyPrefs(raw: unknown): WhatsAppNotifyPrefs {
     "quietFromHour",
     DEFAULT_WHATSAPP_NOTIFY_PREFS.quietFromHour,
   );
-  const quietToHour = hourAt(record, "quietToHour", DEFAULT_WHATSAPP_NOTIFY_PREFS.quietToHour);
+  const quietToHour = hourAt(
+    record,
+    "quietToHour",
+    DEFAULT_WHATSAPP_NOTIFY_PREFS.quietToHour,
+  );
   // טווח חורג ⇒ ברירת המחדל, ולא „שקט תמידי” שנראה כמו תקלה
-  const withinCap = quietSpan(quietFromHour, quietToHour) <= MAX_QUIET_SPAN_HOURS;
+  const withinCap =
+    quietSpan(quietFromHour, quietToHour) <= MAX_QUIET_SPAN_HOURS;
 
   return {
     enabled: boolAt(record, "enabled") ?? DEFAULT_WHATSAPP_NOTIFY_PREFS.enabled,
     categories,
-    quietFromHour: withinCap ? quietFromHour : DEFAULT_WHATSAPP_NOTIFY_PREFS.quietFromHour,
-    quietToHour: withinCap ? quietToHour : DEFAULT_WHATSAPP_NOTIFY_PREFS.quietToHour,
+    quietFromHour: withinCap
+      ? quietFromHour
+      : DEFAULT_WHATSAPP_NOTIFY_PREFS.quietFromHour,
+    quietToHour: withinCap
+      ? quietToHour
+      : DEFAULT_WHATSAPP_NOTIFY_PREFS.quietToHour,
   };
 }
 
-export function shouldNotifyByWhatsApp(type: string, prefs: WhatsAppNotifyPrefs): boolean {
+export function shouldNotifyByWhatsApp(
+  type: string,
+  prefs: WhatsAppNotifyPrefs,
+): boolean {
   if (!prefs.enabled) return false;
   // קטגוריה שלא נכתבה = דלוקה: מי שהדליק את המתג רוצה הכול, אלא אם כיבה
   return prefs.categories[notifyCategory(type)] !== false;
@@ -251,7 +284,10 @@ export function shouldNotifyByWhatsApp(type: string, prefs: WhatsAppNotifyPrefs)
  * האם השעה נופלת בטווח השקט. הטווח עובר חצות ברוב המקרים
  * (22:00–07:00), ולכן ההשוואה מפוצלת. from === to פירושו „אין שקט”.
  */
-export function inQuietHours(hour: number, prefs: WhatsAppNotifyPrefs): boolean {
+export function inQuietHours(
+  hour: number,
+  prefs: WhatsAppNotifyPrefs,
+): boolean {
   const { quietFromHour: from, quietToHour: to } = prefs;
   if (from === to) return false;
   return from < to ? hour >= from && hour < to : hour >= from || hour < to;
@@ -312,6 +348,11 @@ const TYPE_ICON: Record<string, string> = {
   credits_expiring: "⌛",
   daily_brief: "☀️",
   weekly_summary: "📊",
+  mentor_weekly: "🧭",
+  mentor_win: "🎉",
+  mentor_nudge: "🎯",
+  mentor_daily: "🌅",
+  mentor_monthly: "📅",
 };
 
 /**
@@ -326,12 +367,178 @@ const CATEGORY_CALL_TO_ACTION: Record<WhatsAppNotifyCategory, string> = {
   leads: "⚡ ליד חם מתקרר תוך שעות — כתבו לי „תעדכן סטטוס” או „תקבע לו סיור”.",
   tasks: "✅ לסגור את זה עכשיו? כתבו לי „בוצע” ואעדכן.",
   matches: "🎯 יש התאמה — כתבו לי „תשלח הצעה” ואכין אותה.",
-  network: "🤝 שת\"פ שמחכה לתשובה — כתבו לי מה להשיב.",
+  network: '🤝 שת"פ שמחכה לתשובה — כתבו לי מה להשיב.',
   digests: "🚀 שאלו אותי „מה הכי דחוף היום?” ואתן לכם את הסדר.",
   system: "💬 אפשר לענות לי כאן ואטפל בזה.",
 };
 
-function dominantCategory(items: readonly NotifyItem[]): WhatsAppNotifyCategory {
+/*
+ * ==================== המנטור בוואטסאפ — דו-כיווני ====================
+ *
+ * ההתראות של המנטור אינן „עדכון” על לקוח אלא שיחה עם המתווך עצמו,
+ * ולכן הן מקבלות משפט פעולה משלהן וכפתורים משלהן: הסיכום השבועי
+ * מבקש מחויבות ותשובה, הדחיפה והחגיגה מזמינות להסתכל על היעדים.
+ * הכפתורים נושאים **פקודות שהשיחה כבר מבינה** (`cmd`) — אותו מסלול
+ * הבנה⟵אישור כמו משפט שהוקלד, בלי מסלול ביצוע שני (docs/14 §9).
+ */
+
+/**
+ * מפתח הפקודה על הכפתור ⟵ המשפט שנשלח למנוע כאילו הוקלד.
+ *
+ * מקור אחד לשני הצדדים: הוורקר שמצמיד את הכפתור והסוכן שמתרגם את
+ * הלחיצה. מפתח שאינו כאן אינו כפתור של המנטור.
+ */
+export const MENTOR_QUICK_COMMANDS = {
+  mentor_status: "מה המצב ביעדים שלי?",
+  mentor_commit: "מתחייב לשבוע הבא",
+  mentor_reflect: "לענות למנטור",
+  // משוב על רעיון הבוקר — המנטור לומד מה עובד אצל המתווך (docs/14 §7.2)
+  mentor_idea_helped: "הרעיון עזר לי",
+  mentor_idea_skip: "הרעיון לא בשבילי",
+} as const;
+export type MentorQuickCommand = keyof typeof MENTOR_QUICK_COMMANDS;
+
+const MENTOR_STATUS_BUTTON: WhatsAppButton = {
+  action: "cmd",
+  arg: "mentor_status",
+  title: "🎯 היעדים שלי",
+};
+
+/**
+ * הכפתורים של המנטור — ורק שלו.
+ *
+ * רק כשההודעה **כולה** של המנטור: אגד שמערבב ליד חם עם סיכום שבועי
+ * הוא הודעה רגילה, ו„מתחייב” מתחת לליד היה מבלבל. להודעה רגילה
+ * הפונקציה מחזירה `null`, לא רשימה: הכפתור שלה נגזר ממה שכתוב בה
+ * (`notifyFollowUp`), וזו הכרעה של הקורא — לא ברירת מחדל שנצמדת
+ * לכל הודעה.
+ */
+/**
+ * פקודת המשוב עם הרעיון בתוכה — „הרעיון עזר לי [offers_sent:2]”. הכפתור
+ * קשור לרעיון **שהוצג**, לא ל„האחרון”: לחיצה על כפתור של אתמול אחרי
+ * שהבוקר של היום כבר יצא נותנת משוב על הרעיון של אתמול (ביקורת Codex).
+ * הסוכן מפענח את הסוגריים; בלעדיהם — הרעיון האחרון של היום.
+ */
+export function mentorIdeaCommand(
+  verdict: "helped" | "dismissed",
+  ideaKey: string,
+): string {
+  const base =
+    verdict === "helped"
+      ? MENTOR_QUICK_COMMANDS.mentor_idea_helped
+      : MENTOR_QUICK_COMMANDS.mentor_idea_skip;
+  return `${base} [${ideaKey}]`;
+}
+
+/** „מה דחוף היום?” — הכפתור השלישי כשהבוקר מגיע יחד עם התראות רגילות. */
+const URGENT_BUTTON: WhatsAppButton = {
+  action: "cmd",
+  arg: "urgent",
+  title: "📋 מה דחוף היום?",
+};
+
+/** כפתורי המשוב על רעיון הבוקר — רק כשההודעה באמת נושאת רעיון. */
+function ideaFeedbackButtons(items: readonly NotifyItem[]): WhatsAppButton[] {
+  const daily = items.find((item) => item.type === "mentor_daily");
+  const key = daily === undefined ? null : ideaKeyInText(daily.body);
+  if (key === null) return [];
+  return [
+    {
+      action: "cmd",
+      arg: mentorIdeaCommand("helped", key),
+      title: "👍 עזר לי",
+    },
+    {
+      action: "cmd",
+      arg: mentorIdeaCommand("dismissed", key),
+      title: "👎 לא בשבילי",
+    },
+  ];
+}
+
+export function notifyQuickReplies(
+  items: readonly NotifyItem[],
+  details?: NotifyDetailsLookup,
+): WhatsAppButton[] | null {
+  const types = new Set(items.map((item) => item.type));
+  const mentorOnly =
+    items.length > 0 && [...types].every((type) => type.startsWith("mentor_"));
+  /*
+   * הבוקר באגד מעורב — ליד, משימה ושיחה יחד עם הרעיון: המשוב על הרעיון
+   * הוא הליווי, ולכן הכפתורים שלו נשארים גם כאן, עם „מה דחוף היום?” של
+   * ההודעה הרגילה כשלישי (ביקורת Codex). בלי רעיון — הודעה רגילה.
+   */
+  if (!mentorOnly) {
+    const feedback = ideaFeedbackButtons(items);
+    return feedback.length === 0 ? null : [...feedback, URGENT_BUTTON];
+  }
+  const weekly = items.find((item) => item.type === "mentor_weekly");
+  if (weekly !== undefined) {
+    /*
+     * רק מה שיש בסיכום: „מתחייב” כשיש בקשה לשבוע הבא, „לענות למנטור”
+     * כשיש שאלה. בלי פרטים (ההעשרה נכשלה) — „היעדים שלי” בלבד: כפתור
+     * שמוביל ל„אין בקשה” גרוע מכפתור שחסר, והטקסט ממילא אומר מה אפשר
+     * לכתוב.
+     */
+    const detail =
+      weekly.id === undefined
+        ? undefined
+        : details?.byNotificationId.get(weekly.id);
+    const review = detail?.kind === "mentor_review" ? detail : undefined;
+    return [
+      ...(review?.ask
+        ? [{ action: "cmd", arg: "mentor_commit", title: "💪 מתחייב" } as const]
+        : []),
+      ...(review?.reflection
+        ? [
+            {
+              action: "cmd",
+              arg: "mentor_reflect",
+              title: "✍️ לענות למנטור",
+            } as const,
+          ]
+        : []),
+      MENTOR_STATUS_BUTTON,
+    ];
+  }
+  /*
+   * הבוקר נושא רעיון — ושני כפתורי משוב: „עזר לי” ו„לא בשבילי”. זה
+   * מה שהופך רעיון לליווי: המנטור לומד מה עובד אצל המתווך הזה, ורעיון
+   * שנדחה אינו חוזר (docs/14 §7.2). שלושה כפתורים — התקרה של וואטסאפ.
+   */
+  if (types.has("mentor_daily")) {
+    return [...ideaFeedbackButtons(items), MENTOR_STATUS_BUTTON];
+  }
+  return [MENTOR_STATUS_BUTTON];
+}
+
+/** משפט הפעולה כשכל הפריטים הם של המנטור — לפי הסוג, לא הקטגוריה. */
+const MENTOR_CALL_TO_ACTION: Record<string, string> = {
+  mentor_weekly:
+    "💪 לחיצה על „מתחייב” לשבוע הבא — או לכתוב לי מה עצר השבוע, ואעביר למנטור.",
+  mentor_nudge:
+    "🎯 אפשר לכתוב לי „מה המצב ביעדים שלי?” ואראה לך איפה זה עומד מול השבוע.",
+  mentor_win:
+    "🎉 כל הכבוד לך! אפשר לכתוב לי „מה המצב ביעדים שלי?” לראות איך זה מזיז את השבוע.",
+  mentor_daily:
+    "🎯 אפשר לכתוב לי „מה המצב ביעדים שלי?” — ואם משהו מפריע, „מנטור, מה כדאי לי לשפר?”.",
+  mentor_monthly:
+    "🎯 אפשר לכתוב לי „מנטור, מה כדאי לי לשפר?” — ונדבר על המיקוד לחודש הבא.",
+};
+
+function callToAction(shown: readonly NotifyItem[]): string {
+  const types = new Set(shown.map((item) => item.type));
+  if (types.size === 1) {
+    const only = [...types][0];
+    const mentor = only === undefined ? undefined : MENTOR_CALL_TO_ACTION[only];
+    if (mentor !== undefined) return mentor;
+  }
+  return CATEGORY_CALL_TO_ACTION[dominantCategory(shown)];
+}
+
+function dominantCategory(
+  items: readonly NotifyItem[],
+): WhatsAppNotifyCategory {
   const counts = new Map<WhatsAppNotifyCategory, number>();
   for (const item of items) {
     const category = notifyCategory(item.type);
@@ -404,13 +611,18 @@ export function formatNotifyMessage(
   if (items.length === 0) return "";
   const shown = items.slice(0, NOTIFY_ITEMS_PER_MESSAGE);
   const lines: string[] = [
-    items.length === 1 ? "🔔 *עדכון חדש*" : `🔔 *${items.length} עדכונים חדשים*`,
+    items.length === 1
+      ? "🔔 *עדכון חדש*"
+      : `🔔 *${items.length} עדכונים חדשים*`,
     "",
   ];
 
   for (const item of shown) {
-    const icon = TYPE_ICON[item.type] ?? CATEGORY_ICON[notifyCategory(item.type)];
-    lines.push(`${icon} *${item.title}*`);
+    // כותרת שכבר פותחת בסמל (החגיגה, הסיכום, הדחיפה) לא מקבלת סמל שני
+    const icon = /^[^\p{L}\p{N}]/u.test(item.title)
+      ? ""
+      : `${TYPE_ICON[item.type] ?? CATEGORY_ICON[notifyCategory(item.type)]} `;
+    lines.push(`${icon}*${item.title}*`);
     if (item.body !== null && item.body !== "") lines.push(item.body);
     /*
      * ‎**מי ומה — מעל הקישור, לא במקומו.**
@@ -431,7 +643,7 @@ export function formatNotifyMessage(
     lines.push(`➕ ועוד ${items.length - shown.length} עדכונים במערכת.`);
     lines.push("");
   }
-  lines.push(CATEGORY_CALL_TO_ACTION[dominantCategory(shown)]);
+  lines.push(callToAction(shown));
   return lines.join("\n").trim();
 }
 
@@ -509,7 +721,10 @@ export function notifyFollowUp(
   if (entry === null || !allowed.includes(entry.id)) return null;
   const example = agentAction(entry.id)?.examples[0];
   if (example === undefined) return null;
-  return { label: `${CATEGORY_ICON[category]} ${entry.caption}`, text: example };
+  return {
+    label: `${CATEGORY_ICON[category]} ${entry.caption}`,
+    text: example,
+  };
 }
 
 /* ==================== חלון 24 השעות של Meta ==================== */
@@ -554,5 +769,7 @@ export function templateParams(items: readonly NotifyItem[]): [string, string] {
 /** תבנית של Meta דוחה שורות חדשות, טאבים ורצף רווחים כפולים. */
 function flatten(text: string, max: number): string {
   const cleaned = text.replace(/\s+/gu, " ").trim();
-  return cleaned.length > max ? `${cleaned.slice(0, max - 1)}…` : cleaned || "עדכון";
+  return cleaned.length > max
+    ? `${cleaned.slice(0, max - 1)}…`
+    : cleaned || "עדכון";
 }

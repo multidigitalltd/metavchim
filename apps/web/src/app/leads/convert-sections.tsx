@@ -250,10 +250,25 @@ export function ConvertSection({
 export function ConvertToPropertySection({
   leadId,
   prefill,
+  contactSharedTabu = false,
   autoOpen = false,
 }: {
   leadId: string;
   prefill?: ConvertPrefill;
+  /**
+   * ‎**מה שנרשם על הלקוח — כערך פתיחה, ולא כהכרעה** (ביקורת Codex, P1).
+   *
+   * ‏`contacts.shared_tabu` הוא עובדה על **האדם**: מוכר שאמר בשיחה
+   * ‏הראשונה שהחלקה שלו משותפת, או שותף קיים. לאדם אחד יכולים
+   * ‏להיות כמה לידים, ולכן „העבר את הסימון להמרה הבאה” בחר את הנכס
+   * ‏לפי סדר ההמרה: לידים על שני נכסים שונים, והרישום המשותף היה
+   * ‏נוחת על הלא-נכון — שם ללא אזהרה, וכאן אזהרה שאין לה בסיס.
+   *
+   * ‏העובדה על האדם נשארת עליו; מה שנשאל כאן הוא על **הנכס הזה**,
+   * ‏והתשובה מגיעה מהטופס שנשלח. לכן זו תיבה מסומנת מראש ולא
+   * ‏העברה שקטה.
+   */
+  contactSharedTabu?: boolean;
   /** ראו ההסבר ב-`ConvertSection` — אותו טעם בדיוק. */
   autoOpen?: boolean;
 }) {
@@ -279,6 +294,8 @@ export function ConvertToPropertySection({
           ? { priceAgorot: Math.round(Number(f.get("price")) * 100) }
           : {}),
         ...(String(f.get("rooms") ?? "").trim() !== "" ? { rooms: Number(f.get("rooms")) } : {}),
+        /* ‏תיבה שלא סומנה אינה מגיעה ב-`FormData`, ולכן `=== "on"` */
+        sharedTabu: f.get("sharedTabu") === "on",
       });
       router.push(`/properties/${res.id}`);
     } catch (err: unknown) {
@@ -342,6 +359,25 @@ export function ConvertToPropertySection({
           <label htmlFor="cp-rooms" className="mb-1 block text-sm">חדרים (לא חובה)</label>
           <input id="cp-rooms" name="rooms" type="number" min={1} max={20} step={0.5} defaultValue={prefill?.rooms ?? ""} className="w-24 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }} />
         </div>
+      </div>
+      {/*
+        ‎**הרישום המשותף נשאל על הנכס, ולא נגזר מהאדם.**
+
+        ‏בשורה נפרדת ולא בין השדות: זו עובדה משפטית שמשנה את כל אופן
+        ‏העסקה, ולא עוד שדה טופס. היא מסומנת מראש כשהלקוח סומן, כי
+        ‏זה בדיוק מה שהסימון עליו נועד לשמר — אבל מי שיוצר את הנכס
+        ‏הוא שמאשר אותה עליו.
+      */}
+      <label className="mt-3 flex items-center gap-2 text-sm">
+        <input
+          id="cp-shared-tabu"
+          name="sharedTabu"
+          type="checkbox"
+          defaultChecked={contactSharedTabu}
+        />
+        רישום משותף (מושאע) — אין חלקה נפרדת, ונדרשת הסכמת שותפים
+      </label>
+      <div className="mt-3 flex flex-wrap items-end gap-2">
         <Button type="submit" disabled={busy}>{busy ? "ממיר…" : "צור נכס"}</Button>
         <Button type="button" variant="ghost" onClick={() => setOpen(false)}>ביטול</Button>
       </div>

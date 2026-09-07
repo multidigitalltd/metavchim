@@ -1,8 +1,14 @@
 "use client";
 
+import Link from "next/link";
+
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { roleLabel } from "@metavchim/shared";
+import {
+  MENTOR_STYLE_INFO,
+  resolveMentorPersona,
+  roleLabel,
+} from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { SessionsList } from "../sessions-list";
 
@@ -15,20 +21,25 @@ interface ProfileDto {
   preferences: Record<string, unknown>;
 }
 import {
+  A11Y_CHANGE_EVENT,
   A11Y_DEFAULTS,
   A11Y_MAX_SCALE,
   A11Y_MIN_SCALE,
   A11Y_TOGGLES,
-  applyA11y,
   clampFontScale,
-  clearA11y,
+  commitA11y,
   loadA11y,
-  saveA11y,
+  resetA11y,
   type A11yPrefs,
 } from "@/lib/a11y-prefs";
-import { disablePush, enablePush, readPushState, type PushState } from "@/lib/push";
+import {
+  disablePush,
+  enablePush,
+  readPushState,
+  type PushState,
+} from "@/lib/push";
 import { useRequireAuth } from "@/lib/use-auth";
-import { resetA11ySync } from "@/lib/a11y-sync";
+import { persistA11yToServer, resetA11ySync } from "@/lib/a11y-sync";
 import { clearSessionCache } from "@/lib/session-cache";
 import { ThemeToggle } from "../theme-toggle";
 import { PlanSection } from "../settings/plan-section";
@@ -44,11 +55,17 @@ import { WhatsAppNotifySection } from "./whatsapp-notify-section";
  * בשני כפתורים ליד השדה. הגדרה מרוחקת שמשפיעה על מסך אחר היא בדיוק
  * מה שגורם למשתמש לחשוב שהמערכת מתעלמת ממנו.
  *
- * ההעדפות נשמרות במכשיר (localStorage) ולא בשרת: הן תלויות מסך ועכבר,
- * וסוכן שעובד גם מהנייד וגם מהמשרד ירצה הגדרות שונות בכל אחד.
+ * העדפות הנגישות נשמרות **בחשבון** (עם מטמון במכשיר), ולכן הן
+ * מלוות את המשתמש לכל מכשיר. זה המקום היחיד שלהן בתוך המערכת;
+ * במסכים הציבוריים (הצעה, חתימה, התחברות) אותם מתגים מוצגים
+ * מכפתור נגישות צף. שני המקומות כותבים דרך `commitA11y` ומאזינים
+ * לאותו אירוע.
  */
 
-const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
+const inputStyle = {
+  borderColor: "var(--color-input-border)",
+  background: "var(--color-field)",
+} as const;
 
 export default function ProfilePage() {
   const { user, loading } = useRequireAuth();
@@ -71,42 +88,43 @@ export default function ProfilePage() {
     apiGet<ProfileDto>("/auth/profile")
       .then((res) => {
         setProfile(res);
-        const fromServer = res.preferences?.a11y as Partial<A11yPrefs> | undefined;
-        const merged = fromServer ? { ...A11Y_DEFAULTS, ...fromServer } : A11Y_DEFAULTS;
+        const fromServer = res.preferences?.a11y as
+          Partial<A11yPrefs> | undefined;
+        const merged = fromServer
+          ? { ...A11Y_DEFAULTS, ...fromServer }
+          : A11Y_DEFAULTS;
         // ערך שנשמר בשרת לפני שנקבעה הרצפה מגיע לכאן כמו שהוא
         setPrefs({ ...merged, fontScale: clampFontScale(merged.fontScale) });
       })
       .catch(() => undefined);
+
+    /*
+     * כפתור הנגישות הצף כותב את אותן העדפות. מי שמשנה שם בזמן
+     * שהפרופיל פתוח צריך לראות את המתג כאן מתחלף — ולא מצב ישן
+     * שנדרס בלחיצה הבאה.
+     */
+    function onChange(event: Event): void {
+      const detail = (event as CustomEvent<A11yPrefs>).detail;
+      if (detail) setPrefs(detail);
+    }
+    window.addEventListener(A11Y_CHANGE_EVENT, onChange);
+    return () => window.removeEventListener(A11Y_CHANGE_EVENT, onChange);
   }, []);
 
-  /**
-   * שמירה בשרת היא מה שהופך את ההעדפה לאישית ולא למכשירית.
-   *
-   * היא נשלחת ולא מומתנת: המשתמש כבר רואה את השינוי מהמטמון, וכישלון
-   * רשת לא צריך להחזיר לו את המסך אחורה — הוא ייסנכרן בשינוי הבא.
+  /*
+   * שינוי: מוחל, נשמר במכשיר, משודר לכל המסך — ונשלח לשרת. השמירה
+   * בשרת היא מה שהופך את ההעדפה לאישית ולא למכשירית.
    */
-  function persist(next: A11yPrefs): void {
-    apiPatch("/auth/profile", { preferences: { ...(profile?.preferences ?? {}), a11y: next } }).catch(
-      () => undefined,
-    );
-  }
-
   function update(patch: Partial<A11yPrefs>): void {
-    const next = { ...prefs, ...patch };
+    const next = commitA11y({ ...prefs, ...patch });
     setPrefs(next);
-    applyA11y(next);
-    saveA11y(next);
-    persist(next);
-    // הרכיב שמרנדר את קו הקריאה יושב ב-layout ולא כאן
-    window.dispatchEvent(new CustomEvent("mv-a11y-change", { detail: next }));
+    persistA11yToServer(next);
   }
 
   function resetPrefs(): void {
-    setPrefs(A11Y_DEFAULTS);
-    applyA11y(A11Y_DEFAULTS);
-    clearA11y();
-    persist(A11Y_DEFAULTS);
-    window.dispatchEvent(new CustomEvent("mv-a11y-change", { detail: A11Y_DEFAULTS }));
+    const next = resetA11y();
+    setPrefs(next);
+    persistA11yToServer(next);
   }
 
   async function saveDetails(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -114,7 +132,9 @@ export default function ProfilePage() {
     const form = event.currentTarget;
     const data = new FormData(form);
     const nextEmail = String(data.get("email") ?? "").trim();
-    const emailChanging = profile !== null && nextEmail.toLowerCase() !== profile.email.toLowerCase();
+    const emailChanging =
+      profile !== null &&
+      nextEmail.toLowerCase() !== profile.email.toLowerCase();
     setDetailsMsg(null);
     setDetailsErr(null);
     try {
@@ -138,7 +158,9 @@ export default function ProfilePage() {
     }
   }
 
-  async function changePassword(event: FormEvent<HTMLFormElement>): Promise<void> {
+  async function changePassword(
+    event: FormEvent<HTMLFormElement>,
+  ): Promise<void> {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
@@ -159,7 +181,9 @@ export default function ProfilePage() {
       form.reset();
       setPasswordMsg("✓ הסיסמה הוחלפה. שאר המכשירים שלך נותקו.");
     } catch (err: unknown) {
-      setPasswordErr(err instanceof ApiError ? err.message : "החלפת הסיסמה נכשלה");
+      setPasswordErr(
+        err instanceof ApiError ? err.message : "החלפת הסיסמה נכשלה",
+      );
     } finally {
       setSaving(false);
     }
@@ -195,18 +219,37 @@ export default function ProfilePage() {
         <span
           aria-hidden="true"
           className="grid flex-none place-items-center rounded-full"
-          style={{ width: 52, height: 52, background: "var(--color-primary-soft)", color: "var(--color-primary)", fontWeight: 800, fontSize: "20px" }}
+          style={{
+            width: 52,
+            height: 52,
+            background: "var(--color-primary-soft)",
+            color: "var(--color-primary)",
+            fontWeight: 800,
+            fontSize: "20px",
+          }}
         >
           {user.name.trim().slice(0, 1)}
         </span>
         <div className="min-w-0">
-          <h1 className="m-0" style={{ fontSize: "var(--type-panel)", fontWeight: 800 }}>{user.name}</h1>
-          <p className="m-0 mt-1 text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-muted)" }}>
+          <h1
+            className="m-0"
+            style={{ fontSize: "var(--type-panel)", fontWeight: 800 }}
+          >
+            {user.name}
+          </h1>
+          <p
+            className="m-0 mt-1 text-[length:var(--type-body-sm)]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
             <span dir="ltr">{user.email}</span> · {roleLabel(user.role)}
             {user.tenantName ? ` · ${user.tenantName}` : ""}
           </p>
         </div>
-        <button type="button" className="mv-btn-plain ms-auto" onClick={() => void logout()}>
+        <button
+          type="button"
+          className="mv-btn-plain ms-auto"
+          onClick={() => void logout()}
+        >
           התנתקות
         </button>
       </div>
@@ -214,63 +257,151 @@ export default function ProfilePage() {
       <div className="grid items-start gap-[18px] lg:[grid-template-columns:1fr_1fr]">
         <div className="flex flex-col gap-[18px]">
           {/* ---- הפרטים שלי ---- */}
-          <section className="mv-list-card px-5 py-[17px]" aria-labelledby="details-heading">
-            <h2 id="details-heading" className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
+          <section
+            className="mv-list-card px-5 py-[17px]"
+            aria-labelledby="details-heading"
+          >
+            <h2
+              id="details-heading"
+              className="m-0 mb-1"
+              style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
+            >
               הפרטים שלי
             </h2>
-            <p className="m-0 mb-3 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
+            <p
+              className="m-0 mb-3 text-[length:var(--type-caption-lg)]"
+              style={{ color: "var(--color-text-muted)" }}
+            >
               הטלפון ישמש להתראות בוואטסאפ כשהחיבור יופעל במשרד.
             </p>
 
-            {detailsMsg ? (
-              <Notice tone="success">{detailsMsg}</Notice>
-            ) : null}
-            {detailsErr ? (
-              <Notice tone="danger">{detailsErr}</Notice>
-            ) : null}
+            {detailsMsg ? <Notice tone="success">{detailsMsg}</Notice> : null}
+            {detailsErr ? <Notice tone="danger">{detailsErr}</Notice> : null}
 
             {profile ? (
               <form method="post" onSubmit={(e) => void saveDetails(e)}>
                 <div className="mb-3">
-                  <label htmlFor="pf-name" className="mb-1 block text-sm font-semibold">שם מלא</label>
-                  <input id="pf-name" name="name" defaultValue={profile.name} required minLength={2} maxLength={120} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+                  <label
+                    htmlFor="pf-name"
+                    className="mb-1 block text-sm font-semibold"
+                  >
+                    שם מלא
+                  </label>
+                  <input
+                    id="pf-name"
+                    name="name"
+                    defaultValue={profile.name}
+                    required
+                    minLength={2}
+                    maxLength={120}
+                    className="w-full rounded-lg border px-3 py-2.5"
+                    style={inputStyle}
+                  />
                 </div>
                 <div className="mb-3">
-                  <label htmlFor="pf-phone" className="mb-1 block text-sm font-semibold">טלפון</label>
-                  <input id="pf-phone" name="phone" dir="ltr" inputMode="tel" placeholder="050-1234567" defaultValue={profile.phone} maxLength={20} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+                  <label
+                    htmlFor="pf-phone"
+                    className="mb-1 block text-sm font-semibold"
+                  >
+                    טלפון
+                  </label>
+                  <input
+                    id="pf-phone"
+                    name="phone"
+                    dir="ltr"
+                    inputMode="tel"
+                    placeholder="050-1234567"
+                    defaultValue={profile.phone}
+                    maxLength={20}
+                    className="w-full rounded-lg border px-3 py-2.5"
+                    style={inputStyle}
+                  />
                 </div>
                 <div className="mb-3">
-                  <label htmlFor="pf-email" className="mb-1 block text-sm font-semibold">כתובת אימייל</label>
-                  <input id="pf-email" name="email" type="email" dir="ltr" defaultValue={profile.email} required maxLength={254} disabled={!profile.hasPassword} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+                  <label
+                    htmlFor="pf-email"
+                    className="mb-1 block text-sm font-semibold"
+                  >
+                    כתובת אימייל
+                  </label>
+                  <input
+                    id="pf-email"
+                    name="email"
+                    type="email"
+                    dir="ltr"
+                    defaultValue={profile.email}
+                    required
+                    maxLength={254}
+                    disabled={!profile.hasPassword}
+                    className="w-full rounded-lg border px-3 py-2.5"
+                    style={inputStyle}
+                  />
                   {profile.hasPassword ? (
                     <>
-                      <label htmlFor="pf-email-password" className="mb-1 mt-2 block text-sm font-semibold">
-                        סיסמה נוכחית <span className="font-normal">(רק אם שיניתם את האימייל)</span>
+                      <label
+                        htmlFor="pf-email-password"
+                        className="mb-1 mt-2 block text-sm font-semibold"
+                      >
+                        סיסמה נוכחית{" "}
+                        <span className="font-normal">
+                          (רק אם שיניתם את האימייל)
+                        </span>
                       </label>
-                      <p className="m-0 mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                        האימייל הוא כתובת ההתחברות, ולכן שינוי שלו דורש אימות ומנתק חיבורים פתוחים אחרים.
+                      <p
+                        className="m-0 mb-1 text-sm"
+                        style={{ color: "var(--color-text-muted)" }}
+                      >
+                        האימייל הוא כתובת ההתחברות, ולכן שינוי שלו דורש אימות
+                        ומנתק חיבורים פתוחים אחרים.
                       </p>
-                      <input id="pf-email-password" name="emailPassword" type="password" autoComplete="current-password" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+                      <input
+                        id="pf-email-password"
+                        name="emailPassword"
+                        type="password"
+                        autoComplete="current-password"
+                        className="w-full rounded-lg border px-3 py-2.5"
+                        style={inputStyle}
+                      />
                     </>
                   ) : (
-                    <p className="m-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                    <p
+                      className="m-0 mt-1 text-sm"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
                       החשבון מחובר דרך Google — כתובת האימייל מנוהלת שם.
                     </p>
                   )}
                 </div>
-                <button type="submit" className="mv-btn-action">שמור פרטים</button>
+                <button type="submit" className="mv-btn-action">
+                  שמור פרטים
+                </button>
               </form>
             ) : (
-              <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>טוען…</p>
+              <p
+                className="m-0 text-sm"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                טוען…
+              </p>
             )}
           </section>
 
           {/* ---- תצוגה ---- */}
-          <section className="mv-list-card px-5 py-[17px]" aria-labelledby="display-heading">
-            <h2 id="display-heading" className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
+          <section
+            className="mv-list-card px-5 py-[17px]"
+            aria-labelledby="display-heading"
+          >
+            <h2
+              id="display-heading"
+              className="m-0 mb-1"
+              style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
+            >
               תצוגה
             </h2>
-            <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
+            <p
+              className="m-0 mb-3 text-[length:var(--type-caption)]"
+              style={{ color: "var(--color-text-muted)" }}
+            >
               ההגדרות נשמרות במכשיר הזה בלבד.
             </p>
             <ThemeToggle />
@@ -282,25 +413,66 @@ export default function ProfilePage() {
           <WhatsAppNotifySection />
 
           {/* ---- סיסמה ---- */}
-          <section className="mv-list-card px-5 py-[17px]" aria-labelledby="password-heading">
-            <h2 id="password-heading" className="m-0 mb-3" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
+          <section
+            className="mv-list-card px-5 py-[17px]"
+            aria-labelledby="password-heading"
+          >
+            <h2
+              id="password-heading"
+              className="m-0 mb-3"
+              style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
+            >
               החלפת סיסמה
             </h2>
-            <form method="post" onSubmit={(e) => void changePassword(e)} className="flex max-w-sm flex-col gap-3">
+            <form
+              method="post"
+              onSubmit={(e) => void changePassword(e)}
+              className="flex max-w-sm flex-col gap-3"
+            >
               <label>
-                <span className="mb-1 block text-sm font-semibold">הסיסמה הנוכחית</span>
-                <input name="currentPassword" type="password" required autoComplete="current-password" className="mv-field" />
+                <span className="mb-1 block text-sm font-semibold">
+                  הסיסמה הנוכחית
+                </span>
+                <input
+                  name="currentPassword"
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  className="mv-field"
+                />
               </label>
               <label>
-                <span className="mb-1 block text-sm font-semibold">סיסמה חדשה</span>
-                <input name="newPassword" type="password" required minLength={10} autoComplete="new-password" className="mv-field" />
+                <span className="mb-1 block text-sm font-semibold">
+                  סיסמה חדשה
+                </span>
+                <input
+                  name="newPassword"
+                  type="password"
+                  required
+                  minLength={10}
+                  autoComplete="new-password"
+                  className="mv-field"
+                />
               </label>
               <label>
-                <span className="mb-1 block text-sm font-semibold">אימות הסיסמה החדשה</span>
-                <input name="confirmPassword" type="password" required minLength={10} autoComplete="new-password" className="mv-field" />
+                <span className="mb-1 block text-sm font-semibold">
+                  אימות הסיסמה החדשה
+                </span>
+                <input
+                  name="confirmPassword"
+                  type="password"
+                  required
+                  minLength={10}
+                  autoComplete="new-password"
+                  className="mv-field"
+                />
               </label>
               <div>
-                <button type="submit" className="mv-btn-action" disabled={saving}>
+                <button
+                  type="submit"
+                  className="mv-btn-action"
+                  disabled={saving}
+                >
                   {saving ? "מחליף…" : "החלף סיסמה"}
                 </button>
               </div>
@@ -315,48 +487,118 @@ export default function ProfilePage() {
         </div>
 
         {/* ---- חיבורים פתוחים ---- */}
-        <section className="mv-list-card px-5 py-[17px]" aria-labelledby="sessions-heading">
-          <h2 id="sessions-heading" className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
+        <section
+          className="mv-list-card px-5 py-[17px]"
+          aria-labelledby="sessions-heading"
+        >
+          <h2
+            id="sessions-heading"
+            className="m-0 mb-1"
+            style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
+          >
             חיבורים פתוחים
           </h2>
-          <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-            כל מכשיר שמחובר לחשבון שלך עכשיו. חיבור שאינך מזהה — נתק אותו
-            והחלף סיסמה.
+          <p
+            className="m-0 mb-3 text-[length:var(--type-caption)]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            כל מכשיר שמחובר לחשבון שלך עכשיו. חיבור שאינך מזהה — נתק אותו והחלף
+            סיסמה.
           </p>
           <SessionsList />
         </section>
 
         {/* ---- נגישות ---- */}
-        <section className="mv-list-card px-5 py-[17px]" aria-labelledby="a11y-heading">
-          <h2 id="a11y-heading" className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
+        {/* השם והסגנון של המנטור — נבחרים במסך המנטור, נשמרים כאן בפרופיל (docs/14 §4.1) */}
+        <section
+          className="mv-list-card px-5 py-[17px]"
+          aria-labelledby="mentor-heading"
+        >
+          <h2
+            id="mentor-heading"
+            className="m-0 mb-1"
+            style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
+          >
+            המנטור האישי
+          </h2>
+          <p
+            className="m-0 mb-3 text-[length:var(--type-caption)]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            השם והסגנון שבחרתם נשמרים בחשבון ומלווים אתכם לכל מכשיר.
+          </p>
+          {(() => {
+            const persona = resolveMentorPersona(profile?.preferences);
+            const styleLabel =
+              MENTOR_STYLE_INFO.find((s) => s.code === persona.style)?.label ??
+              persona.style;
+            return (
+              <p className="m-0 mb-3">
+                <strong>{persona.name}</strong> · סגנון {styleLabel}
+              </p>
+            );
+          })()}
+          <Link
+            href="/mentor#mentor-persona"
+            className="mv-btn-soft inline-flex no-underline"
+          >
+            לשנות במסך המנטור
+          </Link>
+        </section>
+
+        <section
+          className="mv-list-card px-5 py-[17px]"
+          aria-labelledby="a11y-heading"
+        >
+          <h2
+            id="a11y-heading"
+            className="m-0 mb-1"
+            style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
+          >
             נגישות
           </h2>
-          <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-            ההתאמות חלות מיד ונשמרות למכשיר הזה.
+          <p
+            className="m-0 mb-3 text-[length:var(--type-caption)]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            ההתאמות חלות מיד ונשמרות בחשבון שלכם — הן מלוות אתכם לכל מכשיר.
           </p>
 
           <div className="mb-4">
             <p id="fontsize-label" className="m-0 mb-1.5 text-sm font-semibold">
               גודל טקסט: {prefs.fontScale}%
             </p>
-            <div className="flex gap-2" role="group" aria-labelledby="fontsize-label">
+            <div
+              className="flex gap-2"
+              role="group"
+              aria-labelledby="fontsize-label"
+            >
               <button
                 type="button"
                 className="mv-btn-plain"
                 disabled={prefs.fontScale <= A11Y_MIN_SCALE}
-                onClick={() => update({ fontScale: clampFontScale(prefs.fontScale - 10) })}
+                onClick={() =>
+                  update({ fontScale: clampFontScale(prefs.fontScale - 10) })
+                }
               >
                 <span aria-hidden="true">A−</span>
                 <span className="mv-visually-hidden">הקטן טקסט</span>
               </button>
-              <button type="button" className="mv-btn-plain" onClick={() => update({ fontScale: 100 })}>
-                איפוס
+              <button
+                type="button"
+                className="mv-btn-plain"
+                disabled={prefs.fontScale === 100}
+                onClick={() => update({ fontScale: 100 })}
+              >
+                רגיל
               </button>
               <button
                 type="button"
                 className="mv-btn-plain"
                 disabled={prefs.fontScale >= A11Y_MAX_SCALE}
-                onClick={() => update({ fontScale: clampFontScale(prefs.fontScale + 10) })}
+                onClick={() =>
+                  update({ fontScale: clampFontScale(prefs.fontScale + 10) })
+                }
               >
                 <span aria-hidden="true">A+</span>
                 <span className="mv-visually-hidden">הגדל טקסט</span>
@@ -370,12 +612,14 @@ export default function ProfilePage() {
                 <button
                   type="button"
                   aria-pressed={Boolean(prefs[toggle.key])}
-                  onClick={() => update({ [toggle.key]: !prefs[toggle.key] } as Partial<A11yPrefs>)}
+                  onClick={() => update({ [toggle.key]: !prefs[toggle.key] })}
                   className="mv-a11y-toggle"
                 >
                   <span className="text-start">
                     <span className="block font-bold">{toggle.label}</span>
-                    <span className="block text-sm" style={{ opacity: 0.85 }}>{toggle.hint}</span>
+                    <span className="block text-sm" style={{ opacity: 0.85 }}>
+                      {toggle.hint}
+                    </span>
                   </span>
                   <span aria-hidden="true">{prefs[toggle.key] ? "✓" : ""}</span>
                 </button>
@@ -440,21 +684,33 @@ function PushSection() {
   }
 
   return (
-    <section className="mv-list-card px-5 py-[17px]" aria-labelledby="push-heading">
-      <h2 id="push-heading" className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
+    <section
+      className="mv-list-card px-5 py-[17px]"
+      aria-labelledby="push-heading"
+    >
+      <h2
+        id="push-heading"
+        className="m-0 mb-1"
+        style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
+      >
         התראות בדפדפן
       </h2>
-      <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
+      <p
+        className="m-0 mb-3 text-[length:var(--type-caption)]"
+        style={{ color: "var(--color-text-muted)" }}
+      >
         ליד חדש, הצעה שנפתחה או תזכורת לפגישה — קופצים על המסך גם כשהמערכת
         סגורה. ההגדרה היא לדפדפן הזה בלבד; במכשיר אחר צריך להפעיל שוב.
       </p>
 
       {state === null ? (
-        <p aria-live="polite" className="m-0 text-sm">בודק…</p>
+        <p aria-live="polite" className="m-0 text-sm">
+          בודק…
+        </p>
       ) : state.support === "unsupported" ? (
         <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          הדפדפן הזה אינו תומך בהתראות. באייפון צריך להוסיף את המערכת למסך
-          הבית (שיתוף ← הוסף למסך הבית) ואז להפעיל משם.
+          הדפדפן הזה אינו תומך בהתראות. באייפון צריך להוסיף את המערכת למסך הבית
+          (שיתוף ← הוסף למסך הבית) ואז להפעיל משם.
         </p>
       ) : state.support === "not-configured" ? (
         <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -471,7 +727,9 @@ function PushSection() {
           >
             <span className="text-start">
               <span className="block font-bold">
-                {state.subscribed ? "התראות פעילות בדפדפן הזה" : "הפעל התראות בדפדפן הזה"}
+                {state.subscribed
+                  ? "התראות פעילות בדפדפן הזה"
+                  : "הפעל התראות בדפדפן הזה"}
               </span>
               <span className="block text-sm" style={{ opacity: 0.85 }}>
                 {state.subscribed
@@ -483,13 +741,15 @@ function PushSection() {
           </button>
 
           {state.permission === "denied" && !state.subscribed ? (
-            <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              ההרשאה חסומה בהגדרות הדפדפן לאתר הזה. יש לאפשר אותה שם, ואז לחזור לכאן.
+            <p
+              className="mt-2 text-sm"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              ההרשאה חסומה בהגדרות הדפדפן לאתר הזה. יש לאפשר אותה שם, ואז לחזור
+              לכאן.
             </p>
           ) : null}
-          {error ? (
-            <Notice tone="danger">{error}</Notice>
-          ) : null}
+          {error ? <Notice tone="danger">{error}</Notice> : null}
         </>
       )}
     </section>

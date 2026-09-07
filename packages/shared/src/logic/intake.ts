@@ -459,3 +459,57 @@ export function intakeInviteMessage(input: {
     "לוקח דקה, והפרטים נשמרים אצלנו בלבד.",
   ].join("\n");
 }
+
+/**
+ * ‏אותה הזמנה, כמייל.
+ *
+ * ## ‏למה בונה נפרד ולא `intakeInviteMessage` בתוך פסקה
+ *
+ * ‏הודעת הוואטסאפ נושאת את הכתובת כטקסט, כי וואטסאפ הופך אותה
+ * לקישור בעצמו. במייל כתובת ערומה באמצע פסקה היא בדיוק מה שמסנני
+ * דואר מדרגים כחשוד, והנמען צריך **כפתור** — ‏`EmailContent.button`
+ * קיים בשביל זה. שתי צורות שונות לאותו מסר, ולכן שני בונים.
+ *
+ * ## ‏מה נשמר זהה
+ *
+ * ‎**הנוסח אינו מניח שהנמען קונה.** אותו נימוק בדיוק כמו בהודעה:
+ * הטופס שואל ראשון לאיזה צד הנמען שייך, ופנייה שמניחה „מה אתם
+ * מחפשים” אומרת למי שיש לו נכס למכור שלא הקשיבו לו.
+ *
+ * ## ‏למה `footnote` אינו „אין צורך להשיב”
+ *
+ * ‏המייל יוצא מהמשרד עם כתובת תשובה אמיתית, ולקוח שקיבל בקשה למלא
+ * טופס הוא בדיוק מי שעשוי לרצות לשאול עליה קודם.
+ */
+export function intakeInviteEmail(input: {
+  officeName: string;
+  agentName?: string;
+  /** שם הלקוח — לפנייה. חסר = פנייה כללית. */
+  clientName?: string;
+  url: string;
+}): {
+  subject: string;
+  heading: string;
+  greeting?: string;
+  paragraphs: string[];
+  button: { label: string; url: string };
+  footnote: string;
+} {
+  const from =
+    input.agentName !== undefined && input.agentName !== ""
+      ? `${input.agentName} מ${input.officeName}`
+      : input.officeName;
+  const client = (input.clientName ?? "").trim();
+  return {
+    subject: `${input.officeName} — טופס קצר, דקה של מילוי`,
+    heading: "כמה פרטים, ונדע איך לעזור",
+    ...(client === "" ? {} : { greeting: `שלום ${client},` }),
+    paragraphs: [
+      `שלום, כאן ${from}.`,
+      "כדי שנדע איך לעזור — מחפשים נכס או שיש לכם נכס — מלאו בבקשה טופס קצר.",
+      "לוקח דקה, והפרטים נשמרים אצלנו בלבד.",
+    ],
+    button: { label: "למילוי הטופס", url: input.url },
+    footnote: `הטופס נשלח מ${input.officeName}. אפשר להשיב למייל הזה בכל שאלה.`,
+  };
+}

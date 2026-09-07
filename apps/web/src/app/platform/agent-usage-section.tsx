@@ -30,6 +30,8 @@ interface Totals {
   /** לחיצות שנחסמו — ההרשאה נשללה, ולכן לא רץ שום פירוש */
   blockedCount: number;
   whatsappCount: number;
+  /** שיחות עם המנטור האישי — לא פקודות, אבל אותו מפתח משלם */
+  mentorCount: number;
   promptTokens: number;
   outputTokens: number;
   thoughtTokens: number;
@@ -163,7 +165,12 @@ export function AgentUsageSection(): React.JSX.Element {
           icon={<IconBolt s={18} />}
           label="פקודות שפוענחו"
           value={num.format(t.interpretCount)}
-          sub={`${num.format(t.executeCount)} בוצעו · ${num.format(t.whatsappCount)} מוואטסאפ`}
+          sub={[
+            `${num.format(t.executeCount)} בוצעו`,
+            `${num.format(t.whatsappCount)} מוואטסאפ`,
+            // מוצג רק כשיש — משרד בלי מנטור לא צריך „0 שיחות מנטור”
+            ...(t.mentorCount > 0 ? [`${num.format(t.mentorCount)} שיחות מנטור`] : []),
+          ].join(" · ")}
         />
         <Stat
           icon={<IconCoins s={18} />}
