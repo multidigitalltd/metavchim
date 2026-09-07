@@ -35,6 +35,7 @@ import {
   referralReasonRejectionReason,
   presentationChips,
   withNetworkSafeTitle,
+  isSharedTabuProperty,
   type NetworkPresentationFields,
   scoreMatch,
   suggestedReferralPrice,
@@ -1853,6 +1854,17 @@ export class CollaborationService {
             : Number(property.priceAgorot),
         entryType: property.entryType ?? undefined,
         entryDate: property.entryDate ?? undefined,
+        /*
+         * ‎**וגם בהצעה, ולא רק במודעה** (ביקורת Codex, P1).
+         *
+         * ‏שני המסלולים מציגים את אותו צילום דרך `presentationChips`,
+         * ‏ולכן שדה שנוסע באחד ולא בשני הוא בדיוק „חצי מהתיקון”:
+         * ‏אישור חיבור על הצעה הוא אותו צעד שקשה לחזור ממנו.
+         *
+         * ‏הגזירה ולא השדה הגולמי — נכס שנושא את הסוג הישן הוא
+         * ‏רישום משותף לכל דבר. ראו `isSharedTabuProperty`.
+         */
+        sharedTabu: isSharedTabuProperty(property),
         features,
       };
       /*

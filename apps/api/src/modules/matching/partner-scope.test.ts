@@ -122,12 +122,27 @@ function serviceFor(
       },
     },
     buyer: {
-      findMany: async ({ where }: { where: Record<string, unknown> }) => {
+      /*
+       * ‎**הפיקסצ׳ר מכבד את ה-`where` שהקוד בונה** — שתי צורות:
+       * ‏שליפת אנשי הקשר של הכרטיסים השמורים (`id: { in }`), ושליפת
+       * ‏המועמדים עם ההוצאה לפי איש קשר (`contactId: { notIn }`).
+       * ‏פיקסצ׳ר שמתעלם מאחת מהן היה ירוק על ההוצאה השבורה.
+       */
+      findMany: async ({
+        where,
+      }: {
+        where: Record<string, unknown>;
+        distinct?: string[];
+      }) => {
+        const byIds = (where["id"] as { in?: string[] } | undefined)?.in;
+        if (byIds !== undefined) return buyers.filter((b) => byIds.includes(b.id));
         const owner = where["ownerUserId"];
-        const excluded = (where["id"] as { notIn?: string[] } | undefined)?.notIn ?? [];
+        const excludedContacts =
+          (where["contactId"] as { notIn?: string[] } | undefined)?.notIn ?? [];
         return buyers.filter(
           (b) =>
-            (owner === undefined || b.ownerUserId === owner) && !excluded.includes(b.id),
+            (owner === undefined || b.ownerUserId === owner) &&
+            !excludedContacts.includes(b.contactId),
         );
       },
     },
@@ -336,6 +351,46 @@ describe("שידוך שותפים — זרות מהרשימה הרגילה", () 
     );
     expect(pairs).toEqual([]);
   });
+
+  /*
+   * ‎**וההוצאה נמדדת באדם, לא בכרטיס** (ביקורת Codex, P1, סבב שני).
+   *
+   * ‏שני התיקונים — „השורה השמורה גוברת” ו„שני כרטיסים אינם שני
+   * ‏אנשים” — נכתבו במפתחות שונים. לאותו אדם עם שני כרטיסים,
+   * ‏ההוצאה תפסה את הכרטיס שיש עליו התאמה שמורה, והשני נכנס
+   * ‏לשידוך: אותו אדם בשתי המלצות סותרות על אותו מסך.
+   */
+  it("‏כרטיס שני של אותו אדם — גם הוא מוחרג", async () => {
+    const twoCards: BuyerRow[] = [
+      { id: "01CARD_A", contactId: "01SAME", ownerUserId: "01ME", requirements: REQUIREMENTS },
+      { id: "01CARD_B", contactId: "01SAME", ownerUserId: "01ME", requirements: REQUIREMENTS },
+      { id: "01PARTNER", contactId: "01ELSE", ownerUserId: "01ME", requirements: REQUIREMENTS },
+    ];
+    /* ‏ההתאמה השמורה יושבת על כרטיס א׳ בלבד */
+    const service = serviceFor(twoCards, PROPERTY_ROW, ["01CARD_A"]);
+    const pairs = await asUser(["matches.view", "buyers.view_own"], () =>
+      service.partnersForProperty("01PROP"),
+    );
+    expect(pairs, "כרטיס ב׳ של אותו אדם נכנס לשידוך").toEqual([]);
+  });
+
+  /*
+   * ‏והצד השני, שבלעדיו „להוציא את כולם” היה עובר: אדם אחר לגמרי
+   * ‏עם שני כרטיסים משלו נשאר מועמד.
+   */
+  it("‏ואדם אחר עם שני כרטיסים נשאר מועמד", async () => {
+    const twoCards: BuyerRow[] = [
+      { id: "01CARD_A", contactId: "01SAME", ownerUserId: "01ME", requirements: REQUIREMENTS },
+      { id: "01CARD_B", contactId: "01SAME", ownerUserId: "01ME", requirements: REQUIREMENTS },
+      { id: "01PARTNER", contactId: "01ELSE", ownerUserId: "01ME", requirements: REQUIREMENTS },
+    ];
+    const service = serviceFor(twoCards, PROPERTY_ROW, []);
+    const pairs = await asUser(["matches.view", "buyers.view_own"], () =>
+      service.partnersForProperty("01PROP"),
+    );
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]!.partners.map((p) => p.buyerId)).toContain("01PARTNER");
+  });
 });
 
 describe("‏מה שנשלף לפני התקרה", () => {
@@ -343,9 +398,16 @@ describe("‏מה שנשלף לפני התקרה", () => {
   const method = source.slice(source.indexOf("async partnersForProperty("));
   const where = method.slice(method.indexOf("tx.buyer.findMany"), method.indexOf("orderBy"));
 
-  it("‏ההתאמות השמורות מוחרגות בשאילתה, לא אחריה", () => {
+  /*
+   * ‏הטענה היא על **מפתח הזהות**, ולא על ביטוי מסוים: הניסוח
+   * ‏הקודם נעץ `id: { notIn: durable.map(…) }`, וזה בדיוק החצי
+   * ‏השבור — ההוצאה הייתה לפי כרטיס בזמן שהשידוך עובד על אנשים.
+   * ‏שער שנעוץ בביטוי חוסם את התיקון של עצמו.
+   */
+  it("‏ההתאמות השמורות מוחרגות בשאילתה, ולפי איש הקשר", () => {
     expect(method).toContain('status: { notIn: ["suggested", "dismissed"] }');
-    expect(where).toContain("id: { notIn: durable.map((row) => row.buyerId) }");
+    expect(where).toContain("contactId: { notIn:");
+    expect(where, "ההוצאה עדיין לפי מזהה כרטיס").not.toContain("id: { notIn:");
   });
 
   it("‏והסינון הגס לפי עיר קודם לתקרה", () => {

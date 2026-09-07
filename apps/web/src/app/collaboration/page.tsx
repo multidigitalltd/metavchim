@@ -340,6 +340,8 @@ interface ListingRow {
   entryType?: string;
   entryDate?: string;
   features: string[];
+  /** ‏רישום משותף — הסבב הקודם הביא אותו ל-DTO, וזה מה שמציג אותו. */
+  sharedTabu?: boolean;
   title?: string;
   notes?: string;
   /** תמונות הנכס — כתובות חתומות קצרות-חיים מהשרת. */

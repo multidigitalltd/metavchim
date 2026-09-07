@@ -1093,11 +1093,38 @@ export class MatchingService {
        * ‏לשידוך. אותו אדם, שתי המלצות סותרות על אותו מסך.
        *
        * ‏השורה השמורה גוברת: היא מייצגת פעולה שהסוכן כבר עשה.
+       *
+       * ‎**והזרות נמדדת באיש הקשר, לא בכרטיס** (ביקורת Codex, P1,
+       * ‏סבב שני). שני התיקונים — „השורה השמורה גוברת” ו„שני כרטיסים
+       * ‏אינם שני אנשים” — נכתבו במפתחות שונים: כאן `buyerId`, ושם
+       * ‏`partnerKey: contactId`. לאותו אדם עם שני כרטיסים, ההוצאה
+       * ‏תפסה אחד מהם והשני נכנס לשידוך — כלומר אותו אדם בשתי
+       * ‏המלצות סותרות על אותו מסך, בדיוק המצב שההוצאה נועדה למנוע.
+       *
+       * ‏מפתח הזהות אחד לשני הצדדים, ולכן ההוצאה נעשית על אנשי
+       * ‏הקשר של הכרטיסים השמורים ולא על מזהיהם.
        */
-      const durable = await tx.match.findMany({
-        where: { tenantId, propertyId, status: { notIn: ["suggested", "dismissed"] } },
-        select: { buyerId: true },
-      });
+      const durableBuyerIds = (
+        await tx.match.findMany({
+          where: { tenantId, propertyId, status: { notIn: ["suggested", "dismissed"] } },
+          select: { buyerId: true },
+        })
+      ).map((row) => row.buyerId);
+      /*
+       * ‏שאילתה שנייה ולא `include`: אין יחס Prisma מוצהר בין
+       * ‏`Match` ל-`Buyer`, ו-`distinct` מחזיר את מה שבאמת נדרש —
+       * ‏רשימת אנשי קשר, לא רשימת כרטיסים.
+       */
+      const durableContactIds =
+        durableBuyerIds.length === 0
+          ? []
+          : (
+              await tx.buyer.findMany({
+                where: { tenantId, id: { in: durableBuyerIds } },
+                distinct: ["contactId"],
+                select: { contactId: true },
+              })
+            ).map((row) => row.contactId);
 
       /*
        * ‎**הסינון הגס לפני התקרה, ולא אחריה** (ביקורת Codex, P2).
@@ -1121,9 +1148,9 @@ export class MatchingService {
           dealType: "sale",
           sharedTabuStance: "accepts",
           budgetMaxAgorot: { lt: BigInt(price - band) },
-          ...(durable.length === 0
+          ...(durableContactIds.length === 0
             ? {}
-            : { id: { notIn: durable.map((row) => row.buyerId) } }),
+            : { contactId: { notIn: durableContactIds } }),
           ...(cityVariants === null
             ? {}
             : {
