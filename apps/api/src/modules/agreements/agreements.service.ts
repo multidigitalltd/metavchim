@@ -517,7 +517,18 @@ export class AgreementsService {
          * ומשרד שחיבר דומיין שולח אותו מהכתובת שלו. בלי חיבור —
          * מכתובת הפלטפורמה, כמו עד היום.
          */
-        { required: true, tenantId, ...(replyTo === null ? {} : { replyTo }) },
+        {
+          /*
+           * ‎`null` — **„שלחו שוב” הוא בקשה, לא ניסיון חוזר.** סוכן
+           * ‏שלוחץ שוב עושה זאת כי הלקוח אמר שלא קיבל, וזה בדיוק
+           * ‏הרגע שבו בליעת השליחה היא התקלה. הכישלון העמום מסומן
+           * ‏עכשיו כ-`EmailAmbiguousError`, והמסך אומר „ייתכן שיצא”.
+           */
+          idempotency: null,
+          required: true,
+          tenantId,
+          ...(replyTo === null ? {} : { replyTo }),
+        },
       );
       await this.messaging.recordOutbound(tx, {
         contactId: contact.id,

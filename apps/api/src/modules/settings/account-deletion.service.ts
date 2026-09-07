@@ -521,6 +521,12 @@ export class AccountDeletionService {
       this.prisma.supportThread.deleteMany({ where: { tenantId } }),
       // טוקני ה-Reply-To — מחוץ ל-RLS כמו ה-webhook, ולכן נמחקים כאן
       this.prisma.emailReplyToken.deleteMany({ where: { tenantId } }),
+      /*
+       * זיכרון השליחה — גם הוא מחוץ ל-RLS, ומאותה סיבה נמחק כאן.
+       * אין בשורות נמען, נושא או תוכן, אבל המשרד ביקש להימחק ומה
+       * שנושא את המזהה שלו הולך איתו.
+       */
+      this.prisma.emailSendAttempt.deleteMany({ where: { tenantId } }),
       this.prisma.subscriptionOffer.deleteMany({ where: { tenantId } }),
       this.prisma.subscription.deleteMany({ where: { tenantId } }),
       /*

@@ -957,6 +957,12 @@ export class EmailInboxService {
     try {
       // required: מסך שמראה "נשלח" אחרי שלא נשלח הוא תיעוד כוזב
       await this.email.send(target.to, subject, body, {
+        /*
+         * ‏שורת ההודעה נכתבה לפני השליחה עם `sendState: "pending"`,
+         * ‏ולכן היא בדיוק הזהות של השליחה הזו: ניסיון חוזר על אותה
+         * ‏שורה לא ישלח ללקוח עותק שני.
+         */
+        idempotency: { key: `inboxreply:${messageId}`, purpose: "inbox" },
         tenantId,
         required: true,
         ...(replyTo === null ? {} : { replyTo }),

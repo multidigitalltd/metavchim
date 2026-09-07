@@ -1,6 +1,8 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  dailyEmailIdempotencyKey,
+
   DEFAULT_VIEWING_REMINDER_MESSAGES,
   jerusalemWallParts,
   viewingReminderWhenLabel,
@@ -522,7 +524,14 @@ export class ViewingReminderService implements OnModuleInit, OnModuleDestroy {
           // אותה תווית שבגוף ההודעה — נושא שאומר „היום” על מחר גרוע מכולם
           `תזכורת לסיור ${whenLabel}`,
           { heading: "תזכורת לסיור", paragraphs: body.split("\n").filter(Boolean) },
-          { tenantId },
+          {
+            /* ‏תזכורת אחת לסיור הזה ליום — סבב שרץ שוב אינו תזכורת שנייה */
+            idempotency: {
+              key: dailyEmailIdempotencyKey("viewing", appointmentId, new Date()),
+              purpose: "reminder",
+            },
+            tenantId,
+          },
         );
         delivered = true;
       } catch (error: unknown) {

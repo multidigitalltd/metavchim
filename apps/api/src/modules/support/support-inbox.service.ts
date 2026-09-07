@@ -954,6 +954,8 @@ export class SupportInboxService {
           paragraphs: body.trim() === "" ? ["מצורף:"] : body.trim().split("\n").filter(Boolean),
         },
         {
+          /* ‏שורת ההודעה נכתבה לפני השליחה — היא זהות השליחה הזו */
+          idempotency: { key: `supportreply:${messageId}`, purpose: "support" },
           required: true,
           /*
            * **התשובה יוצאת מכתובת התמיכה עצמה.**

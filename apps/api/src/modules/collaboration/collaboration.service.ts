@@ -8,6 +8,8 @@ import {
 import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
+  dailyEmailIdempotencyKey,
+
   BuyerRequirementsSchema,
   buyerSharedTabuStance,
   type SharedTabuStance,
@@ -2093,6 +2095,15 @@ export class CollaborationService {
       .map((chip) => chip.text)
       .join(" · ");
 
+    /* ‏הצעה אחת לביקוש אחד ביום — סבב חוזר אינו הצעה שנייה */
+    const idempotency = {
+      key: dailyEmailIdempotencyKey(
+        "demandoffer",
+        `${input.fromTenantId}:${input.demandBuyerId ?? input.demandTenantId}`,
+        new Date(),
+      ),
+      purpose: "collab",
+    };
     await this.email.send(to.email, "הצעת נכס חדשה לביקוש שפרסמתם ברשת", {
       heading: "מחכה לכם הצעת נכס",
       greeting: `שלום ${to.name},`,
@@ -2108,7 +2119,7 @@ export class CollaborationService {
       },
       footnote:
         "ההודעה נשלחה כי פרסמתם ביקוש ברשת שיתופי הפעולה. אפשר לסגור את הפרסום במסך בכל רגע.",
-    });
+    }, { idempotency });
   }
 
   /**
@@ -2143,6 +2154,10 @@ export class CollaborationService {
         what: "הנכס שהצעתם ברשת",
         note,
       });
+      const idempotency = {
+        key: dailyEmailIdempotencyKey("offerdeclined", offerId, new Date()),
+        purpose: "collab",
+      };
       await sendCollabMail(this.email, to, {
         subject: "עדכון על הנכס שהצעתם ברשת",
         heading: "ההצעה נסגרה",
@@ -2156,7 +2171,7 @@ export class CollaborationService {
           label: "לרשת שיתופי הפעולה",
           url: `${loadEnv().WEB_ORIGIN}/collaboration?tab=demands`,
         },
-      });
+      }, idempotency);
     } catch (error: unknown) {
       this.logger.warn(
         `מייל על דחיית הצעה (${offerId}) לא נשלח: ${String(error)}`,

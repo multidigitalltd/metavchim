@@ -870,6 +870,12 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     const replyTo = await this.emailInbox.replyAddressFor(tenantId, contactId);
     try {
       await this.email.send(to, subject, content, {
+        /*
+         * ‎**כאן ההגנה נחוצה יותר מכל מקום אחר.** הסבב אוטומטי,
+         * ‏רץ שוב ושוב, וכישלון עמום מחזיר את ההצעות למחזור —
+         * ‏כלומר הלקוח מקבל את אותה רשימת נכסים פעמיים.
+         */
+        idempotency: { key: `offeremail:${first.offerId}`, purpose: "offer" },
         tenantId,
         required: true,
         ...(replyTo === null ? {} : { replyTo }),

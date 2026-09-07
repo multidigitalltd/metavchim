@@ -87,7 +87,8 @@ export class LoginOtpService implements OnModuleDestroy {
        * הייתה חוזרת בשקט, אנחנו מחזירים `otpToken`, והמשתמש נשאר
        * במסך שמחכה לקוד שלא נשלח לאיש (ביקורת Codex).
        */
-      { required: true },
+      // ‏„שלחו לי קוד שוב” הוא בקשה לקוד **חדש**, לא כפילות
+      { idempotency: null, required: true },
     );
     return token;
   }

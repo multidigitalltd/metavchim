@@ -8,6 +8,8 @@ import {
 import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
+  dailyEmailIdempotencyKey,
+
   BuyerRequirementsSchema,
   DEFAULT_COMMISSION_SPLIT,
   commissionSplitRejectionReason,
@@ -1256,6 +1258,10 @@ export class ListingsService {
       ]);
       const office = badges.get(tenantId)?.name ?? "משרד תיווך";
       const accepted = response === "interested";
+      const idempotency = {
+        key: dailyEmailIdempotencyKey("interestresp", interestId, new Date()),
+        purpose: "collab",
+      };
       await sendCollabMail(this.email, to, {
         subject: accepted
           ? "הקונה שהצעתם אושר — נפתח חדר עסקה"
@@ -1277,7 +1283,7 @@ export class ListingsService {
           label: accepted ? "לחדר העסקה" : "לרשת שיתופי הפעולה",
           url: `${loadEnv().WEB_ORIGIN}/collaboration?tab=${accepted ? "deals" : "listings"}`,
         },
-      });
+      }, idempotency);
     } catch (error: unknown) {
       this.logger.warn(
         `מייל על תגובה לפנייה (${interestId}) לא נשלח: ${String(error)}`,
@@ -1319,6 +1325,10 @@ export class ListingsService {
         officeBadges(this.prisma, [ctx.tenantId]),
       ]);
       const which = listing?.title ?? listing?.city ?? "אחד הנכסים שפרסמתם";
+      const idempotency = {
+        key: dailyEmailIdempotencyKey("newinterest", interestId, new Date()),
+        purpose: "collab",
+      };
       await sendCollabMail(this.email, to, {
         subject: "מחכה לכם קונה על נכס שפרסמתם ברשת",
         heading: "הגיעה פנייה עם קונה",
@@ -1331,7 +1341,7 @@ export class ListingsService {
           label: "לפנייה במסך",
           url: `${loadEnv().WEB_ORIGIN}/collaboration?tab=incoming`,
         },
-      });
+      }, idempotency);
     } catch (error: unknown) {
       this.logger.warn(
         `מייל על פנייה חדשה (${interestId}) לא נשלח: ${String(error)}`,
