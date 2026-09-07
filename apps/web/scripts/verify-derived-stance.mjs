@@ -133,5 +133,80 @@ if (section.length === 0) {
   console.log(`✓ ${CONVERT}`);
 }
 
+/**
+ * ‎**וכל טופס שיוצר או עורך נכס שואל את השאלה** (ביקורת Codex, P2).
+ *
+ * ‏הסימון נוסף לעריכה ולהמרה מליד ונשכח במסלול הקליטה הראשי, ואז
+ * ‏מתווך שקולט דירה במושאע נאלץ לבחור בין שתי טעויות: לשמור אותה
+ * ‏כדירה רגילה בלי העובדה המשפטית, או לבחור בסוג הנכס הישן
+ * ‏`shared_tabu` ולאבד את „דירה” — ואז `propertyTypeMatches` פוסל
+ * ‏ממנה כל מחפש דירה.
+ *
+ * ‏רשימה ולא בדיקה בודדת: זו בדיוק התבנית שנשברה — שדה שנוסף
+ * ‏לשניים משלושה מסכים.
+ */
+const PROPERTY_FORMS = [
+  ["app", "properties", "new", "page.tsx"],
+  ["app", "properties", "[id]", "edit", "page.tsx"],
+];
+for (const parts of PROPERTY_FORMS) {
+  const file = join(import.meta.dirname, "..", "src", ...parts);
+  const body = readFileSync(file, "utf8");
+  if (!/name="sharedTabu"/u.test(body)) {
+    console.error(`✗ ${file}: הטופס אינו שואל על רישום משותף`);
+    failed = true;
+  } else if (!/sharedTabu:\s*f\.get\("sharedTabu"\)/u.test(body)) {
+    console.error(`✗ ${file}: התשובה אינה נשלחת לשרת`);
+    failed = true;
+  } else {
+    console.log(`✓ ${file}`);
+  }
+}
+
+/**
+ * ‎**וניקוי הסינון הוא פעולה אחת, לא שתיים** (ביקורת Codex, P2).
+ *
+ * ‏במסך הנכסים יש שני כפתורי ניקוי — בראש הרשימה ובמצב הריק —
+ * ‏והמסנן החדש נוסף לאחד ולא לשני: מי שסינן לפי רישום בלבד וקיבל
+ * ‏רשימה ריקה לחץ על כפתור שמבטיח לנקות, ודבר לא קרה.
+ */
+const PROPERTIES_LIST = join(import.meta.dirname, "..", "src", "app", "properties", "page.tsx");
+const propertiesList = readFileSync(PROPERTIES_LIST, "utf8");
+const clearHandlers = [...propertiesList.matchAll(/setSharedTabu\(""\)/gu)].length;
+const clearButtons = [...propertiesList.matchAll(/onClick=\{clearFilters\}/gu)].length;
+if (clearHandlers !== 1) {
+  console.error(
+    `✗ ${PROPERTIES_LIST}: איפוס מסנן הרישום מופיע ${clearHandlers} פעמים — ניקוי אחד לשני הכפתורים`,
+  );
+  failed = true;
+} else if (clearButtons < 2) {
+  console.error(`✗ ${PROPERTIES_LIST}: לא כל כפתורי הניקוי עוברים דרך אותה פעולה`);
+  failed = true;
+} else {
+  console.log(`✓ ${PROPERTIES_LIST}`);
+}
+
+/**
+ * ‎**ובמסך הקונים — כתובת אחת לשליפת הרשימה** (ביקורת Codex, P2).
+ *
+ * ‏השאילתה נבנתה גם בטעינה הראשונית וגם ברענון שאחרי מחיקה
+ * ‏מרובה, ולכן הרענון החזיר קונים בלי סינון העמדה בזמן שהבורר
+ * ‏על המסך עדיין הראה אותה.
+ */
+const BUYERS_LIST = join(import.meta.dirname, "..", "src", "app", "buyers", "page.tsx");
+const buyersList = readFileSync(BUYERS_LIST, "utf8");
+const urlBuilders = [...buyersList.matchAll(/`\/buyers\?limit=/gu)].length;
+if (urlBuilders !== 1) {
+  console.error(
+    `✗ ${BUYERS_LIST}: כתובת הרשימה נבנית ${urlBuilders} פעמים — מסנן חדש ייכנס לאחת ולא לשנייה`,
+  );
+  failed = true;
+} else if ([...buyersList.matchAll(/buyersListUrl\(/gu)].length < 3) {
+  console.error(`✗ ${BUYERS_LIST}: לא כל השליפות עוברות דרך `+"`buyersListUrl`");
+  failed = true;
+} else {
+  console.log(`✓ ${BUYERS_LIST}`);
+}
+
 if (failed) process.exit(1);
 console.log("מסכי הטאבו המשותף מסכימים עם השרת.");

@@ -102,6 +102,30 @@ function MaturityPill({ maturity }: { maturity: string }) {
 
 const GRID = "1.6fr 0.9fr 1.1fr 1.4fr 0.9fr 0.9fr";
 
+/**
+ * ‎**כתובת אחת לשליפת הרשימה** (ביקורת Codex, P2).
+ *
+ * ‏השאילתה נבנתה בשני מקומות — הטעינה הראשונית והרענון שאחרי
+ * ‏מחיקה מרובה — ולכן המסנן החדש נוסף לאחת ולא לשנייה: אחרי
+ * ‏מחיקה הרשימה התרעננה **בלי** סינון העמדה, בזמן שהבורר על המסך
+ * ‏עדיין הראה אותה. המסך הציג קונים שסותרים את מה שנבחר בו.
+ *
+ * ‏פונקציה ברמת המודול ולא בתוך הרכיב: כך אין תלות ב-hook, ואין
+ * ‏דרך שנייה לבנות את הכתובת.
+ */
+function buyersListUrl(
+  filters: ListFilterValues,
+  maturity: string,
+  officeStatus: string,
+  sharedTabu: string,
+): string {
+  const scope =
+    (maturity === "" ? "" : `&maturity=${encodeURIComponent(maturity)}`) +
+    (officeStatus === "" ? "" : `&officeStatus=${encodeURIComponent(officeStatus)}`) +
+    (sharedTabu === "" ? "" : `&sharedTabu=${encodeURIComponent(sharedTabu)}`);
+  return `/buyers?limit=100${scope}${filtersToQuery({ ...filters, q: "" })}`;
+}
+
 export default function BuyersPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const canImport = useFeature("data_io");
@@ -172,12 +196,8 @@ export default function BuyersPage() {
   useEffect(() => {
     if (authLoading) return;
     setItems(null);
-    const scope =
-      (maturity === "" ? "" : `&maturity=${encodeURIComponent(maturity)}`) +
-      (officeStatus === "" ? "" : `&officeStatus=${encodeURIComponent(officeStatus)}`) +
-      (sharedTabu === "" ? "" : `&sharedTabu=${encodeURIComponent(sharedTabu)}`);
     apiGet<{ items: BuyerRow[] }>(
-      `/buyers?limit=100${scope}${filtersToQuery({ ...filters, q: "" })}`,
+      buyersListUrl(filters, maturity, officeStatus, sharedTabu),
     )
       .then((res) =>
         setItems(
@@ -328,8 +348,9 @@ export default function BuyersPage() {
      */
     setItems(null);
     try {
+      /* ‏אותה כתובת בדיוק שהטעינה הראשונית בנתה — ראו `buyersListUrl` */
       const fresh = await apiGet<{ items: BuyerRow[] }>(
-        `/buyers?limit=100${filtersToQuery({ ...filters, q: "" })}`,
+        buyersListUrl(filters, maturity, officeStatus, sharedTabu),
       );
       setItems(
         [...apiList(fresh.items, "items")].sort(

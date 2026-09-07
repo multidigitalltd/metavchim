@@ -664,6 +664,26 @@ export default function PropertiesPage() {
     sharedTabu !== "" ||
     sort !== "newest";
 
+  /*
+   * ‎**ניקוי אחד לשני הכפתורים** (ביקורת Codex, P2).
+   *
+   * ‏„נקה סינון” שבראש הרשימה ו„ניקוי הסינון” שבמצב הריק היו שני
+   * ‏עותקים של אותה פעולה, ולכן המסנן החדש נוסף לאחד ולא לשני:
+   * ‏מי שסינן לפי רישום בלבד וקיבל רשימה ריקה לחץ על כפתור שמבטיח
+   * ‏לנקות — ודבר לא קרה, כי הוא לא נגע במסנן היחיד שפעל.
+   *
+   * ‏ואותה רשימת שדות בדיוק היא `filtering` מעליה: אם היא אומרת
+   * ‏„יש סינון” על שדה שהניקוי אינו מאפס, הכפתור אינו יכול לכבות.
+   */
+  function clearFilters(): void {
+    setFilters(EMPTY_FILTERS);
+    setCity("הכל");
+    setStatus("");
+    setType("");
+    setSharedTabu("");
+    setSort("newest");
+  }
+
   return (
     <>
       {/* לפני הסינון והרשימה: בלעדיות שנגמרת היא נכס שעובר למתחרה,
@@ -984,14 +1004,7 @@ export default function PropertiesPage() {
                   <button
                     type="button"
                     className="mv-filter-clear"
-                    onClick={() => {
-                      setFilters(EMPTY_FILTERS);
-                      setCity("הכל");
-                      setStatus("");
-                      setType("");
-                      setSharedTabu("");
-                      setSort("newest");
-                    }}
+                    onClick={clearFilters}
                   >
                     <IconX s={14} /> נקה סינון
                   </button>
@@ -1123,12 +1136,7 @@ export default function PropertiesPage() {
               </p>
               <Button
                 variant="secondary"
-                onClick={() => {
-                  setFilters(EMPTY_FILTERS);
-                  setCity("הכל");
-                  setStatus("");
-                  setType("");
-                }}
+                onClick={clearFilters}
               >
                 ניקוי הסינון
               </Button>
