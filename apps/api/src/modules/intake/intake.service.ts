@@ -1304,6 +1304,20 @@ export class IntakeService {
   ): Promise<{ propertyId: string | null; created: boolean; note: string | null }> {
     const raw = sellerPropertyFields(answers);
     const fields = PropertyFieldsSchema.partial().parse(raw);
+    /**
+     * ‎**האם הבעלים נשאל — עובדה אחת לשני המסלולים** (ביקורת Codex, P2).
+     *
+     * ‏היא נמסרה רק ליצירה. בעלים שהשאיר את שאלת הרישום המשותף
+     * ‏ריקה בשליחה הראשונה וענה עליה בשליחה חוזרת קיבל את התשובה
+     * ‏שמורה בשדה הבוליאני — אבל הנכס נשאר בתור הסקירה הידנית,
+     * ‏כלומר החותמת סתרה את מה שהיא אמורה לתאר.
+     *
+     * ‎`answers.sharedTabu` ולא `fields.sharedTabu`: אחרי הסכימה
+     * ‏שניהם בוליאניים, ו„הבעלים ענה שלא” נראה זהה ל„השדה לא
+     * ‏נשלח”. השאלה היחידה שאפשר לענות עליה כאן היא האם הגיעה
+     * ‏תשובה.
+     */
+    const sharedTabuAnswered = answers.sharedTabu !== undefined;
 
     /* ---------- שליחה ראשונה: המזהה כבר נתפס, נותר ליצור ---------- */
     if (claim.reservedId !== null) {
@@ -1314,16 +1328,8 @@ export class IntakeService {
           fields,
           owner: { name: claim.ownerName, phone: claim.ownerPhone },
           internalNotes: sellerSummaryLines(answers).join("\n"),
-          /*
-           * ‎**הבעלים עצמו נשאל — וזה מה שהופך את התשובה לתשובה.**
-           *
-           * ‏הטופס שואל על רישום משותף במפורש, ולכן נכס שנולד ממנו
-           * ‏אינו זקוק למעבר הידני. `answers.sharedTabu` ולא
-           * ‏`fields.sharedTabu`: אחרי הסכימה שניהם בוליאניים,
-           * ‏ו„הבעלים ענה שלא” נראה זהה ל„השדה לא נשלח”. השאלה
-           * ‏היחידה שאפשר לענות עליה כאן היא האם הגיעה תשובה.
-           */
-          sharedTabuAnswered: answers.sharedTabu !== undefined,
+          /* ‏הבעלים עצמו נשאל — ראו `sharedTabuAnswered` למעלה */
+          sharedTabuAnswered,
         });
         return { propertyId, created: true, note: null };
       } catch (error: unknown) {
@@ -1363,6 +1369,12 @@ export class IntakeService {
         ...fields,
         // ‏„הורדתי את הסימון” = אין, ולא „לא השתנה”. ראו התיעוד למעלה.
         clearFields: clearedSellerFields(raw),
+        /*
+         * ‏ותשובה שהגיעה עכשיו היא תשובה, גם אם היא איחרה. שליחה
+         * ‏חוזרת **בלי** תשובה אינה מוחקת חותמת קיימת: `update`
+         * ‏כותב רק על `true`.
+         */
+        sharedTabuAnswered,
         // התנאי נאכף מתחת לנעילת הנכס, לא כאן
         expectStatus: "draft",
       });

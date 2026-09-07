@@ -1,4 +1,5 @@
-import { NotFoundException } from "@nestjs/common";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { TenantContext } from "../../common/tenant-context";
 import type { PrismaService } from "../../core/prisma.service";
@@ -138,35 +139,103 @@ describe("‏רשימת מה שטרם נבדק", () => {
 });
 
 describe("‏התשובה", () => {
-  it("‏כותבת את הדגל **ואת** החותמת באותה פעולה", async () => {
-    const { service, calls } = serviceFor([]);
+  /**
+   * ‎**היא אינה כותבת שורה משלה — היא קוראת ל-`update`**
+   * ‏(ביקורת Codex, שני P1 שהם אותה תקלה).
+   *
+   * ‏הניסוח הראשון כתב את השורה ישירות, ולכן דילג על מה שהעדכון
+   * ‏הרגיל עושה **אחרי** הכתיבה: חישוב ההתאמות מחדש וסנכרון
+   * ‏המודעות המפורסמות. נכס שאושר כ„משותף” המשיך להיות מוצע
+   * ‏לקונה שסירב ולהתפרסם למשרדים אחרים כלא-משותף.
+   *
+   * ‏הבדיקה היא על **התפר**: מה נמסר לעדכון. מה שהעדכון עושה עם
+   * ‏זה כבר נבדק אצלו, ושכפול הטענה כאן היה יוצר בדיוק את המקור
+   * ‏הכפול שהתיקון מסלק.
+   */
+  it("‏מוסרת לעדכון הרגיל את הדגל ואת „נשאל”", async () => {
+    const { service } = serviceFor([]);
+    const seen: unknown[] = [];
+    (service as unknown as { update: unknown }).update = async (...args: unknown[]) => {
+      seen.push(args);
+      return undefined;
+    };
     await asAgent(() => service.confirmSharedTabu(PROP, true));
-    const update = calls.find((c) => c.model === "property" && c.method === "update");
-    const data = update?.args["data"] as Record<string, unknown>;
-    expect(data["sharedTabu"]).toBe(true);
-    expect(data["sharedTabuConfirmedAt"]).toBeInstanceOf(Date);
+    expect(seen).toHaveLength(1);
+    expect((seen[0] as unknown[])[0]).toBe(PROP);
+    expect((seen[0] as unknown[])[1]).toEqual({ sharedTabu: true, sharedTabuAnswered: true });
+  });
+
+  it("‏וכיבוי נמסר כערך ולא כהיעדר", async () => {
+    const { service } = serviceFor([]);
+    const seen: unknown[] = [];
+    (service as unknown as { update: unknown }).update = async (...args: unknown[]) => {
+      seen.push(args);
+      return undefined;
+    };
+    await asAgent(() => service.confirmSharedTabu(PROP, false));
+    expect((seen[0] as unknown[])[1]).toEqual({ sharedTabu: false, sharedTabuAnswered: true });
   });
 
   /*
    * ‏„לא משותף” על שורה שסוגה הוא הייצוג הישן פורש גם את הסוג —
    * ‏אחרת `isSharedTabuProperty` היה מחזיר `true` בקריאה הבאה,
    * ‏והתשובה הייתה מתהפכת מעצמה. הכלל חי ב-`fieldsToColumns`,
-   * ‏והתשובה עוברת דרכו ולא כותבת ניסוח שני.
+   * ‏ומכיוון שהתשובה עוברת דרך `update` היא מקבלת אותו — כולל
+   * ‏מסירת השורה השמורה — בלי ניסוח שני.
    */
-  it("‏עוברת דרך אותו מיפוי של טופס העריכה", async () => {
-    const { service, calls } = serviceFor([], { propertyType: "shared_tabu" });
-    await asAgent(() => service.confirmSharedTabu(PROP, false));
-    const update = calls.find((c) => c.model === "property" && c.method === "update");
-    const data = update?.args["data"] as Record<string, unknown>;
-    expect(data).toMatchObject(fieldsToColumns({ sharedTabu: false }, { propertyType: "shared_tabu" }));
-    expect(data["propertyType"]).toBeNull();
+  it("‏והמיפוי המשותף עדיין פורש את הסוג הישן", () => {
+    const columns = fieldsToColumns({ sharedTabu: false }, { propertyType: "shared_tabu" });
+    expect(columns.sharedTabu).toBe(false);
+    expect(columns.propertyType).toBeNull();
+  });
+});
+
+/**
+ * ‎**ומה שהעדכון עושה אחרי הכתיבה — כי זה מה שהתשובה קונה בכך
+ * ‏שהיא עוברת דרכו.**
+ *
+ * ‏שער מבני: הטענה היא שהעדכון **הוא** המקום שבו שני האפקטים
+ * ‏קורים. אם הם ייצאו ממנו, התשובה תדלג עליהם שוב בשקט — וזו
+ * ‏בדיוק הצורה שבה התיקון הזה יכול להיעלם.
+ */
+const SERVICE_SOURCE = readFileSync(join(__dirname, "properties.service.ts"), "utf8");
+
+/**
+ * ‏גוף המתודה: מהחתימה ועד הסוגר הסוגר בהזחה של שני רווחים.
+ *
+ * ‏חיתוך „עד המתודה הבאה שאני זוכר” נשבר בשקט ברגע שמתודה נוספת
+ * ‏נכנסת ביניהן — וזה בדיוק מה שקרה כאן: הטענה „היצירה אינה נוגעת
+ * ‏בחותמת” נבדקה על קטע שכלל גם את הרשימה וגם את התשובה, ששתיהן
+ * ‏נוגעות בה בצדק.
+ */
+function body(source: string, signature: string): string {
+  const start = source.indexOf(signature);
+  expect(start, `‏${signature} לא נמצאה`).toBeGreaterThan(-1);
+  const end = source.indexOf("\n  }\n", start);
+  expect(end, `‏סוף ${signature} לא נמצא`).toBeGreaterThan(start);
+  return source.slice(start, end);
+}
+
+describe("‏העדכון הרגיל מרענן התאמות ומודעות", () => {
+  const SERVICE = SERVICE_SOURCE;
+  const UPDATE = body(SERVICE, "  async update(");
+
+  it("‏חישוב ההתאמות מחדש", () => {
+    expect(UPDATE).toContain("recomputeForProperty");
   });
 
-  it("‏נכס שאינו קיים אינו נכתב", async () => {
-    const { service } = serviceFor([], null);
-    await expect(asAgent(() => service.confirmSharedTabu(PROP, true))).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+  it("‏וסנכרון המודעות המפורסמות", () => {
+    expect(UPDATE).toContain("resyncForProperty");
+  });
+
+  it("‏והתשובה עוברת דרכו", () => {
+    const at = SERVICE.indexOf("  async confirmSharedTabu(");
+    expect(at, "‏התשובה לא נמצאה").toBeGreaterThan(-1);
+    /* ‏גוף המתודה בלבד — עד הסוגר הסוגר בהזחה של שני רווחים */
+    const confirm = SERVICE.slice(at, SERVICE.indexOf("\n  }\n", at));
+    expect(confirm).toContain("this.update(id, { sharedTabu, sharedTabuAnswered: true })");
+    /* ‏ואינה כותבת שורה משלה */
+    expect(confirm).not.toContain("property.update(");
   });
 });
 
@@ -180,5 +249,58 @@ describe("‏מה **אינו** מסמן „נבדק”", () => {
   it("‏המיפוי של טופס העריכה אינו נוגע בחותמת", () => {
     const columns = fieldsToColumns({ sharedTabu: true }, { propertyType: null });
     expect("sharedTabuConfirmedAt" in columns).toBe(false);
+  });
+});
+
+/**
+ * ‎**החותמת מהקליטה נכתבת בטרנזקציה של היצירה** (ביקורת Codex, P1).
+ *
+ * ‏היא הייתה עדכון שני, אחרי ש-`persist` כבר נסגרה. כישלון בו הפיל
+ * ‏את `createFromIntake`, ו-`draftFor` שחרר את המזהה השמור כאילו
+ * ‏היצירה נכשלה — בזמן שהנכס קיים. השליחה הבאה הייתה יוצרת נכס
+ * ‏שני, והראשון נשאר יתום: בדיוק התקלה שהמזהה-מראש נועד למנוע.
+ */
+describe("‏קליטה שנשאלה — כתיבה אחת", () => {
+  const SERVICE = SERVICE_SOURCE;
+  const CREATE = body(SERVICE, "  async createFromIntake(");
+
+  it("‏אין עדכון שני אחרי היצירה", () => {
+    expect(CREATE).not.toContain("sharedTabuConfirmedAt");
+    expect(CREATE).not.toContain("property.updateMany");
+  });
+
+  it("‏והתשובה נוסעת לתוך `persist`", () => {
+    expect(CREATE).toContain("sharedTabuConfirmed: input.sharedTabuAnswered");
+  });
+
+  /* ‏ושם היא נכתבת באותה `create` של השורה עצמה */
+  it("‏ו-`persist` כותבת אותה עם השורה", () => {
+    const persist = body(SERVICE, "  private async persist(");
+    const at = persist.indexOf("tx.property.create(");
+    expect(at, "‏היצירה לא נמצאה").toBeGreaterThan(-1);
+    /* ‏עד סוף אובייקט ה-`data` של אותה קריאה */
+    const create = persist.slice(at, persist.indexOf("      });", at));
+    expect(create).toContain("sharedTabuConfirmedAt: new Date()");
+  });
+});
+
+/**
+ * ‎**ותשובה שהגיעה בשליחה חוזרת היא תשובה** (ביקורת Codex, P2).
+ *
+ * ‏בעלים שהשאיר את השאלה ריקה וענה עליה בשליחה שנייה קיבל את הערך
+ * ‏שמור בשדה — והנכס נשאר בתור הסקירה. החותמת סתרה את מה שהיא
+ * ‏אמורה לתאר.
+ */
+describe("‏שליחה חוזרת של המוכר", () => {
+  const INTAKE = readFileSync(join(__dirname, "../intake/intake.service.ts"), "utf8");
+  const DRAFT = INTAKE.slice(INTAKE.indexOf("  private async draftFor("));
+
+  it("‏„האם נשאל” מחושב פעם אחת לשני המסלולים", () => {
+    expect(DRAFT.split("answers.sharedTabu !== undefined").length - 1).toBe(1);
+  });
+
+  it("‏והעדכון של השליחה החוזרת מוסר אותו", () => {
+    const resubmit = DRAFT.slice(DRAFT.indexOf("this.properties.update("));
+    expect(resubmit.slice(0, 600)).toContain("sharedTabuAnswered");
   });
 });
