@@ -2848,9 +2848,19 @@ model LeadSourcePrice {
 /// **בלי `tenantId` ובלי RLS במכוון.** פנייה שנדחתה היא בדיוק זו
 /// שלא הצלחנו לשייך למשרד, וטבלה תחת RLS הייתה מסתירה בדיוק את
 /// השורות שבגללן היא נבנתה. הצפייה שמורה לבעל הפלטפורמה.
-model TelephonyWebhookHit {
+model WebhookHit {
   id         String   @id @db.Char(26)
   receivedAt DateTime @default(now()) @map("received_at")
+  /// ‏מאיזה נתיב הגיעה הפנייה — `telephony` | `lead`.
+  ///
+  /// ‏היומן נבנה למרכזייה, אבל השאלה שהוא עונה עליה — „הגיעה
+  /// ‏פנייה ונדחתה, או שלא הגיעה כלל?” — זהה בדיוק בוובהוק
+  /// ‏הלידים, ושם היא הייתה בלי תשובה: מפתח לא מוכר החזיר 404
+  /// ‏ולא הותיר עקבה.
+  ///
+  /// ‏מקור שני עם טבלה, מסך, סינון וריקון משלו היה מכפיל את הכול
+  /// ‏כדי לענות על אותה שאלה. עמודה אחת, ומסנן.
+  source     String   @default("telephony") @db.VarChar(12)
   /// accepted | unparsed | unknown_key | disabled | no_feature
   ///
   /// `accepted` = הפנייה הגיעה **והפכה לאירוע שיחה**.
@@ -2921,7 +2931,9 @@ model TelephonyWebhookHit {
   @@index([callId])
   /// ‏„מה קרה כשהמספר הזה התקשר” — החיפוש שאין לו תחליף
   @@index([peerHash])
-  @@map("telephony_webhook_hits")
+  /// ‏„הפניות של המרכזייה” ו„של הלידים” הן שתי שאלות נפרדות
+  @@index([source, receivedAt(sort: Desc)])
+  @@map("webhook_hits")
 }
 
 model PlatformSetting {

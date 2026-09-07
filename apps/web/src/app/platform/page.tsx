@@ -26,7 +26,7 @@ import { SupportQueueSection } from "./support-queue-section";
 import { LegalDocsSection } from "./legal-docs-section";
 import { IntegrationDeskSection } from "./integration-desk-section";
 import { InvoicesSection } from "./invoices-section";
-import { TelephonyWebhooksSection } from "./telephony-webhooks-section";
+import { WebhookLogSection } from "./webhook-log-section";
 import { CreditEconomySection } from "./credit-economy-section";
 import { SystemUpdateSection } from "./system-update-section";
 import { PayoutDeskSection } from "./payout-desk-section";
@@ -721,7 +721,7 @@ export default function PlatformPage() {
           צמוד להגדרות הספקים: שתיהן עונות על "חיברתי ספק ולא קורה
           כלום", וזו הרשימה שאומרת אם הוא בכלל פונה אלינו.
         */}
-        <TelephonyWebhooksSection />
+        <WebhookLogSection />
       </TabPanel>
 
       <TabPanel tab="system" active={tab}>

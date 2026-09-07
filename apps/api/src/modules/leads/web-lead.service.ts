@@ -31,7 +31,14 @@ export class WebLeadService {
       intent?: string;
       propertyId?: string;
     },
-  ): Promise<void> {
+    /**
+     * ‎**המשרד שנפתר — כדי שיומן הוובהוקים יוכל לשייך את השורה.**
+     *
+     * ‏הקליטה ידעה אותו וזרקה אותו; היומן נכתב אצל הקורא, ובלי
+     * ‏להחזירו כל פנייה שנקלטה בהצלחה הייתה נרשמת בלי משרד —
+     * ‏כלומר נופלת בדיוק מהסינון הראשון שנשאל.
+     */
+  ): Promise<{ tenantId: string }> {
     /*
      * המפתח מזהה גם את המשרד וגם את הערוץ: שם המקור שנבחר בהקמת
      * הוובהוק ("אתר", "פייסבוק"...) נכנס כ-source של הליד.
@@ -45,6 +52,7 @@ export class WebLeadService {
       throw new NotFoundException("לא נמצא");
     }
     await this.ingestForTenant(webhook.tenantId, input, webhook.sourceLabel);
+    return { tenantId: webhook.tenantId };
   }
 
   /**

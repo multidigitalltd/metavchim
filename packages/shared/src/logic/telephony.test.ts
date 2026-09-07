@@ -1154,12 +1154,12 @@ describe("unmappedFields", () => {
       callerid_external: "0501234567",
       A_PARTY: "0509999999",
       queue_name: "מכירות",
-    });
+    }, "telephony");
     expect(out).toEqual(["A_PARTY", "queue_name"]);
   });
 
   it("payload שכולו מוכר מחזיר רשימה ריקה", () => {
-    expect(unmappedFields({ callid: "x", status: "hangup", caller: "0501234567" })).toEqual([]);
+    expect(unmappedFields({ callid: "x", status: "hangup", caller: "0501234567" }, "telephony")).toEqual([]);
   });
 
   /*
@@ -1167,15 +1167,15 @@ describe("unmappedFields", () => {
    * להופיע כ"מפוספס" ולשלוח לתקן משהו שעובד.
    */
   it("שם חלופי שכבר נתמך אינו מדווח כמפוספס", () => {
-    expect(unmappedFields({ uniqueid: "x", billsec: "10", dst: "03111111" })).toEqual([]);
+    expect(unmappedFields({ uniqueid: "x", billsec: "10", dst: "03111111" }, "telephony")).toEqual([]);
   });
 
   it("שדה ריק אינו מידע שהוחמץ", () => {
-    expect(unmappedFields({ extra: "", blank: "   " })).toEqual([]);
+    expect(unmappedFields({ extra: "", blank: "   " }, "telephony")).toEqual([]);
   });
 
   it("שם שדה לא תקני מסומן ואינו נכתב", () => {
-    const out = unmappedFields({ "0501234567": "x" });
+    const out = unmappedFields({ "0501234567": "x" }, "telephony");
     expect(out).toEqual(["‹שדה לא תקני›"]);
   });
 });
@@ -1328,5 +1328,34 @@ describe("isGeneratedCallSummary — מה שהמערכת כתבה מול מה ש
       } as unknown as Parameters<typeof describeCall>[0]);
       expect(isGeneratedCallSummary(text), text).toBe(true);
     }
+  });
+});
+
+/**
+ * ‎**„לא ממופה” נשאל מול הנתיב שהפנייה הגיעה בו.**
+ *
+ * ‏שדות של טופס ליד — שם, טלפון, הודעה — אינם מידע שאנחנו
+ * ‏מפספסים; הם בדיוק מה שנקלט. מול רשימת המרכזייה כולם היו
+ * ‏מסומנים כחסרים, ועמודה שמסמנת את הכול אינה מסמנת דבר.
+ */
+describe("‏unmappedFields לפי מקור", () => {
+  const LEAD = { name: "ישראל", phone: "0501234567", message: "שלום" };
+
+  it("‏שדות הליד אינם „לא ממופים” בנתיב הלידים", () => {
+    expect(unmappedFields(LEAD, "lead")).toEqual([]);
+  });
+
+  it("‏ובנתיב המרכזייה כולם היו נראים כחסרים — וזו הטעות שנמנעה", () => {
+    expect(unmappedFields(LEAD, "telephony").length).toBeGreaterThan(0);
+  });
+
+  /* ‏ומה שבאמת אינו מוכר בטופס — כן מסומן */
+  it("‏שדה שאינו בסכימת הטופס מסומן", () => {
+    expect(unmappedFields({ ...LEAD, surprise: "x" }, "lead")).toEqual(["surprise"]);
+  });
+
+  /* ‏שדה ריק אינו מידע שהוחמץ, בשני הנתיבים */
+  it("‏שדה ריק אינו מסומן", () => {
+    expect(unmappedFields({ ...LEAD, surprise: "  " }, "lead")).toEqual([]);
   });
 });

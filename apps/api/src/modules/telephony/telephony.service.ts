@@ -59,9 +59,9 @@ import { ContactsService } from "../contacts/contacts.service";
 import { IntakeService } from "../intake/intake.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import {
-  TelephonyWebhookLogService,
-  type TelephonyWebhookOutcome,
-} from "./webhook-log.service";
+  WebhookLogService,
+  type WebhookHitOutcome,
+} from "../webhook-log/webhook-log.service";
 import { loadEnv } from "../../config/env";
 
 /**
@@ -186,7 +186,7 @@ export class TelephonyService {
     private readonly audit: AuditService,
     private readonly plans: PlanCatalogService,
     private readonly contacts: ContactsService,
-    private readonly webhookLog: TelephonyWebhookLogService,
+    private readonly webhookLog: WebhookLogService,
     private readonly intake: IntakeService,
     private readonly waSend: WhatsAppSendService,
     private readonly platformSettings: PlatformSettingsService,
@@ -770,6 +770,7 @@ export class TelephonyService {
      */
     if (!TelephonyService.WEBHOOK_KEY_SHAPE.test(key)) {
       await this.webhookLog.record({
+        source: "telephony",
         outcome: "unknown_key",
         tenantId: null,
         key,
@@ -804,6 +805,7 @@ export class TelephonyService {
      */
     if (!integration || integration.status !== "active") {
       await this.webhookLog.record({
+        source: "telephony",
         outcome: integration ? "disabled" : "unknown_key",
         tenantId: integration?.tenantId ?? null,
         key,
@@ -831,6 +833,7 @@ export class TelephonyService {
        * שגויה, ובלי השורה הזו אין שום דרך להבדיל.
        */
       await this.webhookLog.record({
+        source: "telephony",
         outcome: "no_feature",
         tenantId: integration.tenantId,
         key,
@@ -900,7 +903,7 @@ export class TelephonyService {
      * ה-`return` המוקדם של אירוע שלא זוהה. `record` בולעת שגיאות
      * בעצמה, ולכן היא אינה יכולה להסתיר את החריגה המקורית.
      */
-    let outcome: TelephonyWebhookOutcome =
+    let outcome: WebhookHitOutcome =
       event === null ? "unparsed" : willLogCall ? "accepted" : "preliminary";
     try {
       const tenantId = integration.tenantId;
@@ -1382,14 +1385,28 @@ export class TelephonyService {
       throw error;
     } finally {
       await this.webhookLog.record({
+        source: "telephony",
         outcome,
         issue,
         tenantId: integration.tenantId,
         key,
         method,
         payload,
-        /* ‏האירוע שנותח — מה שמחבר את השורה לשיחה שהיא יצרה */
-        ...(event === null ? {} : { event }),
+        /*
+         * ‏האירוע שנותח — מה שמחבר את השורה לשיחה שהיא יצרה.
+         * ‏המספר נמסר בנפרד: הוא עובדה על הפונה ולא על אירוע
+         * ‏השיחה, ולטופס ליד יש אותו בלי שלושת השדות האחרים.
+         */
+        ...(event === null
+          ? {}
+          : {
+              event: {
+                type: event.type,
+                direction: event.direction,
+                providerCallId: event.providerCallId,
+              },
+              peerPhone: event.peerPhone,
+            }),
       });
     }
   }

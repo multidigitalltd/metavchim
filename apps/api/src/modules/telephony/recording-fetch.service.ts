@@ -1276,7 +1276,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
        *
        * התיאור **נבנה מצונזר** ואינו קיצור של הגוף: שמות מפתחות
        * תמיד, ערכים רק לשדות טכניים, כתובות נמחקות והסודות
-       * מוחלפים. אותו עיקרון של `TelephonyWebhookHit`.
+       * מוחלפים. אותו עיקרון של `WebhookHit`.
        */
       const detail = describeProviderResponse(payload, [authUsername, authPassword]);
       /*

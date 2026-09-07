@@ -639,10 +639,42 @@ const KNOWN_KEYS = new Set<string>([
  * ‎`website` ו-honeypots דומים אינם מסוננים כאן במכוון: הם באמת
  * שדות שאנחנו מתעלמים מהם, וזה בדיוק מה שהרשימה אומרת.
  */
-export function unmappedFields(raw: Record<string, unknown>): string[] {
+/**
+ * ‎**השדות שטופס הלידים צורך.**
+ *
+ * ‏„לא ממופה” נשאל מול מה שהנתיב **הזה** מכיר. בלי הרשימה הזו כל
+ * ‏שדה של ליד — שם, טלפון, הודעה — היה מסומן באדום כמידע שאנחנו
+ * ‏מפספסים, בזמן שהוא בדיוק מה שנקלט. עמודה שמסמנת את הכול אינה
+ * ‏מסמנת דבר.
+ *
+ * ‏השוואה מול סכימת הקליטה נאכפת בבדיקה בצד ה-API, כדי ששתי
+ * ‏הרשימות לא ייפרדו.
+ */
+export const LEAD_WEBHOOK_KEYS = new Set<string>([
+  "name",
+  "phone",
+  "message",
+  "pageUrl",
+  "email",
+  "intent",
+  "propertyId",
+  "website",
+]);
+
+export function unmappedFields(
+  raw: Record<string, unknown>,
+  /**
+   * ‎**מול איזו רשימה נשאלת השאלה — חובה, ולא ברירת מחדל.**
+   *
+   * ‏ברירת מחדל „מרכזייה” הייתה נכונה לקורא של היום ושגויה בשקט
+   * ‏אצל השני, והתוצאה נראית תקינה לגמרי: רשימת שדות באדום.
+   */
+  source: "telephony" | "lead",
+): string[] {
+  const known = source === "lead" ? LEAD_WEBHOOK_KEYS : KNOWN_KEYS;
   const out: string[] = [];
   for (const key of Object.keys(raw)) {
-    if (KNOWN_KEYS.has(key)) continue;
+    if (known.has(key)) continue;
     if (!SAFE_KEY.test(key)) {
       out.push("‹שדה לא תקני›");
       continue;

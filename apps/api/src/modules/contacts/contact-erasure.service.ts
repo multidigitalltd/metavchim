@@ -577,7 +577,7 @@ export class ContactErasureService {
       ).map((row) => row.phoneHash),
     ];
     if (phoneHashes.length > 0) {
-      await tx.telephonyWebhookHit.updateMany({
+      await tx.webhookHit.updateMany({
         where: { tenantId, peerHash: { in: phoneHashes } },
         data: { peerHash: null, peerSuffix: null },
       });

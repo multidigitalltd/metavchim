@@ -94,7 +94,7 @@ async function logCleanup(): Promise<Call | undefined> {
   const tx = fakeTx(calls);
   await erase.eraseUnreachable(tx, TENANT, { contactId: CONTACT }, "בדיקה");
   return calls.find(
-    (call) => call.model === "telephonyWebhookHit" && call.method === "updateMany",
+    (call) => call.model === "webhookHit" && call.method === "updateMany",
   );
 }
 

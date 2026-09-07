@@ -97,7 +97,7 @@ describe("‏מחיקת משרד וניקוי יומן הוובהוקים", () =
     await service.deleteTenantFromPlatform(TENANT, "משרד לבדיקה");
 
     const call = calls.find(
-      (c) => c.model === "telephonyWebhookHit" && c.method === "updateMany",
+      (c) => c.model === "webhookHit" && c.method === "updateMany",
     );
     expect(call, "היומן לא נגע כלל במחיקת המשרד").toBeDefined();
     expect(call?.args["data"]).toEqual({

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { CryptoService } from "../../core/crypto.service";
 import type { PrismaService } from "../../core/prisma.service";
-import { TelephonyWebhookLogService } from "./webhook-log.service";
+import { WebhookLogService } from "./webhook-log.service";
 
 /**
  * ‎**היומן כמשהו שאפשר לעקוב אחריו — ומה שאסור שיישמר בו.**
@@ -36,7 +36,7 @@ function fakePrisma(rows: { receivedAt: Date }[] = []): {
 } {
   const calls: Call[] = [];
   const prisma = {
-    telephonyWebhookHit: {
+    webhookHit: {
       create: (args: Record<string, unknown>) => {
         calls.push({ op: "create", args });
         return Promise.resolve({});
@@ -76,21 +76,23 @@ function digest(phone: string): string {
 const crypto = { phoneHash: digest } as unknown as CryptoService;
 
 function service(rows: { receivedAt: Date }[] = []): {
-  log: TelephonyWebhookLogService;
+  log: WebhookLogService;
   calls: Call[];
 } {
   const { prisma, calls } = fakePrisma(rows);
-  return { log: new TelephonyWebhookLogService(prisma, crypto), calls };
+  return { log: new WebhookLogService(prisma, crypto), calls };
 }
 
 const EVENT = {
   type: "hangup",
   direction: "inbound",
   providerCallId: "call-9",
-  peerPhone: "+972501234567",
 };
 
+const PHONE = "+972501234567";
+
 const BASE = {
+  source: "telephony" as const,
   outcome: "accepted" as const,
   tenantId: "01TENANTAAAAAAAAAAAAAAAAAA",
   key: "abc123xyz",
@@ -101,7 +103,7 @@ const BASE = {
 describe("‏מה נשמר על אירוע שנותח", () => {
   it("‏שומר את מזהה השיחה, הסוג והכיוון — שלושתם ריקים כשלא נותח", async () => {
     const { log, calls } = service();
-    await log.record({ ...BASE, event: EVENT });
+    await log.record({ ...BASE, event: EVENT, peerPhone: PHONE });
     await log.record({ ...BASE, outcome: "unparsed", issue: "no_phone" });
 
     const [parsed, unparsed] = calls.map((c) => (c.args as { data: Record<string, unknown> }).data);
@@ -111,7 +113,7 @@ describe("‏מה נשמר על אירוע שנותח", () => {
 
   it("‏חותם את מספר המתקשר ואינו כותב אותו", async () => {
     const { log, calls } = service();
-    await log.record({ ...BASE, event: EVENT });
+    await log.record({ ...BASE, event: EVENT, peerPhone: PHONE });
 
     const data = (calls[0]?.args as { data: Record<string, unknown> }).data;
     expect(data["peerHash"]).toBe(digest("+972501234567"));
@@ -128,7 +130,7 @@ describe("‏מה נשמר על אירוע שנותח", () => {
 
   it("‏שומר ארבע ספרות אחרונות בלבד — די כדי לזהות מתקשר חוזר", async () => {
     const { log, calls } = service();
-    await log.record({ ...BASE, event: EVENT });
+    await log.record({ ...BASE, event: EVENT, peerPhone: PHONE });
 
     const data = (calls[0]?.args as { data: Record<string, unknown> }).data;
     expect(data["peerSuffix"]).toBe("4567");
@@ -204,7 +206,7 @@ describe("‏שמירה וריקון", () => {
     const { log, calls } = service();
     const before = Date.now();
     // ‏הגיזום רץ אחת לכמה כתיבות; פחות מזה אינו אמור לגעת במסד
-    for (let i = 0; i < 25; i += 1) await log.record({ ...BASE, event: EVENT });
+    for (let i = 0; i < 25; i += 1) await log.record({ ...BASE, event: EVENT, peerPhone: PHONE });
     const deletes = calls.filter((c) => c.op === "deleteMany");
     expect(deletes.length).toBeGreaterThan(0);
 
@@ -226,10 +228,10 @@ describe("‏שמירה וריקון", () => {
     const skips = (): unknown[] =>
       calls.filter((c) => c.op === "findMany").map((c) => (c.args as { skip?: unknown }).skip);
 
-    for (let i = 0; i < 25; i += 1) await log.record({ ...BASE, event: EVENT });
+    for (let i = 0; i < 25; i += 1) await log.record({ ...BASE, event: EVENT, peerPhone: PHONE });
     expect(skips()).toEqual([]);
 
-    for (let i = 25; i < 500; i += 1) await log.record({ ...BASE, event: EVENT });
+    for (let i = 25; i < 500; i += 1) await log.record({ ...BASE, event: EVENT, peerPhone: PHONE });
     expect(skips()).toEqual([199_999]);
   });
 

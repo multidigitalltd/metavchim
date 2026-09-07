@@ -5,9 +5,10 @@ import { LeadsController } from "./leads.controller";
 import { LeadsService } from "./leads.service";
 import { WebLeadController } from "./web-lead.controller";
 import { WebLeadService } from "./web-lead.service";
+import { WebhookLogModule } from "../webhook-log/webhook-log.module";
 
 @Module({
-  imports: [ContactsModule, BuyersModule],
+  imports: [ContactsModule, BuyersModule, WebhookLogModule],
   controllers: [LeadsController, WebLeadController],
   providers: [LeadsService, WebLeadService],
   exports: [LeadsService, WebLeadService],

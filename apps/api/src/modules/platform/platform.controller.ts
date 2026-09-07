@@ -117,7 +117,7 @@ import {
 import { callUpdaterAgent, updaterFailure } from "./updater-agent";
 import { type DiskStatus, DiskSpaceService } from "./disk-space.service";
 import { ServiceVersionsService } from "./service-versions.service";
-import { TelephonyWebhookLogService } from "../telephony/webhook-log.service";
+import { WebhookLogService } from "../webhook-log/webhook-log.service";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים מהממשק, בלי SSH.
@@ -140,6 +140,14 @@ import { TelephonyWebhookLogService } from "../telephony/webhook-log.service";
  */
 const TelephonyWebhookQuerySchema = z
   .object({
+    /**
+     * ‎**מרכזייה או טופס לידים.**
+     *
+     * ‏שתי שאלות נפרדות באותו יומן, ורשימה מעורבת אינה עונה על אף
+     * ‏אחת מהן: „נקלטה” על שיחה ו„נקלטה” על ליד הן עובדות שונות.
+     * ‏חסר = שתיהן, כמו שהיה לפני שהמקור השני נכנס.
+     */
+    source: z.enum(["telephony", "lead"]).optional(),
     /* ‏הרשימה הסגורה של התוצאות — כתיב חופשי לא היה מסנן דבר */
     outcome: z
       .enum(["accepted", "preliminary", "unparsed", "unknown_key", "disabled", "no_feature", "failed"])
@@ -780,7 +788,7 @@ export class PlatformController {
     private readonly creditEconomy: CreditEconomyService,
     private readonly serviceVersions: ServiceVersionsService,
     private readonly disk: DiskSpaceService,
-    private readonly telephonyWebhookLog: TelephonyWebhookLogService,
+    private readonly telephonyWebhookLog: WebhookLogService,
     private readonly platformCredits: PlatformCreditsService,
     private readonly gemini: GeminiService,
     private readonly whatsappSender: WhatsAppSendService,
@@ -863,6 +871,8 @@ export class PlatformController {
        * ‏החיפוש המלא נעשה מול חתימה שאינה יוצאת מהשרת.
        */
       peerSuffix: string | null;
+      /** ‏מרכזייה או טופס לידים — `telephony` | `lead`. */
+      source: string;
     }[];
     /**
      * ‎**מה קרה ב-24 השעות האחרונות, לפני שמסתכלים בשורות.**
@@ -870,7 +880,7 @@ export class PlatformController {
      * ‏אלף שורות אינן אומרות אם המצב תקין. שורת סיכום עונה על
      * ‏השאלה הראשונה — האם יש פניות בכלל, וכמה מהן הפכו לשיחות.
      */
-    summary: { outcome: string; count: number }[];
+    summary: { source: string; outcome: string; count: number }[];
     /**
      * ‎**כל המשרדים שיש להם שורות ביומן — לרשימת הסינון.**
      *
@@ -884,6 +894,7 @@ export class PlatformController {
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const [hits, summary, officeIds] = await Promise.all([
       this.telephonyWebhookLog.recent(query.limit, {
+        ...(query.source === undefined ? {} : { source: query.source }),
         ...(query.outcome === undefined ? {} : { outcome: query.outcome }),
         ...(query.tenantId === undefined ? {} : { tenantId: query.tenantId }),
         ...(query.callId === undefined ? {} : { callId: query.callId }),
