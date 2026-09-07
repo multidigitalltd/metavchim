@@ -279,6 +279,33 @@ export const CAPABILITY_REQUIRES: Partial<Record<Capability, Capability>> = {
 };
 
 /**
+ * ‎**הענקה שאינה משנה דבר — נדחית, ולא מדווחת כהצלחה**
+ * ‏(ביקורת Codex, P2).
+ *
+ * ‏הנרמול הוריד `view_all` שכרטיס הכניסה שלה חסום, ולכן המסך הציג
+ * ‏אותה כבויה — נכון. אבל כפתור „הענק” לצידה שלח בקשה, השרת ענה
+ * ‏„בוצע”, ואחרי רענון היא נשארה כבויה. מנהל שמנסה פעמיים ומוותר
+ * ‏אינו לומד דבר על **מה** חוסם.
+ *
+ * ‎**ולמה דחייה ולא השלמה שקטה של כרטיס הכניסה.** לחיצה אחת שמעניקה
+ * ‏שתי יכולות — כשאחת מהן נחסמה במפורש — היא בדיוק ההרחבה השקטה
+ * ‏שכל התיקון הזה בא למנוע. המנהל מקבל את שם החוסם, ומחליט על
+ * ‏שתיהן בעצמו.
+ *
+ * ‎`effective` הוא המצב **אחרי** הפעולה, ולא לפניה: „הענק את
+ * ‏שתיהן יחד” חייבת לעבור, והיא לא הייתה עוברת מול המצב הקודם.
+ */
+export function orphanedGrantReason(
+  capability: Capability,
+  effective: ReadonlySet<Capability>,
+): string | null {
+  const entry = CAPABILITY_REQUIRES[capability];
+  if (entry === undefined || effective.has(capability)) return null;
+  if (effective.has(entry)) return null;
+  return `„${CAPABILITY_LABELS[capability]}” נשענת על „${CAPABILITY_LABELS[entry]}”, שחסומה — הסירו את החסימה ממנה תחילה`;
+}
+
+/**
  * ‏מסירה יכולת מרחיבה שכרטיס הכניסה שלה נחסם.
  *
  * ‏מיוצאת לבדיקה בלבד — הנרמול עצמו קורה ב-`effectiveCapabilities`,

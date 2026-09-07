@@ -7,6 +7,7 @@ import {
   applyBlockedModules,
   blockedModulesRejectionReason,
   CAPABILITY_REQUIRES,
+  orphanedGrantReason,
   effectiveCapabilities,
   capabilitiesWithoutModule,
   clearEffect,
@@ -346,7 +347,27 @@ describe("‏יכולת מרחיבה בלי כרטיס הכניסה שלה", () 
     it(`‏${wide} נשארת עם ${entry}`, () => {
       expect(withoutOrphanedCapabilities(caps(wide, entry)).has(wide)).toBe(true);
     });
+
+    /*
+     * ‎**וההענקה שלה לבדה נדחית, ולא מדווחת כהצלחה**
+     * ‏(ביקורת Codex, P2): המסך הציג אותה כבויה — נכון — וכפתור
+     * ‏„הענק” לצידה שלח בקשה שהשרת אישר בלי שדבר השתנה.
+     */
+    it(`‏הענקת ${wide} לבדה נדחית, ועם ${entry} עוברת`, () => {
+      const alone = orphanedGrantReason(wide, withoutOrphanedCapabilities(caps(wide)));
+      expect(alone).not.toBeNull();
+      /* ‏ההודעה נושאת את שם החוסם, אחרת המנהל אינו יודע מה לתקן */
+      expect(alone).toContain(CAPABILITY_LABELS[entry]);
+      expect(
+        orphanedGrantReason(wide, withoutOrphanedCapabilities(caps(wide, entry))),
+      ).toBeNull();
+    });
   }
+
+  /* ‏ויכולת רגילה שאינה מרחיבה אינה נבדקת כלל */
+  it("‏יכולת בלי כרטיס כניסה בטבלה אינה נדחית", () => {
+    expect(orphanedGrantReason("buyers.view_own", caps())).toBeNull();
+  });
 
   /*
    * ‏והמסלול המלא, כפי שהוא מגיע מהמסד: חריג `deny` על כרטיס

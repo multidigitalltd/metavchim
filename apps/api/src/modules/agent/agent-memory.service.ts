@@ -1,6 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import { assistantMemoryTurn, type AgentHistoryTurn } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
+import {
+  notificationVisibility,
+  redactUnauthorizedNotifications,
+} from "../notifications/notification-visibility";
 import { PrismaService } from "../../core/prisma.service";
 
 /**
@@ -34,20 +38,37 @@ export class AgentMemoryService {
   /** תור אחד שמסכם את מה שהוצג לאחרונה, או `null` כשאין מה לזכור. */
   async recentTurn(): Promise<AgentHistoryTurn | null> {
     const ctx = TenantContext.current();
-    const rows = await this.prisma.withTenant((tx) =>
-      tx.notification.findMany({
-        // התראה אישית נראית לנמען בלבד; NULL = לכל המשרד. אותו תנאי
-        // בדיוק כמו מסך ההתראות — הסוכן אינו רואה יותר מהפעמון.
+    const rows = await this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**אותו שער בדיוק כמו הפעמון — הפונקציה, ולא עותק שלה.**
+       *
+       * ‏ההערה שעמדה כאן טענה „אותו תנאי בדיוק כמו מסך ההתראות”,
+       * ‏והייתה כתובה מחדש בפנים: העותק הרביעי שהקובץ ההוא מזהיר
+       * ‏מפניו במפורש. וזה לא נשאר תיאורטי — הצנזורה בקריאה נוספה
+       * ‏שם, והסוכן היה ממשיך לקרוא מצביעים של לקוחות שאינם בהיקפו
+       * ‏(ביקורת Codex, P1).
+       *
+       * ‏הכותרת והגוף נשלפים אף שהזיכרון אינו משתמש בהם: לשער יש
+       * ‏**צורה אחת**, ולא שתי דרכים לקרוא התראה.
+       */
+      const found = await tx.notification.findMany({
         where: {
-          tenantId: ctx.tenantId,
-          OR: [{ userId: null }, { userId: ctx.userId }],
+          ...notificationVisibility(),
           createdAt: { gte: new Date(Date.now() - WINDOW_MS) },
         },
         orderBy: { createdAt: "desc" },
         take: MAX_ITEMS,
-        select: { type: true, entityType: true, entityId: true },
-      }),
-    );
+        select: {
+          userId: true,
+          type: true,
+          title: true,
+          body: true,
+          entityType: true,
+          entityId: true,
+        },
+      });
+      return redactUnauthorizedNotifications(tx, ctx.tenantId, found);
+    });
     // מהישן לחדש: `assistantMemoryTurn` בונה את המשפט לפי הסדר הזה
     return assistantMemoryTurn(rows.reverse());
   }

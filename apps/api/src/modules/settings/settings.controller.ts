@@ -38,6 +38,7 @@ import {
   isOverrideActive,
   limitState,
   overrideRejectionReason,
+  orphanedGrantReason,
   effectiveCapabilities,
   type Capability,
   type LimitState,
@@ -1368,6 +1369,53 @@ export class SettingsController {
   }
 
   /**
+   * ‎**הענקה שלא תשנה דבר נדחית — עם שם החוסם** (ביקורת Codex, P2).
+   *
+   * ‏החישוב הוא על המצב **אחרי** הפעולה, ומאותה `effectiveCapabilities`
+   * ‏שכל שאר המערכת קוראת. בדיקה מול המצב הקודם הייתה דוחה גם
+   * ‏„הענק את כרטיס הכניסה ואת המרחיבה יחד”, שהיא בדיוק הפעולה
+   * ‏שההודעה מבקשת מהמנהל לעשות.
+   */
+  private async assertGrantsTakeEffect(
+    userId: string,
+    role: string,
+    granted: readonly Capability[],
+    body: z.infer<typeof SetCapabilitiesSchema>,
+    expiresAt: Date | null,
+  ): Promise<void> {
+    const ctx = TenantContext.current();
+    const [tenant, existing] = await Promise.all([
+      this.prisma.tenant.findUnique({
+        where: { id: ctx.tenantId },
+        select: { blockedModules: true },
+      }),
+      this.prisma.withTenant((tx) =>
+        tx.userCapability.findMany({
+          where: { userId, tenantId: ctx.tenantId },
+          select: { capability: true, effect: true, expiresAt: true },
+        }),
+      ),
+    ]);
+    const after = new Map(existing.map((row) => [row.capability, row]));
+    for (const capability of body.capabilities) {
+      if (body.effect === "clear") after.delete(capability);
+      else after.set(capability, { capability, effect: body.effect, expiresAt });
+    }
+    const effective = effectiveCapabilities(
+      {
+        role,
+        overrides: [...after.values()],
+        blockedModules: tenant?.blockedModules ?? [],
+      },
+      new Date(),
+    );
+    for (const capability of granted) {
+      const reason = orphanedGrantReason(capability, effective);
+      if (reason !== null) throw new BadRequestException(reason);
+    }
+  }
+
+  /**
    * שינוי הרשאות של איש צוות — יכולת בודדת או מודול שלם.
    *
    * הרשימה במקום ערך יחיד היא מה שמאפשר "חסום את מודול הנכסים
@@ -1417,6 +1465,8 @@ export class SettingsController {
       ),
     );
 
+    /** ‏מה שהפעולה הזו **מדליקה** — ולא רק „מה נשלח”. */
+    const granted: Capability[] = [];
     for (const capability of body.capabilities) {
       const effect =
         body.effect === "clear"
@@ -1435,11 +1485,24 @@ export class SettingsController {
         effect,
       });
       if (reason) throw new BadRequestException(reason);
+      if (effect === "grant") granted.push(capability as Capability);
     }
 
     const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
     if (expiresAt && expiresAt.getTime() <= Date.now()) {
       throw new BadRequestException("מועד סיום החסימה חייב להיות בעתיד");
+    }
+
+    /*
+     * ‎**והפעולה חייבת לעשות את מה שהיא אומרת** (ביקורת Codex, P2).
+     *
+     * ‏יכולת מרחיבה שכרטיס הכניסה שלה חסום יורדת בנרמול, ולכן
+     * ‏„הענק” החזיר „בוצע” והמסך נשאר כבוי. הבדיקה נעשית על המצב
+     * ‏**אחרי** הפעולה — כך ש„הענק את שתיהן יחד” עוברת, וההענקה
+     * ‏היתומה לבדה נדחית עם שם החוסם.
+     */
+    if (granted.length > 0) {
+      await this.assertGrantsTakeEffect(id, target.role, granted, body, expiresAt);
     }
 
     await this.prisma.withTenant(async (tx) => {
