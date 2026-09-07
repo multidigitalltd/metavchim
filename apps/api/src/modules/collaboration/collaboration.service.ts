@@ -9,6 +9,8 @@ import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
   BuyerRequirementsSchema,
+  buyerSharedTabuStance,
+  type SharedTabuStance,
   DEFAULT_COMMISSION_SPLIT,
   commissionSplitRejectionReason,
   commissionTermsColumns,
@@ -749,6 +751,15 @@ export class CollaborationService {
        * ולחכות לתשובה — בלעדיהם ההצעות נשלחות באוויר משני הכיוונים.
        */
       propertyTypes: requirements.propertyTypes,
+      /*
+       * ‎**והסירוב לרישום משותף נוסע איתו** (ביקורת Codex, P1).
+       *
+       * ‏בלעדיו המשרד המקבל משחזר את הקונה בלי עמדה, `sharedTabuFit`
+       * ‏קורא לזה „טרם נשאל” — וההתאמה מותרת על סירוב **מפורש**.
+       * ‏`buyerSharedTabuStance` ולא השדה הגולמי, כדי שגם קונה מדור
+       * ‏קודם ייסע עם העמדה שהמערכת באמת מפעילה עליו.
+       */
+      sharedTabuStance: buyerSharedTabuStance(requirements) ?? null,
       areaSqmMin: requirements.areaSqmMin ?? null,
       budgetMinAgorot:
         buyer.budgetMinAgorot === null
@@ -1428,6 +1439,7 @@ export class CollaborationService {
     neighborhoods: string[];
     dealType: string;
     propertyTypes: string[];
+    sharedTabuStance: string | null;
     areaSqmMin: number | null;
     budgetMinAgorot: bigint | null;
     budgetMaxAgorot: bigint | null;
@@ -1453,6 +1465,10 @@ export class CollaborationService {
        * הגבול.
        */
       propertyTypes: demand.propertyTypes,
+      /* ‏מה שנשמר בפרסום — ובעיקר `refuses`. ראו `demandSnapshot`. */
+      ...(demand.sharedTabuStance === null
+        ? {}
+        : { sharedTabu: demand.sharedTabuStance as SharedTabuStance }),
       ...(demand.areaSqmMin !== null ? { areaSqmMin: demand.areaSqmMin } : {}),
       /*
        * גם רף התקציב התחתון, ולא רק התקרה. הוא נשמר ומוצג — ובלעדיו

@@ -1263,6 +1263,12 @@ model SharedDemand {
   dealType        String    @map("deal_type") @db.VarChar(10)
   /// סוגי הנכס שהקונה מוכן לשקול. ריק = לא הגביל.
   propertyTypes   String[]  @default([]) @map("property_types")
+  /// **וגם הסירוב שלו לרישום משותף.**
+  ///
+  /// `null` = טרם נשאל, וזה המצב של כל ביקוש קיים. מה שחייב לנסוע
+  /// הוא דווקא `refuses`: בלעדיו המשרד המקבל קורא „לא נשאל”,
+  /// והמנוע מתיר התאמה שהקונה שלל במפורש.
+  sharedTabuStance String?  @map("shared_tabu_stance") @db.VarChar(10)
   /// שטח מינימלי במ״ר. אינו מזהה איש, ופוסל חצי מההצעות עוד לפניהן.
   areaSqmMin      Int?      @map("area_sqm_min")
   // טווח מעוגל ל-100 אלף ₪ — אנונימיזציה אמיתית, לא הסתרה.
@@ -1360,6 +1366,13 @@ model SharedListing {
   city             String?   @db.VarChar(80)
   neighborhood     String?   @db.VarChar(80)
   propertyType     String?   @map("property_type") @db.VarChar(30)
+  /// **הרישום המשותף נוסע איתו.**
+  ///
+  /// עד שהדגל נוסף, העובדה נשאה את עצמה דרך `property_type`
+  /// (`shared_tabu`), ולכן היא הגיעה למשרד המקבל. מרגע שהיא דגל,
+  /// נכס עם סוג רגיל איבד אותה בפרסום — כלומר הומלץ לקונה שסירב
+  /// למושאע, והמשרד המקבל לא ראה את מצב הרישום כלל.
+  sharedTabu       Boolean   @default(false) @map("shared_tabu")
   dealType         String?   @map("deal_type") @db.VarChar(10)
   rooms            Decimal?  @db.Decimal(4, 1)
   areaSqm          Int?      @map("area_sqm")

@@ -15,6 +15,7 @@ import {
   commissionTermsFromRow,
   commissionTermsRejectionReason,
   headlineCommissionSplit,
+  isSharedTabuProperty,
   uniformTerms,
   type CommissionTerms,
   scoreMatch,
@@ -99,6 +100,11 @@ export interface SharedListingDto {
   city?: string;
   neighborhood?: string;
   propertyType?: string;
+  /**
+   * ‏מצב הרישום — נוסע עם המודעה, ולכן המשרד המקבל רואה אותו
+   * ‏(ביקורת Codex, P1). ראו `snapshot`.
+   */
+  sharedTabu: boolean;
   dealType?: string;
   rooms?: number;
   areaSqm?: number;
@@ -207,6 +213,18 @@ export class ListingsService {
       city: property.city,
       neighborhood: property.neighborhood,
       propertyType: property.propertyType,
+      /*
+       * ‎**הרישום המשותף נוסע איתו** (ביקורת Codex, P1).
+       *
+       * ‏עד שהתכונה הפכה לדגל היא נשאה את עצמה דרך `propertyType`,
+       * ‏ולכן הגיעה לצד השני. נכס עם סוג רגיל שסומן בתיבה איבד
+       * ‏אותה בפרסום: הוא הומלץ לקונה שסירב למושאע, והמשרד המקבל
+       * ‏לא ראה את מצב הרישום כלל.
+       *
+       * ‎`isSharedTabuProperty` ולא השדה הגולמי — אותה גזירה שכל
+       * ‏שאר המסלולים קוראים לה.
+       */
+      sharedTabu: isSharedTabuProperty(property),
       dealType: property.dealType,
       rooms: property.rooms,
       areaSqm: property.areaSqm,
@@ -685,6 +703,8 @@ export class ListingsService {
       ...(row.city === null ? {} : { city: row.city }),
       ...(row.neighborhood === null ? {} : { neighborhood: row.neighborhood }),
       ...(row.propertyType === null ? {} : { propertyType: row.propertyType }),
+      /* ‏מה שנשמר בפרסום — ראו `snapshot` */
+      sharedTabu: row.sharedTabu,
       ...(row.dealType === null ? {} : { dealType: row.dealType }),
       ...(row.rooms === null ? {} : { rooms: Number(row.rooms) }),
       ...(row.areaSqm === null ? {} : { areaSqm: row.areaSqm }),
@@ -747,6 +767,11 @@ export class ListingsService {
       ...(row.city === null ? {} : { city: row.city }),
       ...(row.neighborhood === null ? {} : { neighborhood: row.neighborhood }),
       ...(row.propertyType === null ? {} : { propertyType: row.propertyType }),
+      /*
+       * ‏וגם בשחזור לניקוד: בלעדיו `scoreMatch` ממליץ על המודעה
+       * ‏לקונה שסירב למושאע, כי הנכס נראה כרגיל. ראו `snapshot`.
+       */
+      sharedTabu: row.sharedTabu,
       ...(row.dealType === null ? {} : { dealType: row.dealType }),
       ...(row.rooms === null ? {} : { rooms: Number(row.rooms) }),
       ...(row.areaSqm === null ? {} : { areaSqm: row.areaSqm }),
@@ -1497,6 +1522,14 @@ function demandToRequirements(
     neighborhoods: demand.neighborhoods,
     dealType: demand.dealType,
     propertyTypes: demand.propertyTypes,
+    /*
+     * ‏העמדה שנשמרה בפרסום, ובעיקר `refuses` (ביקורת Codex, P1):
+     * ‏בלעדיה `sharedTabuFit` קורא „טרם נשאל”, וההתאמה מותרת על
+     * ‏סירוב מפורש. ראו `CollaborationService.demandSnapshot`.
+     */
+    ...(demand.sharedTabuStance === null
+      ? {}
+      : { sharedTabu: demand.sharedTabuStance }),
     ...(demand.areaSqmMin === null ? {} : { areaSqmMin: demand.areaSqmMin }),
     ...(demand.budgetMinAgorot === null
       ? {}
