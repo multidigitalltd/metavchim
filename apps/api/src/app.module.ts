@@ -39,6 +39,7 @@ import { AgreementsModule } from "./modules/agreements/agreements.module";
 import { ExclusivityModule } from "./modules/exclusivity/exclusivity.module";
 import { CallsModule } from "./modules/calls/calls.module";
 import { OffersModule } from "./modules/offers/offers.module";
+import { PropertyPitchModule } from "./modules/property-pitch/property-pitch.module";
 import { PlatformModule } from "./modules/platform/platform.module";
 import { PropertiesModule } from "./modules/properties/properties.module";
 import { FunnelModule } from "./modules/funnel/funnel.module";
@@ -75,6 +76,7 @@ import { AgentModule } from "./modules/agent/agent.module";
     ExclusivityModule,
     CallsModule,
     OffersModule,
+    PropertyPitchModule,
     PlatformModule,
     LeadsModule,
     VoiceIntakeModule,
