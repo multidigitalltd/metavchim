@@ -592,6 +592,29 @@ describe("הפרמטרים שהפרונט מוסר לפופאפ", () => {
    * והבחירה הייתה נמחקת בשמירה — הבורר במסך היה נראה עובד בזמן
    * שהדו-קיום חוזר בשקט (ביקורת Codex).
    */
+  /*
+   * ‎**הקו הוא של הסוכן — ולכן המסך אינו מסונן לבעל המשרד.**
+   *
+   * ‏הסינון `role === "owner"` נכתב עבור `WhatsAppStatusSection`,
+   * סטטוס משרדי שהוסר מאז; סעיף החיבור ירש אותו וירש איתו בדיוק את
+   * ההפך ממה שהוא: כל סוכן מחבר את המספר שבכיס שלו. התוצאה בשטח
+   * הייתה „נעלמה האפשרות לחבר” אצל מי שמנהל את המשרד אך אינו
+   * ה-owner — הוא רואה את כל שאר החיבורים ואת זה לא, בלי שגיאה.
+   *
+   * השרת מעולם לא חשב אחרת, ולכן שני הצדדים נבדקים יחד.
+   */
+  it("סעיף החיבור אינו מסונן לפי תפקיד, והנתיב פתוח לכל מחובר", () => {
+    const page = read("../../../../web/src/app/settings/page.tsx");
+    const at = page.indexOf("<WhatsAppBusinessSection");
+    expect(at).toBeGreaterThan(0);
+    // מה שעוטף את הסעיף — ולא כל הקובץ, שבו „owner” מופיע לגיטימית
+    expect(page.slice(Math.max(0, at - 700), at)).not.toContain('role === "owner"');
+
+    const controller = read("./whatsapp-connection.controller.ts");
+    const list = controller.slice(controller.indexOf("@Get()"), controller.indexOf("async list("));
+    expect(list).toContain("@AnyAuthenticated()");
+  });
+
   it("הבחירה ב„רגיל” נשמרת כערך ולא כמחרוזת ריקה", () => {
     const settings = read("../../../../web/src/app/platform/platform-settings-section.tsx");
     expect(settings).toContain('<option value="standard">');
