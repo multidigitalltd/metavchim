@@ -715,7 +715,8 @@ export class SignupVerificationService implements OnModuleDestroy {
           "הקוד תקף לעשרים דקות וניתן לשימוש פעם אחת. אם לא ביקשתם לפתוח משרד — אפשר להתעלם מהודעה זו, ולא ייפתח שום חשבון.",
       },
       /* ההמשך תלוי בשליחה — היעדר ספק הוא דחייה ודאית, לא שורת יומן */
-      { required: true },
+      // ‏„שלחו שוב את קוד האימות” — בקשה מפורשת, לא ניסיון חוזר
+      { idempotency: null, required: true },
     );
   }
 }

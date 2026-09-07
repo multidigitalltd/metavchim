@@ -151,7 +151,12 @@ export class DiskSpaceService implements OnModuleInit, OnModuleDestroy {
             body,
             "כל עוד יש מקום המערכת עובדת כרגיל. כשהוא נגמר — בסיס הנתונים מפסיק לכתוב, והגיבוי מדלג על ארכיון המדיה בשקט.",
           ],
-        });
+          /*
+           * ‎`null` — **התראה שחוזרת היא התראה שחוזרת.** הדיסק
+           * ‏ממשיך להתמלא, וכל סבב שמוצא אותו נמוך אמור לצעוק שוב;
+           * ‏„כבר התרענו היום” הוא בדיוק מה שגורם להתעלמות.
+           */
+        }, { idempotency: null });
       } catch (error) {
         this.logger.warn(`מייל התראת דיסק ל-${admin.email} נכשל: ${String(error)}`);
       }

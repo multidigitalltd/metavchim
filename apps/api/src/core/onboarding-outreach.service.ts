@@ -176,7 +176,11 @@ export class OnboardingOutreachService implements OnModuleInit, OnModuleDestroy 
            * לעולם. עם `required` נזרקת שגיאה, וכשאיש עוד לא קיבל —
            * ה-`catch` למטה משחרר את הסימון (ביקורת Codex).
            */
-          { required: true },
+          {
+            /* ‏חד-פעמית למשרד — והסימון משוחרר ב-`catch`, כמו בתזכורת */
+            idempotency: { key: `onboarding:${tenantId}`, purpose: "onboarding" },
+            required: true,
+          },
         );
         delivered += 1;
       }

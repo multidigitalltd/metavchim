@@ -855,7 +855,7 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     to: string,
     buyerName: string,
     contactId: string,
-    rows: OutgoingOffer[],
+    unordered: OutgoingOffer[],
     /**
      * ‎**מי שלח — וזו שאלה של הקורא, לא של העוזר הזה** (ביקורת Codex, P1).
      *
@@ -871,6 +871,29 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
      */
     sentByUserId: string | null,
   ): Promise<"sent" | "unsent"> {
+    /*
+     * ‎**המנה מסודרת כאן, פעם אחת** (ביקורת Codex, P2).
+     *
+     * ‏`first` קובע שני דברים: את טוקן ההסרה שבמייל, ואת מפתח
+     * ‏האידמפוטנטיות. שניהם חייבים להיות **אותו דבר בניסיון החוזר**,
+     * ‏אחרת מייל שיצא בכישלון עמום נשלח שוב: `retryPending` שולף
+     * ‏בלי `orderBy`, ולכן „הראשון” היה יכול להיות שורה אחרת בכל
+     * ‏סבב, המפתח היה משתנה, והשאלה לספק הייתה מחפשת מחרוזת שאינה
+     * ‏קיימת.
+     *
+     * ‏מזהי ההצעות הם ULID, ולכן מיון לקסיקוגרפי הוא מיון לפי זמן
+     * ‏יצירה: „הראשון” הוא הוותיק במנה, וזו תכונה של הקבוצה ולא של
+     * ‏סדר השליפה.
+     *
+     * ‏כאן ולא אצל הקוראים: שלושה קוראים שממיינים בנפרד הם שלוש
+     * ‏הזדמנויות לשכוח.
+     *
+     * ‎**ומה זה עדיין אינו מכסה:** מנה שאיבדה דווקא את הוותיקה שבה
+     * ‏(פגה, נמשכה, או אין עליה הזמנה חתומה) מקבלת מפתח חדש. זהות
+     * ‏מלאה למשלוח דורשת עמודה שנשמרת על ההצעה, וזו הרחבה שאינה
+     * ‏בתחום ה-PR הזה.
+     */
+    const rows = [...unordered].sort((a, b) => a.offerId.localeCompare(b.offerId));
     const first = rows[0];
     // מנה ריקה — הגנה בלבד; שני הקוראים כבר סיננו. לא יצא מייל
     if (first === undefined) return "unsent";
@@ -893,6 +916,12 @@ export class OfferEmailService implements OnModuleInit, OnModuleDestroy {
     const replyTo = await this.emailInbox.replyAddressFor(tenantId, contactId, sentByUserId);
     try {
       await this.email.send(to, subject, content, {
+        /*
+         * ‎**כאן ההגנה נחוצה יותר מכל מקום אחר.** הסבב אוטומטי,
+         * ‏רץ שוב ושוב, וכישלון עמום מחזיר את ההצעות למחזור —
+         * ‏כלומר הלקוח מקבל את אותה רשימת נכסים פעמיים.
+         */
+        idempotency: { key: `offeremail:${first.offerId}`, purpose: "offer" },
         tenantId,
         required: true,
         ...(replyTo === null ? {} : { replyTo }),

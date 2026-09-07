@@ -1,4 +1,4 @@
-import type { EmailService } from "../../core/email.service";
+import type { EmailIdempotency, EmailService } from "../../core/email.service";
 import type { PrismaService } from "../../core/prisma.service";
 
 /**
@@ -69,6 +69,14 @@ export async function sendCollabMail(
   email: EmailService,
   to: { name: string; email: string } | null,
   mail: CollabMail,
+  /*
+   * ‎**ההחלטה נשארת אצל הקורא, ואינה נקבעת כאן.**
+   *
+   * ‏העוזר הזה משרת ארבעה אירועים שונים, ורק הקורא יודע מה הזהות
+   * ‏העסקית של שלו. מפתח שהיה נגזר כאן היה מאחד אירועים שאינם
+   * ‏אותו אירוע — ולכן הוא פרמטר, וחובה.
+   */
+  idempotency: EmailIdempotency | null,
 ): Promise<boolean> {
   if (to === null || to.email === "") return false;
   if (!(await email.isConfigured())) return false;
@@ -79,6 +87,6 @@ export async function sendCollabMail(
     button: mail.button,
     footnote:
       "ההודעה נשלחה כי אתם צד בשיתוף פעולה ברשת של מתווכים. אפשר לסגור את הפרסום במסך בכל רגע.",
-  });
+  }, { idempotency });
   return true;
 }
