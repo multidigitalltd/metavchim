@@ -771,10 +771,14 @@ export class FunnelEnrollmentService {
        * ‏הסגירה נכתבת מול אותו עוגן שההחלטה התקבלה עליו. אם הוא זז
        * ‏בינתיים — ניסיון שהוחזר — הכתיבה אינה חלה, וזה הנכון.
        */
+      /*
+       * ‏השורה שנקראה נמסרת כמות שהיא, בלי `id`: מניית שדות כאן
+       * ‏הייתה העותק שנפרד מה-`select` בפעם הראשונה.
+       */
+      const { id: _tenantRowId, ...tenantFields } = tenant;
       const closedNow = await this.close(row.id, reason, now, {
         tenantId: row.tenantId,
-        trialEndsAt: tenant.trialEndsAt,
-        trialConcludedAt: tenant.trialConcludedAt,
+        tenant: tenantFields,
         hasCard: card,
       });
       if (closedNow) closed += 1;
@@ -922,15 +926,31 @@ export class FunnelEnrollmentService {
      * ‏היא ניסיון חי לצד רישום סגור ש-`enrollDue` לעולם לא יקבל
      * ‏שוב (ביקורת Codex).
      *
-     * ‏שני השדות ב-`where` הופכים את הכתיבה לתלוית-גרסה: אם העוגן
+     * ‏השורה ב-`where` הופכת את הכתיבה לתלוית-גרסה: אם משהו ממנה
      * ‏השתנה מאז הקריאה, הסגירה פשוט אינה חלה, והסבב הבא יחליט על
      * ‏המצב החדש. זה זול מנעילה, ואינו מחזיק טרנזקציה פתוחה על פני
      * ‏דף שלם של רישומים.
+     *
+     * ‎**והשורה כולה, ולא רשימת שדות** (ביקורת Codex, P2). הגרסה
+     * ‏הקודמת בדקה מחדש את שני תאריכי העוגן בלבד, ובינתיים
+     * ‏ההכרעה עצמה נעשתה תלוית-סטטוס (`trialAnchorOf`) ותלוית-
+     * ‏`paidUntil` (`isTenantSubscribed`). מנהל שמחזיר משרד `active`
+     * ‏עם תאריך עתידי ל-`trial` בזמן שהסבב סוגר — התאריכים לא זזו,
+     * ‏הבדיקה עוברת, והרישום נסגר כ„מוצה” לצד ניסיון חי שאיש לא
+     * ‏יפתח שוב.
+     *
+     * ‏לכן הטיפוס הוא **שורת הדייר שנקראה**, והקורא מוסר אותה
+     * ‏בפריסה במקום למנות שדות: שדה שיתווסף ל-`select` נכנס לבדיקה
+     * ‏החוזרת מעצמו, ואי אפשר לקרוא שדה ולשכוח לבדוק אותו.
      */
     snapshot: {
       tenantId: string;
-      trialEndsAt: Date | null;
-      trialConcludedAt: Date | null;
+      tenant: {
+        status: string;
+        trialEndsAt: Date | null;
+        trialConcludedAt: Date | null;
+        paidUntil: Date | null;
+      };
       /** ‏האם היה כרטיס תקף ברגע ההחלטה. */
       hasCard: boolean;
     },
@@ -975,10 +995,8 @@ export class FunnelEnrollmentService {
         where: {
           id,
           endedAt: null,
-          tenant: {
-            trialEndsAt: snapshot.trialEndsAt,
-            trialConcludedAt: snapshot.trialConcludedAt,
-          },
+          /* ‏השורה כפי שנקראה, בפריסה — ראו `snapshot` */
+          tenant: { ...snapshot.tenant },
         },
         data: { endedAt: now, endedReason: reason },
       });

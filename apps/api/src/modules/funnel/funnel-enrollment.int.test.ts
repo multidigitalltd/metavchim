@@ -1085,9 +1085,13 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
       new Date(now.getTime() + 10 * DAY),
     );
 
-    expect(await service.close(id, "completed", now, { ...stale, tenantId: OLD_TENANT, hasCard: false })).toBe(
-      false,
-    );
+    expect(
+      await service.close(id, "completed", now, {
+        tenantId: OLD_TENANT,
+        tenant: { status: "active", ...stale, paidUntil: null },
+        hasCard: false,
+      }),
+    ).toBe(false);
     const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
     expect(row?.endedAt, "נסגר על סמך תמונה מיושנת").toBeNull();
   });
@@ -1136,8 +1140,12 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
       const racing = service
         .close(id, "completed", now, {
           tenantId: OLD_TENANT,
-          trialEndsAt: null,
-          trialConcludedAt: concluded,
+          tenant: {
+            status: "active",
+            trialEndsAt: null,
+            trialConcludedAt: concluded,
+            paidUntil: null,
+          },
           hasCard: false,
         })
         .then((result) => {
@@ -1190,8 +1198,15 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
 
     /* ‏העוגן נקרא מהשורה עצמה — סגירה שאינה חלה אינה מוכיחה דבר */
     const anchor = (
-      await direct.$queryRawUnsafe<{ trial_ends_at: Date | null; trial_concluded_at: Date | null }[]>(
-        `SELECT trial_ends_at, trial_concluded_at FROM tenants WHERE id = $1`,
+      await direct.$queryRawUnsafe<
+        {
+          status: string;
+          trial_ends_at: Date | null;
+          trial_concluded_at: Date | null;
+          paid_until: Date | null;
+        }[]
+      >(
+        `SELECT status, trial_ends_at, trial_concluded_at, paid_until FROM tenants WHERE id = $1`,
         OLD_TENANT,
       )
     )[0]!;
@@ -1207,8 +1222,12 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
       racing = service
         .close(id, "completed", now, {
           tenantId: OLD_TENANT,
-          trialEndsAt: anchor.trial_ends_at,
-          trialConcludedAt: anchor.trial_concluded_at,
+          tenant: {
+            status: anchor.status,
+            trialEndsAt: anchor.trial_ends_at,
+            trialConcludedAt: anchor.trial_concluded_at,
+            paidUntil: anchor.paid_until,
+          },
           hasCard: false,
         })
         .then((result) => {
@@ -1251,8 +1270,12 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
     expect(
       await service.close(id, "completed", now, {
         tenantId: OLD_TENANT,
-        trialEndsAt: null,
-        trialConcludedAt: concluded,
+        tenant: {
+          status: "trial",
+          trialEndsAt: null,
+          trialConcludedAt: concluded,
+          paidUntil: null,
+        },
         hasCard: false,
       }),
     ).toBe(false);
@@ -1275,8 +1298,12 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
     expect(
       await service.close(id, "completed", now, {
         tenantId: OLD_TENANT,
-        trialEndsAt: null,
-        trialConcludedAt: new Date(),
+        tenant: {
+          status: "trial",
+          trialEndsAt: null,
+          trialConcludedAt: new Date(),
+          paidUntil: null,
+        },
         hasCard: false,
       }),
     ).toBe(false);
@@ -1321,8 +1348,12 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
     expect(
       await service.close(id, "completed", now, {
         tenantId: OLD_TENANT,
-        trialEndsAt: null,
-        trialConcludedAt: null,
+        tenant: {
+          status: "trial",
+          trialEndsAt: null,
+          trialConcludedAt: null,
+          paidUntil: null,
+        },
         hasCard: false,
       }),
     ).toBe(false);
@@ -1353,8 +1384,12 @@ describe("ניסיון שהוחזר פותח מחדש רישום שנסגר", ()
     expect(
       await service.close(id, "completed", now, {
         tenantId: OLD_TENANT,
-        trialEndsAt: null,
-        trialConcludedAt: concluded,
+        tenant: {
+          status: "active",
+          trialEndsAt: null,
+          trialConcludedAt: concluded,
+          paidUntil: null,
+        },
         hasCard: false,
       }),
     ).toBe(true);
@@ -1674,6 +1709,110 @@ describe("כניסה למשפך — הזכאות נבדקת ליד הכתיבה"
       await direct.$executeRawUnsafe(`DELETE FROM subscriptions WHERE tenant_id = $1`, blocker);
       await direct.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1`, blocker);
     }
+  });
+});
+
+/**
+ * ‎**הסגירה נכתבת מול שורת הדייר כפי שנקראה — כולה** (ביקורת
+ * ‏Codex, P2).
+ *
+ * ‏הבדיקה החוזרת כיסתה את שני תאריכי העוגן בלבד, ובינתיים ההכרעה
+ * ‏עצמה נעשתה תלוית-סטטוס (`trialAnchorOf`) ותלוית-`paidUntil`
+ * ‏(`isTenantSubscribed`). מנהל שמחזיר משרד `active` עם תאריך
+ * ‏עתידי ל-`trial` בזמן שהסבב סוגר: התאריכים לא זזו, הבדיקה
+ * ‏עברה, והרישום נסגר כ„מוצה” לצד ניסיון חי — מצב **קבוע**,
+ * ‏ש-`enrollDue` אינו מקבל ו-`reopenLapsed` אינו סורק (הוא סורק
+ * ‏`paid` בלבד).
+ *
+ * ‏הבדיקות כאן קוראות ל-`close` ישירות עם צילום מיושן: זה בדיוק
+ * ‏מה שהסבב מחזיק בידו כשמישהו כותב בינתיים, ובלי מכונת מרוץ
+ * ‏שבודקת בעיקר את עצמה.
+ */
+describe("‏הסגירה מותנית בשורת הדייר כפי שנקראה", () => {
+  /** ‏פותח רישום ומחזיר את מזההו יחד עם השורה שנקראה. */
+  async function openEnrollment(): Promise<{
+    id: string;
+    snapshot: {
+      tenantId: string;
+      tenant: {
+        status: string;
+        trialEndsAt: Date | null;
+        trialConcludedAt: Date | null;
+        paidUntil: Date | null;
+      };
+      hasCard: boolean;
+    };
+  }> {
+    await service.sweep(new Date(), { dailyQuota: 5 });
+    const id = (
+      await direct.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id FROM funnel_enrollments WHERE tenant_id = $1 AND ended_at IS NULL LIMIT 1`,
+        OLD_TENANT,
+      )
+    )[0]!.id;
+    const row = (
+      await direct.$queryRawUnsafe<
+        {
+          status: string;
+          trial_ends_at: Date | null;
+          trial_concluded_at: Date | null;
+          paid_until: Date | null;
+        }[]
+      >(
+        `SELECT status, trial_ends_at, trial_concluded_at, paid_until FROM tenants WHERE id = $1`,
+        OLD_TENANT,
+      )
+    )[0]!;
+    return {
+      id,
+      snapshot: {
+        tenantId: OLD_TENANT,
+        tenant: {
+          status: row.status,
+          trialEndsAt: row.trial_ends_at,
+          trialConcludedAt: row.trial_concluded_at,
+          paidUntil: row.paid_until,
+        },
+        hasCard: false,
+      },
+    };
+  }
+
+  /* ‏הפיקוח: אותה סגירה בדיוק, כשהשורה לא זזה — חלה. */
+  it("שורה שלא זזה — הסגירה חלה", async () => {
+    const { id, snapshot } = await openEnrollment();
+    expect(await service.close(id, "completed", new Date(), snapshot)).toBe(true);
+  });
+
+  it("סטטוס שהשתנה בין הקריאה לכתיבה — הסגירה אינה חלה", async () => {
+    const { id, snapshot } = await openEnrollment();
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET status = 'active' WHERE id = $1`,
+      OLD_TENANT,
+    );
+    expect(await service.close(id, "completed", new Date(), snapshot)).toBe(false);
+    const still = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(still?.endedAt, "נסגר על צילום מיושן").toBeNull();
+  });
+
+  /* ‏ואותו דבר על השדה השני שההכרעה נשענת עליו. */
+  it("‏`paid_until` שהשתנה — הסגירה אינה חלה", async () => {
+    const { id, snapshot } = await openEnrollment();
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET paid_until = now() + interval '30 days' WHERE id = $1`,
+      OLD_TENANT,
+    );
+    expect(await service.close(id, "completed", new Date(), snapshot)).toBe(false);
+  });
+
+  /* ‏ותאריך העוגן, שכבר היה מכוסה — כדי שלא ייפול בדרך. */
+  it("תאריך הניסיון שהשתנה — הסגירה אינה חלה", async () => {
+    const { id, snapshot } = await openEnrollment();
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET trial_ends_at = now() + interval '40 days' WHERE id = $1`,
+      OLD_TENANT,
+    );
+    expect(await service.close(id, "completed", new Date(), snapshot)).toBe(false);
   });
 });
 
