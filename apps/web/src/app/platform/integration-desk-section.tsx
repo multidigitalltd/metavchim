@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@metavchim/ui";
+import { telephonyGaps, telephonyProvider } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { IconPhone } from "../icons";
@@ -144,6 +145,48 @@ export function IntegrationDeskSection({
   /** מוצג רק כשמה שנטען שייך למשרד שנבחר עכשיו. */
   const data = loaded !== null && loaded.agencyId === agencyId ? loaded.data : null;
   const current = data?.providers.find((p) => p.id === provider);
+  /*
+   * ‏לפי הספק **השמור** ולא הנבחר בטופס: השורה מתארת את החיבור
+   * ‏שקיים, לא את זה שהמנהל עומד לשמור.
+   */
+  const savedProvider =
+    data?.telephony.provider === undefined ? undefined : telephonyProvider(data.telephony.provider);
+  const gaps =
+    data?.telephony.connected === true && savedProvider !== undefined
+      ? telephonyGaps(savedProvider, data.telephony.config ?? {}, data.telephony.secretsSet ?? [])
+      : [];
+
+  /**
+   * ‎**הפקת הכתובת בשם המשרד, בלי פרטי ספק.**
+   *
+   * ‏אותה קריאה של השמירה, עם תצורה וסודות ריקים — מה שהיא יוצרת
+   * ‏הוא מפתח הוובהוק בלבד. מוצעת רק כשאין עדיין חיבור, כי שמירה
+   * ‏ריקה על שורה קיימת הייתה מוחקת פרטים שכבר הוזנו.
+   */
+  async function issueWebhook(): Promise<void> {
+    if (loaded === null || loaded.agencyId !== agencyId) return;
+    const target = loaded.agencyId;
+    setBusy(true);
+    setError(null);
+    setDone(null);
+    try {
+      await apiPost(`/platform/agencies/${target}/integrations/telephony`, {
+        provider,
+        config: {},
+        secrets: {},
+      });
+      if (selected.current !== target) return;
+      setDone("הכתובת הופקה — העתיקו אותה והדביקו בהגדרות המרכזייה של המשרד.");
+      const fresh = await apiGet<DeskStatus>(`/platform/agencies/${target}/integrations`);
+      if (selected.current !== target) return;
+      setLoaded({ agencyId: target, data: fresh });
+    } catch (err: unknown) {
+      if (selected.current !== target) return;
+      setError(err instanceof ApiError ? err.message : "ההפקה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function save(): Promise<void> {
     /*
@@ -275,8 +318,45 @@ export function IntegrationDeskSection({
                 ) : null}
               </>
             ) : (
-              <p className="m-0">למשרד הזה אין עדיין חיבור מרכזייה.</p>
+              <>
+                <p className="m-0">למשרד הזה אין עדיין חיבור מרכזייה.</p>
+                {/*
+                  ‎**הכתובת אינה תלויה בפרטי הספק.** המפתח שבתוכה
+                  מזהה את המשרד, ולכן אפשר להוציא אותה עכשיו,
+                  להדביק במרכזייה, ולהתחיל לקלוט שיחות — ואת פרטי
+                  015 להשלים אחר כך. הצימוד הזה השבית משרדים שהמתינו
+                  לפרטי הגישה.
+                */}
+                <p className="m-0 mt-1" style={{ color: "var(--color-text-muted)" }}>
+                  אפשר להפיק את הכתובת כבר עכשיו, בלי פרטי הספק — קליטת השיחות אינה
+                  תלויה בהם.
+                </p>
+                <Button
+                  className="mt-2"
+                  disabled={busy}
+                  onClick={() => void issueWebhook()}
+                >
+                  הפק כתובת Webhook למשרד
+                </Button>
+              </>
             )}
+            {/*
+              ‏„מה עוד חסר” ולא „החיבור שבור”: קליטת השיחות כבר
+              עובדת, וכל פער פותח יכולת נוספת. אותו כלל בדיוק שמסך
+              המשרד מציג.
+            */}
+            {gaps.length > 0 ? (
+              <div className="mt-2">
+                <p className="m-0 font-semibold">מה עוד אפשר להוסיף</p>
+                <ul className="m-0 mt-1 pr-5">
+                  {gaps.map((gap) => (
+                    <li key={gap.capability}>
+                      <b>{gap.label}</b> — חסר: {gap.missing.join(", ")}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
 
           <label htmlFor="desk-provider" className="mb-1 block text-sm font-medium">
