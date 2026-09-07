@@ -43,3 +43,21 @@ ALTER TABLE "tenants"
   ALTER COLUMN "customer_no" SET NOT NULL;
 
 CREATE UNIQUE INDEX "tenants_customer_no_key" ON "tenants" ("customer_no");
+
+-- ‎**והרשאה על הרצף — למסד שכבר הוקצה.**
+--
+-- ‏ברירות המחדל של ההקצאה כיסו טבלאות בלבד, ולכן רצף חדש אינו
+-- ‏נגיש לתפקיד האפליקציה: כל יצירת משרד (הרשמה עצמית ופתיחה ממסך
+-- ‏הפלטפורמה כאחת) נופלת על `permission denied for sequence`,
+-- ‏מפני שהעמודה נכתבת דרך `DEFAULT nextval(...)`. השורה החסרה
+-- ‏נוספה ל-`create_app_role.sql`, אבל היא חלה על מה שייווצר
+-- ‏**אחריה** — ולא על הרצף שנוצר כאן, על מסד שהוקצה קודם.
+--
+-- ‏מותנה בקיום התפקיד, כמו שאר המיגרציות שנוגעות בו: הוא נוצר
+-- ‏ע"י ההקצאה בהתקנה ואינו קיים בכל מסד.
+DO $$
+BEGIN
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'metavchim_app') THEN
+    EXECUTE 'GRANT USAGE, SELECT ON SEQUENCE tenant_customer_no_seq TO metavchim_app';
+  END IF;
+END $$;
