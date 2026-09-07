@@ -111,6 +111,7 @@ import {
   DEFAULT_PBX_WATCH,
   pbxSilenceDedupeKey,
   pbxSilenceMessage,
+  propertyAddressOr,
   shouldAlertPbxSilence,
 } from "@metavchim/shared";
 
@@ -3097,12 +3098,40 @@ async function loadNotifyDetails(
         addAll(buyerIds, [appointment.buyerId]);
         addAll(leadIds, [appointment.leadId]);
       }
+      /*
+       * ‎**וגם שורות גיוס** (ביקורת Codex, P2).
+       *
+       * ‏„גיוס” נכנס לאוצר המילים של המשימות ולא לכאן, ולכן פולואפ
+       * ‏עליו הפיק `about: null` — תזכורת „לחזור לבעלים” בלי לומר
+       * ‏על איזה נכס, כלומר בדיוק המידע שבגללו שולחים אותה.
+       */
+      const recruitmentIds = new Set<string>();
       for (const task of tasks) {
         if (task.entityId === null) continue;
         if (task.entityType === "property") propertyIds.add(task.entityId);
         if (task.entityType === "buyer") buyerIds.add(task.entityId);
         if (task.entityType === "lead") leadIds.add(task.entityId);
+        if (task.entityType === "recruitment") recruitmentIds.add(task.entityId);
       }
+      const recruitmentTargets =
+        recruitmentIds.size === 0
+          ? []
+          : await tx.recruitmentTarget.findMany({
+              where: { tenantId, id: { in: [...recruitmentIds] }, deletedAt: null },
+              select: {
+                id: true,
+                street: true,
+                houseNumber: true,
+                neighborhood: true,
+                city: true,
+              },
+            });
+      const recruitmentAddressById = new Map(
+        recruitmentTargets.map((target) => [
+          target.id,
+          propertyAddressOr(target, "נכס לגיוס"),
+        ]),
+      );
 
       /*
        * ‎**מי הקונים שנמצאו** — ההתאמות של נכס שקיבל התראת התאמה.
@@ -3328,13 +3357,21 @@ async function loadNotifyDetails(
                   : task.entityType === "lead" && task.entityId !== null
                     ? (personOf(contactById.get(leadById.get(task.entityId)?.contactId ?? ""))
                         ?.name ?? null)
-                    : null;
+                    : task.entityType === "recruitment" && task.entityId !== null
+                      ? (recruitmentAddressById.get(task.entityId) ?? null)
+                      : null;
             details.set(item.id, {
               kind: "task",
               ownerUserId: task.assignedToUserId,
               title: task.title,
               dueAt: task.dueAt,
               about,
+              /*
+               * ‏שורת גיוס נשענת על `properties.view`, כמו הנתיב
+               * ‏שלה וכמו התווית במסך המשימות. השאר רוכבים על
+               * ‏נראות המשימה עצמה — ראו `TaskDetail.aboutNeeds`.
+               */
+              aboutNeeds: task.entityType === "recruitment" ? "properties.view" : null,
             });
             break;
           }

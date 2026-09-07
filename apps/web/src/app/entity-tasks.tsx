@@ -11,6 +11,7 @@ import {
   quickDueOptions,
   resolveJerusalemLocalInput,
   suggestedPropertyTasks,
+  type TaskEntityType,
 } from "@metavchim/shared";
 
 /**
@@ -65,7 +66,7 @@ export function EntityTasks({
   entityId,
   suggestFrom,
 }: {
-  entityType: "lead" | "buyer" | "property";
+  entityType: TaskEntityType;
   entityId: string;
   /**
    * שדות המוכנות שחסרים בכרטיס — המקור ל„משימות מוצעות” (SPEC-4c §6).

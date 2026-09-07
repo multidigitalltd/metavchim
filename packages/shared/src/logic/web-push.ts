@@ -75,6 +75,12 @@ const ENTITY_ROUTES: Record<string, (id?: string) => string> = {
   lead: (id) => (id ? `/leads/${id}` : "/leads"),
   buyer: (id) => (id ? `/buyers/${id}` : "/buyers"),
   property: (id) => (id ? `/properties/${id}` : "/properties"),
+  /*
+   * ‎**שורת גיוס אינה נכס** — היא יושבת במסך הגיוס, ולכן נתיב
+   * ‏משלה. `taskEntityHref` אומר את אותו דבר בפעמון, ו-`verify:notify`
+   * ‏הוא מה שתפס שהוספתי שם ולא כאן.
+   */
+  recruitment: (id) => (id ? `/properties/recruitment/${id}` : "/properties/recruitment"),
   // אין `/offers/<id>` — ההצעות מוצגות ברשימה אחת
   offer: () => "/offers",
   appointment: () => "/calendar",
