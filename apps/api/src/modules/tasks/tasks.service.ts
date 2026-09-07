@@ -197,7 +197,22 @@ export class TasksService {
      * ‏גזירה בדיוק שהנכס מקבל.
      */
     const recruitmentIds = byType.get("recruitment") ?? [];
-    if (recruitmentIds.length > 0) {
+    /*
+     * ‎**והתווית נשענת על אותה יכולת שמסך הגיוס דורש** (ביקורת
+     * ‏Codex, P2).
+     *
+     * ‎`calendar.manage` ו-`properties.view` הן שתי יכולות נפרדות.
+     * ‏מי שנשללה ממנו הראשונה בלבד המשיך לקבל את **כתובת** שורת
+     * ‏הגיוס כתווית, ואת הקישור אליה — בזמן ש-`RecruitmentController`
+     * ‏דוחה אותו בכניסה. כלומר המסך הציג את מה שהנתיב אוסר.
+     *
+     * ‎`notification-links.ts` כבר עושה בדיוק את זה על הקישור
+     * ‏בפעמון; זו אותה הכרעה, על אותה יכולת.
+     */
+    if (
+      recruitmentIds.length > 0 &&
+      TenantContext.current().capabilities.has("properties.view")
+    ) {
       const targets = await tx.recruitmentTarget.findMany({
         where: { id: { in: recruitmentIds }, tenantId, deletedAt: null },
         select: { id: true, street: true, houseNumber: true, neighborhood: true, city: true },

@@ -208,6 +208,22 @@ export class RecruitmentService {
   }
 
   /** מחיקה רכה — השורה יורדת מהרשימה ונשמרת להיסטוריה. */
+  /**
+   * ‎**מחיקה שמנקה גם את הפולואפים** (ביקורת Codex, P2).
+   *
+   * ‏מרגע שאפשר לתלות משימה על שורת גיוס, מחיקה שמסמנת `deletedAt`
+   * ‏בלבד משאירה אותן פתוחות: הן נשארות ברשימת המשימות וביומן בלי
+   * ‏תווית שאפשר לפתור, והעובד ישלח את התזכורת שלהן — הוא בודק רק
+   * ‏שהמשימה פתוחה ושהמועד הגיע. „לחזור לבעלים” על נכס שנמחק.
+   *
+   * ‎**ואותה זהירות מול Google כמו ב-`TasksService.remove`**: משימה
+   * ‏שיש לה אירוע ביומן מסומנת כבוצעה וממתינה לדחיפה, וסבב הסנכרון
+   * ‏הוא שמוחק את האירוע ואז את השורה. מחיקה ישירה הייתה מוחקת את
+   * ‏המזהה היחיד שמצביע על האירוע, והוא היה נשאר ביומן לנצח.
+   *
+   * ‏הכול בטרנזקציה אחת עם המחיקה עצמה: מחיקה שהצליחה והשאירה
+   * ‏תזכורת חיה היא בדיוק המצב שהממצא מתאר.
+   */
   async remove(id: string): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {
@@ -216,6 +232,20 @@ export class RecruitmentService {
         data: { deletedAt: new Date() },
       });
       if (count === 0) throw new NotFoundException("נכס לגיוס לא נמצא");
+
+      const scope = {
+        tenantId,
+        entityType: "recruitment",
+        entityId: id,
+        status: "open",
+        deletedAfterSync: false,
+      } as const;
+      /* ‏עם אירוע ביומן — מסומנת וממתינה לסבב; בלעדיו נמחקת */
+      await tx.task.updateMany({
+        where: { ...scope, googleEventId: { not: null } },
+        data: { status: "done", deletedAfterSync: true, googleSyncedAt: null },
+      });
+      await tx.task.deleteMany({ where: { ...scope, googleEventId: null } });
     });
   }
 

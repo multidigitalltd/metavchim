@@ -104,6 +104,45 @@ describe("‏פולואפ בגיוס — משימה, לא מנגנון שני", 
     expect(method).toContain('key("recruitment", t.id)');
   });
 
+  /*
+   * ‎**והתווית נשענת על אותה יכולת שמסך הגיוס דורש** (ביקורת
+   * ‏Codex, P2). `calendar.manage` ו-`properties.view` נפרדות, ומי
+   * ‏שנשללה ממנו השנייה בלבד קיבל את כתובת שורת הגיוס ואת הקישור
+   * ‏אליה — בזמן שהבקר דוחה אותו בכניסה.
+   */
+  it("‏תווית הגיוס מותנית ב-properties.view", () => {
+    const service = strip(
+      read("apps", "api", "src", "modules", "tasks", "tasks.service.ts"),
+    );
+    const at = service.indexOf('byType.get("recruitment")');
+    expect(at).toBeGreaterThan(-1);
+    /* ‏חלון התנאי שמיד אחריו — עד פתיחת הגוש */
+    const guard = service.slice(at, service.indexOf("{", service.indexOf("if (", at)));
+    expect(guard).toContain('capabilities.has("properties.view")');
+  });
+
+  /*
+   * ‎**ומחיקת שורת גיוס מנקה את הפולואפים שלה** (ביקורת Codex, P2).
+   *
+   * ‏אחרת הם נשארים ברשימה וביומן בלי תווית שאפשר לפתור, והעובד
+   * ‏שולח את התזכורת — הוא בודק רק שהמשימה פתוחה ושהמועד הגיע.
+   */
+  it("‏מחיקת שורת גיוס מנקה את המשימות שלה, בזהירות מול היומן", () => {
+    const service = strip(
+      read("apps", "api", "src", "modules", "recruitment", "recruitment.service.ts"),
+    );
+    const start = service.indexOf("async remove(");
+    expect(start).toBeGreaterThan(-1);
+    const rest = service.slice(start);
+    const end = rest.search(/\n {2}(?:async |private |\/\*\*)/u);
+    const method = end === -1 ? rest : rest.slice(0, end);
+    expect(method).toContain('entityType: "recruitment"');
+    /* ‏עם אירוע ביומן — סימון והמתנה לסבב, ולא מחיקה */
+    expect(method).toMatch(/googleEventId: \{ not: null \}[\s\S]{0,160}deletedAfterSync: true/u);
+    /* ‏ובלעדיו — מחיקה */
+    expect(method).toMatch(/deleteMany[\s\S]{0,120}googleEventId: null/u);
+  });
+
   it("‏המקטע במסך מותנה ביכולת שהנתיב דורש", () => {
     const page = read(
       "apps",
