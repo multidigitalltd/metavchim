@@ -1228,41 +1228,60 @@ export class PlatformController {
     const activateFromTrial = toFree && tenant.status === "trial";
     const now = new Date();
 
-    await this.prisma.tenant.update({
-      where: { id },
-      data: {
-        ...(body.plan !== undefined ? { plan: body.plan } : {}),
-        /*
-         * ‎**כל מי שמוחק את תאריך הניסיון רושם גם למה.**
-         *
-         * ‏תאריך ריק לבדו הוא דו-משמעי — „נגמר” או „אופס זמנית” —
-         * ‏ומשפך ההמרה מכריע הפוך בין השניים. שני המסלולים כאן
-         * ‏**מסיימים** את הניסיון, ולכן שניהם רושמים זאת.
-         */
-        ...(toFree
-          ? { trialEndsAt: null, trialConcludedAt: now, paidUntil: null }
-          : {}),
-        ...(activateFromTrial ? { status: "active" } : {}),
-        ...(body.status !== undefined ? { status: body.status } : {}),
-        ...(body.paidUntil !== undefined
-          ? {
-              paidUntil: body.paidUntil === null ? null : new Date(body.paidUntil),
-              /*
-               * הענקה ידנית מסיימת גם את הניסיון: משרד עם שני
-               * תאריכים פעילים היה נחסם לפי זה שרלוונטי לסטטוס שלו,
-               * ומנהל שהעניק גישה לא היה מבין למה היא לא נכנסה לתוקף.
-               *
-               * ‎**וזה חל גם על „פתח ללא תפוגה”**, ששולח
-               * ‏`paidUntil: null`: הוא משאיר את הסטטוס „ניסיון” ובלי
-               * ‏`paid_until`, כלומר מצב שאינו ניתן להבחנה מאיפוס
-               * ‏זמני — ורישום המשפך היה נשאר פתוח לנצח (ביקורת
-               * ‏Codex). הסיום נרשם, ולכן אין מה להסיק.
-               */
-              trialEndsAt: null,
-              trialConcludedAt: now,
-            }
-          : {}),
-      },
+    /*
+     * ‎**כל כתיבה שנוגעת בחצי מ„ניסיון חי” שואלת על הפתיחה מחדש**
+     * ‏(ביקורת Codex, P2).
+     *
+     * ‏„ניסיון חי” הוא סטטוס **וגם** תאריך, ולכן מנהל יכול להגיע
+     * ‏אליו בשני צעדים: תאריך עתידי דרך מסך העקיפה בזמן שהמשרד
+     * ‏`active`, ואז שינוי הסטטוס כאן. הצעד השני לא קרא למשפך
+     * ‏כלל, והתוצאה **קבועה**: ניסיון חי לצד רישום סגור,
+     * ‏ש-`reopenLapsed` אינו סורק (הוא סורק `paid` בלבד)
+     * ‏ו-`enrollDue` אינו מקבל (היה לו רישום).
+     *
+     * ‏הקריאה אינה מותנית בכלום: `reopenRows` כבר מכריע בעצמו על
+     * ‏השורה שאחרי הכתיבה, ותנאי כאן היה עותק שני שלו.
+     */
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tenant.update({
+        where: { id },
+        data: {
+          ...(body.plan !== undefined ? { plan: body.plan } : {}),
+          /*
+           * ‎**כל מי שמוחק את תאריך הניסיון רושם גם למה.**
+           *
+           * ‏תאריך ריק לבדו הוא דו-משמעי — „נגמר” או „אופס זמנית” —
+           * ‏ומשפך ההמרה מכריע הפוך בין השניים. שני המסלולים כאן
+           * ‏**מסיימים** את הניסיון, ולכן שניהם רושמים זאת.
+           */
+          ...(toFree
+            ? { trialEndsAt: null, trialConcludedAt: now, paidUntil: null }
+            : {}),
+          ...(activateFromTrial ? { status: "active" } : {}),
+          ...(body.status !== undefined ? { status: body.status } : {}),
+          ...(body.paidUntil !== undefined
+            ? {
+                paidUntil: body.paidUntil === null ? null : new Date(body.paidUntil),
+                /*
+                 * הענקה ידנית מסיימת גם את הניסיון: משרד עם שני
+                 * תאריכים פעילים היה נחסם לפי זה שרלוונטי לסטטוס שלו,
+                 * ומנהל שהעניק גישה לא היה מבין למה היא לא נכנסה לתוקף.
+                 *
+                 * ‎**וזה חל גם על „פתח ללא תפוגה”**, ששולח
+                 * ‏`paidUntil: null`: הוא משאיר את הסטטוס „ניסיון” ובלי
+                 * ‏`paid_until`, כלומר מצב שאינו ניתן להבחנה מאיפוס
+                 * ‏זמני — ורישום המשפך היה נשאר פתוח לנצח (ביקורת
+                 * ‏Codex). הסיום נרשם, ולכן אין מה להסיק.
+                 */
+                trialEndsAt: null,
+                trialConcludedAt: now,
+              }
+            : {}),
+        },
+      });
+      if (body.status !== undefined || toFree) {
+        await this.funnel.reopenWithin(tx, id, now);
+      }
     });
     // השהיה — ניתוק מיידי של כל ה-sessions של המשרד
     if (body.status === "suspended") {
@@ -1725,9 +1744,12 @@ export class PlatformController {
      */
     await this.prisma.$transaction(async (tx) => {
       await tx.tenant.update({ where: { id }, data });
-      if (data.trialEndsAt !== null && data.trialEndsAt !== undefined) {
-        await this.funnel.reopenWithin(tx, id);
-      }
+      /*
+       * ‏בלי תנאי: `reopenRows` מכריע בעצמו על השורה שאחרי הכתיבה
+       * ‏(„ניסיון חי” — סטטוס וגם תאריך), ותנאי כאן היה עותק שני
+       * ‏שלו. אותה קריאה בדיוק יושבת גם ב-`PATCH agencies/:id`.
+       */
+      if ("trialEndsAt" in body) await this.funnel.reopenWithin(tx, id);
     });
     await this.prisma.withExplicitTenant(id, (tx) =>
       tx.auditLog.create({

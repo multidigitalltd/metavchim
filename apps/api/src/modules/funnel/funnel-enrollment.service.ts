@@ -15,7 +15,7 @@ import {
 } from "@metavchim/shared";
 import { lockTenantSubscription } from "../../common/locks";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
-import { FunnelStageService } from "./funnel-stage.service";
+import { FunnelStageService, type InvalidStage } from "./funnel-stage.service";
 
 /** ‏כמה מועמדים נשלפים בכל דף. תקרת שאילתה, לא תקרת טיפול. */
 const PAGE = 200;
@@ -592,7 +592,7 @@ export class FunnelEnrollmentService {
     const { stages, invalid } = await this.stages.catalog();
     if (invalid.length > 0) {
       this.logger.warn(
-        `הגדרות שלבים פסולות (${invalid.join(", ")}) — רישומים לא ייסגרו כ„מוצו” עד שיתוקנו`,
+        `הגדרות שלבים פסולות (${invalid.map((row) => row.key).join(", ")}) — רישומים במסלולים שלהן לא ייסגרו כ„מוצו” עד שיתוקנו`,
       );
     }
     let closed = 0;
@@ -624,7 +624,7 @@ export class FunnelEnrollmentService {
       );
       if (page.length === 0) break;
       cursor = page[page.length - 1]?.id ?? null;
-      closed += await this.closePage(page, stages, invalid.length > 0, now);
+      closed += await this.closePage(page, stages, invalid, now);
       if (page.length < pageSize) break;
     }
     return closed;
@@ -634,7 +634,15 @@ export class FunnelEnrollmentService {
   private async closePage(
     live: { id: string; tenantId: string; track: string; startedAt: Date }[],
     stages: Awaited<ReturnType<FunnelStageService["all"]>>,
-    definitionsIncomplete: boolean,
+    /*
+     * ‎**השורות הפסולות, עם המסלול שלהן** (ביקורת Codex, P2).
+     *
+     * ‏דגל אחד לכל הרישומים הפך תקלת תצורה במסלול אחד לחסימה של
+     * ‏כולם: שורת גבייה שבורה מנעה סגירה של רישומי המרה שמוצו,
+     * ‏וכל סבב המשיך לסרוק אותם עד שתתוקן. ההכרעה נעשית עכשיו לכל
+     * ‏רישום לפי המסלול שלו.
+     */
+    invalid: InvalidStage[],
     now: Date,
   ): Promise<number> {
     const tenantIds = [...new Set(live.map((row) => row.tenantId))];
@@ -647,7 +655,14 @@ export class FunnelEnrollmentService {
          * ‏הזו היא מה שמבדיל ביניהם (`trialAnchorConcluded`) — סיבה
          * ‏שנרשמה, ולא ניחוש משאר השורה.
          */
-        select: { id: true, status: true, trialEndsAt: true, trialConcludedAt: true },
+        select: {
+          id: true,
+          status: true,
+          trialEndsAt: true,
+          trialConcludedAt: true,
+          /* ‏מה שמבדיל הפעלה בקופון משיוך למסלול חינמי — `isTenantSubscribed` */
+          paidUntil: true,
+        },
       }),
       this.prisma.subscription.findMany({
         where: { tenantId: { in: tenantIds } },
@@ -726,6 +741,7 @@ export class FunnelEnrollmentService {
         nextStepPending: false,
         featureUnused: false,
         hasValidCard: card,
+        subscribed: isTenantSubscribed(tenant),
         trialActive: isTrialActive(tenant, now),
         chargeFailing: track === "dunning",
       };
@@ -739,7 +755,13 @@ export class FunnelEnrollmentService {
         track,
         facts,
         stages,
-        definitionsIncomplete,
+        /*
+         * ‏פסולה במסלול שלי, או פסולה שגם המסלול שלה אינו מזוהה —
+         * ‏ורק היא חוסמת את כולם.
+         */
+        definitionsIncomplete: invalid.some(
+          (row) => row.track === null || row.track === track,
+        ),
         sent: sentByEnrollment.get(row.id) ?? [],
         anchors,
         now,
@@ -984,6 +1006,36 @@ export function isTrialActive(
 ): boolean {
   if (tenant.status !== "trial") return false;
   return tenant.trialEndsAt !== null && tenant.trialEndsAt.getTime() > now.getTime();
+}
+
+/**
+ * ‎**המנוי הופעל — התאום של `isTrialActive` בקצה השני.**
+ *
+ * ‏שלוש כתיבות שונות משאירות משרד ב-`status: "active"`, ורק שתיים
+ * ‏מהן הן המרה:
+ *
+ * ‎1. ‏רכישה רגילה — `activateWithin` עם כרטיס. `hasValidCard`
+ *    ‏מכיר בה ממילא.
+ * ‎2. ‏קופון של 100%‎ — אותו `activateWithin`, אבל `card: null`.
+ *    ‏**זה הממצא**: אין כרטיס, ולכן שום שער שנשען עליו לא ראה אותה.
+ * ‎3. ‏שיוך למסלול חינמי — `status: "active"` ו-`paidUntil: null`.
+ *    ‏זו **אינה** המרה, והמשרד אמור להישאר במסלול ולקבל את שלבי
+ *    ‏התוכן; בדיקה קיימת שומרת על ההכרעה הזו.
+ *
+ * ‏מה שמפריד בין 2 ל-3 אינו הסטטוס אלא **התקופה בתשלום**:
+ * ‏`activateWithin` כותב `paidUntil` בשתי הרכישות, והשיוך החינמי
+ * ‏מנקה אותו במפורש. לכן שני השדות, ולא אחד — בדיוק כמו
+ * ‏ב-`isTrialActive`, ששער שאפשר לבטא חצי ממנו יבוטא חצי.
+ *
+ * ‎`paidUntil` ולא „‎`paidUntil` בתוקף”: השאלה היא האם המשרד הפך
+ * ‏ללקוח, ולא האם הגישה שלו פתוחה כרגע. לקוח שתקופתו חלפה כבר
+ * ‏נסגר, ורק `reopenRows` — שדורש ניסיון חי — יכול להחזירו.
+ */
+export function isTenantSubscribed(tenant: {
+  status: string;
+  paidUntil: Date | null;
+}): boolean {
+  return tenant.status === "active" && tenant.paidUntil !== null;
 }
 
 /**

@@ -626,13 +626,14 @@ describe("רק הודעה שנשלחה נחשבת לשלב שיצא", () => {
 describe("שורת שלב פסולה עוצרת סגירה", () => {
   const BAD_STAGE_ID = "01M1FNNLTESTBADSTAGE000001";
 
-  async function withBadStage(run: () => Promise<void>): Promise<void> {
+  async function withBadStage(run: () => Promise<void>, track = "conversion"): Promise<void> {
     await direct.$executeRawUnsafe(
       `INSERT INTO funnel_stages
          (id, track, key, title, clock, offset_days, audience, channels, sort_order, updated_at)
-       VALUES ($1, 'conversion', 'zz_bad_clock', 'שעון שאינו קיים', 'lunar', 99,
+       VALUES ($1, $2, 'zz_bad_clock', 'שעון שאינו קיים', 'lunar', 99,
                '{always}', '{email}', 999, now())`,
       BAD_STAGE_ID,
+      track,
     );
     try {
       await run();
@@ -640,6 +641,77 @@ describe("שורת שלב פסולה עוצרת סגירה", () => {
       await direct.$executeRawUnsafe(`DELETE FROM funnel_stages WHERE id = $1`, BAD_STAGE_ID);
     }
   }
+
+  /** ‏מביא את הרישום של המשרד הוותיק לנקודה שבה כל שלביו נשלחו. */
+  async function sendEveryStage(now: Date, prefix: string): Promise<void> {
+    await service.sweep(now, { dailyQuota: 5 });
+    const enrollmentId = (
+      await direct.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id FROM funnel_enrollments WHERE tenant_id = $1 LIMIT 1`,
+        OLD_TENANT,
+      )
+    )[0]!.id;
+    for (const [index, key] of [
+      "d0_first_action",
+      "d1_empty_screen",
+      "d3_one_feature",
+      "d5_intro_call",
+      "d8_what_we_did",
+      "d11_before_money",
+      "d17_data_waiting",
+      "trial_heads_up",
+      "trial_closing",
+      "trial_last_call",
+    ].entries()) {
+      await direct.$executeRawUnsafe(
+        `INSERT INTO funnel_messages
+           (id, tenant_id, enrollment_id, track, stage_key, user_id, destination, channel,
+            token, status, sent_at, updated_at)
+         VALUES ($1, $2, $3, 'conversion', $4, $5, 'a@b.com', 'email', $6, 'sent', now(), now())`,
+        `${prefix}${String(index).padStart(26 - prefix.length, "0")}`,
+        OLD_TENANT,
+        enrollmentId,
+        key,
+        "01M1FNNLTESTUSER0000000001",
+        `${prefix}-token-${index}`,
+      );
+    }
+  }
+
+  /*
+   * ‎**שורה פסולה חוסמת את המסלול שלה, ולא את התור כולו**
+   * ‏(ביקורת Codex, P2).
+   *
+   * ‏הדגל היה אחד לכל הרישומים, ולכן שורת **גבייה** שבורה — טבלה
+   * ‏שמנהל הפלטפורמה עורך — מנעה סגירה של רישומי **המרה** שמוצו
+   * ‏לגמרי, וכל סבב המשיך לסרוק אותם עד שתתוקן.
+   *
+   * ‏אותו מצב בדיוק כמו הבדיקה הראשונה כאן, ורק המסלול של השורה
+   * ‏הפסולה שונה — ולכן היא זו שמפרידה בין „פסולה” ל„פסולה שלי”.
+   */
+  it("שורה פסולה במסלול הגבייה אינה מונעת סגירת רישום המרה", async () => {
+    await withBadStage(async () => {
+      const now = new Date();
+      await sendEveryStage(now, "01M1FNNLTESTDUNBAD");
+      await service.sweep(now, { dailyQuota: 5 });
+      const old = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+      expect(old?.endedReason, "נחסם על שורה של מסלול אחר").toBe("completed");
+    }, "dunning");
+  });
+
+  /*
+   * ‏והצד השלישי: שורה שגם המסלול שלה אינו מוכר. שם באמת אי אפשר
+   * ‏לדעת את מי היא מייצגת, ולכן היא חוסמת את כולם — כולל את המרה.
+   */
+  it("שורה שגם המסלול שלה אינו מוכר חוסמת גם את ההמרה", async () => {
+    await withBadStage(async () => {
+      const now = new Date();
+      await sendEveryStage(now, "01M1FNNLTESTNOTRACK");
+      await service.sweep(now, { dailyQuota: 5 });
+      const old = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+      expect(old?.endedAt, "נסגר על שורה שאין לדעת למי היא שייכת").toBeNull();
+    }, "zz_unknown");
+  });
 
   it("כל השלבים התקפים נשלחו — והרישום נשאר פתוח", async () => {
     await withBadStage(async () => {
@@ -817,8 +889,35 @@ describe("ניסיון שנגמר סוגר, ניסיון שנעלם אינו ס�
   });
 
   /*
+   * ‎**קופון של 100%‎ — הפעלה בלי כרטיס** (ביקורת Codex, P2).
+   *
+   * ‏בדיוק מה ש-`activateWithin` כותב במסלול הקופון: מסלול בתשלום,
+   * ‏סטטוס פעיל, תקופה בתשלום פתוחה, הניסיון נגמר ונרשם — **ואין
+   * ‏שורת מנוי עם כרטיס**. השעון כאן הוא יום למחרת, כלומר בזמן
+   * ‏ששלבי שעון-המשפך עדיין בתוקף: זו הנקודה שבה `hasValidCard`
+   * ‏לבדו היה משאיר את הרישום פתוח, והלקוח המופעל היה נשאר מועמד
+   * ‏להודעות מכירה.
+   */
+  it("הפעלה בקופון של 100%‎ נסגרת כ„שילם”, כבר בזמן שלבי המשפך", async () => {
+    const now = new Date();
+    await service.sweep(now, { dailyQuota: 5 });
+    await direct.$executeRawUnsafe(
+      `UPDATE tenants SET status = 'active', plan = 'basic', trial_ends_at = NULL,
+                          paid_until = $2, trial_concluded_at = now() WHERE id = $1`,
+      OLD_TENANT,
+      new Date(now.getTime() + 30 * DAY),
+    );
+    await service.sweep(new Date(now.getTime() + DAY), { dailyQuota: 5 });
+    const row = (await enrollments()).find((r) => r.tenantId === OLD_TENANT);
+    expect(row?.endedReason, "נשאר פתוח בלי כרטיס").toBe("paid");
+  });
+
+  /*
    * ‏ושהסגירה אינה מקדימה את זמנה: אותו משרד חינמי בדיוק, אבל
    * ‏בעוד שלבי שעון המשפך בתוקף, נשאר פתוח ויקבל אותם.
+   *
+   * ‏זו גם ההבחנה שהבדיקה שמעליה נשענת עליה: שתי הכתיבות משאירות
+   * ‏‎`status = 'active'` ללא כרטיס, ורק `paid_until` מפריד ביניהן.
    */
   it("משרד חינמי אינו נסגר כל עוד שלבי המשפך בתוקף", async () => {
     const now = new Date();

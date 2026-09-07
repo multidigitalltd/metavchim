@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isTrialActive, trialActiveWhere } from "./funnel-enrollment.service";
+import {
+  isTenantSubscribed,
+  isTrialActive,
+  trialActiveWhere,
+} from "./funnel-enrollment.service";
 
 /**
  * ‎**„הניסיון חי” — שתי צורות, כלל אחד.**
@@ -65,5 +69,96 @@ describe("‏שתי הצורות של „הניסיון חי” מסכימות",
     expect(
       ROWS.some((row) => !row.live && row.trialEndsAt !== null && row.trialEndsAt > NOW),
     ).toBe(true);
+  });
+});
+
+/**
+ * ‎**„הפעיל מנוי” — הקצה השני של אותו שדה.**
+ *
+ * ‏שלוש כתיבות משאירות משרד ב-`status: "active"`, ורק שתיים מהן
+ * ‏הן המרה. הטבלה כאן היא הכתיבות עצמן, כפי שהן נראות בשורה אחרי
+ * ‏שהן רצו — כי הכלל נקרא מהשורה, לא מהקוד שכתב אותה.
+ */
+const WRITES: { status: string; paidUntil: Date | null; subscribed: boolean; label: string }[] = [
+  { status: "trial", paidUntil: null, subscribed: false, label: "בניסיון — לפני הכול" },
+  {
+    status: "active",
+    paidUntil: FUTURE,
+    subscribed: true,
+    label: "‏רכישה רגילה — `activateWithin` עם כרטיס",
+  },
+  /* ‏הממצא: אותה כתיבה בדיוק, אבל `card: null` */
+  {
+    status: "active",
+    paidUntil: FUTURE,
+    subscribed: true,
+    label: "‏קופון של 100%‎ — אותה כתיבה בלי כרטיס",
+  },
+  /* ‏וההכרעה שאסור לדרוס: משרד חינמי נשאר במסלול ומקבל את שלבי התוכן */
+  {
+    status: "active",
+    paidUntil: null,
+    subscribed: false,
+    label: "‏שיוך למסלול חינמי — פעיל, בלי תקופה בתשלום",
+  },
+  /* ‏הענקה ידנית: התקופה נכתבת, אבל הסטטוס נשאר „ניסיון” */
+  {
+    status: "trial",
+    paidUntil: FUTURE,
+    subscribed: false,
+    label: "‏הענקת תקופה ידנית — הסטטוס נשאר „ניסיון”",
+  },
+  { status: "suspended", paidUntil: FUTURE, subscribed: false, label: "מושהה" },
+];
+
+describe("‏„הפעיל מנוי” — שני השדות, ולא אחד", () => {
+  for (const row of WRITES) {
+    it(row.label, () => {
+      expect(isTenantSubscribed(row)).toBe(row.subscribed);
+    });
+  }
+
+  /* ‏שני פיקוחים, כדי שהטבלה לא תהיה ירוקה על „תמיד” או „לעולם”. */
+  it("יש בטבלה מנוי שהופעל ומנוי שלא", () => {
+    expect(WRITES.some((row) => row.subscribed)).toBe(true);
+    expect(WRITES.some((row) => !row.subscribed)).toBe(true);
+  });
+
+  /*
+   * ‏והפיקוח שמכוון אל שני חצאי השער: לכל שדה יש בטבלה שורה
+   * ‏שבה **רק הוא** מתקיים ואינה נחשבת מנוי. בלעדיהן חצי מהשער
+   * ‏היה יכול להימחק והטבלה הייתה נשארת ירוקה.
+   */
+  it("יש שורה פעילה בלי תקופה, ושורה עם תקופה שאינה פעילה", () => {
+    expect(
+      WRITES.some((row) => !row.subscribed && row.status === "active"),
+      "פעיל בלי תקופה בתשלום",
+    ).toBe(true);
+    expect(
+      WRITES.some((row) => !row.subscribed && row.paidUntil !== null),
+      "תקופה בתשלום בלי סטטוס פעיל",
+    ).toBe(true);
+  });
+
+  /*
+   * ‎**וההנחה שהכלל של הסגירה נשען עליה.**
+   *
+   * ‏`funnelExitReason` סוגר על „כרטיס **או** מנוי”, ו-`reopenRows`
+   * ‏שואל על הכרטיס בלבד. שני הכללים אינם יכולים לסתור זה את זה רק
+   * ‏משום ש„בניסיון חי” ו„הפעיל מנוי” אינם יכולים להתקיים יחד —
+   * ‏הנחה שנכתבה שם בהערה, ונבדקת כאן.
+   */
+  it("‏„ניסיון חי” ו„מנוי שהופעל” אינם יכולים להתקיים יחד", () => {
+    for (const status of ["trial", "active", "suspended", "churned"]) {
+      for (const trialEndsAt of [FUTURE, PAST, null]) {
+        for (const paidUntil of [FUTURE, PAST, null]) {
+          const row = { status, trialEndsAt, paidUntil };
+          expect(
+            isTrialActive(row, NOW) && isTenantSubscribed(row),
+            `${status} / ${String(trialEndsAt)} / ${String(paidUntil)}`,
+          ).toBe(false);
+        }
+      }
+    }
   });
 });

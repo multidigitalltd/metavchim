@@ -157,7 +157,7 @@ describe("FunnelStageService — שורה שאינה תקפה", () => {
 
   it("והוא נספר כהגדרה פסולה, ולא נעלם בשקט", async () => {
     const { invalid } = await serviceFor([row({ offsetDays: 2147483647 })]).catalog();
-    expect(invalid).toContain("welcome");
+    expect(invalid).toEqual([{ key: "welcome", track: "conversion" }]);
   });
 
   it("תנאי קהל לא מוכר פוסל את השלב", async () => {
@@ -191,7 +191,7 @@ describe("FunnelStageService — שורה שאינה תקפה", () => {
   it("צירוף לא מעוגן נספר כהגדרה פסולה, ולא נעלם בשקט", async () => {
     const result = await serviceFor([row({ key: "unanchored", clock: "payment" })]).catalog();
     expect(result.stages).toEqual([]);
-    expect(result.invalid).toEqual(["unanchored"]);
+    expect(result.invalid).toEqual([{ key: "unanchored", track: "conversion" }]);
   });
 
   it("שעון לא מוכר פוסל את השלב", async () => {
@@ -240,9 +240,29 @@ describe("FunnelStageService — שורה שאינה תקפה", () => {
     ]).catalog();
 
     expect(result.stages.map((d) => d.key)).toEqual(["ok"]);
-    expect(result.invalid.sort()).toEqual(
-      ["bad_audience", "bad_clock", "bad_track", "no_channels"].sort(),
-    );
+    /*
+     * ‎**וגם המסלול של כל פסולה** (ביקורת Codex, P2): הדגל היה אחד
+     * ‏לכולם, ולכן שורת גבייה שבורה חסמה סגירה של רישומי המרה.
+     * ‏`bad_track` היא היחידה שגם המסלול שלה אינו מזוהה, ולכן רק
+     * ‏היא חוסמת את כולם.
+     */
+    expect([...result.invalid].sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { key: "bad_audience", track: "conversion" },
+      { key: "bad_clock", track: "conversion" },
+      { key: "bad_track", track: null },
+      { key: "no_channels", track: "conversion" },
+    ]);
+  });
+
+  /*
+   * ‏ושהמסלול נלקח מהשורה עצמה ולא מברירת מחדל: אותה פסלות בדיוק
+   * ‏במסלול השני נרשמת עליו.
+   */
+  it("פסולה במסלול הגבייה נרשמת על מסלול הגבייה", async () => {
+    const result = await serviceFor([
+      row({ key: "bad_dunning", track: "dunning", clock: "lunar" }),
+    ]).catalog();
+    expect(result.invalid).toEqual([{ key: "bad_dunning", track: "dunning" }]);
   });
 
   it("קטלוג תקין לגמרי — אין פסולים", async () => {

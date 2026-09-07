@@ -52,6 +52,7 @@ const ALL_FALSE: FunnelFacts = {
   nextStepPending: false,
   featureUnused: false,
   hasValidCard: false,
+  subscribed: false,
   trialActive: false,
   chargeFailing: false,
 };
@@ -382,6 +383,44 @@ describe("מתי המסלול נגמר", () => {
         now: T0,
       }),
     ).toBe("paid");
+  });
+
+  /*
+   * ‎**הפעלה בלי כרטיס — הממצא עצמו** (ביקורת Codex, P2).
+   *
+   * ‏קופון של 100%‎ מפעיל מנוי ומשאיר `card: null`. השלב שנבדק כאן
+   * ‏הוא שעון-**משפך** ביום אפס, כלומר בדיוק זה ש-`funnelAnchorConcluded`
+   * ‏אינו סוגר: אילו הכלל היה נשען על הכרטיס בלבד, הוא היה נשאר
+   * ‏„עדיין אפשרי” והרישום היה נסגר בסוף כ`completed`.
+   */
+  it("המשפך נעצר גם כשהמנוי הופעל בלי כרטיס", () => {
+    const dayZero = [stage({ key: "a", clock: "funnel", offsetDays: 0 })];
+    const open = {
+      track: "conversion" as const,
+      stages: dayZero,
+      sent: [],
+      anchors: anchors({ funnelStartedAt: T0 }),
+      now: T0,
+    };
+    expect(funnelExitReason({ ...open, facts: facts() }), "לפני ההפעלה").toBeNull();
+    expect(
+      funnelExitReason({ ...open, facts: facts({ subscribed: true }) }),
+      "אחרי ההפעלה",
+    ).toBe("paid");
+  });
+
+  it("הגבייה אינה נעצרת בגלל מנוי פעיל — רק החיוב קובע", () => {
+    const dunning = [stage({ key: "d", track: "dunning", clock: "payment", offsetDays: 1 })];
+    expect(
+      funnelExitReason({
+        track: "dunning",
+        facts: facts({ chargeFailing: true, subscribed: true }),
+        stages: dunning,
+        sent: [],
+        anchors: anchors({ paymentFailedAt: T0 }),
+        now: T0,
+      }),
+    ).toBeNull();
   });
 
   it("הגבייה נעצרת ברגע שהחיוב עבר", () => {

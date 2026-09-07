@@ -203,6 +203,25 @@ export interface FunnelFacts {
   /** ‏יש במסלול פיצ׳ר שהמשרד מעולם לא נגע בו */
   featureUnused: boolean;
   hasValidCard: boolean;
+  /**
+   * ‎**המנוי הופעל — גם כשאין כרטיס.**
+   *
+   * ‏`hasValidCard` היה הפרוקסי היחיד ל„הפך ללקוח”, והוא מפספס
+   * ‏הפעלה בקופון של 100%‎: `activateWithin` מעביר את המשרד
+   * ‏ל-`active`, מוחק את תאריך הניסיון ופותח תקופה בתשלום — אבל
+   * ‏`card` הוא `null`. שלבי שעון-**המשפך**, ובהם שלב ה„תמיד” של
+   * ‏יום אפס, אינם נסגרים על עוגן הניסיון, ולכן הם נשארו „עדיין
+   * ‏אפשריים”: לקוח שכבר הפעיל מנוי היה ממשיך לקבל הודעות מכירה,
+   * ‏והרישום שלו היה נספר בסוף כ„סיים את הרצף” ולא כהמרה (ביקורת
+   * ‏Codex, P2).
+   *
+   * ‎**ומשרד במסלול חינמי אינו „הפעיל מנוי”.** גם הוא `active` וגם
+   * ‏אצלו הניסיון הסתיים, אבל הוא **אמור** להישאר במסלול ולקבל את
+   * ‏שלבי התוכן — „הוסיפו נכס ראשון”, „ייבוא מאקסל” — וזו הכרעה
+   * ‏קיימת שבדיקה שומרת עליה. לכן העובדה אינה „הסטטוס פעיל”: היא
+   * ‏תקופה בתשלום, וזה בדיוק מה שמפריד בין השניים.
+   */
+  subscribed: boolean;
   /** ‏הניסיון עדיין לא פג. `false` גם למשרד שאין לו ניסיון כלל. */
   trialActive: boolean;
   /** ‏החיוב שנדחה עדיין לא נפרע */
@@ -616,7 +635,7 @@ export const FUNNEL_EXIT_REASONS = ["paid", "completed", "opted_out", "resolved"
 export type FunnelExitReason = (typeof FUNNEL_EXIT_REASONS)[number];
 
 export const FUNNEL_EXIT_REASON_LABELS: Record<FunnelExitReason, string> = {
-  paid: "שילם",
+  paid: "הפך ללקוח",
   completed: "סיים את הרצף",
   opted_out: "ביקש להפסיק",
   resolved: "החיוב עבר",
@@ -665,7 +684,18 @@ export function funnelExitReason(input: {
 }): FunnelExitReason | null {
   if (input.track === "dunning") {
     if (!input.facts.chargeFailing) return "resolved";
-  } else if (input.facts.hasValidCard) {
+  } else if (input.facts.hasValidCard || input.facts.subscribed) {
+    /*
+     * ‎**כרטיס תקף *או* מנוי שהופעל — ולא רק כרטיס.**
+     *
+     * ‏שתי דרכים לאותו יעד: מי שהזין כרטיס התחייב לשלם גם לפני
+     * ‏שחויב, ומי שהמנוי שלו הופעל **הוא** כבר לקוח — גם כשאין
+     * ‏כרטיס כלל (קופון של 100%‎).
+     *
+     * ‏אין כאן ניסוח שני של הכלל מול `reopenRows`, שבודק כרטיס
+     * ‏בלבד: הפתיחה-מחדש דורשת `isTrialActive`, כלומר סטטוס
+     * ‏`trial` — ושם `subscribed` הוא `false` מעצם הבנייה.
+     */
     return "paid";
   }
   /*

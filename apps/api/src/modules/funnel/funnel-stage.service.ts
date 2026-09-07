@@ -39,6 +39,17 @@ import { PrismaService } from "../../core/prisma.service";
  * ‎`catalog` מחזיר גם את מפתחות הפסולים, ו-`funnelExitReason`
  * ‏אינו מכריז „מוצה” כל עוד קיימת הגדרה שלא הצלחנו לקרוא.
  */
+/**
+ * ‏שורת שלב שאינה תקפה — ועם המסלול שלה, כשהוא מזוהה.
+ *
+ * ‏`track: null` = גם המסלול אינו מוכר, ואז אי אפשר לדעת את מי
+ * ‏השורה מייצגת; רק היא חוסמת סגירה בכל המסלולים.
+ */
+export interface InvalidStage {
+  key: string;
+  track: FunnelTrack | null;
+}
+
 @Injectable()
 export class FunnelStageService {
   private readonly logger = new Logger(FunnelStageService.name);
@@ -67,16 +78,31 @@ export class FunnelStageService {
    * ‏ומזהיר, והיא נזרקת **בקול**. הטבלה היא הגדרת פלטפורמה בסדר
    * גודל של עשרות שורות, ולכן זו גם קריאה אחת במקום שתיים.
    */
-  async catalog(): Promise<{ stages: FunnelStageDef[]; invalid: string[] }> {
+  async catalog(): Promise<{ stages: FunnelStageDef[]; invalid: InvalidStage[] }> {
     const rows = await this.prisma.funnelStage.findMany({
       orderBy: [{ sortOrder: "asc" }, { key: "asc" }],
     });
     const stages: FunnelStageDef[] = [];
-    const invalid: string[] = [];
+    const invalid: InvalidStage[] = [];
     for (const row of rows) {
       const def = this.toDef(row);
-      if (def === null) invalid.push(row.key);
-      else stages.push(def);
+      if (def === null) {
+        /*
+         * ‎**המסלול של השורה הפסולה נשמר איתה** (ביקורת Codex, P2).
+         *
+         * ‏„יש הגדרה פסולה” נמסר קודם כדגל אחד לכל הרישומים, ולכן
+         * ‏שורת גבייה שבורה — למשל בלי ערוצים מוכרים — מנעה סגירה
+         * ‏של רישומי **המרה** שמוצו לגמרי. תקלת תצורה אחת נעצה את
+         * ‏כל התור, וכל סבב המשיך לסרוק אותו עד שתתוקן.
+         *
+         * ‎`null` נשמר לשורה שגם המסלול שלה אינו מזוהה: שם באמת אי
+         * ‏אפשר לדעת את מי היא מייצגת, ולכן היא חוסמת את כולם.
+         */
+        invalid.push({
+          key: row.key,
+          track: isOneOf(FUNNEL_TRACKS, row.track) ? row.track : null,
+        });
+      } else stages.push(def);
     }
     return { stages, invalid };
   }
