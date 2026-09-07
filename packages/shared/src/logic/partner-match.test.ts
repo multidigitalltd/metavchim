@@ -512,19 +512,21 @@ describe("‏חזית הכרטיסים לכל לקוח", () => {
   });
 
   /*
-   * ‎**וכרטיס נשלט בשני הצירים נזרק — והמבחן הוא התקרה.**
+   * ‎**אותם נתונים בכל סדר הגעה — אותה תשובה.**
    *
-   * ‏כרטיס גרוע גם בתקציב וגם בציון אינו יכול לייצר צמד טוב יותר
-   * ‏מזה ששולט בו, ולכן שמירתו אינה משנה את **התשובה** — סינון
-   * ‏הנשלטים הוא חסם עלות. הוא כן משנה **מי נשאר כשהתקרה חותכת**:
-   * ‏שלושה נשלטים זולים תופסים את שלושת המקומות הזולים, ודוחקים
-   * ‏החוצה בדיוק את הכרטיס שמייצר את הצמד המושלם.
+   * ‏זו הטענה שנשארה כאן אחרי שהתקרה ירדה. סינון הכרטיסים
+   * ‏הנשלטים הוא מעכשיו **חסם עלות בלבד**: כרטיס גרוע בשני
+   * ‏הצירים אינו יכול לייצר צמד טוב יותר מזה ששולט בו, ובלי
+   * ‏תקרה הוא גם אינו תופס מקום של אחר — ולכן הסרתו אינה משנה
+   * ‏את התשובה, ואין בדיקה שתתפוס אותה. הוא נשאר כי הוא מה
+   * ‏שמקטין את לולאת הצמדים, וזה מה שמאפשר לוותר על התקרה.
    *
-   * ‏הניסוח הראשון של הבדיקה הזו טען „והתשובה אינה משתנה”, ולכן
-   * ‏עבר גם כשהסינון הוסר — מוטציה ששרדה, ובדיקה שעברה מהסיבה
-   * ‏הלא נכונה.
+   * ‏מה שכן ניתן לבדוק, וגם חשוב: לסינון שני צדדים — כרטיס נשלט
+   * ‏אינו נכנס, וכרטיס ששולט מפנה את מי שכבר בפנים — וכל אחד
+   * ‏פעיל בסדר הגעה אחר. אם הם אינם מסכימים, אותם נתונים בסדר
+   * ‏אחר יחזירו רשימה אחרת, וזה תנאי לכל השוואה.
    */
-  it("‏כרטיס נשלט בשני הצירים אינו תופס מקום מתחת לתקרה", () => {
+  it("‏התשובה אינה תלויה בסדר ההגעה של הכרטיסים", () => {
     const cards: PartnerCandidate[] = [
       { buyerId: "A1", partnerKey: "אדם", requirements: buyer(60_000_000) },
       { buyerId: "A2", partnerKey: "אדם", requirements: buyer(50_000_000, FEAT) },
@@ -533,19 +535,13 @@ describe("‏חזית הכרטיסים לכל לקוח", () => {
       { buyerId: "A5", partnerKey: "אדם", requirements: buyer(140_000_000, { ...OTHER_HOOD, ...FEAT }) },
       { buyerId: "Z", requirements: buyer(140_000_000) },
     ];
-    /*
-     * ‎**ובשני סדרי ההגעה.** לסינון שני צדדים — כרטיס נשלט אינו
-     * ‏נכנס, וכרטיס ששולט מפנה את מי שכבר בפנים — וכל אחד מהם
-     * ‏פעיל בסדר אחר בלבד. בדיקה בסדר אחד עוברת גם כשהצד השני
-     * ‏הוסר, וזו בדיוק מוטציה ששרדה כאן.
-     */
-    for (const order of [cards, [...cards].reverse()]) {
-      const pairs = partnerPairs(HOOD, order);
-      expect(pairs).toHaveLength(1);
-      expect(pairs[0]!.score).toBe(100);
-      expect(pairs[0]!.headroomAgorot).toBe(0);
-      expect(pairs[0]!.partners.map((p) => p.buyerId).sort()).toEqual(["A1", "Z"]);
-    }
+    const forward = partnerPairs(HOOD, cards);
+    const backward = partnerPairs(HOOD, [...cards].reverse());
+    expect(forward).toEqual(backward);
+    expect(forward).toHaveLength(1);
+    expect(forward[0]!.score).toBe(100);
+    expect(forward[0]!.headroomAgorot).toBe(0);
+    expect(forward[0]!.partners.map((p) => p.buyerId).sort()).toEqual(["A1", "Z"]);
   });
 
   /*
@@ -567,22 +563,32 @@ describe("‏חזית הכרטיסים לכל לקוח", () => {
   });
 
   /*
-   * ‎**התקרה לכרטיסים היא חסם עלות, וזה מה שהיא מוותרת עליו.**
+   * ‎**וכרטיס ביניים נשמר — הוא יכול להיות הזול ביותר שמגיע**
+   * ‏(ביקורת Codex, P2).
    *
-   * ‏חמישה כרטיסים על החזית, והתקרה ארבעה: נשמרים שלושת הזולים
-   * ‏(הציונים הגבוהים) והיקר ביותר. כאן רק היקר מגיע ל-2 מיליון
-   * ‏עם שותף של 60 — כלומר הקצה שנשמר הוא זה שנדרש.
+   * ‏הניסוח הקודם שמר ארבעה כרטיסים לאדם והשמיט את האמצע, מתוך
+   * ‏הנחה ש„נקודות הביניים משפיעות רק על ההידוק”. הנה ההפרכה,
+   * ‏שאומתה מול המנוע: חזית של חמישה, ושותף של 110 שדורש לפחות
+   * ‏90. הכרטיס של 90 הוא הזול ביותר שמגיע, והציון שלו גבוה
+   * ‏בהרבה מזה של 140 — והשמטתו החזירה 77% עם עודף של חצי מיליון
+   * ‏במקום 90% בכיסוי מדויק.
    */
-  it("‏מעל התקרה — הקצוות נשמרים, והאמצע נופל", () => {
-    const cards: PartnerCandidate[] = [
+  it("‏כרטיס ביניים שהוא הזול ביותר שמגיע — נשמר", () => {
+    const pairs = partnerPairs(HOOD, [
       { buyerId: "A1", partnerKey: "אדם", requirements: buyer(60_000_000) },
       { buyerId: "A2", partnerKey: "אדם", requirements: buyer(70_000_000, FEAT) },
       { buyerId: "A3", partnerKey: "אדם", requirements: buyer(80_000_000, OTHER_HOOD) },
       { buyerId: "A4", partnerKey: "אדם", requirements: buyer(90_000_000, ROOMS) },
-      { buyerId: "A5", partnerKey: "אדם", requirements: buyer(140_000_000, { ...OTHER_HOOD, ...FEAT }) },
-    ];
-    const pairs = partnerPairs(HOOD, [...cards, { buyerId: "Z", requirements: buyer(60_000_000) }]);
+      {
+        buyerId: "A5",
+        partnerKey: "אדם",
+        requirements: buyer(140_000_000, { ...OTHER_HOOD, ...ROOMS, ...FEAT }),
+      },
+      { buyerId: "Z", requirements: buyer(110_000_000) },
+    ]);
     expect(pairs).toHaveLength(1);
-    expect(pairs[0]!.partners.map((p) => p.buyerId).sort()).toEqual(["A5", "Z"]);
+    expect(pairs[0]!.partners.map((p) => p.buyerId).sort()).toEqual(["A4", "Z"]);
+    expect(pairs[0]!.headroomAgorot).toBe(0);
+    expect(pairs[0]!.score).toBe(90);
   });
 });

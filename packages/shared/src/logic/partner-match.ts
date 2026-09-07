@@ -144,16 +144,6 @@ export const PARTNER_CANDIDATE_SCAN = 300;
 export const PARTNER_CANDIDATE_ROW_CAP = PARTNER_CANDIDATE_SCAN * 4;
 
 /** ‏כמה צמדים מוחזרים. רשימה ארוכה של שותפויות אינה נקראת. */
-/**
- * ‎**כמה כרטיסים לאדם אחד נשמרים לשלב הצמדים.**
- *
- * ‏החזית עצמה יכולה להיות ארוכה — לקוח עם הרבה כרטיסים פעילים —
- * ‏ולולאת הצמדים ריבועית במספר הכרטיסים, לא במספר האנשים. ארבעה
- * ‏לאדם משאירים אותה באותו סדר גודל שהייתה בו (`60 × 4` כרטיסים),
- * ‏ושומרים את שני הקצוות שיש להם משמעות: הציון הגבוה וההישג.
- */
-export const PARTNER_CARDS_PER_IDENTITY = 4;
-
 export const PARTNER_PAIR_LIMIT = 10;
 
 /**
@@ -320,22 +310,22 @@ export function partnerPairs(
     a.score >= b.score &&
     (a.budgetMaxAgorot > b.budgetMaxAgorot || a.score > b.score || a.buyerId < b.buyerId);
 
-  /**
-   * ‎**והחזית חסומה, כדי שלולאת הצמדים תישאר ריבועית בקטן.**
+  /*
+   * ‎**והחזית נשמרת שלמה — בלי תקרה לכרטיסים** (ביקורת Codex, P2).
    *
-   * ‏חזית ממוינת לפי תקציב עולה היא ממוינת לפי ציון יורד — זו
-   * ‏הגדרתה. שני הקצוות הם מה שכרטיס יכול לתרום: הקצה הזול הוא
-   * ‏הציון הגבוה, והקצה היקר הוא ההישג — **והוא בדיוק הנציג
-   * ‏שנבחר עד היום**, ולכן שום צמד שהתקבל קודם אינו נעלם.
-   * ‏נקודות הביניים משפיעות רק על ההידוק, שהוא מפתח המיון האחרון.
+   * ‏הניסוח הקודם שמר ארבעה כרטיסים לאדם — שלושת הזולים והיקר —
+   * ‏מתוך הנחה ש„נקודות הביניים משפיעות רק על ההידוק”. ההנחה
+   * ‏שגויה: כרטיס ביניים יכול להיות **הזול ביותר שמגיע** לשותף
+   * ‏מסוים, ולהחזיק ציון גבוה בהרבה מהיקר ביותר. בדוגמה שנבדקה
+   * ‏מול המנוע — חזית 60/100, 70/90, 80/80, 90/70, 140/60 ושותף
+   * ‏של 110 — השמטת 90 החזירה צמד של 77% עם עודף של חצי מיליון
+   * ‏במקום 90% בכיסוי מדויק.
+   *
+   * ‏כל תת-קבוצה בגודל קבוע ניתנת להפרכה באותו אופן, ולכן אין
+   * ‏תקרה — והעלות חסומה בשתי התקרות שכבר קיימות: הקורא מביא
+   * ‎`PARTNER_CANDIDATE_ROW_CAP` שורות לכל היותר, ואחרי
+   * ‎`PARTNER_CANDIDATE_MAX` זהויות רק כפילויות שלהן מגיעות לניקוד.
    */
-  const trim = (cards: ScoredCandidate[]): ScoredCandidate[] => {
-    if (cards.length <= PARTNER_CARDS_PER_IDENTITY) return cards;
-    const byBudget = [...cards].sort(
-      (x, y) => x.budgetMaxAgorot - y.budgetMaxAgorot || x.buyerId.localeCompare(y.buyerId),
-    );
-    return [...byBudget.slice(0, PARTNER_CARDS_PER_IDENTITY - 1), byBudget[byBudget.length - 1]!];
-  };
   for (const candidate of candidates) {
     const identity = candidate.partnerKey ?? candidate.buyerId;
     /*
@@ -403,7 +393,7 @@ export function partnerPairs(
     };
     const held = byIdentity.get(identity) ?? [];
     if (held.some((card) => dominates(card, entry))) continue;
-    byIdentity.set(identity, trim([...held.filter((card) => !dominates(entry, card)), entry]));
+    byIdentity.set(identity, [...held.filter((card) => !dominates(entry, card)), entry]);
   }
   const scored: ScoredCandidate[] = [...byIdentity.values()].flat();
 

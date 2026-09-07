@@ -7,6 +7,7 @@ import { Button } from "@metavchim/ui";
 import {
   formatPropertyAddress,
   MATCHABLE_PROPERTY_STATUSES,
+  SHARED_TABU_PROPERTY_TYPE,
   type PropertyStatus,
 } from "@metavchim/shared";
 import { API_BASE, apiGet, apiList, apiPost } from "@/lib/api";
@@ -980,12 +981,25 @@ export default function PropertiesPage() {
                   allLabel="כל הסטטוסים"
                   options={Object.entries(STATUS_LABELS)}
                 />
+                {/*
+                  ‎**בלי הסוג הוותיק** (ביקורת Codex, P2).
+
+                  ‏`shared_tabu` הוא עובדה משפטית ולא סוג מבנה, ולכן
+                  ‏יש לו עכשיו בורר משלו — „סינון לפי רישום”, שרץ
+                  ‏בשרת. כל עוד הוא נשאר גם כאן היו שתי דרכים לסנן
+                  ‏לפי אותו דבר, ואחת מהן שקרה: הסינון לפי סוג הוא
+                  ‏מקומי (`p.propertyType === type`), ולכן הוא החזיר
+                  ‏רק את השורות הוותיקות והסתיר נכס במושאע שנרשם
+                  ‏כ„דירה” עם הדגל — כלומר בדיוק את הרוב.
+                */}
                 <FilterSelect
                   label="סינון לפי סוג נכס"
                   value={type}
                   onChange={setType}
                   allLabel="כל הסוגים"
-                  options={Object.entries(PROPERTY_TYPE_LABELS)}
+                  options={Object.entries(PROPERTY_TYPE_LABELS).filter(
+                    ([value]) => value !== SHARED_TABU_PROPERTY_TYPE,
+                  )}
                 />
                 <FilterSelect
                   label="סינון לפי רישום"
