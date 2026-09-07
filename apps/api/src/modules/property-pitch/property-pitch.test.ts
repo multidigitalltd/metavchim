@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import type { Capability } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
@@ -174,6 +174,21 @@ const WORLD: World = {
 };
 
 describe("שליחת הצעת נכס", () => {
+  /*
+   * ‎`send` קורא ל-`loadEnv` בשביל `WEB_ORIGIN` — הבסיס של קישור
+   * ‏דף הנחיתה וקישור ההסרה — ו-`loadEnv` מאמת את **כל** הסביבה.
+   * ‏ערכים מזויפים בכוונה: הבדיקה אינה נוגעת ברשת ואינה נוגעת
+   * ‏במסד. אותו דפוס בדיוק כמו `reply-origin.test.ts`.
+   */
+  beforeAll(() => {
+    process.env["WEB_ORIGIN"] ??= "https://test.invalid";
+    process.env["DATABASE_URL"] ??= "postgresql://t:t@localhost:5432/t";
+    process.env["DIRECT_DATABASE_URL"] ??= "postgresql://t:t@localhost:5432/t";
+    process.env["REDIS_URL"] ??= "redis://localhost:6379";
+    process.env["DATA_ENCRYPTION_KEY"] ??= "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    process.env["PHONE_HASH_KEY"] ??= "test-phone-hash-key-not-a-real-secret-0000";
+  });
+
   it("סוכן רואה את הקונים שלו בלבד", async () => {
     const rows = await asUser("01ME", AGENT, () =>
       serviceFor(WORLD).service.buyers({ limit: 100 }),
