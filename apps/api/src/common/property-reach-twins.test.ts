@@ -5,6 +5,7 @@ import {
   actionablePropertyWhere,
   assertPropertyScope,
   ownershipFilter,
+  propertyRecordInScope,
 } from "./ownership";
 import { TenantContext } from "./tenant-context";
 
@@ -56,63 +57,116 @@ function asUser<T>(capabilities: Capability[], fn: () => T): T {
 }
 
 /**
- * ‏האם שורה עוברת את תנאי ה-`where` שנבנה. שורה בלי נכס
- * ‏(`propertyId: null`) חייבת לעבור תמיד — הבעלות עליה נגזרת
- * ‏מהלקוח, ששער אחר כבר בדק.
+ * ‏שני סוגי רשומה: אחד שההיקף שלו נגזר מנכס **חובה**, ואחד שאינו
+ * ‏חייב אחד. ‏מחרוזות ולא סוגים אמיתיים — כאן נבדק **הכלל**, ואת
+ * ‏המדיניות („איזה סוג חייב נכס”) כל קורא מוסר בעצמו.
+ */
+const KINDS_ON_PROPERTY = ["needs"];
+
+/**
+ * ‏האם שורה עוברת את תנאי ה-`where` שנבנה.
+ *
+ * ‎**גם `kind`, ולא רק `propertyId`.** „בלי נכס ⇒ ברמת המשרד” היה
+ * ‏ההנחה, והיא שקרית: ה-API הישן אִפשר בלעדיות בלי נכס, ומחיקת
+ * ‏נכס מאפסת את השדה על סריקה חתומה. עוזר שמתעלם מ-`kind` היה
+ * ‏מאשר את התנאי החדש בלי לבדוק את מה שהוא בא לתקן.
  */
 function passes(
   where: {
     propertyId?: string | null | { in: string[] };
-    OR?: { propertyId: string | null | { in: string[] } }[];
+    kind?: { notIn: string[] };
+    OR?: { propertyId: string | null | { in: string[] }; kind?: { notIn: string[] } }[];
   },
-  propertyId: string | null,
+  row: { propertyId: string | null; kind: string },
 ): boolean {
-  const clause = (value: string | null | { in: string[] } | undefined): boolean => {
-    if (value === undefined) return true;
-    if (value === null) return propertyId === null;
-    if (typeof value === "string") return propertyId === value;
-    return propertyId !== null && value.in.includes(propertyId);
+  const clause = (branch: {
+    propertyId?: string | null | { in: string[] };
+    kind?: { notIn: string[] };
+  }): boolean => {
+    const value = branch.propertyId;
+    const byProperty =
+      value === undefined
+        ? true
+        : value === null
+          ? row.propertyId === null
+          : typeof value === "string"
+            ? row.propertyId === value
+            : row.propertyId !== null && value.in.includes(row.propertyId);
+    const byKind = branch.kind === undefined || !branch.kind.notIn.includes(row.kind);
+    return byProperty && byKind;
   };
-  if (where.OR !== undefined) return where.OR.some((branch) => clause(branch.propertyId));
-  return clause(where.propertyId);
+  if (where.OR !== undefined) return where.OR.some(clause);
+  return clause(where);
 }
+
+/**
+ * ‏ארבע צורות של רשומה, ולא שתיים. השתיים הראשונות הן השאלה
+ * ‏המקורית; השתיים האחרונות הן ההנחה שהתגלתה כשקרית —
+ * ‎**„בלי `propertyId` ⇒ ברמת המשרד”**. היא נכונה להזמנה בכתב
+ * ‏ושקרית לבלעדיות, ולכן היא נשאלת פעמיים כאן.
+ */
+const ROWS: { key: string; propertyId: string | null; kind: string; label: string }[] = [
+  { key: "mine", propertyId: MINE.id, kind: "free", label: "רשומה על הנכס שלי" },
+  { key: "theirs", propertyId: THEIRS.id, kind: "free", label: "רשומה על הנכס של עמית" },
+  { key: "detached", propertyId: null, kind: "free", label: "רשומה שאינה חייבת נכס" },
+  {
+    key: "orphan",
+    propertyId: null,
+    kind: "needs",
+    label: "רשומה שחייבת נכס — ואין לה",
+  },
+];
 
 const CASES: { caps: Capability[]; label: string; allows: Record<string, boolean> }[] = [
   {
     caps: ["properties.view", "properties.view_all"],
     label: "רואה את כל נכסי המשרד",
-    allows: { [MINE.id]: true, [THEIRS.id]: true, none: true },
+    allows: { mine: true, theirs: true, detached: true, orphan: true },
   },
   {
     caps: ["properties.view"],
     label: "רואה את הנכסים שלו בלבד",
-    allows: { [MINE.id]: true, [THEIRS.id]: false, none: true },
+    /*
+     * ‎`orphan: false` הוא התיקון עצמו: בלעדיות ישנה בלי `propertyId`
+     * ‏נקראת כמו **נכס לא משויך**, כלומר רק מי שמחזיק
+     * ‏`properties.view_all`. אין מאיפה להשלים את הנכס — הוא מעולם
+     * ‏לא נשמר.
+     */
+    allows: { mine: true, theirs: false, detached: true, orphan: false },
   },
   {
     caps: ["buyers.view_own"],
     label: "מודול הנכסים חסום",
-    allows: { [MINE.id]: false, [THEIRS.id]: false, none: true },
+    allows: { mine: false, theirs: false, detached: true, orphan: false },
   },
 ];
 
 describe("‏שתי הצורות של „אילו נכסים מותרים לי” מסכימות", () => {
   for (const { caps, label, allows } of CASES) {
     it(label, async () => {
-      const ids = await asUser(caps, () =>
+      const allowed = await asUser(caps, () =>
         actionablePropertyIds(tx as never, TENANT, [MINE.id, THEIRS.id]),
       );
-      const where = await asUser(caps, () => actionablePropertyWhere(tx as never, TENANT));
+      const where = await asUser(caps, () =>
+        actionablePropertyWhere(tx as never, TENANT, KINDS_ON_PROPERTY),
+      );
 
-      for (const property of PROPERTIES) {
-        /* ‏צורת הרשימה: `null` = בלי הגבלה */
-        const byIds = ids === null || ids.has(property.id);
-        expect(byIds, `רשימה — ${property.id}`).toBe(allows[property.id]);
-        expect(passes(where, property.id), `שאילתה — ${property.id}`).toBe(
-          allows[property.id],
+      for (const row of ROWS) {
+        const expected = allows[row.key];
+        /*
+         * ‎`propertyRecordInScope` היא צורת הרשימה של אותו כלל,
+         * ‏ו-`actionablePropertyIds` הוא רק המקור שלה למזהים.
+         */
+        const byList = propertyRecordInScope(
+          {
+            propertyId: row.propertyId,
+            requiresProperty: KINDS_ON_PROPERTY.includes(row.kind),
+          },
+          allowed,
         );
+        expect(byList, `רשימה — ${row.label}`).toBe(expected);
+        expect(passes(where, row), `שאילתה — ${row.label}`).toBe(expected);
       }
-      /* ‏ושורה בלי נכס עוברת בשתי הצורות, תמיד */
-      expect(passes(where, null), "שורה בלי נכס").toBe(allows["none"]);
     });
   }
 
@@ -121,7 +175,18 @@ describe("‏שתי הצורות של „אילו נכסים מותרים לי�
    * ‏חייב **לפסול** נכס, אחרת שתי הצורות מסכימות על כלום.
    */
   it("יש בטבלה מקרה שפוסל", () => {
-    expect(CASES.some(({ allows }) => allows[THEIRS.id] === false)).toBe(true);
+    expect(CASES.some(({ allows }) => allows["theirs"] === false)).toBe(true);
+  });
+
+  /*
+   * ‏ובלי זה, השורה החדשה בטבלה יכולה להיוולד מתירנית: מי שרואה
+   * ‏את הנכסים שלו בלבד חייב **להיחסם** על רשומה שחייבת נכס ואין
+   * ‏לה, אחרת התיקון הזה נעלם בשקט ביום שמישהו ינרמל את הטבלה.
+   */
+  it("יש בטבלה מקרה שפוסל רשומה חסרת-נכס שחייבת אחד", () => {
+    expect(
+      CASES.some(({ allows }) => allows["orphan"] === false && allows["detached"] === true),
+    ).toBe(true);
   });
 });
 
@@ -160,7 +225,7 @@ describe("‏שתי הצורות של „הנכס הזה בהיקף שלי” מ
    * ‏נכס בלי סוכן משויך נכלל בכוונה: הוא הצורה שבה `null` ב-SQL
    * ‏אינו שווה לכלום, וזו בדיוק הפרידה שכבר קרתה פעם בלידים.
    */
-  const ROWS: { agentUserId: string | null; label: string }[] = [
+  const OWNERS: { agentUserId: string | null; label: string }[] = [
     { agentUserId: ME, label: "הנכס שלי" },
     { agentUserId: OTHER, label: "הנכס של עמית" },
     { agentUserId: null, label: "נכס בלי סוכן משויך" },
@@ -168,7 +233,7 @@ describe("‏שתי הצורות של „הנכס הזה בהיקף שלי” מ
 
   for (const { caps, label } of CASES) {
     it(label, () => {
-      for (const row of ROWS) {
+      for (const row of OWNERS) {
         /*
          * ‏מודול חסום הוא היוצא מן הכלל היחיד, והוא בכוונה: הפונקציה
          * ‏זורקת „המודול חסום”, ואילו צורת השאילתה אינה נשאלת כלל —

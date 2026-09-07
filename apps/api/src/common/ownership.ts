@@ -1,10 +1,6 @@
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import {
-  agreementRequiresProperty,
-  effectiveCapabilities,
-  type Capability,
-} from "@metavchim/shared";
+import { effectiveCapabilities, type Capability } from "@metavchim/shared";
 import type { TenantTx } from "../core/prisma.service";
 import { TenantContext } from "./tenant-context";
 
@@ -411,6 +407,17 @@ export type ContactOwnerSource = "buyers" | "leads" | "properties";
 export interface ContactOwner {
   userId: string;
   /**
+   * ‎**השורה שדרכה הוא נמצא** (ביקורת Codex, P2).
+   *
+   * ‏„המקור” אומר איזו יכולת נבדקת; **הכרטיס** אומר לאן לקשר. הם
+   * ‏נלקחו בנפרד: הבחירה נפלה על בעלים של כרטיס ותיק, והקישור
+   * ‏נכתב על הכרטיס החדש — שאותו הנמען דווקא אינו יכול לפתוח,
+   * ‏בעוד הכרטיס שלו נשאר בלי שורה בציר הזמן.
+   *
+   * ‎`null` לענף הנכסים: אין שם כרטיס לתלות עליו אינטראקציה.
+   */
+  cardId: string | null;
+  /**
    * ‎**דרך איזה מקור הוא נמצא — וזו אינה עובדה לתיעוד.**
    *
    * ‏„רשאי לראות את הלקוח” אינה שאלה אחת: מי שנמצא דרך כרטיס קונה
@@ -506,15 +513,33 @@ export async function loadContactOwnerSources(
 export function contactOwnerCandidates(sources: ContactOwnerSources): ContactOwner[] {
   const ordered: ContactOwner[] = [];
   const seen = new Set<string>();
-  const push = (userId: string | null, source: ContactOwnerSource): void => {
-    /* ‏אותו אדם דרך שני מקורות — המקור הראשון הוא זה שנשאל עליו */
-    if (userId === null || seen.has(userId)) return;
-    seen.add(userId);
-    ordered.push({ userId, source });
+  const push = (
+    userId: string | null,
+    source: ContactOwnerSource,
+    cardId: string | null,
+  ): void => {
+    if (userId === null) return;
+    /*
+     * ‎**המפתח הוא הצמד, ולא המשתמש** (ביקורת Codex, P2).
+     *
+     * ‏„רשאי לראות את הלקוח” אינה שאלה אחת: מי שנמצא דרך כרטיס
+     * ‏קונה נשאל על יכולת הקונים, ומי שנמצא דרך ליד על יכולת
+     * ‏הלידים. אותו אדם יכול להיות חסום באחת ומורשה בשנייה —
+     * ‏ואיחוד לפי משתמש בלבד השאיר את המועמדות הראשונה, הפיל
+     * ‏אותה, ומעולם לא שאל על הליד שהוא כן יכול לפתוח. ההתראה
+     * ‏הפכה למשרדית וחסרת תוכן במקום להגיע אליו.
+     *
+     * ‏כפילות אמיתית — אותו אדם דרך שני כרטיסי קונה — עדיין נחסמת,
+     * ‏כי היא אותו צמד בדיוק.
+     */
+    const key = `${source}:${userId}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    ordered.push({ userId, source, cardId });
   };
-  for (const row of sources.buyers) push(row.ownerUserId, "buyers");
-  for (const row of sources.leads) push(row.assignedToUserId, "leads");
-  for (const row of sources.properties) push(row.agentUserId, "properties");
+  for (const row of sources.buyers) push(row.ownerUserId, "buyers", row.id);
+  for (const row of sources.leads) push(row.assignedToUserId, "leads", row.id);
+  for (const row of sources.properties) push(row.agentUserId, "properties", null);
   return ordered;
 }
 
@@ -1147,6 +1172,44 @@ export function assertPropertyScope(agentUserId: string | null, subject: string)
 }
 
 /**
+ * ‎**רשומה שההיקף שלה נגזר מנכס, ומי מכריע אם היא חייבת אחד.**
+ *
+ * ‎`requiresProperty` נמסר על ידי הקורא ואינו נגזר כאן, כי זו אינה
+ * ‏שאלה אחת: להסכם דיגיטלי רק בלעדיות חייבת נכס
+ * ‏(`agreementRequiresProperty`), ואילו **סריקה** חתומה מצהירה על
+ * ‏הסכם על נכס מסוים בשני הסוגים (`documentUnlocksOffers`) — שם
+ * ‏הזמנה בכתב סרוקה בלי נכס היא בדיוק אותה עקיפה (ביקורת Codex, P1).
+ *
+ * ‏מדיניות אחת לשניהם הייתה נכונה לאחד ורפה לשני. שאלה אחת עם שתי
+ * ‏תשובות, וכל צד אומר את שלו במקום אחד.
+ */
+export interface PropertyRecord {
+  propertyId: string | null;
+  requiresProperty: boolean;
+}
+
+/**
+ * ‎**האם הרשומה בהישג יד — הצורה הקבוצתית של השער** (ביקורת Codex, P1).
+ *
+ * ‏`assertPropertyRecordScope` תיקן את השורה הבודדת, והרשימות
+ * ‏המשיכו לשמור **כל** שורה בלי נכס כמשרדית. כלומר בלעדיות ישנה
+ * ‏בלי `propertyId` נחסמה בהורדה ובשליחה — והוחזרה ברשימה, עם
+ * ‏קישור החתימה נושא־הטוקן בתוכה. שער שאפשר לעקוף דרך הרשימה
+ * ‏שמובילה אליו אינו שער.
+ *
+ * ‎`allowed === null` פירושו „אין מה להגביל”, כמו ב-`visibleContactIds`.
+ */
+export function propertyRecordInScope(
+  record: PropertyRecord,
+  allowed: Set<string> | null,
+): boolean {
+  if (allowed === null) return true;
+  /* ‏שורה שחייבת נכס ואין לה — חסרת היקף, ולא משרדית */
+  if (record.propertyId === null) return !record.requiresProperty;
+  return allowed.has(record.propertyId);
+}
+
+/**
  * ‎**רשומה שנושאת מזהה נכס — הלקוח *וגם* הנכס.**
  *
  * ## ‏מה היה שגוי
@@ -1194,12 +1257,12 @@ export function assertPropertyScope(agentUserId: string | null, subject: string)
 export async function assertPropertyRecordScope(
   tx: TenantTx,
   tenantId: string,
-  record: { kind: string; contactId: string; propertyId: string | null },
+  record: PropertyRecord & { contactId: string },
   subject: string,
 ): Promise<void> {
   await assertContactAccess(tx, tenantId, record.contactId);
   if (record.propertyId === null) {
-    if (agreementRequiresProperty(record.kind)) assertPropertyScope(null, subject);
+    if (record.requiresProperty) assertPropertyScope(null, subject);
     return;
   }
   const property = await tx.property.findFirst({
@@ -1273,21 +1336,35 @@ function propertyReach(): PropertyReach {
  */
 export interface PropertyScopeWhere {
   propertyId?: string | null | { in: string[] };
-  OR?: { propertyId: string | null | { in: string[] } }[];
+  kind?: { notIn: string[] };
+  OR?: { propertyId: string | null | { in: string[] }; kind?: { notIn: string[] } }[];
 }
 
+/**
+ * ‎**והשאילתה יודעת אילו סוגים חייבים נכס** (ביקורת Codex, P1).
+ *
+ * ‏„בלי `propertyId` ⇒ עובר תמיד” היה נכון כשההנחה הייתה ששורה
+ * ‏בלי נכס היא ברמת המשרד. היא אינה: ה-API הישן אִפשר בלעדיות בלי
+ * ‏נכס, ומחיקת נכס מאפסת את השדה על סריקה. שורות כאלה חזרו ברשימה
+ * ‏עם קישור החתימה בתוכה.
+ *
+ * ‏הסוגים מגיעים מהקורא, ולא נגזרים כאן — אותה הכרעה בדיוק כמו
+ * ‏ב-`PropertyRecord.requiresProperty`, ומאותה סיבה.
+ */
 export async function actionablePropertyWhere(
   tx: TenantTx,
   tenantId: string,
+  kindsRequiringProperty: readonly string[],
 ): Promise<PropertyScopeWhere> {
   const reach = propertyReach();
   if (reach === "all") return {};
-  if (reach === "none") return { propertyId: null };
+  const detached = { propertyId: null, kind: { notIn: [...kindsRequiringProperty] } };
+  if (reach === "none") return detached;
   const mine = await tx.property.findMany({
     where: { tenantId, agentUserId: TenantContext.current().userId },
     select: { id: true },
   });
-  return { OR: [{ propertyId: null }, { propertyId: { in: mine.map((row) => row.id) } }] };
+  return { OR: [detached, { propertyId: { in: mine.map((row) => row.id) } }] };
 }
 
 export function visibleCallsCondition(

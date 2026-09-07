@@ -18,7 +18,7 @@ import {
   assertContactAccess,
   loadContactOwnerSources,
   notifiableContactOwnerSource,
-  type ContactOwnerSource,
+  type ContactOwner,
   ownershipFilter,
   visibleContactIds,
 } from "../../common/ownership";
@@ -131,11 +131,11 @@ export function inboundNotificationContent(
  * ‏כבר ההתראה המשרדית בלי תוכן.
  */
 export function inboundInteractionParent(
-  source: ContactOwnerSource | null,
-  rows: { buyerId: string | null; leadId: string | null },
+  owner: ContactOwner | null,
 ): { buyerId: string } | { leadId: string } | null {
-  if (source === "buyers" && rows.buyerId !== null) return { buyerId: rows.buyerId };
-  if (source === "leads" && rows.leadId !== null) return { leadId: rows.leadId };
+  if (owner === null || owner.cardId === null) return null;
+  if (owner.source === "buyers") return { buyerId: owner.cardId };
+  if (owner.source === "leads") return { leadId: owner.cardId };
   return null;
 }
 
@@ -329,8 +329,6 @@ export class EmailInboxService {
        * ‏ביותר, וזו הכרטיס שהאינטראקציה נתלית עליו.
        */
       const sources = await loadContactOwnerSources(tx, tenantId, contactId);
-      const buyer = sources.buyers[0] ?? null;
-      const lead = sources.leads[0] ?? null;
       /*
        * ‎**שיוך אינו הרשאה.** סוכן שמנהל המשרד חסם ממנו את מודול
        * ‏הקונים נשאר רשום על השורה, ולכן היה מקבל התראה אישית עם
@@ -346,10 +344,15 @@ export class EmailInboxService {
           : body.length > 120
             ? `${body.slice(0, 120)}…`
             : body;
-      const parent = inboundInteractionParent(owner?.source ?? null, {
-        buyerId: buyer?.id ?? null,
-        leadId: lead?.id ?? null,
-      });
+      /*
+       * ‎**הקישור נכתב על הכרטיס שנבחר** (ביקורת Codex, P2).
+       *
+       * ‏כאן נלקחו קודם שני דברים בנפרד: הנמען מהבחירה, והכרטיס
+       * ‏מהשורה החדשה. כשהבעלים של הכרטיס החדש נפסל והבחירה נפלה
+       * ‏על כרטיס ותיק, האינטראקציה נתלתה דווקא על הכרטיס שהנמען
+       * ‏אינו יכול לפתוח — והכרטיס שלו נשאר בלי שורה בציר הזמן.
+       */
+      const parent = inboundInteractionParent(owner);
       if (parent !== null) {
         await tx.interaction.create({
           data: {
@@ -391,11 +394,21 @@ export class EmailInboxService {
            * ‏שתוקנה בהתראות המרכזייה: העובד מפענח ממנו שם וטלפון
            * ‏פר-נמען, תחת יכולת אחרת מזו שהסתירה את התוכן.
            */
-          ...(owner?.source === "buyers" && buyer !== null
-            ? { entityType: "buyer", entityId: buyer.id }
-            : owner?.source === "leads" && lead !== null
-              ? { entityType: "lead", entityId: lead.id }
-              : {}),
+          /*
+           * ‎**אותו `parent` בדיוק שציר הזמן נתלה עליו** — ולא ניסוח
+           * ‏שני שלו.
+           *
+           * ‏שניהם עונים על שאלה אחת, „דרך איזה כרטיס נבחר הנמען”,
+           * ‏והיו שני מקומות להתעדכן בהם. עכשיו זה ערך אחד: התראה
+           * ‏שמקשרת לכרטיס אחד וציר זמן שנרשם על אחר אינם אפשריים
+           * ‏יותר, גם אם מישהו ישנה רק צד אחד. מקור „נכס” ובעלים
+           * ‏חסר אינם מקשרים לדבר, וזה כבר נאמר שם פעם אחת.
+           */
+          ...(parent === null
+            ? {}
+            : "buyerId" in parent
+              ? { entityType: "buyer", entityId: parent.buyerId }
+              : { entityType: "lead", entityId: parent.leadId }),
         },
       });
       return {

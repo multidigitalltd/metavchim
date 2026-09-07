@@ -6,6 +6,8 @@ import type { Capability } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import {
   contactOwnerCandidates,
+  type ContactOwner,
+  type ContactOwnerSource,
 } from "../../common/ownership";
 import {
   EmailInboxService,
@@ -228,9 +230,10 @@ describe("בעלות ההתראה על מייל נכנס", () => {
         properties: [{ agentUserId: "01PROPAGENT" }],
       }),
     ).toEqual([
-      { userId: "01BUYERAGENT", source: "buyers" },
-      { userId: "01LEADAGENT", source: "leads" },
-      { userId: "01PROPAGENT", source: "properties" },
+      { userId: "01BUYERAGENT", source: "buyers", cardId: "01BUYER" },
+      { userId: "01LEADAGENT", source: "leads", cardId: "01LEAD" },
+      /* ‏בעל הנכס אינו כרטיס שאפשר לתלות עליו אינטראקציה */
+      { userId: "01PROPAGENT", source: "properties", cardId: null },
     ]);
   });
 
@@ -249,7 +252,7 @@ describe("בעלות ההתראה על מייל נכנס", () => {
         leads: [{ id: "01LEAD", assignedToUserId: "01LEADAGENT" }],
         properties: [],
       }),
-    ).toEqual([{ userId: "01LEADAGENT", source: "leads" }]);
+    ).toEqual([{ userId: "01LEADAGENT", source: "leads", cardId: "01LEAD" }]);
   });
 
   /** ‏זה המקרה שנפל: לקוח שהוא **רק** בעל נכס. */
@@ -260,7 +263,7 @@ describe("בעלות ההתראה על מייל נכנס", () => {
         leads: [],
         properties: [{ agentUserId: "01PROPAGENT" }],
       }),
-    ).toEqual([{ userId: "01PROPAGENT", source: "properties" }]);
+    ).toEqual([{ userId: "01PROPAGENT", source: "properties", cardId: null }]);
   });
 
   /*
@@ -420,10 +423,23 @@ describe("‏הקישור לכרטיס הקונה הוא כרטיס שאפשר �
  * ‏שהוא אינו יכול לפתוח.
  */
 describe("‏ההתראה וציר הזמן — אותו מקור", () => {
-  const ROWS = { buyerId: "01BUYER", leadId: "01LEAD" };
+  /*
+   * ‎**הכרטיס מגיע מהמועמד עצמו, ולא נשלף בנפרד** (ביקורת Codex, P2).
+   *
+   * ‏הניסוח הקודם קיבל „מקור” וזוג מזהים שנקראו מהשורה החדשה בכל
+   * ‏מקור. שני מפתחות זהות שונים לאותה שאלה — ובדיוק במקום שבו הם
+   * ‏נפגשים נפער החור: כשהבעלים של הכרטיס החדש נפסל והבחירה נפלה
+   * ‏על כרטיס ותיק, האינטראקציה נתלתה על החדש. עכשיו המועמד נושא
+   * ‏את `cardId` שלו, ואין שני מפתחות.
+   */
+  const owner = (source: ContactOwnerSource, cardId: string | null): ContactOwner => ({
+    userId: "01OWNER",
+    source,
+    cardId,
+  });
 
   it("נבחר הקונה — נתלה על הקונה", () => {
-    expect(inboundInteractionParent("buyers", ROWS)).toEqual({ buyerId: "01BUYER" });
+    expect(inboundInteractionParent(owner("buyers", "01BUYER"))).toEqual({ buyerId: "01BUYER" });
   });
 
   /*
@@ -431,19 +447,19 @@ describe("‏ההתראה וציר הזמן — אותו מקור", () => {
    * ‏(הקונה חסום). הניסוח הקודם היה תולה על הקונה בכל מקרה.
    */
   it("נבחר הליד — נתלה על הליד, גם כשקיים כרטיס קונה", () => {
-    expect(inboundInteractionParent("leads", ROWS)).toEqual({ leadId: "01LEAD" });
+    expect(inboundInteractionParent(owner("leads", "01LEAD"))).toEqual({ leadId: "01LEAD" });
   });
 
   it("נבחר סוכן הנכס — אין למי לתלות", () => {
-    expect(inboundInteractionParent("properties", ROWS)).toBeNull();
+    expect(inboundInteractionParent(owner("properties", null))).toBeNull();
   });
 
   it("אין בעלים — אין למי לתלות", () => {
-    expect(inboundInteractionParent(null, ROWS)).toBeNull();
+    expect(inboundInteractionParent(null)).toBeNull();
   });
 
-  /* ‏והשורה חייבת להתקיים: מקור בלי שורה אינו הורה */
-  it("מקור בלי שורה — אין למי לתלות", () => {
-    expect(inboundInteractionParent("buyers", { buyerId: null, leadId: "01LEAD" })).toBeNull();
+  /* ‏והשורה חייבת להתקיים: מקור בלי כרטיס אינו הורה */
+  it("מקור בלי כרטיס — אין למי לתלות", () => {
+    expect(inboundInteractionParent(owner("buyers", null))).toBeNull();
   });
 });

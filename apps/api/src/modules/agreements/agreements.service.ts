@@ -7,9 +7,10 @@ import {
 } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
-import { AGREEMENT_KIND_LABELS, agreementRequiresProperty, jerusalemDayStart, pendingAgreementRank, pendingAgreementState, REQUIRED_PLACEHOLDERS, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, type PendingAgreementState, whatsappLink } from "@metavchim/shared";
+import { AGREEMENT_KIND_LABELS, AGREEMENT_KINDS_ON_PROPERTY, agreementRequiresProperty, jerusalemDayStart, pendingAgreementRank, pendingAgreementState, REQUIRED_PLACEHOLDERS, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, type PendingAgreementState, whatsappLink } from "@metavchim/shared";
 import {
   actionablePropertyIds,
+  propertyRecordInScope,
   actionablePropertyWhere,
   assertPropertyRecordScope,
   contactGateFor,
@@ -297,7 +298,11 @@ export class AgreementsService {
     await assertPropertyRecordScope(
       tx,
       tenantId,
-      { kind: input.kind, contactId: input.contactId, propertyId: input.propertyId ?? null },
+      {
+        requiresProperty: agreementRequiresProperty(input.kind),
+        contactId: input.contactId,
+        propertyId: input.propertyId ?? null,
+      },
       "הפקת הסכם על נכס",
     );
 
@@ -445,7 +450,11 @@ export class AgreementsService {
     await assertPropertyRecordScope(
       tx,
       tenantId,
-      { kind: row.kind, contactId: row.contactId, propertyId: row.propertyId },
+      {
+        requiresProperty: agreementRequiresProperty(row.kind),
+        contactId: row.contactId,
+        propertyId: row.propertyId,
+      },
       "שליחת הסכם על נכס",
     );
     if (row.status === "signed") throw new BadRequestException("ההסכם כבר נחתם");
@@ -824,7 +833,11 @@ export class AgreementsService {
       await assertPropertyRecordScope(
         tx,
         tenantId,
-        { kind: row.kind, contactId: gate.contactId, propertyId: row.propertyId },
+        {
+          requiresProperty: agreementRequiresProperty(row.kind),
+          contactId: gate.contactId,
+          propertyId: row.propertyId,
+        },
         "מסמך הסכם על נכס",
       );
     } else if (!TenantContext.current().capabilities.has("settings.manage")) {
@@ -945,7 +958,11 @@ export class AgreementsService {
      * ‏`actionablePropertyWhere` הוא התאום של `actionablePropertyIds`,
      * ‏והשניים נבדקים זה מול זה.
      */
-    const propertyScope = await actionablePropertyWhere(tx, tenantId);
+    const propertyScope = await actionablePropertyWhere(
+      tx,
+      tenantId,
+      AGREEMENT_KINDS_ON_PROPERTY,
+    );
 
     const rows = await tx.agreement.findMany({
       where: {
@@ -1062,10 +1079,22 @@ export class AgreementsService {
       tenantId,
       all.map((row) => row.propertyId).filter((id): id is string => id !== null),
     );
-    const rows =
-      allowed === null
-        ? all
-        : all.filter((row) => row.propertyId === null || allowed.has(row.propertyId));
+    /*
+     * ‎**ושורה שחייבת נכס ואין לה אינה „ברמת המשרד”** (ביקורת Codex, P1).
+     *
+     * ‏הסינון כאן ויתר על כל `propertyId === null`, ולכן בלעדיות
+     * ‏ישנה שנוצרה לפני שהיצירה דרשה נכס חזרה ברשימה — עם קישור
+     * ‏החתימה נושא־הטוקן בתוכה, בדיוק מה ש-`deliver` ו-`document`
+     * ‏כבר חוסמים. `propertyRecordInScope` הוא הביטוי הקבוצתי של
+     * ‏`assertPropertyRecordScope`, ושניהם שואלים את
+     * ‏`agreementRequiresProperty` — כלל אחד, שתי צורות.
+     */
+    const rows = all.filter((row) =>
+      propertyRecordInScope(
+        { propertyId: row.propertyId, requiresProperty: agreementRequiresProperty(row.kind) },
+        allowed,
+      ),
+    );
     // שאילתה אחת לכל הרשימה ולא אחת לשורה — כולן על אותו איש קשר
     const contact = rows.length > 0 ? await this.contacts.getById(tx, contactId) : null;
     const canEmail = Boolean(contact?.email);

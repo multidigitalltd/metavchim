@@ -431,7 +431,7 @@ describe("הבעלים שמקבל את ההתראה האישית", () => {
           properties: [],
         },
       ),
-    ).toEqual({ userId: OTHER.id, source: "buyers" });
+    ).toEqual({ userId: OTHER.id, source: "buyers", cardId: "01OLD" });
   });
 
   /*
@@ -448,7 +448,7 @@ describe("הבעלים שמקבל את ההתראה האישית", () => {
         leads: [],
         properties: [],
       }),
-    ).toEqual({ userId: OWNER_OF_CARD, source: "buyers" });
+    ).toEqual({ userId: OWNER_OF_CARD, source: "buyers", cardId: "01NEW" });
   });
 });
 
@@ -465,7 +465,7 @@ describe("סדר הבעלות והמקור שממנו הוא נגזר", () => {
         leads: [],
         properties: [{ agentUserId: "01PROPAGENT" }],
       }),
-    ).toEqual([{ userId: "01PROPAGENT", source: "properties" }]);
+    ).toEqual([{ userId: "01PROPAGENT", source: "properties", cardId: null }]);
   });
 
   it("שלושת המקורות מוחזרים לפי הסדר, כל אחד עם המקור שלו", () => {
@@ -476,9 +476,9 @@ describe("סדר הבעלות והמקור שממנו הוא נגזר", () => {
         properties: [{ agentUserId: "01PROPAGENT" }],
       }),
     ).toEqual([
-      { userId: "01BUYEROWNER", source: "buyers" },
-      { userId: "01LEADOWNER", source: "leads" },
-      { userId: "01PROPAGENT", source: "properties" },
+      { userId: "01BUYEROWNER", source: "buyers", cardId: "01BUYER" },
+      { userId: "01LEADOWNER", source: "leads", cardId: "01LEAD" },
+      { userId: "01PROPAGENT", source: "properties", cardId: null },
     ]);
   });
 
@@ -489,7 +489,7 @@ describe("סדר הבעלות והמקור שממנו הוא נגזר", () => {
         leads: [{ id: "01LEAD", assignedToUserId: "01LEADOWNER" }],
         properties: [],
       }),
-    ).toEqual([{ userId: "01LEADOWNER", source: "leads" }]);
+    ).toEqual([{ userId: "01LEADOWNER", source: "leads", cardId: "01LEAD" }]);
   });
 
   it("בלי בעלים — רשימה ריקה", () => {
@@ -515,8 +515,9 @@ describe("סדר הבעלות והמקור שממנו הוא נגזר", () => {
         properties: [],
       }),
     ).toEqual([
-      { userId: "01BLOCKED", source: "buyers" },
-      { userId: "01ELIGIBLE", source: "buyers" },
+      /* ‏וכל מועמד נושא את הכרטיס שלו — לא את הכרטיס החדש של המקור */
+      { userId: "01BLOCKED", source: "buyers", cardId: "01NEW" },
+      { userId: "01ELIGIBLE", source: "buyers", cardId: "01OLD" },
     ]);
   });
 
@@ -538,17 +539,48 @@ describe("סדר הבעלות והמקור שממנו הוא נגזר", () => {
   });
 
   /*
-   * ‏ואותו אדם דרך שני מקורות אינו מועמד פעמיים: השאלה נשאלת עליו
-   * ‏פעם אחת, לפי המקור הראשון שבו נמצא.
+   * ‎**אותו אדם דרך שני מקורות הוא שני מועמדים** — והכלל התהפך
+   * ‏כאן במתכוון (ביקורת Codex, P2).
+   *
+   * ‏הניסוח הקודם ניכה לפי `userId` בלבד, „כי השאלה נשאלת על אדם”.
+   * ‏היא אינה: **המקור הוא שקובע איזו יכולת נבדקת**. סוכן שמנהל
+   * ‏המשרד חסם ממנו את מודול הקונים ופתח לו את הלידים היה נפסל
+   * ‏כמועמד „קונים” — ונעלם, על אף שדרך הליד שלו הוא גם משויך וגם
+   * ‏רשאי. זו בדיוק ההורשה שכל הקובץ הזה עוסק בה, שכבה אחת פנימה.
+   *
+   * ‏וגם הכרטיס משתנה איתו: `cardId` של המועמד הוא מה שציר הזמן
+   * ‏נתלה עליו, ולכן „אדם אחד עם המקור הראשון” היה תולה את
+   * ‏האינטראקציה על כרטיס הקונה גם כשהנמען נבחר דרך הליד.
    */
-  it("אותו בעלים בשני מקורות — מועמד אחד, המקור הראשון", () => {
+  it("אותו בעלים בשני מקורות — מועמד לכל מקור, לפי הסדר", () => {
     expect(
       contactOwnerCandidates({
         buyers: [{ id: "01B", ownerUserId: "01SAME" }],
         leads: [{ id: "01L", assignedToUserId: "01SAME" }],
         properties: [],
       }),
-    ).toEqual([{ userId: "01SAME", source: "buyers" }]);
+    ).toEqual([
+      { userId: "01SAME", source: "buyers", cardId: "01B" },
+      { userId: "01SAME", source: "leads", cardId: "01L" },
+    ]);
+  });
+
+  /*
+   * ‏והניכוי עצמו לא נעלם: אותו אדם על **אותו מקור** פעמיים הוא
+   * ‏עדיין מועמד אחד. בלי זה „בטל את הניכוי” היה עובר, וכל כרטיס
+   * ‏נוסף של אותו סוכן היה שואל עליו שוב.
+   */
+  it("אותו בעלים על אותו מקור פעמיים — מועמד אחד", () => {
+    expect(
+      contactOwnerCandidates({
+        buyers: [
+          { id: "01B1", ownerUserId: "01SAME" },
+          { id: "01B2", ownerUserId: "01SAME" },
+        ],
+        leads: [],
+        properties: [],
+      }),
+    ).toEqual([{ userId: "01SAME", source: "buyers", cardId: "01B1" }]);
   });
 });
 
@@ -781,7 +813,7 @@ describe("המקור שדרכו נבחר הנמען חוזר איתו", () => {
         leads: [{ id: "01LEAD", assignedToUserId: OTHER.id }],
         properties: [],
       }),
-    ).toEqual({ userId: OWNER_OF_CARD, source: "buyers" });
+    ).toEqual({ userId: OWNER_OF_CARD, source: "buyers", cardId: "01BUYER" });
   });
 
   /*
@@ -799,7 +831,7 @@ describe("המקור שדרכו נבחר הנמען חוזר איתו", () => {
           properties: [],
         },
       ),
-    ).toEqual({ userId: OTHER.id, source: "leads" });
+    ).toEqual({ userId: OTHER.id, source: "leads", cardId: "01LEAD" });
   });
 
   it("ובלי נמען — אין מקור", async () => {
@@ -838,17 +870,40 @@ describe("‏מצביע ההתראה בתיבת הדואר", () => {
     "utf8",
   );
 
-  it("‏המצביע נגזר מהמקור שנבחר, ולא מ„יש כרטיס”", () => {
+  /*
+   * ‎**תכונה ולא ניסוח**: הניסוח הקודם קיבע את הביטוי עצמו
+   * ‏(`owner?.source === "buyers"`), ולכן חסם את התיקון שהוא בא
+   * ‏להגן עליו ברגע שהשניים אוחדו לערך אחד. מה שנדרש הוא שהמצביע
+   * ‏ייגזר מ-`parent` — אותו ערך בדיוק שציר הזמן נתלה עליו —
+   * ‏ולא ייבנה מחדש מהבעלים או משורה שנשלפה בנפרד.
+   */
+  /*
+   * ‏הגוש עצמו ולא חלון באורך קבוע: הערות מתארכות, וחלון קצוב
+   * ‏מדי היה מדווח „הביטוי איננו” על קוד תקין.
+   */
+  function replyNotificationBlock(): string {
     const at = INBOX.indexOf('type: "email_reply"');
     expect(at, "התראת התשובה במייל נעלמה").toBeGreaterThan(0);
-    const block = INBOX.slice(at, at + 1600);
-    expect(block).toContain('owner?.source === "buyers"');
-    expect(block).toContain('owner?.source === "leads"');
+    const end = INBOX.indexOf("\n      });", at);
+    expect(end, "סוף קריאת היצירה לא נמצא").toBeGreaterThan(at);
+    return INBOX.slice(at, end);
+  }
+
+  it("‏המצביע נגזר מאותו `parent` שציר הזמן נתלה עליו", () => {
+    expect(INBOX).toContain("const parent = inboundInteractionParent(owner);");
+    const block = replyNotificationBlock();
+    expect(block).toContain("entityId: parent.buyerId");
+    expect(block).toContain("entityId: parent.leadId");
+    /* ‏ואין גזירה שנייה: לא מהבעלים, ולא מכרטיס שנשלף בנפרד */
+    expect(block).not.toMatch(/entityId: (?!parent\.)/u);
   });
 
   it("‏ובלי בעלים — אין מצביע, כמו שאין תוכן", () => {
-    /* ‏`owner?.source` על `null` הוא `undefined`, ולכן שני הענפים נופלים */
+    /*
+     * ‎`inboundInteractionParent` מחזיר `null` בלי בעלים, ולכן
+     * ‏הפריסה כולה נופלת — מצביע ותוכן יורדים מאותו תנאי.
+     */
     expect(INBOX).toContain("const ownerUserId = owner?.userId ?? null;");
-    expect(INBOX).not.toContain('? { entityType: "buyer", entityId: buyer.id }\n            : lead !== null');
+    expect(replyNotificationBlock()).toMatch(/\.\.\.\(parent === null\s*\n?\s*\? \{\}/u);
   });
 });

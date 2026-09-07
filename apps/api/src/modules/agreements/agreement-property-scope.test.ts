@@ -1,5 +1,9 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import type { Capability } from "@metavchim/shared";
+import {
+  agreementRequiresProperty,
+  documentUnlocksOffers,
+  type Capability,
+} from "@metavchim/shared";
 import {
   assertPropertyRecordScope,
   type PropertyScopeWhere,
@@ -138,6 +142,19 @@ const OFFICE: AgreementRow = {
   publicToken: "tok-office",
 };
 
+/**
+ * ‎**בלעדיות ישנה בלי מזהה נכס.** ה-API הישן אִפשר אותה, ולכן היא
+ * ‏יושבת במסד; היצירה כבר דורשת נכס, אבל השורה הקיימת אינה נעלמת.
+ */
+const LEGACY: AgreementRow = {
+  id: "01AGREEMENTLEGACY00000001",
+  kind: "exclusivity",
+  contactId: SHARED,
+  propertyId: null,
+  status: "pending",
+  publicToken: "tok-legacy",
+};
+
 describe("הסכם על הנכס של עמית — הלקוח לבדו אינו מספיק", () => {
   it("הפקה נדחית", async () => {
     const service = agreementsService([]);
@@ -172,6 +189,32 @@ describe("הסכם על הנכס של עמית — הלקוח לבדו אינו 
   });
 
   /*
+   * ‎**וגם הבלעדיות הישנה בלי מזהה נכס — היא לא „ברמת המשרד”**
+   * ‏(ביקורת Codex, P1, סבב שלישי).
+   *
+   * ‏`assertPropertyRecordScope` כבר חוסם אותה בשליחה ובהורדה,
+   * ‏והרשימה הזו שמרה כל שורה חסרת-נכס. כלומר אותו סוכן מוגבל
+   * ‏קיבל את קישור החתימה הציבורי שלה מכאן, ויכול היה לפתוח,
+   * ‏לחתום או לדחות — השער נעקף דרך הרשימה שמובילה אליו.
+   */
+  it("וגם בלעדיות ישנה בלי מזהה נכס אינה חוזרת ברשימה", async () => {
+    const service = agreementsService([LEGACY, OFFICE]);
+    const rows = await asUser(SCOPED, () =>
+      service.listForContact(txFor([LEGACY, OFFICE]) as never, SHARED),
+    );
+    expect(rows.map((row) => row.id)).toEqual([OFFICE.id]);
+  });
+
+  /* ‏והצד השני: ברירת המחדל רואה גם אותה, אחרת זו מחיקה ולא היקף */
+  it("ולמי שרואה את כל נכסי המשרד היא כן חוזרת", async () => {
+    const service = agreementsService([LEGACY, OFFICE]);
+    const rows = await asUser(DEFAULT, () =>
+      service.listForContact(txFor([LEGACY, OFFICE]) as never, SHARED),
+    );
+    expect(rows.map((row) => row.id)).toEqual([LEGACY.id, OFFICE.id]);
+  });
+
+  /*
    * ‏הצד השני של השער עצמו: הסכם ברמת המשרד — בלי נכס — נשאר על
    * ‏שער הלקוח בלבד, ונכס שנמחק מתחת לרשומה אינו חוסם. בלי שני
    * ‏אלה השער היה „חוסם הכול”, וזו אינה הפרדה אלא תקלה.
@@ -183,7 +226,7 @@ describe("הסכם על הנכס של עמית — הלקוח לבדו אינו 
           assertPropertyRecordScope(
             txFor([]) as never,
             TENANT,
-            { kind: "brokerage", contactId: SHARED, propertyId },
+            { requiresProperty: agreementRequiresProperty("brokerage"), contactId: SHARED, propertyId },
             "בדיקה",
           ),
         ),
@@ -209,7 +252,11 @@ describe("הסכם על הנכס של עמית — הלקוח לבדו אינו 
         assertPropertyRecordScope(
           txFor([]) as never,
           TENANT,
-          { kind: "exclusivity", contactId: SHARED, propertyId: null },
+          {
+            requiresProperty: agreementRequiresProperty("exclusivity"),
+            contactId: SHARED,
+            propertyId: null,
+          },
           "בדיקה",
         ),
       ),
@@ -226,7 +273,11 @@ describe("הסכם על הנכס של עמית — הלקוח לבדו אינו 
         assertPropertyRecordScope(
           txFor([]) as never,
           TENANT,
-          { kind: "exclusivity", contactId: SHARED, propertyId: null },
+          {
+            requiresProperty: agreementRequiresProperty("exclusivity"),
+            contactId: SHARED,
+            propertyId: null,
+          },
           "בדיקה",
         ),
       ),
@@ -243,7 +294,11 @@ describe("הסכם על הנכס של עמית — הלקוח לבדו אינו 
         assertPropertyRecordScope(
           txFor([]) as never,
           TENANT,
-          { kind: "brokerage", contactId: SHARED, propertyId: MINE },
+          {
+            requiresProperty: agreementRequiresProperty("brokerage"),
+            contactId: SHARED,
+            propertyId: MINE,
+          },
           "בדיקה",
         ),
       ),
@@ -321,15 +376,28 @@ describe("הסכם על הנכס של עמית — הלקוח לבדו אינו 
  * ‏האם שורה עוברת את תנאי היקף-הנכס שנבנה. אותה צורה בדיוק
  * ‏שמתוארת ב-`PropertyScopeWhere`, ובלי ידע על התוכן.
  */
-function inScope(where: PropertyScopeWhere, propertyId: string | null): boolean {
-  const clause = (value: PropertyScopeWhere["propertyId"]): boolean => {
-    if (value === undefined) return true;
-    if (value === null) return propertyId === null;
-    if (typeof value === "string") return propertyId === value;
-    return propertyId !== null && value.in.includes(propertyId);
+function inScope(where: PropertyScopeWhere, row: { propertyId: string | null; kind: string }): boolean {
+  const clause = (branch: {
+    propertyId?: PropertyScopeWhere["propertyId"];
+    kind?: { notIn: string[] };
+  }): boolean => {
+    const value = branch.propertyId;
+    const byProperty =
+      value === undefined
+        ? true
+        : value === null
+          ? row.propertyId === null
+          : typeof value === "string"
+            ? row.propertyId === value
+            : row.propertyId !== null && value.in.includes(row.propertyId);
+    /*
+     * ‎**וגם `kind`.** בלי זה הפיקסצ׳ר היה מדווח „מסונן” על תנאי
+     * ‏שמתעלם מהסוג — כלומר בדיוק על הבאג שהתנאי בא לסגור.
+     */
+    return byProperty && (branch.kind === undefined || !branch.kind.notIn.includes(row.kind));
   };
-  if (where.OR !== undefined) return where.OR.some((branch) => clause(branch.propertyId));
-  return clause(where.propertyId);
+  if (where.OR !== undefined) return where.OR.some(clause);
+  return clause(where);
 }
 
 describe("סריקה שהוצמדה לנכס של עמית", () => {
@@ -371,6 +439,24 @@ describe("סריקה שהוצמדה לנכס של עמית", () => {
     propertyId: null,
     kind: "other",
   };
+  /**
+   * ‎**סריקת „הזמנה בכתב” שהתנתקה מהנכס.** מחיקת נכס לצמיתות
+   * ‏מאפסת את `propertyId` על הסריקה, והסוג נשאר — כלומר השורה
+   * ‏עדיין **מצהירה** על הסכם על נכס מסוים.
+   *
+   * ‎`brokerage` ולא `exclusivity` בכוונה: זו בדיוק הנקודה שבה
+   * ‏מדיניות ההסכם הדיגיטלי (`agreementRequiresProperty` — רק
+   * ‏בלעדיות) נפרדת ממדיניות הסריקה (`documentUnlocksOffers` —
+   * ‏שני הסוגים). שער שהחיל את הראשונה על השנייה החזיר את השורה
+   * ‏הזו (ביקורת Codex, P1).
+   */
+  const purged: DocRow = {
+    ...base,
+    id: "01DOCPURGED",
+    contactId: SHARED,
+    propertyId: null,
+    kind: "brokerage",
+  };
 
   function documentsService(rows: DocRow[]): SignedDocumentsService {
     const tx = {
@@ -386,7 +472,7 @@ describe("סריקה שהוצמדה לנכס של עמית", () => {
          * ‏„לא מסונן” כהצלחה.
          */
         findMany: async ({ where }: { where: { AND?: PropertyScopeWhere[] } }) =>
-          rows.filter((row) => inScope(where.AND?.[0] ?? {}, row.propertyId)),
+          rows.filter((row) => inScope(where.AND?.[0] ?? {}, row)),
         findFirst: async ({ where }: { where: { id: string } }) =>
           rows.find((row) => row.id === where.id) ?? null,
         count: async () => 0,
@@ -407,6 +493,35 @@ describe("סריקה שהוצמדה לנכס של עמית", () => {
       documentsService([others, office]).listForContact(SHARED),
     );
     expect(rows.map((row) => row.id)).toEqual([office.id]);
+  });
+
+  /*
+   * ‏מה שהיה: הרשימה שאלה את `agreementRequiresProperty`, שאומרת
+   * ‏„הזמנה בכתב אינה חייבת נכס”. הסריקה של ההסכם על הנכס של
+   * ‏העמית — אחרי שהנכס נמחק — נפלה בחזרה לשער הלקוח לבדו, על אף
+   * ‏שהיא נושאת את שם החותם, את החתימה ואת הקובץ.
+   */
+  it("וגם סריקת הזמנה בכתב שהתנתקה מהנכס אינה מופיעה", async () => {
+    const rows = await asUser(SCOPED, () =>
+      documentsService([purged, office]).listForContact(SHARED),
+    );
+    expect(rows.map((row) => row.id)).toEqual([office.id]);
+  });
+
+  /* ‏הצד השני: „לחסום כל שורה מנותקת” היה מוחק גם את „מסמך אחר” */
+  it("ומסמך אחר בלי נכס נשאר", async () => {
+    expect(documentUnlocksOffers(office.kind)).toBe(false);
+    const rows = await asUser(SCOPED, () =>
+      documentsService([office]).listForContact(SHARED),
+    );
+    expect(rows.map((row) => row.id)).toEqual([office.id]);
+  });
+
+  it("וברירת המחדל רואה גם את המנותקת", async () => {
+    const rows = await asUser(DEFAULT, () =>
+      documentsService([purged, office]).listForContact(SHARED),
+    );
+    expect(rows.map((row) => row.id)).toEqual([purged.id, office.id]);
   });
 
   it("ומחיקה במזהה ישיר נדחית", async () => {

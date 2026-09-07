@@ -221,7 +221,11 @@ export class SignedDocumentsService {
       await assertPropertyRecordScope(
         tx,
         tenantId,
-        { kind: input.kind, contactId: input.contactId, propertyId: input.propertyId ?? null },
+        {
+          requiresProperty: documentUnlocksOffers(input.kind),
+          contactId: input.contactId,
+          propertyId: input.propertyId ?? null,
+        },
         "העלאת מסמך על נכס",
       );
       if (input.propertyId !== undefined) {
@@ -268,7 +272,11 @@ export class SignedDocumentsService {
         await assertPropertyRecordScope(
           tx,
           tenantId,
-          { kind: input.kind, contactId: input.contactId, propertyId: input.propertyId ?? null },
+          {
+            requiresProperty: documentUnlocksOffers(input.kind),
+            contactId: input.contactId,
+            propertyId: input.propertyId ?? null,
+          },
           "העלאת מסמך על נכס",
         );
         /*
@@ -385,7 +393,7 @@ export class SignedDocumentsService {
        * ‏שלאותו לקוח יש מסמכים ישנים יותר שכן מותרים לי. תקרה היא
        * ‏גודל דף, לא תקרת עבודה — אותו לקח בדיוק של סבב המשפך.
        */
-      const scope = await actionablePropertyWhere(tx, tenantId);
+      const scope = await actionablePropertyWhere(tx, tenantId, OFFER_DOCUMENT_KINDS);
       const found = await tx.signedDocument.findMany({
         where: {
           tenantId,
@@ -607,7 +615,11 @@ export class SignedDocumentsService {
         await assertPropertyRecordScope(
           tx,
           tenantId,
-          { kind: found.kind, contactId: gate.contactId, propertyId: found.propertyId },
+          {
+            requiresProperty: documentUnlocksOffers(found.kind),
+            contactId: gate.contactId,
+            propertyId: found.propertyId,
+          },
           "הורדת מסמך על נכס",
         );
       } else if (opts.retained !== true) {
@@ -747,7 +759,11 @@ export class SignedDocumentsService {
       await assertPropertyRecordScope(
         tx,
         tenantId,
-        { kind: row.kind, contactId: gate.contactId, propertyId: row.propertyId },
+        {
+          requiresProperty: documentUnlocksOffers(row.kind),
+          contactId: gate.contactId,
+          propertyId: row.propertyId,
+        },
         "מחיקת מסמך על נכס",
       );
       await tx.signedDocument.delete({ where: { id } });
