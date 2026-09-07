@@ -278,7 +278,30 @@ export function GuideBody({ guide }: { guide: Guide }) {
       </ol>
 
       {(guide.sections ?? []).map((section) => (
-        <section key={section.title} className="mt-6">
+        /*
+         * ‎**סעיף מודגש הוא תיבה, לא כותרת שמנה יותר.**
+         *
+         * ‏מה שמבדיל אותו הוא רקע ומסגרת — אותה שפה של `DocCallout`,
+         * שבה כבר נאמר במסך הזה „עצור כאן”. הגדלת הכותרת בלבד הייתה
+         * נבלעת בין שאר הסעיפים, שכולם נושאים כותרת באותו גודל.
+         *
+         * ‎`aria-label` מוסיף „חשוב” לשם הנגיש: קורא מסך אינו רואה
+         * רקע, וסעיף שכל ההבדל שלו ויזואלי הוא סעיף שההדגשה בו לא
+         * קיימת עבורו.
+         */
+        <section
+          key={section.title}
+          className={section.emphasis === true ? "mt-6 rounded-lg border p-4" : "mt-6"}
+          {...(section.emphasis === true
+            ? {
+                "aria-label": `חשוב: ${section.title}`,
+                style: {
+                  borderColor: "var(--color-border)",
+                  background: "var(--color-hover-soft)",
+                },
+              }
+            : {})}
+        >
           <h2 className="m-0 mb-1.5 text-lg font-extrabold">{section.title}</h2>
           <p className="m-0">{section.body}</p>
           {section.bullets === undefined ? null : (
