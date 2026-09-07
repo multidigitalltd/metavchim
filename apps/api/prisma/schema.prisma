@@ -332,6 +332,7 @@ model Contact {
   phones     ContactPhone[]
   links      ContactLink[]  @relation("primaryContact")
   linkedFrom ContactLink[]  @relation("relatedContact")
+  optOutTokens ContactOptOutToken[]
 
   @@unique([tenantId, phoneHash])
   @@map("contacts")
@@ -1173,6 +1174,20 @@ model ActivationNudgeOptOut {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("activation_nudge_optouts")
+}
+
+model ContactOptOutToken {
+  id        String   @id @db.Char(26)
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  contactId String   @map("contact_id") @db.Char(26)
+  /// ‏מה שבקישור — 256 ביט אקראיים, בלתי ניתן לניחוש.
+  token     String   @unique @db.Char(43)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, contactId], map: "contact_optout_tokens_contact_key")
+  @@map("contact_optout_tokens")
 }
 
 model EmailReplyToken {

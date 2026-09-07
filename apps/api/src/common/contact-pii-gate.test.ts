@@ -162,6 +162,10 @@ const CLASSIFIED: Record<string, Entry> = {
   "modules/matching/matching.service.ts": { as: "entity", why: "התאמה לכרטיס" },
 
   "modules/offers/offer-email.service.ts": { as: "entity", why: "הצעה לכרטיס" },
+  "modules/property-pitch/property-pitch.service.ts": {
+    as: "entity",
+    why: "שליחת הצעת נכס — הלקוח מגיע דרך כרטיס הקונה, שמסונן ב-ownershipFilter",
+  },
   "modules/offers/offers.service.ts": { as: "entity", why: "הצעה לכרטיס" },
   /*
    * ‏היה מוצהר עם `gate: /scopeFilter/` — סינון שורות המשימה בלבד.

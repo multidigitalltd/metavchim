@@ -8101,3 +8101,27 @@ a.mv-bar-row:focus-visible {
 .mv-net-act--solid > svg {
   opacity: 1;
 }
+
+/*
+ * ‏תפריט פנימי לעמוד — „מה יש בעמוד הזה”, בלי לגלול כדי לגלות.
+ *
+ * ‏עוגנים רגילים, ולכן הנחיתה כבר נכונה: הכלל על
+ * ‎`:is(h1,h2,h3)[id]` נותן `scroll-margin-top` שמונע מהכותרת
+ * ‏להיחתך מתחת להידר הדביק.
+ *
+ * ‏גלילה אופקית ולא גלישה לשורה שנייה: ברוחב צר עשר תוויות היו
+ * ‏דוחפות את תוכן העמוד למטה, כלומר בדיוק את מה שהתפריט בא למנוע.
+ */
+.mv-page-menu__list {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0 0 4px;
+  list-style: none;
+  overflow-x: auto;
+}
+.mv-page-menu__list a {
+  text-decoration: none;
+  white-space: nowrap;
+  display: inline-block;
+}

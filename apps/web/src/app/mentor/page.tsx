@@ -78,6 +78,7 @@ import {
 } from "../icons";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
+import { MentorPageMenu } from "./page-menu";
 
 /*
  * המנטור האישי (docs/14) — המסך שמאחורי ההבטחה שהייתה כאן כ„בקרוב”.
@@ -365,6 +366,7 @@ export default function MentorPage() {
         persona={overview?.persona ?? null}
       />
 
+
       {overviewFailed ? (
         <div className="mt-4">
           <LoadError message="לא הצלחנו לטעון את המנטור" onRetry={load} />
@@ -375,6 +377,23 @@ export default function MentorPage() {
         </p>
       ) : (
         <>
+          {/*
+            ‎**התפריט הפנימי — מה יש בעמוד, בלי לגלול כדי לגלות.**
+
+            ‏העמוד התארך עד שרוב מה שיש בו נמצא מתחת לקפל: מי שנכנס
+            ‏רואה „השבוע” ומניח שזה העמוד.
+
+            ‎**והוא יושב כאן, בתוך הענף שמרכיב את הסעיפים** (ביקורת
+            ‏Codex, P2). כשהוא ישב מעל שלושת הענפים, טעינה חוזרת
+            ‏שנכשלה (`onChanged`, `onFeedback`) החליפה את כל הסעיפים
+            ‏ב-`LoadError` בלי לשנות את `overview` — ולכן התפריט
+            ‏נשאר מלא בקישורים לעוגנים שאינם קיימים עוד. תלות
+            ‏נוספת הייתה מטליאה את הסימפטום; מיקום שאינו יכול לשרוד
+            ‏את הסעיפים מסלק את המצב.
+          */}
+          <div className="mt-4">
+            <MentorPageMenu overview={overview} user={user} />
+          </div>
           <div className="mt-6">
             <Celebration
               events={celebrationEvents(overview)}
