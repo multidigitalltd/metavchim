@@ -349,3 +349,72 @@ describe("סכימת הגוף — מה שהטופס באמת שולח", () => {
     expect(RecruitmentBodySchema.safeParse({ sourceUrl: "not a url" }).success).toBe(false);
   });
 });
+
+/**
+ * ‎**הרישום המשותף נוסע עם השורה, ומגיע לנכס** (ביקורת Codex, P1).
+ *
+ * ‏הסוג הוותיק `shared_tabu` ירד מבורר הסוגים, וטופס הגיוס הוא
+ * ‏הרביעי שנבנה מאותו בורר — ולכן נשאר בלי שום דרך לרשום את
+ * ‏העובדה. שורה חדשה לא יכלה לסמן, עריכה של שורה ותיקה מחקה את
+ * ‏הסימון בשקט, וההמרה יצרה נכס רגיל שמוצע לקונים שסירבו במפורש.
+ */
+describe("‏הסימון על שורת הגיוס", () => {
+  const HERE = join(import.meta.dirname);
+  const SERVICE = readFileSync(join(HERE, "recruitment.service.ts"), "utf8");
+  const CONTROLLER = readFileSync(join(HERE, "recruitment.controller.ts"), "utf8");
+
+  it("‏העמודה קיימת בסכמה ובמיגרציה", () => {
+    const schema = readFileSync(
+      join(HERE, "..", "..", "..", "prisma", "schema.prisma"),
+      "utf8",
+    );
+    const model = schema.slice(
+      schema.indexOf("model RecruitmentTarget"),
+      schema.indexOf("model Property "),
+    );
+    expect(model).toMatch(/sharedTabu\s+Boolean\s+@default\(false\)\s+@map\("shared_tabu"\)/u);
+    const migration = readFileSync(
+      join(
+        HERE,
+        "..",
+        "..",
+        "..",
+        "prisma",
+        "migrations",
+        "20260907010000_recruitment_shared_tabu",
+        "migration.sql",
+      ),
+      "utf8",
+    );
+    expect(migration).toContain('ALTER TABLE "recruitment_targets"');
+    expect(migration).toContain('"shared_tabu" BOOLEAN NOT NULL DEFAULT false');
+    /* ‏ומילוי לאחור מהצורה הישנה — אותו כלל כמו בנכסים ובפרסומים */
+    expect(migration).toMatch(/SET "shared_tabu" = true[\s\S]{0,80}'shared_tabu'/u);
+  });
+
+  it("‏הבקר מקבל את השדה", () => {
+    expect(CONTROLLER).toMatch(/sharedTabu: true,/u);
+  });
+
+  it("‏והכתיבה שומרת אותו", () => {
+    expect(SERVICE).toContain('...set("sharedTabu", input.sharedTabu)');
+  });
+
+  /*
+   * ‏זה החצי שהממצא נגמר בו: הנכס שנוצר בהמרה נושא את העובדה.
+   * ‏`fieldsOf` הוא המיפוי היחיד להמרה, ולכן מספיק שהוא נושא אותה.
+   */
+  it("‏וההמרה מעבירה אותו לנכס", () => {
+    const start = SERVICE.indexOf("private fieldsOf(");
+    expect(start).toBeGreaterThan(-1);
+    const rest = SERVICE.slice(start);
+    const end = rest.search(/\n {2}(?:private |async |\/\*\*)/u);
+    const method = end === -1 ? rest : rest.slice(0, end);
+    expect(method).toContain("sharedTabu: row.sharedTabu");
+  });
+
+  /* ‏ובשורה שנקראת חזרה — אחרת המסך אינו יכול לסמן מראש */
+  it("‏והקריאה מחזירה אותו תמיד, לא רק כשהוא דלוק", () => {
+    expect(SERVICE).toContain("sharedTabu: row.sharedTabu,");
+  });
+});

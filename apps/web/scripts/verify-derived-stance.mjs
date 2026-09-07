@@ -188,9 +188,21 @@ if (section.length === 0) {
  * ‏רשימה ולא בדיקה בודדת: זו בדיוק התבנית שנשברה — שדה שנוסף
  * ‏לשניים משלושה מסכים.
  */
+/*
+ * ‎**וטופס הגיוס הוא הרביעי** (ביקורת Codex, P1).
+ *
+ * ‏הוא נבנה מאותו בורר סוגים, ולכן ברגע ש-`shared_tabu` ירד ממנו
+ * ‏הוא נשאר בלי שום דרך לרשום את העובדה: שורה חדשה לא יכלה לסמן,
+ * ‏ועריכה של שורה ותיקה נפלה לאפשרות הראשונה ומחקה את הסימון
+ * ‏בשקט. ההמרה יצרה נכס רגיל — והוא הוצע לקונים שסירבו במפורש.
+ *
+ * ‏הרשימה היא כל הטענה: השדה נוסף לשניים משלושה, ואז לשלושה
+ * ‏מארבעה. מי שיוסיף טופס חמישי ייפול כאן.
+ */
 const PROPERTY_FORMS = [
   ["app", "properties", "new", "page.tsx"],
   ["app", "properties", "[id]", "edit", "page.tsx"],
+  ["app", "properties", "recruitment", "target-form.tsx"],
 ];
 for (const parts of PROPERTY_FORMS) {
   const file = join(import.meta.dirname, "..", "src", ...parts);
@@ -198,7 +210,7 @@ for (const parts of PROPERTY_FORMS) {
   if (!/name="sharedTabu"/u.test(body)) {
     console.error(`✗ ${file}: הטופס אינו שואל על רישום משותף`);
     failed = true;
-  } else if (!/sharedTabu:\s*f\.get\("sharedTabu"\)/u.test(body)) {
+  } else if (!/sharedTabu:\s*(?:f|form)\.get\("sharedTabu"\)/u.test(body)) {
     console.error(`✗ ${file}: התשובה אינה נשלחת לשרת`);
     failed = true;
   } else {
@@ -273,9 +285,20 @@ if (!/option\.value !== SHARED_TABU_PROPERTY_TYPE \|\| keep === SHARED_TABU_PROP
   console.log(`✓ ${TYPE_OPTIONS}`);
 }
 
-/** ‏ורק מסך העריכה מוסר `keep` — מסכי היצירה אינם רשאים. */
+/**
+ * ‎**רק מי שעורך שורה קיימת מוסר `keep`** — מסכי היצירה אינם רשאים.
+ *
+ * ‏טופס הגיוס הוא **גם** יצירה וגם עריכה (רכיב אחד, עם `initial`
+ * ‏או בלעדיו), ולכן הוא ברשימה כמותר: שורה ותיקה שנרשמה בסוג
+ * ‏הוותיק חייבת להמשיך למצוא אותו בבורר, אחרת שמירה סתמית משנה
+ * ‏את הסיווג. את ההסבה עושה התיבה שלידו.
+ *
+ * ‏הרשימה היא קובץ-אחר-קובץ, ולכן טופס שאינו בה אינו נבדק כלל —
+ * ‏וזה בדיוק איך שטופס הגיוס נשאר בחוץ.
+ */
 const KEEP_USERS = [
   [["app", "properties", "[id]", "edit", "page.tsx"], true],
+  [["app", "properties", "recruitment", "target-form.tsx"], true],
   [["app", "properties", "new", "page.tsx"], false],
   [["app", "leads", "convert-sections.tsx"], false],
 ];

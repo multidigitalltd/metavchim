@@ -21,6 +21,8 @@ export interface RecruitmentTargetDto {
   houseNumber?: string;
   propertyType?: string;
   dealType?: string;
+  /** ‏רישום בטאבו משותף — התיבה בטופס, כמו בשלושת האחרים. */
+  sharedTabu?: boolean;
   rooms?: number;
   areaSqm?: number;
   floor?: number;
@@ -53,6 +55,7 @@ export interface RecruitmentInput {
   houseNumber?: string | null;
   propertyType?: string | null;
   dealType?: string | null;
+  sharedTabu?: boolean;
   rooms?: number | null;
   areaSqm?: number | null;
   floor?: number | null;
@@ -80,6 +83,7 @@ type Row = {
   houseNumber: string | null;
   propertyType: string | null;
   dealType: string | null;
+  sharedTabu: boolean;
   rooms: unknown;
   areaSqm: number | null;
   floor: number | null;
@@ -108,6 +112,8 @@ function toDto(row: Row): RecruitmentTargetDto {
     ...(opt(row.houseNumber) ? { houseNumber: row.houseNumber as string } : {}),
     ...(opt(row.propertyType) ? { propertyType: row.propertyType as string } : {}),
     ...(opt(row.dealType) ? { dealType: row.dealType as string } : {}),
+    /* ‏תמיד, ולא `opt`: העמודה `NOT NULL`, ו„לא סומן” הוא ערך */
+    sharedTabu: row.sharedTabu,
     ...(rooms === undefined ? {} : { rooms }),
     ...(opt(row.areaSqm) ? { areaSqm: row.areaSqm as number } : {}),
     ...(opt(row.floor) ? { floor: row.floor as number } : {}),
@@ -422,6 +428,7 @@ export class RecruitmentService {
     houseNumber: string | null;
     propertyType: string | null;
     dealType: string | null;
+    sharedTabu: boolean;
     rooms: unknown;
     areaSqm: number | null;
     floor: number | null;
@@ -438,6 +445,12 @@ export class RecruitmentService {
         ? {}
         : { propertyType: row.propertyType as PropertyFields["propertyType"] }),
       ...(row.dealType === null ? {} : { dealType: row.dealType as PropertyFields["dealType"] }),
+      /*
+       * ‎**ההמרה נושאת את הסימון** (ביקורת Codex, P1). בלעדיו נוצר
+       * ‏נכס רגיל, והוא מוצע לקונים שסירבו במפורש למושאע — בזמן
+       * ‏שהמתווך סימן את השורה בדיוק כדי שזה לא יקרה.
+       */
+      sharedTabu: row.sharedTabu,
       ...(rooms === undefined ? {} : { rooms }),
       ...(row.areaSqm === null ? {} : { areaSqm: row.areaSqm }),
       ...(row.floor === null ? {} : { floor: row.floor }),
@@ -474,6 +487,8 @@ export class RecruitmentService {
       ...set("houseNumber", input.houseNumber),
       ...set("propertyType", input.propertyType),
       ...set("dealType", input.dealType),
+      /* ‏התיבה — אותה עובדה משפטית שיש לנכס ולאיש הקשר */
+      ...set("sharedTabu", input.sharedTabu),
       ...set("rooms", input.rooms),
       ...set("areaSqm", input.areaSqm),
       ...set("floor", input.floor),

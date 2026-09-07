@@ -410,6 +410,10 @@ model RecruitmentTarget {
   ownerName  String? @map("owner_name") @db.VarChar(120)
   ownerPhone String? @map("owner_phone") @db.VarChar(20)
 
+  /// ‏רישום בטאבו משותף — אותה עובדה משפטית שיש לנכס ולאיש הקשר,
+  /// ובאותו שם. ‎`NOT NULL DEFAULT false`: „לא סומן” הוא ערך.
+  sharedTabu Boolean @default(false) @map("shared_tabu")
+
   notes       String? @db.VarChar(4000)
   agentUserId String? @map("agent_user_id") @db.Char(26)
 
