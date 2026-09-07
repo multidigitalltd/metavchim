@@ -1211,8 +1211,9 @@ export function recordingWorthPulling(outcome: string | null | undefined): boole
 }
 
 /** כותרת ההתראה שהמתווך רואה כשהטלפון מצלצל. */
-export function incomingCallTitle(contactName: string | null, phone: string): string {
-  return contactName ? `📞 ${contactName} מתקשר` : `📞 שיחה נכנסת מ-${phone}`;
+export function incomingCallTitle(contactName: string | null, phone: string | null): string {
+  if (contactName) return `📞 ${contactName} מתקשר`;
+  return phone === null ? "📞 שיחה נכנסת" : `📞 שיחה נכנסת מ-${phone}`;
 }
 
 /**
@@ -1221,11 +1222,15 @@ export function incomingCallTitle(contactName: string | null, phone: string): st
  * המספר מופיע גם כשהלקוח מוכר: מי שקורא את ההתראה בטלפון רוצה לחזור
  * אליו עכשיו, וחיפוש הכרטיס כדי למצוא מספר הוא בדיוק החיכוך שההתראה
  * באה לחסוך.
+ *
+ * ‎**ו-`phone: null` הוא הכותרת הציבורית** (ביקורת Codex, P1).
+ * ‏במשרד שהפעיל הפרדה, השורה המשרדית אינה יודעת מי התקשר — ולכן
+ * ‏גם המספר יורד ממנה, לא רק השם. ראו `publicNotification`.
  */
-export function missedCallTitle(contactName: string | null, phone: string): string {
-  return contactName
-    ? `📵 ${contactName} התקשר ולא נענה — ${phone}`
-    : `📵 שיחה שלא נענתה מ-${phone}`;
+export function missedCallTitle(contactName: string | null, phone: string | null): string {
+  if (contactName && phone !== null) return `📵 ${contactName} התקשר ולא נענה — ${phone}`;
+  if (contactName) return `📵 ${contactName} התקשר ולא נענה`;
+  return phone === null ? "📵 שיחה שלא נענתה" : `📵 שיחה שלא נענתה מ-${phone}`;
 }
 
 /** תיאור השיחה לציר הזמן. */

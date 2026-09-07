@@ -41,6 +41,17 @@ import {
   pushOutcome,
   pushPayload,
   shouldPush,
+  contactIdsFromSources,
+  seesAllContactsWith,
+  visibleContactFilters,
+  callLeadIds,
+  notificationAnchorIds,
+  notificationSubjectMap,
+  redactNotification,
+  redactNotifications,
+  type AnchorSubject,
+  type NotificationViewer,
+  type RedactableNotification,
   shouldRetireAfterFailure,
   followUpFromCall,
   summarizeCall,
@@ -73,8 +84,7 @@ import {
   type NotifyPerson,
   AGENT_ACTIONS,
   mayUseAction,
-  applyBlockedModules,
-  resolveCapabilities,
+  effectiveCapabilities,
   type Capability,
   type CapabilityOverride,
   inQuietHours,
@@ -2284,37 +2294,72 @@ async function processPushSweep(): Promise<void> {
     const bumpFailure: string[] = [];
     const succeeded: string[] = [];
 
-    for (const notification of pending) {
-      if (!shouldPush(notification)) continue;
-      // התראה משרדית (userId ריק) הולכת לכל מי שנרשם במשרד
-      const targets = notification.userId
-        ? (byUser.get(notification.userId) ?? [])
-        : subscriptions;
-      const payload = JSON.stringify(pushPayload(notification));
+    /*
+     * ‎**והדחיפה לדפדפן היא הערוץ השלישי** (ביקורת Codex, P1, על
+     * ‏סבב הוואטסאפ — ואותו כשל בדיוק כאן).
+     *
+     * ‏הלולאה רצה על ההתראות, ושורה משרדית נדחפה ל**כל** המנויים
+     * ‏במשרד עם הכותרת והגוף הגולמיים. עכשיו היא רצה על הנמענים,
+     * ‏כי הצנזורה היא פר-אדם: אותה שורה נראית אחרת לסוכן שהלקוח
+     * ‏שלו ולסוכן שהוסתר ממנו.
+     *
+     * ‏הניתוב לא השתנה — התראה אישית לנמען שלה, ומשרדית לכולם —
+     * ‏רק סדר הלולאות והצנזורה שביניהן.
+     */
+    const tenantRow = await prisma.tenant.findUnique({
+      where: { id: tenant.id },
+      select: { blockedModules: true },
+    });
+    const pushUsers = await prisma.user.findMany({
+      where: { tenantId: tenant.id, id: { in: [...byUser.keys()] } },
+      select: { id: true, role: true },
+    });
+    const pushCaps = await capabilitiesByUser(
+      tenant.id,
+      pushUsers,
+      tenantRow?.blockedModules ?? [],
+      new Date(),
+    );
+    const pushSubjects = await notificationAnchorSubjects(tenant.id, pending);
 
-      for (const sub of targets) {
-        try {
-          await webpush.sendNotification(
-            {
-              endpoint: sub.endpoint,
-              keys: { p256dh: sub.p256dh, auth: sub.auth },
-            },
-            payload,
-          );
-          succeeded.push(sub.id);
-        } catch (error: unknown) {
-          const status =
-            typeof error === "object" && error !== null && "statusCode" in error
-              ? Number((error as { statusCode: unknown }).statusCode)
-              : 0;
-          const outcome = pushOutcome(status);
-          if (
-            outcome === "retire" ||
-            shouldRetireAfterFailure(sub.failureCount + 1)
-          ) {
-            retire.push(sub.id);
-          } else if (outcome !== "delivered") {
-            bumpFailure.push(sub.id);
+    for (const [userId, subs] of byUser) {
+      const caps = pushCaps.get(userId) ?? new Set<Capability>();
+      const viewer: NotificationViewer = {
+        allowed: await visibleContactIdSet(tenant.id, userId, caps),
+        userId,
+        capabilities: caps,
+      };
+      for (const raw of pending) {
+        if (!shouldPush(raw)) continue;
+        // התראה משרדית (userId ריק) הולכת לכל מי שנרשם במשרד
+        if (raw.userId && raw.userId !== userId) continue;
+        const notification = redactNotification(raw, viewer, pushSubjects);
+        const payload = JSON.stringify(pushPayload(notification));
+
+        for (const sub of subs) {
+          try {
+            await webpush.sendNotification(
+              {
+                endpoint: sub.endpoint,
+                keys: { p256dh: sub.p256dh, auth: sub.auth },
+              },
+              payload,
+            );
+            succeeded.push(sub.id);
+          } catch (error: unknown) {
+            const status =
+              typeof error === "object" && error !== null && "statusCode" in error
+                ? Number((error as { statusCode: unknown }).statusCode)
+                : 0;
+            const outcome = pushOutcome(status);
+            if (
+              outcome === "retire" ||
+              shouldRetireAfterFailure(sub.failureCount + 1)
+            ) {
+              retire.push(sub.id);
+            } else if (outcome !== "delivered") {
+              bumpFailure.push(sub.id);
+            }
           }
         }
       }
@@ -3409,6 +3454,134 @@ function allowedActionsFor(capabilities: Set<Capability>): readonly string[] {
   );
 }
 
+/**
+ * ‎**הצנזורה של ההתראות — גם בערוצי הדחיפה** (ביקורת Codex, P1).
+ *
+ * ‏שורת התראה נכתבת פעם אחת ונקראת לנצח, והכתיבה מצנזרת לפי
+ * ‏ההרשאות של רגע הכתיבה. המסך כבר אוכף את הגבול בקריאה — ושני
+ * ‏הסבבים כאן המשיכו לשלוח את הכותרת והגוף הגולמיים לטלפון: שם
+ * ‏הלקוח, המספר, ולפעמים קישור טופס נושא־אסימון. השתקה, שעות שקט
+ * ‏או חלון סגור רק מאריכים את הפער — ההתראה ממתינה בתור ויוצאת
+ * ‏אחרי שהגישה כבר נשללה.
+ *
+ * ‏הכלל עצמו יושב ב-`@metavchim/shared`, כי לתהליך הזה אין גישה
+ * ‏ל-API. מה שנכתב כאן הוא **השאילתות בלבד**; המדיניות — אילו
+ * ‏מקורות, מי רואה הכול, איך נראית שורה מצונזרת — היא אותה
+ * ‏פונקציה שהשרת קורא.
+ */
+
+/** ‏העוגן ⟵ איש הקשר. פעם אחת למשרד: זה אינו תלוי בצופה. */
+async function notificationAnchorSubjects(
+  tenantId: string,
+  rows: readonly RedactableNotification[],
+): Promise<Map<string, AnchorSubject>> {
+  const { leadIds, buyerIds, callIds } = notificationAnchorIds(rows);
+  if (leadIds.length + buyerIds.length + callIds.length === 0) return new Map();
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+    const [buyers, calls] = await Promise.all([
+      buyerIds.length === 0
+        ? []
+        : tx.buyer.findMany({
+            /*
+             * ‎**וגם כאן `deletedAt: null`** — התאום של
+             * ‏`notification-visibility.ts`, וההסבר המלא שם.
+             *
+             * ‏העובד אינו יכול לייבא מ-`@metavchim/api`, ולכן שתי
+             * ‏השליפות האלה הן שכפול מודע — וזה בדיוק סוג השכפול
+             * ‏שבו תיקון נוחת בצד אחד בלבד.
+             */
+            where: { tenantId, id: { in: buyerIds }, deletedAt: null },
+            select: { id: true, contactId: true, ownerUserId: true },
+          }),
+      callIds.length === 0
+        ? []
+        : tx.call.findMany({
+            where: { tenantId, id: { in: callIds } },
+            select: { id: true, contactId: true, leadId: true },
+          }),
+    ]);
+    /* ‏הלידים אחרי השיחות — שיחה ממספר לא מוכר נפתרת דרך הליד שלה */
+    const allLeadIds = [...new Set([...leadIds, ...callLeadIds(calls)])];
+    const leads =
+      allLeadIds.length === 0
+        ? []
+        : await tx.lead.findMany({
+            where: { tenantId, id: { in: allLeadIds } },
+            select: { id: true, contactId: true, assignedToUserId: true },
+          });
+    return notificationSubjectMap(leads, buyers, calls);
+  });
+}
+
+/**
+ * ‏הלקוחות שהצופה רשאי לראות, או `null` כשאין מה לסנן.
+ *
+ * ‎`null` הוא ברירת המחדל של כל תפקיד קיים, ולכן משרד שלא הפעיל
+ * ‏הפרדה אינו משלם ולו שאילתה אחת.
+ */
+async function visibleContactIdSet(
+  tenantId: string,
+  userId: string,
+  capabilities: ReadonlySet<Capability>,
+): Promise<Set<string> | null> {
+  if (seesAllContactsWith(capabilities)) return null;
+  const filters = visibleContactFilters(tenantId, userId, capabilities);
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+    const [buyers, leads, properties] = await Promise.all([
+      filters.buyers === null
+        ? []
+        : tx.buyer.findMany({ where: filters.buyers, select: { contactId: true } }),
+      filters.leads === null
+        ? []
+        : tx.lead.findMany({ where: filters.leads, select: { contactId: true } }),
+      filters.properties === null
+        ? []
+        : tx.property.findMany({
+            where: filters.properties,
+            select: { ownerContactId: true, occupantContactId: true },
+          }),
+    ]);
+    return new Set(contactIdsFromSources(buyers, leads, properties));
+  });
+}
+
+/** ‏היכולות בפועל לכל משתמש במשרד — שאילתה אחת, לא אחת לנמען. */
+async function capabilitiesByUser(
+  tenantId: string,
+  users: readonly { id: string; role: string }[],
+  blockedModules: readonly string[],
+  now: Date,
+): Promise<Map<string, Set<Capability>>> {
+  const overrides = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+    return tx.userCapability.findMany({
+      where: { tenantId, userId: { in: users.map((u) => u.id) } },
+      select: { userId: true, capability: true, effect: true, expiresAt: true },
+    });
+  });
+  const overridesOf = new Map<string, CapabilityOverride[]>();
+  for (const row of overrides) {
+    const list = overridesOf.get(row.userId) ?? [];
+    list.push({
+      capability: row.capability as Capability,
+      effect: row.effect === "grant" ? "grant" : "deny",
+      expiresAt: row.expiresAt,
+    });
+    overridesOf.set(row.userId, list);
+  }
+  return new Map(
+    users.map((user) => [
+      user.id,
+      effectiveCapabilities(
+        { role: user.role, overrides: overridesOf.get(user.id) ?? [], blockedModules: [...blockedModules] },
+        now,
+      ),
+    ]),
+  );
+}
+
 async function processWhatsAppNotifySweep(): Promise<void> {
   const config = await whatsappConfig();
   if (!config) return; // הצד היוצא אינו מוגדר — אין מה לדחוף
@@ -3489,23 +3662,9 @@ async function processWhatsAppNotifySweep(): Promise<void> {
      * בדיוק את מה שהלחיצה תורשה להריץ. שאילתה אחת ולא אחת לכל
      * משתמש: הסבב עובר על כל המשרדים בכל דקה.
      */
-    const overrides = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
-      return tx.userCapability.findMany({
-        where: { tenantId: tenant.id, userId: { in: users.map((u) => u.id) } },
-        select: { userId: true, capability: true, effect: true, expiresAt: true },
-      });
-    });
-    const overridesOf = new Map<string, CapabilityOverride[]>();
-    for (const row of overrides) {
-      const list = overridesOf.get(row.userId) ?? [];
-      list.push({
-        capability: row.capability as Capability,
-        effect: row.effect === "grant" ? "grant" : "deny",
-        expiresAt: row.expiresAt,
-      });
-      overridesOf.set(row.userId, list);
-    }
+    const capsOf = await capabilitiesByUser(tenant.id, users, tenant.blockedModules, now);
+    /* ‏העוגנים פעם אחת למשרד — הם אינם תלויים בנמען */
+    const anchorSubjects = await notificationAnchorSubjects(tenant.id, pending);
 
     const recipients = new Map<string, WaRecipient>();
     for (const user of users) {
@@ -3525,10 +3684,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
        * להציע, ואילו פרטים מותר לצרף להודעה. שני חישובים נפרדים
        * היו יכולים להיפרד — כפתור שמציע מה שההודעה מסתירה.
        */
-      const capabilities = applyBlockedModules(
-        resolveCapabilities(user.role, overridesOf.get(user.id) ?? [], now),
-        tenant.blockedModules,
-      );
+      const capabilities = capsOf.get(user.id) ?? new Set<Capability>();
       recipients.set(user.id, {
         userId: user.id,
         phone,
@@ -3555,13 +3711,41 @@ async function processWhatsAppNotifySweep(): Promise<void> {
     const remembered = new Map<string, AgentHistoryTurn>();
     for (const recipient of recipients.values()) {
       const watermark = recipient.notifiedThrough?.getTime() ?? 0;
-      const items = pending.filter(
+      const queued = pending.filter(
         (notification) =>
           (!notification.userId || notification.userId === recipient.userId) &&
           shouldNotifyByWhatsApp(notification.type, recipient.prefs) &&
           notification.createdAt.getTime() > watermark,
       );
-      if (items.length === 0) continue;
+      if (queued.length === 0) continue;
+      /*
+       * ‎**הצנזורה לפני הניסוח, ולא רק על ההעשרה** (ביקורת Codex, P1).
+       *
+       * ‏עד כה היכולות של הנמען גדרו את `notifyDetails` בלבד,
+       * ‏וההתראה עצמה עברה כמות שהיא ל-`formatNotifyMessage` — עם
+       * ‏הכותרת והגוף הגולמיים. שורה משרדית ישנה שהמתינה בהשתקה,
+       * ‏בשעות שקט או לחלון סגור יצאה אחרי שהגישה כבר נשללה.
+       */
+      const caps = new Set(recipient.capabilities as Capability[]);
+      const viewer: NotificationViewer = {
+        allowed: await visibleContactIdSet(tenant.id, recipient.userId, caps),
+        userId: recipient.userId,
+        capabilities: caps,
+      };
+      const { rows: items, censoredIds } = redactNotifications(queued, viewer, anchorSubjects);
+      /*
+       * ‎**וההעשרה יורדת עם השורה שצונזרה** (ביקורת Codex, P1).
+       *
+       * ‏שורה מצונזרת שומרת על המזהה שלה, ו-`formatNotifyMessage`
+       * ‏שולף לפיו את `notifyDetails` — טבלה שנטענה לפני הצנזורה
+       * ‏ושההרשאה שלה נפרדת ורפה יותר (`canSeeNotifyDetail` מסתפק
+       * ‏ב-`buyers.view_all` או `leads.view_all`). השם והטלפון
+       * ‏שהורדו מהכותרת חזרו לתחתית ההודעה.
+       */
+      const details =
+        censoredIds.size === 0
+          ? notifyDetails
+          : new Map([...notifyDetails].filter(([id]) => !censoredIds.has(id)));
 
       /*
        * „שקט לשעתיים”, שעות שקט, וחלון 24 השעות של Meta — שלושתם
@@ -3588,7 +3772,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
          */
         const message = formatNotifyMessage(items, webOrigin, {
           viewer: { userId: recipient.userId, capabilities: recipient.capabilities },
-          byNotificationId: notifyDetails,
+          byNotificationId: details,
         });
         if (fitsInteractive(message)) {
           /*
@@ -3622,7 +3806,7 @@ async function processWhatsAppNotifySweep(): Promise<void> {
            */
           const mentor = notifyQuickReplies(items, {
             viewer: { userId: recipient.userId, capabilities: recipient.capabilities },
-            byNotificationId: notifyDetails,
+            byNotificationId: details,
           });
           const buttons: WhatsAppButton[] = [];
           if (mentor !== null) {

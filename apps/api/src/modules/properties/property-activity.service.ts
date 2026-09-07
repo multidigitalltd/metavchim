@@ -9,6 +9,11 @@ import {
   type OwnerActivityKind,
   type OwnerActivityResult,
 } from "@metavchim/shared";
+import {
+  assertPropertyOwnerAction,
+  canSeeContact,
+  inPropertyScope,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -161,9 +166,36 @@ export class PropertyActivityService {
     const owner = await this.prisma.withTenant(async (tx) => {
       const property = await tx.property.findFirst({
         where: { id: propertyId, tenantId, deletedAt: null },
-        select: { ownerContactId: true },
+        select: { ownerContactId: true, agentUserId: true },
       });
       if (!property?.ownerContactId) return null;
+      /*
+       * ‎**„בלי הפרטים עצמם” כלל **שם** — וזה פרט.**
+       *
+       * ‏הנימוק שלמעלה נכון לטלפון ולאימייל ולא לשם, שיצא מכאן
+       * ‏במלואו לכל מי שהנכס פתוח אצלו — כלומר לכל המשרד (ביקורת
+       * ‏Codex, P1). מי שאינו רשאי לבעלים מקבל את אותה תשובה
+       * ‏שמקבלים על נכס שאין לו בעלים: אין ערוצים, אין שם, והדוח
+       * ‏עצמו — פעילות הנכס — נשאר גלוי כמו הנכס.
+       */
+      /*
+       * ‏אותה הבחנה גם בתצוגה: „מותר לי האדם” נפתח דרך מקור אחר,
+       * ‏אבל השם הזה מוצג **כבעל הנכס הזה**. נכס של עמית — אין שם.
+       */
+      /*
+       * ‎**ו„בלי סוכן משויך” אינו „שלי”** (ביקורת Codex, P2).
+       *
+       * ‏הענף `agentUserId === null` היה נדיב מהשער שבמסלול
+       * ‏השליחה: `assertPropertyScope` דוחה נכס לא-משויך למי שאין
+       * ‏לו `properties.view_all`. כלומר המקדימון הציג את שם
+       * ‏הבעלים ואת הערוצים הזמינים, המסך הדליק כפתורים — וכל
+       * ‏לחיצה נכשלה. גם הכישלון הזה מגלה: „לנכס הזה יש בעלים
+       * ‏שאפשר לפנות אליו”.
+       *
+       * ‏אותו כלל, קריאה אחת. מה שהשליחה תדחה אינו מוצג כזמין.
+       */
+      if (!inPropertyScope(property.agentUserId)) return null;
+      if (!(await canSeeContact(tx, tenantId, property.ownerContactId))) return null;
       return tx.contact.findFirst({
         where: { id: property.ownerContactId, tenantId },
         select: { nameEncrypted: true, phoneEncrypted: true, emailEncrypted: true },
@@ -267,9 +299,29 @@ export class PropertyActivityService {
           houseNumber: true,
           city: true,
           ownerContactId: true,
+          agentUserId: true,
         },
       });
       if (!property) throw new NotFoundException("נכס לא נמצא");
+      /*
+       * ‎**וגם השליחה, לא רק התצוגה.**
+       *
+       * ‏להשמיט את השם מהמסך ולהשאיר את הכפתור עובד הוא שער שנעצר
+       * ‏בדיוק לפני המקום שבו יש נזק: הדוח יוצא בשם המשרד אל בעל
+       * ‏הנכס של עמית, בוואטסאפ או במייל. `assertContactAccess`
+       * ‏ולא השמטה — כאן אין מה להשמיט, יש פעולה לעצור.
+       */
+      if (property.ownerContactId) {
+        /*
+         * ‎**וגם הנכס** — הדוח הוא על הנכס הזה, ולכן „מותר לי האדם”
+         * ‏אינו מספיק: איחוד המקורות נפתח דרך קונה שלי, והפנייה
+         * ‏יוצאת על נכס של עמית (ביקורת Codex).
+         */
+        await assertPropertyOwnerAction(tx, tenantId, {
+          agentUserId: property.agentUserId,
+          ownerContactId: property.ownerContactId,
+        });
+      }
       const tenant = await tx.tenant.findFirst({
         where: { id: tenantId },
         select: { name: true },

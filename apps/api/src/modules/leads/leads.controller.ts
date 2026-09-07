@@ -114,7 +114,8 @@ export class LeadsController {
   async create(
     @Body(new ZodValidationPipe(CreateLeadSchema)) body: z.infer<typeof CreateLeadSchema>,
   ): Promise<{ id: string; merged: boolean; visible: boolean }> {
-    return this.leads.create(body);
+    /* ‏מסך של סוכן מחובר — `typedBy` אינו מגיע מהגוף, וראו `create` */
+    return this.leads.create({ ...body, typedBy: "agent" });
   }
 
   @Get()

@@ -362,3 +362,67 @@ describe("קליטה חוזרת שמשלימה קבצים", () => {
     expect(inbound).toMatch(/if \(stored\.fresh\) \{\n\s*await this\.notifyAgentOnWhatsApp\(/u);
   });
 });
+
+/**
+ * ‎**כל התראה שנוצרת כאן נושאת עוגן — והעוגן נקבע במקום אחד**
+ * ‏(ביקורת Codex, P1).
+ *
+ * ‏השורה שנוצרה ללקוח שנראה דרך נכס יצאה בלי `entityType`, ושורה
+ * ‏בלי עוגן פטורה מהצנזורה בקריאה: `notificationAnchor` מחזיר
+ * ‎`null`, ולכן ה-API, הדחיפה לדפדפן והוואטסאפ כולם מחזירים אותה
+ * ‏כמות שהיא. אחרי העברת הנכס לסוכן אחר, תמצית המייל של הלקוח
+ * ‏המשיכה לזרום למי שכבר אינו רשאי.
+ *
+ * ‏השער נכתב על **התכונה** ולא על הניסוח: לא „הספרייד נראה כך”
+ * ‏אלא „כל `notification.create` בקובץ הזה שואל את
+ * ‎`inboundNotificationAnchor`”. התראה שנייה שתתווסף כאן מחר
+ * ‏נופלת בו כל עוד היא לא עברה דרך אותה הכרעה.
+ */
+describe("‏עוגן ההרשאה של ההתראות בתיבה", () => {
+  /** ‏גוף הקריאה, מהסוגר הפותח ועד הסוגר שסוגר אותו. */
+  function callsIn(source: string, needle: string): string[] {
+    const calls: string[] = [];
+    let from = 0;
+    for (;;) {
+      const at = source.indexOf(needle, from);
+      if (at === -1) return calls;
+      const open = source.indexOf("(", at);
+      let depth = 0;
+      let end = open;
+      for (let i = open; i < source.length; i += 1) {
+        if (source[i] === "(") depth += 1;
+        else if (source[i] === ")") {
+          depth -= 1;
+          if (depth === 0) {
+            end = i;
+            break;
+          }
+        }
+      }
+      calls.push(source.slice(open, end + 1));
+      from = end + 1;
+    }
+  }
+
+  it("כל יצירת התראה עוברת דרך ההכרעה האחת", () => {
+    const creates = callsIn(SERVICE, "notification.create");
+    expect(creates.length).toBeGreaterThan(0);
+    for (const create of creates) {
+      expect(create).toContain("inboundNotificationAnchor(");
+    }
+  });
+
+  /*
+   * ‏ושההתראה אינה מרכיבה עוגן משלה לצד ההכרעה: שני ניסוחים לאותה
+   * ‏שאלה הם בדיוק המצב שבו אחד מהם מתעדכן והשני לא.
+   *
+   * ‏הבדיקה על **יצירת ההתראה** ולא על הקובץ: `entityType` היא גם
+   * ‏אוצר המילים של יומן הביקורת (`audit.record`), שם היא נכתבת
+   * ‏במפורש ובצדק — הניסוח הרחב נפל עליה מיד.
+   */
+  it("ההתראה אינה מרכיבה עוגן משלה", () => {
+    for (const create of callsIn(SERVICE, "notification.create")) {
+      expect(create).not.toMatch(/entityType:/u);
+    }
+  });
+});

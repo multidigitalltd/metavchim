@@ -1671,6 +1671,12 @@ export class IntakeService {
            * הרצות התאמה, והראשונה מהן על כרטיס שאין בו דבר.
            */
           const buyerId = await this.buyers.createWithin(tx, {
+            /*
+             * ‏הלקוח מילא את הטופס בעצמו ומסר את המספר שלו: אין כאן
+             * ‏סוכן שאפשר לבדוק מולו הרשאה, ומיחזור הכרטיס הקיים הוא
+             * ‏בדיוק מה שנדרש — כרטיס שני לאותו אדם הוא הבאג.
+             */
+            typedBy: "office",
             contactName: identity.name,
             contactPhone: identity.phone,
             requirements: BuyerRequirementsSchema.parse(

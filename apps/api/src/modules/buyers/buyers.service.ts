@@ -20,7 +20,12 @@ import {
   type IntakeAnswers,
   type Page,
 } from "@metavchim/shared";
-import { assertBuyerAccess, leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
+import {
+  assertBuyerAccess,
+  leadOwnershipFilter,
+  ownershipFilter,
+  type PhoneTypedBy,
+} from "../../common/ownership";
 import { readOfficeStatuses } from "../../common/office-buyer-statuses";
 import {
   cleanVocabulary,
@@ -105,6 +110,8 @@ export class BuyersService {
     officeStatus?: string | ((statuses: readonly OfficeBuyerStatus[]) => string);
     source: string;
     agentNotes?: string;
+    /** ‏מי הקליד את המספר — ראו `createWithin` */
+    typedBy: PhoneTypedBy;
   }): Promise<BuyerDto> {
     const id = await this.persist(input);
     await this.afterCreate(id);
@@ -364,6 +371,7 @@ export class BuyersService {
     maturity?: string;
     source: string;
     agentNotes?: string;
+    typedBy: PhoneTypedBy;
   }): Promise<string> {
     const id = await this.persist(input);
     try {
@@ -385,6 +393,7 @@ export class BuyersService {
     officeStatus?: string | ((statuses: readonly OfficeBuyerStatus[]) => string);
     source: string;
     agentNotes?: string;
+    typedBy: PhoneTypedBy;
   }): Promise<string> {
     return this.prisma.withTenant((tx) => this.createWithin(tx, input));
   }
@@ -416,6 +425,15 @@ export class BuyersService {
       source: string;
       agentNotes?: string;
       ownerUserId?: string;
+      /**
+       * ‎**מי הקליד את המספר** (ביקורת Codex, P1).
+       *
+       * ‏יצירת קונה מצרפת כרטיס לקוח לקונה שהסוכן מחזיק, והצירוף
+       * ‏עצמו הוא שפותח את `canSeeContact` — כלומר מספר של בעל נכס
+       * ‏מוסתר, שהוקלד במסך, החזיר מיד את שמו, הטלפון והמייל שלו.
+       * ‏הקישור הפתוח מקבל את המספר מהלקוח עצמו ולכן `office`.
+       */
+      typedBy: PhoneTypedBy;
     },
   ): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
@@ -444,10 +462,11 @@ export class BuyersService {
     }
 
     {
-      const contact = await this.contacts.findOrCreateByPhone(tx, {
-        name: input.contactName,
-        phone: input.contactPhone,
-      });
+      const contact = await this.contacts.findOrCreateByPhoneTyped(
+        tx,
+        { name: input.contactName, phone: input.contactPhone },
+        { typedBy: input.typedBy, subject: "יצירת קונה" },
+      );
       // השלמה, לא דריסה: כתובת קיימת על הכרטיס גוברת על הקובץ
       if (input.contactEmail) {
         const existingEmail = await this.contacts.emailFor(tx, contact.id);
