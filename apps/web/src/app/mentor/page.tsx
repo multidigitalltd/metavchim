@@ -78,6 +78,7 @@ import {
 } from "../icons";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
+import { MentorPageMenu } from "./page-menu";
 
 /*
  * המנטור האישי (docs/14) — המסך שמאחורי ההבטחה שהייתה כאן כ„בקרוב”.
@@ -364,6 +365,17 @@ export default function MentorPage() {
         streakWeeks={overview?.streakWeeks ?? 0}
         persona={overview?.persona ?? null}
       />
+
+      {/*
+        ‎**התפריט הפנימי — מה יש בעמוד, בלי לגלול כדי לגלות.**
+
+        ‏העמוד התארך עד שרוב מה שיש בו נמצא מתחת לקפל: מי שנכנס
+        ‏רואה „השבוע” ומניח שזה העמוד. הרכיב מסתיר את עצמו כל עוד
+        ‏אין סעיפים, ולכן הוא אינו מופיע במצב הטעינה ובמצב השגיאה.
+      */}
+      <div className="mt-4">
+        <MentorPageMenu overview={overview} user={user} />
+      </div>
 
       {overviewFailed ? (
         <div className="mt-4">
