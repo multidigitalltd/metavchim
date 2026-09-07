@@ -32,6 +32,8 @@ interface PitchResult {
   skippedNoEmail: number;
   skippedOptedOut: number;
   failed: number;
+  /** ‏פסק זמן או שגיאת ספק — ייתכן שההודעה **כן** יצאה. */
+  unknown: number;
 }
 
 interface BuyerRow {
@@ -73,6 +75,12 @@ function resultText(result: PitchResult): string {
   if (result.skippedNoEmail > 0) parts.push(`${result.skippedNoEmail} ללא מייל בכרטיס`);
   if (result.skippedOptedOut > 0) parts.push(`${result.skippedOptedOut} הוסרו מדיוור`);
   if (result.failed > 0) parts.push(`${result.failed} נכשלו`);
+  /*
+   * ‎**„לא ידוע” נאמר בנפרד מ„נכשלו”.** „נכשלה” מזמין לשלוח שוב;
+   * ‏כאן ייתכן שההודעה כבר הגיעה, ושליחה חוזרת תיתן ללקוח עותק
+   * ‏שני. מי שקורא צריך לבדוק לפני שהוא פועל.
+   */
+  if (result.unknown > 0) parts.push(`${result.unknown} לא ידוע אם נשלחו — בדקו לפני שליחה חוזרת`);
   return parts.join(" · ");
 }
 
@@ -191,7 +199,7 @@ export function PropertyPitchDialog({
       onClose={onClose}
     >
       {result !== null ? (
-        <Notice tone={result.failed > 0 ? "warning" : "success"}>{resultText(result)}</Notice>
+        <Notice tone={result.failed > 0 || result.unknown > 0 ? "warning" : "success"}>{resultText(result)}</Notice>
       ) : (
         <div className="flex flex-col gap-2">
           <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>

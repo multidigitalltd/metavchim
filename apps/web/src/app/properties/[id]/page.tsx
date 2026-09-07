@@ -1174,14 +1174,16 @@ export default function PropertyDetailPage({
               ‏של הסוכן ולא של מנוע ההתאמות, ולכן היא אינה כפתור
               ‏בתוך הרשימה ההיא.
             */}
-            <button
-              type="button"
-              className="mv-btn-soft"
-              style={HEADER_ACTION}
-              onClick={() => setPitchOpen(true)}
-            >
-              שליחת הצעת נכס
-            </button>
+            {can(user, "offers.send") ? (
+              <button
+                type="button"
+                className="mv-btn-soft"
+                style={HEADER_ACTION}
+                onClick={() => setPitchOpen(true)}
+              >
+                שליחת הצעת נכס
+              </button>
+            ) : null}
           </div>
         </div>
 

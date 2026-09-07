@@ -660,14 +660,23 @@ export default function BuyerDetailPage({
             ‏פעולה, אותו חלון, אותו שירות — הצד הקבוע הוא הקונה
             ‏שכרטיסו פתוח.
           */}
-          <button
-            type="button"
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-            onClick={() => setPitchOpen(true)}
-          >
-            הצע נכס לקונה
-          </button>
+          {/*
+            ‎**מי שאינו יכול לשלוח אינו רואה את הכפתור** (ביקורת
+            ‏Codex, P2). עוזר או צופה פותחים כרטיסים אבל אין להם
+            ‎`offers.send`: מכאן הם היו בוחרים נכסים ומקבלים 403
+            ‏בסוף, ומכרטיס הנכס רשימת הקונים הייתה נופלת מיד.
+            ‏השרת ממילא חוסם — זה מה שמונע להציע תהליך שאינו קיים.
+          */}
+          {can(user, "offers.send") ? (
+            <button
+              type="button"
+              className="mv-btn-plain"
+              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+              onClick={() => setPitchOpen(true)}
+            >
+              הצע נכס לקונה
+            </button>
+          ) : null}
         </div>
       </div>
 

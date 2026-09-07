@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
+import { EmailRejectedError } from "../../core/email.service";
 import type { Capability } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { PropertyPitchService } from "./property-pitch.service";
@@ -26,6 +27,10 @@ interface Sent {
 }
 
 interface World {
+  /** ‏מה `EmailService.send` יזרוק, אם בכלל — לפי כתובת הנמען. */
+  throwFor?: (to: string) => unknown;
+  /** ‏רץ אחרי כל שליחה — כך אפשר לדמות „הסיר את עצמו באמצע”. */
+  afterSend?: (to: string) => void;
   /** ‏כל הקונים במשרד — כולל של סוכנים אחרים. */
   buyers: {
     id: string;
@@ -38,9 +43,15 @@ interface World {
   properties: { id: string; title: string }[];
 }
 
-function serviceFor(world: World): { service: PropertyPitchService; sent: Sent[] } {
+function serviceFor(world: World): {
+  service: PropertyPitchService;
+  sent: Sent[];
+  /** ‏מצבי השליחה שנכתבו על שורות התיבה, לפי סדר. */
+  states: string[];
+} {
   const sent: Sent[] = [];
   const messages: Record<string, unknown>[] = [];
+  const states: string[] = [];
 
   const tx = {
     buyer: {
@@ -64,6 +75,11 @@ function serviceFor(world: World): { service: PropertyPitchService; sent: Sent[]
               emailHash: b.hasEmail ? "hash" : null,
             })),
         ),
+      /* ‏קריאת ההסכמה **ברגע השליחה** — קוראת את העולם החי */
+      findFirst: (args: { where: { id: string } }) => {
+        const buyer = world.buyers.find((b) => b.contactId === args.where.id);
+        return Promise.resolve({ optedOutAt: buyer?.optedOut === true ? new Date() : null });
+      },
     },
     property: {
       findMany: (args: { where: { id: { in: string[] } } }) =>
@@ -83,15 +99,17 @@ function serviceFor(world: World): { service: PropertyPitchService; sent: Sent[]
         ),
     },
     contactOptOutToken: {
-      findFirst: () => Promise.resolve(null),
-      create: () => Promise.resolve({ token: "T".repeat(43) }),
+      upsert: () => Promise.resolve({ token: "T".repeat(43) }),
     },
     emailMessage: {
       create: (args: { data: Record<string, unknown> }) => {
         messages.push(args.data);
         return Promise.resolve({});
       },
-      updateMany: () => Promise.resolve({ count: 1 }),
+      updateMany: (args: { data: { sendState?: string } }) => {
+        if (args.data.sendState !== undefined) states.push(args.data.sendState);
+        return Promise.resolve({ count: 1 });
+      },
     },
     $executeRaw: () => Promise.resolve(0),
   };
@@ -128,6 +146,8 @@ function serviceFor(world: World): { service: PropertyPitchService; sent: Sent[]
         footnote?: string;
       },
     ) => {
+      const boom = world.throwFor?.(to);
+      if (boom !== undefined && boom !== null) return Promise.reject(boom);
       /* ‏המייל כולו — הקישורים אינם בפסקאות אלא בשדות משלהם */
       sent.push({
         to,
@@ -138,6 +158,7 @@ function serviceFor(world: World): { service: PropertyPitchService; sent: Sent[]
           content.footnote ?? "",
         ].join("\n"),
       });
+      world.afterSend?.(to);
       return Promise.resolve();
     },
   };
@@ -150,7 +171,7 @@ function serviceFor(world: World): { service: PropertyPitchService; sent: Sent[]
     { ensure: (id: string) => Promise.resolve({ url: `https://app.test/p/${id}` }) } as never,
     { record: () => Promise.resolve() } as never,
   );
-  return { service, sent };
+  return { service, sent, states };
 }
 
 function asUser<T>(userId: string, capabilities: Capability[], fn: () => T): T {
@@ -263,7 +284,7 @@ describe("שליחת הצעת נכס", () => {
         buyerIds: ["01MINE", "01NOMAIL", "01OUT"],
       }),
     );
-    expect(result).toEqual({ sent: 1, skippedNoEmail: 1, skippedOptedOut: 1, failed: 0 });
+    expect(result).toEqual({ sent: 1, skippedNoEmail: 1, skippedOptedOut: 1, failed: 0, unknown: 0 });
     expect(sent.map((s) => s.to)).toEqual(["01MINE@example.test"]);
   });
 
@@ -275,6 +296,90 @@ describe("שליחת הצעת נכס", () => {
     const body = sent[0]?.body ?? "";
     expect(body).toContain("/p/01PROP");
     expect(body).toContain("/contact-optout/");
+  });
+
+  /**
+   * ‎**ארבע הטענות מסבב הביקורת השני** — כולן על אותה לולאה.
+   */
+
+  it("אדם עם שני כרטיסי קונה מקבל מייל אחד", async () => {
+    const world: World = {
+      ...WORLD,
+      buyers: [
+        ...WORLD.buyers,
+        {
+          id: "01MINE2",
+          contactId: "01CMINE",
+          ownerUserId: "01ME",
+          name: "דנה",
+          hasEmail: true,
+          optedOut: false,
+        },
+      ],
+    };
+    const { service, sent } = serviceFor(world);
+    const result = await asUser("01ME", AGENT, () =>
+      service.send({ propertyIds: ["01PROP"], buyerIds: ["01MINE", "01MINE2"] }),
+    );
+    expect(result.sent).toBe(1);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("מי שהסיר את עצמו באמצע הלולאה אינו מקבל", async () => {
+    const world: World = {
+      ...WORLD,
+      buyers: WORLD.buyers.map((b) => ({ ...b })),
+    };
+    /* ‏השליחה הראשונה מסירה את השני — כמו לחיצה על הקישור באותו רגע */
+    world.afterSend = () => {
+      const later = world.buyers.find((b) => b.id === "01SECOND");
+      if (later !== undefined) later.optedOut = true;
+    };
+    world.buyers.push({
+      id: "01SECOND",
+      contactId: "01CSECOND",
+      ownerUserId: "01ME",
+      name: "אורי",
+      hasEmail: true,
+      optedOut: false,
+    });
+    const { service, sent } = serviceFor(world);
+    const result = await asUser("01ME", AGENT, () =>
+      service.send({ propertyIds: ["01PROP"], buyerIds: ["01MINE", "01SECOND"] }),
+    );
+    expect(sent.map((row) => row.to)).toEqual(["01MINE@example.test"]);
+    expect(result.skippedOptedOut).toBe(1);
+  });
+
+  it("דחייה ודאית נספרת כנכשלה", async () => {
+    const { service, states } = serviceFor({
+      ...WORLD,
+      throwFor: () => new EmailRejectedError("הספק דחה"),
+    });
+    const result = await asUser("01ME", AGENT, () =>
+      service.send({ propertyIds: ["01PROP"], buyerIds: ["01MINE"] }),
+    );
+    expect(result).toMatchObject({ sent: 0, failed: 1, unknown: 0 });
+    /* ‏ולא רק המונה — גם השורה בתיבה אומרת „נכשלה” */
+    expect(states).toEqual(["failed"]);
+  });
+
+  /** ‎„איננו יודעים” אינו „לא” — וזה מה שמונע שליחה כפולה. */
+  it("פסק זמן נספר כ„לא ידוע” ולא ככישלון", async () => {
+    const { service, states } = serviceFor({
+      ...WORLD,
+      throwFor: () => new Error("socket hang up"),
+    });
+    const result = await asUser("01ME", AGENT, () =>
+      service.send({ propertyIds: ["01PROP"], buyerIds: ["01MINE"] }),
+    );
+    expect(result).toMatchObject({ sent: 0, failed: 0, unknown: 1 });
+    /*
+     * ‎**השורה בתיבה אינה נשארת „ממתינה” ואינה נעשית „נכשלה”.**
+     * ‏זו החצי השני של הממצא: מונה נכון מעל שורה שקרית עדיין
+     * ‏משאיר את הסוכן בלי לדעת מה קרה.
+     */
+    expect(states).toEqual(["unknown"]);
   });
 
   it("בחירה ריקה נדחית לפני שנוגעים במסד", async () => {

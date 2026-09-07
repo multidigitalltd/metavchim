@@ -17,7 +17,7 @@ import { actingUserId, TenantContext } from "../../common/tenant-context";
 import { ownershipFilter } from "../../common/ownership";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
-import { EmailService } from "../../core/email.service";
+import { EmailRejectedError, EmailService } from "../../core/email.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { EmailInboxService } from "../email-inbox/email-inbox.service";
@@ -66,6 +66,15 @@ export interface PitchResult {
   skippedNoEmail: number;
   skippedOptedOut: number;
   failed: number;
+  /**
+   * ‎**„איננו יודעים” אינו „לא”** (ביקורת Codex, P1).
+   *
+   * ‏פסק זמן או ‎5xx מהספק פירושם שייתכן שההודעה **כן** יצאה. סיווגה
+   * ‏כ„נכשלה” מזמין שליחה חוזרת — ומזהה חדש ומפתח אידמפוטנטיות חדש
+   * ‏פירושם שהלקוח יקבל אותה פעמיים. ההבחנה הזו כבר קיימת בתיבת
+   * ‏הדואר ובשירות המייל עצמו; כאן היא הייתה חסרה.
+   */
+  unknown: number;
 }
 
 @Injectable()
@@ -162,31 +171,30 @@ export class PropertyPitchService {
    * ‏כרטיס — אחת תיצור, השנייה תיתקל בהתנגשות ותקרא את הקיים.
    */
   private async optOutToken(tx: TenantTx, tenantId: string, contactId: string): Promise<string> {
-    const existing = await tx.contactOptOutToken.findFirst({
-      where: { tenantId, contactId },
+    /*
+     * ‎**`upsert` ולא „נסה ליצור, ואם נפל קרא”** (ביקורת Codex, P2).
+     *
+     * ‏הניסוח הקודם היה שגוי מול Postgres: הפרת ייחודיות **מבטלת
+     * ‏את הטרנזקציה כולה**, ולכן ה-`findFirst` שאחריה לא היה
+     * ‏משחזר דבר אלא נופל ב„transaction is aborted” — כלומר שליחה
+     * ‏תקינה לגמרי הייתה נספרת ככישלון. „אטומי” לא היה מה שכתבתי;
+     * ‏זה מה שכתוב כאן עכשיו.
+     *
+     * ‎`update: {}` הוא בכוונה ריק: בהתנגשות אין מה לעדכן — הטוקן
+     * ‏הקיים הוא התשובה, וזה בדיוק „צור אם אין, אחרת קרא”.
+     */
+    const row = await tx.contactOptOutToken.upsert({
+      where: { tenantId_contactId: { tenantId, contactId } },
+      create: {
+        id: ulid(),
+        tenantId,
+        contactId,
+        token: randomBytes(32).toString("base64url"),
+      },
+      update: {},
       select: { token: true },
     });
-    if (existing !== null) return existing.token;
-    try {
-      const created = await tx.contactOptOutToken.create({
-        data: {
-          id: ulid(),
-          tenantId,
-          contactId,
-          token: randomBytes(32).toString("base64url"),
-        },
-        select: { token: true },
-      });
-      return created.token;
-    } catch {
-      /* ‏מרוץ מול שליחה מקבילה — הזוכה כתב, ואנחנו קוראים אותו */
-      const won = await tx.contactOptOutToken.findFirst({
-        where: { tenantId, contactId },
-        select: { token: true },
-      });
-      if (won === null) throw new NotFoundException("הלקוח לא נמצא");
-      return won.token;
-    }
+    return row.token;
   }
 
   /**
@@ -247,9 +255,32 @@ export class PropertyPitchService {
      */
     const allowed = await this.buyers({ limit: 5000 });
     const chosen = new Set(input.buyerIds);
-    const rows = allowed.filter((row) => chosen.has(row.buyerId));
+    const selected = allowed.filter((row) => chosen.has(row.buyerId));
 
-    const result: PitchResult = { sent: 0, skippedNoEmail: 0, skippedOptedOut: 0, failed: 0 };
+    /*
+     * ‎**נמען אחד לכל אדם, לא לכל כרטיס** (ביקורת Codex, P1).
+     *
+     * ‏למערכת מותר במפורש שיהיו שני כרטיסי קונה על אותו איש קשר —
+     * ‏שתי דרישות שונות של אותו אדם, או שארית של מיזוג (ראו
+     * ‎`partner-match.ts`, שם אותה עובדה כבר תפסה באג של „לשדך אדם
+     * ‏לעצמו”). „סמן הכל” היה שולח לאותו אדם את אותו מייל פעמיים.
+     *
+     * ‏הכרטיס הראשון הוא שנשמר, כי התג בתיבת הדואר וכתובת התשובה
+     * ‏נגזרים ממנו וצריך שיהיה להם כרטיס אחד לחזור אליו.
+     */
+    const byContact = new Map<string, PitchBuyerRow>();
+    for (const row of selected) {
+      if (!byContact.has(row.contactId)) byContact.set(row.contactId, row);
+    }
+    const rows = [...byContact.values()];
+
+    const result: PitchResult = {
+      sent: 0,
+      skippedNoEmail: 0,
+      skippedOptedOut: 0,
+      failed: 0,
+      unknown: 0,
+    };
     const officeName = await this.officeName(tenantId);
     const env = loadEnv();
 
@@ -263,15 +294,25 @@ export class PropertyPitchService {
         continue;
       }
       try {
-        await this.sendOne({ tenantId, row, properties, officeName, origin: env.WEB_ORIGIN });
-        result.sent += 1;
+        const outcome = await this.sendOne({
+          tenantId,
+          row,
+          properties,
+          officeName,
+          origin: env.WEB_ORIGIN,
+        });
+        if (outcome === "sent") result.sent += 1;
+        else if (outcome === "opted_out") result.skippedOptedOut += 1;
+        else result.skippedNoEmail += 1;
       } catch (error) {
         /*
          * ‏כישלון אצל נמען אחד אינו עוצר את השאר — אבל הוא **נספר**
-         * ‏ומוחזר. שליחה לעשרה שהצליחה לתשעה היא לא „נשלח”, וגם
+         * ‏ומוחזר, ובנפרד לפי מה שידוע: „נדחתה” ודאית מול „איננו
+         * ‏יודעים”. שליחה לעשרה שהצליחה לתשעה היא לא „נשלח”, וגם
          * ‏לא „נכשל”.
          */
-        result.failed += 1;
+        if (error instanceof EmailRejectedError) result.failed += 1;
+        else result.unknown += 1;
         this.logger.warn(
           `שליחת הצעת נכס נכשלה לקונה ${row.buyerId} במשרד ${tenantId}: ${String(error)}`,
         );
@@ -355,10 +396,33 @@ export class PropertyPitchService {
     properties: (PitchProperty & { propertyId: string })[];
     officeName: string;
     origin: string;
-  }): Promise<void> {
+  }): Promise<"sent" | "opted_out" | "no_email"> {
     const { tenantId, row, properties, officeName, origin } = input;
-    const to = await this.prisma.withTenant((tx) => this.contacts.emailFor(tx, row.contactId));
-    if (to === undefined || to === "") throw new BadRequestException("אין מייל בכרטיס");
+
+    /*
+     * ‎**ההסכמה נקראת כאן, ולא רק ברשימה** (ביקורת Codex, P1).
+     *
+     * ‏`buyers()` צילמה את `optedOutAt` פעם אחת לפני הלולאה. שליחה
+     * ‏למאה נמענים אינה מיידית, ומי שלחץ „הסירו אותי” באמצעה היה
+     * ‏מקבל בכל זאת דיוור שיווקי — כלומר בדיוק מה ש§30א אוסר, על
+     * ‏בקשה שכבר נרשמה במסד.
+     *
+     * ‏אותה שאילתה מחזירה גם את הכתובת וגם את ההסכמה, כלומר אין
+     * ‏כאן סבב נוסף — רק תשובה עדכנית במקום תשובה משומרת.
+     */
+    const state = await this.prisma.withTenant(async (tx) => {
+      const [to, consent] = await Promise.all([
+        this.contacts.emailFor(tx, row.contactId),
+        tx.contact.findFirst({
+          where: { id: row.contactId, tenantId },
+          select: { optedOutAt: true },
+        }),
+      ]);
+      return { to, optedOut: (consent?.optedOutAt ?? null) !== null };
+    });
+    if (state.optedOut) return "opted_out";
+    const to = state.to;
+    if (to === undefined || to === "") return "no_email";
 
     const token = await this.prisma.withTenant((tx) =>
       this.optOutToken(tx, tenantId, row.contactId),
@@ -409,13 +473,37 @@ export class PropertyPitchService {
       }),
     );
 
-    await this.email.send(to, subject, content, {
-      /* ‏אותה שורה, אותו מפתח — ניסיון חוזר לא ישלח עותק שני */
-      idempotency: { key: `pitch:${messageId}`, purpose: "offer" },
-      tenantId,
-      required: true,
-      ...(replyTo === null ? {} : { replyTo }),
-    });
+    try {
+      await this.email.send(to, subject, content, {
+        /* ‏אותה שורה, אותו מפתח — ניסיון חוזר לא ישלח עותק שני */
+        idempotency: { key: `pitch:${messageId}`, purpose: "offer" },
+        tenantId,
+        required: true,
+        ...(replyTo === null ? {} : { replyTo }),
+      });
+    } catch (error: unknown) {
+      /*
+       * ‎**„נכשלה” רק כשידוע שלא יצאה** (ביקורת Codex, P1).
+       *
+       * ‏`EmailRejectedError` פירושו שהספק ענה ודחה — ההודעה
+       * ‏בוודאות לא יצאה. כל השאר (פסק זמן, ‎5xx) הוא „איננו
+       * ‏יודעים”, וסימונו כ„נכשלה” משאיר שורה שקרית בתיבה ומזמין
+       * ‏שליחה חוזרת שתגיע ללקוח פעמיים.
+       *
+       * ‏זו בדיוק ההבחנה שכבר כתובה ב-`email-inbox.service` וב-
+       * ‎`EmailService` עצמו — והנתיב הזה, השלישי, לא השתמש בה.
+       * ‏שער אחד לשלושתם רשום כמשימה נפרדת.
+       */
+      await this.prisma
+        .withTenant((tx) =>
+          tx.emailMessage.updateMany({
+            where: { id: messageId, tenantId },
+            data: { sendState: error instanceof EmailRejectedError ? "failed" : "unknown" },
+          }),
+        )
+        .catch(() => this.logger.error(`סימון מצב שליחה נכשל: ${messageId}`));
+      throw error;
+    }
 
     await this.prisma.withTenant((tx) =>
       tx.emailMessage.updateMany({
@@ -423,5 +511,6 @@ export class PropertyPitchService {
         data: { sendState: "sent" },
       }),
     );
+    return "sent";
   }
 }
