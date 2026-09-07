@@ -5,6 +5,7 @@ import {
   normalizeNameForMatch,
   type DuplicateGroup,
 } from "@metavchim/shared";
+import { assertSeesAllContacts } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -55,6 +56,15 @@ export class DuplicatesService {
 
   /** קבוצות של כרטיסים שנראים כאותו אדם. */
   async findDuplicates(): Promise<DuplicateGroup[]> {
+    /*
+     * ‎**„ראייה רוחבית על הלקוחות” היא ארבע יכולות, לא אחת.**
+     *
+     * ‏הנתיב הוצהר על `buyers.view_all`, וזה תיאר את המצב נכון עד
+     * ‏שנוספה `properties.view_all`: הסריקה כאן עוברת על **כל** אנשי
+     * ‏הקשר של המשרד ומפענחת שם וטלפון של כל התאמה, כלומר בעל נכס
+     * ‏שהמנהל הסתיר יצא דרך המסך הזה (ביקורת Codex, P1).
+     */
+    assertSeesAllContacts();
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       await this.backfillNameHashes(tx, tenantId);
@@ -144,6 +154,8 @@ export class DuplicatesService {
    * גודל הקבוצה נמדד כאן, ברגע הדחייה, ולא נלקח מהלקוח.
    */
   async dismiss(nameKey: string): Promise<{ ok: true }> {
+    // ‏אותו מסך, אותה דרישה — והדחייה מעידה שהקבוצה קיימת
+    assertSeesAllContacts();
     const { tenantId, userId } = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
       const count = await tx.contact.count({ where: { tenantId, nameHash: nameKey } });
@@ -177,6 +189,11 @@ export class DuplicatesService {
    * המספר שבגללו נוצרה הכפילות, והוא זה שהלקוח ישתמש בו בפעם הבאה.
    */
   async merge(survivorId: string, duplicateId: string): Promise<{ moved: number }> {
+    /*
+     * ‏והמיזוג חמור מהתצוגה: הוא **כותב מחדש ומוחק**. בלי השער הזה
+     * ‏אפשר היה למחוק כרטיס של בעל נכס שאינו נראה כלל למי שלוחץ.
+     */
+    assertSeesAllContacts();
     const { tenantId, userId } = TenantContext.current();
     if (survivorId === duplicateId) {
       throw new BadRequestException("אי אפשר למזג כרטיס לתוך עצמו");

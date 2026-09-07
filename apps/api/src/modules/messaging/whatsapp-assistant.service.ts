@@ -11,8 +11,8 @@ import {
   agentTurnRefs,
   type AgentHistoryRef,
   agentResultText,
-  applyBlockedModules,
-  resolveCapabilities,
+  effectiveCapabilities,
+  normalizeIsraeliPhone,
   roleLabel,
   decodeButtonId,
   historyRefs,
@@ -959,7 +959,15 @@ export class WhatsAppAssistantService {
     return user as IdentifiedUser | null;
   }
 
-  /** היכולות נבנות בדיוק כמו ב-resolveSession — חריגים ואז חסימות. */
+  /**
+   * ‎**העוזר רץ כמשתמש שהפעיל אותו — לא כישות משלו.**
+   *
+   * ‏זו כל ההפרדה: אין לעוזר תפקיד, אין לו קבוצת יכולות משלו, ואין
+   * ‏לו מסלול נתונים משלו. הקבוצה הזו היא בדיוק זו שהכניסה למערכת
+   * ‏בונה, דרך אותה פונקציה — ולכן סוכן שאינו רואה נתון במסך אינו
+   * ‏רואה אותו גם דרך העוזר. „נבנות בדיוק כמו ב-resolveSession”
+   * ‏הייתה הערה, וכעת זו אותה שורה.
+   */
   private async buildContext(user: IdentifiedUser): Promise<RequestContext> {
     const overrides = await this.prisma.withExplicitTenant(user.tenantId, (tx) =>
       tx.userCapability.findMany({
@@ -967,17 +975,9 @@ export class WhatsAppAssistantService {
         select: { capability: true, effect: true, expiresAt: true },
       }),
     );
-    const capabilities = applyBlockedModules(
-      resolveCapabilities(
-        user.role,
-        overrides.map((o) => ({
-          capability: o.capability as Capability,
-          effect: o.effect === "grant" ? ("grant" as const) : ("deny" as const),
-          expiresAt: o.expiresAt,
-        })),
-        new Date(),
-      ),
-      user.tenant.blockedModules,
+    const capabilities = effectiveCapabilities(
+      { role: user.role, overrides, blockedModules: user.tenant.blockedModules },
+      new Date(),
     );
     return { tenantId: user.tenantId, userId: user.id, capabilities, billingOnly: false };
   }
@@ -1515,7 +1515,15 @@ export class WhatsAppAssistantService {
            * בגבעתיים” בלי הסייג נשמע כמו עובדה על המשרד, בזמן
            * שהתשובה מסוננת לבעלות.
            */
-          const scope = scopeNote(state.proposal.actionId);
+          /*
+           * ‏האם זה חיפוש לפי טלפון — אותה בדיקה שמנתבת את החיפוש
+           * ‏עצמו, ולא ניחוש שני שיכול לסטות ממנה.
+           */
+          const searchTerm = state.proposal.fields.find((field) => field.key === "query");
+          const byPhone =
+            typeof searchTerm?.value === "string" &&
+            normalizeIsraeliPhone(searchTerm.value) !== undefined;
+          const scope = scopeNote(state.proposal.actionId, byPhone);
           if (scope !== "") lines.push(scope);
           break;
         }
@@ -1891,7 +1899,19 @@ const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
    * ממי שהמודול חסום אצלו (`seesAllContacts`). בלי היכולת השלישית
    * כאן הסייג היה נעלם דווקא כשחלק מההיסטוריה אכן הוסתר.
    */
-  show_calls: ["buyers.view_all", "leads.view_all", "properties.view"],
+  show_calls: [
+    "buyers.view_all",
+    "leads.view_all",
+    "properties.view",
+    /*
+     * ‏הרביעית נוספה עם ההפרדה לפי סוכן על הנכסים. ההערה שמעל כבר
+     * ‏אמרה למה השלישית כאן — „הסייג היה נעלם דווקא כשחלק
+     * ‏מההיסטוריה אכן הוסתר” — וזה חל מילה במילה גם עליה: סוכן שאין
+     * ‏לו את כל הנכסים מקבל יומן שיחות מסונן, ובלי השורה הזו ההודעה
+     * ‏הייתה מציגה אותו כמשרדי (ביקורת Codex).
+     */
+    "properties.view_all",
+  ],
   /*
    * „למי לחזור” שואבת משלושה מקורות — שיחות, לידים ומשימות —
    * ולכן דורשת את איחוד היכולות שלהם.
@@ -1909,6 +1929,8 @@ const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
     "buyers.view_all",
     "leads.view_all",
     "properties.view",
+    // ‏מאותו נימוק בדיוק כמו ב-`show_calls`: „למי לחזור” שואב משיחות
+    "properties.view_all",
     "tasks.view_all",
     "calendar.manage",
   ],
@@ -1920,7 +1942,7 @@ const SEARCH_SCOPED_GROUPS: readonly { capability: Capability; label: string }[]
   { capability: "leads.view_all", label: "לידים" },
 ];
 
-function scopeNote(actionId: string): string {
+function scopeNote(actionId: string, byPhone = false): string {
   const capabilities = TenantContext.current().capabilities;
 
   /*
@@ -1928,14 +1950,38 @@ function scopeNote(actionId: string): string {
    * הנכסים הם של המשרד ומוצגים במלואם. סייג גורף היה אומר על תוצאת
    * נכסים מלאה שהיא חלקית (ביקורת Codex) — ולכן הוא מונה בשם את
    * הקבוצות המצומצמות, ומזכיר את הנכסים רק למי שרואה אותם.
+   *
+   * ‎**„נכסים — מכל המשרד” חדל להיות נכון תמיד.** חיפוש לפי טלפון
+   * ‏מגיע ללקוח, ולקוח שהוא בעל נכס של עמית מוסתר ממי שאין לו
+   * ‏`properties.view_all` — כלומר התוצאה מצומצמת דווקא במסלול
+   * ‏שהמשפט הבטיח עליו „הכול”. ובמשרד שבו לסוכן יש `view_all` על
+   * ‏קונים ולידים, `restricted` ריק והסייג לא הופיע כלל: אפס
+   * ‏תוצאות נקרא כעובדה על המשרד (ביקורת Codex).
+   *
+   * ‏הסייג על בעלי הנכסים מוצג **רק בחיפוש לפי טלפון**, לפי אותה
+   * ‏בדיקה עצמה שמנתבת את החיפוש (`normalizeIsraeliPhone`). חיפוש
+   * ‏לפי כתובת אינו מסונן כך, וסייג עליו היה מהסוג שנפסל כאן קודם:
+   * ‏נכון על ההרשאה, שקרי על התוצאה.
    */
   if (actionId === "search") {
     const restricted = SEARCH_SCOPED_GROUPS.filter(
       (group) => !capabilities.has(group.capability),
     ).map((group) => group.label);
-    if (restricted.length === 0) return "";
-    const properties = capabilities.has("properties.view") ? "; נכסים — מכל המשרד" : "";
-    return `_(${restricted.join(" ו")} — מהרשומות שמשויכות אליך בלבד${properties})_`;
+    const ownersHidden =
+      byPhone && capabilities.has("properties.view") && !capabilities.has("properties.view_all");
+    if (restricted.length === 0 && !ownersHidden) return "";
+    const parts: string[] = [];
+    if (restricted.length > 0) {
+      parts.push(`${restricted.join(" ו")} — מהרשומות שמשויכות אליך בלבד`);
+    }
+    if (capabilities.has("properties.view")) {
+      parts.push(
+        ownersHidden
+          ? "נכסים — מכל המשרד, אך בעלי נכסים שאינם שלך אינם מופיעים בחיפוש לפי טלפון"
+          : "נכסים — מכל המשרד",
+      );
+    }
+    return `_(${parts.join("; ")})_`;
   }
 
   const required = SCOPE_CAPABILITIES[actionId];

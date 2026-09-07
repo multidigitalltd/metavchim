@@ -16,13 +16,14 @@ import {
   type SubscriptionOfferDefinition,
   type SubscriptionStatus,
 } from "@metavchim/shared";
+import { lockTenantSubscription } from "../../common/locks";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { CreditEconomyService } from "../../core/credit-economy.service";
 import { CardcomService, type Payer } from "../../core/cardcom.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { VatService } from "../../core/vat.service";
 import { InvoiceService } from "./invoice.service";
 import { NumberRentalService } from "./number-rental.service";
@@ -142,13 +143,35 @@ export class BillingService {
     });
     if (!tenant) throw new BadRequestException("המשרד לא נמצא");
 
-    return this.prisma.subscription.create({
-      data: {
-        id: ulid(),
-        tenantId,
-        planCode: tenant.plan,
-        status: tenant.status === "active" ? "active" : "trial",
-      },
+    /*
+     * ‎**היצירה מתחת לנעילת ייעוץ, ולא לבדה.**
+     *
+     * ‏עד שהשורה הזו נוצרת, `SELECT … FROM subscriptions … FOR UPDATE`
+     * ‏של כל קורא אחר נועל אפס שורות — כלומר אינו נועל דבר. סבב
+     * ‏המשפך קורא „אין כרטיס”, היצירה כאן שומרת כרטיס, ושתי
+     * ‏הטרנזקציות מאשרות: רישום שנסגר כ„מוצה” על משרד ששילם
+     * ‏(ביקורת Codex, P2).
+     *
+     * ‏אין שורה לנעול, ולכן נעול **המקום** שבו היא תיווצר.
+     * ‏`lockTenantSubscription` הוא המפתח היחיד לשני הצדדים —
+     * ‏מפתח שני היה נעילה שאינה נועלת.
+     *
+     * ‏הקריאה החוזרת בתוך הטרנזקציה אינה מיותרת: המנצח במרוץ יצר
+     * ‏את השורה בזמן שהמפסיד המתין לנעילה, ובלעדיה הוא היה נופל על
+     * ‏הפרת ייחודיות במקום להחזיר את השורה שנוצרה.
+     */
+    return this.prisma.$transaction(async (tx) => {
+      await lockTenantSubscription(tx as TenantTx, tenantId);
+      const won = await tx.subscription.findUnique({ where: { tenantId } });
+      if (won) return won;
+      return tx.subscription.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          planCode: tenant.plan,
+          status: tenant.status === "active" ? "active" : "trial",
+        },
+      });
     });
   }
 
@@ -838,6 +861,18 @@ export class BillingService {
         // הניסיון נגמר ברכישה; השארתו הייתה נועלת משרד משלם ביום התפוגה
         trialEndsAt: null,
         /*
+         * ‎**והסיבה נרשמת — גם כאן, ולא רק במסלול החינמי.**
+         *
+         * ‏„יש כרטיס, ולכן משפך ההמרה יסגור אותו כ„שילם”” נכון
+         * ‏לרכישה רגילה ולא לקופון של 100%: שם `card` הוא `null`,
+         * ‏אין כרטיס תקף, והתאריך שנמחק היה נקרא כ„חסר זמנית”.
+         * ‏הרישום היה נשאר פתוח והמשרד היה מקבל הודעות מכירה **אחרי**
+         * ‏שכבר הפעיל מנוי (ביקורת Codex).
+         *
+         * ‏באותה טרנזקציה של התשלום, כי זו אותה עובדה: המנוי הופעל.
+         */
+        trialConcludedAt: input.now,
+        /*
          * שער ההרשאה. בלעדיו תשלום אחד היה פותח גישה לנצח, כי
          * `tenantCanOperate` קורא את שורת הדייר ולא את המנוי.
          *
@@ -1066,6 +1101,15 @@ export class BillingService {
           plan: plan.code,
           status: "active",
           trialEndsAt: null,
+          /*
+           * ‎**והסיבה נרשמת, לא רק התוצאה.**
+           *
+           * ‏תאריך ריק לבדו אינו אומר אם הניסיון נגמר או שהערך
+           * ‏אופס זמנית, ומשפך ההמרה מכריע הפוך בין שני המצבים.
+           * ‏כאן הוא נגמר — המשרד בחר מסלול חינמי — ולכן שלבי
+           * ‏הניסיון שלו אינם „עוד ייתכנו”.
+           */
+          trialConcludedAt: new Date(),
           // null = בלי תפוגה — מסלול חינמי אינו ננעל
           paidUntil: null,
         },

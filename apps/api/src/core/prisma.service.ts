@@ -119,6 +119,30 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   /**
+   * מנוע המסלולים — קריאה וכתיבה חוצות-דיירים על `funnel_enrollments`
+   * ו-`funnel_messages` **בלבד**.
+   *
+   * אותו דפוס כמו `withSupportDesk`, ומאותו נימוק: המנוע שולח לכל
+   * המשרדים, והמסך „מי קיבל ומי פתח” הוא **כל התכלית** של המדידה.
+   * סריקה שרצה משרד-משרד תחת `withExplicitTenant` הייתה מייצרת
+   * שאילתה לכל דייר בכל סבב, ובעיקר לא הייתה יכולה לענות על השאלה
+   * שהמסך שואל — „כמה נשלחו החודש” היא שאלה חוצת-דיירים.
+   *
+   * הגבול נשמר בשלוש שכבות: הפוליסה קיימת רק על שתי הטבלאות האלה,
+   * הדגל נדלק רק כאן, וכל קורא חסום מאחורי PlatformAdminGuard או
+   * רץ כסורק פנימי בלי בקשת משתמש כלל.
+   *
+   * אין לגזור מכאן מזהה דייר ולהמשיך איתו לטבלאות אחרות — לכך יש
+   * `withExplicitTenant`, שממשיכה להיאכף ב-RLS.
+   */
+  async withFunnelAdmin<T>(fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.funnel_admin', 'on', true)`;
+      return fn(tx);
+    });
+  }
+
+  /**
    * גישה ציבורית לפי טוקן הצעה (דף ההצעה ללקוח קצה): פוליסת RLS ייעודית
    * חושפת אך ורק את שורת ההצעה שהטוקן שלה הוצג — בלי הקשר דייר,
    * בלי גישה לשום טבלה אחרת.

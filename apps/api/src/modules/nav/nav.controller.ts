@@ -1,7 +1,11 @@
 import { Controller, Get } from "@nestjs/common";
 import { isTaskUrgent } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
-import { leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
+import {
+  leadOwnershipFilter,
+  ownershipFilter,
+  visibleContactIds,
+} from "../../common/ownership";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AnyAuthenticated } from "../../common/auth.decorators";
@@ -70,6 +74,16 @@ export class NavController {
       select: { blockedModules: true },
     });
     return this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**הבאדג' סופר את מה שהתיבה מראה — ולא את המשרד כולו.**
+       *
+       * ‏עד כה ההערה כאן אמרה „התיבה משותפת לכל המשרד”, וזה נכון היה
+       * ‏עד שהתיבה קיבלה סינון לפי בעלות. באדג' שסופר יותר ממה
+       * ‏שהרשימה מציגה הוא גם דלף — הוא מסגיר שיש התכתבות שלא רואים —
+       * ‏וגם מספר שאי אפשר לאפס: אין שיחה לפתוח שתוריד אותו
+       * ‏(ביקורת Codex).
+       */
+      const visibleContacts = await visibleContactIds(tx, tenantId);
       const now = new Date();
       const [properties, buyers, newLeads, matches, ledger, taskRows, emailUnread] = await Promise.all([
         // deletedAt מפורש בשני אלה: אלה המונים שליד שמות המסכים,
@@ -127,8 +141,15 @@ export class NavController {
           select: { status: true, dueAt: true },
           take: 500,
         }),
-        // תשובות לקוחות שאיש עוד לא פתח — התיבה משותפת לכל המשרד
-        tx.emailMessage.count({ where: { tenantId, direction: "in", readAt: null } }),
+        // ‏תשובות לקוחות שאיש עוד לא פתח — באותו היקף בדיוק של התיבה
+        tx.emailMessage.count({
+          where: {
+            tenantId,
+            direction: "in",
+            readAt: null,
+            ...(visibleContacts === null ? {} : { contactId: { in: visibleContacts } }),
+          },
+        }),
       ]);
       return {
         properties,

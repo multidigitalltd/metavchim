@@ -57,6 +57,7 @@ export interface OccupantContact {
 export function PropertyOccupant({
   propertyId,
   occupant,
+  redacted = false,
   occupancy,
   leaseEndsAt,
   noticePeriodDays,
@@ -67,6 +68,11 @@ export function PropertyOccupant({
 }: {
   propertyId: string;
   occupant?: OccupantContact;
+  /**
+   * ‏לנכס יש דייר, והוא אינו מוצג לך. „חסר” כאן היה מציע להחליף
+   * ‏אדם קיים שהסוכן אינו רשאי לראות — והמחיקה מסוכנת אף יותר.
+   */
+  redacted?: boolean;
   /** ‎`undefined` = טרם נשאל. **לא** „הבעלים גר בנכס”. */
   occupancy?: OccupancyState;
   leaseEndsAt?: string;
@@ -445,6 +451,15 @@ export function PropertyOccupant({
             אם המספר כבר קיים במערכת, הנכס יקושר לאותו אדם ולא ייווצר כרטיס כפול.
           </p>
         </form>
+      ) : redacted ? (
+        /*
+          ‏לנכס יש דייר רשום שאינו מוצג — ולכן אין כאן „הוסף”, שהיה
+          מחליף אותו, ואין „הסר”, שהיה מוחק אותו.
+        */
+        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          לנכס הזה יש דייר רשום, והוא אינו מוצג לך. אם אתה צריך את הפרטים — פנה
+          למנהל המשרד.
+        </p>
       ) : (
         <>
           {/*

@@ -204,9 +204,16 @@ export class ContactsController {
     return this.duplicates.dismiss(body.key);
   }
 
-  // אין כאן יכולת אחת נדרשת: כל תת-רשימה נשלטת ע"י כלל המודול שלה
-  // (הקונה והלידים בפילטר הבעלות, הנכסים כלל-משרדיים) — לכן ההצהרה
-  // היא "מחובר", וההרשאה בפועל נאכפת בתוך השאילתה עצמה.
+  /*
+   * ‏אין כאן יכולת אחת נדרשת: כל תת-רשימה נשלטת ע"י כלל המודול שלה,
+   * ‏ולכן ההצהרה היא "מחובר" וההרשאה נאכפת בתוך השאילתה.
+   *
+   * ‎**מה שהיה חסר: הלקוח עצמו.** הקיום שלו נבדק לפי `id` ו-`tenantId`
+   * ‏בלבד, וענף הנכסים נשלף בלי סינון בעלות — כי „הנכסים גלויים לכל
+   * ‏המשרד”, שהיה נכון לפני `properties.view_all`. מי שיודע מזהה של
+   * ‏בעל נכס מוסתר יכול היה לאשר שהוא קיים **ולראות איזה נכס בדיוק
+   * ‏שייך לו** (ביקורת Codex).
+   */
   @AnyAuthenticated()
   @Get(":id/related")
   async related(
@@ -214,11 +221,8 @@ export class ContactsController {
   ): Promise<RelatedEntitiesDto> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
-      const contact = await tx.contact.findFirst({
-        where: { id, tenantId },
-        select: { id: true },
-      });
-      if (!contact) throw new NotFoundException("איש קשר לא נמצא");
+      // „לא נמצא” ו„אינו שלי” חייבים להיראות זהים — ההבדל מסגיר קיום
+      await assertContactAccess(tx, tenantId, id);
 
       const [buyers, leads, properties] = await Promise.all([
         tx.buyer.findMany({
@@ -242,9 +246,18 @@ export class ContactsController {
           take: 10,
           select: { id: true, status: true, intent: true, createdAt: true },
         }),
-        // נכסים גלויים לכל המשרד — אין פילטר בעלות במודול הנכסים
+        /*
+         * ‏הנכס עצמו משרדי, אבל **הקישור בינו לבין האדם** הוא מה
+         * ‏שהיכולת מגנה עליו — אותו נימוק בדיוק כמו בחיפוש לפי
+         * ‏טלפון ובכרטיס הנכס.
+         */
         tx.property.findMany({
-          where: { tenantId, ownerContactId: id, deletedAt: null },
+          where: {
+            tenantId,
+            ownerContactId: id,
+            deletedAt: null,
+            ...ownershipFilter("properties.view_all", "agentUserId"),
+          },
           orderBy: { createdAt: "desc" },
           take: 10,
           select: { id: true, marketingTitle: true, city: true, status: true },

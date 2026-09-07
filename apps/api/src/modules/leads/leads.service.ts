@@ -7,7 +7,12 @@ import {
   type Page,
 } from "@metavchim/shared";
 import { lockContact, lockLead } from "../../common/locks";
-import { assertLeadAccess, leadIsVisible, leadOwnershipFilter } from "../../common/ownership";
+import {
+  assertLeadAccess,
+  leadIsVisible,
+  leadOwnershipFilter,
+  type PhoneTypedBy,
+} from "../../common/ownership";
 import { agentNameOf, agentNames } from "../../common/agent-names";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -95,6 +100,16 @@ export class LeadsService {
     summary?: string;
     requiresHuman?: boolean;
     requiresHumanReason?: string;
+    /**
+     * ‎**מי הקליד את המספר** (ביקורת Codex, P1).
+     *
+     * ‏קליטת ליד מצרפת כרטיס לקוח לליד שהסוכן מקבל עליו בעלות,
+     * ‏והצירוף עצמו הוא שפותח את `canSeeContact` — כלומר מספר של
+     * ‏בעל נכס מוסתר, שהוקלד במסך, החזיר את פרטיו מפוענחים.
+     * ‏הטופס הציבורי והמסלולים המערכתיים מקבלים את המספר מבעליו
+     * ‏ולכן מצהירים `office`; כל מסך של סוכן מצהיר `agent`.
+     */
+    typedBy: PhoneTypedBy;
   }): Promise<{ id: string; merged: boolean; visible: boolean }> {
     const ctx = TenantContext.current();
     const id = ulid();
@@ -105,10 +120,11 @@ export class LeadsService {
     let mergedVisible = true;
 
     await this.prisma.withTenant(async (tx) => {
-      const contact = await this.contacts.findOrCreateByPhone(tx, {
-        name: input.contactName,
-        phone: input.contactPhone,
-      });
+      const contact = await this.contacts.findOrCreateByPhoneTyped(
+        tx,
+        { name: input.contactName, phone: input.contactPhone },
+        { typedBy: input.typedBy, subject: "קליטת ליד" },
+      );
       /*
        * השלמה, לא דריסה: כתובת שכבר על הכרטיס הוקלדה או נקלטה
        * ממקור חי, וקובץ ישן שמיובא אחריה לא אמור למחוק אותה.

@@ -38,7 +38,8 @@ import {
   isOverrideActive,
   limitState,
   overrideRejectionReason,
-  resolveCapabilities,
+  orphanedGrantReason,
+  effectiveCapabilities,
   type Capability,
   type LimitState,
   DEFAULT_MATCH_WEIGHTS,
@@ -188,6 +189,19 @@ type UserCapabilitiesDto = {
   role: string;
   protected: boolean;
   effective: string[];
+  /**
+   * ‎**מודולים שהפלטפורמה חסמה למשרד — לא לסוכן הזה.**
+   *
+   * ‏`effective` כבר מנוכה מהם, וזה נכון אבל לא מספיק: המסך אינו
+   * ‏יודע **למה** היכולת חסרה, ולכן הוא הציג „חסום” לצד כפתורי
+   * ‏„חסום” ו„הענק” שפועלים על שכבת החריגים — שכבה שאינה יכולה
+   * ‏לפתוח מודול שנחסם מלמעלה. ההענקה נדחית, והמנהל אינו מבין
+   * ‏למה (ביקורת Codex, P2).
+   *
+   * ‏מפתחות המודולים כפי שהם ב-`CAPABILITY_MODULES`, ולכן המסך
+   * ‏משווה מול אותה רשימה שהוא מרנדר.
+   */
+  blockedModules: string[];
   overrides: {
     capability: string;
     effect: string;
@@ -1295,7 +1309,14 @@ export class SettingsController {
     const tenantId = TenantContext.current().tenantId;
     const target = await this.prisma.user.findFirst({
       where: { id, tenantId },
-      select: { id: true, name: true, role: true },
+      /*
+       * ‎**וגם חסימות המודולים של המשרד.** בלעדיהן המסך הציג
+       * ‏„היכולות בפועל” שאינן בפועל: יכולת שהפלטפורמה חסמה למשרד
+       * ‏המשיכה להופיע כפעילה, ומנהל שקורא את המסך הזה כדי להחליט
+       * ‏מה לסוכן מותר קיבל תשובה שגויה — במסך שכל תפקידו לענות
+       * ‏עליה נכון.
+       */
+      select: { id: true, name: true, role: true, tenant: { select: { blockedModules: true } } },
     });
     if (!target) throw new BadRequestException("משתמש לא נמצא");
 
@@ -1325,7 +1346,17 @@ export class SettingsController {
       // בעל המשרד מוגן בשרת; המסך מקבל את הדגל כדי להסביר למה
       protected:
         target.role === "owner" || target.id === TenantContext.current().userId,
-      effective: [...resolveCapabilities(target.role, overrides, now)],
+      blockedModules: [...target.tenant.blockedModules],
+      effective: [
+        ...effectiveCapabilities(
+          {
+            role: target.role,
+            overrides: rows,
+            blockedModules: target.tenant.blockedModules,
+          },
+          now,
+        ),
+      ],
       overrides: rows.map((row, index) => ({
         capability: row.capability,
         effect: row.effect,
@@ -1335,6 +1366,53 @@ export class SettingsController {
         active: isOverrideActive(overrides[index]!, now),
       })),
     };
+  }
+
+  /**
+   * ‎**הענקה שלא תשנה דבר נדחית — עם שם החוסם** (ביקורת Codex, P2).
+   *
+   * ‏החישוב הוא על המצב **אחרי** הפעולה, ומאותה `effectiveCapabilities`
+   * ‏שכל שאר המערכת קוראת. בדיקה מול המצב הקודם הייתה דוחה גם
+   * ‏„הענק את כרטיס הכניסה ואת המרחיבה יחד”, שהיא בדיוק הפעולה
+   * ‏שההודעה מבקשת מהמנהל לעשות.
+   */
+  private async assertGrantsTakeEffect(
+    userId: string,
+    role: string,
+    granted: readonly Capability[],
+    body: z.infer<typeof SetCapabilitiesSchema>,
+    expiresAt: Date | null,
+  ): Promise<void> {
+    const ctx = TenantContext.current();
+    const [tenant, existing] = await Promise.all([
+      this.prisma.tenant.findUnique({
+        where: { id: ctx.tenantId },
+        select: { blockedModules: true },
+      }),
+      this.prisma.withTenant((tx) =>
+        tx.userCapability.findMany({
+          where: { userId, tenantId: ctx.tenantId },
+          select: { capability: true, effect: true, expiresAt: true },
+        }),
+      ),
+    ]);
+    const after = new Map(existing.map((row) => [row.capability, row]));
+    for (const capability of body.capabilities) {
+      if (body.effect === "clear") after.delete(capability);
+      else after.set(capability, { capability, effect: body.effect, expiresAt });
+    }
+    const effective = effectiveCapabilities(
+      {
+        role,
+        overrides: [...after.values()],
+        blockedModules: tenant?.blockedModules ?? [],
+      },
+      new Date(),
+    );
+    for (const capability of granted) {
+      const reason = orphanedGrantReason(capability, effective);
+      if (reason !== null) throw new BadRequestException(reason);
+    }
   }
 
   /**
@@ -1387,6 +1465,8 @@ export class SettingsController {
       ),
     );
 
+    /** ‏מה שהפעולה הזו **מדליקה** — ולא רק „מה נשלח”. */
+    const granted: Capability[] = [];
     for (const capability of body.capabilities) {
       const effect =
         body.effect === "clear"
@@ -1405,11 +1485,24 @@ export class SettingsController {
         effect,
       });
       if (reason) throw new BadRequestException(reason);
+      if (effect === "grant") granted.push(capability as Capability);
     }
 
     const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
     if (expiresAt && expiresAt.getTime() <= Date.now()) {
       throw new BadRequestException("מועד סיום החסימה חייב להיות בעתיד");
+    }
+
+    /*
+     * ‎**והפעולה חייבת לעשות את מה שהיא אומרת** (ביקורת Codex, P2).
+     *
+     * ‏יכולת מרחיבה שכרטיס הכניסה שלה חסום יורדת בנרמול, ולכן
+     * ‏„הענק” החזיר „בוצע” והמסך נשאר כבוי. הבדיקה נעשית על המצב
+     * ‏**אחרי** הפעולה — כך ש„הענק את שתיהן יחד” עוברת, וההענקה
+     * ‏היתומה לבדה נדחית עם שם החוסם.
+     */
+    if (granted.length > 0) {
+      await this.assertGrantsTakeEffect(id, target.role, granted, body, expiresAt);
     }
 
     await this.prisma.withTenant(async (tx) => {

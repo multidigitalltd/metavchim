@@ -3,11 +3,9 @@ import * as argon2 from "argon2";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
-  applyBlockedModules,
+  effectiveCapabilities,
   isTrialExpired,
   normalizePhone,
-  resolveCapabilities,
-  type Capability,
 } from "@metavchim/shared";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -671,22 +669,18 @@ export class AuthService {
     const tenantSettings = (tenantRow?.settings ?? {}) as Record<string, unknown>;
     const tenantHasLogo = typeof tenantSettings["logoKey"] === "string";
     /*
-     * חסימת מודול של הפלטפורמה מוחלת **אחרי** חריגי המנהל, ולא
-     * כחריג נוסף: חריג deny ברמת המשתמש נמחק בלחיצה של מנהל המשרד,
-     * וחסימה שהנחסם יכול להסיר אינה חסימה. הכיוון חד־צדדי — היא
-     * מורידה יכולות ולעולם לא מוסיפה.
+     * ‏שלוש השכבות — תפקיד, חריגים, חסימות — יושבות ב-shared בפונקציה
+     * ‏אחת, ובכוונה: הצירוף הזה נדרש גם לעוזר שבוואטסאפ, גם לשער
+     * ‏ההתראות, גם לסבב של העובד וגם למסך ההרשאות, ועותק שנפרד
+     * ‏פירושו „מי רשאי למה” שונה בין שניים מהם.
      */
-    const capabilities = applyBlockedModules(
-      resolveCapabilities(
-        session.user.role,
-        overrides.map((o) => ({
-          capability: o.capability as Capability,
-          effect: o.effect === "grant" ? "grant" : "deny",
-          expiresAt: o.expiresAt,
-        })),
-        new Date(),
-      ),
-      session.user.tenant.blockedModules,
+    const capabilities = effectiveCapabilities(
+      {
+        role: session.user.role,
+        overrides,
+        blockedModules: session.user.tenant.blockedModules,
+      },
+      new Date(),
     );
     /*
      * המסלול נקרא מהקטלוג המומטמן ולא מהמסד — הקוד הזה רץ על כל
