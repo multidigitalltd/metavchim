@@ -194,6 +194,9 @@ jobs:
       - name: IaC template matches env example
         run: pnpm verify:iac
 
+      - name: Every service ships the same commit
+        run: pnpm verify:release
+
       # ארכיון מדיה משלים מחזיק רק את מה שהשתנה. run.sh, restore.sh
       # ו-backup-file.ts חייבים להסכים על כך; אם לא — השחזור פורס
       # ארכיון חלקי לתוך אחסון שנמחק זה עתה, בלי שגיאה אחת בדרך.
@@ -335,7 +338,13 @@ jobs:
         run: pnpm --filter @metavchim/api test:rls
 
   # בניית תמונות הפרודקשן ודחיפה ל-GHCR — רק על מיזוג ל-main.
-  # כפתור "עדכן גרסה" במסך ההגדרות מושך את :latest מכאן (docs/10).
+  #
+  # ‎**התג הזז כאן הוא הקומיט בלבד, ולא `:latest`.** כל יעד נבנה
+  # בג'וב נפרד ומסיים בזמן אחר — ב-2c2fd8e היה הפרש של 4.5 דקות בין
+  # web לבין api — ולכן הזזת `:latest` כאן פירושה שבחלון הזה
+  # ‎`:latest` של השירותים מצביע על שני קומיטים שונים. „עדכן גרסה”
+  # שנלחץ בתוכו מושך חצי גרסה, והמערכת רצה בשתי גרסאות במקביל.
+  # ההזזה עברה ל-`publish` שלמטה, אחרי שכולם נבנו.
   docker:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [verify, cross-tenant, iac]
@@ -363,11 +372,41 @@ jobs:
           file: infra/docker/Dockerfile
           target: ${{ matrix.target }}
           push: true
-          tags: |
-            ghcr.io/${{ github.repository }}-${{ matrix.target }}:latest
-            ghcr.io/${{ github.repository }}-${{ matrix.target }}:${{ github.sha }}
+          tags: ghcr.io/${{ github.repository }}-${{ matrix.target }}:${{ github.sha }}
           build-args: |
             APP_VERSION=${{ github.sha }}
             NEXT_PUBLIC_API_URL=
           cache-from: type=gha,scope=${{ matrix.target }}
           cache-to: type=gha,scope=${{ matrix.target }},mode=max
+
+  # ‎**`:latest` זז לכל השירותים יחד, ורק אחרי שכולם נבנו.**
+  #
+  # ‎`needs: docker` הוא כל העניין: כישלון בבנייה של יעד אחד מונע את
+  # ההזזה **מכולם**, במקום להשאיר שלושה מעודכנים ואחד מאחור לצמיתות
+  # — כי `:latest` של מי שנכשל היה נשאר על הקומיט הקודם, ומשיכה
+  # חוזרת הייתה מביאה אותו שוב ושוב.
+  #
+  # ‎`imagetools create` מזיז תג על המניפסט בצד ה-Registry: אין כאן
+  # משיכה, בנייה או בחירת ארכיטקטורה, ולכן ארבע ההזזות לוקחות שניות
+  # ולא דקות. חלון אי-ההסכמה מצטמצם לזה, במקום לאורך הבנייה.
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: docker
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # הרשימה זהה למטריצה שמעל — `verify:release` אוכף את זה, כי
+      # יעד שנוסף שם ולא כאן היה נשאר עם `:latest` קפוא לנצח.
+      - name: Move :latest to this commit — every service at once
+        run: |
+          for target in api web workers updater; do
+            image="ghcr.io/${{ github.repository }}-${target}"
+            docker buildx imagetools create -t "${image}:latest" "${image}:${{ github.sha }}"
+          done
