@@ -115,7 +115,12 @@ import {
   type BackupRunStatus,
   type RestoreStatus,
 } from "./backups.service";
-import { callUpdaterAgent, updaterFailure } from "./updater-agent";
+import {
+  callUpdaterAgent,
+  updaterFailure,
+  updaterFailureMessage,
+  type UpdateRunStatus,
+} from "./updater-agent";
 import { type DiskStatus, DiskSpaceService } from "./disk-space.service";
 import { ServiceVersionsService } from "./service-versions.service";
 import { WebhookLogService } from "../webhook-log/webhook-log.service";
@@ -2799,6 +2804,46 @@ export class PlatformController {
     if (res.status === 409) throw new ConflictException("עדכון כבר רץ — המתינו לסיומו");
     if (!res.ok) throw updaterFailure(res);
     return { status: "started" };
+  }
+
+  /**
+   * ‎**מה עלה בגורל העדכון.**
+   *
+   * ‏עד כה `POST system/update` החזיר „הופעל” וזה היה כל מה שהמסך
+   * ‏ידע אי פעם. עדכון שנכשל — משיכה שנדחתה, שירות שלא עלה — נראה
+   * ‏בדיוק כמו עדכון שהצליח, והסיבה נשארה בלוג של קונטיינר הסוכן.
+   *
+   * ‏הסוכן שורד את ההפעלה מחדש (הוא קונטיינר נפרד), ולכן הוא זה
+   * ‏שמחזיק את התשובה: ה-API עצמו נהרג באמצע ואינו יכול לזכור דבר.
+   * ‏אותו מבנה בדיוק כמו `backups/restore/status`.
+   */
+  @Get("system/update/status")
+  async updateStatus(): Promise<UpdateRunStatus> {
+    const res = await callUpdaterAgent("/update/status", { method: "GET" });
+    /*
+     * ‎**404 מהסוכן אינו כישלון של השאילתה — הוא התשובה עליה.**
+     *
+     * ‏העדכון אינו מרים את הסוכן (הוא מריץ את `compose` מתוך עצמו),
+     * ‏ולכן מיד אחרי שהשינוי הזה נפרס הסוכן שבשרת עדיין ישן ואינו
+     * ‏מכיר את הנתיב. חריגה כאן הייתה נבלעת ב-`catch` של המסך, והוא
+     * ‏היה נשאר בספינר לנצח — כלומר בדיוק השתיקה שהשינוי הזה בא
+     * ‏לתקן, רק בניסוח חדש (ביקורת Codex).
+     *
+     * ‏לכן זו תוצאה מדווחת: „לא הצלחתי לדעת, והנה הפקודה שתתקן”.
+     * ‏שאר הכשלים נשארים חריגות — שם כישלון הוא באמת כישלון.
+     */
+    if (res.status === 404) {
+      return {
+        running: false,
+        startedAt: null,
+        finishedAt: null,
+        ok: false,
+        message: updaterFailureMessage(res.status),
+        stage: null,
+      };
+    }
+    if (!res.ok) throw updaterFailure(res);
+    return (await res.json()) as UpdateRunStatus;
   }
 
   /**
