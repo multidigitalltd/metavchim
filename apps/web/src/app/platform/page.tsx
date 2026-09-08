@@ -33,6 +33,7 @@ import { PayoutDeskSection } from "./payout-desk-section";
 import { ReferralRevenueSection } from "./referral-revenue-section";
 import { Notice } from "../notice";
 import { EntityTabs, TabPanel, useEntityTab } from "../entity-tabs";
+import { FunnelCopySection } from "./funnel-copy-section";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים בלי SSH. נגיש רק למנהלי
@@ -436,6 +437,7 @@ const PLATFORM_TABS = [
   { key: "agencies", label: "משרדים" },
   { key: "pricing", label: "מסלולים ומחירים" },
   { key: "billing", label: "גבייה" },
+  { key: "funnel", label: "נוסחי המרה" },
   { key: "integrations", label: "חיבורים" },
   { key: "system", label: "מערכת" },
 ] as const;
@@ -693,6 +695,15 @@ export default function PlatformPage() {
         <CouponsSection />
         <LeadPricesSection />
         <CreditEconomySection refreshToken={referralFeeVersion} />
+      </TabPanel>
+
+      {/*
+        ‎**לשונית משלה, ולא בתוך „מסלולים ומחירים”.** שם נקבע כמה
+        ‏עולה; כאן נקבע מה **אומרים** למי שעדיין לא שילם. שתי
+        ‏החלטות שונות, ושתי פעמים שונות שנכנסים אליהן.
+      */}
+      <TabPanel tab="funnel" active={tab}>
+        <FunnelCopySection />
       </TabPanel>
 
       <TabPanel tab="billing" active={tab}>

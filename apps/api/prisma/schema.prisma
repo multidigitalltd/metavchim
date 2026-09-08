@@ -3599,6 +3599,13 @@ model FunnelStage {
   /// שם התבנית ב-WhatsApp Manager. null = טרם אושרה אצל Meta.
   whatsappTemplate String? @map("whatsapp_template") @db.VarChar(120)
   whatsappLanguage String  @default("he") @map("whatsapp_language") @db.VarChar(10)
+  /// ‏מה כתוב על הכפתור, ולאן הוא מוביל — נערכים בנפרד, כי תיקון
+  /// ‏נוסח אינו אמור לגעת בנתיב.
+  ///
+  /// ‏הנתיב **יחסי**: המקור נקבע מ-`WEB_ORIGIN`, וכתובת מלאה שנשמרת
+  /// ‏בשורה הייתה נשברת בכל העברה בין סביבות.
+  ctaLabel         String?  @map("cta_label") @db.VarChar(60)
+  ctaPath          String?  @map("cta_path") @db.VarChar(200)
 
   sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at")
