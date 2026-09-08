@@ -790,65 +790,81 @@ export default function BuyerDetailPage({
           סקירה — מה שסוכן קורא לפני שיחה
           ============================================================ */}
       <TabPanel tab="overview" active={tab}>
-        <div className="grid items-start gap-[18px] lg:[grid-template-columns:340px_1fr]">
-          <div className="grid gap-[18px]">
-            {/*
-              ‎---- הפעולה הבאה ----
+        {/*
+          ‎---- הפעולה הבאה ---- ‏על פני כל הרוחב, מעל הטורים
 
-              ‏משפט אחד ופעולה אחת, בראש הלשונית: יש כאן N התאמות
-              ‏שממתינות, וזו הגבוהה שבהן. הסוכן שפותח את הכרטיס אינו
-              ‏צריך לגלול ולהסיק — הדבר שכדאי לעשות עכשיו כתוב.
+          ‏קובץ העיצוב מציב אותה מעל שלושת הטורים ולא בתוך אחד
+          ‏מהם: היא משפט על **הכרטיס** כולו, לא כרטיסייה שמתחרה
+          ‏עם השכנות שלה על אותה עמודה.
 
-              ‏מוצג רק כשבאמת נשארה שליחה: כשאין התאמה שלא נשלחה
-              ‏(`topMatch` ריק) אין פעולה, ובאנר שאומר „0 מחכים” הוא
-              ‏רעש בראש הכרטיס. וגם רק אחרי שידוע מה כבר נשלח —
-              ‏אחרת המספר היה קופץ מ„הכול” אל האמת שנייה אחר כך.
-            */}
-            {offersLoaded && topMatch !== undefined ? (
-              <div className="mv-nextaction mv-domain-violet">
-                <span
-                  aria-hidden="true"
-                  className="mv-tile mv-tile--44 mv-domain-violet flex-none"
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.9"
-                  >
-                    <circle cx="9" cy="12" r="5.5" />
-                    <circle cx="15" cy="12" r="5.5" />
-                  </svg>
-                </span>
-                <div className="min-w-0">
-                  <div
-                    className="font-black"
-                    style={{ fontSize: "calc(17 / 16 * 1rem)" }}
-                  >
-                    {waitingMatches.length === 1
-                      ? "נכס מתאים אחד מחכה לשליחה"
-                      : `${waitingMatches.length} נכסים מתאימים מחכים לשליחה`}
-                  </div>
-                  <div
-                    className="mt-0.5 text-[length:var(--type-body-sm)]"
-                    style={{ color: "var(--domain-violet-fg)" }}
-                  >
-                    ההתאמה הגבוהה ביותר — {topMatch.score}% ·{" "}
-                    {topMatch.property.address}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="mv-btn-primary ms-auto flex-none"
-                  onClick={() => selectTab("matches")}
-                >
-                  צפה בהתאמות
-                </button>
+          ‏משפט אחד ופעולה אחת, בראש הלשונית: יש כאן N התאמות
+          ‏שממתינות, וזו הגבוהה שבהן. הסוכן שפותח את הכרטיס אינו
+          ‏צריך לגלול ולהסיק — הדבר שכדאי לעשות עכשיו כתוב.
+
+          ‏מוצג רק כשבאמת נשארה שליחה: כשאין התאמה שלא נשלחה
+          ‏(`topMatch` ריק) אין פעולה, ובאנר שאומר „0 מחכים” הוא
+          ‏רעש בראש הכרטיס. וגם רק אחרי שידוע מה כבר נשלח —
+          ‏אחרת המספר היה קופץ מ„הכול” אל האמת שנייה אחר כך.
+        */}
+        {offersLoaded && topMatch !== undefined ? (
+          <div className="mv-nextaction mv-domain-violet">
+            <span
+              aria-hidden="true"
+              className="mv-tile mv-tile--44 mv-domain-violet flex-none"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.9"
+              >
+                <circle cx="9" cy="12" r="5.5" />
+                <circle cx="15" cy="12" r="5.5" />
+              </svg>
+            </span>
+            <div className="min-w-0">
+              <div
+                className="font-black"
+                style={{ fontSize: "calc(17 / 16 * 1rem)" }}
+              >
+                {waitingMatches.length === 1
+                  ? "נכס מתאים אחד מחכה לשליחה"
+                  : `${waitingMatches.length} נכסים מתאימים מחכים לשליחה`}
               </div>
-            ) : null}
+              <div
+                className="mt-0.5 text-[length:var(--type-body-sm)]"
+                style={{ color: "var(--domain-violet-fg)" }}
+              >
+                ההתאמה הגבוהה ביותר — {topMatch.score}% ·{" "}
+                {topMatch.property.address}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="mv-btn-primary ms-auto flex-none"
+              onClick={() => selectTab("matches")}
+            >
+              צפה בהתאמות
+            </button>
+          </div>
+        ) : null}
 
+        {/*
+          ‎---- שלושה טורים ---- (קובץ העיצוב)
+
+          ‏מה הוא מחפש · מה שולחים ומה כתוב עליו · מי אנשי הקשר.
+          ‏שלוש שאלות שסוכן שואל לפני שיחה, ואף אחת מהן אינה המשך
+          ‏של השנייה — ולכן הן זו לצד זו ולא זו מתחת לזו. בטלפון
+          ‏הרשת מתקפלת לטור אחד באותו סדר.
+
+          ‏עד כאן זה היה טור צר של 340px ולידו רחב: „מה הוא מחפש”,
+          ‏הכרטיסייה הארוכה בעמוד, הייתה נדחסת לצר בזמן שהערות
+          ‏ואנשי הקשר קיבלו את הרחב.
+        */}
+        <div className="grid items-start gap-[18px] lg:grid-cols-3">
+          <div className="grid content-start gap-[18px]">
             {/*
               ---- שלמות פרופיל החיפוש ----
               כרטיס חצי-מלא נראה בדיוק כמו כרטיס מלא, ולכן סוכן מריץ
@@ -930,14 +946,6 @@ export default function BuyerDetailPage({
                 </div>
               )}
             </section>
-
-            {/*
-              ---- הלקוח ממלא בעצמו ----
-              מיד אחרי „פרטי חיפוש”, וזה לא מקרי: הכרטיס שמעל אומר
-              מה חסר, וזה אומר איך להשלים את זה בלי להקליד. הלקוח
-              יודע את התשובות טוב יותר, וממלא כשנוח לו.
-            */}
-            <IntakePanel subject="buyer" entityId={id} canEdit={canEditPeople} />
 
             {/* ---- מה הוא מחפש ---- */}
             <section
@@ -1194,7 +1202,15 @@ export default function BuyerDetailPage({
             </section>
           </div>
 
-          <div className="grid gap-[18px]">
+          <div className="grid content-start gap-[18px]">
+            {/*
+              ---- הלקוח ממלא בעצמו ----
+              מיד אחרי „פרטי חיפוש”, וזה לא מקרי: הכרטיס שמעל אומר
+              מה חסר, וזה אומר איך להשלים את זה בלי להקליד. הלקוח
+              יודע את התשובות טוב יותר, וממלא כשנוח לו.
+            */}
+            <IntakePanel subject="buyer" entityId={id} canEdit={canEditPeople} />
+
             {/* ---- הערות הסוכן ---- */}
             <EntityNotes
               value={buyer.agentNotes}
@@ -1203,23 +1219,29 @@ export default function BuyerDetailPage({
               canEdit={canEditPeople}
               onSave={saveNotes}
             />
+          </div>
 
+          <div className="grid content-start gap-[18px]">
             {/* `canErase={false}`: מחיקת הלקוח ירדה לאזור המחיקות
                 בתחתית הכרטיס, יחד עם מחיקת הכרטיס */}
             <ContactPeople
               contactId={buyer.contact.id}
               canEdit={canEditPeople}
             />
-
-            <RelatedEntities
-              contactId={buyer.contact.id}
-              exclude={{ kind: "buyer", id: buyer.id }}
-            />
           </div>
         </div>
 
         {/*
-          שתי המחיקות יחד, מתחת לשני הטורים ומקופלות.
+          ‏„מה עוד קשור לאדם הזה” אינו אחד משלושת הטורים — הוא
+          ‏מסקנה עליהם, ולכן מתחתיהם ועל פני כל הרוחב.
+        */}
+        <RelatedEntities
+          contactId={buyer.contact.id}
+          exclude={{ kind: "buyer", id: buyer.id }}
+        />
+
+        {/*
+          שתי המחיקות יחד, מתחת לטורים ומקופלות.
           מחיקת הכרטיס נפרדת ממחיקת הלקוח, ובכוונה: הכרטיס הוא
           הביקוש, והאדם נשאר עם הלידים וההיסטוריה שלו — וזו בדיוק
           הבחירה שהמשתמש לא ראה כשהשתיים ישבו בשני מקומות שונים.
