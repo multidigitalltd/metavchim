@@ -698,28 +698,41 @@ export default function BuyerDetailPage({
             ) : null}
           </p>
         </div>
-        <div className="ms-auto flex flex-wrap items-center gap-2">
-          <a
-            href={waMeUrl(buyer.contact.phone)}
-            target="_blank"
-            rel="noreferrer"
-            className="mv-btn-plain"
+        <div className="mv-cardactions ms-auto">
+          {/*
+            ‎**הכיוון ההפוך של „שליחת הצעת נכס”.**
+
+            ‏מכרטיס הנכס בוחרים קונים; כאן בוחרים נכסים. אותה
+            ‏פעולה, אותו חלון, אותו שירות — הצד הקבוע הוא הקונה
+            ‏שכרטיסו פתוח.
+
+            ‎**ראשון בשורה, וירוק** — לפי קובץ העיצוב: הוא הפעולה
+            ‏הראשית של הכרטיס, והשאר משניות. קודם הוא ישב אחרון
+            ‏ובסגנון משני, כלומר נראה כמו עוד אחד מחמישה.
+
+            ‎**מי שאינו יכול לשלוח אינו רואה אותו** (ביקורת Codex,
+            ‏P2). עוזר או צופה פותחים כרטיסים אבל אין להם
+            ‎`offers.send`: מכאן הם היו בוחרים נכסים ומקבלים 403
+            ‏בסוף. השרת ממילא חוסם — זה מה שמונע להציע תהליך שאינו
+            ‏קיים.
+          */}
+          {can(user, "offers.send") ? (
+            <button
+              type="button"
+              className="mv-btn-primary mv-cardactions__primary"
+              style={{ minHeight: 36, paddingInline: 16, fontSize: "var(--type-caption-lg)" }}
+              onClick={() => setPitchOpen(true)}
+            >
+              הצע נכס לקונה
+            </button>
+          ) : null}
+          <Link
+            href={`/buyers/${id}/edit`}
+            className="mv-btn-plain mv-act mv-act--edit"
             style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
-            <IconChat s={14} /> וואטסאפ
-          </a>
-          <a
-            href={`tel:${buyer.contact.phone}`}
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-          >
-            <IconPhone s={14} /> חייג
-          </a>
-          <ClickToDial
-            contactId={buyer.contact.id}
-            phone={buyer.contact.phone}
-            label="מהמרכזייה"
-          />
+            <IconEdit s={14} /> ערוך דרישות
+          </Link>
           {/*
             ‎**קביעת סיור מצד הלקוח.**
 
@@ -730,42 +743,36 @@ export default function BuyerDetailPage({
           */}
           <Link
             href={`/calendar/new?buyerId=${id}&kind=viewing`}
-            className="mv-btn-plain"
+            className="mv-btn-plain mv-act mv-act--tour"
             style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
             <IconCalendar s={14} /> קביעת סיור
           </Link>
-          <Link
-            href={`/buyers/${id}/edit`}
-            className="mv-btn-plain"
+          <a
+            href={`tel:${buyer.contact.phone}`}
+            className="mv-btn-plain mv-act mv-act--call"
             style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
-            <IconEdit s={14} /> ערוך דרישות
-          </Link>
+            <IconPhone s={14} /> חייג
+          </a>
+          <a
+            href={waMeUrl(buyer.contact.phone)}
+            target="_blank"
+            rel="noreferrer"
+            className="mv-btn-plain mv-act mv-act--wa"
+            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+          >
+            <IconChat s={14} /> וואטסאפ
+          </a>
           {/*
-            ‎**הכיוון ההפוך של „שליחת הצעת נכס”.**
-
-            ‏מכרטיס הנכס בוחרים קונים; כאן בוחרים נכסים. אותה
-            ‏פעולה, אותו חלון, אותו שירות — הצד הקבוע הוא הקונה
-            ‏שכרטיסו פתוח.
+            ‏„מהמרכזייה” אינו בקובץ העיצוב — הוא יכולת שקיימת רק
+            ‏כשהטלפוניה מחוברת, ולכן הוא אחרון ולא בין הארבעה.
           */}
-          {/*
-            ‎**מי שאינו יכול לשלוח אינו רואה את הכפתור** (ביקורת
-            ‏Codex, P2). עוזר או צופה פותחים כרטיסים אבל אין להם
-            ‎`offers.send`: מכאן הם היו בוחרים נכסים ומקבלים 403
-            ‏בסוף, ומכרטיס הנכס רשימת הקונים הייתה נופלת מיד.
-            ‏השרת ממילא חוסם — זה מה שמונע להציע תהליך שאינו קיים.
-          */}
-          {can(user, "offers.send") ? (
-            <button
-              type="button"
-              className="mv-btn-plain"
-              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-              onClick={() => setPitchOpen(true)}
-            >
-              הצע נכס לקונה
-            </button>
-          ) : null}
+          <ClickToDial
+            contactId={buyer.contact.id}
+            phone={buyer.contact.phone}
+            label="מהמרכזייה"
+          />
         </div>
       </div>
 
@@ -1210,14 +1217,12 @@ export default function BuyerDetailPage({
 
           <div className="grid content-start gap-[18px]">
             {/*
-              ---- הלקוח ממלא בעצמו ----
-              מיד אחרי „פרטי חיפוש”, וזה לא מקרי: הכרטיס שמעל אומר
-              מה חסר, וזה אומר איך להשלים את זה בלי להקליד. הלקוח
-              יודע את התשובות טוב יותר, וממלא כשנוח לו.
-            */}
-            <IntakePanel subject="buyer" entityId={id} canEdit={canEditPeople} />
+              ---- הערות הסוכן ----
 
-            {/* ---- הערות הסוכן ---- */}
+              ‏בראש הטור, בהחלטת בעל המוצר. מה שהסוכן כתב ביד אחרי
+              ‏השיחה הקודמת הוא מה שנקרא לפני הבאה, ולכן הוא מעל
+              ‏ההזמנה למילוי עצמי ולא מתחתיה.
+            */}
             <EntityNotes
               value={buyer.agentNotes}
               fieldId="agentNotes"
@@ -1225,6 +1230,17 @@ export default function BuyerDetailPage({
               canEdit={canEditPeople}
               onSave={saveNotes}
             />
+
+            {/*
+              ---- הלקוח ממלא בעצמו ----
+
+              ‏מתחת להערות. קודם ישב כאן ראשון, בנימוק שהכרטיס שמעל
+              ‏אומר „מה חסר” וזה אומר „איך להשלים בלי להקליד” —
+              ‏נימוק תקף, וההערה נשארת כאן כדי שלא יוחזר בתום לב.
+              ‏הוא נדחה מפני זה: ההערות נקראות בכל פתיחה של הכרטיס,
+              ‏וההזמנה נשלחת פעם אחת.
+            */}
+            <IntakePanel subject="buyer" entityId={id} canEdit={canEditPeople} />
           </div>
 
           <div className="grid content-start gap-[18px]">

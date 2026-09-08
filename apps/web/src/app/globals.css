@@ -8163,6 +8163,59 @@ a.mv-bar-row:focus-visible {
  * ‏הוא סגול כי זו שפת ההתאמות במערכת (`mv-domain-violet`), והוא
  * ‏רחב-שורה כדי שלא יתחרה על תשומת לב עם הכרטיסים שמתחתיו: הוא
  * ‏אומר משפט אחד ומציע פעולה אחת. */
+/* ‎**שורת הפעולות של כותרת הכרטיס — שתי צורות, DOM אחד.**
+ *
+ * ‏בדסקטופ שורה: הראשי (ירוק) ראשון מימין, ואחריו המשניות.
+ * ‏בקובץ העיצוב הסדר הוא „הצע נכס · ערוך דרישות · קביעת סיור ·
+ * ‏חייג · וואטסאפ”, וזה סדר ה-DOM.
+ *
+ * ‏במובייל העיצוב מבקש **כפתור ראשי מלא-רוחב ומעליו גריד ארבע
+ * ‏פעולות** בסדר אחר: „חייג · וואטסאפ · סיור · דרישות”. שני
+ * ‏הסדרים אינם מצדיקים שני עצי DOM — `order` נותן את שניהם
+ * ‏מאותו מקור, וכך אי אפשר שאחד יתעדכן בלי השני.
+ *
+ * ‎„מהמרכזייה” אינו בעיצוב (הוא קיים רק כשהטלפוניה מחוברת) ולכן
+ * ‏הוא אחרון בשתי הצורות, ולא גורע מהארבעה. */
+.mv-cardactions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+@media (max-width: 59.99em) {
+  .mv-cardactions {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
+    margin-inline-start: 0;
+  }
+  /* ‏הראשי על פני כל הרוחב, מעל הארבעה */
+  .mv-cardactions__primary {
+    grid-column: 1 / -1;
+  }
+  .mv-act--call {
+    order: 1;
+  }
+  .mv-act--wa {
+    order: 2;
+  }
+  .mv-act--tour {
+    order: 3;
+  }
+  .mv-act--edit {
+    order: 4;
+  }
+  /* ‏תווית ארוכה בתא צר — נחתכת ולא מרחיבה את הגריד */
+  .mv-cardactions > * {
+    min-width: 0;
+  }
+  .mv-act {
+    justify-content: center;
+    overflow: hidden;
+  }
+}
+
 .mv-nextaction {
   display: flex;
   align-items: center;
@@ -8172,6 +8225,15 @@ a.mv-bar-row:focus-visible {
   color: var(--domain-violet-fg);
   border-radius: 18px;
   padding: 16px 20px;
+  /*
+   * ‎**הרווח אל הטורים שמתחת — 18px, כמו בקובץ העיצוב.**
+   *
+   * ‏שם הבאנר והגריד יושבים באותו טור flex עם `gap:18px`; כאן הם
+   * ‏אחים ישירים בלשונית, ולגריד יש `gap` פנימי בלבד — ולכן
+   * ‏הבאנר נגע בכרטיסים. השוליים על הבאנר ולא על הגריד, כי
+   * ‏כשאין התאמה ממתינה הבאנר אינו מוצג ואז גם אין מה להפריד.
+   */
+  margin-bottom: 18px;
 }
 
 /* ‎**שורת שדה — מלא, או חסר.**
