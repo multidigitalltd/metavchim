@@ -52,10 +52,13 @@ function serviceFor(world: World): {
   sent: Sent[];
   /** ‏מצבי השליחה שנכתבו על שורות התיבה, לפי סדר. */
   states: string[];
+  timeline: Record<string, unknown>[];
 } {
   const sent: Sent[] = [];
   const messages: Record<string, unknown>[] = [];
   const states: string[] = [];
+  /** ‏מה שנכתב לציר הזמן של הקונה. */
+  const timeline: Record<string, unknown>[] = [];
 
   const tx = {
     buyer: {
@@ -118,6 +121,12 @@ function serviceFor(world: World): {
         return Promise.resolve({ count: 1 });
       },
     },
+    interaction: {
+      create: (args: { data: Record<string, unknown> }) => {
+        timeline.push(args.data);
+        return Promise.resolve({});
+      },
+    },
     $executeRaw: () => Promise.resolve(0),
   };
 
@@ -178,7 +187,7 @@ function serviceFor(world: World): {
     { ensure: (id: string) => Promise.resolve({ url: `https://app.test/p/${id}` }) } as never,
     { record: () => Promise.resolve() } as never,
   );
-  return { service, sent, states };
+  return { service, sent, states, timeline };
 }
 
 function asUser<T>(userId: string, capabilities: Capability[], fn: () => T): T {
@@ -433,6 +442,39 @@ describe("שליחת הצעת נכס", () => {
     expect(sent).toHaveLength(1);
     /* ‏והתוצאה אומרת את זה — לא „נכשל” ולא „לא ידוע” */
     expect(result).toMatchObject({ sent: 1, failed: 0, unknown: 0 });
+  });
+
+  /*
+   * ‎**ההצעה שיצאה מופיעה בכרטיס הקונה** (בקשת המשתמש).
+   *
+   * ‏השורה בתיבה נושאת `cardKind: "buyer"`, אבל ציר הזמן בכרטיס
+   * ‏קורא `interaction` לפי `buyerId` — ולכן ההצעה יצאה, נשמרה,
+   * ‏ולא הופיעה בשום מקום שהסוכן מסתכל בו.
+   */
+  it("‏שליחה מוצלחת נרשמת בציר הזמן של הקונה", async () => {
+    const { service, timeline } = serviceFor(WORLD);
+    await asUser("01ME", AGENT, () =>
+      service.send({ propertyIds: ["01PROP"], buyerIds: ["01MINE"] }),
+    );
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]).toMatchObject({ buyerId: "01MINE", kind: "email", direction: "out" });
+    expect(String(timeline[0]?.["content"])).toContain("נשלחה הצעת נכס");
+  });
+
+  /*
+   * ‏ציר הזמן הוא מה שהסוכן קורא כדי לדעת מה נאמר ללקוח. שורה
+   * ‏שאומרת „נשלחה הצעה” על מייל שנדחה היא בדיוק התיעוד הכוזב
+   * ‏שהמצב `failed` קיים כדי למנוע.
+   */
+  it("‏ושליחה שנדחתה אינה נרשמת שם", async () => {
+    const { service, timeline } = serviceFor({
+      ...WORLD,
+      throwFor: () => new EmailRejectedError("הספק דחה"),
+    });
+    await asUser("01ME", AGENT, () =>
+      service.send({ propertyIds: ["01PROP"], buyerIds: ["01MINE"] }),
+    );
+    expect(timeline).toEqual([]);
   });
 
   it("בחירה ריקה נדחית לפני שנוגעים במסד", async () => {

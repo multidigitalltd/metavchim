@@ -519,12 +519,38 @@ export class PropertyPitchService {
      * ‏השורה נשארת `pending` ותתיישן; זה תיעוד חסר, לא שליחה חסרה.
      */
     await this.prisma
-      .withTenant((tx) =>
-        tx.emailMessage.updateMany({
+      .withTenant(async (tx) => {
+        await tx.emailMessage.updateMany({
           where: { id: messageId, tenantId },
           data: { sendState: "sent" },
-        }),
-      )
+        });
+        /*
+         * ‎**וגם על ציר הזמן של הקונה.**
+         *
+         * ‏השורה בתיבה נושאת `cardKind: "buyer"`, אבל ציר הזמן
+         * ‏בכרטיס קורא `interaction` לפי `buyerId` — כלומר ההצעה
+         * ‏יצאה, נשמרה, ולא הופיעה בשום מקום שהסוכן מסתכל בו
+         * ‏כשהוא פותח את הקונה (בקשת המשתמש).
+         *
+         * ‏נכתב **כאן ולא לפני השליחה**: ציר הזמן הוא מה שהסוכן
+         * ‏קורא כדי לדעת מה נאמר ללקוח, ושורה שאומרת „נשלחה הצעה”
+         * ‏על מייל שנדחה היא בדיוק התיעוד הכוזב שהמצב `failed`
+         * ‏קיים כדי למנוע.
+         */
+        await tx.interaction.create({
+          data: {
+            id: ulid(),
+            tenantId,
+            buyerId: row.buyerId,
+            kind: "email",
+            direction: "out",
+            content: `נשלחה הצעת נכס: ${properties.map((item) => item.title).join(", ")}`.slice(
+              0,
+              1500,
+            ),
+          },
+        });
+      })
       // המייל כבר יצא; כשל כאן הוא כשל בתיעוד ולא בשליחה
       .catch(() => this.logger.error(`אישור שליחת הצעת נכס נכשל: ${messageId}`));
     return "sent";

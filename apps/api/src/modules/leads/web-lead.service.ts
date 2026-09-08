@@ -248,15 +248,11 @@ export class WebLeadService {
       }
 
       // ליד פתוח קיים — הפנייה מצטרפת לציר הזמן שלו
+      const repeatText = `${source === "landing" ? "פנייה נוספת מדף נחיתה" : `פנייה נוספת (${source})`}: ${summaryParts || "ללא הודעה"}`;
       await tx.interaction.create({
-        data: {
-          id: ulid(),
-          tenantId,
-          leadId: openLead.id,
-          kind: "note",
-          content: `${source === "landing" ? "פנייה נוספת מדף נחיתה" : `פנייה נוספת (${source})`}: ${summaryParts || "ללא הודעה"}`,
-        },
+        data: { id: ulid(), tenantId, leadId: openLead.id, kind: "note", content: repeatText },
       });
+      await this.alsoOnBuyerCards(tx, tenantId, contactId, repeatText);
       return;
     }
 
@@ -287,15 +283,11 @@ export class WebLeadService {
         ...(previous ? { requiresHuman: true, requiresHumanReason: "ליד חוזר — פנה בעבר" } : {}),
       },
     });
+    const firstText = `${source === "landing" ? "נקלט מדף נחיתה של נכס" : `נקלט מטופס (${source})`}${input.message ? `: ${input.message.slice(0, 1500)}` : ""}`;
     await tx.interaction.create({
-      data: {
-        id: ulid(),
-        tenantId,
-        leadId,
-        kind: "note",
-        content: `${source === "landing" ? "נקלט מדף נחיתה של נכס" : `נקלט מטופס (${source})`}${input.message ? `: ${input.message.slice(0, 1500)}` : ""}`,
-      },
+      data: { id: ulid(), tenantId, leadId, kind: "note", content: firstText },
     });
+    await this.alsoOnBuyerCards(tx, tenantId, contactId, firstText);
     await tx.outboxEvent.create({
       data: {
         id: ulid(),
@@ -304,5 +296,39 @@ export class WebLeadService {
         payload: { leadId, tenantId, source },
       },
     });
+  }
+
+  /**
+   * ‎**אותו מילוי, גם על כרטיס הקונה של אותו אדם.**
+   *
+   * ‏ציר הזמן בכרטיס הקונה קורא `interaction` לפי `buyerId`,
+   * ‏והמילוי נרשם רק עם `leadId`. התוצאה: לקוח שקיבל הצעת נכס,
+   * ‏נכנס לדף הנחיתה ומילא פרטים — לא הותיר שום סימן בכרטיס שממנו
+   * ‏נשלחה אליו ההצעה. הסוכן פותח את הקונה ורואה כרטיס שלא קרה בו
+   * ‏דבר (בקשת המשתמש).
+   *
+   * ‎**כל הכרטיסים החיים, ולא אחד.** למערכת מותר במפורש שיהיו
+   * ‏לאיש קשר שני כרטיסי קונה — שתי דרישות של אותו אדם, או שארית
+   * ‏של מיזוג — ובחירה שרירותית באחד הייתה מסתירה את המילוי
+   * ‏מהסוכן שעובד על השני.
+   *
+   * ‎`direction: "in"` — הלקוח יזם. זו ההבחנה שמבדילה בציר הזמן
+   * ‏בין „שלחנו לו” לבין „הוא פנה”.
+   */
+  private async alsoOnBuyerCards(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    contactId: string,
+    content: string,
+  ): Promise<void> {
+    const cards = await tx.buyer.findMany({
+      where: { tenantId, contactId, deletedAt: null },
+      select: { id: true },
+    });
+    for (const card of cards) {
+      await tx.interaction.create({
+        data: { id: ulid(), tenantId, buyerId: card.id, kind: "note", direction: "in", content },
+      });
+    }
   }
 }
