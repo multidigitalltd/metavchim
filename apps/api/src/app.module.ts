@@ -1,6 +1,8 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
-import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+import { ThrottlerModule } from "@nestjs/throttler";
+import { WebhookThrottlerGuard } from "./common/webhook-throttler.guard";
+import { WEBHOOK_THROTTLER, webhookThrottleTarget } from "./common/webhook-throttle";
 import { AuthGuard } from "./common/auth.guard";
 import { FeatureGuard } from "./common/feature.guard";
 import { FloodMiddleware } from "./common/flood.middleware";
@@ -27,6 +29,7 @@ import { ExportModule } from "./modules/export/export.module";
 import { FeatureSignupsModule } from "./modules/feature-signups/feature-signups.module";
 import { HealthModule } from "./modules/health/health.module";
 import { IntakeModule } from "./modules/intake/intake.module";
+import { WebhookLogModule } from "./modules/webhook-log/webhook-log.module";
 import { ImportModule } from "./modules/import/import.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { MatchingModule } from "./modules/matching/matching.module";
@@ -60,9 +63,34 @@ import { AgentModule } from "./modules/agent/agent.module";
  */
 @Module({
   imports: [
-    // הגבלת קצב גלובלית — רשת ביטחון מול הצפה; נתיבים רגישים (login)
-    // מקבלים מגבלה הדוקה משלהם עם @Throttle. ה-IP נלקח אחרי trust proxy.
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
+    /*
+     * ‎**שני מונים שרצים יחד, ושניהם חייבים לאשר.**
+     *
+     * ‏`default` — לפי IP, רשת ביטחון מול הצפה; נתיבים רגישים
+     * ‏(login) מקבלים מגבלה הדוקה משלהם עם `@Throttle`. ה-IP נלקח
+     * ‏אחרי trust proxy.
+     *
+     * ‏`webhook` — לפי **מפתח המשרד** שבנתיב, ורק על נתיבים
+     * ‏שהצהירו על כך ב-`@ThrottleWebhook`. כל המרכזיות שיושבות על
+     * ‏אותה מרכזיית ענן מגיעות מאותן כתובות, ולכן תקרה לפי IP
+     * ‏חולקה בין כל המשרדים במקום להינתן לכל אחד: משרד עמוס אחד
+     * ‏השתיק את השאר.
+     *
+     * ‎**ולא במקום הראשון, אלא בנוסף לו.** מונה לפי מפתח לבדו היה
+     * ‏מסיר את ההגנה מפני מי שמפזר מפתחות אקראיים מכתובת אחת — כל
+     * ‏מפתח מקבל דלי חדש.
+     *
+     * ‏ה-`limit` כאן הוא ברירת מחדל בלבד; כל נתיב מצהיר על שלו.
+     */
+    ThrottlerModule.forRoot([
+      { name: "default", ttl: 60_000, limit: 300 },
+      {
+        name: WEBHOOK_THROTTLER,
+        ttl: 60_000,
+        limit: 60,
+        skipIf: (context) => webhookThrottleTarget(context) === undefined,
+      },
+    ]),
     CoreModule,
     AuthModule,
     HealthModule,
@@ -109,9 +137,11 @@ import { AgentModule } from "./modules/agent/agent.module";
     ExportModule,
     FeatureSignupsModule,
     IntakeModule,
+    /* ‏השער רושם ביומן דחייה על תקרה, ולכן הוא צריך את השירות */
+    WebhookLogModule,
   ],
   providers: [
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: WebhookThrottlerGuard },
     /*
      * בדיקת המקור לפני האימות: בקשה משנה-מצב ממקור זר נדחית עוד
      * לפני שנגענו ב-Session או במסד. שכבה שנייה מול CSRF, לצד

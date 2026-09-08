@@ -7,7 +7,7 @@ import {
   Param,
   Post,
 } from "@nestjs/common";
-import { Throttle } from "@nestjs/throttler";
+import { ThrottleWebhook } from "../../common/webhook-throttle";
 import { z } from "zod";
 import { IdSchema, LeadIntentSchema, PhoneInputSchema } from "@metavchim/shared";
 import { Public } from "../../common/auth.decorators";
@@ -83,12 +83,20 @@ export class WebLeadController {
   ) {}
 
   /*
-   * מגבלה הדוקה משלה: הנתיב ציבורי ו*כותב* שורות (איש קשר + ליד).
-   * המגבלה הגלובלית (300/דקה) נועדה לקריאות, ומאפשרת הצפת המאגר
-   * בלידים מזויפים מכתובת אחת. טופס אמיתי נשלח פעם-פעמיים.
+   * ‎**מגבלה הדוקה, ולפי המשרד ולא לפי כתובת IP.**
+   *
+   * ‏הנתיב ציבורי ו*כותב* שורות (איש קשר + ליד), וטופס אמיתי נשלח
+   * ‏פעם-פעמיים. אבל העשר נספרו לפי `req.ip`, וכל הלידים שמגיעים
+   * ‏מאותה פלטפורמת שיווק חולקים כתובות: המשרד שקיבל את הליד
+   * ‏האחד-עשר באותה דקה איבד אותו בגלל משרד אחר.
+   *
+   * ‎**וההגנה מפני הצפה דווקא התחזקה.** קודם היא נשברה בהחלפת
+   * ‏כתובת; עכשיו העשר הם עשר לאותו משרד, מכל מקום בעולם. פיזור
+   * ‏מפתחות אקראיים מכתובת אחת נחסם בתקרת ה-IP הכללית (300)
+   * ‏ובבלם ההצפה (600), ששניהם ממשיכים לרוץ.
    */
   @Public()
-  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @ThrottleWebhook({ source: "lead", param: "key" }, 10)
   @Post(":key")
   @HttpCode(200)
   async ingest(@Param("key") key: string, @Body() raw: unknown): Promise<{ ok: true }> {

@@ -88,6 +88,18 @@ const OUTCOMES: Record<string, { label: string; hint: string; ok: boolean }> = {
     hint: "המפתח תקין והחיבור פעיל — המסלול של המשרד אינו כולל מרכזייה",
     ok: false,
   },
+  /*
+   * ‎**התוצאה היחידה שבה הפנייה לא הגיעה לשרת בכלל.**
+   *
+   * ‏רוב המרכזיות אינן מנסות שוב, ולכן זו שיחה שאבדה. השורה נרשמת
+   * ‏פעם אחת לכל מפתח בכל דקה, ולכן „אחת” כאן פירושה „דקה שבה
+   * ‏המשרד הזה נחסם”, לא פנייה בודדת.
+   */
+  rate_limited: {
+    label: "נחסמה על עומס",
+    hint: "המרכזייה שלחה יותר מ-60 אירועים בדקה מאותו מפתח. שורה אחת לכל דקה חסומה — לא לכל פנייה",
+    ok: false,
+  },
 };
 
 /**
@@ -105,6 +117,7 @@ const OUTCOME_ORDER = [
   "unknown_key",
   "disabled",
   "no_feature",
+  "rate_limited",
 ] as const;
 
 /**
@@ -147,6 +160,11 @@ const LEAD_OUTCOMES: Record<string, { label: string; hint: string; ok: boolean }
   failed: {
     label: "נפלה אצלנו",
     hint: "הפרטים היו תקינים והעיבוד נכשל בשרת שלנו. הבקשה הוחזרה בשגיאה",
+    ok: false,
+  },
+  rate_limited: {
+    label: "נחסמה על עומס",
+    hint: "יותר מ-10 לידים בדקה מאותו מפתח. שורה אחת לכל דקה חסומה — לא לכל פנייה",
     ok: false,
   },
 };
