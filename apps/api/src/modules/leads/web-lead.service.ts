@@ -161,12 +161,57 @@ export class WebLeadService {
               })
             )?.id ?? undefined);
 
-      await this.attachOrCreateLead(tx, tenantId, contact.id, {
+      const { leadId, repeat } = await this.attachOrCreateLead(tx, tenantId, contact.id, {
         message: input.message,
         pageUrl: input.pageUrl,
         source,
         ...(input.intent !== undefined ? { intent: input.intent } : {}),
         ...(propertyId !== undefined ? { propertyId } : {}),
+      });
+
+      /*
+       * ‎**הסוכן צריך לדעת שמישהו מילא — ולא לגלות את זה בגלילה.**
+       *
+       * ‏המסלול הזה הוא היחיד שבו **אדם זר** יוזם, והוא היה שקט
+       * ‏לגמרי: הליד נכתב, ואיש לא ידע עד שמישהו פתח את מסך
+       * ‏הלידים. `lead.created` שנפלט כאן קובע **אסקלציית SLA
+       * ‏מושהית** בעוד שעות — כלומר בדיוק ההפך מהתראה מיידית: הוא
+       * ‏מגיע רק אחרי שכבר איחרנו.
+       *
+       * ‏שורת התראה אחת נותנת את שלושת הערוצים שהתבקשו: הפעמון,
+       * ‏הדחיפה לוואטסאפ (הסורק בעובדים מחפש `whatsapp_at = NULL`),
+       * ‏והקישור — שנגזר מ-`entityType`/`entityId` אל `/leads/<id>`
+       * ‏עם בדיקת יכולת. אין כאן ערוץ שני שצריך לזכור לתקן.
+       *
+       * ‎`userId: null` בכוונה: ליד מהטופס נפתח **ללא שיוך**, ולכן
+       * ‏„הסוכן שלו” אינו קיים עדיין. התראה אישית הייתה נשלחת
+       * ‏למי שהמערכת בחרה שרירותית, או לאף אחד.
+       */
+      await tx.notification.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          userId: null,
+          /*
+           * ‎**סוג אחד, ולא שניים לפי חדש/חוזר.**
+           *
+           * ‏הקטגוריה, ההשתקה והאייקון זהים בשני המקרים — ההבדל
+           * ‏הוא בכותרת בלבד. וסוג שנכתב בביטוי מותנה אינו נראה
+           * ‏לשער `verify:notify`, שסורק `type: "..."` מילולי:
+           * ‏הוא היה עובר בשקט ונופל לקטגוריית `system`, כלומר
+           * ‏מגיע למי שכיבה את „לידים”.
+           */
+          type: "lead_form_inquiry",
+          title: repeat ? "📥 פנייה נוספת מטופס" : "🆕 פנייה חדשה מטופס",
+          /*
+           * ‏שם ומקור בלבד. הטלפון אינו נכנס: ההתראה יוצאת גם
+           * ‏לוואטסאפ, והקישור מוביל לכרטיס שבו הוא ממילא מוצג
+           * ‏למי שמורשה לראותו.
+           */
+          body: `${input.name} — ${input.pageUrl ?? source}`.slice(0, 500),
+          entityType: "lead",
+          entityId: leadId,
+        },
       });
     });
     this.logger.log(`ליד מהאתר נקלט (tenant ${tenantId})`);
@@ -205,7 +250,7 @@ export class WebLeadService {
       intent?: string;
       propertyId?: string;
     },
-  ): Promise<void> {
+  ): Promise<{ leadId: string; repeat: boolean }> {
     const { source } = input;
     // נעילה פר איש-קשר — שליחה כפולה מהטופס לא יוצרת שני לידים
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`lead-intake:${tenantId}:${contactId}`}, 0))`;
@@ -270,7 +315,7 @@ export class WebLeadService {
         data: { id: ulid(), tenantId, leadId: openLead.id, kind: "note", content: repeatText },
       });
       await this.alsoOnBuyerCards(tx, tenantId, contactId, repeatText);
-      return;
+      return { leadId: openLead.id, repeat: true };
     }
 
     const previous = await tx.lead.findFirst({
@@ -315,6 +360,7 @@ export class WebLeadService {
         payload: { leadId, tenantId, source },
       },
     });
+    return { leadId, repeat: false };
   }
 
   /**

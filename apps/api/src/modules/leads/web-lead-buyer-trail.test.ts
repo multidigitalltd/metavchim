@@ -34,8 +34,13 @@ interface Row {
 function serviceFor(world: {
   buyers: { id: string; deleted?: boolean }[];
   openLead?: boolean;
-}): { service: WebLeadService; timeline: Row[] } {
+}): {
+  service: WebLeadService;
+  timeline: Row[];
+  notified: Record<string, unknown>[];
+} {
   const timeline: Row[] = [];
+  const notified: Record<string, unknown>[] = [];
 
   const tx = {
     $executeRaw: () => Promise.resolve(0),
@@ -71,6 +76,12 @@ function serviceFor(world: {
       },
     },
     outboxEvent: { create: () => Promise.resolve({}) },
+    notification: {
+      create: (args: { data: Record<string, unknown> }) => {
+        notified.push(args.data);
+        return Promise.resolve({});
+      },
+    },
   };
 
   const prisma = { $transaction: <T,>(fn: (t: typeof tx) => Promise<T>) => fn(tx) };
@@ -83,6 +94,7 @@ function serviceFor(world: {
   return {
     service: new WebLeadService(prisma as never, crypto as never),
     timeline,
+    notified,
   };
 }
 
@@ -136,6 +148,19 @@ describe("‏מילוי דף נחיתה על כרטיס הקונה", () => {
     expect(forBuyer(timeline, "01BUYERB")).toHaveLength(1);
     /* ‏כרטיס שנמחק אינו מקבל */
     expect(forBuyer(timeline, "01GONE")).toEqual([]);
+  });
+
+  /*
+   * ‏ההתראה שנוספה למסלול הזה — הפעמון, הוואטסאפ והקישור — תלויה
+   * ‏כולה ב-`entityId`. בלעדיו היא מגיעה ולא לוחצים ממנה לשום מקום.
+   */
+  it("‏ההתראה מצביעה על הליד שנוצר", async () => {
+    const { service, notified } = serviceFor({ buyers: [] });
+    await service.ingestForTenant(TENANT, INPUT, "landing");
+
+    expect(notified).toHaveLength(1);
+    expect(notified[0]).toMatchObject({ entityType: "lead", type: "lead_form_inquiry" });
+    expect(notified[0]?.entityId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/u);
   });
 
   /* ‏שורת הליד עצמה נשארת — הכרטיס הוא תוספת, לא החלפה */

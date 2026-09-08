@@ -61,6 +61,8 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
   lead_sla: "leads",
   lead_stale: "leads",
   lead_repeat_inquiry: "leads",
+  /* ‏טופס שאדם זר מילא — אתר, פייסבוק, או דף נחיתה של נכס */
+  lead_form_inquiry: "leads",
   lead_returned: "leads",
   lead_requires_human: "leads",
   intake_submitted: "leads",
@@ -323,6 +325,7 @@ const TYPE_ICON: Record<string, string> = {
   lead_sla: "⏳",
   lead_stale: "🥶",
   lead_repeat_inquiry: "🔁",
+  lead_form_inquiry: "📝",
   task_reminder: "⏰",
   appointment_reminder: "📅",
   viewing_followup: "🚪",
