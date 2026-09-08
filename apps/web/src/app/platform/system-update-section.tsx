@@ -10,7 +10,25 @@ import {
   type ServiceVersion,
 } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { formatDateTime } from "@/lib/format";
 import { Notice } from "../notice";
+
+/**
+ * ‏תוצאת ריצת עדכון, כפי שהסוכן מדווח — ראו `UpdateRunStatus`
+ * ב-`updater-agent.ts`. אותה צורה כמו מצב השחזור והגיבוי.
+ *
+ * ‎`stage` הוא ההבדל שמכוון את התיקון: כישלון ב-`pull` פירושו ששום
+ * ‏שירות לא הוחלף, וכישלון ב-`up` הוא בדיוק המצב שבו חלק עלו וחלק
+ * ‏לא — כלומר זה שהטבלה שמעל מדווחת עליו.
+ */
+interface UpdateRunStatus {
+  running: boolean;
+  startedAt: string | null;
+  finishedAt: string | null;
+  ok: boolean | null;
+  message: string | null;
+  stage: "pull" | "up" | null;
+}
 
 interface SystemInfo {
   version: string;
@@ -103,6 +121,11 @@ export function SystemUpdateSection() {
   const [info, setInfo] = useState<SystemInfo | null>(null);
   const [web, setWeb] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /*
+   * ‏מצב ריצת העדכון, כפי שהסוכן מדווח אותו. `null` = לא הפעלנו
+   * ‏עדכון במסך הזה; זה אינו „הצליח” ואינו „נכשל”.
+   */
+  const [run, setRun] = useState<UpdateRunStatus | null>(null);
   const [agentBusy, setAgentBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +135,62 @@ export function SystemUpdateSection() {
       .then(setInfo)
       .catch(() => undefined);
     void webVersion().then(setWeb);
+    /*
+     * ‎**התשובה חייבת לשרוד את הרענון שהעדכון עצמו גורם.**
+     *
+     * ‏העדכון מחליף את קונטיינר ה-web, כלומר את הדף הזה. מי שממתין
+     * ‏מולו יראה שגיאה ויטען מחדש — ואם המצב יושב רק בזיכרון של
+     * ‏הרכיב, „מה עלה בגורל העדכון” נמחק בדיוק ברגע שבו הוא נחוץ.
+     * ‏הסוכן הוא קונטיינר נפרד ששורד את ההחלפה, ולכן הוא זוכר.
+     *
+     * ‎`startedAt === null` = מעולם לא רצה עדכון; אין מה להציג.
+     */
+    apiGet<UpdateRunStatus>("/platform/system/update/status")
+      .then((status) => {
+        if (status.startedAt === null) return;
+        setRun(status);
+        if (status.running) setBusy(true);
+      })
+      .catch(() => undefined);
   }, []);
+
+  /*
+   * ‎**מעקב אחרי העדכון עד שהסוכן אומר שהסתיים.**
+   *
+   * ‏שגיאות רשת כאן צפויות ולכן נבלעות: העדכון מרים את ה-API ואת
+   * ‏ה-web מחדש, כלומר בדיוק הדבר שאנחנו שואלים אותו נעלם לרגע.
+   * ‏הסוכן הוא קונטיינר נפרד ששורד את זה, ולכן הוא זה שמחזיק את
+   * ‏התשובה — אותו הסדר בדיוק כמו מעקב השחזור.
+   *
+   * ‏כשהריצה נגמרת נטענות גם הגרסאות מחדש: התשובה על „מה עלה בגורל
+   * ‏העדכון” והטבלה שמראה מה רץ בפועל חייבות להתחדש יחד, אחרת המסך
+   * ‏אומר „הושלם” מעל טבלה שעדיין מציגה את הישן.
+   */
+  const updateRunning = run?.running === true;
+  useEffect(() => {
+    if (!updateRunning) return;
+    let alive = true;
+    const poll = () => {
+      apiGet<UpdateRunStatus>("/platform/system/update/status")
+        .then((status) => {
+          if (!alive) return;
+          setRun(status);
+          if (!status.running) {
+            setBusy(false);
+            apiGet<SystemInfo>("/platform/system").then(setInfo).catch(() => undefined);
+            void webVersion().then(setWeb);
+          }
+        })
+        .catch(() => undefined);
+    };
+    /* מיד, ולא בעוד ארבע שניות — ההודעה הראשונה צריכה להיות של הסוכן. */
+    poll();
+    const timer = setInterval(poll, 4000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [updateRunning]);
 
   if (!info) return null;
 
@@ -145,11 +223,27 @@ export function SystemUpdateSection() {
     setBusy(true);
     setMessage(null);
     setError(null);
+    setRun(null);
     apiPost<{ status: string }>("/platform/system/update", {})
       .then(() => {
-        setMessage(
-          "העדכון הופעל — המערכת מושכת את הגרסה החדשה ותתרענן תוך כדקה. רעננו את הדף.",
-        );
+        /*
+         * ‎**„הופעל” אינו „הצליח”.**
+         *
+         * ‏עד כה זו הייתה ההודעה האחרונה שהמסך אמר אי פעם: הבקשה
+         * ‏יצאה, וזהו. עדכון שנכשל — משיכה שנדחתה, שירות שלא עלה —
+         * ‏נראה בדיוק כמו עדכון שהצליח, והסיבה נשארה בלוג של
+         * ‏קונטיינר שאיש אינו פותח. עכשיו זו הודעת **ביניים**,
+         * ‏והתוצאה מגיעה מהסוכן.
+         */
+        setRun({
+          running: true,
+          startedAt: null,
+          finishedAt: null,
+          ok: null,
+          /* ‏`null` בכוונה: המשפט מגיע מהסוכן בשאילתה הראשונה. */
+          message: null,
+          stage: null,
+        });
       })
       .catch((err: unknown) => {
         setError(err instanceof ApiError ? err.message : "העדכון נכשל — נסו שוב");
@@ -249,6 +343,24 @@ export function SystemUpdateSection() {
             עדכון מרחוק זמין רק בסביבת הפרודקשן (ראו docs/10-deployment.md)
           </p>
         )}
+        {/*
+          ‎**שלושה מצבים לעדכון, ולא שניים.**
+
+          ‏„רץ” אינו „הצליח”, ו„נכשל” הוא הודעה שצריכה להישאר על
+          ‏המסך עד שקוראים אותה. הטון נגזר מ-`ok`: `null` בזמן
+          ‏שרץ, ואחר כך הצלחה או כישלון — ובשני המקרים המשפט מגיע
+          ‏מהסוכן ולא ממה שהמסך מקווה שקרה.
+
+          ‏שעת הסיום נאמרת כי הסוכן זוכר גם ריצה של אתמול: בלעדיה
+          ‏„העדכון נכשל” על טעינה טרייה נקרא כאילו זה קרה עכשיו.
+        */}
+        {run !== null ? (
+          <Notice tone={run.ok === null ? "info" : run.ok ? "success" : "danger"}>
+            {run.message ?? (run.running ? "העדכון רץ…" : "העדכון הסתיים")}
+            {run.ok === true ? " — רעננו את הדף כדי לקבל את הממשק החדש." : null}
+            {run.finishedAt !== null ? ` (${formatDateTime(run.finishedAt)})` : null}
+          </Notice>
+        ) : null}
         {message ? (
           <Notice tone="success">{message}</Notice>
         ) : null}

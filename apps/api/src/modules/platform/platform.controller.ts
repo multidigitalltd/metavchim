@@ -115,7 +115,11 @@ import {
   type BackupRunStatus,
   type RestoreStatus,
 } from "./backups.service";
-import { callUpdaterAgent, updaterFailure } from "./updater-agent";
+import {
+  callUpdaterAgent,
+  updaterFailure,
+  type UpdateRunStatus,
+} from "./updater-agent";
 import { type DiskStatus, DiskSpaceService } from "./disk-space.service";
 import { ServiceVersionsService } from "./service-versions.service";
 import { WebhookLogService } from "../webhook-log/webhook-log.service";
@@ -2799,6 +2803,24 @@ export class PlatformController {
     if (res.status === 409) throw new ConflictException("עדכון כבר רץ — המתינו לסיומו");
     if (!res.ok) throw updaterFailure(res);
     return { status: "started" };
+  }
+
+  /**
+   * ‎**מה עלה בגורל העדכון.**
+   *
+   * ‏עד כה `POST system/update` החזיר „הופעל” וזה היה כל מה שהמסך
+   * ‏ידע אי פעם. עדכון שנכשל — משיכה שנדחתה, שירות שלא עלה — נראה
+   * ‏בדיוק כמו עדכון שהצליח, והסיבה נשארה בלוג של קונטיינר הסוכן.
+   *
+   * ‏הסוכן שורד את ההפעלה מחדש (הוא קונטיינר נפרד), ולכן הוא זה
+   * ‏שמחזיק את התשובה: ה-API עצמו נהרג באמצע ואינו יכול לזכור דבר.
+   * ‏אותו מבנה בדיוק כמו `backups/restore/status`.
+   */
+  @Get("system/update/status")
+  async updateStatus(): Promise<UpdateRunStatus> {
+    const res = await callUpdaterAgent("/update/status", { method: "GET" });
+    if (!res.ok) throw updaterFailure(res);
+    return (await res.json()) as UpdateRunStatus;
   }
 
   /**

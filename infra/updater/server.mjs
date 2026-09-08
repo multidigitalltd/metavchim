@@ -71,7 +71,26 @@ const DB_NAME = /^db_\d{4}-\d{2}-\d{2}_\d{4}(?:_[a-z][a-z-]{0,23})?\.dump$/;
 const MEDIA_NAME = /^media_\d{4}-\d{2}-\d{2}_\d{4}(?:_[a-z][a-z-]{0,23})?\.tar\.gz$/;
 const backupKind = (name) => (DB_NAME.test(name) ? "db" : MEDIA_NAME.test(name) ? "media" : null);
 
-let updating = false;
+/**
+ * ‎**מצב העדכון — לא רק „רץ / לא רץ”.**
+ *
+ * ‏עד כה `runUpdate` בלעה כל כישלון ל-`console.error`, ולא היה
+ * ‎`/update/status`. המסך אמר „העדכון הופעל” ואז שתק: מי שהעדכון
+ * ‏נכשל אצלו קיבל בדיוק את אותה חוויה כמו מי שהעדכון הצליח אצלו,
+ * ‏והסיבה נשארה בלוג של קונטיינר שאיש אינו פותח.
+ *
+ * ‏אותה צורה בדיוק כמו `restore` ו-`backup` שכבר כאן — הן מדווחות
+ * ‎`ok` ו-`message`, ורק העדכון, הפעולה שנלחצת הכי הרבה, לא.
+ */
+let update = {
+  running: false,
+  startedAt: null,
+  finishedAt: null,
+  ok: null,
+  message: null,
+  /** ‎`pull` | `up` — איזה שלב נכשל. השלב הוא מה שמכוון את התיקון. */
+  stage: null,
+};
 let selfUpdate = { running: false, startedAt: null, message: null };
 let restore = { running: false, name: null, startedAt: null, finishedAt: null, ok: null, message: null };
 let backup = { running: false, startedAt: null, finishedAt: null, ok: null, message: null };
@@ -106,11 +125,24 @@ const readJson = (req) =>
   });
 
 async function runUpdate() {
+  update = {
+    running: true,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    ok: null,
+    message: "מושך את התמונות…",
+    stage: "pull",
+  };
   try {
     console.log(`[updater] pulling ${SERVICES.join(", ")}…`);
     await compose(["pull", ...SERVICES]);
+    update.stage = "up";
+    update.message = "מרים את השירותים מחדש…";
     console.log("[updater] restarting with new images…");
     await compose(["up", "-d", "--no-deps", ...SERVICES]);
+    update.ok = true;
+    update.stage = null;
+    update.message = "העדכון הושלם";
     console.log("[updater] update finished");
 
     /*
@@ -144,9 +176,25 @@ async function runUpdate() {
       console.warn(`[updater] self-image pull failed (לא קריטי): ${error instanceof Error ? error.message : String(error)}`);
     }
   } catch (error) {
+    update.ok = false;
+    /*
+     * ‎**השלב הוא ההבדל, ולכן הוא נאמר.**
+     *
+     * ‏כישלון במשיכה פירושו ששום דבר לא הוחלף: המערכת שלמה על
+     * ‏הגרסה הקודמת, והתיקון הוא ב-Registry או בהתחברות אליו.
+     * ‏כישלון בהרמה הוא מצב אחר לגמרי — `compose up` מטפל בשירותים
+     * ‏בזה אחר זה, ולכן ייתכן שחלקם כבר על החדשה וחלקם לא. זה בדיוק
+     * ‏המצב ש„השירותים אינם באותה גרסה” מדווח עליו, והוא מחייב
+     * ‏מבט בטבלת הגרסאות ולא ניסיון עיוור נוסף.
+     */
+    update.message =
+      update.stage === "pull"
+        ? "משיכת התמונות נכשלה — שום שירות לא הוחלף. בדקו את החיבור ל-Registry ואת ההתחברות אליו."
+        : "הרמת השירותים נכשלה — ייתכן שחלקם עלו וחלקם לא. בדקו את טבלת הגרסאות למעלה לפני ניסיון נוסף.";
     console.error(`[updater] update failed: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
-    updating = false;
+    update.running = false;
+    update.finishedAt = new Date().toISOString();
   }
 }
 
@@ -314,7 +362,7 @@ async function runRestore(name, kind) {
 
 const server = createServer((req, res) => {
   if (req.method === "GET" && req.url === "/health") {
-    json(res, 200, { ok: true, updating, restoring: restore.running });
+    json(res, 200, { ok: true, updating: update.running, restoring: restore.running });
     return;
   }
 
@@ -362,10 +410,15 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (req.method === "GET" && req.url === "/update/status") {
+    json(res, 200, update);
+    return;
+  }
+
   if (req.method === "POST" && req.url === "/update/self") {
     // לא בזמן עדכון או שחזור: שניהם מריצים פקודות compose ארוכות,
     // והחלפת הסוכן באמצע הייתה הורגת אותן
-    if (updating || restore.running || selfUpdate.running) {
+    if (update.running || restore.running || selfUpdate.running) {
       json(res, 409, { error: "operation already running" });
       return;
     }
@@ -375,11 +428,16 @@ const server = createServer((req, res) => {
   }
 
   if (req.method === "POST" && req.url === "/update") {
-    if (updating || restore.running) {
+    if (update.running || restore.running) {
       json(res, 409, { error: "operation already running" });
       return;
     }
-    updating = true;
+    /*
+     * ‎`running` נדלק **כאן**, לפני ההפעלה, ולא רק בתוך `runUpdate`:
+     * ‏בקשה שנייה שמגיעה באותו רגע חייבת להיתקל ב-409, וההשמה
+     * ‏שבתוך הפונקציה רצה רק אחרי שהתגובה הזו כבר יצאה.
+     */
+    update = { ...update, running: true, ok: null, message: "מתחיל…" };
     json(res, 202, { status: "started" });
     void runUpdate();
     return;
@@ -394,7 +452,7 @@ const server = createServer((req, res) => {
         json(res, 400, { error: "invalid backup name" });
         return;
       }
-      if (updating || restore.running) {
+      if (update.running || restore.running) {
         json(res, 409, { error: "operation already running" });
         return;
       }

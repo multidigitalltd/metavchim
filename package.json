@@ -9,6 +9,7 @@
   "scripts": {
     "verify:iac": "node scripts/verify-iac.mjs",
     "verify:release": "node scripts/verify-release-tags.mjs",
+    "verify:updater": "node scripts/verify-updater-reports.mjs",
     "verify:audit": "node scripts/verify-audit.mjs",
     "test:audit-script": "node --test scripts/verify-audit.test.mjs",
     "dev": "turbo run dev",

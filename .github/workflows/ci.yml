@@ -197,6 +197,12 @@ jobs:
       - name: Every service ships the same commit
         run: pnpm verify:release
 
+      # ‏פעולה ארוכה שהכישלון שלה נשאר ב-`console.error` נראית מהמסך
+      # ‏בדיוק כמו הצלחה. `runUpdate` הייתה כזו, והלקוח לחץ „עדכן”
+      # ‏שוב ושוב מול הודעה שאמרה „הופעל” בכל פעם.
+      - name: Every updater operation reports its outcome
+        run: pnpm verify:updater
+
       # ארכיון מדיה משלים מחזיק רק את מה שהשתנה. run.sh, restore.sh
       # ו-backup-file.ts חייבים להסכים על כך; אם לא — השחזור פורס
       # ארכיון חלקי לתוך אחסון שנמחק זה עתה, בלי שגיאה אחת בדרך.

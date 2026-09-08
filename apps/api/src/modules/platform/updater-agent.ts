@@ -19,6 +19,25 @@ import { loadEnv } from "../../config/env";
  * אינו מכיר את הנתיב הזה — כלומר בדיוק במצב שההודעה נכתבה בשבילו.
  */
 
+/**
+ * ‎**תוצאת ריצת עדכון**, כפי שהסוכן מדווח אותה.
+ *
+ * ‏אותה צורה בדיוק כמו `RestoreStatus` ו-`BackupRunStatus`: `ok`
+ * ‏שלוש-ערכי (`null` = עוד רץ), הודעה לקריאה, וחותמות זמן.
+ *
+ * ‎`stage` הוא התוספת היחידה, והוא נושא את ההבדל שמכוון את התיקון:
+ * ‏כישלון ב-`pull` פירושו ששום שירות לא הוחלף, וכישלון ב-`up` הוא
+ * ‏בדיוק המצב שבו חלק מהשירותים עלו וחלק לא.
+ */
+export interface UpdateRunStatus {
+  running: boolean;
+  startedAt: string | null;
+  finishedAt: string | null;
+  ok: boolean | null;
+  message: string | null;
+  stage: "pull" | "up" | null;
+}
+
 const COMPOSE = "docker compose -f docker-compose.prod.yml --env-file .env.production";
 
 /** שתי הפקודות שמעדכנות את הסוכן, מלאות — להדבקה ישירה בשרת. */
