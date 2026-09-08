@@ -118,14 +118,24 @@ describe("WebhookThrottlerGuard", () => {
     return { guard, contextFor };
   }
 
-  async function reject(guard: WebhookThrottlerGuard, context: never): Promise<void> {
-    await guard["throwThrottlingException"](context, {} as never).catch(() => undefined);
+  /** ‏`tracker` הוא מה שמבחין איזה מונה זרק — ראו את השער עצמו. */
+  async function reject(
+    guard: WebhookThrottlerGuard,
+    context: never,
+    tracker: string,
+  ): Promise<void> {
+    await guard["throwThrottlingException"](context, { tracker } as never).catch(() => undefined);
+  }
+
+  /** ‏מה שהמונה שלנו מחשב לאותה בקשה — כלומר „שלנו זרק”. */
+  function ourTracker(key: string): string {
+    return webhookTracker({ params: { key }, ip: "1.2.3.4" }, "key");
   }
 
   it("‏הדחייה מגיעה ליומן, עם המקור הנכון", async () => {
     const record = vi.fn().mockResolvedValue(undefined);
     const { guard, contextFor } = guardWith(record);
-    await reject(guard, contextFor("office-a"));
+    await reject(guard, contextFor("office-a"), ourTracker("office-a"));
     expect(record).toHaveBeenCalledTimes(1);
     expect(record.mock.calls[0]?.[0]).toMatchObject({
       source: "telephony",
@@ -138,7 +148,8 @@ describe("WebhookThrottlerGuard", () => {
   it("‏מאה דחיות של אותו מפתח — שורה אחת", async () => {
     const record = vi.fn().mockResolvedValue(undefined);
     const { guard, contextFor } = guardWith(record);
-    for (let i = 0; i < 100; i += 1) await reject(guard, contextFor("office-a"));
+    for (let i = 0; i < 100; i += 1)
+      await reject(guard, contextFor("office-a"), ourTracker("office-a"));
     expect(record).toHaveBeenCalledTimes(1);
   });
 
@@ -146,9 +157,37 @@ describe("WebhookThrottlerGuard", () => {
   it("‏אבל משרד אחר מקבל שורה משלו", async () => {
     const record = vi.fn().mockResolvedValue(undefined);
     const { guard, contextFor } = guardWith(record);
-    await reject(guard, contextFor("office-a"));
-    await reject(guard, contextFor("office-b"));
+    await reject(guard, contextFor("office-a"), ourTracker("office-a"));
+    await reject(guard, contextFor("office-b"), ourTracker("office-b"));
     expect(record).toHaveBeenCalledTimes(2);
+  });
+
+  /*
+   * ‎**ההוק רץ עבור שני המונים.**
+   *
+   * ‏כשספק משותף חוצה את תקרת ה-IP הכללית בזמן שהמשרד הזה עדיין
+   * ‏הרחק מתחת לשלו, המונה הראשון זורק — ובלי ההבחנה השורה הייתה
+   * ‏אומרת „המשרד עבר את התקרה שלו”, ומנהל היה יוצא לחפש תקלה
+   * ‏שאינה אצלו (ביקורת Codex).
+   */
+  it("‏תקרת הכתובת אינה נרשמת כתקרת המשרד", async () => {
+    const record = vi.fn().mockResolvedValue(undefined);
+    const { guard, contextFor } = guardWith(record);
+    /* ‏המונה הכללי מזהה לפי `req.ip` נטו, בלי הקידומת שלנו */
+    await reject(guard, contextFor("office-a"), "1.2.3.4");
+    expect(record.mock.calls[0]?.[0]).toMatchObject({ outcome: "rate_limited_ip" });
+  });
+
+  /* ‏ושתי התקרות אינן נדחסות זו לזו: הן שתי עובדות שונות. */
+  it("‏שתי התקרות נרשמות בנפרד לאותו מפתח", async () => {
+    const record = vi.fn().mockResolvedValue(undefined);
+    const { guard, contextFor } = guardWith(record);
+    await reject(guard, contextFor("office-a"), ourTracker("office-a"));
+    await reject(guard, contextFor("office-a"), "1.2.3.4");
+    expect(record.mock.calls.map((call) => (call[0] as { outcome: string }).outcome)).toEqual([
+      "rate_limited",
+      "rate_limited_ip",
+    ]);
   });
 
   it("‏ונתיב שאינו וובהוק אינו נרשם כלל", async () => {
@@ -161,6 +200,7 @@ describe("WebhookThrottlerGuard", () => {
         getHandler: () => plain,
         switchToHttp: () => ({ getRequest: () => ({ params: {}, method: "POST" }) }),
       } as never,
+      "1.2.3.4",
     );
     expect(record).not.toHaveBeenCalled();
   });

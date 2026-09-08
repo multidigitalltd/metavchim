@@ -1,3 +1,5 @@
+import { TelephonyWebhookQuerySchema } from "../platform/platform.controller";
+import { WEBHOOK_HIT_OUTCOMES } from "./webhook-log.service";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { CryptoService } from "../../core/crypto.service";
@@ -265,5 +267,26 @@ describe("‏שמירה וריקון", () => {
     const cutoff = where.receivedAt.lt.getTime();
     expect(after - cutoff).toBeGreaterThanOrEqual(60 * 60 * 1000);
     expect(before - cutoff).toBeLessThanOrEqual(60 * 60 * 1000);
+  });
+});
+
+/**
+ * ‎**המסנן מקבל כל תוצאה שהיומן יכול לרשום.**
+ *
+ * ‏הרשימה חיה בשני מקומות — הטיפוס כאן ו-`z.enum` בבקר — והוספתי
+ * ‏תוצאה לאחד ולא לשני. התוצאה: בחירה במסנן החדש נדחית ב-400,
+ * ‏והמסך נשבר בדיוק כשמנהל מנסה לראות את השורות החדשות
+ * ‏(ביקורת Codex).
+ *
+ * ‏הבקר נגזר עכשיו מהרשימה, אבל גזירה אינה מונעת מלכתוב את
+ * ‏הרשימה מחדש ביד — והמהדר מקבל רשימה **צרה** יותר בשמחה.
+ * ‏הטענה כאן היא ההבטחה עצמה: כל תוצאה עוברת.
+ */
+describe("שער: מסנן היומן מכיר כל תוצאה", () => {
+  it("‏כל ערך ב-WEBHOOK_HIT_OUTCOMES מתקבל במסנן", () => {
+    const rejected = WEBHOOK_HIT_OUTCOMES.filter(
+      (outcome) => !TelephonyWebhookQuerySchema.safeParse({ outcome }).success,
+    );
+    expect(rejected, "תוצאה שהיומן רושם ושהמסנן דוחה").toEqual([]);
   });
 });

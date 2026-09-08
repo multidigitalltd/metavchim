@@ -13,7 +13,7 @@ import type {
 } from "@nestjs/throttler";
 
 import { WebhookLogService } from "../modules/webhook-log/webhook-log.service";
-import { webhookThrottleTarget } from "./webhook-throttle";
+import { webhookThrottleTarget, webhookTracker } from "./webhook-throttle";
 
 /** ‏חלון הדחיסה — זהה לחלון המונה, ולכן „הוגבל בדקה הזו”. */
 const NOTE_WINDOW_MS = 60_000;
@@ -51,7 +51,7 @@ export class WebhookThrottlerGuard extends ThrottlerGuard {
     context: ExecutionContext,
     detail: ThrottlerLimitDetail,
   ): Promise<void> {
-    await this.note(context);
+    await this.note(context, detail);
     return super.throwThrottlingException(context, detail);
   }
 
@@ -64,16 +64,35 @@ export class WebhookThrottlerGuard extends ThrottlerGuard {
    *
    * ‏מה שצריך לדעת הוא „המפתח הזה נחסם בדקה הזו”, וזו שורה אחת.
    */
-  private async note(context: ExecutionContext): Promise<void> {
+  private async note(context: ExecutionContext, detail: ThrottlerLimitDetail): Promise<void> {
     const target = webhookThrottleTarget(context);
     if (target === undefined) return;
 
     const req = context.switchToHttp().getRequest<{
       params?: Record<string, string>;
       method?: string;
+      ip?: string;
     }>();
+
+    /*
+     * ‎**איזו תקרה נחצתה — של המשרד, או של הכתובת המשותפת?**
+     *
+     * ‏ההוק הזה רץ עבור **שני** המונים. כשספק משותף חוצה את תקרת
+     * ‏ה-IP הכללית בזמן שהמשרד הזה עדיין הרחק מתחת לשלו, המונה
+     * ‏הראשון זורק — וכל השורות היו נרשמות כ„המשרד עבר את התקרה
+     * ‏שלו”. מנהל שקורא את זה יוצא לחפש תקלה במרכזייה שלו, ואין
+     * ‏שם דבר (ביקורת Codex).
+     *
+     * ‏ההבחנה נעשית בהשוואה למה שהמונה שלנו **היה מחשב** לבקשה
+     * ‏הזו, ולא בניחוש לפי צורת המחרוזת: המונה הכללי מזהה לפי
+     * ‏`req.ip` נטו, ושלנו תמיד מוסיף קידומת. שוויון פירושו
+     * ‏שהמונה שלנו הוא שזרק.
+     */
+    const ours = webhookTracker(req, target.param);
+    const outcome = detail.tracker === ours ? "rate_limited" : "rate_limited_ip";
+
     const key = req.params?.[target.param] ?? "";
-    const slot = `${target.source}:${key}`;
+    const slot = `${target.source}:${key}:${outcome}`;
     const now = Date.now();
     const last = this.noted.get(slot);
     if (last !== undefined && now - last < NOTE_WINDOW_MS) return;
@@ -87,7 +106,7 @@ export class WebhookThrottlerGuard extends ThrottlerGuard {
 
     await this.webhookLog.record({
       source: target.source,
-      outcome: "rate_limited",
+      outcome,
       /*
        * ‏המשרד אינו ידוע: פתירת המפתח היא עבודת השירות, והשער רץ
        * ‏לפניו. `keyPrefix` הוא מה שמאפשר לזהות במסך על מי מדובר,
