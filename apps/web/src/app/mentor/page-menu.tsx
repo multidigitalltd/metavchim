@@ -30,7 +30,10 @@ import { useEffect, useState } from "react";
  * ‏מזהה ושורה ברשימה, ולא יידרש לשכפל את התנאי שלו.
  */
 
-/** ‏הסעיפים בסדר שבו הם מופיעים בעמוד. */
+/**
+ * ‏הסעיפים שיכולים להופיע בעמוד. **הסדר כאן אינו קובע** — ראו
+ * ‏למטה: ה-DOM נשאל גם מי קיים וגם באיזה סדר.
+ */
 const SECTIONS: readonly { id: string; label: string }[] = [
   { id: "mentor-onboarding-heading", label: "30 הימים הראשונים" },
   { id: "mentor-week-heading", label: "השבוע" },
@@ -63,7 +66,32 @@ export function MentorPageMenu({
   const [visible, setVisible] = useState<readonly (typeof SECTIONS)[number][]>([]);
 
   useEffect(() => {
-    const present = SECTIONS.filter((section) => document.getElementById(section.id) !== null);
+    /*
+     * ‎**הסדר נשאל מה-DOM, לא נשמר כאן.**
+     *
+     * ‏עד כה נשאל רק *מי* קיים, והסדר נלקח מהמערך שלמעלה. ביום
+     * ‏שהעמוד סודר מחדש (השיחה עלתה לראש, השאר ירדו לרייל) התפריט
+     * ‏המשיך למנות את הסדר הישן — כלומר מעבר על הצ׳יפים לפי הסדר
+     * ‏קפץ למטה, חזר למעלה, ושוב למטה (ביקורת Codex).
+     *
+     * ‎`compareDocumentPosition` הופך את זה לבלתי אפשרי: הסדר
+     * ‏שהתפריט מציג **הוא** הסדר שבעמוד, ואין מקום שני שיכול
+     * ‏להיפרד ממנו.
+     */
+    const present = SECTIONS.map((section) => ({
+      section,
+      el: document.getElementById(section.id),
+    }))
+      .filter(
+        (row): row is { section: (typeof SECTIONS)[number]; el: HTMLElement } =>
+          row.el !== null,
+      )
+      .sort((a, b) =>
+        (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+          ? -1
+          : 1,
+      )
+      .map((row) => row.section);
     setVisible((prev) =>
       prev.length === present.length && prev.every((row, i) => row.id === present[i]?.id)
         ? prev

@@ -3021,17 +3021,20 @@ button.mv-list-row:hover {
  * CSS אינו יודע לשאול „האם נשאר מה לגלול”.
  */
 .mv-entity-tabs[data-fade="end"],
-.mv-tabs[data-fade="end"] {
+.mv-tabs[data-fade="end"],
+.mv-chiprow[data-fade="end"] {
   mask-image: linear-gradient(to right, transparent 0, #000 34px);
   -webkit-mask-image: linear-gradient(to right, transparent 0, #000 34px);
 }
 .mv-entity-tabs[data-fade="start"],
-.mv-tabs[data-fade="start"] {
+.mv-tabs[data-fade="start"],
+.mv-chiprow[data-fade="start"] {
   mask-image: linear-gradient(to left, transparent 0, #000 34px);
   -webkit-mask-image: linear-gradient(to left, transparent 0, #000 34px);
 }
 .mv-entity-tabs[data-fade="both"],
-.mv-tabs[data-fade="both"] {
+.mv-tabs[data-fade="both"],
+.mv-chiprow[data-fade="both"] {
   mask-image: linear-gradient(
     to right,
     transparent 0,
@@ -8168,15 +8171,27 @@ a.mv-bar-row:focus-visible {
  * ‏כשיש רמז אחר שאפשר לגלול — ראו `verify:scroll` על סרגל
  * ‏הלשוניות, שאוכף בדיוק את זה.
  */
-.mv-noscrollbar,
+.mv-chiprow,
 .mv-tabs,
 .mv-entity-tabs {
   scrollbar-width: none;
 }
-.mv-noscrollbar::-webkit-scrollbar,
+.mv-chiprow::-webkit-scrollbar,
 .mv-tabs::-webkit-scrollbar,
 .mv-entity-tabs::-webkit-scrollbar {
   display: none;
+}
+/*
+ * ‎**סרגל שמסתיר סקרולבר חייב רמז אחר.** שורת השאלות של המנטור
+ * ‏קיבלה בתחילה `overflow-x-auto` והסתרת סקרולבר בלי מסכה — כלומר
+ * ‏שאלות שמעבר לקצה נראו פשוט כלא-קיימות (ביקורת Codex). היא
+ * ‏מחוברת עכשיו לאותו `useScrollAffordance` ולאותה מסכה כמו שני
+ * ‏הסרגלים האחרים.
+ */
+.mv-chiprow {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
 }
 
 /* ‎**עמוד המנטור — השיחה, ולידה הרייל.** (חבילת העיצוב)
@@ -8220,6 +8235,21 @@ a.mv-bar-row:focus-visible {
  * ‏הסעיפים נכתבו כשהם אחים בטור אחד ולכן נושאים `mt-6`/`mt-8`
  * ‏משלהם. בתוך גריד עם `gap` זה מרווח כפול — והמרווח שייך לגריד.
  */
+/*
+ * ‎**ברייל צר, מספר העמודות שייך לרייל ולא למסך.**
+ *
+ * ‏אריחי „השבוע” נכתבו כשהסעיף תפס את כל רוחב העמוד, ולכן הם
+ * ‏מבקשים `lg:grid-cols-4` — נקודת שבירה של **החלון**. ברגע
+ * ‏שהסעיף עבר לרייל של 352px, חלון רחב עדיין הדליק ארבע עמודות:
+ * ‏כ-79px לאריח, שאינם מכילים אייקון ותווית (ביקורת Codex).
+ *
+ * ‏הרייל קיים רק מ-75em, ולכן ההתאמה יושבת בדיוק שם.
+ */
+@media (min-width: 75em) {
+  .mv-mentor__rail .mv-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .mv-mentor__main > *,
 .mv-mentor__rail > * {
   margin-top: 0;

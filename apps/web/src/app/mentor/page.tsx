@@ -50,6 +50,7 @@ import {
   apiPost,
 } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
+import { useScrollAffordance } from "@/lib/use-scroll-affordance";
 import {
   useFeature,
   useFeaturesFailed,
@@ -840,7 +841,7 @@ function WeekSection({ overview }: { overview: Overview }) {
         ונמוכים יותר כי יש אחד-עשר. אפס עובר לניטרלי מהנתון — „אין
         עסקאות” לא אמור להיראות כמו התרעה.
       */}
-      <dl className="m-0 grid grid-cols-2 items-stretch gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      <dl className="mv-metric-grid m-0 grid grid-cols-2 items-stretch gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {MENTOR_METRICS.map((metric) => {
           const now = activity[metric.code];
           const before =
@@ -2527,6 +2528,12 @@ function ChatSection({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /*
+   * ‏שורת השאלות מסתירה סקרולבר, ולכן היא חייבת רמז אחר — אותו
+   * ‏הוק ואותה מסכה כמו שני סרגלי הלשוניות. החתימה קבועה כי
+   * ‏השאלות קבועות; מה שמשתנה הוא הרוחב, וההוק מודד גם אותו.
+   */
+  const chipRow = useScrollAffordance<HTMLDivElement>(EXAMPLE_QUESTIONS.join("|"));
   const endRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
@@ -2707,7 +2714,7 @@ function ChatSection({
           ‏שנגללת לרוחב ולא ערימה שדוחפת את תיבת הכתיבה מהמסך.
         */}
         {turns !== null ? (
-          <div className="mv-noscrollbar mt-3 flex gap-2 overflow-x-auto lg:flex-wrap">
+          <div className="mv-chiprow mt-3" ref={chipRow}>
             {EXAMPLE_QUESTIONS.map((q) => (
               <button
                 key={q}
