@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { EmailRejectedError } from "../../core/email.service";
+import { EmailAmbiguousError, EmailRejectedError } from "../../core/email.service";
 import { TenantContext } from "../../common/tenant-context";
 import { IntakeService } from "./intake.service";
 import type { AuditService } from "../../core/audit.service";
@@ -229,15 +229,43 @@ describe("sendInvite", () => {
      * ‏5xx או פסק זמן יכולים לקרות **אחרי** שההודעה נקלטה. אין כאן
      * מפתח ייחודיות, ולכן „נסו שוב” היה שולח ללקוח מייל שני
      * (ביקורת Codex).
+     *
+     * ‎**והבדיקה זרקה קודם `Error` סתם** — מה ש-`EmailService` אינו
+     * ‏זורק לעולם על פסק זמן. היא עברה מפני שהכלל הישן ספר כל מה
+     * ‏שאינו דחייה כ„עמום”, כלומר אישרה את הבאג במקום לתפוס אותו.
      */
     const h = harness({
       email: "dana@example.com",
-      emailThrows: new Error("socket hang up"),
+      emailThrows: new EmailAmbiguousError("socket hang up"),
     });
     const result = await run(() => h.service.sendInvite("lead", LEAD, ["email"]));
 
     expect(result.email).toMatchObject({ ok: false, ambiguous: true });
     /* ‏ולא נרשם ביומן כמשהו שיצא */
+    expect(h.audit).not.toHaveBeenCalled();
+  });
+
+  /*
+   * ‎**באג אצלנו אינו „ייתכן שיצא”.**
+   *
+   * ‏השליחה הזו יוצאת בכוונה בלי מפתח ייחודיות, ולכן „עמום” הוא
+   * ‏אמירה יקרה: המסך אומר לסוכן לוודא מול הלקוח לפני שליחה
+   * ‏חוזרת. `TypeError` שנזרק לפני שהבקשה בכלל יצאה אינו המצב
+   * ‏הזה — לא נשלח דבר, ואפשר פשוט לשלוח שוב.
+   */
+  it("‏באג לפני השליחה אינו „ייתכן שיצא”", async () => {
+    const h = harness({
+      email: "dana@example.com",
+      emailThrows: new TypeError("cannot read properties of undefined"),
+    });
+    const result = await run(() => h.service.sendInvite("lead", LEAD, ["email"]));
+
+    expect(result.email).toMatchObject({ ok: false });
+    expect(result.email).not.toHaveProperty("ambiguous", true);
+    /* ‏והנוסח לסוכן אינו הודעת שגיאה פנימית */
+    const reason = (result.email as { reason: string }).reason;
+    expect(reason).not.toContain("cannot read properties");
+    expect(reason).toContain("לא יצא דבר");
     expect(h.audit).not.toHaveBeenCalled();
   });
 

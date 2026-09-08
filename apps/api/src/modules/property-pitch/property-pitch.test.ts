@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
-import { EmailRejectedError } from "../../core/email.service";
+import { EmailAmbiguousError, EmailRejectedError } from "../../core/email.service";
 import type { Capability } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { PropertyPitchService } from "./property-pitch.service";
@@ -41,6 +41,8 @@ interface World {
     optedOut: boolean;
   }[];
   properties: { id: string; title: string }[];
+  /** ‏הכתיבה שמאשרת „נשלח” נכשלת — אחרי שהספק כבר קיבל את ההודעה. */
+  failConfirm?: boolean;
 }
 
 function serviceFor(world: World): {
@@ -107,6 +109,9 @@ function serviceFor(world: World): {
         return Promise.resolve({});
       },
       updateMany: (args: { data: { sendState?: string } }) => {
+        if (world.failConfirm === true && args.data.sendState === "sent") {
+          return Promise.reject(new Error("could not serialize access"));
+        }
         if (args.data.sendState !== undefined) states.push(args.data.sendState);
         return Promise.resolve({ count: 1 });
       },
@@ -364,11 +369,19 @@ describe("שליחת הצעת נכס", () => {
     expect(states).toEqual(["failed"]);
   });
 
-  /** ‎„איננו יודעים” אינו „לא” — וזה מה שמונע שליחה כפולה. */
+  /**
+   * ‎„איננו יודעים” אינו „לא” — וזה מה שמונע שליחה כפולה.
+   *
+   * ‎**והבדיקה הזו זרקה קודם `Error` סתם.** `EmailService` לעולם
+   * ‏אינו זורק כזה על פסק זמן — הוא זורק `EmailAmbiguousError`,
+   * ‏שנוצר בדיוק בשביל המצב הזה. הבדיקה עברה מפני שהכלל הישן ספר
+   * ‏**כל** מה שאינו דחייה כ„לא ידוע”, כלומר היא אישרה את הבאג
+   * ‏במקום לתפוס אותו. עכשיו היא זורקת את מה שנזרק באמת.
+   */
   it("פסק זמן נספר כ„לא ידוע” ולא ככישלון", async () => {
     const { service, states } = serviceFor({
       ...WORLD,
-      throwFor: () => new Error("socket hang up"),
+      throwFor: () => new EmailAmbiguousError("socket hang up", "pitch:x"),
     });
     const result = await asUser("01ME", AGENT, () =>
       service.send({ propertyIds: ["01PROP"], buyerIds: ["01MINE"] }),
@@ -380,6 +393,44 @@ describe("שליחת הצעת נכס", () => {
      * ‏משאיר את הסוכן בלי לדעת מה קרה.
      */
     expect(states).toEqual(["unknown"]);
+  });
+
+  /*
+   * ‎**באג אצלנו אינו „ייתכן שהגיע”.**
+   *
+   * ‏הכלל הישן — „כל מה שאינו `EmailRejectedError`” — סיווג גם
+   * ‏`TypeError` שנזרק לפני שהבקשה יצאה כ„לא ידוע”. הסוכן ראה
+   * ‏„ייתכן שנשלח”, הלקוח לא קיבל דבר, ואיש לא שלח שוב.
+   */
+  it("‏באג לפני השליחה נספר ככישלון, לא כ„לא ידוע”", async () => {
+    const { service, states } = serviceFor({
+      ...WORLD,
+      throwFor: () => new TypeError("cannot read properties of undefined"),
+    });
+    const result = await asUser("01ME", AGENT, () =>
+      service.send({ propertyIds: ["01PROP"], buyerIds: ["01MINE"] }),
+    );
+    expect(result).toMatchObject({ sent: 0, failed: 1, unknown: 0 });
+    expect(states).toEqual(["failed"]);
+  });
+
+  /*
+   * ‎**כשל בתיעוד אחרי שהמייל יצא אינו „נכשלה”** (ביקורת Codex, P1).
+   *
+   * ‏הכתיבה שמאשרת „נשלח” הייתה חשופה: חריגה שלה יצאה מ-`sendOne`
+   * ‏אל הלולאה, ושם סווגה כשגיאת שליחה. הלקוח **קיבל** את ההודעה,
+   * ‏המסך אמר לסוכן שנכשלה, והסוכן שלח שוב — מזהה חדש, מפתח
+   * ‏ייחודיות חדש, ועותק שני אצל הלקוח.
+   */
+  it("‏כשל בכתיבת האישור אינו הופך שליחה שהצליחה לכישלון", async () => {
+    const { service, sent } = serviceFor({ ...WORLD, failConfirm: true });
+    const result = await asUser("01ME", AGENT, () =>
+      service.send({ propertyIds: ["01PROP"], buyerIds: ["01MINE"] }),
+    );
+    /* ‏המייל אכן יצא */
+    expect(sent).toHaveLength(1);
+    /* ‏והתוצאה אומרת את זה — לא „נכשל” ולא „לא ידוע” */
+    expect(result).toMatchObject({ sent: 1, failed: 0, unknown: 0 });
   });
 
   it("בחירה ריקה נדחית לפני שנוגעים במסד", async () => {

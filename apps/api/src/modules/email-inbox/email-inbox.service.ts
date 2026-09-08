@@ -28,7 +28,7 @@ import {
 import { actingUserId, TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
-import { EmailRejectedError, EmailService } from "../../core/email.service";
+import { EmailService, emailSendOutcome } from "../../core/email.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
@@ -1138,27 +1138,21 @@ export class EmailInboxService {
       });
     } catch (error: unknown) {
       /*
-       * ‎**„נכשלה” רק כשידוע שלא יצאה.**
+       * ‎**„נכשלה” רק כשידוע שלא יצאה — והכלל אינו נכתב כאן.**
        *
-       * ‎`EmailRejectedError` פירושו שהספק **ענה ודחה** — ההודעה
-       * בוודאות לא יצאה, ושליחה חוזרת בטוחה. כל השאר — פסק זמן,
-       * נפילת רשת, ‎5xx — הוא „איננו יודעים”: ייתכן שהספק קלט ושלח
-       * ורק התשובה אבדה.
-       *
-       * הניסוח הראשון סימן **הכול** „נכשלה”, והמסך אמר „לא נשלחה”.
-       * הסוכן היה שולח שוב, והלקוח מקבל את אותה הודעה פעמיים
-       * (ביקורת Codex).
-       *
-       * ‎**וזו בדיוק ההבחנה שבניתי בעצמי ב-`EmailService`** בסבב
-       * מוקדם יותר, על אותו שיקול בדיוק — ואז לא השתמשתי בה כאן.
-       * ‎„לא ידוע” אינו „לא”, וזה נכון גם כשאני זה שכתב את הכלל.
+       * ‏הניסוח הזה נכתב בעצמו בארבעה נתיבי שליחה, וההערה הקודמת
+       * ‏כאן אפילו אמרה „וזו בדיוק ההבחנה שבניתי בעצמי ואז לא
+       * ‏השתמשתי בה” — כלומר הכפילות תועדה ולא בוטלה. עכשיו
+       * ‏`emailSendOutcome` היא המקום היחיד שבו הכלל מנוסח, ועמו
+       * ‏גם ההסבר למה הוא נשען על `EmailAmbiguousError` ולא על
+       * ‏שלילת `EmailRejectedError`.
        */
-      const certainlyNotSent = error instanceof EmailRejectedError;
+      const outcome = emailSendOutcome(error);
       await this.prisma
         .withTenant((tx) =>
           tx.emailMessage.updateMany({
             where: { id: messageId, tenantId },
-            data: { sendState: certainlyNotSent ? "failed" : "unknown" },
+            data: { sendState: outcome },
           }),
         )
         .catch(() => this.logger.error(`סימון מצב תשובה נכשל: ${messageId}`));
@@ -1173,7 +1167,7 @@ export class EmailInboxService {
        * בדחייה ודאית אין מה לשמור: שום דבר לא יצא, והרשומה כבר
        * אומרת „לא נשלחה”.
        */
-      if (!certainlyNotSent) {
+      if (outcome === "unknown") {
         await this.storeOutgoingCopies(tenantId, messageId, outgoing);
         /*
          * ‎**תוצאה עמומה אינה נזרקת — היא מוחזרת.**
