@@ -1,6 +1,11 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query } from "@nestjs/common";
 import { z } from "zod";
-import { IdSchema } from "@metavchim/shared";
+import {
+  IdSchema,
+  PAGE_LIMIT_MAX,
+  PITCH_MAX_BUYERS,
+  PITCH_MAX_PROPERTIES,
+} from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
@@ -12,7 +17,14 @@ import {
 const BuyersQuerySchema = z
   .object({
     q: z.string().trim().max(80).optional(),
-    limit: z.coerce.number().int().min(1).max(500).default(200),
+    /*
+     * ‎**אותה תקרה כמו `/properties`, ולא תקרה משלה.**
+     *
+     * ‏החלון אחד ושתי הרשימות נטענות באותו קוד; שתי תקרות שונות
+     * ‏פירושן שהמסך צריך לזכור לאיזו רשימה מותר לבקש כמה — וזו
+     * ‏בדיוק השכחה שהפילה את צד הנכסים.
+     */
+    limit: z.coerce.number().int().min(1).max(PAGE_LIMIT_MAX).default(PAGE_LIMIT_MAX),
   })
   .strict();
 
@@ -21,10 +33,11 @@ const BuyersQuerySchema = z
  * ‏קונים; מכרטיס הקונה — קונה אחד והרבה נכסים. שתי רשימות, ולכן
  * ‏אין כאן שני נתיבים שצריך לזכור לתקן פעמיים.
  */
-const SendSchema = z
+/* ‏מיוצא כדי שבדיקה תוכל לקבע את החוזה שהבורר במסך נכתב מולו. */
+export const SendSchema = z
   .object({
-    propertyIds: z.array(IdSchema).min(1).max(20),
-    buyerIds: z.array(IdSchema).min(1).max(500),
+    propertyIds: z.array(IdSchema).min(1).max(PITCH_MAX_PROPERTIES),
+    buyerIds: z.array(IdSchema).min(1).max(PITCH_MAX_BUYERS),
   })
   .strict();
 

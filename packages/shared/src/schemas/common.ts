@@ -53,6 +53,21 @@ export type MoneyAgorot = z.infer<typeof MoneyAgorotSchema>;
  */
 export const PAGE_LIMIT_MAX = 100;
 
+/**
+ * ‎**כמה נכסים וכמה קונים בשליחת הצעה אחת — מקור אמת אחד.**
+ *
+ * ‏הסכימה בשרת חסמה עשרים נכסים, והבורר במסך טען מאה ואפשר
+ * ‏„סמן הכל”. התוצאה: הסוכן מסמן, לוחץ, ומקבל 400 — **ולא נשלח
+ * ‏דבר**. שני מספרים שחייבים להסכים ישבו בשני קבצים, וזו בדיוק
+ * ‏הצורה שבה כבר נפל כאן `limit` מול `PAGE_LIMIT_MAX`
+ * ‏(ביקורת Codex).
+ *
+ * ‏האסימטריה מכוונת: מייל אחד נושא רשימת נכסים שאדם קורא, ולכן
+ * ‏עשרים הם כבר הרבה. מספר הנמענים הוא עניין אחר לגמרי.
+ */
+export const PITCH_MAX_PROPERTIES = 20;
+export const PITCH_MAX_BUYERS = 500;
+
 /** עמוד תוצאות מבוסס Cursor — הסטנדרט לכל רשימה במערכת. */
 export const PageRequestSchema = z.object({
   cursor: z.string().optional(),

@@ -160,6 +160,11 @@ jobs:
       - name: Buyer stance is derived, not read raw
         run: pnpm --filter @metavchim/web verify:stance
 
+      # מסך שמבקש יותר מ-PAGE_LIMIT_MAX נדחה ב-400 ומציג „לא נמצאו”
+      # על מאגר מלא. זה קרה פעמיים בשני בוררים שונים.
+      - name: Screens never ask for more than the gate accepts
+        run: pnpm --filter @metavchim/web verify:limits
+
       # ההדרכות והתיעוד הם בית אחד, והבית הוא הציבורי. השער מוודא
       # ש-`/guides` נשאר הפניה ולא חוזר להיות מסך שני שמצייר את אותו
       # תוכן — הפיצול הזה כבר ייצר כאן שתי גרסאות שנפרדו זו מזו.
