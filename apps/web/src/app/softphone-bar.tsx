@@ -288,7 +288,7 @@ function CallBar({
     <div
       role={state.status === "ringing" ? "alert" : "status"}
       aria-live={state.status === "ringing" ? "assertive" : "polite"}
-      className="fixed bottom-3 left-3 z-50 flex flex-wrap items-center gap-2 rounded-2xl border px-4 py-3 shadow-lg"
+      className="mv-floatbottom fixed bottom-3 left-3 z-50 flex flex-wrap items-center gap-2 rounded-2xl border px-4 py-3 shadow-lg"
       style={{
         borderColor: state.status === "ringing" ? "var(--color-primary)" : "var(--color-border)",
         background: "var(--color-surface)",
@@ -380,7 +380,7 @@ function ConnectChip({ onConnect, busy }: { onConnect: () => void; busy: boolean
   return (
     <button
       type="button"
-      className="mv-btn-plain fixed bottom-3 left-3 z-50 shadow-lg"
+      className="mv-btn-plain mv-floatbottom fixed bottom-3 left-3 z-50 shadow-lg"
       disabled={busy}
       onClick={onConnect}
       title="חיבור הסופטפון מאפשר לדבר עם אוזניות ישירות מהמסך"

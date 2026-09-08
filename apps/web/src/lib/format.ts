@@ -76,6 +76,28 @@ export function timeAgo(value: string | Date | undefined): string {
   return days === 1 ? "אתמול" : `לפני ${days} ימים`;
 }
 
+/**
+ * ‎**„פעילות אחרונה” — ניסוח אחד, לרשימת הקונים ולכרטיס.**
+ *
+ * ‏זו אינה `timeAgo`, וההבדל מכוון: על פנייה בתור השאלה היא „כמה
+ * ‏זמן היא מחכה”, ולכן דקות ושעות; על לקוח השאלה היא „מתי נגעתי
+ * ‏בו”, ושם „לפני 7 שעות” ו„היום” הם אותו דבר — ואילו „לפני 45
+ * ‏ימים” הוא מספר שצריך לחלק בראש. ימים, ואז חודשים.
+ *
+ * ‏נכתבה כאן אחרי שנמצאה כפונקציה פרטית במסך הרשימה, בזמן שהכרטיס
+ * ‏הציג את אותו נתון בניסוח אחר. שתי תשובות לאותה שאלה על אותו
+ * ‏לקוח — וזה בדיוק מה שקורה כשכלל נכתב פעמיים.
+ */
+export function lastActivityText(value?: string | Date): string {
+  if (value === undefined) return "—";
+  const days = Math.floor((Date.now() - new Date(value).getTime()) / 86_400_000);
+  if (days === 0) return "היום";
+  if (days === 1) return "אתמול";
+  if (days < 30) return `לפני ${days} ימים`;
+  const months = Math.floor(days / 30);
+  return months === 1 ? "לפני חודש" : `לפני ${months} חודשים`;
+}
+
 export { MATURITY_LABELS } from "@metavchim/shared";
 
 /**

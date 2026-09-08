@@ -209,7 +209,7 @@ export class BuyersController {
   @RequireCapability("buyers.view_own")
   async get(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-  ): Promise<BuyerDto> {
+  ): Promise<BuyerDto & { lastActivityAt: Date }> {
     return this.buyers.getById(id);
   }
 
