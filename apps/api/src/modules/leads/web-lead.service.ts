@@ -259,6 +259,21 @@ export class WebLeadService {
       .filter(Boolean)
       .join("\n");
 
+    /*
+     * ‎**אותו גוף לשני הענפים** (ביקורת Codex, P2).
+     *
+     * ‏הענף של הליד החדש בנה את השורה מ-`input.message` בלבד,
+     * ‏והענף החוזר מ-`summaryParts`. ההבדל אינו ניסוח: את הנכס
+     * ‏שהלקוח לחץ עליו `LandingService.publicLead` מוסר **רק**
+     * ‏דרך `pageUrl`, ולכן שורה שנבנתה בלי הוא אמרה „נקלט מדף
+     * ‏נחיתה של נכס” בלי לומר איזה — בדיוק על כרטיס הקונה שאליו
+     * ‏נשלחה ההצעה, שם השאלה היחידה היא על מה הוא הגיב.
+     *
+     * ‏שתי נוסחאות לאותו דבר הן ההפרש שנשכח בענף אחד; לכן אחת.
+     */
+    const detail = summaryParts || "ללא הודעה";
+    const eventText = (prefix: string): string => `${prefix}: ${detail}`.slice(0, 1500);
+
     const openLead = await tx.lead.findFirst({
       where: {
         tenantId,
@@ -293,15 +308,13 @@ export class WebLeadService {
       }
 
       // ליד פתוח קיים — הפנייה מצטרפת לציר הזמן שלו
+      const repeatText = eventText(
+        source === "landing" ? "פנייה נוספת מדף נחיתה" : `פנייה נוספת (${source})`,
+      );
       await tx.interaction.create({
-        data: {
-          id: ulid(),
-          tenantId,
-          leadId: openLead.id,
-          kind: "note",
-          content: `${source === "landing" ? "פנייה נוספת מדף נחיתה" : `פנייה נוספת (${source})`}: ${summaryParts || "ללא הודעה"}`,
-        },
+        data: { id: ulid(), tenantId, leadId: openLead.id, kind: "note", content: repeatText },
       });
+      await this.alsoOnBuyerCards(tx, tenantId, contactId, repeatText);
       return { leadId: openLead.id, repeat: true };
     }
 
@@ -332,15 +345,13 @@ export class WebLeadService {
         ...(previous ? { requiresHuman: true, requiresHumanReason: "ליד חוזר — פנה בעבר" } : {}),
       },
     });
+    const firstText = eventText(
+      source === "landing" ? "נקלט מדף נחיתה של נכס" : `נקלט מטופס (${source})`,
+    );
     await tx.interaction.create({
-      data: {
-        id: ulid(),
-        tenantId,
-        leadId,
-        kind: "note",
-        content: `${source === "landing" ? "נקלט מדף נחיתה של נכס" : `נקלט מטופס (${source})`}${input.message ? `: ${input.message.slice(0, 1500)}` : ""}`,
-      },
+      data: { id: ulid(), tenantId, leadId, kind: "note", content: firstText },
     });
+    await this.alsoOnBuyerCards(tx, tenantId, contactId, firstText);
     await tx.outboxEvent.create({
       data: {
         id: ulid(),
@@ -350,5 +361,39 @@ export class WebLeadService {
       },
     });
     return { leadId, repeat: false };
+  }
+
+  /**
+   * ‎**אותו מילוי, גם על כרטיס הקונה של אותו אדם.**
+   *
+   * ‏ציר הזמן בכרטיס הקונה קורא `interaction` לפי `buyerId`,
+   * ‏והמילוי נרשם רק עם `leadId`. התוצאה: לקוח שקיבל הצעת נכס,
+   * ‏נכנס לדף הנחיתה ומילא פרטים — לא הותיר שום סימן בכרטיס שממנו
+   * ‏נשלחה אליו ההצעה. הסוכן פותח את הקונה ורואה כרטיס שלא קרה בו
+   * ‏דבר (בקשת המשתמש).
+   *
+   * ‎**כל הכרטיסים החיים, ולא אחד.** למערכת מותר במפורש שיהיו
+   * ‏לאיש קשר שני כרטיסי קונה — שתי דרישות של אותו אדם, או שארית
+   * ‏של מיזוג — ובחירה שרירותית באחד הייתה מסתירה את המילוי
+   * ‏מהסוכן שעובד על השני.
+   *
+   * ‎`direction: "in"` — הלקוח יזם. זו ההבחנה שמבדילה בציר הזמן
+   * ‏בין „שלחנו לו” לבין „הוא פנה”.
+   */
+  private async alsoOnBuyerCards(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    contactId: string,
+    content: string,
+  ): Promise<void> {
+    const cards = await tx.buyer.findMany({
+      where: { tenantId, contactId, deletedAt: null },
+      select: { id: true },
+    });
+    for (const card of cards) {
+      await tx.interaction.create({
+        data: { id: ulid(), tenantId, buyerId: card.id, kind: "note", direction: "in", content },
+      });
+    }
   }
 }
