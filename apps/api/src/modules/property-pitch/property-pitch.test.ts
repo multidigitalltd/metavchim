@@ -45,6 +45,8 @@ interface World {
   properties: { id: string; title: string }[];
   /** ‏הכתיבה שמאשרת „נשלח” נכשלת — אחרי שהספק כבר קיבל את ההודעה. */
   failConfirm?: boolean;
+  /** ‏רישום ציר הזמן נכשל — הכתיבה הכבדה משתיהן, אחרי אותה שליחה. */
+  failTimeline?: boolean;
 }
 
 function serviceFor(world: World): {
@@ -59,6 +61,23 @@ function serviceFor(world: World): {
   const states: string[] = [];
   /** ‏מה שנכתב לציר הזמן של הקונה. */
   const timeline: Record<string, unknown>[] = [];
+
+  /**
+   * ‎**הכפיל מגלגל אחורה, אחרת הבדיקה אינה בודקת דבר.**
+   *
+   * ‏`withTenant` פותח טרנזקציה אמיתית, וכשל בכתיבה אחת מבטל את
+   * ‏כל מה שנכתב לפניה **באותה טרנזקציה**. כפיל שרק קורא לפונקציה
+   * ‏היה מותיר את הכתיבות הקודמות רשומות, ולכן היה עובר גם על הקוד
+   * ‏שבו סימון „נשלח” והציר יושבים יחד — כלומר בדיוק על הבאג
+   * ‏שהבדיקות כאן אמורות לתפוס (ביקורת Codex).
+   *
+   * ‏לכן כל כתיבה נצברת, ומתחייבת רק כשהטרנזקציה הסתיימה בשלום.
+   */
+  let staged: (() => void)[] | null = null;
+  const record = (commit: () => void): void => {
+    if (staged === null) commit();
+    else staged.push(commit);
+  };
 
   const tx = {
     buyer: {
@@ -110,20 +129,22 @@ function serviceFor(world: World): {
     },
     emailMessage: {
       create: (args: { data: Record<string, unknown> }) => {
-        messages.push(args.data);
+        record(() => messages.push(args.data));
         return Promise.resolve({});
       },
       updateMany: (args: { data: { sendState?: string } }) => {
         if (world.failConfirm === true && args.data.sendState === "sent") {
           return Promise.reject(new Error("could not serialize access"));
         }
-        if (args.data.sendState !== undefined) states.push(args.data.sendState);
+        const { sendState } = args.data;
+        if (sendState !== undefined) record(() => states.push(sendState));
         return Promise.resolve({ count: 1 });
       },
     },
     interaction: {
       create: (args: { data: Record<string, unknown> }) => {
-        timeline.push(args.data);
+        if (world.failTimeline === true) return Promise.reject(new Error("deadlock detected"));
+        record(() => timeline.push(args.data));
         return Promise.resolve({});
       },
     },
@@ -131,7 +152,18 @@ function serviceFor(world: World): {
   };
 
   const prisma = {
-    withTenant: <T,>(fn: (t: typeof tx) => Promise<T>) => fn(tx),
+    withTenant: async <T,>(fn: (t: typeof tx) => Promise<T>): Promise<T> => {
+      const outer = staged;
+      const own: (() => void)[] = [];
+      staged = own;
+      try {
+        const value = await fn(tx);
+        for (const commit of own) commit();
+        return value;
+      } finally {
+        staged = outer;
+      }
+    },
     withPublicContactOptOut: <T,>(fn: (t: typeof tx) => Promise<T>) => fn(tx),
     tenant: { findUnique: () => Promise.resolve({ name: "משרד הבדיקה" }) },
   };
@@ -459,6 +491,30 @@ describe("שליחת הצעת נכס", () => {
     expect(timeline).toHaveLength(1);
     expect(timeline[0]).toMatchObject({ buyerId: "01MINE", kind: "email", direction: "out" });
     expect(String(timeline[0]?.["content"])).toContain("נשלחה הצעת נכס");
+  });
+
+  /*
+   * ‎**והציר לא יפיל אתו את סימון „נשלח”** (ביקורת Codex, P1).
+   *
+   * ‏השתיים ישבו בטרנזקציה אחת, וכשל בכתיבה הכבדה משתיהן גלגל
+   * ‏אחורה גם את הסימון. ה-`catch` בלע את השגיאה, `sendOne` החזיר
+   * ‏„נשלח”, והשורה נשארה `pending` — כלומר מסך שאומר „בשליחה…”
+   * ‏על הודעה שכבר אצל הלקוח, ובדיוק ההזמנה לשלוח שוב שהמצב
+   * ‎`sent` קיים כדי למנוע.
+   *
+   * ‎`sendState` הוא העובדה שקובעת אם מותר לשלוח שוב; הציר הוא
+   * ‏נוחות. אין סיבה שהראשון ייפול בגלל השני.
+   */
+  it("‏כשל ברישום הציר אינו מבטל את סימון „נשלח”", async () => {
+    const { service, sent, states, timeline } = serviceFor({ ...WORLD, failTimeline: true });
+    const result = await asUser("01ME", AGENT, () =>
+      service.send({ propertyIds: ["01PROP"], buyerIds: ["01MINE"] }),
+    );
+    expect(sent).toHaveLength(1);
+    expect(result).toMatchObject({ sent: 1, failed: 0, unknown: 0 });
+    /* ‏זו הטענה: הסימון שרד את כשל הציר */
+    expect(states).toEqual(["sent"]);
+    expect(timeline).toEqual([]);
   });
 
   /*

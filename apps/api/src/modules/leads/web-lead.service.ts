@@ -214,6 +214,21 @@ export class WebLeadService {
       .filter(Boolean)
       .join("\n");
 
+    /*
+     * ‎**אותו גוף לשני הענפים** (ביקורת Codex, P2).
+     *
+     * ‏הענף של הליד החדש בנה את השורה מ-`input.message` בלבד,
+     * ‏והענף החוזר מ-`summaryParts`. ההבדל אינו ניסוח: את הנכס
+     * ‏שהלקוח לחץ עליו `LandingService.publicLead` מוסר **רק**
+     * ‏דרך `pageUrl`, ולכן שורה שנבנתה בלי הוא אמרה „נקלט מדף
+     * ‏נחיתה של נכס” בלי לומר איזה — בדיוק על כרטיס הקונה שאליו
+     * ‏נשלחה ההצעה, שם השאלה היחידה היא על מה הוא הגיב.
+     *
+     * ‏שתי נוסחאות לאותו דבר הן ההפרש שנשכח בענף אחד; לכן אחת.
+     */
+    const detail = summaryParts || "ללא הודעה";
+    const eventText = (prefix: string): string => `${prefix}: ${detail}`.slice(0, 1500);
+
     const openLead = await tx.lead.findFirst({
       where: {
         tenantId,
@@ -248,7 +263,9 @@ export class WebLeadService {
       }
 
       // ליד פתוח קיים — הפנייה מצטרפת לציר הזמן שלו
-      const repeatText = `${source === "landing" ? "פנייה נוספת מדף נחיתה" : `פנייה נוספת (${source})`}: ${summaryParts || "ללא הודעה"}`;
+      const repeatText = eventText(
+        source === "landing" ? "פנייה נוספת מדף נחיתה" : `פנייה נוספת (${source})`,
+      );
       await tx.interaction.create({
         data: { id: ulid(), tenantId, leadId: openLead.id, kind: "note", content: repeatText },
       });
@@ -283,7 +300,9 @@ export class WebLeadService {
         ...(previous ? { requiresHuman: true, requiresHumanReason: "ליד חוזר — פנה בעבר" } : {}),
       },
     });
-    const firstText = `${source === "landing" ? "נקלט מדף נחיתה של נכס" : `נקלט מטופס (${source})`}${input.message ? `: ${input.message.slice(0, 1500)}` : ""}`;
+    const firstText = eventText(
+      source === "landing" ? "נקלט מדף נחיתה של נכס" : `נקלט מטופס (${source})`,
+    );
     await tx.interaction.create({
       data: { id: ulid(), tenantId, leadId, kind: "note", content: firstText },
     });
