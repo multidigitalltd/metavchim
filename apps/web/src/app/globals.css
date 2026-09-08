@@ -8225,10 +8225,96 @@ a.mv-bar-row:focus-visible {
 .mv-invitecard p {
   color: #c4cfc7;
 }
+/* ‏כותרת הכרטיס יורשת `--color-text` — כהה על כהה */
+.mv-invitecard .mv-card-head__title {
+  color: #ffffff;
+}
 .mv-invitecard hr {
   border: 0;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   margin: 14px 0 12px;
+}
+/* ‏אריח הסמל — הירוק הבהיר של הכרטיס, מרוכך על הרקע הכהה */
+.mv-invitecard__tile {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 13px;
+  background: rgba(112, 238, 145, 0.16);
+  color: #70ee91;
+}
+/* ‏הפעולה עצמה — הדבר הבהיר היחיד בכרטיס, ולכן זה שמושך את היד */
+.mv-invitecard__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding-inline: 20px;
+  border: 0;
+  border-radius: 13px;
+  background: linear-gradient(180deg, #7df39c 0%, #5fe083 100%);
+  color: #08240f;
+  font-size: var(--type-body-sm);
+  font-weight: 900;
+  cursor: pointer;
+}
+.mv-invitecard__cta:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+/* ‎**הצבעים הפנימיים אטומים ולא שקופים** (שער הניגודיות).
+ *
+ * ‏‎`rgba(255,255,255,.06)` על הכרטיס הכהה נראה נכון בעין — אבל
+ * ‏אין דרך למדוד אותו: הוא מרוכב על `linear-gradient`, והשער חישב
+ * ‏אותו מול לבן ומצא 1.2:1. „לא נמדד” אינו „עבר”, ולכן כל ערך כאן
+ * ‏הוא צבע אטום שאפשר לבדוק — ובדיוק אותו מראה. */
+
+/* ‏פעולה משנית על רקע כהה: שקטה, כדי שלא תתחרה ב-CTA */
+.mv-invitecard__ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding-inline: 16px;
+  border: 1px solid #6b8879;
+  border-radius: 13px;
+  background: #16241b;
+  color: #e6ece7;
+  font-size: var(--type-body-sm);
+  font-weight: 800;
+  cursor: pointer;
+}
+.mv-invitecard__ghost:hover {
+  border-color: #9ab5a7;
+  background: #1e3024;
+}
+/* ‏שורת קישור בהיסטוריה — אותו תפקיד כמו `mv-fieldrow`, על רקע כהה */
+.mv-invitecard__row {
+  border: 1px solid #2c3b31;
+  border-radius: 14px;
+  background: #16241b;
+  padding: 12px 14px;
+  color: #c4cfc7;
+}
+/* ‏תג משלו ולא `.mv-tag` בדריסת-צאצא: דריסה כזו מעצבת מחלקה
+   ‏משותפת ממקום אחד, ואז „מה הרקע של תג” תלוי איפה הוא יושב. */
+.mv-invitecard__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: #22332a;
+  color: #c4cfc7;
+  font-size: var(--type-caption);
+  font-weight: 700;
+}
+/* ‏פוקוס גלוי גם על הכהה — הטבעת הרגילה נבלעת בו */
+.mv-invitecard :is(button, a):focus-visible {
+  outline: 2px solid #7df39c;
+  outline-offset: 2px;
 }
 
 /* ‎**סרגל ניווט תחתון — כרטיס הקונה בלבד** (בקשת המשתמש).

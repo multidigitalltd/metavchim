@@ -115,11 +115,19 @@ function WaWayOut({ url }: { url: string | null }) {
   );
 }
 
+/**
+ * ‎**צבעי המצב — על הכרטיס הכהה, ולכן קבועים.**
+ *
+ * ‏הגרסה הקודמת השתמשה בטוקנים של המערכת (`--color-primary`, כתום
+ * ‏‎`#8a6414`), שנבחרו לניגוד מול רקע **בהיר**. על הרקע הכהה של
+ * ‏הכרטיס הם נבלעים — כתום כהה על ירוק־שחור אינו נקרא. אלה אותם
+ * ‏שלושה מצבים באותה משמעות, בגוונים שנקראים על הרקע שיש כאן.
+ */
 const STATUS_COLOR: Record<IntakeStatus, string> = {
-  sent: "var(--color-text-muted)",
-  opened: "#8a6414",
-  submitted: "var(--color-primary)",
-  revoked: "var(--color-text-muted)",
+  sent: "#8c978e",
+  opened: "#f0c26b",
+  submitted: "#70ee91",
+  revoked: "#8c978e",
 };
 
 export function IntakePanel({
@@ -316,19 +324,16 @@ export function IntakePanel({
   );
 
   return (
-    <section className="mv-card mv-card--pad" aria-labelledby="intake-heading">
+    <section className="mv-invitecard" aria-labelledby="intake-heading">
       <div className="mv-card-head">
-        <span className="mv-tile mv-tile--44 mv-domain-violet" aria-hidden="true">
-          <IconSend s={20} />
+        <span className="mv-invitecard__tile" aria-hidden="true">
+          <IconSend s={18} />
         </span>
         <h2 id="intake-heading" className="mv-card-head__title">
           הלקוח ממלא בעצמו
         </h2>
       </div>
-      <p
-        className="m-0 text-[length:var(--type-caption-lg)] leading-relaxed"
-        style={{ color: "var(--color-text-muted)" }}
-      >
+      <p className="m-0 mt-3 text-[length:var(--type-body-sm)] leading-relaxed">
         שלחו ללקוח קישור לטופס קצר — מה הוא מחפש, באיזה אזור ובאיזה
         תקציב. מה שהוא ימלא ייכנס לכרטיס.
       </p>
@@ -351,16 +356,14 @@ export function IntakePanel({
           <LoadError onRetry={() => void load()} />
         </div>
       ) : rows === null ? (
-        <p className="mt-4" style={{ color: "var(--color-text-muted)" }}>
-          טוען…
-        </p>
+        <p className="mt-4">טוען…</p>
       ) : (
         <>
           {canEdit ? (
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 type="button"
-                className="mv-btn-action"
+                className="mv-invitecard__cta"
                 disabled={busy}
                 onClick={() => void openPicker()}
               >
@@ -370,7 +373,7 @@ export function IntakePanel({
               {active !== undefined ? (
                 <button
                   type="button"
-                  className="mv-btn-plain"
+                  className="mv-invitecard__ghost"
                   onClick={() => void clipboard.copy(active.url)}
                 >
                   <IconLink s={15} />{" "}
@@ -385,14 +388,7 @@ export function IntakePanel({
           ) : null}
 
           {rows.length === 0 ? (
-            <p
-              className="m-0 mt-4 rounded-xl border p-4 text-[length:var(--type-body-sm)]"
-              style={{
-                borderColor: "var(--color-border)",
-                background: "var(--color-field)",
-                color: "var(--color-text-muted)",
-              }}
-            >
+            <p className="mv-invitecard__row m-0 mt-4 text-[length:var(--type-body-sm)]">
               עדיין לא נשלחה בקשה ללקוח הזה.
             </p>
           ) : (
@@ -401,15 +397,18 @@ export function IntakePanel({
                 const expired =
                   row.status !== "revoked" && new Date(row.expiresAt) <= new Date();
                 return (
-                  <li
-                    key={row.id}
-                    className="rounded-xl border p-3"
-                    style={{
-                      borderColor: "var(--color-border)",
-                      background: "var(--color-surface)",
-                    }}
-                  >
+                  <li key={row.id} className="mv-invitecard__row">
                     <div className="flex flex-wrap items-center gap-2">
+                      {/*
+                        ‏נקודת המצב מקובץ העיצוב. היא **חוזרת** על מה
+                        שכתוב לידה ואינה מחליפה אותו: צבע לבדו אינו
+                        מצב, וגם ‎`aria-hidden` כדי שלא תוקרא כתו.
+                      */}
+                      <span
+                        aria-hidden="true"
+                        className="inline-block size-2 flex-none rounded-full"
+                        style={{ background: STATUS_COLOR[row.status] }}
+                      />
                       <span
                         className="font-bold"
                         style={{ color: STATUS_COLOR[row.status] }}
@@ -417,13 +416,7 @@ export function IntakePanel({
                         {expired ? "הקישור פג תוקף" : INTAKE_STATUS_LABEL[row.status]}
                       </span>
                       {row.channel === "missed_call" ? (
-                        <span
-                          className="mv-tag"
-                          style={{
-                            background: "var(--color-field)",
-                            color: "var(--color-text-muted)",
-                          }}
-                        >
+                        <span className="mv-invitecard__tag">
                           נשלח אוטומטית אחרי שיחה שלא נענתה
                         </span>
                       ) : null}
@@ -431,7 +424,8 @@ export function IntakePanel({
                       {canEdit && row.status !== "revoked" && !expired ? (
                         <button
                           type="button"
-                          className="mv-btn-plain"
+                          className="mv-invitecard__ghost"
+                          style={{ minHeight: 32, paddingInline: 10 }}
                           aria-label="ביטול הקישור"
                           onClick={() => setRevoking(row)}
                         >
@@ -439,10 +433,7 @@ export function IntakePanel({
                         </button>
                       ) : null}
                     </div>
-                    <p
-                      className="m-0 mt-1 text-[length:var(--type-caption)]"
-                      style={{ color: "var(--color-text-muted)" }}
-                    >
+                    <p className="m-0 mt-1 text-[length:var(--type-caption)]">
                       נוצר {formatDateTime(row.createdAt)}
                       {row.submittedAt !== null
                         ? ` · מולא ${formatDateTime(row.submittedAt)}`
