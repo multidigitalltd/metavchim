@@ -253,6 +253,18 @@ export default function BuyerDetailPage({
    * שני מצבים ולא דגל נפרד, כדי שלא ייווצר מצב שבו התיבה פתוחה
    * בלי ערך או סגורה עם ערך שנשמר בצד.
    */
+  /*
+   * ‎**ההתאמה הגבוהה — נגזרת, לא נשלפת.**
+   *
+   * ‏הרשימה כבר בזיכרון, ולכן „הגבוהה ביותר” היא מקסימום עליה
+   * ‏ולא בקשה נוספת. `reduce` ולא `sort`: מיון היה משנה את סדר
+   * ‏התצוגה של הלשונית עצמה, שהוא הסדר שהשרת החזיר.
+   */
+  const topMatch = (matches ?? []).reduce<MatchRow | undefined>(
+    (best, row) => (best === undefined || row.score > best.score ? row : best),
+    undefined,
+  );
+
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameFailed, setRenameFailed] = useState(false);
   const [renameBusy, setRenameBusy] = useState(false);
@@ -426,18 +438,8 @@ export default function BuyerDetailPage({
         className="mv-list-card mb-3 flex flex-wrap items-center gap-4 px-6 py-5"
         style={{ overflow: "visible" }}
       >
-        <span
-          aria-hidden="true"
-          className="grid flex-none place-items-center rounded-full"
-          style={{
-            width: 48,
-            height: 48,
-            background: "var(--color-primary-soft)",
-            color: "var(--color-primary)",
-            fontWeight: 800,
-            fontSize: "19px",
-          }}
-        >
+        {/* ‏ריבוע מעוגל ולא עיגול: אין כאן תמונה, יש כאן ישות */}
+        <span aria-hidden="true" className="mv-avatar mv-avatar--lg flex-none">
           {initials(buyer.contact.name)}
         </span>
         <div className="min-w-0">
@@ -708,6 +710,59 @@ export default function BuyerDetailPage({
       <TabPanel tab="overview" active={tab}>
         <div className="grid items-start gap-[18px] lg:[grid-template-columns:340px_1fr]">
           <div className="grid gap-[18px]">
+            {/*
+              ‎---- הפעולה הבאה ----
+
+              ‏משפט אחד ופעולה אחת, בראש הלשונית: יש כאן N התאמות
+              ‏שממתינות, וזו הגבוהה שבהן. הסוכן שפותח את הכרטיס אינו
+              ‏צריך לגלול ולהסיק — הדבר שכדאי לעשות עכשיו כתוב.
+
+              ‏מוצג רק כשיש התאמות. באנר שאומר „0 התאמות” הוא רעש
+              ‏בראש כל כרטיס שאין לו עדיין מה להציע.
+            */}
+            {topMatch !== undefined && matches !== null && matches.length > 0 ? (
+              <div className="mv-nextaction mv-domain-violet">
+                <span
+                  aria-hidden="true"
+                  className="mv-tile mv-tile--44 mv-domain-violet flex-none"
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.9"
+                  >
+                    <circle cx="9" cy="12" r="5.5" />
+                    <circle cx="15" cy="12" r="5.5" />
+                  </svg>
+                </span>
+                <div className="min-w-0">
+                  <div
+                    className="font-black"
+                    style={{ fontSize: "calc(17 / 16 * 1rem)" }}
+                  >
+                    {matches.length} נכסים מתאימים מחכים לשליחה
+                  </div>
+                  <div
+                    className="mt-0.5 text-[length:var(--type-body-sm)]"
+                    style={{ color: "var(--domain-violet-fg)" }}
+                  >
+                    ההתאמה הגבוהה ביותר — {topMatch.score}% ·{" "}
+                    {topMatch.property.address}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="mv-btn-primary ms-auto flex-none"
+                  onClick={() => selectTab("matches")}
+                >
+                  צפה בהתאמות
+                </button>
+              </div>
+            ) : null}
+
             {/*
               ---- שלמות פרופיל החיפוש ----
               כרטיס חצי-מלא נראה בדיוק כמו כרטיס מלא, ולכן סוכן מריץ
@@ -1301,6 +1356,38 @@ export default function BuyerDetailPage({
           {...(buyer.agentNotes ? { defaultNote: buyer.agentNotes } : {})}
         />
       </TabPanel>
+
+      {/*
+        ‎---- ניווט תחתון — מובייל בלבד ---- (בקשת המשתמש)
+
+        ‏ארבע הלשוניות שסוכן עובר ביניהן בשטח, במרחק אגודל. הן
+        ‏**אותן** לשוניות של הפס העליון ואותו `selectTab` — לא ניווט
+        ‏שני שצריך לזכור לסנכרן, אלא אותו מצב בשתי נקודות מגע.
+        ‏„מסמכים” ו„שיתופי פעולה” נשארים בפס העליון: הם נפתחים במשרד,
+        ‏לא בין פגישות.
+
+        ‎`aria-current` ולא צבע בלבד — במצב ניגודיות גבוהה שני
+        ‏הגוונים נופלים לאותו שחור.
+      */}
+      <nav className="mv-bottomnav" aria-label="לשוניות הכרטיס">
+        {(
+          [
+            ["overview", "כרטיס"],
+            ["matches", "התאמות"],
+            ["tasks", "משימות"],
+            ["timeline", "ציר זמן"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            aria-current={tab === key}
+            onClick={() => selectTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
     </>
   );
 }

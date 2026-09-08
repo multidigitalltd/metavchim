@@ -8125,3 +8125,145 @@ a.mv-bar-row:focus-visible {
   white-space: nowrap;
   display: inline-block;
 }
+
+/* ==========================================================================
+   כרטיס הקונה — החלקים שהעיצוב הוסיף
+   ==========================================================================
+
+   ‏השפה העיצובית עצמה כבר בטוקנים (הקנבס החם, הירוק, הסגול,
+   ‏הכרטיס והפינות) — היא נכנסה בסבבי העיצוב הקודמים. מה שנוסף כאן
+   ‏הוא רק מה שלא היה לו ייצוג: הבאנר הסגול, שורות השדה המלא/החסר,
+   ‏הכרטיס הכהה של הטופס, וסרגל הניווט התחתון במובייל.
+
+   ‏הכול דרך טוקנים ולא ערכי hex: המסך הזה אינו ערכה משלו, והוא
+   ‏חייב להתהפך נכון במצב כהה ובניגודיות גבוהה כמו כל השאר. */
+
+/* ‎**מונוגרמה גדולה — ריבוע מעוגל, לא עיגול.**
+ *
+ * ‏עיגול הוא תמונת פרופיל; ריבוע מעוגל הוא **כרטיס**. ההבדל קטן
+ * ‏ומכוון: אין כאן תמונה, ויש כאן ישות.
+ *
+ * ‏המילוי הוא המדרג הירוק של המותג ולא משטח שטוח, וזה גם מה
+ * ‏שמייצר את הניגודיות מול הטקסט הכהה שעליו — לכן שניהם קבועים
+ * ‏ולא נגזרים מהערכה. */
+.mv-avatar--lg {
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+  font-size: calc(24 / 16 * 1rem);
+  font-weight: 900;
+  background: linear-gradient(160deg, #7df39c, #3fbf63);
+  color: #08240f;
+}
+
+/* ‎**„הפעולה הבאה” — באנר, ולא עוד כרטיס.**
+ *
+ * ‏הוא סגול כי זו שפת ההתאמות במערכת (`mv-domain-violet`), והוא
+ * ‏רחב-שורה כדי שלא יתחרה על תשומת לב עם הכרטיסים שמתחתיו: הוא
+ * ‏אומר משפט אחד ומציע פעולה אחת. */
+.mv-nextaction {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--domain-violet-line);
+  background: var(--domain-violet-bg);
+  color: var(--domain-violet-fg);
+  border-radius: 18px;
+  padding: 16px 20px;
+}
+
+/* ‎**שורת שדה — מלא, או חסר.**
+ *
+ * ‏ההבחנה היא הנקודה: שדה מלא הוא עובדה, ושדה חסר הוא **הזמנה
+ * ‏למלא**. מסגרת מקווקוות אומרת „כאן חסר משהו” בלי מילה, וההשלמה
+ * ‏יושבת בשורה עצמה ולא בכפתור רחוק. */
+.mv-fieldrow {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-sunken);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+.mv-fieldrow--filled {
+  border-color: var(--domain-green-line);
+  background: var(--domain-green-bg);
+  color: var(--domain-green-fg);
+}
+.mv-fieldrow--missing {
+  border-style: dashed;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+.mv-fieldrow--missing:hover,
+.mv-fieldrow--missing:focus-visible {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+/* ‎**הכרטיס הכהה — „הלקוח ממלא בעצמו”.**
+ *
+ * ‏כהה בכוונה, וזו ההצדקה היחידה שלו: הוא הפעולה היחידה בעמוד
+ * ‏שמוציאה משהו **החוצה אל הלקוח**, וההיפוך הוא מה שמפריד אותה
+ * ‏מכל מה שהסוכן עושה לעצמו. הצבעים קבועים כאן ולא נגזרים
+ * ‏מהערכה, כי הוא כהה בשתי הערכות — ולכן גם הטקסט שעליו קבוע. */
+.mv-invitecard {
+  border-radius: 20px;
+  padding: 22px;
+  background: linear-gradient(150deg, #101613, #0b2814);
+  color: #ffffff;
+}
+.mv-invitecard p {
+  color: #c4cfc7;
+}
+.mv-invitecard hr {
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 14px 0 12px;
+}
+
+/* ‎**סרגל ניווט תחתון — כרטיס הקונה בלבד** (בקשת המשתמש).
+ *
+ * ‏הוא מופיע רק ברוחב שבו התפריט הראשי אינו על המסך. `env(safe-
+ * ‏area-inset-bottom)` הוא ההפרש בין „בתחתית” לבין „מתחת לפס
+ * ‏המחווה של האייפון”. */
+.mv-bottomnav {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  gap: 4px;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  margin: 16px -16px 0;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+}
+.mv-bottomnav > button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-height: 52px;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+  font-weight: 700;
+  cursor: pointer;
+}
+.mv-bottomnav > button[aria-current="true"] {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+@media (min-width: 60em) {
+  .mv-bottomnav {
+    display: none;
+  }
+}
