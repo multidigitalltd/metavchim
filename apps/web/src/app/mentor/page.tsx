@@ -1024,13 +1024,19 @@ function GoalRail({
         </ul>
       ) : null}
 
-      {primary !== null && others.length === 0 ? (
+      {/*
+        ‏הפקד הזה הוא **היחיד** שמסיים את היעד הראשי: השורות שמעליו
+        ‏עובדות על `ranked.slice(1)` בלבד. התניה על `others.length`
+        ‏הסתירה אותו בדיוק כשיש כמה יעדים — כלומר כדי לסיים את
+        ‏הדוחק ביותר היה צריך למחוק קודם את כל השאר (ביקורת Codex).
+      */}
+      {primary !== null ? (
         <button
           type="button"
           className="mv-railcard__link"
           onClick={() => setEnding(primary)}
         >
-          לסיים את היעד
+          לסיים את {mentorGoalLabel(primary.metric, primary.target, primary.period)}
         </button>
       ) : null}
 
@@ -2727,6 +2733,23 @@ function ChatSection({
                 </button>
               </div>
               {/*
+                ‎**הפקדים של העצה הפותחת יושבים כאן, לא נופלים.**
+
+                ‏הגוף שלה הוא הפסקה שמעל — אבל `link`, `ideaKey`
+                ‏ו-`proven` שייכים לה, ו-`AdviceCards` רואה רק את
+                ‏‎`slice(1)`. כלומר כשהעצה הראשונה היא „העסקה הקרובה
+                ‏ביותר”, הקישור לקונה נעלם, ורעיון פותח נשאר בלי
+                ‏משוב (ביקורת Codex, P2). אותו רכיב פקדים משרת את
+                ‏שניהם, ולכן הם אינם יכולים להיפרד שוב.
+              */}
+              <AdviceControls
+                item={opening}
+                disabled={busy}
+                onAsk={(q) => void send(q)}
+                onFeedback={onAdviceFeedback}
+              />
+
+              {/*
                 ‏שאר העצות הן כרטיסי הפעולה שבעיצוב. המשוב 👍👎 עליהן
                 ‏אינו תוספת — הוא קיים מאז §7.2 ומחליף רעיון שלא עבד;
                 ‏מה שלא נבנה הוא משוב על **הודעות בשיחה**, שלא אושר.
@@ -2898,10 +2921,120 @@ function ChatSection({
 }
 
 /**
- * ‏כרטיסי הפעולה שבתוך הפתיח — עצה, מה היא אומרת, ולאן היא מובילה.
- * ‏המשוב עליהן הוא הליווי של §7.2: „עזר לי” — עוד מהסוג הזה;
- * ‏„לא בשבילי” — הרעיון אינו חוזר, ומחליף אותו אחר.
+ * ‎**הפקדים של עצה אחת: לאן היא מובילה, ומה היא הייתה שווה.**
+ *
+ * ‏רכיב אחד לשני המקומות — העצה הפותחת בכרטיס הפתיח, והשאר
+ * ‏בכרטיסי הפעולה. שני עותקים היו נפרדים ביום שאחד מהם מתוקן, וזה
+ * ‏בדיוק מה שקרה כאן: הפותחת נשארה בלי `link` ובלי משוב.
+ *
+ * ‏המשוב הוא הליווי של §7.2: „עזר לי” — עוד מהסוג הזה; „לא בשבילי” —
+ * ‏הרעיון אינו חוזר, ומחליף אותו אחר. אינו תוספת של ה-PR הזה.
  */
+function AdviceControls({
+  item,
+  disabled,
+  onAsk,
+  onFeedback,
+}: {
+  item: MentorAdvice;
+  disabled: boolean;
+  onAsk: (question: string) => void;
+  /** „לא בשבילי” החליף רעיון — המסך טוען מחדש */
+  onFeedback: () => void;
+}) {
+  const [noted, setNoted] = useState<"helped" | "dismissed" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function feedback(verdict: "helped" | "dismissed"): Promise<void> {
+    if (busy || item.ideaKey === undefined) return;
+    setBusy(true);
+    setError(null);
+    try {
+      /*
+       * ‎`ideas/feedback` ו-`ideaKey` — כך הנתיב והסכימה
+       * ‎(`MentorIdeaFeedbackSchema`), וכך זה היה לפני ה-PR הזה.
+       * ‏כשהעתקתי את הפונקציה במקום להזיז אותה כתבתי מחדש
+       * ‎`idea-feedback` ו-`key`: כל לחיצה על 👍/👎 חזרה בשגיאה ושום
+       * ‏העדפה לא נשמרה (ביקורת Codex, P1).
+       */
+      await apiPost("/mentor/ideas/feedback", {
+        ideaKey: item.ideaKey,
+        verdict,
+      });
+      setNoted(verdict);
+      if (verdict === "dismissed") onFeedback();
+    } catch (err: unknown) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "המשוב לא נשמר — כדאי לנסות שוב",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="mv-actioncard__cta"
+          disabled={disabled}
+          onClick={() => onAsk(item.question)}
+        >
+          לשאול את המנטור →
+        </button>
+        {item.link !== undefined ? (
+          <Link href={item.link.href} className="mv-link">
+            {item.link.label}
+          </Link>
+        ) : null}
+        {item.proven ? (
+          <span className="mv-chip">עבד אצל אחרים במשרד</span>
+        ) : null}
+      </div>
+      {item.ideaKey !== undefined ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {noted === null ? (
+            <>
+              <button
+                type="button"
+                className="mv-btn-plain"
+                disabled={busy}
+                onClick={() => void feedback("helped")}
+              >
+                👍 עזר לי
+              </button>
+              <button
+                type="button"
+                className="mv-btn-plain"
+                disabled={busy}
+                onClick={() => void feedback("dismissed")}
+              >
+                👎 לא בשבילי
+              </button>
+            </>
+          ) : (
+            <span className="mv-actioncard__sub" aria-live="polite">
+              {noted === "helped"
+                ? "נרשם — עוד מהסוג הזה. בעוד שבוע אבדוק אם המספר זז."
+                : "נרשם — הרעיון הזה לא יחזור."}
+            </span>
+          )}
+        </div>
+      ) : null}
+      {error !== null ? (
+        <div className="mt-2">
+          <Notice tone="danger">{error}</Notice>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** ‏שאר העצות — כרטיס לכל אחת, ואותם פקדים בדיוק. */
 function AdviceCards({
   advice,
   disabled,
@@ -2913,104 +3046,25 @@ function AdviceCards({
   onAsk: (question: string) => void;
   onFeedback: () => void;
 }) {
-  const [noted, setNoted] = useState<Record<string, "helped" | "dismissed">>(
-    {},
-  );
-  const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  async function feedback(
-    key: string,
-    verdict: "helped" | "dismissed",
-  ): Promise<void> {
-    if (busyKey !== null) return;
-    setBusyKey(key);
-    setError(null);
-    try {
-      await apiPost("/mentor/idea-feedback", { key, verdict });
-      setNoted((prev) => ({ ...prev, [key]: verdict }));
-      if (verdict === "dismissed") onFeedback();
-    } catch (err: unknown) {
-      setError(
-        err instanceof ApiError
-          ? err.message
-          : "המשוב לא נשמר — כדאי לנסות שוב",
-      );
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
   return (
-    <>
-      <div className="mv-msg__cards">
-        {advice.map((item) => (
-          <div key={`${item.kind}-${item.metric}`} className="mv-actioncard">
-            <div className="mv-actioncard__head">
-              <span className="mv-railcard__icon" aria-hidden="true">
-                <IconBolt s={15} />
-              </span>
-              {item.title}
-            </div>
-            <p className="mv-actioncard__sub">{item.body}</p>
-            {item.proven ? (
-              <span className="mv-chip mt-2 inline-block">
-                עבד אצל אחרים במשרד
-              </span>
-            ) : null}
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                className="mv-actioncard__cta"
-                disabled={disabled}
-                onClick={() => onAsk(item.question)}
-              >
-                לשאול את המנטור →
-              </button>
-              {item.link !== undefined ? (
-                <Link href={item.link.href} className="mv-link mt-2">
-                  {item.link.label}
-                </Link>
-              ) : null}
-            </div>
-            {item.ideaKey !== undefined ? (
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                {noted[item.ideaKey] === undefined ? (
-                  <>
-                    <button
-                      type="button"
-                      className="mv-btn-plain"
-                      disabled={busyKey !== null}
-                      onClick={() => void feedback(item.ideaKey!, "helped")}
-                    >
-                      👍 עזר לי
-                    </button>
-                    <button
-                      type="button"
-                      className="mv-btn-plain"
-                      disabled={busyKey !== null}
-                      onClick={() => void feedback(item.ideaKey!, "dismissed")}
-                    >
-                      👎 לא בשבילי
-                    </button>
-                  </>
-                ) : (
-                  <span className="mv-actioncard__sub" aria-live="polite">
-                    {noted[item.ideaKey] === "helped"
-                      ? "נרשם — עוד מהסוג הזה. בעוד שבוע אבדוק אם המספר זז."
-                      : "נרשם — הרעיון הזה לא יחזור."}
-                  </span>
-                )}
-              </div>
-            ) : null}
+    <div className="mv-msg__cards">
+      {advice.map((item) => (
+        <div key={`${item.kind}-${item.metric}`} className="mv-actioncard">
+          <div className="mv-actioncard__head">
+            <span className="mv-railcard__icon" aria-hidden="true">
+              <IconBolt s={15} />
+            </span>
+            {item.title}
           </div>
-        ))}
-      </div>
-      {error !== null ? (
-        <div className="mt-2">
-          <Notice tone="danger">{error}</Notice>
+          <p className="mv-actioncard__sub">{item.body}</p>
+          <AdviceControls
+            item={item}
+            disabled={disabled}
+            onAsk={onAsk}
+            onFeedback={onFeedback}
+          />
         </div>
-      ) : null}
-    </>
+      ))}
+    </div>
   );
 }
