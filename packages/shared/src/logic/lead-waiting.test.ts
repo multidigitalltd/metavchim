@@ -59,9 +59,20 @@ describe("compareLeadsByUrgency", () => {
     expect([old, urgent].sort(compareLeadsByUrgency)[0]).toBe(urgent);
   });
 
-  it("בתוך אותה קבוצה — הוותיק ביותר קודם", () => {
+  /* ‏בקשת המשתמש: החדש למעלה, הישן למטה. */
+  it("בתוך אותה קבוצה — החדש ביותר קודם", () => {
     const older = { requiresHuman: false, createdAt: ago(50) };
     const newer = { requiresHuman: false, createdAt: ago(2) };
-    expect([newer, older].sort(compareLeadsByUrgency)[0]).toBe(older);
+    expect([older, newer].sort(compareLeadsByUrgency)[0]).toBe(newer);
+  });
+
+  /* ‏ושלושה, כדי שהטענה תהיה על סדר ולא על זוג אחד. */
+  it("‏שלושה לידים יורדים מהחדש לישן", () => {
+    const rows = [
+      { requiresHuman: false, createdAt: ago(50) },
+      { requiresHuman: false, createdAt: ago(2) },
+      { requiresHuman: false, createdAt: ago(20) },
+    ];
+    expect([...rows].sort(compareLeadsByUrgency)).toEqual([rows[1], rows[2], rows[0]]);
   });
 });
