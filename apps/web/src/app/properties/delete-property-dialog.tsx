@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ApiError, apiDelete, apiGet } from "@/lib/api";
-import { ConfirmDialog } from "../confirm-dialog";
-import { Notice } from "../notice";
+import { PropertyRemovalDialog } from "./property-removal-dialog";
 
 /**
- * מחיקת נכס — **השאלה נשאלת במקום שבו לוחצים.**
+ * מחיקת נכס **אחד** — מכרטיס הנכס.
  *
  * ## מה היה קודם
  *
@@ -15,24 +14,12 @@ import { Notice } from "../notice";
  * כפתורים עם אישור דו-לחיצה משלהם. מי שלחץ על פח אשפה וקיבל גלילה
  * אינו יודע אם משהו קרה — ולכן הוא לוחץ שוב.
  *
- * ## שתי הפעולות, יחד
+ * ## ‏השאלה משותפת; מה שכאן הוא הפעולה
  *
- * ‏„למחוק את הנכס?” היא שאלה שהתשובה השימושית לה לרוב אינה „כן”
- * ואינה „ביטול” אלא **„לא, רק להוציא אותו מהרשימה”**. הארכיון היה
- * כפתור נפרד במקום אחר, ולכן מי שהתכוון אליו היה צריך לדעת מראש
- * שהוא קיים. כאן שתי הדרכים באותו חלון, וההבדל ביניהן כתוב.
- *
- * ## והגילוי נשאר
- *
- * ‏מחיקה לצמיתות מוחקת גם **כרטיס של אדם** שהנכס הזה הוא העוגן
- * היחיד שלו — שם, טלפונים והיסטוריית תקשורת. מתווך שמנקה כפילות
- * אינו מתכוון לזה, ולכן השאלה נשאלת בשרת ברגע שהחלון נפתח,
- * והתשובה מוצגת **לפני** שאפשר לאשר. „מחק” חסום עד שהיא מגיעה:
- * אישור לפני הגילוי הוא מחיקה שהמסך עוד לא גילה.
- *
- * ‎**כישלון הבדיקה אינו „לא יימחק אף כרטיס”.** שלושה מצבים ולא
- * שניים — נטען, ידוע, ולא ידוע — כי „כל מה שאינו מספר = אפס” היה
- * מבטיח שקט בדיוק כשאין לנו מושג.
+ * ‏הניסוח, הגילוי, שלוש היציאות והכלל „אין אישור לפני שהתשובה
+ * ‏הגיעה” חיים ב-`PropertyRemovalDialog`, כי הרשימה שואלת בדיוק
+ * ‏אותה שאלה על מה שסומן. מה שנשאר כאן הוא מה שבאמת שונה בנכס
+ * ‏יחיד: הנתיבים, והצעד הכפול שלמטה.
  *
  * ## נכס פעיל
  *
@@ -42,9 +29,6 @@ import { Notice } from "../notice";
  * ברצף. אם השני נכשל, הנכס נשאר בארכיון וזה נאמר במפורש: מצב
  * ביניים שקוף עדיף על שגיאה שלא מסבירה מה כן קרה.
  */
-
-/** ‎`"loading"` עד שהשרת ענה; `"unknown"` כשהבדיקה עצמה נכשלה. */
-type Impact = number | "loading" | "unknown";
 
 export function DeletePropertyDialog({
   propertyId,
@@ -61,49 +45,19 @@ export function DeletePropertyDialog({
   /** נקרא אחרי שהפעולה הצליחה — המסך שקרא לנו מחליט לאן ללכת. */
   onDone: (what: "archived" | "deleted") => void;
 }): React.JSX.Element {
-  const [impact, setImpact] = useState<Impact>("loading");
-  const [busy, setBusy] = useState<null | "archive" | "delete">(null);
-  const [error, setError] = useState<string | null>(null);
   /** הנכס נארכב אך המחיקה נכשלה — המצב שחייב להיאמר. */
   const [strandedInArchive, setStrandedInArchive] = useState(false);
 
-  /*
-   * חלון שנפתח מחדש מתחיל נקי, וגם שולף מחדש: הגילוי מכרטיס קודם
-   * הוא בדיוק סוג המספר שנראה נכון ואינו.
-   */
-  useEffect(() => {
-    if (!open) return;
-    setError(null);
-    setStrandedInArchive(false);
-    setImpact("loading");
-    let live = true;
-    apiGet<{ contacts: number }>(`/properties/${propertyId}/permanent/preview`)
-      .then((res) => {
-        if (live) setImpact(res.contacts);
-      })
-      .catch(() => {
-        if (live) setImpact("unknown");
-      });
-    return () => {
-      live = false;
-    };
-  }, [open, propertyId]);
-
   async function archive(): Promise<void> {
-    setBusy("archive");
-    setError(null);
     try {
       await apiDelete(`/properties/${propertyId}`);
-      onDone("archived");
     } catch (err: unknown) {
-      setError(err instanceof ApiError ? err.message : "ההעברה לארכיון נכשלה");
-      setBusy(null);
+      throw new Error(err instanceof ApiError ? err.message : "ההעברה לארכיון נכשלה");
     }
+    onDone("archived");
   }
 
   async function remove(): Promise<void> {
-    setBusy("delete");
-    setError(null);
     /*
      * ‎**„הועבר לארכיון” נאמר רק אחרי שזה קרה** (ביקורת Codex, P1).
      *
@@ -127,64 +81,28 @@ export function DeletePropertyDialog({
         setStrandedInArchive(true);
       }
       await apiDelete(`/properties/${propertyId}/permanent`);
-      onDone("deleted");
     } catch (err: unknown) {
       const message = err instanceof ApiError ? err.message : "המחיקה נכשלה";
-      setError(
+      throw new Error(
         didArchiveNow || strandedInArchive
           ? `${message} — הנכס הועבר לארכיון ולא נמחק.`
           : message,
       );
-      setBusy(null);
     }
+    onDone("deleted");
   }
 
   return (
-    <ConfirmDialog
+    <PropertyRemovalDialog
       open={open}
-      title="למחוק את הנכס?"
-      tone="danger"
-      confirmLabel="כן, מחק"
-      busyLabel={busy === "archive" ? "מעביר…" : "מוחק…"}
-      busy={busy !== null}
-      /* אין לאשר לפני שהגילוי הגיע — זו כל מטרתו */
-      confirmDisabled={impact === "loading"}
-      onConfirm={() => void remove()}
-      /* ‎`X` בפינה במקום כפתור טקסט שלישי שיתחרה על שתי הפעולות */
-      cancelLabel={null}
-      dismissIcon
-      {...(archived
-        ? {}
-        : { secondary: { label: "העבר לארכיון", onClick: () => void archive() } })}
+      count={1}
+      impact={async () =>
+        (await apiGet<{ contacts: number }>(`/properties/${propertyId}/permanent/preview`))
+          .contacts
+      }
+      {...(archived ? {} : { archive })}
+      remove={remove}
       onClose={onClose}
-    >
-      <p className="m-0">
-        {archived
-          ? "הנכס כבר בארכיון. מחיקה לצמיתות מסירה אותו מהמערכת יחד עם התמונות שלו מהאחסון — ואי אפשר לשחזר."
-          : "מחיקה לצמיתות מסירה את הנכס מהמערכת יחד עם התמונות שלו מהאחסון — ואי אפשר לשחזר. העברה לארכיון משאירה אותו בהיסטוריה, מחוץ לרשימת הנכסים הפעילים."}
-      </p>
-      {/*
-        ‎**האזהרה על כרטיסי האדם — לפני האישור ולא אחריו.**
-
-        זה הגילוי שבגללו המחיקה הייתה דו-שלבית מלכתחילה: בעלים שהנכס
-        הוא העוגן היחיד שלו יורד איתו, על שמו וטלפוניו.
-      */}
-      {impact === "loading" ? (
-        <p className="m-0 mt-2" style={{ color: "var(--color-text-muted)" }}>
-          בודקים מה עוד תגרור המחיקה…
-        </p>
-      ) : impact === "unknown" ? (
-        <Notice tone="danger">
-          לא הצלחנו לבדוק אם יימחקו גם כרטיסי לקוח — בדקו לפני המחיקה.
-        </Notice>
-      ) : impact > 0 ? (
-        <Notice tone="danger">
-          {impact === 1
-            ? "יימחק גם כרטיס לקוח אחד, שהנכס הזה הוא הקישור היחיד אליו — כולל שם, טלפונים והיסטוריית התקשורת."
-            : `יימחקו גם ${impact} כרטיסי לקוח, שהנכס הזה הוא הקישור היחיד אליהם — כולל שם, טלפונים והיסטוריית התקשורת.`}
-        </Notice>
-      ) : null}
-      {error !== null ? <Notice tone="danger">{error}</Notice> : null}
-    </ConfirmDialog>
+    />
   );
 }
