@@ -270,7 +270,11 @@ export function PlatformSettingsSection({
    * התוצאה, הלחיצה נראית כאילו לא עשתה כלום (דיווח המשתמש:
    * "הכפתור לא מגיב").
    */
-  const [probing, setProbing] = useState<"gemini" | "cardcom" | "whatsapp" | "linet" | null>(null);
+  const [probing, setProbing] = useState<
+    "gemini" | "cardcom" | "whatsapp" | "whatsapp-send" | "linet" | null
+  >(null);
+  /* מקומי למסך ואינו נשמר: בדיקה חד-פעמית, לא הגדרה */
+  const [testSendTo, setTestSendTo] = useState("");
   /*
    * שני סודות ה-Webhook נשמרים גם בזיכרון המסך, ולא רק ב-DOM: הכתובת
    * המלאה נבנית מהם, וזה הרגע היחיד שבו הדפדפן יודע אותם. הם אינם
@@ -592,6 +596,36 @@ export function PlatformSettingsSection({
    * טוקן שפג (הזמני חי 24 שעות) או מזהה שגוי מתגלים כאן, לא אצל
    * המתווך הראשון שכותב לסוכן.
    */
+  /**
+   * המספר שאליו נשלחת הודעת הבדיקה. מקומי למסך ואינו נשמר: זו
+   * בדיקה חד-פעמית, ולא הגדרה שצריך לזכור.
+   */
+  async function testWhatsAppSend(): Promise<void> {
+    const to = testSendTo.trim();
+    if (to === "") {
+      setError("הזינו מספר לשליחת הודעת הבדיקה");
+      return;
+    }
+    setBusy(true);
+    setProbing("whatsapp-send");
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await apiPost<{ ok: boolean; message: string }>(
+        "/platform/settings/test-whatsapp-send",
+        { to },
+      );
+      if (res.ok) setMessage(`✓ ${res.message}`);
+      else setError(res.message);
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "שליחת הודעת הבדיקה נכשלה");
+    } finally {
+      setBusy(false);
+      setProbing(null);
+      showProbeResult();
+    }
+  }
+
   async function testWhatsApp(): Promise<void> {
     setBusy(true);
     setProbing("whatsapp");
@@ -2278,6 +2312,42 @@ export function PlatformSettingsSection({
             <Button type="button" variant="secondary" disabled={busy} onClick={() => void testWhatsApp()}>
               {probing === "whatsapp" ? "בודק מול Meta…" : "בדוק חיבור"}
             </Button>
+          ) : null}
+          {settings.whatsapp.assistant.configured ? (
+            <div className="mt-3 w-full">
+              <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                <b>שליחת הודעת בדיקה.</b> „בדוק חיבור” רק <i>קורא</i> את פרטי
+                המספר מ-Meta — טוקן שחסרה לו הרשאת שליחה עובר אותו בהצלחה ונכשל
+                רק בהודעה הראשונה של מתווך אמיתי. הודעה שיוצאת באמת היא הראיה
+                היחידה. הנוסח קבוע, ונשלח מספר אחד בכל פעם.
+                <br />
+                ‏Meta מתירה טקסט חופשי רק בתוך 24 שעות מהודעה של הנמען — אם
+                המספר לא כתב למערכת לאחרונה, שלחו ממנו הודעה ואז נסו.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  id="whatsappTestSendTo"
+                  type="tel"
+                  dir="ltr"
+                  inputMode="tel"
+                  autoComplete="off"
+                  aria-label="מספר לשליחת הודעת בדיקה"
+                  placeholder="0501234567"
+                  value={testSendTo}
+                  onChange={(event) => setTestSendTo(event.target.value)}
+                  className="w-48 rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => void testWhatsAppSend()}
+                >
+                  {probing === "whatsapp-send" ? "שולח…" : "שלח הודעת בדיקה"}
+                </Button>
+              </div>
+            </div>
           ) : null}
         </form>
       </div>
