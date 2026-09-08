@@ -145,10 +145,20 @@ export function SystemUpdate({
   const forever = useUserDismissedSet();
   const [index, setIndex] = useState(0);
 
-  const slides = ANNOUNCEMENTS.filter(
-    (item) =>
-      (item.requires !== "mentor" || mentor) && !forever.has(item.id),
+  /*
+   * ‎**החלון נחתך לפני הסתרה, ולא אחריה** (ביקורת Codex).
+   *
+   * ‏הסדר ההפוך היה מקדם הכרזה **רביעית** לסליידר ברגע שמישהו סוגר
+   * ‏אחת מהשלוש — כלומר „לא להציג יותר” היה מייצר הופעה של משהו
+   * ‏שלא הוצג. וזה סותר את מה שכתוב כאן שתי שורות מעל: מעבר לשלוש
+   * ‏זה ארכיון.
+   *
+   * ‏„שלוש האחרונות” הוא חלון קבוע: מי שסוגר אחת מהן נשאר עם שתיים.
+   */
+  const latest = ANNOUNCEMENTS.filter(
+    (item) => item.requires !== "mentor" || mentor,
   ).slice(0, MAX_SLIDES);
+  const slides = latest.filter((item) => !forever.has(item.id));
 
   /*
    * ‎`ready` ולא רק `has`: לפני שהתשובה הגיעה איננו יודעים מה הוסתר,
