@@ -781,22 +781,26 @@ export default function BuyerDetailPage({
                 >
                   פרטי חיפוש
                 </h2>
+                {/*
+                  ‎**המונה נצבע לפי המצב, ולא רק נספר.**
+
+                  ‏„1 מתוך 7” באפור נקרא כמידע; באותו כתום של שאר
+                  ‏האזהרות במערכת הוא נקרא כמשהו שצריך לעשות איתו
+                  ‏משהו. פרופיל מלא חוזר לירוק — סיום, לא אזהרה.
+                */}
                 <span
-                  className="ms-auto text-[length:var(--type-caption)] font-bold"
-                  style={{ color: "var(--color-text-muted)" }}
+                  className={`mv-pill ms-auto ${
+                    profile.missing.length === 0 ? "mv-domain-green" : "mv-domain-amber"
+                  }`}
                 >
-                  {profile.filled} מתוך {profile.total}
+                  {profile.filled} מתוך {profile.total} מולא
                 </span>
               </div>
-              <div
-                className="mb-3 overflow-hidden rounded-full"
-                style={{ height: 6, background: "var(--color-progress-track)" }}
-              >
-                <div
+              <div className="mv-progress mb-3.5" style={{ maxWidth: "none", height: 8 }}>
+                <span
                   style={{
                     width: `${Math.round((profile.filled / profile.total) * 100)}%`,
-                    height: "100%",
-                    background: "var(--color-primary)",
+                    background: "linear-gradient(90deg, #3fbf63, #7df39c)",
                   }}
                 />
               </div>
@@ -808,15 +812,33 @@ export default function BuyerDetailPage({
                   הפרופיל מלא — ההתאמות רצות על כל מה שהלקוח אמר.
                 </p>
               ) : (
-                <div className="flex flex-wrap gap-1.5">
+                /*
+                  ‎**שורה מקווקוות לכל חוסר, ולא צ׳יפ.**
+
+                  ‏הצ׳יפים נקראו כתגיות — כלומר כתיאור של הכרטיס —
+                  ‏בזמן שהם למעשה **הזמנה למלא**. שורה ברוחב מלא עם
+                  ‏מסגרת מקווקוות אומרת „כאן חסר משהו” בלי מילה,
+                  ‏וההשלמה יושבת בשורה עצמה.
+                */
+                <div className="flex flex-col gap-2.5">
                   {profile.missing.map((f) => (
                     <Link
                       key={f.key}
                       href={`/buyers/${id}/edit`}
-                      className="mv-chip no-underline"
-                      style={{ color: "var(--color-text-soft)" }}
+                      className="mv-fieldrow mv-fieldrow--missing no-underline"
                     >
-                      + {f.label}
+                      <span
+                        className="text-[length:var(--type-caption-lg)] font-bold"
+                        style={{ color: "var(--color-text-muted)" }}
+                      >
+                        {f.label}
+                      </span>
+                      <span
+                        className="ms-auto text-[length:var(--type-caption)] font-black"
+                        style={{ color: "var(--color-primary)" }}
+                      >
+                        + השלמה
+                      </span>
                     </Link>
                   ))}
                 </div>

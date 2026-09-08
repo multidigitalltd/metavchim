@@ -8177,11 +8177,16 @@ a.mv-bar-row:focus-visible {
  * ‏ההבחנה היא הנקודה: שדה מלא הוא עובדה, ושדה חסר הוא **הזמנה
  * ‏למלא**. מסגרת מקווקוות אומרת „כאן חסר משהו” בלי מילה, וההשלמה
  * ‏יושבת בשורה עצמה ולא בכפתור רחוק. */
+/*
+ * ‎`--color-input-border` ולא `--color-border`: השורה הזו **נלחצת**
+ * ‏במצב „חסר”, ולכן היא פקד ולא קישוט — והסף הוא 3:1 (‎WCAG 1.4.11‎),
+ * ‏לא הגבול הדקורטיבי של הכרטיסים (מאמת הניגודיות).
+ */
 .mv-fieldrow {
   display: flex;
   align-items: center;
   gap: 11px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-input-border);
   background: var(--color-surface-sunken);
   border-radius: 14px;
   padding: 12px 14px;
