@@ -41,6 +41,8 @@ interface World {
     optedOut: boolean;
   }[];
   properties: { id: string; title: string }[];
+  /** ‏הכתיבה שמאשרת „נשלח” נכשלת — אחרי שהספק כבר קיבל את ההודעה. */
+  failConfirm?: boolean;
 }
 
 function serviceFor(world: World): {
@@ -107,6 +109,9 @@ function serviceFor(world: World): {
         return Promise.resolve({});
       },
       updateMany: (args: { data: { sendState?: string } }) => {
+        if (world.failConfirm === true && args.data.sendState === "sent") {
+          return Promise.reject(new Error("could not serialize access"));
+        }
         if (args.data.sendState !== undefined) states.push(args.data.sendState);
         return Promise.resolve({ count: 1 });
       },
@@ -407,6 +412,25 @@ describe("שליחת הצעת נכס", () => {
     );
     expect(result).toMatchObject({ sent: 0, failed: 1, unknown: 0 });
     expect(states).toEqual(["failed"]);
+  });
+
+  /*
+   * ‎**כשל בתיעוד אחרי שהמייל יצא אינו „נכשלה”** (ביקורת Codex, P1).
+   *
+   * ‏הכתיבה שמאשרת „נשלח” הייתה חשופה: חריגה שלה יצאה מ-`sendOne`
+   * ‏אל הלולאה, ושם סווגה כשגיאת שליחה. הלקוח **קיבל** את ההודעה,
+   * ‏המסך אמר לסוכן שנכשלה, והסוכן שלח שוב — מזהה חדש, מפתח
+   * ‏ייחודיות חדש, ועותק שני אצל הלקוח.
+   */
+  it("‏כשל בכתיבת האישור אינו הופך שליחה שהצליחה לכישלון", async () => {
+    const { service, sent } = serviceFor({ ...WORLD, failConfirm: true });
+    const result = await asUser("01ME", AGENT, () =>
+      service.send({ propertyIds: ["01PROP"], buyerIds: ["01MINE"] }),
+    );
+    /* ‏המייל אכן יצא */
+    expect(sent).toHaveLength(1);
+    /* ‏והתוצאה אומרת את זה — לא „נכשל” ולא „לא ידוע” */
+    expect(result).toMatchObject({ sent: 1, failed: 0, unknown: 0 });
   });
 
   it("בחירה ריקה נדחית לפני שנוגעים במסד", async () => {

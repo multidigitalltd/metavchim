@@ -502,12 +502,31 @@ export class PropertyPitchService {
       throw error;
     }
 
-    await this.prisma.withTenant((tx) =>
-      tx.emailMessage.updateMany({
-        where: { id: messageId, tenantId },
-        data: { sendState: "sent" },
-      }),
-    );
+    /*
+     * ‎**כשל כאן אינו כשל בשליחה — המייל כבר יצא** (ביקורת Codex, P1).
+     *
+     * ‏הכתיבה הזו הייתה חשופה: חריגה שלה יצאה מ-`sendOne` אל
+     * ‏הלולאה שקוראת לה, ושם `emailSendOutcome` סיווגה אותה
+     * ‏כ„נכשלה” — על הודעה שהלקוח **קיבל**. הסוכן היה שולח שוב,
+     * ‏ומזהה חדש פירושו מפתח ייחודיות חדש, כלומר עותק שני אצל
+     * ‏הלקוח. הכלל החדש נכון לשגיאות שליחה; החלון שאחרי שהספק
+     * ‏אישר פשוט אינו שייך לו.
+     *
+     * ‎**ושלושת נתיבי השליחה האחרים כבר עושים בדיוק את זה**, שניים
+     * ‏מהם עם אותו משפט מילה במילה. זו הפעם הרביעית שכלל שנוסח
+     * ‏במקום אחד נשכח בנתיב שני — ולכן הוא נאכף עכשיו בשער.
+     *
+     * ‏השורה נשארת `pending` ותתיישן; זה תיעוד חסר, לא שליחה חסרה.
+     */
+    await this.prisma
+      .withTenant((tx) =>
+        tx.emailMessage.updateMany({
+          where: { id: messageId, tenantId },
+          data: { sendState: "sent" },
+        }),
+      )
+      // המייל כבר יצא; כשל כאן הוא כשל בתיעוד ולא בשליחה
+      .catch(() => this.logger.error(`אישור שליחת הצעת נכס נכשל: ${messageId}`));
     return "sent";
   }
 }
