@@ -211,6 +211,12 @@ export default function BuyerDetailPage({
    */
   const [matchesFailed, setMatchesFailed] = useState(false);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
+  /*
+   * ‏„ההצעות שכבר נשלחו” מגיעות בבקשה שנייה, אחרי ההתאמות. עד שהיא
+   * חוזרת `offers` ריק — ומי שיגזור מזה „הכול מחכה לשליחה” יכריז על
+   * נכס שכבר נשלח. הדגל הוא ההבדל בין „לא נשלח” לבין „עוד לא יודעים”.
+   */
+  const [offersLoaded, setOffersLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pitchOpen, setPitchOpen] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
@@ -254,13 +260,20 @@ export default function BuyerDetailPage({
    * בלי ערך או סגורה עם ערך שנשמר בצד.
    */
   /*
-   * ‎**ההתאמה הגבוהה — נגזרת, לא נשלפת.**
+   * ‎**„מחכות לשליחה” הן ההתאמות שעוד לא נשלחה עליהן הצעה.**
    *
-   * ‏הרשימה כבר בזיכרון, ולכן „הגבוהה ביותר” היא מקסימום עליה
-   * ‏ולא בקשה נוספת. `reduce` ולא `sort`: מיון היה משנה את סדר
-   * ‏התצוגה של הלשונית עצמה, שהוא הסדר שהשרת החזיר.
+   * ‏באנר הפעולה הבאה מבקש מהסוכן לשלוח; התאמה שכבר נשלחה עליה הצעה
+   * ‏אינה פעולה שממתינה לו, וספירת כל ההתאמות הייתה מציגה עבודה
+   * ‏שנעשתה — ואף מציעה כ„הגבוהה ביותר” נכס שהקונה כבר קיבל
+   * ‏(ביקורת Codex, P2). זה אותו סינון שהלשונית עצמה עושה לכל שורה.
+   *
+   * ‎`reduce` ולא `sort`: מיון היה משנה את סדר התצוגה של הלשונית,
+   * ‏שהוא הסדר שהשרת החזיר.
    */
-  const topMatch = (matches ?? []).reduce<MatchRow | undefined>(
+  const waitingMatches = (matches ?? []).filter(
+    (row) => offers[row.id] === undefined,
+  );
+  const topMatch = waitingMatches.reduce<MatchRow | undefined>(
     (best, row) => (best === undefined || row.score > best.score ? row : best),
     undefined,
   );
@@ -342,17 +355,24 @@ export default function BuyerDetailPage({
   /* אותה טעינה חוזרת כמו בכרטיס הנכס — ראו ההסבר שם. */
   const loadMatches = useCallback((): void => {
     setMatchesFailed(false);
+    setOffersLoaded(false);
     apiGet<MatchRow[]>(`/buyers/${id}/matches`)
       .then((rows) => {
         setMatches(rows);
-        if (rows.length > 0) {
-          const ids = rows.map((m) => m.id).join(",");
-          apiGet<Record<string, OfferInfo>>(
-            `/offers/for-matches?matchIds=${ids}`,
-          )
-            .then(setOffers)
-            .catch(() => undefined);
+        if (rows.length === 0) {
+          setOffersLoaded(true);
+          return;
         }
+        const ids = rows.map((m) => m.id).join(",");
+        apiGet<Record<string, OfferInfo>>(`/offers/for-matches?matchIds=${ids}`)
+          .then(setOffers)
+          .catch(() => undefined)
+          /*
+           * גם כשהשליפה נכשלה הרשימה „נטענה”: הלשונית עצמה מציגה אז
+           * את כל ההתאמות כאילו לא נשלחו, ובאנר שיסתיר את עצמו היה
+           * סותר את מה שרואים שורה מתחת.
+           */
+          .finally(() => setOffersLoaded(true));
       })
       .catch(() => setMatchesFailed(true));
   }, [id]);
@@ -717,10 +737,12 @@ export default function BuyerDetailPage({
               ‏שממתינות, וזו הגבוהה שבהן. הסוכן שפותח את הכרטיס אינו
               ‏צריך לגלול ולהסיק — הדבר שכדאי לעשות עכשיו כתוב.
 
-              ‏מוצג רק כשיש התאמות. באנר שאומר „0 התאמות” הוא רעש
-              ‏בראש כל כרטיס שאין לו עדיין מה להציע.
+              ‏מוצג רק כשבאמת נשארה שליחה: כשאין התאמה שלא נשלחה
+              ‏(`topMatch` ריק) אין פעולה, ובאנר שאומר „0 מחכים” הוא
+              ‏רעש בראש הכרטיס. וגם רק אחרי שידוע מה כבר נשלח —
+              ‏אחרת המספר היה קופץ מ„הכול” אל האמת שנייה אחר כך.
             */}
-            {topMatch !== undefined && matches !== null && matches.length > 0 ? (
+            {offersLoaded && topMatch !== undefined ? (
               <div className="mv-nextaction mv-domain-violet">
                 <span
                   aria-hidden="true"
@@ -743,7 +765,9 @@ export default function BuyerDetailPage({
                     className="font-black"
                     style={{ fontSize: "calc(17 / 16 * 1rem)" }}
                   >
-                    {matches.length} נכסים מתאימים מחכים לשליחה
+                    {waitingMatches.length === 1
+                      ? "נכס מתאים אחד מחכה לשליחה"
+                      : `${waitingMatches.length} נכסים מתאימים מחכים לשליחה`}
                   </div>
                   <div
                     className="mt-0.5 text-[length:var(--type-body-sm)]"
@@ -1390,7 +1414,12 @@ export default function BuyerDetailPage({
 
         ‎`aria-current` ולא צבע בלבד — במצב ניגודיות גבוהה שני
         ‏הגוונים נופלים לאותו שחור.
+
+        ‏הפס מרחף מעל התוכן (`fixed`), ולכן לפניו מרווח בגובהו:
+        ‏בלעדיו הכפתור האחרון בלשונית היה יושב מתחתיו ולא ניתן
+        ‏ללחיצה.
       */}
+      <div className="mv-bottomnav-space" aria-hidden="true" />
       <nav className="mv-bottomnav" aria-label="לשוניות הכרטיס">
         {(
           [
