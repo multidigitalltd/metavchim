@@ -102,17 +102,33 @@ export function MentorPageMenu({
   /* ‏עד שהעמוד נטען אין לאן לגלול, ותפריט ריק הוא רעש */
   if (visible.length === 0) return null;
 
+  /*
+   * ‎**מקופל, ולא חמש שורות מעל הכרטיס הראשון.**
+   *
+   * ‏כשהעמוד היה טור אחד ארוך התפריט ישב לרוחב במקום שהיה לו. אחרי
+   * ‏המעבר לשני אזורים הוא נכנס לרייל של 352px — ואחת-עשרה גלולות
+   * ‏שם נשברות לחמש שורות, כלומר הדבר החשוב ביותר ברייל (היעד
+   * ‏השבועי) נדחף מתחת לקפל בדיוק בשם הנוחות.
+   *
+   * ‎`details` ולא מצב משלנו: הוא נפתח בלי JS, נגיש למקלדת ולקורא
+   * ‏מסך, וסגור הוא שורה אחת.
+   */
   return (
-    <nav aria-label="מעבר לסעיפי העמוד" className="mv-page-menu">
-      <ul className="mv-page-menu__list">
-        {visible.map((section) => (
-          <li key={section.id}>
-            <a className="mv-chip" href={`#${section.id}`}>
-              {section.label}
-            </a>
-          </li>
-        ))}
-      </ul>
-    </nav>
+    <details className="mv-page-menu">
+      <summary className="mv-chip cursor-pointer">
+        לאן בעמוד ({visible.length})
+      </summary>
+      <nav aria-label="מעבר לסעיפי העמוד" className="mt-2">
+        <ul className="mv-page-menu__list">
+          {visible.map((section) => (
+            <li key={section.id}>
+              <a className="mv-chip" href={`#${section.id}`}>
+                {section.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </details>
   );
 }
