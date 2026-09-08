@@ -24,12 +24,25 @@ interface ProfilePrefs {
   preferences?: { dismissedPanels?: string[] } & Record<string, unknown>;
 }
 
-export function useUserDismissed(key: string): {
-  hidden: boolean;
-  close: () => void;
-  never: () => void;
+/**
+ * ‎**כמה מפתחות, בקשה אחת.**
+ *
+ * ‏סליידר ההכרזות בדשבורד שואל „לא להציג יותר” על כל שקופית
+ * ‏בנפרד. קריאה ל-`useUserDismissed` לכל אחת הייתה שולחת שלוש
+ * ‏בקשות `‎/auth/profile` זהות בכל טעינת דשבורד — ובנוסף הייתה
+ * ‏מפרה את כללי ה-hooks ברגע שמספר השקופיות משתנה לפי המשרד.
+ *
+ * ‏לכן קריאה אחת שמחזירה את **הקבוצה**, והבודק הוא פונקציה רגילה.
+ *
+ * ‎`ready` הוא ההבדל בין „לא הוסתר” לבין „עוד לא יודעים”: הצגה
+ * ‏לפני התשובה הייתה מהבהבת הכרזה למי שכבר ביקש לא לראות אותה.
+ */
+export function useUserDismissedSet(): {
+  ready: boolean;
+  has: (key: string) => boolean;
+  never: (key: string) => void;
 } {
-  const [hidden, setHidden] = useState(true);
+  const [keys, setKeys] = useState<ReadonlySet<string> | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -37,32 +50,55 @@ export function useUserDismissed(key: string): {
       .then((res) => {
         if (!alive) return;
         const dismissed = res.preferences?.dismissedPanels;
-        setHidden(Array.isArray(dismissed) && dismissed.includes(key));
+        setKeys(new Set(Array.isArray(dismissed) ? dismissed : []));
       })
-      // רשת נפלה — מציגים; פאנל עזרה מיותר עדיף על פאנל שנעלם לתמיד
-      .catch(() => alive && setHidden(false));
+      // רשת נפלה — מציגים; הכרזה מיותרת עדיפה על הכרזה שנעלמה לתמיד
+      .catch(() => alive && setKeys(new Set()));
     return () => {
       alive = false;
     };
-  }, [key]);
+  }, []);
 
-  const close = useCallback(() => setHidden(true), []);
+  const has = useCallback((key: string) => keys?.has(key) === true, [keys]);
 
-  const never = useCallback(() => {
-    setHidden(true);
+  const never = useCallback((key: string) => {
+    setKeys((prev) => new Set([...(prev ?? []), key]));
     /*
-     * נתיב ייעודי שממזג אטומית בשרת — לא קריאה-ואז-PATCH של כל
-     * ה-preferences, שבמקביל לשמירת נגישות או לסגירה ממכשיר שני
-     * הייתה דורסת את הכתיבה השנייה (ביקורת Codex).
-     *
-     * נכשל? הפאנל חוזר — הסתרה שלא נשמרה שמוצגת כהצלחה הייתה
-     * מפתיעה את המשתמש בכניסה הבאה (ביקורת Codex). הכפתור נשאר
-     * זמין לניסיון נוסף.
+     * נכשל? ההכרזה חוזרת — הסתרה שלא נשמרה שמוצגת כהצלחה הייתה
+     * מפתיעה את המשתמש בכניסה הבאה. אותו כלל כמו במפתח היחיד.
      */
     void apiPost("/auth/profile/dismissed-panels", { key }).catch(() =>
-      setHidden(false),
+      setKeys((prev) => {
+        if (prev === null) return prev;
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      }),
     );
-  }, [key]);
+  }, []);
 
-  return { hidden, close, never };
+  return { ready: keys !== null, has, never };
+}
+
+/**
+ * ‎**מפתח יחיד — אותו מנגנון בדיוק, עם `close` לביקור.**
+ *
+ * ‏היה כאן עותק שני של אותה שליפה ואותה כתיבה, וזו בדיוק הכפילות
+ * ‏שנשכחת בצד אחד: תיקון ב„נכשל? הפאנל חוזר” היה צריך להיכתב
+ * ‏פעמיים. עכשיו זו עטיפה דקה, וההתנהגות זהה — כולל `hidden`
+ * ‏שמתחיל אמת ונפתח רק אחרי שהתשובה הגיעה.
+ */
+export function useUserDismissed(key: string): {
+  hidden: boolean;
+  close: () => void;
+  never: () => void;
+} {
+  const { ready, has, never: neverKey } = useUserDismissedSet();
+  /** סגירה לביקור הנוכחי בלבד — לא נכתבת לשרת. */
+  const [closed, setClosed] = useState(false);
+
+  const close = useCallback(() => setClosed(true), []);
+  const never = useCallback(() => neverKey(key), [neverKey, key]);
+
+  return { hidden: !ready || closed || has(key), close, never };
 }

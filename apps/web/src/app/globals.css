@@ -7128,18 +7128,20 @@ a.mv-bar-row:focus-visible {
    וכלל הדפסה שמפסיד להן אינו כלל.
    ================================================================== */
 /* ==========================================================================
-   סליידר משפטי המוטבציה
+   סליידר — פריט אחד בכל פעם
    ==========================================================================
 
-   משפט אחד בכל פעם, ולא קיר טקסט. הרשימה כולה על המסך היא רשימה
-   שגוללים מעליה; משפט יחיד במרכז הוא משפט שקוראים.
+   פריט אחד ולא קיר: רשימה שלמה על המסך היא רשימה שגוללים מעליה.
 
    המעבר הוא הצללה קצרה ולא החלקה: החלקה אומרת „יש עוד משם”, כלומר
-   רצף — ומשפטי מוטבציה אינם סדרה שממשיכה זו את זו. */
-.mv-quote-slide {
-  animation: mv-quote-in 300ms ease-out;
+   רצף — ופריטים שאינם סדרה שממשיכה זו את זו אינם צריכים לומר זאת.
+
+   ‏שימשו את משפטי המוטבציה, ומשמשים עכשיו את הכרזות המערכת בדשבורד.
+   ‏שמות נייטרליים ולא `mv-quote-*`, כדי שהקורא הבא לא יחפש ציטוט. */
+.mv-slide-in {
+  animation: mv-slide-in 300ms ease-out;
 }
-@keyframes mv-quote-in {
+@keyframes mv-slide-in {
   from {
     opacity: 0;
     transform: translateY(6px);
@@ -7149,9 +7151,9 @@ a.mv-bar-row:focus-visible {
     transform: none;
   }
 }
-/* מי שביקש פחות תנועה מקבל את המשפט מיד, בלי הצללה */
+/* מי שביקש פחות תנועה מקבל את הפריט מיד, בלי הצללה */
 @media (prefers-reduced-motion: reduce) {
-  .mv-quote-slide {
+  .mv-slide-in {
     animation: none;
   }
 }
@@ -7175,7 +7177,7 @@ a.mv-bar-row:focus-visible {
  * קרובים, ובמצב ניגודיות גבוהה שני הטוקנים נופלים לאותו שחור.
  * גלולה רחבה פי שלושה נקראת גם שם, וגם למי שאינו מבחין בצבע.
  * הטבעת סביבה מפרידה אותה מהמשטח כשהם באותו כיוון. */
-.mv-quote-dot {
+.mv-slide-dot {
   width: 7px;
   height: 7px;
   border-radius: 999px;
@@ -7185,7 +7187,7 @@ a.mv-bar-row:focus-visible {
   background: var(--color-input-border);
   transition: width 160ms ease, background 160ms ease;
 }
-.mv-quote-dot[aria-current="true"] {
+.mv-slide-dot[aria-current="true"] {
   width: 22px;
   background: var(--color-text);
   box-shadow: 0 0 0 1px var(--color-text);
