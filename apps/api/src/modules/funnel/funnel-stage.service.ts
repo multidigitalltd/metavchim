@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import {
   FUNNEL_AUDIENCES,
   FUNNEL_CHANNELS,
@@ -12,6 +12,7 @@ import {
   type FunnelClock,
   type FunnelStageDef,
   type FunnelTrack,
+  unknownFunnelPlaceholders,
 } from "@metavchim/shared";
 import { PrismaService } from "../../core/prisma.service";
 
@@ -45,6 +46,34 @@ import { PrismaService } from "../../core/prisma.service";
  * ‏`track: null` = גם המסלול אינו מוכר, ואז אי אפשר לדעת את מי
  * ‏השורה מייצגת; רק היא חוסמת סגירה בכל המסלולים.
  */
+/** ‏שורת נוסח לעריכה במסך הפלטפורמה. */
+export interface FunnelStageCopy {
+  id: string;
+  track: string;
+  key: string;
+  title: string;
+  /** ‏לקריאה בלבד כאן — ההדלקה אינה חלק מטופס הנוסח. */
+  enabled: boolean;
+  emailSubject: string;
+  emailHeading: string;
+  emailBody: string;
+  ctaLabel: string;
+  ctaPath: string;
+  /** ‏שם התבנית שאושרה במטא. ריק = טרם הוגשה. */
+  whatsappTemplate: string;
+  /** ‏מצייני מקום שאיש אינו מחליף — ריק פירושו שהנוסח בטוח מבחינתם. */
+  unknownPlaceholders: string[];
+}
+
+/** ‏מה שמותר לשנות: תוכן. לא תזמון, לא קהל, ולא הדלקה. */
+export interface FunnelStageCopyInput {
+  emailSubject: string;
+  emailHeading: string;
+  emailBody: string;
+  ctaLabel: string;
+  ctaPath: string;
+}
+
 export interface InvalidStage {
   key: string;
   track: FunnelTrack | null;
@@ -230,6 +259,90 @@ export class FunnelStageService {
       enabled: row.enabled,
     };
   }
+
+  /**
+   * ‎**הנוסח לעריכה — כל השדות שבעל הפלטפורמה מתקן במסך.**
+   *
+   * ‏נפרד מ-`catalog()` בכוונה: זה שולף **תזמון** — מתי, למי, באיזה
+   * ‏ערוץ — וזה שולף **תוכן**. שני צרכנים שונים לגמרי, ומיזוגם היה
+   * ‏גורר את הגוף המלא של ארבעה-עשר מיילים לכל סבב של המתזמן.
+   */
+  async copyCatalog(): Promise<FunnelStageCopy[]> {
+    const rows = await this.prisma.funnelStage.findMany({
+      orderBy: [{ track: "asc" }, { sortOrder: "asc" }],
+      select: {
+        id: true,
+        track: true,
+        key: true,
+        title: true,
+        enabled: true,
+        emailSubject: true,
+        emailHeading: true,
+        emailBody: true,
+        ctaLabel: true,
+        ctaPath: true,
+        whatsappTemplate: true,
+      },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      track: row.track,
+      key: row.key,
+      title: row.title,
+      enabled: row.enabled,
+      emailSubject: row.emailSubject ?? "",
+      emailHeading: row.emailHeading ?? "",
+      emailBody: row.emailBody ?? "",
+      ctaLabel: row.ctaLabel ?? "",
+      ctaPath: row.ctaPath ?? "",
+      whatsappTemplate: row.whatsappTemplate ?? "",
+      /*
+       * ‏מחושב בשרת ולא במסך: המסך מציג אזהרה, אבל התשובה על
+       * ‏„האם הנוסח הזה בטוח לשליחה” צריכה להיות אחת — וזו שתיבדק
+       * ‏ביום שההדלקה תיאכף מולה.
+       */
+      unknownPlaceholders: unknownFunnelPlaceholders(
+        [row.emailSubject, row.emailHeading, row.emailBody, row.ctaLabel]
+          .filter((value): value is string => value !== null)
+          .join("\n"),
+      ),
+    }));
+  }
+
+  /**
+   * ‎**עדכון נוסח — ותוכן בלבד.**
+   *
+   * ‏מה שלא ניתן לשנות כאן, ובכוונה: `enabled`, התזמון והקהל.
+   * ‏הדלקה היא החלטה נפרדת מ„תיקנתי פסיק”, והמסך הזה נועד לתיקון
+   * ‏נוסח. שדה `enabled` שהיה נכנס לאותו טופס היה הופך שמירה
+   * ‏מקרית לדיוור לכל המאגר.
+   */
+  async updateCopy(id: string, input: FunnelStageCopyInput): Promise<void> {
+    const unknown = unknownFunnelPlaceholders(
+      [input.emailSubject, input.emailHeading, input.emailBody, input.ctaLabel].join("\n"),
+    );
+    if (unknown.length > 0) {
+      /*
+       * ‏נדחה בשרת ולא רק מסומן במסך: מציין מקום שאיש אינו מחליף
+       * ‏יוצא ללקוח בסוגריים, וזו תקלה שנראית רק אחרי השליחה.
+       */
+      throw new BadRequestException(
+        `מצייני מקום שאינם מוכרים ולא יוחלפו: ${unknown.map((name) => `{{${name}}}`).join(", ")}`,
+      );
+    }
+    const updated = await this.prisma.funnelStage.updateMany({
+      where: { id },
+      data: {
+        emailSubject: input.emailSubject.trim() === "" ? null : input.emailSubject,
+        emailHeading: input.emailHeading.trim() === "" ? null : input.emailHeading,
+        emailBody: input.emailBody.trim() === "" ? null : input.emailBody,
+        ctaLabel: input.ctaLabel.trim() === "" ? null : input.ctaLabel,
+        ctaPath: input.ctaPath.trim() === "" ? null : input.ctaPath,
+      },
+    });
+    if (updated.count === 0) throw new NotFoundException("השלב לא נמצא");
+  }
+
 }
 
 /** ‏שייכות לרשימה סגורה, בלי לוותר על הטיפוס. */

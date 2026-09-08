@@ -784,3 +784,43 @@ export function funnelExitReason(input: {
   }
   return null;
 }
+
+/**
+ * ‎**מציין המקום שמותר לכתוב בנוסח — ומי אמור להחליף אותו.**
+ *
+ * ## ‏למה זו רשימה סגורה
+ *
+ * ‏הנוסחים נערכים **במערכת**, לא בקוד. מי שעורך אינו רואה את מנוע
+ * ‏ההחלפה, וסביר לגמרי שיכתוב `{{שם_הסוכן}}` כי זה נשמע הגיוני.
+ * ‏מציין מקום שאיש אינו מחליף אינו נכשל — הוא **יוצא ללקוח כמו
+ * ‏שהוא**, בסוגריים ובקו תחתון, במייל שנשלח בשם המשרד.
+ *
+ * ‏לכן הרשימה סגורה, המסך מסמן חריגה בזמן העריכה, ושער בודק
+ * ‏שהטיוטות הזרועות אינן מפרות אותה.
+ *
+ * ‎**הוספה כאן היא חצי עבודה.** מציין מקום חדש חייב גם מימוש
+ * ‏בהחלפה — אחרת הרשימה מתירה בדיוק את התקלה שהיא נועדה למנוע.
+ */
+export const FUNNEL_PLACEHOLDERS = ["שם_פרטי", "שם_המשרד"] as const;
+
+export type FunnelPlaceholder = (typeof FUNNEL_PLACEHOLDERS)[number];
+
+/** ‏כל מה שכתוב בסוגריים כפולים בטקסט, לפי סדר ההופעה, בלי כפילויות. */
+export function funnelPlaceholders(text: string): string[] {
+  const found = new Set<string>();
+  for (const match of text.matchAll(/\{\{([^{}]*)\}\}/gu)) {
+    found.add((match[1] ?? "").trim());
+  }
+  return [...found];
+}
+
+/**
+ * ‏אלה שאיש לא יחליף — כלומר מה שייצא ללקוח בסוגריים.
+ *
+ * ‏ריק = הנוסח בטוח לשליחה מבחינת מצייני המקום. זו אינה בדיקה
+ * ‏שהנוסח **טוב**, רק שהוא לא מבטיח החלפה שלא קיימת.
+ */
+export function unknownFunnelPlaceholders(text: string): string[] {
+  const known = new Set<string>(FUNNEL_PLACEHOLDERS);
+  return funnelPlaceholders(text).filter((name) => !known.has(name));
+}

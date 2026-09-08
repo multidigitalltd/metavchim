@@ -11,6 +11,7 @@ import { AgentUsageController } from "./agent-usage.controller";
 import { AgentUsageService } from "./agent-usage.service";
 import { BackupsService } from "./backups.service";
 import { DiskSpaceService } from "./disk-space.service";
+import { FunnelCopyController } from "./funnel-copy.controller";
 import { IntegrationDeskController } from "./integration-desk.controller";
 import { IntegrationDeskService } from "./integration-desk.service";
 import { PlatformController } from "./platform.controller";
@@ -33,7 +34,12 @@ import { ServiceVersionsService } from "./service-versions.service";
    * שולחן החיבורים בקונטרולר משלו: הגבול שלו הוא שהוא נוגע בטבלת
    * החיבורים בלבד, ומבחן מבני קורא בדיוק את שני הקבצים האלה.
    */
-  controllers: [PlatformController, AgentUsageController, IntegrationDeskController],
+  controllers: [
+    PlatformController,
+    AgentUsageController,
+    IntegrationDeskController,
+    FunnelCopyController,
+  ],
   providers: [
     BackupsService,
     DiskSpaceService,

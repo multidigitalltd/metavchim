@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  funnelPlaceholders,
+  unknownFunnelPlaceholders,
   FUNNEL_AUDIENCES,
   FUNNEL_CHANNELS,
   FUNNEL_CLOCKS,
@@ -1117,5 +1119,38 @@ describe("היסט השלב — טווח שאפשר לחשב ממנו תאריך
     /* ‏העוגן קיים, ולכן זה אינו מסלול ה-`null` אלא תאריך פסול */
     expect(funnelStageDueAt(broken, anchors)?.getTime()).toBeNaN();
     expect(() => funnelStageExpiresAt(broken, anchors)).toThrow();
+  });
+});
+
+describe("‏מצייני המקום בנוסח המשפך", () => {
+  it("מוצא את מה שכתוב בסוגריים כפולים, בלי כפילויות", () => {
+    expect(funnelPlaceholders("שלום {{שם_פרטי}}, {{שם_המשרד}} ו-{{שם_פרטי}} שוב")).toEqual([
+      "שם_פרטי",
+      "שם_המשרד",
+    ]);
+  });
+
+  it("טקסט בלי סוגריים אינו מייצר דבר", () => {
+    expect(funnelPlaceholders("שלום, זה נוסח רגיל")).toEqual([]);
+  });
+
+  /**
+   * ‎**זו הטענה שבשבילה הפונקציה קיימת.**
+   *
+   * ‏מי שעורך במסך אינו רואה את מנוע ההחלפה, ו-`{{שם_הסוכן}}`
+   * ‏נשמע סביר לגמרי. אם איש אינו מחליף אותו — הוא יוצא ללקוח
+   * ‏בסוגריים.
+   */
+  it("מציין מקום שאיש אינו מחליף מסומן כחריג", () => {
+    expect(unknownFunnelPlaceholders("שלום {{שם_פרטי}} מ{{שם_הסוכן}}")).toEqual(["שם_הסוכן"]);
+  });
+
+  it("נוסח שמשתמש רק במוכרים אינו מדווח דבר", () => {
+    expect(unknownFunnelPlaceholders("{{שם_פרטי}} ו{{שם_המשרד}}")).toEqual([]);
+  });
+
+  /** ‏רווחים סביב השם אינם הופכים אותו לחריג — זו טעות הקלדה, לא כוונה. */
+  it("רווחים בתוך הסוגריים מקוצצים", () => {
+    expect(unknownFunnelPlaceholders("{{ שם_פרטי }}")).toEqual([]);
   });
 });
