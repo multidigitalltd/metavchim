@@ -57,14 +57,43 @@ function keyPrefix(raw: string): string {
  */
 export type WebhookHitSource = "telephony" | "lead";
 
-export type WebhookHitOutcome =
-  | "accepted"
-  | "preliminary"
-  | "unparsed"
-  | "failed"
-  | "unknown_key"
-  | "disabled"
-  | "no_feature";
+/**
+ * ‎**רשימת התוצאות — מקור אחד, ולא שלושה.**
+ *
+ * ‏הרשימה חיה בשלושה מקומות: הטיפוס כאן, `z.enum` של המסנן בבקר
+ * ‏הפלטפורמה, ותוויות המסך. הוספתי `rate_limited` לשניים מהם ושכחתי
+ * ‏את השלישי, ולכן בחירה במסנן החדש הייתה נדחית ב-400 — כלומר
+ * ‏המסך היה נשבר בדיוק כשמנהל מנסה לראות את השורות החדשות
+ * ‏(ביקורת Codex).
+ *
+ * ‏עכשיו הבקר נגזר מכאן, והמהדר הוא שמכריח את השניים להישאר יחד.
+ */
+export const WEBHOOK_HIT_OUTCOMES = [
+  "accepted",
+  "preliminary",
+  "unparsed",
+  "failed",
+  "unknown_key",
+  "disabled",
+  "no_feature",
+  /*
+   * ‎**שתי תקרות שונות, ושתי מסקנות שונות למי שקורא.**
+   *
+   * ‏`rate_limited` — המשרד עבר את התקרה **שלו**: המרכזייה שלו
+   * ‏שולחת יותר מדי, וזו פעולה אצלו.
+   *
+   * ‏`rate_limited_ip` — התקרה המשותפת לכתובת נחצתה. ייתכן שהמשרד
+   * ‏הזה כמעט לא שלח דבר, והכתובת רוויה מכל המשרדים שיושבים על
+   * ‏אותה מרכזיית ענן. לומר לו „שלחת יותר מדי” היה שולח אותו לחפש
+   * ‏תקלה שאינה אצלו (ביקורת Codex).
+   *
+   * ‏בשני המקרים הפנייה לא הגיעה לשירות, ובשניהם זו שיחה שאבדה.
+   */
+  "rate_limited",
+  "rate_limited_ip",
+] as const;
+
+export type WebhookHitOutcome = (typeof WEBHOOK_HIT_OUTCOMES)[number];
 
 @Injectable()
 export class WebhookLogService {

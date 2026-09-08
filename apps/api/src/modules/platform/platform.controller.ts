@@ -1,3 +1,4 @@
+import { WEBHOOK_HIT_OUTCOMES } from "../webhook-log/webhook-log.service";
 import {
   BadRequestException,
   Body,
@@ -138,7 +139,8 @@ import { WebhookLogService } from "../webhook-log/webhook-log.service";
  * ‏קריאה בלי פרמטרים מתנהגת בדיוק כמו קודם (חמישים האחרונות מכל
  * ‏המשרדים), ולכן אין כאן שינוי התנהגות למי שלא ביקש דבר.
  */
-const TelephonyWebhookQuerySchema = z
+/* ‏מיוצא כדי שהשער יוכל לטעון שהוא מקבל כל תוצאה שהיומן רושם. */
+export const TelephonyWebhookQuerySchema = z
   .object({
     /**
      * ‎**מרכזייה או טופס לידים.**
@@ -148,10 +150,14 @@ const TelephonyWebhookQuerySchema = z
      * ‏חסר = שתיהן, כמו שהיה לפני שהמקור השני נכנס.
      */
     source: z.enum(["telephony", "lead"]).optional(),
-    /* ‏הרשימה הסגורה של התוצאות — כתיב חופשי לא היה מסנן דבר */
-    outcome: z
-      .enum(["accepted", "preliminary", "unparsed", "unknown_key", "disabled", "no_feature", "failed"])
-      .optional(),
+    /*
+     * ‎**הרשימה הסגורה — נגזרת מהשירות ולא משוכפלת כאן.**
+     *
+     * ‏כתיב חופשי לא היה מסנן דבר, אבל רשימה שנכתבת פעם שנייה
+     * ‏מתיישנת: תוצאה שנוספה בשירות ולא כאן נדחית ב-400, והמסך
+     * ‏נשבר בדיוק כשמנהל מנסה לראות את השורות החדשות.
+     */
+    outcome: z.enum(WEBHOOK_HIT_OUTCOMES).optional(),
     tenantId: z.string().length(26).optional(),
     callId: z.string().max(120).optional(),
     /**
