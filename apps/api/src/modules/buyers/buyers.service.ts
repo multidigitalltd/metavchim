@@ -884,16 +884,32 @@ export class BuyersService {
   }
 
   /**
-   * ‎`lastActivityAt` — מתי נגעו בלקוח הזה בפעם האחרונה.
+   * ‎**„פעילות אחרונה” — הגדרה אחת, לרשימה ולכרטיס.**
    *
-   * ‏הרשימה מחשבת אותו מזמן (`groupBy` על כל העמוד), והכרטיס לא —
-   * ולכן דווקא במסך שפותחים לפני שיחה לא היה כתוב מתי דיברו איתו
-   * לאחרונה. אותה הגדרה בדיוק: האינטראקציה האחרונה, מכל סוג.
+   * ‏האינטראקציה האחרונה מכל סוג; ובלי אף אחת — העדכון האחרון של
+   * ‏הכרטיס עצמו. הנפילה-לאחור אינה פרט טכני: קונה שנוצר ידנית או
+   * ‏יובא מקובץ אין לו שורות אינטראקציה, ובלעדיה הרשימה הייתה
+   * ‏מציגה תאריך והכרטיס „—”, על אותו לקוח באותו רגע.
    *
-   * ‏השאילתה מסוננת ב-`tenantId` ובקונה שכבר עבר את בדיקת הבעלות
-   * שמעליה, ולכן אין כאן דרך להגיע לפעילות של משרד או סוכן אחר.
+   * ‏הכלל נכתב כאן פעם אחת בדיוק בגלל זה: הגרסה הראשונה של הכרטיס
+   * ‏החזירה `null` בזמן שהרשימה כבר נפלה ל-`updatedAt` (ביקורת
+   * ‏Codex), כלומר שתי תשובות שונות לאותה שאלה.
    */
-  async getById(id: string): Promise<BuyerDto & { lastActivityAt: Date | null }> {
+  private lastActivityOf(
+    lastInteractionAt: Date | null | undefined,
+    updatedAt: Date,
+  ): Date {
+    return lastInteractionAt ?? updatedAt;
+  }
+
+  /**
+   * ‏הכרטיס — כמו הרשימה, כולל `lastActivityAt`.
+   *
+   * ‏שאילתת האינטראקציה מסוננת ב-`tenantId` ובקונה שכבר עבר את
+   * בדיקת הבעלות שמעליה, ולכן אין כאן דרך להגיע לפעילות של משרד
+   * או סוכן אחר.
+   */
+  async getById(id: string): Promise<BuyerDto & { lastActivityAt: Date }> {
     return this.prisma.withTenant(async (tx) => {
       const row = await tx.buyer.findFirst({
         where: {
@@ -914,7 +930,7 @@ export class BuyersService {
       });
       return {
         ...this.toDto(row, contact, agents),
-        lastActivityAt: last?.createdAt ?? null,
+        lastActivityAt: this.lastActivityOf(last?.createdAt, row.updatedAt),
       };
     });
   }
@@ -1347,8 +1363,10 @@ export class BuyersService {
           items.push({
             ...this.toDto(row, contact, agents),
             offersReceived: offerCountByBuyer.get(row.id) ?? 0,
-            // אין תיעוד אינטראקציה ⇒ העדכון האחרון של הכרטיס עצמו
-            lastActivityAt: lastByBuyer.get(row.id) ?? row.updatedAt,
+            lastActivityAt: this.lastActivityOf(
+              lastByBuyer.get(row.id),
+              row.updatedAt,
+            ),
           });
         }
       }

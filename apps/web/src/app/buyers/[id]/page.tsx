@@ -18,8 +18,8 @@ import {
   formatDateTime,
   formatPrice,
   MATURITY_LABELS,
+  lastActivityText,
   PROPERTY_TYPE_LABELS,
-  timeAgo,
   waMeUrl,
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -105,12 +105,11 @@ interface BuyerDetail {
   /** מתי הכרטיס נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
   createdAt: string;
   /**
-   * ‏האינטראקציה האחרונה עם הלקוח — `null` כשעוד לא הייתה אחת.
-   *
-   * ‏אותה הגדרה שהרשימה מציגה בעמודת „פעילות אחרונה”, ולכן שתי
-   * התשובות על אותו לקוח אינן יכולות לסתור זו את זו.
+   * ‏מתי נגעו בלקוח לאחרונה — אותו שדה בדיוק שהרשימה מציגה, מאותה
+   * ‏הגדרה בשרת (`lastActivityOf`). לעולם אינו ריק: בלי אף
+   * ‏אינטראקציה הוא העדכון האחרון של הכרטיס עצמו.
    */
-  lastActivityAt: string | null;
+  lastActivityAt: string;
 }
 
 /**
@@ -229,11 +228,19 @@ export default function BuyerDetailPage({
   const [matchesFailed, setMatchesFailed] = useState(false);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
   /*
-   * ‏„ההצעות שכבר נשלחו” מגיעות בבקשה שנייה, אחרי ההתאמות. עד שהיא
+   * ‎**„עוד לא יודעים” אינו „לא נשלח”.**
+   *
+   * „ההצעות שכבר נשלחו” מגיעות בבקשה שנייה, אחרי ההתאמות, ועד שהיא
    * חוזרת `offers` ריק — ומי שיגזור מזה „הכול מחכה לשליחה” יכריז על
-   * נכס שכבר נשלח. הדגל הוא ההבדל בין „לא נשלח” לבין „עוד לא יודעים”.
+   * נכס שכבר נשלח.
+   *
+   * ‎`true` רק כשהבקשה **הצליחה**. הניסוח הראשון סימן אותו גם
+   * בכישלון, מתוך רצון שהבאנר יסכים עם הלשונית שמתחתיו — אבל מפה
+   * ריקה שלא הגיעה מהשרת אינה עדות לכלום, ובאנר שסופר לפיה חוזר
+   * בדיוק לבאג שנפתח בו (ביקורת Codex). כשלא יודעים, אין „הפעולה
+   * הבאה”.
    */
-  const [offersLoaded, setOffersLoaded] = useState(false);
+  const [offersKnown, setOffersKnown] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pitchOpen, setPitchOpen] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
@@ -295,10 +302,10 @@ export default function BuyerDetailPage({
    * שתי גרסאות של אותה עובדה שנפרדו זו מזו.
    */
   const lastActivity =
-    buyer === null || buyer.lastActivityAt === null
+    buyer === null
       ? null
       : {
-          text: timeAgo(buyer.lastActivityAt),
+          text: lastActivityText(buyer.lastActivityAt),
           stale:
             Date.now() - new Date(buyer.lastActivityAt).getTime() >
             STALE_DAYS * 86_400_000,
@@ -389,24 +396,22 @@ export default function BuyerDetailPage({
   /* אותה טעינה חוזרת כמו בכרטיס הנכס — ראו ההסבר שם. */
   const loadMatches = useCallback((): void => {
     setMatchesFailed(false);
-    setOffersLoaded(false);
+    setOffersKnown(false);
     apiGet<MatchRow[]>(`/buyers/${id}/matches`)
       .then((rows) => {
         setMatches(rows);
+        /* אין התאמות ⇒ אין הצעות, וזו ידיעה ולא היעדר תשובה */
         if (rows.length === 0) {
-          setOffersLoaded(true);
+          setOffersKnown(true);
           return;
         }
         const ids = rows.map((m) => m.id).join(",");
         apiGet<Record<string, OfferInfo>>(`/offers/for-matches?matchIds=${ids}`)
-          .then(setOffers)
-          .catch(() => undefined)
-          /*
-           * גם כשהשליפה נכשלה הרשימה „נטענה”: הלשונית עצמה מציגה אז
-           * את כל ההתאמות כאילו לא נשלחו, ובאנר שיסתיר את עצמו היה
-           * סותר את מה שרואים שורה מתחת.
-           */
-          .finally(() => setOffersLoaded(true));
+          .then((sent) => {
+            setOffers(sent);
+            setOffersKnown(true);
+          })
+          .catch(() => undefined);
       })
       .catch(() => setMatchesFailed(true));
   }, [id]);
@@ -685,7 +690,7 @@ export default function BuyerDetailPage({
                       ? { color: "var(--color-warning)", fontWeight: 800 }
                       : undefined
                   }
-                  title={formatDateTime(buyer.lastActivityAt ?? undefined)}
+                  title={formatDateTime(buyer.lastActivityAt)}
                 >
                   <IconClock s={14} /> פעילות אחרונה {lastActivity.text}
                 </span>
@@ -803,10 +808,11 @@ export default function BuyerDetailPage({
 
           ‏מוצג רק כשבאמת נשארה שליחה: כשאין התאמה שלא נשלחה
           ‏(`topMatch` ריק) אין פעולה, ובאנר שאומר „0 מחכים” הוא
-          ‏רעש בראש הכרטיס. וגם רק אחרי שידוע מה כבר נשלח —
-          ‏אחרת המספר היה קופץ מ„הכול” אל האמת שנייה אחר כך.
+          רעש בראש הכרטיס. וגם רק כשידוע מה כבר נשלח — לא לפני
+          שההצעות חזרו, וגם לא כששליפתן נכשלה: מפה ריקה שלא הגיעה
+          מהשרת אינה „לא נשלח כלום”.
         */}
-        {offersLoaded && topMatch !== undefined ? (
+        {offersKnown && topMatch !== undefined ? (
           <div className="mv-nextaction mv-domain-violet">
             <span
               aria-hidden="true"

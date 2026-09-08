@@ -324,135 +324,147 @@ export function IntakePanel({
   );
 
   return (
-    <section className="mv-invitecard" aria-labelledby="intake-heading">
-      <div className="mv-card-head">
-        <span className="mv-invitecard__tile" aria-hidden="true">
-          <IconSend s={18} />
-        </span>
-        <h2 id="intake-heading" className="mv-card-head__title">
-          הלקוח ממלא בעצמו
-        </h2>
-      </div>
-      <p className="m-0 mt-3 text-[length:var(--type-body-sm)] leading-relaxed">
-        שלחו ללקוח קישור לטופס קצר — מה הוא מחפש, באיזה אזור ובאיזה
-        תקציב. מה שהוא ימלא ייכנס לכרטיס.
-      </p>
-
-      {error !== null && revoking === null && !picking ? (
-        <Notice tone="danger" onClose={() => setError(null)}>
-          {error}
-        </Notice>
-      ) : null}
-
-      {sent !== null ? (
-        <Notice tone={partial ? "warning" : "success"} onClose={() => setSent(null)}>
-          {sent}
-          <WaWayOut url={fallbackWa} />
-        </Notice>
-      ) : null}
-
-      {loadFailed ? (
-        <div className="mt-4">
-          <LoadError onRetry={() => void load()} />
+    <>
+      <section className="mv-invitecard" aria-labelledby="intake-heading">
+        <div className="mv-card-head">
+          <span className="mv-invitecard__tile" aria-hidden="true">
+            <IconSend s={18} />
+          </span>
+          <h2 id="intake-heading" className="mv-card-head__title">
+            הלקוח ממלא בעצמו
+          </h2>
         </div>
-      ) : rows === null ? (
-        <p className="mt-4">טוען…</p>
-      ) : (
-        <>
-          {canEdit ? (
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="mv-invitecard__cta"
-                disabled={busy}
-                onClick={() => void openPicker()}
-              >
-                <IconSend s={16} />{" "}
-                {active === undefined ? "בקשו מהלקוח למלא" : "שליחה שוב"}
-              </button>
-              {active !== undefined ? (
+        <p className="m-0 mt-3 text-[length:var(--type-body-sm)] leading-relaxed">
+          שלחו ללקוח קישור לטופס קצר — מה הוא מחפש, באיזה אזור ובאיזה
+          תקציב. מה שהוא ימלא ייכנס לכרטיס.
+        </p>
+
+        {error !== null && revoking === null && !picking ? (
+          <Notice tone="danger" onClose={() => setError(null)}>
+            {error}
+          </Notice>
+        ) : null}
+
+        {sent !== null ? (
+          <Notice tone={partial ? "warning" : "success"} onClose={() => setSent(null)}>
+            {sent}
+            <WaWayOut url={fallbackWa} />
+          </Notice>
+        ) : null}
+
+        {loadFailed ? (
+          <div className="mt-4">
+            <LoadError onRetry={() => void load()} />
+          </div>
+        ) : rows === null ? (
+          <p className="mt-4">טוען…</p>
+        ) : (
+          <>
+            {canEdit ? (
+              <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  className="mv-invitecard__ghost"
-                  onClick={() => void clipboard.copy(active.url)}
+                  className="mv-invitecard__cta"
+                  disabled={busy}
+                  onClick={() => void openPicker()}
                 >
-                  <IconLink s={15} />{" "}
-                  {clipboard.state === "copied"
-                    ? "✓ הקישור הועתק"
-                    : clipboard.state === "failed"
-                      ? "העתיקו ידנית מהשורה למטה"
-                      : "העתקת הקישור"}
+                  <IconSend s={16} />{" "}
+                  {active === undefined ? "בקשו מהלקוח למלא" : "שליחה שוב"}
                 </button>
-              ) : null}
-            </div>
-          ) : null}
+                {active !== undefined ? (
+                  <button
+                    type="button"
+                    className="mv-invitecard__ghost"
+                    onClick={() => void clipboard.copy(active.url)}
+                  >
+                    <IconLink s={15} />{" "}
+                    {clipboard.state === "copied"
+                      ? "✓ הקישור הועתק"
+                      : clipboard.state === "failed"
+                        ? "העתיקו ידנית מהשורה למטה"
+                        : "העתקת הקישור"}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
 
-          {rows.length === 0 ? (
-            <p className="mv-invitecard__row m-0 mt-4 text-[length:var(--type-body-sm)]">
-              עדיין לא נשלחה בקשה ללקוח הזה.
-            </p>
-          ) : (
-            <ul className="m-0 mt-4 list-none space-y-2 p-0">
-              {rows.map((row) => {
-                const expired =
-                  row.status !== "revoked" && new Date(row.expiresAt) <= new Date();
-                return (
-                  <li key={row.id} className="mv-invitecard__row">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {/*
-                        ‏נקודת המצב מקובץ העיצוב. היא **חוזרת** על מה
-                        שכתוב לידה ואינה מחליפה אותו: צבע לבדו אינו
-                        מצב, וגם ‎`aria-hidden` כדי שלא תוקרא כתו.
-                      */}
-                      <span
-                        aria-hidden="true"
-                        className="inline-block size-2 flex-none rounded-full"
-                        style={{ background: STATUS_COLOR[row.status] }}
-                      />
-                      <span
-                        className="font-bold"
-                        style={{ color: STATUS_COLOR[row.status] }}
-                      >
-                        {expired ? "הקישור פג תוקף" : INTAKE_STATUS_LABEL[row.status]}
-                      </span>
-                      {row.channel === "missed_call" ? (
-                        <span className="mv-invitecard__tag">
-                          נשלח אוטומטית אחרי שיחה שלא נענתה
-                        </span>
-                      ) : null}
-                      <span className="grow" />
-                      {canEdit && row.status !== "revoked" && !expired ? (
-                        <button
-                          type="button"
-                          className="mv-invitecard__ghost"
-                          style={{ minHeight: 32, paddingInline: 10 }}
-                          aria-label="ביטול הקישור"
-                          onClick={() => setRevoking(row)}
+            {rows.length === 0 ? (
+              <p className="mv-invitecard__row m-0 mt-4 text-[length:var(--type-body-sm)]">
+                עדיין לא נשלחה בקשה ללקוח הזה.
+              </p>
+            ) : (
+              <ul className="m-0 mt-4 list-none space-y-2 p-0">
+                {rows.map((row) => {
+                  const expired =
+                    row.status !== "revoked" && new Date(row.expiresAt) <= new Date();
+                  return (
+                    <li key={row.id} className="mv-invitecard__row">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/*
+                          ‏נקודת המצב מקובץ העיצוב. היא **חוזרת** על מה
+                          שכתוב לידה ואינה מחליפה אותו: צבע לבדו אינו
+                          מצב, וגם ‎`aria-hidden` כדי שלא תוקרא כתו.
+                        */}
+                        <span
+                          aria-hidden="true"
+                          className="inline-block size-2 flex-none rounded-full"
+                          style={{ background: STATUS_COLOR[row.status] }}
+                        />
+                        <span
+                          className="font-bold"
+                          style={{ color: STATUS_COLOR[row.status] }}
                         >
-                          <IconX s={14} />
-                        </button>
-                      ) : null}
-                    </div>
-                    <p className="m-0 mt-1 text-[length:var(--type-caption)]">
-                      נוצר {formatDateTime(row.createdAt)}
-                      {row.submittedAt !== null
-                        ? ` · מולא ${formatDateTime(row.submittedAt)}`
-                        : row.openedAt !== null
-                          ? ` · נפתח ${formatDateTime(row.openedAt)}`
-                          : ""}
-                    </p>
-                    {row.status !== "revoked" && !expired ? (
-                      <p className="m-0 mt-1 break-all text-[length:var(--type-caption)]" dir="ltr">
-                        {row.url}
+                          {expired ? "הקישור פג תוקף" : INTAKE_STATUS_LABEL[row.status]}
+                        </span>
+                        {row.channel === "missed_call" ? (
+                          <span className="mv-invitecard__tag">
+                            נשלח אוטומטית אחרי שיחה שלא נענתה
+                          </span>
+                        ) : null}
+                        <span className="grow" />
+                        {canEdit && row.status !== "revoked" && !expired ? (
+                          <button
+                            type="button"
+                            className="mv-invitecard__ghost"
+                            style={{ minHeight: 32, paddingInline: 10 }}
+                            aria-label="ביטול הקישור"
+                            onClick={() => setRevoking(row)}
+                          >
+                            <IconX s={14} />
+                          </button>
+                        ) : null}
+                      </div>
+                      <p className="m-0 mt-1 text-[length:var(--type-caption)]">
+                        נוצר {formatDateTime(row.createdAt)}
+                        {row.submittedAt !== null
+                          ? ` · מולא ${formatDateTime(row.submittedAt)}`
+                          : row.openedAt !== null
+                            ? ` · נפתח ${formatDateTime(row.openedAt)}`
+                            : ""}
                       </p>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </>
-      )}
+                      {row.status !== "revoked" && !expired ? (
+                        <p className="m-0 mt-1 break-all text-[length:var(--type-caption)]" dir="ltr">
+                          {row.url}
+                        </p>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </>
+        )}
+      </section>
+
+      {/*
+        ‎**החלונות אחים לכרטיס ולא ילדים שלו** (ביקורת Codex).
+
+        ‏הם ישבו בתוך ה-`section`, וכשהכרטיס נעשה כהה הכלל
+        ‎`.mv-invitecard p` צבע גם את הפסקאות שבתוכם — טקסט בהיר על
+        ‏המשטח הלבן של החלון, כולל האזהרה שהודעה שיצאה אי אפשר
+        ‏לבטל. אפשר היה לצמצם את הסלקטור, אבל השורש הוא שחלון מודאלי
+        ‏אינו תוכן של הכרטיס שפתח אותו: הוא עומד מעל המסך כולו.
+      */}
 
       {/*
         ‏חלון אחד בשני שלבים ולא שניים: „אתם בטוחים?” הוא המשך של
@@ -584,6 +596,6 @@ export function IntakePanel({
         </p>
         {error !== null ? <Notice tone="danger">{error}</Notice> : null}
       </ConfirmDialog>
-    </section>
+    </>
   );
 }

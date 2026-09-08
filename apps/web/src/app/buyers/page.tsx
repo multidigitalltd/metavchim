@@ -10,7 +10,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiList, apiPost } from "@/lib/api";
-import { formatPrice, MATURITY_LABELS } from "@/lib/format";
+import { formatPrice, lastActivityText, MATURITY_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { IconMic, IconPlus, IconSheet } from "../icons";
@@ -79,16 +79,6 @@ function wantsText(b: BuyerRow): string {
       ? `${b.requirements.roomsMin ?? ""}–${b.requirements.roomsMax ?? ""} חד׳`
       : "";
   return [rooms, b.requirements.cities.slice(0, 2).join(", ")].filter(Boolean).join(" · ") || "—";
-}
-
-function lastActivityText(iso?: string): string {
-  if (!iso) return "—";
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-  if (days === 0) return "היום";
-  if (days === 1) return "אתמול";
-  if (days < 30) return `לפני ${days} ימים`;
-  const months = Math.floor(days / 30);
-  return months === 1 ? "לפני חודש" : `לפני ${months} חודשים`;
 }
 
 function MaturityPill({ maturity }: { maturity: string }) {
