@@ -118,6 +118,7 @@ import {
 import {
   callUpdaterAgent,
   updaterFailure,
+  updaterFailureMessage,
   type UpdateRunStatus,
 } from "./updater-agent";
 import { type DiskStatus, DiskSpaceService } from "./disk-space.service";
@@ -2819,6 +2820,28 @@ export class PlatformController {
   @Get("system/update/status")
   async updateStatus(): Promise<UpdateRunStatus> {
     const res = await callUpdaterAgent("/update/status", { method: "GET" });
+    /*
+     * ‎**404 מהסוכן אינו כישלון של השאילתה — הוא התשובה עליה.**
+     *
+     * ‏העדכון אינו מרים את הסוכן (הוא מריץ את `compose` מתוך עצמו),
+     * ‏ולכן מיד אחרי שהשינוי הזה נפרס הסוכן שבשרת עדיין ישן ואינו
+     * ‏מכיר את הנתיב. חריגה כאן הייתה נבלעת ב-`catch` של המסך, והוא
+     * ‏היה נשאר בספינר לנצח — כלומר בדיוק השתיקה שהשינוי הזה בא
+     * ‏לתקן, רק בניסוח חדש (ביקורת Codex).
+     *
+     * ‏לכן זו תוצאה מדווחת: „לא הצלחתי לדעת, והנה הפקודה שתתקן”.
+     * ‏שאר הכשלים נשארים חריגות — שם כישלון הוא באמת כישלון.
+     */
+    if (res.status === 404) {
+      return {
+        running: false,
+        startedAt: null,
+        finishedAt: null,
+        ok: false,
+        message: updaterFailureMessage(res.status),
+        stage: null,
+      };
+    }
     if (!res.ok) throw updaterFailure(res);
     return (await res.json()) as UpdateRunStatus;
   }

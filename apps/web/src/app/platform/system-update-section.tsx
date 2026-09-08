@@ -30,6 +30,21 @@ interface UpdateRunStatus {
   stage: "pull" | "up" | null;
 }
 
+/*
+ * ‎**כמה זמן ממתינים לסוכן ששותק, לפני שאומרים את זה.**
+ *
+ * ‏שגיאות רשת בזמן עדכון צפויות: `compose up` מרים את ה-API ואת
+ * ‏ה-web מחדש, כלומר בדיוק את מי ששואלים. אבל החלון הזה קצר —
+ * ‏דקה או שתיים, כולל המיגרציות שה-API מריץ בעלייה.
+ *
+ * ‏מעבר לו זו כבר אינה הרמה מחדש אלא תקלה (סוד שאינו תואם, סוכן
+ * ‏שאינו עולה), וספינר שאינו נגמר הוא אותה שתיקה שהמסך הזה בא
+ * ‏לתקן — רק בניסוח חדש. נספרים סבבים ולא זמן, כי קריאת שעון
+ * ‏המכשיר אסורה כאן.
+ */
+const POLL_MS = 4000;
+const SILENT_POLLS_LIMIT = 75; /* ‎75 × 4ש׳ = חמש דקות */
+
 interface SystemInfo {
   version: string;
   updateAvailable: boolean;
@@ -170,22 +185,51 @@ export function SystemUpdateSection() {
   useEffect(() => {
     if (!updateRunning) return;
     let alive = true;
+    /* ‏סבבים רצופים שבהם לא התקבלה תשובה, והמשפט האחרון שכן התקבל. */
+    let silent = 0;
+    let lastError: string | null = null;
+    const finish = () => {
+      setBusy(false);
+      apiGet<SystemInfo>("/platform/system").then(setInfo).catch(() => undefined);
+      void webVersion().then(setWeb);
+    };
     const poll = () => {
       apiGet<UpdateRunStatus>("/platform/system/update/status")
         .then((status) => {
           if (!alive) return;
+          silent = 0;
           setRun(status);
-          if (!status.running) {
-            setBusy(false);
-            apiGet<SystemInfo>("/platform/system").then(setInfo).catch(() => undefined);
-            void webVersion().then(setWeb);
-          }
+          if (!status.running) finish();
         })
-        .catch(() => undefined);
+        .catch((err: unknown) => {
+          if (!alive) return;
+          /*
+           * ‏הודעת השרת נשמרת רק כשה-API **באמת ענה** — כלומר כשגוף
+           * ‏השגיאה היה JSON משלנו. בזמן ההרמה מחדש ה-API מת ושער
+           * ‏ה-HTTPS עונה במקומו 502 בלי גוף כזה, וההודעה שנבנית
+           * ‏ממנו היא „שגיאה לא צפויה” — משפט שגרוע מהכללי שלנו,
+           * ‏כי הוא לא אומר לאן להסתכל.
+           */
+          lastError =
+            err instanceof ApiError && "message" in err.body ? err.message : null;
+          silent += 1;
+          if (silent < SILENT_POLLS_LIMIT) return;
+          setRun({
+            running: false,
+            startedAt: null,
+            finishedAt: null,
+            ok: false,
+            message:
+              lastError ??
+              "סוכן העדכון אינו עונה כבר כמה דקות. בדקו בטבלה למעלה איזו גרסה רצה בפועל, ואת הלוג של הסוכן.",
+            stage: null,
+          });
+          finish();
+        });
     };
     /* מיד, ולא בעוד ארבע שניות — ההודעה הראשונה צריכה להיות של הסוכן. */
     poll();
-    const timer = setInterval(poll, 4000);
+    const timer = setInterval(poll, POLL_MS);
     return () => {
       alive = false;
       clearInterval(timer);

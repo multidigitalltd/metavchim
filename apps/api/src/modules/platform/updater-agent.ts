@@ -43,23 +43,33 @@ const COMPOSE = "docker compose -f docker-compose.prod.yml --env-file .env.produ
 /** שתי הפקודות שמעדכנות את הסוכן, מלאות — להדבקה ישירה בשרת. */
 const UPDATER_RESTART_COMMAND = `${COMPOSE} pull updater && ${COMPOSE} up -d updater`;
 
-/** תשובת הסוכן ↵ הודעה בעברית שאפשר לפעול לפיה. */
-export function updaterFailure(res: Response): ServiceUnavailableException {
-  if (res.status === 401) {
-    return new ServiceUnavailableException(
-      "סוכן העדכון דחה את הבקשה — UPDATE_SECRET במערכת ובסוכן אינם זהים",
-    );
+/**
+ * תשובת הסוכן ↵ משפט בעברית שאפשר לפעול לפיו.
+ *
+ * ‏נפרד מ-`updaterFailure` כי לא כל קורא זורק: נתיב **מצב** שמקבל
+ * ‏404 אינו נכשל בשאילתה — הוא קיבל את התשובה („הסוכן ישן מכדי
+ * ‏לדעת”), והמשפט הזה הוא מה שצריך להגיע למסך כתוצאה מדווחת ולא
+ * ‏כחריגה שתיבלע.
+ */
+export function updaterFailureMessage(status: number): string {
+  if (status === 401) {
+    return "סוכן העדכון דחה את הבקשה — UPDATE_SECRET במערכת ובסוכן אינם זהים";
   }
-  if (res.status === 404) {
+  if (status === 404) {
     // הפקודה מלאה ומודבקת כמות שהיא. קיצור בשלוש נקודות היה מייצר
     // שורה שנראית שמישה ואינה רצה — ומי שקורא את ההודעה הזו כבר
     // באמצע תקלה.
-    return new ServiceUnavailableException(
+    return (
       "סוכן העדכון שרץ בשרת ישן מהמערכת ואינו מכיר את הפעולה הזו. " +
-        `הריצו בתיקיית הריפו בשרת: ${UPDATER_RESTART_COMMAND}`,
+      `הריצו בתיקיית הריפו בשרת: ${UPDATER_RESTART_COMMAND}`
     );
   }
-  return new ServiceUnavailableException(`סוכן העדכון החזיר שגיאה (${res.status})`);
+  return `סוכן העדכון החזיר שגיאה (${status})`;
+}
+
+/** אותו משפט, כחריגה — לנתיבים שבהם כישלון הוא כישלון. */
+export function updaterFailure(res: Response): ServiceUnavailableException {
+  return new ServiceUnavailableException(updaterFailureMessage(res.status));
 }
 
 /**
