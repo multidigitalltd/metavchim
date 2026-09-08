@@ -46,6 +46,7 @@ import { EntityTasks } from "../../entity-tasks";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { LeadCalls } from "./lead-calls";
 import { IntakePanel } from "../../intake-panel";
+import { MoreActions } from "../../more-actions";
 import { SelectMenu } from "../../select-menu";
 import { ReplyEmail } from "./reply-email";
 import {
@@ -660,7 +661,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
    * נפל בחזרה לסקירה. תוקן יחד עם הוספת `calls` (ביקורת עצמית).
    */
   const [tab, selectTab] = useEntityTab(
-    ["overview", "next", "calls", "referral", "timeline"],
+    ["overview", "next", "calls", "tasks", "referral", "timeline"],
     "overview",
   );
 
@@ -1049,65 +1050,81 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         היא נדחסה אל השם ובצר נשברה מתחתיו בלי סדר. שורה משלה נותנת
         לכל הפעולות את אותו משקל ואותו מקום בכל רוחב.
       */}
-      <div className="mt-4 flex flex-wrap items-center gap-2">
+      {/*
+        ‎**פעולה ראשית אחת, והשאר מאחורי „פעולות נוספות”.**
+
+        ‏קודם ישבו כאן שש פעולות שקולות בשורה אחת. בעל המוצר: זה
+        ‏„יוצר מאוד עומס”. הראשית נשארת גלויה, והשאר נאספות — אותו
+        ‏רכיב ואותו כלל בדיוק כמו בכרטיס הקונה, ולכן שתי הכותרות
+        ‏אינן יכולות להיפרד זו מזו.
+
+        ‏במובייל הן חוזרות להיות גלויות כגריד ארבע פעולות, כי שם
+        ‏„חייג” ו„וואטסאפ” הם מה שעושים באמת ובמרחק אגודל.
+      */}
+      <div className="mv-cardactions mt-4">
+        {/*
+          ‎**„המשך טיפול” ראשון, ובירוק** — זו הפעולה שכל הכרטיס
+          קיים בשבילה. הטפסים עצמם נשארים בלשונית „המשך טיפול”
+          ואינם משוכפלים כאן; הכפתור רק מוביל אליהם. ליד שכבר הומר
+          אינו מציג אותו — אין מה להמיר.
+        */}
+        {lead.status !== "converted" && canEditPeople ? (
+          <button
+            type="button"
+            className="mv-net-act mv-net-act--solid"
+            onClick={() => selectTab("next")}
+          >
+            <IconHandshake s={15} /> המשך טיפול
+          </button>
+        ) : null}
+        <MoreActions>
+          <a
+            href={`tel:${lead.contact.phone}`}
+            className="mv-net-act mv-act"
+            style={{ textDecoration: "none" }}
+          >
+            <IconPhone s={15} /> חייג
+          </a>
           {/*
-            ‎**„המר לקונה” ראשון, ובירוק** — זו הפעולה שכל הכרטיס
-            קיים בשבילה. הטפסים עצמם נשארים בלשונית „המשך טיפול”
-            ואינם משוכפלים כאן; הכפתור רק מוביל אליהם. ליד שכבר הומר
-            אינו מציג אותו — אין מה להמיר.
-          */}
-          {lead.status !== "converted" && canEditPeople ? (
-            <button
-              type="button"
-              className="mv-net-act mv-net-act--solid"
-              onClick={() => selectTab("next")}
-            >
-              <IconHandshake s={15} /> המשך טיפול
-            </button>
-          ) : null}
-          {/*
-            ‏וואטסאפ בירוק רך ולא לבן כמו השאר: זה הערוץ שמתווך פותח
-            בו בפועל, ובשורה של שישה כפתורים זהים הוא היה מספר שלוש
-            מבין שישה.
+            ‏וואטסאפ בגוון ירוק רך ולא לבן כמו השאר: זה הערוץ שמתווך
+            פותח בו בפועל.
           */}
           <a
             href={waMeUrl(lead.contact.phone)}
             target="_blank"
             rel="noreferrer"
-            className="mv-net-act mv-net-act--go"
+            className="mv-net-act mv-net-act--go mv-act"
             style={{ textDecoration: "none" }}
           >
             <IconChat s={15} /> וואטסאפ
           </a>
-          <a
-            href={`tel:${lead.contact.phone}`}
-            className="mv-net-act"
+          <Link
+            href={`/calendar/new?leadId=${lead.id}`}
+            className="mv-net-act mv-act"
             style={{ textDecoration: "none" }}
           >
-            <IconPhone s={15} /> חייג
-          </a>
-          <ClickToDial
-            contactId={lead.contact.id}
-            phone={lead.contact.phone}
-            label="מהמרכזייה"
-          />
+            <IconCalendar s={15} /> קבע פגישה
+          </Link>
           {lead.contact.email ? (
             <a
               href={`mailto:${lead.contact.email}`}
-              className="mv-net-act"
+              className="mv-net-act mv-act"
               style={{ textDecoration: "none" }}
             >
               <IconMail s={15} /> אימייל
             </a>
           ) : null}
-          <Link
-            href={`/calendar/new?leadId=${lead.id}`}
-            className="mv-net-act"
-            style={{ textDecoration: "none" }}
-          >
-            <IconCalendar s={15} /> קבע פגישה
-          </Link>
-        </div>
+          {/*
+            ‎„מהמרכזייה” אחרון: הוא קיים רק כשהטלפוניה מחוברת, ולכן
+            ‏אינו אחד מארבע הפעולות שהעיצוב מונה.
+          */}
+          <ClickToDial
+            contactId={lead.contact.id}
+            phone={lead.contact.phone}
+            label="מהמרכזייה"
+          />
+        </MoreActions>
+      </div>
 
       {/*
         **הדחוף קודם.** ההתראה ישבה קודם במקום העשירי, מתחת לשש
@@ -1146,6 +1163,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           { key: "overview", label: "סקירה" },
           { key: "next", label: "המשך טיפול" },
           { key: "calls", label: "שיחות" },
+          { key: "tasks", label: "משימות" },
           { key: "referral", label: "הפניות" },
           { key: "timeline", label: "ציר זמן", count: timeline.length },
         ]}
@@ -1156,15 +1174,74 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           ============================================================ */}
       <TabPanel tab="overview" active={tab}>
         {/*
-          שתי עמודות ולא טור אחד ארוך, כמו בכרטיס הקונה.
+          ‎---- הפעולה הבאה ---- ‏על פני כל הרוחב, מעל הטורים
 
-          בעמודה הצדדית יושב מה ש**קוראים** — תוכן הפנייה והקשרים
-          האחרים של אותו אדם; ברחבה יושב מה ש**עושים** — תשובה
-          במייל, משימות ואנשי קשר. טור אחד הכריח לגלול דרך טופס
-          תשובה שלם כדי להגיע לרשימת המשימות.
+          ‏כל הכרטיס הזה קיים כדי שהליד יפסיק להיות ליד. ההמרה
+          ‏חיה בלשונית „המשך טיפול”, וכאן נאמר **למה** כדאי לגשת
+          ‏אליה — אותו רכיב ואותו מקום כמו הבאנר בכרטיס הקונה.
+
+          ‏מוצג רק כשיש מה להמיר: ליד שכבר הומר אינו מקבל הזמנה
+          ‏להמיר אותו שוב, וזה גם התנאי של הכפתור בכותרת.
         */}
-        <div className="grid items-start gap-[18px] lg:[grid-template-columns:340px_1fr]">
-          <div className="grid gap-[18px]">
+        {lead.status !== "converted" && canEditPeople ? (
+          <div className="mv-nextaction mv-domain-violet">
+            <span
+              aria-hidden="true"
+              className="mv-tile mv-tile--44 mv-domain-violet flex-none"
+            >
+              <IconHandshake s={20} />
+            </span>
+            <div className="min-w-0">
+              <div
+                className="font-black"
+                style={{ fontSize: "calc(17 / 16 * 1rem)" }}
+              >
+                הפכו את הליד לכרטיס קונה — וההתאמות מתחילות לעבוד
+              </div>
+              <div
+                className="mt-0.5 text-[length:var(--type-body-sm)]"
+                style={{ color: "var(--domain-violet-fg)" }}
+              >
+                ברגע שיוגדרו תקציב ואזור, המערכת תסרוק גם את הרשת
+                ותציע נכסים מתאימים
+              </div>
+            </div>
+            <button
+              type="button"
+              className="mv-btn-primary ms-auto flex-none"
+              onClick={() => selectTab("next")}
+            >
+              המר לקונה
+            </button>
+          </div>
+        ) : null}
+
+        {/*
+          ‎---- שלושה טורים ---- (קובץ העיצוב)
+
+          ‏מי הוא · מה פתוח עליו · מה הוא ביקש. שלוש שאלות שסוכן
+          ‏שואל לפני שהוא מרים טלפון, ואף אחת אינה המשך של השנייה
+          ‏— ולכן הן זו לצד זו. בטלפון הרשת מתקפלת לטור אחד באותו
+          ‏סדר.
+
+          ‏עד כאן זה היה טור צר של 340px ולידו רחב, ותיבת תשובת
+          ‏המייל ברחב דחפה את המשימות ואת אנשי הקשר מטה — כלומר
+          ‏„מה פתוח עליו” היה מתחת לטופס שלם.
+        */}
+        <div className="grid items-start gap-[18px] lg:grid-cols-3">
+          <div className="grid content-start gap-[18px]">
+            <ContactPeople
+              contactId={lead.contact.id}
+              canEdit={canEditPeople}
+              canErase={can(user, "contacts.delete")}
+            />
+          </div>
+
+          <div className="grid content-start gap-[18px]">
+            <EntityTasks entityType="lead" entityId={id} />
+          </div>
+
+          <div className="grid content-start gap-[18px]">
             {/*
               ---- תוכן הפנייה ----
               הדבר הראשון שהמתווך צריך לדעת ("מה הוא רצה?") היה עד
@@ -1221,39 +1298,77 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
               </section>
             )}
 
-            {/* הכובעים האחרים של אותו אדם — קונה קיים, נכס שהוא מוכר */}
-            <RelatedEntities
-              contactId={lead.contact.id}
-              exclude={{ kind: "lead", id: lead.id }}
-            />
-          </div>
-
-          <div className="grid gap-[18px]">
-            {/* קראת מה הוא רצה — עכשיו תענה לו */}
-            <ReplyEmail
-              contactId={lead.contact.id}
-              leadId={lead.id}
-              contactName={lead.contact.name}
-              {...(lead.contact.email !== undefined
-                ? { contactEmail: lead.contact.email }
-                : {})}
-            />
-
-            <EntityTasks entityType="lead" entityId={id} />
-
             {/*
-              „הלקוח ממלא בעצמו” — כאן, ולא בלשונית „המשך טיפול”.
-              זו הפעולה שעושים **לפני** שמחליטים אם להמיר: מה שהלקוח
-              ימלא הוא בדיוק המידע שההחלטה נשענת עליו.
-            */}
-            <IntakePanel subject="lead" entityId={id} canEdit={can(user, "leads.edit")} />
+              ‎---- השיחות של הליד, בכרטיס ולא רק בלשונית ----
 
-            <ContactPeople
-              contactId={lead.contact.id}
-              canEdit={canEditPeople}
-              canErase={can(user, "contacts.delete")}
-            />
+              ‏בקשת בעל המוצר: „חשוב שיוכלו לראות בכרטיס של הליד את
+              ‏השיחות, ושיציג את כל השיחות של הליד”.
+
+              ‎`LeadCalls` הוא בדיוק הרכיב שכבר עושה את זה — הוא
+              ‏מושך `GET /calls?leadId=` (כלומר **כל** השיחות, לא
+              ‏האחרונה), ולכל אחת נגן הקלטה, תמלול מתקפל והשדות
+              ‏שחולצו מהשיחה. הוא היה מורכב רק בלשונית „שיחות”,
+              ‏ולכן מי שפתח את הכרטיס לא ראה שיש בכלל הקלטה.
+
+              ‏אותו רכיב בשני המקומות ולא עותק: `TabPanel` מחזיר
+              ‎`null` ללשונית שאינה פעילה, ולכן רק אחד מהם מורכב בכל
+              ‏רגע — ואי אפשר שהשניים יציגו רשימות שונות.
+            */}
+            <section
+              aria-labelledby="lead-calls-heading"
+              className="mv-card mv-card--pad"
+            >
+              <div className="mv-card-head">
+                <span
+                  className="mv-tile mv-tile--44 mv-domain-green"
+                  aria-hidden="true"
+                >
+                  <IconPhone s={20} />
+                </span>
+                <h2 id="lead-calls-heading" className="mv-card-head__title">
+                  שיחות
+                </h2>
+              </div>
+              <LeadCalls leadId={id} />
+            </section>
+
           </div>
+        </div>
+
+        {/*
+          ‎---- מתחת לטורים ----
+
+          ‏מה שאינו אחת משלוש השאלות שלמעלה אלא **פעולה** עליהן:
+          ‏תשובה במייל, ההזמנה למילוי עצמי, והכובעים האחרים של אותו
+          ‏אדם. הם על פני כל הרוחב כי אף אחד מהם אינו „טור”.
+
+          ‏תיבת התשובה ירדה לכאן ולא נמחקה: היא לא מופיעה בקובץ
+          ‏העיצוב, אבל היא הדרך לענות ללקוח — והעברה מהמסך אינה
+          ‏שינוי עיצובי.
+        */}
+        <div className="mt-[18px] grid items-start gap-[18px] lg:grid-cols-2">
+          <ReplyEmail
+            contactId={lead.contact.id}
+            leadId={lead.id}
+            contactName={lead.contact.name}
+            {...(lead.contact.email !== undefined
+              ? { contactEmail: lead.contact.email }
+              : {})}
+          />
+          {/*
+            „הלקוח ממלא בעצמו” — כאן, ולא בלשונית „המשך טיפול”.
+            זו הפעולה שעושים **לפני** שמחליטים אם להמיר: מה שהלקוח
+            ימלא הוא בדיוק המידע שההחלטה נשענת עליו.
+          */}
+          <IntakePanel subject="lead" entityId={id} canEdit={can(user, "leads.edit")} />
+        </div>
+
+        {/* הכובעים האחרים של אותו אדם — קונה קיים, נכס שהוא מוכר */}
+        <div className="mt-[18px]">
+          <RelatedEntities
+            contactId={lead.contact.id}
+            exclude={{ kind: "lead", id: lead.id }}
+          />
         </div>
       </TabPanel>
 
@@ -1333,6 +1448,24 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           ============================================================ */}
       <TabPanel tab="calls" active={tab}>
         <LeadCalls leadId={id} />
+      </TabPanel>
+
+      {/* ============================================================
+          משימות — לשונית משלהן (בקשת בעל המוצר)
+          ============================================================ */}
+      {/*
+        ‏המשימות מופיעות גם בטור האמצעי של „סקירה”, כפי שקובץ העיצוב
+        ‏מראה, וגם כאן. זו אינה כפילות מסוכנת: `TabPanel` מחזיר
+        ‎`null` ללשונית שאינה פעילה, ולכן רק אחד מהשניים מורכב בכל
+        ‏רגע — מעבר ללשונית מרכיב מחדש ומרענן, ואי אפשר שהשניים
+        ‏יציגו מצב שונה זה מזה.
+
+        ‏הלשונית היא גם היעד של „משימות” בניווט התחתון במובייל,
+        ‏שקובץ העיצוב מונה — עד כה היא לא הייתה קיימת, ולכן הפס
+        ‏הצביע על ארבע לשוניות אחרות.
+      */}
+      <TabPanel tab="tasks" active={tab}>
+        <EntityTasks entityType="lead" entityId={id} />
       </TabPanel>
 
       {/* ============================================================
@@ -1466,6 +1599,38 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           )}
         </section>
       </TabPanel>
+
+      {/*
+        ‎---- ניווט תחתון — מובייל בלבד ---- (קובץ העיצוב)
+
+        ‏אותו רכיב ואותן לשוניות של הפס העליון, ואותו `selectTab` —
+        ‏לא ניווט שני שצריך לזכור לסנכרן. „הפניות” נשארת למעלה: היא
+        ‏נפתחת במשרד, לא בין פגישות.
+
+        ‏ארבע הלשוניות שקובץ העיצוב מונה, מאז שנוספה „משימות”.
+        ‏„המשך טיפול” ו„הפניות” נשארות בפס העליון: הן נפתחות
+        ‏במשרד, לא בין פגישות.
+      */}
+      <div className="mv-bottomnav-space" aria-hidden="true" />
+      <nav className="mv-bottomnav" aria-label="לשוניות כרטיס הליד">
+        {(
+          [
+            ["overview", "כרטיס"],
+            ["calls", "שיחות"],
+            ["tasks", "משימות"],
+            ["timeline", "ציר זמן"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            aria-current={tab === key}
+            onClick={() => selectTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
     </>
   );
 }
