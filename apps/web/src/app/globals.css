@@ -8163,57 +8163,95 @@ a.mv-bar-row:focus-visible {
  * ‏הוא סגול כי זו שפת ההתאמות במערכת (`mv-domain-violet`), והוא
  * ‏רחב-שורה כדי שלא יתחרה על תשומת לב עם הכרטיסים שמתחתיו: הוא
  * ‏אומר משפט אחד ומציע פעולה אחת. */
-/* ‎**שורת הפעולות של כותרת הכרטיס — שתי צורות, DOM אחד.**
+/* ‎**שורת הפעולות של כותרת הכרטיס — שתי צורות, עץ DOM אחד.**
  *
- * ‏בדסקטופ שורה: הראשי (ירוק) ראשון מימין, ואחריו המשניות.
- * ‏בקובץ העיצוב הסדר הוא „הצע נכס · ערוך דרישות · קביעת סיור ·
- * ‏חייג · וואטסאפ”, וזה סדר ה-DOM.
+ * ‏במובייל: כפתור ראשי מלא-רוחב, ומתחתיו גריד ארבע פעולות גלוי —
+ * ‏כך בקובץ העיצוב, וכך הן במרחק אגודל.
  *
- * ‏במובייל העיצוב מבקש **כפתור ראשי מלא-רוחב ומעליו גריד ארבע
- * ‏פעולות**. הסדר שם הוא „חייג · וואטסאפ · סיור · דרישות”, כלומר
- * ‏אחר מזה של הדסקטופ.
+ * ‏בדסקטופ: חמישה כפתורים פתוחים כל הזמן היו „עומס” (בעל המוצר),
+ * ‏ולכן הראשי נשאר גלוי והשאר נאספים מאחורי „פעולות נוספות”.
  *
- * ‎**ובכל זאת אין כאן `order`, ויש סדר אחד לשתי הצורות.**
+ * ‎**הפקדים כתובים פעם אחת.** במובייל העטיפה מתרדדת
+ * ‏(`display: contents`) והפאנל *הוא* הגריד; בדסקטופ הוא צף מתחת
+ * ‏לכפתור. הניסיון הקודם לגשר על הפער הזה ב-`order` הזיז את העין
+ * ‏ולא את המקלדת, ולכן אין כאן `order` בשום מקום.
  *
- * ‏הניסוח הראשון סידר את המובייל ב-`order` — ו-`order` מזיז את
- * ‏העין ולא את המקלדת. הסדר החזותי היה „חייג · וואטסאפ · סיור ·
- * ‏דרישות” בזמן שה-Tab המשיך ללכת „דרישות · סיור · חייג ·
- * ‏וואטסאפ”, כלומר הפוקוס קופץ אחורה על פני השורה (ביקורת Codex,
- * ‏‎WCAG 2.4.3‎). באותה מכה `ClickToDial` נשאר על `order: 0`
- * ‏המשתמע ונדחף **לראש** הגריד — ההפך הגמור ממה שההערה כאן
- * ‏הצהירה.
- *
- * ‏ולכן: סדר DOM אחד, זה של הדסקטופ, שהוא גם זה שנקבע בצילום.
- * ‏ההפרש מול סדר המובייל שבקובץ העיצוב הוא ויתור מודע — נגישות
- * ‏המקלדת גוברת על חילופי מקום בין שתי לוחות שרטוט.
- *
- * ‎„מהמרכזייה” אינו בעיצוב (הוא קיים רק כשהטלפוניה מחוברת) והוא
- * ‏אחרון ב-DOM, ולכן גם אחרון על המסך — עכשיו באמת. */
+ * ‎„מהמרכזייה” אינו בקובץ העיצוב — הוא קיים רק כשהטלפוניה
+ * ‏מחוברת. הוא אחרון ב-DOM, ולכן אחרון גם על המסך. */
 .mv-cardactions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  display: grid;
   gap: 8px;
-  margin-inline-start: auto;
+  width: 100%;
 }
-@media (max-width: 59.99em) {
+.mv-moreactions {
+  /* ‏במובייל אין עטיפה — הפאנל הוא ילד ישיר של שורת הפעולות */
+  display: contents;
+}
+.mv-moreactions__toggle {
+  display: none;
+}
+.mv-moreactions__panel {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.mv-moreactions__panel > * {
+  min-width: 0;
+}
+.mv-act {
+  justify-content: center;
+  overflow: hidden;
+}
+
+@media (min-width: 60em) {
   .mv-cardactions {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    width: auto;
+    margin-inline-start: auto;
+  }
+  .mv-moreactions {
+    display: block;
+    position: relative;
+  }
+  .mv-moreactions__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding-inline: 13px;
+    font-size: var(--type-caption-lg);
+  }
+  /*
+   * ‏הפאנל צף מעל התוכן שמתחת לכותרת — הבאנר והכרטיסים. בלי
+   * ‎`z-index` הוא היה נחתך מאחוריהם.
+   */
+  .mv-moreactions__panel {
+    position: absolute;
+    inset-inline-start: 0;
+    top: calc(100% + 8px);
+    z-index: 20;
+    grid-template-columns: 1fr;
+    gap: 2px;
+    min-width: 220px;
+    padding: 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    background: var(--color-surface);
+    box-shadow:
+      0 1px 2px rgb(16 24 18 / 4%),
+      0 14px 32px -18px rgb(16 24 18 / 32%);
+  }
+  .mv-moreactions__panel[data-open="false"] {
+    display: none;
+  }
+  /* ‏בתוך הפאנל הפריטים הם שורות: אייקון, ואחריו התווית */
+  .mv-moreactions__panel > * {
+    justify-content: flex-start;
     width: 100%;
-    margin-inline-start: 0;
-  }
-  /* ‏הראשי על פני כל הרוחב, מעל הארבעה */
-  .mv-cardactions__primary {
-    grid-column: 1 / -1;
-  }
-  /* ‏תווית ארוכה בתא צר — נחתכת ולא מרחיבה את הגריד */
-  .mv-cardactions > * {
-    min-width: 0;
-  }
-  .mv-act {
-    justify-content: center;
-    overflow: hidden;
+    border-color: transparent;
+    gap: 10px;
   }
 }
 

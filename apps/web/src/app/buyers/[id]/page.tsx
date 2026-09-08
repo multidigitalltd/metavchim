@@ -41,6 +41,7 @@ import { SelectMenu } from "../../select-menu";
 import { useOfficeStatuses } from "../../use-office-statuses";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { IntakePanel } from "../../intake-panel";
+import { MoreActions } from "../../more-actions";
 import { LoadError } from "../../load-error";
 import { AgentPicker } from "../../agent-picker";
 import { Notice } from "../../notice";
@@ -719,60 +720,62 @@ export default function BuyerDetailPage({
           {can(user, "offers.send") ? (
             <button
               type="button"
-              className="mv-btn-primary mv-cardactions__primary"
+              className="mv-btn-primary"
               style={{ minHeight: 36, paddingInline: 16, fontSize: "var(--type-caption-lg)" }}
               onClick={() => setPitchOpen(true)}
             >
               הצע נכס לקונה
             </button>
           ) : null}
-          <Link
-            href={`/buyers/${id}/edit`}
-            className="mv-btn-plain mv-act"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-          >
-            <IconEdit s={14} /> ערוך דרישות
-          </Link>
-          {/*
-            ‎**קביעת סיור מצד הלקוח.**
+          <MoreActions>
+            <Link
+              href={`/buyers/${id}/edit`}
+              className="mv-btn-plain mv-act"
+              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            >
+              <IconEdit s={14} /> ערוך דרישות
+            </Link>
+            {/*
+              ‎**קביעת סיור מצד הלקוח.**
 
-            עד כה הכפתור היה קיים רק בכרטיס הנכס, ולכן הסיור נקבע
-            תמיד מהכיוון של „איזה נכס” — בזמן שהעבודה היומית של
-            מתווך מתחילה מ„עם מי”. מכאן הלקוח כבר מקושר, וטופס
-            הפגישה מבקש רק את הנכס (או פותח נכס חדש ומחזיר לכאן).
-          */}
-          <Link
-            href={`/calendar/new?buyerId=${id}&kind=viewing`}
-            className="mv-btn-plain mv-act"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-          >
-            <IconCalendar s={14} /> קביעת סיור
-          </Link>
-          <a
-            href={`tel:${buyer.contact.phone}`}
-            className="mv-btn-plain mv-act"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-          >
-            <IconPhone s={14} /> חייג
-          </a>
-          <a
-            href={waMeUrl(buyer.contact.phone)}
-            target="_blank"
-            rel="noreferrer"
-            className="mv-btn-plain mv-act"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-          >
-            <IconChat s={14} /> וואטסאפ
-          </a>
-          {/*
-            ‏„מהמרכזייה” אינו בקובץ העיצוב — הוא יכולת שקיימת רק
-            ‏כשהטלפוניה מחוברת, ולכן הוא אחרון ולא בין הארבעה.
-          */}
-          <ClickToDial
-            contactId={buyer.contact.id}
-            phone={buyer.contact.phone}
-            label="מהמרכזייה"
-          />
+              עד כה הכפתור היה קיים רק בכרטיס הנכס, ולכן הסיור נקבע
+              תמיד מהכיוון של „איזה נכס” — בזמן שהעבודה היומית של
+              מתווך מתחילה מ„עם מי”. מכאן הלקוח כבר מקושר, וטופס
+              הפגישה מבקש רק את הנכס (או פותח נכס חדש ומחזיר לכאן).
+            */}
+            <Link
+              href={`/calendar/new?buyerId=${id}&kind=viewing`}
+              className="mv-btn-plain mv-act"
+              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            >
+              <IconCalendar s={14} /> קביעת סיור
+            </Link>
+            <a
+              href={`tel:${buyer.contact.phone}`}
+              className="mv-btn-plain mv-act"
+              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            >
+              <IconPhone s={14} /> חייג
+            </a>
+            <a
+              href={waMeUrl(buyer.contact.phone)}
+              target="_blank"
+              rel="noreferrer"
+              className="mv-btn-plain mv-act"
+              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            >
+              <IconChat s={14} /> וואטסאפ
+            </a>
+            {/*
+              ‏„מהמרכזייה” אינו בקובץ העיצוב — הוא יכולת שקיימת רק
+              ‏כשהטלפוניה מחוברת, ולכן הוא אחרון ולא בין הארבעה.
+            */}
+            <ClickToDial
+              contactId={buyer.contact.id}
+              phone={buyer.contact.phone}
+              label="מהמרכזייה"
+            />
+          </MoreActions>
         </div>
       </div>
 
