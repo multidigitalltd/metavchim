@@ -883,7 +883,17 @@ export class BuyersService {
     return this.getById(id);
   }
 
-  async getById(id: string): Promise<BuyerDto> {
+  /**
+   * ‎`lastActivityAt` — מתי נגעו בלקוח הזה בפעם האחרונה.
+   *
+   * ‏הרשימה מחשבת אותו מזמן (`groupBy` על כל העמוד), והכרטיס לא —
+   * ולכן דווקא במסך שפותחים לפני שיחה לא היה כתוב מתי דיברו איתו
+   * לאחרונה. אותה הגדרה בדיוק: האינטראקציה האחרונה, מכל סוג.
+   *
+   * ‏השאילתה מסוננת ב-`tenantId` ובקונה שכבר עבר את בדיקת הבעלות
+   * שמעליה, ולכן אין כאן דרך להגיע לפעילות של משרד או סוכן אחר.
+   */
+  async getById(id: string): Promise<BuyerDto & { lastActivityAt: Date | null }> {
     return this.prisma.withTenant(async (tx) => {
       const row = await tx.buyer.findFirst({
         where: {
@@ -897,7 +907,15 @@ export class BuyersService {
       const contact = await this.contacts.getById(tx, row.contactId);
       if (!contact) throw new NotFoundException("איש קשר לא נמצא");
       const agents = await agentNames(tx, TenantContext.current().tenantId, [row.ownerUserId]);
-      return this.toDto(row, contact, agents);
+      const last = await tx.interaction.findFirst({
+        where: { tenantId: TenantContext.current().tenantId, buyerId: row.id },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+      });
+      return {
+        ...this.toDto(row, contact, agents),
+        lastActivityAt: last?.createdAt ?? null,
+      };
     });
   }
 

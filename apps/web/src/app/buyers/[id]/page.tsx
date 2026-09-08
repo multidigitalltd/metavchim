@@ -15,13 +15,15 @@ import {
   FINANCING_LABELS,
   formatBuyerSource,
   formatDate,
+  formatDateTime,
   formatPrice,
   MATURITY_LABELS,
   PROPERTY_TYPE_LABELS,
+  timeAgo,
   waMeUrl,
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
-import { IconCalendar, IconChat, IconEdit, IconPhone } from "../../icons";
+import { IconCalendar, IconChat, IconClock, IconEdit, IconPhone } from "../../icons";
 import { NetworkShareSection } from "../../network-share-section";
 import { NetworkPropertyMatches } from "../network-property-matches";
 import { TimelineSection } from "./timeline-section";
@@ -102,7 +104,22 @@ interface BuyerDetail {
   agentNotes?: string;
   /** מתי הכרטיס נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
   createdAt: string;
+  /**
+   * ‏האינטראקציה האחרונה עם הלקוח — `null` כשעוד לא הייתה אחת.
+   *
+   * ‏אותה הגדרה שהרשימה מציגה בעמודת „פעילות אחרונה”, ולכן שתי
+   * התשובות על אותו לקוח אינן יכולות לסתור זו את זו.
+   */
+  lastActivityAt: string | null;
 }
+
+/**
+ * ‏מעל כמה ימים „לפני X ימים” הוא סימן ולא עובדה.
+ *
+ * ‏שבוע: מתחתיו הלקוח בטיפול, ומעליו הוא נשכח — וזה בדיוק מה
+ * שהשורה בכותרת אמורה להגיד במבט אחד, בלי לחשב תאריכים.
+ */
+const STALE_DAYS = 7;
 
 interface MatchRow {
   id: string;
@@ -270,6 +287,23 @@ export default function BuyerDetailPage({
    * ‎`reduce` ולא `sort`: מיון היה משנה את סדר התצוגה של הלשונית,
    * ‏שהוא הסדר שהשרת החזיר.
    */
+  /**
+   * ‎„פעילות אחרונה” לשורת המטא — הטקסט והאם הוא כבר סימן.
+   *
+   * ‏שתי התשובות נגזרות מאותו תאריך במקום אחד: ניסוח שאומר „לפני
+   * ‏12 ימים” בצבע רגיל, או צבע אזהרה על טקסט שאומר „אתמול”, הם
+   * שתי גרסאות של אותה עובדה שנפרדו זו מזו.
+   */
+  const lastActivity =
+    buyer === null || buyer.lastActivityAt === null
+      ? null
+      : {
+          text: timeAgo(buyer.lastActivityAt),
+          stale:
+            Date.now() - new Date(buyer.lastActivityAt).getTime() >
+            STALE_DAYS * 86_400_000,
+        };
+
   const waitingMatches = (matches ?? []).filter(
     (row) => offers[row.id] === undefined,
   );
@@ -629,6 +663,34 @@ export default function BuyerDetailPage({
             <span style={{ color: "var(--color-text)" }}>
               {formatDate(buyer.createdAt)}
             </span>
+            {/*
+              ‎---- מתי נגעו בו לאחרונה ---- (קובץ העיצוב)
+
+              ‏זו השאלה שמתווך שואל את עצמו לפני שהוא מתקשר, והיא
+              ‏הייתה מחייבת מעבר ללשונית ציר הזמן וקריאת התאריך
+              ‏העליון. „לפני 6 ימים” היא התשובה עצמה.
+
+              ‏מעל שבוע הוא נצבע — אותו כתום של שאר האזהרות הרכות
+              ‏במערכת — כי אז המספר אינו נתון אלא סימן. הצבע אינו
+              ‏לבדו: השעון והניסוח נושאים את אותה משמעות למי שאינו
+              ‏מבחין בגוונים.
+            */}
+            {lastActivity !== null ? (
+              <>
+                {" · "}
+                <span
+                  className="inline-flex items-center gap-1 align-middle"
+                  style={
+                    lastActivity.stale
+                      ? { color: "var(--color-warning)", fontWeight: 800 }
+                      : undefined
+                  }
+                  title={formatDateTime(buyer.lastActivityAt ?? undefined)}
+                >
+                  <IconClock s={14} /> פעילות אחרונה {lastActivity.text}
+                </span>
+              </>
+            ) : null}
           </p>
         </div>
         <div className="ms-auto flex flex-wrap items-center gap-2">
