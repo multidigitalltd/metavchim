@@ -163,6 +163,28 @@ for (const file of files) {
      * ‏הראשון הכיר רק בראשון, והפיל את מסך הקונים — שמציג את הגילוי
      * ‏בתוך השאלה עצמה.
      */
+    /*
+     * ‎**וחסימה שנפתחת כשהבדיקה נכשלה אינה חסימה** (ביקורת Codex, P1).
+     *
+     * ‏השער דרש ש„לא ידוע” יירשם, ובדק בדיוק את זה — שהמצב **נכתב**.
+     * ‏הוא לא בדק שהוא **חוסם**, וזה בדיוק מה שנשבר:
+     * ‎`confirmDisabled={impact === "loading"}` נעשה שקר ברגע שהמצב
+     * ‏עבר ל„לא ידוע”, כלומר כשל רגעי של התצוגה המקדימה פתח את
+     * ‏„מחק”. מדדתי את הרישום במקום את ההכרעה.
+     *
+     * ‏תנאי שמזכיר „נטען” בלבד נפסל; מה שנדרש הוא תנאי על הטיפוס,
+     * ‏או שהוא מונה במפורש גם את „לא ידוע”.
+     */
+    const blocksOnUnknown = [...scope.matchAll(/confirmDisabled=\{([^}]*)\}/gu)].every(
+      (m) => !/"loading"/u.test(m[1]) || /"unknown"|typeof/u.test(m[1]),
+    );
+    if (!blocksOnUnknown) {
+      problems.push(
+        `${file.path}: האישור חסום רק בזמן הטעינה — כשל בבדיקה פותח אותו, ` +
+          "ואז אפשר למחוק בלי הגילוי",
+      );
+    }
+
     const confirmAfterDisclosure = (() => {
       const preview = PREVIEW.exec(scope);
       const native = scope.indexOf("window.confirm");
