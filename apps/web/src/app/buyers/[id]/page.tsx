@@ -728,7 +728,7 @@ export default function BuyerDetailPage({
           ) : null}
           <Link
             href={`/buyers/${id}/edit`}
-            className="mv-btn-plain mv-act mv-act--edit"
+            className="mv-btn-plain mv-act"
             style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
             <IconEdit s={14} /> ערוך דרישות
@@ -743,14 +743,14 @@ export default function BuyerDetailPage({
           */}
           <Link
             href={`/calendar/new?buyerId=${id}&kind=viewing`}
-            className="mv-btn-plain mv-act mv-act--tour"
+            className="mv-btn-plain mv-act"
             style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
             <IconCalendar s={14} /> קביעת סיור
           </Link>
           <a
             href={`tel:${buyer.contact.phone}`}
-            className="mv-btn-plain mv-act mv-act--call"
+            className="mv-btn-plain mv-act"
             style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
             <IconPhone s={14} /> חייג
@@ -759,7 +759,7 @@ export default function BuyerDetailPage({
             href={waMeUrl(buyer.contact.phone)}
             target="_blank"
             rel="noreferrer"
-            className="mv-btn-plain mv-act mv-act--wa"
+            className="mv-btn-plain mv-act"
             style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
             <IconChat s={14} /> וואטסאפ
