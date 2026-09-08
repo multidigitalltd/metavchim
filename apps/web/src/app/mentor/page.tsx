@@ -360,7 +360,7 @@ export default function MentorPage() {
 
   return (
     // div ולא main — העטיפה של AppShell היא ה-main landmark היחיד
-    <div className="mx-auto max-w-4xl py-6">
+    <div className="mx-auto max-w-6xl py-6">
       <MentorHero
         streakWeeks={overview?.streakWeeks ?? 0}
         persona={overview?.persona ?? null}
@@ -407,13 +407,40 @@ export default function MentorPage() {
               onAsk={setAskMentor}
             />
           ) : null}
-          <WeekSection overview={overview} />
-          <AdviceSection
-            advice={overview.advice}
-            onAsk={setAskMentor}
-            onFeedback={load}
-          />
-          <GoalsSection overview={overview} onChanged={load} />
+          {/*
+            ‎---- שני טורים: השיחה, ולידה הרייל ---- (חבילת העיצוב)
+
+            ‏עד כה זה היה טור אחד ארוך שהשיחה יושבת בתחתיתו — כלומר
+            ‏הדבר שהעמוד קרוי על שמו היה מתחת לכל השאר. בעיצוב
+            ‏השיחה **היא** המסך, וכל מה שנמדד ונקבע יושב ברייל
+            ‏שלצידה.
+
+            ‎**הרייל דביק ולא גולל-בפנים.** קובץ העיצוב מבקש גלילה
+            ‏פנימית בלי סקרולבר, כלומר עמוד בגובה קבוע. במערכת יש
+            ‏סרגל נגישות שמגדיל טקסט, וגובה קבוע נשבר שם — ולכן
+            ‏העמוד נשאר מסמך נגלל והרייל רק נדבק. אותה תחושה, בלי
+            ‏להחליף התנהגות שלא אושרה.
+          */}
+          <div className="mv-mentor">
+            <div className="mv-mentor__main">
+              <AdviceSection
+                advice={overview.advice}
+                onAsk={setAskMentor}
+                onFeedback={load}
+              />
+              <ChatSection
+                available={overview.chatAvailable}
+                firstName={firstName}
+                mentorName={overview.persona.name}
+                pending={askMentor}
+                onConsumed={() => setAskMentor(null)}
+                onGoalSet={load}
+              />
+            </div>
+
+            <aside className="mv-mentor__rail" aria-label="הנתונים שלך">
+              <WeekSection overview={overview} />
+              <GoalsSection overview={overview} onChanged={load} />
           {overview.patterns.length > 0 ? (
             <section className="mt-8" aria-labelledby="mentor-memory-heading">
               <div className="mv-card-head mv-domain-violet mb-3">
@@ -444,29 +471,23 @@ export default function MentorPage() {
               </ul>
             </section>
           ) : null}
-          <ReviewSection
-            latest={overview.latestReview}
-            reviews={reviews}
-            reviewsFailed={reviewsFailed}
-            onRetry={load}
-            onAnswered={load}
-          />
-          <MonthlySection
-            monthly={monthly}
-            monthlyFailed={monthlyFailed}
-            onRetry={load}
-          />
-          <ChatSection
-            available={overview.chatAvailable}
-            firstName={firstName}
-            mentorName={overview.persona.name}
-            pending={askMentor}
-            onConsumed={() => setAskMentor(null)}
-            onGoalSet={load}
-          />
-          <PracticeSection mentorName={overview.persona.name} />
-          {can(user, "analytics.view") ? <OfficeSection /> : null}
-          <PersonaSection persona={overview.persona} onSaved={load} />
+              <ReviewSection
+                latest={overview.latestReview}
+                reviews={reviews}
+                reviewsFailed={reviewsFailed}
+                onRetry={load}
+                onAnswered={load}
+              />
+              <MonthlySection
+                monthly={monthly}
+                monthlyFailed={monthlyFailed}
+                onRetry={load}
+              />
+              <PracticeSection mentorName={overview.persona.name} />
+              {can(user, "analytics.view") ? <OfficeSection /> : null}
+              <PersonaSection persona={overview.persona} onSaved={load} />
+            </aside>
+          </div>
         </>
       )}
     </div>
@@ -2675,13 +2696,23 @@ function ChatSection({
           </div>
         )}
 
-        {turns !== null && turns.length === 0 ? (
-          <div className="mt-3 flex flex-wrap gap-2">
+        {/*
+          ‎**שורת השאלות המוכנות — תמיד, ולא רק בשיחה ריקה.**
+
+          ‏עד כה הן נעלמו אחרי ההודעה הראשונה, כלומר בדיוק כשאדם
+          ‏כבר יודע שיש עם מי לדבר ומחפש על מה. בקובץ העיצוב הן
+          ‏שורה קבועה מעל תיבת הכתיבה (החלטת בעל המוצר).
+
+          ‎`overflow-x-auto` ו-`mv-noscrollbar`: במובייל הן שורה
+          ‏שנגללת לרוחב ולא ערימה שדוחפת את תיבת הכתיבה מהמסך.
+        */}
+        {turns !== null ? (
+          <div className="mv-noscrollbar mt-3 flex gap-2 overflow-x-auto lg:flex-wrap">
             {EXAMPLE_QUESTIONS.map((q) => (
               <button
                 key={q}
                 type="button"
-                className="mv-example-chip"
+                className="mv-example-chip flex-none"
                 disabled={busy}
                 onClick={() => void send(q)}
               >
