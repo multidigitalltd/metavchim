@@ -242,7 +242,17 @@ for (const file of tsFilesIn(join(root, "packages/shared/src"))) {
  * שהוא אמור לבדוק ירוק תמיד.
  */
 function typeValues(window) {
-  const expression = /\btype:\s*([^\n]+)/u.exec(window)?.[1];
+  /*
+   * ‎**הביטוי נמשך עד המאפיין הבא, ולא עד סוף השורה.**
+   *
+   * ‏`[^\n]+` תפס שורה אחת בלבד, ולכן ביטוי מותנה **מפורמט** —
+   * ‏תנאי ארוך בשורה אחת ושני הענפים מתחתיו — החזיר מחרוזת בלי
+   * ‏אף ליטרל, ושני הסוגים עקפו את הבדיקה בשקט. כלומר בדיוק
+   * ‏הרגרסיה שהתיקון הזה בא למנוע, במרחק פורמוט אחד (ביקורת Codex).
+   */
+  const expression = /\btype:\s*([\s\S]{0,400}?)(?=\n\s*[A-Za-z_$][\w$]*\s*:|\n\s*\})/u.exec(
+    window,
+  )?.[1];
   if (expression === undefined) return [];
   /*
    * ‎**כל המחרוזות שבביטוי, ולא הראשונה.**
@@ -254,7 +264,21 @@ function typeValues(window) {
    * ‏שמסנן את מה שהוא אמור לבדוק ירוק תמיד — וזו הפעם השנייה
    * ‏שהמשפט הזה נכתב כאן, אחרי `task.due`.
    */
-  const literals = [...expression.matchAll(/"([a-z_][a-z_.]*)"/gu)].map(([, value]) => value);
+  /*
+   * ‎**רק מה שיכול להיות התוצאה, ולא מה שבתנאי.**
+   *
+   * ‏`repeat && source === "landing" ? "a" : "b"` נושא שלוש
+   * ‏מחרוזות, ואחת מהן היא **מקור** ולא סוג. סריקה תמימה הייתה
+   * ‏מדווחת עליה כסוג שאינו רשום — כלומר שער שנופל על קוד תקין,
+   * ‏וזה גרוע משער שאינו קיים.
+   *
+   * ‏מה-`?` הראשון והלאה נמצאות רק התוצאות. ביטוי בלי `?` הוא
+   * ‏עצמו התוצאה.
+   */
+  const results = expression.includes("?")
+    ? expression.slice(expression.indexOf("?"))
+    : expression;
+  const literals = [...results.matchAll(/"([a-z_][a-z_.]*)"/gu)].map(([, value]) => value);
   if (literals.length > 0) return literals;
   const named = /^([A-Z][A-Z0-9_]*)\b/u.exec(expression.trim());
   const resolved = named === null ? undefined : stringConstants.get(named[1]);
