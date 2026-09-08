@@ -661,7 +661,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
    * נפל בחזרה לסקירה. תוקן יחד עם הוספת `calls` (ביקורת עצמית).
    */
   const [tab, selectTab] = useEntityTab(
-    ["overview", "next", "calls", "referral", "timeline"],
+    ["overview", "next", "calls", "tasks", "referral", "timeline"],
     "overview",
   );
 
@@ -1163,6 +1163,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           { key: "overview", label: "סקירה" },
           { key: "next", label: "המשך טיפול" },
           { key: "calls", label: "שיחות" },
+          { key: "tasks", label: "משימות" },
           { key: "referral", label: "הפניות" },
           { key: "timeline", label: "ציר זמן", count: timeline.length },
         ]}
@@ -1297,6 +1298,40 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
               </section>
             )}
 
+            {/*
+              ‎---- השיחות של הליד, בכרטיס ולא רק בלשונית ----
+
+              ‏בקשת בעל המוצר: „חשוב שיוכלו לראות בכרטיס של הליד את
+              ‏השיחות, ושיציג את כל השיחות של הליד”.
+
+              ‎`LeadCalls` הוא בדיוק הרכיב שכבר עושה את זה — הוא
+              ‏מושך `GET /calls?leadId=` (כלומר **כל** השיחות, לא
+              ‏האחרונה), ולכל אחת נגן הקלטה, תמלול מתקפל והשדות
+              ‏שחולצו מהשיחה. הוא היה מורכב רק בלשונית „שיחות”,
+              ‏ולכן מי שפתח את הכרטיס לא ראה שיש בכלל הקלטה.
+
+              ‏אותו רכיב בשני המקומות ולא עותק: `TabPanel` מחזיר
+              ‎`null` ללשונית שאינה פעילה, ולכן רק אחד מהם מורכב בכל
+              ‏רגע — ואי אפשר שהשניים יציגו רשימות שונות.
+            */}
+            <section
+              aria-labelledby="lead-calls-heading"
+              className="mv-card mv-card--pad"
+            >
+              <div className="mv-card-head">
+                <span
+                  className="mv-tile mv-tile--44 mv-domain-green"
+                  aria-hidden="true"
+                >
+                  <IconPhone s={20} />
+                </span>
+                <h2 id="lead-calls-heading" className="mv-card-head__title">
+                  שיחות
+                </h2>
+              </div>
+              <LeadCalls leadId={id} />
+            </section>
+
           </div>
         </div>
 
@@ -1413,6 +1448,24 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           ============================================================ */}
       <TabPanel tab="calls" active={tab}>
         <LeadCalls leadId={id} />
+      </TabPanel>
+
+      {/* ============================================================
+          משימות — לשונית משלהן (בקשת בעל המוצר)
+          ============================================================ */}
+      {/*
+        ‏המשימות מופיעות גם בטור האמצעי של „סקירה”, כפי שקובץ העיצוב
+        ‏מראה, וגם כאן. זו אינה כפילות מסוכנת: `TabPanel` מחזיר
+        ‎`null` ללשונית שאינה פעילה, ולכן רק אחד מהשניים מורכב בכל
+        ‏רגע — מעבר ללשונית מרכיב מחדש ומרענן, ואי אפשר שהשניים
+        ‏יציגו מצב שונה זה מזה.
+
+        ‏הלשונית היא גם היעד של „משימות” בניווט התחתון במובייל,
+        ‏שקובץ העיצוב מונה — עד כה היא לא הייתה קיימת, ולכן הפס
+        ‏הצביע על ארבע לשוניות אחרות.
+      */}
+      <TabPanel tab="tasks" active={tab}>
+        <EntityTasks entityType="lead" entityId={id} />
       </TabPanel>
 
       {/* ============================================================
@@ -1554,19 +1607,17 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         ‏לא ניווט שני שצריך לזכור לסנכרן. „הפניות” נשארת למעלה: היא
         ‏נפתחת במשרד, לא בין פגישות.
 
-        ‎**קובץ העיצוב מונה כאן „משימות”, ואין לשונית כזו בליד** —
-        ‏המשימות יושבות בתוך „סקירה”. פס שמוביל ללשונית שאינה קיימת
-        ‏גרוע מפס שמונה ארבע אמיתיות, ולכן כאן ארבע הלשוניות שבאמת
-        ‏קיימות. אם הכוונה הייתה שתיפתח לשונית משימות — זו החלטת
-        ‏מבנה ולא עיצוב.
+        ‏ארבע הלשוניות שקובץ העיצוב מונה, מאז שנוספה „משימות”.
+        ‏„המשך טיפול” ו„הפניות” נשארות בפס העליון: הן נפתחות
+        ‏במשרד, לא בין פגישות.
       */}
       <div className="mv-bottomnav-space" aria-hidden="true" />
       <nav className="mv-bottomnav" aria-label="לשוניות כרטיס הליד">
         {(
           [
             ["overview", "כרטיס"],
-            ["next", "המשך טיפול"],
             ["calls", "שיחות"],
+            ["tasks", "משימות"],
             ["timeline", "ציר זמן"],
           ] as const
         ).map(([key, label]) => (
