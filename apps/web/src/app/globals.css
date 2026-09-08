@@ -8163,6 +8163,98 @@ a.mv-bar-row:focus-visible {
  * ‏הוא סגול כי זו שפת ההתאמות במערכת (`mv-domain-violet`), והוא
  * ‏רחב-שורה כדי שלא יתחרה על תשומת לב עם הכרטיסים שמתחתיו: הוא
  * ‏אומר משפט אחד ומציע פעולה אחת. */
+/* ‎**שורת הפעולות של כותרת הכרטיס — שתי צורות, עץ DOM אחד.**
+ *
+ * ‏במובייל: כפתור ראשי מלא-רוחב, ומתחתיו גריד ארבע פעולות גלוי —
+ * ‏כך בקובץ העיצוב, וכך הן במרחק אגודל.
+ *
+ * ‏בדסקטופ: חמישה כפתורים פתוחים כל הזמן היו „עומס” (בעל המוצר),
+ * ‏ולכן הראשי נשאר גלוי והשאר נאספים מאחורי „פעולות נוספות”.
+ *
+ * ‎**הפקדים כתובים פעם אחת.** במובייל העטיפה מתרדדת
+ * ‏(`display: contents`) והפאנל *הוא* הגריד; בדסקטופ הוא צף מתחת
+ * ‏לכפתור. הניסיון הקודם לגשר על הפער הזה ב-`order` הזיז את העין
+ * ‏ולא את המקלדת, ולכן אין כאן `order` בשום מקום.
+ *
+ * ‎„מהמרכזייה” אינו בקובץ העיצוב — הוא קיים רק כשהטלפוניה
+ * ‏מחוברת. הוא אחרון ב-DOM, ולכן אחרון גם על המסך. */
+.mv-cardactions {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+.mv-moreactions {
+  /* ‏במובייל אין עטיפה — הפאנל הוא ילד ישיר של שורת הפעולות */
+  display: contents;
+}
+.mv-moreactions__toggle {
+  display: none;
+}
+.mv-moreactions__panel {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.mv-moreactions__panel > * {
+  min-width: 0;
+}
+.mv-act {
+  justify-content: center;
+  overflow: hidden;
+}
+
+@media (min-width: 60em) {
+  .mv-cardactions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    width: auto;
+    margin-inline-start: auto;
+  }
+  .mv-moreactions {
+    display: block;
+    position: relative;
+  }
+  .mv-moreactions__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding-inline: 13px;
+    font-size: var(--type-caption-lg);
+  }
+  /*
+   * ‏הפאנל צף מעל התוכן שמתחת לכותרת — הבאנר והכרטיסים. בלי
+   * ‎`z-index` הוא היה נחתך מאחוריהם.
+   */
+  .mv-moreactions__panel {
+    position: absolute;
+    inset-inline-start: 0;
+    top: calc(100% + 8px);
+    z-index: 20;
+    grid-template-columns: 1fr;
+    gap: 2px;
+    min-width: 220px;
+    padding: 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    background: var(--color-surface);
+    box-shadow:
+      0 1px 2px rgb(16 24 18 / 4%),
+      0 14px 32px -18px rgb(16 24 18 / 32%);
+  }
+  .mv-moreactions__panel[data-open="false"] {
+    display: none;
+  }
+  /* ‏בתוך הפאנל הפריטים הם שורות: אייקון, ואחריו התווית */
+  .mv-moreactions__panel > * {
+    justify-content: flex-start;
+    width: 100%;
+    border-color: transparent;
+    gap: 10px;
+  }
+}
+
 .mv-nextaction {
   display: flex;
   align-items: center;
@@ -8172,6 +8264,15 @@ a.mv-bar-row:focus-visible {
   color: var(--domain-violet-fg);
   border-radius: 18px;
   padding: 16px 20px;
+  /*
+   * ‎**הרווח אל הטורים שמתחת — 18px, כמו בקובץ העיצוב.**
+   *
+   * ‏שם הבאנר והגריד יושבים באותו טור flex עם `gap:18px`; כאן הם
+   * ‏אחים ישירים בלשונית, ולגריד יש `gap` פנימי בלבד — ולכן
+   * ‏הבאנר נגע בכרטיסים. השוליים על הבאנר ולא על הגריד, כי
+   * ‏כשאין התאמה ממתינה הבאנר אינו מוצג ואז גם אין מה להפריד.
+   */
+  margin-bottom: 18px;
 }
 
 /* ‎**שורת שדה — מלא, או חסר.**

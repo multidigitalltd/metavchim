@@ -41,6 +41,7 @@ import { SelectMenu } from "../../select-menu";
 import { useOfficeStatuses } from "../../use-office-statuses";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { IntakePanel } from "../../intake-panel";
+import { MoreActions } from "../../more-actions";
 import { LoadError } from "../../load-error";
 import { AgentPicker } from "../../agent-picker";
 import { Notice } from "../../notice";
@@ -698,74 +699,83 @@ export default function BuyerDetailPage({
             ) : null}
           </p>
         </div>
-        <div className="ms-auto flex flex-wrap items-center gap-2">
-          <a
-            href={waMeUrl(buyer.contact.phone)}
-            target="_blank"
-            rel="noreferrer"
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-          >
-            <IconChat s={14} /> וואטסאפ
-          </a>
-          <a
-            href={`tel:${buyer.contact.phone}`}
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-          >
-            <IconPhone s={14} /> חייג
-          </a>
-          <ClickToDial
-            contactId={buyer.contact.id}
-            phone={buyer.contact.phone}
-            label="מהמרכזייה"
-          />
-          {/*
-            ‎**קביעת סיור מצד הלקוח.**
-
-            עד כה הכפתור היה קיים רק בכרטיס הנכס, ולכן הסיור נקבע
-            תמיד מהכיוון של „איזה נכס” — בזמן שהעבודה היומית של
-            מתווך מתחילה מ„עם מי”. מכאן הלקוח כבר מקושר, וטופס
-            הפגישה מבקש רק את הנכס (או פותח נכס חדש ומחזיר לכאן).
-          */}
-          <Link
-            href={`/calendar/new?buyerId=${id}&kind=viewing`}
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-          >
-            <IconCalendar s={14} /> קביעת סיור
-          </Link>
-          <Link
-            href={`/buyers/${id}/edit`}
-            className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
-          >
-            <IconEdit s={14} /> ערוך דרישות
-          </Link>
+        <div className="mv-cardactions ms-auto">
           {/*
             ‎**הכיוון ההפוך של „שליחת הצעת נכס”.**
 
             ‏מכרטיס הנכס בוחרים קונים; כאן בוחרים נכסים. אותה
             ‏פעולה, אותו חלון, אותו שירות — הצד הקבוע הוא הקונה
             ‏שכרטיסו פתוח.
-          */}
-          {/*
-            ‎**מי שאינו יכול לשלוח אינו רואה את הכפתור** (ביקורת
-            ‏Codex, P2). עוזר או צופה פותחים כרטיסים אבל אין להם
+
+            ‎**ראשון בשורה, וירוק** — לפי קובץ העיצוב: הוא הפעולה
+            ‏הראשית של הכרטיס, והשאר משניות. קודם הוא ישב אחרון
+            ‏ובסגנון משני, כלומר נראה כמו עוד אחד מחמישה.
+
+            ‎**מי שאינו יכול לשלוח אינו רואה אותו** (ביקורת Codex,
+            ‏P2). עוזר או צופה פותחים כרטיסים אבל אין להם
             ‎`offers.send`: מכאן הם היו בוחרים נכסים ומקבלים 403
-            ‏בסוף, ומכרטיס הנכס רשימת הקונים הייתה נופלת מיד.
-            ‏השרת ממילא חוסם — זה מה שמונע להציע תהליך שאינו קיים.
+            ‏בסוף. השרת ממילא חוסם — זה מה שמונע להציע תהליך שאינו
+            ‏קיים.
           */}
           {can(user, "offers.send") ? (
             <button
               type="button"
-              className="mv-btn-plain"
-              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+              className="mv-btn-primary"
+              style={{ minHeight: 36, paddingInline: 16, fontSize: "var(--type-caption-lg)" }}
               onClick={() => setPitchOpen(true)}
             >
               הצע נכס לקונה
             </button>
           ) : null}
+          <MoreActions>
+            <Link
+              href={`/buyers/${id}/edit`}
+              className="mv-btn-plain mv-act"
+              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            >
+              <IconEdit s={14} /> ערוך דרישות
+            </Link>
+            {/*
+              ‎**קביעת סיור מצד הלקוח.**
+
+              עד כה הכפתור היה קיים רק בכרטיס הנכס, ולכן הסיור נקבע
+              תמיד מהכיוון של „איזה נכס” — בזמן שהעבודה היומית של
+              מתווך מתחילה מ„עם מי”. מכאן הלקוח כבר מקושר, וטופס
+              הפגישה מבקש רק את הנכס (או פותח נכס חדש ומחזיר לכאן).
+            */}
+            <Link
+              href={`/calendar/new?buyerId=${id}&kind=viewing`}
+              className="mv-btn-plain mv-act"
+              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            >
+              <IconCalendar s={14} /> קביעת סיור
+            </Link>
+            <a
+              href={`tel:${buyer.contact.phone}`}
+              className="mv-btn-plain mv-act"
+              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            >
+              <IconPhone s={14} /> חייג
+            </a>
+            <a
+              href={waMeUrl(buyer.contact.phone)}
+              target="_blank"
+              rel="noreferrer"
+              className="mv-btn-plain mv-act"
+              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
+            >
+              <IconChat s={14} /> וואטסאפ
+            </a>
+            {/*
+              ‏„מהמרכזייה” אינו בקובץ העיצוב — הוא יכולת שקיימת רק
+              ‏כשהטלפוניה מחוברת, ולכן הוא אחרון ולא בין הארבעה.
+            */}
+            <ClickToDial
+              contactId={buyer.contact.id}
+              phone={buyer.contact.phone}
+              label="מהמרכזייה"
+            />
+          </MoreActions>
         </div>
       </div>
 
@@ -1210,14 +1220,12 @@ export default function BuyerDetailPage({
 
           <div className="grid content-start gap-[18px]">
             {/*
-              ---- הלקוח ממלא בעצמו ----
-              מיד אחרי „פרטי חיפוש”, וזה לא מקרי: הכרטיס שמעל אומר
-              מה חסר, וזה אומר איך להשלים את זה בלי להקליד. הלקוח
-              יודע את התשובות טוב יותר, וממלא כשנוח לו.
-            */}
-            <IntakePanel subject="buyer" entityId={id} canEdit={canEditPeople} />
+              ---- הערות הסוכן ----
 
-            {/* ---- הערות הסוכן ---- */}
+              ‏בראש הטור, בהחלטת בעל המוצר. מה שהסוכן כתב ביד אחרי
+              ‏השיחה הקודמת הוא מה שנקרא לפני הבאה, ולכן הוא מעל
+              ‏ההזמנה למילוי עצמי ולא מתחתיה.
+            */}
             <EntityNotes
               value={buyer.agentNotes}
               fieldId="agentNotes"
@@ -1225,6 +1233,17 @@ export default function BuyerDetailPage({
               canEdit={canEditPeople}
               onSave={saveNotes}
             />
+
+            {/*
+              ---- הלקוח ממלא בעצמו ----
+
+              ‏מתחת להערות. קודם ישב כאן ראשון, בנימוק שהכרטיס שמעל
+              ‏אומר „מה חסר” וזה אומר „איך להשלים בלי להקליד” —
+              ‏נימוק תקף, וההערה נשארת כאן כדי שלא יוחזר בתום לב.
+              ‏הוא נדחה מפני זה: ההערות נקראות בכל פתיחה של הכרטיס,
+              ‏וההזמנה נשלחת פעם אחת.
+            */}
+            <IntakePanel subject="buyer" entityId={id} canEdit={canEditPeople} />
           </div>
 
           <div className="grid content-start gap-[18px]">
