@@ -2885,10 +2885,6 @@ button.mv-list-row:hover {
   background: var(--color-seg-track);
   border-radius: 12px;
   overflow-x: auto;
-  scrollbar-width: none;
-}
-.mv-tabs::-webkit-scrollbar {
-  display: none;
 }
 .mv-tabs > button {
   border: none;
@@ -2988,7 +2984,6 @@ button.mv-list-row:hover {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  scrollbar-width: none;
   /*
    * הריווח מתחת לסרגל שייך לסרגל, לא לעוטף.
    *
@@ -3026,17 +3021,20 @@ button.mv-list-row:hover {
  * CSS אינו יודע לשאול „האם נשאר מה לגלול”.
  */
 .mv-entity-tabs[data-fade="end"],
-.mv-tabs[data-fade="end"] {
+.mv-tabs[data-fade="end"],
+.mv-chiprow[data-fade="end"] {
   mask-image: linear-gradient(to right, transparent 0, #000 34px);
   -webkit-mask-image: linear-gradient(to right, transparent 0, #000 34px);
 }
 .mv-entity-tabs[data-fade="start"],
-.mv-tabs[data-fade="start"] {
+.mv-tabs[data-fade="start"],
+.mv-chiprow[data-fade="start"] {
   mask-image: linear-gradient(to left, transparent 0, #000 34px);
   -webkit-mask-image: linear-gradient(to left, transparent 0, #000 34px);
 }
 .mv-entity-tabs[data-fade="both"],
-.mv-tabs[data-fade="both"] {
+.mv-tabs[data-fade="both"],
+.mv-chiprow[data-fade="both"] {
   mask-image: linear-gradient(
     to right,
     transparent 0,
@@ -8163,6 +8161,100 @@ a.mv-bar-row:focus-visible {
  * ‏הוא סגול כי זו שפת ההתאמות במערכת (`mv-domain-violet`), והוא
  * ‏רחב-שורה כדי שלא יתחרה על תשומת לב עם הכרטיסים שמתחתיו: הוא
  * ‏אומר משפט אחד ומציע פעולה אחת. */
+/* ‎**פס נגלל בלי סקרולבר — הגדרה אחת לכל הקוראים.**
+ *
+ * ‏שני העותקים הפרטיים (`mv-tabs`, `mv-entity-tabs`) אוחדו לכאן
+ * ‏כשנוסף השלישי — שורת השאלות של המנטור. שלוש העתקות של אותו
+ * ‏האק ספק-יצרן הן שלושה מקומות לתקן ביום שדפדפן משנה את הכלל.
+ *
+ * ‎**נגלל אינו „בלי אפשרות להגיע”**: הסתרת הסקרולבר לגיטימית רק
+ * ‏כשיש רמז אחר שאפשר לגלול — ראו `verify:scroll` על סרגל
+ * ‏הלשוניות, שאוכף בדיוק את זה.
+ */
+.mv-chiprow,
+.mv-tabs,
+.mv-entity-tabs {
+  scrollbar-width: none;
+}
+.mv-chiprow::-webkit-scrollbar,
+.mv-tabs::-webkit-scrollbar,
+.mv-entity-tabs::-webkit-scrollbar {
+  display: none;
+}
+/*
+ * ‎**סרגל שמסתיר סקרולבר חייב רמז אחר.** שורת השאלות של המנטור
+ * ‏קיבלה בתחילה `overflow-x-auto` והסתרת סקרולבר בלי מסכה — כלומר
+ * ‏שאלות שמעבר לקצה נראו פשוט כלא-קיימות (ביקורת Codex). היא
+ * ‏מחוברת עכשיו לאותו `useScrollAffordance` ולאותה מסכה כמו שני
+ * ‏הסרגלים האחרים.
+ */
+.mv-chiprow {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+/* ‎**עמוד המנטור — השיחה, ולידה הרייל.** (חבילת העיצוב)
+ *
+ * ‏עד כה זה היה טור אחד ארוך שהשיחה יושבת בתחתיתו: הדבר שהעמוד
+ * ‏קרוי על שמו היה מתחת לכל השאר. בעיצוב השיחה **היא** המסך.
+ *
+ * ‏הרייל 352px, כמו בקובץ, ורק מ-1200px — מתחת לזה אין מקום לשני
+ * ‏טורים בלי לחנוק את השיחה, והכול נערם בטור אחד לפי סדר ה-DOM:
+ * ‏קודם מה שאומרים, אחר כך מה שנמדד.
+ *
+ * ‎**דביק, ולא גולל-בפנים.** קובץ העיצוב מבקש גלילה פנימית בלי
+ * ‏סקרולבר, כלומר עמוד בגובה קבוע. יש כאן סרגל נגישות שמגדיל
+ * ‏טקסט, וגובה קבוע נשבר תחתיו — הטקסט גדל, המכל לא, והתוכן
+ * ‏נחתך. `sticky` נותן את אותה תחושה בלי להחליף את התנהגות
+ * ‏הגלילה של העמוד.
+ */
+.mv-mentor {
+  display: grid;
+  gap: 18px;
+  align-items: start;
+}
+@media (min-width: 75em) {
+  .mv-mentor {
+    grid-template-columns: minmax(0, 1fr) 352px;
+  }
+  .mv-mentor__rail {
+    position: sticky;
+    /* ‏מתחת לכותרת הדביקה של המעטפת */
+    top: 84px;
+  }
+}
+.mv-mentor__main,
+.mv-mentor__rail {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  min-width: 0;
+}
+/*
+ * ‏הסעיפים נכתבו כשהם אחים בטור אחד ולכן נושאים `mt-6`/`mt-8`
+ * ‏משלהם. בתוך גריד עם `gap` זה מרווח כפול — והמרווח שייך לגריד.
+ */
+/*
+ * ‎**ברייל צר, מספר העמודות שייך לרייל ולא למסך.**
+ *
+ * ‏אריחי „השבוע” נכתבו כשהסעיף תפס את כל רוחב העמוד, ולכן הם
+ * ‏מבקשים `lg:grid-cols-4` — נקודת שבירה של **החלון**. ברגע
+ * ‏שהסעיף עבר לרייל של 352px, חלון רחב עדיין הדליק ארבע עמודות:
+ * ‏כ-79px לאריח, שאינם מכילים אייקון ותווית (ביקורת Codex).
+ *
+ * ‏הרייל קיים רק מ-75em, ולכן ההתאמה יושבת בדיוק שם.
+ */
+@media (min-width: 75em) {
+  .mv-mentor__rail .mv-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.mv-mentor__main > *,
+.mv-mentor__rail > * {
+  margin-top: 0;
+}
+
 /* ‎**שורת הפעולות של כותרת הכרטיס — שתי צורות, עץ DOM אחד.**
  *
  * ‏במובייל: כפתור ראשי מלא-רוחב, ומתחתיו גריד ארבע פעולות גלוי —
