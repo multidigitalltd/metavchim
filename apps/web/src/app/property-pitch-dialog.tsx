@@ -1,5 +1,6 @@
 "use client";
 
+import { PAGE_LIMIT_MAX } from "@metavchim/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { ConfirmDialog } from "./confirm-dialog";
@@ -50,6 +51,22 @@ interface PropertyRow {
   rooms?: number;
   marketingTitle?: string;
 }
+
+/**
+ * ‎**כמה נטענים לבורר — מהתקרה שהשער מקבל, ולא ממספר שנבחר לנוחות.**
+ *
+ * ‏כאן היה `200`, והסכימה של `/properties` היא `.strict()` עם
+ * ‏`max(100)`: כל פתיחה של הבורר מצד הקונה נדחתה ב-400 ולא הגיעה
+ * ‏לשירות בכלל. המסך אמר „לא נמצאו נכסים” על משרד מלא בנכסים.
+ *
+ * ‎**וזו הפעם השנייה בדיוק.** `property-twins` נפל על אותו מספר
+ * ‏ועל אותה סכימה, ותוקן בדיוק כך — עם הערה שאומרת ש-`PAGE_LIMIT_MAX`
+ * ‏הוא מקור האמת „כדי שהשניים לא יוכלו להיפרד שוב”. הבורר הזה
+ * ‏נכתב אחריו והמציא את המספר מחדש, ולכן יש עכשיו גם שער.
+ *
+ * ‏שתי הרשימות מבקשות את אותו מספר: תקרה אחת לחלון אחד.
+ */
+const PICKER_LIMIT = PAGE_LIMIT_MAX;
 
 const BLOCKED_TEXT: Record<BuyerRow["state"], string | null> = {
   ready: null,
@@ -108,14 +125,18 @@ export function PropertyPitchDialog({
       const search = term.trim();
       const query = search === "" ? "" : `&q=${encodeURIComponent(search)}`;
       if (side === "buyers") {
-        const items = await apiGet<BuyerRow[]>(`/property-pitch/buyers?limit=200${query}`);
+        const items = await apiGet<BuyerRow[]>(
+          `/property-pitch/buyers?limit=${PICKER_LIMIT}${query}`,
+        );
         return items.map((row) => ({
           id: row.buyerId,
           name: row.name,
           blocked: BLOCKED_TEXT[row.state],
         }));
       }
-      const page = await apiGet<{ items: PropertyRow[] }>(`/properties?limit=200${query}`);
+      const page = await apiGet<{ items: PropertyRow[] }>(
+        `/properties?limit=${PICKER_LIMIT}${query}`,
+      );
       return page.items.map((row) => ({ id: row.id, name: propertyName(row), blocked: null }));
     },
     [side],
@@ -129,13 +150,23 @@ export function PropertyPitchDialog({
     if (!open) return;
     let live = true;
     const timer = setTimeout(() => {
+      /* ‏חיפוש חדש מתחיל נקי — אחרת שגיאה ישנה נשארת מעל רשימה תקינה */
+      setError(null);
       void load(q)
         .then((items) => {
           if (live) setRows(items);
         })
         .catch(() => {
           if (live) {
-            setRows([]);
+            /*
+             * ‎**כישלון טעינה אינו „רשימה ריקה”.**
+             *
+             * ‏`setRows([])` הציג „לא נמצאו נכסים” על משרד מלא
+             * ‏בנכסים: הודעת השגיאה הופיעה מעליה, אבל השורה שמתחתיה
+             * ‏אמרה במפורש שאין. הסוכן קורא את השורה הקרובה לרשימה,
+             * ‏ומסיק שהמערכת ריקה ולא שהיא נכשלה.
+             */
+            setRows(null);
             setError("טעינת הרשימה נכשלה");
           }
         });
@@ -225,13 +256,27 @@ export function PropertyPitchDialog({
             />
             סמן הכל ({selectable.length})
           </label>
+          {/*
+            ‎**„סמן הכל” חייב לומר את האמת על מה שהוא מסמן.**
+
+            ‏הרשימה נטענת עד תקרה. כשחזרו בדיוק `PICKER_LIMIT` שורות
+            ‏ייתכן שיש עוד, ואז „סמן הכל” מסמן את המאה הראשונות
+            ‏ומציג את עצמו כאילו סימן את כולם — כלומר שליחה שהסוכן
+            ‏חושב שכיסתה את כל הרשימה ולא כיסתה.
+          */}
+          {rows !== null && rows.length >= PICKER_LIMIT ? (
+            <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              {`מוצגים ${PICKER_LIMIT} ${noun} הראשונים — חפשו כדי לצמצם`}
+            </p>
+          ) : null}
           <ul
             className="m-0 flex max-h-72 list-none flex-col gap-1 overflow-y-auto p-0"
             style={{ borderTop: "1px solid var(--color-border)" }}
           >
             {rows === null ? (
               <li className="py-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                טוען…
+                {/* ‏אחרי כישלון ההודעה שמעל אומרת מה קרה; כאן אין מה להוסיף */}
+                {error === null ? "טוען…" : "—"}
               </li>
             ) : rows.length === 0 ? (
               <li className="py-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
