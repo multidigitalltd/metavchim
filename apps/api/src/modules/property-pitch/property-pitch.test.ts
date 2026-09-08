@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
-import { EmailRejectedError } from "../../core/email.service";
+import { EmailAmbiguousError, EmailRejectedError } from "../../core/email.service";
 import type { Capability } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { PropertyPitchService } from "./property-pitch.service";
@@ -364,11 +364,19 @@ describe("שליחת הצעת נכס", () => {
     expect(states).toEqual(["failed"]);
   });
 
-  /** ‎„איננו יודעים” אינו „לא” — וזה מה שמונע שליחה כפולה. */
+  /**
+   * ‎„איננו יודעים” אינו „לא” — וזה מה שמונע שליחה כפולה.
+   *
+   * ‎**והבדיקה הזו זרקה קודם `Error` סתם.** `EmailService` לעולם
+   * ‏אינו זורק כזה על פסק זמן — הוא זורק `EmailAmbiguousError`,
+   * ‏שנוצר בדיוק בשביל המצב הזה. הבדיקה עברה מפני שהכלל הישן ספר
+   * ‏**כל** מה שאינו דחייה כ„לא ידוע”, כלומר היא אישרה את הבאג
+   * ‏במקום לתפוס אותו. עכשיו היא זורקת את מה שנזרק באמת.
+   */
   it("פסק זמן נספר כ„לא ידוע” ולא ככישלון", async () => {
     const { service, states } = serviceFor({
       ...WORLD,
-      throwFor: () => new Error("socket hang up"),
+      throwFor: () => new EmailAmbiguousError("socket hang up", "pitch:x"),
     });
     const result = await asUser("01ME", AGENT, () =>
       service.send({ propertyIds: ["01PROP"], buyerIds: ["01MINE"] }),
@@ -380,6 +388,25 @@ describe("שליחת הצעת נכס", () => {
      * ‏משאיר את הסוכן בלי לדעת מה קרה.
      */
     expect(states).toEqual(["unknown"]);
+  });
+
+  /*
+   * ‎**באג אצלנו אינו „ייתכן שהגיע”.**
+   *
+   * ‏הכלל הישן — „כל מה שאינו `EmailRejectedError`” — סיווג גם
+   * ‏`TypeError` שנזרק לפני שהבקשה יצאה כ„לא ידוע”. הסוכן ראה
+   * ‏„ייתכן שנשלח”, הלקוח לא קיבל דבר, ואיש לא שלח שוב.
+   */
+  it("‏באג לפני השליחה נספר ככישלון, לא כ„לא ידוע”", async () => {
+    const { service, states } = serviceFor({
+      ...WORLD,
+      throwFor: () => new TypeError("cannot read properties of undefined"),
+    });
+    const result = await asUser("01ME", AGENT, () =>
+      service.send({ propertyIds: ["01PROP"], buyerIds: ["01MINE"] }),
+    );
+    expect(result).toMatchObject({ sent: 0, failed: 1, unknown: 0 });
+    expect(states).toEqual(["failed"]);
   });
 
   it("בחירה ריקה נדחית לפני שנוגעים במסד", async () => {

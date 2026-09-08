@@ -41,7 +41,7 @@ import { lockContact, lockIntakeRequest } from "../../common/locks";
 import { leadOwnershipFilter, ownershipFilter } from "../../common/ownership";
 import { actingUserId, TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
-import { EmailRejectedError, EmailService } from "../../core/email.service";
+import { EmailRejectedError, EmailService, emailSendOutcome } from "../../core/email.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { BuyersService } from "../buyers/buyers.service";
@@ -671,13 +671,27 @@ export class IntakeService {
       );
     } catch (error: unknown) {
       /*
-        ‏`EmailRejectedError` = הספק ענה ודחה, כלומר ההודעה **בוודאות**
-        לא יצאה ואפשר לנסות שוב בבטחה. כל השאר — 5xx, פסק זמן, נפילת
-        רשת — עמום: ייתכן שהיא נקלטה והתשובה אבדה. „נסו שוב” שם שולח
-        ללקוח מייל שני.
+        ‏אותה שאלה בדיוק כמו מצב השורה בתיבה — „ייתכן שההודעה יצאה?”
+        ‏— ולכן אותה פונקציה. ‎`emailSendOutcome` מחזירה `"unknown"`
+        ‏רק על `EmailAmbiguousError`, שהיא הידיעה החיובית היחידה שיש:
+        ‏דחייה ודאית **ותקלה אצלנו** פירושן ששום דבר לא יצא.
+
+        ‏ההבחנה חשובה כאן במיוחד: השליחה הזו יוצאת בכוונה **בלי**
+        ‏מפתח ייחודיות, ולכן „נסו שוב” על מצב עמום באמת שולח ללקוח
+        ‏מייל שני. וההפך נכון לא פחות — באג שנספר כעמום היה מציג
+        ‏„ייתכן שיצא, בדקו מול הלקוח” על קישור שמעולם לא נשלח.
+
+        ‏הנוסח לסוכן נשאר של הספק רק כשהספק אכן ענה; תקלה אצלנו
+        ‏מקבלת נוסח משלה ולא מדליפה הודעת שגיאה פנימית למסך.
       */
-      if (error instanceof EmailRejectedError) {
-        return { ok: false, reason: error.message };
+      if (emailSendOutcome(error) === "failed") {
+        return {
+          ok: false,
+          reason:
+            error instanceof EmailRejectedError
+              ? error.message
+              : "שליחת הקישור נכשלה ולא יצא דבר — אפשר לנסות שוב",
+        };
       }
       return {
         ok: false,

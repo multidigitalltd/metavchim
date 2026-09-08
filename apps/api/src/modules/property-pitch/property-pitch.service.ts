@@ -17,7 +17,7 @@ import { actingUserId, TenantContext } from "../../common/tenant-context";
 import { ownershipFilter } from "../../common/ownership";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
-import { EmailRejectedError, EmailService } from "../../core/email.service";
+import { EmailService, emailSendOutcome } from "../../core/email.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { EmailInboxService } from "../email-inbox/email-inbox.service";
@@ -310,8 +310,13 @@ export class PropertyPitchService {
          * ‏ומוחזר, ובנפרד לפי מה שידוע: „נדחתה” ודאית מול „איננו
          * ‏יודעים”. שליחה לעשרה שהצליחה לתשעה היא לא „נשלח”, וגם
          * ‏לא „נכשל”.
+         *
+         * ‎**אותה פונקציה שקובעת את מצב השורה** — ולא הכרעה שנייה
+         * ‏לאותה שגיאה. שתיהן ישבו בקובץ הזה בשני ניסוחים, ולכן
+         * ‏יכלו לחלוק על עצמן: השורה בתיבה אומרת דבר אחד, והמונה
+         * ‏שמוצג לסוכן אומר אחר על אותה שליחה בדיוק.
          */
-        if (error instanceof EmailRejectedError) result.failed += 1;
+        if (emailSendOutcome(error) === "failed") result.failed += 1;
         else result.unknown += 1;
         this.logger.warn(
           `שליחת הצעת נכס נכשלה לקונה ${row.buyerId} במשרד ${tenantId}: ${String(error)}`,
@@ -483,22 +488,14 @@ export class PropertyPitchService {
       });
     } catch (error: unknown) {
       /*
-       * ‎**„נכשלה” רק כשידוע שלא יצאה** (ביקורת Codex, P1).
-       *
-       * ‏`EmailRejectedError` פירושו שהספק ענה ודחה — ההודעה
-       * ‏בוודאות לא יצאה. כל השאר (פסק זמן, ‎5xx) הוא „איננו
-       * ‏יודעים”, וסימונו כ„נכשלה” משאיר שורה שקרית בתיבה ומזמין
-       * ‏שליחה חוזרת שתגיע ללקוח פעמיים.
-       *
-       * ‏זו בדיוק ההבחנה שכבר כתובה ב-`email-inbox.service` וב-
-       * ‎`EmailService` עצמו — והנתיב הזה, השלישי, לא השתמש בה.
-       * ‏שער אחד לשלושתם רשום כמשימה נפרדת.
+       * ‎**„נכשלה” רק כשידוע שלא יצאה** (ביקורת Codex, P1) —
+       * ‏ו-`emailSendOutcome` היא המקום היחיד שמנסח את זה.
        */
       await this.prisma
         .withTenant((tx) =>
           tx.emailMessage.updateMany({
             where: { id: messageId, tenantId },
-            data: { sendState: error instanceof EmailRejectedError ? "failed" : "unknown" },
+            data: { sendState: emailSendOutcome(error) },
           }),
         )
         .catch(() => this.logger.error(`סימון מצב שליחה נכשל: ${messageId}`));
