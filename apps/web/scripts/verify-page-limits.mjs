@@ -1,16 +1,27 @@
 #!/usr/bin/env node
 /**
- * ‎**מסך אינו מבקש יותר ממה שהשער מקבל.**
+ * ‎**בקשה ל-`/properties` לעולם אינה מבקשת יותר ממה שהשער מקבל.**
  *
- * ‏סכימות הרשימה בשרת הן `.strict()` עם `max(PAGE_LIMIT_MAX)`.
- * ‏בקשה עם `limit` גדול יותר נדחית ב-400 **ולא מגיעה לשירות בכלל**,
- * ‏והמסך מציג „לא נמצאו” על מאגר מלא — כישלון שנראה בדיוק כמו
- * ‏רשימה ריקה.
+ * ‏הסכימה של `/properties` היא `.strict()` עם `max(PAGE_LIMIT_MAX)`.
+ * ‏בקשה גדולה יותר נדחית ב-400 **ולא מגיעה לשירות בכלל**, והמסך
+ * ‏מציג „לא נמצאו” על מאגר מלא — כישלון שנראה בדיוק כמו רשימה
+ * ‏ריקה. זה קרה פעמיים: `property-twins` ואחריו בורר „הצעת נכס
+ * ‏לקונה”, שנכתב אחרי התיקון והמציא את אותו `200` מחדש.
  *
- * ‎**זה קרה פעמיים.** `property-twins` נפל על `limit=200` ותוקן,
- * ‏עם הערה שאומרת ש-`PAGE_LIMIT_MAX` הוא מקור האמת „כדי שהשניים
- * ‏לא יוכלו להיפרד שוב”. חלון „הצעת נכס לקונה” נכתב אחריו והמציא
- * ‏את אותו `200` מחדש. הערה אינה אכיפה; זה כן.
+ * ‎**מדוע רק `/properties`, ולא כל בקשה.**
+ *
+ * ‏הניסוח הראשון השווה **כל** `limit` בקוד לתקרה של `/properties`,
+ * ‏ובכך היה שגוי בשני הכיוונים: `/matches` מתיר 200 כדין, ולכן
+ * ‏כתיבה מפורשת של המספר שם הייתה נכשלת; ומנגד הוא דילג על
+ * ‏`limit=${LIST_LIMIT}` — כלומר החמיץ בדיוק את הצורה שהוא בא
+ * ‏למנוע (ביקורת Codex).
+ *
+ * ‏לכל נתיב תקרה משלו, ושער טקסטואלי אינו יכול לפתור ניתוב. מה
+ * ‏שהוא כן יכול לטעון הוא הטענה הצרה והנכונה: הנתיב **הזה**, שכבר
+ * ‏הפיל שני מסכים, מול הקבוע **שלו**.
+ *
+ * ‎**ומה שאי אפשר להכריע — נכשל, לא מדולג.** ערך שאינו נפתר לכדי
+ * ‏מספר הוא „לא ידוע”, ושתיקה עליו הייתה מחזירה את החור המקורי.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -36,18 +47,33 @@ function files(dir, out = []) {
   return out;
 }
 
+/** ‏מספר, או קבוע מקומי שהוצב ממספר או מהתקרה עצמה. */
+function resolve(token, src) {
+  if (/^\d+$/u.test(token)) return Number(token);
+  const name = /^\$\{(\w+)\}$/u.exec(token)?.[1];
+  if (name === undefined) return null;
+  if (name === "PAGE_LIMIT_MAX") return max;
+  const assigned = new RegExp(String.raw`const ${name}\s*=\s*([^;]+);`, "u").exec(src)?.[1]?.trim();
+  if (assigned === undefined) return null;
+  if (/^\d+$/u.test(assigned)) return Number(assigned);
+  return assigned === "PAGE_LIMIT_MAX" ? max : null;
+}
+
 const offenders = [];
 for (const path of files(SRC)) {
   const src = readFileSync(path, "utf8");
-  for (const match of src.matchAll(/limit=(\d+)/gu)) {
-    const asked = Number(match[1]);
-    if (asked > max) offenders.push(`${path.slice(SRC.length + 1)}: limit=${asked}`);
+  /* ‏רק בקשות שהנתיב שלהן הוא `/properties` — ולא תת-נתיב אחר. */
+  for (const [, token] of src.matchAll(/["'`]\/properties\?[^"'`]*limit=(\d+|\$\{\w+\})/gu)) {
+    const asked = resolve(token, src);
+    const where = path.slice(SRC.length + 1).replace(/\\/gu, "/");
+    if (asked === null) offenders.push(`${where}: limit=${token} — לא ניתן להכריע, השתמשו בקבוע`);
+    else if (asked > max) offenders.push(`${where}: limit=${asked} > ${max}`);
   }
 }
 
 if (offenders.length > 0) {
-  console.error(`✗ מסך מבקש יותר מ-${max}, והבקשה תידחה בשער:`);
+  console.error(`✗ בקשה ל-/properties מעל ${max} תידחה בשער:`);
   for (const line of offenders) console.error(`  ${line}`);
   process.exit(1);
 }
-console.log(`✓ אף מסך אינו מבקש יותר מ-${max}`);
+console.log(`✓ כל בקשה ל-/properties נשארת בתוך ${max}`);

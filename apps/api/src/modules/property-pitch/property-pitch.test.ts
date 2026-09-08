@@ -1,3 +1,5 @@
+import { PITCH_MAX_BUYERS, PITCH_MAX_PROPERTIES } from "@metavchim/shared";
+import { SendSchema } from "./property-pitch.controller";
 import { beforeAll, describe, expect, it } from "vitest";
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import { EmailAmbiguousError, EmailRejectedError } from "../../core/email.service";
@@ -441,5 +443,40 @@ describe("שליחת הצעת נכס", () => {
     await expect(
       asUser("01ME", AGENT, () => service.send({ propertyIds: ["01PROP"], buyerIds: [] })),
     ).rejects.toThrow(BadRequestException);
+  });
+});
+
+/**
+ * ‎**החוזה שהבורר במסך נכתב מולו.**
+ *
+ * ‏הסכימה חסמה עשרים נכסים, והבורר טען מאה ואפשר „סמן הכל”:
+ * ‏הסוכן סימן, לחץ, וקיבל 400 — ולא נשלח דבר (ביקורת Codex).
+ * ‏שני המספרים מגיעים עכשיו מאותו קבוע משותף, והבדיקה הזו מקבעת
+ * ‏שהם באמת אותו מספר ולא שניים שנראים דומים.
+ */
+describe("שער: תקרת השליחה היא הקבוע המשותף", () => {
+  const ids = (count: number): string[] =>
+    Array.from({ length: count }, (_, index) => String(index).padStart(26, "0"));
+
+  it("‏בדיוק התקרה מתקבלת, ואחד מעליה נדחה", () => {
+    const at = SendSchema.safeParse({
+      propertyIds: ids(PITCH_MAX_PROPERTIES),
+      buyerIds: ids(1),
+    });
+    const over = SendSchema.safeParse({
+      propertyIds: ids(PITCH_MAX_PROPERTIES + 1),
+      buyerIds: ids(1),
+    });
+    expect(at.success, "התקרה עצמה נדחתה").toBe(true);
+    expect(over.success, "מעל התקרה התקבל").toBe(false);
+  });
+
+  it("‏וגם בצד הקונים", () => {
+    expect(
+      SendSchema.safeParse({ propertyIds: ids(1), buyerIds: ids(PITCH_MAX_BUYERS) }).success,
+    ).toBe(true);
+    expect(
+      SendSchema.safeParse({ propertyIds: ids(1), buyerIds: ids(PITCH_MAX_BUYERS + 1) }).success,
+    ).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { PAGE_LIMIT_MAX } from "@metavchim/shared";
+import { PAGE_LIMIT_MAX, PITCH_MAX_BUYERS, PITCH_MAX_PROPERTIES } from "@metavchim/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { ConfirmDialog } from "./confirm-dialog";
@@ -216,6 +216,14 @@ export function PropertyPitchDialog({
   }
 
   const noun = side === "buyers" ? "קונים" : "נכסים";
+  /*
+   * ‎**מה שהשרת מקבל בשליחה אחת — ולא מה שהבורר הצליח לטעון.**
+   *
+   * ‏הבורר טוען מאה, והשרת חוסם עשרים נכסים. „סמן הכל” סימן מאה,
+   * ‏הסוכן לחץ, וקיבל 400 בלי שנשלח דבר. שני מספרים שחייבים
+   * ‏להסכים — ולכן שניהם מאותו קבוע (ביקורת Codex).
+   */
+  const sendMax = side === "buyers" ? PITCH_MAX_BUYERS : PITCH_MAX_PROPERTIES;
 
   return (
     <ConfirmDialog
@@ -252,9 +260,11 @@ export function PropertyPitchDialog({
               type="checkbox"
               checked={allChosen}
               disabled={selectable.length === 0}
-              onChange={(e) => setChosen(new Set(e.target.checked ? selectable : []))}
+              onChange={(e) =>
+                setChosen(new Set(e.target.checked ? selectable.slice(0, sendMax) : []))
+              }
             />
-            סמן הכל ({selectable.length})
+            סמן הכל ({Math.min(selectable.length, sendMax)})
           </label>
           {/*
             ‎**„סמן הכל” חייב לומר את האמת על מה שהוא מסמן.**
@@ -264,6 +274,11 @@ export function PropertyPitchDialog({
             ‏ומציג את עצמו כאילו סימן את כולם — כלומר שליחה שהסוכן
             ‏חושב שכיסתה את כל הרשימה ולא כיסתה.
           */}
+          {chosen.size >= sendMax ? (
+            <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              {`אפשר לשלוח עד ${sendMax} ${noun} בבת אחת`}
+            </p>
+          ) : null}
           {rows !== null && rows.length >= PICKER_LIMIT ? (
             <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
               {`מוצגים ${PICKER_LIMIT} ${noun} הראשונים — חפשו כדי לצמצם`}
@@ -292,8 +307,11 @@ export function PropertyPitchDialog({
                       disabled={row.blocked !== null}
                       onChange={(e) => {
                         const next = new Set(chosen);
-                        if (e.target.checked) next.add(row.id);
-                        else next.delete(row.id);
+                        /* ‏גם סימון בודד אינו חוצה את מה שהשרת מקבל */
+                        if (e.target.checked) {
+                          if (next.size >= sendMax) return;
+                          next.add(row.id);
+                        } else next.delete(row.id);
                         setChosen(next);
                       }}
                     />
