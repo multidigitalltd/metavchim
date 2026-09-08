@@ -241,11 +241,48 @@ for (const file of tsFilesIn(join(root, "packages/shared/src"))) {
  * והוא גם לא היה ב-`TYPE_CATEGORY` (ביקורת Codex). שער שמסנן את מה
  * שהוא אמור לבדוק ירוק תמיד.
  */
-function typeValue(window) {
-  const literal = /\btype:\s*"([a-z_][a-z_.]*)"/u.exec(window);
-  if (literal !== null) return literal[1];
-  const named = /\btype:\s*([A-Z][A-Z0-9_]*)\b/u.exec(window);
-  return named === null ? null : (stringConstants.get(named[1]) ?? null);
+function typeValues(window) {
+  /*
+   * ‎**הביטוי נמשך עד המאפיין הבא, ולא עד סוף השורה.**
+   *
+   * ‏`[^\n]+` תפס שורה אחת בלבד, ולכן ביטוי מותנה **מפורמט** —
+   * ‏תנאי ארוך בשורה אחת ושני הענפים מתחתיו — החזיר מחרוזת בלי
+   * ‏אף ליטרל, ושני הסוגים עקפו את הבדיקה בשקט. כלומר בדיוק
+   * ‏הרגרסיה שהתיקון הזה בא למנוע, במרחק פורמוט אחד (ביקורת Codex).
+   */
+  const expression = /\btype:\s*([\s\S]{0,400}?)(?=\n\s*[A-Za-z_$][\w$]*\s*:|\n\s*\})/u.exec(
+    window,
+  )?.[1];
+  if (expression === undefined) return [];
+  /*
+   * ‎**כל המחרוזות שבביטוי, ולא הראשונה.**
+   *
+   * ‏`type: repeat ? "a" : "b"` הוא כתיבה של שני סוגים. הניסוח
+   * ‏הקודם החזיר את הראשון בלבד — ובפועל, מכיוון שהוא דרש שהמחרוזת
+   * ‏תבוא מיד אחרי `type:`, הוא לא החזיר **כלום**: הביטוי המותנה
+   * ‏עבר בשקט, ושני הסוגים לא נבדקו מול `TYPE_CATEGORY`. שער
+   * ‏שמסנן את מה שהוא אמור לבדוק ירוק תמיד — וזו הפעם השנייה
+   * ‏שהמשפט הזה נכתב כאן, אחרי `task.due`.
+   */
+  /*
+   * ‎**רק מה שיכול להיות התוצאה, ולא מה שבתנאי.**
+   *
+   * ‏`repeat && source === "landing" ? "a" : "b"` נושא שלוש
+   * ‏מחרוזות, ואחת מהן היא **מקור** ולא סוג. סריקה תמימה הייתה
+   * ‏מדווחת עליה כסוג שאינו רשום — כלומר שער שנופל על קוד תקין,
+   * ‏וזה גרוע משער שאינו קיים.
+   *
+   * ‏מה-`?` הראשון והלאה נמצאות רק התוצאות. ביטוי בלי `?` הוא
+   * ‏עצמו התוצאה.
+   */
+  const results = expression.includes("?")
+    ? expression.slice(expression.indexOf("?"))
+    : expression;
+  const literals = [...results.matchAll(/"([a-z_][a-z_.]*)"/gu)].map(([, value]) => value);
+  if (literals.length > 0) return literals;
+  const named = /^([A-Z][A-Z0-9_]*)\b/u.exec(expression.trim());
+  const resolved = named === null ? undefined : stringConstants.get(named[1]);
+  return resolved === undefined ? [] : [resolved];
 }
 
 const known = new Set(entityTypes);
@@ -271,8 +308,9 @@ for (const dir of sources) {
       const window = text.slice(match.index, match.index + 900);
       const entity = /entityType:\s*"([a-z_]+)"/u.exec(window);
       if (entity !== null) written.set(entity[1], file.slice(root.length + 1));
-      const kind = typeValue(window);
-      if (kind !== null) writtenTypes.set(kind, file.slice(root.length + 1));
+      for (const kind of typeValues(window)) {
+        writtenTypes.set(kind, file.slice(root.length + 1));
+      }
 
       /*
        * ‎**הצורה שהחלון לבדו לא רואה: `createMany({ data: rows })`.**
@@ -298,8 +336,9 @@ for (const dir of sources) {
         const block = text.slice(push.index, push.index + 900);
         const pushed = /entityType:\s*"([a-z_]+)"/u.exec(block);
         if (pushed !== null) written.set(pushed[1], file.slice(root.length + 1));
-        const pushedType = typeValue(block);
-        if (pushedType !== null) writtenTypes.set(pushedType, file.slice(root.length + 1));
+        for (const pushedType of typeValues(block)) {
+          writtenTypes.set(pushedType, file.slice(root.length + 1));
+        }
       }
     }
   }
