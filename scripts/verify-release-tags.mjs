@@ -22,6 +22,13 @@
  * 3. ‎**היעדים בשני המקומות זהים.** זו הטענה שקשה לזכור ידנית: יעד
  *    שנוסף למטריצה ולא ללולאת ההזזה היה נבנה בכל שחרור ו-`:latest`
  *    שלו היה קפוא על הקומיט האחרון שקדם להוספה — בשקט מוחלט.
+ * 4. ‎**שחרור אחד בכל רגע, והחדש מנצח.** `needs` מסדר בתוך ריצה
+ *    אחת בלבד; ה-`concurrency` של ה-workflow כולל את ה-SHA, ולכן
+ *    שני מיזוגים סמוכים היו כותבים לאותם תגים במקביל (ביקורת
+ *    Codex). נדרשים גם תור (`concurrency` בלי ה-SHA) וגם דילוג על
+ *    ריצה שאינה ראש `main` — תור לבדו רק דוחה את הדריסה.
+ * 5. ‎**המצב שנשאר נבדק, ולא נלמד מקוד היציאה.** ארבע כתיבות אינן
+ *    אטומיות; כשל באמצע הוא פיצול, והוא אינו מתקן את עצמו.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -64,6 +71,82 @@ if (publish === null) {
   }
   if (!/imagetools create/u.test(publish[1])) {
     problems.push("‏`publish` אינו מזיז את התג בפועל (`imagetools create` חסר)");
+  }
+}
+
+/* ‎4 · תור לשחרור, ודילוג על ריצה שאינה ראש `main`. */
+if (publish !== null) {
+  /*
+   * ‏עד סוף השורה ולא `\S+`: `publish-${{ github.sha }}` מכיל רווחים,
+   * ‏ולכן קבוצה שנקבעת לפי הקומיט הייתה נחתכת אחרי `publish-${{`
+   * ‏וה-SHA לא היה נראה כלל. מוטציה כזו עברה את הניסוח הראשון.
+   */
+  const group = publish[1].match(/concurrency:\s*\n\s*group:\s*(.+)/u);
+  if (group === null) {
+    problems.push(
+      "‏`publish` בלי `concurrency` — שני מיזוגים סמוכים ישחררו במקביל לאותם תגים",
+    );
+  } else if (/github\.sha/u.test(group[1])) {
+    problems.push(
+      "קבוצת ה-`concurrency` של `publish` כוללת את ה-SHA, כלומר קבוצה לכל קומיט — וזה אינו תור",
+    );
+  }
+  if (/cancel-in-progress:\s*true/u.test(publish[1])) {
+    problems.push(
+      "‏`cancel-in-progress: true` בשחרור — ביטול בין הזזה להזזה הוא בדיוק הפיצול",
+    );
+  }
+  if (!/commits\/main/u.test(publish[1])) {
+    problems.push(
+      "‏`publish` אינו בודק שהקומיט עדיין ראש `main` — ריצה ישנה שממתינה בתור תחזיר את `:latest` אחורה",
+    );
+  }
+}
+
+/*
+ * ‎5 · המצב הסופי נבדק מול ה-Registry — ו**שני** הצדדים נקראים משם.
+ *
+ * ‏הניסוח הראשון חיפש `imagetools inspect` בלבד, ולכן מוטציה
+ * ‏שהחליפה את קריאת ה-`:latest` בהשמה מהערך שכבר בידנו עברה ירוקה:
+ * ‏המחרוזת עדיין הופיעה, בקריאה השנייה. שוב שער שמדד נוכחות של
+ * ‏טקסט במקום את ההכרעה — ולכן נדרשות כאן שתי קריאות **נפרדות**,
+ * ‏אחת לתג הקומיט ואחת ל-`:latest`, והשוואה שיוצאת בכישלון.
+ */
+if (publish !== null) {
+  /*
+   * ‏הטענות נבדקות **בתוך שלב האימות עצמו** ולא על ה-job כולו:
+   * ‏ל-job יש `exit 1` גם בלולאת הניסיונות החוזרים, ולכן מוטציה
+   * ‏שהחליפה את ההשוואה ב-`echo` עברה כשהחיפוש היה על כל הטקסט.
+   */
+  /*
+   * ‏רק גוף ה-`run`, ולא השלב כולו: לכל שלב יש
+   * ‎`if: steps.tip.outputs.stale != 'true'`, וה-`!=` שבתוכו סיפק
+   * ‏את הניסוח הקודם — כלומר השער אישר „יש השוואה” על שורת התנאי
+   * ‏של השלב, בזמן שההשוואה האמיתית נמחקה. שוב מדידת נוכחות של תו
+   * ‏במקום ההכרעה עצמה.
+   */
+  const bodies = [...publish[1].matchAll(/run: \|\n([\s\S]*?)(?=\n {6}- |$)/gu)].map(
+    (m) => m[1],
+  );
+  const assign = /(\w+)="\$\(docker buildx imagetools inspect[^\n]*?:([^"\n]+)"\)"/gu;
+  const check = bodies.find((body) => {
+    const vars = new Map(
+      [...body.matchAll(assign)].map((m) => [m[2].trim(), m[1]]),
+    );
+    const sha = [...vars.entries()].find(([tag]) => tag.includes("github.sha"))?.[1];
+    const latest = [...vars.entries()].find(([tag]) => tag === "latest")?.[1];
+    if (sha === undefined || latest === undefined) return false;
+    /* ההשוואה עצמה, בין שני המשתנים שמולאו מהשתי קריאות */
+    const pair = new RegExp(
+      `\\[ *"\\$(?:${sha}|${latest})" *!= *"\\$(?:${sha}|${latest})" *\\]`,
+      "u",
+    );
+    return pair.test(body) && /exit 1/u.test(body);
+  });
+  if (check === undefined) {
+    problems.push(
+      "אין שלב שקורא את שני הצדדים מה-Registry (תג הקומיט מול `:latest`), משווה ביניהם ומפיל את הבנייה — כשל באמצע הלולאה היה נשאר פיצול שקט",
+    );
   }
 }
 
