@@ -13,6 +13,7 @@
     "verify:language": "node scripts/verify-referral-language.mjs",
     "verify:typography": "node scripts/verify-typography.mjs",
     "verify:scroll": "node scripts/verify-scroll-affordance.mjs",
+    "verify:namespace": "node scripts/verify-css-namespace.mjs",
     "verify:lists": "node scripts/verify-list-responses.mjs",
     "verify:shapes": "node scripts/verify-response-shapes.mjs",
     "verify:cards": "node scripts/verify-card-padding.mjs",
