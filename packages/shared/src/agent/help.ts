@@ -139,6 +139,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "mentor_goal",
       "mentor_commit",
       "mentor_reflect",
+      "mentor_practice",
     ],
   },
   {

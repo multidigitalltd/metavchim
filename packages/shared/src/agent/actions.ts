@@ -53,6 +53,7 @@ import {
   MENTOR_GOAL_TARGET_MAX,
   MENTOR_METRICS,
 } from "../logic/mentor.js";
+import { PRACTICE_SCENARIO_INFO } from "../logic/mentor-practice.js";
 
 export const AGENT_ACTION_IDS = [
   "search",
@@ -132,6 +133,7 @@ export const AGENT_ACTION_IDS = [
   "mentor_goal",
   "mentor_commit",
   "mentor_reflect",
+  "mentor_practice",
 ] as const;
 
 export type AgentActionId = (typeof AGENT_ACTION_IDS)[number];
@@ -2552,6 +2554,32 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
         type: "string",
         hint: "מה עצר — במילים של המתווך",
         maxLength: 1000,
+      },
+    ],
+  },
+  {
+    id: "mentor_practice",
+    title: "תרגול שיחה עם המנטור",
+    feature: "ai_coach",
+    when: "‎בקשה **לתרגל** שיחה — „תרגל איתי מוכר על המחיר”, „בוא נתאמן על התנגדות מחיר”. המנטור משחק את הצד השני, וההודעות שאחרי זה הן התרגול עצמו. לא שאלה על תרגול קודם (זה mentor_status).",
+    examples: [
+      "תרגל איתי שיחה עם מוכר על המחיר",
+      "בוא נתאמן על קונה שמתלבט",
+      "אני רוצה לתרגל בקשת בלעדיות",
+    ],
+    capability: "properties.view",
+    risk: "read",
+    fields: [
+      {
+        key: "scenario",
+        label: "התרחיש",
+        type: "enum",
+        /* ‏הקודים והתוויות מהרשימה עצמה — תרחיש חדש נכנס בלי לגעת כאן */
+        values: PRACTICE_SCENARIO_INFO.map((info) => info.code),
+        valueLabels: Object.fromEntries(
+          PRACTICE_SCENARIO_INFO.map((info) => [info.code, info.label]),
+        ),
+        hint: "‏על מה מתאמנים; בלעדיו הבוט מציג את הרשימה",
       },
     ],
   },
