@@ -169,6 +169,20 @@ interface Turn {
   createdAt: string;
 }
 
+/**
+ * ‏שיחה קודמת ברשימת ההיסטוריה.
+ *
+ * ‏אין כאן שדה שהשרת שמר: הכותרת נגזרת מהשאלה הראשונה שנשאלה
+ * ‏בשיחה, והמועד הוא האחרון שנאמר בה. לכן הרשימה אינה יכולה
+ * ‏להציג שם של שיחה שכבר לא קיימת בצורה הזו.
+ */
+interface MentorThread {
+  id: string;
+  title: string;
+  lastAt: string;
+  messages: number;
+}
+
 /** תרגול שיחה כפי שהשרת מחזיר אותו (docs/14 §7.3) */
 interface PracticeDto {
   id: string;
@@ -2575,16 +2589,56 @@ function ChatSection({
   );
   const endRef = useRef<HTMLDivElement>(null);
 
-  const load = useCallback(() => {
-    setLoadFailed(false);
-    apiGet<{ turns: Turn[] }>("/mentor/messages")
-      .then((res) => setTurns(apiList(res.turns, "turns")))
-      .catch(() => setLoadFailed(true));
-  }, []);
+  /*
+   * ‎**איזו שיחה פתוחה.** `null` = הנוכחית, כפי שהשרת מכריע לפי
+   * ‏השקט. מזהה = שיחה שנבחרה מההיסטוריה. הבחירה יושבת כאן ולא
+   * ‏בכתובת בכוונה: היא שייכת למסך הזה, ורענון מחזיר לשיחה הנוכחית
+   * ‏— שזה מה שמישהו שחוזר לעמוד מצפה לו.
+   */
+  const [openThread, setOpenThread] = useState<string | null>(null);
+  /*
+   * ‏„שיחה חדשה” נלחצה ועדיין לא נכתבה בה מילה. זה דגל של **ההודעה
+   * ‏הבאה** ולא של המסך: שיחה נוצרת כשכותבים בה, ולא כשלוחצים —
+   * ‏אחרת רשימת ההיסטוריה הייתה מתמלאת בשיחות ריקות.
+   */
+  const [startFresh, setStartFresh] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [threads, setThreads] = useState<MentorThread[] | null>(null);
+
+  const load = useCallback(
+    (thread: string | null) => {
+      setLoadFailed(false);
+      apiGet<{ turns: Turn[] }>(
+        thread === null ? "/mentor/messages" : `/mentor/messages?thread=${thread}`,
+      )
+        .then((res) => setTurns(apiList(res.turns, "turns")))
+        .catch(() => setLoadFailed(true));
+    },
+    [],
+  );
 
   useEffect(() => {
-    load();
-  }, [load]);
+    load(openThread);
+  }, [load, openThread]);
+
+  /*
+   * ‏רשימת השיחות נטענת כשנפתחת, ולא עם העמוד: היא מאחורי לחיצה,
+   * ‏ורוב הכניסות למנטור אינן נוגעות בה.
+   */
+  useEffect(() => {
+    if (!historyOpen) return;
+    let live = true;
+    apiGet<{ threads: MentorThread[] }>("/mentor/threads")
+      .then((res) => {
+        if (live) setThreads(apiList(res.threads, "threads"));
+      })
+      .catch(() => {
+        if (live) setThreads([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [historyOpen]);
 
   /*
    * ‎**גלילה להודעה חדשה — לא בטעינה הראשונה.**
@@ -2634,7 +2688,18 @@ function ChatSection({
         proposedGoal?: MentorGoalProposal;
       }>("/mentor/messages", {
         text: trimmed,
+        /*
+         * ‏שיחה שנפתחה מההיסטוריה **נמשכת**, ולא נהפכת לרקע שההודעה
+         * ‏נוחתת מאחוריו. בלי זה מי שפותח שיחה מלפני שבוע וכותב בה
+         * ‏היה שולח לשיחה של היום — ורואה את ההודעה שלו נעלמת.
+         */
+        ...(openThread !== null
+          ? { into: openThread }
+          : startFresh
+            ? { into: "new" as const }
+            : {}),
       });
+      setStartFresh(false);
       setTurns((prev) => [...(prev ?? []), res.turn]);
       if (res.proposedGoal !== undefined) {
         setProposal({ goal: res.proposedGoal, afterTurnId: res.turn.id });
@@ -2682,6 +2747,80 @@ function ChatSection({
 
   return (
     <div className="mv-mentor__chat">
+      {/*
+        ‎**שתי הפעולות שהופכות שיחה לשיחה שאפשר לחזור אליה.**
+
+        ‏עד כה השיחה הייתה רצף אחד בלי התחלה ובלי סוף: לא היה איך
+        ‏לפתוח נושא חדש בלי לגרור את הקודם, ולא היה איך לחזור למה
+        ‏שנאמר לפני שבוע. השורה הזו היא שתי התשובות, והיא יושבת מעל
+        ‏השיחה כי היא **עליה** — לא בתוכה.
+      */}
+      <div className="mv-mentor__threadbar">
+        <button
+          type="button"
+          className="mv-btn-plain"
+          disabled={busy}
+          onClick={() => {
+            /*
+             * ‏„שיחה חדשה” כשכבר צופים בשיחה מההיסטוריה הוא בעצם
+             * ‏„חזרה לנוכחית”, ולכן די בניקוי הבחירה. כשכבר בנוכחית,
+             * ‏השיחה החדשה נפתחת בהודעה הבאה — השרת מכריע, ולא המסך
+             * ‏יוצר שיחה ריקה שאולי לעולם לא תיכתב בה מילה.
+             */
+            setOpenThread(null);
+            setStartFresh(true);
+            setHistoryOpen(false);
+          }}
+        >
+          שיחה חדשה
+        </button>
+        <button
+          type="button"
+          className="mv-btn-plain"
+          aria-expanded={historyOpen}
+          onClick={() => setHistoryOpen((v) => !v)}
+        >
+          שיחות קודמות
+        </button>
+        {openThread === null ? null : (
+          <span className="mv-mentor__threadnote">
+            שיחה קודמת — מה שתכתבו כאן ימשיך אותה
+          </span>
+        )}
+      </div>
+
+      {historyOpen ? (
+        <div className="mv-mentor__history">
+          {threads === null ? (
+            <p className="m-0">טוען שיחות…</p>
+          ) : threads.length === 0 ? (
+            <p className="m-0">עדיין אין שיחות קודמות.</p>
+          ) : (
+            <ul className="m-0 list-none p-0">
+              {threads.map((t) => (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    className="mv-mentor__historyrow"
+                    data-open={t.id === openThread}
+                    onClick={() => {
+                      setOpenThread(t.id);
+                      setStartFresh(false);
+                      setHistoryOpen(false);
+                    }}
+                  >
+                    <span className="mv-mentor__historytitle">{t.title}</span>
+                    <span className="mv-mentor__historymeta">
+                      {jerusalemDayLabel(new Date(t.lastAt))} · {t.messages} הודעות
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
       <div className="mv-mentor__stream">
         {/*
           ‎**כרטיס הפתיח — מה שהמנטור אומר היום.**
@@ -2767,7 +2906,11 @@ function ChatSection({
         ) : null}
 
         {loadFailed ? (
-          <LoadError message="לא הצלחנו לטעון את השיחה" onRetry={load} />
+          <LoadError
+            message="לא הצלחנו לטעון את השיחה"
+            /* ‏ניסיון חוזר על אותה שיחה שנכשלה, לא על הנוכחית */
+            onRetry={() => load(openThread)}
+          />
         ) : turns === null ? (
           <p aria-live="polite" className="m-0">
             טוען את השיחה…

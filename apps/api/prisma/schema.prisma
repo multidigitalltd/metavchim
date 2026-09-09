@@ -860,9 +860,14 @@ model MentorWin {
 
 /// תור בשיחה עם המנטור — של המשתמש בלבד.
 model MentorMessage {
-  id        String   @id @db.Char(26)
-  tenantId  String   @map("tenant_id") @db.Char(26)
-  userId    String   @map("user_id") @db.Char(26)
+  id       String @id @db.Char(26)
+  tenantId String @map("tenant_id") @db.Char(26)
+  userId   String @map("user_id") @db.Char(26)
+  /// ‏השיחה שההודעה שייכת לה — ומזהה השיחה הוא **מזהה ההודעה
+  /// הראשונה שבה**. אין טבלת שיחות: שם השיחה נגזר מהשאלה הראשונה
+  /// ‏(`mentorThreadTitle`), והמועד האחרון הוא ה-`MAX` שלה. כותרת
+  /// שמורה יכולה לחלוק על השיחה שהיא מתארת; נגזרת אינה יכולה.
+  threadId String @map("thread_id") @db.Char(26)
   /// user | mentor
   role      String   @db.VarChar(10)
   text      String   @db.VarChar(4000)
@@ -871,6 +876,7 @@ model MentorMessage {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, userId, createdAt])
+  @@index([tenantId, userId, threadId, createdAt])
   @@map("mentor_messages")
 }
 

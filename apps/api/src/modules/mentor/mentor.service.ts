@@ -42,6 +42,8 @@ import {
   type MentorPattern,
   mentorPatterns,
   mentorPeriodRange,
+  mentorStartsNewThread,
+  mentorThreadTitle,
   MENTOR_METRICS,
   officeEvidenceLabel,
   mentorOnboarding,
@@ -183,6 +185,14 @@ export interface MentorPulse {
     periodStart: Date;
   }[];
   wins: MentorWin[];
+}
+
+/** ‏שורה ברשימת ההיסטוריה — הכול נגזר מההודעות, שום שדה אינו שמור. */
+export interface MentorThreadDto {
+  id: string;
+  title: string;
+  lastAt: Date;
+  messages: number;
 }
 
 export interface MentorTurnDto {
@@ -716,16 +726,96 @@ export class MentorService {
 
   /* ---------------- שיחה ---------------- */
 
-  async turns(limit = 40): Promise<{ turns: MentorTurnDto[] }> {
+  /**
+   * ‏השיחה שעל המסך — הנוכחית, או זו שביקשו לפתוח מההיסטוריה.
+   *
+   * ‎**בלי `threadId` זו השיחה האחרונה ולא „ארבעים ההודעות
+   * האחרונות”.** ההבדל מתגלה בדיוק ברגע שמישהו חוזר אחרי יומיים:
+   * קודם הוא היה רואה את סוף השיחה הקודמת כאילו היא נמשכת, ועכשיו
+   * הוא רואה מסך נקי — והקודמת ממתינה בהיסטוריה.
+   *
+   * ‎`threadId` שאינו של המתווך הזה מחזיר ריק ולא שגיאה, כי הוא
+   * ‏מסונן באותה שאילתה: השיחה של עמית אינה „אסורה”, היא פשוט
+   * ‏אינה קיימת מבחינתו.
+   */
+  async turns(
+    limit = 40,
+    threadId?: string,
+  ): Promise<{ turns: MentorTurnDto[]; threadId: string | null }> {
     const { tenantId, userId } = TenantContext.current();
-    const rows = await this.prisma.withTenant((tx) =>
-      tx.mentorMessage.findMany({
-        where: { tenantId, userId },
+    const rows = await this.prisma.withTenant(async (tx) => {
+      const id =
+        threadId ??
+        (
+          await tx.mentorMessage.findFirst({
+            where: { tenantId, userId },
+            orderBy: { createdAt: "desc" },
+            select: { threadId: true },
+          })
+        )?.threadId;
+      if (id === undefined) return [];
+      return tx.mentorMessage.findMany({
+        where: { tenantId, userId, threadId: id },
         orderBy: { createdAt: "desc" },
         take: limit,
-      }),
-    );
-    return { turns: rows.reverse().map(MentorService.turnDto) };
+      });
+    });
+    return {
+      turns: rows.reverse().map(MentorService.turnDto),
+      threadId: rows[0]?.threadId ?? null,
+    };
+  }
+
+  /**
+   * ‎**רשימת השיחות — נגזרת, בלי טבלה ובלי כותרת שמורה.**
+   *
+   * ‏שם השיחה הוא השאלה הראשונה שנשאלה בה, והמועד הוא האחרון שנאמר
+   * ‏בה. שניהם נקראים מההודעות עצמן, ולכן אינם יכולים לחלוק עליהן:
+   * ‏עמודת כותרת הייתה יכולה להישאר על נוסח שנמחק.
+   *
+   * ‏שתי שאילתות ולא N+1: `groupBy` לשלד (מזהה, מועד אחרון, כמה),
+   * ‏ואז שליפה אחת של ההודעה הפותחת של כל שיחה מהעמוד הזה. עוד
+   * ‏שאילתה לכל שורה הייתה עשרים שאילתות על מסך שנפתח בלחיצה.
+   */
+  async threads(limit = 20): Promise<{ threads: MentorThreadDto[] }> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const groups = await tx.mentorMessage.groupBy({
+        by: ["threadId"],
+        where: { tenantId, userId },
+        _max: { createdAt: true },
+        _count: { _all: true },
+        orderBy: { _max: { createdAt: "desc" } },
+        take: limit,
+      });
+      if (groups.length === 0) return { threads: [] };
+      /*
+       * ‏ההודעה הפותחת של כל שיחה היא זו שמזהה השיחה הוא המזהה שלה —
+       * ‏זו כל הסיבה שהמזהה נבחר כך. שליפה לפי מפתח ראשי, בלי מיון
+       * ‏ובלי חלון.
+       */
+      const heads = await tx.mentorMessage.findMany({
+        where: {
+          tenantId,
+          userId,
+          id: { in: groups.map((g) => g.threadId) },
+        },
+        select: { id: true, text: true, role: true },
+      });
+      const headOf = new Map(heads.map((h) => [h.id, h]));
+      return {
+        threads: groups.map((g) => {
+          const head = headOf.get(g.threadId);
+          return {
+            id: g.threadId,
+            /* ‏רק שאלה של המתווך היא כותרת; פתיח של המנטור אינו */
+            title: mentorThreadTitle(head?.role === "user" ? head.text : null),
+            lastAt: g._max.createdAt ?? new Date(0),
+            messages: g._count._all,
+          };
+        }),
+      };
+    });
   }
 
   /**
@@ -737,6 +827,13 @@ export class MentorService {
     now: Date = new Date(),
     /** מאיפה השאלה הגיעה — ליומן האסימונים של הפלטפורמה בלבד */
     channel: "web" | "whatsapp" = "web",
+    /**
+     * ‏לאיזו שיחה ההודעה שייכת, כשהמסך יודע:
+     * ‎`"new"` — „שיחה חדשה” מפורש, עוקף את כלל השקט.
+     * ‏מזהה — המשך שיחה שנפתחה מההיסטוריה.
+     * ‎`undefined` — מכריע השקט, כמו תמיד.
+     */
+    into?: "new" | string,
   ): Promise<{
     turn: MentorTurnDto;
     source: "model" | "fallback";
@@ -747,10 +844,47 @@ export class MentorService {
     const { tenantId, userId } = ctx;
     if (ctx.billingOnly) throw new ForbiddenException("החשבון במצב חיוב בלבד");
 
+    /*
+     * ‎**באיזו שיחה ההודעה הזו יושבת** — נקבע לפני שהיא נכתבת.
+     *
+     * ‏השאלה נשאלת פעם אחת, וכל השאר נגזר ממנה: התשובה תיכתב לאותה
+     * ‏שיחה, וההיסטוריה שתיסע לפרומפט תיקרא ממנה בלבד.
+     *
+     * ‎`startNew` הוא „שיחה חדשה” מפורש מהמסך. בלעדיו מכריע השקט:
+     * ‏‎`mentorStartsNewThread` — אותו כלל בדיוק שחילק ב-SQL את מה
+     * ‏שכבר נכתב.
+     */
+    const messageId = ulid();
+    const threadId = await this.prisma.withTenant(async (tx) => {
+      if (into === "new") return messageId;
+      /*
+       * ‏המשך שיחה מההיסטוריה — אבל רק אחרי שנמצאה **אצל המתווך
+       * ‏הזה**. מזהה שהגיע מבחוץ אינו הוכחה לבעלות, ובלי הבדיקה
+       * ‏הזו אפשר היה לכתוב לתוך שיחה של עמית.
+       */
+      if (into !== undefined) {
+        const owned = await tx.mentorMessage.findFirst({
+          where: { tenantId, userId, threadId: into },
+          select: { threadId: true },
+        });
+        if (owned !== null) return owned.threadId;
+        throw new BadRequestException("השיחה הזו אינה קיימת");
+      }
+      const previous = await tx.mentorMessage.findFirst({
+        where: { tenantId, userId },
+        orderBy: { createdAt: "desc" },
+        select: { threadId: true, createdAt: true },
+      });
+      if (previous === null) return messageId;
+      return mentorStartsNewThread(previous.createdAt, now)
+        ? messageId
+        : previous.threadId;
+    });
+
     const context = await this.prisma.withTenant(
       async (tx): Promise<MentorChatContext & { overCap: boolean }> => {
         await tx.mentorMessage.create({
-          data: { id: ulid(), tenantId, userId, role: "user", text },
+          data: { id: messageId, tenantId, userId, threadId, role: "user", text },
         });
         const user = await tx.user.findFirst({
           where: { id: userId, tenantId },
@@ -809,9 +943,17 @@ export class MentorService {
           where: { tenantId, userId },
           orderBy: { weekStart: "desc" },
         });
+        /*
+         * ‎**ההיסטוריה היא של השיחה הזו, לא של הכול.**
+         *
+         * ‏קודם נלקחו שתים־עשרה ההודעות האחרונות של המתווך בלי קשר
+         * ‏למתי נאמרו — ולכן שאלה חדשה בבוקר נשענה על מה שנאמר אמש
+         * ‏על נושא אחר לגמרי. זו בדיוק המשמעות של „שיחה”: מה שנאמר
+         * ‏בתוכה שייך, ומה שמחוצה לה לא.
+         */
         const history = (
           await tx.mentorMessage.findMany({
-            where: { tenantId, userId },
+            where: { tenantId, userId, threadId },
             orderBy: { createdAt: "desc" },
             take: CHAT_HISTORY_TURNS + 1,
             select: { role: true, text: true },
@@ -986,6 +1128,8 @@ export class MentorService {
           id: ulid(),
           tenantId,
           userId,
+          // ‏התשובה יושבת בשיחה של השאלה — לא נבדקת מחדש מול השקט
+          threadId,
           role: "mentor",
           text: answer.slice(0, 4000),
         },
