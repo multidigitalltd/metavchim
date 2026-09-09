@@ -210,12 +210,19 @@ export class MentorController {
   @AnyAuthenticated()
   messages(
     @Query("thread") thread?: string,
+    /** ‏הודעה שחייבת להיות במסך — פתיחה מרשימת הנעוצים */
+    @Query("from") from?: string,
   ): Promise<{ turns: MentorTurnDto[]; threadId: string | null }> {
     const parsed = thread === undefined ? undefined : ThreadIdSchema.safeParse(thread);
     if (parsed !== undefined && !parsed.success) {
       throw new BadRequestException("מזהה שיחה לא תקין");
     }
-    return this.mentor.turns(40, parsed?.data);
+    const anchor = from === undefined ? undefined : ThreadIdSchema.safeParse(from);
+    if (anchor !== undefined && !anchor.success) {
+      throw new BadRequestException("מזהה הודעה לא תקין");
+    }
+    /* ‏הודעה יודעת לאיזו שיחה היא שייכת, ולכן היא גוברת על `thread` */
+    return this.mentor.turns(40, parsed?.data, new Date(), anchor?.data);
   }
 
   /**
@@ -247,8 +254,16 @@ export class MentorController {
 
   @Get("messages/pinned")
   @AnyAuthenticated()
-  pinned(): Promise<{ turns: MentorTurnDto[] }> {
-    return this.mentor.pinned();
+  pinned(
+    /** ‏סמן העמוד הבא — ה-`pinnedAt` של השורה האחרונה שהוצגה */
+    @Query("before") before?: string,
+  ): Promise<{ turns: MentorTurnDto[]; nextBefore: string | null }> {
+    if (before === undefined) return this.mentor.pinned();
+    const at = new Date(before);
+    if (Number.isNaN(at.getTime())) {
+      throw new BadRequestException("סמן לא תקין");
+    }
+    return this.mentor.pinned(undefined, at);
   }
 
   /** ‏רשימת השיחות הקודמות — הכותרת נגזרת מהשאלה הראשונה שבכל אחת. */

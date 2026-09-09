@@ -74,6 +74,14 @@ import {
 /** כמה שבועות אחורה נספרים לצורך משפך ההמרה של המתווך. */
 /** כמה תורים אחרונים המודל רואה. */
 const CHAT_HISTORY_TURNS = 12;
+/**
+ * ‏כמה הודעות נטענות **לפני** ההודעה שנפתחה מרשימת הנעוצים. רוב
+ * ‏החלון הולך קדימה, כי משם ממשיכים לקרוא; מעט לפניה קיים כדי
+ * ‏שהמשפט יגיע עם מה שנאמר סביבו.
+ */
+const TURN_WINDOW_BEFORE = 8;
+/** ‏גודל עמוד ברשימת הנעוצים — יש סמן, ולכן זה גבול עמוד ולא גבול. */
+const PINNED_PAGE = 30;
 /** הודעות למודל ביום — מכסה, לא מגבלת מוצר: מעליה המנטור עונה מהיעדים. */
 const CHAT_DAILY_CAP = 40;
 const CHAT_TIMEOUT_MS = 20_000;
@@ -753,8 +761,18 @@ export class MentorService {
     limit = 40,
     threadId?: string,
     now: Date = new Date(),
+    /**
+     * ‎**הודעה שחייבת להיות במסך** — פתיחה מרשימת הנעוצים.
+     *
+     * ‏בלי זה נפתחה השיחה הנכונה ונטענו 40 האחרונות שלה, וההודעה
+     * ‏שנעצת פשוט לא הייתה שם: בשיחה ארוכה, הרשימה שקיימת כדי
+     * ‏להחזיר אליה לא החזירה אליה (ביקורת Codex, P2). המזהה כאן
+     * ‏קובע גם את השיחה — הודעה יודעת לאיזו שיחה היא שייכת.
+     */
+    from?: string,
   ): Promise<{ turns: MentorTurnDto[]; threadId: string | null }> {
     const { tenantId, userId } = TenantContext.current();
+    if (from !== undefined) return this.turnsAround(from, limit);
     const rows = await this.prisma.withTenant(async (tx) => {
       let id = threadId;
       if (id === undefined) {
@@ -791,6 +809,57 @@ export class MentorService {
       turns: rows.reverse().map(MentorService.turnDto),
       threadId: rows[0]?.threadId ?? null,
     };
+  }
+
+  /**
+   * ‎**חלון סביב הודעה מסוימת** — ההודעה עצמה, מעט לפניה, והמשך.
+   *
+   * ‏„מעט לפניה” אינו קישוט: משפט בלי מה שנאמר סביבו הוא ציטוט ולא
+   * ‏עצה, וזו כל הסיבה שהנעיצה מחזירה אל השיחה ולא אל הטקסט לבדו.
+   * ‏רוב החלון הולך קדימה, כי משם ממשיכים לקרוא.
+   *
+   * ‏הודעה שאינה של המתווך הזה מחזירה ריק ולא שגיאה — אותו כלל כמו
+   * ‏בשאר הקובץ, ומאותו נימוק.
+   */
+  private async turnsAround(
+    from: string,
+    limit: number,
+  ): Promise<{ turns: MentorTurnDto[]; threadId: string | null }> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const anchor = await tx.mentorMessage.findFirst({
+        where: { id: from, tenantId, userId },
+        select: { threadId: true, createdAt: true },
+      });
+      if (anchor === null) return { turns: [], threadId: null };
+      const before = Math.min(TURN_WINDOW_BEFORE, Math.max(0, limit - 1));
+      const [earlier, rest] = await Promise.all([
+        tx.mentorMessage.findMany({
+          where: {
+            tenantId,
+            userId,
+            threadId: anchor.threadId,
+            createdAt: { lt: anchor.createdAt },
+          },
+          orderBy: { createdAt: "desc" },
+          take: before,
+        }),
+        tx.mentorMessage.findMany({
+          where: {
+            tenantId,
+            userId,
+            threadId: anchor.threadId,
+            createdAt: { gte: anchor.createdAt },
+          },
+          orderBy: { createdAt: "asc" },
+          take: limit - before,
+        }),
+      ]);
+      return {
+        turns: [...earlier.reverse(), ...rest].map(MentorService.turnDto),
+        threadId: anchor.threadId,
+      };
+    });
   }
 
   /**
@@ -839,16 +908,41 @@ export class MentorService {
    * ‏אחרת, וחיפוש בהיסטוריה אינו תשובה למי שזוכר שהיה משהו ולא
    * ‏זוכר מתי.
    */
-  async pinned(limit = 30): Promise<{ turns: MentorTurnDto[] }> {
+  async pinned(
+    limit = PINNED_PAGE,
+    /**
+     * ‏סמן העמוד הבא — ה-`pinnedAt` של השורה האחרונה שהוצגה.
+     *
+     * ‏בלעדיו הרשימה נעצרה על 30 **לתמיד**: נעוץ שלושים ואחד הסתיר
+     * ‏את הישן ממנו, ולא הייתה שום דרך להגיע אליו מלבד לבטל נעיצות
+     * ‏חדשות יותר (ביקורת Codex, P2).
+     *
+     * ‎`pinnedAt` ולא מזהה: זה גם סדר הרשימה, ולכן הוא הסמן היחיד
+     * ‏שאינו יכול לסתור אותה.
+     */
+    before?: Date,
+  ): Promise<{ turns: MentorTurnDto[]; nextBefore: string | null }> {
     const { tenantId, userId } = TenantContext.current();
     const rows = await this.prisma.withTenant((tx) =>
       tx.mentorMessage.findMany({
-        where: { tenantId, userId, pinnedAt: { not: null } },
+        where: {
+          tenantId,
+          userId,
+          pinnedAt: before === undefined ? { not: null } : { lt: before },
+        },
         orderBy: { pinnedAt: "desc" },
         take: limit,
       }),
     );
-    return { turns: rows.map(MentorService.turnDto) };
+    /*
+     * ‏„יש עוד” נאמר רק כשהעמוד מלא. עמוד חלקי הוא הסוף, ולהחזיר
+     * ‏סמן עליו היה מייצר כפתור „עוד” שאינו מביא דבר.
+     */
+    const last = rows.length === limit ? rows[rows.length - 1] : undefined;
+    return {
+      turns: rows.map(MentorService.turnDto),
+      nextBefore: last?.pinnedAt?.toISOString() ?? null,
+    };
   }
 
   /**
