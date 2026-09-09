@@ -8385,6 +8385,46 @@ a.mv-bar-row:focus-visible {
  * ‏שורת השיחות — מעל השיחה עצמה, ולכן אינה נגללת איתה. היא ניווט,
  * ‏לא תוכן, ולכן היא נמוכה וללא רקע משלה.
  */
+/*
+ * ‏שורת הפעולות מתחת לתשובת המנטור. שקופה עד ריחוף או דירוג: היא
+ * ‏שייכת להודעה ולא מתחרה בה, ומי שלא מדרג לא צריך לראות אותה.
+ */
+.mv-msg__acts {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  opacity: 0.45;
+  transition: opacity 120ms ease;
+}
+
+.mv-msg:hover .mv-msg__acts,
+.mv-msg__acts:focus-within {
+  opacity: 1;
+}
+
+.mv-msg__act {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 2px 6px;
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--type-caption-lg);
+  line-height: 1.4;
+}
+
+.mv-msg__act:hover,
+.mv-msg__act:focus-visible {
+  border-color: var(--color-input-border);
+  background: var(--color-row-hover);
+}
+
+/* ‏מה שנבחר נשאר מסומן גם בלי ריחוף — אחרת הדירוג נעלם מהעין */
+.mv-msg__act[data-on="true"] {
+  opacity: 1;
+  border-color: var(--color-input-border);
+  background: var(--color-row-hover);
+}
+
 .mv-mentor__threadbar {
   display: flex;
   align-items: center;
@@ -8451,6 +8491,19 @@ a.mv-bar-row:focus-visible {
 .mv-mentor__historymeta {
   font-size: var(--type-caption);
   color: var(--color-text-muted);
+}
+
+/*
+ * ‏שורת נעוץ נושאת משפט שלם ולא כותרת קצרה. שתי שורות ואז חיתוך:
+ * ‏מספיק כדי לזהות איזה משפט זה, בלי ששורה אחת תמלא את הרשימה.
+ */
+.mv-mentor__pintext {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-weight: 500;
 }
 
 .mv-mentor__stream {

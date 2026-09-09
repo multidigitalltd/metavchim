@@ -11,6 +11,8 @@ import {
   type MentorActivity,
   MentorGoalInputSchema,
   jerusalemDayLabel,
+  nextMentorVerdict,
+  type MentorMessageVerdict,
   jerusalemWallParts,
   mentorGoalLabel,
   MENTOR_NAME_MAX,
@@ -164,9 +166,15 @@ interface Overview {
 
 interface Turn {
   id: string;
+  /** ‏השיחה שההודעה בה — מה שמאפשר לקפוץ מנעוץ אל ההקשר שלו */
+  threadId?: string;
   role: "user" | "mentor";
   text: string;
   createdAt: string;
+  /** ‏דירוג המתווך — `null`/חסר כשלא דורג, וזה הרוב */
+  feedback?: MentorMessageVerdict | null;
+  /** ‏מתי נעצה, אם נעצה */
+  pinnedAt?: string | null;
 }
 
 /**
@@ -2604,6 +2612,29 @@ function ChatSection({
   const [startFresh, setStartFresh] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [threads, setThreads] = useState<MentorThread[] | null>(null);
+  /*
+   * ‎**הנעוצים — הצד השני של הנעיצה.**
+   *
+   * ‏בלי רשימה, נעיצה היא סימון שאין ממנו דרך חזרה: המשפט נשמר
+   * ‏ואי אפשר להגיע אליו. שתי הרשימות נפתחות מאותה שורה ואחת
+   * ‏סוגרת את השנייה, כי שתיהן תופסות את אותו מקום מעל השיחה.
+   */
+  const [pinnedOpen, setPinnedOpen] = useState(false);
+  const [pins, setPins] = useState<Turn[] | null>(null);
+  const [pinVersion, setPinVersion] = useState(0);
+  /*
+   * ‏„יש עוד נעוצים” — הסמן שהשרת החזיר. `null` פירושו שזה הסוף,
+   * ‏ולכן הכפתור אינו מוצג: כפתור „עוד” שאינו מביא דבר גרוע מאין.
+   */
+  const [pinCursor, setPinCursor] = useState<string | null>(null);
+  /*
+   * ‎**ההודעה שנפתחה מהנעוצים** — לא רק השיחה שלה.
+   *
+   * ‏שיחה נטענת ב-40 האחרונות, ולכן נעוץ ישן פשוט לא היה על המסך:
+   * ‏הרשימה שקיימת כדי להחזיר אליו לא החזירה אליו (ביקורת Codex).
+   * ‏המזהה נוסע לשרת, שמחזיר חלון סביבו, והמסך גם גולל אליו.
+   */
+  const [anchor, setAnchor] = useState<string | null>(null);
 
   /*
    * ‎**טעינה שאחרה אינה דורסת את מה שכבר על המסך.**
@@ -2614,12 +2645,39 @@ function ChatSection({
    * ‏אחרת, וההודעה הבאה נכתבת לשיחה שאינה זו שקוראים (ביקורת
    * ‏Codex). המונה מזהה את הבקשה האחרונה, וכל מי שאינו היא — שותק.
    */
+  /*
+   * ‎**כתיבה אחת בכל רגע על כל הודעה.**
+   *
+   * ‏דירוג ונעיצה כותבים ערך מוחלט, ולכן שתי לחיצות מהירות שולחות
+   * ‏שני עדכונים שיכולים להגיע למסד **בסדר הפוך** — והמסד נשאר על
+   * ‏מה שנלחץ קודם בזמן שהמסך מציג את מה שנלחץ אחרון (ביקורת
+   * ‏Codex). השרשור כאן שומר על הסדר בלי לחסום את המסך: העדכון
+   * ‏האופטימי מיידי, והכתיבות ממתינות זו לזו.
+   *
+   * ‏המפתח הוא ההודעה ולא המסך — לחיצה על הודעה אחת אינה מעכבת
+   * ‏פעולה על אחרת.
+   */
+  const writes = useRef(new Map<string, Promise<void>>());
+  function queueWrite(id: string, task: () => Promise<void>): Promise<void> {
+    const next = (writes.current.get(id) ?? Promise.resolve()).then(task, task);
+    writes.current.set(id, next);
+    void next.finally(() => {
+      /* ‏שחרור רק אם לא נוספה כתיבה אחרת בינתיים — אחרת דלף מפה */
+      if (writes.current.get(id) === next) writes.current.delete(id);
+    });
+    return next;
+  }
+
   const loadSeq = useRef(0);
-  const load = useCallback((thread: string | null) => {
+  const load = useCallback((thread: string | null, from?: string) => {
     const seq = (loadSeq.current += 1);
     setLoadFailed(false);
     apiGet<{ turns: Turn[] }>(
-      thread === null ? "/mentor/messages" : `/mentor/messages?thread=${thread}`,
+      from !== undefined
+        ? `/mentor/messages?from=${from}`
+        : thread === null
+          ? "/mentor/messages"
+          : `/mentor/messages?thread=${thread}`,
     )
       .then((res) => {
         if (seq !== loadSeq.current) return;
@@ -2632,8 +2690,8 @@ function ChatSection({
   }, []);
 
   useEffect(() => {
-    load(openThread);
-  }, [load, openThread]);
+    load(openThread, anchor ?? undefined);
+  }, [load, openThread, anchor]);
 
   /*
    * ‏רשימת השיחות נטענת כשנפתחת, ולא עם העמוד: היא מאחורי לחיצה,
@@ -2655,6 +2713,31 @@ function ChatSection({
   }, [historyOpen]);
 
   /*
+   * ‏אותו דפוס כמו רשימת השיחות: נטענת כשנפתחת. `pinVersion` מכריח
+   * ‏טעינה מחדש אחרי נעיצה או ביטולה, אחרת הרשימה הייתה מציגה את
+   * ‏המצב שהיה כשנפתחה בפעם הקודמת.
+   */
+  useEffect(() => {
+    if (!pinnedOpen) return;
+    let live = true;
+    apiGet<{ turns: Turn[]; nextBefore: string | null }>("/mentor/messages/pinned")
+      .then((res) => {
+        if (!live) return;
+        setPins(apiList(res.turns, "turns"));
+        setPinCursor(res.nextBefore);
+      })
+      .catch(() => {
+        if (live) {
+          setPins([]);
+          setPinCursor(null);
+        }
+      });
+    return () => {
+      live = false;
+    };
+  }, [pinnedOpen, pinVersion]);
+
+  /*
    * ‎**גלילה להודעה חדשה — לא בטעינה הראשונה.**
    *
    * ‏עד כה השיחה נגללה לתחתית ברגע שנטענה, וזה היה בסדר כשהיא
@@ -2662,16 +2745,29 @@ function ChatSection({
    * ‏בראשה — כלומר גלילה אוטומטית דחפה מיד מהמסך את הדבר שהמנטור
    * ‏אומר היום. עכשיו נגללים רק כשמשהו חדש נכנס.
    */
+  /*
+   * ‏גלילה אל ההודעה שנפתחה מהנעוצים. `contents` אינו מייצר תיבה,
+   * ‏ולכן נגללים אל הילד — הבועה עצמה — שהוא מה שרוצים לראות.
+   */
+  const anchorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (anchor === null) return;
+    const target = anchorRef.current?.firstElementChild ?? anchorRef.current;
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [anchor, turns]);
+
   const seen = useRef<number | null>(null);
   useEffect(() => {
     const count = turns?.length ?? null;
     if (count === null) return;
     const grew = seen.current !== null && count > seen.current;
     seen.current = count;
+    /* ‏פתיחה על נעוץ גוללת אליו; גלילה לתחתית הייתה מבטלת אותה */
+    if (anchor !== null) return;
     if (grew || busy) {
       endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
-  }, [turns?.length, busy]);
+  }, [turns?.length, busy, anchor]);
 
   // השאלה מכרטיס העצות — פעם אחת, כשהשיחה טעונה ופנויה
   const sendRef = useRef<(q: string) => Promise<void>>(async () => {});
@@ -2680,6 +2776,62 @@ function ChatSection({
     onConsumed();
     void sendRef.current(pending);
   }, [pending, turns, busy, onConsumed]);
+
+  /*
+   * ‎**המסך מתעדכן מיד, והשרת מאשר.**
+   *
+   * ‏דירוג הוא סימן ולא פעולה שאפשר להיכשל בה בצורה שמשנה משהו:
+   * ‏עדכון אופטימי הוא הנכון כאן. אם השרת דחה — הערך חוזר למה שהיה,
+   * ‏ולא נשאר על מה שלא נשמר.
+   */
+  async function rate(turn: Turn, pressed: MentorMessageVerdict): Promise<void> {
+    const next = nextMentorVerdict(turn.feedback ?? null, pressed);
+    const before = turn.feedback ?? null;
+    setTurns((prev) =>
+      (prev ?? []).map((t) => (t.id === turn.id ? { ...t, feedback: next } : t)),
+    );
+    await queueWrite(turn.id, async () => {
+      try {
+        await apiPost(`/mentor/messages/${turn.id}/feedback`, { verdict: next });
+      } catch {
+        /*
+         * ‏החזרה רק אם המסך עדיין מציג את מה שהכתיבה **הזו** ניסתה
+         * ‏לשמור. בלי התנאי, כישלון שמאחר היה דורס בחירה חדשה
+         * ‏יותר שכבר נשמרה בהצלחה (ביקורת Codex).
+         */
+        setTurns((prev) =>
+          (prev ?? []).map((t) =>
+            t.id === turn.id && (t.feedback ?? null) === next
+              ? { ...t, feedback: before }
+              : t,
+          ),
+        );
+      }
+    });
+  }
+
+  async function pin(turn: Turn): Promise<void> {
+    const wasPinned = turn.pinnedAt !== null && turn.pinnedAt !== undefined;
+    const optimistic = wasPinned ? null : new Date().toISOString();
+    setTurns((prev) =>
+      (prev ?? []).map((t) => (t.id === turn.id ? { ...t, pinnedAt: optimistic } : t)),
+    );
+    await queueWrite(turn.id, async () => {
+      try {
+        await apiPost(`/mentor/messages/${turn.id}/pin`, { pinned: !wasPinned });
+        /* ‏הרשימה מתיישנת ברגע שנעצו — הסימון כאן מכריח טעינה מחדש */
+        setPinVersion((v) => v + 1);
+      } catch {
+        setTurns((prev) =>
+          (prev ?? []).map((t) =>
+            t.id === turn.id && (t.pinnedAt ?? null) === optimistic
+              ? { ...t, pinnedAt: turn.pinnedAt ?? null }
+              : t,
+          ),
+        );
+      }
+    });
+  }
 
   async function send(question: string): Promise<void> {
     const trimmed = question.trim();
@@ -2695,6 +2847,11 @@ function ChatSection({
     setTurns((prev) => [...(prev ?? []), optimistic]);
     setText("");
     setProposal(null);
+    /*
+     * ‏כתיבה מחזירה את המסך להתנהגות הרגילה: מכאן והלאה גוללים אל
+     * ‏ההודעה החדשה, לא אל הנעוץ שממנו נפתחה השיחה.
+     */
+    setAnchor(null);
     try {
       const res = await apiPost<{
         turn: Turn;
@@ -2797,8 +2954,10 @@ function ChatSection({
             setTurns([]);
             setProposal(null);
             setOpenThread(null);
+            setAnchor(null);
             setStartFresh(true);
             setHistoryOpen(false);
+            setPinnedOpen(false);
           }}
         >
           שיחה חדשה
@@ -2807,9 +2966,23 @@ function ChatSection({
           type="button"
           className="mv-btn-plain"
           aria-expanded={historyOpen}
-          onClick={() => setHistoryOpen((v) => !v)}
+          onClick={() => {
+            setHistoryOpen((v) => !v);
+            setPinnedOpen(false);
+          }}
         >
           שיחות קודמות
+        </button>
+        <button
+          type="button"
+          className="mv-btn-plain"
+          aria-expanded={pinnedOpen}
+          onClick={() => {
+            setPinnedOpen((v) => !v);
+            setHistoryOpen(false);
+          }}
+        >
+          נעוצים
         </button>
         {openThread === null ? null : (
           <span className="mv-mentor__threadnote">
@@ -2835,6 +3008,8 @@ function ChatSection({
                     onClick={() => {
                       setProposal(null);
                       setOpenThread(t.id);
+                      /* ‏שיחה שנבחרה מההיסטוריה נפתחת בסופה, לא על נעוץ */
+                      setAnchor(null);
                       setStartFresh(false);
                       setHistoryOpen(false);
                     }}
@@ -2846,6 +3021,87 @@ function ChatSection({
                   </button>
                 </li>
               ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
+      {/*
+        ‎**הרשימה שהופכת נעיצה לדבר שאפשר לחזור אליו.**
+
+        ‏לחיצה על שורה פותחת את השיחה שההודעה נאמרה בה — כי משפט
+        ‏בלי מה שנאמר סביבו הוא ציטוט, לא עצה. מכאן גם `threadId`
+        ‏על כל שורה.
+      */}
+      {pinnedOpen ? (
+        <div className="mv-mentor__history">
+          {pins === null ? (
+            <p className="m-0">טוען נעוצים…</p>
+          ) : pins.length === 0 ? (
+            <p className="m-0">
+              עדיין לא נעצתם משפט. הסימון 📌 שמתחת לתשובה שומר אותה כאן.
+            </p>
+          ) : (
+            <ul className="m-0 list-none p-0">
+              {pins.map((t) => (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    className="mv-mentor__historyrow"
+                    data-open={t.threadId !== undefined && t.threadId === openThread}
+                    onClick={() => {
+                      if (t.threadId === undefined) return;
+                      setProposal(null);
+                      /*
+                       * ‏גם השיחה וגם ההודעה: השיחה כדי שהכתיבה
+                       * ‏הבאה תמשיך אותה, וההודעה כדי שהיא באמת
+                       * ‏תהיה על המסך גם בשיחה ארוכה.
+                       */
+                      setOpenThread(t.threadId);
+                      setAnchor(t.id);
+                      setStartFresh(false);
+                      setPinnedOpen(false);
+                    }}
+                  >
+                    <span className="mv-mentor__historytitle mv-mentor__pintext">
+                      {t.text}
+                    </span>
+                    <span className="mv-mentor__historymeta">
+                      {jerusalemDayLabel(new Date(t.createdAt))} · פתיחת השיחה
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {/*
+                ‏„עוד” מוצג רק כשהשרת אמר שיש עוד. בלי זה הרשימה
+                ‏נעצרה על שלושים לתמיד, ונעוץ ישן יותר לא היה נגיש
+                ‏מלבד בביטול נעיצות חדשות (ביקורת Codex).
+              */}
+              {pinCursor === null ? null : (
+                <li>
+                  <button
+                    type="button"
+                    className="mv-mentor__historyrow"
+                    onClick={() => {
+                      const cursor = pinCursor;
+                      setPinCursor(null);
+                      void apiGet<{ turns: Turn[]; nextBefore: string | null }>(
+                        `/mentor/messages/pinned?before=${encodeURIComponent(cursor)}`,
+                      )
+                        .then((res) => {
+                          setPins((prev) => [
+                            ...(prev ?? []),
+                            ...apiList(res.turns, "turns"),
+                          ]);
+                          setPinCursor(res.nextBefore);
+                        })
+                        .catch(() => setPinCursor(cursor));
+                    }}
+                  >
+                    <span className="mv-mentor__historytitle">עוד נעוצים</span>
+                  </button>
+                </li>
+              )}
             </ul>
           )}
         </div>
@@ -2948,7 +3204,11 @@ function ChatSection({
         ) : (
           <div className="flex flex-col gap-4" aria-live="polite">
             {turns.map((turn) => (
-              <div key={turn.id} className="contents">
+              <div
+                key={turn.id}
+                className="contents"
+                ref={turn.id === anchor ? anchorRef : undefined}
+              >
                 <div
                   className={`mv-msg ${turn.role === "user" ? "mv-msg--me" : ""}`}
                 >
@@ -2962,6 +3222,60 @@ function ChatSection({
                       </span>
                     </div>
                     <div className="mv-msg__body">{turn.text}</div>
+                    {/*
+                      ‎**המשוב יושב על תשובת המנטור בלבד.**
+
+                      ‏דירוג של השאלה שלך עצמך אינו אומר דבר, ולכן
+                      ‏המסך אינו מציע אותו — והשרת אוכף את אותו כלל
+                      ‏גם למי שקורא ל-API ישירות.
+
+                      ‏הנעיצה נפרדת מהדירוג בכוונה: „זה עזר” ו„אני
+                      ‏רוצה למצוא את זה שוב” הן שתי אמירות, והודעה
+                      ‏יכולה להיות שתיהן.
+                    */}
+                    {turn.role === "mentor" && !turn.id.startsWith("local-") ? (
+                      <div className="mv-msg__acts">
+                        <button
+                          type="button"
+                          className="mv-msg__act"
+                          data-on={turn.feedback === "helpful"}
+                          aria-pressed={turn.feedback === "helpful"}
+                          aria-label="עזר לי"
+                          title="עזר לי"
+                          onClick={() => void rate(turn, "helpful")}
+                        >
+                          👍
+                        </button>
+                        <button
+                          type="button"
+                          className="mv-msg__act"
+                          data-on={turn.feedback === "not_helpful"}
+                          aria-pressed={turn.feedback === "not_helpful"}
+                          aria-label="לא עזר"
+                          title="לא עזר"
+                          onClick={() => void rate(turn, "not_helpful")}
+                        >
+                          👎
+                        </button>
+                        <button
+                          type="button"
+                          className="mv-msg__act"
+                          data-on={turn.pinnedAt !== null && turn.pinnedAt !== undefined}
+                          aria-pressed={
+                            turn.pinnedAt !== null && turn.pinnedAt !== undefined
+                          }
+                          aria-label={
+                            turn.pinnedAt ? "ביטול נעיצה" : "נעיצה — למצוא את זה שוב"
+                          }
+                          title={
+                            turn.pinnedAt ? "ביטול נעיצה" : "נעיצה — למצוא את זה שוב"
+                          }
+                          onClick={() => void pin(turn)}
+                        >
+                          📌
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
                 {proposal !== null && proposal.afterTurnId === turn.id ? (

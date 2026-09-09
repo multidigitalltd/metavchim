@@ -68,3 +68,40 @@ export function mentorThreadTitle(
   const space = cut.lastIndexOf(" ");
   return `${(space > max * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
+
+/**
+ * ‎**דירוג של תשובה בשיחה** — שתי אפשרויות ולא חמישה כוכבים.
+ *
+ * ‏הדירוג נועד לשאלה אחת: „האם זה עזר”. סולם רחב יותר היה מבקש
+ * ‏מהמתווך לכייל, ומייצר נתון שאיש לא יודע לקרוא — 3 מתוך 5 אינו
+ * ‏אומר מה לשנות.
+ *
+ * ‏זהו **אוצר מילים אחר** מזה של המשוב על רעיונות (`§7.2`,
+ * ‏„עזר לי” / „לא בשבילי”), ובכוונה: שם המשוב **מחליף** את הרעיון
+ * ‏בפעם הבאה, וכאן הוא נשאר על ההודעה כסימן. איחוד השניים היה
+ * ‏גורם ל„לא בשבילי” על משפט בשיחה למחוק רעיון שאין לו קשר אליו.
+ */
+export const MENTOR_MESSAGE_VERDICTS = ["helpful", "not_helpful"] as const;
+
+export type MentorMessageVerdict = (typeof MENTOR_MESSAGE_VERDICTS)[number];
+
+export function isMentorMessageVerdict(value: unknown): value is MentorMessageVerdict {
+  return (
+    typeof value === "string" &&
+    (MENTOR_MESSAGE_VERDICTS as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * ‎**לחיצה שנייה על אותו דירוג מבטלת אותו.**
+ *
+ * ‏זו ההתנהגות שמצילה מי שלחץ בטעות: בלעדיה הדרך היחידה לחזור בך
+ * ‏הייתה לדרג הפוך, כלומר לומר על תשובה טובה שהיא לא עזרה. הכלל
+ * ‏יושב כאן ולא במסך כדי ששני הערוצים יתנהגו אותו דבר.
+ */
+export function nextMentorVerdict(
+  current: MentorMessageVerdict | null,
+  pressed: MentorMessageVerdict,
+): MentorMessageVerdict | null {
+  return current === pressed ? null : pressed;
+}
