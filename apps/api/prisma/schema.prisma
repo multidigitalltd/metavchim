@@ -878,6 +878,17 @@ model MentorMessage {
   /// ‏מתי נעצה — ולא בוליאני, כי לרשימת הנעוצים יש סדר, והוא „מתי
   /// ‏נעצתי” ולא „מתי נאמר”.
   pinnedAt  DateTime? @map("pinned_at")
+  /// ‏מה ההודעה הזו אמרה על הכרטיס: `buyer` · `property` · `none`
+  /// ‏(ניתוק מפורש) · `null` (לא אמרה דבר, וזה הרוב).
+  ///
+  /// ‏על ההודעה ולא על השיחה: מתווך מצרף קונה, ובאמצע השיחה עובר
+  /// ‏לאחר, והשאלה הראשונה נשאלה בהקשר שהיה אז. ו-`none` שמור כי
+  /// ‏בלעדיו ניתוק היה נבלע — הגזירה הייתה מדלגת אחורה אל הכרטיס
+  /// ‏הקודם.
+  subjectKind String? @map("subject_kind") @db.VarChar(10)
+  /// ‏בלי מפתח זר: כרטיס שנמחק אינו מוחק את השיחה עליו. השרת
+  /// ‏מרענן את העובדות בכל שאלה, וכרטיס שאיננו פשוט אינו נטען.
+  subjectId String?  @map("subject_id") @db.Char(26)
   createdAt DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

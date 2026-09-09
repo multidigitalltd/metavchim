@@ -295,11 +295,36 @@ function gatesFor(name: string, shared: RegExp[]): RegExp[] {
 describe("שער: כל חיבור לקונים אצל המנטור מסונן בבעלות", () => {
   const SOURCE = readFileSync(join(API_SRC, "modules/mentor/mentor-signals.service.ts"), "utf8");
 
-  it("מספר החיבורים שווה למספר תנאי הבעלות", () => {
-    const joins = SOURCE.match(/JOIN buyers b\b/gu) ?? [];
+  /*
+   * ‎`FROM` ולא רק `JOIN` — כי שאילתה שקוראת מהקונים ישירות היא
+   * ‏אותה גישה בדיוק. הגרסה הראשונה ספרה `JOIN` בלבד, וכשנוספה
+   * ‏שאילתה שפותחת ב-`FROM buyers b` היא נספרה בצד התנאים ולא בצד
+   * ‏הגישות — כלומר השער האדים על קוד תקין, ובאותה מידה היה מפספס
+   * ‏שאילתת `FROM` בלי סינון.
+   */
+  it("מספר הגישות לקונים שווה למספר תנאי הבעלות", () => {
+    const reads = SOURCE.match(/(?:JOIN|FROM) buyers b\b/gu) ?? [];
     const scoped = SOURCE.match(/b\.owner_user_id = \$\{userId\}/gu) ?? [];
-    expect(joins.length, "אין חיבורים לקונים — הסריקה נשברה").toBeGreaterThan(0);
-    expect(scoped.length, "חיבור לקונים בלי סינון בעלות").toBe(joins.length);
+    expect(reads.length, "אין גישות לקונים — הסריקה נשברה").toBeGreaterThan(0);
+    expect(scoped.length, "גישה לקונים בלי סינון בעלות").toBe(reads.length);
+  });
+
+  /*
+   * ‎**והמסלול השני — Prisma, שהסריקה שמעל אינה רואה.**
+   *
+   * ‏רשימת הבחירה של „צירוף כרטיס” אינה SQL גולמי אלא `findMany`,
+   * ‏ולכן היא הייתה עוברת את השער שמעל בלי להיבדק כלל — בזמן שהיא
+   * ‏בדיוק השאילתה שמחזירה שמות מפוענחים של קונים.
+   */
+  it("כל findMany על קונים או נכסים בקובץ מסונן בבעלות", () => {
+    const calls = [...SOURCE.matchAll(/tx\.(buyer|property)\.findMany\(/gu)];
+    expect(calls.length, "אין שאילתות Prisma — הסריקה נשברה").toBeGreaterThan(0);
+    for (const call of calls) {
+      /* ‏הארגומנט עד סוף ה-`where` — די בו כדי לראות את הסינון */
+      const body = SOURCE.slice(call.index, call.index + 400);
+      const owner = call[1] === "buyer" ? "ownerUserId: userId" : "agentUserId: userId";
+      expect(body, `${call[1]}.findMany בלי ${owner}`).toContain(owner);
+    }
   });
 });
 

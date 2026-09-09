@@ -164,6 +164,13 @@ interface Overview {
   onboarding: MentorOnboarding | null;
 }
 
+/** ‏שורה ברשימת הבחירה — מזהה וכותרת, כמו שהשרת מחזיר */
+interface SubjectOption {
+  kind: "buyer" | "property";
+  id: string;
+  title: string;
+}
+
 interface Turn {
   id: string;
   /** ‏השיחה שההודעה בה — מה שמאפשר לקפוץ מנעוץ אל ההקשר שלו */
@@ -2635,6 +2642,18 @@ function ChatSection({
    * ‏המזהה נוסע לשרת, שמחזיר חלון סביבו, והמסך גם גולל אליו.
    */
   const [anchor, setAnchor] = useState<string | null>(null);
+  /*
+   * ‎**הכרטיס שצורף לשיחה** (§7.7) — קונה או נכס של המתווך עצמו.
+   *
+   * ‏חי במסך ולא בכתובת, כמו `openThread`: הוא שייך לשיחה הפתוחה,
+   * ‏והשרת מחזיר אותו עם כל טעינת שיחה כדי ששניהם יסכימו על מה
+   * ‏מצורף.
+   */
+  const [subject, setSubject] = useState<SubjectOption | null>(null);
+  const [subjectOpen, setSubjectOpen] = useState(false);
+  const [subjectKind, setSubjectKind] = useState<"buyer" | "property">("buyer");
+  const [subjectQuery, setSubjectQuery] = useState("");
+  const [options, setOptions] = useState<SubjectOption[] | null>(null);
 
   /*
    * ‎**טעינה שאחרה אינה דורסת את מה שכבר על המסך.**
@@ -2668,11 +2687,19 @@ function ChatSection({
     return next;
   }
 
+  /*
+   * ‏מה שהשרת אמר שמצורף לשיחה, כפי שנטען. ההפרש בינו לבין
+   * ‎`subject` הוא מה שהמתווך שינה — וזה ההבדל בין „ניתקתי” לבין
+   * ‏„מעולם לא היה”. בלעדיו כל הודעה הייתה נושאת ניתוק מפורש,
+   * ‏ורושמת שורת „אין כרטיס” על שיחה שממילא לא היה בה.
+   */
+  const serverSubject = useRef<SubjectOption | null>(null);
+
   const loadSeq = useRef(0);
   const load = useCallback((thread: string | null, from?: string) => {
     const seq = (loadSeq.current += 1);
     setLoadFailed(false);
-    apiGet<{ turns: Turn[] }>(
+    apiGet<{ turns: Turn[]; subject: SubjectOption | null }>(
       from !== undefined
         ? `/mentor/messages?from=${from}`
         : thread === null
@@ -2682,6 +2709,16 @@ function ChatSection({
       .then((res) => {
         if (seq !== loadSeq.current) return;
         setTurns(apiList(res.turns, "turns"));
+        /*
+         * ‎**הכרטיס מגיע עם השיחה, ולא נשאר בזיכרון המסך.**
+         *
+         * ‏קודם הוא חי רק כאן: רענון השאיר אותו ריק בזמן שהשרת
+         * ‏ממשיך לגזור כרטיס מההודעות, ומעבר לשיחה אחרת נשא את
+         * ‏הכרטיס של הקודמת לתוכה ודרס את ההקשר שלה (ביקורת
+         * ‏Codex, P1). עכשיו מקור אחד לשניהם.
+         */
+        setSubject(res.subject ?? null);
+        serverSubject.current = res.subject ?? null;
       })
       .catch(() => {
         if (seq !== loadSeq.current) return;
@@ -2690,8 +2727,10 @@ function ChatSection({
   }, []);
 
   useEffect(() => {
+    /* ‏„שיחה חדשה” הוא מסך ריק במכוון — טעינה הייתה ממלאת אותו חזרה */
+    if (startFresh) return;
     load(openThread, anchor ?? undefined);
-  }, [load, openThread, anchor]);
+  }, [load, openThread, anchor, startFresh]);
 
   /*
    * ‏רשימת השיחות נטענת כשנפתחת, ולא עם העמוד: היא מאחורי לחיצה,
@@ -2736,6 +2775,28 @@ function ChatSection({
       live = false;
     };
   }, [pinnedOpen, pinVersion]);
+
+  /*
+   * ‏רשימת הבחירה — נטענת כשהיא נפתחת, ומחדש בכל שינוי סוג או
+   * ‏חיפוש. השרת מחזיר מזהה וכותרת בלבד; העובדות נאספות בשאלה
+   * ‏עצמה, כי כרטיס זז ותמונת מצב שנשמרה כאן הייתה מזדקנת.
+   */
+  useEffect(() => {
+    if (!subjectOpen) return;
+    let live = true;
+    const params = new URLSearchParams({ kind: subjectKind });
+    if (subjectQuery.trim() !== "") params.set("q", subjectQuery.trim());
+    apiGet<{ subjects: SubjectOption[] }>(`/mentor/subjects?${params.toString()}`)
+      .then((res) => {
+        if (live) setOptions(apiList(res.subjects, "subjects"));
+      })
+      .catch(() => {
+        if (live) setOptions([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [subjectOpen, subjectKind, subjectQuery]);
 
   /*
    * ‎**גלילה להודעה חדשה — לא בטעינה הראשונה.**
@@ -2869,8 +2930,22 @@ function ChatSection({
           : startFresh
             ? { into: "new" as const }
             : {}),
+        /*
+         * ‎**שלושה מצבים, כמו בשרת.**
+         *
+         * ‏כרטיס מצורף — נשלח. אין כרטיס **אחרי** שהיה אחד — נשלח
+         * ‎`null`, כלומר ניתוק מפורש, כי אחרת השרת היה גוזר מההודעות
+         * ‏וממשיך לשלוח את פרטיו. ואין כרטיס ומעולם לא היה — אין מה
+         * ‏לומר, והשמטה חוסכת שורת „אין כרטיס” על כל הודעה.
+         */
+        ...(subject !== null
+          ? { attach: { kind: subject.kind, id: subject.id } }
+          : serverSubject.current !== null
+            ? { attach: null }
+            : {}),
       });
       setStartFresh(false);
+      serverSubject.current = subject;
       setTurns((prev) => [...(prev ?? []), res.turn]);
       if (res.proposedGoal !== undefined) {
         setProposal({ goal: res.proposedGoal, afterTurnId: res.turn.id });
@@ -2958,6 +3033,9 @@ function ChatSection({
             setStartFresh(true);
             setHistoryOpen(false);
             setPinnedOpen(false);
+            setSubjectOpen(false);
+            /* ‏שיחה חדשה מתחילה בלי כרטיס — היא אינה המשך של דבר */
+            setSubject(null);
           }}
         >
           שיחה חדשה
@@ -2980,10 +3058,44 @@ function ChatSection({
           onClick={() => {
             setPinnedOpen((v) => !v);
             setHistoryOpen(false);
+            setSubjectOpen(false);
           }}
         >
           נעוצים
         </button>
+        <button
+          type="button"
+          className="mv-btn-plain"
+          aria-expanded={subjectOpen}
+          onClick={() => {
+            setSubjectOpen((v) => !v);
+            setHistoryOpen(false);
+            setPinnedOpen(false);
+          }}
+        >
+          צירוף כרטיס
+        </button>
+        {/*
+          ‎**מה מצורף — כתוב, ולא רק זכור.**
+
+          ‏שיחה שנמשכת על כרטיס בלי שהמסך אומר איזה היא שיחה שבה
+          ‏„הוא” ו„היא” אינם ברורים למי שחוזר אליה מחר. הניתוק יושב
+          ‏על אותה שורה, כי „מה מצורף” ו„להסיר” הן אותה שאלה.
+        */}
+        {subject === null ? null : (
+          <span className="mv-mentor__subject">
+            <span className="mv-mentor__subjecttitle">{subject.title}</span>
+            <button
+              type="button"
+              className="mv-mentor__subjectoff"
+              onClick={() => setSubject(null)}
+              aria-label="ניתוק הכרטיס מהשיחה"
+              title="ניתוק הכרטיס מהשיחה"
+            >
+              ✕
+            </button>
+          </span>
+        )}
         {openThread === null ? null : (
           <span className="mv-mentor__threadnote">
             שיחה קודמת — מה שתכתבו כאן ימשיך אותה
@@ -3102,6 +3214,78 @@ function ChatSection({
                   </button>
                 </li>
               )}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
+      {/*
+        ‎**רשימת הבחירה — הכרטיסים שלי בלבד.**
+
+        ‏מנהל רואה את כרטיסי המשרד, וכאן הרשימה צרה יותר בכוונה:
+        ‏מה שנוסע למנטור הוא מה ששלי. השרת אוכף את זה, והמסך אינו
+        ‏מציע אחרת.
+      */}
+      {subjectOpen ? (
+        <div className="mv-mentor__history">
+          <div className="mv-mentor__subjectbar">
+            <button
+              type="button"
+              className="mv-btn-plain"
+              data-on={subjectKind === "buyer"}
+              aria-pressed={subjectKind === "buyer"}
+              onClick={() => {
+                setSubjectKind("buyer");
+                setOptions(null);
+              }}
+            >
+              קונים
+            </button>
+            <button
+              type="button"
+              className="mv-btn-plain"
+              data-on={subjectKind === "property"}
+              aria-pressed={subjectKind === "property"}
+              onClick={() => {
+                setSubjectKind("property");
+                setOptions(null);
+              }}
+            >
+              נכסים
+            </button>
+            <input
+              className="mv-input mv-mentor__subjectsearch"
+              value={subjectQuery}
+              onChange={(e) => setSubjectQuery(e.target.value)}
+              placeholder={subjectKind === "buyer" ? "שם הקונה" : "רחוב או עיר"}
+              aria-label="חיפוש כרטיס"
+            />
+          </div>
+          {options === null ? (
+            <p className="m-0">טוען…</p>
+          ) : options.length === 0 ? (
+            <p className="m-0">
+              {subjectQuery.trim() === ""
+                ? "אין כרטיסים שלך לצרף."
+                : "לא נמצא כרטיס שלך בשם הזה."}
+            </p>
+          ) : (
+            <ul className="m-0 list-none p-0">
+              {options.map((o) => (
+                <li key={`${o.kind}:${o.id}`}>
+                  <button
+                    type="button"
+                    className="mv-mentor__historyrow"
+                    data-open={subject?.kind === o.kind && subject.id === o.id}
+                    onClick={() => {
+                      setSubject(o);
+                      setSubjectOpen(false);
+                    }}
+                  >
+                    <span className="mv-mentor__historytitle">{o.title}</span>
+                  </button>
+                </li>
+              ))}
             </ul>
           )}
         </div>
