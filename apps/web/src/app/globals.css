@@ -8493,6 +8493,19 @@ a.mv-bar-row:focus-visible {
   color: var(--color-text-muted);
 }
 
+/*
+ * ‏שורת נעוץ נושאת משפט שלם ולא כותרת קצרה. שתי שורות ואז חיתוך:
+ * ‏מספיק כדי לזהות איזה משפט זה, בלי ששורה אחת תמלא את הרשימה.
+ */
+.mv-mentor__pintext {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-weight: 500;
+}
+
 .mv-mentor__stream {
   flex: 1;
   min-height: 0;

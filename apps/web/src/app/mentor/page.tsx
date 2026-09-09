@@ -166,6 +166,8 @@ interface Overview {
 
 interface Turn {
   id: string;
+  /** ‏השיחה שההודעה בה — מה שמאפשר לקפוץ מנעוץ אל ההקשר שלו */
+  threadId?: string;
   role: "user" | "mentor";
   text: string;
   createdAt: string;
@@ -2610,6 +2612,16 @@ function ChatSection({
   const [startFresh, setStartFresh] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [threads, setThreads] = useState<MentorThread[] | null>(null);
+  /*
+   * ‎**הנעוצים — הצד השני של הנעיצה.**
+   *
+   * ‏בלי רשימה, נעיצה היא סימון שאין ממנו דרך חזרה: המשפט נשמר
+   * ‏ואי אפשר להגיע אליו. שתי הרשימות נפתחות מאותה שורה ואחת
+   * ‏סוגרת את השנייה, כי שתיהן תופסות את אותו מקום מעל השיחה.
+   */
+  const [pinnedOpen, setPinnedOpen] = useState(false);
+  const [pins, setPins] = useState<Turn[] | null>(null);
+  const [pinVersion, setPinVersion] = useState(0);
 
   /*
    * ‎**טעינה שאחרה אינה דורסת את מה שכבר על המסך.**
@@ -2659,6 +2671,26 @@ function ChatSection({
       live = false;
     };
   }, [historyOpen]);
+
+  /*
+   * ‏אותו דפוס כמו רשימת השיחות: נטענת כשנפתחת. `pinVersion` מכריח
+   * ‏טעינה מחדש אחרי נעיצה או ביטולה, אחרת הרשימה הייתה מציגה את
+   * ‏המצב שהיה כשנפתחה בפעם הקודמת.
+   */
+  useEffect(() => {
+    if (!pinnedOpen) return;
+    let live = true;
+    apiGet<{ turns: Turn[] }>("/mentor/messages/pinned")
+      .then((res) => {
+        if (live) setPins(apiList(res.turns, "turns"));
+      })
+      .catch(() => {
+        if (live) setPins([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [pinnedOpen, pinVersion]);
 
   /*
    * ‎**גלילה להודעה חדשה — לא בטעינה הראשונה.**
@@ -2717,6 +2749,8 @@ function ChatSection({
     );
     try {
       await apiPost(`/mentor/messages/${turn.id}/pin`, { pinned: !wasPinned });
+      /* ‏הרשימה מתיישנת ברגע שנעצו — הסימון כאן מכריח טעינה מחדש */
+      setPinVersion((v) => v + 1);
     } catch {
       setTurns((prev) =>
         (prev ?? []).map((t) =>
@@ -2844,6 +2878,7 @@ function ChatSection({
             setOpenThread(null);
             setStartFresh(true);
             setHistoryOpen(false);
+            setPinnedOpen(false);
           }}
         >
           שיחה חדשה
@@ -2852,9 +2887,23 @@ function ChatSection({
           type="button"
           className="mv-btn-plain"
           aria-expanded={historyOpen}
-          onClick={() => setHistoryOpen((v) => !v)}
+          onClick={() => {
+            setHistoryOpen((v) => !v);
+            setPinnedOpen(false);
+          }}
         >
           שיחות קודמות
+        </button>
+        <button
+          type="button"
+          className="mv-btn-plain"
+          aria-expanded={pinnedOpen}
+          onClick={() => {
+            setPinnedOpen((v) => !v);
+            setHistoryOpen(false);
+          }}
+        >
+          נעוצים
         </button>
         {openThread === null ? null : (
           <span className="mv-mentor__threadnote">
@@ -2887,6 +2936,51 @@ function ChatSection({
                     <span className="mv-mentor__historytitle">{t.title}</span>
                     <span className="mv-mentor__historymeta">
                       {jerusalemDayLabel(new Date(t.lastAt))} · {t.messages} הודעות
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
+      {/*
+        ‎**הרשימה שהופכת נעיצה לדבר שאפשר לחזור אליו.**
+
+        ‏לחיצה על שורה פותחת את השיחה שההודעה נאמרה בה — כי משפט
+        ‏בלי מה שנאמר סביבו הוא ציטוט, לא עצה. מכאן גם `threadId`
+        ‏על כל שורה.
+      */}
+      {pinnedOpen ? (
+        <div className="mv-mentor__history">
+          {pins === null ? (
+            <p className="m-0">טוען נעוצים…</p>
+          ) : pins.length === 0 ? (
+            <p className="m-0">
+              עדיין לא נעצתם משפט. הסימון 📌 שמתחת לתשובה שומר אותה כאן.
+            </p>
+          ) : (
+            <ul className="m-0 list-none p-0">
+              {pins.map((t) => (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    className="mv-mentor__historyrow"
+                    data-open={t.threadId !== undefined && t.threadId === openThread}
+                    onClick={() => {
+                      if (t.threadId === undefined) return;
+                      setProposal(null);
+                      setOpenThread(t.threadId);
+                      setStartFresh(false);
+                      setPinnedOpen(false);
+                    }}
+                  >
+                    <span className="mv-mentor__historytitle mv-mentor__pintext">
+                      {t.text}
+                    </span>
+                    <span className="mv-mentor__historymeta">
+                      {jerusalemDayLabel(new Date(t.createdAt))} · פתיחת השיחה
                     </span>
                   </button>
                 </li>

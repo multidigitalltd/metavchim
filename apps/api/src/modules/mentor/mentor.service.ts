@@ -202,6 +202,12 @@ export interface MentorTurnDto {
   /** ‏מתי נעצה, אם נעצה — המסך צובע לפי זה */
   pinnedAt?: string | null;
   id: string;
+  /**
+   * ‏השיחה שההודעה שייכת לה. ברשימת השיחה עצמה זו ידיעה מיותרת;
+   * ‏ברשימת הנעוצים היא **כל התכלית** — משפט שנעצת נמצא בשיחה
+   * ‏אחרת, ובלי המזהה אין מאיפה לפתוח אותה.
+   */
+  threadId: string;
   role: "user" | "mentor";
   text: string;
   createdAt: Date;
@@ -1474,6 +1480,7 @@ export class MentorService {
 
   static turnDto(row: {
     id: string;
+    threadId: string;
     role: string;
     text: string;
     createdAt: Date;
@@ -1482,6 +1489,7 @@ export class MentorService {
   }): MentorTurnDto {
     return {
       id: row.id,
+      threadId: row.threadId,
       role: row.role as "user" | "mentor",
       text: row.text,
       createdAt: row.createdAt,
