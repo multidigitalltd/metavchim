@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import {
   BUYER_TARGET_LABELS,
+  decodeImportBytes,
   LEAD_TARGET_LABELS,
   parseBuyersCsv,
   parseLeadsCsv,
@@ -17,6 +18,7 @@ import {
   type ParsedBuyerRow,
   type ParsedLeadRow,
   type ParsedRecruitmentRow,
+  type ImportEncoding,
   type ParsedRow,
 } from "@metavchim/shared";
 import { ApiError, apiPost } from "@/lib/api";
@@ -69,6 +71,14 @@ const SAMPLES: Record<Mode, string> = {
     '"יוסי לוי",050-1234567,yossi@example.com,קנייה,פייסבוק,"מתעניין בדירות 4 חדרים בבני ברק"',
     '"רות כהן",052-7654321,,מכירה,אתר,"רוצה להעריך את הדירה שלה ברמת גן"',
   ].join("\n"),
+};
+
+/** ‏שם הקידוד בשפה של המתווך, לא בשפה של התקן. */
+const ENCODING_LABELS: Record<ImportEncoding, string> = {
+  "utf-8": "UTF-8",
+  "utf-16le": "UTF-16",
+  "utf-16be": "UTF-16",
+  "windows-1255": "עברית של ווינדוס (Windows-1255)",
 };
 
 const MODE_LABELS: Record<Mode, string> = {
@@ -161,6 +171,8 @@ export default function ImportPage() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** ‏הקידוד שזוהה בקובץ — נאמר למתווך כשהוא אינו UTF-8. */
+  const [encoding, setEncoding] = useState<ImportEncoding | null>(null);
 
   const parsed = useMemo(() => {
     const empty = {
@@ -225,6 +237,14 @@ export default function ImportPage() {
   // קבצים גדולים נשלחים באצוות של 500 — התקרה כאן היא רק רשת ביטחון בדפדפן
   const tooMany = rowCount > 10_000;
 
+  /*
+   * ‎**„עמודה אחת בלבד, ואפס שורות”** — החתימה של מפריד שלא זוהה.
+   * ‏עמודה שלא מופתה היא בעיית מיפוי; שורה שלמה בתא אחד היא בעיית
+   * ‏פירוק, וההודעה חייבת להבדיל ביניהן.
+   */
+  const noDelimiter =
+    csv.trim() !== "" && rowCount === 0 && parsed.unmappedHeaders.length === 1;
+
   function reset(): void {
     setResult(null);
     setError(null);
@@ -244,14 +264,26 @@ export default function ImportPage() {
       file
         .arrayBuffer()
         .then((buf) => import("@/lib/xlsx").then((m) => m.xlsxFileToCsv(buf)))
-        .then(setCsv)
+        .then((text) => {
+          setEncoding(null);
+          setCsv(text);
+        })
         .catch(() => setError("קריאת קובץ ה-xlsx נכשלה — אפשר לשמור אותו כ-CSV ולנסות שוב"));
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => setCsv(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () => setError("קריאת הקובץ נכשלה");
-    reader.readAsText(file, "utf-8");
+    /*
+     * ‎**הקידוד נקבע מהתוכן ולא מהנחה.** `readAsText(file, "utf-8")`
+     * ‏— מה שהיה כאן — הפך ייצוא Windows-1255 (webtiv, אקסל עברי
+     * ‏ישן) לשורה שלמה של `?`. הקריאה כבייטים מאפשרת לזהות.
+     */
+    file
+      .arrayBuffer()
+      .then((buf) => {
+        const decoded = decodeImportBytes(new Uint8Array(buf));
+        setEncoding(decoded.encoding);
+        setCsv(decoded.text);
+      })
+      .catch(() => setError("קריאת הקובץ נכשלה"));
   }
 
   async function onSubmit(): Promise<void> {
@@ -409,6 +441,7 @@ export default function ImportPage() {
         <Button
           variant="ghost"
           onClick={() => {
+            setEncoding(null);
             setCsv(SAMPLES[mode]);
             reset();
           }}
@@ -424,6 +457,7 @@ export default function ImportPage() {
         id="csv-input"
         value={csv}
         onChange={(e) => {
+          setEncoding(null);
           setCsv(e.target.value);
           reset();
         }}
@@ -435,8 +469,51 @@ export default function ImportPage() {
         aria-describedby="csv-help"
       />
       <p id="csv-help" className="mv-visually-hidden">
-        שורה ראשונה היא כותרות העמודות, כל שורה נוספת היא רשומה. מפרידים בפסיקים.
+        שורה ראשונה היא כותרות העמודות, כל שורה נוספת היא רשומה. המפריד — פסיק, טאב או
+        נקודה-פסיק — והקידוד מזוהים מהקובץ עצמו.
       </p>
+
+      {/*
+        ‏הצהרה, לא אזהרה: הקובץ נקרא בהצלחה, ורק לא ב-UTF-8. שתיקה
+        ‏כאן הייתה משאירה את המתווך בלי לדעת למה הפעם זה עבד.
+      */}
+      {encoding !== null && encoding !== "utf-8" ? (
+        <p
+          role="status"
+          className="mb-4 rounded-lg border p-3"
+          style={{
+            borderColor: "var(--color-border)",
+            background: "var(--color-surface-muted, var(--color-surface))",
+            fontSize: "var(--type-caption)",
+          }}
+        >
+          הקובץ אינו UTF-8 — זוהה {ENCODING_LABELS[encoding]} ופוענח בהתאם. אין צורך להמיר אותו.
+        </p>
+      ) : null}
+
+      {/*
+        ‎**„עמודה אחת” אינה „עמודה שלא זוהתה”.** כשכל השורה נכנסה
+        ‏לתא אחד, המפריד הוא מה שלא נמצא — ולומר „1 עמודות לא זוהו”
+        ‏שולח את המתווך לתקן מיפוי שאינו הבעיה.
+      */}
+      {noDelimiter ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-xl border-2 p-4"
+          style={{
+            borderColor: "var(--color-warning, #d97706)",
+            background: "var(--color-warning-bg)",
+            color: "var(--color-text)",
+          }}
+        >
+          <p className="m-0 font-bold" style={{ fontSize: "var(--type-button)" }}>
+            <IconWarning s={15} /> לא נמצא מפריד עמודות — כל השורה נקראה כתא אחד
+          </p>
+          <p className="m-0 mt-1" style={{ fontSize: "var(--type-caption)" }}>
+            נתמכים פסיק, טאב ונקודה-פסיק. אם הקובץ מופרד אחרת, שמירה מחדש כ-CSV תפתור.
+          </p>
+        </div>
+      ) : null}
 
       {mappableHeaders.length > 0 ? (
         /*
