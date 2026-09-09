@@ -1,5 +1,10 @@
 import type { Readable } from "node:stream";
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   assertContactAccess,
@@ -566,6 +571,8 @@ export class CallsService {
           phoneEncrypted: true,
           summary: true,
           direction: true,
+          outcome: true,
+          occurredAt: true,
         },
       });
       if (!row) throw new NotFoundException("שיחה לא נמצאה");
@@ -601,20 +608,79 @@ export class CallsService {
     });
 
     /*
+     * ‎**ליד שמוזג לליד של עמית אינו שלי** (ביקורת Codex, P1).
+     *
+     * ‎`create` ממזג לליד פתוח קיים של אותו איש קשר — ומחזיר
+     * ‎`visible: false` כשהליד ההוא שייך לסוכן אחר. חיבור השיחה
+     * ‏אליו היה מפיל אותה מהרשימה של הסוכן הנוכחי (מסנן השיחות
+     * ‏נשען על הליד), כלומר `onLead()` היה מרענן והשיחה הייתה
+     * ‏נעלמת מתחת לידיים באמצע ההמרה שהוא עצמו התחיל.
+     *
+     * ‏אין מה לגלגל אחורה: מיזוג לא יצר שום שורה חדשה.
+     */
+    if (!lead.visible) {
+      throw new ForbiddenException(
+        "המספר הזה משויך ללקוח שאינו נגיש לך, פנו למנהל המשרד",
+      );
+    }
+
+    /*
      * ‎`leadId: null` בתנאי: שתי המרות במקביל על אותה שיחה יגיעו
      * ‏שתיהן לכאן, והשנייה אינה דורסת. `create` ממזג לליד הפתוח,
      * ‏ולכן שתיהן מצביעות ממילא לאותו מקום — אבל הכתיבה המותנית
      * ‏היא מה שהופך את זה לוודאי ולא להסתמכות.
      */
     const leadId = await this.prisma.withTenant(async (tx) => {
+      const created = await tx.lead.findFirst({
+        where: { id: lead.id, tenantId },
+        select: { contactId: true, createdAt: true },
+      });
+      /*
+       * ‎**גם `contactId`, ולא רק הליד** (ביקורת Codex, P1).
+       *
+       * ‏במקרה שבשבילו הפעולה נבנתה — מתקשר לא מוכר — לשיחה אין
+       * ‏כרטיס, ו-`create` פותח גם ליד וגם כרטיס. כתיבת הליד בלבד
+       * ‏הייתה משאירה את השיחה **בלי כרטיס לתמיד**: היסטוריה לפי
+       * ‏לקוח (`list({ contactId })`) ועיבוד חזרה לא היו מוצאים
+       * ‏אותה גם אחרי שהליד הפך לקונה.
+       *
+       * ‏כרטיס שכבר על השיחה אינו נדרס — הוא מדויק ממה שנגזר.
+       */
       await tx.call.updateMany({
         where: { id, tenantId, leadId: null },
-        data: { leadId: lead.id },
+        data: {
+          leadId: lead.id,
+          ...(existing.contactId === null && created?.contactId
+            ? { contactId: created.contactId }
+            : {}),
+        },
       });
       const after = await tx.call.findFirst({
         where: { id, tenantId },
         select: { leadId: true },
       });
+      /*
+       * ‎**שיחה שנענתה היא מענה** (ביקורת Codex, P1).
+       *
+       * ‏ליד שנפתח משיחה שנענתה נולד עם `firstResponseAt` ריק,
+       * ‏ולכן אירוע `lead.created` קובע לו הסלמת SLA ומדדי
+       * ‏המנטור סופרים אותו כ„לא נענה” — על שיחה שבה כבר דיברו.
+       *
+       * ‏אותו סייג בדיוק כמו במסלול יצירת השיחה: רק שיחה
+       * ‏**אחרי** שהליד נוצר. במיזוג לליד ותיק, שיחה שקדמה לו
+       * ‏הייתה נותנת זמן מענה שלילי.
+       */
+      if (
+        existing.outcome === "answered" &&
+        existing.occurredAt !== null &&
+        created !== null &&
+        existing.occurredAt >= created.createdAt
+      ) {
+        await tx.lead.updateMany({
+          where: { id: lead.id, tenantId, firstResponseAt: null },
+          data: { firstResponseAt: existing.occurredAt },
+        });
+      }
       await this.audit.record(tx, {
         action: "call.lead",
         entityType: "call",

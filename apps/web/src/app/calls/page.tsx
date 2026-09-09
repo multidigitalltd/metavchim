@@ -408,6 +408,18 @@ export default function CallsPage() {
     if (selected.leadId !== undefined && selected.leadStatus === undefined) return null;
     const mayBuyer = can(user, "buyers.edit");
     const mayProperty = can(user, "properties.create");
+    /*
+     * ‎**בלי ליד, `leads.edit` הוא תנאי לכל היעדים** (ביקורת Codex).
+     *
+     * ‏כל בחירה נפתחת ב-`POST /calls/:id/lead`, שדורש `leads.edit`.
+     * ‏הצגת „קונה” למי שיש לו `buyers.edit` בלבד הייתה מבטיחה
+     * ‏המרה שנופלת על 403 אחרי הלחיצה — כלומר תפריט שמפרסם מה
+     * ‏שאינו יכול לבצע.
+     *
+     * ‏לשיחה שכבר נושאת ליד אין את התלות הזו, והרשאות ההמרה
+     * ‏עצמן מספיקות.
+     */
+    if (selected.leadId === undefined && !mayEdit) return null;
     if (!mayBuyer && !mayProperty && !mayEdit) return null;
 
     const highlights = selected.highlights ?? {};
