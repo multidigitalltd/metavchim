@@ -2605,17 +2605,31 @@ function ChatSection({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [threads, setThreads] = useState<MentorThread[] | null>(null);
 
-  const load = useCallback(
-    (thread: string | null) => {
-      setLoadFailed(false);
-      apiGet<{ turns: Turn[] }>(
-        thread === null ? "/mentor/messages" : `/mentor/messages?thread=${thread}`,
-      )
-        .then((res) => setTurns(apiList(res.turns, "turns")))
-        .catch(() => setLoadFailed(true));
-    },
-    [],
-  );
+  /*
+   * ‎**טעינה שאחרה אינה דורסת את מה שכבר על המסך.**
+   *
+   * ‏טעינת השיחה הנוכחית יכולה עדיין להיות באוויר כשמישהו בוחר
+   * ‏שיחה מההיסטוריה. בלי השמירה הזו, התשובה שמגיעה שנייה מנצחת —
+   * ‏ולכן המסך יכול להציג שיחה אחת בזמן ש-`openThread` מצביע על
+   * ‏אחרת, וההודעה הבאה נכתבת לשיחה שאינה זו שקוראים (ביקורת
+   * ‏Codex). המונה מזהה את הבקשה האחרונה, וכל מי שאינו היא — שותק.
+   */
+  const loadSeq = useRef(0);
+  const load = useCallback((thread: string | null) => {
+    const seq = (loadSeq.current += 1);
+    setLoadFailed(false);
+    apiGet<{ turns: Turn[] }>(
+      thread === null ? "/mentor/messages" : `/mentor/messages?thread=${thread}`,
+    )
+      .then((res) => {
+        if (seq !== loadSeq.current) return;
+        setTurns(apiList(res.turns, "turns"));
+      })
+      .catch(() => {
+        if (seq !== loadSeq.current) return;
+        setLoadFailed(true);
+      });
+  }, []);
 
   useEffect(() => {
     load(openThread);
@@ -2767,6 +2781,21 @@ function ChatSection({
              * ‏השיחה החדשה נפתחת בהודעה הבאה — השרת מכריע, ולא המסך
              * ‏יוצר שיחה ריקה שאולי לעולם לא תיכתב בה מילה.
              */
+            /*
+             * ‎**המסך מתרוקן כאן, ולא נשען על טעינה מחדש.**
+             *
+             * ‏כשכבר צופים בשיחה הנוכחית, `setOpenThread(null)` אינו
+             * ‏משנה דבר ולכן אינו מפעיל טעינה — והשיחה הקודמת נשארה
+             * ‏על המסך. ההודעה הבאה נשמרה נכון בשיחה חדשה, אבל
+             * ‏הצטרפה חזותית לישנה: שתי שיחות במסד, אחת במסך
+             * ‏(ביקורת Codex, P1).
+             *
+             * ‏ריקון מפורש הוא גם התיאור הנכון של מה שקורה: „שיחה
+             * ‏חדשה” פירושה מסך נקי, מיד.
+             */
+            loadSeq.current += 1;
+            setTurns([]);
+            setProposal(null);
             setOpenThread(null);
             setStartFresh(true);
             setHistoryOpen(false);
@@ -2804,6 +2833,7 @@ function ChatSection({
                     className="mv-mentor__historyrow"
                     data-open={t.id === openThread}
                     onClick={() => {
+                      setProposal(null);
                       setOpenThread(t.id);
                       setStartFresh(false);
                       setHistoryOpen(false);

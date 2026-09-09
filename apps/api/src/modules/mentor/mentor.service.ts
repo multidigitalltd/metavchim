@@ -741,18 +741,34 @@ export class MentorService {
   async turns(
     limit = 40,
     threadId?: string,
+    now: Date = new Date(),
   ): Promise<{ turns: MentorTurnDto[]; threadId: string | null }> {
     const { tenantId, userId } = TenantContext.current();
     const rows = await this.prisma.withTenant(async (tx) => {
-      const id =
-        threadId ??
-        (
-          await tx.mentorMessage.findFirst({
-            where: { tenantId, userId },
-            orderBy: { createdAt: "desc" },
-            select: { threadId: true },
-          })
-        )?.threadId;
+      let id = threadId;
+      if (id === undefined) {
+        const newest = await tx.mentorMessage.findFirst({
+          where: { tenantId, userId },
+          orderBy: { createdAt: "desc" },
+          select: { threadId: true, createdAt: true },
+        });
+        /*
+         * ‎**אותו כלל שקרוי בכתיבה, גם בקריאה.**
+         *
+         * ‏‎`ask` מכריע לפי `mentorStartsNewThread` שהודעה אחרי שש
+         * ‏שעות שקט פותחת שיחה חדשה. הקריאה כאן החזירה את השיחה
+         * ‏האחרונה **בלי קשר לגילה**, ולכן מי שחזר למחרת ראה את
+         * ‏שיחת אתמול, כתב בה — וההודעה נשמרה בשיחה חדשה בזמן שהמסך
+         * ‏הציג את שתיהן כאחת (ביקורת Codex, P1).
+         *
+         * ‏זה בדיוק מה שהקבוע המשותף נועד למנוע, ולא השתמשתי בו
+         * ‏בצד הקריאה. כלל אחד, שני קוראים.
+         */
+        id =
+          newest !== null && !mentorStartsNewThread(newest.createdAt, now)
+            ? newest.threadId
+            : undefined;
+      }
       if (id === undefined) return [];
       return tx.mentorMessage.findMany({
         where: { tenantId, userId, threadId: id },
