@@ -73,10 +73,34 @@ describe("השמירה", () => {
    */
   it("נעצרת לפני השליחה כשאין מקום לכולם", () => {
     const body = addBody();
-    expect(body).toContain("twinBatchRejectionReason(twins?.length ?? 0, chosen.length)");
+    expect(body).toContain("twinBatchRejectionReason(twins.length, chosen.length)");
     const guard = body.indexOf("twinBatchRejectionReason");
     const firstPost = body.indexOf("apiPost");
     expect(guard, "הבדיקה חייבת לקדום לשליחה").toBeLessThan(firstPost);
+  });
+
+  /*
+   * ‎**„לא ידוע” אינו „אפס”** (ביקורת Codex, P2).
+   *
+   * ‏`twins` נשאר `null` כשהשליפה נכשלה או טרם חזרה. ‎`?? 0` בבדיקת
+   * ‏התקרה הפך אותו ל„אין תואמים”: נכס עם אחד-עשר היה מקבל אישור
+   * ‏לחמישה, והשרת היה מקבל את הראשון ודוחה את השאר — בדיוק
+   * ‏השמירה החלקית שהבדיקה נועדה למנוע. אותה הבחנה שהקובץ הזה
+   * ‏כבר עושה על הרשימה עצמה.
+   */
+  it("ואינה קוראת מספר לא ידוע כאפס", () => {
+    const body = addBody();
+    expect(body, "‎`?? 0` הופך „לא ידוע” ל„יש מקום”").not.toContain("twins?.length ?? 0");
+    const unknown = body.indexOf("twins === null");
+    const guard = body.indexOf("twinBatchRejectionReason");
+    expect(unknown, "אין עצירה על מספר לא ידוע").toBeGreaterThan(-1);
+    expect(unknown, "הבדיקה חייבת לקדום לתקרה").toBeLessThan(guard);
+  });
+
+  /* ‏וגם הכפתור עצמו אינו נפתח כל עוד המספר אינו ידוע */
+  it("והכפתור אינו נפתח לפני שהמספר ידוע", () => {
+    expect(PICKER).toContain("disabled={atLimit || !countKnown}");
+    expect(PICKER).toContain("const countKnown = twins !== null");
   });
 
   /*

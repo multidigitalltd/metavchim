@@ -255,7 +255,21 @@ export function PropertyTwins({
       setError("בחרו נכס מהרשימה כדי לסמן אותו כנכס תואם.");
       return;
     }
-    const overLimit = twinBatchRejectionReason(twins?.length ?? 0, chosen.length);
+    /*
+     * ‎**„לא ידוע” אינו „אפס”** (ביקורת Codex, P2).
+     *
+     * ‏`twins` נשאר `null` כשהשליפה נכשלה או טרם חזרה — וזה בדיוק
+     * ‏מה שהקובץ הזה כבר אומר עליו במקום אחר: רשימה ריקה על סמך
+     * ‏כשל רשת היא הצהרה שאין לנו עליה מידע. ‎`?? 0` בבדיקת התקרה
+     * ‏הפך אותה להצהרה כזו: נכס עם אחד-עשר תואמים היה מקבל אישור
+     * ‏לחמישה, והשרת היה מקבל את הראשון ודוחה את השאר — כלומר
+     * ‏בדיוק השמירה החלקית שהבדיקה הזו נועדה למנוע.
+     */
+    if (twins === null) {
+      setError("רשימת הנכסים התואמים עדיין לא נטענה — אי אפשר לדעת כמה מקום נשאר.");
+      return;
+    }
+    const overLimit = twinBatchRejectionReason(twins.length, chosen.length);
     if (overLimit !== null) {
       setError(overLimit);
       return;
@@ -326,7 +340,9 @@ export function PropertyTwins({
     }
   }
 
-  const atLimit = (twins?.length ?? 0) >= MAX_TWINS_PER_PROPERTY;
+  /* ‏אותה הבחנה: „לא ידוע” אינו „יש מקום”, ולכן הכפתור אינו נפתח */
+  const countKnown = twins !== null;
+  const atLimit = countKnown && twins.length >= MAX_TWINS_PER_PROPERTY;
 
   return (
     <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="twins-heading">
@@ -351,11 +367,13 @@ export function PropertyTwins({
           <button
             type="button"
             className="mv-btn-action"
-            disabled={atLimit}
+            disabled={atLimit || !countKnown}
             title={
               atLimit
                 ? `הגעתם ל-${MAX_TWINS_PER_PROPERTY} נכסים תואמים`
-                : undefined
+                : countKnown
+                  ? undefined
+                  : "רשימת הנכסים התואמים עדיין לא נטענה"
             }
             onClick={() => void openPicker()}
           >
