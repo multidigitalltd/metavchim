@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   MENTOR_THREAD_GAP_MS,
   MENTOR_THREAD_TITLE_MAX,
+  MENTOR_MESSAGE_VERDICTS,
+  isMentorMessageVerdict,
   mentorStartsNewThread,
   mentorThreadTitle,
+  nextMentorVerdict,
 } from "./mentor-thread.js";
 
 const at = (iso: string): Date => new Date(iso);
@@ -80,5 +83,33 @@ describe("mentorThreadTitle — שם השיחה הוא מה ששאלו בה", ()
     const title = mentorThreadTitle("א".repeat(120));
     expect(title.length).toBe(MENTOR_THREAD_TITLE_MAX + 1);
     expect(title.startsWith("אאא")).toBe(true);
+  });
+});
+
+describe("nextMentorVerdict — לחיצה שנייה מבטלת", () => {
+  it("דירוג ראשון נקבע", () => {
+    expect(nextMentorVerdict(null, "helpful")).toBe("helpful");
+    expect(nextMentorVerdict(null, "not_helpful")).toBe("not_helpful");
+  });
+
+  /*
+   * ‏בלי זה הדרך היחידה לחזור מלחיצה בטעות הייתה לדרג הפוך — כלומר
+   * ‏לומר על תשובה טובה שהיא לא עזרה, ולהרעיל את הנתון.
+   */
+  it("אותה לחיצה פעמיים מנקה", () => {
+    expect(nextMentorVerdict("helpful", "helpful")).toBeNull();
+    expect(nextMentorVerdict("not_helpful", "not_helpful")).toBeNull();
+  });
+
+  it("לחיצה על השני מחליפה, ולא מנקה", () => {
+    expect(nextMentorVerdict("helpful", "not_helpful")).toBe("not_helpful");
+    expect(nextMentorVerdict("not_helpful", "helpful")).toBe("helpful");
+  });
+
+  it("isMentorMessageVerdict דוחה כל מה שאינו ברשימה", () => {
+    for (const v of MENTOR_MESSAGE_VERDICTS) expect(isMentorMessageVerdict(v)).toBe(true);
+    for (const v of ["", "good", "pinned", null, 1, {}]) {
+      expect(isMentorMessageVerdict(v)).toBe(false);
+    }
   });
 });
