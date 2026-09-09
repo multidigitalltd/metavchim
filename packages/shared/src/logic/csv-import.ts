@@ -1,5 +1,6 @@
 import type { PropertyFields } from "../schemas/property.js";
 import type { PropertyType } from "../schemas/property.js";
+import { detectDelimiter, type ImportDelimiter } from "./import-encoding.js";
 import {
   RECRUITMENT_SOURCE_LABELS,
   RECRUITMENT_STATUS_LABELS,
@@ -7,8 +8,8 @@ import {
 
 /**
  * מיפוי CSV לשדות נכס (docs/08 §6 — Onboarding). מנתח CSV פשוט
- * (מפריד פסיקים, תומך בגרשיים) וממפה כותרות עבריות נפוצות לשדות.
- * טהור וניתן לבדיקה — הפרונט קורא לו לפני שליחה לשרת.
+ * (המפריד מזוהה מהקובץ, תומך בגרשיים) וממפה כותרות עבריות נפוצות
+ * לשדות. טהור וניתן לבדיקה — הפרונט קורא לו לפני שליחה לשרת.
  */
 
 /**
@@ -450,8 +451,15 @@ export function parseCsvLine(line: string): string[] {
  * טוקנייזר CSV מלא: הולך על כל הקובץ ומכבד גרשיים — שורה חדשה בתוך תא
  * מצוטט נשארת חלק מהתא (ולא הופכת לרשומה מזויפת). זה מה שמאפשר
  * Round-trip של כותרות/הערות מרובות-שורות שיוצאו עם quoting תקין.
+ *
+ * ‎**המפריד נקבע מהקובץ ולא מהשם שלו.** הייצוא של webtiv הוא
+ * ‏`.csv` המופרד בטאבים, וקודם הוא נקרא כעמודה אחת ענקית — 17
+ * ‏עמודות שנדחסו לאחת, ו„ייבא 0 נכסים”. ‎`detectDelimiter` בוחר
+ * ‏פסיק אלא אם מפריד אחר שכיח ממנו ממש בשורת הכותרת, ולכן קובץ
+ * ‏פסיקים תקין אינו משנה התנהגות. אפשר גם למסור מפריד מפורש.
  */
-export function parseCsvRecords(csv: string): string[][] {
+export function parseCsvRecords(csv: string, delimiter?: ImportDelimiter): string[][] {
+  const sep = delimiter ?? detectDelimiter(csv);
   const records: string[][] = [];
   let row: string[] = [];
   let current = "";
@@ -480,7 +488,7 @@ export function parseCsvRecords(csv: string): string[][] {
         inQuotes = !inQuotes;
       }
       cellStarted = true;
-    } else if (char === "," && !inQuotes) {
+    } else if (char === sep && !inQuotes) {
       pushCell();
     } else if ((char === "\n" || char === "\r") && !inQuotes) {
       if (char === "\r" && csv[i + 1] === "\n") i += 1;

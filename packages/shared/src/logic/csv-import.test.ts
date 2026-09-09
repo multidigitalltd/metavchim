@@ -9,6 +9,7 @@ import {
   propertyTypeFromCsv,
   propertyTypesForTerm,
 } from "./csv-import.js";
+import { decodeImportBytes } from "./import-encoding.js";
 
 describe("parseShekelsToAgorot", () => {
   it("שומר על נקודה עשרונית ומפריד אלפים", () => {
@@ -405,5 +406,104 @@ describe("חיפוש סוג נכס בעברית", () => {
   it("מונח ריק אינו מחזיר את כל הסוגים", () => {
     expect(propertyTypesForTerm("")).toEqual([]);
     expect(propertyTypesForTerm("   ")).toEqual([]);
+  });
+});
+
+/*
+ * ‎**הקובץ כפי שהוא באמת יוצא, ולא כפי שהוקלד כאן.**
+ *
+ * ‏הבדיקות למעלה כתובות בפסיקים וב-UTF-8, ולכן עברו בזמן שהייצוא
+ * ‏האמיתי של webtiv — **טאבים ו-Windows-1255** — נכשל לחלוטין:
+ * ‏17 עמודות נדחסו לאחת, כל האותיות הפכו ל-`?`, ו„ייבא 0 נכסים”.
+ * ‏זרע שאינו דומה למציאות מסתיר בדיוק את מה שהוא אמור לתפוס.
+ *
+ * ‏כאן נבדק המסלול המלא: בייטים ← פענוח ← זיהוי מפריד ← פירוק.
+ * ‏הערכים מומצאים; מה שנבדק הוא הצורה.
+ */
+function toCp1255Bytes(text: string): Uint8Array {
+  const out: number[] = [];
+  for (const ch of text) {
+    const code = ch.codePointAt(0)!;
+    if (code < 0x80) out.push(code);
+    else if (code >= 0x05d0 && code <= 0x05ea) out.push(0xe0 + (code - 0x05d0));
+    else throw new Error(`אין מיפוי ל-${ch}`);
+  }
+  return new Uint8Array(out);
+}
+
+describe("ייצוא webtiv כפי שהוא נשמר — טאבים ו-Windows-1255", () => {
+  const COLUMNS = [
+    "נקה מסומנים",
+    "שיוך",
+    "*",
+    "",
+    "סדורי",
+    "שם",
+    "טלפון1",
+    "נכס",
+    "חדר",
+    "מחיר",
+    "עיר",
+    "אז",
+    "רחוב",
+    "מס",
+    "קו",
+    "מע",
+    "פתיחה",
+    "עדכון",
+  ];
+  const VALUES = [
+    "",
+    "מאגר",
+    "*",
+    "עם תמונה במודעה",
+    "2790335",
+    "ישראלה",
+    "055-0000001",
+    "פנטהאוס",
+    "5",
+    '"3,500,000"',
+    "בני ברק",
+    "10",
+    "הרצל",
+    "18",
+    "4",
+    "כן",
+    "7/9/2026",
+    "7/9/2026",
+  ];
+  /** ‏טאבים, CRLF ו-1255 — שלושתם כפי שהקובץ האמיתי נשמר */
+  const bytes = toCp1255Bytes(
+    [COLUMNS.join("\t"), VALUES.join("\t")].join("\r\n"),
+  );
+
+  it("מפוענח ל-1255 ולא נקרא כ-UTF-8", () => {
+    expect(decodeImportBytes(bytes).encoding).toBe("windows-1255");
+  });
+
+  it("ונקרא לשורה מלאה — אותה תוצאה בדיוק כמו גרסת הפסיקים", () => {
+    const { rows } = parseRecruitmentCsv(decodeImportBytes(bytes).text);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({
+      ownerName: "ישראלה",
+      ownerPhone: "+972550000001",
+      propertyType: "penthouse",
+      rooms: 5,
+      priceAgorot: 350_000_000,
+      city: "בני ברק",
+      street: "הרצל",
+      houseNumber: "18",
+      floor: 4,
+    });
+  });
+
+  /*
+   * ‏„3,500,000” הוא תא אחד, ושלושת הפסיקים שבו אינם מפרידים.
+   * ‏ספירה תמימה הייתה מוצאת יותר פסיקים מטאבים בשורת הכותרת של
+   * ‏קבצים אמיתיים ובוחרת פסיק — כלומר משאירה את התקלה כפי שהיא.
+   */
+  it("והמחיר המצוטט לא הסיט את זיהוי המפריד", () => {
+    const { rows } = parseRecruitmentCsv(decodeImportBytes(bytes).text);
+    expect(rows[0]?.priceAgorot).toBe(350_000_000);
   });
 });
