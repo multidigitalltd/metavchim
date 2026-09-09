@@ -31,6 +31,15 @@ const PAGE = read(
   new URL("../../../../web/src/app/calls/page.tsx", import.meta.url),
 );
 /* ‎`read` מסיר הערות, ולכן מה שנבדק כאן הוא קוד בלבד. */
+/*
+ * ‏„איזו שיחה אפשר להמיר” — כלל אחד שהמסך והבוט מפעילים.
+ */
+const RULE = read(
+  new URL(
+    "../../../../../packages/shared/src/logic/call-convert-chat.ts",
+    import.meta.url,
+  ),
+);
 const FORMS = read(
   new URL("../../../../web/src/app/leads/convert-sections.tsx", import.meta.url),
 );
@@ -75,10 +84,18 @@ describe("ההמרה מתוך השיחה אינה מובילה למבוי סתו
   /*
    * הסינון חסר ערך אם המסך מסתפק ב„הסטטוס אינו converted”: ליד של
    * סוכן אחר פשוט אינו במפה, וחסר הוא בדיוק מה שצריך לחסום.
+   *
+   * ‎**והכלל עבר ל-shared** כשהבוט התחיל לבחור לפיו את אותה שיחה
+   * ‏(„המר ללקוח” בהתראה). הטענה לא השתנתה, רק המקום: המסך מפעיל
+   * ‏את הכלל המשותף, והכלל עצמו נושא את שני התנאים. שני עותקים
+   * ‏היו נפרדים בשקט, וההתראה הייתה מציעה המרה שהמסך אינו מציע.
    */
   it("המסך דורש נוכחות של הסטטוס ולא רק ערך שאינו converted", () => {
-    expect(PAGE).toMatch(/selected\.leadStatus === undefined\) return null;/u);
-    expect(PAGE).toMatch(/selected\.leadStatus === "converted"\) return null;/u);
+    expect(PAGE).toMatch(/if \(!callIsConvertible\(selected\)\) return null;/u);
+    expect(RULE).toMatch(/leadStatus === "converted"\) return false;/u);
+    expect(RULE).toMatch(
+      /leadId !== undefined && call\.leadStatus === undefined/u,
+    );
   });
 
   /*

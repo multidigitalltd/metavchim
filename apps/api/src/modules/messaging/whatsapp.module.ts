@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AgentModule } from "../agent/agent.module";
+import { CallsModule } from "../calls/calls.module";
 import { ContactsModule } from "../contacts/contacts.module";
 import { MentorModule } from "../mentor/mentor.module";
 import { ViewingReplyService } from "../calendar/viewing-reply.service";
@@ -32,12 +33,19 @@ import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
    * עצר?”, המתווך עונה בטקסט חופשי). מודול עלה: אינו מייבא דבר
    * מהוואטסאפ, ולכן אין מעגל.
    */
+  /*
+   * ‎`CallsModule` — „המר ללקוח” פותח ליד מהשיחה (`ensureLead`),
+   * ‏אותו שירות שהמסך קורא לו דרך `POST /calls/:id/lead`. אין
+   * ‏מעגל: מודול השיחות מייבא אנשי קשר ולידים בלבד, ואינו מייבא
+   * ‏דבר מהוואטסאפ.
+   */
   imports: [
     AgentModule,
     VoiceIntakeModule,
     MessagingModule,
     ContactsModule,
     MentorModule,
+    CallsModule,
   ],
   controllers: [WhatsAppWebhookController, WhatsAppConnectionController],
   /*

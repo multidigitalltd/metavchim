@@ -40,6 +40,11 @@ import {
   mayUseAction,
   pendingMissedCalls,
   rankCallbacks,
+  CALL_CONVERT_NONE,
+  callConvertQuestion,
+  callConvertSubject,
+  callConvertRefInCommand,
+  callIsConvertible,
   type AgentHistoryRef,
   type BuyerRequirements,
   type CallbackCandidate,
@@ -138,6 +143,14 @@ const MISSED_CALL_WINDOW_DAYS = 14;
  * בשאילתה שמחזירה שורה אחת לאיש קשר (ביקורת Codex).
  */
 const CALLBACK_LEAD_SCAN = 500;
+/**
+ * ‏כמה שיחות נסרקות כשלא נאמר איזו — „האחרונה שאפשר להמיר”.
+ *
+ * ‏קטן בכוונה: מי שמקליד „המר ללקוח” מתכוון לשיחה שהרגע הייתה,
+ * ‏ורשימה ארוכה הייתה מוצאת שיחה מלפני שבועיים ושואלת עליה. מי
+ * ‏שמתכוון לשיחה מסוימת לוחץ על הכפתור שבהתראה שלה.
+ */
+const CONVERT_CALL_SCAN = 20;
 /** אותו היגיון, על המשימות הפתוחות שקשורות ללידים בלבד. */
 const CALLBACK_TASK_SCAN = 500;
 
@@ -192,6 +205,15 @@ export interface ExecuteResult {
    * ‏מהשדה — הוא טוען את התרגול הפתוח בעצמו.
    */
   practice?: { id: string; counterpart: string };
+  /**
+   * ‎**שיחה שממתינה לסוג** — הערוץ שומר את המזהה, כי ההודעה הבאה
+   * ‏היא התשובה („קונה”/„מוכר”/„שוכר”/„משכיר”) ולא בקשה חדשה.
+   *
+   * ‏אותה מכניקה של `practice`, ומאותה סיבה: „מוכר” לבדו הוא משפט
+   * ‏שמנוע ההבנה יחפש בו פעולה ולא ימצא. `subject` נושא **מי** —
+   * ‏שם, או מתי הייתה השיחה כשאין שם; טלפון לעולם לא.
+   */
+  callConvert?: { callId: string; subject: string };
   /**
    * משפט-שניים של תובנה על התוצאות — לא רשימה, מסקנה. המספרים
    * מגיעים מהנתונים שכבר נשלפו; המודל רק מנסח. אופציונלי: בלי
@@ -374,7 +396,7 @@ export class AgentExecuteService {
     const resolution = await this.resolver.resolveForExecution(actionId, params);
     if (!resolution.ok) throw new BadRequestException(resolution.message);
 
-    const result = await this.dispatch(actionId, params, channel);
+    const result = await this.dispatch(actionId, params, channel, transcript);
     const final = await this.withInsight(actionId, transcript, result);
     /*
      * ‎**הצעד הנגזר גובר על זה שנוסח.**
@@ -431,6 +453,15 @@ export class AgentExecuteService {
     params: Record<string, unknown>,
     /** מאיפה הפקודה הגיעה — למנטור בלבד, ליומן האסימונים */
     channel: "web" | "whatsapp",
+    /**
+     * ‏המשפט כפי שנאמר — לפעולה אחת בלבד.
+     *
+     * ‎`convert_call` מגיעה גם מכפתור של התראה, והכפתור נושא את
+     * ‏מזהה השיחה שההתראה הציגה. המזהה אינו שדה בקטלוג בכוונה
+     * ‏(שדה כזה הוא הזמנה למודל לנחש מזהים), ולכן הוא נקרא מהמשפט
+     * ‏עצמו — בדיוק כמו מפתח הרעיון בכפתור המשוב של המנטור.
+     */
+    transcript?: string,
   ): Promise<ExecuteResult> {
     switch (actionId) {
       case "search":
@@ -451,6 +482,8 @@ export class AgentExecuteService {
         return this.playRecording(params);
       case "show_callbacks":
         return this.showCallbacks();
+      case "convert_call":
+        return this.convertCall(transcript);
       case "show_leads":
         return this.showLeads(params);
       case "show_calls":
@@ -1671,6 +1704,50 @@ export class AgentExecuteService {
           ? "אין כרגע אף אחד שממתין לחזרה"
           : `${rows.length} ממתינים לחזרה — הדחוף ביותר: ${rows[0]?.name}`,
       data: { callbacks: rows },
+    };
+  }
+
+  /**
+   * ‎**„המר ללקוח” — מוצאת את השיחה ושואלת. לא כותבת דבר.**
+   *
+   * ‏זה מה שמאפשר לה להיות פעולת קריאה, ולכן להיות ברצפה
+   * ‏הדטרמיניסטית: הכפתור בהתראה עובד גם כשמנוע ההבנה נפול, וזה
+   * ‏בדיוק המצב שבו „לא הבנתי” על כפתור שהמערכת עצמה שלחה הוא
+   * ‏הגרוע ביותר. הליד והכרטיס נפתחים על **התשובה**, דרך מצב
+   * ‏ממתין, ועוברים שם בשער של `execute` לפי הסוג שנבחר.
+   *
+   * ## ‏איזו שיחה
+   *
+   * ‏מזהה בסוגריים = השיחה שההתראה הציגה, וזה המקרה הרגיל. בלעדיו
+   * ‏— האחרונה שאפשר להמיר, מה שמכסה את ההקלדה החופשית. הראות
+   * ‏עצמה נשמרת ב-`list`, ולכן שיחה של עמית אינה נמצאת כאן כלל.
+   */
+  private async convertCall(transcript?: string): Promise<ExecuteResult> {
+    const ref = callConvertRefInCommand(transcript ?? "");
+    /*
+     * ‏שלושת המצביעים מתורגמים לשלושה מסננים שהרשימה כבר מכירה —
+     * ‏ובשאילתה, לא אחריה: „השיחה של הכרטיס הזה” בין עשרים
+     * ‏האחרונות אינה נמצאת אצל מי שדיבר עם עשרים לקוחות מאז.
+     */
+    const query =
+      ref === null
+        ? { limit: CONVERT_CALL_SCAN }
+        : ref.kind === "call"
+          ? { id: ref.id, limit: 1 }
+          : ref.kind === "lead"
+            ? { leadId: ref.id, limit: CONVERT_CALL_SCAN }
+            : { contactId: ref.id, limit: CONVERT_CALL_SCAN };
+    const calls = await this.calls.list(query);
+    const call = calls.find((row) => callIsConvertible(row));
+    if (call === undefined) return { href: "/calls", message: CALL_CONVERT_NONE };
+    const subject = callConvertSubject({
+      ...(call.contactName === undefined ? {} : { name: call.contactName }),
+      when: `${formatJerusalemDate(call.occurredAt)} ${formatJerusalemTime(call.occurredAt)}`,
+    });
+    return {
+      href: "/calls",
+      message: callConvertQuestion(subject),
+      callConvert: { callId: call.id, subject },
     };
   }
 

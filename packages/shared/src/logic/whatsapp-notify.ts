@@ -23,6 +23,10 @@ import {
   type DetailViewer,
   type NotifyDetail,
 } from "./notify-details.js";
+import {
+  CALL_CONVERT_REF_KINDS,
+  callConvertCommand,
+} from "./call-convert-chat.js";
 import { notificationUrl, type PushableNotification } from "./web-push.js";
 import type { WhatsAppButton } from "./whatsapp-buttons.js";
 
@@ -699,6 +703,46 @@ const CATEGORY_ACTION: Record<
   system: null,
 };
 
+/**
+ * ‎**סיכום של שיחה אחת — הצעד הבא הוא הלקוח, לא הרשימה.**
+ *
+ * ‏„למי לחזור” נכון לאגד שיחות; מתחת לסיכום של **שיחה אחת** הוא
+ * ‏שולח את המתווך לרשימה שבה השיחה הזו כבר נמצאת. מה שהוא צריך
+ * ‏שם הוא לפתוח ממנה לקוח — וזה בדיוק החיכוך שבגללו שיחה שלא
+ * ‏נענתה נשארת לא מטופלת: הכפתור קיים במסך, וההתראה שלחה לחפש
+ * ‏אותו (בקשת המשתמש).
+ *
+ * ‎**המצביע הוא מה שההתראה יודעת.** התראת התמלול מצביעה על
+ * ‏השיחה; ההתראה על שיחה שלא נענתה — המקרה שבשבילו זה נבנה —
+ * ‏מצביעה על הליד שנפתח, ואחרת על הכרטיס של המתקשר. הפעולה
+ * ‏שולפת מכל אחד מהם את השיחה, ולכן אין כאן רשימת סוגי התראה
+ * ‏שנייה שאפשר לשכוח לעדכן.
+ *
+ * ‏מה שאין לו מצביע נופל מכאן מעצמו: `pbx_silent` אינה שיחה,
+ * ‏והתראה שהוסתרה לנמען הזה מגיעה בלי `entityId` — ובצדק, כי
+ * ‏אסור שיהיה לו כפתור לפתוח כרטיס על מי שאינו רשאי לראות.
+ */
+function convertFollowUp(
+  shown: readonly NotifyItem[],
+  allowed: readonly string[],
+): NotifyFollowUp | null {
+  if (!allowed.includes("convert_call")) return null;
+  /* ‏אגד עם שיחה אחת ועוד עדכונים אינו „ההתראה על השיחה” */
+  const only = shown.length === 1 ? shown[0] : undefined;
+  if (only === undefined || only.entityId === null) return null;
+  if (notifyCategory(only.type) !== "calls") return null;
+  const kind = CALL_CONVERT_REF_KINDS.find((k) => k === only.entityType);
+  if (kind === undefined) return null;
+  /* ‏הכיתוב והמשפט — שניהם מהקטלוג, כמו בכל כפתור אחר כאן */
+  const action = agentAction("convert_call");
+  const said = action?.examples[0];
+  if (action === undefined || said === undefined) return null;
+  return {
+    label: `🔄 ${action.title}`,
+    text: callConvertCommand(said, { kind, id: only.entityId }),
+  };
+}
+
 /** מה שכפתור ההמשך נושא: מה כתוב עליו, ומה נשלח בלחיצה. */
 export interface NotifyFollowUp {
   /** כותרת הכפתור — Meta חותכת ל-20 תווים */
@@ -719,7 +763,10 @@ export function notifyFollowUp(
   allowed: readonly string[],
 ): NotifyFollowUp | null {
   if (items.length === 0) return null;
-  const category = dominantCategory(items.slice(0, NOTIFY_ITEMS_PER_MESSAGE));
+  const shown = items.slice(0, NOTIFY_ITEMS_PER_MESSAGE);
+  const convert = convertFollowUp(shown, allowed);
+  if (convert !== null) return convert;
+  const category = dominantCategory(shown);
   const entry = CATEGORY_ACTION[category];
   if (entry === null || !allowed.includes(entry.id)) return null;
   const example = agentAction(entry.id)?.examples[0];
