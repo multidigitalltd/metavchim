@@ -239,6 +239,22 @@ model Integration {
   /// מספר חסוי הוא מצב נורמלי ולא תקלת מיפוי, וההבחנה היא ההבדל
   /// בין הודעה שמכוונת נכון להודעה ששולחת לחפש בעיה שאינה קיימת.
   lastEventIssue   String?   @map("last_event_issue") @db.VarChar(40)
+  /// ‏משיכת ההקלטה האחרונה — **שלישייה זהה לזו של האירוע, במכוון.**
+  ///
+  /// ‏„הוובהוק מגיע” ו„ההקלטה נמשכת” הם שני חיבורים נפרדים לאותו
+  /// ‏ספק, ומשרד יכול להיות תקין באחד ושבור בשני: אירועים נכנסים
+  /// ‏יפה בזמן שלחבילה אין הרשאה למשוך הקלטות. עד כה השני נראה רק
+  /// ‏על שיחה בודדת, כלומר מנהל הפלטפורמה היה צריך לבקש מהמשרד
+  /// ‏לפתוח שיחה ולהקריא לו את השורה.
+  lastPullAt       DateTime? @map("last_pull_at")
+  lastPullOk       Boolean?  @map("last_pull_ok")
+  /// ‏קוד מ-`RECORDING_ERRORS` — **רשימה סגורה שנבנתה כדי שלא ידלוף
+  /// ‏דרכה דבר**: לא נתיבים, לא מזהים, ולא כתובת המשיכה שנושאת שם
+  /// ‏משתמש וסיסמה. זה מה שמאפשר להציג אותו בשולחן החיבורים.
+  lastPullIssue    String?   @map("last_pull_issue") @db.VarChar(40)
+  /// ‏כמה כישלונות ברצף מאז ההצלחה האחרונה. ההבדל בין „הקלטה אחת
+  /// ‏שטרם הוכנה” לבין „החיבור שבור” הוא בדיוק המספר הזה.
+  pullFailStreak   Int       @default(0) @map("pull_fail_streak")
   createdBy        String?   @map("created_by") @db.Char(26)
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
