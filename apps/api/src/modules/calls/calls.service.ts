@@ -15,7 +15,13 @@ import {
   visibleCallsCondition,
   visibleContactIds,
 } from "../../common/ownership";
-import { agentNameOf, agentNames } from "../../common/agent-names";
+import {
+  agentHandover,
+  agentNameOf,
+  agentNames,
+  assertAgentInOffice,
+  assertCanAssignAgents,
+} from "../../common/agent-names";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -27,6 +33,7 @@ import {
   parseCallHighlights,
   RECORDING_BLOCKED_REASON,
   recordingStateOf,
+  type CallBulkResult,
   type CallHighlights,
   type RecordingStatus,
 } from "@metavchim/shared";
@@ -536,6 +543,136 @@ export class CallsService {
     });
   }
 
+
+  /**
+   * ‎**מחיקה מרוכזת — הצורה שבה מנקים יומן שיחות.**
+   *
+   * ‏אחת-אחת ולא `deleteMany` על כל המזהים, וזו אינה בזבוז: `remove`
+   * ‏מריץ `assertCallAccess` על כל שורה ורושם ביקורת לכל אחת.
+   * ‏שאילתה אחת על כל המזהים הייתה מסלול שני שמדלג על שניהם —
+   * ‏כלומר מחיקה של שיחות שהמשתמש אינו רשאי לראות, בלי עקבות.
+   * ‏אותה הכרעה בדיוק של `RecruitmentService.removeMany`.
+   *
+   * ‎`NotFound` נבלע ונספר כדילוג: שורה שנעלמה בין הטעינה ללחיצה
+   * ‏אינה שגיאה של מי שלחץ.
+   */
+  async removeMany(ids: readonly string[]): Promise<CallBulkResult> {
+    let done = 0;
+    for (const id of ids) {
+      try {
+        await this.remove(id);
+        done += 1;
+      } catch (error) {
+        if (error instanceof NotFoundException) continue;
+        throw error;
+      }
+    }
+    return { done, skipped: ids.length - done };
+  }
+
+  /**
+   * ‎**פתיחת ליד לכמה שיחות — הצעד הראשון של „המר ללקוח”.**
+   *
+   * ‎`ensureLead` אידמפוטנטי, ולכן „כבר היה לה ליד” אינו כישלון
+   * ‏אלא מצב — והוא נספר בנפרד. בלי ההפרדה הזאת „0 לידים נפתחו”
+   * ‏על עשרים שיחות שכולן כבר משויכות נקרא ככישלון מלא.
+   *
+   * ‎`Forbidden` נספר כדילוג ולא מפיל את הסבב: מספר שהוא הקונה של
+   * ‏עמית נדחה בשער היקף הלקוח, וזה נכון — אבל אין סיבה שיבטל את
+   * ‏פתיחת הלידים לכל השאר.
+   */
+  async ensureLeadMany(ids: readonly string[]): Promise<CallBulkResult> {
+    let done = 0;
+    let already = 0;
+    let skipped = 0;
+    for (const id of ids) {
+      try {
+        const result = await this.ensureLead(id);
+        if (result.created) done += 1;
+        else already += 1;
+      } catch (error) {
+        if (error instanceof NotFoundException || error instanceof ForbiddenException) {
+          skipped += 1;
+          continue;
+        }
+        throw error;
+      }
+    }
+    return { done, already, skipped };
+  }
+
+  /**
+   * ‎**„שייך לנציג אחר” — הליד עובר, ולא תווית על השיחה.**
+   *
+   * ## ‏למה לא `Call.agentUserId`
+   *
+   * ‏העמודה הזאת מתעדת **מי ענה בפועל** (השלוחה שהתאימה), ואינה
+   * ‏קובעת מי רואה את השיחה: `assertCallAccess` שופט לפי הליד או
+   * ‏איש הקשר שמאחוריה. דריסה שלה הייתה מזייפת עובדה היסטורית —
+   * ‏ובכל זאת לא מעבירה את השיחה לאיש. מה שמעביר אחריות **וראייה**
+   * ‏הוא `Lead.assignedToUserId`, וזה מה שנכתב כאן.
+   *
+   * ## ‏הגדרות
+   *
+   * ‎`assertCanAssignAgents` — פעולת מנהל, אותו שער בדיוק של העברת
+   * ‏קונה ונכס. `assertAgentInOffice` בתוך הטרנזקציה הכותבת, ולא
+   * ‏לפניה, מאותו נימוק שם: בדיקה מוקדמת היא חלון שבו הסוכן הוסר
+   * ‏מהמשרד בין הבדיקה לכתיבה.
+   *
+   * ‏שיחה בלי ליד מקבלת אחד (`ensureLead`) ואז עוברת — כך שאף שיחה
+   * ‏שנבחרה אינה נשארת מאחור בשקט (הכרעת המשתמש).
+   *
+   * ‎**שתי שיחות של אותו אדם הן ליד אחד.** השנייה תיספר „כבר אצלו”,
+   * ‏וזה מדויק: היא אכן כבר עברה.
+   */
+  async assignMany(ids: readonly string[], agentUserId: string): Promise<CallBulkResult> {
+    assertCanAssignAgents();
+    const { tenantId } = TenantContext.current();
+    let done = 0;
+    let already = 0;
+    let skipped = 0;
+    for (const id of ids) {
+      let leadId: string;
+      try {
+        ({ leadId } = await this.ensureLead(id));
+      } catch (error) {
+        if (error instanceof NotFoundException || error instanceof ForbiddenException) {
+          skipped += 1;
+          continue;
+        }
+        throw error;
+      }
+      const outcome = await this.prisma.withTenant(async (tx) => {
+        await assertAgentInOffice(tx, tenantId, agentUserId);
+        /*
+         * ‏הסינון לפי בעלות גם כאן, ולא רק בשיחה: מנהל בלי
+         * ‎`leads.view_all` אינו אמור להזיז ליד שאינו רואה.
+         */
+        const lead = await tx.lead.findFirst({
+          where: { id: leadId, tenantId, ...leadOwnershipFilter() },
+          select: { assignedToUserId: true },
+        });
+        if (lead === null) return "skipped" as const;
+        const handover = agentHandover(lead.assignedToUserId, agentUserId);
+        if (handover === null) return "already" as const;
+        await tx.lead.updateMany({
+          where: { id: leadId, tenantId },
+          data: { assignedToUserId: agentUserId },
+        });
+        await this.audit.record(tx, {
+          action: "lead.agent_changed",
+          entityType: "lead",
+          entityId: leadId,
+          metadata: handover,
+        });
+        return "done" as const;
+      });
+      if (outcome === "done") done += 1;
+      else if (outcome === "already") already += 1;
+      else skipped += 1;
+    }
+    return { done, already, skipped };
+  }
 
   /**
    * ‎**ליד לשיחה שאין לה אחד** — הדלת שדרכה שיחה הופכת ללקוח.

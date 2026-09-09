@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { API_BASE, ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
+import { CallsBulkBar } from "./bulk-bar";
 import { waMeUrl } from "@/lib/format";
 import { useUserDismissed } from "@/lib/dismissed-panels";
 import {
@@ -206,6 +207,14 @@ export default function CallsPage() {
   const [query, setQuery] = useState("");
   const [direction, setDirection] = useState("");
   const [selected, setSelected] = useState<CallRow | null>(null);
+  /**
+   * ‎**הבחירה לפעולות מרוכזות — קבוצה, ובנפרד מ-`selected`.**
+   *
+   * ‎`selected` היא השיחה שכרטיס הפרטים מציג (אחת); זו הקבוצה
+   * ‏שהסרגל פועל עליה. שם אחד לשתיהן היה מחבר את פתיחת הפרטים
+   * ‏לסימון — כלומר כל לחיצה על שורה הייתה מסמנת אותה למחיקה.
+   */
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const underRow = useDetailUnderRow();
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -349,6 +358,39 @@ export default function CallsPage() {
       (direction === "" || c.direction === direction),
   );
   const filtering = query.trim() !== "" || direction !== "" || outcome !== "";
+  /*
+   * ‎**כרטיס הפרטים אינו שורד שיחה שאיננה עוד ברשימה.**
+   *
+   * ‏אחרי מחיקה — בודדת או מרוכזת — הרשימה נטענת מחדש, וכרטיס
+   * ‏שנשאר פתוח על שיחה מחוקה מציע להשמיע הקלטה ולפתוח ליד על
+   * ‏רשומה שכבר אינה קיימת. הכלל נגזר מהרשימה ולא נאמר בכל אתר
+   * ‏מחיקה בנפרד, כדי שאתר שלישי לא ישכח אותו.
+   */
+  useEffect(() => {
+    if (items === null || selected === null) return;
+    if (!items.some((call) => call.id === selected.id)) setSelected(null);
+  }, [items, selected]);
+
+
+  /*
+   * ‎**מה שהפעולה תיגע בו נגזר מהשורות המוצגות.**
+   *
+   * ‏בחירה ששרדה שינוי סינון אינה נשלחת: פעולה הרסנית חייבת לגעת
+   * ‏רק במה שרואים, ואישור מספרי („למחוק 40”) אינו יכול לחשוף מה
+   * ‏נכנס בטעות. אותו לקח בדיוק שנלמד ברשימת הגיוס (ביקורת Codex,
+   * ‏P1) — וכאן הוא נגזר בכל רינדור במקום להישען על גיזום בטעינה.
+   */
+  const pickedVisible = visible.filter((call) => picked.has(call.id)).map((call) => call.id);
+  const allPicked = visible.length > 0 && pickedVisible.length === visible.length;
+
+  function togglePick(id: string): void {
+    setPicked((was) => {
+      const next = new Set(was);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   /*
    * ‎**„לא רלוונטי” הוא מה שהמתווך חושב; מחיקה היא מה שקורה.**
@@ -784,6 +826,30 @@ export default function CallsPage() {
         </FilterBar>
       ) : null}
 
+      {/*
+        ‏הסרגל מופיע רק כשיש בחירה — שורה קבועה שאומרת „נבחרו 0”
+        גוזלת מקום מהרשימה בכל טעינה בלי לומר דבר.
+      */}
+      {mayEdit && pickedVisible.length > 0 ? (
+        <>
+          <CallsBulkBar
+            ids={pickedVisible}
+            mayAssign={can(user, "tasks.assign")}
+            onClear={() => setPicked(new Set())}
+            onDone={() => load()}
+          />
+          {!allPicked ? (
+            <button
+              type="button"
+              className="mv-btn-plain mb-4"
+              onClick={() => setPicked(new Set(visible.map((call) => call.id)))}
+            >
+              בחירת כל {visible.length} השיחות המוצגות
+            </button>
+          ) : null}
+        </>
+      ) : null}
+
       {items === null ? (
         <p aria-live="polite">טוען שיחות…</p>
       ) : items.length === 0 ? (
@@ -804,15 +870,44 @@ export default function CallsPage() {
               const active = selected?.id === call.id;
               return (
                 <li key={call.id}>
+                  {/*
+                    ‎**תיבת הסימון לצד הכפתור, ולא בתוכו** — ובמחלקה
+                    ‏שכבר קיימת לצורה הזאת.
+
+                    ‏השורה כולה היא `button` שפותח את הפרטים, ותיבת
+                    ‏סימון בתוכו אינה נגישה: לחיצה עליה הייתה מפעילה
+                    ‏את שניהם. `mv-list-select-row` היא בדיוק העטיפה
+                    ‏שרשימות הקונים והנכסים כבר משתמשות בה, כולל רוחב
+                    ‏נקוב לתיבה (ברירת המחדל של הדפדפן נבדלת בין
+                    ‏כרום לספארי, והיישור נמדד מולה).
+
+                    ‏הקו התחתון והרקע עברו למעטפת: על הכפתור הם היו
+                    ‏נעצרים לפני עמודת הסימון, והשורה הייתה נראית
+                    ‏חתוכה.
+                  */}
+                  <div
+                    className="mv-list-select-row"
+                    style={{
+                      borderBottom: "1px solid var(--color-row-border)",
+                      background: active ? "var(--color-row-hover)" : "transparent",
+                    }}
+                  >
+                    {mayEdit ? (
+                      <input
+                        type="checkbox"
+                        checked={picked.has(call.id)}
+                        onChange={() => togglePick(call.id)}
+                        aria-label={`בחירת השיחה עם ${call.contactName ?? call.phone ?? "לא מזוהה"}`}
+                      />
+                    ) : null}
                   <button
                     type="button"
                     onClick={() => setSelected(call)}
                     aria-current={active ? "true" : undefined}
-                    className="flex w-full items-center gap-3 px-4 py-[13px] text-start"
+                    className="flex grow items-center gap-3 px-4 py-[13px] text-start"
                     style={{
                       border: "none",
-                      borderBottom: "1px solid var(--color-row-border)",
-                      background: active ? "var(--color-row-hover)" : "transparent",
+                      background: "transparent",
                       cursor: "pointer",
                     }}
                   >
@@ -869,6 +964,7 @@ export default function CallsPage() {
                       ) : null}
                     </span>
                   </button>
+                  </div>
                   {/*
                     ‎**במובייל הפרטים נפתחים כאן — מתחת לשורה שנלחצה**
                     (בקשת המשתמש). קודם הם נחתו בתחתית העמוד, אחרי
