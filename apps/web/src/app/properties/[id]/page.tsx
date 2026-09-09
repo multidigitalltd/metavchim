@@ -15,9 +15,11 @@ import {
   labelOf,
   partnershipApplies,
   propertyEvaluableCriteria,
+  PROPERTY_FACING_LABELS,
   PropertyStatusSchema,
   type MatchCriterion,
   type OccupancyState,
+  type PropertyFacing,
   type PropertyFields,
   type PropertyStatus,
   type ScoreComponent,
@@ -115,6 +117,7 @@ interface PropertyDetail {
   hasParking?: boolean;
   hasBalcony?: boolean;
   sharedTabu?: boolean;
+  facing?: PropertyFacing;
   hasSafeRoom?: boolean;
   priceAgorot?: number;
   entryDate?: string;
@@ -806,6 +809,8 @@ export default function PropertyDetailPage({
   if (!property) return <p aria-live="polite">טוען…</p>;
 
   const address = formatPropertyAddress(property);
+  /* ‏אותו גשר של כל טבלת תוויות: ערך ריק אינו מפתח, וערך חוזר כמותו */
+  const facingLabel = labelOf(PROPERTY_FACING_LABELS, property.facing);
   const features = [
     property.hasElevator && "מעלית",
     property.hasParking && "חניה",
@@ -866,6 +871,14 @@ export default function PropertyDetailPage({
     ...(property.sharedTabu === true
       ? [{ label: "רישום", value: "טאבו משותף (מושאע)" }]
       : []),
+    /*
+      ‎**חזית / עורף — רק כשנאמר.**
+
+      ‏אותו כלל של „רישום”: שורה על נכס שאיש לא ענה עליה היא רעש
+      ‏בכרטיס צפוף, ו„לא צוין” כבר נקרא מהיעדר השורה. השאלה עצמה
+      ‏נשאלת בטופס, ולא כאן.
+    */
+    ...(facingLabel === undefined ? [] : [{ label: "כיוון", value: facingLabel }]),
   ];
 
   /*

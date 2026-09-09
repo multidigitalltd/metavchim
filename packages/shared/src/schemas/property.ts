@@ -82,6 +82,28 @@ export const MATCHABLE_PROPERTY_STATUSES: readonly PropertyStatus[] = [
   "active",
 ];
 
+/**
+ * ‎**חזית או עורף — לאיזה כיוון הדירה פונה.**
+ *
+ * ‏בשוק הישראלי זו אחת השאלות הראשונות בטלפון, והיא אינה „מאפיין
+ * ‏נוחות” לצד מעלית ומחסן: חזית היא רעש רחוב ותצוגה, עורף הוא
+ * ‏שקט וחצר. מתווך ששאל ולא היה לו איפה לרשום — רשם בהערות,
+ * ‏ומשם זה לא חוזר לאף מסך (בקשת המשתמש).
+ *
+ * ‎**ושלושה ערכים ולא שניים.** דירה שפונה לשני הכיוונים היא מצב
+ * ‏נפוץ, ובבחירה של שניים בלבד היא נרשמת בשקר — אותה תקלה בדיוק
+ * ‏שבגללה ל„מועד כניסה” יש מצב ולא רק תאריך. „לא צוין” נשאר
+ * ‏חוסר, ולא ערך רביעי: השדה אופציונלי.
+ */
+export const PropertyFacingSchema = z.enum(["front", "rear", "both"]);
+export type PropertyFacing = z.infer<typeof PropertyFacingSchema>;
+
+export const PROPERTY_FACING_LABELS: Record<PropertyFacing, string> = {
+  front: "חזית",
+  rear: "עורף",
+  both: "חזית ועורף",
+};
+
 export const DealTypeSchema = z.enum(["sale", "rent"]);
 
 /** השדות שמנוע החילוץ מהקול מנסה לזהות; הכל אופציונלי — החוסרים מסומנים למתווך. */
@@ -109,6 +131,8 @@ export const PropertyFieldsSchema = z.object({
    * ‏שהמשרד מגדיר לעצמו לצד „מעלית” ו„מחסן”.
    */
   sharedTabu: z.boolean().optional(),
+  /** ‏חזית / עורף / שניהם — ראו `PropertyFacingSchema`. */
+  facing: PropertyFacingSchema.optional(),
   /**
    * מאפיינים שהמשרד הוסיף בעצמו — ראו `logic/custom-features.ts`.
    *

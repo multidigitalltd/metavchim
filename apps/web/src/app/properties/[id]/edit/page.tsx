@@ -11,6 +11,7 @@ import { PriceField } from "../../../price-field";
 import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../../dictation-field";
+import { FacingField } from "../../facing-field";
 import { FeatureChips } from "../../feature-chips";
 import { EntryTimingField } from "../../entry-timing-field";
 import { Notice } from "../../../notice";
@@ -46,6 +47,7 @@ interface PropertyDetail {
   customFeatures?: CustomFeature[];
   hasStorage?: boolean;
   sharedTabu?: boolean;
+  facing?: string;
   priceAgorot?: number;
   entryType?: string;
   entryDate?: string;
@@ -203,6 +205,12 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
        */
       sharedTabu: f.get("sharedTabu") === "on",
       /*
+       * ‎**„לא צוין” נשלח כ-`null` ולא נבלע.** בעריכה, בשונה
+       * ‏מקליטה, „ריק” הוא בקשה למחוק ערך שנרשם בטעות — והשמטה
+       * ‏של המפתח הייתה משאירה אותו על הכרטיס לנצח.
+       */
+      facing: String(f.get("facing") ?? "") || null,
+      /*
        * JSON משדה חבוי אחד — הרשימה גדלה ומשתנה, ולכן אין לה שם
        * שדה קבוע כמו לחמשת הקבועים. השרת מנרמל אותה שוב בשער
        * הכתיבה, ולכן קלט פגום כאן אינו יכול להיכנס למסד.
@@ -353,6 +361,8 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
             )}
             initialCustom={property.customFeatures ?? []}
           />
+
+          <FacingField value={property.facing} />
 
           {/*
             ‎**„טאבו משותף” מתחת למאפיינים, ולא ביניהם** (בקשת בעל

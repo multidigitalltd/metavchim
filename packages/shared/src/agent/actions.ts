@@ -47,6 +47,7 @@ import {
 import type { Capability } from "../rbac.js";
 import type { PlanFeature } from "../logic/plans.js";
 import type { AgentFieldSpec } from "./field-spec.js";
+import { PROPERTY_FACING_LABELS } from "../schemas/property.js";
 import type { PropertyType } from "../schemas/property.js";
 import {
   MENTOR_GOAL_PERIODS,
@@ -711,6 +712,18 @@ const PROPERTY_FIELDS: readonly AgentFieldSpec[] = [
     valueLabels: PROPERTY_TYPE_LABELS,
   },
   F_DEAL_TYPE,
+  /*
+   * ‎**חזית / עורף** — אחת השאלות הראשונות בטלפון, ולכן גם משפט
+   * ‏שמתווך אומר לסוכן. בלי השדה כאן היא הייתה נשמעת, נכנסת
+   * ‏לתיאור החופשי, ולא מגיעה לעמודה.
+   */
+  {
+    key: "facing",
+    label: "חזית / עורף",
+    type: "enum",
+    values: Object.keys(PROPERTY_FACING_LABELS),
+    valueLabels: PROPERTY_FACING_LABELS,
+  },
   {
     key: "rooms",
     label: "חדרים",

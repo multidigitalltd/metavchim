@@ -17,9 +17,11 @@ import {
   OCCUPANCY_STATES,
   PAGE_LIMIT_MAX,
   PhoneInputSchema,
+  PropertyFacingSchema,
   PropertyFieldsSchema,
   PropertyStatusSchema,
   type Page,
+  type PropertyFields,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
@@ -107,6 +109,14 @@ export const UpdatePropertySchema = CreatePropertySchema.partial()
      * ‏פרטי בלי מספור, נכס שהמספר שלו הוזן בטעות).
      */
     houseNumber: z.string().max(10).nullable().optional(),
+    /*
+     * ‎**חזית / עורף — ו-`null` מרוקן, כמו מספר הבית.**
+     *
+     * ‏מי שסימן בטעות חייב דרך חזרה ל„לא צוין”, ובלעדיה הערך היחיד
+     * ‏שאי אפשר להגיע אליו הוא האמת. שדה שלא נשלח נשאר „בלי
+     * ‏שינוי”, ולכן הריקון חייב להיאמר במפורש.
+     */
+    facing: PropertyFacingSchema.nullable().optional(),
     /*
      * ‎**מי גר בנכס — בעדכון בלבד, ובמכוון.**
      *
@@ -376,19 +386,25 @@ export class PropertiesController {
     @Body(new ZodValidationPipe(UpdatePropertySchema))
     body: z.infer<typeof UpdatePropertySchema>,
   ): Promise<PropertyDto> {
-    const { ownerName, ownerPhone, occupantName, occupantPhone, houseNumber, ...rest } = body;
+    const { ownerName, ownerPhone, occupantName, occupantPhone, houseNumber, facing, ...rest } =
+      body;
+    /*
+     * ‎`null` = „רוקן”, ולכן הוא נוסע ב-`clearFields` ולא בשדה
+     * ‏עצמו: `PropertyFieldsSchema` אינו מקבל `null`, וההפרדה הזו
+     * ‏היא בדיוק מה שמונע ריקון בכל נתיב אחר שאיש לא ביקש.
+     *
+     * ‎**רשימה אחת לשני השדות, ולא שני ספרדים.** `{...{clearFields}}`
+     * ‏פעמיים כותב את אותו מפתח, והשני מוחק את הראשון בשקט —
+     * ‏כלומר ריקון שנשלח היה נבלע בלי שגיאה.
+     */
+    const clearFields: (keyof PropertyFields)[] = [];
+    if (houseNumber === null) clearFields.push("houseNumber");
+    if (facing === null) clearFields.push("facing");
     return this.properties.update(id, {
       ...rest,
-      /*
-       * ‎`null` = „רוקן”, ולכן הוא נוסע ב-`clearFields` ולא בשדה
-       * ‏עצמו: `PropertyFieldsSchema` אינו מקבל `null`, וההפרדה הזו
-       * ‏היא בדיוק מה שמונע ריקון בכל נתיב אחר שאיש לא ביקש.
-       */
-      ...(houseNumber === null
-        ? { clearFields: ["houseNumber"] as const }
-        : houseNumber !== undefined
-          ? { houseNumber }
-          : {}),
+      ...(houseNumber === undefined || houseNumber === null ? {} : { houseNumber }),
+      ...(facing === undefined || facing === null ? {} : { facing }),
+      ...(clearFields.length > 0 ? { clearFields } : {}),
       ...(ownerName !== undefined && ownerPhone !== undefined
         ? { owner: { name: ownerName, phone: ownerPhone } }
         : {}),
