@@ -5,6 +5,8 @@ import {
   callIsFinal,
   callOutcomeOf,
   nextRefusalStreak,
+  recordingPullResultOf,
+  INTEGRATION_DIAGNOSIS_RESET,
   callSpoke,
   describeCall,
   isGeneratedCallSummary,
@@ -28,6 +30,12 @@ import {
   softphoneGap,
   softphoneOfficeReady,
 } from "./telephony.js";
+import {
+  RECORDING_PROVIDER_REFUSAL,
+  RECORDING_REFUSALS_BEFORE_PAUSE,
+  recordingPullHealth,
+  recordingReasonLabel,
+} from "./recording-state.js";
 
 function event(overrides: Partial<TelephonyEvent> = {}): TelephonyEvent {
   return {
@@ -1241,6 +1249,99 @@ describe("nextRefusalStreak", () => {
   it("כישלון מקומי בין סירובים אינו מבטל את הרצף", () => {
     const seq = ["refused", "refused", "other", "refused"] as const;
     expect(seq.reduce<number>((n, r) => nextRefusalStreak(n, r), 0)).toBe(3);
+  });
+});
+
+/*
+ * ‎**הצד השני של אותו כלל.** הסבב יודע את התוצאה כי הוא קרא לספק;
+ * שורת החיבור יודעת רק את הקוד שנרשם עליה. כשהתרגום הזה לא היה
+ * קיים, אבחון המשיכה קידם את המונה על כל כישלון בזמן שהסבב קידם
+ * רק על סירוב — שני מונים שונים באותה עמודה, ושני קוראים שמסכימים
+ * רק כשאין תקלות רשת.
+ */
+describe("recordingPullResultOf — מקוד הכישלון אל התוצאה", () => {
+  it("סירוב של הספק הוא refused, על כל קוד סטטוס", () => {
+    for (const code of ["401", "402", "403", "404", "500"]) {
+      expect(recordingPullResultOf(`provider_rejected_${code}`)).toBe("refused");
+    }
+  });
+
+  /*
+   * שלושת הקודים שהממצא נקב בהם במפורש: כשל מקומי שאינו אומר דבר
+   * על הספק, ולכן אינו מקרב את המשרד לסף העצירה.
+   */
+  it("כשל מקומי הוא other — הוא אינו „לא” של הספק", () => {
+    for (const reason of [
+      "network_error",
+      "response_unreadable",
+      "missing_credentials",
+      "path_unreadable",
+      "empty_audio",
+      "too_large",
+      "no_integration",
+    ]) {
+      expect(recordingPullResultOf(reason)).toBe("other");
+    }
+  });
+
+  /*
+   * הרצף שהתקלה ייצרה: שלוש תקלות רשת, והמסך מכריז „הסבב עצר” על
+   * משרד שהסבב ממשיך למשוך ממנו כרגיל.
+   */
+  it("שלוש תקלות רשת אינן מגיעות לסף העצירה", () => {
+    const streak = ["network_error", "network_error", "network_error"].reduce<number>(
+      (n, reason) => nextRefusalStreak(n, recordingPullResultOf(reason)),
+      0,
+    );
+    expect(streak).toBeLessThan(RECORDING_REFUSALS_BEFORE_PAUSE);
+  });
+
+  it("ושלושה סירובים כן", () => {
+    const streak = ["provider_rejected_403", "provider_rejected_403", "provider_rejected_403"].reduce<number>(
+      (n, reason) => nextRefusalStreak(n, recordingPullResultOf(reason)),
+      0,
+    );
+    expect(streak).toBeGreaterThanOrEqual(RECORDING_REFUSALS_BEFORE_PAUSE);
+  });
+
+  /*
+   * הקידומת עצמה היא הצומת: `recordingReasonLabel` מפרקת לפיה,
+   * והתרגום הזה מחליט לפיה. שתי הגדרות היו מסכימות רק במקרה.
+   */
+  it("הקידומת היא אותה קידומת שהניסוח מפרק", () => {
+    const reason = `${RECORDING_PROVIDER_REFUSAL}_401`;
+    expect(recordingPullResultOf(reason)).toBe("refused");
+    expect(recordingReasonLabel(reason)).toContain("שם המשתמש");
+  });
+});
+
+/*
+ * ‏החלפת ספק מוחקת אבחון, ולכן הרשימה חייבת לכסות **את כל** השדות
+ * ‏שהאבחון יושב עליהם. ארבעת שדות המשיכה נוספו אחרי שדות האירוע,
+ * ‏ורשימה שנכתבה ידנית בשני מסלולי שמירה לא ידעה עליהם.
+ */
+describe("INTEGRATION_DIAGNOSIS_RESET", () => {
+  it("מכסה גם את האירוע וגם את המשיכה", () => {
+    expect(Object.keys(INTEGRATION_DIAGNOSIS_RESET).sort()).toEqual(
+      [
+        "lastEventAt",
+        "lastEventIssue",
+        "lastEventKeys",
+        "lastEventOk",
+        "lastPullAt",
+        "lastPullIssue",
+        "lastPullOk",
+        "pullFailStreak",
+      ].sort(),
+    );
+  });
+
+  /*
+   * ‏אחרי האיפוס `recordingPullHealth` חייבת לומר „טרם נוסתה”, ולא
+   * ‏להישאר על התקלה של הספק הקודם — זה כל מה שהאיפוס נועד לו.
+   */
+  it("אחרי החלפת ספק המסך אומר „עדיין לא נוסתה משיכה”", () => {
+    expect(recordingPullHealth(INTEGRATION_DIAGNOSIS_RESET).level).toBe("unknown");
   });
 });
 

@@ -11,6 +11,7 @@
  * בה בשקט, ולכן היא מכוסה בבדיקות.
  */
 import { normalizePhone } from "./contact-people.js";
+import { RECORDING_PROVIDER_REFUSAL } from "./recording-state.js";
 
 /**
  * שני ספקים, ושניהם ממומשים.
@@ -228,6 +229,34 @@ export function telephonyProvider(id: string): TelephonyProvider | undefined {
  *   מרשימת הסודות (או עבר להיות גלוי) מתנקה מעצמו בשמירה הבאה,
  *   ומחרוזת ריקה לא נשמרת כאילו היא ערך.
  */
+/**
+ * ‎**כל האבחון שהחלפת ספק חייבת למחוק** — רשימה אחת, לא עותק לכל מסלול.
+ *
+ * שני מסלולי שמירה כותבים את שורת החיבור: הגדרות המשרד ושולחן
+ * החיבורים בפלטפורמה. שניהם ניקו את אבחון הוובהוק בשתי רשימות
+ * מועתקות — ואז נוספו ארבעת שדות המשיכה, ואיש מהם לא ניקה אותם.
+ *
+ * התוצאה לא הייתה „לא מדויק לרגע”: משרד שעבר מ-015 לספק גנרי אחרי
+ * כישלון משיכה נשאר עם האבחון הישן **לתמיד**, כי `pendingFor` מושכת
+ * הקלטות רק מ-015 ולכן שום משיכה חדשה לא תדרוס אותו. שולחן החיבורים
+ * היה מציג את התקלה של הספק הקודם כבריאות של החיבור הנוכחי
+ * ‏(ביקורת Codex).
+ *
+ * הערכים הם `null`/`0` ולא „לא ידוע”: `recordingPullHealth` קוראת
+ * ‎`lastPullAt === null` כ„עדיין לא נוסתה משיכה”, וזו האמת המדויקת
+ * על חיבור שהרגע הוחלף.
+ */
+export const INTEGRATION_DIAGNOSIS_RESET = {
+  lastEventAt: null,
+  lastEventKeys: null,
+  lastEventOk: null,
+  lastEventIssue: null,
+  lastPullAt: null,
+  lastPullOk: null,
+  lastPullIssue: null,
+  pullFailStreak: 0,
+} as const;
+
 export function mergeIntegrationSecrets(
   previous: Record<string, string>,
   incoming: Record<string, string>,
@@ -1286,6 +1315,26 @@ export function nextRefusalStreak(streak: number, result: RecordingPullResult): 
   if (result === "refused") return streak + 1;
   if (result === "stored") return 0;
   return streak;
+}
+
+/**
+ * ‎**מקוד הכישלון אל התוצאה שהמונה מבין.**
+ *
+ * הסבב מכיר את התוצאה מיד — הוא זה שקרא לספק. השורה בטבלה מכירה רק
+ * את **הקוד** שנרשם עליה, ולכן מי שרוצה להחיל עליה את אותו כלל צריך
+ * את התרגום הזה.
+ *
+ * ובלעדיו הכלל אכן נשבר: אבחון המשיכה על שורת החיבור קידם את המונה
+ * על **כל** כישלון — `network_error`, `response_unreadable`,
+ * `missing_credentials` — בזמן שהסבב מקדם רק על סירוב. שלוש תקלות
+ * רשת היו מציגות „שבור, הסבב עצר” על משרד שהסבב ממשיך למשוך ממנו
+ * ברגיל (ביקורת Codex).
+ *
+ * ‎`stored` אינו מיוצג כאן במכוון: הצלחה אינה נושאת קוד כישלון, ומי
+ * שמאפס עושה זאת מהיעדר סיבה ולא מתרגום שלה.
+ */
+export function recordingPullResultOf(reason: string): RecordingPullResult {
+  return reason.startsWith(RECORDING_PROVIDER_REFUSAL) ? "refused" : "other";
 }
 
 /** תוצאת השיחה כפי שהיא נרשמת ומוצגת. ראו `CALL_OUTCOME_LABELS`. */

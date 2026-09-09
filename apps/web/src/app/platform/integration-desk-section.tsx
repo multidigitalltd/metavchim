@@ -2,7 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@metavchim/ui";
-import { telephonyGaps, telephonyProvider } from "@metavchim/shared";
+import {
+  recordingPullHealth,
+  type RecordingPullHealth,
+  telephonyGaps,
+  telephonyProvider,
+} from "@metavchim/shared";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { IconPhone } from "../icons";
@@ -32,6 +37,20 @@ import { DeskVirtualNumbers } from "./desk-virtual-numbers";
  * להיות מול העיניים של מי שלוחץ — לא בתיעוד.
  */
 
+/** ‏גוון לפי חומרה. „טרם נוסתה” אינו אזהרה, ולכן הוא ניטרלי. */
+function pullTone(level: RecordingPullHealth["level"]): string {
+  switch (level) {
+    case "ok":
+      return "var(--color-success)";
+    case "warn":
+      return "var(--color-warning)";
+    case "broken":
+      return "var(--color-danger)";
+    case "unknown":
+      return "var(--color-text-muted)";
+  }
+}
+
 interface ProviderField {
   key: string;
   label: string;
@@ -56,6 +75,10 @@ interface DeskStatus {
     lastEventKeys?: string;
     lastEventOk?: boolean;
     lastEventIssue?: string;
+    lastPullAt?: string;
+    lastPullOk?: boolean;
+    lastPullIssue?: string;
+    pullFailStreak?: number;
     secretsSet: string[];
     config: Record<string, unknown>;
   };
@@ -155,6 +178,19 @@ export function IntegrationDeskSection({
     data?.telephony.connected === true && savedProvider !== undefined
       ? telephonyGaps(savedProvider, data.telephony.config ?? {}, data.telephony.secretsSet ?? [])
       : [];
+  /*
+   * ‏המשפט מגיע מ-`shared` — אותו מילון בדיוק שהמתווך רואה על
+   * ‏השיחה. שני ניסוחים לאותו קוד היו אומרים למנהל הפלטפורמה דבר
+   * ‏אחד ולמשרד דבר אחר, והשיחה ביניהם מתחילה מתרגום.
+   */
+  const pull: RecordingPullHealth = recordingPullHealth({
+    lastPullAt: data?.telephony.lastPullAt ? new Date(data.telephony.lastPullAt) : null,
+    lastPullOk: data?.telephony.lastPullOk ?? null,
+    lastPullIssue: data?.telephony.lastPullIssue ?? null,
+    pullFailStreak: data?.telephony.pullFailStreak ?? 0,
+    /* ‏חיבור מכובה אינו „תקין” — ראו `recordingPullHealth` */
+    active: data?.telephony.connected === true && data.telephony.status === "active",
+  });
 
   /**
    * ‎**הפקת הכתובת בשם המשרד, בלי פרטי ספק.**
@@ -316,6 +352,19 @@ export function IntegrationDeskSection({
                     </span>
                   </p>
                 ) : null}
+                {/*
+                  ‎**משיכת ההקלטות — חיבור שני, ומצב שני.**
+
+                  ‏„הוובהוק מגיע” ו„ההקלטה נמשכת” נכשלים בנפרד:
+                  ‏אירועים נכנסים יפה בזמן שלחבילה במרכזייה אין
+                  ‏הרשאה למשוך הקלטות. עד כה זה נראה רק על שיחה
+                  ‏בודדת — כלומר כדי לאבחן היה צריך לבקש מהמשרד
+                  ‏לפתוח שיחה ולהקריא את השורה.
+                */}
+                <p className="m-0 mt-1" style={{ color: pullTone(pull.level) }}>
+                  משיכת הקלטות: {pull.sentence}
+                  {pull.at === undefined ? "" : ` · ${formatDateTime(pull.at.toISOString())}`}
+                </p>
               </>
             ) : (
               <>

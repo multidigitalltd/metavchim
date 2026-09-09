@@ -85,6 +85,17 @@ export const RECORDING_EARLY_RETRY_MS = 5 * 60 * 1000;
 export const RECORDING_BLOCKED_REASON = "no_integration";
 
 /**
+ * ‏הקידומת של „הספק אמר לא”.
+ *
+ * ‎**המקור, ולא עותק** — בדיוק כמו `RECORDING_BLOCKED_REASON` שמעליו.
+ * ‏הקוד המלא הוא `provider_rejected_<סטטוס>`; `RECORDING_ERRORS.provider`
+ * ‏בשרת מרכיב אותו מכאן, ו-`recordingReasonLabel` מפרק אותו לפיו.
+ * ‏קודם ישבה כאן מחרוזת בשרת ומחרוזת זהה בניסוח — שתי הגדרות
+ * ‏שמסכימות רק במקרה, וזו בדיוק הצורה שכבר תוקנה כאן פעם אחת.
+ */
+export const RECORDING_PROVIDER_REFUSAL = "provider_rejected";
+
+/**
  * המצבים עצמם כרשימה, והטיפוס נגזר ממנה — ולא להפך.
  *
  * הבדיקה שדורשת „לכל מצב משפט משלו” חייבת לרוץ על **כל** המצבים;
@@ -207,8 +218,8 @@ export function recordingStateLabel(status: RecordingStatus): string {
  */
 export function recordingReasonLabel(reason: string | undefined): string {
   if (reason === undefined) return "הסיבה אינה ידועה";
-  if (reason.startsWith("provider_rejected")) {
-    const status = reason.slice("provider_rejected_".length);
+  if (reason.startsWith(RECORDING_PROVIDER_REFUSAL)) {
+    const status = reason.slice(`${RECORDING_PROVIDER_REFUSAL}_`.length);
     /*
      * הקוד מגיע משני מקורות — סטטוס ה-HTTP, ומעטפת `responses`
      * שבתוך תשובת 200 — ומשמעותו זהה בשניהם. שלושת המקרים שיש
@@ -324,4 +335,73 @@ export function importSentences(summary: RecordingImportSummary): string[] {
     return ["לא נמצאו הקלטות חדשות לצרף."];
   }
   return lines;
+}
+
+/* ============ בריאות משיכת ההקלטות — לשולחן החיבורים ============ */
+
+/**
+ * ‎**כמה סירובים ברצף עד שזה כבר לא במקרה.**
+ *
+ * ‏אותו מספר משמש לשני דברים שהם למעשה אותה הכרעה: מתי הסבב מפסיק
+ * ‏לנסות למשוך מהמשרד הזה, ומתי שולחן החיבורים אומר „שבור” ולא
+ * ‏„כשל נקודתי”. הקלטה אחת שטרם הוכנה היא לא תקלה; שלוש דחיות
+ * ‏ברצף הן הספק שאומר „לא”.
+ *
+ * ‏קודם ישב כאן מספר בסבב ומספר שני היה נולד במסך — ואז אחד מהם
+ * ‏זז, והמסך הכריז „תקין” על משרד שהסבב כבר ויתר עליו.
+ */
+export const RECORDING_REFUSALS_BEFORE_PAUSE = 3;
+
+/** ‏מצב משיכת ההקלטות של משרד, כפי שהוא נשמר על שורת החיבור. */
+export interface RecordingPullFields {
+  lastPullAt?: Date | null;
+  lastPullOk?: boolean | null;
+  lastPullIssue?: string | null;
+  pullFailStreak?: number | null;
+  /**
+   * ‏האם החיבור **פעיל עכשיו**. חיבור שכובה משאיר מאחוריו הצלחה
+   * ‏אחרונה, ובלי השדה הזה המסך היה מכריז „נמשכה בהצלחה” על משרד
+   * ‏שכרגע לא נמשכת אצלו שום הקלטה — בדיוק הרגע שבו מישהו מנסה
+   * ‏להבין למה אין הקלטות.
+   */
+  active?: boolean;
+}
+
+export interface RecordingPullHealth {
+  /** `unknown` = טרם נוסתה משיכה; `broken` = הסבב כבר עוצר את המשרד */
+  level: "unknown" | "ok" | "warn" | "broken";
+  sentence: string;
+  /** ‏מתי נמדד — למסך שרוצה לומר „לפני שעתיים”. */
+  at?: Date;
+}
+
+/**
+ * ‎**מה לומר למי שמנסה לעזור למשרד שההקלטות שלו לא נמשכות.**
+ *
+ * ‏המשפט נגזר מהסיבה דרך `recordingReasonLabel` — אותו ניסוח בדיוק
+ * ‏שהמתווך רואה על השיחה. שני ניסוחים לאותו קוד היו אומרים למנהל
+ * ‏הפלטפורמה דבר אחד ולמשרד דבר אחר, ואז השיחה ביניהם מתחילה
+ * ‏מתרגום.
+ */
+export function recordingPullHealth(row: RecordingPullFields): RecordingPullHealth {
+  if (row.active === false) {
+    return { level: "unknown", sentence: "החיבור אינו פעיל — הקלטות אינן נמשכות" };
+  }
+  const at = row.lastPullAt ?? null;
+  if (at === null) {
+    return { level: "unknown", sentence: "עדיין לא נוסתה משיכת הקלטה" };
+  }
+  if (row.lastPullOk === true) {
+    return { level: "ok", sentence: "ההקלטה האחרונה נמשכה בהצלחה", at };
+  }
+  const reason = recordingReasonLabel(row.lastPullIssue ?? undefined);
+  const streak = row.pullFailStreak ?? 0;
+  if (streak >= RECORDING_REFUSALS_BEFORE_PAUSE) {
+    return {
+      level: "broken",
+      sentence: `${streak} משיכות נכשלו ברצף — ${reason}`,
+      at,
+    };
+  }
+  return { level: "warn", sentence: `המשיכה האחרונה נכשלה — ${reason}`, at };
 }

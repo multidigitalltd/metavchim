@@ -23,6 +23,7 @@ import {
   safeDiagnosticKeys,
   telephonyParseIssue,
   telephonyProvider,
+  INTEGRATION_DIAGNOSIS_RESET,
   mergeIntegrationSecrets,
   mergeLegacySecretsIntoConfig,
   telephonySecretKeys,
@@ -366,9 +367,7 @@ export class TelephonyService {
             status: "active",
             config: input.config,
             secretsEncrypted,
-            ...(providerChanged
-              ? { lastEventAt: null, lastEventKeys: null, lastEventOk: null, lastEventIssue: null }
-              : {}),
+            ...(providerChanged ? INTEGRATION_DIAGNOSIS_RESET : {}),
           },
         });
       } else {

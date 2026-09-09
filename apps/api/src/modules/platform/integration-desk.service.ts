@@ -4,6 +4,7 @@ import { ulid } from "ulid";
 import {
   TELEPHONY_PROVIDERS,
   canonicalVirtualNumber,
+  INTEGRATION_DIAGNOSIS_RESET,
   mergeIntegrationSecrets,
   mergeLegacySecretsIntoConfig,
   telephonyProvider,
@@ -76,6 +77,18 @@ export interface DeskTelephonyStatus {
   lastEventKeys?: string;
   lastEventOk?: boolean;
   lastEventIssue?: string;
+  /**
+   * ‎**משיכת ההקלטות — חיבור שני לאותו ספק.**
+   *
+   * ‏אירועים יכולים להיכנס יפה בזמן שלחבילה במרכזייה אין הרשאה
+   * ‏למשוך הקלטות, ואז המשרד מדווח „לא מצליח למשוך הקלטות” והמסך
+   * ‏הזה מראה חיבור תקין. הקוד מגיע מ-`RECORDING_ERRORS` — רשימה
+   * ‏סגורה שנבנתה כדי שלא ידלוף דרכה נתיב, מזהה או אישור גישה.
+   */
+  lastPullAt?: Date;
+  lastPullOk?: boolean;
+  lastPullIssue?: string;
+  pullFailStreak?: number;
   /** שמות הסודות ששמורים — לעולם לא הערכים. */
   secretsSet: string[];
   config: Record<string, unknown>;
@@ -169,6 +182,15 @@ export class IntegrationDeskService {
       ...(row.lastEventKeys ? { lastEventKeys: row.lastEventKeys } : {}),
       ...(row.lastEventOk !== null ? { lastEventOk: row.lastEventOk } : {}),
       ...(row.lastEventIssue ? { lastEventIssue: row.lastEventIssue } : {}),
+      /*
+       * ‏אותה שורה שכבר נקראה — אין כאן שאילתה נוספת ואין מגע
+       * ‏בטבלה נוספת, ולכן גבול השולחן (`integration-desk-scope`)
+       * ‏נשאר כפי שהוא.
+       */
+      ...(row.lastPullAt ? { lastPullAt: row.lastPullAt } : {}),
+      ...(row.lastPullOk !== null ? { lastPullOk: row.lastPullOk } : {}),
+      ...(row.lastPullIssue ? { lastPullIssue: row.lastPullIssue } : {}),
+      pullFailStreak: row.pullFailStreak,
       config: provider
         ? mergeLegacySecretsIntoConfig(
             provider,
@@ -218,11 +240,10 @@ export class IntegrationDeskService {
             status: "active",
             config: input.config,
             secretsEncrypted,
-            // החלפת ספק מאפסת את האבחון — אחרת האירוע של הספק הקודם
-            // נקרא כהוכחה שהחדש עובד
-            ...(providerChanged
-              ? { lastEventAt: null, lastEventKeys: null, lastEventOk: null, lastEventIssue: null }
-              : {}),
+            // החלפת ספק מאפסת את כל האבחון — אחרת מה שקרה אצל הספק
+            // הקודם נקרא כבריאות של החדש. הרשימה משותפת עם מסלול
+            // השמירה שבהגדרות המשרד, שאם לא כן היא נשארת מאחור באחד.
+            ...(providerChanged ? INTEGRATION_DIAGNOSIS_RESET : {}),
           },
         });
       } else {

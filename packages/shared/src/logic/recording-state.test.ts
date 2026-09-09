@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   RECORDING_BLOCKED_REASON,
   RECORDING_GIVE_UP_MS,
+  RECORDING_REFUSALS_BEFORE_PAUSE,
   RECORDING_STATES,
+  recordingPullHealth,
   recordingReasonLabel,
   recordingStateLabel,
   recordingStateOf,
@@ -388,5 +390,75 @@ describe("importSentences", () => {
         expect(line.endsWith(".")).toBe(true);
       }
     }
+  });
+});
+
+describe("recordingPullHealth — מצב משיכת ההקלטות של משרד", () => {
+  it("בלי ניסיון — לא אומר „תקין” ולא „שבור”", () => {
+    expect(recordingPullHealth({}).level).toBe("unknown");
+  });
+
+  it("הצלחה אחרונה — תקין", () => {
+    const at = new Date("2026-09-09T06:00:00Z");
+    const health = recordingPullHealth({ lastPullAt: at, lastPullOk: true, pullFailStreak: 0 });
+    expect(health.level).toBe("ok");
+    expect(health.at).toBe(at);
+  });
+
+  /*
+   * ‏הקלטה אחת שטרם הוכנה אינה תקלה, ולכן היא אינה „שבור”. ההבחנה
+   * ‏הזו היא כל הערך של המסך: בלעדיה כל משרד פעיל נראה אדום.
+   */
+  it("כישלון בודד — אזהרה, לא שבור", () => {
+    const health = recordingPullHealth({
+      lastPullAt: new Date(),
+      lastPullOk: false,
+      lastPullIssue: "empty_audio",
+      pullFailStreak: 1,
+    });
+    expect(health.level).toBe("warn");
+    expect(health.sentence).toContain("טרם הכינה");
+  });
+
+  it("מהרצף שבו הסבב עוצר — שבור, והסיבה בפנים", () => {
+    const health = recordingPullHealth({
+      lastPullAt: new Date(),
+      lastPullOk: false,
+      lastPullIssue: "provider_rejected_402",
+      pullFailStreak: RECORDING_REFUSALS_BEFORE_PAUSE,
+    });
+    expect(health.level).toBe("broken");
+    expect(health.sentence).toContain("אין הרשאה למשוך הקלטות");
+    expect(health.sentence).toContain("402");
+  });
+
+  /*
+   * ‎**אותו ניסוח שהמתווך רואה על השיחה.** שני ניסוחים לאותו קוד
+   * ‏היו אומרים למנהל הפלטפורמה דבר אחד ולמשרד דבר אחר.
+   */
+  it("המשפט נגזר מאותו מילון של השיחה", () => {
+    for (const issue of ["missing_credentials", "network_error", "provider_rejected_401"]) {
+      const health = recordingPullHealth({
+        lastPullAt: new Date(),
+        lastPullOk: false,
+        lastPullIssue: issue,
+        pullFailStreak: 1,
+      });
+      expect(health.sentence).toContain(recordingReasonLabel(issue));
+    }
+  });
+
+  /*
+   * ‏חיבור שכובה משאיר מאחוריו הצלחה אחרונה. „נמשכה בהצלחה” עליו
+   * ‏הוא בדיוק השקר שנאמר ברגע שמישהו מנסה להבין למה אין הקלטות.
+   */
+  it("חיבור מכובה — לא „תקין”, גם אחרי הצלחה", () => {
+    const health = recordingPullHealth({
+      lastPullAt: new Date(),
+      lastPullOk: true,
+      active: false,
+    });
+    expect(health.level).toBe("unknown");
+    expect(health.sentence).toContain("אינו פעיל");
   });
 });
