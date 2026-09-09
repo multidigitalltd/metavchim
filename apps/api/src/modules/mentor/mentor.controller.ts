@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -41,6 +42,7 @@ import {
   type MentorOverview,
   type MentorPulse,
   type MentorReviewDto,
+  type MentorThreadDto,
   type MentorTurnDto,
 } from "./mentor.service";
 
@@ -67,9 +69,20 @@ const PlanSchema = z
 const ReflectionSchema = z
   .object({ answer: z.string().trim().min(1).max(1000) })
   .strict();
+/* ‏מזהה שיחה הוא מזהה ההודעה הפותחת שלה — ULID, כמו כל מזהה כאן */
+const ThreadIdSchema = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/u);
+
 const AskSchema = z
-  .object({ text: z.string().trim().min(2).max(1000) })
+  .object({
+    text: z.string().trim().min(2).max(1000),
+    /*
+     * ‏לאיזו שיחה: `"new"` הוא „שיחה חדשה” מפורש, ומזהה הוא המשך
+     * ‏שיחה שנפתחה מההיסטוריה. בהיעדרו מכריע השקט.
+     */
+    into: z.union([z.literal("new"), ThreadIdSchema]).optional(),
+  })
   .strict();
+
 const PracticeStartSchema = z
   .object({ scenario: z.enum(PRACTICE_SCENARIOS) })
   .strict();
@@ -182,10 +195,27 @@ export class MentorController {
     return this.mentor.setPlan(id, body.plan);
   }
 
+  /**
+   * ‏השיחה שעל המסך. בלי `thread` — הנוכחית; עם `thread` — זו
+   * שנבחרה מההיסטוריה.
+   */
   @Get("messages")
   @AnyAuthenticated()
-  messages(): Promise<{ turns: MentorTurnDto[] }> {
-    return this.mentor.turns();
+  messages(
+    @Query("thread") thread?: string,
+  ): Promise<{ turns: MentorTurnDto[]; threadId: string | null }> {
+    const parsed = thread === undefined ? undefined : ThreadIdSchema.safeParse(thread);
+    if (parsed !== undefined && !parsed.success) {
+      throw new BadRequestException("מזהה שיחה לא תקין");
+    }
+    return this.mentor.turns(40, parsed?.data);
+  }
+
+  /** ‏רשימת השיחות הקודמות — הכותרת נגזרת מהשאלה הראשונה שבכל אחת. */
+  @Get("threads")
+  @AnyAuthenticated()
+  threads(): Promise<{ threads: MentorThreadDto[] }> {
+    return this.mentor.threads();
   }
 
   /** משוב על רעיון — „עזר לי” / „לא בשבילי” (docs/14 §7.2) */
@@ -245,6 +275,6 @@ export class MentorController {
     source: "model" | "fallback";
     proposedGoal?: MentorGoalProposal;
   }> {
-    return this.mentor.ask(body.text);
+    return this.mentor.ask(body.text, new Date(), "web", body.into);
   }
 }

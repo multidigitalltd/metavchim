@@ -8381,6 +8381,78 @@ a.mv-bar-row:focus-visible {
     ),
     var(--color-bg);
 }
+/*
+ * ‏שורת השיחות — מעל השיחה עצמה, ולכן אינה נגללת איתה. היא ניווט,
+ * ‏לא תוכן, ולכן היא נמוכה וללא רקע משלה.
+ */
+.mv-mentor__threadbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 16px 0;
+}
+
+.mv-mentor__threadnote {
+  font-size: var(--type-caption);
+  color: var(--color-text-muted);
+}
+
+/*
+ * ‏רשימת השיחות הקודמות. תקרה על הגובה כדי שלא תדחוף את השיחה
+ * ‏מהמסך, ומעליה גלילה משלה — כמו כל אזור אחר בעמוד הזה.
+ */
+.mv-mentor__history {
+  margin: 8px 16px 0;
+  padding: 8px;
+  border: 1px solid var(--color-card-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  max-height: 240px;
+  overflow-y: auto;
+  font-size: var(--type-caption-lg);
+}
+
+/*
+ * ‏שורה ברשימה. `border` ולא `none` — שער הניגודיות דורש שלכל פקד
+ * ‏תהיה מסגרת מוגדרת, ובצדק: בלי הגדרה Preflight של Tailwind משאיר
+ * ‏כפתור בלי מסגרת ובלי רקע, כלומר בלי פקד נראה.
+ */
+.mv-mentor__historyrow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  text-align: start;
+  background: transparent;
+  cursor: pointer;
+}
+
+.mv-mentor__historyrow:hover,
+.mv-mentor__historyrow:focus-visible {
+  background: var(--color-row-hover);
+  border-color: var(--color-input-border);
+}
+
+/* ‏השיחה הפתוחה מסומנת — אחרת הרשימה אינה אומרת איפה אתה עומד */
+.mv-mentor__historyrow[data-open="true"] {
+  background: var(--color-row-hover);
+  border-color: var(--color-input-border);
+}
+
+.mv-mentor__historytitle {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.mv-mentor__historymeta {
+  font-size: var(--type-caption);
+  color: var(--color-text-muted);
+}
+
 .mv-mentor__stream {
   flex: 1;
   min-height: 0;

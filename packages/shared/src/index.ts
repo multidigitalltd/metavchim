@@ -40,6 +40,7 @@ export * from "./logic/mentor.js";
 export * from "./logic/mentor-chat.js";
 export * from "./logic/mentor-playbook.js";
 export * from "./logic/mentor-persona.js";
+export * from "./logic/mentor-thread.js";
 export * from "./logic/mentor-advice.js";
 export * from "./logic/mentor-outcome.js";
 export * from "./logic/mentor-monthly.js";
