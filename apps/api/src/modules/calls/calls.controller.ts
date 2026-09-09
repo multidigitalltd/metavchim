@@ -176,6 +176,25 @@ export class CallsController {
     return this.calls.retryRecording(id);
   }
 
+  /**
+   * ‎**ליד לשיחה — הדלת להמרה ללקוח.**
+   *
+   * ‏ההמרה עצמה (קונה, מוכר, שוכר, משכיר) כבר קיימת ונשענת על
+   * ‏ליד. שיחה שלא נענתה ממספר לא מוכר אין לה אחד, ולכן לא הייתה
+   * ‏שום דרך להמיר אותה — בדיוק המקרה שממנו מתחיל לקוח חדש.
+   *
+   * ‎`leads.edit` ולא `leads.create`: אותה הרשאה שכבר שומרת על
+   * ‏מחיקת השיחה, ופתיחת ליד מתוכה היא פעולה על אותה שורה.
+   */
+  @Post(":id/lead")
+  @RequireCapability("leads.edit")
+  @HttpCode(200)
+  async ensureLead(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ leadId: string; created: boolean }> {
+    return this.calls.ensureLead(id);
+  }
+
   @Delete(":id")
   @RequireCapability("leads.edit")
   @HttpCode(200)

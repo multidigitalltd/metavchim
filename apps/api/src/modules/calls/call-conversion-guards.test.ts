@@ -34,6 +34,13 @@ const PAGE = read(
 const FORMS = read(
   new URL("../../../../web/src/app/leads/convert-sections.tsx", import.meta.url),
 );
+/*
+ * ‎**הבורר עבר לקובץ משלו** כשההמרה הורחבה לחמישה סוגים ולשיחה
+ * ‏בלי ליד. הטענה לא השתנתה — רק המקום שבו היא נבדקת.
+ */
+const CONVERT = read(
+  new URL("../../../../web/src/app/calls/convert-to-customer.tsx", import.meta.url),
+);
 
 /** גוף הרכיב, מההצהרה ועד ההצהרה הבאה. */
 const component = (name: string): string => {
@@ -74,9 +81,40 @@ describe("ההמרה מתוך השיחה אינה מובילה למבוי סתו
     expect(PAGE).toMatch(/selected\.leadStatus === "converted"\) return null;/u);
   });
 
-  it("שני טפסי ההמרה ממופתחים לפי מזהה השיחה", () => {
-    expect(PAGE).toMatch(/key=\{`buyer-\$\{selected\.id\}`\}/u);
-    expect(PAGE).toMatch(/key=\{`property-\$\{selected\.id\}`\}/u);
+  /*
+   * ‎**שתי שכבות מפתח, ושתיהן נחוצות.**
+   *
+   * ‏המסך ממפתח את הבורר עצמו לפי מזהה השיחה — אחרת הסוג שנבחר
+   * ‏והליד שנפתר לשיחה א׳ נשארים על המסך כשנבחרת ב׳. והבורר
+   * ‏ממפתח כל טופס לפי מזהה השיחה **והסוג**, כי גם מעבר מ„קונה”
+   * ‏ל„שוכר” באותה שיחה חייב לצייר טופס נקי.
+   */
+  it("הבורר ושני הטפסים ממופתחים לפי מזהה השיחה", () => {
+    expect(PAGE).toMatch(/key=\{`convert-\$\{selected\.id\}`\}/u);
+    expect(CONVERT).toMatch(/key=\{`buyer-\$\{callId\}-\$\{target\.key\}`\}/u);
+    expect(CONVERT).toMatch(/key=\{`property-\$\{callId\}-\$\{target\.key\}`\}/u);
+  });
+
+  /*
+   * ‎**בלי ליד, `leads.edit` הוא תנאי לכל היעדים** (ביקורת Codex).
+   *
+   * ‏כל בחירה נפתחת ב-`POST /calls/:id/lead`, שדורש `leads.edit`.
+   * ‏הצגת „קונה” למי שיש לו `buyers.edit` בלבד פרסמה המרה
+   * ‏שנופלת על 403 אחרי הלחיצה.
+   */
+  it("שיחה בלי ליד אינה מציעה המרה בלי leads.edit", () => {
+    expect(PAGE).toMatch(
+      /selected\.leadId === undefined && !mayEdit\) return null;/u,
+    );
+  });
+
+  /*
+   * ‎**הליד נפתח לפני שהטופס מצויר.** הטפסים שולחים ל-`leadId`
+   * ‏שקיבלו; טופס שנפתח לפני שהליד קיים היה נשלח ל-`undefined`
+   * ‏ונופל על 404 אחרי שהמתווך כבר מילא אותו.
+   */
+  it("הטופס אינו מצויר לפני שיש ליד", () => {
+    expect(CONVERT).toMatch(/if \(target !== null && resolvedLead !== null\)/u);
   });
 
   /*
