@@ -6,6 +6,7 @@ import {
   AGENT_DEGRADED_REASON,
   agentHistorySummary,
   agentReplySegments,
+  externalLinkLabel,
   agentResultRefs,
   proposalRunsImmediately,
   agentTurnRefs,
@@ -1532,7 +1533,8 @@ export class WhatsAppAssistantService {
           break;
         // קישור חיצוני (wa.me) — מוצג ואינו נשמר: יכול לשאת טלפון
         case "external-link":
-          lines.push(`👈 ${segment.url}`);
+          // ‏התווית נגזרת מהכתובת, כמו במסך — לא „וואטסאפ” על כל קישור
+          lines.push(`👈 ${segment.label}: ${segment.url}`);
           break;
         /*
          * ‎**צעדי ההמשך — כפתורים שקשורים לתוכן, וגם טקסט.** כל צעד
@@ -1586,6 +1588,21 @@ export class WhatsAppAssistantService {
           "whatsapp",
         );
         lines.push(`· ${result.message}`);
+        /*
+         * ‎**גם הקישור של צעד ההמשך, לא רק ההודעה שלו.**
+         *
+         * הזנב מרונדר מ-`primary` בלבד, ולכן `result.link` נזרק —
+         * ‏„תפתח משימה ותן לי קישור ללקוח חדש” היה יוצר רשומת קליטה
+         * ומשמיד את הכתובת שלה. הרינדור הוא אותו `renderSegment`
+         * שהזנב משתמש בו, כדי שהתווית והצורה יהיו זהות.
+         */
+        if (result.link !== undefined) {
+          renderSegment({
+            kind: "external-link",
+            url: result.link,
+            label: externalLinkLabel(result.link),
+          });
+        }
         // רק צעד שהצליח — הפניה לרשומה שלא נוצרה היא שיוך לכלום
         acted.unshift(result.ref);
       } catch (error) {
