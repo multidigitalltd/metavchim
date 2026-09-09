@@ -43,6 +43,9 @@ import {
   mentorPatterns,
   mentorPeriodRange,
   mentorStartsNewThread,
+  isMentorSubjectKind,
+  mentorSubjectTitle,
+  type MentorSubjectKind,
   type MentorMessageVerdict,
   mentorThreadTitle,
   MENTOR_METRICS,
@@ -69,6 +72,7 @@ import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import {
   MentorSignalsService,
   type GoalWithProgress,
+  type MentorSubjectOption,
 } from "./mentor-signals.service";
 
 /** כמה שבועות אחורה נספרים לצורך משפך ההמרה של המתווך. */
@@ -202,6 +206,13 @@ export interface MentorThreadDto {
   title: string;
   lastAt: Date;
   messages: number;
+}
+
+/** ‏הכרטיס המצורף כפי שהמסך מקבל אותו — מזהה וכותרת, בלי עובדות. */
+export interface MentorSubjectRef {
+  kind: MentorSubjectKind;
+  id: string;
+  title: string;
 }
 
 export interface MentorTurnDto {
@@ -770,10 +781,19 @@ export class MentorService {
      * ‏קובע גם את השיחה — הודעה יודעת לאיזו שיחה היא שייכת.
      */
     from?: string,
-  ): Promise<{ turns: MentorTurnDto[]; threadId: string | null }> {
+  ): Promise<{
+    turns: MentorTurnDto[];
+    threadId: string | null;
+    /** ‏הכרטיס המצורף לשיחה הזו — כדי שהמסך והשרת יסכימו עליו */
+    subject: MentorSubjectRef | null;
+  }> {
     const { tenantId, userId } = TenantContext.current();
-    if (from !== undefined) return this.turnsAround(from, limit);
-    const rows = await this.prisma.withTenant(async (tx) => {
+    if (from !== undefined) return this.turnsAround(from, limit, now);
+    /*
+     * ‏השורות והכרטיס נקראים באותה טרנזקציה: שתי פתיחות היו שתי
+     * ‏תמונות מצב, ומסך שמציג שיחה אחת עם הכרטיס של רגע אחר.
+     */
+    return this.prisma.withTenant(async (tx) => {
       let id = threadId;
       if (id === undefined) {
         const newest = await tx.mentorMessage.findFirst({
@@ -798,17 +818,63 @@ export class MentorService {
             ? newest.threadId
             : undefined;
       }
-      if (id === undefined) return [];
-      return tx.mentorMessage.findMany({
+      if (id === undefined) return { turns: [], threadId: null, subject: null };
+      const rows = await tx.mentorMessage.findMany({
         where: { tenantId, userId, threadId: id },
         orderBy: { createdAt: "desc" },
         take: limit,
       });
+      return {
+        turns: rows.reverse().map(MentorService.turnDto),
+        threadId: id,
+        subject: await this.activeSubject(tx, tenantId, userId, id, now),
+      };
     });
-    return {
-      turns: rows.reverse().map(MentorService.turnDto),
-      threadId: rows[0]?.threadId ?? null,
-    };
+  }
+
+  /**
+   * ‎**הכרטיס הפעיל של שיחה — כפי שהשרת רואה אותו** (§7.7).
+   *
+   * ‏המסך היה מחזיק את הכרטיס בזיכרון בלבד, ולכן רענון או מעבר
+   * ‏לשיחה אחרת השאירו אותו ריק בזמן שהשרת ממשיך לגזור כרטיס
+   * ‏מההודעות — או גרוע מזה, נשאו כרטיס משיחה א׳ לשיחה ב׳ ודרסו
+   * ‏את ההקשר שלה (ביקורת Codex, P1). מקור אחד לשניהם.
+   *
+   * ‏מוחזר עם הכותרת ולא רק עם המזהה: המסך מציג „מה מצורף”, וסיבוב
+   * ‏נוסף לשרת רק כדי לתרגם מזהה לשם הוא סיבוב מיותר.
+   *
+   * ‎`null` גם כשהכרטיס נותק במפורש, גם כשהוא נמחק, וגם כשהוא של
+   * ‏עמית — שלושתם „אין כרטיס”, וזה כל מה שהמסך צריך לדעת.
+   */
+  private async activeSubject(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    threadId: string,
+    now: Date,
+  ): Promise<{ kind: MentorSubjectKind; id: string; title: string } | null> {
+    const row = await tx.mentorMessage.findFirst({
+      where: { tenantId, userId, threadId, subjectKind: { not: null } },
+      orderBy: { createdAt: "desc" },
+      select: { subjectKind: true, subjectId: true },
+    });
+    if (row === null || row.subjectId === null) return null;
+    if (!isMentorSubjectKind(row.subjectKind)) return null;
+    const subject = await this.signals.subject(
+      tx,
+      tenantId,
+      userId,
+      row.subjectKind,
+      row.subjectId,
+      now,
+    );
+    return subject === null
+      ? null
+      : {
+          kind: subject.kind,
+          id: subject.id,
+          title: mentorSubjectTitle(subject),
+        };
   }
 
   /**
@@ -824,14 +890,19 @@ export class MentorService {
   private async turnsAround(
     from: string,
     limit: number,
-  ): Promise<{ turns: MentorTurnDto[]; threadId: string | null }> {
+    now: Date,
+  ): Promise<{
+    turns: MentorTurnDto[];
+    threadId: string | null;
+    subject: MentorSubjectRef | null;
+  }> {
     const { tenantId, userId } = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
       const anchor = await tx.mentorMessage.findFirst({
         where: { id: from, tenantId, userId },
         select: { threadId: true, createdAt: true },
       });
-      if (anchor === null) return { turns: [], threadId: null };
+      if (anchor === null) return { turns: [], threadId: null, subject: null };
       const before = Math.min(TURN_WINDOW_BEFORE, Math.max(0, limit - 1));
       const [earlier, rest] = await Promise.all([
         tx.mentorMessage.findMany({
@@ -858,6 +929,13 @@ export class MentorService {
       return {
         turns: [...earlier.reverse(), ...rest].map(MentorService.turnDto),
         threadId: anchor.threadId,
+        subject: await this.activeSubject(
+          tx,
+          tenantId,
+          userId,
+          anchor.threadId,
+          now,
+        ),
       };
     });
   }
@@ -998,6 +1076,32 @@ export class MentorService {
   }
 
   /**
+   * ‎**מה מותר לצרף — הקונים והנכסים של המתווך עצמו** (§7.7).
+   *
+   * ‏האיסוף יושב ב-`MentorSignalsService` ולא כאן, כי שם כבר יושב
+   * ‏כל מה שנוגע בכרטיסים של המתווך — ושם השער בבדיקות סופר את
+   * ‏סינון הבעלות. פיצול הגישה לשני קבצים היה מוציא חצי ממנו
+   * ‏משדה הראייה של השער.
+   */
+  async subjects(
+    kind: MentorSubjectKind,
+    q: string,
+    limit = 20,
+  ): Promise<{ subjects: MentorSubjectOption[] }> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => ({
+      subjects: await this.signals.subjectOptions(
+        tx,
+        tenantId,
+        userId,
+        kind,
+        q,
+        limit,
+      ),
+    }));
+  }
+
+  /**
    * שאלה למנטור. ה-LLM מציע, הקוד מכריע: התשובה עוברת סכמה, ובלי
    * מודל — או כשהוא נופל — המנטור עונה מהיעדים ומהסיכום (docs/14 §7).
    */
@@ -1013,6 +1117,12 @@ export class MentorService {
      * ‎`undefined` — מכריע השקט, כמו תמיד.
      */
     into?: "new" | string,
+    /**
+     * ‎**הכרטיס שהמתווך צירף לשאלה הזו** (§7.7) — קונה או נכס שלו
+     * ‏עצמו. נשמר על ההודעה, ולא על השיחה: מי שמצרף קונה אחר
+     * ‏באמצע השיחה אינו משכתב את ההקשר של מה שנשאל קודם.
+     */
+    attach?: { kind: MentorSubjectKind; id: string } | null,
   ): Promise<{
     turn: MentorTurnDto;
     source: "model" | "fallback";
@@ -1063,7 +1173,24 @@ export class MentorService {
     const context = await this.prisma.withTenant(
       async (tx): Promise<MentorChatContext & { overCap: boolean }> => {
         await tx.mentorMessage.create({
-          data: { id: messageId, tenantId, userId, threadId, role: "user", text },
+          data: {
+            id: messageId,
+            tenantId,
+            userId,
+            threadId,
+            role: "user",
+            text,
+            /*
+             * ‎**שלושה מצבים, ושלושתם נכתבים מאותו מקור.**
+             *
+             * ‏‎`undefined` — ההודעה לא אמרה דבר, והכרטיס הפעיל
+             * ‏נגזר מהשיחה. `null` — ניתוק **מפורש**, שנשמר כדי
+             * ‏שהגזירה לא תדלג אחורה אל הקודם. אחרת — הכרטיס.
+             */
+            subjectKind:
+              attach === undefined ? null : attach === null ? "none" : attach.kind,
+            subjectId: attach?.id ?? null,
+          },
         });
         const user = await tx.user.findFirst({
           where: { id: userId, tenantId },
@@ -1183,6 +1310,49 @@ export class MentorService {
           userId,
           now,
         );
+        /*
+         * ‎**הכרטיס הפעיל של השיחה — נגזר, ולא שמור עליה** (§7.7).
+         *
+         * ‏מה שצורף עכשיו גובר; אחרת מה שצורף לאחרונה **בשיחה הזו**.
+         * ‏כך מי שמצרף פעם אחת ואז שואל עוד שלוש שאלות אינו צריך
+         * ‏לצרף שוב בכל אחת, ומי שעובר לכרטיס אחר עובר בו-ברגע.
+         *
+         * ‏העובדות נטענות מחדש בכל שאלה ולא נשמרות עם ההודעה: כרטיס
+         * ‏זז, ותמונת מצב שמורה הייתה מזדקנת בשקט.
+         */
+        const active = await (async (): Promise<{
+          kind: MentorSubjectKind;
+          id: string;
+        } | null> => {
+          /* ‏מה שנאמר עכשיו גובר — כולל „ניתקתי”, שהוא `null` */
+          if (attach !== undefined) return attach;
+          /*
+           * ‏ההודעה האחרונה בשיחה **שאמרה משהו** על כרטיס. השאילתה
+           * ‏על `subjectKind` ולא על `subjectId` בכוונה: שורת ניתוק
+           * ‏נושאת סוג בלי מזהה, ואם היא לא תיכלל — הגזירה תדלג
+           * ‏אחורה אל הכרטיס שנותק וההודעה הבאה תישא את פרטיו
+           * ‏(ביקורת Codex, P1).
+           */
+          const row = await tx.mentorMessage.findFirst({
+            where: { tenantId, userId, threadId, subjectKind: { not: null } },
+            orderBy: { createdAt: "desc" },
+            select: { subjectKind: true, subjectId: true },
+          });
+          if (row === null || row.subjectId === null) return null;
+          if (!isMentorSubjectKind(row.subjectKind)) return null;
+          return { kind: row.subjectKind, id: row.subjectId };
+        })();
+        const subject =
+          active === null
+            ? null
+            : await this.signals.subject(
+                tx,
+                tenantId,
+                userId,
+                active.kind,
+                active.id,
+                now,
+              );
         const advice = mentorAdvice({
           goals,
           activity,
@@ -1219,6 +1389,7 @@ export class MentorService {
             now,
           ),
           closestDeal: closest,
+          subject,
           lastPractice:
             practice.last === null
               ? null

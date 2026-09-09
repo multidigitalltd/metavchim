@@ -11,6 +11,8 @@
  * וההצעות של 30 הימים האחרונים), וכאן בוחרים אחד ומנסחים.
  */
 
+import { hebrewCount, HEBREW_VIEWINGS } from "./hebrew-count.js";
+
 export const CLOSEST_DEAL_WINDOW_DAYS = 30;
 /** סיור אחד הוא התחלה; שניים בלי הצעה הם קונה שמתלבט */
 export const CLOSEST_DEAL_MIN_VIEWINGS = 2;
@@ -74,10 +76,6 @@ export function dealScore(c: DealCandidate, now: Date): number {
   );
 }
 
-function viewingsWord(n: number): string {
-  return n === 1 ? "סיור אחד" : n === 2 ? "שני סיורים" : `${n} סיורים`;
-}
-
 /** הקונה הכי קרוב לסגירה — או `null` כשאין מי שעומד בסף. */
 export function closestDeal(
   candidates: readonly DealCandidate[],
@@ -107,7 +105,7 @@ export function closestDeal(
   const parts: string[] = [];
   if (best.viewings > 0)
     parts.push(
-      `${viewingsWord(best.viewings)}${where} ב-${CLOSEST_DEAL_WINDOW_DAYS} הימים האחרונים`,
+      `${hebrewCount(best.viewings, HEBREW_VIEWINGS)}${where} ב-${CLOSEST_DEAL_WINDOW_DAYS} הימים האחרונים`,
     );
   if (best.interestedOffers > 0)
     parts.push(

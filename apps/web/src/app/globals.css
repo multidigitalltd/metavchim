@@ -8497,6 +8497,63 @@ a.mv-bar-row:focus-visible {
  * ‏שורת נעוץ נושאת משפט שלם ולא כותרת קצרה. שתי שורות ואז חיתוך:
  * ‏מספיק כדי לזהות איזה משפט זה, בלי ששורה אחת תמלא את הרשימה.
  */
+/*
+ * ‏שורת הכרטיס המצורף — „מה מצורף” ו„להסיר”, יחד. `border` מפורש
+ * ‏ולא `none`: שער הניגודיות דורש שלכל פקד תהיה מסגרת מוגדרת,
+ * ‏ובלי הגדרה Preflight של Tailwind משאיר כפתור בלי מסגרת ובלי רקע.
+ */
+.mv-mentor__subject {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 999px;
+  background: var(--color-row-hover);
+  font-size: var(--type-caption);
+}
+
+.mv-mentor__subjecttitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+
+.mv-mentor__subjectoff {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.mv-mentor__subjectoff:hover,
+.mv-mentor__subjectoff:focus-visible {
+  border-color: var(--color-input-border);
+  color: var(--color-text);
+}
+
+/* ‏שורת הסינון מעל רשימת הבחירה: שני סוגים וחיפוש */
+.mv-mentor__subjectbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mv-mentor__subjectsearch {
+  flex: 1;
+  min-width: 0;
+}
+
 .mv-mentor__pintext {
   display: -webkit-box;
   -webkit-box-orient: vertical;

@@ -17,6 +17,7 @@ import {
 } from "./mentor.js";
 import { mentorAdviceBlock, type MentorAdvice } from "./mentor-advice.js";
 import { closestDealLine, type MentorClosestDeal } from "./mentor-deal.js";
+import { mentorSubjectLines, type MentorSubject } from "./mentor-subject.js";
 import {
   officePlaybookBlock,
   type MentorOfficePlaybook,
@@ -79,8 +80,13 @@ export interface MentorChatContext {
   persona?: MentorPersona;
   /** 30 הימים הראשונים — איפה המתווך החדש בתוכנית (§7.5); חסר = ותיק */
   onboarding?: MentorOnboarding | null;
-  /** העסקה הקרובה ביותר (§7.6) — הקונה היחיד שמותר לדבר עליו בשמו */
+  /** העסקה הקרובה ביותר (§7.6) — קונה שהקוד בחר, ומותר לדבר עליו בשמו */
   closestDeal?: MentorClosestDeal | null;
+  /**
+   * הכרטיס שהמתווך צירף לשיחה (§7.7) — אותו חריג לכלל 6, בבחירתו
+   * ולא בבחירת הקוד. עובדות בלבד: אין כאן טלפון, דוא״ל או בעל נכס.
+   */
+  subject?: MentorSubject | null;
   /** התרגול האחרון — מה לנסות בשיחה האמיתית (§7.3); חסר = לא תרגל */
   lastPractice?: {
     scenarioLabel: string;
@@ -334,6 +340,12 @@ export function buildMentorPrompt(ctx: MentorChatContext): string {
       `${closestDealLine(ctx.closestDeal)} ${ctx.closestDeal.step} — הקונה הזה נבחר על ידי הקוד מהנתונים של המתווך עצמו, ולכן, בניגוד לכלל 6, מותר לדבר עליו בשמו: מה לשאול אותו ואיך להזיז את העסקה. פרטים אחרים עליו אין לכם.`,
     );
   }
+  /*
+   * ‏מיד אחרי `closestDeal`, כי שניהם אותו חריג לכלל 6 — האחד
+   * ‏בבחירת הקוד, השני בבחירת המתווך. מי שיקרא את הפרומפט יראה
+   * ‏אותם זה לצד זה, ולא ימצא היתר מבודד באמצע הקשר אחר.
+   */
+  if (ctx.subject) lines.push("", ...mentorSubjectLines(ctx.subject));
   if (ctx.lastPractice) {
     lines.push(
       "",

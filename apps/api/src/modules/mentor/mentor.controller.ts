@@ -20,6 +20,7 @@ import {
   MentorIdeaFeedbackSchema,
   type MentorIdeaFeedbackInput,
   MENTOR_MESSAGE_VERDICTS,
+  MENTOR_SUBJECT_KINDS,
   PRACTICE_SCENARIOS,
   PRACTICE_TEXT_MAX,
   type ProcessGoalSuggestion,
@@ -44,9 +45,11 @@ import {
   type MentorOverview,
   type MentorPulse,
   type MentorReviewDto,
+  type MentorSubjectRef,
   type MentorThreadDto,
   type MentorTurnDto,
 } from "./mentor.service";
+import type { MentorSubjectOption } from "./mentor-signals.service";
 
 const SuggestionsQuerySchema = z
   .object({
@@ -79,6 +82,13 @@ const MessageFeedbackSchema = z
   .strict();
 const MessagePinSchema = z.object({ pinned: z.boolean() }).strict();
 
+const SubjectsQuerySchema = z
+  .object({
+    kind: z.enum(MENTOR_SUBJECT_KINDS),
+    q: z.string().trim().max(80).optional(),
+  })
+  .strict();
+
 const AskSchema = z
   .object({
     text: z.string().trim().min(2).max(1000),
@@ -87,6 +97,17 @@ const AskSchema = z
      * ‏שיחה שנפתחה מההיסטוריה. בהיעדרו מכריע השקט.
      */
     into: z.union([z.literal("new"), ThreadIdSchema]).optional(),
+    /*
+     * ‏הכרטיס שצורף לשאלה — קונה או נכס של המתווך עצמו (§7.7).
+     * ‎`null` מנתק את מה שצורף קודם בשיחה; היעדרו ממשיך אותו.
+     */
+    attach: z
+      .object({
+        kind: z.enum(MENTOR_SUBJECT_KINDS),
+        id: ThreadIdSchema,
+      })
+      .strict()
+      .nullish(),
   })
   .strict();
 
@@ -212,7 +233,11 @@ export class MentorController {
     @Query("thread") thread?: string,
     /** ‏הודעה שחייבת להיות במסך — פתיחה מרשימת הנעוצים */
     @Query("from") from?: string,
-  ): Promise<{ turns: MentorTurnDto[]; threadId: string | null }> {
+  ): Promise<{
+    turns: MentorTurnDto[];
+    threadId: string | null;
+    subject: MentorSubjectRef | null;
+  }> {
     const parsed = thread === undefined ? undefined : ThreadIdSchema.safeParse(thread);
     if (parsed !== undefined && !parsed.success) {
       throw new BadRequestException("מזהה שיחה לא תקין");
@@ -264,6 +289,21 @@ export class MentorController {
       throw new BadRequestException("סמן לא תקין");
     }
     return this.mentor.pinned(undefined, at);
+  }
+
+  /**
+   * ‎**מה מותר לצרף לשיחה** — הקונים והנכסים של המתווך עצמו (§7.7).
+   *
+   * ‏מזהה וכותרת בלבד. עובדות אינן מוחזרות כאן: מסך בחירה אינו
+   * ‏צריך אותן, והנתיב הזה נפתח בכל הקלדה.
+   */
+  @Get("subjects")
+  @AnyAuthenticated()
+  subjects(
+    @Query(new ZodValidationPipe(SubjectsQuerySchema))
+    query: z.infer<typeof SubjectsQuerySchema>,
+  ): Promise<{ subjects: MentorSubjectOption[] }> {
+    return this.mentor.subjects(query.kind, query.q ?? "");
   }
 
   /** ‏רשימת השיחות הקודמות — הכותרת נגזרת מהשאלה הראשונה שבכל אחת. */
@@ -330,6 +370,12 @@ export class MentorController {
     source: "model" | "fallback";
     proposedGoal?: MentorGoalProposal;
   }> {
-    return this.mentor.ask(body.text, new Date(), "web", body.into);
+    return this.mentor.ask(
+      body.text,
+      new Date(),
+      "web",
+      body.into,
+      body.attach,
+    );
   }
 }
