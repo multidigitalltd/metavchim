@@ -6,6 +6,7 @@ import {
   MAX_TWINS_PER_PROPERTY,
   PAGE_LIMIT_MAX,
   propertyHeadline,
+  twinBatchRejectionReason,
   TWIN_NOTE_MAX,
   type PropertyStatus,
 } from "@metavchim/shared";
@@ -143,7 +144,8 @@ export function PropertyTwins({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [options, setOptions] = useState<PickerRow[] | null>(null);
   const [query, setQuery] = useState("");
-  const [chosen, setChosen] = useState<string | null>(null);
+  /** ‏מה שסומן בבורר — לפי סדר הלחיצה, כדי שדיווח הכישלון יהיה יציב */
+  const [chosen, setChosen] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [removing, setRemoving] = useState<TwinRow | null>(null);
@@ -175,7 +177,7 @@ export function PropertyTwins({
   const openPicker = useCallback(async (): Promise<void> => {
     setPickerOpen(true);
     setQuery("");
-    setChosen(null);
+    setChosen([]);
     setNote("");
     setError(null);
     /*
@@ -222,6 +224,26 @@ export function PropertyTwins({
       });
   }, [options, query, propertyId, linkedIds]);
 
+  /**
+   * ‎**סימון כמה נכסים בבת אחת** (בקשת המשתמש).
+   *
+   * ‏מי שמסמן „עוד כמה כאלה” מתכוון לרוב ליותר מאחד, ופתיחת הבורר
+   * ‏מחדש לכל נכס — עם החיפוש שמתאפס וההערה שנכתבת שוב — היא
+   * ‏העבודה הידנית שהלשונית הזו נבנתה כדי לחסוך.
+   *
+   * ## ‏התקרה נבדקת לפני, לא תוך כדי
+   *
+   * ‎`twinBatchRejectionReason` שואל „האם יש מקום לכולם”. בלעדיו
+   * ‏חמישה נבחרים כשיש מקום לשניים היו נשמרים חלקית, והמתווך היה
+   * ‏מגלה זאת מהרשימה. אותה פונקציה של השרת, ולא כלל שני לצידה.
+   *
+   * ## ‏וכישלון חלקי נאמר, ולא נבלע
+   *
+   * ‏השרת בודק כל קשר בנפרד — גם לנכס **השני** יש תקרה משלו, והוא
+   * ‏יכול לרדת לארכיון בין הטעינה לשמירה. „השמירה נכשלה” אחרי
+   * ‏ששלושה מתוך חמישה נשמרו הוא שקר, ולכן מה שנשמר נספר ומה
+   * ‏שנכשל נאמר בשמו. החלון נשאר פתוח כל עוד נשאר מה לתקן.
+   */
   async function add(): Promise<void> {
     /*
      * הודעה ולא שתיקה. `ConfirmDialog` שאינו מקבל `onConfirm` מחליף
@@ -229,31 +251,63 @@ export function PropertyTwins({
      * „סימון כנכס תואם” היה סוגר את החלון בלי לסמן דבר. כפתור שעושה
      * ההפך ממה שכתוב עליו גרוע מכפתור שאומר מה חסר.
      */
-    if (chosen === null) {
+    if (chosen.length === 0) {
       setError("בחרו נכס מהרשימה כדי לסמן אותו כנכס תואם.");
+      return;
+    }
+    const overLimit = twinBatchRejectionReason(twins?.length ?? 0, chosen.length);
+    if (overLimit !== null) {
+      setError(overLimit);
       return;
     }
     setBusy(true);
     setError(null);
-    try {
-      await apiPost<TwinRow>(`/properties/${propertyId}/twins`, {
-        twinId: chosen,
-        ...(note.trim() !== "" ? { note: note.trim() } : {}),
-      });
-      /*
-       * טעינה מחדש ולא הוספה לרשימה בזיכרון: השרת הוא שקובע מה
-       * מוצג (נכס שירד לארכיון בינתיים אינו מוצג), והוא גם מקור
-       * המיון.
-       */
-      await load();
-      setPickerOpen(false);
-    } catch (err: unknown) {
-      setError(
-        err instanceof ApiError ? err.message : "השמירה נכשלה — נסו שוב.",
-      );
-    } finally {
-      setBusy(false);
+    const failed: string[] = [];
+    const saved: string[] = [];
+    /*
+     * ‏בזה אחר זה ולא במקביל: התקרה נבדקת בשרת בתוך טרנזקציה לכל
+     * ‏בקשה, ושליחה מקבילה הייתה יכולה לעבור אותה יחד ולהיכשל על
+     * ‏האחרון בלי סיבה שהמתווך יכול להבין.
+     */
+    for (const id of chosen) {
+      try {
+        await apiPost<TwinRow>(`/properties/${propertyId}/twins`, {
+          twinId: id,
+          ...(note.trim() !== "" ? { note: note.trim() } : {}),
+        });
+        saved.push(id);
+      } catch (err: unknown) {
+        const row = options?.find((option) => option.id === id);
+        const label = row === undefined ? "נכס" : propertyHeadline(row);
+        failed.push(
+          `${label} — ${err instanceof ApiError ? err.message : "השמירה נכשלה"}`,
+        );
+      }
     }
+    /*
+     * טעינה מחדש ולא הוספה לרשימה בזיכרון: השרת הוא שקובע מה
+     * מוצג (נכס שירד לארכיון בינתיים אינו מוצג), והוא גם מקור
+     * המיון.
+     */
+    if (saved.length > 0) await load();
+    setBusy(false);
+    if (failed.length === 0) {
+      setPickerOpen(false);
+      return;
+    }
+    /*
+     * ‎**מה שנשמר יורד מהבחירה — לפי הרשימה שנאספה כאן.**
+     *
+     * ‏לא לפי `linkedIds`: הוא נגזר מ-`twins` שנתפס בסגירה של
+     * ‏הרינדור הזה, ולכן הוא עדיין הישן גם אחרי `load()`. הלחיצה
+     * ‏הבאה על „סימון” הייתה מנסה לשמור שוב את מה שכבר נשמר.
+     */
+    setChosen((prev) => prev.filter((id) => !saved.includes(id)));
+    setError(
+      saved.length === 0
+        ? failed.join(" · ")
+        : `${saved.length} נשמרו. ${failed.length === 1 ? "אחד לא" : `${failed.length} לא`}: ${failed.join(" · ")}`,
+    );
   }
 
   async function remove(twin: TwinRow): Promise<void> {
@@ -423,8 +477,11 @@ export function PropertyTwins({
           ------------------------------------------------------------ */}
       <ConfirmDialog
         open={pickerOpen}
-        title="הוספת נכס תואם"
-        confirmLabel="סימון כנכס תואם"
+        title="הוספת נכסים תואמים"
+        /* ‏הכיתוב נוקב במספר — לחיצה על „סימון” לא תפתיע בכמה נשמרו */
+        confirmLabel={
+          chosen.length > 1 ? `סימון ${chosen.length} נכסים` : "סימון כנכס תואם"
+        }
         busy={busy}
         onConfirm={() => void add()}
         onClose={() => {
@@ -435,6 +492,12 @@ export function PropertyTwins({
         <label htmlFor="twin-search" className="block text-[length:var(--type-caption-lg)] font-semibold">
           חיפוש בנכסים שלכם
         </label>
+        <p
+          className="m-0 mt-1 text-[length:var(--type-caption)]"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          אפשר לסמן כמה נכסים — לחיצה נוספת על מסומן מבטלת אותו.
+        </p>
         <div className="mt-1 flex items-center gap-2">
           <IconSearch s={16} />
           <input
@@ -468,10 +531,11 @@ export function PropertyTwins({
           <ul
             className="m-0 mt-3 max-h-64 list-none overflow-y-auto p-0"
             role="listbox"
+            aria-multiselectable="true"
             aria-label="הנכסים שלכם"
           >
             {visible.map((row) => {
-              const selected = chosen === row.id;
+              const selected = chosen.includes(row.id);
               return (
                 <li key={row.id}>
                   <button
@@ -488,8 +552,18 @@ export function PropertyTwins({
                         ? "var(--color-primary-soft)"
                         : "var(--color-surface)",
                     }}
-                    onClick={() => setChosen(row.id)}
+                    onClick={() =>
+                      setChosen((prev) =>
+                        prev.includes(row.id)
+                          ? prev.filter((id) => id !== row.id)
+                          : [...prev, row.id],
+                      )
+                    }
                   >
+                    {/* ‏הסימון נראה גם כשהצבע אינו מספיק — ובחירה מרובה חייבת אותו */}
+                    <span aria-hidden="true" style={{ width: 14 }}>
+                      {selected ? "✓" : ""}
+                    </span>
                     <Thumb url={row.thumbnailUrl} size={44} />
                     <span className="min-w-0 grow">
                       <span className="block truncate font-semibold">
@@ -524,6 +598,15 @@ export function PropertyTwins({
         >
           למה הם תואמים? <span className="font-normal">(רשות)</span>
         </label>
+        {chosen.length > 1 ? (
+          <p
+            className="m-0 mt-1 text-[length:var(--type-caption)]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            {/* ‏אותה הערה נשמרת על כל אחד מהקשרים שנוצרים עכשיו */}
+            ההערה תיכתב על כל {chosen.length} הקשרים.
+          </p>
+        ) : null}
         <input
           id="twin-note"
           className="mv-field mt-1 w-full"
