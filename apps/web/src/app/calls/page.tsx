@@ -26,11 +26,8 @@ import {
   JERUSALEM_TZ,
 } from "@metavchim/shared";
 import { CallHighlightFields, CallTranscript } from "./call-parts";
-import {
-  ConvertSection,
-  ConvertToPropertySection,
-  type ConvertPrefill,
-} from "../leads/convert-sections";
+import { type ConvertPrefill } from "../leads/convert-sections";
+import { ConvertToCustomer } from "./convert-to-customer";
 
 import { IconSparkle } from "../icons";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -351,8 +348,15 @@ export default function CallsPage() {
   );
   const filtering = query.trim() !== "" || direction !== "" || outcome !== "";
 
+  /*
+   * ‎**„לא רלוונטי” הוא מה שהמתווך חושב; מחיקה היא מה שקורה.**
+   *
+   * ‏הכפתור נקרא על שם ההחלטה ולא על שם הפעולה (בקשת המשתמש),
+   * ‏והאישור אומר במפורש מה מתרחש — כי „סימון” נשמע הפיך
+   * ‏ומחיקה אינה.
+   */
   async function onDelete(id: string): Promise<void> {
-    if (!window.confirm("למחוק את תיעוד השיחה?")) return;
+    if (!window.confirm("לסמן את השיחה כלא רלוונטית ולמחוק אותה מהמערכת?")) return;
     await apiDelete(`/calls/${id}`);
     load();
   }
@@ -387,18 +391,24 @@ export default function CallsPage() {
    * לו כרטיס), הליד כבר הומר, או שאין הרשאה לאף אחת משתי ההמרות.
    */
   const convert = ((): ReactNode => {
-    if (selected?.leadId === undefined) return null;
+    if (selected === null) return null;
+    /*
+     * ‎**ליד שכבר הומר — אין מה להמיר שוב.** אבל „אין ליד” כבר
+     * ‏אינו תנאי פוסל: זו בדיוק השיחה שממנה מתחיל לקוח חדש, והליד
+     * ‏נפתח בלחיצה על הסוג (`POST /calls/:id/lead`).
+     */
+    if (selected.leadStatus === "converted") return null;
     /*
      * ‎**נוכחות השדה היא הרשות** (ביקורת Codex). השרת מחזיר סטטוס רק
      * לליד שהמשתמש רשאי לגעת בו: ראות שיחה וראות ליד אינן אותו דבר,
      * וסוכן יכול לראות שיחה דרך נכס גלוי בזמן שהליד שייך לאחר.
-     * בלי הבדיקה הזו הוא היה ממלא טופס שלם ומקבל 404.
+     * בלי הבדיקה הזו הוא היה ממלא טופס שלם ומקבל 404. הבדיקה חלה
+     * **רק כשיש ליד** — לשיחה בלי ליד אין סטטוס, וזה תקין.
      */
-    if (selected.leadStatus === undefined) return null;
-    if (selected.leadStatus === "converted") return null;
+    if (selected.leadId !== undefined && selected.leadStatus === undefined) return null;
     const mayBuyer = can(user, "buyers.edit");
     const mayProperty = can(user, "properties.create");
-    if (!mayBuyer && !mayProperty) return null;
+    if (!mayBuyer && !mayProperty && !mayEdit) return null;
 
     const highlights = selected.highlights ?? {};
     const hint = callConversionHint(highlights);
@@ -407,34 +417,7 @@ export default function CallsPage() {
       ...(highlights.budget === undefined ? {} : { priceShekels: highlights.budget }),
       ...(highlights.rooms === undefined ? {} : { rooms: highlights.rooms }),
       ...(highlights.address === undefined ? {} : { street: highlights.address }),
-      ...(hint.dealType === undefined ? {} : { dealType: hint.dealType }),
     };
-
-    /*
-     * ‎**המפתח נושא את מזהה השיחה** (ביקורת Codex).
-     *
-     * מפתח קבוע השאיר את הטפסים מחוברים במעבר בין שיחות: השדות
-     * אינם מבוקרים (`defaultValue`), ולכן מה שהוקלד — או מה שמולא
-     * מראש — לשיחה א׳ נשאר על המסך בזמן ש-`leadId` כבר מצביע על
-     * ב׳. שליחה שמרה את העיר, התקציב והכתובת של א׳ **על הכרטיס של
-     * ב׳**, בשקט.
-     *
-     * ‎**מזהה השיחה ולא מזהה הליד:** המילוי מראש נגזר מ-`highlights`
-     * של השיחה, ולשתי שיחות של אותו ליד יש מילוי שונה. מפתח לפי ליד
-     * היה משאיר על המסך את הערכים של השיחה הקודמת.
-     */
-    const buyer = mayBuyer ? (
-      <ConvertSection key={`buyer-${selected.id}`} leadId={selected.leadId} prefill={prefill} />
-    ) : null;
-    const property = mayProperty ? (
-      <ConvertToPropertySection
-        key={`property-${selected.id}`}
-        leadId={selected.leadId}
-        prefill={prefill}
-        /* ‏הסימון על הלקוח — בלעדיו ההמרה מכאן שולחת `false` בשקט */
-        contactSharedTabu={selected.contactSharedTabu ?? false}
-      />
-    ) : null;
 
     return (
       <div className="mt-5">
@@ -447,9 +430,21 @@ export default function CallsPage() {
             {`מהשיחה עולה ש${hint.sentence}`}
           </p>
         )}
-        <div className="flex flex-wrap items-start gap-3">
-          {hint.sellerFirst ? [property, buyer] : [buyer, property]}
-        </div>
+        {/*
+          ‎**המפתח נושא את מזהה השיחה** — מעבר בין שיחות חייב לאפס
+          ‏את הבחירה ואת הליד שנפתר, אחרת הטופס של א׳ נשאר על המסך
+          ‏בזמן שהמזהה כבר של ב׳ (דרישה מסבב ביקורת קודם).
+        */}
+        <ConvertToCustomer
+          key={`convert-${selected.id}`}
+          callId={selected.id}
+          {...(selected.leadId === undefined ? {} : { leadId: selected.leadId })}
+          prefill={prefill}
+          contactSharedTabu={selected.contactSharedTabu ?? false}
+          mayBuyer={mayBuyer}
+          mayProperty={mayProperty}
+          onLead={load}
+        />
       </div>
     );
   })();
@@ -590,7 +585,7 @@ export default function CallsPage() {
               className="mv-btn-plain"
               style={{ color: "var(--color-danger)" }}
             >
-              מחק תיעוד
+              סימון לא רלוונטי
             </button>
           ) : null}
         </div>
