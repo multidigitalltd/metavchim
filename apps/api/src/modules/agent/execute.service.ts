@@ -3303,6 +3303,7 @@ export class AgentExecuteService {
       "houseNumber",
       "propertyType",
       "dealType",
+      "facing",
       "condition",
       "entryType",
       "entryNote",

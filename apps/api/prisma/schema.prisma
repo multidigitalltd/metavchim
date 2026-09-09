@@ -512,6 +512,15 @@ model Property {
   /// ‏שבו הבעלים עצמו נשאל. שמירה רגילה של כרטיס הנכס **אינה**
   /// ‏חותמת: היא ראיה לכך שמישהו שמר טופס, לא לכך שמישהו בדק.
   sharedTabuConfirmedAt DateTime? @map("shared_tabu_confirmed_at")
+  /// ‎**חזית / עורף / שניהם** — front | rear | both.
+  ///
+  /// ‏אחת השאלות הראשונות בטלפון, ועד עכשיו לא היה לה איפה לשבת:
+  /// ‏מי ששאל רשם בהערות, ומשם זה לא חוזר לאף מסך.
+  ///
+  /// ‎`NULL` = לא צוין, וזו האמת על כל השורות שקדמו לעמודה. שלושה
+  /// ‏ערכים ולא שניים, כי דירה שפונה לשני הכיוונים היא מצב נפוץ
+  /// ‏ובבחירה של שניים בלבד היא נרשמת בשקר.
+  facing               String?   @db.VarChar(10)
   condition            String?   @db.VarChar(20)
   priceAgorot          BigInt?   @map("price_agorot")
   priceFlexible        Boolean?  @map("price_flexible")

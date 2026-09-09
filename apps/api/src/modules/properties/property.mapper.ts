@@ -52,6 +52,7 @@ export function rowToFields(row: PropertyRow): PropertyFields {
       sharedTabu: row.sharedTabu,
       propertyType: row.propertyType,
     }),
+    facing: (row.facing as PropertyFields["facing"]) ?? undefined,
     condition: (row.condition as PropertyFields["condition"]) ?? undefined,
     priceAgorot: row.priceAgorot === null ? undefined : Number(row.priceAgorot),
     priceFlexible: row.priceFlexible ?? undefined,
@@ -168,6 +169,7 @@ export function fieldsToColumns(
   if ("hasBalcony" in fields) out.hasBalcony = fields.hasBalcony ?? null;
   if ("hasSafeRoom" in fields) out.hasSafeRoom = fields.hasSafeRoom ?? null;
   if ("hasStorage" in fields) out.hasStorage = fields.hasStorage ?? null;
+  if ("facing" in fields) out.facing = fields.facing ?? null;
   /*
    * ‏העמודה `NOT NULL`, ולכן „לא נשלח” נופל ל-`false` ולא ל-`null`.
    *
