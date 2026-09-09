@@ -204,56 +204,85 @@ export function decodeImportBytes(bytes: Uint8Array): DecodedImport {
 export const IMPORT_DELIMITERS = [",", "\t", ";"] as const;
 export type ImportDelimiter = (typeof IMPORT_DELIMITERS)[number];
 
+/** ‏כמה שורות נבדקות כדי להכריע — די בהן, וקבצים גדולים נשארים מהירים. */
+const DELIMITER_SAMPLE_ROWS = 20;
+
 /**
- * ‎**איזה תו מפריד בין העמודות.**
- *
- * ‏נספר ב**שורת הכותרת** — הראשונה שיש בה תוכן. שורות ריקות
- * ‏בפתח הקובץ מדולגות: ייצוא שמתחיל בשורה ריקה היה מחזיר „אין
- * ‏מפרידים” ונופל לפסיק, כלומר בדיוק התקלה שהפונקציה מונעת.
- *
- * ‏הספירה היא **מחוץ למרכאות**, כי „2,980,000” הוא תא אחד
- * ‏ושלושת הפסיקים שבו אינם מפרידים. בלי זה, קובץ טאבים עם
- * ‏מחירים מצוטטים היה נקרא כקובץ פסיקים.
- *
- * ‏הפסיק הוא ברירת המחדל, ומפריד אחר נבחר רק אם הוא **מופיע
- * ‏ושכיח ממנו ממש**. כלומר קובץ פסיקים תקין לעולם אינו משנה
- * ‏התנהגות בעקבות השינוי הזה.
+ * ‏מספר התאים בכל אחת מהשורות הראשונות, לפי מפריד נתון ובכיבוד
+ * ‏מרכאות. שורות ריקות מדולגות — הן אינן ראיה לכלום.
  */
-export function detectDelimiter(csv: string): ImportDelimiter {
-  const counts = new Map<ImportDelimiter, number>(IMPORT_DELIMITERS.map((d) => [d, 0]));
+function fieldCounts(csv: string, sep: string): number[] {
+  const counts: number[] = [];
+  let fields = 1;
+  let hasContent = false;
   let inQuotes = false;
-  /** ‏האם בשורה הנוכחית כבר נראה תוכן — שורה ריקה אינה הכותרת */
-  let lineHasContent = false;
-  for (let i = 0; i < csv.length; i += 1) {
+  for (let i = 0; i < csv.length && counts.length < DELIMITER_SAMPLE_ROWS; i += 1) {
     const char = csv[i]!;
     if (char === '"') {
       if (inQuotes && csv[i + 1] === '"') i += 1;
       else inQuotes = !inQuotes;
-      lineHasContent = true;
-      continue;
-    }
-    if (!inQuotes && (char === "\n" || char === "\r")) {
-      if (lineHasContent) break; // ‏סוף שורת הכותרת
-      continue; // ‏שורה ריקה בפתח — ממשיכים לחפש את הכותרת
-    }
-    if (inQuotes) continue;
-    const known = IMPORT_DELIMITERS.find((d) => d === char);
-    if (known !== undefined) {
-      counts.set(known, counts.get(known)! + 1);
-      lineHasContent = true;
+      hasContent = true;
+    } else if (!inQuotes && (char === "\n" || char === "\r")) {
+      if (char === "\r" && csv[i + 1] === "\n") i += 1;
+      if (hasContent) counts.push(fields);
+      fields = 1;
+      hasContent = false;
+    } else if (!inQuotes && char === sep) {
+      fields += 1;
+      hasContent = true;
     } else if (char.trim() !== "") {
-      lineHasContent = true;
+      hasContent = true;
     }
   }
-  const commas = counts.get(",")!;
+  if (hasContent && counts.length < DELIMITER_SAMPLE_ROWS) counts.push(fields);
+  return counts;
+}
+
+/**
+ * ‎**איזה תו מפריד בין העמודות.**
+ *
+ * ‏ההכרעה היא לפי **עקביות על פני שורות**, ולא לפי ספירה בשורת
+ * ‏הכותרת. ספירה גולמית נשמעת מספיקה ואינה: בקובץ פסיקים תקין
+ * ‏שכותרתו „‎notes; internal; only,city‎” יש שתי נקודות-פסיק
+ * ‏ופסיק אחד, ולכן היא הייתה נבחרת — ועמודת `city` נעלמת. זו
+ * ‏רגרסיה על קובץ שעבד (ביקורת Codex).
+ *
+ * ‏מפריד אמיתי נותן **אותו מספר תאים בכל שורה**, וגדול מ-1.
+ * ‏נקודה-פסיק בדוגמה למעלה נותנת 3 תאים בכותרת ו-1 בשורת
+ * ‏הנתונים — כלומר אינה מפרידה כלום — ולכן נפסלת, והפסיק (2 ו-2)
+ * ‏מנצח. הספירה מכבדת מרכאות: „2,980,000” הוא תא אחד.
+ *
+ * ‏הפסיק הוא ברירת המחדל ומנצח בשוויון, ולכן קובץ פסיקים תקין
+ * ‏אינו משנה התנהגות. כשאף מועמד אינו עקבי — פסיק.
+ */
+export function detectDelimiter(csv: string): ImportDelimiter {
   let best: ImportDelimiter = ",";
-  let bestCount = commas;
-  for (const d of IMPORT_DELIMITERS) {
-    if (d === ",") continue;
-    const n = counts.get(d)!;
-    if (n > 0 && n > bestCount) {
-      best = d;
-      bestCount = n;
+  let bestScore = 0;
+  let bestFields = 0;
+  for (const candidate of IMPORT_DELIMITERS) {
+    const counts = fieldCounts(csv, candidate);
+    if (counts.length === 0) continue;
+    /* ‏המספר השכיח ביותר, ובכמה שורות הוא מופיע */
+    const tally = new Map<number, number>();
+    for (const n of counts) tally.set(n, (tally.get(n) ?? 0) + 1);
+    let modal = 0;
+    let agree = 0;
+    for (const [n, times] of tally) {
+      if (times > agree || (times === agree && n > modal)) {
+        modal = n;
+        agree = times;
+      }
+    }
+    /* ‏„תא אחד בכל שורה” אינו מפריד — הוא היעדר מפריד */
+    if (modal < 2) continue;
+    const score = agree / counts.length;
+    const better =
+      score > bestScore ||
+      (score === bestScore && candidate !== "," && best !== "," && modal > bestFields);
+    if (better) {
+      best = candidate;
+      bestScore = score;
+      bestFields = modal;
     }
   }
   return best;

@@ -8,6 +8,7 @@ import {
   decodeImportBytes,
   LEAD_TARGET_LABELS,
   parseBuyersCsv,
+  parseCsvRecords,
   parseLeadsCsv,
   parsePropertiesCsv,
   parseRecruitmentCsv,
@@ -238,12 +239,24 @@ export default function ImportPage() {
   const tooMany = rowCount > 10_000;
 
   /*
-   * ‎**„עמודה אחת בלבד, ואפס שורות”** — החתימה של מפריד שלא זוהה.
-   * ‏עמודה שלא מופתה היא בעיית מיפוי; שורה שלמה בתא אחד היא בעיית
+   * ‎**„כל השורה בתא אחד”** — החתימה של מפריד שלא זוהה. עמודה
+   * ‏שלא מופתה היא בעיית מיפוי; שורה שלמה בתא אחד היא בעיית
    * ‏פירוק, וההודעה חייבת להבדיל ביניהן.
+   *
+   * ‏נמדד על **צורת הרשומה** ולא על מספר השורות: מפרסרי הנכסים,
+   * ‏הקונים והלידים מחזירים שורה (ריקה) לכל שורה פיזית גם כשאף
+   * ‏כותרת לא מופתה, ולכן `rowCount > 0` והתנאי הקודם לעולם לא
+   * ‏היה נדלק על קובץ מופרד בקו אנכי (ביקורת Codex) — המתווך
+   * ‏היה רואה „ייבא 2” ומייבא רשומות ריקות.
+   *
+   * ‏עמודה אחת שכן מופתה אינה תקלה, ולכן `unmappedHeaders`.
    */
+  const headerColumns = useMemo(
+    () => parseCsvRecords(csv.replace(/^\uFEFF/u, ""))[0]?.length ?? 0,
+    [csv],
+  );
   const noDelimiter =
-    csv.trim() !== "" && rowCount === 0 && parsed.unmappedHeaders.length === 1;
+    csv.trim() !== "" && headerColumns === 1 && parsed.unmappedHeaders.length === 1;
 
   function reset(): void {
     setResult(null);
@@ -507,10 +520,11 @@ export default function ImportPage() {
           }}
         >
           <p className="m-0 font-bold" style={{ fontSize: "var(--type-button)" }}>
-            <IconWarning s={15} /> לא נמצא מפריד עמודות — כל השורה נקראה כתא אחד
+            <IconWarning s={15} /> כל השורה נקראה כתא אחד — לא זוהה מפריד עמודות
           </p>
           <p className="m-0 mt-1" style={{ fontSize: "var(--type-caption)" }}>
             נתמכים פסיק, טאב ונקודה-פסיק. אם הקובץ מופרד אחרת, שמירה מחדש כ-CSV תפתור.
+            הייבוא חסום עד אז, כדי שלא ייכנסו רשומות ריקות.
           </p>
         </div>
       ) : null}
@@ -713,7 +727,11 @@ export default function ImportPage() {
         </>
       ) : null}
 
-      <Button onClick={onSubmit} disabled={submitting || rowCount === 0 || tooMany}>
+      {/* ‏רשומות ריקות אינן „ייבוא” — כשלא נמצא מפריד, אין מה לשלוח */}
+      <Button
+        onClick={onSubmit}
+        disabled={submitting || rowCount === 0 || tooMany || noDelimiter}
+      >
         {submitting ? "מייבא…" : `ייבא ${rowCount} ${MODE_LABELS[mode]}`}
       </Button>
 
