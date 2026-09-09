@@ -1621,61 +1621,30 @@ export class IntakeService {
               stillInactive === "expired" ? "הקישור פג תוקף" : "הקישור בוטל",
             );
           }
-          // שליחה מקבילה הקדימה — הכרטיס שלה הוא הכרטיס
-          if (again.subjectId !== null && again.contactId !== null) {
-            /*
-             * בלי תפיסה: היא כבר נעשתה על ידי מי שהקדים, והמסלול
-             * הרגיל שאחרי כאן יתפוס את השליחה הזו כשליחה חוזרת.
-             */
-            return {
-              subjectId: again.subjectId,
-              contactId: again.contactId,
-              preClaim: null,
-            };
-          }
-
           /*
-           * **התפיסה כאן, ולפני שנוצר משהו.**
+           * ‎**הקישור הפתוח נשאר קישור, ואינו נהפך לשליחה.**
            *
-           * הבדיקה שמעל אינה מספיקה: `revoke` אינו נוטל את הנעילה
-           * הזו, ובין הבדיקה לבין הכתיבה — ואחר כך גם בין סיום
-           * הטרנזקציה הזו לבין התפיסה שהייתה בטרנזקציה נפרדת —
-           * הקישור יכול היה להתבטל. התוצאה הייתה הגרועה משני
-           * העולמות: הלקוח מקבל „הקישור אינו פעיל”, והמשרד מקבל
-           * קונה שנולד מקישור מבוטל (ביקורת Codex, P1).
+           * ‏זה הלב של „קישור אחד לכל הלקוחות”. קודם השליחה נתפסה
+           * ‏על שורת הקישור עצמה — `status: "submitted"`, התשובות,
+           * ‏ו-`subjectId` שהצביע על הכרטיס שנוצר. התוצאה: הלקוח
+           * ‏השני שמילא את אותו קישור נחת על **הכרטיס של הראשון**
+           * ‏ודרס את התשובות שלו. מתווך שרצה לשלוח קישור אחד לכל
+           * ‏הלקוחות שלו היה חייב לייצר קישור לכל אחד (דיווח
+           * ‏המשתמש).
            *
-           * `UPDATE ... WHERE status <> 'revoked' AND expires_at > now`
-           * הוא הכרעה אטומית, והיא נעשית מעתה **באותה טרנזקציה**
-           * שיוצרת את הכרטיס. או ששניהם קרו, או ששום דבר לא קרה.
-           * ביטול שמגיע אחריה מאחר — השליחה כבר התקבלה.
+           * ‏מעתה כל מילוי מייצר **שורת שליחה משלו**, וזו שנושאת
+           * ‏את התשובות ואת הכרטיס. שורת הקישור אינה נוגעת: היא
+           * ‏נשארת `active` עם `subjectId: null`, ולכן המילוי הבא
+           * ‏מתחיל מאותה נקודה בדיוק.
+           *
+           * ‎**האטומיות מול `revoke` נשמרת** — היא פשוט עברה
+           * ‏מ-`UPDATE` מותנה לנעילת השורה. `revoke` מעדכן את אותה
+           * ‏שורה, ולכן הוא ממתין לנעילה הזו; הבדיקה שמעליה רצה
+           * ‏תחתיה, וקישור שבוטל בדיוק עכשיו נתפס לפני שנוצר
+           * ‏כרטיס. זו אותה הבטחה, בלי לכתוב על הקישור.
            */
-          const before = await tx.intakeRequest.findUnique({
-            where: { id: row.id },
-            select: { submittedAt: true, answers: true },
-          });
+          await tx.$queryRaw`SELECT id FROM intake_requests WHERE id = ${row.id} AND tenant_id = ${row.tenantId} FOR UPDATE`;
           const rev = ulid();
-          const claimed = await tx.intakeRequest.updateMany({
-            where: {
-              id: row.id,
-              tenantId: row.tenantId,
-              status: { not: "revoked" },
-              expiresAt: { gt: new Date() },
-            },
-            data: {
-              status: "submitted",
-              submittedAt: new Date(),
-              submissionRev: rev,
-              answers: answers as unknown as Prisma.InputJsonValue,
-            },
-          });
-          if (claimed.count === 0) {
-            throw new BadRequestException("הקישור אינו פעיל עוד");
-          }
-          const preClaim: PreClaim = {
-            rev,
-            resubmit: before?.submittedAt !== null && before?.submittedAt !== undefined,
-            previousAnswers: asRecord(before?.answers),
-          };
 
           /*
            * הכרטיס הקיים גובר: יצירה לפי טלפון הייתה מוצאת אותו
@@ -1725,8 +1694,24 @@ export class IntakeService {
             select: { id: true },
           });
           if (existing !== null) {
-            await this.link(tx, row, existing.id, contact.id);
-            return { subjectId: existing.id, contactId: contact.id, preClaim };
+            /*
+             * ‏אותו אדם ממלא שוב את הקישור הכללי — תיקון או הרחבה
+             * ‏של מה שמסר. זו שליחה חוזרת **שלו**, ולכן היא נכתבת
+             * ‏על הכרטיס שלו; לקוח אחר לעולם אינו מגיע לכאן, כי
+             * ‏הכרטיס נמצא לפי איש הקשר שנפתר מהטלפון שהוא הקליד.
+             */
+            const submission = await this.recordOpenSubmission(tx, row, {
+              buyerId: existing.id,
+              contactId: contact.id,
+              rev,
+              answers,
+            });
+            return {
+              subjectId: existing.id,
+              contactId: contact.id,
+              requestId: submission.id,
+              preClaim: { rev, resubmit: true, previousAnswers: submission.previousAnswers },
+            };
           }
 
           /*
@@ -1750,34 +1735,96 @@ export class IntakeService {
             ownerUserId: owner === "" ? undefined : owner,
           });
           fresh.push(buyerId);
-          await this.link(tx, row, buyerId, contact.id);
-          return { subjectId: buyerId, contactId: contact.id, preClaim };
+          const submission = await this.recordOpenSubmission(tx, row, {
+            buyerId,
+            contactId: contact.id,
+            rev,
+            answers,
+          });
+          return {
+            subjectId: buyerId,
+            contactId: contact.id,
+            requestId: submission.id,
+            /* ‏לקוח חדש בקישור הכללי — תמיד שליחה ראשונה, לא חוזרת */
+            preClaim: { rev, resubmit: false, previousAnswers: {} },
+          };
         },
       );
 
       for (const id of fresh) await this.buyers.afterCreate(id);
-      return { ...row, ...linked };
+      /*
+       * ‎**מה שחוזר הוא שורת השליחה, לא שורת הקישור.**
+       *
+       * ‏כל מה שאחרי `materializeOpen` — התפיסה, `applyToBuyer`,
+       * ‏היומן וההתראה — עובד על „הבקשה”. בקישור כללי הבקשה היא
+       * ‏המילוי הזה ולא הקישור, אחרת השני היה דורס את הראשון.
+       * ‏‎`subject: "buyer"` כי מכאן והלאה זו בקשה של כרטיס לכל
+       * ‏דבר, וזה בדיוק מה שמפעיל את המסלול הקיים בלי ענף נוסף.
+       */
+      const { requestId, ...rest } = linked;
+      return { ...row, ...rest, id: requestId, subject: "buyer" };
     });
   }
 
   /**
-   * שורת הבקשה מצביעה על הכרטיס — **רק אם עוד לא הצביעה.**
+   * ‎**שורת שליחה לכל מילוי של קישור כללי.**
    *
-   * `updateMany` עם `subjectId: null` בתנאי ולא `update`: הנעילה
-   * מסדרת את השליחות זו אחר זו, והתנאי הוא מה שמוודא שהשנייה אינה
-   * מסיטה את הבקשה לכרטיס אחר אם משהו בכל זאת חמק.
+   * ‏שורת הקישור נשארת פתוחה ואינה נוגעת; כל לקוח שממלא מקבל שורה
+   * ‏משלו, ועליה יושבות התשובות שלו והכרטיס שנוצר לו. זה מה שהופך
+   * ‏„קישור אחד לכל הלקוחות” לאפשרי.
+   *
+   * ‏השורה נושאת טוקן משלה כי העמודה ייחודית — אך הוא לעולם אינו
+   * ‏נשלח לאיש: מה שנשלח ללקוחות הוא הטוקן של הקישור. טוקן שאינו
+   * ‏מגיע לידיים אינו נתיב כניסה, והשורה נולדת `submitted` ולכן
+   * ‏אינה מקבלת מילוי נוסף.
    */
-  private async link(
+  private async recordOpenSubmission(
     tx: TenantTx,
-    row: TokenRow,
-    buyerId: string,
-    contactId: string,
-  ): Promise<void> {
-    await tx.intakeRequest.updateMany({
-      where: { id: row.id, tenantId: row.tenantId, subjectId: null },
-      data: { subjectId: buyerId, contactId },
+    link: TokenRow,
+    input: {
+      buyerId: string;
+      contactId: string;
+      rev: string;
+      answers: IntakeAnswers;
+    },
+  ): Promise<{ id: string; previousAnswers: Record<string, unknown> }> {
+    /*
+     * ‏שליחה חוזרת של אותו אדם דורסת את השליחה הקודמת **שלו**, ולכן
+     * ‏„מה היה קודם” נקרא מהשורה שלו ולא מהקישור. בלי זה השוואת
+     * ‏השינויים הייתה מול מה שלקוח אחר מילא.
+     */
+    const previous = await tx.intakeRequest.findFirst({
+      where: {
+        tenantId: link.tenantId,
+        subject: "buyer",
+        subjectId: input.buyerId,
+        channel: "open_fill",
+      },
+      orderBy: { submittedAt: "desc" },
+      select: { answers: true },
     });
+    const row = await tx.intakeRequest.create({
+      data: {
+        id: ulid(),
+        tenantId: link.tenantId,
+        token: freshToken(),
+        subject: "buyer",
+        subjectId: input.buyerId,
+        contactId: input.contactId,
+        /* ‏„מילוי של קישור כללי” — מבדיל אותה מבקשה שנשלחה לכרטיס */
+        channel: "open_fill",
+        createdBy: null,
+        expiresAt: link.expiresAt,
+        status: "submitted",
+        submittedAt: new Date(),
+        submissionRev: input.rev,
+        answers: input.answers as unknown as Prisma.InputJsonValue,
+      },
+      select: { id: true },
+    });
+    return { id: row.id, previousAnswers: asRecord(previous?.answers) };
   }
+
 
   /**
    * הדרישות החדשות → כרטיס הקונה, **דרך `BuyersService.update`.**
