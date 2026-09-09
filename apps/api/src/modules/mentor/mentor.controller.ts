@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Post,
   Query,
@@ -18,6 +19,7 @@ import {
   MentorGoalPeriodSchema,
   MentorIdeaFeedbackSchema,
   type MentorIdeaFeedbackInput,
+  MENTOR_MESSAGE_VERDICTS,
   PRACTICE_SCENARIOS,
   PRACTICE_TEXT_MAX,
   type ProcessGoalSuggestion,
@@ -71,6 +73,11 @@ const ReflectionSchema = z
   .strict();
 /* ‏מזהה שיחה הוא מזהה ההודעה הפותחת שלה — ULID, כמו כל מזהה כאן */
 const ThreadIdSchema = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/u);
+
+const MessageFeedbackSchema = z
+  .object({ verdict: z.enum(MENTOR_MESSAGE_VERDICTS).nullable() })
+  .strict();
+const MessagePinSchema = z.object({ pinned: z.boolean() }).strict();
 
 const AskSchema = z
   .object({
@@ -209,6 +216,39 @@ export class MentorController {
       throw new BadRequestException("מזהה שיחה לא תקין");
     }
     return this.mentor.turns(40, parsed?.data);
+  }
+
+  /**
+   * ‏דירוג תשובה של המנטור. `verdict: null` מנקה — לחיצה שנייה על
+   * ‏אותו כפתור, כפי ש-`nextMentorVerdict` מכריע במסך.
+   */
+  @Post("messages/:id/feedback")
+  @AnyAuthenticated()
+  @HttpCode(200)
+  rateMessage(
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(MessageFeedbackSchema))
+    body: z.infer<typeof MessageFeedbackSchema>,
+  ): Promise<{ ok: true }> {
+    return this.mentor.rateMessage(id, body.verdict);
+  }
+
+  /** ‏נעיצה וביטולה — משפט שרוצים למצוא שוב, על פני כל השיחות. */
+  @Post("messages/:id/pin")
+  @AnyAuthenticated()
+  @HttpCode(200)
+  pinMessage(
+    @Param("id", IdParam) id: string,
+    @Body(new ZodValidationPipe(MessagePinSchema))
+    body: z.infer<typeof MessagePinSchema>,
+  ): Promise<{ ok: true }> {
+    return this.mentor.pinMessage(id, body.pinned);
+  }
+
+  @Get("messages/pinned")
+  @AnyAuthenticated()
+  pinned(): Promise<{ turns: MentorTurnDto[] }> {
+    return this.mentor.pinned();
   }
 
   /** ‏רשימת השיחות הקודמות — הכותרת נגזרת מהשאלה הראשונה שבכל אחת. */

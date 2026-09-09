@@ -869,9 +869,16 @@ model MentorMessage {
   /// שמורה יכולה לחלוק על השיחה שהיא מתארת; נגזרת אינה יכולה.
   threadId String @map("thread_id") @db.Char(26)
   /// user | mentor
-  role      String   @db.VarChar(10)
-  text      String   @db.VarChar(4000)
-  createdAt DateTime @default(now()) @map("created_at")
+  role String @db.VarChar(10)
+  text String @db.VarChar(4000)
+  /// ‏דירוג של המתווך על תשובת המנטור — `helpful` | `not_helpful`.
+  /// ‏עמודה נפרדת מ-`pinnedAt` כי אלה שתי פעולות: דירוג אומר „זה
+  /// ‏היה טוב”, נעיצה אומרת „אני רוצה למצוא את זה שוב”.
+  feedback  String?   @db.VarChar(12)
+  /// ‏מתי נעצה — ולא בוליאני, כי לרשימת הנעוצים יש סדר, והוא „מתי
+  /// ‏נעצתי” ולא „מתי נאמר”.
+  pinnedAt  DateTime? @map("pinned_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

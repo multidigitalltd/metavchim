@@ -43,6 +43,7 @@ import {
   mentorPatterns,
   mentorPeriodRange,
   mentorStartsNewThread,
+  type MentorMessageVerdict,
   mentorThreadTitle,
   MENTOR_METRICS,
   officeEvidenceLabel,
@@ -196,6 +197,10 @@ export interface MentorThreadDto {
 }
 
 export interface MentorTurnDto {
+  /** ‏דירוג המתווך על התשובה — `null` כשלא דורגה, וזה הרוב */
+  feedback?: "helpful" | "not_helpful" | null;
+  /** ‏מתי נעצה, אם נעצה — המסך צובע לפי זה */
+  pinnedAt?: string | null;
   id: string;
   role: "user" | "mentor";
   text: string;
@@ -764,6 +769,64 @@ export class MentorService {
       turns: rows.reverse().map(MentorService.turnDto),
       threadId: rows[0]?.threadId ?? null,
     };
+  }
+
+  /**
+   * ‎**דירוג תשובה, ונעיצה — שתי פעולות על אותה שורה.**
+   *
+   * ‏שתיהן מסוננות ב-`updateMany` על `userId`, ולכן הודעה של עמית
+   * ‏אינה „אסורה” אלא פשוט אינה נמצאת. `count === 0` הוא התשובה
+   * ‏הנכונה גם למזהה שאינו קיים וגם למזהה של מישהו אחר — שני
+   * ‏המצבים אינם צריכים להיות ניתנים להבחנה מבחוץ.
+   *
+   * ‎**רק תשובה של המנטור ניתנת לדירוג.** דירוג של השאלה שלך עצמך
+   * ‏אינו אומר דבר, והמסך אינו מציע אותו; התנאי כאן הוא מה שהופך
+   * ‏את זה לנכון גם כשמישהו קורא ל-API ישירות.
+   */
+  async rateMessage(
+    id: string,
+    verdict: MentorMessageVerdict | null,
+  ): Promise<{ ok: true }> {
+    const { tenantId, userId } = TenantContext.current();
+    const { count } = await this.prisma.withTenant((tx) =>
+      tx.mentorMessage.updateMany({
+        where: { id, tenantId, userId, role: "mentor" },
+        data: { feedback: verdict },
+      }),
+    );
+    if (count === 0) throw new NotFoundException("ההודעה לא נמצאה");
+    return { ok: true };
+  }
+
+  async pinMessage(id: string, pinned: boolean): Promise<{ ok: true }> {
+    const { tenantId, userId } = TenantContext.current();
+    const { count } = await this.prisma.withTenant((tx) =>
+      tx.mentorMessage.updateMany({
+        where: { id, tenantId, userId },
+        data: { pinnedAt: pinned ? new Date() : null },
+      }),
+    );
+    if (count === 0) throw new NotFoundException("ההודעה לא נמצאה");
+    return { ok: true };
+  }
+
+  /**
+   * ‏מה שנעצת — על פני כל השיחות, החדש ראשון.
+   *
+   * ‏זו הסיבה שנעיצה קיימת: משפט טוב נאמר בשיחה אחת ונחוץ בשיחה
+   * ‏אחרת, וחיפוש בהיסטוריה אינו תשובה למי שזוכר שהיה משהו ולא
+   * ‏זוכר מתי.
+   */
+  async pinned(limit = 30): Promise<{ turns: MentorTurnDto[] }> {
+    const { tenantId, userId } = TenantContext.current();
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.mentorMessage.findMany({
+        where: { tenantId, userId, pinnedAt: { not: null } },
+        orderBy: { pinnedAt: "desc" },
+        take: limit,
+      }),
+    );
+    return { turns: rows.map(MentorService.turnDto) };
   }
 
   /**
@@ -1398,12 +1461,24 @@ export class MentorService {
     role: string;
     text: string;
     createdAt: Date;
+    feedback?: string | null;
+    pinnedAt?: Date | null;
   }): MentorTurnDto {
     return {
       id: row.id,
       role: row.role as "user" | "mentor",
       text: row.text,
       createdAt: row.createdAt,
+      /*
+       * ‏שדות המשוב נכתבים תמיד, גם כשהם ריקים: הודעה שנוצרה עכשיו
+       * ‏חוזרת מאותו טיפוס כמו הודעה שנטענה, והמסך אינו צריך לדעת
+       * ‏מאיזה מסלול היא הגיעה.
+       */
+      feedback:
+        row.feedback === "helpful" || row.feedback === "not_helpful"
+          ? row.feedback
+          : null,
+      pinnedAt: row.pinnedAt?.toISOString() ?? null,
     };
   }
 }

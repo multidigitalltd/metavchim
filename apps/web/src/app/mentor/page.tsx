@@ -11,6 +11,8 @@ import {
   type MentorActivity,
   MentorGoalInputSchema,
   jerusalemDayLabel,
+  nextMentorVerdict,
+  type MentorMessageVerdict,
   jerusalemWallParts,
   mentorGoalLabel,
   MENTOR_NAME_MAX,
@@ -167,6 +169,10 @@ interface Turn {
   role: "user" | "mentor";
   text: string;
   createdAt: string;
+  /** ‏דירוג המתווך — `null`/חסר כשלא דורג, וזה הרוב */
+  feedback?: MentorMessageVerdict | null;
+  /** ‏מתי נעצה, אם נעצה */
+  pinnedAt?: string | null;
 }
 
 /**
@@ -2667,6 +2673,45 @@ function ChatSection({
     void sendRef.current(pending);
   }, [pending, turns, busy, onConsumed]);
 
+  /*
+   * ‎**המסך מתעדכן מיד, והשרת מאשר.**
+   *
+   * ‏דירוג הוא סימן ולא פעולה שאפשר להיכשל בה בצורה שמשנה משהו:
+   * ‏עדכון אופטימי הוא הנכון כאן. אם השרת דחה — הערך חוזר למה שהיה,
+   * ‏ולא נשאר על מה שלא נשמר.
+   */
+  async function rate(turn: Turn, pressed: MentorMessageVerdict): Promise<void> {
+    const next = nextMentorVerdict(turn.feedback ?? null, pressed);
+    const before = turn.feedback ?? null;
+    setTurns((prev) =>
+      (prev ?? []).map((t) => (t.id === turn.id ? { ...t, feedback: next } : t)),
+    );
+    try {
+      await apiPost(`/mentor/messages/${turn.id}/feedback`, { verdict: next });
+    } catch {
+      setTurns((prev) =>
+        (prev ?? []).map((t) => (t.id === turn.id ? { ...t, feedback: before } : t)),
+      );
+    }
+  }
+
+  async function pin(turn: Turn): Promise<void> {
+    const wasPinned = turn.pinnedAt !== null && turn.pinnedAt !== undefined;
+    const optimistic = wasPinned ? null : new Date().toISOString();
+    setTurns((prev) =>
+      (prev ?? []).map((t) => (t.id === turn.id ? { ...t, pinnedAt: optimistic } : t)),
+    );
+    try {
+      await apiPost(`/mentor/messages/${turn.id}/pin`, { pinned: !wasPinned });
+    } catch {
+      setTurns((prev) =>
+        (prev ?? []).map((t) =>
+          t.id === turn.id ? { ...t, pinnedAt: turn.pinnedAt ?? null } : t,
+        ),
+      );
+    }
+  }
+
   async function send(question: string): Promise<void> {
     const trimmed = question.trim();
     if (trimmed.length < 2 || busy) return;
@@ -2932,6 +2977,60 @@ function ChatSection({
                       </span>
                     </div>
                     <div className="mv-msg__body">{turn.text}</div>
+                    {/*
+                      ‎**המשוב יושב על תשובת המנטור בלבד.**
+
+                      ‏דירוג של השאלה שלך עצמך אינו אומר דבר, ולכן
+                      ‏המסך אינו מציע אותו — והשרת אוכף את אותו כלל
+                      ‏גם למי שקורא ל-API ישירות.
+
+                      ‏הנעיצה נפרדת מהדירוג בכוונה: „זה עזר” ו„אני
+                      ‏רוצה למצוא את זה שוב” הן שתי אמירות, והודעה
+                      ‏יכולה להיות שתיהן.
+                    */}
+                    {turn.role === "mentor" && !turn.id.startsWith("local-") ? (
+                      <div className="mv-msg__acts">
+                        <button
+                          type="button"
+                          className="mv-msg__act"
+                          data-on={turn.feedback === "helpful"}
+                          aria-pressed={turn.feedback === "helpful"}
+                          aria-label="עזר לי"
+                          title="עזר לי"
+                          onClick={() => void rate(turn, "helpful")}
+                        >
+                          👍
+                        </button>
+                        <button
+                          type="button"
+                          className="mv-msg__act"
+                          data-on={turn.feedback === "not_helpful"}
+                          aria-pressed={turn.feedback === "not_helpful"}
+                          aria-label="לא עזר"
+                          title="לא עזר"
+                          onClick={() => void rate(turn, "not_helpful")}
+                        >
+                          👎
+                        </button>
+                        <button
+                          type="button"
+                          className="mv-msg__act"
+                          data-on={turn.pinnedAt !== null && turn.pinnedAt !== undefined}
+                          aria-pressed={
+                            turn.pinnedAt !== null && turn.pinnedAt !== undefined
+                          }
+                          aria-label={
+                            turn.pinnedAt ? "ביטול נעיצה" : "נעיצה — למצוא את זה שוב"
+                          }
+                          title={
+                            turn.pinnedAt ? "ביטול נעיצה" : "נעיצה — למצוא את זה שוב"
+                          }
+                          onClick={() => void pin(turn)}
+                        >
+                          📌
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
                 {proposal !== null && proposal.afterTurnId === turn.id ? (
