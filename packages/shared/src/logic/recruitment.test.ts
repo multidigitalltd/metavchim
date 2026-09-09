@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   OPEN_RECRUITMENT_STATUSES,
+  RECRUITMENT_FIELDS,
+  RECRUITMENT_SECTIONS,
+  RECRUITMENT_SECTION_LABELS,
   RECRUITMENT_SOURCES,
   RECRUITMENT_SOURCE_LABELS,
   RECRUITMENT_STATUSES,
@@ -8,6 +11,9 @@ import {
   canConvertToProperty,
   isOpenRecruitment,
   isValidSourceUrl,
+  recruitmentCompleteness,
+  recruitmentFieldFilled,
+  recruitmentFieldSplit,
   recruitmentSourceLabel,
   recruitmentStatusLabel,
   sourceUrlHost,
@@ -139,5 +145,107 @@ describe("שם האתר להצגה", () => {
     expect(sourceUrlHost("javascript:alert(1)")).toBeNull();
     expect(sourceUrlHost("סתם טקסט")).toBeNull();
     expect(sourceUrlHost("")).toBeNull();
+  });
+});
+
+describe("קטלוג השדות", () => {
+  /*
+   * ‎**הקטלוג הוא מה שהמסכים מרנדרים ממנו** — כל שדה שנשמר על שורת
+   * ‏גיוס חייב להיות בו, אחרת הוא ייכתב בטופס ולא יופיע בתצוגה
+   * ‏(וזה בדיוק מה שקרה לארבעה שדות: קומה, קומות בבניין, סוג עסקה
+   * ‏וטאבו משותף — הם נוספו לטופס והתצוגה לצפייה בלבד לא ידעה
+   * ‏עליהם).
+   */
+  it("נושא את כל שמונה־עשר השדות, בלי כפילות", () => {
+    const keys = RECRUITMENT_FIELDS.map((f) => f.key);
+    expect(keys).toHaveLength(18);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("וכל שדה יושב במקטע מוכר עם כותרת", () => {
+    for (const field of RECRUITMENT_FIELDS) {
+      expect(RECRUITMENT_SECTIONS, field.key).toContain(field.section);
+      expect(RECRUITMENT_SECTION_LABELS[field.section], field.key).toBeTruthy();
+      expect(field.label.trim(), field.key).not.toBe("");
+    }
+  });
+
+  /* ‏„שלב בגיוס” הוא הפעולה, ולא מידע להשלמה — הוא נשאר למעלה */
+  it("ורק „שלב בגיוס” מוצמד מחוץ לחלוקה", () => {
+    expect(RECRUITMENT_FIELDS.filter((f) => f.pinned === true).map((f) => f.key)).toEqual([
+      "status",
+    ]);
+  });
+});
+
+describe("מה חסר ומה ידוע", () => {
+  /*
+   * ‎**אפס הוא ערך.** „קומה 0” היא קומת קרקע. בדיקת אמיתות הייתה
+   * ‏מכריזה עליה חסרה, ומחזירה אותה ל„להשלמה” אחרי כל שמירה — כלומר
+   * ‏שולחת את המתווך לשאול שוב את הבעלים מה שכבר נאמר.
+   */
+  it("קומה 0 היא קומת קרקע, לא שדה ריק", () => {
+    expect(recruitmentFieldFilled({ floor: 0 }, "floor")).toBe(true);
+    expect(recruitmentFieldFilled({ rooms: 0 }, "rooms")).toBe(true);
+    expect(recruitmentFieldFilled({ priceAgorot: 0 }, "priceAgorot")).toBe(true);
+  });
+
+  /*
+   * ‎**„לא סומן” הוא תשובה.** העמודה `NOT NULL`: `false` פירושו
+   * ‏„נבדק ואינו מושאע”. שדה בוליאני שיֵחשב חסר כשהוא כבוי לא היה
+   * ‏יורד מרשימת ההשלמה לעולם.
+   */
+  it("וטאבו משותף כבוי הוא תשובה, לא חוסר", () => {
+    expect(recruitmentFieldFilled({ sharedTabu: false }, "sharedTabu")).toBe(true);
+  });
+
+  it("ומה שאין, ומחרוזת של רווחים — חסר", () => {
+    expect(recruitmentFieldFilled({}, "city")).toBe(false);
+    expect(recruitmentFieldFilled({ city: undefined }, "city")).toBe(false);
+    expect(recruitmentFieldFilled({ city: null }, "city")).toBe(false);
+    expect(recruitmentFieldFilled({ city: "   " }, "city")).toBe(false);
+    expect(recruitmentFieldFilled({ rooms: Number.NaN }, "rooms")).toBe(false);
+  });
+
+  /*
+   * ‎**שני הצדדים מאותה חלוקה.** שדה שנופל בין „חסר” ל„ידוע” היה
+   * ‏נעלם מהמסך; שדה שנספר בשניהם היה מופיע גם בטופס ההשלמה וגם
+   * ‏ברשימת הידוע, ושתי עריכות שלו היו דורסות זו את זו.
+   */
+  it("כל שדה נמצא בדיוק בצד אחד", () => {
+    const target = { status: "new", city: "בני ברק", floor: 0, sharedTabu: false };
+    const { missing, filled } = recruitmentFieldSplit(target);
+    const keys = [...missing, ...filled].map((f) => f.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    /* ‏המוצמד אינו בשום צד — הוא אינו חלק בשאלה */
+    expect(keys).not.toContain("status");
+    expect(keys).toHaveLength(RECRUITMENT_FIELDS.length - 1);
+  });
+
+  it("ושורה ריקה — הכול חסר, כלום לא ידוע", () => {
+    const { missing, filled } = recruitmentFieldSplit({ status: "new" });
+    expect(filled).toEqual([]);
+    expect(missing).toHaveLength(RECRUITMENT_FIELDS.length - 1);
+  });
+
+  /* ‏הסדר בקטלוג הוא סדר התצוגה — ושתי החלוקות שומרות עליו */
+  it("והסדר נשמר בשני הצדדים", () => {
+    const order = RECRUITMENT_FIELDS.filter((f) => f.pinned !== true).map((f) => f.key);
+    const { missing, filled } = recruitmentFieldSplit({ city: "חיפה", rooms: 3 });
+    for (const side of [missing, filled]) {
+      const keys = side.map((f) => f.key);
+      expect(keys).toEqual([...keys].sort((a, b) => order.indexOf(a) - order.indexOf(b)));
+    }
+  });
+
+  /* ‏המונה נגזר מאותה חלוקה — ולא נספר בנפרד ומסתדר אחרת */
+  it("והמונה מסכים עם החלוקה", () => {
+    const target = { city: "חיפה", rooms: 3, sharedTabu: false };
+    const { missing, filled } = recruitmentFieldSplit(target);
+    expect(recruitmentCompleteness(target)).toEqual({
+      filled: filled.length,
+      total: filled.length + missing.length,
+    });
+    expect(recruitmentCompleteness(target).total).toBe(RECRUITMENT_FIELDS.length - 1);
   });
 });

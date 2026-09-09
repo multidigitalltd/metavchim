@@ -179,3 +179,154 @@ export function sourceUrlHost(raw: string): string | null {
   const host = new URL(raw.trim()).hostname;
   return host.startsWith("www.") ? host.slice(4) : host;
 }
+
+/**
+ * ‎**קטלוג השדות של שורת גיוס — מקור אחד לסדר, לכותרות ולשאלה „מה
+ * ‏חסר”.**
+ *
+ * ## ‏למה הוא כאן ולא בטופס
+ *
+ * ‏אותה שורה נקראת בשלושה מקומות: החלונית ברשימה, עמוד השורה,
+ * ‏והטופס. עד עכשיו כל אחד מהם החזיק רשימת שדות משלו — התצוגה
+ * ‏לצפייה בלבד מנתה תשעה, הטופס שמונה־עשר, והרשימה עוד תת-קבוצה.
+ * ‏שדה שנוסף לשורה (`floor`, `totalFloors`, `dealType`, `sharedTabu`)
+ * ‏נכנס לטופס ולא הופיע בתצוגה, ומי שהסתכל בה ראה נכס חסר יותר
+ * ‏ממה שהוא.
+ *
+ * ‏רשימה אחת פותרת את זה מבנית: מסך שמרנדר ממנה מקבל שדה חדש
+ * ‏ביום שהוא נוסף כאן, בלי לזכור.
+ */
+export type RecruitmentFieldKey =
+  | "status"
+  | "source"
+  | "sourceUrl"
+  | "city"
+  | "neighborhood"
+  | "street"
+  | "houseNumber"
+  | "propertyType"
+  | "sharedTabu"
+  | "dealType"
+  | "rooms"
+  | "areaSqm"
+  | "floor"
+  | "totalFloors"
+  | "priceAgorot"
+  | "ownerName"
+  | "ownerPhone"
+  | "notes";
+
+/** ‏המקטעים שהשדות נחלקים אליהם — אותם שלושה של הטופס. */
+export const RECRUITMENT_SECTIONS = ["source", "property", "owner"] as const;
+export type RecruitmentSection = (typeof RECRUITMENT_SECTIONS)[number];
+
+export const RECRUITMENT_SECTION_LABELS: Record<RecruitmentSection, string> = {
+  source: "מאיפה זה הגיע",
+  property: "הנכס",
+  owner: "בעל הנכס",
+};
+
+export interface RecruitmentFieldSpec {
+  key: RecruitmentFieldKey;
+  /** ‏הכותרת — אותה מילה בטופס ובתצוגה, כי זה אותו שדה. */
+  label: string;
+  section: RecruitmentSection;
+  /**
+   * ‎**שדה שאינו משתתף בחלוקה ל„חסר” ו„ידוע”.**
+   *
+   * ‏„שלב בגיוס” הוא הפעולה שהמסך קיים בשבילה — הוא תמיד מלא (יש
+   * ‏לו ברירת מחדל), ולכן חלוקה לפי ערך הייתה קוברת אותו לתמיד
+   * ‏במקטע המקופל. הוא נשאר למעלה, מחוץ לחלוקה.
+   */
+  pinned?: true;
+}
+
+/**
+ * ‏הסדר הוא סדר התצוגה — בטופס ובתצוגה כאחד.
+ *
+ * ‏אותן כותרות בדיוק שהטופס נשא עד היום, כדי שהמעבר לקטלוג לא
+ * ‏ישנה מילה על המסך.
+ */
+export const RECRUITMENT_FIELDS: readonly RecruitmentFieldSpec[] = [
+  { key: "status", label: "שלב בגיוס", section: "source", pinned: true },
+  { key: "source", label: "מקור הנכס", section: "source" },
+  { key: "sourceUrl", label: "קישור למודעה המקורית", section: "source" },
+  { key: "city", label: "עיר", section: "property" },
+  { key: "neighborhood", label: "שכונה", section: "property" },
+  { key: "street", label: "רחוב", section: "property" },
+  { key: "houseNumber", label: "מספר בית", section: "property" },
+  { key: "propertyType", label: "סוג נכס", section: "property" },
+  { key: "sharedTabu", label: "רשום בטאבו משותף (מושאע)", section: "property" },
+  { key: "dealType", label: "סוג עסקה", section: "property" },
+  { key: "rooms", label: "חדרים", section: "property" },
+  { key: "areaSqm", label: "שטח במ״ר", section: "property" },
+  { key: "floor", label: "קומה", section: "property" },
+  { key: "totalFloors", label: "קומות בבניין", section: "property" },
+  { key: "priceAgorot", label: "מחיר מבוקש (₪)", section: "property" },
+  { key: "ownerName", label: "שם", section: "owner" },
+  { key: "ownerPhone", label: "טלפון", section: "owner" },
+  { key: "notes", label: "מה נאמר בשיחה", section: "owner" },
+];
+
+/**
+ * ‎**מה שהכללים כאן קוראים — ולא `Record<string, unknown>`.**
+ *
+ * ‏שורת גיוס מגיעה כ-DTO של השרת או כערכי טופס, ושניהם ממשקים
+ * ‏שנושאים גם `id` וגם `convertedPropertyId`. הטיפוס הזה אומר בדיוק
+ * ‏מה נדרש — המפתחות שבקטלוג, כולם רשות — ולכן שדה שיוסר מהקטלוג
+ * ‏ולא מהקוראים ייפול בקומפילציה במקום להיקרא `undefined` בשקט.
+ */
+export type RecruitmentFieldValues = Partial<Record<RecruitmentFieldKey, unknown>>;
+
+/**
+ * ‎**האם לשדה יש ערך.**
+ *
+ * ## ‏שתי מלכודות שהכלל הזה קיים כדי לסגור
+ *
+ * ‎**אפס הוא ערך.** „קומה 0” היא קומת קרקע — התשובה השכיחה ביותר
+ * ‏לשאלה על קומה בבית פרטי. בדיקת אמיתות (`if (target.floor)`)
+ * ‏הייתה מכריזה עליה כחסרה, שולחת את המתווך לשאול שוב את הבעלים
+ * ‏מה שכבר נאמר, ומחזירה אותה לרשימת „להשלמה” אחרי כל שמירה.
+ *
+ * ‎**„לא סומן” הוא תשובה.** `sharedTabu` הוא `NOT NULL` במסד: `false`
+ * ‏פירושו „נבדק ואינו מושאע”, ולא „לא נשאל”. שדה בוליאני שיֵחשב
+ * ‏חסר כשהוא כבוי לא היה יורד מהרשימה לעולם.
+ */
+export function recruitmentFieldFilled(
+  target: RecruitmentFieldValues,
+  key: RecruitmentFieldKey,
+): boolean {
+  const value = target[key];
+  if (value === undefined || value === null) return false;
+  if (typeof value === "string") return value.trim() !== "";
+  if (typeof value === "number") return Number.isFinite(value);
+  return true;
+}
+
+/**
+ * ‎**חלוקה אחת שמחזירה את שני הצדדים — ולא שתי פונקציות.**
+ *
+ * ‏„מה חסר” ו„מה ידוע” הם אותה שאלה בשני כיוונים. שתי פונקציות
+ * ‏נפרדות היו יכולות לסטות (שדה שנופל בין שתיהן, או נספר פעמיים),
+ * ‏ואז אותו שדה מופיע גם בטופס ההשלמה וגם ברשימת הידוע — או
+ * ‏בשומן.
+ */
+export function recruitmentFieldSplit(
+  target: RecruitmentFieldValues,
+): { missing: RecruitmentFieldSpec[]; filled: RecruitmentFieldSpec[] } {
+  const missing: RecruitmentFieldSpec[] = [];
+  const filled: RecruitmentFieldSpec[] = [];
+  for (const spec of RECRUITMENT_FIELDS) {
+    if (spec.pinned === true) continue;
+    (recruitmentFieldFilled(target, spec.key) ? filled : missing).push(spec);
+  }
+  return { missing, filled };
+}
+
+/** ‏„8 מתוך 17 הושלמו” — נגזר מאותה חלוקה, ולא נספר בנפרד. */
+export function recruitmentCompleteness(
+  target: RecruitmentFieldValues,
+): { filled: number; total: number } {
+  const { missing, filled } = recruitmentFieldSplit(target);
+  return { filled: filled.length, total: filled.length + missing.length };
+}

@@ -3,16 +3,26 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import {
-  recruitmentSourceLabel,
-  recruitmentStatusLabel,
-} from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
-import { formatPrice } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { EntityTasks } from "../../../entity-tasks";
-import { TargetForm, type TargetValues } from "../target-form";
+import { TargetDetails, TargetStatusChip } from "../target-details";
+import { TargetForm } from "../target-form";
+import { targetAddress, type TargetValues } from "../target-values";
 
+/**
+ * ‏עמוד הנכס לגיוס — **הקישור העמוק**, ולא הדרך הרגילה.
+ *
+ * ‏העבודה השוטפת נעשית בחלונית שנפתחת מהרשימה: היא מהירה יותר
+ * ‏ואינה מאבדת את הסינון. העמוד קיים בשביל מה שהחלונית אינה יכולה
+ * ‏להיות — כתובת שאפשר לשלוח, לפתוח בלשונית חדשה ולסמן — ובשביל
+ * ‏מקטע הפולואפ.
+ *
+ * ‏שני המסכים מרנדרים את **אותם רכיבים** (`TargetDetails`,
+ * ‎`TargetForm`). עותק שני של התצוגה כאן היה סוטה ביום שנוסף שדה —
+ * ‏וזה בדיוק מה שקרה קודם: הטופס קיבל קומה, קומות בבניין, סוג
+ * ‏עסקה וטאבו משותף, והתצוגה כאן המשיכה למנות תשעה שדות.
+ */
 export default function EditRecruitmentTargetPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const params = useParams<{ id: string }>();
@@ -37,22 +47,37 @@ export default function EditRecruitmentTargetPage() {
           נכסים לגיוס
         </Link>
       </nav>
-      <h1 className="mb-5 text-2xl font-bold">{mayEdit ? "עריכת נכס לגיוס" : "נכס לגיוס"}</h1>
       {missing ? (
         <p role="alert" className="mv-card p-5">
           הנכס לגיוס לא נמצא — ייתכן שנמחק.
         </p>
       ) : target === null ? (
         <p className="text-sm text-[var(--color-text-muted)]">טוען…</p>
-      ) : mayEdit ? (
-        <TargetForm initial={target} />
       ) : (
-        /*
-         * ‏מי שרשאי לצפות ולא לערוך הגיע לכאן דרך הקישור ברשימה, וקיבל
-         * טופס מלא ופעיל ששמירתו נדחית ב-403 עם „השמירה נכשלה”. מסך
-         * שמזמין פעולה אסורה ואז מאשים את המשתמש (ביקורת Codex).
-         */
-        <ReadOnlyTarget target={target} />
+        <>
+          <header className="mb-5 flex flex-wrap items-center gap-2.5">
+            <h1 className="m-0 text-2xl font-bold">{targetAddress(target)}</h1>
+            <TargetStatusChip status={target.status ?? "new"} />
+          </header>
+
+          <div className="mv-card mb-5 p-5">
+            <TargetDetails target={target} />
+          </div>
+
+          {mayEdit ? (
+            <TargetForm initial={target} />
+          ) : (
+            /*
+             * ‏מי שרשאי לצפות ולא לערוך הגיע לכאן דרך הקישור ברשימה,
+             * ‏וקיבל טופס מלא ופעיל ששמירתו נדחית ב-403 עם „השמירה
+             * ‏נכשלה”. מסך שמזמין פעולה אסורה ואז מאשים את המשתמש
+             * ‏(ביקורת Codex).
+             */
+            <p className="mv-card p-5 text-sm text-[var(--color-text-muted)]">
+              לצפייה בלבד — אין לכם הרשאת עריכה לנכסים.
+            </p>
+          )}
+        </>
       )}
       {/*
         ‎**פולואפ — משימה עם מועד, ולא מנגנון תזכורות שני.**
@@ -76,46 +101,6 @@ export default function EditRecruitmentTargetPage() {
           <h2 className="mb-3 text-lg font-semibold">פולואפ</h2>
           <EntityTasks entityType="recruitment" entityId={id} />
         </section>
-      ) : null}
-    </div>
-  );
-}
-
-/** תצוגה בלבד — לצופה שאינו רשאי לערוך. */
-function ReadOnlyTarget({ target }: { target: TargetValues }) {
-  const rows: [string, string][] = [
-    ["שלב בגיוס", recruitmentStatusLabel(target.status ?? "new")],
-    ["מקור", recruitmentSourceLabel(target.source ?? "other")],
-    ["כתובת", [target.street, target.houseNumber, target.city].filter(Boolean).join(" ") || "—"],
-    ["שכונה", target.neighborhood ?? "—"],
-    ["חדרים", target.rooms === undefined ? "—" : String(target.rooms)],
-    ["שטח במ״ר", target.areaSqm === undefined ? "—" : String(target.areaSqm)],
-    ["מחיר מבוקש", target.priceAgorot === undefined ? "—" : formatPrice(target.priceAgorot)],
-    ["בעל הנכס", target.ownerName ?? "—"],
-    ["מה נאמר בשיחה", target.notes ?? "—"],
-  ];
-  return (
-    <div className="mv-card space-y-4 p-5">
-      <p className="text-sm text-[var(--color-text-muted)]">
-        לצפייה בלבד — אין לכם הרשאת עריכה לנכסים.
-      </p>
-      <dl className="grid gap-3 sm:grid-cols-2">
-        {rows.map(([label, value]) => (
-          <div key={label}>
-            <dt className="text-sm text-[var(--color-text-muted)]">{label}</dt>
-            <dd className="font-medium">{value}</dd>
-          </div>
-        ))}
-      </dl>
-      {target.sourceUrl ? (
-        <a
-          href={target.sourceUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-block underline underline-offset-2"
-        >
-          למודעה המקורית
-        </a>
       ) : null}
     </div>
   );

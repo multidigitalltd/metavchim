@@ -27,24 +27,17 @@ import {
   hasActiveFilters,
   type ListFilterValues,
 } from "../../list-filters";
+import { TargetDialog } from "./target-dialog";
+import { targetAddress, type TargetValues } from "./target-values";
 
-interface TargetRow {
-  id: string;
-  status: string;
-  source: string;
-  sourceUrl?: string;
-  city?: string;
-  street?: string;
-  houseNumber?: string;
-  propertyType?: string;
-  rooms?: number;
-  priceAgorot?: number;
-  areaSqm?: number;
-  ownerName?: string;
-  ownerPhone?: string;
-  notes?: string;
-  convertedPropertyId?: string;
-}
+/**
+ * ‎**שורה ברשימה היא אותה שורה שבחלונית.**
+ *
+ * ‏עד עכשיו הרשימה הכריזה על תת-קבוצה משלה של השדות, והשרת החזיר
+ * ‏את המלאה. החלונית לא יכלה להראות שכונה, קומה או סוג עסקה — לא
+ * ‏כי הם לא הגיעו, אלא כי הטיפוס כאן לא ידע עליהם.
+ */
+type TargetRow = TargetValues & { id: string; status: string; source: string };
 
 /**
  * ‎**התקרה של הרשימה.** השרת מחזיר עד כאן, וייבוא אחד יכול להביא
@@ -52,10 +45,6 @@ interface TargetRow {
  */
 const PAGE_CAP = 500;
 
-function addressOf(row: TargetRow): string {
-  const line = [row.street, row.houseNumber].filter(Boolean).join(" ");
-  return [line, row.city].filter(Boolean).join(", ") || "בלי כתובת";
-}
 
 export default function RecruitmentPage() {
   const { user, loading: authLoading } = useRequireAuth();
@@ -67,6 +56,14 @@ export default function RecruitmentPage() {
   const [converting, setConverting] = useState<string | null>(null);
   /** ‏המזהה שממתין לאישור מחיקה — האישור נפתח בשורה עצמה */
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  /**
+   * ‎**השורה שהחלונית פתוחה עליה — מזהה, ולא עותק של השורה.**
+   *
+   * ‏עותק היה מתיישן ברגע שהרשימה נטענת מחדש (שינוי שלב, מחיקה,
+   * ‏סינון), והחלונית הייתה מציגה נכס שכבר השתנה. מזהה נפתר מול
+   * ‏‎`rows` בכל רינדור, ולכן הוא תמיד מה שהרשימה יודעת.
+   */
+  const [openId, setOpenId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
   /* ‏חיפוש חופשי + טווחי מחיר וחדרים — אותו רכיב של הנכסים והקונים */
@@ -288,6 +285,12 @@ export default function RecruitmentPage() {
     minArea !== "" ||
     maxArea !== "";
   const capped = (rows ?? []).length >= PAGE_CAP;
+  /*
+   * ‏נפתר מהרשימה בכל רינדור. שורה שירדה מהתצוגה (נמחקה, או יצאה
+   * ‏מהסינון) סוגרת את החלונית מעצמה — חלונית שממשיכה להציג נכס
+   * ‏שאינו ברשימה מזמינה שמירה על שורה שכבר אינה שם.
+   */
+  const openRow = openId === null ? null : ((rows ?? []).find((r) => r.id === openId) ?? null);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
@@ -531,18 +534,42 @@ export default function RecruitmentPage() {
                         <td className="p-3">
                           <input
                             type="checkbox"
-                            aria-label={`בחירת ${addressOf(row)}`}
+                            aria-label={`בחירת ${targetAddress(row)}`}
                             checked={selected.has(row.id)}
                             onChange={() => toggle(row.id)}
                           />
                         </td>
                       ) : null}
                       <td className="p-3">
+                        {/*
+                          ‎**לחיצה פותחת את החלונית — והקישור נשאר קישור.**
+
+                          ‏העבודה כאן היא סבב של שורות, ולכן הלחיצה
+                          ‏השכיחה צריכה לפתוח את הפרטים במקום, בלי לאבד
+                          ‏את הסינון והגלילה. אבל `button` היה גוזל את
+                          ‏פתיחת העמוד בלשונית חדשה ואת העתקת הכתובת —
+                          ‏ולכן זה `Link` אמיתי, ורק הלחיצה **הרגילה**
+                          ‏מיורטת. לחיצה עם Ctrl/Cmd/Shift, או בגלגלת,
+                          ‏ממשיכה לדפדפן כרגיל.
+                        */}
                         <Link
                           href={`/properties/recruitment/${row.id}`}
                           className="font-semibold underline-offset-2 hover:underline"
+                          onClick={(event) => {
+                            if (
+                              event.metaKey ||
+                              event.ctrlKey ||
+                              event.shiftKey ||
+                              event.altKey ||
+                              event.button !== 0
+                            ) {
+                              return;
+                            }
+                            event.preventDefault();
+                            setOpenId(row.id);
+                          }}
                         >
-                          {addressOf(row)}
+                          {targetAddress(row)}
                         </Link>
                       </td>
                       <td className="p-3 text-[var(--color-text-muted)]">
@@ -605,7 +632,7 @@ export default function RecruitmentPage() {
                           <select
                             className="mv-select"
                             value={row.status}
-                            aria-label={`שלב הגיוס — ${addressOf(row)}`}
+                            aria-label={`שלב הגיוס — ${targetAddress(row)}`}
                             onChange={(event) => void changeStatus(row.id, event.target.value)}
                           >
                             {RECRUITMENT_STATUSES.map((status) => (
@@ -674,7 +701,7 @@ export default function RecruitmentPage() {
                               <button
                                 type="button"
                                 className="mv-btn-plain"
-                                aria-label={`מחיקת ${addressOf(row)}`}
+                                aria-label={`מחיקת ${targetAddress(row)}`}
                                 onClick={() => setConfirmingDelete(row.id)}
                               >
                                 מחיקה
@@ -702,6 +729,24 @@ export default function RecruitmentPage() {
           מוצגים {PAGE_CAP} הנכסים שעודכנו לאחרונה. צמצמו את הסינון כדי לראות את השאר.
         </p>
       ) : null}
+
+      {/*
+        ‏החלונית נטענת רק כשיש שורה פתוחה, ומפתחה הוא המזהה: מעבר
+        ‏לשורה אחרת מרכיב טופס חדש. `defaultValue` נקרא פעם אחת
+        ‏בעלייה, וטופס ממוחזר היה מציג את הנכס הקודם בשדות.
+      */}
+      {openRow === null ? null : (
+        <TargetDialog
+          key={openRow.id}
+          target={openRow}
+          mayEdit={mayEdit}
+          onClose={() => setOpenId(null)}
+          onSaved={() => {
+            setOpenId(null);
+            void load().catch(() => setError("הרשימה לא רועננה — רעננו את העמוד"));
+          }}
+        />
+      )}
     </div>
   );
 }
