@@ -71,6 +71,7 @@ export type VoiceAction =
   | "agent_report"
   | "mentor_status"
   | "mentor_ask"
+  | "mentor_practice"
   | "unknown";
 
 export interface VoiceCommand {
@@ -329,6 +330,16 @@ const RULES: {
    * המילה „מנטור” הם מצב היעדים. שתיהן לפני ההצעות וההתאמות, כי
    * „הצעות מול היעד” אינה רשימת ההצעות.
    */
+  /*
+   * ‏„תרגל איתי” לפני „מנטור”: „תרגל איתי מוכר” הוא בקשה לתרגול
+   * ‏ולא שאלה, ובלי הקדימות הזו המילה „מנטור” באותו משפט הייתה
+   * ‏מנצחת ומחזירה עצה במקום להתחיל תרגול.
+   */
+  {
+    action: "mentor_practice",
+    pattern: /תרגל|נתרגל|לתרגל|תרגול|נתאמן|להתאמן|סימולציה/u,
+    confidence: "high",
+  },
   { action: "mentor_ask", pattern: /ה?מנטור/u, confidence: "high" },
   {
     action: "mentor_status",

@@ -21,6 +21,7 @@ import { MentorService } from "./mentor.service";
     AgentEventsService,
   ],
   // הסוכן בשיחה (מסך ווואטסאפ) מדבר עם אותו מנטור — לא מסלול שני
-  exports: [MentorService],
+  /* ‏התרגול נדרש גם למנוע הפעולות (תרגול מהוואטסאפ) — לא רק לבקר */
+  exports: [MentorService, MentorPracticeService],
 })
 export class MentorModule {}

@@ -1,6 +1,9 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import {
   AGENT_ACTIONS,
+  practiceChatMenu,
+  practiceChatOpening,
+  practiceScenario,
   activeOfficeStatuses,
   matchOfficeStatus,
   type OfficeBuyerStatus,
@@ -91,6 +94,7 @@ import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { DealRoomService } from "../collaboration/deal-room.service";
 import { LeadsService } from "../leads/leads.service";
 import { MentorService } from "../mentor/mentor.service";
+import { MentorPracticeService } from "../mentor/mentor-practice.service";
 import { MATCH_LIST_LIMIT, MatchingService } from "../matching/matching.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { OffersService } from "../offers/offers.service";
@@ -179,6 +183,15 @@ export interface ExecuteResult {
   message: string;
   /** תוצאות לשאילתה — מוצגות במקום, בלי ניווט */
   data?: unknown;
+  /**
+   * ‎**תרגול שנפתח** — הערוץ שומר את המזהה, כי ההודעות שאחריו הן
+   * ‏תורים בתרגול ולא בקשות חדשות (docs/14 §7.3).
+   *
+   * ‏שדה מפורש ולא סמן בתוך `data`: `data` הוא מה שמוצג למתווך,
+   * ‏ומחרוזת מנגנון שמסתתרת בו נקראת בסוף על המסך. המסך מתעלם
+   * ‏מהשדה — הוא טוען את התרגול הפתוח בעצמו.
+   */
+  practice?: { id: string; counterpart: string };
   /**
    * משפט-שניים של תובנה על התוצאות — לא רשימה, מסקנה. המספרים
    * מגיעים מהנתונים שכבר נשלפו; המודל רק מנסח. אופציונלי: בלי
@@ -311,6 +324,7 @@ export class AgentExecuteService {
     private readonly landing: LandingService,
     private readonly payouts: PayoutsService,
     private readonly mentor: MentorService,
+    private readonly practice: MentorPracticeService,
   ) {}
 
   async execute(
@@ -571,6 +585,8 @@ export class AgentExecuteService {
         return this.mentorCommit(params);
       case "mentor_reflect":
         return this.mentorReflect(params);
+      case "mentor_practice":
+        return this.mentorPractice(params);
       case "assign_task":
         return this.assignTask(params);
       default:
@@ -3390,6 +3406,34 @@ export class AgentExecuteService {
         decision === "accepted"
           ? `נרשם: התחייבת ל${label}. במוצאי שבת נבדוק ביחד — אני איתך.`
           : `נרשם: לא השבוע. ${label} נשאר היעד שלך, בלי מחויבות לשבוע הזה.`,
+    };
+  }
+
+  /**
+   * ‎**תרגול שיחה מהוואטסאפ** (docs/14 §7.3).
+   *
+   * ‏אותו שירות שהמסך מפעיל, ולכן אותה מכסה, אותו משוב, ואותה שורה
+   * ‏במסד: תרגול שהתחיל בטלפון נגמר במסך ולהפך. שכפול של הלוגיקה
+   * ‏היה מייצר שני תרגולים שונים באותו שם.
+   *
+   * ‏בלי תרחיש — הרשימה, ולא ניחוש. „תרגל איתי” בלי לומר על מה הוא
+   * ‏משפט שאין בו את הנתון, ולבחור עבורו היה מתחיל תרגול שאינו מה
+   * ‏שביקש ושורף לו תור מהמכסה.
+   */
+  private async mentorPractice(
+    params: Record<string, unknown>,
+  ): Promise<ExecuteResult> {
+    const scenario = str(params["scenario"]);
+    if (scenario === undefined) {
+      return { href: "/mentor", message: practiceChatMenu() };
+    }
+    const info = practiceScenario(scenario);
+    if (info === null) throw new BadRequestException("תרחיש לא מוכר");
+    const started = await this.practice.start(info.code);
+    return {
+      href: "/mentor",
+      message: practiceChatOpening(info),
+      practice: { id: started.id, counterpart: info.counterpart.name },
     };
   }
 

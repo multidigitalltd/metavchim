@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import {
+  practiceScenarioFromText,
   AGENT_ACTIONS,
   agentAction,
   type AgentHistoryTurn,
@@ -444,6 +445,17 @@ export class AgentInterpretService {
     // שאלה למנטור — השאלה כלשונה בלי מילות הפנייה; בלעדיה ההצעה נתקעת
     if (actionId === "mentor_ask") {
       return { question: mentorQuestionFromTranscript(transcript) };
+    }
+    /*
+     * ‎**התרחיש חייב להיחלץ כאן, אחרת הרצפה מכריזה על מסלול שאינו
+     * ‏מסוגל להתחיל תרגול.** בלי `scenario` הפעולה מחזירה תפריט,
+     * ‏וניסיון חוזר מחזיר את אותו תפריט — לולאה (ביקורת Codex).
+     * ‏החילוץ דטרמיניסטי כמו כל השאר ברצפה: תווית מלאה, ואז מילות
+     * ‏מפתח. לא נמצא — התפריט, וזו תשובה אמיתית ולא מבוי סתום.
+     */
+    if (actionId === "mentor_practice") {
+      const info = practiceScenarioFromText(transcript);
+      return info === null ? {} : { scenario: info.code };
     }
     if (actionId === "create_property") {
       const { fields, marketingDescription } = extractPropertyFromTranscript(transcript);

@@ -27,6 +27,12 @@ import {
   type Capability,
   MENTOR_INTENTION_MAX,
   MENTOR_QUICK_COMMANDS,
+  isPracticeEndMessage,
+  practiceChatFeedback,
+  practiceChatTurn,
+  PRACTICE_CHAT_ABANDONED,
+  PRACTICE_MAX_AGENT_TURNS,
+  PRACTICE_TEXT_MAX,
 } from "@metavchim/shared";
 import { TenantContext, type RequestContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
@@ -48,6 +54,7 @@ import {
   isHelpMessage,
   parseSnoozeRequest,
   snoozeReply,
+  normalizeShort,
 } from "./assistant-lang";
 import {
   agentWelcomeExamples,
@@ -89,6 +96,10 @@ import {
   mentorReflectionPrompt,
 } from "./assistant-mentor";
 import { MentorService } from "../mentor/mentor.service";
+import {
+  MentorPracticeService,
+  type MentorPracticeDto,
+} from "../mentor/mentor-practice.service";
 import { prospectReplyText } from "./prospect-reply";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 import { WhatsAppLinkService } from "./whatsapp-link.service";
@@ -190,7 +201,13 @@ interface PendingState {
    * זו הבחירה היחידה כאן שאינה על **רשומה** אלא על **כוונה**, ולכן
    * היא אינה נצרכת אטומית: לחיצה חוזרת רק מפרשת מחדש, לא מבצעת.
    */
-  awaiting: "confirm" | "choice" | "suggest" | "mentor_reflection" | "mentor_plan";
+  awaiting:
+    | "confirm"
+    | "choice"
+    | "suggest"
+    | "mentor_reflection"
+    | "mentor_plan"
+    | "mentor_practice";
   /**
    * חותם ההצעה — נכנס למזהי הכפתורים שלה.
    *
@@ -215,7 +232,14 @@ interface PendingState {
    * ואחריה התוכנית („mentor_plan”, עם ההצעות לפי הסדר שהוצג).
    * ‎`proposal` כאן הוא תווית בלבד: אין מה לבצע דרך המנוע.
    */
-  mentor?: { reviewId: string; plans?: string[] };
+  mentor?: {
+    reviewId?: string;
+    plans?: string[];
+    /** ‏התרגול הפתוח — ההודעה הבאה היא תור בו, ולא בקשה חדשה */
+    practiceId?: string;
+    /** ‏שם הדמות, כדי שכל תור ידבר בשמה בלי שליפה נוספת */
+    counterpart?: string;
+  };
 }
 
 interface ChatState {
@@ -283,6 +307,7 @@ export class WhatsAppAssistantService {
     private readonly gemini: GeminiService,
     private readonly agentPrefs: AgentPrefsService,
     private readonly mentor: MentorService,
+    private readonly practice: MentorPracticeService,
   ) {}
 
   /**
@@ -669,6 +694,114 @@ export class WhatsAppAssistantService {
     };
     chat.keepStoredPending = false;
     return mentorReflectionPrompt(latest.reflection);
+  }
+
+  /**
+   * ‎**תרגול פתוח — ההודעה הבאה היא תור בו.**
+   *
+   * ‏אותו מנגנון כמו הרפלקציה: מצב ממתין עם חותם, שנצרך אטומית בכל
+   * ‏תור ונוצר מחדש כל עוד התרגול נמשך. בלעדיו „המחיר גבוה מדי”
+   * ‏היה נשלח למנוע ההבנה, שיחפש בו פעולה ולא ימצא.
+   */
+  private startPractice(
+    chat: ChatState,
+    practiceId: string,
+    counterpart: string,
+  ): void {
+    const token = ulid();
+    chat.pending = {
+      transcript: "",
+      proposal: WhatsAppAssistantService.mentorPlaceholder("תרגול שיחה"),
+      awaiting: "mentor_practice",
+      extraParams: {},
+      token,
+      mentor: { practiceId, counterpart },
+    };
+    chat.keepStoredPending = false;
+  }
+
+  /**
+   * ‏תור בתרגול: „סיום” מביא את המשוב, וכל השאר הוא מה שהמתווך אמר
+   * ‏לדמות. הדמות עונה, והמצב הממתין נוצר מחדש — עד שהתרגול נסגר.
+   */
+  private async practiceTurn(
+    user: IdentifiedUser,
+    chat: ChatState,
+    pending: PendingState,
+    text: string,
+  ): Promise<AgentReply> {
+    const practiceId = pending.mentor?.practiceId;
+    const took = await this.takePending(user.tenantId, user.id, pending.token);
+    this.consumed(chat, took);
+    if (!took || practiceId === undefined) {
+      return { text: STALE_PROPOSAL_TEXT, speak: STALE_PROPOSAL_TEXT };
+    }
+    /* ‏המצב נוצר מחדש בכל יציאה שאינה סוף התרגול — עם חותם חדש */
+    const again = (): void => {
+      chat.pending = { ...pending, token: ulid() };
+      chat.keepStoredPending = false;
+    };
+
+    if (isPracticeEndMessage(text, normalizeShort)) {
+      return this.practiceFeedback(practiceId, again);
+    }
+    const said = text.trim();
+    if (said.length < MENTOR_PLAN_MIN) {
+      again();
+      const retry = "לא קלטתי — מה הייתם עונים לו? או „סיום” למשוב.";
+      return { text: retry, speak: retry };
+    }
+    let turn: Awaited<ReturnType<MentorPracticeService["reply"]>>;
+    try {
+      turn = await this.practice.reply(practiceId, said.slice(0, PRACTICE_TEXT_MAX));
+    } catch (error) {
+      again();
+      const failure = `התרגול נתקע: ${errorMessage(error)}. אפשר לנסות שוב או „סיום”.`;
+      return { text: `⚠️ ${failure}`, speak: failure };
+    }
+    /*
+     * ‏הדמות סיימה — אין עוד תורים, ולכן המשוב מגיע מיד ולא ממתין
+     * ‏ל„סיום” שהמתווך לא ידע שהוא צריך לשלוח.
+     */
+    if (turn.closing) return this.practiceFeedback(practiceId, again);
+
+    const reply = practiceChatTurn(
+      pending.mentor?.counterpart ?? "הלקוח",
+      turn.turn.text,
+      PRACTICE_MAX_AGENT_TURNS - turn.agentTurns,
+    );
+    this.startPractice(chat, practiceId, pending.mentor?.counterpart ?? "הלקוח");
+    return { text: reply, speak: reply };
+  }
+
+  /**
+   * ‏סוף התרגול — המשוב, ואז אין מצב ממתין.
+   *
+   * ‎**וכשהמשוב לא נוצר, התרגול נשאר פתוח.** `finish` נכשל גם
+   * ‏דטרמיניסטית: „סיום” לפני שנאמרה מילה אחת מוחזר כשגיאה („עוד
+   * ‏לא אמרת כלום”). המצב הממתין כבר נצרך בשלב הזה, ובלי השחזור
+   * ‏ההודעה הבאה הייתה נקראת כבקשה חדשה — כלומר התרגול היה נעלם
+   * ‏בדיוק בגלל שהמתווך שלח את המילה שהמסך הציע לו (ביקורת Codex).
+   *
+   * ‎`restore` הוא אותו שחזור שמסלול התור משתמש בו, ולא עותק שלו.
+   */
+  private async practiceFeedback(
+    practiceId: string,
+    restore: () => void,
+  ): Promise<AgentReply> {
+    let done: MentorPracticeDto;
+    try {
+      done = await this.practice.finish(practiceId);
+    } catch (error) {
+      restore();
+      const failure = `המשוב לא נוצר: ${errorMessage(error)}`;
+      return { text: `⚠️ ${failure}`, speak: failure };
+    }
+    const text =
+      done.feedback === null
+        ? PRACTICE_CHAT_ABANDONED
+        : practiceChatFeedback(done.scenarioLabel, done.feedback);
+    return { text, speak: text };
   }
 
   /**
@@ -1091,6 +1224,9 @@ export class WhatsAppAssistantService {
         const answer = took ? "בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול.";
         return { text: took ? `❌ ${answer}` : answer, speak: answer };
       }
+      if (pending.awaiting === "mentor_practice") {
+        return withHeard(await this.practiceTurn(user, chat, pending, text), heard);
+      }
       if (pending.awaiting === "mentor_reflection" || pending.awaiting === "mentor_plan") {
         return withHeard(await this.mentorFollowUp(user, chat, pending, text), heard);
       }
@@ -1454,6 +1590,22 @@ export class WhatsAppAssistantService {
      * שהסוכן רק הסביר משהו. סימן אחד בתחילת השורה עונה על זה.
      * לשאילתות אין סימן — שם התוצאה עצמה היא התשובה.
      */
+    /*
+     * ‎**התרגול פותח מצב ממתין** — ההודעות שאחריו הן תורים בו, ולא
+     * ‏בקשות חדשות. „אני מבין אותך, אבל המחיר הזה גבוה” הוא משפט
+     * ‏שמנוע ההבנה יחפש בו פעולה ולא ימצא, בדיוק כמו „מה עצר?”.
+     *
+     * ‏המזהה נוסע ב-`data` כשורת סמן, ונשלף מכאן כדי שהמסך והבוט
+     * ‏יעבדו על אותו תרגול. הסמן מוסר מהתשובה — הוא מנגנון, לא
+     * ‏תוכן שהמתווך צריך לראות.
+     */
+    if (primary.practice !== undefined) {
+      this.startPractice(
+        chat,
+        primary.practice.id,
+        primary.practice.counterpart,
+      );
+    }
     const done = state.proposal.risk === "read" ? "" : "✅ ";
     /*
      * ‎**ההרכב והסדר מגיעים מהתוכנית המשותפת** — `agentReplySegments`
