@@ -207,9 +207,12 @@ export type ImportDelimiter = (typeof IMPORT_DELIMITERS)[number];
 /**
  * ‎**איזה תו מפריד בין העמודות.**
  *
- * ‏נספר בשורה הראשונה בלבד — היא הכותרת, ובה אין ערכים חופשיים
- * ‏שיטו את הספירה — ו**מחוץ למרכאות**, כי „2,980,000” הוא תא
- * ‏אחד ושלושת הפסיקים שבו אינם מפרידים. בלי זה, קובץ טאבים עם
+ * ‏נספר ב**שורת הכותרת** — הראשונה שיש בה תוכן. שורות ריקות
+ * ‏בפתח הקובץ מדולגות: ייצוא שמתחיל בשורה ריקה היה מחזיר „אין
+ * ‏מפרידים” ונופל לפסיק, כלומר בדיוק התקלה שהפונקציה מונעת.
+ *
+ * ‏הספירה היא **מחוץ למרכאות**, כי „2,980,000” הוא תא אחד
+ * ‏ושלושת הפסיקים שבו אינם מפרידים. בלי זה, קובץ טאבים עם
  * ‏מחירים מצוטטים היה נקרא כקובץ פסיקים.
  *
  * ‏הפסיק הוא ברירת המחדל, ומפריד אחר נבחר רק אם הוא **מופיע
@@ -219,17 +222,28 @@ export type ImportDelimiter = (typeof IMPORT_DELIMITERS)[number];
 export function detectDelimiter(csv: string): ImportDelimiter {
   const counts = new Map<ImportDelimiter, number>(IMPORT_DELIMITERS.map((d) => [d, 0]));
   let inQuotes = false;
+  /** ‏האם בשורה הנוכחית כבר נראה תוכן — שורה ריקה אינה הכותרת */
+  let lineHasContent = false;
   for (let i = 0; i < csv.length; i += 1) {
     const char = csv[i]!;
     if (char === '"') {
       if (inQuotes && csv[i + 1] === '"') i += 1;
       else inQuotes = !inQuotes;
+      lineHasContent = true;
       continue;
     }
-    if (!inQuotes && (char === "\n" || char === "\r")) break; // ‏סוף שורת הכותרת
+    if (!inQuotes && (char === "\n" || char === "\r")) {
+      if (lineHasContent) break; // ‏סוף שורת הכותרת
+      continue; // ‏שורה ריקה בפתח — ממשיכים לחפש את הכותרת
+    }
     if (inQuotes) continue;
     const known = IMPORT_DELIMITERS.find((d) => d === char);
-    if (known !== undefined) counts.set(known, counts.get(known)! + 1);
+    if (known !== undefined) {
+      counts.set(known, counts.get(known)! + 1);
+      lineHasContent = true;
+    } else if (char.trim() !== "") {
+      lineHasContent = true;
+    }
   }
   const commas = counts.get(",")!;
   let best: ImportDelimiter = ",";
