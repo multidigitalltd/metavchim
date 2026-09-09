@@ -517,6 +517,8 @@ export class AgentExecuteService {
         return this.callContact(params);
       case "send_intake_form":
         return this.sendIntakeForm(params);
+      case "open_intake_link":
+        return this.openIntakeLink();
       case "offer_to_demand":
         return this.offerToDemand(params);
       case "express_interest":
@@ -2415,7 +2417,11 @@ export class AgentExecuteService {
    */
   private async sendIntakeForm(params: Record<string, unknown>): Promise<ExecuteResult> {
     const card = await this.optionalCardTarget(params["cardId"]);
-    if (card === null) throw new BadRequestException("לא נבחר לקוח לטופס");
+    if (card === null) {
+      throw new BadRequestException(
+        "לא נבחר לקוח לטופס. אם הלקוח עדיין לא במערכת, בקשו „קישור לטופס ללקוח חדש”",
+      );
+    }
     // אותה הרשאה כמו בבקר: יצירת בקשת קליטה היא עריכת הכרטיס
     const needed = card.kind === "buyer" ? "buyers.edit" : "leads.edit";
     if (!TenantContext.current().capabilities.has(needed)) {
@@ -2431,6 +2437,31 @@ export class AgentExecuteService {
       message: `טופס הפרטים ל${name} מוכן — פתחו את הקישור ולחצו שלח. כשימולא, הכרטיס יתעדכן.`,
       link: request.waUrl ?? request.url,
       ...refOf(name, card.kind, card.id),
+    };
+  }
+
+  /**
+   * אותו טופס — בלי כרטיס, ללקוח שעדיין אינו במאגר.
+   *
+   * ‎`ensureOpen` היא גם מה ש-`POST /intake/open` קורא לו, ולכן
+   * הקישור שהמתווך מקבל כאן זהה לזה שבפאנל שבעמוד הקונים: אותה
+   * תפוגה, אותה רשימה, אותו טופס. השירות אוכף את `buyers.edit`
+   * דרך הבקר, ולכן כאן היכולת נבדקת במפורש — הסוכן אינו עובר בבקר.
+   *
+   * אין `waUrl` ואין נמען: קישור פתוח לא יודע למי הוא הולך, וזו
+   * בדיוק הנקודה. המתווך שולח אותו בעצמו, בכל ערוץ שנוח לו.
+   */
+  private async openIntakeLink(): Promise<ExecuteResult> {
+    if (!TenantContext.current().capabilities.has("buyers.edit")) {
+      throw new ForbiddenException("אין לך הרשאה ליצור קישור לטופס");
+    }
+    const request = await this.intake.ensureOpen();
+    return {
+      message:
+        "הקישור מוכן — שלחו אותו ללקוח בכל דרך שנוחה לכם. " +
+        "כשימולא ייפתח כרטיס קונה חדש עם מה שהוא כתב. " +
+        "כל לחיצה כאן יוצרת קישור חדש, כך שאפשר לתת לכל לקוח קישור משלו.",
+      link: request.url,
     };
   }
 

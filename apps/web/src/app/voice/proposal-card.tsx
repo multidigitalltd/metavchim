@@ -232,6 +232,19 @@ export function ProposalCard({
        */
       const messages = [primary.message];
       /*
+       * ‎**הקישור אינו נזרק כשיש צעדי המשך.**
+       *
+       * הענף בלי צעדים מעביר את `primary` כפי שהוא; הענף הזה בנה
+       * אובייקט חדש מ-`message` ו-`href` בלבד, ולכן כל `link` —
+       * של הראשית או של צעד — נעלם. „תפתח משימה ותן לי קישור ללקוח
+       * חדש” היה יוצר רשומת קליטה ומשמיד את הכתובת שלה: קישור יתום
+       * שאיש לא יקבל, וניסיון נוסף שיוצר רשומה נוספת (ביקורת Codex).
+       *
+       * הראשון קובע, והראשית ראשונה: `link` הוא שדה יחיד בחוזה, ומי
+       * שהמתווך ביקש במפורש הוא הפעולה שאישר.
+       */
+      let link: string | undefined = primary.link;
+      /*
        * מהמאוחר לקדום: „תוסיף קונה דנה ותזכיר לי להתקשר אליה” ואז
        * „תסגור אותה” מתכוון למשימה, לא לקונה. `agentTurnRefs` שומרת
        * על הסדר, ו-`matchHistoryRef` בוחרת את הראשון.
@@ -247,6 +260,7 @@ export function ProposalCard({
             params: stepParams,
           });
           messages.push(done.message);
+          link ??= done.link;
           // רק צעד שהצליח — הפניה לרשומה שלא נוצרה היא שיוך לכלום
           acted.unshift(done.ref);
         } catch (err: unknown) {
@@ -264,6 +278,12 @@ export function ProposalCard({
               : `${messages.join(" · ")} · ${failure}`,
           // בכישלון חלקי לא מנווטים — ניווט היה מסתיר את ההודעה
           ...(failure === null && primary.href !== undefined ? { href: primary.href } : {}),
+          /*
+           * הקישור מוצג **גם** בכישלון חלקי, שלא כמו הניווט: הוא
+           * התוצר של צעד שהצליח, וניווט מסתיר את ההודעה בזמן
+           * שקישור מצטרף אליה.
+           */
+          ...(link === undefined ? {} : { link }),
         },
         sent,
         agentTurnRefs(acted, shown),

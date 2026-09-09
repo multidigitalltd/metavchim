@@ -97,6 +97,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "send_message",
       "call_contact",
       "send_intake_form",
+      "open_intake_link",
       "message_owner",
       "send_owner_update",
       "show_offers",
