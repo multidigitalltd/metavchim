@@ -742,7 +742,19 @@ export default function RecruitmentPage() {
           mayEdit={mayEdit}
           onClose={() => setOpenId(null)}
           onSaved={() => {
-            setOpenId(null);
+            /*
+             * ‎**נסגרת השורה שנשמרה, ולא „מה שפתוח עכשיו”** (ביקורת
+             * ‏Codex, P2).
+             *
+             * ‏השמירה אינה חוסמת את הסגירה: אפשר ללחוץ X או Escape
+             * ‏בזמן שה-PATCH באוויר, ולפתוח שורה אחרת. אז הקריאה
+             * ‏החוזרת של השמירה הראשונה הגיעה, ו-`setOpenId(null)`
+             * ‏סתמי היה סוגר את **השורה החדשה** — באמצע הקלדה בה.
+             * ‏עדכון פונקציונלי שמשווה למזהה שנשמר עושה כלום כשכבר
+             * ‏עברו הלאה.
+             */
+            const saved = openRow.id;
+            setOpenId((current) => (current === saved ? null : current));
             void load().catch(() => setError("הרשימה לא רועננה — רעננו את העמוד"));
           }}
         />
