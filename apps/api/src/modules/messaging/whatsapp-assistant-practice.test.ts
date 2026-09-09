@@ -25,7 +25,9 @@ interface Seen {
   finished: number;
 }
 
-function harness(opts: { closing?: boolean; failReply?: boolean } = {}) {
+function harness(
+  opts: { closing?: boolean; failReply?: boolean; failFinish?: boolean } = {},
+) {
   const seen: Seen = { replies: [], finished: 0 };
   const chat = {
     pending: {
@@ -77,6 +79,7 @@ function harness(opts: { closing?: boolean; failReply?: boolean } = {}) {
     },
     finish: async () => {
       seen.finished += 1;
+      if (opts.failFinish) throw new Error("עוד לא אמרת כלום");
       return {
         id: PRACTICE,
         scenario: "seller_price" as const,
@@ -189,6 +192,20 @@ describe("תרגול בוואטסאפ — ההודעה הבאה היא תור, �
     expect(seen.replies).toEqual([]);
     expect(reply.text).toContain("לא קלטתי");
     expect(pending()?.awaiting).toBe("mentor_practice");
+  });
+
+  /*
+   * ‎**„סיום” לפני שנאמרה מילה אחת נכשל דטרמיניסטית** — השירות
+   * ‏מחזיר „עוד לא אמרת כלום”. המצב הממתין כבר נצרך בשלב הזה,
+   * ‏ובלי השחזור התרגול היה נעלם בדיוק בגלל שהמתווך שלח את המילה
+   * ‏שהמסך הציע לו (ביקורת Codex).
+   */
+  it("משוב שנכשל משאיר את התרגול פתוח", async () => {
+    const { say, pending } = harness({ failFinish: true });
+    const reply = await say("סיום");
+    expect(reply.text).toContain("המשוב לא נוצר");
+    expect(pending()?.awaiting).toBe("mentor_practice");
+    expect(pending()?.token).not.toBe("01TOKENAAAAAAAAAAAAAAAAAAA");
   });
 
   /*

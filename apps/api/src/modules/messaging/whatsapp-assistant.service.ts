@@ -743,7 +743,7 @@ export class WhatsAppAssistantService {
     };
 
     if (isPracticeEndMessage(text, normalizeShort)) {
-      return this.practiceFeedback(practiceId);
+      return this.practiceFeedback(practiceId, again);
     }
     const said = text.trim();
     if (said.length < MENTOR_PLAN_MIN) {
@@ -763,7 +763,7 @@ export class WhatsAppAssistantService {
      * ‏הדמות סיימה — אין עוד תורים, ולכן המשוב מגיע מיד ולא ממתין
      * ‏ל„סיום” שהמתווך לא ידע שהוא צריך לשלוח.
      */
-    if (turn.closing) return this.practiceFeedback(practiceId);
+    if (turn.closing) return this.practiceFeedback(practiceId, again);
 
     const reply = practiceChatTurn(
       pending.mentor?.counterpart ?? "הלקוח",
@@ -774,12 +774,26 @@ export class WhatsAppAssistantService {
     return { text: reply, speak: reply };
   }
 
-  /** ‏סוף התרגול — המשוב, ואז אין מצב ממתין. */
-  private async practiceFeedback(practiceId: string): Promise<AgentReply> {
+  /**
+   * ‏סוף התרגול — המשוב, ואז אין מצב ממתין.
+   *
+   * ‎**וכשהמשוב לא נוצר, התרגול נשאר פתוח.** `finish` נכשל גם
+   * ‏דטרמיניסטית: „סיום” לפני שנאמרה מילה אחת מוחזר כשגיאה („עוד
+   * ‏לא אמרת כלום”). המצב הממתין כבר נצרך בשלב הזה, ובלי השחזור
+   * ‏ההודעה הבאה הייתה נקראת כבקשה חדשה — כלומר התרגול היה נעלם
+   * ‏בדיוק בגלל שהמתווך שלח את המילה שהמסך הציע לו (ביקורת Codex).
+   *
+   * ‎`restore` הוא אותו שחזור שמסלול התור משתמש בו, ולא עותק שלו.
+   */
+  private async practiceFeedback(
+    practiceId: string,
+    restore: () => void,
+  ): Promise<AgentReply> {
     let done: MentorPracticeDto;
     try {
       done = await this.practice.finish(practiceId);
     } catch (error) {
+      restore();
       const failure = `המשוב לא נוצר: ${errorMessage(error)}`;
       return { text: `⚠️ ${failure}`, speak: failure };
     }

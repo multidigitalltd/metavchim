@@ -6,6 +6,7 @@ import {
   practiceChatOpening,
   practiceChatTurn,
   practiceScenario,
+  practiceScenarioFromText,
   PRACTICE_SCENARIO_INFO,
   type MentorPracticeFeedback,
 } from "./mentor-practice.js";
@@ -108,5 +109,54 @@ describe("תפריט התרחישים", () => {
     for (const info of PRACTICE_SCENARIO_INFO) {
       expect(menu, info.code).toContain(info.label);
     }
+  });
+});
+
+describe("איזה תרחיש נאמר במשפט", () => {
+  it("התווית המלאה — מדויק", () => {
+    expect(practiceScenarioFromText("תרגל איתי מוכר על המחיר")?.code).toBe(
+      "seller_price",
+    );
+    expect(practiceScenarioFromText("בוא נתאמן על קונה שמתלבט")?.code).toBe(
+      "buyer_hesitant",
+    );
+  });
+
+  /*
+   * ‏„מוכר שלא רוצה בלעדיות” מכיל גם „מוכר”. בלי קדימות התווית
+   * ‏המלאה על מילות המפתח, תרחיש המחיר היה נבחר במקומו.
+   */
+  it("והתווית קודמת למילות המפתח", () => {
+    expect(
+      practiceScenarioFromText("תרגל איתי מוכר שלא רוצה בלעדיות")?.code,
+    ).toBe("seller_exclusive");
+  });
+
+  it("ומילות מפתח כשלא נאמרה תווית", () => {
+    expect(practiceScenarioFromText("נתאמן על התנגדות מחיר")?.code).toBe(
+      "seller_price",
+    );
+    expect(practiceScenarioFromText("תרגל איתי בקשה להנחה בעמלה")?.code).toBe(
+      "commission",
+    );
+    expect(practiceScenarioFromText("ליד שאומר רק מתעניין")?.code).toBe(
+      "lead_cold",
+    );
+  });
+
+  it("ובלי תרחיש — null, ואז התפריט", () => {
+    expect(practiceScenarioFromText("תרגל איתי")).toBeNull();
+    expect(practiceScenarioFromText("   ")).toBeNull();
+  });
+
+  /*
+   * ‎**התפריט מציע משפט שעובד.** „אפשר לומר את השם” היה מבוי סתום:
+   * ‏„מוכר על המחיר” לבדו אינו מכיל מילת תרגול, ולכן אינו מזוהה
+   * ‏כבקשה לתרגול כלל.
+   */
+  it("התפריט מדגים את המשפט המלא, ולא את התווית לבדה", () => {
+    const menu = practiceChatMenu();
+    expect(menu).toContain("תרגל איתי");
+    expect(menu).not.toContain("אפשר לומר את השם");
   });
 });

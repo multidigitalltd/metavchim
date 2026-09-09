@@ -624,10 +624,53 @@ export function practiceChatFeedback(
 export const PRACTICE_CHAT_ABANDONED =
   "התרגול נסגר בלי משוב. אפשר להתחיל חדש: „תרגל איתי מוכר על המחיר”.";
 
-/** ‏רשימת התרחישים לבחירה, כשלא נאמר איזה. */
+/**
+ * ‏רשימת התרחישים לבחירה, כשלא נאמר איזה.
+ *
+ * ‎**הניסוח אומר את המשפט המלא ולא „אפשר לומר את השם”.** התווית
+ * ‏לבדה („מוכר על המחיר”) אינה מכילה מילת תרגול, ולכן היא אינה
+ * ‏מזוהה כבקשה לתרגול ונופלת לשום מקום — תפריט ששולח את המתווך
+ * ‏למבוי סתום (ביקורת Codex). המשפט השלם עובד בשני המסלולים.
+ */
 export function practiceChatMenu(): string {
   return [
-    "על מה נתרגל? אפשר לומר את השם:",
+    "על מה נתרגל?",
     ...PRACTICE_SCENARIO_INFO.map((info) => `• ${info.label} — ${info.blurb}`),
+    "",
+    `למשל: „תרגל איתי ${PRACTICE_SCENARIO_INFO[0]!.label}”`,
   ].join("\n");
+}
+
+/**
+ * ‎**איזה תרחיש נאמר במשפט — דטרמיניסטית, בלי מודל.**
+ *
+ * ‏הרצפה הדטרמיניסטית מנתבת „תרגל איתי מוכר על המחיר” לפעולת
+ * ‏התרגול, ואז — בלי החילוץ הזה — לא מוסרת שום תרחיש. התוצאה
+ * ‏הייתה תפריט, וניסיון חוזר היה מחזיר את אותו תפריט: מסלול
+ * ‏שמכריז על עצמו כנתמך ואינו מסוגל להתחיל תרגול (ביקורת Codex).
+ *
+ * ‏התווית המלאה קודמת למילות המפתח: „מוכר שלא רוצה בלעדיות” מכיל
+ * ‏גם „מוכר”, ובלי הקדימות היה נבחר תרחיש המחיר.
+ */
+const PRACTICE_KEYWORDS: Readonly<Record<PracticeScenario, RegExp>> = {
+  seller_price: /מוכר.*מחיר|מחיר.*מוכר|התנגדות\s+מחיר|מחיר\s+גבוה/u,
+  seller_exclusive: /בלעדיות/u,
+  buyer_hesitant: /קונה.*מתלבט|מתלבט|היסוס/u,
+  buyer_lowball: /הצעה\s+נמוכה|לואובול|מציע\s+נמוך/u,
+  lead_cold: /רק\s+מתעניין|ליד\s+קר|מתעניין\s+בלבד/u,
+  commission: /עמלה/u,
+};
+
+export function practiceScenarioFromText(
+  text: string,
+): PracticeScenarioInfo | null {
+  const t = text.trim();
+  if (t === "") return null;
+  const byLabel = PRACTICE_SCENARIO_INFO.find((info) => t.includes(info.label));
+  if (byLabel !== undefined) return byLabel;
+  return (
+    PRACTICE_SCENARIO_INFO.find((info) =>
+      PRACTICE_KEYWORDS[info.code].test(t),
+    ) ?? null
+  );
 }
