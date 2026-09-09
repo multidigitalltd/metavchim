@@ -110,13 +110,29 @@ function serviceFor(options: Options): {
   return { service, writes, tx };
 }
 
-const asUser = <T,>(fn: () => T): T =>
+const asUser = <T,>(fn: () => T, caps: Capability[] = [...CAPS, "leads.edit"]): T =>
   TenantContext.run(
-    { tenantId: TENANT, userId: ME, capabilities: new Set(CAPS), billingOnly: false },
+    { tenantId: TENANT, userId: ME, capabilities: new Set(caps), billingOnly: false },
     fn,
   );
 
 describe("‏פתיחת ליד משיחה", () => {
+  /*
+   * ‎**היכולת נבדקת בשירות, ולא רק בבקר** (ביקורת Codex, P1).
+   *
+   * ‏הנתיב נושא `@RequireCapability("leads.edit")`, וזה כיסה את
+   * ‏המסך. הבוט קורא לשירות ישירות מתוך מצב ממתין, והמצב הממתין
+   * ‏שורד בין הודעות: השאלה נשאלה כשהיכולת הייתה, והתשובה מגיעה
+   * ‏אחרי שנשללה. בלי השער כאן, הליד נפתח בכל זאת.
+   */
+  it("‏נדחית בלי `leads.edit`, ואינה כותבת דבר", async () => {
+    const built = serviceFor({ contactId: null });
+    await expect(
+      asUser(() => built.service.ensureLead(CALL), CAPS),
+    ).rejects.toThrow(ForbiddenException);
+    expect(built.writes.call, "השיחה חוברה בכל זאת").toBeNull();
+  });
+
   /*
    * ‎**הכרטיס נכתב יחד עם הליד** (ביקורת Codex, P1).
    *

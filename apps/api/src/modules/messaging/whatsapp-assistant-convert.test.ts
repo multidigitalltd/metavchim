@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { TenantContext } from "../../common/tenant-context";
 import type { PrismaService } from "../../core/prisma.service";
 import type { CallsService } from "../calls/calls.service";
@@ -13,6 +13,22 @@ import { WhatsAppAssistantService } from "./whatsapp-assistant.service";
  * ‏שהיא רצה דרך אותם שני צעדים של המסך — ליד ואז המרה — ושמה
  * ‏שאינו סוג אינו כותב דבר.
  */
+
+/*
+ * ‎**התשובה מגיעה עד `runProposal`, והוא בונה קישור למסך.**
+ *
+ * ‏‎`renderSegment` קורא ל-`loadEnv()`, שדורש תצורה שלמה. בלי
+ * ‏הבלוק הזה הבדיקה עברה רק אצל מי שיש לו סביבה טעונה — והיא
+ * ‏נפלה ב-CI. הערכים מזויפים: הבדיקה אינה נוגעת ברשת ולא במסד.
+ */
+beforeAll(() => {
+  process.env["WEB_ORIGIN"] ??= "https://test.invalid";
+  process.env["DATABASE_URL"] ??= "postgresql://t:t@localhost:5432/t";
+  process.env["DIRECT_DATABASE_URL"] ??= "postgresql://t:t@localhost:5432/t";
+  process.env["REDIS_URL"] ??= "redis://localhost:6379";
+  process.env["DATA_ENCRYPTION_KEY"] ??= "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+  process.env["PHONE_HASH_KEY"] ??= "test-phone-hash-key-not-a-real-secret-0000";
+});
 
 const TENANT = "01TENANTAAAAAAAAAAAAAAAAAA";
 const USER = "01USERAAAAAAAAAAAAAAAAAAAA";
@@ -44,7 +60,12 @@ function harness(opts: { ensureFails?: boolean } = {}) {
       awaiting: "call_convert",
       extraParams: {},
       token: "01TOKENAAAAAAAAAAAAAAAAAAA",
-      callConvert: { callId: CALL, subject: "השיחה עם דנה כהן" },
+      callConvert: {
+        callId: CALL,
+        subject: "השיחה עם דנה כהן",
+        /* ‏מה שהשיחה ידעה — חייב להגיע לכרטיס שנפתח */
+        seed: { city: "רמת גן", rooms: 4, priceShekels: 2_400_000, street: "הרצל 12" },
+      },
     } as unknown,
     history: [],
     added: [],
@@ -131,8 +152,38 @@ describe("‏התשובה על „מה הצד השני?”", () => {
     await say("קונה");
     expect(seen.ensured).toEqual([CALL]);
     expect(seen.executed).toEqual([
-      { actionId: "convert_lead", params: { leadId: LEAD, dealType: "sale" } },
+      {
+        actionId: "convert_lead",
+        params: {
+          cities: ["רמת גן"],
+          roomsMin: 4,
+          roomsMax: 4,
+          budgetMaxShekels: 2_400_000,
+          leadId: LEAD,
+          dealType: "sale",
+        },
+      },
     ]);
+  });
+
+  /*
+   * ‎**הכרטיס אינו נפתח ריק** (ביקורת Codex, P2). עיר, חדרים,
+   * ‏תקציב וכתובת חולצו מהשיחה, והמסך ממלא בהם את הטופס מראש —
+   * ‏כרטיס בלי דרישות אינו משתתף בהתאמות עד שמישהו מקליד מחדש את
+   * ‏מה שכבר נשמע. לנכס אותם נתונים בשמות שלו, והכתובת נכנסת רק
+   * ‏שם: לקונה אין „רחוב”.
+   */
+  it("‏והכרטיס מקבל את מה שהשיחה ידעה, בשמות של הסוג", async () => {
+    const { say, seen } = harness();
+    await say("מוכר");
+    expect(seen.executed[0]?.params).toEqual({
+      city: "רמת גן",
+      rooms: 4,
+      street: "הרצל 12",
+      priceShekels: 2_400_000,
+      leadId: LEAD,
+      dealType: "sale",
+    });
   });
 
   /*
@@ -147,7 +198,7 @@ describe("‏התשובה על „מה הצד השני?”", () => {
     ] as const) {
       const { say, seen } = harness();
       await say(said);
-      expect(seen.executed[0], said).toEqual({
+      expect(seen.executed[0], said).toMatchObject({
         actionId,
         params: { leadId: LEAD, dealType },
       });

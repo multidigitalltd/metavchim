@@ -19,6 +19,7 @@ import {
   jerusalemLocalInputValue,
   jerusalemWallErrorMessage,
   callConversionHint,
+  callConvertSeed,
   callIsConvertible,
   recordingStateLabel,
   resolveJerusalemLocalInput,
@@ -427,12 +428,12 @@ export default function CallsPage() {
 
     const highlights = selected.highlights ?? {};
     const hint = callConversionHint(highlights);
-    const prefill: ConvertPrefill = {
-      ...(highlights.city === undefined ? {} : { city: highlights.city }),
-      ...(highlights.budget === undefined ? {} : { priceShekels: highlights.budget }),
-      ...(highlights.rooms === undefined ? {} : { rooms: highlights.rooms }),
-      ...(highlights.address === undefined ? {} : { street: highlights.address }),
-    };
+    /*
+     * ‏אותו חילוץ שהבוט משתמש בו: „המר ללקוח” בוואטסאפ פותח כרטיס
+     * ‏עם אותם פרטים בדיוק, ושני חילוצים מאותם `highlights` היו
+     * ‏נפרדים בשקט ביום שנוסף שדה.
+     */
+    const prefill: ConvertPrefill = callConvertSeed(highlights);
 
     return (
       <div className="mt-5">

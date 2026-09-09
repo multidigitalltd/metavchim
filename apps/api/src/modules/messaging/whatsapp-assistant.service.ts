@@ -35,6 +35,8 @@ import {
   PRACTICE_TEXT_MAX,
   callConvertInfo,
   callConvertKindFromText,
+  callConvertParams,
+  type CallConvertSeed,
 } from "@metavchim/shared";
 import { TenantContext, type RequestContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
@@ -252,7 +254,12 @@ interface PendingState {
    * ‏חוזרת הייתה יכולה למצוא שיחה אחרת („האחרונה” זזה בינתיים)
    * ‏ולפתוח כרטיס על מי שלא נשאל עליו.
    */
-  callConvert?: { callId: string; subject: string };
+  callConvert?: {
+    callId: string;
+    subject: string;
+    /** ‏מה שהשיחה ידעה — נכנס לכרטיס שנפתח על התשובה */
+    seed: CallConvertSeed;
+  };
 }
 
 interface ChatState {
@@ -817,7 +824,20 @@ export class WhatsAppAssistantService {
        * ‏שתי הפעולות) ו-`leadId` (מפתח זהות) עוברים — ושום דבר
        * ‏אחר לא.
        */
-      extraParams: { leadId, dealType: info.dealType },
+      /*
+       * ‏הפרמטרים נכנסים כאן ולא כשדות של ההצעה: `paramsOf` ממזג
+       * ‏אותם ואז מצמצם לפי הקטלוג, ולכן רק מה שהפעולה מצהירה עליו
+       * ‏עובר — ושום דבר אחר לא.
+       *
+       * ‎`callConvertParams` הוא מה שהשיחה כבר ידעה, בשמות של הסוג
+       * ‏שנבחר: הכרטיס נפתח עם עיר, חדרים, תקציב וכתובת כמו במסך,
+       * ‏ולא ריק על שיחה שהכול נאמר בה (ביקורת Codex, P2).
+       */
+      extraParams: {
+        ...callConvertParams(target.seed, info.target),
+        leadId,
+        dealType: info.dealType,
+      },
       token: ulid(),
     });
   }

@@ -65,3 +65,64 @@ export function callConversionHint(
     sentence: `${SIDE_SENTENCE[side]} — אבל ההחלטה שלכם.`,
   };
 }
+
+/**
+ * ‎**מה שהשיחה כבר ידעה — בשמות שההמרה משתמשת בהם.**
+ *
+ * ‏עיר, תקציב, חדרים וכתובת חולצו מהשיחה, והמסך ממלא בהם את טופס
+ * ‏ההמרה מראש. הבוט לא עשה זאת: הוא המיר עם `leadId` ו-`dealType`
+ * ‏בלבד, כלומר פתח כרטיס **ריק** על שיחה שכל הפרטים נאמרו בה —
+ * ‏וכרטיס בלי דרישות אינו משתתף בהתאמות עד שמישהו מקליד מחדש את
+ * ‏מה שכבר נשמע (ביקורת Codex, P2).
+ *
+ * ‏הפונקציה כאן היא המקור לשני הערוצים: המסך בונה ממנה את
+ * ‎`ConvertPrefill`, והבוט את פרמטרי הפעולה. שתי חילוצים נפרדים
+ * ‏מאותם `highlights` היו נפרדים בשקט ביום שנוסף שדה.
+ */
+export interface CallConvertSeed {
+  city?: string;
+  /** ‏בשקלים — תקציב אצל קונה, מחיר מבוקש אצל מוכר. */
+  priceShekels?: number;
+  rooms?: number;
+  /** ‏כתובת שנאמרה — נכנסת לרחוב בהמרה לנכס בלבד. */
+  street?: string;
+}
+
+export function callConvertSeed(
+  highlights: CallHighlights | undefined,
+): CallConvertSeed {
+  return {
+    ...(highlights?.city === undefined ? {} : { city: highlights.city }),
+    ...(highlights?.budget === undefined ? {} : { priceShekels: highlights.budget }),
+    ...(highlights?.rooms === undefined ? {} : { rooms: highlights.rooms }),
+    ...(highlights?.address === undefined ? {} : { street: highlights.address }),
+  };
+}
+
+/**
+ * ‎**אותו זרע, בשמות הפרמטרים של פעולת ההמרה.**
+ *
+ * ‏קונה ונכס מקבלים שמות שונים לאותו נתון, וזה לא שרירותי: לקונה
+ * ‏החדרים הם **טווח**, ובשיחה נאמר מספר אחד — אותה המרה שכבר
+ * ‏נקבעה בקטלוג („4 חדרים” ⇒ המינימום והמקסימום 4), כדי שאותו
+ * ‏משפט ייצר אותו כרטיס בכל ערוץ. הכתובת נכנסת לנכס בלבד: לקונה
+ * ‏אין „רחוב”, יש אזורי חיפוש.
+ */
+export function callConvertParams(
+  seed: CallConvertSeed,
+  target: "buyer" | "property",
+): Record<string, unknown> {
+  if (target === "buyer") {
+    return {
+      ...(seed.city === undefined ? {} : { cities: [seed.city] }),
+      ...(seed.rooms === undefined ? {} : { roomsMin: seed.rooms, roomsMax: seed.rooms }),
+      ...(seed.priceShekels === undefined ? {} : { budgetMaxShekels: seed.priceShekels }),
+    };
+  }
+  return {
+    ...(seed.city === undefined ? {} : { city: seed.city }),
+    ...(seed.rooms === undefined ? {} : { rooms: seed.rooms }),
+    ...(seed.street === undefined ? {} : { street: seed.street }),
+    ...(seed.priceShekels === undefined ? {} : { priceShekels: seed.priceShekels }),
+  };
+}

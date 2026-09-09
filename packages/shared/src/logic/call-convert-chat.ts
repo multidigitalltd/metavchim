@@ -46,6 +46,32 @@ export function callConvertInfo(kind: CallConvertKind): CallConvertInfo {
 }
 
 /**
+ * ‎**רק הסוגים שהמתווך הזה באמת יכול להשלים** (ביקורת Codex, P2).
+ *
+ * ‏קונה ושוכר פותחים כרטיס קונה (`buyers.edit`), מוכר ומשכיר פותחים
+ * ‏נכס (`properties.create`). מי שיש לו `leads.edit` בלבד ראה את
+ * ‏כל הארבעה, ובחירה באחד שאינו מותר לו הייתה **פותחת ליד** ואז
+ * ‏נדחית בשער של הפעולה — כלומר תפריט שמפרסם מה שאינו יכול לבצע,
+ * ‏ומשאיר אחריו ליד שנפתח לחינם.
+ *
+ * ‏מסך השיחות כבר מסנן כך (`mayBuyer`/`mayProperty`), וזו אותה
+ * ‏הכרעה — ולכן היא כאן ולא בשני עותקים.
+ *
+ * ‏רשימה ריקה = אין מה להציע, והקורא אומר זאת במקום לשאול.
+ */
+export function callConvertKindsFor(
+  can: (capability: "buyers.edit" | "properties.create") => boolean,
+): readonly CallConvertInfo[] {
+  return CALL_CONVERT_INFO.filter((info) =>
+    info.target === "buyer" ? can("buyers.edit") : can("properties.create"),
+  );
+}
+
+/** ‏מה שנאמר כשאין אף סוג שמותר לפתוח — הרשאה, לא היעדר שיחה. */
+export const CALL_CONVERT_NO_KINDS =
+  "אין לך הרשאה לפתוח כרטיס קונה או נכס. אפשר לבקש ממנהל המשרד, והשיחה נשארת ברשימה.";
+
+/**
  * ‎**איזו שיחה אפשר להמיר — כלל אחד לשני הערוצים.**
  *
  * ‏שני תנאים, ושניהם על **צורת הרשומה** ולא על ההרשאות: ליד שכבר
@@ -91,8 +117,11 @@ export function callConvertSubject(call: {
  * ‏הפעולה בוחרת את השיחה האחרונה שאפשר להמיר, והמתווך חייב לדעת
  * ‏על מי מדובר **לפני** שהוא עונה. שאלה בלי נושא היא בקשה לנחש.
  */
-export function callConvertQuestion(subject: string): string {
-  const kinds = CALL_CONVERT_INFO.map((info) => info.label).join(" / ");
+export function callConvertQuestion(
+  subject: string,
+  offered: readonly CallConvertInfo[] = CALL_CONVERT_INFO,
+): string {
+  const kinds = offered.map((info) => info.label).join(" / ");
   return [
     `${subject} — מה הצד השני?`,
     "",

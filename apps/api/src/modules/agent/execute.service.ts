@@ -41,12 +41,16 @@ import {
   pendingMissedCalls,
   rankCallbacks,
   CALL_CONVERT_NONE,
+  CALL_CONVERT_NO_KINDS,
+  callConvertKindsFor,
   callConvertQuestion,
+  callConvertSeed,
   callConvertSubject,
   callConvertRefInCommand,
   callIsConvertible,
   type AgentHistoryRef,
   type BuyerRequirements,
+  type CallConvertSeed,
   type CallbackCandidate,
   type PropertyFields,
   MentorGoalInputSchema,
@@ -213,7 +217,12 @@ export interface ExecuteResult {
    * ‏שמנוע ההבנה יחפש בו פעולה ולא ימצא. `subject` נושא **מי** —
    * ‏שם, או מתי הייתה השיחה כשאין שם; טלפון לעולם לא.
    */
-  callConvert?: { callId: string; subject: string };
+  callConvert?: {
+    callId: string;
+    subject: string;
+    /** ‏מה שהשיחה ידעה — נכנס לכרטיס שייפתח על התשובה */
+    seed: CallConvertSeed;
+  };
   /**
    * משפט-שניים של תובנה על התוצאות — לא רשימה, מסקנה. המספרים
    * מגיעים מהנתונים שכבר נשלפו; המודל רק מנסח. אופציונלי: בלי
@@ -1740,14 +1749,31 @@ export class AgentExecuteService {
     const calls = await this.calls.list(query);
     const call = calls.find((row) => callIsConvertible(row));
     if (call === undefined) return { href: "/calls", message: CALL_CONVERT_NONE };
+    /*
+     * ‎**רק הסוגים שאפשר להשלים** (ביקורת Codex, P2). בחירה בסוג
+     * ‏חסום הייתה פותחת ליד ואז נדחית בשער של פעולת ההמרה — ליד
+     * ‏שנפתח לחינם, אחרי תפריט שהבטיח מה שאינו יכול לבצע.
+     */
+    const caps = TenantContext.current().capabilities;
+    const offered = callConvertKindsFor((capability) => caps.has(capability));
+    if (offered.length === 0) return { href: "/calls", message: CALL_CONVERT_NO_KINDS };
     const subject = callConvertSubject({
       ...(call.contactName === undefined ? {} : { name: call.contactName }),
       when: `${formatJerusalemDate(call.occurredAt)} ${formatJerusalemTime(call.occurredAt)}`,
     });
     return {
       href: "/calls",
-      message: callConvertQuestion(subject),
-      callConvert: { callId: call.id, subject },
+      message: callConvertQuestion(subject, offered),
+      /*
+       * ‏מה שהשיחה כבר ידעה נוסע יחד עם המזהה: הכרטיס שייפתח יקבל
+       * ‏עיר, חדרים, תקציב וכתובת בדיוק כמו במסך, ולא ייפתח ריק על
+       * ‏שיחה שהכול נאמר בה (ביקורת Codex, P2).
+       */
+      callConvert: {
+        callId: call.id,
+        subject,
+        seed: callConvertSeed(call.highlights),
+      },
     };
   }
 

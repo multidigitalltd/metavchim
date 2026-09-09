@@ -559,7 +559,24 @@ export class CallsService {
    * ‏משלו, וקינון שלה בתוך זו היה נעילה על עצמה.
    */
   async ensureLead(id: string): Promise<{ leadId: string; created: boolean }> {
-    const tenantId = TenantContext.current().tenantId;
+    const ctx = TenantContext.current();
+    /*
+     * ‎**היכולת נבדקת כאן, ולא רק בבקר** (ביקורת Codex, P1).
+     *
+     * ‏הנתיב נושא `@RequireCapability("leads.edit")`, וזה כיסה את
+     * ‏המסך. הבוט קורא לשירות הזה ישירות מתוך מצב ממתין — והמצב
+     * ‏הממתין שורד בין הודעות: „המר ללקוח” נשאל כשהיכולת הייתה,
+     * ‏והתשובה מגיעה אחרי שנשללה (חריג `deny` פר-משתמש, או חסימת
+     * ‏מודול למשרד). ההקשר נבנה מחדש בכל תור, אבל בדרך הזו אין שער
+     * ‏שקורא אותו.
+     *
+     * ‏השער יושב בשירות ולא בקורא: קורא שני שישכח אותו הוא בדיוק
+     * ‏מה שקרה כאן.
+     */
+    if (!ctx.capabilities.has("leads.edit")) {
+      throw new ForbiddenException("אין לך הרשאה לפתוח ליד מהשיחה");
+    }
+    const tenantId = ctx.tenantId;
 
     const existing = await this.prisma.withTenant(async (tx) => {
       await this.assertCallAccess(tx, id);

@@ -3,11 +3,13 @@ import {
   CALL_CONVERT_INFO,
   callConvertCommand,
   callConvertKindFromText,
+  callConvertKindsFor,
   callConvertQuestion,
   callConvertSubject,
   callConvertRefInCommand,
   callIsConvertible,
 } from "./call-convert-chat.js";
+import { callConvertParams, callConvertSeed } from "./call-conversion.js";
 
 /** ‏הנרמול של הוואטסאפ, מקוצר — כמו שהקורא מספק אותו. */
 const normalize = (value: string): string => value.trim().replace(/\s+/gu, " ");
@@ -152,5 +154,86 @@ describe("הפקודה של הכפתור", () => {
     expect(callConvertCommand(SAID, { kind: "call", id: CALL }).startsWith(`${SAID} `)).toBe(
       true,
     );
+  });
+});
+
+describe("הסוגים שמותר להציע", () => {
+  /*
+   * ‎**תפריט שמפרסם מה שאינו יכול לבצע** (ביקורת Codex, P2). מי
+   * ‏שיש לו `leads.edit` בלבד ראה את כל הארבעה, ובחירה בסוג חסום
+   * ‏הייתה פותחת ליד ואז נדחית בשער של פעולת ההמרה — ליד שנפתח
+   * ‏לחינם. מסך השיחות כבר מסנן כך, וזו אותה הכרעה.
+   */
+  it("קונה ושוכר דורשים `buyers.edit`", () => {
+    const only = callConvertKindsFor((c) => c === "buyers.edit");
+    expect(only.map((info) => info.kind)).toEqual(["buyer", "renter"]);
+  });
+
+  it("ומוכר ומשכיר דורשים `properties.create`", () => {
+    const only = callConvertKindsFor((c) => c === "properties.create");
+    expect(only.map((info) => info.kind)).toEqual(["seller", "landlord"]);
+  });
+
+  it("ובלי אף אחת מהן — אין מה להציע", () => {
+    expect(callConvertKindsFor(() => false)).toEqual([]);
+  });
+
+  /* ‏השאלה מציגה בדיוק את מה שהותר, ולא את הארבעה תמיד */
+  it("והשאלה מונה רק אותם", () => {
+    const text = callConvertQuestion("השיחה עם דנה", callConvertKindsFor((c) => c === "buyers.edit"));
+    expect(text).toContain("קונה");
+    expect(text).toContain("שוכר");
+    expect(text).not.toContain("משכיר");
+  });
+});
+
+describe("מה שהשיחה כבר ידעה", () => {
+  const HIGHLIGHTS = {
+    city: "רמת גן",
+    rooms: 4,
+    budget: 2_400_000,
+    address: "הרצל 12",
+  };
+
+  /*
+   * ‎**הכרטיס אינו נפתח ריק** (ביקורת Codex, P2). כרטיס בלי דרישות
+   * ‏אינו משתתף בהתאמות עד שמישהו מקליד מחדש את מה שכבר נשמע.
+   */
+  it("נאסף בשמות שההמרה משתמשת בהם", () => {
+    expect(callConvertSeed(HIGHLIGHTS)).toEqual({
+      city: "רמת גן",
+      rooms: 4,
+      priceShekels: 2_400_000,
+      street: "הרצל 12",
+    });
+  });
+
+  it("ומה שלא נאמר אינו נשלח", () => {
+    expect(callConvertSeed({})).toEqual({});
+    expect(callConvertSeed(undefined)).toEqual({});
+  });
+
+  /*
+   * ‎**מספר אחד לשני גבולות.** בכרטיס קונה החדרים הם טווח, ובשיחה
+   * ‏נאמר מספר אחד — אותה המרה שכבר נקבעה בקטלוג, כדי שאותו משפט
+   * ‏ייצר אותו כרטיס בכל ערוץ.
+   */
+  it("ולקונה — טווח חדרים, תקציב, ואזור", () => {
+    expect(callConvertParams(callConvertSeed(HIGHLIGHTS), "buyer")).toEqual({
+      cities: ["רמת גן"],
+      roomsMin: 4,
+      roomsMax: 4,
+      budgetMaxShekels: 2_400_000,
+    });
+  });
+
+  /* ‏הכתובת נכנסת לנכס בלבד: לקונה אין „רחוב”, יש אזורי חיפוש */
+  it("ולנכס — כתובת ומחיר, בשמות שלו", () => {
+    expect(callConvertParams(callConvertSeed(HIGHLIGHTS), "property")).toEqual({
+      city: "רמת גן",
+      rooms: 4,
+      street: "הרצל 12",
+      priceShekels: 2_400_000,
+    });
   });
 });

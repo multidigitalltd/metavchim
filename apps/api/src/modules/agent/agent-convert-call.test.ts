@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Capability } from "@metavchim/shared";
-import { CALL_CONVERT_NONE, agentAction, callConvertCommand } from "@metavchim/shared";
+import {
+  CALL_CONVERT_NONE,
+  CALL_CONVERT_NO_KINDS,
+  agentAction,
+  callConvertCommand,
+} from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AgentExecuteService } from "./execute.service";
 import type { CallDto } from "../calls/calls.service";
@@ -34,6 +39,7 @@ const call = (over: Partial<CallDto> = {}): CallDto => ({
   source: "pbx",
   occurredAt: AT,
   outcome: "missed",
+  highlights: {},
   ...over,
 });
 
@@ -63,7 +69,12 @@ function serviceFor(rows: CallDto[]): { service: AgentExecuteService; seen: Seen
   return { service, seen };
 }
 
-const CAPS: Capability[] = ["leads.edit", "leads.view_own"];
+const CAPS: Capability[] = [
+  "leads.edit",
+  "leads.view_own",
+  "buyers.edit",
+  "properties.create",
+];
 
 const run = <T,>(fn: () => T, caps: Capability[] = CAPS): T =>
   TenantContext.run(
@@ -161,6 +172,49 @@ describe("‏„המר ללקוח” בוחרת שיחה", () => {
     for (const label of ["קונה", "שוכר", "מוכר", "משכיר"]) {
       expect(noName.message, label).toContain(label);
     }
+  });
+
+  /*
+   * ‎**רק הסוגים שאפשר להשלים** (ביקורת Codex, P2). בחירה בסוג
+   * ‏חסום הייתה פותחת ליד ואז נדחית בשער של פעולת ההמרה — ליד
+   * ‏שנפתח לחינם, אחרי תפריט שהבטיח מה שאינו יכול לבצע.
+   */
+  it("‏והשאלה מונה רק את הסוגים שהמתווך יכול לפתוח", async () => {
+    const built = serviceFor([call()]);
+    const result = await run(
+      () => built.service.execute("convert_call", {}, "המר ללקוח", "whatsapp"),
+      ["leads.edit", "leads.view_own", "buyers.edit"],
+    );
+    expect(result.message).toContain("קונה");
+    expect(result.message).not.toContain("משכיר");
+  });
+
+  it("‏ובלי אף אחת מהן — אומרת שזו הרשאה, ואינה שואלת", async () => {
+    const built = serviceFor([call()]);
+    const result = await run(
+      () => built.service.execute("convert_call", {}, "המר ללקוח", "whatsapp"),
+      ["leads.edit", "leads.view_own"],
+    );
+    expect(result.message).toBe(CALL_CONVERT_NO_KINDS);
+    expect(result.callConvert).toBeUndefined();
+  });
+
+  /*
+   * ‎**מה שהשיחה ידעה נוסע יחד** (ביקורת Codex, P2) — אחרת הכרטיס
+   * ‏נפתח ריק על שיחה שכל הפרטים נאמרו בה.
+   */
+  it("‏ומה שחולץ מהשיחה נוסע עם המזהה", async () => {
+    const built = serviceFor([
+      call({ highlights: { city: "רמת גן", rooms: 4, budget: 2_400_000 } }),
+    ]);
+    const result = await run(() =>
+      built.service.execute("convert_call", {}, "המר ללקוח", "whatsapp"),
+    );
+    expect(result.callConvert?.seed).toEqual({
+      city: "רמת גן",
+      rooms: 4,
+      priceShekels: 2_400_000,
+    });
   });
 
   /*

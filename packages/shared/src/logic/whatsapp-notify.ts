@@ -722,6 +722,21 @@ const CATEGORY_ACTION: Record<
  * ‏והתראה שהוסתרה לנמען הזה מגיעה בלי `entityId` — ובצדק, כי
  * ‏אסור שיהיה לו כפתור לפתוח כרטיס על מי שאינו רשאי לראות.
  */
+/**
+ * ‎**הצלצול קודם לשורת השיחה** (ביקורת Codex, P2).
+ *
+ * ‏`incoming_call` נשלחת בזמן שהטלפון מצלצל — `TelephonyService`
+ * ‏יוצא מהענף הזה **לפני** שהוא כותב את השיחה. כלומר בלחיצה על
+ * ‏„המר ללקוח” מתוכה, המצביע על הכרטיס נפתר לשיחה **קודמת** של
+ * ‏אותו לקוח, או לא נפתר כלל — ובשני המקרים השאלה תהיה על משהו
+ * ‏אחר ממה שההתראה הציגה.
+ *
+ * ‏ההתראה עצמה נשארת כמות שהיא: היא נועדה להגיע בזמן הצלצול, וזה
+ * ‏בדיוק ערכה. מה שיורד הוא הכפתור בלבד, והוא חוזר עם ההתראה
+ * ‏שאחרי — „שיחה שלא נענתה” או „התמלול מוכן”, ששתיהן אחרי הכתיבה.
+ */
+const CALL_NOT_YET_LOGGED = new Set(["incoming_call"]);
+
 function convertFollowUp(
   shown: readonly NotifyItem[],
   allowed: readonly string[],
@@ -731,6 +746,7 @@ function convertFollowUp(
   const only = shown.length === 1 ? shown[0] : undefined;
   if (only === undefined || only.entityId === null) return null;
   if (notifyCategory(only.type) !== "calls") return null;
+  if (CALL_NOT_YET_LOGGED.has(only.type)) return null;
   const kind = CALL_CONVERT_REF_KINDS.find((k) => k === only.entityType);
   if (kind === undefined) return null;
   /* ‏הכיתוב והמשפט — שניהם מהקטלוג, כמו בכל כפתור אחר כאן */
