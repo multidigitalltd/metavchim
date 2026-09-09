@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  contactNameUpgrade,
   isContactRole,
   normalizeNameForMatch,
   orderPeople,
@@ -8,7 +9,11 @@ import {
   type ContactRole,
 } from "@metavchim/shared";
 import { lockContact, lockContactPhone } from "../../common/locks";
-import { canSeeContact, type PhoneTypedBy } from "../../common/ownership";
+import {
+  canSeeContact,
+  contactIsUnclaimed,
+  type PhoneTypedBy,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { CryptoService } from "../../core/crypto.service";
 import type { TenantTx } from "../../core/prisma.service";
@@ -129,9 +134,24 @@ export class ContactsService {
     await lockContactPhone(tx, tenantId, this.crypto.phoneHash(input.phone));
     const prior = await this.findByAnyPhone(tx, input.phone);
     if (prior !== null) {
+      /*
+       * ‎**שלושה מקורות היתר, והשלישי הוא „אין לו בעלים”.**
+       *
+       * ‏שיחה שלא נענתה יוצרת כרטיס איש קשר בלי קונה, בלי ליד
+       * ‏ובלי נכס. `canSeeContact` נשענת על קיומו של כרטיס כזה,
+       * ‏ולכן החזירה `false` **לכל הסוכנים, כולל בעל המשרד** —
+       * ‏והבקשה „תוסיף קונה עם המספר הזה” נדחתה בהודעה שאומרת
+       * ‏שהמספר שייך למישהו אחר, בשעה שהוא שייך לאיש (דיווח
+       * ‏מהשטח). כרטיס יתום הוא פנוי, לא תפוס.
+       *
+       * ‏הכלל עצמו לא נחלש: `contactIsUnclaimed` שואלת אם קיים
+       * ‏כרטיס כזה **בכלל**, ולא אם קיים כזה שאני רואה. מספר של
+       * ‏קונה של עמית ממשיך להיחסם בדיוק כמו קודם.
+       */
       const allowed =
         (options.alsoAllowed ? await options.alsoAllowed(prior.id) : false) ||
-        (await canSeeContact(tx, tenantId, prior.id));
+        (await canSeeContact(tx, tenantId, prior.id)) ||
+        (await contactIsUnclaimed(tx, tenantId, prior.id));
       if (!allowed) {
         throw new ForbiddenException(
           `${options.subject} — המספר הזה משויך ללקוח שאינו נגיש לך, פנו למנהל המשרד`,
@@ -175,10 +195,35 @@ export class ContactsService {
         })
       : null;
     if (existing) {
+      const storedName = this.crypto.decrypt(existing.nameEncrypted);
+      const storedPhone = this.crypto.decrypt(existing.phoneEncrypted);
+      /*
+       * ‎**שם שהוא המספר עצמו אינו שם.**
+       *
+       * ‏שיחה שלא נענתה כותבת `callerName ?? phone`, ולכן כרטיס
+       * ‏שנוצר ממנה נקרא במספר של עצמו. עד כאן הפונקציה החזירה
+       * ‏את הכרטיס הקיים והתעלמה מהשם הנכנס — כך שגם אחרי
+       * ‏שנפתח קונה בשם „דנה”, רשימת השיחות המשיכה להציג את
+       * ‏המספר (דיווח מהשטח).
+       *
+       * ‎`contactNameUpgrade` מחליף **רק** מציין מקום. שם אמיתי
+       * ‏שנשמר קודם הוא ידע של המשרד, ודריסה שקטה שלו היא איבוד
+       * ‏נתונים — ולכן הוא לעולם אינו נדרס.
+       */
+      const upgraded = contactNameUpgrade(storedName, input.name, storedPhone);
+      if (upgraded !== null) {
+        await tx.contact.update({
+          where: { id: existing.id },
+          data: {
+            nameEncrypted: this.crypto.encrypt(upgraded),
+            nameHash: this.crypto.nameHash(normalizeNameForMatch(upgraded)),
+          },
+        });
+      }
       return {
         id: existing.id,
-        name: this.crypto.decrypt(existing.nameEncrypted),
-        phone: this.crypto.decrypt(existing.phoneEncrypted),
+        name: upgraded ?? storedName,
+        phone: storedPhone,
         sharedTabu: existing.sharedTabu,
       };
     }

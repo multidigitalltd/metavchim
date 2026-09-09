@@ -35,15 +35,23 @@ interface Options {
   buyerOwnerUserId?: string;
   /** ‏והאם הוא כבר מקושר לכרטיס האב. */
   alreadyLinked?: boolean;
+  /**
+   * ‎**כרטיס יתום** — קיים, אבל בלי קונה, ליד או נכס. זה מה
+   * ‏ששיחה שלא נענתה מייצרת, והוא היה נדחה מכל סוכן.
+   */
+  orphan?: boolean;
+  /** ‏השם השמור על הכרטיס הקיים — ברירת המחדל היא שם אמיתי. */
+  storedName?: string;
 }
 
 interface Calls {
   emailWrites: number;
   links: number;
+  nameWrites: number;
 }
 
 function serviceFor(options: Options): { service: ContactsService; calls: Calls } {
-  const calls: Calls = { emailWrites: 0, links: 0 };
+  const calls: Calls = { emailWrites: 0, links: 0, nameWrites: 0 };
   const owner = options.buyerOwnerUserId ?? OTHER;
   const tx = {
     $executeRaw: async () => 0,
@@ -51,9 +59,13 @@ function serviceFor(options: Options): { service: ContactsService; calls: Calls 
       findUnique: async () => (options.existing === true ? { id: HIDDEN } : null),
       findFirst: async () => ({
         id: HIDDEN,
-        nameEncrypted: "n",
-        phoneEncrypted: "p",
+        nameEncrypted: options.storedName ?? "n",
+        phoneEncrypted: "+972501234567",
       }),
+      update: async () => {
+        calls.nameWrites += 1;
+        return { id: HIDDEN };
+      },
       updateMany: async () => {
         calls.emailWrites += 1;
         return { count: 1 };
@@ -71,9 +83,11 @@ function serviceFor(options: Options): { service: ContactsService; calls: Calls 
     /* ‏מקורות `canSeeContact` — הכרטיס המוסתר הוא קונה של מישהו */
     buyer: {
       findFirst: async (args: { where: { ownerUserId?: string } }) =>
-        args.where.ownerUserId === undefined || args.where.ownerUserId === owner
-          ? { id: "01BUYER" }
-          : null,
+        options.orphan === true
+          ? null
+          : args.where.ownerUserId === undefined || args.where.ownerUserId === owner
+            ? { id: "01BUYER" }
+            : null,
     },
     lead: { findFirst: async () => null },
     property: { findFirst: async () => null },
@@ -407,5 +421,82 @@ describe("‏שער: כל יצירת כרטיס מטלפון מצהירה מי �
     const decided = source.match(/typedBy: "(?:agent|office)"(?! \|)/gu) ?? [];
     expect(calls.length).toBeGreaterThanOrEqual(4);
     expect(decided.length, "קורא בלי הכרעה").toBe(calls.length);
+  });
+});
+
+/**
+ * ‎**כרטיס יתום — ולמה הסירוב עליו היה שגוי** (דיווח מהשטח).
+ *
+ * ‏שיחה נכנסת שלא נענתה יוצרת כרטיס איש קשר, ותו לא: אין עליו
+ * ‏קונה, אין ליד, ואין נכס. `canSeeContact` נשענת על קיומו של
+ * ‏כרטיס עסקי כזה, ולכן החזירה `false` **לכל הסוכנים במשרד,
+ * ‏כולל הבעלים** — והבקשה „תפתח קונה עם המספר הזה” נדחתה
+ * ‏בהודעה „המספר משויך ללקוח שאינו נגיש לך”.
+ *
+ * ‏זו אותה תקלה שכבר תוקנה בכלל ראיית השיחות: „לא כי מישהו אחר
+ * ‏ראה אותה — אלא כי אף אחד לא”. כרטיס יתום הוא פנוי, לא תפוס.
+ */
+describe("‏כרטיס שאיש אינו מחזיק בו", () => {
+  const PERSON_INPUT = { name: "דנה כהן", phone: "+972501234567" };
+
+  it("‏מספר שקיים רק כשיחה — הקונה נפתח", async () => {
+    const built = serviceFor({ existing: true, orphan: true });
+    const person = await asUser(AGENT, () =>
+      built.service.findOrCreateByPhoneTyped(txOf(built), PERSON_INPUT, {
+        typedBy: "agent",
+        subject: "יצירת קונה",
+      }),
+    );
+    expect(person.id).toBe(HIDDEN);
+  });
+
+  /*
+   * ‎**וזה מה שאסור שיזוז.** כרטיס שיש עליו קונה של עמית נשאר
+   * ‏חסום — ההבדל בין „פנוי” ל„לא שלי” הוא כל התיקון.
+   */
+  it("‏ומספר של קונה של עמית — עדיין נדחה", async () => {
+    const built = serviceFor({ existing: true });
+    await expect(
+      asUser(AGENT, () =>
+        built.service.findOrCreateByPhoneTyped(txOf(built), PERSON_INPUT, {
+          typedBy: "agent",
+          subject: "יצירת קונה",
+        }),
+      ),
+    ).rejects.toThrow(/משויך ללקוח שאינו נגיש לך/u);
+  });
+});
+
+/**
+ * ‎**„בשיחות לעדכן אותו בשם של הקונה שנכנס”** (דיווח מהשטח).
+ *
+ * ‏השיחה כותבת `callerName ?? phone`, ולכן כרטיס שנוצר משיחה
+ * ‏שלא נענתה נקרא במספר של עצמו. עד כה `findOrCreateByPhone`
+ * ‏החזיר את הכרטיס הקיים והתעלם מהשם הנכנס — ולכן גם אחרי
+ * ‏שנפתח קונה בשם „דנה כהן”, רשימת השיחות המשיכה להציג מספר.
+ */
+describe("‏שם שהוא המספר עצמו — מתעדכן", () => {
+  const PHONE = "+972501234567";
+
+  it("‏מציין מקום מוחלף בשם שנמסר", async () => {
+    const built = serviceFor({ existing: true, orphan: true, storedName: PHONE });
+    const person = await asUser(AGENT, () =>
+      built.service.findOrCreateByPhone(txOf(built), { name: "דנה כהן", phone: PHONE }),
+    );
+    expect(person.name).toBe("דנה כהן");
+    expect(built.calls.nameWrites, "השם לא נכתב").toBe(1);
+  });
+
+  /*
+   * ‎**ושם אמיתי אינו נדרס.** ידע שהמשרד כבר הקליד שווה יותר
+   * ‏מהשם שהגיע עכשיו, ודריסה שקטה שלו גרועה מהתקלה המקורית.
+   */
+  it("‏ושם אמיתי נשאר כפי שהוא", async () => {
+    const built = serviceFor({ existing: true, orphan: true, storedName: "יוסי לוי" });
+    const person = await asUser(AGENT, () =>
+      built.service.findOrCreateByPhone(txOf(built), { name: "דנה כהן", phone: PHONE }),
+    );
+    expect(person.name).toBe("יוסי לוי");
+    expect(built.calls.nameWrites, "שם אמיתי נדרס").toBe(0);
   });
 });
