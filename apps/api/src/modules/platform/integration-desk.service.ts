@@ -4,6 +4,7 @@ import { ulid } from "ulid";
 import {
   TELEPHONY_PROVIDERS,
   canonicalVirtualNumber,
+  INTEGRATION_DIAGNOSIS_RESET,
   mergeIntegrationSecrets,
   mergeLegacySecretsIntoConfig,
   telephonyProvider,
@@ -239,11 +240,10 @@ export class IntegrationDeskService {
             status: "active",
             config: input.config,
             secretsEncrypted,
-            // החלפת ספק מאפסת את האבחון — אחרת האירוע של הספק הקודם
-            // נקרא כהוכחה שהחדש עובד
-            ...(providerChanged
-              ? { lastEventAt: null, lastEventKeys: null, lastEventOk: null, lastEventIssue: null }
-              : {}),
+            // החלפת ספק מאפסת את כל האבחון — אחרת מה שקרה אצל הספק
+            // הקודם נקרא כבריאות של החדש. הרשימה משותפת עם מסלול
+            // השמירה שבהגדרות המשרד, שאם לא כן היא נשארת מאחור באחד.
+            ...(providerChanged ? INTEGRATION_DIAGNOSIS_RESET : {}),
           },
         });
       } else {

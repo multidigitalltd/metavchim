@@ -30,7 +30,9 @@ import {
   RECORDING_YOUNG_CALL_MS,
   RECORDING_EARLY_RETRY_MS,
   RECORDING_BLOCKED_REASON,
+  RECORDING_PROVIDER_REFUSAL,
   RECORDING_REFUSALS_BEFORE_PAUSE,
+  recordingPullResultOf,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
 import { CryptoService } from "../../core/crypto.service";
@@ -196,10 +198,29 @@ function joinDetail(providerDetail: string, asked: string): string {
  * נושאת שם משתמש וסיסמה. קוד מרשימה ידועה אפשר להציג, לתרגם
  * ולחפש — ואי אפשר לדלוף דרכו.
  */
+/**
+ * ‎**החיבור שממנו נמשכות הקלטות** — תנאי אחד, לא שלושה עותקים.
+ *
+ * בחירת העבודות, קריאת האישורים ורישום האבחון חייבים להסכים על
+ * „מי זה”: אם הבחירה מסננת לפי 015 פעיל והרישום אינו, תוצאה של
+ * בקשה שיצאה נוחתת על חיבור אחר לגמרי.
+ */
+const PULLING_CONNECTION = {
+  kind: "telephony",
+  provider: "015",
+  status: "active",
+} as const;
+
 export const RECORDING_ERRORS = {
   path: "path_unreadable",
   credentials: "missing_credentials",
-  provider: "provider_rejected",
+  /*
+   * ‎**גם הוא מיובא, ומאותו נימוק בדיוק כמו `integration` שמתחתיו.**
+   * הקוד המלא הוא `provider_rejected_<סטטוס>`, ו-`recordingReasonLabel`
+   * בצד המשותף מפרק אותו לפי אותה קידומת. שתי מחרוזות זהות בשני
+   * קבצים מסכימות רק במקרה.
+   */
+  provider: RECORDING_PROVIDER_REFUSAL,
   unreadable: "response_unreadable",
   empty: "empty_audio",
   tooLarge: "too_large",
@@ -442,7 +463,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
   }> {
     const integration = await this.prisma.withExplicitTenant(tenantId, (tx) =>
       tx.integration.findFirst({
-        where: { tenantId, kind: "telephony", provider: "015", status: "active" },
+        where: { tenantId, ...PULLING_CONNECTION },
         select: { secretsEncrypted: true, config: true },
       }),
     );
@@ -661,7 +682,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
   private async pendingFor(tenantId: string, now: number, take: number): Promise<RecordingJob[]> {
     return this.prisma.withExplicitTenant(tenantId, async (tx) => {
       const integration = await tx.integration.findFirst({
-        where: { tenantId, kind: "telephony", provider: "015", status: "active" },
+        where: { tenantId, ...PULLING_CONNECTION },
         select: { secretsEncrypted: true, config: true },
       });
       /*
@@ -842,7 +863,15 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     await this.prisma
       .withExplicitTenant(tenantId, (tx) =>
         tx.integration.updateMany({
-          where: { tenantId, kind: "telephony" },
+          /*
+           * ‎**אותו תנאי שבחר את העבודה מלכתחילה** (`PULLING_CONNECTION`).
+           * בלעדיו, בקשה שיצאה ל-015 ועוד לא חזרה הייתה חותמת את
+           * תוצאתה על חיבור שבינתיים הוחלף לספק אחר — כלומר מחזירה
+           * אבחון ישן בדיוק אחרי שהחלפת הספק ניקתה אותו, ולתמיד:
+           * ‎`pendingFor` מושכת רק מ-015, ולכן שום משיכה לא תדרוס
+           * אותו (ביקורת Codex).
+           */
+          where: { tenantId, ...PULLING_CONNECTION },
           data:
             issue === null
               ? { lastPullAt: new Date(), lastPullOk: true, lastPullIssue: null, pullFailStreak: 0 }
@@ -851,7 +880,23 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
                   lastPullOk: false,
                   /* ‏גבול העמודה — קוד ארוך מזה אינו קיים, וחיתוך עדיף על זריקה */
                   lastPullIssue: issue.slice(0, 40),
-                  pullFailStreak: { increment: 1 },
+                  /*
+                   * ‎**רק סירוב מקדם — בדיוק כמו בסבב.**
+                   *
+                   * המונה הזה נקרא ב-`recordingPullHealth` מול
+                   * ‎`RECORDING_REFUSALS_BEFORE_PAUSE`, כלומר מול הסף
+                   * שבו הסבב מפסיק לנסות. קידום על כל כישלון היה עושה
+                   * את שני הקוראים לשני מונים שונים באותה עמודה: שלוש
+                   * תקלות רשת, והמסך מכריז „הסבב עצר” על משרד שהסבב
+                   * ממשיך למשוך ממנו כרגיל.
+                   *
+                   * ‎`other` אינו מאפס וגם אינו מקדם — זו בדיוק
+                   * ההכרעה של `nextRefusalStreak`, ולכן היא נלקחת ממנה
+                   * ולא נכתבת כאן שוב.
+                   */
+                  ...(recordingPullResultOf(issue) === "refused"
+                    ? { pullFailStreak: { increment: 1 } }
+                    : {}),
                 },
         }),
       )

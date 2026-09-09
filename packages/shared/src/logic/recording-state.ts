@@ -85,6 +85,17 @@ export const RECORDING_EARLY_RETRY_MS = 5 * 60 * 1000;
 export const RECORDING_BLOCKED_REASON = "no_integration";
 
 /**
+ * ‏הקידומת של „הספק אמר לא”.
+ *
+ * ‎**המקור, ולא עותק** — בדיוק כמו `RECORDING_BLOCKED_REASON` שמעליו.
+ * ‏הקוד המלא הוא `provider_rejected_<סטטוס>`; `RECORDING_ERRORS.provider`
+ * ‏בשרת מרכיב אותו מכאן, ו-`recordingReasonLabel` מפרק אותו לפיו.
+ * ‏קודם ישבה כאן מחרוזת בשרת ומחרוזת זהה בניסוח — שתי הגדרות
+ * ‏שמסכימות רק במקרה, וזו בדיוק הצורה שכבר תוקנה כאן פעם אחת.
+ */
+export const RECORDING_PROVIDER_REFUSAL = "provider_rejected";
+
+/**
  * המצבים עצמם כרשימה, והטיפוס נגזר ממנה — ולא להפך.
  *
  * הבדיקה שדורשת „לכל מצב משפט משלו” חייבת לרוץ על **כל** המצבים;
@@ -207,8 +218,8 @@ export function recordingStateLabel(status: RecordingStatus): string {
  */
 export function recordingReasonLabel(reason: string | undefined): string {
   if (reason === undefined) return "הסיבה אינה ידועה";
-  if (reason.startsWith("provider_rejected")) {
-    const status = reason.slice("provider_rejected_".length);
+  if (reason.startsWith(RECORDING_PROVIDER_REFUSAL)) {
+    const status = reason.slice(`${RECORDING_PROVIDER_REFUSAL}_`.length);
     /*
      * הקוד מגיע משני מקורות — סטטוס ה-HTTP, ומעטפת `responses`
      * שבתוך תשובת 200 — ומשמעותו זהה בשניהם. שלושת המקרים שיש
