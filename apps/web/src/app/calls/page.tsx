@@ -19,6 +19,8 @@ import {
   jerusalemLocalInputValue,
   jerusalemWallErrorMessage,
   callConversionHint,
+  callConvertSeed,
+  callIsConvertible,
   recordingStateLabel,
   resolveJerusalemLocalInput,
   type CallHighlights,
@@ -393,19 +395,21 @@ export default function CallsPage() {
   const convert = ((): ReactNode => {
     if (selected === null) return null;
     /*
-     * ‎**ליד שכבר הומר — אין מה להמיר שוב.** אבל „אין ליד” כבר
-     * ‏אינו תנאי פוסל: זו בדיוק השיחה שממנה מתחיל לקוח חדש, והליד
-     * ‏נפתח בלחיצה על הסוג (`POST /calls/:id/lead`).
+     * ‎**שני תנאים על צורת הרשומה, ושניהם ב-`callIsConvertible`.**
+     *
+     * ‏ליד שכבר הומר — אין מה להמיר שוב. וליד שקיים אך חוזר בלי
+     * ‏סטטוס שייך לסוכן אחר: השרת מחזיר סטטוס רק לליד שמותר לגעת
+     * ‏בו, כי ראות שיחה וראות ליד אינן אותו דבר — סוכן רואה שיחה
+     * ‏דרך נכס גלוי בזמן שהליד של עמית. בלי התנאי הזה הוא ממלא
+     * ‏טופס שלם ומקבל 404 (ביקורת Codex). „אין ליד” אינו תנאי
+     * ‏פוסל: זו בדיוק השיחה שממנה מתחיל לקוח חדש, והליד נפתח
+     * ‏בלחיצה על הסוג (`POST /calls/:id/lead`).
+     *
+     * ‏הכלל משותף כי הבוט בוחר לפיו את אותה שיחה בדיוק: „המר
+     * ‏ללקוח” בהתראה ובמסך חייבים להסכים על מה ניתן להמרה, אחרת
+     * ‏הכפתור בהתראה מציע משהו שהמסך אינו מציע (או להפך).
      */
-    if (selected.leadStatus === "converted") return null;
-    /*
-     * ‎**נוכחות השדה היא הרשות** (ביקורת Codex). השרת מחזיר סטטוס רק
-     * לליד שהמשתמש רשאי לגעת בו: ראות שיחה וראות ליד אינן אותו דבר,
-     * וסוכן יכול לראות שיחה דרך נכס גלוי בזמן שהליד שייך לאחר.
-     * בלי הבדיקה הזו הוא היה ממלא טופס שלם ומקבל 404. הבדיקה חלה
-     * **רק כשיש ליד** — לשיחה בלי ליד אין סטטוס, וזה תקין.
-     */
-    if (selected.leadId !== undefined && selected.leadStatus === undefined) return null;
+    if (!callIsConvertible(selected)) return null;
     const mayBuyer = can(user, "buyers.edit");
     const mayProperty = can(user, "properties.create");
     /*
@@ -424,12 +428,12 @@ export default function CallsPage() {
 
     const highlights = selected.highlights ?? {};
     const hint = callConversionHint(highlights);
-    const prefill: ConvertPrefill = {
-      ...(highlights.city === undefined ? {} : { city: highlights.city }),
-      ...(highlights.budget === undefined ? {} : { priceShekels: highlights.budget }),
-      ...(highlights.rooms === undefined ? {} : { rooms: highlights.rooms }),
-      ...(highlights.address === undefined ? {} : { street: highlights.address }),
-    };
+    /*
+     * ‏אותו חילוץ שהבוט משתמש בו: „המר ללקוח” בוואטסאפ פותח כרטיס
+     * ‏עם אותם פרטים בדיוק, ושני חילוצים מאותם `highlights` היו
+     * ‏נפרדים בשקט ביום שנוסף שדה.
+     */
+    const prefill: ConvertPrefill = callConvertSeed(highlights);
 
     return (
       <div className="mt-5">

@@ -54,6 +54,7 @@ export const RULE_ACTION_MAP: Record<VoiceAction, AgentActionId | null> = {
   show_schedule: "show_schedule",
   show_tasks: "show_tasks",
   show_callbacks: "show_callbacks",
+  convert_call: "convert_call",
   show_calls: "show_calls",
   show_deals: "show_deals",
   office_report: "office_report",

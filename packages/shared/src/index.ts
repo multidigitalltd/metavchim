@@ -83,6 +83,7 @@ export * from "./logic/whatsapp-notify.js";
 export * from "./logic/whatsapp-templates.js";
 export * from "./logic/whatsapp-text.js";
 export * from "./logic/contact-people.js";
+export * from "./logic/call-convert-chat.js";
 export * from "./logic/contact-placeholder-name.js";
 export * from "./logic/parse-search-query.js";
 export * from "./logic/price-words.js";

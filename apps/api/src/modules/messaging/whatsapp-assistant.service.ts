@@ -33,6 +33,10 @@ import {
   PRACTICE_CHAT_ABANDONED,
   PRACTICE_MAX_AGENT_TURNS,
   PRACTICE_TEXT_MAX,
+  callConvertInfo,
+  callConvertKindFromText,
+  callConvertParams,
+  type CallConvertSeed,
 } from "@metavchim/shared";
 import { TenantContext, type RequestContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
@@ -101,6 +105,7 @@ import {
   type MentorPracticeDto,
 } from "../mentor/mentor-practice.service";
 import { prospectReplyText } from "./prospect-reply";
+import { CallsService } from "../calls/calls.service";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 import { WhatsAppLinkService } from "./whatsapp-link.service";
 
@@ -207,7 +212,9 @@ interface PendingState {
     | "suggest"
     | "mentor_reflection"
     | "mentor_plan"
-    | "mentor_practice";
+    | "mentor_practice"
+    /** ‏„המר ללקוח” נשאלה — ההודעה הבאה היא קונה/שוכר/מוכר/משכיר */
+    | "call_convert";
   /**
    * חותם ההצעה — נכנס למזהי הכפתורים שלה.
    *
@@ -239,6 +246,19 @@ interface PendingState {
     practiceId?: string;
     /** ‏שם הדמות, כדי שכל תור ידבר בשמה בלי שליפה נוספת */
     counterpart?: string;
+  };
+  /**
+   * ‏השיחה שנשאלה עליה — ומי בה.
+   *
+   * ‎`subject` נשמר ולא נגזר שוב: התשובה מגיעה בהודעה הבאה, ושליפה
+   * ‏חוזרת הייתה יכולה למצוא שיחה אחרת („האחרונה” זזה בינתיים)
+   * ‏ולפתוח כרטיס על מי שלא נשאל עליו.
+   */
+  callConvert?: {
+    callId: string;
+    subject: string;
+    /** ‏מה שהשיחה ידעה — נכנס לכרטיס שנפתח על התשובה */
+    seed: CallConvertSeed;
   };
 }
 
@@ -308,6 +328,14 @@ export class WhatsAppAssistantService {
     private readonly agentPrefs: AgentPrefsService,
     private readonly mentor: MentorService,
     private readonly practice: MentorPracticeService,
+    /*
+     * ‎`CallsService` — פתיחת הליד מהשיחה, בדיוק כמו המסך.
+     *
+     * ‏המסך עושה שני צעדים: `POST /calls/:id/lead` ואז ההמרה.
+     * ‏אותם שניים, באותו סדר ובאותם שירותים — ולא מסלול המרה שני
+     * ‏שאפשר לתקן אחד מהם ולשכוח את השני.
+     */
+    private readonly calls: CallsService,
   ) {}
 
   /**
@@ -718,6 +746,100 @@ export class WhatsAppAssistantService {
       mentor: { practiceId, counterpart },
     };
     chat.keepStoredPending = false;
+  }
+
+  /**
+   * ‎**התשובה על „מה הצד השני?” — וכאן נכתב הכרטיס.**
+   *
+   * ## ‏שני צעדים, בדיוק כמו במסך
+   *
+   * ‏המסך פותח ליד מהשיחה (`POST /calls/:id/lead`) ורק אז מריץ את
+   * ‏ההמרה. אותם שניים ובאותו סדר: `ensureLead` הוא אותו שירות
+   * ‏שהבקר קורא לו, וההמרה עצמה עוברת ב-`execute` — כלומר בשער
+   * ‏היכולת של **הסוג שנבחר** (`buyers.edit` לקונה ולשוכר,
+   * ‏`properties.create` למוכר ולמשכיר), ולא ביכולת שבה נשאלה
+   * ‏השאלה. מסלול המרה שני היה מייצר שתי המרות שאפשר לתקן אחת
+   * ‏מהן ולשכוח את השנייה.
+   *
+   * ## ‏ומה שאינו סוג
+   *
+   * ‏אינו „לא הבנתי” ואינו לולאה: המתווך פשוט עבר לבקשה אחרת.
+   * ‏המצב נסגר, שום דבר לא נכתב, והמשפט נשלח למנוע כרגיל — אותה
+   * ‏התנהגות בדיוק של „אולי התכוונת” כשלא נענה במספר. „ביטול”
+   * ‏עצמו נצרך למעלה, ב-`isCancelMessage` המשותף.
+   */
+  private async callConvertTurn(
+    user: IdentifiedUser,
+    chat: ChatState,
+    pending: PendingState,
+    text: string,
+    speaker: { name: string; roleLabel: string },
+  ): Promise<AgentReply> {
+    const target = pending.callConvert;
+    const kind = callConvertKindFromText(text, normalizeShort);
+    if (kind === null || target === undefined) {
+      chat.pending = null;
+      chat.keepStoredPending = false;
+      return this.propose(chat, text, null, speaker);
+    }
+    /*
+     * ‏צריכה אטומית לפני הכתיבה: שתי „קונה” שמגיעות במקביל היו
+     * ‏פותחות שני כרטיסים — או נופלות על „כבר קיים קונה פעיל”
+     * ‏אחרי שהראשונה הצליחה.
+     */
+    const took = await this.takePending(user.tenantId, user.id, pending.token);
+    this.consumed(chat, took);
+    if (!took) return { text: STALE_PROPOSAL_TEXT, speak: STALE_PROPOSAL_TEXT };
+
+    const info = callConvertInfo(kind);
+    let leadId: string;
+    try {
+      leadId = (await this.calls.ensureLead(target.callId)).leadId;
+    } catch (error) {
+      // ‏גם הכישלון מדובר: שתיקה אחרי „קונה” נראית כמו הצלחה
+      const failure = `„${target.subject}” — פתיחת הליד לא בוצעה: ${errorMessage(error)}`;
+      return { text: `⚠️ ${failure}`, speak: failure };
+    }
+
+    const actionId =
+      info.target === "buyer" ? "convert_lead" : "create_property_from_lead";
+    const action = agentAction(actionId)!;
+    return this.runProposal(chat, {
+      transcript: pending.transcript,
+      proposal: {
+        actionId,
+        title: action.title,
+        risk: action.risk,
+        summary: `${target.subject} — ${info.label}`,
+        fields: [],
+        missing: [],
+        warnings: [],
+        degraded: [],
+        fallback: false,
+      },
+      awaiting: "confirm",
+      /*
+       * ‏הפרמטרים נכנסים כאן ולא כשדות של ההצעה: `paramsOf` ממזג
+       * ‏אותם ואז מצמצם לפי הקטלוג, ולכן `dealType` (שדה מוצהר של
+       * ‏שתי הפעולות) ו-`leadId` (מפתח זהות) עוברים — ושום דבר
+       * ‏אחר לא.
+       */
+      /*
+       * ‏הפרמטרים נכנסים כאן ולא כשדות של ההצעה: `paramsOf` ממזג
+       * ‏אותם ואז מצמצם לפי הקטלוג, ולכן רק מה שהפעולה מצהירה עליו
+       * ‏עובר — ושום דבר אחר לא.
+       *
+       * ‎`callConvertParams` הוא מה שהשיחה כבר ידעה, בשמות של הסוג
+       * ‏שנבחר: הכרטיס נפתח עם עיר, חדרים, תקציב וכתובת כמו במסך,
+       * ‏ולא ריק על שיחה שהכול נאמר בה (ביקורת Codex, P2).
+       */
+      extraParams: {
+        ...callConvertParams(target.seed, info.target),
+        leadId,
+        dealType: info.dealType,
+      },
+      token: ulid(),
+    });
   }
 
   /**
@@ -1227,6 +1349,9 @@ export class WhatsAppAssistantService {
       if (pending.awaiting === "mentor_practice") {
         return withHeard(await this.practiceTurn(user, chat, pending, text), heard);
       }
+      if (pending.awaiting === "call_convert") {
+        return withHeard(await this.callConvertTurn(user, chat, pending, text, speaker), heard);
+      }
       if (pending.awaiting === "mentor_reflection" || pending.awaiting === "mentor_plan") {
         return withHeard(await this.mentorFollowUp(user, chat, pending, text), heard);
       }
@@ -1605,6 +1730,26 @@ export class WhatsAppAssistantService {
         primary.practice.id,
         primary.practice.counterpart,
       );
+    }
+    /*
+     * ‎**„המר ללקוח” שאלה — ההודעה הבאה היא התשובה.**
+     *
+     * ‏אותה מכניקה של התרגול: „מוכר” לבדו הוא משפט שמנוע ההבנה
+     * ‏היה מחפש בו פעולה ולא מוצא. הכתיבה עצמה תתרחש שם, דרך
+     * ‏‎`execute` של פעולת ההמרה — כלומר עוברת בשער היכולת של הסוג
+     * ‏שנבחר (`buyers.edit` או `properties.create`), ולא ביכולת
+     * ‏שבה נשאלה השאלה.
+     */
+    if (primary.callConvert !== undefined) {
+      chat.pending = {
+        transcript: state.transcript,
+        proposal: state.proposal,
+        awaiting: "call_convert",
+        extraParams: {},
+        token: ulid(),
+        callConvert: primary.callConvert,
+      };
+      chat.keepStoredPending = false;
     }
     const done = state.proposal.risk === "read" ? "" : "✅ ";
     /*

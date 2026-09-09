@@ -54,6 +54,7 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "show_notifications",
       "mark_notifications_read",
       "show_callbacks",
+      "convert_call",
       "show_leads",
       "show_calls",
       "log_call",

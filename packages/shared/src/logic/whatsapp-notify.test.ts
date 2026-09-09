@@ -15,6 +15,8 @@ import {
   templateParams,
   type NotifyItem,
 } from "./whatsapp-notify.js";
+import { WA_BUTTON_TITLE_MAX } from "./whatsapp-buttons.js";
+import { agentAction } from "../agent/actions.js";
 
 const item = (over: Partial<NotifyItem> = {}): NotifyItem => ({
   type: "lead",
@@ -449,6 +451,141 @@ describe("notifyFollowUp", () => {
 
   it("אגד ריק אינו מייצר כפתור", () => {
     expect(notifyFollowUp([], ALL)).toBeNull();
+  });
+
+  /* ==================== „המר ללקוח” ==================== */
+
+  const WITH_CONVERT = [...ALL, "convert_call"];
+  const ID = "01JCAAAAAAAAAAAAAAAAAAAAAA";
+
+  /*
+   * ‎**סיכום של שיחה אחת — הצעד הבא הוא הלקוח, לא הרשימה.**
+   *
+   * ‏„למי לחזור” מתחת לסיכום של שיחה אחת שולח את המתווך לרשימה
+   * ‏שבה השיחה הזו כבר נמצאת. מה שהוא צריך שם הוא לפתוח ממנה
+   * ‏לקוח (בקשת המשתמש).
+   */
+  it("סיכום של שיחה אחת מזמין המרה ולא את רשימת החזרות", () => {
+    const step = notifyFollowUp(
+      [item({ type: "call_transcribed", entityType: "call", entityId: ID })],
+      WITH_CONVERT,
+    );
+    expect(step?.label).toContain("המר ללקוח");
+    expect(step?.text).toContain(`[call:${ID}]`);
+  });
+
+  /*
+   * ‎**מה שהכפתור שולח נכנס למנוע כאילו הוקלד**, ולכן הוא חייב
+   * ‏להיות הניסוח שהקטלוג מבטיח שהמערכת מכירה — ולא מחרוזת שנכתבה
+   * ‏כאן ותתיישן בשקט ביום שהקטלוג משתנה. אותו כלל של שאר הכפתורים.
+   */
+  it("והמשפט והכיתוב מגיעים מהקטלוג, לא מהקוד כאן", () => {
+    const action = agentAction("convert_call")!;
+    const step = notifyFollowUp(
+      [item({ type: "call_transcribed", entityType: "call", entityId: ID })],
+      WITH_CONVERT,
+    );
+    expect(step?.text.startsWith(`${action.examples[0]} `)).toBe(true);
+    expect(step?.label).toContain(action.title);
+  });
+
+  /*
+   * ‎**וההתראה על שיחה שלא נענתה — המקרה שבשבילו זה נבנה.** היא
+   * ‏אינה מצביעה על השיחה אלא על מי שהתקשר: ליד אם נפתח, ואחרת
+   * ‏הכרטיס. מצביע מסוג אחד היה מכסה את הסיכום ומחמיץ בדיוק את זה.
+   */
+  it("וגם שיחה שלא נענתה — לפי מה שההתראה מצביעה עליו", () => {
+    for (const kind of ["lead", "contact"] as const) {
+      const step = notifyFollowUp(
+        [item({ type: "call_missed", entityType: kind, entityId: ID })],
+        WITH_CONVERT,
+      );
+      expect(step?.text, kind).toContain(`[${kind}:${ID}]`);
+    }
+  });
+
+  /*
+   * ‎**כותרת כפתור נחתכת ב-20 תווים אצל Meta** — כיתוב שנחתך
+   * ‏באמצע מילה נראה כמו תקלה.
+   */
+  it("והכיתוב נכנס בתקרת הכותרת של Meta", () => {
+    const step = notifyFollowUp(
+      [item({ type: "call_transcribed", entityType: "call", entityId: ID })],
+      WITH_CONVERT,
+    );
+    expect([...(step?.label ?? "")].length).toBeLessThanOrEqual(WA_BUTTON_TITLE_MAX);
+  });
+
+  /*
+   * ‎**אגד של כמה שיחות הוא רשימה, ולא שיחה.** „המר ללקוח” שם
+   * ‏היה שואל על אחת מהן בלי לומר איזו, ו„למי לחזור” הוא בדיוק
+   * ‏הצעד הנכון.
+   */
+  it("אבל אגד של כמה שיחות נשאר „למי לחזור”", () => {
+    const step = notifyFollowUp(
+      [
+        item({ type: "call_missed", entityType: "contact", entityId: ID }),
+        item({ type: "call_transcribed", entityType: "call", entityId: ID }),
+      ],
+      WITH_CONVERT,
+    );
+    expect(step?.label).toContain("למי לחזור");
+  });
+
+  /*
+   * ‎**התראה שהוסתרה לנמען הזה מגיעה בלי מצביע** — ואסור שיהיה לו
+   * ‏כפתור לפתוח כרטיס על מי שאינו רשאי לראות.
+   */
+  it("והתראה בלי מצביע אינה נותנת כפתור המרה", () => {
+    for (const over of [
+      { entityType: null, entityId: null },
+      /* ‏חצי מצביע אינו מצביע — כפתור עם מזהה ריק היה שואל על אחר */
+      { entityType: "contact", entityId: null },
+    ] as const) {
+      const step = notifyFollowUp([item({ type: "call_missed", ...over })], WITH_CONVERT);
+      expect(step?.label, String(over.entityType)).toContain("למי לחזור");
+    }
+  });
+
+  /*
+   * ‎**הצלצול קודם לשורת השיחה** (ביקורת Codex, P2).
+   *
+   * ‏`incoming_call` נשלחת בזמן שהטלפון מצלצל, לפני ש-`TelephonyService`
+   * ‏כותב את השיחה. המצביע על הכרטיס היה נפתר לשיחה **קודמת** של
+   * ‏אותו לקוח, או לא נפתר כלל — שאלה על משהו אחר ממה שההתראה
+   * ‏הציגה. הכפתור חוזר עם ההתראה שאחרי.
+   */
+  it("והצלצול עצמו אינו מזמין המרה — השיחה עוד לא נכתבה", () => {
+    const step = notifyFollowUp(
+      [item({ type: "incoming_call", entityType: "contact", entityId: ID })],
+      WITH_CONVERT,
+    );
+    expect(step?.label).toContain("למי לחזור");
+  });
+
+  /* ‏„המרכזייה שותקת” היא בקטגוריית השיחות ואינה שיחה */
+  it("ו„המרכזייה שותקת” אינה שיחה להמרה", () => {
+    expect(
+      notifyFollowUp([item({ type: "pbx_silent" })], WITH_CONVERT)?.label,
+    ).toContain("למי לחזור");
+  });
+
+  /* ‏ליד שנכנס מהאתר אינו שיחה — גם כשהוא מצביע על ליד */
+  it("וליד שאינו משיחה אינו מזמין המרה", () => {
+    const step = notifyFollowUp(
+      [item({ type: "lead_form_inquiry", entityType: "lead", entityId: ID })],
+      WITH_CONVERT,
+    );
+    expect(step?.label).toContain("הלידים שלי");
+  });
+
+  /* ‏אותו שער כמו לכל פעולה: בלי היכולת אין כפתור שמבטיח אותה */
+  it("ובלי היכולת — חוזרים לכפתור של הקטגוריה", () => {
+    const step = notifyFollowUp(
+      [item({ type: "call_transcribed", entityType: "call", entityId: ID })],
+      ALL,
+    );
+    expect(step?.label).toContain("למי לחזור");
   });
 
   /*
