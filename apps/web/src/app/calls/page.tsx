@@ -215,6 +215,23 @@ export default function CallsPage() {
    * ‏לסימון — כלומר כל לחיצה על שורה הייתה מסמנת אותה למחיקה.
    */
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  /** ‏משפט התוצאה של הפעולה האחרונה — במסך, כי הסרגל נסגר איתה. */
+  const [bulkNote, setBulkNote] = useState<string | null>(null);
+
+  /**
+   * ‎**כרטיס הפרטים נסגר על מה שנמחק — ולא על „מה שאינו בעמוד”.**
+   *
+   * ‏הניסוח הראשון כאן היה „אם השיחה אינה ב-`items`, סגור” — והוא
+   * ‏שבר קישור עמוק: שיחה ישנה מ-100 הראשונות נשלפת בנפרד
+   * ‎(`/calls?id=`) ומוצגת **בכוונה** בלי להיות ברשימה, ולכן היא
+   * ‏הייתה נסגרת מיד. התראה שמצביעה על שיחה ישנה הפסיקה לפתוח
+   * ‏אותה (ביקורת Codex, P1).
+   *
+   * ‏עכשיו הכלל מדויק: נסגר מה שהמחיקה נגעה בו.
+   */
+  function closeIfDeleted(ids: readonly string[]): void {
+    setSelected((prev) => (prev !== null && ids.includes(prev.id) ? null : prev));
+  }
   const underRow = useDetailUnderRow();
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -358,19 +375,6 @@ export default function CallsPage() {
       (direction === "" || c.direction === direction),
   );
   const filtering = query.trim() !== "" || direction !== "" || outcome !== "";
-  /*
-   * ‎**כרטיס הפרטים אינו שורד שיחה שאיננה עוד ברשימה.**
-   *
-   * ‏אחרי מחיקה — בודדת או מרוכזת — הרשימה נטענת מחדש, וכרטיס
-   * ‏שנשאר פתוח על שיחה מחוקה מציע להשמיע הקלטה ולפתוח ליד על
-   * ‏רשומה שכבר אינה קיימת. הכלל נגזר מהרשימה ולא נאמר בכל אתר
-   * ‏מחיקה בנפרד, כדי שאתר שלישי לא ישכח אותו.
-   */
-  useEffect(() => {
-    if (items === null || selected === null) return;
-    if (!items.some((call) => call.id === selected.id)) setSelected(null);
-  }, [items, selected]);
-
 
   /*
    * ‎**מה שהפעולה תיגע בו נגזר מהשורות המוצגות.**
@@ -384,6 +388,8 @@ export default function CallsPage() {
   const allPicked = visible.length > 0 && pickedVisible.length === visible.length;
 
   function togglePick(id: string): void {
+    /* ‏„12 נמחקו” משורה קודמת אינו תיאור של הבחירה החדשה */
+    setBulkNote(null);
     setPicked((was) => {
       const next = new Set(was);
       if (next.has(id)) next.delete(id);
@@ -402,6 +408,7 @@ export default function CallsPage() {
   async function onDelete(id: string): Promise<void> {
     if (!window.confirm("לסמן את השיחה כלא רלוונטית ולמחוק אותה מהמערכת?")) return;
     await apiDelete(`/calls/${id}`);
+    closeIfDeleted([id]);
     load();
   }
 
@@ -830,13 +837,29 @@ export default function CallsPage() {
         ‏הסרגל מופיע רק כשיש בחירה — שורה קבועה שאומרת „נבחרו 0”
         גוזלת מקום מהרשימה בכל טעינה בלי לומר דבר.
       */}
+      {/*
+        ‎**משפט התוצאה מוצג כאן ולא בסרגל** (ביקורת Codex, P1).
+
+        ‏הפעולה מנקה את הבחירה, והסרגל מותנה בה — כלומר הוא נעלם
+        ‏באותו רינדור שבו נכתב „12 נמחקו”, והמשפט לא הוצג מעולם.
+        ‏שלושת המספרים הם כל העניין של הפעולה המרוכזת.
+      */}
+      {bulkNote !== null ? (
+        <p className="mb-4 rounded-md bg-[var(--color-success-soft)] p-3 text-sm">{bulkNote}</p>
+      ) : null}
+
       {mayEdit && pickedVisible.length > 0 ? (
         <>
           <CallsBulkBar
             ids={pickedVisible}
             mayAssign={can(user, "tasks.assign")}
             onClear={() => setPicked(new Set())}
-            onDone={() => load()}
+            onDone={(action, ids, outcome) => {
+              setBulkNote(outcome);
+              if (action === "delete") closeIfDeleted(ids);
+              setPicked(new Set());
+              load();
+            }}
           />
           {!allPicked ? (
             <button

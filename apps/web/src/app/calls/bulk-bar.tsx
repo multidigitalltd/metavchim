@@ -43,19 +43,27 @@ export function CallsBulkBar({
   ids: string[];
   /** ‎`tasks.assign` — אותו שער שהשרת אוכף ב-`assertCanAssignAgents`. */
   mayAssign: boolean;
+  /** ‏„ביטול הבחירה” בלבד — הניקוי שאחרי פעולה נעשה ב-`onDone`. */
   onClear: () => void;
-  /** ‏נקרא אחרי כל פעולה שהצליחה — הרשימה נטענת מחדש. */
-  onDone: () => void | Promise<void>;
+  /**
+   * ‎**נקרא אחרי פעולה שהצליחה, ומוסר את התוצאה למסך.**
+   *
+   * ‏משפט התוצאה אינו מוצג כאן: הפעולה מנקה את הבחירה, והסרגל
+   * ‏מותנה בה — כלומר הוא נעלם באותו רינדור שבו המשפט נכתב, והוא
+   * ‏לא הוצג מעולם (ביקורת Codex, P1). המסך שורד את הניקוי, ולכן
+   * ‏הוא זה שמציג.
+   *
+   * ‎`ids` נמסרים כדי שכרטיס פרטים של שיחה שנמחקה ייסגר.
+   */
+  onDone: (action: CallBulkAction, ids: string[], outcome: string) => void;
 }) {
   const members = useAssignees(mayAssign);
   const [agentUserId, setAgentUserId] = useState("");
   const [busy, setBusy] = useState<CallBulkAction | null>(null);
-  const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function run(action: CallBulkAction): Promise<void> {
     setError(null);
-    setNote(null);
 
     /* ‏אותה תקרה שהשרת אוכף — כאן רק כדי לומר זאת מיד, בלי בקשה */
     const rejection = callBulkRejectionReason(ids.length);
@@ -90,14 +98,11 @@ export function CallsBulkBar({
      *
      * ‏כישלון של הריענון היה מדווח „הפעולה נכשלה” על פעולה שהצליחה,
      * ‏ומזמין ללחוץ שוב — על מחיקה שכבר קרתה. אותו לקח בדיוק של
-     * ‏המחיקה המרוכזת בנכסים ובגיוס.
+     * ‏המחיקה המרוכזת בנכסים ובגיוס. הריענון עצמו הוא של המסך,
+     * ‏והכשל שלו מדווח שם.
      */
-    setNote(callBulkOutcome(action, result));
-    onClear();
     setBusy(null);
-    await Promise.resolve(onDone()).catch(() =>
-      setError("הרשימה לא רועננה — רעננו את העמוד"),
-    );
+    onDone(action, ids, callBulkOutcome(action, result));
   }
 
   return (
@@ -165,7 +170,6 @@ export function CallsBulkBar({
         {busy === "delete" ? "מוחק…" : "סימון לא רלוונטי"}
       </button>
 
-      {note !== null ? <span className="text-sm">{note}</span> : null}
       {error !== null ? (
         <span role="alert" className="text-sm" style={{ color: "var(--color-danger)" }}>
           {error}

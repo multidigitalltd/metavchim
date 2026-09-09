@@ -571,6 +571,27 @@ export class CallsService {
   }
 
   /**
+   * ‎**מה נספר כדילוג של שורה, ומה מפיל את הסבב.**
+   *
+   * ‏שלוש הדחיות האלה הן מצבים תקינים של שורה בודדת: השיחה נעלמה,
+   * ‏היא מחוץ להיקף הלקוח של המשתמש, או שאין לה מספר טלפון כלל —
+   * ‏ושיחה בלי מספר היא רשומה חוקית לגמרי (`create` מתיר להשמיט
+   * ‏אותו). בלי `BadRequest` ברשימה, שיחה אחת בלי מספר הייתה
+   * ‏מחזירה 400 על **כל** הבקשה אחרי שכבר נפתחו לידים — המסך אומר
+   * ‏„נכשל”, אינו מרענן, והמתווך לוחץ שוב (ביקורת Codex, P1).
+   *
+   * ‏כל השאר עולה כלפי מעלה: בליעה של תקלת מסד מאחורי „דולגו”
+   * ‏מסתירה תקלה אמיתית מאחורי מספר שנראה תקין.
+   */
+  private static isRowSkip(error: unknown): boolean {
+    return (
+      error instanceof NotFoundException ||
+      error instanceof ForbiddenException ||
+      error instanceof BadRequestException
+    );
+  }
+
+  /**
    * ‎**פתיחת ליד לכמה שיחות — הצעד הראשון של „המר ללקוח”.**
    *
    * ‎`ensureLead` אידמפוטנטי, ולכן „כבר היה לה ליד” אינו כישלון
@@ -591,7 +612,7 @@ export class CallsService {
         if (result.created) done += 1;
         else already += 1;
       } catch (error) {
-        if (error instanceof NotFoundException || error instanceof ForbiddenException) {
+        if (CallsService.isRowSkip(error)) {
           skipped += 1;
           continue;
         }
@@ -628,50 +649,99 @@ export class CallsService {
   async assignMany(ids: readonly string[], agentUserId: string): Promise<CallBulkResult> {
     assertCanAssignAgents();
     const { tenantId } = TenantContext.current();
-    let done = 0;
-    let already = 0;
+
+    /*
+     * ‎**הנציג מאומת פעם אחת, לפני שנפתח ולו ליד אחד** (ביקורת
+     * ‏Codex, P1).
+     *
+     * ‏קודם הבדיקה ישבה בתוך הטרנזקציה של כל שורה — כלומר **אחרי**
+     * ‏‎`ensureLead`. מזהה סוכן ישן או שגוי היה פותח ליד לשיחה
+     * ‏הראשונה, ואז נדחה: הבקשה חוזרת 400, המתווך רואה כישלון,
+     * ‏ובמסד נשאר ליד שאיש לא ביקש.
+     *
+     * ‏הבדיקה בתוך הטרנזקציה הכותבת **נשארת** גם היא: היא סוגרת את
+     * ‏החלון שבו הסוכן הוסר מהמשרד בין הבדיקה המוקדמת לכתיבה.
+     */
+    await this.prisma.withTenant((tx) => assertAgentInOffice(tx, tenantId, agentUserId));
+
+    /*
+     * ‎**שלב א׳ — כל שיחה לליד שלה, לפני שהועברה ולו אחת.**
+     *
+     * ‏הסדר הזה אינו נוחות (ביקורת Codex, P2): `ensureLead` מריץ
+     * ‎`assertCallAccess`, ששופט לפי הליד. מנהל עם `tasks.assign`
+     * ‏ובלי `leads.view_all` שהעביר את הליד באמצע הלולאה היה מאבד
+     * ‏את הראייה שלו — והשיחה השנייה של אותו אדם הייתה נספרת
+     * ‏„דולגה” במקום „כבר אצלו”.
+     */
+    const leadByCall = new Map<string, string>();
     let skipped = 0;
     for (const id of ids) {
-      let leadId: string;
       try {
-        ({ leadId } = await this.ensureLead(id));
+        const { leadId } = await this.ensureLead(id);
+        leadByCall.set(id, leadId);
       } catch (error) {
-        if (error instanceof NotFoundException || error instanceof ForbiddenException) {
+        if (CallsService.isRowSkip(error)) {
           skipped += 1;
           continue;
         }
         throw error;
       }
-      const outcome = await this.prisma.withTenant(async (tx) => {
-        await assertAgentInOffice(tx, tenantId, agentUserId);
-        /*
-         * ‏הסינון לפי בעלות גם כאן, ולא רק בשיחה: מנהל בלי
-         * ‎`leads.view_all` אינו אמור להזיז ליד שאינו רואה.
-         */
-        const lead = await tx.lead.findFirst({
-          where: { id: leadId, tenantId, ...leadOwnershipFilter() },
-          select: { assignedToUserId: true },
-        });
-        if (lead === null) return "skipped" as const;
-        const handover = agentHandover(lead.assignedToUserId, agentUserId);
-        if (handover === null) return "already" as const;
-        await tx.lead.updateMany({
-          where: { id: leadId, tenantId },
-          data: { assignedToUserId: agentUserId },
-        });
-        await this.audit.record(tx, {
-          action: "lead.agent_changed",
-          entityType: "lead",
-          entityId: leadId,
-          metadata: handover,
-        });
-        return "done" as const;
-      });
+    }
+
+    /*
+     * ‎**שלב ב׳ — כל ליד פעם אחת.** שתי שיחות של אותו אדם הן ליד
+     * ‏אחד; העברה כפולה שלו הייתה כותבת פעמיים ורושמת שתי שורות
+     * ‏ביקורת על אותה העברה.
+     */
+    const outcomeByLead = new Map<string, "done" | "already" | "skipped">();
+    for (const leadId of new Set(leadByCall.values())) {
+      outcomeByLead.set(leadId, await this.moveLead(leadId, agentUserId, tenantId));
+    }
+
+    /* ‏הספירה חוזרת ליחידה שהמתווך בחר — שיחות, ולא לידים */
+    let done = 0;
+    let already = 0;
+    for (const leadId of leadByCall.values()) {
+      const outcome = outcomeByLead.get(leadId);
       if (outcome === "done") done += 1;
       else if (outcome === "already") already += 1;
       else skipped += 1;
     }
     return { done, already, skipped };
+  }
+
+  /** ‏העברת ליד אחד — הכתיבה, השער והביקורת בטרנזקציה אחת. */
+  private async moveLead(
+    leadId: string,
+    agentUserId: string,
+    tenantId: string,
+  ): Promise<"done" | "already" | "skipped"> {
+    return this.prisma.withTenant(async (tx) => {
+      /* ‏שוב, ובתוך הכתיבה: סוכן שהוסר מהמשרד בין הבדיקה לכאן */
+      await assertAgentInOffice(tx, tenantId, agentUserId);
+      /*
+       * ‏הסינון לפי בעלות גם כאן, ולא רק על השיחה: מנהל בלי
+       * ‎`leads.view_all` אינו אמור להזיז ליד שאינו רואה.
+       */
+      const lead = await tx.lead.findFirst({
+        where: { id: leadId, tenantId, ...leadOwnershipFilter() },
+        select: { assignedToUserId: true },
+      });
+      if (lead === null) return "skipped";
+      const handover = agentHandover(lead.assignedToUserId, agentUserId);
+      if (handover === null) return "already";
+      await tx.lead.updateMany({
+        where: { id: leadId, tenantId },
+        data: { assignedToUserId: agentUserId },
+      });
+      await this.audit.record(tx, {
+        action: "lead.agent_changed",
+        entityType: "lead",
+        entityId: leadId,
+        metadata: handover,
+      });
+      return "done";
+    });
   }
 
   /**

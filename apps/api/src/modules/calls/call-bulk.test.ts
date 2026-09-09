@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { Capability } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
@@ -102,6 +102,28 @@ describe("פתיחת ליד לכמה שיחות", () => {
   });
 });
 
+describe("פתיחת ליד — כשל שורה שאינו מפיל את הסבב", () => {
+  /*
+   * ‎**שיחה בלי מספר טלפון היא רשומה חוקית** — `create` מתיר להשמיט
+   * ‏אותו — ו-`ensureLead` דוחה אותה ב-`BadRequest`. בלי הדחייה
+   * ‏הזאת ברשימת הדילוגים, שיחה אחת כזאת החזירה 400 על כל הבקשה
+   * ‏אחרי שכבר נפתחו לידים: המסך אומר „נכשל”, אינו מרענן, והמתווך
+   * ‏לוחץ שוב (ביקורת Codex, P1).
+   */
+  it("שיחה בלי מספר נספרת כדילוג, והשאר נפתחות", async () => {
+    const service = serviceWith({});
+    vi.spyOn(service, "ensureLead").mockImplementation((id: string) =>
+      id === "01NOPHONE"
+        ? Promise.reject(new BadRequestException("לשיחה אין מספר טלפון"))
+        : Promise.resolve({ leadId: `L${id}`, created: true }),
+    );
+    const result = await TenantContext.run(CTX(["leads.edit"]), () =>
+      service.ensureLeadMany(["01A", "01NOPHONE", "01B"]),
+    );
+    expect(result).toEqual({ done: 2, already: 0, skipped: 1 });
+  });
+});
+
 describe("שיוך מרוכז לנציג", () => {
   /*
    * ‎**השער בשירות, לא במסך.** תפקיד `agent` מחזיק ב-`leads.edit`
@@ -180,6 +202,61 @@ describe("שיוך מרוכז לנציג", () => {
    * ‏אמור להזיז ליד שאינו רואה — הסינון לפי בעלות חל גם כאן, ולא
    * ‏רק על השיחה.
    */
+  /*
+   * ‎**הנציג מאומת לפני שנפתח ולו ליד אחד** (ביקורת Codex, P1).
+   *
+   * ‏כשהבדיקה ישבה בתוך הטרנזקציה של כל שורה, מזהה סוכן שגוי פתח
+   * ‏ליד לשיחה הראשונה ואז נדחה — הבקשה חוזרת 400, ובמסד נשאר ליד
+   * ‏שאיש לא ביקש.
+   */
+  it("ונציג שאינו במשרד נדחה לפני שנפתח ליד", async () => {
+    const service = serviceWith({
+      tx: { user: { findFirst: () => Promise.resolve(null) } },
+    });
+    const ensureLead = vi.spyOn(service, "ensureLead");
+    await expect(
+      TenantContext.run(CTX(["leads.edit", "tasks.assign"]), () =>
+        service.assignMany(["01A"], "01GHOST"),
+      ),
+    ).rejects.toThrow();
+    expect(ensureLead).not.toHaveBeenCalled();
+  });
+
+  /*
+   * ‎**שתי שיחות של אותו אדם הן ליד אחד** (ביקורת Codex, P2).
+   *
+   * ‏כשההעברה קרתה בתוך הלולאה, מנהל בלי `leads.view_all` איבד את
+   * ‏הראייה על הליד מיד אחרי ההעברה הראשונה — ו-`ensureLead` של
+   * ‏השיחה השנייה נכשל, כלומר „דולגה” במקום „כבר אצלו”. עכשיו כל
+   * ‏השיחות נפתרות לפני שמועברת ולו אחת, והליד מועבר פעם אחת.
+   */
+  it("ושתי שיחות על אותו ליד — העברה אחת, ושתיהן נספרות", async () => {
+    const update = vi.fn(() => Promise.resolve({ count: 1 }));
+    const record = vi.fn(() => Promise.resolve());
+    let moved = false;
+    const service = serviceWith({
+      tx: {
+        user: { findFirst: () => Promise.resolve({ id: "01NEW" }) },
+        lead: {
+          findFirst: () => Promise.resolve({ assignedToUserId: moved ? "01NEW" : "01OLD" }),
+          updateMany: (...args: unknown[]) => {
+            moved = true;
+            return update(...(args as []));
+          },
+        },
+      },
+      audit: { record },
+    });
+    /* ‏אותו ליד לשתי השיחות — בדיוק שתי שיחות של אותו מתקשר */
+    vi.spyOn(service, "ensureLead").mockResolvedValue({ leadId: "01SAME", created: false });
+    const result = await TenantContext.run(CTX(["leads.edit", "tasks.assign"]), () =>
+      service.assignMany(["01A", "01B"], "01NEW"),
+    );
+    expect(result).toEqual({ done: 2, already: 0, skipped: 0 });
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(record).toHaveBeenCalledTimes(1);
+  });
+
   it("וליד שאינו נראה נספר כדילוג, בלי כתיבה", async () => {
     const update = vi.fn(() => Promise.resolve({ count: 0 }));
     const service = serviceWith({
