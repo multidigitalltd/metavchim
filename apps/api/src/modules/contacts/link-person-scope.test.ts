@@ -40,6 +40,12 @@ interface Options {
    * ‏ששיחה שלא נענתה מייצרת, והוא היה נדחה מכל סוכן.
    */
   orphan?: boolean;
+  /**
+   * ‎**מקושר ככרטיס משני על הלקוח של עמית** — בן זוג, שותף.
+   * ‏אין עליו קונה/ליד/נכס משלו, ובכל זאת הוא תפוס: `peopleFor`
+   * ‏חושף דרך הכרטיס המחזיק את שמו, הטלפון והדוא״ל שלו.
+   */
+  linkedElsewhere?: boolean;
   /** ‏השם השמור על הכרטיס הקיים — ברירת המחדל היא שם אמיתי. */
   storedName?: string;
 }
@@ -74,7 +80,25 @@ function serviceFor(options: Options): { service: ContactsService; calls: Calls 
     },
     contactPhone: { findUnique: async () => null },
     contactLink: {
-      findFirst: async () => (options.alreadyLinked === true ? { id: "01LINK" } : null),
+      /*
+       * ‎`isOrphanContact` שואל גם על `related_contact_id`: אדם
+       * ‏שמקושר ככרטיס משני על לקוח של עמית אינו פנוי.
+       */
+      findFirst: async (args: { where: { contactId?: string } }) =>
+        /*
+         * ‏שתי שאילתות שונות על אותה טבלה, ומבדיל ביניהן מי מסנן
+         * ‏גם לפי כרטיס האב: `isOrphanContact` שואל „מקושר לאיזשהו
+         * ‏כרטיס” (`relatedContactId` בלבד), ו-`linkPerson` שואל
+         * ‏„מקושר **לכרטיס הזה**”. זרע שמחזיר את אותו דבר לשתיהן
+         * ‏מאשר את אחת מהן על סמך השנייה.
+         */
+        args.where.contactId === undefined
+          ? options.linkedElsewhere === true
+            ? { id: "01LINK" }
+            : null
+          : options.alreadyLinked === true
+            ? { id: "01LINK" }
+            : null,
       upsert: async () => {
         calls.links += 1;
         return { id: "01LINK" };
@@ -498,5 +522,43 @@ describe("‏שם שהוא המספר עצמו — מתעדכן", () => {
     );
     expect(person.name).toBe("יוסי לוי");
     expect(built.calls.nameWrites, "שם אמיתי נדרס").toBe(0);
+  });
+});
+
+/**
+ * ‎**קישור הוא החזקה** (ביקורת Codex, P1).
+ *
+ * ‏הגרסה הראשונה של הפתיחה בדקה קונים, לידים ונכסים בלבד. אדם
+ * ‏שקיים רק כ-`contact_links.related_contact_id` על הלקוח של עמית
+ * ‏נקרא „פנוי” — וסוכן אחר היה פותח עליו קונה ומקבל דרך
+ * ‎`peopleFor` שם, טלפון ודוא״ל שאינם שלו.
+ *
+ * ‏התיקון אינו ענף חמישי אלא **מחיקת הכפילות**: `isOrphanContact`
+ * ‏כבר שואל את ארבעת הענפים, והוא הכלל היחיד עכשיו.
+ */
+describe("‏אדם שמקושר לכרטיס של עמית אינו פנוי", () => {
+  const PERSON_INPUT = { name: "דנה כהן", phone: "+972501234567" };
+
+  it("‏נדחה, למרות שאין עליו קונה, ליד או נכס", async () => {
+    const built = serviceFor({ existing: true, orphan: true, linkedElsewhere: true });
+    await expect(
+      asUser(AGENT, () =>
+        built.service.findOrCreateByPhoneTyped(txOf(built), PERSON_INPUT, {
+          typedBy: "agent",
+          subject: "יצירת קונה",
+        }),
+      ),
+    ).rejects.toThrow(/משויך ללקוח שאינו נגיש לך/u);
+  });
+
+  it("‏ובלי הקישור — אותו כרטיס פנוי", async () => {
+    const built = serviceFor({ existing: true, orphan: true });
+    const person = await asUser(AGENT, () =>
+      built.service.findOrCreateByPhoneTyped(txOf(built), PERSON_INPUT, {
+        typedBy: "agent",
+        subject: "יצירת קונה",
+      }),
+    );
+    expect(person.id).toBe(HIDDEN);
   });
 });

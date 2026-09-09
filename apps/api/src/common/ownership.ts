@@ -1037,51 +1037,6 @@ export async function canSeeContact(
   return Boolean(buyer || lead || property);
 }
 
-/**
- * ‎**כרטיס שאיש אינו מחזיק בו** — לא „של מישהו אחר”, אלא פנוי.
- *
- * ‏שיחה שלא נענתה יוצרת כרטיס איש קשר בלי שום כרטיס עסקי:
- * ‏בלי קונה, בלי ליד, ובלי נכס. `canSeeContact` נשען על קיומו של
- * ‏כרטיס כזה, ולכן החזירה `false` — **לכל הסוכנים, כולל בעל
- * ‏המשרד**. השער מעל סירב אז ליצור קונה מהמספר, בהודעה „המספר
- * ‏הזה משויך ללקוח שאינו נגיש לך”, שהיא פשוט לא נכונה: הוא לא
- * ‏משויך לאיש (דיווח מהשטח).
- *
- * ‏זה בדיוק הענף הרביעי של כלל ראיית השיחות שכמה שורות מכאן:
- * ‏„לא כי מישהו אחר ראה אותה — אלא כי **אף אחד** לא”.
- *
- * ‎**מה שלא משתנה:** הבדיקה מוודאת שאין כרטיס כזה **בכלל**, לא
- * ‏„אין כזה שאני רואה”. לכן היא מכוונת בלי `ownershipFilter` —
- * ‏כרטיס של עמית באותו משרד מחזיר `false` וממשיך להיחסם, וזה
- * ‏כל ההבדל בין „פנוי” ל„לא שלי”. ה-RLS מגביל ל-tenant ממילא.
- *
- * ‏גם `contactSources` (חסימת מודול) אינה חלה כאן: ליד קיים הוא
- * ‏כרטיס תפוס גם כשמודול הלידים כבוי למשתמש הזה. הבחירה היא
- * ‏לצד המחמיר — פחות כרטיסים נחשבים פנויים.
- */
-export async function contactIsUnclaimed(
-  tx: TenantTx,
-  tenantId: string,
-  contactId: string,
-): Promise<boolean> {
-  const [buyer, lead, property] = await Promise.all([
-    tx.buyer.findFirst({
-      where: { tenantId, contactId, deletedAt: null },
-      select: { id: true },
-    }),
-    tx.lead.findFirst({ where: { tenantId, contactId }, select: { id: true } }),
-    tx.property.findFirst({
-      where: {
-        tenantId,
-        deletedAt: null,
-        OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
-      },
-      select: { id: true },
-    }),
-  ]);
-  return !buyer && !lead && !property;
-}
-
 export async function assertContactAccess(
   tx: TenantTx,
   tenantId: string,

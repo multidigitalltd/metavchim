@@ -11,7 +11,7 @@ import {
 import { lockContact, lockContactPhone } from "../../common/locks";
 import {
   canSeeContact,
-  contactIsUnclaimed,
+  isOrphanContact,
   type PhoneTypedBy,
 } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -144,14 +144,21 @@ export class ContactsService {
        * ‏שהמספר שייך למישהו אחר, בשעה שהוא שייך לאיש (דיווח
        * ‏מהשטח). כרטיס יתום הוא פנוי, לא תפוס.
        *
-       * ‏הכלל עצמו לא נחלש: `contactIsUnclaimed` שואלת אם קיים
-       * ‏כרטיס כזה **בכלל**, ולא אם קיים כזה שאני רואה. מספר של
-       * ‏קונה של עמית ממשיך להיחסם בדיוק כמו קודם.
+       * ‎`isOrphanContact` הוא **הכלל הקיים**, לא ניסוח שני שלו
+       * ‏(ביקורת Codex, P1). הגרסה הראשונה שלי בדקה קונים, לידים
+       * ‏ונכסים בלבד — והחמיצה את `contact_links`. אדם שמקושר
+       * ‏ככרטיס משני על הלקוח של עמית (בן זוג, שותף) היה נקרא
+       * ‏„פנוי”, וסוכן אחר היה פותח עליו קונה ומקבל דרך `peopleFor`
+       * ‏שם, טלפון ודוא״ל שאינם שלו. ארבעה ענפים, במקום אחד.
+       *
+       * ‏הכלל עצמו לא נחלש: השאלה היא אם קיים עוגן כזה **בכלל**,
+       * ‏ולא אם קיים כזה שאני רואה. מספר של קונה של עמית ממשיך
+       * ‏להיחסם בדיוק כמו קודם.
        */
       const allowed =
         (options.alsoAllowed ? await options.alsoAllowed(prior.id) : false) ||
         (await canSeeContact(tx, tenantId, prior.id)) ||
-        (await contactIsUnclaimed(tx, tenantId, prior.id));
+        (await isOrphanContact(tx, tenantId, prior.id));
       if (!allowed) {
         throw new ForbiddenException(
           `${options.subject} — המספר הזה משויך ללקוח שאינו נגיש לך, פנו למנהל המשרד`,
