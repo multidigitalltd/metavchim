@@ -1255,36 +1255,59 @@ export class IntakeService {
          * ולכן מי שמגיע שני רואה אותו ויודע שהוא שליחה חוזרת. אם
          * היצירה תיכשל אחר כך, ההזמנה משוחררת — ראו `draftFor`.
          */
-        const reservedId = again.propertyId === null ? ulid() : null;
+        /*
+         * ‎**גם בצד המוכר: הקישור נשאר קישור.**
+         *
+         * ‏מה שנתפס כאן קודם על שורת הקישור — `contact_id`,
+         * ‏‎`answers`, `submitted_at` ו-`property_id` — הוא בדיוק מה
+         * ‏שעמוד הטופס קורא כדי לבנות את מה שהלקוח רואה. כלומר
+         * ‏המוכר הבא שפתח את אותו קישור קיבל ברכה בשם של הקודם,
+         * ‏טופס מלא בפרטיו, והשליחה שלו נכתבה על **טיוטת הנכס שלו**.
+         *
+         * ‏המילוי יושב עכשיו על שורה משלו, וכל השלושה נקראים ממנה:
+         * ‏„האם כבר מילאתי” ו„איזו טיוטה שלי” הם שאלות על האדם הזה,
+         * ‏ולכן נשאלות על המילויים הקודמים **שלו**.
+         */
+        const mine = await tx.intakeRequest.findFirst({
+          where: {
+            tenantId: row.tenantId,
+            channel: "open_fill",
+            side: "seller",
+            contactId,
+          },
+          orderBy: { submittedAt: "desc" },
+          select: { propertyId: true },
+        });
+        const reservedId = (mine?.propertyId ?? null) === null ? ulid() : null;
 
         const rev = ulid();
-        const claimed = await tx.intakeRequest.updateMany({
-          where: {
-            id: row.id,
-            tenantId: row.tenantId,
-            status: { not: "revoked" },
-            expiresAt: { gt: new Date() },
-          },
+        await tx.intakeRequest.create({
           data: {
+            id: ulid(),
+            tenantId: row.tenantId,
+            token: freshToken(),
+            subject: "open",
+            subjectId: null,
+            contactId,
+            side: "seller",
+            channel: "open_fill",
+            /* ‏מי ששלח את הקישור — מ-`meta`, שכבר נקרא למעלה */
+            createdBy: meta?.createdBy ?? null,
+            expiresAt: row.expiresAt,
             status: "submitted",
             submittedAt: new Date(),
             submissionRev: rev,
-            side: "seller",
-            contactId,
-            ...(reservedId === null ? {} : { propertyId: reservedId }),
+            propertyId: reservedId ?? mine?.propertyId ?? null,
             answers: answers as unknown as Prisma.InputJsonValue,
           },
         });
-        if (claimed.count === 0) {
-          throw new BadRequestException("הקישור אינו פעיל עוד");
-        }
 
         const contact = await this.contacts.getById(tx, contactId);
         return {
           contactId,
-          propertyId: again.propertyId,
+          propertyId: mine?.propertyId ?? null,
           reservedId,
-          resubmit: again.submittedAt !== null,
+          resubmit: mine !== null,
           ownerName: contact?.name ?? (answers.fullName ?? "").trim(),
           ownerPhone: contact?.phone ?? normalizePhone(answers.phone ?? ""),
         };
@@ -1587,6 +1610,17 @@ export class IntakeService {
         row.tenantId,
         async (tx) => {
           await lockIntakeRequest(tx, row.tenantId, row.id);
+          /*
+           * ‎**נעילת השורה לפני שקוראים את מצבה, ולא אחרי.**
+           *
+           * ‏‎`revoke` אינו נוטל את הנעילה המייעצת של `lockIntakeRequest`
+           * ‏— הוא פשוט מעדכן את השורה. לכן ביטול שנכנס בין הקריאה
+           * ‏לבין נטילת `FOR UPDATE` לא היה נראה, והמסלול היה ממשיך
+           * ‏ליצור קונה מקישור מבוטל. ה-`UPDATE` המותנה שהיה כאן קודם
+           * ‏דחה את המרוץ הזה, ובלעדיו הסדר הוא מה שמחליף אותו:
+           * ‏נועלים, ורק אז קוראים (ביקורת Codex, P1).
+           */
+          await tx.$queryRaw`SELECT id FROM intake_requests WHERE id = ${row.id} AND tenant_id = ${row.tenantId} FOR UPDATE`;
           const again = await tx.intakeRequest.findUnique({
             where: { id: row.id },
             select: {
@@ -1643,7 +1677,6 @@ export class IntakeService {
            * ‏תחתיה, וקישור שבוטל בדיוק עכשיו נתפס לפני שנוצר
            * ‏כרטיס. זו אותה הבטחה, בלי לכתוב על הקישור.
            */
-          await tx.$queryRaw`SELECT id FROM intake_requests WHERE id = ${row.id} AND tenant_id = ${row.tenantId} FOR UPDATE`;
           const rev = ulid();
 
           /*
@@ -1710,7 +1743,20 @@ export class IntakeService {
               subjectId: existing.id,
               contactId: contact.id,
               requestId: submission.id,
-              preClaim: { rev, resubmit: true, previousAnswers: submission.previousAnswers },
+              preClaim: {
+                rev,
+                /*
+                 * ‎**„שלח שוב” נמדד במילוי קודם, לא בקיום הכרטיס.**
+                 *
+                 * ‏לאיש קשר יכול להיות כרטיס קונה מסיבה אחרת לגמרי —
+                 * ‏הסוכן פתח לו אחד, או שהוא הגיע מליד. אם דיווחנו
+                 * ‏„שליחה חוזרת” על המילוי הראשון שלו, ו-`notify`
+                 * ‏מצא שהתשובות זהות למה שכבר בכרטיס, ההתראה נבלעה
+                 * ‏והסוכן לא שמע שהלקוח מילא (ביקורת Codex).
+                 */
+                resubmit: submission.hadPrior,
+                previousAnswers: submission.previousAnswers,
+              },
             };
           }
 
@@ -1787,7 +1833,12 @@ export class IntakeService {
       rev: string;
       answers: IntakeAnswers;
     },
-  ): Promise<{ id: string; previousAnswers: Record<string, unknown> }> {
+  ): Promise<{
+    id: string;
+    previousAnswers: Record<string, unknown>;
+    /** ‏האם כבר היה מילוי קודם של אותו אדם — זה מה שמגדיר „שלח שוב” */
+    hadPrior: boolean;
+  }> {
     /*
      * ‏שליחה חוזרת של אותו אדם דורסת את השליחה הקודמת **שלו**, ולכן
      * ‏„מה היה קודם” נקרא מהשורה שלו ולא מהקישור. בלי זה השוואת
@@ -1822,7 +1873,11 @@ export class IntakeService {
       },
       select: { id: true },
     });
-    return { id: row.id, previousAnswers: asRecord(previous?.answers) };
+    return {
+      id: row.id,
+      previousAnswers: asRecord(previous?.answers),
+      hadPrior: previous !== null,
+    };
   }
 
 
