@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -29,6 +30,23 @@ const read = (url: URL): string =>
 const API = (path: string): string => read(new URL(`../modules/${path}`, import.meta.url));
 const WEB = (path: string): string =>
   read(new URL(`../../../web/src/app/${path}`, import.meta.url));
+
+/**
+ * ‎**כל מקורות השרת כטקסט אחד** — כדי שטענה על „מה שנרשם” תיגזר
+ * ‏ממה שנרשם, ולא מרשימה שמישהו יזכור לעדכן.
+ *
+ * ‏קבצי בדיקה מוחרגים: הם מזכירים שמות פעולות כדי לטעון עליהן,
+ * ‏וספירה שלהם הייתה דורשת תווית לפעולה שאיש אינו כותב.
+ */
+const ALL_API_SOURCES = ((): string => {
+  const root = fileURLToPath(new URL("../modules", import.meta.url));
+  const parts: string[] = [];
+  for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".ts") || entry.name.includes(".test.")) continue;
+    parts.push(readFileSync(`${entry.parentPath}/${entry.name}`, "utf8"));
+  }
+  return parts.join("\n");
+})();
 
 describe("שיוך סוכן — נכס, ליד וקונה", () => {
   /**
@@ -173,8 +191,25 @@ describe("שיוך סוכן — נכס, ליד וקונה", () => {
    */
   it("והרשימה נשלפת רק כשיש את היכולת", () => {
     const picker = WEB("agent-picker.tsx");
-    expect(picker).toMatch(/if \(!canAssign\) return;/u);
+    /*
+     * ‏השליפה עברה ל-`useAssignees` המשותף (הבורר בכרטיס והסרגל
+     * ‏המרוכז ביומן השיחות שואלים אותה שאלה). התנאי נשמר בשני
+     * ‏הצדדים: ההוק אינו שולף בלי הדגל, והבורר מזין לו את היכולת.
+     */
+    expect(picker).toMatch(/if \(!enabled\) return;/u);
+    expect(picker).toMatch(/useAssignees\(canAssign\)/u);
     expect(picker).toMatch(/if \(!canAssign\) \{\s*return <AgentTag/u);
+  });
+
+  /*
+   * ‎**והסרגל המרוכז נגזר מאותה יכולת.** הוא מעביר לידים בין
+   * ‏סוכנים, וזו בדיוק הפעולה ש-`assertCanAssignAgents` מגדיר
+   * ‏כפעולת מנהל. בלי התנאי כאן הבורר היה מוצג לסוכן רגיל, נשלף
+   * ‏ב-403, ונראה כמו פקד שבור.
+   */
+  it("וגם סרגל הפעולות ביומן השיחות", () => {
+    expect(WEB("calls/page.tsx")).toMatch(/mayAssign=\{can\(user, "tasks\.assign"\)\}/u);
+    expect(WEB("calls/bulk-bar.tsx")).toMatch(/useAssignees\(mayAssign\)/u);
   });
 
   /*
@@ -307,8 +342,24 @@ describe("שיוך סוכן — נכס, ליד וקונה", () => {
   it("והמסך מציג אותם, ולא רק את שם הפעולה", () => {
     const page = WEB("settings/page.tsx");
     expect(page).toMatch(/agentFrom\?\?\s*"לא משויך"|agentFrom \?\? "לא משויך"/u);
-    expect(page).toContain('"property.agent_changed": "העברת נכס בין סוכנים"');
-    expect(page).toContain('"buyer.agent_changed": "העברת קונה בין סוכנים"');
+    /*
+     * ‎**הרשימה נגזרת מהקוד ולא נכתבת כאן ביד.**
+     *
+     * ‏שתי הפעולות היו רשומות במפורש, ופעולה שלישית
+     * ‎(`lead.agent_changed`, מהשיוך המרוכז ביומן השיחות) הייתה
+     * ‏נכתבת ליומן ומוצגת בו כקוד באנגלית — בלי ששום דבר יאמר על
+     * ‏כך. עכשיו השער סורק את מה שהשרת **באמת** רושם, ודורש תווית
+     * ‏לכל אחת.
+     */
+    const written = [
+      ...new Set(
+        [...ALL_API_SOURCES.matchAll(/action: "([a-z_]+\.agent_changed)"/gu)].map((m) => m[1]!),
+      ),
+    ];
+    expect(written.length, "לא נמצאה אף פעולת העברה בשרת").toBeGreaterThanOrEqual(3);
+    for (const action of written) {
+      expect(page, `אין תווית עברית ל-${action}`).toContain(`"${action}": "העברת`);
+    }
   });
 
   /*

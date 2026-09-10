@@ -107,6 +107,7 @@ export * from "./logic/list-filters.js";
 export * from "./logic/automations.js";
 export * from "./logic/viewing-reminder.js";
 export * from "./logic/custom-automations.js";
+export * from "./logic/call-bulk.js";
 export * from "./logic/call-summary.js";
 export * from "./logic/call-intel.js";
 export * from "./logic/agent-prefs.js";

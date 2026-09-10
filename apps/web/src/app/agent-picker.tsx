@@ -32,6 +32,27 @@ import { AgentTag } from "./agent-tag";
  * ‎`allowUnassign` הוא ההבדל הזה, ולא העדפת תצוגה.
  */
 
+/**
+ * ‎**חברי המשרד שאפשר לשייך אליהם — שליפה אחת, שני קוראים.**
+ *
+ * ‏הבורר בכרטיס והסרגל המרוכז ברשימת השיחות שואלים בדיוק את אותה
+ * ‏שאלה מאותו נתיב. עותק שני של ה-`useEffect` הזה היה נפרד בשקט
+ * ‏ביום שהנתיב או הטיפול בכשל משתנים.
+ *
+ * ‏כישלון מחזיר רשימה ריקה ולא זורק: מסך שאינו יכול להציע סוכנים
+ * ‏עדיין צריך להיטען.
+ */
+export function useAssignees(enabled: boolean): { id: string; name: string }[] {
+  const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (!enabled) return;
+    apiGet<{ id: string; name: string }[]>("/tasks/assignees")
+      .then(setMembers)
+      .catch(() => setMembers([]));
+  }, [enabled]);
+  return members;
+}
+
 export function AgentPicker({
   agentUserId,
   agentName,
@@ -49,15 +70,8 @@ export function AgentPicker({
   onChange: (agentUserId: string) => void | Promise<void>;
   labelText: string;
 }) {
-  const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
+  const members = useAssignees(canAssign);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!canAssign) return;
-    apiGet<{ id: string; name: string }[]>("/tasks/assignees")
-      .then(setMembers)
-      .catch(() => setMembers([]));
-  }, [canAssign]);
 
   if (!canAssign) {
     return <AgentTag {...(agentName === undefined ? {} : { name: agentName })} />;

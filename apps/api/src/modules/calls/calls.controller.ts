@@ -16,7 +16,7 @@ import {
 import type { Response } from "express";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { z } from "zod";
-import { IdSchema } from "@metavchim/shared";
+import { CALL_BULK_LIMIT, IdSchema, type CallBulkResult } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -71,6 +71,19 @@ const ListQuerySchema = z
     limit: z.coerce.number().int().min(1).max(200).default(100),
   })
   .strict();
+
+/**
+ * ‎**הרשימה של פעולה מרוכזת.**
+ *
+ * ‏התקרה נגזרת מהמסך ולא מספר עגול: `GET /calls` מחזיר עד 200,
+ * ‏ולכן אי אפשר לסמן יותר מזה. `CALL_BULK_LIMIT` הוא אותו מספר
+ * ‏שהמסך אוכף לפני השליחה — כלל אחד, לא שניים שיסטו.
+ */
+const BulkIdsSchema = z
+  .object({ ids: z.array(IdSchema).min(1).max(CALL_BULK_LIMIT) })
+  .strict();
+
+const BulkAssignSchema = BulkIdsSchema.extend({ agentUserId: IdSchema }).strict();
 
 /** שיחה של חצי שעה ב-webm שוקלת בערך 15MB; 40 נותן מרווח נוח. */
 const MAX_RECORDING_BYTES = 40 * 1024 * 1024;
@@ -193,6 +206,51 @@ export class CallsController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
   ): Promise<{ leadId: string; created: boolean }> {
     return this.calls.ensureLead(id);
+  }
+
+  /**
+   * ‎**מחיקה מרוכזת.**
+   *
+   * ‎`POST` ולא `DELETE`: הרשימה נשלחת בגוף, וגוף ב-`DELETE` אינו
+   * ‏מובטח בכל שרת מתווך. אותה צורה בדיוק של `/properties/bulk-delete`
+   * ‏ו-`/recruitment/bulk-delete`.
+   *
+   * ‎**וכאן המחיקה קשה, לא ארכיון** — בשונה משתי הרשימות ההן.
+   * ‏זו הסיבה שהאישור במסך אומר „לצמיתות” במפורש.
+   */
+  @Post("bulk-delete")
+  @RequireCapability("leads.edit")
+  @HttpCode(200)
+  async bulkDelete(
+    @Body(new ZodValidationPipe(BulkIdsSchema)) body: z.infer<typeof BulkIdsSchema>,
+  ): Promise<CallBulkResult> {
+    return this.calls.removeMany(body.ids);
+  }
+
+  /** פתיחת ליד לכמה שיחות — הצעד הראשון של „המר ללקוח”, בבת אחת. */
+  @Post("bulk-lead")
+  @RequireCapability("leads.edit")
+  @HttpCode(200)
+  async bulkLead(
+    @Body(new ZodValidationPipe(BulkIdsSchema)) body: z.infer<typeof BulkIdsSchema>,
+  ): Promise<CallBulkResult> {
+    return this.calls.ensureLeadMany(body.ids);
+  }
+
+  /**
+   * ‎**שיוך כמה שיחות לנציג — הליד שמאחוריהן עובר.**
+   *
+   * ‎`leads.edit` כאן ו-`tasks.assign` בשירות: הראשון הוא הרשות
+   * ‏לגעת בליד בכלל, והשני הוא ההכרעה שהעברה בין סוכנים היא פעולת
+   * ‏מנהל. שניהם נדרשים, ואף אחד מהם אינו מספיק לבדו.
+   */
+  @Post("bulk-assign")
+  @RequireCapability("leads.edit")
+  @HttpCode(200)
+  async bulkAssign(
+    @Body(new ZodValidationPipe(BulkAssignSchema)) body: z.infer<typeof BulkAssignSchema>,
+  ): Promise<CallBulkResult> {
+    return this.calls.assignMany(body.ids, body.agentUserId);
   }
 
   @Delete(":id")

@@ -102,6 +102,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   // ‏„בין סוכנים” ולא „עדכון”: זו העברת אחריות, ולכן היא שורה משלה
   "property.agent_changed": "העברת נכס בין סוכנים",
   "buyer.agent_changed": "העברת קונה בין סוכנים",
+  "lead.agent_changed": "העברת ליד בין סוכנים",
   "buyer.interaction_add": "תיעוד אינטראקציה עם קונה",
   "lead.create": "יצירת ליד",
   "lead.status": "עדכון סטטוס ליד",

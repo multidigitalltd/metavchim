@@ -15,7 +15,13 @@ import {
   visibleCallsCondition,
   visibleContactIds,
 } from "../../common/ownership";
-import { agentNameOf, agentNames } from "../../common/agent-names";
+import {
+  agentHandover,
+  agentNameOf,
+  agentNames,
+  assertAgentInOffice,
+  assertCanAssignAgents,
+} from "../../common/agent-names";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -27,6 +33,7 @@ import {
   parseCallHighlights,
   RECORDING_BLOCKED_REASON,
   recordingStateOf,
+  type CallBulkResult,
   type CallHighlights,
   type RecordingStatus,
 } from "@metavchim/shared";
@@ -536,6 +543,206 @@ export class CallsService {
     });
   }
 
+
+  /**
+   * ‎**מחיקה מרוכזת — הצורה שבה מנקים יומן שיחות.**
+   *
+   * ‏אחת-אחת ולא `deleteMany` על כל המזהים, וזו אינה בזבוז: `remove`
+   * ‏מריץ `assertCallAccess` על כל שורה ורושם ביקורת לכל אחת.
+   * ‏שאילתה אחת על כל המזהים הייתה מסלול שני שמדלג על שניהם —
+   * ‏כלומר מחיקה של שיחות שהמשתמש אינו רשאי לראות, בלי עקבות.
+   * ‏אותה הכרעה בדיוק של `RecruitmentService.removeMany`.
+   *
+   * ‎`NotFound` נבלע ונספר כדילוג: שורה שנעלמה בין הטעינה ללחיצה
+   * ‏אינה שגיאה של מי שלחץ.
+   */
+  async removeMany(ids: readonly string[]): Promise<CallBulkResult> {
+    let done = 0;
+    for (const id of ids) {
+      try {
+        await this.remove(id);
+        done += 1;
+      } catch (error) {
+        if (error instanceof NotFoundException) continue;
+        throw error;
+      }
+    }
+    return { done, skipped: ids.length - done };
+  }
+
+  /**
+   * ‎**מה נספר כדילוג של שורה, ומה מפיל את הסבב.**
+   *
+   * ‏שלוש הדחיות האלה הן מצבים תקינים של שורה בודדת: השיחה נעלמה,
+   * ‏היא מחוץ להיקף הלקוח של המשתמש, או שאין לה מספר טלפון כלל —
+   * ‏ושיחה בלי מספר היא רשומה חוקית לגמרי (`create` מתיר להשמיט
+   * ‏אותו). בלי `BadRequest` ברשימה, שיחה אחת בלי מספר הייתה
+   * ‏מחזירה 400 על **כל** הבקשה אחרי שכבר נפתחו לידים — המסך אומר
+   * ‏„נכשל”, אינו מרענן, והמתווך לוחץ שוב (ביקורת Codex, P1).
+   *
+   * ‏כל השאר עולה כלפי מעלה: בליעה של תקלת מסד מאחורי „דולגו”
+   * ‏מסתירה תקלה אמיתית מאחורי מספר שנראה תקין.
+   */
+  private static isRowSkip(error: unknown): boolean {
+    return (
+      error instanceof NotFoundException ||
+      error instanceof ForbiddenException ||
+      error instanceof BadRequestException
+    );
+  }
+
+  /**
+   * ‎**פתיחת ליד לכמה שיחות — הצעד הראשון של „המר ללקוח”.**
+   *
+   * ‎`ensureLead` אידמפוטנטי, ולכן „כבר היה לה ליד” אינו כישלון
+   * ‏אלא מצב — והוא נספר בנפרד. בלי ההפרדה הזאת „0 לידים נפתחו”
+   * ‏על עשרים שיחות שכולן כבר משויכות נקרא ככישלון מלא.
+   *
+   * ‎`Forbidden` נספר כדילוג ולא מפיל את הסבב: מספר שהוא הקונה של
+   * ‏עמית נדחה בשער היקף הלקוח, וזה נכון — אבל אין סיבה שיבטל את
+   * ‏פתיחת הלידים לכל השאר.
+   */
+  async ensureLeadMany(ids: readonly string[]): Promise<CallBulkResult> {
+    let done = 0;
+    let already = 0;
+    let skipped = 0;
+    for (const id of ids) {
+      try {
+        const result = await this.ensureLead(id);
+        if (result.created) done += 1;
+        else already += 1;
+      } catch (error) {
+        if (CallsService.isRowSkip(error)) {
+          skipped += 1;
+          continue;
+        }
+        throw error;
+      }
+    }
+    return { done, already, skipped };
+  }
+
+  /**
+   * ‎**„שייך לנציג אחר” — הליד עובר, ולא תווית על השיחה.**
+   *
+   * ## ‏למה לא `Call.agentUserId`
+   *
+   * ‏העמודה הזאת מתעדת **מי ענה בפועל** (השלוחה שהתאימה), ואינה
+   * ‏קובעת מי רואה את השיחה: `assertCallAccess` שופט לפי הליד או
+   * ‏איש הקשר שמאחוריה. דריסה שלה הייתה מזייפת עובדה היסטורית —
+   * ‏ובכל זאת לא מעבירה את השיחה לאיש. מה שמעביר אחריות **וראייה**
+   * ‏הוא `Lead.assignedToUserId`, וזה מה שנכתב כאן.
+   *
+   * ## ‏הגדרות
+   *
+   * ‎`assertCanAssignAgents` — פעולת מנהל, אותו שער בדיוק של העברת
+   * ‏קונה ונכס. `assertAgentInOffice` בתוך הטרנזקציה הכותבת, ולא
+   * ‏לפניה, מאותו נימוק שם: בדיקה מוקדמת היא חלון שבו הסוכן הוסר
+   * ‏מהמשרד בין הבדיקה לכתיבה.
+   *
+   * ‏שיחה בלי ליד מקבלת אחד (`ensureLead`) ואז עוברת — כך שאף שיחה
+   * ‏שנבחרה אינה נשארת מאחור בשקט (הכרעת המשתמש).
+   *
+   * ‎**שתי שיחות של אותו אדם הן ליד אחד.** השנייה תיספר „כבר אצלו”,
+   * ‏וזה מדויק: היא אכן כבר עברה.
+   */
+  async assignMany(ids: readonly string[], agentUserId: string): Promise<CallBulkResult> {
+    assertCanAssignAgents();
+    const { tenantId } = TenantContext.current();
+
+    /*
+     * ‎**הנציג מאומת פעם אחת, לפני שנפתח ולו ליד אחד** (ביקורת
+     * ‏Codex, P1).
+     *
+     * ‏קודם הבדיקה ישבה בתוך הטרנזקציה של כל שורה — כלומר **אחרי**
+     * ‏‎`ensureLead`. מזהה סוכן ישן או שגוי היה פותח ליד לשיחה
+     * ‏הראשונה, ואז נדחה: הבקשה חוזרת 400, המתווך רואה כישלון,
+     * ‏ובמסד נשאר ליד שאיש לא ביקש.
+     *
+     * ‏הבדיקה בתוך הטרנזקציה הכותבת **נשארת** גם היא: היא סוגרת את
+     * ‏החלון שבו הסוכן הוסר מהמשרד בין הבדיקה המוקדמת לכתיבה.
+     */
+    await this.prisma.withTenant((tx) => assertAgentInOffice(tx, tenantId, agentUserId));
+
+    /*
+     * ‎**שלב א׳ — כל שיחה לליד שלה, לפני שהועברה ולו אחת.**
+     *
+     * ‏הסדר הזה אינו נוחות (ביקורת Codex, P2): `ensureLead` מריץ
+     * ‎`assertCallAccess`, ששופט לפי הליד. מנהל עם `tasks.assign`
+     * ‏ובלי `leads.view_all` שהעביר את הליד באמצע הלולאה היה מאבד
+     * ‏את הראייה שלו — והשיחה השנייה של אותו אדם הייתה נספרת
+     * ‏„דולגה” במקום „כבר אצלו”.
+     */
+    const leadByCall = new Map<string, string>();
+    let skipped = 0;
+    for (const id of ids) {
+      try {
+        const { leadId } = await this.ensureLead(id);
+        leadByCall.set(id, leadId);
+      } catch (error) {
+        if (CallsService.isRowSkip(error)) {
+          skipped += 1;
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    /*
+     * ‎**שלב ב׳ — כל ליד פעם אחת.** שתי שיחות של אותו אדם הן ליד
+     * ‏אחד; העברה כפולה שלו הייתה כותבת פעמיים ורושמת שתי שורות
+     * ‏ביקורת על אותה העברה.
+     */
+    const outcomeByLead = new Map<string, "done" | "already" | "skipped">();
+    for (const leadId of new Set(leadByCall.values())) {
+      outcomeByLead.set(leadId, await this.moveLead(leadId, agentUserId, tenantId));
+    }
+
+    /* ‏הספירה חוזרת ליחידה שהמתווך בחר — שיחות, ולא לידים */
+    let done = 0;
+    let already = 0;
+    for (const leadId of leadByCall.values()) {
+      const outcome = outcomeByLead.get(leadId);
+      if (outcome === "done") done += 1;
+      else if (outcome === "already") already += 1;
+      else skipped += 1;
+    }
+    return { done, already, skipped };
+  }
+
+  /** ‏העברת ליד אחד — הכתיבה, השער והביקורת בטרנזקציה אחת. */
+  private async moveLead(
+    leadId: string,
+    agentUserId: string,
+    tenantId: string,
+  ): Promise<"done" | "already" | "skipped"> {
+    return this.prisma.withTenant(async (tx) => {
+      /* ‏שוב, ובתוך הכתיבה: סוכן שהוסר מהמשרד בין הבדיקה לכאן */
+      await assertAgentInOffice(tx, tenantId, agentUserId);
+      /*
+       * ‏הסינון לפי בעלות גם כאן, ולא רק על השיחה: מנהל בלי
+       * ‎`leads.view_all` אינו אמור להזיז ליד שאינו רואה.
+       */
+      const lead = await tx.lead.findFirst({
+        where: { id: leadId, tenantId, ...leadOwnershipFilter() },
+        select: { assignedToUserId: true },
+      });
+      if (lead === null) return "skipped";
+      const handover = agentHandover(lead.assignedToUserId, agentUserId);
+      if (handover === null) return "already";
+      await tx.lead.updateMany({
+        where: { id: leadId, tenantId },
+        data: { assignedToUserId: agentUserId },
+      });
+      await this.audit.record(tx, {
+        action: "lead.agent_changed",
+        entityType: "lead",
+        entityId: leadId,
+        metadata: handover,
+      });
+      return "done";
+    });
+  }
 
   /**
    * ‎**ליד לשיחה שאין לה אחד** — הדלת שדרכה שיחה הופכת ללקוח.
