@@ -9,6 +9,8 @@ import {
   recordingStateLabel,
   recordingStateOf,
   importSentences,
+  recordingQueueFloor,
+  RECORDING_SWEEP_MAX,
 } from "./recording-state";
 import { UNANSWERED_OUTCOMES } from "./telephony";
 
@@ -345,6 +347,7 @@ describe("importSentences", () => {
     alreadyHad: 0,
     withoutCall: 0,
     withoutRecordId: 0,
+    remaining: 0,
   };
 
   /*
@@ -383,6 +386,7 @@ describe("importSentences", () => {
       importSentences({ ...empty, skipped: 1 }),
       importSentences({ ...empty, alreadyHad: 1 }),
       importSentences({ ...empty, withoutCall: 1 }),
+      importSentences({ ...empty, remaining: 1 }),
       importSentences({ ...empty, linked: 1, skipped: 2, alreadyHad: 3, withoutCall: 4 }),
     ]) {
       for (const line of lines) {
@@ -390,6 +394,59 @@ describe("importSentences", () => {
         expect(line.endsWith(".")).toBe(true);
       }
     }
+  });
+
+  /*
+   * ‎**„סומנו” אינו „הגיעו”, והמשפט חייב לומר את ההפרש.**
+   *
+   * ‏מאה הקלטות הן חמישה סבבים, כלומר חצי שעה — ומי שקרא „תוך
+   * ‏כמה דקות” חזר אחרי חמש, מצא שרובן חסרות, והסיק שהייבוא
+   * ‏נכשל. המספרים נגזרים מקצב הסבב עצמו, ולכן שינוי קצב מזיז
+   * ‏את המשפט איתו.
+   */
+  it("המשפט על מה שסומן נושא את הקצב האמיתי", () => {
+    const line = importSentences({ ...empty, linked: RECORDING_SWEEP_MAX * 5 })[0] ?? "";
+    expect(line).toContain(String(RECORDING_SWEEP_MAX));
+    expect(line).toContain(recordingQueueFloor(RECORDING_SWEEP_MAX * 5));
+  });
+
+  /*
+   * ‎**רצפה, ולא הערכה.** החישוב מניח שכל התקציב מוקדש לאצווה
+   * ‏הזו, והתקציב משותף לכל המשרדים — כך ששיחות שממתינות מלפנים
+   * ‏דוחות אותה בסבבים שלמים (ביקורת Codex). „לא פחות מ־” הוא חלק
+   * ‏מהערך המוחזר דווקא, כדי שקורא שני לא יאבד אותו בדרך; והמשפט
+   * ‏על המסך מוסיף במפורש שהתור משותף.
+   */
+  it("הזמן מוצג כרצפה ולא כהבטחה", () => {
+    expect(recordingQueueFloor(RECORDING_SWEEP_MAX * 5)).toBe("לא פחות מ-25 דקות");
+    for (const count of [0, 1, RECORDING_SWEEP_MAX, RECORDING_SWEEP_MAX * 24]) {
+      expect(recordingQueueFloor(count).startsWith("לא פחות מ")).toBe(true);
+    }
+    const line = importSentences({ ...empty, linked: 1 })[0] ?? "";
+    expect(line).toContain("משרדים אחרים ממתינות");
+  });
+
+  it("המתנה — סבב שלם ומעלה, ובשעות כשזה כבר לא דקות", () => {
+    expect(recordingQueueFloor(1)).toBe("לא פחות מ-5 דקות");
+    expect(recordingQueueFloor(RECORDING_SWEEP_MAX)).toBe("לא פחות מ-5 דקות");
+    expect(recordingQueueFloor(RECORDING_SWEEP_MAX + 1)).toBe("לא פחות מ-10 דקות");
+    expect(recordingQueueFloor(RECORDING_SWEEP_MAX * 24)).toBe("לא פחות משעתיים");
+    // אפס אינו זמן שלילי ואינו NaN — הקורא עלול להעביר אותו
+    expect(recordingQueueFloor(0)).toBe("לא פחות מ-0 דקות");
+  });
+
+  /*
+   * ‎**מה שלא נבדק נאמר.** בלי זה לחיצה על טווח גדול נראית כמו
+   * ‏סיום, והמשרד נשאר עם השאר אצל הספק עד שיימחקו שם.
+   */
+  it("שורות שלא נבדקו — נספרות, ואינן „לא נמצאו”", () => {
+    const lines = importSentences({ ...empty, found: 300, linked: 100, remaining: 200 });
+    expect(lines.join(" ")).toContain("200");
+    expect(lines.join(" ")).not.toContain("לא נמצאו");
+    // גם לבדה, בלי שסומן דבר — התור התמלא ממה שכבר היה אצלנו
+    expect(importSentences({ ...empty, found: 300, remaining: 200 }).join(" ")).not.toContain(
+      "לא נמצאו",
+    );
   });
 });
 

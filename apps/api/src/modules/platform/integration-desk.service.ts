@@ -10,7 +10,7 @@ import {
   telephonyProvider,
   telephonySecretKeys,
 } from "@metavchim/shared";
-import { TenantContext } from "../../common/tenant-context";
+import { actingPlatformAdminEmail } from "../../common/platform-admin-email";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
 import type { TenantTx } from "../../core/prisma.service";
@@ -215,7 +215,7 @@ export class IntegrationDeskService {
     const agency = await this.agencyName(tenantId);
     const provider = telephonyProvider(input.provider);
     if (!provider) throw new BadRequestException("ספק לא מוכר");
-    const adminEmail = await this.adminEmail();
+    const adminEmail = await actingPlatformAdminEmail(this.prisma);
 
     await this.prisma.withExplicitTenant(tenantId, async (tx) => {
       const existing = await tx.integration.findFirst({
@@ -346,7 +346,7 @@ export class IntegrationDeskService {
     entries: DeskVirtualNumberInput[],
   ): Promise<{ ok: true; saved: number }> {
     const agency = await this.agencyName(tenantId);
-    const adminEmail = await this.adminEmail();
+    const adminEmail = await actingPlatformAdminEmail(this.prisma);
 
     /*
      * הנרמול והדחייה **לפני** הטרנזקציה, על כל הרשימה: הודעה
@@ -484,7 +484,7 @@ export class IntegrationDeskService {
    */
   async deleteVirtualNumber(tenantId: string, numberId: string): Promise<{ ok: true }> {
     await this.agencyName(tenantId);
-    const adminEmail = await this.adminEmail();
+    const adminEmail = await actingPlatformAdminEmail(this.prisma);
     await this.prisma.withExplicitTenant(tenantId, async (tx) => {
       const row = await tx.virtualNumber.findFirst({
         where: { id: numberId, tenantId },
@@ -563,15 +563,6 @@ export class IntegrationDeskService {
         entityId: tenantId,
       },
     });
-  }
-
-  /** האימייל של מי שפועל — מה שהופך "מנהל הפלטפורמה" לשם. */
-  private async adminEmail(): Promise<string> {
-    const admin = await this.prisma.user.findUnique({
-      where: { id: TenantContext.current().userId },
-      select: { email: true },
-    });
-    return admin?.email ?? "platform";
   }
 
   /**

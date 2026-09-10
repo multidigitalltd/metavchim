@@ -106,14 +106,13 @@ export class TelephonyController {
   @HttpCode(200)
   async importRecordings(
     @Body(new ZodValidationPipe(ImportSchema)) body: z.infer<typeof ImportSchema>,
-  ): Promise<{
-    found: number;
-    linked: number;
-    alreadyHad: number;
-    withoutCall: number;
-    withoutRecordId: number;
-    rowKeys: string[];
-  }> {
+    /*
+     * ‎**צורת התשובה נגזרת מהמנוע ואינה נכתבת שוב.** העותק שישב
+     * ‏כאן החסיר את `skipped` מהיום שנולד, והיה ממשיך להחסיר כל
+     * ‏שדה שייווסף — הקונטרולר מחזיר בפועל את מה שהשירות מחזיר,
+     * ‏וההצהרה רק החביאה חלק ממנו.
+     */
+  ): ReturnType<RecordingFetchService["importRange"]> {
     const to = new Date();
     const from = new Date(to.getTime() - body.days * 24 * 60 * 60 * 1000);
     return this.recordings.importRange(TenantContext.current().tenantId, from, to);

@@ -66,6 +66,20 @@ export interface TelephonyProvider {
    * והמסך הבטיח פיצ'ר שלא קרה. הוא נכון רק כשיש `dial` בשירות.
    */
   clickToDial: boolean;
+  /**
+   * ‎**האם קיים מימוש של משיכת הקלטות לספק הזה** — לא האם הספק
+   * ‏תומך.
+   *
+   * ‏אותו כלל של `clickToDial`, ומאותה סיבה: `RecordingFetchService`
+   * ‏מדבר עם ה-API של 015 בלבד, וכל מסך שהציע „ייבוא הקלטות” למשרד
+   * ‏גנרי הזמין פעולה שחוזרת ב-400 „אין מרכזיית 015 מחוברת” —
+   * ‏כלומר האשים את המשתמש במה שהמסך הציע לו.
+   *
+   * ‏שני מסכים מציעים את הפעולה (המשרד ושולחן החיבורים), ולכן
+   * ‏התנאי יושב כאן ולא בכל אחד מהם: השני נכתב בהעתקה, וזה בדיוק
+   * ‏מה שסוטה.
+   */
+  recordingImport: boolean;
 }
 
 /**
@@ -82,6 +96,7 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
     label: "מרכזייה כללית (Webhook)",
     fields: [],
     clickToDial: false,
+    recordingImport: false,
   },
   {
     /*
@@ -149,6 +164,7 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
       { key: "sipDomain", label: "דומיין SIP (למשל sip.015.net)", secret: false, needed: "softphone" },
     ],
     clickToDial: true,
+    recordingImport: true,
   },
 ];
 

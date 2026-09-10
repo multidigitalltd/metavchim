@@ -7,12 +7,11 @@ import { formatDateTime } from "@/lib/format";
 import { IconInfo, IconWarning } from "../icons";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
+import { telephonyGaps, telephonyProvider } from "@metavchim/shared";
 import {
-  importSentences,
-  telephonyGaps,
-  telephonyProvider,
-  type RecordingImportSummary,
-} from "@metavchim/shared";
+  RecordingImportNotice,
+  type RecordingImportResult,
+} from "../recording-import-result";
 
 /**
  * חיבור מרכזיית הטלפון של המשרד.
@@ -27,15 +26,6 @@ interface Provider {
   label: string;
   fields: { key: string; label: string; secret: boolean }[];
   clickToDial: boolean;
-}
-
-/*
- * המונים עצמם מגיעים מ-`RecordingImportSummary` שבחבילה המשותפת —
- * שם גם נבנים המשפטים, ושם יש בדיקות. כאן נוסף רק מה שאינו משפט.
- */
-interface ImportResult extends RecordingImportSummary {
-  /** שמות השדות בשורה שהספק החזיר — שמות בלבד, בלי ערכים */
-  rowKeys: string[];
 }
 
 interface Status {
@@ -482,7 +472,10 @@ export function TelephonySection() {
             </div>
           ) : null}
 
-          {status.provider === "015" ? <ImportRecordings /> : null}
+          {/* ‏מי שיודע למשוך — ראו `recordingImport` בקטלוג הספקים */}
+          {telephonyProvider(status.provider ?? "")?.recordingImport === true ? (
+            <ImportRecordings />
+          ) : null}
 
           <button type="button" className="mv-btn-plain mt-3" disabled={busy} onClick={() => void disconnect()}>
             נתק מרכזייה
@@ -719,7 +712,7 @@ function TeamSipLines() {
 function ImportRecordings() {
   const [days, setDays] = useState(30);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<ImportResult | null>(null);
+  const [result, setResult] = useState<RecordingImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function run(): Promise<void> {
@@ -727,7 +720,7 @@ function ImportRecordings() {
     setError(null);
     setResult(null);
     try {
-      setResult(await apiPost<ImportResult>("/settings/telephony/recordings/import", { days }));
+      setResult(await apiPost<RecordingImportResult>("/settings/telephony/recordings/import", { days }));
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הייבוא נכשל — נסו שוב");
     } finally {
@@ -760,48 +753,7 @@ function ImportRecordings() {
         </button>
       </div>
       {error ? <Notice tone="danger">{error}</Notice> : null}
-      {result ? (
-        <Notice tone="success">
-          {/*
-            ‎**המשפטים נבנים כרשימה ומחוברים ברווח — לא משורשרים
-            ידנית.**
-
-            הצורה הקודמת פתחה במשפט אחד („סומנו למשיכה” או „לא
-            נמצאו”) והוסיפה אחריו משפטים שכל אחד מהם נשא רווח מוביל
-            משלו. זה עבד כל עוד המשפט הראשון תמיד הופיע. ברגע
-            שהמונה פוצל ל-`linked`/`skipped`, ייבוא שכל תוצאותיו
-            שיחות שלא נענו הגיע לכאן עם `linked === 0` — והמסך אמר
-            „לא נמצאו הקלטות חדשות לצרף” ומיד אחר כך מנה אותן.
-            שני משפטים סותרים באותה הודעה (ביקורת Codex).
-
-            ‎`importSentences` הופכת „מה מופיע” ל-`filter(Boolean)`
-            ו„איך זה מחובר” ל-`join`. משפט חדש מצטרף בלי להחזיק דעה
-            על מי לפניו — וזה מה שנשבר כאן פעמיים.
-          */}
-          {importSentences(result).join(" ")}
-          {/*
-            „הספק החזיר הקלטות ואין לנו מזהה הורדה” הוא אבחון; „לא
-            נמצאו הקלטות” הוא מבוי סתום. צורת השורה אינה מתועדת אצל
-            015, ולכן שמות השדות שהוא באמת החזיר הם מה שסוגר את
-            הפער — והם חייבים להגיע למסך, לא רק ליומן השרת.
-            שמות בלבד: ערכי השורה נושאים מספרי טלפון.
-          */}
-          {result.withoutRecordId > 0 ? (
-            <span className="mt-1 block">
-              {`${result.withoutRecordId} הקלטות אצל הספק בלי מזהה הורדה שאנחנו מכירים — אי אפשר למשוך אותן עד שנדע באיזה שדה הוא מגיע.`}
-              {result.rowKeys.length > 0 ? (
-                <>
-                  {" השדות שהמרכזייה החזירה: "}
-                  <span dir="ltr" style={{ unicodeBidi: "isolate" }}>
-                    {result.rowKeys.join(", ")}
-                  </span>
-                  {". שלחו את השורה הזו לתמיכה."}
-                </>
-              ) : null}
-            </span>
-          ) : null}
-        </Notice>
-      ) : null}
+      {result ? <RecordingImportNotice result={result} /> : null}
     </div>
   );
 }

@@ -12,6 +12,10 @@ import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { IconPhone } from "../icons";
 import { Notice } from "../notice";
+import {
+  RecordingImportNotice,
+  type RecordingImportResult,
+} from "../recording-import-result";
 import { DeskVirtualNumbers } from "./desk-virtual-numbers";
 
 /**
@@ -111,6 +115,16 @@ export function IntegrationDeskSection({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  /**
+   * ‎**תוצאת הייבוא — ולאיזה משרד**, כמו `loaded` ומאותו נימוק.
+   *
+   * ‏בלי המזהה, החלפת משרד הייתה משאירה על המסך „ארבעים הקלטות
+   * ‏סומנו” מתחת לכרטיס של משרד אחר לגמרי.
+   */
+  const [imported, setImported] = useState<{
+    agencyId: string;
+    result: RecordingImportResult;
+  } | null>(null);
 
   /*
    * ‎**הבחירה החיה, לקריאה אחרי `await`.**
@@ -137,6 +151,8 @@ export function IntegrationDeskSection({
     setProvider("");
     setError(null);
     setDone(null);
+    // תוצאת ייבוא של משרד אחד אינה אמירה על השני
+    setImported(null);
     if (agencyId === "") return;
 
     // תשובה שחוזרת אחרי שהמשרד כבר הוחלף אינה נכנסת ל-state
@@ -179,6 +195,12 @@ export function IntegrationDeskSection({
       ? telephonyGaps(savedProvider, data.telephony.config ?? {}, data.telephony.secretsSet ?? [])
       : [];
   /*
+   * ‏„ייבוא הקלטות” קיים רק לספק שיש לו מימוש משיכה — היום 015
+   * ‏בלבד. הדגל יושב בקטלוג הספקים המשותף, כדי שהמסך הזה ומסך
+   * ‏המשרד לא יחזיקו שני עותקים של אותו תנאי.
+   */
+  const mayImport = savedProvider?.recordingImport === true;
+  /*
    * ‏המשפט מגיע מ-`shared` — אותו מילון בדיוק שהמתווך רואה על
    * ‏השיחה. שני ניסוחים לאותו קוד היו אומרים למנהל הפלטפורמה דבר
    * ‏אחד ולמשרד דבר אחר, והשיחה ביניהם מתחילה מתרגום.
@@ -219,6 +241,40 @@ export function IntegrationDeskSection({
     } catch (err: unknown) {
       if (selected.current !== target) return;
       setError(err instanceof ApiError ? err.message : "ההפקה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * ‎**ייבוא הקלטות בשם המשרד.**
+   *
+   * ‏אותה פעולה שמנהל המשרד מריץ מהגדרות המרכזייה שלו, ובאותו
+   * ‏מנוע — כאן היא זמינה בלי לבקש ממנו לפתוח גישת תמיכה. היא
+   * ‏נרשמת ביומן הפעילות שלו ומייצרת אצלו התראה; מה שחוזר לכאן
+   * ‏הוא מספרים ושמות שדות בלבד.
+   *
+   * ‏שלושים יום ולא שדה לבחירה: מנהל הפלטפורמה מגיע לכאן כדי
+   * ‏לאבחן — „האם משיכת ההקלטות עובדת בכלל” — ולא כדי לנהל את
+   * ‏מדיניות הארכיון של המשרד. הטווח המלא נשאר במסך שלו.
+   */
+  async function importRecordings(): Promise<void> {
+    if (loaded === null || loaded.agencyId !== agencyId) return;
+    const target = loaded.agencyId;
+    setBusy(true);
+    setError(null);
+    setDone(null);
+    setImported(null);
+    try {
+      const result = await apiPost<RecordingImportResult>(
+        `/platform/agencies/${target}/integrations/telephony/recordings/import`,
+        { days: 30 },
+      );
+      if (selected.current !== target) return;
+      setImported({ agencyId: target, result });
+    } catch (err: unknown) {
+      if (selected.current !== target) return;
+      setError(err instanceof ApiError ? err.message : "הייבוא נכשל");
     } finally {
       setBusy(false);
     }
@@ -286,10 +342,24 @@ export function IntegrationDeskSection({
       <h2 id="integration-desk-heading" className="mb-1 text-lg font-semibold">
         <IconPhone s={16} /> שולחן החיבורים — מרכזייה של משרד
       </h2>
+      {/*
+        ‎**ההצהרה הזו חייבת להישאר נכונה מילה במילה.**
+
+        ‏קודם היא אמרה „לא בשיחות”, וזה היה נכון עד שנוסף כפתור
+        ‏„ייבוא הקלטות” — שכותב לשורות השיחה של המשרד את הנתיב
+        ‏שההקלטה יושבת בו אצל הספק. משפט הפרטיות שמופיע ממש מעל
+        ‏הפעולה הפך לשקר (ביקורת Codex).
+
+        ‏מה שנכון היום: המסך אינו **קורא** לידים, לקוחות, שיחות או
+        ‏כספים, ומה שחוזר ממנו הוא הגדרות ומספרים. הכתיבה היחידה
+        ‏אל שורת שיחה היא צירוף ההקלטה שכבר קיימת אצל המרכזייה —
+        ‏לא תוכן, לא איש קשר ולא כסף.
+      */}
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         הגדרת המרכזייה של משרד שנתקע, בלי כניסה לחשבון שלו ובלי לבקש ממנו
-        לפתוח גישת תמיכה. המסך הזה נוגע בהגדרות החיבור בלבד — לא בלידים,
-        לא בלקוחות, לא בשיחות ולא בכספים. <b>כל שמירה נרשמת ביומן הפעילות
+        לפתוח גישת תמיכה. המסך הזה אינו קורא לידים, לקוחות, שיחות או כספים.
+        הפעולה היחידה שנוגעת בשיחות היא „ייבוא הקלטות”, והיא רק מצרפת אליהן
+        את ההקלטה שכבר קיימת אצל המרכזייה. <b>כל פעולה נרשמת ביומן הפעילות
         של המשרד ושולחת לו התראה.</b>
       </p>
 
@@ -365,6 +435,51 @@ export function IntegrationDeskSection({
                   משיכת הקלטות: {pull.sentence}
                   {pull.at === undefined ? "" : ` · ${formatDateTime(pull.at.toISOString())}`}
                 </p>
+                {/*
+                  ‎**„נמשכו או לא” ולידו „ייבא”.**
+
+                  ‏החיווי עונה על „האם זה עובד”; הכפתור הוא מה
+                  ‏שעושים כשהתשובה היא לא. עד כה הוא היה קיים רק
+                  ‏במסך של המשרד, כלומר האבחון היה כאן והתיקון
+                  ‏שם — ובין השניים בקשה טלפונית.
+
+                  ‏הייבוא **אינו** מוריד עשרות הקלטות בבת אחת: הוא
+                  ‏מסמן שיחות, והמשיכה עצמה נעשית בסבב שמושך עד
+                  ‎`RECORDING_SWEEP_MAX` בכל חמש דקות על פני כל
+                  ‏המשרדים. הכפתור אומר את זה מראש, והתשובה חוזרת
+                  ‏עם הזמן המשוער — אחרת מי שלחץ חוזר אחרי דקה,
+                  ‏מוצא שרוב ההקלטות עדיין חסרות, ומסיק שזה נכשל.
+                */}
+                {mayImport ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Button disabled={busy} onClick={() => void importRecordings()}>
+                      {busy ? "מייבא…" : "ייבוא הקלטות (30 יום)"}
+                    </Button>
+                    <span
+                      className="text-[length:var(--type-caption)]"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
+                      מבקש מהמרכזייה את ההקלטות של שיחות שכבר רשומות אצל המשרד ואין להן
+                      אודיו. הפעולה נרשמת ביומן הפעילות של המשרד.
+                    </span>
+                  </div>
+                ) : (
+                  /*
+                    ‏משפט ולא כפתור מושבט: זה מסך אבחון, והשאלה
+                    ‏שמביאה לכאן היא „למה אין הקלטות”. „לספק הזה אין
+                    ‏מימוש משיכה” היא התשובה — כפתור אפור עם tooltip
+                    ‏אינו נקרא במגע ואינו אומר אותה.
+                  */
+                  <p
+                    className="m-0 mt-1 text-[length:var(--type-caption)]"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    לספק הזה אין מימוש של משיכת הקלטות — ההקלטות נשארות אצל המרכזייה.
+                  </p>
+                )}
+                {imported !== null && imported.agencyId === agencyId ? (
+                  <RecordingImportNotice result={imported.result} />
+                ) : null}
               </>
             ) : (
               <>
