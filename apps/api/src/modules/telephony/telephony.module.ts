@@ -3,6 +3,7 @@ import { ContactsModule } from "../contacts/contacts.module";
 import { IntakeModule } from "../intake/intake.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { VoiceIntakeModule } from "../voice-intake/voice-intake.module";
+import { PlatformRecordingsController } from "./platform-recordings.controller";
 import { RecordingFetchService } from "./recording-fetch.service";
 import { TelephonyPresenceController } from "./telephony-presence.controller";
 import { TelephonyController, TelephonyWebhookController } from "./telephony.controller";
@@ -25,6 +26,11 @@ import { VirtualNumbersController } from "./virtual-numbers.controller";
     TelephonyPresenceController,
     TelephonyWebhookController,
     VirtualNumbersController,
+    /*
+     * ‏ייבוא הקלטות בשם משרד, למנהל הפלטפורמה. מחוץ לשער הפיצ'ר
+     * ‏ומחוץ לשולחן החיבורים — ההסבר במחלקה.
+     */
+    PlatformRecordingsController,
   ],
   providers: [TelephonyService, RecordingFetchService],
   exports: [TelephonyService],

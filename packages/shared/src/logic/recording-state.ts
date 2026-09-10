@@ -36,6 +36,38 @@ import { recordingWorthPulling } from "./telephony.js";
 export const RECORDING_GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * ‎**קצב המשיכה — כמה, וכל כמה זמן.**
+ *
+ * ‏שני המספרים שקובעים כמה מהר הקלטה שסומנה מגיעה אל האחסון:
+ * ‏הסבב רץ כל `RECORDING_SWEEP_TICK_MS`, ומושך בו לכל היותר
+ * ‏`RECORDING_SWEEP_MAX` הקלטות — **סך הכול על פני כל המשרדים**.
+ *
+ * ‎**כאן ולא בשרת, מאותו נימוק כמו `RECORDING_GIVE_UP_MS`:** המסך
+ * ‏מבטיח „ייכנסו תוך כמה דקות”, וכל עוד המספרים ישבו בשירות בלבד
+ * ‏המשפט הזה היה ניחוש שנכתב פעם אחת ולא זז יותר. עכשיו הוא נגזר
+ * ‏מהם, ושינוי קצב מזיז את ההבטחה איתו.
+ */
+export const RECORDING_SWEEP_MAX = 20;
+
+/** ‏כל כמה זמן רץ סבב המשיכה. ראו `RECORDING_SWEEP_MAX`. */
+export const RECORDING_SWEEP_TICK_MS = 5 * 60 * 1000;
+
+/**
+ * ‎**כמה הקלטות לחיצת ייבוא אחת מכניסה לתור.**
+ *
+ * ‏הייבוא עצמו אינו מוריד אודיו — הוא **מסמן** שיחות, ואיפוס
+ * ‏חותמת הניסיון מכניס כל אחת מהן לראש התור המשותף. בלי תקרה,
+ * ‏לחיצה אחת על טווח של תשעים יום מכניסה מאות שיחות של משרד אחד
+ * ‏לתור שכל המשרדים חולקים — כלומר משביתה את המשיכה אצל כל
+ * ‏השאר לשעות, בלי שאיש ביקש זאת.
+ *
+ * ‏מאה הן כחצי שעה של הסבב (`RECORDING_SWEEP_MAX` כל
+ * ‏`RECORDING_SWEEP_TICK_MS`). מה שלא נכנס אינו אובד: הייבוא
+ * ‏אידמפוטנטי, ולחיצה נוספת ממשיכה מהמקום שבו נעצר.
+ */
+export const RECORDING_IMPORT_QUEUE_LIMIT = 100;
+
+/**
  * ‎**כמה להמתין מסיום השיחה לפני הניסיון הראשון.**
  *
  * המרכזייה כותבת את קובץ ההקלטה אחרי שהשיחה נגמרת, ולוקח לה כמה
@@ -279,6 +311,31 @@ export interface RecordingImportSummary {
   alreadyHad: number;
   withoutCall: number;
   withoutRecordId: number;
+  /**
+   * ‏שורות שהספק החזיר ו**לא נבדקו** בלחיצה הזו, כי התור התמלא —
+   * ‏ראו `RECORDING_IMPORT_QUEUE_LIMIT`.
+   *
+   * ‏„לא נבדקו” ולא „לא סומנו”: איננו יודעים כמה מהן היו נצרכות.
+   * ‏הן פשוט לא נפתחו, ולחיצה נוספת תמשיך מהן.
+   */
+  remaining: number;
+}
+
+/**
+ * ‎**כמה זמן ייקח עד שהקלטות שסומנו יגיעו אלינו.**
+ *
+ * ‏נגזר מקצב הסבב ולא נכתב כמשפט: „ייכנסו תוך כמה דקות” היה נכון
+ * ‏כשלחיצה סימנה שלוש הקלטות, והפך למטעה כשהיא סימנה מאה. הערכה
+ * ‏ולא הבטחה — התור משותף לכל המשרדים, ולכן זה **רצפה**.
+ */
+export function recordingQueueWait(count: number): string {
+  const sweeps = Math.ceil(Math.max(count, 0) / RECORDING_SWEEP_MAX);
+  const minutes = (sweeps * RECORDING_SWEEP_TICK_MS) / 60_000;
+  if (minutes < 90) return `כ-${minutes} דקות`;
+  const hours = Math.round(minutes / 60);
+  if (hours === 1) return "כשעה";
+  if (hours === 2) return "כשעתיים";
+  return `כ-${hours} שעות`;
 }
 
 /**
@@ -309,7 +366,18 @@ export function importSentences(summary: RecordingImportSummary): string[] {
   const lines: string[] = [];
 
   if (summary.linked > 0) {
-    lines.push(`${summary.linked} הקלטות סומנו למשיכה — הן ייכנסו לכרטיסים תוך כמה דקות.`);
+    /*
+     * ‎**הקצב נאמר, ולא נרמז.** „תוך כמה דקות” נכתב כשלחיצה סימנה
+     * ‏שלוש הקלטות. הסבב מושך עד `RECORDING_SWEEP_MAX` בכל
+     * ‏`RECORDING_SWEEP_TICK_MS` על פני כל המשרדים, ולכן מאה
+     * ‏הקלטות הן חצי שעה — ומי שלא ידע זאת חזר אחרי חמש דקות,
+     * ‏ראה שרובן עוד לא כאן, והסיק שהייבוא נכשל.
+     */
+    lines.push(
+      `${summary.linked} הקלטות סומנו למשיכה — הן נמשכות עד ${RECORDING_SWEEP_MAX} בכל ` +
+        `${RECORDING_SWEEP_TICK_MS / 60_000} דקות על פני כל המשרדים, כלומר ` +
+        `${recordingQueueWait(summary.linked)} עד שכולן יגיעו לכרטיסים.`,
+    );
   }
   if (summary.alreadyHad > 0) {
     lines.push(`${summary.alreadyHad} כבר היו אצלנו.`);
@@ -322,6 +390,20 @@ export function importSentences(summary: RecordingImportSummary): string[] {
   if (summary.withoutCall > 0) {
     lines.push(
       `${summary.withoutCall} הקלטות אצל הספק שייכות לשיחות שאינן רשומות במערכת — אלה שיחות שקדמו לחיבור, ואין להן כרטיס לקוח לשייך אליו.`,
+    );
+  }
+
+  /*
+   * ‎**מה שלא נבדק נאמר, אחרת הייבוא נראה כאילו סיים.**
+   *
+   * ‏בלי המשפט הזה לחיצה על טווח גדול הייתה מדווחת „מאה סומנו”
+   * ‏ונראית כמו סיום — והמשרד היה נשאר עם שאר ההקלטות אצל הספק
+   * ‏עד שיימחקו שם.
+   */
+  if (summary.remaining > 0) {
+    lines.push(
+      `${summary.remaining} שורות נוספות אצל הספק לא נבדקו בלחיצה הזו — ` +
+        `כל לחיצה מכניסה לתור עד ${RECORDING_IMPORT_QUEUE_LIMIT} הקלטות. לחצו שוב כדי להמשיך.`,
     );
   }
 

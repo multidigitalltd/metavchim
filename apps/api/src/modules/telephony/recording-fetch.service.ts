@@ -32,6 +32,9 @@ import {
   RECORDING_BLOCKED_REASON,
   RECORDING_PROVIDER_REFUSAL,
   RECORDING_REFUSALS_BEFORE_PAUSE,
+  RECORDING_SWEEP_MAX,
+  RECORDING_SWEEP_TICK_MS,
+  RECORDING_IMPORT_QUEUE_LIMIT,
   recordingPullResultOf,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
@@ -70,20 +73,23 @@ import { TranscriptionService } from "../voice-intake/transcription.service";
  * קובץ פעמיים.
  */
 
-/** כל חמש דקות — הקלטה שנוצרה בינתיים תיאסף בסבב הבא. */
-const TICK_MS = 5 * 60 * 1000;
+/**
+ * ‏קצב הסבב — **מיובא ולא נכתב שוב**, מאותו נימוק כמו
+ * ‎`GIVE_UP_AFTER_MS`: המסך אומר למי שלחץ „ייבוא” כמה זמן זה
+ * ‏ייקח, והמשפט הזה נגזר מהמספרים האלה. כל עוד הם ישבו כאן בלבד,
+ * ‏„ייכנסו תוך כמה דקות” היה ניחוש שנכתב פעם אחת ולא זז יותר.
+ *
+ * ‎`TICK_MS` — כל חמש דקות, הקלטה שנוצרה בינתיים תיאסף בסבב הבא.
+ * ‎`MAX_PER_SWEEP` — כמה בסבב אחד, **סך הכול על פני כל המשרדים**:
+ * ‏הגנה על משך הסבב ולא מדיניות, כי כל משיכה היא קריאת רשת עם פסק
+ * ‏זמן של דקה. מה שלא נכנס לתקציב ייתפס בסבב הבא — התנאי לשליפה
+ * ‏עדיין מתקיים.
+ */
+const TICK_MS = RECORDING_SWEEP_TICK_MS;
+const MAX_PER_SWEEP = RECORDING_SWEEP_MAX;
 
 /** דקה אחרי העלייה, כדי לא להתחרות על החיבורים בזמן המיגרציות. */
 const FIRST_TICK_DELAY_MS = 60 * 1000;
-
-/**
- * כמה הקלטות בסבב אחד, **סך הכול על פני כל המשרדים**.
- *
- * הגנה על משך הסבב ולא מדיניות: כל משיכה היא קריאת רשת עם פסק זמן
- * של דקה, ותקציב גלובלי הוא מה שמונע מסבב אחד לגלוש אל תוך הבא.
- * מה שלא נכנס לתקציב ייתפס בסבב הבא — התנאי לשליפה עדיין מתקיים.
- */
-const MAX_PER_SWEEP = 20;
 
 /**
  * כמה זמן ממשיכים לנסות שיחה שהמשיכה שלה נכשלת.
@@ -442,6 +448,15 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     tenantId: string,
     from: Date,
     to: Date,
+    /**
+     * ‎**מי הריץ, כשזה לא המשרד עצמו.**
+     *
+     * ‏מנהל הפלטפורמה יכול להריץ ייבוא בשם משרד משולחן החיבורים.
+     * ‏התמורה לכך שאינו צריך לבקש רשות מראש היא שהפעולה נרשמת
+     * ‏ביומן הפעילות **של המשרד** ומייצרת אצלו התראה — אותה
+     * ‏עסקה, כך שאין ייבוא בשמו בלי עקבה.
+     */
+    by?: { platformAdminEmail: string },
   ): Promise<{
     found: number;
     linked: number;
@@ -458,6 +473,8 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     withoutCall: number;
     /** הקלטות שהספק החזיר ואין בהן מזהה הורדה שאנחנו מכירים */
     withoutRecordId: number;
+    /** שורות שהתור התמלא לפניהן ולכן לא נבדקו — ראו הלולאה למטה. */
+    remaining: number;
     /** שמות השדות בשורה הראשונה — שמות בלבד; ראו `pbx015ListRowKeys` */
     rowKeys: string[];
   }> {
@@ -560,8 +577,33 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     let alreadyHad = 0;
     let withoutCall = 0;
     let withoutRecordId = 0;
+    /**
+     * ‎**כמה שורות נפתחו בכלל** — וממנו נגזר מה שנשאר.
+     *
+     * ‏מוגדר מחוץ לעסקה כי הוא נקרא אחריה.
+     */
+    let examined = 0;
     await this.prisma.withExplicitTenant(tenantId, async (tx) => {
       for (const row of rows) {
+        /*
+         * ‎**התור נעצר כאן, ובכוונה.**
+         *
+         * ‏הייבוא אינו מוריד אודיו — הוא מסמן, ואיפוס חותמת
+         * ‏הניסיון מכניס כל שיחה שסומנה לראש **התור המשותף לכל
+         * ‏המשרדים**. בלי התקרה, לחיצה אחת על טווח של תשעים יום
+         * ‏מכניסה מאות שיחות של משרד אחד לתור ומשביתה את המשיכה
+         * ‏אצל כל השאר לשעות.
+         *
+         * ‏רק `linked` נספר לתקרה: שיחה שלא נענתה מקבלת נתיב ואינה
+         * ‏נמשכת (`pendingFor` מסנן אותה), ולכן אינה תופסת מקום
+         * ‏בתור. וכך גם `alreadyHad`, `withoutCall` ו-`withoutRecordId`.
+         *
+         * ‏מה שנשאר אינו אובד: התנאי לסימון עדיין מתקיים, ולחיצה
+         * ‏נוספת על אותו טווח ממשיכה ממנו — מה שכבר סומן נספר
+         * ‏כ-`alreadyHad` ומדולג מיד.
+         */
+        if (linked >= RECORDING_IMPORT_QUEUE_LIMIT) break;
+        examined += 1;
         /*
          * ‎`recordings/get` דורש `recordid`, ולכן הקלטה בלעדיו אינה
          * ניתנת למשיכה. היא עדיין **נספרת**: „הספק החזיר ארבעים
@@ -605,6 +647,49 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
           skipped += 1;
         }
       }
+
+      /*
+       * ‎**היומן וההתראה — אצל המשרד, באותה עסקה.**
+       *
+       * ‏`userId: null` כי לא משתמש של המשרד פעל כאן; מי שפעל
+       * ‏מופיע במפורש ב-`metadata`. אותה תבנית בדיוק ששולחן
+       * ‏החיבורים משתמש בה על חיבור המרכזייה ועל שיוך מספרים,
+       * ‏ומאותה סיבה: שקיפות היא התחליף להסכמה-מראש.
+       */
+      if (by !== undefined) {
+        await tx.auditLog.create({
+          data: {
+            id: ulid(),
+            tenantId,
+            userId: null,
+            action: "integration.platform_recordings_import",
+            entityType: "integration",
+            entityId: tenantId,
+            metadata: {
+              kind: "telephony",
+              platformAdmin: by.platformAdminEmail,
+              days: Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)),
+              found: rows.length,
+              linked,
+              alreadyHad,
+            } as object,
+          },
+        });
+        await tx.notification.create({
+          data: {
+            id: ulid(),
+            tenantId,
+            userId: null,
+            type: "integration_platform_change",
+            title: "מנהל הפלטפורמה הריץ ייבוא הקלטות",
+            body:
+              `${by.platformAdminEmail} ביקש מהמרכזייה את ההקלטות של השיחות שלכם ` +
+              `וסימן ${linked} מהן למשיכה. ההקלטות ייכנסו לכרטיסי השיחות.`,
+            entityType: "integration",
+            entityId: tenantId,
+          },
+        });
+      }
     });
 
     /*
@@ -614,9 +699,11 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
      * מספרי טלפון.
      */
     const rowKeys = pbx015ListRowKeys(body);
+    const remaining = rows.length - examined;
     this.logger.log(
       `ייבוא הקלטות (${tenantId}): ${rows.length} אצל הספק, ${linked} סומנו למשיכה` +
-        (withoutRecordId > 0 ? `, ${withoutRecordId} בלי מזהה הורדה` : ""),
+        (withoutRecordId > 0 ? `, ${withoutRecordId} בלי מזהה הורדה` : "") +
+        (remaining > 0 ? `, ${remaining} לא נבדקו — התור התמלא` : ""),
     );
     return {
       found: rows.length,
@@ -625,6 +712,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       alreadyHad,
       withoutCall,
       withoutRecordId,
+      remaining,
       rowKeys,
     };
   }

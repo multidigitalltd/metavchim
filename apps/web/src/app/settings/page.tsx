@@ -103,6 +103,16 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   "property.agent_changed": "העברת נכס בין סוכנים",
   "buyer.agent_changed": "העברת קונה בין סוכנים",
   "lead.agent_changed": "העברת ליד בין סוכנים",
+  /*
+   * ‏פעולות שמנהל הפלטפורמה עושה **בשם המשרד**. השורות האלה הן
+   * ‏התמורה לכך שהוא אינו צריך לבקש גישת תמיכה מראש, ולכן הן
+   * ‏צריכות להיקרא בעברית כמו כל שורה אחרת ביומן — לא כקוד.
+   */
+  "integration.platform_connect": "מנהל הפלטפורמה חיבר מרכזייה",
+  "integration.platform_update": "מנהל הפלטפורמה עדכן את חיבור המרכזייה",
+  "integration.platform_recordings_import": "מנהל הפלטפורמה הריץ ייבוא הקלטות",
+  "virtual_number.platform_assign": "מנהל הפלטפורמה שייך מספרים לסוכנים",
+  "virtual_number.platform_delete": "מנהל הפלטפורמה מחק מספר וירטואלי",
   "buyer.interaction_add": "תיעוד אינטראקציה עם קונה",
   "lead.create": "יצירת ליד",
   "lead.status": "עדכון סטטוס ליד",
