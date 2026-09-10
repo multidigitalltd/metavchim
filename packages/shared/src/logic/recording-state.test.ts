@@ -9,7 +9,7 @@ import {
   recordingStateLabel,
   recordingStateOf,
   importSentences,
-  recordingQueueWait,
+  recordingQueueFloor,
   RECORDING_SWEEP_MAX,
 } from "./recording-state";
 import { UNANSWERED_OUTCOMES } from "./telephony";
@@ -407,16 +407,32 @@ describe("importSentences", () => {
   it("המשפט על מה שסומן נושא את הקצב האמיתי", () => {
     const line = importSentences({ ...empty, linked: RECORDING_SWEEP_MAX * 5 })[0] ?? "";
     expect(line).toContain(String(RECORDING_SWEEP_MAX));
-    expect(line).toContain(recordingQueueWait(RECORDING_SWEEP_MAX * 5));
+    expect(line).toContain(recordingQueueFloor(RECORDING_SWEEP_MAX * 5));
+  });
+
+  /*
+   * ‎**רצפה, ולא הערכה.** החישוב מניח שכל התקציב מוקדש לאצווה
+   * ‏הזו, והתקציב משותף לכל המשרדים — כך ששיחות שממתינות מלפנים
+   * ‏דוחות אותה בסבבים שלמים (ביקורת Codex). „לא פחות מ־” הוא חלק
+   * ‏מהערך המוחזר דווקא, כדי שקורא שני לא יאבד אותו בדרך; והמשפט
+   * ‏על המסך מוסיף במפורש שהתור משותף.
+   */
+  it("הזמן מוצג כרצפה ולא כהבטחה", () => {
+    expect(recordingQueueFloor(RECORDING_SWEEP_MAX * 5)).toBe("לא פחות מ-25 דקות");
+    for (const count of [0, 1, RECORDING_SWEEP_MAX, RECORDING_SWEEP_MAX * 24]) {
+      expect(recordingQueueFloor(count).startsWith("לא פחות מ")).toBe(true);
+    }
+    const line = importSentences({ ...empty, linked: 1 })[0] ?? "";
+    expect(line).toContain("משרדים אחרים ממתינות");
   });
 
   it("המתנה — סבב שלם ומעלה, ובשעות כשזה כבר לא דקות", () => {
-    expect(recordingQueueWait(1)).toBe("כ-5 דקות");
-    expect(recordingQueueWait(RECORDING_SWEEP_MAX)).toBe("כ-5 דקות");
-    expect(recordingQueueWait(RECORDING_SWEEP_MAX + 1)).toBe("כ-10 דקות");
-    expect(recordingQueueWait(RECORDING_SWEEP_MAX * 24)).toBe("כשעתיים");
+    expect(recordingQueueFloor(1)).toBe("לא פחות מ-5 דקות");
+    expect(recordingQueueFloor(RECORDING_SWEEP_MAX)).toBe("לא פחות מ-5 דקות");
+    expect(recordingQueueFloor(RECORDING_SWEEP_MAX + 1)).toBe("לא פחות מ-10 דקות");
+    expect(recordingQueueFloor(RECORDING_SWEEP_MAX * 24)).toBe("לא פחות משעתיים");
     // אפס אינו זמן שלילי ואינו NaN — הקורא עלול להעביר אותו
-    expect(recordingQueueWait(0)).toBe("כ-0 דקות");
+    expect(recordingQueueFloor(0)).toBe("לא פחות מ-0 דקות");
   });
 
   /*

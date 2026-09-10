@@ -322,20 +322,32 @@ export interface RecordingImportSummary {
 }
 
 /**
- * ‎**כמה זמן ייקח עד שהקלטות שסומנו יגיעו אלינו.**
+ * ‎**כמה זמן לכל המוקדם עד שהקלטות שסומנו יגיעו אלינו.**
  *
  * ‏נגזר מקצב הסבב ולא נכתב כמשפט: „ייכנסו תוך כמה דקות” היה נכון
- * ‏כשלחיצה סימנה שלוש הקלטות, והפך למטעה כשהיא סימנה מאה. הערכה
- * ‏ולא הבטחה — התור משותף לכל המשרדים, ולכן זה **רצפה**.
+ * ‏כשלחיצה סימנה שלוש הקלטות, והפך למטעה כשהיא סימנה מאה.
+ *
+ * ‎**רצפה, ולא הערכה — והמחרוזת עצמה אומרת זאת.**
+ *
+ * ‏החישוב מניח שהסבב מקדיש את כל התקציב לאצווה הזו, וזה כמעט
+ * ‏לעולם אינו נכון: התקציב משותף לכל המשרדים, `pendingFor` מסדר
+ * ‏אותם לפי ניסיון אחרון, וסבב שלם יכול ללכת על עבודה שממתינה
+ * ‏מלפנים; ניסיונות חוזרים והמרווח מול הספק מוסיפים עוד (ביקורת
+ * ‏Codex). קודם ישבה האזהרה הזו כאן בהערה בלבד והמשפט על המסך
+ * ‏הבטיח „כ-25 דקות עד שכולן יגיעו” — כלומר האמת הייתה בקוד
+ * ‏והשקר היה במה שנקרא.
+ *
+ * ‏לכן „לא פחות מ־” הוא חלק מהערך המוחזר ולא מהמשפט שעוטף אותו:
+ * ‏קורא שני אינו יכול לאבד אותו בדרך.
  */
-export function recordingQueueWait(count: number): string {
+export function recordingQueueFloor(count: number): string {
   const sweeps = Math.ceil(Math.max(count, 0) / RECORDING_SWEEP_MAX);
   const minutes = (sweeps * RECORDING_SWEEP_TICK_MS) / 60_000;
-  if (minutes < 90) return `כ-${minutes} דקות`;
+  if (minutes < 90) return `לא פחות מ-${minutes} דקות`;
   const hours = Math.round(minutes / 60);
-  if (hours === 1) return "כשעה";
-  if (hours === 2) return "כשעתיים";
-  return `כ-${hours} שעות`;
+  if (hours === 1) return "לא פחות משעה";
+  if (hours === 2) return "לא פחות משעתיים";
+  return `לא פחות מ-${hours} שעות`;
 }
 
 /**
@@ -376,7 +388,8 @@ export function importSentences(summary: RecordingImportSummary): string[] {
     lines.push(
       `${summary.linked} הקלטות סומנו למשיכה — הן נמשכות עד ${RECORDING_SWEEP_MAX} בכל ` +
         `${RECORDING_SWEEP_TICK_MS / 60_000} דקות על פני כל המשרדים, כלומר ` +
-        `${recordingQueueWait(summary.linked)} עד שכולן יגיעו לכרטיסים.`,
+        `${recordingQueueFloor(summary.linked)} עד שכולן יגיעו לכרטיסים — ויותר, ` +
+        `אם שיחות של משרדים אחרים ממתינות באותו תור.`,
     );
   }
   if (summary.alreadyHad > 0) {
