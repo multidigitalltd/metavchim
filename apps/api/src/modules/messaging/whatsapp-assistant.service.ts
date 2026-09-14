@@ -111,6 +111,7 @@ import {
 import { prospectReplyText } from "./prospect-reply";
 import { CallsService } from "../calls/calls.service";
 import { BillingService } from "../billing/billing.service";
+import { RecruitmentAdService } from "../recruitment/recruitment-ad.service";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 import { WhatsAppLinkService } from "./whatsapp-link.service";
 
@@ -348,6 +349,12 @@ export class WhatsAppAssistantService {
      * ‏מהם בשקט.
      */
     private readonly billing: BillingService,
+    /*
+     * ‎`RecruitmentAdService` — שלט „למכירה” מצולם הופך לנכס
+     * ‏לגיוס. הוא כותב דרך `RecruitmentService.create`, אותו
+     * ‏מסלול של הטופס, ולא בעצמו.
+     */
+    private readonly ads: RecruitmentAdService,
   ) {}
 
   /**
@@ -556,7 +563,7 @@ export class WhatsAppAssistantService {
     }
 
     const asText = button === null ? null : buttonAsText(button.action, button.arg);
-    const spoken = asText === null ? await this.extractText(msg) : { text: asText };
+    const spoken = asText === null ? await this.extractText(msg, context) : { text: asText };
     if ("reply" in spoken && spoken.reply !== undefined) {
       await this.sender.sendText(msg.fromWaId, spoken.reply, { replyTo: msg.externalId });
       await this.saveChat(user.tenantId, user.id, chat);
@@ -1312,9 +1319,47 @@ export class WhatsAppAssistantService {
   /*  תוכן ההודעה                                                        */
   /* ------------------------------------------------------------------ */
 
+  /**
+   * ‎**תמונה של מודעה ⟵ נכס לגיוס.**
+   *
+   * ‏המתווך רואה שלט „למכירה” ברחוב, מצלם, ושולח. עד עכשיו הוא
+   * ‏קיבל „עוד לא נתמך, בקרוב” — כלומר המערכת ראתה בדיוק את הרגע
+   * ‏שבו נכס לגיוס נולד, ולא עשתה איתו דבר.
+   *
+   * ‏רץ בתוך `TenantContext` כי הכתיבה עוברת ב-`RecruitmentService`
+   * ‏— אותו מסלול של הטופס, עם אותה בדיקת דייר ואותו `createdBy`.
+   *
+   * ‎**כשל אינו זורק.** תמונה שהמודל לא קרא, מודל שאינו מוגדר,
+   * ‏מדיה שלא ירדה — כולם חוזרים כמשפט. הודעת „משהו השתבש אצלי”
+   * ‏על שלט מצולם היא בדיוק הרגע שבו מתווך מפסיק לנסות את
+   * ‏היכולת הזו.
+   */
+  private async adFromImage(msg: AssistantInbound, context: RequestContext): Promise<string> {
+    if (msg.mediaId === undefined) return "לא הצלחתי לקרוא את התמונה — נסו לשלוח אותה שוב.";
+    const media = await this.sender.downloadMedia(msg.mediaId);
+    if (media === null) return "לא הצלחתי להוריד את התמונה — נסו לשלוח אותה שוב.";
+    try {
+      const created = await TenantContext.run(context, () => this.ads.fromImage(media));
+      return created === null ? RecruitmentAdService.unreadable : created.summary;
+    } catch (error) {
+      this.logger.error(`קריאת מודעה מצולמת נכשלה: ${String(error)}`);
+      return "לא הצלחתי לקרוא את המודעה כרגע — נסו שוב בעוד רגע, או כתבו לי את הפרטים.";
+    }
+  }
+
   /** טקסט מוכן לפירוש, או תשובה מוכנה כשאין מה לפרש. */
   private async extractText(
     msg: AssistantInbound,
+    /*
+     * ‎**ההקשר נכנס במפורש, ולא נקרא מ-`TenantContext.current()`.**
+     *
+     * ‏הפונקציה הזו רצה **מחוץ** להקשר הדייר — היא קודמת ל-
+     * ‎`TenantContext.run` שעוטף את השיחה — ורוב מה שהיא עושה
+     * ‏(טקסט, תמלול) אינו נוגע במסד. תמונה של מודעה כן: היא
+     * ‏פותחת שורת גיוס. קריאה ל-`current()` כאן הייתה נכשלת,
+     * ‏והנחה שהיא תעבוד היא בדיוק סוג הבאג שמתגלה רק בשטח.
+     */
+    context: RequestContext,
   ): Promise<{ text?: string; transcribed?: boolean; reply?: string }> {
     if (msg.type === "text") {
       const text = (msg.text ?? "").trim();
@@ -1362,12 +1407,7 @@ export class WhatsAppAssistantService {
         clearTimeout(notice);
       }
     }
-    if (msg.type === "image") {
-      return {
-        reply:
-          "קיבלתי תמונה — צירוף תמונות לנכס דרך וואטסאפ עוד לא נתמך, בקרוב. בינתיים אפשר לכתוב או להקליט לי בקשות.",
-      };
-    }
+    if (msg.type === "image") return { reply: await this.adFromImage(msg, context) };
     return { reply: "אני יודע לטפל כרגע בטקסט ובהודעות קוליות." };
   }
 

@@ -48,7 +48,7 @@ import type { Capability } from "../rbac.js";
 import type { PlanFeature } from "../logic/plans.js";
 import type { AgentFieldSpec } from "./field-spec.js";
 import { PROPERTY_FACING_LABELS } from "../schemas/property.js";
-import type { PropertyType } from "../schemas/property.js";
+import { DEAL_TYPE_LABELS, PROPERTY_TYPE_LABELS } from "./vocabulary.js";
 import {
   MENTOR_GOAL_PERIODS,
   MENTOR_GOAL_TARGET_MAX,
@@ -205,39 +205,7 @@ export interface AgentActionDef {
 // אוצר המונחים — תוויות הערכים, פעם אחת לכל המערכת
 // ---------------------------------------------------------------------------
 
-const DEAL_TYPE_LABELS = { sale: "מכירה", rent: "השכרה" } as const;
 
-const PROPERTY_TYPE_LABELS = {
-  apartment: "דירה",
-  garden_apartment: "דירת גן",
-  penthouse: "פנטהאוז",
-  duplex: "דופלקס",
-  private_house: "בית פרטי",
-  two_family: "דו משפחתי",
-  studio: "סטודיו",
-  unit: "יחידת דיור",
-  shared_tabu: "טאבו משותף",
-  divisible_apartment: "דירה מתאימה לחלוקה",
-  accessible_apartment: "דירת נכה",
-  plot: "מגרש",
-  commercial: "מסחרי (לא צוין)",
-  commercial_shop: "חנות",
-  commercial_office: "משרד",
-  commercial_warehouse: "מחסן",
-  commercial_industrial: "תעשייה",
-  commercial_basement: "מרתף",
-  commercial_building: "בניין",
-  commercial_logistics: 'מרלו"ג',
-  commercial_parking: "חניה",
-  commercial_gas_station: "תחנת דלק",
-  other: "אחר",
-  /*
-   * ‎`satisfies` ולא רק `as const`: הקטלוג הזה הוא מה שהסוכן הקולי
-   * מקבל כרשימת הערכים החוקיים, וסוג שחסר בו פשוט אינו קיים בשבילו
-   * — המתווך אומר „דירת נכה” והסוכן עונה שאינו מכיר סוג כזה. השגיאה
-   * הזו שייכת להידור ולא לשיחה עם לקוח.
-   */
-} as const satisfies Record<PropertyType, string>;
 
 const FEATURE_LABELS = {
   hasElevator: "מעלית",
