@@ -888,6 +888,22 @@ export class PropertiesService {
     } = patch;
 
     /*
+     * ‎**ריקון הוא שינוי בשדה, ולא שינוי בשדה „clearFields”.**
+     *
+     * ‏הרשימה נבנתה מ-`Object.keys(patch)` בלבד, ולכן מחיקת מצב
+     * ‏הנכס (או החזית, או מספר הבית) דיווחה `["clearFields"]` —
+     * ‏ואוטומציה של המשרד שמותנית ב„מצב הנכס השתנה” לא רצה בדיוק
+     * ‏ברגע שהוא נמחק. שם השדה הוא מה שהמשרד הגדיר בתנאי, ולכן
+     * ‏הוא מה שנרשם — גם בביקורת וגם באירוע (ביקורת Codex).
+     */
+    const changedFields = [
+      ...new Set([
+        ...Object.keys(patch).filter((key) => key !== "clearFields"),
+        ...(clearFields ?? []),
+      ]),
+    ];
+
+    /*
      * ירידת מחיר — הזדמנות, לא עוד עריכה.
      *
      * נלכדת כאן ונוסעת עד ההתראה, כדי שהיא תגיד "הורדת המחיר פתחה 3
@@ -1195,7 +1211,7 @@ export class PropertiesService {
         action: "property.update",
         entityType: "property",
         entityId: id,
-        metadata: { changedFields: Object.keys(patch) },
+        metadata: { changedFields },
       });
       /*
        * ‎**ההעברה נרשמת בנפרד, ועם שני הצדדים.**
@@ -1237,7 +1253,7 @@ export class PropertiesService {
       await this.outbox.emit(tx, "property.updated", {
         propertyId: id,
         tenantId,
-        changedFields: Object.keys(patch),
+        changedFields,
       });
     });
 

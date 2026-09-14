@@ -90,6 +90,67 @@ describe("הבקר מתרגם null לריקון", () => {
   });
 });
 
+/**
+ * ‎**ריקון הוא שינוי בשדה, ולא שינוי בשדה „clearFields”.**
+ *
+ * ‏הרשימה נבנתה מ-`Object.keys(patch)` בלבד, ולכן מחיקת מצב הנכס
+ * ‏דיווחה `["clearFields"]` — ואוטומציה של המשרד שמותנית ב„מצב
+ * ‏הנכס השתנה” (`property.updated` עם `changedFields`, ראו
+ * ‏`logic/custom-automations.ts`) לא רצה בדיוק ברגע שהוא נמחק
+ * ‏(ביקורת Codex). זו בדיקה על המקור עצמו, כי החישוב יושב בתוך
+ * ‏עסקה שדורשת מסד.
+ */
+describe("רשימת השדות שהשתנו כוללת את מה שרוקן", () => {
+  const SERVICE = readFileSync(
+    new URL("./properties.service.ts", import.meta.url),
+    "utf8",
+  );
+
+  it("clearFields נפרשת לשמות ואינה נרשמת כשם שדה", () => {
+    expect(SERVICE).toContain('...Object.keys(patch).filter((key) => key !== "clearFields")');
+    expect(SERVICE).toContain("...(clearFields ?? [])");
+  });
+
+  /* ‏שני הצרכנים — הביקורת והאירוע — קוראים מאותה רשימה */
+  it("והביקורת והאירוע קוראים את אותה רשימה", () => {
+    expect(SERVICE).toContain("metadata: { changedFields },");
+    expect(SERVICE).not.toContain("changedFields: Object.keys(patch)");
+  });
+});
+
+/**
+ * ‎**הפקד אינו מוחק מה שהוא אינו יודע להציג.**
+ *
+ * ‏שורה ישנה שנושאת `preserved` לא סימנה שום צ׳יפ, השדה החבוי יצא
+ * ‏ריק, וטופס העריכה תרגם ריק ל-`null` — כלומר שמירה של המחיר
+ * ‏הייתה מוחקת את מצב הנכס בשקט (ביקורת Codex).
+ */
+describe("הפקד שומר ערך שאינו בקטלוג", () => {
+  const FIELD = readFileSync(
+    new URL("../../../../web/src/app/properties/condition-field.tsx", import.meta.url),
+    "utf8",
+  );
+
+  it("המצב ההתחלתי הוא הערך שנשמר, בלי נרמול", () => {
+    expect(FIELD).toContain('useState<string>(value ?? "")');
+  });
+
+  /*
+   * ‎`find` על הקטלוג הוא הנרמול שמחזיר `undefined` לערך ישן, ומשם
+   * ‏המסלול ישר למחיקה השקטה. הוא אסור בקובץ הזה בכל צורה — גם
+   * ‏פרוס על שתי שורות.
+   */
+  it("ואין סינון מול הקטלוג שמאפס אותו", () => {
+    expect(FIELD).not.toContain("PROPERTY_CONDITIONS.find");
+  });
+
+  /* ‏ערך ישן נראה למתווך — אחרת אין לו דרך לדעת שיש שם משהו לנקות */
+  it("והוא מוצג כצ׳יפ מסומן שאפשר לנקות", () => {
+    expect(FIELD).toContain("propertyConditionLabel(picked) ?? picked");
+    expect(FIELD).toContain('onClick={() => setPicked("")}');
+  });
+});
+
 describe("המעבר לעמודה", () => {
   it("ערך נכתב, וריקון נכתב כ-NULL", () => {
     expect(fieldsToColumns({ condition: "new" }).condition).toBe("new");
