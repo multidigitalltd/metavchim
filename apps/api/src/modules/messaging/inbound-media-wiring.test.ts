@@ -58,7 +58,24 @@ function mediaTypesConsumed(): string[] {
       }
       const statement = branch.parent;
       const body = statement === undefined ? "" : statement.getText(file);
-      if (body.includes("mediaId") || body.includes("fromImage") || body.includes("downloadMedia")) {
+      /*
+       * ‎**קפיצה אחת פנימה, ולא רשימת מילות מפתח.**
+       *
+       * ‏הענף של „קובץ” אינו נוגע ב-`mediaId` בעצמו — הוא קורא
+       * ‏ל-`documentArrived`, ושם זה קורה. גרסה שבדקה מילים
+       * ‏בגוף ה-`if` בלבד הייתה מחזירה „אין סוג כזה”, כלומר
+       * ‏עוברת בשקט על הפער שהיא נכתבה כדי לתפוס — ושער שעובר
+       * ‏על כלום גרוע משער שאינו קיים.
+       *
+       * ‏לכן גם הגוף של כל מתודה שהענף קורא לה נסרק. עומק אחד
+       * ‏מספיק כאן ואינו מתיימר להיות גרף קריאות.
+       */
+      const searched = [body, ...calledBodies(body, file)].join("\n");
+      if (
+        searched.includes("mediaId") ||
+        searched.includes("fromImage") ||
+        searched.includes("downloadMedia")
+      ) {
         found.add(node.right.text);
       }
     }
@@ -66,6 +83,24 @@ function mediaTypesConsumed(): string[] {
   };
   ts.forEachChild(file, visit);
   return [...found];
+}
+
+/** ‏הגופים של המתודות ש-`body` קורא להן — `this.x(` — ברמה אחת. */
+function calledBodies(body: string, file: ts.SourceFile): string[] {
+  const names = [...body.matchAll(/this\.(\w+)\(/gu)].map((m) => m[1]);
+  const bodies: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isMethodDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      names.includes(node.name.text)
+    ) {
+      bodies.push(node.getText(file));
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(file, visit);
+  return bodies;
 }
 
 describe("מדיה נכנסת — הוובהוק והסוכן מסכימים", () => {

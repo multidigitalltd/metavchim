@@ -95,16 +95,22 @@ describe("שורת גיוס אינה מגיעה למסלולי הנכס", () => 
  * ‏„זה בסך הכול נכסים, נשתמש באותו מסלול” הוא בדיוק השינוי שנראה
  * ‏כמו ניקוי כפילות ומכניס מודעות שהמשרד אינו מייצג להתאמות,
  * ‏לרשת שיתופי הפעולה ולהצעות. הבדיקה מעוגנת ב**גוף המתודה** ולא
- * ‏בקובץ: `import.controller.ts` מייבא גם נכסים, גם קונים וגם
- * ‏לידים, ולכן סריקה על הקובץ כולו הייתה חסרת משמעות.
+ * ‏בקובץ: `import-write.service.ts` מייבא גם קונים וגם לידים, ולכן
+ * ‏סריקה על הקובץ כולו הייתה חסרת משמעות.
  */
 describe("ייבוא לגיוס כותב לגיוס בלבד", () => {
-  const IMPORT = readFileSync(join(MODULES, "import", "import.controller.ts"), "utf8");
+  /*
+   * ‎**השירות ולא הבקר.** הלולאה עברה ל-`ImportWriteService` ביום
+   * ‏שנוסף לה קורא שני — קובץ שנשלח בוואטסאפ. שער שנשאר מכוון
+   * ‏לקובץ שאינו מחזיק עוד את הקוד הוא שער שעובר על כלום, וזו
+   * ‏הצורה המסוכנת ביותר של בדיקה ירוקה.
+   */
+  const IMPORT = readFileSync(join(MODULES, "import", "import-write.service.ts"), "utf8");
 
-  /** ‏גוף `importRecruitment` — מהחתימה ועד הסוגר של המתודה. */
+  /** ‏גוף `recruitmentRows` — מהחתימה ועד הסוגר של המתודה. */
   const body = (): string => {
-    const start = IMPORT.indexOf("async importRecruitment(");
-    expect(start, "המתודה importRecruitment לא נמצאה").toBeGreaterThan(-1);
+    const start = IMPORT.indexOf("async recruitmentRows(");
+    expect(start, "המתודה recruitmentRows לא נמצאה").toBeGreaterThan(-1);
     const rest = IMPORT.slice(start);
     const end = rest.indexOf("\n  }\n");
     expect(end, "לא נמצא סוף המתודה").toBeGreaterThan(-1);
@@ -117,6 +123,15 @@ describe("ייבוא לגיוס כותב לגיוס בלבד", () => {
 
   it("אינו נוגע בשירות הנכסים", () => {
     expect(body()).not.toMatch(/this\.properties\./u);
+  });
+
+  /*
+   * ‎**וגם השירות כולו אינו מכיר נכסים.** הבדיקה על גוף המתודה
+   * ‏תופסת קריאה בתוכה; זו תופסת את הצעד שלפניה — הזרקת
+   * ‎`PropertiesService` לשירות „בשביל מקרה עתידי”.
+   */
+  it("ושירות הכתיבה כולו אינו מזריק את שירות הנכסים", () => {
+    expect(IMPORT).not.toContain("PropertiesService");
   });
 
   it("מאמת מול אותה סכימה שהטופס שולח", () => {
