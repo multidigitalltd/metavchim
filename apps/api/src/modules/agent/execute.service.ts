@@ -45,6 +45,7 @@ import {
   isSupportWaiting,
   jerusalemDayRange,
   mayUseAction,
+  checkActionParams,
   pendingMissedCalls,
   rankCallbacks,
   CALL_CONVERT_NONE,
@@ -445,6 +446,7 @@ export class AgentExecuteService {
 
   async execute(
     actionId: string,
+    /* ‏אינו `readonly`: `checkActionParams` מחליף אותו במפורש */
     params: Record<string, unknown>,
     /** המשפט המקורי — לניסוח התובנה על תוצאות שאילתה בלבד */
     transcript?: string,
@@ -462,6 +464,26 @@ export class AgentExecuteService {
     if (!mayUseAction(action, ctx.capabilities)) {
       throw new ForbiddenException(`אין לך הרשאה ל${action.title}`);
     }
+
+    /*
+     * ‎**והשער השני: הערכים, ולא רק המפתחות.**
+     *
+     * ‏הצמצום ב-`/agent/execute` העתיק פרמטרים **לפי שם השדה
+     * ‏בלבד** ולא נגע בערך. כלומר `values` בקטלוג הגביל את מה
+     * ‏שהמודל **מתבקש לייצר**, ולא את מה שהמסלול **מקבל**: מי
+     * ‏שמחובר יכול היה לשלוח `memberRole: "owner"` ולפתוח חשבון
+     * ‏בעלים עם `billing.manage`, שאינו הפיך מהמסך (ביקורת Codex,
+     * ‏P1 על #493).
+     *
+     * ‎**כאן ולא בבקר**, מאותו נימוק שהשער שמעליו יושב כאן: הסוכן
+     * ‏בוואטסאפ אינו עובר בבקר. בדיקה שם הייתה סוגרת ערוץ אחד
+     * ‏מתוך שניים — בדיוק צורת התקלה שהיא באה למנוע.
+     *
+     * ‏התוצאה מחליפה את `params`: ריק ירד, והשאר עבר כמו שהוא.
+     */
+    const checked = checkActionParams(action, params);
+    if (!checked.ok) throw new BadRequestException(checked.message);
+    params = checked.params;
 
     /*
      * ‎**זכאות המסלול — כאן, פעם אחת.**
