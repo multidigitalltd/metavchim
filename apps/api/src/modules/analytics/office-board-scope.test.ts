@@ -74,6 +74,23 @@ describe("התקופה", () => {
     expect(BOARD).toContain("periodStart(period, now)");
     expect(BOARD).not.toContain("setMonth(");
   });
+
+  /*
+   * ‎**החלון חסום משני צדדיו — גם הנוכחי.**
+   *
+   * ‏הפגישות מסוננות לפי `startsAt`, שהוא הזמן ש**נקבע** ולא זמן
+   * ‏ההתרחשות. חלון פתוח מלמעלה היה סופר עכשיו כל פגישה עתידית —
+   * ‏גם של השנה הבאה — מנפח את הניקוד ומשנה את הדירוג של התקופה
+   * ‏המוצגת (ביקורת Codex). `to` חובה בחתימה, כדי שקורא חדש לא
+   * ‏יוכל לפתוח חלון בהשמטה.
+   */
+  it("גם החלון הנוכחי חסום מלמעלה", () => {
+    expect(BOARD, "החתימה מאפשרת חלון פתוח").not.toMatch(/to\?:\s*Date/u);
+    expect(BOARD).toContain("periodEnd(period, now)");
+    expect(BOARD).toContain("window(start, until)");
+    const range = /const range = ([^;]+);/u.exec(BOARD)?.[1] ?? "";
+    expect(range, "טווח בלי גבול עליון").toContain("lt:");
+  });
 });
 
 describe("היעד והניקוד", () => {
@@ -84,6 +101,30 @@ describe("היעד והניקוד", () => {
   it("רק יעד חודשי פעיל נספר", () => {
     expect(BOARD).toContain('period: "month"');
     expect(BOARD).toContain("endedAt: null");
+  });
+
+  /*
+   * ‎**והיעד נמדד מול המונה שלו, לא מול הניקוד.**
+   *
+   * ‏„2 עסקאות” מול ניקוד משוקלל 47 אינו יחס שאומר משהו, והמספר
+   * ‏שהתקבל נראה כמו אחוז והיה רעש. `metric` חייב להישלף, וההשוואה
+   * ‏נעשית ב-`boardGoal` שבחבילה המשותפת (ביקורת Codex).
+   */
+  it("היעד נמדד מול המונה שלו, ולא מול הניקוד", () => {
+    expect(BOARD, "ה-metric של היעד אינו נשלף").toContain("metric: true");
+    expect(BOARD).toContain("boardGoal(row.counts");
+    expect(BOARD, "הניקוד מושווה ליעד").not.toMatch(/boardGoal\(\s*row\.score/u);
+  });
+
+  /*
+   * ‎**„חודש ראשון” מתאריך ההצטרפות, ולא מניקוד אפס.**
+   *
+   * ‏סוכן ותיק שהיה חודש בחופשה יוצא מהדירוג הקודם בדיוק כמו מי
+   * ‏שהצטרף היום, ו„חודש ראשון” עליו הוא שקר (ביקורת Codex).
+   */
+  it("„חודש ראשון” נקבע מתאריך ההצטרפות", () => {
+    expect(BOARD, "createdAt אינו נשלף").toMatch(/createdAt:\s*true/u);
+    expect(BOARD).toContain("row.joinedAt >= start");
   });
 
   /*

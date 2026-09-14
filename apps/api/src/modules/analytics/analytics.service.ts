@@ -4,13 +4,15 @@ import {
   boardMovement,
   boardScore,
   delta,
-  goalPercent,
+  boardGoal,
+  periodEnd,
   periodStart,
   periodTitle,
   previousPeriodTitle,
   superlative,
   type BoardCounts,
   type BoardMetric,
+  type BoardGoal,
   type BoardMovement,
   type BoardPeriod,
   type Superlative,
@@ -67,8 +69,13 @@ export interface BoardRow {
   score: number;
   rank: number;
   movement: BoardMovement;
-  /** ‏אחוז מהיעד החודשי שהסוכן קבע במנטור; `null` = לא קבע */
-  goalPercent: number | null;
+  /**
+   * ‏היעד החודשי שהסוכן קבע במנטור, מדד מול אותו מדד.
+   *
+   * ‎`null` = לא קבע יעד שהטבלה יודעת למדוד, או שהלשונית אינה
+   * ‏החודש — יעד חודשי מול מוני רבעון אינו אחוז שאומר משהו.
+   */
+  goal: BoardGoal | null;
 }
 
 export interface OfficeBoard {
@@ -331,16 +338,28 @@ export class AnalyticsService {
     const tenantId = TenantContext.current().tenantId;
     const start = periodStart(period, now);
     const prevStart = periodStart(period, new Date(start.getTime() - 1));
+    /*
+     * ‎**גם החלון הנוכחי חסום מלמעלה.**
+     *
+     * ‏הפגישות מסוננות לפי `startsAt` — הזמן שנקבע, לא זמן
+     * ‏ההתרחשות — ולכן חלון פתוח היה סופר עכשיו כל פגישה עתידית,
+     * ‏מנפח את הניקוד ומשנה את הדירוג של התקופה המוצגת
+     * ‏(ביקורת Codex). הגבול הוא **המוקדם מבין** סוף התקופה
+     * ‏ועכשיו: פגישה שנקבעה ל-28 בחודש אינה ביצוע ב-5 בו.
+     */
+    const end = periodEnd(period, now);
+    const until = now < end ? now : end;
 
     return this.prisma.withTenant(async (tx) => {
       const users = await tx.user.findMany({
         where: { tenantId, isActive: true },
-        select: { id: true, name: true, role: true },
+        /* ‎`createdAt` — כדי להבחין בין „חודש ראשון” ל„לא היה בדירוג” */
+        select: { id: true, name: true, role: true, createdAt: true },
         orderBy: { name: "asc" },
       });
 
-      const window = async (from: Date, to?: Date): Promise<Map<string, BoardCounts>> => {
-        const range = to === undefined ? { gte: from } : { gte: from, lt: to };
+      const window = async (from: Date, to: Date): Promise<Map<string, BoardCounts>> => {
+        const range = { gte: from, lt: to };
         const [calls, leads, properties, viewings, deals] = await Promise.all([
           tx.call.groupBy({
             by: ["agentUserId"],
@@ -392,7 +411,10 @@ export class AnalyticsService {
         return map;
       };
 
-      const [current, previous] = await Promise.all([window(start), window(prevStart, start)]);
+      const [current, previous] = await Promise.all([
+        window(start, until),
+        window(prevStart, start),
+      ]);
 
       /*
        * ‎**היעד החודשי — מהמנטור, ולא מטבלה שנייה.**
@@ -400,12 +422,25 @@ export class AnalyticsService {
        * ‏זה היעד ש**הסוכן קבע לעצמו**, וזו כל הסיבה שעמודת „יעד
        * ‏חודשי” בטבלה אינה מדד שהמנהל כפה. יעד שהסתיים
        * ‎(`endedAt`) אינו נספר: הוא של תקופה שנגמרה.
+       *
+       * ‎**ורק בלשונית החודש.** היעדים כאן הם `period: "month"`,
+       * ‏והשוואה שלהם למונים של רבעון או שנה הייתה מציגה אחוז
+       * ‏שאינו אומר דבר. `metric` נשלף כי ההשוואה היא מדד מול
+       * ‏אותו מדד — ראו `boardGoal` (ביקורת Codex).
        */
-      const goals = await tx.mentorGoal.findMany({
-        where: { tenantId, period: "month", endedAt: null },
-        select: { userId: true, target: true },
-      });
-      const goalBy = new Map(goals.map((g) => [g.userId, g.target]));
+      const goals =
+        period === "month"
+          ? await tx.mentorGoal.findMany({
+              where: { tenantId, period: "month", endedAt: null },
+              select: { userId: true, metric: true, target: true },
+            })
+          : [];
+      const goalsBy = new Map<string, { metric: string; target: number }[]>();
+      for (const goal of goals) {
+        const list = goalsBy.get(goal.userId) ?? [];
+        list.push({ metric: goal.metric, target: goal.target });
+        goalsBy.set(goal.userId, list);
+      }
 
       const empty: BoardCounts = { calls: 0, leads: 0, properties: 0, viewings: 0, deals: 0 };
       const ranked = (counts: Map<string, BoardCounts>): Map<string, number> => {
@@ -422,7 +457,14 @@ export class AnalyticsService {
         .map((u) => {
           const counts = current.get(u.id) ?? empty;
           const score = boardScore(counts);
-          return { userId: u.id, name: u.name, role: u.role, counts, score };
+          return {
+            userId: u.id,
+            name: u.name,
+            role: u.role,
+            joinedAt: u.createdAt,
+            counts,
+            score,
+          };
         })
         .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "he"));
 
@@ -430,8 +472,18 @@ export class AnalyticsService {
       const rowsWithRank: BoardRow[] = rows.map((row, i) => ({
         ...row,
         rank: i + 1,
-        movement: boardMovement(i + 1, prevRank.get(row.userId) ?? null, total),
-        goalPercent: goalPercent(row.score, goalBy.get(row.userId) ?? null),
+        /*
+         * ‎**„חודש ראשון” נקבע מתאריך ההצטרפות, ולא מניקוד אפס.**
+         * ‏סוכן ותיק שהיה חודש בחופשה יוצא גם הוא מהדירוג הקודם,
+         * ‏ו„חודש ראשון” עליו הוא שקר (ביקורת Codex).
+         */
+        movement: boardMovement(
+          i + 1,
+          prevRank.get(row.userId) ?? null,
+          total,
+          row.joinedAt >= start,
+        ),
+        goal: boardGoal(row.counts, goalsBy.get(row.userId) ?? []),
       }));
 
       const sum = (map: Map<string, BoardCounts>, key: keyof BoardCounts): number =>

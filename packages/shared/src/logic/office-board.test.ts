@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  BOARD_PERIODS,
   BOARD_WEIGHTS,
   boardFormulaText,
+  boardGoal,
   boardMovement,
   boardScore,
   delta,
-  goalPercent,
   initials,
   movementLabel,
+  periodEnd,
   periodStart,
   periodTitle,
   previousPeriodTitle,
@@ -59,15 +61,38 @@ describe("התנועה מול התקופה הקודמת", () => {
    * ‏בחודש הראשון היא קבלת פנים גרועה.
    */
   it("מי שהתחיל החודש אינו מדורג בשפת התנועה", () => {
-    expect(boardMovement(9, null, 11)).toEqual({ kind: "new" });
-    expect(movementLabel(boardMovement(9, null, 11))).toBe("חודש ראשון");
+    expect(boardMovement(9, null, 11, true)).toEqual({ kind: "new" });
+    expect(movementLabel(boardMovement(9, null, 11, true), "month")).toBe("חודש ראשון");
+  });
+
+  /*
+   * ‎**„חודש ראשון” על ותיק שהיה בחופשה הוא שקר.**
+   *
+   * ‏מי שלא צבר ניקוד בתקופה הקודמת יוצא מהדירוג שלה ומקבל
+   * ‎`null` — בדיוק כמו מי שהצטרף היום. ההבחנה נעשית מתאריך
+   * ‏ההצטרפות ולא מהניקוד (ביקורת Codex).
+   */
+  it("ותיק שלא היה בדירוג אינו „חודש ראשון”", () => {
+    expect(boardMovement(9, null, 11, false)).toEqual({ kind: "unranked" });
+    expect(movementLabel({ kind: "unranked" }, "month")).toBe("לא היה בדירוג");
+  });
+
+  /* ‏ו„חודש ראשון” אינו נאמר בלשונית שאינה החודש */
+  it("והתווית מתאימה ללשונית", () => {
+    expect(movementLabel({ kind: "new" }, "month")).toBe("חודש ראשון");
+    expect(movementLabel({ kind: "new" }, "quarter")).toBe("רבעון ראשון");
+    expect(movementLabel({ kind: "new" }, "year")).toBe("שנה ראשונה");
+    /* ‏„חודש” אינו מופיע בלשונית שאינה החודש */
+    for (const period of BOARD_PERIODS.filter((p) => p !== "month")) {
+      expect(movementLabel({ kind: "new" }, period), period).not.toContain("חודש");
+    }
   });
 
   it("עלייה וירידה נמדדות במקומות", () => {
-    expect(boardMovement(1, 3, 11)).toEqual({ kind: "up", places: 2 });
-    expect(boardMovement(5, 4, 11)).toEqual({ kind: "down", places: 1 });
-    expect(movementLabel({ kind: "up", places: 2 })).toBe("עלייה של 2 מקומות");
-    expect(movementLabel({ kind: "down", places: 1 })).toBe("ירידה של מקום");
+    expect(boardMovement(1, 3, 11, false)).toEqual({ kind: "up", places: 2 });
+    expect(boardMovement(5, 4, 11, false)).toEqual({ kind: "down", places: 1 });
+    expect(movementLabel({ kind: "up", places: 2 }, "month")).toBe("עלייה של 2 מקומות");
+    expect(movementLabel({ kind: "down", places: 1 }, "month")).toBe("ירידה של מקום");
   });
 
   /*
@@ -75,13 +100,13 @@ describe("התנועה מול התקופה הקודמת", () => {
    * ‏שינוי” הוא התיאור הנכון ואין מה להוסיף עליו.
    */
   it("תחתית הטבלה מקבלת אמירה, והאמצע לא", () => {
-    expect(boardMovement(9, 9, 11)).toEqual({ kind: "behind" });
-    expect(boardMovement(5, 5, 11)).toEqual({ kind: "same" });
+    expect(boardMovement(9, 9, 11, false)).toEqual({ kind: "behind" });
+    expect(boardMovement(5, 5, 11, false)).toEqual({ kind: "same" });
   });
 
   /* ‏ובטבלה קטנה אין „תחתית” — שליש משלושה הוא שורה אחת */
   it("טבלה קטנה אינה מייצרת „מתחת לקצב”", () => {
-    expect(boardMovement(3, 3, 3)).toEqual({ kind: "same" });
+    expect(boardMovement(3, 3, 3, false)).toEqual({ kind: "same" });
   });
 
   /*
@@ -89,14 +114,15 @@ describe("התנועה מול התקופה הקודמת", () => {
    * ‏של אדם אמיתי, ושם פרטי אינו אומר אותו.
    */
   it("אף תווית אינה בצורה מוטה", () => {
-    const labels = [
-      movementLabel({ kind: "new" }),
-      movementLabel({ kind: "up", places: 1 }),
-      movementLabel({ kind: "up", places: 3 }),
-      movementLabel({ kind: "down", places: 1 }),
-      movementLabel({ kind: "same" }),
-      movementLabel({ kind: "behind" }),
-    ];
+    const labels = BOARD_PERIODS.flatMap((period) => [
+      movementLabel({ kind: "new" }, period),
+      movementLabel({ kind: "unranked" }, period),
+      movementLabel({ kind: "up", places: 1 }, period),
+      movementLabel({ kind: "up", places: 3 }, period),
+      movementLabel({ kind: "down", places: 1 }, period),
+      movementLabel({ kind: "same" }, period),
+      movementLabel({ kind: "behind" }, period),
+    ]);
     for (const label of labels) {
       expect(label, label).not.toMatch(/עלה|עלתה|ירד|ירדה|שומר|שומרת|זקוק|זקוקה/u);
     }
@@ -131,15 +157,82 @@ describe("„הכי הרבה”", () => {
 });
 
 describe("היעד והתצוגה", () => {
+  const row = counts({ calls: 80, leads: 12, properties: 3, viewings: 9, deals: 1 });
+
   /* ‏בלי יעד אין אחוז: „0%” נראה ככישלון של מי שפשוט לא קבע יעד */
   it("בלי יעד אין אחוז", () => {
-    expect(goalPercent(160, null)).toBeNull();
-    expect(goalPercent(160, 0)).toBeNull();
+    expect(boardGoal(row, [])).toBeNull();
+    expect(boardGoal(row, [{ metric: "calls_made", target: 0 }])).toBeNull();
+  });
+
+  /*
+   * ‎**מדד מול אותו מדד.**
+   *
+   * ‏קודם העמודה חילקה את הניקוד המשוקלל ביעד; „2 עסקאות” מול
+   * ‏ניקוד 47 אינו יחס שאומר משהו (ביקורת Codex). עכשיו „2
+   * ‏עסקאות” נמדד מול מונה העסקאות בלבד.
+   */
+  it("היעד נמדד מול המונה שלו, ולא מול הניקוד", () => {
+    const goal = boardGoal(row, [{ metric: "deals_closed", target: 2 }])!;
+    expect(goal.metric).toBe("deals");
+    expect(goal.actual).toBe(1);
+    expect(goal.target).toBe(2);
+    expect(goal.percent).toBe(50);
+    expect(goal.label).toBe("עסקאות");
+  });
+
+  /*
+   * ‎**וכמה יעדים פעילים אינם „האחרון שנקרא”.** הבחירה
+   * ‏דטרמיניסטית: הרחוק ביותר מהיעד, כי זה מה ששווה להסתכל עליו.
+   */
+  it("מכמה יעדים נבחר הרחוק ביותר, תמיד אותו אחד", () => {
+    const goals = [
+      { metric: "calls_made", target: 100 },
+      { metric: "deals_closed", target: 4 },
+      { metric: "new_properties", target: 4 },
+    ];
+    const picked = boardGoal(row, goals)!;
+    expect(picked.metric).toBe("deals");
+    expect(picked.percent).toBe(25);
+    expect(boardGoal(row, [...goals].reverse())).toEqual(picked);
+  });
+
+  /*
+   * ‏מדד שהטבלה אינה סופרת אינו מושווה למשהו קרוב לו: „לידים
+   * ‏שנענו” אינו „לידים שנכנסו”, וההשוואה ביניהם הייתה אותה
+   * ‏טעות בלבוש אחר.
+   */
+  it("יעד שהטבלה אינה מודדת אינו מוצג", () => {
+    expect(boardGoal(row, [{ metric: "leads_answered", target: 20 }])).toBeNull();
+    expect(boardGoal(row, [{ metric: "new_buyers", target: 5 }])).toBeNull();
+    expect(boardGoal(row, [{ metric: "constructor", target: 5 }])).toBeNull();
   });
 
   it("והפס אינו גולש מעבר למאה", () => {
-    expect(goalPercent(300, 100)).toBe(100);
-    expect(goalPercent(89, 100)).toBe(89);
+    const over = boardGoal(row, [{ metric: "calls_made", target: 40 }])!;
+    expect(over.percent).toBe(100);
+    expect(over.actual, "המספרים עצמם מראים את העודף").toBe(80);
+  });
+
+  /*
+   * ‎**סוף התקופה חוסם את החלון מלמעלה.** בלעדיו פגישה שנקבעה
+   * ‏לחודש הבא הייתה נספרת כבר עכשיו (ביקורת Codex).
+   */
+  it("סוף התקופה הוא תחילת הבאה", () => {
+    const mid = new Date("2026-08-14T09:00:00.000Z");
+    expect(periodEnd("month", mid)).toEqual(periodStart("month", new Date("2026-09-14T09:00:00.000Z")));
+    expect(periodEnd("quarter", mid)).toEqual(periodStart("quarter", new Date("2026-10-14T09:00:00.000Z")));
+    expect(periodEnd("year", mid)).toEqual(periodStart("year", new Date("2027-02-14T09:00:00.000Z")));
+  });
+
+  /* ‏וסוף דצמבר מגלגל שנה, ולא נוחת בחודש 13 */
+  it("דצמבר מתגלגל לינואר של השנה הבאה", () => {
+    const dec = new Date("2026-12-20T09:00:00.000Z");
+    for (const period of BOARD_PERIODS) {
+      const end = periodEnd(period, dec);
+      expect(end.getTime(), period).toBeGreaterThan(periodStart(period, dec).getTime());
+      expect(periodTitle(period, end), period).toContain("2027");
+    }
   });
 
   it("ראשי תיבות משתי מילים", () => {

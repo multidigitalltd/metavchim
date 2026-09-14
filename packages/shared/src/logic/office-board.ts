@@ -100,11 +100,16 @@ export function boardScore(counts: BoardCounts): number {
 /**
  * ‎**התנועה מול התקופה הקודמת — של אותו סוכן.**
  *
- * ‎`null` בתור `previousRank` = לא היה בתקופה הקודמת, ואז אין
- * ‏תנועה למדוד: „חודש ראשון” ולא „ירידה”.
+ * ‎`null` בתור `previousRank` = לא היה מדורג בתקופה הקודמת, ואז
+ * ‏אין תנועה למדוד. אבל **אין די בזה כדי לומר „חודש ראשון”**:
+ * ‏סוכן ותיק שהיה חודש בחופשה מקבל אף הוא `null`, ו„חודש ראשון”
+ * ‏עליו הוא פשוט שקר (ביקורת Codex). לכן שני מצבים נפרדים, וההפרדה
+ * ‏ביניהם נעשית מתאריך ההצטרפות ולא מהניקוד.
  */
 export type BoardMovement =
   | { kind: "new" }
+  /** ‏היה כאן, ולא היה בדירוג של התקופה הקודמת */
+  | { kind: "unranked" }
   | { kind: "up"; places: number }
   | { kind: "down"; places: number }
   | { kind: "same" }
@@ -116,8 +121,10 @@ export function boardMovement(
   previousRank: number | null,
   /** ‏כמה יש בטבלה — כדי לדעת מה „התחתית” */
   total: number,
+  /** ‏האם התקופה הזו היא הראשונה של הסוכן במשרד */
+  isFirstPeriod: boolean,
 ): BoardMovement {
-  if (previousRank === null) return { kind: "new" };
+  if (previousRank === null) return isFirstPeriod ? { kind: "new" } : { kind: "unranked" };
   if (previousRank > rank) return { kind: "up", places: previousRank - rank };
   if (previousRank < rank) return { kind: "down", places: rank - previousRank };
   /*
@@ -129,10 +136,22 @@ export function boardMovement(
   return { kind: "same" };
 }
 
-export function movementLabel(movement: BoardMovement): string {
+/**
+ * ‏„חודש ראשון” נכון רק בלשונית החודש. ברבעון ובשנה הוא היה
+ * ‏אומר דבר שאינו נכון על אותה שורה בדיוק (ביקורת Codex).
+ */
+const FIRST_PERIOD_LABEL: Record<BoardPeriod, string> = {
+  month: "חודש ראשון",
+  quarter: "רבעון ראשון",
+  year: "שנה ראשונה",
+};
+
+export function movementLabel(movement: BoardMovement, period: BoardPeriod): string {
   switch (movement.kind) {
     case "new":
-      return "חודש ראשון";
+      return FIRST_PERIOD_LABEL[period];
+    case "unranked":
+      return "לא היה בדירוג";
     case "up":
       return movement.places === 1 ? "עלייה של מקום" : `עלייה של ${movement.places} מקומות`;
     case "down":
@@ -184,17 +203,78 @@ export function superlativeNote(item: Superlative): string {
 }
 
 /**
- * ‎**אחוז מול היעד החודשי.**
+ * ‎**היעד של המנטור — מדד מול אותו מדד.**
  *
- * ‎`goal` הוא היעד שהסוכן קבע לעצמו במנטור. `null` = לא קבע, ואז
- * ‏אין אחוז להציג — עמודה ריקה עדיפה על „0%” שנראה ככישלון.
+ * ## ‏מה היה כאן, ולמה זה היה שגוי
  *
- * ‏התקרה היא 100 בכוונה: הפס אינו יכול לגלוש מחוץ לתא, ומי שעבר
- * ‏את היעד רואה זאת במספרים עצמם.
+ * ‏קודם העמודה חילקה את **הניקוד המשוקלל** ביעד של המנטור. אבל
+ * ‏יעד במנטור הוא תמיד על מדד מסוים — „100 שיחות”, „2 עסקאות” —
+ * ‏והניקוד הוא סכום של חמישה מדדים שונים במשקלים שונים. „2 עסקאות”
+ * ‏מול ניקוד 47 אינו יחס שאומר משהו, והמספר שהתקבל נראה כמו אחוז
+ * ‏והיה רעש (ביקורת Codex).
+ *
+ * ‏ובאותה נשימה: לסוכן יכולים להיות כמה יעדים חודשיים פעילים
+ * ‏במקביל, ומפה שנבנית מהם שומרת את האחרון שנקרא — כלומר העמודה
+ * ‏הייתה משתנה לפי סדר שאין לו משמעות.
+ *
+ * ## ‏מה כאן במקום
+ *
+ * ‏רק יעדים שהטבלה **יודעת למדוד**, כל אחד מול המונה שלו. כשיש
+ * ‏כמה — נבחר זה שהכי רחוק מהיעד, כי זה מה ששווה להסתכל עליו
+ * ‏בטבלת ביצועים; הבחירה דטרמיניסטית, והמדד מוצג בשמו כדי
+ * ‏שהאחוז יהיה קריא.
  */
-export function goalPercent(score: number, goal: number | null): number | null {
-  if (goal === null || goal <= 0) return null;
-  return Math.min(100, Math.round((score / goal) * 100));
+export const BOARD_GOAL_METRIC: Readonly<Record<string, BoardMetric | "calls">> = {
+  deals_closed: "deals",
+  viewings_held: "viewings",
+  new_properties: "properties",
+  calls_made: "calls",
+};
+/*
+ * ‎**מה במכוון אינו כאן.** `leads_answered` הוא לידים ש**נענו**,
+ * ‏והטבלה סופרת לידים ש**נכנסו** — שני מספרים שונים, והשוואה
+ * ‏ביניהם הייתה חוזרת על אותה טעות בדיוק בלבוש אחר. `new_buyers`
+ * ‏אינו מדד של הטבלה כלל.
+ */
+
+export interface BoardGoal {
+  metric: BoardMetric | "calls";
+  /** ‏שם המדד בעברית — בלעדיו האחוז אינו קריא */
+  label: string;
+  target: number;
+  actual: number;
+  /** ‏מוגבל ל-100: הפס אינו גולש מהתא, והמספרים מראים את העודף */
+  percent: number;
+}
+
+export function boardGoal(
+  counts: BoardCounts,
+  goals: readonly { metric: string; target: number }[],
+): BoardGoal | null {
+  let pick: BoardGoal | null = null;
+  for (const goal of goals) {
+    /*
+     * ‎`Object.hasOwn` לפני הקריאה: אינדוקס רגיל על `Record<string,…>`
+     * ‏מוצא גם את `constructor` שיורש מ-`Object.prototype`, ומחזיר
+     * ‏פונקציה במקום `undefined`. אותה משפחה בדיוק של התקלה
+     * ‏ש-Codex מצא ב-`updateOfficePolicy` — ו**הבדיקה כאן מצאה
+     * ‏אותה שוב**, בקוד שנכתב אחריה.
+     */
+    if (!Object.hasOwn(BOARD_GOAL_METRIC, goal.metric)) continue;
+    const metric = BOARD_GOAL_METRIC[goal.metric];
+    if (metric === undefined || goal.target <= 0) continue;
+    const actual = counts[metric];
+    const candidate: BoardGoal = {
+      metric,
+      label: BOARD_METRIC_LABELS[metric],
+      target: goal.target,
+      actual,
+      percent: Math.min(100, Math.round((actual / goal.target) * 100)),
+    };
+    /* ‏הרחוק ביותר מהיעד; שוויון נשבר לטובת הראשון שנקרא */
+    if (pick === null || candidate.percent < pick.percent) pick = candidate;
+  }
+  return pick;
 }
 
 /** ‏ראשי התיבות שבעיגול — שתי מילים ראשונות, אות מכל אחת. */
@@ -249,6 +329,27 @@ export function periodStart(period: BoardPeriod, now: Date): Date {
    */
   const first = period === "year" ? 1 : (Math.ceil(month / 3) - 1) * 3 + 1;
   return jerusalemWallIsoToUtc(`${year}-${String(first).padStart(2, "0")}-01T00:00:00.000`);
+}
+
+/**
+ * ‎**סוף התקופה (לא כולל) — הגבול העליון שכל השאילתות עוצרות בו.**
+ *
+ * ‏בלעדיו החלון הנוכחי היה פתוח מלמעלה, ופגישה שנקבעה למרץ הבא
+ * ‏הייתה נספרת כבר עכשיו: הפגישות מסוננות לפי `startsAt`, שהוא
+ * ‏הזמן **העתידי** שנקבע ולא זמן ההתרחשות (ביקורת Codex). שאר
+ * ‏המדדים נספרים לפי זמני יצירה ועדכון ולכן אינם יכולים להיות
+ * ‏בעתיד — אבל חלון חסום לכולם הוא כלל אחד במקום ארבעה.
+ */
+export function periodEnd(period: BoardPeriod, now: Date): Date {
+  const [year, month] = jerusalemWallParts(now).date.split("-").map(Number) as [number, number];
+  if (period === "year") return jerusalemWallIsoToUtc(`${year + 1}-01-01T00:00:00.000`);
+  const first =
+    period === "quarter" ? (Math.ceil(month / 3) - 1) * 3 + 1 : month;
+  const step = period === "quarter" ? 3 : 1;
+  const next = first + step;
+  const y = next > 12 ? year + 1 : year;
+  const m = next > 12 ? next - 12 : next;
+  return jerusalemWallIsoToUtc(`${y}-${String(m).padStart(2, "0")}-01T00:00:00.000`);
 }
 
 /** ‏מגמה מול התקופה הקודמת — הפרש מוחלט ואחוז, כשיש ממה. */

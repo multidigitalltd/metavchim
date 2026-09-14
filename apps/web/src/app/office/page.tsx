@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BOARD_PERIOD_LABELS,
   BOARD_PERIODS,
@@ -11,6 +11,7 @@ import {
   movementLabel,
   superlativeNote,
   type BoardMetric,
+  type BoardGoal,
   type BoardMovement,
   type BoardPeriod,
   type Superlative,
@@ -51,7 +52,7 @@ interface BoardRow {
   score: number;
   rank: number;
   movement: BoardMovement;
-  goalPercent: number | null;
+  goal: BoardGoal | null;
 }
 
 interface Board {
@@ -89,14 +90,27 @@ export default function OfficeBoardPage() {
   const [failed, setFailed] = useState(false);
   const [denied, setDenied] = useState(false);
 
+  /*
+   * ‎**מונה בקשות — תשובה של לשונית שכבר עזבו נזרקת.**
+   *
+   * ‏החלפת לשונית פותחת בקשה חדשה, ושתי בקשות יכולות לחזור בסדר
+   * ‏הפוך. בלי המונה, בקשה ישנה שחזרה אחרונה הייתה דורסת את
+   * ‏החדשה: הלשונית המסומנת „שנה” והטבלה של „החודש” — כולל
+   * ‏הכותרת, הדירוג והסיכום (ביקורת Codex).
+   */
+  const request = useRef(0);
+
   const load = useCallback(() => {
     setFailed(false);
+    const mine = (request.current += 1);
     apiGet<Board>(`/analytics/board?period=${period}`)
       .then((data) => {
+        if (mine !== request.current) return;
         setBoard(data);
         setDenied(false);
       })
       .catch((err: unknown) => {
+        if (mine !== request.current) return;
         if (err instanceof ApiError && err.status === 403) {
           setDenied(true);
           return;
@@ -128,7 +142,15 @@ export default function OfficeBoardPage() {
     );
   }
 
-  const leader = board?.rows[0];
+  /*
+   * ‎**מוביל עם אפס נקודות אינו מוביל.**
+   *
+   * ‏הטבלה מחזירה שורה לכל סוכן פעיל, ולכן במשרד מאויש שלא עשה
+   * ‏דבר בתקופה השורה הראשונה היא פשוט הראשון לפי א״ב — והכרטיז
+   * ‏הכהה היה מכריז עליו כמוביל עם 0 נקודות (ביקורת Codex).
+   */
+  const top = board?.rows[0];
+  const leader = top !== undefined && top.score > 0 ? top : null;
 
   return (
     <div className="mv-board">
@@ -168,8 +190,15 @@ export default function OfficeBoardPage() {
         </Notice>
       ) : (
         <>
+          {leader === null ? (
+            <Notice tone="info">
+              יש סוכנים בטבלה, אבל עוד אין ניקוד ב{board.title}. הניקוד מתמלא
+              מלידים, נכסים, פגישות ועסקאות — שיחות מופיעות בטבלה ואינן מנקדות.
+            </Notice>
+          ) : null}
+
           <div className="mv-board__top">
-            {leader === undefined ? null : <LeaderCard row={leader} title={board.title} />}
+            {leader === null ? null : <LeaderCard row={leader} title={board.title} period={board.period} />}
             <div className="mv-board__supers">
               {board.superlatives.map((item) => (
                 <article key={item.metric} className="mv-board__super">
@@ -208,7 +237,12 @@ export default function OfficeBoardPage() {
                     <th scope="col">נכסים</th>
                     <th scope="col">פגישות</th>
                     <th scope="col">עסקאות</th>
-                    <th scope="col">יעד חודשי</th>
+                    {/*
+                      ‏היעדים במנטור הם חודשיים, ולכן העמודה קיימת
+                      ‏רק בלשונית החודש — אחוז מול מוני רבעון אינו
+                      ‏אומר דבר.
+                    */}
+                    {board.period === "month" ? <th scope="col">יעד חודשי</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -227,7 +261,7 @@ export default function OfficeBoardPage() {
                           <span className="min-w-0">
                             <span className="mv-board__agentname">{row.name}</span>
                             <span className="mv-board__agentnote">
-                              {formatIsraeliNumber(row.score)} נק׳ · {movementLabel(row.movement)}
+                              {formatIsraeliNumber(row.score)} נק׳ · {movementLabel(row.movement, board.period)}
                             </span>
                           </span>
                         </div>
@@ -237,25 +271,30 @@ export default function OfficeBoardPage() {
                       <td className="tabular-nums">{formatIsraeliNumber(row.counts.properties)}</td>
                       <td className="tabular-nums">{formatIsraeliNumber(row.counts.viewings)}</td>
                       <td className="tabular-nums font-bold">{row.counts.deals}</td>
-                      <td>
-                        {/*
-                          ‏בלי יעד אין פס ואין אחוז: „0%” על מי שפשוט לא
-                          ‏קבע יעד במנטור נקרא ככישלון.
-                        */}
-                        {row.goalPercent === null ? (
-                          <span style={{ color: "var(--color-text-muted)" }}>לא נקבע</span>
-                        ) : (
-                          <span className="mv-board__goal">
-                            <span className="mv-board__bar">
-                              <span
-                                className="mv-board__barfill"
-                                style={{ width: `${row.goalPercent}%` }}
-                              />
+                      {board.period === "month" ? (
+                        <td>
+                          {/*
+                            ‏בלי יעד אין פס ואין אחוז: „0%” על מי שפשוט לא
+                            ‏קבע יעד במנטור נקרא ככישלון. וכשיש — המדד
+                            ‏נאמר בשמו, אחרת האחוז אינו קריא.
+                          */}
+                          {row.goal === null ? (
+                            <span style={{ color: "var(--color-text-muted)" }}>לא נקבע</span>
+                          ) : (
+                            <span className="mv-board__goal">
+                              <span className="mv-board__bar">
+                                <span
+                                  className="mv-board__barfill"
+                                  style={{ width: `${row.goal.percent}%` }}
+                                />
+                              </span>
+                              <span className="tabular-nums">
+                                {row.goal.actual}/{row.goal.target} {row.goal.label}
+                              </span>
                             </span>
-                            <span className="tabular-nums">{row.goalPercent}%</span>
-                          </span>
-                        )}
-                      </td>
+                          )}
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>
@@ -291,7 +330,15 @@ export default function OfficeBoardPage() {
 }
 
 /** ‏הכרטיס הכהה — מי מוביל, וממה הניקוד שלו מורכב. */
-function LeaderCard({ row, title }: { row: BoardRow; title: string }) {
+function LeaderCard({
+  row,
+  title,
+  period,
+}: {
+  row: BoardRow;
+  title: string;
+  period: BoardPeriod;
+}) {
   return (
     <article className="mv-board__leader" aria-label={`המוביל ב${title}`}>
       <p className="mv-board__leadereyebrow">הסוכן המוביל {title}</p>
@@ -301,7 +348,9 @@ function LeaderCard({ row, title }: { row: BoardRow; title: string }) {
         </span>
         <div className="min-w-0">
           <p className="mv-board__leadername">{row.name}</p>
-          <p className="mv-board__leadernote">מוביל בטבלה · {movementLabel(row.movement)}</p>
+          <p className="mv-board__leadernote">
+            מוביל בטבלה · {movementLabel(row.movement, period)}
+          </p>
         </div>
         <p className="mv-board__leaderscore">
           <span>{formatIsraeliNumber(row.score)}</span>
