@@ -2610,7 +2610,23 @@ export class AgentExecuteService {
     } as const;
     const key = String(params["policyKey"] ?? "");
     const state = String(params["policyState"] ?? "");
-    if (!(key in POLICIES)) throw new BadRequestException("לא ברור איזו מדיניות לשנות");
+    /*
+     * ‎**`Object.hasOwn` ולא `in`.**
+     *
+     * ‎`in` מוצא גם את מה שיורש מ-`Object.prototype`, כלומר
+     * ‎`policyKey: "constructor"` היה עובר את השער, `update` היה
+     * ‏מתעלם ממנו בשקט, והפעולה הייתה מדווחת „עודכן” על שינוי
+     * ‏שלא קרה — עם התווית `POLICIES["constructor"]`, שהיא פונקציה
+     * ‏ולא מחרוזת (ביקורת Codex).
+     *
+     * ‎`checkActionParams` שבצוואר הבקבוק כבר חוסם את הערך הזה,
+     * ‏כי `policyKey` הוא `enum` בקטלוג. אבל שער שסומך על הבודק
+     * ‏שמעליו הוא בדיוק התבנית שאנחנו מתקנים: הכלל נאכף במקום
+     * ‏שבו הוא קובע, ולא במקום אחר שבמקרה קודם לו.
+     */
+    if (!Object.hasOwn(POLICIES, key)) {
+      throw new BadRequestException("לא ברור איזו מדיניות לשנות");
+    }
     if (state !== "on" && state !== "off") {
       throw new BadRequestException("לא ברור אם להדליק או לכבות");
     }
