@@ -4,8 +4,10 @@ import {
   accessUntil,
   billingAnchorDay,
   checkoutRejectionReason,
+  describeSubscription,
   effectiveCyclePriceAgorot,
   describeCycle,
+  shekels,
   discountedAgorot,
   isBillingCycle,
   isFreePlan,
@@ -371,6 +373,88 @@ export class BillingService {
       });
       throw error;
     }
+  }
+
+  /**
+   * ‎**חידוש המנוי הנוכחי — הכול נגזר, שום דבר אינו נשאל.**
+   *
+   * ‏מסלול, מחזור ומחיר מוסכם נקראים מהמנוי הקיים. זו כל הנקודה:
+   * ‏חידוש מוואטסאפ אינו יכול לפתוח מסך בחירת מסלולים, ומשרד
+   * ‏שתקופתו נגמרה רוצה בדיוק את מה שהיה לו — בלחיצה אחת.
+   *
+   * ‎**דחייה חוזרת כערך ולא כחריגה.** „המסלול אינו נמכר עצמאית”
+   * ‏ו„הסליקה טרם הופעלה” הם מצבים שהמסך אמור להסביר, לא תקלות:
+   * ‏חריגה כאן הייתה מגיעה לוואטסאפ כ„משהו השתבש אצלי”, כלומר
+   * ‏מסתירה מהמשרד בדיוק את הסיבה שבגללה הוא תקוע.
+   *
+   * ‎**הסכום הוא ברוטו**, כמו בתזכורת החידוש במייל: זה מה שיירד
+   * ‏מהכרטיס. המחירון נטו, ומספר נטו לצד קישור תשלום הוא הפתעה
+   * ‏של 18% בדף הבא.
+   */
+  async renewalLink(input: { tenantId: string; userId: string }): Promise<
+    | {
+        ok: true;
+        url: string;
+        planName: string;
+        /** הסכום שיירד מהכרטיס, כטקסט מוכן; `null` כשאינו ידוע. */
+        price: string | null;
+        cycle: BillingCycle;
+      }
+    | { ok: false; reason: string }
+  > {
+    const subscription = await this.current(input.tenantId);
+    const plan = await this.plans.byCode(subscription.planCode);
+    const priceOverride = await this.plans.tenantPriceOverride(input.tenantId);
+    const rejection = checkoutRejectionReason(plan, subscription.billingCycle, priceOverride);
+    if (rejection !== null) return { ok: false, reason: rejection };
+    if (!(await this.cardcom.isConfigured())) {
+      return { ok: false, reason: "הסליקה טרם הופעלה במערכת" };
+    }
+
+    const netAgorot = effectiveCyclePriceAgorot(plan!, subscription.billingCycle, priceOverride);
+    const grossAgorot = netAgorot === null ? null : await this.vat.gross(netAgorot);
+    const { url } = await this.startCheckout({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      planCode: subscription.planCode,
+      cycle: subscription.billingCycle,
+    });
+    return {
+      ok: true,
+      url,
+      planName: plan!.name,
+      price: grossAgorot === null ? null : `${shekels(grossAgorot)} ₪ (כולל מע"מ)`,
+      cycle: subscription.billingCycle,
+    };
+  }
+
+  /**
+   * ‎**מצב המנוי במשפט אחד** — למי ששואל מחוץ לדשבורד.
+   *
+   * ‏המשפט עצמו הוא `describeSubscription`, אותו אחד שמופיע בראש
+   * ‏מסך החיוב. ניסוח שני לוואטסאפ היה אומר למשרד דבר אחד במסך
+   * ‏ודבר אחר בשיחה, והשיחה בין השניים מתחילה מתרגום.
+   */
+  async statusLine(tenantId: string): Promise<{
+    statusLine: string;
+    planName: string;
+    cycle: BillingCycle;
+    price: string | null;
+  }> {
+    const subscription = await this.current(tenantId);
+    const plan = await this.plans.byCode(subscription.planCode);
+    const priceOverride = await this.plans.tenantPriceOverride(tenantId);
+    const netAgorot =
+      plan === undefined
+        ? null
+        : effectiveCyclePriceAgorot(plan, subscription.billingCycle, priceOverride);
+    const grossAgorot = netAgorot === null ? null : await this.vat.gross(netAgorot);
+    return {
+      statusLine: describeSubscription(subscription.status, subscription.daysLeft),
+      planName: plan?.name ?? subscription.planCode,
+      cycle: subscription.billingCycle,
+      price: grossAgorot === null ? null : `${shekels(grossAgorot)} ₪ (כולל מע"מ)`,
+    };
   }
 
   /**

@@ -63,6 +63,10 @@ import {
 import {
   agentWelcomeExamples,
   looksLikeWhatsappLinkCode,
+  RENEW_BUTTON_TITLE,
+  renewalBlockedText,
+  renewalLinkText,
+  subscriptionEndedText,
   WHATSAPP_AGENT_DENIAL_TEXT,
   whatsappAgentDenial,
 } from "@metavchim/shared";
@@ -106,6 +110,7 @@ import {
 } from "../mentor/mentor-practice.service";
 import { prospectReplyText } from "./prospect-reply";
 import { CallsService } from "../calls/calls.service";
+import { BillingService } from "../billing/billing.service";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 import { WhatsAppLinkService } from "./whatsapp-link.service";
 
@@ -336,6 +341,13 @@ export class WhatsAppAssistantService {
      * ‏שאפשר לתקן אחד מהם ולשכוח את השני.
      */
     private readonly calls: CallsService,
+    /*
+     * ‎`BillingService` — חידוש המנוי מהשיחה, אותו `startCheckout`
+     * ‏שמסך החיוב קורא לו. לא מסלול תשלום שני: קופון, מחיר מוסכם,
+     * ‏מע"מ וסגירת דף קודם יושבים שם, ומסלול מקביל היה מפספס אחד
+     * ‏מהם בשקט.
+     */
+    private readonly billing: BillingService,
   ) {}
 
   /**
@@ -421,11 +433,7 @@ export class WhatsAppAssistantService {
       return;
     }
     if (tenantPeriodEnded({ ...user.tenant, planIsFree: await this.plans.isFreeCode(user.tenant.plan) })) {
-      await this.sender.sendText(
-        msg.fromWaId,
-        "תקופת המנוי של המשרד הסתיימה — חדשו אותה במסך ניהול המשרד, ואחזור לעבוד מיד.",
-        { replyTo: msg.externalId },
-      );
+      await this.handleExpiredOffice(msg, user);
       return;
     }
     /*
@@ -506,7 +514,7 @@ export class WhatsAppAssistantService {
           : null;
     if (snooze !== null) {
       await this.snoozeNotifications(user.tenantId, user.id, snooze.minutes);
-      await this.sender.sendText(msg.fromWaId, snoozeReply(snooze), {
+      await this.sender.sendText(msg.fromWaId, snoozeReply(snooze, new Date()), {
         replyTo: msg.externalId,
       });
       /*
@@ -1224,6 +1232,68 @@ export class WhatsAppAssistantService {
    * ‏רואה אותו גם דרך העוזר. „נבנות בדיוק כמו ב-resolveSession”
    * ‏הייתה הערה, וכעת זו אותה שורה.
    */
+  /**
+   * ‎**משרד שתקופתו נגמרה — ודרך לצאת מזה, כאן.**
+   *
+   * ## ‏מה היה
+   *
+   * ‏„חדשו אותה במסך ניהול המשרד”. זו הפניה ולא פתרון: היא מניחה
+   * ‏שהקורא יודע איזה מסך, שהוא ליד מחשב, ושהוא יזכור. אצל לקוח
+   * ‏שעובד **רק** מוואטסאפ זה מבוי סתום גמור — והוא הלקוח שהכי
+   * ‏קל לאבד, כי המערכת בדיוק הפסיקה לעבוד בשבילו.
+   *
+   * ## ‏למה כפתור ולא קישור בהודעה
+   *
+   * ‎`startCheckout` **מבטל כל תשלום ממתין של המשרד** — זה נכון
+   * ‏ובמכוון (דף תשלום ישן נושא מחיר ישן). לכן קישור חי שנוצר על
+   * ‏כל הודעה נכנסת היה הורג דף תשלום שבעל המשרד פתח בדפדפן
+   * ‏באותו רגע, ומייצר שורת תשלום מבוטלת לכל „היי”.
+   *
+   * ‏לחיצה על כפתור היא בקשה מפורשת אחת, ולכן דף תשלום אחד.
+   * ‎`claimMessage` סוגר את הצד השני: שליחה חוזרת של Meta על אותה
+   * ‏לחיצה אינה פותחת דף שני.
+   *
+   * ## ‏מה **לא** נפתח כאן
+   *
+   * ‏שום פעולת עבודה. המנוע כלל אינו רץ במסלול הזה, בדיוק כמו
+   * ‏ש-`billingOnly` בדשבורד מחזיר 402 על כל נתיב שאינו חיוב.
+   * ‏מה שנפתח הוא הדרך לשלם — ותו לא.
+   */
+  private async handleExpiredOffice(msg: AssistantInbound, user: IdentifiedUser): Promise<void> {
+    const { capabilities } = await this.buildContext(user);
+    const mayPay = capabilities.has("billing.manage");
+    const pressedRenew =
+      msg.buttonId !== undefined && decodeButtonId(msg.buttonId)?.action === "renew";
+
+    if (!pressedRenew || !mayPay) {
+      const body = subscriptionEndedText({ mayPay });
+      /*
+       * ‎`sendButtons` מחזיר `false` כשהיא אינה יכולה לשלוח (גוף
+       * ארוך מדי, אין אישורי קו) — ואז ההודעה **חייבת** לרדת
+       * לטקסט, אחרת המשרד שתקופתו נגמרה לא מקבל דבר בכלל.
+       */
+      const withButton =
+        mayPay &&
+        (await this.sender.sendButtons(msg.fromWaId, body, [
+          { action: "renew", title: RENEW_BUTTON_TITLE },
+        ]));
+      if (!withButton) {
+        await this.sender.sendText(msg.fromWaId, body, { replyTo: msg.externalId });
+      }
+      return;
+    }
+
+    // בקשה מפורשת אחת ⇒ דף תשלום אחד. שליחה חוזרת של Meta נעצרת כאן
+    if ((await this.claimMessage(user.tenantId, user.id, msg.externalId)) === null) return;
+    void this.sender.markRead(msg.externalId, true);
+
+    const link = await this.billing.renewalLink({ tenantId: user.tenantId, userId: user.id });
+    await this.sender.sendText(
+      msg.fromWaId,
+      link.ok ? renewalLinkText(link) : renewalBlockedText(link.reason),
+    );
+  }
+
   private async buildContext(user: IdentifiedUser): Promise<RequestContext> {
     const overrides = await this.prisma.withExplicitTenant(user.tenantId, (tx) =>
       tx.userCapability.findMany({

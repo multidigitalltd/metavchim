@@ -72,6 +72,8 @@ export const AGENT_ACTION_IDS = [
   "play_recording",
   "show_deals",
   "show_credits",
+  "show_subscription",
+  "renew_subscription",
   "show_payout_balance",
   "show_referral_board",
   "show_reach",
@@ -1307,6 +1309,40 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
     capability: "collaboration.offer",
     risk: "read",
+    fields: [],
+  },
+  {
+    id: "show_subscription",
+    title: "מצב המנוי",
+    when: "שאלה על המנוי של המשרד — איזה מסלול, עד מתי, כמה זה עולה.",
+    examples: [
+      "מה מצב המנוי שלנו",
+      "עד מתי המנוי בתוקף",
+      "כמה אנחנו משלמים בחודש",
+      "איזה מסלול יש לנו",
+    ],
+    capability: "billing.manage",
+    risk: "read",
+    fields: [],
+  },
+  {
+    /*
+     * ‎**`create` ולא `read`, למרות שאיש אינו מחויב כאן.**
+     *
+     * ‏הפעולה פותחת דף תשלום, ופתיחת דף תשלום **מבטלת כל תשלום
+     * ‏ממתין של המשרד** (`BillingService.startCheckout`). כלומר
+     * ‏ריצה מיידית על פירוש שגוי הייתה הורגת דף תשלום פתוח
+     * ‏בדפדפן. `create` מחייב לחיצה על כרטיס ההצעה — וזה בדיוק
+     * ‏מה שהופך את זה לבקשה אחת מפורשת.
+     */
+    id: "renew_subscription",
+    title: "חידוש המנוי",
+    when:
+      "בקשה לחדש את המנוי של המשרד או לשלם עליו. מחדש את המסלול הקיים — " +
+      "בקשה למסלול אחר אינה כאן.",
+    examples: ["תחדש לי את המנוי", "אני רוצה לשלם על המנוי", "תפתח לי תשלום למנוי"],
+    capability: "billing.manage",
+    risk: "create",
     fields: [],
   },
   {

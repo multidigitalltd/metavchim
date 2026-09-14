@@ -77,6 +77,9 @@ import {
   PENDING_AGREEMENT_MEANING,
   type DismissReason,
   type PendingAgreementState,
+  renewalBlockedText,
+  renewalLinkText,
+  subscriptionStatusText,
 } from "@metavchim/shared";
 import { AgreementsService } from "../agreements/agreements.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
@@ -92,6 +95,7 @@ import { CalendarService } from "../calendar/calendar.service";
 import type { Readable } from "node:stream";
 import { CallsService, type CallDto } from "../calls/calls.service";
 import { CollaborationService } from "../collaboration/collaboration.service";
+import { BillingService } from "../billing/billing.service";
 import { ListingsService } from "../collaboration/listings.service";
 import { CoachService } from "../coach/coach.service";
 import { LandingService } from "../properties/landing.service";
@@ -334,6 +338,12 @@ export class AgentExecuteService {
     private readonly analytics: AnalyticsService,
     private readonly dealRooms: DealRoomService,
     private readonly collaboration: CollaborationService,
+    /*
+     * ‎`BillingService` — מצב המנוי וחידושו מתוך השיחה. אותו
+     * ‏שירות שמסך החיוב קורא לו: קופון, מחיר מוסכם ומע"מ יושבים
+     * ‏שם, ומסלול תשלום שני היה מפספס אחד מהם בשקט.
+     */
+    private readonly billing: BillingService,
     private readonly exclusivity: ExclusivityService,
     private readonly resolver: AgentResolveService,
     private readonly gemini: GeminiService,
@@ -555,6 +565,10 @@ export class AgentExecuteService {
         return this.messageOwner(params);
       case "show_credits":
         return this.showCredits();
+      case "show_subscription":
+        return this.showSubscription();
+      case "renew_subscription":
+        return this.renewSubscription();
       case "open_deal_room":
         return this.openDealRoom(params);
       case "show_recommendations":
@@ -2273,6 +2287,46 @@ export class AgentExecuteService {
    * יתרת הקרדיטים — אותה קריאה כמו מסך הרשת, כולל מה שעומד לפוג:
    * „נשארו 25” בלי „10 מהם פגים בעוד שבוע” היא חצי תשובה.
    */
+  /**
+   * ‎**מצב המנוי — מהשיחה, בלי הדשבורד.**
+   *
+   * ‏המשפט עצמו הוא `describeSubscription`, אותו אחד שבראש מסך
+   * ‏החיוב; `BillingService.statusLine` מרכיב אותו עם המסלול
+   * ‏והמחיר **המוסכם למשרד**. ניסוח שני כאן היה אומר למשרד דבר
+   * ‏אחד במסך ודבר אחר בשיחה.
+   */
+  private async showSubscription(): Promise<ExecuteResult> {
+    const status = await this.billing.statusLine(TenantContext.current().tenantId);
+    return {
+      href: "/settings/billing",
+      message: subscriptionStatusText({ ...status, mayPay: true }),
+      data: { plan: status.planName, cycle: status.cycle },
+    };
+  }
+
+  /**
+   * ‎**חידוש המנוי — קישור תשלום אמיתי בשיחה.**
+   *
+   * ‏אותו `startCheckout` שמסך החיוב קורא לו, ולכן אותם קופון,
+   * ‏מחיר מוסכם ומע"מ. מסלול תשלום שני היה מפספס אחד מהם בשקט.
+   *
+   * ‏דחייה (מסלול שאינו נמכר עצמאית, סליקה שטרם הופעלה) חוזרת
+   * ‏כהודעה ולא כחריגה: זה מצב שצריך להסביר למשרד, לא תקלה
+   * ‏שתגיע אליו כ„משהו השתבש”.
+   */
+  private async renewSubscription(): Promise<ExecuteResult> {
+    const ctx = TenantContext.current();
+    const link = await this.billing.renewalLink({ tenantId: ctx.tenantId, userId: ctx.userId });
+    if (!link.ok) {
+      return { href: "/settings/billing", message: renewalBlockedText(link.reason) };
+    }
+    return {
+      href: "/settings/billing",
+      message: renewalLinkText(link),
+      data: { plan: link.planName, cycle: link.cycle },
+    };
+  }
+
   private async showCredits(): Promise<ExecuteResult> {
     const { balance, expiry } = await this.collaboration.credits();
     const expiring =

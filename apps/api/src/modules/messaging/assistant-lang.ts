@@ -216,6 +216,33 @@ const RESUME_PHRASES: readonly string[] = [
   "חזרתי",
 ];
 
+/**
+ * ‎**„עוד שעה אני מתחיל לעבוד” — דחייה, לא שתיקה.**
+ *
+ * ‏זו לא בקשת שקט ולא פקודה: זו אמירה על היום של המתווך. הוא
+ * ‏קיבל את סיכום הבוקר, הוא עוד לא בעבודה, והוא מודיע מתי כן.
+ * ‏בלי הזיהוי כאן המשפט נופל למודל, שמחפש בו פעולה שאינה שם
+ * ‏ומחזיר „לא הבנתי” — כלומר המתווך אמר משהו מובן לחלוטין וקיבל
+ * ‏חוסר הבנה, בדיוק על הודעת הפתיחה של היום.
+ *
+ * ‎**המשך מפורש נדרש.** „אני מתחיל לעבוד” לבדו פירושו *עכשיו*, וזה
+ * ‏ההפך הגמור — השתקה עליו הייתה משתיקה את הסוכן בדיוק ברגע שבו
+ * ‏הוא נחוץ. בלי „עוד שעה”/„בעוד חצי שעה” המשפט ממשיך למודל.
+ */
+const START_WORK_TRIGGERS: readonly string[] = [
+  "מתחיל לעבוד",
+  "מתחילה לעבוד",
+  "אתחיל לעבוד",
+  "מתחיל את היום",
+  "מתחילה את היום",
+  "נכנס לעבודה",
+  "נכנסת לעבודה",
+  "מגיע למשרד",
+  "מגיעה למשרד",
+  "אהיה במשרד",
+  "אני במשרד בעוד",
+];
+
 /** מספרים במילים — „שלוש שעות” נכתב לפחות כמו „3 שעות”. */
 const NUMBER_WORDS: Record<string, number> = {
   אחת: 1,
@@ -246,6 +273,13 @@ export interface SnoozeRequest {
   minutes: number;
   /** הבקשה הייתה ארוכה מהתקרה ונחתכה — התשובה חייבת לומר זאת. */
   clamped: boolean;
+  /**
+   * ‏הבקשה הייתה „עוד שעה אני מתחיל לעבוד” ולא „שקט לשעה”.
+   *
+   * ‏אותה השתקה בדיוק — ותשובה אחרת: מי שאמר מתי הוא מתחיל רוצה
+   * ‏לשמוע שנהיה שם אז, ולא אישור על שקט שלא ביקש.
+   */
+  untilWork?: true;
 }
 
 /** „ל-3 שעות”, „ל3 שעות”, „3 שעות” — המקף והתחילית אינם חלק מהמספר. */
@@ -300,29 +334,55 @@ export function parseSnoozeRequest(text: string, now: Date): SnoozeRequest | nul
   if (RESUME_PHRASES.some((phrase) => cleaned.includes(phrase))) {
     return { minutes: 0, clamped: false };
   }
-  if (!QUIET_TRIGGERS.some((phrase) => cleaned.includes(phrase))) return null;
+  if (QUIET_TRIGGERS.some((phrase) => cleaned.includes(phrase))) {
+    // בלי משך מפורש — ברירת המחדל, אותן שעתיים שהכפתור נתן
+    return bounded(statedMinutes(cleaned, now) ?? DEFAULT_SNOOZE_MINUTES);
+  }
+  /*
+   * ‎**„עוד שעה אני מתחיל לעבוד” — אותה השתקה, תשובה אחרת.**
+   *
+   * ‏המשך **חייב** להיאמר: „אני מתחיל לעבוד” לבדו פירושו עכשיו,
+   * ‏והשתקה עליו הייתה משתיקה את הסוכן ברגע שבו הוא נחוץ. בלי
+   * ‏משך המשפט ממשיך למודל כרגיל.
+   */
+  if (START_WORK_TRIGGERS.some((phrase) => cleaned.includes(phrase))) {
+    const minutes = statedMinutes(cleaned, now);
+    if (minutes === null) return null;
+    return { ...bounded(minutes), untilWork: true };
+  }
+  return null;
+}
 
-  const requested = ((): number => {
-    // הסדר קובע: „שעה וחצי” ו„חצי שעה” מכילים שניהם „שעה”
-    if (/חצי שעה/u.test(cleaned)) return 30;
-    if (/רבע שעה/u.test(cleaned)) return 15;
-    if (/שעה וחצי/u.test(cleaned)) return 90;
-    if (/שעתיים/u.test(cleaned)) return 120;
-    if (/עד מחר|עד הבוקר|למחר|עד בוקר/u.test(cleaned)) return minutesUntilTomorrowMorning(now);
-    const hours = numberBefore(cleaned, /שעות/u);
-    if (hours !== null) return hours * 60;
-    const minutes = numberBefore(cleaned, /דק(?:ה|ות)/u);
-    if (minutes !== null) return minutes;
-    if (/יומיים|שבוע|כל היום/u.test(cleaned)) return MAX_SNOOZE_MINUTES + 1;
-    if (/שעה/u.test(cleaned)) return 60;
-    return DEFAULT_SNOOZE_MINUTES;
-  })();
-
+/** ‏התקרה והרצפה במקום אחד — שני הענפים למעלה עוברים דרכו. */
+function bounded(requested: number): SnoozeRequest {
   // אפס דקות אינו „ביטול” אלא בקשה חסרת משמעות — ברירת המחדל עדיפה
   if (requested <= 0) return { minutes: DEFAULT_SNOOZE_MINUTES, clamped: false };
   return requested > MAX_SNOOZE_MINUTES
     ? { minutes: MAX_SNOOZE_MINUTES, clamped: true }
     : { minutes: requested, clamped: false };
+}
+
+/**
+ * ‏המשך שנאמר במשפט, או `null` כשלא נאמר אף אחד.
+ *
+ * ‎**`null` ולא ברירת מחדל**, כי לשני הקוראים יש תשובה אחרת על
+ * ‏„לא נאמר משך”: בקשת שקט מקבלת שעתיים, ו„אני מתחיל לעבוד”
+ * ‏ממשיך למודל — הוא כנראה מדבר על עכשיו.
+ */
+function statedMinutes(cleaned: string, now: Date): number | null {
+  // הסדר קובע: „שעה וחצי” ו„חצי שעה” מכילים שניהם „שעה”
+  if (/חצי שעה/u.test(cleaned)) return 30;
+  if (/רבע שעה/u.test(cleaned)) return 15;
+  if (/שעה וחצי/u.test(cleaned)) return 90;
+  if (/שעתיים/u.test(cleaned)) return 120;
+  if (/עד מחר|עד הבוקר|למחר|עד בוקר/u.test(cleaned)) return minutesUntilTomorrowMorning(now);
+  const hours = numberBefore(cleaned, /שעות/u);
+  if (hours !== null) return hours * 60;
+  const minutes = numberBefore(cleaned, /דק(?:ה|ות)/u);
+  if (minutes !== null) return minutes;
+  if (/יומיים|שבוע|כל היום/u.test(cleaned)) return MAX_SNOOZE_MINUTES + 1;
+  if (/שעה/u.test(cleaned)) return 60;
+  return null;
 }
 
 /** „שעתיים”, „45 דקות”, „3 שעות” — כפי שאומרים את זה. */
@@ -343,9 +403,24 @@ export function snoozeDurationLabel(minutes: number): string {
  * בקשה שלא בוצעה. וגם אומר איך חוזרים — השתקה בלי דרך חזרה
  * מוכרת היא בדיוק הסיבה שמישהו לא ישתמש בה שוב.
  */
-export function snoozeReply(request: SnoozeRequest): string {
+export function snoozeReply(request: SnoozeRequest, now: Date = new Date()): string {
   if (request.minutes === 0) {
     return "🔔 חוזרים לעדכונים. אעדכן אותך על כל מה שקורה.";
+  }
+  /*
+   * ‎**„עוד שעה אני מתחיל לעבוד” מקבל שעה, לא אישור שקט.**
+   *
+   * ‏מי שאמר מתי הוא מתחיל אמר את הדבר החשוב ביום שלו, והתשובה
+   * ‏„🔕 שקט לשעה” עונה על משהו שהוא לא ביקש. השעה נאמרת בשעון
+   * ‏ישראל ולא בשעון המכונה — השרת רץ ב-UTC, וחזרה שנמדדת בו
+   * ‏נופלת שלוש שעות מהמקום הנכון בקיץ.
+   */
+  if (request.untilWork === true) {
+    const at = jerusalemWallParts(new Date(now.getTime() + request.minutes * 60_000)).time;
+    return (
+      `👍 מובן — עד ${at} לא אפריע.\n` +
+      `ב-${at} אחזור עם מה שמחכה לך, ואם תרצו משהו קודם פשוט כתבו לי.`
+    );
   }
   const label = snoozeDurationLabel(request.minutes);
   const head = request.clamped

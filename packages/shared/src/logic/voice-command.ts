@@ -57,6 +57,7 @@ export type VoiceAction =
   | "show_notifications"
   | "show_emails"
   | "show_credits"
+  | "show_subscription"
   | "show_payout_balance"
   | "show_referral_board"
   | "show_reach"
@@ -399,6 +400,15 @@ const RULES: {
   {
     action: "show_credits",
     pattern: /כמה\s+קרדיטים|ה?קרדיטים\s+שלי|יתרת\s+ה?קרדיטים/u,
+    confidence: "high",
+  },
+  /*
+   * ‎**„המנוי” ולא „מנוי”.** בלי ה"א הידיעה הביטוי תופס גם „מנוי
+   * ‏וואטסאפ” ו„מנוי למספר”, שהם דברים אחרים לגמרי במערכת.
+   */
+  {
+    action: "show_subscription",
+    pattern: /מצב\s+ה?מנוי|ה?מנוי\s+שלנו|עד\s+מתי\s+ה?מנוי|איזה\s+מסלול/u,
     confidence: "high",
   },
   {

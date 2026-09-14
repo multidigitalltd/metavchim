@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AgentModule } from "../agent/agent.module";
+import { BillingModule } from "../billing/billing.module";
 import { CallsModule } from "../calls/calls.module";
 import { ContactsModule } from "../contacts/contacts.module";
 import { MentorModule } from "../mentor/mentor.module";
@@ -39,6 +40,12 @@ import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
    * ‏מעגל: מודול השיחות מייבא אנשי קשר ולידים בלבד, ואינו מייבא
    * ‏דבר מהוואטסאפ.
    */
+  /*
+   * ‎`BillingModule` — חידוש המנוי מתוך השיחה, למשרד שתקופתו
+   * ‏נגמרה. מודול עלה בלי `imports` משלו, ולכן אין שום סיכוי
+   * ‏למעגל; והוא היחיד שיודע לפתוח דף תשלום נכון (קופון, מחיר
+   * ‏מוסכם, מע"מ, סגירת דף קודם).
+   */
   imports: [
     AgentModule,
     VoiceIntakeModule,
@@ -46,6 +53,7 @@ import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
     ContactsModule,
     MentorModule,
     CallsModule,
+    BillingModule,
   ],
   controllers: [WhatsAppWebhookController, WhatsAppConnectionController],
   /*

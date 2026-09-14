@@ -144,6 +144,17 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
     ],
   },
   {
+    /*
+     * ‎**קבוצה משלה, ולא „עזרה”.**
+     *
+     * ‏מסונן ממילא ב-`billing.manage`, כך שרק מי שמנהל את החיוב
+     * ‏רואה אותה. מי שכן — מחפש אותה כשהמערכת בדיוק הפסיקה
+     * ‏לעבוד, וקבורה בתוך „עזרה” היא בדיוק לא הרגע לחפש.
+     */
+    label: "המנוי והחיוב",
+    ids: ["show_subscription", "renew_subscription"],
+  },
+  {
     label: "עזרה",
     ids: ["open_support_ticket", "show_support_tickets", "set_preference"],
   },
