@@ -13,12 +13,14 @@ import {
   describeEntry,
   formatPropertyAddress,
   labelOf,
+  propertyConditionLabel,
   partnershipApplies,
   propertyEvaluableCriteria,
   PROPERTY_FACING_LABELS,
   PropertyStatusSchema,
   type MatchCriterion,
   type OccupancyState,
+  type PropertyCondition,
   type PropertyFacing,
   type PropertyFields,
   type PropertyStatus,
@@ -118,6 +120,7 @@ interface PropertyDetail {
   hasBalcony?: boolean;
   sharedTabu?: boolean;
   facing?: PropertyFacing;
+  condition?: PropertyCondition;
   hasSafeRoom?: boolean;
   priceAgorot?: number;
   entryDate?: string;
@@ -811,6 +814,12 @@ export default function PropertyDetailPage({
   const address = formatPropertyAddress(property);
   /* ‏אותו גשר של כל טבלת תוויות: ערך ריק אינו מפתח, וערך חוזר כמותו */
   const facingLabel = labelOf(PROPERTY_FACING_LABELS, property.facing);
+  /*
+   * ‎`propertyConditionLabel` ולא `labelOf` על הקטלוג: היא מכירה גם
+   * ‏את הערך הישן `preserved`, שכרטיס הרשת כבר הציג כ„שמור” — ובלעדיה
+   * ‏אותה שורה בדיוק הייתה מציגה מצב בצד אחד ושום דבר בצד השני.
+   */
+  const conditionLabel = propertyConditionLabel(property.condition);
   const features = [
     property.hasElevator && "מעלית",
     property.hasParking && "חניה",
@@ -879,6 +888,10 @@ export default function PropertyDetailPage({
       ‏נשאלת בטופס, ולא כאן.
     */
     ...(facingLabel === undefined ? [] : [{ label: "כיוון", value: facingLabel }]),
+    /* ‏אותו כלל: נכס שאיש לא ענה עליו על מצבו אינו מקבל שורה */
+    ...(conditionLabel === undefined
+      ? []
+      : [{ label: "מצב הנכס", value: conditionLabel }]),
   ];
 
   /*

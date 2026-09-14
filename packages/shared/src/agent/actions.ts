@@ -47,7 +47,11 @@ import {
 import type { Capability } from "../rbac.js";
 import type { PlanFeature } from "../logic/plans.js";
 import type { AgentFieldSpec } from "./field-spec.js";
-import { PROPERTY_FACING_LABELS } from "../schemas/property.js";
+import {
+  PROPERTY_CONDITION_LABELS,
+  PROPERTY_CONDITIONS,
+  PROPERTY_FACING_LABELS,
+} from "../schemas/property.js";
 import { ASSIGNABLE_ROLES, roleLabel } from "../schemas/user.js";
 import { NOTIFY_CATEGORIES, NOTIFY_CATEGORY_LABELS } from "../logic/notify-categories.js";
 import { DEAL_TYPE_LABELS, PROPERTY_TYPE_LABELS } from "./vocabulary.js";
@@ -789,15 +793,15 @@ const PROPERTY_FIELDS: readonly AgentFieldSpec[] = [
   { key: "hasStorage", label: "מחסן", type: "boolean" },
   {
     key: "condition",
-    label: "מצב",
+    label: "מצב הנכס",
     type: "enum",
-    values: ["new", "renovated", "good", "needs_renovation"],
-    valueLabels: {
-      new: "חדש מקבלן",
-      renovated: "משופץ",
-      good: "במצב טוב",
-      needs_renovation: "דורש שיפוץ",
-    },
+    /*
+     * ‏נגזר מ-`PROPERTY_CONDITIONS`, ולא רשימה שנייה. עד עכשיו
+     * ‏הערכים והתוויות היו כתובים כאן ביד, וכבר נפרדו ממה שהרשת
+     * ‏מציגה — הסוכן אמר „חדש מקבלן” והטופס לא היה קיים בכלל.
+     */
+    values: PROPERTY_CONDITIONS,
+    valueLabels: PROPERTY_CONDITION_LABELS,
   },
   {
     key: "priceShekels",

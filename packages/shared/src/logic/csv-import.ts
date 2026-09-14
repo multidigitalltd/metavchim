@@ -1,3 +1,4 @@
+import { PROPERTY_CONDITION_LABELS, type PropertyCondition } from "../schemas/property.js";
 import type { PropertyFields } from "../schemas/property.js";
 import type { PropertyType } from "../schemas/property.js";
 import { detectDelimiter, type ImportDelimiter } from "./import-encoding.js";
@@ -520,15 +521,31 @@ function parseAddress(raw: string, fields: Partial<PropertyFields>): void {
   if (cityPart && fields.city === undefined) fields.city = cityPart;
 }
 
+/**
+ * ‎**כל תווית קנונית מתקבלת, ועוד הניסוחים שקבצים אמיתיים מכילים.**
+ *
+ * ‏הבסיס נגזר מהקטלוג — כלומר ערך חדש מתקבל בייבוא ביום שהוא
+ * ‏נוסף, בלי שמישהו יזכור לעדכן גם כאן. הנרדפות שמתחת הן מה
+ * ‏שקבצי ייצוא ומתווכים באמת כותבים, כולל הניסוחים שהמערכת
+ * ‏עצמה הציגה בעבר („במצב טוב”, „דורש שיפוץ”) — קובץ שיוצא
+ * ‏מהמערכת אתמול חייב להיכנס אליה מחר.
+ */
 const CONDITION_MAP: Record<string, PropertyFields["condition"]> = {
+  ...Object.fromEntries(
+    (Object.entries(PROPERTY_CONDITION_LABELS) as [PropertyCondition, string][]).map(
+      ([value, label]) => [label, value],
+    ),
+  ),
   "חדש מקבלן": "new",
-  חדש: "new",
-  משופץ: "renovated",
+  "משופץ מן היסוד": "renovated_full",
+  "שופץ מהיסוד": "renovated_full",
   משופצת: "renovated",
   "במצב טוב": "good",
   טוב: "good",
+  שמורה: "good",
   "דורש שיפוץ": "needs_renovation",
   "דורשת שיפוץ": "needs_renovation",
+  "זקוקה לשיפוץ": "needs_renovation",
   לשיפוץ: "needs_renovation",
 };
 

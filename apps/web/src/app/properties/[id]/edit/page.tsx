@@ -11,6 +11,7 @@ import { PriceField } from "../../../price-field";
 import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../../dictation-field";
+import { ConditionField } from "../../condition-field";
 import { FacingField } from "../../facing-field";
 import { FeatureChips } from "../../feature-chips";
 import { EntryTimingField } from "../../entry-timing-field";
@@ -48,6 +49,7 @@ interface PropertyDetail {
   hasStorage?: boolean;
   sharedTabu?: boolean;
   facing?: string;
+  condition?: string;
   priceAgorot?: number;
   entryType?: string;
   entryDate?: string;
@@ -210,6 +212,7 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
        * ‏של המפתח הייתה משאירה אותו על הכרטיס לנצח.
        */
       facing: String(f.get("facing") ?? "") || null,
+      condition: String(f.get("condition") ?? "") || null,
       /*
        * JSON משדה חבוי אחד — הרשימה גדלה ומשתנה, ולכן אין לה שם
        * שדה קבוע כמו לחמשת הקבועים. השרת מנרמל אותה שוב בשער
@@ -363,6 +366,7 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
           />
 
           <FacingField value={property.facing} />
+          <ConditionField value={property.condition} />
 
           {/*
             ‎**„טאבו משותף” מתחת למאפיינים, ולא ביניהם** (בקשת בעל
