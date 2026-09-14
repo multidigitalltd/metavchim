@@ -467,6 +467,8 @@ export class AccountDeletionService {
          * שמצביעות על משרד שכבר אינו קיים.
          */
         await tx.demandFollow.deleteMany({ where: { tenantId } });
+        /* ‏ואותו דבר בכיוון השני — מעקב אחרי נכס שפורסם לרשת */
+        await tx.listingFollow.deleteMany({ where: { tenantId } });
         /*
          * ‏נכסים לגיוס. **לפני `property`** — שורה שגויסה נושאת
          * ‎`convertedPropertyId`, ומחיקת הנכס לפניה הייתה משאירה
