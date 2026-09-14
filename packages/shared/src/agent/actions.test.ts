@@ -35,7 +35,13 @@ describe("קטלוג הפעולות — שלמות מבנית", () => {
    */
   it("לכל פעולה יש יכולת קיימת", () => {
     for (const action of AGENT_ACTIONS) {
-      expect(CAPABILITIES, `${action.id}`).toContain(action.capability);
+      /*
+       * ‎`null` = פעולה על הרשומה של הקורא עצמו, שאין יכולת
+       * ‏שמתארת אותה. היא נבדקת בנפרד — ראו „פעולה בלי שער”.
+       */
+      if (action.capability !== null) {
+        expect(CAPABILITIES, `${action.id}`).toContain(action.capability);
+      }
       for (const alt of action.capabilityAlts ?? []) {
         expect(CAPABILITIES, `${action.id}`).toContain(alt);
         // חלופה שהיא אותה יכולת אינה חלופה — סימן להעתקה
@@ -65,7 +71,9 @@ describe("קטלוג הפעולות — שלמות מבנית", () => {
       }
       expect(mayUseAction(action, new Set()), action.id).toBe(false);
     }
-    for (const action of AGENT_ACTIONS.filter((a) => (a.capabilityAlts ?? []).length === 0)) {
+    for (const action of AGENT_ACTIONS.filter(
+      (a) => (a.capabilityAlts ?? []).length === 0 && a.capability !== null,
+    )) {
       expect(mayUseAction(action, new Set()), action.id).toBe(false);
     }
   });
@@ -75,10 +83,39 @@ describe("קטלוג הפעולות — שלמות מבנית", () => {
    * הרסניות. הצעה מתמלול שגוי יכולה במקרה הגרוע לבקש רשומה מיותרת,
    * ולא למחוק רשומה שאי אפשר להחזיר.
    */
+  /**
+   * ‎**פעולה בלי שער — ומה מחזיק אותה.**
+   *
+   * ‎`capability: null` פירושו „כל משתמש מחובר”, וזה נכון **רק**
+   * ‏כשהפעולה נוגעת ברשומה של הקורא עצמו. אין יכולת שמתארת
+   * ‏„מותר לך לראות את עצמך”, ובחירה ביכולת אקראית שכולם מחזיקים
+   * ‏בה הייתה משקרת על מה שנבדק בפועל.
+   *
+   * ‏הסכנה היא ההרחבה הבאה: פעולה שמקבלת `userId` בפרמטרים
+   * ‏ומסומנת `null` היא נתיב לקריאת הפרופיל של כל אחד. לכן
+   * ‏הבדיקה כאן על **השדות**: פעולה בלי שער אינה מצהירה על שום
+   * ‏שדה שמזהה מישהו — המזהה מגיע מההקשר בלבד.
+   */
+  it("פעולה בלי שער אינה מקבלת מזהה של מישהו", () => {
+    const open = AGENT_ACTIONS.filter((a) => a.capability === null);
+    expect(open.length, "אין פעולות בלי שער — הבדיקה ריקה").toBeGreaterThan(0);
+    for (const action of open) {
+      expect(mayUseAction(action, new Set()), `${action.id} נחסם`).toBe(true);
+      for (const field of action.fields) {
+        expect(
+          /^(user|member|agent|owner|contact|buyer|lead)?Id$|Phrase$|^userId$/u.test(field.key),
+          `${action.id}.${field.key} — שדה מזהה בפעולה בלי שער`,
+        ).toBe(false);
+      }
+      /* ‏וגם לא דרך `resolved`, שהוא המסלול השני לפרמטרים */
+      expect(action.resolved ?? [], `${action.id} פותרת ישות בלי שער`).toEqual([]);
+    }
+  });
+
   it("אין פעולה הרסנית בקטלוג", () => {
     for (const action of AGENT_ACTIONS) {
       expect(action.id).not.toMatch(/delete|remove|cancel|purge|archive/u);
-      expect(action.capability).not.toMatch(/\.delete$/u);
+      expect(action.capability ?? "").not.toMatch(/\.delete$/u);
     }
   });
 

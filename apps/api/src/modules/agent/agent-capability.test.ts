@@ -40,7 +40,15 @@ function withCapabilities<T>(capabilities: Capability[], fn: () => T): T {
 }
 
 describe("שער היכולות של הסוכן", () => {
-  it.each(AGENT_ACTIONS.map((action) => [action.id, action.capability] as const))(
+  /*
+   * ‎`capability: null` פירושו פעולה על הרשומה של הקורא עצמו —
+   * ‏„הפרטים שלי”, „ההתראות שלי”. אין יכולת שמתארת אותה, ולכן
+   * ‏„נחסמת בלי היכולת” אינו הכלל שחל עליה. היא נבדקת למטה,
+   * ‏בצד החיובי.
+   */
+  const gated = AGENT_ACTIONS.filter((action) => action.capability !== null);
+
+  it.each(gated.map((action) => [action.id, action.capability] as const))(
     "%s נחסמת בלי %s",
     async (actionId) => {
       await expect(
@@ -48,6 +56,19 @@ describe("שער היכולות של הסוכן", () => {
       ).rejects.toBeInstanceOf(ForbiddenException);
     },
   );
+
+  /*
+   * ‎**והצד החיובי של הפעולות בלי שער.** בלי זה, `null` היה יכול
+   * ‏להיחסם בפועל ואיש לא היה יודע — הרשימה שלמעלה פשוט מדלגת
+   * ‏עליהן, וזה בדיוק סוג הדילוג שהופך פיצ'ר למת.
+   */
+  it.each(
+    AGENT_ACTIONS.filter((action) => action.capability === null).map((a) => [a.id] as const),
+  )("%s עוברת את השער גם בלי שום יכולת", async (actionId) => {
+    await expect(
+      withCapabilities([], () => service.execute(actionId, {})),
+    ).rejects.not.toBeInstanceOf(ForbiddenException);
+  });
 
   /*
    * הצד השני של אותה בדיקה: יכולת של פעולה אחרת אינה פותחת את זו.

@@ -112,6 +112,14 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
     ids: ["show_recruitment", "create_recruitment", "update_recruitment_status"],
   },
   {
+    label: "צוות המשרד",
+    ids: ["show_team", "add_agent"],
+  },
+  {
+    label: "ההגדרות שלי",
+    ids: ["show_profile", "update_profile", "update_notifications"],
+  },
+  {
     label: "בלעדיות",
     ids: ["show_exclusivity", "start_exclusivity", "log_marketing_action"],
   },

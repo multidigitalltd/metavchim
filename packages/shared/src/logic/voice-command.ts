@@ -59,6 +59,8 @@ export type VoiceAction =
   | "show_credits"
   | "show_subscription"
   | "show_recruitment"
+  | "show_team"
+  | "show_profile"
   | "show_payout_balance"
   | "show_referral_board"
   | "show_reach"
@@ -419,6 +421,24 @@ const RULES: {
   {
     action: "show_recruitment",
     pattern: /נכסים\s+ל?גיוס|ה?גיוס\s+שלי|מה\s+יש\s+לי\s+ל?גיוס/u,
+    confidence: "high",
+  },
+  /*
+   * ‎„במשרד” ו„הצוות” — ולא „סוכן”, שהוא גם שם המוצר („הסוכן
+   * ‏החכם”) וגם תפקיד, ותופס משפטים שאינם על הצוות בכלל.
+   */
+  {
+    action: "show_team",
+    pattern: /מי\s+ב?ה?משרד|ה?צוות\s+שלי|מי\s+ה?סוכנים\s+שלי/u,
+    confidence: "high",
+  },
+  /*
+   * ‎„שלי” היא המילה שמבדילה — „הפרטים של הלקוח” הוא כרטיס, לא
+   * ‏הפרופיל. בלעדיה הביטוי תופס כל שאלה על פרטים של מישהו.
+   */
+  {
+    action: "show_profile",
+    pattern: /ה?פרטים\s+שלי|ה?פרופיל\s+שלי|ה?התראות\s+שלי/u,
     confidence: "high",
   },
   {

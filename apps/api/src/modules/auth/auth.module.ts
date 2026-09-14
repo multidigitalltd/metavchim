@@ -23,6 +23,10 @@ import { PasswordResetService } from "./password-reset.service";
     LoginThrottleService,
     PasswordResetService,
   ],
-  exports: [AuthService, LoginThrottleService],
+  /*
+   * ‎`PasswordResetService` — הסוכן פותח חשבון לסוכן חדש ושולח לו
+   * ‏קישור לקביעת סיסמה, במקום לומר סיסמה בשיחה.
+   */
+  exports: [AuthService, LoginThrottleService, PasswordResetService],
 })
 export class AuthModule {}

@@ -228,8 +228,14 @@ describe("מקום נוסף לסוכן הוואטסאפ — מנוי חודשי"
   it("ספירת המכסה כוללת מקום שבוטל וטרם פג", () => {
     const QUOTA = read("../../core/whatsapp-seat-quota.ts");
     expect(QUOTA).toContain('status: "cancelled", currentPeriodEnd: { gt: now }');
-    // וכל הסופרים עוברים דרכה — ארבעה עותקים היו נפרדים ביום שינוי
-    for (const file of [SERVICE, read("../settings/settings.controller.ts"), read("../platform/platform.controller.ts")]) {
+    /*
+     * ‏וכל הסופרים עוברים דרכה — ארבעה עותקים היו נפרדים ביום שינוי.
+     *
+     * ‎**הספירה בצד ההגדרות ישבה בבקר ועברה ל-`TeamService`**, כדי
+     * ‏ש„תוסיף סוכן” מהוואטסאפ יעבור באותה מכסה: הסוכן אינו עובר
+     * ‏בבקרים. הרשימה כאן עוקבת אחרי מי שסופר בפועל.
+     */
+    for (const file of [SERVICE, read("../settings/team.service.ts"), read("../platform/platform.controller.ts")]) {
       expect(file).toContain("whatsappSeatQuotaWhere(");
     }
   });

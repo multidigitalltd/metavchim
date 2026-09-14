@@ -69,17 +69,7 @@ export class PasswordResetService implements OnModuleDestroy {
     const fresh = await this.redis.set(cooldownKey, "1", "EX", REQUEST_COOLDOWN_SECONDS, "NX");
     if (fresh === null) return;
 
-    const token = randomBytes(32).toString("base64url");
-    const tokenHash = PasswordResetService.hash(token);
-    // מצביע "הטוקן הפעיל" פר משתמש: בקשה חדשה דורסת אותו, ולכן קישור
-    // ישן — גם אם טרם פג — לא יעבור את בדיקת ההתאמה ב-reset (Codex)
-    await this.redis
-      .multi()
-      .set(`pwreset:${tokenHash}`, user.id, "EX", TOKEN_TTL_SECONDS)
-      .set(`pwreset:user:${user.id}`, tokenHash, "EX", TOKEN_TTL_SECONDS)
-      .exec();
-
-    const url = `${loadEnv().WEB_ORIGIN}/reset-password?token=${token}`;
+    const url = await this.issueLink(user.id);
     await this.email.send(
       normalized,
       "איפוס סיסמה — מתווכים",
@@ -100,6 +90,79 @@ export class PasswordResetService implements OnModuleDestroy {
       { idempotency: null, required: true },
     );
     this.logger.log("נשלח קישור איפוס סיסמה");
+  }
+
+  /**
+   * ‏הנפקת קישור חד-פעמי — **מסלול אחד לשני הנוסחים.**
+   *
+   * ‏„שכחתי סיסמה” ו„נפתח לך חשבון” הם אותה מכניקה בדיוק: טוקן
+   * ‏שנשמר כ-SHA-256, תוקף, ומצביע „הטוקן הפעיל” שפוסל קישור
+   * ‏קודם. שני עותקים היו נפרדים ביום שבו אחד מהם מתוקן, ואז
+   * ‏קישור אחד מהשניים מפסיק להיפסל כשמונפק חדש.
+   */
+  private async issueLink(userId: string): Promise<string> {
+    const token = randomBytes(32).toString("base64url");
+    const tokenHash = PasswordResetService.hash(token);
+    // מצביע "הטוקן הפעיל" פר משתמש: בקשה חדשה דורסת אותו, ולכן קישור
+    // ישן — גם אם טרם פג — לא יעבור את בדיקת ההתאמה ב-reset (Codex)
+    await this.redis
+      .multi()
+      .set(`pwreset:${tokenHash}`, userId, "EX", TOKEN_TTL_SECONDS)
+      .set(`pwreset:user:${userId}`, tokenHash, "EX", TOKEN_TTL_SECONDS)
+      .exec();
+    return `${loadEnv().WEB_ORIGIN}/reset-password?token=${token}`;
+  }
+
+  /**
+   * ‎**„נפתח לך חשבון” — ולא „התקבלה בקשה לאיפוס”.**
+   *
+   * ## ‏למה נוסח נפרד ולא `request`
+   *
+   * ‏סוכן חדש שמעולם לא הייתה לו סיסמה מקבל מייל שאומר „התקבלה
+   * ‏בקשה לאיפוס הסיסמה שלכם”. הוא לא ביקש, לא הייתה לו סיסמה,
+   * ‏והמייל נקרא כניסיון פריצה — בדיוק ההפך ממה שהוא צריך ברגע
+   * ‏שמצרפים אותו למשרד.
+   *
+   * ## ‏ולמה זו לא „שליחה ברקע”
+   *
+   * ‎`request` היא `void` בכוונה: היא עונה לכל אחד באותו זמן, כדי
+   * ‏שלא יהיה אפשר ללמוד ממנה אילו כתובות רשומות. כאן אין מה
+   * ‏להסתיר — המנהל **זה עתה יצר** את החשבון — ולכן התוצאה מוחזרת:
+   * ‏„נוסף, ונשלח קישור” על מייל שלא יצא הוא סוכן שממתין למשהו
+   * ‏שלא יגיע.
+   */
+  async welcome(emailAddress: string, officeName: string): Promise<boolean> {
+    const normalized = emailAddress.toLowerCase();
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalized },
+      select: { id: true, name: true, isActive: true },
+    });
+    if (user === null || !user.isActive) return false;
+    try {
+      const url = await this.issueLink(user.id);
+      await this.email.send(
+        normalized,
+        `הצטרפת ל${officeName} — מתווכים`,
+        {
+          heading: "ברוכים הבאים",
+          greeting: `שלום ${user.name},`,
+          paragraphs: [
+            `נפתח עבורכם חשבון במערכת מתווכים, במשרד ${officeName}.`,
+            "כדי להיכנס בפעם הראשונה יש לקבוע סיסמה:",
+          ],
+          button: { label: "לקביעת הסיסמה", url },
+          footnote:
+            "הקישור תקף לשלושים דקות וניתן לשימוש פעם אחת. אם פג תוקפו — אפשר לבקש חדש ממסך הכניסה, ב„שכחתי סיסמה”.",
+        },
+        /* ‏הקישור **הוא** הפעולה: בלי ספק אין הצטרפות, ולכן `required` */
+        { idempotency: null, required: true },
+      );
+      this.logger.log("נשלח קישור קביעת סיסמה לסוכן חדש");
+      return true;
+    } catch (error) {
+      this.logger.error(`שליחת קישור קביעת סיסמה נכשלה: ${String(error)}`);
+      return false;
+    }
   }
 
   /** איפוס בפועל — טוקן חד-פעמי; מבטל את כל ה-sessions של המשתמש. */

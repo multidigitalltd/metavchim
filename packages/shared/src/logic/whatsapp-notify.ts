@@ -16,6 +16,10 @@
  */
 
 import { ideaKeyInText } from "./mentor-playbook.js";
+import {
+  NOTIFY_CATEGORY_LABELS,
+  type WhatsAppNotifyCategory,
+} from "./notify-categories.js";
 import { agentAction, type AgentActionId } from "../agent/actions.js";
 import {
   canSeeNotifyDetail,
@@ -32,24 +36,22 @@ import type { WhatsAppButton } from "./whatsapp-buttons.js";
 
 /* ==================== קטגוריות ==================== */
 
-/**
- * קיבוץ סוגי ההתראות לקטגוריות שהמתווך מכיר.
+/*
+ * ‎**הקטגוריות יושבות במודול עלה** (`notify-categories.ts`) ולא כאן.
  *
- * המתווך אינו אמור להכיר שנים-עשר קודי התראה כדי לכבות רעש. הוא
- * חושב במונחים של „שיחות” ו„לידים”, וזו גם היחידה שבה הוא מכבה.
+ * ‏קטלוג הפעולות צריך את הרשימה — המתווך מכבה קטגוריה מהשיחה —
+ * ‏והקובץ הזה כבר מייבא את הקטלוג. ייבוא חוזר הוא **מעגל**, ובזמן
+ * ‏ריצה הרשימה חוזרת `undefined` בצד שנטען ראשון: קריסה בטעינה,
+ * ‏לא שגיאת קומפילציה. מודול בלי ייבואים משלו אינו יכול להיות
+ * ‏חלק במעגל.
+ *
+ * ‏הייצוא מכאן נשאר, כדי שאיש מהקוראים הקיימים לא יידע מזה.
  */
-export type WhatsAppNotifyCategory =
-  "calls" | "leads" | "tasks" | "matches" | "network" | "digests" | "system";
-
-export const NOTIFY_CATEGORY_LABELS: Record<WhatsAppNotifyCategory, string> = {
-  calls: "שיחות ותמלולים",
-  leads: "לידים",
-  tasks: "משימות, פגישות ותזכורות",
-  matches: "התאמות, קונים ונכסים",
-  network: "רשת השיתופים והתשלומים",
-  digests: "סיכומים יומיים ושבועיים",
-  system: "הודעות מערכת",
-};
+export {
+  NOTIFY_CATEGORIES,
+  NOTIFY_CATEGORY_LABELS,
+  type WhatsAppNotifyCategory,
+} from "./notify-categories.js";
 
 /** סוג ההתראה → הקטגוריה שלו. סוג שאינו כאן נחשב הודעת מערכת. */
 const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {

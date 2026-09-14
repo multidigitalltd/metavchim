@@ -75,7 +75,6 @@ import {
   RequireCapability,
 } from "../../common/auth.decorators";
 import { lockTenantRow } from "../../common/locks";
-import { whatsappSeatQuotaWhere } from "../../core/whatsapp-seat-quota";
 import {
   readOfficeStatuses,
   writeOfficeStatuses,
@@ -86,7 +85,8 @@ import { AuditService } from "../../core/audit.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { EmailDomainProviderService } from "../../core/email-domain-provider.service";
-import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import { PrismaService } from "../../core/prisma.service";
+import { TeamMemberInputSchema, TeamService, type TeamUserDto } from "./team.service";
 import { AuthService, type SessionInfo } from "../auth/auth.service";
 import { LoginThrottleService } from "../auth/login-throttle.service";
 import { MatchRefreshService } from "../matching/match-refresh.service";
@@ -212,13 +212,14 @@ type UserCapabilitiesDto = {
   }[];
 };
 
-const CreateUserSchema = z
-  .object({
-    name: z.string().min(2).max(120),
-    email: z.string().email().max(254),
-    role: AssignableRoleSchema,
-  })
-  .strict();
+/*
+ * ‎**אותה סכימה שהשירות אוכף**, ולא עותק שלה.
+ *
+ * ‏שני עותקים היו מסכימים ביום שנכתבו: „owner אינו ניתן להענקה”
+ * ‏היה יורד מאחד מהם, והמסלול השני היה ממשיך לקבל אותו בשקט.
+ * ‏הבקר דוחה מוקדם, השירות דוחה בוודאות — מאותה הגדרה.
+ */
+const CreateUserSchema = TeamMemberInputSchema;
 
 const UpdateUserSchema = z
   .object({
@@ -302,20 +303,6 @@ const DeleteAccountSchema = z
   })
   .strict();
 
-export interface TeamUserDto {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  isActive: boolean;
-  lastLoginAt?: Date;
-  /** נעול זמנית בגלל ניסיונות התחברות כושלים — ניתן לשחרור ע"י המנהל */
-  locked: boolean;
-  /** מספר הוואטסאפ האישי — הזהות מול הסוכן החכם */
-  phone?: string;
-  /** מנוי הסוכן בוואטסאפ פעיל למשתמש הזה (בעל המשרד כלול תמיד) */
-  whatsappAccess: boolean;
-}
 
 @Controller("settings")
 export class SettingsController {
@@ -326,6 +313,7 @@ export class SettingsController {
     private readonly auth: AuthService,
     private readonly tenantLogo: TenantLogoService,
     private readonly plans: PlanCatalogService,
+    private readonly team: TeamService,
     private readonly accountDeletion: AccountDeletionService,
     private readonly matchRefresh: MatchRefreshService,
     private readonly platformSettings: PlatformSettingsService,
@@ -716,7 +704,7 @@ export class SettingsController {
       whatsappAgentSeats: whatsappAgentSeats({
         planHasAgent: await this.plans.tenantHasFeature(tenantId, "voice_intake"),
         granted: tenant?.whatsappAgentSeatsExtra ?? 0,
-        paid: await this.paidSeatCount(tenantId),
+        paid: await this.team.paidSeatCount(tenantId),
       }),
       whatsappAgentSeatsUsed: await this.prisma.withTenant((tx) =>
         tx.user.count({ where: { tenantId, isActive: true, whatsappAccess: true } }),
@@ -1184,34 +1172,7 @@ export class SettingsController {
   @Get("users")
   @RequireCapability("users.manage")
   async users(): Promise<TeamUserDto[]> {
-    const tenantId = TenantContext.current().tenantId;
-    const rows = await this.prisma.user.findMany({
-      where: { tenantId },
-      orderBy: { createdAt: "asc" },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        isActive: true,
-        lastLoginAt: true,
-        phone: true,
-        whatsappAccess: true,
-      },
-    });
-    return Promise.all(
-      rows.map(async (u) => ({
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        role: u.role,
-        isActive: u.isActive,
-        lastLoginAt: u.lastLoginAt ?? undefined,
-        locked: await this.loginThrottle.isLocked(u.email),
-        phone: u.phone ?? undefined,
-        whatsappAccess: u.whatsappAccess,
-      })),
-    );
+    return this.team.list();
   }
 
   /**
@@ -1581,30 +1542,6 @@ export class SettingsController {
    * הטבלה users מחוץ ל-RLS (ראו הערה ב-schema.prisma), ולכן הספירה
    * הישירה כאן תקפה — התנאי `tenantId` הוא זה שמבודד.
    */
-  private async assertSeatAvailable(
-    tx: TenantTx,
-    tenantId: string,
-  ): Promise<void> {
-    const plan = await this.plans.forTenant(tenantId, tx);
-    // מסלול שאי אפשר לפתור חוסם ולא פותח — ראו properties.service
-    if (plan === undefined) {
-      throw new BadRequestException("המסלול של המשרד אינו מוגדר — פנו לתמיכה");
-    }
-    if (plan.maxUsers === null) return;
-    /*
-     * מנעול ייעוץ ברמת הדייר, בתוך הטרנזקציה שכותבת.
-     *
-     * שתי בקשות מקבילות שספרו את אותו מצב לפני שאחת מהן כתבה היו
-     * שתיהן עוברות, והמכסה הייתה נחצית בשקט (ביקורת Codex).
-     */
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${tenantId}`}))`;
-    const used = await tx.user.count({ where: { tenantId, isActive: true } });
-    if (limitState(used, plan.maxUsers).blocked) {
-      throw new BadRequestException(
-        `מסלול "${plan.name}" כולל ${plan.maxUsers} משתמשים. לתוספת משתמשים יש לשדרג מסלול.`,
-      );
-    }
-  }
 
   /**
    * ‎**מקום פנוי לסוכן הוואטסאפ** — אחרת הרכישה היא בקשה ולא תנאי.
@@ -1623,37 +1560,7 @@ export class SettingsController {
    * מגיעה מהוובהוק של קארדקום בלי הקשר דייר. הסינון לפי דייר נאכף
    * כאן, מפורשות, ולא נשען על מדיניות שאינה קיימת על הטבלה.
    */
-  private async paidSeatCount(tenantId: string): Promise<number> {
-    return this.prisma.whatsappSeat.count({
-      where: whatsappSeatQuotaWhere(tenantId, new Date()),
-    });
-  }
 
-  private async assertWhatsappSeatAvailable(tx: TenantTx, tenantId: string): Promise<void> {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${tenantId}`}))`;
-    const tenant = await tx.tenant.findUnique({
-      where: { id: tenantId },
-      select: { whatsappAgentSeatsExtra: true },
-    });
-    const seats = whatsappAgentSeats({
-      planHasAgent: await this.plans.tenantHasFeature(tenantId, "voice_intake", tx),
-      granted: tenant?.whatsappAgentSeatsExtra ?? 0,
-      paid: await this.paidSeatCount(tenantId),
-    });
-    if (seats === 0) {
-      throw new BadRequestException(WHATSAPP_AGENT_DENIAL_TEXT.plan);
-    }
-    const used = await tx.user.count({
-      where: { tenantId, isActive: true, whatsappAccess: true },
-    });
-    if (used >= seats) {
-      throw new BadRequestException(
-        seats === 1
-          ? "הסוכן בוואטסאפ כלול לסוכן אחד במשרד. כדי להעביר אותו — כבו אותו אצל מי שמחזיק בו כרגע, או פנו אלינו להוספת מקום."
-          : `המשרד מחזיק ${seats} מקומות לסוכן בוואטסאפ, וכולם תפוסים. כבו אצל אחד המחזיקים, או פנו אלינו להוספת מקום.`,
-      );
-    }
-  }
 
   @Post("users")
   @RequireCapability("users.manage")
@@ -1661,48 +1568,7 @@ export class SettingsController {
     @Body(new ZodValidationPipe(CreateUserSchema))
     body: z.infer<typeof CreateUserSchema>,
   ): Promise<{ user: TeamUserDto; tempPassword: string }> {
-    const tenantId = TenantContext.current().tenantId;
-    const email = body.email.toLowerCase();
-    const existing = await this.prisma.user.findUnique({ where: { email } });
-    if (existing) throw new BadRequestException("האימייל כבר רשום במערכת");
-
-    const tempPassword = `Mv-${randomBytes(9).toString("base64url")}`;
-    const id = ulid();
-    const passwordHash = await AuthService.hashPassword(tempPassword);
-    // יצירה + Audit בטרנזקציה אחת — אין חשבון בלי רישום (ביקורת Codex)
-    await this.prisma.withTenant(async (tx) => {
-      // המכסה נבדקת באותה טרנזקציה שיוצרת, אחרי נעילת הדייר
-      await this.assertSeatAvailable(tx, tenantId);
-      await tx.user.create({
-        data: {
-          id,
-          tenantId,
-          name: body.name,
-          email,
-          role: body.role,
-          passwordHash,
-          mustChangePassword: true,
-        },
-      });
-      await this.audit.record(tx, {
-        action: "users.create",
-        entityType: "user",
-        entityId: id,
-        metadata: { role: body.role },
-      });
-    });
-    return {
-      user: {
-        id,
-        name: body.name,
-        email,
-        role: body.role,
-        isActive: true,
-        locked: false,
-        whatsappAccess: false,
-      },
-      tempPassword,
-    };
+    return this.team.create(body);
   }
 
   @Patch("users/:id")
@@ -1768,7 +1634,7 @@ export class SettingsController {
       }
       // הפעלה מחדש תופסת מושב — אותה מכסה בדיוק כמו ביצירה
       if (body.isActive === true && !target.isActive) {
-        await this.assertSeatAvailable(tx, ctx.tenantId);
+        await this.team.assertSeatAvailable(tx, ctx.tenantId);
       }
       /*
        * ‎**מקום הוואטסאפ נספר בהדלקה, ובתוך הנעילה שכבר נלקחה.**
@@ -1790,7 +1656,7 @@ export class SettingsController {
         (body.whatsappAccess === true && !target.whatsappAccess) ||
         (body.isActive === true && !target.isActive && holdsSeatAfter);
       if (takesWhatsappSeat) {
-        await this.assertWhatsappSeatAvailable(tx, ctx.tenantId);
+        await this.team.assertWhatsappSeatAvailable(tx, ctx.tenantId);
       }
       const nextPhone =
         body.phone === undefined ? undefined : body.phone.trim() === "" ? null : body.phone.trim();
