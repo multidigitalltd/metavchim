@@ -1,18 +1,27 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import {
   digestDedupeKey,
+  digestManagerDedupeKey,
   digestManagerSummary,
+  digestManagerTitle,
+  digestMonthAnchor,
   digestMonthKey,
   digestSkipReason,
+  digestWhatsappSkip,
+  effectiveCapabilities,
+  officeDigestTemplateValues,
   officeDigestText,
   officeDigestTitle,
+  whatsappTemplateParams,
   OFFICE_DIGEST_NOTIFICATION_TYPE,
+  type BoardCounts,
   type DigestSkip,
 } from "@metavchim/shared";
 import { notifyOnce } from "../../common/notify-once";
 import { TenantContext } from "../../common/tenant-context";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
+import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import { AnalyticsService } from "./analytics.service";
 
@@ -65,6 +74,7 @@ export class OfficeDigestService implements OnModuleInit, OnModuleDestroy {
     private readonly analytics: AnalyticsService,
     private readonly whatsapp: WhatsAppSendService,
     private readonly crypto: CryptoService,
+    private readonly platformSettings: PlatformSettingsService,
   ) {}
 
   onModuleInit(): void {
@@ -110,19 +120,39 @@ export class OfficeDigestService implements OnModuleInit, OnModuleDestroy {
 
   async sweepTenant(tenantId: string, now = new Date()): Promise<void> {
     const monthKey = digestMonthKey(now);
+    /*
+     * ‎**העוגן נגזר מהמפתח ולא מ-`now`** (ביקורת Codex, P1).
+     *
+     * ‏שני חישובים נפרדים מאותו רגע נפרדו בפועל: המפתח לפי
+     * ‏שעון ירושלים והעוגן לפי UTC. עכשיו הכותרת, מפתח הדדופ
+     * ‏והנתונים יוצאים ממחרוזת אחת, ולכן אינם יכולים לחלוק.
+     */
     const board = await TenantContext.run(
       { tenantId, userId: "", capabilities: new Set(), billingOnly: false },
-      () => this.analytics.board("month", this.lastDayOfPreviousMonth(now)),
+      () => this.analytics.board("month", digestMonthAnchor(monthKey)),
     );
     if (board.rows.length === 0) return;
 
     const users = await this.prisma.user.findMany({
       where: { tenantId, isActive: true },
-      select: { id: true, name: true, officeDigestOptedOutAt: true },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        role: true,
+        whatsappAccess: true,
+        officeDigestOptedOutAt: true,
+      },
     });
-    const optedOut = new Map(users.map((u) => [u.id, u.officeDigestOptedOutAt !== null]));
+    const byId = new Map(users.map((u) => [u.id, u]));
 
-    /* ‏קישור חי בלבד — `revokedAt` הוא „היה ונותק”, ולא „יש” */
+    /*
+     * ‎**קישור חי בלבד** — `revokedAt` הוא „היה ונותק”, ולא „יש”.
+     *
+     * ‏המספר עצמו מגיע מהקישור ולא מהפרופיל: הקישור הוא
+     * ‏המספר שהסוכן הוכיח שהוא שלו בוואטסאפ, והוא גם המספר שהבוט
+     * ‏מכיר — בעוד `users.phone` יכול להיות קו נייח במשרד.
+     */
     const links = await this.prisma.whatsAppLink.findMany({
       where: { tenantId, revokedAt: null },
       select: { userId: true, waIdEncrypted: true },
@@ -133,44 +163,20 @@ export class OfficeDigestService implements OnModuleInit, OnModuleDestroy {
     const skipped: Skipped[] = [];
 
     for (const row of board.rows) {
-      const skip = digestSkipReason({
-        hasWhatsapp: waById.has(row.userId),
-        optedOut: optedOut.get(row.userId) === true,
-        counts: row.counts,
-      });
-      if (skip !== null) {
-        /*
-         * ‎`nothing_to_report` אינו פער שהמנהל צריך לסגור — הוא
-         * ‏סוכן שלא עבד החודש, וזה כבר כתוב בטבלה מולו.
-         */
-        if (skip !== "nothing_to_report") skipped.push({ name: row.name, reason: skip });
-        continue;
-      }
-
       /*
-       * ‎**נרשם קודם, נשלח אחר כך.** `notifyOnce` הוא גם ההתראה
-       * ‏בפעמון וגם מנעול הפעם-אחת; `false` = החודש הזה כבר יצא.
+       * ‎**שתי שאלות נפרדות, ולא אחת** (ביקורת Codex).
+       *
+       * ‏„האם יש מה לסכם” חוסם הכול; „האם לדחוף לטלפון”
+       * ‏חוסם רק את הוואטסאפ. קודם הן היו פונקציה אחת שבדקה
+       * ‏וויתור ראשון, ולכן סוכן שביקש לא לקבל בוואטסאפ איבד גם
+       * ‏את ההתראה — בניגוד למה שהמסך מבטיח לו ולמה שכתוב
+       * ‏בתיעוד העמודה עצמה.
        */
-      const written = await TenantContext.run(
-        { tenantId, userId: "", capabilities: new Set(), billingOnly: false },
-        () =>
-          this.prisma.withTenant((tx) =>
-            notifyOnce(tx, {
-              tenantId,
-              dedupeKey: digestDedupeKey(monthKey, row.userId),
-              userId: row.userId,
-              type: OFFICE_DIGEST_NOTIFICATION_TYPE,
-              title: officeDigestTitle(monthKey),
-              body: null,
-              /* ‏הסיכום אינו על ישות אחת, ולכן אין לו עוגן */
-              entityType: null,
-              entityId: null,
-            }),
-          ),
-      );
-      if (!written) continue;
+      if (digestSkipReason({ counts: row.counts }) !== null) continue;
 
-      const to = this.crypto.decrypt(waById.get(row.userId) ?? "");
+      const user = byId.get(row.userId);
+      if (user === undefined) continue;
+
       const text = officeDigestText({
         name: row.name,
         monthKey,
@@ -179,30 +185,187 @@ export class OfficeDigestService implements OnModuleInit, OnModuleDestroy {
         total: board.agents,
         ...(row.goal === null ? {} : { goal: row.goal }),
       });
-      const result = await this.whatsapp.sendAsTenant(tenantId, to, text);
-      if (result === "sent") sent += 1;
-      else {
+
+      /*
+       * ‎**נרשם קודם, נשלח אחר כך.** `notifyOnce` הוא גם ההתראה
+       * ‏בפעמון וגם מנעול הפעם-אחת; `false` = החודש הזה כבר יצא.
+       *
+       * ‎**והגוף הוא הסיכום עצמו** (ביקורת Codex): עמוד ההתראות
+       * ‏מציג פרטים מ-`body` בלבד, ואין להתראה הזו עוגן לנווט
+       * ‏אליו — כלומר `null` היה „סיכום” שאין בו שום סיכום. עכשיו
+       * ‏הפעמון הוא המסירה העמידה, והוואטסאפ הוא הדחיפה שמעליה.
+       */
+      const written = await this.notify({
+        tenantId,
+        dedupeKey: digestDedupeKey(monthKey, row.userId),
+        userId: row.userId,
+        title: officeDigestTitle(monthKey),
+        body: text,
+      });
+      if (!written) continue;
+
+      /*
+       * ‎**וואטסאפ הוא שכבה שנייה.** `whatsappAccess` הוא מקום
+       * ‏מוקצה שהמשרד מחליט עליו, וסוכן בלעדיו אינו נמצא על
+       * ‏הקו בכלל — בדיוק כמו סוכן בלי קישור.
+       */
+      const skip = digestWhatsappSkip({
+        hasWhatsapp: user.whatsappAccess && waById.has(row.userId),
+        optedOut: user.officeDigestOptedOutAt !== null,
+      });
+      if (skip !== null) {
+        skipped.push({ name: row.name, reason: skip });
+        continue;
+      }
+
+      const to = this.crypto.decrypt(waById.get(row.userId) ?? "");
+      if (await this.push(to, text, { name: row.name, monthKey, rank: row.rank, total: board.agents, counts: row.counts })) {
+        sent += 1;
+      } else {
         /*
          * ‎**כישלון שליחה אינו נבלע** — אבל גם אינו מוחק את
-         * ‏ההתראה: היא נכונה, היא בפעמון, והסוכן יראה אותה. מה
-         * ‏שנכשל הוא הערוץ, וזה מה שנרשם.
+         * ‏ההתראה: הסיכום נכון, הוא בפעמון על כל פרטיו,
+         * ‏והסוכן יראה אותו. מה שנכשל הוא הערוץ.
          */
         this.logger.warn(
-          `סיכום ${monthKey} לא נשלח בוואטסאפ ל-${row.userId} במשרד ${tenantId}: ${result}`,
+          `סיכום ${monthKey} לא נשלח בוואטסאפ ל-${row.userId} במשרד ${tenantId}`,
         );
       }
     }
 
     if (sent > 0 || skipped.length > 0) {
-      this.logger.log(`${tenantId}: ${digestManagerSummary(sent, skipped)}`);
+      await this.reportToManagers(tenantId, monthKey, digestManagerSummary(sent, skipped));
     }
   }
 
-  /**
-   * ‏נקודת זמן בתוך החודש שהסתיים — הלוח מחשב „חודש” סביב התאריך
-   * ‏שהוא מקבל, ולכן זו הדרך לבקש ממנו את הקודם בלי להוסיף פרמטר.
-   */
-  private lastDayOfPreviousMonth(now: Date): Date {
-    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0, 12, 0, 0));
+  /** ‏כתיבת התראה בהקשר הדייר — שלושה קוראים, ניסוח אחד. */
+  private async notify(input: {
+    tenantId: string;
+    dedupeKey: string;
+    userId: string;
+    title: string;
+    body: string;
+  }): Promise<boolean> {
+    return TenantContext.run(
+      { tenantId: input.tenantId, userId: "", capabilities: new Set(), billingOnly: false },
+      () =>
+        this.prisma.withTenant((tx) =>
+          notifyOnce(tx, {
+            tenantId: input.tenantId,
+            dedupeKey: input.dedupeKey,
+            userId: input.userId,
+            type: OFFICE_DIGEST_NOTIFICATION_TYPE,
+            title: input.title,
+            body: input.body,
+            /* ‏הסיכום אינו על ישות אחת, ולכן אין לו עוגן */
+            entityType: null,
+            entityId: null,
+          }),
+        ),
+    );
   }
+
+  /**
+   * ‎**הדחיפה לטלפון — על הקו שהסוכן באמת מדבר איתו.**
+   *
+   * ## מה היה קודם, ולמה הוא לא היה מגיע
+   *
+   * ‏השליחה רצה ב-`sendAsTenant`, כלומר על **חיבור הוואטסאפ
+   * ‏של המשרד** — מספר אחר לגמרי מזה שהסוכן מכיר. העוזר
+   * ‏האישי בוואטסאפ עונה דרך `sendText`, כלומר על קו
+   * ‏**הפלטפורמה**, ושם גם נוצר הקישור. סוכן שמעולם לא כתב
+   * ‏לקו המשרדי אינו בתוך חלון 24 השעות שלו, והרוב המכריע
+   * ‏של המשרדים אפילו אינם מחוברים (`no_connection`).
+   *
+   * ## ולמה גם תבנית
+   *
+   * ‏גם על הקו הנכון, טקסט חופשי עובד רק בתוך חלון 24
+   * ‏השעות, וסיכום חודשי הוא פנייה יזומה מובהקת — הסבב רץ
+   * ‏בתחילת החודש, ולא בתגובה לכלום. אותו סדר בדיוק של
+   * ‏התראת „לקוח ענה במייל”: חופשי קודם (עובד בתוך החלון
+   * ‏ונושא את הפירוט המלא), ותבנית מאושרת כשהוא נדחה.
+   *
+   * ‏בלי תבנית מוגדרת זו אינה תקלה: הסיכום כבר נמסר בפעמון.
+   */
+  private async push(
+    to: string,
+    text: string,
+    vars: { name: string; monthKey: string; rank: number; total: number; counts: BoardCounts },
+  ): Promise<boolean> {
+    if (await this.whatsapp.sendText(to, text)) return true;
+
+    const template = await this.platformSettings.get("whatsappOfficeDigestTemplate");
+    if (template === undefined || template === "") return false;
+    const lang = (await this.platformSettings.get("whatsappOfficeDigestTemplateLang")) ?? "he";
+    return this.whatsapp.sendTemplate(
+      to,
+      template,
+      lang,
+      whatsappTemplateParams("officeDigest", officeDigestTemplateValues(vars)),
+    );
+  }
+
+  /**
+   * ‎**הדיווח מגיע למנהל, ולא ללוג** (ביקורת Codex).
+   *
+   * ‏„מי לא קיבל ולמה” נכתב ללוג השרת בלבד, ולמנהל משרד
+   * ‏אין גישה אליו — כלומר ההסבר שתועד כמנהלי לא הגיע
+   * ‏לאיש. הלוג נשאר לתפעול, וההתראה היא למי שיכול לפעול.
+   *
+   * ‎**למנהלים בלבד, ולא לכל המשרד.** הדיווח נוקב בשמות
+   * ‏סוכנים ובסיבה — „ביקש לא לקבל” הוא נתון על עמית,
+   * ‏והתראה לכל המשרד היתה חושפת אותו לכולם.
+   */
+  private async reportToManagers(
+    tenantId: string,
+    monthKey: string,
+    summary: string,
+  ): Promise<void> {
+    const [tenant, staff] = await Promise.all([
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { blockedModules: true },
+      }),
+      this.prisma.user.findMany({
+        where: { tenantId, isActive: true },
+        select: { id: true, role: true },
+      }),
+    ]);
+    /*
+     * ‏`user_capabilities` יושבת תחת RLS, וקריאה בלי הקשר דייר
+     * ‏מחזירה אפס שורות **בשקט** — כלומר כל החריגים היו
+     * ‏נעלמים, ומנהל שהיכולת שלו הוענקה בחריג לא היה מקבל
+     * ‏את הדיווח. שער `rls-access` תופס בדיוק את זה.
+     */
+    const overrides = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      tx.userCapability.findMany({
+        where: { tenantId },
+        select: { userId: true, capability: true, effect: true, expiresAt: true },
+      }),
+    );
+    const byUser = new Map<string, typeof overrides>();
+    for (const row of overrides) {
+      byUser.set(row.userId, [...(byUser.get(row.userId) ?? []), row]);
+    }
+    const now = new Date();
+    for (const member of staff) {
+      const capabilities = effectiveCapabilities(
+        {
+          role: member.role,
+          overrides: byUser.get(member.id) ?? [],
+          blockedModules: tenant?.blockedModules ?? [],
+        },
+        now,
+      );
+      if (!capabilities.has("users.manage")) continue;
+      await this.notify({
+        tenantId,
+        dedupeKey: digestManagerDedupeKey(monthKey, member.id),
+        userId: member.id,
+        title: digestManagerTitle(monthKey),
+        body: summary,
+      });
+    }
+  }
+
 }

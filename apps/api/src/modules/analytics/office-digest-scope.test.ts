@@ -30,9 +30,9 @@ describe("פעם אחת לחודש", () => {
    * ‏סוכן על אותו חודש.
    */
   it("והשליחה קורית רק אחרי שהכתיבה הצליחה", () => {
-    const write = SERVICE.indexOf("notifyOnce(");
+    const write = SERVICE.indexOf("this.notify({");
     const guard = SERVICE.indexOf("if (!written) continue;");
-    const send = SERVICE.indexOf("this.whatsapp.sendAsTenant(");
+    const send = SERVICE.indexOf("this.push(");
     expect(write).toBeGreaterThan(0);
     expect(guard).toBeGreaterThan(write);
     expect(send).toBeGreaterThan(guard);
@@ -55,8 +55,35 @@ describe("הבחירה של הסוכן", () => {
 
   it("והוא נקרא לפני כל כתיבה או שליחה", () => {
     const skip = SERVICE.indexOf("digestSkipReason({");
-    expect(skip).toBeLessThan(SERVICE.indexOf("notifyOnce("));
-    expect(skip).toBeLessThan(SERVICE.indexOf("this.whatsapp.sendAsTenant("));
+    expect(skip).toBeGreaterThan(0);
+    expect(skip).toBeLessThan(SERVICE.indexOf("this.notify({"));
+    expect(skip).toBeLessThan(SERVICE.indexOf("this.push("));
+  });
+
+  /*
+   * ‎**וויתור על וואטסאפ אינו משתיק את הפעמון** (ביקורת Codex).
+   *
+   * ‏זו הטענה שהמסך מבטיח במפורש („גם בלי זה הסיכום ימשיך
+   * ‏להופיע בהתראות”) ושתיעוד העמודה חוזר עליה. הסדר
+   * ‏במקור הוא מה שהופך אותה לנכונה: הבדיקה יושבת **אחרי**
+   * ‏הכתיבה, ולכן אינה יכולה למנוע אותה.
+   */
+  it("ובדיקת הוואטסאפ יושבת אחרי הכתיבה, לא לפניה", () => {
+    const whatsappSkip = SERVICE.indexOf("digestWhatsappSkip({");
+    expect(whatsappSkip).toBeGreaterThan(SERVICE.indexOf("if (!written) continue;"));
+    expect(whatsappSkip).toBeLessThan(SERVICE.indexOf("this.push("));
+  });
+
+  /*
+   * ‎**והגוף הוא הסיכום עצמו.** עמוד ההתראות מציג פרטים
+   * ‏מ-`body` בלבד, ואין להתראה הזו עוגן לנווט אליו — כלומר
+   * ‏גוף ריק הוא „סיכום” שאין בו שום סיכום.
+   */
+  it("וההתראה נושאת את הטקסט ולא רק כותרת", () => {
+    const from = SERVICE.indexOf("const written = await this.notify({");
+    const block = SERVICE.slice(from, SERVICE.indexOf("});", from));
+    expect(block).toContain("body: text");
+    expect(block).not.toContain("body: null");
   });
 
   /*
@@ -94,9 +121,82 @@ describe("מה נשלח, ולמי", () => {
    * ‏שליחה במערכת: ערוץ שנפל נרשם, ולא נעלם.
    */
   it("וכישלון שליחה נרשם", () => {
-    const from = SERVICE.indexOf("this.whatsapp.sendAsTenant(");
+    const from = SERVICE.indexOf("if (await this.push(");
     const block = SERVICE.slice(from, from + 900);
     expect(block).toContain("this.logger.warn(");
+  });
+});
+
+/**
+ * ‎**הקו שעליו נשלח — ולמה הוא השאלה הראשונה.**
+ *
+ * ‏העוזר האישי עונה לסוכן על קו **הפלטפורמה**, ושם גם
+ * ‏נוצר הקישור. שליחה על חיבור המשרד היא מספר אחר לגמרי,
+ * ‏שרוב הסוכנים מעולם לא כתבו אליו — והרוב המכריע של
+ * ‏המשרדים אפילו אינם מחוברים (ביקורת Codex, P1).
+ */
+describe("הקו והתבנית", () => {
+  it("נשלח על קו הפלטפורמה, ולא על חיבור המשרד", () => {
+    expect(SERVICE).toContain("this.whatsapp.sendText(");
+    expect(SERVICE).not.toContain("sendAsTenant(");
+  });
+
+  /*
+   * ‏גם על הקו הנכון, טקסט חופשי עובד רק בתוך חלון 24 השעות,
+   * וסיכום חודשי הוא פנייה יזומה מובהקת — אותו סדר של
+   * התראת „לקוח ענה במייל”: חופשי קודם, תבנית כשהוא נדחה.
+   */
+  it("ויש נפילה לתבנית מאושרת", () => {
+    const text = SERVICE.indexOf("this.whatsapp.sendText(");
+    const template = SERVICE.indexOf("this.whatsapp.sendTemplate(");
+    expect(template).toBeGreaterThan(text);
+    expect(SERVICE).toContain('whatsappTemplateParams("officeDigest"');
+  });
+
+  /*
+   * ‎**והעוגן נגזר מהמפתח** (ביקורת Codex, P1).
+   *
+   * ‏חישוב UTC נפרד נחת בחודש הקודם בשעות הראשונות של
+   * ‏חודש ישראלי — מספרים של חודש אחד תחת כותרת של אחר,
+   * ‏נעול לצמיתות במפתח הדדופ.
+   */
+  it("והחודש שנמדד נגזר מאותה מחרוזת שמכתירה אותו", () => {
+    expect(SERVICE).toContain('this.analytics.board("month", digestMonthAnchor(monthKey))');
+    expect(SERVICE).not.toContain("Date.UTC(");
+  });
+});
+
+/**
+ * ‎**הדיווח למנהל מגיע למנהל** (ביקורת Codex).
+ *
+ * ‏ללוג השרת אין למנהל משרד גישה, ולכן הסבר שנכתב רק
+ * ‏שם אינו קיים מבחינתו.
+ */
+describe("דיווח המנהל", () => {
+  it("נכתב כהתראה ולא רק ללוג", () => {
+    const from = SERVICE.indexOf("private async reportToManagers(");
+    expect(from).toBeGreaterThan(0);
+    const block = SERVICE.slice(from);
+    expect(block).toContain("this.notify({");
+    expect(block).toContain("digestManagerDedupeKey(monthKey, member.id)");
+  });
+
+  /*
+   * ‎**למנהלים בלבד.** הדיווח נוקב בשמות סוכנים ובסיבה
+   * ‏— „ביקש לא לקבל” הוא נתון על עמית, והתראה לכל המשרד
+   * ‏(`userId: null`) היתה חושפת אותו לכולם.
+   */
+  it("ולפי היכולת בפועל, לא לכל המשרד", () => {
+    const block = SERVICE.slice(SERVICE.indexOf("private async reportToManagers("));
+    expect(block).toContain('capabilities.has("users.manage")');
+    expect(block).toContain("userId: member.id");
+    expect(block).not.toContain("userId: null");
+  });
+
+  /* ‏והחריגים נקראים בהקשר דייר — אחרת RLS מחזיר אפס בשקט */
+  it("והחריגים נקראים בהקשר הדייר", () => {
+    const block = SERVICE.slice(SERVICE.indexOf("private async reportToManagers("));
+    expect(block).toContain("withExplicitTenant(tenantId,");
   });
 });
 

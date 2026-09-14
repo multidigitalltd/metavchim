@@ -450,6 +450,13 @@ const UpdateSettingsSchema = z
     whatsappEmailReplyTemplateLang: z
       .union([z.string().trim().regex(/^[a-zA-Z]{2}(_[A-Z]{2})?$/u), z.literal("")])
       .optional(),
+    /** תבנית הסיכום החודשי לסוכן — פנייה יזומה, מחוץ לחלון */
+    whatsappOfficeDigestTemplate: z
+      .union([z.string().trim().regex(/^[a-z0-9_]{1,512}$/u), z.literal("")])
+      .optional(),
+    whatsappOfficeDigestTemplateLang: z
+      .union([z.string().trim().regex(/^[a-zA-Z]{2}(_[A-Z]{2})?$/u), z.literal("")])
+      .optional(),
     /** המענה למספר לא רשום — ריק = הנוסח המובנה, לא שתיקה */
     whatsappProspectReply: z.union([z.string().trim().min(10).max(2000), z.literal("")]).optional(),
     /*
@@ -2072,6 +2079,8 @@ export class PlatformController {
         viewingReminderTemplateButtons: boolean;
         emailReplyTemplate: string;
         emailReplyTemplateLang: string;
+        officeDigestTemplate: string;
+        officeDigestTemplateLang: string;
       };
     };
     /**
@@ -2401,6 +2410,11 @@ export class PlatformController {
             (await this.platformSettings.get("whatsappEmailReplyTemplate")) ?? "",
           emailReplyTemplateLang:
             (await this.platformSettings.get("whatsappEmailReplyTemplateLang")) ?? "he",
+          /* ריק = הסיכום החודשי מגיע בהתראות בלבד למי שמחוץ לחלון */
+          officeDigestTemplate:
+            (await this.platformSettings.get("whatsappOfficeDigestTemplate")) ?? "",
+          officeDigestTemplateLang:
+            (await this.platformSettings.get("whatsappOfficeDigestTemplateLang")) ?? "he",
         },
       },
       google: {

@@ -1,5 +1,5 @@
 import { BOARD_METRIC_LABELS, boardScore, type BoardCounts, type BoardGoal } from "./office-board.js";
-import { jerusalemWallParts } from "./israel-time.js";
+import { jerusalemWallIsoToUtc, jerusalemWallParts } from "./israel-time.js";
 
 /**
  * ‎**הסיכום החודשי של הסוכן — מה הוא עשה, ואיפה הוא עומד.**
@@ -62,34 +62,75 @@ export function digestDedupeKey(monthKey: string, userId: string): string {
   return `${OFFICE_DIGEST_NOTIFICATION_TYPE}:${monthKey}:${userId}`;
 }
 
-export type DigestSkip = "no_whatsapp" | "opted_out" | "nothing_to_report";
+/**
+ * ‎**נקודת זמן בתוך החודש שמסוכם — נגזרת מהמפתח עצמו.**
+ *
+ * ## מה היה קודם, ולמה זה נשבר פעם בשנה
+ *
+ * ‏הקורא חישב „היום האחרון של החודש הקודם” ב-UTC, בעוד
+ * ‏`digestMonthKey` עובד לפי שעון ירושלים. בשלוש השעות
+ * ‏הראשונות של חודש ישראלי השניים חלוקים: ב-1.10 ב-00:30
+ * ‏בירושלים (30.9 ב-21:30 UTC) המפתח אמר „ספטמבר” והעוגן נחת
+ * ‏באוגוסט — כלומר מספרי אוגוסט תחת כותרת ספטמבר, ומפתח
+ * ‏דדופ שנועל את הטעות לצמיתות (ביקורת Codex, P1).
+ *
+ * ## למה מהמפתח ולא מ-`now`
+ *
+ * ‏שני חישובים נפרדים מאותו רגע יכולים להיפרד; גזירה
+ * ‏מהמחרוזת שכבר נקבעה אינה יכולה. הכותרת, מפתח הדדופ
+ * ‏והנתונים מדברים מעכשיו על אותו חודש בהגדרה.
+ *
+ * ‏ה-15 בצהריים ולא הראשון או האחרון: נקודה בלב החודש
+ * ‏רחוקה מכל גבול, ולכן אינה רגישה למעבר שעון קיץ\/חורף
+ * ‏ולא לאורכו של חודש מסוים.
+ */
+export function digestMonthAnchor(monthKey: string): Date {
+  return jerusalemWallIsoToUtc(`${monthKey}-15T12:00:00.000`);
+}
+
+export type DigestSkip = "no_whatsapp" | "opted_out";
 
 export const DIGEST_SKIP_LABELS: Record<DigestSkip, string> = {
   no_whatsapp: "אין וואטסאפ מקושר",
-  opted_out: "ביקש לא לקבל",
-  nothing_to_report: "לא הייתה פעילות בחודש",
+  opted_out: "ביקש לא לקבל בוואטסאפ",
 };
 
 /**
- * ‎**למה סוכן אינו מקבל — ושלוש הסיבות אינן שוות.**
+ * ‎**האם יש בכלל מה לסכם — וזו שאלה אחת בלבד.**
  *
- * ‎`opted_out` היא בחירה שלו, ו-`no_whatsapp` היא פער שהמנהל יכול
- * ‏לסגור — ולכן שתיהן **מדווחות למנהל** ולא נבלעות. שתיקה כאן היא
- * ‏בדיוק מה שהכלל „אין בליעת כישלון” קיים כדי למנוע: מנהל שחושב
- * ‏שכולם קיבלו, ושבעה סוכנים שלא.
+ * ‏„עשית 0 מכל דבר” אינה הודעה שמועילה למישהו, והיא הדבר
+ * ‏היחיד שסוכן שהצטרף אתמול היה מקבל. זה גם אינו דיווח
+ * ‏למנהל: הוא כבר כתוב בטבלה מולו.
  *
- * ‎`nothing_to_report` אינה תקלה: „עשית 0 מכל דבר” אינה הודעה
- * ‏שמועילה למישהו, והיא הדבר היחיד שסוכן חדש שהצטרף אתמול היה
- * ‏מקבל.
+ * ## למה זה נפרד מ-`digestWhatsappSkip`
+ *
+ * ‏קודם שתי השאלות היו פונקציה אחת, וכיוון שהוויתור
+ * ‏נבדק ראשון — סוכן שביקש לא לקבל בוואטסאפ איבד גם את
+ * ‏ההתראה בפעמון (ביקורת Codex). המסך ותיעוד העמודה
+ * ‏שניהם אומרים במפורש שהוויתור משתיק את הטלפון בלבד.
+ * ‏שתי שאלות נפרדות אינן יכולות להיבלע זו בזו.
  */
-export function digestSkipReason(input: {
+export function digestSkipReason(input: { counts: BoardCounts }): "nothing_to_report" | null {
+  return boardScore(input.counts) === 0 ? "nothing_to_report" : null;
+}
+
+/**
+ * ‎**האם אפשר לדחוף את הסיכום לטלפון — וזה הכל.**
+ *
+ * ‏הסיכום עצמו כבר נכתב בהתראה; מה שנשאל כאן הוא אם
+ * ‏לשלוח אותו גם בוואטסאפ.
+ *
+ * ‏שתי הסיבות **מדווחות למנהל** ואינן נבלעות: `no_whatsapp`
+ * ‏הוא פער שהוא יכול לסגור, ו-`opted_out` מסביר למה אין טעם
+ * ‏לנסות. שתיקה כאן היא בדיוק מה שהכלל „אין בליעת כישלון”
+ * ‏קיים כדי למנוע.
+ */
+export function digestWhatsappSkip(input: {
   hasWhatsapp: boolean;
   optedOut: boolean;
-  counts: BoardCounts;
 }): DigestSkip | null {
   if (input.optedOut) return "opted_out";
   if (!input.hasWhatsapp) return "no_whatsapp";
-  if (boardScore(input.counts) === 0) return "nothing_to_report";
   return null;
 }
 
@@ -138,18 +179,57 @@ export function officeDigestTitle(monthKey: string): string {
 }
 
 /**
- * ‏מה המנהל רואה אחרי סבב — **כולל מי לא קיבל ולמה**.
+ * ‎**מה המנהל רואה אחרי סבב — כולל מי לא קיבל ולמה.**
  *
  * ‏„נשלח ל-5 סוכנים” לבדו הוא דיווח חלקי שנשמע שלם.
+ *
+ * ‏הנוסח אומר **בוואטסאפ** ולא סתם „נשלח”: הסיכום עצמו
+ * ‏מגיע לכל סוכן שהיתה לו פעילות — בפעמון, תמיד — ומה שנספר
+ * ‏כאן הוא הדחיפה לטלפון בלבד. דיווח שאומר „לא קיבל” על מי
+ * ‏שהסיכום שלו מחכה לו במערכת הוא דיווח שגוי.
  */
 export function digestManagerSummary(
   sent: number,
   skipped: readonly { name: string; reason: DigestSkip }[],
 ): string {
-  const head = `הסיכום החודשי נשלח ל-${sent} סוכנים.`;
+  const head = `הסיכום החודשי נשלח בוואטסאפ ל-${sent} סוכנים.`;
   if (skipped.length === 0) return head;
   const detail = skipped
     .map((s) => `${s.name} — ${DIGEST_SKIP_LABELS[s.reason]}`)
     .join("; ");
-  return `${head} לא נשלח ל-${skipped.length}: ${detail}`;
+  return `${head} לא נשלח ל-${skipped.length}: ${detail} (הסיכום עצמו מחכה להם בהתראות).`;
+}
+
+/** ‏כותרת ההתראה למנהל — קצרה, כי היא נקראת ברשימה. */
+export function digestManagerTitle(monthKey: string): string {
+  return `סיכום ${digestMonthTitle(monthKey)} יצא לסוכנים`;
+}
+
+/**
+ * ‎**מפתח הדדופ של דיווח המנהל** — אחד למנהל לחודש.
+ *
+ * ‏מרחב שמות נפרד (`:manager:`) כדי שמנהל שהוא גם סוכן
+ * ‏יקבל את שניהם: הסיכום שלו, והדיווח על הצוות. מפתח אחד
+ * ‏לשניהם היה משאיר אותו עם הראשון שנכתב בלבד.
+ */
+export function digestManagerDedupeKey(monthKey: string, userId: string): string {
+  return `${OFFICE_DIGEST_NOTIFICATION_TYPE}:manager:${monthKey}:${userId}`;
+}
+
+/**
+ * ‎**הערכים שהתבנית המאושרת מקבלת.**
+ *
+ * ‏טקסט חופשי עובד רק בתוך חלון 24 השעות של Meta, וסיכום
+ * ‏חודשי הוא פנייה יזומה מובהקת — לכן התבנית היא מה שמגיע
+ * ‏לרוב הסוכנים בפועל. הערכים מוגדרים כאן, לצד הטקסט החופשי,
+ * ‏כדי ששני הנוסחים לא יוכלו לספר שני דברים שונים.
+ */
+export function officeDigestTemplateValues(
+  vars: DigestVars,
+): readonly [string, string, string] {
+  return [
+    vars.name,
+    digestMonthTitle(vars.monthKey),
+    `${vars.rank} מתוך ${vars.total}`,
+  ];
 }

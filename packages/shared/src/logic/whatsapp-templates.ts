@@ -105,6 +105,14 @@ export const WHATSAPP_TEMPLATE_PARAMS = {
   ],
   /** לסוכן, „לקוח ענה במייל”: שם הלקוח בלבד */
   emailReply: ["customer_name"],
+  /**
+   * ‏לסוכן, הסיכום החודשי: שמו, החודש, והמיקום שלו.
+   *
+   * ‏המספרים עצמם אינם כאן בכוונה: תבנית מאושרת היא הדרך
+   * ‏לפתוח את השיחה, והפירוט המלא מחכה בהתראות במערכת
+   * ‏— שם אין מגבלת אורך ואין אישור מראש.
+   */
+  officeDigest: ["agent_name", "month_name", "rank"],
 } as const satisfies Record<string, readonly string[]>;
 
 export type WhatsAppTemplateRole = keyof typeof WHATSAPP_TEMPLATE_PARAMS;

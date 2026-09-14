@@ -178,6 +178,8 @@ interface PlatformSettings {
       viewingReminderTemplateButtons?: boolean;
       emailReplyTemplate?: string;
       emailReplyTemplateLang?: string;
+      officeDigestTemplate?: string;
+      officeDigestTemplateLang?: string;
     };
   };
   google: {
@@ -434,6 +436,10 @@ export function PlatformSettingsSection({
       const emailReplyTemplateLang = String(
         f.get("whatsappEmailReplyTemplateLang") ?? "",
       ).trim();
+      const officeDigestTemplate = String(f.get("whatsappOfficeDigestTemplate") ?? "").trim();
+      const officeDigestTemplateLang = String(
+        f.get("whatsappOfficeDigestTemplateLang") ?? "",
+      ).trim();
       await apiPatch("/platform/settings", {
         ...(secret !== "" ? { whatsappAppSecret: secret } : {}),
         ...(verify !== "" ? { whatsappVerifyToken: verify } : {}),
@@ -481,6 +487,8 @@ export function PlatformSettingsSection({
         whatsappViewingReminderTemplateButtons: reminderTemplateButtons,
         whatsappEmailReplyTemplate: emailReplyTemplate,
         whatsappEmailReplyTemplateLang: emailReplyTemplateLang,
+        whatsappOfficeDigestTemplate: officeDigestTemplate,
+        whatsappOfficeDigestTemplateLang: officeDigestTemplateLang,
       });
       form.reset();
       setMessage("✓ הגדרות הוואטסאפ נשמרו");
@@ -2301,6 +2309,42 @@ export function PlatformSettingsSection({
                 aria-label="שפת תבנית התראת המייל"
                 key={`elang-${settings.whatsapp.assistant.emailReplyTemplateLang ?? "he"}`}
                 defaultValue={settings.whatsapp.assistant.emailReplyTemplateLang ?? "he"}
+                placeholder="he"
+                className="w-24 rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
+          </div>
+          <div>
+            <label htmlFor="whatsappOfficeDigestTemplate" className="mb-1 block font-medium">
+              תבנית הסיכום החודשי לסוכן{" "}
+              <span className="font-normal">(ריק = הסיכום בהתראות בלבד)</span>
+            </label>
+            <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              גם היא נשלחת ל<b>סוכן</b>, והיא פנייה <b>יזומה</b>: הסבב
+              רץ בתחילת החודש, ורוב הסוכנים לא כתבו לבוט ב-24 השעות
+              שלפניו — כלומר בלי תבנית הוא מגיע בוואטסאפ רק למיעוט.
+              שלושה משתנים: ‎{"{{agent_name}}"}‎, ‎{"{{month_name}}"}‎
+              ו-‎{"{{rank}}"}‎. הפירוט המלא תמיד מחכה בהתראות במערכת.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                id="whatsappOfficeDigestTemplate"
+                name="whatsappOfficeDigestTemplate"
+                dir="ltr"
+                key={settings.whatsapp.assistant.officeDigestTemplate ?? ""}
+                defaultValue={settings.whatsapp.assistant.officeDigestTemplate ?? ""}
+                placeholder="metavchim_office_digest"
+                className="min-w-[220px] flex-1 rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+              <input
+                id="whatsappOfficeDigestTemplateLang"
+                name="whatsappOfficeDigestTemplateLang"
+                dir="ltr"
+                aria-label="שפת תבנית הסיכום החודשי"
+                key={`dlang-${settings.whatsapp.assistant.officeDigestTemplateLang ?? "he"}`}
+                defaultValue={settings.whatsapp.assistant.officeDigestTemplateLang ?? "he"}
                 placeholder="he"
                 className="w-24 rounded-lg border px-3 py-2.5"
                 style={inputStyle}
