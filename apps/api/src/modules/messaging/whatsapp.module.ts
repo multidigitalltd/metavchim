@@ -5,6 +5,7 @@ import { CallsModule } from "../calls/calls.module";
 import { PropertiesModule } from "../properties/properties.module";
 import { RecruitmentModule } from "../recruitment/recruitment.module";
 import { ContactsModule } from "../contacts/contacts.module";
+import { ImportModule } from "../import/import.module";
 import { MentorModule } from "../mentor/mentor.module";
 import { ViewingReplyService } from "../calendar/viewing-reply.service";
 import { VoiceIntakeModule } from "../voice-intake/voice-intake.module";
@@ -13,6 +14,7 @@ import { WhatsAppAssistantService } from "./whatsapp-assistant.service";
 import { WhatsAppBotService } from "./whatsapp-bot.service";
 import { WhatsAppConnectionController } from "./whatsapp-connection.controller";
 import { WhatsAppConnectionService } from "./whatsapp-connection.service";
+import { WhatsappImportService } from "./whatsapp-import.service";
 import { WhatsAppInboundService } from "./whatsapp-inbound.service";
 import { WhatsAppTokenRefreshService } from "./whatsapp-token-refresh.service";
 import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
@@ -68,6 +70,13 @@ import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
      * ‏אין מעגל: הגיוס מייבא נכסים בלבד ואינו יודע על הוואטסאפ.
      */
     RecruitmentModule,
+    /*
+     * ‎`ImportModule` — קובץ אקסל שנשלח בצ'אט נכתב דרך
+     * ‎`ImportWriteService`, **אותו שירות שהבקר מפעיל**. הכיוון
+     * ‏תקין: מודול הייבוא מייבא נכסים, קונים, לידים וגיוס, ואינו
+     * ‏יודע דבר על הוואטסאפ.
+     */
+    ImportModule,
   ],
   controllers: [WhatsAppWebhookController, WhatsAppConnectionController],
   /*
@@ -78,6 +87,7 @@ import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
   providers: [
     WhatsAppInboundService,
     WhatsAppAssistantService,
+    WhatsappImportService,
     ViewingReplyService,
     WhatsAppConnectionService,
     WhatsAppBotService,

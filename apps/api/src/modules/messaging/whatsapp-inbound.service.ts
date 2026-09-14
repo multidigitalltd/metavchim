@@ -78,6 +78,26 @@ const WebhookSchema = z.object({
                     .object({ id: z.string(), caption: z.string().optional() })
                     .optional(),
                   /**
+                   * ‎**קובץ לסוכן — אקסל או CSV לייבוא.**
+                   *
+                   * ‏אותה משפחה בדיוק כמו `image` לפניו: השדה לא
+                   * ‏הוכרז כאן, ו-zod משמיט מפתחות שאינם מוצהרים —
+                   * ‏כלומר קובץ שנשלח הגיע לסוכן בלי מדיה, בלי שם
+                   * ‏ובלי כיתוב, וכל מה שנבנה בשבילו לא רץ מעולם.
+                   *
+                   * ‎`filename` אינו קישוט: וואטסאפ מאבד את ה-MIME
+                   * ‏בהעברה בין אפליקציות ושולח `application/octet-stream`
+                   * ‏על ‎.xlsx‎ תקין לגמרי. הסיומת היא מה שמכריע אז.
+                   */
+                  document: z
+                    .object({
+                      id: z.string(),
+                      filename: z.string().optional(),
+                      mime_type: z.string().optional(),
+                      caption: z.string().optional(),
+                    })
+                    .optional(),
+                  /**
                    * לחיצה על כפתור או בחירה מרשימה. המזהה הוא מה
                    * ששלחנו בכפתור, ולכן הוא נושא את הפעולה; הכותרת
                    * נשמרת כדי שיהיה מה להציג ביומן השיחה.
@@ -391,6 +411,18 @@ export class WhatsAppInboundService {
                   ? {
                       mediaId: message.image.id,
                       ...(message.image.caption ? { text: message.image.caption } : {}),
+                    }
+                  : {}),
+                /*
+                 * ‏הכיתוב נכנס כ-`text` מאותו נימוק: „קונים” על קובץ
+                 * ‏אומר מה יש בו, וחוסך את השאלה.
+                 */
+                ...(message.document
+                  ? {
+                      mediaId: message.document.id,
+                      fileName: message.document.filename ?? "",
+                      fileMime: message.document.mime_type ?? "",
+                      ...(message.document.caption ? { text: message.document.caption } : {}),
                     }
                   : {}),
                 ...(() => {

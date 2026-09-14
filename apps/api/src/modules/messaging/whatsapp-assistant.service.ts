@@ -45,6 +45,7 @@ import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { advancePendingRow, takePendingRow } from "./whatsapp-pending";
+import { WhatsappImportService } from "./whatsapp-import.service";
 import { tenantPeriodEnded, tenantSuspended } from "../auth/auth.service";
 import { AgentExecuteService, type ExecuteResult } from "../agent/execute.service";
 import { AgentInterpretService } from "../agent/interpret.service";
@@ -63,6 +64,15 @@ import {
 } from "./assistant-lang";
 import {
   agentWelcomeExamples,
+  IMPORT_KIND_CAPABILITY,
+  IMPORT_KIND_LABELS,
+  IMPORT_KIND_QUESTION,
+  importKindFromText,
+  importPreviewText,
+  sheetFormat,
+  UNSUPPORTED_SHEET_TEXT,
+  WHATSAPP_IMPORT_KINDS,
+  type WhatsappImportKind,
   looksLikeWhatsappLinkCode,
   RENEW_BUTTON_TITLE,
   renewalBlockedText,
@@ -200,6 +210,14 @@ export interface AssistantInbound {
   type: string;
   text?: string;
   mediaId?: string;
+  /**
+   * ‏שם הקובץ וסוגו, כשההודעה היא קובץ.
+   *
+   * ‏שניהם, ולא אחד: וואטסאפ שולח `application/octet-stream` על
+   * ‎.xlsx‎ תקין שהועבר בין אפליקציות, והסיומת היא מה שמכריע אז.
+   */
+  fileName?: string;
+  fileMime?: string;
   /** מזהה הכפתור שנלחץ — מה ששלחנו בו, ולכן נושא את הפעולה */
   buttonId?: string;
   /** כותרת הכפתור כפי שהמתווך ראה אותה — ליומן ולזיכרון השיחה */
@@ -222,7 +240,11 @@ interface PendingState {
     | "mentor_plan"
     | "mentor_practice"
     /** ‏„המר ללקוח” נשאלה — ההודעה הבאה היא קונה/שוכר/מוכר/משכיר */
-    | "call_convert";
+    | "call_convert"
+    /** ‏קובץ הגיע ולא נאמר מה יש בו — ההודעה הבאה היא הסוג */
+    | "import_kind"
+    /** ‏הקובץ נקרא והתצוגה המקדימה הוצגה — נשאר „אשר” */
+    | "import_confirm";
   /**
    * חותם ההצעה — נכנס למזהי הכפתורים שלה.
    *
@@ -267,6 +289,25 @@ interface PendingState {
     subject: string;
     /** ‏מה שהשיחה ידעה — נכנס לכרטיס שנפתח על התשובה */
     seed: CallConvertSeed;
+  };
+  /**
+   * ‎**קובץ ייבוא שממתין לאישור.**
+   *
+   * ‏השורות נשמרות כאן ולא נקראות שוב באישור, וזו הכרעה: הורדה
+   * ‏שנייה יכולה להיכשל **אחרי** שהמתווך כבר אמר „כן”, ואז הוא
+   * ‏קיבל „לא הצלחתי” על פעולה שאישר. מה שנספר בתצוגה המקדימה
+   * ‏הוא בדיוק מה שייכתב.
+   *
+   * ‏התקרה היא 500 שורות — אותה תקרה של הנתיב — ולכן זה נשאר
+   * ‏עשרות קילובייטים בשורה אחת, שנמחקת ברגע האישור או הביטול.
+   */
+  importFile?: {
+    fileName: string;
+    kind?: WhatsappImportKind;
+    rows?: Record<string, unknown>[];
+    unmapped?: string[];
+    mediaId: string;
+    fileMime: string;
   };
 }
 
@@ -364,6 +405,13 @@ export class WhatsAppAssistantService {
      * ‏משתמש בו — כלומר באותו היקף ראייה.
      */
     private readonly photos: PropertyPhotoService,
+    /*
+     * ‎`WhatsappImportService` — קובץ אקסל שנשלח בצ'אט. הכתיבה
+     * ‏עצמה היא `ImportWriteService`, **אותו שירות שהבקר מפעיל**:
+     * ‏מסלול שני היה מדלג על איחוד לידים לפי טלפון, על
+     * ‎`typedBy: "agent"`, ועל הורדת שדה פסול במקום השורה.
+     */
+    private readonly imports: WhatsappImportService,
   ) {}
 
   /**
@@ -568,6 +616,22 @@ export class WhatsAppAssistantService {
         { replyTo: msg.externalId },
       );
       await this.saveChat(user.tenantId, user.id, chat);
+      return;
+    }
+
+    /*
+     * ‎**קובץ — מסלול משלו, לפני מנוע ההבנה.**
+     *
+     * ‏אין כאן משפט לפרש: יש קובץ, ושאלה אחת („מה יש בו?”) שאחריה
+     * ‏תצוגה מקדימה ו„אשר”. שליחתו למנוע הייתה מייצרת פעולה על
+     * ‏שם הקובץ.
+     */
+    if (msg.type === "document" && button === null) {
+      const reply = await TenantContext.run(context, () =>
+        this.documentArrived(user, chat, msg),
+      );
+      await this.saveChat(user.tenantId, user.id, chat);
+      await this.deliver(msg, reply);
       return;
     }
 
@@ -1410,6 +1474,183 @@ export class WhatsAppAssistantService {
     }
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  קובץ ייבוא — שלושה צעדים, ואף כתיבה לפני האחרון                    */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * ‎**קובץ הגיע.**
+   *
+   * ‏אם הכיתוב אמר מה יש בו — קוראים מיד ומציגים תצוגה מקדימה.
+   * ‏אם לא — שואלים, כי ניחוש שגוי פותח מאה כרטיסי קונה מקובץ של
+   * ‏לידים, וזו טעות שמנקים ביד שורה-שורה.
+   */
+  private async documentArrived(
+    user: IdentifiedUser,
+    chat: ChatState,
+    msg: AssistantInbound,
+  ): Promise<AgentReply> {
+    if (msg.mediaId === undefined) {
+      const text = "לא הצלחתי לקרוא את הקובץ — נסו לשלוח אותו שוב.";
+      return { text, speak: text };
+    }
+    const fileName = msg.fileName ?? "";
+    const fileMime = msg.fileMime ?? "";
+    if (sheetFormat(fileMime, fileName) === "unsupported") {
+      return { text: UNSUPPORTED_SHEET_TEXT, speak: UNSUPPORTED_SHEET_TEXT };
+    }
+
+    /* ‏הצעה קודמת פגה ברגע שקובץ נכנס — כמו כל בקשה חדשה */
+    if (chat.pending !== null) {
+      const took = await this.takePending(user.tenantId, user.id, chat.pending.token);
+      this.consumed(chat, took);
+    }
+
+    const kind = importKindFromText(msg.text ?? "");
+    const base = {
+      fileName: fileName === "" ? "הקובץ" : fileName,
+      mediaId: msg.mediaId,
+      fileMime,
+    };
+    if (kind === null) {
+      const token = ulid();
+      chat.pending = {
+        transcript: "",
+        proposal: WhatsAppAssistantService.mentorPlaceholder("ייבוא קובץ"),
+        awaiting: "import_kind",
+        extraParams: {},
+        token,
+        importFile: base,
+      };
+      chat.keepStoredPending = false;
+      const lines = [
+        `קיבלתי את „${base.fileName}”. ${IMPORT_KIND_QUESTION}`,
+        "",
+        ...WHATSAPP_IMPORT_KINDS.map((k, i) => `${i + 1}. ${IMPORT_KIND_LABELS[k]}`),
+      ];
+      return {
+        text: lines.join("\n"),
+        speak: IMPORT_KIND_QUESTION,
+        buttonBody: `קיבלתי את „${base.fileName}”. ${IMPORT_KIND_QUESTION}`,
+        buttons: WHATSAPP_IMPORT_KINDS.map((k, i) => ({
+          action: "pick" as const,
+          arg: String(i + 1),
+          title: IMPORT_KIND_LABELS[k],
+          token,
+        })),
+      };
+    }
+    return this.importPreview(user, chat, base, kind);
+  }
+
+  /**
+   * ‏התשובה לשאלה „מה יש בקובץ?” — מספר או מילה.
+   *
+   * ‏מה שאינו אחד מהם אינו „לא הבנתי”: המתווך עבר לבקשה אחרת.
+   * ‏המצב נסגר, שום דבר לא נכתב, והמשפט ממשיך למנוע — אותה
+   * ‏התנהגות בדיוק של „אולי התכוונת”.
+   */
+  private async importKindAnswer(
+    user: IdentifiedUser,
+    chat: ChatState,
+    pending: PendingState,
+    text: string,
+  ): Promise<AgentReply> {
+    const file = pending.importFile;
+    const index = Number.parseInt(text.trim(), 10);
+    const picked =
+      Number.isInteger(index) && index >= 1 && index <= WHATSAPP_IMPORT_KINDS.length
+        ? (WHATSAPP_IMPORT_KINDS[index - 1] ?? null)
+        : importKindFromText(text);
+    if (file === undefined || picked === null) {
+      const took = await this.takePending(user.tenantId, user.id, pending.token);
+      this.consumed(chat, took);
+      const answer = "בסדר, עזבתי את הקובץ. שלחו אותו שוב כשתרצו לייבא.";
+      return { text: answer, speak: answer };
+    }
+    const took = await this.takePending(user.tenantId, user.id, pending.token);
+    this.consumed(chat, took);
+    return this.importPreview(user, chat, file, picked);
+  }
+
+  /**
+   * ‎**קריאה וספירה — ואף שורה אינה נכתבת כאן.**
+   *
+   * ‏היכולת נבדקת לפני הקריאה ולא אחריה: „קראתי 400 שורות” ואז
+   * ‏„אין לך הרשאה” הוא בזבוז של דקה ושל אמון.
+   */
+  private async importPreview(
+    user: IdentifiedUser,
+    chat: ChatState,
+    file: { fileName: string; mediaId: string; fileMime: string },
+    kind: WhatsappImportKind,
+  ): Promise<AgentReply> {
+    /*
+     * ‎`TenantContext.current()` ולא `user`: היכולות אינן על
+     * ‏הרשומה שנטענה אלא על ההקשר, וזה **אותו** מקור שהבקרים
+     * ‏נבדקים מולו. שכפול הרשימה לרשומה היה מקום שני שיכול
+     * ‏להתיישן מול הרשאה שנשללה זה עתה.
+     */
+    if (!TenantContext.current().capabilities.has(IMPORT_KIND_CAPABILITY[kind])) {
+      const denied = `אין לכם הרשאה לייבא ${IMPORT_KIND_LABELS[kind]} — מנהל המשרד יכול לתת אותה בהגדרות הצוות.`;
+      return { text: denied, speak: denied };
+    }
+    const read = await this.imports.read(file.mediaId, file.fileName, file.fileMime, kind);
+    if ("error" in read) return { text: read.error, speak: read.error };
+    if (read.rows.length === 0) {
+      const empty = `לא מצאתי שורות ב„${file.fileName}”. ודאו שיש שורת כותרות ושורה אחת לפחות מתחתיה.`;
+      return { text: empty, speak: empty };
+    }
+
+    const token = ulid();
+    chat.pending = {
+      transcript: "",
+      proposal: WhatsAppAssistantService.mentorPlaceholder(
+        `ייבוא ${IMPORT_KIND_LABELS[kind]}`,
+      ),
+      awaiting: "import_confirm",
+      extraParams: {},
+      token,
+      importFile: { ...file, kind, rows: read.rows, unmapped: read.unmapped },
+    };
+    chat.keepStoredPending = false;
+    const preview = importPreviewText({
+      kind,
+      rows: read.rows.length,
+      unmapped: read.unmapped,
+      filename: file.fileName,
+    });
+    return {
+      text: preview,
+      speak: `קראתי ${read.rows.length} שורות. לייבא?`,
+      buttons: confirmButtons(token),
+    };
+  }
+
+  /** ‏„אשר” — וכאן, ורק כאן, נכתבות השורות. */
+  private async importConfirm(
+    user: IdentifiedUser,
+    chat: ChatState,
+    pending: PendingState,
+  ): Promise<AgentReply> {
+    const file = pending.importFile;
+    const took = await this.takePending(user.tenantId, user.id, pending.token);
+    this.consumed(chat, took);
+    if (!took) {
+      return { text: STALE_PROPOSAL_TEXT, speak: "ההצעה כבר אינה ממתינה." };
+    }
+    if (file?.kind === undefined || file.rows === undefined) {
+      const lost = "איבדתי את הקובץ — שלחו אותו שוב.";
+      return { text: lost, speak: lost };
+    }
+    const { text } = await this.imports.write_(
+      TenantContext.current(),
+      file.kind,
+      file.rows,
+    );
+    return { text, speak: text };
+  }
+
   /** טקסט מוכן לפירוש, או תשובה מוכנה כשאין מה לפרש. */
   private async extractText(
     msg: AssistantInbound,
@@ -1471,7 +1712,12 @@ export class WhatsAppAssistantService {
       }
     }
     if (msg.type === "image") return { reply: await this.fromImage(msg, context) };
-    return { reply: "אני יודע לטפל כרגע בטקסט ובהודעות קוליות." };
+    /*
+     * ‏„קובץ” אינו מגיע לכאן — הוא מנותב לפני מנוע ההבנה — אבל
+     * ‏הוא כן נאמר: מי שקיבל את המשפט הזה על סרטון צריך לדעת
+     * ‏שקובץ אקסל **כן** עובד.
+     */
+    return { reply: "אני יודע לטפל כרגע בטקסט, בהודעות קוליות, בתמונות ובקבצי אקסל." };
   }
 
   /* ------------------------------------------------------------------ */
@@ -1524,6 +1770,12 @@ export class WhatsAppAssistantService {
       }
       if (pending.awaiting === "call_convert") {
         return withHeard(await this.callConvertTurn(user, chat, pending, text, speaker), heard);
+      }
+      if (pending.awaiting === "import_kind") {
+        return withHeard(await this.importKindAnswer(user, chat, pending, text), heard);
+      }
+      if (pending.awaiting === "import_confirm" && isConfirmMessage(text)) {
+        return withHeard(await this.importConfirm(user, chat, pending), heard);
       }
       if (pending.awaiting === "mentor_reflection" || pending.awaiting === "mentor_plan") {
         return withHeard(await this.mentorFollowUp(user, chat, pending, text), heard);
