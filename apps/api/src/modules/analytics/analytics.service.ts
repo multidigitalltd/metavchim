@@ -10,6 +10,10 @@ import {
   periodTitle,
   previousPeriodTitle,
   superlative,
+  DEAL_STATUSES,
+  formatPropertyAddress,
+  partnerShare,
+  type DealStatus,
   type BoardCounts,
   type BoardMetric,
   type BoardGoal,
@@ -19,6 +23,15 @@ import {
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
+
+/**
+ * ‎**תקרת השת״פים שמוצגים בלוח.**
+ *
+ * ‏המקטע הוא צילום ולא דוח: מנהל רוצה לראות מה קרה החודש, ולא
+ * ‏לגלול מאתיים שורות. התקרה שומרת על זמן התגובה של העמוד, והמונה
+ * ‏(„3 מתוך 12”) נשאר נכון בכל מקרה כי הוא נספר בנפרד.
+ */
+const PARTNER_ROWS_MAX = 50;
 
 /**
  * חלון הדיווח בימים. null = מאז ומעולם.
@@ -158,7 +171,8 @@ export class AnalyticsService {
             tenantId,
             // נכס שנמחק אינו עסקה שנסגרה, גם אם הסטטוס שלו נשאר "נמכר"
             deletedAt: null,
-            status: { in: ["sold", "rented"] },
+            /* ‏אותה הגדרת „עסקה” שהלוח סופר — קטלוג אחד, לא רשימה שנכתבה שוב */
+            status: { in: [...DEAL_STATUSES] },
             ...(from ? { updatedAt: { gte: from } } : {}),
           },
         }),
@@ -381,12 +395,18 @@ export class AnalyticsService {
             where: { tenantId, startsAt: range, status: { not: "cancelled" } },
             _count: { _all: true },
           }),
+          /*
+           * ‎**„עסקה” מוגדרת פעם אחת** (`DEAL_STATUSES`), כי מקטע
+           * ‏השת״פים למטה סופר את אותו הדבר. שתי רשימות שנכתבו
+           * ‏ביד היו מציגות „3 שת״פים מתוך 12 עסקאות” על שני
+           * ‏מכנים שונים — מספר שנראה אמין ואינו נכון.
+           */
           tx.property.groupBy({
             by: ["agentUserId"],
             where: {
               tenantId,
               deletedAt: null,
-              status: { in: ["sold", "rented"] },
+              status: { in: [...DEAL_STATUSES] },
               updatedAt: range,
             },
             _count: { _all: true },
@@ -489,6 +509,57 @@ export class AnalyticsService {
       const sum = (map: Map<string, BoardCounts>, key: keyof BoardCounts): number =>
         [...map.values()].reduce((acc, row) => acc + row[key], 0);
 
+      /*
+       * ‎**שת״פים בתוך המשרד — עסקאות שנסגרו בשניים.**
+       *
+       * ‏אותו חלון ואותה הגדרת „עסקה” כמו בניקוד (`sold`/`rented`
+       * ‏שעודכנו בתקופה) — שאלה אחת, תשובה אחת. הגדרה שנייה כאן
+       * ‏הייתה מציגה „3 שת״פים מתוך 12 עסקאות” על שני מכנים שונים.
+       *
+       * ‎**והניקוד אינו נוגע בזה** (הכרעת בעל המוצר): `deals` למעלה
+       * ‏ממשיך להיספר לפי `agentUserId` בלבד. הקריאה הזו נפרדת
+       * ‏לגמרי ואינה נכנסת ל-`window`.
+       */
+      const partnered = await tx.property.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          status: { in: [...DEAL_STATUSES] },
+          updatedAt: { gte: start, lt: until },
+          partnerUserId: { not: null },
+        },
+        select: {
+          id: true,
+          city: true,
+          street: true,
+          houseNumber: true,
+          status: true,
+          updatedAt: true,
+          agentUserId: true,
+          partnerUserId: true,
+        },
+        orderBy: { updatedAt: "desc" },
+        /* ‏מקטע ולא דוח: תקרה שומרת על זמן התגובה של הלוח */
+        take: PARTNER_ROWS_MAX,
+      });
+      const names = new Map(users.map((u) => [u.id, u.name]));
+      const partnerDeals = partnered.map((row) => ({
+        propertyId: row.id,
+        address: formatPropertyAddress({
+          city: row.city ?? undefined,
+          street: row.street ?? undefined,
+          houseNumber: row.houseNumber ?? undefined,
+        }),
+        status: row.status as DealStatus,
+        closedAt: row.updatedAt,
+        /*
+         * ‏שם של מי שכבר אינו במשרד אינו נמצא ב-`users` (הרשימה
+         * ‏מסוננת ל-`isActive`), ולכן „סוכן שעזב” ולא מזהה גולמי.
+         */
+        agentName: names.get(row.agentUserId ?? "") ?? "סוכן שעזב",
+        partnerName: names.get(row.partnerUserId ?? "") ?? "סוכן שעזב",
+      }));
+
       return {
         period,
         title: periodTitle(period, now),
@@ -503,6 +574,11 @@ export class AnalyticsService {
           value: sum(current, key),
           ...delta(sum(current, key), sum(previous, key)),
         })),
+        partners: {
+          deals: partnerDeals,
+          /* ‏„3 מתוך 12” — המכנה הוא אותו `deals` שהניקוד סופר */
+          share: partnerShare(partnerDeals.length, sum(current, "deals")),
+        },
       };
     });
   }

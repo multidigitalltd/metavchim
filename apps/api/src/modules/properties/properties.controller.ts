@@ -27,6 +27,8 @@ import {
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { officeMembers } from "../../common/office-members";
+import { PrismaService } from "../../core/prisma.service";
 import { MatchingService, type MatchDto } from "../matching/matching.service";
 import { FeatureCatalogueService } from "./feature-catalogue.service";
 import {
@@ -64,6 +66,12 @@ export const CreatePropertySchema = PropertyFieldsSchema.extend({
    * שאינו בו.
    */
   agentUserId: z.union([IdSchema, z.literal("")]).optional(),
+  /*
+   * ‎**הסוכן השותף — מזהה או מחרוזת ריקה לניקוי**, בדיוק כמו
+   * ‏השיוך שמעליו. `null` אינו מתקבל: ערוץ ריקון אחד לשדה, ולא
+   * ‏שניים שמתנהגים אותו דבר.
+   */
+  partnerUserId: z.union([IdSchema, z.literal("")]).optional(),
   /*
    * ‎**הסטטוס ההתחלתי — ביצירה, ולא רק בעדכון** (ביקורת Codex, P1).
    *
@@ -256,6 +264,7 @@ export class PropertiesController {
     private readonly matching: MatchingService,
     private readonly catalogue: FeatureCatalogueService,
     private readonly activityReport: PropertyActivityService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -344,6 +353,23 @@ export class PropertiesController {
    * ‏הרשימה משרדית, כמו רשימת הנכסים עצמה. `remaining` הוא המונה
    * ‏המלא ולא אורך העמוד — הוא מה שאומר למי שעובר כמה נשאר.
    */
+  /**
+   * ‎**מי במשרד — לסימון סוכן שותף.**
+   *
+   * ‏אותה רשימה שמאחורי `/tasks/assignees`, **שער אחר**: שיוך משימה
+   * ‏הוא הטלת עבודה ודורש `tasks.assign`; סימון שותף על עסקה הוא
+   * ‏תיעוד של מה שקרה, אינו מעביר בעלות ואינו נוגע בניקוד — ולכן
+   * ‏כל מי שרשאי לערוך את הנכס רשאי לרשום אותו (הכרעת בעל המוצר).
+   *
+   * ‏השאילתה עצמה יושבת ב-`common/office-members` ונקראת משני
+   * ‏הנתיבים; עותק שני היה נפרד ביום שמישהו יוסיף לה תנאי.
+   */
+  @Get("office-agents")
+  @RequireCapability("properties.edit")
+  officeAgents(): Promise<{ id: string; name: string }[]> {
+    return officeMembers(this.prisma);
+  }
+
   @Get("shared-tabu-review")
   @RequireCapability("properties.view")
   async sharedTabuReview(

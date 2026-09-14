@@ -132,6 +132,18 @@ export interface PropertyDto extends PropertyFields {
    */
   agentUserId?: string;
   agentName?: string;
+  /**
+   * ‎**הסוכן השותף — אותו זוג, ומאותה סיבה.**
+   *
+   * ‏מי שנרשם יחד עם המטפל על עסקה שנסגרה בשיתוף. `partnerUserId`
+   * ‏בלי `partnerName` = מי שסומן כבר אינו במשרד, והמסך אומר בדיוק
+   * ‏את זה במקום להציג מזהה.
+   *
+   * ‎**הניקוד בלוח אינו מושפע ממנו** (הכרעת בעל המוצר) — ראו
+   * ‏`logic/office-partner.ts`.
+   */
+  partnerUserId?: string;
+  partnerName?: string;
   createdAt: Date;
   updatedAt: Date;
 }

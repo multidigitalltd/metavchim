@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   BOARD_PERIOD_LABELS,
   BOARD_PERIODS,
@@ -10,6 +11,9 @@ import {
   initials,
   movementLabel,
   superlativeNote,
+  partnerDealLine,
+  partnerSectionNote,
+  type DealStatus,
   type BoardMetric,
   type BoardGoal,
   type BoardMovement,
@@ -63,6 +67,24 @@ interface Board {
   rows: BoardRow[];
   superlatives: Superlative[];
   summary: { key: BoardMetric | "calls"; value: number; diff: number; percent: number | null }[];
+  /**
+   * ‎**שת״פים בתוך המשרד — עסקאות שנסגרו בשניים.**
+   *
+   * ‏אותו חלון ואותה הגדרת „עסקה” כמו הניקוד, ולכן `share.deals`
+   * ‏הוא בדיוק המונה שבטבלת הסיכום. ‎`percent === null` = לא הייתה
+   * ‏עסקה בכלל, ו„0%” על מכנה אפס הוא מספר שהומצא.
+   */
+  partners: {
+    deals: {
+      propertyId: string;
+      address: string;
+      status: DealStatus;
+      closedAt: string;
+      agentName: string;
+      partnerName: string;
+    }[];
+    share: { partnered: number; deals: number; percent: number | null };
+  };
 }
 
 const SUMMARY_LABELS: Record<BoardMetric | "calls", string> = {
@@ -300,6 +322,48 @@ export default function OfficeBoardPage() {
                 </tbody>
               </table>
             </div>
+          </section>
+
+          {/*
+            ‎**השת״פים מתחת לטבלה ולפני הסיכום.**
+
+            ‏זו קריאה של הטבלה ולא נתון עצמאי: „מי סגר מה” נקרא
+            ‏קודם, ו„מי סגר עם מי” הוא ההמשך הטבעי שלו. הסיכום
+            ‏המספרי של כל המשרד בא אחרי שניהם.
+          */}
+          <section className="mv-card mv-card--pad mt-6" aria-labelledby="board-partners-heading">
+            <div className="mv-card-head mb-1">
+              <h2 id="board-partners-heading" className="mv-card-head__title m-0">
+                שת&quot;פים בתוך המשרד
+              </h2>
+              {/*
+                ‏המונה ליד הכותרת, לא בתוך הרשימה: הוא התשובה
+                ‏לשאלה „כמה מזה קורה אצלנו”, והרשימה היא הפירוט.
+              */}
+              {board.partners.share.percent === null ? null : (
+                <p className="mv-card-head__meta m-0">
+                  {formatIsraeliNumber(board.partners.share.partnered)} מתוך{" "}
+                  {formatIsraeliNumber(board.partners.share.deals)} עסקאות (
+                  {board.partners.share.percent}%)
+                </p>
+              )}
+            </div>
+            <p className="mv-board__formula">{partnerSectionNote()}</p>
+            {board.partners.deals.length === 0 ? (
+              <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
+                לא נסגרה עסקה בשיתוף שני סוכנים ב{board.title}.
+              </p>
+            ) : (
+              <ul className="m-0 list-none p-0">
+                {board.partners.deals.map((deal) => (
+                  <li key={deal.propertyId} className="border-b py-2 last:border-b-0">
+                    <Link href={`/properties/${deal.propertyId}`} className="underline">
+                      {partnerDealLine({ ...deal, closedAt: new Date(deal.closedAt) })}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
 
           <section className="mv-card mv-card--pad mt-6" aria-labelledby="board-summary-heading">
