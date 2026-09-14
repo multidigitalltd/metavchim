@@ -1,5 +1,11 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import {
+  MAX_QUIET_SPAN_HOURS,
+  NOTIFY_CATEGORIES,
+  NOTIFY_CATEGORY_LABELS,
+  parseWhatsAppNotifyPrefs,
+  WHATSAPP_NOTIFY_PREF_KEY,
+  type WhatsAppNotifyPrefs,
   roleLabel,
   AGENT_ACTIONS,
   practiceChatMenu,
@@ -100,6 +106,7 @@ import type { Readable } from "node:stream";
 import { CallsService, type CallDto } from "../calls/calls.service";
 import { TeamService } from "../settings/team.service";
 import { PasswordResetService } from "../auth/password-reset.service";
+import { AuthService } from "../auth/auth.service";
 import { CollaborationService } from "../collaboration/collaboration.service";
 import { BillingService } from "../billing/billing.service";
 import { RecruitmentService } from "../recruitment/recruitment.service";
@@ -377,6 +384,12 @@ export class AgentExecuteService {
      * ‏סיסמה במייל, ולא סיסמה בהודעת וואטסאפ.
      */
     private readonly passwordReset: PasswordResetService,
+    /*
+     * ‎`AuthService` — הפרופיל של הקורא עצמו. `getProfile` ו-
+     * ‎`updateProfile` הם אותו מסלול שמסך הפרופיל משתמש בו,
+     * ‏כולל מיזוג ההעדפות ברמה העליונה.
+     */
+    private readonly auth: AuthService,
     private readonly leads: LeadsService,
     private readonly buyers: BuyersService,
     private readonly properties: PropertiesService,
@@ -634,6 +647,12 @@ export class AgentExecuteService {
         return this.showTeam();
       case "add_agent":
         return this.addAgent(params);
+      case "show_profile":
+        return this.showProfile();
+      case "update_profile":
+        return this.updateProfile(params);
+      case "update_notifications":
+        return this.updateNotifications(params);
       case "open_deal_room":
         return this.openDealRoom(params);
       case "show_recommendations":
@@ -2485,6 +2504,100 @@ export class AgentExecuteService {
    * ‏שהושבת מסומן, כי הוא עדיין בטבלה והמנהל שואל למה הוא לא
    * ‏מקבל התראות.
    */
+  /**
+   * ‏הפרטים של מי ששואל — **ורק שלו.**
+   *
+   * ‏המזהה מגיע מ-`TenantContext`, שנקבע מהחיבור, ולא מפרמטר.
+   * ‏פרמטר היה הופך את זה לנתיב לקריאת הפרופיל של כל אחד.
+   */
+  private async showProfile(): Promise<ExecuteResult> {
+    const profile = await this.auth.getProfile(TenantContext.current().userId);
+    const prefs = parseWhatsAppNotifyPrefs(profile.preferences);
+    const off = NOTIFY_CATEGORIES.filter((c) => prefs.categories[c] === false);
+    const notify = !prefs.enabled
+      ? "ההתראות כבויות"
+      : off.length === 0
+        ? "כל ההתראות דלוקות"
+        : `כבויות: ${off.map((c) => NOTIFY_CATEGORY_LABELS[c]).join(", ")}`;
+    return {
+      href: "/profile",
+      message: [
+        `שם: ${profile.name}`,
+        `אימייל: ${profile.email}`,
+        profile.phone === "" ? "טלפון: לא הוגדר" : `טלפון: ${profile.phone}`,
+        `${notify}. שקט מ-${prefs.quietFromHour}:00 עד ${prefs.quietToHour}:00.`,
+      ].join("\n"),
+    };
+  }
+
+  /**
+   * ‏שינוי השם — ורק השם. ראו ההסבר בקטלוג: אימייל דורש סיסמה,
+   * ‏והטלפון הוא הזהות מול הסוכן ומאומת בקוד במסך.
+   */
+  private async updateProfile(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const name = String(params["profileName"] ?? "").trim();
+    if (name.length < 2) throw new BadRequestException("לא נאמר שם חדש");
+    const profile = await this.auth.updateProfile(TenantContext.current().userId, { name });
+    return { href: "/profile", message: `השם עודכן ל${profile.name}.` };
+  }
+
+  /**
+   * ‎**ההתראות שהסוכן יוזם** — כיבוי לפי קטגוריה, או שעות שקט.
+   *
+   * ‏ההעדפות נקראות, משתנות, ונכתבות **במלואן**: `updateProfile`
+   * ‏ממזג ברמה העליונה בלבד, ולכן כתיבת חלק מהאובייקט הייתה
+   * ‏מוחקת את שאר השדות שבו. זה בדיוק מה שהמסך עושה.
+   */
+  private async updateNotifications(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const userId = TenantContext.current().userId;
+    const profile = await this.auth.getProfile(userId);
+    const prefs = parseWhatsAppNotifyPrefs(profile.preferences);
+    const next: WhatsAppNotifyPrefs = {
+      ...prefs,
+      categories: { ...prefs.categories },
+    };
+    const said: string[] = [];
+
+    const state = String(params["notifyState"] ?? "");
+    const category = String(params["notifyCategory"] ?? "");
+    if (state === "on" || state === "off") {
+      const on = state === "on";
+      if (category === "all" || category === "") {
+        next.enabled = on;
+        said.push(on ? "כל ההתראות דלוקות" : "כל ההתראות כבויות");
+      } else if ((NOTIFY_CATEGORIES as string[]).includes(category)) {
+        const key = category as (typeof NOTIFY_CATEGORIES)[number];
+        next.categories[key] = on;
+        said.push(`${NOTIFY_CATEGORY_LABELS[key]} — ${on ? "דלוק" : "כבוי"}`);
+      }
+    }
+
+    const from = params["quietFromHour"];
+    const to = params["quietToHour"];
+    if (typeof from === "number" && typeof to === "number") {
+      /*
+       * ‏הסף המשותף, ולא מספר שנכתב כאן: טווח ארוך ממנו חורג
+       * ‏מחלון השמירה של הסורק — התראה שנדחתה בתחילתו מתיישנת
+       * ‏לפני סופו ולא נשלחת לעולם.
+       */
+      const span = from === to ? 0 : from < to ? to - from : 24 - from + to;
+      if (span > MAX_QUIET_SPAN_HOURS) {
+        throw new BadRequestException(
+          `טווח שקט ארוך מ-${MAX_QUIET_SPAN_HOURS} שעות יחסום התראות לגמרי`,
+        );
+      }
+      next.quietFromHour = from;
+      next.quietToHour = to;
+      said.push(`שקט מ-${from}:00 עד ${to}:00`);
+    }
+
+    if (said.length === 0) throw new BadRequestException("לא ברור מה לשנות בהתראות");
+    await this.auth.updateProfile(userId, {
+      preferences: { [WHATSAPP_NOTIFY_PREF_KEY]: next },
+    });
+    return { href: "/profile", message: said.join(". ") + "." };
+  }
+
   private async showTeam(): Promise<ExecuteResult> {
     const rows = await this.team.list();
     const lines = rows.map(

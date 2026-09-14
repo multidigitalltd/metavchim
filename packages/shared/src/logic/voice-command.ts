@@ -60,6 +60,7 @@ export type VoiceAction =
   | "show_subscription"
   | "show_recruitment"
   | "show_team"
+  | "show_profile"
   | "show_payout_balance"
   | "show_referral_board"
   | "show_reach"
@@ -429,6 +430,15 @@ const RULES: {
   {
     action: "show_team",
     pattern: /מי\s+ב?ה?משרד|ה?צוות\s+שלי|מי\s+ה?סוכנים\s+שלי/u,
+    confidence: "high",
+  },
+  /*
+   * ‎„שלי” היא המילה שמבדילה — „הפרטים של הלקוח” הוא כרטיס, לא
+   * ‏הפרופיל. בלעדיה הביטוי תופס כל שאלה על פרטים של מישהו.
+   */
+  {
+    action: "show_profile",
+    pattern: /ה?פרטים\s+שלי|ה?פרופיל\s+שלי|ה?התראות\s+שלי/u,
     confidence: "high",
   },
   {

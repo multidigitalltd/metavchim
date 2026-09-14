@@ -49,6 +49,7 @@ import type { PlanFeature } from "../logic/plans.js";
 import type { AgentFieldSpec } from "./field-spec.js";
 import { PROPERTY_FACING_LABELS } from "../schemas/property.js";
 import { ASSIGNABLE_ROLES, roleLabel } from "../schemas/user.js";
+import { NOTIFY_CATEGORIES, NOTIFY_CATEGORY_LABELS } from "../logic/notify-categories.js";
 import { DEAL_TYPE_LABELS, PROPERTY_TYPE_LABELS } from "./vocabulary.js";
 import {
   RECRUITMENT_STATUSES,
@@ -84,6 +85,9 @@ export const AGENT_ACTION_IDS = [
   "update_recruitment_status",
   "show_team",
   "add_agent",
+  "show_profile",
+  "update_profile",
+  "update_notifications",
   "show_payout_balance",
   "show_referral_board",
   "show_reach",
@@ -166,7 +170,18 @@ export interface AgentActionDef {
   when: string;
   /** דוגמאות בעברית מדוברת. מודל שרואה ניסוח אמיתי מדייק בסדר גודל. */
   examples: readonly string[];
-  capability: Capability;
+  /**
+   * ‏היכולת שפותחת את הפעולה.
+   *
+   * ‎`null` = **אין שער** — וזה מצב אמיתי ולא פרצה: פעולה שנוגעת
+   * ‏אך ורק ברשומה של הקורא עצמו (הפרופיל שלו, ההתראות שלו).
+   * ‏אין יכולת שמתארת „מותר לך לראות את עצמך”, ובחירה ביכולת
+   * ‏אקראית שכולם מחזיקים בה הייתה משקרת על מה שנבדק.
+   *
+   * ‎**המזהה תמיד נלקח מההקשר ולא מהפרמטרים** בפעולות כאלה —
+   * ‏אחרת זה נתיב לקריאת הפרופיל של מישהו אחר.
+   */
+  capability: Capability | null;
   /**
    * יכולות נוספות שכל אחת מהן **מספיקה** לפתיחת הפעולה.
    *
@@ -1592,6 +1607,93 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     ],
   },
   {
+    id: "show_profile",
+    title: "הפרטים שלי",
+    when: "בקשה לראות את הפרטים האישיים — שם, אימייל, טלפון, ומצב ההתראות.",
+    examples: ["מה הפרטים שלי", "תראה לי את הפרופיל", "איזה התראות מופעלות לי"],
+    /* ‏כל אחד רואה את **שלו**, ולכן אין כאן יכולת לדרוש */
+    capability: null,
+    risk: "read",
+    fields: [],
+  },
+  {
+    /*
+     * ‎**שם בלבד — ובכוונה.**
+     *
+     * ‏אימייל דורש אימות סיסמה (`updateProfile`), וסיסמה בהודעת
+     * ‏וואטסאפ היא בדיוק מה שאנחנו נמנעים ממנו בכל הקטלוג.
+     *
+     * ‏והטלפון הוא **הזהות מול הסוכן**: הודעה שמגיעה ממנו היא מה
+     * ‏שמזהה את המתווך. שינוי שלו למספר אחר מהשיחה היה מעביר את
+     * ‏הזהות למספר שאיש לא אימת — ולכך כבר יש מסלול עם קוד
+     * ‏(`whatsapp-link`), שזו כל תכליתו.
+     */
+    id: "update_profile",
+    title: "עדכון השם שלי",
+    when:
+      "שינוי השם האישי של המשתמש עצמו. " +
+      "‏אימייל וטלפון **אינם** כאן: הראשון דורש סיסמה, והשני מאומת בקוד במסך הפרופיל.",
+    examples: [
+      "תעדכן לי את השם לדנה כהן-לוי",
+      "תשנה את השם שלי ליוסי",
+      "השם שלי נכתב לא נכון, תתקן לרונית בר",
+    ],
+    capability: null,
+    risk: "update",
+    fields: [{ key: "profileName", label: "השם החדש", type: "string", maxLength: 120 }],
+  },
+  {
+    /*
+     * ‏זו הפעולה שבאמת חוזרת: מתווך שנמצא בסיור לא רוצה לכבות
+     * ‏את הסוכן, הוא רוצה שהלידים יפסיקו לצלצל. השעות השקטות הן
+     * ‏אותו דבר בגרסה קבועה.
+     */
+    id: "update_notifications",
+    title: "ההתראות שלי",
+    when:
+      "הדלקה או כיבוי של התראות שהסוכן **יוזם** — לפי קטגוריה או הכול, " +
+      "‏או קביעת שעות שקט. **אינו** השתקה זמנית („תשתיק לשעתיים”), שהיא דבר אחר.",
+    examples: [
+      "תכבה לי התראות של לידים",
+      "תדליק בחזרה את ההתראות על שיחות",
+      "אל תשלח לי כלום בין 23 ל-8",
+    ],
+    capability: null,
+    risk: "update",
+    fields: [
+      {
+        key: "notifyCategory",
+        label: "אילו התראות",
+        type: "enum",
+        values: [...NOTIFY_CATEGORIES, "all"],
+        valueLabels: { ...NOTIFY_CATEGORY_LABELS, all: "הכול" },
+      },
+      {
+        key: "notifyState",
+        label: "דלוק או כבוי",
+        type: "enum",
+        values: ["on", "off"],
+        valueLabels: { on: "דלוק", off: "כבוי" },
+      },
+      {
+        key: "quietFromHour",
+        label: "שעת תחילת השקט",
+        type: "integer",
+        hint: "‏שעה עגולה בשעון ישראל",
+        min: 0,
+        max: 23,
+      },
+      {
+        key: "quietToHour",
+        label: "שעת סיום השקט",
+        type: "integer",
+        hint: "‏שעה עגולה בשעון ישראל",
+        min: 0,
+        max: 23,
+      },
+    ],
+  },
+  {
     id: "create_task",
     title: "תזכורת / משימה",
     when: '‎"תזכיר לי X" הוא תמיד כאן — גם כש-X נשמע כמו פעולה אחרת. "תזכיר לי לקבוע פגישה" הוא תזכורת, לא קביעת פגישה.',
@@ -2854,6 +2956,8 @@ export function mayUseAction(
   action: AgentActionDef,
   capabilities: { has(capability: Capability): boolean },
 ): boolean {
+  /* ‏פעולה על הרשומה של הקורא עצמו — ראו ההסבר על `capability` */
+  if (action.capability === null) return true;
   if (capabilities.has(action.capability)) return true;
   return (action.capabilityAlts ?? []).some((alt) => capabilities.has(alt));
 }
