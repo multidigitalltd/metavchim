@@ -151,6 +151,7 @@ export * from "./logic/tasks.js";
 export * from "./logic/task-scheduling.js";
 export * from "./logic/whatsapp-agent.js";
 export * from "./logic/whatsapp-seat-grant.js";
+export * from "./logic/whatsapp-import.js";
 export * from "./agent/field-spec.js";
 export * from "./agent/actions.js";
 export * from "./agent/help.js";
