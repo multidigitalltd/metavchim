@@ -59,6 +59,7 @@ import {
   parseSnoozeRequest,
   snoozeReply,
   normalizeShort,
+  propertyPhotoPhrase,
 } from "./assistant-lang";
 import {
   agentWelcomeExamples,
@@ -111,6 +112,7 @@ import {
 import { prospectReplyText } from "./prospect-reply";
 import { CallsService } from "../calls/calls.service";
 import { BillingService } from "../billing/billing.service";
+import { PropertyPhotoService } from "../properties/property-photo.service";
 import { RecruitmentAdService } from "../recruitment/recruitment-ad.service";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 import { WhatsAppLinkService } from "./whatsapp-link.service";
@@ -355,6 +357,13 @@ export class WhatsAppAssistantService {
      * ‏מסלול של הטופס, ולא בעצמו.
      */
     private readonly ads: RecruitmentAdService,
+    /*
+     * ‎`PropertyPhotoService` — תמונה עם כיתוב „תוסיף לנכס…”
+     * ‏מצורפת לנכס קיים. היא מעלה דרך `MediaService.upload`,
+     * ‏אותו מסלול של המסך, ומוצאת את הנכס באותו חיפוש שהסוכן
+     * ‏משתמש בו — כלומר באותו היקף ראייה.
+     */
+    private readonly photos: PropertyPhotoService,
   ) {}
 
   /**
@@ -1320,6 +1329,60 @@ export class WhatsAppAssistantService {
   /* ------------------------------------------------------------------ */
 
   /**
+   * ‎**תמונה — ושתי משמעויות שהכיתוב מכריע ביניהן.**
+   *
+   * ‏שלט „למכירה” ברחוב הוא נכס לגיוס חדש; תמונה של סלון עם
+   * ‏„תוסיף לנכס בהרצל 12” היא תמונה לנכס שכבר במלאי. ההכרעה
+   * ‏היא על מה שהמתווך **כתב** ולא על מה שהמודל **רואה**: מודל
+   * ‏טועה על שלט שצולם בתוך דירה ועל מודעה שצולמה ממסך, ובשני
+   * ‏הכיוונים הטעות שקטה — שורת גיוס מיותרת, או תמונה שנכנסה
+   * ‏לכרטיס הלא נכון.
+   *
+   * ‏בלי כיתוב זו מודעה: זה הרוב, וזה מה שהמתווך עושה ברחוב.
+   */
+  private async fromImage(msg: AssistantInbound, context: RequestContext): Promise<string> {
+    const phrase = propertyPhotoPhrase(msg.text ?? "");
+    if (phrase === null) return this.adFromImage(msg, context);
+    return this.photoToProperty(msg, context, phrase);
+  }
+
+  /**
+   * ‎**תמונה לנכס קיים.**
+   *
+   * ‏שתי התאמות אינן בקשה שאפשר לבצע: „תוסיף לנכס בהרצל”
+   * ‏כששני נכסים ברחוב הרצל הוא משפט שהמתווך צריך להשלים.
+   * ‏בחירה בשמו הייתה מכניסה תמונה לכרטיס של דירה אחרת, והוא
+   * ‏יגלה זאת רק כשקונה ישאל למה התמונות אינן מתאימות.
+   *
+   * ‎**כשל אינו זורק**, מאותה סיבה של `adFromImage`: „משהו
+   * ‏השתבש אצלי” על תמונה שצולמה בדירה הוא הרגע שבו מתווך
+   * ‏מפסיק לנסות את היכולת.
+   */
+  private async photoToProperty(
+    msg: AssistantInbound,
+    context: RequestContext,
+    phrase: string,
+  ): Promise<string> {
+    if (phrase === "") return "לאיזה נכס לצרף את התמונה? כתבו את הכתובת בכיתוב.";
+    if (msg.mediaId === undefined) return "לא הצלחתי לקרוא את התמונה — נסו לשלוח אותה שוב.";
+    const media = await this.sender.downloadMedia(msg.mediaId);
+    if (media === null) return "לא הצלחתי להוריד את התמונה — נסו לשלוח אותה שוב.";
+    try {
+      const result = await TenantContext.run(context, () =>
+        this.photos.attach({ phrase, image: media }),
+      );
+      if (result.outcome === "attached") return `התמונה נוספה ל${result.label}.`;
+      if (result.outcome === "none") return `לא מצאתי נכס שמתאים ל„${phrase}”.`;
+      return `מצאתי כמה נכסים שמתאימים ל„${phrase}”:\n${result.labels
+        .map((label) => `• ${label}`)
+        .join("\n")}\nשלחו את התמונה שוב עם כתובת מדויקת יותר.`;
+    } catch (error) {
+      this.logger.error(`צירוף תמונה לנכס נכשל: ${String(error)}`);
+      return "לא הצלחתי לצרף את התמונה כרגע — נסו שוב בעוד רגע.";
+    }
+  }
+
+  /**
    * ‎**תמונה של מודעה ⟵ נכס לגיוס.**
    *
    * ‏המתווך רואה שלט „למכירה” ברחוב, מצלם, ושולח. עד עכשיו הוא
@@ -1407,7 +1470,7 @@ export class WhatsAppAssistantService {
         clearTimeout(notice);
       }
     }
-    if (msg.type === "image") return { reply: await this.adFromImage(msg, context) };
+    if (msg.type === "image") return { reply: await this.fromImage(msg, context) };
     return { reply: "אני יודע לטפל כרגע בטקסט ובהודעות קוליות." };
   }
 
