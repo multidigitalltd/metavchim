@@ -43,17 +43,6 @@ export interface TargetValues {
 }
 
 /**
- * ‏הכתובת בשורה אחת — „הרצל 12, בני ברק”.
- *
- * ‏אותה הרכבה בטבלה, בחלונית ובכותרת: כתובת שנקראת אחרת בכל מסך
- * ‏נראית כמו שני נכסים.
- */
-export function targetAddress(target: TargetValues): string {
-  const line = [target.street, target.houseNumber].filter(Boolean).join(" ");
-  return [line, target.city].filter(Boolean).join(", ") || "בלי כתובת";
-}
-
-/**
  * ‎**הערך של שדה כפי שהוא נקרא על המסך.**
  *
  * ‏מקום אחד להמרות: אגורות→שקלים, `apartment`→„דירה”, `sale`→„מכירה”.

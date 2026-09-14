@@ -15,6 +15,9 @@ import {
   type AgentField,
   type AgentHistoryRef,
   type AgentProposal,
+  isOpenRecruitment,
+  recruitmentAddress,
+  recruitmentStatusLabel,
 } from "@metavchim/shared";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { TenantContext } from "../../common/tenant-context";
@@ -24,6 +27,7 @@ import { DealRoomService } from "../collaboration/deal-room.service";
 import { ListingsService } from "../collaboration/listings.service";
 import { SearchService } from "../search/search.service";
 import { TasksService } from "../tasks/tasks.service";
+import { RecruitmentService } from "../recruitment/recruitment.service";
 import type { Interpretation } from "./interpret.service";
 
 /**
@@ -57,6 +61,8 @@ export class AgentResolveService {
     private readonly buyers: BuyersService,
     private readonly search: SearchService,
     private readonly tasks: TasksService,
+    // ‏נכסים לגיוס — מהמשפך ולא מהחיפוש הגלובלי; ראו `candidatesFor`
+    private readonly recruitment: RecruitmentService,
     private readonly collaboration: CollaborationService,
     private readonly listings: ListingsService,
     private readonly dealRooms: DealRoomService,
@@ -656,6 +662,28 @@ export class AgentResolveService {
     }
 
     /*
+     * ‎**נכס לגיוס — מהמשפך, ופתוחים בלבד.**
+     *
+     * ‏אינו בחיפוש הגלובלי: חיפוש טקסט מוצא **נכסים** של המשרד,
+     * ‏ושורת גיוס היא בדיוק מה שהמשרד עדיין אינו מייצג. „הרצל 12”
+     * ‏יכול להיות שניהם, ותשובה מהמאגר הכללי הייתה מעדכנת סטטוס
+     * ‏גיוס על נכס שכבר במלאי — או להפך.
+     *
+     * ‏פתוחים בלבד, מאותו נימוק של משימות: דיווח („התקשרתי”,
+     * ‏„קבעתי פגישה”) מדבר תמיד על מה שעוד בעבודה.
+     */
+    if (kind === "recruitment") {
+      return (await this.recruitment.list({ q: phrase }))
+        .filter((row) => isOpenRecruitment(row.status))
+        .slice(0, 8)
+        .map((row) => ({
+          id: row.id,
+          label: recruitmentAddress(row, "נכס לגיוס"),
+          detail: recruitmentStatusLabel(row.status),
+        }));
+    }
+
+    /*
      * ‎**סוכן — מרשימת המשרד, לא מהחיפוש.** ההשוואה מכילה ובלי
      * תלות ברישיות, בדיוק כמו במשימות: „דנה” צריך למצוא את „דנה
      * לוי”, וזו הצורה היחידה שבה שם נאמר בדיבור.
@@ -922,6 +950,7 @@ const DATE_FIELD: Record<string, string | undefined> = {
  */
 type LookupKind =
   | "buyer"
+  | "recruitment"
   | "property"
   | "lead"
   | "task"
@@ -1306,6 +1335,17 @@ const ENTITY_LOOKUP: Record<
     },
   },
   complete_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
+  /*
+   * ‏הפתרון כאן ולא בביצוע, ובכוונה: זו הטבלה שהמסך בונה ממנה
+   * ‏את הבורר. פתרון שנעשה בתוך הביצוע היה מחזיר „יש כמה” כשגיאה
+   * ‏אחרי שהמתווך כבר אישר, במקום לשאול אותו לפני.
+   */
+  update_recruitment_status: {
+    key: "recruitmentPhrase",
+    idKey: "recruitmentId",
+    label: "איזה נכס לגיוס",
+    kind: "recruitment",
+  },
   update_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
   /*
    * „קשור ל” היה שדה מת: המודל התבקש למלא אותו, הוא הוצג בכרטיס,

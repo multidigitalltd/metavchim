@@ -59,10 +59,15 @@ import {
   parseSnoozeRequest,
   snoozeReply,
   normalizeShort,
+  propertyPhotoPhrase,
 } from "./assistant-lang";
 import {
   agentWelcomeExamples,
   looksLikeWhatsappLinkCode,
+  RENEW_BUTTON_TITLE,
+  renewalBlockedText,
+  renewalLinkText,
+  subscriptionEndedText,
   WHATSAPP_AGENT_DENIAL_TEXT,
   whatsappAgentDenial,
 } from "@metavchim/shared";
@@ -106,6 +111,9 @@ import {
 } from "../mentor/mentor-practice.service";
 import { prospectReplyText } from "./prospect-reply";
 import { CallsService } from "../calls/calls.service";
+import { BillingService } from "../billing/billing.service";
+import { PropertyPhotoService } from "../properties/property-photo.service";
+import { RecruitmentAdService } from "../recruitment/recruitment-ad.service";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 import { WhatsAppLinkService } from "./whatsapp-link.service";
 
@@ -336,6 +344,26 @@ export class WhatsAppAssistantService {
      * ‏שאפשר לתקן אחד מהם ולשכוח את השני.
      */
     private readonly calls: CallsService,
+    /*
+     * ‎`BillingService` — חידוש המנוי מהשיחה, אותו `startCheckout`
+     * ‏שמסך החיוב קורא לו. לא מסלול תשלום שני: קופון, מחיר מוסכם,
+     * ‏מע"מ וסגירת דף קודם יושבים שם, ומסלול מקביל היה מפספס אחד
+     * ‏מהם בשקט.
+     */
+    private readonly billing: BillingService,
+    /*
+     * ‎`RecruitmentAdService` — שלט „למכירה” מצולם הופך לנכס
+     * ‏לגיוס. הוא כותב דרך `RecruitmentService.create`, אותו
+     * ‏מסלול של הטופס, ולא בעצמו.
+     */
+    private readonly ads: RecruitmentAdService,
+    /*
+     * ‎`PropertyPhotoService` — תמונה עם כיתוב „תוסיף לנכס…”
+     * ‏מצורפת לנכס קיים. היא מעלה דרך `MediaService.upload`,
+     * ‏אותו מסלול של המסך, ומוצאת את הנכס באותו חיפוש שהסוכן
+     * ‏משתמש בו — כלומר באותו היקף ראייה.
+     */
+    private readonly photos: PropertyPhotoService,
   ) {}
 
   /**
@@ -421,11 +449,7 @@ export class WhatsAppAssistantService {
       return;
     }
     if (tenantPeriodEnded({ ...user.tenant, planIsFree: await this.plans.isFreeCode(user.tenant.plan) })) {
-      await this.sender.sendText(
-        msg.fromWaId,
-        "תקופת המנוי של המשרד הסתיימה — חדשו אותה במסך ניהול המשרד, ואחזור לעבוד מיד.",
-        { replyTo: msg.externalId },
-      );
+      await this.handleExpiredOffice(msg, user);
       return;
     }
     /*
@@ -506,7 +530,7 @@ export class WhatsAppAssistantService {
           : null;
     if (snooze !== null) {
       await this.snoozeNotifications(user.tenantId, user.id, snooze.minutes);
-      await this.sender.sendText(msg.fromWaId, snoozeReply(snooze), {
+      await this.sender.sendText(msg.fromWaId, snoozeReply(snooze, new Date()), {
         replyTo: msg.externalId,
       });
       /*
@@ -548,7 +572,7 @@ export class WhatsAppAssistantService {
     }
 
     const asText = button === null ? null : buttonAsText(button.action, button.arg);
-    const spoken = asText === null ? await this.extractText(msg) : { text: asText };
+    const spoken = asText === null ? await this.extractText(msg, context) : { text: asText };
     if ("reply" in spoken && spoken.reply !== undefined) {
       await this.sender.sendText(msg.fromWaId, spoken.reply, { replyTo: msg.externalId });
       await this.saveChat(user.tenantId, user.id, chat);
@@ -1224,6 +1248,68 @@ export class WhatsAppAssistantService {
    * ‏רואה אותו גם דרך העוזר. „נבנות בדיוק כמו ב-resolveSession”
    * ‏הייתה הערה, וכעת זו אותה שורה.
    */
+  /**
+   * ‎**משרד שתקופתו נגמרה — ודרך לצאת מזה, כאן.**
+   *
+   * ## ‏מה היה
+   *
+   * ‏„חדשו אותה במסך ניהול המשרד”. זו הפניה ולא פתרון: היא מניחה
+   * ‏שהקורא יודע איזה מסך, שהוא ליד מחשב, ושהוא יזכור. אצל לקוח
+   * ‏שעובד **רק** מוואטסאפ זה מבוי סתום גמור — והוא הלקוח שהכי
+   * ‏קל לאבד, כי המערכת בדיוק הפסיקה לעבוד בשבילו.
+   *
+   * ## ‏למה כפתור ולא קישור בהודעה
+   *
+   * ‎`startCheckout` **מבטל כל תשלום ממתין של המשרד** — זה נכון
+   * ‏ובמכוון (דף תשלום ישן נושא מחיר ישן). לכן קישור חי שנוצר על
+   * ‏כל הודעה נכנסת היה הורג דף תשלום שבעל המשרד פתח בדפדפן
+   * ‏באותו רגע, ומייצר שורת תשלום מבוטלת לכל „היי”.
+   *
+   * ‏לחיצה על כפתור היא בקשה מפורשת אחת, ולכן דף תשלום אחד.
+   * ‎`claimMessage` סוגר את הצד השני: שליחה חוזרת של Meta על אותה
+   * ‏לחיצה אינה פותחת דף שני.
+   *
+   * ## ‏מה **לא** נפתח כאן
+   *
+   * ‏שום פעולת עבודה. המנוע כלל אינו רץ במסלול הזה, בדיוק כמו
+   * ‏ש-`billingOnly` בדשבורד מחזיר 402 על כל נתיב שאינו חיוב.
+   * ‏מה שנפתח הוא הדרך לשלם — ותו לא.
+   */
+  private async handleExpiredOffice(msg: AssistantInbound, user: IdentifiedUser): Promise<void> {
+    const { capabilities } = await this.buildContext(user);
+    const mayPay = capabilities.has("billing.manage");
+    const pressedRenew =
+      msg.buttonId !== undefined && decodeButtonId(msg.buttonId)?.action === "renew";
+
+    if (!pressedRenew || !mayPay) {
+      const body = subscriptionEndedText({ mayPay });
+      /*
+       * ‎`sendButtons` מחזיר `false` כשהיא אינה יכולה לשלוח (גוף
+       * ארוך מדי, אין אישורי קו) — ואז ההודעה **חייבת** לרדת
+       * לטקסט, אחרת המשרד שתקופתו נגמרה לא מקבל דבר בכלל.
+       */
+      const withButton =
+        mayPay &&
+        (await this.sender.sendButtons(msg.fromWaId, body, [
+          { action: "renew", title: RENEW_BUTTON_TITLE },
+        ]));
+      if (!withButton) {
+        await this.sender.sendText(msg.fromWaId, body, { replyTo: msg.externalId });
+      }
+      return;
+    }
+
+    // בקשה מפורשת אחת ⇒ דף תשלום אחד. שליחה חוזרת של Meta נעצרת כאן
+    if ((await this.claimMessage(user.tenantId, user.id, msg.externalId)) === null) return;
+    void this.sender.markRead(msg.externalId, true);
+
+    const link = await this.billing.renewalLink({ tenantId: user.tenantId, userId: user.id });
+    await this.sender.sendText(
+      msg.fromWaId,
+      link.ok ? renewalLinkText(link) : renewalBlockedText(link.reason),
+    );
+  }
+
   private async buildContext(user: IdentifiedUser): Promise<RequestContext> {
     const overrides = await this.prisma.withExplicitTenant(user.tenantId, (tx) =>
       tx.userCapability.findMany({
@@ -1242,9 +1328,101 @@ export class WhatsAppAssistantService {
   /*  תוכן ההודעה                                                        */
   /* ------------------------------------------------------------------ */
 
+  /**
+   * ‎**תמונה — ושתי משמעויות שהכיתוב מכריע ביניהן.**
+   *
+   * ‏שלט „למכירה” ברחוב הוא נכס לגיוס חדש; תמונה של סלון עם
+   * ‏„תוסיף לנכס בהרצל 12” היא תמונה לנכס שכבר במלאי. ההכרעה
+   * ‏היא על מה שהמתווך **כתב** ולא על מה שהמודל **רואה**: מודל
+   * ‏טועה על שלט שצולם בתוך דירה ועל מודעה שצולמה ממסך, ובשני
+   * ‏הכיוונים הטעות שקטה — שורת גיוס מיותרת, או תמונה שנכנסה
+   * ‏לכרטיס הלא נכון.
+   *
+   * ‏בלי כיתוב זו מודעה: זה הרוב, וזה מה שהמתווך עושה ברחוב.
+   */
+  private async fromImage(msg: AssistantInbound, context: RequestContext): Promise<string> {
+    const phrase = propertyPhotoPhrase(msg.text ?? "");
+    if (phrase === null) return this.adFromImage(msg, context);
+    return this.photoToProperty(msg, context, phrase);
+  }
+
+  /**
+   * ‎**תמונה לנכס קיים.**
+   *
+   * ‏שתי התאמות אינן בקשה שאפשר לבצע: „תוסיף לנכס בהרצל”
+   * ‏כששני נכסים ברחוב הרצל הוא משפט שהמתווך צריך להשלים.
+   * ‏בחירה בשמו הייתה מכניסה תמונה לכרטיס של דירה אחרת, והוא
+   * ‏יגלה זאת רק כשקונה ישאל למה התמונות אינן מתאימות.
+   *
+   * ‎**כשל אינו זורק**, מאותה סיבה של `adFromImage`: „משהו
+   * ‏השתבש אצלי” על תמונה שצולמה בדירה הוא הרגע שבו מתווך
+   * ‏מפסיק לנסות את היכולת.
+   */
+  private async photoToProperty(
+    msg: AssistantInbound,
+    context: RequestContext,
+    phrase: string,
+  ): Promise<string> {
+    if (phrase === "") return "לאיזה נכס לצרף את התמונה? כתבו את הכתובת בכיתוב.";
+    if (msg.mediaId === undefined) return "לא הצלחתי לקרוא את התמונה — נסו לשלוח אותה שוב.";
+    const media = await this.sender.downloadMedia(msg.mediaId);
+    if (media === null) return "לא הצלחתי להוריד את התמונה — נסו לשלוח אותה שוב.";
+    try {
+      const result = await TenantContext.run(context, () =>
+        this.photos.attach({ phrase, image: media }),
+      );
+      if (result.outcome === "attached") return `התמונה נוספה ל${result.label}.`;
+      if (result.outcome === "none") return `לא מצאתי נכס שמתאים ל„${phrase}”.`;
+      return `מצאתי כמה נכסים שמתאימים ל„${phrase}”:\n${result.labels
+        .map((label) => `• ${label}`)
+        .join("\n")}\nשלחו את התמונה שוב עם כתובת מדויקת יותר.`;
+    } catch (error) {
+      this.logger.error(`צירוף תמונה לנכס נכשל: ${String(error)}`);
+      return "לא הצלחתי לצרף את התמונה כרגע — נסו שוב בעוד רגע.";
+    }
+  }
+
+  /**
+   * ‎**תמונה של מודעה ⟵ נכס לגיוס.**
+   *
+   * ‏המתווך רואה שלט „למכירה” ברחוב, מצלם, ושולח. עד עכשיו הוא
+   * ‏קיבל „עוד לא נתמך, בקרוב” — כלומר המערכת ראתה בדיוק את הרגע
+   * ‏שבו נכס לגיוס נולד, ולא עשתה איתו דבר.
+   *
+   * ‏רץ בתוך `TenantContext` כי הכתיבה עוברת ב-`RecruitmentService`
+   * ‏— אותו מסלול של הטופס, עם אותה בדיקת דייר ואותו `createdBy`.
+   *
+   * ‎**כשל אינו זורק.** תמונה שהמודל לא קרא, מודל שאינו מוגדר,
+   * ‏מדיה שלא ירדה — כולם חוזרים כמשפט. הודעת „משהו השתבש אצלי”
+   * ‏על שלט מצולם היא בדיוק הרגע שבו מתווך מפסיק לנסות את
+   * ‏היכולת הזו.
+   */
+  private async adFromImage(msg: AssistantInbound, context: RequestContext): Promise<string> {
+    if (msg.mediaId === undefined) return "לא הצלחתי לקרוא את התמונה — נסו לשלוח אותה שוב.";
+    const media = await this.sender.downloadMedia(msg.mediaId);
+    if (media === null) return "לא הצלחתי להוריד את התמונה — נסו לשלוח אותה שוב.";
+    try {
+      const created = await TenantContext.run(context, () => this.ads.fromImage(media));
+      return created === null ? RecruitmentAdService.unreadable : created.summary;
+    } catch (error) {
+      this.logger.error(`קריאת מודעה מצולמת נכשלה: ${String(error)}`);
+      return "לא הצלחתי לקרוא את המודעה כרגע — נסו שוב בעוד רגע, או כתבו לי את הפרטים.";
+    }
+  }
+
   /** טקסט מוכן לפירוש, או תשובה מוכנה כשאין מה לפרש. */
   private async extractText(
     msg: AssistantInbound,
+    /*
+     * ‎**ההקשר נכנס במפורש, ולא נקרא מ-`TenantContext.current()`.**
+     *
+     * ‏הפונקציה הזו רצה **מחוץ** להקשר הדייר — היא קודמת ל-
+     * ‎`TenantContext.run` שעוטף את השיחה — ורוב מה שהיא עושה
+     * ‏(טקסט, תמלול) אינו נוגע במסד. תמונה של מודעה כן: היא
+     * ‏פותחת שורת גיוס. קריאה ל-`current()` כאן הייתה נכשלת,
+     * ‏והנחה שהיא תעבוד היא בדיוק סוג הבאג שמתגלה רק בשטח.
+     */
+    context: RequestContext,
   ): Promise<{ text?: string; transcribed?: boolean; reply?: string }> {
     if (msg.type === "text") {
       const text = (msg.text ?? "").trim();
@@ -1292,12 +1470,7 @@ export class WhatsAppAssistantService {
         clearTimeout(notice);
       }
     }
-    if (msg.type === "image") {
-      return {
-        reply:
-          "קיבלתי תמונה — צירוף תמונות לנכס דרך וואטסאפ עוד לא נתמך, בקרוב. בינתיים אפשר לכתוב או להקליט לי בקשות.",
-      };
-    }
+    if (msg.type === "image") return { reply: await this.fromImage(msg, context) };
     return { reply: "אני יודע לטפל כרגע בטקסט ובהודעות קוליות." };
   }
 

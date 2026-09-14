@@ -123,6 +123,52 @@ export function recruitmentStatusLabel(status: string): string {
   return RECRUITMENT_STATUS_LABELS[status as RecruitmentStatus] ?? status;
 }
 
+/**
+ * ‎**השם שבו שורת גיוס נקראת — בכל מקום שבו היא נקראת.**
+ *
+ * ## ‏למה זה בצד המשותף
+ *
+ * ‏אותה שורה נקראת בארבעה מקומות: כותרת הכרטיס במסך, שורה
+ * ‏ברשימה, מועמד בבורר של הסוכן, ומשפט האישור אחרי מודעה
+ * ‏מצולמת. ארבעה נוסחים היו אומרים „הרצל 12, חיפה” באחד
+ * ‏ו„הרצל 12” באחר על אותה שורה בדיוק — והמתווך, שראה את
+ * ‏הרשימה במסך ואז קיבל בורר בוואטסאפ, לא היה יודע שמדובר
+ * ‏באותו נכס.
+ *
+ * ## ‏השכונה נכנסת רק כשאין רחוב
+ *
+ * ‏שורת גיוס נולדת ממודעה, ומודעה מסתירה כתובת מדויקת לעיתים
+ * ‏קרובות. „חיפה” לבדה אינה מזהה דבר ברשימה של ארבעים; „הדר,
+ * ‏חיפה” כן. כשיש רחוב הוא מספיק, והשכונה רק הייתה מאריכה.
+ *
+ * ## ‏ושם הבעלים אחרון
+ *
+ * ‏שורה בלי שום כתובת היא „מישהו התקשר על נכס” — ובלי השם היא
+ * ‏שורה שאי אפשר לבחור בה בבורר, כי כולן נראות אותו דבר.
+ */
+export function recruitmentAddress(
+  row: {
+    street?: string | null;
+    houseNumber?: string | null;
+    neighborhood?: string | null;
+    city?: string | null;
+    ownerName?: string | null;
+  },
+  fallback = "בלי כתובת",
+): string {
+  const clean = (value: string | null | undefined): string | null => {
+    const trimmed = (value ?? "").trim();
+    return trimmed === "" ? null : trimmed;
+  };
+  const street = [clean(row.street), clean(row.houseNumber)]
+    .filter((part): part is string => part !== null)
+    .join(" ");
+  const line = street === "" ? clean(row.neighborhood) : street;
+  const parts = [line, clean(row.city)].filter((part): part is string => part !== null);
+  if (parts.length > 0) return parts.join(", ");
+  return clean(row.ownerName) ?? fallback;
+}
+
 /*
  * ‏`URL` הוא גלובל גם ב-Node וגם בדפדפן — אבל ה-`lib` של החבילה הוא
  * ‎`ES2023` בלבד, **במכוון**: הוא הגדר שמונע מקוד משותף להגיע

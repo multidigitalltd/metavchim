@@ -216,7 +216,7 @@ function InviteOfficeButton(): React.JSX.Element {
      * ‎`window.location.origin` ולא כתובת קבועה: אותה מערכת רצה גם
      * בסביבת בדיקה, ולינק לייצור שנשלח משם הוא לינק שגוי.
      */
-    const text = `יש לי מאגר נכסים וקונים במטווחים, ואנחנו משתפים פעולה עם משרדים ברשת. שווה לך להצטרף: ${window.location.origin}/signup`;
+    const text = `יש לי מאגר נכסים וקונים במערכת מתווכים, ואנחנו משתפים פעולה עם משרדים ברשת. שווה לך להצטרף: ${window.location.origin}/signup`;
     void navigator.clipboard
       .writeText(text)
       .then(() => {

@@ -21,6 +21,78 @@ import {
 /** שעון ישראל: 21:00 ב-2 בספטמבר (UTC+3 בקיץ). */
 const EVENING = new Date(Date.UTC(2026, 8, 2, 18, 0, 0));
 
+/**
+ * ‎**„עוד שעה אני מתחיל לעבוד” — המשפט שהתחיל את זה.**
+ *
+ * ‏המתווך קיבל את סיכום הבוקר ב-8:06 וענה ב-9:19 „עוד שעה אני
+ * ‏מתחיל לעבוד”. זו אמירה מובנת לחלוטין על היום שלו, והיא נפלה
+ * ‏למודל — שמחפש בה פעולה שאינה שם. הבדיקות כאן מקבעות את
+ * ‏ההבנה, ובעיקר את **הגבול** שלה: בלי משך מפורש המשפט פירושו
+ * ‏עכשיו, והשתקה עליו הייתה משתיקה את הסוכן ברגע שבו הוא נחוץ.
+ */
+describe("„אני מתחיל לעבוד” — דחייה ולא שתיקה", () => {
+  it("המשפט מהשטח — שעה, ומסומן כדחייה", () => {
+    const parsed = parseSnoozeRequest("עוד שעה אני מתחיל לעבוד", EVENING);
+    expect(parsed?.minutes).toBe(60);
+    expect(parsed?.untilWork).toBe(true);
+  });
+
+  it("בכל סדר ובכל משך", () => {
+    expect(parseSnoozeRequest("אני מתחיל לעבוד בעוד שעתיים", EVENING)?.minutes).toBe(120);
+    expect(parseSnoozeRequest("מתחילה לעבוד עוד חצי שעה", EVENING)?.minutes).toBe(30);
+    expect(parseSnoozeRequest("נכנס לעבודה בעוד 20 דקות", EVENING)?.minutes).toBe(20);
+    expect(parseSnoozeRequest("מגיע למשרד בעוד 3 שעות", EVENING)?.minutes).toBe(180);
+    expect(parseSnoozeRequest("אני במשרד בעוד שעה", EVENING)?.minutes).toBe(60);
+    expect(parseSnoozeRequest("עוד חצי שעה אז מתחיל לעבוד", EVENING)?.minutes).toBe(30);
+  });
+
+  /*
+   * ‎**הגבול, וזו הבדיקה החשובה בקובץ.** „אני מתחיל לעבוד” לבדו
+   * ‏פירושו *עכשיו* — ההפך הגמור. השתקה עליו הייתה מפילה את
+   * ‏הסוכן בדיוק ברגע שבו מתחילים לעבוד איתו.
+   */
+  it("בלי משך — ממשיך למודל, ואינו משתיק דבר", () => {
+    expect(parseSnoozeRequest("אני מתחיל לעבוד", EVENING)).toBeNull();
+    expect(parseSnoozeRequest("מתחיל לעבוד עכשיו", EVENING)).toBeNull();
+    expect(parseSnoozeRequest("אני מתחיל לעבוד עוד מעט", EVENING)).toBeNull();
+  });
+
+  /*
+   * ‎**המשך שאינו על תחילת העבודה — וזו הבדיקה החשובה.**
+   *
+   * ‏„אני מגיע למשרד ויש לי פגישה בעוד שעה” מכיל גם „מגיע למשרד”
+   * ‏וגם „שעה”, ואומר את ההפך הגמור: הוא מגיע **עכשיו**. נוכחות
+   * ‏של שניהם באותו משפט השתיקה אותו לשעה בשקט (ביקורת Codex) —
+   * ‏אותו כשל שהקוד נכתב כדי למנוע, בדלת אחרת. המשך חייב להיות
+   * ‏צמוד לביטוי.
+   */
+  it("משך שאינו צמוד לביטוי אינו משתיק", () => {
+    expect(parseSnoozeRequest("אני מגיע למשרד ויש לי פגישה בעוד שעה", EVENING)).toBeNull();
+    expect(parseSnoozeRequest("מתחיל לעבוד, יש פגישה בעוד שעתיים", EVENING)).toBeNull();
+  });
+
+  /*
+   * ‏התשובה אומרת **שעה**, לא משך: מי שאמר מתי הוא מתחיל רוצה
+   * ‏לשמוע שנהיה שם אז. ובשעון ישראל — השרת רץ ב-UTC.
+   */
+  it("התשובה נוקבת בשעה, בשעון ישראל", () => {
+    const parsed = parseSnoozeRequest("עוד שעה אני מתחיל לעבוד", EVENING)!;
+    // 21:00 בישראל + שעה = 22:00
+    expect(snoozeReply(parsed, EVENING)).toContain("22:00");
+    expect(snoozeReply(parsed, EVENING)).not.toContain("🔕");
+  });
+
+  /*
+   * ‏„שקט” מפורש מנצח: מי שכתב את שתי המילים ביקש שקט, והתשובה
+   * ‏על שקט היא התשובה הנכונה לו.
+   */
+  it("„שקט” מפורש באותו משפט — נשאר בקשת שקט", () => {
+    const parsed = parseSnoozeRequest("שקט לשעה, מתחיל לעבוד אז", EVENING);
+    expect(parsed?.minutes).toBe(60);
+    expect(parsed?.untilWork).toBeUndefined();
+  });
+});
+
 describe("parseSnoozeRequest — המשך", () => {
   it("„שקט לשעתיים” — בדיוק מה שהכפתור נתן", () => {
     expect(parseSnoozeRequest("שקט לשעתיים", EVENING)?.minutes).toBe(120);
