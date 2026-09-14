@@ -327,6 +327,45 @@ export class SettingsController {
    * הקטלוג חוזר יחד עם ההגדרה, כדי שהמסך לא יחזיק רשימה משלו: תיאור
    * שמתיישן במסך הוא הבטחה לא נכונה על מה שקורה בפועל.
    */
+  /**
+   * ‎**הסיכום החודשי שלי — מתג אישי, לא של המשרד.**
+   *
+   * ‏הסיכום הוא על הסוכן עצמו ונשלח לטלפון שלו, ולכן הבחירה היא
+   * ‏שלו. `settings.manage` היה נותן למנהל לכבות בשם סוכן, וזו
+   * ‏בדיוק ההפרדה שהכלל „ביטול הצטרפות הוא של הנמען” קיים כדי
+   * ‏לשמור.
+   *
+   * ‏אין כאן יכולת נדרשת: כל משתמש מחובר קורא וכותב **את שלו
+   * ‏בלבד** — `TenantContext.current().userId`, ולא מזהה מהבקשה.
+   */
+  @Get("office-digest")
+  @AnyAuthenticated()
+  async officeDigest(): Promise<{ enabled: boolean }> {
+    const { userId } = TenantContext.current();
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { officeDigestOptedOutAt: true },
+    });
+    /* ‏שורה שאינה קיימת אינה מצב — אבל `undefined` כאן פירושו „מקבל”,
+       כי משתמש מחובר תמיד קיים והשדה ריק בברירת המחדל */
+    return { enabled: (row?.officeDigestOptedOutAt ?? null) === null };
+  }
+
+  @Patch("office-digest")
+  @AnyAuthenticated()
+  async setOfficeDigest(
+    @Body(new ZodValidationPipe(z.object({ enabled: z.boolean() })))
+    body: { enabled: boolean },
+  ): Promise<{ enabled: boolean }> {
+    const { userId } = TenantContext.current();
+    await this.prisma.user.update({
+      where: { id: userId },
+      /* ‏חותמת ולא בוליאני — „מתי ביקש” היא שאלה שנשאלת */
+      data: { officeDigestOptedOutAt: body.enabled ? null : new Date() },
+    });
+    return { enabled: body.enabled };
+  }
+
   @Get("automations")
   @RequireCapability("settings.manage")
   async automations(): Promise<{

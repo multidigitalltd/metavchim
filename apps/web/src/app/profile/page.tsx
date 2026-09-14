@@ -46,6 +46,7 @@ import { PlanSection } from "../settings/plan-section";
 import { Notice } from "../notice";
 import { WhatsAppLinkSection } from "./whatsapp-link-section";
 import { WhatsAppNotifySection } from "./whatsapp-notify-section";
+import { OfficeDigestSection } from "./office-digest-section";
 
 /**
  * הפרופיל האישי — כל מה ששייך למשתמש הזה ולא למשרד: ערכת נושא,
@@ -411,6 +412,7 @@ export default function ProfilePage() {
 
           <WhatsAppLinkSection />
           <WhatsAppNotifySection />
+          <OfficeDigestSection />
 
           {/* ---- סיסמה ---- */}
           <section
