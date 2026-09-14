@@ -20,6 +20,7 @@ import {
   SHARED_TABU_PROPERTY_TYPE,
   partnerRejection,
   PARTNER_REJECTION_MESSAGES,
+  DEAL_STATUSES,
 } from "@metavchim/shared";
 import {
   freeTextTerms,
@@ -1128,25 +1129,52 @@ export class PropertiesService {
        * ‏אימות השייכות למשרד הוא שאילתה, ולכן הוא רץ רק אחרי
        * ‏שהכללים הזולים עברו.
        */
-      if (partnerUserId !== undefined) {
-        const nextAgent =
-          agentUserId === undefined
-            ? existing.agentUserId
-            : agentUserId === ""
-              ? null
-              : agentUserId;
+      /*
+       * ‎**הזוג נבדק כששני צידיו משתנים, ולא רק כשהשותף נשלח**
+       * ‏(ביקורת Codex, P1).
+       *
+       * ‏התנאי הקודם היה `partnerUserId !== undefined` בלבד, ולכן
+       * ‏שמירה שנוגעת **רק** בסוכן המטפל דילגה על כל הבדיקה. שני
+       * ‏מצבים ברחו משם, ושניהם רעים:
+       *
+       * - ‏העברת הנכס לסוכן שהוא כבר השותף — האילוץ במסד תפס את
+       *   ‏זה, אבל כשגיאת Prisma, כלומר 500 במקום הודעה קריאה.
+       * - ‏ניתוק הסוכן המטפל — האילוץ **אינו** תופס (‏`NULL <> x`
+       *   ‏הוא `UNKNOWN`, ו-`CHECK` מקבל אותו), ונשארה שורה עם
+       *   ‏שותף ובלי סוכן מטפל. „שת״פ” של אדם אחד.
+       *
+       * ‏הכלל נבדק עכשיו על **הזוג שיהיה אחרי השמירה**, ולא על מה
+       * ‏שנשלח בבקשה.
+       */
+      const nextAgent =
+        agentUserId === undefined
+          ? existing.agentUserId
+          : agentUserId === ""
+            ? null
+            : agentUserId;
+      const nextPartner =
+        partnerUserId === undefined
+          ? existing.partnerUserId
+          : partnerUserId === ""
+            ? null
+            : partnerUserId;
+      if (nextPartner !== null && (agentUserId !== undefined || partnerUserId !== undefined)) {
         const rejection = partnerRejection({
           agentUserId: nextAgent,
-          partnerUserId,
+          partnerUserId: nextPartner,
           /* ‏השייכות למשרד נבדקת בשאילתה למטה; כאן רק שאר הכללים */
-          officeUserIds: partnerUserId === "" ? [] : [partnerUserId],
+          officeUserIds: [nextPartner],
         });
         if (rejection !== null) {
           throw new BadRequestException(PARTNER_REJECTION_MESSAGES[rejection]);
         }
-        if (partnerUserId !== "") {
-          await assertAgentInOffice(tx, tenantId, partnerUserId);
-        }
+      }
+      /*
+       * ‏השאילתה רצה רק על שותף **שנשלח עכשיו**: שותף שנשמר בעבר
+       * ‏כבר עבר אותה, ובדיקה חוזרת בכל שמירה היא הלוך-חזור מיותר.
+       */
+      if (partnerUserId !== undefined && partnerUserId !== "") {
+        await assertAgentInOffice(tx, tenantId, partnerUserId);
       }
       const readiness = computeReadiness(mergedFields, {
         hasImages: await this.hasMedia(tx, id),
@@ -1172,6 +1200,21 @@ export class PropertiesService {
            */
           ...Object.fromEntries((clearFields ?? []).map((key) => [key, null])),
           ...(status !== undefined ? { status } : {}),
+          /*
+           * ‎**חותמת הסגירה נכתבת בחצייה, ולא בכל שמירה** (ביקורת
+           * ‏Codex, P1). „מתי נסגרה” חייבת להיות קבועה: `updatedAt`
+           * ‏זז בכל עריכה, ולכן הוספת סוכן שותף לעסקה מלפני חצי שנה
+           * ‏הייתה מזיזה אותה לחודש הנוכחי ומנפחת את מונה העסקאות.
+           *
+           * ‏החצייה ולא ההימצאות: נכס שכבר `sold` ונערך שוב אינו
+           * ‏„נסגר מחדש”. וחזרה החוצה (למשל `active` אחרי ביטול)
+           * ‏מנקה — אחרת שורה פעילה הייתה נושאת תאריך סגירה.
+           */
+          ...(status === undefined || status === existing.status
+            ? {}
+            : (DEAL_STATUSES as readonly string[]).includes(status)
+              ? { closedAt: new Date() }
+              : { closedAt: null }),
           ...(marketingTitle !== undefined ? { marketingTitle } : {}),
           ...(marketingDescription !== undefined
             ? { marketingDescription }

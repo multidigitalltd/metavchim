@@ -66,12 +66,7 @@ export const CreatePropertySchema = PropertyFieldsSchema.extend({
    * שאינו בו.
    */
   agentUserId: z.union([IdSchema, z.literal("")]).optional(),
-  /*
-   * ‎**הסוכן השותף — מזהה או מחרוזת ריקה לניקוי**, בדיוק כמו
-   * ‏השיוך שמעליו. `null` אינו מתקבל: ערוץ ריקון אחד לשדה, ולא
-   * ‏שניים שמתנהגים אותו דבר.
-   */
-  partnerUserId: z.union([IdSchema, z.literal("")]).optional(),
+
   /*
    * ‎**הסטטוס ההתחלתי — ביצירה, ולא רק בעדכון** (ביקורת Codex, P1).
    *
@@ -133,6 +128,21 @@ export const UpdatePropertySchema = CreatePropertySchema.partial()
      * ‏וכאן נוספת רק היכולת לרוקן.
      */
     condition: PropertyConditionSchema.nullable().optional(),
+    /*
+     * ‎**הסוכן השותף — בעדכון בלבד, ובמכוון** (ביקורת Codex, P2).
+     *
+     * ‏הוא ישב קודם ב-`CreatePropertySchema`, ומסלול היצירה **זרק
+     * ‏אותו בשקט**: `create()` אינו מקבל אותו, ו-`fieldsToColumns`
+     * ‏מתעלם ממנו — כלומר הלקוח קיבל „נוצר” על נכס שהשותף שביקש
+     * ‏נמחק ממנו. זו בדיוק התקלה שכבר תועדה כאן על „מי גר בנכס”.
+     *
+     * ‏וזה גם נכון מוצרית: היצירה מרשה `draft`/`active` בלבד, ואין
+     * ‏שת״פ על עסקה שעוד לא נסגרה.
+     *
+     * ‎`null` אינו מתקבל — מחרוזת ריקה היא ערוץ הריקון היחיד, כמו
+     * ‏בשיוך הסוכן המטפל.
+     */
+    partnerUserId: z.union([IdSchema, z.literal("")]).optional(),
     /*
      * ‎**מי גר בנכס — בעדכון בלבד, ובמכוון.**
      *

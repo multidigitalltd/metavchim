@@ -163,9 +163,15 @@ export class AnalyticsService {
         tx.appointment.count({
           where: { tenantId, status: "scheduled", startsAt: { gte: new Date() } },
         }),
-        // עסקאות: נמדדות לפי updatedAt ולא createdAt — מה שקובע הוא
-        // מתי הנכס נסגר, לא מתי נקלט. נכס שנקלט בינואר ונמכר במרץ
-        // שייך למרץ.
+        /*
+         * ‏עסקאות נמדדות לפי **מתי הנכס נסגר** ולא מתי נקלט: נכס
+         * ‏שנקלט בינואר ונמכר במרץ שייך למרץ.
+         *
+         * ‎**וזה `closedAt` ולא `updatedAt`** (ביקורת Codex, P1).
+         * ‏הכוונה נכתבה כאן מלכתחילה, אבל `updatedAt` אינו „מתי
+         * ‏נסגר” אלא „מתי מישהו נגע” — ולכן כל עריכה על עסקה ישנה
+         * ‏הזיזה אותה קדימה. החותמת נכתבת בחצייה בלבד.
+         */
         tx.property.count({
           where: {
             tenantId,
@@ -173,7 +179,7 @@ export class AnalyticsService {
             deletedAt: null,
             /* ‏אותה הגדרת „עסקה” שהלוח סופר — קטלוג אחד, לא רשימה שנכתבה שוב */
             status: { in: [...DEAL_STATUSES] },
-            ...(from ? { updatedAt: { gte: from } } : {}),
+            ...(from ? { closedAt: { gte: from } } : {}),
           },
         }),
         tx.appointment.count({
@@ -401,13 +407,19 @@ export class AnalyticsService {
            * ‏ביד היו מציגות „3 שת״פים מתוך 12 עסקאות” על שני
            * ‏מכנים שונים — מספר שנראה אמין ואינו נכון.
            */
+          /*
+           * ‎**`closedAt` ולא `updatedAt`** (ביקורת Codex, P1):
+           * ‏‎`updatedAt` הוא „מתי מישהו נגע בשורה”, ולכן כל עריכה
+           * ‏על עסקה ישנה הזיזה אותה לתקופה הנוכחית וניפחה את
+           * ‏המונה. החותמת נכתבת בחצייה בלבד ואינה זזה אחריה.
+           */
           tx.property.groupBy({
             by: ["agentUserId"],
             where: {
               tenantId,
               deletedAt: null,
               status: { in: [...DEAL_STATUSES] },
-              updatedAt: range,
+              closedAt: range,
             },
             _count: { _all: true },
           }),
@@ -520,28 +532,39 @@ export class AnalyticsService {
        * ‏ממשיך להיספר לפי `agentUserId` בלבד. הקריאה הזו נפרדת
        * ‏לגמרי ואינה נכנסת ל-`window`.
        */
-      const partnered = await tx.property.findMany({
-        where: {
-          tenantId,
-          deletedAt: null,
-          status: { in: [...DEAL_STATUSES] },
-          updatedAt: { gte: start, lt: until },
-          partnerUserId: { not: null },
-        },
-        select: {
-          id: true,
-          city: true,
-          street: true,
-          houseNumber: true,
-          status: true,
-          updatedAt: true,
-          agentUserId: true,
-          partnerUserId: true,
-        },
-        orderBy: { updatedAt: "desc" },
-        /* ‏מקטע ולא דוח: תקרה שומרת על זמן התגובה של הלוח */
-        take: PARTNER_ROWS_MAX,
-      });
+      const partnerWhere = {
+        tenantId,
+        deletedAt: null,
+        status: { in: [...DEAL_STATUSES] },
+        /* ‏אותה חותמת שהניקוד סופר — לא `updatedAt` (ביקורת Codex) */
+        closedAt: { gte: start, lt: until },
+        partnerUserId: { not: null },
+      };
+      /*
+       * ‎**המונה נספר בנפרד מהרשימה** (ביקורת Codex, P2): התקרה
+       * ‏קיימת כדי לשמור על זמן התגובה של המסך, ולא כדי לשנות את
+       * ‏המספר. חודש עם 80 שת״פים היה מציג „50 מתוך 120” — מספר
+       * ‏שנראה אמין ואינו נכון.
+       */
+      const [partnered, partneredTotal] = await Promise.all([
+        tx.property.findMany({
+          where: partnerWhere,
+          select: {
+            id: true,
+            city: true,
+            street: true,
+            houseNumber: true,
+            status: true,
+            closedAt: true,
+            agentUserId: true,
+            partnerUserId: true,
+          },
+          orderBy: { closedAt: "desc" },
+          /* ‏מקטע ולא דוח: התקרה על התצוגה בלבד */
+          take: PARTNER_ROWS_MAX,
+        }),
+        tx.property.count({ where: partnerWhere }),
+      ]);
       const names = new Map(users.map((u) => [u.id, u.name]));
       const partnerDeals = partnered.map((row) => ({
         propertyId: row.id,
@@ -551,7 +574,8 @@ export class AnalyticsService {
           houseNumber: row.houseNumber ?? undefined,
         }),
         status: row.status as DealStatus,
-        closedAt: row.updatedAt,
+        /* ‏השורה מסוננת על `closedAt` שאינו ריק, ולכן הוא קיים */
+        closedAt: row.closedAt ?? start,
         /*
          * ‏שם של מי שכבר אינו במשרד אינו נמצא ב-`users` (הרשימה
          * ‏מסוננת ל-`isActive`), ולכן „סוכן שעזב” ולא מזהה גולמי.
@@ -577,7 +601,7 @@ export class AnalyticsService {
         partners: {
           deals: partnerDeals,
           /* ‏„3 מתוך 12” — המכנה הוא אותו `deals` שהניקוד סופר */
-          share: partnerShare(partnerDeals.length, sum(current, "deals")),
+          share: partnerShare(partneredTotal, sum(current, "deals")),
         },
       };
     });

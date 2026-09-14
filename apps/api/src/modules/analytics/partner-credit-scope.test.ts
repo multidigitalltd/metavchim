@@ -64,7 +64,31 @@ describe("מקטע השת״פים קורא בנפרד", () => {
 
   /* ‏המכנה הוא אותו `deals` שהניקוד סופר, ולא ספירה שנייה */
   it("והמכנה הוא הסכום שכבר חושב", () => {
-    expect(SERVICE).toContain('partnerShare(partnerDeals.length, sum(current, "deals"))');
+    expect(SERVICE).toContain('sum(current, "deals")');
+  });
+
+  /*
+   * ‎**והמונה נספר בנפרד מהרשימה** (ביקורת Codex, P2). התקרה קיימת
+   * ‏כדי לשמור על זמן התגובה של המסך, ולא כדי לשנות את המספר:
+   * ‏חודש עם 80 שת״פים היה מציג „50 מתוך 120”.
+   */
+  it("והמונה אינו אורך הרשימה החתוכה", () => {
+    expect(SERVICE).toContain("partnerShare(partneredTotal,");
+    expect(SERVICE).not.toContain("partnerShare(partnerDeals.length");
+    expect(SERVICE).toContain("tx.property.count({ where: partnerWhere })");
+  });
+
+  /*
+   * ‎**התקופה נמדדת על חותמת הסגירה** (ביקורת Codex, P1):
+   * ‏‎`updatedAt` הוא „מתי מישהו נגע”, ולכן הוספת שותף לעסקה ישנה
+   * ‏הייתה מזיזה אותה לחודש הנוכחי — וזה בדיוק מה שהשדה מזמין.
+   */
+  it("ועל חותמת הסגירה ולא על זמן העריכה", () => {
+    expect(SERVICE).toContain("closedAt: { gte: start, lt: until }");
+    expect(SERVICE).not.toContain("updatedAt: { gte: start, lt: until }");
+    /* ‏וגם הניקוד עצמו — הגדרה אחת לשני הצדדים */
+    expect(scoringWindow()).toContain("closedAt: range");
+    expect(scoringWindow()).not.toContain("updatedAt: range");
   });
 });
 
@@ -81,7 +105,7 @@ describe("סימון שותף אינו שיוך", () => {
    * ‏פירושה שדה שיישאר ריק לנצח.
    */
   it("ואינו דורש את היכולת להטיל משימות", () => {
-    const from = PROPERTIES.indexOf("if (partnerUserId !== undefined) {");
+    const from = PROPERTIES.indexOf("const nextAgent =");
     expect(from).toBeGreaterThan(0);
     const block = PROPERTIES.slice(from, PROPERTIES.indexOf("const readiness", from));
     expect(block).not.toContain("assertCanAssignAgents");
@@ -89,9 +113,23 @@ describe("סימון שותף אינו שיוך", () => {
 
   /* ‏הכלל היחיד — המסך והשרת קוראים ממנו, ולכן אין הצעה שנדחית */
   it("אבל הוא כן עובר בכלל המשותף ובבדיקת השייכות למשרד", () => {
-    const from = PROPERTIES.indexOf("if (partnerUserId !== undefined) {");
+    const from = PROPERTIES.indexOf("const nextAgent =");
     const block = PROPERTIES.slice(from, PROPERTIES.indexOf("const readiness", from));
     expect(block).toContain("partnerRejection(");
     expect(block).toContain("assertAgentInOffice(");
+  });
+
+  /*
+   * ‎**והזוג נבדק כששני צידיו משתנים** (ביקורת Codex, P1). תנאי על
+   * ‏`partnerUserId` בלבד דילג על שמירה שנוגעת רק בסוכן המטפל —
+   * ‏והשאירה שותף בלי סוכן מטפל, או 500 מהאילוץ במסד.
+   */
+  it("והבדיקה רצה גם כששינו רק את הסוכן המטפל", () => {
+    const from = PROPERTIES.indexOf("const nextAgent =");
+    const block = PROPERTIES.slice(from, PROPERTIES.indexOf("const readiness", from));
+    expect(block).toContain("agentUserId !== undefined || partnerUserId !== undefined");
+    /* ‏ועל הזוג שיהיה אחרי השמירה, לא על מה שנשלח */
+    expect(block).toContain("agentUserId: nextAgent");
+    expect(block).toContain("partnerUserId: nextPartner");
   });
 });
