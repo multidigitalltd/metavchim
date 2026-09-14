@@ -2,10 +2,10 @@
 
 import { useEffect, useRef } from "react";
 import Link from "next/link";
-import { recruitmentCompleteness } from "@metavchim/shared";
+import { recruitmentAddress, recruitmentCompleteness } from "@metavchim/shared";
 import { TargetDetails, TargetStatusChip } from "./target-details";
 import { TargetForm } from "./target-form";
-import { targetAddress, type TargetValues } from "./target-values";
+import { type TargetValues } from "./target-values";
 
 /**
  * ‎**חלונית הנכס לגיוס — מה שידוע, ומתחתיו מה שחסר.**
@@ -59,7 +59,7 @@ export function TargetDialog({
     <dialog
       ref={ref}
       className="mv-dialog mv-dialog--wide"
-      aria-label={`נכס לגיוס — ${targetAddress(target)}`}
+      aria-label={`נכס לגיוס — ${recruitmentAddress(target)}`}
       /*
        * ‎`cancel` הוא **Escape בלבד** — לחיצה על הרקע אינה מפעילה
        * ‏אותו ואינה סוגרת `dialog` מודאלי (נבדק בדפדפן; ביקורת
@@ -90,7 +90,7 @@ export function TargetDialog({
       <header className="mb-4 pl-10">
         <div className="flex flex-wrap items-center gap-2.5">
           <h2 className="m-0 text-[length:var(--type-metric)] font-extrabold">
-            {targetAddress(target)}
+            {recruitmentAddress(target)}
           </h2>
           <TargetStatusChip status={target.status ?? "new"} />
         </div>

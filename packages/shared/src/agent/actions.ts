@@ -50,6 +50,10 @@ import type { AgentFieldSpec } from "./field-spec.js";
 import { PROPERTY_FACING_LABELS } from "../schemas/property.js";
 import { DEAL_TYPE_LABELS, PROPERTY_TYPE_LABELS } from "./vocabulary.js";
 import {
+  RECRUITMENT_STATUSES,
+  RECRUITMENT_STATUS_LABELS,
+} from "../logic/recruitment.js";
+import {
   MENTOR_GOAL_PERIODS,
   MENTOR_GOAL_TARGET_MAX,
   MENTOR_METRICS,
@@ -74,6 +78,9 @@ export const AGENT_ACTION_IDS = [
   "show_credits",
   "show_subscription",
   "renew_subscription",
+  "show_recruitment",
+  "create_recruitment",
+  "update_recruitment_status",
   "show_payout_balance",
   "show_referral_board",
   "show_reach",
@@ -668,6 +675,49 @@ const BUYER_PROFILE_FIELDS: readonly AgentFieldSpec[] = [
 ];
 
 // --- שדות הנכס ---
+
+/**
+ * ‏בעל הנכס — משותף לנכס חדש ולנכס לגיוס.
+ *
+ * ‏סכימת השדות מאוחדת (ראו ההסבר בראש הקובץ), ולכן אותו מפתח
+ * ‏שמוצהר פעמיים בשני תיאורים גורם לאחת הפעולות לקבל את ההגדרה
+ * ‏של האחרת — והמודל ימלא לפי התיאור הלא נכון, בשקט.
+ */
+const F_OWNER_NAME: AgentFieldSpec = {
+  key: "ownerName",
+  label: "בעל הנכס",
+  type: "string",
+  maxLength: 120,
+};
+
+const F_OWNER_PHONE: AgentFieldSpec = {
+  key: "ownerPhone",
+  label: "טלפון בעל הנכס",
+  type: "string",
+  hint: "כפי שנאמר",
+  maxLength: 30,
+};
+
+/**
+ * ‏סטטוס במשפך הגיוס — משותף לעדכון ולסינון, בדיוק כמו
+ * ‎`F_LEAD_STATUS`. `recruited` אינו כאן: המרה לנכס היא מסלול
+ * ‏נפרד עם יצירת רשומה, ולא ערך שמציבים.
+ */
+const F_RECRUITMENT_STATUS: AgentFieldSpec = {
+  key: "recruitmentStatus",
+  label: "מצב הגיוס",
+  type: "enum",
+  values: RECRUITMENT_STATUSES.filter((status) => status !== "recruited"),
+  valueLabels: RECRUITMENT_STATUS_LABELS,
+};
+
+const F_RECRUITMENT_PHRASE: AgentFieldSpec = {
+  key: "recruitmentPhrase",
+  label: "איזה נכס לגיוס",
+  type: "string",
+  hint: "הכתובת או שם הבעלים, כפי שנאמר",
+  maxLength: 200,
+};
 
 const PROPERTY_FIELDS: readonly AgentFieldSpec[] = [
   { key: "city", label: "עיר", type: "string", maxLength: 80 },
@@ -1439,16 +1489,57 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     risk: "create",
     fields: [
       ...PROPERTY_FIELDS,
-      { key: "ownerName", label: "בעל הנכס", type: "string", maxLength: 120 },
-      {
-        key: "ownerPhone",
-        label: "טלפון בעל הנכס",
-        type: "string",
-        hint: "כפי שנאמר",
-        maxLength: 30,
-      },
+      F_OWNER_NAME,
+      F_OWNER_PHONE,
     ],
     resolved: PROPERTY_RESOLVED,
+  },
+  {
+    id: "show_recruitment",
+    title: "נכסים לגיוס",
+    when: "בקשה לראות את רשימת הנכסים שהמשרד רודף אחריהם — לא נכסים שכבר במלאי.",
+    examples: [
+      "מה יש לי לגיוס",
+      "תראה לי את הנכסים לגיוס",
+      "על מי עוד לא התקשרתי מהגיוס",
+    ],
+    capability: "properties.view",
+    risk: "read",
+    fields: [F_RECRUITMENT_STATUS],
+  },
+  {
+    /*
+     * ‎**נכס לגיוס ולא נכס.** ההבדל אינו ניסוח: שורת גיוס אינה
+     * ‏מגיעה להתאמות, לרשת או להצעות עד ההמרה, כי המשרד עדיין
+     * ‏אינו מייצג אותה. פעולה שהייתה פותחת „נכס” על מודעה שראו
+     * ‏ברחוב הייתה משווקת נכס של מישהו אחר.
+     */
+    id: "create_recruitment",
+    title: "נכס לגיוס חדש",
+    when:
+      "נכס שראו ורוצים לגייס — מודעה, שלט או המלצה. המשרד **אינו** מייצג אותו עדיין. " +
+      "נכס שכבר התקבל לשיווק הוא `create_property`.",
+    examples: [
+      "תפתח לי נכס לגיוס בהרצל 12 חיפה, 4 חדרים, הבעלים 0521234567",
+      "ראיתי שלט למכירה ברוטשילד 40 תל אביב, תוסיף לגיוס",
+      "יש מודעה ביד2 על דירה בפתח תקווה 1.9 מיליון, תרשום לגיוס",
+    ],
+    capability: "properties.create",
+    risk: "create",
+    fields: [...PROPERTY_FIELDS, F_OWNER_NAME, F_OWNER_PHONE],
+  },
+  {
+    id: "update_recruitment_status",
+    title: "עדכון מצב גיוס",
+    when: "דיווח על מה שקרה עם נכס לגיוס — התקשרתי, קבעתי פגישה, סירבו.",
+    examples: [
+      "התקשרתי לבעלים של הרצל 12",
+      "קבעתי פגישה על הנכס ברוטשילד 40",
+      "הבעלים בהרצל 12 סירב",
+    ],
+    capability: "properties.edit",
+    risk: "update",
+    fields: [F_RECRUITMENT_PHRASE, F_RECRUITMENT_STATUS],
   },
   {
     id: "create_task",
@@ -2672,6 +2763,8 @@ export const AGENT_ID_KEYS = [
   "listingId",
   /** חדר העסקה שמדברים בו (`post_deal_message`, `move_deal_stage`) */
   "dealId",
+  /** הנכס לגיוס שמעדכנים את הסטטוס שלו (`update_recruitment_status`) */
+  "recruitmentId",
 ] as const;
 
 const BY_ID = new Map(AGENT_ACTIONS.map((action) => [action.id, action]));

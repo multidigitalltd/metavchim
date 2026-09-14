@@ -77,6 +77,9 @@ import {
   PENDING_AGREEMENT_MEANING,
   type DismissReason,
   type PendingAgreementState,
+  isOpenRecruitment,
+  recruitmentAddress,
+  recruitmentStatusLabel,
   renewalBlockedText,
   renewalLinkText,
   subscriptionStatusText,
@@ -96,6 +99,7 @@ import type { Readable } from "node:stream";
 import { CallsService, type CallDto } from "../calls/calls.service";
 import { CollaborationService } from "../collaboration/collaboration.service";
 import { BillingService } from "../billing/billing.service";
+import { RecruitmentService } from "../recruitment/recruitment.service";
 import { ListingsService } from "../collaboration/listings.service";
 import { CoachService } from "../coach/coach.service";
 import { LandingService } from "../properties/landing.service";
@@ -276,6 +280,39 @@ export interface ExecuteResult {
 }
 
 /**
+ * ‏כמה שורות נכנסות לתשובה בשיחה.
+ *
+ * ‏תשובה בוואטסאפ נקראת על מסך טלפון בין פגישות: עשרים שורות
+ * ‏אינן „יותר מידע” אלא רשימה שאיש אינו קורא. מה שמעבר נספר
+ * ‏במשפט אחד, והקישור פותח את המסך המלא.
+ */
+const AGENT_LIST_MAX = 8;
+
+/** ‏רק השדות שנאמרו — `undefined` אינו „נמחק”, הוא „לא הוזכר”. */
+function recruitmentInput(params: Record<string, unknown>): Record<string, unknown> {
+  const keys = [
+    "city",
+    "neighborhood",
+    "street",
+    "houseNumber",
+    "propertyType",
+    "dealType",
+    "rooms",
+    "areaSqm",
+    "floor",
+    "totalFloors",
+    "priceAgorot",
+    "ownerName",
+    "ownerPhone",
+  ];
+  return Object.fromEntries(
+    keys
+      .map((key) => [key, params[key]])
+      .filter(([, value]) => value !== undefined && value !== null && value !== ""),
+  );
+}
+
+/**
  * כמה התאמות משרדיות הסוכן מוסר — ומול מה נבדק „יש עוד”.
  *
  * רשימה שחזרה בדיוק בגודל התקרה אינה בהכרח הרשימה כולה, וזה מה
@@ -344,6 +381,11 @@ export class AgentExecuteService {
      * ‏שם, ומסלול תשלום שני היה מפספס אחד מהם בשקט.
      */
     private readonly billing: BillingService,
+    /*
+     * ‎`RecruitmentService` — משפך הגיוס מהשיחה. אותו מסלול
+     * ‏כתיבה של הטופס ושל המודעה המצולמת.
+     */
+    private readonly recruitment: RecruitmentService,
     private readonly exclusivity: ExclusivityService,
     private readonly resolver: AgentResolveService,
     private readonly gemini: GeminiService,
@@ -567,6 +609,12 @@ export class AgentExecuteService {
         return this.showCredits();
       case "show_subscription":
         return this.showSubscription();
+      case "show_recruitment":
+        return this.showRecruitment(params);
+      case "create_recruitment":
+        return this.createRecruitment(params);
+      case "update_recruitment_status":
+        return this.updateRecruitmentStatus(params);
       case "renew_subscription":
         return this.renewSubscription();
       case "open_deal_room":
@@ -2284,10 +2332,6 @@ export class AgentExecuteService {
   }
 
   /**
-   * יתרת הקרדיטים — אותה קריאה כמו מסך הרשת, כולל מה שעומד לפוג:
-   * „נשארו 25” בלי „10 מהם פגים בעוד שבוע” היא חצי תשובה.
-   */
-  /**
    * ‎**מצב המנוי — מהשיחה, בלי הדשבורד.**
    *
    * ‏המשפט עצמו הוא `describeSubscription`, אותו אחד שבראש מסך
@@ -2301,6 +2345,92 @@ export class AgentExecuteService {
       href: "/settings/billing",
       message: subscriptionStatusText({ ...status, mayPay: true }),
       data: { plan: status.planName, cycle: status.cycle },
+    };
+  }
+
+  /**
+   * ‏משפך הגיוס מהשיחה — מה פתוח, ומה כבר נסגר.
+   *
+   * ‏ברירת המחדל היא **הפתוחים בלבד**: „מה יש לי לגיוס” הוא שאלה
+   * ‏על עבודה שנשארה, ורשימה שמערבבת בה נכסים שסירבו לפני חודש
+   * ‏עונה על שאלה אחרת.
+   */
+  private async showRecruitment(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const status = typeof params["recruitmentStatus"] === "string"
+      ? String(params["recruitmentStatus"])
+      : undefined;
+    const rows = await this.recruitment.list(status === undefined ? {} : { status });
+    const open = status === undefined ? rows.filter((row) => isOpenRecruitment(row.status)) : rows;
+    if (open.length === 0) {
+      return {
+        href: "/properties/recruitment",
+        message:
+          status === undefined
+            ? "אין נכסים פתוחים לגיוס כרגע."
+            : `אין נכסים לגיוס במצב „${recruitmentStatusLabel(status)}”.`,
+      };
+    }
+    const lines = open
+      .slice(0, AGENT_LIST_MAX)
+      .map((row) => `• ${recruitmentAddress(row)} — ${recruitmentStatusLabel(row.status)}`);
+    const more = open.length > AGENT_LIST_MAX ? `\nועוד ${open.length - AGENT_LIST_MAX}.` : "";
+    return {
+      href: "/properties/recruitment",
+      message: `${open.length} נכסים לגיוס:\n${lines.join("\n")}${more}`,
+      data: { count: open.length },
+    };
+  }
+
+  /**
+   * ‏נכס לגיוס חדש מתוך השיחה.
+   *
+   * ‏אותו `RecruitmentService.create` של הטופס ושל המודעה
+   * ‏המצולמת — מסלול כתיבה אחד לשורת גיוס.
+   */
+  private async createRecruitment(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const target = await this.recruitment.create({
+      source: "other",
+      status: "new",
+      ...recruitmentInput(params),
+    });
+    return {
+      href: `/properties/recruitment/${target.id}`,
+      message: `נפתח נכס לגיוס: ${recruitmentAddress(target)}`,
+      data: { id: target.id },
+    };
+  }
+
+  /**
+   * ‎**עדכון מצב — אחרי שברור על איזה נכס מדובר.**
+   *
+   * ‏הזיהוי הוא לפי מה שנאמר, ולכן שתי תוצאות הן **שאלה ולא
+   * ‏ניחוש**: „התקשרתי לבעלים בהרצל” כשיש שני נכסים ברחוב הרצל
+   * ‏הוא משפט שהמתווך צריך להשלים, ובחירה אקראית בשמו הייתה
+   * ‏מעדכנת את הנכס הלא נכון בלי שידע.
+   */
+  private async updateRecruitmentStatus(
+    params: Record<string, unknown>,
+  ): Promise<ExecuteResult> {
+    /*
+     * ‎`recruitmentId` ולא הביטוי: `AgentResolveService` כבר תרגם
+     * ‏אותו, והציג בורר כשהיה יותר מאחד. פתרון שני כאן היה מחזיר
+     * ‏„יש כמה” **אחרי** שהמתווך אישר, במקום לשאול לפני.
+     */
+    const id = String(params["recruitmentId"] ?? "").trim();
+    const status = String(params["recruitmentStatus"] ?? "").trim();
+    if (id === "") throw new BadRequestException("לא ברור על איזה נכס לגיוס מדובר");
+    if (status === "") throw new BadRequestException("לא נאמר מה המצב החדש");
+    const target = await this.recruitment.getById(id);
+    if (!isOpenRecruitment(target.status)) {
+      throw new BadRequestException(
+        `${recruitmentAddress(target)} כבר ${recruitmentStatusLabel(target.status)} — אין מה לעדכן`,
+      );
+    }
+    await this.recruitment.update(id, { status });
+    return {
+      href: `/properties/recruitment/${id}`,
+      message: `${recruitmentAddress(target)} — ${recruitmentStatusLabel(status)}`,
+      data: { id, status },
     };
   }
 
@@ -2327,6 +2457,10 @@ export class AgentExecuteService {
     };
   }
 
+  /**
+   * יתרת הקרדיטים — אותה קריאה כמו מסך הרשת, כולל מה שעומד לפוג:
+   * „נשארו 25” בלי „10 מהם פגים בעוד שבוע” היא חצי תשובה.
+   */
   private async showCredits(): Promise<ExecuteResult> {
     const { balance, expiry } = await this.collaboration.credits();
     const expiring =

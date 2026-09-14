@@ -3,6 +3,7 @@ import {
   AD_UNREADABLE_TEXT,
   buildRecruitmentAdPrompt,
   parseRecruitmentAd,
+  recruitmentAddress,
   recruitmentAdSummary,
   RECRUITMENT_AD_SCHEMA,
   type RecruitmentAdRead,
@@ -71,7 +72,7 @@ export class RecruitmentAdService {
       status: "new",
       ...fields(read),
     });
-    return { target, summary: recruitmentAdSummary(read, addressOf(read)) };
+    return { target, summary: recruitmentAdSummary(read, recruitmentAddress(read, "בלי כתובת שנקראה")) };
   }
 
   /** ‏מה שנאמר כשהתמונה לא נקראה — מהצד המשותף, כמו כל נוסח. */
@@ -103,19 +104,4 @@ function fields(read: RecruitmentAdRead): Record<string, unknown> {
     ["notes", read.notes === "" ? null : read.notes],
   ];
   return Object.fromEntries(entries.filter(([, value]) => value !== null));
-}
-
-/**
- * ‏הכתובת כפי שהיא תיאמר בתשובה.
- *
- * ‏„נכס לגיוס נשמר” בלי כתובת אינו אומר למתווך דבר — הוא צילם
- * ‏שלושה שלטים היום. מה שנקרא הוא מה שנאמר, וכשלא נקרא שום חלק
- * ‏של כתובת נאמר זאת במפורש.
- */
-function addressOf(read: RecruitmentAdRead): string {
-  const street = [read.street, read.houseNumber].filter((part) => part !== null).join(" ");
-  const parts = [street === "" ? null : street, read.neighborhood, read.city].filter(
-    (part): part is string => part !== null && part !== "",
-  );
-  return parts.length > 0 ? parts.join(", ") : "בלי כתובת שנקראה";
 }

@@ -3,6 +3,7 @@ import { AgreementsModule } from "../agreements/agreements.module";
 import { ExclusivityModule } from "../exclusivity/exclusivity.module";
 import { AnalyticsModule } from "../analytics/analytics.module";
 import { BillingModule } from "../billing/billing.module";
+import { RecruitmentModule } from "../recruitment/recruitment.module";
 import { BuyersModule } from "../buyers/buyers.module";
 import { CalendarModule } from "../calendar/calendar.module";
 import { CallsModule } from "../calls/calls.module";
@@ -70,6 +71,8 @@ import { AgentResolveService } from "./resolve.service";
      * ‏בלי `imports` משלו, ולכן אין מעגל.
      */
     BillingModule,
+    // משפך הגיוס מהשיחה — אותו שירות של הטופס ושל המודעה המצולמת
+    RecruitmentModule,
     // „קישור לחתימה על הזמנה בכתב” — דרך אותו שירות שהכרטיס משתמש בו
     AgreementsModule,
     // בלעדיות — „מה בסיכון” ותיעוד פעולת שיווק, דרך אותו שירות כמו הפאנל

@@ -108,6 +108,10 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
     ],
   },
   {
+    label: "נכסים לגיוס",
+    ids: ["show_recruitment", "create_recruitment", "update_recruitment_status"],
+  },
+  {
     label: "בלעדיות",
     ids: ["show_exclusivity", "start_exclusivity", "log_marketing_action"],
   },

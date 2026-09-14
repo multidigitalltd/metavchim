@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { recruitmentAddress } from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { EntityTasks } from "../../../entity-tasks";
 import { TargetDetails, TargetStatusChip } from "../target-details";
 import { TargetForm } from "../target-form";
-import { targetAddress, type TargetValues } from "../target-values";
+import { type TargetValues } from "../target-values";
 
 /**
  * ‏עמוד הנכס לגיוס — **הקישור העמוק**, ולא הדרך הרגילה.
@@ -56,7 +57,7 @@ export default function EditRecruitmentTargetPage() {
       ) : (
         <>
           <header className="mb-5 flex flex-wrap items-center gap-2.5">
-            <h1 className="m-0 text-2xl font-bold">{targetAddress(target)}</h1>
+            <h1 className="m-0 text-2xl font-bold">{recruitmentAddress(target)}</h1>
             <TargetStatusChip status={target.status ?? "new"} />
           </header>
 

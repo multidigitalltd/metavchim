@@ -58,6 +58,7 @@ export type VoiceAction =
   | "show_emails"
   | "show_credits"
   | "show_subscription"
+  | "show_recruitment"
   | "show_payout_balance"
   | "show_referral_board"
   | "show_reach"
@@ -409,6 +410,15 @@ const RULES: {
   {
     action: "show_subscription",
     pattern: /מצב\s+ה?מנוי|ה?מנוי\s+שלנו|עד\s+מתי\s+ה?מנוי|איזה\s+מסלול/u,
+    confidence: "high",
+  },
+  /*
+   * ‎„לגיוס” היא המילה שמבדילה מ„נכסים” סתם — בלעדיה הביטוי
+   * ‏תופס גם „תראה לי נכסים”, שהוא רשימת המלאי ולא משפך הגיוס.
+   */
+  {
+    action: "show_recruitment",
+    pattern: /נכסים\s+ל?גיוס|ה?גיוס\s+שלי|מה\s+יש\s+לי\s+ל?גיוס/u,
     confidence: "high",
   },
   {
