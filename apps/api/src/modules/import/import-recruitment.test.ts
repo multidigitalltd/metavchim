@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { BuyersService } from "../buyers/buyers.service";
 import type { LeadsService } from "../leads/leads.service";
-import type { PropertiesService } from "../properties/properties.service";
 import type { RecruitmentService } from "../recruitment/recruitment.service";
-import { ImportController } from "./import.controller";
+import { ImportWriteService } from "./import-write.service";
 
 /**
  * ‎**ייבוא גיוס — מה שנקלט, מה שיורד, ומה שמפיל שורה.**
@@ -22,13 +21,13 @@ function harness() {
     },
   } as unknown as RecruitmentService;
 
-  const controller = new ImportController(
-    {} as PropertiesService,
-    {} as BuyersService,
-    {} as LeadsService,
-    recruitment,
-  );
-  return { controller, created };
+  /*
+   * ‎**השירות ולא הבקר.** הלולאה עברה ל-`ImportWriteService` כשנוסף
+   * ‏לה קורא שני — קובץ שנשלח בוואטסאפ — והבדיקה עוברת איתה: טענה
+   * ‏שנבדקת מול הקובץ שאינו מחזיק אותה היא טענה שנפסיק לסמוך עליה.
+   */
+  const write = new ImportWriteService({} as BuyersService, {} as LeadsService, recruitment);
+  return { write, created };
 }
 
 /** ‏שורה מינימלית שהמפרק במסך מייצר ממודעה אמיתית. */
@@ -44,9 +43,9 @@ const AD = {
 
 describe("ייבוא נכסים לגיוס", () => {
   it("שורה תקינה נקלטת עם כל השדות", async () => {
-    const { controller, created } = harness();
+    const { write, created } = harness();
 
-    const result = await controller.importRecruitment({ rows: [AD] });
+    const result = await write.recruitmentRows([AD]);
 
     expect(result).toMatchObject({ created: 1, failed: [] });
     expect(created).toHaveLength(1);
@@ -74,11 +73,9 @@ describe("ייבוא נכסים לגיוס", () => {
    * ‏ישראלי בכלל.
    */
   it("טלפון בעלים פסול יורד — המודעה נקלטת עם אזהרה", async () => {
-    const { controller, created } = harness();
+    const { write, created } = harness();
 
-    const result = await controller.importRecruitment({
-      rows: [{ ...AD, ownerName: "ישראל ישראלי", ownerPhone: "לא ידוע" }],
-    });
+    const result = await write.recruitmentRows([{ ...AD, ownerName: "ישראל ישראלי", ownerPhone: "לא ידוע" }]);
 
     expect(result.created).toBe(1);
     expect(result.failed).toEqual([]);
@@ -90,11 +87,9 @@ describe("ייבוא נכסים לגיוס", () => {
   });
 
   it("קישור שאינו כתובת יורד — המודעה נקלטת עם אזהרה", async () => {
-    const { controller, created } = harness();
+    const { write, created } = harness();
 
-    const result = await controller.importRecruitment({
-      rows: [{ ...AD, sourceUrl: "מודעה 123 ביד2" }],
-    });
+    const result = await write.recruitmentRows([{ ...AD, sourceUrl: "מודעה 123 ביד2" }]);
 
     expect(result.created).toBe(1);
     expect(result.failed).toEqual([]);
@@ -110,9 +105,9 @@ describe("ייבוא נכסים לגיוס", () => {
   it.each(["ftp://example.com/x", "mailto:a@b.com", "javascript:alert(1)"])(
     "קישור בסכמה שאינה http(s) יורד ואינו מפיל את השורה — %s",
     async (sourceUrl) => {
-      const { controller, created } = harness();
+      const { write, created } = harness();
 
-      const result = await controller.importRecruitment({ rows: [{ ...AD, sourceUrl }] });
+      const result = await write.recruitmentRows([{ ...AD, sourceUrl }]);
 
       expect(result.created).toBe(1);
       expect(result.failed).toEqual([]);
@@ -128,11 +123,9 @@ describe("ייבוא נכסים לגיוס", () => {
    * ‏בזמן שהיא בחוץ.
    */
   it("אזהרה על שדה שירד אינה נרשמת לשורה שנפלה", async () => {
-    const { controller } = harness();
+    const { write } = harness();
 
-    const result = await controller.importRecruitment({
-      rows: [{ ...AD, ownerPhone: "לא ידוע", marketingTitle: "דירה מרווחת" }],
-    });
+    const result = await write.recruitmentRows([{ ...AD, ownerPhone: "לא ידוע", marketingTitle: "דירה מרווחת" }]);
 
     expect(result.created).toBe(0);
     expect(result.failed).toHaveLength(1);
@@ -140,11 +133,9 @@ describe("ייבוא נכסים לגיוס", () => {
   });
 
   it("טלפון תקין נשמר ואינו מייצר אזהרה — גם כשהוא מלוכלך", async () => {
-    const { controller, created } = harness();
+    const { write, created } = harness();
 
-    const result = await controller.importRecruitment({
-      rows: [{ ...AD, ownerPhone: "050-123-4567 (נייד)" }],
-    });
+    const result = await write.recruitmentRows([{ ...AD, ownerPhone: "050-123-4567 (נייד)" }]);
 
     expect(result.warnings).toEqual([]);
     expect(created[0]).toMatchObject({ ownerPhone: "+972501234567" });
@@ -156,11 +147,9 @@ describe("ייבוא נכסים לגיוס", () => {
    * ‏הייתה אומרת למתווך שהנתון נשמר בזמן שהוא נזרק.
    */
   it("שדה שאינו של גיוס מפיל את השורה במקום להיבלע", async () => {
-    const { controller, created } = harness();
+    const { write, created } = harness();
 
-    const result = await controller.importRecruitment({
-      rows: [{ ...AD, marketingTitle: "דירה מרווחת" }],
-    });
+    const result = await write.recruitmentRows([{ ...AD, marketingTitle: "דירה מרווחת" }]);
 
     expect(result.created).toBe(0);
     expect(result.failed).toHaveLength(1);
@@ -169,11 +158,9 @@ describe("ייבוא נכסים לגיוס", () => {
   });
 
   it("שורה שנכשלה אינה עוצרת את הבאות אחריה", async () => {
-    const { controller, created } = harness();
+    const { write, created } = harness();
 
-    const result = await controller.importRecruitment({
-      rows: [{ ...AD, marketingTitle: "x" }, AD],
-    });
+    const result = await write.recruitmentRows([{ ...AD, marketingTitle: "x" }, AD]);
 
     expect(result.created).toBe(1);
     expect(result.failed).toEqual([{ row: 1, error: expect.any(String) }]);

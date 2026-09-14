@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { OfficeSettingsService } from "./office-settings.service";
 import { TeamService } from "./team.service";
 import { MatchingModule } from "../matching/matching.module";
 import { MessagingModule } from "../messaging/messaging.module";
@@ -22,11 +23,15 @@ import { SettingsController } from "./settings.controller";
     EmailDomainController,
     ActivationNudgeController,
   ],
-  providers: [AccountDeletionService, TeamService],
+  providers: [AccountDeletionService, TeamService, OfficeSettingsService],
   /*
    * ‎`TeamService` — „תוסיף סוכן” מהשיחה עובר כאן, ולא במסלול
    * ‏כתיבה שני: המכסה, המנעול והיומן יושבים בו.
    */
-  exports: [TeamService],
+  /*
+   * ‎`OfficeSettingsService` — „תכבה פרסום אוטומטי לרשת” מהשיחה
+   * ‏עובר כאן: הנעילה, המחיקה-במקום-ריק וחותמת ההצעות יושבות בו.
+   */
+  exports: [TeamService, OfficeSettingsService],
 })
 export class SettingsModule {}

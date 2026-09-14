@@ -61,6 +61,7 @@ export type VoiceAction =
   | "show_recruitment"
   | "show_team"
   | "show_profile"
+  | "show_office_settings"
   | "show_payout_balance"
   | "show_referral_board"
   | "show_reach"
@@ -439,6 +440,17 @@ const RULES: {
   {
     action: "show_profile",
     pattern: /ה?פרטים\s+שלי|ה?פרופיל\s+שלי|ה?התראות\s+שלי/u,
+    confidence: "high",
+  },
+  /*
+   * ‎„של המשרד” היא המילה שמבדילה מ„הפרטים שלי”, ו„העמלה” לבדה
+   * ‏נתפסת כאן כי אין לה בית אחר: עמלה במערכת היא ברירת המחדל של
+   * ‏המשרד, לא שדה על עסקה בודדת.
+   */
+  {
+    action: "show_office_settings",
+    pattern:
+      /ה?הגדרות\s+(של\s+)?ה?משרד|ה?עמלה\s+שלנו|ה?עמלה\s+של\s+ה?משרד|מספר\s+ה?רישיון|ה?פרטים\s+של\s+ה?משרד/u,
     confidence: "high",
   },
   {
