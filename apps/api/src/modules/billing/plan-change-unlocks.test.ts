@@ -71,7 +71,23 @@ describe("המסך עובר מיד, ובטעינה מלאה", () => {
    * ‏ההגדרות אינו סיבה לזרוק מנהל לדף הבית.
    */
   it("ולאן — נקבע לפי מה שהיה, לא לפי מה שיהיה", () => {
-    expect(SECTION).toContain('user?.billingOnly === true ? "/" : window.location.pathname');
+    expect(SECTION).toContain("user?.billingOnly === true");
+  });
+
+  /*
+   * ‎**„נשאר איפה שהיה” כולל את המחרוזת** (ביקורת Codex): הרכיב
+   * ‏מוצג גם כלשונית בתוך `‎/settings`, והלשונית הנבחרת חיה
+   * ‏ב-`?tab=billing`. `pathname` לבדו החזיר את המנהל ללשונית
+   * ‏„צוות” — בדיוק ההזזה שהסעיף נועד למנוע.
+   */
+  it("ומי שנשאר — נשאר גם באותה לשונית", () => {
+    expect(SECTION).toContain(
+      "`${window.location.pathname}${window.location.search}${window.location.hash}`",
+    );
+    /* ‏הלשונית נקראת משם, ולכן זו אינה קפדנות */
+    expect(read(`${WEB}app/settings/page.tsx`)).toContain(
+      'new URLSearchParams(window.location.search).get("tab")',
+    );
   });
 
   /*

@@ -169,8 +169,18 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
        * עכשיו את החומה, וזה הרגע לפתוח לו את המערכת. מי שרק החליף
        * מסלול מתוך ההגדרות נשאר איפה שהיה — אבל עדיין בטעינה מלאה,
        * כי המסלול קובע גם את רשימת הפיצ׳רים שהמעטפת מחזיקה.
+       *
+       * ‎**„איפה שהיה” כולל את המחרוזת, לא רק את הנתיב** (ביקורת
+       * ‏Codex): הרכיב הזה מוצג גם כלשונית בתוך `‎/settings`, והלשונית
+       * ‏הנבחרת חיה ב-`?tab=billing`. `pathname` לבדו היה מחזיר את
+       * ‏המנהל ללשונית „צוות” — כלומר בדיוק ההזזה שהסעיף הזה נועד
+       * ‏למנוע.
        */
-      reloadWithFreshSession(user?.billingOnly === true ? "/" : window.location.pathname);
+      reloadWithFreshSession(
+        user?.billingOnly === true
+          ? "/"
+          : `${window.location.pathname}${window.location.search}${window.location.hash}`,
+      );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "המעבר נכשל");
       setBusy(null);
