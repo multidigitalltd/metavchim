@@ -258,8 +258,16 @@ describe("אוצר השכונות מול מסד אמיתי", () => {
               'sale', 'manual', now(), now())
       ON CONFLICT (id) DO NOTHING
     `;
-    const found = (await vocabulary("")).find((u) => u.name === "שתי דרכים");
-    expect(found?.count).toBe(1);
+    /*
+     * ‏על **המפתח** ולא על שם גולמי מסוים: הצמצום לכל קונה
+     * ‏בוחר נציג אחד משתי הצורות (הראשונה אלפביתית), ואיזו
+     * ‏מהן אינו העניין. הטענה היא שהקונה נספר **פעם אחת**
+     * ‏ולא פעמיים — אחת על ההקלדה ואחת על הנעיצה.
+     */
+    const total = (await vocabulary(""))
+      .filter((u) => neighborhoodKey(u.name) === "שתי דרכים")
+      .reduce((sum, u) => sum + u.count, 0);
+    expect(total).toBe(1);
     await owner!.$executeRaw`DELETE FROM buyers WHERE id = '01SUGGESTBUYERBOTHAAAAAAAA'`;
   });
 

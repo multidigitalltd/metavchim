@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { neighborhoodKey, neighborhoodKeyMatches } from "@metavchim/shared";
+import { neighborhoodKeyMatches } from "@metavchim/shared";
 
 /**
  * ‎**סינון הקונים לפי שכונה — הטענות שאין להן שגיאת קומפילציה.**
@@ -39,20 +39,42 @@ describe("‏שאילתת המפתחות אינה חורגת ממה שמותר �
     expect(BLOCK).toContain("b.deleted_at IS NULL");
   });
 
-  /* ‏שאילתה של תו אחד לא תשלוף את כל אוצר המשרד לזיכרון */
-  it("‏חסומה בתקרה", () => {
-    expect(BLOCK).toContain("LIMIT ${NEIGHBORHOOD_KEY_MAX}");
+  /*
+   * ‎**ובלי תקרה** (ביקורת Codex, P1).
+   *
+   * ‏כל עוד הבדיקה במסד היתה רחבה, תקרה בלי סדר חתכה
+   * ‏**לפני** ההכרעה, והתאמות אמיתיות נדחקו החוצה בידי
+   * ‏התאמות באמצע מילה שהכלל פוסל בלאו הכי — קונים
+   * ‏שנעלמים מהסינון בלי שום סימן. עכשיו השאילתה מחזירה
+   * ‏בדיוק את התואמות, וכמותן חסומה במציאות.
+   */
+  it("‏אינה חותכת התאמות בתקרה", () => {
+    expect(BLOCK).not.toContain("LIMIT");
   });
 
   /*
-   * ‎**המסד מצמצם, הקוד מכריע.**
+   * ‎**הכלל עצמו במסד, והכלל המשותף נשאר הסמכות.**
    *
-   * ‏ה-SQL עושה בדיקת תת-מחרוזת רחבה, וההכרעה — תחילית מגבול מילה —
-   * ‏נשארת בכלל המשותף שגם הבורר במסך משתמש בו. שתי הכרעות נפרדות
-   * ‏היו רשימה שמציעה שכונה וסינון שעליה מחזיר ריק.
+   * ‏שתי הבדיקות חייבות להסכים: רשימה שמציעה שכונה וסינון
+   * ‏שעליה מחזיר ריק הוא בדיוק מה ששתי הכרעות נפרדות מייצרות.
    */
-  it("‏ההכרעה היא הכלל המשותף ולא ה-SQL", () => {
+  it("‏הכלל המשותף נשאר בדרך", () => {
+    expect(BLOCK).toContain("neighborhoodKeyMatchSql(neighborhoodQueryKey)");
     expect(BLOCK).toContain("neighborhoodKeyMatches(key, neighborhoodQueryKey)");
+  });
+
+  /*
+   * ‎**ותווי ה-LIKE מוברחים.** כל עוד המסד רק הרחיב, `%`
+   * ‏שהוקלד בשדה לא הזיק — הקוד צימצם אחריו. מרגע שהמסד
+   * ‏מכריע, תו כזה הוא הרחבה אמיתית של הכלל.
+   */
+  it("‏ותווי ה-LIKE מוברחים", () => {
+    const builder = SOURCE.slice(
+      SOURCE.indexOf("export function neighborhoodKeyMatchSql("),
+      SOURCE.indexOf("export function requirementColumns("),
+    );
+    expect(builder).toContain('replace(/([!%_])/gu, "!$1")');
+    expect(builder.split("ESCAPE '!'").length - 1).toBe(2);
   });
 
   /*
@@ -68,28 +90,68 @@ describe("‏שאילתת המפתחות אינה חורגת ממה שמותר �
 });
 
 /**
- * ‏מה שהשאילתה מחפשת במסד הוא **על-קבוצה** של מה שהכלל מקבל. אילו
- * ‏היה להפך, התאמה אמיתית הייתה נחתכת לפני שהקוד בכלל רואה אותה.
+ * ‎**הכלל ב-SQL הוא תרגום מדויק של זה שבקוד — לא רחב יותר.**
+ *
+ * ‏המודל כאן מחקה את שני ה-`LIKE` שהבונה מייצרת, ומשווה אותם
+ * ‏לכלל המשותף. ההרצה מול מסד אמיתי יושבת ב-
+ * ‏`neighborhood-match.int.test.ts`, בדיוק כמו שהקיפול נבדק שם.
  */
-describe("‏הצמצום במסד רחב מההכרעה שבקוד", () => {
-  const like = (key: string, query: string): boolean => key.includes(query);
+describe("‏שתי הבדיקות מסכימות", () => {
+  /**
+   * ‏מודל של `LIKE … ESCAPE '!'` — סריקה תו-תו, ולא החלפות
+   * ‏ביטוי רגולרי: החלפה שרצה לפני המרת `%` ל-`.*` משמידה
+   * ‏את הבריחה עצמה — וזו בדיוק הטעות שהבדיקה הזו תפסה
+   * ‏בגרסה הראשונה של עצמה.
+   */
+  const like = (key: string, pattern: string): boolean => {
+    let rx = "";
+    for (let i = 0; i < pattern.length; i += 1) {
+      const ch = pattern[i]!;
+      if (ch === "!" && i + 1 < pattern.length) {
+        i += 1;
+        rx += pattern[i]!.replace(/[.*+?^${}()|[\]\\]/u, "\\$&");
+      } else if (ch === "%") rx += "[\\s\\S]*";
+      else if (ch === "_") rx += "[\\s\\S]";
+      else rx += ch.replace(/[.*+?^${}()|[\]\\]/u, "\\$&");
+    }
+    return new RegExp(`^${rx}$`, "u").test(key);
+  };
+  const matchesInSql = (key: string, queryKey: string): boolean => {
+    const escaped = queryKey.replace(/([!%_])/gu, "!$1");
+    return like(key, `${escaped}%`) || like(key, `% ${escaped}%`);
+  };
 
-  it.each([
-    ["רמת אהרון", "אהרון"],
-    ["רמת אהרון", "רמת א"],
-    ["שיכון ג", "שיכון"],
-    ["פרדס כץ", "פרדס כץ"],
-  ])("‏„%s” מול „%s” — מה שהכלל מקבל, ה-LIKE מעביר", (name, query) => {
-    const key = neighborhoodKey(name);
-    const queryKey = neighborhoodKey(query);
-    expect(neighborhoodKeyMatches(key, queryKey)).toBe(true);
-    expect(like(key, queryKey)).toBe(true);
-  });
+  const KEYS = [
+    "רמת אהרון",
+    "שיכון ג",
+    "פרדס כץ",
+    "נווה שאנן",
+    "רמת גן הישנה",
+    "א ב ג",
+    "100% שכונה",
+    "קו_תחתון",
+  ];
+  const QUERIES = [
+    "",
+    "רמת",
+    "אהרון",
+    "רמת א",
+    "מת",
+    "הרון",
+    "ג",
+    "כץ",
+    "%",
+    "_",
+    "!",
+    "100%",
+    "קו_",
+  ];
 
-  /* ‏וההפך אינו נדרש: תת-מחרוזת באמצע מילה עוברת ב-SQL ונופלת בקוד */
-  it("‏ומה שה-LIKE מעביר אינו בהכרח מתקבל", () => {
-    const key = neighborhoodKey("רמת אהרון");
-    expect(like(key, "מת")).toBe(true);
-    expect(neighborhoodKeyMatches(key, "מת")).toBe(false);
+  it.each(QUERIES)("‏על כל המפתחות, עבור „%s”", (query) => {
+    for (const key of KEYS) {
+      expect(`${key} ← ${query}: ${String(matchesInSql(key, query))}`).toBe(
+        `${key} ← ${query}: ${String(neighborhoodKeyMatches(key, query))}`,
+      );
+    }
   });
 });

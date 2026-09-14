@@ -38,7 +38,7 @@ import {
   normalizeRange,
   priceRangeAgorot,
 } from "@metavchim/shared";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
   agentHandover,
   agentNameOf,
@@ -55,13 +55,35 @@ import { lockContact, shareTenantRow } from "../../common/locks";
 import { ContactErasureService } from "../contacts/contact-erasure.service";
 
 /**
- * ‎**כמה מפתחות שכונה נשלפים כדי לתרגם מה שהוקלד.**
+ * ‎**הכלל עצמו בשפת המסד — ולמה הוא חייב להיות מדויק.**
  *
- * ‏הסינון שואל „אילו שכונות מתחילות במה שכתבתי”, ותשובה
- * ‏סבירה היא שכונה אחת או שתיים. התקרה קיימת כדי ששאילתה
- * ‏של תו אחד לא תשלוף את כל אוצר המשרד לזיכרון.
+ * ## מה היה קודם
+ *
+ * ‏המסד עשה תת-מחרוזת רחבה (`LIKE '%q%'`) תחת תקרה, והכלל
+ * ‏המשותף הכריע אחריה. אבל התקרה חתכה **לפני** ההכרעה
+ * ‏ובלי סדר: במשרד שבו יותר מ-200 מפתחות מכילים את מה
+ * ‏שהוקלד, התאמות אמיתיות נדחקו החוצה בידי התאמות באמצע
+ * ‏מילה שהכלל היה פוסל בלאו הכי — כלומר קונים שנעלמים
+ * ‏מהסינון בלי שום סימן (ביקורת Codex, P1).
+ *
+ * ## הכלל, מילה במילה
+ *
+ * ‏`neighborhoodKeyMatches` הוא שתי בדיקות על מפתח מקופל: תחילית
+ * ‏המפתח, או תחילית אחד מההיסטים שאחרי רווח. ב-SQL אלה בדיוק
+ * ‏שני ה-`LIKE` שלמטה. השקילות נבדקת מול מסד אמיתי ב-
+ * ‏`neighborhood-match.int.test.ts`, בדיוק כמו שהקיפול נבדק.
+ *
+ * ## ולמה הבריחה נדרשת עכשיו ולא קודם
+ *
+ * ‏כשהמסד רק הרחיב, `%` או `_` שהוקלדו בשדה לא הזיקו —
+ * ‏הקוד צימצם אחריהם. עכשיו המסד מכריע, ותו כזה היה מרחיב
+ * ‏את ההתאמה מעבר לכלל. `!` כתו בריחה מפורש ולא הלוכסן
+ * ‏המרמז, כדי שלא ניתלה במוסכמות מילוט של הספרייה.
  */
-const NEIGHBORHOOD_KEY_MAX = 200;
+export function neighborhoodKeyMatchSql(queryKey: string): Prisma.Sql {
+  const escaped = queryKey.replace(/([!%_])/gu, "!$1");
+  return Prisma.sql`(k LIKE ${`${escaped}%`} ESCAPE '!' OR k LIKE ${`% ${escaped}%`} ESCAPE '!')`;
+}
 
 /**
  * ‎**העמודות החמות שנגזרות מ-`requirements` — במקום אחד.**
@@ -1340,14 +1362,26 @@ export class BuyersService {
        * ‏בשדה אינם מרחיבים דבר, כי ההכרעה אינה שלהם.
        */
       if (neighborhoodQueryKey !== "") {
+        /*
+         * ‎**ובלי תקרה.** קודם היתה כאן תקרה שהגנה על הזיכרון,
+         * ‏וכשהבדיקה היתה רחבה היא גם חתכה התאמות אמיתיות.
+         * ‏עכשיו השאילתה מחזירה **בדיוק את השכונות שהמסך הבטיח**,
+         * ‏והכמות חסומה במציאות: אלה שמות שכונות שהמשרד הקליד
+         * ‏ושמתחילות באותן אותיות — עשרות בודדות גם במשרד גדול.
+         * ‏תקרה שחותכת תוצאות נכונות גרועה משאילתה גדולה בעשרות שורות.
+         */
         const candidates = await tx.$queryRaw<{ key: string }[]>`
           SELECT DISTINCT k AS key
             FROM buyers b
            CROSS JOIN LATERAL unnest(b.neighborhood_keys) AS k
            WHERE b.deleted_at IS NULL
-             AND k LIKE '%' || ${neighborhoodQueryKey} || '%'
-           LIMIT ${NEIGHBORHOOD_KEY_MAX}
+             AND ${neighborhoodKeyMatchSql(neighborhoodQueryKey)}
         `;
+        /*
+         * ‏הכלל המשותף נשאר בדרך גם אחרי שה-SQL מדויק: הוא
+         * ‏הסמכות, וכל סטייה עתידית תיפול לכיוון הצר — פחות
+         * ‏תוצאות מהמובטח, ולא יותר.
+         */
         const keys = candidates
           .map((row) => row.key)
           .filter((key) => neighborhoodKeyMatches(key, neighborhoodQueryKey));

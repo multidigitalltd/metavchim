@@ -1080,7 +1080,7 @@ model Buyer {
   /// ‏האינדקס עליו הוא GIN **חלקי** (רק שורות שלא נמחקו)
   /// ‏ולכן מוגדר במיגרציה 20260914210000 בלבד — Prisma אינו יודע
   /// ‏לתאר אינדקס חלקי, והכרזה כאן הייתה מייצרת סחיפה מול המסד.
-  neighborhoodKeys   String[]  @map("neighborhood_keys")
+  neighborhoodKeys   String[]  @default([]) @map("neighborhood_keys")
   /// עמדת הקונה כלפי רישום בטאבו משותף: `accepts` · `refuses`.
   ///
   /// `null` = **טרם נשאל**, וזה המצב של כל הכרטיסים שקדמו לשדה.

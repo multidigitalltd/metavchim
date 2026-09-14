@@ -206,17 +206,34 @@ export default function BuyersPage() {
   useEffect(() => {
     if (authLoading) return;
     setItems(null);
+    /*
+     * ‎**תשובה של סינון שכבר הוחלף אינה נכתבת** (ביקורת Codex).
+     *
+     * ‏כל שינוי סינון מתחיל בקשה, ועל רשת משתנה הראשונה עלולה
+     * ‏לחזור אחרונה ולדרוס את החדשה — רשימה של שכונה
+     * ‏אחת מתחת לבורר שמציג אחרת. השדה החדש הוא הראשון
+     * ‏שניתן להקליד בו, ולכן המרוץ הזה נגיש בו בפועל.
+     */
+    let live = true;
     apiGet<{ items: BuyerRow[] }>(
       buyersListUrl(filters, maturity, officeStatus, sharedTabu, neighborhood),
     )
-      .then((res) =>
+      .then((res) => {
+        if (!live) return;
+        /* ‏הצלחה מנקה שגיאה קודמת — אחרת המסך נתקע על 400 ישן */
+        setError(null);
         setItems(
           [...apiList(res.items, "items")].sort(
             (a, b) => MATURITY_ORDER.indexOf(a.maturity) - MATURITY_ORDER.indexOf(b.maturity),
           ),
-        ),
-      )
-      .catch(() => setError("טעינת הקונים נכשלה"));
+        );
+      })
+      .catch(() => {
+        if (live) setError("טעינת הקונים נכשלה");
+      });
+    return () => {
+      live = false;
+    };
   }, [authLoading, filters, maturity, officeStatus, sharedTabu, neighborhood]);
 
   function toggle(id: string): void {

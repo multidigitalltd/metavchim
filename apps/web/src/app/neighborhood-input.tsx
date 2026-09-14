@@ -78,6 +78,7 @@ export function NeighborhoodInput({
   value: controlled,
   placeholder,
   multi = false,
+  maxLength,
   city,
   required = false,
   onValueChange,
@@ -96,6 +97,14 @@ export function NeighborhoodInput({
    */
   value?: string;
   placeholder?: string;
+  /**
+   * ‎תקרת אורך — כשלצד השני של השדה יש כזו.
+   *
+   * ‏בטופס אין: השמירה מקבלת רשימה שלמה. בסננת רשימה כן:
+   * ‏`ListQuerySchema` דוחה מעל 80 תווים, והדבקה ארוכה היתה
+   * ‏מחזירה 400 — שגיאה על משהו שהמסך עצמו הזמין.
+   */
+  maxLength?: number;
   /** רשימה מופרדת בפסיקים (טופס קונה) מול ערך יחיד (טופס נכס). */
   multi?: boolean;
   /**
@@ -305,6 +314,7 @@ export function NeighborhoodInput({
         name={name}
         value={value}
         required={required}
+        {...(maxLength === undefined ? {} : { maxLength })}
         placeholder={placeholder}
         autoComplete="off"
         role="combobox"

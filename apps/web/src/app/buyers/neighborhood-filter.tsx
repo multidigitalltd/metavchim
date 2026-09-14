@@ -31,6 +31,15 @@ import { NeighborhoodInput } from "../neighborhood-input";
 /** ‏ארוכה מהשהיית ההצעות (200ms): זו שאילתה שמחליפה את הרשימה. */
 const APPLY_DEBOUNCE_MS = 400;
 
+/**
+ * ‎**אותה תקרה של `ListQuerySchema`.**
+ *
+ * ‏בלעדיה הדבקה ארוכה היתה שולחת בקשה שהשרת דוחה ב-400
+ * ‏— שגיאה על קלט שהמסך עצמו הזמין. המסננת חוסמת מראש,
+ * ‏והעמוד מנקה שגיאה קודמת בכל טעינה שמצליחה.
+ */
+const NEIGHBORHOOD_FILTER_MAX = 80;
+
 export function NeighborhoodFilter({
   value,
   onChange,
@@ -71,6 +80,7 @@ export function NeighborhoodFilter({
         name="neighborhood"
         value={draft}
         onValueChange={setDraft}
+        maxLength={NEIGHBORHOOD_FILTER_MAX}
         placeholder="כל השכונות"
         style={{
           borderColor: "var(--color-input-border)",
