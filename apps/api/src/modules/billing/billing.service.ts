@@ -217,7 +217,16 @@ export class BillingService {
     userId: string;
     planCode: string;
     cycle: string;
-  }): Promise<{ url: string; paymentId: string }> {
+    /**
+     * ‎**הסכום שייגבה בפועל חוזר מכאן** — ברוטו, אחרי קופון ומע"מ.
+     *
+     * ‏מי שרוצה לנקוב בסכום לפני שהוא שולח את הקישור חייב את
+     * ‏**זה**, ולא חישוב מקביל מהמחירון: הקופון מוחל כאן
+     * ‏(`discountedAgorot`), וכל חישוב שני היה מפרסם מחיר גבוה
+     * ‏מזה שנגבה — ובקופון של 100% היה מפרסם מחיר מלא על הפעלה
+     * ‏חינם (ביקורת Codex).
+     */
+  }): Promise<{ url: string; paymentId: string; amountAgorot: number }> {
     const plan = await this.plans.byCode(input.planCode);
     /*
      * המחיר המוסכם למשרד — נקרא כאן ומועבר גם לשער וגם לחישוב.
@@ -326,6 +335,7 @@ export class BillingService {
       return {
         url: `${loadEnv().WEB_ORIGIN}/settings/billing/return?payment=${paymentId}`,
         paymentId,
+        amountAgorot,
       };
     }
 
@@ -365,7 +375,7 @@ export class BillingService {
         where: { id: paymentId },
         data: { lowProfileId: page.lowProfileId },
       });
-      return { url: page.url, paymentId };
+      return { url: page.url, paymentId, amountAgorot };
     } catch (error) {
       await this.prisma.payment.update({
         where: { id: paymentId },
@@ -405,27 +415,47 @@ export class BillingService {
     const subscription = await this.current(input.tenantId);
     const plan = await this.plans.byCode(subscription.planCode);
     const priceOverride = await this.plans.tenantPriceOverride(input.tenantId);
+    /*
+     * ‏בדיקה טהורה ובלי תופעות לוואי, ולכן היא כאן: היא מנסחת את
+     * ‏הסיבה בלי לפתוח שורת תשלום. **אין כאן בדיקת סליקה** —
+     * ‏`startCheckout` מפעיל מנוי בקופון של 100% בלי לפנות
+     * ‏לקארדקום בכלל, ובדיקה מוקדמת הייתה חוסמת בוואטסאפ בדיוק
+     * ‏את מי שהמסך כן מאפשר לו (ביקורת Codex). ההכרעה על הספק
+     * ‏נשארת שם, וההודעה שלו חוזרת כסיבה.
+     */
     const rejection = checkoutRejectionReason(plan, subscription.billingCycle, priceOverride);
     if (rejection !== null) return { ok: false, reason: rejection };
-    if (!(await this.cardcom.isConfigured())) {
-      return { ok: false, reason: "הסליקה טרם הופעלה במערכת" };
-    }
 
-    const netAgorot = effectiveCyclePriceAgorot(plan!, subscription.billingCycle, priceOverride);
-    const grossAgorot = netAgorot === null ? null : await this.vat.gross(netAgorot);
-    const { url } = await this.startCheckout({
-      tenantId: input.tenantId,
-      userId: input.userId,
-      planCode: subscription.planCode,
-      cycle: subscription.billingCycle,
-    });
-    return {
-      ok: true,
-      url,
-      planName: plan!.name,
-      price: grossAgorot === null ? null : `${shekels(grossAgorot)} ₪ (כולל מע"מ)`,
-      cycle: subscription.billingCycle,
-    };
+    try {
+      const { url, amountAgorot } = await this.startCheckout({
+        tenantId: input.tenantId,
+        userId: input.userId,
+        planCode: subscription.planCode,
+        cycle: subscription.billingCycle,
+      });
+      return {
+        ok: true,
+        url,
+        planName: plan!.name,
+        /*
+         * ‏הסכום מגיע **מהעסקה עצמה** ולא מחישוב שני. אחרת הקופון
+         * ‏היה נעדר מההודעה: „299 ₪” לצד חיוב של 149.
+         */
+        price: `${shekels(amountAgorot)} ₪ (כולל מע"מ)`,
+        cycle: subscription.billingCycle,
+      };
+    } catch (error) {
+      /*
+       * ‎`startCheckout` זורק `BadRequestException` על מצב שאפשר
+       * להסביר (סליקה שטרם הופעלה). כל שאר השגיאות הן תקלה
+       * אמיתית וממשיכות למעלה — הבליעה שלהן הייתה מציגה למשרד
+       * „פנו אלינו” על באג אצלנו.
+       */
+      if (error instanceof BadRequestException) {
+        return { ok: false, reason: error.message };
+      }
+      throw error;
+    }
   }
 
   /**

@@ -42,6 +42,8 @@ describe("„אני מתחיל לעבוד” — דחייה ולא שתיקה", 
     expect(parseSnoozeRequest("מתחילה לעבוד עוד חצי שעה", EVENING)?.minutes).toBe(30);
     expect(parseSnoozeRequest("נכנס לעבודה בעוד 20 דקות", EVENING)?.minutes).toBe(20);
     expect(parseSnoozeRequest("מגיע למשרד בעוד 3 שעות", EVENING)?.minutes).toBe(180);
+    expect(parseSnoozeRequest("אני במשרד בעוד שעה", EVENING)?.minutes).toBe(60);
+    expect(parseSnoozeRequest("עוד חצי שעה אז מתחיל לעבוד", EVENING)?.minutes).toBe(30);
   });
 
   /*
@@ -53,6 +55,20 @@ describe("„אני מתחיל לעבוד” — דחייה ולא שתיקה", 
     expect(parseSnoozeRequest("אני מתחיל לעבוד", EVENING)).toBeNull();
     expect(parseSnoozeRequest("מתחיל לעבוד עכשיו", EVENING)).toBeNull();
     expect(parseSnoozeRequest("אני מתחיל לעבוד עוד מעט", EVENING)).toBeNull();
+  });
+
+  /*
+   * ‎**המשך שאינו על תחילת העבודה — וזו הבדיקה החשובה.**
+   *
+   * ‏„אני מגיע למשרד ויש לי פגישה בעוד שעה” מכיל גם „מגיע למשרד”
+   * ‏וגם „שעה”, ואומר את ההפך הגמור: הוא מגיע **עכשיו**. נוכחות
+   * ‏של שניהם באותו משפט השתיקה אותו לשעה בשקט (ביקורת Codex) —
+   * ‏אותו כשל שהקוד נכתב כדי למנוע, בדלת אחרת. המשך חייב להיות
+   * ‏צמוד לביטוי.
+   */
+  it("משך שאינו צמוד לביטוי אינו משתיק", () => {
+    expect(parseSnoozeRequest("אני מגיע למשרד ויש לי פגישה בעוד שעה", EVENING)).toBeNull();
+    expect(parseSnoozeRequest("מתחיל לעבוד, יש פגישה בעוד שעתיים", EVENING)).toBeNull();
   });
 
   /*

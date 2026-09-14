@@ -240,10 +240,9 @@ const START_WORK_TRIGGERS: readonly string[] = [
   "מגיע למשרד",
   "מגיעה למשרד",
   "אהיה במשרד",
-  "אני במשרד בעוד",
+  "אני במשרד",
 ];
 
-/** מספרים במילים — „שלוש שעות” נכתב לפחות כמו „3 שעות”. */
 const NUMBER_WORDS: Record<string, number> = {
   אחת: 1,
   אחד: 1,
@@ -267,6 +266,44 @@ const NUMBER_WORDS: Record<string, number> = {
   "אחת עשרה": 11,
   "שתים עשרה": 12,
 };
+
+/**
+ * ‎**צורות המשך — כמחרוזת תבנית, כדי לקשור אותן לביטוי עצמו.**
+ *
+ * ‏אותו אוצר מילים של `statedMinutes`, והוא זה שמפענח את מה
+ * ‏שנתפס כאן. שתי רשימות היו מסכימות רק ביום שנכתבו.
+ */
+const DURATION_PATTERN =
+  "(?:חצי שעה|רבע שעה|שעה וחצי|שעתיים" +
+  "|\\d{1,3}\\s*(?:שעות|דקות|דקה)" +
+  `|(?:${Object.keys(NUMBER_WORDS).join("|")})\\s*(?:שעות|דקות)` +
+  "|שעה)";
+
+/**
+ * ‎**המשך שנאמר על תחילת העבודה — ולא כל משך שנמצא במשפט.**
+ *
+ * ‏„אני מגיע למשרד ויש לי פגישה בעוד שעה” מכיל גם „מגיע למשרד”
+ * ‏וגם „שעה”, והוא אומר את ההפך: הוא **מגיע עכשיו**. נוכחות של
+ * ‏שניהם באותו משפט השתיקה אותו לשעה בשקט (ביקורת Codex) — וזה
+ * ‏בדיוק הכשל שהקוד הזה נכתב כדי למנוע, בדלת אחרת.
+ *
+ * ‏לכן המשך חייב להיות **צמוד** לביטוי: „עוד שעה אני מתחיל
+ * ‏לעבוד” או „מתחיל לעבוד בעוד שעה”, ובין השניים לכל היותר רווח,
+ * ‏פסיק או „אני”/„אז”. כל דבר אחר במשפט אינו המשך של תחילת
+ * ‏העבודה, וממשיך למודל.
+ */
+function workStartMinutes(cleaned: string, now: Date): number | null {
+  for (const trigger of START_WORK_TRIGGERS) {
+    const match =
+      new RegExp(`ב?עוד\\s+(${DURATION_PATTERN})[\\s,]*(?:אני\\s+|אז\\s+)?${trigger}`, "u").exec(
+        cleaned,
+      ) ?? new RegExp(`${trigger}[\\s,]*ב?עוד\\s+(${DURATION_PATTERN})`, "u").exec(cleaned);
+    if (match?.[1] !== undefined) return statedMinutes(match[1], now);
+  }
+  return null;
+}
+
+/** מספרים במילים — „שלוש שעות” נכתב לפחות כמו „3 שעות”. */
 
 export interface SnoozeRequest {
   /** דקות להשתקה; ‎`0` = ביטול ההשתקה וחזרה לקבל התראות. */
@@ -345,11 +382,8 @@ export function parseSnoozeRequest(text: string, now: Date): SnoozeRequest | nul
    * ‏והשתקה עליו הייתה משתיקה את הסוכן ברגע שבו הוא נחוץ. בלי
    * ‏משך המשפט ממשיך למודל כרגיל.
    */
-  if (START_WORK_TRIGGERS.some((phrase) => cleaned.includes(phrase))) {
-    const minutes = statedMinutes(cleaned, now);
-    if (minutes === null) return null;
-    return { ...bounded(minutes), untilWork: true };
-  }
+  const untilWork = workStartMinutes(cleaned, now);
+  if (untilWork !== null) return { ...bounded(untilWork), untilWork: true };
   return null;
 }
 
