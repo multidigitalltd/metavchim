@@ -119,6 +119,25 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   /**
+   * ‏שולחן התוכן — כתיבה על שורות **הפלטפורמה** ב-`mentor_content`
+   * ‏בלבד.
+   *
+   * ‏אותו דפוס כמו `withSupportDesk`, אבל צר ממנו: הפוליסה כאן
+   * ‏מגבילה גם את ה-`USING` ל-`tenant_id IS NULL`, ולכן לשולחן
+   * ‏הזה אין גישה בכלל לשורות של משרדים — גם לא לקריאה, וגם לא
+   * ‏למחיקה בטעות. סרטון שמשרד העלה לעצמו אינו עניינו.
+   *
+   * ‏הגבול נשמר בשלוש שכבות: הפוליסה קיימת רק על הטבלה הזו, הדגל
+   * ‏נדלק רק כאן, וכל קורא חסום מאחורי PlatformAdminGuard.
+   */
+  async withPlatformContent<T>(fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.platform_content', 'on', true)`;
+      return fn(tx);
+    });
+  }
+
+  /**
    * מנוע המסלולים — קריאה וכתיבה חוצות-דיירים על `funnel_enrollments`
    * ו-`funnel_messages` **בלבד**.
    *

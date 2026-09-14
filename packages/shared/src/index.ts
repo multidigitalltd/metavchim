@@ -50,6 +50,8 @@ export * from "./logic/mentor-onboarding.js";
 export * from "./logic/mentor-deal.js";
 export * from "./logic/hebrew-count.js";
 export * from "./logic/mentor-subject.js";
+export * from "./logic/mentor-content.js";
+export * from "./logic/notify-categories.js";
 export * from "./logic/support.js";
 export * from "./logic/support-inbox.js";
 export * from "./logic/csv-import.js";

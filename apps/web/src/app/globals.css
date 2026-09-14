@@ -8379,6 +8379,41 @@ a.mv-bar-row:focus-visible {
   gap: 9px;
 }
 
+/*
+ * ‎**הכפתור שמוביל לרצועת התוכן.**
+ *
+ * ‏טקסט ולא אייקון: „סרטונים ופודקאסטים” אינו דבר שמנחשים מצורה,
+ * ‏והוא הדבר היחיד בכותרת שמוביל למקום אחר בעמוד. במסך צר הטקסט
+ * ‏יורד ונשאר האייקון — שם ממילא אין מקום, והרצועה קרובה.
+ */
+.mv-mentor__jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--domain-violet-line);
+  background: var(--domain-violet-bg);
+  color: var(--domain-violet-fg);
+  font-size: var(--type-caption);
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.mv-mentor__jump:hover,
+.mv-mentor__jump:focus-visible {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+@media (max-width: 47.99em) {
+  .mv-mentor__jump {
+    font-size: 0;
+    gap: 0;
+    padding: 0 9px;
+  }
+}
+
 /* ---------- שני האזורים ---------- */
 
 .mv-mentor__panes {
@@ -8679,6 +8714,196 @@ a.mv-bar-row:focus-visible {
 .mv-mentor__rail .mv-page-menu__list {
   flex-wrap: wrap;
   overflow-x: visible;
+}
+
+/* ============================================================
+   ‏איזור התוכן — סרטונים ופודקאסטים בתחתית עמוד המנטור
+
+   ‎**למה הוא אח של `.mv-mentor` ולא בתוכה.** המעטפת נועלת את גובה
+   ‏המסך (`overflow: hidden`) כדי ששני האזורים יגללו בעצמם ולא
+   ‏ייגררו עם העמוד — החלטה מפורשת של בעל המוצר. איזור התוכן הוא
+   ‏רצועה ברוחב מלא שיושבת **אחרי** המסך הזה, ולכן הוא אינו נוגע בו:
+   ‏הרייל ממשיך לגלול בתוך עצמו, והגלילה בעמוד חושפת אזור חדש
+   ‏ומסומן — בדיוק מה שהכפתור בכותרת מבטיח.
+
+   ‏ה-`margin-bottom: 0` על המעטפת מבטל את המשיכה השלילית שנועדה
+   ‏לבלוע את ריפוד תחתית העמוד: כשיש משהו אחריה, היא הייתה מושכת
+   ‏אותו כלפי מעלה אל תוך המסך.
+   ============================================================ */
+.mv-mentor--hascontent {
+  margin-bottom: 0;
+}
+
+.mv-learn {
+  /* ‏שוברת את ריפוד עמודת התוכן לצדדים, כמו המעטפת שמעליה */
+  margin-inline: calc(var(--mv-content-px) * -1);
+  padding: 28px var(--mv-content-px) calc(var(--mv-content-pb) + 8px);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.mv-learn__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px 16px;
+  margin-bottom: 18px;
+}
+
+.mv-learn__title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  font-size: var(--type-panel);
+  font-weight: 800;
+}
+
+.mv-learn__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--domain-violet-bg);
+  color: var(--domain-violet-fg);
+}
+
+.mv-learn__sub {
+  margin: 6px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+  max-width: 60ch;
+}
+
+.mv-learn__head .mv-btn-plain {
+  margin-inline-start: auto;
+}
+
+.mv-learn__form {
+  margin-inline-start: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(420px, 100%);
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-bg);
+}
+
+.mv-learn__empty {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+}
+
+/*
+ * ‏רוחב מינימלי 280 ולא מספר עמודות קבוע: הרצועה יושבת גם מתחת
+ * ‏לתפריט הצד וגם בלעדיו, וכרטיס עם נגן וידאו צר מ-280 אינו נגן.
+ */
+.mv-learn__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mv-learn__card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-bg);
+}
+
+.mv-learn__cardhead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mv-learn__kind {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+  font-weight: 700;
+}
+.mv-learn__kind[data-platform="true"] {
+  background: var(--domain-violet-bg);
+  border-color: var(--domain-violet-line);
+  color: var(--domain-violet-fg);
+}
+
+.mv-learn__del {
+  margin-inline-start: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.mv-learn__del:hover,
+.mv-learn__del:focus-visible {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.mv-learn__cardtitle {
+  margin: 0;
+  font-size: var(--type-row-title);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.mv-learn__cardnote {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+  overflow-wrap: anywhere;
+}
+
+/* ‏הכפתור יושב בתחתית הכרטיס גם כשהתיאור קצר — שורה אחת לכולם */
+.mv-learn__play {
+  margin-top: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: var(--control-h);
+  border-radius: var(--control-radius);
+  border: 1px solid var(--color-input-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 700;
+  font-size: var(--type-caption);
+  text-decoration: none;
+  cursor: pointer;
+}
+.mv-learn__play:hover,
+.mv-learn__play:focus-visible {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.mv-learn__frame {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  background: var(--color-surface);
 }
 
 /* ---------- כרטיס הפתיח ---------- */

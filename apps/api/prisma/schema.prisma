@@ -987,6 +987,30 @@ model LegacyMentorQuote {
   @@map("mentor_quotes")
 }
 
+/// ‏תוכן לימודי במנטור — סרטון או פודקאסט.
+///
+/// ‎`tenantId` נילי = תוכן של הפלטפורמה, גלוי לכל המשרדים. אותו
+/// ‏דפוס בדיוק כמו `LegacyMentorQuote`, ומאותו נימוק.
+model MentorContent {
+  id        String   @id @db.Char(26)
+  tenantId  String?  @map("tenant_id") @db.Char(26)
+  title     String   @db.VarChar(120)
+  notes     String   @default("") @db.VarChar(400)
+  /// youtube | spotify | apple | link
+  kind      String   @db.VarChar(20)
+  /// ‏מה שנקרא מהכתובת — מזהה, לא קוד הטמעה. ראו ההערה במיגרציה.
+  ref       String   @db.VarChar(300)
+  /// ‏הכתובת כפי שהודבקה — לעריכה, ולא למשהו שנטען
+  sourceUrl String   @map("source_url") @db.VarChar(2000)
+  sortOrder Int      @default(0) @map("sort_order")
+  createdBy String?  @map("created_by") @db.Char(26)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([tenantId, sortOrder, createdAt])
+  @@map("mentor_content")
+}
+
 model PropertyMedia {
   id         String   @id @db.Char(26)
   tenantId   String   @map("tenant_id") @db.Char(26)

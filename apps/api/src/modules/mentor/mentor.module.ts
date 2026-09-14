@@ -1,4 +1,6 @@
 import { Module } from "@nestjs/common";
+import { MentorContentPlatformController } from "./mentor-content-platform.controller";
+import { MentorContentService } from "./mentor-content.service";
 import { AgentEventsService } from "../agent/agent-events.service";
 import { MentorController } from "./mentor.controller";
 import { MentorPracticeService } from "./mentor-practice.service";
@@ -7,7 +9,8 @@ import { MentorSignalsService } from "./mentor-signals.service";
 import { MentorService } from "./mentor.service";
 
 @Module({
-  controllers: [MentorController],
+  /* ‏שולחן התוכן של הפלטפורמה — בקר נפרד כי השער שלו אחר לגמרי */
+  controllers: [MentorController, MentorContentPlatformController],
   /*
    * יומן האירועים מסופק כאן ולא מיובא מ-AgentModule: זה היה מעגל
    * (AgentModule מייבא את המנטור בשביל פעולות הסוכן). השירות תלוי
@@ -18,6 +21,7 @@ import { MentorService } from "./mentor.service";
     MentorSignalsService,
     MentorReviewService,
     MentorPracticeService,
+    MentorContentService,
     AgentEventsService,
   ],
   // הסוכן בשיחה (מסך ווואטסאפ) מדבר עם אותו מנטור — לא מסלול שני

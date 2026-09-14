@@ -446,6 +446,12 @@ export class AccountDeletionService {
         await tx.mentorPractice.deleteMany({ where: { tenantId } });
         await tx.mentorGoal.deleteMany({ where: { tenantId } });
         /*
+         * ‏שורות התוכן של המשרד. שורות הפלטפורמה (`tenantId = null`)
+         * ‏אינן שלו ואינן נמחקות איתו — ולכן המחיקה לפי `tenantId`
+         * ‏מפורש ולא לפי „כל מה שנראה בקריאה”.
+         */
+        await tx.mentorContent.deleteMany({ where: { tenantId } });
+        /*
          * הטבלאות של המנטור הקודם (#377–#385) — נשמרו עם הנתונים ואינן
          * בשימוש, אבל שורות של משרד שנמחק אינן נשארות בהן. „שום פרט
          * לא נשמר אחריה” חל גם על מה שכבר אינו במוצר.

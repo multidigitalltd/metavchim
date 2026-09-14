@@ -34,6 +34,7 @@ import { ReferralRevenueSection } from "./referral-revenue-section";
 import { Notice } from "../notice";
 import { EntityTabs, TabPanel, useEntityTab } from "../entity-tabs";
 import { FunnelCopySection } from "./funnel-copy-section";
+import { MentorContentSection } from "./mentor-content-section";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים בלי SSH. נגיש רק למנהלי
@@ -748,6 +749,7 @@ export default function PlatformPage() {
           ליד המסמכים המשפטיים ולא ליד ההגדרות: שניהם **תוכן** שהפלטפורמה
           כותבת ומוצג בכל המשרדים, ולא מתג שמשנה התנהגות.
         */}
+        <MentorContentSection />
       </TabPanel>
 
       <TabPanel tab="agencies" active={tab}>

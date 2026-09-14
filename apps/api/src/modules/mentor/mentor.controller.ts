@@ -11,6 +11,8 @@ import {
 } from "@nestjs/common";
 import { z } from "zod";
 import {
+  CONTENT_NOTES_MAX,
+  CONTENT_TITLE_MAX,
   IdSchema,
   MENTOR_GOAL_TARGET_MAX,
   MENTOR_INTENTION_MAX,
@@ -32,6 +34,7 @@ import {
 } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { MentorContentService, type MentorContentDto } from "./mentor-content.service";
 import {
   MentorPracticeService,
   type MentorPracticeDto,
@@ -50,6 +53,21 @@ import {
   type MentorTurnDto,
 } from "./mentor.service";
 import type { MentorSubjectOption } from "./mentor-signals.service";
+
+/**
+ * ‏מה שמנהל שולח כדי להוסיף תוכן.
+ *
+ * ‎**כתובת, לא קוד הטמעה.** הסכימה מקבלת מחרוזת, והשירות קורא
+ * ‏אותה ב-`parseContentUrl`. שדה שמקבל HTML היה הזרקה למסך של כל
+ * ‏מתווך במשרד.
+ */
+const MentorContentBodySchema = z
+  .object({
+    title: z.string().trim().min(2).max(CONTENT_TITLE_MAX),
+    notes: z.string().trim().max(CONTENT_NOTES_MAX).optional(),
+    url: z.string().url().max(2000),
+  })
+  .strict();
 
 const SuggestionsQuerySchema = z
   .object({
@@ -134,12 +152,40 @@ export class MentorController {
   constructor(
     private readonly mentor: MentorService,
     private readonly practice: MentorPracticeService,
+    private readonly content: MentorContentService,
   ) {}
 
   @Get("overview")
   @AnyAuthenticated()
   overview(): Promise<MentorOverview> {
     return this.mentor.overview();
+  }
+
+  /**
+   * ‏איזור התוכן — סרטונים ופודקאסטים.
+   *
+   * ‎`AnyAuthenticated`: כל מתווך צופה. ההוספה דורשת יכולת — ראו
+   * ‏למטה — כי תוכן שמופיע לכל המשרד אינו החלטה של כל סוכן.
+   */
+  @Get("content")
+  @AnyAuthenticated()
+  content_(): Promise<MentorContentDto[]> {
+    return this.content.list();
+  }
+
+  @Post("content")
+  @RequireCapability("settings.manage")
+  addContent(
+    @Body(new ZodValidationPipe(MentorContentBodySchema))
+    body: z.infer<typeof MentorContentBodySchema>,
+  ): Promise<MentorContentDto> {
+    return this.content.create(body);
+  }
+
+  @Delete("content/:id")
+  @RequireCapability("settings.manage")
+  removeContent(@Param("id", IdParam) id: string): Promise<void> {
+    return this.content.remove(id);
   }
 
   @Get("pulse")

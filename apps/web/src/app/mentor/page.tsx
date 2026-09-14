@@ -78,6 +78,7 @@ import {
 } from "../icons";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
+import { MentorContentSection } from "./content";
 import { MentorPageMenu } from "./page-menu";
 
 /*
@@ -393,10 +394,12 @@ export default function MentorPage() {
      * ‏למעלה”). הרצפה שב-CSS מחזירה את גלילת העמוד כשהמעטפת נעשית
      * ‏נמוכה מדי — הגלילה הפנימית נשארת, והתוכן אינו נחתך.
      */
-    <div className="mv-mentor">
+    <>
+    <div className="mv-mentor mv-mentor--hascontent">
       <MentorBar
         persona={overview?.persona ?? null}
         available={overview?.chatAvailable ?? false}
+        hasContent
       />
 
       {overviewFailed ? (
@@ -507,6 +510,13 @@ export default function MentorPage() {
         </div>
       )}
     </div>
+    {/*
+      ‎**אח של המעטפת, לא בתוכה.** המעטפת נועלת את גובה המסך כדי
+      ‏ששני האזורים יגללו בעצמם; רצועת התוכן יושבת אחריה, והכפתור
+      ‏בכותרת הוא מה שמוביל אליה.
+    */}
+    <MentorContentSection user={user} />
+    </>
   );
 }
 
@@ -530,9 +540,18 @@ export default function MentorPage() {
 function MentorBar({
   persona,
   available,
+  hasContent = false,
 }: {
   persona: MentorPersona | null;
   available: boolean;
+  /**
+   * ‏האם רצועת התוכן קיימת בעמוד.
+   *
+   * ‏במסך „המנטור אינו במסלול” היא אינה מוצגת, וכפתור שמצביע על
+   * ‏עוגן שאינו קיים אינו עושה דבר — בדיוק מה שהתפריט הפנימי נבנה
+   * ‏כדי למנוע.
+   */
+  hasContent?: boolean;
 }) {
   const named = persona !== null && mentorHasName(persona);
   return (
@@ -552,6 +571,18 @@ function MentorBar({
         </p>
       </div>
       <div className="mv-mentor__barend">
+        {/*
+          ‎**עוגן ולא `scrollIntoView`.** הוא עובד עם מקלדת, עם
+          ‏„פתח בלשונית חדשה”, ולפני שה-JS נטען — ו-`scroll-margin-top`
+          ‏הגלובלי כבר מנחית אותו מתחת להידר הדביק. אותו נימוק בדיוק
+          ‏שכתוב ב-`page-menu`.
+        */}
+        {hasContent ? (
+          <a className="mv-mentor__jump" href="#mentor-content-heading">
+            <IconHeadphones s={15} />
+            תוכן והדרכות
+          </a>
+        ) : null}
         <button
           type="button"
           className="mv-mentor__icon"

@@ -338,6 +338,13 @@ export const IconStop = ({ s }: IconProps) => (
   </svg>
 );
 
+/* ‏משולש ניגון — לחזית של סרטון או פרק פודקאסט לפני שהנגן נטען */
+export const IconPlay = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M8.5 5.6 18 12l-9.5 6.4Z" />
+  </svg>
+);
+
 export const IconDoc = ({ s }: IconProps) => (
   <svg {...svgProps(s)}>
     <path d="M6 3.5h8l4 4v13H6Z" />

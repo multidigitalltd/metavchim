@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { mapCspOrigins } from "@metavchim/shared";
+import { EMBED_ORIGINS, mapCspOrigins } from "@metavchim/shared";
 
 /**
  * מדיניות אבטחת תוכן (CSP) — **שכבת ההגנה שנשארת כשמשהו אחר נכשל.**
@@ -136,6 +136,19 @@ function buildCsp(nonce: string, dev: boolean): string {
     "worker-src": ["'self'", "blob:"],
     "connect-src": ["'self'", ...apiOrigin, ...media, ...mapOrigins, ...connectDev, ...extra("CSP_CONNECT_SRC")],
     "media-src": ["'self'", "blob:", ...extra("CSP_MEDIA_SRC")],
+    /*
+     * ‎**המסגרות של איזור התוכן במנטור.**
+     *
+     * ‏בלי ההנחיה הזו `default-src 'self'` חל גם על מסגרות, וסרטון
+     * ‏יוטיוב היה נחסם — **בשקט**, כמסגרת ריקה בלי שום שגיאה
+     * ‏שהמשתמש רואה. זה הכישלון הגרוע: הפיצ'ר נראה בנוי, והמנהל
+     * ‏מאשים את הכתובת שהדביק.
+     *
+     * ‏הרשימה נגזרת מ-`EMBED_ORIGINS` שבחבילה המשותפת — **אותה
+     * ‏רשימה** שהפענוח מחליט לפיה מה מותר להטמיע. שתי רשימות היו
+     * ‏נפרדות ביום שמוסיפים ספק, והתוצאה היא בדיוק אותה מסגרת ריקה.
+     */
+    "frame-src": [...Object.values(EMBED_ORIGINS), ...extra("CSP_FRAME_SRC")],
     "manifest-src": ["'self'"],
     "upgrade-insecure-requests": [],
   };

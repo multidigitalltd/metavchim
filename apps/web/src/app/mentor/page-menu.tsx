@@ -46,6 +46,7 @@ const SECTIONS: readonly { id: string; label: string }[] = [
   { id: "mentor-practice-heading", label: "תרגול שיחה" },
   { id: "mentor-office-heading", label: "מה עובד אצלנו" },
   { id: "mentor-persona-heading", label: "השם והסגנון" },
+  { id: "mentor-content-heading", label: "תוכן והדרכות" },
 ];
 
 export function MentorPageMenu({
