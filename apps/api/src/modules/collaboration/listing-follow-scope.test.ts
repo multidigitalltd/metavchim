@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { LISTING_MATCH_NOTIFICATION_TYPE, notifyCategory } from "@metavchim/shared";
+import {
+  LISTING_MATCH_NOTIFICATION_TYPE,
+  NOTIFICATION_CONTACT_ANCHORS,
+  notifyCategory,
+} from "@metavchim/shared";
 
 /**
  * ‎**מעקב אחרי נכס ברשת — הכללים שקל לשבור בלי לשים לב.**
@@ -62,13 +66,47 @@ describe("ההתראה אינה חושפת את מה שהרשת מסתירה", (
   });
 
   /*
-   * ‎**והקונה הוא של העוקב.** הסבב טוען את כל קוני המשרד לעמוד
-   * ‏אחד, כי עמוד אחד משרת את כל העוקבים שבדף. בלי הסינון הזה
-   * ‏סוכן עם `view_own` בלבד היה מגלה דרך התראה שלקונה של עמית
-   * ‏שלו יש התאמה — כלומר הרשאת הצפייה הייתה נעקפת בהתראה.
+   * ‎**והקונה הוא של העוקב — לפי אותו כלל שהפיד מפעיל.**
+   *
+   * ‏הכתיבה הראשונה כאן הייתה `ownerUserId === null || === userId`,
+   * ‏והיא שגתה בשני הכיוונים (ביקורת Codex): מנהל עם `view_all`
+   * ‏רואה בכרטיס התאמה לקונה של עמית ולא היה מקבל עליה התראה,
+   * ‏וקונה בלי בעלים נשלח לסוכן ש-`view_own` לבדה אינה מספיקה לו
+   * ‏כדי לראות אותו. `buyerCardIsVisibleWith` היא אותה פונקציה
+   * ‏שהצנזורה בקריאה משתמשת בה.
    */
   it("וההתראה נשלחת רק על קונה שהעוקב רשאי לראות", () => {
-    expect(SWEEP_BODY).toContain("buyer.ownerUserId === follow.userId");
+    expect(SWEEP_BODY).toContain("buyerCardIsVisibleWith(");
+    expect(SWEEP_BODY, "השוואת בעלות ידנית במקום הכלל המשותף").not.toContain(
+      "buyer.ownerUserId === follow.userId",
+    );
+  });
+
+  /*
+   * ‎**והיכולות הן של האדם, לא של התפקיד.** „מותר לי לראות” הוא
+   * ‏תפקיד, ועליו חריגי המנהל, ועליהם חסימת המודולים.
+   * ‎`officeCapabilities` היא בדיוק הצירוף הזה — הנחה על התפקיד
+   * ‏לבדו כבר הדליפה שם מפוענח בעבר.
+   */
+  it("והיכולות נפתרות בפועל לכל עוקב", () => {
+    expect(SWEEP_BODY).toContain("officeCapabilities(");
+    expect(SWEEP_BODY).toContain("caps.get(follow.userId)");
+  });
+
+  /*
+   * ‎**העוגן הוא הקונה, כי הגוף נושא את שמו.**
+   *
+   * ‏שורת התראה נכתבת פעם אחת ונקראת לנצח, והצנזורה בקריאה מכירה
+   * ‏רק `contact | lead | buyer | call`. עיגון על המודעה השאיר את
+   * ‏השם חשוף גם אחרי שהכרטיס הועבר לעמית או שההרשאה נשללה —
+   * ‏כלומר מחוץ לצנזורה לגמרי (ביקורת Codex).
+   */
+  it("וההתראה מעוגנת לקונה ולא למודעה", () => {
+    expect(SWEEP_BODY).toContain('entityType: "buyer"');
+    expect(SWEEP_BODY).toContain("entityId: match.buyerId");
+    expect(SWEEP_BODY, "עוגן שהצנזורה אינה מכירה").not.toContain('entityType: "coop_listing"');
+    /* ‏ומה שנכתב באמת נמצא ברשימת העוגנים המצונזרים */
+    expect(NOTIFICATION_CONTACT_ANCHORS as readonly string[]).toContain("buyer");
   });
 });
 
@@ -125,6 +163,24 @@ describe("שני הכיוונים אינם נפרדים", () => {
   it("וכישלון בכיוון אחד אינו מבטל את השני", () => {
     const body = SWEEP.slice(SWEEP.indexOf("async sweepAll("));
     expect((body.match(/catch \(error: unknown\)/gu) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  /*
+   * ‎**והכפתור קיים בשתי התצוגות.** תצוגת „שורות” נשמרת בין
+   * ‏ביקורים, ולכן מי שבחר בה פעם היה רואה את הכפתור נעלם: לא
+   * ‏יכול להפסיק לעקוב, והמעקב הנסתר ממשיך לתפוס מקום במכסה.
+   * ‏אותה ביקורת התקבלה כבר בצד הביקושים, ואין סיבה לגלות אותה
+   * ‏שוב בצד הנכסים.
+   */
+  it("והמעקב נגיש גם בתצוגת שורות וגם בכרטיס", () => {
+    const page = readFileSync(
+      join(import.meta.dirname, "../../../../web/src/app/collaboration/page.tsx"),
+      "utf8",
+    );
+    for (const kind of ["demand", "listing"]) {
+      const uses = page.match(new RegExp(`kind="${kind}"`, "gu")) ?? [];
+      expect(uses.length, `${kind}: הכפתור בתצוגה אחת בלבד`).toBeGreaterThanOrEqual(2);
+    }
   });
 
   /*

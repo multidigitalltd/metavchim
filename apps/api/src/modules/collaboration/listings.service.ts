@@ -29,13 +29,15 @@ import {
   type ReachSummary,
   networkSafeTitle,
   NETWORK_MATCH_MIN_SCORE,
+  buyerCardIsVisibleWith,
+  type Capability,
   listingLabel,
   listingMatchCopy,
   listingMatchDedupeKey,
   LISTING_MATCH_NOTIFICATION_TYPE,
   MAX_FOLLOWS_PER_USER,
 } from "@metavchim/shared";
-import { ownershipFilter } from "../../common/ownership";
+import { officeCapabilities, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
@@ -1143,6 +1145,17 @@ export class ListingsService {
     const live = follows.filter((f) => byId.has(f.listingId));
     if (live.length === 0) return 0;
 
+    /*
+     * ‎**היכולות בפועל של כל עוקב בדף — ולא הנחה על התפקיד.**
+     *
+     * ‏„מותר לי לראות את הקונה הזה” הוא תפקיד, ועליו חריגי המנהל,
+     * ‏ועליהם חסימת המודולים. `officeCapabilities` היא בדיוק
+     * ‏הצירוף הזה, ובשאילתה אחת לכל העוקבים שבדף.
+     */
+    const caps = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      officeCapabilities(tx, tenantId, [...new Set(live.map((f) => f.userId))]),
+    );
+
     let created = 0;
     let cursor: string | undefined;
     for (;;) {
@@ -1172,7 +1185,14 @@ export class ListingsService {
       });
       if (page.buyers.length === 0) break;
       cursor = page.buyers[page.buyers.length - 1]!.id;
-      created += await this.notifyMatches(tenantId, live, byId, page.buyers, page.names);
+      created += await this.notifyMatches(
+        tenantId,
+        live,
+        byId,
+        page.buyers,
+        page.names,
+        caps,
+      );
       if (page.buyers.length < FOLLOW_SWEEP_PAGE) break;
     }
     return created;
@@ -1190,6 +1210,8 @@ export class ListingsService {
     byId: Map<string, Prisma.SharedListingGetPayload<object>>,
     buyers: Prisma.BuyerGetPayload<object>[],
     names: ReadonlyMap<string, { name: string }>,
+    /** ‏היכולות בפועל של כל עוקב — ראו `sweepFollowPage` */
+    caps: ReadonlyMap<string, ReadonlySet<Capability>>,
   ): Promise<number> {
     const rows: {
       id: string;
@@ -1206,14 +1228,23 @@ export class ListingsService {
       const listing = byId.get(follow.listingId);
       if (listing === undefined) continue;
       /*
-       * ‎**המעקב אישי, ולכן גם הקונים.** הסבב טוען את כל קוני
-       * ‏המשרד, אבל ההתראה נשלחת רק על קונה שהעוקב עצמו רשאי
-       * ‏לראות — סוכן עם `view_own` בלבד אינו אמור לגלות דרך
-       * ‏התראה שלקונה של עמית שלו יש התאמה. הסינון נעשה כאן ולא
-       * ‏בשאילתה, כי עמוד אחד משרת את כל העוקבים שבדף.
+       * ‎**אותו כלל נראות שהפיד מפעיל — ולא קירוב שלו.**
+       *
+       * ‏הסבב טוען את כל קוני המשרד, כי עמוד אחד משרת את כל
+       * ‏העוקבים שבדף, ולכן הסינון נעשה כאן לכל עוקב בנפרד.
+       *
+       * ‎`buyerCardIsVisibleWith` ולא השוואת בעלות ידנית: הכתיבה
+       * ‏הראשונה כאן הייתה `ownerUserId === null || === userId`,
+       * ‏והיא שגתה **בשני הכיוונים** (ביקורת Codex). מנהל עם
+       * ‎`buyers.view_all` רואה בכרטיס התאמה לקונה של עמית ולא
+       * ‏היה מקבל עליה התראה — בדיוק ההבטחה שהמעקב נותן; ומנגד,
+       * ‏קונה בלי בעלים אינו שייך לאיש, ו-`view_own` לבדה אינה
+       * ‏מספיקה כדי לראות אותו. זו אותה פונקציה שהצנזורה בקריאה
+       * ‏משתמשת בה, ולכן שתיהן אינן יכולות לחלוק.
        */
-      const mine = buyers.filter(
-        (buyer) => buyer.ownerUserId === null || buyer.ownerUserId === follow.userId,
+      const follower = caps.get(follow.userId) ?? new Set<Capability>();
+      const mine = buyers.filter((buyer) =>
+        buyerCardIsVisibleWith(follower, follow.userId, buyer.ownerUserId),
       );
       for (const match of this.matchOwnBuyers(mine, names, listing)) {
         const copy = listingMatchCopy({
@@ -1239,8 +1270,21 @@ export class ListingsService {
           dedupeKey: listingMatchDedupeKey(follow.id, match.buyerId),
           title: copy.title,
           body: copy.body,
-          entityType: "coop_listing",
-          entityId: listing.id,
+          /*
+           * ‎**העוגן הוא הקונה, כי הגוף נושא את שמו.**
+           *
+           * ‏שורת התראה נכתבת פעם אחת ונקראת לנצח, והצנזורה
+           * ‏בקריאה (`notificationAnchor`) מכירה רק
+           * ‎`contact | lead | buyer | call`. עיגון על המודעה היה
+           * ‏משאיר את השם חשוף גם אחרי שהכרטיס הועבר לעמית, נמחק,
+           * ‏או שההרשאה נשללה — כלומר מחוץ לצנזורה לגמרי
+           * ‏(ביקורת Codex).
+           *
+           * ‏זה ההבדל מהכיוון השני: שם הגוף נושא **נכס**, ונכס אינו
+           * ‏כרטיס לקוח — ולכן `coop_demand` הוא עוגן תקין שם.
+           */
+          entityType: "buyer",
+          entityId: match.buyerId,
         });
       }
     }

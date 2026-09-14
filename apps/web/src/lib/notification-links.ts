@@ -97,9 +97,6 @@ function targetFor(entityType: string, entityId: string): Target | null {
     /* ‏ביקוש ברשת — הלשונית, כי לביקוש בודד אין מסך */
     case "coop_demand":
       return { href: "/collaboration?tab=demands", needs: ["collaboration.offer"] };
-    /* ‏ונכס ברשת — הלשונית השנייה, מאותה סיבה בדיוק */
-    case "coop_listing":
-      return { href: "/collaboration?tab=listings", needs: ["collaboration.offer"] };
     /* ‏להתאמה אין נתיב משלה; היא נמצאת ברשימה שההתראה מדברת עליה */
     case "match":
       return { href: "/matches", needs: ["matches.view"] };

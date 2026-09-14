@@ -2547,6 +2547,33 @@ export default function CollaborationPage() {
                                 id={listing.id}
                                 {...(listing.officeName ? { officeName: listing.officeName } : {})}
                               />
+                                    {/*
+                                      ‏המעקב נמצא גם כאן ולא רק בכרטיס.
+                                      ‏תצוגת „שורות” נשמרת בין ביקורים,
+                                      ‏ולכן מי שבחר בה פעם היה רואה את
+                                      ‏הכפתור נעלם — לא יכול היה להפסיק
+                                      ‏לעקוב, והמעקב הנסתר המשיך לתפוס
+                                      ‏מקום במכסת ה-40 שלו. אותה ביקורת
+                                      ‏בדיוק כבר התקבלה בצד הביקושים.
+                                    */}
+                                    {listing.mine ? null : (
+                                      <FollowButton
+                                        kind="listing"
+                                        id={listing.id}
+                                        following={listing.following === true}
+                                        onChanged={(following) => {
+                                          setListings((current) =>
+                                            current === null
+                                              ? current
+                                              : current.map((row) =>
+                                                  row.id === listing.id
+                                                    ? { ...row, following }
+                                                    : row,
+                                                ),
+                                          );
+                                        }}
+                                      />
+                                    )}
                                     {listing.mine || listing.interestSent ? null : (
                                       <button
                                         type="button"
