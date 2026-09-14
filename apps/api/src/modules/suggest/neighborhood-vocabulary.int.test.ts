@@ -118,6 +118,33 @@ beforeAll(async () => {
       "01SUGGESTBUYERCCCCCCCCCCCC",
       JSON.stringify({ cities: ["בני ברק"], neighborhoods: "לא מערך" }),
     ],
+    /*
+     * ‎**קונה שרק נעץ על המפה.** זה מצב נפוץ: המפה
+     * פתוחה בטופס מלכתחילה ושם האזור הוא שדה חובה, בעוד
+     * רשימת השכונות נשארת ריקה. אוצר שאינו קורא אותו
+     * משאיר שכונה שהסינון מוצא והבורר אינו מציע.
+     */
+    [
+      "01SUGGESTBUYERPINAAAAAAAAA",
+      JSON.stringify({
+        cities: ["בני ברק"],
+        neighborhoods: [],
+        searchAreas: [{ lat: 32.08, lon: 34.83, radiusKm: 1, label: "קרית הרצוג" }],
+      }),
+    ],
+    /*
+     * ‎אותה הגנה בדיוק כמו על `neighborhoods`: מערך שאינו
+     * מערך, ואיבר שאינו אובייקט — שניהם היו מפילים את
+     * ההצעות לכל המשרד בגלל שורה אחת.
+     */
+    [
+      "01SUGGESTBUYERPINBBBBBBBBB",
+      JSON.stringify({ cities: ["בני ברק"], searchAreas: "לא מערך" }),
+    ],
+    [
+      "01SUGGESTBUYERPINCCCCCCCCC",
+      JSON.stringify({ cities: ["בני ברק"], searchAreas: ["לא אובייקט", { radiusKm: 1 }] }),
+    ],
   ];
   for (const [id, requirements] of buyers) {
     await owner.$executeRaw`
@@ -201,12 +228,54 @@ describe("אוצר השכונות מול מסד אמיתי", () => {
   });
 
   /*
+   * ‎**שם שנעץ על המפה הוא שכונה לכל דבר.**
+   *
+   * סינון רשימת הקונים מוצא לפיו, ואוצר שאינו מכיר אותו
+   * היה משאיר שכונה שרק מי שמנחש את שמה בדיוק יוכל לסנן לפיה.
+   */
+  it("קורא גם את שמות הנעיצות על המפה", async () => {
+    expect((await vocabulary("")).map((u) => u.name)).toContain("קרית הרצוג");
+    /* וצמצום העיר חל עליהן בדיוק כמו על השכונות המוקלדות */
+    expect((await vocabulary("בני ברק")).map((u) => u.name)).toContain("קרית הרצוג");
+    expect((await vocabulary("חיפה")).map((u) => u.name)).not.toContain("קרית הרצוג");
+  });
+
+  /*
+   * אותה שכונה מוקלדת ‎**וגם** נעוצה אצל אותו קונה היא
+   * כרטיס אחד שמשתמש בכתיב הזה, ולא שניים — ה-`DISTINCT`
+   * על הזוג (קונה, מפתח) חייב לכסות גם את המקור החדש.
+   */
+  it("הקלדה ונעיצה של אותה שכונה נספרות פעם אחת", async () => {
+    const contactId = "01SUGGESTCONTACTAAAAAAAAAA";
+    await owner!.$executeRaw`
+      INSERT INTO buyers (id, tenant_id, contact_id, requirements, deal_type, source, created_at, updated_at)
+      VALUES ('01SUGGESTBUYERBOTHAAAAAAAA', ${TENANT}, ${contactId},
+              ${JSON.stringify({
+                cities: ["בני ברק"],
+                neighborhoods: ["שתי דרכים"],
+                searchAreas: [{ lat: 32, lon: 34.8, radiusKm: 1, label: "שכונת שתי דרכים" }],
+              })}::jsonb,
+              'sale', 'manual', now(), now())
+      ON CONFLICT (id) DO NOTHING
+    `;
+    const found = (await vocabulary("")).find((u) => u.name === "שתי דרכים");
+    expect(found?.count).toBe(1);
+    await owner!.$executeRaw`DELETE FROM buyers WHERE id = '01SUGGESTBUYERBOTHAAAAAAAA'`;
+  });
+
+  /*
    * ‎**הטענה החשובה ביותר בקובץ.** בלי `jsonb_typeof` השאילתה זורקת
    * `cannot extract elements from a scalar`, וההצעות מתות לכל
    * המשרד בגלל שורה אחת פגומה.
    */
   it("קונה עם neighborhoods שאינו מערך אינו מפיל את השאילתה", async () => {
     await expect(vocabulary("")).resolves.toBeInstanceOf(Array);
+  });
+
+  /* ואותה טענה על המקור השני: מערך שאינו מערך, ואיבר שאינו אובייקט */
+  it("קונה עם searchAreas פגום אינו מפיל את השאילתה", async () => {
+    await expect(vocabulary("")).resolves.toBeInstanceOf(Array);
+    await expect(vocabulary("בני ברק")).resolves.toBeInstanceOf(Array);
   });
 
   it("נמחק, ריק ו-NULL אינם נספרים", async () => {

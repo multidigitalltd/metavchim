@@ -75,6 +75,7 @@ export function NeighborhoodInput({
   id,
   name,
   defaultValue = "",
+  value: controlled,
   placeholder,
   multi = false,
   city,
@@ -85,6 +86,15 @@ export function NeighborhoodInput({
   id: string;
   name: string;
   defaultValue?: string;
+  /**
+   * ‎**כשההורה מחזיק את הטקסט — הוא זה שקובע.**
+   *
+   * ‏בטופס השדה מנהל את עצמו, וזה נכון: איש אינו מאפס
+   * ‏אותו מבחוץ. כסננת רשימה זה הפוך — „נקה סינון” חייב
+   * ‏לרוקן גם את השדה, ורכיב שמחזיק טקסט משלו היה ממשיך
+   * ‏להציג את מה שנוקה.
+   */
+  value?: string;
   placeholder?: string;
   /** רשימה מופרדת בפסיקים (טופס קונה) מול ערך יחיד (טופס נכס). */
   multi?: boolean;
@@ -107,7 +117,9 @@ export function NeighborhoodInput({
   onValueChange?: (value: string) => void;
   style?: React.CSSProperties;
 }) {
-  const [value, setValue] = useState(defaultValue);
+  const [typed, setTyped] = useState(defaultValue);
+  /* ערך נשלט מנצח על הפנימי — ואין שני מקורות למה שבשדה */
+  const value = controlled ?? typed;
   /*
    * ‎**ההצעות נושאות את העיר שהן נשלפו עבורה** (ביקורת Codex).
    *
@@ -225,7 +237,7 @@ export function NeighborhoodInput({
    * שהייתה משאירה את מצב הכתובת מעודכן בהקלדה ותקוע בבחירה.
    */
   function commit(next: string): void {
-    setValue(next);
+    setTyped(next);
     /*
      * ‎**האיפוס כאן ולא באפקט.** `active` הוא מה ש-Enter בוחר, ואפקט
      * רץ אחרי הרינדור — כלומר נשאר חלון שבו הקלדה כבר קרתה והבחירה

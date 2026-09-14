@@ -86,6 +86,15 @@ const ListQuerySchema = z
     maxRooms: z.coerce.number().min(0).max(30).optional(),
     /** מי אישר טאבו משותף ומי סירב — „טרם נשאל” אינו אף אחד מהם */
     sharedTabu: SharedTabuStanceSchema.optional(),
+    /**
+     * ‎שכונה — טקסט חופשי, ולא מזהה.
+     *
+     * ‏שמות שכונות אינם רשומים בשום מרשם, ולכן אין רשימה
+     * ‏סגורה לאכוף — בדיוק כמו בשדה שבו הן נכתבות. אותה
+     * ‏תקרת אורך כמו בנתיב ההצעות, כי זה הטקסט שאותו שדה
+     * ‏עצמו שולח לשניהם.
+     */
+    neighborhood: z.string().max(80).optional(),
     cursor: z.string().max(30).optional(),
     limit: z.coerce.number().int().min(1).max(100).default(50),
   })

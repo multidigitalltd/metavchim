@@ -78,13 +78,25 @@ export function neighborhoodKey(raw: string): string {
  * לא קצה.
  */
 export function neighborhoodMatches(candidate: string, query: string): boolean {
-  const q = neighborhoodKey(query);
-  if (q === "") return true;
-  const key = neighborhoodKey(candidate);
-  if (key.startsWith(q)) return true;
+  return neighborhoodKeyMatches(neighborhoodKey(candidate), neighborhoodKey(query));
+}
+
+/**
+ * ‎**אותו כלל בדיוק, על שני מפתחות שכבר מקופלים.**
+ *
+ * ‏ההשלמה בטופס מקבלת שמות גולמיים; סינון הקונים מקבל מפתחות
+ * ‏מקופלים ששמורים בעמודה. אילו כל צד היה מיישם את הכלל בעצמו,
+ * ‏ההצעה והסינון היו נפרדים ביום שאחד מהם יתוקן — כלומר רשימה
+ * ‏שמציעה שכונה, וסינון שעליה מחזיר „אין תוצאות”.
+ *
+ * ‎`neighborhoodMatches` הוא הקיפול ועוד הכלל; זה הכלל בלבד.
+ */
+export function neighborhoodKeyMatches(key: string, queryKey: string): boolean {
+  if (queryKey === "") return true;
+  if (key.startsWith(queryKey)) return true;
   /* כל היסט שאחרי רווח הוא גבול מילה — ומשם ההשוואה היא תחילית. */
   for (let i = key.indexOf(" "); i !== -1; i = key.indexOf(" ", i + 1)) {
-    if (key.startsWith(q, i + 1)) return true;
+    if (key.startsWith(queryKey, i + 1)) return true;
   }
   return false;
 }
@@ -153,4 +165,41 @@ export function suggestNeighborhoods(
     .filter((use) => neighborhoodMatches(use.name, query) && neighborhoodKey(use.name) !== typed)
     .slice(0, Math.max(0, limit))
     .map((use) => use.name);
+}
+
+/**
+ * ‎**כל השמות שקונה נמצא לפיהם — הגדרה אחת, ובה שני המקורות.**
+ *
+ * ## למה שני מקורות ולא רק „שכונות”
+ *
+ * ‏קונה מצהיר איפה הוא מחפש בשתי דרכים, ושתיהן שוות ערך: רשימת
+ * ‏שכונות מוקלדת, ונעיצה על המפה שהשדה שלה נקרא „שם השכונה או
+ * ‏האזור”. מי שסימן „רמת אהרון” על המפה ולא הקליד אותה אמר בדיוק
+ * ‏את אותו דבר — וסינון שרואה רק את הרשימה המוקלדת היה מחזיר „אין
+ * ‏קונים ברמת אהרון” דווקא על הקונים שהסוכן נעץ בעצמו.
+ *
+ * ## למה מפתחות מקופלים ולא השמות
+ *
+ * ‏השמות נשמרים כפי שהוקלדו (ראו למעלה), ולכן „שיכון ג'” ו„שיכון
+ * ‏ג” הם שתי מחרוזות. המפתח הוא מה שמאחד אותן, והוא מה שנשמר
+ * ‏בעמודה שהמסד מאנדקס — כך שהסינון אינו צריך לפתוח JSON בכל שורה
+ * ‏ואינו תלוי בכתיב שמישהו בחר.
+ *
+ * ‏ממוין ומצומצם: שתי כתיבות של אותן דרישות מייצרות אותו מערך,
+ * ‏ולכן השוואה או בדיקה עליו אינה תלויה בסדר שבו הוקלדו.
+ */
+export function buyerNeighborhoodKeys(requirements: {
+  neighborhoods?: readonly string[] | undefined;
+  searchAreas?: readonly { label?: string | undefined }[] | undefined;
+}): string[] {
+  const keys = new Set<string>();
+  for (const raw of requirements.neighborhoods ?? []) {
+    const key = neighborhoodKey(raw);
+    if (key !== "") keys.add(key);
+  }
+  for (const area of requirements.searchAreas ?? []) {
+    const key = neighborhoodKey(area.label ?? "");
+    if (key !== "") keys.add(key);
+  }
+  return [...keys].sort();
 }

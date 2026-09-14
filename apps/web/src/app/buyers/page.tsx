@@ -27,6 +27,7 @@ import {
 import { AgentTag } from "../agent-tag";
 import { Notice } from "../notice";
 import { useOfficeStatuses } from "../use-office-statuses";
+import { NeighborhoodFilter } from "./neighborhood-filter";
 import { OpenIntakePanel } from "./open-intake-panel";
 
 /**
@@ -108,11 +109,20 @@ function buyersListUrl(
   maturity: string,
   officeStatus: string,
   sharedTabu: string,
+  neighborhood: string,
 ): string {
   const scope =
     (maturity === "" ? "" : `&maturity=${encodeURIComponent(maturity)}`) +
     (officeStatus === "" ? "" : `&officeStatus=${encodeURIComponent(officeStatus)}`) +
-    (sharedTabu === "" ? "" : `&sharedTabu=${encodeURIComponent(sharedTabu)}`);
+    (sharedTabu === "" ? "" : `&sharedTabu=${encodeURIComponent(sharedTabu)}`) +
+    /*
+     * ‏השכונה מסננת בשרת ולא על מה שנטען, מאותה סיבה
+     * ‏של הבשלות והסטטוס: במשרד עם יותר מ-100 קונים, מי
+     * ‏שמחפש בשכונה ונמצא מחוץ לעמוד היה מדווח כ„לא קיים”.
+     */
+    (neighborhood.trim() === ""
+      ? ""
+      : `&neighborhood=${encodeURIComponent(neighborhood.trim())}`);
   return `/buyers?limit=100${scope}${filtersToQuery({ ...filters, q: "" })}`;
 }
 
@@ -143,6 +153,15 @@ export default function BuyersPage() {
    * ‏זו שבונה שותפות; היא צריכה לענות על כל המאגר ולא על מה שנטען.
    */
   const [sharedTabu, setSharedTabu] = useState("");
+  /*
+   * ‎**השכונה — טקסט חופשי עם הצעות, ולא רשימה נפתחת.**
+   *
+   * ‏שמות שכונות אינם רשומים בשום מרשם ואין רשימה סגורה
+   * ‏לפתוח. השרת מתאים על המפתח המקופל — ולכן גם על
+   * ‏שמות הנעיצות של הקונים על המפה, שהן אותה אמירה
+   * ‏בדיוק כמו שכונה שהוקלדה.
+   */
+  const [neighborhood, setNeighborhood] = useState("");
   /** קונה (sale) או שוכר (rent) — הלשונית היא "קונים · שוכרים" */
   const [dealType, setDealType] = useState("");
   /**
@@ -161,6 +180,7 @@ export default function BuyersPage() {
     maturity: setMaturity,
     dealType: setDealType,
     officeStatus: setOfficeStatus,
+    neighborhood: setNeighborhood,
   });
 
   /*
@@ -187,7 +207,7 @@ export default function BuyersPage() {
     if (authLoading) return;
     setItems(null);
     apiGet<{ items: BuyerRow[] }>(
-      buyersListUrl(filters, maturity, officeStatus, sharedTabu),
+      buyersListUrl(filters, maturity, officeStatus, sharedTabu, neighborhood),
     )
       .then((res) =>
         setItems(
@@ -197,7 +217,7 @@ export default function BuyersPage() {
         ),
       )
       .catch(() => setError("טעינת הקונים נכשלה"));
-  }, [authLoading, filters, maturity, officeStatus, sharedTabu]);
+  }, [authLoading, filters, maturity, officeStatus, sharedTabu, neighborhood]);
 
   function toggle(id: string): void {
     setSelected((was) => {
@@ -340,7 +360,7 @@ export default function BuyersPage() {
     try {
       /* ‏אותה כתובת בדיוק שהטעינה הראשונית בנתה — ראו `buyersListUrl` */
       const fresh = await apiGet<{ items: BuyerRow[] }>(
-        buyersListUrl(filters, maturity, officeStatus, sharedTabu),
+        buyersListUrl(filters, maturity, officeStatus, sharedTabu, neighborhood),
       );
       setItems(
         [...apiList(fresh.items, "items")].sort(
@@ -441,7 +461,10 @@ export default function BuyersPage() {
          * ‏בעמדה שנבחרה קיבל את מסך הפתיחה — בלי הבורר ובלי „נקה
          * ‏סינון”, כלומר בלי דרך לחזור חוץ מרענון.
          */
-      items.length === 0 && !hasActiveFilters(filters) && sharedTabu === "" ? (
+      items.length === 0 &&
+        !hasActiveFilters(filters) &&
+        sharedTabu === "" &&
+        neighborhood.trim() === "" ? (
         <div
           className="rounded-xl border p-8 text-center"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
@@ -476,7 +499,8 @@ export default function BuyersPage() {
               maturity !== "" ||
               offersFilter !== "" ||
               dealType !== "" ||
-              sharedTabu !== ""
+              sharedTabu !== "" ||
+              neighborhood.trim() !== ""
             }
             onClear={() => {
               setFilters(EMPTY_FILTERS);
@@ -484,6 +508,7 @@ export default function BuyersPage() {
               setOffersFilter("");
               setSharedTabu("");
               setDealType("");
+              setNeighborhood("");
             }}
           >
             <FilterSelect
@@ -516,6 +541,15 @@ export default function BuyersPage() {
                 options={statusFilterOptions}
               />
             ) : null}
+            {/*
+              ‎**השכונה יושבת לצד הבוררים האחרים ולא בחיפוש.**
+
+              החיפוש החופשי רץ על מה שנטען ומחפש בשם, בטלפון
+              ובערים; זה סינון במסד, על שדה אחד ומדויק. שניהם
+              באותה שורה היו שני שדות טקסט שנראים זהה ועושים דברים
+              שונים.
+            */}
+            <NeighborhoodFilter value={neighborhood} onChange={setNeighborhood} />
             <FilterSelect
               label="סינון לפי הצעות שקיבל"
               value={offersFilter}
@@ -557,6 +591,7 @@ export default function BuyersPage() {
                   setOffersFilter("");
                   setSharedTabu("");
                   setDealType("");
+                  setNeighborhood("");
                 }}
               >
                 נקה סינון

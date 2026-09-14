@@ -47,6 +47,33 @@ describe("requirementColumns", () => {
     ).toBe(true);
   });
 
+  /*
+   * ‎**השכונות — שני המקורות, מקופלים.**
+   *
+   * ‏העמודה היא מה שסינון רשימת הקונים שואל, וקונה
+   * ‏שנעץ „רמת אהרון” על המפה אמר בדיוק את מה שאומר מי
+   * ‏שהקליד אותה. עמודה שקוראת רק את הרשימה המוקלדת
+   * ‏היתה מחזירה „אין קונים שם” דווקא על מי שהסוכן סימן.
+   */
+  it("שכונות מוקלדות ושמות נעיצות נגזרים לאותה עמודה", () => {
+    expect(requirementColumns(BASE).neighborhoodKeys).toEqual([]);
+    expect(
+      requirementColumns({
+        ...BASE,
+        neighborhoods: ["שכונת שיכון ג'"],
+        searchAreas: [{ lat: 32, lon: 34.8, radiusKm: 1, label: "רמת אהרון" }],
+      }).neighborhoodKeys,
+    ).toEqual(["רמת אהרון", "שיכון ג"]);
+  });
+
+  /* ‏נעיצה בלי שם אינה שכונה, ואינה מייצרת מפתח ריק */
+  it("נעיצה בלי שם אינה תורמת מפתח", () => {
+    expect(
+      requirementColumns({ ...BASE, searchAreas: [{ lat: 32, lon: 34.8, radiusKm: 1 }] })
+        .neighborhoodKeys,
+    ).toEqual([]);
+  });
+
   /* ‏חסר = הלקוח לא מסר תקציב, ולא „תקציב אפס” */
   it("תקציב חסר נכתב כ-null ולא כאפס", () => {
     const columns = requirementColumns(BASE);
@@ -74,6 +101,23 @@ describe("‏אין כתיבה שנייה של העמודות הנגזרות", (
     const inHelper = helper.split("hasSearchAreas:").length - 1;
     expect(inHelper).toBe(1);
     expect(everywhere).toBe(1);
+  });
+
+  /*
+   * ‏ואותו דבר לעמודה שנוספה אחרונה — היא הבאה בתור להישכח.
+   *
+   * ‏על **הגזירה** ולא על שם העמודה: העמודה מופיעה גם
+   * ‏בצד הקריאה (סינון הרשימה), ושער שסופר אזכורות שם
+   * ‏היה אוסר לסנן לפיה — כלל שאיש לא התכוון אליו.
+   */
+  it("‏הגזירה למפתחות השכונות קורית אך ורק בתוך `requirementColumns`", () => {
+    const helper = source.slice(
+      source.indexOf("export function requirementColumns("),
+      source.indexOf("@Injectable"),
+    );
+    expect(helper.split("buyerNeighborhoodKeys(").length - 1).toBe(1);
+    /* ‏וזו הקריאה היחידה בקובץ כולו */
+    expect(source.split("buyerNeighborhoodKeys(").length - 1).toBe(1);
   });
 
   it("‏ושלוש הכתיבות עוברות דרכה", () => {
