@@ -11,6 +11,7 @@ import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../dictation-field";
 import { PriceField } from "../../price-field";
+import { ConditionField } from "../condition-field";
 import { FacingField } from "../facing-field";
 import { FeatureChips } from "../feature-chips";
 import { EntryTimingField } from "../entry-timing-field";
@@ -152,6 +153,7 @@ function NewPropertyForm() {
         sharedTabu: f.get("sharedTabu") === "on",
         /* ‏„לא צוין” נשאר חוסר ואינו נשלח כמחרוזת ריקה */
         facing: String(f.get("facing") ?? "") || undefined,
+        condition: String(f.get("condition") ?? "") || undefined,
         /*
          * JSON משדה חבוי אחד — הרשימה גדלה ומשתנה, ולכן אין לה שם
          * שדה קבוע כמו לחמשת הקבועים. השרת מנרמל אותה שוב בשער
@@ -432,6 +434,7 @@ function NewPropertyForm() {
           />
 
           <FacingField />
+          <ConditionField />
 
           {/*
             ‎**גם במסלול הקליטה הראשי, ולא רק בעריכה** (ביקורת Codex, P2).

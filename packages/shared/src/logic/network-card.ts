@@ -23,6 +23,7 @@
  */
 
 import { MATURITY_LABELS } from "../schemas/buyer.js";
+import { propertyConditionLabel } from "../schemas/property.js";
 import { labelOf } from "../schemas/labels.js";
 import { PROPERTY_TYPE_LABELS_HE } from "./csv-export.js";
 import { propertyFeatureLabel } from "./matching.js";
@@ -450,7 +451,7 @@ export function presentationDetailRows(
       value:
         p.condition === undefined
           ? undefined
-          : (CONDITION_LABELS[p.condition] ?? p.condition),
+          : (propertyConditionLabel(p.condition) ?? p.condition),
     },
     {
       label: p.dealType === "rent" ? "שכר דירה" : "מחיר",
@@ -503,14 +504,6 @@ export interface NetworkPresentationFields {
   sharedTabu?: boolean | undefined;
 }
 
-const CONDITION_LABELS: Record<string, string> = {
-  new: "חדש מקבלן",
-  renovated: "משופץ",
-  good: "במצב טוב",
-  needs_renovation: "דורש שיפוץ",
-  preserved: "שמור",
-};
-
 /**
  * הנכס שהוצע, באותה שפה חזותית כמו הביקוש.
  *
@@ -558,7 +551,7 @@ export function presentationChips(p: NetworkPresentationFields): NetworkChip[] {
   if (p.condition !== undefined) {
     chips.push({
       icon: "sparkle",
-      text: CONDITION_LABELS[p.condition] ?? p.condition,
+      text: propertyConditionLabel(p.condition) ?? p.condition,
     });
   }
   if (p.priceAgorot !== undefined) {

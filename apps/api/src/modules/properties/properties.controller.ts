@@ -17,6 +17,7 @@ import {
   OCCUPANCY_STATES,
   PAGE_LIMIT_MAX,
   PhoneInputSchema,
+  PropertyConditionSchema,
   PropertyFacingSchema,
   PropertyFieldsSchema,
   PropertyStatusSchema,
@@ -117,6 +118,13 @@ export const UpdatePropertySchema = CreatePropertySchema.partial()
      * ‏שינוי”, ולכן הריקון חייב להיאמר במפורש.
      */
     facing: PropertyFacingSchema.nullable().optional(),
+    /*
+     * ‎**מצב הנכס — אותו כלל בדיוק.** הוא הגיע מ-`PropertyFieldsSchema`
+     * ‏כאופציונלי בלבד, כלומר טופס העריכה ששולח „לא צוין” היה נדחה
+     * ‏ב-400 במקום לרוקן. חמשת הערכים מוכרזים פעם אחת ב-`PROPERTY_CONDITIONS`,
+     * ‏וכאן נוספת רק היכולת לרוקן.
+     */
+    condition: PropertyConditionSchema.nullable().optional(),
     /*
      * ‎**מי גר בנכס — בעדכון בלבד, ובמכוון.**
      *
@@ -386,24 +394,34 @@ export class PropertiesController {
     @Body(new ZodValidationPipe(UpdatePropertySchema))
     body: z.infer<typeof UpdatePropertySchema>,
   ): Promise<PropertyDto> {
-    const { ownerName, ownerPhone, occupantName, occupantPhone, houseNumber, facing, ...rest } =
-      body;
+    const {
+      ownerName,
+      ownerPhone,
+      occupantName,
+      occupantPhone,
+      houseNumber,
+      facing,
+      condition,
+      ...rest
+    } = body;
     /*
      * ‎`null` = „רוקן”, ולכן הוא נוסע ב-`clearFields` ולא בשדה
      * ‏עצמו: `PropertyFieldsSchema` אינו מקבל `null`, וההפרדה הזו
      * ‏היא בדיוק מה שמונע ריקון בכל נתיב אחר שאיש לא ביקש.
      *
-     * ‎**רשימה אחת לשני השדות, ולא שני ספרדים.** `{...{clearFields}}`
+     * ‎**רשימה אחת לכל השדות, ולא ספרד לכל אחד.** `{...{clearFields}}`
      * ‏פעמיים כותב את אותו מפתח, והשני מוחק את הראשון בשקט —
      * ‏כלומר ריקון שנשלח היה נבלע בלי שגיאה.
      */
     const clearFields: (keyof PropertyFields)[] = [];
     if (houseNumber === null) clearFields.push("houseNumber");
     if (facing === null) clearFields.push("facing");
+    if (condition === null) clearFields.push("condition");
     return this.properties.update(id, {
       ...rest,
       ...(houseNumber === undefined || houseNumber === null ? {} : { houseNumber }),
       ...(facing === undefined || facing === null ? {} : { facing }),
+      ...(condition === undefined || condition === null ? {} : { condition }),
       ...(clearFields.length > 0 ? { clearFields } : {}),
       ...(ownerName !== undefined && ownerPhone !== undefined
         ? { owner: { name: ownerName, phone: ownerPhone } }
