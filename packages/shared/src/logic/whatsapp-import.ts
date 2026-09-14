@@ -1,4 +1,5 @@
 import type { Capability } from "../rbac.js";
+import type { PlanFeature } from "./plans.js";
 
 /**
  * ‎**ייבוא קובץ מהוואטסאפ — מה נקלט, ומה במפורש לא.**
@@ -50,6 +51,17 @@ export const IMPORT_KIND_CAPABILITY: Record<WhatsappImportKind, Capability> = {
 };
 
 /**
+ * ‎**הפיצ'ר שהייבוא נמכר בו — אותו אחד שהנתיב דורש.**
+ *
+ * ‎`ImportController` נושא `@RequireFeature("data_io")` על המחלקה,
+ * ‏והמסלול הבסיסי כולל `voice_intake` בלי `data_io`. כלומר משרד
+ * ‏שקנה וואטסאפ בלבד ייבא דרך הצ'אט בדיוק את מה שהמסך חוסם לו,
+ * ‏כל עוד המסלול הזה בדק יכולת בלבד (ביקורת Codex). הערך כאן הוא
+ * ‏המקום שממנו שניהם קוראים.
+ */
+export const IMPORT_FEATURE: PlanFeature = "data_io";
+
+/**
  * ‎**מה המתווך אמר שיש בקובץ.**
  *
  * ‏הכיתוב של הקובץ, או התשובה לשאלה „מה יש בקובץ?”. `null` = לא
@@ -60,10 +72,10 @@ export function importKindFromText(raw: string): WhatsappImportKind | null {
   const text = raw.trim();
   if (text === "") return null;
   /*
-   * ‏„גיוס” לפני „נכס”: „נכסים לגיוס” מכיל את שניהם, והבדיקה
+   * ‎**„גיוס” ראשון.** „נכסים לגיוס” מכיל גם „נכס”, והבדיקה
    * ‏הרחבה יותר הייתה בולעת אותו. סדר, ולא רשימה.
    */
-  if (/גיוס|מודע/u.test(text)) return "recruitment";
+  if (/גיוס/u.test(text)) return "recruitment";
   /*
    * ‎**בלי `\b`.** ב-JavaScript `\w` הוא ASCII בלבד, ולכן כל אות
    * ‏עברית היא „לא-מילה” ו-`\b` לעולם אינו מתקיים בין שתיים מהן:
@@ -72,6 +84,15 @@ export function importKindFromText(raw: string): WhatsappImportKind | null {
    */
   if (/לידים|ליד\s|^ליד$|פניות|פניה|פנייה/u.test(text)) return "leads";
   if (/קונ|רוכש|לקוחות|קליינט/u.test(text)) return "buyers";
+  /*
+   * ‎**„מודעה” אחרונה, כי היא אומרת מאין הקובץ ולא מה יש בו.**
+   * ‏„לידים מהמודעות” ו„לקוחות ממודעות פייסבוק” הם שני הניסוחים
+   * ‏הנפוצים ביותר לקובץ לידים ולקובץ קונים, ושניהם מכילים
+   * ‏„מודע”. כשהיא נבדקה ראשונה שניהם נפתחו כנכסים לגיוס —
+   * ‏מאה רשומות בטבלה הלא נכונה, שמנקים ביד. מילה שמתארת מקור
+   * ‏מכריעה רק כשאף מילה שמתארת ישות לא נאמרה (ביקורת Codex).
+   */
+  if (/מודע/u.test(text)) return "recruitment";
   return null;
 }
 
@@ -105,10 +126,28 @@ export const UNSUPPORTED_SHEET_TEXT =
 /** ‏מה שנשאל כשהכיתוב לא אמר מה יש בקובץ. */
 export const IMPORT_KIND_QUESTION = "מה יש בקובץ?";
 
+/**
+ * ‎**תקרת השורות באצווה אחת — מספר אחד לשני המסלולים.**
+ *
+ * ‏הנתיב (`ImportEnvelopeSchema`) והקריאה מהוואטסאפ חייבים לחסום
+ * ‏באותו מקום; שני מספרים שכתובים בשני קבצים מסכימים ביום שנכתבו,
+ * ‏ובשינוי הבא אחד מהם נשאר מאחור בשקט.
+ */
+export const IMPORT_ROW_LIMIT = 500;
+
 export interface ImportPreview {
   kind: WhatsappImportKind;
-  /** ‏שורות שיש בהן מה לכתוב */
+  /** ‏שורות שייכנסו בפועל — אחרי התקרה */
   rows: number;
+  /**
+   * ‏כמה שורות היו בקובץ.
+   *
+   * ‎**שדה חובה, ולא `rows` בשם אחר.** כשהוא היה חסר, קובץ של 900
+   * ‏שורות הציג „קראתי 500 שורות” ו-400 נעלמו בלי שאיש ידע —
+   * ‏המתווך אישר ייבוא שנראה שלם (ביקורת Codex). חובה, כדי
+   * ‏שקורא חדש לא יוכל לשכוח להעביר אותו.
+   */
+  total: number;
   /** ‏כותרות שלא זוהו — הפרטים שיֵרדו אם ימשיכו */
   unmapped: string[];
   filename: string;
@@ -125,6 +164,19 @@ export interface ImportPreview {
 export function importPreviewText(preview: ImportPreview): string {
   const label = IMPORT_KIND_LABELS[preview.kind];
   const lines = [`קראתי ${preview.rows} שורות מ„${preview.filename}” לייבוא כ${label}.`];
+  /*
+   * ‏השורות שמעבר לתקרה אינן נדחות אלא נחתכות — 500 שנכנסות
+   * ‏עדיפות על „הקובץ גדול מדי” שמשאיר את כולן בחוץ. אבל החיתוך
+   * ‏נאמר **לפני** האישור, ולא מתגלה כשמחפשים לקוח שלא נכנס.
+   */
+  if (preview.total > preview.rows) {
+    lines.push(
+      "",
+      `בקובץ ${preview.total} שורות, ואני מייבאת ${preview.rows} בכל פעם. ${
+        preview.total - preview.rows
+      } השורות האחרונות לא ייכנסו — למלוא הקובץ יש את מסך הייבוא במערכת.`,
+    );
+  }
   if (preview.unmapped.length > 0) {
     const shown = preview.unmapped.slice(0, 8);
     const rest = preview.unmapped.length - shown.length;

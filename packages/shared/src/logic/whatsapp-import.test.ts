@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  IMPORT_FEATURE,
   IMPORT_KIND_CAPABILITY,
   IMPORT_KIND_LABELS,
+  IMPORT_ROW_LIMIT,
   importDoneText,
   importKindFromText,
   importPreviewText,
@@ -17,6 +19,23 @@ describe("importKindFromText — מה המתווך אמר", () => {
   it("גיוס מנצח את „נכס” שבתוכו", () => {
     expect(importKindFromText("נכסים לגיוס")).toBe("recruitment");
     expect(importKindFromText("מודעות שאספתי")).toBe("recruitment");
+  });
+
+  /*
+   * ‎**„מודעה” אומרת מאין הקובץ, לא מה יש בו.**
+   *
+   * ‏שני הניסוחים כאן הם הנפוצים ביותר לקובץ לידים ולקובץ קונים,
+   * ‏ושניהם מכילים „מודע”. כשהיא נבדקה לפני מילות הישות, שניהם
+   * ‏נפתחו כנכסים לגיוס — מאה רשומות בטבלה הלא נכונה, שמנקים
+   * ‏ביד שורה-שורה (ביקורת Codex).
+   */
+  it("ומילת הישות מנצחת את מילת המקור", () => {
+    expect(importKindFromText("לידים מהמודעות")).toBe("leads");
+    expect(importKindFromText("לקוחות ממודעות פייסבוק")).toBe("buyers");
+    expect(importKindFromText("פניות מהמודעה באתר")).toBe("leads");
+    expect(importKindFromText("קונים שהגיעו ממודעות")).toBe("buyers");
+    /* ‏וכשלא נאמרה ישות — המקור עדיין מכריע */
+    expect(importKindFromText("מודעות פייסבוק")).toBe("recruitment");
   });
 
   it("הניסוחים שמתווך באמת כותב", () => {
@@ -77,6 +96,7 @@ describe("הטקסטים", () => {
     const text = importPreviewText({
       kind: "buyers",
       rows: 42,
+      total: 42,
       unmapped: ["תקציב מקסימלי", "אזור"],
       filename: "לקוחות.xlsx",
     });
@@ -90,10 +110,42 @@ describe("הטקסטים", () => {
     const text = importPreviewText({
       kind: "leads",
       rows: 3,
+      total: 3,
       unmapped: [],
       filename: "a.csv",
     });
     expect(text).not.toContain("לא זוהו");
+  });
+
+  /*
+   * ‎**קובץ שנחתך אומר את זה לפני האישור.**
+   *
+   * ‏„קראתי 500 שורות” על קובץ של 900 הוא אישור לייבוא שנראה שלם,
+   * ‏ו-400 הלקוחות שלא נכנסו מתגלים חודש אחר כך כשמחפשים אחד מהם
+   * ‏ולא מוצאים (ביקורת Codex).
+   */
+  it("והחיתוך נאמר, עם המספר המקורי", () => {
+    const text = importPreviewText({
+      kind: "buyers",
+      rows: IMPORT_ROW_LIMIT,
+      total: 900,
+      unmapped: [],
+      filename: "הכול.xlsx",
+    });
+    expect(text).toContain("900 שורות");
+    expect(text).toContain(String(900 - IMPORT_ROW_LIMIT));
+    expect(text).toContain("מסך הייבוא");
+  });
+
+  it("וקובץ שנכנס במלואו אינו מקבל אזהרת חיתוך", () => {
+    const text = importPreviewText({
+      kind: "buyers",
+      rows: IMPORT_ROW_LIMIT,
+      total: IMPORT_ROW_LIMIT,
+      unmapped: [],
+      filename: "בדיוק.xlsx",
+    });
+    expect(text).not.toContain("לא ייכנסו");
   });
 
   /*
@@ -137,5 +189,13 @@ describe("שלמות הקטלוג", () => {
    */
   it("ייבוא נכסים אינו עובר בוואטסאפ", () => {
     expect(WHATSAPP_IMPORT_KINDS).not.toContain("properties");
+  });
+
+  /*
+   * ‏הפיצ'ר הוא זה שהבקר דורש — `data_io`. בדיקה מבנית בצד ה-API
+   * ‏משווה את הערך הזה למה שכתוב על `ImportController`.
+   */
+  it("והייבוא נמכר בפיצ'ר אחד, שנקרא מכאן", () => {
+    expect(IMPORT_FEATURE).toBe("data_io");
   });
 });

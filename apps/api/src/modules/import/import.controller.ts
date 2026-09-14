@@ -1,6 +1,6 @@
 import { Body, Controller, Post } from "@nestjs/common";
 import { z } from "zod";
-import { PhoneSchema, PropertyFieldsSchema } from "@metavchim/shared";
+import { IMPORT_ROW_LIMIT, PhoneSchema, PropertyFieldsSchema } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -24,9 +24,16 @@ const ImportRowSchema = PropertyFieldsSchema.extend({
   status: z.enum(["draft", "active", "on_hold", "sold", "rented", "archived"]).optional(),
 }).strict();
 
+/*
+ * ‎**התקרה נקראת מהקטלוג המשותף, ולא נכתבת כאן.**
+ *
+ * ‏מסלול הוואטסאפ חותך באותו מספר, ושני מספרים שכתובים בשני
+ * ‏קבצים מסכימים ביום שנכתבו — בשינוי הבא אחד מהם נשאר מאחור
+ * ‏בשקט, וההפרש מתגלה כשמחפשים לקוח שלא נכנס.
+ */
 const ImportEnvelopeSchema = z
   .object({
-    rows: z.array(z.record(z.string(), z.unknown())).min(1).max(500),
+    rows: z.array(z.record(z.string(), z.unknown())).min(1).max(IMPORT_ROW_LIMIT),
   })
   .strict();
 

@@ -2,8 +2,10 @@ import { Injectable, Logger } from "@nestjs/common";
 import { inflateRawSync } from "node:zlib";
 import {
   decodeImportBytes,
+  IMPORT_FEATURE,
   IMPORT_KIND_CAPABILITY,
   IMPORT_KIND_LABELS,
+  IMPORT_ROW_LIMIT,
   importDoneText,
   parseBuyersCsv,
   parseLeadsCsv,
@@ -13,6 +15,7 @@ import {
   xlsxToCsv,
   type WhatsappImportKind,
 } from "@metavchim/shared";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { TenantContext } from "../../common/tenant-context";
 import type { RequestContext } from "../../common/tenant-context";
 import { ImportWriteService, type ImportResult } from "../import/import-write.service";
@@ -48,7 +51,38 @@ export class WhatsappImportService {
   constructor(
     private readonly sender: WhatsAppSendService,
     private readonly write: ImportWriteService,
+    private readonly plans: PlanCatalogService,
   ) {}
+
+  /**
+   * ‎**מה חוסם ייבוא — היכולת של המשתמש והפיצ'ר של המסלול.**
+   *
+   * ‏שני כללים, מקום אחד. הבקר נושא את שניהם על הנתיב
+   * ‎(`@RequireCapability` פר-נתיב, `@RequireFeature("data_io")`
+   * ‏על המחלקה), והסוכן אינו עובר בבקרים — כלומר בלי השער הזה
+   * ‏נשארו שתי דלתות פתוחות: סוכן בלי הרשאת עריכה, ומשרד במסלול
+   * ‏שאינו כולל ייבוא בכלל. השני נמצא בביקורת Codex: המסלול
+   * ‏הבסיסי כולל `voice_intake` ולא `data_io`, ולכן משרד שקנה
+   * ‏וואטסאפ בלבד היה מייבא דרך הצ'אט מה שהמסך חוסם לו.
+   *
+   * ‎`null` = פתוח; מחרוזת = המשפט שנאמר למתווך.
+   */
+  async blockedReason(
+    context: RequestContext,
+    kind: WhatsappImportKind,
+  ): Promise<string | null> {
+    /*
+     * ‎`context.capabilities` ולא רשומת המשתמש: זה **אותו** מקור
+     * ‏שהבקרים נבדקים מולו, ולכן הרשאה שנשללה משפיעה מיד.
+     */
+    if (!context.capabilities.has(IMPORT_KIND_CAPABILITY[kind])) {
+      return `אין לכם הרשאה לייבא ${IMPORT_KIND_LABELS[kind]} — מנהל המשרד יכול לתת אותה בהגדרות הצוות.`;
+    }
+    if (!(await this.plans.tenantHasFeature(context.tenantId, IMPORT_FEATURE))) {
+      return "ייבוא וייצוא נתונים אינם כלולים במסלול של המשרד — אפשר לשדרג במסך החיוב.";
+    }
+    return null;
+  }
 
   /**
    * ‏קריאת הקובץ לשורות — בלי לכתוב דבר.
@@ -62,7 +96,9 @@ export class WhatsappImportService {
     fileName: string,
     fileMime: string,
     kind: WhatsappImportKind,
-  ): Promise<{ rows: Record<string, unknown>[]; unmapped: string[] } | { error: string }> {
+  ): Promise<
+    { rows: Record<string, unknown>[]; total: number; unmapped: string[] } | { error: string }
+  > {
     const format = sheetFormat(fileMime, fileName);
     if (format === "unsupported") return { error: UNSUPPORTED_SHEET_TEXT };
 
@@ -94,12 +130,18 @@ export class WhatsappImportService {
           : parseRecruitmentCsv(csv);
     return {
       /*
-       * ‎**אותה תקרה של הנתיב** (`ImportEnvelopeSchema`, 500).
-       * ‏קובץ גדול יותר נחתך ולא נדחה: 600 שורות שנכנסות בלי 100
-       * ‏עדיפות על „הקובץ גדול מדי” שמשאיר את כולן בחוץ — וזה
-       * ‏נאמר בתצוגה המקדימה לפני האישור.
+       * ‎**אותה תקרה של הנתיב** — `IMPORT_ROW_LIMIT`, שממנו נבנית
+       * ‏גם מעטפת ה-zod של הנתיב. קובץ גדול יותר נחתך ולא נדחה:
+       * ‏500 שורות שנכנסות עדיפות על „הקובץ גדול מדי” שמשאיר את
+       * ‏כולן בחוץ.
        */
-      rows: parsed.rows.slice(0, 500) as unknown as Record<string, unknown>[],
+      rows: parsed.rows.slice(0, IMPORT_ROW_LIMIT) as unknown as Record<string, unknown>[],
+      /*
+       * ‎**כמה היו, ולא כמה נשארו.** בלי המספר הזה קובץ של 900
+       * ‏שורות הציג „קראתי 500 שורות”, המתווך אישר ייבוא שנראה
+       * ‏שלם, ו-400 לקוחות לא נכנסו בלי שאיש ידע (ביקורת Codex).
+       */
+      total: parsed.rows.length,
       unmapped: parsed.unmappedHeaders,
     };
   }
@@ -115,12 +157,8 @@ export class WhatsappImportService {
     kind: WhatsappImportKind,
     rows: Record<string, unknown>[],
   ): Promise<{ text: string }> {
-    const capability = IMPORT_KIND_CAPABILITY[kind];
-    if (!context.capabilities.has(capability)) {
-      return {
-        text: `אין לכם הרשאה לייבא ${IMPORT_KIND_LABELS[kind]} — מנהל המשרד יכול לתת אותה בהגדרות הצוות.`,
-      };
-    }
+    const blocked = await this.blockedReason(context, kind);
+    if (blocked !== null) return { text: blocked };
     let result: ImportResult;
     try {
       result = await TenantContext.run(context, () =>

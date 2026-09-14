@@ -64,7 +64,6 @@ import {
 } from "./assistant-lang";
 import {
   agentWelcomeExamples,
-  IMPORT_KIND_CAPABILITY,
   IMPORT_KIND_LABELS,
   IMPORT_KIND_QUESTION,
   importKindFromText,
@@ -1490,6 +1489,20 @@ export class WhatsAppAssistantService {
     chat: ChatState,
     msg: AssistantInbound,
   ): Promise<AgentReply> {
+    /*
+     * ‎**קודם כול — ההצעה הקודמת פגה.**
+     *
+     * ‏קובץ שנכנס הוא בקשה חדשה, גם כשלא נוכל לקרוא אותו. כשהצריכה
+     * ‏ישבה אחרי הבדיקות, מתווך ששלח PDF על „לפתוח כרטיס קונה
+     * ‏לרונית? אשר/בטל” קיבל „אני קוראת ‎.xlsx‎ בלבד”, הבין שהשיחה
+     * ‏עברה לקובץ — ו„אשר” שלו כעבור דקה פתח את הכרטיס הישן
+     * ‏(ביקורת Codex). הצריכה אינה תלויה בתקינות הקובץ.
+     */
+    if (chat.pending !== null) {
+      const took = await this.takePending(user.tenantId, user.id, chat.pending.token);
+      this.consumed(chat, took);
+    }
+
     if (msg.mediaId === undefined) {
       const text = "לא הצלחתי לקרוא את הקובץ — נסו לשלוח אותו שוב.";
       return { text, speak: text };
@@ -1498,12 +1511,6 @@ export class WhatsAppAssistantService {
     const fileMime = msg.fileMime ?? "";
     if (sheetFormat(fileMime, fileName) === "unsupported") {
       return { text: UNSUPPORTED_SHEET_TEXT, speak: UNSUPPORTED_SHEET_TEXT };
-    }
-
-    /* ‏הצעה קודמת פגה ברגע שקובץ נכנס — כמו כל בקשה חדשה */
-    if (chat.pending !== null) {
-      const took = await this.takePending(user.tenantId, user.id, chat.pending.token);
-      this.consumed(chat, took);
     }
 
     const kind = importKindFromText(msg.text ?? "");
@@ -1590,11 +1597,13 @@ export class WhatsAppAssistantService {
      * ‏הרשומה שנטענה אלא על ההקשר, וזה **אותו** מקור שהבקרים
      * ‏נבדקים מולו. שכפול הרשימה לרשומה היה מקום שני שיכול
      * ‏להתיישן מול הרשאה שנשללה זה עתה.
+     *
+     * ‏ומה שנבדק כאן הוא **אותו** `blockedReason` שהכתיבה בודקת —
+     * ‏יכולת ופיצ'ר גם יחד. שתי רשימות כללים היו מסכימות ביום
+     * ‏שנכתבו, וזו בדיוק הדרך שבה שער הפיצ'ר נשכח כאן מלכתחילה.
      */
-    if (!TenantContext.current().capabilities.has(IMPORT_KIND_CAPABILITY[kind])) {
-      const denied = `אין לכם הרשאה לייבא ${IMPORT_KIND_LABELS[kind]} — מנהל המשרד יכול לתת אותה בהגדרות הצוות.`;
-      return { text: denied, speak: denied };
-    }
+    const blocked = await this.imports.blockedReason(TenantContext.current(), kind);
+    if (blocked !== null) return { text: blocked, speak: blocked };
     const read = await this.imports.read(file.mediaId, file.fileName, file.fileMime, kind);
     if ("error" in read) return { text: read.error, speak: read.error };
     if (read.rows.length === 0) {
@@ -1617,12 +1626,17 @@ export class WhatsAppAssistantService {
     const preview = importPreviewText({
       kind,
       rows: read.rows.length,
+      total: read.total,
       unmapped: read.unmapped,
       filename: file.fileName,
     });
     return {
       text: preview,
-      speak: `קראתי ${read.rows.length} שורות. לייבא?`,
+      /* ‏הקול אומר את אותו דבר שהטקסט אומר, כולל החיתוך */
+      speak:
+        read.total > read.rows.length
+          ? `בקובץ ${read.total} שורות, ואייבא ${read.rows.length}. לייבא?`
+          : `קראתי ${read.rows.length} שורות. לייבא?`,
       buttons: confirmButtons(token),
     };
   }

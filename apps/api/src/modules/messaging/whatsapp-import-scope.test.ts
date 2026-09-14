@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { IMPORT_KIND_CAPABILITY, WHATSAPP_IMPORT_KINDS } from "@metavchim/shared";
+import {
+  IMPORT_FEATURE,
+  IMPORT_KIND_CAPABILITY,
+  IMPORT_ROW_LIMIT,
+  WHATSAPP_IMPORT_KINDS,
+} from "@metavchim/shared";
 
 /**
  * ‎**ייבוא מהוואטסאפ — אותה יכולת, אותו מסלול כתיבה.**
@@ -34,18 +39,48 @@ describe("היכולת נבדקת במסלול הוואטסאפ", () => {
    * ‏הנקודה שבה זה באמת קובע, וכי ההרשאה יכולה להישלל בין השתיים.
    */
   it("גם לפני הקריאה וגם לפני הכתיבה", () => {
-    expect(assistant, "התצוגה המקדימה אינה בודקת יכולת").toContain(
-      "IMPORT_KIND_CAPABILITY[kind]",
-    );
-    expect(service, "הכתיבה אינה בודקת יכולת").toContain("IMPORT_KIND_CAPABILITY[kind]");
+    expect(assistant, "התצוגה המקדימה אינה בודקת").toContain("this.imports.blockedReason(");
+    const write = service.slice(service.indexOf("async write_("));
+    expect(write, "הכתיבה אינה בודקת").toContain("this.blockedReason(");
   });
 
   /*
-   * ‎`TenantContext.current()` ולא רשומת המשתמש: זה **אותו** מקור
+   * ‎**שני הכללים במקום אחד, ולא שני עותקים.**
+   *
+   * ‏כשהתצוגה המקדימה בדקה יכולת בעצמה והכתיבה בדקה יכולת בעצמה,
+   * ‏שתיהן פספסו את שער הפיצ'ר — אף אחת לא הייתה „המקום” שבו
+   * ‏הכללים נמצאים, ולכן אף אחת לא הייתה המקום שבו חסר כלל
+   * ‏(ביקורת Codex). `blockedReason` הוא המקום הזה.
+   */
+  it("ואין עותק שני של הכללים בתצוגה המקדימה", () => {
+    const start = assistant.indexOf("private async importPreview(");
+    const body = assistant.slice(start, assistant.indexOf("\n  }\n", start));
+    expect(body, "התצוגה המקדימה בודקת יכולת בעצמה").not.toContain("IMPORT_KIND_CAPABILITY");
+    expect(body, "התצוגה המקדימה בודקת פיצ'ר בעצמה").not.toContain("tenantHasFeature");
+  });
+
+  /*
+   * ‎`context.capabilities` ולא רשומת המשתמש: זה **אותו** מקור
    * ‏שהבקרים נבדקים מולו, ולכן הרשאה שנשללה משפיעה מיד.
    */
   it("מההקשר, ולא מרשומה שנטענה", () => {
     expect(service).toMatch(/context\.capabilities\.has\(/u);
+  });
+
+  /*
+   * ‎**הפיצ'ר, ולא היכולת בלבד.**
+   *
+   * ‏המסלול הבסיסי כולל `voice_intake` ואינו כולל `data_io`, ולכן
+   * ‏משרד שקנה וואטסאפ בלבד ייבא דרך הצ'אט בדיוק את מה שמסך
+   * ‏הייבוא חוסם לו — יכולת עריכה יש לכל סוכן. `@RequireFeature`
+   * ‏על הבקר אינו מגן על מסלול שאינו עובר בבקר.
+   */
+  it("ופיצ'ר המסלול נבדק, כמו שהבקר דורש אותו", () => {
+    expect(service, "מסלול הוואטסאפ אינו בודק את הפיצ'ר").toContain("tenantHasFeature");
+    expect(service).toContain("IMPORT_FEATURE");
+    expect(controller, `הבקר דורש פיצ'ר אחר`).toContain(
+      `@RequireFeature("${IMPORT_FEATURE}")`,
+    );
   });
 
   /*
@@ -81,11 +116,38 @@ describe("הכתיבה עוברת במסלול אחד", () => {
     expect(service).not.toContain("PropertiesService");
   });
 
-  /* ‏אותה תקרה של הנתיב — 500 שורות במעטפת */
-  it("ותקרת השורות זהה לזו של הנתיב", () => {
-    const envelope = /rows: z\.array\([\s\S]{0,80}?\.max\((\d+)\)/u.exec(controller)?.[1];
-    expect(envelope, "לא נמצאה התקרה בנתיב").toBeDefined();
-    expect(service, `הנתיב חוסם ב-${envelope ?? "?"}`).toContain(`.slice(0, ${envelope ?? ""})`);
+  /*
+   * ‎**תקרה אחת לשני המסלולים — מהקטלוג, ולא מספר בכל קובץ.**
+   *
+   * ‏קודם כאן נקרא המספר מהמעטפת של הנתיב והושווה למחרוזת בשירות.
+   * ‏זה עבד, אבל השאיר שני מקומות לערוך; עכשיו שניהם קוראים את
+   * ‎`IMPORT_ROW_LIMIT`, והבדיקה היא שאיש לא החזיר מספר קשיח.
+   */
+  it("ותקרת השורות היא אותו קבוע בשני הצדדים", () => {
+    expect(service, "השירות חותך במספר קשיח").toContain(".slice(0, IMPORT_ROW_LIMIT)");
+    const at = controller.indexOf("const ImportEnvelopeSchema");
+    expect(at, "המעטפת לא נמצאה").toBeGreaterThan(-1);
+    const envelope = controller.slice(at, controller.indexOf(".strict();", at));
+    expect(envelope, "המעטפת חוסמת במספר קשיח").toContain(".max(IMPORT_ROW_LIMIT)");
+    expect(envelope).not.toMatch(/\.max\(\d+\)/u);
+    expect(IMPORT_ROW_LIMIT).toBeGreaterThan(0);
+  });
+
+  /*
+   * ‎**מה שנחתך — נאמר לפני האישור.**
+   *
+   * ‏קובץ של 900 שורות הציג „קראתי 500 שורות”, המתווך אישר ייבוא
+   * ‏שנראה שלם, ו-400 לקוחות לא נכנסו בלי שאיש ידע. הספירה
+   * ‏המקורית חייבת לשרוד את החיתוך ולהגיע לתצוגה המקדימה
+   * ‏(ביקורת Codex).
+   */
+  it("והספירה המקורית שורדת את החיתוך", () => {
+    expect(service, "הקריאה אינה מחזירה את הספירה המקורית").toContain(
+      "total: parsed.rows.length",
+    );
+    const start = assistant.indexOf("private async importPreview(");
+    const body = assistant.slice(start, assistant.indexOf("\n  }\n", start));
+    expect(body, "התצוגה המקדימה אינה מקבלת את הספירה").toContain("total: read.total");
   });
 });
 
@@ -105,6 +167,25 @@ describe("אף שורה אינה נכתבת לפני אישור", () => {
     const body = assistant.slice(start, assistant.indexOf("\n  }\n", start));
     expect(body).toContain("this.imports.read(");
     expect(body, "התצוגה המקדימה כותבת").not.toContain("this.imports.write_(");
+  });
+
+  /*
+   * ‎**וקובץ שנכנס מבטל את ההצעה הקודמת — גם כשאינו נקרא.**
+   *
+   * ‏מתווך ששלח PDF על „לפתוח כרטיס קונה? אשר/בטל” קיבל „אני
+   * ‏קוראת ‎.xlsx‎ בלבד”, הבין שהשיחה עברה לקובץ, ו„אשר” שלו כעבור
+   * ‏דקה פתח את הכרטיס הישן. הצריכה קודמת לכל יציאה מוקדמת
+   * ‏(ביקורת Codex).
+   */
+  it("וקובץ שנכנס צורך את ההצעה לפני כל בדיקה", () => {
+    const start = assistant.indexOf("private async documentArrived(");
+    expect(start).toBeGreaterThan(-1);
+    const body = assistant.slice(start, assistant.indexOf("\n  }\n", start));
+    const consume = body.indexOf("takePending");
+    expect(consume).toBeGreaterThan(-1);
+    for (const early of ["msg.mediaId === undefined", "=== \"unsupported\""]) {
+      expect(body.indexOf(early), `${early} קודם לצריכה`).toBeGreaterThan(consume);
+    }
   });
 
   it("והאישור צורך את ההצעה לפני שהוא כותב", () => {
