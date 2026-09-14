@@ -66,6 +66,18 @@ const WebhookSchema = z.object({
                   /** הודעה קולית לסוכן — יורדת ומתומללת */
                   audio: z.object({ id: z.string() }).optional(),
                   /**
+                   * ‎**תמונה לסוכן — שלט „למכירה”, מודעה, או תמונה של נכס.**
+                   *
+                   * ‏הכיתוב הוא מה שמבדיל: תמונה בלי כיתוב היא מודעה
+                   * ‏שנקראת לנכס לגיוס, ותמונה עם „תוסיף לנכס בהרצל 12”
+                   * ‏היא תמונה של נכס קיים. בלי השדה הזה שתיהן הגיעו
+                   * ‏בלי מדיה ובלי כיתוב, והתשובה הייתה „לא הצלחתי
+                   * ‏לקרוא את התמונה” — תמיד.
+                   */
+                  image: z
+                    .object({ id: z.string(), caption: z.string().optional() })
+                    .optional(),
+                  /**
                    * לחיצה על כפתור או בחירה מרשימה. המזהה הוא מה
                    * ששלחנו בכפתור, ולכן הוא נושא את הפעולה; הכותרת
                    * נשמרת כדי שיהיה מה להציג ביומן השיחה.
@@ -370,6 +382,17 @@ export class WhatsAppInboundService {
                 type: message.type,
                 ...(message.text ? { text: message.text.body } : {}),
                 ...(message.audio ? { mediaId: message.audio.id } : {}),
+                /*
+                 * ‏הכיתוב נכנס כ-`text`: הוא מה שהמתווך אמר על התמונה,
+                 * ‏ו-`extractText` מכריעה לפיו בין „נכס לגיוס חדש”
+                 * ‏לבין „תמונה לנכס שכבר קיים”.
+                 */
+                ...(message.image
+                  ? {
+                      mediaId: message.image.id,
+                      ...(message.image.caption ? { text: message.image.caption } : {}),
+                    }
+                  : {}),
                 ...(() => {
                   const reply =
                     message.interactive?.button_reply ?? message.interactive?.list_reply;

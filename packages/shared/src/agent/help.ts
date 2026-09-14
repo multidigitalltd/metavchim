@@ -108,6 +108,10 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
     ],
   },
   {
+    label: "נכסים לגיוס",
+    ids: ["show_recruitment", "create_recruitment", "update_recruitment_status"],
+  },
+  {
     label: "בלעדיות",
     ids: ["show_exclusivity", "start_exclusivity", "log_marketing_action"],
   },
@@ -142,6 +146,17 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
       "mentor_reflect",
       "mentor_practice",
     ],
+  },
+  {
+    /*
+     * ‎**קבוצה משלה, ולא „עזרה”.**
+     *
+     * ‏מסונן ממילא ב-`billing.manage`, כך שרק מי שמנהל את החיוב
+     * ‏רואה אותה. מי שכן — מחפש אותה כשהמערכת בדיוק הפסיקה
+     * ‏לעבוד, וקבורה בתוך „עזרה” היא בדיוק לא הרגע לחפש.
+     */
+    label: "המנוי והחיוב",
+    ids: ["show_subscription", "renew_subscription"],
   },
   {
     label: "עזרה",

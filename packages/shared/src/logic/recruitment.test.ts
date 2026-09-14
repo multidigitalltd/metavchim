@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  recruitmentAddress,
   OPEN_RECRUITMENT_STATUSES,
   RECRUITMENT_FIELDS,
   RECRUITMENT_SECTIONS,
@@ -247,5 +248,53 @@ describe("מה חסר ומה ידוע", () => {
       total: filled.length + missing.length,
     });
     expect(recruitmentCompleteness(target).total).toBe(RECRUITMENT_FIELDS.length - 1);
+  });
+});
+
+/**
+ * ‎**שם אחד לשורה, בכל מסך ובכל ערוץ.**
+ *
+ * ‏אותה שורה נקראת בכותרת הכרטיס, ברשימה, בבורר של הסוכן
+ * ‏בוואטסאפ ובמשפט שחוזר אחרי מודעה מצולמת. הבדיקות כאן הן על
+ * ‏מה שקורה כשחסרים חלקים — וזה הרוב, כי שורת גיוס נולדת ממודעה
+ * ‏שמסתירה כתובת.
+ */
+describe("recruitmentAddress", () => {
+  it("רחוב ומספר, ואז עיר", () => {
+    expect(
+      recruitmentAddress({ street: "הרצל", houseNumber: "12", city: "חיפה", neighborhood: "הדר" }),
+    ).toBe("הרצל 12, חיפה");
+  });
+
+  /*
+   * ‏כשיש רחוב, השכונה רק הייתה מאריכה — הרחוב כבר מזהה. כשאין,
+   * ‏„חיפה” לבדה אינה מבדילה בין ארבעים שורות ו„הדר, חיפה” כן.
+   */
+  it("השכונה נכנסת רק כשאין רחוב", () => {
+    expect(recruitmentAddress({ city: "חיפה", neighborhood: "הדר" })).toBe("הדר, חיפה");
+    expect(recruitmentAddress({ street: "הרצל", city: "חיפה", neighborhood: "הדר" })).toBe(
+      "הרצל, חיפה",
+    );
+  });
+
+  /*
+   * ‏שורה בלי שום כתובת היא „מישהו התקשר על נכס”. בלי השם היא
+   * ‏שורה שאי אפשר לבחור בה בבורר, כי כולן נראות אותו דבר.
+   */
+  it("בלי כתובת — שם הבעלים, ורק אז הנוסח שהקורא ביקש", () => {
+    expect(recruitmentAddress({ ownerName: "משה כהן" })).toBe("משה כהן");
+    expect(recruitmentAddress({})).toBe("בלי כתובת");
+    expect(recruitmentAddress({}, "בלי כתובת שנקראה")).toBe("בלי כתובת שנקראה");
+  });
+
+  /*
+   * ‎`null` מגיע מקריאת מודעה ו-`undefined` מה-DTO של השרת; מחרוזת
+   * ‏של רווחים מגיעה מטופס. שלושתם „אין ערך”, ונוסח שהיה מתייחס
+   * ‏לאחד מהם כערך היה מחזיר „ , חיפה”.
+   */
+  it("null, undefined ורווחים הם אותו דבר", () => {
+    expect(recruitmentAddress({ street: null, houseNumber: "  ", city: "חיפה" })).toBe("חיפה");
+    expect(recruitmentAddress({ street: undefined, city: "חיפה" })).toBe("חיפה");
+    expect(recruitmentAddress({ city: "   ", ownerName: "  " })).toBe("בלי כתובת");
   });
 });

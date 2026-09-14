@@ -10,6 +10,7 @@ import {
   type RecruitmentStatus,
   canConvertToProperty,
   isOpenRecruitment,
+  recruitmentAddress,
   recruitmentSourceLabel,
   recruitmentStatusLabel,
   sourceUrlHost,
@@ -28,7 +29,7 @@ import {
   type ListFilterValues,
 } from "../../list-filters";
 import { TargetDialog } from "./target-dialog";
-import { targetAddress, type TargetValues } from "./target-values";
+import { type TargetValues } from "./target-values";
 
 /**
  * ‎**שורה ברשימה היא אותה שורה שבחלונית.**
@@ -534,7 +535,7 @@ export default function RecruitmentPage() {
                         <td className="p-3">
                           <input
                             type="checkbox"
-                            aria-label={`בחירת ${targetAddress(row)}`}
+                            aria-label={`בחירת ${recruitmentAddress(row)}`}
                             checked={selected.has(row.id)}
                             onChange={() => toggle(row.id)}
                           />
@@ -569,7 +570,7 @@ export default function RecruitmentPage() {
                             setOpenId(row.id);
                           }}
                         >
-                          {targetAddress(row)}
+                          {recruitmentAddress(row)}
                         </Link>
                       </td>
                       <td className="p-3 text-[var(--color-text-muted)]">
@@ -632,7 +633,7 @@ export default function RecruitmentPage() {
                           <select
                             className="mv-select"
                             value={row.status}
-                            aria-label={`שלב הגיוס — ${targetAddress(row)}`}
+                            aria-label={`שלב הגיוס — ${recruitmentAddress(row)}`}
                             onChange={(event) => void changeStatus(row.id, event.target.value)}
                           >
                             {RECRUITMENT_STATUSES.map((status) => (
@@ -701,7 +702,7 @@ export default function RecruitmentPage() {
                               <button
                                 type="button"
                                 className="mv-btn-plain"
-                                aria-label={`מחיקת ${targetAddress(row)}`}
+                                aria-label={`מחיקת ${recruitmentAddress(row)}`}
                                 onClick={() => setConfirmingDelete(row.id)}
                               >
                                 מחיקה

@@ -42,7 +42,17 @@ export type WhatsAppButtonAction =
   /** פקודה מוכנה שנשלחת למנוע כאילו הוקלדה — הארגומנט הוא המפתח */
   | "cmd"
   /** השתקת עדכונים לזמן קצוב — הארגומנט הוא דקות */
-  | "snooze";
+  | "snooze"
+  /**
+   * ‎**פתיחת תשלום לחידוש המנוי.**
+   *
+   * ‏פעולה משלה ולא `cmd`: `cmd` עובר דרך מנוע הפענוח, והמנוע
+   * ‏כלל אינו רץ למשרד שתקופתו נגמרה — כלומר הכפתור היה מוצג
+   * ‏ולא עושה דבר, בדיוק למי שנועד. וגם: פתיחת דף תשלום מבטלת
+   * ‏כל תשלום ממתין של המשרד, ולכן היא חייבת להיות **בקשה
+   * ‏מפורשת אחת** ולא נגזרת של פענוח טקסט.
+   */
+  | "renew";
 
 export interface WhatsAppButton {
   action: WhatsAppButtonAction;
@@ -84,7 +94,8 @@ export function decodeButtonId(id: string): DecodedButton | null {
     action !== "cancel" &&
     action !== "pick" &&
     action !== "cmd" &&
-    action !== "snooze"
+    action !== "snooze" &&
+    action !== "renew"
   ) {
     return null;
   }

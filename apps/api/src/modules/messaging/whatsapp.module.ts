@@ -1,6 +1,9 @@
 import { Module } from "@nestjs/common";
 import { AgentModule } from "../agent/agent.module";
+import { BillingModule } from "../billing/billing.module";
 import { CallsModule } from "../calls/calls.module";
+import { PropertiesModule } from "../properties/properties.module";
+import { RecruitmentModule } from "../recruitment/recruitment.module";
 import { ContactsModule } from "../contacts/contacts.module";
 import { MentorModule } from "../mentor/mentor.module";
 import { ViewingReplyService } from "../calendar/viewing-reply.service";
@@ -39,13 +42,32 @@ import { WhatsAppWebhookController } from "./whatsapp-webhook.controller";
    * ‏מעגל: מודול השיחות מייבא אנשי קשר ולידים בלבד, ואינו מייבא
    * ‏דבר מהוואטסאפ.
    */
+  /*
+   * ‎`BillingModule` — חידוש המנוי מתוך השיחה, למשרד שתקופתו
+   * ‏נגמרה. מודול עלה בלי `imports` משלו, ולכן אין שום סיכוי
+   * ‏למעגל; והוא היחיד שיודע לפתוח דף תשלום נכון (קופון, מחיר
+   * ‏מוסכם, מע"מ, סגירת דף קודם).
+   */
+  /*
+   * ‎`PropertiesModule` — תמונה עם כיתוב „תוסיף לנכס…” מצורפת
+   * ‏לנכס קיים דרך `PropertyPhotoService`. הכיוון תקין: מודול
+   * ‏הנכסים מייבא את `MessagingModule` (העלה) ואינו יודע דבר על
+   * ‏מודול הוואטסאפ, ולכן אין מעגל — בדיוק כמו הגיוס.
+   */
   imports: [
     AgentModule,
+    PropertiesModule,
     VoiceIntakeModule,
     MessagingModule,
     ContactsModule,
     MentorModule,
     CallsModule,
+    BillingModule,
+    /*
+     * ‎`RecruitmentModule` — שלט „למכירה” מצולם הופך לנכס לגיוס.
+     * ‏אין מעגל: הגיוס מייבא נכסים בלבד ואינו יודע על הוואטסאפ.
+     */
+    RecruitmentModule,
   ],
   controllers: [WhatsAppWebhookController, WhatsAppConnectionController],
   /*

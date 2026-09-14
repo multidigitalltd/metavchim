@@ -117,6 +117,8 @@ export * from "./logic/plans.js";
 export * from "./logic/recurrence.js";
 export * from "./logic/trial.js";
 export * from "./logic/billing.js";
+export * from "./logic/subscription-renewal.js";
+export * from "./logic/recruitment-ad.js";
 export * from "./logic/subscription-offer.js";
 export * from "./logic/number-rental.js";
 export * from "./logic/login-return.js";
