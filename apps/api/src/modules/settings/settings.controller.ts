@@ -86,6 +86,11 @@ import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { EmailDomainProviderService } from "../../core/email-domain-provider.service";
 import { PrismaService } from "../../core/prisma.service";
+import {
+  OfficeSettingsSchema,
+  OfficeSettingsService,
+  type OfficeSettingsPatch,
+} from "./office-settings.service";
 import { TeamMemberInputSchema, TeamService, type TeamUserDto } from "./team.service";
 import { AuthService, type SessionInfo } from "../auth/auth.service";
 import { LoginThrottleService } from "../auth/login-throttle.service";
@@ -135,35 +140,6 @@ const AutomationsSchema = z
     message: "לא נשלחה שום הגדרה",
   });
 
-const TenantSettingsSchema = z
-  .object({
-    name: z.string().min(2).max(120).optional(),
-    /* פרטי המשרד שנכנסים לנוסחי ההסכמים. מספר רישיון התיווך הוא
-       פרט חובה בהזמנה בכתב לפי חוק המתווכים במקרקעין. */
-    licenseNumber: z.union([z.string().max(40), z.literal("")]).optional(),
-    officeAddress: z.union([z.string().max(200), z.literal("")]).optional(),
-    officePhone: z.union([z.string().max(30), z.literal("")]).optional(),
-    /* ברירות המחדל לנוסחי ההסכמים. דמי התיווך ומועד התשלום הם פרטי
-       חובה בתקנות, ושער ההחתמה יוצר הסכם בלי שאיש הזין אותם — בלי
-       ברירת מחדל ברמת המשרד הוא לא יכול לייצר מסמך תקף כלל. */
-    defaultCommission: z.union([z.string().max(80), z.literal("")]).optional(),
-    defaultPaymentTerms: z
-      .union([z.string().max(120), z.literal("")])
-      .optional(),
-    /*
-     * מדיניות הרשת של המשרד: כל נכס/קונה חדש מתפרסם לרשת השיתופים
-     * אוטומטית. ההחלטה של מי שמחזיק settings.manage — הסוכן שקולט
-     * את הנכס מבצע מדיניות משרד, לא בחירה אישית.
-     */
-    autoShareProperties: z.boolean().optional(),
-    autoShareBuyers: z.boolean().optional(),
-    /*
-     * הצעות אוטומטיות במייל: התאמה פנימית חדשה וחזקה נשלחת ללקוח
-     * בלי שסוכן לחץ. אותו היגיון של מדיניות משרד כמו שכניו למעלה.
-     */
-    autoEmailOffers: z.boolean().optional(),
-  })
-  .strict();
 
 // owner אינו ניתן להקצאה דרך ה-API — מוקם בהקמת הסוכנות בלבד.
 // הסכימה מיובאת ואינה מוגדרת כאן שוב: המסכים בונים את התפריט
@@ -314,6 +290,7 @@ export class SettingsController {
     private readonly tenantLogo: TenantLogoService,
     private readonly plans: PlanCatalogService,
     private readonly team: TeamService,
+    private readonly officeSettings: OfficeSettingsService,
     private readonly accountDeletion: AccountDeletionService,
     private readonly matchRefresh: MatchRefreshService,
     private readonly platformSettings: PlatformSettingsService,
@@ -667,40 +644,24 @@ export class SettingsController {
     const tenantId = TenantContext.current().tenantId;
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: {
-        customerNo: true,
-        name: true,
-        plan: true,
-        settings: true,
-        whatsappAgentSeatsExtra: true,
-      },
+      select: { customerNo: true, plan: true, whatsappAgentSeatsExtra: true },
     });
-    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+    /*
+     * ‏פרטי המשרד נקראים מ-`OfficeSettingsService` ולא מכאן: אותה
+     * ‏הכרעה על מה „לא הוגדר” מול „ריק” משרתת גם את הסוכן בוואטסאפ,
+     * ‏ושני מקומות שקוראים את אותו JSON היו נפרדים ביום שיתווסף שדה.
+     */
+    const office = await this.officeSettings.read();
     return {
       /* ‏‎0 אינו מספר לקוח אפשרי (הרצף מתחיל ב-100000) — „לא נטען” */
       customerNo: tenant?.customerNo ?? 0,
-      name: tenant?.name ?? "",
+      name: office.name,
       plan: tenant?.plan ?? "basic",
-      licenseNumber:
-        typeof settings["licenseNumber"] === "string"
-          ? settings["licenseNumber"]
-          : undefined,
-      officeAddress:
-        typeof settings["officeAddress"] === "string"
-          ? settings["officeAddress"]
-          : undefined,
-      officePhone:
-        typeof settings["officePhone"] === "string"
-          ? settings["officePhone"]
-          : undefined,
-      defaultCommission:
-        typeof settings["defaultCommission"] === "string"
-          ? settings["defaultCommission"]
-          : undefined,
-      defaultPaymentTerms:
-        typeof settings["defaultPaymentTerms"] === "string"
-          ? settings["defaultPaymentTerms"]
-          : undefined,
+      licenseNumber: office.licenseNumber,
+      officeAddress: office.officeAddress,
+      officePhone: office.officePhone,
+      defaultCommission: office.defaultCommission,
+      defaultPaymentTerms: office.defaultPaymentTerms,
       whatsappAgentSeats: whatsappAgentSeats({
         planHasAgent: await this.plans.tenantHasFeature(tenantId, "voice_intake"),
         granted: tenant?.whatsappAgentSeatsExtra ?? 0,
@@ -709,10 +670,9 @@ export class SettingsController {
       whatsappAgentSeatsUsed: await this.prisma.withTenant((tx) =>
         tx.user.count({ where: { tenantId, isActive: true, whatsappAccess: true } }),
       ),
-      // חסר = כבוי: מדיניות שמפרסמת נתונים החוצה חייבת הפעלה מפורשת
-      autoShareProperties: settings["autoShareProperties"] === true,
-      autoShareBuyers: settings["autoShareBuyers"] === true,
-      autoEmailOffers: settings["autoEmailOffers"] === true,
+      autoShareProperties: office.autoShareProperties,
+      autoShareBuyers: office.autoShareBuyers,
+      autoEmailOffers: office.autoEmailOffers,
     };
   }
 
@@ -1049,123 +1009,17 @@ export class SettingsController {
   @Patch("tenant")
   @RequireCapability("settings.manage")
   async updateTenant(
-    @Body(new ZodValidationPipe(TenantSettingsSchema))
-    body: z.infer<typeof TenantSettingsSchema>,
+    @Body(new ZodValidationPipe(OfficeSettingsSchema))
+    body: OfficeSettingsPatch,
   ): Promise<{ ok: true }> {
-    const tenantId = TenantContext.current().tenantId;
-
-
     /*
-     * ‎**הקריאה, השינוי והכתיבה — בטרנזקציה אחת ומתחת לנעילת השורה.**
-     *
-     * ‎`settings` הוא מסמך JSON אחד, ולכן עדכון של שדה בודד הוא
-     * קריאה של הכול וכתיבה של הכול בחזרה. שתי בקשות מקבילות קראו
-     * את אותו צילום, וזו שכתבה שנייה מחקה את מה שהראשונה שמרה —
-     * בלי שגיאה ובלי שאיש ידע (ביקורת Codex).
-     *
-     * ולא תרחיש תיאורטי: מסך ההגדרות שולח מתג בכל לחיצה, ושתי
-     * לחיצות רצופות מייצרות בדיוק את זה; שתי לשוניות פתוחות מייצרות
-     * את זה גם בלי למהר.
+     * ‏הלולאה עצמה יושבת ב-`OfficeSettingsService`: מאז שמנהל יכול
+     * ‏לכבות „פרסום אוטומטי לרשת” מהוואטסאפ יש לה קורא שני, והסוכן
+     * ‏אינו עובר בבקרים. ארבעת הכללים שהיא נושאת — הנעילה, המחיקה
+     * ‏במקום שמירת ריק, וחותמת ההפעלה של ההצעות עם הסמן שלה —
+     * ‏מתועדים שם.
      */
-    await this.prisma.$transaction(async (tx) => {
-    await lockTenantRow(tx, tenantId);
-    const current = await tx.tenant.findUnique({
-      where: { id: tenantId },
-      select: { settings: true },
-    });
-    const settings = {
-      ...((current?.settings ?? {}) as Record<string, unknown>),
-    };
-
-    /*
-     * כל השדות שיושבים ב-settings עוברים באותה לולאה.
-     *
-     * קודם רק מספר הוואטסאפ המשרדי (שכבר אינו קיים) נכתב, ושלושת פרטי המשרד נבלעו בשקט: הם
-     * עברו ולידציה, חזרו ב-GET, ומעולם לא נשמרו. משתמש שמילא מספר
-     * רישיון, שמר, וראה "נשמר" — קיבל שדה ריק בטעינה הבאה. שמירה
-     * שמדווחת הצלחה ולא כותבת גרועה משדה שלא קיים.
-     *
-     * מחרוזת ריקה מוחקת את המפתח (ניקוי שדה), ולא שומרת "" —
-     * כדי שהתבניות יראו "חסר" ולא ידפיסו רישיון ריק בהסכם.
-     */
-    const SETTINGS_FIELDS = [
-      "licenseNumber",
-      "officeAddress",
-      "officePhone",
-      "defaultCommission",
-      "defaultPaymentTerms",
-    ] as const;
-    let settingsTouched = false;
-    for (const field of SETTINGS_FIELDS) {
-      const value = body[field];
-      if (value === undefined) continue;
-      settingsTouched = true;
-      if (value === "") delete settings[field];
-      else settings[field] = value;
-    }
-
-    /*
-     * הדגלים הבוליאניים: false מוחק את המפתח ולא שומר false —
-     * מאותה סיבה ש-"" מוחק למעלה. חסר = ברירת המחדל (כבוי), ואין
-     * טעם לשמור במסד הצהרה על ברירת המחדל.
-     */
-    const BOOLEAN_FIELDS = [
-      "autoShareProperties",
-      "autoShareBuyers",
-      "autoEmailOffers",
-    ] as const;
-    for (const field of BOOLEAN_FIELDS) {
-      const value = body[field];
-      if (value === undefined) continue;
-      settingsTouched = true;
-      if (value === false) delete settings[field];
-      else settings[field] = true;
-    }
-
-    /*
-     * חותמת ההפעלה של ההצעות האוטומטיות — נקבעת ב**מעבר** לדלוק
-     * ונמחקת בכיבוי. הסורק שולח רק התאמות שחושבו אחריה: משרד ותיק
-     * שמדליק את הדגל מתכוון ל"מכאן והלאה", לא ל"הפציצו את כל
-     * הלקוחות בכל ההיסטוריה" — וכיבוי-הדלקה מאפס את הקו בכוונה.
-     */
-    if (body.autoEmailOffers === true && settings["autoEmailOffersSince"] === undefined) {
-      settings["autoEmailOffersSince"] = new Date().toISOString();
-    }
-    if (body.autoEmailOffers === false) {
-      delete settings["autoEmailOffersSince"];
-      /*
-       * ‎**וגם סמן הסריקה — הוא שייך לתקופת ההפעלה שהסתיימה.**
-       *
-       * הסמן מציין מיקום ברשימת ההתאמות הממוינת לפי ציון. הדלקה
-       * מחדש פותחת קו „מכאן והלאה” חדש, וההתאמות החדשות שנוצרות
-       * אחריו נכנסות לפי ציון — כלומר **לפני** סמן ישן. בלי האיפוס
-       * הזה הן היו מדולגות עד שהסורק יסיים סיבוב שלם, ובמשרד גדול
-       * זה המון סבבים (ביקורת Codex).
-       */
-      delete settings["autoEmailOffersCursor"];
-    }
-
-    try {
-      await tx.tenant.update({
-        where: { id: tenantId },
-        data: {
-          ...(body.name !== undefined ? { name: body.name } : {}),
-          ...(settingsTouched ? { settings: settings as object } : {}),
-        },
-      });
-    } catch {
-      // מרוץ מול משרד אחר — האינדקס הייחודי ב-DB חסם
-      throw new BadRequestException("המספר כבר משויך למשרד אחר");
-    }
-    });
-    await this.prisma.withTenant((tx) =>
-      this.audit.record(tx, {
-        action: "settings.update",
-        entityType: "tenant",
-        entityId: tenantId,
-        metadata: { changedFields: Object.keys(body) },
-      }),
-    );
+    await this.officeSettings.update(body);
     return { ok: true };
   }
 

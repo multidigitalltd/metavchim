@@ -104,6 +104,7 @@ import { BuyersService } from "../buyers/buyers.service";
 import { CalendarService } from "../calendar/calendar.service";
 import type { Readable } from "node:stream";
 import { CallsService, type CallDto } from "../calls/calls.service";
+import { OfficeSettingsService } from "../settings/office-settings.service";
 import { TeamService } from "../settings/team.service";
 import { PasswordResetService } from "../auth/password-reset.service";
 import { AuthService } from "../auth/auth.service";
@@ -380,6 +381,12 @@ export class AgentExecuteService {
      */
     private readonly team: TeamService,
     /*
+     * ‎`OfficeSettingsService` — קריאת הגדרות המשרד ושלושת מתגי
+     * ‏הפרסום, דרך אותו מסלול כתיבה של המסך: הנעילה על שורת המשרד,
+     * ‏המחיקה במקום שמירת `false`, וחותמת ההפעלה של ההצעות.
+     */
+    private readonly officeSettings: OfficeSettingsService,
+    /*
      * ‎`PasswordResetService` — הסוכן החדש מקבל קישור לקביעת
      * ‏סיסמה במייל, ולא סיסמה בהודעת וואטסאפ.
      */
@@ -653,6 +660,10 @@ export class AgentExecuteService {
         return this.updateProfile(params);
       case "update_notifications":
         return this.updateNotifications(params);
+      case "show_office_settings":
+        return this.showOfficeSettings();
+      case "update_office_policy":
+        return this.updateOfficePolicy(params);
       case "open_deal_room":
         return this.openDealRoom(params);
       case "show_recommendations":
@@ -2527,6 +2538,65 @@ export class AgentExecuteService {
         profile.phone === "" ? "טלפון: לא הוגדר" : `טלפון: ${profile.phone}`,
         `${notify}. שקט מ-${prefs.quietFromHour}:00 עד ${prefs.quietToHour}:00.`,
       ].join("\n"),
+    };
+  }
+
+  /**
+   * ‎**ההגדרות של המשרד — קריאה.**
+   *
+   * ‏„לא הוגדר” נאמר במפורש ואינו מושמט: מנהל ששואל „מה מספר
+   * ‏הרישיון” ומקבל רשימה שהשורה חסרה בה אינו יודע אם הוא פספס
+   * ‏אותה או שהיא ריקה — וזה בדיוק הפרט שהוא צריך למלא בטופס.
+   */
+  private async showOfficeSettings(): Promise<ExecuteResult> {
+    const office = await this.officeSettings.read();
+    const line = (label: string, value?: string): string =>
+      `${label}: ${value === undefined || value === "" ? "לא הוגדר" : value}`;
+    const flag = (label: string, on: boolean): string =>
+      `${label}: ${on ? "דלוק" : "כבוי"}`;
+    return {
+      href: "/settings",
+      message: [
+        `משרד: ${office.name}`,
+        line("מספר רישיון", office.licenseNumber),
+        line("כתובת", office.officeAddress),
+        line("טלפון", office.officePhone),
+        line("דמי תיווך (ברירת מחדל)", office.defaultCommission),
+        line("מועד תשלום (ברירת מחדל)", office.defaultPaymentTerms),
+        "",
+        flag("פרסום נכסים לרשת", office.autoShareProperties),
+        flag("פרסום קונים לרשת", office.autoShareBuyers),
+        flag("הצעות אוטומטיות במייל", office.autoEmailOffers),
+      ].join("\n"),
+    };
+  }
+
+  /**
+   * ‎**שלושת המתגים — דרך אותו מסלול כתיבה של המסך.**
+   *
+   * ‎`OfficeSettingsService.update` נושא את הנעילה על שורת המשרד,
+   * ‏את המחיקה-במקום-שמירת-`false`, ואת חותמת ההפעלה של ההצעות
+   * ‏האוטומטיות עם הסמן שלה. כתיבה ישירה ל-`settings` מכאן הייתה
+   * ‏מדלגת על ארבעתם בשקט — ובמקרה של ההצעות, מפציצה את כל
+   * ‏ההיסטוריה של המשרד.
+   */
+  private async updateOfficePolicy(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const POLICIES = {
+      autoShareProperties: "פרסום נכסים לרשת",
+      autoShareBuyers: "פרסום קונים לרשת",
+      autoEmailOffers: "הצעות אוטומטיות במייל",
+    } as const;
+    const key = String(params["policyKey"] ?? "");
+    const state = String(params["policyState"] ?? "");
+    if (!(key in POLICIES)) throw new BadRequestException("לא ברור איזו מדיניות לשנות");
+    if (state !== "on" && state !== "off") {
+      throw new BadRequestException("לא ברור אם להדליק או לכבות");
+    }
+    const field = key as keyof typeof POLICIES;
+    await this.officeSettings.update({ [field]: state === "on" });
+    return {
+      href: "/settings",
+      message: `${POLICIES[field]} — ${state === "on" ? "דלוק" : "כבוי"}.`,
     };
   }
 
