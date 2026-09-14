@@ -9771,3 +9771,360 @@ a.mv-bar-row:focus-visible {
     display: none;
   }
 }
+
+/* ============================================================
+   ‏„המשרד שלנו” — טבלת התחרות של סוכנות
+
+   ‎**המסך היחיד במערכת שמדרג אנשים בשמם.** הוא נועד להיתלות על
+   ‏הקיר, ולכן הוא נושא משקל חזותי שאין לדוחות: כרטיס כהה למוביל,
+   ‏ופסי יעד שנקראים ממרחק. שאר המערכת נשארת שקטה.
+   ============================================================ */
+.mv-board__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+  margin-bottom: 20px;
+}
+.mv-board__title {
+  margin: 0;
+  font-size: var(--type-screen-title);
+  font-weight: 800;
+}
+.mv-board__sub {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+}
+
+/* ‏שלוש התקופות — קבוצה אחת, לא שלושה כפתורים מרוחקים */
+.mv-board__tabs {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  gap: 2px;
+}
+.mv-board__tab {
+  min-height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+  font-weight: 700;
+  cursor: pointer;
+}
+.mv-board__tab[data-on="true"] {
+  background: var(--color-bg);
+  color: var(--color-text);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+}
+
+/*
+ * ‏המוביל תופס את מחצית הרוחב, וארבעת „הכי הרבה” מתחלקים בשנייה.
+ * ‏מתחת ל-900px הכול נערם — כרטיס כהה ברוחב חצי מסך בנייד אינו
+ * ‏קריא, והוא הדבר הראשון שרוצים לראות.
+ */
+.mv-board__top {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
+  gap: 16px;
+}
+@media (max-width: 56.24em) {
+  .mv-board__top {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mv-board__leader {
+  border-radius: 22px;
+  padding: 22px;
+  background: linear-gradient(150deg, #0f231a 0%, #0b1a14 60%, #0a1512 100%);
+  color: #f2fbf6;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.mv-board__leadereyebrow {
+  margin: 0;
+  color: #7ee2a8;
+  font-size: var(--type-caption);
+  font-weight: 700;
+}
+.mv-board__leaderhead {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mv-board__leaderavatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 62px;
+  height: 62px;
+  flex: none;
+  border-radius: 999px;
+  background: #45d483;
+  color: #06281a;
+  font-weight: 800;
+  font-size: var(--type-panel);
+}
+.mv-board__leadername {
+  margin: 0;
+  font-size: var(--type-h1);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.mv-board__leadernote {
+  margin: 2px 0 0;
+  color: #a9c9ba;
+  font-size: var(--type-caption);
+}
+.mv-board__leaderscore {
+  margin: 0;
+  margin-inline-start: auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+}
+.mv-board__leaderscore span {
+  color: #45d483;
+  font-size: var(--type-kpi);
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.mv-board__leaderscore small {
+  color: #a9c9ba;
+  font-size: var(--type-caption);
+}
+.mv-board__leadertiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+@media (max-width: 37.49em) {
+  .mv-board__leadertiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.mv-board__leadertile {
+  border-radius: 14px;
+  padding: 12px;
+  background: rgb(255 255 255 / 6%);
+}
+.mv-board__leadertilevalue {
+  margin: 0;
+  font-size: var(--type-metric);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.mv-board__leadertilelabel {
+  margin: 2px 0 0;
+  color: #a9c9ba;
+  font-size: var(--type-caption);
+}
+
+.mv-board__supers {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+@media (max-width: 37.49em) {
+  .mv-board__supers {
+    grid-template-columns: 1fr;
+  }
+}
+.mv-board__super {
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 14px;
+  background: var(--color-surface);
+}
+.mv-board__superhead {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+}
+.mv-board__supername {
+  margin: 4px 0 0;
+  font-size: var(--type-row-title);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.mv-board__supernote {
+  margin: 2px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+}
+
+.mv-board__formula {
+  margin: 0 0 12px;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+}
+
+/* ‏הטבלה גולשת בתוך המכל שלה בלבד — העמוד לעולם לא לרוחב */
+.mv-board__tablewrap {
+  overflow-x: auto;
+}
+.mv-board__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--type-caption);
+}
+.mv-board__table th,
+.mv-board__table td {
+  padding: 12px 10px;
+  text-align: start;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+.mv-board__table th {
+  color: var(--color-text-muted);
+  font-weight: 700;
+}
+.mv-board__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.mv-board__rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+/* ‏שלושת הראשונים בולטים — זו כל תכלית הטבלה */
+.mv-board__rank[data-top="true"] {
+  background: var(--color-success);
+  border-color: var(--color-success);
+  color: #fff;
+}
+
+.mv-board__agent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mv-board__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--domain-violet-bg);
+  color: var(--domain-violet-fg);
+  font-weight: 800;
+  font-size: var(--type-caption);
+}
+.mv-board__agentname {
+  display: block;
+  font-weight: 700;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.mv-board__agentnote {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+  white-space: normal;
+}
+
+.mv-board__goal {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.mv-board__bar {
+  display: inline-block;
+  width: 120px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--color-field);
+  overflow: hidden;
+}
+.mv-board__barfill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-success);
+}
+
+.mv-board__summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+@media (max-width: 56.24em) {
+  .mv-board__summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.mv-board__tile {
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 14px;
+  background: var(--color-surface);
+}
+.mv-board__tilelabel {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption);
+}
+.mv-board__tilevalue {
+  margin: 6px 0 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--type-metric);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.mv-board__trend {
+  font-size: var(--type-caption);
+  font-weight: 700;
+  color: var(--color-danger);
+}
+.mv-board__trend[data-up="true"] {
+  color: var(--color-success);
+}
+
+/* ‏הכפתור בהידר — טקסט, כי „המשרד שלנו” אינו דבר שמנחשים מאייקון */
+.mv-board-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--type-caption);
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.mv-board-link:hover,
+.mv-board-link:focus-visible {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+@media (max-width: 47.99em) {
+  .mv-board-link .mv-topbar-label {
+    display: none;
+  }
+}
