@@ -45,6 +45,7 @@ import {
   isSupportWaiting,
   jerusalemDayRange,
   mayUseAction,
+  checkActionParams,
   pendingMissedCalls,
   rankCallbacks,
   CALL_CONVERT_NONE,
@@ -104,6 +105,7 @@ import { BuyersService } from "../buyers/buyers.service";
 import { CalendarService } from "../calendar/calendar.service";
 import type { Readable } from "node:stream";
 import { CallsService, type CallDto } from "../calls/calls.service";
+import { OfficeSettingsService } from "../settings/office-settings.service";
 import { TeamService } from "../settings/team.service";
 import { PasswordResetService } from "../auth/password-reset.service";
 import { AuthService } from "../auth/auth.service";
@@ -380,6 +382,12 @@ export class AgentExecuteService {
      */
     private readonly team: TeamService,
     /*
+     * ‎`OfficeSettingsService` — קריאת הגדרות המשרד ושלושת מתגי
+     * ‏הפרסום, דרך אותו מסלול כתיבה של המסך: הנעילה על שורת המשרד,
+     * ‏המחיקה במקום שמירת `false`, וחותמת ההפעלה של ההצעות.
+     */
+    private readonly officeSettings: OfficeSettingsService,
+    /*
      * ‎`PasswordResetService` — הסוכן החדש מקבל קישור לקביעת
      * ‏סיסמה במייל, ולא סיסמה בהודעת וואטסאפ.
      */
@@ -438,6 +446,7 @@ export class AgentExecuteService {
 
   async execute(
     actionId: string,
+    /* ‏אינו `readonly`: `checkActionParams` מחליף אותו במפורש */
     params: Record<string, unknown>,
     /** המשפט המקורי — לניסוח התובנה על תוצאות שאילתה בלבד */
     transcript?: string,
@@ -455,6 +464,26 @@ export class AgentExecuteService {
     if (!mayUseAction(action, ctx.capabilities)) {
       throw new ForbiddenException(`אין לך הרשאה ל${action.title}`);
     }
+
+    /*
+     * ‎**והשער השני: הערכים, ולא רק המפתחות.**
+     *
+     * ‏הצמצום ב-`/agent/execute` העתיק פרמטרים **לפי שם השדה
+     * ‏בלבד** ולא נגע בערך. כלומר `values` בקטלוג הגביל את מה
+     * ‏שהמודל **מתבקש לייצר**, ולא את מה שהמסלול **מקבל**: מי
+     * ‏שמחובר יכול היה לשלוח `memberRole: "owner"` ולפתוח חשבון
+     * ‏בעלים עם `billing.manage`, שאינו הפיך מהמסך (ביקורת Codex,
+     * ‏P1 על #493).
+     *
+     * ‎**כאן ולא בבקר**, מאותו נימוק שהשער שמעליו יושב כאן: הסוכן
+     * ‏בוואטסאפ אינו עובר בבקר. בדיקה שם הייתה סוגרת ערוץ אחד
+     * ‏מתוך שניים — בדיוק צורת התקלה שהיא באה למנוע.
+     *
+     * ‏התוצאה מחליפה את `params`: ריק ירד, והשאר עבר כמו שהוא.
+     */
+    const checked = checkActionParams(action, params);
+    if (!checked.ok) throw new BadRequestException(checked.message);
+    params = checked.params;
 
     /*
      * ‎**זכאות המסלול — כאן, פעם אחת.**
@@ -653,6 +682,10 @@ export class AgentExecuteService {
         return this.updateProfile(params);
       case "update_notifications":
         return this.updateNotifications(params);
+      case "show_office_settings":
+        return this.showOfficeSettings();
+      case "update_office_policy":
+        return this.updateOfficePolicy(params);
       case "open_deal_room":
         return this.openDealRoom(params);
       case "show_recommendations":
@@ -2527,6 +2560,81 @@ export class AgentExecuteService {
         profile.phone === "" ? "טלפון: לא הוגדר" : `טלפון: ${profile.phone}`,
         `${notify}. שקט מ-${prefs.quietFromHour}:00 עד ${prefs.quietToHour}:00.`,
       ].join("\n"),
+    };
+  }
+
+  /**
+   * ‎**ההגדרות של המשרד — קריאה.**
+   *
+   * ‏„לא הוגדר” נאמר במפורש ואינו מושמט: מנהל ששואל „מה מספר
+   * ‏הרישיון” ומקבל רשימה שהשורה חסרה בה אינו יודע אם הוא פספס
+   * ‏אותה או שהיא ריקה — וזה בדיוק הפרט שהוא צריך למלא בטופס.
+   */
+  private async showOfficeSettings(): Promise<ExecuteResult> {
+    const office = await this.officeSettings.read();
+    const line = (label: string, value?: string): string =>
+      `${label}: ${value === undefined || value === "" ? "לא הוגדר" : value}`;
+    const flag = (label: string, on: boolean): string =>
+      `${label}: ${on ? "דלוק" : "כבוי"}`;
+    return {
+      href: "/settings",
+      message: [
+        `משרד: ${office.name}`,
+        line("מספר רישיון", office.licenseNumber),
+        line("כתובת", office.officeAddress),
+        line("טלפון", office.officePhone),
+        line("דמי תיווך (ברירת מחדל)", office.defaultCommission),
+        line("מועד תשלום (ברירת מחדל)", office.defaultPaymentTerms),
+        "",
+        flag("פרסום נכסים לרשת", office.autoShareProperties),
+        flag("פרסום קונים לרשת", office.autoShareBuyers),
+        flag("הצעות אוטומטיות במייל", office.autoEmailOffers),
+      ].join("\n"),
+    };
+  }
+
+  /**
+   * ‎**שלושת המתגים — דרך אותו מסלול כתיבה של המסך.**
+   *
+   * ‎`OfficeSettingsService.update` נושא את הנעילה על שורת המשרד,
+   * ‏את המחיקה-במקום-שמירת-`false`, ואת חותמת ההפעלה של ההצעות
+   * ‏האוטומטיות עם הסמן שלה. כתיבה ישירה ל-`settings` מכאן הייתה
+   * ‏מדלגת על ארבעתם בשקט — ובמקרה של ההצעות, מפציצה את כל
+   * ‏ההיסטוריה של המשרד.
+   */
+  private async updateOfficePolicy(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const POLICIES = {
+      autoShareProperties: "פרסום נכסים לרשת",
+      autoShareBuyers: "פרסום קונים לרשת",
+      autoEmailOffers: "הצעות אוטומטיות במייל",
+    } as const;
+    const key = String(params["policyKey"] ?? "");
+    const state = String(params["policyState"] ?? "");
+    /*
+     * ‎**`Object.hasOwn` ולא `in`.**
+     *
+     * ‎`in` מוצא גם את מה שיורש מ-`Object.prototype`, כלומר
+     * ‎`policyKey: "constructor"` היה עובר את השער, `update` היה
+     * ‏מתעלם ממנו בשקט, והפעולה הייתה מדווחת „עודכן” על שינוי
+     * ‏שלא קרה — עם התווית `POLICIES["constructor"]`, שהיא פונקציה
+     * ‏ולא מחרוזת (ביקורת Codex).
+     *
+     * ‎`checkActionParams` שבצוואר הבקבוק כבר חוסם את הערך הזה,
+     * ‏כי `policyKey` הוא `enum` בקטלוג. אבל שער שסומך על הבודק
+     * ‏שמעליו הוא בדיוק התבנית שאנחנו מתקנים: הכלל נאכף במקום
+     * ‏שבו הוא קובע, ולא במקום אחר שבמקרה קודם לו.
+     */
+    if (!Object.hasOwn(POLICIES, key)) {
+      throw new BadRequestException("לא ברור איזו מדיניות לשנות");
+    }
+    if (state !== "on" && state !== "off") {
+      throw new BadRequestException("לא ברור אם להדליק או לכבות");
+    }
+    const field = key as keyof typeof POLICIES;
+    await this.officeSettings.update({ [field]: state === "on" });
+    return {
+      href: "/settings",
+      message: `${POLICIES[field]} — ${state === "on" ? "דלוק" : "כבוי"}.`,
     };
   }
 

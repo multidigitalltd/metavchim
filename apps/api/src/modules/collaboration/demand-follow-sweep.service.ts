@@ -1,9 +1,13 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "../../core/prisma.service";
 import { CollaborationService } from "./collaboration.service";
+import { ListingsService } from "./listings.service";
 
 /**
- * ‎**הסבב שהופך „עקוב אחרי הביקוש” להתראה.**
+ * ‎**הסבב שהופך „עקוב” להתראה — בשני הכיוונים.**
+ *
+ * ‏ביקושים ונכסים באותו סבב ולא בשניים: שני מתזמנים על אותו קצב
+ * ‏ואותה רשימת דיירים הם שני מקומות שצריך לזכור לעדכן יחד.
  *
  * ## למה ב-API ולא ב-Workers
  *
@@ -45,6 +49,7 @@ export class DemandFollowSweepService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly collaboration: CollaborationService,
+    private readonly listings: ListingsService,
   ) {}
 
   onModuleInit(): void {
@@ -87,6 +92,14 @@ export class DemandFollowSweepService implements OnModuleInit, OnModuleDestroy {
     const tenants = await this.prisma.tenant.findMany({ select: { id: true } });
     let sent = 0;
     for (const tenant of tenants) {
+      /*
+       * ‎**שני הכיוונים, ושתי הצלות נפרדות.**
+       *
+       * ‏כיוון אחד שנופל על נתון פגום אינו אמור לבטל את השני: משרד
+       * ‏שעוקב אחרי ביקושים **ו**אחרי נכסים היה מאבד את שניהם בגלל
+       * ‏שורה אחת. אותו נימוק בדיוק שבגללו כישלון במשרד אחד אינו
+       * ‏עוצר את השאר.
+       */
       try {
         sent += await this.collaboration.sweepFollowsForTenant(tenant.id);
       } catch (error: unknown) {
@@ -94,8 +107,15 @@ export class DemandFollowSweepService implements OnModuleInit, OnModuleDestroy {
           `demand follow sweep failed for ${tenant.id}: ${String(error)}`,
         );
       }
+      try {
+        sent += await this.listings.sweepFollowsForTenant(tenant.id);
+      } catch (error: unknown) {
+        this.logger.error(
+          `listing follow sweep failed for ${tenant.id}: ${String(error)}`,
+        );
+      }
     }
-    if (sent > 0) this.logger.log(`demand follow sweep sent ${sent} notifications`);
+    if (sent > 0) this.logger.log(`network follow sweep sent ${sent} notifications`);
     return sent;
   }
 }

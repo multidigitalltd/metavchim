@@ -583,7 +583,7 @@ export function contactOwnerCandidates(
  * ‏התפוגה מסוננת בקוד ולא ב-SQL — `resolveCapabilities` היא
  * ‏שמכריעה, וזו אותה הכרעה שהכניסה למערכת עושה.
  */
-async function officeCapabilities(
+export async function officeCapabilities(
   tx: TenantTx,
   tenantId: string,
   userIds?: readonly string[],

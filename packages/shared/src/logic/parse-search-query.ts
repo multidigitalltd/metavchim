@@ -221,7 +221,13 @@ export function parseSearchQuery(raw: string): ParsedSearchQuery {
   let rest = text;
   for (const part of consumed) rest = rest.replace(part, " ");
   rest = rest
-    .replace(/\b(ב|ל|מ)\b/gu, " ")
+    /*
+     * ‎**גבול עברי, ולא `\b`.** ‎`\w` ב-JavaScript הוא ASCII בלבד,
+     * ‏ולכן `\b` לעולם אינו מתקיים בין שתי אותיות עבריות — הביטוי
+     * ‏הקודם לא הסיר דבר, ומילית בודדת המשיכה לשארית ומשם לחיפוש
+     * ‏החופשי. רווח וקצה הם הגבול שהתכוונו אליו ממילא.
+     */
+    .replace(/(?<=^|\s)[בלמ](?=\s|$)/gu, " ")
     .replace(/\s+/gu, " ")
     .trim();
 

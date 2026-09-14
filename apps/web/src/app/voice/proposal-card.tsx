@@ -3,7 +3,12 @@
 import { useEffect, useId, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { ApiError, apiPost } from "@/lib/api";
-import { agentResultRefs, agentTurnRefs, type AgentHistoryRef } from "@metavchim/shared";
+import {
+  agentAction,
+  agentResultRefs,
+  agentTurnRefs,
+  type AgentHistoryRef,
+} from "@metavchim/shared";
 import { IconCheck, IconInfo, IconPin, IconX } from "../icons";
 import { Notice } from "../notice";
 
@@ -344,7 +349,7 @@ export function ProposalCard({
             <div key={field.key} className="mv-proposal-row">
               <dt className="mv-proposal-label">{field.label}</dt>
               <dd className="mv-proposal-value">
-                {isEditable(field) ? (
+                {isEditable(proposal.actionId, field) ? (
                   <input
                     className="mv-field"
                     value={String(edits[field.key] ?? field.display)}
@@ -498,7 +503,7 @@ export function ProposalCard({
  * הם ניתנים לתיקון במסך הכרטיס עצמו, אחרי היצירה, שם יש להם פקד
  * אמיתי.
  */
-function isEditable(field: ProposalField): boolean {
+function isEditable(actionId: string, field: ProposalField): boolean {
   /*
    * מזהה רשומה שנפתר מהמאגר (buyerId, cardId…) מוצג ואינו נערך:
    * עריכה של הטקסט המוצג הייתה שולחת את **השם** במקום המזהה,
@@ -506,6 +511,18 @@ function isEditable(field: ProposalField): boolean {
    * הבחירה נעשה בניסוח מחדש („תקנו אותי”), לא בהקלדה על מזהה.
    */
   if (field.key.endsWith("Id")) return false;
+  /*
+   * ‎**ושדה רשימה סגורה — מאותו נימוק בדיוק.**
+   *
+   * ‏התיבה נפתחת על ה**תווית** („מכירה”), ומה שיוצא ממנה הוא
+   * ‏המחרוזת הזו — בעוד שהשרת מצפה למפתח (`sale`). כלומר הפקד
+   * ‏הזה מעולם לא עבד: כל עריכה שלו שלחה ערך שאינו בקטלוג. עד
+   * ‏עכשיו זה נכשל במורד הזרם בהודעה שלא אמרה למה; מאז שהערכים
+   * ‏נאכפים בנקודת הצוואר הוא נדחה מיד — ולכן עדיף שלא יוצג
+   * ‏כלל. תיקון ערך כזה נעשה בניסוח מחדש, כמו במזהה.
+   */
+  const spec = agentAction(actionId)?.fields.find((f) => f.key === field.key);
+  if (spec?.type === "enum" || spec?.type === "enumList") return false;
   return typeof field.value === "string" || typeof field.value === "number";
 }
 

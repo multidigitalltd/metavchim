@@ -368,6 +368,8 @@ interface ListingRow {
   }[];
   /** כבר פניתי על הנכס הזה — אין להציע פעמיים. */
   interestSent?: boolean;
+  /** ‏אני עוקב אחרי הנכס — התראה כשייכנס אליי קונה שמתאים לו. */
+  following?: boolean;
 }
 
 /** "יש לי קונה לנכס שלך" — הפנייה שהתקבלה על נכס שפרסמתי. */
@@ -1236,7 +1238,8 @@ export default function CollaborationPage() {
                     />
                     {demand.mine ? null : (
                     <FollowButton
-                      demandId={demand.id}
+                      kind="demand"
+                      id={demand.id}
                       following={demand.following === true}
                       onChanged={(following) => {
                         setDemands((current) =>
@@ -1413,7 +1416,10 @@ export default function CollaborationPage() {
                   </ul>
               </NetMatchStrip>
             ) : netView === "rows" ? null : (
-              <NetNoMatch what={FOLLOW_EMPTY_TITLE} hint={FOLLOW_EMPTY_NOTE} />
+              <NetNoMatch
+                what={FOLLOW_EMPTY_TITLE.demand}
+                hint={FOLLOW_EMPTY_NOTE.demand}
+              />
             )}
 
             {/*
@@ -1457,7 +1463,8 @@ export default function CollaborationPage() {
                 />
                 {demand.mine ? null : (
                   <FollowButton
-                    demandId={demand.id}
+                    kind="demand"
+                      id={demand.id}
                     following={demand.following === true}
                     onChanged={(following) => {
                       setDemands((current) =>
@@ -2540,6 +2547,33 @@ export default function CollaborationPage() {
                                 id={listing.id}
                                 {...(listing.officeName ? { officeName: listing.officeName } : {})}
                               />
+                                    {/*
+                                      ‏המעקב נמצא גם כאן ולא רק בכרטיס.
+                                      ‏תצוגת „שורות” נשמרת בין ביקורים,
+                                      ‏ולכן מי שבחר בה פעם היה רואה את
+                                      ‏הכפתור נעלם — לא יכול היה להפסיק
+                                      ‏לעקוב, והמעקב הנסתר המשיך לתפוס
+                                      ‏מקום במכסת ה-40 שלו. אותה ביקורת
+                                      ‏בדיוק כבר התקבלה בצד הביקושים.
+                                    */}
+                                    {listing.mine ? null : (
+                                      <FollowButton
+                                        kind="listing"
+                                        id={listing.id}
+                                        following={listing.following === true}
+                                        onChanged={(following) => {
+                                          setListings((current) =>
+                                            current === null
+                                              ? current
+                                              : current.map((row) =>
+                                                  row.id === listing.id
+                                                    ? { ...row, following }
+                                                    : row,
+                                                ),
+                                          );
+                                        }}
+                                      />
+                                    )}
                                     {listing.mine || listing.interestSent ? null : (
                                       <button
                                         type="button"
@@ -2688,9 +2722,15 @@ export default function CollaborationPage() {
                   </ul>
                               </NetMatchStrip>
                             ) : netView === "rows" ? null : (
+                              /*
+                                ‏אותו נוסח בדיוק כמו בצד הביקושים,
+                                ‏ומאותו מקום: קודם הוא נכתב כאן ביד,
+                                ‏ואמר „לחזור כשייקלט קונה” — בדיוק
+                                ‏הדבר שהמעקב נועד לחסוך.
+                              */
                               <NetNoMatch
-                                what="אין לכם עדיין קונה שמתאים לנכס הזה"
-                                hint="אפשר לפנות עם כל קונה אחר מהרשימה שלמטה — או לחזור כשייקלט קונה מתאים"
+                                what={FOLLOW_EMPTY_TITLE.listing}
+                                hint={FOLLOW_EMPTY_NOTE.listing}
                               />
                             )}
 
@@ -2750,6 +2790,29 @@ export default function CollaborationPage() {
                                   >
                                     <IconPlus s={15} /> בקש שיתוף
                                   </button>
+                                )}
+                                {/*
+                                  ‏הכיוון השני של „עקוב אחרי הביקוש”:
+                                  ‏נכס טוב שאין לי קונה עבורו היום היה
+                                  ‏מבוי סתום, גם כשהקונה נכנס אליי שבוע
+                                  ‏אחר כך. אותו כפתור בדיוק, `kind`
+                                  ‏הוא ההבדל היחיד.
+                                */}
+                                {listing.mine ? null : (
+                                  <FollowButton
+                                    kind="listing"
+                                    id={listing.id}
+                                    following={listing.following === true}
+                                    onChanged={(following) => {
+                                      setListings((current) =>
+                                        current === null
+                                          ? current
+                                          : current.map((row) =>
+                                              row.id === listing.id ? { ...row, following } : row,
+                                            ),
+                                      );
+                                    }}
+                                  />
                                 )}
                               </div>
                             </div>

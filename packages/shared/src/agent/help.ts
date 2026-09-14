@@ -117,7 +117,13 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
   },
   {
     label: "ההגדרות שלי",
-    ids: ["show_profile", "update_profile", "update_notifications"],
+    ids: [
+      "show_profile",
+      "update_profile",
+      "update_notifications",
+      "show_office_settings",
+      "update_office_policy",
+    ],
   },
   {
     label: "בלעדיות",
