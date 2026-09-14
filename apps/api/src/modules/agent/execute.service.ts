@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import {
+  roleLabel,
   AGENT_ACTIONS,
   practiceChatMenu,
   practiceChatOpening,
@@ -91,6 +92,8 @@ import { BuyersService } from "../buyers/buyers.service";
 import { CalendarService } from "../calendar/calendar.service";
 import type { Readable } from "node:stream";
 import { CallsService, type CallDto } from "../calls/calls.service";
+import { TeamService } from "../settings/team.service";
+import { PasswordResetService } from "../auth/password-reset.service";
 import { CollaborationService } from "../collaboration/collaboration.service";
 import { ListingsService } from "../collaboration/listings.service";
 import { CoachService } from "../coach/coach.service";
@@ -323,6 +326,16 @@ function exclusivityRow(item: {
 export class AgentExecuteService {
   constructor(
     private readonly prisma: PrismaService,
+    /*
+     * ‎`TeamService` — „מי במשרד” ו„תוסיף סוכן”, דרך אותו מסלול
+     * ‏כתיבה של המסך: מכסה, נעילה ויומן באותה טרנזקציה.
+     */
+    private readonly team: TeamService,
+    /*
+     * ‎`PasswordResetService` — הסוכן החדש מקבל קישור לקביעת
+     * ‏סיסמה במייל, ולא סיסמה בהודעת וואטסאפ.
+     */
+    private readonly passwordReset: PasswordResetService,
     private readonly leads: LeadsService,
     private readonly buyers: BuyersService,
     private readonly properties: PropertiesService,
@@ -555,6 +568,10 @@ export class AgentExecuteService {
         return this.messageOwner(params);
       case "show_credits":
         return this.showCredits();
+      case "show_team":
+        return this.showTeam();
+      case "add_agent":
+        return this.addAgent(params);
       case "open_deal_room":
         return this.openDealRoom(params);
       case "show_recommendations":
@@ -2273,6 +2290,63 @@ export class AgentExecuteService {
    * יתרת הקרדיטים — אותה קריאה כמו מסך הרשת, כולל מה שעומד לפוג:
    * „נשארו 25” בלי „10 מהם פגים בעוד שבוע” היא חצי תשובה.
    */
+  /**
+   * ‏מי במשרד — אותה רשימה של מסך ההגדרות.
+   *
+   * ‏התפקיד נאמר, כי „מי במשרד” בלי תפקידים הוא רשימת שמות; ומי
+   * ‏שהושבת מסומן, כי הוא עדיין בטבלה והמנהל שואל למה הוא לא
+   * ‏מקבל התראות.
+   */
+  private async showTeam(): Promise<ExecuteResult> {
+    const rows = await this.team.list();
+    const lines = rows.map(
+      (row) => `• ${row.name} — ${roleLabel(row.role)}${row.isActive ? "" : " (מושבת)"}`,
+    );
+    return {
+      href: "/settings",
+      message: `${rows.length} במשרד:\n${lines.join("\n")}`,
+      data: { count: rows.length },
+    };
+  }
+
+  /**
+   * ‎**פתיחת חשבון לסוכן חדש — והסיסמה אינה נאמרת בשיחה.**
+   *
+   * ‎`TeamService.create` מחזיר סיסמה זמנית, כי המסך מציג אותה
+   * ‏פעם אחת מול מי שיצר. בשיחה אין „פעם אחת”: ההודעה נשארת
+   * ‏בטלפון, נקראת בעדכון מסך, ונשלחת הלאה בצילום מסך. לכן היא
+   * ‏נזרקת כאן, והסוכן החדש מקבל **קישור לקביעת סיסמה במייל**.
+   *
+   * ‏ומדווח מה באמת קרה: „נוסף, ונשלח קישור” על מייל שלא יצא הוא
+   * ‏סוכן שיחכה למשהו שלא יגיע, ומנהל שלא יידע לשלוח שוב.
+   */
+  private async addAgent(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const name = String(params["memberName"] ?? "").trim();
+    const email = String(params["memberEmail"] ?? "").trim();
+    const role = String(params["memberRole"] ?? "").trim() || "agent";
+    if (name === "") throw new BadRequestException("לא נאמר שם");
+    if (email === "") throw new BadRequestException("לא נאמר אימייל");
+
+    const { user } = await this.team.create({ name, email, role });
+    /*
+     * ‏שם המשרד נכנס לנושא המייל ולגוף שלו: „הצטרפת ל…”. בלעדיו
+     * ‏הסוכן החדש מקבל הזמנה ממערכת שהוא לא בטוח מי שלח לו.
+     */
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: TenantContext.current().tenantId },
+      select: { name: true },
+    });
+    const officeName = tenant?.name ?? "המשרד";
+    const sent = await this.passwordReset.welcome(user.email, officeName);
+    return {
+      href: "/settings",
+      message: sent
+        ? `${user.name} נוסף${role === "agent" ? " כסוכן" : ` כ${roleLabel(role)}`}. נשלח אליו מייל עם קישור לקביעת סיסמה.`
+        : `${user.name} נוסף, אבל המייל עם קישור קביעת הסיסמה לא יצא. אפשר לבקש קישור ממסך הכניסה ב„שכחתי סיסמה”.`,
+      data: { id: user.id, role },
+    };
+  }
+
   private async showCredits(): Promise<ExecuteResult> {
     const { balance, expiry } = await this.collaboration.credits();
     const expiring =

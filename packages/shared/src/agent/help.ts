@@ -108,6 +108,10 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
     ],
   },
   {
+    label: "צוות המשרד",
+    ids: ["show_team", "add_agent"],
+  },
+  {
     label: "בלעדיות",
     ids: ["show_exclusivity", "start_exclusivity", "log_marketing_action"],
   },

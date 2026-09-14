@@ -57,6 +57,7 @@ export type VoiceAction =
   | "show_notifications"
   | "show_emails"
   | "show_credits"
+  | "show_team"
   | "show_payout_balance"
   | "show_referral_board"
   | "show_reach"
@@ -399,6 +400,15 @@ const RULES: {
   {
     action: "show_credits",
     pattern: /כמה\s+קרדיטים|ה?קרדיטים\s+שלי|יתרת\s+ה?קרדיטים/u,
+    confidence: "high",
+  },
+  /*
+   * ‎„במשרד” ו„הצוות” — ולא „סוכן”, שהוא גם שם המוצר („הסוכן
+   * ‏החכם”) וגם תפקיד, ותופס משפטים שאינם על הצוות בכלל.
+   */
+  {
+    action: "show_team",
+    pattern: /מי\s+ב?ה?משרד|ה?צוות\s+שלי|מי\s+ה?סוכנים\s+שלי/u,
     confidence: "high",
   },
   {

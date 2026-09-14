@@ -48,6 +48,7 @@ import type { Capability } from "../rbac.js";
 import type { PlanFeature } from "../logic/plans.js";
 import type { AgentFieldSpec } from "./field-spec.js";
 import { PROPERTY_FACING_LABELS } from "../schemas/property.js";
+import { ASSIGNABLE_ROLES, roleLabel } from "../schemas/user.js";
 import type { PropertyType } from "../schemas/property.js";
 import {
   MENTOR_GOAL_PERIODS,
@@ -72,6 +73,8 @@ export const AGENT_ACTION_IDS = [
   "play_recording",
   "show_deals",
   "show_credits",
+  "show_team",
+  "add_agent",
   "show_payout_balance",
   "show_referral_board",
   "show_reach",
@@ -1445,6 +1448,53 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       },
     ],
     resolved: PROPERTY_RESOLVED,
+  },
+  {
+    id: "show_team",
+    title: "צוות המשרד",
+    when: "בקשה לראות מי במשרד — הסוכנים, התפקידים ומי פעיל.",
+    examples: ["מי במשרד", "תראה לי את הצוות", "מי הסוכנים שלי"],
+    capability: "users.manage",
+    risk: "read",
+    fields: [],
+  },
+  {
+    /*
+     * ‎**פתיחת חשבון היא הפעולה הרגישה ביותר בקטלוג.**
+     *
+     * ‏היא מוסיפה מישהו לתוך המשרד — עם גישה לנתוני הלקוחות שלו.
+     * ‏לכן `create`: כרטיס ההצעה חייב אישור מפורש, והיא לעולם
+     * ‏אינה רצה על פירוש שגוי של משפט.
+     *
+     * ‏והסיסמה אינה נאמרת בשיחה. הסוכן החדש מקבל **קישור לקביעת
+     * ‏סיסמה במייל**: סיסמה פעילה בהודעת וואטסאפ נשארת שם, נקראת
+     * ‏מעבר לכתף, ונשלחת הלאה.
+     */
+    id: "add_agent",
+    title: "הוספת איש צוות",
+    when:
+      "פתיחת חשבון לסוכן חדש במשרד — מי שיעבוד *בו*. דורש שם ואימייל. " +
+      "‏**אינו** יצירת ליד, קונה או איש קשר: אלה אנשים שהמשרד עובד *איתם*.",
+    examples: [
+      "תפתח חשבון לדנה כהן, dana@example.com, סוכנת",
+      "תוסיף את יוסי לוי למשרד, yossi@example.com",
+      "צריך לפתוח משתמש לרינת, rinat@example.com, מנהלת סניף",
+    ],
+    capability: "users.manage",
+    risk: "create",
+    fields: [
+      { key: "memberName", label: "שם מלא", type: "string", maxLength: 120 },
+      { key: "memberEmail", label: "אימייל", type: "string", maxLength: 254 },
+      {
+        key: "memberRole",
+        label: "תפקיד",
+        type: "enum",
+        /* ‏הרשימה נגזרת מהסכימה — בדיוק כמו התפריט במסך */
+        values: ASSIGNABLE_ROLES,
+        valueLabels: Object.fromEntries(ASSIGNABLE_ROLES.map((r) => [r, roleLabel(r)])),
+        hint: "‏ברירת המחדל היא סוכן",
+      },
+    ],
   },
   {
     id: "create_task",

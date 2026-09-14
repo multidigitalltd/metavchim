@@ -2,6 +2,8 @@ import { Module } from "@nestjs/common";
 import { AgreementsModule } from "../agreements/agreements.module";
 import { ExclusivityModule } from "../exclusivity/exclusivity.module";
 import { AnalyticsModule } from "../analytics/analytics.module";
+import { SettingsModule } from "../settings/settings.module";
+import { AuthModule } from "../auth/auth.module";
 import { BuyersModule } from "../buyers/buyers.module";
 import { CalendarModule } from "../calendar/calendar.module";
 import { CallsModule } from "../calls/calls.module";
@@ -46,6 +48,14 @@ import { AgentResolveService } from "./resolve.service";
 @Module({
   imports: [
     PropertiesModule,
+    /*
+     * ‎`SettingsModule` — „מי במשרד” ו„תוסיף סוכן” דרך `TeamService`,
+     * ‏אותו מסלול כתיבה של המסך (מכסה, נעילה ויומן). `AuthModule` —
+     * ‏קישור קביעת הסיסמה לסוכן החדש. שניהם אינם מייבאים את מודול
+     * ‏הסוכן, ולכן אין מעגל.
+     */
+    SettingsModule,
+    AuthModule,
     BuyersModule,
     LeadsModule,
     SearchModule,
