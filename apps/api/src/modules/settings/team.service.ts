@@ -1,7 +1,13 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
-import { limitState, WHATSAPP_AGENT_DENIAL_TEXT, whatsappAgentSeats } from "@metavchim/shared";
+import { z } from "zod";
+import {
+  AssignableRoleSchema,
+  limitState,
+  WHATSAPP_AGENT_DENIAL_TEXT,
+  whatsappAgentSeats,
+} from "@metavchim/shared";
 import { AuditService } from "../../core/audit.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -25,6 +31,39 @@ export interface TeamUserDto {
   /** מנוי הסוכן בוואטסאפ פעיל למשתמש הזה (בעל המשרד כלול תמיד) */
   whatsappAccess: boolean;
 }
+
+/**
+ * ‎**מי שנכנס למשרד — נבדק כאן, במקום שכותב.**
+ *
+ * ## ‏למה לא מספיק שהסכימה של הבקר בודקת
+ *
+ * ‏היא בודקת את **המסלול שלה**. יש שני מסלולים: הטופס עובר בבקר,
+ * ‏ו„תוסיף סוכן” מהשיחה עובר ב-`/agent/execute` — ששם צמצום
+ * ‏הפרמטרים מסנן **מפתחות בלבד** (`params[field.key] = body.params[field.key]`)
+ * ‏ואינו נוגע בערכים. הרשימה `values` שבקטלוג מגבילה את מה
+ * ‏שהמודל **מתבקש לייצר**, לא את מה שהנתיב **מקבל**.
+ *
+ * ## ‏מה זה אפשר
+ *
+ * ‏מנהל עם `users.manage` ששולח `memberRole: "owner"` ישירות היה
+ * ‏פותח חשבון **בעלים** — עם `billing.manage` וכל מערך היכולות,
+ * ‏ועם שורה שמסך ההגדרות עצמו מסרב לערוך אחר כך. כלומר העלאת
+ * ‏דרגה עצמית דרך נתיב צדדי (ביקורת Codex, P1).
+ *
+ * ‏ואימייל פגום („dana”) היה נכנס, השליחה הייתה נכשלת, והיה נשאר
+ * ‏חשבון שאי אפשר להיכנס אליו ושתופס מקום במכסה (P2).
+ *
+ * ‎**הבדיקה יושבת כאן ולא נוספת שם**: זה המקום היחיד שכל מסלול
+ * ‏כתיבה חייב לעבור בו, והבקר מייבא את אותה סכימה — הגדרה אחת.
+ */
+export const TeamMemberInputSchema = z
+  .object({
+    name: z.string().min(2).max(120),
+    email: z.string().email().max(254),
+    /* ‏`owner` אינו ברשימה: הוא נקבע בהקמת המשרד ואינו ניתן להענקה */
+    role: AssignableRoleSchema,
+  })
+  .strict();
 
 /**
  * ‎**צוות המשרד — מסלול אחד לקריאה ואחד ליצירה.**
@@ -98,8 +137,23 @@ export class TeamService {
     email: string;
     role: string;
   }): Promise<{ user: TeamUserDto; tempPassword: string }> {
+    /*
+     * ‏הבדיקה לפני כל דבר אחר, וכאן ולא אצל הקורא: זה המקום
+     * ‏שכותב, ולכן זה המקום שחייב לדחות. ראו ההסבר על הסכימה.
+     */
+    const parsed = TeamMemberInputSchema.safeParse(input);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      throw new BadRequestException(
+        issue?.path[0] === "email"
+          ? "האימייל אינו תקין"
+          : issue?.path[0] === "role"
+            ? "התפקיד אינו ניתן להענקה"
+            : "השם אינו תקין",
+      );
+    }
     const tenantId = TenantContext.current().tenantId;
-    const email = input.email.toLowerCase();
+    const email = parsed.data.email.toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) throw new BadRequestException("האימייל כבר רשום במערכת");
 
@@ -114,9 +168,9 @@ export class TeamService {
         data: {
           id,
           tenantId,
-          name: input.name,
+          name: parsed.data.name,
           email,
-          role: input.role,
+          role: parsed.data.role,
           passwordHash,
           mustChangePassword: true,
         },
@@ -125,15 +179,15 @@ export class TeamService {
         action: "users.create",
         entityType: "user",
         entityId: id,
-        metadata: { role: input.role },
+        metadata: { role: parsed.data.role },
       });
     });
     return {
       user: {
         id,
-        name: input.name,
+        name: parsed.data.name,
         email,
-        role: input.role,
+        role: parsed.data.role,
         isActive: true,
         locked: false,
         whatsappAccess: false,

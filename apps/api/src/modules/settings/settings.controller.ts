@@ -86,7 +86,7 @@ import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { EmailDomainProviderService } from "../../core/email-domain-provider.service";
 import { PrismaService } from "../../core/prisma.service";
-import { TeamService, type TeamUserDto } from "./team.service";
+import { TeamMemberInputSchema, TeamService, type TeamUserDto } from "./team.service";
 import { AuthService, type SessionInfo } from "../auth/auth.service";
 import { LoginThrottleService } from "../auth/login-throttle.service";
 import { MatchRefreshService } from "../matching/match-refresh.service";
@@ -212,13 +212,14 @@ type UserCapabilitiesDto = {
   }[];
 };
 
-const CreateUserSchema = z
-  .object({
-    name: z.string().min(2).max(120),
-    email: z.string().email().max(254),
-    role: AssignableRoleSchema,
-  })
-  .strict();
+/*
+ * ‎**אותה סכימה שהשירות אוכף**, ולא עותק שלה.
+ *
+ * ‏שני עותקים היו מסכימים ביום שנכתבו: „owner אינו ניתן להענקה”
+ * ‏היה יורד מאחד מהם, והמסלול השני היה ממשיך לקבל אותו בשקט.
+ * ‏הבקר דוחה מוקדם, השירות דוחה בוודאות — מאותה הגדרה.
+ */
+const CreateUserSchema = TeamMemberInputSchema;
 
 const UpdateUserSchema = z
   .object({
