@@ -1,5 +1,20 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import {
+  boardMovement,
+  boardScore,
+  delta,
+  goalPercent,
+  periodStart,
+  periodTitle,
+  previousPeriodTitle,
+  superlative,
+  type BoardCounts,
+  type BoardMetric,
+  type BoardMovement,
+  type BoardPeriod,
+  type Superlative,
+} from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
 
@@ -41,6 +56,29 @@ export interface OfficeStats {
   /** אחוז הצעות שנפתחו מתוך שנשלחו — מדד יעילות ההצעות */
   offerOpenRate: number;
   windowDays: ReportWindowDays;
+}
+
+/** ‏שורה אחת בטבלת התחרות. */
+export interface BoardRow {
+  userId: string;
+  name: string;
+  role: string;
+  counts: BoardCounts;
+  score: number;
+  rank: number;
+  movement: BoardMovement;
+  /** ‏אחוז מהיעד החודשי שהסוכן קבע במנטור; `null` = לא קבע */
+  goalPercent: number | null;
+}
+
+export interface OfficeBoard {
+  period: BoardPeriod;
+  title: string;
+  previousTitle: string;
+  agents: number;
+  rows: BoardRow[];
+  superlatives: Superlative[];
+  summary: { key: BoardMetric | "calls"; value: number; diff: number; percent: number | null }[];
 }
 
 export interface AgentPerformance {
@@ -255,6 +293,165 @@ export class AnalyticsService {
         offersInterested: interestedCount.get(u.id) ?? 0,
         appointments: apptCount.get(u.id) ?? 0,
       }));
+    });
+  }
+
+  /**
+   * ‎**„המשרד שלנו” — טבלת התחרות של סוכנות.**
+   *
+   * ## ‏למה זו מתודה נפרדת מ-`agentPerformance`
+   *
+   * ‏הדוח עונה על „מה קרה” (מונים, ממוצעים, אחוזי המרה) על חלון
+   * ‏**מתגלגל** של 30/90 יום. המסך הזה עונה על „מי מוביל **החודש**”,
+   * ‏ולכן הוא מודד **תקופה קלנדרית** בשעון ישראל ומשווה אותה
+   * ‏לקודמת. אלה שתי שאלות ושני חלונות; מיזוג שלהן היה מחייב את
+   * ‏אחת מהן להתפשר על הגבול שלה.
+   *
+   * ## ‏מה נספר, ולמי
+   *
+   * | מדד | הטבלה | השיוך |
+   * | --- | --- | --- |
+   * | שיחות | `calls` | `agent_user_id`, יוצאות בלבד |
+   * | לידים | `leads` | `assigned_to_user_id` |
+   * | נכסים | `properties` | `agent_user_id`, לפי מועד היצירה |
+   * | פגישות | `appointments` | `owner_user_id` — **היומן של מי**, ולא מי הקליד |
+   * | עסקאות | `properties` | `agent_user_id`, סטטוס נמכר/הושכר לפי מועד העדכון |
+   *
+   * ‎`owner_user_id` ולא `created_by` בפגישות: פגישה שמנהל קובע
+   * ‏לסוכן היא של הסוכן, וספירתה למנהל הייתה נותנת לו את הנקודות
+   * ‏על עבודה של מישהו אחר — במסך שכל תכליתו לומר מי עשה מה.
+   *
+   * ## ‏והתקופה הקודמת נמדדת במלואה
+   *
+   * ‏הדירוג הקודם מחושב מאותן שאילתות על החלון הקודם, ולא נשמר
+   * ‏בטבלה: מיקום שמור מתיישן ברגע שסוכן מצטרף או עוזב, והתנועה
+   * ‏שהמסך מציג הייתה מודדת מול צילום שגוי.
+   */
+  async board(period: BoardPeriod = "month", now = new Date()): Promise<OfficeBoard> {
+    const tenantId = TenantContext.current().tenantId;
+    const start = periodStart(period, now);
+    const prevStart = periodStart(period, new Date(start.getTime() - 1));
+
+    return this.prisma.withTenant(async (tx) => {
+      const users = await tx.user.findMany({
+        where: { tenantId, isActive: true },
+        select: { id: true, name: true, role: true },
+        orderBy: { name: "asc" },
+      });
+
+      const window = async (from: Date, to?: Date): Promise<Map<string, BoardCounts>> => {
+        const range = to === undefined ? { gte: from } : { gte: from, lt: to };
+        const [calls, leads, properties, viewings, deals] = await Promise.all([
+          tx.call.groupBy({
+            by: ["agentUserId"],
+            where: { tenantId, direction: "outgoing", occurredAt: range },
+            _count: { _all: true },
+          }),
+          tx.lead.groupBy({
+            by: ["assignedToUserId"],
+            where: { tenantId, createdAt: range },
+            _count: { _all: true },
+          }),
+          tx.property.groupBy({
+            by: ["agentUserId"],
+            where: { tenantId, deletedAt: null, createdAt: range },
+            _count: { _all: true },
+          }),
+          tx.appointment.groupBy({
+            by: ["ownerUserId"],
+            where: { tenantId, startsAt: range, status: { not: "cancelled" } },
+            _count: { _all: true },
+          }),
+          tx.property.groupBy({
+            by: ["agentUserId"],
+            where: {
+              tenantId,
+              deletedAt: null,
+              status: { in: ["sold", "rented"] },
+              updatedAt: range,
+            },
+            _count: { _all: true },
+          }),
+        ]);
+        const map = new Map<string, BoardCounts>();
+        const put = (
+          id: string | null,
+          key: keyof BoardCounts,
+          n: number,
+        ): void => {
+          if (id === null) return;
+          const row = map.get(id) ?? { calls: 0, leads: 0, properties: 0, viewings: 0, deals: 0 };
+          row[key] += n;
+          map.set(id, row);
+        };
+        for (const r of calls) put(r.agentUserId, "calls", r._count._all);
+        for (const r of leads) put(r.assignedToUserId, "leads", r._count._all);
+        for (const r of properties) put(r.agentUserId, "properties", r._count._all);
+        for (const r of viewings) put(r.ownerUserId, "viewings", r._count._all);
+        for (const r of deals) put(r.agentUserId, "deals", r._count._all);
+        return map;
+      };
+
+      const [current, previous] = await Promise.all([window(start), window(prevStart, start)]);
+
+      /*
+       * ‎**היעד החודשי — מהמנטור, ולא מטבלה שנייה.**
+       *
+       * ‏זה היעד ש**הסוכן קבע לעצמו**, וזו כל הסיבה שעמודת „יעד
+       * ‏חודשי” בטבלה אינה מדד שהמנהל כפה. יעד שהסתיים
+       * ‎(`endedAt`) אינו נספר: הוא של תקופה שנגמרה.
+       */
+      const goals = await tx.mentorGoal.findMany({
+        where: { tenantId, period: "month", endedAt: null },
+        select: { userId: true, target: true },
+      });
+      const goalBy = new Map(goals.map((g) => [g.userId, g.target]));
+
+      const empty: BoardCounts = { calls: 0, leads: 0, properties: 0, viewings: 0, deals: 0 };
+      const ranked = (counts: Map<string, BoardCounts>): Map<string, number> => {
+        const order = users
+          .map((u) => ({ id: u.id, score: boardScore(counts.get(u.id) ?? empty) }))
+          /* ‏מי שלא עשה דבר בתקופה אינו מדורג בה — אין לו ממה לזוז */
+          .filter((row) => row.score > 0)
+          .sort((a, b) => b.score - a.score);
+        return new Map(order.map((row, i) => [row.id, i + 1]));
+      };
+      const prevRank = ranked(previous);
+
+      const rows = users
+        .map((u) => {
+          const counts = current.get(u.id) ?? empty;
+          const score = boardScore(counts);
+          return { userId: u.id, name: u.name, role: u.role, counts, score };
+        })
+        .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "he"));
+
+      const total = rows.length;
+      const rowsWithRank: BoardRow[] = rows.map((row, i) => ({
+        ...row,
+        rank: i + 1,
+        movement: boardMovement(i + 1, prevRank.get(row.userId) ?? null, total),
+        goalPercent: goalPercent(row.score, goalBy.get(row.userId) ?? null),
+      }));
+
+      const sum = (map: Map<string, BoardCounts>, key: keyof BoardCounts): number =>
+        [...map.values()].reduce((acc, row) => acc + row[key], 0);
+
+      return {
+        period,
+        title: periodTitle(period, now),
+        previousTitle: previousPeriodTitle(period, now),
+        agents: total,
+        rows: rowsWithRank,
+        superlatives: (["leads", "calls", "deals", "properties"] as const)
+          .map((metric) => superlative(metric, rows))
+          .filter((item): item is Superlative => item !== null),
+        summary: (["calls", "leads", "properties", "deals"] as const).map((key) => ({
+          key,
+          value: sum(current, key),
+          ...delta(sum(current, key), sum(previous, key)),
+        })),
+      };
     });
   }
 }

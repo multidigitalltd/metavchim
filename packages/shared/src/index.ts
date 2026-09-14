@@ -36,6 +36,7 @@ export * from "./logic/israel-time.js";
 export * from "./logic/demand-follow.js";
 export * from "./logic/pbx-watch.js";
 export * from "./logic/coach.js";
+export * from "./logic/office-board.js";
 export * from "./logic/mentor.js";
 export * from "./logic/mentor-chat.js";
 export * from "./logic/mentor-playbook.js";

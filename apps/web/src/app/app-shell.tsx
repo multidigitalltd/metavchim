@@ -6,10 +6,10 @@ import { usePathname } from "next/navigation";
 import { apiGet, apiPost } from "@/lib/api";
 import { resetA11ySync } from "@/lib/a11y-sync";
 import { clearSessionCache, fetchMe } from "@/lib/session-cache";
-import type { AuthUser } from "@/lib/use-auth";
+import { can, type AuthUser } from "@/lib/use-auth";
 import { FeaturesProvider } from "@/lib/use-features";
 import { isPublicPath } from "@/lib/public-paths";
-import { IconChevronDown } from "./icons";
+import { IconChevronDown, IconUsers } from "./icons";
 import { NotificationsBell } from "./notifications-bell";
 import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
@@ -882,6 +882,24 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           <div className="mv-topbar-end">
             <NotificationsBell user={me} />
+
+          {/*
+            ‎**„המשרד שלנו” — לבעל סוכנות.**
+
+            ‏המסך מציג את הביצועים של **כל הסוכנים בשמם**, ולכן הוא
+            ‏מותנה ב-`users.manage` — ההרשאה שמגדירה מי אחראי על
+            ‏הצוות. מתווך יחיד אינו רואה את הכפתור, ובצדק: טבלת
+            ‏תחרות עם שורה אחת אינה תחרות.
+
+            ‏וגם בפיצ'ר `analytics`, מאותו נימוק של הסוכן הקולי
+            ‏שמתחת: קישור ל-403 גרוע מקישור שלא קיים.
+          */}
+          {hasFeature("analytics") && can(me, "users.manage") ? (
+            <Link href="/office" className="mv-board-link" title="המשרד שלנו">
+              <IconUsers s={16} />
+              <span className="mv-topbar-label">המשרד שלנו</span>
+            </Link>
+          ) : null}
 
           {/* קליטה קולית נחסמת בשרת בלי הפיצ'ר — קישור ל-403 גרוע
               מקישור שלא קיים */}
