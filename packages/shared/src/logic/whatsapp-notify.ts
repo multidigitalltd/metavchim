@@ -130,6 +130,12 @@ const TYPE_CATEGORY: Record<string, WhatsAppNotifyCategory> = {
    * שההערה על ההצעות למעלה מתארת, שוב.
    */
   coop_demand_match: "network",
+  /*
+   * ‏והכיוון השני — „נכנס קונה שמתאים לנכס שאתה עוקב אחריו”.
+   * ‏אותה קטגוריה בדיוק: שורה שנשכחת כאן נופלת ל-`system`, כלומר
+   * ‏מי שכיבה „רשת” ממשיך לקבל אותה כהודעה שאי אפשר לכבות.
+   */
+  coop_listing_match: "network",
 
   daily_brief: "digests",
   weekly_summary: "digests",

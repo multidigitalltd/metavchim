@@ -1,18 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { followLabel, FOLLOW_ACTIVE_NOTE } from "@metavchim/shared";
+import { followLabel, FOLLOW_ACTIVE_NOTE, type FollowKind } from "@metavchim/shared";
 import { ApiError, apiDelete, apiPost } from "@/lib/api";
 import { IconBell, IconCheck } from "../icons";
 
 /**
- * ‎**„עקוב אחרי הביקוש” — הפעולה שיש כשאין מה להציע.**
+ * ‎**„עקוב” — הפעולה שיש כשאין מה להציע, בשני כיווני הרשת.**
  *
  * ## למה הכפתור הזה קיים
  *
  * ‏ביקוש שאין לו נכס מתאים אצלי היה מבוי סתום: קראתי, אין לי מה
  * לעשות, וזה נגמר שם — גם כשהנכס שהיה מתאים בדיוק נכנס למאגר שלי
  * שבוע אחר כך. איש אינו חוזר לגלול ביקושים ישנים כדי לבדוק.
+ *
+ * ‏ובכיוון השני בדיוק אותו דבר: נכס טוב ברשת שאין לי קונה עבורו
+ * ‏היום. `kind` הוא ההבדל היחיד בין השניים.
  *
  * ## שתי הכרעות בכפתור עצמו
  *
@@ -25,14 +28,25 @@ import { IconBell, IconCheck } from "../icons";
  * המשתמש היה רואה „עקוב” על ביקוש שהוא כבר עוקב אחריו.
  */
 export function FollowButton({
-  demandId,
+  kind,
+  id,
   following,
   onChanged,
 }: {
-  demandId: string;
+  /**
+   * ‎**שני הכיוונים, כפתור אחד.**
+   *
+   * ‏ביקוש („כשייכנס נכס מתאים”) ונכס („כשייכנס קונה מתאים”) הם
+   * ‏אותה פעולה בדיוק על שתי ישויות. שני רכיבים כמעט זהים היו
+   * ‏נפרדים ביום שמישהו יתקן שגיאה באחד מהם.
+   */
+  kind: FollowKind;
+  id: string;
   following: boolean;
   onChanged: (following: boolean) => void;
 }): React.JSX.Element {
+  /* ‏הנתיב נגזר מהכיוון — ולא מוקלד בכל אתר קריאה */
+  const path = kind === "demand" ? "demands" : "listings";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,10 +55,10 @@ export function FollowButton({
     setError(null);
     try {
       if (following) {
-        await apiDelete(`/collaboration/demands/${demandId}/follow`);
+        await apiDelete(`/collaboration/${path}/${id}/follow`);
         onChanged(false);
       } else {
-        await apiPost(`/collaboration/demands/${demandId}/follow`, {});
+        await apiPost(`/collaboration/${path}/${id}/follow`, {});
         onChanged(true);
       }
     } catch (caught) {
@@ -75,10 +89,10 @@ export function FollowButton({
           void toggle();
         }}
         disabled={busy}
-        title={following ? FOLLOW_ACTIVE_NOTE : undefined}
+        title={following ? FOLLOW_ACTIVE_NOTE[kind] : undefined}
       >
         {following ? <IconCheck s={15} /> : <IconBell s={15} />}
-        {followLabel(following)}
+        {followLabel(following, kind)}
       </button>
       {error === null ? null : (
         <span

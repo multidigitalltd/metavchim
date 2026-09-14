@@ -29,6 +29,11 @@ import {
   type ReachSummary,
   networkSafeTitle,
   NETWORK_MATCH_MIN_SCORE,
+  listingLabel,
+  listingMatchCopy,
+  listingMatchDedupeKey,
+  LISTING_MATCH_NOTIFICATION_TYPE,
+  MAX_FOLLOWS_PER_USER,
 } from "@metavchim/shared";
 import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -45,6 +50,8 @@ import { assertNetworkQuota } from "./network-quota";
 import { notifyProposerDeclined } from "./decline-notify";
 import { listingPhotoPath } from "./network-media";
 import { officeBadges, type OfficeBadge } from "./office-names";
+/** ‏עמוד סריקה בסבב המעקבים — אותו גודל כמו בכיוון הביקושים. */
+const FOLLOW_SWEEP_PAGE = 200;
 import {
   networkPrice,
   networkRooms,
@@ -164,6 +171,13 @@ export interface SharedListingDto {
   }[];
   /** כבר הבעתי עניין בשם קונה כלשהו — אין להציע פעמיים. */
   interestSent?: boolean;
+  /**
+   * ‏האם **המשתמש הזה** עוקב אחרי הנכס.
+   *
+   * ‏של המשתמש ולא של המשרד: המעקב אישי, כי הקונה שיתאים הוא
+   * ‏הקונה שלו. ראו `ListingFollow`.
+   */
+  following?: boolean;
 }
 
 type PropertyRow = Prisma.PropertyGetPayload<object>;
@@ -938,10 +952,18 @@ export class ListingsService {
       },
     );
 
-    const offices = await officeBadges(
-      this.prisma,
-      visible.map((row) => row.tenantId),
-    );
+    const [offices, followed] = await Promise.all([
+      officeBadges(
+        this.prisma,
+        visible.map((row) => row.tenantId),
+      ),
+      /*
+       * ‏אחרי מה **המשתמש הזה** עוקב. שאילתה אחת לכל הפיד, כמו
+       * ‎`alreadySent` שמעליה: קריאה לכל כרטיס הייתה מאה שאילתות
+       * ‏על מסך אחד — ה-N+1 שכבר תוקן פעמיים במודול הזה.
+       */
+      this.followedListingIds(visible.map((row) => row.id)),
+    ]);
 
     /*
      * `Promise.all` ולא לולאה סדרתית: התאמת הקונים שלי היא החישוב
@@ -957,9 +979,277 @@ export class ListingsService {
           ...dto,
           ...(matches.length > 0 ? { myMatches: matches } : {}),
           interestSent: alreadySent.has(row.id),
+          following: followed.has(row.id),
         };
       }),
     );
+  }
+
+  /* ======================================================================
+   * ‏מעקב אחרי נכס שפורסם לרשת — **הכיוון השני של `DemandFollow`**
+   *
+   * ‏אותו דגם בדיוק, ובכוונה: אותה בדיקת קיום דרך `withNetworkRead`,
+   * ‏אותה חסימה של מעקב אחרי מה ששלי, אותו גבול לכל משתמש, ואותה
+   * ‎`createMany({ skipDuplicates })` במקום בדיקה-ואז-כתיבה.
+   * ‏הסטייה היחידה היא מה שהשורה מצביעה עליו.
+   * ====================================================================== */
+
+  /** ‏מתוך הנכסים שעל המסך — אחרי אילו המשתמש הזה עוקב. */
+  private async followedListingIds(listingIds: string[]): Promise<Set<string>> {
+    if (listingIds.length === 0) return new Set();
+    const ctx = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.listingFollow.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          listingId: { in: listingIds },
+        },
+        select: { listingId: true },
+      });
+      return new Set(rows.map((row) => row.listingId));
+    });
+  }
+
+  /**
+   * ‎**התחלת מעקב אחרי נכס ברשת.**
+   *
+   * ‏הנכס נבדק דרך `withNetworkRead` ולא נלקח כנתון מהמסך: מזהה של
+   * ‏פרסום סגור, או של שורה שאינה פרסום כלל, היה נכנס לטבלה ומייצר
+   * ‏מעקב שלעולם לא יופעל — כלומר משתמש שממתין להתראה שלא תגיע.
+   *
+   * ‏מעקב אחרי נכס **שלי** נחסם: ההתראה אומרת „נכנס קונה שמתאים
+   * ‏לנכס הזה”, ועל הנכסים שלי המערכת כבר עושה בדיוק את זה דרך
+   * ‏ההתאמות הפנימיות.
+   */
+  async followListing(listingId: string): Promise<{ following: true }> {
+    const ctx = TenantContext.current();
+    const listing = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedListing.findFirst({
+        where: { id: listingId, status: "active" },
+        select: { id: true, tenantId: true },
+      }),
+    );
+    if (listing === null) throw new NotFoundException("הפרסום לא נמצא");
+    if (listing.tenantId === ctx.tenantId) {
+      throw new BadRequestException(
+        "זה נכס שלכם — ההתאמות אליו כבר מוצגות בכרטיס הנכס",
+      );
+    }
+
+    await this.prisma.withTenant(async (tx) => {
+      const existing = await tx.listingFollow.count({
+        where: { tenantId: ctx.tenantId, userId: ctx.userId },
+      });
+      if (existing >= MAX_FOLLOWS_PER_USER) {
+        throw new BadRequestException(
+          `אפשר לעקוב אחרי ${MAX_FOLLOWS_PER_USER} נכסים. הפסיקו לעקוב אחרי אחד כדי להוסיף חדש.`,
+        );
+      }
+      /*
+       * ‎`createMany` עם `skipDuplicates` ולא בדיקה-ואז-כתיבה:
+       * ‏לחיצה כפולה על כפתור היא שתי בקשות מקבילות, והאילוץ
+       * ‏הייחודי הוא מה שמכריע ביניהן.
+       */
+      await tx.listingFollow.createMany({
+        data: [{ id: ulid(), tenantId: ctx.tenantId, userId: ctx.userId, listingId }],
+        skipDuplicates: true,
+      });
+    });
+    return { following: true };
+  }
+
+  /** ‏הפסקת מעקב. מזהה שאינו שלי פשוט אינו מוחק דבר. */
+  async unfollowListing(listingId: string): Promise<{ following: false }> {
+    const ctx = TenantContext.current();
+    await this.prisma.withTenant((tx) =>
+      tx.listingFollow.deleteMany({
+        where: { tenantId: ctx.tenantId, userId: ctx.userId, listingId },
+      }),
+    );
+    return { following: false };
+  }
+
+  /**
+   * ‎**סבב המעקבים של משרד אחד — „נכנס קונה שמתאים לנכס שעקבת אחריו”.**
+   *
+   * ## ‏למה כאן ולא ב-Worker
+   *
+   * ‏אותו נימוק בדיוק כמו בכיוון הביקושים, ואפילו חד יותר: הסבב
+   * ‏מריץ את `matchOwnBuyers` **עצמה** — הפונקציה שמציירת את
+   * ‏הכרטיס בפיד. ‏`apps/workers` אינה יכולה לייבא מ-`apps/api`,
+   * ‏ולכן סבב שם היה מחייב עותק שני של „מה נחשב התאמה”: אותו סף,
+   * ‏אותו סינון, אותו מיפוי שדות. שני מקורות אמת שנפרדים בשקט
+   * ‏פירושם מתווך שרואה בכרטיס „92% התאמה” לצד התראה שלא הגיעה.
+   *
+   * ## ‏ומה הוא **אינו** חושף
+   *
+   * ‏ההתראה נשלחת למשתמש שעקב, ונושאת את **הקונה שלו** ואת הנכס
+   * ‏כפי שהפיד כבר מציג לו אותו. אין כאן פרט של המשרד המפרסם שלא
+   * ‏היה גלוי קודם, ואין פרט של המשרד העוקב שיוצא החוצה.
+   */
+  async sweepFollowsForTenant(tenantId: string): Promise<number> {
+    let created = 0;
+    let cursor: string | undefined;
+    for (;;) {
+      const follows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.listingFollow.findMany({
+          where: { tenantId, ...(cursor === undefined ? {} : { id: { gt: cursor } }) },
+          orderBy: { id: "asc" },
+          take: FOLLOW_SWEEP_PAGE,
+        }),
+      );
+      if (follows.length === 0) break;
+      cursor = follows[follows.length - 1]!.id;
+      created += await this.sweepFollowPage(tenantId, follows);
+      if (follows.length < FOLLOW_SWEEP_PAGE) break;
+    }
+    return created;
+  }
+
+  /**
+   * ‏עמוד אחד של מעקבים מול **כל** הקונים הפעילים של המשרד.
+   *
+   * ‏הקונים נסרקים גם הם בעמודים ולא ב-`take` יחיד: חלון קבוע
+   * ‏פירושו שקונה שנכנס אחרי החלון לא יפעיל התראה **לעולם**, כי
+   * ‏כל ריצה שעתית חוזרת בדיוק על אותו חלון — ומעקב הוא בדיוק
+   * ‏ההבטחה ההפוכה. זו ביקורת P1 שכבר התקבלה בכיוון הביקושים,
+   * ‏ואין סיבה לחזור עליה כאן.
+   */
+  private async sweepFollowPage(
+    tenantId: string,
+    follows: { id: string; userId: string; listingId: string }[],
+  ): Promise<number> {
+    /* ‏הנכסים עצמם — קריאה חוצת-משרדים, כמו הפיד */
+    const listings = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedListing.findMany({
+        where: { id: { in: follows.map((f) => f.listingId) }, status: "active" },
+      }),
+    );
+    const byId = new Map(listings.map((row) => [row.id, row]));
+
+    /*
+     * ‎**ניקוי לפני חישוב.** מעקב אחרי פרסום שנסגר או נמחק אינו
+     * ‏יכול להתממש לעולם, והוא ממשיך להיספר בגבול המעקבים של
+     * ‏המשתמש. זה גם המקום היחיד שרואה את שני הצדדים.
+     */
+    const stale = follows.filter((f) => !byId.has(f.listingId)).map((f) => f.id);
+    if (stale.length > 0) {
+      await this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.listingFollow.deleteMany({ where: { tenantId, id: { in: stale } } }),
+      );
+    }
+
+    const live = follows.filter((f) => byId.has(f.listingId));
+    if (live.length === 0) return 0;
+
+    let created = 0;
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await this.prisma.withExplicitTenant(tenantId, async (tx) => {
+        const buyers = await tx.buyer.findMany({
+          /*
+           * ‎`deletedAt: null` — אותו תנאי בדיוק שהפיד מסנן בו
+           * ‏(`ownBuyersWhere`), פחות `ownershipFilter` שאין לו
+           * ‏הקשר בקשה כאן. הבעלות נאכפת לכל עוקב בנפרד ב-
+           * ‎`notifyMatches`, כי עמוד אחד משרת את כל העוקבים.
+           */
+          where: {
+            tenantId,
+            deletedAt: null,
+            ...(cursor === undefined ? {} : { id: { gt: cursor } }),
+          },
+          orderBy: { id: "asc" },
+          take: FOLLOW_SWEEP_PAGE,
+        });
+        return {
+          buyers,
+          names: await this.contacts.getByIds(
+            tx,
+            buyers.map((b) => b.contactId),
+          ),
+        };
+      });
+      if (page.buyers.length === 0) break;
+      cursor = page.buyers[page.buyers.length - 1]!.id;
+      created += await this.notifyMatches(tenantId, live, byId, page.buyers, page.names);
+      if (page.buyers.length < FOLLOW_SWEEP_PAGE) break;
+    }
+    return created;
+  }
+
+  /**
+   * ‏ההתראות על עמוד קונים אחד.
+   *
+   * ‏הכתיבה לכל עמוד ולא בסוף: `dedupeKey` הוא שמונע כפילות, ולכן
+   * ‏אין סיבה לצבור הכול בזיכרון לפני שכותבים.
+   */
+  private async notifyMatches(
+    tenantId: string,
+    live: { id: string; userId: string; listingId: string }[],
+    byId: Map<string, Prisma.SharedListingGetPayload<object>>,
+    buyers: Prisma.BuyerGetPayload<object>[],
+    names: ReadonlyMap<string, { name: string }>,
+  ): Promise<number> {
+    const rows: {
+      id: string;
+      tenantId: string;
+      userId: string;
+      type: string;
+      dedupeKey: string;
+      title: string;
+      body: string;
+      entityType: string;
+      entityId: string;
+    }[] = [];
+    for (const follow of live) {
+      const listing = byId.get(follow.listingId);
+      if (listing === undefined) continue;
+      /*
+       * ‎**המעקב אישי, ולכן גם הקונים.** הסבב טוען את כל קוני
+       * ‏המשרד, אבל ההתראה נשלחת רק על קונה שהעוקב עצמו רשאי
+       * ‏לראות — סוכן עם `view_own` בלבד אינו אמור לגלות דרך
+       * ‏התראה שלקונה של עמית שלו יש התאמה. הסינון נעשה כאן ולא
+       * ‏בשאילתה, כי עמוד אחד משרת את כל העוקבים שבדף.
+       */
+      const mine = buyers.filter(
+        (buyer) => buyer.ownerUserId === null || buyer.ownerUserId === follow.userId,
+      );
+      for (const match of this.matchOwnBuyers(mine, names, listing)) {
+        const copy = listingMatchCopy({
+          listingLabel: listingLabel({
+            city: listing.city,
+            /*
+             * ‎`Decimal` מ-Prisma הופך למספר כאן ולא בפונקציה:
+             * ‏החבילה המשותפת אינה יודעת מה זה `Decimal`, וזה
+             * ‏בדיוק הגבול שמאפשר לאותה פונקציה לשמש גם את הדפדפן.
+             */
+            rooms: listing.rooms === null ? null : Number(listing.rooms),
+            propertyType: listing.propertyType,
+            dealType: listing.dealType,
+          }),
+          buyerName: match.name,
+          score: match.score,
+        });
+        rows.push({
+          id: ulid(),
+          tenantId,
+          userId: follow.userId,
+          type: LISTING_MATCH_NOTIFICATION_TYPE,
+          dedupeKey: listingMatchDedupeKey(follow.id, match.buyerId),
+          title: copy.title,
+          body: copy.body,
+          entityType: "coop_listing",
+          entityId: listing.id,
+        });
+      }
+    }
+    if (rows.length === 0) return 0;
+
+    const written = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      tx.notification.createMany({ data: rows, skipDuplicates: true }),
+    );
+    return written.count;
   }
 
   /** שלוש ההתאמות הטובות ביותר מבין הקונים שלי, מעל סף שווה-הצגה. */

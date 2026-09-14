@@ -718,6 +718,31 @@ export class CollaborationController {
     return this.collaboration.unfollowDemand(id);
   }
 
+  /* ‏הכיוון השני: מעקב אחרי נכס שפורסם לרשת.
+
+     ‎`collaboration.offer` ולא יכולת חדשה — אותו נימוק בדיוק כמו
+     ‏למעלה: המעקב אומר „כשייכנס קונה מתאים, אודיע לך”, וההודעה
+     ‏מובילה בדיוק לפעולה שהיכולת הזו מתירה. יכולת נפרדת לשני
+     ‏כיווני אותה פעולה הייתה טבלת הרשאות שצריך להסביר. */
+
+  @Post("listings/:id/follow")
+  @RequireCapability("collaboration.offer")
+  @HttpCode(200)
+  async followListing(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ following: true }> {
+    return this.listings.followListing(id);
+  }
+
+  @Delete("listings/:id/follow")
+  @RequireCapability("collaboration.offer")
+  @HttpCode(200)
+  async unfollowListing(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ following: false }> {
+    return this.listings.unfollowListing(id);
+  }
+
   /* ============================================================
      לוח ההפניות: הפניית לקוח בין משרדים תמורת קרדיטים.
      פרסום = אותה יכולת כמו שיתוף ביקוש; קליטה = אותה יכולת כמו

@@ -252,6 +252,13 @@ export const PROPERTY_DISCLOSURE: NetworkDisclosure = {
     "mine",
     "canManage",
     "interestSent",
+    /*
+     * ‏מצב של הצופה, כמו `interestSent` שמעליו: „אני עוקב אחרי
+     * ‏הנכס הזה” נשמר אצל המשרד העוקב, והמשרד המפרסם אינו רואה
+     * ‏מי עוקב אחריו. השער הזה תפס את השדה ביום שנוסף — וזו בדיוק
+     * ‏הסיבה שהוא קיים.
+     */
+    "following",
     /* נשלח רק כשהפרסום שלכם — ראו `toDto` */
     "originPropertyId",
     /* הקונים של הצופה, שחושבו אצלו */
