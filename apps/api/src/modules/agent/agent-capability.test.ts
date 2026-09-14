@@ -142,3 +142,44 @@ describe("זכאות המסלול בסוכן", () => {
     expect(agentAction(actionId)?.feature).toBe(feature);
   });
 });
+
+/**
+ * ‎**והערכים, לא רק ההרשאה.**
+ *
+ * ‏שני השערים יושבים באותו מקום ומאותו נימוק: `execute` הוא
+ * ‏המסלול שגם הבקר וגם הסוכן בוואטסאפ עוברים בו, והשני **אינו
+ * ‏עובר בבקר**. בדיקה בבקר הייתה סוגרת ערוץ אחד מתוך שניים.
+ */
+describe("אכיפת הערכים בנקודת הצוואר", () => {
+  const SOURCE = readFileSync(
+    new URL("./execute.service.ts", import.meta.url),
+    "utf8",
+  );
+
+  it("checkActionParams נקרא ב-execute", () => {
+    const at = SOURCE.indexOf("async execute(");
+    expect(at).toBeGreaterThan(-1);
+    const body = SOURCE.slice(at, SOURCE.indexOf("\n  }\n", at));
+    expect(body).toContain("checkActionParams(action, params)");
+  });
+
+  /*
+   * ‏ולפני הפיצול לפעולות: בדיקה שיושבת אחרי ה-`switch` הייתה
+   * ‏רצה אחרי שהפעולה כבר בוצעה.
+   */
+  it("ולפני הריצה של הפעולה עצמה", () => {
+    const check = SOURCE.indexOf("checkActionParams(action, params)");
+    const dispatch = SOURCE.indexOf("switch (actionId)");
+    expect(check).toBeGreaterThan(-1);
+    expect(dispatch).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(dispatch);
+  });
+
+  /* ‏ובאותו מסלול של בדיקת ההרשאה — שניהם, או אף אחד */
+  it("לצד בדיקת ההרשאה", () => {
+    const may = SOURCE.indexOf("mayUseAction(action");
+    const check = SOURCE.indexOf("checkActionParams(action, params)");
+    expect(may).toBeGreaterThan(-1);
+    expect(may).toBeLessThan(check);
+  });
+});

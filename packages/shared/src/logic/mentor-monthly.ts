@@ -146,8 +146,9 @@ const WIN_LABEL: Record<string, (n: number) => string> = {
 
 function winsSentence(wins: readonly MentorWin[]): string | null {
   const counts = new Map<string, number>();
+  /* ‎`Object.hasOwn` ולא `in`: `in` מוצא גם „constructor” */
   for (const win of wins)
-    if (win.kind in WIN_LABEL)
+    if (Object.hasOwn(WIN_LABEL, win.kind))
       counts.set(win.kind, (counts.get(win.kind) ?? 0) + 1);
   if (counts.size === 0) return null;
   const parts = Object.keys(WIN_LABEL)
